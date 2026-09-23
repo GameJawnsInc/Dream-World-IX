@@ -105,6 +105,50 @@ def _ai_entries(scene_cfg: dict, mc: int):
     return [by_slot.get(s) for s in range(mc)] if by_slot else None
 
 
+def _compose_ai(eb: bytes, sc: dict, *, slot_types, ai_entries, atk_count, problems=None,
+                warnings=None) -> bytes:
+    """THE AI COMPOSITION, one owner for validate and build: ``rewrite_main_init`` (when ``monster_count`` gave
+    ``slot_types``) -> ``ai_patch`` (same-length, so its offsets stay valid) -> ``ai_function`` -> ``ai_phase`` ->
+    ``ai_insert`` (the length-changing splices). A ``[scene.ledger]`` is applied AFTER this, by the caller.
+
+    ``problems`` given (validate): each stage's error is appended and that stage skipped. ``problems`` None
+    (build): the first error raises :class:`BattleBuildError`. Validate used to compose the ai_* edits on the
+    UN-rewritten Main_Init while the build shipped the rewritten one, so what it linted was not what shipped."""
+    from . import aiauthor as _aiauthor
+    from . import aipatch as _aipatch
+
+    def fail(validate_msg: str, build_msg: str) -> None:
+        if problems is None:
+            raise BattleBuildError(build_msg)
+        problems.append(validate_msg)
+
+    if slot_types is not None:
+        try:
+            eb = _event_data.rewrite_main_init(eb, slot_types, ai_entries)
+        except ValueError as ex:
+            fail(f"[[scene]] monster_count AI-binding: {ex}",
+                 f"spawn composition needs a Main_Init re-author this donor can't support: {ex}")
+    if sc.get("ai_patch"):
+        if problems is not None:
+            problems += [f"[[scene.ai_patch]]: {p}" for p in _aipatch.validate_patches(eb, sc["ai_patch"])]
+        try:
+            eb, ai_warns = _aipatch.apply_ai_patches(eb, sc["ai_patch"])
+            if warnings is not None:
+                warnings += ai_warns
+        except _aipatch.AiPatchError as ex:          # validate: already reported by validate_patches
+            if problems is None:
+                raise BattleBuildError(str(ex))
+    for key, apply in (("ai_function", lambda b, v: _aiauthor.apply_ai_functions(b, v)),
+                       ("ai_phase", lambda b, v: _aiauthor.apply_ai_phases(b, v, atk_count=atk_count)),
+                       ("ai_insert", lambda b, v: _aiauthor.apply_ai_inserts(b, v))):
+        if sc.get(key):
+            try:
+                eb = apply(eb, sc[key])
+            except _aiauthor.AiAuthorError as ex:
+                fail(f"[[scene.{key}]]: {ex}", str(ex))
+    return eb
+
+
 def _resolve_reskins(scene_cfg: dict, *, game=None):
     """Resolve any ``[[scene.enemy]]`` re-skin (``model =`` / ``model_scene =``) to a REAL donor monster block,
     injecting it as ``_reskin_block`` so ``scene_data.apply_scene_edits`` transplants it. Returns
@@ -243,49 +287,30 @@ def validate_battle(project: BattleProject) -> list[str]:
             if has_ai_override and sc.get("monster_count") is None:      # ai_entry only takes effect via the
                 problems.append("[[scene.enemy]] ai_entry has no effect without [scene] monster_count -- the "    # rebind
                                 "AI-binding override is applied only when monster_count re-authors Main_Init")
-            if sc.get("monster_count") is not None and eb0.is_file():   # dry-run the Main_Init AI-binding rebind so a
+            slot_types = ai_ents = patched16 = None
+            if sc.get("monster_count") is not None and eb0.is_file():   # the Main_Init AI-binding rebind inputs, so a
                 try:                                                    # bad ai_entry / non-standard donor is caught
                     patched16, _ = _scene_data.apply_scene_edits(       # offline (it raises a clean BattleBuildError
                         (sd / "dbfile0000.raw16.bytes").read_bytes(), sc)   # at build time, but validate is friendlier)
                     mc = patched16[9]
                     slot_types = [patched16[8 + 8 + 12 * s] for s in range(mc)]
-                    _event_data.rewrite_main_init(eb0.read_bytes(), slot_types, _ai_entries(sc, mc))
+                    ai_ents = _ai_entries(sc, mc)
                 except (ValueError, TypeError, _scene_data.SceneEditError) as ex:   # TypeError: a non-int (list/table)
                     problems.append(f"[[scene]] monster_count AI-binding: {ex}")    # ai_entry -> a clean problem, not a crash
-            if (ai_patches or ai_funcs or ai_phases or ai_inserts) and eb0.is_file():   # Phase-6b/6c: validate +
-                from . import aipatch as _aipatch, aiauthor as _aiauthor, ailint as _ailint   # LINT the COMPOSED eb
+                    slot_types = None
+            if (slot_types is not None or ai_patches or ai_funcs or ai_phases or ai_inserts) and eb0.is_file():
+                from . import ailint as _ailint     # Phase-6b/6c: compose EXACTLY what the build ships, then LINT it
                 atk = None
                 try:                                 # the scene attack count enables the Attack-index lint check
                     atk = _scene_data.parse_counts((sd / "dbfile0000.raw16.bytes").read_bytes())[2]
                 except Exception:                    # noqa: BLE001 -- optional
                     atk = None
-                composed = eb0.read_bytes()
-                if ai_patches:                       # same-length first (its offsets stay valid), then length-changing
-                    problems += [f"[[scene.ai_patch]]: {p}" for p in _aipatch.validate_patches(composed, ai_patches)]
-                    try:
-                        composed, _ = _aipatch.apply_ai_patches(composed, ai_patches)
-                    except _aipatch.AiPatchError:    # the spec error is already reported by validate_patches
-                        pass
-                if ai_funcs:
-                    try:
-                        composed = _aiauthor.apply_ai_functions(composed, ai_funcs)
-                    except _aiauthor.AiAuthorError as ex:
-                        problems.append(f"[[scene.ai_function]]: {ex}")
-                # ai_phase / ai_insert (length-changing splices) compose + lint the SAME way the per-lang build ships
-                # (ai_phase gets atk_count so out-of-range then/else -- invisible to the composed lint -- is caught here)
-                if sc.get("ai_phase"):
-                    try:
-                        composed = _aiauthor.apply_ai_phases(composed, sc["ai_phase"], atk_count=atk)
-                    except _aiauthor.AiAuthorError as ex:
-                        problems.append(f"[[scene.ai_phase]]: {ex}")
-                if sc.get("ai_insert"):
-                    try:
-                        composed = _aiauthor.apply_ai_inserts(composed, sc["ai_insert"])
-                    except _aiauthor.AiAuthorError as ex:
-                        problems.append(f"[[scene.ai_insert]]: {ex}")
+                composed = _compose_ai(eb0.read_bytes(), sc, slot_types=slot_types, ai_entries=ai_ents,
+                                       atk_count=atk, problems=problems)
                 # lint the FINAL composed bytecode -- EXACTLY what the per-lang build ships, so an ai_patch / ai_function
                 # / ai_phase / ai_insert that puts a jump / Attack index out of range (or a runaway branch) is caught.
-                problems += [f"[[scene.ai]] lint: {i}" for i in _ailint.lint_ai(composed, atk_count=atk)]
+                if ai_patches or ai_funcs or ai_phases or ai_inserts:
+                    problems += [f"[[scene.ai]] lint: {i}" for i in _ailint.lint_ai(composed, atk_count=atk)]
             seq_patches, seq_replaces, seq_inserts = sc.get("seq_patch"), sc.get("seq_replace"), sc.get("seq_insert")
             raw17_f = sd / "btlseq.raw17.bytes"
             if (seq_patches or seq_replaces or seq_inserts) and raw17_f.is_file():
@@ -470,32 +495,9 @@ def build_battlemap(project: BattleProject, layout: ModLayout, *, game=None) -> 
             eb_dst = layout.battle_eb_path(lang, name)
             eb_dst.parent.mkdir(parents=True, exist_ok=True)
             eb = (sd / "eb" / f"{lang}.eb.bytes").read_bytes()
-            if slot_types is not None:
-                try:
-                    eb = _event_data.rewrite_main_init(eb, slot_types, ai_entries)
-                except ValueError as ex:
-                    raise BattleBuildError(f"spawn composition needs a Main_Init re-author this donor "
-                                           f"can't support: {ex}")
-            if scene_cfg and scene_cfg.get("ai_patch"):     # Phase-6b: same-length AI constant patches (eb).
-                from . import aipatch as _aipatch          # The bytecode is language-identical -> same offsets.
-                try:
-                    eb, ai_warns = _aipatch.apply_ai_patches(eb, scene_cfg["ai_patch"])
-                    if lang == LANGS[0]:
-                        warnings += ai_warns
-                except _aipatch.AiPatchError as ex:
-                    raise BattleBuildError(str(ex))
-            if scene_cfg and (scene_cfg.get("ai_function") or scene_cfg.get("ai_phase")
-                              or scene_cfg.get("ai_insert")):   # Phase-6c: length-changing AI edits (AFTER ai_patch
-                from . import aiauthor as _aiauthor            # so the same-length patch offsets stayed valid).
-                try:
-                    if scene_cfg.get("ai_function"):           # replace/add a WHOLE function
-                        eb = _aiauthor.apply_ai_functions(eb, scene_cfg["ai_function"])
-                    if scene_cfg.get("ai_phase"):              # generate + splice an HP-threshold phase branch
-                        eb = _aiauthor.apply_ai_phases(eb, scene_cfg["ai_phase"], atk_count=_atk_count)
-                    if scene_cfg.get("ai_insert"):             # splice an explicit branch fragment
-                        eb = _aiauthor.apply_ai_inserts(eb, scene_cfg["ai_insert"])
-                except _aiauthor.AiAuthorError as ex:
-                    raise BattleBuildError(str(ex))
+            if scene_cfg:
+                eb = _compose_ai(eb, scene_cfg, slot_types=slot_types, ai_entries=ai_entries,
+                                 atk_count=_atk_count, warnings=warnings if lang == LANGS[0] else None)
             eb_dst.write_bytes(eb)
             mes_dst = layout.battle_text_dir(lang) / f"{sid}.mes"
             mes_dst.parent.mkdir(parents=True, exist_ok=True)
