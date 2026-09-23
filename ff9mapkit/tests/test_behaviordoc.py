@@ -593,11 +593,14 @@ def test_a_cancelled_wizard_stamps_nothing(edoc):
 # ONE teaching surface instead of a picker chain (playtest ask). Constructed directly --
 # exec() lives only in the doc's modal seam; everything here drives the widgets.
 def _wizard(raw):
+    """Callers take the ``app`` fixture: a QWidget built before any QApplication exists ABORTS the process --
+    silently green only while an earlier test in the same process happened to make one (a lone run, or the
+    first Qt test of an xdist worker, dies with exit 127)."""
     from ff9mapkit.workspace.behaviordoc import ArchetypeWizard
     return ArchetypeWizard(pick_palette("dark"), raw)
 
 
-def test_the_wizard_lists_every_archetype_and_teaches_the_selected_one():
+def test_the_wizard_lists_every_archetype_and_teaches_the_selected_one(app):
     raw = {"field": {"name": "PLAIN"}, "player": {"spawn": [0, 0]},
            "npc": [{"name": "lone", "pos": [10, 20]}]}
     w = _wizard(raw)
@@ -609,7 +612,7 @@ def test_the_wizard_lists_every_archetype_and_teaches_the_selected_one():
         assert w._partner_row.isVisibleTo(w) == bool(a.get("needs_partner"))
 
 
-def test_the_wizard_preview_is_the_real_stamp_not_a_paraphrase():
+def test_the_wizard_preview_is_the_real_stamp_not_a_paraphrase(app):
     raw = {"field": {"name": "PLAIN"}, "player": {"spawn": [0, 0]},
            "npc": [{"name": "lone", "pos": [10, 20]}]}
     w = _wizard(raw)
@@ -629,7 +632,7 @@ def test_the_wizard_preview_is_the_real_stamp_not_a_paraphrase():
     assert w.picked() == ("sentry", "lone", None)
 
 
-def test_the_wizard_guard_needs_a_seated_enemy_and_says_so():
+def test_the_wizard_guard_needs_a_seated_enemy_and_says_so(app):
     raw = {"field": {"name": "PLAIN"}, "player": {"spawn": [0, 0]},
            "npc": [{"name": "brute", "pos": [10, 20]}, {"name": "hero", "pos": [90, 20]}]}
     w = _wizard(raw)
@@ -650,7 +653,7 @@ def test_the_wizard_guard_needs_a_seated_enemy_and_says_so():
     assert w2.picked() == ("guard", "hero", "brute")
 
 
-def test_the_wizard_partner_list_excludes_the_primary():
+def test_the_wizard_partner_list_excludes_the_primary(app):
     raw = {"field": {"name": "PLAIN"}, "player": {"spawn": [0, 0]},
            "npc": [{"name": "day", "pos": [10, 20]}, {"name": "night", "pos": [90, 20]}]}
     w = _wizard(raw)
