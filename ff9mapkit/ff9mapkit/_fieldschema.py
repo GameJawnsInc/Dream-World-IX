@@ -24,7 +24,7 @@ VOCAB = {
     'behavior.unit': ('branch', 'class', 'hp', 'npc', 'npcs', 'pool', 'pooled', 'speed', 'speeds'),
     'behavior.unit.branch': ('adjust', 'box', 'clear_flags', 'cooldown', 'do', 'duration', 'hold', 'instant', 'no_focus', 'no_turbo', 'once', 'raise_flags', 'signal', 'speaker', 'speed', 'style', 'tail', 'when', 'window_pos'),
     'behavior.unit.branch.adjust': ('by', 'clamp', 'counter', 'every', 'index', 'table'),
-    'behavior.unit.branch.do': ('anim', 'announce', 'announce_npc', 'arrive_r', 'award', 'bank', 'chase', 'contact', 'count', 'damage', 'delay', 'die', 'engage', 'every', 'flash', 'flee', 'hit_sfx', 'hold', 'hold_post', 'interval', 'item', 'linger', 'march', 'nearest', 'patrol', 'pause', 'radius', 'route', 'sfx', 'speed', 'standoff', 'stop_timer', 'sustain', 'swing_at', 'walk_to', 'wander', 'window'),
+    'behavior.unit.branch.do': ('anim', 'announce', 'announce_npc', 'arrive_r', 'award', 'bank', 'battle', 'chase', 'contact', 'count', 'damage', 'delay', 'die', 'engage', 'every', 'flash', 'flee', 'hit_sfx', 'hold', 'hold_post', 'interval', 'item', 'linger', 'march', 'nearest', 'patrol', 'pause', 'radius', 'route', 'sfx', 'speed', 'standoff', 'stop_timer', 'sustain', 'swing_at', 'walk_to', 'wander', 'window'),
     'behavior.unit.branch.when': ('active', 'any_near', 'counter_eq', 'counter_ge', 'counter_le', 'flag', 'hp_le', 'near', 'near_point', 'not_flag', 'table_eq', 'table_ge', 'table_le', 'time_above', 'time_below'),
     'camera': ('borrow', 'center_offset', 'control_direction', 'depth_offset', 'distance', 'entry_settle', 'fov', 'frame', 'pitch', 'proj', 'range', 'scroll', 'viewport', 'window_width', 'yaw'),
     'camera.frame': ('back', 'front'),

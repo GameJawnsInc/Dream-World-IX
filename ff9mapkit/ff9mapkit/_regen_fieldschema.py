@@ -160,6 +160,7 @@ hp = 5
 speed = 40
 branch = [
   { when = [ { hp_le = 0 } ], do = { die = true } },
+  { when = [ { flag = "go" }, { hp_le = 1 } ], do = { battle = 35 } },
   { when = [ { flag = "alarm" }, { active = "beast" }, { near = ["beast", 300] } ], do = { swing_at = "beast", damage = 2 } },
   { when = [ { any_near = [["beast"], 700] } ], do = { chase = "beast", standoff = 180, speed = 65 }, raise_flags = ["alarm"] },
   { when = [ { flag = "shift" } ], do = { patrol = "ring" } },
