@@ -95,7 +95,9 @@ Export is therefore lossless: the `.obj` + sidecar together carry the whole orig
 
 ```
 load walkmesh.obj            → verts, faces, floor groups
-per floor: rebuild_neighbors by shared vertex INDEX     # intra-floor links (safe)
+regroup faces floor by floor # floor-major (§3.5); identity for the export, warns if a floor was reopened
+rebuild_neighbors by shared vertex INDEX, any floor   # links every edge whose two tris share both vertex
+                                                      # indices -- stock floors share none, hence the seams
 for seam in sidecar:
     a = find_tri_edge(floor=seam.a_floor, endpoints=seam.a_edge)   # match by position
     b = find_tri_edge(floor=seam.b_floor, endpoints=seam.b_edge)
@@ -122,6 +124,17 @@ named floor.
 
 The guarantee is **no silent mis-link**: anything the reconciler can't match is reported, and the reachability
 check (below) catches the consequence at build time.
+
+### 3.5 The floor-major law (triangle ids follow floor order)
+
+The engine builds its triangle list floor by floor but indexes it by triangle **id**, so floor 0 must list
+triangles `0..k`, floor 1 the next run, and so on, and each triangle's `floor_ndx` must equal the floor that
+lists it. Every stock `.bgi` obeys this (674/674). `bgi.build` therefore **regroups** the OBJ's faces floor by
+floor — a stable sort, so the export above (one contiguous `o floor_N` block per floor) is untouched and every
+triangle id survives the round trip. An OBJ that **reopens** a floor (`o A` … `o B` … `o A` again) is regrouped
+and the build warns, naming the floor and how many triangle ids moved: re-check any hand-written triangle id
+(`[field] walkmesh_tri_toggles`, an `expr:` row). A shipped `[walkmesh] bgi` that is not floor-major is
+**refused** (it is never repaired in place). `walkmesh verify` prints each floor's triangle range.
 
 ## 4. Build-time verification — reachability (shipped in v1)
 
@@ -151,7 +164,9 @@ ship would cry wolf. (Tests: `test_obj_reexport_loses_cross_floor_connectivity`,
   Accepts a `.field.toml` (resolves the walkmesh exactly as build does — custom-scene obj/quad/bgi or a
   BG-borrow fork's reference/sibling — then runs content-placement + layer + reachability/degenerate
   checks) or a raw `.bgi` (geometry only: floors, walk-reachable, stranded, seams, degenerate tris,
-  bounds). Exits non-zero if any warning, so it's scriptable. `build.verify_walkmesh` / `_walkmesh_stats`.
+  bounds). Both print the floor table — `floors: 0 'ground' tris 0-7 | 1 'terrace' tris 8-15   floor-major: yes`
+  (names from the obj's `o`/`g` lines) — and a raw `.bgi` that is not floor-major (§3.5) is a warning.
+  Exits non-zero if any warning, so it's scriptable. `build.verify_walkmesh` / `_walkmesh_stats`.
 - **Blender seam viz** (v3 — DONE): importing an editable multi-floor fork builds a bright amber
   `FF9_Seams` wireframe overlay of the cross-floor seam edges (`bridge.seam_edges_blender`,
   `show_in_front`, non-selectable) so you can see which edges NOT to move when reshaping; the panel

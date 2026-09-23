@@ -169,7 +169,7 @@ Revert a field: `tools/scroll_out/revert_deploy.py` or `revert_deploy_<id>.py`.
   the user's own install (`ff9mapkit extract-templates`). Documented exceptions: FLAG_LORE's ≤110-char
   excerpts + the owner-granted `release/` demo (FROZEN; `test_provenance_tripwire.py` enforces both the
   gate and the freeze) — `ff9mapkit/docs/PROVENANCE.md`.
-- **Versions:** kit `1.0.0b19`, Blender add-on `0.9.29`. (b18 was tagged but never published — its CI caught 3 portability bugs; b19 is the fixed re-cut.)
+- **Versions:** kit `1.0.0b19`, Blender add-on `0.9.30`. (b18 was tagged but never published — its CI caught 3 portability bugs; b19 is the fixed re-cut.)
 
 ---
 

@@ -979,6 +979,12 @@ def _cmd_walkmesh(args: argparse.Namespace) -> int:
             fh.write(out)
         m = bgi.BgiWalkmesh.from_bytes(out)
         print(f"obj -> .bgi: {len(m.tris)} tris, {len(m.verts)} verts, {len(out)} bytes -> {args.output}")
+        _v, faces, _f = bgi.load_obj_floors(args.input)
+        moved = sum(1 for t, f in zip(m.tris, faces) if tuple(t.vtx) != tuple(f))
+        if moved:                              # the floor-major regroup moved ids: say so (never silently)
+            print(f"  note: the obj reopens a floor -- the triangles were regrouped floor by floor (the "
+                  f"engine requires it); {moved} of {len(faces)} triangle ids moved from face order. "
+                  f"`walkmesh verify {args.output}` prints each floor's range.")
     elif args.action == "fix":
         m = bgi.BgiWalkmesh.from_file(args.input)
         m.rebuild_neighbors()
@@ -991,6 +997,28 @@ def _cmd_walkmesh(args: argparse.Namespace) -> int:
     return 0
 
 
+def _floor_table_lines(table, floor_major) -> list:
+    """The `walkmesh verify` floor table: ``floors: 0 'ground' tris 0-7 | 1 'terrace' tris 8-15
+    floor-major: yes`` -- which triangle ids (``B_BGIID``) each floor (``B_BGIFLOOR``) owns. Six floors
+    per line, so a 23-floor stock field stays readable."""
+    if not table:
+        return []
+    cells = []
+    for fi, name, first, last, count in table:
+        label = f"{fi} {name!r}" if name else f"{fi}"
+        if count == 0:
+            cells.append(f"{label} (no tris)")
+        elif last - first + 1 == count:
+            cells.append(f"{label} tris {first}-{last}")
+        else:
+            cells.append(f"{label} tris {first}..{last} ({count}, NOT contiguous)")
+    rows = [" | ".join(cells[i:i + 6]) for i in range(0, len(cells), 6)]
+    tail = f"   floor-major: {'yes' if floor_major else 'NO'}"
+    out = [f"  floors: {rows[0]}"] + [f"          {r}" for r in rows[1:]]
+    out[-1] += tail
+    return out
+
+
 def _walkmesh_verify(path: str) -> int:
     """Run the walkmesh + content checks standalone (no build). Accepts a .field.toml (full checks:
     geometry, content placement, layer art) or a raw .bgi (geometry only). Exit 1 if any warning."""
@@ -1001,7 +1029,14 @@ def _walkmesh_verify(path: str) -> int:
         print(f"walkmesh verify: {path}  [{rep.get('source', '?')}]")
     else:
         from .build import _walkmesh_stats
-        rep = {**_walkmesh_stats(bgi.BgiWalkmesh.from_file(path)), "warnings": []}
+        wm = bgi.BgiWalkmesh.from_file(path)
+        rep = {**_walkmesh_stats(wm), "warnings": []}
+        probs = bgi.floor_order_problems(wm)
+        if probs:                              # a raw .bgi: [walkmesh] bgi would refuse to ship it
+            rep["warnings"].append(
+                f"not floor-major: {probs[0]} -- the engine indexes its triangle list by triangle id, so "
+                f"[walkmesh] bgi refuses this file; re-export it through [walkmesh] obj (which regroups "
+                f"floor by floor)")
         print(f"walkmesh verify: {path}")
     if rep.get("floors") is not None:
         line = f"  floors {rep['floors']}  |  walk-reachable {rep['reachable']}"
@@ -1010,6 +1045,8 @@ def _walkmesh_verify(path: str) -> int:
         print(line)
         extra = f", {len(rep['degenerate'])} degenerate tri(s)" if rep["degenerate"] else ""
         print(f"  {rep['tris']} tris, {rep['verts']} verts, {rep['seams']} cross-floor seam(s){extra}")
+        for ln in _floor_table_lines(rep.get("floor_table") or [], rep.get("floor_major")):
+            print(ln)
         if rep.get("bounds"):
             b = rep["bounds"]
             print(f"  bounds  x{b['x']}  z{b['z']}")

@@ -787,7 +787,9 @@ def mesh_to_bgi_bytes(world_verts, tri_faces, floor_ids=None):
     """.bgi.bytes for a Blender mesh (world verts + triangle faces).
 
     Distinct per-face ``floor_ids`` => a multi-floor WORLD-frame walkmesh (bgi.build, org=0, every
-    floor.org=0 -- the verts render verbatim); a single floor uses the flat builder.
+    floor.org=0 -- the verts render verbatim); a single floor uses the flat builder. Blender's face order
+    may interleave the material slots; bgi.build regroups the triangles floor by floor (the engine's
+    floor-major law), so this equals the OBJ route (:func:`mesh_to_ff9_obj` + ``ff9mapkit build``).
     """
     fv = flip_walkmesh_y(blender_verts_to_ff9(world_verts))   # render->build (inverse of the import flip)
     if floor_ids and len(set(floor_ids)) > 1:
