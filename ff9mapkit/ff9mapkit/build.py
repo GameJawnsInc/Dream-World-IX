@@ -4464,10 +4464,25 @@ def _read_links(links_path):
     return seams, d.get("header", {})
 
 
-def _apply_links(mesh, links_path, warnings):
-    """Reconcile cross-floor seams (+ restore header) onto a freshly (re)built multi-floor walkmesh."""
+def _donor_floor_map(obj_path):
+    """``{donor floor: built floor}`` for a reshaped ``walkmesh.obj`` whose rebuild RENUMBERED the donor's
+    floors, or None when it kept every index. ``bgi.build`` numbers floors in first-seen face order, so
+    deleting or reordering an ``o floor_N`` block shifts the floors after it; the ``floor_<donor index>``
+    names both exporters write (:func:`bgi.obj_built_floor_donors`) are what survives. Anything keyed by a
+    donor floor -- the MCF's per-floor lights, the links sidecar's seams -- is re-keyed through this. The
+    unedited round-trip is the identity (None) on every shipping field walkmesh (census: 674 of 674)."""
+    donors = bgi.obj_built_floor_donors(str(obj_path))
+    if all(d == i for i, d in enumerate(donors)):
+        return None
+    return {d: i for i, d in enumerate(donors) if d is not None}
+
+
+def _apply_links(mesh, links_path, warnings, floor_map=None):
+    """Reconcile cross-floor seams (+ restore header) onto a freshly (re)built multi-floor walkmesh.
+    The sidecar numbers its seams by the DONOR's floors; ``floor_map`` (:func:`_donor_floor_map`)
+    translates them onto a rebuild that renumbered those floors."""
     seams, header = _read_links(links_path)
-    linked, missing, misses = mesh.apply_seams(seams)
+    linked, missing, misses = mesh.apply_seams(seams, floor_map)
     if "active_floor" in header:
         mesh.activeFloor = int(header["active_floor"])
     if "active_tri" in header:
@@ -4477,10 +4492,14 @@ def _apply_links(mesh, links_path, warnings):
         mesh.charPos = bgi.Vec3(int(cp[0]), int(cp[1]), int(cp[2]))
     if missing and warnings is not None:
         fa, a_edge, fb, _ = misses[0]
+        known = set(floor_map) if floor_map is not None else set(range(len(mesh.floors)))
+        gone = sorted({f for (a, _e, b, _b) in misses for f in (a, b)} - known)   # its whole floor left the .obj
         warnings.append(
             f"walkmesh: {missing} of {linked + missing} cross-floor seam(s) couldn't be matched "
             f"(a connecting edge was moved/deleted, e.g. floor {fa}<->{fb} near {a_edge[0]}). "
-            f"Re-anchor it in the .obj or restore [walkmesh] bgi (docs/WALKMESH_EDITING.md).")
+            + (f"No `o floor_<N>` in the .obj names donor floor(s) {gone} any more -- deleted or renamed. "
+               if gone else "")
+            + "Re-anchor it in the .obj or restore [walkmesh] bgi (docs/WALKMESH_EDITING.md).")
 
 
 def _png_size(path):
@@ -4771,8 +4790,10 @@ def resolve_walkmesh(project: FieldProject, camera: cam.Cam, warnings=None) -> b
         mesh = bgi.build(verts, faces, floor_ids=floor_ids)
         if wm.get("links"):
             # reconcile the imported field's cross-floor connectivity onto the edited geometry
-            # (rebuild_neighbors only links within a floor). v2 -- see docs/WALKMESH_EDITING.md.
-            _apply_links(mesh, project.path(wm["links"]), warnings)
+            # (rebuild_neighbors only links within a floor), its seams re-keyed through any floor
+            # renumbering the reshape caused. v2 -- see docs/WALKMESH_EDITING.md.
+            _apply_links(mesh, project.path(wm["links"]), warnings,
+                         _donor_floor_map(project.path(wm["obj"])))
         return mesh.to_bytes()
     if wm.get("quad"):
         corners = [(c[0], 0, c[1]) if len(c) == 2 else tuple(c) for c in wm["quad"]]
@@ -7714,10 +7735,9 @@ def mapconfig_bytes(project: FieldProject, warnings: list | None = None):
     wm = project.raw.get("walkmesh", {}) or {}
     if wm.get("bgi") or not wm.get("obj"):                # resolve_walkmesh's own order: bgi ships verbatim
         return data
-    donors = bgi.obj_built_floor_donors(str(project.path(wm["obj"])))
-    if all(d == i for i, d in enumerate(donors)):
+    floor_map = _donor_floor_map(project.path(wm["obj"]))
+    if floor_map is None:
         return data
-    floor_map = {d: i for i, d in enumerate(donors) if d is not None}
     lost = sorted(_mapconfig.lit_floors(data) - set(floor_map))
     if lost and warnings is not None:
         msg = (f"[field] mapconfig: donor floor(s) {lost} have their own light but no floor in the reshaped "
