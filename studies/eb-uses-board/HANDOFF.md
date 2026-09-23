@@ -7,6 +7,9 @@
 >
 > **SECOND CONSUMER PICKED:** entry #5, *The roll stream* — rungs 0-1 in-game proven, arc in
 > [`../roll-stream/PLAN.md`](../roll-stream/PLAN.md) (`[[behavior.stream]]`, branch `roll`, `wander` `seed`).
+>
+> **THIRD CONSUMER PICKED:** entry #2, *Ask the engine where the actor is* — rungs 0-1 in-game proven, arc in
+> [`../walkmesh-sensor/PLAN.md`](../walkmesh-sensor/PLAN.md) (`on_floor` / `same_floor` / `other_floor`, `floor:<who>`).
 
 **Picked:** entry #1 of [`BOARD.md`](BOARD.md), a `gScriptVector` table class that survives field entry.
 **Paused because:** its first rung is a hard-quit/relaunch round trip. That needs the real machine: the game install,

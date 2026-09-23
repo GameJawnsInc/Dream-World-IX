@@ -264,8 +264,8 @@ world coords (no offset) — they are already the exact engine positions.
 **Floor numbers and names.** Floors are numbered by **first appearance among the faces**: an `o`
 with no faces takes no number, faces before the first `o` belong to the first-declared object, a
 reopened name rejoins its floor, and `g` is a synonym for `o`. The object's name is the floor's
-NAME — one word; a name containing whitespace (`o upper deck`) is refused, because the OBJ tokenizer
-would keep only `upper` and silently merge it with any other `upper …` object. An import re-export
+NAME, kept whole: `o upper deck` and `o upper ledge` are two floors (the old tokenizer kept only
+`upper` and silently merged them), and OBJ's multi-group `g a b` names one floor `a b`. An import re-export
 writes `o floor_N` in ascending order, so there `floor_N` is floor `N`; a Blender export writes
 `o floor_<material slot>` in face order, so there the slot number need not equal the floor number —
 `walkmesh verify` prints the real table.

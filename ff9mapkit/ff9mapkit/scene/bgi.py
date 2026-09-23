@@ -1037,9 +1037,9 @@ def _parse_obj(path):
     floors -- OBJ vertex indices are file-global). Faces with >3 verts are fan-triangulated; refs may
     be ``a/b/c``.
 
-    A name containing whitespace is REFUSED: the tokenizer would keep only its first word, so
-    ``o upper deck`` and ``o upper ledge`` would silently merge into one floor called ``upper`` (and a
-    ``g`` line with several words is OBJ's multi-GROUP form, which has no single floor to mean)."""
+    A multi-word name is kept WHOLE (its words joined by one space): the old tokenizer kept only the
+    first word, so ``o upper deck`` and ``o upper ledge`` silently merged into one floor ``upper``. OBJ's
+    multi-group ``g a b`` form therefore names one floor ``a b``."""
     verts, faces, floor_ids = [], [], []
     names, cur, next_id = {}, 0, 0
     with open(path, encoding="utf-8", errors="replace") as fh:
@@ -1072,7 +1072,7 @@ def load_obj_floors(path):
     Each ``o <name>`` (or ``g <name>``) starts a new floor; a repeated name reuses its floor; faces
     before any object go to floor 0. Vertices are FF9 world coords (shared across floors — OBJ vertex
     indices are file-global). Faces with >3 verts are fan-triangulated; refs may be ``a/b/c``. A
-    whitespace name is refused (see :func:`_parse_obj`).
+    multi-word name is kept whole (see :func:`_parse_obj`).
     """
     verts, faces, floor_ids, _names = _parse_obj(path)
     return verts, faces, floor_ids
