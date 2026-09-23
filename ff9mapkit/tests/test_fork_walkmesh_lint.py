@@ -260,9 +260,10 @@ def test_the_shrink_premise_a_centroid_test_alone_calls_it_moved(tmp_path):
 
 
 def test_an_editable_fork_with_no_donor_id_is_still_linted(tmp_path):
-    """``import --editable`` records no donor id, yet it writes the donor walkmesh.bgi beside the toml and carries
-    donor code -- the fork that invites a walkmesh.obj reshape. Linted all the same (prefix 'fork:'); only the
-    engine-hotfix lane needs the id (the engine fires it through ForkDonorPatch, emitted from that id)."""
+    """An ``--editable`` toml with no donor id (written before import recorded ``source_field``) still has the
+    donor walkmesh.bgi beside it and carries donor code -- the fork that invites a walkmesh.obj reshape. Linted
+    all the same (prefix 'fork:'); only the engine-hotfix lane needs the id (the engine fires it through
+    ForkDonorPatch, emitted from that id)."""
     ws = _lint(_fork(tmp_path, donor=""))
     assert ws and all(w.startswith("fork: ") for w in ws), ws
     assert any("keys on [1]" in w and "tri 1 is now" in w for w in ws), ws

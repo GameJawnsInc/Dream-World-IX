@@ -544,7 +544,11 @@ class PlaceDoc(QWidget):
         # the composer solved it. One predicate blocked the floorplan composer, `ff9mapkit new` and
         # the Trace lane all at once, and it was about where the field came from, not about
         # geometry.
-        self._source = (("real", self._donor) if self._donor is not None
+        # A fork that ships its OWN scene art ([[layers]]: an `import --editable` fork) is placed on
+        # its own surface even though it records its donor: its walkmesh.obj may be reshaped and its
+        # layers repainted, and the donor's real room would not show either.
+        own_scene = bool(data.get("layers"))
+        self._source = (("real", self._donor) if self._donor is not None and not own_scene
                         else ("project", str(self._path)) if self._path else None)
         if self._blocked is None and self._source is None:
             self._blocked = ("this field has not been saved to disk yet — Place needs a file to "

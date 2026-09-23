@@ -444,13 +444,25 @@ subset is now reproduced, the dynamic ones steer to fork-in-place.
 **UPDATE — the fork-gate engine now fires most of these itself.** The custom engine routes a gate through
 `EffectiveFieldId`, which resolves a fork's id to its donor through the fork's ForkDonorPatch row. s29 does
 this for 2507, s30 for every DoEventCode gate (450, 1421, 1753, 1606, and the RunScript arms of 900/2803),
-and s65 for 2161. On a fork that records its donor (`--native`, `--verbatim`, every campaign member) those
-hotfixes are the engine's job, and `import` no longer prepends 2161's toggle. It used to, so forks got tri 69
-twice. That was redundant, not harmful, because `BGI_triSetActive` sets the bit absolutely. What still needs
-the kit: 2356 (a raw gate, so the kit prepends it everywhere), 2161 on a standalone `--editable` fork (which
-records no donor, so it gets no row), and anything in `turnOffTriManually.cs` (1900, 1455, the other halves of
-900/2803), which stays lost on a mint. `walkmesh_hotfixes.py` records each gate's state, and
+and s65 for 2161. On a fork that records its donor (`--native`, `--verbatim`, `--editable`, every campaign
+member) those hotfixes are the engine's job, and `import` no longer prepends 2161's toggle. It used to, so forks
+got tri 69 twice. That was redundant, not harmful, because `BGI_triSetActive` sets the bit absolutely. What still
+needs the kit: 2356 (a raw gate, so the kit prepends it everywhere), a fork whose donor id did not resolve (no
+row, so it keeps the 2161 prepend and loses 2507), and anything in `turnOffTriManually.cs` (1900, 1455, the other
+halves of 900/2803), which stays lost on a mint. `walkmesh_hotfixes.py` records each gate's state, and
 `tests/test_walkmesh_hotfix.py` checks it against `memoria-patches/`.
+
+`--editable` began recording `[field] source_field` late: before that it wrote no donor, so it got no row and
+2507's delayed hotfix was lost on it (no prepend can time it). The row also switches on the rest of the
+EffectiveFieldId suite for an editable fork. Those gates key on the donor's walkmesh tri ids and object uids, which
+hold until you reshape `walkmesh.obj`. The name-keyed overlay offsets (s31 `FieldMapExtraOffset.SetOffset`) sit
+on the `.bgs` load path, which an editable `.bgx` scene never takes, so its re-sliced layers are not mis-offset.
+
+2507's delayed pass also detaches every actor that is not flagged as the player, and on a kit-built fork
+(`--native`, `--editable`, BG-borrow) that includes the player, who could then walk off the walkway. The real
+script re-attaches its player with `SetPathing(1)`, so `--verbatim` forks were never affected. The build now
+turns the kit-built player's idle Loop into a guard that re-attaches it whenever it has control and no triangle
+(`content.walkmesh_hotfix.reattach_player`; harness-proven, `studies/fork-walkmesh-hotfix/`).
 
 IN-GAME PROVEN by A/B (Gulug 2356): two identical native forks — id 30003 *with* the toggle, id 30004
 *without* — teleporting to the deactivated-patch EDGE (−543,1667), ~120u from the chest (beyond its

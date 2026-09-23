@@ -155,6 +155,20 @@ def test_a_novel_field_is_served_not_refused(app):
     assert d.load_btn.isEnabled()
 
 
+def test_an_editable_fork_places_on_its_own_surface_despite_its_donor(app):
+    """`import --editable` records `source_field` (so the build emits its ForkDonorPatch row), but it
+    ships its OWN scene -- `[[layers]]` over a walkmesh.obj the author may reshape -- so Place must keep
+    serving the project's surface, not the donor's real room. A fork without its own layers (native,
+    BG-borrow, verbatim) still places on the donor's real room."""
+    d, _ = _doc(app)
+    path = Path("C:/somewhere/IPSN_EDIT.field.toml")
+    d.show_field("IPSN_EDIT", {"field": {"id": 30990, "source_field": 2507},
+                               "layers": [{"image": "layer_01016_1.png", "z": 1016}]}, path)
+    assert d._donor == 2507 and d._source == ("project", str(path))
+    d.show_field("IPSN_NATIVE", {"field": {"id": 30992, "source_field": 2507}}, path)
+    assert d._source == ("real", 2507)
+
+
 def test_a_field_with_no_file_on_disk_still_refuses(app):
     """The surface is resolved FROM THE FILE, so an unsaved doc has nothing to resolve. The
     refusal moved from provenance to that -- it did not disappear."""
