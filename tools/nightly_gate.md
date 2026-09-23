@@ -241,6 +241,12 @@ Everything is idempotent; re-running any step is safe.
   run log names it — often an unused import, sometimes an undefined name, which is a `NameError`
   waiting for its code path). Fix it; do **not** pass `--no-lint-ratchet` to make it pass without
   reading which finding rose.
+- **A red that goes away when an ignored leftover is deleted** is a test reading the checkout, not
+  the code, so fix the test's rule. The 2026-09-23 case was a `__pycache__`-only
+  `ff9mapkit/ff9mapkit/tests/` left behind by the test-tree move. `test_provenance_tripwire` now
+  counts a leaked package only where `.py` files exist, because a wheel ships modules only (checked
+  with a real wheel build). Do **not** add a `git clean` or a tree sweep to the gate. The gate's
+  ignored files ARE its provisioning, and every dev checkout keeps the same leftover and would stay red.
 - **Stale lock** (`lock` present, no run live) → the runner detects a dead PID and steals it
   automatically; delete `.test-gate\lock` by hand only if it somehow persists.
 - **`timeout`** → almost always contention (something else was hammering the machine at 04:00),

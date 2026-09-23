@@ -1,0 +1,80 @@
+# CONTROL for the set-pieces bench (30921): the SAME bench as set_pieces.field.toml with shadow = false on every set piece --
+# exactly the bytes those set pieces built to before the set-piece change (the player + the holder NPC keep
+# their rung-0 census shadows in BOTH builds, so they are an in-pair "unchanged" control). Deploy it to the
+# same slot and shoot it at the same moments; measure_shadows.py --bench set_pieces compares the two frames.
+#
+#   py tools/deploy_field.py studies/actor-shadow/bench/set_pieces_control.field.toml --id 30921 --name SHD1 --text-block 30921
+
+[field]
+id = 30921
+name = "SHD1"
+area = 11
+title = "SHADOW 1"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+obj = "shadow0.walkmesh.obj"
+links = "shadow0.walkmesh.links.toml"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [900, -600]
+face = 0
+
+[[flag]]
+name = "chest_opened"
+index = 8712
+
+# ---- row A --------------------------------------------------------------------------------------
+[[prop]]
+prop = "cask"
+pos = [-900, -250]
+shadow = false
+
+[[prop]]
+prop = "cactus"
+pos = [-450, -250]
+shadow = false
+
+[[prop]]
+prop = "cactus"
+pos = [0, -250]
+shadow = false
+
+[[chest]]
+pos = [450, -250]
+item = "Potion"
+flag = "chest_opened"
+shadow = false
+
+# ---- row B --------------------------------------------------------------------------------------
+[[savepoint]]
+zone = [[-950, -1200], [-650, -1200], [-650, -1000], [-950, -1000]]
+pos = [-800, -950]
+shadow = false
+
+[[npc]]
+name = "holder"
+model = "GEO_NPC_F0_CSO"
+pos = [-300, -1000]
+holds = "cup"
+
+[[savepoint]]
+zone = [[750, -900], [1050, -900], [1050, -700], [750, -700]]
+pos = [900, -1000]
+reveal_style = "barrel_pop"
+act_hop_to = [600, -1200]
+shadow = false

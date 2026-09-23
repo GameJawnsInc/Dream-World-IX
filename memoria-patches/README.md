@@ -132,7 +132,15 @@ armed) — the bundling buys one relaunch instead of three, it does not merge th
 
 > **2026-09-04 — the replay is a TOOL, and the live stack is at ZERO fuzz.** `py tools/memoria_stack_replay.py
 > diag` rebuilds every netsync/harness/dialog file from base `6b8bb2d5` through the ordered live stack
-> (dead `s12`/`s18`/`s21`/`s59` skipped; `s84` pinned after `s57`) and reports `19 of 19 files byte-exact` (EventCollision joined the set with s85).
+> (dead `s12`/`s18`/`s21`/`s59` + retired/removed `s35`/`s63`/`s67` skipped; `s84` pinned after `s57`) and reports `19 of 19 files byte-exact` (EventCollision joined the set with s85).
+> **2026-09-23 — the FULL-FILE audit is quiet too.** `diag --files <all 87 files any patch's +++ header names>`
+> had printed two false alarms against a correct clone: `DIFF BGSCENE_DEF.cs` / `DIFF ff9.cs`, because the
+> tool still replayed `s35`/`s67` after they were reverse-applied out of the live tree. Both are now skipped
+> (`s63` too — its absolute `C:/` headers never parsed, so it was a silent no-op), and diag EOL-matches the
+> all-LF live `BGSCENE_DEF.cs` (labelled on its row; mixed endings stay a DIFF). Result: `87 of 87
+> (1 EOL-matched)` with every live edit captured (that day: `--insert-after` the in-flight `s87`).
+> `ff9mapkit/tests/test_memoria_stack_replay.py` pins the skip set to this README's RETIRED / REMOVED /
+> WITHDRAWN + Superseded rows — **mark a patch dead here and that test goes red until the tool skips it.**
 > Every one of those patches lands under `git apply --binary` with no fuzz at all — the "s22 needs
 > `patch -F3`" note below dates from replays that still applied the dead `s21` first. `emit` writes a
 > capture with canonical headers, CRLF intact and the DebugMenu BOM matched; `snapshot --stop-after`

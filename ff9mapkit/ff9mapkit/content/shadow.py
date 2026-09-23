@@ -17,15 +17,35 @@ an object Init that sets its shadow does it at the tail, ``81 00 RR RR`` straigh
 (field 576's Brahne ``SetShadowSize(5, 5)``), size before amplifier (field 207's chest,
 ``81 00 20 20 85 00 C0``); a player Init does it after its ``SetHeadFocusMask`` (field 451's Zidane).
 
-Only a field WITHOUT MapConfigData takes it: a native fork ships its donor's MCF (``[field] mapconfig``),
-whose service would overwrite a script value on the first frame anyway -- so those builds, and every
-verbatim fork, stay byte-identical.
+Only a field WITHOUT MapConfigData takes it: a native, editable or BG-borrow fork ships its donor's MCF
+(``[field] mapconfig``), whose service shadows every actor -- grafted donor objects included -- and would overwrite a
+script value on the first frame anyway -- so native and verbatim forks stay byte-identical.
 
 The TOML key, on ``[player]`` and every ``[[npc]]`` (so every behavior unit)::
 
     shadow = false                            # no shadow (the ops are not emitted)
     shadow = { size = 12 }                    # override the census size (intensity stays the census')
     shadow = { size = 12, intensity = 6 }     # both; absent/true = the census values for the model
+
+SET PIECES FOLLOW STOCK'S SCRIPT TOO, NOT ONLY ITS MCF. The MCF gives EVERY actor a shadow, but an object's
+Init can ``DisableShadow`` it, and stock does that to most set dressing: for 68 of the 84 accessory models it
+shows standing free, its objects switch the shadow off on every path through their Init (the tent 66 of 67,
+the save book 58 of 58, the letter 57 of 57), while the chests (the four TBX models, 221 of 224) and the
+cask (19 of 19) keep theirs. That per-model verdict is ``_shadowparams.STOCK_CASTS`` (:func:`stock_casts`),
+and it is the DEFAULT for a ``[[prop]]`` -- absent ``shadow`` casts only when stock would; ``true`` / a table
+casts anyway. A HELD prop (``attach_to`` / ``[[npc]] holds``) never casts: stock disables 139 of its 140
+held objects, and the engine positions an attached object's quad badly (``GetShadowCurrentPos`` takes its
+HEIGHT from ``transform.localPosition`` -- for an attached object, the bone-local offset). The rest of
+stock's casting set pieces get the same ops at the same Init tail: ``[[chest]]`` (every TBX model casts)
+and the save point's moogle + its barrel_pop cask (58 of 58 stock save moogles keep theirs; the act's own
+``DisableShadow`` / ``EnableShadow`` hop pair -- verbatim from the donor -- now has a shadow to hide). The
+act's book + feather keep their donor ``DisableShadow`` and get no ops. (In-game: a cask's census blob is
+real but drawn entirely under the barrel's own footprint, as stock's is -- studies/actor-shadow/PLAN.md.)
+
+AN ``[[npc]]`` AND THE ``[player]`` DO NOT FOLLOW ``STOCK_CASTS``: an absent key casts the census for any
+model. For a creature or character, stock's disables follow where the object is: perched or flying, walkmesh-
+unbound in the frog pond, or hidden until a scene. A kit actor always stands on the walkmesh, where stock's
+objects cast 2141 of 2191 times (studies/actor-shadow/NPC-STOCK-CASTS.md; tests/test_shadow_npc_default.py).
 """
 from __future__ import annotations
 
@@ -50,6 +70,23 @@ def params_for(model) -> tuple:
         return _shadowparams.SHADOW_PARAMS.get(int(model), _shadowparams.DEFAULT)
     except (TypeError, ValueError):
         return _shadowparams.DEFAULT
+
+
+def stock_casts(model) -> bool:
+    """Whether stock lets ``model``'s shadow show on a free-standing object (``_shadowparams.STOCK_CASTS``:
+    its objects do not ``DisableShadow`` it on every path through their Init), else
+    ``PROP_DEFAULT_CASTS`` for a model no stock object shows standing free."""
+    try:
+        return bool(_shadowparams.STOCK_CASTS.get(int(model), _shadowparams.PROP_DEFAULT_CASTS))
+    except (TypeError, ValueError):
+        return bool(_shadowparams.PROP_DEFAULT_CASTS)
+
+
+def set_piece_value(value, model):
+    """The ``shadow`` value a SET PIECE (``[[prop]]`` part, chest, barrel_pop cask) casts with: an absent
+    key (None) becomes stock's verdict for ``model`` (:func:`stock_casts` -> True, else False); an explicit
+    true / false / table is the author's and passes through. Feed the result to :func:`init_ops`."""
+    return stock_casts(model) if value is None else value
 
 
 def problems(value, label: str) -> list:
@@ -112,7 +149,9 @@ def cast_player_shadow(data, value=None) -> bytes:
     """Splice the player's shadow ops into its Init right after ``SetHeadFocusMask`` (field 451's
     Zidane; straight-line setup code, ahead of the grant chain's jumps). ``value`` is ``[player] shadow``;
     false returns ``data`` unchanged. Sized from the player's CURRENT model, so run it after the
-    ``[player] model`` re-skin."""
+    ``[player] model`` re-skin. Any model casts, including one ``STOCK_CASTS`` disables: 1022 of stock's
+    1054 player objects cast, and the 32 that do not are scripted scenes, not the model
+    (studies/actor-shadow/NPC-STOCK-CASTS.md)."""
     ins = init_ops(player_model(data), value)
     if not ins:
         return data

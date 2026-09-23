@@ -95,3 +95,33 @@ def test_deploy_merges_with_the_already_deployed_override(tmp_path, monkeypatch)
     third = navimap.deploy_marker_renames(
         [{"locid": 1, "to": "Lamplight"}], mod_folder="FF9CustomMap", game=tmp_path, langs=["us"])
     assert _table0(third[0].read_text(encoding="utf-8")) == names
+
+
+def test_deploy_writes_lf_only_and_heals_a_crlf_override(tmp_path, monkeypatch):
+    """The deployed 68.mes must be byte-LF like stock block 68 -- on EVERY platform.
+
+    A bare text-mode ``write_text`` on Windows turned each LF into CRLF, so every world message
+    (not only the marker table) shipped with a stray ``\\r``. The check is on BYTES: ``read_text``
+    folds CRLF back to LF and would hide the defect. The second half is the live-install heal: an
+    override an older deploy wrote with CRLF is re-read through universal newlines and re-written
+    LF-only, its earlier rename intact."""
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
+    monkeypatch.setattr(dialogue, "extract_field_mes", lambda *a, **k: SYNTH)
+    fresh = navimap.deploy_marker_renames(
+        [{"locid": 3, "to": "Lantern Quay"}], mod_folder="FF9CustomMap", game=tmp_path, langs=["us", "fr"])
+    for p in fresh:
+        raw = p.read_bytes()
+        assert b"\r" not in raw
+        assert raw == navimap.apply_marker_renames(SYNTH, {3: "Lantern Quay"}).encode("utf-8")
+
+    # an override exactly as the buggy deploy left it: every LF a CRLF
+    dest = fresh[0]
+    dest.write_bytes(navimap.apply_marker_renames(SYNTH, {3: "Lantern Quay"})
+                     .replace("\n", "\r\n").encode("utf-8"))
+    assert dest.read_bytes().count(b"\r\n") == SYNTH.count("\n")      # the seed really is CRLF
+    healed = navimap.deploy_marker_renames(
+        [{"locid": 1, "to": "Lamplight"}], mod_folder="FF9CustomMap", game=tmp_path, langs=["us"])
+    raw = healed[0].read_bytes()
+    assert b"\r" not in raw
+    assert raw == navimap.apply_marker_renames(
+        SYNTH, {3: "Lantern Quay", 1: "Lamplight"}).encode("utf-8")

@@ -1,0 +1,96 @@
+# =====================================================================================
+# ACTOR SHADOWS, SET PIECES -- the stock blob shadow under kit set pieces  --  field 30921
+# =====================================================================================
+# Rung 0 (30920) proved the player + [[npc]]s. This bench puts the set pieces in one frame on the same
+# checkerboard floor + camera. The build follows stock's own treatment of each model
+# (ff9mapkit/_shadowparams.py STOCK_CASTS -- whether stock's Inits DisableShadow the model):
+#
+#   row A (z -250, x -900 / -450 / 0 / 450)
+#   cask       [[prop]] "cask" (GEO_ACC_F0_CSK, stock casts 19/19)   -> SetShadowSize(11, 11) + Amp(40)
+#   cactus     [[prop]] "cactus" (GEO_ACC_F0_GAS, stock DISABLES 30/30) -> no ops (the stock-dark case)
+#   cactus_on  the same cactus, shadow = true (the author opt-in)    -> SetShadowSize(8, 8)   + Amp(32)
+#   chest      [[chest]] F0 (GEO_ACC_F0_TBX, stock casts 172/175)    -> SetShadowSize(10, 10) + Amp(32)
+#
+#   row B (z -1000, x -800 / -300 / 900)
+#   moogle     an instant [[savepoint]] moogle (58/58 stock save moogles keep theirs) -> (6, 6) + Amp(16);
+#              its act's hidden book + feather keep their donor DisableShadow, no size ops
+#   holder     [[npc]] holding a cup -- the NPC casts (rung 0); the HELD cup gets no ops (stock disables
+#              139/140 held objects; the engine takes its quad height from the bone-local offset)
+#   barrel     a barrel_pop [[savepoint]]: its cask (11, 11) + Amp(40), its moogle (6, 6) + Amp(16) --
+#              stowed HIDDEN in the cask at spawn (no visible shadow until the pop)
+#
+# The player spawns BETWEEN the rows (the field camera follows it, and z -600 frames both rows) and just
+# north of the barrel, facing it (south), to press it.
+#
+#   py tools/deploy_field.py studies/actor-shadow/bench/set_pieces.field.toml --id 30921 --name SHD1 --text-block 30921
+#   (the CONTROL is bench/set_pieces_control.field.toml -- the same bench with shadow = false on every set
+#   piece: exactly the pre-change bytes for them, the player + holder keep their rung-0 shadows)
+
+[field]
+id = 30921
+name = "SHD1"
+area = 11
+title = "SHADOW 1"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+obj = "shadow0.walkmesh.obj"
+links = "shadow0.walkmesh.links.toml"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [900, -600]
+face = 0
+
+[[flag]]
+name = "chest_opened"
+index = 8712
+
+# ---- row A --------------------------------------------------------------------------------------
+[[prop]]
+prop = "cask"
+pos = [-900, -250]
+
+[[prop]]
+prop = "cactus"
+pos = [-450, -250]
+
+[[prop]]
+prop = "cactus"
+pos = [0, -250]
+shadow = true
+
+[[chest]]
+pos = [450, -250]
+item = "Potion"
+flag = "chest_opened"
+
+# ---- row B --------------------------------------------------------------------------------------
+[[savepoint]]
+zone = [[-950, -1200], [-650, -1200], [-650, -1000], [-950, -1000]]
+pos = [-800, -950]
+
+[[npc]]
+name = "holder"
+model = "GEO_NPC_F0_CSO"
+pos = [-300, -1000]
+holds = "cup"
+
+[[savepoint]]
+zone = [[750, -900], [1050, -900], [1050, -700], [750, -700]]
+pos = [900, -1000]
+reveal_style = "barrel_pop"
+act_hop_to = [600, -1200]

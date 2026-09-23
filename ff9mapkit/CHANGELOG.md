@@ -5,6 +5,98 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a plain (BG-borrow) import's carried donor objects are lit and shadowed like the real field
+- **A plain `ff9mapkit import` now ships the donor's MapConfigData** (`mapconfig.bytes` + `[field] mapconfig`),
+  as `--native` and `--editable` do. A BG-borrow fork carries the donor's objects too, but it wrote no MCF, so
+  its grafted `[[object]]`s cast no shadow and rendered bright and untinted. The MCF loads by the fork's own
+  event name, whatever scene it borrows. With it, the build retires the kit's script shadows, as on every MCF
+  field. Delete the `mapconfig` line to go back.
+- **A borrow ships its MCF verbatim, always.** It ships no walkmesh (the engine runs it on the donor's own
+  `.bgi`), so the per-floor lights key exactly. `build.mapconfig_bytes` no longer re-keys them for a borrow,
+  whatever its `[walkmesh]` says.
+- **Byte identity:** `tests/test_fork_mapconfig.py` now pins the on/off invariant on both fork shapes. A borrow
+  changes by exactly the shipped MCF plus the kit shadow ops it retires, and still ships no scene of its own.
+  Campaign borrow members get the file and the line too. Existing member tomls are untouched.
+- **In-game proven** (harness, `studies/actor-shadow` rung 2, a borrow of field 1607, the rung-1 donor). With the
+  MCF the carried moogles cast a shadow on the art and take the room's tint; without it they cast nothing. The
+  tint matches the editable fork's to three decimals ((0.734, 0.661, 0.593) vs (0.735, 0.658, 0.595)), as does
+  the shadow under the lower-right moogle (581 vs 579 px).
+
+### Fixed — marker renames no longer write world text block 68 with CRLF line endings
+- **The deployed overworld `68.mes` is LF-only again, like stock.** `navimap.deploy_marker_renames` wrote it
+  with a bare text-mode `write_text`, so on Windows every LF became CRLF. That put a `\r` into every world message
+  in all 7 languages (item-get lines, Moguo, Zorn/Thorn, the navigation menus), not only the renamed marker label.
+  The write now goes through `fsutil.atomic_write_text(..., newline="\n")`.
+- Both callers are covered: `world-rename-markers` and the `world-entrance` nameplate surgery, which registers
+  its custom name through the same function.
+- **A CRLF override already on disk heals on the next rename deploy.** The merge branch re-reads the deployed file
+  in universal-newline mode and writes it back LF-only, keeping earlier renames. `tests/test_navimap_rename.py`
+  checks the written bytes (a text read would hide the `\r`), on a fresh deploy and on a seeded CRLF override.
+
+### Fixed — a reshaped multi-floor walkmesh keeps its cross-floor seams
+- **Deleting or reordering an `o floor_<N>` block no longer strands floors.** The `walkmesh.links.toml` sidecar
+  numbers its seams by the donor's floors, and `bgi.build` renumbers `.obj` floors in first-seen order, so a
+  reshape that renumbered them made seams miss. In `studies/actor-shadow` rung 1, an editable fork of field 1607
+  written in floor order 3,1,2,0,... dropped 2 of 14 seams and stranded floors [1,3,4]. The build now translates
+  each seam through the `floor_<donor index>` names, using the map that already re-keys the MCF lights
+  (`build._donor_floor_map`, `BgiWalkmesh.apply_seams(seams, floor_map)`).
+- A seam whose floor is no longer in the `.obj` (deleted, or renamed away from `floor_<N>`) counts as missing.
+  The warning now names that donor floor. An added floor takes a fresh `floor_<N>`; see docs/WALKMESH_EDITING.md.
+- **Byte identity:** the unedited round-trip skips the translation and builds byte for byte. The census
+  covered all 674 field walkmeshes, 550 of them multi-floor with 5,983 seams. The unedited re-export is the
+  identity on every one. With each multi-floor walkmesh's floors written in reverse, the re-keyed build
+  reproduces its exact link set, where the old reconcile dropped 3,756 seams in 353 walkmeshes.
+  `tests/test_fork_walkmesh_links.py` pins this on an authored 5-floor donor and on the real 7-floor fixture,
+  plus reorder, delete and rename reshapes.
+- **In-game proven** (harness, the 1607 reshape bench at slot 30930,
+  `studies/actor-shadow/seam_rekey_ingame.py`). The player walks from donor floor 0 across a seam onto floor 5
+  and back. Built with the old reconcile, the same seam stops him.
+
+### Fixed — `deploy_field.py` no longer warns "TEXT OVERWRITES VANILLA" for a field that ships no `.mes`
+- **The vanilla-overwrite warning now fires only when the deploy writes a `.mes` for the real block.** It used to
+  judge the FieldScene textid, so an `import --editable` fork without `--carry-text` got the warning. Such a fork
+  keeps its donor's real block and records no donor key, but its build ships no `.mes` at all: it only reads that
+  location's dialogue, and nothing of it enters the engine's text merge. Seen on an editable fork of field 1607
+  (block 358) at slot 30930.
+- `deploystack.check_text_block_shadow` takes **`writes_mes`**. It defaults to `True`, so a caller that can't
+  see the built files stays loud. `deploy_field.py` passes the languages its `.mes` copy actually wrote. A field
+  that does write a real block's `.mes` is warned exactly as before. The cross-folder SHADOWED axis is unchanged,
+  because a higher folder's `.mes` on the block still changes what the field shows. The campaign, journey and
+  hub guards already checked only the `.mes` files in the dist.
+
+### Fixed — a field revert removes the `.mes` its deploy wrote fresh
+- **The revert used to leave behind a `field/<block>.mes` that the deploy wrote where none existed.** It only
+  restored backups, and a fresh write has none. On a real FF9 block the leftover is live content: the engine
+  merges every folder's `.mes` over the base game per txid, so it kept overwriting that location's dialogue.
+  Each redeploy runs the prior revert first, so the file also outlived redeploys that no longer ship it. The
+  warning above no longer flags it, because this deploy did not write it.
+- `deploy_field.py` now records each language it wrote without a backup, with the sha256 of the bytes it wrote.
+  `reverttmpl.build_revert_script(mes_fresh=...)` deletes those files, but only while they still hold those
+  bytes. A later deploy into the same block keeps its text, and the revert prints that it left the file.
+- **Leftovers from older reverts are not cleaned up.** The next deploy sees such a file as pre-existing and backs
+  it up, and its revert restores it. Delete a stranded `.mes` by hand once.
+
+### Fixed — an editable fork's carried donor objects are lit and shadowed like the real field
+- **`import --editable` now ships the donor's MapConfigData** (`mapconfig.bytes` + `[field] mapconfig`), exactly
+  as `--native` does. The engine's MCF service (`fldmcf.ff9fieldMCFService`) gives every actor its per-model blob
+  shadow and tint plus the light of the floor it stands on. The kit's script shadows only ever reached the player
+  and `[[npc]]`s, so an editable fork's grafted `[[object]]`s had no shadow and rendered bright and untinted. With
+  the MCF, the build retires those script ops, as on a native fork. Delete the `mapconfig` line to go back.
+- **The MCF now ships from any scene type**, not only a native one. Before, a non-native field declaring
+  `[field] mapconfig` shipped no MCF and also skipped its script shadows, so its actors cast nothing.
+- **A reshaped walkmesh keeps its lights.** Per-floor lights key on the BGI floor index, and `bgi.build`
+  renumbers `.obj` floors in first-seen order. The build re-keys the MCF's per-floor lights through the
+  `o floor_<donor index>` names that both exporters write (`build.mapconfig_bytes`,
+  `mapconfig.remap_light_floors`, `bgi.obj_built_floor_donors`). The unedited round-trip is the identity on all
+  816 shipping walkmeshes, so it ships the MCF byte for byte.
+- **Byte identity:** native and verbatim forks build byte-identically (field 122, all three import modes, HEAD
+  vs this change). An editable fork changes by exactly the shipped MCF plus the player's 7 retired shadow bytes.
+  `tests/test_fork_mapconfig.py` pins this on an authored fork with a grafted object.
+- **In-game proven** (harness, `studies/actor-shadow` rung 1, an editable fork of field 1607). With the MCF, the
+  carried moogles cast a shadow on the art and take the room's tint; without it, they cast nothing. Swapping two
+  floors in the reshaped walkmesh keeps the player's light exactly (1.002). Cancelling the re-key darkens him to
+  0.867 against the engine formula's predicted 0.857.
+
 ### Fixed — actors on a kit-built field cast the stock blob shadow
 - **The player and every `[[npc]]` (so every behavior unit) now get FF9's blob shadow.** A real field never
   scripts its shadows: its MapConfigData (MCF) gives each model a size and darkness through
@@ -21,6 +113,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   MCF (`[field] mapconfig`, a native fork) and every verbatim fork build byte-identically, because their MCF
   already shadows every actor. The vivi-hut golden hash moves for its two actors.
 - New `ff9mapkit.mapconfig`: a MapConfigData decoder that mirrors the engine's row lookup.
+
+### Fixed — set pieces on a kit-built field cast the shadow stock gives them
+- **`[[prop]]`, `[[chest]]` and the save point's moogle + barrel_pop cask now get the same two ops** — but a
+  prop follows stock's SCRIPT as well as its MCF. The MCF gives every actor a shadow, yet stock's object
+  Inits `DisableShadow` most set dressing: for 68 of the 84 accessory models it shows standing free (the
+  tent, the save book, the letter, the cactus), on every path through the Init. So a new census column,
+  `_shadowparams.STOCK_CASTS` (a dominator check per Init over all 817 scripts, held objects excluded),
+  decides a prop's default: the cask and every chest cast, the cactus does not. A model no stock object
+  shows standing free casts none (`PROP_DEFAULT_CASTS`).
+- **A held prop never casts** (`attach_to`, `[[npc]] holds`): stock disables 139 of its 140 held objects,
+  and the engine takes the blob's height from the item's bone-local offset. `shadow = true` on one is a
+  validate error.
+- **`shadow`** is now a key on `[[prop]]` (absent = stock's verdict for the model; `true` / a table casts
+  anyway), `[[chest]]` and `[[savepoint]]` (`false` darkens the moogle and its cask, a table sizes the
+  moogle). The act's book + feather keep their donor `DisableShadow`; the act's verbatim hop
+  `DisableShadow`/`EnableShadow` pair now has a shadow to hide.
+- **In-game (harness, bench 30921, against a same-bench control):** the cactus with `shadow = true`, the
+  chest and the save moogle darken their floor; the stock-dark cactus, the player and the NPC read 1.000; the
+  barrel_pop reveal still pops the moogle and opens the menu. The cask's census shadow is real but is
+  drawn entirely under the barrel's own footprint, as stock's is — a calibration build at size 40 throws
+  a wide halo around both casks.
+- **Byte identity:** each casting set piece gains 7 bytes, nothing else changes, and a field shipping
+  `[field] mapconfig` or a verbatim fork builds byte-identically. `tests/test_shadow.py` holds the
+  invariant over a field carrying every case.
 
 ### Added — roll streams: seeded randomness a field can predict
 - **`[[behavior.stream]]` + a branch `roll`** (the roll-stream arc, board entry #5, in-game proven by the

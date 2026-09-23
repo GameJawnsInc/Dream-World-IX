@@ -88,6 +88,41 @@ class MapConfig:
         return (c.shadow_i + (lt.shadow_i if lt else 0), c.shadow_r + (lt.shadow_r if lt else 0))
 
 
+_HEADER = 12
+_LIGHT_SIZE = 12
+_LIGHT_FLOOR_AT = 8             # the four floor bytes inside a 12-byte light
+FLOOR_UNUSED = -1               # an empty floor slot: the engine masks it to 255, which never names a floor
+
+
+def remap_light_floors(data: bytes, floor_map: dict) -> bytes:
+    """``data`` with every per-floor light (type 0) re-keyed through ``floor_map`` (donor floor -> the
+    walkmesh's floor), everything else byte-identical. A donor floor ``floor_map`` does not name (it is not
+    in the walkmesh any more) becomes :data:`FLOOR_UNUSED`, so its light matches nothing.
+
+    Why: ``ff9fieldMCFGetLightByCharFloor`` matches ``light.floor[i] & 255`` against the BGI floor index the
+    actor stands on (``FieldMapActorController.activeFloor``). A reshaped walkmesh that renumbers its floors
+    would otherwise light floor 2 with floor 1's colour and shadow."""
+    b = bytearray(data)
+    count = b[6]                                           # lightCount (the header's 7th byte)
+    for k in range(count):
+        at = _HEADER + k * _LIGHT_SIZE
+        if struct.unpack_from("<b", b, at)[0] != LIGHT_FLOOR:
+            continue
+        for s in range(4):
+            v = struct.unpack_from("<b", b, at + _LIGHT_FLOOR_AT + s)[0]
+            if v == FLOOR_UNUSED:
+                continue
+            struct.pack_into("<b", b, at + _LIGHT_FLOOR_AT + s, int(floor_map.get(v & 0xFF, FLOOR_UNUSED)))
+    return bytes(b)
+
+
+def lit_floors(data: bytes) -> set:
+    """The floors that have their OWN light (a type-0 light within ``lightUse`` names them)."""
+    mc = parse(data)
+    return {f & 0xFF for lt in mc.lights[:mc.light_use] if lt.type == LIGHT_FLOOR
+            for f in lt.floor if f != FLOOR_UNUSED}
+
+
 def parse(data: bytes) -> MapConfig:
     """Decode one MapConfigData blob (see the module docstring for the layout)."""
     b = bytes(data)

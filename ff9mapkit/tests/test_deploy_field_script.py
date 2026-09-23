@@ -114,6 +114,92 @@ def test_the_live_stack_guards_are_wired_and_their_crashes_print():
             assert prints, f"{who}: the {g} guard's except handler must print, not pass silently"
 
 
+def test_the_vanilla_text_axis_is_fed_by_the_mes_the_deploy_copies():
+    """The false alarm (bench 30930, an `import 1607 --editable` fork on block 358): the guard judged the
+    FieldScene textid, so a field that ships NO .mes -- it only READS its real block -- was told it
+    "replaces that location's own dialogue". `writes_mes` must come from the one list the .mes copy itself
+    appends to, so the warning fires exactly when a real block's .mes lands, and cannot drift from the copy.
+    (The two outcomes of the rule are pinned behaviourally in test_deploystack.)"""
+    tree = ast.parse(_SRC)
+    guard = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+             and n.func.id == "check_text_block_shadow"]
+    assert len(guard) == 1
+    kw = [k.value for k in guard[0].keywords if k.arg == "writes_mes"]
+    assert len(kw) == 1, "the guard must be told whether this deploy writes the block's .mes"
+    fed_by = {n.id for n in ast.walk(kw[0]) if isinstance(n, ast.Name)} - {"bool"}
+    assert len(fed_by) == 1, "writes_mes must derive from ONE recorded list, not a textid test"
+    (rec,) = fed_by
+
+    def _copies_mes(stmt):                    # shutil.copyfile(<src>, live.mes_path(...))
+        return any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "copyfile"
+                   and len(c.args) == 2 and isinstance(c.args[1], ast.Call)
+                   and isinstance(c.args[1].func, ast.Attribute) and c.args[1].func.attr == "mes_path"
+                   for c in ast.walk(stmt))
+
+    def _appends_rec(stmt):
+        return any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "append"
+                   and isinstance(c.func.value, ast.Name) and c.func.value.id == rec for c in ast.walk(stmt))
+
+    branches = [n for n in ast.walk(tree) if isinstance(n, ast.If) and any(_copies_mes(s) for s in n.body)]
+    assert len(branches) == 1, "exactly one branch copies the field's .mes into the live folder"
+    assert any(_appends_rec(s) for s in branches[0].body), \
+        f"{rec} must be appended in the SAME branch that copies the .mes -- that is what 'writes' means"
+    appends = [n for n in ast.walk(tree) if isinstance(n, ast.Expr) and _appends_rec(n)]
+    assert len(appends) == 1, f"nothing but the .mes copy may record into {rec}"
+    inits = _assignments(rec)
+    assert len(inits) == 1 and isinstance(inits[0], ast.List) and not inits[0].elts, f"{rec} starts empty, once"
+
+
+def test_the_revert_is_told_which_mes_the_deploy_wrote_fresh():
+    """The leak: a .mes the deploy wrote where none stood has no backup, so the revert left it -- and on a REAL
+    block that leftover keeps overwriting the location's dialogue through every later redeploy's prelude,
+    unflagged (the guard above now fires only for a .mes THIS deploy writes). Pin the deploy half of the fix:
+      * ``mes_fresh`` starts as one empty map and is handed to build_revert_script as ``mes_fresh=``;
+      * it is filled ONLY in the branch that copies the .mes into the live folder (so it can never name a
+        language the deploy did not write), and only past a test on ``mes_backed``;
+      * ``mes_backed`` is filled ONLY in the branch that takes the pre-deploy ``.mes.preDEPLOY`` backup -- the
+        exact file whose presence makes the revert restore instead of delete;
+      * the recorded value is the sha256 hexdigest the revert compares against (its behaviour is pinned by
+        running it, in test_revert_script)."""
+    tree = ast.parse(_SRC)
+    inits = _assignments("mes_fresh")
+    assert len(inits) == 1 and isinstance(inits[0], ast.Dict) and not inits[0].keys, "mes_fresh starts empty, once"
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+             and n.func.attr == "build_revert_script"]
+    assert len(calls) == 1
+    kw = [k.value for k in calls[0].keywords if k.arg == "mes_fresh"]
+    assert len(kw) == 1 and isinstance(kw[0], ast.Name) and kw[0].id == "mes_fresh", \
+        "the revert must be told which languages were written fresh"
+
+    def _stores_into(node, name):             # <name>[...] = ...
+        return [n for n in ast.walk(node) if isinstance(n, ast.Assign) for t in n.targets
+                if isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name) and t.value.id == name]
+
+    stores = _stores_into(tree, "mes_fresh")
+    assert len(stores) == 1, "mes_fresh is recorded in exactly one place"
+    copy_branch = [n for n in ast.walk(tree) if isinstance(n, ast.If)
+                   and any("mes_written.append" in ast.unparse(s) for s in n.body)]
+    assert len(copy_branch) == 1
+    assert any(s is stores[0] for s in ast.walk(copy_branch[0])), \
+        "mes_fresh must be recorded inside the branch that copies the .mes into the live folder"
+    guard = [n for n in ast.walk(copy_branch[0]) if isinstance(n, ast.If)
+             and any(s is stores[0] for s in ast.walk(n))
+             and "mes_backed" in {x.id for x in ast.walk(n.test) if isinstance(x, ast.Name)}]
+    assert guard, "only a language with NO backup is fresh"
+    val = ast.unparse(stores[0].value)
+    assert "sha256" in val and "hexdigest" in val and "mes_path" in val, \
+        "record the sha256 hexdigest of the live .mes that landed -- the revert compares exactly that"
+
+    adds = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "add" and isinstance(n.func.value, ast.Name) and n.func.value.id == "mes_backed"]
+    assert len(adds) == 1, "mes_backed is recorded in exactly one place"
+    backup_branch = [n for n in ast.walk(tree) if isinstance(n, ast.If)
+                     and any(isinstance(s, ast.Expr) and s.value is adds[0] for s in n.body)]
+    assert len(backup_branch) == 1 and ".mes.preDEPLOY." in ast.unparse(backup_branch[0]), \
+        "mes_backed must be recorded in the branch that writes the .mes backup the revert restores from"
+    assert _SRC.index("mes_backed = set()") < _SRC.index("mes_fresh = {}"), "backups are taken before the copy"
+
+
 def test_the_slot_id_is_band_checked_through_the_shared_validator_before_the_build():
     """Lane G: ``--id`` (and the .ff9deploy pin) override the toml's id AFTER its author-time checks ran,
     and 9000-9012 is the engine's world-dispatcher hole -- a FieldScene there clobbers EVT_WORLD_WORLDxx
