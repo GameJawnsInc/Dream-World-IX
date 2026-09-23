@@ -1429,9 +1429,10 @@ def validate(project: FieldProject) -> list[str]:
         if "pos" not in n:
             problems.append(f"[[npc]] {n.get('name', '#' + str(i))!r} has no position -- set "
                             f"pos = [x, z] in the field.toml, or place its marker in the Blender scene.")
+        _npc_model = None                                 # (lets a bad shadow.intensity name the census value)
         if "model" in n and n["model"] is not None:
             try:
-                resolve_npc_model(n["model"])             # a GEO name must resolve (a raw id passes through)
+                _npc_model = resolve_npc_model(n["model"])   # a GEO name must resolve (a raw id passes through)
             except ValueError as e:
                 problems.append(f"[[npc]] {n.get('name', '#' + str(i))!r} model: {e}")
         arch = n.get("archetype") or n.get("preset")
@@ -1445,7 +1446,7 @@ def validate(project: FieldProject) -> list[str]:
         if fc is not None and not (isinstance(fc, int) and not isinstance(fc, bool) and 0 <= fc <= 255):
             problems.append(f"{label} face {fc!r} must be a raw facing byte 0..255 "
                             f"(0=south 64=west 128=north 192=east)")
-        problems += _shadow.problems(n.get("shadow"), label)
+        problems += _shadow.problems(n.get("shadow"), label, _npc_model)
         _validate_gate_exclusive(n, label, problems)
         try:                                              # rotating-cast beat window (min inclusive, max exclusive)
             smin, smax = _scenario_window_of(n)

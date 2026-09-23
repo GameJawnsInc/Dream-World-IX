@@ -7,6 +7,8 @@ its per-floor lights. ★ The SET PIECES follow-up PASSED in-game (harness, benc
 own per-model treatment, chests and the save moogle cast, held props never do (see "Set pieces" below).
 ★ rung 2 PASSED in-game (harness, bench 30935). A plain (BG-borrow) `import` now ships its donor's MCF too,
 so its grafted donor objects are shadowed and tinted exactly as the editable fork's are.
+★ The INTENSITY WRAP is proven in-game (harness, bench 30922). An authored intensity of 16-31 draws as 0-15,
+so the authored range is now capped at 15 (see "The intensity wrap" below).
 
 ## The defect
 
@@ -292,6 +294,51 @@ repo's `.harness-runs/`: `20260923-112310-shadow-rung1-on`, `-112430-shadow-rung
   NullReferenceException 26 times in both the shadows-on and control runs (24 in the calibration run).
 - **Not exercised in-game:** the save act itself (its verbatim `DisableShadow`/`EnableShadow` hop pair).
   Offline, the book + feather keep `DisableShadow` and the moogle's ops sit ahead of the act body.
+
+## The intensity wrap (bench 30922, `intensity_wrap.py`)
+
+`content/shadow.py` used to accept an authored `intensity` of 0-31, because `intensity << 3` fits
+`SetShadowAmplifier`'s one-byte argument. The byte is not where it breaks. `SHADOWAMP` stores the amp as an
+`Int32` (`FF9ShadowSetAmpField`), and `EventEngine.SetRenderer` draws the blob in colour `(Byte)(amp * 2)`
+(`EventEngine.ProcessEvents.cs:612`). From amp 128 up that wraps, so intensity `i >= 16` should draw exactly as
+`i - 16`: 16 draws colour 0 and 31 draws colour 240, the same as 15. The shader ships compiled, so the source
+cannot say what colour 0 looks like. The run below settles that too: it draws no blob.
+
+**Design.** Four size-9 `GEO_NPC_F0_CSO` NPCs stand at the rung-0 bench's calibrated slots, on the same floor
+and camera, so `measure_shadows.py`'s feet boxes apply. Runs A and B swap the intensities between slots, which
+makes every wrap claim a same-slot comparison across two runs. The player casts nothing in any run, and the
+control run casts nothing at all. The control is what shows the op is live: if SetShadowAmplifier did nothing,
+every slot would draw the same colour, and "15 matches 31" would hold vacuously.
+`measure_intensity_wrap.py` scores pixels that are floor in the CONTROL frame. The rung-0 mask requires floor
+in both frames, which would drop exactly the pixels a strong blob darkens.
+
+| slot | A | B | A/control (darkened) | B/control (darkened) | A vs B mean abs dRGB | repeat-shot noise A / B / ctl |
+|---|---|---|---|---|---|---|
+| player | none | none | 1.000 (0.0%) | 0.999 (0.2%) | 0.13 | 1.65 / 1.81 / 1.49 |
+| s1 | 15 | 31 | 0.921 (16.4%) | 0.921 (16.5%) | **0.03** | 0.40 / 0.37 / 0.61 |
+| s2 | 16 | 0 | 0.999 (0.8%) | 0.998 (0.8%) | **0.81** | 0.99 / 0.83 / 0.62 |
+| s3 | 31 | 15 | 0.896 (20.8%) | 0.894 (21.8%) | **0.76** | 1.06 / 0.71 / 0.44 |
+| s4 | 0 | 16 | 0.999 (1.0%) | 1.000 (0.3%) | **0.63** | 0.79 / 1.47 / 1.38 |
+
+- **31 draws as 15, and 16 draws as 0.** In every slot the A-vs-B difference sits at or under that slot's own
+  repeat-shot noise. The second shot (`2-spawn-later`) agrees: 0.16 / 0.05 / 0.21 / 1.25 against its noise
+  0.35-2.30.
+- **16 draws no blob at all.** Slots at 16 and at 0 read 0.998-1.000 against the control, as the player does. So
+  colour 0 is invisible: the blend darkens by the colour, and an author asking for 16 got no shadow.
+- **Deployed bytes:** PRE passed in each run. The `.eb` the engine loaded carried amps 120/128/248/0 (A),
+  248/0/120/128 (B), and no shadow op in the control. No exception in any run.
+- Runs are archived in the main repo's `.harness-runs/`: `20260923-174850-shadow-wrap-a`,
+  `20260923-174928-shadow-wrap-b`, `20260923-174957-shadow-wrap-control`.
+
+**The fix.** An authored intensity is capped at `INTENSITY_MAX = 15`. Validate and the build refuse 16-31, and
+the message explains the wrap and names the model's census value where the model is known. The old one-byte
+limit survives as `INTENSITY_ENCODABLE_MAX = 31`, which is what the census must satisfy, and
+`shadow.blob_colour` states the engine's formula. The census is untouched: models 200 and 488
+(`GEO_ACC_F0_V10`/`_V11`) carry stock's own MapConfigData 16, which wraps the same way in stock, so an absent
+key reproduces stock. `tests/test_shadow_intensity_wrap.py` pins all of it.
+
+The bench's A and B tomls author 16 and 31 on purpose. Validate refuses them now, so they rebuild only from a
+checkout that predates the cap.
 
 ## Follow-ups (not in this change)
 
