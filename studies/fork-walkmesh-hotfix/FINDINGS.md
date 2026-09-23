@@ -112,9 +112,8 @@ Both benches come from one `import 2507`, with the donor's `[encounter]` removed
 | 30994 | the same toml without `source_field` (the old import output) | none |
 
 Both carry the re-attach guard, because the build adds it for a `borrow_bg` of 2507's scene. So the donor row
-is the only difference. (This bench predates the template fix below and ran with the guard, which is now
-removed. The borrow builds the same kit player, so the first-tick bind covers it too; the offline tests pin
-a 2507 borrow's yield-free Init.) Run with `borrow_2507_ingame.py`: 14/14 checks passed and there were no engine
+is the only difference. (This run predates the template fix below and had the guard, which is now removed. The
+same benches were re-run without it; see "The template fix".) Run with `borrow_2507_ingame.py`: 14/14 checks passed and there were no engine
 exceptions (`.harness-runs/20260923-163201-borrow-2507-donor-row`).
 
 | slot | HUD 3 s after arrival | after 12 frames right | menu LOCATION |
@@ -313,6 +312,13 @@ already the player, keeps its triangle. Each kit field publishes its player with
 where it used to take ~1.7 s. Control comes back only when the settle hold ends. The 30991 control stopped at
 a third edge point (290u, inside the < 300 check; a detached walk covers ~360u). The pass never runs there,
 so that is edge-slide variance, as before.
+
+**The BG-borrow benches too, without the guard** (the unchanged `borrow_2507_ingame.py`, run
+`20260923-173842-borrow-2507-root-fix`: 14/14, no engine exceptions). 30993 (borrow with row) reads
+`P 122, CA -1, CB -1` 3 s after arrival. The pass fired and detached both chests, and the player, never
+detached, kept its triangle. With the guard, a `P 122` could have been a re-attach; with no guard it cannot.
+30993, 30994 (no row: `P 122, CA 178, CB 174`) and real 2507 all stop at (2157.431, -869.502). Reverted after
+the run.
 
 Not covered by the harness: the look of the entry. The black still hides the camera, and the camera can now
 start converging ~48 ticks sooner. Whether any hold now reads as too long is the owner's eye.

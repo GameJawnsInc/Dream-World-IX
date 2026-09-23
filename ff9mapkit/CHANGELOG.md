@@ -26,7 +26,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **`eb.edit.nop_range` / `nop_cinematics` now document that each 0x00 costs one event tick.** Their behavior
   is unchanged.
 - Every synthesized field builds different bytes; the vivi-hut build golden is re-pinned.
-- In-game A/B → `studies/fork-walkmesh-hotfix/FINDINGS.md`.
+- **In-game (harness, no guard anywhere):** `--editable`, `--native` and BG-borrow forks of 2507 with a donor
+  row all stop at the real field's exact edge point, as does the real field. On the borrow, 3 s after arrival,
+  the HUD shows the chests detached (the pass fired) and the player still on its triangle. Each kit player is
+  published 2–4 frames after the switch (was ~1.7 s), and control returns when the settle hold ends. 9/9 and
+  14/14, no engine exceptions (`studies/fork-walkmesh-hotfix/FINDINGS.md`).
 
 ### Fixed — `fetch-assets` restores a campaign member's missing MapConfigData
 - **A member whose toml declares `[field] mapconfig` now requires that file.** Both fork writers (borrow and
