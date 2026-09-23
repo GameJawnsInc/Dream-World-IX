@@ -65,8 +65,9 @@ def measure(on: Image.Image, off: Image.Image, boxes: dict = BOXES) -> dict:
     return out
 
 
-def sheet(on: Image.Image, off: Image.Image, path: Path, scale: int = 2, boxes: dict = BOXES) -> None:
-    rows = [(f"{n}: control (top) / shadows on (bottom)", b) for n, b in boxes.items()]
+def sheet(on: Image.Image, off: Image.Image, path: Path, scale: int = 2, boxes: dict = BOXES,
+          label: str = "control (top) / shadows on (bottom)") -> None:
+    rows = [(f"{n}: {label}", b) for n, b in boxes.items()]
     w = max(b[2] - b[0] for _, b in rows) * scale
     h = sum(2 * (b[3] - b[1]) * scale + 22 for _, b in rows)
     img = Image.new("RGB", (w, h), "white")

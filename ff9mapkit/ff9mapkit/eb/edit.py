@@ -419,9 +419,28 @@ def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins:
 
 
 def nop_range(data, abs_off: int, length: int) -> bytes:
-    """Overwrite ``length`` bytes at ``abs_off`` with NOP (0x00). Length-preserving."""
+    """Overwrite ``length`` bytes at ``abs_off`` with NOP (0x00). Length-preserving.
+
+    ⚠ NOT free: the engine's ``DoEventCode`` ``case NOP`` returns 1, a one-tick YIELD, and each 0x00 is one
+    1-byte op -- so this stalls the function ``length`` event ticks. To neutralise code without moving its
+    timing use :func:`skip_range`."""
     b = bytearray(_as_bytes(data))
     b[abs_off:abs_off + length] = bytes(length)
+    return bytes(b)
+
+
+JMP_OP = 0x01   # unconditional JMP: i16 offset, relative to the byte after the operand; never yields
+
+
+def skip_range(data, abs_off: int, length: int) -> bytes:
+    """Neutralise ``length`` bytes at ``abs_off`` with a ``JMP`` over them. Length-preserving, and unlike
+    :func:`nop_range` it costs no event ticks: ``EBin.jumpToCommand`` case 1 (``bra``) returns 0, so the
+    function runs straight on. The bytes after the jump are dead; they are zeroed so a disassembly walks them
+    as 1-byte ops and lands on the jump target. Needs ``length >= 3`` (the jump itself)."""
+    if length < 3:
+        raise ValueError(f"skip_range needs >= 3 bytes for the JMP, got {length}")
+    b = bytearray(_as_bytes(data))
+    b[abs_off:abs_off + length] = bytes([JMP_OP]) + struct.pack("<h", length - 3) + bytes(length - 3)
     return bytes(b)
 
 
@@ -545,8 +564,9 @@ FIELD_OP = 0x2B       # Field(dest) -- a field warp
 def nop_cinematics(data, *, entry_index: int = 0, func_tag: int = 0, before_op: int = FIELD_OP):
     """NOP every ``Cinematic`` (``0x28``, FMV playback) instruction in a function, up to the first
     ``before_op`` (default the first ``Field()`` warp, ``0x2B``). Length-preserving: each op is overwritten
-    in place with ``0x00`` NOPs (engine-confirmed "do nothing" -- ``DoEventCode`` case ``NOP``), so no offsets
-    shift and no jumps need fixing. Returns ``(new_data, n_nopped)``.
+    in place with ``0x00`` NOPs, so no offsets shift and no jumps need fixing. Returns ``(new_data, n_nopped)``.
+    Each 0x00 is a one-tick yield (``DoEventCode`` ``case NOP`` returns 1), so the warp lands one event tick
+    later per NOP'd byte -- a few ticks here, harmless; :func:`skip_range` is the tick-free alternative.
 
     Used to strip the opening movie from an opening-field override (e.g. field 70 ``EVT_ALEX1_TS_OPENING``,
     which plays 2 cinematics before warping to a custom field) so a New Game lands in the target field
