@@ -924,6 +924,123 @@ def test_classify_names_the_reason_state_is_absent(game):
     assert ch.classify().startswith("STALE")
 
 
+def test_classify_names_an_empty_document_as_a_rewrite_not_a_throw(game):
+    """The agent truncates state.json in place and then writes it, so an EMPTY file is a publish in
+    flight -- or, when it stays empty, a game hung INSIDE the publish. UNPARSEABLE's "the agent threw
+    partway through the document" is the wrong cause for both. Break: drop the empty-body branch."""
+    ch = Channel(game)
+    ch.reset()
+    (ch.dir / "state.json").write_text("", encoding="utf-8")
+    why = ch.classify()
+    assert why.startswith("EMPTY") and "mid-rewrite" in why, why
+    os.utime(ch.dir / "state.json", (time.time() - 600, time.time() - 600))
+    why = ch.classify()
+    assert why.startswith("EMPTY") and "INSIDE the publish" in why, why
+
+
+# --------------------------------------------------------------------------- a publish stalled mid-rewrite
+# MEASURED 2026-09-23 (studies/platform-land/rung0_land.py, run 20260923-180350-platform-land-A-
+# oldlayout): with `state_every(1)` and a 4 ms poll of `g.state` through a 40-frame ride, the run died
+# on `no state published -- OK` while the game went on publishing. The agent rewrites state.json IN
+# PLACE, so it is EMPTY between the truncate and the bytes; that gap is usually under a millisecond
+# but its p99 is ~80 ms, and Channel.state() gives a parse failure ~30 ms. The stand-in's
+# `stall_publish` reproduces the gap; these pin that one miss is ridden out and a dead channel still
+# is not.
+
+
+def _inside_a_stalled_publish(g, fake, seconds):
+    """Queue a mid-rewrite stall and return once state.json is being held EMPTY.
+
+    The size check keeps the tests below from passing without the gap they are about.
+    """
+    fake.stall_publish(seconds)
+    assert fake.stalling.wait(5), "the stand-in never began the stalled publish"
+    assert (g.channel.dir / "state.json").stat().st_size == 0, "the stall is not holding it empty"
+
+
+def test_a_publish_stalled_mid_rewrite_is_ridden_out_not_called_no_state(game):
+    """Break: make Session.state raise on the channel's first None again."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.state_every(1)                                   # the incident's setting
+        _inside_a_stalled_publish(g, fake, 0.4)
+        stalled_at = fake.frame                            # its loop is blocked mid-publish
+        st = g.state
+        assert st.frame >= stalled_at
+
+
+def test_a_publish_that_never_lands_is_still_a_dead_channel(game):
+    """The tolerance must not hide a game hung INSIDE the publish: the read still raises, within
+    the budget, and says the file is empty rather than "OK". Break: loop with no deadline."""
+    from harness.session import STATE_MISS_BUDGET
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        _inside_a_stalled_publish(g, fake, 60)
+        t0 = time.time()
+        with pytest.raises(HarnessError, match="no state published") as err:
+            g.state
+        took = time.time() - t0
+        fake.kill()                  # release the stall; an exited game spares teardown its quit wait
+    assert took < STATE_MISS_BUDGET + 3.0, took
+    assert "EMPTY" in str(err.value), err.value
+
+
+def test_a_game_that_dies_inside_a_miss_is_reported_at_once(game):
+    """A plain sleep through the miss turns a crash into a wait. Break: drop _assert_alive from the
+    retry loop in Session._read_state."""
+    from harness.session import STATE_MISS_BUDGET
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        _inside_a_stalled_publish(g, fake, 60)
+        fake.returncode = 3
+        t0 = time.time()
+        with pytest.raises(HarnessError, match="exited"):
+            g.state
+        took = time.time() - t0
+        fake.stop()
+    assert took < STATE_MISS_BUDGET / 2, took
+
+
+def test_a_transient_miss_cannot_skip_the_save_sandbox_check(game):
+    """`_assert_save_sandbox` RETURNED on a None read, so one stalled publish at boot skipped the only
+    check between an autosave and the owner's game. Break: restore `if st is None: return`."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        fake.save_sandboxed = False
+        published(g, lambda s: s.raw.get("save_sandboxed") is False)
+        _inside_a_stalled_publish(g, fake, 0.4)
+        with pytest.raises(HarnessError, match="did NOT redirect"):
+            g._assert_save_sandbox()
+
+
+def test_a_transient_miss_cannot_skip_the_protocol_check(game):
+    """`_adopt_agent` RETURNED on a None read, skipping the protocol refusal and the seq seed that
+    defends against a leaked arm. Break: restore `if st is None: return`."""
+    from harness.channel import PROTOCOL
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        fake.protocol = PROTOCOL + 7
+        published(g, lambda s: s.protocol == PROTOCOL + 7)
+        _inside_a_stalled_publish(g, fake, 0.4)
+        with pytest.raises(HarnessError, match="protocol mismatch"):
+            g._adopt_agent()
+
+
+def test_a_transient_miss_is_not_a_failed_baseline(game):
+    """Break: read the baseline's state with channel.state() again -- one stalled publish then
+    climbs the recovery ladder, or poisons the next scenario if it lands on the final re-check."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        ok, why = g.at_baseline()
+        assert ok, why
+        _inside_a_stalled_publish(g, fake, 0.4)
+        ok, why = g.at_baseline()
+        assert ok, why
+
+
 def test_a_run_refuses_to_start_when_the_engine_will_not_sandbox_saves(game):
     """MEASURED 2026-08-31: an ordinary newgame()+warp() rewrote the owner's save containers.
 
