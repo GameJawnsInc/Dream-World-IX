@@ -65,6 +65,12 @@ class Hotfix:
                   gate still on the raw ``fldMapNo`` (FieldMap.cs 2356; all of turnOffTriManually.cs) never fires on
                   a fork, so its tris are absent here. The fork walkmesh-literal lint
                   (``build._lint_fork_walkmesh_ids``) checks these ids survive a rebuilt walkmesh.
+    ``detaches_actors`` : the same engine pass also detaches every actor whose ``isPlayer`` is false from the
+                  walkmesh (2507: ``BGI_charSetActive(fac, 0)``). On a KIT-BUILT (non-verbatim) fork the player is
+                  detached too and walks off the mesh; the real script re-attaches its player with
+                  ``SetPathing(1)``, which a kit-built player lacks (★ harness-proven on --native and --editable
+                  forks, studies/fork-walkmesh-hotfix). The build guards it: the player's Loop re-attaches it
+                  whenever it has control and no triangle (``content.walkmesh_hotfix.reattach_player``).
     """
 
     field_id: int
@@ -77,6 +83,7 @@ class Hotfix:
     engine_remapped: bool = False
     fork_tris: tuple = ()
     delayed: bool = False
+    detaches_actors: bool = False
 
     @property
     def prependable(self) -> bool:
@@ -130,10 +137,12 @@ _HOTFIXES = {
                  "FLOOR the two treasure-chest props snap onto, and the real field's 0.5s delay lets them settle "
                  "FIRST, then removes the tris. An at-load prepend removes them BEFORE the chests place, snapping "
                  "the chests a floor down (★ caught in-game 2026-06-23). So reproduce via the engine remap only -- "
-                 "a fork with no donor row (its donor id did not resolve at import) loses it.",
+                 "a fork with no donor row (its donor id did not resolve at import) loses it. The same pass "
+                 "detaches the player of a KIT-BUILT fork from the walkmesh (★ harness-proven: 360u off the "
+                 "walkway), so the build turns the player's idle Loop into a re-attach guard.",
                  "FieldMap.cs:139-148", toggles=((174, 0), (175, 0), (177, 0), (178, 0)),
                  tris=(174, 175, 177, 178), engine_remapped=True,
-                 fork_tris=(174, 175, 177, 178), delayed=True),
+                 fork_tris=(174, 175, 177, 178), delayed=True, detaches_actors=True),
 
     # --- EVENT-CODE one-shot (locatable trigger; the s30 remap fires it on a fork that reaches it) ----------
     450: Hotfix(450, "Dali/Field (Grandma's initial position)", "event_code",
@@ -199,6 +208,11 @@ def info(field_id) -> "Hotfix | None":
         return _HOTFIXES.get(int(field_id))
     except (TypeError, ValueError):
         return None
+
+
+def detaching_ids() -> tuple:
+    """The real field ids whose engine hotfix detaches actors from the walkmesh (:attr:`Hotfix.detaches_actors`)."""
+    return tuple(fid for fid, h in _HOTFIXES.items() if h.detaches_actors)
 
 
 def load_time_toggles(field_id, *, donor_recorded: bool = True) -> list:

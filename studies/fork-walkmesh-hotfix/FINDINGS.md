@@ -56,3 +56,37 @@ The real script ends its player setup with `SetPathing(1)`, in both the Init (en
 tail (tag 1). A kit-built player has no such call, so nothing re-attaches it after the coroutine. It is still
 unconfirmed why the kit-built player's `isPlayer` is false at the 0.5 s mark. It is true during play, because
 input movement is gated on it.
+
+## The fix: a re-attach guard in the kit-built player's Loop
+
+**First attempt: a fixed one-shot, which raced the pass.** `Wait(30); SetPathing(1)` went at the head of the
+player's Loop. It passed one launch: 30990 ended at the real field's spot and its HUD read `P 121`. It failed
+the next: 30990 and 30992 ended off the walkway at (2242.9, -990.6) and the HUD read `P -1` after the walk. The
+pass lands at a moment that depends on the load, so a fixed delay can come before it.
+
+**Shipped: a guard.** `content.walkmesh_hotfix.reattach_player` replaces the template's idle player Loop
+(`Wait(1)` plus a jump back) with a loop that runs every frame:
+
+    if (B_SYSVAR[2] != 0 && B_BGIID(player) < 0) SetPathing(1)
+    Wait(1)
+
+`B_SYSVAR[2]` is the engine's `usercontrol`. Every kit sequence that turns pathing off (ladders, platforms,
+jumps, cutscenes) disables movement first, so the guard never fights one. The build adds it only where 2507's
+pass will run: a recorded donor of 2507, the field forked in place, or a `borrow_bg` of 2507's scene.
+
+**Verified in two separate launches** (`editable_2507_detach.py`, `DETACH_ORDER=fixed`). Both passed 5/5 with
+no engine exceptions:
+
+| field | end position | on the walkway |
+|---|---|---|
+| 30991, no row | (2157.431, -869.502) | yes |
+| 30990, editable with row and guard | (2157.431, -869.502) | yes |
+| 30992, native with row and guard | (2157.431, -869.502) | yes |
+| real 2507 | (2157.431, -869.502) | yes |
+
+On 30990 the HUD after the walk reads `P 121, CA -1, CB -1`: the hotfix still detaches the chests, and the
+player is back on a triangle.
+
+A bound player stops at one of two points along the platform edge from run to run: (2157, -870) or
+(2142, -907). The unchanged no-row control has landed on both. So the check is "on the walkway, moved < 300",
+not an exact position; a detached player moves the full 360u.

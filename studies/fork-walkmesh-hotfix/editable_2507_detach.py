@@ -69,6 +69,8 @@ def run(g) -> None:
     import os
     if os.environ.get("DETACH_ORDER") == "row-first":
         return _row_first(g)
+    if os.environ.get("DETACH_ORDER") == "fixed":
+        return _fixed(g)
     wm = _mesh()
     g.check(_on_upper(wm, *START) and not _on_upper(wm, START[0] + 300, START[1]),
             "PRE: the arrival is on the upper walkway and 300u east of it is off every walkway tri")
@@ -111,3 +113,41 @@ def _row_first(g) -> None:
             r = None
         g.check(r is not None, f"{fid} {how}: {'OFF' if r and not r['on_walkway'] else 'on'} the walkway after "
                 f"{FRAMES} frames right", str(r))
+
+
+def _fixed(g) -> None:
+    """DETACH_ORDER=fixed: the build now guards a kit-built player wherever 2507's pass will run
+    (content.walkmesh_hotfix.reattach_player: its Loop re-attaches it whenever it has control and no triangle).
+    30990 and 30992 are rebuilt with it; 30991 (no row) is unchanged. Every slot must now stop at the platform edge,
+    and 30990's HUD must still show the chests detached -- the hotfix fires, only the player is restored.
+    (The first fix, a one-shot `Wait(30); SetPathing(1)`, passed one launch and failed the next: the pass lands
+    at a load-dependent moment, so a fixed delay races it.)"""
+    import re as _re
+    wm = _mesh()
+    g.newgame()
+    res = {}
+    for fid in (NO_ROW, WITH_ROW, NATIVE, REAL):
+        try:
+            res[fid] = _probe(g, wm, fid)
+        except Exception as err:                 # noqa: BLE001
+            print(f"[detach] {fid}: probe failed: {err}")
+            res[fid] = None
+        if fid == WITH_ROW and res[fid] is not None:
+            hud = {}
+            for text in g.state.texts:
+                for label in ("P", "CA", "CB", "FA"):
+                    m = _re.search(r"(?<![A-Z])" + label + r"\s+(-?\d+)", text)
+                    if m:
+                        hud[label] = int(m.group(1))
+            print(f"[detach] {fid} HUD after the walk: {hud}")
+            g.check(hud.get("CA") in (-1, 65535) and hud.get("CB") in (-1, 65535) and hud.get("P", -1) >= 0
+                    and hud.get("P") != 65535,
+                    f"{fid}: the chests are still detached (the hotfix fired) and the player is back on a tri",
+                    str(hud))
+    # Attached vs detached, not an exact stop point: a bound player slides along the platform edge and comes to
+    # rest at (2157, -870) or (2142, -907) from run to run -- the unchanged no-row 30991 has landed on both --
+    # while a detached one covers the full 360u into the void.
+    for fid in (NO_ROW, WITH_ROW, NATIVE, REAL):
+        r = res[fid]
+        g.check(r is not None and r["on_walkway"] and r["moved"] < 300,
+                f"{fid}: stops at the platform edge, on the walkway (a detached player moves 360u)", str(r))

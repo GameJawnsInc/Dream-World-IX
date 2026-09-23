@@ -343,3 +343,56 @@ def test_editable_import_of_2507_keeps_its_delayed_hotfix_through_the_engine(tmp
     assert "walkmesh_tri_toggles" not in raw["field"]             # an at-load prepend would drop the chests a floor
     text = p.read_text(encoding="utf-8")
     assert "reproduced by the engine fork-donor remap" in text and "LOST" not in text
+
+
+# --- the delayed pass also detaches a kit-built PLAYER: the build re-attaches it ----------------------------
+WAIT, SET_PATHING = 0x22, 0xA8
+
+
+def _player_loop_ops(ebb):
+    from ff9mapkit.content.npc import _find_player_entry
+    eb = EbScript.from_bytes(ebb)
+    return [(i.op, list(i.args or [])) for i in eb.instrs(eb.entry(_find_player_entry(eb)).func_by_tag(1))]
+
+
+def test_catalog_2507_detaches_actors():
+    assert WH.detaching_ids() == (2507,)                     # FieldMap.DelayedActiveTri, the only such pass
+    assert WH.info(2507).detaches_actors and WH.info(2507).delayed
+
+
+def test_reattach_turns_the_idle_player_loop_into_a_guard():
+    """A fixed one-shot (Wait 30, SetPathing 1) raced the engine's pass in-game and lost: when the pass lands
+    relative to the script varies with the load. So the player's idle Loop becomes a guard: every frame, when
+    the player has control (B_SYSVAR[2]) but no triangle (B_BGIID -1), SetPathing(1)."""
+    src = data.blank_field_bytes("us")
+    out = WHX.reattach_player(src)
+    assert EbScript.from_bytes(out).to_bytes() == out        # still a valid .eb
+    assert _player_loop_ops(src) == [(WAIT, [1]), (0x01, [0x10000 - 6])]   # the template's idle loop
+    ops = _player_loop_ops(out)
+    assert [op for op, _ in ops] == [0x05, 0x02, SET_PATHING, WAIT, 0x01]
+    assert ops[2][1] == [1] and ops[3][1] == [1]              # SetPathing(1), then Wait(1) -- every frame
+    assert ops[4][1] == [0x10000 - len(WHX.reattach_loop_body())]   # the jump closes the whole body
+    from ff9mapkit.eb import exprasm
+    assert exprasm.assemble(WHX.REATTACH_COND + " B_EXPR_END") in out
+    assert _tag0_ops(out) == _tag0_ops(src)                   # Main_Init untouched
+    with pytest.raises(ValueError, match="idle loop"):        # a Loop someone already changed is not replaced
+        WHX.reattach_player(out)
+
+
+def test_build_reattaches_the_player_only_where_the_pass_detaches_it(tmp_path):
+    from ff9mapkit import build
+    base = ('[field]\nid={fid}\nname="F"\narea=43\ntext_block=739\n{extra}'
+            '[camera]\npitch=30\ndistance=900\nfov=40\n[player]\nspawn=[0,0]\n')
+    head = [0x05, 0x02, SET_PATHING, WAIT, 0x01]
+    cases = {"donor": (30999, "source_field = 2507\n", True),               # --native / --editable
+             "in_place": (2507, "", True),                                  # EffectiveFieldId(2507) == 2507
+             "borrow": (30999, 'borrow_bg = "IPSN_MAP745A_IP_HL2_0"\n', True),   # a campaign BG-borrow member
+             "other_donor": (30999, "source_field = 600\n", False),
+             "other_borrow": (30999, 'borrow_bg = "MGNT_MAP810_MN_MOG_0"\n', False),
+             "novel": (30999, "", False)}
+    for name, (fid, extra, want) in cases.items():
+        p = tmp_path / f"{name}.field.toml"
+        p.write_text(base.format(fid=fid, extra=extra), encoding="utf-8")
+        proj = build.FieldProject.load(p)
+        assert (build.detaching_donor(proj) == 2507) is want, name
+        assert ([op for op, _ in _player_loop_ops(build.build_script(proj, "us", {}))] == head) is want, name

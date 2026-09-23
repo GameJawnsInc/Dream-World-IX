@@ -5,6 +5,26 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a kit-built fork of field 2507 no longer lets the player walk off the walkmesh
+- **2507's delayed engine hotfix detached the player on every kit-built fork with a donor row.**
+  `FieldMap.DelayedActiveTri` runs 0.5 s after load and detaches every actor whose `isPlayer` is false from the
+  walkmesh. On a `--native`, `--editable` or BG-borrow fork, whose `.eb` the kit builds, that included the
+  player, who could then walk straight off the stairwell walkway. The real 2507 keeps its player, whose script
+  calls `SetPathing(1)`. `--verbatim` forks run that script and were never affected.
+- **The build now turns the player's idle Loop into a guard** (`content.walkmesh_hotfix.reattach_player`).
+  Every frame, when the player has control (`B_SYSVAR[2]`) but no walkmesh triangle, it runs `SetPathing(1)`.
+  Every kit sequence that turns pathing off (ladders, platforms, jumps, cutscenes) disables movement first, so the
+  guard never fights one. It is added only where 2507's pass will run: a recorded donor of 2507, the field forked
+  in place, or a `borrow_bg` of 2507's scene (a campaign BG-borrow member gets its row from the campaign).
+  Everything else builds byte-identically. The catalog flags the pass as `Hotfix.detaches_actors`.
+- A fixed one-shot (`Wait(30)` then `SetPathing(1)`) was tried first. It passed one launch and failed the next,
+  because the pass lands at a load-dependent moment.
+- **In-game (harness, two launches):** from 2507's entrance-128 platform, 12 run frames toward its east edge.
+  The real field, a no-row fork, and the rebuilt `--editable` and `--native` forks all stop at the edge, at the
+  same point. Before the fix, both forks walked 360u off the walkway. On the editable fork, a HUD shows the chests
+  still detached (the hotfix fires) and the player back on a triangle. No engine exceptions.
+  (`studies/fork-walkmesh-hotfix/`)
+
 ### Fixed — an `import --editable` fork records its donor, so it gets a ForkDonorPatch row
 - **`import --editable` now writes `[field] source_field = <donor id>`**, as `--native`, `--verbatim` and every
   campaign member already did. That key is the only thing `deploy_field` and `build --out` turn into the
@@ -24,7 +44,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **In-game (harness A/B):** two slots built from one `import 2507 --editable`, differing only in the key.
   With the row, `DelayedActiveTri` fired: a HUD reading the walkmesh triangle under each carried chest showed
   -1 (detached), against 178 and 174 without it. The same run found that the coroutine also detaches the
-  kit-built player, including on `--native` forks, which already had the row. The next entry fixes that.
+  kit-built player, including on `--native` forks, which already had the row. The entry above fixes that.
   (`studies/fork-walkmesh-hotfix/`)
 
 ### Fixed — `import` stops prepending a walkmesh hotfix the fork-gate engine already applies
