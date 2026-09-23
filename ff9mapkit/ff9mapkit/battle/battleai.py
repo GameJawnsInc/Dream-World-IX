@@ -37,8 +37,9 @@ def _member_annotation(operands) -> str:
     return f"  # B_MEMBER {' '.join(named)}" if named else ""
 
 # Battle-AI function TAGS -> their role (the engine dispatches an enemy object's functions by these tags via
-# Request/RequestAction). Tag 0 = the entry's Init; the rest are AI phases. (project-ff9-battle-tuning §2b.)
-_BATTLE_TAGS = {0: "Init", 1: "Main", 2: "Tag2", 6: "Counter", 7: "ATB", 9: "Dying", 10: "Reinit"}
+# Request/RequestAction). Tag 0 = the entry's Init; the rest are AI phases: 5 = the ATB turn, 7 = the post-hit
+# Reaction (every effect landed on the enemy), 9 = Dying (die_atk only) -- measured, studies/fight-ledger/PLAN.md.
+_BATTLE_TAGS = {0: "Init", 1: "Main", 2: "Tag2", 5: "ATB", 6: "Counter", 7: "Reaction", 9: "Dying", 10: "Reinit"}
 
 # the low CONTROL opcodes the engine handles in EBin.jumpToCommand (not DoEventCode), which OP_NAMES leaves
 # unnamed (they are "rsvNN" in event_code_binary). Naming them is what makes the AI's branches readable.

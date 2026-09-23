@@ -133,7 +133,7 @@ implemented — the raw16 `flags` key targets the per-enemy MON Flags @48, a sep
 | Spawn / AI binding | `InitObject(1+type, 0x80+slot)` per slot | eb | `event_data.rewrite_main_init`; `EventEngine.cs:560-571` | No | **done** (`[scene] monster_count` → one InitObject/slot; `[[scene.enemy]] ai_entry = N` overrides the `1+type` bind for offset-entry donors) |
 | Attack select | which scene attack (0..AtkCount-1) on the ATB turn | eb | `BTLCMD 0x38` (`DoEventCode.cs:1198`); often an expression into a working var | No | **done** (`[[scene.ai_function]]`/`[[scene.ai_insert]]` author an `Attack({…})`; `[[scene.ai_patch]]` retunes the index in place; `[[scene.ai_phase]]` overrides the attack-index var) |
 | AI thresholds / branches | HP%/MP/status/phase conditions | eb | expr ops `B_CURHP=82 / B_MAXHP=83 / B_CURMP=110 / B_SYSVAR=122 / B_SYSLIST=121` → `btl_scrp.GetCharacterData` | No | **done** (`[[scene.ai_phase]]` generates the in-game-proven `cur<max/N` HP-threshold branch; `[[scene.ai_insert]]` authors arbitrary `JMP_IF {expr}` branches) |
-| Counter / dying / phase / call-help | new AI branches by tag | eb | tags via `Request/RequestAction`: tag 1 main loop, **tag 6 counter, tag 7 ATB, tag 9 dying** | No | **done** (`[[scene.ai_function]]` adds/replaces a function by tag — counter/ATB/dying/main — the length-changing primitive, lint-gated) |
+| Counter / dying / phase / call-help | new AI branches by tag | eb | tags via `Request/RequestAction`: tag 1 main loop, **tag 5 the ATB turn (holds the `Attack`), tag 6 counter, tag 7 the post-hit reaction (every effect landed, misses included), tag 9 dying (only with the enemy's `die_atk` flag)** — measured in `studies/fight-ledger/PLAN.md` | No | **done** (`[[scene.ai_function]]` adds/replaces a function by tag — counter/ATB/dying/main — the length-changing primitive, lint-gated) |
 | Instant special | fire a raw17 seq without an ATB turn | eb | `AttackSpecial 0xE5` | No | **done (authorable)** (`cmdasm` emits `AttackSpecial(…)` from any `ai_function`/`ai_insert`; not separately in-game-proven) |
 | Forced / scripted battle | start a specific scene on a trigger | eb | `Battle 0x2A` / `BattleEx 0x8C` | No | **absent** (AI-eb scope) — scripted/forced battles are a FIELD-eb concern (`[encounter]`, a proven field pillar), misfiled here |
 
@@ -619,7 +619,7 @@ terminator set (`GameOver`/`STOP`/… also end dispatch → false-flagged, now w
 out-of-range tag raising a raw `struct.error` (→ clean error). **Phase 6c COMPLETE** (read → tune → author →
 validate the whole enemy-AI stack, no DLL). ★ **IN-GAME PROVEN (2026-06-13):** a `[[scene.ai_function]]` RET-ing the
 forked Goblin's **tag-5 attack routine** (`battle_tests/bt_goblin`, scene 30055) made it stand idle in real battle
-(Phase-4 Poison then finished it). Dispatch model learned: an enemy turn dispatches to **tag 7 (ATB)**; the spawned
+(Phase-4 Poison then finished it). Dispatch model learned (tag 7 corrected later — it is the post-hit reaction, the turn is tag 5; see `studies/fight-ledger/PLAN.md`): the spawned
 enemy's AI ENTRY is bound by Main_Init's `InitObject(<entry>,…)` (the Goblin binds to **entry 2**, decoupled from the
 raw16 "type"); the `Attack` (0x38) command lives in **tag 5**. **Defer raw17 btlseq sequence authoring** (new codec
 + a coordinated raw16+eb+raw17 edit).

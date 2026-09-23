@@ -9,8 +9,9 @@ the existing byte-safe length-changing primitives (:mod:`ff9mapkit.eb.edit`), wh
 is already used on battle ebs (to re-author Main_Init for an edited spawn), so the machinery is proven; what 6c
 adds is the way to WRITE the new bytecode by hand.
 
-The AI-phase tags the engine dispatches (project-ff9-battle-tuning): 1 Main, 6 Counter, 7 ATB, 9 Dying (tag 0 =
-the entry's Init). A fuller battle linter -- valid tags, an Attack index in range, a terminating RET -- is the next
+The AI-phase tags the engine dispatches: 1 Main (entered once, may loop), 5 ATB (the enemy's turn -- holds the
+``Attack``), 6 Counter, 7 Reaction (after EVERY effect landed on the enemy, misses included), 9 Dying (only with the
+enemy's ``die_atk`` flag); tag 0 = the entry's Init. Measured in-game: studies/fight-ledger/PLAN.md rung 0. A fuller battle linter -- valid tags, an Attack index in range, a terminating RET -- is the next
 step (Phase 6c-iii); these wrappers stay deliberately thin.
 """
 from __future__ import annotations
@@ -21,7 +22,9 @@ from ..eb.model import EbScript
 from .ailint import TERMINATOR_OPS as _TERMINATOR_OPS    # the flow-terminators (RET/TerminateEntry/GameOver/...),
 
 # the AI-phase function tags an enemy-type entry dispatches (0 = Init, the spawn binding, edited via Main_Init).
-AI_PHASE_TAGS = {1: "Main", 6: "Counter", 7: "ATB", 9: "Dying"}
+# Tag 7 is NOT the ATB turn (the kit called it that until rung 0 of the fight-ledger arc measured it): the turn is
+# tag 5 (`ProcessEvents.cs:136` "Run the ATB function"), tag 7 the post-hit reaction (`SBattleCalculator.cs:342`).
+AI_PHASE_TAGS = {1: "Main", 5: "ATB", 6: "Counter", 7: "Reaction", 9: "Dying"}
 
 # (`_TERMINATOR_OPS` shared with the linter so the two never drift.) The engine has NO per-function length bound,
 # so an authored body that doesn't END in one of these runs the IP off into adjacent bytecode at runtime.
