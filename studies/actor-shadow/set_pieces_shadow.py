@@ -13,8 +13,9 @@ stowed in its cask. The player spawns between the rows (the camera follows it), 
 PRE  the DEPLOYED .eb carries exactly the expected ops per object (keyed by model + Init position): size +
      amp on the casting set pieces, none on the cactus / the held cup, DisableShadow (donor) and no size op
      on the act's book + feather; the player + holder keep their rung-0 ops in BOTH runs
-A0   no exception THROUGH a shadow path, in either log; every other exception tallied (FieldMapActorController
-     .MovePC throws ~26x per run on this floor with or without shadows -- compare the control's count)
+A0   no exception THROUGH a shadow path, in either log; every other exception tallied (the ~26
+     FieldMapActorController.MovePC NREs per pre-s87 run were field 70's, thrown before the warp, not this
+     floor's; engine patch s87 fixed them -- compare the control's count on the same engine)
 R1   the barrel_pop REVEAL still runs with the 7 new bytes in the moogle + cask Inits (its state machine was
      proven byte-for-byte in-game, bench 30210): pressing the cask takes control away and hands it back (the
      cask's handshake poll), and the save point's zone then OPENS the menu -- its gate passes only once the
