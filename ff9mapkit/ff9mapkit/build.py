@@ -4166,9 +4166,10 @@ def _donor_text_served(project: FieldProject) -> tuple:
     (:func:`collect_text`'s body plus the ``[carry_text]`` band); a donor window on one of those shows the
     field's line instead.
 
-    The donor's block is known exactly when the project records a donor (native, verbatim or BG-borrow). An
-    ``--editable`` fork records none, so a REAL ``text_block`` is taken as the donor's: ``import`` sets it to
-    the donor's block, or to the fork's own id when the donor can't be resolved. Anything unreadable gives
+    The donor's block is known exactly when the project records a donor (:func:`donor_field_id`: a native
+    fork's ``source_field``, a verbatim one's ``[verbatim_eb] donor``). An ``--editable`` or plain BG-borrow
+    import records none, so a REAL ``text_block`` is taken as the donor's: ``import`` sets it to the donor's
+    block, or to the fork's own id when the donor can't be resolved. Anything unreadable gives
     ``(False, set())``, the loud side. (Only the synthesized path grafts ``[[object]]``s -- ``build_script`` --
     so its ``collect_text`` layout is the one that matters here.)"""
     tb = project.text_block

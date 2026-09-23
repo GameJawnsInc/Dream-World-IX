@@ -53,8 +53,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   there. The warning now fires only when the field sits off the donor's block, or when the field's own `.mes`
   (its dialogue at 500+, or the `[carry_text]` band at 1000+) writes that exact txid. That second case gets its
   own message naming the txids. On the 1607 fork all 4 talking objects are clean; adding one NPC line flags only
-  the one window at txid 500. An `--editable` fork records no donor, so a real `text_block` is taken as the
-  donor's (the importer sets it that way). A recorded donor must match exactly.
+  the one window at txid 500. An `--editable` or plain BG-borrow import records no donor, so a real
+  `text_block` is taken as the donor's (the importer sets it that way). A recorded donor (a native fork's
+  `source_field`, a verbatim one's `[verbatim_eb] donor`) must match exactly.
 
 ### Fixed — a field revert removes the `.mes` its deploy wrote fresh
 - **The revert used to leave behind a `field/<block>.mes` that the deploy wrote where none existed.** It only
