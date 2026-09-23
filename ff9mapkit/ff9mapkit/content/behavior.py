@@ -2478,6 +2478,8 @@ class FieldBehavior:
     def has_battle_actions(self) -> bool:
         """True when any tree fires a :class:`Battle` — the build must then
         ensure the entry-0 tag-10 Main_Reinit (the after-battle resume law).
+        The build DECIDES that install from the raw twin,
+        ``behaviortoml.fires_battle``, and refuses a compile where the two differ.
         Class trees count: the engine's park/restore/suspend/resume is uid-
         keyed and cid-blind (EventContext.copy + EnterBattleEnd + the state0
         wake), so Seq brains ride a battle round-trip like any stock object."""

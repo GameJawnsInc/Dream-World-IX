@@ -393,6 +393,94 @@ def test_apply_wipe_warp_into_existing_reinit():
     assert _apply_wipe_warp(SimpleNamespace(raw={}), with_reinit) == with_reinit
 
 
+# ---- ONE after-battle handler for every battle source ([encounter] and a [behavior] battle action) -------
+_AB_FIELD = (
+    '[field]\nid = 30002\nname = "ABH"\narea = 11\n'
+    "\n[[camera]]\npitch = 45\nyaw = 0\n[[camera]]\npitch = 45\nyaw = 25\n[[camera]]\npitch = 45\nyaw = -25\n"
+    "\n[[camera_zone]]\nto_camera = 0\nzone = [[-1100, -100], [-400, -100], [-400, -900], [-1100, -900]]\n"
+    "[[camera_zone]]\nto_camera = 1\nzone = [[-300, -100], [300, -100], [300, -900], [-300, -900]]\n"
+    "[[camera_zone]]\nto_camera = 2\nzone = [[400, -100], [1100, -100], [1100, -900], [400, -900]]\n"
+    "\n[walkmesh]\nquad = [[-1200, -50], [1200, -50], [1200, -1000], [-1200, -1000]]\n"
+    "\n[player]\nspawn = [0, -300]\n"
+    '\n[[npc]]\nname = "gate"\npreset = "vivi"\npos = [0, -600]\ndialogue = "Hold!"\n'
+    "\n[music]\nsong = 9\n"
+    "\n[deathrules]\non_defeat = { warp_to = 6000 }\n")
+_AB_ENCOUNTER = "\n[encounter]\nscene = 67\n"
+_AB_BEHAVIOR = ("\n[behavior]\nwarmup = 30\n"
+                '\n[[behavior.unit]]\nnpc = "gate"\nhp = 3\n'
+                "\n[[behavior.unit.branch]]\nwhen = [{ hp_le = 0 }]\ndo = { battle = 35 }\n"
+                "\n[[behavior.unit.branch]]\ndo = { hold = [0, -600] }\n")
+
+
+def _build_ab(tmp_path, name, extra):
+    from ff9mapkit.build import FieldProject, build_script, validate
+    p = tmp_path / f"{name}.field.toml"
+    p.write_text(_AB_FIELD + extra, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+    return build_script(FieldProject.load(p), "us", {0: 501})
+
+
+def _tag10_body(built: bytes) -> bytes:
+    f = EbScript.from_bytes(built).entry(0).func_by_tag(10)
+    assert f is not None, "no after-battle handler (entry-0 tag-10)"
+    return built[f.abs_start:f.abs_end]
+
+
+def test_behavior_battle_gets_the_same_after_battle_handler(tmp_path):
+    """REGRESSION: a [behavior] `battle` field's tag-10 was a bare add_reinit -- no [deathrules] on_defeat
+    wipe-warp prologue (losing that battle silently didn't warp and left the marker bit set) and no
+    multi-camera restore. Both battle sources now go through ONE installer, so an encounter field, a
+    behavior-battle field and a field with both carry the IDENTICAL handler: prologue + BGM resume +
+    camera restore. The mixed field used to fail its build outright (see the Main_Loop test below)."""
+    from ff9mapkit.battle import deathrules
+    enc = _tag10_body(_build_ab(tmp_path, "enc", _AB_ENCOUNTER))
+    beh = _tag10_body(_build_ab(tmp_path, "beh", _AB_BEHAVIOR))
+    both = _tag10_body(_build_ab(tmp_path, "both", _AB_ENCOUNTER + _AB_BEHAVIOR))
+    pro = deathrules.field_prologue(deathrules.parse_table({"on_defeat": {"warp_to": 6000}}))
+    assert pro
+    for body in (enc, beh, both):
+        assert pro in body                                               # the wipe-warp check
+        assert opcodes.run_sound_code(0, 9) in body                      # the field-BGM resume
+        for k in (1, 2):                                                 # the camera restore
+            assert region.cond_eq(region.GLOB_UINT8, 24, k) in body and opcodes.set_field_camera(k) in body
+    assert beh == enc and both == enc                                    # ONE handler, whatever the source
+
+
+def test_behavior_battle_without_deathrules_has_no_prologue(tmp_path):
+    """No [deathrules] -> the prologue is empty and the handler is the plain one (music + cameras + tail)."""
+    from ff9mapkit.build import FieldProject, build_script
+    p = tmp_path / "plain.field.toml"
+    p.write_text(_AB_FIELD.replace("\n[deathrules]\non_defeat = { warp_to = 6000 }\n", "") + _AB_BEHAVIOR,
+                 encoding="utf-8")
+    body = _tag10_body(build_script(FieldProject.load(p), "us", {0: 501}))
+    assert 0x2B not in [ins.op for ins in iter_code(body, 0, len(body))]  # no Field() warp in it at all
+    assert body.endswith(reinit.GRANT_GATE + bytes([0x02, 0x01, 0x00]) + opcodes.ENABLE_MOVE + opcodes.RETURN)
+
+
+def test_after_battle_handler_leaves_main_loop_out_of_range(tmp_path):
+    """REGRESSION (the Main_Loop slide): the blank's entry-0 Main_Loop (tag 1) points past the entry's end
+    -- an out-of-range IP the engine just returns from. Growing tag-10 used to slide it INTO Main_Reinit
+    (the engine then ran Main_Loop from mid-handler on every load), and the [behavior] install's lint gate
+    refused the field. Every battle field here carries a >100-byte handler; Main_Loop must stay past the end."""
+    for name, extra in (("enc", _AB_ENCOUNTER), ("beh", _AB_BEHAVIOR), ("both", _AB_ENCOUNTER + _AB_BEHAVIOR)):
+        built = _build_ab(tmp_path, name, extra)
+        e0 = EbScript.from_bytes(built).entry(0)
+        assert len(_tag10_body(built)) > 65
+        assert e0.func_by_tag(1).abs_start >= e0.abs_end, name
+
+
+def test_behavior_battle_raw_scan_must_agree_with_the_compile(tmp_path, monkeypatch):
+    """The after-battle handler is decided from the RAW scan (behaviortoml.fires_battle) because the
+    behavior compiles later -- a scan that misses a compiled Battle would ship a battle with no tag-10
+    (every object stays suspended after the fight). The build refuses the disagreement at the call site."""
+    import pytest
+    from ff9mapkit.build import BuildError
+    from ff9mapkit.content import behaviortoml
+    monkeypatch.setattr(behaviortoml, "fires_battle", lambda raw: False)
+    with pytest.raises(BuildError, match="raw scan"):
+        _build_ab(tmp_path, "blind", _AB_BEHAVIOR)
+
+
 def test_music_on_entry_and_reinit():
     out = music.add_field_music(CLEAN, 9)
     eb = EbScript.from_bytes(out)

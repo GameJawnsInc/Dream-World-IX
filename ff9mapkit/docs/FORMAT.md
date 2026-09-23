@@ -2479,7 +2479,8 @@ model precedence the build uses, so what you preview is what ships.
 | `battle_music` | BattlePatch song-play id (default `0` = normal battle theme). `import` auto-detects the donor field's real battle song (from the install's `BtlEncountBgmMetaData` `(field, scene)→song` map) and prefills this when it's non-default — a fork to a custom id loses the engine's own `(fldMapNo, scene)` lookup, so the kit reproduces it via the scene-keyed `Music:` line. |
 
 Adding an encounter automatically adds the after-battle handler the field needs (otherwise the
-player freezes on battle return).
+player freezes on battle return) -- the same one a `[behavior]` `battle` action gets: field-BGM
+resume, multi-camera restore, and the `[deathrules] on_defeat` wipe-warp check.
 
 ---
 
@@ -2639,7 +2640,7 @@ Same Overload/scripts-DLL plumbing as `[difficulty]`/`[rebalance]`: compiles at 
 | `revive_hp` | `"short"` only: revive HP as a fraction of max HP (`0 < x <= 1`, floored at 1 HP; default `0.2`). The `"full"` variant's HP is decided by the Rebirth Flame ability. |
 | `keep_rebirth_flame` | default `true`: Eiko's vanilla auto-Phoenix is kept (the kit transcribes the displaced engine default). `false` **removes** it — with no `second_wind`, wipes become strictly final (hardcore). |
 | `flag` | optional gate on a `gEventGlobal` bit (a `[[flag]]` name or index). Bit clear = **fully vanilla** — Eiko's auto-revive still fires even with `keep_rebirth_flame = false` (the rule is asleep, not half-applied). Toggles **live**: the next wipe obeys the new state. Omit = always on. |
-| `on_defeat` | inline table `{ warp_to = <field id>, hp = 0.2, gil_loss = 0.1, flag = ... }`: instead of a game over, the fallen party revives at `hp` × max (quietly — no summon, no get-up; the battle ends instantly), optionally loses `gil_loss` × its gil once, and the field's after-battle handler warps to **the last `[field] outpost = true` field the player entered** — or to `warp_to`, the fallback for a wipe before any outpost. With `second_wind` too, the wind fires first; spent / a failed roll falls through to the warp. `flag` overrides the kit-reserved wipe-marker bit (8508). Works on **verbatim forks** too (the check prepends into the donor's existing after-battle handler). ⚠ Every field where a battle can happen — kit `[encounter]` fields *and* battle-donor verbatim forks — must carry the identical `[deathrules]` block (the build warns about gaps — an uncovered field's wipe revives + flees but can't warp). |
+| `on_defeat` | inline table `{ warp_to = <field id>, hp = 0.2, gil_loss = 0.1, flag = ... }`: instead of a game over, the fallen party revives at `hp` × max (quietly — no summon, no get-up; the battle ends instantly), optionally loses `gil_loss` × its gil once, and the field's after-battle handler warps to **the last `[field] outpost = true` field the player entered** — or to `warp_to`, the fallback for a wipe before any outpost. With `second_wind` too, the wind fires first; spent / a failed roll falls through to the warp. `flag` overrides the kit-reserved wipe-marker bit (8508). Works on **verbatim forks** too (the check prepends into the donor's existing after-battle handler). ⚠ Every field where a battle can happen — kit `[encounter]` fields, fields whose `[behavior]` fires a `battle`, *and* battle-donor verbatim forks — must carry the identical `[deathrules]` block (the build warns about gaps — an uncovered field's wipe revives + flees but can't warp). |
 
 Mod-global like its siblings; the block must change *something* (`second_wind = true` and/or
 `keep_rebirth_flame = false`). Fail-safe by construction: any runtime hiccup degrades to a vanilla defeat,
@@ -2731,8 +2732,9 @@ priority order — the first the threat is NOT within `avoid_r` of; `speed`) · 
 `radius`, `every` = ticks between random re-targets, `speed`) · `swing_at` (a unit with `hp`;
 `damage`, `interval`) · `die` (`true`, or a **counter name** — `die = "kills"` bumps that
 counter once) · `battle` (a battle SCENE id — a REAL fight, one-shot per
-field load by construction; the build auto-installs the after-battle Main_Reinit + BGM
-resume; use a stock scene = no BattlePatch) · `award` (gil int; `+ item`/`count` — pays the
+field load by construction; the build auto-installs the SAME after-battle Main_Reinit an
+`[encounter]` gets -- BGM resume, multi-camera restore, `[deathrules] on_defeat` wipe-warp; use a
+stock scene = no BattlePatch) · `award` (gil int; `+ item`/`count` — pays the
 player EXACTLY ONCE via the event-Once lane; requires `once` on the branch) · `announce`
 (a text line, minted into the field's `.mes`) / `announce_npc` (reuse that NPC's own
 `dialogue` line).
