@@ -760,7 +760,8 @@ every = 90                           # REQUIRED here, 1..30000 (an Int16 timer; 
 
 - **`clamp = [lo, hi]` is mandatory.** An unclamped meter walks off its range and
   every gate downstream reads garbage — and the 26-bit CalcStack does not truncate
-  on overflow, it **re-reads the value as a different variable class**. All of
+  on overflow, it **wraps silently mod 2^26** (a wrong value, never an error — measured
+  in-game, `studies/roll-stream/` rung 0). All of
   `by`/`lo`/`hi` (and every seed value of an adjusted table) are fenced to ±10^6.
 - **Targets**: `counter = "name"`, or `table = "name"` + `index =` an int
   (compile-time bounds-checked) or a **counter name** — the computed-index WRITE,

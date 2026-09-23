@@ -542,10 +542,10 @@ def set_text_variable(slot: int, value: int) -> bytes:   # 0x66 (MESVALUE) argsi
 # THE EXPRESSION-VALUED SETTEXTVARIABLE ceiling, restated where a caller can see it. A COMPUTED
 # intermediate is 26-bit SIGNED, not Int32: every operator result lands on the CalcStack through
 # EBin.expr_Push_v0_Int24 (EBin.cs:1270-1274), which ORs the Int26 class tag into bits 26-28 with NO
-# mask on _v0, and is read back as ``(t0 << 6) >> 6`` (EBin.cs:1682-1684). Overflow therefore does not
-# truncate -- the high bits collide with the VariableSource field and the entry is re-read as a
-# DIFFERENT variable class. (B_CONST4/B_SYSVAR mask explicitly at EBin.cs:1232/:1243; this push does
-# not.) Only a BARE TERMINAL var token bypasses the push and returns a full Int32 through getv().
+# mask on _v0, and is read back as ``(t0 << 6) >> 6`` (EBin.cs:1682-1684). Overflow therefore WRAPS
+# SILENTLY mod 2^26: the OR forces the class bits to Int26 whatever the high bits held, and the read
+# sign-extends bit 25 (measured in-game, studies/roll-stream rung 0: 2^25 - 1 + 1 reads back -2^25) --
+# a wrong value, not an exception. (B_CONST4/B_SYSVAR mask explicitly at EBin.cs:1232/:1243.) Only a BARE TERMINAL var token bypasses the push and returns a full Int32 through getv().
 # Same number the behavior tables already carry as TABLE_VALUE_MIN/MAX (content/behavior.py:690-691).
 EXPR_VALUE_MIN = -(1 << 25)
 EXPR_VALUE_MAX = (1 << 25) - 1

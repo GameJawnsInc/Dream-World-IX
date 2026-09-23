@@ -1039,9 +1039,10 @@ class TableSpec:
 # --------------------------------------------------------------- adjust (writes)
 #: THE MAGNITUDE FENCE for every adjust/drift operand — |by|, clamp bounds, and the
 #: seed values of any adjusted table. The CalcStack is 26-bit signed and OVERFLOW
-#: DOES NOT TRUNCATE (the high bits collide with the variable-class tag and the
-#: entry is re-read as a DIFFERENT variable — EBin.cs:1270-1274/1682-1684), so the
-#: worst intermediate ``cell + by`` must sit far inside ±2^25. A life-sim meter,
+#: WRAPS SILENTLY mod 2^26 (the push ORs the Int26 class tag over the high bits and
+#: the read sign-extends bit 25 — EBin.cs:1270-1274/1682-1684; measured in-game,
+#: studies/roll-stream rung 0: 2^25 - 1 + 1 reads back -2^25), so the worst
+#: intermediate ``cell + by`` must sit far inside ±2^25. A life-sim meter,
 #: a relationship, a wallet all fit in ±10^6 with room for the sum; anything
 #: bigger is almost certainly a units error.
 ADJUST_MAG_MAX = 1_000_000
@@ -2331,7 +2332,7 @@ class FieldBehavior:
             raise BehaviorError(
                 f"table {a.table!r} is adjusted but seeds {bad[:3]}… exceed "
                 f"±{ADJUST_MAG_MAX} — the first `cell + by` on such a seed can "
-                f"overflow the 26-bit CalcStack (which re-reads, not truncates)")
+                f"overflow the 26-bit CalcStack (which wraps silently mod 2^26)")
         return ref
 
     def _adjust_write(self, a: "AdjustSpec", tag: str) -> list:

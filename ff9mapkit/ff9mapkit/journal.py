@@ -1266,10 +1266,10 @@ EB_ABSENT = {
 # ---------------------------------------------------------------- the 26-bit envelope, ENFORCED
 # Every COMPUTED intermediate is 26-bit signed, not Int32: an operator result is pushed by
 # `EBin.expr_Push_v0_Int24` (EBin.cs:1270-1274), which ORs the Int26 class tag into bits 26-28 with NO
-# mask, and is read back as `(t0 << 6) >> 6` (EBin.cs:1682-1684). Overflow therefore does not truncate
-# -- the high bits collide with the VariableSource field and the entry is re-read as a DIFFERENT
-# variable class. (B_SYSVAR and B_CONST4 mask explicitly at EBin.cs:1232 / :1243, so those two
-# TRUNCATE instead of corrupting; a bare terminal var token bypasses the push entirely and returns a
+# mask, and is read back as `(t0 << 6) >> 6` (EBin.cs:1682-1684). Overflow therefore WRAPS SILENTLY
+# mod 2^26 -- the OR forces the class bits to Int26 and the read sign-extends bit 25 (measured in-game,
+# studies/roll-stream rung 0). (B_SYSVAR and B_CONST4 mask explicitly at EBin.cs:1232 / :1243, so those
+# two truncate to 26 bits the same way; a bare terminal var token bypasses the push entirely and returns a
 # full Int32 through getv, EBin.cs:1621-1687.) Ceiling: opcodes.EXPR_VALUE_MIN/MAX = +/-33,554,431.
 #
 # A docstring saying "mind the ceiling" is a wish (CLAUDE.md s7), so this is an INTERVAL EVALUATOR the

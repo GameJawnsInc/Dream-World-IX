@@ -2835,7 +2835,7 @@ alternator/public flag/`raise_flags` raises — a never-raised gate refuses at b
 Drift runs with the ticker's clocks, independent of any tree's selection — the selector
 fires ONE branch per unit per tick, so decay as branches would compete; as drift rows it
 just ticks. All operands (and every seed of an adjusted table) are fenced to ±10^6: the
-26-bit CalcStack re-reads an overflow as a different variable class, so the fence is hard.
+26-bit CalcStack wraps an overflow silently mod 2^26 (a wrong value, never an error), so the fence is hard.
 
 ## `[chocobo]` (optional — Chocobo Hot & Cold prize pool & timer)
 

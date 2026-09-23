@@ -181,8 +181,8 @@ def test_expression_ceiling_is_26_bit_signed_not_int32():
     tables that already carry it. A COMPUTED intermediate goes through
     ``EBin.expr_Push_v0_Int24`` (EBin.cs:1270-1274), which ORs the Int26 class tag
     (7 << 26) into ``_v0`` with NO mask, and is read back as ``(t0 << 6) >> 6``
-    (EBin.cs:1682-1684) -- so overflow does not truncate, it lands in the
-    VariableSource field and the entry is re-read as a different variable class."""
+    (EBin.cs:1682-1684) -- so overflow WRAPS silently mod 2^26 (the class bits are forced
+    to Int26; measured in-game in studies/roll-stream rung 0)."""
     from ff9mapkit.content.behavior import TABLE_VALUE_MAX, TABLE_VALUE_MIN
     assert opcodes.EXPR_VALUE_MAX == (1 << 25) - 1 == 33_554_431
     assert opcodes.EXPR_VALUE_MIN == -(1 << 25)
