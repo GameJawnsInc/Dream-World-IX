@@ -120,4 +120,6 @@ def add_camera_restore(data, cameras_used, control_values, *, flag=DEFAULT_FLAG)
         restore += _region.if_block(_region.cond_eq(flag_class, flag_idx, k), actions)
     if not restore:
         return data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
-    return edit.insert_bytes(data, f.abs_start, restore)
+    # a prepend through insert_in_function (always safe), not a raw insert_bytes: entry 0's other function
+    # pointers must move with the bytes (the blank's Main_Loop sits past the entry's end and must stay there)
+    return edit.insert_in_function(data, 0, REINIT_TAG, 0, restore)

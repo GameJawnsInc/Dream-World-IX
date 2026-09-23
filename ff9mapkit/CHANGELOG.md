@@ -60,6 +60,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - An ordinary `[[behavior.table]]` id may not sit inside 6000000..7999999, and `id = true` (a TOML
   bool, which used to pass as id 1) is refused.
 
+### Fixed — a `[behavior]` battle gets the same after-battle handler as an `[encounter]`
+- A field whose battles come from a `[behavior]` `battle` action now gets the full after-battle handler
+  an `[encounter]` field gets: the `[deathrules] on_defeat` wipe-warp check (losing such a battle used
+  to revive + flee but never warp, leaving the wipe marker set), the field-BGM resume, and the
+  multi-camera restore. One installer serves both battle sources, so the two can no longer drift.
+- The `[deathrules] on_defeat` coverage warning now names behavior-battle fields that lack the block
+  (it only looked for `[encounter]`), and no longer names an `[encounter]` with no `scene` (inert: it
+  fights nothing).
+- A field with BOTH an `[encounter]` and a `[behavior]` battle plus `[deathrules] on_defeat` failed its
+  build ("install produced NEW lint errors"). The lint was right: the blank template's entry-0
+  Main_Loop points just past entry 0's end (an out-of-range IP the engine simply returns from), and
+  growing the after-battle handler slid it INTO the handler. Adding a function now keeps such a pointer
+  past the end, and the BGM/camera prepends move it with the bytes, so a long handler (any
+  `on_defeat` field, `[encounter]` ones included) no longer runs Main_Loop from mid-handler on every
+  field load. Every battle field's `.eb` changes by that one pointer; nothing else moves.
+
 ### Fixed — the deploy pin reaches the last three folder readers, and the Build tab says where its slot came from
 - `world-ledger` no longer REQUIRES `--mod-folder`: it resolves the folder like every other verb
   (`--mod-folder` > `$FF9_MOD_FOLDER` > this checkout's `.ff9deploy.toml` > `FF9CustomMap`), so a pinned

@@ -525,11 +525,12 @@ the fallen party (no run-away slide or flee sound; they're on their feet at the 
 max HP, optionally losing `gil_loss` × its gil **once** (a same-instant re-kill re-asserts the exit but
 never docks twice), through the engine's **own flee sequence** (no flee-stat side effects, no double gil
 cut); back on the field, the after-battle handler warps to `warp_to` (a kit-built check the build injects
-into every encounter field carrying the block). Composes with `second_wind`: the wind fires first,
+into every battle field carrying the block). Composes with `second_wind`: the wind fires first,
 and only a spent wind (or a failed `chance` roll) falls through to the warp — a roguelike "one free revive,
 then back to camp". The wipe marker rides a kit-reserved story bit (8508; override via `on_defeat.flag`).
 Coverage rule: repeat the identical `[deathrules]` block on **every** field of the mod where a battle can
-happen — kit `[encounter]` fields *and* verbatim forks whose donors have battles. A field carrying the block
+happen — kit `[encounter]` fields, fields whose `[behavior]` fires a `battle`, *and* verbatim forks
+whose donors have battles. A field carrying the block
 gets the after-battle check injected whichever kind it is (a synthesized field's generated handler, or a
 prepend into a verbatim donor's existing one); the build names any gaps (a wipe in an uncovered field
 revives and flees but cannot warp).

@@ -219,3 +219,74 @@ def test_add_reinit_refuses_an_empty_entry_0():
     eb = _eb_multi(None, [(0, RET)])
     with pytest.raises(ValueError, match=r"entry 0 is empty"):
         R.add_reinit(eb)
+
+
+# ---- the past-the-end function pointer (the blank template's entry-0 Main_Loop) --------------------------
+BLANK_MAIN_LOOP_MARGIN = 65     # how far past entry 0's end the blank's tag-1 fpos points
+
+
+def _dangling_fixture() -> bytes:
+    """Entry 0 = Main_Init (tag 0) + a tag 1 whose fpos points PAST the entry's end, the blank template's
+    shape: its Main_Loop RETURN sits beyond the declared size, which the engine never loads (it reads
+    exactly ``size`` bytes per entry), so the loop's IP is out of range and it just returns. Entry 1
+    follows, non-empty."""
+    b = bytearray(_eb_multi([(0, EM_RET), (1, RET)], [(0, RET)]))
+    e0 = EbScript.from_bytes(bytes(b)).entry(0)
+    slot1 = e0.abs_start + 2 + 1 * 4                     # tag 1's (tag, fpos) record
+    assert struct.unpack_from("<H", b, slot1)[0] == 1
+    struct.pack_into("<H", b, slot1 + 2, (e0.size - 2) + BLANK_MAIN_LOOP_MARGIN)
+    return bytes(b)
+
+
+def _margin(eb: bytes, tag: int = 1) -> int:
+    """How far entry 0's ``tag`` pointer sits past the entry's end (> 0 = out of range, as in the blank)."""
+    e0 = EbScript.from_bytes(eb).entry(0)
+    return next(f.fpos for f in e0.funcs if f.tag == tag) - (e0.size - 2)
+
+
+def test_add_reinit_keeps_a_past_end_pointer_past_the_end():
+    """REGRESSION (the Main_Loop slide): add_function shifted EVERY fpos by the table's +4 only, so a pointer
+    parked past the entry's end had the appended body slide under it -- a tag-10 longer than the blank's
+    65-byte margin (the [deathrules] wipe-warp prologue alone is 52 bytes) made the engine run Main_Loop
+    from the MIDDLE of Main_Reinit on every field load. It now keeps its margin for any body length, while
+    an in-range function still shifts by exactly +4."""
+    eb = _dangling_fixture()
+    assert _margin(eb) == BLANK_MAIN_LOOP_MARGIN
+    long_prologue = DM * 120                             # far longer than the margin
+    out = R.add_reinit(eb, prologue=long_prologue)
+    assert _margin(out) == BLANK_MAIN_LOOP_MARGIN        # still out of range -- never inside Main_Reinit
+    old0 = EbScript.from_bytes(eb).entry(0).func_by_tag(0)
+    new = EbScript.from_bytes(out)
+    new0 = new.entry(0).func_by_tag(0)
+    assert new0.fpos == old0.fpos + 4                    # the in-range Main_Init: the table growth only
+    assert out[new0.abs_start:new0.abs_start + len(EM_RET)] == EM_RET
+    f10 = new.entry(0).func_by_tag(10)
+    assert out[f10.abs_start:f10.abs_end] == long_prologue + FADE_IN + GATED_EM + RET
+    assert new.entry(1).off == EbScript.from_bytes(eb).entry(1).off + (len(out) - len(eb))
+
+
+def test_add_function_leaves_an_empty_trailing_function_empty():
+    """An EMPTY function at the entry's very end (fpos == end) must not come to alias the appended body --
+    with the +4-only shift it pointed at the new function's first byte and would have RUN it."""
+    eb = _eb_multi([(0, RET), (1, b"")], [(0, RET)])
+    assert _margin(eb) == 0
+    out = R.add_reinit(eb)
+    e0 = EbScript.from_bytes(out).entry(0)
+    assert e0.func_by_tag(1).fpos != e0.func_by_tag(10).fpos
+    assert _margin(out) == 0                             # still exactly at the end: still empty
+
+
+def test_reinit_prepends_carry_the_past_end_pointer():
+    """The after-battle handler's later prepends -- the BGM resume and the multi-camera restore -- go through
+    insert_in_function, so the past-end pointer moves WITH the bytes (the raw insert_bytes they used left it
+    behind: every prepended byte ate one byte of its margin, and a 5-camera field with music ate all 65)."""
+    from ff9mapkit.content import camera, music
+    out = R.add_reinit(_dangling_fixture())
+    out = music.add_music_to_reinit(out, 9)
+    out = camera.add_camera_restore(out, {0, 1, 2, 3, 4}, [0, 1, 2, 3, 4])
+    assert _margin(out) == BLANK_MAIN_LOOP_MARGIN
+    f10 = EbScript.from_bytes(out).entry(0).func_by_tag(10)
+    body = out[f10.abs_start:f10.abs_end]
+    assert opcodes.run_sound_code(0, 9) in body
+    assert body.endswith(FADE_IN + GATED_EM + RET)       # the handler's own tail rode along intact
+    assert len(body) > BLANK_MAIN_LOOP_MARGIN            # long enough that the old slide would have hit it

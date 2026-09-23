@@ -160,6 +160,23 @@ def units(raw: dict) -> list:
     return list(b.get("unit", [])) if b else []
 
 
+def fires_battle(raw: dict) -> bool:
+    """True when the field's ``[behavior]`` fires a real battle -- any unit or class row with a
+    ``do = { battle = <scene> }`` branch. The RAW twin of
+    :meth:`behavior.FieldBehavior.has_battle_actions`, readable without a compile: the build decides
+    the after-battle handler before the behavior compiles, and the mod-level ``[deathrules]``
+    coverage lint only ever sees raw projects. Every compiled ``Battle`` comes from exactly this
+    verb (``_build_action``); ``build_script`` refuses a compile that disagrees. Malformed rows are
+    skipped, not raised on -- validate() owns reporting them."""
+    for u in units(raw):
+        if not isinstance(u, dict):
+            continue
+        for br in u.get("branch") or []:
+            if isinstance(br, dict) and isinstance(br.get("do"), dict) and "battle" in br["do"]:
+                return True
+    return False
+
+
 def row_members(u: dict) -> list:
     """The [[npc]] names one unit row binds: ``npc = "x"`` -> ``["x"]``; a CLASS
     row (``npcs = [...]`` — per-class brain sharing, needs ``brains = true``)
