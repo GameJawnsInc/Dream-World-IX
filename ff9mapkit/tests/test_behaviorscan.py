@@ -129,10 +129,19 @@ def test_branch_toml_round_trips_every_shape():
         {"do": {"patrol": "loop", "route": "auto"}},
         {"when": [{"table_eq": ["t", 0, 1]}], "do": {"announce": 'He said "run"'},
          "cooldown": 40},
+        {"when": [{"flag": "go"}], "do": {"hold_post": True}, "clear_flags": ["go"],
+         "adjust": {"table": "t", "index": 0, "by": 1, "clamp": [0, 9]}},
+        {"do": {"hold_post": True},
+         "adjust": [{"counter": "k", "by": 1, "clamp": [0, 9]}, {"counter": "j", "by": -1, "clamp": [0, 9]}]},
     ]
     for b in branches:
         parsed, err = BS.parse_branch(BS.branch_toml(b))
         assert err is None and parsed == b, (b, parsed, err)
+
+
+def test_the_branch_editor_emits_every_branch_key():
+    """A branch key the serializer does not list is DROPPED by open + Apply (adjust was, silently)."""
+    assert set(BS._emit_keys()) | {"when"} == set(BT.BRANCH_KEYS)
 
 
 def test_every_insert_template_is_valid_toml():

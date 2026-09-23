@@ -7,6 +7,8 @@ Plus the instrument laws: determinism, and the honesty ledger on its face."""
 
 from __future__ import annotations
 
+import pytest
+
 from ff9mapkit.workspace import behaviorsim as SIM
 
 
@@ -170,14 +172,17 @@ def test_cooldown_announce_is_an_event_and_the_greet_pair_unlatches():
     hold selection forever (the owner's playtest: statues after the first
     exchange). The event-cooldown fires, arms its timer AT DELIVERY, and
     releases: greet -> part -> wander -> greet again."""
-    npcs = [{"name": "a", "pos": [320, 0]}, {"name": "b", "pos": [-320, 0]}]
+    # the boxes overlap enough that the pair MEETS whatever the stand-in rolls are: the latch is
+    # the claim, not the luck of the hash (at +-320 a first meeting only came at tick 2739 once the
+    # simulator honoured `every` and counted down per unit, as the compiled wander does)
+    npcs = [{"name": "a", "pos": [200, 0]}, {"name": "b", "pos": [-200, 0]}]
     units = [
         _unit("a", [{"when": [{"near": ["b", 300]}],
                      "do": {"announce": "hi"}, "cooldown": 100},
-                    {"do": {"wander": [320, 0], "radius": 350, "speed": 25}}]),
+                    {"do": {"wander": [200, 0], "radius": 350, "speed": 25}}]),
         _unit("b", [{"when": [{"near": ["a", 300]}],
                      "do": {"announce": "yo"}, "cooldown": 120},
-                    {"do": {"wander": [-320, 0], "radius": 350, "speed": 25}}]),
+                    {"do": {"wander": [-200, 0], "radius": 350, "speed": 25}}]),
     ]
     sim = SIM.Sim(_field(units, npcs=npcs))
     sim.run_to(1500)
@@ -356,3 +361,57 @@ def test_a_persistent_table_is_named_in_the_honesty_ledger():
     assert any("persistent table(s) memo start at their SEED" in n for n in notes), notes
     assert not any("eph" in n for n in notes if "persistent" in n)
     assert not any("persistent" in n for n in SIM.Sim(_field([_unit("a")])).notes)
+
+
+def test_wander_rerolls_every_plus_one_selected_ticks():
+    """The simulator's wander follows the compiled countdown (`wt > 0 ? wt-- : { wt = every; roll }`):
+    `every` is the TOML key -- it used to read `hold` and so always ran the default 90 -- and a re-roll
+    lands every every+1 selected ticks, the first on the first selected tick."""
+    raw = _field([_unit("a", [{"do": {"wander": [0, 0], "radius": 300, "every": 10}}])])
+    sim = SIM.Sim(raw)
+    rolls, prev = [], None
+    for t in range(0, 60):
+        sim.run_to(t)
+        cur = sim._units[0].wander_tgt
+        if cur != prev:
+            rolls.append(t)
+        prev = cur
+    assert len(rolls) >= 4 and all(b - a == 11 for a, b in zip(rolls, rolls[1:])), rolls
+
+
+def test_the_honesty_ledger_names_idle_rolls_and_seeded_timing():
+    """A roll rides a public flag raised from OUTSIDE the tree, which the sim never raises -- so the ledger says
+    its counter stays 0; a seeded wander's timing is the sim's own."""
+    roll = {"when": [{"flag": "ask"}], "roll": {"stream": "s", "counter": "c", "range": [1, 6]},
+            "clear_flags": ["ask"], "do": {"hold_post": True}}
+    raw = _field([_unit("a", [roll, {"do": {"wander": [0, 0], "radius": 300, "seed": 7}}])])
+    sim = SIM.Sim(raw)
+    assert any("roll branches" in n for n in sim.notes) and "rolls idle" in sim.short
+    assert any("seeded wander" in n for n in sim.notes)
+    assert not any("roll branches" in n for n in SIM.Sim(_field([_unit("a", [{"do": {"hold_post": True}}])])).notes)
+
+
+@pytest.mark.parametrize("seed", ["abc", [1], {"a": 1}, 0, True])
+def test_a_malformed_wander_seed_never_raises_in_the_sim(seed):
+    """Lenient like the stage: a bad seed (validate reports it) simulates unseeded with a note."""
+    raw = _field([_unit("a", [{"do": {"wander": [0, 0], "radius": "x", "every": [2], "seed": seed}}])])
+    sim = SIM.Sim(raw)
+    sim.run_to(30)
+    assert sim._units[0].wander_tgt is not None
+    assert any("invalid" in n for n in sim.notes)
+
+
+def test_a_seeded_wander_replays_its_in_game_target_sequence():
+    """A seeded wander's targets in the simulator ARE the stream's (content/rollstream.py) -- the same
+    sequence the compiled bytes produce in-game (tests/test_behavior_stream pins that side)."""
+    from ff9mapkit.content import rollstream as RS
+    raw = _field([_unit("a", [{"do": {"wander": [0, 0], "radius": 300, "every": 10, "seed": 7}}])])
+    sim = SIM.Sim(raw)
+    seen = []
+    for t in range(0, 80):
+        sim.run_to(t)
+        tg = sim._units[0].wander_tgt
+        if tg is not None and (not seen or seen[-1] != tg):
+            seen.append(tg)
+    x0 = RS.seed_state(RS.wander_ident("a"), 7)
+    assert seen[:5] == [RS.wander_target(s, 0, 0, 300) for s in RS.states(x0, 5)]

@@ -190,7 +190,9 @@ smooth walk — unit collision, walkmesh sliding, walk animation. Two consequenc
   edge, or on another floor makes the walker shove that boundary until the next roll — the
   in-game "glitchy waypoints" look). It reports the jam fraction plus the box's own composition
   ("97 of 225 roll cells sit OFF the walkmesh"). Shrink the radius or recentre until the box
-  hugs the walker's floor. Coverage is sampled, and the sweep always prints the
+  hugs the walker's floor. A seeded wander (`seed = N`, see
+  [Roll streams](#roll-streams--seeded-randomness-you-can-predict)) rolls the same box, so the same
+  sweep applies — the seed fixes the order of the targets, not where they may land. Coverage is sampled, and the sweep always prints the
   spacing it used: the number it reports is a floor on the real rate, not a ceiling.
 - **THE FLOOR LAW (multi-floor fields).** A walker lives on ONE floor and can only change floors
   across a **seam** edge; anywhere else two floors meet in flattened 2D — a terrace base, a
@@ -728,6 +730,76 @@ npc = "innkeeper"
   Flags "reset all" does. `~` Restore rolls back story flags only, not tables. Co-op does not
   mirror vectors between machines.
 
+### Roll streams — seeded randomness you can predict
+
+Every random thing a field did before — a stock `wander`'s targets — draws from the engine's shared
+RNG: never seeded, never saved, a reload re-rolls it and nothing can predict it. A **roll stream** is a
+seeded generator held in one table cell: deterministic, optionally saved, and **predictable offline** —
+the build prints the exact numbers the game will draw.
+
+```toml
+[behavior]
+public_flags = ["ask"]               # raised when the player consults the teller: a [[choice]] row
+counters = ["omen"]                  # or an [[event]] trigger = "action" (the build prints its bit)
+
+[[behavior.stream]]
+name = "mymod_fate"                  # prefer a mod-prefixed name when persist = true
+seed = 7                             # 1..2147483647 -- hashed with the name to the start state
+persist = true                       # optional: the save keeps the state -- a reload cannot re-roll
+id = 6412346                         # REQUIRED with persist: 6000000..6999999, YOUR OWN unused id
+
+[[behavior.unit]]
+npc = "teller"
+  [[behavior.unit.branch]]
+  when = [{ flag = "ask" }]          # THE EDGE IDIOM: a public flag raised from outside...
+  roll = { stream = "mymod_fate", counter = "omen", range = [1, 6] }
+  clear_flags = ["ask"]              # ...consumed by the branch that draws
+  do = { hold_post = true }
+  [[behavior.unit.branch]]
+  do = { hold_post = true }
+
+[[behavior.hud]]
+window = 6
+values = ["omen"]
+digits = [1]
+text = "[MPOS=10,48]OMEN [NUMB=0]"
+```
+
+- **What a draw does.** Each time the branch runs, the stream advances once (`S ← 236·S mod 65537`,
+  full period: every state 1..65536 once) and `lo + S % n` lands in the counter (`n = hi − lo + 1`,
+  2..256; bias at most 0.4%, none for a power of two). Test the result like any counter —
+  `counter_eq = ["omen", 6]`. Several branches may draw from one stream; they share its sequence.
+- **The edge idiom is required.** A selected branch executes every tick, so a roll on an ordinary
+  branch would draw about 30 times a second. The build refuses a roll unless its branch's `when`
+  requires a public flag that the same branch clears and nothing else raises (`raise_flags`, an
+  alternator) or clears. Raise the flag from outside: a `[[choice]]` row, an `[[event]]` with
+  `trigger = "action"`. Anything that writes the flag every frame is refused: a walk tread with
+  `once = false` (it re-fires while the player stands in it), a tread whose once-latch `flag` IS the
+  roll's flag (the roll's clear re-arms it), and any `[[coop]]` gate that writes it (a gate is polled
+  every frame). A `roll` inside `when` is refused outright — a condition is evaluated every tick it is
+  reached, so it would draw per evaluation — and so is a `when` that also negates the roll's flag (it
+  can never be selected).
+- **Ephemeral or persistent.** Without `persist` the stream re-seeds at every field entry (`~ → Reload`
+  and Continue too), so the same visit replays the same draws: fixed puzzles, reproducible encounters,
+  a deterministic test. With `persist = true` it is guarded exactly like a persistent table (same id
+  band, same rules above), so the state survives the save and **a reload cannot re-roll**: load a save
+  and the next draws are the ones that were coming anyway. A battle return keeps both kinds. In-game
+  proven by the harness ([`studies/roll-stream/`](../../studies/roll-stream/PLAN.md) rung 1).
+- **The oracle.** The build prints each stream's start state and first states —
+  `mymod_fate (PERSISTENT vector 6412346, …) x0 … -> …` — and `ff9mapkit behavior compile` lists the
+  first eight with the roll each draw site makes from them (a stream shared by several sites hands each
+  raise the next state, whichever site it was). The seed is hashed with the stream's name, so two
+  streams on one seed are unrelated. Editing a persistent stream's `seed` reaches new games only.
+- **A seeded wander.** `do = { wander = [x, z], radius = r, seed = N }` takes its targets from a
+  private stream instead of the engine RNG: the unit walks the same sequence of targets after every
+  entry, and the build prints the first few. A seeded wander must be its unit's only wander.
+- **See the state.** A HUD value `"stream:<name>"` shows the raw state (read-only — it never
+  advances the stream); give it `digits = 5`.
+- **Limits.** v1 ticker only (not on class rows or with `brains = true`); every declared stream must
+  be drawn by some `roll`; no roll into a scan headcount or the schedule counter; streams, tables and
+  counters share one namespace (a scan's `flags` table too); a wander box must stay inside ±32767 (the
+  target slots are Int16).
+
 ## Adjust and drift — the numeric-write lane
 
 A life-sim meter, a relationship score, a resource pool: state that decays, refills,
@@ -760,7 +832,8 @@ every = 90                           # REQUIRED here, 1..30000 (an Int16 timer; 
 
 - **`clamp = [lo, hi]` is mandatory.** An unclamped meter walks off its range and
   every gate downstream reads garbage — and the 26-bit CalcStack does not truncate
-  on overflow, it **re-reads the value as a different variable class**. All of
+  on overflow, it **wraps silently mod 2^26** (a wrong value, never an error — measured
+  in-game, `studies/roll-stream/` rung 0). All of
   `by`/`lo`/`hi` (and every seed value of an adjusted table) are fenced to ±10^6.
 - **Targets**: `counter = "name"`, or `table = "name"` + `index =` an int
   (compile-time bounds-checked) or a **counter name** — the computed-index WRITE,
@@ -870,8 +943,10 @@ text = "[MPOS=8,8]GIL [NUMB=0]  TROOPS [NUMB=1]  RAIDERS [NUMB=2]  DEPOT [NUMB=3
 
 A **value source** is a counter name, `"gil"` (the live purse), `"timer"` (the
 countdown HUD's remaining seconds), `"hp:<unit>"` (a unit's hit points — the
-roster cell for a group member), or `"item:<item>"` (the live held count of an
-item, name or id — watch contracts tick down as an item pool converts them).
+roster cell for a group member), `"item:<item>"` (the live held count of an
+item, name or id — watch contracts tick down as an item pool converts them), or
+`"stream:<name>"` (a [roll stream](#roll-streams--seeded-randomness-you-can-predict)'s
+raw state, read-only).
 Slots are written every pass; the engine itself re-renders only when a number
 actually changed.
 

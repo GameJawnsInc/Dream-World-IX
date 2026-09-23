@@ -104,7 +104,7 @@ ACTION_VERBS = {
     "patrol": ("arrive_r", "speed", "route"),
     "march": ("arrive_r", "speed", "route"),
     "flee": ("to", "avoid_r", "speed"),
-    "wander": ("radius", "every", "speed"),
+    "wander": ("radius", "every", "speed", "seed"),
     "swing_at": ("damage", "interval", "anim", "hit_sfx"),
     "engage": ("radius", "contact", "damage", "interval", "speed", "nearest",
                "anim", "hit_sfx"),
@@ -123,7 +123,8 @@ ACTION_VERBS = {
     "announce_npc": ("window", "delay", "sustain"),
 }
 BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags",
-               "adjust"}
+               "adjust", "roll"}
+ROLL_KEYS = {"stream", "counter", "range"}
 ADJUST_KEYS = {"counter", "table", "index", "by", "clamp", "every"}
 DRIFT_KEYS = ADJUST_KEYS | {"flag"}
 UNIT_KEYS = {"npc", "npcs", "class", "hp", "speed", "speeds", "branch", "pooled",
@@ -135,9 +136,10 @@ CLASS_FORBIDDEN_VERBS = {"award", "add_shop_item", "remove_shop_item",
                          "add_shop_synth", "remove_shop_synth"}
 FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "timer",
               "counters", "table", "schedule", "scan", "group", "hud", "byte_band",
-              "brains", "drift"}
+              "brains", "drift", "stream"}
 POOL_KEYS = {"name", "price", "button", "request_flag", "item"}
 TABLE_KEYS = {"name", "values", "id", "persist"}
+STREAM_KEYS = {"name", "seed", "persist", "id"}
 SCHEDULE_KEYS = {"counter", "table"}
 SCAN_KEYS = {"name", "units", "point", "radius", "count", "flags", "group",
              "alive_only"}
@@ -229,6 +231,22 @@ def row_class(u: dict, ui: int) -> str | None:
 
 def _row_label(u: dict) -> str:
     return str(u.get("npc") or "+".join(row_members(u)) or "?")
+
+
+_ROLL_COND_REFUSAL = (
+    "roll is a branch effect, not a condition -- a condition is evaluated every tick it is reached, so a "
+    "draw there would advance once per EVALUATION (tick- and priority-coupled). Draw with a branch `roll = "
+    "{ stream = ..., counter = ..., range = [lo, hi] }` on a public-flag edge; test the result with "
+    "counter_eq / counter_le / counter_ge")
+
+
+def _cond_verb(d: dict, ctx: str) -> str:
+    """A ``when`` row's verb -- refusing a ROLL in a condition by name first (it is not a verb that merely
+    happens to be missing: it is refused permanently, with the reason)."""
+    if isinstance(d, dict) and {"roll", "chance"} & set(d):     # (a set test: the schema harvest records
+                                                                # key lookups, and these are NOT when keys)
+        raise BehaviorTomlError(f"{ctx}: {_ROLL_COND_REFUSAL}")
+    return _one_verb(d, COND_VERBS, ctx)
 
 
 def _one_verb(d: dict, verbs: dict, ctx: str) -> str:
@@ -511,6 +529,70 @@ def table_specs(raw: dict) -> list:
     return out
 
 
+def stream_rows(raw: dict) -> list:
+    b = table(raw)
+    rows = (b.get("stream", []) if b else []) or []
+    return rows if isinstance(rows, list) else []
+
+
+def stream_specs(raw: dict) -> list:
+    """The ``[[behavior.stream]]`` rows as :class:`behavior.StreamSpec` -- raw types pass through, so the
+    compiler refuses a bool seed / a non-bool persist with the one law text instead of this coercing them."""
+    return [B.StreamSpec(name=str(r.get("name", "")), seed=r.get("seed"), persist=r.get("persist", False),
+                         id=r.get("id"))
+            for r in stream_rows(raw) if isinstance(r, dict)]
+
+
+def _branch_roll(br: dict, ctx: str):
+    """A branch's ``roll = { stream, counter, range = [lo, hi] }`` as a :class:`behavior.RollSpec` (or None).
+    ONE dict per branch -- one draw per branch execution."""
+    r = br.get("roll")
+    if r is None:
+        return None
+    if not isinstance(r, dict):
+        raise BehaviorTomlError(f"{ctx}: roll is ONE dict {{ stream = , counter = , range = [lo, hi] }} -- one "
+                                f"draw per branch")
+    extra, missing = set(r) - ROLL_KEYS, ROLL_KEYS - set(r)
+    if extra or missing:
+        raise BehaviorTomlError(f"{ctx}: roll takes exactly {sorted(ROLL_KEYS)} (unknown {sorted(extra)}, "
+                                f"missing {sorted(missing)})")
+    rng = r["range"]
+    if not isinstance(rng, list) or len(rng) != 2:
+        raise BehaviorTomlError(f"{ctx}: roll range must be [lo, hi] (e.g. [1, 6] for a d6)")
+    try:
+        return B.RollSpec(stream=r["stream"], counter=r["counter"], lo=rng[0], hi=rng[1])
+    except B.BehaviorError as e:
+        raise BehaviorTomlError(f"{ctx}: {e}")
+
+
+def roll_edge_flags(raw: dict) -> dict:
+    """``{flag index: name}`` for every public flag a roll DRAWS on -- the edge the compiler's own edge law
+    picked for each draw site (``FieldBehavior.stream_sites``), never merely another flag the branch also
+    clears. What an [[event]] tread or a [[coop]] gate must not rewrite every frame. A throwaway build (the
+    :func:`published_flags` pattern); never raises -- a malformed table is validate's to report."""
+    import copy as _copy
+    try:
+        b = table(raw)
+        if not b or not any(isinstance(br, dict) and isinstance(br.get("roll"), dict)
+                            for u in b.get("unit", []) or [] if isinstance(u, dict)
+                            for br in u.get("branch", []) or []):
+            return {}
+        work = _copy.deepcopy(raw)
+        for u in (table(work) or {}).get("unit", []) or []:
+            for br in u.get("branch", []) or []:
+                if isinstance(br.get("do"), dict):
+                    br["do"].pop("route", None)
+        txids = {(ui, bi): 900 + 10 * ui + bi for ui, bi, _ in announce_lines(work)}
+        txids.update({("hud", hi): 890 + hi for hi, _h in hud_lines(work)})
+        fb = build(work, npc_slots=placeholder_slots(work),
+                   npc_txids_by_name={n.get("name"): 0 for n in work.get("npc", []) or []},
+                   behavior_txids=txids)
+        fb._check_streams()                        # the edge law itself fills stream_sites (no emission)
+        return {bit: flag for sites in fb.stream_sites.values() for _o, flag, bit, *_rest in sites}
+    except Exception:                              # noqa: BLE001 -- never fail a lint
+        return {}
+
+
 def persistent_tables(raw: dict) -> list:
     """``[(name, id, values)]`` for every WELL-FORMED ``persist = true`` row (an int id, a list of plain int
     values) — the save-GLOBAL identities the campaign and journey lints compare across fields. ``[]`` when
@@ -532,6 +614,18 @@ def persistent_tables(raw: dict) -> list:
                 isinstance(v, int) and not isinstance(v, bool) for v in vals):
             continue
         out.append((str(row.get("name", "")), rid, tuple(vals)))
+    # a PERSISTENT ROLL STREAM is a one-cell persistent table under its backing key (the generator folded
+    # in): the campaign / journey agreement lints then compare it like any table -- a stream and a table on
+    # one id is an error, one stream with different seeds a warning
+    from . import rollstream as _RS
+    for row in stream_rows(raw):
+        if not isinstance(row, dict) or row.get("persist") is not True:
+            continue
+        rid, seed, nm = row.get("id"), row.get("seed"), row.get("name")
+        if (not isinstance(rid, int) or isinstance(rid, bool) or _RS.seed_problem(seed)
+                or not isinstance(nm, str) or not nm):
+            continue
+        out.append((_RS.backing_key(nm), rid, (_RS.seed_state(nm, seed),)))
     return out
 
 
@@ -565,6 +659,12 @@ def hud_digits_warnings(raw: dict) -> list:
         digs = [d] if isinstance(d, int) else list(d or [])
         wide = sorted({int(x) for x in digs
                        if isinstance(x, int) and int(x) > HUD_DIGITS_REACHABLE})
+        vals = row.get("values", []) or []
+        for vi, v in enumerate(vals if isinstance(vals, list) else []):
+            dv = digs[vi] if vi < len(digs) else (digs[-1] if digs else 2)
+            if str(v).startswith("stream:") and isinstance(dv, int) and dv < 5:
+                out.append(f"[[behavior.hud]] #{hi}: value {v!r} shows a stream STATE (1..65536) in a "
+                           f"{dv}-digit slot -- give it digits = 5")
         if wide:
             out.append(f"[[behavior.hud]] #{hi}: digits {wide} reserve no extra width — "
                        f"the value operand is a u16 (max 65535, {HUD_DIGITS_REACHABLE} "
@@ -925,7 +1025,7 @@ def describe_autoroute(plan: dict, raw: dict) -> list:
 
 
 def _build_cond(fb: B.FieldBehavior, me: str, d: dict, positions: dict, ctx: str):
-    verb = _one_verb(d, COND_VERBS, ctx)
+    verb = _cond_verb(d, ctx)
     v = d[verb]
     if verb in ("hp_le", "hp_gt"):
         unit, n = (me, v) if isinstance(v, (int, float)) else (str(v[0]), int(v[1]))
@@ -1067,7 +1167,7 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
     if verb == "wander":
         return B.Wander(_resolve_point(v, positions, ctx),
                         radius=int(d.get("radius", 400)),
-                        hold=int(d.get("every", 90)), speed=spd)
+                        hold=int(d.get("every", 90)), speed=spd, seed=d.get("seed"))
     if verb == "swing_at":
         return B.SwingAt(str(v), interval=int(d.get("interval", 30)),
                          damage=int(d.get("damage", 1)),
@@ -1206,7 +1306,7 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                          timer=(int(b["timer"]) if b.get("timer") is not None else None),
                          tables=table_specs(raw), counters=counter_names(raw),
                          brains=bool(b.get("brains", False)),
-                         classes=class_specs)
+                         classes=class_specs, streams=stream_specs(raw))
     fb.synth_mints = synth_mint_map(raw)                  # ShopSynth string selectors
     for nm in b.get("public_flags", []) or []:
         fb.public_flag(str(nm))
@@ -1291,6 +1391,10 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                 if br.get("raise_flags") or br.get("clear_flags"):
                     raise BehaviorTomlError(
                         f"{ctx}: engage takes no raise_flags/clear_flags")
+                if br.get("roll") is not None:
+                    raise BehaviorTomlError(
+                        f"{ctx}: engage takes no roll (the two-phase subtree owns its "
+                        f"selection blocks) -- draw on a plain branch")
                 if br.get("adjust") is not None:
                     raise BehaviorTomlError(
                         f"{ctx}: engage takes no adjust (the two-phase subtree "
@@ -1329,7 +1433,8 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                                    model=umodel)
             do_node = B.Do(action, raise_flags=tuple(br.get("raise_flags", []) or []),
                            clear_flags=tuple(br.get("clear_flags", []) or []),
-                           adjust=_branch_adjusts(fb, br, ctx))
+                           adjust=_branch_adjusts(fb, br, ctx),
+                           roll=_branch_roll(br, ctx))
             conds = [_build_cond(fb, name, c, positions, ctx)
                      for c in (br.get("when") or [])]
             node = B.Sequence(*conds, do_node) if conds else do_node
@@ -1367,15 +1472,19 @@ def _npc_marker_positions(raw: dict) -> dict:
 def validate(raw: dict, *, verbatim: bool = False) -> list:
     """Static problems with the [behavior] table (build ``validate()`` + `behavior
     lint`). Structural only — a full dry compile is the CLI's job."""
+    rb = raw.get("behavior")
+    if verbatim and isinstance(rb, dict) and rb:     # with or without units: the build drops it either way
+        return ["[behavior] on a VERBATIM fork is not wired (the donor's real .eb "
+                "runs; behavior needs the kit's injected NPC entries) — use a "
+                "--native/--editable fork or a novel field"]
+    if isinstance(rb, dict) and rb and not rb.get("unit"):
+        return ["[behavior] has no [[behavior.unit]] — the block compiles to NOTHING (its streams and "
+                "tables are never seeded, its counters and HUDs never run); add a unit (any NPC holding "
+                "its post)"]
     b = table(raw)
     if not b:
         return []
     problems = []
-    if verbatim:
-        problems.append("[behavior] on a VERBATIM fork is not wired (the donor's real .eb "
-                        "runs; behavior needs the kit's injected NPC entries) — use a "
-                        "--native/--editable fork or a novel field")
-        return problems
     extra = set(b) - FIELD_KEYS
     if extra:
         problems.append(f"[behavior]: unknown key(s) {sorted(extra)}")
@@ -1574,6 +1683,54 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
             prob = B.persist_value_problem(vals)
             if prob:
                 problems.append(f"{ctx}: {prob}")
+    from . import rollstream as _RS
+    declared_streams: set = set()
+    for si, row in enumerate(stream_rows(raw)):
+        ctx = f"[[behavior.stream]] #{si}"
+        if not isinstance(row, dict):
+            problems.append(f"{ctx}: must be a table")
+            continue
+        extra = set(row) - STREAM_KEYS
+        if extra:
+            problems.append(f"{ctx}: unknown key(s) {sorted(extra)}")
+        nm = row.get("name")
+        prob = B.stream_decl_problem(nm, row.get("seed"), row.get("persist", False), row.get("id"))
+        if prob:
+            problems.append(f"{ctx}: {prob}")
+        if isinstance(nm, str):
+            if nm in declared_streams:
+                problems.append(f"{ctx}: duplicate stream {nm!r}")
+            elif nm in declared_tables or nm in declared_counters:
+                problems.append(f"{ctx}: stream {nm!r} collides with a table or counter name (one namespace)")
+            declared_streams.add(nm)
+        rid = row.get("id")
+        if row.get("persist") is True and isinstance(rid, int) and not isinstance(rid, bool):
+            if rid in seen_tids:
+                problems.append(f"{ctx}: id {rid} used twice")
+            seen_tids.add(rid)
+    for ui, u in enumerate(b.get("unit", []) or []):
+        for bi, br in enumerate((u.get("branch", []) if isinstance(u, dict) else []) or []):
+            if not isinstance(br, dict) or br.get("roll") is None:
+                continue
+            ctx = f"[[behavior.unit]] #{ui} branch #{bi}"
+            try:
+                rs = _branch_roll(br, ctx)
+            except BehaviorTomlError as e:
+                problems.append(str(e))
+                continue
+            if rs.stream not in declared_streams:
+                problems.append(f"{ctx}: roll stream {rs.stream!r} is not a [[behavior.stream]]")
+            if rs.counter not in declared_counters:
+                problems.append(f"{ctx}: roll counter {rs.counter!r} is not in [behavior] counters")
+            if isinstance(br.get("do"), dict) and "engage" in br["do"]:
+                problems.append(f"{ctx}: engage takes no roll -- draw on a plain branch")
+    for ui, u in enumerate(b.get("unit", []) or []):
+        for bi, br in enumerate((u.get("branch", []) if isinstance(u, dict) else []) or []):
+            do = br.get("do") if isinstance(br, dict) else None
+            if isinstance(do, dict) and "wander" in do and do.get("seed") is not None:
+                prob = _RS.seed_problem(do["seed"])
+                if prob:
+                    problems.append(f"[[behavior.unit]] #{ui} branch #{bi}: wander {prob}")
     scheduled = set()
     for si, row in enumerate(b.get("schedule", []) or []):
         ctx = f"[[behavior.schedule]] #{si}"
@@ -1690,6 +1847,9 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
             problems.append(f"{ctx}: flags need a point/radius box")
         if fl is not None and str(fl) in declared_tables:
             problems.append(f"{ctx}: flags {fl!r} collides with a [[behavior.table]]")
+        elif fl is not None and str(fl) in declared_streams:
+            problems.append(f"{ctx}: flags {fl!r} collides with a [[behavior.stream]] -- streams, tables and "
+                            f"counters share one namespace")
         elif nm and roster_len:
             # scans DECLARE tables too — the flags table (user-named or the
             # scan.<name>.near default, box scans only) plus, in the units
@@ -1750,6 +1910,11 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                         problems.append(f"{ctx}: value {v!r} — item does not "
                                         f"resolve ({e})")
                     continue
+                if s.startswith("stream:"):
+                    if s[7:] not in declared_streams:
+                        problems.append(f"{ctx}: value {v!r} — unknown stream {s[7:]!r} "
+                                        f"(declare it in [[behavior.stream]])")
+                    continue
                 if s.startswith(B.HUD_EXPR_PREFIX):
                     # the RPN escape hatch — the real encoder is the validator, and the
                     # write-op refusal lives with it (a hud value re-evaluates every tick)
@@ -1760,8 +1925,8 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                     continue
                 if s not in declared_counters:
                     problems.append(f"{ctx}: value {v!r} is not a counter, "
-                                    f"'gil', 'timer', 'hp:<unit>', 'item:<item>', or "
-                                    f"'expr:<RPN tokens>'")
+                                    f"'gil', 'timer', 'hp:<unit>', 'item:<item>', "
+                                    f"'stream:<name>', or 'expr:<RPN tokens>'")
             for mnum in _re2.finditer(r"\[NUMB=(\d+)", txt):
                 if int(mnum.group(1)) >= len(vals):
                     problems.append(f"{ctx}: [NUMB={mnum.group(1)}] has no value "
@@ -1878,7 +2043,11 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                 if verb == "flee" and "to" in do:
                     _resolve_route(do["to"], positions, mpaths, ctx)
                 if verb in ("walk_to", "hold", "wander"):
-                    _resolve_point(v, positions, ctx)
+                    _pt = _resolve_point(v, positions, ctx)
+                    if verb == "wander":
+                        _wb = B.wander_box_problem(_pt, do.get("radius", 400))
+                        if _wb:
+                            problems.append(f"{ctx}: {_wb}")
                 if verb == "hold_post" and v is not True:
                     problems.append(f"{ctx}: hold_post takes `true` (it holds the unit's "
                                     f"own placement post)")
@@ -2041,7 +2210,7 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                         problems.append(f"{ctx}: flash pause must be an int 0..255 "
                                         f"frames (the beat held at the colour)")
                 for c in (br.get("when") or []):
-                    _cv = _one_verb(c, COND_VERBS, ctx)
+                    _cv = _cond_verb(c, ctx)
                     if _cv in ("time_below", "time_above"):
                         if b.get("timer") is None:
                             problems.append(f"{ctx}: {_cv} needs field-level "
@@ -2076,7 +2245,7 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                                             f"0..255 frames (holds the dispatch "
                                             f"level around the window open)")
                 for c in (br.get("when") or []):
-                    cv = _one_verb(c, COND_VERBS, ctx)
+                    cv = _cond_verb(c, ctx)
                     val = c[cv]
                     if cv in ("near", "not_near") and str(val[0]) not in valid_targets | {me}:
                         problems.append(f"{ctx}: near target {val[0]!r} is not a behavior "

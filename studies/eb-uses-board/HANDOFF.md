@@ -4,6 +4,9 @@
 
 > **NEXT CONSUMER PICKED:** entry #4, *The fight writes the ledger* — rungs 0-1 in-game proven, arc in
 > [`../fight-ledger/PLAN.md`](../fight-ledger/PLAN.md) (`[scene.ledger]`).
+>
+> **SECOND CONSUMER PICKED:** entry #5, *The roll stream* — rungs 0-1 in-game proven, arc in
+> [`../roll-stream/PLAN.md`](../roll-stream/PLAN.md) (`[[behavior.stream]]`, branch `roll`, `wander` `seed`).
 
 **Picked:** entry #1 of [`BOARD.md`](BOARD.md), a `gScriptVector` table class that survives field entry.
 **Paused because:** its first rung is a hard-quit/relaunch round trip. That needs the real machine: the game install,

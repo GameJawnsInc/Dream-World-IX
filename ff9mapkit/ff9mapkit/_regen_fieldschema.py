@@ -131,10 +131,20 @@ preset = "vivi"
 pos = [500, -1900]
 dialogue = "Grr."
 
+[[npc]]
+name = "drifter"
+preset = "vivi"
+pos = [-900, -1900]
+
 [behavior]
 warmup = 30
-public_flags = ["go"]
-counters = ["stub_ct"]
+public_flags = ["go", "stub_draw"]
+counters = ["stub_ct", "stub_pick"]
+
+# a roll stream + its edge-consumed roll + a seeded wander (do-option vocabulary is harvested from usage)
+[[behavior.stream]]
+name = "stub_rs"
+seed = 3
 
 [[behavior.alternators]]
 name = "shift"
@@ -161,6 +171,7 @@ speed = 40
 branch = [
   { when = [ { hp_le = 0 } ], do = { die = true } },
   { when = [ { flag = "go" }, { hp_le = 1 } ], do = { battle = 35 } },
+  { when = [ { flag = "stub_draw" } ], roll = { stream = "stub_rs", counter = "stub_pick", range = [1, 6] }, clear_flags = ["stub_draw"], do = { hold = "post" } },
   { when = [ { flag = "alarm" }, { active = "beast" }, { near = ["beast", 300] } ], do = { swing_at = "beast", damage = 2 } },
   { when = [ { any_near = [["beast"], 700] } ], do = { chase = "beast", standoff = 180, speed = 65 }, raise_flags = ["alarm"] },
   { when = [ { flag = "shift" } ], do = { patrol = "ring" } },
@@ -178,6 +189,12 @@ branch = [
   { when = [ { flag = "go" } ], do = { march = "lane", arrive_r = 200 } },
   { when = [ { counter_le = ["stub_ct", 3] } ], do = { wander = [500, -1900], radius = 300, every = 90, speed = 30 }, adjust = { counter = "stub_ct", by = 1, clamp = [0, 10] } },
   { do = { wander = [500, -1900], radius = 300, every = 90, speed = 30 } },
+]
+
+[[behavior.unit]]
+npc = "drifter"
+branch = [
+  { do = { wander = [-900, -1900], radius = 200, every = 60, seed = 5 } },
 ]
 """),
     ("sps", """

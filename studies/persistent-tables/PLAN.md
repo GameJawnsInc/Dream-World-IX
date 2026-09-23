@@ -125,3 +125,7 @@ seeded PRNG's state cell, split tables, offstage agents. Pick consumers from `..
 
 **First consumer shipped:** board entry #4, the fight writes the ledger — a battle's `[scene.ledger]` writes a
 persistent table under a live gate; rungs 0-1 in-game proven → [`../fight-ledger/PLAN.md`](../fight-ledger/PLAN.md).
+
+**Second consumer shipped:** board entry #5, the roll stream — a seeded generator whose `persist = true` state rides
+this guard (its check word hashes a key that folds the generator in), so a reload cannot re-roll; rungs 0-1 in-game
+proven → [`../roll-stream/PLAN.md`](../roll-stream/PLAN.md).

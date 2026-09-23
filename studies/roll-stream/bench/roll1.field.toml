@@ -1,0 +1,132 @@
+# =====================================================================================
+# THE ROLL STREAM, RUNG 1 -- THE KIT FEATURE IN-GAME  --  field 30900
+# =====================================================================================
+# Two declared streams and a seeded wander, all declarative:
+#   eph       EPHEMERAL, seed 1 -> x0 14369: re-seeded at every Main_Init (entry, ~Reload, Continue)
+#   dwix_rs1  PERSISTENT id 6004900 (guard 7004900 = check word 26896899 over
+#             "dwix_rs1.lehmer236.65537"), seed 1 -> x0 28707: a reload cannot re-roll it
+#   walker    a SEEDED wander (its private stream, seed 1 -> x0 30217): the target SEQUENCE is exact
+#   control   a STOCK wander (B_SYSVAR[0]) -- the control: its sequence differs every run
+# keeper's branches ride THE EDGE IDIOM: the harness raises draw_e / draw_d / draw_p (public flags),
+# each branch draws once and clears its flag. bump -> epoch += 1 (the Main_Init witness: 0 again after
+# every entry). walk -> both wanderers start (the predicted first target is observable from rest).
+# The build report prints every prediction; the harness recomputes them from content/rollstream.py.
+#
+#   py tools/deploy_field.py studies/roll-stream/bench/roll1.field.toml --id 30900 --name ROLL1 --text-block 30900
+
+[field]
+id = 30900
+name = "ROLL1"
+area = 11
+title = "ROLL 1"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [-900, -300]
+
+[[npc]]
+name = "keeper"
+model = "GEO_NPC_F0_CSO"
+pos = [700, -400]
+[[npc]]
+name = "walker"
+model = "GEO_NPC_F0_CSO"
+pos = [0, -1100]
+[[npc]]
+name = "control"
+model = "GEO_NPC_F0_CSO"
+pos = [-800, -1600]
+
+[behavior]
+warmup = 30
+public_flags = ["draw_e", "draw_d", "draw_p", "bump", "walk"]
+counters = ["pick", "die", "pickp", "epoch"]
+
+  [[behavior.stream]]
+  name = "eph"
+  seed = 1
+  [[behavior.stream]]
+  name = "dwix_rs1"
+  seed = 1
+  persist = true
+  id = 6004900
+
+  [[behavior.unit]]
+  npc = "keeper"
+    [[behavior.unit.branch]]
+    when = [{ flag = "draw_e" }]
+    roll = { stream = "eph", counter = "pick", range = [0, 5] }
+    clear_flags = ["draw_e"]
+    do = { hold_post = true }
+    [[behavior.unit.branch]]
+    when = [{ flag = "draw_d" }]
+    roll = { stream = "eph", counter = "die", range = [1, 6] }
+    clear_flags = ["draw_d"]
+    do = { hold_post = true }
+    [[behavior.unit.branch]]
+    when = [{ flag = "draw_p" }]
+    roll = { stream = "dwix_rs1", counter = "pickp", range = [1, 100] }
+    clear_flags = ["draw_p"]
+    do = { hold_post = true }
+    [[behavior.unit.branch]]
+    when = [{ flag = "bump" }]
+    adjust = { counter = "epoch", by = 1, clamp = [0, 9] }
+    clear_flags = ["bump"]
+    do = { hold_post = true }
+    [[behavior.unit.branch]]
+    do = { hold_post = true }
+
+  [[behavior.unit]]
+  npc = "walker"
+    [[behavior.unit.branch]]
+    when = [{ flag = "walk" }]
+    do = { wander = [0, -1100], radius = 300, every = 45, speed = 40, seed = 1 }
+    [[behavior.unit.branch]]
+    do = { hold_post = true }
+
+  [[behavior.unit]]
+  npc = "control"
+    [[behavior.unit.branch]]
+    when = [{ flag = "walk" }]
+    do = { wander = [-800, -1600], radius = 250, every = 45, speed = 40 }
+    [[behavior.unit.branch]]
+    do = { hold_post = true }
+
+  [[behavior.hud]]
+  window = 6
+  digits = [5, 5, 1, 1, 3, 1, 1]
+  values = [
+    "stream:eph",
+    "stream:dwix_rs1",
+    "pick",
+    "die",
+    "pickp",
+    "epoch",
+    "expr:const4(7004900) const(0) B_VECTOR const4(26896899) B_EQ",
+  ]
+  text = """[MPOS=8,8]== ROLL 1 30900 ==
+E STATE   [NUMB=0]
+P STATE   [NUMB=1]
+E ROLL    [NUMB=2]
+E DIE     [NUMB=3]
+P ROLL    [NUMB=4]
+EPOCH     [NUMB=5]
+CHECK     [NUMB=6]"""
