@@ -362,6 +362,34 @@ def test_battle_installs_reinit_in_built_eb(tmp_path):
     assert again == plain
 
 
+def test_fires_battle_raw_scan_matches_the_compile():
+    """behaviortoml.fires_battle -- the RAW twin of FieldBehavior.has_battle_actions, which the build
+    decides the after-battle handler from (the behavior compiles later) and the [deathrules] coverage
+    lint reads -- agrees with the compile on plain unit rows AND class rows, and never raises on
+    malformed rows (validate() owns reporting those)."""
+    import copy
+    unit_battle = {**RAW, "behavior": {**RAW["behavior"], "unit": [
+        {"npc": "guard", "hp": 6, "branch": [
+            {"when": [{"hp_le": 0}], "do": {"battle": 35}},
+            {"do": {"hold": "post"}}]},
+        {"npc": "beast", "hp": 4, "branch": [{"do": {"hold": [500, 500]}}]}]}}
+    class_battle = {"npc": [{"name": "a", "pos": [0, 0]}, {"name": "b", "pos": [900, 0]}],
+                    "behavior": {"brains": True, "unit": [
+                        {"npcs": ["a", "b"], "hp": 3, "branch": [
+                            {"when": [{"hp_le": 0}], "do": {"battle": 35}},
+                            {"do": {"hold": [0, 0]}}]}]}}
+    class_quiet = copy.deepcopy(class_battle)
+    del class_quiet["behavior"]["unit"][0]["branch"][0]
+    for raw, want in ((RAW, False), (unit_battle, True), (class_battle, True), (class_quiet, False)):
+        assert BT.validate(raw) == []
+        fb, _ = BT.dry_compile(raw)
+        assert BT.fires_battle(raw) is want
+        assert fb.has_battle_actions() is want
+    assert BT.fires_battle({}) is False
+    assert BT.fires_battle({"behavior": {"unit": ["junk", {"branch": "x"},
+                                                  {"branch": [None, {"do": 3}]}]}}) is False
+
+
 # ------------------------------------------------------------------ pool economy
 def test_pool_rows_parse_and_validate():
     raw = {**POOLED_RAW, "behavior": {**POOLED_RAW["behavior"],

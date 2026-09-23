@@ -28,6 +28,7 @@ sys.path.insert(0, str(REPO / "tools"))
 
 from harness import Channel, HarnessError, Session, State          # noqa: E402
 from harness.fakegame import FakeGame                              # noqa: E402
+from harness.logs import parse_memoria, parse_unity, split_lines   # noqa: E402
 from harness.suite import SuiteRunner, load_manifest               # noqa: E402
 
 
@@ -877,6 +878,286 @@ def test_the_players_saves_are_copied_before_the_game_is_launched(game):
     with session(game, fake) as g:
         boot(g)
     assert (game / "run" / "saves-before" / "SavedData_ww.dat").read_bytes() == b"the owner's game"
+
+
+# --------------------------------------------------------------------------- the two exception logs
+#
+# Which log an exception lands in is decided by who CATCHES it (tools/harness/logs.py): battle code is
+# caught by HonoluluBattleMain.Update and lands in Memoria.log only; an uncaught MonoBehaviour exception
+# lands in Unity's x64/FF9_Data/output_log.txt only. Measured 2026-09-23 (run mp-retype-3): 637 battle
+# NREs in Memoria.log / 0 in output_log, 18 MovePC NREs in output_log / 0 in Memoria.log. The driver
+# read Memoria.log alone. The unstarted Sessions below never launch anything: FakeGame.throw() only
+# writes the log files, and diagnose()/exceptions_since() only read them.
+
+#: A real Unity exception block, BYTES as measured on this install: every frame but the last ends
+#: CR CR LF, the block ends with a one-space line and a `(Filename:` line.
+UNITY_BLOCK = (
+    b"NullReferenceException: Object reference not set to an instance of an object\r\n"
+    b"  at FieldMapActorController.MovePC () [0x00000] in <filename unknown>:0 \r\r\n"
+    b"  at FieldMapActorController.UpdateMovement (Boolean copyLastPos) [0x00000] in <filename unknown>:0 \r\r\n"
+    b"  at FieldMapActorController.HonoUpdate () [0x00000] in <filename unknown>:0 \r\r\n"
+    b"  at HonoBehaviorSystem.Update () [0x00000] in <filename unknown>:0 \r\n"
+    b" \r\n(Filename:  Line: -1)\r\n\r\n"
+)
+
+#: The frames of the battle-init NRE the mp-retype control threw, as Memoria.log recorded them.
+BATTLE_FRAMES = ("btl_init.OrganizeEnemyData (.FF9StateBattleSystem btlsys)",
+                 "battle.BattleLoadLoop (.FF9StateGlobal sys, .FF9StateBattleSystem btlsys)",
+                 "HonoluluBattleMain.Update ()")
+
+MOVEPC = "NullReferenceException at FieldMapActorController.MovePC (output_log.txt)"
+
+
+def test_the_memoria_parser_reads_each_E_exception_with_its_own_frames():
+    """Lifted from studies/battle-multipart/mp_retype.py (same count on a real log: 637). Break: stop
+    appending the `|E|   at` frames, or open an exception on an `|E|` line naming no exception type."""
+    lines = [
+        "23.09.2026 01:14:40 |M| [Harness] armed",
+        "23.09.2026 01:14:41 |E| System.NullReferenceException: Object reference not set to an instance "
+        "of an object",
+        "23.09.2026 01:14:41 |E|   at btl_init.OrganizeEnemyData (.FF9StateBattleSystem btlsys) [0x00000] "
+        "in <filename unknown>:0 ",
+        "23.09.2026 01:14:41 |E|   at HonoluluBattleMain.Update () [0x00000] in <filename unknown>:0 ",
+        "23.09.2026 01:14:41 |E| System.NullReferenceException: ",
+        "23.09.2026 01:14:41 |E|   at (wrapper managed-to-native) UnityEngine.GameObject:get_transform ()",
+        "23.09.2026 01:14:42 |E| [Loader] could not open a file",
+        "23.09.2026 01:14:42 |E|   at Nobody.Owns (this frame)",
+        "23.09.2026 01:14:43 |M| unrelated",
+    ]
+    exc = parse_memoria(lines)
+    assert [(e.name, e.where, e.stamp, len(e.trace)) for e in exc] == [
+        ("NullReferenceException", "btl_init.OrganizeEnemyData", "23.09.2026 01:14:41", 2),
+        ("NullReferenceException", "UnityEngine.GameObject:get_transform", "23.09.2026 01:14:41", 1),
+    ]
+    assert exc[0].type == "System.NullReferenceException" and exc[0].message.startswith("Object reference")
+    assert exc[0].log == "Memoria.log"
+    assert exc[0].through("HonoluluBattleMain") and not exc[0].through("MovePC")
+
+
+def test_unitys_CR_CR_LF_frames_are_one_line_each_and_every_frame_is_kept():
+    """Unity ends each stack frame but the last with CR CR LF. splitlines() reads that as the frame
+    AND an empty line, and the first cut of the parser kept 1 frame of 4 from the real log.
+    Break: make split_lines() use str.splitlines(), or drop parse_unity's empty-line skip."""
+    text = ("Loaded the Exception table for field 30801\r\n" + UNITY_BLOCK.decode()
+            + "Unloading 2 unused Assets to reduce memory usage.\r\n")
+    lines = split_lines(text)
+    assert lines[1].startswith("NullReferenceException") and lines[6] == " " and "" not in lines[:7]
+    for form in (lines, text.splitlines()):
+        [e] = parse_unity(form)
+        assert (e.log, e.name, e.stamp, e.where) == (
+            "output_log.txt", "NullReferenceException", None, "FieldMapActorController.MovePC")
+        assert [f.split(" (")[0] for f in e.trace] == [
+            "FieldMapActorController.MovePC", "FieldMapActorController.UpdateMovement",
+            "FieldMapActorController.HonoUpdate", "HonoBehaviorSystem.Update"]
+
+
+def test_teardown_archives_both_exception_logs(game):
+    """Break: archive Memoria.log alone in _collect_log (all it did until 2026-09-23)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        fake.throw(caught=True, frames=BATTLE_FRAMES)
+        fake.throw()
+    mem = (game / "run" / "Memoria.log").read_text(encoding="utf-8")
+    uni = (game / "run" / "output_log.txt").read_bytes()
+    assert "|E| System.NullReferenceException" in mem and "OrganizeEnemyData" in mem
+    assert uni.startswith(b"Initialize engine version") and b"FieldMapActorController.MovePC" in uni
+
+
+def test_an_output_log_this_launch_never_wrote_is_not_archived_as_its_evidence(game):
+    """A game that dies before Unity opens its log leaves the PREVIOUS launch's on disk, and nothing in
+    an untimestamped log says so. Break: drop the _predates_launch guard in _collect_log."""
+    stale = game / "x64" / "FF9_Data" / "output_log.txt"
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(UNITY_BLOCK)
+    old = time.time() - 3600
+    os.utime(stale, (old, old))
+    fake = FakeGame(game)
+    fake.writes_unity_log = False
+    with session(game, fake) as g:
+        boot(g)
+    assert not (game / "run" / "output_log.txt").exists()
+    assert (game / "run" / "Memoria.log").exists()        # timestamped, so it documents itself
+
+
+def test_a_hang_behind_an_uncaught_exception_is_explained_from_unitys_log(game):
+    """The case this was built for: a MonoBehaviour throws, nothing catches it, the agent stops
+    publishing -- and the only record is output_log.txt. Break: make diagnose() read Memoria.log alone."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        fake.throw()
+        fake.mode = "frozen"
+        time.sleep(0.3)                           # let the last pre-freeze document land
+        with pytest.raises(HarnessError, match="frozen") as err:
+            g.wait_for(lambda s: False, timeout=1.0, what="anything")
+        fake.mode = "normal"          # thaw, so teardown does not spend its full quit budget
+    msg = str(err.value)
+    assert "NullReferenceException at FieldMapActorController.MovePC" in msg
+    assert str(fake.unity_log) in msg
+
+
+def test_diagnose_reports_every_log_with_a_marker_newest_first(game):
+    """Break: stop at the first log with a marker, or drop the newest-first sort."""
+    fake = FakeGame(game)
+    s = session(game, fake)
+    fake.throw(caught=True, frames=BATTLE_FRAMES)
+    fake.throw()
+    now = time.time()
+    os.utime(game / "x64" / "Memoria.log", (now - 60, now - 60))   # the fixture's must not win newest
+    os.utime(fake.memoria_log, (now - 5, now - 5))
+    os.utime(fake.unity_log, (now - 1, now - 1))
+    first, second = s.diagnose().split("; ")
+    assert first == ("the engine threw a NullReferenceException at FieldMapActorController.MovePC "
+                     f"(from {fake.unity_log})")
+    assert second == ("the engine threw a NullReferenceException at btl_init.OrganizeEnemyData "
+                      f"(from {fake.memoria_log})")
+    os.utime(fake.memoria_log, (now, now))
+    assert s.diagnose().split("; ")[0].endswith(f"(from {fake.memoria_log})")
+
+
+def test_diagnose_will_not_speak_from_a_stale_unity_log(game):
+    """Break: drop the max_age test for output_log.txt."""
+    fake = FakeGame(game)
+    s = session(game, fake)
+    fake.throw()
+    old = time.time() - 120
+    os.utime(fake.unity_log, (old, old))
+    assert s.diagnose(max_age=60, window=600) is None
+    assert "MovePC" in (s.diagnose(max_age=600, window=600) or "")        # the control
+
+
+def test_diagnose_window_on_unitys_untimestamped_log_starts_with_its_last_write(game):
+    """No line carries a time, but the file does: not one byte of a log last written before the cutoff
+    is recent. Break: drop the mtime test in _recent_unity."""
+    fake = FakeGame(game)
+    s = session(game, fake)
+    fake.throw()
+    old = time.time() - 60
+    os.utime(fake.unity_log, (old, old))
+    assert s.diagnose(window=30) is None
+    assert "MovePC" in (s.diagnose(window=120) or "")
+
+
+def test_diagnose_reads_unitys_log_from_where_it_stood_at_the_cutoff(game):
+    """Written recently -- but only noise; the exception is older than the window. The size noted at
+    or before the cutoff is where "recent" begins. Break: ignore the notes (read from 0)."""
+    fake = FakeGame(game)
+    s = session(game, fake)
+    fake.throw()
+    s._unity_notes.append((time.time() - 60, fake.unity_log.stat().st_size))
+    with open(fake.unity_log, "ab") as f:
+        f.write(b"Unloading 2 unused Assets to reduce memory usage.\r\n")
+    assert s.diagnose(window=30) is None
+    assert "MovePC" in (s.diagnose(window=120) or "")      # no note that old: all of it counts
+
+
+def test_unitys_log_size_is_noted_on_the_reads_a_wait_already_makes(game):
+    """No thread, no extra poll: the observer that feeds the state ring notes it, at most once per
+    UNITY_NOTE_EVERY. Break: stop calling _note_unity_log from _observe, or drop the throttle."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        t0, n0 = time.time(), len(g._unity_notes)
+        g.wait_frames(240)
+        elapsed = time.time() - t0
+        assert len(g._unity_notes) - n0 <= elapsed / g.UNITY_NOTE_EVERY + 1
+        g.UNITY_NOTE_EVERY = 0.0
+        fake.throw()
+        g.wait_frames(4)
+        assert g._unity_notes[-1][1] == fake.unity_log.stat().st_size
+
+
+def test_exceptions_since_a_mark_reads_both_logs_and_nothing_before_it(game):
+    """Break: ignore the mark (read each log from its start), or read Memoria.log alone."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        fake.throw(caught=True, frames=BATTLE_FRAMES)
+        fake.throw()
+        mark = g.log_mark()
+        fake.throw("IndexOutOfRangeException", ("btl_cmd.KickCommand ()",),
+                   message="Array index is out of range.", caught=True)
+        fake.throw()
+        since = g.exceptions_since(mark)
+        everything = g.exceptions_since()
+    assert [str(e) for e in since] == [
+        "IndexOutOfRangeException at btl_cmd.KickCommand (Memoria.log)", MOVEPC]
+    assert since[0].stamp and since[0].message == "Array index is out of range."
+    assert since[1].stamp is None and len(since[1].trace) == 3
+    assert len(everything) == 4
+
+
+def test_a_mark_taken_mid_line_does_not_split_an_exception_from_its_frames(game):
+    """Break: mark at the raw file size instead of snapping back to the start of the line."""
+    fake = FakeGame(game)
+    s = session(game, fake)
+    fake.throw()
+    head, rest = UNITY_BLOCK.split(b"Exception: ", 1)
+    with open(fake.unity_log, "ab") as f:
+        f.write(head)                              # the game is part-way through a header
+    mark = s.log_mark()
+    with open(fake.unity_log, "ab") as f:
+        f.write(b"Exception: " + rest)
+    assert [str(e) for e in s.exceptions_since(mark)] == [MOVEPC]
+
+
+def test_a_log_rewritten_since_the_mark_is_read_from_its_start(game):
+    """A relaunch rewrites output_log.txt; an offset into the old file means nothing in the new one.
+    Break: drop read_from's reset for an offset past the end of the file."""
+    fake = FakeGame(game)
+    s = session(game, fake)
+    for _ in range(3):
+        fake.throw()
+    mark = s.log_mark()
+    fake.unity_log.write_bytes(UNITY_BLOCK)        # rewritten, and shorter than the mark
+    assert [str(e) for e in s.exceptions_since(mark)] == [MOVEPC]
+
+
+def test_a_mark_in_one_memoria_log_does_not_apply_to_the_other(game):
+    """Newest-wins can move to the other Memoria.log after a mark, where its offset means nothing.
+    Break: apply the marked offset to whatever file is newest now."""
+    old = time.time() - 10
+    os.utime(game / "x64" / "Memoria.log", (old, old))
+    fake = FakeGame(game)
+    s = session(game, fake)
+    mark = s.log_mark()
+    assert mark["Memoria.log"][0] == game / "x64" / "Memoria.log"
+    fake.throw(caught=True, frames=BATTLE_FRAMES)             # the game root's: now the newest
+    assert [e.where for e in s.exceptions_since(mark)] == ["btl_init.OrganizeEnemyData"]
+
+
+def test_a_log_the_game_never_wrote_this_launch_is_no_evidence_about_it(game):
+    """The previous launch's output_log, still on disk, must not explain or be counted against this
+    one. Break: drop _predates_launch from exceptions_since(), or from diagnose()."""
+    stale = game / "x64" / "FF9_Data" / "output_log.txt"
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(UNITY_BLOCK)
+    old = time.time() - 10
+    os.utime(stale, (old, old))
+    fake = FakeGame(game)
+    fake.writes_unity_log = False
+    with session(game, fake) as g:
+        boot(g)
+        assert g.exceptions_since() == []
+        assert g.diagnose(window=120) is None
+    view = session(game, FakeGame(game))           # the control: a session that launched nothing
+    assert [str(e) for e in view.exceptions_since()] == [MOVEPC]
+    assert "MovePC" in (view.diagnose(window=120) or "")
+
+
+def test_diagnose_still_reads_memoria_log_by_its_own_line_timestamps(game):
+    """The refactor's guard: a freshly written Memoria.log whose NRE is five minutes old explains
+    nothing now. Break: drop the timestamp filter in _recent_memoria."""
+    fake = FakeGame(game)
+    s = session(game, fake)
+    then = time.strftime("%d.%m.%Y %H:%M:%S", time.localtime(time.time() - 300))
+    fake.memoria_log.write_text(f"{then} |E| System.NullReferenceException: stale\n"
+                                f"{then} |E|   at btl_init.OrganizeEnemyData ()\n", encoding="utf-8")
+    assert s.diagnose() is None
+    fake.throw(caught=True, frames=BATTLE_FRAMES)
+    assert s.diagnose() == ("the engine threw a NullReferenceException at btl_init.OrganizeEnemyData "
+                            f"(from {fake.memoria_log})")
 
 
 # ======================================================================================

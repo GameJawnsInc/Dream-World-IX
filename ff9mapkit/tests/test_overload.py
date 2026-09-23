@@ -693,6 +693,36 @@ def test_emit_scripts_on_defeat_coverage_warning(tmp_path, monkeypatch):
     assert not any("VHUB" in w for w in warnings)              # covered verbatim member -> no warning
 
 
+def test_emit_scripts_on_defeat_coverage_warning_behavior_battles(tmp_path, monkeypatch):
+    """REGRESSION: the coverage lint only looked for [encounter], so a field whose battles come from a
+    [behavior] `battle` action was neither covered nor warned about -- yet it gets the same after-battle
+    handler, and without the block a wipe there silently doesn't warp. The lint now reads the build's own
+    predicate (build._starts_battles): an armed [encounter] OR a behavior battle. An [encounter] with no
+    scene is inert (no battles, no handler) and a behavior with no battle action fights nothing."""
+    _mock_compiles(monkeypatch)
+    from ff9mapkit.build import _emit_scripts
+    layout = ModLayout(root=tmp_path / "mod")
+    rule = {"on_defeat": {"warp_to": 6000}}
+
+    def beh(battle):
+        do = {"battle": 35} if battle else {"hold": [0, 0]}
+        return {"unit": [{"npc": "g", "hp": 3, "branch": [{"when": [{"hp_le": 0}], "do": do},
+                                                          {"do": {"hold": [0, 0]}}]}]}
+
+    carrier = SimpleNamespace(raw={"field": {"name": "HUBROOM"}, "encounter": {"scene": 67},
+                                   "deathrules": rule})
+    ambush = SimpleNamespace(raw={"field": {"name": "AMBUSH"}, "behavior": beh(True)})
+    ambush_ok = SimpleNamespace(raw={"field": {"name": "GUARDED"}, "behavior": beh(True),
+                                     "deathrules": rule})
+    patrol = SimpleNamespace(raw={"field": {"name": "PATROL"}, "behavior": beh(False)})
+    inert = SimpleNamespace(raw={"field": {"name": "INERT"}, "encounter": {"freq": 40}})
+    warnings = _emit_scripts([carrier, ambush, ambush_ok, patrol, inert], layout, "FF9CustomMap")
+    gap = [w for w in warnings if "wipe-warp" in w]
+    assert len(gap) == 1 and "AMBUSH" in gap[0]                # the behavior-battle field is NAMED
+    for quiet in ("GUARDED", "PATROL", "INERT", "HUBROOM"):
+        assert quiet not in gap[0], quiet
+
+
 # ---- the OUTPOST system (on_defeat "last outpost visited") ------------------------------------------------
 def test_field_to_var_encoding_roundtrips():
     """The COMPUTED Field() warp: opcode 0x2B, argFlag 0x01, the outpost var pushed as an expression --

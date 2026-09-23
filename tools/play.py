@@ -19,7 +19,8 @@ A scenario file is plain Python exposing ``run(g)``, where ``g`` is a
         g.shot("after-chest")
 
 Exit code is 0 only when every recorded check passed and nothing raised, so this drops straight into
-a gate. Artifacts (frames, events, Memoria.log, report.json) land in ``.harness-runs/<stamp>-<label>/``.
+a gate. Artifacts (frames, events, both exception logs -- Memoria.log and Unity's output_log.txt --
+report.json) land in ``.harness-runs/<stamp>-<label>/``.
 
 !! THIS DRIVES THE REAL SHARED INSTALL. It refuses to start when an FF9 is already running (pass
 ``--attach`` to deliberately drive that one) and it only ever closes a game it launched itself.

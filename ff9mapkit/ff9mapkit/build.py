@@ -3387,7 +3387,7 @@ def lint_logic(project: FieldProject) -> list[str]:
                        f"spatial marker placed in Blender whose [[npc]] logic was never authored.)")
     out += _lint_rotating_cast(raw.get("npc", []) or [])
     enc = raw.get("encounter")                     # a model-bucket [encounter] scene crashes in-game (the picker
-    # `scene` is the key that ARMS the block: build_script's has_encounter tests it alone, so a block
+    # `scene` is the key that ARMS the block: _encounter_armed tests it alone, so a block
     # carrying only the tuning keys injects nothing. `scenes` counts as a tuning key here -- a pool with no
     # `scene` was silently inert with no warning at all (the pool feeds SetRandomBattles' 4 slots, it does
     # not stand in for `scene`), which is the same quiet-nothing as a bare freq.
@@ -5108,21 +5108,63 @@ class _FlagAlloc:
             "alias a sibling member. Pick an index in this member's free band or use a shared [[flag]].")
 
 
+def _deathrules_prologue(raw: dict) -> bytes:
+    """The ``[deathrules] on_defeat`` wipe-warp check (:func:`ff9mapkit.battle.deathrules.field_prologue`) this
+    field's tag-10 must run first -- ``b""`` for no block, no ``on_defeat``, or a broken block (validate()
+    reports that one). The ONE derivation behind every tag-10 the kit writes: the synthesized handler
+    (:func:`_install_after_battle`) and a verbatim donor's (:func:`_apply_wipe_warp`)."""
+    dr = raw.get("deathrules")
+    if dr is None:
+        return b""
+    from .battle import deathrules as _dr
+    try:
+        return _dr.field_prologue(_dr.parse_table(dr, name_map=_flags.collect_flag_defs(raw)))
+    except _dr.DeathRulesError:
+        return b""
+
+
+def _encounter_armed(raw: dict) -> bool:
+    """An ``[encounter]`` that actually fires random battles: ``scene`` is the key that ARMS the block (a
+    block carrying only tuning keys injects nothing -- see the inert-block lint in validate())."""
+    enc = raw.get("encounter")
+    return isinstance(enc, dict) and enc.get("scene") is not None
+
+
+def _starts_battles(raw: dict) -> bool:
+    """True when a synthesized field can START a battle -- an armed ``[encounter]`` (random battles) or a
+    ``[behavior]`` ``battle`` action -- i.e. exactly when :func:`build_script` installs the after-battle
+    handler. The mod-level ``[deathrules] on_defeat`` coverage lint reads the same predicate, so "this field
+    needs the wipe-warp check" and "this field got a tag-10" cannot disagree."""
+    return _encounter_armed(raw) or _behaviortoml.fires_battle(raw)
+
+
+def _install_after_battle(eb: bytes, project: "FieldProject", cam_restore) -> bytes:
+    """Install a synthesized field's after-battle handler -- the entry-0 tag-10 Main_Reinit. After ANY battle
+    the engine runs tag-10 (not Main_Init), and ``EnterBattleEnd`` keeps every object suspended until tag-10
+    returns at level 0. ONE installer for every battle source (an ``[encounter]``'s random battles, a
+    ``[behavior]`` ``battle`` action), so what a battle return runs cannot depend on which lane started it:
+      * the ``[deathrules] on_defeat`` wipe-warp prologue, first in the body (it may ``Field()`` away);
+      * the field-BGM resume (``[music] song``);
+      * a multi-camera field's camera restore (``cam_restore`` from the ``[[camera_zone]]`` injection): the
+        zone flag survives the battle, so re-apply the camera + movement the player was on."""
+    eb = _reinit.add_reinit(eb, with_fade=True, prologue=_deathrules_prologue(project.raw))
+    song = (project.raw.get("music") or {}).get("song")
+    if song is not None:
+        eb = _music.add_music_to_reinit(eb, int(song))
+    if cam_restore is not None:
+        used_cams, cvs = cam_restore
+        eb = _camera.add_camera_restore(eb, used_cams, cvs)
+    return eb
+
+
 def _apply_wipe_warp(project, eb: bytes) -> bytes:
     """Inject the ``[deathrules] on_defeat`` wipe-warp check into a VERBATIM fork's **existing** tag-10
     Main_Reinit (prepend at body offset 0 -- always safe per :func:`ff9mapkit.eb.edit.insert_in_function`,
-    even over a jump table). The synthesize path gets the same check via ``add_reinit(prologue=)``; this is
-    its verbatim twin, so a fork's donor-native random battles are covered too. A donor without an entry-0
-    tag-10 has no after-battle re-entry (no battles) -> nothing to inject; no ``on_defeat`` (or a broken
-    block -- validate() reports it) -> byte-identical."""
-    dr = project.raw.get("deathrules")
-    if dr is None:
-        return eb
-    from .battle import deathrules as _dr
-    try:
-        pro = _dr.field_prologue(_dr.parse_table(dr, name_map=_flags.collect_flag_defs(project.raw)))
-    except _dr.DeathRulesError:
-        return eb
+    even over a jump table). The synthesize path gets the same check from :func:`_install_after_battle`;
+    this is its verbatim twin, so a fork's donor-native random battles are covered too. A donor without an
+    entry-0 tag-10 has no after-battle re-entry (no battles) -> nothing to inject; no ``on_defeat`` (or a
+    broken block -- validate() reports it) -> byte-identical."""
+    pro = _deathrules_prologue(project.raw)
     if not pro:
         return eb
     from .eb import EbScript
@@ -6424,8 +6466,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         eb = _g_edit.activate_block(eb, opcodes.init_code(_g_slot, 0))
     # scene is optional in the form (blank = no random battles): an [encounter] with no scene is inert
     # (nothing to fire / no BGM / no reinit), so gate on the scene actually being present.
-    _enc_raw = project.raw.get("encounter")
-    has_encounter = isinstance(_enc_raw, dict) and _enc_raw.get("scene") is not None
+    has_encounter = _encounter_armed(project.raw)
 
     # larger-than-screen scrolling: enable the field's camera services (Active flag) so the engine's
     # 3D scroll follows the player. The wide Range + scroll Viewport come from the camera/scene.
@@ -6593,7 +6634,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # multi-camera switch zones (area model): each zone owns the floor area where its camera is
     # active; crossing into it cuts the active background camera + re-tunes movement for that camera's
     # yaw. Scales to N cameras (flag = current camera index prevents re-fire; non-overlapping zones
-    # can't flap). cam_restore is stashed for the after-battle restore added after the reinit below.
+    # can't flap). cam_restore is stashed for the after-battle handler's camera restore (below) -- any
+    # battle source, [encounter] or [behavior].
     cam_restore = None
     zones = project.raw.get("camera_zone", [])
     if zones:
@@ -7447,7 +7489,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             from .content import areatitle as _ati
             eb = _ati.hide(eb, min(_ov), max(_ov))
 
-    # encounter (+ the after-battle reinit it requires)
+    # encounter (its after-battle handler is installed below, with every other battle source's)
     if has_encounter:
         e = project.raw["encounter"]
         # scene/scenes accept a catalog NAME as well as an id -- resolve_encounter_scenes owns that
@@ -7456,18 +7498,6 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         eb = _enc.inject_encounter(eb, scene=int(_e_scene), freq=int(e.get("freq", 255)),
                                    pattern=int(e.get("pattern", 1)),
                                    scenes=_e_pool)
-        # [deathrules] on_defeat: the wipe-warp check rides the tag-10 prologue (the DLL half set the
-        # marker bit at the canceled game over; this half clears it and warps). Parse errors are
-        # validate()'s to report -- a broken block simply injects nothing here.
-        _dr_prologue = b""
-        if project.raw.get("deathrules") is not None:
-            from .battle import deathrules as _dr
-            try:
-                _dr_prologue = _dr.field_prologue(_dr.parse_table(
-                    project.raw["deathrules"], name_map=_flags.collect_flag_defs(project.raw)))
-            except _dr.DeathRulesError:
-                pass
-        eb = _reinit.add_reinit(eb, with_fade=True, prologue=_dr_prologue)
 
     # [music] stop -- force-STOP whatever field/battle BGM is resident on room entry, unconditionally.
     # Prepended LAST among Main_Init's rel_off=0 inserts (after [startup]/[party]/the walkmesh hotfix
@@ -7481,18 +7511,14 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     if project.raw.get("music", {}).get("song") is not None:
         song = int(project.raw["music"]["song"])
         eb = _music.add_field_music(eb, song)
-        if has_encounter:  # resume after battle
-            eb = _music.add_music_to_reinit(eb, song)
-    elif has_encounter:
-        # encounter but no music still needs reinit (added above); nothing else to do
-        pass
 
-    # after-battle camera restore: a multi-camera field with encounters runs tag-10 (not Main_Init)
-    # on battle return, so the flag isn't reset -- re-apply the stored camera. Needs the tag-10 that
-    # add_reinit created above.
-    if cam_restore is not None and has_encounter:
-        used_cams, cvs = cam_restore
-        eb = _camera.add_camera_restore(eb, used_cams, cvs)
+    # the after-battle handler (entry-0 tag-10 Main_Reinit): ONE install for every battle source -- an
+    # armed [encounter] and a [behavior] `battle` action alike get the [deathrules] on_defeat wipe-warp
+    # prologue, the field-BGM resume and the multi-camera restore (see _install_after_battle). Decided
+    # from the RAW tree because the behavior compiles later; the [behavior] block below refuses a
+    # compiled tree that disagrees.
+    if _starts_battles(project.raw):
+        eb = _install_after_battle(eb, project, cam_restore)
 
     # [behavior] -- compile the field's behavior trees (content.behavior) and install them
     # LAST: each unit's tag-1 standby becomes its duty walk, dispatch/nudge bodies are added
@@ -7533,14 +7559,15 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                    for i, n in enumerate(project.raw.get("npc", []))
                                    if n.get("name") and i in dialogue_txids},
                 behavior_txids=behavior_txids, routed=routed)
-            # a behavior Battle action needs the after-battle machinery the encounter
-            # lane installs: the entry-0 tag-10 Main_Reinit (EnterBattleEnd suspends
-            # every object; the tag-10's return resumes them) + the field-BGM resume
-            if fb.has_battle_actions() and not has_encounter:
-                eb = _reinit.add_reinit(eb, with_fade=True)
-                _song = project.raw.get("music", {}).get("song")
-                if _song is not None:
-                    eb = _music.add_music_to_reinit(eb, int(_song))
+            # a behavior Battle action needs the after-battle handler, which was installed
+            # above from the RAW scan (fires_battle) -- enforce here that the compiled tree
+            # agrees, or a Battle would ship with no tag-10 (every object stays suspended
+            # after the fight) or a battle-less field would carry a stray one
+            if fb.has_battle_actions() != _behaviortoml.fires_battle(project.raw):
+                raise BuildError(
+                    f"[behavior]: the compiled trees {'fire a' if fb.has_battle_actions() else 'fire no'} "
+                    f"battle but the raw scan (behaviortoml.fires_battle) says otherwise -- the "
+                    f"after-battle handler was decided from the scan, so the two must agree")
             # button pools: resolve each pool's PARKED hire [[choice]] (matched by the
             # option that set_flags its request flag) to the region slot injected above
             pool_choice_slots = {}
@@ -9459,17 +9486,19 @@ def _emit_scripts(projects, layout, mod_name) -> list:
                     f"The scripts DLL loads ONCE at the title screen -- RELAUNCH FF9 (~ Reload won't pick it up).")
     if dr_spec is not None and dr_spec.warp_to is not None:
         # the on_defeat DLL half is mod-GLOBAL, but the field half (the tag-10 wipe-warp check) only lands
-        # on fields carrying the [deathrules] block -- a wipe in an uncovered encounter field revives+flees
+        # on fields carrying the [deathrules] block -- a wipe in an uncovered battle field revives+flees
         # but does NOT warp and leaves the marker set (the NEXT battle in a covered field would then warp
-        # spuriously). Name the gaps.
+        # spuriously). Name the gaps: every field build_script gives an after-battle handler -- an armed
+        # [encounter] OR a [behavior] `battle` action (_starts_battles, the build's own predicate).
         uncovered = [str((p.raw.get("field") or {}).get("name", "?")) for p in projects
-                     if isinstance(p.raw, dict) and p.raw.get("encounter") is not None
+                     if isinstance(p.raw, dict) and _starts_battles(p.raw)
                      and p.raw.get("deathrules") is None]
         if uncovered:
             warnings.append(
-                f"[deathrules] on_defeat: encounter field(s) {', '.join(uncovered)} carry no [deathrules] "
-                f"block, so their after-battle handler lacks the wipe-warp check -- a wipe there won't warp "
-                f"and leaves the marker bit set. Repeat the IDENTICAL [deathrules] block on them.")
+                f"[deathrules] on_defeat: battle field(s) {', '.join(uncovered)} (an [encounter] or a "
+                f"[behavior] battle) carry no [deathrules] block, so their after-battle handler lacks the "
+                f"wipe-warp check -- a wipe there won't warp and leaves the marker bit set. Repeat the "
+                f"IDENTICAL [deathrules] block on them.")
         # verbatim members: their battles are the DONOR's (no kit [encounter] to detect), so name any
         # member lacking the block as a softer maybe-gap -- if its donor has battles, the same hole applies.
         verb_uncovered = [str((p.raw.get("field") or {}).get("name", "?")) for p in projects

@@ -219,9 +219,12 @@ def apply_scene_edits(raw16: bytes, scene: dict) -> tuple[bytes, list[str]]:
             b[pat_off + 2] = cam
         if mc is not None:
             b[pat_off + 1] = mc
+        parts = _multipart_roles(b, pat_off, ())            # the boss as forked, before any row retypes a slot
+        roles = _multipart_roles(b, pat_off, enemies)
         for e in enemies:
-            _edit_placement(b, pat_off, e, typcount)
+            _edit_placement(b, pat_off, e, typcount, roles)
         count = b[pat_off + 1]                              # every ACTIVE slot must be a valid, hittable type
+        master = False
         for s in range(count):
             po = pat_off + 8 + _PUT * s
             if b[po] >= typcount:
@@ -230,6 +233,23 @@ def apply_scene_edits(raw16: bytes, scene: dict) -> tuple[bytes, list[str]]:
             if not (b[po + 1] & _FLG_TARGETABLE):
                 raise SceneEditError(f"active slot {s} (monster_count {count}) is not targetable -- set its "
                                      f"'type' so it becomes a normal attackable enemy (else the fight can't end)")
+            if b[po + 1] & PUT_FLAG_MULTIPART:             # a slave hangs on the last master before it
+                if b[po] == 0:
+                    master = True
+                elif not master:
+                    raise SceneEditError(
+                        f"active slot {s} (monster_count {count}) would spawn as a multipart SLAVE part (type "
+                        f"{b[po]} with the multipart flag) with no master before it. The engine gives a slave no "
+                        f"model of its own and hangs it on the last master before it in slot order (a type-0 slot "
+                        f"with the flag; a master given another type is a normal enemy), so the battle crashes at "
+                        f"start on a null master (btl_util.GetMasterEnemyBtlPtr, btl_init.OrganizeEnemyData). "
+                        f"Give slot {s} a 'type' too (it then spawns as a normal enemy), or keep the master at type 0")
+            elif s in parts:
+                w = (f"slot {s} was the multipart boss's {parts[s].upper()}; its type {b[po]} spawns it as a normal "
+                     f"enemy with its own model (a part keeps its role only while the master stays type 0 and a "
+                     f"slave stays type > 0)")
+                if w not in warnings:
+                    warnings.append(w)
 
     # the AP reward is per-PATTERN (the gameplay-effective AP, awarded whole) -> write it to EVERY pattern so
     # whichever formation the engine rolls gives the authored AP.
@@ -288,8 +308,39 @@ def apply_scene_edits(raw16: bytes, scene: dict) -> tuple[bytes, list[str]]:
     return bytes(b), warnings
 
 
-def _edit_placement(b: bytearray, pat_off: int, e: dict, typcount: int) -> None:
-    """Apply one [[scene.enemy]]'s slot TYPE + placement (pos/y/rot) within a single pattern."""
+def _multipart_roles(b, pat_off: int, enemies) -> dict:
+    """``{slot: "master" | "slave"}`` -- the live parts of a multipart boss among one pattern's ACTIVE slots,
+    or ``{}`` when a ``type`` row moves the master off type 0 (the boss is dissolved into normal enemies).
+
+    The engine keys the role on TypeNo alone: a slot with FLG_MULTIPART is a SLAVE when its type is > 0 (no
+    model of its own; it rides its master's -- ``BTL_SCENE.GetMonGeoID``, ``btl_init.cs:49-55``) and the MASTER
+    when its type is 0 (the non-slave with ``info.multiple``, found as the last one before the slave in slot
+    order -- ``btl_util.GetMasterEnemyBtlPtr``). A slave-shaped row with no master before it is NOT a part:
+    33 stock scenes keep dormant ``(1, 3), (2, 3)`` rows past MonsterCount behind a normal slot 0 (PD_R004),
+    and a ``type`` there spawns a normal enemy."""
+    roles = {}
+    master = False
+    for s in range(min(b[pat_off + 1], 4)):
+        po = pat_off + 8 + _PUT * s
+        if b[po + 1] & PUT_FLAG_MULTIPART:
+            if b[po] == 0:
+                roles[s], master = "master", True
+            elif master:
+                roles[s] = "slave"
+    for e in enemies:                                       # decided before any row applies: order-free
+        try:
+            slot, t = int(e["slot"]), int(e["type"])
+        except (KeyError, TypeError, ValueError):
+            continue                                        # no type, or a bad row _edit_placement reports
+        if roles.get(slot) == "master" and t != 0:
+            return {}
+    return roles
+
+
+def _edit_placement(b: bytearray, pat_off: int, e: dict, typcount: int, roles: dict) -> None:
+    """Apply one [[scene.enemy]]'s slot TYPE + placement (pos/y/rot) within a single pattern. ``type`` makes the
+    slot a normal targetable enemy, except on a live multipart part (``roles``) whose new type keeps its role
+    (master = type 0, slave = type > 0): that stays the same part, multipart flag kept."""
     if "slot" not in e:
         raise SceneEditError("[[scene.enemy]] needs a 'slot' (0-3, the placement in the pattern)")
     slot = int(e["slot"])
@@ -301,8 +352,9 @@ def _edit_placement(b: bytearray, pat_off: int, e: dict, typcount: int) -> None:
         if not 0 <= t < typcount:
             raise SceneEditError(f"slot {slot} type {t} out of range (0-{typcount - 1}); must be an enemy "
                                  f"type ALREADY in this scene, so the forked raw17/GEO/AI covers it")
+        keep = roles.get(slot) == ("master" if t == 0 else "slave")
         b[put_off] = t
-        b[put_off + 1] = _FLG_TARGETABLE                   # normal, targetable, single-part enemy
+        b[put_off + 1] = _FLG_TARGETABLE | (PUT_FLAG_MULTIPART if keep else 0)   # the same part, or a normal enemy
         # GROUND it: default an activated slot's height to slot 0's Ypos (a real on-ground enemy). Explicit y wins.
         struct.pack_into("<h", b, put_off + 6, struct.unpack_from("<h", b, pat_off + 8 + 6)[0])
     if "pos" in e:

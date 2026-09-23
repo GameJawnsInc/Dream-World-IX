@@ -39,6 +39,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   replays the slot's `reaction` rows where the engine refuses the lethal hit's tag 7. The field reads it with
   the readers it already has. See `docs/BATTLE_DESIGN.md` § (b′).
 
+### Fixed — `[[scene.enemy]] type` on a multipart boss
+- **`type` no longer strips a multipart boss's master.** It wrote the slot's SB2_PUT flags as a plain
+  targetable enemy, so `slot = 0, type = 0` on a boss like GT_R004 or TA_R003 cleared the master's multipart
+  bit, left its parts with no master, and crashed the battle at start. A part now keeps its multipart flag
+  when the new type keeps its role (master = type 0, slave part = type > 0). A `type = 1` on a slave now keeps
+  it a part; it used to spawn a second full copy of the boss.
+  Proven in-game by the harness on GT_R004 (Sand Golem + Core), against a pre-fix control that crashed in
+  `btl_init.OrganizeEnemyData`: `studies/battle-multipart/`.
+- **A slave with no master is refused.** Validate names any active slave part with no master before it, such
+  as when the master was retyped and a part was left without a `type`. A part that becomes a normal enemy
+  now warns.
+
 ### Fixed — battle validate, the AI tag labels, battle scene ids
 - **`battle validate` composes the AI edits exactly as the build ships them.** It used to apply `ai_*` edits to
   the donor Main_Init while the build applied them after the `monster_count` rewrite, so an `ai_patch` offset
@@ -71,6 +83,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 ### Changed — table ids
 - An ordinary `[[behavior.table]]` id may not sit inside 6000000..7999999, and `id = true` (a TOML
   bool, which used to pass as id 1) is refused.
+
+### Fixed — a `[behavior]` battle gets the same after-battle handler as an `[encounter]`
+- A field whose battles come from a `[behavior]` `battle` action now gets the full after-battle handler
+  an `[encounter]` field gets: the `[deathrules] on_defeat` wipe-warp check (losing such a battle used
+  to revive + flee but never warp, leaving the wipe marker set), the field-BGM resume, and the
+  multi-camera restore. One installer serves both battle sources, so the two can no longer drift.
+- The `[deathrules] on_defeat` coverage warning now names behavior-battle fields that lack the block
+  (it only looked for `[encounter]`), and no longer names an `[encounter]` with no `scene` (inert: it
+  fights nothing).
+- A field with BOTH an `[encounter]` and a `[behavior]` battle plus `[deathrules] on_defeat` failed its
+  build ("install produced NEW lint errors"). The lint was right: the blank template's entry-0
+  Main_Loop points just past entry 0's end (an out-of-range IP the engine simply returns from), and
+  growing the after-battle handler slid it INTO the handler. Adding a function now keeps such a pointer
+  past the end, and the BGM/camera prepends move it with the bytes, so a long handler (any
+  `on_defeat` field, `[encounter]` ones included) no longer runs Main_Loop from mid-handler on every
+  field load. Every battle field's `.eb` changes by that one pointer; nothing else moves.
 
 ### Fixed — the deploy pin reaches the last three folder readers, and the Build tab says where its slot came from
 - `world-ledger` no longer REQUIRES `--mod-folder`: it resolves the folder like every other verb
