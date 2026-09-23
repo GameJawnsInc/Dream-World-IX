@@ -1050,13 +1050,10 @@ def _parse_obj(path):
             if s[0] == "v":
                 verts.append((float(s[1]), float(s[2]), float(s[3])))
             elif s[0] in ("o", "g"):
-                if len(s) > 2:
-                    raise ValueError(
-                        f"{path}: line {lineno}: {s[0]} name {' '.join(s[1:])!r} contains whitespace -- "
-                        f"a walkmesh floor name must be ONE word (the OBJ tokenizer keeps only the first "
-                        f"word, so this floor would silently merge with any other object whose name "
-                        f"starts with {s[1]!r}). Rename it, e.g. {'_'.join(s[1:])!r}.")
-                name = s[1] if len(s) > 1 else ""
+                # the WHOLE name, words joined by one space: the old tokenizer kept only the first word, so
+                # `o upper deck` and `o upper ledge` silently merged into one floor "upper"; OBJ's legal
+                # multi-group `g a b` form keeps working (it names one floor "a b")
+                name = " ".join(s[1:])
                 if name not in names:
                     names[name] = next_id
                     next_id += 1

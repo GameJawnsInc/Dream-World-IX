@@ -32,7 +32,7 @@ property of the representations, not a fixable bug.
 |---|---|---|
 | verts, faces, floor partition | yes | **yes** (`o` groups) |
 | triangle centers, plane normal/`d` | yes | yes (recompute) |
-| intra-floor neighbor links | `tri.nbr`/`edge`/`edgeClone` | yes (shared vertex **index** within a floor) |
+| neighbor links over shared vertices | `tri.nbr`/`edge`/`edgeClone` | yes (any edge whose two triangles share both vertex **indices** -- on any floor; imported floors use disjoint vertex sets, so their cross-floor links need the `links` sidecar) |
 | **cross-floor neighbor links** | `tri.nbr` across floors | **NO** — disjoint vertex sets |
 | **edge flags** (one-way, blocking, footstep) | `edge.flags` | **NO** |
 | **floor flags**, `floor.org`/`cur` (moving platforms) | `floor.*` | **NO** |

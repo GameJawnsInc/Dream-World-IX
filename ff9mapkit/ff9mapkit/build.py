@@ -4531,11 +4531,11 @@ def _borrow_walkmesh(project: FieldProject):
 
 
 # THE DONOR-CODE LANES -- every place the build carries DONOR bytecode VERBATIM onto a fork from a sidecar the import
-# wrote next to the toml. ONE list, closed at both ends: every build reader of these bytes goes through
-# _read_donor_code (which refuses an unregistered lane; tests/test_fork_walkmesh_lint.py also fails on a bare
-# `.read_bytes()` anywhere in build.py outside its allowlist), and _donor_code_sites -- the fork walkmesh-literal
-# lint's scan set -- dispatches on every registered lane (an unhandled one raises). So a newly carried lane cannot
-# ship unscanned. ``form``: "eb" = a whole .eb, "entry" = one entry blob (type + func table + bodies), "body" = one
+# wrote next to the toml. ONE list: the build's readers of these bytes go through _read_donor_code (which refuses an
+# unregistered lane), and _donor_code_sites -- the fork walkmesh-literal lint's scan set -- dispatches on every
+# registered lane (an unhandled one raises). A TRIPWIRE, not a proof: tests/test_fork_walkmesh_lint.py fails on a
+# bare `.read_bytes()` in build.py outside an allowlist of whole FUNCTIONS -- a new carry added inside an
+# allowlisted function, or in a content/*.py module, would still slip past it. ``form``: "eb" = a whole .eb, "entry" = one entry blob (type + func table + bodies), "body" = one
 # function body. ``[verbatim_eb] bin`` is read by content.verbatim.verbatim_eb (the lint calls that same reader).
 @dataclass(frozen=True)
 class _DonorLane:
@@ -4628,6 +4628,11 @@ def _donor_code_sites(project: FieldProject) -> list:
                     _entry(f"[[object]] {o['bin']}", kept)
         elif lk == ("object", "seqs"):
             for o in rows:
+                # a STARTSEQ helper ships only with an object the graft KEEPS (graft_objects appends seqs after
+                # dropping refused specs and warp directors) -- a dropped object's helpers never reach the fork
+                ob = _read("object", "bin", o["bin"]) if o.get("bin") else None
+                if not (ob and _object.carried_object_entry(o, ob)):
+                    continue
                 for h in (o.get("seqs") or []):
                     b = _read(*lk, h["bin"]) if isinstance(h, dict) and h.get("bin") else None
                     if b:
@@ -5104,8 +5109,9 @@ def _walkmesh_stats(wmesh, names=None) -> dict:
     """Geometry summary of a BgiWalkmesh for the `walkmesh verify` report. ``names`` (the built-order
     floor names of a ``[walkmesh] obj``, :func:`bgi.obj_floor_names`) labels the floor table.
 
-    ``floor_table`` rows are ``(floor, name_or_None, first_tri, last_tri, count)``: the first and last
-    triangle the floor LISTS (``None`` for an empty floor). On a floor-major mesh each floor is exactly
+    ``floor_table`` rows are ``(floor, name_or_None, first_tri, last_tri, count)``: the LOWEST and HIGHEST
+    triangle id the floor lists (``None`` for an empty floor) -- so ``last - first + 1 != count`` exposes a
+    gap even in a shuffled list. On a floor-major mesh each floor is exactly
     tris first..last, so the table IS the triangle-id map ``B_BGIID`` reports. ``floor_major`` is THE
     FLOOR-MAJOR LAW (:func:`bgi.floor_order_problems`)."""
     floors = sorted(wmesh.all_floors())
@@ -5117,7 +5123,7 @@ def _walkmesh_stats(wmesh, names=None) -> dict:
     for fi, fl in enumerate(wmesh.floors):
         lst = fl.tri_ndx_list
         table.append((fi, names[fi] if fi < len(names) else None,
-                      lst[0] if lst else None, lst[-1] if lst else None, len(lst)))
+                      min(lst) if lst else None, max(lst) if lst else None, len(lst)))
     return {"floors": floors, "reachable": reach, "stranded": sorted(set(floors) - set(reach)),
             "degenerate": wmesh.degenerate_tris(), "seams": len(wmesh.extract_seams()),
             "tris": len(wmesh.tris), "verts": len(wmesh.verts),
@@ -5142,7 +5148,14 @@ def verify_walkmesh(project: FieldProject) -> dict:
         _validate_content_placement(project, wmesh, warnings)     # content only (borrowed mesh is authoritative)
     else:
         camera = resolve_camera(project)
-        wmesh = bgi.BgiWalkmesh.from_bytes(resolve_walkmesh(project, camera, warnings))
+        wm_cfg = project.raw.get("walkmesh", {}) or {}
+        try:
+            wmesh = bgi.BgiWalkmesh.from_bytes(resolve_walkmesh(project, camera, warnings))
+        except BuildError as e:              # a shipped [walkmesh] bgi the build refuses: verify still reports
+            if not wm_cfg.get("bgi"):        # its table (floor-major: NO) -- the refusal is the first warning
+                raise
+            wmesh = bgi.BgiWalkmesh.from_bytes(project.path(wm_cfg["bgi"]).read_bytes())
+            warnings.append(str(e))
         source = "custom scene"
         wm_cfg = project.raw.get("walkmesh", {}) or {}
         if wm_cfg.get("obj") and not wm_cfg.get("bgi"):          # names exist only for a built obj
@@ -5185,11 +5198,11 @@ def resolve_walkmesh(project: FieldProject, camera: cam.Cam, warnings=None) -> b
         probs = bgi.floor_order_problems(bgi.BgiWalkmesh.from_bytes(data))
         if probs:
             raise BuildError(
-                f"[walkmesh] bgi {wm['bgi']}: triangles are not listed floor by floor ({probs[0]}) -- the "
+                f"[walkmesh] bgi {wm['bgi']}: not floor-major ({probs[0]}) -- the "
                 f"engine indexes its triangle list by triangle id (WalkMesh.cs:573/618; the edge hysteresis "
                 f"compares list positions against ids), so neighbour walking would silently use the wrong "
-                f"triangles. Every stock .bgi is floor-major (674/674); re-export it through [walkmesh] obj, "
-                f"which regroups floor by floor.")
+                f"triangles. Every stock .bgi is floor-major (674/674); re-author it as a [walkmesh] obj (the "
+                f"editable import writes one for a real field), which the build regroups floor by floor.")
         return data
     # All authored walkmeshes are in TRUE WORLD coords (org=0): the player renders at its world
     # position (= to_canvas), so the walkmesh IS the painted floor -- no character offset (MEASURED

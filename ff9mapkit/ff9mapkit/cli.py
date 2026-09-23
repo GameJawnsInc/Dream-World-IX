@@ -992,6 +992,12 @@ def _cmd_walkmesh(args: argparse.Namespace) -> int:
         with open(args.output or args.input, "wb") as fh:
             fh.write(out)
         print(f"rebuilt neighbor links for {len(m.tris)} tris -> {args.output or args.input}")
+        probs = bgi.floor_order_problems(m)
+        if probs:                              # fix rebuilds links; it never reorders triangles
+            print(f"  ! still NOT floor-major ({probs[0]}) -- `walkmesh fix` rebuilds neighbour links only; "
+                  f"[walkmesh] bgi refuses this file. Re-author it as a [walkmesh] obj (the build regroups).",
+                  file=sys.stderr)
+            return 1
     elif args.action == "verify":
         return _walkmesh_verify(args.input)
     return 0

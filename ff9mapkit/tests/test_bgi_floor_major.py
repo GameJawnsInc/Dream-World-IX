@@ -190,7 +190,7 @@ def test_c_resolve_walkmesh_refuses_a_shipped_non_floor_major_bgi(tmp_path):
     with pytest.raises(B.BuildError) as ei:
         B.resolve_walkmesh(proj, None)
     msg = str(ei.value)
-    assert msg.startswith("[walkmesh] bgi wm.bgi: triangles are not listed floor by floor (floor 0 lists "
+    assert msg.startswith("[walkmesh] bgi wm.bgi: not floor-major (floor 0 lists "
                           "triangle 8 at list position 7")
     assert "674/674" in msg and "[walkmesh] obj" in msg
 
@@ -287,15 +287,18 @@ def test_obj_floor_names(tmp_path, text, names, fids):
     assert len(bgi.build(v, f, floor_ids=fid).floors) == len(names)  # one name per BUILT floor
 
 
-@pytest.mark.parametrize("line", ["o upper deck", "g upper\tdeck", "g ground terrace"])
-def test_a_floor_name_with_whitespace_is_refused(tmp_path, line):
-    """`o upper deck` used to become floor 'upper' and silently merge with `o upper ledge`; a `g` with
-    several words is OBJ's multi-group form. Both are refused, naming the line and a fix."""
+@pytest.mark.parametrize("line,name", [("o upper deck", "upper deck"), ("g upper\tdeck", "upper deck"),
+                                       ("g ground terrace", "ground terrace")])
+def test_a_multi_word_floor_name_is_kept_whole(tmp_path, line, name):
+    """`o upper deck` used to become floor 'upper' and silently merge with `o upper ledge`; OBJ's legal
+    multi-group `g a b` form must still load. The whole name is kept, words joined by one space."""
     p = _write(tmp_path, "w.obj", f"v 0 0 0\nv 100 0 0\nv 100 0 100\n{line}\nf 1 2 3\n")
-    with pytest.raises(ValueError, match=r"line 4: [og] name .* contains whitespace .* Rename it, e\.g\. "):
-        bgi.load_obj_floors(str(p))
-    with pytest.raises(ValueError, match="contains whitespace"):
-        bgi.obj_floor_names(str(p))
+    assert bgi.obj_floor_names(str(p)) == [name]
+    q = _write(tmp_path, "w2.obj", "v 0 0 0\nv 100 0 0\nv 100 0 100\nv 0 0 100\n"
+                                   "o upper deck\nf 1 2 3\no upper ledge\nf 1 3 4\n")
+    assert bgi.obj_floor_names(str(q)) == ["upper deck", "upper ledge"]     # two floors, never merged
+    v, f, fid = bgi.load_obj_floors(str(q))
+    assert len(bgi.build(v, f, floor_ids=fid).floors) == 2
 
 
 # ------------------------------------------------------------------ tris_at
@@ -358,3 +361,40 @@ def test_every_stock_bgi_is_floor_major_and_the_obj_round_trip_keeps_every_id(tm
     assert n >= 674, n
     assert bad == []
     assert moved == []
+
+
+# ------------------------------------------------------------------ the review round
+def _swapped_bgi(tmp_path):
+    def swap(m):                                                     # floor 0 lists tri 8, floor 1 lists tri 7
+        m.floors[0].tri_ndx_list[7], m.floors[1].tri_ndx_list[0] = 8, 7
+    p = tmp_path / "wm.bgi"
+    p.write_bytes(_corrupt(swap).to_bytes())
+    return p
+
+
+def test_verify_reports_a_shipped_non_floor_major_bgi_instead_of_crashing(tmp_path):
+    """`walkmesh verify <toml>` on a [walkmesh] bgi the build refuses: the refusal becomes the first warning and
+    the floor table still prints (floor-major: NO) -- never a raw traceback."""
+    _swapped_bgi(tmp_path)
+    proj = _project(tmp_path, '[camera]\npitch = 48.0\ndistance = 4500\nfov = 42.2\n\n[walkmesh]\nbgi = "wm.bgi"\n')
+    rep = B.verify_walkmesh(proj)
+    assert rep["floor_major"] is False and rep["warnings"][0].startswith("[walkmesh] bgi wm.bgi: not floor-major")
+    # min/max ids: the shuffled floor 0 owns 0..8 in 8 slots -- a GAP the table must show
+    assert rep["floor_table"][0] == (0, None, 0, 8, 8)
+
+
+def test_the_floor_table_calls_a_shuffled_list_not_contiguous(capsys, tmp_path):
+    from ff9mapkit import cli
+    p = _swapped_bgi(tmp_path)
+    assert cli.main(["walkmesh", "verify", str(p)]) == 1
+    out = capsys.readouterr().out
+    assert "0 tris 0..8 (8, NOT contiguous)" in out and "floor-major: NO" in out
+
+
+def test_walkmesh_fix_says_it_does_not_reorder(capsys, tmp_path):
+    """`walkmesh fix` rebuilds neighbour links only: on a non-floor-major file it says so and exits 1, so a
+    'repaired' file the [walkmesh] bgi refusal still refuses is never silent."""
+    from ff9mapkit import cli
+    p = _swapped_bgi(tmp_path)
+    assert cli.main(["walkmesh", "fix", str(p), str(tmp_path / "fixed.bgi")]) == 1
+    assert "still NOT floor-major" in capsys.readouterr().err

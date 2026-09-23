@@ -407,8 +407,10 @@ def test_only_the_bytes_that_ship_are_scanned(tmp_path):
     (tmp_path / "keep.bin").write_bytes(pack_entry(0, [(0, b"\x04"), (3, read)]))
     (tmp_path / "warp.bin").write_bytes(pack_entry(0, [(0, read), (1, _asm("Field(100)\nRET()"))]))
     (tmp_path / "stale.climb.bin").write_bytes(read)
+    (tmp_path / "warp.seq9.bin").write_bytes(pack_entry(0, [(0, read)]))    # ships only WITH its object
     extra = ('\n[[object]]\nbin = "keep.bin"\nkind = "prop"\ndonor_idx = 4\ncarry_tags = [0]\n'
              '\n[[object]]\nbin = "warp.bin"\nkind = "npc"\ndonor_idx = 6\n'
+             'seqs = [{ entry = 9, bin = "warp.seq9.bin" }]\n'
              '\n[[ladder]]\nnavigable = true\nbottom = [0, -500, 0]\ntop = [0, -500, -600]\nclimb = "stale.climb.bin"\n'
              '\n[[ladder]]\ntop = [0, -500, -600]\nbottom = [0, -900, 0]\nclimb = "stale.climb.bin"\n')
     p = _fork(tmp_path, extra=extra)
@@ -438,6 +440,8 @@ _NON_CARRY_READERS = {
     "resolve_walkmesh": "a shipped [walkmesh] bgi",
     "gauge_layout": "the native .bgs header",
     "behavior_walkmesh": "the routing walkmesh",
+    "behavior_floor_table": "a shipped [walkmesh] bgi's floor count (the [behavior] floor sensor)",
+    "verify_walkmesh": "a shipped [walkmesh] bgi the build refuses (verify still reports its table)",
     "build_field": "SPS effect bins ([[sps_edit]])",
     "build_mod": "the BUILT .eb read back from the output layout",
 }
@@ -509,4 +513,30 @@ def test_field116_plank_loop_literals(tmp_path):
     plank = [w for w in ws if "reads the walkmesh triangle (B_PTR(21))" in w]
     keyed = {int(x) for w in plank for x in re.search(r"keys on \[([^\]]*)\]", w).group(1).split(",")}
     assert keyed == _PLANK_LITERALS, (keyed, ws)
+    # ...and every one of them is judged MOVED, one by one (the 'keys on' set lists a group's literals whenever
+    # any ONE moved, so it alone could not tell a lint that flagged a single plank from one that flagged all 20)
+    judged = {int(t) for w in plank for t in re.findall(r"tri (\d+) (?:is now|no longer)", w)}
+    assert judged == _PLANK_LITERALS, (sorted(_PLANK_LITERALS - judged), plank)
     assert all(w.startswith("fork of 116: [verbatim_eb] PLANK.verbatim_eb.bin entry ") for w in plank)
+
+
+# ------------------------------------------------------------------ the review round: every stability branch
+_DROPPED_UPPER_OBJ = _V + ["o lower"] + _LOWER                 # the upper floor (tris 2,3 = floor 1) is gone
+_FAR_OBJ = [(f"v {int(ln.split()[1]) + 5000} {ln.split()[2]} {ln.split()[3]}" if ln.startswith("v ") else ln)
+            for ln in _DONOR_OBJ]                              # both floors moved 5000u east: off the donor XZ
+
+
+def test_a_tri_or_floor_that_no_longer_exists_warns(tmp_path):
+    pf = ("SET({B_PTR(250) B_BGIID const(3) B_EQ B_EXPR_END})\n"
+          "SET({B_PTR(250) B_BGIFLOOR const(1) B_EQ B_EXPR_END})\nRET()")
+    ws = _lint(_fork(tmp_path, obj=_DROPPED_UPPER_OBJ, pf=pf))
+    assert any("tri 3 no longer exists" in w for w in ws), ws
+    assert any("floor 1 no longer exists" in w for w in ws), ws
+
+
+def test_a_floor_whose_whole_donor_area_left_the_mesh_warns(tmp_path):
+    """Floor 0 still EXISTS in the rebuilt mesh, but none of its donor triangles' centroids land on it (or on
+    anything): moved == 0 is not enough -- the floor must still cover some of its donor area."""
+    pf = "SET({B_PTR(250) B_BGIFLOOR const(0) B_EQ B_EXPR_END})\nRET()"
+    ws = _lint(_fork(tmp_path, obj=_FAR_OBJ, pf=pf))
+    assert any("floor 0 no longer covers any of its donor area" in w for w in ws), ws
