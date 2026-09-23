@@ -38,7 +38,9 @@ from dataclasses import dataclass, field as _dc_field
 class Hotfix:
     """One real field's engine walkmesh hotfix.
 
-    ``kind``    : ``load_time`` (auto-reproducible) | ``event_code`` | ``dynamic`` | ``opcode_augment``.
+    ``kind``    : ``load_time`` (auto-reproducible) | ``event_code`` | ``dynamic`` | ``opcode_augment`` |
+                  ``collision`` (a per-TRIANGLE collision rule in ``FieldMapActorController`` -- it reads the tri the
+                  actor stands on, it toggles nothing).
     ``toggles`` : the load-time ``(tri, state)`` pairs (state 1 = active/walkable, 0 = inactive) -- the AUTO
                   set, non-empty only for ``load_time``.
     ``tris``    : every triangle index the hotfix touches (for reporting, incl. the non-auto kinds).
@@ -56,6 +58,8 @@ class Hotfix:
                   gate still on the raw ``fldMapNo`` (FieldMap.cs 2356; all of turnOffTriManually.cs) never fires on
                   a fork, so its tris are absent here. The fork walkmesh-literal lint
                   (``build._lint_fork_walkmesh_ids``) checks these ids survive a rebuilt walkmesh.
+    ``trigger_tris`` : for an ``opcode_augment`` -- the tri(s) whose ``EnablePathTriangle`` in the FIELD'S OWN
+                  script makes the engine act; the lint reports ``fork_tris`` only when carried donor code toggles one.
     """
 
     field_id: int
@@ -67,6 +71,7 @@ class Hotfix:
     tris: tuple = ()
     engine_remapped: bool = False
     fork_tris: tuple = ()
+    trigger_tris: tuple = ()
 
     @property
     def auto(self) -> bool:
@@ -116,12 +121,28 @@ _HOTFIXES = {
                  "When the field's own .eb runs EnablePathTriangle(207, x), the engine ALSO toggles triangle "
                  "208 to the same state. A fork keeps the donor's EnablePathTriangle(207,x) but loses the paired "
                  "208 toggle. Reproducible by emitting a paired EnablePathTriangle(208, x) beside it.",
-                 "DoEventCode.cs:2566-2567", tris=(207, 208), fork_tris=(207, 208)),
+                 "DoEventCode.cs:2566-2567", tris=(207, 208), fork_tris=(208,), trigger_tris=(207,)),
+                                                 # 207 is the script's OWN toggle (the .eb scan reports it); the
+                                                 # engine adds 208 -- only when carried code toggles 207
     1606: Hotfix(1606, "(EnablePathTriangle augment)", "opcode_augment",
                  "When the field's own .eb runs EnablePathTriangle(107, x), the engine FORCES x = 1 (always "
                  "activate). A fork's EnablePathTriangle(107, 0) would deactivate instead. Reproducible by "
                  "rewriting that toggle's state operand to 1 in the fork's .eb.",
-                 "DoEventCode.cs:2568-2569", tris=(107,), fork_tris=(107,)),
+                 "DoEventCode.cs:2568-2569", tris=(107,), fork_tris=(), trigger_tris=(107,)),
+                                                 # the engine toggles nothing ITSELF: it rewrites the state of the
+                                                 # script's own EnablePathTriangle(107), which the .eb scan reports
+
+    # --- COLLISION (FieldMapActorController's per-triangle rejection rules; tris READ, never toggled) ---------
+    406: Hotfix(406, "Dali/Underground (the room under the well)", "collision",
+                "The actor collision rejection factor drops to 0.4 while the actor stands on triangles 103/111/113 "
+                "(a softer push-back against the forces there). Keyed on EffectiveFieldId (s65), so it fires on a "
+                "fork against the FORK's walkmesh -- a rebuilt mesh that moved those ids softens other triangles.",
+                "FieldMapActorController.cs:1243 (s65)", tris=(103, 111, 113), engine_remapped=True,
+                fork_tris=(103, 111, 113)),
+    1752: Hotfix(1752, "Iifa Tree/Inner Roots (2nd area)", "collision",
+                 "The actor collision rejection factor drops to 0.4 (0.6 on tri 80) on triangles 77-80. Keyed on the "
+                 "raw fldMapNo, so a fork loses it (fork in-place, or accept the stiffer push-back there).",
+                 "FieldMapActorController.cs:1238", tris=(77, 78, 79, 80), fork_tris=()),
 
     # --- DYNAMIC (toggle tracks runtime story/position state; NOT statically reproducible) -----------------
     2803: Hotfix(2803, "Daguerreo/2nd Floor (LibrarianB book quest)", "dynamic",

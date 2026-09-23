@@ -435,10 +435,22 @@ def test_the_same_floor_sweep_drops_cross_floor_pairs():
     plain = routes.sweep_pursuit(m, 2400.0, standoff=100.0)
     gated = routes.sweep_pursuit(m, 2400.0, standoff=100.0, same_floor=True)
     assert plain["blocked"] > 0 and plain["cross"] > 0
-    assert gated["same_floor"] and gated["cross"] == 0 and gated["tested"] < plain["tested"]
-    assert gated["blocked"] < plain["blocked"]
+    assert any('same_floor = "<target>"' in ln for ln in routes.describe_pursuit_problems("guard", plain))
+    # [review] the gated sweep still TESTS pairs (a sweep of nothing reads clean) and drops EXACTLY the cross-floor
+    # jams: every blocked pair on this mesh is cross-floor, so the same-floor half comes back clean
+    assert gated["same_floor"] and gated["cross"] == 0 and 0 < gated["tested"] < plain["tested"]
+    assert gated["blocked"] == plain["blocked"] - plain["cross"]
     lines = routes.describe_pursuit_problems("guard", gated)
     assert all("same-floor pairs only" in ln for ln in lines if ln.startswith("pursuit"))
+    # ...and a SAME-floor jam is still reported: the ground floor with its south-east face cut out is an L, so a
+    # straight leg across the notch leaves the mesh on its own floor
+    from ff9mapkit.scene import bgi
+    V = [(-1200, 0, 1200), (0, 0, 1200), (0, 0, 0), (-1200, 0, 0), (0, 0, -1200), (-1200, 0, -1200),
+         (0, 0, 1200), (1200, 0, 1200), (1200, 0, 0), (0, 0, 0), (1200, 0, -1200), (0, 0, -1200)]
+    F = [(0, 1, 2), (0, 2, 3), (3, 4, 5), (6, 7, 8), (6, 8, 9), (9, 8, 10), (9, 10, 11)]
+    notch = bgi.build(V, F, floor_ids=[0, 0, 0, 1, 1, 1, 1])
+    g2 = routes.sweep_pursuit(notch, 2400.0, standoff=100.0, same_floor=True)
+    assert g2["tested"] > 0 and g2["blocked"] > 0 and g2["cross"] == 0, g2
 
 
 def test_the_workspace_formats_the_who_option_and_the_sim_admits_it_cannot_sense():
@@ -497,3 +509,129 @@ def test_a_class_self_is_refused_outside_its_own_tree(make):
     ok.units["w"].tree = B.Do(B.Hold((0, 0)))
     ok.classes["pack"].tree = B.Selector(B.Sequence(make(ok), B.Do(B.Hold((50, 50)))), B.Do(B.Hold((0, 0))))
     ok.compile()
+
+
+# ------------------------------------------------------------------------------------ the build-side wiring, end to end
+# `o terrace` is DECLARED first but has no faces until after `o ground`'s: built floors number by first appearance
+# among the FACES, so ground = 0 and terrace = 1 (a declaration-order resolver would swap them)
+_WIRE_OBJ = """v -600 0 -200
+v 0 0 -200
+v 0 0 -1400
+v -600 0 -1400
+v 0 0 -200
+v 600 0 -200
+v 600 0 -1400
+v 0 0 -1400
+o terrace
+o ground
+f 1 2 3
+f 1 3 4
+o terrace
+f 5 6 7
+f 5 7 8
+"""
+_WIRE_TOML = """[field]
+id = 30998
+name = "FLW"
+area = 11
+[camera]
+pitch = 45
+[walkmesh]
+{walk}
+[player]
+spawn = [-300, -800]
+[[npc]]
+name = "bell"
+pos = [-300, -600]
+[behavior]
+  [[behavior.unit]]
+  npc = "bell"
+    [[behavior.unit.branch]]
+    when = [{{ on_floor = "{floor}", who = "player" }}]
+    do = {{ hold_post = true }}
+    [[behavior.unit.branch]]
+    do = {{ hold_post = true }}
+"""
+
+
+def _wire(tmp_path, floor="terrace", walk='obj = "w.obj"', obj=True):
+    from ff9mapkit import build
+    if obj:
+        (tmp_path / "w.obj").write_text(_WIRE_OBJ, encoding="utf-8")
+    t = tmp_path / "flw.field.toml"
+    t.write_text(_WIRE_TOML.format(floor=floor, walk=walk), encoding="utf-8")
+    return build.FieldProject.load(t), t
+
+
+def test_the_build_resolves_a_floor_name_to_its_built_index(tmp_path):
+    """[review] The build-side table (build.behavior_floor_table), not a test fixture: the name resolves against
+    the SHIPPED mesh's first-appearance numbering, and the compiled condition compares the player's mirror with it."""
+    from ff9mapkit import build
+    proj, _ = _wire(tmp_path)
+    ft = build.behavior_floor_table(proj)
+    assert (ft.names, ft.count) == ({"ground": 0, "terrace": 1}, 2)
+    assert build.lint_behavior_compile(proj) == []
+    fb, cb = BT.dry_compile(proj.raw, floors=ft)
+    want = f"{fb._uref('player', 'flr')} const(1) B_EQ"
+    assert any(want in t for body in all_bodies(cb).values() for t in stmts(body)), want
+
+
+def test_an_unknown_floor_name_is_a_lint_error_and_a_clean_cli_error(tmp_path, capsys):
+    """[review] lint and `behavior compile`/`view` refuse an unknown name with a message -- compile used to die in
+    dry_compile with a traceback."""
+    from ff9mapkit import build, cli
+    proj, t = _wire(tmp_path, floor="attic")
+    errs = build.lint_behavior_compile(proj)
+    assert errs and "attic" in errs[0], errs
+    for verb in ("compile", "view", "lint"):
+        assert cli.main(["behavior", verb, str(t)]) == 1
+        cap = capsys.readouterr()
+        text = cap.err + cap.out                                  # lint reports on stdout, compile/view on stderr
+        assert "error:" in text and "attic" in text and "Traceback" not in text, (verb, text)
+
+
+def test_a_floor_table_that_cannot_resolve_refuses_compile(tmp_path, capsys):
+    """[review] The mesh is missing: compile used to run with PLACEHOLDER floors (every name read as floor 0) and
+    print a clean report. Now it is the same error lint gives."""
+    from ff9mapkit import cli
+    _p, t = _wire(tmp_path, obj=False)
+    assert cli.main(["behavior", "compile", str(t)]) == 1
+    assert "floor table" in capsys.readouterr().err
+
+
+def test_a_quad_mesh_is_one_nameless_floor_and_lint_says_so(tmp_path):
+    from ff9mapkit import build
+    proj, _ = _wire(tmp_path, floor="0", walk="quad = [[-600, -200], [600, -200], [600, -1400], [-600, -1400]]")
+    proj.raw["behavior"]["unit"][0]["branch"][0]["when"][0]["on_floor"] = 0
+    ft = build.behavior_floor_table(proj)
+    assert (ft.names, ft.count) == ({}, 1)
+    rep = build.lint_all(proj)
+    assert any("ONE-floor walkmesh" in w for w in rep.logic), rep.logic
+
+
+def test_a_borrow_reads_the_donor_mesh_beside_its_camera_or_warns_unchecked(tmp_path):
+    """[review] A hand-written BG-borrow (no reference, no sibling walkmesh.bgi) left every on_floor index
+    unchecked and silent. The table now also reads the extract cache beside [camera] borrow; with no mesh at all
+    it WARNS that the index is unchecked."""
+    from ff9mapkit import build
+    from ff9mapkit.scene import bgi
+    field = tmp_path / "f"
+    cache = field / "cache"
+    cache.mkdir(parents=True)
+    (cache / "w.obj").write_text(_WIRE_OBJ, encoding="utf-8")
+    (cache / "walkmesh.bgi").write_bytes(bgi.obj_to_bgi(str(cache / "w.obj")))
+    t = field / "b.field.toml"
+    t.write_text(_WIRE_TOML.format(floor="0", walk="").replace(
+        "[camera]\npitch = 45", '[camera]\npitch = 45\nborrow = "cache/camera.bgx"').replace(
+        'area = 11', 'area = 11\nborrow_bg = "FBG_N00_TEST_MAP000_TS_ZZZ_0"'), encoding="utf-8")
+    proj = build.FieldProject.load(t)
+    proj.raw["behavior"]["unit"][0]["branch"][0]["when"][0]["on_floor"] = 7
+    ft = build.behavior_floor_table(proj)
+    assert ft.count == 2
+    errs, _w = BT.floor_problems(proj.raw, ft)
+    assert errs and "7" in errs[0], errs
+    (cache / "walkmesh.bgi").unlink()
+    ft = build.behavior_floor_table(proj)
+    assert ft.count is None
+    errs, warns = BT.floor_problems(proj.raw, ft)
+    assert errs == [] and any("UNCHECKED" in w for w in warns), warns

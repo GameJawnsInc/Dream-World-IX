@@ -22,7 +22,8 @@ point-in-region in RPN; this computes nothing, it reads the engine's own collisi
   (no clamp needed on a `[NUMB]` row — the clamp belongs to `[TEXT=]` indices only).
 - `activeTri` is the triangle's **file-order id** (`BGI_DEF.cs:52`), GLOBAL across floors; `activeFloor` the
   floor's list position. The engine indexes `WalkMesh.tris` by id, so a `.bgi` must list its triangles **floor by
-  floor** (the kit keeps OBJ face order — author faces floor by floor, never reopen an `o`).
+  floor** (rung 1 made this THE FLOOR-MAJOR TRIANGLE LAW: `bgi.build` regroups an OBJ's faces floor by floor —
+  a reopened `o` is accepted with a warning that names it — and a shipped non-floor-major `.bgi` is refused).
 - The engine re-triangulates every frame while pathing is on (`UpdateActiveTri`); with two or more containing
   triangles (an edge, an XZ overlap) it keeps the **previous** one — history, not geometry.
 - **The harness's `state.player.tri/floor` are dead**: PosObj fields written only by the battle backup
@@ -93,11 +94,11 @@ half of the seam linked — the north half of x = 0 is the lip. [`rung1_floor.py
 | Check | Result |
 |---|---|
 | preflight | served by one folder; the deployed `.bgi` floor-major `[[0..7],[8..15]]` == `resolve_walkmesh`; the bench OBJ really is interleaved; the regrouped mesh == rung 0's in-game-proven BGI0 but for the two north-seam links; the deployed `.eb` reads the floor in ONE entry (player `B_PTR(250)`, units `const(uid)`); real uids; every post ≥ 177u inside one triangle |
-| A0 boot | player mirror == `floor:player` == the live `B_PTR(250) B_BGIFLOOR` == the oracle; every unit mirror == its post's floor; **NC-UNKNOWN** the dormant ghost reads −1 and `on_floor(who = ghost)` never fires over 60 frames |
+| A0 boot | player mirror == `floor:player` == the live `B_PTR(250) B_BGIFLOOR` == the oracle; every unit mirror == its post's floor; **NC-UNKNOWN** the dormant ghost reads −1 and `on_floor(who = ghost)` never fires over 60 frames (this proves the INACTIVE ARM; the Main_Init −1 preset is overwritten before any reader, so it is proven offline only) |
 | A1 sweep | 15 settled stops (7 ground, 8 terrace, the seam crossed both ways): mirror == live read == oracle floor, PTRI == oracle triangle, and the bell/lamp watchers' `on_floor`/`same_floor`/`other_floor` flags follow the floor at every stop |
 | **A2 THE FLOOR LAW** | the player on the terrace, within both ground chasers' near box: **NC-GATE** the ungated hound engages and runs into the lip (x ≤ −80, floor 0 throughout); **the `same_floor` sentry never engages and drifts 0u**; with the player back on the ground the sentry engages and closes 640 → 400 |
 | A3 a moving unit | the ferry marches across the seam and back: its floor reads ground → terrace → ground (one rise at x = 80, one fall at x = −63 — AT the seam), its terrace dwell == the oracle, and the clerk's `on_floor(who = ferry)` flag follows |
-| A4 pooled | spawned, the ghost reads the player's floor at once (the activation seed) and the lamp fires; killed, −1 (THE INACTIVE ARM) and the lamp stops |
+| A4 pooled | spawned, the ghost reads the player's floor and the lamp fires; killed, −1 (THE INACTIVE ARM) and the lamp stops. (The activation SEED — the player's floor on the spawn pass itself — is proven offline only: the next pass's real read would give the same value, so this sample cannot tell them apart) |
 | B brains + class | the pack's members read ground/terrace from their class cells; with the player on each floor EXACTLY the member on it engages (**NC-SWAP**: c0 closes 936u while c1 moves 0; then c1 closes 520u while c0 moves 0); the int-floor bell follows |
 | NC-THROW | no NullReference/InvalidCast/IndexOutOfRange through the event engine, the evaluator or the BGI lookup (the ~26 `MovePC` NREs every harness run on this install logs, other arcs' controls included, are baseline) |
 

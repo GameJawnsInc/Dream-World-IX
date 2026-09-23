@@ -195,6 +195,22 @@ def test_c_resolve_walkmesh_refuses_a_shipped_non_floor_major_bgi(tmp_path):
     assert "674/674" in msg and "[walkmesh] obj" in msg
 
 
+def test_c_lint_makes_the_refusal_an_error(tmp_path):
+    """[review] lint (and the deploy dry-run, which runs it) fails where the build refuses: a non-floor-major
+    [walkmesh] bgi is a lint ERROR, not a placement advisory -- and a floor-major one is neither."""
+    (tmp_path / "wm.bgi").write_bytes(_bgi0_mesh().to_bytes())
+    proj = _project(tmp_path, '[camera]\npitch = 45\n\n[walkmesh]\nbgi = "wm.bgi"\n')
+    rep = B.lint_all(proj)
+    assert not any("not floor-major" in m for m in rep.errors + rep.placement), (rep.errors, rep.placement)
+
+    def swap(m):
+        m.floors[0].tri_ndx_list[7], m.floors[1].tri_ndx_list[0] = 8, 7
+    (tmp_path / "wm.bgi").write_bytes(_corrupt(swap).to_bytes())
+    rep = B.lint_all(B.FieldProject.load(tmp_path / "f.field.toml"))
+    assert any("not floor-major" in e for e in rep.errors), rep.errors
+    assert not any("not floor-major" in w for w in rep.placement), rep.placement
+
+
 def test_c_resolve_walkmesh_warns_naming_the_reopened_floor(tmp_path):
     """The obj branch regroups and SAYS so: the note names the reopened floor ('ground', not 'terrace')
     and how many triangle ids moved -- a hand-written tri id is now a different triangle."""
@@ -398,3 +414,16 @@ def test_walkmesh_fix_says_it_does_not_reorder(capsys, tmp_path):
     p = _swapped_bgi(tmp_path)
     assert cli.main(["walkmesh", "fix", str(p), str(tmp_path / "fixed.bgi")]) == 1
     assert "still NOT floor-major" in capsys.readouterr().err
+
+
+def test_a_non_manifold_error_on_a_regrouped_input_names_the_input_faces():
+    """[review] The regroup renumbers triangles, so the non-manifold refusal's ids are BUILT ids; on a regrouped
+    input it now also names the input FACES the author can find in the file (face 3 is the duplicate here)."""
+    V = [(0, 0, 0), (100, 0, 0), (100, 0, 100), (0, 0, 100), (200, 0, 0), (300, 0, 0), (300, 0, 100)]
+    with pytest.raises(ValueError) as ei:
+        bgi.build(V, [(0, 1, 2), (4, 5, 6), (0, 2, 3), (0, 1, 2)], floor_ids=[0, 1, 0, 0])
+    msg = str(ei.value)
+    assert "non-manifold" in msg and "1 = face 2, 2 = face 3" in msg, msg
+    with pytest.raises(ValueError) as ei:                        # not regrouped: the plain message, unchanged
+        bgi.build(V, [(0, 1, 2), (0, 2, 3), (0, 1, 2), (4, 5, 6)], floor_ids=[0, 0, 0, 1])
+    assert "regroup" not in str(ei.value)

@@ -1153,6 +1153,10 @@ def floor_problems(raw: dict, floors: FloorTable) -> tuple:
                             warnings.append(f"{ctx}: on_floor {k!r} is BUILT floor {floors.names[k]}, not "
                                             f"{m.group(1)} — floor numbers follow first appearance among the "
                                             f"OBJ's faces, not the digit in the name")
+                if floors.count is None and "on_floor" in verbs:
+                    warnings.append(f"{ctx}: on_floor {c['on_floor']!r} is UNCHECKED -- {floors.source} is not "
+                                    f"available offline, so an index past its last floor would never be true; "
+                                    f"point [walkmesh] reference at the donor's walkmesh.bgi")
                 if floors.count == 1:
                     warnings.append(f"{ctx}: {verbs[0]} on a ONE-floor walkmesh ({floors.source}) only tells "
                                     f"'known' from 'unknown' — split the walkmesh into named o objects (one per "

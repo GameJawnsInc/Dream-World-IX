@@ -321,19 +321,59 @@ def test_engine_hotfix_lane_450_style(tmp_path, monkeypatch):
     monkeypatch.setitem(whf._HOTFIXES, 999, whf.Hotfix(999, "synthetic", "event_code", "n", "DoEventCode.cs:1",
                                                         tris=(1, 3), fork_tris=(1,)))
     ws = _lint(_fork(tmp_path, extra=""))
-    assert len(ws) == 1 and ws[0].startswith("fork of 999: engine hotfix (Memoria C#, fires on forks) toggles the "
-                                             "walkmesh triangle (DoEventCode.cs:1) and keys on [1];"), ws
+    assert len(ws) == 1 and ws[0].startswith("fork of 999: engine hotfix (Memoria C#, fires on a fork when its "
+                                             "trigger runs) toggles the walkmesh triangle (DoEventCode.cs:1) and "
+                                             "keys on [1];"), ws
     monkeypatch.setitem(whf._HOTFIXES, 999, whf.Hotfix(999, "raw gate", "dynamic", "n", "x", tris=(1,)))
     assert _lint(_fork(tmp_path, extra="")) == []                         # never fires on a fork -> not checked
 
 
-def test_hotfix_catalog_fork_tris_follow_the_engine_gates():
-    """fork_tris = the tris whose C# gate reads EffectiveFieldId (the s29/s30/s65 fork-gate patches); a gate still
-    on the raw fldMapNo (FieldMap 2356, all of turnOffTriManually) never fires on a fork."""
-    want = {2356: (), 2161: (69,), 2507: (174, 175, 177, 178), 450: (24,), 1753: (207, 208), 1606: (107,),
-            2803: (105, 106), 900: (62,), 1421: (109, 110), 1900: (), 1455: ()}
+def test_engine_hotfix_lane_collision_and_augment(tmp_path, monkeypatch):
+    """[review] A COLLISION rule (Dali 406: FieldMapActorController reads the tri the actor stands on) is a tri READ,
+    not a toggle; an OPCODE AUGMENT (1753: the engine adds tri 208 beside the script's EnablePathTriangle(207)) acts
+    only when carried donor code toggles its trigger -- with nothing carried it was reported anyway."""
+    monkeypatch.setitem(whf._HOTFIXES, 999, whf.Hotfix(999, "coll", "collision", "n", "FMAC.cs:1",
+                                                        tris=(1,), fork_tris=(1,)))
+    ws = _lint(_fork(tmp_path, extra=""))
+    assert len(ws) == 1 and "collision rule, fires on forks) reads the walkmesh triangle" in ws[0], ws
+    monkeypatch.setitem(whf._HOTFIXES, 999, whf.Hotfix(999, "aug", "opcode_augment", "n", "DEC.cs:1",
+                                                        tris=(0, 1), fork_tris=(1,), trigger_tris=(0,)))
+    assert _lint(_fork(tmp_path, extra="")) == []                         # no carried toggle of tri 0: silent
+    toggle = "EnablePathTriangle(0, 1)\nRET()"
+    ws = _lint(_fork(tmp_path, pf=toggle))
+    assert any("fires beside the carried EnablePathTriangle[0]" in w and "keys on [1]" in w for w in ws), ws
+
+
+def test_hotfix_catalog_fork_tris_pin():
+    """A PIN of the catalog, not a derivation (the clone-gated test below derives the collision rules): fork_tris =
+    the tris the ENGINE acts on at a fork's id -- its C# gate reads EffectiveFieldId (the s29/s30/s65 fork-gate
+    patches); a gate still on the raw fldMapNo (FieldMap 2356, FieldMapActorController 1752, all of
+    turnOffTriManually) never fires on a fork. An opcode augment lists only what the engine ADDS (1753 adds 208;
+    1606 only rewrites the script's own toggle, which the .eb scan reports)."""
+    want = {2356: (), 2161: (69,), 2507: (174, 175, 177, 178), 450: (24,), 1753: (208,), 1606: (),
+            406: (103, 111, 113), 1752: (), 2803: (105, 106), 900: (62,), 1421: (109, 110), 1900: (), 1455: ()}
     assert {k: h.fork_tris for k, h in whf._HOTFIXES.items()} == want
     assert all(set(h.fork_tris) <= set(h.tris) for h in whf._HOTFIXES.values())
+    assert all(h.trigger_tris for h in whf._HOTFIXES.values() if h.kind == "opcode_augment")
+
+
+_MEMORIA_FMAC = Path(r"C:\gd\FFIX\Memoria\Assembly-CSharp\Global\Field\Map\Actor\FieldMapActorController.cs")
+
+
+@pytest.mark.skipif(not _MEMORIA_FMAC.is_file(), reason="needs the local Memoria source clone")
+def test_every_engine_triangle_collision_rule_is_cataloged():
+    """[review] DERIVED from the engine: every `<field gate> == N && (triNdx == a || ...)` rule in
+    FieldMapActorController is in the catalog with exactly those tris, and in fork_tris iff its gate is
+    EffectiveFieldId (fires on a fork). The 406 rule was missed by an audit that read only FieldMap/DoEventCode."""
+    src = _MEMORIA_FMAC.read_text(encoding="utf-8", errors="replace")
+    rules = re.findall(r"(EffectiveFieldId\([^)]*\)|fldMapNo)\s*==\s*(\d+)\s*&&\s*\(((?:\s*\|\|\s*)?(?:triNdx\s*==\s*\d+"
+                       r"(?:\s*\|\|\s*)?)+)\)", src)
+    assert rules, "no triNdx collision rule found -- has the engine block moved? re-derive the pattern"
+    for gate, fid, body in rules:
+        tris = tuple(int(t) for t in re.findall(r"triNdx\s*==\s*(\d+)", body))
+        h = whf.info(int(fid))
+        assert h is not None and h.kind == "collision" and h.tris == tris, (fid, tris, h)
+        assert h.fork_tris == (tris if gate.startswith("EffectiveFieldId") else ()), (fid, gate, h.fork_tris)
 
 
 def test_output_is_capped_at_twelve_lines(tmp_path):

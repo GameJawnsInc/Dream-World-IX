@@ -278,7 +278,8 @@ def run_a(g, A: Bench) -> None:
         if hh is None or hh["GFLR"] != -1 or s2.flag(A.flag("g_on0")):
             bad.append((hh and hh["GFLR"], s2.flag(A.flag("g_on0"))))
     g.check(not bad, "A0: NC-UNKNOWN -- the dormant pooled ghost reads -1 and lamp's on_floor(who=ghost) never "
-            "fires across 60 frames (a zero preset would read floor 0 and fire it)", str(bad[:3]))
+            "fires across 60 frames (the INACTIVE ARM -- a dormant unit writes -1 every pass; the Main_Init preset is "
+            "overwritten before any reader, so it is pinned offline, not here)", str(bad[:3]))
     g.check(st.flag(A.flag("b_same")) and not st.flag(A.flag("p_up")) and st.flag(A.flag("l_other"))
             and not st.flag(A.flag("f_up")), "A0: the watchers' flags match the boot floors")
 

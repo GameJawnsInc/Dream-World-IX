@@ -238,12 +238,15 @@ npc = "bellringer"
   stands on floor `F`, or on any of a list of up to 8. A floor is its **index** (0, 1, …) or its
   **name**: each `o`/`g` object of a `[walkmesh] obj` is a named floor, numbered by first
   appearance among the OBJ's faces. Names resolve against the walkmesh the field actually ships;
-  an unknown name or an index past the last floor is a build error.
+  an unknown name or an index past the last floor is a build error. (A BG-borrow runs the donor's
+  mesh: the check reads its `walkmesh.bgi` from `[walkmesh] reference`, beside the toml, or beside
+  `[camera] borrow`; with none of those it warns that the index is unchecked.)
 - **`same_floor = "who"`** — both stand on the same floor. **`other_floor = "who"`** — both
   floors are known and different.
 - **UNKNOWN is never a floor.** An actor with no floor reads **−1**: during the warm-up, while a
   pooled unit is not spawned or is dead, and whenever the engine turns its walkmesh tracking off
-  (a ladder, a jump, a moving platform, a cutscene teleport). No floor condition is ever true on
+  (a ladder, a jump, a moving platform, a cutscene teleport) — including right after a battle, whose
+  byte-sized backup of the floor would otherwise come back as 255. No floor condition is ever true on
   −1, and there are no `not_on_floor` / `not_same_floor` forms (they would read true there —
   write `other_floor`, or list the floors you mean). Note that a branch **below** a floor-gated
   branch still runs while the floor is unknown, like any lower branch.

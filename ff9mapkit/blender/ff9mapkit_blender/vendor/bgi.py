@@ -998,7 +998,17 @@ def build(verts, faces, *, floor_ids=None, tri_flags: int = 1, floor_flags: int 
     for fi, fid in enumerate(order):              # floor.org=cur=min=max=(0,0,0): verts carry world
         tris = [ti for ti, f in enumerate(floor_ids) if f == fid]
         m.floors.append(Floor(flags=floor_flags, ndx=fi, tri_ndx_list=tris))
-    m.rebuild_neighbors()
+    try:
+        m.rebuild_neighbors()
+    except ValueError as e:
+        if not m.regrouped:
+            raise
+        # the ids in the message are BUILT (post-regroup) triangles; the author's file numbers them as faces
+        import re as _re
+        ids = sorted({int(t) for grp in _re.findall(r"triangles \[([\d, ]+)\]", str(e)) for t in grp.split(",")})
+        faces = ", ".join(f"{t} = face {perm[t]}" for t in ids if 0 <= t < len(perm))
+        raise ValueError(f"{e} [triangle ids are AFTER the floor-major regroup; in input face order (0-based, as "
+                         f"listed in the file): {faces}]") from e
     probs = floor_order_problems(m)               # a law in a docstring is a wish: check our own output
     if probs:
         raise ValueError("internal: bgi.build produced a non-floor-major mesh: " + "; ".join(probs[:3]))

@@ -5055,8 +5055,18 @@ def _lint_fork_walkmesh_ids(project: FieldProject, wmesh, warnings: list) -> Non
                      tuple(int(t[0]) for t in tog if int(t[0]) >= 0)))
     hf = _walkmesh_hotfixes.info(donor) if donor is not None else None
     if hf is not None and hf.fork_tris:
-        uses.append(("engine hotfix (Memoria C#, fires on forks)", "enable", hf.source, "immediate",
-                     tuple(hf.fork_tris)))
+        carried_toggles = {x for (_l, k, _s, _r, lits) in uses if k == "enable" for x in lits}
+        if hf.kind == "collision":            # FieldMapActorController reads the tri the actor stands on
+            uses.append(("engine hotfix (Memoria C# collision rule, fires on forks)", "tri", hf.source, "immediate",
+                         tuple(hf.fork_tris)))
+        elif hf.kind == "opcode_augment":     # acts only when the fork's OWN script toggles the trigger tri
+            if carried_toggles & set(hf.trigger_tris):
+                uses.append((f"engine hotfix (Memoria C#, fires beside the carried EnablePathTriangle"
+                             f"{list(hf.trigger_tris)})", "enable", hf.source, "immediate", tuple(hf.fork_tris)))
+        else:
+            when = "fires on forks" if hf.kind == "load_time" else "fires on a fork when its trigger runs"
+            uses.append((f"engine hotfix (Memoria C#, {when})", "enable", hf.source, "immediate",
+                         tuple(hf.fork_tris)))
     if not uses:
         return
     if ref is None:
@@ -8253,6 +8263,14 @@ def behavior_floor_table(project: FieldProject):
     wm = project.raw.get("walkmesh", {}) or {}
     if project.field.get("borrow_bg"):
         m = _borrow_walkmesh(project)
+        if m is None:                                # a hand-written borrow: the extract cache next to its
+            cb = (project.raw.get("camera") or {}).get("borrow")    # [camera] borrow .bgx holds the donor mesh
+            try:
+                p = project.path(cb).parent / "walkmesh.bgi" if isinstance(cb, str) and cb else None
+            except (BuildError, ValueError):         # an unresolvable camera path (PathTraversalError): no mesh
+                p = None
+            if p is not None and p.is_file():
+                m = bgi.BgiWalkmesh.from_bytes(p.read_bytes())
         return _behaviortoml.FloorTable({}, len(m.floors) if m is not None else None,
                                         f"the borrowed walkmesh of {project.field['borrow_bg']}")
     if wm.get("bgi"):
