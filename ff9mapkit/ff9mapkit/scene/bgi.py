@@ -481,11 +481,16 @@ class BgiWalkmesh:
                 seams.append((fa, a, fo.get(nb), b))
         return seams
 
-    def apply_seams(self, seams):
+    def apply_seams(self, seams, floor_map=None):
         """Link cross-floor neighbors by matching each seam's edge endpoints by WORLD POSITION (this
         mesh already has intra-floor links from `bgi.build`). Sets `nbr` + `edgeClone` on both sides,
         the same convention as `rebuild_neighbors`. Returns (linked, missing, misses) -- a miss means
-        a seam's connecting edge was moved/deleted in the edit. The v2 reconcile."""
+        a seam's connecting edge was moved/deleted in the edit. The v2 reconcile.
+
+        ``floor_map`` ({seam floor: this mesh's floor}) translates seams numbered by the DONOR's floors
+        onto a rebuild that renumbered them (:func:`obj_built_floor_donors`); a seam floor missing from
+        it has no floor here and misses. ``None`` = the seams already use this mesh's numbering. Misses
+        come back as passed in, in the seams' own numbering."""
         wv = self._wv()
         fo = self._tf()
         lut = {}
@@ -495,8 +500,9 @@ class BgiWalkmesh:
         linked = missing = 0
         misses = []
         for (fa, a_edge, fb, b_edge) in seams:
-            ta = lut.get((fa, a_edge))
-            tb = lut.get((fb, b_edge)) if b_edge else None
+            ka, kb = (fa, fb) if floor_map is None else (floor_map.get(fa), floor_map.get(fb))
+            ta = lut.get((ka, a_edge))
+            tb = lut.get((kb, b_edge)) if b_edge else None
             if ta and tb:
                 (ia, sa), (ib, sb) = ta, tb
                 self.tris[ia].nbr[sa] = ib
