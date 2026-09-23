@@ -257,5 +257,6 @@ repo's `.harness-runs/`: `20260923-112310-shadow-rung1-on`, `-112430-shadow-rung
   (`build._donor_floor_map` -> `apply_seams(seams, floor_map)`). `census_seam_rekey.py` checked all 674 field
   walkmeshes: the unedited round-trip is the identity on every one. With the floors reversed, the re-keyed build
   keeps every one of the 5,983 seams, where the old reconcile dropped 3,756 in 353 walkmeshes. In-game check pending.
-- `deploy_field.py` prints "TEXT OVERWRITES VANILLA" for a fork on its donor's real block even when the build
-  ships no `.mes` (an editable fork without text carry). That fork only reads the block.
+- ~~`deploy_field.py` prints "TEXT OVERWRITES VANILLA" for a fork on its donor's real block even when the build
+  ships no `.mes` (an editable fork without text carry). That fork only reads the block.~~ Fixed: the warning
+  now fires only when the deploy copies a `.mes` for the block (`check_text_block_shadow(writes_mes=)`).

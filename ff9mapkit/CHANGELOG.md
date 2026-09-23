@@ -21,6 +21,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `tests/test_fork_walkmesh_links.py` pins this on an authored 5-floor donor and on the real 7-floor fixture,
   plus reorder, delete and rename reshapes.
 
+### Fixed — `deploy_field.py` no longer warns "TEXT OVERWRITES VANILLA" for a field that ships no `.mes`
+- **The vanilla-overwrite warning now fires only when the deploy writes a `.mes` for the real block.** It used to
+  judge the FieldScene textid, so an `import --editable` fork without `--carry-text` got the warning. Such a fork
+  keeps its donor's real block and records no donor key, but its build ships no `.mes` at all: it only reads that
+  location's dialogue, and nothing of it enters the engine's text merge. Seen on an editable fork of field 1607
+  (block 358) at slot 30930.
+- `deploystack.check_text_block_shadow` takes **`writes_mes`**. It defaults to `True`, so a caller that can't
+  see the built files stays loud. `deploy_field.py` passes the languages its `.mes` copy actually wrote. A field
+  that does write a real block's `.mes` is warned exactly as before. The cross-folder SHADOWED axis is unchanged,
+  because a higher folder's `.mes` on the block still changes what the field shows. The campaign, journey and
+  hub guards already checked only the `.mes` files in the dist.
+
 ### Fixed — an editable fork's carried donor objects are lit and shadowed like the real field
 - **`import --editable` now ships the donor's MapConfigData** (`mapconfig.bytes` + `[field] mapconfig`), exactly
   as `--native` does. The engine's MCF service (`fldmcf.ff9fieldMCFService`) gives every actor its per-model blob
