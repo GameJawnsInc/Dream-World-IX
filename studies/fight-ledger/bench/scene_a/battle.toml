@@ -1,0 +1,64 @@
+# =====================================================================================
+# THE FIGHT WRITES THE LEDGER, RUNG 0 -- SCENE A (no die_atk)  --  battle scene 30871
+# =====================================================================================
+# EF_R007 forked (`battle-import BBG_B013 --fork-scene EF_R007 --ship-as BBG_B251 --id 30871
+# --name LEDGER_A`), pinned to ONE Goblin (type 0, whose AI is entry 2) with HP 90 so a
+# 105-HP New Game Zidane needs several Attacks. The Goblin's AI writes the field's persistent
+# ledger fight_ledger0 (id 6004870, 16 cells, declared by field 30870):
+#   tag 0 (Init)            c0 = B_SYSVAR[24] (this scene id), c1 = B_SYSVAR[191] (the field)
+#   tag 7 (post-hit)        c2 += 1 on EVERY hit; on the hit that left cur.hp 0 (once):
+#                           c3 = B_SYSVAR[29] (the killing ability sub id), c4 = own max HP,
+#                           Global.Bit[8900] = 1 (seen mid-battle by the harness)
+#   tag 9 (Dying, ADDED)    c5 = 1 -- the NEGATIVE control: without die_atk tag 9 never runs
+# Every write is at a constant index below 16: nothing appends, nothing grows the table.
+#
+# The forked donor assets (fbx, png, scene/) are Square Enix bytes: gitignored, regenerate with
+# the battle-import line above.
+#   ff9mapkit battle-build studies/fight-ledger/bench/scene_a/battle.toml --out <tmp>
+#   py tools/deploy_battle.py studies/fight-ledger/bench/scene_a/battle.toml
+
+[battlemap]
+bbg = "BBG_B251"
+fbx = "BBG_B251.fbx"
+scene_id = 30871
+scene_name = "LEDGER_A"
+
+[scene]
+monster_count = 1
+
+[[scene.enemy]]
+slot = 0
+type = 0
+ai_entry = 2
+hp = 90
+
+[[scene.ai_insert]]
+entry = 2
+tag = 0
+at = 0
+source = """
+SET({const4(6004870) const(0) B_VECTOR B_SYSVAR[24] B_LET B_EXPR_END})
+SET({const4(6004870) const(1) B_VECTOR B_SYSVAR[191] B_LET B_EXPR_END})
+"""
+
+[[scene.ai_insert]]
+entry = 2
+tag = 7
+at = 0
+source = """
+SET({const4(6004870) const(2) B_VECTOR const4(6004870) const(2) B_VECTOR const(1) B_PLUS B_LET B_EXPR_END})
+SET({B_SYSLIST[1] B_MEMBER(36) B_PICK const(0) B_EQ const4(6004870) const(3) B_VECTOR const(0) B_EQ B_ANDAND B_EXPR_END})
+JMP_IFNOT(L_alive)
+SET({const4(6004870) const(3) B_VECTOR B_SYSVAR[29] B_LET B_EXPR_END})
+SET({const4(6004870) const(4) B_VECTOR B_SYSLIST[1] B_MEMBER(35) B_PICK B_LET B_EXPR_END})
+SET({Global.Bit[8900] const(1) B_LET B_EXPR_END})
+L_alive:
+"""
+
+[[scene.ai_function]]
+entry = 2
+tag = 9
+source = """
+SET({const4(6004870) const(5) B_VECTOR const(1) B_LET B_EXPR_END})
+RET()
+"""

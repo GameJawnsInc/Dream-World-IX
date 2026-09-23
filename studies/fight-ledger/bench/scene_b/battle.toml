@@ -1,0 +1,70 @@
+# =====================================================================================
+# THE FIGHT WRITES THE LEDGER, RUNG 0 -- SCENE B (die_atk)  --  battle scene 30872
+# =====================================================================================
+# Scene A with ONE lever changed: the Goblin carries die_atk (flags = die_atk + its own
+# die_dmg), so a player's killing blow requests its tag 9 (Dying). Same ledger:
+#   tag 0 (Init)            c6 = B_SYSVAR[24] (this scene id)
+#   tag 7 (post-hit)        c7 += 1 on every hit; c15 = 1 if a tag-7 body EVER ran on a
+#                           0-HP Goblin (expected 0: tag 9 takes level 0 and the lethal hit's
+#                           tag-7 request is refused)
+#   tag 9 (Dying, ADDED)    c8 = 1, c9 = B_SYSLIST[0] (the killer's battle id),
+#                           c10/c11 = B_SYSVAR[28]/[29] (the killing command id / sub id),
+#                           c12 = own cur.hp (0), c13 = the killer's max HP,
+#                           c14 = enemies still in the battle list (1 = I was the last),
+#                           Global.Bit[8901] = 1
+# All writes come first, with no Wait: the dying enemy's script is suspended once it leaves
+# the battle list.
+#
+# Regenerate the gitignored donor assets:
+#   ff9mapkit battle-import BBG_B013 --fork-scene EF_R007 --ship-as BBG_B252 --id 30872 --name LEDGER_B
+
+[battlemap]
+bbg = "BBG_B252"
+fbx = "BBG_B252.fbx"
+scene_id = 30872
+scene_name = "LEDGER_B"
+
+[scene]
+monster_count = 1
+
+[[scene.enemy]]
+slot = 0
+type = 0
+ai_entry = 2
+hp = 90
+flags = ["die_atk", "die_dmg"]
+
+[[scene.ai_insert]]
+entry = 2
+tag = 0
+at = 0
+source = """
+SET({const4(6004870) const(6) B_VECTOR B_SYSVAR[24] B_LET B_EXPR_END})
+"""
+
+[[scene.ai_insert]]
+entry = 2
+tag = 7
+at = 0
+source = """
+SET({const4(6004870) const(7) B_VECTOR const4(6004870) const(7) B_VECTOR const(1) B_PLUS B_LET B_EXPR_END})
+SET({B_SYSLIST[1] B_MEMBER(36) B_PICK const(0) B_EQ B_EXPR_END})
+JMP_IFNOT(L_alive)
+SET({const4(6004870) const(15) B_VECTOR const(1) B_LET B_EXPR_END})
+L_alive:
+"""
+
+[[scene.ai_function]]
+entry = 2
+tag = 9
+source = """
+SET({const4(6004870) const(8) B_VECTOR const(1) B_LET B_EXPR_END})
+SET({const4(6004870) const(9) B_VECTOR B_SYSLIST[0] B_LET B_EXPR_END})
+SET({const4(6004870) const(10) B_VECTOR B_SYSVAR[28] B_LET B_EXPR_END})
+SET({const4(6004870) const(11) B_VECTOR B_SYSVAR[29] B_LET B_EXPR_END})
+SET({const4(6004870) const(12) B_VECTOR B_SYSLIST[1] B_MEMBER(36) B_PICK B_LET B_EXPR_END})
+SET({const4(6004870) const(13) B_VECTOR B_SYSLIST[0] B_MEMBER(35) B_PICK B_LET B_EXPR_END})
+SET({const4(6004870) const(14) B_VECTOR B_SYSLIST[3] B_COUNT B_LET B_EXPR_END})
+SET({Global.Bit[8901] const(1) B_LET B_EXPR_END})
+RET()
+"""

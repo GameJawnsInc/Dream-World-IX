@@ -1,0 +1,5 @@
+# The forked donor assets are Square Enix bytes (provenance gate): never commit them.
+# Regenerate with the `ff9mapkit battle-import` line in each scene's battle.toml header.
+scene_*/scene/
+scene_*/*.fbx
+scene_*/image*.png
