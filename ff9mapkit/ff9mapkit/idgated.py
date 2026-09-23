@@ -2,11 +2,14 @@
 the **lost-on-a-mint** axis of the fork-fidelity taxonomy (``docs/FORK_FIDELITY.md``), made per-field
 queryable so ``fork-report`` can preview it.
 
-When you fork a field it runs at a new custom id (>= 4000), so every engine special-case gated on the real id
-silently stops firing. Most are internal (camera/position fixups); the USER-VISIBLE ones a fork loses are:
+When you fork a field it runs at a new custom id (>= 4000), so every engine special-case gated on the RAW real
+id silently stops firing (the custom engine's fork-gate suite routes many gates through ``EffectiveFieldId``,
+which restores them for a fork that records its donor). Most are internal (camera/position fixups); the
+USER-VISIBLE ones a fork loses are:
 
-* **Walkmesh hotfix** -- a load-time/dynamic ``BGI_triSetActive`` (catalogued + sometimes auto-reproduced in
-  :mod:`ff9mapkit.walkmesh_hotfixes`). Referenced here so the lost-on-mint list is one place.
+* **Walkmesh hotfix** -- a load-time/dynamic ``BGI_triSetActive`` (catalogued in
+  :mod:`ff9mapkit.walkmesh_hotfixes`: which gates the engine remaps for a fork, which the kit prepends, and which
+  stay lost). Referenced here so the lost-on-mint list is one place.
 * **Narrow-map letterbox** -- the engine letterboxes a field narrower than widescreen (NarrowMapList, a
   per-field width table); a fork defaults to width 500 (widescreen), so the side masking is lost and off-screen
   party can draw over where the bars were. Widths baked in :mod:`ff9mapkit._narrowmap_data`.
@@ -86,18 +89,25 @@ def actor_tweaks(field) -> tuple:
 
 def lost_on_mint(field) -> list:
     """``[(label, detail), ...]`` for every USER-VISIBLE id-gated engine behavior a fork of ``field`` loses on
-    its custom id. Empty for most fields. The walkmesh entry notes whether the kit auto-reproduces it; the rest
-    steer to *fork in-place on the real id* (or accept the loss). Used by ``fork-report``."""
+    its custom id. Empty for most fields. The walkmesh entry notes whether the engine remap or the kit reproduces
+    it; the rest steer to *fork in-place on the real id* (or accept the loss). Used by ``fork-report``, whose
+    verdict counts an entry as lost unless its detail says ``reproduced``."""
     f = _as_id(field)
     if f is None:
         return []
     out = []
     h = _wh.info(f)
     if h is not None:
-        if h.engine_remapped:
-            repro = "reproduced by the engine fork-donor remap"
+        if h.engine_remapped and h.kind == "load_time":
+            repro = "reproduced by the engine fork-donor remap on a fork that records its donor"
+        elif h.engine_remapped:
+            repro = ("reproduced by the engine fork-donor remap on a fork that runs the donor's own trigger "
+                     "(--verbatim)")
         elif h.auto:
             repro = "auto-reproduced on fork"
+        elif h.fork_tris:              # one arm remapped, another still on the raw id -> still a loss
+            repro = (f"fork-in-place -- the engine fork-donor remap keeps only its remapped arm "
+                     f"(tri {', '.join(map(str, h.fork_tris))}); the rest stays on the raw id")
         else:
             repro = "fork-in-place"
         out.append(("walkmesh hotfix", f"{h.name} ({repro})"))
