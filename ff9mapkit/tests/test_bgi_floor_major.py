@@ -256,6 +256,8 @@ def test_d_cli_verify_prints_the_floor_table(capsys, tmp_path):
     ("f 1 2 3\no A\nf 1 3 4\no B\nf 2 3 4\n", ["A", "B"], [0, 0, 1]),
     # a reopened name rejoins its floor (built floors follow first appearance among FACES)
     ("o B\nf 1 2 3\no A\nf 1 3 4\no B\nf 2 3 4\n", ["B", "A"], [0, 1, 0]),
+    # ... among FACES, not among declarations: A is declared first but B has the first face
+    ("o A\no B\nf 1 2 3\no A\nf 1 3 4\n", ["B", "A"], [1, 0]),
     # `g` is a synonym for `o`
     ("g A\nf 1 2 3\ng B\nf 1 3 4\n", ["A", "B"], [0, 1]),
     # no objects at all: one unnamed floor

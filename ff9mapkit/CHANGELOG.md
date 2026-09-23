@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — walkmesh triangles are floor-major: the build regroups, a bad `.bgi` is refused
+- **The engine builds its walkmesh triangle list floor by floor but indexes it by triangle id**, so floor 0
+  must list triangles `0..k`, floor 1 the next run, and each triangle's `floor_ndx` must match its floor.
+  Every stock `.bgi` obeys this (674/674). An OBJ that reopened a floor (`o A` … `o B` … `o A`) used to break
+  it silently; `bgi.build` now **regroups** the faces floor by floor (a stable sort — every existing mesh is
+  byte-identical) and checks its own output, the `[walkmesh] obj` build warns naming the reopened floor and
+  how many triangle ids moved, and a shipped `[walkmesh] bgi` that is not floor-major is **refused**.
+- **`walkmesh verify` prints the floor table**: `floors: 0 'ground' tris 0-7 | 1 'terrace' tris 8-15
+  floor-major: yes`, with floor NAMES from the obj's `o`/`g` lines (`bgi.obj_floor_names`, numbered by first
+  appearance among the faces). New `BgiWalkmesh.tris_at(x, z)`: every triangle id under a point.
+- **A walkmesh floor name with whitespace is refused** (`o upper deck` silently became floor `upper` and
+  merged with `o upper ledge`).
+- Blender add-on **0.9.30**: the vendored walkmesh builder carries the regroup, so `bridge.mesh_to_bgi_bytes`
+  (Blender face order, material slots interleaved) now yields a floor-major `.bgi` equal to the OBJ route.
+
 ### Added — roll streams: seeded randomness a field can predict
 - **`[[behavior.stream]]` + a branch `roll`** (the roll-stream arc, board entry #5, in-game proven by the
   harness). A stream is a seeded Lehmer generator in one vector cell (`x' = 236·x mod 65537`, full period —

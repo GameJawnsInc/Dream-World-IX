@@ -236,9 +236,9 @@ Pick one (or omit all three to auto-frame from `[camera.frame]`):
 
 | key | meaning |
 |---|---|
-| `bgi` | a pre-built `.bgi.bytes` shipped **verbatim** — e.g. an imported real field's walkmesh. Preserves its exact floors + neighbor/edge connectivity (a multi-floor `obj` rebuild would disconnect floors with disjoint vertex sets). What `import --editable` uses. |
-| `obj` | a Wavefront `.obj` in FF9 world coords (x, y, z); faces become walk triangles. Use for authoring new geometry, or reshaping a forked field (pair with `links` + `frame = "world"`). |
-| `links` | an adjacency sidecar (`walkmesh.links.toml`) paired with `obj` to **reshape an imported multi-floor field while keeping connectivity** — rebuild_neighbors only links within a floor, so the sidecar re-attaches cross-floor seams by world position (warns on a moved/deleted seam). Written by `import --editable`. See [WALKMESH_EDITING.md](WALKMESH_EDITING.md). |
+| `bgi` | a pre-built `.bgi.bytes` shipped **verbatim** — e.g. an imported real field's walkmesh. Preserves its exact floors + neighbor/edge connectivity (a multi-floor `obj` rebuild would disconnect floors with disjoint vertex sets). What `import --editable` uses. The file must be **floor-major** (see below; every stock `.bgi` is) — one that is not is refused at build, never repaired. |
+| `obj` | a Wavefront `.obj` in FF9 world coords (x, y, z); faces become walk triangles. Use for authoring new geometry, or reshaping a forked field (pair with `links` + `frame = "world"`). Each `o`/`g` object is a floor with a NAME (see below). |
+| `links` | an adjacency sidecar (`walkmesh.links.toml`) paired with `obj` to **reshape an imported multi-floor field while keeping connectivity** — rebuild_neighbors links an edge only when its two triangles share both vertex *indices* (on any floor), and imported floors use disjoint vertex sets, so the sidecar re-attaches cross-floor seams by world position (warns on a moved/deleted seam). Floors that share vertices at a seam are linked without it. Written by `import --editable`. See [WALKMESH_EDITING.md](WALKMESH_EDITING.md). |
 | `quad` | 4 corners `[[x, z], ...]` for a flat quad floor. |
 | *(none)* | auto: a quad framed to the painted floor via `[camera.frame]`. |
 | `character_offset` | **DEPRECATED — accepted but ignored** (back-compat no-op). The legacy "slide the floor toward the camera" offset was ripped: the engine-measured character ground offset is `0`, so every authored mesh is written in true world coords with no offset (`build.resolve_walkmesh`). |
@@ -260,6 +260,27 @@ field forked with `ff9mapkit import` (e.g. Gargan Roo's 7 floors) — give the `
 their real world height (`y`). The Blender add-on does this automatically: each material slot on the
 walkmesh exports as one floor. As with single-floor meshes, the verts are written verbatim in true
 world coords (no offset) — they are already the exact engine positions.
+
+**Floor numbers and names.** Floors are numbered by **first appearance among the faces**: an `o`
+with no faces takes no number, faces before the first `o` belong to the first-declared object, a
+reopened name rejoins its floor, and `g` is a synonym for `o`. The object's name is the floor's
+NAME — one word; a name containing whitespace (`o upper deck`) is refused, because the OBJ tokenizer
+would keep only `upper` and silently merge it with any other `upper …` object. An import re-export
+writes `o floor_N` in ascending order, so there `floor_N` is floor `N`; a Blender export writes
+`o floor_<material slot>` in face order, so there the slot number need not equal the floor number —
+`walkmesh verify` prints the real table.
+
+**Triangle ids are floor-major.** The engine builds its triangle list floor by floor but indexes it
+by triangle id, so floor 0 must hold triangles `0..k`, floor 1 the next run, and so on (every stock
+`.bgi` does). The build therefore **regroups** the faces floor by floor — a stable sort, the identity
+for any OBJ whose floors are contiguous (every import re-export and Blender export). An OBJ that
+reopens a floor is regrouped with a warning naming that floor and how many triangle ids moved;
+re-check any hand-written triangle id (`[field] walkmesh_tri_toggles`, an `expr:` row). A shipped
+`[walkmesh] bgi` that is not floor-major is refused. `ff9mapkit walkmesh verify` prints the table:
+
+```
+  floors: 0 'ground' tris 0-7 | 1 'terrace' tris 8-15   floor-major: yes
+```
 
 ---
 
