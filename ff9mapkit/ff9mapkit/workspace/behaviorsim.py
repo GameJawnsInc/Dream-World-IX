@@ -510,6 +510,10 @@ class Sim:
         if "have_item" in c:
             self._note_once("have_item reads FALSE here — inventory is not simulated")
             return False
+        if any(k in c for k in BT.FLOOR_VERBS):
+            self._note_once("floor sensors (on_floor/same_floor/other_floor) read the ENGINE's walkmesh "
+                            "floor — not simulated; they read FALSE here")
+            return False
         self._note_once(f"unknown condition {sorted(c)} reads FALSE here")
         return False
 

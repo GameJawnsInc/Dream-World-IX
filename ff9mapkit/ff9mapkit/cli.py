@@ -769,9 +769,18 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
             plan = BT.autoroute_plan(raw, wmesh)
         except BT.BehaviorTomlError as e:
             plan_err = str(e)
+    floors = None                                  # the SHIPPED mesh's floors, for on_floor names/indices
+    floor_errs, floor_warns = [], []
+    try:
+        floors = _build.behavior_floor_table(project)
+        if floors is not None:
+            floor_errs, floor_warns = BT.floor_problems(raw, floors)
+    except Exception as e:                         # noqa: BLE001 -- reported, never a crash
+        floor_errs = [f"[behavior] floor table: {e}"]
 
     if args.action == "lint":
-        warnings = []
+        warnings = list(floor_warns)
+        problems += floor_errs
         routed_lines = BT.describe_autoroute(plan, raw)
         if plan_err:
             problems.append(plan_err)
@@ -858,11 +867,12 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
                 if ungated:
                     radius = extent            # no near gate -> the whole field
                 dk = (ref["verb"], radius, ref["standoff"], ref["source_box"],
-                      ref["target_box"])
+                      ref["target_box"], ref.get("same_floor", False))
                 if dk in pseen:
                     continue                   # identical families (the raid's twin
                 pseen.add(dk)                  # guards) report once
                 res = _routes.sweep_pursuit(wmesh, radius, standoff=ref["standoff"],
+                                            same_floor=ref.get("same_floor", False),
                                             bedges=bedges,
                                             source_box=ref["source_box"],
                                             target_box=ref["target_box"])
@@ -898,7 +908,7 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
             print(f"error: {p}", file=sys.stderr)
         return 1
     try:
-        fb, cb = BT.dry_compile(raw, routed=plan)                    # placeholders (build binds real ones)
+        fb, cb = BT.dry_compile(raw, routed=plan, floors=floors)     # placeholders (build binds real ones)
     except B.BehaviorError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

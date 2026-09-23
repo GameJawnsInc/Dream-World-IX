@@ -4182,7 +4182,12 @@ def lint_behavior_compile(project: FieldProject) -> list[str]:
         plan = {}
         if _behaviortoml.wants_autoroute(raw):
             plan = _behaviortoml.autoroute_plan(raw, behavior_walkmesh(project))
-        _behaviortoml.dry_compile(raw, routed=plan)
+        floors = behavior_floor_table(project)
+        if floors is not None:
+            ferrs, _fw = _behaviortoml.floor_problems(raw, floors)
+            if ferrs:
+                return [f"[behavior] {e}" for e in ferrs]
+        _behaviortoml.dry_compile(raw, routed=plan, floors=floors)
     except Exception as e:                    # noqa: BLE001 -- lint's never-crash contract
         return [f"[behavior] does not compile: {e}"]
     return []
@@ -4236,6 +4241,12 @@ def lint_all(project: FieldProject) -> LintReport:
         pass                                  # (reported by validate() and/or the geometry block above)
     if not rep.errors:                        # the compiler's own refusals -- one root cause, reported once
         rep.errors.extend(lint_behavior_compile(project))
+        try:                                  # the floor sensor's ADVISORIES (a one-floor mesh, a floor_N name
+            _ft = behavior_floor_table(project)   # that is another built floor) -- the errors went above
+            if _ft is not None and not rep.errors:
+                rep.logic.extend(f"[behavior] {w}" for w in _behaviortoml.floor_problems(project.raw, _ft)[1])
+        except Exception:                     # noqa: BLE001 -- lint's never-crash contract
+            pass
     return rep
 
 
@@ -7579,12 +7590,21 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 if warnings is not None:
                     for line in _behaviortoml.describe_autoroute(routed, project.raw):
                         warnings.append(f"[behavior] {line}")
+            floors = behavior_floor_table(project)
+            if floors is not None:
+                ferrs, fwarns = _behaviortoml.floor_problems(project.raw, floors)
+                if ferrs:
+                    raise BuildError("[behavior]: " + "; ".join(ferrs))
+                if warnings is not None:
+                    warnings.extend(f"[behavior] {w}" for w in fwarns)
             fb = _behaviortoml.build(
                 project.raw, npc_slots=npc_slots,
                 npc_txids_by_name={n.get("name"): dialogue_txids[i]
                                    for i, n in enumerate(project.raw.get("npc", []))
                                    if n.get("name") and i in dialogue_txids},
-                behavior_txids=behavior_txids, routed=routed)
+                behavior_txids=behavior_txids, routed=routed, floors=floors)
+            if fb.floor_placeholder:
+                raise BuildError("[behavior]: internal -- floor verbs compiled without the walkmesh floor table")
             # a behavior Battle action needs the after-battle handler, which was installed
             # above from the RAW scan (fires_battle) -- enforce here that the compiled tree
             # agrees, or a Battle would ship with no tag-10 (every object stays suspended
@@ -7628,10 +7648,37 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 sw = fb.streams_warning()
                 if sw:
                     warnings.append(sw)
+                fs = fb.floor_sensors_warning()
+                if fs:
+                    warnings.append(fs)
         except (_behaviortoml.BehaviorTomlError, _behavior.BehaviorError) as e:
             raise BuildError(f"[behavior]: {e}") from e
 
     return eb
+
+
+def behavior_floor_table(project: FieldProject):
+    """The SHIPPED walkmesh's floors, for resolving ``[behavior]`` on_floor values -- ``None`` unless the field
+    uses the floor sensor (``behaviortoml.wants_floors``), so no other build ever reads its walkmesh for this
+    (byte identity). Follows :func:`resolve_walkmesh`'s precedence: a borrow runs the donor's mesh (its floor
+    count from the sibling ``walkmesh.bgi`` / ``[walkmesh] reference`` when present), ``[walkmesh] bgi`` ships
+    its file, ``[walkmesh] obj`` names its floors by the o/g lines (BUILT order: first appearance among faces),
+    and a quad / auto mesh is one nameless floor."""
+    if not _behaviortoml.wants_floors(project.raw):
+        return None
+    wm = project.raw.get("walkmesh", {}) or {}
+    if project.field.get("borrow_bg"):
+        m = _borrow_walkmesh(project)
+        return _behaviortoml.FloorTable({}, len(m.floors) if m is not None else None,
+                                        f"the borrowed walkmesh of {project.field['borrow_bg']}")
+    if wm.get("bgi"):
+        m = bgi.BgiWalkmesh.from_bytes(project.path(wm["bgi"]).read_bytes())
+        return _behaviortoml.FloorTable({}, len(m.floors), f"[walkmesh] bgi {wm['bgi']}")
+    if wm.get("obj"):
+        names = bgi.obj_floor_names(project.path(wm["obj"]))
+        return _behaviortoml.FloorTable({n: i for i, n in enumerate(names) if n is not None}, len(names),
+                                        f"[walkmesh] obj {wm['obj']}")
+    return _behaviortoml.FloorTable({}, 1, "[walkmesh] quad" if wm.get("quad") else "the auto walkmesh")
 
 
 def behavior_walkmesh(project: FieldProject):

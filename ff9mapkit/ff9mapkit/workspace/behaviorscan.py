@@ -87,7 +87,9 @@ def fmt_cond(d) -> str:
             return "? " + " ".join(f"{k} {_fmt_val(v)}" for k, v in d.items())
         return f"? {d!r}"
     v = d[verb]
-    return verb if v is True else f"{verb} {_fmt_val(v)}"
+    txt = verb if v is True else f"{verb} {_fmt_val(v)}"
+    opts = [f"{o}={_fmt_val(d[o])}" for o in BT.COND_VERBS[verb] if o in d]     # e.g. on_floor's who=
+    return txt + (" " + " ".join(opts) if opts else "")
 
 
 def fmt_action(d) -> tuple[str, str]:
@@ -378,6 +380,9 @@ _COND_EXAMPLES = {
     "table_ge": '{ table_ge = ["table", 0, 1] }', "table_le": '{ table_le = ["table", 0, 1] }',
     "table_eq": '{ table_eq = ["table", 0, 1] }',
     "have_item": '{ have_item = ["Potion", 1] }',
+    # a floor INDEX: a name is an error on every field whose walkmesh has no o/g names
+    "on_floor": '{ on_floor = 0, who = "player" }', "same_floor": '{ same_floor = "player" }',
+    "other_floor": '{ other_floor = "player" }',
 }
 _ACTION_EXAMPLES = {
     "walk_to": '{ walk_to = [0, 0], speed = 40 }', "hold": "{ hold = [0, 0] }",
@@ -1204,11 +1209,12 @@ def sweep_geometry(raw: dict, wmesh, *, pursuit: bool = True) -> SweepResult:
                 if ungated:
                     radius = extent
                 dk = (ref["verb"], radius, ref["standoff"], ref["source_box"],
-                      ref["target_box"])
+                      ref["target_box"], ref.get("same_floor", False))
                 if dk in pseen:
                     continue
                 pseen.add(dk)
                 pres = _routes.sweep_pursuit(wmesh, radius, standoff=ref["standoff"],
+                                             same_floor=ref.get("same_floor", False),
                                              bedges=bedges,
                                              source_box=ref["source_box"],
                                              target_box=ref["target_box"])
@@ -1292,9 +1298,16 @@ def dry_compile(toml_path) -> CompileResult:
                 plan = BT.autoroute_plan(raw, _build.behavior_walkmesh(project))
             except Exception as e:         # noqa: BLE001 -- the plan's own message is the report
                 res.problems.append(str(e))
+        floors = None
+        try:                               # the SHIPPED mesh's floors (on_floor names / index range)
+            floors = _build.behavior_floor_table(project)
+            if floors is not None:
+                res.problems += BT.floor_problems(raw, floors)[0]
+        except Exception as e:             # noqa: BLE001 -- reported, never raised
+            res.problems.append(f"[behavior] floor table: {e}")
         if res.problems:
             return res
-        fb, cb = BT.dry_compile(raw, routed=plan)                # placeholders (build binds real ones)
+        fb, cb = BT.dry_compile(raw, routed=plan, floors=floors)  # placeholders (build binds real ones)
         res.ok = True
         res.report = cb.report
         res.size_text = cb.size_report()
