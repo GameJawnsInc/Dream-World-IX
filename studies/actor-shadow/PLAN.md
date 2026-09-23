@@ -9,6 +9,8 @@ own per-model treatment, chests and the save moogle cast, held props never do (s
 so its grafted donor objects are shadowed and tinted exactly as the editable fork's are.
 ★ rung 3 PASSED in-game (harness, bench 30936). On a field that ships an MCF, a prop that must not cast (held,
 stock-dark, or `shadow = false`) gets stock's `DisableShadow`, so the MCF no longer shadows it.
+★ rung 4 PASSED in-game (harness, bench 30937). On an MCF field `shadow = false` switches off the player, an
+`[[npc]]`, a `[[chest]]` and a `[[savepoint]]` too, and the player's stays off after a jump.
 ★ The INTENSITY WRAP is proven in-game (harness, bench 30922). An authored intensity of 16-31 draws as 0-15,
 so the authored range is now capped at 15 (see "The intensity wrap" below).
 
@@ -273,6 +275,75 @@ By eye, CONTROL has a soft blob beside the cactus and a large, very dark blob at
 neither. The holder's own Init is byte-identical in both builds, so that blob is the cup's: the misplaced held
 shadow stock never shows. Runs are archived in the main repo's `.harness-runs/*-mcf-rung3-*`.
 
+## Rung 4 — `shadow = false` on a field that ships MapConfigData, for every actor (bench 30937)
+
+**The gap.** After rung 3 a `[[prop]]`'s `shadow = false` worked on an MCF field, but the player, an `[[npc]]`,
+a `[[chest]]` and a `[[savepoint]]` ignored it with a build warning. The MCF sets every actor's size and
+intensity, but the script's one lever there -- stock's `DisableShadow` -- applies to any actor.
+
+**What turns it back on** (engine source). `DisableShadow` sets character attribute bit 16. The MCF's
+scale/amplifier writes never touch it, but five engine paths re-enable a shadow:
+
+- WalkEx near the ground: Memoria's extended `0x115`, which the kit never emits.
+- `RunLandAnimation` (`0x9D`).
+- The end of a jump (`EventEngine.FinishJump`).
+- Two field-specific hacks (1600, 1601).
+
+So an Init op holds on an NPC, a chest or a cask. The player is the only kit actor that jumps: its `[[jump]]`
+arcs and `[[ladder]]` climbs are `SetupJump; Jump` per hop or rung. The save act's own landings run
+`EnableShadow` in the moogle's code.
+
+**The fix.** `content.shadow.mcf_ops(value)` is the MCF-field shadow op: `DisableShadow` for False, nothing
+otherwise. `inject_npc`, `inject_chest` and `inject_cask` take `mcf`, like `inject_prop`, and the build passes it
+on the synth path and on the verbatim path when the fork ships its MCF. `savepoint.act_save_body
+(keep_shadow_off=True)` swaps the act's two landing `EnableShadow` for `DisableShadow`, the same one-byte op.
+`shadow.keep_player_shadow_off` puts the op after `SetHeadFocusMask` (where the census ops go), then before the
+RETURN of every player function that Jumps. There's no relocating insert, so it relies on
+`edit.insert_in_function`'s straddle check. In stock data every one of 51 jump arcs and 52 ladder climbs has
+exactly one RETURN and takes it, and so does the kit's generated arc. Between a landing and the function's end
+(the landing animation, the rungs of a climb) the shadow shows. The build warning now names only
+`{ size, intensity }` tables.
+
+**Byte identity.** Without an MCF, nothing changes. On an MCF field the build changes by exactly the
+`DisableShadow` ops of the `false` actors and the act's swapped landings. On the bench, CONTROL -> ON is +7
+`DisableShadow` and -2 `EnableShadow`, with labels renumbered. The seven are:
+
+- the player's Init;
+- the jump arc's tail;
+- the holder's, the chest's and the save moogle's Inits;
+- the act's two landings (the -2 `EnableShadow`).
+
+INIT-ONLY -> ON is +1, the jump arc's.
+
+**In-game** (`rung4_variants.py`, `rung4_deploy.py`, `rung4_shadow_off.py`, `measure_rung4.py`). The bench is the
+set-pieces bench on field 1607's MCF, with `shadow = false` on the player, the chest, the instant save point
+and the holder NPC. The cask, cactus_on and barrel save point keep their defaults as in-frame unchanged actors.
+A tread `[[jump]]` (probed: no warnings, the zone clear of the spawn's bands) lands the player at (650, -600).
+Three builds of the same toml share slot 30937:
+
+- **ON** is this change.
+- **INIT-ONLY** drops the post-jump re-disable. It is the instrument's negative control: the landing must bring
+  the blob back.
+- **CONTROL** replays the pre-change calls and is byte-identical to a HEAD build (4233 bytes).
+
+Every run passed 10/10 (preflight per variant, the jump landed exactly at its `to`, no exceptions).
+
+| measure | ON / CONTROL | ON / INIT-ONLY |
+|---|---|---|
+| spawn: player | 1.114 | 1.000 |
+| spawn: save moogle | 1.112 | 1.000 |
+| spawn: chest | 1.075 | 1.000 |
+| spawn: holder | 1.051 | 1.000 |
+| spawn: cask, cactus, cactus_on, barrel (unchanged) | 1.000 | 1.000 |
+| landed player's feet, `2-landed` | 1.158 | 1.160 |
+| landed player's feet, `3-landed-later` | 1.159 | 1.159 |
+
+The noise floor (ON's own two landed shots, same box) is 0.999. By eye, CONTROL and INIT-ONLY show a dark blob
+at the landed player's feet and ON none, in both shots. INIT-ONLY equals CONTROL after the landing, so the
+engine's re-enable is real and complete, and the post-jump re-disable is what removes it. The save act's
+landings are proven offline only (bytes); the harness did not run a save. Runs are archived in the main repo's
+`.harness-runs/*-mcf-rung4-*`.
+
 ## Set pieces — props, chests, the save point (bench 30921, `set_pieces_shadow.py`)
 
 ### The census said the obvious design was wrong
@@ -401,6 +472,9 @@ checkout that predates the cap.
 
 ## Follow-ups (not in this change)
 
+- OPEN (rung 4): the save act's landings under `shadow = false` on an MCF field are proven offline only (its two
+  `EnableShadow` become `DisableShadow`, pinned by `test_shadow.py`). An in-game check needs a harness SAVE on
+  bench 30937's instant save point, then the moogle's feet after its return hop.
 - DECIDED, no change: `[[npc]]` and `[player]` take the census shadow for every model and do not follow
   `STOCK_CASTS`. Stock's disables for creatures and characters follow where the object is (perched, flying,
   walkmesh-unbound, hidden until a scene), not the model; stock's standing objects cast 2141 of 2191. Bench
