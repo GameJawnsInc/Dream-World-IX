@@ -1,0 +1,32 @@
+# The walkmesh-sensor bench (30910): two floors split at x = 0, each 2x2 quads (16 triangles), SEPARATE
+# vertices per floor joined by bgi0.walkmesh.links.toml -- the stock seam shape (0 of 5983 real cross-floor
+# seams share vertex indices). Faces are listed floor by floor: the engine indexes WalkMesh.tris by triangle
+# id, so floor 0 must be triangles 0..7 and floor 1 triangles 8..15.
+v -1220 0 257
+v -610 0 257
+v -610 0 -837
+v -1220 0 -837
+v 0 0 257
+v 0 0 -837
+v -610 0 -1931
+v -1220 0 -1931
+v 0 0 -1931
+v 0 0 257
+v 610 0 257
+v 610 0 -837
+v 0 0 -837
+v 1220 0 257
+v 1220 0 -837
+v 610 0 -1931
+v 0 0 -1931
+v 1220 0 -1931
+o floorA
+f 1 2 3 4
+f 2 5 6 3
+f 4 3 7 8
+f 3 6 9 7
+o floorB
+f 10 11 12 13
+f 11 14 15 12
+f 13 12 16 17
+f 12 15 18 16

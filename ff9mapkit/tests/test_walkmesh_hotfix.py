@@ -10,9 +10,6 @@ lost-on-mint.
 """
 from __future__ import annotations
 
-import importlib.util
-import pathlib
-import re
 import tomllib
 
 import pytest
@@ -22,8 +19,9 @@ from ff9mapkit import forkreport
 from ff9mapkit.content import walkmesh_hotfix as WHX
 from ff9mapkit.eb import EbScript, opcodes
 
+from ._patchstack import WRAPPED, net_added as _net_added
+
 ENABLE_PATH_TRIANGLE = 0x9A
-REPO = pathlib.Path(__file__).resolve().parents[2]
 
 
 def _tag0_ops(ebb):
@@ -145,11 +143,7 @@ def test_catalog_engine_remapped_2507_not_auto():
 #     the live stack writes it in its EffectiveFieldId form; engine_remapped means EVERY gate of the hotfix is, and
 #     fork_tris is non-empty when ANY is. This is the check whose absence let s65 wrap 2161 while the catalog
 #     still called it lost -- so forks of 2161 got the engine toggle AND the kit's prepend.
-_msr_spec = importlib.util.spec_from_file_location("memoria_stack_replay", REPO / "tools" / "memoria_stack_replay.py")
-_msr = importlib.util.module_from_spec(_msr_spec)
-_msr_spec.loader.exec_module(_msr)
-
-_FM = r"EffectiveFieldId\(FF9StateSystem\.Common\.FF9\.fldMapNo\) == {}\b"
+_FM = WRAPPED.format("==", "{}")
 _DOE, _TOT = "EventEngine.DoEventCode.cs", "EventEngine.turnOffTriManually.cs"
 # field -> [(patched file, the gate in its WRAPPED form, how many such sites the hotfix needs)]
 _GATES = {
@@ -165,25 +159,9 @@ _GATES = {
     2803: [(_DOE, r"effMapNo == 2803 && obj1 != null && tagNumber == 18", 1), (_TOT, r"EffectiveFieldId", 1)],
     1900: [(_TOT, r"EffectiveFieldId", 1)],
     1455: [(_TOT, r"EffectiveFieldId", 1)],
+    406: [("FieldMapActorController.cs", _FM.format(406), 1)],        # s65 wraps the collision rule
+    1752: [("FieldMapActorController.cs", _FM.format(1752), 1)],      # raw -- no patch wraps it
 }
-
-
-def _net_added(file_name, pattern, patches=None):
-    """Across the LIVE patch stack (in order, dead patches skipped) -- or ``patches``, a list of patch bytes --
-    lines ADDED to ``file_name`` matching ``pattern``, minus lines removed: how many sites the stack leaves in
-    that form. Context lines never count."""
-    if patches is None:
-        patches = [(_msr.PATCHES / n).read_bytes() for n in _msr.stack() if n not in _msr.DEAD]
-    n = 0
-    for blob in patches:
-        for path, sec in _msr.sections(blob):
-            if not path or path.replace("\\", "/").rsplit("/", 1)[-1] != file_name:
-                continue
-            for ln in sec.decode("utf-8", "replace").splitlines():
-                if ln.startswith(("+++", "---")) or not re.search(pattern, ln):
-                    continue
-                n += 1 if ln.startswith("+") else -1 if ln.startswith("-") else 0
-    return n
 
 
 def test_net_added_counts_the_stack_net_of_removals():

@@ -70,7 +70,13 @@ FIRST_ACTION_TAG = 15               # stock's redirect-function tag family
 PLAYER = "player"                   # the pseudo-unit (uid 250, mirror behind the staged latch)
 PLAYER_UID = 250
 
-_FORBIDDEN_COND = re.compile(r"obj\(|B_PTR|B_DISTANCEA")
+# THE PLAYER-REF EVAL LAW's token list: every expression token that dereferences an object -- obj(), B_PTR,
+# the gCur-cast readers B_ANGLE/B_DISTANCE (EBin.cs:1115-1137) and B_FRAME (DoCalcOperationExt.cs:24 ->
+# GetCharAnimFrame(gCur.go)), their by-uid twins B_ANGLEA/B_DISTANCEA, and the walkmesh sensor
+# B_BGIID/B_BGIFLOOR (BGI.cs:16 dereferences the actor's controller). In a v1 ticker Cond gCur is the
+# ticker's InitCode object (cid 2, no Actor, no go), so each throws every tick. Word-bounded: B_ANGLE2 is
+# pure math (EBin.cs:1191-1201) and stays legal.
+_FORBIDDEN_COND = re.compile(r"obj\(|\bB_PTR\b|\bB_(?:ANGLE|ANGLEA|DISTANCE|DISTANCEA|FRAME|BGIID|BGIFLOOR)\b")
 
 
 class BehaviorError(ValueError):
@@ -191,18 +197,25 @@ class Cond(Node):
     through the mirror helpers on :class:`FieldBehavior` — and may not WRITE or perturb
     shared state (:func:`_refuse_effectful_cond`), because a condition is evaluated every
     tick it is reached. ``_trusted`` marks compiler-generated text (mirror math), which
-    skips both scans."""
+    skips both scans. ``_sensor`` marks a WALKMESH-FLOOR sensor condition (on_floor / same_floor /
+    other_floor): it can read UNKNOWN (-1), so it may never be negated (:class:`Invert` refuses it —
+    THE UNKNOWN-FLOOR LAW). ``_self_cls`` names every CLASS whose strided self cell (read at MYUID) the text
+    reads: valid only inside that class's own tree, which ``FieldBehavior.compile`` enforces."""
     text: str
     _trusted: bool = False
+    _sensor: bool = False
+    _self_cls: frozenset = frozenset()
 
     def __post_init__(self):
         if self._trusted:
             return
         if _FORBIDDEN_COND.search(self.text):
             raise BehaviorError(
-                f"Cond text {self.text!r} references an object (obj()/B_PTR/B_DISTANCEA) — "
-                f"the player-ref eval law forbids raw object reads in conditions; use the "
-                f"mirror helpers (near/near_point/hp_*/active) instead")
+                f"Cond text {self.text!r} reads an object or the walkmesh sensor (obj()/B_PTR/B_ANGLE/"
+                f"B_ANGLEA/B_DISTANCE/B_DISTANCEA/B_FRAME/B_BGIID/B_BGIFLOOR) — the player-ref eval law "
+                f"forbids raw object reads in conditions (an absent or half-built actor throws, and a "
+                f"condition is evaluated every tick it is reached); use the mirror helpers: "
+                f"near/near_point/hp_*/active, and on_floor/same_floor/other_floor for the walkmesh floor")
         _refuse_effectful_cond(self.text)
 
 
@@ -305,6 +318,12 @@ class Invert(Node):
     def __post_init__(self):
         if not isinstance(self.child, Cond):
             raise BehaviorError("v1 Invert wraps a Cond only")
+        if getattr(self.child, "_sensor", False):
+            raise BehaviorError(
+                "Invert cannot wrap a floor-sensor condition (on_floor/same_floor/other_floor): it would "
+                "read TRUE while the floor is UNKNOWN (-1: pathing off on a ladder/jump/platform, not yet "
+                "spawned, dead, warm-up) — THE UNKNOWN-FLOOR LAW. Use other_floor, or list the floors you "
+                "mean in on_floor.")
 
 
 @dataclass
@@ -890,6 +909,14 @@ def hud_row_index_clamp(ref: str) -> str:
     return f"{ref} {ref} " + " ".join(HUD_EXPR_CLAMP_TAIL)
 
 
+def hud_floor_text_refusal(slot: int, value: str) -> str:
+    """One text for the compiler and the TOML validate: a ``floor:`` source in a slot a ``[TEXT=]`` tag reads.
+    The row-index clamp (:func:`hud_row_index_clamp`) maps a negative to row 0, so UNKNOWN (-1) would render
+    as floor 0 -- a lie the strip cannot show it is telling."""
+    return (f"hud: slot {slot} ({value!r}) is read by a [TEXT=] tag — the row-index clamp would turn UNKNOWN "
+            f"(-1) into row 0 = floor 0; show floors with [NUMB=]")
+
+
 def hud_expr_tokens(src: str, *, label: str = HUD_VALUE_LABEL) -> str:
     """Validate an ``expr:<RPN tokens>`` hud source and return the bare token string.
 
@@ -1244,6 +1271,9 @@ _SLOT_GLOB = {
     "tx": ("int16", "{u}.tx"), "tz": ("int16", "{u}.tz"),
     "px": ("int16", "{u}.px"), "pz": ("int16", "{u}.pz"),
     "wtx": ("int16", "{u}.wtx"), "wtz": ("int16", "{u}.wtz"),
+    # the WALKMESH FLOOR mirror (B_BGIFLOOR, written in the ticker's mirror block; -1 = unknown). Lazy: only a
+    # sensed actor allocates it, and a class keeps it in a per-class table (never _CLS_CORE)
+    "flr": ("int16", "{u}.flr"),
 }
 # the slots every class allocates up front (shared family tables, uid-indexed);
 # wp/wtx/wtz/wtimer/ctgt and decorator latches are PER-CLASS tables, lazy
@@ -1842,6 +1872,8 @@ class FieldBehavior:
         self._engages: dict[str, Engage] = {}            # unit -> its one Engage
         self._huds: list[HudSpec] = []                   # live counter strips
         self._item_mirrors: dict[int, int] = {}          # item id -> snapshot byte (have_item)
+        self._sensed: dict[str, None] = {}               # actors with a FLOOR mirror (insertion-ordered)
+        self.floor_placeholder = False                   # set by the TOML lane: floors resolved without a table
         self.synth_mints: dict[str, int] = {}            # [[synthesis]] result name -> minted
                                                          # recipe id (the TOML lane fills it —
                                                          # ShopSynth string selectors resolve here)
@@ -2017,12 +2049,78 @@ class FieldBehavior:
         self._check_unit(a, self_pos=True)               # a = the tree's self — a
         self._check_unit(b)                              # class name strides here
         return Cond(_box(self._mx(a), self._mz(a), self._mx(b), self._mz(b), r),
-                    _trusted=True)
+                    _trusted=True, _self_cls=self._cls_self(a))
 
     def near_point(self, unit: str, point: tuple, r: int) -> Cond:
         self._check_unit(unit, self_pos=True)
         x, z = point
-        return Cond(_box(self._mx(unit), self._mz(unit), int(x), int(z), r), _trusted=True)
+        return Cond(_box(self._mx(unit), self._mz(unit), int(x), int(z), r), _trusted=True,
+                    _self_cls=self._cls_self(unit))
+
+    def _cls_self(self, name: str) -> frozenset:
+        """``{name}`` when ``name`` is a CLASS (its ref is the strided self cell, read at MYUID), else empty."""
+        return frozenset({name}) if name in self.classes else frozenset()
+
+    # ---------------- the walkmesh FLOOR sensor (B_BGIFLOOR, read into mirrors -- never in a Cond)
+    def _sense(self, who: str, *, self_pos: bool = False) -> str:
+        """Register ``who`` (the player, a unit, a class member -- or, as a tree's SELF, a class) for a FLOOR
+        mirror and return its ref. THE SENSOR-MIRROR LAW: the engine read (B_BGIFLOOR) runs only in the
+        ticker's mirror block, behind the staged latch and each unit's active gate; conditions and HUD rows
+        read the mirror. Presets to -1 (UNKNOWN) so no reader ever sees a zero-filled cell as floor 0.
+        Lazy: a field that senses nothing allocates nothing (byte identity)."""
+        self._check_unit(who, self_pos=self_pos)
+        members = self.classes[who].members if who in self.classes else (who,)
+        for m in members:
+            if m in self._sensed:
+                continue
+            self._sensed[m] = None
+            self._uref(m, "flr")                         # allocates the Int16 home / the class table
+            if m == PLAYER or m not in self._clsof:
+                self._preset16[self.bb.int16(f"{m}.flr")] = -1
+            else:
+                self._cls_preset(f"cls.{self._clsof[m]}.flr", self.units[m].entry, -1)
+            if m != PLAYER and self.units[m].pooled:
+                # a pooled unit's activation pass seeds its floor from the PLAYER's (it spawns at the
+                # player's press-time position) -- so its tree never ticks a pass on UNKNOWN
+                self._sense(PLAYER)
+        return self._uref(who, "flr")
+
+    @staticmethod
+    def _floor_list(floors) -> list:
+        ks = floors if isinstance(floors, (list, tuple, set, frozenset)) else [floors]
+        if (not 1 <= len(ks) <= 8
+                or any(isinstance(k, bool) or not isinstance(k, int) or not 0 <= k <= 254 for k in ks)):
+            raise BehaviorError("on_floor: 1..8 floor indices 0..254 (-1 means 'unknown', never a floor)")
+        return sorted(set(ks))
+
+    def on_floor(self, who: str, floors) -> Cond:
+        """``who`` stands on any of ``floors`` (built floor indices). Never true while the floor is UNKNOWN."""
+        F = self._sense(who, self_pos=True)
+        toks = []
+        for i, k in enumerate(self._floor_list(floors)):
+            toks.append(f"{F} const({k}) B_EQ")
+            if i:
+                toks.append("B_OROR")
+        return Cond(" ".join(toks), _trusted=True, _sensor=True, _self_cls=self._cls_self(who))
+
+    def _two_floors(self, verb: str, me: str, target: str) -> tuple:
+        if me == target:
+            raise BehaviorError(f"{verb}: {me!r} compared with itself")
+        return self._sense(me, self_pos=True), self._sense(target)
+
+    def same_floor(self, me: str, target: str) -> Cond:
+        """``me`` and ``target`` stand on the SAME floor, both KNOWN. A floor is an INDEX, not a level: one
+        walkable level can be several seamed floors (list them with on_floor)."""
+        Fm, Ft = self._two_floors("same_floor", me, target)
+        return Cond(f"{Fm} {Ft} B_EQ {Fm} const(0) B_GE B_ANDAND", _trusted=True, _sensor=True,
+                    _self_cls=self._cls_self(me))
+
+    def other_floor(self, me: str, target: str) -> Cond:
+        """Both floors KNOWN and DIFFERENT -- the positive form of 'not on my floor' (THE UNKNOWN-FLOOR LAW:
+        a negated floor test would read TRUE while either floor is unknown)."""
+        Fm, Ft = self._two_floors("other_floor", me, target)
+        return Cond(f"{Fm} {Ft} B_NE {Fm} const(0) B_GE B_ANDAND {Ft} const(0) B_GE B_ANDAND",
+                    _trusted=True, _sensor=True, _self_cls=self._cls_self(me))
 
     def active(self, unit: str) -> Cond:
         if unit == PLAYER:
@@ -2072,7 +2170,8 @@ class FieldBehavior:
             toks.append(c.text)
             if i:
                 toks.append("B_OROR")
-        return Cond(" ".join(toks), _trusted=True)
+        return Cond(" ".join(toks), _trusted=True, _sensor=any(c._sensor for c in conds),
+                    _self_cls=frozenset().union(*(c._self_cls for c in conds)))
 
     def all_of(self, *conds: Cond) -> Cond:
         """AND-compose Conds into ONE Cond — for use INSIDE any_of (a Sequence is the
@@ -2086,7 +2185,8 @@ class FieldBehavior:
             toks.append(c.text)
             if i:
                 toks.append("B_ANDAND")
-        return Cond(" ".join(toks), _trusted=True)
+        return Cond(" ".join(toks), _trusted=True, _sensor=any(c._sensor for c in conds),
+                    _self_cls=frozenset().union(*(c._self_cls for c in conds)))
 
     def time_below(self, seconds: int) -> Cond:
         """True once the countdown HUD (``B_SYSVAR[17]`` = TimerUI.Time, remaining
@@ -2470,6 +2570,14 @@ class FieldBehavior:
                 raise BehaviorError(f"{label} {src!r}: unknown stream {src[7:]!r} (declare it in "
                                     f"[[behavior.stream]])")
             return stream_ref(info.tid)                  # a pure READ of the state -- never an advance
+        if src.startswith("floor:"):
+            who = src[6:]
+            if who in self.classes or (who != PLAYER and who not in self.units):
+                raise BehaviorError(
+                    f"{label} {src!r}: {who!r} is not a behavior unit, class member or 'player' — only "
+                    f"units carry a floor mirror; make it a hold_post unit, or read the live value with "
+                    f"expr:const(<its uid>) B_BGIFLOOR")
+            return self._sense(who)                      # the MIRROR (-1 = unknown) -- never the engine read
         if src == "gil":
             return "B_SYSVAR[6]"
         if src == "timer":
@@ -2539,6 +2647,8 @@ class FieldBehavior:
             if slot >= len(values):
                 raise BehaviorError(f"hud: [TEXT=…,{slot}] has no value "
                                     f"(only {len(values)} given)")
+            if values[slot].startswith("floor:"):
+                raise BehaviorError(hud_floor_text_refusal(slot, values[slot]))
         if not 0 <= int(window) <= 7:
             raise BehaviorError("hud: window must be 0..7 (Dialog.WindowID)")
         if any(h.window == int(window) for h in self._huds):
@@ -2676,6 +2786,34 @@ class FieldBehavior:
         if tree is not None:
             yield from walk(tree, [], [])
 
+    def _check_class_self_refs(self) -> None:
+        """A CLASS name as a condition's SELF (near's first unit, near_point, on_floor's who, same_floor /
+        other_floor's me) reads the strided self cell at MYUID -- the running member's own cell, meaningful only
+        in that class's own tree. Anywhere else MYUID is some other object's uid: an unclassed unit's tree reads
+        a cell no mirror writes (zero-filled, so a floor sensor reads a KNOWN floor 0), and another class's tree
+        reads its OWN member's cell under the wrong class's name. The TOML lane never builds one (a row's self
+        is its own class); this closes the Python API."""
+        def conds(n):
+            if isinstance(n, Cond):
+                yield n
+            elif isinstance(n, Invert):
+                yield n.child
+            elif isinstance(n, (Selector, Sequence)):
+                for c in n.children:
+                    yield from conds(c)
+            elif isinstance(n, (Once, Cooldown)):
+                yield from conds(n.child)
+        for owner, tree, is_cls in self._tree_owners():
+            if tree is None:
+                continue
+            for c in conds(tree):
+                bad = sorted(c._self_cls - ({owner} if is_cls else set()))
+                if bad:
+                    raise BehaviorError(
+                        f"{owner!r}'s tree reads class {bad[0]!r} as its SELF ({c.text[:60]}...) -- a class name "
+                        f"is the SELF only inside that class's own tree (it reads the running member's cell); "
+                        f"name a member of {bad[0]!r} instead")
+
     def _check_streams(self) -> None:
         """THE DRAW-CADENCE LAWS, before any emission (every lane -- TOML, Python, lint, build -- passes here).
         A selected branch EXECUTES EVERY TICK, so a roll draws once per event only on THE EDGE IDIOM: a public
@@ -2770,6 +2908,16 @@ class FieldBehavior:
                     self.wander_streams[owner] = StreamInfo(f"wander:{owner}", key, tid, int(a.seed), x0,
                                                             False, None)
                     break
+
+    def floor_sensors_warning(self) -> "str | None":
+        """One build-warning line naming every sensed actor and its floor mirror (the ~ Flags / harness address),
+        or None when nothing senses the walkmesh floor."""
+        if not self._sensed:
+            return None
+        parts = [f"{m} -> {self._uref(m, 'flr')}" + ("" if m == PLAYER else f" (entry {self.units[m].entry})")
+                 for m in self._sensed]
+        return ("[behavior] floor sensors (B_BGIFLOOR mirrors, -1 = unknown; the live triangle is "
+                "expr:B_PTR(250) B_BGIID / expr:const(<entry>) B_BGIID): " + ", ".join(parts))
 
     def streams_warning(self) -> "str | None":
         """One build-warning line naming every stream's vector and its first predicted states (and each
@@ -2989,6 +3137,7 @@ class FieldBehavior:
                 raise BehaviorError(f"class {cs.name!r} has no tree")
             self._check_class_tree(cs)
         self._check_streams()                            # the draw-cadence laws, before ANY emission
+        self._check_class_self_refs()                    # a class's strided self only in its own tree
         self._register_wander_streams()
 
         duty_bodies: dict[str, bytes] = {}
@@ -3041,12 +3190,42 @@ class FieldBehavior:
             _stmt(f"Global.Int16[{self.bb.int16(f'{PLAYER}.mz')}] "
                   f"obj(uid={PLAYER_UID}).f[2] B_LET"),
         ]
+        # THE SENSOR-MIRROR LAW: the walkmesh floor (B_BGIFLOOR) is read HERE and nowhere else -- on the run path,
+        # behind the staged latch (player bound: B_PTR(250) resolves) and each unit's active gate (its actor
+        # controller exists: BGI.cs:16 dereferences it). A unit's operand is const(<entry>), never B_PTR(<entry>):
+        # getActiveActorByUID is null-safe (a miss reads -1) where B_PTR dereferences with no check.
+        # THE BATTLE-BYTE FOLD: each read is followed by M -= (M == 255) * 256. A battle backs the controller's
+        # activeFloor up into a BYTE (PosObj.activeFloor, EventEngine.BackupPosObjData) and restores it on return
+        # (FieldMap.RestoreModels), so an actor whose floor was UNKNOWN (-1: pathing off) comes back reading 255
+        # until its triangle is recomputed -- a value same_floor/other_floor would take for a known floor. 255 is
+        # never a floor (on_floor refuses it), so it folds to -1 and every reader, the HUD included, sees UNKNOWN.
+        def _fold255(ref):
+            return _stmt(f"{ref} {ref} {ref} const(255) B_EQ const(256) B_MULT B_MINUS B_LET")
+
+        if PLAYER in self._sensed:
+            ticker.append(_stmt(f"{self._uref(PLAYER, 'flr')} B_PTR({PLAYER_UID}) B_BGIFLOOR B_LET"))
+            ticker.append(_fold255(self._uref(PLAYER, 'flr')))
         for u in self.units.values():                    # unit mirrors, active-gated
+            if u.name not in self._sensed:               # byte-for-byte the pre-sensor block
+                ticker += [
+                    _stmt(self._uref(u.name, "active")),
+                    (JMP_IFNOT, f"m_{u.name}_skip"),
+                    _stmt(f"{self._uref(u.name, 'mx')} obj(uid={u.entry}).f[0] B_LET"),
+                    _stmt(f"{self._uref(u.name, 'mz')} obj(uid={u.entry}).f[2] B_LET"),
+                    label(f"m_{u.name}_skip"),
+                ]
+                continue
             ticker += [
                 _stmt(self._uref(u.name, "active")),
-                (JMP_IFNOT, f"m_{u.name}_skip"),
+                (JMP_IFNOT, f"m_{u.name}_off"),
                 _stmt(f"{self._uref(u.name, 'mx')} obj(uid={u.entry}).f[0] B_LET"),
                 _stmt(f"{self._uref(u.name, 'mz')} obj(uid={u.entry}).f[2] B_LET"),
+                _stmt(f"{self._uref(u.name, 'flr')} const({u.entry}) B_BGIFLOOR B_LET"),
+                _fold255(self._uref(u.name, 'flr')),
+                (JMP, f"m_{u.name}_skip"),
+                label(f"m_{u.name}_off"),
+                # THE INACTIVE ARM: warm-up, a dormant pooled unit, a dead unit -- UNKNOWN, never a stale floor
+                _stmt(f"{self._uref(u.name, 'flr')} const(-1) B_LET"),
                 label(f"m_{u.name}_skip"),
             ]
         # cooldown timers tick down once per pass
@@ -3643,6 +3822,12 @@ class FieldBehavior:
                     # seed the unit's mirrors (its tree ticks THIS pass) + wake it
                     _stmt(f"{self._uref(un, 'mx')} {upx} B_LET"),
                     _stmt(f"{self._uref(un, 'mz')} {upz} B_LET"),
+                ] + ([
+                    # ...and a SENSED unit's floor: it spawns at the player's press-time position, so the
+                    # player's floor this pass (no second engine read; an XZ overlap seats it on the TOP floor
+                    # instead -- DPOS places at y=32768 -- which the next pass's real read corrects)
+                    _stmt(f"{self._uref(un, 'flr')} {self._uref(PLAYER, 'flr')} B_LET"),
+                ] if un in self._sensed else []) + [
                     _set_flag(spawned, 1),
                     self._uset(un, "active", 1),
                     (JMP, f"pl_{pname}_done"),
@@ -3775,6 +3960,19 @@ class FieldBehavior:
                         f"units [{', '.join(self._pools[p])}]")
             pools_txt = "\npools (set the spawn flag from a [[choice]] row to activate):\n" \
                 + "\n".join(_pdesc(p) for p in self._pools)
+        if self._sensed:
+            report.append("floor sensors (the walkmesh floor, B_BGIFLOOR, read in the ticker's mirror block; "
+                          "-1 = UNKNOWN: warm-up, pathing off, not spawned, dead):")
+            for m in self._sensed:
+                if m == PLAYER:
+                    where = "the controlled character, B_PTR(250)"
+                else:
+                    where = f"entry {self.units[m].entry}" + (" (pooled)" if self.units[m].pooled else "")
+                report.append(f"  {m}: {where} -> {self._uref(m, 'flr')}")
+            live = ["expr:B_PTR(250) B_BGIID (player)"] + [
+                f"expr:const({self.units[m].entry}) B_BGIID ({m})" for m in self._sensed
+                if m != PLAYER and not self.units[m].pooled]     # a pooled unit's const read can hit its
+            report.append("  the live TRIANGLE for debugging, as a HUD row: " + "; ".join(live))   # half-built window
         if self._cls_tids:
             report.append("strided class-state tables (gScriptVector, uid-indexed; "
                           f"{self._cls_len} cells each):")

@@ -1,0 +1,33 @@
+# The walkmesh-sensor RUNG 1 benches (30911, 30912): bgi0's 18 vertices, the faces REORDERED so `ground` is
+# REOPENED after `terrace` -- the builder's floor-major regroup must restore bgi0's exact numbering (ground =
+# floor 0 = tris 0..7, terrace = floor 1 = tris 8..15). The links file seams ONLY the south half of x = 0, so
+# the north half is an unseamed WALL between the floors: THE FLOOR LAW's lip.
+v -1220 0 257
+v -610 0 257
+v -610 0 -837
+v -1220 0 -837
+v 0 0 257
+v 0 0 -837
+v -610 0 -1931
+v -1220 0 -1931
+v 0 0 -1931
+v 0 0 257
+v 610 0 257
+v 610 0 -837
+v 0 0 -837
+v 1220 0 257
+v 1220 0 -837
+v 610 0 -1931
+v 0 0 -1931
+v 1220 0 -1931
+o ground
+f 1 2 3 4
+f 2 5 6 3
+o terrace
+f 10 11 12 13
+f 11 14 15 12
+f 13 12 16 17
+f 12 15 18 16
+o ground
+f 4 3 7 8
+f 3 6 9 7

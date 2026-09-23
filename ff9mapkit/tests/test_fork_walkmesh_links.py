@@ -201,3 +201,21 @@ def test_apply_seams_misses_come_back_in_the_seams_own_numbering():
     linked, missing, misses = mesh.apply_seams(_SEAMS, {0: 0, 1: 1, 3: 2, 4: 3})
     assert (linked, missing) == (3, 2)
     assert misses == [s for s in _SEAMS if 2 in (s[0], s[2])]
+
+
+# ---- an AUTHORED multi-floor mesh: its sidecar is in its own numbering ------------------------------------
+
+def test_an_authored_mesh_with_no_floor_n_names_keeps_its_own_seams(tmp_path):
+    # o ground / o terrace (no exporter's floor_<N> names): the sidecar a from-scratch author writes is numbered
+    # by the mesh's own BUILT floors, so there is nothing to re-key. An empty map used to drop EVERY seam (and
+    # every per-floor light) -- the actor-shadow and walkmesh-sensor benches all lost their links.
+    donor = _donor()
+    names = {d: n for d, n in enumerate(["ground", "terrace", "yard", "court", "ledge"])}
+    proj = _fork(tmp_path, donor, _reshape(extract._world_walkmesh_obj_text(donor), range(len(_FLOORS)), names))
+    assert bgi.obj_built_floor_donors(str(tmp_path / "walkmesh.obj")) == [None] * len(_FLOORS)
+    assert build._donor_floor_map(tmp_path / "walkmesh.obj") is None
+    w = []
+    built = bgi.BgiWalkmesh.from_bytes(_resolve(proj, w))
+    assert _seam_warnings(w) == []
+    assert _seam_links(built, range(len(_FLOORS))) == _seam_links(donor, range(len(_FLOORS)))
+    assert built.reachable_floors() == built.all_floors()

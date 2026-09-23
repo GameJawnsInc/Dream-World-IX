@@ -85,6 +85,9 @@ must never silently no-op).
 """
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass, field
+
 from . import behavior as B
 
 COND_VERBS = {
@@ -95,7 +98,12 @@ COND_VERBS = {
     "counter_ge": (), "counter_le": (), "counter_eq": (),
     "table_ge": (), "table_le": (), "table_eq": (),
     "have_item": (),
+    # the WALKMESH FLOOR sensor (studies/walkmesh-sensor/): mirror reads, never the engine token in a Cond
+    "on_floor": ("who",), "same_floor": (), "other_floor": (),
 }
+FLOOR_VERBS = ("on_floor", "same_floor", "other_floor")
+#: refused by NAME, permanently (THE UNKNOWN-FLOOR LAW): a negated floor test reads TRUE while a floor is UNKNOWN
+REFUSED_FLOOR_NEGATIONS = frozenset({"not_on_floor", "not_same_floor", "not_other_floor"})
 ACTION_VERBS = {
     "walk_to": ("speed",),
     "hold": ("speed",),
@@ -203,7 +211,7 @@ def placeholder_slots(raw: dict) -> dict:
     return slots
 
 
-def dry_compile(raw: dict, *, routed: dict | None = None):
+def dry_compile(raw: dict, *, routed: dict | None = None, floors: "FloorTable | None" = None):
     """Build + compile a ``[behavior]`` table with PLACEHOLDER slots and ZERO txids -- the offline dry
     compile behind ``behavior compile``, the Workspace scan and ``ff9mapkit lint`` (the identical block
     each lane used to carry). ``routed`` is the autoroute plan when the field asks for one
@@ -215,7 +223,7 @@ def dry_compile(raw: dict, *, routed: dict | None = None):
                                   if n.get("name") and "dialogue" in n},
                behavior_txids={**{(ui, bi): 0 for ui, bi, _ in announce_lines(raw)},
                                **{("hud", hi): 0 for hi, _h in hud_lines(raw)}},
-               routed=routed or {})
+               routed=routed or {}, floors=floors)
     if fb is None:
         raise BehaviorTomlError("no [behavior] table to compile")
     return fb, fb.compile()
@@ -246,11 +254,25 @@ def _cond_verb(d: dict, ctx: str) -> str:
     if isinstance(d, dict) and {"roll", "chance"} & set(d):     # (a set test: the schema harvest records
                                                                 # key lookups, and these are NOT when keys)
         raise BehaviorTomlError(f"{ctx}: {_ROLL_COND_REFUSAL}")
+    if isinstance(d, dict) and REFUSED_FLOOR_NEGATIONS & set(d):     # a set test, like the roll refusal
+        raise BehaviorTomlError(f"{ctx}: {_floor_negation_refusal(sorted(REFUSED_FLOOR_NEGATIONS & set(d))[0])}")
     return _one_verb(d, COND_VERBS, ctx)
 
 
+def _floor_negation_refusal(name: str) -> str:
+    return (f"{name} is refused — a floor sensor reads UNKNOWN (-1) whenever an actor has no floor (pathing "
+            f"off on a ladder/jump/platform/cutscene teleport, not yet spawned, dead, warm-up), and a negated "
+            f"floor test would read TRUE there (THE UNKNOWN-FLOOR LAW). Write the positive form: other_floor = "
+            f"\"<who>\" (both known, different floors), or list the floors you mean in on_floor.")
+
+
 def _one_verb(d: dict, verbs: dict, ctx: str) -> str:
-    keys = [k for k in d if k in verbs]
+    # PROBE every verb and option key with `in` rather than iterating ``d``: the field-schema harvest
+    # (fieldschema._Spy) records only get / getitem / contains, so an iteration taught it NOTHING and the
+    # shipped `when` vocabulary missed most verbs (not_near, any_active, have_item ...) -- `ff9mapkit lint`
+    # then called legal keys unknown. Same semantics: exactly one verb key, its option keys only.
+    keys = [v for v in verbs if v in d]
+    _ = [o in d for opts in verbs.values() for o in opts]
     if len(keys) != 1:
         raise BehaviorTomlError(
             f"{ctx}: expected exactly ONE verb key of {sorted(verbs)} (got {sorted(d)})")
@@ -665,6 +687,8 @@ def hud_digits_warnings(raw: dict) -> list:
             if str(v).startswith("stream:") and isinstance(dv, int) and dv < 5:
                 out.append(f"[[behavior.hud]] #{hi}: value {v!r} shows a stream STATE (1..65536) in a "
                            f"{dv}-digit slot -- give it digits = 5")
+            if str(v).startswith("floor:") and isinstance(dv, int) and dv < 2:
+                out.append(f"[[behavior.hud]] #{hi}: value {v!r} can show -1 (unknown) -- give it digits >= 2")
         if wide:
             out.append(f"[[behavior.hud]] #{hi}: digits {wide} reserve no extra width — "
                        f"the value operand is a u16 (max 65535, {HUD_DIGITS_REACHABLE} "
@@ -892,7 +916,11 @@ def pursuit_refs(raw: dict) -> list:
                              "radius": _engagement_radius(br, tgt),
                              "standoff": int(do.get("standoff", 140)),
                              "source_box": _source_box(br, positions),
-                             "target_box": None})
+                             "target_box": None,
+                             # the branch's own floor gate: the runtime never engages across floors, so
+                             # the sweep models only same-floor pairs (THE FLOOR LAW's runtime half)
+                             "same_floor": any(isinstance(c, dict) and str(c.get("same_floor")) == tgt
+                                               for c in (br.get("when") or []))})
             if "wander" in do:
                 try:
                     cx, cz = _resolve_point(do["wander"], positions, "wander")
@@ -908,7 +936,7 @@ def pursuit_refs(raw: dict) -> list:
                              "verb": "wander", "target": f"({cx},{cz})+-{r}",
                              "radius": 2 * r, "standoff": 0,
                              "centre": (cx, cz), "wradius": r,
-                             "source_box": box, "target_box": box})
+                             "source_box": box, "target_box": box, "same_floor": False})
     return refs
 
 
@@ -1024,9 +1052,134 @@ def describe_autoroute(plan: dict, raw: dict) -> list:
     return lines
 
 
-def _build_cond(fb: B.FieldBehavior, me: str, d: dict, positions: dict, ctx: str):
+@dataclass(frozen=True)
+class FloorTable:
+    """The SHIPPED walkmesh's floors, for resolving on_floor values: ``names`` maps an o/g object name of a
+    ``[walkmesh] obj`` to its BUILT floor index (first appearance among faces); ``count`` is the floor count
+    (None = unknown: a borrow with no reference mesh); ``source`` names the mesh in messages."""
+    names: dict = field(default_factory=dict)
+    count: "int | None" = None
+    source: str = "the walkmesh"
+
+
+def _floor_values(v) -> list:
+    return list(v) if isinstance(v, list) else [v]
+
+
+def _resolve_floors(value, floors: "FloorTable | None", ctx: str) -> list:
+    """An on_floor value (a scalar or a 1..8 list of int | name) -> built floor indices. ``floors`` None is the
+    PLACEHOLDER mode of a dry compile with no table (a name resolves to 0; ``fb.floor_placeholder`` records
+    it, and the real build refuses to ship that). Errors name the mesh and its floors."""
+    vals = _floor_values(value)
+    if not 1 <= len(vals) <= 8:
+        raise BehaviorTomlError(f"{ctx}: on_floor takes one floor or a list of 1..8 floors")
+    out = []
+    for k in vals:
+        if isinstance(k, bool) or not isinstance(k, (int, str)):
+            raise BehaviorTomlError(f"{ctx}: on_floor {k!r} — a floor is an int index or an o/g name")
+        if floors is None:
+            out.append(0 if isinstance(k, str) else k)
+            continue
+        if isinstance(k, str):
+            if k not in floors.names:
+                if floors.names:
+                    have = ", ".join(f"{i} {n!r}" for n, i in sorted(floors.names.items(), key=lambda kv: kv[1]))
+                    raise BehaviorTomlError(f"{ctx}: on_floor {k!r} is not a floor of this field's walkmesh "
+                                            f"({floors.source}); its floors are: {have}")
+                raise BehaviorTomlError(
+                    f"{ctx}: on_floor {k!r} — this walkmesh ({floors.source}) has no floor NAMES (names come "
+                    f"from the o/g lines of a [walkmesh] obj); use a floor index"
+                    + (f" 0..{floors.count - 1}" if floors.count else ""))
+            out.append(floors.names[k])
+            continue
+        if k < 0:
+            raise BehaviorTomlError(f"{ctx}: on_floor {k}: -1 means 'unknown', never a floor"
+                                    + (f" — floors are 0..{floors.count - 1}" if floors.count else ""))
+        if floors.count is not None and k >= floors.count:
+            raise BehaviorTomlError(f"{ctx}: on_floor {k} does not exist — this walkmesh has {floors.count} "
+                                    f"floor(s) (0..{floors.count - 1}); the condition could never hold")
+        out.append(k)
+    return out
+
+
+def wants_floors(raw: dict) -> bool:
+    """Does this field use the floor sensor (a floor verb in any unit branch, or a ``floor:`` HUD source)?
+    The build reads the walkmesh for a floor table only then -- every other field stays byte-identical."""
+    b = table(raw)
+    if not b:
+        return False
+    for u in b.get("unit", []) or []:
+        for br in (u.get("branch", []) if isinstance(u, dict) else []) or []:
+            for c in (br.get("when") or []) if isinstance(br, dict) else []:
+                if isinstance(c, dict) and any(v in c for v in FLOOR_VERBS):
+                    return True
+    return any(str(v).startswith("floor:") for h in b.get("hud", []) or [] if isinstance(h, dict)
+               for v in h.get("values", []) or [])
+
+
+_FLOOR_N = re.compile(r"floor_(\d+)")
+
+
+def floor_problems(raw: dict, floors: FloorTable) -> tuple:
+    """``(errors, warnings)`` resolving every on_floor value against the SHIPPED mesh's floors (THE L3 LAW:
+    unknown names, names on a nameless mesh, negative or out-of-range indices are errors -- across ALL rows,
+    not just the first), plus warnings: a floor verb on a ONE-floor mesh, and a ``floor_N`` NAME that resolves
+    to another index (the Blender exporter writes o floor_<material slot> in first-seen FACE order, so the
+    digit is not the floor)."""
+    errors, warnings = [], []
+    b = table(raw)
+    if not b:
+        return errors, warnings
+    for ui, u in enumerate(b.get("unit", []) or []):
+        if not isinstance(u, dict):
+            continue
+        row = _row_label(u)
+        for bi, br in enumerate(u.get("branch", []) or []):
+            for c in (br.get("when") or []) if isinstance(br, dict) else []:
+                if not isinstance(c, dict):
+                    continue
+                verbs = [v for v in FLOOR_VERBS if v in c]
+                if not verbs:
+                    continue
+                ctx = f"[[behavior.unit]] {row!r} branch #{bi}"
+                if "on_floor" in verbs:
+                    try:
+                        _resolve_floors(c["on_floor"], floors, ctx)
+                    except BehaviorTomlError as e:
+                        errors.append(str(e))
+                    for k in _floor_values(c["on_floor"]):
+                        m = _FLOOR_N.fullmatch(k) if isinstance(k, str) else None
+                        if m and k in floors.names and floors.names[k] != int(m.group(1)):
+                            warnings.append(f"{ctx}: on_floor {k!r} is BUILT floor {floors.names[k]}, not "
+                                            f"{m.group(1)} — floor numbers follow first appearance among the "
+                                            f"OBJ's faces, not the digit in the name")
+                if floors.count is None and "on_floor" in verbs:
+                    warnings.append(f"{ctx}: on_floor {c['on_floor']!r} is UNCHECKED -- {floors.source} is not "
+                                    f"available offline, so an index past its last floor would never be true; "
+                                    f"point [walkmesh] reference at the donor's walkmesh.bgi")
+                if floors.count == 1:
+                    warnings.append(f"{ctx}: {verbs[0]} on a ONE-floor walkmesh ({floors.source}) only tells "
+                                    f"'known' from 'unknown' — split the walkmesh into named o objects (one per "
+                                    f"floor) for it to mean a level")
+    return errors, warnings
+
+
+def _build_cond(fb: B.FieldBehavior, me: str, d: dict, positions: dict, ctx: str,
+                floors: "FloorTable | None" = None):
     verb = _cond_verb(d, ctx)
     v = d[verb]
+    if verb == "on_floor":
+        who = str(d["who"]) if "who" in d else me
+        if "who" in d and who in fb.classes:
+            raise BehaviorTomlError(f"{ctx}: on_floor who = {who!r} names a CLASS — its members stand on "
+                                    f"different floors; name one member (omit who for self)")
+        return fb.on_floor(who, _resolve_floors(v, floors, ctx))
+    if verb in ("same_floor", "other_floor"):
+        if not isinstance(v, str):
+            raise BehaviorTomlError(f"{ctx}: {verb} takes one actor name (\"player\", a unit or a class member)")
+        if v in fb.classes:
+            raise BehaviorTomlError(f"{ctx}: {verb} = {v!r} names a CLASS — a class has N floors; name a member")
+        return getattr(fb, verb)(me, v)
     if verb in ("hp_le", "hp_gt"):
         unit, n = (me, v) if isinstance(v, (int, float)) else (str(v[0]), int(v[1]))
         return fb.hp_le(unit, int(n)) if verb == "hp_le" else fb.hp_gt(unit, int(n))
@@ -1230,7 +1383,8 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
 
 def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
           behavior_txids: dict | None = None,
-          routed: dict | None = None) -> B.FieldBehavior | None:
+          routed: dict | None = None,
+          floors: "FloorTable | None" = None) -> B.FieldBehavior | None:
     """Construct the :class:`FieldBehavior` from the ``[behavior]`` table.
 
     ``npc_slots``: npc name -> entry slot (the build's own injection map — no
@@ -1240,7 +1394,8 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
     :func:`autoroute_plan` result when any verb sets ``route = "auto"`` (a branch
     carrying the key with no plan entry is an ERROR — routing must never silently
     skip). Construction order is the TOML order — the deterministic-allocation
-    contract."""
+    contract. ``floors``: the SHIPPED walkmesh's :class:`FloorTable` when the field uses the floor sensor
+    (None = PLACEHOLDER mode -- a dry compile; ``fb.floor_placeholder`` records it)."""
     b = table(raw)
     if not b:
         return None
@@ -1413,7 +1568,7 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                           if do.get("anim") is not None else None),
                     hit_sfx=(int(do["hit_sfx"])
                              if do.get("hit_sfx") is not None else None)))
-                conds = [_build_cond(fb, name, c, positions, ctx)
+                conds = [_build_cond(fb, name, c, positions, ctx, floors)
                          for c in (br.get("when") or [])]
                 node = B.Sequence(*conds, sub) if conds else sub
                 if br.get("once") is not None:
@@ -1435,7 +1590,7 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                            clear_flags=tuple(br.get("clear_flags", []) or []),
                            adjust=_branch_adjusts(fb, br, ctx),
                            roll=_branch_roll(br, ctx))
-            conds = [_build_cond(fb, name, c, positions, ctx)
+            conds = [_build_cond(fb, name, c, positions, ctx, floors)
                      for c in (br.get("when") or [])]
             node = B.Sequence(*conds, do_node) if conds else do_node
             if br.get("once") is not None:
@@ -1449,6 +1604,7 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
             fb.classes[cname].tree = B.Selector(*branches)
         else:
             fb.units[name].tree = B.Selector(*branches)
+    fb.floor_placeholder = floors is None and wants_floors(raw)
     return fb
 
 
@@ -1915,6 +2071,15 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                         problems.append(f"{ctx}: value {v!r} — unknown stream {s[7:]!r} "
                                         f"(declare it in [[behavior.stream]])")
                     continue
+                if s.startswith("floor:"):
+                    n = s[6:]
+                    if n in class_names:
+                        problems.append(f"{ctx}: value {v!r} — {n!r} is a CLASS (its members stand on "
+                                        f"different floors); name a member")
+                    elif n != B.PLAYER and n not in unit_names:
+                        problems.append(f"{ctx}: value {v!r} — {n!r} is not a [[behavior.unit]] npc or "
+                                        f"'player' (only units carry a floor mirror)")
+                    continue
                 if s.startswith(B.HUD_EXPR_PREFIX):
                     # the RPN escape hatch — the real encoder is the validator, and the
                     # write-op refusal lives with it (a hud value re-evaluates every tick)
@@ -1926,7 +2091,14 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                 if s not in declared_counters:
                     problems.append(f"{ctx}: value {v!r} is not a counter, "
                                     f"'gil', 'timer', 'hp:<unit>', 'item:<item>', "
-                                    f"'stream:<name>', or 'expr:<RPN tokens>'")
+                                    f"'stream:<name>', 'floor:<unit|player>', or 'expr:<RPN tokens>'")
+            try:
+                _tslots = B.hud_text_table_slots(txt)
+            except B.BehaviorError:
+                _tslots = set()              # an unresolvable [TEXT=] slot: reported by the check below
+            for _ts in sorted(_tslots):
+                if _ts < len(vals) and str(vals[_ts]).startswith("floor:"):
+                    problems.append(f"{ctx}: {B.hud_floor_text_refusal(_ts, str(vals[_ts]))}")
             for mnum in _re2.finditer(r"\[NUMB=(\d+)", txt):
                 if int(mnum.group(1)) >= len(vals):
                     problems.append(f"{ctx}: [NUMB={mnum.group(1)}] has no value "
@@ -2250,6 +2422,31 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                     if cv in ("near", "not_near") and str(val[0]) not in valid_targets | {me}:
                         problems.append(f"{ctx}: near target {val[0]!r} is not a behavior "
                                         f"unit or player")
+                    if cv == "on_floor":
+                        _fv = _floor_values(val)
+                        if not 1 <= len(_fv) <= 8 or any(
+                                isinstance(k, bool) or not isinstance(k, (int, str)) for k in _fv):
+                            problems.append(f"{ctx}: on_floor takes a floor (an int index or an o/g "
+                                            f"name) or a list of 1..8")
+                        _who = c.get("who")
+                        if _who is not None:
+                            if str(_who) in class_names:
+                                problems.append(f"{ctx}: on_floor who = {_who!r} names a CLASS — its "
+                                                f"members stand on different floors; name one member")
+                            elif str(_who) not in valid_targets:
+                                problems.append(f"{ctx}: on_floor who = {_who!r} is not a behavior "
+                                                f"unit or player")
+                    if cv in ("same_floor", "other_floor"):
+                        if not isinstance(val, str):
+                            problems.append(f"{ctx}: {cv} takes one actor name")
+                        elif val in class_names:
+                            problems.append(f"{ctx}: {cv} = {val!r} names a CLASS — a class has N "
+                                            f"floors; name a member")
+                        elif val == me:
+                            problems.append(f"{ctx}: {cv} = {val!r} compares the unit with itself")
+                        elif val not in valid_targets:
+                            problems.append(f"{ctx}: {cv} target {val!r} is not a behavior unit or "
+                                            f"player")
                     if cv in ("active", "not_active") and str(val) not in valid_targets:
                         problems.append(f"{ctx}: active({val!r}) is not a behavior unit or player")
                     if cv == "any_near":

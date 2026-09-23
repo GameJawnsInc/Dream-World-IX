@@ -318,7 +318,8 @@ def _in_box(x, z, box) -> bool:
 
 def sweep_pursuit(wmesh, radius: float, *, standoff: float = 0.0, spacing: float | None = None,
                   grain: float = SWEEP_GRAIN_W, bedges=None, source_box=None,
-                  target_box=None, worst: int = 3, max_samples: int = 3_000_000) -> dict:
+                  target_box=None, worst: int = 3, max_samples: int = 3_000_000,
+                  same_floor: bool = False) -> dict:
     """Sweep the FAMILY of straight legs a dynamic feed (chase / wander) can walk.
 
     A ``chase`` feeds the target's LIVE position, so there is no single authored line
@@ -342,7 +343,10 @@ def sweep_pursuit(wmesh, radius: float, *, standoff: float = 0.0, spacing: float
     per cell and report a false clean.
 
     ``source_box``/``target_box`` are optional ``(x0, x1, z0, z1)`` restrictions (a
-    ``near_point``-gated chaser; a ``wander`` box). A gap narrower than ``grain`` can be
+    ``near_point``-gated chaser; a ``wander`` box). ``same_floor`` models a chase whose branch carries
+    ``same_floor = <its target>``: the runtime never engages across floors, so only pairs whose cells share a
+    floor are tested -- CONSERVATIVELY (an XZ-overlap cell carries a floor SET, so a pair there may be kept).
+    The result's ``cross`` counts blocked pairs whose two cells share no floor. A gap narrower than ``grain`` can be
     missed -- the check errs quiet, so the reported rate is a floor. Returns
     ``{"tested", "blocked", "radius", "standoff", "grain", "spacing", "sources",
     "worst": [{"a","b","dist","span","mid"}]}``; ``spacing`` is the endpoint step
@@ -422,7 +426,7 @@ def sweep_pursuit(wmesh, radius: float, *, standoff: float = 0.0, spacing: float
                         bmid = (x, z)
         return best, bmid
 
-    tested = blocked = 0
+    tested = blocked = cross = 0
     hits: list = []
     lim = max(1, eff // k) * k                   # target lattice, source-aligned
     for (gi, gj) in srcs:
@@ -432,6 +436,9 @@ def sweep_pursuit(wmesh, radius: float, *, standoff: float = 0.0, spacing: float
                 c = (gi + di, gj + dj)
                 if c not in occ:
                     continue
+                apart = not (on.get((gi, gj), set()) & on.get(c, set()))
+                if same_floor and apart:
+                    continue                    # the branch's floor gate never engages this pair
                 bx, bz = (c[0] + 0.5) * grain, (c[1] + 0.5) * grain
                 if not _in_box(bx, bz, target_box):
                     continue
@@ -444,6 +451,7 @@ def sweep_pursuit(wmesh, radius: float, *, standoff: float = 0.0, spacing: float
                 span, mid = leg_gap((ax, az), (bx, bz), d - standoff)
                 if span > 0:
                     blocked += 1
+                    cross += apart
                     hits.append({"a": (ax, az), "b": (bx, bz), "dist": d,
                                  "span": span, "mid": mid})
     hits.sort(key=lambda h: (-h["span"], h["a"], h["b"]))
@@ -458,7 +466,8 @@ def sweep_pursuit(wmesh, radius: float, *, standoff: float = 0.0, spacing: float
         if len(picked) >= worst:
             break
     return {"tested": tested, "blocked": blocked, "radius": radius, "standoff": standoff,
-            "grain": grain, "spacing": spacing, "sources": len(srcs), "worst": picked}
+            "grain": grain, "spacing": spacing, "sources": len(srcs), "worst": picked,
+            "same_floor": bool(same_floor), "cross": cross}
 
 
 def pursuit_extent(wmesh) -> float:
@@ -475,6 +484,8 @@ def pursuit_extent(wmesh) -> float:
 def describe_pursuit_problems(name: str, res: dict) -> list:
     """Human-readable warnings for a :func:`sweep_pursuit` result — the pursuit-line
     analogue of :func:`describe_leg_problems`, phrased the same way."""
+    if res.get("same_floor"):
+        name = f"{name} (same-floor pairs only -- the branch's same_floor gate)"
     if not res["tested"]:
         return [f"pursuit {name}: no position pair to test (nothing occupiable within the "
                 f"{res['radius']:.0f}u box, or the whole family sits inside the standoff)"]
@@ -500,6 +511,10 @@ def describe_pursuit_problems(name: str, res: dict) -> list:
         out.append(f"pursuit {name}: e.g. pursuer at ({ax:.0f},{az:.0f}), target at "
                    f"({bx:.0f},{bz:.0f}) ({h['dist']:.0f}u apart): OFF-MESH for "
                    f"~{h['span']:.0f}u around ({h['mid'][0]:.0f},{h['mid'][1]:.0f})")
+    if not res.get("same_floor") and res.get("cross", 0) * 2 > res["blocked"]:
+        out.append(f"pursuit {name}: most of these jams are pairs on DIFFERENT floors -- if the target's "
+                   f"floor is unreachable by a straight leg, add {{ same_floor = \"<target>\" }} to the "
+                   f"branch so it only engages on its own floor (a walker never pathfinds across floors)")
     out.append(f"pursuit {name}: sampled {res['sources']} pursuer positions "
                f"{res['spacing']:.0f}u apart, legs tested at {res['grain']:.0f}u -- a "
                f"blocking gap narrower than that can be missed, so this is a floor on "

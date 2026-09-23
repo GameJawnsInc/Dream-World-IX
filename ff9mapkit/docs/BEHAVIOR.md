@@ -199,12 +199,69 @@ smooth walk — unit collision, walkmesh sliding, walk animation. Two consequenc
   balcony lip — is a WALL, invisible to a top-down point test. Every sweep above is floor-aware:
   a static route leg crossing floors away from a seam is an **error** ("NO SEAM"), and pursuit /
   wander legs count such crossings as jams. The layout probe tints each floor and draws seams in
-  green, so a terrace reads at a glance — look at `topdown.png` before relaying a cast.
+  green, so a terrace reads at a glance — look at `topdown.png` before relaying a cast. **The
+  runtime half:** gate a chase with `same_floor = "<target>"` (see [Floors](#floors--on_floor--same_floor--other_floor))
+  and it never engages across a terrace; `behavior lint` then sweeps only its same-floor pairs, and
+  names an ungated chase whose jams are mostly cross-floor.
 
 `patrol` loops its points forever; `march` walks them once and holds the last (a raid column,
 an escape run). `flee` is deliberately not vector math: you give it **refuge points in priority
 order** and the unit runs to the first one the threat isn't camping — it reads as gameplay
 ("fall back to the keep; if it's overrun, the market") and the targets are always walkable.
+
+## Floors — `on_floor` / `same_floor` / `other_floor`
+
+On a field with more than one walkmesh floor — a terrace, a balcony, a raised walkway — a unit
+can ask which floor someone stands on. The engine already knows (it re-finds every actor's
+walkmesh triangle each frame); these conditions read its answer (the `.eb` token `B_BGIFLOOR`).
+
+```toml
+[[behavior.unit]]
+npc = "guard"
+  [[behavior.unit.branch]]
+  when = [{ near = ["player", 900] }, { same_floor = "player" }]   # engage only on MY level
+  do = { chase = "player", standoff = 200 }
+  [[behavior.unit.branch]]
+  do = { hold_post = true }
+
+[[behavior.unit]]
+npc = "bellringer"
+  [[behavior.unit.branch]]
+  when = [{ on_floor = "terrace", who = "player" }]                # the player is up there
+  do = { announce = "Someone's on the roof!" }
+  once = "roof"
+  [[behavior.unit.branch]]
+  do = { hold_post = true }
+```
+
+- **`on_floor = F`** — the row's own unit (or `who = "player"` / another unit / a class member)
+  stands on floor `F`, or on any of a list of up to 8. A floor is its **index** (0, 1, …) or its
+  **name**: each `o`/`g` object of a `[walkmesh] obj` is a named floor, numbered by first
+  appearance among the OBJ's faces. Names resolve against the walkmesh the field actually ships;
+  an unknown name or an index past the last floor is a build error. (A BG-borrow runs the donor's
+  mesh: the check reads its `walkmesh.bgi` from `[walkmesh] reference`, beside the toml, or beside
+  `[camera] borrow`; with none of those it warns that the index is unchecked.)
+- **`same_floor = "who"`** — both stand on the same floor. **`other_floor = "who"`** — both
+  floors are known and different.
+- **UNKNOWN is never a floor.** An actor with no floor reads **−1**: during the warm-up, while a
+  pooled unit is not spawned or is dead, and whenever the engine turns its walkmesh tracking off
+  (a ladder, a jump, a moving platform, a cutscene teleport) — including right after a battle, whose
+  byte-sized backup of the floor would otherwise come back as 255. No floor condition is ever true on
+  −1, and there are no `not_on_floor` / `not_same_floor` forms (they would read true there —
+  write `other_floor`, or list the floors you mean). Note that a branch **below** a floor-gated
+  branch still runs while the floor is unknown, like any lower branch.
+- **A floor is an index, not a level.** One walkable level can be several floors joined by seams
+  (a stock field can have twenty); `same_floor` compares indices, and says nothing about walls.
+- **How it runs:** the ticker reads each sensed actor's floor into a mirror once per pass — the
+  player's behind the staged latch, a unit's only while it is active — and conditions read the
+  mirror, exactly like `near` reads the position mirrors. A field that uses no floor condition
+  compiles byte-for-byte as before. The build prints each mirror's address (`[behavior] floor
+  sensors: player -> Global.Int16[...]`) for the `~` Flags panel.
+- **See it:** a HUD value `"floor:<who>"` shows a mirror (`-1` = unknown; give it 2 digits). The
+  live triangle is `expr:B_PTR(250) B_BGIID` for the player and `expr:const(<its uid>) B_BGIID`
+  for a unit — the build report prints the uids.
+- v1 ticker and `brains = true` both work; a class row's own floor is its member's (`same_floor`
+  on a class row compares each member's floor), but a class cannot be the TARGET (name a member).
 
 ## Combat
 
@@ -946,7 +1003,8 @@ countdown HUD's remaining seconds), `"hp:<unit>"` (a unit's hit points — the
 roster cell for a group member), `"item:<item>"` (the live held count of an
 item, name or id — watch contracts tick down as an item pool converts them), or
 `"stream:<name>"` (a [roll stream](#roll-streams--seeded-randomness-you-can-predict)'s
-raw state, read-only).
+raw state, read-only), or `"floor:<who>"` (the player's or a unit's [walkmesh
+floor](#floors--on_floor--same_floor--other_floor), `-1` = unknown; not in a `[TEXT=]` slot).
 Slots are written every pass; the engine itself re-renders only when a number
 actually changed.
 

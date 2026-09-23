@@ -385,6 +385,178 @@ def _expr_const_offsets(raw: bytes, pos: int, operand_index: int, out: list) -> 
     return pos
 
 
+def _expr_tokens(raw: bytes, pos: int) -> tuple[int, list]:
+    """Walk one expression token stream (mirrors :func:`read_expr` byte for byte) into DECODED tokens; return
+    ``(new_pos, [(op, value), ...])``. ``value`` per token: ``0x7D`` B_CONST -> signed Int16; ``0x7E`` B_CONST4 ->
+    :func:`const4_engine_value`; ``0x5F`` B_PTR / ``0x29`` B_MEMBER / ``0x79`` B_SYSLIST / ``0x7A`` B_SYSVAR -> its
+    byte; ``0x78`` B_OBJSPECA -> ``(uid, field)``; ``0xD3`` flexible_varfunc -> ``(fid, argc)``; a ``0xC0+`` var token
+    -> its index; a pure operator -> None. The terminating ``0x7F`` is kept as the last token."""
+    toks = []
+    while True:
+        o = raw[pos]; pos += 1
+        if o == 0xD3:                         # flexible_varfunc: u16 id + u8 argc (carved out of the var space)
+            toks.append((o, (raw[pos] | (raw[pos + 1] << 8), raw[pos + 2])))
+            pos += 3
+            continue
+        isconst = o in (0x7D, 0x7E)
+        isvar = o >= 0xC0 or o in (0x29, 0x5F, 0x78, 0x79, 0x7A)
+        if not isconst and not isvar:
+            toks.append((o, None))
+            if o == 0x7F:
+                break
+            continue
+        if o == 0x7E:
+            u = raw[pos] | (raw[pos + 1] << 8) | (raw[pos + 2] << 16) | (raw[pos + 3] << 24); pos += 4
+            toks.append((o, const4_engine_value(u)))
+        elif o == 0x7D:
+            v = raw[pos] | (raw[pos + 1] << 8); pos += 2
+            toks.append((o, v - 0x10000 if v >= 0x8000 else v))
+        elif o == 0x78:
+            toks.append((o, (raw[pos], raw[pos + 1]))); pos += 2
+        elif o >= 0xE0:                       # a long-index variable (2-byte index)
+            toks.append((o, raw[pos] | (raw[pos + 1] << 8))); pos += 2
+        else:                                 # 0x29/0x5F/0x79/0x7A + a short-index variable (1 byte)
+            toks.append((o, raw[pos])); pos += 1
+    return pos, toks
+
+
+def instr_expr_tokens(raw: bytes, ins: Instr) -> list:
+    """Per operand of *ins*: its decoded expression tokens (:func:`_expr_tokens`) when that operand is an
+    expression, else None. Re-decodes the instruction exactly like :func:`read_code`; the walk SELF-VERIFIES by
+    landing on ``ins.end`` (a mismatch raises ValueError, never a silently shifted token stream)."""
+    pos = ins.off
+    op = raw[pos]; pos += 1
+    if op == 0xFF:
+        op = 0x100 | raw[pos]; pos += 1
+    ac = OP_ARG_COUNT[op] if op < len(OP_ARG_COUNT) else 0
+    arg_flag = 0
+    if op >= 0x10 and ac != 0:
+        arg_flag = raw[pos]; pos += 1
+    if op == 0x05:
+        arg_flag = 1
+    if ac < 0:
+        ac = raw[pos]; pos += 1
+        if op == 0x0D:
+            ac |= raw[pos] << 8; pos += 1
+        if op == 0x06:
+            ac = 1 + 2 * ac
+        elif op in (0x0B, 0x0D):
+            ac = 2 + ac
+    out: list = []
+    for i in range(ac):
+        if arg_flag & (1 << i):
+            pos, toks = _expr_tokens(raw, pos)
+            out.append(toks)
+        else:
+            pos += argsize(op, i)
+            out.append(None)
+    if pos != ins.end:
+        raise ValueError(f"instr_expr_tokens: operand walk ended at {pos}, expected {ins.end} "
+                         f"(op {op:#x} @{ins.off} -- decode disagreement with read_code)")
+    return out
+
+
+# --- walkmesh-id reads: the fork walkmesh-literal lint's scanner (build._lint_fork_walkmesh_ids) -------------------
+# B_BGIID (0x70) / B_BGIFLOOR (0x71) push the engine's walkmesh TRIANGLE id (global .bgi file order) / FLOOR index
+# (floorList position) for the uid on the stack (rung 0, studies/walkmesh-sensor/PLAN.md); EnablePathTriangle 0x9A
+# (BGI_triSetActive) / EnablePath 0xCB (BGI_floorSetActive, WalkMesh.cs:1005 -- floorList[floorNdx]) toggle one by
+# id. All four key donor logic on walkmesh ids as LITERALS, which a rebuilt/renumbered walkmesh silently moves.
+_B_BGIID, _B_BGIFLOOR = 0x70, 0x71
+_WALK_READ_KIND = {_B_BGIID: "tri", _B_BGIFLOOR: "floor"}
+_WALK_TOGGLE_KIND = {0x9A: "enable", 0xCB: "floor_enable"}
+_CMP_OPS = frozenset(range(0x18, 0x24))    # B_LT/GT/LE/GE 0x18-0x1B, their _E forms 0x1C-0x1F, B_EQ/NE 0x20/21 + _E 0x22/23
+_LET_OPS = frozenset(range(0x2C, 0x46))    # B_LET 0x2C .. B_OR_LET_E 0x45 -- every *_LET assignment operator
+_CONST_OPS = (0x7D, 0x7E)                  # B_CONST / B_CONST4
+
+
+@dataclass(frozen=True)
+class WalkmeshRead:
+    """One walkmesh-id use in decoded bytecode (see :func:`walkmesh_reads`)."""
+    off: int          # absolute offset of the instruction carrying the read
+    op: int           # that instruction's opcode (0x05 statement, 0x9A, ...)
+    kind: str         # "tri" (B_BGIID 0x70) | "floor" (B_BGIFLOOR 0x71) | "enable" (EnablePathTriangle 0x9A)
+    #                   | "floor_enable" (EnablePath 0xCB -- a floor index)
+    subject: str      # "B_PTR(n)" | "const(n)" | "expr" | "" (a toggle)
+    role: str         # "compare" | "switch" | "store" | "other" | "immediate"
+    literals: tuple   # ids/floors the logic keys on (signed; negatives dropped)
+
+
+def _is_leaf(tok) -> bool:
+    """True for a token that PUSHES one value and pops nothing (a literal / pointer / variable read)."""
+    o, v = tok
+    if o in _CONST_OPS or o in (0x5F, 0x78, 0x79, 0x7A):
+        return True
+    if o == 0xD3:
+        return v[1] == 0                  # a flexible_varfunc with no stack args
+    return o >= 0xC0
+
+
+def walkmesh_reads(raw: bytes, start: int, end: int) -> list:
+    """Every walkmesh-id use in ``raw[start:end]`` as :class:`WalkmeshRead` records, in byte order. A DECODED scan
+    -- instruction by instruction via :func:`iter_code`, each expression operand walked token by token like
+    :func:`read_expr` (:func:`instr_expr_tokens`) -- NEVER a byte regex: a ``0x70``/``0x71`` byte inside a literal,
+    an immediate or a var index is not a read (a raw scan false-positives on ``7E 5F 15 70 ..``).
+
+    For each ``0x70``/``0x71`` token at position ``j``:
+      * subject -- the token at ``j-1``: ``B_PTR(n)`` / ``const(n)`` (B_CONST or B_CONST4) / else ``expr``;
+      * ``compare`` -- ``tok[j+1]`` is a literal and ``tok[j+2]`` a compare op, or ``tok[j-2]`` is a literal,
+        ``tok[j-1]`` a single-token operand and ``tok[j+1]`` a compare op -> that literal;
+      * ``store`` -- ``tok[j+1]`` is ``B_LET`` or another ``*_LET`` op;
+      * ``switch`` -- the read is the last token before ``B_EXPR_END`` of a ``0x05`` statement and the NEXT
+        instruction is a switch (0x06/0x0B/0x0D) -> its case values (never the default);
+      * ``other`` -- anything else (a derived use the scan cannot trace).
+    ``0x9A``/``0xCB`` with an immediate first arg -> ``role="immediate"``, ``literals=(arg,)``; an expression first
+    arg -> ``role="other"`` (its own tokens are scanned like any operand). Negative literals are dropped."""
+    raw = bytes(raw)
+    instrs = list(iter_code(raw, start, end))
+    out = []
+    for n, ins in enumerate(instrs):
+        tk = _WALK_TOGGLE_KIND.get(ins.op)
+        if tk is not None and ins.args:
+            v = ins.imm(0)
+            if v is None:
+                out.append(WalkmeshRead(ins.off, ins.op, tk, "", "other", ()))
+            else:
+                out.append(WalkmeshRead(ins.off, ins.op, tk, "", "immediate", (v,) if v >= 0 else ()))
+        if not any(ins.arg_is_expr):
+            continue
+        nxt = instrs[n + 1] if n + 1 < len(instrs) else None
+        for toks in instr_expr_tokens(raw, ins):
+            if toks is None:
+                continue
+            for j, (o, _v) in enumerate(toks):
+                kind = _WALK_READ_KIND.get(o)
+                if kind is None:
+                    continue
+                prev = toks[j - 1] if j >= 1 else None
+                if prev is not None and prev[0] == 0x5F:
+                    subject = f"B_PTR({prev[1]})"
+                elif prev is not None and prev[0] in _CONST_OPS:
+                    subject = f"const({prev[1]})"
+                else:
+                    subject = "expr"
+                nx1 = toks[j + 1] if j + 1 < len(toks) else None
+                nx2 = toks[j + 2] if j + 2 < len(toks) else None
+                lits: tuple = ()
+                if nx1 is not None and nx2 is not None and nx1[0] in _CONST_OPS and nx2[0] in _CMP_OPS:
+                    role, lits = "compare", (nx1[1],)
+                elif (nx1 is not None and nx1[0] in _CMP_OPS and j >= 2 and prev is not None and _is_leaf(prev)
+                      and toks[j - 2][0] in _CONST_OPS):
+                    role, lits = "compare", (toks[j - 2][1],)
+                elif nx1 is not None and nx1[0] in _LET_OPS:
+                    role = "store"
+                elif (ins.op == 0x05 and nx1 is not None and nx1[0] == 0x7F and j + 2 == len(toks)
+                      and nxt is not None and nxt.is_switch):
+                    role = "switch"
+                    si = decode_switch(nxt)
+                    lits = tuple(e.value for e in si.edges if not e.is_default) if si else ()
+                else:
+                    role = "other"
+                out.append(WalkmeshRead(ins.off, ins.op, kind, subject, role,
+                                        tuple(x for x in lits if x >= 0)))
+    return out
+
+
 def instr_expr_consts(raw: bytes, ins: Instr) -> list:
     """``[(abs_payload_off, value, operand_index), ...]`` for every 2-byte ``B_CONST`` (0x7D) literal inside
     *ins*'s EXPRESSION operands, in byte order. Re-decodes the instruction exactly like :func:`read_code`

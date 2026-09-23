@@ -348,11 +348,13 @@ Dali-350 + 1600 need several; find a field's avail-word by disassembling it (`ff
 `[startup] flags` setting the word's bits (flag `N*8+bit` = byte N bit `bit`; e.g. flag 1888 = byte 236 bit 0).
 
 **The fidelity wall (documented in `FORK_FIDELITY.md`):** ATE **trigger/menu/cutscene** = `.eb`-faithful
-via `--verbatim`. But **seen-state (`AteCheck`) + the ATE80 trophy** come from C# `MappingATEID`, **keyed on real
-`fldLocNo`/`fldMapNo`/`ScenarioCounter`**. So an authored/forked ATE on a **custom field id (≥4000) will NOT
-register seen-state or count toward the trophy** — no `MappingATEID` switch row matches. Emulating that requires
-either a **verbatim fork onto a *real* field id** (parasitic on the real `MappingATEID` row) or a **DLL
-`MappingATEID` extension** (outside the no-DLL boundary).
+via `--verbatim`. But **seen-state (`AteCheck`) + the ATE80 trophy** come from C# `MappingATEID`, **keyed on
+`fldLocNo`** (then a few inner `fldMapNo`/`ScenarioCounter` compares). `fldLocNo` is the field's registered mes id,
+and every kit import puts a fork on its donor's text block, so a FORKED ATE maps like the real one: the location key
+carries, and the fork-gate engine's `s65` wraps every inner `fldMapNo` compare except Gargant-956's (a donor-recorded
+fork; `idgated.ATE_FIELD_GATES`). This is read from the source, not yet observed in-game. An ATE AUTHORED on a novel
+custom field (its own text block) matches no `MappingATEID` row and never registers; emulating that needs a DLL
+`MappingATEID` extension.
 
 **In-game proven (2026-06-13):**
 - **Synthesized ATE** — a `[ate]` block on a custom field (`FF9CustomMap-ate` **slot 30007**): the "Active Time
@@ -363,8 +365,8 @@ either a **verbatim fork onto a *real* field id** (parasitic on the real `Mappin
 - The earlier `--verbatim` forks of two real menu hubs (1901 Eiko, 206 Prima Vista — both mode-1 OPTIONAL, not
   compulsory) confirmed `--verbatim` *carries* the bytes but a cold scenario-only fork doesn't *arm* — that's the
   avail-word, now solved (above).
-- Not yet observed: the `AteCheck`/ATE80 "seen" mark does **not** fire on a custom id (no `MappingATEID` row) — the
-  documented engine-table gap.
+- Not yet observed: whether the `AteCheck`/ATE80 "seen" mark fires on these forks. The source predicts it does
+  (the donor's text block carries `fldLocNo`), except Gargant-956's compulsory ATE (a raw `fldMapNo` compare).
 
 > **Kit fix — `[startup]` now works on scenario-jump-table fields.** The interactive-ATE hubs
 > (field 206 and ~11% of fields) gate their content with a `0x06` jump table in `Main_Init`; `[startup]` must set
@@ -385,8 +387,9 @@ either a **verbatim fork onto a *real* field id** (parasitic on the real `Mappin
    beyond `{0,1,5,6}` remain untested.
 3. **In-game ATE-fork fidelity** — ★ RESOLVED for render/dispatch: verbatim forks' winATE menus render + dispatch
    on a custom id (real Eiko menu @30009, real grey-unskippable Gargant-956 @30010, synth menu @30007,
-   Small-Town-Knight @30006). Residual: the `AteCheck`/ATE80 "seen" trophy is predicted NOT to register on a
-   custom id (no `MappingATEID` row) — a non-event, not yet directly observed.
+   Small-Town-Knight @30006). Residual: whether the `AteCheck`/ATE80 "seen" mark registers on a fork. The source
+   predicts yes for a fork on its donor's text block (`fldLocNo` carries; `s65` wraps the inner compares), except the
+   Gargant-956 compulsory ATE @30010 (its compare is raw) — not yet directly observed.
 4. **The `0x8000` high bit** on the ATE-menu `EnableDialogChoices` availability mask — exact role (grey vs hide vs
    gate menu rows) undocumented in the kit; needs a focused disasm pass.
 5. **The exact SELECT-poll idiom** (`B_KEYON` vs `B_KEY`) real ATE fields use — inferred, should be byte-quoted

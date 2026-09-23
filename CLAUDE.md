@@ -169,7 +169,7 @@ Revert a field: `tools/scroll_out/revert_deploy.py` or `revert_deploy_<id>.py`.
   the user's own install (`ff9mapkit extract-templates`). Documented exceptions: FLAG_LORE's ≤110-char
   excerpts + the owner-granted `release/` demo (FROZEN; `test_provenance_tripwire.py` enforces both the
   gate and the freeze) — `ff9mapkit/docs/PROVENANCE.md`.
-- **Versions:** kit `1.0.0b19`, Blender add-on `0.9.29`. (b18 was tagged but never published — its CI caught 3 portability bugs; b19 is the fixed re-cut.)
+- **Versions:** kit `1.0.0b19`, Blender add-on `0.9.30`. (b18 was tagged but never published — its CI caught 3 portability bugs; b19 is the fixed re-cut.)
 
 ---
 
@@ -308,6 +308,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Persistent data tables — ★★ rungs 0-1 in-game PROVEN by the harness: `persist = true` survives field entry + save/load, degrades to its seed → `studies/persistent-tables/PLAN.md`
 - The fight ledger (`[scene.ledger]`) — ★★ rungs 0-1 in-game PROVEN by the harness: enemy AI writes a field's persistent table, the field narrates it → `studies/fight-ledger/PLAN.md`
 - Roll streams (`[[behavior.stream]]` + `roll`) — ★★ rungs 0-1 in-game PROVEN: seeded draws the build predicts, a reload cannot re-roll, seeded `wander` → `studies/roll-stream/PLAN.md`
+- Walkmesh floor sensors (`on_floor`/`same_floor`/`other_floor`) — ★★ rungs 0-1 in-game PROVEN: a floor-gated chaser holds at a lip; floor-major tris; fork id lint → `studies/walkmesh-sensor/PLAN.md`
 - `.eb` source round-trip — ★★ rungs 1-4+6-7 DONE, playtest-confirmed (source-edited chest at slot 30810 gave the edited reward in-game): annotated `eb-src`/`eb-asm` + `--against` splice edits + the 9753-binary gate → `studies/eb-roundtrip/PLAN.md`
 
 **Latest release:** kit **1.0.0b19** (tag pushed, CI green, PyPI live; engine bundle rebuilt s22-s79, first full-stack replay).

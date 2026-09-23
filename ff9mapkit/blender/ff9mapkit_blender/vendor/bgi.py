@@ -12,6 +12,9 @@ round-trips any real ``.bgi`` byte-for-byte, and adds:
   * :func:`load_obj` — read a Wavefront ``.obj`` (vertices in FF9 world coords, faces).
   * :meth:`BgiWalkmesh.rebuild_neighbors` — recompute all neighbor/edgeClone links from
     shared-vertex analysis (the ``bgi_fix_neighbors`` fix: ``ConvertToBGI`` links unreliably).
+  * :func:`floor_order_problems` — THE FLOOR-MAJOR LAW: floor 0 lists triangles 0..k, floor 1 the
+    next run, and so on (the engine indexes its floor-built triangle list by id). :func:`build`
+    regroups its input to obey it and checks its own output.
 
 File layout (little-endian; offsets in the header are relative to byte 4):
     magic u32 = 0xACDCDEAD ; dataSize u16 ;
@@ -203,6 +206,11 @@ class BgiWalkmesh:
         self.normals: list[FVec] = []
         self.verts: list[Vec3] = []
         self._cache: dict = {}
+        # Set by :func:`build` only (never serialized): ``source_face[t]`` is the INPUT face index that
+        # became built triangle ``t``, and ``regrouped`` is True when that is not the identity -- the input
+        # listed a floor's faces non-contiguously and the builder regrouped them floor by floor.
+        self.source_face: list | None = None
+        self.regrouped = False
 
     # ---------------- derived-geometry cache ----------------
     # `world_verts()` / `_tri_floor()` are pure functions of (verts, floors, tris.vtx, orgPos), yet the
@@ -408,9 +416,9 @@ class BgiWalkmesh:
         neighbor links -- the SAME links the engine pathfinds over. If this is a strict subset of
         all_floors(), some floors are stranded (unreachable on foot).
 
-        This is the build-time guard for the obj->build connectivity loss: a multi-floor walkmesh
-        gives each floor a DISJOINT vertex set, so rebuild_neighbors (which links by shared vertex
-        index) can only connect within a floor -- cross-floor seams vanish and the player is trapped.
+        This is the build-time guard for the obj->build connectivity loss: a real multi-floor walkmesh
+        gives each floor a DISJOINT vertex set, and rebuild_neighbors links only edges whose triangles
+        share both vertex INDICES -- so its cross-floor seams vanish and the player is trapped.
         The .bgi codec itself preserves the original links; only the obj intermediate drops them."""
         start = start_tri if start_tri is not None else self.activeTri
         if not (0 <= start < len(self.tris)):
@@ -460,7 +468,7 @@ class BgiWalkmesh:
     def extract_seams(self):
         """Cross-floor seams as (a_floor, a_edge, b_floor, b_edge); each edge a sorted world-position
         pair. This is the adjacency a geometry-only `.obj` can't carry (rebuild_neighbors links only
-        within a floor, and FF9 floors use disjoint vertex sets). Pair with `apply_seams` to reconcile
+        edges that share vertex INDICES, and FF9 floors use disjoint vertex sets). Pair with `apply_seams` to reconcile
         an edited obj against an imported field. Validated game-wide (tools/sweep_seams.py)."""
         wv = self._wv()
         fo = self._tf()
@@ -550,6 +558,15 @@ class BgiWalkmesh:
                     out.append(fi)
         out.sort()
         return out
+
+    def tris_at(self, x, z):
+        """EVERY triangle id whose XZ-projection contains (x, z), ascending ([] = off-mesh). Edges are
+        inclusive, so a point on a shared edge returns both triangles, and stacked floors return one per
+        floor. Triangle ids are GLOBAL file order -- the id the engine's ``B_BGIID`` reports."""
+        wv, _tf, grid = self._lookup()
+        tris = self.tris
+        return [ti for ti in self._candidates(x, z, grid)       # bbox-bucketed superset, ascending
+                if _pt_in_tri_xz(x, z, wv[tris[ti].vtx[0]], wv[tris[ti].vtx[1]], wv[tris[ti].vtx[2]])]
 
     def seam_edges_xz(self) -> dict:
         """Cross-floor SEAM edges as ``{(fa, fb): [((ax, az), (bx, bz)), ...]}`` with
@@ -830,6 +847,51 @@ class BgiWalkmesh:
         self.invalidate_cache()        # nbr/edgeClone rebuilt: the wall set is now stale
 
 
+# ----------------------------------------------------------------------------- the floor-major law
+
+def floor_order_problems(m) -> list:
+    """Why ``m`` is not FLOOR-MAJOR, as messages (``[]`` = floor-major). Two engine requirements:
+
+    (a) the floors' ``tri_ndx_list`` concatenated is exactly ``0..len(tris)-1`` -- floor 0 lists the first
+        triangles, floor 1 the next, and so on. The engine builds its triangle list floor by floor
+        (WalkMesh.cs:46-65) but indexes it by triangle ID (:573, :618, :1050, and the edge hysteresis in
+        FieldMapActorController.cs:1376-1379 / :1403-1417), so a mesh that lists them any other way walks
+        the wrong neighbours silently;
+    (b) every listed triangle's own ``floor_ndx`` equals the floor that lists it -- the engine reads the
+        floor both ways (``B_BGIFLOOR`` from membership, the walker from ``floorNdx``).
+
+    Every stock ``.bgi`` satisfies both (674/674); :func:`build` regroups its input to satisfy them and
+    asserts its own output with this function."""
+    probs: list = []
+    n = len(m.tris)
+    flat = [t for fl in m.floors for t in fl.tri_ndx_list]
+    if flat != list(range(n)):
+        bad = [(fi, t) for fi, fl in enumerate(m.floors) for t in fl.tri_ndx_list if not 0 <= t < n]
+        seen: dict = {}
+        for t in flat:
+            seen[t] = seen.get(t, 0) + 1
+        dups = sorted(t for t, c in seen.items() if c > 1 and 0 <= t < n)
+        missing = [t for t in range(n) if t not in seen]
+        for fi, t in bad[:3]:
+            probs.append(f"floor {fi} lists triangle {t}, out of range 0..{n - 1}")
+        if dups:
+            probs.append(f"triangle(s) {dups[:5]}{'...' if len(dups) > 5 else ''} listed more than once")
+        if missing:
+            probs.append(f"triangle(s) {missing[:5]}{'...' if len(missing) > 5 else ''} on no floor's list")
+        if not (bad or dups or missing):             # a true permutation: name the first out-of-place entry
+            owner = [fi for fi, fl in enumerate(m.floors) for _t in fl.tri_ndx_list]
+            p = next(p for p, t in enumerate(flat) if t != p)
+            probs.append(f"floor {owner[p]} lists triangle {flat[p]} at list position {p} "
+                         f"(floor-major needs triangle {p} there)")
+    wrong = [(fi, t, m.tris[t].floor_ndx) for fi, fl in enumerate(m.floors) for t in fl.tri_ndx_list
+             if 0 <= t < n and m.tris[t].floor_ndx != fi]
+    for fi, t, x in wrong[:3]:
+        probs.append(f"triangle {t} is listed on floor {fi} but its floor_ndx is {x}")
+    if len(wrong) > 3:
+        probs.append(f"... and {len(wrong) - 3} more floor_ndx mismatch(es)")
+    return probs
+
+
 # ----------------------------------------------------------------------------- builders
 
 def _bbox(verts):
@@ -861,8 +923,11 @@ def build(verts, faces, *, floor_ids=None, tri_flags: int = 1, floor_flags: int 
     faces     : iterable of (i, j, k) — 0-based vertex indices (one triangle each)
     floor_ids : optional per-FACE floor id (len == len(faces)). ``None`` => one floor with every
                 triangle (the flat case). Distinct ids => one BGI floor each — a multi-level room or
-                a faithful re-export of an imported real field (e.g. GRGR's 7 floors). Tris are
-                grouped by id; each floor sits at org=cur=(0,0,0) (verts already carry world height).
+                a faithful re-export of an imported real field (e.g. GRGR's 7 floors). Floors are
+                numbered by first appearance among the faces, and the triangles are REGROUPED floor by
+                floor (a stable sort: identity when each floor's faces are already contiguous) so the
+                result is floor-major -- ``m.source_face``/``m.regrouped`` record any move. Each floor
+                sits at org=cur=(0,0,0) (verts already carry world height).
 
     Computes triangle centers, the 3-edges-per-triangle table, and neighbor/edgeClone links via
     shared-vertex analysis. header.minPos/maxPos default to the true world bounding box (informative;
@@ -908,6 +973,17 @@ def build(verts, faces, *, floor_ids=None, tri_flags: int = 1, floor_flags: int 
             order.append(fid)
     remap = {fid: i for i, fid in enumerate(order)}
 
+    # THE FLOOR-MAJOR REGROUP: the engine indexes its triangle list by triangle id but builds it floor by
+    # floor (floor_order_problems), so a floor's faces must be contiguous. A STABLE sort by built floor
+    # index keeps every floor's own face order and is the IDENTITY on floor-contiguous input (every
+    # Blender OBJ export, every import re-export, every existing kit mesh); an OBJ that reopens a floor
+    # (`o A / o B / o A`) is regrouped, and `source_face`/`regrouped` record the move for the caller.
+    perm = sorted(range(len(faces)), key=lambda t: remap[floor_ids[t]])
+    faces = [faces[p] for p in perm]
+    floor_ids = [floor_ids[p] for p in perm]
+    m.source_face = perm
+    m.regrouped = perm != list(range(len(perm)))
+
     for ti, (i, j, k) in enumerate(faces):
         t = Tri(tri_flags=tri_flags, floor_ndx=remap[floor_ids[ti]], normal_ndx=-1)
         t.vtx = [i, j, k]
@@ -922,7 +998,20 @@ def build(verts, faces, *, floor_ids=None, tri_flags: int = 1, floor_flags: int 
     for fi, fid in enumerate(order):              # floor.org=cur=min=max=(0,0,0): verts carry world
         tris = [ti for ti, f in enumerate(floor_ids) if f == fid]
         m.floors.append(Floor(flags=floor_flags, ndx=fi, tri_ndx_list=tris))
-    m.rebuild_neighbors()
+    try:
+        m.rebuild_neighbors()
+    except ValueError as e:
+        if not m.regrouped:
+            raise
+        # the ids in the message are BUILT (post-regroup) triangles; the author's file numbers them as faces
+        import re as _re
+        ids = sorted({int(t) for grp in _re.findall(r"triangles \[([\d, ]+)\]", str(e)) for t in grp.split(",")})
+        faces = ", ".join(f"{t} = face {perm[t]}" for t in ids if 0 <= t < len(perm))
+        raise ValueError(f"{e} [triangle ids are AFTER the floor-major regroup; in input face order (0-based, as "
+                         f"listed in the file): {faces}]") from e
+    probs = floor_order_problems(m)               # a law in a docstring is a wish: check our own output
+    if probs:
+        raise ValueError("internal: bgi.build produced a non-floor-major mesh: " + "; ".join(probs[:3]))
     return m
 
 
@@ -956,14 +1045,53 @@ def quad(corners) -> BgiWalkmesh:
     return build_flat(verts, [(0, 1, 2), (0, 2, 3)])
 
 
+def _parse_obj(path):
+    """Parse a Wavefront .obj into ``(verts, faces, floor_ids, id_names)`` -- the one OBJ reader.
+
+    Each ``o <name>`` (or ``g <name>``, a synonym) selects a floor id; a repeated name reuses its id
+    (a REOPENED floor); faces before any object carry id 0, which is also the first-declared object's
+    id. ``id_names`` maps each object id to its name. Vertices are FF9 world coords (shared across
+    floors -- OBJ vertex indices are file-global). Faces with >3 verts are fan-triangulated; refs may
+    be ``a/b/c``.
+
+    A multi-word name is kept WHOLE (its words joined by one space): the old tokenizer kept only the
+    first word, so ``o upper deck`` and ``o upper ledge`` silently merged into one floor ``upper``. OBJ's
+    multi-group ``g a b`` form therefore names one floor ``a b``."""
+    verts, faces, floor_ids = [], [], []
+    names, cur, next_id = {}, 0, 0
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for lineno, line in enumerate(fh, 1):
+            s = line.split()
+            if not s:
+                continue
+            if s[0] == "v":
+                verts.append((float(s[1]), float(s[2]), float(s[3])))
+            elif s[0] in ("o", "g"):
+                # the WHOLE name, words joined by one space: the old tokenizer kept only the first word, so
+                # `o upper deck` and `o upper ledge` silently merged into one floor "upper"; OBJ's legal
+                # multi-group `g a b` form keeps working (it names one floor "a b")
+                name = " ".join(s[1:])
+                if name not in names:
+                    names[name] = next_id
+                    next_id += 1
+                cur = names[name]
+            elif s[0] == "f":
+                idx = [int(tok.split("/")[0]) - 1 for tok in s[1:]]  # 1-based -> 0-based
+                for k in range(1, len(idx) - 1):
+                    faces.append((idx[0], idx[k], idx[k + 1]))
+                    floor_ids.append(cur)
+    return verts, faces, floor_ids, {i: nm for nm, i in names.items()}
+
+
 def load_obj_floors(path):
     """Parse a Wavefront .obj into (verts, faces, floor_ids), one floor per ``o``/``g`` object.
 
     Each ``o <name>`` (or ``g <name>``) starts a new floor; a repeated name reuses its floor; faces
     before any object go to floor 0. Vertices are FF9 world coords (shared across floors — OBJ vertex
-    indices are file-global). Faces with >3 verts are fan-triangulated; refs may be ``a/b/c``.
+    indices are file-global). Faces with >3 verts are fan-triangulated; refs may be ``a/b/c``. A
+    multi-word name is kept whole (see :func:`_parse_obj`).
     """
-    verts, faces, floor_ids, _names = _parse_obj_floors(path)
+    verts, faces, floor_ids, _names = _parse_obj(path)
     return verts, faces, floor_ids
 
 
@@ -977,8 +1105,8 @@ def obj_built_floor_donors(path) -> list:
     real field, the Blender add-on's ``mesh_to_ff9_obj``), so the name survives a reshape even when the
     rebuild renumbers: delete ``floor_1`` of three and ``floor_2`` becomes built floor 1. A single unnamed
     floor (the flat re-export writes no ``o`` line) is the donor's floor 0. Anything else -- a floor the
-    author added or renamed -- is None."""
-    _v, _f, floor_ids, names = _parse_obj_floors(path)
+    author added or renamed -- is None. The same numbering as :func:`obj_floor_names`."""
+    _v, _f, floor_ids, names = _parse_obj(path)
     order = []
     for fid in floor_ids:
         if fid not in order:
@@ -991,30 +1119,18 @@ def obj_built_floor_donors(path) -> list:
     return out
 
 
-def _parse_obj_floors(path):
-    """:func:`load_obj_floors` plus ``{floor id: the o/g name that opened it}`` (id 0 has no entry when
-    only unnamed faces reached it)."""
-    verts, faces, floor_ids = [], [], []
-    names, cur, next_id = {}, 0, 0
-    with open(path, encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            s = line.split()
-            if not s:
-                continue
-            if s[0] == "v":
-                verts.append((float(s[1]), float(s[2]), float(s[3])))
-            elif s[0] in ("o", "g"):
-                name = s[1] if len(s) > 1 else ""
-                if name not in names:
-                    names[name] = next_id
-                    next_id += 1
-                cur = names[name]
-            elif s[0] == "f":
-                idx = [int(tok.split("/")[0]) - 1 for tok in s[1:]]  # 1-based -> 0-based
-                for k in range(1, len(idx) - 1):
-                    faces.append((idx[0], idx[k], idx[k + 1]))
-                    floor_ids.append(cur)
-    return verts, faces, floor_ids, {i: n for n, i in names.items()}
+def obj_floor_names(path) -> list:
+    """The floor NAMES of a Wavefront .obj walkmesh, in BUILT floor order: entry ``i`` names the floor
+    :func:`build` numbers ``i``. Floors are numbered by first appearance among the FACES, so an ``o``
+    with no faces takes no index, faces before the first ``o`` belong to the first-declared object, a
+    reopened name rejoins its floor, and ``g`` is a synonym for ``o``. ``None`` for a floor no ``o``/``g``
+    line named (an OBJ with no objects is one unnamed floor)."""
+    _verts, _faces, floor_ids, id_names = _parse_obj(path)
+    order: list = []
+    for fid in floor_ids:
+        if fid not in order:
+            order.append(fid)
+    return [id_names.get(fid) or None for fid in order]
 
 
 def load_obj(path):

@@ -1,0 +1,12 @@
+# The two cross-floor seams along x = 0 -- one per triangle edge (a seam matches ONE edge by world position).
+[[seam]]
+a_floor = 0
+a_edge = [[0, 0, 257], [0, 0, -837]]
+b_floor = 1
+b_edge = [[0, 0, 257], [0, 0, -837]]
+
+[[seam]]
+a_floor = 0
+a_edge = [[0, 0, -837], [0, 0, -1931]]
+b_floor = 1
+b_edge = [[0, 0, -837], [0, 0, -1931]]

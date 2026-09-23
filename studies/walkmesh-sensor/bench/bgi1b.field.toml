@@ -1,0 +1,103 @@
+# =====================================================================================
+# THE WALKMESH SENSOR, RUNG 1 (bench B) -- floor verbs under brains + a CLASS  --  field 30912
+# =====================================================================================
+# The same two-floor mesh as bench A (ground = 0 west, terrace = 1 east, seamed on the south half only), INT floors.
+#   c0, c1   uids 2, 3  a CLASS "pack" (one shared brain): arm + same_floor player -> chase. c0 stands on the
+#            ground, c1 on the terrace -- exactly ONE member may engage, whichever shares the player's floor
+#            (a strided-cell index bug makes both or neither move: NC-SWAP)
+#   bell     uid 4      p_up while the player is on floor 1; b_same while on its own floor (0)
+#
+#   py tools/deploy_field.py studies/walkmesh-sensor/bench/bgi1b.field.toml --id 30912 --name BGI1B --text-block 30912
+
+[field]
+id = 30912
+name = "BGI1B"
+area = 11
+title = "BGI 1B"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+obj = "bgi1.walkmesh.obj"
+links = "bgi1.walkmesh.links.toml"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [-407, -1566]
+
+[[npc]]
+name = "c0"
+model = "GEO_NPC_F0_CSO"
+pos = [-1017, -472]
+[[npc]]
+name = "c1"
+model = "GEO_NPC_F0_CSO"
+pos = [813, -472]
+[[npc]]
+name = "bell"
+model = "GEO_NPC_F0_CSO"
+pos = [-1017, -1566]
+
+[behavior]
+brains = true
+warmup = 30
+public_flags = ["arm"]
+
+  [[behavior.unit]]
+  npcs = ["c0", "c1"]
+  class = "pack"
+  speed = 30
+    [[behavior.unit.branch]]
+    when = [{ flag = "arm" }, { same_floor = "player" }]
+    do = { chase = "player", standoff = 250 }
+    [[behavior.unit.branch]]
+    do = { hold_post = true }
+
+  [[behavior.unit]]
+  npc = "bell"
+    [[behavior.unit.branch]]
+    when = [{ on_floor = 1, who = "player" }]
+    do = { hold_post = true }
+    raise_flags = ["p_up"]
+    clear_flags = ["b_same"]
+    [[behavior.unit.branch]]
+    when = [{ same_floor = "player" }]
+    do = { hold_post = true }
+    raise_flags = ["b_same"]
+    clear_flags = ["p_up"]
+    [[behavior.unit.branch]]
+    do = { hold_post = true }
+    clear_flags = ["p_up", "b_same"]
+
+  [[behavior.hud]]
+  window = 6
+  digits = [2, 2, 2, 5, 5, 5, 5]
+  values = [
+    "floor:player",
+    "floor:c0",
+    "floor:c1",
+    "expr:obj(uid=2).f[0]",
+    "expr:obj(uid=2).f[2]",
+    "expr:obj(uid=3).f[0]",
+    "expr:obj(uid=3).f[2]",
+  ]
+  text = """[MPOS=8,8]== BGI 1B 30912 ==
+PFLR [NUMB=0]
+C0F [NUMB=1]
+C1F [NUMB=2]
+C0X [NUMB=3]
+C0Z [NUMB=4]
+C1X [NUMB=5]
+C1Z [NUMB=6]"""
