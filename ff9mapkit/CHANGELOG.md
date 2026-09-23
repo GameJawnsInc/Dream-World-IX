@@ -33,6 +33,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   because a higher folder's `.mes` on the block still changes what the field shows. The campaign, journey and
   hub guards already checked only the `.mes` files in the dist.
 
+### Fixed — a field revert removes the `.mes` its deploy wrote fresh
+- **The revert used to leave behind a `field/<block>.mes` that the deploy wrote where none existed.** It only
+  restored backups, and a fresh write has none. On a real FF9 block the leftover is live content: the engine
+  merges every folder's `.mes` over the base game per txid, so it kept overwriting that location's dialogue.
+  Each redeploy runs the prior revert first, so the file also outlived redeploys that no longer ship it. The
+  warning above no longer flags it, because this deploy did not write it.
+- `deploy_field.py` now records each language it wrote without a backup, with the sha256 of the bytes it wrote.
+  `reverttmpl.build_revert_script(mes_fresh=...)` deletes those files, but only while they still hold those
+  bytes. A later deploy into the same block keeps its text, and the revert prints that it left the file.
+- **Leftovers from older reverts are not cleaned up.** The next deploy sees such a file as pre-existing and backs
+  it up, and its revert restores it. Delete a stranded `.mes` by hand once.
+
 ### Fixed — an editable fork's carried donor objects are lit and shadowed like the real field
 - **`import --editable` now ships the donor's MapConfigData** (`mapconfig.bytes` + `[field] mapconfig`), exactly
   as `--native` does. The engine's MCF service (`fldmcf.ff9fieldMCFService`) gives every actor its per-model blob

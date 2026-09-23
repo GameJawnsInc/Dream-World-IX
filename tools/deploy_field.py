@@ -11,7 +11,7 @@ BattlePatch + engine DLL changes also need a relaunch.
 
 Usage:  python tools/deploy_field.py <field.toml> [--id N] [--name NAME]
 """
-import contextlib, os, sys, struct, shutil, tempfile, datetime, glob
+import contextlib, hashlib, os, sys, struct, shutil, tempfile, datetime, glob
 from pathlib import Path
 
 KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
@@ -193,10 +193,12 @@ BK = _MAIN / "backups"
 BK.mkdir(parents=True, exist_ok=True)                 # gitignored -- absent in a fresh clone
 STAMP = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 shutil.copyfile(live.dictionary_patch, BK / f"DictionaryPatch.txt.preDEPLOY.{STAMP}")
+mes_backed = set()                                     # langs whose live .mes pre-existed (the revert restores these)
 for L in LANGS:
     lm = live.mes_path(L, text_block)
     if lm.exists():
         shutil.copyfile(lm, BK / f"{L}-{text_block}.mes.preDEPLOY.{STAMP}")
+        mes_backed.add(L)
 src_fm = tl.fieldmap_dir(FBG)
 if src_fm.exists() and any(src_fm.iterdir()):          # borrow fields ship no scene -> skip
     shutil.rmtree(live.fieldmap_dir(FBG), ignore_errors=True)
@@ -208,6 +210,11 @@ if mc_src.exists():
 # The languages whose .mes this deploy WRITES -- the text-block guard below reads this, not the textid: a
 # field that ships no .mes (an --editable fork without --carry-text) only READS its block.
 mes_written = []
+# ...and of those, the ones written FRESH (no backup): lang -> sha256 of the bytes that landed. The revert has
+# nothing to restore for these, so it DELETES them while they still hold these bytes -- left behind, a fresh .mes
+# on a REAL block keeps overwriting that location's dialogue, and each redeploy's prelude revert used to let it
+# survive even once the field stopped shipping it (and the guard below no longer flags a leftover it did not write).
+mes_fresh = {}
 for L in LANGS:
     live.ensure_dirs(FBG, langs=[L])
     shutil.copyfile(tl.eb_path(L, f"EVT_{name}.eb.bytes"), live.eb_path(L, f"EVT_{name}.eb.bytes"))
@@ -216,6 +223,8 @@ for L in LANGS:
         live.mes_path(L, text_block).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(sm, live.mes_path(L, text_block))
         mes_written.append(L)
+        if L not in mes_backed:
+            mes_fresh[L] = hashlib.sha256(live.mes_path(L, text_block).read_bytes()).hexdigest()
 # [[mint]] loose-model FBX tree (NEW additive GEO ids) -- ship the whole staged Models/ (merge into live).
 # Weapons (type 6, e.g. a [[weapon]] model mint) stage under BattleMap/BattleModel/ instead -- ship that too.
 for _sub in (("Models",), ("BattleMap", "BattleModel")):
@@ -721,7 +730,7 @@ _dlog.record(GAME, _dlog.DEPLOYED, FID, MOD_FOLDER, checkout=_REPO, note=f"{name
 revert = _revert.build_revert_script(
     kit=KIT, backup_dir=BK, stamp=STAMP, mod_folder=MOD_FOLDER, fid=FID, name=name,
     fbg=FBG, text_block=text_block, repo=_REPO,
-    mint_ids=mint_ids, mint_anim_keys=mint_anim_keys, mes_blocks=message_blocks,
+    mint_ids=mint_ids, mint_anim_keys=mint_anim_keys, mes_blocks=message_blocks, mes_fresh=mes_fresh,
     csv_revert_code=csv_revert_code, bp_revert_code=bp_revert_code,
     tp_revert_code=tp_revert_code, fork_revert_code=fork_revert_code)
 (OUT / f"revert_deploy_{FID}.py").write_text(revert, encoding="utf-8", newline="\n")    # per-id revert
