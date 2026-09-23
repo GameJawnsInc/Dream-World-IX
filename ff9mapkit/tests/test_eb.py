@@ -65,8 +65,31 @@ def _legacy_insert(raw: bytes, abs_off: int, ins: bytes) -> bytes:
     (800, b"\xAB\xCD"),                    # arbitrary
 ])
 def test_insert_bytes_parity(abs_off, ins):
+    """The bare relayout still matches the legacy oracle byte for byte. All three offsets sit in field 100's
+    Main_Init, AHEAD of its Main_Loop + Main_Reinit -- a stranding insert, so the public insert_bytes refuses."""
     raw = (FIX / "alex100-us.eb.bytes").read_bytes()
-    assert edit.insert_bytes(raw, abs_off, ins) == _legacy_insert(raw, abs_off, ins)
+    assert edit._insert_bytes_raw(raw, abs_off, ins) == _legacy_insert(raw, abs_off, ins)
+    with pytest.raises(ValueError, match="strand entry 0's function tag 1 "):
+        edit.insert_bytes(raw, abs_off, ins)
+
+
+def test_insert_bytes_takes_the_last_function():
+    """What the check still lets through, byte-identical to the oracle: an insert inside -- or a prepend onto --
+    the entry's LAST function (field 100's entry-0 Main_Reinit), where no fpos sits past the insert point."""
+    raw = (FIX / "alex100-us.eb.bytes").read_bytes()
+    e0 = EbScript.from_bytes(raw).entry(0)
+    t10 = e0.func_by_tag(10)
+    assert t10.abs_end == e0.abs_end                      # it IS the entry's last function
+    for off in (t10.abs_start, t10.abs_start + 3):
+        assert edit.insert_bytes(raw, off, b"\xAB\xCD") == _legacy_insert(raw, off, b"\xAB\xCD")
+
+
+def test_insert_bytes_refuses_the_function_table():
+    """An insert into the entry's own header/func table would strand every pointer in it."""
+    raw = (FIX / "alex100-us.eb.bytes").read_bytes()
+    e0 = EbScript.from_bytes(raw).entry(0)
+    with pytest.raises(ValueError, match="strand entry 0's function tag 0 "):
+        edit.insert_bytes(raw, e0.abs_start + 2, b"\x00")
 
 
 def test_append_entry_registers_slot():

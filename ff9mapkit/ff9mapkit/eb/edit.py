@@ -5,7 +5,9 @@ load-bearing primitives:
 
   * :func:`insert_bytes` — insert bytes at an absolute offset and keep the entry table
     consistent (grow the containing entry, shift every later entry's offset). This is the
-    relayout that was copy-pasted into ~5 of the original tools; it lives here once.
+    relayout that was copy-pasted into ~5 of the original tools; it lives here once. It refuses
+    an insert that would strand one of the entry's own function pointers; that case is
+    :func:`insert_in_function`.
   * :func:`append_entry` — append a whole new entry body at end-of-file and register it in a
     free slot. Because it appends at the end, it never shifts existing bytecode.
 
@@ -33,33 +35,54 @@ def _as_bytes(data) -> bytes:
 
 # --------------------------------------------------------------------------- core relayout
 
+def _containing_entry(b: bytes, abs_off: int) -> tuple[int, int, int]:
+    """``(index, off, size)`` of the non-empty entry whose body holds absolute offset ``abs_off``."""
+    for i in range(b[3]):
+        so = ENTRY_TABLE_OFF + i * ENTRY_SLOT_SIZE
+        off, sz = u16(b, so), u16(b, so + 2)
+        if sz > 0 and ENTRY_TABLE_OFF + off <= abs_off < ENTRY_TABLE_OFF + off + sz:
+            return i, off, sz
+    raise ValueError(f"no entry contains absolute offset {abs_off}")
+
+
 def insert_bytes(data, abs_off: int, ins: bytes) -> bytes:
     """Insert ``ins`` at absolute offset ``abs_off``; keep the ENTRY table consistent -- and nothing else.
 
     Grows the entry that contains ``abs_off`` (so its declared size still covers its code) and
     bumps the table offset of every entry that starts after it. Entry-count aware.
 
-    It does NOT touch the containing entry's own function table, so it is only safe when no OTHER
-    function of that entry starts at or after ``abs_off``: the insert lands in the entry's LAST
-    function, and no ``fpos`` points past the entry's end. A past-the-end ``fpos`` is real -- the
-    blank template's entry-0 Main_Loop (tag 1) sits 65 bytes past the end, an out-of-range IP the
-    engine simply returns from -- and every byte raw-inserted ahead of it eats one byte of that
-    margin, until the engine runs the loop from the middle of the entry's code. Anything else, a
-    Main_Init prepend above all, goes through :func:`insert_in_function`, which moves the other
-    functions' ``fpos`` with the bytes. Relative jumps are not fixed either (:func:`jumps_crossing`).
+    It does NOT touch the containing entry's own function table, so it is only safe when no function
+    of that entry starts PAST ``abs_off`` -- the insert lands in the entry's LAST function (a function
+    starting exactly at ``abs_off`` just gains the bytes as a prepend), and no ``fpos`` points past the
+    entry's end. That rule is ENFORCED: any ``fbase + fpos > abs_off`` raises ``ValueError``. A
+    past-the-end ``fpos`` is real -- the blank template's entry-0 Main_Loop (tag 1) sits 65 bytes past
+    the end, an out-of-range IP the engine simply returns from -- and every byte raw-inserted ahead of
+    it eats one byte of that margin, until the engine runs the loop from the middle of the entry's code
+    (four raw callers shipped exactly that). Anything else, a Main_Init prepend above all, goes through
+    :func:`insert_in_function`, which moves the other functions' ``fpos`` with the bytes. Relative
+    jumps are not fixed either (:func:`jumps_crossing`).
     """
+    b = _as_bytes(data)
+    ti, toff, tsz = _containing_entry(b, abs_off)
+    es = ENTRY_TABLE_OFF + toff
+    fbase = es + 2
+    for k in range(b[es + 1]):
+        tag, fpos = u16(b, fbase + k * 4), u16(b, fbase + k * 4 + 2)
+        if fbase + fpos > abs_off:
+            where = "at/past the entry's end" if fbase + fpos >= es + tsz else f"at {fbase + fpos}"
+            raise ValueError(
+                f"insert_bytes at {abs_off} would strand entry {ti}'s function tag {tag} (starts {where}): "
+                f"it fixes only the ENTRY table, so that fpos would stay put while the code grows under it. "
+                f"Insert through edit.insert_in_function, which moves the other functions' fpos with the bytes")
+    return _insert_bytes_raw(b, abs_off, ins)
+
+
+def _insert_bytes_raw(data, abs_off: int, ins: bytes) -> bytes:
+    """:func:`insert_bytes` WITHOUT its function-table check: the bare entry-table relayout. Only for a
+    caller that fixes the containing entry's ``fpos`` itself afterwards (:func:`insert_in_function`)."""
     b = bytearray(_as_bytes(data))
     n = b[3]
-    target = None
-    for i in range(n):
-        so = ENTRY_TABLE_OFF + i * ENTRY_SLOT_SIZE
-        off, sz = u16(b, so), u16(b, so + 2)
-        if sz > 0 and ENTRY_TABLE_OFF + off <= abs_off < ENTRY_TABLE_OFF + off + sz:
-            target = (i, off, sz)
-            break
-    if target is None:
-        raise ValueError(f"no entry contains absolute offset {abs_off}")
-    ti, toff, tsz = target
+    ti, toff, tsz = _containing_entry(b, abs_off)
     set_u16(b, ENTRY_TABLE_OFF + ti * ENTRY_SLOT_SIZE + 2, tsz + len(ins))
     for j in range(n):
         if j == ti:
@@ -286,9 +309,9 @@ def replace_function_body(data, entry_index: int, func_tag: int, new_body: bytes
 def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins: bytes) -> bytes:
     """Insert ``ins`` into function ``func_tag``'s body at body offset ``rel_off`` (0 = prepend).
 
-    Unlike :func:`insert_bytes` (which only fixes the entry table), this ALSO fixes the intra-entry
-    function-table ``fpos`` of every *other* function whose body starts at/after the insert point --
-    the gap that makes a raw insert into a non-last function corrupt the later funcs. So that the
+    Unlike :func:`insert_bytes` (which only fixes the entry table, so refuses this case), this ALSO fixes
+    the intra-entry function-table ``fpos`` of every *other* function whose body starts at/after the insert
+    point -- the gap that makes a raw insert into a non-last function corrupt the later funcs. So that the
     function's own relative jumps stay valid, a MID-function insert point must not be straddled by any
     of ``func_tag``'s jumps (raised otherwise; a 0x06 jump table can't be analysed, so a mid-function
     insert into one is refused). Inserting right after a setup opcode and before the function's tail
@@ -380,7 +403,7 @@ def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins:
                     tgt = anchor + j.args[k]
                     if tgt > abs_ins:                       # target shifts, anchor doesn't -> grow the offset
                         table_fixups.append((j.off + 2 + 2 * k, j.args[k] + len(ins)))
-    out = bytearray(insert_bytes(data, abs_ins, bytes(ins)))   # grows entry + later entries; fpos NOT fixed
+    out = bytearray(_insert_bytes_raw(data, abs_ins, bytes(ins)))   # grows entry + later entries; fpos fixed below
     for off, val in table_fixups:                           # sites already adjusted for the shift where the
         set_u16(out, off, val)                              # owning instruction sits at/after abs_ins
     so = ENTRY_TABLE_OFF + entry_index * ENTRY_SLOT_SIZE
