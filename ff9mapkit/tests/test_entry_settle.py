@@ -27,16 +27,53 @@ def test_blank_template_has_a_reveal_fade():
     assert any(int(m[0]) & 2 for m in fades)
 
 
-def test_inserts_disablemove_wait_enablemove_before_the_reveal_fade():
+def _settle_hold(ebb):
+    """``(present, [frames])``: the template settle is ``DisableMove ; Wait(n)`` right before Main_Init's
+    ``set MAP159 = 1`` ("main ready"), so the template's own handshake grants control when the hold ends."""
+    eb = EbScript.from_bytes(ebb)
+    ins = list(eb.instrs(eb.entry(0).func_by_tag(0)))
+    k = next((n for n, i in enumerate(ins)
+              if bytes(eb.data[i.off:i.off + len(ES._SET_MAIN_READY)]) == ES._SET_MAIN_READY), None)
+    if k is None or k < 2 or ins[k - 2].op != DISABLE_MOVE or ins[k - 1].op != WAIT:
+        return False, None
+    return True, list(ins[k - 1].args)
+
+
+def _fade_index(ops):
+    return next(n for n, (op, a) in enumerate(ops) if op == FADE and a and isinstance(a[0], int) and int(a[0]) & 2)
+
+
+def test_settle_holds_main_init_before_its_ready_step():
+    # the hold sits before `set MAP159 = 1`: the player's Init (one tick now its sound ops are jumped over,
+    # not zero-filled) arms MAP158 without granting while Main is "not ready", and Main's own
+    # `if (MAP158 == 1)` re-affirm grants when the hold ends -- no extra grant, nothing handed back mid-hold
     src = data.blank_field_bytes("us")
     out = ES.add_entry_settle(src, 45)
     assert EbScript.from_bytes(out).to_bytes() == out          # still a valid .eb
-    assert len(out) == len(src) + 5                            # DisableMove(1) + Wait(3) + EnableMove(1)
+    assert len(out) == len(src) + 4                            # DisableMove(1) + Wait(3), no EnableMove
+    assert _settle_hold(out) == (True, [45])
+    ops, src_ops = _main_init_ops(out), _main_init_ops(src)
+    assert [op for op, _ in ops].count(ENABLE_MOVE) == [op for op, _ in src_ops].count(ENABLE_MOVE)
+    assert [op for op, _ in ops].index(DISABLE_MOVE) < _fade_index(ops)    # still behind the black
+    from ff9mapkit.content.entrylock import _TEST_LATCH
+    eb = EbScript.from_bytes(out)
+    main = eb.entry(0).func_by_tag(0)
+    hold_off = next(i.off for i in eb.instrs(main) if i.op == DISABLE_MOVE)
+    assert hold_off < eb.data.find(_TEST_LATCH, main.abs_start, main.abs_end)   # before the re-affirm grant
+
+
+def test_settle_falls_back_before_the_fade_without_the_handshake():
+    # a Main_Init/player without the template handshake keeps the old shape: DisableMove ; Wait ; EnableMove
+    # right before the reveal fade (the settle's own grant, since nothing else would give control back)
+    from ff9mapkit.content.entrylock import _SET_LATCH
+    src = data.blank_field_bytes("us").replace(_SET_LATCH, bytes(len(_SET_LATCH)))
+    out = ES.add_entry_settle(src, 45)
+    assert len(out) == len(src) + 5
     ops = _main_init_ops(out)
-    fade_i = next(n for n, (op, a) in enumerate(ops) if op == FADE and a and isinstance(a[0], int) and int(a[0]) & 2)
-    # the three ops immediately before the reveal fade are exactly our settle triplet
+    fade_i = _fade_index(ops)
     assert [op for op, _ in ops[fade_i - 3:fade_i]] == [DISABLE_MOVE, WAIT, ENABLE_MOVE]
-    assert ops[fade_i - 2][1] == [45]                          # the wait frame count
+    assert ops[fade_i - 2][1] == [45]
+    assert _settle_hold(out) == (False, None)
 
 
 def test_zero_or_no_fade_is_a_noop():
@@ -45,30 +82,24 @@ def test_zero_or_no_fade_is_a_noop():
     assert ES.add_entry_settle(src, -1) == src
 
 
-def _settle_triplet_before_fade(ops):
-    fade_i = next(n for n, (op, a) in enumerate(ops)
-                  if op == FADE and a and isinstance(a[0], int) and int(a[0]) & 2)
-    return [op for op, _ in ops[fade_i - 3:fade_i]] == [DISABLE_MOVE, WAIT, ENABLE_MOVE], ops[fade_i - 2][1]
-
-
 def test_build_wires_entry_settle_from_camera_block(tmp_path):
     from ff9mapkit import build
     base = ('[field]\nid=4700\nname="F"\nborrow_bg="X"\narea=21\ntext_block=8\n'
             '[camera]\npitch=30\ndistance=900\nfov=40\n{settle}[player]\nspawn=[0,0]\n')
     p = tmp_path / "f.field.toml"
-    # with entry_settle=40 -> the settle triplet precedes the reveal fade
+    # with entry_settle=40 -> the settle hold precedes Main_Init's ready step
     p.write_text(base.format(settle="entry_settle=40\n"), encoding="utf-8")
-    has, frames = _settle_triplet_before_fade(_main_init_ops(build.build_script(build.FieldProject.load(p), "us", {})))
+    has, frames = _settle_hold(build.build_script(build.FieldProject.load(p), "us", {}))
     assert has and frames == [40]
     # ABSENT -> the "auto" DEFAULT (synthesized fields, owner 2026-08-03): the settle SHIPS with
     # the computed hold unless explicitly opted out
     p.write_text(base.format(settle=""), encoding="utf-8")
     proj2 = build.FieldProject.load(p)
-    has2, frames2 = _settle_triplet_before_fade(_main_init_ops(build.build_script(proj2, "us", {})))
+    has2, frames2 = _settle_hold(build.build_script(proj2, "us", {}))
     assert has2 and frames2 == [build._auto_settle_frames(proj2)]
-    # explicit 0 = the opt-out -> no triplet
+    # explicit 0 = the opt-out -> no hold
     p.write_text(base.format(settle="entry_settle=0\n"), encoding="utf-8")
-    has3, _ = _settle_triplet_before_fade(_main_init_ops(build.build_script(build.FieldProject.load(p), "us", {})))
+    has3, _ = _settle_hold(build.build_script(build.FieldProject.load(p), "us", {}))
     assert not has3
 
 
@@ -84,7 +115,7 @@ def test_multicam_entry_settle_applies(tmp_path):
     from ff9mapkit import build
     p = tmp_path / "f.field.toml"
     p.write_text(_MULTICAM.format(c0="", c1="entry_settle=33\n"), encoding="utf-8")
-    has, frames = _settle_triplet_before_fade(_main_init_ops(build.build_script(build.FieldProject.load(p), "us", {})))
+    has, frames = _settle_hold(build.build_script(build.FieldProject.load(p), "us", {}))
     assert has and frames == [33]
 
 
@@ -94,7 +125,7 @@ def test_multicam_explicit_zero_beats_the_default(tmp_path):
     from ff9mapkit import build
     p = tmp_path / "f.field.toml"
     p.write_text(_MULTICAM.format(c0="entry_settle=0\n", c1=""), encoding="utf-8")
-    has, _ = _settle_triplet_before_fade(_main_init_ops(build.build_script(build.FieldProject.load(p), "us", {})))
+    has, _ = _settle_hold(build.build_script(build.FieldProject.load(p), "us", {}))
     assert not has
 
 
@@ -157,7 +188,7 @@ def test_string_settle_does_not_crash_the_build(tmp_path):
     p.write_text('[field]\nid=4700\nname="F"\nborrow_bg="X"\narea=21\ntext_block=8\n'
                  '[camera]\npitch=30\ndistance=900\nfov=40\nentry_settle="fast"\n[player]\nspawn=[0,0]\n',
                  encoding="utf-8")
-    has, _ = _settle_triplet_before_fade(_main_init_ops(build.build_script(build.FieldProject.load(p), "us", {})))
+    has, _ = _settle_hold(build.build_script(build.FieldProject.load(p), "us", {}))
     assert not has                                                                 # skipped, built fine
 
 
@@ -210,7 +241,7 @@ def test_build_auto_applies_the_computed_hold(tmp_path):
                  '[camera]\npitch=30\ndistance=900\nfov=40\nentry_settle="auto"\n[player]\nspawn=[0,-800]\n',
                  encoding="utf-8")
     proj, w = build.FieldProject.load(p), []
-    has, frames = _settle_triplet_before_fade(_main_init_ops(build.build_script(proj, "us", {}, warnings=w)))
+    has, frames = _settle_hold(build.build_script(proj, "us", {}, warnings=w))
     expect = ES.estimate_entry_settle(build.resolve_camera(proj), (0, -800))
     assert has and frames == [expect] and ES.AUTO_MIN_FRAMES <= expect <= ES.AUTO_MAX_FRAMES
     # the chosen value is surfaced ONCE in the build output (a 2nd lang adds no duplicate)
@@ -225,7 +256,7 @@ def test_build_auto_falls_back_when_camera_unresolvable(tmp_path):
                  '[camera]\nborrow="missing.bgx"\nentry_settle="auto"\n[player]\nspawn=[0,0]\n',
                  encoding="utf-8")
     proj, w = build.FieldProject.load(p), []
-    has, frames = _settle_triplet_before_fade(_main_init_ops(build.build_script(proj, "us", {}, warnings=w)))
+    has, frames = _settle_hold(build.build_script(proj, "us", {}, warnings=w))
     assert has and frames == [ES.DEFAULT_ENTRY_SETTLE]          # the proven default, never a crash
     assert any("could not be resolved" in x for x in w)
 

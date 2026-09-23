@@ -7,12 +7,14 @@ warp's fade-out blacks the screen while the camera settles; the kit's synthesize
 immediately (its FadeFilter fires right after ``EnableMove``), so on a large-delta entry -- e.g. the World
 Hub entered via a New-Game / debug-menu warp -- you SEE the camera drift to rest over a few seconds.
 
-Fix (engine-independent, ships on stock Memoria -- no DLL, no ``SmoothCamExcludeMaps`` edit): insert
-``DisableMove ; Wait(n) ; EnableMove`` immediately BEFORE Main_Init's reveal fade. The screen is still
-black at that point (the field loads black; the reveal fade is what brings it in), so the smooth-cam
-converges UNSEEN during the wait; the existing fade then reveals the already-settled camera. Control is
-locked during the wait so the player can't wander blind. (memory ``project-ff9-world-hub``;
-``FieldMap.cs`` ``CenterCameraOnPlayer`` / ``SmoothCamExcludeMaps`` / ``CameraStabilizer``.)
+Fix (engine-independent, ships on stock Memoria -- no DLL, no ``SmoothCamExcludeMaps`` edit): hold
+Main_Init with ``DisableMove ; Wait(n)`` before its reveal fade -- on the synthesized template just before
+its ``set MAP159 = 1`` "main ready" step, so the template's own control handshake grants when the hold ends
+(see :func:`add_entry_settle`). The screen is still black there (the field loads black; the reveal fade is
+what brings it in), so the smooth-cam converges UNSEEN during the wait; the existing fade then reveals the
+already-settled camera. Control stays locked during the wait so the player can't wander blind. (memory
+``project-ff9-world-hub``; ``FieldMap.cs`` ``CenterCameraOnPlayer`` / ``SmoothCamExcludeMaps`` /
+``CameraStabilizer``.)
 """
 
 from __future__ import annotations
@@ -90,12 +92,47 @@ def estimate_entry_settle(camera, spawn, *, stabilizer: int = DEFAULT_STABILIZER
     return min(max(frames, AUTO_MIN_FRAMES), AUTO_MAX_FRAMES)
 
 
-def add_entry_settle(eb_bytes, wait_frames: int = 45, *, locked_entrances=()) -> bytes:
-    """Insert ``DisableMove ; Wait(wait_frames) ; EnableMove`` just before Main_Init's reveal fade so the
-    smooth-camera settles behind the black screen. Returns the input unchanged when ``wait_frames <= 0`` or
-    Main_Init has no reveal fade (nothing to hide behind).
+# The template's control handshake (content.entrylock has the full story): Main_Init sets MAP159 = 1
+# ("main ready") after spawning its objects, then re-affirms `if (MAP158 == 1) { grant }`; the player's
+# Init sets MAP158 = 1 ("player ready") and grants `if (MAP159 == 1)`. Whichever runs LAST grants.
+_SET_MAIN_READY = bytes([0x05, 0xC5, 159, 0x7D, 1, 0, 0x2C, 0x7F])     # set MAP159 = 1
 
-    ``locked_entrances``: the settle's closing ``EnableMove`` is an UNCONDITIONAL grant, which would
+
+def _handshake_hold_offset(eb: EbScript, f0, fade) -> int | None:
+    """Main_Init-relative offset of the template's ``set MAP159 = 1``, when the whole handshake is present
+    (that SET and the ``if (MAP158 == 1)`` re-affirm before the reveal fade, and the player Init's
+    ``set MAP158 = 1`` latch); else None."""
+    from .entrylock import _SET_LATCH, _TEST_LATCH
+    from .ladder import find_player_entry
+    body = bytes(eb.data[f0.abs_start:fade.off])
+    ready = next((i.off - f0.abs_start for i in eb.instrs(f0)
+                  if i.off < fade.off and bytes(eb.data[i.off:i.off + len(_SET_MAIN_READY)]) == _SET_MAIN_READY),
+                 None)
+    if ready is None or body.find(_TEST_LATCH, ready) < 0:
+        return None
+    try:
+        init = eb.entry(find_player_entry(eb)).func_by_tag(0)
+    except ValueError:
+        return None
+    if init is None or bytes(eb.data[init.abs_start:init.abs_end]).find(_SET_LATCH) < 0:
+        return None
+    return ready
+
+
+def add_entry_settle(eb_bytes, wait_frames: int = 45, *, locked_entrances=()) -> bytes:
+    """Hold Main_Init for ``wait_frames`` behind the black screen so the smooth-camera settles before the
+    reveal fade. Returns the input unchanged when ``wait_frames <= 0`` or Main_Init has no reveal fade
+    (nothing to hide behind).
+
+    On the synthesized template the hold is ``DisableMove ; Wait(wait_frames)`` inserted just BEFORE
+    Main_Init's ``set MAP159 = 1``: Main is "not ready" for the hold, so the player's Init (which finishes on
+    its first tick) arms its MAP158 latch without granting, and Main's own ``if (MAP158 == 1)`` re-affirm
+    grants when the hold ends. No extra grant is added, and [player] locked_entrances needs nothing here --
+    content.entrylock already gates both template grant sites. (Placing it before the fade instead let the
+    player's latch hand back control DURING the hold once its Init stopped taking ~48 ticks.)
+
+    Anywhere without that handshake it falls back to ``DisableMove ; Wait ; EnableMove`` just before the
+    reveal fade. ``locked_entrances``: that closing ``EnableMove`` is an UNCONDITIONAL grant, which would
     re-grant control on a ``[player] locked_entrances`` arrival (the arrive-locked contract says the
     on_entry hook owns that grant). Gate the EnableMove on the same entrance ids -- a locked arrival
     still gets the black hold (its own DisableMove is a harmless re-lock), just not the grant."""
@@ -118,6 +155,9 @@ def add_entry_settle(eb_bytes, wait_frames: int = 45, *, locked_entrances=()) ->
                 break
     if fade is None:
         return eb_bytes
+    hold = _handshake_hold_offset(eb, f0, fade)
+    if hold is not None:
+        return edit.insert_in_function(eb_bytes, 0, 0, hold, opcodes.DISABLE_MOVE + opcodes.wait(wait_frames))
     rel = fade.off - f0.abs_start
     grant = opcodes.ENABLE_MOVE
     if locked_entrances:

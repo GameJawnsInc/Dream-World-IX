@@ -116,12 +116,11 @@ def _row_first(g) -> None:
 
 
 def _fixed(g) -> None:
-    """DETACH_ORDER=fixed: the build now guards a kit-built player wherever 2507's pass will run
-    (content.walkmesh_hotfix.reattach_player: its Loop re-attaches it whenever it has control and no triangle).
-    30990 and 30992 are rebuilt with it; 30991 (no row) is unchanged. Every slot must now stop at the platform edge,
-    and 30990's HUD must still show the chests detached -- the hotfix fires, only the player is restored.
-    (The first fix, a one-shot `Wait(30); SetPathing(1)`, passed one launch and failed the next: the pass lands
-    at a load-dependent moment, so a fixed delay races it.)"""
+    """DETACH_ORDER=fixed: the run that proved the (since removed) re-attach guard -- 30990 and 30992 rebuilt with
+    content.walkmesh_hotfix.reattach_player, 30991 (no row) unchanged. Every slot must stop at the platform edge,
+    and 30990's HUD must still show the chests detached. The root-cause fix replaced the guard; its in-game proof is
+    root_fix_2507.py. (The one-shot `Wait(30); SetPathing(1)` tried before the guard lost to this scenario's WALK,
+    not to the pass -- FINDINGS.md.)"""
     import re as _re
     wm = _mesh()
     g.newgame()

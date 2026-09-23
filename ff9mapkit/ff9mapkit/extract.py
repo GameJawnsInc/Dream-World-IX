@@ -2375,8 +2375,8 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
     # EffectiveFieldId gates (s24/s29/s30/s65: the walkmesh hotfixes incl. 2507's delayed one, off-mesh
     # exemptions, tri-keyed collision, the menu location) never fire for a standalone borrow -- while the same
     # borrow as a campaign member gets its row from plan.members. The name-keyed gates (s31/s32) resolve without
-    # it: a borrow runs on the donor's own .bgs/.bgi under the donor's FBG name. (2507's pass also detaches a
-    # kit-built player; build.detaching_donor guards it.)
+    # it: a borrow runs on the donor's own .bgs/.bgi under the donor's FBG name. (2507's pass also detaches any
+    # actor not yet the player; a kit-built player binds on its first Init tick, before it -- content.npc.)
     from .dialogue import _resolve_field_id as _rfi
     try:
         _src_fid = _rfi(field)
