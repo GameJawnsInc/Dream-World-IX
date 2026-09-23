@@ -5,6 +5,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a reshaped multi-floor walkmesh keeps its cross-floor seams
+- **Deleting or reordering an `o floor_<N>` block no longer strands floors.** The `walkmesh.links.toml` sidecar
+  numbers its seams by the donor's floors, and `bgi.build` renumbers `.obj` floors in first-seen order, so a
+  reshape that renumbered them made seams miss. In `studies/actor-shadow` rung 1, an editable fork of field 1607
+  written in floor order 3,1,2,0,... dropped 2 of 14 seams and stranded floors [1,3,4]. The build now translates
+  each seam through the `floor_<donor index>` names, using the map that already re-keys the MCF lights
+  (`build._donor_floor_map`, `BgiWalkmesh.apply_seams(seams, floor_map)`).
+- A seam whose floor is no longer in the `.obj` (deleted, or renamed away from `floor_<N>`) counts as missing.
+  The warning now names that donor floor. An added floor takes a fresh `floor_<N>`; see docs/WALKMESH_EDITING.md.
+- **Byte identity:** the unedited round-trip skips the translation and builds byte for byte. The census
+  covered all 674 field walkmeshes, 550 of them multi-floor with 5,983 seams. The unedited re-export is the
+  identity on every one. With each multi-floor walkmesh's floors written in reverse, the re-keyed build
+  reproduces its exact link set, where the old reconcile dropped 3,756 seams in 353 walkmeshes.
+  `tests/test_fork_walkmesh_links.py` pins this on an authored 5-floor donor and on the real 7-floor fixture,
+  plus reorder, delete and rename reshapes.
+
 ### Fixed — the vanilla-overwrite text warning no longer fires for a field that ships no `.mes`
 - **The vanilla-overwrite warning now fires only when the deploy writes a `.mes` for the real block.** It used to
   judge the FieldScene textid, so an `import --editable` fork without `--carry-text` got the warning. Such a fork
@@ -21,6 +37,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `build_field`'s two branches: a verbatim `.eb` always writes (its donor body is the base), a synthesized field
   writes when it has dialogue or a `[carry_text]` plan. A test holds it to what real builds write. A predicate
   failure counts as writing, so lint stays loud rather than crashing.
+
+### Fixed — a field revert removes the `.mes` its deploy wrote fresh
+- **The revert used to leave behind a `field/<block>.mes` that the deploy wrote where none existed.** It only
+  restored backups, and a fresh write has none. On a real FF9 block the leftover is live content: the engine
+  merges every folder's `.mes` over the base game per txid, so it kept overwriting that location's dialogue.
+  Each redeploy runs the prior revert first, so the file also outlived redeploys that no longer ship it. The
+  warning above no longer flags it, because this deploy did not write it.
+- `deploy_field.py` now records each language it wrote without a backup, with the sha256 of the bytes it wrote.
+  `reverttmpl.build_revert_script(mes_fresh=...)` deletes those files, but only while they still hold those
+  bytes. A later deploy into the same block keeps its text, and the revert prints that it left the file.
+- **Leftovers from older reverts are not cleaned up.** The next deploy sees such a file as pre-existing and backs
+  it up, and its revert restores it. Delete a stranded `.mes` by hand once.
 
 ### Fixed — an editable fork's carried donor objects are lit and shadowed like the real field
 - **`import --editable` now ships the donor's MapConfigData** (`mapconfig.bytes` + `[field] mapconfig`), exactly

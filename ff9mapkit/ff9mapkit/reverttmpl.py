@@ -15,6 +15,13 @@ The ``*_revert_code`` arguments are the OPPOSITE: they are trusted Python fragme
 the optional channels (start-state CSVs, BattlePatch, TextPatch, ForkDonorPatch) and are spliced in verbatim.
 They begin with ``\\n`` + column-0 (unindented) code on purpose, so they dedent out of the ``for L in LANGS``
 loop and run ONCE after it -- keep that splice position exactly.
+
+The dialogue ``.mes`` has TWO undo paths. A language whose live ``field/<block>.mes`` existed before the deploy
+was backed up, and the revert restores that backup. A language the deploy wrote FRESH (``mes_fresh``: lang ->
+sha256 of the bytes it wrote) has no backup, and the revert DELETES it -- but only while the live file still
+holds exactly those bytes, so a later deploy into the same block keeps its own text. Leaving a fresh file in
+place is not inert on a REAL FF9 block: FF9TextTool merges every folder's ``field/<block>.mes`` over the base
+game per txid, so a leftover goes on overwriting that location's dialogue after the deploy that wrote it is gone.
 """
 from __future__ import annotations
 
@@ -22,11 +29,13 @@ from pathlib import Path
 
 
 def build_revert_script(*, kit, backup_dir, stamp, mod_folder, fid, name, fbg, text_block, repo,
-                        mint_ids=(), mint_anim_keys=(), mes_blocks=(),
+                        mint_ids=(), mint_anim_keys=(), mes_blocks=(), mes_fresh=None,
                         csv_revert_code="", bp_revert_code="", tp_revert_code="", fork_revert_code="") -> str:
     """Return the text of a field deploy's revert script. See the module docstring for the data-vs-code split.
 
     ``kit`` / ``backup_dir`` / ``repo`` may be str or Path (coerced); ``fid`` / ``text_block`` are ints;
+    ``mes_fresh`` maps each language whose ``.mes`` the deploy wrote with NO backup to the sha256 hex of the
+    bytes it wrote (the revert deletes those files while they still match);
     the ``*_revert_code`` fragments are trusted generated code (spliced verbatim)."""
     kit = str(kit)
     backup_dir = str(Path(backup_dir))
@@ -36,15 +45,18 @@ def build_revert_script(*, kit, backup_dir, stamp, mod_folder, fid, name, fbg, t
     _mint_ids_repr = repr(sorted(mint_ids))              # this deploy's minted GEO ids (drop their 3DModel lines)
     _mint_anim_keys_repr = repr(sorted(mint_anim_keys))   # this deploy's OWN 3DModelAnimation keys (drop only THESE)
     _mes_blocks_repr = repr(sorted(mes_blocks))            # this deploy's OWN registered text block(s)
+    # lang -> sha256 hex of the .mes bytes this deploy wrote where nothing stood before (delete-if-unchanged)
+    _mes_fresh_repr = repr({str(k): str(v) for k, v in sorted((mes_fresh or {}).items())})
     fid_str = str(fid)                                    # revert_dictionary_patch takes fid as a STRING
     evt_name = f"EVT_{name}"
     eb_stem = f"EVT_{name}.eb.bytes"
     note = f"revert_deploy_{fid}.py"
-    final_msg = ("reverted: DictionaryPatch (incl. mint 3DModel/3DModelAnimation) + dialogue + start-state CSVs "
+    final_msg = ("reverted: DictionaryPatch (incl. mint 3DModel/3DModelAnimation) + dialogue (freshly written "
+                 ".mes removed) + start-state CSVs "
                  f"+ BattlePatch + TextPatch + ForkDonorPatch restored; {name} removed. (staged "
                  "Models//Animations/ trees left inert on disk)")
     return f'''#!/usr/bin/env python3
-import contextlib, sys, shutil
+import contextlib, hashlib, sys, shutil
 from pathlib import Path
 sys.path.insert(0, {kit!r})
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
@@ -69,6 +81,7 @@ _folder_lock.enter_context(locked_mod_folder(live.root))
 # old behavior) re-clobbered co-deployed lines; a GEO-BLOCK drop (the older-still behavior) wiped foreign clip lines
 # like key 60001. (The staged Models//Animations/ FBX+clip trees are LEFT on disk -- inert once unregistered.)
 _MINT_IDS=set({_mint_ids_repr}); _MINT_ANIM_KEYS=set({_mint_anim_keys_repr}); _MES_BLOCKS=set({_mes_blocks_repr})
+_MES_FRESH={_mes_fresh_repr}   # lang -> sha256 of the .mes this deploy wrote where NO file stood (no backup exists)
 _dpbak=BK/f"DictionaryPatch.txt.preDEPLOY.{{STAMP}}"
 _bak=_dpbak.read_text(encoding="utf-8").splitlines() if _dpbak.exists() else []
 # a MISSING live DictionaryPatch is EMPTY, not an error: a campaign deploy wholesale-replaces mod folders,
@@ -96,9 +109,16 @@ for L in LANGS:
     p=live.eb_path(L,{eb_stem!r})
     if p.exists(): p.unlink()
     mb=BK/f"{{L}}-{text_block}.mes.preDEPLOY.{{STAMP}}"
+    lm=live.mes_path(L,{text_block})
     if mb.exists():
-        live.mes_path(L,{text_block}).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(mb, live.mes_path(L,{text_block})){csv_revert_code}{bp_revert_code}{tp_revert_code}{fork_revert_code}
+        lm.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(mb, lm)
+    elif L in _MES_FRESH and lm.exists():
+        # written FRESH by this deploy, so there is no backup to restore -- delete it, or it keeps overwriting a
+        # real block's dialogue for good. Only while it still holds OUR bytes: a later deploy into the same
+        # block (which backed ours up) owns what is there now.
+        if hashlib.sha256(lm.read_bytes()).hexdigest()==_MES_FRESH[L]: lm.unlink()
+        else: print(f"  kept {{lm}}: it no longer holds this deploy's text (a later deploy rewrote it)"){csv_revert_code}{bp_revert_code}{tp_revert_code}{fork_revert_code}
 _folder_lock.close()   # last live-folder write done -- the ledger below lives OUTSIDE the mod folder
 # Ledger: this id is now deliberately UNregistered, so `doctor` won't cry "lost registration" over it. Note a
 # deploy runs the prior revert as its PRELUDE, so most 'retired' rows are immediately followed by a 'deployed'
