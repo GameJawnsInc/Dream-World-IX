@@ -1,0 +1,103 @@
+# Computed prop motion — the sine kit (board entry #7)
+
+**Status:** rung 0 ★ PASSED in-game (harness, 13/13, every check exact). Rung 1 (the kit feature) is designed
+below; it edits the `[[prop]]` emitters, so it lands after the blob-shadow session's `[[prop]]` work merges.
+
+Board entry #7 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md): nothing in the kit moves by
+computation. Cutscenes are keyframed walks and platforms ride authored waypoints. This arc makes props orbit, swing,
+bob and spiral from `B_SIN`/`B_COS`, driven by one per-field daemon. The pick came from a 7-assessor and judge
+workflow over the remaining board entries; the runner-up was #8 photo mode, reframed as the kit's first camera-pan
+primitive.
+
+## The mechanism (engine-read, Memoria `Assembly-CSharp`)
+
+| Piece | Fact | Source |
+|---|---|---|
+| `B_SIN(v)` / `B_COS(v)` | `ff9.rsin(v << 4)`: **256 units a turn** | EBin.cs:1175-1190 |
+| `B_SIN2(v)` / `B_COS2(v)` | `ff9.rsin(v)`: **4096 units a turn** (the smooth one for slow motion) | EBin.cs:1087-1100 |
+| `rsin(a)` | `(Int32)(Mathf.Sin(a / 4096f * 360f * 0.0174532924f) * 4096f)`: single precision, truncated, amplitude ±4096 | ff9.cs:2124 |
+| `B_DIV` | C# integer division, truncates toward zero | EBin.cs:653-665 |
+| `B_CONST` | Int16, sign-extended through the Int26 decode | EBin.cs:1235, 1682 |
+| `0xAD MoveInstantXZYEx(uid, a, b, c)` | `pos = (a, −b, c)`; turns pathing OFF first (`BGI_charSetActive(0)`); `SetActorPosition` runs OUTSIDE the null guard, so an absent uid throws | DoEventCode.cs:2179-2245 |
+| `0x87 TurnInstantEx(uid, angle)` | null-guarded; `rotAngle.y = (Int16)(angle << 4)` as degrees, so the angle is mod 256 | DoEventCode.cs:1192-1213 |
+| `obj(uid).f[0..3]` | `pos[0]`, `−pos[1]` (== `0xAD`'s `b` operand), `pos[2]`, facing byte. `f[0..2]` return 0 on a non-actor; **`f[3]` casts to `Actor` unguarded** | EBin.cs:1751-1810 |
+
+## Rung 0 — the probe ★ PASSED (13/13)
+
+The bench is [`bench/sine0.field.toml`](bench/sine0.field.toml) (field 30945): one flat floor, two plain kit
+`[[prop]]`s (balloon, cask; `collision = false`, `shadow = false`). [`sine0_bench.py`](sine0_bench.py) deploys it and
+then seats one code-entry DAEMON into every language's live `.eb`; it is study-local, with no kit code. Every tick the
+daemon mirrors, BEFORE its writes, the clock value the previous writes used plus both props' `f[0..3]` and the
+player's facing into Global Int16s. It then advances the clock and re-places the props:
+
+- **A (balloon):** orbit r = 300 around (0, −800), 128 ticks a turn, height 150, facing `2t + 192`.
+- **B (cask):** the same orbit half a turn behind A, plus a ±60 vertical bob every 256 ticks (`B_SIN2`).
+
+Every published sample carries its own clock, so `sine0_bench.predict(t)` is an exact oracle.
+[`rung0_sine.py`](rung0_sine.py) runs it in one launch.
+
+| Check | Result |
+|---|---|
+| P0-P2 | 30945 served by FF9CustomMap alone; all 7 language `.eb`s carry the daemon aimed at the real uids (2, 3); the float32 `rsin` predictor is within one unit of float64 over a turn |
+| LATCH | the daemon held **49 ticks** at its latch before the field was safe (see run 1) |
+| C0 | the daemon runs: 331 distinct clock values over a span of 360 (more than a full 256-tick bob) |
+| **C1** | every sampled position of both props == `predict(t)`, **EXACTLY: 331/331, worst error 0**. The float32 `rsin` plus truncating `B_DIV` predictor IS the engine's arithmetic, so a build can predict every frame offline |
+| C2 | both facing bytes == `predict(t)` (the +192 tangent) in every sample |
+| C3 | operand order: A's height operand reads back −150 always; B's bob lives only in `f[1]` (101 distinct heights in ±60); both stay on the r = 300 circle |
+| C4 | single-daemon phase lock: B is diametrically opposite A in every sample |
+| C5 | no engine override between ticks: C1 holds on read-before-write mirrors, i.e. after a full engine frame |
+| **C6** | the angle convention, calibrated on the engine's own walk (straight stretches, the turn excluded): **east 192, north 128, west 64, south 0, each exact**. So `direction(a) = (−sin a, −cos a)`, and for `x = cx + r·sin θ, z = cz + r·cos θ` with θ rising the tangent is **θ + 192** (the board said +64) |
+| NC-THROW | no NullReference / InvalidCast / IndexOutOfRange through the event engine or the evaluator |
+| Shots | both props render and move; A and B sit on opposite sides of the circle |
+
+**Run 1 (11/12) threw at field entry.** The daemon's only guard was a bare `Wait(45)`. It threw 9 times
+around the entry: an `InvalidCastException` in `getvobj`, whose `f[3]` cast is unguarded, and a
+`NullReferenceException` in `0xAD`. The motion checks all passed once it ran. Run 2 gated the daemon like the
+behavior ticker's staged latch plus a per-target ready bit:
+- `PBOUND` is set right after `DefinePlayerCharacter`;
+- `READY_A` / `READY_B` are set right after each prop's `CreateObject`;
+- all three are cleared first thing in Main_Init;
+- the daemon polls for `PBOUND && IsMovementEnabled && READY_A && READY_B`.
+
+It waited 49 ticks and threw nothing.
+
+**Run 2 (12/13):** C6's first cut treated `hold()` as blocking; it is not. So it measured through the player's
+turning arc and mixed two headings. It passed in run 1 only by catching a mid-turn diagonal. Run 3 holds 30 frames,
+lets the turn finish, and measures a straight stretch. Artifacts: `.harness-runs/20260923-175115-sine-rung0`,
+`…-r2`, `…180035-sine-rung0-r3` (archived).
+
+**Cadence:** 0.50 daemon ticks per published frame. A `Wait(1)` daemon ticks at 30 Hz, so 128 ticks ≈ 4.3 s.
+
+## Laws for rung 1 (each enforced at the call site, with a test that bites)
+
+1. **THE LATCH LAW (measured here):** a motion daemon is LATCHED, never timed. It waits for player-bound +
+   `IsMovementEnabled` + each target's ready bit (set after its `CreateObject`), with the bits cleared in Main_Init.
+   A fixed warm-up threw at field entry.
+2. **THE NULL-TARGET LAW:** `0xAD` has no null guard. A motion prop may not be gated (`requires_flag`), attached
+   (`attach_to`), terminated, a behavior unit or a platform. Per-target ready bits also make an ungated
+   late spawn safe.
+3. **THE FACING-READ LAW:** `obj(uid).f[3]` throws on a non-actor, so the daemon never reads a facing it did not write.
+4. **THE DONOR-BRANCH LAW** (judge, source-read): from a non-actor entry `actor` is null, and `0xAD`'s effective-id
+   1207 / 2456 branches dereference `actor.uid`. Refuse motion on forks of those donors, or seat the daemon in an
+   invisible actor entry.
+5. **Walkers are refused:** `0xBF` re-grounds, and an off-mesh point falls back to triangle 0.
+6. `r · 4096` stays inside Int24 (`expr_Push_v0_Int24`); the per-tick step stays small.
+7. Use `B_SIN2`/`B_COS2` for slow motion (4096 a turn); `B_SIN` (256) steps visibly at long periods.
+8. A field with no motion builds byte-identically.
+
+## Rung 1 — the kit feature (design)
+
+`[[prop]] motion = { kind = "orbit" | "pendulum" | "bob" | "spiral", center, r, period, phase, height, tangent = true }`,
+plus a row form `wave = { every, dphase }` for a phase-locked line. It compiles to the existing prop entries (a ready
+bit after `CreateObject`) and ONE per-field motion daemon (latched, `0xAD` + `0x87`, `B_SIN2`/`B_COS2`). `behavior
+compile`-style reporting prints each mover's predicted path, since the predictor is exact. Tests: byte pins of the
+daemon, the predictor against an interpreter over a full period, a refusal per law, golden identity. The in-game proof
+reruns this rung-0 scenario against the compiled daemon. The airborne shadow default is agreed with the blob-shadow
+work (airborne kinds default `shadow = false`).
+
+## Corrections to the board entry
+
+- The tangent is θ + **192**, not + 64 (calibrated on the engine's own walk, C6).
+- The mask-and-wrap rationale is moot: one daemon clock needs no per-prop MAP clocks, and the board missed
+  `B_SIN2`/`B_COS2`, which slow motion needs.
+- A daemon needs a **latch**, not a warm-up: the board's plumbing would have thrown at field entry exactly as run 1 did.

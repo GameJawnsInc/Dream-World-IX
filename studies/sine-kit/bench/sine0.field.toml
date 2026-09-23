@@ -1,0 +1,51 @@
+# =====================================================================================
+# THE SINE KIT, RUNG 0 -- computed prop motion in-game  --  field 30945
+# =====================================================================================
+# One flat floor, two plain kit props. The MOTION is not authored here: studies/sine-kit/sine0_bench.py
+# seats a code-entry DAEMON into the deployed .eb (the rung-0 bench is study-local -- no kit code), which
+# every tick mirrors both props' published transform, advances a clock, and re-places them with
+# MoveInstantXZYEx 0xAD (x, the negated-height operand, z) + TurnInstantEx 0x87 driven by B_SIN / B_COS / B_SIN2:
+#   balloon  (A)  orbit r=300 around (0,-800), 128 ticks a turn, height 150, facing along its travel
+#   cask     (B)  the same orbit half a turn behind A, plus a vertical bob of +-60 every 256 ticks
+#
+#   py studies/sine-kit/sine0_bench.py deploy      (deploys 30945, then patches the live .eb)
+#   py tools/play.py studies/sine-kit/rung0_sine.py --label sine-rung0
+
+[field]
+id = 30945
+name = "SINE0"
+area = 11
+title = "SINE 0"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -1600]
+
+[[prop]]
+prop = "balloon"
+pos = [0, -500]
+collision = false
+shadow = false
+
+[[prop]]
+prop = "cask"
+pos = [0, -1100]
+collision = false
+shadow = false
