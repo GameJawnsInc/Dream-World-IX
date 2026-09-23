@@ -375,3 +375,19 @@ def test_wander_rerolls_every_plus_one_selected_ticks():
             rolls.append(t)
         prev = cur
     assert len(rolls) >= 4 and all(b - a == 11 for a, b in zip(rolls, rolls[1:])), rolls
+
+
+def test_a_seeded_wander_replays_its_in_game_target_sequence():
+    """A seeded wander's targets in the simulator ARE the stream's (content/rollstream.py) -- the same
+    sequence the compiled bytes produce in-game (tests/test_behavior_stream pins that side)."""
+    from ff9mapkit.content import rollstream as RS
+    raw = _field([_unit("a", [{"do": {"wander": [0, 0], "radius": 300, "every": 10, "seed": 7}}])])
+    sim = SIM.Sim(raw)
+    seen = []
+    for t in range(0, 80):
+        sim.run_to(t)
+        tg = sim._units[0].wander_tgt
+        if tg is not None and (not seen or seen[-1] != tg):
+            seen.append(tg)
+    x0 = RS.seed_state(RS.wander_ident("a"), 7)
+    assert seen[:5] == [RS.wander_target(s, 0, 0, 300) for s in RS.states(x0, 5)]

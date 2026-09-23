@@ -109,6 +109,7 @@ class _Unit:
     marching_done: bool = False
     wander_tgt: tuple | None = None
     wtimer: int = 0                    # wander re-roll countdown (per unit, selected ticks only)
+    wstream: int | None = None         # a SEEDED wander's private roll-stream state
     register: str | None = None        # engage target register
     mirror: tuple = (0, 0)             # last-alive position (scan-freeze semantics)
 
@@ -246,6 +247,7 @@ class Sim:
             u.sel, u.feed, u.feed_speed = -1, None, 0
             u.wp, u.marching_done, u.wander_tgt, u.register = 0, False, None, None
             u.wtimer = 0
+            u.wstream = None
         self._history = []
         self._snapshot(0)
         self.run_to(tick)
@@ -638,9 +640,18 @@ class Sim:
                 u.wtimer -= 1
             else:
                 u.wtimer = hold
-                ox = int((_rand8(tick, u.name, "x") - 128) * radius / 128)     # C# int division truncates
-                oz = int((_rand8(tick, u.name, "z") - 128) * radius / 128)
-                u.wander_tgt = (centre[0] + ox, centre[1] + oz)
+                if do.get("seed") is not None:
+                    # a SEEDED wander replays its private roll stream exactly (content/rollstream.py): the
+                    # target SEQUENCE is the in-game one; only the timing is the simulator's
+                    from ..content import rollstream as _RS
+                    if u.wstream is None:
+                        u.wstream = _RS.seed_state(_RS.wander_ident(u.name), int(do["seed"]))
+                    u.wstream = _RS.advance(u.wstream)
+                    u.wander_tgt = _RS.wander_target(u.wstream, int(centre[0]), int(centre[1]), radius)
+                else:
+                    ox = int((_rand8(tick, u.name, "x") - 128) * radius / 128)     # C# int division truncates
+                    oz = int((_rand8(tick, u.name, "z") - 128) * radius / 128)
+                    u.wander_tgt = (centre[0] + ox, centre[1] + oz)
             p = u.wander_tgt
         else:
             self._note_once(f"action {verb!r} is not simulated (the unit stands)")
