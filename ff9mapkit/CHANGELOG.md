@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — an authored shadow `intensity` stops at 15, because the engine's blob colour wraps after it
+- **`shadow = { intensity = N }` now takes 0–15, not 0–31**, on `[player]`, `[[npc]]`, `[[prop]]`, `[[chest]]`
+  and `[[savepoint]]`. The kit emits `SetShadowAmplifier(intensity << 3)`, and the op's one-byte argument encodes
+  all of 0–31. But `EventEngine.SetRenderer` draws the blob in colour `(Byte)(amp * 2)`, so from 16 the colour
+  wraps: 16 drew no shadow at all, and 31 drew the same as 15. An author asking for a darker shadow got a lighter
+  one or none. Validate (and the build) now refuse 16–31. The message explains the wrap and names the model's
+  census value when the model is known (`[[npc]]`, and every build-time resolve).
+- **The census is unchanged.** Models 200 and 488 carry stock's own MapConfigData intensity 16, which wraps the
+  same way in stock, so an absent key still emits it and still matches stock.
+- **In-game proven** (harness, bench 30922, `studies/actor-shadow/intensity_wrap.py`). Two runs swap the
+  intensities between the same four NPC slots. The same slot at 15 and at 31 is pixel-identical, within each run's
+  own repeat-shot noise, and so is 16 against 0. Against a no-shadow control, 15 and 31 darken the floor by 8–11%
+  luminance, and 16 and 0 read 0.998–1.000. `tests/test_shadow_intensity_wrap.py` pins the cap to the engine's
+  colour formula (`shadow.blob_colour`). Each test is mutation-checked.
+
 ### Fixed — `fetch-assets` restores a campaign member's missing MapConfigData
 - **A member whose toml declares `[field] mapconfig` now requires that file.** Both fork writers (borrow and
   native) emit `mapconfig.bytes` and the line, and the build refuses a member whose MCF is absent. But
