@@ -1,7 +1,8 @@
 # Actor shadows on kit-built fields
 
 **Status:** ★ rung 0 PASSED in-game (harness, bench 30920). Every actor casts the stock shadow; the opt-out
-actor casts none.
+actor casts none. ★ The SET PIECES follow-up PASSED in-game (harness, bench 30921): props follow stock's own
+per-model treatment, chests and the save moogle cast, held props never do (see "Set pieces" below).
 
 ## The defect
 
@@ -85,11 +86,96 @@ Census shadows are subtle on purpose. The intensity comes from stock rooms (most
 darkens its footprint by about 5-10%. Whether that reads well on painted art is the owner's call. The
 `intensity` override is the lever if it doesn't.
 
+## Set pieces — props, chests, the save point (bench 30921, `set_pieces_shadow.py`)
+
+### The census said the obvious design was wrong
+
+"Stock MCFs shadow accessory models" is true of the MCF and false of the game. The MCF service gives EVERY
+actor a shadow, but an object's Init can `DisableShadow` (0x80: char attr bit 16, and `SetRenderer` turns
+the quad's renderer off), and stock does exactly that to most set dressing. Over all 817 scripts, one row per
+object entry with a literal Init `SetModel`:
+
+| class | objects | what stock does to the shadow |
+|---|---|---|
+| held (an `AttachObject` target) | 140 in 95 fields | disabled on 139 (125 in the Init) |
+| chests (the four TBX models) | 224 | kept on 221; 218 have their own MCF row |
+| other free-standing accessories | 556 | **disabled in the Init on 476** (tent 66/67, save book 58/58, letter 57/57, cactus 30/30); kept by the cask 19/19, the aircab, TRK, the fish |
+| save moogles (own a `Menu(4,0)`) | 58 | kept on 58 -- no Init op; only `DisableShadow`/`EnableShadow` pairs around hops (the act's tag 3 on all 58, tag 1 on 3) |
+
+So the prop rule has to be per model, and it has to come from stock's script. The regen now bakes a second
+table, `_shadowparams.STOCK_CASTS`. A free-standing object votes "disabled" when a `DisableShadow` block
+**dominates every exit** of its Init (`eb.cfg.FuncFlow`, not "an 0x80 anywhere"). A tie counts as disabled.
+The dominator rule and the any-0x80 rule disagree on one model only (`GEO_SUB_F0_KUW`). The result: 235 of
+327 models cast, and 16 of the 84 accessory models do. A model no stock object shows standing free casts none
+(`PROP_DEFAULT_CASTS`, the accessory majority).
+
+Why a held item must not cast, beyond the vote: `FieldMapActor.GetShadowCurrentPos` takes the quad's x/z from
+the root bone's world position but its HEIGHT from `transform.localPosition`, which for an attached object is
+its bone-local offset. Memoria carries hotfixes for exactly this class (the Synthesist's sword, the
+pickaxes, Dante's glass).
+
+### The rule
+
+- `[[prop]]` casts when `STOCK_CASTS` says stock's objects of that model do (absent key), or when the author
+  says so (`true` / a table); `false` = none. A composite applies an explicit value to every part; absent,
+  each part follows its own model (the `save_point` composite's moogle casts, its book does not).
+- A held prop (`attach_to`, `[[npc]] holds`) never casts. `inject_prop` drops the value, and `shadow = true`
+  on one is a validate error.
+- `[[chest]]` casts with the `[[npc]]` semantics (every TBX model casts).
+- The save point's moogle casts (census `(6, 2)`), at its Init tail after the reveal/act preloads. Its
+  barrel_pop cask casts by the prop rule. `[[savepoint]] shadow = false` darkens both; a table sizes the moogle.
+  The act's book + feather keep their donor `DisableShadow` and get no ops.
+- Same shape everywhere: `81 00 RR RR 85 00 AA` straight into the Init's RETURN. Only when the field ships no
+  MCF (`build._casts_stock_shadows`).
+
+### In-game (harness, bench 30921, against a same-bench control)
+
+`bench/set_pieces.field.toml`: row A has a cask prop, a cactus (stock-dark), the same cactus with
+`shadow = true`, and a chest. Row B has an instant save moogle, an NPC holding a cup, and a barrel_pop save
+point. The control, `bench/set_pieces_control.field.toml`, puts `shadow = false` on every set piece: exactly
+their pre-change bytes. The player and the NPC keep their rung-0 shadows in both builds.
+
+The field camera FOLLOWS the player (the canvas is taller than the screen), so only the spawn frame is
+pixel-comparable between runs. The spawn sits between the rows to frame both. Runs are archived in the main
+repo's `.harness-runs/`: `20260923-112310-shadow-rung1-on`, `-112430-shadow-rung1-control`,
+`-112656-shadow-rung1-caskdiag`. All three passed 19/19.
+
+| actor | deployed ops | darkened >=5% | luminance on/control |
+|---|---|---|---|
+| cactus, `shadow = true` | (8, 8) + 32 | 25.8% | 0.935 |
+| chest (TBX) | (10, 10) + 32 | 12.1% | 0.982 |
+| instant save moogle | (6, 6) + 16 | 12.4% | 0.982 |
+| **cactus** (stock-dark) | none | **0.0%** | **1.000** |
+| player / holder NPC (unchanged by this change) | rung-0 ops, both builds | 0.0% / 0.4% | 1.000 / 1.000 |
+| cask prop / barrel_pop cask | (11, 11) + 40 | 0.0% / 0.0% | 1.000 / 1.000 |
+
+- **The casks, calibrated.** At census size the quad is 154 x 132u, and the barrel's own footprint is about
+  380u across. So the blob is drawn entirely underneath it, as stock's casks' are (their MCF sizes run 10-18).
+  To tell "hidden" from "the op did nothing on this object", the shadows-on `.eb` was byte-patched in place:
+  only the two casks' `81 00 0B 0B` became `81 00 28 28`. That calibration run reads 0.564 / 77.4% (cask
+  prop) and 0.643 / 63.7% (barrel_pop cask), with a wide halo around both. The ops are live on both Init
+  paths; at census size stock's look is "no visible blob".
+- **Repeatability:** the calibration run reproduces the census run's unaffected rows exactly (0.935 / 0.982 /
+  0.982). Control scored against itself reads 1.000 / 0.0%.
+- **The barrel_pop reveal still runs** with the 7 new bytes in both the moogle's and the cask's Init. Pressing
+  the cask takes control and hands it back (its handshake poll). The zone then opens the menu, and its gate
+  passes only after the moogle's pop arm wrote OUT. Cancel returns control. The popped moogle stands on the
+  cask; its shadow on the cask top is not distinguishable by eye and not measured (the box scores floor
+  pixels only).
+- **Exceptions:** none through a shadow path. `FieldMapActorController.MovePC` throws its pre-existing
+  NullReferenceException 26 times in both the shadows-on and control runs (24 in the calibration run).
+- **Not exercised in-game:** the save act itself (its verbatim `DisableShadow`/`EnableShadow` hop pair).
+  Offline, the book + feather keep `DisableShadow` and the moogle's ops sit ahead of the act body.
+
 ## Follow-ups (not in this change)
 
-- `[[prop]]`, `[[chest]]` and the save-point moogle still cast no shadow. Stock gives accessory models one
-  (the chest `GEO_ACC_F0_TBX` is `(10-11, 4)`), but held props must not get one. That needs its own design.
 - An `--editable` fork's grafted donor objects still cast none: the fork ships no MCF, and the objects are not
-  `[[npc]]`s.
+  `[[npc]]`s. (In progress in another worktree at the time of writing.)
+- `[[npc]]` still takes the census shadow for every model. `STOCK_CASTS` shows 23 non-accessory models whose
+  stock objects mostly `DisableShadow` in their Init: chocobos (`GEO_NPC_F0_CCB` 32/43), frogs, tadpoles,
+  several monsters. An NPC of those models casts a shadow stock never shows. The same per-model rule could
+  apply, but it changes rung 0's semantics and needs its own in-game check.
+- On a field that ships MapConfigData, a held prop gets the MCF's shadow (its height taken from the
+  bone-local offset). Stock would `DisableShadow` it. The kit emits nothing there by design (no ops on an MCF field).
 - The pre-existing `FieldMapActorController.MovePC` NullReferenceException, about 26 per run on the
   checkerboard benches, both with and without shadows.
