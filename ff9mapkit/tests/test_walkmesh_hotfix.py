@@ -308,6 +308,28 @@ def test_import_2161_records_the_donor_on_every_fork_kind(tmp_path):
     _, p = extract.write_editable_project(donor, tmp_path / "ip", name="LB", field_id=2161)
     raw = _raw(p)
     assert "source_field" not in raw["field"] and "walkmesh_tri_toggles" not in raw["field"]
+    # a plain BG-borrow records it too (it used to record none: no row, no prepend, so tri 69 was simply lost)
+    _, p = extract.write_field_project(donor, tmp_path / "bb", name="LB", field_id=30999)
+    raw = _raw(p)
+    assert raw["field"]["source_field"] == 2161 and build.donor_field_id(raw) == 2161
+    assert raw["field"]["borrow_bg"] and "walkmesh_tri_toggles" not in raw["field"]
+    _, p = extract.write_field_project(donor, tmp_path / "bbip", name="LB", field_id=2161)
+    assert "source_field" not in _raw(p)["field"]
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_bg_borrow_import_of_2356_prepends_its_raw_gated_hotfix(tmp_path):
+    """2356's engine gate stays on the raw fldMapNo, so no donor row reproduces it: every fork must prepend it. The
+    borrow path used to write no hotfix line at all, so a borrow of 2356 lost it; it runs on the donor's own .bgi,
+    so the prepended tri ids are exactly the donor's."""
+    from ff9mapkit import build, extract
+    _, p = extract.write_field_project("2356", tmp_path, name="GLUG_FORK", field_id=30999)
+    raw = _raw(p)
+    assert raw["field"]["borrow_bg"] and build.donor_field_id(raw) == 2356
+    assert raw["field"]["walkmesh_tri_toggles"] == [[78, 0], [79, 0], [80, 0]]
+    ops = _tag0_ops(build.build_script(build.FieldProject.load(p), "us", {}))
+    toggles = [(ENABLE_PATH_TRIANGLE, [t, 0]) for t in (78, 79, 80)]
+    assert any(ops[i:i + 3] == toggles for i in range(len(ops))), ops[:12]   # in Main_Init (other levers prepend too)
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
@@ -351,7 +373,9 @@ def test_a_2507_fork_player_binds_before_the_pass_with_no_guard(tmp_path):
     idle = [(WAIT, [1]), (0x01, [0x10000 - 6])]
     for name, (fid, extra) in {"donor": (30999, "source_field = 2507\n"),            # --native / --editable
                                "in_place": (2507, ""),                                # EffectiveFieldId == 2507
-                               "borrow": (30999, 'borrow_bg = "IPSN_MAP745A_IP_HL2_0"\n'),   # a BG-borrow
+                               "borrow_donor": (30999, 'borrow_bg = "IPSN_MAP745A_IP_HL2_0"\n'
+                                                       'source_field = 2507\n'),     # a plain `import` (borrow)
+                               "borrow": (30999, 'borrow_bg = "IPSN_MAP745A_IP_HL2_0"\n'),   # an older borrow
                                "novel": (30999, "")}.items():
         p = tmp_path / f"{name}.field.toml"
         p.write_text(base.format(fid=fid, extra=extra), encoding="utf-8")
@@ -359,3 +383,21 @@ def test_a_2507_fork_player_binds_before_the_pass_with_no_guard(tmp_path):
         assert _player_loop_ops(eb) == idle, name
         ran = _executed_ops(eb, _find_player_entry(EbScript.from_bytes(eb)), 0)
         assert 0x2C in ran and 0x00 not in ran and WAIT not in ran, name
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_bg_borrow_import_of_2507_records_its_donor_and_binds_its_player(tmp_path):
+    """A plain `import 2507` records its donor, so its ForkDonorPatch row makes the engine run the delayed pass on
+    the fork. Its kit-built player must already be the player by then: the built Init reaches
+    DefinePlayerCharacter with no yield, and the Loop stays the plain idle loop (no guard needed)."""
+    from ff9mapkit import build, extract
+    from ff9mapkit.content.npc import _find_player_entry
+    from ._ebwalk import executed_ops as _executed_ops
+    _, p = extract.write_field_project("2507", tmp_path, name="IPSN_FORK", field_id=30999)
+    raw = _raw(p)
+    assert raw["field"]["borrow_bg"] and build.donor_field_id(raw) == 2507   # -> the build/deploy emit `30999 2507`
+    assert "walkmesh_tri_toggles" not in raw["field"]             # an at-load prepend would drop the chests a floor
+    eb = build.build_script(build.FieldProject.load(p), "us", {})
+    assert _player_loop_ops(eb) == [(WAIT, [1]), (0x01, [0x10000 - 6])]
+    ran = _executed_ops(eb, _find_player_entry(EbScript.from_bytes(eb)), 0)
+    assert 0x2C in ran and 0x00 not in ran

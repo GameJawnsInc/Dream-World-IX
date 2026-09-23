@@ -28,6 +28,42 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - Every synthesized field builds different bytes; the vivi-hut build golden is re-pinned.
 - In-game A/B → `studies/fork-walkmesh-hotfix/FINDINGS.md`.
 
+### Fixed — `fetch-assets` restores a campaign member's missing MapConfigData
+- **A member whose toml declares `[field] mapconfig` now requires that file.** Both fork writers (borrow and
+  native) emit `mapconfig.bytes` and the line, and the build refuses a member whose MCF is absent. But
+  `campaign.missing_assets` checked only the fixed per-mode set (camera, walkmesh, native scene). So a member with
+  its art present and its MCF gone was never reported, and `fetch-assets` skipped it as complete. The required
+  set now adds the MCF the member's own toml names (`campaign._declared_mapconfig`). A member forked before the
+  writers emitted the line has no key and is not asked for one; stolen-ember's HEARTH and CHAPEL are such members.
+- Proven on a copy of stolen-ember with only TRAIL's `mapconfig.bytes` deleted: `fetch-assets` restores it,
+  byte-identical to the original. `tests/test_campaign.py` covers borrow, native and verbatim members, values
+  that point out of the member folder, and the fetch itself. Each is mutation-checked.
+
+### Fixed — a plain BG-borrow `import` records its donor, so it gets a ForkDonorPatch row
+- **`ff9mapkit import <field>` (BG-borrow) now writes `[field] source_field = <donor id>`**, as `--native`,
+  `--verbatim` and `--editable` do. A standalone borrow used to get no ForkDonorPatch row while the same borrow as
+  a campaign member got one from `plan.members`, so the two disagreed. Without the row, the custom engine's
+  `EffectiveFieldId` gates never fired on a standalone borrow.
+- **Only the id-keyed gates change.** A borrow runs on the donor's own `.bgs`/`.bgi` under the donor's FBG name,
+  so the name-keyed ones (s31 overlay offsets, s32) already resolved. Now 2161's tri 69 comes from the engine (a
+  borrow lost it outright before: no row and no prepend), 2507's delayed pass fires (the chests settle, then their
+  landing tris drop), and the in-field menu LOCATION shows the donor's place name instead of a blank
+  (`[field] location = "…"` still overrides it). A borrow of 2507 keeps its player through the
+  first-tick player bind above.
+- **What else sees the donor:** `lint` and the deploy-time text guard accept the donor's own text block, as they do
+  for a native fork, and the Workspace Place tab places content on the donor's real room, which is the room a
+  borrow renders. A fork forked in place on the donor's id, or whose donor id did not resolve, records nothing.
+- **In-game (harness):** a 2507 borrow with the row and the same toml without it, one launch. With the row the
+  chests read triangle -1 (the pass fired), without it they sit on the landing; the player stays on the walkway
+  on both and stops where the real field's does; the menu LOCATION reads "I. Castle/Stairwell" with the row and
+  is blank without it. 14/14, no engine exceptions (`studies/fork-walkmesh-hotfix/`).
+- **A borrow of 2356 gets its walkmesh hotfix.** The borrow path now writes the same walkmesh-hotfix line as the
+  other imports, so 2356's raw-gated toggle (no row can fire it) is prepended; the path used to write none, and
+  the hotfix was lost. A borrow runs on the donor's own `.bgi`, so the toggled tris are exactly the donor's.
+  **In-game (harness):** the 2356 borrow with the toggle line and without it (the chest removed from both,
+  since its ~268u collision walls off the whole patch). Without it the player walks onto tri 80; with it the
+  player is held on tri 5 at the patch edge. 5/5, no engine exceptions.
+
 ### Fixed — an `import --editable` fork records its donor, so it gets a ForkDonorPatch row
 - **`import --editable` now writes `[field] source_field = <donor id>`**, as `--native`, `--verbatim` and every
   campaign member already did. That key is the only thing `deploy_field` and `build --out` turn into the
@@ -234,6 +270,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the one window at txid 500. An `--editable` or plain BG-borrow import records no donor, so a real
   `text_block` is taken as the donor's (the importer sets it that way). A recorded donor (a native fork's
   `source_field`, a verbatim one's `[verbatim_eb] donor`) must match exactly.
+- **In-game proven** (harness, the 1607 editable fork). With no `.mes` shipped, talking to the carried moogle
+  object8 shows the donor's own line 504, read from the base game's block 358. It matches that entry best out of
+  all 864, 0.93 against 0.84 for the runner-up. The control adds five event messages so the field's own
+  `358.mes` holds txids 500-504, and the same press shows the field's own line 504 instead. Both runs 5/5, no
+  exceptions.
 
 ### Fixed — a field revert removes the `.mes` its deploy wrote fresh
 - **The revert used to leave behind a `field/<block>.mes` that the deploy wrote where none existed.** It only

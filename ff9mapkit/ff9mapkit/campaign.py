@@ -676,10 +676,10 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
     # (memoria-patches/s24-fork-donor-remap); a no-op on a stock engine that doesn't read the file.
     #
     # NOT redundant with build_mod's own emit above, which overwrites -- KEEP BOTH. build_mod derives the donor
-    # from each member TOML (build._verbatim_donor_id), and a BG-borrow member (write_field_project) records no
-    # donor key at all, so build_mod cannot see it -- only plan.members' real_id can. (Editable members record
-    # source_field now, both the art-less stub and a re-fork with art; a member toml written before that did
-    # not.) Deleting this write silently drops those members' mappings.
+    # from each member TOML (build._verbatim_donor_id). Every writer records source_field now (BG-borrow,
+    # native, the art-less editable stub and a re-fork with art), but a member toml written before that did not,
+    # so build_mod cannot see it -- only plan.members' real_id can. Deleting this write silently drops those
+    # members' mappings.
     donor_lines = [f"{m.new_id} {m.real_id}" for m in plan.members
                    if getattr(m, "real_id", None) and m.new_id != m.real_id]
     if donor_lines:
@@ -1487,16 +1487,32 @@ def add_field(plan: CampaignPlan, manifest_dir, *, name, source=None, game=None)
 
 # ---- SE-derived member sidecars: what a tracked checkout is missing + how to re-materialize it ----
 # The per-mode sidecars a forked member's BUILD reads (its authored toml references them by these fixed
-# names). Everything else the fork writers emit (object/gateway bins, background.png, carrytext) is
-# copied opportunistically by fetch_assets, but its absence is legal -- the authored toml may not
-# reference it.
+# names), plus the donor MapConfigData when the authored toml declares it (_declared_mapconfig).
+# Everything else the fork writers emit (object/gateway bins, background.png, carrytext) is copied
+# opportunistically by fetch_assets, but its absence is legal -- the authored toml may not reference it.
 _REQUIRED_ASSETS = {
     "borrow": ("camera.bgx", "walkmesh.bgi"),
     "native": ("camera.bgx", "walkmesh.bgi", "scene.bgs.bytes", "atlas.png"),
 }
 
 
-def _member_required_assets(plan: CampaignPlan, m: Member) -> tuple:
+def _declared_mapconfig(toml_path) -> "str | None":
+    """The member toml's ``[field] mapconfig`` -- the donor MCF its build ships (build.mapconfig_bytes), and
+    validate() refuses the build when that file is absent. Both fork writers (borrow + native) emit it, but
+    only as the key's value, so it is required only where the authored toml says so: a member forked before
+    the writer emitted it has no key and builds without the file. ``[field]`` never comes from a scene.toml
+    (build._SCENE_SCALAR), so the field.toml alone decides. None for no key, an unreadable toml, or a path
+    that would leave the member folder (the build refuses that one itself)."""
+    try:
+        mc = (load_toml(toml_path).get("field") or {}).get("mapconfig")
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    return mc if isinstance(mc, str) and mc and _rel_is_clean(mc) else None
+
+
+def _member_required_assets(plan: CampaignPlan, m: Member, mdir) -> tuple:
+    """The SE-derived sidecars member ``m``'s build reads, as paths relative to its folder ``mdir``, whose
+    authored toml is consulted for ``[field] mapconfig``."""
     if not m.real_id or m.mode not in _REQUIRED_ASSETS:
         return ()                                        # blank/editable member: nothing SE-derived
     if m.needs_export:                                   # logic-only stub: no art shipped, just the frame
@@ -1504,6 +1520,9 @@ def _member_required_assets(plan: CampaignPlan, m: Member) -> tuple:
     req = _REQUIRED_ASSETS[m.mode]
     if plan.verbatim:                                    # a verbatim member also ships its donor's whole .eb
         req = req + (f"{m.name}.verbatim_eb.bin",)
+    mc = _declared_mapconfig(Path(mdir) / Path(m.toml_rel).name)
+    if mc and mc not in req:                             # the donor lighting its toml ships
+        req = req + (mc,)
     return req
 
 
@@ -1516,7 +1535,7 @@ def missing_assets(plan: CampaignPlan, manifest_dir) -> "dict[str, list[str]]":
     out = {}
     for m in plan.members:
         mdir = (manifest_dir / m.toml_rel).parent
-        miss = [a for a in _member_required_assets(plan, m) if not (mdir / a).is_file()]
+        miss = [a for a in _member_required_assets(plan, m, mdir) if not (mdir / a).is_file()]
         if miss:
             out[m.name] = miss
     return out
@@ -1540,10 +1559,10 @@ def fetch_assets(plan: CampaignPlan, manifest_dir, *, game=None, force=False) ->
     remap = {m.real_id: m.new_id for m in plan.members if m.real_id}
     written: dict = {}
     for m in plan.members:
-        required = _member_required_assets(plan, m)
+        mdir = (manifest_dir / m.toml_rel).parent
+        required = _member_required_assets(plan, m, mdir)
         if not required:
             continue
-        mdir = (manifest_dir / m.toml_rel).parent
         if not force and all((mdir / a).is_file() for a in required):
             continue
         with tempfile.TemporaryDirectory(prefix=f"ff9mk-fetch-{m.name}-") as td:

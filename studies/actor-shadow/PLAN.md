@@ -307,9 +307,11 @@ repo's `.harness-runs/`: `20260923-112310-shadow-rung1-on`, `-112430-shadow-rung
   before the warp. A stock Memoria bug, FIXED by engine patch s87
   (`memoria-patches/s87-field70-movepc-walkmesh-guard.patch`).
 - ~~A plain `import` (BG-borrow) carries objects too and ships no MCF~~ -- DONE, rung 2.
-- `campaign._REQUIRED_ASSETS` does not list `mapconfig.bytes` for a borrow or a native member, though both
-  writers now emit it and the member toml references it. `fetch_assets` copies it whenever it re-runs a writer,
-  but `missing_assets` cannot report it missing on its own. `validate` catches it at build, loudly.
+- CLOSED: `campaign.missing_assets` did not require `mapconfig.bytes` for a borrow or a native member, though
+  both writers emit it and the member toml references it. A member with its art present and its MCF gone went
+  unreported, so `fetch_assets` skipped it. The required set now adds the MCF the member's own toml declares
+  (`campaign._declared_mapconfig`). On a stolen-ember copy with only TRAIL's MCF deleted, `fetch-assets`
+  restores it byte-identical to the original.
 - CLOSED: `walkmesh.links.toml` seams were keyed on donor floor numbers too, so a renumbering reshape dropped
   them (2 of 14 on the 1607 swap). The build now re-keys them through the same map as the lights
   (`build._donor_floor_map` -> `apply_seams(seams, floor_map)`). `census_seam_rekey.py` checked all 674 field

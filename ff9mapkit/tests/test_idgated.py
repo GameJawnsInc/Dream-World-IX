@@ -31,7 +31,7 @@ def test_letterbox_is_kept_on_a_donor_recorded_fork():
     assert IG.is_letterboxed(4003) is False and IG.is_letterboxed(None) is False
     # s23 + s65 give a fork with a ForkDonorPatch row the donor's exact width ...
     assert IG.loses_letterbox(2356) is False
-    # ... an --editable or plain BG-borrow import has no row: s23 falls back to the BG camera's width
+    # ... a fork that records no donor has no row: s23 falls back to the BG camera's width
     assert IG.loses_letterbox(2356, donor_recorded=False) is True
     assert IG.loses_letterbox(101, donor_recorded=False) is False
 

@@ -6,7 +6,8 @@ When you fork a field it runs at a new custom id (>= 4000), so every engine spec
 id silently stops firing. The custom engine's fork-gate suite (``memoria-patches/``) routes many gates through
 ``EffectiveFieldId``, which restores them for a fork that RECORDS ITS DONOR: ``[verbatim_eb] donor`` /
 ``[field] source_field`` becomes a ``ForkDonorPatch.txt`` row, the only thing ``EffectiveFieldId`` reads.
-``import --native``/``--verbatim`` record it; an ``--editable`` or plain BG-borrow import does not. An entry
+Every ``import`` records it (``--native``/``--verbatim``/``--editable`` and a plain BG-borrow); a toml
+written before its mode began to, or one whose donor id did not resolve, has none. An entry
 whose detail says ``reproduced`` is kept on such a fork; ``fork-report`` counts the rest as losses. The
 USER-VISIBLE ones:
 

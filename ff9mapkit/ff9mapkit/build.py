@@ -4168,9 +4168,9 @@ def _donor_text_served(project: FieldProject) -> tuple:
     (:func:`collect_text`'s body plus the ``[carry_text]`` band); a donor window on one of those shows the
     field's line instead.
 
-    The donor's block is known exactly when the project records a donor (:func:`donor_field_id`: a native
-    or ``--editable`` fork's ``source_field``, a verbatim one's ``[verbatim_eb] donor``). A plain BG-borrow
-    import records none, and neither does an ``--editable`` toml written before it began to, so a REAL
+    The donor's block is known exactly when the project records a donor (:func:`donor_field_id`: a native,
+    ``--editable`` or BG-borrow fork's ``source_field``, a verbatim one's ``[verbatim_eb] donor``). A
+    BG-borrow or ``--editable`` toml written before import began to record it has none, so a REAL
     ``text_block`` is taken as the donor's: ``import`` sets it to the donor's block, or to the fork's own id
     when the donor can't be resolved. Anything unreadable gives ``(False, set())``, the loud side. (Only the
     synthesized path grafts ``[[object]]``s -- ``build_script`` -- so its ``collect_text`` layout is the one that
@@ -4201,8 +4201,7 @@ def lint_text_block(project: FieldProject) -> list:
     merely permitted (voice-acting clips resolve off the same mesID, and ``UniversalTextId``'s dual-language
     remap is keyed by a table of real mesIDs). So is a field whose build writes no ``.mes`` at all
     (:func:`ships_field_mes`): it only READS the block. That is a fork import without ``--carry-text``
-    that records no donor key (a plain BG-borrow, or an older ``--editable`` toml) but keeps its donor's
-    block. The deploy-time guard in :mod:`deploystack` is the AUTHORITATIVE one -- only it can see the live
+    that records no donor key (an older BG-borrow or ``--editable`` toml) but keeps its donor's block. The deploy-time guard in :mod:`deploystack` is the AUTHORITATIVE one -- only it can see the live
     FolderNames stack, the cross-folder axis and the files a deploy really copies; this half needs none of them."""
     tb = project.text_block
     if not is_real_text_block(tb):
@@ -6684,8 +6683,8 @@ _UID_HOTFIX_DONORS = frozenset((900, 2803))
 
 def donor_field_id(raw) -> "int | None":
     """Best-effort donor field id of ANY fork (verbatim OR native/synth) from a parsed field.toml dict.
-    The import records it as ``[verbatim_eb] donor`` (verbatim) or ``[field] source_field`` (native/synth);
-    ``borrow_field`` is the BG-borrow form. ``None`` when an older fork's toml lacks it (pre-record forks
+    The import records it as ``[verbatim_eb] donor`` (verbatim) or ``[field] source_field`` (native/editable/
+    BG-borrow); ``borrow_field`` is the World Hub's form. ``None`` when an older fork's toml lacks it (pre-record forks
     need a hand-added line). Pure -- the Workspace Place tab resolves an OPEN doc's donor through this
     same reader, so the deploy-time ForkDonorPatch mapping and the GUI can never disagree."""
     for blk, key in (("verbatim_eb", "donor"), ("field", "source_field"), ("field", "borrow_field")):
@@ -10955,8 +10954,8 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     # written only at deploy time (tools/deploy_field.py), so a fork INSTALLED rather than deployed from the
     # repo lost every fork-donor behavior. NOVEL fields have no donor -> no file (same non-empty guard as the
     # battle/text patches above). build_campaign writes its own copy AFTER this one -- deliberately, and it
-    # must stay: its plan.members carry a real_id for EDITABLE members too, whose art-less stub toml records
-    # no donor at all, so campaign's set is a SUPERSET of what _verbatim_donor_id can see here.
+    # must stay: its plan.members carry a real_id for every member, including a member toml written before
+    # import recorded a donor, so campaign's set is a SUPERSET of what _verbatim_donor_id can see here.
     donor_lines = []
     for p in projects:
         donor = _verbatim_donor_id(p)
