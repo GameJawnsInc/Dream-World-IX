@@ -216,7 +216,21 @@ def run_suite(args) -> int:
     return 0 if passed else 1
 
 
+def _tolerant_console() -> None:
+    """Never let the CONSOLE kill a live run. Redirected to a file on Windows, stdout is cp1252, and
+    one check label carrying a glyph outside it (a star, an arrow) raised UnicodeEncodeError from
+    Session._log -- mid-scenario, after the game had already been driven, so the check it was
+    reporting was never recorded and the run ended as a crash. Unencodable characters degrade to
+    escapes instead; the report files are written as UTF-8 regardless."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="backslashreplace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv=None) -> int:
+    _tolerant_console()
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("scenario", nargs="?", help="a Python file exposing run(g)")

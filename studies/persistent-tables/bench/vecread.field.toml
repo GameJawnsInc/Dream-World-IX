@@ -1,0 +1,99 @@
+# =====================================================================================
+# PERSISTENT-VECTOR RUNG 0 -- THE READER  --  field 30861
+# =====================================================================================
+# Board entry #1 (studies/eb-uses-board/HANDOFF.md). Reads what vecwrite (30860) wrote.
+#
+# THE LOAD-BEARING PROPERTY: this field declares NO table, NO counter, NO group, NO scan
+# and NO class, so its build allocates no gScriptVector id and its Main_Init wipes
+# nothing. A save loaded INTO this field therefore shows exactly what the save carried.
+# (Loading into vecwrite instead would re-seed tid 4242 before the HUD reads it, and the
+# result would mean nothing either way -- the kit's re-seed law.)
+#
+# THE STRIP (one window, seven reads; slot i drives [NUMB=i]):
+#   0  size(4242)          10 once written, 0 when absent
+#   1  cell 3              4004 seeded, 4011 after one `bump` (a value only PLAY creates)
+#   2  sum of all 10       55055 seeded, 55062 bumped
+#   3  the other nine      1 when cells 0-2 and 4-9 all equal their seeds, else 0
+#   4  high cell 0         424242 (tid 8400000, a const4 id)
+#   5  size(8400000)       2
+#   6  size(4243)          THE NEGATIVE CONTROL -- an id nothing ever writes; must read 0
+#
+# Reading a missing vector returns 0 and never throws (EBin.cs:1646-1658), so SIZE is
+# what separates "absent" from "present" -- every probe value is non-zero on purpose.
+#
+#   py tools/deploy_field.py studies/persistent-tables/bench/vecread.field.toml --id 30861
+
+[field]
+id = 30861
+name = "VECREAD"
+area = 11
+title = "VEC READ"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+# the compile gate (see vecwrite): a [behavior] block needs a unit or it compiles to nothing
+[[npc]]
+name = "keeper"
+model = "GEO_NPC_F0_CSO"
+pos = [400, -837]
+
+[behavior]
+warmup = 30
+
+  [[behavior.unit]]
+  npc = "keeper"
+    [[behavior.unit.branch]]
+    do = { hold = [400, -837] }
+
+  [[behavior.hud]]
+  window = 6
+  digits = [2, 5, 5, 1, 5, 1, 1]
+  values = [
+    "expr:const(4242) B_VECTOR_SIZE",
+    "expr:const(4242) const(3) B_VECTOR",
+    """expr:const(4242) const(0) B_VECTOR const(4242) const(1) B_VECTOR B_PLUS
+       const(4242) const(2) B_VECTOR B_PLUS const(4242) const(3) B_VECTOR B_PLUS
+       const(4242) const(4) B_VECTOR B_PLUS const(4242) const(5) B_VECTOR B_PLUS
+       const(4242) const(6) B_VECTOR B_PLUS const(4242) const(7) B_VECTOR B_PLUS
+       const(4242) const(8) B_VECTOR B_PLUS const(4242) const(9) B_VECTOR B_PLUS""",
+    """expr:const(4242) const(0) B_VECTOR const(1001) B_EQ
+       const(4242) const(1) B_VECTOR const(2002) B_EQ B_ANDAND
+       const(4242) const(2) B_VECTOR const(3003) B_EQ B_ANDAND
+       const(4242) const(4) B_VECTOR const(5005) B_EQ B_ANDAND
+       const(4242) const(5) B_VECTOR const(6006) B_EQ B_ANDAND
+       const(4242) const(6) B_VECTOR const(7007) B_EQ B_ANDAND
+       const(4242) const(7) B_VECTOR const(8008) B_EQ B_ANDAND
+       const(4242) const(8) B_VECTOR const(9009) B_EQ B_ANDAND
+       const(4242) const(9) B_VECTOR const(10010) B_EQ B_ANDAND""",
+    "expr:const4(8400000) const(0) B_VECTOR",
+    "expr:const4(8400000) B_VECTOR_SIZE",
+    "expr:const(4243) B_VECTOR_SIZE",
+  ]
+  text = """[MPOS=8,8]==== VEC READ 30861 ====
+SIZE 4242      [NUMB=0]
+CELL 3         [NUMB=1]
+SUM 0-9        [NUMB=2]
+OTHER 9 OK     [NUMB=3]
+HIGH 0         [NUMB=4]
+HIGH SIZE      [NUMB=5]
+CONTROL SIZE   [NUMB=6]"""

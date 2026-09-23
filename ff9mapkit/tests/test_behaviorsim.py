@@ -344,3 +344,15 @@ def test_the_siege_view_simulates_readonly():
     assert doc.sim_btn.isChecked() and not doc.sim_bar.isHidden()
     doc._sim_show(30)
     assert doc._sim.at(30)["units"]                # the generated army ticks
+
+
+def test_a_persistent_table_is_named_in_the_honesty_ledger():
+    """The sim starts every table at its seed; in-game a persist = true table carries what the save
+    holds -- the ledger must say so rather than let the preview pose as the save's truth."""
+    raw = _field([_unit("a")], table=[
+        {"name": "memo", "values": [1, 2], "id": 6004242, "persist": True},
+        {"name": "eph", "values": [3]}])
+    notes = SIM.Sim(raw).notes
+    assert any("persistent table(s) memo start at their SEED" in n for n in notes), notes
+    assert not any("eph" in n for n in notes if "persistent" in n)
+    assert not any("persistent" in n for n in SIM.Sim(_field([_unit("a")])).notes)

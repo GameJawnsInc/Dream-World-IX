@@ -1243,10 +1243,19 @@ def _validate_summon(project: FieldProject, problems: list) -> None:
 #: completes the offline pipeline). validate() refuses one, naming the near miss (scout F13).
 _LADDER_KEYS = frozenset({
     "navigable", "rungs", "bottom", "top", "zone", "top_action", "top_field", "top_worldmap",   # navigable
+    "top_entrance", "floor_landing", "top_landing", "top_zone", "two_way_mount",                 # navigable ends
+    "reentry_entrance", "reentry_frac",                                                          # on-vine re-entry
+    "step", "up_mask", "down_mask", "dirs", "right_alias",                                       # navigable input
+    "mount_steps", "mount_anim", "top_mount_anim", "top_mount_steps",                            # navigable mount
+    "dismount_anim", "dismount_steps", "climb_frames",                                           # navigable motion
     "climb", "to",                                                                               # faithful / one-way
     "animation", "climb_anim", "face_angle", "steps", "zone_radius",                             # build_script knobs
     "arc_from", "arc_to",                                                                        # retired (refused)
 })
+# ⚠ Every key build_script's ladder loop reads MUST be here, or validate() refuses a ladder the build
+# would honour -- the first cut of this set missed 14 navigable keys (floor_landing, reentry_entrance,
+# two_way_mount, ...) and refused every two-way / re-entry / landing ladder. test_ladder pins the set to
+# the keys the loop reads (test_ladder_key_vocabulary_covers_every_key_the_build_reads).
 
 
 def validate(project: FieldProject) -> list[str]:
@@ -7544,6 +7553,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     warnings.append("[behavior] pool spawn-request flags (a [[choice]] "
                                     "set_flag row spawns the next pooled unit at the "
                                     "player): " + ", ".join(pl))
+                pt = [f"{nm} -> vector {fb.tables[nm][0]} (guard "
+                      f"{fb.tables[nm][0] + _behavior.PERSIST_GUARD_OFFSET}, check word {w})"
+                      for nm, w in fb.persist_words.items()]
+                if pt:
+                    warnings.append("[behavior] persistent tables (SAVE identity -- keep id, "
+                                    "name and length stable or every player's copy re-seeds): "
+                                    + ", ".join(pt))
         except (_behaviortoml.BehaviorTomlError, _behavior.BehaviorError) as e:
             raise BuildError(f"[behavior]: {e}") from e
 

@@ -1,0 +1,109 @@
+# =====================================================================================
+# PERSISTENT TABLES RUNG 1 -- THE WRITER (v1)  --  field 30862
+# =====================================================================================
+# The kit feature in-game: `memo` is persist = true (id 6004242, guard 7004242), so this
+# field's OWN Main_Init must NOT re-seed it -- the opposite of rung 0's writer. `eph` is an
+# ordinary twin (id 4300) that DOES re-seed every entry: the in-launch proof that Main_Init
+# really ran when `memo` kept its value.
+#
+# Levers (public flags; the harness raises them): bump -> memo[3] += 7 and eph[0] += 7;
+# arm_k -> counter k = 10 (= memo's length); bump_k -> memo[k] += 7 -- at k == 10 the engine
+# would APPEND an 11th cell, and the persistent append fence must skip that write.
+#
+# check word 27929820 = persist_check_word("memo", 10).
+#
+#   py tools/deploy_field.py studies/persistent-tables/bench/pwrite.field.toml --id 30862 --name PWRITE --text-block 30862
+
+[field]
+id = 30862
+name = "PWRITE"
+area = 11
+title = "P WRITE"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+# the compile gate: a [behavior] block needs a unit or it compiles to nothing
+[[npc]]
+name = "keeper"
+model = "GEO_NPC_F0_CSO"
+pos = [400, -837]
+
+[behavior]
+warmup = 30
+public_flags = ["bump", "arm_k", "bump_k"]
+counters = ["k"]
+
+  [[behavior.table]]
+  name = "memo"
+  id = 6004242
+  persist = true
+  values = [1001, 2002, 3003, 4004, 5005, 6006, 7007, 8008, 9009, 10010]
+
+  [[behavior.table]]
+  name = "eph"
+  id = 4300
+  values = [5005]
+
+  [[behavior.unit]]
+  npc = "keeper"
+    [[behavior.unit.branch]]
+    when = [{ flag = "bump" }]
+    adjust = [{ table = "memo", index = 3, by = 7, clamp = [0, 100000] },
+              { table = "eph", index = 0, by = 7, clamp = [0, 100000] }]
+    clear_flags = ["bump"]
+    do = { hold = [400, -837] }
+    [[behavior.unit.branch]]
+    when = [{ flag = "arm_k" }]
+    adjust = { counter = "k", by = 10, clamp = [0, 10] }
+    clear_flags = ["arm_k"]
+    do = { hold = [400, -837] }
+    [[behavior.unit.branch]]
+    when = [{ flag = "bump_k" }]
+    adjust = { table = "memo", index = "k", by = 7, clamp = [0, 100000] }
+    clear_flags = ["bump_k"]
+    do = { hold = [400, -837] }
+    [[behavior.unit.branch]]
+    do = { hold = [400, -837] }
+
+  [[behavior.hud]]
+  window = 6
+  digits = [2, 5, 5, 5, 1, 1, 5, 2]
+  values = [
+    "expr:const4(6004242) B_VECTOR_SIZE",
+    "expr:const4(6004242) const(3) B_VECTOR",
+    "expr:const4(6004242) const(9) B_VECTOR",
+    "expr:const4(6004242) const(10) B_VECTOR",
+    "expr:const4(7004242) const(0) B_VECTOR const4(27929820) B_EQ",
+    "expr:const4(7004242) B_VECTOR_SIZE",
+    "expr:const(4300) const(0) B_VECTOR",
+    "k",
+  ]
+  text = """[MPOS=8,8]== P WRITE v1 30862 ==
+T SIZE         [NUMB=0]
+CELL 3         [NUMB=1]
+CELL 9         [NUMB=2]
+CELL 10        [NUMB=3]
+CHECK OK       [NUMB=4]
+G SIZE         [NUMB=5]
+EPH 0          [NUMB=6]
+KCOUNT         [NUMB=7]"""

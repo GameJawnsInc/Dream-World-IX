@@ -652,3 +652,22 @@ def test_validate_flags_navigable_same_height(tmp_path):
         encoding="utf-8")
     proj = build.FieldProject.load(p)
     assert any("navigable" in x.lower() and "height" in x.lower() for x in build.validate(proj))
+
+
+def test_ladder_key_vocabulary_covers_every_key_the_build_reads():
+    """validate() refuses a [[ladder]] key outside build._LADDER_KEYS (an unknown key would silently pick
+    another mechanism). The set's first cut missed 14 navigable keys the build HONOURS -- floor_landing,
+    reentry_entrance, two_way_mount, dirs ... -- so valid ladders were refused. Pin the set to the keys
+    build_script's ladder loop actually reads (lad.get("k") / lad["k"] / "k" in lad / the kw tuples)."""
+    import inspect
+    import re
+    from ff9mapkit import build
+    src = inspect.getsource(build.build_script)
+    loop = src[src.index('for lad in project.raw.get("ladder"'):src.index("# jumps:")]
+    read = set(re.findall(r'lad(?:\.get\(|\[)"([a-z_]+)"', loop))
+    read |= set(re.findall(r'"([a-z_]+)" in lad\b', loop))
+    for tup in re.findall(r'for k in \(([^)]*)\):\s*\n\s*if k in lad', loop):
+        read |= set(re.findall(r'"([a-z_]+)"', tup))
+    assert len(read) >= 25, sorted(read)                    # the scan itself must have found the loop
+    missing = read - build._LADDER_KEYS
+    assert not missing, f"build_script reads ladder keys validate() refuses: {sorted(missing)}"

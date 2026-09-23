@@ -649,7 +649,9 @@ table = "sched"                      # engine instead of N unrolled bands
 - **Everything re-seeds at every field entry** (and `~ → Reload`): tables get their
   declared values, counters get 0 — deterministic per-session state, never a stale
   save tail (the seed truncates first). Vector ids allocate from 1000 per field
-  (`id = N` overrides; the ids are save-global, which the re-seed makes harmless).
+  (`id = N` overrides — anywhere but the reserved band 6000000..7999999; the ids are
+  save-global, which the re-seed makes harmless). The one exception is a
+  **persistent table** (`persist = true`, below), which is deliberately NOT re-seeded.
 - **Reading**: `counter_ge` / `counter_le` / `counter_eq = ["wave", 2]` gate branches
   on a counter; `table_ge` / `table_le` / `table_eq = ["sched", index, n]` compare a
   table cell — and `index` may be a **counter name**, which is a genuine
@@ -659,6 +661,65 @@ table = "sched"                      # engine instead of N unrolled bands
   below is the general clamped write.
 - **The clock stops itself**: when `wave` walks off the table's end, the read fails
   soft to 0 and `timer < 0` never holds — no latch flag, the data is the terminator.
+
+### Persistent tables — state that survives the save
+
+An ordinary table is re-seeded every time its field is entered. A **persistent** table is
+not: what play writes into it survives field entry, `~ → Reload`, battles, and save →
+quit → relaunch → load. It is the kit's first author-owned durable structure — counts, ledgers, "how many
+times".
+
+```toml
+[behavior]
+public_flags = ["arrived"]           # raised by a [[choice]] / gateway / event elsewhere
+
+[[behavior.table]]
+name = "mymod_visits"                # prefer a mod-prefixed name: the identity is save-global
+id = 6412345                         # REQUIRED, 6000000..6999999 -- pick YOUR OWN unused id;
+persist = true                       # every mod that copies this one shares one saved table
+values = [0, 0, 0]                   # the SEED -- what a fresh game (or a lost save) starts from
+
+[[behavior.unit]]
+npc = "innkeeper"
+  [[behavior.unit.branch]]
+  when = [{ flag = "arrived" }]
+  adjust = { table = "mymod_visits", index = 0, by = 1, clamp = [0, 9999] }
+  clear_flags = ["arrived"]
+  do = { hold_post = true }
+  [[behavior.unit.branch]]
+  do = { hold_post = true }
+```
+
+- **How it works.** Each persistent table T owns a one-cell *guard* vector at T + 1000000
+  holding a check word (a hash of the table's name and length). At `Main_Init` the table is
+  seeded **only when it is stale** — the guard does not hold its check word, or its size is
+  not its length — and the check word is written last. A matching table is left exactly as
+  the save left it.
+- **What re-seeds it** (every case lands on the declared values, today's ordinary behaviour —
+  it degrades, never breaks): a New Game; a save whose **Memoria extra file** is lost or
+  rejected (vectors ride only that file — in-game proven, `studies/persistent-tables/`); the
+  `~` Flags "reset all" (it clears every vector); a **rename** or a **length change**; a
+  different table claiming the same id.
+- **What does not.** Editing the seed *values* reaches new games only — existing saves keep
+  their cells. To force every player's copy to re-seed after a change of *meaning* at the same
+  length (a reordered or retyped cell), give the table a new `id`.
+- **The id is the save identity** — like a `[[flag]]` index. Every field that declares the
+  same id shares one saved table, so declare it **identically** (name, length) everywhere;
+  `lint-campaign` refuses campaign members that disagree, and `lint-journey` does the same
+  across the campaigns of one journey (they play into one save). Two tables that differ in
+  name or length on one id re-seed each other forever: data is lost, never misread — but two
+  with the SAME name and length on one id are one table, whatever their authors meant. Nothing
+  is auto-allocated in the band, and an ordinary table may not name an id inside
+  6000000..7999999.
+- **Values** stay within ±1000000 (a saved cell outlives the deploy that seeded it, and every
+  later `adjust` computes `cell + by` on it).
+- **Writes reach disk at the next save** — the field-entry autosave, or a save point.
+- **A counter-indexed write is fenced.** The engine *appends* a cell when a write lands at
+  exactly `index == length` (see the adjust lane below); on a persistent table that write is
+  skipped, so the table can never grow past its length and trip its own guard.
+- **Dev loop.** `~ → Reload` no longer resets a persistent table (that is the point); `~`
+  Flags "reset all" does. `~` Restore rolls back story flags only, not tables. Co-op does not
+  mirror vectors between machines.
 
 ## Adjust and drift — the numeric-write lane
 
@@ -697,7 +758,9 @@ every = 90                           # REQUIRED here, 1..30000 (an Int16 timer; 
 - **Targets**: `counter = "name"`, or `table = "name"` + `index =` an int
   (compile-time bounds-checked) or a **counter name** — the computed-index WRITE,
   the same in-game-proven composition the scan loop rides. Keep a runtime index in
-  range; an off-end write is silently lost (the engine lane's soft-fail family).
+  range; an off-end write is silently lost (the engine lane's soft-fail family) —
+  EXCEPT exactly `index == length`, where the engine APPENDS a cell (`EBin.cs:1926`).
+  Persistent tables fence that write; ordinary tables do not (the next entry re-seeds).
 - **Rates**: a branch `adjust` fires every selected tick by default; `every = 1..255`
   rides a byte timer (central clock under v1, a Seq-private Instance var under
   brains — per member for free on a class row). A drift's `every` is 1..30000.

@@ -1,0 +1,98 @@
+# =====================================================================================
+# PERSISTENT-VECTOR RUNG 0 -- THE WRITER  --  field 30860
+# =====================================================================================
+# Board entry #1 (studies/eb-uses-board/HANDOFF.md). The question: does a gScriptVector
+# cell written in play survive save -> quit to desktop -> relaunch -> load?
+#
+# This field WRITES. It declares two ordinary kit tables, so its Main_Init re-seeds them
+# on every entry (the kit's re-seed law, content/behavior.py THE TABLE SEED) -- which is
+# exactly why the READ happens in a different field (vecread, 30861) that declares no
+# table and so can never re-seed what it reads. A table's seed alone would prove only
+# that the seed ran; the `bump` lever adds a value that exists ONLY because of play:
+# cell 3 = 4004 seeded, 4011 after one bump.
+#
+#   tid 4242      ten distinctive cells, outside the kit auto band (1000 up)
+#   tid 8400000   a HIGH id (const4 encoding, inside the 26-bit domain) -- the band a
+#                 reserved persistent-tid range would plausibly live in
+#
+# Driven by studies/persistent-tables/rung0_persist.py (two harness launches). No product
+# code is exercised beyond shipped [behavior] vocabulary: table + adjust + hud.
+#
+#   py tools/deploy_field.py studies/persistent-tables/bench/vecwrite.field.toml --id 30860
+
+[field]
+id = 30860               # dev-scratch band (30000-32767; fldMapNo is Int16, max 32767)
+name = "VECWRITE"
+area = 11                # must be >= 10 (BG area 0-9 black-screens)
+title = "VEC WRITE"
+
+# the proven flat bench room (the completion-journal probe geometry + placeholder art)
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+# a [behavior] block with no unit compiles to NOTHING (behaviortoml.table() needs a unit),
+# so this NPC is the compile gate, not decoration. 400u off the spawn: actors jam <192u.
+[[npc]]
+name = "keeper"
+model = "GEO_NPC_F0_CSO"
+pos = [400, -837]
+
+[behavior]
+warmup = 30
+public_flags = ["bump"]        # the harness raises it; the branch below consumes it
+
+  [[behavior.table]]
+  name = "probe"
+  id = 4242
+  values = [1001, 2002, 3003, 4004, 5005, 6006, 7007, 8008, 9009, 10010]
+
+  [[behavior.table]]
+  name = "high"
+  id = 8400000
+  values = [424242, 17]
+
+  [[behavior.unit]]
+  npc = "keeper"
+    [[behavior.unit.branch]]
+    when = [{ flag = "bump" }]
+    adjust = { table = "probe", index = 3, by = 7, clamp = [0, 100000] }
+    clear_flags = ["bump"]
+    do = { hold = [400, -837] }
+    [[behavior.unit.branch]]
+    do = { hold = [400, -837] }
+
+  [[behavior.hud]]
+  window = 6
+  digits = [2, 5, 5, 5, 5]
+  values = [
+    "expr:const(4242) B_VECTOR_SIZE",
+    "expr:const(4242) const(0) B_VECTOR",
+    "expr:const(4242) const(3) B_VECTOR",
+    "expr:const(4242) const(9) B_VECTOR",
+    "expr:const4(8400000) const(0) B_VECTOR",
+  ]
+  text = """[MPOS=8,8]==== VEC WRITE 30860 ====
+SIZE 4242      [NUMB=0]
+CELL 0         [NUMB=1]
+CELL 3         [NUMB=2]
+CELL 9         [NUMB=3]
+HIGH 0         [NUMB=4]"""

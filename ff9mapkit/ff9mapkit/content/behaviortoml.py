@@ -35,7 +35,9 @@ Condition verbs (each ``when`` row is a dict with EXACTLY the verb key):
 COUNTER name — the computed-array-indexing read).
 
 Data tables (Memoria's gScriptVector, the 0xD3 VECTOR lane — re-seeded every
-field entry, so deterministic per-session state):
+field entry, so deterministic per-session state; ``persist = true`` + an ``id`` in
+6000000..6999999 is the one exception — a GUARDED table that survives field entry and
+save/load, see behavior.persist_seed_block):
 
     [behavior]
     timer = 180                              # the countdown HUD
@@ -135,7 +137,7 @@ FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "
               "counters", "table", "schedule", "scan", "group", "hud", "byte_band",
               "brains", "drift"}
 POOL_KEYS = {"name", "price", "button", "request_flag", "item"}
-TABLE_KEYS = {"name", "values", "id"}
+TABLE_KEYS = {"name", "values", "id", "persist"}
 SCHEDULE_KEYS = {"counter", "table"}
 SCAN_KEYS = {"name", "units", "point", "radius", "count", "flags", "group",
              "alive_only"}
@@ -477,14 +479,42 @@ def pool_specs(raw: dict) -> list:
 def table_specs(raw: dict) -> list:
     """The parsed ``[[behavior.table]]`` rows as :class:`behavior.TableSpec` — named
     int arrays backed by gScriptVector (the 0xD3 VECTOR lane), re-seeded at every
-    field entry."""
+    field entry unless ``persist = true`` (a guarded, save-surviving table). ``persist``
+    and a bool ``id`` pass through RAW so the compiler refuses a non-bool / a bool id
+    instead of this coercing ``1`` into ``True`` or ``true`` into id 1."""
     b = table(raw)
     out = []
     for row in (b.get("table", []) if b else []) or []:
+        rid = row.get("id")
         out.append(B.TableSpec(
             name=str(row.get("name", "")),
             values=tuple(row.get("values", []) or []),
-            id=(int(row["id"]) if row.get("id") is not None else None)))
+            id=(rid if rid is None or isinstance(rid, bool) else int(rid)),
+            persist=row.get("persist", False)))
+    return out
+
+
+def persistent_tables(raw: dict) -> list:
+    """``[(name, id, values)]`` for every WELL-FORMED ``persist = true`` row (an int id, a list of plain int
+    values) — the save-GLOBAL identities the campaign and journey lints compare across fields. ``[]`` when
+    there is no behavior. Never raises on a malformed table: a single-bracket ``[behavior.table]``, a scalar
+    ``values`` or a nested array is skipped here and reported by the field's own :func:`validate` — a
+    cross-member lint that crashed on one member's typo would hide every OTHER member's findings."""
+    b = table(raw)
+    rows = b.get("table", []) if b else []
+    if not isinstance(rows, list):
+        return []
+    out = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("persist") is not True:
+            continue
+        rid, vals = row.get("id"), row.get("values")
+        if not isinstance(rid, int) or isinstance(rid, bool):
+            continue
+        if not isinstance(vals, list) or not all(
+                isinstance(v, int) and not isinstance(v, bool) for v in vals):
+            continue
+        out.append((str(row.get("name", "")), rid, tuple(vals)))
     return out
 
 
@@ -1503,15 +1533,30 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                             f"({B.TABLE_VALUE_MIN}..{B.TABLE_VALUE_MAX})")
         if nm is not None:
             declared_tables[str(nm)] = len(vals) if isinstance(vals, list) else 0
+        persist = row.get("persist", False)
+        if not isinstance(persist, bool):
+            problems.append(f"{ctx}: persist must be true or false")
+            persist = False
         tid = row.get("id")
+        tid_ok = None
         if tid is not None:
-            if not isinstance(tid, int) or not 0 <= tid <= B.TABLE_VALUE_MAX:
+            if isinstance(tid, bool) or not isinstance(tid, int)                     or not 0 <= tid <= B.TABLE_VALUE_MAX:
                 problems.append(f"{ctx}: id must be an int 0..{B.TABLE_VALUE_MAX} "
                                 f"(a gScriptVector id)")
             elif tid in seen_tids:
                 problems.append(f"{ctx}: id {tid} used twice")
             else:
                 seen_tids.add(tid)
+                tid_ok = tid
+        if tid is None or tid_ok is not None:
+            prob = B.table_id_problem(tid_ok, persist)
+            if prob:
+                problems.append(f"{ctx}: {prob}")
+        if persist and isinstance(vals, list) and all(
+                isinstance(v, int) for v in vals):
+            prob = B.persist_value_problem(vals)
+            if prob:
+                problems.append(f"{ctx}: {prob}")
     scheduled = set()
     for si, row in enumerate(b.get("schedule", []) or []):
         ctx = f"[[behavior.schedule]] #{si}"

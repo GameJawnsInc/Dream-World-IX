@@ -644,6 +644,94 @@ def test_table_toml_negatives():
                mut(lambda b: b["schedule"][0].update(speed=9)))
 
 
+# ------------------------------------------------------------------ persistent tables
+def _persist_raw(**row):
+    import copy
+    r = copy.deepcopy(TABLE_RAW)
+    r["behavior"]["table"].append({"name": "memo", "values": [1001, 2002, 3003],
+                                   "id": 6004242, "persist": True, **row})
+    return r
+
+
+def test_persist_toml_surface():
+    raw = _persist_raw()
+    assert BT.validate(raw) == []
+    specs = {t.name: t for t in BT.table_specs(raw)}
+    assert specs["memo"].persist is True and specs["memo"].id == 6004242
+    assert specs["sched"].persist is False
+    assert BT.persistent_tables(raw) == [("memo", 6004242, (1001, 2002, 3003))]
+    assert BT.persistent_tables(TABLE_RAW) == []
+    fb = BT.build(raw, npc_slots={"gate": 2, "fang": 3},
+                  behavior_txids={(0, 0): 700, (0, 1): 701})
+    cb = fb.compile()
+    _verify_all(cb)
+    assert fb.persist_words == {"memo": B.persist_check_word("memo", 3)}
+    assert "memo: id 6004242 PERSISTENT" in cb.report
+    # the ORDINARY tables' ids did not move (the persistent one claims an explicit id only)
+    assert fb.tables["sched"] == (B.TABLE_ID_BASE, (100, 80, 60))
+
+
+def test_persist_toml_negatives():
+    import copy
+
+    def probs(**row):
+        return BT.validate(_persist_raw(**row))
+
+    assert any("persist must be true or false" in p for p in probs(persist=1))
+    assert any("persist must be true or false" in p for p in probs(persist="yes"))
+    assert any("needs an explicit id" in p for p in probs(id=None))
+    assert any("outside the persistent band" in p for p in probs(id=7004242))
+    assert any("within ±1000000" in p for p in probs(values=[1_000_001]))
+    r = copy.deepcopy(TABLE_RAW)
+    r["behavior"]["table"].append({"name": "eph", "values": [1], "id": 6500000})
+    assert any("reserved persistent band" in p for p in BT.validate(r))
+    # `id = true` (a TOML bool) used to pass as id 1
+    r = copy.deepcopy(TABLE_RAW)
+    r["behavior"]["table"].append({"name": "eph", "values": [1], "id": True})
+    assert any("id must be an int" in p for p in BT.validate(r))
+    # every refusal is also the COMPILER's (one law, two call sites)
+    with pytest.raises(B.BehaviorError, match="persist must be true or false"):
+        BT.build(_persist_raw(persist=1), npc_slots={"gate": 2, "fang": 3},
+                 behavior_txids={(0, 0): 700, (0, 1): 701})
+
+
+def test_persist_never_in_reinit(tmp_path):
+    """Product path: a persistent table's guard lands in Main_Init (entry-0 tag 0) and NEVER in the
+    tag-10 after-battle Main_Reinit -- a battle return must not touch persistent state -- and the
+    build announces the table's save identity."""
+    from ff9mapkit import build as BLD
+    from ff9mapkit.eb.model import EbScript
+
+    toml = (
+        '[field]\nid = 30002\nname = "BHW"\narea = 11\n'
+        "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
+        '\n[[npc]]\nname = "gate"\npreset = "vivi"\npos = [0, -300]\ndialogue = "Hold!"\n'
+        "\n[behavior]\nwarmup = 30\ntimer = 120\n"
+        '\n[[behavior.table]]\nname = "memo"\nid = 6004242\npersist = true\nvalues = [1, 2]\n'
+        '\n[[behavior.unit]]\nnpc = "gate"\nhp = 3\n'
+        "\n[[behavior.unit.branch]]\n"
+        'when = [{ hp_le = 0 }]\ndo = { battle = 35 }\n'
+        "\n[[behavior.unit.branch]]\n"
+        "do = { hold = [0, -300] }\n"
+    )
+    f = tmp_path / "bhw.field.toml"
+    f.write_text(toml, encoding="utf-8")
+    assert BLD.validate(BLD.FieldProject.load(f)) == []
+    w: list = []
+    plain = BLD.build_script(BLD.FieldProject.load(f), "us", {501: 501}, warnings=w)
+    eb = EbScript.from_bytes(plain)
+    guard = B.persist_seed_block("memo", 6004242, (1, 2))
+    init = eb.entry(0).func_by_tag(0)
+    reinit = eb.entry(0).func_by_tag(10)
+    assert reinit is not None
+    assert guard in plain[init.abs_start:init.abs_end]
+    tail = plain[reinit.abs_start:reinit.abs_end]
+    assert b"\xd3" not in tail                                   # no vector op at all
+    for tid in (6004242, 7004242):
+        assert tid.to_bytes(4, "little")[:3] not in tail
+    assert any("persistent tables" in x and "6004242" in x for x in w)
+
+
 def test_award_toml_surface_and_negatives():
     import copy
     raw = copy.deepcopy(TABLE_RAW)
