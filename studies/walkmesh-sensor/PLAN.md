@@ -107,6 +107,12 @@ the lip after disengaging; run 2: home in 30 frames — intermittent, recorded n
 was taken before the ferry stopped and NC-THROW counted the MovePC baseline — all three scenario faults, fixed.
 Artifacts: `.harness-runs/20260923-123833-bgi-rung1`, `…124114-bgi-rung1-r2`, `…124439-bgi-rung1-r3` (archived).
 
+**Re-run after the review round (63/63, `…135358-bgi-rung1-fold`, archived):** the review added THE BATTLE-BYTE
+FOLD (a battle restores an unknown floor as the byte 255; every mirror read is now followed by
+`M -= (M == 255) * 256`). Both benches were redeployed with it and the whole scenario passed again, one launch,
+zero exceptions since the mark. The fold's own 255 case needs a battle while a sensed actor's pathing is off;
+it is pinned offline by the calibrated interpreter, not driven here.
+
 ## Rung 2 candidates
 
 - **Region floor gates** (`[[event]]`/`[[gateway]] floor =`): IsInQuad treads fire through stacked floors; stock's
