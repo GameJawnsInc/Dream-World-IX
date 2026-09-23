@@ -1,0 +1,181 @@
+# =====================================================================================
+# THE WALKMESH SENSOR, RUNG 1 (bench A) -- the floor verbs in-game  --  field 30911
+# =====================================================================================
+# Two floors split at x = 0 (ground = floor 0 west, terrace = floor 1 east), seamed ONLY on the south half: the
+# north half of x = 0 is a WALL (the lip). Floor NAMES from the OBJ; the v1 ticker.
+#   sentry  uid 2  tri 1 / ground   arm_s + near + same_floor player -> chase (raises s_eng)
+#   hound   uid 3  tri 0 / ground   arm_h + near -> chase, NO floor gate (raises h_eng) -- the negative control
+#   bell    uid 4  tri 5 / ground   p_up while the player is on the terrace; b_same while on its floor
+#   lamp    uid 5  tri 15 / terrace g_on0 while the ghost stands on the ground; l_other while the player isn't here
+#   ferry   uid 6  tri 4 / ground   `go` -> march across the south seam to tri 14 (terrace) and hold; back home after
+#   clerk   uid 7  tri 10 / terrace f_up while the FERRY stands on the terrace (a unit read by another unit)
+#   ghost   uid 8  pooled           spawn at the player's feet (request flag), `kill` -> die
+#
+#   py tools/deploy_field.py studies/walkmesh-sensor/bench/bgi1.field.toml --id 30911 --name BGI1 --text-block 30911
+
+[field]
+id = 30911
+name = "BGI1"
+area = 11
+title = "BGI 1"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+obj = "bgi1.walkmesh.obj"
+links = "bgi1.walkmesh.links.toml"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [-407, -472]
+
+[[npc]]
+name = "sentry"
+model = "GEO_NPC_F0_CSO"
+pos = [-1017, -472]
+[[npc]]
+name = "hound"
+model = "GEO_NPC_F0_CSO"
+pos = [-813, -108]
+[[npc]]
+name = "bell"
+model = "GEO_NPC_F0_CSO"
+pos = [-1017, -1566]
+[[npc]]
+name = "lamp"
+model = "GEO_NPC_F0_CSO"
+pos = [813, -1566]
+[[npc]]
+name = "ferry"
+model = "GEO_NPC_F0_CSO"
+pos = [-813, -1202]
+[[npc]]
+name = "clerk"
+model = "GEO_NPC_F0_CSO"
+pos = [1017, -108]
+[[npc]]
+name = "ghost"
+model = "GEO_NPC_F0_CSO"
+pos = [-407, -472]
+
+[behavior]
+warmup = 30
+public_flags = ["arm_s", "arm_h", "go", "kill"]
+
+  [[behavior.unit]]
+  npc = "sentry"
+  speed = 40
+    [[behavior.unit.branch]]
+    when = [{ flag = "arm_s" }, { near = ["player", 1500] }, { same_floor = "player" }]
+    do = { chase = "player", standoff = 200 }
+    raise_flags = ["s_eng"]
+    [[behavior.unit.branch]]
+    do = { hold_post = true }
+    clear_flags = ["s_eng"]
+
+  [[behavior.unit]]
+  npc = "hound"
+  speed = 40
+    [[behavior.unit.branch]]
+    when = [{ flag = "arm_h" }, { near = ["player", 1500] }]
+    do = { chase = "player", standoff = 200 }
+    raise_flags = ["h_eng"]
+    [[behavior.unit.branch]]
+    do = { hold_post = true }
+    clear_flags = ["h_eng"]
+
+  [[behavior.unit]]
+  npc = "bell"
+    [[behavior.unit.branch]]
+    when = [{ on_floor = "terrace", who = "player" }]
+    do = { hold_post = true }
+    raise_flags = ["p_up"]
+    clear_flags = ["b_same"]
+    [[behavior.unit.branch]]
+    when = [{ same_floor = "player" }]
+    do = { hold_post = true }
+    raise_flags = ["b_same"]
+    clear_flags = ["p_up"]
+    [[behavior.unit.branch]]
+    do = { hold_post = true }
+    clear_flags = ["p_up", "b_same"]
+
+  [[behavior.unit]]
+  npc = "lamp"
+    [[behavior.unit.branch]]
+    when = [{ on_floor = "ground", who = "ghost" }]
+    do = { hold_post = true }
+    raise_flags = ["g_on0"]
+    clear_flags = ["l_other"]
+    [[behavior.unit.branch]]
+    when = [{ other_floor = "player" }]
+    do = { hold_post = true }
+    raise_flags = ["l_other"]
+    clear_flags = ["g_on0"]
+    [[behavior.unit.branch]]
+    do = { hold_post = true }
+    clear_flags = ["g_on0", "l_other"]
+
+  [[behavior.unit]]
+  npc = "ferry"
+  speed = 40
+    [[behavior.unit.branch]]
+    when = [{ flag = "go" }]
+    do = { march = [[-407, -1384], [407, -1384], [1017, -1202]] }
+    [[behavior.unit.branch]]
+    do = { hold_post = true }
+
+  [[behavior.unit]]
+  npc = "clerk"
+    [[behavior.unit.branch]]
+    when = [{ on_floor = "terrace", who = "ferry" }]
+    do = { hold_post = true }
+    raise_flags = ["f_up"]
+    [[behavior.unit.branch]]
+    do = { hold_post = true }
+    clear_flags = ["f_up"]
+
+  [[behavior.unit]]
+  npc = "ghost"
+  pooled = true
+  pool = "g"
+    [[behavior.unit.branch]]
+    when = [{ flag = "kill" }]
+    do = { die = true }
+    [[behavior.unit.branch]]
+    do = { hold_post = true }
+
+  [[behavior.hud]]
+  window = 6
+  digits = [2, 2, 3, 2, 2, 2, 2, 2]
+  values = [
+    "floor:player",
+    "expr:B_PTR(250) B_BGIFLOOR",
+    "expr:B_PTR(250) B_BGIID",
+    "floor:sentry",
+    "floor:hound",
+    "floor:ghost",
+    "floor:ferry",
+    "floor:lamp",
+  ]
+  text = """[MPOS=8,8]== BGI 1 30911 ==
+PFLR [NUMB=0]
+PLIV [NUMB=1]
+PTRI [NUMB=2]
+SFLR [NUMB=3]
+HFLR [NUMB=4]
+GFLR [NUMB=5]
+FFLR [NUMB=6]
+LFLR [NUMB=7]"""
