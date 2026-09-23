@@ -31,11 +31,13 @@ def test_hut_interior_reproduced_byte_exact():
     # Reproduces the in-game-verified hut interior from the blank via npc+spawn+gateway. The result
     # embeds the (game-derived) blank, so the golden is the manifest SHA-256, not shipped bytes.
     from ff9mapkit import provision
+    from ff9mapkit.content import shadow
     EXIT_ZONE = [(-1100, -2400), (1100, -2400), (1100, -1750), (-1100, -1750), (-1100, -1750)]
-    out = npc.inject_npc(CLEAN, 0, -700, preset="vivi", talk_text_id=500)
+    out = npc.inject_npc(CLEAN, 0, -700, preset="vivi", talk_text_id=500, shadow=True)   # the stock shadow
     out = npc.set_player_spawn(out, 0, -1350)
     out = gateway.inject_gateway(out, 4000, entrance=0, slot=3, zone=EXIT_ZONE)
     out = npc.neutralize_player_audio_cruft(out)   # build_script's final player-cleanup step (kills the 912 lag)
+    out = shadow.cast_player_shadow(out)           # build_script's LAST step on a field without MapConfigData
     assert provision.sha256(out) == provision.load_manifest()["goldens"]["EVT_HUT_INT.eb.bytes/us"]
 
 

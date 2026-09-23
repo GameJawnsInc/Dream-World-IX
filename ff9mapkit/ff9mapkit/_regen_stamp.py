@@ -29,6 +29,7 @@ TABLES = {
     "eb/_optables.py": ("eb/_regen_optables.py", "Memoria"),
     "_narrowmap_data.py": ("tools/bake_narrowmap.py", "Memoria"),
     "_npcparams.py": ("_regen_npcparams.py", "install"),
+    "_shadowparams.py": ("_regen_shadowparams.py", "install"),
     "_bonelabeldb.py": ("tools/regen_bone_labels.py", "install"),
     "_held_poses.py": ("tools/extract_attach_poses.py", "install"),
     "_fieldschema.py": ("_regen_fieldschema.py", "examples"),

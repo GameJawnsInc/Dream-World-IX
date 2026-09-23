@@ -57,6 +57,7 @@ from .content import reinit as _reinit
 from .content import entry_settle as _entry_settle
 from .content import walkmesh_hotfix as _walkmesh_hotfix
 from .content import savepoint as _savepoint
+from .content import shadow as _shadow
 from .content import shop as _shop
 from .content import summon as _summon
 from .content import synthesis as _synthesis
@@ -1420,6 +1421,7 @@ def validate(project: FieldProject) -> list[str]:
             problems.append("[[layers]] entry missing 'image'")
         elif not project.path(layer["image"]).is_file():
             problems.append(f"[[layers]] image not found: {layer['image']}")
+    problems += _shadow.problems((project.raw.get("player") or {}).get("shadow"), "[player]")
     for i, n in enumerate(project.raw.get("npc", [])):
         if "pos" not in n:
             problems.append(f"[[npc]] {n.get('name', '#' + str(i))!r} has no position -- set "
@@ -1440,6 +1442,7 @@ def validate(project: FieldProject) -> list[str]:
         if fc is not None and not (isinstance(fc, int) and not isinstance(fc, bool) and 0 <= fc <= 255):
             problems.append(f"{label} face {fc!r} must be a raw facing byte 0..255 "
                             f"(0=south 64=west 128=north 192=east)")
+        problems += _shadow.problems(n.get("shadow"), label)
         _validate_gate_exclusive(n, label, problems)
         try:                                              # rotating-cast beat window (min inclusive, max exclusive)
             smin, smax = _scenario_window_of(n)
@@ -6528,6 +6531,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     gated_npc_slots = {}     # flag index -> [npc entry slots] (for live reveal when an event flips it)
     npc_slots = {}           # npc name -> entry slot (so a [[prop]] can attach_to it)
     _pooled_bh = _behaviortoml.pooled_npcs(project.raw)   # pooled behavior units: seat DORMANT
+    _stock_shadows = _casts_stock_shadows(project, warnings)
     for i, n in enumerate(project.raw.get("npc", [])):
         pos = n["pos"]
         txid = dialogue_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
@@ -6585,6 +6589,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                              talk_window=_nw, talk_flags=_nf, talk_dim=n.get("dim", False),
                              talk_dim_tint=n.get("dim_tint"),
                              talk_lock=n.get("lock", True), talk_lock_menu=bool(n.get("lock_menu")),
+                             shadow=(n.get("shadow", True) if _stock_shadows else None),
                              **kwargs)
         if gf is not None and n.get("name") not in _pooled_bh:
             gated_npc_slots.setdefault(gf, []).append(slot)
@@ -7631,7 +7636,30 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         except (_behaviortoml.BehaviorTomlError, _behavior.BehaviorError) as e:
             raise BuildError(f"[behavior]: {e}") from e
 
+    # the player's stock blob shadow (content.shadow) -- LAST, so it is sized for the model the player
+    # finally wears ([player] model re-skin) and no later pass has to step around it. [[npc]]s got
+    # theirs at injection, above.
+    if _stock_shadows:
+        eb = _shadow.cast_player_shadow(eb, (project.raw.get("player") or {}).get("shadow", True))
     return eb
+
+
+def _casts_stock_shadows(project: FieldProject, warnings: list | None = None) -> bool:
+    """Whether a synthesized field's actors get the stock blob shadow from the SCRIPT (content.shadow):
+    true unless the field ships MapConfigData (``[field] mapconfig``, a native fork) -- that MCF's per-model
+    service already shadows every actor and would overwrite a script value on the first frame, so those
+    builds stay byte-identical and an explicit ``shadow`` key there is reported as having no effect."""
+    if not project.field.get("mapconfig"):
+        return True
+    authored = (["[player]"] if "shadow" in (project.raw.get("player") or {}) else []) + \
+        [f"[[npc]] {n.get('name', '#' + str(i))!r}" for i, n in enumerate(project.raw.get("npc", []))
+         if "shadow" in n]
+    if authored and warnings is not None:
+        msg = (f"{', '.join(authored)} shadow: ignored -- this field ships MapConfigData ([field] mapconfig), "
+               f"whose per-model shadow service sets every actor's shadow itself")
+        if msg not in warnings:                    # build_script runs once per language -- warn once
+            warnings.append(msg)
+    return False
 
 
 def behavior_walkmesh(project: FieldProject):
