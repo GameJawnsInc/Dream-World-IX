@@ -315,7 +315,17 @@ repo's `.harness-runs/`: `20260923-112310-shadow-rung1-on`, `-112430-shadow-rung
   keeps every one of the 5,983 seams, where the old reconcile dropped 3,756 in 353 walkmeshes. On this rung's
   `reshape` bench (`walkmesh verify`, offline) 14 of 14 seams now link (7 of 14 with the old code), reproducing
   the donor's six seam floor pairs exactly. Floor 4 stays unreachable on foot: stock 1607 has no seam to it
-  either. In-game check pending.
+  either.
+  **In-game PASSED** (harness, `seam_rekey_ingame.py`, slot 30930, the `reshape` variant). From the probe spawn on
+  donor floor 0 the player walks south across the floor 0<->5 seam onto donor floor 5 and back north onto floor 0:
+  5/5 checks. The negative control is the same bench built with `apply_seams` ignoring its map (the old
+  reconcile, the MCF re-key untouched). There the player is stopped at the seam and slides along it, 4/4. Over
+  every published sample, the fixed build's player stands on donor floor 5 in 64 of 292, the old build's in 0 of
+  600. Two check criteria were corrected mid-arc and both builds re-run under the final ones. S2 first demanded
+  arrival at the spawn, which sits inside an edge's collision radius. The floor test was first 2-D, and floor 4
+  (a basement, y ~-1500) lies under the seam in XZ. Runs are archived in the main repo's
+  `.harness-runs/*-seam-rekey-*` (final: `20260923-132726-seam-rekey-new`, `20260923-132636-seam-rekey-old`).
+  The 24 `MovePC` NullReferenceExceptions per run appear in both builds (see above).
 - ~~`deploy_field.py` prints "TEXT OVERWRITES VANILLA" for a fork on its donor's real block even when the build
   ships no `.mes` (an editable fork without text carry). That fork only reads the block.~~ Fixed: the warning
   now fires only when the deploy copies a `.mes` for the block (`check_text_block_shadow(writes_mes=)`).

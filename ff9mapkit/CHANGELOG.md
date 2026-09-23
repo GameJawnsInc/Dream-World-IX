@@ -48,6 +48,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   reproduces its exact link set, where the old reconcile dropped 3,756 seams in 353 walkmeshes.
   `tests/test_fork_walkmesh_links.py` pins this on an authored 5-floor donor and on the real 7-floor fixture,
   plus reorder, delete and rename reshapes.
+- **In-game proven** (harness, the 1607 reshape bench at slot 30930,
+  `studies/actor-shadow/seam_rekey_ingame.py`). The player walks from donor floor 0 across a seam onto floor 5
+  and back. Built with the old reconcile, the same seam stops him.
 
 ### Fixed — `deploy_field.py` no longer warns "TEXT OVERWRITES VANILLA" for a field that ships no `.mes`
 - **The vanilla-overwrite warning now fires only when the deploy writes a `.mes` for the real block.** It used to
