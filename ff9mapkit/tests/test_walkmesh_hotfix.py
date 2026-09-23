@@ -318,6 +318,21 @@ def test_import_2161_records_the_donor_on_every_fork_kind(tmp_path):
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_bg_borrow_import_of_2356_prepends_its_raw_gated_hotfix(tmp_path):
+    """2356's engine gate stays on the raw fldMapNo, so no donor row reproduces it: every fork must prepend it. The
+    borrow path used to write no hotfix line at all, so a borrow of 2356 lost it; it runs on the donor's own .bgi,
+    so the prepended tri ids are exactly the donor's."""
+    from ff9mapkit import build, extract
+    _, p = extract.write_field_project("2356", tmp_path, name="GLUG_FORK", field_id=30999)
+    raw = _raw(p)
+    assert raw["field"]["borrow_bg"] and build.donor_field_id(raw) == 2356
+    assert raw["field"]["walkmesh_tri_toggles"] == [[78, 0], [79, 0], [80, 0]]
+    ops = _tag0_ops(build.build_script(build.FieldProject.load(p), "us", {}))
+    toggles = [(ENABLE_PATH_TRIANGLE, [t, 0]) for t in (78, 79, 80)]
+    assert any(ops[i:i + 3] == toggles for i in range(len(ops))), ops[:12]   # in Main_Init (other levers prepend too)
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_editable_import_of_2507_keeps_its_delayed_hotfix_through_the_engine(tmp_path):
     """2507's hotfix fires 0.5s AFTER load, so no Main_Init prepend can reproduce it -- only the engine remap can,
     and only on a fork with a ForkDonorPatch row. An --editable fork used to record no donor and lost it."""

@@ -2401,6 +2401,9 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
         f"{source_field_line}"
         + ('mapconfig = "mapconfig.bytes"   # the real field LIGHTING (per-floor lights, shadows, model tint) '
            'for every 3D model\n' if mc_bytes else "")
+        # a borrow runs on the donor's own .bgi, so a prepended toggle hits exactly the donor's tris; the donor is
+        # recorded whenever it resolved -> its row fires the remapped gates, and only a raw one (2356) is prepended
+        + f"{_walkmesh_hotfix_line(field, fork_id=field_id, donor_recorded=_src_fid is not None)}"
         + "\n"
         f"[camera]\n"
         f"{_ENTRY_SETTLE_LINE}"

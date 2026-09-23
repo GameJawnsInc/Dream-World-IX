@@ -118,3 +118,34 @@ The row fires DelayedActiveTri on the borrow, which detaches the chests; the gua
 mesh, and after the walk the HUD reads `P 121, CA -1, CB -1`. The row also brings in the s33 menu location:
 the borrow shows the donor's place name instead of a blank label. The name-keyed gates (s31/s32) never needed
 the row, because a borrow runs on the donor's own `.bgs`/`.bgi` under the donor's FBG name.
+
+## A plain BG-borrow fork of 2356 gets its walkmesh hotfix
+
+2356's hotfix (tris 78/79/80 off at load, `FieldMap.cs:112`) is gated on the raw `fldMapNo`, so no donor row fires
+it on a custom id; every fork has to prepend it. The borrow path wrote no hotfix line, so a borrow of 2356 lost it.
+It now writes the same line as the other imports: `walkmesh_tri_toggles = [[78, 0], [79, 0], [80, 0]]`.
+
+Benches from one `import 2356`, with the donor's `[encounter]` and its carried chest removed, and a HUD reading
+the player's `B_BGIID`/`B_BGIFLOOR`:
+
+| slot | toml |
+|---|---|
+| 30995 | the import as written, with the toggle line |
+| 30996 | the same toml without it (the old import output) |
+
+Run with `borrow_2356_ingame.py`, which walks from the spawn (-721, 1359) to (-650, 1500), then (-600, 1600),
+then into tri 80 at (-580, 1690). 5/5 checks passed and there were no engine exceptions
+(`.harness-runs/20260923-164500-borrow-2356-prepend-r3`).
+
+| slot | end position | HUD at the end |
+|---|---|---|
+| 30996, no toggle | (-572.1, 1656.5), arrived | P 80, F 1 |
+| 30995, toggle | (-643.8, 1586.1), held at the tri-80 edge | P 5, F 0 |
+
+**The chest walls off the patch.** The first two runs kept the chest, and the control failed: in both slots the
+walk stopped at a point exactly 267.7u from the chest at (-426, 1664). That happened at (-570.5, 1438.7) on one
+route and (-658.3, 1530.9) on another, both inside active triangles with intact neighbour links. The chest's
+actor collision covers the whole tri 78-80 patch; tri 80's centroid is 117u from it. The first explanation, that the
+player was stuck on a triangle vertex, was wrong, and the second route disproved it. The 2507 chests stop the
+player about the same distance away (the 261u above). A walk can only observe these hotfixes once the chest is
+removed. Removing it from both slots leaves the toggle as the only difference.

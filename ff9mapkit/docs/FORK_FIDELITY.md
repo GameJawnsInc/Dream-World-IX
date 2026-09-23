@@ -463,8 +463,11 @@ standalone borrow got no row while the same borrow as a campaign member got one 
 disagreed. A borrow runs on the donor's own `.bgs`/`.bgi` under the donor's FBG name, so the name-keyed gates
 (s31/s32) already resolved without the row; the row changes only the id-keyed ones. 2161's tri 69 (lost outright
 on a borrow before: no row and no prepend) and 2507's delayed pass now fire, and the in-field menu LOCATION
-shows the donor's place name where it read blank (`[field] location = "…"` still overrides it). The borrow
-path writes no `walkmesh_tri_toggles` line, so 2356 on a borrow is still lost.
+shows the donor's place name where it read blank (`[field] location = "…"` still overrides it); harness-proven
+on a 2507 borrow (`studies/fork-walkmesh-hotfix/`). The borrow path also writes the same walkmesh-hotfix line as
+the other imports, so a borrow of 2356 (a raw gate no row can fire) gets the kit's prepend. It used to write
+none, and 2356's hotfix was lost on a borrow; the prepend lands on exactly the donor's tris, since a borrow runs
+on the donor's own `.bgi`.
 
 2507's delayed pass also detaches every actor that is not flagged as the player, and on a kit-built fork
 (`--native`, `--editable`, BG-borrow) that includes the player, who could then walk off the walkway. The real

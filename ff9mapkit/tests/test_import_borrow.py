@@ -131,6 +131,23 @@ def test_plain_import_records_its_donor(tmp_path, monkeypatch):
     assert deploystack.donor_block_for(raw) is not None          # the deploy-time text guard sees the fork too
 
 
+def test_plain_import_authors_only_the_walkmesh_hotfix_the_engine_will_not_apply(tmp_path, monkeypatch):
+    # The borrow runs on the donor's own .bgi, so a prepended toggle lands on exactly the donor's tris. 2356's gate
+    # is RAW (no row helps), so the borrow must author it; 2161's is remapped, and the row the borrow now records
+    # fires it -- a prepend would only repeat it. (The scene the stub reports is irrelevant to the hotfix line.)
+    import tomllib
+    from ff9mapkit import extract
+    for donor, want, note in ((2356, [[78, 0], [79, 0], [80, 0]], "raw fldMapNo 2356"),
+                              (2161, None, "engine fork-donor remap"),
+                              (2507, None, "engine fork-donor remap"),
+                              (950, None, None)):
+        _stub_borrow_import(monkeypatch, donor)
+        _, p = extract.write_field_project(str(donor), tmp_path / str(donor), field_id=30999)
+        text = p.read_text(encoding="utf-8")
+        assert tomllib.loads(text)["field"].get("walkmesh_tri_toggles") == want, donor
+        assert note is None or note in text, donor
+
+
 def test_a_plain_import_builds_the_fork_donor_row_a_campaign_member_gets(tmp_path, monkeypatch):
     from ff9mapkit import extract
     _stub_borrow_import(monkeypatch, 950)

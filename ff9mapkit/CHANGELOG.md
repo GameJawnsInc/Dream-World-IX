@@ -18,7 +18,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **What else sees the donor:** `lint` and the deploy-time text guard accept the donor's own text block, as they do
   for a native fork, and the Workspace Place tab places content on the donor's real room, which is the room a
   borrow renders. A fork forked in place on the donor's id, or whose donor id did not resolve, records nothing.
-- The borrow path still writes no `walkmesh_tri_toggles` line, so 2356's raw-gated hotfix is lost on a borrow.
+- **In-game (harness):** a 2507 borrow with the row and the same toml without it, one launch. With the row the
+  chests read triangle -1 (the pass fired), without it they sit on the landing; the player stays on the walkway
+  on both and stops where the real field's does; the menu LOCATION reads "I. Castle/Stairwell" with the row and
+  is blank without it. 14/14, no engine exceptions (`studies/fork-walkmesh-hotfix/`).
+- **A borrow of 2356 gets its walkmesh hotfix.** The borrow path now writes the same walkmesh-hotfix line as the
+  other imports, so 2356's raw-gated toggle (no row can fire it) is prepended; the path used to write none, and
+  the hotfix was lost. A borrow runs on the donor's own `.bgi`, so the toggled tris are exactly the donor's.
+  **In-game (harness):** the 2356 borrow with the toggle line and without it (the chest removed from both,
+  since its ~268u collision walls off the whole patch). Without it the player walks onto tri 80; with it the
+  player is held on tri 5 at the patch edge. 5/5, no engine exceptions.
 
 ### Fixed — a kit-built fork of field 2507 no longer lets the player walk off the walkmesh
 - **2507's delayed engine hotfix detached the player on every kit-built fork with a donor row.**
