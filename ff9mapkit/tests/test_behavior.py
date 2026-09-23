@@ -12,6 +12,7 @@ import pytest
 from ff9mapkit import flags
 from ff9mapkit.content import behavior as B
 from ff9mapkit.eb import disasm as D
+from ff9mapkit.eb import exprsem
 
 
 def _verify_body(body: bytes) -> int:
@@ -482,6 +483,8 @@ def test_cond_refuses_object_references():
         B.Cond("obj(uid=250).f[0] const(0) B_GT")
     with pytest.raises(B.BehaviorError, match="player-ref eval law"):
         B.Cond("B_PTR(250) B_DISTANCEA const(300) B_LT")
+    with pytest.raises(B.BehaviorError, match="player-ref eval law"):
+        B.Cond("obj(uid=250).f[0] const(1) B_LET")   # an object WRITE: the object law reports first
 
 
 def test_raw_cond_requires_explicit_unsafe():
@@ -489,6 +492,93 @@ def test_raw_cond_requires_explicit_unsafe():
     with pytest.raises(B.BehaviorError):
         fb.raw("obj(uid=250).f[0] const(0) B_GT")
     fb.raw("obj(uid=250).f[0] const(0) B_GT", unsafe_ok=True)   # power-user escape
+
+
+# THE EFFECT LAW -- a condition is evaluated every tick it is reached, so an author's cond text that
+# WRITES (B_LET & friends, B_PARTYADD) or is IMPURE (the engine RNG, B_KEYON, GetChoose) would run that
+# effect once per EVALUATION. Same exprsem classification the hud expr: lane refuses with.
+@pytest.mark.parametrize("text", [
+    "Global.Bit[100] const(1) B_LET",                # the report's example: a save-state write
+    "Global.Byte[5] B_POST_PLUS const(3) B_GE",      # a write hidden inside a comparison
+    "const(1) B_PARTYADD",                           # recruits -- a write with no _LET in its name
+])
+def test_raw_cond_refuses_writes(text):
+    fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))])
+    with pytest.raises(B.BehaviorError, match=r"ASSIGN through the expression.*raise_flags.*adjust"):
+        fb.raw(text)
+    with pytest.raises(B.BehaviorError, match="ASSIGN"):
+        B.Cond(text)                                 # the Cond itself, not just raw()
+
+
+@pytest.mark.parametrize("text", [
+    "B_SYSVAR[0] const(128) B_LT",                   # GetSysvar(0) = Comn.random8()
+    "B_SYSVAR[00] const(128) B_LT",                  # the same sysvar, spelled with a leading zero
+    "const(7) B_SELECT const(3) B_EQ",               # OperatorSelect draws random8 too
+])
+def test_raw_cond_refuses_rng_draws_toward_roll_streams(text):
+    fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))])
+    with pytest.raises(B.BehaviorError, match=r"shared RNG.*roll stream.*RollSpec.*Roll streams"):
+        fb.raw(text)
+
+
+@pytest.mark.parametrize("text", [
+    "B_SYSVAR[9] const(1) B_EQ",                     # GetChoose WRITES ETb.sChoose
+    "const(16) B_KEYON",                             # sets VoicePlayer.scriptRequestedButtonPress
+])
+def test_raw_cond_refuses_other_impure_reads(text):
+    fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))])
+    with pytest.raises(B.BehaviorError, match=r"mutate shared runtime state.*public flag"):
+        fb.raw(text)
+
+
+def test_raw_cond_refuses_an_unclassifiable_operator():
+    fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))])
+    with pytest.raises(B.BehaviorError, match="unsafe_ok"):
+        fb.raw("Global.Bit[1] opFE")                 # a raw unnamed operator byte -- effect unknown
+
+
+@pytest.mark.parametrize("text", [
+    "Global.Bit[100]",
+    "Global.Byte[5] const(3) B_GE",
+    "B_SYSVAR[17] const(30) B_LT",                   # the timer: a sysvar that is a pure read
+    "Null.SBit[5] const(2) B_GT Global.Bit[7] B_ANDAND",
+])
+def test_raw_cond_accepts_pure_reads_and_compiles(text):
+    fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))])
+    fb.units["u"].tree = B.Selector(
+        B.Sequence(fb.raw(text), B.Do(B.Chase(B.PLAYER))),
+        B.Do(B.Hold((0, 0))),
+    )
+    _verify_all(fb.compile())
+
+
+def test_trusted_conds_skip_the_effect_scan(monkeypatch):
+    # the escape and the compiler's own text both bypass it...
+    B.Cond("Global.Bit[100] const(1) B_LET", _trusted=True)
+    fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0), hp=5)], counters=("n",))
+    fb.raw("B_SYSVAR[0] const(128) B_LT", unsafe_ok=True)
+    # ...and every helper's Cond is compiler-generated: prove none of them reaches the scan at all
+    def _scanned(text):
+        raise AssertionError(f"a trusted Cond was effect-scanned: {text!r}")
+    monkeypatch.setattr(B, "_refuse_effectful_cond", _scanned)
+    conds = [fb.near("u", B.PLAYER, 300), fb.flag("alarm"), fb.any_flag("alarm", "calm"),
+             fb.active("u"), fb.hp_gt("u", 0), fb.hp_le("u", 0), fb.time_below(30),
+             fb.time_above(5), fb.counter_ge("n", 1), fb.counter_eq("n", 2)]
+    fb.any_of(conds[0], conds[1])
+    fb.all_of(conds[2], conds[3])
+    with pytest.raises(AssertionError, match="effect-scanned"):
+        B.Cond("Global.Bit[1]")                      # ...while an untrusted one still does
+
+
+def test_cond_rng_split_covers_every_impure_token():
+    """Every exprsem IMPURE token is placed in exactly one refusal: the roll-stream one (an RNG draw)
+    or the public-flag one. A new impure op or sysvar fails here until someone decides which."""
+    impure = set(exprsem.IMPURE_OPS) | {f"B_SYSVAR[{i}]" for i in exprsem.IMPURE_SYSVARS}
+    expected = {"B_SELECT": True, "B_SYSVAR[0]": True, "B_KEYON": False, "B_SYSVAR[9]": False}
+    assert impure == set(expected)
+    for tok, is_rng in expected.items():
+        assert B._draws_rng(tok) is is_rng, tok
+        assert ("random8" in exprsem.token_sem(tok).why) is is_rng, tok   # the engine reason agrees
 
 
 def test_do_must_be_last_in_sequence():

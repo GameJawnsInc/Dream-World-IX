@@ -67,7 +67,8 @@ def test_B_SYSVAR_impurity_is_per_index():
 
 # ------------------------------------------------------------------ operand-token arities
 @pytest.mark.parametrize("tok,pops", [
-    ("const(5)", 0), ("const4(70000)", 0), ("Global.Bit[8712]", 0), ("Null.SBit[5]", 0),
+    ("const(5)", 0), ("const4(70000)", 0), ("const4raw(0x80000000)", 0),
+    ("Global.Bit[8712]", 0), ("Null.SBit[5]", 0),
     ("B_SYSVAR[6]", 0), ("B_SYSLIST[3]", 0), ("obj(uid=5).f[8]", 0),
     ("B_MEMBER(cur.hp)", 0), ("B_PTR(7)", 0),
     ("B_VECTOR", 2), ("B_VECTOR_SIZE", 1), ("B_DICTIONARY", 2),

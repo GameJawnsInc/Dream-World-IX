@@ -9,9 +9,11 @@ prints, so the round trip is the identity:
 
 Each whitespace-separated token in a ``{ ... }`` form maps to one encoded token (the inverse of every branch of
 pretty_expr): a bare op mnemonic (``B_LT``, ``B_CURHP`` …) -> its op_binary byte; ``const(N)`` -> ``B_CONST``
-(0x7D + 2 LE bytes); ``const4(N)`` -> ``B_CONST4`` (0x7E + 4 LE bytes); ``Source.Type[i]`` -> the ``0xC0`` var
-token (source 0-3, type, + a 1- or 2-byte index, the engine's minimal encoding); ``B_SYSVAR[i]`` / ``B_SYSLIST[i]``
-/ ``obj(uid=U).f[F]`` / ``B_MEMBER(i)`` / ``B_PTR(i)`` -> their operand tokens; ``B_EXPR_END`` (0x7F) terminates.
+(0x7D + 2 LE bytes); ``const4(N)`` -> ``B_CONST4`` (0x7E + 4 LE bytes, N inside the engine's 26-bit signed
+window; ``const4raw(0xHHHHHHHH)`` carries the 4 bytes of a stock literal the engine wraps); ``Source.Type[i]`` -> the
+``0xC0`` var token (source 0-3, type, + a 1- or 2-byte index, the engine's minimal encoding); ``B_SYSVAR[i]`` /
+``B_SYSLIST[i]`` / ``obj(uid=U).f[F]`` / ``B_MEMBER(i)`` / ``B_PTR(i)`` -> their operand tokens; ``B_EXPR_END`` (0x7F)
+terminates.
 
 Provenance: only the open-source op_binary / VariableSource / VariableType NAMES are used (via
 :mod:`ff9mapkit.eb._exprtable`); no SE bytes. This is the keystone for Phase-6c new-branch authoring (the command
@@ -22,6 +24,8 @@ from __future__ import annotations
 import re
 
 from ._exprtable import EXPR_OP_NAMES, FLEX_FN_BY_NAME, VAR_SOURCE, VAR_TYPE
+from .disasm import const4_engine_value
+from .opcodes import EXPR_VALUE_MAX, EXPR_VALUE_MIN
 
 _OP_BY_NAME = {n: v for v, n in EXPR_OP_NAMES.items()}
 _SRC_BY_NAME = {n: v for v, n in VAR_SOURCE.items()}
@@ -29,6 +33,7 @@ _TYPE_BY_NAME = {n: v for v, n in VAR_TYPE.items()}
 
 _RE_CONST = re.compile(r"^const\((-?\d+)\)$")
 _RE_CONST4 = re.compile(r"^const4\((-?\d+)\)$")
+_RE_CONST4RAW = re.compile(r"^const4raw\(0x([0-9A-Fa-f]{8})\)$")
 _RE_FLEX = re.compile(r"^flex\((\d+),(\d+)\)$")
 _RE_VAR = re.compile(r"^([A-Za-z]+)\.([A-Za-z0-9]+)\[(\d+)\]$")
 _RE_SYS = re.compile(r"^(B_SYSVAR|B_SYSLIST)\[(\d+)\]$")
@@ -64,10 +69,23 @@ def assemble_token(tok: str) -> bytes:
         return bytes((0x7D,)) + _u16(v & 0xFFFF)
     m = _RE_CONST4.match(tok)
     if m:
-        v = int(m.group(1))                                 # B_CONST4 -- a 4-byte literal (the engine masks the read
-        if not -0x80000000 <= v <= 0xFFFFFFFF:              # to 26 bits, but the 4 bytes are byte-faithful here)
-            raise AssembleError(f"{tok}: const4 out of 32-bit range")
-        return bytes((0x7E,)) + _u32(v & 0xFFFFFFFF)
+        v = int(m.group(1))                                 # B_CONST4 -- a 4-byte literal the engine reads as SIGNED
+        if not EXPR_VALUE_MIN <= v <= EXPR_VALUE_MAX:       # 26-bit (disasm.const4_engine_value): anything wider WRAPS
+            hint = ""                                       # mod 2^26 silently in-game (studies/roll-stream rung 0)
+            if 0 <= v <= 0xFFFFFFFF and EXPR_VALUE_MIN <= v - (1 << 32):
+                hint = f" (the old unsigned spelling of const4({v - (1 << 32)})? write that)"
+            raise AssembleError(f"{tok}: const4 outside the engine's 26-bit signed range "
+                                f"({EXPR_VALUE_MIN}..{EXPR_VALUE_MAX}) -- the engine masks B_CONST4 to 26 bits "
+                                f"and sign-extends, so this would silently wrap to "
+                                f"{const4_engine_value(v & 0xFFFFFFFF)} in-game{hint}")
+        return bytes((0x7E,)) + _u32(v & 0xFFFFFFFF)        # in-window -> the sign-extended 4 bytes
+    m = _RE_CONST4RAW.match(tok)
+    if m:                                                   # const4raw(0xHHHHHHHH) -- the disassembler's spelling of
+        u = int(m.group(1), 16)                             # 4 bytes that are NOT a value's sign-extended form (stock
+        v = const4_engine_value(u)                          # ships 0x80000000, 0x02000000); ONE spelling per byte
+        if v & 0xFFFFFFFF == u:                             # pattern, so an ordinary value has no raw alias
+            raise AssembleError(f"{tok}: these bytes are the ordinary form of {v} -- write const4({v})")
+        return bytes((0x7E,)) + _u32(u)
     if tok in FLEX_FN_BY_NAME:                              # B_VECTOR / B_VECTOR_SIZE / B_DICTIONARY --
         fid, argc = FLEX_FN_BY_NAME[tok]                    # Memoria's 0xD3 flexible_varfunc at its
         return bytes((0xD3,)) + _u16(fid) + bytes((argc,))  # canonical arity; args are RPN operands

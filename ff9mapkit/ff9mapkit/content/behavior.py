@@ -188,17 +188,78 @@ class Cond(Node):
     """A condition leaf: pretty-expr text WITHOUT the trailing B_EXPR_END.
 
     User text may not reference objects (the player-ref eval law) — perception goes
-    through the mirror helpers on :class:`FieldBehavior`. ``_trusted`` marks
-    compiler-generated text (mirror math), which skips the scan."""
+    through the mirror helpers on :class:`FieldBehavior` — and may not WRITE or perturb
+    shared state (:func:`_refuse_effectful_cond`), because a condition is evaluated every
+    tick it is reached. ``_trusted`` marks compiler-generated text (mirror math), which
+    skips both scans."""
     text: str
     _trusted: bool = False
 
     def __post_init__(self):
-        if not self._trusted and _FORBIDDEN_COND.search(self.text):
+        if self._trusted:
+            return
+        if _FORBIDDEN_COND.search(self.text):
             raise BehaviorError(
                 f"Cond text {self.text!r} references an object (obj()/B_PTR/B_DISTANCEA) — "
                 f"the player-ref eval law forbids raw object reads in conditions; use the "
                 f"mirror helpers (near/near_point/hp_*/active) instead")
+        _refuse_effectful_cond(self.text)
+
+
+#: the IMPURE expression tokens that DRAW from the engine's shared RNG (Comn.random8, Comn.cs:8-11) —
+#: the ones whose lane is a roll stream. Split by hand from exprsem's IMPURE class, so
+#: tests/test_behavior.py asserts the split against every IMPURE op and sysvar: a new impure token
+#: fails that test until someone decides which refusal it gets.
+COND_RNG_OPS = frozenset({"B_SELECT"})              # OperatorSelect, EventEngine.cs:283
+COND_RNG_SYSVARS = frozenset({0})                   # GetSysvar(0), GetSysvar.cs:13-14
+
+
+def _draws_rng(tok: str) -> bool:
+    if tok in COND_RNG_OPS:
+        return True
+    m = exprasm._RE_SYS.match(tok)                   # B_SYSVAR[00] is B_SYSVAR[0]: match the INDEX
+    return bool(m) and m.group(1) == "B_SYSVAR" and int(m.group(2)) in COND_RNG_SYSVARS
+
+
+def _refuse_effectful_cond(text: str) -> None:
+    """Refuse an author's condition that WRITES or is IMPURE, per :mod:`eb.exprsem`'s exhaustive table.
+
+    The same law the hud ``expr:`` lane enforces (:func:`hud_expr_tokens`), for the same reason: a
+    condition is evaluated every tick it is reached, so a ``B_LET`` there rewrites save state once per
+    EVALUATION and a ``B_SYSVAR[0]`` advances the engine RNG once per evaluation — tick- and
+    priority-coupled, never once per event. Each refusal names the lane that does the job once per
+    event. A token exprsem cannot classify is refused too: an unclassified operator is not a proven
+    read. ``raw(..., unsafe_ok=True)`` is the escape for a power user who knows better."""
+    try:
+        sems = exprsem.token_sems(text)
+    except exprsem.ExprSemanticError as e:
+        raise BehaviorError(
+            f"Cond text {text!r}: {e} — a condition's effect must be classifiable to prove it only "
+            f"READS (raw(..., unsafe_ok=True) skips the check when you know it does)")
+    wsems = [s for s in sems if s.effect == exprsem.WRITE]
+    if wsems:
+        raise BehaviorError(
+            f"Cond text {text!r}: {sorted({s.token for s in wsems})} ASSIGN through the expression, "
+            f"and a condition is evaluated every tick it is reached — the write would run once per "
+            f"EVALUATION ({wsems[0].why}). A condition reads. Write from the branch instead: "
+            f"Do(..., raise_flags=/clear_flags=) for a flag, Do(..., adjust=[AdjustSpec(...)]) for a "
+            f"counter or table cell (TOML: a branch's raise_flags / clear_flags / adjust)")
+    impure = [s for s in sems if s.effect == exprsem.IMPURE]
+    rng = [s for s in impure if _draws_rng(s.token)]
+    if rng:
+        raise BehaviorError(
+            f"Cond text {text!r}: {sorted({s.token for s in rng})} draw from the engine's shared RNG "
+            f"({rng[0].why}), and a condition is evaluated every tick it is reached — it would draw "
+            f"once per EVALUATION, unseeded and unpredictable. For randomness, declare a roll stream "
+            f"(streams=[StreamSpec(...)]; TOML [[behavior.stream]]), draw it with a branch roll "
+            f"(Do(..., roll=RollSpec(...)); TOML roll = {{...}}) on a public-flag edge, and test the "
+            f"counter it fills with counter_eq/counter_le/counter_ge — docs/BEHAVIOR.md § Roll streams")
+    if impure:
+        raise BehaviorError(
+            f"Cond text {text!r}: {sorted({s.token for s in impure})} mutate shared runtime state, and "
+            f"a condition is evaluated every tick it is reached — {impure[0].why}. A condition reads: "
+            f"raise a public flag from outside instead (a [[choice]] row's set_flag, an [[event]] "
+            f"trigger = \"action\") and gate on flag(name)")
 
 
 @dataclass
@@ -2501,6 +2562,8 @@ class FieldBehavior:
         return self.flag(name)
 
     def raw(self, text: str, *, unsafe_ok: bool = False) -> Cond:
+        """An author's condition text, law-scanned like any untrusted :class:`Cond`: no object
+        reads, no writes, no RNG draws. ``unsafe_ok=True`` skips every scan (the power-user escape)."""
         return Cond(text, _trusted=unsafe_ok)
 
     # ---------------- adjust / drift (the numeric-write lane)

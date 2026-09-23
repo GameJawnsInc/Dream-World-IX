@@ -6,12 +6,17 @@
 # Both use field 109's proven exit-region TEMPLATE (272 B): SetRegion polygon -> CalculateExitPosition
 # /ExitField -> PreloadField -> FadeFilter -> set General_FieldEntrance -> Field(target). The entry is
 # appended into a free entry-table slot and ACTIVATED by inserting InitRegion(slot,0) into Main_Init at
-# a jump-safe offset (grow containing entry, shift later entries; internal fpos are relative).
+# a jump-safe offset, through the kit's edit.insert_in_function: Main_Init is NOT entry 0's last function,
+# so its later siblings' fpos must move with the bytes (the local raw relayout this tool used to carry
+# fixed only the entry table and left them 3 bytes short).
 #
 # Zones are convex quads with the LAST vertex DOUBLED (IsInQuad fans triplets; collinear pts => dead
 # zone -> doubled-quad gives full coverage via 2 real triangles). Point order q0->q1 = walk-out edge.
 import struct, os, sys
 from datetime import datetime
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit")))
+from ff9mapkit.eb import EbScript, edit  # noqa: E402
 
 TEMPLATE = bytes.fromhex(
  "010200000800020020002900058800e6f7e4feaaf7d5fde3f9c602dffa5704b9fa04057a027f"
@@ -27,23 +32,12 @@ REL_PTS, REL_ENTRANCE, REL_FIELD = 13, 263, 269
 
 def u16(b, o): return struct.unpack_from('<H', b, o)[0]
 
-def insert_bytes(data, abs_off, ins):
-    """Insert `ins` at abs_off; grow the containing entry; shift later entries (entry-count aware)."""
-    b = bytearray(data); n = b[3]
-    E = Eoff = None
-    for i in range(n):
-        off, sz = u16(b, 128+i*8), u16(b, 128+i*8+2)
-        if sz > 0 and 128+off <= abs_off < 128+off+sz:
-            E, Eoff, Esz = i, off, sz; break
-    if E is None:
-        raise SystemExit(f"no entry contains file offset {abs_off}")
-    struct.pack_into('<H', b, 128+E*8+2, Esz + len(ins))
-    for j in range(n):
-        if j == E: continue
-        off = u16(b, 128+j*8)
-        if off > Eoff:
-            struct.pack_into('<H', b, 128+j*8, off + len(ins))
-    return bytes(b[:abs_off]) + ins + bytes(b[abs_off:])
+def insert_in_main_init(data, abs_off, ins):
+    """Insert `ins` at abs_off inside entry 0's Main_Init; the kit moves the other funcs' fpos too."""
+    f = EbScript.from_bytes(data).entry(0).func_by_tag(0)
+    if not f.abs_start <= abs_off < f.abs_end:
+        raise SystemExit(f"insert@{abs_off} is outside Main_Init [{f.abs_start}, {f.abs_end})")
+    return edit.insert_in_function(data, 0, 0, abs_off - f.abs_start, ins)
 
 def make_entry(target, entrance, zone):
     e = bytearray(TEMPLATE)
@@ -66,7 +60,7 @@ def inject_gateway(data, target, entrance, slot, zone, insert_off, prev_initregi
     if u16(b, 128+slot*8+2) != 0:
         raise SystemExit(f"slot {slot} not empty (sz={u16(b,128+slot*8+2)})")
     # 1) insert InitRegion(slot,0) into Main_Init (shifts later entries)
-    b = bytearray(insert_bytes(bytes(b), insert_off, bytes([0x08, slot, 0x00])))
+    b = bytearray(insert_in_main_init(bytes(b), insert_off, bytes([0x08, slot, 0x00])))
     # 2) append gateway entry at end, register in slot
     entry = make_entry(target, entrance, zone)
     off = len(b) - 128

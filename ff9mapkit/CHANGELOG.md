@@ -21,9 +21,34 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   gate. A wander box past the Int16 target slots (±32767) is refused for every wander.
 
 ### Changed
+- **`eb.edit.insert_bytes` refuses an insert that would strand a function pointer.** It fixes only the entry
+  table, so it was safe only when no function of the containing entry starts past the insert point -- a
+  docstring rule four callers broke (the blank's past-the-end Main_Loop pointer drifted toward Main_Reinit).
+  It now raises `ValueError` naming the function; everything else goes through `insert_in_function`, which
+  moves the siblings' `fpos` with the bytes. Kit builds are byte-identical. The three pre-kit tools that
+  carried private copies of the raw relayout (`alex_add_music`, `wire_alexandria`, `eb_add_field_music`)
+  now route through the kit.
 - **A `[behavior]` table with no `[[behavior.unit]]` is now refused.** It compiled to nothing — its tables,
   streams, counters and HUDs never ran — and said nothing. On a verbatim fork any `[behavior]` block is refused
   by name (it was silently dropped when it had no unit).
+- **Python API: an author's condition text (`FieldBehavior.raw()`, a bare `Cond`) may no longer write or draw.**
+  A condition is evaluated every tick it is reached, so a `B_LET` there rewrote state once per evaluation and a
+  `B_SYSVAR[0]` advanced the engine RNG per evaluation, silently. The text is classified with `eb/exprsem.py`,
+  like the hud `expr:` lane: a write is refused toward a branch's `raise_flags`/`adjust`, an RNG draw toward a
+  roll stream, and an unclassifiable operator is refused too. Compiler-generated conds and `unsafe_ok=True` are
+  unaffected; no TOML `when` verb reaches this path.
+
+### Fixed — a `const4(N)` literal the engine would wrap is refused at build
+- **The expression assembler refuses a `const4(N)` outside -33554432..33554431.** The engine reads a
+  4-byte literal as 26-bit signed, so a wider one wrapped in-game with no error: `const4(40000000)` read
+  as -27108864. It was reachable from `[[behavior.hud]]` `expr:` values, `[[choice]]` values, journal rows
+  and hand-edited `eb-src`. The error names the value the engine would have read.
+- **The disassembler prints a const4 as the value the engine reads.** Negatives print signed
+  (`const4(-40000)`, not `const4(4294927296)`). Stock ships two 4-byte patterns that are not their value's
+  ordinary form: 0x80000000, which reads 0, and 0x02000000, which reads -33554432. These print as
+  `const4raw(0x80000000)`, which reassembles to the same bytes, so `eb-src --verify-all` stays 9753/9753.
+  A `.ebs` written by an earlier version spells negatives unsigned. That spelling is now refused, and the
+  error names the signed value to write.
 
 ### Fixed — the overflow docs, the wander simulator, the branch editor
 - **CalcStack overflow wraps mod 2^26** and stays an integer, measured in-game; the kit's comments and docs

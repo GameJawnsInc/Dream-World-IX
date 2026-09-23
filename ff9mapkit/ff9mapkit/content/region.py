@@ -425,7 +425,8 @@ def build_region_entry(zone, range_body: bytes, *, init_extra: bytes = b"", tag:
 def prepend_range_gate(data, slot: int, gate_bytes: bytes) -> bytes:
     """Insert ``gate_bytes`` at the start of the region in ``slot``'s Range (tag 2) function, so the
     trigger only runs when the gate passes. Safe via :func:`edit.insert_bytes`: Range is the entry's
-    LAST function, so the gate just becomes its first bytes and no func-table ``fpos`` needs fixing."""
+    LAST function, so the gate just becomes its first bytes and no func-table ``fpos`` needs fixing
+    (``insert_bytes`` itself refuses otherwise; the check below just names the region)."""
     eb = EbScript.from_bytes(data)
     rng = eb.entry(slot).func_by_tag(RANGE_TAG)
     if rng is None:
