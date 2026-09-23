@@ -57,6 +57,7 @@ from dataclasses import dataclass, field as _dc_field
 from ..eb import exprasm, exprsem, opcodes
 from ..eb._exprtable import EXPR_OP_NAMES as _EXPR_OP_NAMES   # noqa: F401  (the coverage test's other half)
 from ..eb.labelasm import JMP, JMP_IF, JMP_IFNOT, _measure, asm, label
+from . import rollstream as _RS
 from ..flags import (BEHAVIOR_BYTE_BASE, BEHAVIOR_BYTE_END, BEHAVIOR_FLAG_BASE,
                      BEHAVIOR_FLAG_END, NAMEPLATE_EXPLORED_FLOOR)
 from .chest import RUN_SOUND_CODE3, SFX_BANK, SFX_PARAMS   # the in-game-proven SFX triple (chest owns it)
@@ -216,8 +217,11 @@ class Do(Node):
     raise_flags: tuple = ()
     clear_flags: tuple = ()
     adjust: tuple = ()
+    roll: "RollSpec | None" = None
 
     def __post_init__(self):
+        if self.roll is not None and not isinstance(self.roll, RollSpec):
+            raise BehaviorError(f"Do roll must be a RollSpec, got {type(self.roll).__name__}")
         self.raise_flags = ((self.raise_flags,) if isinstance(self.raise_flags, str)
                             else tuple(self.raise_flags))
         self.clear_flags = ((self.clear_flags,) if isinstance(self.clear_flags, str)
@@ -348,9 +352,17 @@ class Wander(Action):
     radius: int = 400
     hold: int = 90
     speed: int | None = None
+    seed: int | None = None
     feed = True
 
     def __post_init__(self):
+        if self.seed is not None:
+            # SEEDED: the re-roll reads the unit's PRIVATE roll stream (content/rollstream.py) instead of
+            # B_SYSVAR[0] -- one advance per re-roll, x from the state's low byte, z from the next; the
+            # target SEQUENCE is exact and predictable, WHEN each re-roll lands stays selection-coupled
+            prob = _RS.seed_problem(self.seed)
+            if prob:
+                raise BehaviorError(f"Wander {prob}")
         self.center = tuple(self.center)
         if not 1 <= int(self.radius) <= 4000:      # Int24-safe: 128 * 4000 << 2^23
             raise BehaviorError("Wander radius must be 1..4000")
@@ -1259,6 +1271,112 @@ def persist_value_problem(values) -> "str | None":
     return None
 
 
+# ---------------------------------------------------------- roll streams
+@dataclass
+class StreamSpec:
+    """A declared ROLL STREAM (``[[behavior.stream]]``): a seeded Lehmer generator over one table cell
+    (content/rollstream.py). Ephemeral (default) = re-seeded at every Main_Init (field entry, ~ Reload,
+    Continue; a battle return keeps its position); ``persist`` = a guarded persistent cell with a
+    REQUIRED ``id`` in the persistent band -- a reload cannot re-roll it."""
+    name: str
+    seed: int
+    persist: bool = False
+    id: "int | None" = None
+
+
+@dataclass
+class RollSpec:
+    """A branch ROLL: one advance of ``stream``, then ``counter <- lo + S % n`` (n = hi - lo + 1, 2..256).
+    Rides THE EDGE IDIOM only (enforced at compile): one draw per event, never per tick."""
+    stream: str
+    counter: str
+    lo: int
+    hi: int
+
+    def __post_init__(self):
+        for nm, v in (("stream", self.stream), ("counter", self.counter)):
+            if not isinstance(v, str) or not v:
+                raise BehaviorError(f"roll {nm} must be a name")
+        lo, hi = self.lo, self.hi
+        if not all(isinstance(v, int) and not isinstance(v, bool) for v in (lo, hi)) or lo >= hi:
+            raise BehaviorError(f"roll range must be [lo, hi], two ints with lo < hi (got [{lo!r}, {hi!r}])")
+        n = hi - lo + 1
+        if not _RS.RANGE_N_MIN <= n <= _RS.RANGE_N_MAX:
+            raise BehaviorError(f"roll range [{lo}, {hi}] must hold {_RS.RANGE_N_MIN}..{_RS.RANGE_N_MAX} "
+                                f"values (got {n}) -- past 256 the modulo bias (up to 1/floor(65536/n)) "
+                                f"passes 0.4%")
+        if abs(lo) > ADJUST_MAG_MAX or abs(hi) > ADJUST_MAG_MAX:
+            raise BehaviorError(f"roll range [{lo}, {hi}] must sit within ±{ADJUST_MAG_MAX}")
+
+
+@dataclass(frozen=True)
+class StreamInfo:
+    """A registered stream: its backing table ``key`` (the generator folded in), vector ``tid``, start state
+    ``x0`` and (persistent) check ``word``."""
+    name: str
+    key: str
+    tid: int
+    seed: int
+    x0: int
+    persist: bool
+    word: "int | None"
+
+
+def stream_decl_problem(name, seed, persist, sid) -> "str | None":
+    """Every problem with a ``[[behavior.stream]]`` row -- one text for the compiler and the TOML validate."""
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_]+", name):
+        return f"stream name {name!r} must be [A-Za-z0-9_]+"
+    prob = _RS.seed_problem(seed)
+    if prob:
+        return f"stream {name!r}: {prob}"
+    if not isinstance(persist, bool):
+        return f"stream {name!r}: persist must be true or false"
+    if sid is not None and (not isinstance(sid, int) or isinstance(sid, bool)):
+        return f"stream {name!r}: id must be an int"
+    if persist:
+        prob = table_id_problem(sid, True)
+        return f"stream {name!r}: {prob}" if prob else None
+    if sid is not None:
+        return (f"stream {name!r}: an ephemeral stream's vector is auto-allocated and re-seeded every "
+                f"entry -- `id` is only for persist = true")
+    return None
+
+
+def stream_ref(tid: int) -> str:
+    """A stream's state cell S -- a read operand AND a B_LET lvalue."""
+    return f"{_cnum(tid)} const(0) B_VECTOR"
+
+
+def stream_advance_rpn(S: str) -> str:
+    """THE ADVANCE, its own 0x05 statement: S <- A * S mod M (the largest intermediate A * 65536 stays inside
+    the 26-bit CalcStack -- content/rollstream.py proves it at import)."""
+    return f"{S} {S} const({_RS.A}) B_MULT {_cnum(_RS.M)} B_REM B_LET"
+
+
+def stream_draw_rpn(dst: str, S: str, lo: int, hi: int) -> str:
+    """THE DRAW: dst <- lo + S % n (a pure read of the state the advance just wrote)."""
+    add = f" {_cnum(lo)} B_PLUS" if lo else ""
+    return f"{dst} {S} {_cnum(hi - lo + 1)} B_REM{add} B_LET"
+
+
+def stream_wander_rpns(wtx: str, wtz: str, S: str, cx: int, cz: int, r: int) -> tuple:
+    """A seeded wander re-roll's two target writes: x from S % 256, z from S / 256 % 256 (every byte pair
+    exactly once per period), offset (byte - 128) * r / 128 -- the stock wander's own suffix."""
+    tail = f"const(128) B_MINUS const({int(r)}) B_MULT const(128) B_DIV B_PLUS B_LET"
+    return (f"{wtx} const({int(cx)}) {S} const(256) B_REM {tail}",
+            f"{wtz} const({int(cz)}) {S} const(256) B_DIV const(256) B_REM {tail}")
+
+
+def stream_repair_block(key: str, tid: int, x0: int) -> bytes:
+    """THE DOMAIN REPAIR, after a persistent stream's guard: a live guard over a cell outside 1..65536 (a
+    foreign raw-lane writer, a hand-edited save; 0 is the recurrence's fixed point) re-seeds to x0 instead of
+    sticking. A vector read returns the raw Int32, so the test is exact."""
+    S = stream_ref(tid)
+    ok = f"stream_{key}_ok"
+    return asm([_stmt(f"{S} const(1) B_LT {S} {_cnum(_RS.M - 1)} B_GT B_OROR"), (JMP_IFNOT, ok),
+                _stmt(f"{S} {_cnum(x0)} B_LET"), label(ok)])
+
+
 def _refuse_reserved_auto(tid: int) -> int:
     """Every AUTO table id passes here: the allocators may never hand out a reserved id."""
     if tid >= PERSIST_RESERVED_LO:
@@ -1439,6 +1557,12 @@ class CompiledBehavior:
         return h.hexdigest()[:16]
 
 
+def _stream_write_refusal(name: str) -> str:
+    return (f"{name!r} is a roll stream -- only its own draws may touch it (any other write breaks its 1..65536 "
+            f"domain, and a read of it is not a roll); roll into a counter and read that, or show the state with "
+            f"the `stream:` hud source")
+
+
 class FieldBehavior:
     """The per-field behavior compilation unit: a roster of units + one tree each."""
 
@@ -1446,7 +1570,8 @@ class FieldBehavior:
                  tick: int = 1, warmup: int = 45, pools: list[PoolSpec] | tuple = (),
                  timer: int | None = None, tables: list[TableSpec] | tuple = (),
                  counters: tuple = (), brains: bool = False,
-                 classes: list[ClassSpec] | tuple = ()):
+                 classes: list[ClassSpec] | tuple = (),
+                 streams: "list[StreamSpec] | tuple" = ()):
         """``warmup``: frames after the player is staged before ANY unit activates —
         the field loads dead-still (no walking, no pathing) while the engine settles
         the camera (rung-1 playtest: five actors pathing during entry-settle dragged
@@ -1659,6 +1784,16 @@ class FieldBehavior:
                 if tid in taken:
                     raise BehaviorError(f"table {ts.name!r}: id {tid} used twice")
                 taken.add(tid)
+        for sp in streams:                               # persistent streams claim their ids FIRST
+            if not isinstance(sp, StreamSpec):
+                raise BehaviorError(f"streams= takes StreamSpec rows, got {type(sp).__name__}")
+            prob = stream_decl_problem(sp.name, sp.seed, sp.persist, sp.id)
+            if prob:
+                raise BehaviorError(prob)
+            if sp.persist:
+                if sp.id in taken:
+                    raise BehaviorError(f"stream {sp.name!r}: id {sp.id} used twice")
+                taken.add(sp.id)
         self._next_tid = TABLE_ID_BASE
 
         def _auto_tid() -> int:
@@ -1718,6 +1853,28 @@ class FieldBehavior:
                     # read spawn truth before the active-gated mirror first runs
                     self._cls_preset("cls.mx", mu.entry, int(mu.spawn[0]))
                     self._cls_preset("cls.mz", mu.entry, int(mu.spawn[1]))
+
+        # ROLL STREAMS: one-cell tables under a dotted backing key that folds the generator in. Ephemeral ids
+        # are allocated AFTER every other constructor allocation, so a field without streams keeps its ids.
+        self.streams: dict[str, StreamInfo] = {}
+        self._stream_keys: set[str] = set()
+        self.wander_streams: dict[str, StreamInfo] = {}  # unit -> its private seeded-wander stream
+        self.stream_sites: dict[str, list] = {}          # stream -> [(owner, flag, bit, counter, lo, hi)]
+        for sp in streams:
+            nm = sp.name
+            if nm in self.streams:
+                raise BehaviorError(f"duplicate stream {nm!r}")
+            if nm in self.tables or nm in self._counters:
+                raise BehaviorError(f"stream {nm!r} collides with a table or counter name (one namespace)")
+            key = _RS.backing_key(nm)
+            x0 = _RS.seed_state(nm, sp.seed)
+            tid = int(sp.id) if sp.persist else _auto_tid()
+            self.tables[key] = (tid, (x0,))
+            word = None
+            if sp.persist:
+                word = self.persist_words[key] = persist_check_word(key, 1)
+            self._stream_keys.add(key)
+            self.streams[nm] = StreamInfo(nm, key, tid, int(sp.seed), x0, bool(sp.persist), word)
 
     # ---------------- the strided-state ref layer (per-class brain sharing)
     def _cls_preset(self, tname: str, cell: int, value: int) -> None:
@@ -1888,6 +2045,8 @@ class FieldBehavior:
         """The RPN fragment pushing counter ``name``'s cell — usable as a read
         operand OR as a B_LET assignment target (the VECTOR token is an lvalue)."""
         if name not in self._counters:
+            if name in getattr(self, "streams", {}):
+                raise BehaviorError(_stream_write_refusal(name))
             raise BehaviorError(f"unknown counter {name!r} (declare it in counters=)")
         return f"{_cnum(self._ctr_tid)} {_cnum(self._counters[name])} B_VECTOR"
 
@@ -1897,6 +2056,8 @@ class FieldBehavior:
         index is READ FROM the counter cell at runtime (nested VECTOR reads compose;
         the engine keys sub-operands by CalcStack depth). A runtime index past the
         end fails soft to 0 by engine design."""
+        if name in getattr(self, "_stream_keys", ()) or name in getattr(self, "streams", {}):
+            raise BehaviorError(_stream_write_refusal(name))
         if name not in self.tables:
             raise BehaviorError(f"unknown table {name!r} (declare it in tables=)")
         tid, values = self.tables[name]
@@ -2222,6 +2383,12 @@ class FieldBehavior:
         src = str(src)
         if src.startswith(HUD_EXPR_PREFIX):
             return hud_expr_tokens(src, label=label)
+        if src.startswith("stream:"):
+            info = self.streams.get(src[7:])
+            if info is None:
+                raise BehaviorError(f"{label} {src!r}: unknown stream {src[7:]!r} (declare it in "
+                                    f"[[behavior.stream]])")
+            return stream_ref(info.tid)                  # a pure READ of the state -- never an advance
         if src == "gil":
             return "B_SYSVAR[6]"
         if src == "timer":
@@ -2394,6 +2561,185 @@ class FieldBehavior:
             walk(tree)
         return out
 
+    # ---------------- roll streams: the draw-cadence laws + the private wander streams
+    def _tree_owners(self) -> list:
+        """(owner, tree, is_class) for every tree the compiler emits."""
+        return ([(u.name, u.tree, False) for u in self.units.values() if u.name not in self._clsof]
+                + [(cs.name, cs.tree, True) for cs in self.classes.values()])
+
+    @staticmethod
+    def _walk_do_paths(tree: "Node | None"):
+        """Yield ``(Do, positive Cond texts on its path)`` for every Do OCCURRENCE: a Sequence accumulates its
+        Cond children (an Invert is a negative test, not a gate on a flag being SET); Once/Cooldown descend."""
+        def walk(n, conds):
+            if isinstance(n, Selector):
+                for c in n.children:
+                    yield from walk(c, conds)
+            elif isinstance(n, Sequence):
+                acc = list(conds)
+                for c in n.children:
+                    if isinstance(c, Cond):
+                        acc.append(c.text)
+                    else:
+                        yield from walk(c, acc)
+            elif isinstance(n, (Once, Cooldown)):
+                yield from walk(n.child, conds)
+            elif isinstance(n, Do):
+                yield n, list(conds)
+        if tree is not None:
+            yield from walk(tree, [])
+
+    def _check_streams(self) -> None:
+        """THE DRAW-CADENCE LAWS, before any emission (every lane -- TOML, Python, lint, build -- passes here).
+        A selected branch EXECUTES EVERY TICK, so a roll draws once per event only on THE EDGE IDIOM: a public
+        flag raised from outside, required by the branch's when, cleared by that branch and by no other."""
+        owners = self._tree_owners()
+        occ = [(owner, is_cls, do, conds) for owner, tree, is_cls in owners
+               for do, conds in self._walk_do_paths(tree)]
+        raised = {f for _o, _c, do, _k in occ for f in do.raise_flags}
+        clearers: dict[str, int] = {}
+        for _o, _c, do, _k in occ:
+            for f in do.clear_flags:
+                clearers[f] = clearers.get(f, 0) + 1
+        alternators = {n for n, *_ in self._alternators}
+        scan_counts = {sc.count for sc in self._scans}
+        sched = {c for c, _t in self._schedules}
+        drawn: set = set()
+        self.stream_sites = {}
+        for owner, is_cls, do, conds in occ:
+            seeded = isinstance(do.action, Wander) and do.action.seed is not None
+            if (do.roll is not None or seeded) and (is_cls or self.brains):
+                raise BehaviorError(
+                    f"{owner}: roll streams are v1-ticker only -- a class tree is ONE emitted site driving N "
+                    f"members, and a brains unit's wander state is Instance-private (unproven, invisible to "
+                    f"the proof harness)")
+            if seeded:
+                others = [a for a in self._collect_tree_actions(dict((o, t) for o, t, _c in owners)[owner])
+                          if isinstance(a, Wander) and a is not do.action]
+                if others:
+                    raise BehaviorError(
+                        f"{owner}: a seeded wander must be the unit's only wander -- wtx/wtz/wtimer are per "
+                        f"unit, so a second box would share its clock and splice foreign targets into the "
+                        f"predicted sequence")
+            r = do.roll
+            if r is None:
+                continue
+            if r.stream not in self.streams:
+                raise BehaviorError(f"{owner}: roll stream {r.stream!r} is not declared ([[behavior.stream]])")
+            self._counter_ref(r.counter)                 # existence (and never a stream)
+            if r.counter in scan_counts or r.counter in sched:
+                raise BehaviorError(
+                    f"{owner}: roll into {r.counter!r}: a clock rewrites that counter every pass (a scan "
+                    f"headcount or the wave schedule) -- roll into a counter only events write")
+            edge = None
+            for f in do.clear_flags:
+                if (f in self._public_flags and re.fullmatch(r"[A-Za-z0-9_]+", f)
+                        and f"Global.Bit[{self.bb.flag(f)}]" in conds):
+                    edge = f
+                    break
+            why = None
+            if edge is None:
+                why = ("no flag F is both required by this branch's when (a plain `flag = \"F\"` row), cleared "
+                       "by its clear_flags, and declared in public_flags")
+            elif edge in raised:
+                why = f"{edge!r} is raised by a branch's raise_flags -- the system would re-arm its own edge"
+            elif edge in alternators:
+                why = f"{edge!r} is an alternator -- a clock, not an event"
+            elif clearers.get(edge, 0) != 1:
+                why = f"{edge!r} is cleared by another branch too -- that branch would swallow raises"
+            if why:
+                raise BehaviorError(
+                    f"{owner}: a roll draws once per EXECUTION of its branch, and a selected branch executes "
+                    f"every tick -- ride THE EDGE IDIOM: when = [{{ flag = \"F\" }}] + clear_flags = [\"F\"] on "
+                    f"this branch, F declared in public_flags (raised from outside: a [[choice]] row, an "
+                    f"[[event]], a gateway), raised by no raise_flags or alternator, cleared by no other "
+                    f"branch. Failed: {why}")
+            drawn.add(r.stream)
+            self.stream_sites.setdefault(r.stream, []).append(
+                (owner, edge, self.bb.flag(edge), r.counter, r.lo, r.hi))
+        for nm in self.streams:
+            if nm not in drawn:
+                raise BehaviorError(f"stream {nm!r} is declared but no roll draws it -- a typo or a forgotten "
+                                    f"branch; drop the row or add `roll = {{ stream = \"{nm}\" ... }}`")
+
+    def _register_wander_streams(self) -> None:
+        """Each unclassed unit with a SEEDED wander gets a PRIVATE ephemeral stream (idempotent: compile may run
+        twice). Allocated before the Main_Init table loop, so the ordinary seed covers it."""
+        for owner, tree, is_cls in self._tree_owners():
+            if is_cls or owner in self.wander_streams:
+                continue
+            for a in self._collect_tree_actions(tree):
+                if isinstance(a, Wander) and a.seed is not None:
+                    key = _RS.wander_key(owner)
+                    tid = self._alloc_tid()
+                    x0 = _RS.seed_state(_RS.wander_ident(owner), a.seed)
+                    self.tables[key] = (tid, (x0,))
+                    self._stream_keys.add(key)
+                    self.wander_streams[owner] = StreamInfo(f"wander:{owner}", key, tid, int(a.seed), x0,
+                                                            False, None)
+                    break
+
+    def streams_warning(self) -> "str | None":
+        """One build-warning line naming every stream's vector and its first predicted states (and each
+        seeded wander's first targets) -- the author's oracle, from content/rollstream.py."""
+        parts = []
+        for info in self.streams.values():
+            head = (f"{info.name} (PERSISTENT vector {info.tid}, guard {info.tid + PERSIST_GUARD_OFFSET}, "
+                    f"check word {info.word} -- SAVE identity: keep name and id stable; a seed edit reaches "
+                    f"new games only)" if info.persist else f"{info.name} (vector {info.tid})")
+            parts.append(f"{head} x0 {info.x0} -> {', '.join(map(str, _RS.states(info.x0, 4)))} ...")
+        for owner, info in self.wander_streams.items():
+            w = next(a for a in self._collect_tree_actions(self.units[owner].tree)
+                     if isinstance(a, Wander) and a.seed is not None)
+            tg = [_RS.wander_target(v, int(w.center[0]), int(w.center[1]), int(w.radius))
+                  for v in _RS.states(info.x0, 4)]
+            parts.append(f"wander {owner} (vector {info.tid}) x0 {info.x0} -> "
+                         + ", ".join(f"({x},{z})" for x, z in tg) + " ...")
+        if not parts:
+            return None
+        return "[behavior] roll streams (predictions from a fresh seed): " + "; ".join(parts)
+
+    def streams_report(self) -> list:
+        """The roll-streams section: every stream's vector, start state and the first predictions (the
+        offline ORACLE -- recomputed, never scraped, by tests and the harness from content/rollstream.py)."""
+        if not self.streams and not self.wander_streams:
+            return []
+        k = _RS.PREDICT_K
+        out = [f"roll streams (x' = {_RS.A}*x mod {_RS.M}, full period {_RS.M - 1}; each draw = ONE "
+               f"advance, then reads S):"]
+        for info in self.streams.values():
+            if info.persist:
+                out.append(f"  {info.name}: PERSISTENT vector {info.tid} (guard "
+                           f"{info.tid + PERSIST_GUARD_OFFSET} = check word {info.word} over {info.key!r})")
+                out.append(f"       seed {info.seed} -> x0 {info.x0} -- a NEW GAME's draws; a loaded save "
+                           f"continues from its own state")
+            else:
+                out.append(f"  {info.name}: EPHEMERAL vector {info.tid} -- re-seeded at every field entry, "
+                           f"~ Reload and Continue (kept across a battle return)")
+                out.append(f"       seed {info.seed} -> x0 {info.x0}")
+            st = _RS.states(info.x0, k)
+            out.append(f"       states 1-{k}: {' '.join(map(str, st))}")
+            sites = self.stream_sites.get(info.name, [])
+            for owner, flag, bit, ctr, lo, hi in sites:
+                out.append(f"       drawn by: {owner} on public flag {flag!r} (bit {bit}) -> {ctr} in "
+                           f"[{lo}, {hi}]")
+            if len(sites) == 1:
+                _o, _f, _b, _c, lo, hi = sites[0]
+                out.append(f"       rolls 1-{k}: {' '.join(str(_RS.roll_value(v, lo, hi)) for v in st)}")
+            elif len(sites) > 1:
+                out.append(f"       shared by {len(sites)} consumers: the i-th raise overall takes state i, "
+                           f"whichever flag it was")
+        for owner, info in self.wander_streams.items():
+            w = next(a for a in self._collect_tree_actions(self.units[owner].tree)
+                     if isinstance(a, Wander) and a.seed is not None)
+            cx, cz = int(w.center[0]), int(w.center[1])
+            tg = [_RS.wander_target(v, cx, cz, int(w.radius)) for v in _RS.states(info.x0, k)]
+            out.append(f"  wander {owner}: PRIVATE vector {info.tid}, seed {info.seed} -> x0 {info.x0}; box "
+                       f"({cx},{cz}) r={int(w.radius)} every {int(w.hold)}")
+            out.append(f"       targets 1-{k}: " + " ".join(f"({x},{z})" for x, z in tg))
+            out.append("       [the target SEQUENCE is exact; WHEN each re-roll lands is selection-tick-coupled]")
+        return out
+
     def _collect_tree_actions(self, tree: Node | None) -> list[Action]:
         out: list[Action] = []
 
@@ -2545,6 +2891,8 @@ class FieldBehavior:
             if cs.tree is None:
                 raise BehaviorError(f"class {cs.name!r} has no tree")
             self._check_class_tree(cs)
+        self._check_streams()                            # the draw-cadence laws, before ANY emission
+        self._register_wander_streams()
 
         duty_bodies: dict[str, bytes] = {}
         action_funcs: dict[str, list] = {}
@@ -2640,6 +2988,9 @@ class FieldBehavior:
         # only: the tag-10 after-battle Reinit is built separately and never touches a table.
         for tname in self.persist_words:
             main_init += persist_seed_block(tname, *self.tables[tname])
+        for info in self.streams.values():               # a persistent stream's DOMAIN REPAIR, after its guard
+            if info.persist:
+                main_init += stream_repair_block(info.key, info.tid, info.x0)
         report: list[str] = []
 
         # TREE OWNERS: every unclassed unit owns its own tree (v1 / per-unit
@@ -3347,6 +3698,8 @@ class FieldBehavior:
             tl = ["tables (gScriptVector ids — re-seeded every field entry"
                   + ("; PERSISTENT rows are guarded instead" if self.persist_words else "") + "):"]
             for tname, (tid, values) in self.tables.items():
+                if tname in self._stream_keys:
+                    continue                             # listed in the roll-streams section
                 if tname in self.persist_words:
                     tl.append(
                         f"  {tname}: id {tid} PERSISTENT, {len(values)} cell(s), seed "
@@ -3407,7 +3760,7 @@ class FieldBehavior:
             action_funcs=action_funcs,
             main_init=bytes(main_init),
             report=self.bb.report() + "\nunits:\n" + "\n".join(report) + pools_txt
-            + tables_txt,
+            + tables_txt + "".join("\n" + ln for ln in self.streams_report()),
             sizes={"ticker_content": _stotal,
                    "ticker_segments": ticker_segments,
                    "duty": {n: len(b) for n, b in duty_bodies.items()},
@@ -3607,6 +3960,13 @@ class FieldBehavior:
                 if fi not in self._reset_flags:
                     self._reset_flags.append(fi)
                 out.append(_set_flag(fi, 0))
+            if node.roll is not None:
+                # THE ROLL: one advance, then the draw -- each its own 0x05 statement (never the value
+                # B_LET pushes). The edge law (_check_streams) made this Do run once per raise of its flag.
+                S = stream_ref(self.streams[node.roll.stream].tid)
+                out.append(_stmt(stream_advance_rpn(S)))
+                out.append(_stmt(stream_draw_rpn(self._counter_ref(node.roll.counter), S,
+                                                 node.roll.lo, node.roll.hi)))
             for k, adj in enumerate(node.adjust):
                 # a clamped write WHILE SELECTED (the use-loop: holding at the
                 # stove fills hunger). every>0 rides a cooldown-class timer —
@@ -3869,14 +4229,20 @@ class FieldBehavior:
             L = f"t_{owner}_wn{self._label_ctr}"
             roll = (f"const(128) B_MINUS const({int(a.radius)}) B_MULT "
                     f"const(128) B_DIV B_PLUS B_LET")
+            if a.seed is not None:
+                S = stream_ref(self.wander_streams[owner].tid)
+                wx, wz = stream_wander_rpns(wtx_r, wtz_r, S, cx, cz, int(a.radius))
+                draws = [_stmt(stream_advance_rpn(S)), _stmt(wx), _stmt(wz)]
+            else:
+                draws = [_stmt(f"{wtx_r} const({cx}) B_SYSVAR[0] {roll}"),
+                         _stmt(f"{wtz_r} const({cz}) B_SYSVAR[0] {roll}")]
             return [
                 _stmt(f"{wt_r} const(0) B_GT"), (JMP_IFNOT, f"{L}_roll"),
                 _stmt(f"{wt_r} {wt_r} const(1) B_MINUS B_LET"),
                 (JMP, f"{L}_feed"),
                 label(f"{L}_roll"),
                 _stmt(f"{wt_r} const({int(a.hold)}) B_LET"),
-                _stmt(f"{wtx_r} const({cx}) B_SYSVAR[0] {roll}"),
-                _stmt(f"{wtz_r} const({cz}) B_SYSVAR[0] {roll}"),
+                *draws,
                 label(f"{L}_feed"),
                 _stmt(f"{tx_r} {wtx_r} B_LET"),
                 _stmt(f"{tz_r} {wtz_r} B_LET"),

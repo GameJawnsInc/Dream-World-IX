@@ -1521,6 +1521,7 @@ def validate(project: FieldProject) -> list[str]:
                 problems.append("[[gateway]] ate_title must be a non-empty string (the ATE title-window text).")
         if str(gw.get("to")).strip().lower() != "worldmap":   # worldmap already rejects both keys outright above
             _validate_gate_exclusive(gw, "[[gateway]]", problems)
+    _roll_edges_cache: dict = {}                 # roll_edge_flags runs a throwaway build: once
     for ev in project.raw.get("event", []):
         z = ev.get("zone", [])
         if len(z) not in (4, 5):
@@ -1561,6 +1562,17 @@ def validate(project: FieldProject) -> list[str]:
             problems.append("[[event]] trigger=\"action\" with once=false and a give_item/gil reward "
                             "is an infinite item/gil faucet (every press pays out) -- set once=true, "
                             "or drop the reward from a repeatable sign")
+        if trig in (None, "walk") and ev.get("once", True) is False and "set_flag" in ev:
+            try:
+                _edge_bit = int(ev["set_flag"][0])
+            except (TypeError, ValueError, IndexError, KeyError):
+                _edge_bit = None
+            _edges = _roll_edges_cache.setdefault("v", _behaviortoml.roll_edge_flags(project.raw))
+            if _edge_bit in _edges:
+                problems.append(f"[[event]] a walk tread with once = false re-fires every frame while the player "
+                                f"stands in it -- it writes roll edge flag {_edges[_edge_bit]!r} (bit "
+                                f"{_edge_bit}) repeatedly, so the roll would draw once per TICK; use trigger = "
+                                f"\"action\" (a press) or once = true")
         if ev.get("bubble") and trig != "action":
             problems.append("[[event]] bubble (the \"!\" press prompt) needs trigger = \"action\" -- "
                             "a walk event's tread slot IS its trigger, there is no press to prompt for")
@@ -7555,11 +7567,14 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                     "player): " + ", ".join(pl))
                 pt = [f"{nm} -> vector {fb.tables[nm][0]} (guard "
                       f"{fb.tables[nm][0] + _behavior.PERSIST_GUARD_OFFSET}, check word {w})"
-                      for nm, w in fb.persist_words.items()]
+                      for nm, w in fb.persist_words.items() if nm not in fb._stream_keys]
                 if pt:
                     warnings.append("[behavior] persistent tables (SAVE identity -- keep id, "
                                     "name and length stable or every player's copy re-seeds): "
                                     + ", ".join(pt))
+                sw = fb.streams_warning()
+                if sw:
+                    warnings.append(sw)
         except (_behaviortoml.BehaviorTomlError, _behavior.BehaviorError) as e:
             raise BuildError(f"[behavior]: {e}") from e
 
