@@ -52,8 +52,14 @@ def inject_prop(data, x: int, z: int, *, model: int, pose: int, face: int | None
                 attach_to: int | None = None, bone: int = 11,
                 spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                 gate_flag: int | None = None, gate_require_set: bool = True,
-                reserve_party_band: bool = False, collision: bool = True) -> bytes:
+                reserve_party_band: bool = False, collision: bool = True, shadow=None) -> bytes:
     """Place a prop ``model`` at world (x, z), held at ``pose`` (an animation id), head-tracking OFF.
+
+    ``shadow`` is the stock blob shadow (:mod:`ff9mapkit.content.shadow`) as a RESOLVED value -- the build
+    passes :func:`~ff9mapkit.content.shadow.set_piece_value` of the ``[[prop]] shadow`` key, so an absent key
+    casts only for a model stock lets cast. ``None`` (the default) emits nothing, keeping every other caller
+    byte-identical. A HELD prop (``attach_to``) never casts, whatever is passed: stock disables the shadow on
+    139 of its 140 held objects, and the engine takes the quad's height from the item's bone-local offset.
 
     ``attach_to`` (a carrying object's uid = its entry slot) binds this prop to that object's ``bone``
     so it follows it -- the real held-item recipe ``AttachObject(self_uid, carrier_uid, bone)`` (bone
@@ -83,4 +89,5 @@ def inject_prop(data, x: int, z: int, *, model: int, pose: int, face: int | None
                       init_tail=tail, slot=slot, bare=(dialogue_text_id is None),
                       spawn_wait_n=spawn_wait_n, spawn_wait_occurrence=spawn_wait_occurrence,
                       gate_flag=gate_flag, gate_require_set=gate_require_set,
-                      reserve_party_band=reserve_party_band)
+                      reserve_party_band=reserve_party_band,
+                      shadow=(None if attach_to is not None else shadow))

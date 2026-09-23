@@ -3,8 +3,10 @@
 A synthesized field ships no MapConfigData, so the engine's per-model shadow service never runs and every
 actor's ``FF9Shadow`` keeps its zero scale -- no shadow. The build now emits ``SetShadowSize`` +
 ``SetShadowAmplifier`` (the same two engine calls the MCF service makes) with the census values, on the
-player and every ``[[npc]]``, and on nothing else: the invariant tests below build each field with the
-shadows forced off and require the shadows-on build to differ by EXACTLY the shadow ops.
+player, every ``[[npc]]``, and the SET PIECES stock lets cast -- a ``[[prop]]`` whose model stock does not
+``DisableShadow`` (``STOCK_CASTS``), every ``[[chest]]``, a save point's moogle + barrel_pop cask -- and on
+nothing else (never a held prop): the invariant tests below build each field with the shadows forced off and
+require the shadows-on build to differ by EXACTLY the shadow ops.
 """
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ from ff9mapkit.content import shadow as SH
 from ff9mapkit.eb import EbScript, ebsrc, opcodes
 
 ZIDANE, CSO, MOOGLE = 98, 217, 220
+CHEST, CASK, TENT, SAVE_BOOK, FEATHER, LETTER = 75, 241, 225, 133, 134, 258
 
 
 # ---- the MapConfigData decoder (authored bytes -- no SE data) ------------------------------------------
@@ -72,6 +75,30 @@ def test_resolve_semantics():
     assert SH.init_ops(ZIDANE, False) == b""
 
 
+def test_stock_casts_is_stocks_script_verdict():
+    # the census of stock's own Inits (DisableShadow on every path, or not) -- the rows the bench exercises
+    for m in (75, 91, 701, 702, CASK, MOOGLE):                    # every chest variant, the cask, the moogle
+        assert SH.stock_casts(m), m
+    for m in (TENT, SAVE_BOOK, FEATHER, LETTER):                  # stock switches these off in their Init
+        assert not SH.stock_casts(m), m
+    assert SH.stock_casts(59999) is _shadowparams.PROP_DEFAULT_CASTS is False    # never shown standing free
+    assert not SH.stock_casts("not a model")
+    # most set dressing stays dark: the table's own accessory verdicts
+    from ff9mapkit._modeldb import MODELS
+    acc = [v for m, v in _shadowparams.STOCK_CASTS.items() if MODELS.get(m, "").startswith("GEO_ACC_")]
+    assert sum(acc) < len(acc) / 2
+
+
+def test_set_piece_value_semantics():
+    assert SH.set_piece_value(None, CASK) is True                 # absent = stock's verdict for the model
+    assert SH.set_piece_value(None, TENT) is False
+    assert SH.set_piece_value(True, TENT) is True                 # an explicit value is the author's
+    assert SH.set_piece_value(False, CASK) is False
+    assert SH.set_piece_value({"size": 4}, TENT) == {"size": 4}
+    assert SH.init_ops(TENT, SH.set_piece_value(None, TENT)) == b""
+    assert SH.init_ops(CASK, SH.set_piece_value(None, CASK)) == SH.ops(*SH.params_for(CASK))
+
+
 @pytest.mark.parametrize("value", [3, "yes", {"radius": 4}, {"size": 256}, {"size": -1},
                                    {"intensity": 32}, {"size": True}, {"size": 4.0}])
 def test_bad_values_are_refused(value):
@@ -102,6 +129,23 @@ def test_npc_init_shadow_goes_last_after_the_init_tail():
     tail = opcodes.encode(0x80)                                   # any init_tail
     body = N.build_npc_init(**kw, init_tail=tail, shadow=SH.ops(9, 3))
     assert body.endswith(tail + SH.ops(9, 3) + opcodes.RETURN)
+
+
+def test_chest_init_shadow_goes_last_after_enable_head_focus():
+    from ff9mapkit.content import chest as C
+    kw = dict(x=10, z=20, flag_idx=8712)
+    assert C.build_chest_init(**kw) == C.build_chest_init(**kw, shadow=b"")
+    body = C.build_chest_init(**kw, shadow=SH.ops(10, 4))
+    assert body.endswith(opcodes.encode(C.ENABLE_HEAD_FOCUS, 0) + SH.ops(10, 4) + opcodes.RETURN)
+    assert len(body) == len(C.build_chest_init(**kw)) + 7
+
+
+def test_cask_init_shadow_goes_last():
+    from ff9mapkit.content import savepoint as SP
+    assert SP.cask_model() == CASK
+    assert SP.build_cask_init(10, 20) == SP.build_cask_init(10, 20, shadow=b"")
+    body = SP.build_cask_init(10, 20, shadow=SH.ops(11, 5))
+    assert body.endswith(opcodes.encode(0x93, SP.CASK_FLAGS) + SH.ops(11, 5) + opcodes.RETURN)
 
 
 # ---- the build (template-gated: needs `ff9mapkit extract-templates`) ------------------------------------
@@ -176,13 +220,201 @@ def test_a_field_with_mapconfig_is_left_to_its_mcf():
 
     class P:
         field = {"mapconfig": "mapconfig.bytes"}
-        raw = {"player": {"shadow": False}, "npc": [{"name": "a"}, {"name": "b", "shadow": {"size": 3}}]}
+        raw = {"player": {"shadow": False}, "npc": [{"name": "a"}, {"name": "b", "shadow": {"size": 3}}],
+               "prop": [{"prop": "tent"}, {"prop": "cask", "shadow": False}],
+               "chest": [{}, {"shadow": True}], "savepoint": [{"shadow": False}]}
     w = []
     assert build._casts_stock_shadows(P, w) is False
     assert build._casts_stock_shadows(P, w) is False               # per-language rebuild: warned ONCE
     assert len(w) == 1 and "[player]" in w[0] and "'b'" in w[0] and "'a'" not in w[0]
+    assert "[[prop]] 'cask'" in w[0] and "'tent'" not in w[0]
+    assert "[[chest]] #1" in w[0] and "[[chest]] #0" not in w[0] and "[[savepoint]] #0" in w[0]
     P.field = {}
     assert build._casts_stock_shadows(P, []) is True
+
+
+# ---- the SET PIECES: [[prop]] (stock's per-model verdict, never held), [[chest]], the save point --------
+
+_SET_PIECES = '''[player]
+spawn=[0,0]
+[[flag]]
+name="c1"
+index=8712
+[[flag]]
+name="c2"
+index=8713
+[[npc]]
+name="holder"
+model="GEO_NPC_F0_CSO"
+pos=[300,0]
+holds="cup"
+[[prop]]
+prop="cask"
+pos=[100,100]
+[[prop]]
+prop="tent"
+pos=[200,100]
+[[prop]]
+prop="tent"
+pos=[300,100]
+shadow=true
+[[prop]]
+prop="cask"
+pos=[400,100]
+shadow=false
+[[prop]]
+prop="save_point"
+pos=[500,100]
+[[prop]]
+prop="cask"
+pos=[600,100]
+attach_to="holder"
+[[chest]]
+pos=[0,400]
+item="Potion"
+flag="c1"
+[[chest]]
+pos=[100,400]
+gil=10
+flag="c2"
+model="F1"
+shadow=false
+[[savepoint]]
+zone=[[-100,-100],[100,-100],[100,-300],[-100,-300]]
+pos=[0,-200]
+[[savepoint]]
+zone=[[-500,-100],[-300,-100],[-300,-300],[-500,-300]]
+pos=[-400,-200]
+reveal_style="barrel_pop"
+reveal_from=[-400,-250]
+act_hop_to=[-400,-150]
+'''
+# every object that casts, (model, x, z) -> (size, amp): 9 actors. Everything else must carry NO size/amp op.
+_SET_PIECE_CASTS = {
+    (ZIDANE, None, None): (9, 4 << 3),          # the player (template spawn, position not read)
+    (CSO, 300, 0): (9, 3 << 3),                 # the holder NPC
+    (CASK, 100, 100): (11, 5 << 3),             # a stock-casting prop, key absent
+    (TENT, 300, 100): (11, 4 << 3),             # a stock-dark prop, shadow = true
+    (MOOGLE, 500, 100): (6, 2 << 3),            # the save_point composite's moogle part (its book stays dark)
+    (CHEST, 0, 400): (10, 4 << 3),              # the chest
+    (MOOGLE, 0, -200): (6, 2 << 3),             # the instant save moogle
+    (CASK, -400, -250): (11, 5 << 3),           # the barrel_pop cask
+    (MOOGLE, -400, -200): (6, 2 << 3),          # the barrel_pop moogle (hidden until the cask is pressed)
+}
+
+
+def _built_mod(project, out, *, shadows: bool, monkeypatch) -> bytes:
+    from ff9mapkit import build
+    with monkeypatch.context() as m:
+        if not shadows:
+            m.setattr(build, "_casts_stock_shadows", lambda p, w=None: False)
+        build.build_mod([project], out, mod_name="ShadowCheck")
+    return build.ModLayout(out).eb_path("us", f"EVT_{project.name}.eb.bytes").read_bytes()
+
+
+def _object_inits(ebb: bytes):
+    """``{(model, x, z): (entry, [Init instrs])}`` for every object Init with a literal SetModel -- the
+    D9(0)/D9(4) consts every from-scratch kit object places itself with (the player reads (model, None, None))."""
+    from ff9mapkit.content.ladder import find_player_entry
+    eb = EbScript.from_bytes(ebb)
+    pe = find_player_entry(eb)
+    out = {}
+    for e in eb.entries:
+        f0 = None if e.empty else e.func_by_tag(0)
+        if f0 is None:
+            continue
+        ins = list(eb.instrs(f0))
+        sm = next((i for i in ins if i.op == 0x2F), None)
+        if sm is None:
+            continue
+        body = ebb[f0.abs_start:f0.abs_end]
+        xz = [None, None]
+        if e.index != pe:
+            for k, var in enumerate((0, 4)):
+                at = body.find(bytes([0x05, 0xD9, var, 0x7D]))
+                xz[k] = struct.unpack_from("<h", body, at + 4)[0] if at >= 0 else None
+        key = (sm.args[0], *xz)
+        assert key not in out, key                  # the benches place no two same-model objects together
+        out[key] = (e.index, ins)
+    return out, eb
+
+
+def test_build_shadows_the_set_pieces_stock_shadows(tmp_path, monkeypatch):
+    from ff9mapkit import build
+    p = _toml(tmp_path, _SET_PIECES)
+    proj = build.FieldProject.load(p)
+    assert build.validate(proj) == []
+    ebb = _built_mod(proj, tmp_path / "on", shadows=True, monkeypatch=monkeypatch)
+    objs, eb = _object_inits(ebb)
+    for key, want in _SET_PIECE_CASTS.items():
+        assert key in objs, (key, sorted(objs))
+        assert _init_shadow(ebb, objs[key][0]) == want, key
+    casting = set(_SET_PIECE_CASTS)
+    silent = [k for k in objs if k not in casting]
+    assert silent, "the negative cases went missing"
+    for e in eb.entries:                          # ...and NO other object anywhere carries a size/amp op
+        if e.empty or e.index in {objs[k][0] for k in casting}:
+            continue
+        for f in e.funcs:
+            assert not any(i.op in (SH.SET_SHADOW_SIZE, SH.SET_SHADOW_AMP) for i in eb.instrs(f)), e.index
+    # every negative case, by name: the stock-dark tent, the opted-out cask + F1 chest, the composite's book,
+    # both HELD props -- the `holds` cup, and a CASK attach_to'd to the holder, a model stock DOES cast, so
+    # only the held rule keeps it dark -- and the act's book + feather, which keep their donor DisableShadow
+    for key in [(TENT, 200, 100), (CASK, 400, 100), (91, 100, 400), (SAVE_BOOK, 500, 100)]:
+        assert _init_shadow(ebb, objs[key][0]) is None, key
+    held = [objs[(234, 300, 0)], objs[(CASK, 600, 100)]]
+    assert all(any(i.op == 0x4C for i in ins) for _e, ins in held)          # both really are attached
+    assert all(_init_shadow(ebb, e) is None for e, _ in held)
+    acts = [objs[k] for k in objs if k[0] in (SAVE_BOOK, FEATHER) and k != (SAVE_BOOK, 500, 100)]
+    assert acts and all(any(i.op == 0x80 for i in ins) for _e, ins in acts)
+    # the stock SHAPE: every set piece's ops run straight into its Init RETURN
+    for key in casting - {(ZIDANE, None, None)}:
+        ins = objs[key][1]
+        assert [i.op for i in ins[-3:]] == [SH.SET_SHADOW_SIZE, SH.SET_SHADOW_AMP, 0x04], key
+
+
+def test_set_pieces_change_by_exactly_their_shadow_ops(tmp_path, monkeypatch):
+    from ff9mapkit import build
+    proj = build.FieldProject.load(_toml(tmp_path, _SET_PIECES))
+    off = _built_mod(proj, tmp_path / "off", shadows=False, monkeypatch=monkeypatch)
+    on = _built_mod(proj, tmp_path / "on", shadows=True, monkeypatch=monkeypatch)
+    _assert_only_shadow_ops_added(off, on, actors=len(_SET_PIECE_CASTS))
+
+
+def test_savepoint_shadow_false_darkens_the_moogle_and_its_cask(tmp_path, monkeypatch):
+    from ff9mapkit import build
+    body = ('[player]\nspawn=[0,0]\n[[savepoint]]\nzone=[[-500,-100],[-300,-100],[-300,-300],[-500,-300]]\n'
+            'pos=[-400,-200]\nreveal_style="barrel_pop"\nreveal_from=[-400,-250]\nact_hop_to=[-400,-150]\n')
+    proj = build.FieldProject.load(_toml(tmp_path, body + "shadow=false\n"))
+    ebb = _built_mod(proj, tmp_path / "a", shadows=True, monkeypatch=monkeypatch)
+    objs, _ = _object_inits(ebb)
+    assert _init_shadow(ebb, objs[(MOOGLE, -400, -200)][0]) is None
+    assert _init_shadow(ebb, objs[(CASK, -400, -250)][0]) is None
+    # a table sizes the MOOGLE only; the cask keeps its census
+    proj = build.FieldProject.load(_toml(tmp_path, body + "shadow={size=12,intensity=7}\n"))
+    ebb = _built_mod(proj, tmp_path / "b", shadows=True, monkeypatch=monkeypatch)
+    objs, _ = _object_inits(ebb)
+    assert _init_shadow(ebb, objs[(MOOGLE, -400, -200)][0]) == (12, 7 << 3)
+    assert _init_shadow(ebb, objs[(CASK, -400, -250)][0]) == (11, 5 << 3)
+
+
+def test_validate_refuses_a_shadow_on_a_held_prop_and_bad_set_piece_values(tmp_path):
+    from ff9mapkit import build
+    p = _toml(tmp_path, '[player]\nspawn=[0,0]\n[[flag]]\nname="c1"\nindex=8712\n'
+                        '[[npc]]\nname="h"\nmodel="GEO_NPC_F0_CSO"\npos=[300,0]\n'
+                        '[[prop]]\nprop="cup"\npos=[0,0]\nattach_to="h"\nshadow=true\n'
+                        '[[prop]]\nprop="cup"\npos=[0,0]\nattach_to="h"\nshadow=false\n'
+                        '[[prop]]\nprop="cask"\npos=[0,0]\nshadow={radius=3}\n'
+                        '[[chest]]\npos=[0,400]\nitem="Potion"\nflag="c1"\nshadow="yes"\n'
+                        '[[savepoint]]\nzone=[[-100,-100],[100,-100],[100,-300],[-100,-300]]\n'
+                        'shadow={intensity=40}\n')
+    probs = build.validate(build.FieldProject.load(p))
+    held = [s for s in probs if "held prop" in s]
+    assert len(held) == 1 and held[0].startswith("[[prop]] 'cup' shadow"), probs   # false is fine
+    assert any(s.startswith("[[prop]] 'cask' shadow: unknown key") for s in probs), probs
+    assert any(s.startswith("[[chest]] #0 shadow must be") for s in probs), probs
+    assert any(s.startswith("[[savepoint]] shadow.intensity") for s in probs), probs
+    assert not any("unknown key 'shadow'" in s for s in probs), probs
 
 
 # ---- THE INVARIANT: shadows-on == shadows-off + exactly the shadow ops ---------------------------------
