@@ -39,6 +39,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   on the `.bgs` load path. An editable fork ships a `.bgx` scene, so its re-sliced layers are never offset by the
   donor's overlay indices. The donor-keyed gates do assume the donor's walkmesh tri ids and object uids, and a
   reshaped `walkmesh.obj` can move them.
+- **The Workspace Place tab still places an editable fork on its own surface**, its `walkmesh.obj` and
+  `[[layers]]`, not on the donor's real room, which a recorded donor would otherwise select. A reshaped or
+  repainted fork keeps its own geometry and art.
 - An editable fork on the donor's own id (in place) still omits the key. A donor that does not resolve still
   gets the 2161 prepend and the "LOST" note for 2507, which now names the key to set.
 - **In-game (harness A/B):** two slots built from one `import 2507 --editable`, differing only in the key.
