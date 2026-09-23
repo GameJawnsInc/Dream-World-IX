@@ -3664,6 +3664,8 @@ def _cmd_battle_build(args: argparse.Namespace) -> int:
         print(f"warning: {w}", file=sys.stderr)
     for ln in info.get("lint", []):
         print(f"  lint {ln}")
+    for ln in info.get("ledger", []):
+        print(f"  ledger: {ln}")
     print("To install reversibly into your mod folder: py tools/deploy_battle.py <battle.toml>")
     return 0
 

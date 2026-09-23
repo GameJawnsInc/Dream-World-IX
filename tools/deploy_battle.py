@@ -286,6 +286,8 @@ shutil.rmtree(tmp, ignore_errors=True)
 
 for w in info["warnings"]:
     print(f"warning: {w}")
+for ln in info.get("ledger", []):
+    print(f"  ledger: {ln}")
 
 # id-collision guard (the same law tools/deploy_field.py enforces -- this script never did): a
 # BattleScene id ALSO registered by another stacked FolderNames folder collides in the GLOBAL
