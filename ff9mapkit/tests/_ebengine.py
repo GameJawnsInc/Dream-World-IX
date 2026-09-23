@@ -10,6 +10,30 @@ import re
 from ff9mapkit.eb import disasm as D
 
 
+def _wrap26(v: int) -> int:
+    """Every operator result is pushed through ``EBin.expr_Push_v0_Int24`` (EBin.cs:1270-1274) and read
+    back sign-extended from bit 25 (:1682-1684): an overflow WRAPS mod 2^26 (measured in-game,
+    studies/roll-stream rung 0: 2^25 - 1 + 1 reads back -2^25)."""
+    return ((v + (1 << 25)) % (1 << 26)) - (1 << 25)
+
+
+def _ctrunc_div(a: int, b: int) -> int:
+    """C# ``/`` on Int32: truncation toward zero; a zero divisor pushes the NUMERATOR (EBin.cs:653-667)."""
+    if b == 0:
+        return a
+    q = abs(a) // abs(b)
+    return q if (a < 0) == (b < 0) else -q
+
+
+def _ctrunc_rem(a: int, b: int) -> int:
+    """C# ``%`` on Int32: the sign of the dividend; a zero divisor pushes the NUMERATOR (EBin.cs:668-682)."""
+    return a if b == 0 else a - b * _ctrunc_div(a, b)
+
+
+_ARITH = {"B_PLUS": lambda a, b: a + b, "B_MINUS": lambda a, b: a - b, "B_MULT": lambda a, b: a * b,
+          "B_DIV": _ctrunc_div, "B_REM": _ctrunc_rem}
+
+
 class Engine:
     """Just enough of EBin to run Main_Init / adjust bodies: 0x05 expression statements, the 0x01 /
     0x02 jumps, the vector store with the ENGINE's write rules (index == Count APPENDS; index 0 on a
@@ -88,7 +112,10 @@ class Engine:
                 st.append(val)
             else:
                 b, a = self._read(st.pop()), self._read(st.pop())
-                ops = {"B_PLUS": a + b, "B_MINUS": a - b, "B_LT": int(a < b), "B_GT": int(a > b),
+                if tok in _ARITH:
+                    st.append(_wrap26(_ARITH[tok](a, b)))
+                    continue
+                ops = {"B_LT": int(a < b), "B_GT": int(a > b),
                        "B_LE": int(a <= b), "B_GE": int(a >= b), "B_EQ": int(a == b),
                        "B_NE": int(a != b), "B_ANDAND": int(bool(a) and bool(b)),
                        "B_OROR": int(bool(a) or bool(b))}
