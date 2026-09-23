@@ -255,5 +255,6 @@ repo's `.harness-runs/`: `20260923-112310-shadow-rung1-on`, `-112430-shadow-rung
 - `walkmesh.links.toml` seams are keyed on donor floor numbers too (`apply_seams` looks up `(floor, edge)` on the
   rebuilt mesh), so a renumbering reshape drops them (2 of 14 on the 1607 swap). `obj_built_floor_donors` gives
   the map that would fix it.
-- `deploy_field.py` prints "TEXT OVERWRITES VANILLA" for a fork on its donor's real block even when the build
-  ships no `.mes` (an editable fork without text carry). That fork only reads the block.
+- ~~`deploy_field.py` prints "TEXT OVERWRITES VANILLA" for a fork on its donor's real block even when the build
+  ships no `.mes` (an editable fork without text carry). That fork only reads the block.~~ Fixed: the warning
+  now fires only when the deploy copies a `.mes` for the block (`check_text_block_shadow(writes_mes=)`).

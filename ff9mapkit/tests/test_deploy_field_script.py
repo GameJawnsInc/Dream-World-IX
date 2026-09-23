@@ -114,6 +114,42 @@ def test_the_live_stack_guards_are_wired_and_their_crashes_print():
             assert prints, f"{who}: the {g} guard's except handler must print, not pass silently"
 
 
+def test_the_vanilla_text_axis_is_fed_by_the_mes_the_deploy_copies():
+    """The false alarm (bench 30930, an `import 1607 --editable` fork on block 358): the guard judged the
+    FieldScene textid, so a field that ships NO .mes -- it only READS its real block -- was told it
+    "replaces that location's own dialogue". `writes_mes` must come from the one list the .mes copy itself
+    appends to, so the warning fires exactly when a real block's .mes lands, and cannot drift from the copy.
+    (The two outcomes of the rule are pinned behaviourally in test_deploystack.)"""
+    tree = ast.parse(_SRC)
+    guard = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+             and n.func.id == "check_text_block_shadow"]
+    assert len(guard) == 1
+    kw = [k.value for k in guard[0].keywords if k.arg == "writes_mes"]
+    assert len(kw) == 1, "the guard must be told whether this deploy writes the block's .mes"
+    fed_by = {n.id for n in ast.walk(kw[0]) if isinstance(n, ast.Name)} - {"bool"}
+    assert len(fed_by) == 1, "writes_mes must derive from ONE recorded list, not a textid test"
+    (rec,) = fed_by
+
+    def _copies_mes(stmt):                    # shutil.copyfile(<src>, live.mes_path(...))
+        return any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "copyfile"
+                   and len(c.args) == 2 and isinstance(c.args[1], ast.Call)
+                   and isinstance(c.args[1].func, ast.Attribute) and c.args[1].func.attr == "mes_path"
+                   for c in ast.walk(stmt))
+
+    def _appends_rec(stmt):
+        return any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "append"
+                   and isinstance(c.func.value, ast.Name) and c.func.value.id == rec for c in ast.walk(stmt))
+
+    branches = [n for n in ast.walk(tree) if isinstance(n, ast.If) and any(_copies_mes(s) for s in n.body)]
+    assert len(branches) == 1, "exactly one branch copies the field's .mes into the live folder"
+    assert any(_appends_rec(s) for s in branches[0].body), \
+        f"{rec} must be appended in the SAME branch that copies the .mes -- that is what 'writes' means"
+    appends = [n for n in ast.walk(tree) if isinstance(n, ast.Expr) and _appends_rec(n)]
+    assert len(appends) == 1, f"nothing but the .mes copy may record into {rec}"
+    inits = _assignments(rec)
+    assert len(inits) == 1 and isinstance(inits[0], ast.List) and not inits[0].elts, f"{rec} starts empty, once"
+
+
 def test_the_slot_id_is_band_checked_through_the_shared_validator_before_the_build():
     """Lane G: ``--id`` (and the .ff9deploy pin) override the toml's id AFTER its author-time checks ran,
     and 9000-9012 is the engine's world-dispatcher hole -- a FieldScene there clobbers EVT_WORLD_WORLDxx

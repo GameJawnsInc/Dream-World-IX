@@ -30,6 +30,11 @@ A **verbatim/native fork is exempt from (2) by construction** -- it re-ships its
 text on the donor's own block, so the "overwrite" is a no-op. Pass ``verbatim=True``. Remapping such a fork
 off its donor block would be actively HARMFUL: voice-acting clips resolve off the same mesID
 (``VoicePlayer``) and ``UniversalTextId``'s dual-language remap is keyed by a table of real mesIDs.
+
+(2) also needs a ``.mes`` to be WRITTEN. A field whose build ships no ``field/<block>.mes`` -- an
+``import --editable`` fork without ``--carry-text``, or any field with no dialogue -- still names the block in
+its FieldScene line, but it only READS that location's text; nothing lands in the merge. The single-field
+deploy therefore passes ``writes_mes`` from the files it actually copies, never from the textid alone.
 """
 from __future__ import annotations
 
@@ -112,7 +117,8 @@ class ShadowReport:
     ``shadowed_by`` is the first higher-priority folder that also defines ``text_block`` (``None`` => no
     cross-folder shadow). ``vanilla_fields`` is the real FF9 fields the block belongs to, non-empty only when
     this deploy would OVERWRITE their shipping dialogue -- it is left empty for a ``verbatim`` fork, which
-    re-ships the donor's own text and is therefore harmless. ``suggestions`` are free CUSTOM mesIDs (they
+    re-ships the donor's own text and is therefore harmless, and for a deploy that writes no ``.mes`` for the
+    block at all (it only reads the location's text). ``suggestions`` are free CUSTOM mesIDs (they
     require ``register_text_block = true``). ``order`` is the parsed ``FolderNames`` stack."""
     target_folder: str
     text_block: int
@@ -220,7 +226,8 @@ def fork_donor_blocks_at(root) -> set:
 
 
 def check_text_block_shadow(game_dir, target_folder: str, text_block: int, lang: str = "us",
-                            folder_names: list | None = None, verbatim_blocks=()) -> ShadowReport:
+                            folder_names: list | None = None, verbatim_blocks=(),
+                            writes_mes: bool = True) -> ShadowReport:
     """Is a field's ``text_block`` deployed into ``target_folder`` in collision -- either SHADOWED by a
     higher-priority mod folder, or squatting a REAL FF9 location's block? Reads ``Memoria.ini``
     ``FolderNames`` (unless ``folder_names`` is passed) + each folder's ``field/*.mes``.
@@ -231,6 +238,12 @@ def check_text_block_shadow(game_dir, target_folder: str, text_block: int, lang:
     stacked folders genuinely do fight. This is a set of blocks and NOT a boolean on purpose: a boolean
     suppresses the vanilla axis for whatever block the fork happens to carry, so a fork left on the kit
     default (1073 = Black Mage Village) would be waved through while really overwriting it.
+
+    ``writes_mes`` says whether the deploy actually ships ``field/<text_block>.mes``. When it does not, the
+    field only READS the block, so the vanilla axis is suppressed -- the observed false alarm was an
+    ``--editable`` fork of 1607 (block 358, no ``--carry-text``) that shipped no ``.mes`` at all. The default is
+    ``True`` so a caller that cannot see the built files stays loud. The cross-folder axis is NOT gated by it:
+    a higher folder's ``.mes`` on the block still changes what this field shows.
 
     Degrades gracefully when the stack can't be read; if the target isn't listed in ``FolderNames`` nothing is
     treated as higher-priority (no false alarm). The VANILLA axis needs no stack at all, so it still reports."""
@@ -245,7 +258,8 @@ def check_text_block_shadow(game_dir, target_folder: str, text_block: int, lang:
     # Alternatives are free CUSTOM ids, NOT "a real block no higher folder defines" -- see suggest_text_blocks.
     taken = set().union(*blocks.values()) if blocks else set()
     suggestions = suggest_text_blocks(taken | {text_block}, 3)
-    vanilla = () if int(text_block) in {int(b) for b in verbatim_blocks} else vanilla_fields_on(text_block)
+    exempt = not writes_mes or int(text_block) in {int(b) for b in verbatim_blocks}
+    vanilla = () if exempt else vanilla_fields_on(text_block)
     return ShadowReport(target_folder, text_block, lang, shadowed_by, suggestions, order, vanilla)
 
 
