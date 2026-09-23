@@ -43,6 +43,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   already shadows every actor. The vivi-hut golden hash moves for its two actors.
 - New `ff9mapkit.mapconfig`: a MapConfigData decoder that mirrors the engine's row lookup.
 
+### Fixed — set pieces on a kit-built field cast the shadow stock gives them
+- **`[[prop]]`, `[[chest]]` and the save point's moogle + barrel_pop cask now get the same two ops** — but a
+  prop follows stock's SCRIPT as well as its MCF. The MCF gives every actor a shadow, yet stock's object
+  Inits `DisableShadow` most set dressing: for 68 of the 84 accessory models it shows standing free (the
+  tent, the save book, the letter, the cactus), on every path through the Init. So a new census column,
+  `_shadowparams.STOCK_CASTS` (a dominator check per Init over all 817 scripts, held objects excluded),
+  decides a prop's default: the cask and every chest cast, the cactus does not. A model no stock object
+  shows standing free casts none (`PROP_DEFAULT_CASTS`).
+- **A held prop never casts** (`attach_to`, `[[npc]] holds`): stock disables 139 of its 140 held objects,
+  and the engine takes the blob's height from the item's bone-local offset. `shadow = true` on one is a
+  validate error.
+- **`shadow`** is now a key on `[[prop]]` (absent = stock's verdict for the model; `true` / a table casts
+  anyway), `[[chest]]` and `[[savepoint]]` (`false` darkens the moogle and its cask, a table sizes the
+  moogle). The act's book + feather keep their donor `DisableShadow`; the act's verbatim hop
+  `DisableShadow`/`EnableShadow` pair now has a shadow to hide.
+- **In-game (harness, bench 30921, against a same-bench control):** the cactus with `shadow = true`, the
+  chest and the save moogle darken their floor; the stock-dark cactus, the player and the NPC read 1.000; the
+  barrel_pop reveal still pops the moogle and opens the menu. The cask's census shadow is real but is
+  drawn entirely under the barrel's own footprint, as stock's is — a calibration build at size 40 throws
+  a wide halo around both casks.
+- **Byte identity:** each casting set piece gains 7 bytes, nothing else changes, and a field shipping
+  `[field] mapconfig` or a verbatim fork builds byte-identically. `tests/test_shadow.py` holds the
+  invariant over a field carrying every case.
+
 ### Added — roll streams: seeded randomness a field can predict
 - **`[[behavior.stream]]` + a branch `roll`** (the roll-stream arc, board entry #5, in-game proven by the
   harness). A stream is a seeded Lehmer generator in one vector cell (`x' = 236·x mod 65537`, full period —

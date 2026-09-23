@@ -110,13 +110,17 @@ def chest_lid_sfx() -> bytes:
 
 def build_chest_init(*, x: int, z: int, flag_idx: int, model: int = CHEST_MODEL, animset: int | None = None,
                      face: int = 0, neutral_pose: int = NEUTRAL_POSE, open_pose: int = OPEN_POSE,
-                     closed_pose: int = CLOSED_POSE) -> bytes:
+                     closed_pose: int = CLOSED_POSE, shadow: bytes = b"") -> bytes:
     """The chest Init (tag 0), opcode-faithful to the real chest, with the SAVABLE open-state: a two-arm
     pose+flags branch on the opened flag -- the OPEN pose + the inert(disable-talk) flags when SET, the
     CLOSED pose + the talkable flags when CLEAR. The collision (size + flags) is unconditional -- and so is
     the Init itself: a story-gated (appearance-flag) chest guards its ``InitObject`` CALL SITE instead
     (``inject_chest``), per the OBJECT-INIT GATE LAW on :func:`ff9mapkit.content.region.guarded_call` (an
-    Init returning before ``SetModel`` loads the object permanently HIDDEN)."""
+    Init returning before ``SetModel`` loads the object permanently HIDDEN).
+
+    ``shadow`` (:func:`ff9mapkit.content.shadow.init_ops`) goes LAST, after ``EnableHeadFocus(0)`` and
+    straight into the RETURN -- the object-Init tail stock sets a shadow at (field 576). ``b""`` (the
+    default) keeps the Init byte-identical."""
     animset_v, _hf, _ls = _npc._npc_object_params(model, animset)
     parts = [
         _npc._d9_const(0, x), _npc._d9_const(4, z), _npc._d9_const(6, face), _npc._d9_const(2, 0),
@@ -130,6 +134,7 @@ def build_chest_init(*, x: int, z: int, flag_idx: int, model: int = CHEST_MODEL,
                         opcodes.set_stand_animation(open_pose) + opcodes.encode(SET_OBJECT_FLAGS, CHEST_FLAGS_OPEN),
                         opcodes.set_stand_animation(closed_pose) + opcodes.encode(SET_OBJECT_FLAGS, CHEST_FLAGS_CLOSED)),
         opcodes.encode(ENABLE_HEAD_FOCUS, 0),
+        bytes(shadow),
         opcodes.RETURN,
     ]
     return b"".join(parts)
@@ -157,13 +162,18 @@ def build_chest_open(flag_idx: int, *, give: bytes, received_text_id: int, paylo
 
 def inject_chest(data, x, z, *, flag_idx: int, item=None, gil=None, count: int = 1,
                  received_text_id: int = 62, model="F0", face: int = 0, gate=None,
-                 reserve_party_band: bool = False, spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0):
+                 reserve_party_band: bool = False, spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
+                 shadow=None):
     """Inject an openable, savable treasure chest at world (x, z) -- ONE object (tag 0 Init + tag 3 open).
     Exactly one of ``item`` (id/name + ``count``) or ``gil`` (amount). ``flag_idx`` (a GLOB_BOOL save index)
     is the opened bit -- it drives the Init open/closed pose+flags and the open handler's once-guard + latch.
     ``model`` picks the chest VARIANT (a name "F0".."F3" or a raw id 75/91/701/702 -- :func:`resolve_chest_variant`
     supplies its own open/closed/neutral pose + lid clip). ``face`` rotates the model; ``gate`` =
-    ``(flag_index, require_set)`` makes the chest's APPEARANCE story-gated. Returns new ``.eb`` bytes."""
+    ``(flag_index, require_set)`` makes the chest's APPEARANCE story-gated. ``shadow`` casts the stock blob
+    shadow (:mod:`ff9mapkit.content.shadow`) -- the ``[[chest]] shadow`` value with the ``[[npc]]``
+    semantics (true = the census for the variant's model; every TBX model casts in stock, 221 of 224 chests);
+    ``None`` (the default) emits nothing, so every caller that does not pass it -- the verbatim-fork lane, a
+    field shipping MapConfigData -- builds byte-identically. Returns new ``.eb`` bytes."""
     if (item is None) == (gil is None):
         raise ValueError("inject_chest needs exactly one of item= or gil=")
     model_id, neutral_pose, open_pose, closed_pose, lid_anim = resolve_chest_variant(model)
@@ -172,8 +182,13 @@ def inject_chest(data, x, z, *, flag_idx: int, item=None, gil=None, count: int =
         give, payload = _event.give_item(item_id, count), item_id
     else:
         give, payload = _event.give_gil(int(gil)), int(gil)
+    shadow_ops = b""
+    if shadow is not None:
+        from . import shadow as _shadow
+        shadow_ops = _shadow.init_ops(model_id, shadow)
     init = build_chest_init(x=int(x), z=int(z), flag_idx=flag_idx, model=model_id, face=int(face),
-                            neutral_pose=neutral_pose, open_pose=open_pose, closed_pose=closed_pose)
+                            neutral_pose=neutral_pose, open_pose=open_pose, closed_pose=closed_pose,
+                            shadow=shadow_ops)
     openb = build_chest_open(flag_idx, give=give, received_text_id=received_text_id, payload_value=payload,
                              open_anim=lid_anim, open_pose=open_pose)
     if len(openb) < 9:                              # IsActuallyTalkable polls tag3[ip+7/8]; keep it >= 9 bytes
