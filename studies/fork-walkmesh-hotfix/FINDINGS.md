@@ -90,3 +90,31 @@ player is back on a triangle.
 A bound player stops at one of two points along the platform edge from run to run: (2157, -870) or
 (2142, -907). The unchanged no-row control has landed on both. So the check is "on the walkway, moved < 300",
 not an exact position; a detached player moves the full 360u.
+
+## A plain BG-borrow fork records its donor too
+
+`ff9mapkit import 2507` (BG-borrow) now writes `[field] source_field = 2507`, so it gets the same row. Before
+that, a standalone borrow got no row, while the same borrow as a campaign member got one from `plan.members`.
+
+Both benches come from one `import 2507`, with the donor's `[encounter]` removed and the same instrument as
+30990/30991. Both write the same `739.mes` (the HUD at txids 500/501).
+
+| slot | toml | donor row |
+|---|---|---|
+| 30993 | the import as written, with `source_field` | `30993 2507` |
+| 30994 | the same toml without `source_field` (the old import output) | none |
+
+Both carry the re-attach guard, because the build adds it for a `borrow_bg` of 2507's scene. So the donor row
+is the only difference. Run with `borrow_2507_ingame.py`: 14/14 checks passed and there were no engine
+exceptions (`.harness-runs/20260923-163201-borrow-2507-donor-row`).
+
+| slot | HUD 3 s after arrival | after 12 frames right | menu LOCATION |
+|---|---|---|---|
+| 30994, no row | P 122, CA 178, CB 174, FA 4 | (2157.431, -869.502), on the walkway | blank |
+| 30993, row | P 122, CA -1, CB -1, FA -1 | (2157.431, -869.502), on the walkway | I. Castle/Stairwell |
+| real 2507 | (no HUD) | (2157.431, -869.502), on the walkway | |
+
+The row fires DelayedActiveTri on the borrow, which detaches the chests; the guard keeps the player on the
+mesh, and after the walk the HUD reads `P 121, CA -1, CB -1`. The row also brings in the s33 menu location:
+the borrow shows the donor's place name instead of a blank label. The name-keyed gates (s31/s32) never needed
+the row, because a borrow runs on the donor's own `.bgs`/`.bgi` under the donor's FBG name.
