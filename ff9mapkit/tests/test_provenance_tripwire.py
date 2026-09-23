@@ -141,7 +141,12 @@ def test_no_test_tree_is_discovered_as_a_package():
     ``include = ["ff9mapkit*"]`` cannot see them."""
     find = pytest.importorskip("setuptools").find_namespace_packages
     found = find(where=str(REPO / "ff9mapkit"), include=["ff9mapkit*"])
-    leaked = sorted(p for p in found if p.endswith(".tests") or ".tests." in p)
+    # What ships is MODULES: a discovered test package leaks only when its directory holds .py files. A
+    # directory left behind holding just an ignored __pycache__ (every checkout older than the tree's move
+    # keeps one -- git deletes the tracked files, never the ignored bytecode) ships nothing, and counting it
+    # turned the nightly gate red on a checkout, not on the code.
+    leaked = sorted(p for p in found if (p.endswith(".tests") or ".tests." in p)
+                    and any((REPO / "ff9mapkit" / p.replace(".", "/")).glob("*.py")))
     assert not leaked, \
         f"test tree discovered as a shippable package -- move it beside the package: {leaked}"
 
