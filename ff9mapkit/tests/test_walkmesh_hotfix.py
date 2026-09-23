@@ -2,18 +2,28 @@
 
 A few fields rely on a hardcoded Memoria hotfix (BGI_triSetActive keyed on the real fldMapNo) that toggles
 walkmesh-triangle active-state at field load (e.g. Gulug/Room blocks the broken wall). A fork runs at a custom
-id, so that guard is false and the hotfix never fires. content.walkmesh_hotfix reproduces the AUTO (load-time)
-class by prepending EnablePathTriangle(tri,state) to Main_Init; the catalog (walkmesh_hotfixes) classifies all
-~11 fields and fork-report flags the non-reproducible ones as lost-on-mint.
+id, so a RAW guard is false and the hotfix never fires; a guard the custom engine routes through EffectiveFieldId
+(s29/s30/s65) fires for a fork that records its donor. content.walkmesh_hotfix reproduces the load-time class by
+prepending EnablePathTriangle(tri,state) to Main_Init -- only where the engine won't; the catalog
+(walkmesh_hotfixes) classifies all ~11 fields against the patch stack and fork-report flags the rest as
+lost-on-mint.
 """
 from __future__ import annotations
 
-from ff9mapkit import data, walkmesh_hotfixes as WH
+import importlib.util
+import pathlib
+import re
+import tomllib
+
+import pytest
+
+from ff9mapkit import data, idgated, walkmesh_hotfixes as WH
 from ff9mapkit import forkreport
 from ff9mapkit.content import walkmesh_hotfix as WHX
 from ff9mapkit.eb import EbScript, opcodes
 
 ENABLE_PATH_TRIANGLE = 0x9A
+REPO = pathlib.Path(__file__).resolve().parents[2]
 
 
 def _tag0_ops(ebb):
@@ -24,11 +34,15 @@ def _tag0_ops(ebb):
 
 # --- catalog ---------------------------------------------------------------------------------------------
 def test_catalog_load_time_is_auto_with_toggles():
-    h = WH.info(2356)                                            # Gulug/Room (broken-wall block)
+    h = WH.info(2356)                                            # Gulug/Room (broken-wall block) -- a RAW gate
     assert h is not None and h.kind == "load_time" and h.auto
     assert h.toggles == ((78, 0), (79, 0), (80, 0))
     assert WH.load_time_toggles(2356) == [[78, 0], [79, 0], [80, 0]]
-    assert WH.load_time_toggles("2161") == [[69, 0]]            # accepts a numeric string
+    assert WH.load_time_toggles(2356, donor_recorded=False) == [[78, 0], [79, 0], [80, 0]]
+    # 2161's gate is remapped (s65): the engine reproduces it on a donor-recorded fork, so the kit prepends it
+    # only where no ForkDonorPatch row exists (a standalone --editable import)
+    assert WH.load_time_toggles("2161") == []                   # accepts a numeric string
+    assert WH.load_time_toggles("2161", donor_recorded=False) == [[69, 0]]
 
 
 def test_catalog_dynamic_is_not_auto():
@@ -113,13 +127,105 @@ def test_fork_report_lost_on_mint_includes_walkmesh():
 
 # --- engine-remapped (2507 Ipsen): a DELAYED hotfix the s29 engine reproduces; the kit must NOT also prepend a
 #     toggle, which fires at LOAD -- before the field's treasure chests settle onto those tris -- dropping them a
-#     floor (caught in-game 2026-06-23). engine_remapped -> auto False -> no toggle, but still catalogued/reported.
+#     floor (caught in-game 2026-06-23). delayed -> never prependable, but still catalogued/reported.
 def test_catalog_engine_remapped_2507_not_auto():
     h = WH.info(2507)
-    assert h is not None and h.kind == "load_time" and h.engine_remapped
+    assert h is not None and h.kind == "load_time" and h.engine_remapped and h.delayed
     assert h.toggles == ((174, 0), (175, 0), (177, 0), (178, 0))  # catalogued for reporting ...
     assert not h.auto and WH.load_time_toggles(2507) == []        # ... but NOT auto-emitted (engine reproduces it)
-    assert WH.info(2356).auto and WH.info(2161).auto              # the at-load hotfixes stay auto-reproduced
+    assert not h.prependable                                      # ... and never, even with no donor row:
+    assert WH.load_time_toggles(2507, donor_recorded=False) == [] # an at-load prepend mis-times the chests
+    assert WH.info(2356).auto                                     # the RAW at-load hotfix stays kit-reproduced
+    h61 = WH.info(2161)                                           # remapped by s65, not delayed:
+    assert h61.engine_remapped and not h61.delayed and h61.prependable
+    assert not h61.auto and h61.needs_prepend(donor_recorded=False)
+
+
+# --- the catalog follows the PATCH STACK (memoria-patches/, the engine's source of truth). A gate is REMAPPED when
+#     the live stack writes it in its EffectiveFieldId form; engine_remapped means EVERY gate of the hotfix is, and
+#     fork_tris is non-empty when ANY is. This is the check whose absence let s65 wrap 2161 while the catalog
+#     still called it lost -- so forks of 2161 got the engine toggle AND the kit's prepend.
+_msr_spec = importlib.util.spec_from_file_location("memoria_stack_replay", REPO / "tools" / "memoria_stack_replay.py")
+_msr = importlib.util.module_from_spec(_msr_spec)
+_msr_spec.loader.exec_module(_msr)
+
+_FM = r"EffectiveFieldId\(FF9StateSystem\.Common\.FF9\.fldMapNo\) == {}\b"
+_DOE, _TOT = "EventEngine.DoEventCode.cs", "EventEngine.turnOffTriManually.cs"
+# field -> [(patched file, the gate in its WRAPPED form, how many such sites the hotfix needs)]
+_GATES = {
+    2356: [("FieldMap.cs", _FM.format(2356), 1)],
+    2161: [("FieldMap.cs", _FM.format(2161), 1)],
+    2507: [("FieldMap.cs", _FM.format(2507), 2)],       # HonoAwake's StartCoroutine + DelayedActiveTri's re-check
+    450: [(_DOE, r"effMapNo == 450 && po\.sid == 3 && posX == 363", 1)],
+    1421: [(_DOE, r"effMapNo == 1421 && po\.sid == 5\b", 1)],
+    1753: [(_DOE, r"effMapNo == 1753 && triangleID == 207", 1)],
+    1606: [(_DOE, r"effMapNo == 1606 && triangleID == 107", 1)],
+    900: [(_DOE, r"effMapNo == 900 && obj1 != null && scriptLevel == 2 && tagNumber == 11", 1),
+          (_TOT, r"EffectiveFieldId", 1)],
+    2803: [(_DOE, r"effMapNo == 2803 && obj1 != null && tagNumber == 18", 1), (_TOT, r"EffectiveFieldId", 1)],
+    1900: [(_TOT, r"EffectiveFieldId", 1)],
+    1455: [(_TOT, r"EffectiveFieldId", 1)],
+}
+
+
+def _net_added(file_name, pattern, patches=None):
+    """Across the LIVE patch stack (in order, dead patches skipped) -- or ``patches``, a list of patch bytes --
+    lines ADDED to ``file_name`` matching ``pattern``, minus lines removed: how many sites the stack leaves in
+    that form. Context lines never count."""
+    if patches is None:
+        patches = [(_msr.PATCHES / n).read_bytes() for n in _msr.stack() if n not in _msr.DEAD]
+    n = 0
+    for blob in patches:
+        for path, sec in _msr.sections(blob):
+            if not path or path.replace("\\", "/").rsplit("/", 1)[-1] != file_name:
+                continue
+            for ln in sec.decode("utf-8", "replace").splitlines():
+                if ln.startswith(("+++", "---")) or not re.search(pattern, ln):
+                    continue
+                n += 1 if ln.startswith("+") else -1 if ln.startswith("-") else 0
+    return n
+
+
+def test_net_added_counts_the_stack_net_of_removals():
+    raw, wrapped = b"        if (fldMapNo == 7)", b"        if (EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 7)"
+
+    def patch(path, body):
+        return b"--- a/%s\n+++ b/%s\n@@ -1,1 +1,1 @@\n%s\n" % (path, path, body)
+    wrap = patch(b"A/FieldMap.cs", b"-" + raw + b"\n+" + wrapped)
+    unwrap = patch(b"A/FieldMap.cs", b"-" + wrapped + b"\n+" + raw)
+    context = patch(b"A/FieldMap.cs", b" " + wrapped + b"\n+        x();")
+    elsewhere = patch(b"A/WMFieldMap.cs", b"-" + raw + b"\n+" + wrapped)
+    pat = _FM.format(7)
+    assert _net_added("FieldMap.cs", pat, [wrap]) == 1
+    assert _net_added("FieldMap.cs", pat, [wrap, unwrap]) == 0      # a later patch that unwraps it wins
+    assert _net_added("FieldMap.cs", pat, [wrap, context]) == 1     # a context line is not a new site
+    assert _net_added("FieldMap.cs", pat, [elsewhere]) == 0         # another file's gate never counts
+
+
+def test_catalog_engine_remap_follows_the_patch_stack():
+    assert set(_GATES) == set(WH._HOTFIXES)                   # every catalogued hotfix names its engine gates
+    # the effMapNo gates only mean "remapped" while s30's alias is still EffectiveFieldId(mapNo)
+    assert _net_added(_DOE, r"Int32 effMapNo = Memoria\.DataPatchers\.EffectiveFieldId\(mapNo\)") == 1
+    for fid, gates in _GATES.items():
+        wrapped = [_net_added(f, pat) >= need for f, pat, need in gates]
+        h = WH.info(fid)
+        assert h.engine_remapped == all(wrapped), (fid, wrapped)
+        assert bool(h.fork_tris) == any(wrapped), (fid, wrapped)
+        assert set(h.fork_tris) <= set(h.tris), fid
+        if h.engine_remapped:                                  # every gate fires on a fork -> every tri does
+            assert set(h.fork_tris) == set(h.tris), fid
+    assert {f for f, h in WH._HOTFIXES.items() if h.delayed} == {2507}
+
+
+def test_no_donor_recorded_fork_gets_both_the_engine_and_the_prepend():
+    """The 2161 double write, as an invariant: on a fork with a donor row, a tri the engine still toggles is never
+    also prepended by the kit; with no row, the kit prepends exactly the prependable hotfixes."""
+    for fid, h in WH._HOTFIXES.items():
+        prepended = {t for t, _ in WH.load_time_toggles(fid)}
+        assert not prepended & set(h.fork_tris), fid
+        assert bool(WH.load_time_toggles(fid, donor_recorded=False)) == h.prependable, fid
+    assert {f for f, h in WH._HOTFIXES.items() if h.auto} == {2356}
+    assert {f for f in WH._HOTFIXES if WH.load_time_toggles(f, donor_recorded=False)} == {2356, 2161}
 
 
 def test_extract_no_toggle_line_for_engine_remapped():
@@ -131,6 +237,40 @@ def test_extract_no_toggle_line_for_engine_remapped():
     assert "walkmesh_tri_toggles = [[78, 0]" in _walkmesh_hotfix_line(2356)   # a normal auto hotfix still authors it
 
 
+def _toggles_of(line):
+    """What the emitted line AUTHORS -- parsed as TOML under [field], never grepped (a comment is not a key)."""
+    return tomllib.loads("[field]\n" + line)["field"].get("walkmesh_tri_toggles")
+
+
+def test_extract_line_for_2161_follows_the_donor_row():
+    from ff9mapkit.extract import _walkmesh_hotfix_line as line
+    # --native / --verbatim: the donor is recorded -> ForkDonorPatch -> the s65 engine gate fires; no prepend
+    rec = line(2161, fork_id=30999, donor_recorded=True)
+    assert _toggles_of(rec) is None and "engine fork-donor remap" in rec and "only repeat it" in rec
+    assert line(2161) == rec                                      # the default is a donor-recorded fork
+    # a standalone --editable import records no donor -> no row -> the engine gate stays false: the kit prepends
+    ed = line(2161, fork_id=30999, donor_recorded=False)
+    assert _toggles_of(ed) == [[69, 0]] and "records no donor" in ed
+    # forked IN PLACE on 2161: the engine's own gate fires as on the real field -- nothing to author
+    assert _toggles_of(line(2161, fork_id=2161, donor_recorded=False)) is None
+    assert _toggles_of(line(2356, fork_id=2356)) is None          # even the RAW gate fires at the real id
+    assert _toggles_of(line(2356, fork_id=30999, donor_recorded=False)) == [[78, 0], [79, 0], [80, 0]]
+    assert "raw fldMapNo 2356" in line(2356)
+
+
+def test_extract_line_for_a_delayed_hotfix_without_a_donor_row_says_lost():
+    from ff9mapkit.extract import _walkmesh_hotfix_line as line
+    lost = line(2507, fork_id=30999, donor_recorded=False)
+    assert _toggles_of(lost) is None and "LOST on this fork" in lost    # no prepend can time it, no engine row
+    assert "mis-time prop placement" in line(2507)
+
+
+def test_extract_line_is_empty_for_non_load_time_hotfixes():
+    from ff9mapkit.extract import _walkmesh_hotfix_line as line
+    for fid in (450, 1421, 1753, 1606, 2803, 900, 1900, 1455):   # remapped or not, import emits nothing for them
+        assert line(fid) == "" and line(fid, donor_recorded=False) == "", fid
+
+
 def test_fork_report_engine_remapped_wording():
     eb = data.blank_field_bytes("us")
     rep = forkreport.analyze_eb(eb, field_id=2507)
@@ -138,3 +278,50 @@ def test_fork_report_engine_remapped_wording():
     assert det is not None and "reproduced by the engine fork-donor remap" in det
     assert "auto-reproduced" not in det and "fork-in-place" not in det
     assert "reproduced by the engine fork-donor remap" in forkreport.format_report(rep)
+
+
+def test_fork_report_counts_only_the_unreproduced_hotfixes_as_lost():
+    """fork-report's verdict steers to fork-in-place unless the walkmesh detail says ``reproduced``: every
+    remapped hotfix (2161 included -- no longer 'lost on a mint') drops out; a partly-remapped one (900, 2803:
+    turnOffTriManually is raw) and a raw one (1900) stay losses."""
+    def loses(fid):
+        v = forkreport._verdict_line(forkreport.ForkReport(field_id=fid, lost_on_mint=idgated.lost_on_mint(fid)))
+        return "Loses walkmesh hotfix" in v
+    for fid in (2161, 2507, 450, 1421, 1753, 1606, 2356):
+        assert not loses(fid), fid
+    for fid in (900, 2803, 1900, 1455):
+        assert loses(fid), fid
+    det = dict(idgated.lost_on_mint(2161))["walkmesh hotfix"]
+    assert "reproduced by the engine fork-donor remap on a fork that records its donor" in det
+    assert "(--verbatim)" in dict(idgated.lost_on_mint(450))["walkmesh hotfix"]
+    part = dict(idgated.lost_on_mint(900))["walkmesh hotfix"]
+    assert "fork-in-place" in part and "tri 62" in part and "reproduced" not in part
+
+
+# --- the real import (install-gated): the toml a fork of 2161 gets matches whether its donor is recorded.
+def _game_ready():
+    try:
+        import UnityPy  # noqa: F401,PLC0415
+        from ff9mapkit import config  # noqa: PLC0415
+        return config.find_game_path(None) is not None
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_import_2161_prepends_only_where_no_donor_is_recorded(tmp_path):
+    from ff9mapkit import build, extract
+    donor = "2161"          # L. Castle/Guest Room (disc 3); by id -- its FBG is shared with 611/1361 (ambiguous)
+
+    def _raw(p):
+        return tomllib.loads(p.read_text(encoding="utf-8"))
+
+    for kw in ({}, {"verbatim": True}):                           # --native / --verbatim record the donor
+        _, p = extract.write_native_project(donor, tmp_path / f"n{len(kw)}", name="LB", field_id=30999, **kw)
+        raw = _raw(p)
+        assert build.donor_field_id(raw) == 2161, kw              # -> the build emits `30999 2161`
+        assert "walkmesh_tri_toggles" not in raw["field"], kw    # -> the s65 engine gate covers tri 69
+    _, p = extract.write_editable_project(donor, tmp_path / "ed", name="LB", field_id=30999)
+    raw = _raw(p)
+    assert build.donor_field_id(raw) is None                      # no donor -> no ForkDonorPatch row ...
+    assert raw["field"]["walkmesh_tri_toggles"] == [[69, 0]]      # ... so the kit's prepend is its only copy

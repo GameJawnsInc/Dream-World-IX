@@ -1612,30 +1612,45 @@ def _player_block(meta) -> str:
     return s + "\n"
 
 
-def _walkmesh_hotfix_line(field) -> str:
+def _walkmesh_hotfix_line(field, *, fork_id=None, donor_recorded=True) -> str:
     """The ``[field] walkmesh_tri_toggles`` line for a fork of real ``field`` when that field has a LOAD-TIME
-    engine walkmesh hotfix (``BGI_triSetActive`` keyed on its real ``fldMapNo``) the fork would lose on its
-    custom id -- so the build reproduces it by prepending the toggles to Main_Init. ``""`` when the field has
-    no statically-reproducible walkmesh hotfix (almost all). See :mod:`ff9mapkit.walkmesh_hotfixes`."""
+    engine walkmesh hotfix (``BGI_triSetActive`` keyed on its real ``fldMapNo``) the ENGINE will not reproduce
+    for this fork -- so the build reproduces it by prepending the toggles to Main_Init -- else a comment saying
+    who does. ``fork_id``: the fork's own id (== the donor's -> an in-place fork, where every engine gate fires
+    unchanged). ``donor_recorded``: the toml records its donor (``[verbatim_eb] donor`` / ``[field]
+    source_field``), so it gets a ForkDonorPatch row and the custom engine's ``EffectiveFieldId`` gates fire for
+    it. ``""`` when the field has no load-time walkmesh hotfix (almost all). See
+    :mod:`ff9mapkit.walkmesh_hotfixes`."""
     from . import walkmesh_hotfixes as _wh
     from .dialogue import _resolve_field_id
     try:
         h = _wh.info(_resolve_field_id(field))
     except Exception:
         return ""
-    if h is not None and h.engine_remapped:
-        # The shipped engine reproduces this hotfix for the fork id (s29 EffectiveFieldId, original timing) -- a
-        # Main_Init toggle prepend would mis-time it (it fires before the field's props settle onto these tris,
-        # snapping them a floor down -- the Ipsen 2507 chests). So emit NO toggle; note why for the reader.
-        return (f"# {h.name}: load-time walkmesh hotfix reproduced by the engine fork-donor remap (s29,\n"
-                f"# EffectiveFieldId, original timing) -- NOT a walkmesh_tri_toggles prepend (which would mis-time\n"
-                f"# prop placement). Nothing to author here. ({h.source})\n")
-    toggles = _wh.load_time_toggles(h.field_id) if h is not None else []
-    if not toggles:
+    if h is None or h.kind != "load_time":
         return ""
-    arr = ", ".join(f"[{t}, {s}]" for t, s in toggles)
-    return (f"walkmesh_tri_toggles = [{arr}]   # {h.name}: reproduce its load-time engine walkmesh hotfix\n"
-            f"# (engine BGI_triSetActive keyed on real fldMapNo {h.field_id} is lost on a custom id; {h.source})\n")
+    if fork_id is not None and int(fork_id) == h.field_id:
+        return (f"# {h.name}: forked IN PLACE on the real id -- the engine's own load-time walkmesh hotfix\n"
+                f"# fires unchanged. Nothing to author here. ({h.source})\n")
+    if h.needs_prepend(donor_recorded=donor_recorded):
+        arr = ", ".join(f"[{t}, {s}]" for t, s in h.toggles)
+        why = (f"the engine remaps this gate (EffectiveFieldId), but this fork records no donor, so it gets no\n"
+               f"# ForkDonorPatch row and the engine gate stays false" if h.engine_remapped else
+               f"engine BGI_triSetActive keyed on raw fldMapNo {h.field_id} never fires on a custom id")
+        return (f"walkmesh_tri_toggles = [{arr}]   # {h.name}: reproduce its load-time engine walkmesh hotfix\n"
+                f"# ({why}; {h.source})\n")
+    if h.engine_remapped and donor_recorded:
+        # The shipped engine reproduces it for the fork id (EffectiveFieldId via the ForkDonorPatch row, original
+        # timing). A prepend would at best write the same bits again (2161) and at worst mis-time them (a DELAYED
+        # hotfix: the Ipsen 2507 chests settle onto these tris first, and an at-load prepend drops them a floor).
+        return (f"# {h.name}: load-time walkmesh hotfix reproduced by the engine fork-donor remap\n"
+                f"# (EffectiveFieldId via this fork's ForkDonorPatch row, original timing) -- NOT a\n"
+                f"# walkmesh_tri_toggles prepend, which would "
+                f"{'mis-time prop placement' if h.delayed else 'only repeat it'}. Nothing to author here. ({h.source})\n")
+    # a DELAYED hotfix on a fork with no donor row: no prepend can time it and the engine gate stays false
+    return (f"# {h.name}: its walkmesh hotfix is LOST on this fork -- the engine applies it AFTER load (a\n"
+            f"# Main_Init walkmesh_tri_toggles prepend would mis-time prop placement), and its fork-donor remap\n"
+            f"# needs a donor this fork does not record. Fork --native/--verbatim to keep it. ({h.source})\n")
 
 
 def _area_title_hide_lines(meta, *, verbatim=False) -> str:
@@ -1776,7 +1791,9 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
         f"text_block = {text_block}\n"
         + ('mapconfig = "mapconfig.bytes"   # the real field LIGHTING (per-floor lights, shadows, model tint) '
            'for every 3D model\n' if mc_bytes else "")
-        + f"{_walkmesh_hotfix_line(field)}"
+        # an --editable fork records no donor (no source_field) -> no ForkDonorPatch row -> the engine's
+        # EffectiveFieldId hotfix gates stay false for it, so the kit's prepend is its only copy
+        + f"{_walkmesh_hotfix_line(field, fork_id=field_id, donor_recorded=False)}"
         f"{_area_title_hide_lines(meta)}\n"
         f"[camera]\n"
         f"{_ENTRY_SETTLE_LINE}"
@@ -2101,7 +2118,9 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
         f"area = {safe_area}\n"
         f"text_block = {text_block}\n"
         f"{source_field_line}"
-        f"{_walkmesh_hotfix_line(field)}"
+        # the donor is recorded whenever it resolved ([verbatim_eb] donor / source_field; an in-place fork,
+        # which omits source_field, is caught by fork_id) -> its ForkDonorPatch row fires the remapped gates
+        f"{_walkmesh_hotfix_line(field, fork_id=field_id, donor_recorded=_src_fid is not None)}"
         f"{_area_title_hide_lines(meta, verbatim=verbatim)}"
         f'bgs = "scene.bgs.bytes"   # NATIVE scene (per-tile depth) -> seamless render, NO .bgx / no tile seams\n'
         f'atlas = "atlas.png"\n'

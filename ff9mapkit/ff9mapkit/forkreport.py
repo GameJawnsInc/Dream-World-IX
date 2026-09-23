@@ -1000,7 +1000,7 @@ def format_report(rep: ForkReport) -> str:
                      f"kept on --verbatim (real show+fade), auto-hidden on a synth/BG-borrow fork (DROP on reuse)")
     if rep.lost_on_mint:
         lines.append("  Lost on mint  : engine behavior(s) keyed on the real field id a fork loses on a custom id "
-                     "(fork IN-PLACE to keep, unless noted auto-reproduced):")
+                     "(fork IN-PLACE to keep, unless noted reproduced):")
         for label, detail in rep.lost_on_mint:
             lines.append(f"      - {label}: {detail}")
     s = rep.safety
