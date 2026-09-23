@@ -320,8 +320,9 @@ detached, kept its triangle. With the guard, a `P 122` could have been a re-atta
 30993, 30994 (no row: `P 122, CA 178, CB 174`) and real 2507 all stop at (2157.431, -869.502). Reverted after
 the run.
 
-Not covered by the harness: the look of the entry. The black still hides the camera, and the camera can now
-start converging ~48 ticks sooner. Whether any hold now reads as too long is the owner's eye.
+**The look of the entry, owner-confirmed in-game.** The harness can't judge this. The owner warped into the
+waystation (6500, rebuilt with the fix, auto settle = 50) and saw no drift. The black still hides the camera,
+which now starts converging ~48 ticks sooner.
 
 ### The same zero-fill elsewhere
 
