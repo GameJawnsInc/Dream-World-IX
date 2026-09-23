@@ -45,7 +45,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   row all stop at the real field's exact edge point, as does the real field. On the borrow, 3 s after arrival,
   the HUD shows the chests detached (the pass fired) and the player still on its triangle. Each kit player is
   published 2–4 frames after the switch (was ~1.7 s), and control returns when the settle hold ends. 9/9 and
-  14/14, no engine exceptions (`studies/fork-walkmesh-hotfix/FINDINGS.md`).
+  14/14, no engine exceptions (`studies/fork-walkmesh-hotfix/FINDINGS.md`). The entry still settles unseen:
+  owner-confirmed on a warp into the waystation (6500), no drift.
 
 ### Fixed — `fetch-assets` restores a campaign member's missing MapConfigData
 - **A member whose toml declares `[field] mapconfig` now requires that file.** Both fork writers (borrow and
