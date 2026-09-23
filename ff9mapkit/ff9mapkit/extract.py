@@ -2370,6 +2370,21 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
     x, z = meta["player_start"]
     scroll = "[camera.scroll]\nenabled = true\n" if meta["scrolling"] else ""
     control_line = f"control_direction = {control_dir}   # imported WASD-vs-camera tuning\n" if control_dir is not None else ""
+    # Record the donor's REAL id, as the native/editable paths and every campaign member do: deploy_field /
+    # build_mod turn it into the ForkDonorPatch `<forkId> <donorId>` row, and without it the engine's
+    # EffectiveFieldId gates (s24/s29/s30/s65: the walkmesh hotfixes incl. 2507's delayed one, off-mesh
+    # exemptions, tri-keyed collision, the menu location) never fire for a standalone borrow -- while the same
+    # borrow as a campaign member gets its row from plan.members. The name-keyed gates (s31/s32) resolve without
+    # it: a borrow runs on the donor's own .bgs/.bgi under the donor's FBG name. (2507's pass also detaches a
+    # kit-built player; build.detaching_donor guards it.)
+    from .dialogue import _resolve_field_id as _rfi
+    try:
+        _src_fid = _rfi(field)
+    except (FileNotFoundError, ValueError):
+        _src_fid = None
+    source_field_line = (f"source_field = {_src_fid}   # the real field this BG-borrow fork mirrors; deploy emits "
+                         f"ForkDonorPatch so its donor-keyed engine behavior fires\n"
+                         if _src_fid is not None and _src_fid != int(field_id) else "")
     toml = (
         f"# Imported from {meta['field']} (area {meta['area']}) by ff9mapkit -- BG-borrow.\n"
         f"# Renders the REAL field's art + walkmesh + camera while running your script.\n"
@@ -2383,8 +2398,12 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
         f"area = {meta['area']}\n"
         f'borrow_bg = "{meta["mapid"]}"\n'
         f"text_block = {text_block}\n"
+        f"{source_field_line}"
         + ('mapconfig = "mapconfig.bytes"   # the real field LIGHTING (per-floor lights, shadows, model tint) '
            'for every 3D model\n' if mc_bytes else "")
+        # a borrow runs on the donor's own .bgi, so a prepended toggle hits exactly the donor's tris; the donor is
+        # recorded whenever it resolved -> its row fires the remapped gates, and only a raw one (2356) is prepended
+        + f"{_walkmesh_hotfix_line(field, fork_id=field_id, donor_recorded=_src_fid is not None)}"
         + "\n"
         f"[camera]\n"
         f"{_ENTRY_SETTLE_LINE}"

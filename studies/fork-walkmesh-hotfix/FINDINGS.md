@@ -90,3 +90,62 @@ player is back on a triangle.
 A bound player stops at one of two points along the platform edge from run to run: (2157, -870) or
 (2142, -907). The unchanged no-row control has landed on both. So the check is "on the walkway, moved < 300",
 not an exact position; a detached player moves the full 360u.
+
+## A plain BG-borrow fork records its donor too
+
+`ff9mapkit import 2507` (BG-borrow) now writes `[field] source_field = 2507`, so it gets the same row. Before
+that, a standalone borrow got no row, while the same borrow as a campaign member got one from `plan.members`.
+
+Both benches come from one `import 2507`, with the donor's `[encounter]` removed and the same instrument as
+30990/30991. Both write the same `739.mes` (the HUD at txids 500/501).
+
+| slot | toml | donor row |
+|---|---|---|
+| 30993 | the import as written, with `source_field` | `30993 2507` |
+| 30994 | the same toml without `source_field` (the old import output) | none |
+
+Both carry the re-attach guard, because the build adds it for a `borrow_bg` of 2507's scene. So the donor row
+is the only difference. Run with `borrow_2507_ingame.py`: 14/14 checks passed and there were no engine
+exceptions (`.harness-runs/20260923-163201-borrow-2507-donor-row`).
+
+| slot | HUD 3 s after arrival | after 12 frames right | menu LOCATION |
+|---|---|---|---|
+| 30994, no row | P 122, CA 178, CB 174, FA 4 | (2157.431, -869.502), on the walkway | blank |
+| 30993, row | P 122, CA -1, CB -1, FA -1 | (2157.431, -869.502), on the walkway | I. Castle/Stairwell |
+| real 2507 | (no HUD) | (2157.431, -869.502), on the walkway | |
+
+The row fires DelayedActiveTri on the borrow, which detaches the chests; the guard keeps the player on the
+mesh, and after the walk the HUD reads `P 121, CA -1, CB -1`. The row also brings in the s33 menu location:
+the borrow shows the donor's place name instead of a blank label. The name-keyed gates (s31/s32) never needed
+the row, because a borrow runs on the donor's own `.bgs`/`.bgi` under the donor's FBG name.
+
+## A plain BG-borrow fork of 2356 gets its walkmesh hotfix
+
+2356's hotfix (tris 78/79/80 off at load, `FieldMap.cs:112`) is gated on the raw `fldMapNo`, so no donor row fires
+it on a custom id; every fork has to prepend it. The borrow path wrote no hotfix line, so a borrow of 2356 lost it.
+It now writes the same line as the other imports: `walkmesh_tri_toggles = [[78, 0], [79, 0], [80, 0]]`.
+
+Benches from one `import 2356`, with the donor's `[encounter]` and its carried chest removed, and a HUD reading
+the player's `B_BGIID`/`B_BGIFLOOR`:
+
+| slot | toml |
+|---|---|
+| 30995 | the import as written, with the toggle line |
+| 30996 | the same toml without it (the old import output) |
+
+Run with `borrow_2356_ingame.py`, which walks from the spawn (-721, 1359) to (-650, 1500), then (-600, 1600),
+then into tri 80 at (-580, 1690). 5/5 checks passed and there were no engine exceptions
+(`.harness-runs/20260923-164500-borrow-2356-prepend-r3`).
+
+| slot | end position | HUD at the end |
+|---|---|---|
+| 30996, no toggle | (-572.1, 1656.5), arrived | P 80, F 1 |
+| 30995, toggle | (-643.8, 1586.1), held at the tri-80 edge | P 5, F 0 |
+
+**The chest walls off the patch.** The first two runs kept the chest, and the control failed: in both slots the
+walk stopped at a point exactly 267.7u from the chest at (-426, 1664). That happened at (-570.5, 1438.7) on one
+route and (-658.3, 1530.9) on another, both inside active triangles with intact neighbour links. The chest's
+actor collision covers the whole tri 78-80 patch; tri 80's centroid is 117u from it. The first explanation, that the
+player was stuck on a triangle vertex, was wrong, and the second route disproved it. The 2507 chests stop the
+player about the same distance away (the 261u above). A walk can only observe these hotfixes once the chest is
+removed. Removing it from both slots leaves the toggle as the only difference.

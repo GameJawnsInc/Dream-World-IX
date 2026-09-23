@@ -308,6 +308,28 @@ def test_import_2161_records_the_donor_on_every_fork_kind(tmp_path):
     _, p = extract.write_editable_project(donor, tmp_path / "ip", name="LB", field_id=2161)
     raw = _raw(p)
     assert "source_field" not in raw["field"] and "walkmesh_tri_toggles" not in raw["field"]
+    # a plain BG-borrow records it too (it used to record none: no row, no prepend, so tri 69 was simply lost)
+    _, p = extract.write_field_project(donor, tmp_path / "bb", name="LB", field_id=30999)
+    raw = _raw(p)
+    assert raw["field"]["source_field"] == 2161 and build.donor_field_id(raw) == 2161
+    assert raw["field"]["borrow_bg"] and "walkmesh_tri_toggles" not in raw["field"]
+    _, p = extract.write_field_project(donor, tmp_path / "bbip", name="LB", field_id=2161)
+    assert "source_field" not in _raw(p)["field"]
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_bg_borrow_import_of_2356_prepends_its_raw_gated_hotfix(tmp_path):
+    """2356's engine gate stays on the raw fldMapNo, so no donor row reproduces it: every fork must prepend it. The
+    borrow path used to write no hotfix line at all, so a borrow of 2356 lost it; it runs on the donor's own .bgi,
+    so the prepended tri ids are exactly the donor's."""
+    from ff9mapkit import build, extract
+    _, p = extract.write_field_project("2356", tmp_path, name="GLUG_FORK", field_id=30999)
+    raw = _raw(p)
+    assert raw["field"]["borrow_bg"] and build.donor_field_id(raw) == 2356
+    assert raw["field"]["walkmesh_tri_toggles"] == [[78, 0], [79, 0], [80, 0]]
+    ops = _tag0_ops(build.build_script(build.FieldProject.load(p), "us", {}))
+    toggles = [(ENABLE_PATH_TRIANGLE, [t, 0]) for t in (78, 79, 80)]
+    assert any(ops[i:i + 3] == toggles for i in range(len(ops))), ops[:12]   # in Main_Init (other levers prepend too)
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
@@ -364,7 +386,9 @@ def test_build_reattaches_the_player_only_where_the_pass_detaches_it(tmp_path):
     head = [0x05, 0x02, SET_PATHING, WAIT, 0x01]
     cases = {"donor": (30999, "source_field = 2507\n", True),               # --native / --editable
              "in_place": (2507, "", True),                                  # EffectiveFieldId(2507) == 2507
-             "borrow": (30999, 'borrow_bg = "IPSN_MAP745A_IP_HL2_0"\n', True),   # a campaign BG-borrow member
+             "borrow_donor": (30999, 'borrow_bg = "IPSN_MAP745A_IP_HL2_0"\nsource_field = 2507\n', True),  # import
+             # no donor key: an older BG-borrow toml or a hand-written borrow, which a campaign row still fires
+             "borrow": (30999, 'borrow_bg = "IPSN_MAP745A_IP_HL2_0"\n', True),
              "other_donor": (30999, "source_field = 600\n", False),
              "other_borrow": (30999, 'borrow_bg = "MGNT_MAP810_MN_MOG_0"\n', False),
              "novel": (30999, "", False)}
@@ -374,3 +398,18 @@ def test_build_reattaches_the_player_only_where_the_pass_detaches_it(tmp_path):
         proj = build.FieldProject.load(p)
         assert (build.detaching_donor(proj) == 2507) is want, name
         assert ([op for op, _ in _player_loop_ops(build.build_script(proj, "us", {}))] == head) is want, name
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_bg_borrow_import_of_2507_records_its_donor_and_guards_its_player(tmp_path):
+    """A plain `import 2507` now records its donor, so its ForkDonorPatch row makes the engine run the delayed pass
+    on the fork -- which detaches a kit-built player. The same build installs the re-attach guard."""
+    from ff9mapkit import build, extract
+    _, p = extract.write_field_project("2507", tmp_path, name="IPSN_FORK", field_id=30999)
+    raw = _raw(p)
+    assert raw["field"]["borrow_bg"] and build.donor_field_id(raw) == 2507   # -> the build/deploy emit `30999 2507`
+    assert "walkmesh_tri_toggles" not in raw["field"]             # an at-load prepend would drop the chests a floor
+    proj = build.FieldProject.load(p)
+    assert build.detaching_donor(proj) == 2507
+    ops = [op for op, _ in _player_loop_ops(build.build_script(proj, "us", {}))]
+    assert ops == [0x05, 0x02, SET_PATHING, WAIT, 0x01]

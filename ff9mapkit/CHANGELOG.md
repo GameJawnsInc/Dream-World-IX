@@ -5,6 +5,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a plain BG-borrow `import` records its donor, so it gets a ForkDonorPatch row
+- **`ff9mapkit import <field>` (BG-borrow) now writes `[field] source_field = <donor id>`**, as `--native`,
+  `--verbatim` and `--editable` do. A standalone borrow used to get no ForkDonorPatch row while the same borrow as
+  a campaign member got one from `plan.members`, so the two disagreed. Without the row, the custom engine's
+  `EffectiveFieldId` gates never fired on a standalone borrow.
+- **Only the id-keyed gates change.** A borrow runs on the donor's own `.bgs`/`.bgi` under the donor's FBG name,
+  so the name-keyed ones (s31 overlay offsets, s32) already resolved. Now 2161's tri 69 comes from the engine (a
+  borrow lost it outright before: no row and no prepend), 2507's delayed pass fires (the chests settle, then their
+  landing tris drop), and the in-field menu LOCATION shows the donor's place name instead of a blank
+  (`[field] location = "…"` still overrides it). A borrow of 2507 gets the player re-attach guard above.
+- **What else sees the donor:** `lint` and the deploy-time text guard accept the donor's own text block, as they do
+  for a native fork, and the Workspace Place tab places content on the donor's real room, which is the room a
+  borrow renders. A fork forked in place on the donor's id, or whose donor id did not resolve, records nothing.
+- **In-game (harness):** a 2507 borrow with the row and the same toml without it, one launch. With the row the
+  chests read triangle -1 (the pass fired), without it they sit on the landing; the player stays on the walkway
+  on both and stops where the real field's does; the menu LOCATION reads "I. Castle/Stairwell" with the row and
+  is blank without it. 14/14, no engine exceptions (`studies/fork-walkmesh-hotfix/`).
+- **A borrow of 2356 gets its walkmesh hotfix.** The borrow path now writes the same walkmesh-hotfix line as the
+  other imports, so 2356's raw-gated toggle (no row can fire it) is prepended; the path used to write none, and
+  the hotfix was lost. A borrow runs on the donor's own `.bgi`, so the toggled tris are exactly the donor's.
+  **In-game (harness):** the 2356 borrow with the toggle line and without it (the chest removed from both,
+  since its ~268u collision walls off the whole patch). Without it the player walks onto tri 80; with it the
+  player is held on tri 5 at the patch edge. 5/5, no engine exceptions.
+
 ### Fixed — a kit-built fork of field 2507 no longer lets the player walk off the walkmesh
 - **2507's delayed engine hotfix detached the player on every kit-built fork with a donor row.**
   `FieldMap.DelayedActiveTri` runs 0.5 s after load and detaches every actor whose `isPlayer` is false from the
