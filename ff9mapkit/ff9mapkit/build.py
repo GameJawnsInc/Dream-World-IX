@@ -4169,11 +4169,12 @@ def _donor_text_served(project: FieldProject) -> tuple:
     field's line instead.
 
     The donor's block is known exactly when the project records a donor (:func:`donor_field_id`: a native
-    fork's ``source_field``, a verbatim one's ``[verbatim_eb] donor``). An ``--editable`` or plain BG-borrow
-    import records none, so a REAL ``text_block`` is taken as the donor's: ``import`` sets it to the donor's
-    block, or to the fork's own id when the donor can't be resolved. Anything unreadable gives
-    ``(False, set())``, the loud side. (Only the synthesized path grafts ``[[object]]``s -- ``build_script`` --
-    so its ``collect_text`` layout is the one that matters here.)"""
+    or ``--editable`` fork's ``source_field``, a verbatim one's ``[verbatim_eb] donor``). A plain BG-borrow
+    import records none, and neither does an ``--editable`` toml written before it began to, so a REAL
+    ``text_block`` is taken as the donor's: ``import`` sets it to the donor's block, or to the fork's own id
+    when the donor can't be resolved. Anything unreadable gives ``(False, set())``, the loud side. (Only the
+    synthesized path grafts ``[[object]]``s -- ``build_script`` -- so its ``collect_text`` layout is the one that
+    matters here.)"""
     tb = project.text_block
     if not is_real_text_block(tb):
         return False, set()
@@ -4199,10 +4200,10 @@ def lint_text_block(project: FieldProject) -> list:
     A FORK is exempt: it carries its DONOR's text on the donor's own block, which is required rather than
     merely permitted (voice-acting clips resolve off the same mesID, and ``UniversalTextId``'s dual-language
     remap is keyed by a table of real mesIDs). So is a field whose build writes no ``.mes`` at all
-    (:func:`ships_field_mes`): it only READS the block. That is an ``import --editable`` fork without
-    ``--carry-text``, which keeps its donor's block and records no donor key. The deploy-time guard in
-    :mod:`deploystack` is the AUTHORITATIVE one -- only it can see the live FolderNames stack, the cross-folder
-    axis and the files a deploy really copies; this half needs none of them."""
+    (:func:`ships_field_mes`): it only READS the block. That is a fork import without ``--carry-text``
+    that records no donor key (a plain BG-borrow, or an older ``--editable`` toml) but keeps its donor's
+    block. The deploy-time guard in :mod:`deploystack` is the AUTHORITATIVE one -- only it can see the live
+    FolderNames stack, the cross-folder axis and the files a deploy really copies; this half needs none of them."""
     tb = project.text_block
     if not is_real_text_block(tb):
         return []
@@ -5053,8 +5054,8 @@ def _lint_fork_walkmesh_ids(project: FieldProject, wmesh, warnings: list) -> Non
     faces, or a floor reassigned, silently re-points every one of them.
 
     Early-outs, in order: BG-borrow (the engine runs the real mesh); no donor at all -- neither a recorded donor id
-    (``donor_field_id``) nor a donor reference mesh (an ``--editable`` import records no id, but its sibling
-    ``walkmesh.bgi`` and carried sidecars make it a fork all the same); no donor reference mesh
+    (``donor_field_id``) nor a donor reference mesh (an ``--editable`` toml written before import recorded
+    ``source_field`` has no id, but its sibling ``walkmesh.bgi`` and carried sidecars make it a fork all the same); no donor reference mesh
     (``[walkmesh] reference`` / the sibling ``walkmesh.bgi`` every import writes -- then a NOTE if donor code reads
     ids at all); the shipped mesh IS the donor mesh (byte-equal through the codec).
 
@@ -5946,6 +5947,40 @@ def _apply_walkmesh_hotfix(project: FieldProject, eb: bytes) -> bytes:
     if not toggles:
         return eb
     return _walkmesh_hotfix.apply_tri_toggles(eb, [(int(t[0]), int(t[1])) for t in toggles])
+
+
+def detaching_donor(project: FieldProject) -> "int | None":
+    """The real field whose engine hotfix will detach this field's actors from the walkmesh at runtime
+    (:attr:`ff9mapkit.walkmesh_hotfixes.Hotfix.detaches_actors`), or ``None``. The engine resolves the field's id
+    through ForkDonorPatch, so that is the recorded donor (:func:`donor_field_id`), the field's own id when it is
+    forked in place, or the real field whose scene a plain BG-borrow ships under ``borrow_bg``. A BG-borrow
+    records no donor key, but a campaign member gets its row from ``plan.members`` all the same."""
+    ids = [donor_field_id(project.raw), project.id]
+    bb = (project.raw.get("field") or {}).get("borrow_bg")
+    if isinstance(bb, str) and bb:
+        from .extract import ID_TO_FBG
+        ids += [fid for fid in _walkmesh_hotfixes.detaching_ids()
+                if ID_TO_FBG.get(fid, "").lower().endswith("_" + bb.lower())]
+    for fid in ids:
+        h = _walkmesh_hotfixes.info(fid) if fid is not None else None
+        if h is not None and h.detaches_actors:
+            return h.field_id
+    return None
+
+
+def _apply_player_reattach(project: FieldProject, eb: bytes) -> bytes:
+    """Guard the player a donor's delayed engine hotfix detaches (:func:`detaching_donor`; 2507) with
+    :func:`ff9mapkit.content.walkmesh_hotfix.reattach_player`. SYNTHESIZE path only: a verbatim fork runs the
+    donor's own script, whose ``SetPathing(1)`` already re-attaches its player. Not a donor of that kind ->
+    unchanged (byte-identical)."""
+    donor = detaching_donor(project)
+    if donor is None:
+        return eb
+    try:
+        return _walkmesh_hotfix.reattach_player(eb)
+    except ValueError as e:
+        raise BuildError(f"field {project.name}: field {donor}'s engine walkmesh hotfix detaches the player, and "
+                         f"the build could not install its re-attach guard ({e}).") from e
 
 
 def _field_load_inject(label: str, field_name: str, fn):
@@ -7050,6 +7085,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # would apply by real fldMapNo but skips on a custom id (e.g. Gulug's broken-wall block). Prepended to
     # Main_Init; absent -> byte-identical.
     eb = _apply_walkmesh_hotfix(project, eb)
+    # a donor whose delayed engine hotfix also detaches this kit-built player (2507): the player's Loop becomes a
+    # guard that re-attaches it, as the donor's own script does. Not such a donor -> byte-identical.
+    eb = _apply_player_reattach(project, eb)
     # [[numeric_input]] steppers (the Treno-bid substrate, content.numinput): each block seats its own
     # parked code entry FIRST -- appends only, so the slot is fixed before any NPC/region injection --
     # and a [[choice]] option's `input = "<name>"` dispatches it by that slot. Absent -> byte-identical.

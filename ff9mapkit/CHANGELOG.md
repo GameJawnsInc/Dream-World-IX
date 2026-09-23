@@ -5,6 +5,52 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a kit-built fork of field 2507 no longer lets the player walk off the walkmesh
+- **2507's delayed engine hotfix detached the player on every kit-built fork with a donor row.**
+  `FieldMap.DelayedActiveTri` runs 0.5 s after load and detaches every actor whose `isPlayer` is false from the
+  walkmesh. On a `--native`, `--editable` or BG-borrow fork, whose `.eb` the kit builds, that included the
+  player, who could then walk straight off the stairwell walkway. The real 2507 keeps its player, whose script
+  calls `SetPathing(1)`. `--verbatim` forks run that script and were never affected.
+- **The build now turns the player's idle Loop into a guard** (`content.walkmesh_hotfix.reattach_player`).
+  Every frame, when the player has control (`B_SYSVAR[2]`) but no walkmesh triangle, it runs `SetPathing(1)`.
+  Every kit sequence that turns pathing off (ladders, platforms, jumps, cutscenes) disables movement first, so the
+  guard never fights one. It is added only where 2507's pass will run: a recorded donor of 2507, the field forked
+  in place, or a `borrow_bg` of 2507's scene (a campaign BG-borrow member gets its row from the campaign).
+  Everything else builds byte-identically. The catalog flags the pass as `Hotfix.detaches_actors`.
+- A fixed one-shot (`Wait(30)` then `SetPathing(1)`) was tried first. It passed one launch and failed the next,
+  because the pass lands at a load-dependent moment.
+- **In-game (harness, two launches):** from 2507's entrance-128 platform, 12 run frames toward its east edge.
+  The real field, a no-row fork, and the rebuilt `--editable` and `--native` forks all stop at the edge, at the
+  same point. Before the fix, both forks walked 360u off the walkway. On the editable fork, a HUD shows the chests
+  still detached (the hotfix fires) and the player back on a triangle. No engine exceptions.
+  (`studies/fork-walkmesh-hotfix/`)
+
+### Fixed — an `import --editable` fork records its donor, so it gets a ForkDonorPatch row
+- **`import --editable` now writes `[field] source_field = <donor id>`**, as `--native`, `--verbatim` and every
+  campaign member already did. That key is the only thing `deploy_field` and `build --out` turn into the
+  ForkDonorPatch `<forkId> <donorId>` row. Without it, the custom engine's `EffectiveFieldId` gates never fired
+  on a standalone editable fork: the walkmesh hotfixes, off-mesh exemptions, the 406 tri-keyed collision rule,
+  smooth-cam exclusions, and the in-field menu location, which read blank.
+- **2507 (Ipsen's Castle stairwell) keeps its delayed walkmesh hotfix on an editable fork.** The engine drops
+  tris 174/175/177/178 0.5 s after load, after the chest props settle onto them, so no Main_Init prepend can
+  reproduce it. The editable toml used to say the hotfix was lost. 2161's tri 69 now comes from the engine as it
+  does on native forks, instead of the kit's prepend.
+- **What the row does not touch:** the name-keyed overlay offsets (s31 `FieldMapExtraOffset.SetOffset`) run only
+  on the `.bgs` load path. An editable fork ships a `.bgx` scene, so its re-sliced layers are never offset by the
+  donor's overlay indices. The donor-keyed gates do assume the donor's walkmesh tri ids and object uids, and a
+  reshaped `walkmesh.obj` can move them. With the id recorded, the fork walkmesh-literal lint's engine-hotfix lane
+  now checks those tris on an editable fork too.
+- **The Workspace Place tab still places an editable fork on its own surface**, its `walkmesh.obj` and
+  `[[layers]]`, not on the donor's real room, which a recorded donor would otherwise select. A reshaped or
+  repainted fork keeps its own geometry and art.
+- An editable fork on the donor's own id (in place) still omits the key. A donor that does not resolve still
+  gets the 2161 prepend and the "LOST" note for 2507, which now names the key to set.
+- **In-game (harness A/B):** two slots built from one `import 2507 --editable`, differing only in the key.
+  With the row, `DelayedActiveTri` fired: a HUD reading the walkmesh triangle under each carried chest showed
+  -1 (detached), against 178 and 174 without it. The same run found that the coroutine also detaches the
+  kit-built player, including on `--native` forks, which already had the row. The entry above fixes that.
+  (`studies/fork-walkmesh-hotfix/`)
+
 ### Added — floor sensors: a `[behavior]` tree asks the engine which walkmesh floor an actor is on
 - **`on_floor` / `same_floor` / `other_floor` conditions and a `floor:<who>` HUD source** (the walkmesh-sensor
   arc, board entry #2, in-game proven by the harness on two benches). The engine's own `B_BGIFLOOR` read — the

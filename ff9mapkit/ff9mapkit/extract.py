@@ -1650,7 +1650,8 @@ def _walkmesh_hotfix_line(field, *, fork_id=None, donor_recorded=True) -> str:
     # a DELAYED hotfix on a fork with no donor row: no prepend can time it and the engine gate stays false
     return (f"# {h.name}: its walkmesh hotfix is LOST on this fork -- the engine applies it AFTER load (a\n"
             f"# Main_Init walkmesh_tri_toggles prepend would mis-time prop placement), and its fork-donor remap\n"
-            f"# needs a donor this fork does not record. Fork --native/--verbatim to keep it. ({h.source})\n")
+            f"# needs a donor this fork does not record. Set [field] source_field = {h.field_id} to keep it.\n"
+            f"# ({h.source})\n")
 
 
 def _area_title_hide_lines(meta, *, verbatim=False) -> str:
@@ -1753,6 +1754,19 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
     x, z = meta["player_start"]
     scroll = "[camera.scroll]\nenabled = true\n" if meta["scrolling"] else ""
     control_line = f"control_direction = {control_dir}   # imported WASD-vs-camera tuning\n" if control_dir is not None else ""
+    # Record the donor's REAL id, exactly as the native path and every campaign member do: it is the only thing
+    # deploy_field / build_mod turn into the ForkDonorPatch `<forkId> <donorId>` row, and without it the engine's
+    # EffectiveFieldId gates (s24/s29/s30/s65: the walkmesh hotfixes incl. 2507's delayed one, off-mesh
+    # exemptions, tri-keyed collision, the menu location) never fire for this fork. The name-keyed overlay
+    # offsets (s31) sit on the .bgs load path, which this .bgx scene never takes, so its re-sliced layers are safe.
+    from .dialogue import _resolve_field_id as _rfi
+    try:
+        _src_fid = _rfi(field)
+    except (FileNotFoundError, ValueError):
+        _src_fid = None
+    source_field_line = (f"source_field = {_src_fid}   # the real field this EDITABLE fork mirrors; deploy emits "
+                         f"ForkDonorPatch so its donor-keyed engine behavior fires\n"
+                         if _src_fid is not None and _src_fid != int(field_id) else "")
 
     def _layer_block(L):
         pos, sz = L.get("position", [0, 0]), L.get("size")
@@ -1789,11 +1803,12 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
         f'name = "{name}"\n'
         f"area = {safe_area}\n"
         f"text_block = {text_block}\n"
+        f"{source_field_line}"
         + ('mapconfig = "mapconfig.bytes"   # the real field LIGHTING (per-floor lights, shadows, model tint) '
            'for every 3D model\n' if mc_bytes else "")
-        # an --editable fork records no donor (no source_field) -> no ForkDonorPatch row -> the engine's
-        # EffectiveFieldId hotfix gates stay false for it, so the kit's prepend is its only copy
-        + f"{_walkmesh_hotfix_line(field, fork_id=field_id, donor_recorded=False)}"
+        # the donor is recorded whenever it resolved (an in-place fork, which omits source_field, is caught by
+        # fork_id) -> its ForkDonorPatch row fires the remapped gates; unresolved -> the kit prepend is the copy
+        + f"{_walkmesh_hotfix_line(field, fork_id=field_id, donor_recorded=_src_fid is not None)}"
         f"{_area_title_hide_lines(meta)}\n"
         f"[camera]\n"
         f"{_ENTRY_SETTLE_LINE}"
