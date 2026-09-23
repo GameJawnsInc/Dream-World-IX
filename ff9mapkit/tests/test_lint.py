@@ -434,16 +434,23 @@ def test_npc_grossly_off_is_flagged(tmp_path):
     assert len(w) == 1 and "far off the walkmesh" in w[0]
 
 
+_TALK = '\n[[npc]]\nname = "V"\npos = [0, 0]\ndialogue = "Hello."\n'
+
+
+def _mk_text_project(extra="", talk=True):
+    """A dict-built project (no files) for the text-block lint. ``talk`` gives it one line of NPC dialogue,
+    so its build WRITES ``field/<text_block>.mes`` -- the only way custom text reaches the engine's merge."""
+    import tomllib
+    p = FieldProject.__new__(FieldProject)
+    p.raw = tomllib.loads('[field]\nid = 30250\nname = "X"\narea = 11\n' + extra + (_TALK if talk else ""))
+    return p
+
+
 def test_lint_text_block_flags_a_real_location_offline():
     """The OFFLINE half of the vanilla-squat guard: needs no game install (a bundled table lookup), so a
     real-block squat is catchable at `ff9mapkit lint`, not only at deploy time."""
-    import tomllib
-    from ff9mapkit.build import FieldProject, lint_text_block
-
-    def mk(extra=""):
-        p = FieldProject.__new__(FieldProject)
-        p.raw = tomllib.loads('[field]\nid = 30250\nname = "X"\narea = 11\n' + extra)
-        return p
+    from ff9mapkit.build import lint_text_block
+    mk = _mk_text_project
 
     assert lint_text_block(mk()) == []                       # derived block (= the field id) -> clean
     assert lint_text_block(mk("text_block = 7001\n")) == []   # a custom block nobody owns -> clean
@@ -458,3 +465,70 @@ def test_lint_text_block_flags_a_real_location_offline():
     # ...but a fork parked on some OTHER real block is NOT exempt: the exemption is donor-block-scoped,
     # so a fork left on the retired 1073 default still gets caught.
     assert lint_text_block(mk("text_block = 1073\nsource_field = 600\n"))
+
+
+def test_lint_text_block_is_quiet_when_the_field_writes_no_mes():
+    """The false positive: `import 1607 --editable` without --carry-text keeps text_block 358 (Madain Sari,
+    fields 1600-1610) and records no donor key, so the donor exemption cannot see it -- yet its build writes
+    NO .mes. It only READS block 358, and lint told it to move off the block anyway."""
+    from ff9mapkit.build import lint_text_block
+    mk = _mk_text_project
+
+    assert lint_text_block(mk("text_block = 358\n", talk=False)) == []
+    assert lint_text_block(mk("text_block = 22\n", talk=False)) == []     # any real block, same rule
+    # the same field the moment it authors a line writes 358.mes -- the real corruption, still flagged
+    hit = lint_text_block(mk("text_block = 358\n"))
+    assert hit and "REAL FF9 text block" in hit[0] and "1600-1610" in hit[0]
+    # a carried donor line is text too: [carry_text] ships it in the field's own .mes
+    carrier = mk("text_block = 358\n", talk=False)
+    carrier.carry_text_plan = lambda: ["a carried line"]
+    assert lint_text_block(carrier)
+    # a verbatim .eb ships the donor's whole body, so it writes on any block that is not its donor's own
+    assert lint_text_block(mk('text_block = 358\n\n[verbatim_eb]\nbin = "x.eb.bytes"\n', talk=False))
+    # never-crash: text that cannot be collected counts as written (the loud side), never a traceback
+    broken = mk("text_block = 358\n", talk=False)
+    broken.raw["npc"] = 5
+    assert lint_text_block(broken)
+
+
+def test_ships_field_mes_agrees_with_what_the_build_writes(tmp_path):
+    """The lint predicate must say what `build_field` DOES, or the finding drifts from the build. Real builds:
+    the bundled examples that build from the repo alone (writers and readers, custom and real blocks), vivi-hut
+    on real block 1073 with and without its NPC, and a [carry_text] sidecar as a field's only text.
+    (Byte-level: needs extracted templates.)"""
+    import shutil
+    from pathlib import Path
+    from ff9mapkit.build import build_mod, ships_field_mes
+    from ff9mapkit.config import LANGS
+    from ff9mapkit.content import textcarry
+    from ff9mapkit.deploystack import blocks_at
+
+    ex = Path(__file__).resolve().parents[1] / "examples"
+    hut = tmp_path / "vivi-hut"
+    shutil.copytree(ex / "vivi-hut", hut)
+    textcarry.write_sidecar(hut / "carry.json", [textcarry.CarriedEntry(
+        donor_txid=3, new_txid=1000, texts={lang: "A carried line." for lang in LANGS})])
+
+    def silent():
+        p = FieldProject.load(hut / "hut_int.field.toml")
+        p.raw.pop("npc")
+        return p
+
+    def carried():
+        p = silent()
+        p.raw["carry_text"] = {"bin": "carry.json"}
+        return p
+
+    cases = [(n, lambda t=t: FieldProject.load(ex / t)) for n, t in (
+        ("capstone", "capstone/capstone.field.toml"), ("items", "items-equipment/items_equipment.field.toml"),
+        ("scroll", "scroll-demo/scroll_demo.field.toml"), ("showcase", "SHOWCASE/showcase.field.toml"),
+        ("hut", "vivi-hut/hut_int.field.toml"))] + [("hut-silent", silent), ("hut-carried", carried)]
+    seen = set()
+    for name, load in cases:
+        proj = load()
+        out = tmp_path / f"mod-{name}"
+        build_mod([proj], out)
+        wrote = any(proj.text_block in blocks_at(out, L) for L in LANGS)
+        assert ships_field_mes(load()) == wrote, name
+        seen.add(wrote)
+    assert seen == {True, False}                     # both outcomes are exercised, not just one

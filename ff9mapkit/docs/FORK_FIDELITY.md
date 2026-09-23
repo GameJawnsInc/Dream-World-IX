@@ -73,8 +73,9 @@ caveats above are then governed by each donor's real story gating, presettable p
 
 - **SCENE** — camera math (decompose/synthesize, `k=14/15`, exact scale-1 canvas map, yaw, character-offset
   measured 0); walkmesh frame (`vert+orgPos+floor.org`, verbatim `.bgi`, 7-floor seam reconcile); native
-  seam-free per-tile occlusion (`--native`, no `.bgx`) + MapConfigData lighting (native AND `--editable`: the
-  donor MCF lights + shadows every carried object; a reshaped editable walkmesh re-keys its per-floor lights).
+  seam-free per-tile occlusion (`--native`, no `.bgx`) + MapConfigData lighting (native, `--editable` AND a
+  plain BG-borrow `import`: the donor MCF lights + shadows every carried object; a reshaped editable walkmesh
+  re-keys its per-floor lights, a borrow keys exactly on the donor's own `.bgi`).
 - **WALKMESH IDS (guarded)** — donor code keys on walkmesh triangle ids / floor indices as LITERALS
   (`B_BGIID`/`B_BGIFLOOR` compares + switches, `EnablePathTriangle`/`EnablePath` immediates — 210 of 818 stock
   scripts — plus the engine's own C# hotfix tris that fire on forks), so a fork that REBUILDS the donor mesh

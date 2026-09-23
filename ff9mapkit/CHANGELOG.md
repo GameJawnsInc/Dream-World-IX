@@ -64,6 +64,34 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - Blender add-on **0.9.30**: the vendored walkmesh builder carries the regroup, so `bridge.mesh_to_bgi_bytes`
   (Blender face order, material slots interleaved) now yields a floor-major `.bgi` equal to the OBJ route.
 
+### Fixed — a plain (BG-borrow) import's carried donor objects are lit and shadowed like the real field
+- **A plain `ff9mapkit import` now ships the donor's MapConfigData** (`mapconfig.bytes` + `[field] mapconfig`),
+  as `--native` and `--editable` do. A BG-borrow fork carries the donor's objects too, but it wrote no MCF, so
+  its grafted `[[object]]`s cast no shadow and rendered bright and untinted. The MCF loads by the fork's own
+  event name, whatever scene it borrows. With it, the build retires the kit's script shadows, as on every MCF
+  field. Delete the `mapconfig` line to go back.
+- **A borrow ships its MCF verbatim, always.** It ships no walkmesh (the engine runs it on the donor's own
+  `.bgi`), so the per-floor lights key exactly. `build.mapconfig_bytes` no longer re-keys them for a borrow,
+  whatever its `[walkmesh]` says.
+- **Byte identity:** `tests/test_fork_mapconfig.py` now pins the on/off invariant on both fork shapes. A borrow
+  changes by exactly the shipped MCF plus the kit shadow ops it retires, and still ships no scene of its own.
+  Campaign borrow members get the file and the line too. Existing member tomls are untouched.
+- **In-game proven** (harness, `studies/actor-shadow` rung 2, a borrow of field 1607, the rung-1 donor). With the
+  MCF the carried moogles cast a shadow on the art and take the room's tint; without it they cast nothing. The
+  tint matches the editable fork's to three decimals ((0.734, 0.661, 0.593) vs (0.735, 0.658, 0.595)), as does
+  the shadow under the lower-right moogle (581 vs 579 px).
+
+### Fixed — marker renames no longer write world text block 68 with CRLF line endings
+- **The deployed overworld `68.mes` is LF-only again, like stock.** `navimap.deploy_marker_renames` wrote it
+  with a bare text-mode `write_text`, so on Windows every LF became CRLF. That put a `\r` into every world message
+  in all 7 languages (item-get lines, Moguo, Zorn/Thorn, the navigation menus), not only the renamed marker label.
+  The write now goes through `fsutil.atomic_write_text(..., newline="\n")`.
+- Both callers are covered: `world-rename-markers` and the `world-entrance` nameplate surgery, which registers
+  its custom name through the same function.
+- **A CRLF override already on disk heals on the next rename deploy.** The merge branch re-reads the deployed file
+  in universal-newline mode and writes it back LF-only, keeping earlier renames. `tests/test_navimap_rename.py`
+  checks the written bytes (a text read would hide the `\r`), on a fresh deploy and on a seeded CRLF override.
+
 ### Fixed — a reshaped multi-floor walkmesh keeps its cross-floor seams
 - **Deleting or reordering an `o floor_<N>` block no longer strands floors.** The `walkmesh.links.toml` sidecar
   numbers its seams by the donor's floors, and `bgi.build` renumbers `.obj` floors in first-seen order, so a
@@ -82,8 +110,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **An authored multi-floor mesh keeps its seams again.** An `.obj` naming no floor `floor_<N>` (`o ground` / `o terrace`)
   got an EMPTY re-key map, which dropped every seam of its links sidecar and every per-floor MCF light; it is
   not a re-export, so nothing is translated.
+- **In-game proven** (harness, the 1607 reshape bench at slot 30930,
+  `studies/actor-shadow/seam_rekey_ingame.py`). The player walks from donor floor 0 across a seam onto floor 5
+  and back. Built with the old reconcile, the same seam stops him.
 
-### Fixed — `deploy_field.py` no longer warns "TEXT OVERWRITES VANILLA" for a field that ships no `.mes`
+### Fixed — the vanilla-overwrite text warning no longer fires for a field that ships no `.mes`
 - **The vanilla-overwrite warning now fires only when the deploy writes a `.mes` for the real block.** It used to
   judge the FieldScene textid, so an `import --editable` fork without `--carry-text` got the warning. Such a fork
   keeps its donor's real block and records no donor key, but its build ships no `.mes` at all: it only reads that
@@ -94,6 +125,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   that does write a real block's `.mes` is warned exactly as before. The cross-folder SHADOWED axis is unchanged,
   because a higher folder's `.mes` on the block still changes what the field shows. The campaign, journey and
   hub guards already checked only the `.mes` files in the dist.
+- **`ff9mapkit lint` follows the same rule.** Its "text_block N is a REAL FF9 text block" finding now fires only
+  when the build would write that block's `.mes`. The new `build.ships_field_mes` answers that offline, mirroring
+  `build_field`'s two branches: a verbatim `.eb` always writes (its donor body is the base), a synthesized field
+  writes when it has dialogue or a `[carry_text]` plan. A test holds it to what real builds write. A predicate
+  failure counts as writing, so lint stays loud rather than crashing.
+- **The carried-object "shows dialogue the fork doesn't carry" warning follows it too.** An un-carried talk
+  window keeps its donor txid, and on the donor's own real block the base game still serves the donor's line
+  there. The warning now fires only when the field sits off the donor's block, or when the field's own `.mes`
+  (its dialogue at 500+, or the `[carry_text]` band at 1000+) writes that exact txid. That second case gets its
+  own message naming the txids. On the 1607 fork all 4 talking objects are clean; adding one NPC line flags only
+  the one window at txid 500. An `--editable` or plain BG-borrow import records no donor, so a real
+  `text_block` is taken as the donor's (the importer sets it that way). A recorded donor (a native fork's
+  `source_field`, a verbatim one's `[verbatim_eb] donor`) must match exactly.
 
 ### Fixed — a field revert removes the `.mes` its deploy wrote fresh
 - **The revert used to leave behind a `field/<block>.mes` that the deploy wrote where none existed.** It only

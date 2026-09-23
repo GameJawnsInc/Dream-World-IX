@@ -1,0 +1,16 @@
+diff --git a/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs b/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
+index 4df5eaf..dab2ed9 100644
+--- a/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
++++ b/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
+@@ -737,7 +737,10 @@ public partial class FieldMapActorController : HonoBehavior
+                 actualMoveVec = Vector3.zero;
+         }
+ 
+-        if (Configuration.Control.PSXMovementMethod)
++        // [ff9mapkit s87] Field 70 (Opening-For FMV) has no walkmesh: FieldMap.LoadFieldMap returns before building
++        // one. This line runs on every tick, moving or not, so its placeholder player threw a NullReferenceException
++        // ~30x/s for the whole opening movie, each one aborting that tick of HonoBehaviorSystem.Update.
++        if (Configuration.Control.PSXMovementMethod && this.fieldMap.walkMesh != null)
+             actualMoveVec *= this.fieldMap.walkMesh.GetTriangleSlopeFactor(this.activeTri);
+ 
+         this.curPos += actualMoveVec;

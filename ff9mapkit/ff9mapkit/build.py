@@ -3586,25 +3586,34 @@ def lint_logic(project: FieldProject) -> list[str]:
 
     # #5 (FORK_FIDELITY.md): a carried TALKABLE object whose donor dialogue isn't carried -> WRONG/missing
     # text in the fork. A plain import (no --carry-text) keeps a self-contained talk handler (a bare
-    # WindowSync) but doesn't ship its words, so the WindowSync points at a donor txid the fork's text block
-    # doesn't hold. (The build remaps a carried window to the [carry_text] band; an UN-carried one is the gap.)
-    # The dangling-PLAYER-tag softlock half of #5 is already a build-blocking validate() problem.
+    # WindowSync) but doesn't ship its words, so the WindowSync points at the donor txid. (The build remaps a
+    # carried window to the [carry_text] band; an UN-carried one keeps the donor txid.) That txid still shows
+    # the donor's line when the fork's text block IS the donor's real block and the fork's own .mes does not
+    # write it (_donor_text_served) -- the base game serves it. The dangling-PLAYER-tag softlock half of #5 is
+    # already a build-blocking validate() problem.
     objs = raw.get("object", [])
     if objs:
         try:
             carried = {e.donor_txid for e in project.carry_text_plan()}
         except Exception:
             carried = set()
+        served, written = _donor_text_served(project)
         for ob in objs:
             binref = ob.get("bin")
             if not binref or not project.path(binref).is_file():
                 continue
             shown = _entry_window_txids(project.path(binref).read_bytes(), ob.get("carry_tags"))
-            missing = sorted(t for t in shown if t not in carried)
-            if missing:
+            uncarried = sorted(t for t in shown if t not in carried)
+            if not served and uncarried:
                 out.append(f"[[object]] {binref} ({ob.get('kind', 'object')}) shows dialogue the fork doesn't "
-                           f"carry (donor txid {missing}) -- it will render WRONG/missing text in-game. Import "
+                           f"carry (donor txid {uncarried}) -- it will render WRONG/missing text in-game. Import "
                            f"with --carry-text (ships the donor's lines + remaps the windows), or author the line.")
+            clobbered = [t for t in uncarried if t in written] if served else []
+            if clobbered:
+                out.append(f"[[object]] {binref} ({ob.get('kind', 'object')}) shows donor txid {clobbered}, which "
+                           f"this field's own dialogue writes over on text_block {project.text_block} -- it will "
+                           f"render WRONG/missing text in-game. Import with --carry-text (moves the donor's lines "
+                           f"to their own txids + remaps the windows).")
 
     # #11 (FORK_FIDELITY.md): a VERBATIM-carried story-gated door (a [[gateway_carry]] entry) may open its own
     # window (e.g. "It's locked" -- 2 real fields: 352, 552). Its bytes ship verbatim, so the window keeps the
@@ -4139,8 +4148,48 @@ def lint_entry_settle(project: FieldProject) -> list:
     return out
 
 
+def ships_field_mes(project: FieldProject) -> bool:
+    """Would :func:`build_field` write ``field/<text_block>.mes`` for this project? Mirrors its two branches
+    without building. A composed VERBATIM ``.eb`` (``[verbatim_eb] bin``) ships the donor's whole text as its
+    base plus every appended channel, so it counts as a writer (the loud side). A synthesized field writes one
+    exactly when :func:`collect_text` yields a body or a ``[carry_text]`` plan carries donor lines, because
+    ``_write_field_mes`` skips an empty body. Offline: no templates, no install. ``tests/test_lint.py`` pins
+    it against what real builds write."""
+    spec = project.raw.get("verbatim_eb")
+    if spec and spec.get("bin"):
+        return True
+    return bool(collect_text(project)[0]) or bool(project.carry_text_plan())
+
+
+def _donor_text_served(project: FieldProject) -> tuple:
+    """``(served, written)`` for a fork's un-carried donor windows. ``served``: does a donor txid still resolve to
+    the DONOR's line? It does when ``text_block`` is the donor's real block, because the base game is always in
+    the engine's text merge. ``written`` is the set of txids the field's own ``.mes`` puts on that block
+    (:func:`collect_text`'s body plus the ``[carry_text]`` band); a donor window on one of those shows the
+    field's line instead.
+
+    The donor's block is known exactly when the project records a donor (:func:`donor_field_id`: a native
+    fork's ``source_field``, a verbatim one's ``[verbatim_eb] donor``). An ``--editable`` or plain BG-borrow
+    import records none, so a REAL ``text_block`` is taken as the donor's: ``import`` sets it to the donor's
+    block, or to the fork's own id when the donor can't be resolved. Anything unreadable gives
+    ``(False, set())``, the loud side. (Only the synthesized path grafts ``[[object]]``s -- ``build_script`` --
+    so its ``collect_text`` layout is the one that matters here.)"""
+    tb = project.text_block
+    if not is_real_text_block(tb):
+        return False, set()
+    donor = _verbatim_donor_id(project)
+    if donor is not None and _deploystack.EVENT_ID_TO_MES.get(donor) != tb:
+        return False, set()                         # a recorded donor on some OTHER block: its lines are not here
+    try:
+        from .dialogue import parse_mes
+        written = set(parse_mes(collect_text(project)[0])) | {e.new_txid for e in project.carry_text_plan()}
+    except Exception:                               # noqa: BLE001 -- lint's never-crash contract: unknown is loud
+        return False, set()
+    return True, written
+
+
 def lint_text_block(project: FieldProject) -> list:
-    """OFFLINE finding (list[str]): does this field's ``text_block`` belong to a REAL FF9 location?
+    """OFFLINE finding (list[str]): does this field write dialogue onto a REAL FF9 location's ``text_block``?
 
     Needs NO game install -- it is a lookup in the bundled ``EVENT_ID_TO_MES`` table -- which is why it belongs
     in ``lint`` rather than only at deploy time. The base game is part of the engine's cumulative per-txid text
@@ -4149,14 +4198,23 @@ def lint_text_block(project: FieldProject) -> list:
 
     A FORK is exempt: it carries its DONOR's text on the donor's own block, which is required rather than
     merely permitted (voice-acting clips resolve off the same mesID, and ``UniversalTextId``'s dual-language
-    remap is keyed by a table of real mesIDs). The deploy-time guard in :mod:`deploystack` is the AUTHORITATIVE
-    one -- only it can see the live FolderNames stack and the cross-folder axis; this half needs neither."""
+    remap is keyed by a table of real mesIDs). So is a field whose build writes no ``.mes`` at all
+    (:func:`ships_field_mes`): it only READS the block. That is an ``import --editable`` fork without
+    ``--carry-text``, which keeps its donor's block and records no donor key. The deploy-time guard in
+    :mod:`deploystack` is the AUTHORITATIVE one -- only it can see the live FolderNames stack, the cross-folder
+    axis and the files a deploy really copies; this half needs none of them."""
     tb = project.text_block
     if not is_real_text_block(tb):
         return []
     donor = _verbatim_donor_id(project)
     if donor is not None and _deploystack.EVENT_ID_TO_MES.get(donor) == tb:
         return []                                   # a fork on its OWN donor's block -- correct, and required
+    try:
+        writes = ships_field_mes(project)
+    except Exception:                               # noqa: BLE001 -- lint's never-crash contract: unknown is loud
+        writes = True
+    if not writes:
+        return []                                   # nothing of this field enters the merge; it only reads the block
     return [f"[field] text_block {tb} is a REAL FF9 text block ({_deploystack.describe_vanilla(tb)}): the base "
             f"game is part of the engine's cumulative text merge, so this field's dialogue is written OVER that "
             f"location's own for the whole playthrough. Drop the key to derive it from [field] id "
@@ -8199,8 +8257,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
 
 def _casts_stock_shadows(project: FieldProject, warnings: list | None = None) -> bool:
     """Whether a synthesized field's actors get the stock blob shadow from the SCRIPT (content.shadow):
-    true unless the field ships MapConfigData (``[field] mapconfig``: a native or editable fork carries its
-    donor's) -- that MCF's per-model service already shadows every actor, grafted donor objects included,
+    true unless the field ships MapConfigData (``[field] mapconfig``: a native, editable or BG-borrow fork
+    carries its donor's) -- that MCF's per-model service already shadows every actor, grafted donor objects included,
     and would overwrite a script value on the first frame, so those builds carry no shadow ops and an
     explicit ``shadow`` key there is reported as having no effect."""
     if not project.field.get("mapconfig"):
@@ -8230,11 +8288,15 @@ def mapconfig_bytes(project: FieldProject, warnings: list | None = None):
     ``bgi.build`` numbers floors in first-seen face order: delete ``o floor_1`` of three and ``floor_2``
     becomes floor 1, lit with floor 1's colour and shadow. So the lights are re-keyed through the floor
     NAMES both exporters write (``o floor_<donor index>``). The unedited round-trip is the identity on all
-    816 shipping walkmeshes -- shipped verbatim, byte for byte -- as is a ``[walkmesh] bgi`` (verbatim)."""
+    816 shipping walkmeshes -- shipped verbatim, byte for byte -- as is a ``[walkmesh] bgi`` (verbatim).
+    A BG-borrow fork ships verbatim whatever its ``[walkmesh]`` says: it ships no walkmesh, the engine runs
+    it on the borrowed donor's own ``.bgi``, so every floor index is the donor's."""
     mc = project.field.get("mapconfig")
     if not mc:
         return None
     data = project.path(mc).read_bytes()
+    if project.field.get("borrow_bg") and not project.field.get("bgs"):   # build_field's order: bgs wins
+        return data
     wm = project.raw.get("walkmesh", {}) or {}
     if wm.get("bgi") or not wm.get("obj"):                # resolve_walkmesh's own order: bgi ships verbatim
         return data
