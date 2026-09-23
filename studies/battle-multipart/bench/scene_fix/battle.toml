@@ -1,0 +1,31 @@
+# =====================================================================================
+# MULTIPART RETYPE CHECK -- THE FIX (kit at 9f7e1c0b)  --  battle scene 30910
+# =====================================================================================
+# GT_R004 (Cleyra trunk): a Sand Golem MASTER (slot 0, type 0, SB2_PUT flags 3) + its Core SLAVE part
+# (slot 1, type 1, flags 3). The Golem's AI pins its own HP at 65535 and dies only when the Core dies.
+# The row under test is slot 0's `type = 0`; the stat keys only make a New Game party able to finish it
+# (they edit the per-TYPE monster blocks, never the SB2_PUT flags byte).
+#
+# Regenerate the donor assets (Square Enix bytes, never committed) in a scratch dir OUTSIDE the repo
+# (image*.png is not gitignored), copy this battle.toml over the generated one, then deploy:
+#   ff9mapkit battle-import BBG_B013 --fork-scene GT_R004 --ship-as BBG_B255 --id 30910 --name MPBOSS --out <scratch>
+#   py tools/deploy_battle.py <scratch>/battle.toml --mod-folder FF9CustomMap
+
+[battlemap]
+bbg = "BBG_B255"
+fbx = "BBG_B255.fbx"
+scene_id = 30910
+scene_name = "MPBOSS"
+
+[scene]
+
+[[scene.enemy]]              # the Sand Golem, the MASTER -- the reported row
+slot = 0
+type = 0
+strength = 1
+magic = 1
+speed = 1                    # its ATB barely fills: no Sandstorm (HP-proportional) before the Core falls
+level = 1                    # and its Counter to every hit on the Core stays small
+[[scene.enemy]]              # the Core, the SLAVE part: killing it ends the fight
+slot = 1
+hp = 100                     # 2-3 hits, so the slave-hit path runs more than once

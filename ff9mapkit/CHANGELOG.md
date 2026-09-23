@@ -21,6 +21,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   bit, left its parts with no master, and crashed the battle at start. A part now keeps its multipart flag
   when the new type keeps its role (master = type 0, slave part = type > 0). A `type = 1` on a slave now keeps
   it a part; it used to spawn a second full copy of the boss.
+  Proven in-game by the harness on GT_R004 (Sand Golem + Core), against a pre-fix control that crashed in
+  `btl_init.OrganizeEnemyData`: `studies/battle-multipart/`.
 - **A slave with no master is refused.** Validate names any active slave part with no master before it, such
   as when the master was retyped and a part was left without a `type`. A part that becomes a normal enemy
   now warns.
