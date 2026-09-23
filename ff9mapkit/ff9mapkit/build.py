@@ -4137,8 +4137,21 @@ def lint_entry_settle(project: FieldProject) -> list:
     return out
 
 
+def ships_field_mes(project: FieldProject) -> bool:
+    """Would :func:`build_field` write ``field/<text_block>.mes`` for this project? Mirrors its two branches
+    without building. A composed VERBATIM ``.eb`` (``[verbatim_eb] bin``) ships the donor's whole text as its
+    base plus every appended channel, so it counts as a writer (the loud side). A synthesized field writes one
+    exactly when :func:`collect_text` yields a body or a ``[carry_text]`` plan carries donor lines, because
+    ``_write_field_mes`` skips an empty body. Offline: no templates, no install. ``tests/test_lint.py`` pins
+    it against what real builds write."""
+    spec = project.raw.get("verbatim_eb")
+    if spec and spec.get("bin"):
+        return True
+    return bool(collect_text(project)[0]) or bool(project.carry_text_plan())
+
+
 def lint_text_block(project: FieldProject) -> list:
-    """OFFLINE finding (list[str]): does this field's ``text_block`` belong to a REAL FF9 location?
+    """OFFLINE finding (list[str]): does this field write dialogue onto a REAL FF9 location's ``text_block``?
 
     Needs NO game install -- it is a lookup in the bundled ``EVENT_ID_TO_MES`` table -- which is why it belongs
     in ``lint`` rather than only at deploy time. The base game is part of the engine's cumulative per-txid text
@@ -4147,14 +4160,23 @@ def lint_text_block(project: FieldProject) -> list:
 
     A FORK is exempt: it carries its DONOR's text on the donor's own block, which is required rather than
     merely permitted (voice-acting clips resolve off the same mesID, and ``UniversalTextId``'s dual-language
-    remap is keyed by a table of real mesIDs). The deploy-time guard in :mod:`deploystack` is the AUTHORITATIVE
-    one -- only it can see the live FolderNames stack and the cross-folder axis; this half needs neither."""
+    remap is keyed by a table of real mesIDs). So is a field whose build writes no ``.mes`` at all
+    (:func:`ships_field_mes`): it only READS the block. That is an ``import --editable`` fork without
+    ``--carry-text``, which keeps its donor's block and records no donor key. The deploy-time guard in
+    :mod:`deploystack` is the AUTHORITATIVE one -- only it can see the live FolderNames stack, the cross-folder
+    axis and the files a deploy really copies; this half needs none of them."""
     tb = project.text_block
     if not is_real_text_block(tb):
         return []
     donor = _verbatim_donor_id(project)
     if donor is not None and _deploystack.EVENT_ID_TO_MES.get(donor) == tb:
         return []                                   # a fork on its OWN donor's block -- correct, and required
+    try:
+        writes = ships_field_mes(project)
+    except Exception:                               # noqa: BLE001 -- lint's never-crash contract: unknown is loud
+        writes = True
+    if not writes:
+        return []                                   # nothing of this field enters the merge; it only reads the block
     return [f"[field] text_block {tb} is a REAL FF9 text block ({_deploystack.describe_vanilla(tb)}): the base "
             f"game is part of the engine's cumulative text merge, so this field's dialogue is written OVER that "
             f"location's own for the whole playthrough. Drop the key to derive it from [field] id "

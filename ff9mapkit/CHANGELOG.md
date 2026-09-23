@@ -5,7 +5,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Fixed — `deploy_field.py` no longer warns "TEXT OVERWRITES VANILLA" for a field that ships no `.mes`
+### Fixed — the vanilla-overwrite text warning no longer fires for a field that ships no `.mes`
 - **The vanilla-overwrite warning now fires only when the deploy writes a `.mes` for the real block.** It used to
   judge the FieldScene textid, so an `import --editable` fork without `--carry-text` got the warning. Such a fork
   keeps its donor's real block and records no donor key, but its build ships no `.mes` at all: it only reads that
@@ -16,6 +16,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   that does write a real block's `.mes` is warned exactly as before. The cross-folder SHADOWED axis is unchanged,
   because a higher folder's `.mes` on the block still changes what the field shows. The campaign, journey and
   hub guards already checked only the `.mes` files in the dist.
+- **`ff9mapkit lint` follows the same rule.** Its "text_block N is a REAL FF9 text block" finding now fires only
+  when the build would write that block's `.mes`. The new `build.ships_field_mes` answers that offline, mirroring
+  `build_field`'s two branches: a verbatim `.eb` always writes (its donor body is the base), a synthesized field
+  writes when it has dialogue or a `[carry_text]` plan. A test holds it to what real builds write. A predicate
+  failure counts as writing, so lint stays loud rather than crashing.
 
 ### Fixed — an editable fork's carried donor objects are lit and shadowed like the real field
 - **`import --editable` now ships the donor's MapConfigData** (`mapconfig.bytes` + `[field] mapconfig`), exactly
