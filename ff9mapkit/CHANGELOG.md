@@ -52,7 +52,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `studies/actor-shadow/seam_rekey_ingame.py`). The player walks from donor floor 0 across a seam onto floor 5
   and back. Built with the old reconcile, the same seam stops him.
 
-### Fixed — `deploy_field.py` no longer warns "TEXT OVERWRITES VANILLA" for a field that ships no `.mes`
+### Fixed — the vanilla-overwrite text warning no longer fires for a field that ships no `.mes`
 - **The vanilla-overwrite warning now fires only when the deploy writes a `.mes` for the real block.** It used to
   judge the FieldScene textid, so an `import --editable` fork without `--carry-text` got the warning. Such a fork
   keeps its donor's real block and records no donor key, but its build ships no `.mes` at all: it only reads that
@@ -63,6 +63,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   that does write a real block's `.mes` is warned exactly as before. The cross-folder SHADOWED axis is unchanged,
   because a higher folder's `.mes` on the block still changes what the field shows. The campaign, journey and
   hub guards already checked only the `.mes` files in the dist.
+- **`ff9mapkit lint` follows the same rule.** Its "text_block N is a REAL FF9 text block" finding now fires only
+  when the build would write that block's `.mes`. The new `build.ships_field_mes` answers that offline, mirroring
+  `build_field`'s two branches: a verbatim `.eb` always writes (its donor body is the base), a synthesized field
+  writes when it has dialogue or a `[carry_text]` plan. A test holds it to what real builds write. A predicate
+  failure counts as writing, so lint stays loud rather than crashing.
+- **The carried-object "shows dialogue the fork doesn't carry" warning follows it too.** An un-carried talk
+  window keeps its donor txid, and on the donor's own real block the base game still serves the donor's line
+  there. The warning now fires only when the field sits off the donor's block, or when the field's own `.mes`
+  (its dialogue at 500+, or the `[carry_text]` band at 1000+) writes that exact txid. That second case gets its
+  own message naming the txids. On the 1607 fork all 4 talking objects are clean; adding one NPC line flags only
+  the one window at txid 500. An `--editable` or plain BG-borrow import records no donor, so a real
+  `text_block` is taken as the donor's (the importer sets it that way). A recorded donor (a native fork's
+  `source_field`, a verbatim one's `[verbatim_eb] donor`) must match exactly.
 
 ### Fixed — a field revert removes the `.mes` its deploy wrote fresh
 - **The revert used to leave behind a `field/<block>.mes` that the deploy wrote where none existed.** It only
