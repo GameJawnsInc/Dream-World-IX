@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `fetch-assets` restores a campaign member's missing MapConfigData
+- **A member whose toml declares `[field] mapconfig` now requires that file.** Both fork writers (borrow and
+  native) emit `mapconfig.bytes` and the line, and the build refuses a member whose MCF is absent. But
+  `campaign.missing_assets` checked only the fixed per-mode set (camera, walkmesh, native scene). So a member with
+  its art present and its MCF gone was never reported, and `fetch-assets` skipped it as complete. The required
+  set now adds the MCF the member's own toml names (`campaign._declared_mapconfig`). A member forked before the
+  writers emitted the line has no key and is not asked for one; stolen-ember's HEARTH and CHAPEL are such members.
+- Proven on a copy of stolen-ember with only TRAIL's `mapconfig.bytes` deleted: `fetch-assets` restores it,
+  byte-identical to the original. `tests/test_campaign.py` covers borrow, native and verbatim members, values
+  that point out of the member folder, and the fetch itself. Each is mutation-checked.
+
 ### Fixed — a plain BG-borrow `import` records its donor, so it gets a ForkDonorPatch row
 - **`ff9mapkit import <field>` (BG-borrow) now writes `[field] source_field = <donor id>`**, as `--native`,
   `--verbatim` and `--editable` do. A standalone borrow used to get no ForkDonorPatch row while the same borrow as
