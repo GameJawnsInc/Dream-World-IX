@@ -47,9 +47,7 @@ SEEN_B = 14868                             # field 30870's public flag `seen_b` 
 GOBLIN = 4                                 # the one enemy's slot (btl_id 16 << 0)
 
 
-def _sent(d: int) -> int:
-    """The HUD's open-pass placeholder for a `digits` width: min(10**d - 1, 0xFFFF)."""
-    return min(10 ** d - 1, 0xFFFF)
+_sent = R0.sentinel                        # the HUD's open-pass placeholder for a `digits` width
 
 
 # label -> placeholder, from ledger0.field.toml's `digits = [2, 1, 5, 2, 1, 5, 1, 3]`

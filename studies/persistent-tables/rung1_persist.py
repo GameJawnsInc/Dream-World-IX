@@ -53,9 +53,11 @@ STATE_FILE = REPO / ".harness-runs" / "rung1-persist-state.json"
 PHASE = os.environ.get("RUNG1_PHASE", "").strip().lower()
 
 # label -> the open-pass width sentinel of its slot (10**digits - 1), from each bench's `digits`
-WRITE_ROWS = {"T SIZE": 99, "CELL 3": 99999, "CELL 9": 99999, "CELL 10": 99999,
-              "CHECK OK": 9, "G SIZE": 9, "EPH 0": 99999, "KCOUNT": 99}
-READ_ROWS = {"T SIZE": 99, "CELL 3": 99999, "G SIZE": 9, "CHECK V1": 9, "CHECK V2": 9, "EPH 0": 99999}
+_s = R0.sentinel
+WRITE_ROWS = {"T SIZE": _s(2), "CELL 3": _s(5), "CELL 9": _s(5), "CELL 10": _s(5),
+              "CHECK OK": _s(1), "G SIZE": _s(1), "EPH 0": _s(5), "KCOUNT": _s(2)}
+READ_ROWS = {"T SIZE": _s(2), "CELL 3": _s(5), "G SIZE": _s(1), "CHECK V1": _s(1), "CHECK V2": _s(1),
+             "EPH 0": _s(5)}
 
 
 def _preflight(g) -> None:
