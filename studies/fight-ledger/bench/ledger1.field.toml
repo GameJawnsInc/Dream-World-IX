@@ -1,0 +1,111 @@
+# =====================================================================================
+# THE FIGHT WRITES THE LEDGER, RUNG 1 -- THE DECLARING + CATCHING FIELD  --  field 30880
+# =====================================================================================
+# Declares dwix_fl1 (persist, id 6004880, guard 7004880, 12 cells; check word 17972799 =
+# persist_check_word("dwix_fl1", 12)) and the story flag fl1_slain (8910). The battles are
+# declarative [scene.ledger] blocks (scene_win/ 30881, scene_stale/ 30882) -- no raw RPN.
+#
+# Cells:  0 outcome (init 2 = engaged, dying 1 = a goblin fell; consumed back to 0 here)
+#         1 fights begun   2 hits on Goblin A   3 hits on Goblin B   4 hits on the Fang
+#         5 Goblin B's HP after the latest effect   6 goblin kills   7 Goblin B kills
+#         8 killer (CharacterId; seed 15 = "no one yet", in range for a [[text_table]])
+#         9 killing ability   10 the killer's HP at the kill   11 the field the fight began in
+#
+# Readers are all existing surface: table_eq -> announce (the event lane via cooldown), a
+# consuming adjust, raise_flags the harness watches, and a HUD strip read after a fresh entry.
+#
+#   py tools/deploy_field.py studies/fight-ledger/bench/ledger1.field.toml --id 30880 --name LEDGER1 --text-block 30880
+
+[field]
+id = 30880
+name = "LEDGER1"
+area = 11
+title = "LEDGER 1"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+[[flag]]
+name = "fl1_slain"
+index = 8910
+
+[[npc]]
+name = "keeper"
+model = "GEO_NPC_F0_CSO"
+pos = [400, -837]
+
+[behavior]
+warmup = 30
+public_flags = ["fight", "told_win", "told_ran"]
+
+  [[behavior.table]]
+  name = "dwix_fl1"
+  id = 6004880
+  persist = true
+  values = [0, 0, 0, 0, 0, -1, 0, 0, 15, -1, -1, 0]
+
+  [[behavior.unit]]
+  npc = "keeper"
+    [[behavior.unit.branch]]
+    # never raised: it only installs the tag-10 Main_Reinit a battle return needs
+    when = [{ flag = "fight" }]
+    clear_flags = ["fight"]
+    do = { battle = 30881 }
+    [[behavior.unit.branch]]
+    # tell the win, then CONSUME it (outcome 1 -> 0)
+    when = [{ table_eq = ["dwix_fl1", 0, 1] }]
+    do = { announce = "LEDGER: THEY FELL" }
+    cooldown = 30
+    raise_flags = ["told_win"]
+    adjust = { table = "dwix_fl1", index = 0, by = -2, clamp = [0, 2] }
+    [[behavior.unit.branch]]
+    # engaged, nothing felled: the player fled
+    when = [{ table_eq = ["dwix_fl1", 0, 2] }]
+    do = { announce = "LEDGER: YOU RAN" }
+    cooldown = 30
+    raise_flags = ["told_ran"]
+    adjust = { table = "dwix_fl1", index = 0, by = -2, clamp = [0, 2] }
+    [[behavior.unit.branch]]
+    do = { hold = [400, -837] }
+
+  [[behavior.hud]]
+  window = 6
+  digits = [2, 1, 1, 2, 3, 3, 2, 5]
+  values = [
+    "expr:const4(6004880) B_VECTOR_SIZE",
+    "expr:const4(7004880) const(0) B_VECTOR const4(17972799) B_EQ",
+    "expr:const4(6004880) const(0) B_VECTOR",
+    "expr:const4(6004880) const(1) B_VECTOR",
+    "expr:const4(6004880) const(2) B_VECTOR",
+    "expr:const4(6004880) const(6) B_VECTOR",
+    "expr:const4(6004880) const(8) B_VECTOR",
+    "expr:const4(6004880) const(11) B_VECTOR",
+  ]
+  text = """[MPOS=8,8]== LEDGER 1 30880 ==
+T SIZE     [NUMB=0]
+CHECK OK   [NUMB=1]
+OUTCOME    [NUMB=2]
+FIGHTS     [NUMB=3]
+HITS0      [NUMB=4]
+KILLS      [NUMB=5]
+KILLER     [NUMB=6]
+WHERE      [NUMB=7]"""

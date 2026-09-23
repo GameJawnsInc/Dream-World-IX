@@ -1,0 +1,113 @@
+# =====================================================================================
+# THE FIGHT WRITES THE LEDGER, RUNG 1 -- THE WIN SCENE  --  battle scene 30881
+# =====================================================================================
+# Two Goblins (type 0, AI entry 2 -- they SHARE it, so the slot filter must split them) and a
+# Fang (type 1, AI entry 1, which has no tag-7 Reaction -- the ledger ADDS one). A declarative
+# [scene.ledger]: no raw RPN anywhere. The cell map is in ../ledger1.field.toml.
+#
+# Regenerate the gitignored donor assets:
+#   ff9mapkit battle-import BBG_B013 --fork-scene EF_R007 --ship-as BBG_B253 --id 30881 --name LEDGER1W
+#   py tools/deploy_battle.py studies/fight-ledger/bench/scene_win/battle.toml
+
+[battlemap]
+bbg = "BBG_B253"
+fbx = "BBG_B253.fbx"
+scene_id = 30881
+scene_name = "LEDGER1W"
+
+[scene]
+monster_count = 3
+
+[[scene.enemy]]              # Goblin A (type 0's stats are shared with Goblin B: tuned once, here)
+slot = 0
+type = 0
+ai_entry = 2
+hp = 60
+strength = 1
+[[scene.enemy]]              # Goblin B
+slot = 1
+type = 0
+ai_entry = 2
+pos = [-600, 700]
+[[scene.enemy]]              # the Fang: no dying rows, so no die_atk -- its lethal hit stays in tag 7
+slot = 2
+type = 1
+ai_entry = 1
+hp = 40
+strength = 1
+pos = [600, 700]
+
+[scene.ledger]
+declared_in = "../ledger1.field.toml"
+table = "dwix_fl1"
+
+[[scene.ledger.write]]       # outcome: engaged
+on = "init"
+slot = 0
+cell = 0
+set = 2
+[[scene.ledger.write]]       # fights begun (slot 0 only: once per battle)
+on = "init"
+slot = 0
+cell = 1
+add = 1
+[[scene.ledger.write]]       # where it was caught
+on = "init"
+slot = 0
+cell = 11
+set = "field"
+[[scene.ledger.write]]       # effects landed on Goblin A (the lethal one replayed into tag 9)
+on = "reaction"
+slot = 0
+cell = 2
+add = 1
+[[scene.ledger.write]]
+on = "reaction"
+slot = 1
+cell = 3
+add = 1
+[[scene.ledger.write]]       # the Fang: an ADDED tag 7
+on = "reaction"
+slot = 2
+cell = 4
+add = 1
+[[scene.ledger.write]]       # Goblin B's HP after the latest effect (0 once the replay runs)
+on = "reaction"
+slot = 1
+cell = 5
+set = "hp"
+[[scene.ledger.write]]       # outcome: a goblin fell
+on = "dying"
+slot = [0, 1]
+cell = 0
+set = 1
+[[scene.ledger.write]]       # kills
+on = "dying"
+slot = [0, 1]
+cell = 6
+add = 1
+[[scene.ledger.write]]       # Goblin B's kills
+on = "dying"
+slot = 1
+cell = 7
+add = 1
+[[scene.ledger.write]]       # who finished Goblin B (CharacterId: 0 Zidane)
+on = "dying"
+slot = 1
+cell = 8
+set = "killer"
+[[scene.ledger.write]]
+on = "dying"
+slot = 1
+cell = 9
+set = "ability"
+[[scene.ledger.write]]
+on = "dying"
+slot = 1
+cell = 10
+set = "killer_hp"
+[[scene.ledger.write]]       # a save-global story flag any later field's requires_flag can read
+on = "dying"
+slot = 1
+flag = "fl1_slain"
+set = 1

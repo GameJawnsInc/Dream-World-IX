@@ -717,6 +717,13 @@ npc = "innkeeper"
 - **A counter-indexed write is fenced.** The engine *appends* a cell when a write lands at
   exactly `index == length` (see the adjust lane below); on a persistent table that write is
   skipped, so the table can never grow past its length and trip its own guard.
+- **Written by a battle.** A minted battle's `[scene.ledger]` names the field that declares the table
+  (`declared_in`) and writes its cells from the enemy AI — who fell, to whom, how many hits
+  ([BATTLE_DESIGN.md § (b′)](BATTLE_DESIGN.md)). Its writes are gated on the table being live, so a fight
+  before any declaring field seeded the table writes nothing (its `flag` rows still land): declare the
+  table in the field that starts the fight. Read it here with `table_eq`/`table_ge`, and consume an
+  "outcome" cell with a clamped `adjust` so it is narrated once. A text row indexed by a cell should be
+  seeded with an in-range "nobody yet" value, not −1 (a `[TEXT=]` clamp maps negatives to row 0).
 - **Dev loop.** `~ → Reload` no longer resets a persistent table (that is the point); `~`
   Flags "reset all" does. `~` Restore rolls back story flags only, not tables. Co-op does not
   mirror vectors between machines.

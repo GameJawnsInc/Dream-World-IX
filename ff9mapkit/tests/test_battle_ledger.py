@@ -541,3 +541,49 @@ def test_a_battle_without_a_ledger_reports_none(tmp_path):
 def test_member_70_is_named_slot_no():
     from ff9mapkit.eb._membertable import member_name, member_selector
     assert member_name(70) == "slot_no" and member_selector("slot_no") == 70
+
+
+# ---------------------------------------------------------------------------------------- docs + benches
+def _doc_example() -> str:
+    from pathlib import Path
+    doc = (Path(__file__).resolve().parents[1] / "docs" / "BATTLE_DESIGN.md").read_text(encoding="utf-8")
+    i = doc.index("<!-- ledger-example -->")
+    a = doc.index("```toml\n", i) + len("```toml\n")
+    return doc[a:doc.index("```", a)]
+
+
+def test_the_battle_design_example_validates(tmp_path):
+    """The BATTLE_DESIGN.md example is real: its [scene] + [scene.ledger] validate against a declaring field
+    built from the doc's own field example (ids/names/flags taken from the doc, not restated here)."""
+    from pathlib import Path
+    import tomllib
+    doc = (Path(__file__).resolve().parents[1] / "docs" / "BATTLE_DESIGN.md").read_text(encoding="utf-8")
+    i = doc.index("The declaring field (`village.field.toml`)")
+    a = doc.index("```toml\n", i) + len("```toml\n")
+    field = doc[a:doc.index("```", a)]
+    field = '[[npc]]\nname = "elder"\nmodel = "GEO_NPC_F0_CSO"\npos = [0, 0]\n\n' + field
+    sub = tmp_path / "battle"
+    sub.mkdir()
+    (tmp_path / "village.field.toml").write_text(field, encoding="utf-8")
+    sc = tomllib.loads(_doc_example())["scene"]
+    raw16 = scene_data.with_mon_flags(_raw16(typcount=3, monster_count=1), 0, 2)
+    eb = goblin_eb()
+    r16, _ = scene_data.apply_scene_edits(raw16, sc)
+    from ff9mapkit.battle.build import _ai_entries, _compose_ai
+    composed = _compose_ai(eb, sc, slot_types=[r16[16]], ai_entries=_ai_entries(sc, 1), atk_count=None)
+    p, errors, _w = L.plan(sub, sc, raw16=r16, eb_donor=eb, eb_composed=composed)
+    assert errors == [] and p is not None, errors
+    assert p.table.name == "goblin_fight" and p.table.n == 4 and dict(p.table.flags)["goblin_slain"] == 8910
+
+
+def test_the_rung1_bench_battles_resolve_their_ledgers():
+    """The in-game benches keep resolving: their declared_in fields declare what the battles write."""
+    from pathlib import Path
+    import tomllib
+    bench = Path(__file__).resolve().parents[2] / "studies" / "fight-ledger" / "bench"
+    for scene_dir, n, word in (("scene_win", 12, 17972799), ("scene_stale", 13, 26511439)):
+        sc = tomllib.loads((bench / scene_dir / "battle.toml").read_text(encoding="utf-8"))["scene"]
+        t = L.resolve_table(bench / scene_dir, sc["ledger"])
+        assert (t.n, t.word) == (n, word)
+        writes, errors = L.parse_writes(sc["ledger"], t, sc["monster_count"])
+        assert errors == [] and writes

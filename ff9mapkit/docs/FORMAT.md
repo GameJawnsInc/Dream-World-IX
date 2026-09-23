@@ -850,6 +850,13 @@ geometry/textures are extracted from **your** install at runtime and are gitigno
 
 ---
 
+
+### Recording the fight — `[scene.ledger]`
+
+A minted battle can write a field's `persist = true` table from its enemies' AI — `on = "init" |
+"reaction" | "dying"`, a `slot`, a `cell` (or a `[[flag]]`), `set`/`add`. The table's id and length are
+read from the field named by `declared_in`. Full reference: [BATTLE_DESIGN.md § (b′)](BATTLE_DESIGN.md).
+
 ## `[[gateway]]` (optional, repeatable)
 
 A region the player walks into to warp to another field.

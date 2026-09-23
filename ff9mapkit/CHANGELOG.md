@@ -5,6 +5,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the fight ledger: a battle writes a field's persistent table
+- **`[scene.ledger]`** (the fight-ledger arc, board entry #4,
+  in-game proven by the harness). A minted battle names the field that declares a `persist = true` table and
+  records how the fight went from its enemies' AI — `on = "init"` (tag 0), `"reaction"` (tag 7, every effect
+  landed) or `"dying"` (tag 9); `set` an integer or a source (`field`, `hp`, `command`, `ability`, `killer`,
+  `killer_hp`), `add`, or set a `[[flag]]`. The table's identity is read from `declared_in`; every cell write
+  is gated on the table being live, so a battle can never create, grow or re-seed it; `dying` ORs `die_atk` and
+  replays the slot's `reaction` rows where the engine refuses the lethal hit's tag 7. The field reads it with
+  the readers it already has. See `docs/BATTLE_DESIGN.md` § (b′).
+
+### Fixed — battle validate, the AI tag labels, battle scene ids
+- **`battle validate` composes the AI edits exactly as the build ships them.** It used to apply `ai_*` edits to
+  the donor Main_Init while the build applied them after the `monster_count` rewrite, so an `ai_patch` offset
+  that was right for the donor and wrong for the shipped bytes validated clean and then failed the build.
+- **The enemy-AI tag labels:** tag 5 is the ATB turn (it holds the `Attack`), tag 7 the post-hit reaction — the
+  kit called tag 7 "ATB". Tag 9 (Dying) runs only with the enemy's `die_atk` flag.
+- **A behavior `battle` action's scene id is 0..32767**, not 0..65535: bit 15 of the Battle operand is
+  Steiner's state and the engine masks the scene to 15 bits.
+
 ### Added — persistent data tables: state that survives the save
 - `persist = true` on a `[[behavior.table]]` makes a table the kit does NOT re-seed at every field
   entry: what play writes into it survives field entry, `~ → Reload`, battles, and save → quit →
