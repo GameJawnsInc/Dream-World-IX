@@ -482,6 +482,13 @@ is rejected locally rather than shipped to the game.
 `.sys_mode`, `.scenario`, `.player_x/y/z`, `.pos`, `.control`, `.world_id`, `.dialog_open`, `.texts`,
 `.text`, `.choice`, `.held`, `.flag(bit)`.
 
+WARNING: **the state does not say which walkmesh triangle or floor the player is on.** `state.json`
+carries `player.tri`/`player.floor`, but they are `PosObj`'s battle-entry snapshot: 0/0 until the
+session's first battle, then frozen. Read them only as `.player_tri_battle_snapshot` /
+`.player_floor_battle_snapshot`; the offline suite refuses a scenario that reads the bare keys. For
+the live value, read `expr:B_PTR(250) B_BGIID` in the field, e.g. as a `[[behavior.hud]]` row
+(the operand is a RAW uid, so `const(250)` reads -1), or run `scene.bgi.BgiWalkmesh` at the published x/z.
+
 `g.watch(*bits)` publishes those `gEventGlobal` bits in every later sample — flags are otherwise not
 reported, because dumping 2048 bits per frame is noise.
 
