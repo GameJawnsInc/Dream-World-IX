@@ -1,23 +1,31 @@
 """RUNG 0 of the actor-shadow fix -- do kit-field actors cast the stock blob shadow in-game?
 
     py tools/play.py studies/actor-shadow/rung0_shadow.py --label shadow-rung0
+    SHADOW_CONTROL=1 py tools/play.py studies/actor-shadow/rung0_shadow.py --label shadow-rung0-control
+      (the CONTROL run, after deploying bench/shadow0_control.field.toml to the same slot: every actor at
+      shadow = false; its frames are the pixel reference measure_shadows.py compares against)
 
 Bench studies/actor-shadow/bench/shadow0.field.toml (30920), on the walkmesh-sensor bench's floor + camera
 (its rung-0 frame, .harness-runs/20260923-094949-bgi-rung0/shots/1-spawn.png, is the BEFORE: no shadow under
-the player or either NPC). Every case sits in ONE frame, so the verdict never compares two runs:
+the player or either NPC). Every case sits in ONE frame, so the eye can judge a single shot:
 the player + `stock` + the behavior unit `rover` at their census values, `big` at an override, and `none`
-opted out -- the in-frame NEGATIVE CONTROL, the same model on the same floor with no ops.
+opted out -- the in-frame NEGATIVE CONTROL, the same model on the same floor with no ops. The measured
+verdict is measure_shadows.py against the CONTROL run (the same bench, every actor shadow = false).
 
 PRE  the DEPLOYED .eb (what the engine will run, not what the build says) carries exactly the expected ops:
      SetShadowSize(s, s) + SetShadowAmplifier(i << 3) per actor, none on `none`
-A0   field entry raises no exception in either log (a shadow op before SetModel would KeyNotFound on
-     shadowArray)
+A0   no exception THROUGH a shadow path, in either log (a shadow op before SetModel would KeyNotFound on
+     shadowArray inside DoEventCode; the render side is SetRenderer / ff9shadow). Every OTHER exception is
+     reported by name + count, never silently passed: FieldMapActorController.MovePC throws a
+     NullReferenceException ~28x on this floor with or without shadows (the pre-fix bgi rung-0 runs show it
+     too), so the control run's count is the comparison, not zero.
 F1   the spawn frame (a LOOK, read by eye): a blob under player / stock / big / rover, NONE under `none`,
      `big` visibly larger and darker than `stock`
 F2   the rover walking (the behavior unit's shadow travels with it)
 """
 from __future__ import annotations
 
+import os
 import struct
 import sys
 import tomllib
@@ -38,6 +46,9 @@ EB_FILE = (GAME / "FF9CustomMap" / "StreamingAssets" / "Assets" / "Resources" / 
 
 # name -> (SetShadowSize arg, SetShadowAmplifier arg) the deployed Init must carry; None = no shadow ops
 EXPECT = {"player": (9, 32), "stock": (9, 24), "big": (16, 64), "none": None, "rover": (9, 24)}
+CONTROL = os.environ.get("SHADOW_CONTROL") == "1"
+if CONTROL:                                             # bench/shadow0_control.field.toml: nobody casts one
+    EXPECT = {n: None for n in EXPECT}
 
 _RAW = tomllib.loads(BENCH.read_text(encoding="utf-8"))
 _FB, _CB = BT.dry_compile(_RAW)
@@ -84,7 +95,7 @@ def _preflight(g) -> None:
 
 def run(g) -> None:
     _preflight(g)
-    g.note("actor shadow rung 0")
+    g.note("actor shadow rung 0" + (" -- CONTROL (every actor shadow = false)" if CONTROL else ""))
     g.newgame()
     mark = g.log_mark()
     g.warp(FIELD)
@@ -92,13 +103,25 @@ def run(g) -> None:
     g.settle()
     g.wait_frames(60)                                   # the behavior warmup + a few render frames
     g.shot("1-spawn")
-    ex = g.exceptions_since(mark)
-    g.check(not ex, "A0: entering the field raised no exception (either log)", "; ".join(map(str, ex[:3])))
+    _exceptions(g, mark, "entering the field")
 
     g.flag(WALK, True)
     g.wait_frames(150)
     g.shot("2-rover-walking")
     g.wait_frames(150)
     g.shot("3-rover-walking-later")
+    _exceptions(g, mark, "entering the field and while the unit walks")
+
+
+SHADOW_PATHS = ("ff9shadow", "FF9Shadow", "DoEventCode", "SetRenderer", "fldmcf")
+
+
+def _exceptions(g, mark, when: str) -> None:
     ex = g.exceptions_since(mark)
-    g.check(not ex, "A0: no exception while the unit walks", "; ".join(map(str, ex[:3])))
+    ours = [e for e in ex if e.through(*SHADOW_PATHS)]
+    g.check(not ours, f"A0: no exception through a shadow path ({when})", "; ".join(map(str, ours[:3])))
+    tally: dict = {}
+    for e in ex:
+        if e not in ours:
+            tally[str(e)] = tally.get(str(e), 0) + 1
+    print(f"[shadow-rung0] other exceptions {when} (compare the control run): {tally or 'none'}")

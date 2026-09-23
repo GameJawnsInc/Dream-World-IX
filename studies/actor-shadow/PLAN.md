@@ -1,6 +1,7 @@
 # Actor shadows on kit-built fields
 
-**Status:** rung 0 built; in-game result recorded below.
+**Status:** ★ rung 0 PASSED in-game (harness, bench 30920). Every actor casts the stock shadow; the opt-out
+actor casts none.
 
 ## The defect
 
@@ -56,7 +57,33 @@ hash exactly.
 One frame holds every case: the player, `stock` and the behavior unit `rover` at census values, `big` at
 `{16, 8}`, and `none` with `shadow = false` as the in-frame negative control.
 
-(result below)
+The reference is a **control run**: `bench/shadow0_control.field.toml` is the same bench with every actor at
+`shadow = false`, which is what every kit field shipped before the fix. It was deployed to the same slot and
+shot at the same moments. `measure_shadows.py` scores only pixels that are floor in both frames, inside a box
+at each actor's feet. Runs are archived in the main repo's `.harness-runs/`: `20260923-104225-shadow-rung0-on`,
+`20260923-104149-shadow-rung0-control`, and `20260923-103915-shadow-rung0` (a first shadows-on run, used as a
+repeat).
+
+| actor | ops in the deployed .eb | floor darkened >=5% | luminance on/control |
+|---|---|---|---|
+| player (Zidane, census) | SetShadowSize(9, 9) + SetShadowAmplifier(32) | 18.4% | 0.958 |
+| stock (CSO, census) | (9, 9) + 24 | 10.4% | 0.981 |
+| rover (behavior unit, census) | (9, 9) + 24 | 14.5% | 0.975 |
+| big (CSO, `{16, 8}`) | (16, 16) + 64 | 41.1% | 0.844 |
+| **none** (`shadow = false`) | none | **1.1%** | **0.999** |
+
+- **Calibration:** control scored against itself reads exactly 1.000 / 0.0%. The repeat run agrees with the
+  table to within 0.3 points on every row.
+- **By eye:** each shadow is a soft dark blob centred under the feet. `big` is clearly larger and darker. The
+  rover's blob follows it through the wander in shots 2 and 3.
+- **Exceptions:** no exception passes through a shadow path (`ff9shadow` / `DoEventCode` / `SetRenderer` /
+  `fldmcf`) in either log. `FieldMapActorController.MovePC` throws a NullReferenceException 26 times in BOTH
+  the shadows-on run and the control run. It also appears 28-29 times in the pre-fix bgi runs on bench 30910,
+  so it predates this change and is unrelated to it (not yet diagnosed; see follow-ups).
+
+Census shadows are subtle on purpose. The intensity comes from stock rooms (mostly 3-4), so a 9-size shadow
+darkens its footprint by about 5-10%. Whether that reads well on painted art is the owner's call. The
+`intensity` override is the lever if it doesn't.
 
 ## Follow-ups (not in this change)
 
@@ -64,3 +91,5 @@ One frame holds every case: the player, `stock` and the behavior unit `rover` at
   (the chest `GEO_ACC_F0_TBX` is `(10-11, 4)`), but held props must not get one. That needs its own design.
 - An `--editable` fork's grafted donor objects still cast none: the fork ships no MCF, and the objects are not
   `[[npc]]`s.
+- The pre-existing `FieldMapActorController.MovePC` NullReferenceException, about 26 per run on the
+  checkerboard benches, both with and without shadows.
