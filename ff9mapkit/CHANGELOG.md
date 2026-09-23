@@ -31,6 +31,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **A `[behavior]` table with no `[[behavior.unit]]` is now refused.** It compiled to nothing — its tables,
   streams, counters and HUDs never ran — and said nothing. On a verbatim fork any `[behavior]` block is refused
   by name (it was silently dropped when it had no unit).
+- **Python API: an author's condition text (`FieldBehavior.raw()`, a bare `Cond`) may no longer write or draw.**
+  A condition is evaluated every tick it is reached, so a `B_LET` there rewrote state once per evaluation and a
+  `B_SYSVAR[0]` advanced the engine RNG per evaluation, silently. The text is classified with `eb/exprsem.py`,
+  like the hud `expr:` lane: a write is refused toward a branch's `raise_flags`/`adjust`, an RNG draw toward a
+  roll stream, and an unclassifiable operator is refused too. Compiler-generated conds and `unsafe_ok=True` are
+  unaffected; no TOML `when` verb reaches this path.
 
 ### Fixed — a `const4(N)` literal the engine would wrap is refused at build
 - **The expression assembler refuses a `const4(N)` outside -33554432..33554431.** The engine reads a

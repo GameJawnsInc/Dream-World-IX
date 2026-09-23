@@ -134,21 +134,54 @@ def test_wheel_package_data_stays_pinned_to_provenance_clean_files():
             f"package-data must never glob {banned!r} -- that is how a wheel bundles FF9 bytes"
 
 
+def _leaked_test_packages(where: Path) -> list:
+    """The test packages a wheel built from the pyproject root ``where`` would ship.
+
+    What ships is MODULES: a discovered test package leaks only when its directory holds .py files. A
+    directory left behind holding just an ignored __pycache__ (every checkout older than the tree's move
+    keeps one -- git deletes the tracked files, never the ignored bytecode) ships nothing, and counting it
+    turned the nightly gate red on a checkout, not on the code. Measured, not assumed: a wheel built with
+    the real 33 stale .pyc files in place carried zero tests/ entries and zero .pyc; the same build plus
+    one tests/test_leak.py shipped it (package-data names fixed paths only -- no glob reaches tests/)."""
+    find = pytest.importorskip("setuptools").find_namespace_packages
+    found = find(where=str(where), include=["ff9mapkit*"])
+    return sorted(p for p in found if (p.endswith(".tests") or ".tests." in p)
+                  and any((where / p.replace(".", "/")).glob("*.py")))
+
+
 def test_no_test_tree_is_discovered_as_a_package():
     """A tests/ directory INSIDE the package is a namespace package to setuptools' default finder and
     ships in the wheel (1.0.0b19 carried 32 test modules this way, from ff9mapkit/ff9mapkit/tests/).
     Test trees live BESIDE the package (ff9mapkit/tests/, ff9mapkit/blender/tests/) where the finder's
     ``include = ["ff9mapkit*"]`` cannot see them."""
-    find = pytest.importorskip("setuptools").find_namespace_packages
-    found = find(where=str(REPO / "ff9mapkit"), include=["ff9mapkit*"])
-    # What ships is MODULES: a discovered test package leaks only when its directory holds .py files. A
-    # directory left behind holding just an ignored __pycache__ (every checkout older than the tree's move
-    # keeps one -- git deletes the tracked files, never the ignored bytecode) ships nothing, and counting it
-    # turned the nightly gate red on a checkout, not on the code.
-    leaked = sorted(p for p in found if (p.endswith(".tests") or ".tests." in p)
-                    and any((REPO / "ff9mapkit" / p.replace(".", "/")).glob("*.py")))
+    leaked = _leaked_test_packages(REPO / "ff9mapkit")
     assert not leaked, \
         f"test tree discovered as a shippable package -- move it beside the package: {leaked}"
+
+
+@pytest.mark.parametrize("files, leaked", [
+    # the residue the gate tripped on: the finder DOES report it, the rule must not
+    (["tests/__pycache__/test_old.cpython-314-pytest-9.0.3.pyc"], []),
+    # a real test module in the package still goes red -- the tripwire's purpose, intact
+    (["tests/__pycache__/test_old.cpython-314-pytest-9.0.3.pyc", "tests/test_leak.py"],
+     ["ff9mapkit.tests"]),
+    # a module one level down under a residue-only parent is caught at its own package
+    (["tests/__pycache__/test_old.cpython-314-pytest-9.0.3.pyc", "tests/sub/test_deep.py"],
+     ["ff9mapkit.tests.sub"]),
+])
+def test_the_test_tree_rule_exempts_residue_not_modules(tmp_path, files, leaked):
+    """The exemption has teeth: built on a synthetic tree (never the real package dir -- a stray file
+    there would race the real-tree check on another xdist worker)."""
+    (tmp_path / "ff9mapkit").mkdir()
+    (tmp_path / "ff9mapkit" / "__init__.py").write_text("", encoding="utf-8")
+    for rel in files:
+        f = tmp_path / "ff9mapkit" / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(b"")
+    found = pytest.importorskip("setuptools").find_namespace_packages(
+        where=str(tmp_path), include=["ff9mapkit*"])
+    assert "ff9mapkit.tests" in found   # the finder sees the dir either way; the RULE decides
+    assert _leaked_test_packages(tmp_path) == leaked
 
 
 def test_built_dists_carry_no_game_derived_entries():
