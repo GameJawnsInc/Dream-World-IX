@@ -996,7 +996,7 @@ def test_the_row_buttons_are_rowtool_tier_and_the_stats_keep_a_stub(doc):
     assert doc.unit_stats.minimumWidth() >= int(fm.averageCharWidth() * 12)
 
 
-def test_the_branch_wizard_previews_the_real_body_and_honours_unit_only():
+def test_the_branch_wizard_previews_the_real_body_and_honours_unit_only(app):
     from ff9mapkit.workspace.behaviordoc import BranchWizard
     raw = demo_raw()
     w = BranchWizard(pick_palette("dark"), raw, "watchman")
