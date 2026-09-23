@@ -88,15 +88,15 @@ class Hotfix:
         """True when the KIT must reproduce this hotfix with a Main_Init toggle prepend because the engine will not:
         it is ``prependable`` AND either its gate is still on the raw ``fldMapNo`` or the fork records no donor
         (``donor_recorded=False`` -- no ForkDonorPatch row, so ``EffectiveFieldId`` returns the fork's own id; a
-        standalone ``import --editable`` is one). Never on a donor-recorded fork of an ``engine_remapped`` hotfix:
-        the engine sets those tris in ``FieldMap.HonoAwake``, before Main_Init runs, so the prepend would only
-        write the same bits again -- redundant, not harmful."""
+        fork whose donor id did not resolve at import is one). Never on a donor-recorded fork of an
+        ``engine_remapped`` hotfix: the engine sets those tris in ``FieldMap.HonoAwake``, before Main_Init runs,
+        so the prepend would only write the same bits again -- redundant, not harmful."""
         return self.prependable and not (self.engine_remapped and donor_recorded)
 
     @property
     def auto(self) -> bool:
-        """:meth:`needs_prepend` for the usual fork, one that records its donor (``import --native``/``--verbatim``,
-        every campaign member): True only while the engine gate is RAW (2356)."""
+        """:meth:`needs_prepend` for the usual fork, one that records its donor (``import --native``/``--verbatim``/
+        ``--editable``, every campaign member): True only while the engine gate is RAW (2356)."""
         return self.needs_prepend()
 
 
@@ -118,7 +118,7 @@ _HOTFIXES = {
                  "At field load the engine deactivates one triangle (a disc-3 room-layout block). Unconditional. "
                  "ENGINE-REMAPPED since s65 (the member-donor gate sweep wraps this FieldMap gate with "
                  "EffectiveFieldId), so a fork with a donor row gets it from the engine at load; the kit prepends "
-                 "it only for a fork that records no donor (a standalone --editable import). The donor's own .eb "
+                 "it only for a fork that records no donor (one whose donor id did not resolve). The donor's own .eb "
                  "never toggles tri 69, so the engine + prepend double write that forks carried before this was "
                  "redundant, not harmful.",
                  "FieldMap.cs:119-122", toggles=((69, 0),), tris=(69,), engine_remapped=True, fork_tris=(69,)),
@@ -130,7 +130,7 @@ _HOTFIXES = {
                  "FLOOR the two treasure-chest props snap onto, and the real field's 0.5s delay lets them settle "
                  "FIRST, then removes the tris. An at-load prepend removes them BEFORE the chests place, snapping "
                  "the chests a floor down (★ caught in-game 2026-06-23). So reproduce via the engine remap only -- "
-                 "a fork with no donor row (a standalone --editable import) loses it.",
+                 "a fork with no donor row (its donor id did not resolve at import) loses it.",
                  "FieldMap.cs:139-148", toggles=((174, 0), (175, 0), (177, 0), (178, 0)),
                  tris=(174, 175, 177, 178), engine_remapped=True,
                  fork_tris=(174, 175, 177, 178), delayed=True),
@@ -205,6 +205,6 @@ def load_time_toggles(field_id, *, donor_recorded: bool = True) -> list:
     """The ``[(tri, state), ...]`` a fork of ``field_id`` should prepend at load to reproduce its engine walkmesh
     hotfix -- :meth:`Hotfix.needs_prepend` -- or ``[]`` when the field has none, the engine reproduces it for this
     fork, or it isn't statically reproducible. ``donor_recorded``: the fork's toml records its donor, so it gets a
-    ForkDonorPatch row (False for a standalone ``import --editable``)."""
+    ForkDonorPatch row (False only when the import could not resolve the donor id)."""
     h = info(field_id)
     return [list(t) for t in h.toggles] if (h and h.needs_prepend(donor_recorded=donor_recorded)) else []

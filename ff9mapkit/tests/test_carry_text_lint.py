@@ -85,7 +85,7 @@ def test_carried_talkable_on_the_donor_block_reads_the_donor_line(tmp_path):
     """The false positive: `import 1607 --editable` without --carry-text keeps block 358 and records no donor,
     and lint said its 4 talking objects would render WRONG/missing text. Their donor txids resolve into the
     base game's block 358 -- the donor's own lines -- because the fork writes no .mes over them."""
-    assert _text_warnings(_proj(tmp_path, _NPC_OBJ, _object_entry(540))) == []          # editable: no donor
+    assert _text_warnings(_proj(tmp_path, _NPC_OBJ, _object_entry(540))) == []          # no donor recorded
     assert _text_warnings(_proj(tmp_path, _NPC_OBJ, _object_entry(540),
                                 field_extra=f"source_field = {_ON_187}\n")) == []       # donor recorded, its block
     # an authored line at a DIFFERENT txid leaves the donor window alone

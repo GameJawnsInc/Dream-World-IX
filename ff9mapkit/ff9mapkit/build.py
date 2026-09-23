@@ -4167,11 +4167,12 @@ def _donor_text_served(project: FieldProject) -> tuple:
     field's line instead.
 
     The donor's block is known exactly when the project records a donor (:func:`donor_field_id`: a native
-    fork's ``source_field``, a verbatim one's ``[verbatim_eb] donor``). An ``--editable`` or plain BG-borrow
-    import records none, so a REAL ``text_block`` is taken as the donor's: ``import`` sets it to the donor's
-    block, or to the fork's own id when the donor can't be resolved. Anything unreadable gives
-    ``(False, set())``, the loud side. (Only the synthesized path grafts ``[[object]]``s -- ``build_script`` --
-    so its ``collect_text`` layout is the one that matters here.)"""
+    or ``--editable`` fork's ``source_field``, a verbatim one's ``[verbatim_eb] donor``). A plain BG-borrow
+    import records none, and neither does an ``--editable`` toml written before it began to, so a REAL
+    ``text_block`` is taken as the donor's: ``import`` sets it to the donor's block, or to the fork's own id
+    when the donor can't be resolved. Anything unreadable gives ``(False, set())``, the loud side. (Only the
+    synthesized path grafts ``[[object]]``s -- ``build_script`` -- so its ``collect_text`` layout is the one that
+    matters here.)"""
     tb = project.text_block
     if not is_real_text_block(tb):
         return False, set()
@@ -4197,10 +4198,10 @@ def lint_text_block(project: FieldProject) -> list:
     A FORK is exempt: it carries its DONOR's text on the donor's own block, which is required rather than
     merely permitted (voice-acting clips resolve off the same mesID, and ``UniversalTextId``'s dual-language
     remap is keyed by a table of real mesIDs). So is a field whose build writes no ``.mes`` at all
-    (:func:`ships_field_mes`): it only READS the block. That is an ``import --editable`` fork without
-    ``--carry-text``, which keeps its donor's block and records no donor key. The deploy-time guard in
-    :mod:`deploystack` is the AUTHORITATIVE one -- only it can see the live FolderNames stack, the cross-folder
-    axis and the files a deploy really copies; this half needs none of them."""
+    (:func:`ships_field_mes`): it only READS the block. That is a fork import without ``--carry-text``
+    that records no donor key (a plain BG-borrow, or an older ``--editable`` toml) but keeps its donor's
+    block. The deploy-time guard in :mod:`deploystack` is the AUTHORITATIVE one -- only it can see the live
+    FolderNames stack, the cross-folder axis and the files a deploy really copies; this half needs none of them."""
     tb = project.text_block
     if not is_real_text_block(tb):
         return []

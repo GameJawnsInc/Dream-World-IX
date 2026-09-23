@@ -40,7 +40,7 @@ def test_catalog_load_time_is_auto_with_toggles():
     assert WH.load_time_toggles(2356) == [[78, 0], [79, 0], [80, 0]]
     assert WH.load_time_toggles(2356, donor_recorded=False) == [[78, 0], [79, 0], [80, 0]]
     # 2161's gate is remapped (s65): the engine reproduces it on a donor-recorded fork, so the kit prepends it
-    # only where no ForkDonorPatch row exists (a standalone --editable import)
+    # only where no ForkDonorPatch row exists (a fork whose donor id did not resolve)
     assert WH.load_time_toggles("2161") == []                   # accepts a numeric string
     assert WH.load_time_toggles("2161", donor_recorded=False) == [[69, 0]]
 
@@ -248,7 +248,7 @@ def test_extract_line_for_2161_follows_the_donor_row():
     rec = line(2161, fork_id=30999, donor_recorded=True)
     assert _toggles_of(rec) is None and "engine fork-donor remap" in rec and "only repeat it" in rec
     assert line(2161) == rec                                      # the default is a donor-recorded fork
-    # a standalone --editable import records no donor -> no row -> the engine gate stays false: the kit prepends
+    # a fork that records no donor -> no row -> the engine gate stays false: the kit prepends
     ed = line(2161, fork_id=30999, donor_recorded=False)
     assert _toggles_of(ed) == [[69, 0]] and "records no donor" in ed
     # forked IN PLACE on 2161: the engine's own gate fires as on the real field -- nothing to author
@@ -308,20 +308,38 @@ def _game_ready():
         return False
 
 
+def _raw(p):
+    return tomllib.loads(p.read_text(encoding="utf-8"))
+
+
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
-def test_import_2161_prepends_only_where_no_donor_is_recorded(tmp_path):
+def test_import_2161_records_the_donor_on_every_fork_kind(tmp_path):
     from ff9mapkit import build, extract
     donor = "2161"          # L. Castle/Guest Room (disc 3); by id -- its FBG is shared with 611/1361 (ambiguous)
-
-    def _raw(p):
-        return tomllib.loads(p.read_text(encoding="utf-8"))
-
     for kw in ({}, {"verbatim": True}):                           # --native / --verbatim record the donor
         _, p = extract.write_native_project(donor, tmp_path / f"n{len(kw)}", name="LB", field_id=30999, **kw)
         raw = _raw(p)
         assert build.donor_field_id(raw) == 2161, kw              # -> the build emits `30999 2161`
         assert "walkmesh_tri_toggles" not in raw["field"], kw    # -> the s65 engine gate covers tri 69
+    # --editable records it too (it used to record none, so its only copy was the kit's prepend)
     _, p = extract.write_editable_project(donor, tmp_path / "ed", name="LB", field_id=30999)
     raw = _raw(p)
-    assert build.donor_field_id(raw) is None                      # no donor -> no ForkDonorPatch row ...
-    assert raw["field"]["walkmesh_tri_toggles"] == [[69, 0]]      # ... so the kit's prepend is its only copy
+    assert raw["field"]["source_field"] == 2161 and build.donor_field_id(raw) == 2161
+    assert "walkmesh_tri_toggles" not in raw["field"]
+    # forked IN PLACE on 2161: no self-mapping, and the engine's own gate fires as on the real field
+    _, p = extract.write_editable_project(donor, tmp_path / "ip", name="LB", field_id=2161)
+    raw = _raw(p)
+    assert "source_field" not in raw["field"] and "walkmesh_tri_toggles" not in raw["field"]
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_editable_import_of_2507_keeps_its_delayed_hotfix_through_the_engine(tmp_path):
+    """2507's hotfix fires 0.5s AFTER load, so no Main_Init prepend can reproduce it -- only the engine remap can,
+    and only on a fork with a ForkDonorPatch row. An --editable fork used to record no donor and lost it."""
+    from ff9mapkit import build, extract
+    _, p = extract.write_editable_project("2507", tmp_path, name="IPSN_EDIT", field_id=30999)
+    raw = _raw(p)
+    assert build.donor_field_id(raw) == 2507                      # -> the build/deploy emit `30999 2507`
+    assert "walkmesh_tri_toggles" not in raw["field"]             # an at-load prepend would drop the chests a floor
+    text = p.read_text(encoding="utf-8")
+    assert "reproduced by the engine fork-donor remap" in text and "LOST" not in text

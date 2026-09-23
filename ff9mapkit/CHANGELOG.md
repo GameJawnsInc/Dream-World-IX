@@ -5,6 +5,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — an `import --editable` fork records its donor, so it gets a ForkDonorPatch row
+- **`import --editable` now writes `[field] source_field = <donor id>`**, as `--native`, `--verbatim` and every
+  campaign member already did. That key is the only thing `deploy_field` and `build --out` turn into the
+  ForkDonorPatch `<forkId> <donorId>` row. Without it, the custom engine's `EffectiveFieldId` gates never fired
+  on a standalone editable fork: the walkmesh hotfixes, off-mesh exemptions, the 406 tri-keyed collision rule,
+  smooth-cam exclusions, and the in-field menu location, which read blank.
+- **2507 (Ipsen's Castle stairwell) keeps its delayed walkmesh hotfix on an editable fork.** The engine drops
+  tris 174/175/177/178 0.5 s after load, after the chest props settle onto them, so no Main_Init prepend can
+  reproduce it. The editable toml used to say the hotfix was lost. 2161's tri 69 now comes from the engine as it
+  does on native forks, instead of the kit's prepend.
+- **What the row does not touch:** the name-keyed overlay offsets (s31 `FieldMapExtraOffset.SetOffset`) run only
+  on the `.bgs` load path. An editable fork ships a `.bgx` scene, so its re-sliced layers are never offset by the
+  donor's overlay indices. The donor-keyed gates do assume the donor's walkmesh tri ids and object uids, and a
+  reshaped `walkmesh.obj` can move them.
+- An editable fork on the donor's own id (in place) still omits the key. A donor that does not resolve still
+  gets the 2161 prepend and the "LOST" note for 2507, which now names the key to set.
+- **In-game (harness A/B):** two slots built from one `import 2507 --editable`, differing only in the key.
+  With the row, `DelayedActiveTri` fired: a HUD reading the walkmesh triangle under each carried chest showed
+  -1 (detached), against 178 and 174 without it. The same run found that the coroutine also detaches the
+  kit-built player, including on `--native` forks, which already had the row. The next entry fixes that.
+  (`studies/fork-walkmesh-hotfix/`)
+
 ### Fixed — `import` stops prepending a walkmesh hotfix the fork-gate engine already applies
 - **A fork of field 2161 (L. Castle/Guest Room, disc 3) no longer gets `walkmesh_tri_toggles = [[69, 0]]`.**
   Memoria patch s65 routes its `FieldMap.cs` gate through `EffectiveFieldId`, so the custom engine deactivates
