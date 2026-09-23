@@ -207,7 +207,7 @@ graft_objects(data, specs, load):
             if spec.needs_d9:               # class (c): D9 sets immediately before InitObject
                 block = b"".join(region.set_var(0xD9, i, v) for i,v in spec.needs_d9.items())
                 block += opcodes.init_object(slot, arg)
-                data = edit.insert_bytes(data, main_init_start(data), block)
+                data = edit.insert_in_function(data, 0, 0, 0, block)   # a Main_Init prepend (fpos-fixing)
             else:                           # class (a)/(b): plain arm into a Wait filler / insert
                 data = edit.activate(data, opcodes.init_object(slot, arg))
     return data
@@ -288,7 +288,7 @@ Plus a **lint hook** near the `[[jump]]` checks: assert each `bin` exists + deco
 value-map; **error on any dangling slot/uid** (uncarried sibling, or a player-tag the fork player lacks); warn on
 instance-uid collision and on talkable-carry (missing `.mes` text). Gated entirely on `project.raw.get("object")`.
 
-**`eb/edit.py`** — **no new primitive needed** (`append_entry`, `activate`, `insert_bytes`, `grow_entry_table` all
+**`eb/edit.py`** — **no new primitive needed** (`append_entry`, `activate`, `insert_in_function`, `grow_entry_table` all
 suffice; optionally factor `_arg_byte_offset` here). **`.gitignore`** — add `*.object*.bin`.
 
 **UNTOUCHED (the additive guarantee):** `content/npc.py`, `content/prop.py`, `prop_archetypes.py`,

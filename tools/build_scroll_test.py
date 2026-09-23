@@ -167,9 +167,7 @@ print("BGCACTIVE bytes:", ENABLE.hex())
 for L in LANGS:
     p = tmp_layout.eb_path(L, f"EVT_{NAME}.eb.bytes")
     eb = p.read_bytes()
-    s = EbScript.from_bytes(eb)
-    f = s.entry(0).func_by_tag(0)
-    eb2 = edit.insert_bytes(eb, f.abs_start, ENABLE)
+    eb2 = edit.insert_in_function(eb, 0, 0, 0, ENABLE)   # a Main_Init prepend: moves entry 0's other fpos too
     # verify the opcode is now present in Main_Init
     s2 = EbScript.from_bytes(eb2)
     f2 = s2.entry(0).func_by_tag(0)
