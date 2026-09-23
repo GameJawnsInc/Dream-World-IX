@@ -2,9 +2,10 @@
 
 A few real fields rely on a hardcoded Memoria hotfix (keyed on the real ``fldMapNo``) that toggles
 walkmesh-triangle active-state at field load -- e.g. Gulug/Room (2356) deactivates the broken-wall triangles
-so the player can't walk through the gap. A verbatim/native fork runs at a custom id (>= 4000), so that
-``fldMapNo`` guard is false and the hotfix never fires -> the forked walkmesh is wrong there. See the catalog
-and the two tractability classes in :mod:`ff9mapkit.walkmesh_hotfixes`.
+so the player can't walk through the gap. A verbatim/native fork runs at a custom id (>= 4000), so a RAW
+``fldMapNo`` guard is false and the hotfix never fires -> the forked walkmesh is wrong there (a guard the custom
+engine routes through ``EffectiveFieldId`` still fires for a fork with a donor row, so ``import`` emits no
+toggles for it). See the catalog and the two tractability classes in :mod:`ff9mapkit.walkmesh_hotfixes`.
 
 This module reproduces the AUTO (load-time, unconditional) class: it prepends ``EnablePathTriangle(tri, state)``
 -- opcode 0x9A, whose engine handler IS ``WalkMesh.BGI_triSetActive`` -- to ``Main_Init`` (entry-0 tag-0), so

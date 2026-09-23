@@ -5,6 +5,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `import` stops prepending a walkmesh hotfix the fork-gate engine already applies
+- **A fork of field 2161 (L. Castle/Guest Room, disc 3) no longer gets `walkmesh_tri_toggles = [[69, 0]]`.**
+  Memoria patch s65 routes its `FieldMap.cs` gate through `EffectiveFieldId`, so the custom engine deactivates
+  tri 69 on any fork that records its donor. `import --native` and `--verbatim` forks got it twice, once from
+  the engine and once from the kit's Main_Init prepend. `BGI_triSetActive` sets the bit absolutely, the engine
+  writes first (in `FieldMap.HonoAwake`), and 2161's own script never touches tri 69, so the second write was
+  redundant, not harmful. Existing tomls that carry the line keep working.
+- **`walkmesh_hotfixes` now records which gates the engine remaps, checked against `memoria-patches/`.**
+  2161 (s65), 2507 (s29), and 450 / 1421 / 1753 / 1606 (s30, DoEventCode) are `engine_remapped`. 2356 and all
+  of `turnOffTriManually` (1900, 1455, and the second halves of 900 / 2803) stay on the raw id. A new `delayed`
+  flag carries 2507's 0.5 s timing, which `engine_remapped` had been standing in for. The catalog also gains
+  `fork_tris`, the tris the engine still toggles on a fork. `tests/test_walkmesh_hotfix.py` reads the live patch
+  stack and fails when a gate's wrap and the catalog disagree.
+- **The prepend now follows the fork's donor row** (`Hotfix.needs_prepend(donor_recorded=)`). A standalone
+  `import --editable` records no donor, so it gets no ForkDonorPatch row and the engine's remapped gates stay
+  false. It keeps the 2161 prepend. For 2507 its toml now says the hotfix is lost on that fork, where it used
+  to claim the engine reproduced it. A fork on the real id (in place) gets no prepend, since every engine gate
+  fires there.
+- **`fork-report`:** remapped walkmesh hotfixes read "reproduced by the engine fork-donor remap" and drop out of
+  the verdict's fork-in-place steer. 900 and 2803 stay losses, and the report names the tri the remapped half
+  keeps.
+
 ### Fixed — a plain (BG-borrow) import's carried donor objects are lit and shadowed like the real field
 - **A plain `ff9mapkit import` now ships the donor's MapConfigData** (`mapconfig.bytes` + `[field] mapconfig`),
   as `--native` and `--editable` do. A BG-borrow fork carries the donor's objects too, but it wrote no MCF, so

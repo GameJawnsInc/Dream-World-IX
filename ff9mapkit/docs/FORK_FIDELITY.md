@@ -429,6 +429,17 @@ fork in-place") rather than auto-applied.
 Refines #14's "verbatim is the answer": even a verbatim fork at a remapped id loses these; the load-time
 subset is now reproduced, the dynamic ones steer to fork-in-place.
 
+**UPDATE — the fork-gate engine now fires most of these itself.** The custom engine routes a gate through
+`EffectiveFieldId`, which resolves a fork's id to its donor through the fork's ForkDonorPatch row. s29 does
+this for 2507, s30 for every DoEventCode gate (450, 1421, 1753, 1606, and the RunScript arms of 900/2803),
+and s65 for 2161. On a fork that records its donor (`--native`, `--verbatim`, every campaign member) those
+hotfixes are the engine's job, and `import` no longer prepends 2161's toggle. It used to, so forks got tri 69
+twice. That was redundant, not harmful, because `BGI_triSetActive` sets the bit absolutely. What still needs
+the kit: 2356 (a raw gate, so the kit prepends it everywhere), 2161 on a standalone `--editable` fork (which
+records no donor, so it gets no row), and anything in `turnOffTriManually.cs` (1900, 1455, the other halves of
+900/2803), which stays lost on a mint. `walkmesh_hotfixes.py` records each gate's state, and
+`tests/test_walkmesh_hotfix.py` checks it against `memoria-patches/`.
+
 IN-GAME PROVEN by A/B (Gulug 2356): two identical native forks — id 30003 *with* the toggle, id 30004
 *without* — teleporting to the deactivated-patch EDGE (−543,1667), ~120u from the chest (beyond its
 collision reach), is **STUCK with the toggle and FREE without it**. So the prepended `EnablePathTriangle`

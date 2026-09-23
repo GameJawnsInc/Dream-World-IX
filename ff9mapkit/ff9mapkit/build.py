@@ -5441,8 +5441,8 @@ def resolve_playable_animset(field, *, name=None, game=None) -> dict:
 
 def _apply_walkmesh_hotfix(project: FieldProject, eb: bytes) -> bytes:
     """Prepend ``[field] walkmesh_tri_toggles`` to Main_Init -- reproduce a real field's LOAD-TIME engine
-    walkmesh hotfix (``BGI_triSetActive`` keyed on the real ``fldMapNo``, lost when the field is forked to a
-    custom id; see :mod:`ff9mapkit.walkmesh_hotfixes`). Each ``[tri, state]`` becomes an
+    walkmesh hotfix (``BGI_triSetActive`` keyed on the real ``fldMapNo``, which the engine won't apply to this
+    fork's custom id; see :mod:`ff9mapkit.walkmesh_hotfixes`). Each ``[tri, state]`` becomes an
     ``EnablePathTriangle(tri, state)`` (opcode 0x9A == the engine's ``BGI_triSetActive``). Shared by the
     synthesize path (:func:`build_script`) AND the verbatim-`.eb` path. Absent -> unchanged (byte-identical);
     ``import`` auto-emits the key for the donors whose hotfix is statically reproducible."""
