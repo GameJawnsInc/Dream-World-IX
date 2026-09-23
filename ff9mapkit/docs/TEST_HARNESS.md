@@ -482,6 +482,13 @@ is rejected locally rather than shipped to the game.
 `.sys_mode`, `.scenario`, `.player_x/y/z`, `.pos`, `.control`, `.world_id`, `.dialog_open`, `.texts`,
 `.text`, `.choice`, `.held`, `.flag(bit)`.
 
+`g.state` is safe to poll in a tight loop. The agent rewrites `state.json` in place, so a read can land
+while the file is empty. That gap is usually under a millisecond, but it can run to ~200 ms, and more
+often at `g.state_every(1)`. `g.state` waits out an unreadable file for up to `STATE_MISS_BUDGET`
+(1 s) and raises only when the channel stays unreadable. `g.channel.state()` is ONE read: its `None`
+means "nothing readable right now", not "no state", so loop on it instead of treating it as a
+verdict.
+
 WARNING: **the state does not say which walkmesh triangle or floor the player is on.** `state.json`
 carries `player.tri`/`player.floor`, but they are `PosObj`'s battle-entry snapshot: 0/0 until the
 session's first battle, then frozen. Read them only as `.player_tri_battle_snapshot` /
@@ -569,6 +576,7 @@ instead of across a dozen 40-second game launches, and the same bug was fixed in
 |---|---|
 | "the agent never published state" | The running engine predates s83, or the game never reached the title. Check the run's `Memoria.log` **and** `output_log.txt`. |
 | A wait fails with "the channel is frozen -- the engine threw ..." | The exception named there is the likely cause, and `(from ...)` says which log recorded it. A battle-code exception is in `Memoria.log`; an uncaught field/world one is only in `output_log.txt`. |
+| "no state published: state.json stayed unreadable for 1.0s -- EMPTY ..." | The game hung or died INSIDE a publish: it truncated `state.json` and never wrote it. A single empty read is normal and `g.state` waits it out; this one lasted the whole budget. |
 | "FF9 is already running" | By design. Close it, or pass `--attach`. |
 | Steps acknowledged but nothing happens | The game is in a UI state that ignores input (a transition, a modal). Sample `g.state.ui_state`. |
 | `warp` refused | `Ff9mkDebugMenu.Warp` only fires from `FieldHUD`; use `world_warp` from the overworld. |

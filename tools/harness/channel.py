@@ -65,6 +65,12 @@ ARM_CYCLE_SECONDS = 0.85
 #: A published document older than this is not a live game talking.
 STALE_AFTER = 5.0
 
+#: How long state.json may sit EMPTY and still be a publish in flight. The agent rewrites it IN PLACE
+#: (``FileMode.Create``: truncate, then the bytes land). MEASURED 2026-09-23 with that exact open mode
+#: at 60 Hz: the gap is ~0.7 ms at the median, ~80 ms at p99, ~200 ms at worst -- an on-access scan
+#: holding the rewrite. Empty for longer than this, the game hung or died inside the publish.
+MID_WRITE_WITHIN = 0.5
+
 
 class HarnessError(RuntimeError):
     """A harness-level failure: the game is gone, a step was refused, or a wait timed out."""
@@ -776,6 +782,11 @@ class Channel:
         and that false verdict was then repeated as "walking out of the room hangs the game" -- a bug
         attributed to the game that lived entirely in the driver. Locks get their own, much longer,
         budget. Use :meth:`classify` to say WHICH of the reasons for ``None`` applies.
+
+        ⚠ ``None`` IS ONE READ, NOT A VERDICT. The parse retry spans ~30 ms, and the agent's in-place
+        rewrite can hold the file EMPTY for longer (:data:`MID_WRITE_WITHIN`), so a healthy game
+        yields the odd ``None`` -- more of them at ``stateevery 1``, which rewrites every frame.
+        Loop on it, or read through ``Session.state``, which rides it out.
         """
         path = self.dir / "state.json"
         deadline = time.time() + lock_budget
@@ -817,9 +828,10 @@ class Channel:
 
         Every wrong verdict this harness has ever produced came from one symptom -- "no state" --
         being read as one specific cause. These are the causes, distinguished at the file level:
-        MISSING (never written), LOCKED (a sharing violation we could not wait out), UNPARSEABLE
-        (a torn or corrupt document -- e.g. an agent exception mid-append), STALE (a real document
-        nobody has updated), DISARMED (the agent says so itself), OK.
+        MISSING (never written), LOCKED (a sharing violation we could not wait out), EMPTY (truncated
+        for a rewrite: in flight, or hung inside the publish), UNPARSEABLE (a torn or corrupt
+        document -- e.g. an agent exception mid-append), STALE (a real document nobody has updated),
+        DISARMED (the agent says so itself), OK.
         """
         path = self.dir / "state.json"
         if not path.exists():
@@ -830,6 +842,18 @@ class Channel:
             return "LOCKED: state.json is held by the agent and did not free up"
         except OSError as err:
             return f"UNREADABLE: {err}"
+        if not body.strip():
+            # Not UNPARSEABLE's "the agent threw mid-document": the agent builds the whole document
+            # before it opens the file, so a throw leaves the OLD one. Empty is the in-place rewrite.
+            try:
+                age = time.time() - path.stat().st_mtime
+            except OSError:
+                age = None
+            if age is not None and age > MID_WRITE_WITHIN:
+                return (f"EMPTY: state.json was truncated for a rewrite {age:.1f}s ago and its bytes "
+                        f"never landed -- the game hung or died INSIDE the publish")
+            return ("EMPTY: state.json is mid-rewrite -- the agent truncates it in place, then "
+                    "writes, and this read landed in between. Transient unless it persists")
         try:
             doc = json.loads(body)
         except ValueError as err:

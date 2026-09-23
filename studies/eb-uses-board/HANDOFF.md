@@ -10,6 +10,9 @@
 >
 > **THIRD CONSUMER PICKED:** entry #2, *Ask the engine where the actor is* — rungs 0-1 in-game proven, arc in
 > [`../walkmesh-sensor/PLAN.md`](../walkmesh-sensor/PLAN.md) (`on_floor` / `same_floor` / `other_floor`, `floor:<who>`).
+>
+> **FOURTH CONSUMER PICKED:** entry #7, *The sine kit* -- rung 0 in-game proven (15/15), arc in
+> [`../sine-kit/PLAN.md`](../sine-kit/PLAN.md).
 
 **Picked:** entry #1 of [`BOARD.md`](BOARD.md), a `gScriptVector` table class that survives field entry.
 **Paused because:** its first rung is a hard-quit/relaunch round trip. That needs the real machine: the game install,
