@@ -4458,7 +4458,11 @@ def _apply_links(mesh, links_path, warnings):
     if "active_floor" in header:
         mesh.activeFloor = int(header["active_floor"])
     if "active_tri" in header:
-        mesh.activeTri = int(header["active_tri"])
+        at = int(header["active_tri"])
+        sf = getattr(mesh, "source_face", None)
+        if getattr(mesh, "regrouped", False) and sf and 0 <= at < len(sf):
+            at = sf.index(at)        # the header names an OBJ FACE: follow it through the floor-major regroup
+        mesh.activeTri = at
     cp = header.get("char_pos")
     if cp and len(cp) == 3:
         mesh.charPos = bgi.Vec3(int(cp[0]), int(cp[1]), int(cp[2]))
@@ -4695,9 +4699,9 @@ def _validate_walkmesh_geometry(project: FieldProject, wmesh, warnings: list) ->
         warnings.append(
             f"walkmesh: floor(s) {sorted(stranded)} not walk-reachable from the start "
             f"({len(stranded)} of {len(wmesh.all_floors())} floors stranded). A multi-floor "
-            f"[walkmesh] obj loses cross-floor links (rebuild_neighbors only links within a "
-            f"floor) -- ship the original with [walkmesh] bgi, or declare seams "
-            f"(docs/WALKMESH_EDITING.md).")
+            f"[walkmesh] obj whose floors have disjoint vertex sets (every stock field) loses its "
+            f"cross-floor links -- rebuild_neighbors links only edges that SHARE vertex indices -- "
+            f"ship the original with [walkmesh] bgi, or declare seams (docs/WALKMESH_EDITING.md).")
     degen = wmesh.degenerate_tris()
     if degen:
         warnings.append(
@@ -4706,16 +4710,29 @@ def _validate_walkmesh_geometry(project: FieldProject, wmesh, warnings: list) ->
             f"engine's IsInQuad test (the player can't stand there); fix them in the .obj.")
 
 
-def _walkmesh_stats(wmesh) -> dict:
-    """Geometry summary of a BgiWalkmesh for the `walkmesh verify` report."""
+def _walkmesh_stats(wmesh, names=None) -> dict:
+    """Geometry summary of a BgiWalkmesh for the `walkmesh verify` report. ``names`` (the built-order
+    floor names of a ``[walkmesh] obj``, :func:`bgi.obj_floor_names`) labels the floor table.
+
+    ``floor_table`` rows are ``(floor, name_or_None, first_tri, last_tri, count)``: the first and last
+    triangle the floor LISTS (``None`` for an empty floor). On a floor-major mesh each floor is exactly
+    tris first..last, so the table IS the triangle-id map ``B_BGIID`` reports. ``floor_major`` is THE
+    FLOOR-MAJOR LAW (:func:`bgi.floor_order_problems`)."""
     floors = sorted(wmesh.all_floors())
     reach = sorted(wmesh.reachable_floors())
     wv = wmesh.world_verts()
     xs, zs = [v[0] for v in wv], [v[2] for v in wv]
+    names = list(names or ())
+    table = []
+    for fi, fl in enumerate(wmesh.floors):
+        lst = fl.tri_ndx_list
+        table.append((fi, names[fi] if fi < len(names) else None,
+                      lst[0] if lst else None, lst[-1] if lst else None, len(lst)))
     return {"floors": floors, "reachable": reach, "stranded": sorted(set(floors) - set(reach)),
             "degenerate": wmesh.degenerate_tris(), "seams": len(wmesh.extract_seams()),
             "tris": len(wmesh.tris), "verts": len(wmesh.verts),
-            "bounds": {"x": [min(xs), max(xs)], "z": [min(zs), max(zs)]} if wv else None}
+            "bounds": {"x": [min(xs), max(xs)], "z": [min(zs), max(zs)]} if wv else None,
+            "floor_table": table, "floor_major": not bgi.floor_order_problems(wmesh)}
 
 
 def verify_walkmesh(project: FieldProject) -> dict:
@@ -4724,6 +4741,7 @@ def verify_walkmesh(project: FieldProject) -> dict:
     obj/quad/bgi, or a BG-borrow fork's reference/sibling walkmesh -- then returns
     {**stats, source, warnings}. Same checks build_field runs, so a clean verify == a clean build."""
     warnings: list = []
+    names = None
     if project.field.get("borrow_bg"):
         wmesh = _borrow_walkmesh(project)
         source = f"BG-borrow ({project.field['borrow_bg']})"
@@ -4736,10 +4754,33 @@ def verify_walkmesh(project: FieldProject) -> dict:
         camera = resolve_camera(project)
         wmesh = bgi.BgiWalkmesh.from_bytes(resolve_walkmesh(project, camera, warnings))
         source = "custom scene"
+        wm_cfg = project.raw.get("walkmesh", {}) or {}
+        if wm_cfg.get("obj") and not wm_cfg.get("bgi"):          # names exist only for a built obj
+            names = bgi.obj_floor_names(str(project.path(wm_cfg["obj"])))
         _validate_content_placement(project, wmesh, warnings)
         _validate_layer_art(project, camera.range, warnings)
         _validate_walkmesh_geometry(project, wmesh, warnings)
-    return {"source": source, **_walkmesh_stats(wmesh), "warnings": warnings}
+    return {"source": source, **_walkmesh_stats(wmesh, names), "warnings": warnings}
+
+
+def _reopened_floors_note(obj_ref: str, obj_path, mesh) -> str:
+    """The warning for an OBJ whose floors `bgi.build` had to regroup (``mesh.regrouped``): names each
+    REOPENED floor -- a built floor whose source faces are not one contiguous run -- and how many
+    triangle ids moved."""
+    names = bgi.obj_floor_names(str(obj_path))
+    sf = mesh.source_face
+    reopened = []
+    for fi, fl in enumerate(mesh.floors):
+        src = [sf[t] for t in fl.tri_ndx_list]
+        if src and src[-1] - src[0] + 1 != len(src):          # stable sort: ascending, so a gap = reopened
+            nm = names[fi] if fi < len(names) else None
+            reopened.append(f"{nm!r} (floor {fi})" if nm else f"floor {fi}")
+    moved = sum(1 for t, s in enumerate(sf) if t != s)
+    return (f"walkmesh: {obj_ref} reopens floor(s) {', '.join(reopened)} (their faces are not contiguous) "
+            f"-- the build regrouped the triangles floor by floor (the engine requires it); triangle ids "
+            f"now follow floor order, not face order ({moved} of {len(sf)} moved). walkmesh verify prints "
+            f"the new ranges; re-check any hand-written triangle ids ([field] walkmesh_tri_toggles, "
+            f"expr: rows).")
 
 
 def resolve_walkmesh(project: FieldProject, camera: cam.Cam, warnings=None) -> bytes:
@@ -4748,17 +4789,32 @@ def resolve_walkmesh(project: FieldProject, camera: cam.Cam, warnings=None) -> b
         # ship a pre-built .bgi verbatim (e.g. an imported real field's walkmesh). This PRESERVES its
         # exact floors + neighbor/edge connectivity -- a multi-floor obj->build would rebuild links by
         # shared vertex index and disconnect floors that use disjoint vertex sets (stairs/tunnels).
-        return project.path(wm["bgi"]).read_bytes()
+        # THE FLOOR-MAJOR LAW is checked, never repaired: the bytes ship unchanged or not at all.
+        data = project.path(wm["bgi"]).read_bytes()
+        probs = bgi.floor_order_problems(bgi.BgiWalkmesh.from_bytes(data))
+        if probs:
+            raise BuildError(
+                f"[walkmesh] bgi {wm['bgi']}: triangles are not listed floor by floor ({probs[0]}) -- the "
+                f"engine indexes its triangle list by triangle id (WalkMesh.cs:573/618; the edge hysteresis "
+                f"compares list positions against ids), so neighbour walking would silently use the wrong "
+                f"triangles. Every stock .bgi is floor-major (674/674); re-export it through [walkmesh] obj, "
+                f"which regroups floor by floor.")
+        return data
     # All authored walkmeshes are in TRUE WORLD coords (org=0): the player renders at its world
     # position (= to_canvas), so the walkmesh IS the painted floor -- no character offset (MEASURED
     # in-game Session 18; the old org=(0,0,300) + character_offset=298 double-count is gone). The
     # `frame` and `character_offset` keys are accepted-but-ignored for back-compat.
     if wm.get("obj"):
-        verts, faces, floor_ids = bgi.load_obj_floors(str(project.path(wm["obj"])))
-        mesh = bgi.build(verts, faces, floor_ids=floor_ids)
+        obj_path = project.path(wm["obj"])
+        verts, faces, floor_ids = bgi.load_obj_floors(str(obj_path))
+        mesh = bgi.build(verts, faces, floor_ids=floor_ids)    # regroups floor by floor (floor-major)
+        if mesh.regrouped and warnings is not None:
+            warnings.append(_reopened_floors_note(wm["obj"], obj_path, mesh))
         if wm.get("links"):
-            # reconcile the imported field's cross-floor connectivity onto the edited geometry
-            # (rebuild_neighbors only links within a floor). v2 -- see docs/WALKMESH_EDITING.md.
+            # reconcile the imported field's cross-floor connectivity onto the edited geometry.
+            # rebuild_neighbors links ANY edge whose two triangles share both vertex INDICES, on any
+            # floor -- but stock floors use DISJOINT per-floor vertex sets, so their seams have no
+            # shared indices and only this sidecar re-links them. v2 -- see docs/WALKMESH_EDITING.md.
             _apply_links(mesh, project.path(wm["links"]), warnings)
         return mesh.to_bytes()
     if wm.get("quad"):
