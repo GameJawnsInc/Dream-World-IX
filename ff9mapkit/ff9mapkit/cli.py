@@ -969,6 +969,12 @@ def _cmd_walkmesh(args: argparse.Namespace) -> int:
             fh.write(out)
         m = bgi.BgiWalkmesh.from_bytes(out)
         print(f"obj -> .bgi: {len(m.tris)} tris, {len(m.verts)} verts, {len(out)} bytes -> {args.output}")
+        _v, faces, _f = bgi.load_obj_floors(args.input)
+        moved = sum(1 for t, f in zip(m.tris, faces) if tuple(t.vtx) != tuple(f))
+        if moved:                              # the floor-major regroup moved ids: say so (never silently)
+            print(f"  note: the obj reopens a floor -- the triangles were regrouped floor by floor (the "
+                  f"engine requires it); {moved} of {len(faces)} triangle ids moved from face order. "
+                  f"`walkmesh verify {args.output}` prints each floor's range.")
     elif args.action == "fix":
         m = bgi.BgiWalkmesh.from_file(args.input)
         m.rebuild_neighbors()

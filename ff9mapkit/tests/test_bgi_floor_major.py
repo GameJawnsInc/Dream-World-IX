@@ -248,6 +248,20 @@ def test_d_cli_verify_prints_the_floor_table(capsys, tmp_path):
     assert "! not floor-major: floor 0 lists triangle 8 at list position 7" in out
 
 
+def test_d_cli_obj_conversion_says_when_it_regrouped(capsys, tmp_path):
+    """`walkmesh obj` (the standalone converter) regroups too -- and says so; a contiguous obj is quiet."""
+    import argparse
+
+    from ff9mapkit.cli import _cmd_walkmesh
+    out = tmp_path / "o.bgi"
+    _cmd_walkmesh(argparse.Namespace(action="obj", input=str(_reopened_obj(tmp_path)), output=str(out)))
+    said = capsys.readouterr().out
+    assert "note: the obj reopens a floor" in said and "12 of 16 triangle ids moved" in said
+    assert bgi.floor_order_problems(bgi.BgiWalkmesh.from_file(out)) == []
+    _cmd_walkmesh(argparse.Namespace(action="obj", input=str(BGI0_OBJ), output=str(out)))
+    assert "note:" not in capsys.readouterr().out
+
+
 # ------------------------------------------------------------------ floor NAMES
 @pytest.mark.parametrize("text, names, fids", [
     # an `o` with no faces takes no index
