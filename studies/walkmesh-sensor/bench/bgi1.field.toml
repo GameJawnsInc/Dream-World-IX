@@ -72,6 +72,7 @@ pos = [-407, -472]
 
 [behavior]
 warmup = 30
+byte_band = "wide"                   # seven units + watchers: a standalone scratch bench
 public_flags = ["arm_s", "arm_h", "go", "kill"]
 
   [[behavior.unit]]

@@ -436,3 +436,17 @@ def test_the_schema_harvest_records_every_condition_verb_and_its_options():
     BT.validate(fs.wrap(copy.deepcopy(raw()), rec))
     got = rec.probes.get("behavior.unit.branch.when", set())
     assert set(BT.COND_VERBS) | {"who"} <= got, sorted(set(BT.COND_VERBS) - got)
+
+
+def test_the_behavior_doc_example_builds():
+    """The docs' Floors example is what authors copy: it validates and compiles as written against a mesh
+    with a 'terrace' floor, and the guard's chase gate is the same_floor verb."""
+    from pathlib import Path
+    doc = (Path(__file__).resolve().parents[1] / "docs" / "BEHAVIOR.md").read_text(encoding="utf-8")
+    sect = doc[doc.index("## Floors"):]
+    start = sect.index("```toml") + len("```toml")
+    r = tomllib.loads('[[npc]]\nname = "guard"\npos = [0, 0]\n[[npc]]\nname = "bellringer"\npos = [300, 0]\n'
+                      "[behavior]\n" + sect[start:sect.index("```", start)])
+    assert BT.validate(r) == []
+    fb, _cb = BT.dry_compile(r, floors=BT.FloorTable({"ground": 0, "terrace": 1}, 2, "doc mesh"))
+    assert set(fb._sensed) == {"guard", "player"}

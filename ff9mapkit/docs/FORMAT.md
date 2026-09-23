@@ -2747,7 +2747,12 @@ speed = 40                                     # default walk speed
 `any_active` (`[units...]`) · `time_below` / `time_above` (remaining seconds on the field-level
 `timer = <seconds>` countdown HUD — timed wave bands) · `counter_ge` / `counter_le` /
 `counter_eq` (`["counter", n]`) · `table_ge` / `table_le` / `table_eq` (`["table", index, n]`;
-`index` = an int or a **counter name** — a runtime-computed table lookup).
+`index` = an int or a **counter name** — a runtime-computed table lookup) · `on_floor` (a walkmesh
+floor index or an OBJ floor NAME, or a list of up to 8; optional `who` = `"player"` / a unit / a class
+member, default the row itself) · `same_floor` / `other_floor` (`"who"` — both floors known and
+equal / different). Floors read the engine's own walkmesh floor through ticker mirrors; UNKNOWN (−1:
+warm-up, not spawned, dead, pathing off) is never a floor, and `not_*` floor forms are refused —
+see [BEHAVIOR.md § Floors](BEHAVIOR.md#floors--on_floor--same_floor--other_floor).
 
 **Action verbs** (the `do` dict: one verb + its options): `walk_to` / `hold` (point; `speed`) ·
 `chase` (target; `standoff` — pursuers stop short, never phase onto the target — `speed`) ·
@@ -2862,7 +2867,8 @@ soft to 0 and the clock stops itself. Wave bands become data instead of unrolled
 so a reload cannot re-roll it; without `persist` the stream re-seeds at every field entry and `id` is
 refused). Drawn by a branch `roll`; every declared stream must be drawn; v1 ticker only (not on
 class rows or `brains = true`). The build prints each stream's start state and first states — the
-offline oracle. HUD source `"stream:<name>"` shows the state. See
+offline oracle. HUD source `"stream:<name>"` shows the state (and `"floor:<who>"` a walkmesh-floor
+mirror, [BEHAVIOR.md § Floors](BEHAVIOR.md#floors--on_floor--same_floor--other_floor)). See
 [BEHAVIOR.md § Roll streams](BEHAVIOR.md#roll-streams--seeded-randomness-you-can-predict).
 
 **Drift (`[[behavior.drift]]`):** a field-level periodic clamped write — the metabolism
