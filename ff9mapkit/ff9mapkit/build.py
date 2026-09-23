@@ -56,7 +56,6 @@ from .content import playable as _playable
 from .content import reinit as _reinit
 from .content import entry_settle as _entry_settle
 from .content import walkmesh_hotfix as _walkmesh_hotfix
-from . import walkmesh_hotfixes as _walkmesh_hotfixes
 from .content import savepoint as _savepoint
 from .content import shadow as _shadow
 from .content import shop as _shop

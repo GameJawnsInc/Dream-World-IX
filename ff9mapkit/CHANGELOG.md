@@ -38,7 +38,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **What the row does not touch:** the name-keyed overlay offsets (s31 `FieldMapExtraOffset.SetOffset`) run only
   on the `.bgs` load path. An editable fork ships a `.bgx` scene, so its re-sliced layers are never offset by the
   donor's overlay indices. The donor-keyed gates do assume the donor's walkmesh tri ids and object uids, and a
-  reshaped `walkmesh.obj` can move them.
+  reshaped `walkmesh.obj` can move them. With the id recorded, the fork walkmesh-literal lint's engine-hotfix lane
+  now checks those tris on an editable fork too.
 - **The Workspace Place tab still places an editable fork on its own surface**, its `walkmesh.obj` and
   `[[layers]]`, not on the donor's real room, which a recorded donor would otherwise select. A reshaped or
   repainted fork keeps its own geometry and art.
