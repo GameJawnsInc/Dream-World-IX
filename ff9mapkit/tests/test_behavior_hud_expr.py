@@ -312,17 +312,18 @@ def test_hud_ref_refusals_take_the_CALLERS_label():
 
 
 # ------------------------------------------------------- the SILENT-IGNORE precondition
-def test_a_hud_only_behavior_block_compiles_to_nothing_and_lints_clean():
+def test_a_hud_only_behavior_block_compiles_to_nothing_and_is_refused():
     """``behaviortoml.table()`` is ``return b if isinstance(b, dict) and b.get("unit")
-    else None`` -- so a ``[behavior]`` block carrying ONLY a hud is SILENTLY IGNORED and
-    ``validate`` still returns []. Ship the probe without a ``[[behavior.unit]]`` and the
-    playtest reports "no window appeared", which is indistinguishable from "every read
-    returned 0". Turned from a trap into a CHECKED PRECONDITION here."""
+    else None`` -- so a ``[behavior]`` block carrying ONLY a hud compiles to NOTHING. Ship the
+    probe without a ``[[behavior.unit]]`` and the playtest reports "no window appeared", which is
+    indistinguishable from "every read returned 0". It used to lint clean (this test pinned the
+    trap as a precondition); ``validate`` now REFUSES it, so the trap cannot ship."""
     raw = _probe_toml()
     del raw["behavior"]["unit"]
     assert BT.table(raw) is None
-    assert BT.hud_lines(raw) == []
-    assert BT.validate(raw) == []                 # clean -- and compiles to NOTHING
+    assert BT.hud_lines(raw) == []                # still compiles to nothing...
+    problems = BT.validate(raw)                   # ...and lint says so, by name
+    assert len(problems) == 1 and "has no [[behavior.unit]]" in problems[0], problems
     # ... and the probe as authored does NOT have that shape
     assert BT.table(_probe_toml()) is not None
     assert len(BT.hud_lines(_probe_toml())) == 1
