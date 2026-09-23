@@ -481,7 +481,7 @@ def _seed_vocab() -> "dict[str, set[str]]":
     from .content import npc as _npc
     seeds["npc.anims"] = set(_npc.ANIM_ORDER)
     # The fork carry trio: written into a fork's [field] by `import --native` (all three) and
-    # `--editable` (mapconfig), and consumed on paths no offline corpus item reaches (build's
+    # `--editable` / a plain (BG-borrow) `import` (mapconfig), and consumed on paths no offline corpus item reaches (build's
     # native bgs/atlas ship, build.mapconfig_bytes for any scene, repaint-native's atlas_tile_size),
     # since forks stage game-derived assets the repo can't carry.
     seeds.setdefault("field", set()).update({"atlas", "atlas_tile_size", "mapconfig"})

@@ -6,8 +6,9 @@ When you fork a field it runs at a new custom id (>= 4000), so every engine spec
 id silently stops firing. The custom engine's fork-gate suite (``memoria-patches/``) routes many gates through
 ``EffectiveFieldId``, which restores them for a fork that RECORDS ITS DONOR: ``[verbatim_eb] donor`` /
 ``[field] source_field`` becomes a ``ForkDonorPatch.txt`` row, the only thing ``EffectiveFieldId`` reads.
-``import --native``/``--verbatim`` record it; a standalone ``import --editable`` does not. An entry whose detail
-says ``reproduced`` is kept on such a fork; ``fork-report`` counts the rest as losses. The USER-VISIBLE ones:
+``import --native``/``--verbatim`` record it; an ``--editable`` or plain BG-borrow import does not. An entry
+whose detail says ``reproduced`` is kept on such a fork; ``fork-report`` counts the rest as losses. The
+USER-VISIBLE ones:
 
 * **Walkmesh hotfix** -- a load-time/dynamic ``BGI_triSetActive`` (catalogued in
   :mod:`ff9mapkit.walkmesh_hotfixes`: which gates the engine remaps for a fork, which the kit prepends, and which

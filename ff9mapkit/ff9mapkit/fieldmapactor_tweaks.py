@@ -11,8 +11,8 @@ actor at a CUSTOM id (>= 4000). Whether the tweak still fires there depends on i
 * **REMAPPED** (``engine_remapped``: 661, 2102, 2107, 3002): patch s65 routes the gate through
   ``EffectiveFieldId``, so the custom engine fires the tweak for a fork WHOSE DONOR IS RECORDED --
   ``[verbatim_eb] donor`` / ``[field] source_field`` becomes a ``ForkDonorPatch.txt`` row, the only thing
-  ``EffectiveFieldId`` reads. ``import --native``/``--verbatim`` record it; a standalone ``import --editable``
-  does not.
+  ``EffectiveFieldId`` reads. ``import --native``/``--verbatim`` record it; an ``--editable`` or plain BG-borrow
+  import does not.
 * **RAW** (the rest): ``fldMapNo == <real id>`` is false at a custom id, so the tweak never fires -- the forked
   actor is subtly wrong at that beat (the wrong actor draws in front, a graft snaps to the wrong spot, a shadow
   sits in the wrong place). This is ``docs/FORK_FIDELITY.md`` residual #5 (*any real-``fldMapNo``-gated engine
