@@ -5,6 +5,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — an editable fork's carried donor objects are lit and shadowed like the real field
+- **`import --editable` now ships the donor's MapConfigData** (`mapconfig.bytes` + `[field] mapconfig`), exactly
+  as `--native` does. The engine's MCF service (`fldmcf.ff9fieldMCFService`) gives every actor its per-model blob
+  shadow and tint plus the light of the floor it stands on. The kit's script shadows only ever reached the player
+  and `[[npc]]`s, so an editable fork's grafted `[[object]]`s had no shadow and rendered bright and untinted. With
+  the MCF, the build retires those script ops, as on a native fork. Delete the `mapconfig` line to go back.
+- **The MCF now ships from any scene type**, not only a native one. Before, a non-native field declaring
+  `[field] mapconfig` shipped no MCF and also skipped its script shadows, so its actors cast nothing.
+- **A reshaped walkmesh keeps its lights.** Per-floor lights key on the BGI floor index, and `bgi.build`
+  renumbers `.obj` floors in first-seen order. The build re-keys the MCF's per-floor lights through the
+  `o floor_<donor index>` names that both exporters write (`build.mapconfig_bytes`,
+  `mapconfig.remap_light_floors`, `bgi.obj_built_floor_donors`). The unedited round-trip is the identity on all
+  816 shipping walkmeshes, so it ships the MCF byte for byte.
+- **Byte identity:** native and verbatim forks build byte-identically (field 122, all three import modes, HEAD
+  vs this change). An editable fork changes by exactly the shipped MCF plus the player's 7 retired shadow bytes.
+  `tests/test_fork_mapconfig.py` pins this on an authored fork with a grafted object.
+- **In-game proven** (harness, `studies/actor-shadow` rung 1, an editable fork of field 1607). With the MCF, the
+  carried moogles cast a shadow on the art and take the room's tint; without it, they cast nothing. Swapping two
+  floors in the reshaped walkmesh keeps the player's light exactly (1.002). Cancelling the re-key darkens him to
+  0.867 against the engine formula's predicted 0.857.
+
 ### Fixed — actors on a kit-built field cast the stock blob shadow
 - **The player and every `[[npc]]` (so every behavior unit) now get FF9's blob shadow.** A real field never
   scripts its shadows: its MapConfigData (MCF) gives each model a size and darkness through
@@ -21,6 +42,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   MCF (`[field] mapconfig`, a native fork) and every verbatim fork build byte-identically, because their MCF
   already shadows every actor. The vivi-hut golden hash moves for its two actors.
 - New `ff9mapkit.mapconfig`: a MapConfigData decoder that mirrors the engine's row lookup.
+
+### Fixed — set pieces on a kit-built field cast the shadow stock gives them
+- **`[[prop]]`, `[[chest]]` and the save point's moogle + barrel_pop cask now get the same two ops** — but a
+  prop follows stock's SCRIPT as well as its MCF. The MCF gives every actor a shadow, yet stock's object
+  Inits `DisableShadow` most set dressing: for 68 of the 84 accessory models it shows standing free (the
+  tent, the save book, the letter, the cactus), on every path through the Init. So a new census column,
+  `_shadowparams.STOCK_CASTS` (a dominator check per Init over all 817 scripts, held objects excluded),
+  decides a prop's default: the cask and every chest cast, the cactus does not. A model no stock object
+  shows standing free casts none (`PROP_DEFAULT_CASTS`).
+- **A held prop never casts** (`attach_to`, `[[npc]] holds`): stock disables 139 of its 140 held objects,
+  and the engine takes the blob's height from the item's bone-local offset. `shadow = true` on one is a
+  validate error.
+- **`shadow`** is now a key on `[[prop]]` (absent = stock's verdict for the model; `true` / a table casts
+  anyway), `[[chest]]` and `[[savepoint]]` (`false` darkens the moogle and its cask, a table sizes the
+  moogle). The act's book + feather keep their donor `DisableShadow`; the act's verbatim hop
+  `DisableShadow`/`EnableShadow` pair now has a shadow to hide.
+- **In-game (harness, bench 30921, against a same-bench control):** the cactus with `shadow = true`, the
+  chest and the save moogle darken their floor; the stock-dark cactus, the player and the NPC read 1.000; the
+  barrel_pop reveal still pops the moogle and opens the menu. The cask's census shadow is real but is
+  drawn entirely under the barrel's own footprint, as stock's is — a calibration build at size 40 throws
+  a wide halo around both casks.
+- **Byte identity:** each casting set piece gains 7 bytes, nothing else changes, and a field shipping
+  `[field] mapconfig` or a verbatim fork builds byte-identically. `tests/test_shadow.py` holds the
+  invariant over a field carrying every case.
 
 ### Added — roll streams: seeded randomness a field can predict
 - **`[[behavior.stream]]` + a branch `roll`** (the roll-stream arc, board entry #5, in-game proven by the
