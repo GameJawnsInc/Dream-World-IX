@@ -767,6 +767,87 @@ def test_scene_validate_catches_bad_slot_pattern_item():
     assert scene_data.validate_scene(raw, {"enemy": [{"slot": 0, "drop": ["Nope", "none", "none", "none"]}]})
 
 
+# --------------------------------------------------------------- scene_data multipart bosses (SB2_PUT roles)
+def _engine_master(raw16, slot, pattern=0):
+    """The slot ``btl_util.GetMasterEnemyBtlPtr`` hands ``slot``: the last non-slave multipart enemy before it
+    (slave = TypeNo > 0 with FLG_MULTIPART, ``BTL_SCENE.GetMonGeoID``). None = the null master at battle init."""
+    master = None
+    for s in range(slot + 1):
+        t, f = scene_data.slot_put(raw16, s, pattern)
+        if f & scene_data.PUT_FLAG_MULTIPART and t == 0:
+            master = s
+    return master
+
+
+def test_retyping_a_multipart_master_to_type_0_keeps_the_boss_whole():
+    # stock GT_R004 / TA_R003: slot 0 = (type 0, flags 3). `type = 0` used to write flags 1 -- the master lost its
+    # multipart bit, the slaves had no master, and btl_init.OrganizeEnemyData dereferenced null at battle start
+    raw = _raw16(put_flags=3)                                   # active: (0, 3) master, (1, 3) slave
+    for scene in ({"enemy": [{"slot": 0, "type": 0}]},
+                  {"monster_count": 2, "enemy": [{"slot": 0, "type": 0, "pos": [10, 20]}]}):
+        out, warns = scene_data.apply_scene_edits(raw, scene)
+        assert scene_data.slot_put(out, 0) == (0, 3)            # still the master
+        assert _engine_master(out, 1) == 0                      # the slave still hangs on it
+        assert not warns and scene_data.validate_scene(raw, scene) == []
+
+
+def test_retyping_a_multipart_slave_to_another_part_keeps_it_a_part():
+    raw = _raw16(typcount=3, put_flags=3)                       # slot 1 = (1, 3), a slave of slot 0
+    out, warns = scene_data.apply_scene_edits(raw, {"enemy": [{"slot": 1, "type": 2}]})
+    assert scene_data.slot_put(out, 1) == (2, 3)                # a part (type 2's stats), not a 2nd boss body
+    assert _engine_master(out, 1) == 0 and not warns
+    # the roles are the fight being authored: a slave row behind the master that monster_count wakes is a part too
+    out, warns = scene_data.apply_scene_edits(_raw16(typcount=3, monster_count=1, put_flags=3), {
+        "monster_count": 2, "enemy": [{"slot": 1, "type": 2}]})
+    assert scene_data.slot_put(out, 1) == (2, 3) and _engine_master(out, 1) == 0 and not warns
+
+
+def test_retyping_the_master_with_a_part_left_untyped_is_refused():
+    # slot 0 = type 1 makes the master a normal enemy, so the untyped slave at slot 1 would have no master
+    errs = scene_data.validate_scene(_raw16(put_flags=3), {"enemy": [{"slot": 0, "type": 1}]})
+    assert any("slot 1" in e and "SLAVE" in e and "no master" in e for e in errs), errs
+
+
+@pytest.mark.parametrize("t", [0, 1])
+def test_retyping_every_part_dissolves_the_boss_into_normal_enemies(t):
+    # no slave is left, so the engine is fine; the pre-fix kit built this too, but now it warns
+    rows = [{"slot": 0, "type": t}, {"slot": 1, "type": t}]
+    for enemy in (rows, rows[::-1]):                            # the row order doesn't matter
+        out, warns = scene_data.apply_scene_edits(_raw16(put_flags=3), {"enemy": enemy})
+        assert scene_data.slot_put(out, 1) == (t, 1)            # a normal enemy with its own model
+        assert scene_data.slot_put(out, 0) == ((0, 3) if t == 0 else (1, 1))   # type 0 keeps a (lone) master
+        assert any("slot 1" in w and "SLAVE" in w and "normal enemy" in w for w in warns), warns
+    # a master whose parts monster_count leaves out is a lone master: another type makes it a normal enemy
+    out, warns = scene_data.apply_scene_edits(_raw16(put_flags=3), {"monster_count": 1,
+                                                                    "enemy": [{"slot": 0, "type": 1}]})
+    assert scene_data.slot_put(out, 0) == (1, 1) and any("MASTER" in w for w in warns), warns
+
+
+def test_retyping_a_slave_to_type_0_spawns_a_normal_enemy_and_warns():
+    raw = bytearray(_raw16(typcount=3, monster_count=3, put_flags=3))
+    raw[8 + 8 + 24] = 2                                         # slot 2 = (2, 3): a 3-part boss like CW_E063
+    out, warns = scene_data.apply_scene_edits(bytes(raw), {"enemy": [{"slot": 1, "type": 0}]})
+    assert [scene_data.slot_put(out, s) for s in range(3)] == [(0, 3), (0, 1), (2, 3)]
+    assert _engine_master(out, 2) == 0                          # the boss keeps its other part
+    assert any("slot 1" in w and "SLAVE" in w and "normal enemy" in w for w in warns), warns
+
+
+def test_monster_count_waking_a_dormant_slave_row_is_refused():
+    # 33 stock scenes (PD_R004, GT_R008, CW_E060, ...) keep slave-shaped (1, 3), (2, 3) rows past MonsterCount
+    # behind a NORMAL slot 0. Stock's all point past TypCount, so the range check refuses them first; this pins
+    # the backstop for an in-range one, which would spawn a slave with no master (the same null crash)
+    raw = bytearray(_raw16(typcount=3, monster_count=1))       # slot 0 = (0, 1)
+    raw[8 + 8 + 12:8 + 8 + 12 + 2] = bytes([1, 3])
+    raw[8 + 8 + 24:8 + 8 + 24 + 2] = bytes([2, 3])
+    raw = bytes(raw)
+    assert scene_data.validate_scene(raw, {}) == []             # dormant: the donor's own fight is fine
+    errs = scene_data.validate_scene(raw, {"monster_count": 3})
+    assert any("slot 1" in e and "SLAVE" in e and "no master" in e for e in errs), errs
+    out, _ = scene_data.apply_scene_edits(raw, {"monster_count": 3, "enemy": [  # the fix the message names
+        {"slot": 1, "type": 1}, {"slot": 2, "type": 2}]})
+    assert [scene_data.slot_put(out, s) for s in range(3)] == [(0, 1), (1, 1), (2, 1)]   # normal enemies
+
+
 # --------------------------------------------------------------- scene_data combat-identity (Phase 1)
 def test_scene_edits_combat_identity():
     raw = _raw16()                                              # patcount 1, typcount 2; slot 0 -> type 0

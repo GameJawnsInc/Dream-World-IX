@@ -116,6 +116,22 @@ does NOT reach it (`scene_data` stops at the monster blocks).
 | **pattern AP** | the **gameplay-effective** AP reward (whole, undivided) | raw16 / BP | `pattern+4 u32`; consumed `btlseq.cs:475` | No | **done** (raw16 `[scene] ap` → every pattern+4; + BP `[[battle_patch.pattern]] ap`) |
 | SB2_PUT type/x/y/z/rot | per-slot enemy type + placement | raw16 | `pattern+8 + 12*j`: `TypeNo@0 Flags@1 X@4 Y@6 Z@8 Rot@10` | No | **done** |
 
+**Multipart bosses.** `Flags` bit 1 = targetable, bit 2 = multipart. The engine picks the role from `TypeNo`
+alone. A multipart slot of type > 0 is a SLAVE part: it has no model of its own and hangs on its master
+(`BTL_SCENE.GetMonGeoID`). A multipart slot of type 0 is the MASTER. A slave's master is the last master
+before it in slot order (`btl_util.GetMasterEnemyBtlPtr`); if there is none, the battle dereferences null
+at start (`btl_init.OrganizeEnemyData`). In the 9 stock multipart scenes (GT_R004, TA_R003, ...) the master
+is slot 0 and each part is its own type.
+- `[[scene.enemy]] type` keeps a part's multipart flag when the new type keeps its role: the master stays
+  type 0 and a slave stays type > 0.
+- Any other `type` spawns a normal targetable enemy with its own model. On a former part, the build warns.
+  Giving the master a type other than 0 dissolves the boss, so every `type` in that pattern spawns a normal enemy.
+- Validate refuses any active slave with no master before it: for example, the master was retyped and a part
+  was left without a `type`.
+- 33 stock scenes keep dormant slave-shaped rows past MonsterCount behind a normal slot 0 (PD_R004). They
+  are not parts, so a `type` there spawns a normal enemy. Their types all point past TypCount, so waking one
+  without a `type` is already refused by the type-range check.
+
 ### (a‴) Scene-wide rules — `SB2_HEAD.Flags` / `BTL_SCENE_INFO`
 
 `SpecialStart`(preemptive) / `BackAttack` / `Runaway`(can-escape) / `NoGameOver` / `NoExp` / `WinPose` /

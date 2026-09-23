@@ -15,6 +15,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   replays the slot's `reaction` rows where the engine refuses the lethal hit's tag 7. The field reads it with
   the readers it already has. See `docs/BATTLE_DESIGN.md` § (b′).
 
+### Fixed — `[[scene.enemy]] type` on a multipart boss
+- **`type` no longer strips a multipart boss's master.** It wrote the slot's SB2_PUT flags as a plain
+  targetable enemy, so `slot = 0, type = 0` on a boss like GT_R004 or TA_R003 cleared the master's multipart
+  bit, left its parts with no master, and crashed the battle at start. A part now keeps its multipart flag
+  when the new type keeps its role (master = type 0, slave part = type > 0). A `type = 1` on a slave now keeps
+  it a part; it used to spawn a second full copy of the boss.
+- **A slave with no master is refused.** Validate names any active slave part with no master before it, such
+  as when the master was retyped and a part was left without a `type`. A part that becomes a normal enemy
+  now warns.
+
 ### Fixed — battle validate, the AI tag labels, battle scene ids
 - **`battle validate` composes the AI edits exactly as the build ships them.** It used to apply `ai_*` edits to
   the donor Main_Init while the build applied them after the `monster_count` rewrite, so an `ai_patch` offset
