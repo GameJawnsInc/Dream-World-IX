@@ -159,6 +159,8 @@ _GATES = {
     2803: [(_DOE, r"effMapNo == 2803 && obj1 != null && tagNumber == 18", 1), (_TOT, r"EffectiveFieldId", 1)],
     1900: [(_TOT, r"EffectiveFieldId", 1)],
     1455: [(_TOT, r"EffectiveFieldId", 1)],
+    406: [("FieldMapActorController.cs", _FM.format(406), 1)],        # s65 wraps the collision rule
+    1752: [("FieldMapActorController.cs", _FM.format(1752), 1)],      # raw -- no patch wraps it
 }
 
 

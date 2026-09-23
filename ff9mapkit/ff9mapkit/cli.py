@@ -769,9 +769,18 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
             plan = BT.autoroute_plan(raw, wmesh)
         except BT.BehaviorTomlError as e:
             plan_err = str(e)
+    floors = None                                  # the SHIPPED mesh's floors, for on_floor names/indices
+    floor_errs, floor_warns = [], []
+    try:
+        floors = _build.behavior_floor_table(project)
+        if floors is not None:
+            floor_errs, floor_warns = BT.floor_problems(raw, floors)
+    except Exception as e:                         # noqa: BLE001 -- reported, never a crash
+        floor_errs = [f"[behavior] floor table: {e}"]
 
     if args.action == "lint":
-        warnings = []
+        warnings = list(floor_warns)
+        problems += floor_errs
         routed_lines = BT.describe_autoroute(plan, raw)
         if plan_err:
             problems.append(plan_err)
@@ -858,11 +867,12 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
                 if ungated:
                     radius = extent            # no near gate -> the whole field
                 dk = (ref["verb"], radius, ref["standoff"], ref["source_box"],
-                      ref["target_box"])
+                      ref["target_box"], ref.get("same_floor", False))
                 if dk in pseen:
                     continue                   # identical families (the raid's twin
                 pseen.add(dk)                  # guards) report once
                 res = _routes.sweep_pursuit(wmesh, radius, standoff=ref["standoff"],
+                                            same_floor=ref.get("same_floor", False),
                                             bedges=bedges,
                                             source_box=ref["source_box"],
                                             target_box=ref["target_box"])
@@ -893,13 +903,19 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
 
     if plan_err:
         problems.append(plan_err)
+    # the floor table's errors refuse compile/view exactly as they refuse lint and the build: an unknown floor
+    # name must not reach dry_compile (it raised there), and a table that failed to resolve must not compile
+    # with PLACEHOLDER floors (every name read as floor 0 in a clean-looking report)
+    problems += floor_errs
     if problems:
         for p in problems:
             print(f"error: {p}", file=sys.stderr)
         return 1
+    for w in floor_warns:
+        print(f"warning: {w}", file=sys.stderr)
     try:
-        fb, cb = BT.dry_compile(raw, routed=plan)                    # placeholders (build binds real ones)
-    except B.BehaviorError as e:
+        fb, cb = BT.dry_compile(raw, routed=plan, floors=floors)     # placeholders (build binds real ones)
+    except (B.BehaviorError, BT.BehaviorTomlError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     b = raw["behavior"]
@@ -969,6 +985,12 @@ def _cmd_walkmesh(args: argparse.Namespace) -> int:
             fh.write(out)
         m = bgi.BgiWalkmesh.from_bytes(out)
         print(f"obj -> .bgi: {len(m.tris)} tris, {len(m.verts)} verts, {len(out)} bytes -> {args.output}")
+        _v, faces, _f = bgi.load_obj_floors(args.input)
+        moved = sum(1 for t, f in zip(m.tris, faces) if tuple(t.vtx) != tuple(f))
+        if moved:                              # the floor-major regroup moved ids: say so (never silently)
+            print(f"  note: the obj reopens a floor -- the triangles were regrouped floor by floor (the "
+                  f"engine requires it); {moved} of {len(faces)} triangle ids moved from face order. "
+                  f"`walkmesh verify {args.output}` prints each floor's range.")
     elif args.action == "fix":
         m = bgi.BgiWalkmesh.from_file(args.input)
         m.rebuild_neighbors()
@@ -976,9 +998,37 @@ def _cmd_walkmesh(args: argparse.Namespace) -> int:
         with open(args.output or args.input, "wb") as fh:
             fh.write(out)
         print(f"rebuilt neighbor links for {len(m.tris)} tris -> {args.output or args.input}")
+        probs = bgi.floor_order_problems(m)
+        if probs:                              # fix rebuilds links; it never reorders triangles
+            print(f"  ! still NOT floor-major ({probs[0]}) -- `walkmesh fix` rebuilds neighbour links only; "
+                  f"[walkmesh] bgi refuses this file. Re-author it as a [walkmesh] obj (the build regroups).",
+                  file=sys.stderr)
+            return 1
     elif args.action == "verify":
         return _walkmesh_verify(args.input)
     return 0
+
+
+def _floor_table_lines(table, floor_major) -> list:
+    """The `walkmesh verify` floor table: ``floors: 0 'ground' tris 0-7 | 1 'terrace' tris 8-15
+    floor-major: yes`` -- which triangle ids (``B_BGIID``) each floor (``B_BGIFLOOR``) owns. Six floors
+    per line, so a 23-floor stock field stays readable."""
+    if not table:
+        return []
+    cells = []
+    for fi, name, first, last, count in table:
+        label = f"{fi} {name!r}" if name else f"{fi}"
+        if count == 0:
+            cells.append(f"{label} (no tris)")
+        elif last - first + 1 == count:
+            cells.append(f"{label} tris {first}-{last}")
+        else:
+            cells.append(f"{label} tris {first}..{last} ({count}, NOT contiguous)")
+    rows = [" | ".join(cells[i:i + 6]) for i in range(0, len(cells), 6)]
+    tail = f"   floor-major: {'yes' if floor_major else 'NO'}"
+    out = [f"  floors: {rows[0]}"] + [f"          {r}" for r in rows[1:]]
+    out[-1] += tail
+    return out
 
 
 def _walkmesh_verify(path: str) -> int:
@@ -991,7 +1041,14 @@ def _walkmesh_verify(path: str) -> int:
         print(f"walkmesh verify: {path}  [{rep.get('source', '?')}]")
     else:
         from .build import _walkmesh_stats
-        rep = {**_walkmesh_stats(bgi.BgiWalkmesh.from_file(path)), "warnings": []}
+        wm = bgi.BgiWalkmesh.from_file(path)
+        rep = {**_walkmesh_stats(wm), "warnings": []}
+        probs = bgi.floor_order_problems(wm)
+        if probs:                              # a raw .bgi: [walkmesh] bgi would refuse to ship it
+            rep["warnings"].append(
+                f"not floor-major: {probs[0]} -- the engine indexes its triangle list by triangle id, so "
+                f"[walkmesh] bgi refuses this file; re-export it through [walkmesh] obj (which regroups "
+                f"floor by floor)")
         print(f"walkmesh verify: {path}")
     if rep.get("floors") is not None:
         line = f"  floors {rep['floors']}  |  walk-reachable {rep['reachable']}"
@@ -1000,6 +1057,8 @@ def _walkmesh_verify(path: str) -> int:
         print(line)
         extra = f", {len(rep['degenerate'])} degenerate tri(s)" if rep["degenerate"] else ""
         print(f"  {rep['tris']} tris, {rep['verts']} verts, {rep['seams']} cross-floor seam(s){extra}")
+        for ln in _floor_table_lines(rep.get("floor_table") or [], rep.get("floor_major")):
+            print(ln)
         if rep.get("bounds"):
             b = rep["bounds"]
             print(f"  bounds  x{b['x']}  z{b['z']}")

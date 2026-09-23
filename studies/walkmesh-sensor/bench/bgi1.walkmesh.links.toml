@@ -1,0 +1,6 @@
+# ONLY the south seam (z -837..-1931): the north half of x = 0 is an unseamed wall -- the lip.
+[[seam]]
+a_floor = 0
+a_edge = [[0, 0, -837], [0, 0, -1931]]
+b_floor = 1
+b_edge = [[0, 0, -837], [0, 0, -1931]]

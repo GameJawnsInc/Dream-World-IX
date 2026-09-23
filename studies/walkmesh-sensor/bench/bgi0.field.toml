@@ -1,0 +1,89 @@
+# =====================================================================================
+# THE WALKMESH SENSOR, RUNG 0 -- B_BGIID / B_BGIFLOOR read back in-game  --  field 30910
+# =====================================================================================
+# The .eb uses board's #2: two expression tokens that hand a script the walkmesh TRIANGLE and FLOOR under an
+# actor (EventEngine.DoCalcOperationExt.cs:37-44 -> BGI.BGI_charGetInfo(uid) -> the actor's
+# fieldMapActorController.activeTri / activeFloor). The operand is a RAW uid (getActiveActorByUID: cid == 4 &&
+# obj.uid == uid, no 250 translation), so the player is `B_PTR(250)` -- the board's own `const(0) B_BGIID`
+# reads the Main entry (uid 0, cid 2) and returns -1 forever (the MAIN row pins that).
+#
+# The mesh: two floors split at x = 0, 16 triangles, floor 0 = tris 0..7 (west), floor 1 = tris 8..15 (east).
+# The ids are GLOBAL (BGI file order), so a floor-1 stop must read 8..15 -- a per-floor index would read 0..7.
+#   rover   uid 2 (FIRST [[npc]]) -- a behavior unit: holds tri 4's centroid until `walk`, then a seeded wander
+#           whose box straddles the tri 4 / tri 5 diagonal
+#   statue  uid 3 -- a plain static NPC at tri 10's centroid (floor 1)
+#   player  spawns at tri 3's centroid (floor 0)
+#
+#   py tools/deploy_field.py studies/walkmesh-sensor/bench/bgi0.field.toml --id 30910 --name BGI0 --text-block 30910
+
+[field]
+id = 30910
+name = "BGI0"
+area = 11
+title = "BGI 0"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+obj = "bgi0.walkmesh.obj"
+links = "bgi0.walkmesh.links.toml"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [-407, -472]
+
+[[npc]]
+name = "rover"
+model = "GEO_NPC_F0_CSO"
+pos = [-813, -1202]
+[[npc]]
+name = "statue"
+model = "GEO_NPC_F0_CSO"
+pos = [1017, -108]
+
+[behavior]
+warmup = 30
+public_flags = ["walk"]
+
+  [[behavior.unit]]
+  npc = "rover"
+    [[behavior.unit.branch]]
+    when = [{ flag = "walk" }]
+    do = { wander = [-900, -1300], radius = 180, every = 45, speed = 40, seed = 3 }
+    [[behavior.unit.branch]]
+    do = { hold_post = true }
+
+  [[behavior.hud]]
+  window = 6
+  digits = [3, 2, 3, 2, 3, 2, 2, 2]
+  values = [
+    "expr:B_PTR(250) B_BGIID",
+    "expr:B_PTR(250) B_BGIFLOOR",
+    "expr:const(2) B_BGIID",
+    "expr:const(2) B_BGIFLOOR",
+    "expr:const(3) B_BGIID",
+    "expr:const(3) B_BGIFLOOR",
+    "expr:const(250) B_BGIID",
+    "expr:const(0) B_BGIID",
+  ]
+  text = """[MPOS=8,8]== BGI 0 30910 ==
+PTRI [NUMB=0]
+PFLR [NUMB=1]
+UTRI [NUMB=2]
+UFLR [NUMB=3]
+NTRI [NUMB=4]
+NFLR [NUMB=5]
+RAWK [NUMB=6]
+MAIN [NUMB=7]"""

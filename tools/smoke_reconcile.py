@@ -2,7 +2,7 @@
 """Smoke-test the WALKMESH_EDITING.md v2 reconcile OFFLINE, before building it for real.
 
 For each field: (1) take the original .bgi; (2) simulate a geometry-only obj round-trip
-(world_verts -> bgi.build -> intra-floor links only, cross-floor seams LOST); (3) extract seams from
+(world_verts -> bgi.build -> links only where triangles share vertex indices; a real field's floors use disjoint vertex sets, so its cross-floor seams are LOST); (3) extract seams from
 the ORIGINAL keyed by world-position edge pairs; (4) reconcile them onto the geometry-only mesh by
 position match. Then assert connectivity is reproduced: all floors reachable again AND the cross-floor
 link set matches the original. Proves position-keying recovers seams (coincident AND vertical-bridge).

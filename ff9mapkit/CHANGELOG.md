@@ -5,6 +5,65 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — floor sensors: a `[behavior]` tree asks the engine which walkmesh floor an actor is on
+- **`on_floor` / `same_floor` / `other_floor` conditions and a `floor:<who>` HUD source** (the walkmesh-sensor
+  arc, board entry #2, in-game proven by the harness on two benches). The engine's own `B_BGIFLOOR` read — the
+  floor under the player or any unit, recomputed every frame — replaces nothing the kit could compute: a
+  `same_floor`-gated chaser no longer runs into the lip of a terrace it cannot climb. Floors are named by the
+  walkmesh OBJ's `o`/`g` lines (or given as integers) and resolved against the mesh the field SHIPS.
+- **THE SENSOR-MIRROR LAW:** the token runs only in the ticker's mirror block (the player via `B_PTR(250)` behind
+  the staged latch; a unit via its uid inside its active gate, with an inactive arm writing −1); conditions read
+  the Int16 mirrors. **THE UNKNOWN-FLOOR LAW:** −1 is never a floor — `Invert` refuses a sensor condition,
+  `not_on_floor`/`not_same_floor`/`not_other_floor` are refused by name, `Main_Init` presets every mirror to −1,
+  and a pooled unit's activation seeds its floor from the player's. Each read is followed by THE BATTLE-BYTE
+  FOLD (a battle backs the engine's floor up into a byte, so an unknown floor came back as 255; it folds to −1).
+  A class name as a condition's self is refused outside its own tree (Python API). A field with no floor verb
+  compiles byte-identically.
+- `behavior lint`'s pursuit sweep checks only same-floor pairs for a `same_floor`-gated chase and names the
+  cross-floor jams it skipped; `behavior compile` lists each sensed actor, its mirror, and a HUD row that
+  shows its live triangle for debugging. `behavior compile`/`view` refuse an unknown floor name (or a floor
+  table that cannot resolve) with the same error `lint` gives; on a BG-borrow the check also reads the donor
+  mesh beside `[camera] borrow`, and warns when no mesh is available to check an index against.
+
+### Added — the fork walkmesh-literal lint
+- **Donor code that keys on walkmesh triangle ids or floor indices warns when a fork's rebuilt mesh moved them**
+  (210 of 818 stock scripts do: `B_BGIFLOOR`/`B_BGIID` compares, `EnablePathTriangle`, `EnablePath`, and the
+  custom engine's per-field C# hotfixes that fire on forks). Decoded, level-aware (a swap of XZ-stacked floors is
+  caught), silent on a pure vertex-move reshape — a triangle is the same FACE when it keeps its vertex indices,
+  however far those moved; at build, `walkmesh verify` and `lint`. It runs on an `--editable` fork too (that
+  import records no donor id; its donor mesh and carried code make it a fork). It never rewrites donor bytes —
+  keep the donor mesh, or reshape without adding, deleting or reordering faces (`docs/FORK_FIDELITY.md` §
+  WALKMESH IDS).
+- The walkmesh hotfix catalog gains the engine's per-triangle COLLISION rules (Dali 406, which fires on forks;
+  Iifa 1752, which a fork loses), derived from the engine source by a clone-gated test; an opcode augment (1753)
+  is reported only when carried code toggles its trigger triangle.
+
+### Fixed — the player-ref law's token list, and the field schema's condition vocabulary
+- `B_ANGLE`/`B_DISTANCE`/`B_FRAME` (gCur casts that throw in a ticker condition) and `B_ANGLEA`/`B_BGIID`/
+  `B_BGIFLOOR` join the tokens a Python-API behavior condition (`Cond` text / `FieldBehavior.raw()`) refuses;
+  a HUD `expr:` source may still read them.
+- The field-schema harvest ITERATED each condition/action dict (which its recorder cannot see), so the
+  shipped schema called `not_near`, `any_active`, `have_item`, flee's `to` and other legal keys unknown;
+  it now records the whole condition/action vocabulary (`_fieldschema.py` regenerated).
+
+### Changed — walkmesh triangles are floor-major: the build regroups, a bad `.bgi` is refused
+- **The engine builds its walkmesh triangle list floor by floor but indexes it by triangle id**, so floor 0
+  must list triangles `0..k`, floor 1 the next run, and each triangle's `floor_ndx` must match its floor.
+  Every stock `.bgi` obeys this (674/674). An OBJ that reopened a floor (`o A` … `o B` … `o A`) used to break
+  it silently; `bgi.build` now **regroups** the faces floor by floor (a stable sort — every existing mesh is
+  byte-identical) and checks its own output, the `[walkmesh] obj` build warns naming the reopened floor and
+  how many triangle ids moved, and a shipped `[walkmesh] bgi` that is not floor-major is **refused**.
+- **A shipped `[walkmesh] bgi` the build refuses is a `lint` error** (and so fails the deploy dry-run), not an
+  advisory; `walkmesh verify` still prints its floor table. A non-manifold error on a regrouped OBJ also names
+  the input faces behind the renumbered triangle ids.
+- **`walkmesh verify` prints the floor table**: `floors: 0 'ground' tris 0-7 | 1 'terrace' tris 8-15
+  floor-major: yes`, with floor NAMES from the obj's `o`/`g` lines (`bgi.obj_floor_names`, numbered by first
+  appearance among the faces). New `BgiWalkmesh.tris_at(x, z)`: every triangle id under a point.
+- **A multi-word walkmesh floor name is kept whole** (`o upper deck` silently became floor `upper` and
+  merged with `o upper ledge`; now they are two floors, and OBJ's `g a b` names one floor `a b`).
+- Blender add-on **0.9.30**: the vendored walkmesh builder carries the regroup, so `bridge.mesh_to_bgi_bytes`
+  (Blender face order, material slots interleaved) now yields a floor-major `.bgi` equal to the OBJ route.
+
 ### Fixed — `fork-report` no longer lists behaviours the fork-gate engine restores as lost
 - **The narrow-map letterbox, the Chocobo dig HUD, most ATE-trophy mappings and four per-actor tweaks are kept.**
   `idgated.lost_on_mint` said a fork lost all of them. The custom engine routes their gates through
@@ -95,6 +154,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   reproduces its exact link set, where the old reconcile dropped 3,756 seams in 353 walkmeshes.
   `tests/test_fork_walkmesh_links.py` pins this on an authored 5-floor donor and on the real 7-floor fixture,
   plus reorder, delete and rename reshapes.
+- **An authored multi-floor mesh keeps its seams again.** An `.obj` naming no floor `floor_<N>` (`o ground` / `o terrace`)
+  got an EMPTY re-key map, which dropped every seam of its links sidecar and every per-floor MCF light; it is
+  not a re-export, so nothing is translated.
 - **In-game proven** (harness, the 1607 reshape bench at slot 30930,
   `studies/actor-shadow/seam_rekey_ingame.py`). The player walks from donor floor 0 across a seam onto floor 5
   and back. Built with the old reconcile, the same seam stops him.

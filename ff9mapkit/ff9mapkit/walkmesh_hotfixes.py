@@ -45,7 +45,9 @@ from dataclasses import dataclass, field as _dc_field
 class Hotfix:
     """One real field's engine walkmesh hotfix.
 
-    ``kind``    : ``load_time`` (prependable unless ``delayed``) | ``event_code`` | ``dynamic`` | ``opcode_augment``.
+    ``kind``    : ``load_time`` (prependable unless ``delayed``) | ``event_code`` | ``dynamic`` | ``opcode_augment`` |
+                  ``collision`` (a per-TRIANGLE collision rule in ``FieldMapActorController`` -- it reads the tri the
+                  actor stands on, it toggles nothing).
     ``toggles`` : the load-time ``(tri, state)`` pairs (state 1 = active/walkable, 0 = inactive) -- non-empty only
                   for ``load_time``.
     ``tris``    : every triangle index the hotfix touches (for reporting, incl. the non-load-time kinds).
@@ -65,6 +67,9 @@ class Hotfix:
                   gate still on the raw ``fldMapNo`` (FieldMap.cs 2356; all of turnOffTriManually.cs) never fires on
                   a fork, so its tris are absent here. The fork walkmesh-literal lint
                   (``build._lint_fork_walkmesh_ids``) checks these ids survive a rebuilt walkmesh.
+    ``trigger_tris`` : for an ``opcode_augment`` -- the tri(s) whose ``EnablePathTriangle`` in the FIELD'S OWN
+                  script makes the engine act. The lint reports only what the engine ADDS (``fork_tris`` minus these;
+                  the script's own toggle is in the .eb scan), and only when carried donor code toggles a trigger.
     """
 
     field_id: int
@@ -77,6 +82,7 @@ class Hotfix:
     engine_remapped: bool = False
     fork_tris: tuple = ()
     delayed: bool = False
+    trigger_tris: tuple = ()
 
     @property
     def prependable(self) -> bool:
@@ -149,12 +155,27 @@ _HOTFIXES = {
                  "208 to the same state. ENGINE-REMAPPED (s30: the 0x9A handler tests effMapNo), so a fork that "
                  "runs the donor's EnablePathTriangle(207, x) -- it sits in entry 0's Main_Init/Main_Reinit, which "
                  "a --verbatim fork keeps -- gets the paired 208 toggle too.",
-                 "DoEventCode.cs:2566-2567", tris=(207, 208), engine_remapped=True, fork_tris=(207, 208)),
+                 "DoEventCode.cs:2566-2567", tris=(207, 208), engine_remapped=True, fork_tris=(207, 208),
+                 trigger_tris=(207,)),
     1606: Hotfix(1606, "(EnablePathTriangle augment)", "opcode_augment",
                  "When the field's own .eb runs EnablePathTriangle(107, x), the engine FORCES x = 1 (always "
                  "activate). ENGINE-REMAPPED (s30: the 0x9A handler tests effMapNo), so a fork running the donor's "
                  "EnablePathTriangle(107, 0) has it forced to 1 exactly as the real field does.",
-                 "DoEventCode.cs:2568-2569", tris=(107,), engine_remapped=True, fork_tris=(107,)),
+                 "DoEventCode.cs:2568-2569", tris=(107,), engine_remapped=True, fork_tris=(107,),
+                 trigger_tris=(107,)),
+
+    # --- COLLISION (FieldMapActorController's per-triangle rejection rules; tris READ, never toggled) ---------
+    406: Hotfix(406, "Dali/Underground (the room under the well)", "collision",
+                "The actor collision rejection factor drops to 0.4 while the actor stands on triangles 103/111/113 "
+                "(a softer push-back against the forces there). ENGINE-REMAPPED (s65 wraps the gate with "
+                "EffectiveFieldId), so it applies on a donor-recorded fork -- against the FORK's walkmesh, so a "
+                "rebuilt mesh that moved those ids softens other triangles.",
+                "FieldMapActorController.cs:1243 (s65)", tris=(103, 111, 113), engine_remapped=True,
+                fork_tris=(103, 111, 113)),
+    1752: Hotfix(1752, "Iifa Tree/Inner Roots (2nd area)", "collision",
+                 "The actor collision rejection factor drops to 0.4 (0.6 on tri 80) on triangles 77-80. RAW gate "
+                 "(fldMapNo) -- lost on a mint: fork in-place, or accept the stiffer push-back there.",
+                 "FieldMapActorController.cs:1238", tris=(77, 78, 79, 80), fork_tris=()),
 
     # --- DYNAMIC (toggle tracks runtime story/position state; NOT statically reproducible) -----------------
     2803: Hotfix(2803, "Daguerreo/2nd Floor (LibrarianB book quest)", "dynamic",

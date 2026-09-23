@@ -210,3 +210,22 @@ def test_mesh_to_bgi_bytes_multifloor():
     assert (wm.orgPos.x, wm.orgPos.y, wm.orgPos.z) == (0, 0, 0)
     flat = B.BgiWalkmesh.from_bytes(bridge.mesh_to_bgi_bytes(_BL_VERTS, _BL_FACES, None))
     assert len(flat.floors) == 1
+
+
+def test_mesh_to_bgi_bytes_regroups_interleaved_material_slots(tmp_path):
+    """Blender keeps faces in creation order, so material slots (floors) interleave freely. The direct
+    .bgi export passes that raw face order to the vendored bgi.build, which now REGROUPS it floor by
+    floor (add-on 0.9.30): the result is floor-major -- the engine indexes its floor-built triangle list
+    by id -- and equals what the OBJ route (one `o floor_<slot>` group per floor) builds."""
+    verts = [(0, 0, 0), (100, 0, 0), (100, 100, 0), (0, 100, 0),
+             (0, 200, 50), (100, 200, 50), (100, 300, 50), (0, 300, 50)]
+    faces = [(0, 1, 2), (4, 5, 6), (0, 2, 3), (4, 6, 7)]
+    floor_ids = [0, 1, 0, 1]                                          # slots interleave face by face
+    data = bridge.mesh_to_bgi_bytes(verts, faces, floor_ids)
+    wm = B.BgiWalkmesh.from_bytes(data)
+    assert [list(fl.tri_ndx_list) for fl in wm.floors] == [[0, 1], [2, 3]]
+    assert [t.floor_ndx for t in wm.tris] == [0, 0, 1, 1]
+    assert B.floor_order_problems(wm) == []
+    obj = tmp_path / "w.obj"
+    obj.write_text(bridge.mesh_to_ff9_obj(verts, faces, floor_ids), encoding="utf-8")
+    assert B.obj_to_bgi(str(obj)) == data                            # the two export routes agree

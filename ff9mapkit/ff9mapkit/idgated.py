@@ -153,6 +153,9 @@ def lost_on_mint(field) -> list:
     if h is not None:
         if h.engine_remapped and h.kind == "load_time":
             repro = _REMAP
+        elif h.engine_remapped and h.kind == "collision":
+            repro = ("reproduced by the engine fork-donor remap -- a per-triangle collision rule, keyed on the "
+                     "fork's own walkmesh ids")
         elif h.engine_remapped:
             repro = ("reproduced by the engine fork-donor remap on a fork that runs the donor's own trigger "
                      "(--verbatim)")
