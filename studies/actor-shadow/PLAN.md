@@ -7,6 +7,8 @@ its per-floor lights. ★ The SET PIECES follow-up PASSED in-game (harness, benc
 own per-model treatment, chests and the save moogle cast, held props never do (see "Set pieces" below).
 ★ rung 2 PASSED in-game (harness, bench 30935). A plain (BG-borrow) `import` now ships its donor's MCF too,
 so its grafted donor objects are shadowed and tinted exactly as the editable fork's are.
+★ rung 3 PASSED in-game (harness, bench 30936). On a field that ships an MCF, a prop that must not cast (held,
+stock-dark, or `shadow = false`) gets stock's `DisableShadow`, so the MCF no longer shadows it.
 
 ## The defect
 
@@ -212,6 +214,63 @@ frame edge clips that shadow differently in the two benches. The bottom ellipse 
 `FieldMapActorController.MovePC` threw its NullReferenceException 14-28 times per variant, EMPTY included:
 the field-70 NRE, unrelated to the MCF.
 
+## Rung 3 — set pieces on a field that ships MapConfigData (bench 30936)
+
+**The gap.** The MCF service gives every actor a shadow at its own size. Stock's script then `DisableShadow`s
+whatever must not cast, but on an MCF field the kit emitted nothing. On a native, editable or BG-borrow fork, a
+held prop and a stock-dark prop (tent, cactus, save book) therefore cast a blob stock never shows. Kit props
+on a verbatim fork did the same, since it ships its donor's MCF.
+
+**Grounded in stock bytes** (`held_shadow_census.py`, and the same pass over free-standing objects):
+
+- **Held objects:** 140 have a literal Init `SetModel`. 125 disable in the Init, always after `SetModel`,
+  and 111 of those on every path. 116 are attached by another entry. The 9 that attach in their own Init, as
+  the kit's held prop does, disable before the `AttachObject`: `93 80 4C 04`.
+- **Free-standing objects of a stock-dark model:** 593 disable on every path. The op sits right after
+  `SetObjectFlags` (`93 80`) or straight into the RETURN (86).
+- **Engine:** `DisableShadow` sets character attribute bit 16 (`FF9ShadowOffField`). The MCF service only
+  ever writes scale and amplifier, so the bit survives it. The only re-enables are WalkEx near the ground, a
+  jump landing, and two field hacks.
+
+**The fix.** `content.prop.inject_prop(mcf=True)` appends `DisableShadow` to the Init tail, straight into the
+RETURN, for a part that must not cast: held, or `shadow` resolving to false (a stock-dark model, or the author's
+`false`). A part that casts gets nothing: the MCF's values. The build passes `mcf` on all three prop paths:
+`[[prop]]`, `[[npc]] holds`, and verbatim-fork props when the field ships its MCF. On an MCF field a prop's
+`false`/`true` therefore take effect, and only a size table is reported as ignored. A field with no MCF builds
+byte for byte as before.
+
+**Byte identity.** `tests/test_shadow.py` builds the set-pieces fixture with a real `[field] mapconfig`. Against
+the same field without one, the build differs by exactly the retired size/amp ops of the 9 casting actors, plus
+5 `DisableShadow`: the stock-dark tent, the opted-out cask, the composite's book, the `holds` cup and an
+attached cask. Four mutations each turn a test red: no op, held-only, the verbatim path unwired, `holds`
+unwired. `tests/test_verbatim.py` covers a verbatim fork: a tent gets the op under the donor MCF and a cask
+doesn't; without the MCF neither does.
+
+**In-game** (`rung3_variants.py`, `rung3_deploy.py`, `rung3_mcf_set_pieces.py`). The bench is 30921's set-pieces
+bench shipping field 1607's MCF, staged into the gitignored `imported/rung3/`. It is deployed as 30936 under
+its own event name, `SHD3M`. ON and CONTROL are the SAME toml, built two ways:
+
+- **ON** is this change.
+- **CONTROL** is the pre-fix call: on an MCF field `inject_prop` got neither `mcf` nor a `shadow` value.
+  Dropping only `mcf` would have cast census ops on the casting props, bytes no build ever shipped; the offline
+  comparison caught that. A build of the same toml with the HEAD code is byte-identical to CONTROL (4119 bytes).
+- **Preflight:** both runs passed 16/16. The MCF is 1607's byte for byte, no object carries a size/amp op, the
+  act's book and feather keep their donor `DisableShadow`, and ON alone disables the cactus and the cup.
+- **Exceptions:** none anywhere. Engine patch s87 removed the MovePC NREs.
+
+`measure_shadows.py --bench set_pieces`, floor luminance ON / CONTROL (above 1 = CONTROL darker):
+
+| box | `1-spawn` | `2-spawn-later` |
+|---|---|---|
+| cactus (stock-dark) | 1.107 | 1.107 |
+| holder (the held cup's blob) | 1.192 | 1.195 |
+| cask, cactus_on, chest, barrel, player | 1.000 | 1.000 |
+| moogle (idle animation) | 1.000 | 1.001 |
+
+By eye, CONTROL has a soft blob beside the cactus and a large, very dark blob at the holder's feet; ON has
+neither. The holder's own Init is byte-identical in both builds, so that blob is the cup's: the misplaced held
+shadow stock never shows. Runs are archived in the main repo's `.harness-runs/*-mcf-rung3-*`.
+
 ## Set pieces — props, chests, the save point (bench 30921, `set_pieces_shadow.py`)
 
 ### The census said the obvious design was wrong
@@ -295,13 +354,12 @@ repo's `.harness-runs/`: `20260923-112310-shadow-rung1-on`, `-112430-shadow-rung
 
 ## Follow-ups (not in this change)
 
-- `[[npc]]` still takes the census shadow for every model. `STOCK_CASTS` shows 23 non-accessory models whose
-  stock objects mostly `DisableShadow` in their Init: chocobos (`GEO_NPC_F0_CCB` 32/43), frogs, tadpoles,
-  several monsters. An NPC of those models casts a shadow stock never shows. The same per-model rule could
-  apply, but it changes rung 0's semantics and needs its own in-game check.
-- On a field that ships MapConfigData (a native fork, since rung 1 an `--editable` one, since rung 2 a BG-borrow), a held prop gets
-  the MCF's shadow, its height taken from the bone-local offset. Stock would `DisableShadow` it. The kit
-  emits nothing on an MCF field by design.
+- DECIDED, no change: `[[npc]]` and `[player]` take the census shadow for every model and do not follow
+  `STOCK_CASTS`. Stock's disables for creatures and characters follow where the object is (perched, flying,
+  walkmesh-unbound, hidden until a scene), not the model; stock's standing objects cast 2141 of 2191. Bench
+  30925 PASSED in-game (merge 3a2e55c5, `NPC-STOCK-CASTS.md`, `tests/test_shadow_npc_default.py`).
+- CLOSED, rung 3: on a field that ships MapConfigData, a held prop (and a stock-dark or `shadow = false` one)
+  got the MCF's shadow, the held one misplaced at its bone-local height. It now gets stock's `DisableShadow`.
 - ~~The pre-existing `FieldMapActorController.MovePC` NullReferenceException, about 26 per run~~ -- NOT the
   benches' or the 1607 fork's: all of them were thrown in field 70 (the New Game FMV field, no walkmesh)
   before the warp. A stock Memoria bug, FIXED by engine patch s87
