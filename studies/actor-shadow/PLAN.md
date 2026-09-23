@@ -302,8 +302,10 @@ repo's `.harness-runs/`: `20260923-112310-shadow-rung1-on`, `-112430-shadow-rung
 - On a field that ships MapConfigData (a native fork, since rung 1 an `--editable` one, since rung 2 a BG-borrow), a held prop gets
   the MCF's shadow, its height taken from the bone-local offset. Stock would `DisableShadow` it. The kit
   emits nothing on an MCF field by design.
-- The pre-existing `FieldMapActorController.MovePC` NullReferenceException, about 26 per run on the
-  checkerboard benches and on the 1607 fork (EMPTY included), with and without shadows or an MCF.
+- ~~The pre-existing `FieldMapActorController.MovePC` NullReferenceException, about 26 per run~~ -- NOT the
+  benches' or the 1607 fork's: all of them were thrown in field 70 (the New Game FMV field, no walkmesh)
+  before the warp. A stock Memoria bug, FIXED by engine patch s87
+  (`memoria-patches/s87-field70-movepc-walkmesh-guard.patch`).
 - ~~A plain `import` (BG-borrow) carries objects too and ships no MCF~~ -- DONE, rung 2.
 - `campaign._REQUIRED_ASSETS` does not list `mapconfig.bytes` for a borrow or a native member, though both
   writers now emit it and the member toml references it. `fetch_assets` copies it whenever it re-runs a writer,
