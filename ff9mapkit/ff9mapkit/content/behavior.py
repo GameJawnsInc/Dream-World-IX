@@ -504,8 +504,11 @@ class Battle(Action):
     scene: int
 
     def __post_init__(self):
-        if not 0 <= int(self.scene) <= 0xFFFF:
-            raise BehaviorError("Battle scene must be 0..65535")
+        # 0..32767, NOT 0..65535: the engine takes `btlId & 0x7FFF` as the scene and bit 15 as
+        # Steiner's state (EventEngine.DoEventCode.cs ENCOUNT) -- a higher id fights a different scene
+        if not 0 <= int(self.scene) <= 0x7FFF:
+            raise BehaviorError("Battle scene must be 0..32767 (the engine reads bit 15 as Steiner's "
+                                "state and masks the scene id to 15 bits)")
 
 
 @dataclass
@@ -1264,6 +1267,63 @@ def _refuse_reserved_auto(tid: int) -> int:
     return tid
 
 
+def persist_stale_expr(name: str, tid: int, n: int) -> str:
+    """THE STALE TEST, as RPN: the guard's word is not this table's check word, or the table is not
+    exactly ``n`` cells. The seed block re-seeds on it; :func:`persist_live_expr` is its exact
+    negation. One owner, so a writer gated on "live" can never disagree with the seed's "stale"."""
+    T, G = _cnum(tid), _cnum(tid + PERSIST_GUARD_OFFSET)
+    W, N = _cnum(persist_check_word(name, n)), _cnum(n)
+    return f"{G} const(0) B_VECTOR {W} B_NE {T} B_VECTOR_SIZE {N} B_NE B_OROR"
+
+
+def persist_live_expr(name: str, tid: int, n: int) -> str:
+    """THE LIVE TEST, as RPN -- the exact negation of :func:`persist_stale_expr` (De Morgan): the
+    guard holds this table's word AND the table is exactly ``n`` cells. A writer OUTSIDE the
+    declaring field (a battle's ledger rows) gates every write on it, so a table that was never
+    seeded, re-shaped since the writer was built, or owned by someone else is left untouched: the
+    writer can never create, append to, or grow it (which the declaring field would then re-seed)."""
+    T, G = _cnum(tid), _cnum(tid + PERSIST_GUARD_OFFSET)
+    W, N = _cnum(persist_check_word(name, n)), _cnum(n)
+    return f"{G} const(0) B_VECTOR {W} B_EQ {T} B_VECTOR_SIZE {N} B_EQ B_ANDAND"
+
+
+def persist_declaration_problems(name, tid, values) -> list:
+    """Every problem with a ``persist = true`` declaration seen from OUTSIDE the declaring field's
+    compiler (a battle's ``[scene.ledger]`` resolves the table from a field.toml it does not build):
+    the same name, band, length, domain and value-fence laws :class:`FieldBehavior` enforces."""
+    out = []
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_]+", name):
+        out.append(f"table name {name!r} must be [A-Za-z0-9_]+")
+    if not isinstance(tid, int) or isinstance(tid, bool):
+        out.append(f"id {tid!r} must be an int")
+    else:
+        prob = table_id_problem(tid, True)
+        if prob:
+            out.append(prob)
+    if not isinstance(values, (list, tuple)) or not all(
+            isinstance(v, int) and not isinstance(v, bool) for v in values):
+        out.append("values must be a list of ints")
+        return out
+    if not 1 <= len(values) <= TABLE_MAX_LEN:
+        out.append(f"1..{TABLE_MAX_LEN} values (got {len(values)})")
+    if any(not TABLE_VALUE_MIN <= v <= TABLE_VALUE_MAX for v in values):
+        out.append(f"a value lies outside the 26-bit CalcStack domain "
+                   f"({TABLE_VALUE_MIN}..{TABLE_VALUE_MAX})")
+    prob = persist_value_problem(values)
+    if prob:
+        out.append(prob)
+    return out
+
+
+def clamp_items(ref: str, lo: int, hi: int, tag: str) -> list:
+    """The two jump-clamps that follow a table/counter write (the alternator/cooldown house
+    pattern): ``ref < lo -> lo``, then ``ref > hi -> hi``. ``tag`` uniquifies the labels."""
+    return [_stmt(f"{ref} {_cnum(lo)} B_LT"), (JMP_IFNOT, f"{tag}_lo"),
+            _stmt(f"{ref} {_cnum(lo)} B_LET"), label(f"{tag}_lo"),
+            _stmt(f"{ref} {_cnum(hi)} B_GT"), (JMP_IFNOT, f"{tag}_hi"),
+            _stmt(f"{ref} {_cnum(hi)} B_LET"), label(f"{tag}_hi")]
+
+
 def persist_seed_block(name: str, tid: int, values) -> bytes:
     """THE PERSISTENT GUARD, emitted into Main_Init in place of the unconditional table seed.
 
@@ -1281,7 +1341,7 @@ def persist_seed_block(name: str, tid: int, values) -> bytes:
     W, N = _cnum(persist_check_word(name, n)), _cnum(n)
     keep = f"persist_{name}_keep"
     return asm([
-        _stmt(f"{G} const(0) B_VECTOR {W} B_NE {T} B_VECTOR_SIZE {N} B_NE B_OROR"),   # stale?
+        _stmt(persist_stale_expr(name, tid, n)),             # stale?
         (JMP_IFNOT, keep),                                   # beq: jumps when 0 (not stale)
         _stmt(f"{T} B_VECTOR_SIZE const(0) B_LET"),          # THE TABLE SEED idiom, verbatim
         _stmt(f"{T} B_VECTOR_SIZE {N} B_LET"),
@@ -2280,17 +2340,7 @@ class FieldBehavior:
         ticker pass, atomic w.r.t. every other script). ``tag`` uniquifies the
         labels per emission site."""
         ref = self._adjust_ref(a)
-        clamp = [
-            _stmt(f"{ref} {ref} {_cnum(a.by)} B_PLUS B_LET"),
-            _stmt(f"{ref} {_cnum(a.lo)} B_LT"),
-            (JMP_IFNOT, f"{tag}_lo"),
-            _stmt(f"{ref} {_cnum(a.lo)} B_LET"),
-            label(f"{tag}_lo"),
-            _stmt(f"{ref} {_cnum(a.hi)} B_GT"),
-            (JMP_IFNOT, f"{tag}_hi"),
-            _stmt(f"{ref} {_cnum(a.hi)} B_LET"),
-            label(f"{tag}_hi"),
-        ]
+        clamp = [_stmt(f"{ref} {ref} {_cnum(a.by)} B_PLUS B_LET"), *clamp_items(ref, a.lo, a.hi, tag)]
         if a.table is not None and a.table in self.persist_words and isinstance(a.index, str):
             # THE PERSISTENT APPEND FENCE. A write at index == Count APPENDS (EBin.cs:1926-1927)
             # rather than dropping, and the wave clock parks a counter at exactly n by design —

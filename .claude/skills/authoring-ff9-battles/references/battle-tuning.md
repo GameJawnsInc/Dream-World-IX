@@ -89,9 +89,13 @@ The staged stack (all in-game proven): read → same-length patch → assemble �
 - **Lint:** `battle-ai --lint` / build-time `lint_ai` — jump bounds, reachable terminator, Attack index
   (562-scene sweep = 0 false positives).
 
-Dispatch model (load-bearing for WHICH tag to edit): a normal enemy turn dispatches to **tag 7 (ATB)**,
-but tag 7 only sets ATB timing — **the `Attack` command lives in tag 5** (RET tag 5 to neutralize an
-enemy; proven). Tag 6 = Counter, tag 9 = Dying, tag 1 = Main (runs once at Init). The AI ENTRY is bound
+Dispatch model (load-bearing for WHICH tag to edit; measured in `studies/fight-ledger/PLAN.md` rung 0):
+**tag 5 = the ATB turn — the `Attack` command lives there** (RET tag 5 to neutralize an enemy; proven).
+**Tag 7 = the post-hit REACTION**, run after every effect landed on the enemy (misses included; the stock
+Goblin uses it to reset its ATB rate) — it was mislabelled "ATB" here before. Tag 6 = Counter. **Tag 9 = Dying
+runs ONLY when the enemy has `die_atk`** (and the killing blow is a player's, through the damage calculator);
+with it, the lethal hit's tag-7 request is refused — one hook per kill. Tag 1 = Main, entered once after Init
+(its body may loop with `Wait`). The AI ENTRY is bound
 by Main_Init's `InitObject`, possibly switched on `B_SYSVAR[31]` = the PICKED PATTERN index, not the
 enemy type — `[[scene.enemy]] ai_entry = N` overrides the generic binding for offset-entry donors.
 Enemy attack selection is a per-slot SEED (`Instance.Int24[0]`, four 6-bit slot indices) — RESEED it to

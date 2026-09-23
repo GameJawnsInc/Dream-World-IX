@@ -95,8 +95,44 @@ _RESKIN_RANGES = (
 )
 
 
+# Named bits the fight ledger reads/ORs (ENEMY.cs:37-39, SB2_PUT.FLG_MULTIPART). The offsets stay owned here.
+MON_FLAG_DIE_ATK = _MON_FLAG_NAMES["die_atk"]
+MON_FLAG_NON_DYING_BOSS = _MON_FLAG_NAMES["non_dying_boss"]
+PUT_FLAG_MULTIPART = 2
+
+
 class SceneEditError(ValueError):
     pass
+
+
+def mon_flags(raw16: bytes, type_no: int) -> int:
+    """Enemy ``type_no``'s SB2_MON_PARM Flags word (u16 @48: die_atk / die_dmg / non_dying_boss ...)."""
+    patcount, typcount, _atk = parse_counts(raw16)
+    if not 0 <= type_no < typcount:
+        raise SceneEditError(f"type {type_no} out of range (the scene has {typcount} type(s))")
+    return struct.unpack_from("<H", raw16, _mon_base(patcount) + _MON * type_no + _MON_FLAGS_OFF)[0]
+
+
+def with_mon_flags(raw16: bytes, type_no: int, word: int) -> bytes:
+    """``raw16`` with enemy ``type_no``'s Flags word replaced by ``word`` (every other byte verbatim)."""
+    patcount, typcount, _atk = parse_counts(raw16)
+    if not 0 <= type_no < typcount:
+        raise SceneEditError(f"type {type_no} out of range (the scene has {typcount} type(s))")
+    if not 0 <= int(word) <= 0xFFFF:
+        raise SceneEditError(f"flags word {word} out of range (0-65535)")
+    b = bytearray(raw16)
+    struct.pack_into("<H", b, _mon_base(patcount) + _MON * type_no + _MON_FLAGS_OFF, int(word))
+    return bytes(b)
+
+
+def slot_put(raw16: bytes, slot: int, pattern: int = 0) -> tuple:
+    """``(TypeNo, Flags)`` of a pattern's SB2_PUT ``slot`` -- after ``monster_count`` every pattern holds the same
+    composition, so pattern 0 is the fight."""
+    patcount, _typ, _atk = parse_counts(raw16)
+    if not 0 <= pattern < patcount or not 0 <= slot < 4:
+        raise SceneEditError(f"no pattern {pattern} / slot {slot} in this scene")
+    po = _HDR + _PAT * pattern + 8 + _PUT * slot
+    return raw16[po], raw16[po + 1]
 
 
 def parse_counts(raw16: bytes):

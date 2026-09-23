@@ -45,6 +45,16 @@ def rewrite_main_init(eb_bytes, slot_types, ai_entries=None) -> bytes:
     via a ``SWITCH(B_SYSVAR[31])`` (entry 1 is a different type's AI), so the generic ``1+type`` rebind would run
     the WRONG AI on the spawned model. ``[[scene.enemy]] ai_entry = 2`` pins the right one (read it from
     ``battle-ai``). Raises ValueError if Main_Init is absent or a chosen AI entry is missing/empty."""
+    resolved = resolve_ai_entries(eb_bytes, slot_types, ai_entries)
+    body = b"".join(opcodes.init_object(resolved[s], ENEMY_UID_BASE + s) for s in range(len(slot_types)))
+    body += opcodes.RETURN
+    return replace_function_body(eb_bytes, 0, 0, body)
+
+
+def resolve_ai_entries(eb_bytes, slot_types, ai_entries=None) -> list:
+    """The AI entry each spawned slot binds to under :func:`rewrite_main_init` -- ``ai_entries[s]`` if given,
+    else ``1+type``. The ONE owner of the binding: the rewrite issues these, and a ``[scene.ledger]`` names its
+    enemies by slot through them. Raises ValueError if Main_Init is absent or a chosen AI entry is missing/empty."""
     eb = EbScript.from_bytes(eb_bytes)
     n = len(eb.entries)
     if n == 0 or eb.entry(0).func_by_tag(0) is None:
@@ -67,6 +77,4 @@ def rewrite_main_init(eb_bytes, slot_types, ai_entries=None) -> bytes:
                              f"eb layout is non-standard -- pin it with [[scene.enemy]] ai_entry = <entry>, or use "
                              f"a donor whose entries 1..TypCount are per-type AI.")
         resolved.append(ai)
-    body = b"".join(opcodes.init_object(resolved[s], ENEMY_UID_BASE + s) for s in range(len(slot_types)))
-    body += opcodes.RETURN
-    return replace_function_body(eb_bytes, 0, 0, body)
+    return resolved

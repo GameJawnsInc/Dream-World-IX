@@ -1,0 +1,47 @@
+# =====================================================================================
+# THE FIGHT WRITES THE LEDGER, RUNG 1 -- THE STALE SCENE  --  battle scene 30882
+# =====================================================================================
+# One Goblin whose ledger is compiled against ../ledger1_v2.field.toml: dwix_fl1 re-shaped to
+# 13 cells (a different check word). In-game the live table is 30880's 12-cell one, so every
+# cell write must stay behind the closed live gate -- including cell 12, which on a 12-cell
+# table would APPEND. The flag row (outside the gate) is the positive witness that the hooks ran.
+#
+# Regenerate the gitignored donor assets:
+#   ff9mapkit battle-import BBG_B013 --fork-scene EF_R007 --ship-as BBG_B254 --id 30882 --name LEDGER1S
+#   py tools/deploy_battle.py studies/fight-ledger/bench/scene_stale/battle.toml
+
+[battlemap]
+bbg = "BBG_B254"
+fbx = "BBG_B254.fbx"
+scene_id = 30882
+scene_name = "LEDGER1S"
+
+[scene]
+monster_count = 1
+
+[[scene.enemy]]
+slot = 0
+type = 0
+ai_entry = 2
+hp = 60
+strength = 1
+
+[scene.ledger]
+declared_in = "../ledger1_v2.field.toml"
+table = "dwix_fl1"
+
+[[scene.ledger.write]]
+on = "init"
+slot = 0
+cell = 1
+add = 1
+[[scene.ledger.write]]       # index 12 == the LIVE table's length: an append, were it not gated
+on = "dying"
+slot = 0
+cell = 12
+set = 1
+[[scene.ledger.write]]
+on = "dying"
+slot = 0
+flag = "fl1_stale_witness"
+set = 1

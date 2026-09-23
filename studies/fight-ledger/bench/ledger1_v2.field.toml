@@ -1,0 +1,38 @@
+# =====================================================================================
+# THE FIGHT WRITES THE LEDGER, RUNG 1 -- A STALE DECLARATION (never deployed)
+# =====================================================================================
+# dwix_fl1 at the SAME id with 13 cells (check word 26511439): what the field would say if an
+# author re-shaped the table after a battle was built. scene_stale/ compiles against THIS
+# declaration, so in-game (where 30880 keeps the live 12-cell table) its live gate must stay
+# closed: no write, no 13th cell, no re-seed. Its flag row (fl1_stale_witness, 8911) sits
+# outside the gate -- the positive witness that its hooks really ran.
+
+[field]
+id = 30884
+name = "LEDGER1V2"
+area = 11
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[flag]]
+name = "fl1_stale_witness"
+index = 8911
+
+[[npc]]
+name = "keeper"
+model = "GEO_NPC_F0_CSO"
+pos = [400, -837]
+
+[behavior]
+  [[behavior.table]]
+  name = "dwix_fl1"
+  id = 6004880
+  persist = true
+  values = [0, 0, 0, 0, 0, -1, 0, 0, 15, -1, -1, 0, 0]
+
+  [[behavior.unit]]
+  npc = "keeper"
+    [[behavior.unit.branch]]
+    do = { hold = [400, -837] }

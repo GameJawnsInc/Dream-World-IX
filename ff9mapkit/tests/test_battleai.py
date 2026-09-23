@@ -59,6 +59,9 @@ def test_ctrl_overlay_names():
     assert battleai._cmd_name(0x01) == "JMP" and battleai._cmd_name(0x03) == "JMP_IF"
     assert battleai._cmd_name(0x05) == "SET" and battleai._cmd_name(0x04) == "RET"
     assert battleai._tag_role(1) == "Main" and battleai._tag_role(6) == "Counter" and battleai._tag_role(9) == "Dying"
+    # tag 5 is the ATB turn and tag 7 the post-hit reaction -- measured in-game (studies/fight-ledger rung 0);
+    # the kit called tag 7 "ATB" until then, which sent authors to the wrong function
+    assert battleai._tag_role(5) == "ATB" and battleai._tag_role(7) == "Reaction"
 
 
 # ---- BYTE-WALK PARITY: the named decoders must consume EXACTLY the bytes the proven decoders do ------

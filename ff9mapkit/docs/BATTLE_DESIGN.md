@@ -133,9 +133,142 @@ implemented — the raw16 `flags` key targets the per-enemy MON Flags @48, a sep
 | Spawn / AI binding | `InitObject(1+type, 0x80+slot)` per slot | eb | `event_data.rewrite_main_init`; `EventEngine.cs:560-571` | No | **done** (`[scene] monster_count` → one InitObject/slot; `[[scene.enemy]] ai_entry = N` overrides the `1+type` bind for offset-entry donors) |
 | Attack select | which scene attack (0..AtkCount-1) on the ATB turn | eb | `BTLCMD 0x38` (`DoEventCode.cs:1198`); often an expression into a working var | No | **done** (`[[scene.ai_function]]`/`[[scene.ai_insert]]` author an `Attack({…})`; `[[scene.ai_patch]]` retunes the index in place; `[[scene.ai_phase]]` overrides the attack-index var) |
 | AI thresholds / branches | HP%/MP/status/phase conditions | eb | expr ops `B_CURHP=82 / B_MAXHP=83 / B_CURMP=110 / B_SYSVAR=122 / B_SYSLIST=121` → `btl_scrp.GetCharacterData` | No | **done** (`[[scene.ai_phase]]` generates the in-game-proven `cur<max/N` HP-threshold branch; `[[scene.ai_insert]]` authors arbitrary `JMP_IF {expr}` branches) |
-| Counter / dying / phase / call-help | new AI branches by tag | eb | tags via `Request/RequestAction`: tag 1 main loop, **tag 6 counter, tag 7 ATB, tag 9 dying** | No | **done** (`[[scene.ai_function]]` adds/replaces a function by tag — counter/ATB/dying/main — the length-changing primitive, lint-gated) |
+| Counter / dying / phase / call-help | new AI branches by tag | eb | tags via `Request/RequestAction`: tag 1 main loop, **tag 5 the ATB turn (holds the `Attack`), tag 6 counter, tag 7 the post-hit reaction (every effect landed, misses included), tag 9 dying (only with the enemy's `die_atk` flag)** — measured in `studies/fight-ledger/PLAN.md` | No | **done** (`[[scene.ai_function]]` adds/replaces a function by tag — counter/ATB/dying/main — the length-changing primitive, lint-gated) |
+| Fight ledger | record how the fight went into a field's persistent table | eb | `0xD3` `B_VECTOR` `B_LET` from tags 0/7/9 | No | **done** (`[scene.ledger]`, § (b′); in-game proven) |
 | Instant special | fire a raw17 seq without an ATB turn | eb | `AttackSpecial 0xE5` | No | **done (authorable)** (`cmdasm` emits `AttackSpecial(…)` from any `ai_function`/`ai_insert`; not separately in-game-proven) |
 | Forced / scripted battle | start a specific scene on a trigger | eb | `Battle 0x2A` / `BattleEx 0x8C` | No | **absent** (AI-eb scope) — scripted/forced battles are a FIELD-eb concern (`[encounter]`, a proven field pillar), misfiled here |
+
+### (b′) The fight ledger — `[scene.ledger]`: a battle writes a field's persistent table
+
+The one lever above that runs the OTHER way. An enemy's AI can record how the fight went — who fell, to
+whom, with what, how many hits it took, where the fight began — into a `persist = true` table a field
+declares ([BEHAVIOR.md § Persistent tables](BEHAVIOR.md)), and the field that catches the player, or any
+field later, reads it back with the readers it already has. No raw RPN on the battle side, and none in the
+field's conditions; stock Memoria.
+Proven in-game by the harness: `studies/fight-ledger/PLAN.md`.
+
+<!-- ledger-example -->
+```toml
+# battle.toml (a MINT: the ledger rides [scene], so the scene must have scene_id + scene_name)
+[scene]
+monster_count = 1                  # REQUIRED: it makes slot -> AI entry static
+
+[[scene.enemy]]
+slot = 0
+type = 0
+ai_entry = 2                       # EF_R007: the Goblin's AI is entry 2 (read `battle-ai <donor>`)
+
+[scene.ledger]
+declared_in = "../village.field.toml"   # the field.toml whose [[behavior.table]] (persist = true) DECLARES it
+table = "goblin_fight"                  # id, length, check word and [[flag]] indices are READ from there
+
+[[scene.ledger.write]]
+on = "init"                        # the fight began: outcome 2 ("engaged")
+slot = 0
+cell = 0
+set = 2
+[[scene.ledger.write]]
+on = "reaction"                    # every effect landed on it (misses count)
+slot = 0
+cell = 1
+add = 1
+[[scene.ledger.write]]
+on = "dying"                       # it fell: outcome 1
+slot = 0
+cell = 0
+set = 1
+[[scene.ledger.write]]
+on = "dying"                       # who finished it: a CharacterId (0 Zidane, 1 Vivi, ...)
+slot = 0
+cell = 2
+set = "killer"
+[[scene.ledger.write]]
+on = "dying"                       # a save-global story flag, for requires_flag anywhere
+slot = 0
+flag = "goblin_slain"
+set = 1
+```
+
+The declaring field (`village.field.toml`) owns the table and reads it — all existing surface:
+
+```toml
+[[flag]]
+name = "goblin_slain"
+index = 8910
+
+[behavior]
+  [[behavior.table]]
+  name = "goblin_fight"
+  id = 6412001                      # your own id in 6000000..6999999
+  persist = true
+  values = [0, 0, 15, 0]            # outcome, hits, killer (15 = an in-range "no one yet" text row), spare
+
+  [[behavior.unit]]
+  npc = "elder"
+    [[behavior.unit.branch]]        # tell the win, then CONSUME it so it is told once
+    when = [{ table_eq = ["goblin_fight", 0, 1] }]
+    do = { announce = "So the goblin is dead." }
+    cooldown = 30                   # the event lane: the line fires and releases
+    adjust = { table = "goblin_fight", index = 0, by = -2, clamp = [0, 2] }
+    [[behavior.unit.branch]]
+    do = { hold_post = true }
+```
+
+and any later field can name the killer through a `[[text_table]]` and a `[[choice]]` value
+(`values = ["expr:const4(6412001) const(2) B_VECTOR"]`, `[TEXT=heroes,0]`), gated on `requires_flag = 8910`.
+That value is an `expr:` read, and it restates the table id — keep it in step with the declaration (the
+battle side reads the id from `declared_in`; an `expr:` string cannot).
+
+**The hooks are the engine's** (measured in-game, `studies/fight-ledger/PLAN.md` rung 0):
+
+| `on` | tag | runs | notes |
+|---|---|---|---|
+| `init` | 0 | once per enemy, when Main_Init creates it | before its battle data is bound: no stat reads |
+| `reaction` | 7 | after every effect landed on the enemy, from any caster — misses and heals included | the lethal effect too, unless tag 9 takes it (below) |
+| `dying` | 9 | a **player's** killing blow through the damage calculator, on a `die_atk` enemy with no Petrify/Venom/Stop/Freeze/Death/Sleep | NOT poison/Doom ticks, Heat, enemy-on-enemy kills, instant death, escapes |
+
+- **`die_atk`.** A `dying` row makes the kit OR `die_atk` into that enemy **type**'s flags (every slot of
+  the type then dies through the `die_atk` path — the build warns). It refuses when `[[scene.enemy]] flags`
+  is given without it (that key replaces the word), on a `non_dying_boss`, and when OR-ing would wake a
+  donor tag-9 function that never ran (the message names both fixes).
+- **Slots must spawn one enemy in every pattern.** A slot with no `[[scene.enemy]] type` keeps each
+  pattern's own type under `monster_count`; a ledger row on a slot whose enemy differs between patterns is
+  refused (give it a `type`). A multipart boss's SLAVE parts route their hits and death to the master:
+  write rows on the master's slot (type 0), whose `reaction` rows see every part's hits.
+- **The replay.** When tag 9 takes the lethal effect the engine refuses that hit's tag-7 request, so the
+  kit re-runs the slot's `reaction` rows at the top of tag 9 — a hit count never misses the killing blow.
+- **Which enemy** is a `slot` (an int or a list). Every row runs behind a filter on the object's own battle
+  bit (`16 << slot`), so two slots sharing one AI entry write their own rows. `reaction` rows are refused on
+  an enemy whose AI has a Counter (tag 6): a countered hit's Reaction is refused by the engine.
+- **Targets and values.** `cell` = a constant index below the table's length, or `flag` = a `[[flag]]` name
+  from `declared_in` (`set = 0|1`). `set` = an integer or a source; `add` = a nonzero integer. Values are
+  fenced to ±1000000 (integers at build, sources and adds clamped at run time). Sources, and where each is
+  readable:
+
+  | `set =` | reads | init | reaction | dying |
+  |---|---|---|---|---|
+  | `"field"` | the field the fight began in | ✓ | ✓ | ✓ |
+  | `"hp"` | this enemy's HP after the effect | – | ✓ | – (always 0; the replay records it) |
+  | `"command"` / `"ability"` | the triggering command / ability id (Attack = 1 / 176) | – | ✓ | ✓ |
+  | `"killer"` | the killer's CharacterId | – | – | ✓ |
+  | `"killer_hp"` | the killer's HP at the kill | – | – | ✓ |
+
+  `killer`, `killer_hp`, `command` and `ability` read frame-shared engine slots: exact with one effect per
+  frame, but with several effects resolving in one frame (Battle Speed "Simultaneous") a value can belong
+  to the other event. The scene id, a type's max HP or level are build-time constants — write the number.
+- **The table never changes shape.** Every cell write is an overwrite under a LIVE GATE — the guard holds
+  the table's check word AND the table is exactly its length (the exact negation of the declaring field's
+  re-seed test). So a battle can never create, append to or grow the table; a table that was never seeded in
+  this save, was re-shaped after the battle was built, or belongs to someone else is left untouched. `flag`
+  rows sit outside the gate: a fight before any declaring field ran still records the flag. **Declare the
+  table in the field that starts the fight, or one the player passes first.**
+- **Reading it.** The catching field's tag-10 return resumes its behavior ticker, so a `table_eq`/`table_ge`
+  branch reacts in the same session; a `[[behavior.hud]]` strip closes at battle start and reopens only on a
+  fresh field entry. Rows reach disk at the next field-entry autosave or save point (the return from a
+  battle does not autosave). A Game Over discards the fight; an escape keeps what `init` wrote.
+- **The build prints** the resolved identity and every splice (`ledger: entry 2 tag 9 (dying, ADDED
+  +1122 B): …`). Splices go LAST, after the `ai_*` edits, at body offset 0 or as an added function, so they
+  move nothing an `ai_patch` offset or an `ai_insert` locator points at.
 
 ### (c) Shared actions / abilities — `Data/Battle/Actions.csv` (player-side)
 
@@ -576,7 +709,7 @@ step). The battle `.eb` IS the field `.eb` container/interpreter, so the kit alr
 added the missing VOCABULARY: `eb/_exprtable.py` (the `op_binary` operator table, all 128, from `EBin.cs`) + the
 `0xC0+` variable-token decode (`Global.Bit[8512]` story-flags, `B_CURHP` enemy-HP); `eb/disasm.pretty_expr`
 (names an expression stream, mirroring `read_expr`'s byte-walk); `battle/battleai.py` (walks entry 0 = Main_Init
-spawn-binding, entries `1..TypCount` = per-type AI, functions by TAG [Main/Counter/ATB/Dying], with named commands
+spawn-binding, entries `1..TypCount` = per-type AI, functions by TAG [Init/Main/ATB/Counter/Reaction/Dying], with named commands
 incl. a control-opcode overlay + annotated expressions). ★ The load-bearing property = **byte-walk PARITY**: a
 test asserts `_decode_func_pretty`'s instruction offsets == the proven `read_code`'s across every AI function of a
 real donor, so the view can never desync. Reads the real EF_R007 Goblin AI cleanly. 10 tests; a review pass
@@ -619,7 +752,7 @@ terminator set (`GameOver`/`STOP`/… also end dispatch → false-flagged, now w
 out-of-range tag raising a raw `struct.error` (→ clean error). **Phase 6c COMPLETE** (read → tune → author →
 validate the whole enemy-AI stack, no DLL). ★ **IN-GAME PROVEN (2026-06-13):** a `[[scene.ai_function]]` RET-ing the
 forked Goblin's **tag-5 attack routine** (`battle_tests/bt_goblin`, scene 30055) made it stand idle in real battle
-(Phase-4 Poison then finished it). Dispatch model learned: an enemy turn dispatches to **tag 7 (ATB)**; the spawned
+(Phase-4 Poison then finished it). Dispatch model learned (tag 7 corrected later — it is the post-hit reaction, the turn is tag 5; see `studies/fight-ledger/PLAN.md`): the spawned
 enemy's AI ENTRY is bound by Main_Init's `InitObject(<entry>,…)` (the Goblin binds to **entry 2**, decoupled from the
 raw16 "type"); the `Attack` (0x38) command lives in **tag 5**. **Defer raw17 btlseq sequence authoring** (new codec
 + a coordinated raw16+eb+raw17 edit).

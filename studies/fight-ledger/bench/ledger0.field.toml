@@ -1,0 +1,94 @@
+# =====================================================================================
+# THE FIGHT WRITES THE LEDGER, RUNG 0 -- THE CATCHING FIELD  --  field 30870
+# =====================================================================================
+# Declares the persistent ledger the two bench battles write into:
+#   fight_ledger0  id 6004870 (guard 7004870), 16 zero cells,
+#   check word 20525896 = persist_check_word("fight_ledger0", 16).
+# The battles (scene_a/ 30871, scene_b/ 30872) are started by the harness from here.
+#
+# The `fight` branch is never raised: it exists so the build installs the entry-0 tag-10
+# Main_Reinit a battle return needs (without one every object stays suspended after the
+# fight). The `table_ge` branch is the in-session reader: once battle B's death hook has
+# written cell 8, this field's own ticker -- resumed by that Main_Reinit -- raises `seen_b`.
+#
+#   py tools/deploy_field.py studies/fight-ledger/bench/ledger0.field.toml --id 30870 --name LEDGER0 --text-block 30870
+
+[field]
+id = 30870
+name = "LEDGER0"
+area = 11
+title = "LEDGER 0"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+# the compile gate: a [behavior] block needs a unit or it compiles to nothing
+[[npc]]
+name = "keeper"
+model = "GEO_NPC_F0_CSO"
+pos = [400, -837]
+
+[behavior]
+warmup = 30
+public_flags = ["fight", "seen_b"]
+
+  [[behavior.table]]
+  name = "fight_ledger0"
+  id = 6004870
+  persist = true
+  values = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+  [[behavior.unit]]
+  npc = "keeper"
+    [[behavior.unit.branch]]
+    when = [{ flag = "fight" }]
+    clear_flags = ["fight"]
+    do = { battle = 30871 }
+    [[behavior.unit.branch]]
+    when = [{ table_ge = ["fight_ledger0", 8, 1] }]
+    raise_flags = ["seen_b"]
+    do = { hold = [400, -837] }
+    [[behavior.unit.branch]]
+    do = { hold = [400, -837] }
+
+  [[behavior.hud]]
+  window = 6
+  digits = [2, 1, 5, 2, 1, 5, 1, 3]
+  values = [
+    "expr:const4(6004870) B_VECTOR_SIZE",
+    "expr:const4(7004870) const(0) B_VECTOR const4(20525896) B_EQ",
+    "expr:const4(6004870) const(0) B_VECTOR",
+    "expr:const4(6004870) const(2) B_VECTOR",
+    "expr:const4(6004870) const(5) B_VECTOR",
+    "expr:const4(6004870) const(6) B_VECTOR",
+    "expr:const4(6004870) const(8) B_VECTOR",
+    "expr:const4(6004870) const(13) B_VECTOR",
+  ]
+  text = """[MPOS=8,8]== LEDGER 0 30870 ==
+T SIZE         [NUMB=0]
+CHECK OK       [NUMB=1]
+A SCENE        [NUMB=2]
+A HITS         [NUMB=3]
+A TAG9         [NUMB=4]
+B SCENE        [NUMB=5]
+B TAG9         [NUMB=6]
+B KILLER HP    [NUMB=7]"""

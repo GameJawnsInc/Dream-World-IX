@@ -1,0 +1,55 @@
+# =====================================================================================
+# THE FIGHT WRITES THE LEDGER, RUNG 1 -- A FIELD WITH NO TABLE  --  field 30883
+# =====================================================================================
+# Declares NO table: a fight started here, on a New Game, happens before any declaring field
+# has seeded dwix_fl1 -- the ledger's live gate must keep every cell write closed (nothing is
+# created) while its flag row still lands. The `fight` branch is never raised: it only
+# installs the tag-10 Main_Reinit a battle return needs.
+#
+#   py tools/deploy_field.py studies/fight-ledger/bench/ledger1n.field.toml --id 30883 --name LEDGER1N --text-block 30883
+
+[field]
+id = 30883
+name = "LEDGER1N"
+area = 11
+title = "LEDGER 1 N"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+[[npc]]
+name = "keeper"
+model = "GEO_NPC_F0_CSO"
+pos = [400, -837]
+
+[behavior]
+warmup = 30
+public_flags = ["fight"]
+
+  [[behavior.unit]]
+  npc = "keeper"
+    [[behavior.unit.branch]]
+    when = [{ flag = "fight" }]
+    clear_flags = ["fight"]
+    do = { battle = 30881 }
+    [[behavior.unit.branch]]
+    do = { hold = [400, -837] }

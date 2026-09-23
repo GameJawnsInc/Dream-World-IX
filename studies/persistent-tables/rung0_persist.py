@@ -53,11 +53,19 @@ HIGH = [424242, 17]
 STATE_FILE = REPO / ".harness-runs" / "rung0-persist-state.json"
 PHASE = os.environ.get("RUNG0_PHASE", "").strip().lower()
 
-# the HUD rows on each bench: label -> the open-pass width SENTINEL of its slot (10**digits - 1,
-# from each toml's `digits`). A row still showing its sentinel has not had its live pass yet.
-READ_ROWS = {"SIZE 4242": 99, "CELL 3": 99999, "SUM 0-9": 99999, "OTHER 9 OK": 9,
-             "HIGH 0": 99999, "HIGH SIZE": 9, "CONTROL SIZE": 9}
-WRITE_ROWS = {"SIZE 4242": 99, "CELL 0": 99999, "CELL 3": 99999, "CELL 9": 99999, "HIGH 0": 99999}
+def sentinel(digits: int) -> int:
+    """The open-pass width SENTINEL a HUD slot of ``digits`` shows before its live pass:
+    ``min(10**digits - 1, 0xFFFF)`` (content/behavior.py -- the operand is a u16, so a 5-digit slot
+    opens at 65535, NOT 99999; waiting for "not 99999" would accept an unfilled 5-digit slot)."""
+    return min(10 ** digits - 1, 0xFFFF)
+
+
+# the HUD rows on each bench: label -> the open-pass width sentinel of its slot (from each toml's
+# `digits`). A row still showing its sentinel has not had its live pass yet.
+READ_ROWS = {"SIZE 4242": sentinel(2), "CELL 3": sentinel(5), "SUM 0-9": sentinel(5), "OTHER 9 OK": sentinel(1),
+             "HIGH 0": sentinel(5), "HIGH SIZE": sentinel(1), "CONTROL SIZE": sentinel(1)}
+WRITE_ROWS = {"SIZE 4242": sentinel(2), "CELL 0": sentinel(5), "CELL 3": sentinel(5), "CELL 9": sentinel(5),
+              "HIGH 0": sentinel(5)}
 
 
 def _sha(p: Path) -> str | None:
@@ -74,7 +82,7 @@ def _sandbox(g) -> Path:
 def _hud(g, rows, *, want_header: str, timeout: float = 20.0, until=None) -> dict | None:
     """Parse the HUD strip's rendered values out of the published dialogue texts.
 
-    The strip opens with 5-glyph width SENTINELS (99999) and the live pass overwrites them, so a
+    The strip opens with width SENTINELS (see :func:`sentinel`) and the live pass overwrites them, so a
     parse that still sees a sentinel waits for the next sample rather than reporting it."""
     found: dict = {}
 

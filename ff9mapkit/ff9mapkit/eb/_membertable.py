@@ -21,6 +21,7 @@ MEMBER_NAMES: dict[int, str] = {
     46: "status.cur.hi", 47: "status.cur.lo",
     48: "elem.invalid", 49: "elem.absorb", 50: "elem.half", 51: "elem.weak",
     52: "target", 53: "disappear", 57: "geo_id", 58: "mesh", 64: "row", 65: "line_no",
+    70: "slot_no",                     # bi.slot_no: an enemy's index, a player's CharacterId (btl_init.cs:62/378)
     72: "str", 73: "mgc", 74: "phys_def", 75: "phys_evade", 76: "mag_def", 77: "mag_evade",
     112: "motion", 114: "cur_attack",
     140: "pos.x", 141: "pos.ny", 142: "pos.z", 146: "exp", 147: "gil", 148: "trance", 149: "t_gauge",
