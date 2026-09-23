@@ -34,11 +34,19 @@ def _as_bytes(data) -> bytes:
 # --------------------------------------------------------------------------- core relayout
 
 def insert_bytes(data, abs_off: int, ins: bytes) -> bytes:
-    """Insert ``ins`` at absolute offset ``abs_off``; keep the entry table consistent.
+    """Insert ``ins`` at absolute offset ``abs_off``; keep the ENTRY table consistent -- and nothing else.
 
     Grows the entry that contains ``abs_off`` (so its declared size still covers its code) and
-    bumps the table offset of every entry that starts after it. Entry-count aware. Internal
-    func ``fpos`` values are relative to their entry, so they need no fixup.
+    bumps the table offset of every entry that starts after it. Entry-count aware.
+
+    It does NOT touch the containing entry's own function table, so it is only safe when no OTHER
+    function of that entry starts at or after ``abs_off``: the insert lands in the entry's LAST
+    function, and no ``fpos`` points past the entry's end. A past-the-end ``fpos`` is real -- the
+    blank template's entry-0 Main_Loop (tag 1) sits 65 bytes past the end, an out-of-range IP the
+    engine simply returns from -- and every byte raw-inserted ahead of it eats one byte of that
+    margin, until the engine runs the loop from the middle of the entry's code. Anything else, a
+    Main_Init prepend above all, goes through :func:`insert_in_function`, which moves the other
+    functions' ``fpos`` with the bytes. Relative jumps are not fixed either (:func:`jumps_crossing`).
     """
     b = bytearray(_as_bytes(data))
     n = b[3]
