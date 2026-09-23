@@ -62,9 +62,14 @@ class FakeGame:
     def __init__(self, game_path: Path, *, fps: float = 240.0, boot_state: str = "Title",
                  mode: str = "normal", walkmesh=(-600.0, -600.0, 600.0, 600.0),
                  resets_on_arm: bool = True, twist: float = 0.0):
-        self.dir = Path(game_path) / "x64" / "ff9harness"
+        self.game_path = Path(game_path)
+        self.dir = self.game_path / "x64" / "ff9harness"
         self.shots = self.dir / "shots"
         self.fps = fps
+        #: Unity rewrites output_log.txt on every launch. False models a game that died before it
+        #: did, so the file on disk is the PREVIOUS launch's -- which the driver must not archive as
+        #: this run's evidence, because nothing in an untimestamped log says it is stale.
+        self.writes_unity_log = True
         #: The protocol this stand-in claims to speak, or None to follow the module constant. A
         #: dial so a test can put an OLDER engine on the wire -- otherwise the driver's "rebuild
         #: the DLL" refusal is a guard that can never fire, which is the same shape as no guard.
@@ -212,9 +217,54 @@ class FakeGame:
     # -- lifecycle -----------------------------------------------------------------------------
     def start(self) -> "FakeGame":
         self.shots.mkdir(parents=True, exist_ok=True)
+        if self.writes_unity_log:
+            self.unity_log.parent.mkdir(parents=True, exist_ok=True)
+            self.unity_log.write_bytes(b"Initialize engine version: 5.2.3p2 (fakegame)\r\n")
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
         return self
+
+    # -- the two exception logs ----------------------------------------------------------------
+    @property
+    def unity_log(self) -> Path:
+        return self.game_path / "x64" / "FF9_Data" / "output_log.txt"
+
+    @property
+    def memoria_log(self) -> Path:
+        """The game ROOT's -- the working directory a launcher-style start gives the game."""
+        return self.game_path / "Memoria.log"
+
+    def throw(self, exc: str = "NullReferenceException",
+              frames=("FieldMapActorController.MovePC ()",
+                      "FieldMapActorController.UpdateMovement (Boolean copyLastPos)",
+                      "HonoBehaviorSystem.Update ()"),
+              *, message: str = "Object reference not set to an instance of an object",
+              caught: bool = False) -> None:
+        """Log an exception the way the engine does -- and in the log the engine would.
+
+        Which log is decided by who CATCHES it. ``caught=True`` is one thrown under a Memoria
+        ``catch (Exception err) { Log.Error(err); }`` -- all battle code, via
+        ``HonoluluBattleMain.Update`` -- and lands in Memoria.log only, as timestamped ``|E|``
+        lines. ``caught=False`` escaped a MonoBehaviour and lands in output_log.txt only, as an
+        untimestamped block. The BYTES are a real run's, terminators included: Memoria.log is LF,
+        and Unity ends every frame but the last with CR CR LF -- which a naive ``splitlines()``
+        reads as a blank line, so a stand-in that wrote plain CRLF would pass a reader the real
+        log breaks.
+        """
+        tail = " [0x00000] in <filename unknown>:0 "
+        if caught:
+            stamp = time.strftime("%d.%m.%Y %H:%M:%S")
+            lines = [f"{stamp} |E| System.{exc}: {message}"]
+            lines += [f"{stamp} |E|   at {f}{tail}" for f in frames]
+            body, path = "".join(line + "\n" for line in lines), self.memoria_log
+        else:
+            trace = "\r\r\n".join(f"  at {f}{tail}" for f in frames)
+            body = f"{exc}: {message}\r\n" + (trace + "\r\n" if trace else "")
+            body += " \r\n(Filename:  Line: -1)\r\n\r\n"
+            path = self.unity_log
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "ab") as f:
+            f.write(body.encode("utf-8"))
 
     def stop(self) -> None:
         self._stop.set()

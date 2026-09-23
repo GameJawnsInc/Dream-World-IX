@@ -186,6 +186,7 @@ step never landed" on its own:
 | `shots/FAILED-<k>.png` | The screen at that failure. |
 | `states-final.jsonl` | The ring as it stood **before** `quit`. (`state-final.json` is the agent's last document, written *after* the quit was accepted — the wrong moment, and kept only for compatibility.) |
 | `env.json` | The install the run happened on: the sha256 of the `Assembly-CSharp.dll` actually driven, every mod folder's registrations, the `Memoria.ini` values that change what a result means (`[AnalogControl] Enabled`, `[Cheats]`, `[Control] SoftReset`, `[SaveFile] DisableAutoSave`, FolderNames), the driver's git head, and — under a suite — the manifest and member list. A probe that could not answer writes `null` **and** a named entry in `errors`, so "could not read" is never "not set". |
+| `Memoria.log`, `output_log.txt` | The two exception logs as they were at teardown. Caught exceptions, which includes all battle code, are in the first; uncaught ones are in the second ([two logs](#engine-exceptions-live-in-two-logs)). `output_log.txt` is left out when the game never wrote it this launch, because it would be the previous run's and nothing in it says so. |
 
 Evidence is **capped at three failed checks per scenario**; later failed checks say so on their
 row (`shot_skipped`). A shot is also skipped, with the reason, when the channel is stale (a hung
@@ -435,7 +436,8 @@ Exit code is 0 only when every check passed **and at least one check was recorde
 asserts nothing is reported as having proved nothing, rather than passing.
 
 Artifacts land in `.harness-runs/<stamp>-<label>/`: `report.json`, `events.jsonl`,
-`state-final.json`, `Memoria.log`, and every `shots/*.png`.
+`state-final.json`, **both** exception logs (`Memoria.log` and Unity's `output_log.txt` — see
+[Engine exceptions live in two logs](#engine-exceptions-live-in-two-logs)), and every `shots/*.png`.
 
 ### Process safety
 
@@ -483,6 +485,39 @@ is rejected locally rather than shipped to the game.
 `g.watch(*bits)` publishes those `gEventGlobal` bits in every later sample — flags are otherwise not
 reported, because dumping 2048 bits per frame is noise.
 
+### Engine exceptions live in two logs
+
+Which log an exception lands in depends on **who catches it**:
+
+| Log | Gets | Format |
+|---|---|---|
+| `Memoria.log` (game root, or `x64/` — newest wins) | Anything thrown under a Memoria `catch { Log.Error(err); }`. That includes **all battle code**, because `HonoluluBattleMain.Update` wraps the battle loop in one. | Timestamped `\|E\|` lines, one per stack frame |
+| `x64/FF9_Data/output_log.txt` (Unity's own, rewritten every launch) | Exceptions **nobody caught**, e.g. a MonoBehaviour `Update` throwing (`FieldMapActorController.MovePC`) | An untimestamped block |
+
+Each exception lands in exactly one of them. One measured run had 637 battle-init NREs in
+`Memoria.log` and none in `output_log.txt`, plus 18 `MovePC` NREs in `output_log.txt` and none in
+`Memoria.log`. A check that reads only one file comes back falsely clean. So read both, through the
+driver:
+
+```python
+mark = g.log_mark()                       # a line-aligned mark in BOTH logs
+g.start_battle(30910, group=0)
+...
+for e in g.exceptions_since(mark):        # LogException: .log .type .name .message .trace .stamp .where
+    if e.through("btl_init", "btlseq"):   # any frame mentions any of these
+        print(e)                          # "NullReferenceException at btl_init.OrganizeEnemyData (Memoria.log)"
+```
+
+`exceptions_since()` with no mark reads each current log whole. On a launched game that means this
+launch, and a log the game has not written since launch is skipped. On an `--attach` it also covers
+whatever came before you attached, so take a mark.
+
+`g.diagnose()` is how a failed wait explains itself. When the channel freezes, the error names the
+exception, the frame it was thrown at, and which log it came from. It reads both logs and reports
+every log with a marker, newest first. It refuses to use a log last written more than `max_age` ago
+or before this launch. It only counts lines from the last `window` seconds: `Memoria.log` by its
+line timestamps, `output_log.txt` by a size the driver notes about once a second.
+
 **Waiting and asserting**
 
 | Call | Notes |
@@ -525,7 +560,8 @@ instead of across a dozen 40-second game launches, and the same bug was fixed in
 
 | Symptom | Likely cause |
 |---|---|
-| "the agent never published state" | The running engine predates s83, or the game never reached the title. Check the run's `Memoria.log`. |
+| "the agent never published state" | The running engine predates s83, or the game never reached the title. Check the run's `Memoria.log` **and** `output_log.txt`. |
+| A wait fails with "the channel is frozen -- the engine threw ..." | The exception named there is the likely cause, and `(from ...)` says which log recorded it. A battle-code exception is in `Memoria.log`; an uncaught field/world one is only in `output_log.txt`. |
 | "FF9 is already running" | By design. Close it, or pass `--attach`. |
 | Steps acknowledged but nothing happens | The game is in a UI state that ignores input (a transition, a modal). Sample `g.state.ui_state`. |
 | `warp` refused | `Ff9mkDebugMenu.Warp` only fires from `FieldHUD`; use `world_warp` from the overworld. |
