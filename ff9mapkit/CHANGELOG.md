@@ -255,6 +255,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the one window at txid 500. An `--editable` or plain BG-borrow import records no donor, so a real
   `text_block` is taken as the donor's (the importer sets it that way). A recorded donor (a native fork's
   `source_field`, a verbatim one's `[verbatim_eb] donor`) must match exactly.
+- **In-game proven** (harness, the 1607 editable fork). With no `.mes` shipped, talking to the carried moogle
+  object8 shows the donor's own line 504, read from the base game's block 358. It matches that entry best out of
+  all 864, 0.93 against 0.84 for the runner-up. The control adds five event messages so the field's own
+  `358.mes` holds txids 500-504, and the same press shows the field's own line 504 instead. Both runs 5/5, no
+  exceptions.
 
 ### Fixed — a field revert removes the `.mes` its deploy wrote fresh
 - **The revert used to leave behind a `field/<block>.mes` that the deploy wrote where none existed.** It only
