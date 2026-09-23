@@ -327,11 +327,25 @@ def test_entrylock_rejects_a_non_template_player():
         _entrylock.gate_grant_on_entrances(broken, [2])
 
 
-def test_entry_settle_grant_is_entrance_gated_with_locked_entrances():
-    # the settle's closing EnableMove is an unconditional grant -- on an arrive-locked field it
-    # must be gated on the locked entrances (else it re-grants mid-arrival and breaks the contract)
+def test_entry_settle_adds_no_grant_on_the_template():
+    # on the template the settle only HOLDS Main_Init before its `set MAP159 = 1`; control comes back through
+    # the template's own handshake, whose two grant sites entrylock already gates -- so the settle adds no
+    # grant of its own, and locked_entrances changes nothing here
     from ff9mapkit.content import entry_settle as _es
     raw = data.blank_field_bytes()
+    plain = _es.add_entry_settle(raw, 30)
+    assert _es.add_entry_settle(raw, 30, locked_entrances=[5]) == plain
+    hold = opcodes.DISABLE_MOVE + opcodes.wait(30)
+    assert (hold + _es._SET_MAIN_READY) in plain
+    assert plain.count(opcodes.ENABLE_MOVE) == raw.count(opcodes.ENABLE_MOVE)
+
+
+def test_entry_settle_fallback_grant_is_entrance_gated_with_locked_entrances():
+    # WITHOUT the template handshake the settle closes with its own EnableMove -- an unconditional grant that
+    # on an arrive-locked field must be gated on the locked entrances (else it re-grants mid-arrival)
+    from ff9mapkit.content import entry_settle as _es
+    from ff9mapkit.content.entrylock import _SET_LATCH
+    raw = data.blank_field_bytes().replace(_SET_LATCH, bytes(len(_SET_LATCH)))
     plain = _es.add_entry_settle(raw, 30)
     gated = _es.add_entry_settle(raw, 30, locked_entrances=[5])
     assert (opcodes.DISABLE_MOVE + opcodes.wait(30) + opcodes.ENABLE_MOVE) in plain

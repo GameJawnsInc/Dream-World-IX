@@ -458,11 +458,12 @@ EffectiveFieldId suite for an editable fork. Those gates key on the donor's walk
 hold until you reshape `walkmesh.obj`. The name-keyed overlay offsets (s31 `FieldMapExtraOffset.SetOffset`) sit
 on the `.bgs` load path, which an editable `.bgx` scene never takes, so its re-sliced layers are not mis-offset.
 
-2507's delayed pass also detaches every actor that is not flagged as the player, and on a kit-built fork
-(`--native`, `--editable`, BG-borrow) that includes the player, who could then walk off the walkway. The real
-script re-attaches its player with `SetPathing(1)`, so `--verbatim` forks were never affected. The build now
-turns the kit-built player's idle Loop into a guard that re-attaches it whenever it has control and no triangle
-(`content.walkmesh_hotfix.reattach_player`; harness-proven, `studies/fork-walkmesh-hotfix/`).
+2507's delayed pass also detaches every actor that is not yet flagged as the player. It used to catch the
+player of a kit-built fork (`--native`, `--editable`, BG-borrow), who could then walk off the walkway. The kit
+template's player Init had its stale sound ops zero-filled, and each 0x00 is a one-tick yield, so it only became
+the player ~1.6 s in. The build now jumps over those ops, so the kit player binds on its first tick, like the
+real one, and the pass skips it (`content.npc.neutralize_player_audio_cruft`; harness-proven,
+`studies/fork-walkmesh-hotfix/`). `--verbatim` forks run the real script and were never affected.
 
 IN-GAME PROVEN by A/B (Gulug 2356): two identical native forks — id 30003 *with* the toggle, id 30004
 *without* — teleporting to the deactivated-patch EDGE (−543,1667), ~120u from the chest (beyond its

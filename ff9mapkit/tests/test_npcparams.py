@@ -8,6 +8,8 @@ from ff9mapkit._npcparams import NPC_PARAMS
 from ff9mapkit.content import npc as N
 from ff9mapkit.eb import EbScript
 
+from ._ebwalk import executed_ops as _executed_ops
+
 
 def test_catalog_shape_and_moogle_values():
     assert len(NPC_PARAMS) > 100                              # a real census, not a stub
@@ -102,6 +104,20 @@ def test_neutralize_player_audio_cruft_in_place():
     assert _count_stale_sound(out) == 0                      # the 'Music Id 912' spam ops are gone
 
 
+def test_neutralize_does_not_make_the_player_init_yield():
+    # 0x00 is a one-tick YIELD in the engine (DoEventCode case NOP returns 1), so zero-filling the eight 6-byte
+    # sound ops stalled the player's Init 48 ticks between SetModel and DefinePlayerCharacter -- the window in
+    # which 2507's delayed walkmesh pass detached it (studies/fork-walkmesh-hotfix). Each op is now a JMP over
+    # its own bytes, so no 0x00 is ever executed and DefinePlayerCharacter runs on the Init's first tick.
+    blank = data.blank_field_bytes("us")
+    out = N.neutralize_player_audio_cruft(blank)
+    pe = N._find_player_entry(EbScript.from_bytes(out))
+    ran = _executed_ops(out, pe, 0)
+    assert 0x2C in ran                                       # DefinePlayerCharacter is reached
+    assert 0x00 not in ran and 0x22 not in ran               # ...with no NOP and no Wait on any path
+    assert _executed_ops(blank, pe, 0).count(0x00) == 0      # the template itself never yielded here either
+
+
 def test_built_synthesized_field_player_has_no_stale_sound(tmp_path):
     # build_script neutralizes it, so EVERY synthesized field ships a clean player (no per-frame 912 lag)
     from ff9mapkit import build
@@ -110,3 +126,5 @@ def test_built_synthesized_field_player_has_no_stale_sound(tmp_path):
                  '[camera]\npitch=30\ndistance=900\nfov=40\n[player]\nspawn=[0,0]\n', encoding="utf-8")
     eb = build.build_script(build.FieldProject.load(p), "us", {})
     assert _count_stale_sound(eb) == 0
+    ran = _executed_ops(eb, N._find_player_entry(EbScript.from_bytes(eb)), 0)
+    assert 0x2C in ran and 0x00 not in ran                  # the built player binds without a yield

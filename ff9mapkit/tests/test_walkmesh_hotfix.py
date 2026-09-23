@@ -323,8 +323,8 @@ def test_editable_import_of_2507_keeps_its_delayed_hotfix_through_the_engine(tmp
     assert "reproduced by the engine fork-donor remap" in text and "LOST" not in text
 
 
-# --- the delayed pass also detaches a kit-built PLAYER: the build re-attaches it ----------------------------
-WAIT, SET_PATHING = 0x22, 0xA8
+# --- the delayed pass also detaches every non-player actor: a kit-built player must already BE the player ----
+WAIT = 0x22
 
 
 def _player_loop_ops(ebb):
@@ -338,39 +338,24 @@ def test_catalog_2507_detaches_actors():
     assert WH.info(2507).detaches_actors and WH.info(2507).delayed
 
 
-def test_reattach_turns_the_idle_player_loop_into_a_guard():
-    """A fixed one-shot (Wait 30, SetPathing 1) raced the engine's pass in-game and lost: when the pass lands
-    relative to the script varies with the load. So the player's idle Loop becomes a guard: every frame, when
-    the player has control (B_SYSVAR[2]) but no triangle (B_BGIID -1), SetPathing(1)."""
-    src = data.blank_field_bytes("us")
-    out = WHX.reattach_player(src)
-    assert EbScript.from_bytes(out).to_bytes() == out        # still a valid .eb
-    assert _player_loop_ops(src) == [(WAIT, [1]), (0x01, [0x10000 - 6])]   # the template's idle loop
-    ops = _player_loop_ops(out)
-    assert [op for op, _ in ops] == [0x05, 0x02, SET_PATHING, WAIT, 0x01]
-    assert ops[2][1] == [1] and ops[3][1] == [1]              # SetPathing(1), then Wait(1) -- every frame
-    assert ops[4][1] == [0x10000 - len(WHX.reattach_loop_body())]   # the jump closes the whole body
-    from ff9mapkit.eb import exprasm
-    assert exprasm.assemble(WHX.REATTACH_COND + " B_EXPR_END") in out
-    assert _tag0_ops(out) == _tag0_ops(src)                   # Main_Init untouched
-    with pytest.raises(ValueError, match="idle loop"):        # a Loop someone already changed is not replaced
-        WHX.reattach_player(out)
-
-
-def test_build_reattaches_the_player_only_where_the_pass_detaches_it(tmp_path):
+def test_a_2507_fork_player_binds_before_the_pass_with_no_guard(tmp_path):
+    """DelayedActiveTri (0.5 s in) detaches every controller whose isPlayer is false. A kit-built player used to
+    be caught: its Init yielded 48 ticks (zero-filled sound ops) between SetModel and DefinePlayerCharacter. The
+    fix is at the root -- the Init no longer yields (test_npcparams pins that) -- so a 2507 fork needs no guard:
+    its player keeps the template's plain idle Loop, exactly like a novel field's."""
     from ff9mapkit import build
+    from ff9mapkit.content.npc import _find_player_entry
+    from ._ebwalk import executed_ops as _executed_ops
     base = ('[field]\nid={fid}\nname="F"\narea=43\ntext_block=739\n{extra}'
             '[camera]\npitch=30\ndistance=900\nfov=40\n[player]\nspawn=[0,0]\n')
-    head = [0x05, 0x02, SET_PATHING, WAIT, 0x01]
-    cases = {"donor": (30999, "source_field = 2507\n", True),               # --native / --editable
-             "in_place": (2507, "", True),                                  # EffectiveFieldId(2507) == 2507
-             "borrow": (30999, 'borrow_bg = "IPSN_MAP745A_IP_HL2_0"\n', True),   # a campaign BG-borrow member
-             "other_donor": (30999, "source_field = 600\n", False),
-             "other_borrow": (30999, 'borrow_bg = "MGNT_MAP810_MN_MOG_0"\n', False),
-             "novel": (30999, "", False)}
-    for name, (fid, extra, want) in cases.items():
+    idle = [(WAIT, [1]), (0x01, [0x10000 - 6])]
+    for name, (fid, extra) in {"donor": (30999, "source_field = 2507\n"),            # --native / --editable
+                               "in_place": (2507, ""),                                # EffectiveFieldId == 2507
+                               "borrow": (30999, 'borrow_bg = "IPSN_MAP745A_IP_HL2_0"\n'),   # a BG-borrow
+                               "novel": (30999, "")}.items():
         p = tmp_path / f"{name}.field.toml"
         p.write_text(base.format(fid=fid, extra=extra), encoding="utf-8")
-        proj = build.FieldProject.load(p)
-        assert (build.detaching_donor(proj) == 2507) is want, name
-        assert ([op for op, _ in _player_loop_ops(build.build_script(proj, "us", {}))] == head) is want, name
+        eb = build.build_script(build.FieldProject.load(p), "us", {})
+        assert _player_loop_ops(eb) == idle, name
+        ran = _executed_ops(eb, _find_player_entry(EbScript.from_bytes(eb)), 0)
+        assert 0x2C in ran and 0x00 not in ran and WAIT not in ran, name

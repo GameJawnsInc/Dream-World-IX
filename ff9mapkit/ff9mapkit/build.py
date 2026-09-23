@@ -5949,40 +5949,6 @@ def _apply_walkmesh_hotfix(project: FieldProject, eb: bytes) -> bytes:
     return _walkmesh_hotfix.apply_tri_toggles(eb, [(int(t[0]), int(t[1])) for t in toggles])
 
 
-def detaching_donor(project: FieldProject) -> "int | None":
-    """The real field whose engine hotfix will detach this field's actors from the walkmesh at runtime
-    (:attr:`ff9mapkit.walkmesh_hotfixes.Hotfix.detaches_actors`), or ``None``. The engine resolves the field's id
-    through ForkDonorPatch, so that is the recorded donor (:func:`donor_field_id`), the field's own id when it is
-    forked in place, or the real field whose scene a plain BG-borrow ships under ``borrow_bg``. A BG-borrow
-    records no donor key, but a campaign member gets its row from ``plan.members`` all the same."""
-    ids = [donor_field_id(project.raw), project.id]
-    bb = (project.raw.get("field") or {}).get("borrow_bg")
-    if isinstance(bb, str) and bb:
-        from .extract import ID_TO_FBG
-        ids += [fid for fid in _walkmesh_hotfixes.detaching_ids()
-                if ID_TO_FBG.get(fid, "").lower().endswith("_" + bb.lower())]
-    for fid in ids:
-        h = _walkmesh_hotfixes.info(fid) if fid is not None else None
-        if h is not None and h.detaches_actors:
-            return h.field_id
-    return None
-
-
-def _apply_player_reattach(project: FieldProject, eb: bytes) -> bytes:
-    """Guard the player a donor's delayed engine hotfix detaches (:func:`detaching_donor`; 2507) with
-    :func:`ff9mapkit.content.walkmesh_hotfix.reattach_player`. SYNTHESIZE path only: a verbatim fork runs the
-    donor's own script, whose ``SetPathing(1)`` already re-attaches its player. Not a donor of that kind ->
-    unchanged (byte-identical)."""
-    donor = detaching_donor(project)
-    if donor is None:
-        return eb
-    try:
-        return _walkmesh_hotfix.reattach_player(eb)
-    except ValueError as e:
-        raise BuildError(f"field {project.name}: field {donor}'s engine walkmesh hotfix detaches the player, and "
-                         f"the build could not install its re-attach guard ({e}).") from e
-
-
 def _field_load_inject(label: str, field_name: str, fn):
     """Run a field-load injection (``_apply_startup`` / ``_apply_party`` / ``_apply_walkmesh_hotfix`` /
     ``_apply_on_entry``), converting the byte inserter's opaque "0x06 jump table" ``ValueError`` into a clear
@@ -7085,9 +7051,6 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # would apply by real fldMapNo but skips on a custom id (e.g. Gulug's broken-wall block). Prepended to
     # Main_Init; absent -> byte-identical.
     eb = _apply_walkmesh_hotfix(project, eb)
-    # a donor whose delayed engine hotfix also detaches this kit-built player (2507): the player's Loop becomes a
-    # guard that re-attaches it, as the donor's own script does. Not such a donor -> byte-identical.
-    eb = _apply_player_reattach(project, eb)
     # [[numeric_input]] steppers (the Treno-bid substrate, content.numinput): each block seats its own
     # parked code entry FIRST -- appends only, so the slot is fixed before any NPC/region injection --
     # and a [[choice]] option's `input = "<name>"` dispatches it by that slot. Absent -> byte-identical.
@@ -8107,7 +8070,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # field; that bank isn't loaded in a custom field, so it throws "Music Id 912 not found" every frame --
     # a per-frame KeyNotFoundException = lag (seen on the hut, field 4000). Neutralise it on EVERY
     # synthesized field's player (no-op if absent; animation is untouched -- only the offending sound op is
-    # NOP'd). See content.npc.neutralize_player_audio_cruft.
+    # jumped over; NOT zero-filled, which made the Init yield 48 ticks before DefinePlayerCharacter). See
+    # content.npc.neutralize_player_audio_cruft.
     eb = _npc.neutralize_player_audio_cruft(eb)
 
     # Entry camera-settle (opt-in): hold the screen black for N frames before Main_Init's reveal fade so the
@@ -8132,8 +8096,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             except (TypeError, ValueError):        # any other string -- lint_entry_settle explains it; don't crash
                 _n = 0
         _pre_settle = eb
-        # the settle's closing EnableMove must not re-grant on an arrive-locked entrance
-        # (the on_entry hook owns that grant) -- gate it on the same ids
+        # on the template the hold sits before Main_Init's `set MAP159 = 1`, so the template's own
+        # (entrylock-gated) handshake grants; elsewhere the settle closes with its own EnableMove, which must
+        # not re-grant on an arrive-locked entrance (the on_entry hook owns that grant) -- gate it on the ids
         eb = _entry_settle.add_entry_settle(eb, _n, locked_entrances=_locked or ())
         if eb is _pre_settle and _n > 0 and warnings is not None:
             _msg = (f"[camera] entry_settle = {_n}: NOT applied -- Main_Init has no plain reveal "

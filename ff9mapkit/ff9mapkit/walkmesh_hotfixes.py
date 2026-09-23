@@ -71,11 +71,12 @@ class Hotfix:
                   script makes the engine act. The lint reports only what the engine ADDS (``fork_tris`` minus these;
                   the script's own toggle is in the .eb scan), and only when carried donor code toggles a trigger.
     ``detaches_actors`` : the same engine pass also detaches every actor whose ``isPlayer`` is false from the
-                  walkmesh (2507: ``BGI_charSetActive(fac, 0)``). On a KIT-BUILT (non-verbatim) fork the player is
-                  detached too and walks off the mesh; the real script re-attaches its player with
-                  ``SetPathing(1)``, which a kit-built player lacks (★ harness-proven on --native and --editable
-                  forks, studies/fork-walkmesh-hotfix). The build guards it: the player's Loop re-attaches it
-                  whenever it has control and no triangle (``content.walkmesh_hotfix.reattach_player``).
+                  walkmesh (2507: ``BGI_charSetActive(fac, 0)``) -- by design for the donor's props, and harmless to
+                  a player already bound by ``DefinePlayerCharacter``. A KIT-BUILT player used to be caught too:
+                  the template Init's zero-filled sound ops were 48 one-tick yields between ``SetModel`` and
+                  ``DefinePlayerCharacter``, so it was not yet the player at 0.5 s and walked off the mesh
+                  (★ harness-proven, studies/fork-walkmesh-hotfix). ``content.npc.neutralize_player_audio_cruft``
+                  now skips those ops with a JMP, so the kit player binds on its first tick like the real one.
     """
 
     field_id: int
@@ -144,8 +145,9 @@ _HOTFIXES = {
                  "FIRST, then removes the tris. An at-load prepend removes them BEFORE the chests place, snapping "
                  "the chests a floor down (★ caught in-game 2026-06-23). So reproduce via the engine remap only -- "
                  "a fork with no donor row (its donor id did not resolve at import) loses it. The same pass "
-                 "detaches the player of a KIT-BUILT fork from the walkmesh (★ harness-proven: 360u off the "
-                 "walkway), so the build turns the player's idle Loop into a re-attach guard.",
+                 "detached the player of a KIT-BUILT fork (★ harness-proven: 360u off the walkway) while the "
+                 "template player's zero-filled Init still yielded 48 ticks before DefinePlayerCharacter; the "
+                 "player now binds on its first tick, as the real one does, so the pass skips it.",
                  "FieldMap.cs:139-148", toggles=((174, 0), (175, 0), (177, 0), (178, 0)),
                  tris=(174, 175, 177, 178), engine_remapped=True,
                  fork_tris=(174, 175, 177, 178), delayed=True, detaches_actors=True),

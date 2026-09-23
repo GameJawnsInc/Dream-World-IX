@@ -61,6 +61,9 @@ runs, and the pass skips it.
 
 ## The fix: a re-attach guard in the kit-built player's Loop
 
+> **Superseded and removed.** The guard below was replaced by the root-cause template fix. See "The template
+> fix (done; replaces the guard)" at the end. This section is kept as the record of what was shipped first.
+
 **First attempt: a fixed one-shot, which raced the harness walk.** `Wait(30); SetPathing(1)` went at the head
 of the player's Loop. It passed one launch: 30990 ended at the real field's spot and its HUD read `P 121`. It
 failed the next: 30990 and 30992 ended off the walkway at (2242.9, -990.6) and the HUD read `P -1` after the
@@ -171,7 +174,9 @@ docstring's reason ("the pass lands … varies with the load") should say that t
 
 For ~48 ticks after `SetModel`, a kit-built player has `isPlayer == false`, `FieldMap.playerController ==
 null`, and `controlUID` still 0. This holds on every kit-built field, novel or fork. Only donor-id gates turn
-it into a fork problem.
+it into a fork problem. (This describes the zero-filled template. After the template fix the player binds on
+the first event pass after `Main_Init`, as the real player does. The kit player no longer opens a window the
+real field doesn't have; the items below are what that window exposed.)
 
 - **`FieldMapActorController`'s own `if (this.isPlayer)` sites** (input movement, `ccSMoveKey`, running, walk
   speed, ladder flag, virtual analog, `HonoOnGUI` marks, `LoadResources`): each asks about its own controller
@@ -196,31 +201,60 @@ it into a fork problem.
   `DefinePlayerCharacter`. Any read of the player in the first ~1.6 s without such a gate (a HUD, a floor
   sensor) reads entry 0 instead. So does the harness, whose `player` is null for the whole window.
 
-### A template fix instead of the guard (not made; owner's call)
+### The template fix (done; replaces the guard)
 
-The root cause is in the kit, not the engine. `neutralize_player_audio_cruft` could remove the eight sound ops,
-or overwrite each with a jump over its own bytes (`0x01` + a 16-bit offset; `bra()` returns 0, so it does not
-yield) instead of zeros. The player would then bind on its first Init tick, as the real one does. That comes
-before the coroutine can resume, so the pass would skip it and `reattach_player` would become redundant.
+The root cause was in the kit, not the engine, so the fix is in the kit. Owner-approved; made in three parts:
 
-It moves the bind ~48 ticks earlier on **every** kit-built field, so it is not a local change:
+1. **No yields in the player's Init.** `neutralize_player_audio_cruft` now overwrites each stale sound op with a
+   `JMP` over its own bytes (`eb.edit.skip_range`: `0x01` + a 16-bit offset, then dead zeros). `bra()` returns
+   0, so nothing yields. The player binds on its first Init tick, as the real one does, which is before the
+   coroutine can resume. The pass then skips it.
+2. **The settle hold moved ahead of Main_Init's `set MAP159 = 1`.** With the player ready on tick 1, its own
+   handshake grant (`if (MAP159 == 1 && MAP156 == 0) EnableMove`) would have handed control back during the
+   black hold. Previously that grant landed at tick ~49, one tick before the settle's own `EnableMove`, so the
+   old order was right only by coincidence. Now Main is "not ready" (MAP159 is 0) for the hold, so the player's
+   latch arms MAP158 without granting. Main's own `if (MAP158 == 1)` re-affirm grants when the hold ends. The
+   settle adds no grant of its own, and `[player] locked_entrances` needs nothing new: `content.entrylock`
+   already gates both template grant sites. A Main_Init without the full handshake keeps the old
+   `DisableMove; Wait; EnableMove` before the reveal fade.
+3. **The guard is removed** (`content.walkmesh_hotfix.reattach_player`, `build._apply_player_reattach`,
+   `build.detaching_donor`). The catalog keeps `detaches_actors`, since it documents the engine pass.
 
-1. **Control during the entry-settle black hold.** `Main_Init` runs its settle `DisableMove; Wait(N)` on the
-   first pass. The player's Init then passes the `Map.Bit[159] == 1 && Map.Bit[156] == 0` check and runs
-   `EnableMove`, which would hand back control during the black. Today that `EnableMove` lands at tick ~49,
-   one tick before the settle's own at `Wait(50)`, so the current order is right by coincidence. A fix needs a
-   gate, e.g. the settle holding `Map.Bit[156]` for its duration.
-2. **Entry-settle calibration.** The camera cannot follow until `playerController` binds.
-   `content/entry_settle.py` models a 10-tick bind delay, but the true bind is ~49 ticks. The in-game-proven
-   holds (45–60) were measured after the zero fill existed (fill 2026-06-13, rung 7 2026-07-13), so they are
-   partly covering this delay. An earlier bind lets the camera start converging ~48 ticks sooner, and the holds
-   may carry slack. Needs a look in-game.
-3. **Anything in the player's Loop** (the 2507 guard, arrival logic that runs there) would start ~48 ticks
-   sooner relative to `Main_Init`.
-4. Byte-exact build goldens and the tests pinning the zero fill change.
+What else it touches: every synthesized field builds different bytes; the vivi-hut golden is re-pinned. A
+build with `skip_range` swapped back to the zero fill reproduces the old golden exactly, so the fill is the
+only change there (the hut has `entry_settle = 0`). The Loop, where arrival logic runs, now starts right after
+the Init instead of ~48 ticks later, still under the settle hold. `content/entry_settle.py`'s 10-tick bind
+delay is now roughly true; the proven 45–60 holds were left alone.
 
-Suggested first check, one change per test: rebuild 30990 with the jump fill and **without** the guard. Expect
-`player.x` right after the load hitch, the HUD at `P 122` after 3 s, and the walk stopping at the edge.
+Offline: the affected files, then the full suite in this worktree with templates extracted: **9559 passed,
+23 skipped, 0 failed**. New pins:
+- `test_npcparams`: no `0x00` or `Wait` is reachable before `DefinePlayerCharacter` in the neutralized or built
+  player Init. This uses a control-flow walk (`tests/_ebwalk.py`), because a linear disassembly lists the dead
+  bytes too.
+- `test_entry_settle`: the hold sits before `set MAP159 = 1` with no added `EnableMove`, and the fallback shape
+  holds without the handshake.
+- `test_control_lock`: the template settle adds no grant; the fallback grant is entrance-gated.
+- `test_walkmesh_hotfix`: a 2507 donor, an in-place fork, a BG-borrow and a novel field all build the plain
+  idle Loop with a yield-free Init.
+
+**In-game (`root_fix_2507.py`, run `20260923-173057-root-fix-2507`): 9/9, no engine exceptions.** The benches
+were rebuilt with the fix and **no guard**, then reverted after the run:
+
+| field | end position | on the walkway | bound → control |
+|---|---|---|---|
+| 30991, no row | (2173.901, -831.820), moved 290 | yes | 124 frames |
+| 30990, editable with row | (2157.431, -869.502) | yes | 130 frames |
+| 30992, native with row | (2157.431, -869.502) | yes | 110 frames |
+| real 2507 | (2157.431, -869.502) | yes | 4 frames |
+
+On 30990 the HUD reads `P 121, CA -1, CB -1`: the pass still fires and detaches the chests, while the player,
+already the player, keeps its triangle. Each kit field publishes its player within 2–4 frames of the switch,
+where it used to take ~1.7 s. Control comes back only when the settle hold ends. The 30991 control stopped at
+a third edge point (290u, inside the < 300 check; a detached walk covers ~360u). The pass never runs there,
+so that is edge-slide variance, as before.
+
+Not covered by the harness: the look of the entry. The black still hides the camera, and the camera can now
+start converging ~48 ticks sooner. Whether any hold now reads as too long is the owner's eye.
 
 ### The same zero-fill elsewhere
 
