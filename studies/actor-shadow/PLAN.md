@@ -299,7 +299,7 @@ repo's `.harness-runs/`: `20260923-112310-shadow-rung1-on`, `-112430-shadow-rung
   stock objects mostly `DisableShadow` in their Init: chocobos (`GEO_NPC_F0_CCB` 32/43), frogs, tadpoles,
   several monsters. An NPC of those models casts a shadow stock never shows. The same per-model rule could
   apply, but it changes rung 0's semantics and needs its own in-game check.
-- On a field that ships MapConfigData (a native fork, and since rung 1 an `--editable` one), a held prop gets
+- On a field that ships MapConfigData (a native fork, since rung 1 an `--editable` one, since rung 2 a BG-borrow), a held prop gets
   the MCF's shadow, its height taken from the bone-local offset. Stock would `DisableShadow` it. The kit
   emits nothing on an MCF field by design.
 - The pre-existing `FieldMapActorController.MovePC` NullReferenceException, about 26 per run on the
@@ -308,8 +308,14 @@ repo's `.harness-runs/`: `20260923-112310-shadow-rung1-on`, `-112430-shadow-rung
 - `campaign._REQUIRED_ASSETS` does not list `mapconfig.bytes` for a borrow or a native member, though both
   writers now emit it and the member toml references it. `fetch_assets` copies it whenever it re-runs a writer,
   but `missing_assets` cannot report it missing on its own. `validate` catches it at build, loudly.
-- `walkmesh.links.toml` seams are keyed on donor floor numbers too (`apply_seams` looks up `(floor, edge)` on the
-  rebuilt mesh), so a renumbering reshape drops them (2 of 14 on the 1607 swap). `obj_built_floor_donors` gives
-  the map that would fix it.
-- `deploy_field.py` prints "TEXT OVERWRITES VANILLA" for a fork on its donor's real block even when the build
-  ships no `.mes` (an editable fork without text carry). That fork only reads the block.
+- CLOSED: `walkmesh.links.toml` seams were keyed on donor floor numbers too, so a renumbering reshape dropped
+  them (2 of 14 on the 1607 swap). The build now re-keys them through the same map as the lights
+  (`build._donor_floor_map` -> `apply_seams(seams, floor_map)`). `census_seam_rekey.py` checked all 674 field
+  walkmeshes: the unedited round-trip is the identity on every one. With the floors reversed, the re-keyed build
+  keeps every one of the 5,983 seams, where the old reconcile dropped 3,756 in 353 walkmeshes. On this rung's
+  `reshape` bench (`walkmesh verify`, offline) 14 of 14 seams now link (7 of 14 with the old code), reproducing
+  the donor's six seam floor pairs exactly. Floor 4 stays unreachable on foot: stock 1607 has no seam to it
+  either. In-game check pending.
+- ~~`deploy_field.py` prints "TEXT OVERWRITES VANILLA" for a fork on its donor's real block even when the build
+  ships no `.mes` (an editable fork without text carry). That fork only reads the block.~~ Fixed: the warning
+  now fires only when the deploy copies a `.mes` for the block (`check_text_block_shadow(writes_mes=)`).

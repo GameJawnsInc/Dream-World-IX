@@ -177,6 +177,48 @@ def test_vanilla_warning_names_the_real_fields(tmp_path):
     assert w and "OVERWRITES VANILLA" in w and "3050-3059" in w
 
 
+def test_vanilla_axis_fires_only_when_the_deploy_writes_the_mes(tmp_path):
+    """The false alarm: an `import 1607 --editable` fork (no --carry-text) keeps text_block 358 (Madain Sari,
+    fields 1600-1610) and records no donor key, so the donor exemption cannot see it -- but its build ships
+    NO .mes. It only READS block 358; nothing of it enters the engine's text merge, and the deploy still
+    printed "TEXT OVERWRITES VANILLA". The axis now keys on the file the deploy writes, not on the textid."""
+    g = _stack(tmp_path)
+    reads = check_text_block_shadow(g, "A", 358, writes_mes=False)
+    assert not reads.squats_vanilla and reads.ok
+    assert shadow_warning(reads) is None
+    # the REAL corruption case stays loud: same block, a .mes written -> the warning, and the default is loud
+    for writes in (check_text_block_shadow(g, "A", 358, writes_mes=True), check_text_block_shadow(g, "A", 358)):
+        assert writes.squats_vanilla and not writes.ok
+        w = shadow_warning(writes)
+        assert w and "TEXT OVERWRITES VANILLA" in w and "11 real fields 1600-1610" in w
+    # and the gate is the vanilla axis ONLY: a higher folder's .mes on the block still changes what C shows
+    r = check_text_block_shadow(g, "C", VANILLA_BLOCK, writes_mes=False)
+    assert r.shadowed_by == "A" and not r.squats_vanilla and not r.ok
+
+
+def test_the_built_tree_not_the_textid_says_whether_a_mes_is_written(tmp_path):
+    """The premise the gate stands on, from real builds: a field on a REAL block keeps that block as its
+    FieldScene textid whether or not its build ships `field/<block>.mes`, so the textid alone cannot tell a
+    reader from a writer. The vivi-hut oracle sits on 1073; with its [[npc]] dialogue it ships 1073.mes in
+    every language, without it none -- and only the first may warn. (Byte-level: needs extracted templates.)"""
+    import pathlib
+    from ff9mapkit import build as B
+    from ff9mapkit.config import LANGS
+    example = pathlib.Path(__file__).resolve().parents[1] / "examples" / "vivi-hut" / "hut_int.field.toml"
+    g = _stack(tmp_path)
+    for drop, expect_langs in ((False, set(LANGS)), (True, set())):
+        proj = B.FieldProject.load(example)
+        if drop:
+            proj.raw.pop("npc")
+        out = tmp_path / f"mod-{drop}"
+        info = B.build_mod([proj], out)
+        assert int(info["dictionary"][0].split()[5]) == VANILLA_BLOCK          # the textid, both ways
+        shipped = {L for L in LANGS if VANILLA_BLOCK in blocks_at(out, L)}
+        assert shipped == expect_langs
+        w = shadow_warning(check_text_block_shadow(g, "A", VANILLA_BLOCK, writes_mes=bool(shipped)))
+        assert (w is not None and "TEXT OVERWRITES VANILLA" in w) == bool(expect_langs)
+
+
 # ---- the vanilla index + custom-block allocator ------------------------------------------------
 def test_vanilla_fields_on_and_describe():
     assert vanilla_fields_on(VANILLA_BLOCK)[0] == 3050      # 1073 = MES_MAGE2, Black Mage Village

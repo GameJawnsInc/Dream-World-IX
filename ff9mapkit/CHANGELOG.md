@@ -22,6 +22,57 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   tint matches the editable fork's to three decimals ((0.734, 0.661, 0.593) vs (0.735, 0.658, 0.595)), as does
   the shadow under the lower-right moogle (581 vs 579 px).
 
+### Fixed — marker renames no longer write world text block 68 with CRLF line endings
+- **The deployed overworld `68.mes` is LF-only again, like stock.** `navimap.deploy_marker_renames` wrote it
+  with a bare text-mode `write_text`, so on Windows every LF became CRLF. That put a `\r` into every world message
+  in all 7 languages (item-get lines, Moguo, Zorn/Thorn, the navigation menus), not only the renamed marker label.
+  The write now goes through `fsutil.atomic_write_text(..., newline="\n")`.
+- Both callers are covered: `world-rename-markers` and the `world-entrance` nameplate surgery, which registers
+  its custom name through the same function.
+- **A CRLF override already on disk heals on the next rename deploy.** The merge branch re-reads the deployed file
+  in universal-newline mode and writes it back LF-only, keeping earlier renames. `tests/test_navimap_rename.py`
+  checks the written bytes (a text read would hide the `\r`), on a fresh deploy and on a seeded CRLF override.
+
+### Fixed — a reshaped multi-floor walkmesh keeps its cross-floor seams
+- **Deleting or reordering an `o floor_<N>` block no longer strands floors.** The `walkmesh.links.toml` sidecar
+  numbers its seams by the donor's floors, and `bgi.build` renumbers `.obj` floors in first-seen order, so a
+  reshape that renumbered them made seams miss. In `studies/actor-shadow` rung 1, an editable fork of field 1607
+  written in floor order 3,1,2,0,... dropped 2 of 14 seams and stranded floors [1,3,4]. The build now translates
+  each seam through the `floor_<donor index>` names, using the map that already re-keys the MCF lights
+  (`build._donor_floor_map`, `BgiWalkmesh.apply_seams(seams, floor_map)`).
+- A seam whose floor is no longer in the `.obj` (deleted, or renamed away from `floor_<N>`) counts as missing.
+  The warning now names that donor floor. An added floor takes a fresh `floor_<N>`; see docs/WALKMESH_EDITING.md.
+- **Byte identity:** the unedited round-trip skips the translation and builds byte for byte. The census
+  covered all 674 field walkmeshes, 550 of them multi-floor with 5,983 seams. The unedited re-export is the
+  identity on every one. With each multi-floor walkmesh's floors written in reverse, the re-keyed build
+  reproduces its exact link set, where the old reconcile dropped 3,756 seams in 353 walkmeshes.
+  `tests/test_fork_walkmesh_links.py` pins this on an authored 5-floor donor and on the real 7-floor fixture,
+  plus reorder, delete and rename reshapes.
+
+### Fixed — `deploy_field.py` no longer warns "TEXT OVERWRITES VANILLA" for a field that ships no `.mes`
+- **The vanilla-overwrite warning now fires only when the deploy writes a `.mes` for the real block.** It used to
+  judge the FieldScene textid, so an `import --editable` fork without `--carry-text` got the warning. Such a fork
+  keeps its donor's real block and records no donor key, but its build ships no `.mes` at all: it only reads that
+  location's dialogue, and nothing of it enters the engine's text merge. Seen on an editable fork of field 1607
+  (block 358) at slot 30930.
+- `deploystack.check_text_block_shadow` takes **`writes_mes`**. It defaults to `True`, so a caller that can't
+  see the built files stays loud. `deploy_field.py` passes the languages its `.mes` copy actually wrote. A field
+  that does write a real block's `.mes` is warned exactly as before. The cross-folder SHADOWED axis is unchanged,
+  because a higher folder's `.mes` on the block still changes what the field shows. The campaign, journey and
+  hub guards already checked only the `.mes` files in the dist.
+
+### Fixed — a field revert removes the `.mes` its deploy wrote fresh
+- **The revert used to leave behind a `field/<block>.mes` that the deploy wrote where none existed.** It only
+  restored backups, and a fresh write has none. On a real FF9 block the leftover is live content: the engine
+  merges every folder's `.mes` over the base game per txid, so it kept overwriting that location's dialogue.
+  Each redeploy runs the prior revert first, so the file also outlived redeploys that no longer ship it. The
+  warning above no longer flags it, because this deploy did not write it.
+- `deploy_field.py` now records each language it wrote without a backup, with the sha256 of the bytes it wrote.
+  `reverttmpl.build_revert_script(mes_fresh=...)` deletes those files, but only while they still hold those
+  bytes. A later deploy into the same block keeps its text, and the revert prints that it left the file.
+- **Leftovers from older reverts are not cleaned up.** The next deploy sees such a file as pre-existing and backs
+  it up, and its revert restores it. Delete a stranded `.mes` by hand once.
+
 ### Fixed — an editable fork's carried donor objects are lit and shadowed like the real field
 - **`import --editable` now ships the donor's MapConfigData** (`mapconfig.bytes` + `[field] mapconfig`), exactly
   as `--native` does. The engine's MCF service (`fldmcf.ff9fieldMCFService`) gives every actor its per-model blob
