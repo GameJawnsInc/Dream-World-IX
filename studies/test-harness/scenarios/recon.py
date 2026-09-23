@@ -19,8 +19,9 @@ def run(g, field: int = FIELD):
     st = g.state
     g.shot(f"recon-{field}")
     print(f"[recon] field {st.field_id} ({st.field_name})")
-    print(f"[recon] player at {st.pos}  facing {st.raw.get('player', {}).get('dir')}  "
-          f"floor {st.raw.get('player', {}).get('floor')}")
+    # No floor here: player.floor is a battle-entry snapshot that reads 0 after a fresh New Game,
+    # not the floor under the player (State.player_floor_battle_snapshot).
+    print(f"[recon] player at {st.pos}  facing {st.raw.get('player', {}).get('dir')}")
     print(f"[recon] ui={st.ui_state} scene={st.scene} control={st.control}")
     if st.dialog_open:
         print(f"[recon] dialogue already open: {st.text!r}")

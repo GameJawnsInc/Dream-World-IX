@@ -22,8 +22,12 @@ behavioural claim cost a human playtest, and "it built" kept getting mistaken fo
 - **Unattended launch** — no launcher window, no Play click, no changelog dialog. Agent publishing
   state 4s after process start.
 - **State publication** — every other frame: ui_state, scene, fading, sys_mode, ScenarioCounter,
-  field id + name, world id, player x/y/z + floor/tri + control, dialogue texts + choices, watched
-  story-flag bits, held buttons.
+  field id + name, world id, player x/y/z + control, dialogue texts + choices, watched
+  story-flag bits, held buttons. ⚠ **Not floor/tri.** The published `player.floor`/`player.tri` are
+  `PosObj.activeFloor`/`activeTri`, written only by the battle-entry backup: 0/0 before any battle and
+  frozen after one. They were listed here as proven and were never live (found 2026-09-23 while
+  proving `B_BGIID`). The driver exposes them only as `State.player_*_battle_snapshot`, and the patch
+  that would publish the live value is scoped in [`PLAYER-TRI-PATCH-PLAN.md`](PLAYER-TRI-PATCH-PLAN.md).
 - **Field warp** — `warp 30801` from a fresh New Game, landing playable.
 - **New Game from the title** — `TitleUI.HarnessStartNewGame`, no menu navigation.
 - **Virtual input reaching the engine** — a `Menu` press opened the main menu and `Cancel` closed it,

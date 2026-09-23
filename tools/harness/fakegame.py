@@ -767,6 +767,8 @@ class FakeGame:
             "sys_mode": 1, "scenario": 0,
             "field": {"id": self.field_id, "name": f"FBG_FAKE_{self.field_id}"},
             "world": dict(self.world),
+            # floor/tri mirror s83 faithfully, dead values and all: PosObj's battle-entry snapshot
+            # reads 0/0 until the session's first battle (State.player_tri_battle_snapshot).
             "player": {"x": px, "y": py, "z": pz,
                        "dir": 0, "floor": 0, "tri": 0, "control": self.control},
             "input": {"key_up": self._is_held("up"), "key_confirm": self._is_held("confirm"),
