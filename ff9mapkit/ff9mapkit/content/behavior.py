@@ -1088,8 +1088,8 @@ class AdjustSpec:
             if abs(v) > ADJUST_MAG_MAX:
                 raise BehaviorError(
                     f"adjust {label_} {v} exceeds ±{ADJUST_MAG_MAX} — the 26-bit "
-                    f"CalcStack overflows by RE-READING the value as a different "
-                    f"variable class, so the fence is hard")
+                    f"CalcStack wraps an overflow silently mod 2^26 (a wrong value, "
+                    f"never an error), so the fence is hard")
 
 
 # ------------------------------------------------------------------ unit spec

@@ -433,10 +433,18 @@ def branch_toml(branch: dict) -> str:
         else:
             rows = ",\n        ".join(_toml_value(c) for c in when)
             lines.append(f"when = [ {rows} ]")
-    for k in ("do", *_DECO_KEYS):
+    for k in _emit_keys():
         if k in branch:
             lines.append(f"{k} = {_toml_value(branch[k])}")
     return "\n".join(lines) + "\n"
+
+
+def _emit_keys() -> tuple:
+    """Every branch key but ``when``, in display order: ``do``, the decorators, then any other key the
+    compiler reads (``adjust``, ...) -- DERIVED from BRANCH_KEYS, so a new branch key round-trips instead
+    of silently vanishing from a branch the user merely opened and closed (``adjust`` used to)."""
+    head = ("do", *_DECO_KEYS)
+    return head + tuple(sorted(k for k in BT.BRANCH_KEYS if k not in head and k != "when"))
 
 
 def parse_branch(text: str):
