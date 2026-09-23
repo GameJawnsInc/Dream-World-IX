@@ -151,6 +151,9 @@ _DONOR_OBJ = _V + ["o lower"] + _LOWER + ["o upper"] + _UPPER          # tris 0,
 _SWAPPED_OBJ = _V + ["o upper"] + _UPPER + ["o lower"] + _LOWER        # same XZ per id -- only the LEVEL moved
 _REASSIGNED_OBJ = _V + ["o lower", "f 1 2 3", "o upper", "f 1 3 4"] + _UPPER   # tri 1: same place, floor 0 -> 1
 _MOVED_OBJ = [ln.replace("v 600 0 -1400", "v 650 0 -1450") for ln in _DONOR_OBJ]  # a pure vertex move
+# a vertex pulled INWARD (the 'block off part of the room' reshape): tri 1's old centroid leaves tri 1 and the vacated
+# lower area sits under the upper floor -- a centroid-only test called tri 1 AND floor 0 moved (review finding)
+_SHRUNK_OBJ = [ln.replace("v -600 0 -1400", "v -600 0 -500") for ln in _DONOR_OBJ]
 
 _PF_READS = ("SET({B_PTR(250) B_BGIID const(1) B_EQ B_EXPR_END})\n"
              "SET({B_PTR(250) B_BGIFLOOR const(0) B_EQ B_EXPR_END})\nRET()")
@@ -199,7 +202,7 @@ def _fork(tmp_path, *, obj=_SWAPPED_OBJ, donor="source_field = 999", walk='obj =
 
 
 def _lint(project) -> list:
-    return [w for w in build.verify_walkmesh(project)["warnings"] if w.startswith("fork of")]
+    return [w for w in build.verify_walkmesh(project)["warnings"] if w.startswith(("fork of ", "fork: "))]
 
 
 def test_fixture_premise_the_stacked_swap_keeps_every_id_over_the_same_xz(tmp_path):
@@ -237,13 +240,32 @@ def test_a_floor_reassignment_moves_the_tri_even_in_place(tmp_path):
     assert any("floor 0 is now elsewhere (1 of 2" in w for w in ws), ws
 
 
-@pytest.mark.parametrize("case", ["vertex_move", "bgi_is_donor", "no_donor", "unedited"])
+@pytest.mark.parametrize("case", ["vertex_move", "vertex_shrink", "bgi_is_donor", "novel_field", "unedited"])
 def test_silent_cases(tmp_path, case):
     kw = {"vertex_move": dict(obj=_MOVED_OBJ),
+          "vertex_shrink": dict(obj=_SHRUNK_OBJ),
           "bgi_is_donor": dict(walk='bgi = "walkmesh.bgi"'),
-          "no_donor": dict(donor=""),
+          "novel_field": dict(donor="", sibling=False),        # no donor id AND no donor mesh: not a fork
           "unedited": dict(obj=_DONOR_OBJ)}[case]
     assert _lint(_fork(tmp_path, **kw)) == []
+
+
+def test_the_shrink_premise_a_centroid_test_alone_calls_it_moved(tmp_path):
+    """The vertex_shrink case can fail: tri 1's donor centroid is no longer inside tri 1 (so the old centroid-only
+    test flagged it) -- only the face's vertex INDICES say it is still tri 1."""
+    d, s = _mesh(_DONOR_OBJ, tmp_path, "d.obj"), _mesh(_SHRUNK_OBJ, tmp_path, "s.obj")
+    D, S = build._WalkIndex(d), build._WalkIndex(s)
+    assert 1 not in S.level(*D.centroid(1))
+    assert S.vset[1] == D.vset[1] and S.floor_of[1] == D.floor_of[1]
+
+
+def test_an_editable_fork_with_no_donor_id_is_still_linted(tmp_path):
+    """``import --editable`` records no donor id, yet it writes the donor walkmesh.bgi beside the toml and carries
+    donor code -- the fork that invites a walkmesh.obj reshape. Linted all the same (prefix 'fork:'); only the
+    engine-hotfix lane needs the id (the engine fires it through ForkDonorPatch, emitted from that id)."""
+    ws = _lint(_fork(tmp_path, donor=""))
+    assert ws and all(w.startswith("fork: ") for w in ws), ws
+    assert any("keys on [1]" in w and "tri 1 is now" in w for w in ws), ws
 
 
 def test_the_donor_mesh_itself_short_circuits_before_any_geometry(tmp_path, monkeypatch):
@@ -535,9 +557,25 @@ def test_a_tri_or_floor_that_no_longer_exists_warns(tmp_path):
     assert any("floor 1 no longer exists" in w for w in ws), ws
 
 
+def _reindexed(lines):
+    """The same mesh written by a tool that renumbers vertices (the vertex list reversed, faces remapped): no face
+    keeps its vertex-index set, so only the geometric test can judge it."""
+    vs = [ln for ln in lines if ln.startswith("v ")]
+    n = len(vs)
+    out = list(reversed(vs))
+    for ln in lines:
+        if ln.startswith("f "):
+            out.append("f " + " ".join(str(n + 1 - int(t)) for t in ln.split()[1:]))
+        elif not ln.startswith("v "):
+            out.append(ln)
+    return out
+
+
 def test_a_floor_whose_whole_donor_area_left_the_mesh_warns(tmp_path):
     """Floor 0 still EXISTS in the rebuilt mesh, but none of its donor triangles' centroids land on it (or on
-    anything): moved == 0 is not enough -- the floor must still cover some of its donor area."""
+    anything): moved == 0 is not enough -- the floor must still cover some of its donor area. (A RE-INDEXED mesh:
+    with the donor's own vertex indices the same far move is a pure vertex move, and stable.)"""
     pf = "SET({B_PTR(250) B_BGIFLOOR const(0) B_EQ B_EXPR_END})\nRET()"
-    ws = _lint(_fork(tmp_path, obj=_FAR_OBJ, pf=pf))
+    ws = _lint(_fork(tmp_path, obj=_reindexed(_FAR_OBJ), pf=pf))
     assert any("floor 0 no longer covers any of its donor area" in w for w in ws), ws
+    assert _lint(_fork(tmp_path, obj=_FAR_OBJ, pf=pf)) == []

@@ -135,6 +135,28 @@ def test_the_engine_token_runs_only_in_the_ticker_mirror_block():
     assert len(reads) == 1 + len([u for u in fb.units if u in fb._sensed])
 
 
+def _fold(F: str) -> str:
+    return f"{F} {F} {F} const(255) B_EQ const(256) B_MULT B_MINUS B_LET"
+
+
+def test_every_floor_read_is_followed_by_the_battle_byte_fold():
+    """THE BATTLE-BYTE FOLD: a battle backs activeFloor up into a Byte, so an UNKNOWN (-1) floor comes back as
+    255. Each mirror read is immediately followed by M -= (M == 255) * 256, which the calibrated interpreter shows
+    maps 255 -> -1 and leaves -1..254 alone. [dropping the fold, or folding anything else, turns this red]"""
+    fb, cb = compiled()
+    ss = stmts(cb.ticker_body)
+    reads = [i for i, t in enumerate(ss) if "B_BGIFLOOR" in t]
+    assert reads
+    for i in reads:
+        F = ss[i].rsplit(" B_PTR(250)" if "B_PTR(250)" in ss[i] else " const(", 1)[0]   # the mirror written
+        assert ss[i + 1] == _fold(F), (ss[i], ss[i + 1])
+    Fp = fb._uref("player", "flr")
+    rhs = f"{Fp} {Fp} const(255) B_EQ const(256) B_MULT B_MINUS"
+    assert _fold(Fp) == f"{Fp} {rhs} B_LET"
+    for v, want in ((255, -1), (-1, -1), (0, 0), (1, 1), (254, 254)):
+        assert _eval(rhs, {Fp: v}) == want, v
+
+
 def _ticker_ins(cb):
     body = cb.ticker_body
     return body, list(D.iter_code(body, 0, len(body)))
@@ -157,7 +179,8 @@ def test_a_sensed_units_read_is_inside_its_active_gate_and_its_off_arm_writes_un
         assert all(ins[i].op not in D.JUMP_OPS for i in range(g + 2, k))   # straight line gate -> read
         tgt = next(x for x in ins if x.off == off)
         assert stmts(body[tgt.off:tgt.end]) == [f"{F} const(65535) B_LET"]  # -1 (the disassembler prints u16)
-        assert ins[k + 1].op == 0x01 and D.jump_target(ins[k + 1]) == tgt.end   # the live arm skips it
+        assert stmts(body[ins[k + 1].off:ins[k + 1].end]) == [_fold(F)]         # the battle-byte fold, then
+        assert ins[k + 2].op == 0x01 and D.jump_target(ins[k + 2]) == tgt.end   # the live arm skips the off arm
 
 
 def test_main_init_presets_every_sensed_mirror_to_unknown():
@@ -450,3 +473,27 @@ def test_the_behavior_doc_example_builds():
     assert BT.validate(r) == []
     fb, _cb = BT.dry_compile(r, floors=BT.FloorTable({"ground": 0, "terrace": 1}, 2, "doc mesh"))
     assert set(fb._sensed) == {"guard", "player"}
+
+
+@pytest.mark.parametrize("make", [
+    lambda fb: fb.on_floor("pack", 0),
+    lambda fb: fb.same_floor("pack", "player"),
+    lambda fb: fb.any_of(fb.near("pack", "player", 300), fb.near("w", "player", 300)),
+])
+def test_a_class_self_is_refused_outside_its_own_tree(make):
+    """[review] A CLASS name as the SELF reads the strided cell at MYUID -- in an unclassed unit's tree that is a
+    cell no mirror writes (zero-filled: on_floor('pack', 0) read a KNOWN floor 0, always true). The Python API
+    now refuses it at compile; the same Cond inside the class's own tree compiles."""
+    def field():
+        return B.FieldBehavior([B.UnitSpec("w", 2, (0, 0)), B.UnitSpec("c0", 5, (100, 0)),
+                                B.UnitSpec("c1", 6, (200, 0))], brains=True,
+                               classes=[B.ClassSpec("pack", ("c0", "c1"))])
+    fb = field()
+    fb.units["w"].tree = B.Selector(B.Sequence(make(fb), B.Do(B.Hold((50, 50)))), B.Do(B.Hold((0, 0))))
+    fb.classes["pack"].tree = B.Do(B.Hold((0, 0)))
+    with pytest.raises(B.BehaviorError, match="reads class 'pack' as its SELF"):
+        fb.compile()
+    ok = field()
+    ok.units["w"].tree = B.Do(B.Hold((0, 0)))
+    ok.classes["pack"].tree = B.Selector(B.Sequence(make(ok), B.Do(B.Hold((50, 50)))), B.Do(B.Hold((0, 0))))
+    ok.compile()

@@ -199,10 +199,12 @@ class Cond(Node):
     tick it is reached. ``_trusted`` marks compiler-generated text (mirror math), which
     skips both scans. ``_sensor`` marks a WALKMESH-FLOOR sensor condition (on_floor / same_floor /
     other_floor): it can read UNKNOWN (-1), so it may never be negated (:class:`Invert` refuses it —
-    THE UNKNOWN-FLOOR LAW)."""
+    THE UNKNOWN-FLOOR LAW). ``_self_cls`` names every CLASS whose strided self cell (read at MYUID) the text
+    reads: valid only inside that class's own tree, which ``FieldBehavior.compile`` enforces."""
     text: str
     _trusted: bool = False
     _sensor: bool = False
+    _self_cls: frozenset = frozenset()
 
     def __post_init__(self):
         if self._trusted:
@@ -2047,12 +2049,17 @@ class FieldBehavior:
         self._check_unit(a, self_pos=True)               # a = the tree's self — a
         self._check_unit(b)                              # class name strides here
         return Cond(_box(self._mx(a), self._mz(a), self._mx(b), self._mz(b), r),
-                    _trusted=True)
+                    _trusted=True, _self_cls=self._cls_self(a))
 
     def near_point(self, unit: str, point: tuple, r: int) -> Cond:
         self._check_unit(unit, self_pos=True)
         x, z = point
-        return Cond(_box(self._mx(unit), self._mz(unit), int(x), int(z), r), _trusted=True)
+        return Cond(_box(self._mx(unit), self._mz(unit), int(x), int(z), r), _trusted=True,
+                    _self_cls=self._cls_self(unit))
+
+    def _cls_self(self, name: str) -> frozenset:
+        """``{name}`` when ``name`` is a CLASS (its ref is the strided self cell, read at MYUID), else empty."""
+        return frozenset({name}) if name in self.classes else frozenset()
 
     # ---------------- the walkmesh FLOOR sensor (B_BGIFLOOR, read into mirrors -- never in a Cond)
     def _sense(self, who: str, *, self_pos: bool = False) -> str:
@@ -2094,7 +2101,7 @@ class FieldBehavior:
             toks.append(f"{F} const({k}) B_EQ")
             if i:
                 toks.append("B_OROR")
-        return Cond(" ".join(toks), _trusted=True, _sensor=True)
+        return Cond(" ".join(toks), _trusted=True, _sensor=True, _self_cls=self._cls_self(who))
 
     def _two_floors(self, verb: str, me: str, target: str) -> tuple:
         if me == target:
@@ -2105,14 +2112,15 @@ class FieldBehavior:
         """``me`` and ``target`` stand on the SAME floor, both KNOWN. A floor is an INDEX, not a level: one
         walkable level can be several seamed floors (list them with on_floor)."""
         Fm, Ft = self._two_floors("same_floor", me, target)
-        return Cond(f"{Fm} {Ft} B_EQ {Fm} const(0) B_GE B_ANDAND", _trusted=True, _sensor=True)
+        return Cond(f"{Fm} {Ft} B_EQ {Fm} const(0) B_GE B_ANDAND", _trusted=True, _sensor=True,
+                    _self_cls=self._cls_self(me))
 
     def other_floor(self, me: str, target: str) -> Cond:
         """Both floors KNOWN and DIFFERENT -- the positive form of 'not on my floor' (THE UNKNOWN-FLOOR LAW:
         a negated floor test would read TRUE while either floor is unknown)."""
         Fm, Ft = self._two_floors("other_floor", me, target)
         return Cond(f"{Fm} {Ft} B_NE {Fm} const(0) B_GE B_ANDAND {Ft} const(0) B_GE B_ANDAND",
-                    _trusted=True, _sensor=True)
+                    _trusted=True, _sensor=True, _self_cls=self._cls_self(me))
 
     def active(self, unit: str) -> Cond:
         if unit == PLAYER:
@@ -2162,7 +2170,8 @@ class FieldBehavior:
             toks.append(c.text)
             if i:
                 toks.append("B_OROR")
-        return Cond(" ".join(toks), _trusted=True, _sensor=any(c._sensor for c in conds))
+        return Cond(" ".join(toks), _trusted=True, _sensor=any(c._sensor for c in conds),
+                    _self_cls=frozenset().union(*(c._self_cls for c in conds)))
 
     def all_of(self, *conds: Cond) -> Cond:
         """AND-compose Conds into ONE Cond — for use INSIDE any_of (a Sequence is the
@@ -2176,7 +2185,8 @@ class FieldBehavior:
             toks.append(c.text)
             if i:
                 toks.append("B_ANDAND")
-        return Cond(" ".join(toks), _trusted=True, _sensor=any(c._sensor for c in conds))
+        return Cond(" ".join(toks), _trusted=True, _sensor=any(c._sensor for c in conds),
+                    _self_cls=frozenset().union(*(c._self_cls for c in conds)))
 
     def time_below(self, seconds: int) -> Cond:
         """True once the countdown HUD (``B_SYSVAR[17]`` = TimerUI.Time, remaining
@@ -2776,6 +2786,34 @@ class FieldBehavior:
         if tree is not None:
             yield from walk(tree, [], [])
 
+    def _check_class_self_refs(self) -> None:
+        """A CLASS name as a condition's SELF (near's first unit, near_point, on_floor's who, same_floor /
+        other_floor's me) reads the strided self cell at MYUID -- the running member's own cell, meaningful only
+        in that class's own tree. Anywhere else MYUID is some other object's uid: an unclassed unit's tree reads
+        a cell no mirror writes (zero-filled, so a floor sensor reads a KNOWN floor 0), and another class's tree
+        reads its OWN member's cell under the wrong class's name. The TOML lane never builds one (a row's self
+        is its own class); this closes the Python API."""
+        def conds(n):
+            if isinstance(n, Cond):
+                yield n
+            elif isinstance(n, Invert):
+                yield n.child
+            elif isinstance(n, (Selector, Sequence)):
+                for c in n.children:
+                    yield from conds(c)
+            elif isinstance(n, (Once, Cooldown)):
+                yield from conds(n.child)
+        for owner, tree, is_cls in self._tree_owners():
+            if tree is None:
+                continue
+            for c in conds(tree):
+                bad = sorted(c._self_cls - ({owner} if is_cls else set()))
+                if bad:
+                    raise BehaviorError(
+                        f"{owner!r}'s tree reads class {bad[0]!r} as its SELF ({c.text[:60]}...) -- a class name "
+                        f"is the SELF only inside that class's own tree (it reads the running member's cell); "
+                        f"name a member of {bad[0]!r} instead")
+
     def _check_streams(self) -> None:
         """THE DRAW-CADENCE LAWS, before any emission (every lane -- TOML, Python, lint, build -- passes here).
         A selected branch EXECUTES EVERY TICK, so a roll draws once per event only on THE EDGE IDIOM: a public
@@ -3099,6 +3137,7 @@ class FieldBehavior:
                 raise BehaviorError(f"class {cs.name!r} has no tree")
             self._check_class_tree(cs)
         self._check_streams()                            # the draw-cadence laws, before ANY emission
+        self._check_class_self_refs()                    # a class's strided self only in its own tree
         self._register_wander_streams()
 
         duty_bodies: dict[str, bytes] = {}
@@ -3155,8 +3194,17 @@ class FieldBehavior:
         # behind the staged latch (player bound: B_PTR(250) resolves) and each unit's active gate (its actor
         # controller exists: BGI.cs:16 dereferences it). A unit's operand is const(<entry>), never B_PTR(<entry>):
         # getActiveActorByUID is null-safe (a miss reads -1) where B_PTR dereferences with no check.
+        # THE BATTLE-BYTE FOLD: each read is followed by M -= (M == 255) * 256. A battle backs the controller's
+        # activeFloor up into a BYTE (PosObj.activeFloor, EventEngine.BackupPosObjData) and restores it on return
+        # (FieldMap.RestoreModels), so an actor whose floor was UNKNOWN (-1: pathing off) comes back reading 255
+        # until its triangle is recomputed -- a value same_floor/other_floor would take for a known floor. 255 is
+        # never a floor (on_floor refuses it), so it folds to -1 and every reader, the HUD included, sees UNKNOWN.
+        def _fold255(ref):
+            return _stmt(f"{ref} {ref} {ref} const(255) B_EQ const(256) B_MULT B_MINUS B_LET")
+
         if PLAYER in self._sensed:
             ticker.append(_stmt(f"{self._uref(PLAYER, 'flr')} B_PTR({PLAYER_UID}) B_BGIFLOOR B_LET"))
+            ticker.append(_fold255(self._uref(PLAYER, 'flr')))
         for u in self.units.values():                    # unit mirrors, active-gated
             if u.name not in self._sensed:               # byte-for-byte the pre-sensor block
                 ticker += [
@@ -3173,6 +3221,7 @@ class FieldBehavior:
                 _stmt(f"{self._uref(u.name, 'mx')} obj(uid={u.entry}).f[0] B_LET"),
                 _stmt(f"{self._uref(u.name, 'mz')} obj(uid={u.entry}).f[2] B_LET"),
                 _stmt(f"{self._uref(u.name, 'flr')} const({u.entry}) B_BGIFLOOR B_LET"),
+                _fold255(self._uref(u.name, 'flr')),
                 (JMP, f"m_{u.name}_skip"),
                 label(f"m_{u.name}_off"),
                 # THE INACTIVE ARM: warm-up, a dormant pooled unit, a dead unit -- UNKNOWN, never a stale floor

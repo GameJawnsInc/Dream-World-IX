@@ -903,13 +903,19 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
 
     if plan_err:
         problems.append(plan_err)
+    # the floor table's errors refuse compile/view exactly as they refuse lint and the build: an unknown floor
+    # name must not reach dry_compile (it raised there), and a table that failed to resolve must not compile
+    # with PLACEHOLDER floors (every name read as floor 0 in a clean-looking report)
+    problems += floor_errs
     if problems:
         for p in problems:
             print(f"error: {p}", file=sys.stderr)
         return 1
+    for w in floor_warns:
+        print(f"warning: {w}", file=sys.stderr)
     try:
         fb, cb = BT.dry_compile(raw, routed=plan, floors=floors)     # placeholders (build binds real ones)
-    except B.BehaviorError as e:
+    except (B.BehaviorError, BT.BehaviorTomlError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     b = raw["behavior"]

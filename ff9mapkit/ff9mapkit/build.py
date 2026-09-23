@@ -4239,8 +4239,12 @@ def lint_all(project: FieldProject) -> LintReport:
         rep.source = wm.get("source", "?")
         # the "no walkmesh to verify" note (a BG-borrow without a custom walkmesh) is informational, not a
         # problem -- the engine uses the real field's mesh -- so it folds into the source, not the warnings.
-        rep.placement = [w for w in wm.get("warnings", []) if "no walkmesh to verify" not in w]
-        if len(rep.placement) != len(wm.get("warnings", [])):
+        # a shipped mesh the BUILD refuses (a non-floor-major [walkmesh] bgi) is an ERROR here too, so lint and
+        # the deploy dry-run fail where the build would -- verify still printed its floor table
+        rep.errors.extend(wm.get("refused", []))
+        rep.placement = [w for w in wm.get("warnings", [])
+                         if "no walkmesh to verify" not in w and w not in wm.get("refused", [])]
+        if any("no walkmesh to verify" in w for w in wm.get("warnings", [])):
             rep.source += " (no custom walkmesh -- geometry/placement checks skipped)"
     except Exception as e:                    # noqa: BLE001 -- never-crash contract (see comment above)
         rep.source = "not resolvable"
@@ -4926,6 +4930,7 @@ class _WalkIndex:
                 self.floor_of.setdefault(int(t), fi)
         self.pts = [((wv[t.vtx[0]], wv[t.vtx[1]], wv[t.vtx[2]])
                      if all(0 <= int(i) < nv for i in t.vtx) else None) for t in m.tris]
+        self.vset = [frozenset(int(i) for i in t.vtx) for t in m.tris]   # the face's vertex INDICES
         live = [p for p in self.pts if p]
         xs = [v[0] for p in live for v in p] or [0]
         zs = [v[2] for p in live for v in p] or [0]
@@ -4989,30 +4994,41 @@ def _lint_fork_walkmesh_ids(project: FieldProject, wmesh, warnings: list) -> Non
     .bgi file order and a floor is its floorList position (walkmesh-sensor rung 0), so an add/delete/reorder of
     faces, or a floor reassigned, silently re-points every one of them.
 
-    Early-outs, in order: no donor (``donor_field_id``); BG-borrow (the engine runs the real mesh); no donor
-    reference mesh (``[walkmesh] reference`` / the sibling ``walkmesh.bgi`` every import writes -- then a NOTE if
-    donor code reads ids at all); the shipped mesh IS the donor mesh (byte-equal through the codec).
+    Early-outs, in order: BG-borrow (the engine runs the real mesh); no donor at all -- neither a recorded donor id
+    (``donor_field_id``) nor a donor reference mesh (an ``--editable`` import records no id, but its sibling
+    ``walkmesh.bgi`` and carried sidecars make it a fork all the same); no donor reference mesh
+    (``[walkmesh] reference`` / the sibling ``walkmesh.bgi`` every import writes -- then a NOTE if donor code reads
+    ids at all); the shipped mesh IS the donor mesh (byte-equal through the codec).
 
     SCAN SET: donor-derived code only (``_donor_code_sites`` over ``DONOR_CODE_LANES``) + ``[field]
-    walkmesh_tri_toggles`` + the donor's engine hotfix ``fork_tris`` -- never kit emission, so the kit's own floor
+    walkmesh_tri_toggles`` + the donor's engine hotfix ``fork_tris`` (only with a recorded donor id: the engine
+    fires it through ForkDonorPatch, which deploy emits from that id) -- never kit emission, so the kit's own floor
     mirrors cannot false-positive.
 
     STABILITY (a donor tri keeps its identity; a pure vertex-move reshape passes, an add/delete/reorder fails):
     tri ``t`` is stable iff it is not a donor tri, or it still exists, sits on the same floor (membership), and
-    is the built triangle a point at donor tri ``t``'s 3D centroid stands on (XZ containment + the nearest level,
-    which tells XZ-stacked floors apart). Floor ``k`` is stable iff it is not a donor floor, or it still exists and
-    every donor floor-``k`` centroid that is still on the mesh stands on built floor ``k`` (and at least one does).
+    EITHER is the same FACE (the same vertex-index set: the editable OBJ re-export writes the donor's vertex list and
+    faces in order and ``bgi.build`` keeps them, so however far a vertex moved an unedited face keeps its id, while
+    an add/delete/reorder shifts which face lands on it) OR is the built triangle a point at donor tri ``t``'s 3D
+    centroid stands on (XZ containment + the nearest level, which tells XZ-stacked floors apart -- the test for a
+    mesh another tool re-indexed). Floor ``k`` is stable iff it is not a donor floor, or it still exists and every
+    donor floor-``k`` tri still on the mesh -- by the same face, else by its centroid -- is on built floor ``k``
+    (and at least one is).
     One warning per (lane label, kind, subject) whose literals include an unstable id; an advisory per label whose
     reads are stored/derived (untraceable) when anything moved at all; capped at 12 lines + "... and N more"."""
-    donor = donor_field_id(project.raw)
-    if donor is None or project.field.get("borrow_bg"):
+    if project.field.get("borrow_bg"):
         return
+    donor = donor_field_id(project.raw)
+    fork = f"fork of {donor}" if donor is not None else "fork"
     try:
         ref = _borrow_walkmesh(project)
     except Exception as e:                            # noqa: BLE001 -- a malformed reference mesh is a finding, not a crash
-        warnings.append(f"fork of {donor}: the donor walkmesh.bgi could not be read ({type(e).__name__}: {e}) -- "
-                        f"cannot verify your walkmesh keeps the donor's triangle/floor ids")
+        if donor is not None:
+            warnings.append(f"{fork}: the donor walkmesh.bgi could not be read ({type(e).__name__}: {e}) -- "
+                            f"cannot verify your walkmesh keeps the donor's triangle/floor ids")
         return
+    if donor is None and ref is None:
+        return                                        # nothing says this is a fork (a novel field)
     if ref is not None and wmesh.to_bytes() == ref.to_bytes():
         return                                        # the shipped mesh IS the donor mesh -- every id holds
 
@@ -5021,14 +5037,14 @@ def _lint_fork_walkmesh_ids(project: FieldProject, wmesh, warnings: list) -> Non
     try:
         sites = _donor_code_sites(project)
     except (ValueError, IndexError, struct.error) as ex:     # a malformed sidecar: its own validator names it
-        warnings.append(f"fork of {donor}: the carried donor code could not be decoded for walkmesh-id reads "
+        warnings.append(f"{fork}: the carried donor code could not be decoded for walkmesh-id reads "
                         f"({type(ex).__name__}: {ex}) -- not checked")
         sites = []
     for label, blob, s, e in sites:
         try:
             reads = _disasm.walkmesh_reads(blob, s, e)
         except (IndexError, ValueError, struct.error) as ex:
-            warnings.append(f"fork of {donor}: {label} could not be decoded for walkmesh-id reads ({ex}) -- "
+            warnings.append(f"{fork}: {label} could not be decoded for walkmesh-id reads ({ex}) -- "
                             f"not checked")
             continue
         uses += [(label, r.kind, r.subject, r.role, r.literals) for r in reads]
@@ -5037,14 +5053,14 @@ def _lint_fork_walkmesh_ids(project: FieldProject, wmesh, warnings: list) -> Non
     if tog:
         uses.append(("[field] walkmesh_tri_toggles", "enable", "", "immediate",
                      tuple(int(t[0]) for t in tog if int(t[0]) >= 0)))
-    hf = _walkmesh_hotfixes.info(donor)
+    hf = _walkmesh_hotfixes.info(donor) if donor is not None else None
     if hf is not None and hf.fork_tris:
         uses.append(("engine hotfix (Memoria C#, fires on forks)", "enable", hf.source, "immediate",
                      tuple(hf.fork_tris)))
     if not uses:
         return
     if ref is None:
-        warnings.append(f"fork of {donor}: the donor code reads walkmesh ids but no donor walkmesh.bgi sits next to "
+        warnings.append(f"{fork}: the donor code reads walkmesh ids but no donor walkmesh.bgi sits next to "
                         f"the toml -- cannot verify your walkmesh keeps them (re-import, or point [walkmesh] "
                         f"reference at the donor's .bgi)")
         return
@@ -5061,7 +5077,7 @@ def _lint_fork_walkmesh_ids(project: FieldProject, wmesh, warnings: list) -> Non
                 why = None                            # not a donor tri -- not this lint's concern
             elif t >= B.ntris:
                 why = f"tri {t} no longer exists"
-            elif B.floor_of.get(t) == D.floor_of.get(t) and t in B.level(*c):
+            elif B.floor_of.get(t) == D.floor_of.get(t) and (B.vset[t] == D.vset[t] or t in B.level(*c)):
                 why = None
             else:
                 bc = B.centroid(t)
@@ -5081,11 +5097,15 @@ def _lint_fork_walkmesh_ids(project: FieldProject, wmesh, warnings: list) -> Non
                 on_k = moved = 0
                 others: set = set()
                 for t in ref.floors[k].tri_ndx_list:
-                    c = D.centroid(int(t))
-                    lv = B.level(*c) if c else []
-                    if not lv:
-                        continue                      # off the rebuilt mesh: ignored
-                    fls = {B.floor_of.get(u) for u in lv}
+                    t = int(t)
+                    if t < B.ntris and B.vset[t] == D.vset[t]:
+                        fls = {B.floor_of.get(t)}     # the same FACE, however far its vertices moved
+                    else:
+                        c = D.centroid(t)
+                        lv = B.level(*c) if c else []
+                        if not lv:
+                            continue                  # off the rebuilt mesh: ignored
+                        fls = {B.floor_of.get(u) for u in lv}
                     if k in fls:
                         on_k += 1
                     else:
@@ -5127,16 +5147,16 @@ def _lint_fork_walkmesh_ids(project: FieldProject, wmesh, warnings: list) -> Non
             keys = (f"{shown[:16]}"[:-1] + ", ...]") if len(shown) > 16 else f"{shown}"
             moved = "; ".join(bad[:6]) + (f"; +{len(bad) - 6} more" if len(bad) > 6 else "")
             lines.append(
-                f"fork of {donor}: {label} {verb} the walkmesh {noun}{f' ({subject})' if subject else ''} and keys "
+                f"{fork}: {label} {verb} the walkmesh {noun}{f' ({subject})' if subject else ''} and keys "
                 f"on {keys}; your rebuilt walkmesh moved them ({moved}) -- the donor logic keyed on them now fires "
                 f"elsewhere (or never). Keep the donor mesh ([walkmesh] bgi = \"walkmesh.bgi\"), or reshape without "
                 f"adding, deleting or reordering faces (the editable OBJ round trip preserves every id).")
         if roles & {"store", "other"} and _moved_any(kind):
-            advise.append(f"fork of {donor}: {label} stores/derives the walkmesh {noun} -- its uses cannot be "
+            advise.append(f"{fork}: {label} stores/derives the walkmesh {noun} -- its uses cannot be "
                           f"traced; check them by hand")
     out = lines + list(dict.fromkeys(advise))
     if len(out) > _FORK_WALK_LINES:
-        out = out[:_FORK_WALK_LINES] + [f"fork of {donor}: ... and {len(out) - _FORK_WALK_LINES} more walkmesh-id "
+        out = out[:_FORK_WALK_LINES] + [f"{fork}: ... and {len(out) - _FORK_WALK_LINES} more walkmesh-id "
                                         f"warning(s)"]
     warnings.extend(out)
 
@@ -5173,6 +5193,7 @@ def verify_walkmesh(project: FieldProject) -> dict:
     obj/quad/bgi, or a BG-borrow fork's reference/sibling walkmesh -- then returns
     {**stats, source, warnings}. Same checks build_field runs, so a clean verify == a clean build."""
     warnings: list = []
+    refused: list = []           # what the BUILD refuses (lint_all makes these errors, never mere advisories)
     names = None
     if project.field.get("borrow_bg"):
         wmesh = _borrow_walkmesh(project)
@@ -5192,6 +5213,7 @@ def verify_walkmesh(project: FieldProject) -> dict:
                 raise
             wmesh = bgi.BgiWalkmesh.from_bytes(project.path(wm_cfg["bgi"]).read_bytes())
             warnings.append(str(e))
+            refused.append(str(e))
         source = "custom scene"
         wm_cfg = project.raw.get("walkmesh", {}) or {}
         if wm_cfg.get("obj") and not wm_cfg.get("bgi"):          # names exist only for a built obj
@@ -5200,7 +5222,7 @@ def verify_walkmesh(project: FieldProject) -> dict:
         _validate_layer_art(project, camera.range, warnings)
         _validate_walkmesh_geometry(project, wmesh, warnings)
         _lint_fork_walkmesh_ids(project, wmesh, warnings)      # donor walkmesh-id literals vs a rebuilt mesh
-    return {"source": source, **_walkmesh_stats(wmesh, names), "warnings": warnings}
+    return {"source": source, **_walkmesh_stats(wmesh, names), "warnings": warnings, "refused": refused}
 
 
 def _reopened_floors_note(obj_ref: str, obj_path, mesh) -> str:
