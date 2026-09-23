@@ -2807,7 +2807,12 @@ the Hire row's `requires_flag` and the row vanishes instead of lying "Deployed!"
 arrays in the save's `gScriptVector` (the engine's 0xD3 computed-array-indexing lane),
 **re-seeded at every field entry** — deterministic per-session state. `[[behavior.table]]`:
 `name`, `values` (1..64 ints, ±26-bit), optional `id` (vector id; default allocates from
-1000). `counters = ["wave", "kills"]`: runtime cells seeded 0 — read them with the
+1000; never inside the reserved band 6000000..7999999), optional `persist = true` — a
+**persistent table**: NOT re-seeded, but guarded (it seeds only when stale — New Game, a lost
+Memoria extra save file, a rename or length change), so play's writes survive field entry and
+save/load. A persistent table REQUIRES `id` in 6000000..6999999 (its save-global identity;
+T + 1000000 holds its guard word) and values within ±1000000. See
+[BEHAVIOR.md § Persistent tables](BEHAVIOR.md#persistent-tables--state-that-survives-the-save). `counters = ["wave", "kills"]`: runtime cells seeded 0 — read them with the
 `counter_*` verbs, bump one with `die = "<counter>"`. `[[behavior.schedule]]`
 (`counter` + `table`; needs `timer =`): THE WAVE CLOCK — `counter += 1` while the countdown
 HUD sits below `table[counter]`; when the counter walks off the table's end the read fails

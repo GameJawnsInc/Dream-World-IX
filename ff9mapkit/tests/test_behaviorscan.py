@@ -688,3 +688,12 @@ def test_branch_archetype_guards_active_only_for_unit_targets():
     assert vs_unit["when"][0] == {"active": "b"}   # a unit target gets the active guard
     vs_player = BS.branch_archetype_body(raw, "a", "swing_reach", "player")
     assert vs_player["when"] == [{"near": ["player", 300]}]   # the player is always active
+
+
+def test_cast_model_marks_a_persistent_table():
+    raw = _class_field()
+    raw["behavior"]["table"] = [{"name": "memo", "values": [1, 2], "id": 6004242, "persist": True},
+                                {"name": "eph", "values": [3]}]
+    notes = {d["name"]: d["note"] for d in BS.cast_model(raw)["data"] if d["kind"] == "table"}
+    assert notes["memo"] == "persist · id 6004242 · [1, 2]"
+    assert notes["eph"] == "[3]"

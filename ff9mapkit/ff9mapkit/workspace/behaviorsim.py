@@ -127,6 +127,10 @@ class Sim:
         self.timer0 = b.get("timer")
         self.tables0 = {str(t.get("name")): [int(v) for v in (t.get("values") or [])]
                         for t in (b.get("table") or [])}
+        persistent = [str(t.get("name")) for t in (b.get("table") or []) if t.get("persist") is True]
+        if persistent:
+            self.notes.append(f"persistent table(s) {', '.join(persistent)} start at their SEED here "
+                              f"-- in-game they carry what the save holds from earlier visits")
         self.counters0 = {str(n): 0 for n in (b.get("counters") or [])}
         self.alternators = [(str(a.get("name")), int(a.get("frames", 1)))
                             for a in (b.get("alternators") or []) if a.get("frames")]
@@ -381,8 +385,10 @@ class Sim:
     @staticmethod
     def _apply_adjust(d: dict, counters: dict, tables: dict) -> None:
         """One clamped write, mirroring the compiled shape (write then clamp).
-        An out-of-range table index writes NOTHING (the engine lane's soft-fail
-        family — keep the index in range by counter discipline)."""
+        An out-of-range table index writes NOTHING here. The ENGINE is not quite
+        that soft: a write at exactly ``index == length`` APPENDS a cell
+        (EBin.cs:1926-1927) — persistent tables fence that write in the compiled
+        bytes; ordinary ones do not (they re-seed at the next entry anyway)."""
         clamp = d.get("clamp") or [0, 0]
         lo, hi = int(clamp[0]), int(clamp[1])
         by = int(d.get("by", 0))

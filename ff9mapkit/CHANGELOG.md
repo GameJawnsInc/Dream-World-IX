@@ -5,6 +5,29 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — persistent data tables: state that survives the save
+- `persist = true` on a `[[behavior.table]]` makes a table the kit does NOT re-seed at every field
+  entry: what play writes into it survives field entry, `~ → Reload`, battles, and save → quit →
+  relaunch → load. Each persistent table owns a one-cell guard vector (id + 1000000) holding a check
+  word over its name and length; `Main_Init` seeds the table only when it is stale (a New Game, a save
+  whose Memoria extra file was lost, a rename or length change, a different table on the id), so every
+  failure mode degrades to the declared values instead of breaking. Seed-value edits reach new games only.
+- The id is the table's save-global identity: required, author-chosen, inside 6000000..6999999 (like a
+  `[[flag]]` index). The kit's auto allocators refuse to reach the reserved band 6000000..7999999, and
+  `lint-campaign` refuses campaign members that declare one persistent id with a different name or
+  length (they would re-seed each other's copy on every entry). Values are fenced to ±1000000.
+- A counter-indexed `adjust`/`drift` write to a persistent table is fenced at `index < length`: the
+  engine APPENDS a cell at exactly `index == length` (not a no-op, as the docs used to say), which would
+  otherwise ride the save and trip the table's own guard.
+- `ff9mapkit.save.read_extra_tree` / `read_extra_vectors` decode the Memoria extra save file (SimpleJSON
+  binary) — the only container that carries vectors.
+- Grounded in-game first (`studies/persistent-tables/`): a harness round trip across three launches
+  proved vectors survive a real relaunch and ride only the extra file.
+
+### Changed — table ids
+- An ordinary `[[behavior.table]]` id may not sit inside 6000000..7999999, and `id = true` (a TOML
+  bool, which used to pass as id 1) is refused.
+
 ### Fixed — the deploy pin reaches the last three folder readers, and the Build tab says where its slot came from
 - `world-ledger` no longer REQUIRES `--mod-folder`: it resolves the folder like every other verb
   (`--mod-folder` > `$FF9_MOD_FOLDER` > this checkout's `.ff9deploy.toml` > `FF9CustomMap`), so a pinned

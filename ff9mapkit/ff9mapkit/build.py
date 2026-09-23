@@ -7544,6 +7544,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     warnings.append("[behavior] pool spawn-request flags (a [[choice]] "
                                     "set_flag row spawns the next pooled unit at the "
                                     "player): " + ", ".join(pl))
+                pt = [f"{nm} -> vector {fb.tables[nm][0]} (guard "
+                      f"{fb.tables[nm][0] + _behavior.PERSIST_GUARD_OFFSET}, check word {w})"
+                      for nm, w in fb.persist_words.items()]
+                if pt:
+                    warnings.append("[behavior] persistent tables (SAVE identity -- keep id, "
+                                    "name and length stable or every player's copy re-seeds): "
+                                    + ", ".join(pt))
         except (_behaviortoml.BehaviorTomlError, _behavior.BehaviorError) as e:
             raise BuildError(f"[behavior]: {e}") from e
 

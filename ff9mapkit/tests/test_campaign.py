@@ -452,6 +452,37 @@ def test_lint_refuses_a_wide_band_member(tmp_path):
     assert not any("STANDALONE-only" in e for e in campaign.lint_campaign(plan3, tmp_path)[0])
 
 
+def _persist_member(values, *, name="memo", tid=6004242):
+    return ('\n[[npc]]\nname = "u"\npos = [0, 0]\n'
+            "\n[behavior]\n"
+            f'\n[[behavior.table]]\nname = "{name}"\nid = {tid}\npersist = true\nvalues = {values}\n'
+            '\n[[behavior.unit]]\nnpc = "u"\n[[behavior.unit.branch]]\ndo = { hold = [0, 0] }\n')
+
+
+def test_lint_persistent_tables_must_agree(tmp_path):
+    """(e4) A persistent table id is save-GLOBAL and its guard hashes name + length: two members that
+    declare one id with a different length (or name) re-seed each other's copy on every alternating
+    entry, and no single member's build can see it -- so the campaign lint refuses it."""
+    errs, _ = campaign.lint_campaign(_lint_plan(tmp_path, member_content={
+        "A": _persist_member("[1, 2, 3]"), "B": _persist_member("[1, 2, 3, 4]")}), tmp_path)
+    assert any("declare persistent table id 6004242 differently" in e and "RE-SEEDS" in e
+               for e in errs), errs
+    errs, _ = campaign.lint_campaign(_lint_plan(tmp_path / "n", member_content={
+        "A": _persist_member("[1, 2, 3]"), "B": _persist_member("[1, 2, 3]", name="other")}),
+        tmp_path / "n")
+    assert any("differently" in e for e in errs), errs
+    errs, warns = campaign.lint_campaign(_lint_plan(tmp_path / "v", member_content={
+        "A": _persist_member("[1, 2, 3]"), "B": _persist_member("[9, 9, 9]")}), tmp_path / "v")
+    assert not any("persistent" in e for e in errs), errs
+    assert any("seeds different values" in w for w in warns), warns
+    errs, warns = campaign.lint_campaign(_lint_plan(tmp_path / "i", member_content={
+        "A": _persist_member("[1]"), "B": _persist_member("[1]", tid=6004243)}), tmp_path / "i")
+    assert any("at different ids [6004242, 6004243]" in w for w in warns), warns
+    errs, warns = campaign.lint_campaign(_lint_plan(tmp_path / "s", member_content={
+        "A": _persist_member("[1, 2]"), "B": _persist_member("[1, 2]")}), tmp_path / "s")
+    assert not any("persistent" in x for x in errs + warns), (errs, warns)   # one shared ledger: clean
+
+
 def test_lint_structural_pass(tmp_path):
     plan = _lint_plan(tmp_path, edges=[{"frm": "A", "to": "B", "entrance": 0}])
     errors, warnings = campaign.lint_campaign(plan, tmp_path)

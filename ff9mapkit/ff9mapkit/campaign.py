@@ -890,6 +890,38 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
                 warnings.append(f"member {m.name}: explicit flag {idx} is at/above the choice-scratch floor "
                                 f"{CHOICE_SCRATCH_FLOOR} (engine-owned) -- pick a lower index.")
 
+    # (e4) PERSISTENT TABLES are save-GLOBAL: a `persist = true` [[behavior.table]] id is one saved vector
+    #      shared by EVERY member that declares it, and its guard hashes name + length. Two members that
+    #      declare one id with a different name or length re-seed each other's copy on every alternating
+    #      entry -- the player's data never survives, and no single member's build can see it.
+    from .content import behaviortoml as _BT
+    _ptabs = defaultdict(list)                    # tid -> [(member, name, values)]
+    _pnames = defaultdict(set)                    # name -> {tid}
+    for m in plan.members:
+        raw = member_raw.get(m.name)
+        if raw is None:
+            continue
+        for nm, tid, vals in _BT.persistent_tables(raw):
+            _ptabs[tid].append((m.name, nm, vals))
+            _pnames[nm].add(tid)
+    for tid, decls in sorted(_ptabs.items()):
+        shapes = {(nm, len(vals)) for _mn, nm, vals in decls}
+        if len(shapes) > 1:
+            shown = "; ".join(f"{mn}: {nm!r} x{len(vals)}" for mn, nm, vals in decls)
+            errors.append(f"members {sorted({mn for mn, _n, _v in decls})} declare persistent table id {tid} "
+                          f"differently ({shown}) -- a persistent id is save-GLOBAL and its guard hashes "
+                          f"name + length, so each member's Main_Init RE-SEEDS the others' copy on every "
+                          f"alternating entry (the player's data never survives). Declare it identically in "
+                          f"every member, or give each table its own id.")
+        elif len({tuple(vals) for _mn, _nm, vals in decls}) > 1:
+            warnings.append(f"persistent table {decls[0][1]!r} (id {tid}) seeds different values in members "
+                            f"{sorted({mn for mn, _n, _v in decls})} -- whichever member the player enters "
+                            f"first seeds it")
+    for nm, tids in sorted(_pnames.items()):
+        if len(tids) > 1:
+            warnings.append(f"members name persistent table {nm!r} at different ids {sorted(tids)} -- those are "
+                            f"SEPARATE saved tables; give them one id if they are one ledger")
+
     # (e3) MANIFEST <-> ARTIFACT reconciliation -- the only check here that compares the manifest to the files
     #      it describes; everything else validates the manifest's own model against itself. A member's field id
     #      is stored TWICE (the [[field]] id row here, and the member's own [field] id) and the two are read by

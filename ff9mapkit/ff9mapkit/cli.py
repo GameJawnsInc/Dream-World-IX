@@ -929,7 +929,7 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
             for ins in D.iter_code(body, 0, len(body)):
                 print(f"    {ins}")
         dump("ticker (the seated brain entry)", cb.ticker_body)
-        dump("Main_Init prepend (the blackboard reset)", cb.main_init)
+        dump("Main_Init prepend (the blackboard reset + persistent-table guards)", cb.main_init)
         for name, body in cb.duty_bodies.items():
             dump(f"{name}: tag-1 duty walk", body)
         for name, funcs in cb.action_funcs.items():

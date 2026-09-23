@@ -716,6 +716,18 @@ TABLE_ID_BASE = 1000                     # kit auto-allocation band for gScriptV
 TABLE_MAX_LEN = 64                       # keeps the Main_Init seed block bounded
 TABLE_VALUE_MIN = -(1 << 25)             # CalcStack values are 26-bit signed — a const4
 TABLE_VALUE_MAX = (1 << 25) - 1          # is masked to 26 bits at evaluation
+# PERSISTENT TABLES (`persist = true`): a table the kit does NOT re-seed at Main_Init. Its id is
+# its save-GLOBAL identity, chosen by the author (like a [[flag]] index) inside a reserved band
+# the auto allocators never reach and an ordinary table may not name. Each persistent table T
+# owns a one-cell GUARD vector at T + PERSIST_GUARD_OFFSET holding its check word — in the same
+# container as the data (the Memoria extra save), so a lost extra file loses both and the table
+# degrades to its seed (studies/persistent-tables/PLAN.md, rung 0 in-game).
+PERSIST_TID_LO, PERSIST_TID_HI = 6_000_000, 6_999_999
+PERSIST_GUARD_OFFSET = 1_000_000                       # guard G = T + 1e6 -> 7_000_000..7_999_999
+PERSIST_RESERVED_LO = PERSIST_TID_LO
+PERSIST_RESERVED_HI = PERSIST_TID_HI + PERSIST_GUARD_OFFSET
+PERSIST_SALT = b"ff9mapkit.persist.v1"                 # bumping it re-seeds EVERY shipped table
+PERSIST_CHECK_FLOOR = 1 << 24                          # words sit in [2^24, 2^25-1]: never 0
 
 
 # ------------------------------------------------------------- hud `expr:` sources
@@ -1007,10 +1019,18 @@ class TableSpec:
     never leave a stale tail behind in the save (gScriptVector is save-serialized;
     the id namespace is save-GLOBAL, which the re-seed makes harmless: every field
     rebuilds its own tables before reading them). ``id``: an explicit gScriptVector
-    id; default = allocated from :data:`TABLE_ID_BASE` in declaration order."""
+    id; default = allocated from :data:`TABLE_ID_BASE` in declaration order.
+
+    THE ONE EXCEPTION — ``persist = True``: NOT re-seeded. A guard decides instead
+    (:func:`persist_seed_block`): the table seeds only when its guard vector's check
+    word is not its own (New Game, a lost Memoria extra file, a rename/length change),
+    so what play writes survives field entry, ``~`` Reload and save/load. Its ``id`` is
+    REQUIRED and sits in the reserved band (:func:`table_id_problem`) — the id is the
+    table's save-global identity, shared by every field that declares it."""
     name: str
     values: tuple
     id: int | None = None
+    persist: bool = False
 
 
 # --------------------------------------------------------------- adjust (writes)
@@ -1184,6 +1204,91 @@ def _cnum(v: int) -> str:
     26-bit CalcStack domain, which TABLE_VALUE_MIN/MAX already bound)."""
     v = int(v)
     return f"const({v})" if -0x8000 <= v <= 0x7FFF else f"const4({v})"
+
+
+# ---------------------------------------------------------- persistent tables
+def persist_check_word(name: str, n: int) -> int:
+    """A persistent table's check word: ``PERSIST_SALT`` + name + length, 24 hash bits over a
+    floor of 2^24 — so it is never 0 (what an absent guard reads) and never a small count, and it
+    stays inside the 26-bit CalcStack (bit 25 clear: const4 round-trips it exact and positive).
+
+    NOT hashed: the seed VALUES (a seed edit must not wipe players' progress — new games get the
+    new seed), the id (implied by where the guard sits), the field or mod (tables shared across
+    fields must compute the same word). This formula is a PERMANENT CONTRACT with every shipped
+    save: changing it re-seeds every persistent table a player holds."""
+    d = hashlib.sha256(PERSIST_SALT + b"\0" + name.encode("ascii") + b"\0"
+                       + str(int(n)).encode("ascii")).digest()
+    return PERSIST_CHECK_FLOOR | int.from_bytes(d[:3], "little")
+
+
+def table_id_problem(tid: "int | None", persist: bool) -> "str | None":
+    """THE BAND LAW for an author-given table id — one text, raised by the compiler and reported
+    by ``behaviortoml.validate``. ``tid`` None = no ``id`` given."""
+    if persist:
+        if tid is None:
+            return (f"persist = true needs an explicit id = N in {PERSIST_TID_LO}..{PERSIST_TID_HI}"
+                    f" -- a persistent table's id is its save-global identity (like a [[flag]] "
+                    f"index), never auto-allocated; pick any unused id in the band, not its first "
+                    f"one (every mod that takes {PERSIST_TID_LO} shares it)")
+        if not PERSIST_TID_LO <= tid <= PERSIST_TID_HI:
+            return (f"persistent id {tid} is outside the persistent band "
+                    f"{PERSIST_TID_LO}..{PERSIST_TID_HI}")
+        return None
+    if tid is not None and PERSIST_RESERVED_LO <= tid <= PERSIST_RESERVED_HI:
+        return (f"id {tid} is inside the reserved persistent band "
+                f"{PERSIST_RESERVED_LO}..{PERSIST_RESERVED_HI} -- add persist = true (payload ids "
+                f"{PERSIST_TID_LO}..{PERSIST_TID_HI}; {PERSIST_TID_HI + 1}.."
+                f"{PERSIST_RESERVED_HI} hold their guard words) or pick an id outside it")
+    return None
+
+
+def persist_value_problem(values) -> "str | None":
+    """THE PERSISTENT VALUE FENCE: a saved cell outlives the deploy that seeded it, and every later
+    ``adjust`` computes ``cell + by`` on whatever the save holds — so a persistent seed must sit
+    where any fenced ``by`` keeps the sum inside the 26-bit CalcStack (the per-deploy seed check in
+    ``_adjust_ref`` cannot see a cell an OLDER deploy wrote)."""
+    bad = [int(v) for v in values if abs(int(v)) > ADJUST_MAG_MAX]
+    if bad:
+        return (f"a persistent table's values must sit within ±{ADJUST_MAG_MAX} (got {bad[:3]}) "
+                f"-- a saved cell outlives this deploy, and a later adjust's cell + by on it must "
+                f"stay inside the 26-bit CalcStack")
+    return None
+
+
+def _refuse_reserved_auto(tid: int) -> int:
+    """Every AUTO table id passes here: the allocators may never hand out a reserved id."""
+    if tid >= PERSIST_RESERVED_LO:
+        raise BehaviorError(f"auto table id {tid} reached the reserved persistent band "
+                            f"{PERSIST_RESERVED_LO}..{PERSIST_RESERVED_HI} -- the kit's "
+                            f"allocators never hand one out")
+    return tid
+
+
+def persist_seed_block(name: str, tid: int, values) -> bytes:
+    """THE PERSISTENT GUARD, emitted into Main_Init in place of the unconditional table seed.
+
+    Seed only when the table is STALE — its guard's check word is not this table's, or its size is
+    not n — and then run THE TABLE SEED verbatim (size←0, size←n, non-zero cells), size the guard
+    to one cell and write the check word LAST. A matching table is left exactly as the save (or an
+    earlier visit) left it. Every stale case — New Game, a lost/rejected Memoria extra file, the
+    debug reset-all, a rename, a length change, a different table on the id — lands on the seed,
+    which is today's ephemeral behaviour: the degrade path IS the seed path.
+
+    Both paths leave the payload at exactly n cells (the read-one-past-the-end-is-0 terminator
+    holds) with indices untouched. Self-contained (relative jumps), so it splices anywhere."""
+    n = len(values)
+    T, G = _cnum(tid), _cnum(tid + PERSIST_GUARD_OFFSET)
+    W, N = _cnum(persist_check_word(name, n)), _cnum(n)
+    keep = f"persist_{name}_keep"
+    return asm([
+        _stmt(f"{G} const(0) B_VECTOR {W} B_NE {T} B_VECTOR_SIZE {N} B_NE B_OROR"),   # stale?
+        (JMP_IFNOT, keep),                                   # beq: jumps when 0 (not stale)
+        _stmt(f"{T} B_VECTOR_SIZE const(0) B_LET"),          # THE TABLE SEED idiom, verbatim
+        _stmt(f"{T} B_VECTOR_SIZE {N} B_LET"),
+        *[_stmt(f"{T} {_cnum(i)} B_VECTOR {_cnum(v)} B_LET") for i, v in enumerate(values) if v],
+        _stmt(f"{G} B_VECTOR_SIZE const(1) B_LET"),          # the guard is exactly one cell
+        _stmt(f"{G} const(0) B_VECTOR {W} B_LET"),           # the check word LAST
+        label(keep)])
 
 
 def _set_flag(idx: int, v: int) -> bytes:
@@ -1463,6 +1568,7 @@ class FieldBehavior:
         # and the internal counter table takes the LAST auto slot — all
         # deterministic from the ctor arguments alone (the allocation contract).
         self.tables: dict[str, tuple[int, tuple]] = {}   # name -> (vector id, values)
+        self.persist_words: dict[str, int] = {}          # PERSISTENT table name -> check word
         self._counters: dict[str, int] = {}              # name -> cell index
         self._schedules: list[tuple[str, str]] = []      # (counter, table)
         self._scans: list[ScanSpec] = []                 # the vector-loop probes
@@ -1476,10 +1582,19 @@ class FieldBehavior:
                                                          # ShopSynth string selectors resolve here)
         taken: set[int] = set()
         for ts in tables:
+            if not isinstance(ts.persist, bool):
+                raise BehaviorError(f"table {ts.name!r}: persist must be true or false")
+            tid = None
             if ts.id is not None:
+                if isinstance(ts.id, bool):
+                    raise BehaviorError(f"table {ts.name!r}: id must be 0..{TABLE_VALUE_MAX}")
                 tid = int(ts.id)
                 if not 0 <= tid <= TABLE_VALUE_MAX:
                     raise BehaviorError(f"table {ts.name!r}: id must be 0..{TABLE_VALUE_MAX}")
+            prob = table_id_problem(tid, ts.persist)
+            if prob:
+                raise BehaviorError(f"table {ts.name!r}: {prob}")
+            if tid is not None:
                 if tid in taken:
                     raise BehaviorError(f"table {ts.name!r}: id {tid} used twice")
                 taken.add(tid)
@@ -1488,7 +1603,7 @@ class FieldBehavior:
         def _auto_tid() -> int:
             while self._next_tid in taken:
                 self._next_tid += 1
-            taken.add(self._next_tid)
+            taken.add(_refuse_reserved_auto(self._next_tid))
             return self._next_tid
 
         for ts in tables:
@@ -1505,6 +1620,11 @@ class FieldBehavior:
                     raise BehaviorError(f"table {ts.name!r}: value {v} outside the "
                                         f"26-bit CalcStack domain "
                                         f"({TABLE_VALUE_MIN}..{TABLE_VALUE_MAX})")
+            if ts.persist:
+                prob = persist_value_problem(vals)
+                if prob:
+                    raise BehaviorError(f"table {ts.name!r}: {prob}")
+                self.persist_words[ts.name] = persist_check_word(ts.name, len(vals))
             self.tables[ts.name] = (int(ts.id) if ts.id is not None else _auto_tid(),
                                     vals)
         for cn in counters:
@@ -1783,7 +1903,7 @@ class FieldBehavior:
             used.add(self._ctr_tid)
         while self._next_tid in used:
             self._next_tid += 1
-        tid = self._next_tid
+        tid = _refuse_reserved_auto(self._next_tid)
         self._next_tid += 1
         return tid
 
@@ -2160,7 +2280,7 @@ class FieldBehavior:
         ticker pass, atomic w.r.t. every other script). ``tag`` uniquifies the
         labels per emission site."""
         ref = self._adjust_ref(a)
-        return [
+        clamp = [
             _stmt(f"{ref} {ref} {_cnum(a.by)} B_PLUS B_LET"),
             _stmt(f"{ref} {_cnum(a.lo)} B_LT"),
             (JMP_IFNOT, f"{tag}_lo"),
@@ -2171,6 +2291,16 @@ class FieldBehavior:
             _stmt(f"{ref} {_cnum(a.hi)} B_LET"),
             label(f"{tag}_hi"),
         ]
+        if a.table is not None and a.table in self.persist_words and isinstance(a.index, str):
+            # THE PERSISTENT APPEND FENCE. A write at index == Count APPENDS (EBin.cs:1926-1927)
+            # rather than dropping, and the wave clock parks a counter at exactly n by design —
+            # one such write would ride the save as an n+1th cell and trip the guard's size clause,
+            # re-seeding the player's whole table. A negative index the engine drops itself
+            # (:1928), so one comparison suffices. Ordinary tables are unfenced (re-seeded anyway).
+            n = len(self.tables[a.table][1])
+            return [_stmt(f"{self._counter_ref(a.index)} {_cnum(n)} B_LT"),
+                    (JMP_IFNOT, f"{tag}_oob"), *clamp, label(f"{tag}_oob")]
+        return clamp
 
     def drift(self, *, counter: str | None = None, table: str | None = None,
               index=None, by: int, clamp, every: int, flag: str | None = None):
@@ -2439,8 +2569,11 @@ class FieldBehavior:
         # THE TABLE SEED: size←0 wipes whatever the save holds (stale tails from an
         # older deploy included), size←n zero-fills fresh (the engine's grow path),
         # then only NON-zero cells need writes. Counters are all-zero by definition
-        # — their table seeds in exactly two statements.
+        # — their table seeds in exactly two statements. PERSISTENT tables are the
+        # one exception: they skip this loop and get a GUARDED seed below.
         for _tname, (tid, values) in self.tables.items():
+            if _tname in self.persist_words:
+                continue
             main_init += _stmt(f"{_cnum(tid)} B_VECTOR_SIZE const(0) B_LET")
             main_init += _stmt(f"{_cnum(tid)} B_VECTOR_SIZE {_cnum(len(values))} B_LET")
             for i, v in enumerate(values):
@@ -2451,6 +2584,11 @@ class FieldBehavior:
             main_init += _stmt(f"{_cnum(self._ctr_tid)} B_VECTOR_SIZE const(0) B_LET")
             main_init += _stmt(f"{_cnum(self._ctr_tid)} B_VECTOR_SIZE "
                                f"{_cnum(len(self._counters))} B_LET")
+        # THE PERSISTENT GUARDS: seed only a stale table (its guard's check word is not its own,
+        # or its size is not n) — so a loaded save's cells survive this very Main_Init. Main_Init
+        # only: the tag-10 after-battle Reinit is built separately and never touches a table.
+        for tname in self.persist_words:
+            main_init += persist_seed_block(tname, *self.tables[tname])
         report: list[str] = []
 
         # TREE OWNERS: every unclassed unit owns its own tree (v1 / per-unit
@@ -3107,7 +3245,8 @@ class FieldBehavior:
         # idiom as every kit table — active/sel/run/latches ride the zero-fill
         # (reset for free on ~ Reload), presets (speed, posts, targets, hp, the
         # ord map, ctgt=255) are seed VALUES. Emitted last: nothing else in
-        # Main_Init reads a table, and every allocation is final by now.
+        # Main_Init reads a table (the persistent guards read only their own
+        # table and guard vector), and every allocation is final by now.
         for tname, tid in self._cls_tids.items():
             main_init += _stmt(f"{_cnum(tid)} B_VECTOR_SIZE const(0) B_LET")
             main_init += _stmt(f"{_cnum(tid)} B_VECTOR_SIZE "
@@ -3154,8 +3293,17 @@ class FieldBehavior:
                 report.append(f"  {o}: {self._inst_next.get(o, 0)}B [{slots}]")
         tables_txt = ""
         if self.tables or self._counters:
-            tl = ["tables (gScriptVector ids — re-seeded every field entry):"]
+            tl = ["tables (gScriptVector ids — re-seeded every field entry"
+                  + ("; PERSISTENT rows are guarded instead" if self.persist_words else "") + "):"]
             for tname, (tid, values) in self.tables.items():
+                if tname in self.persist_words:
+                    tl.append(
+                        f"  {tname}: id {tid} PERSISTENT, {len(values)} cell(s), seed "
+                        f"{list(values)} — guard vector {tid + PERSIST_GUARD_OFFSET} = [check word "
+                        f"{self.persist_words[tname]}] (name+length); re-seeds only when the guard "
+                        f"fails (New Game, a lost Memoria extra file, ~ Flags reset-all, a "
+                        f"name/length/id change)")
+                    continue
                 tl.append(f"  {tname}: id {tid}, {len(values)} cell(s) = {list(values)}")
             if self._counters:
                 tl.append(f"  counters: id {self._ctr_tid} — " + ", ".join(

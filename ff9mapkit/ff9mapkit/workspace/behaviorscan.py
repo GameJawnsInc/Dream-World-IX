@@ -159,7 +159,9 @@ def cast_model(raw: dict) -> dict:
     for t in (b.get("table") or []):
         vals = t.get("values") or []
         prev = ", ".join(_fmt_scalar(v) for v in vals[:6]) + (" …" if len(vals) > 6 else "")
-        data.append({"kind": "table", "name": str(t.get("name", "?")), "note": f"[{prev}]"})
+        note = (f"persist · id {t.get('id')} · [{prev}]" if t.get("persist") is True
+                else f"[{prev}]")
+        data.append({"kind": "table", "name": str(t.get("name", "?")), "note": note})
     for s in (b.get("schedule") or []):
         data.append({"kind": "schedule", "name": f"{s.get('counter', '?')} ← {s.get('table', '?')}",
                      "note": "wave clock"})

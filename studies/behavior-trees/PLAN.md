@@ -609,7 +609,8 @@ boundary-at-255, histogram tiling, the 40-unit swarm).
    loop being a NEW bytecode shape (grounded nowhere in stock fields — needs the
    verbatim-first treatment). Save-persistence footnote: `gScriptVector` rides
    saves (JsonParser) — the size←0/size←n seed idiom already neutralizes stale
-   state, keep it law.
+   state, keep it law for ordinary tables. (`persist = true` tables are the one
+   guarded exception — `studies/persistent-tables/PLAN.md`.)
 2. **Dispatch-body dedup WITHOUT vectors (nearer-term, subsumed by #1 later):**
    one swing body per UNIT, target parameterized through per-unit "current
    target" GLOBs the ticker writes at selection time — the referee's GLOB
