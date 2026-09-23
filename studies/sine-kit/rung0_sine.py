@@ -9,18 +9,26 @@ the clock the previous writes used and both props' published transform (obj(uid)
 published sample therefore carries its own clock t, and sine0_bench.predict(t) says exactly what the engine must hold.
 
 LATCH the daemon holds (Wait 1) until the player is bound, movement is enabled and both props are ready -- run 1's
-      bare Wait(45) threw at field entry (InvalidCast in getvobj's unguarded f[3], NullReference in 0xAD)
+      bare Wait(45) threw at field entry. The SCHEDULE is measured, not assumed: the gate tick each input first read
+      true (the props' ready bits, the player's bind, movement enabled) -- `gate > 0` alone holds by construction
 PRE  P0 30945 is served by FF9CustomMap alone; P1 the DEPLOYED .eb (every language) carries the daemon, aimed at the
      real prop uids; P2 the float32 rsin predictor is within one unit of the float64 sine over a whole turn
-C0   the daemon runs: >= 200 distinct clock values, spanning more than one full bob period (256 ticks)
+C0   the daemon runs: the samples span more than one full bob period (256 ticks) and cover all 16 phase bins of it
+     (coverage, not a raw count -- the poll rate depends on the watch set's size)
 C1   UNIT + AMPLITUDE + PERIOD: every sampled position of A and B == predict(t) (the orbit r = 300, 128 ticks a
-     turn; B's bob +-60, 256 ticks) -- exact, or the worst error and the exact share are reported
+     turn in the daemon's own clock; B's bob +-60, 256 ticks). EXACT equality discriminates the truncating B_DIV
+     (a floor divide differs at ~half the samples) and the 256-unit B_SIN scale -- NOT float32 vs float64 rsin: for
+     t < 771 the *r/4096 divides absorb every +-1 difference (that is C7's job)
 C2   FACING: both props' facing byte == predict(t) (the +192 tangent), mod 256
 C3   OPERAND ORDER: A's height operand reads back -150 on every sample (0xAD's 2nd operand is the height, not z) and
      B's bob shows ONLY in f[1], while both stay on the r = 300 circle
 C4   SINGLE-DAEMON PHASE LOCK: B sits diametrically opposite A in every sample (the 128-unit offset)
-C5   NO ENGINE OVERRIDE BETWEEN TICKS: C1 holds on read-before-write mirrors, i.e. after a full engine frame -- no
-     walkmesh re-ground (pathing is off), no smoother drift, no snap
+C5   NO LOGIC-SIDE OVERRIDE BETWEEN TICKS (a reading of C1, not its own check): the mirrors read the event engine's
+     PosObj.pos / rotAngle a full frame after the writes, so no walkmesh re-ground or default-position snap moved
+     them. The smoother writes only go.transform, so the RENDERED pose is outside this oracle -- judged by eye from
+     the two shots
+C7   THE FLOAT MODEL: raw B_SIN2 at 6684 / 10684 / 13892 (angles where float32 and float64 rsin disagree by one, no
+     divide after them) == the float32 predictor -- the claim C1 cannot make
 C6   THE ANGLE CONVENTION, calibrated on the engine's own movement: hold each d-pad direction, measure the player's
      world displacement, and require the engine's facing byte to equal the byte that direction implies under
      "0 south, 64 west, 128 north, 192 east" (direction(a) = (-sin a, -cos a)) -- which is what makes C2's +192 the
@@ -44,7 +52,8 @@ from ff9mapkit.config import LANGS, ModLayout  # noqa: E402
 
 GAME = Path(r"C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX")
 THROWS = {"NullReferenceException", "InvalidCastException", "IndexOutOfRangeException"}
-KEYS = ("t", "ax", "ay", "az", "ar", "bx", "by", "bz", "br", "pr", "gate")
+KEYS = ("t", "ax", "ay", "az", "ar", "bx", "by", "bz", "br", "pr", "gate", "s1", "s2", "s3",
+        "fpb", "fra", "frb", "fuc")
 
 
 def _i16(st, byte_index) -> int:
@@ -115,14 +124,20 @@ def run(g) -> None:
     g.state_every(1)
     _watch(g)
     st = g.wait_for(lambda s: _i16(s, SB.T) > 5, timeout=30, what="the daemon's clock running")
-    gate = _i16(st, SB.M["gate"])
-    print(f"[sine-rung0] the daemon held {gate} tick(s) at its latch (player bound + movement enabled + both props "
-          f"ready) before moving anything")
-    g.check(gate > 0, "LATCH: the daemon waited at its latch -- the field was NOT yet safe when it started (run 1's "
-            "bare Wait(45) threw there)", str(gate))
+    m = _mirrors(st)
+    gate = m["gate"]
+    sched = {"props ready A": m["fra"], "props ready B": m["frb"], "player bound": m["fpb"],
+             "movement enabled": m["fuc"]}
+    print(f"[sine-rung0] the latch opened at gate tick {gate + 1}; first-true ticks: {sched}")
+    g.check(0 < m["fra"] <= 2 and 0 < m["frb"] <= 2,
+            "LATCH: the props' ready bits read true within the first two gate ticks (their Inits run right after the "
+            "daemon's, frame 1)", str(sched))
+    g.check(m["fpb"] > 45 and m["fuc"] >= m["fpb"] - 1 and gate + 1 >= m["fpb"],
+            "LATCH: the PLAYER binds late -- after tick 45 (run 1's bare Wait(45) read obj(250) before it: THE cause "
+            "of its InvalidCast) -- and the latch opened no earlier than the bind", str(sched))
     g.shot("1-orbit")
 
-    samples = _collect(g, 12.0)
+    samples = _collect(g, 16.0)
     g.shot("2-orbit-later")
     ts = sorted(samples)
     span = (ts[-1] - ts[0]) if ts else 0
@@ -131,8 +146,10 @@ def run(g) -> None:
         a, b = samples[ts[0]], samples[ts[-1]]
         if b["frame"] != a["frame"]:
             print(f"[sine-rung0] cadence: {(ts[-1] - ts[0]) / (b['frame'] - a['frame']):.3f} ticks per published frame")
-    g.check(len(ts) >= 200 and span > 256, "C0: the daemon runs -- >= 200 distinct clock values over more than one "
-            "full bob period", f"{len(ts)} values, span {span}")
+    bins = {(t % 256) // 16 for t in ts}           # COVERAGE of the whole bob cycle, not a raw sample count (run 4
+    g.check(span > 256 and len(bins) == 16 and len(ts) >= 150,   # sampled 197 over 373 ticks: the watch set's size
+            "C0: the daemon runs -- samples span more than one full bob period and cover all 16 phase bins of it",
+            f"{len(ts)} values, span {span}, bins {len(bins)}/16")
 
     pos_keys = ("ax", "ay", "az", "bx", "by", "bz")
     worst, exact, bad = 0, 0, []
@@ -146,8 +163,8 @@ def run(g) -> None:
     print(f"[sine-rung0] C1 positions: worst |err| {worst}, exact in {exact}/{len(ts)}")
     g.check(bool(ts) and worst <= 1, "C1: every sampled position of both props == predict(t) (r 300, 128 ticks a "
             "turn; the bob +-60 over 256) within one unit", f"worst {worst}, exact {exact}/{len(ts)}, e.g. {bad}")
-    g.check(bool(ts) and exact == len(ts), "C1: ...and EXACTLY -- the float32 rsin + truncating B_DIV predictor is "
-            "the engine's own arithmetic", f"exact {exact}/{len(ts)}")
+    g.check(bool(ts) and exact == len(ts), "C1: ...and EXACTLY -- the truncating B_DIV and the 256-unit B_SIN "
+            "scale (the float model is C7's)", f"exact {exact}/{len(ts)}")
 
     fbad = [(t, samples[t]["ar"], SB.predict(t)["ar"], samples[t]["br"], SB.predict(t)["br"]) for t in ts
             if _angdiff(samples[t]["ar"], SB.predict(t)["ar"]) > 1 or _angdiff(samples[t]["br"], SB.predict(t)["br"]) > 1]
@@ -193,6 +210,15 @@ def run(g) -> None:
     g.check(ok, "C6: the angle convention on the engine's own walk -- for each d-pad direction the player's facing "
             "byte == the byte its world displacement implies under '0 south, 64 west, 128 north, 192 east'",
             str(rows))
+
+    last = samples[ts[-1]] if ts else {}
+    exact64 = {k: int(4096 * math.sin(a * 2 * math.pi / 4096)) for k, a in SB.SINE_PROBES.items()}
+    print("[sine-rung0] C7 raw B_SIN2 (engine, float32 model, float64 truncated): "
+          + str({k: (last.get(k), SB.rsin(a), exact64[k]) for k, a in SB.SINE_PROBES.items()}))
+    g.check(bool(last) and all(last[k] == SB.rsin(a) for k, a in SB.SINE_PROBES.items())
+            and any(SB.rsin(a) != exact64[k] for k, a in SB.SINE_PROBES.items()),
+            "C7: THE FLOAT MODEL -- raw B_SIN2 at angles where float32 and float64 disagree == the float32 predictor",
+            str({k: (last.get(k), SB.rsin(a), exact64[k]) for k, a in SB.SINE_PROBES.items()}))
 
     every = g.exceptions_since(mark)
     ours = [e for e in every if e.name in THROWS and any(k in fr for fr in e.trace for k in ("EventEngine", "EBin"))]

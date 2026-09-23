@@ -24,7 +24,10 @@ THE DAEMON (a seated type-0 code entry, one tag-0 loop; armed from the activate 
         InvalidCast in getvobj's unguarded f[3] cast, a NullReference in 0xAD) before any of that was true -- a fixed
         warm-up is not a gate. The bits: PBOUND set right after DefinePlayerCharacter (0x2C) in the player's Init,
         READY_A/B right after each prop's CreateObject (0x1D), all three CLEARED first thing in Main_Init (Global bits
-        persist across visits); M_GATE counts the ticks spent at the gate.
+        persist across visits); M_GATE counts the ticks spent at the gate, and M_F* record the gate tick each input
+        first read true. (Engine-read by the probe review: the kit player's Init yields 48 frames of NOTHING before
+        DefinePlayerCharacter, so the player binds at frame ~49; run 1's Wait(45) read obj(250).f[3] at ~46 while
+        controlUID still named Main -- a non-actor -- and the unguarded (Actor) cast threw. The props were ready at 1.)
   Wait(SETTLE)
   top:  mirrors: M_T = T (the clock the previous writes used); M_A* / M_B* = obj(A|B).f[0..3];
         M_PR = obj(250).f[3] (the player's facing -- the angle convention, calibrated on the engine's own walk)
@@ -74,7 +77,13 @@ T = 1400
 M = {"t": 1402, "ax": 1404, "ay": 1406, "az": 1408, "ar": 1410,
      "bx": 1412, "by": 1414, "bz": 1416, "br": 1418,
      "pr": 1420,                     # the PLAYER's facing byte -- calibrates the angle convention on engine data
-     "gate": 1422}                   # ticks the daemon spent at the latch before the field was safe
+     "gate": 1422,                   # ticks the daemon spent at the latch before the field was safe
+     # raw B_SIN2 at angles where float32 and float64 rsin DISAGREE -- no divide after them to absorb a +-1, so the
+     # float32 claim can fail (the positions' *r/4096 hides every rsin difference for t < 771)
+     "s1": 1424, "s2": 1426, "s3": 1428,
+     # the latch inputs' SCHEDULE: the gate tick at which each first read true (0 = never)
+     "fpb": 1432, "fra": 1434, "frb": 1436, "fuc": 1438}
+SINE_PROBES = {"s1": 6684, "s2": 10684, "s3": 13892}
 
 
 # ------------------------------------------------------------------- the predictor (the engine's arithmetic)
@@ -142,18 +151,26 @@ def _bit(i: int, v: int) -> bytes:
 
 def daemon_body(a_uid: int, b_uid: int) -> bytes:
     t = _g(T)
-    B: list = [_stmt(f"{_g(M['gate'])} const(0) B_LET"),
-               label("gate"),
-               _stmt(f"Global.Bit[{PBOUND}] B_SYSVAR[2] B_ANDAND Global.Bit[{READY_A}] B_ANDAND "
-                     f"Global.Bit[{READY_B}] B_ANDAND"),
-               (JMP_IFNOT, "hold"),
-               (JMP, "go"),
-               label("hold"),
-               _stmt(f"{_g(M['gate'])} {_g(M['gate'])} const(1) B_PLUS B_LET"),
-               opcodes.wait(1),
-               (JMP, "gate"),
-               label("go"),
-               opcodes.wait(SETTLE), label("top"), _stmt(f"{_g(M['t'])} {t} B_LET")]
+    firsts = (("fpb", f"Global.Bit[{PBOUND}]"), ("fra", f"Global.Bit[{READY_A}]"),
+              ("frb", f"Global.Bit[{READY_B}]"), ("fuc", "B_SYSVAR[2] const(0) B_NE"))
+    B: list = [_stmt(f"{_g(M['gate'])} const(0) B_LET"), _stmt(f"{t} const(0) B_LET")]
+    B += [_stmt(f"{_g(M[k])} const(0) B_LET") for k, _src in firsts]
+    B.append(label("gate"))
+    # first-true ticks, branch-free: F = F + (F == 0) * input * (gate + 1)
+    B += [_stmt(f"{_g(M[k])} {_g(M[k])} {_g(M[k])} const(0) B_EQ {src} B_MULT {_g(M['gate'])} const(1) B_PLUS "
+                f"B_MULT B_PLUS B_LET") for k, src in firsts]
+    B += [
+          _stmt(f"Global.Bit[{PBOUND}] B_SYSVAR[2] B_ANDAND Global.Bit[{READY_A}] B_ANDAND "
+                f"Global.Bit[{READY_B}] B_ANDAND"),
+          (JMP_IFNOT, "hold"),
+          (JMP, "go"),
+          label("hold"),
+          _stmt(f"{_g(M['gate'])} {_g(M['gate'])} const(1) B_PLUS B_LET"),
+          opcodes.wait(1),
+          (JMP, "gate"),
+          label("go"),
+          opcodes.wait(SETTLE), label("top"), _stmt(f"{_g(M['t'])} {t} B_LET")]
+    B += [_stmt(f"{_g(M[k])} const({a}) B_SIN2 B_LET") for k, a in SINE_PROBES.items()]
     for who, uid in (("a", a_uid), ("b", b_uid)):
         for k, f in (("x", 0), ("y", 1), ("z", 2), ("r", 3)):
             B.append(_stmt(f"{_g(M[who + k])} obj(uid={uid}).f[{f}] B_LET"))
