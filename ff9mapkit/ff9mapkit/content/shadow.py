@@ -41,6 +41,11 @@ and the save point's moogle + its barrel_pop cask (58 of 58 stock save moogles k
 ``DisableShadow`` / ``EnableShadow`` hop pair -- verbatim from the donor -- now has a shadow to hide). The
 act's book + feather keep their donor ``DisableShadow`` and get no ops. (In-game: a cask's census blob is
 real but drawn entirely under the barrel's own footprint, as stock's is -- studies/actor-shadow/PLAN.md.)
+
+AN ``[[npc]]`` AND THE ``[player]`` DO NOT FOLLOW ``STOCK_CASTS``: an absent key casts the census for any
+model. For a creature or character, stock's disables follow where the object is: perched or flying, walkmesh-
+unbound in the frog pond, or hidden until a scene. A kit actor always stands on the walkmesh, where stock's
+objects cast 2141 of 2191 times (studies/actor-shadow/NPC-STOCK-CASTS.md; tests/test_shadow_npc_default.py).
 """
 from __future__ import annotations
 
