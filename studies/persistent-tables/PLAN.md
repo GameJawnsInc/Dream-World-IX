@@ -7,8 +7,8 @@ vector id namespace harmless. That same law is why no kit content remembers anyt
 cannot: no counts, no orderings, no logs. A persistent class turns the vector store into the project's
 first author-owned durable structure.
 
-**Status:** Rung 0 ★ PASSED in-game (harness, 21/21 checks over three launches). Rung 1 = the kit
-feature — designing.
+**Status:** Rung 0 ★ PASSED in-game (harness, 21/21 checks over three launches). **Rung 1 ★ PASSED
+in-game — the kit feature `persist = true` (harness, 40/40 checks over four launches).**
 
 ---
 
@@ -68,27 +68,47 @@ Artifacts: `.harness-runs/20260922-1858*-rung0-*` (report.json, shots, steps).
 
 ---
 
-## Rung 1 — the kit feature (design draft, to be settled before code)
+## Rung 1 — the kit feature `persist = true` ★ PASSED in-game
 
-`persist = true` on a `[[behavior.table]]`:
+**Design** (settled by a 3-designer / 3-judge panel, minimal surface — the full spec is in the commit
+`feat(behavior): persistent data tables`; the user-facing contract is BEHAVIOR.md § Persistent tables):
 
-- **Not re-seeded at `Main_Init`.** Instead a **guard** decides: if the table's check word does not
-  match (or its size is not `n`), seed it (`size←0`, `size←n`, non-zero cells) and write the check word
-  **last** — a torn seed re-seeds next time. New Game, a lost extra file and the debug "reset all" all
-  land here and simply re-seed: the degrade path is the seed path.
-- **The check word lives in its own guard vector**, not in cell 0 or past the end of the payload:
-  cell 0 would shift every computed index the kit emits, and a cell past the end breaks the
-  read-off-the-end-is-0 terminator the wave clock relies on. It must live in the **same container** as
-  the data (a vector, never `gEventGlobal`, which also rides the main block and would claim "seeded"
-  after the extra file was lost).
-- **A reserved tid band** that the auto allocators can never reach and ordinary explicit `id =` is
-  refused from — enforced where ids are assigned, not in a docstring.
-- **Save-global identity.** A persistent tid is shared by every field that names it (the point, for a
-  cross-field ledger) and by every mod on the machine (the risk, same as story flags). The check word
-  hashes the table's name and shape, so a different table reusing the id is detected and re-seeded
-  rather than silently reinterpreted.
+- **Identity:** an author-chosen `id` in 6000000..6999999, REQUIRED (like a `[[flag]]` index). The guard
+  vector sits at id + 1000000. Ordinary tables and both auto allocators are refused the whole
+  6000000..7999999 band — enforced where ids are assigned (`behavior.table_id_problem`,
+  `_refuse_reserved_auto`), not in a docstring.
+- **Check word:** sha256(salt, name, length) over a 2^24 floor — never 0, inside the 26-bit stack.
+  NOT the values (a seed edit reaches new games only), not the id, not the field or mod (sharing).
+- **The guard** (`persist_seed_block`, Main_Init only): seed only when stale (word mismatch or size ≠ n),
+  then THE TABLE SEED verbatim, check word LAST. Every stale case degrades to the seed.
+- **The append fence:** the engine APPENDS at `index == Count` (the docs said "lost"); a counter-indexed
+  adjust/drift on a persistent table is fenced at `index < n`, or one write rides the save as an n+1th
+  cell and trips the table's own guard.
+- **Values** fenced to ±1000000. **`lint-campaign` (e4)** refuses members that declare one persistent id
+  with a different name or length.
 
-Open questions for the design round: explicit-only ids vs derived ids; what the check word hashes
-(values? length? an explicit `schema` bump?); whether a length change should re-seed or grow in
-place; lint scope (one field vs campaign); the in-game rung-1 scenario (load back into the WRITER and
-see the value survive; a redeploy with a new schema re-seeds).
+**Deferred** (and why): a `schema` key (changing `id` is the equivalent lever); grow-in-place (with the
+length unhashed it would reinterpret data); a re-seed counter in the guard; derived ids (they split under
+`deploy --id`); a `table:` HUD source; save tooling beyond `save.read_extra_vectors`; a build-stamp record
+of persistent identities (the real fix for "forgot to change the id"); fencing ordinary tables.
+
+**In-game proof** — `rung1_persist.py`, four launches, benches `bench/pwrite.field.toml` (30862: `memo`
+persist id 6004242 + ordinary twin `eph` id 4300 + levers), `pwrite_v2` (11 cells), `pread` (30863):
+
+| Launch | What it showed | Checks |
+|---|---|---|
+| WRITE | negative control; first entry seeds + writes the guard word, one past the end reads 0; bump → 4011 (eph 5012); **THE FENCE**: counter parked at n, a `memo[k]` write appends nothing; re-entering the writer **keeps memo 4011 while the same Main_Init re-seeds eph 5012 → 5005**; the entry autosave holds memo + guard + eph + nonce | 14/14 |
+| READ | fresh process, Continue lands **in the declaring field**: memo 4011 survives that field's Main_Init, eph reads 5005 though the save held 5012 (Main_Init ran); a post-load bump → 4018 survives a round trip | 10/10 |
+| RESHAPE | v2 (11 cells) deployed over 30862, same save: the length change re-seeds under the v2 check word (4004, cell 10 = 11011) — by design; the v2 table takes writes; the autosave carries it | 8/8 |
+| LOST | extra file set aside: the main block restores the nonce, memo degrades to its SEED (4004, not the 4011 the lost file held), the game plays on | 8/8 |
+
+Artifacts: `.harness-runs/20260922-20*-rung1-*`. The benches stay deployed at 30860-30863 (scratch; revert
+with `tools/scroll_out/revert_deploy_<id>.py`). Re-running from WRITE needs `pwrite.field.toml` (v1)
+redeployed first — the header check fails loudly otherwise.
+
+## Next — what this unlocks
+
+The board's ledger family now stands on a proven substrate: the continuity ledger, the fight-writes-the-
+ledger return path (a battle `.eb` writing a persistent id — board cheap move #3 is its falsifier), the
+seeded PRNG's state cell, split tables, offstage agents. Pick consumers from `../eb-uses-board/BOARD.md`
+§B; each one should declare its tables `persist = true` rather than mint a new mechanism.
