@@ -37,6 +37,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `build_field`'s two branches: a verbatim `.eb` always writes (its donor body is the base), a synthesized field
   writes when it has dialogue or a `[carry_text]` plan. A test holds it to what real builds write. A predicate
   failure counts as writing, so lint stays loud rather than crashing.
+- **The carried-object "shows dialogue the fork doesn't carry" warning follows it too.** An un-carried talk
+  window keeps its donor txid, and on the donor's own real block the base game still serves the donor's line
+  there. The warning now fires only when the field sits off the donor's block, or when the field's own `.mes`
+  (its dialogue at 500+, or the `[carry_text]` band at 1000+) writes that exact txid. That second case gets its
+  own message naming the txids. On the 1607 fork all 4 talking objects are clean; adding one NPC line flags only
+  the one window at txid 500. An `--editable` fork records no donor, so a real `text_block` is taken as the
+  donor's (the importer sets it that way). A recorded donor must match exactly.
 
 ### Fixed — a field revert removes the `.mes` its deploy wrote fresh
 - **The revert used to leave behind a `field/<block>.mes` that the deploy wrote where none existed.** It only

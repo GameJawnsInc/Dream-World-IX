@@ -3584,25 +3584,34 @@ def lint_logic(project: FieldProject) -> list[str]:
 
     # #5 (FORK_FIDELITY.md): a carried TALKABLE object whose donor dialogue isn't carried -> WRONG/missing
     # text in the fork. A plain import (no --carry-text) keeps a self-contained talk handler (a bare
-    # WindowSync) but doesn't ship its words, so the WindowSync points at a donor txid the fork's text block
-    # doesn't hold. (The build remaps a carried window to the [carry_text] band; an UN-carried one is the gap.)
-    # The dangling-PLAYER-tag softlock half of #5 is already a build-blocking validate() problem.
+    # WindowSync) but doesn't ship its words, so the WindowSync points at the donor txid. (The build remaps a
+    # carried window to the [carry_text] band; an UN-carried one keeps the donor txid.) That txid still shows
+    # the donor's line when the fork's text block IS the donor's real block and the fork's own .mes does not
+    # write it (_donor_text_served) -- the base game serves it. The dangling-PLAYER-tag softlock half of #5 is
+    # already a build-blocking validate() problem.
     objs = raw.get("object", [])
     if objs:
         try:
             carried = {e.donor_txid for e in project.carry_text_plan()}
         except Exception:
             carried = set()
+        served, written = _donor_text_served(project)
         for ob in objs:
             binref = ob.get("bin")
             if not binref or not project.path(binref).is_file():
                 continue
             shown = _entry_window_txids(project.path(binref).read_bytes(), ob.get("carry_tags"))
-            missing = sorted(t for t in shown if t not in carried)
-            if missing:
+            uncarried = sorted(t for t in shown if t not in carried)
+            if not served and uncarried:
                 out.append(f"[[object]] {binref} ({ob.get('kind', 'object')}) shows dialogue the fork doesn't "
-                           f"carry (donor txid {missing}) -- it will render WRONG/missing text in-game. Import "
+                           f"carry (donor txid {uncarried}) -- it will render WRONG/missing text in-game. Import "
                            f"with --carry-text (ships the donor's lines + remaps the windows), or author the line.")
+            clobbered = [t for t in uncarried if t in written] if served else []
+            if clobbered:
+                out.append(f"[[object]] {binref} ({ob.get('kind', 'object')}) shows donor txid {clobbered}, which "
+                           f"this field's own dialogue writes over on text_block {project.text_block} -- it will "
+                           f"render WRONG/missing text in-game. Import with --carry-text (moves the donor's lines "
+                           f"to their own txids + remaps the windows).")
 
     # #11 (FORK_FIDELITY.md): a VERBATIM-carried story-gated door (a [[gateway_carry]] entry) may open its own
     # window (e.g. "It's locked" -- 2 real fields: 352, 552). Its bytes ship verbatim, so the window keeps the
@@ -4148,6 +4157,32 @@ def ships_field_mes(project: FieldProject) -> bool:
     if spec and spec.get("bin"):
         return True
     return bool(collect_text(project)[0]) or bool(project.carry_text_plan())
+
+
+def _donor_text_served(project: FieldProject) -> tuple:
+    """``(served, written)`` for a fork's un-carried donor windows. ``served``: does a donor txid still resolve to
+    the DONOR's line? It does when ``text_block`` is the donor's real block, because the base game is always in
+    the engine's text merge. ``written`` is the set of txids the field's own ``.mes`` puts on that block
+    (:func:`collect_text`'s body plus the ``[carry_text]`` band); a donor window on one of those shows the
+    field's line instead.
+
+    The donor's block is known exactly when the project records a donor (native, verbatim or BG-borrow). An
+    ``--editable`` fork records none, so a REAL ``text_block`` is taken as the donor's: ``import`` sets it to
+    the donor's block, or to the fork's own id when the donor can't be resolved. Anything unreadable gives
+    ``(False, set())``, the loud side. (Only the synthesized path grafts ``[[object]]``s -- ``build_script`` --
+    so its ``collect_text`` layout is the one that matters here.)"""
+    tb = project.text_block
+    if not is_real_text_block(tb):
+        return False, set()
+    donor = _verbatim_donor_id(project)
+    if donor is not None and _deploystack.EVENT_ID_TO_MES.get(donor) != tb:
+        return False, set()                         # a recorded donor on some OTHER block: its lines are not here
+    try:
+        from .dialogue import parse_mes
+        written = set(parse_mes(collect_text(project)[0])) | {e.new_txid for e in project.carry_text_plan()}
+    except Exception:                               # noqa: BLE001 -- lint's never-crash contract: unknown is loud
+        return False, set()
+    return True, written
 
 
 def lint_text_block(project: FieldProject) -> list:
