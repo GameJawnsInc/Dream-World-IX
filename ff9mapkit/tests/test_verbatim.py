@@ -520,6 +520,39 @@ def test_build_field_verbatim_with_prop_end_to_end(tmp_path):
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_build_field_verbatim_prop_stock_disables_is_switched_off_under_the_donor_mcf(tmp_path):
+    # A verbatim fork ships its donor's MCF, which shadows every actor. A kit [[prop]] of a model stock
+    # disables (the tent) gets stock's DisableShadow into its Init RETURN; one stock lets cast (the cask) gets
+    # nothing. Without the MCF neither gets an op -- the verbatim path casts no kit shadow ops at all.
+    from ff9mapkit import build, extract
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.content import object as _object
+    _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
+    donor = EbScript.from_bytes(extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0"))
+    band_lo = donor.entry_count - _object.PARTY_BAND_SIZE
+
+    def prop_inits(with_mcf):
+        project = build.FieldProject.load(toml)
+        assert bool(project.field.get("mapconfig")), "the verbatim import ships the donor MCF"
+        if not with_mcf:
+            del project.raw["field"]["mapconfig"]
+        project.raw["prop"] = [{"prop": "tent", "pos": [0, 0]}, {"prop": "cask", "pos": [100, 0]}]
+        assert build.validate(project) == []
+        out = tmp_path / f"mod{int(with_mcf)}"
+        build.build_mod([project], out, mod_name="FF9CustomMap")
+        s = EbScript.from_bytes(next(out.rglob("EVT_DV.eb.bytes")).read_bytes())
+        props = [s.entry(i) for i in range(band_lo, band_lo + 2)]
+        return {next(i.imm(0) for i in s.instrs(e.func_by_tag(0)) if i.op == 0x2F):
+                [i.op for i in s.instrs(e.func_by_tag(0))] for e in props}
+
+    tent, cask = 225, 241
+    on, off = prop_inits(True), prop_inits(False)
+    assert on[tent][-2:] == [0x80, 0x04] and 0x80 not in on[cask]
+    assert 0x80 not in off[tent] and 0x80 not in off[cask]
+    assert on[tent][:-2] == off[tent][:-1] and on[cask] == off[cask]    # the one op, nothing else
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_build_field_verbatim_with_event_end_to_end(tmp_path):
     # Add a NEW [[event]] chest to a verbatim fork: build must seat the event region(s) BELOW the band, give
     # the item (AddItem 0x48), and APPEND the "found" message to every language's .mes at a high txid.

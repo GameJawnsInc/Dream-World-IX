@@ -42,6 +42,13 @@ and the save point's moogle + its barrel_pop cask (58 of 58 stock save moogles k
 act's book + feather keep their donor ``DisableShadow`` and get no ops. (In-game: a cask's census blob is
 real but drawn entirely under the barrel's own footprint, as stock's is -- studies/actor-shadow/PLAN.md.)
 
+ON A FIELD THAT SHIPS MAPCONFIGDATA A SET PIECE'S ONE LEVER IS OFF, AS STOCK'S IS. The MCF shadows every
+actor at its own size, so a ``[[prop]]`` part that casts gets no ops there, and one that must not -- a held
+prop, or ``shadow`` resolving to false (a model stock disables, or the author's ``false``) -- gets stock's
+``DisableShadow`` (:data:`DISABLE_SHADOW`) at its Init tail, straight into the RETURN, as stock places it on
+86 free-standing and 37 held objects (``content.prop.inject_prop(mcf=True)``). Without it the MCF drew a
+blob under a tent or a held cup that stock never shows (studies/actor-shadow/held_shadow_census.py).
+
 AN ``[[npc]]`` AND THE ``[player]`` DO NOT FOLLOW ``STOCK_CASTS``: an absent key casts the census for any
 model. For a creature or character, stock's disables follow where the object is: perched or flying, walkmesh-
 unbound in the frog pond, or hidden until a scene. A kit actor always stands on the walkmesh, where stock's
@@ -55,6 +62,8 @@ from .ladder import find_player_entry
 
 SET_SHADOW_SIZE = 0x81          # SHADOWSCALE -> ff9shadow.FF9ShadowSetScaleField(uid, x, z)
 SET_SHADOW_AMP = 0x85           # SHADOWAMP   -> ff9shadow.FF9ShadowSetAmpField(uid, amp)
+DISABLE_SHADOW = 0x80           # SHADOWOFF   -> ff9shadow.FF9ShadowOffField(uid): char attr bit 16, which the
+                                #                MCF service's per-frame scale/amp writes never clear
 SET_HEAD_FOCUS_MASK = 0x8B      # the player-Init anchor (field 451's Zidane sets its shadow right after it)
 SET_MODEL = 0x2F
 

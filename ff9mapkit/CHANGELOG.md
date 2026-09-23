@@ -5,6 +5,26 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — on a field that ships MapConfigData, a held or stock-dark prop no longer casts the MCF's shadow
+- **A `[[prop]]` part that must not cast now gets stock's `DisableShadow` when the field ships an MCF.** That
+  covers a held prop (`attach_to`, `[[npc]] holds`), a model stock keeps dark (`STOCK_CASTS`: the tent, the
+  cactus, the save book), and `shadow = false`. The MCF service (`fldmcf`) gives every actor a shadow, and on
+  such a field the kit emitted nothing. So a native, editable or BG-borrow fork drew a blob under a tent, and a
+  large dark one under a held cup; stock switches both off in the object's Init (139 of its 140 held objects).
+  The op goes at the Init tail, straight into the RETURN, where stock puts it on 86 free-standing and 37 held
+  objects. It sets character attribute bit 16, which the MCF's per-frame writes never clear. Kit props on a
+  verbatim fork get it too, when the fork ships its donor's MCF.
+- A `[[prop]]`'s `shadow = false` / `true` now take effect on an MCF field (off / the MCF's shadow). Only a
+  `{ size, intensity }` table is still reported as ignored.
+- **Byte identity:** a field without an MCF builds byte for byte as before. On an MCF field the build changes by
+  exactly one `DisableShadow` per prop part that must not cast. `tests/test_shadow.py` pins this with a real
+  `[field] mapconfig`, and `tests/test_verbatim.py` covers the verbatim fork. Each is mutation-checked: no op,
+  held-only, the verbatim path unwired, `holds` unwired.
+- **In-game proven** (harness, `studies/actor-shadow` rung 3, bench 30936: the set-pieces bench shipping field
+  1607's MCF). The control is the same toml built by the old code, byte-identical to it. Against that control,
+  the floor under the stock-dark cactus reads 1.107 on/control and the holder's feet 1.19: the MCF blobs under
+  the cactus and the held cup are gone. Every casting actor reads 1.000.
+
 ### Fixed — `fetch-assets` restores a campaign member's missing MapConfigData
 - **A member whose toml declares `[field] mapconfig` now requires that file.** Both fork writers (borrow and
   native) emit `mapconfig.bytes` and the line, and the build refuses a member whose MCF is absent. But
