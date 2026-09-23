@@ -2,6 +2,9 @@
 
 > **PICKED UP.** Rung 0 ★ PASSED in-game (harness, 3 launches, 21/21 checks): vectors survive save → quit → relaunch → load, riding only the Memoria extra file. The arc now lives in [`../persistent-tables/PLAN.md`](../persistent-tables/PLAN.md). The "confirm first" note below is stale: bench 30415 was in-game proven over 3 rounds (`studies/behavior-trees/PLAN.md`), and rung 0 exercised the table seed + `adjust` + HUD-read path directly.
 
+> **NEXT CONSUMER PICKED:** entry #4, *The fight writes the ledger* — rungs 0-1 in-game proven, arc in
+> [`../fight-ledger/PLAN.md`](../fight-ledger/PLAN.md) (`[scene.ledger]`).
+
 **Picked:** entry #1 of [`BOARD.md`](BOARD.md), a `gScriptVector` table class that survives field entry.
 **Paused because:** its first rung is a hard-quit/relaunch round trip. That needs the real machine: the game install,
 the harness and `game_snap`. The session that picked it ran in a bare cloud container.

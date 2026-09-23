@@ -122,3 +122,6 @@ The board's ledger family now stands on a proven substrate: the continuity ledge
 ledger return path (a battle `.eb` writing a persistent id — board cheap move #3 is its falsifier), the
 seeded PRNG's state cell, split tables, offstage agents. Pick consumers from `../eb-uses-board/BOARD.md`
 §B; each one should declare its tables `persist = true` rather than mint a new mechanism.
+
+**First consumer shipped:** board entry #4, the fight writes the ledger — a battle's `[scene.ledger]` writes a
+persistent table under a live gate; rungs 0-1 in-game proven → [`../fight-ledger/PLAN.md`](../fight-ledger/PLAN.md).
