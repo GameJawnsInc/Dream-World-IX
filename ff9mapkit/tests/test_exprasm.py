@@ -41,6 +41,9 @@ def test_accepts_token_list_and_bare_braces():
 _BATTERY = [
     [82, 0x7D, 50, 0, 24, 0x7F],          # B_CURHP const(50) B_LT
     [0x7E, 0xFF, 0xFF, 0x3F, 0, 0x7F],    # a 4-byte const4 literal
+    [0x7E, 0xC0, 0x63, 0xFF, 0xFF, 0x7F], # a NEGATIVE const4 (-40000) -- prints signed, so it reassembles
+    [0x7E, 0, 0, 0, 0x80, 0x7F],          # stock's 0x80000000 (420 uses, reads 0) -> const4raw
+    [0x7E, 0, 0, 0, 0x02, 0x7F],          # stock's 0x02000000 (70 uses, reads -2^25) -> const4raw
     [0xC4, 23, 0x7F],                     # Global.Bit[23] (short index)
     [0xC4 | 0x20, 0x40, 0x21, 0x7F],      # Global.Bit[8512] (long index)
     [0x78, 5, 8, 0x7F],                   # obj(uid=5).f[8]
@@ -167,10 +170,50 @@ def test_const_range_checked():
     # + the 6b B_CONST4 cap precedent), instead of silently masking a typo'd literal
     with pytest.raises(AssembleError, match="16-bit range"):
         assemble("{const(70000) B_EXPR_END}")
-    with pytest.raises(AssembleError, match="32-bit range"):
+    with pytest.raises(AssembleError, match="26-bit signed range"):
         assemble("{const4(99999999999) B_EXPR_END}")
     # in-range negatives ARE accepted (the engine reads B_CONST as a signed Int16) and mask to the byte form
     assert assemble("{const(-1) B_EXPR_END}") == bytes((0x7D, 0xFF, 0xFF, 0x7F))
+
+
+def test_const4_refuses_the_26_bit_wrap():
+    # The engine reads B_CONST4 as SIGNED 26-bit (& 0x3FFFFFF, then (t0 << 6) >> 6), so a wider literal WRAPS
+    # mod 2^26 with no error in-game (studies/roll-stream rung 0). The assembler refuses it instead.
+    from ff9mapkit.eb.opcodes import EXPR_VALUE_MAX, EXPR_VALUE_MIN
+    assert (EXPR_VALUE_MIN, EXPR_VALUE_MAX) == (-(1 << 25), (1 << 25) - 1)
+    # both boundaries assemble to the sign-extended 4 bytes, and read back exact through the disassembler
+    assert assemble(f"{{const4({EXPR_VALUE_MAX}) B_EXPR_END}}") == bytes((0x7E, 0xFF, 0xFF, 0xFF, 0x01, 0x7F))
+    assert assemble(f"{{const4({EXPR_VALUE_MIN}) B_EXPR_END}}") == bytes((0x7E, 0x00, 0x00, 0x00, 0xFE, 0x7F))
+    for v in (EXPR_VALUE_MIN, EXPR_VALUE_MAX, -1):
+        assert disasm.pretty_expr(assemble(f"{{const4({v}) B_EXPR_END}}"), 0)[0] == f"{{const4({v}) B_EXPR_END}}"
+    # one past either edge is refused, and the message names what the engine would have read
+    with pytest.raises(AssembleError, match=r"26-bit signed range .* wrap to -33554432 in-game"):
+        exprasm.assemble_token(f"const4({1 << 25})")
+    with pytest.raises(AssembleError, match=r"26-bit signed range .* wrap to 33554431 in-game"):
+        exprasm.assemble_token(f"const4({-(1 << 25) - 1})")
+    with pytest.raises(AssembleError, match="wrap to -27108864"):     # the reported repro, reachable from TOML
+        exprasm.assemble_token("const4(40000000)")
+    # the pre-26-bit disassembler spelled negatives unsigned (a stale .ebs still does): refused, pointing at the value
+    with pytest.raises(AssembleError, match=r"old unsigned spelling of const4\(-122624\)"):
+        exprasm.assemble_token("const4(4294844672)")
+
+
+def test_const4raw_carries_bytes_the_engine_wraps():
+    # Stock ships two B_CONST4 byte patterns that are NOT their value's sign-extended form. The disassembler spells
+    # them const4raw(...) -- never a decimal the engine does not read -- and the assembler reproduces the bytes.
+    for u, reads in ((0x80000000, 0), (0x02000000, -(1 << 25)), (0x03FFFFFF, -1)):
+        b = bytes((0x7E,)) + u.to_bytes(4, "little") + bytes((0x7F,))
+        assert disasm.const4_engine_value(u) == reads
+        text, _ = disasm.pretty_expr(b, 0)
+        assert text == f"{{const4raw(0x{u:08X}) B_EXPR_END}}"
+        assert assemble(text) == b
+    # one spelling per byte pattern: bytes that ARE a value's ordinary form have no raw alias
+    with pytest.raises(AssembleError, match=r"ordinary form of -1 -- write const4\(-1\)"):
+        exprasm.assemble_token("const4raw(0xFFFFFFFF)")
+    with pytest.raises(AssembleError, match=r"write const4\(1\)"):
+        exprasm.assemble_token("const4raw(0x00000001)")
+    with pytest.raises(AssembleError, match="unknown expression token"):   # exactly 8 hex digits
+        exprasm.assemble_token("const4raw(0x80000)")
 
 
 def test_opxx_sweep_rejects_named_and_var_bytes():

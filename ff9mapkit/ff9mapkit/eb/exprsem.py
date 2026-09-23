@@ -38,8 +38,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ._exprtable import EXPR_OP_NAMES, FLEX_FN_BY_NAME
-from .exprasm import (_RE_CONST, _RE_CONST4, _RE_FLEX, _RE_MEMPTR, _RE_OBJ, _RE_OPHEX, _RE_SYS,
-                      _RE_VAR, AssembleError)
+from .exprasm import (_RE_CONST, _RE_CONST4, _RE_CONST4RAW, _RE_FLEX, _RE_MEMPTR, _RE_OBJ, _RE_OPHEX,
+                      _RE_SYS, _RE_VAR, AssembleError)
 
 # ------------------------------------------------------------------ effect classes
 READ = "read"       # no observable state change -- safe to re-evaluate every frame
@@ -215,7 +215,7 @@ class TokenSem:
 def token_sem(tok: str) -> TokenSem:
     """Semantics of ONE :func:`exprasm.assemble_token`-shaped token. Raises :class:`ExprSemanticError`
     for a token whose arity is not statically knowable (an unnamed raw operator byte)."""
-    if _RE_CONST.match(tok) or _RE_CONST4.match(tok):
+    if _RE_CONST.match(tok) or _RE_CONST4.match(tok) or _RE_CONST4RAW.match(tok):
         return TokenSem(tok, 0, 1, READ)
     if tok in FLEX_FN_BY_NAME:                              # B_VECTOR / B_VECTOR_SIZE / B_DICTIONARY
         _fid, argc = FLEX_FN_BY_NAME[tok]                   # -- the sugar names at canonical arity

@@ -546,7 +546,8 @@ def set_text_variable(slot: int, value: int) -> bytes:   # 0x66 (MESVALUE) argsi
 # SILENTLY mod 2^26: the OR forces the class bits to Int26 whatever the high bits held, and the read
 # sign-extends bit 25 (measured in-game, studies/roll-stream rung 0: 2^25 - 1 + 1 reads back -2^25) --
 # a wrong value, not an exception. (B_CONST4/B_SYSVAR mask explicitly at EBin.cs:1232/:1243.) Only a BARE TERMINAL var token bypasses the push and returns a full Int32 through getv().
-# Same number the behavior tables already carry as TABLE_VALUE_MIN/MAX (content/behavior.py:690-691).
+# Same number the behavior tables already carry as TABLE_VALUE_MIN/MAX (content/behavior.py:750-751).
+# Enforced on LITERALS at the call site: exprasm.assemble_token refuses a const4(N) outside this window.
 EXPR_VALUE_MIN = -(1 << 25)
 EXPR_VALUE_MAX = (1 << 25) - 1
 
