@@ -93,6 +93,69 @@ def test_plain_import_auto_routes_area_lt_10_to_native(monkeypatch):
     assert _run(21) == ["borrow"]     # area >= 10 -> BG-borrow unchanged
 
 
+# ---- a plain `import` records its donor as `[field] source_field`, so a STANDALONE BG-borrow gets the same
+# ForkDonorPatch `<forkId> <donorId>` row a campaign member of that donor gets from plan.members -- without it the
+# engine's EffectiveFieldId gates (walkmesh hotfixes, off-mesh exemptions, the menu location) never fire for it.
+# Offline: the install-reading halves are stubbed; the toml text, its parse and the build are real.
+def _stub_borrow_import(monkeypatch, donor_id):
+    from ff9mapkit import dialogue, extract
+
+    def _extract_field(field, out_dir, **_k):
+        Path(out_dir).mkdir(parents=True, exist_ok=True)         # the real one writes camera.bgx + walkmesh.bgi here
+        return {"field": "fbg_n21_grgr_map420_gr_cen_0", "area": 21, "mapid": "GRGR_MAP420_GR_CEN_0",
+                "camera": {"pitch_deg": 30.0, "fov_deg": 40.0, "range": [384, 400]},
+                "walkmesh_bounds": {"x": [-500, 500], "z": [-500, 500]}, "player_start": [404, 127],
+                "scrolling": False}
+
+    def _resolve_field_id(field):
+        if donor_id is None:
+            raise ValueError(f"no field id for {field!r}")
+        return donor_id
+
+    monkeypatch.setattr(extract, "resolve_field", lambda field, game: ("fbg_n21_grgr_map420_gr_cen_0", None))
+    monkeypatch.setattr(extract, "extract_field", _extract_field)
+    monkeypatch.setattr(extract, "compose_background", lambda *a, **k: False)
+    monkeypatch.setattr(extract, "_content_for_import", lambda *a, **k: ("", None, {}))
+    monkeypatch.setattr(extract, "extract_mapconfig", lambda *a, **k: None)
+    monkeypatch.setattr(dialogue, "_resolve_field_id", _resolve_field_id)
+
+
+def test_plain_import_records_its_donor(tmp_path, monkeypatch):
+    import tomllib
+    from ff9mapkit import build, deploystack, extract
+    _stub_borrow_import(monkeypatch, 950)
+    _, p = extract.write_field_project("950", tmp_path / "f", field_id=30999)
+    raw = tomllib.loads(p.read_text(encoding="utf-8"))
+    assert raw["field"]["borrow_bg"] == "GRGR_MAP420_GR_CEN_0"    # still a BG-borrow on the donor's own scene
+    assert raw["field"]["source_field"] == 950 and build.donor_field_id(raw) == 950
+    assert deploystack.donor_block_for(raw) is not None          # the deploy-time text guard sees the fork too
+
+
+def test_a_plain_import_builds_the_fork_donor_row_a_campaign_member_gets(tmp_path, monkeypatch):
+    from ff9mapkit import extract
+    _stub_borrow_import(monkeypatch, 950)
+    _, p = extract.write_field_project("950", tmp_path / "f", field_id=30999)
+    (p.parent / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())   # what extract_field writes; the
+    (p.parent / "walkmesh.bgi").write_bytes((FIX / "multifloor.bgi.bytes").read_bytes())   # mesh is lint-only
+    out = tmp_path / "mod"
+    build_mod([FieldProject.load(p)], out)
+    rows = [ln for ln in ModLayout(out).fork_donor_patch.read_text(encoding="utf-8").splitlines()
+            if not ln.startswith("#")]
+    assert rows == ["30999 950"]                     # the row build_campaign writes for a member (new_id real_id)
+
+
+def test_plain_import_records_no_donor_in_place_or_when_unresolved(tmp_path, monkeypatch):
+    import tomllib
+    from ff9mapkit import build, extract
+    _stub_borrow_import(monkeypatch, 950)            # forked IN PLACE: no self-mapping (EffectiveFieldId is the id)
+    _, p = extract.write_field_project("950", tmp_path / "ip", field_id=950)
+    assert "source_field" not in tomllib.loads(p.read_text(encoding="utf-8"))["field"]
+    _stub_borrow_import(monkeypatch, None)           # the donor id did not resolve: record nothing, never a guess
+    _, p = extract.write_field_project("950", tmp_path / "nr", field_id=30999)
+    raw = tomllib.loads(p.read_text(encoding="utf-8"))
+    assert "source_field" not in raw["field"] and build.donor_field_id(raw) is None
+
+
 def test_borrow_ships_script_but_no_custom_scene(tmp_path):
     proj = _borrow_project(tmp_path)
     out = tmp_path / "mod"

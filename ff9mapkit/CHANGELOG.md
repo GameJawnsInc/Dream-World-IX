@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a plain BG-borrow `import` records its donor, so it gets a ForkDonorPatch row
+- **`ff9mapkit import <field>` (BG-borrow) now writes `[field] source_field = <donor id>`**, as `--native`,
+  `--verbatim` and `--editable` do. A standalone borrow used to get no ForkDonorPatch row while the same borrow as
+  a campaign member got one from `plan.members`, so the two disagreed. Without the row, the custom engine's
+  `EffectiveFieldId` gates never fired on a standalone borrow.
+- **Only the id-keyed gates change.** A borrow runs on the donor's own `.bgs`/`.bgi` under the donor's FBG name,
+  so the name-keyed ones (s31 overlay offsets, s32) already resolved. Now 2161's tri 69 comes from the engine (a
+  borrow lost it outright before: no row and no prepend), 2507's delayed pass fires (the chests settle, then their
+  landing tris drop), and the in-field menu LOCATION shows the donor's place name instead of a blank
+  (`[field] location = "…"` still overrides it). A borrow of 2507 gets the player re-attach guard above.
+- **What else sees the donor:** `lint` and the deploy-time text guard accept the donor's own text block, as they do
+  for a native fork, and the Workspace Place tab places content on the donor's real room, which is the room a
+  borrow renders. A fork forked in place on the donor's id, or whose donor id did not resolve, records nothing.
+- The borrow path still writes no `walkmesh_tri_toggles` line, so 2356's raw-gated hotfix is lost on a borrow.
+
 ### Fixed — a kit-built fork of field 2507 no longer lets the player walk off the walkmesh
 - **2507's delayed engine hotfix detached the player on every kit-built fork with a donor row.**
   `FieldMap.DelayedActiveTri` runs 0.5 s after load and detaches every actor whose `isPlayer` is false from the

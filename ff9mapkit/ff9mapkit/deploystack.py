@@ -179,8 +179,8 @@ def _blocks_in(game_dir: Path, folder: str, lang: str) -> set:
 def donor_block_for(project_raw) -> int | None:
     """The DONOR's real text block for a fork's ``field.toml`` raw dict, or ``None`` when the project is not a
     fork (or its donor is unknown/not a real field). Mirrors ``build._verbatim_donor_id``'s three recorded
-    donor forms -- ``[verbatim_eb] donor`` (verbatim), ``[field] source_field`` (native/editable),
-    ``[field] borrow_field`` (BG-borrow) -- deliberately NOT just the verbatim one: a ``--native`` fork also
+    donor forms -- ``[verbatim_eb] donor`` (verbatim), ``[field] source_field`` (native/editable/BG-borrow),
+    ``[field] borrow_field`` (the World Hub) -- deliberately NOT just the verbatim one: a ``--native`` fork also
     carries its donor's text and is equally exempt from the vanilla axis.
 
     Kept here (rather than inlined at a call site) so the predicate is unit-testable: an earlier version of

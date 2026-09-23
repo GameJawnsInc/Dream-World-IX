@@ -444,8 +444,8 @@ subset is now reproduced, the dynamic ones steer to fork-in-place.
 **UPDATE — the fork-gate engine now fires most of these itself.** The custom engine routes a gate through
 `EffectiveFieldId`, which resolves a fork's id to its donor through the fork's ForkDonorPatch row. s29 does
 this for 2507, s30 for every DoEventCode gate (450, 1421, 1753, 1606, and the RunScript arms of 900/2803),
-and s65 for 2161. On a fork that records its donor (`--native`, `--verbatim`, `--editable`, every campaign
-member) those hotfixes are the engine's job, and `import` no longer prepends 2161's toggle. It used to, so forks
+and s65 for 2161. On a fork that records its donor (`--native`, `--verbatim`, `--editable`, a plain BG-borrow
+`import`, every campaign member) those hotfixes are the engine's job, and `import` no longer prepends 2161's toggle. It used to, so forks
 got tri 69 twice. That was redundant, not harmful, because `BGI_triSetActive` sets the bit absolutely. What still
 needs the kit: 2356 (a raw gate, so the kit prepends it everywhere), a fork whose donor id did not resolve (no
 row, so it keeps the 2161 prepend and loses 2507), and anything in `turnOffTriManually.cs` (1900, 1455, the other
@@ -457,6 +457,14 @@ halves of 900/2803), which stays lost on a mint. `walkmesh_hotfixes.py` records 
 EffectiveFieldId suite for an editable fork. Those gates key on the donor's walkmesh tri ids and object uids, which
 hold until you reshape `walkmesh.obj`. The name-keyed overlay offsets (s31 `FieldMapExtraOffset.SetOffset`) sit
 on the `.bgs` load path, which an editable `.bgx` scene never takes, so its re-sliced layers are not mis-offset.
+
+A plain BG-borrow `import` records `[field] source_field` too, and for the same reason: before it did, a
+standalone borrow got no row while the same borrow as a campaign member got one from `plan.members`, so the two
+disagreed. A borrow runs on the donor's own `.bgs`/`.bgi` under the donor's FBG name, so the name-keyed gates
+(s31/s32) already resolved without the row; the row changes only the id-keyed ones. 2161's tri 69 (lost outright
+on a borrow before: no row and no prepend) and 2507's delayed pass now fire, and the in-field menu LOCATION
+shows the donor's place name where it read blank (`[field] location = "…"` still overrides it). The borrow
+path writes no `walkmesh_tri_toggles` line, so 2356 on a borrow is still lost.
 
 2507's delayed pass also detaches every actor that is not flagged as the player, and on a kit-built fork
 (`--native`, `--editable`, BG-borrow) that includes the player, who could then walk off the walkway. The real

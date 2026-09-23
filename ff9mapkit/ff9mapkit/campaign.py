@@ -676,10 +676,10 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
     # (memoria-patches/s24-fork-donor-remap); a no-op on a stock engine that doesn't read the file.
     #
     # NOT redundant with build_mod's own emit above, which overwrites -- KEEP BOTH. build_mod derives the donor
-    # from each member TOML (build._verbatim_donor_id), and a BG-borrow member (write_field_project) records no
-    # donor key at all, so build_mod cannot see it -- only plan.members' real_id can. (Editable members record
-    # source_field now, both the art-less stub and a re-fork with art; a member toml written before that did
-    # not.) Deleting this write silently drops those members' mappings.
+    # from each member TOML (build._verbatim_donor_id). Every writer records source_field now (BG-borrow,
+    # native, the art-less editable stub and a re-fork with art), but a member toml written before that did not,
+    # so build_mod cannot see it -- only plan.members' real_id can. Deleting this write silently drops those
+    # members' mappings.
     donor_lines = [f"{m.new_id} {m.real_id}" for m in plan.members
                    if getattr(m, "real_id", None) and m.new_id != m.real_id]
     if donor_lines:
