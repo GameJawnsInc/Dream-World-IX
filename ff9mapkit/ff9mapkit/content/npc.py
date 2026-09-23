@@ -469,9 +469,16 @@ PLAYER_STALE_SOUND = (0xC5, (4616, 912))   # (op, args) -- RunSoundCode(4616, 91
 
 
 def neutralize_player_audio_cruft(data) -> bytes:
-    """NOP the stale ``RunSoundCode(4616, 912)`` preload ops in the PLAYER entry's Init (in-place, same
+    """Skip the stale ``RunSoundCode(4616, 912)`` preload ops in the PLAYER entry's Init (in-place, same
     length). Removes the per-frame 'Music Id 912' exception spam every synthesized field's player inherits
-    from the blank template, without touching animation (the model-pack loads are kept). No-op if absent."""
+    from the blank template, without touching animation (the model-pack loads are kept). No-op if absent.
+
+    Each op becomes a ``JMP`` over its own bytes (:func:`ff9mapkit.eb.edit.skip_range`), NOT a 0x00 fill.
+    0x00 is a one-tick yield in the engine: the eight 6-byte ops zero-filled were 48 yields between
+    ``SetModel`` and ``DefinePlayerCharacter``, so the player's controller existed ~1.6 s before it was the
+    player. Field 2507's delayed walkmesh pass (``FieldMap.DelayedActiveTri``, 0.5 s in) detached it in that
+    window (studies/fork-walkmesh-hotfix/FINDINGS.md). With the jumps the Init runs in one tick, as the real
+    player's does."""
     op, want = PLAYER_STALE_SOUND
     eb = EbScript.from_bytes(data)
     try:
@@ -480,10 +487,10 @@ def neutralize_player_audio_cruft(data) -> bytes:
         return data if isinstance(data, bytes) else bytes(data)
     if f0 is None:
         return data if isinstance(data, bytes) else bytes(data)
-    out = bytearray(data)
+    out = bytes(data)
     instrs = list(eb.instrs(f0))
     for k, ins in enumerate(instrs):
         if ins.op == op and tuple(ins.args or ()) == want:
             end = instrs[k + 1].off if k + 1 < len(instrs) else f0.abs_end
-            out[ins.off:end] = b"\x00" * (end - ins.off)        # NOP the whole op (op 0x00 = safe skip)
-    return bytes(out)
+            out = edit.skip_range(out, ins.off, end - ins.off)   # a JMP over the op: no event tick
+    return out

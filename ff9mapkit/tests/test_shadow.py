@@ -63,7 +63,7 @@ def test_census_values_for_the_common_rigs():
     assert SH.params_for(MOOGLE) == (6, 2)
     assert SH.params_for(59999) == _shadowparams.DEFAULT          # no shipping field shows it
     for m, (size, inten) in _shadowparams.SHADOW_PARAMS.items():
-        assert 0 <= size <= SH.SIZE_MAX and 0 <= inten <= SH.INTENSITY_MAX, m
+        assert 0 <= size <= SH.SIZE_MAX and 0 <= inten <= SH.INTENSITY_ENCODABLE_MAX, m   # stock's 16s wrap
 
 
 def test_resolve_semantics():

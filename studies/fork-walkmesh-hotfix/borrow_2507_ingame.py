@@ -5,8 +5,9 @@ kit-built player stay on the walkmesh?
 `<fork> 2507` and the engine's EffectiveFieldId gates fire for the borrow (s29 routes FieldMap.DelayedActiveTri
 through it). It used to write nothing, so a standalone borrow never got the row. The pass runs 0.5 s after load: it
 detaches every actor whose `isPlayer` is false (the two carried chests, and a kit-built player) and deactivates the
-landing tris 174/175/177/178. The build guards the player (content.walkmesh_hotfix.reattach_player) wherever the
-pass can run -- a `borrow_bg` of 2507's scene included -- so both slots below carry the guard.
+landing tris 174/175/177/178. The first run (20260923-163201) had the player guarded by the since-removed
+content.walkmesh_hotfix.reattach_player. The kit player now binds on its first Init tick, before the pass, so it
+needs no guard -- a rebuild runs this scenario unchanged against that.
 
 A/B, one launch, two slots built from ONE `import 2507`, identical except the key:
 

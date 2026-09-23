@@ -27,6 +27,15 @@ The TOML key, on ``[player]`` and every ``[[npc]]`` (so every behavior unit)::
     shadow = { size = 12 }                    # override the census size (intensity stays the census')
     shadow = { size = 12, intensity = 6 }     # both; absent/true = the census values for the model
 
+AN AUTHORED INTENSITY STOPS AT 15, BECAUSE THE BLOB'S COLOUR WRAPS AFTER IT. The op carries ``intensity << 3``
+in one byte, so 0-31 all encode. But ``EventEngine.SetRenderer`` draws the blob in colour
+``(Byte)(amp * 2)``, and from amp 128 up that wraps: intensity ``i`` >= 16 draws exactly as ``i - 16``. So 16
+draws no shadow at all and 31 draws the same as 15. In-game on bench 30922, the same slot at 15 and at 31 is
+pixel-identical, and so is 16 against 0 (studies/actor-shadow/intensity_wrap.py). ``validate`` refuses an
+authored 16-31 and names the census value instead. The census itself keeps its two 16s (models 200 and 488).
+Those are stock's own MapConfigData values, which wrap the same way in stock, so an absent key reproduces
+stock exactly.
+
 SET PIECES FOLLOW STOCK'S SCRIPT TOO, NOT ONLY ITS MCF. The MCF gives EVERY actor a shadow, but an object's
 Init can ``DisableShadow`` it, and stock does that to most set dressing: for 68 of the 84 accessory models it
 shows standing free, its objects switch the shadow off on every path through their Init (the tent 66 of 67,
@@ -68,7 +77,8 @@ SET_HEAD_FOCUS_MASK = 0x8B      # the player-Init anchor (field 451's Zidane set
 SET_MODEL = 0x2F
 
 SIZE_MAX = 255                  # getv1 (one byte); the quad is 224*size/16 x 192*size/16 field units
-INTENSITY_MAX = 31              # amp = intensity << 3 must fit SetShadowAmplifier's one byte
+INTENSITY_MAX = 15              # the AUTHORED cap: 16-31 encode, but the blob's DRAW colour wraps (see the docstring)
+INTENSITY_ENCODABLE_MAX = 31    # amp = intensity << 3 must fit SetShadowAmplifier's one byte (the census obeys this)
 
 _KEYS = ("size", "intensity")
 
@@ -98,8 +108,25 @@ def set_piece_value(value, model):
     return stock_casts(model) if value is None else value
 
 
-def problems(value, label: str) -> list:
-    """Validation messages for one ``shadow`` value (empty = fine). Shared by validate and the build."""
+def _intensity_advice(v, model) -> str:
+    """Why an authored intensity past :data:`INTENSITY_MAX` is refused, and what to write instead."""
+    if model is None:
+        census = "drop `intensity` for the census value for the actor's model (mostly 3-4)"
+    else:
+        ci = params_for(model)[1]
+        census = (f"drop `intensity` for this model's census value ({ci})" if ci <= INTENSITY_MAX else
+                  f"drop `intensity` for this model's census value ({ci}): stock's own value, which wraps "
+                  f"the same way in stock, so dropping the key matches stock exactly")
+    wrap = ""
+    if isinstance(v, int) and not isinstance(v, bool) and INTENSITY_MAX < v <= INTENSITY_ENCODABLE_MAX:
+        wrap = f" and {v} would draw exactly as {v - 16}" + (" (no shadow at all)" if v == 16 else "")
+    return (f": the engine draws the blob in colour (amp * 2) & 0xFF with amp = intensity << 3, so 16-31 "
+            f"wrap{wrap}. Pick 0-{INTENSITY_MAX}, or {census}")
+
+
+def problems(value, label: str, model=None) -> list:
+    """Validation messages for one ``shadow`` value (empty = fine). Shared by validate and the build.
+    ``model``, when the caller knows it, lets an out-of-range intensity name that model's census value."""
     if value is None or isinstance(value, bool):
         return []
     if not isinstance(value, dict):
@@ -113,7 +140,10 @@ def problems(value, label: str) -> list:
         if k in value:
             v = value[k]
             if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= hi:
-                out.append(f"{label} shadow.{k} must be an integer 0-{hi}, got {v!r}")
+                msg = f"{label} shadow.{k} must be an integer 0-{hi}, got {v!r}"
+                if k == "intensity" and isinstance(v, int) and not isinstance(v, bool) and v > hi:
+                    msg += _intensity_advice(v, model)
+                out.append(msg)
     return out
 
 
@@ -122,7 +152,7 @@ def resolve(value, model):
     ``shadow`` key: absent/None/true = the census for ``model``; false = none; a table overrides."""
     if value is False:
         return None
-    msgs = problems(value, "shadow")
+    msgs = problems(value, "shadow", model)
     if msgs:
         raise ValueError("; ".join(msgs))
     size, intensity = params_for(model)
@@ -130,6 +160,12 @@ def resolve(value, model):
         size = int(value.get("size", size))
         intensity = int(value.get("intensity", intensity))
     return size, intensity
+
+
+def blob_colour(intensity: int) -> int:
+    """The grey the engine draws a field actor's blob in: ``EventEngine.SetRenderer``'s ``(Byte)(amp * 2)``
+    with amp = ``intensity << 3`` (the op's argument). It wraps from 16, so :data:`INTENSITY_MAX` is 15."""
+    return ((int(intensity) << 3) * 2) & 0xFF
 
 
 def ops(size: int, intensity: int) -> bytes:
