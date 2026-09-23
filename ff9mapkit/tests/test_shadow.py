@@ -221,13 +221,15 @@ def test_a_field_with_mapconfig_is_left_to_its_mcf():
     class P:
         field = {"mapconfig": "mapconfig.bytes"}
         raw = {"player": {"shadow": False}, "npc": [{"name": "a"}, {"name": "b", "shadow": {"size": 3}}],
-               "prop": [{"prop": "tent"}, {"prop": "cask", "shadow": False}],
+               "prop": [{"prop": "tent"}, {"prop": "cask", "shadow": False}, {"prop": "barrel", "shadow": True},
+                        {"prop": "sign", "shadow": {"size": 4}}],
                "chest": [{}, {"shadow": True}], "savepoint": [{"shadow": False}]}
     w = []
     assert build._casts_stock_shadows(P, w) is False
     assert build._casts_stock_shadows(P, w) is False               # per-language rebuild: warned ONCE
     assert len(w) == 1 and "[player]" in w[0] and "'b'" in w[0] and "'a'" not in w[0]
-    assert "[[prop]] 'cask'" in w[0] and "'tent'" not in w[0]
+    # a prop's one lever on an MCF field is OFF: its false/true take effect; only a size table is ignored
+    assert "[[prop]] 'sign'" in w[0] and "'cask'" not in w[0] and "'barrel'" not in w[0] and "'tent'" not in w[0]
     assert "[[chest]] #1" in w[0] and "[[chest]] #0" not in w[0] and "[[savepoint]] #0" in w[0]
     P.field = {}
     assert build._casts_stock_shadows(P, []) is True
@@ -374,11 +376,53 @@ def test_build_shadows_the_set_pieces_stock_shadows(tmp_path, monkeypatch):
 
 
 def test_set_pieces_change_by_exactly_their_shadow_ops(tmp_path, monkeypatch):
+    # "off" is the MCF-field build: no size/amp op anywhere, and the five [[prop]] parts that must not cast --
+    # the stock-dark tent, the opted-out cask, the composite's book, both held props -- switched off
     from ff9mapkit import build
     proj = build.FieldProject.load(_toml(tmp_path, _SET_PIECES))
     off = _built_mod(proj, tmp_path / "off", shadows=False, monkeypatch=monkeypatch)
     on = _built_mod(proj, tmp_path / "on", shadows=True, monkeypatch=monkeypatch)
-    _assert_only_shadow_ops_added(off, on, actors=len(_SET_PIECE_CASTS))
+    _assert_only_shadow_ops_added(off, on, actors=len(_SET_PIECE_CASTS), dark=len(_SET_PIECE_DARK))
+
+
+# every [[prop]] part that must not cast, (model, x, z): on an MCF field each gets stock's DisableShadow
+_SET_PIECE_DARK = [(TENT, 200, 100), (CASK, 400, 100), (SAVE_BOOK, 500, 100), (234, 300, 0), (CASK, 600, 100)]
+_SET_PIECE_PROPS_CAST = [(CASK, 100, 100), (TENT, 300, 100), (MOOGLE, 500, 100)]
+
+
+def _mcf_field(tmp_path, body: str):
+    """``_toml`` + a real ``[field] mapconfig`` (an authored MCF: the default light + a default row)."""
+    p = _toml(tmp_path, body)
+    p.write_text(p.read_text(encoding="utf-8").replace("text_block=8\n", 'text_block=8\nmapconfig="m.bytes"\n'),
+                 encoding="utf-8")
+    (tmp_path / "m.bytes").write_bytes(_mcf([(mapconfig.LIGHT_DEFAULT, 0, 0)], [(0xFFFF, 3, 9)]))
+    return p
+
+
+def test_on_an_mcf_field_a_set_piece_that_must_not_cast_is_switched_off(tmp_path, monkeypatch):
+    # The MCF shadows EVERY actor (fldmcf); stock's script then DisableShadows what must not cast -- 139 of 140
+    # held objects, and the set dressing STOCK_CASTS names. A kit field shipping an MCF does the same: the op
+    # stock uses, at the Init tail straight into the RETURN (stock's place on 86 free-standing + 37 held).
+    from ff9mapkit import build
+    proj = build.FieldProject.load(_mcf_field(tmp_path, _SET_PIECES))
+    assert build.validate(proj) == []
+    ebb = _built_mod(proj, tmp_path / "mcf", shadows=True, monkeypatch=monkeypatch)
+    objs, eb = _object_inits(ebb)
+    for key in _SET_PIECE_DARK:
+        assert [i.op for i in objs[key][1][-2:]] == [SH.DISABLE_SHADOW, 0x04], key
+    held = [objs[(234, 300, 0)], objs[(CASK, 600, 100)]]
+    assert all(any(i.op == 0x4C for i in ins) for _e, ins in held)          # both really are attached
+    for key in _SET_PIECE_PROPS_CAST:                                        # casts: the MCF's own values
+        assert not any(i.op == SH.DISABLE_SHADOW for i in objs[key][1]), key
+    for e in eb.entries:                                                     # no size/amp op anywhere
+        if not e.empty:
+            assert not any(i.op in (SH.SET_SHADOW_SIZE, SH.SET_SHADOW_AMP) for f in e.funcs
+                           for i in eb.instrs(f)), e.index
+    # ...and against the SAME field without the MCF: exactly the retired size/amp ops, exactly those five
+    (tmp_path / "plain").mkdir()
+    plain_proj = build.FieldProject.load(_toml(tmp_path / "plain", _SET_PIECES))
+    plain = _built_mod(plain_proj, tmp_path / "plain_out", shadows=True, monkeypatch=monkeypatch)
+    _assert_only_shadow_ops_added(ebb, plain, actors=len(_SET_PIECE_CASTS), dark=len(_SET_PIECE_DARK))
 
 
 def test_savepoint_shadow_false_darkens_the_moogle_and_its_cask(tmp_path, monkeypatch):
@@ -421,6 +465,7 @@ def test_validate_refuses_a_shadow_on_a_held_prop_and_bad_set_piece_values(tmp_p
 
 _LBL = re.compile(r"\bL(\d+)\b")
 _SHADOW_LINE = re.compile(r"^(SetShadowSize|SetShadowAmplifier)\(")
+_DARK_LINE = re.compile(r"^DisableShadow\(\)$")
 
 
 def _canon(data: bytes) -> list:
@@ -442,17 +487,22 @@ def _built(project, *, shadows: bool, monkeypatch) -> bytes:
         return build.build_script(project, "us", {})
 
 
-def _assert_only_shadow_ops_added(off: bytes, on: bytes, actors: int):
+def _assert_only_shadow_ops_added(off: bytes, on: bytes, actors: int, dark: int = 0):
+    """``on`` = ``off`` + the size/amp ops of ``actors`` actors - the ``DisableShadow`` of ``dark`` set pieces
+    (an ``off`` build that ships MapConfigData switches off each part that must not cast), nothing else."""
     import difflib
-    added, other = [], []
+    added, darkened, other = [], [], []
     for d in difflib.ndiff(_canon(off), _canon(on)):
         if d.startswith("+ ") and _SHADOW_LINE.match(d[2:]):
             added.append(d)
+        elif d.startswith("- ") and _DARK_LINE.match(d[2:].strip()):
+            darkened.append(d)
         elif d[:2] in ("+ ", "- "):
             other.append(d)
     assert other == [], other[:6]
     assert len(added) == 2 * actors
-    assert len(on) - len(off) == 7 * actors                       # 81 00 RR RR + 85 00 AA per actor
+    assert len(darkened) == dark
+    assert len(on) - len(off) == 7 * actors - dark                # 81 00 RR RR + 85 00 AA per actor; 80 per dark
 
 
 def test_only_the_shadow_ops_are_added(tmp_path, monkeypatch):

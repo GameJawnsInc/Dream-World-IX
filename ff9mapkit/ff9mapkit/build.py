@@ -6909,6 +6909,7 @@ def _inject_verbatim_props(project: FieldProject, eb: bytes, prop_txids=None, *,
     if not props:
         return eb
     prop_txids = prop_txids or {}
+    mcf = bool(project.field.get("mapconfig"))          # the donor MCF shadows every actor, props included
     for j, p in enumerate(props):
         if "pos" not in p:
             warnings.append(f"[[prop]] {p.get('prop') or p.get('model') or '?'} has no pos -- skipped on the "
@@ -6934,10 +6935,13 @@ def _inject_verbatim_props(project: FieldProject, eb: bytes, prop_txids=None, *,
             mid = resolve_npc_model(p.get("model"))
             parts = [(mid, _resolve_prop_pose(mid, p.get("pose")), 0, 0)]
         for pi, (mid, pose, dx, dz) in enumerate(parts):     # the dialogue rides the ANCHOR part (pi == 0) only
+            # a verbatim fork casts no kit shadow ops; with its donor MCF, a part stock disables is switched off
             eb = _prop.inject_prop(eb, x + dx, z + dz, model=mid, pose=pose, face=face,
                                    dialogue_text_id=(dtxid if pi == 0 else None),
                                    gate_flag=gf, gate_require_set=gs, reserve_party_band=True,
-                                   collision=bool(p.get("collision", True)))
+                                   collision=bool(p.get("collision", True)),
+                                   shadow=(_shadow.set_piece_value(p.get("shadow"), mid) if mcf else None),
+                                   mcf=mcf)
     return eb
 
 
@@ -7193,7 +7197,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         for pmid, hbone, hpose in holds_specs:
             hslot = EbScript.from_bytes(eb).first_free_slot()
             eb = _prop.inject_prop(eb, int(pos[0]), int(pos[1]), model=pmid, pose=hpose,
-                                   slot=hslot, attach_to=slot, bone=hbone)
+                                   slot=hslot, attach_to=slot, bone=hbone, mcf=not _stock_shadows)
 
     # props (static set-dressing: SetModel + a fixed pose + EnableHeadFocus(0) -- a non-character object
     # that does NOT turn to face the player, the real FF9 prop recipe). Same gating as an NPC.
@@ -7222,12 +7226,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         for mid, pose, dx, dz in parts:                     # a composite may offset a part from the anchor
             slot = EbScript.from_bytes(eb).first_free_slot()
             # the stock shadow, PER PART: an absent key casts only for a model stock lets cast (a composite
-            # save point's moogle does, its book does not); inject_prop drops it on a held (attach_to) prop
+            # save point's moogle does, its book does not); inject_prop drops it on a held (attach_to) prop.
+            # On an MCF field the MCF casts, and a part that must not gets stock's DisableShadow instead.
             eb = _prop.inject_prop(eb, x + dx, z + dz, model=mid, pose=pose, face=face, slot=slot,
                                    attach_to=attach_slot, bone=bone, gate_flag=gf, gate_require_set=gs,
                                    collision=bool(p.get("collision", True)),
-                                   shadow=(_shadow.set_piece_value(p.get("shadow"), mid)
-                                           if _stock_shadows else None))
+                                   shadow=_shadow.set_piece_value(p.get("shadow"), mid),
+                                   mcf=not _stock_shadows)
 
     # gateways
     gw_names = _story_names(project)                    # [[flag]] name -> index, for set_flags resolution
@@ -8263,8 +8268,10 @@ def _casts_stock_shadows(project: FieldProject, warnings: list | None = None) ->
     """Whether a synthesized field's actors get the stock blob shadow from the SCRIPT (content.shadow):
     true unless the field ships MapConfigData (``[field] mapconfig``: a native, editable or BG-borrow fork
     carries its donor's) -- that MCF's per-model service already shadows every actor, grafted donor objects included,
-    and would overwrite a script value on the first frame, so those builds carry no shadow ops and an
-    explicit ``shadow`` key there is reported as having no effect."""
+    and would overwrite a script value on the first frame, so those builds carry no size/amplifier ops and an
+    explicit ``shadow`` key there is reported as having no effect. A ``[[prop]]`` is the exception: its one
+    lever on an MCF field is OFF (content.prop ``mcf``), so its ``false``/``true`` take effect and only a
+    ``{ size, intensity }`` table is reported."""
     if not project.field.get("mapconfig"):
         return True
     raw = project.raw
@@ -8272,7 +8279,7 @@ def _casts_stock_shadows(project: FieldProject, warnings: list | None = None) ->
         [f"[[npc]] {n.get('name', '#' + str(i))!r}" for i, n in enumerate(raw.get("npc", []))
          if "shadow" in n] + \
         [f"[[prop]] {p.get('prop', p.get('name', '#' + str(i)))!r}" for i, p in enumerate(raw.get("prop", []))
-         if "shadow" in p] + \
+         if isinstance(p.get("shadow"), dict)] + \
         [f"[[chest]] #{i}" for i, ch in enumerate(raw.get("chest", [])) if "shadow" in ch] + \
         [f"[[savepoint]] #{i}" for i, sp in enumerate(raw.get("savepoint", [])) if "shadow" in sp]
     if authored and warnings is not None:

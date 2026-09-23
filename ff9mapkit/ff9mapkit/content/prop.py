@@ -15,6 +15,7 @@ tail appended to Init -- we add nothing the engine doesn't already do for its ow
 from __future__ import annotations
 
 from ..eb import EbScript, opcodes
+from . import shadow as _shadow
 from .npc import ANIM_ORDER, inject_npc
 
 ENABLE_HEAD_FOCUS = 0x47    # "Enable or disable the character turning his head toward an active object"
@@ -52,7 +53,8 @@ def inject_prop(data, x: int, z: int, *, model: int, pose: int, face: int | None
                 attach_to: int | None = None, bone: int = 11,
                 spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                 gate_flag: int | None = None, gate_require_set: bool = True,
-                reserve_party_band: bool = False, collision: bool = True, shadow=None) -> bytes:
+                reserve_party_band: bool = False, collision: bool = True, shadow=None,
+                mcf: bool = False) -> bytes:
     """Place a prop ``model`` at world (x, z), held at ``pose`` (an animation id), head-tracking OFF.
 
     ``shadow`` is the stock blob shadow (:mod:`ff9mapkit.content.shadow`) as a RESOLVED value -- the build
@@ -60,6 +62,11 @@ def inject_prop(data, x: int, z: int, *, model: int, pose: int, face: int | None
     casts only for a model stock lets cast. ``None`` (the default) emits nothing, keeping every other caller
     byte-identical. A HELD prop (``attach_to``) never casts, whatever is passed: stock disables the shadow on
     139 of its 140 held objects, and the engine takes the quad's height from the item's bone-local offset.
+
+    ``mcf`` says the field ships MapConfigData, whose service gives EVERY actor a shadow at its own size. The
+    script's one lever there is off, as stock's is: a part that must not cast -- held, or ``shadow`` resolved
+    to False -- gets stock's ``DisableShadow`` at its Init tail, straight into the RETURN; one that casts gets
+    nothing (the MCF's values). ``False`` (the default) is the no-MCF behaviour above, byte-identical.
 
     ``attach_to`` (a carrying object's uid = its entry slot) binds this prop to that object's ``bone``
     so it follows it -- the real held-item recipe ``AttachObject(self_uid, carrier_uid, bone)`` (bone
@@ -81,6 +88,8 @@ def inject_prop(data, x: int, z: int, *, model: int, pose: int, face: int | None
         tail = prop_init_tail(face)
         if not collision:                                       # walk-through marker/scenery: show-only
             tail += opcodes.encode(SET_OBJECT_FLAGS, SCENERY_FLAGS)
+    if mcf and (attach_to is not None or shadow is False):      # the MCF would shadow it: switch it off
+        tail += opcodes.encode(_shadow.DISABLE_SHADOW)
     # a non-interactive prop is BARE (Init-only, no tag-3 talk func -> the engine's IsActuallyTalkable
     # short-circuits instead of indexing past it = no per-frame IndexOutOfRange). A prop with dialogue
     # keeps a real tag-3 WindowSync so it stays readable.
@@ -90,4 +99,4 @@ def inject_prop(data, x: int, z: int, *, model: int, pose: int, face: int | None
                       spawn_wait_n=spawn_wait_n, spawn_wait_occurrence=spawn_wait_occurrence,
                       gate_flag=gate_flag, gate_require_set=gate_require_set,
                       reserve_party_band=reserve_party_band,
-                      shadow=(None if attach_to is not None else shadow))
+                      shadow=(None if attach_to is not None or mcf else shadow))
