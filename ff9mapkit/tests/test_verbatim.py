@@ -553,6 +553,41 @@ def test_build_field_verbatim_prop_stock_disables_is_switched_off_under_the_dono
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_build_field_verbatim_shadow_false_npc_and_chest_under_the_donor_mcf(tmp_path):
+    # The same lever on a verbatim fork's kit [[npc]] and [[chest]]: under the donor MCF a `shadow = false`
+    # gets stock's DisableShadow into its Init RETURN; without the MCF (and for an absent key) nothing.
+    from ff9mapkit import build, extract
+    from ff9mapkit.eb import EbScript
+    _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
+
+    def inits(with_mcf):
+        project = build.FieldProject.load(toml)
+        if not with_mcf:
+            del project.raw["field"]["mapconfig"]
+        project.raw["npc"] = [{"name": "off", "model": "GEO_NPC_F0_CSO", "pos": [0, 0], "shadow": False},
+                              {"name": "on", "model": "GEO_NPC_F0_MOG", "pos": [100, 0]}]
+        project.raw["chest"] = [{"pos": [200, 0], "item": "Potion", "flag": 8712, "shadow": False}]
+        assert build.validate(project) == []
+        out = tmp_path / f"mod{int(with_mcf)}"
+        build.build_mod([project], out, mod_name="FF9CustomMap")
+        s = EbScript.from_bytes(next(out.rglob("EVT_DV.eb.bytes")).read_bytes())
+        got = {}
+        for e in s.entries:
+            f0 = None if e.empty else e.func_by_tag(0)
+            ops = [i.op for i in s.instrs(f0)] if f0 is not None else []
+            sm = next((i for i in s.instrs(f0) if i.op == 0x2F), None) if f0 is not None else None
+            if sm is not None and sm.imm(0) in (217, 220, 75):
+                got.setdefault(sm.imm(0), []).append(ops)
+        return got
+
+    cso, mog, chest = 217, 220, 75
+    on, off = inits(True), inits(False)
+    assert on[cso][-1][-2:] == [0x80, 0x04] and on[chest][-1][-2:] == [0x80, 0x04]
+    assert all(0x80 not in ops for ops in on[mog])                    # absent key: the MCF casts it
+    assert all(0x80 not in ops for k in (cso, chest) for ops in off[k][-1:])
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_build_field_verbatim_with_event_end_to_end(tmp_path):
     # Add a NEW [[event]] chest to a verbatim fork: build must seat the event region(s) BELOW the band, give
     # the item (AddItem 0x48), and APPEND the "found" message to every language's .mes at a high txid.

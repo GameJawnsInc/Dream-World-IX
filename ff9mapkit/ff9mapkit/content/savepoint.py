@@ -412,7 +412,8 @@ def moogle_act_init_tail() -> bytes:
 
 
 def act_save_body(*, book_uid: int, feather_uid: int, pose_tag: int, release_tag: int,
-                  act_txid: int | None = None, rest=None, hop_to=None, latch: bool = True) -> bytes:
+                  act_txid: int | None = None, rest=None, hop_to=None, latch: bool = True,
+                  keep_shadow_off: bool = False) -> bytes:
     """The FULL act around the save -- the donor's confirmed-Yes choreography (see the section comment
     for the sequence), with :func:`save_act` embedded where the donor's ``Menu(4,0)`` sits.
 
@@ -421,7 +422,12 @@ def act_save_body(*, book_uid: int, feather_uid: int, pose_tag: int, release_tag
     exactly the donor's own CLOSE-OUT shape -- its intro's runtime self-read start exists only because a
     director may have moved it; ours never moves). Without ``hop_to`` the moogle hops in place: the same
     clip/sfx/wait skeleton, no traversal frames, and no landing 180° spin (that flourish corrects the
-    donor's fly-away facing; in place it would just pirouette)."""
+    donor's fly-away facing; in place it would just pirouette).
+
+    ``keep_shadow_off`` (a ``shadow = false`` save point on a field that ships MapConfigData, whose service
+    shadows the moogle): each landing's donor ``EnableShadow`` becomes ``DisableShadow``, the same one-byte
+    op, so the hop no longer turns on the shadow the moogle's Init switched off."""
+    landed = opcodes.encode(0x80 if keep_shadow_off else 0x7F)       # the landing's EnableShadow
     rest3 = None if rest is None else (tuple(int(v) for v in rest) + (0,))[:3]
     hop3 = None if hop_to is None else (tuple(int(v) for v in hop_to) + (0,))[:3]
     traverse = hop3 is not None and rest3 is not None
@@ -445,7 +451,7 @@ def act_save_body(*, book_uid: int, feather_uid: int, pose_tag: int, release_tag
         out += _lerp_frames(rest3, hop3)
     out += opcodes.run_script_async(ACT_REQ_LEVEL, PLAYER_UID, int(pose_tag))
     out += (opcodes.set_pathing(0 if _out_spot_y else 1)
-            + opcodes.wait(1) + opcodes.encode(0x7F) + opcodes.wait_animation())
+            + opcodes.wait(1) + landed + opcodes.wait_animation())
     if traverse:
         out += opcodes.encode(0x36, _self_angle_flip(), arg_flags=1)  # the landing 180° spin
     out += opcodes.turn_toward_object(PLAYER_UID, ACT_TURN_SPEED) + opcodes.wait_turn()
@@ -470,7 +476,7 @@ def act_save_body(*, book_uid: int, feather_uid: int, pose_tag: int, release_tag
     out += _region.set_var(_region.MAP_BOOL, ACT_HANDSHAKE_BIT, 1)
     out += opcodes.run_script_async(ACT_REQ_LEVEL, PLAYER_UID, int(release_tag))
     out += (opcodes.set_pathing(0 if _rest_spot_y else 1)
-            + opcodes.wait(1) + opcodes.encode(0x7F) + opcodes.wait_animation())
+            + opcodes.wait(1) + landed + opcodes.wait_animation())
     out += opcodes.encode(0x47, 3)                                    # EnableHeadFocus(3) -- donor close
     if traverse:
         out += opcodes.encode(0x36, _self_angle_flip(), arg_flags=1)
@@ -1112,20 +1118,22 @@ def reveal_menu_cycle(menu_body: bytes, *, index: int = 0) -> bytes:
 
 def inject_cask(data, x: int, z: int, *, face: int = 0, slot: int | None = None, index: int = 0,
                 reserve_party_band: bool = False, spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
-                shadow=None):
+                shadow=None, mcf: bool = False):
     """Inject the barrel_pop container: a type-2 object, Init (tag 0, :func:`build_cask_init`) + a tag-3
     press handler (:func:`cask_trigger_body`) -- the kit's own "approach + press, one-shot" idiom standing
     in for the donor's tag-2-range + manual-B_KEYON shape (see :func:`content.chest`'s own fidelity note
     for why: the auto-dispatched talk tag is functionally identical and needs no hand-rolled key poll).
     ``shadow`` is the cask's stock blob shadow (:mod:`ff9mapkit.content.shadow`) as a RESOLVED value -- the
     build passes the ``[[prop]]`` rule's verdict for the cask model (it casts: 19 of 19 stock casks keep
-    theirs), or false; ``None`` (the default) emits nothing. Returns ``(new_bytes, slot)``."""
+    theirs), or false; ``None`` (the default) emits nothing. With ``mcf`` (the field ships MapConfigData) the
+    only op is ``DisableShadow`` for False (:func:`ff9mapkit.content.shadow.mcf_ops`). Returns
+    ``(new_bytes, slot)``."""
     from . import npc as _npc
     from . import object as _object
     shadow_ops = b""
     if shadow is not None:
         from . import shadow as _shadow
-        shadow_ops = _shadow.init_ops(cask_model(), shadow)
+        shadow_ops = _shadow.mcf_ops(shadow) if mcf else _shadow.init_ops(cask_model(), shadow)
     init = build_cask_init(int(x), int(z), face=int(face), shadow=shadow_ops)
     press = cask_trigger_body(index)
     if len(press) < 9:                       # IsActuallyTalkable polls tag3[ip+7/8]; keep it >= 9 bytes
@@ -1139,7 +1147,8 @@ def inject_cask(data, x: int, z: int, *, face: int = 0, slot: int | None = None,
 
 def inject_barrel_pop_reveal(data, *, container_pos, height: int = REVEAL_CONTAINER_HEIGHT,
                              steps=None, sfx=None, container: bool = True,
-                             player_uid: int = PLAYER_UID, index: int = 0, shadow=None):
+                             player_uid: int = PLAYER_UID, index: int = 0, shadow=None,
+                             mcf: bool = False):
     """Wire the barrel_pop reveal for ONE save point. When ``container`` (default True), injects the cask
     at ``container_pos`` FIRST -- so it consumes its entry slot before any later ``first_free_slot()``
     prediction (e.g. the ACT's :func:`inject_act_cluster`) runs on this same ``data``, avoiding a slot
@@ -1153,11 +1162,12 @@ def inject_barrel_pop_reveal(data, *, container_pos, height: int = REVEAL_CONTAI
 
     ``container=False`` skips the cask; the field author then wires their own trigger to
     :func:`cask_trigger_body` (docs/SAVEPOINT.md). ``shadow`` goes to :func:`inject_cask` (the cask's own
-    blob shadow, a resolved value; ``None`` = no ops -- the moogle's is the build's ``inject_npc(shadow=)``)."""
+    blob shadow, a resolved value; ``None`` = no ops -- the moogle's is the build's ``inject_npc(shadow=)``),
+    with ``mcf``."""
     out = data
     cx, cz = (tuple(int(v) for v in container_pos) + (0, 0))[:2]
     if container:
-        out, _ = inject_cask(out, cx, cz, index=index, shadow=shadow)
+        out, _ = inject_cask(out, cx, cz, index=index, shadow=shadow, mcf=mcf)
     # The moogle spawns STOWED: hidden, at the container's own spot, collision shrunk away -- so it is
     # neither visible nor walkable-into before the pop. (The earlier build spawned it hidden but at full
     # size, leaving an invisible obstacle in front of the cask.)

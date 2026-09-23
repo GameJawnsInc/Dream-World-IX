@@ -227,13 +227,16 @@ def inject_npc(data, x: int, z: int, *, facing: int = 0, preset: str | None = No
                reserve_party_band: bool = False, logical_size=None,
                boot_spawn: bool = True, talk_window: int = 1, talk_flags: int = 128,
                talk_dim=False, talk_dim_tint=None,
-               talk_lock: bool = True, talk_lock_menu: bool = False, shadow=None) -> bytes:
+               talk_lock: bool = True, talk_lock_menu: bool = False, shadow=None,
+               mcf: bool = False) -> bytes:
     """Inject an NPC at world (x, z), standing turned to ``facing``. Returns new .eb bytes.
 
     ``shadow`` casts the stock blob shadow (:mod:`ff9mapkit.content.shadow`) -- the ``[[npc]] shadow``
     value, sized for the NPC's FINAL model (after the player-rig default below). ``None`` (the default)
     emits nothing, so every caller that does not pass it builds byte-identically; the synthesize path passes
-    it on a field without MapConfigData (a real field's MCF shadows its actors on its own).
+    it on a field without MapConfigData (a real field's MCF shadows its actors on its own). With ``mcf`` (the
+    field ships MapConfigData) the only op is stock's ``DisableShadow`` for a ``shadow`` of False
+    (:func:`ff9mapkit.content.shadow.mcf_ops`); anything else leaves the MCF's own shadow.
 
     ``facing`` is the raw FF9 compass byte (0=south/toward the camera, 64=west, 128=north, 192=east) --
     the ``[[npc]] face`` key. It rides the object's OWN ``SetVar D9(6)`` const, which the real-NPC Init's
@@ -286,7 +289,7 @@ def inject_npc(data, x: int, z: int, *, facing: int = 0, preset: str | None = No
     shadow_ops = b""
     if shadow is not None:
         from . import shadow as _shadow
-        shadow_ops = _shadow.init_ops(model, shadow)
+        shadow_ops = _shadow.mcf_ops(shadow) if mcf else _shadow.init_ops(model, shadow)
     body0 = build_npc_init(model=model, animset=animset_v, anims=anims, x=x, z=z, facing=int(facing),
                            head_focus=head_focus, logical_size=ls,
                            init_tail=bytes(init_tail or b""), shadow=shadow_ops)

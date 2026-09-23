@@ -19,7 +19,8 @@ an object Init that sets its shadow does it at the tail, ``81 00 RR RR`` straigh
 
 Only a field WITHOUT MapConfigData takes it: a native, editable or BG-borrow fork ships its donor's MCF
 (``[field] mapconfig``), whose service shadows every actor -- grafted donor objects included -- and would overwrite a
-script value on the first frame anyway -- so native and verbatim forks stay byte-identical.
+script value on the first frame anyway -- so native and verbatim forks carry no size/amplifier ops (only the
+``DisableShadow`` below, where something must not cast).
 
 The TOML key, on ``[player]`` and every ``[[npc]]`` (so every behavior unit)::
 
@@ -51,12 +52,17 @@ and the save point's moogle + its barrel_pop cask (58 of 58 stock save moogles k
 act's book + feather keep their donor ``DisableShadow`` and get no ops. (In-game: a cask's census blob is
 real but drawn entirely under the barrel's own footprint, as stock's is -- studies/actor-shadow/PLAN.md.)
 
-ON A FIELD THAT SHIPS MAPCONFIGDATA A SET PIECE'S ONE LEVER IS OFF, AS STOCK'S IS. The MCF shadows every
-actor at its own size, so a ``[[prop]]`` part that casts gets no ops there, and one that must not -- a held
-prop, or ``shadow`` resolving to false (a model stock disables, or the author's ``false``) -- gets stock's
-``DisableShadow`` (:data:`DISABLE_SHADOW`) at its Init tail, straight into the RETURN, as stock places it on
-86 free-standing and 37 held objects (``content.prop.inject_prop(mcf=True)``). Without it the MCF drew a
-blob under a tent or a held cup that stock never shows (studies/actor-shadow/held_shadow_census.py).
+ON A FIELD THAT SHIPS MAPCONFIGDATA THE ONE LEVER IS OFF, AS STOCK'S IS. The MCF shadows every actor at its
+own size, so an actor that casts gets no ops there, and one that must not gets stock's ``DisableShadow``
+(:data:`DISABLE_SHADOW`, :func:`mcf_ops`) at its Init tail, straight into the RETURN -- where stock places it
+on 86 free-standing and 37 held objects. For a ``[[prop]]`` that is a held prop, or ``shadow`` resolving to
+false (a model stock disables, or the author's ``false``; ``content.prop.inject_prop(mcf=True)``). Without it
+the MCF drew a blob under a tent or a held cup that stock never shows
+(studies/actor-shadow/held_shadow_census.py). For the ``[player]``, an ``[[npc]]``, a ``[[chest]]`` and a
+``[[savepoint]]`` it is the author's ``false``. What would turn it back on is handled where it happens: the
+save act's landing ``EnableShadow`` becomes ``DisableShadow`` (``savepoint.act_save_body``), and the player,
+the only kit actor that jumps, re-disables it at the end of every jump arc and ladder climb
+(:func:`keep_player_shadow_off`). A ``{ size, intensity }`` table cannot apply there and is reported.
 
 AN ``[[npc]]`` AND THE ``[player]`` DO NOT FOLLOW ``STOCK_CASTS``: an absent key casts the census for any
 model. For a creature or character, stock's disables follow where the object is: perched or flying, walkmesh-
@@ -75,6 +81,8 @@ DISABLE_SHADOW = 0x80           # SHADOWOFF   -> ff9shadow.FF9ShadowOffField(uid
                                 #                MCF service's per-frame scale/amp writes never clear
 SET_HEAD_FOCUS_MASK = 0x8B      # the player-Init anchor (field 451's Zidane sets its shadow right after it)
 SET_MODEL = 0x2F
+JUMP = 0xDC                     # Jump -- its landing turns the jumper's shadow back ON (EventEngine.FinishJump)
+RETURN = 0x04
 
 SIZE_MAX = 255                  # getv1 (one byte); the quad is 224*size/16 x 192*size/16 field units
 INTENSITY_MAX = 15              # the AUTHORED cap: 16-31 encode, but the blob's DRAW colour wraps (see the docstring)
@@ -200,10 +208,45 @@ def cast_player_shadow(data, value=None) -> bytes:
     ins = init_ops(player_model(data), value)
     if not ins:
         return data
+    pe, rel = _player_anchor(data)
+    return edit.insert_in_function(data, pe, 0, rel, ins)
+
+
+def _player_anchor(data) -> tuple:
+    """``(player entry, Init body offset)`` right after the player's ``SetHeadFocusMask``."""
     eb = EbScript.from_bytes(data)
     pe = find_player_entry(eb)
     f0 = eb.entry(pe).func_by_tag(0)
     hf = next((i for i in eb.instrs(f0) if i.op == SET_HEAD_FOCUS_MASK), None)
     if hf is None:
         raise ValueError("the field player's Init has no SetHeadFocusMask -- no stock anchor for its shadow")
-    return edit.insert_in_function(data, pe, 0, hf.end - f0.abs_start, ins)
+    return pe, hf.end - f0.abs_start
+
+
+def mcf_ops(value) -> bytes:
+    """The Init-tail shadow op for an actor on a field that ships MapConfigData. The MCF sets every actor's
+    size and intensity itself (fldmcf), so the script's one lever is OFF: stock's ``DisableShadow`` when
+    ``value`` is False, else nothing -- true, absent and a ``{ size, intensity }`` table all leave the
+    MCF's own shadow (the build reports a table as ignored)."""
+    return opcodes.encode(DISABLE_SHADOW) if value is False else b""
+
+
+def keep_player_shadow_off(data) -> bytes:
+    """``[player] shadow = false`` on a field that ships MapConfigData: ``DisableShadow`` where
+    :func:`cast_player_shadow` would put the census ops, and AGAIN before the RETURN of every player function
+    that ``Jump``\\ s -- the kit's jump arcs and ladder climbs. The engine turns a jumper's shadow back on
+    when it lands (``EventEngine.FinishJump``, and ``RunLandAnimation``'s own ``FF9ShadowOnField``), so the
+    Init op alone would last only until the first jump. Census: every stock jump arc (51) and ladder climb
+    (52) has exactly one RETURN and takes the insert (studies/actor-shadow/PLAN.md, rung 4). Between a
+    landing and the function's end -- the landing animation, and the rungs of a climb -- the shadow shows.
+    Nothing on the kit's side jumps an NPC, so an ``[[npc]]`` needs only its Init op."""
+    pe, rel = _player_anchor(data)
+    data = edit.insert_in_function(data, pe, 0, rel, opcodes.encode(DISABLE_SHADOW))
+    eb = EbScript.from_bytes(data)
+    for f in eb.entry(pe).funcs:
+        ins = list(eb.instrs(f))
+        if not any(i.op == JUMP for i in ins):
+            continue
+        for r in sorted((i.off - f.abs_start for i in ins if i.op == RETURN), reverse=True):
+            data = edit.insert_in_function(data, pe, f.tag, r, opcodes.encode(DISABLE_SHADOW))
+    return data
