@@ -2284,7 +2284,8 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
                         text_block: "int | None" = None, game=None, bundle=None, want_atlas=False,
                         id_remap=None, live_seams=False, graft_player_funcs=False, carry_text=False,
                         graft_savepoint=False):
-    """Extract a real field and emit a ready-to-edit BG-borrow field.toml + camera.bgx in out_dir.
+    """Extract a real field and emit a ready-to-edit BG-borrow field.toml + camera.bgx (+ the donor's lighting,
+    mapconfig.bytes) in out_dir.
 
     `name` is the custom script/field id (must be unique vs real fieldids; defaults to
     '<MAPID-first-token>_FORK', e.g. 'GRGR_FORK'). Returns (metadata, field_toml_path).
@@ -2321,6 +2322,15 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
         field, game, out_dir=Path(out_dir), name=name, id_remap=id_remap, live_seams=live_seams,
         graft_player_funcs=graft_player_funcs, carry_text=carry_text, graft_savepoint=graft_savepoint)
     meta["imported_content"] = content_summary
+    # ship the field's MapConfigData VERBATIM, as the native + editable forks do: the per-model blob shadow +
+    # tint and the per-floor lights the engine applies to EVERY actor (fldmcf.ff9fieldMCFService) -- the
+    # grafted [[object]]s above included, which the build's script shadow never reaches. It loads by the
+    # fork's own event name (HonoluluFieldMain), whatever scene it borrows, and a borrow runs on the donor's
+    # own .bgi, so its per-floor lights key exactly: no re-key (build.mapconfig_bytes).
+    mc_bytes = extract_mapconfig(field, game=game)
+    if mc_bytes:
+        (Path(out_dir) / "mapconfig.bytes").write_bytes(mc_bytes)
+    meta["mapconfig"] = bool(mc_bytes)
     cm = meta["camera"]
     wb = meta["walkmesh_bounds"]
     x, z = meta["player_start"]
@@ -2338,7 +2348,10 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
         f'name = "{name}"\n'
         f"area = {meta['area']}\n"
         f'borrow_bg = "{meta["mapid"]}"\n'
-        f"text_block = {text_block}\n\n"
+        f"text_block = {text_block}\n"
+        + ('mapconfig = "mapconfig.bytes"   # the real field LIGHTING (per-floor lights, shadows, model tint) '
+           'for every 3D model\n' if mc_bytes else "")
+        + "\n"
         f"[camera]\n"
         f"{_ENTRY_SETTLE_LINE}"
         f'borrow = "camera.bgx"\n'

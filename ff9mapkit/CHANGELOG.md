@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a plain (BG-borrow) import's carried donor objects are lit and shadowed like the real field
+- **A plain `ff9mapkit import` now ships the donor's MapConfigData** (`mapconfig.bytes` + `[field] mapconfig`),
+  as `--native` and `--editable` do. A BG-borrow fork carries the donor's objects too, but it wrote no MCF, so
+  its grafted `[[object]]`s cast no shadow and rendered bright and untinted. The MCF loads by the fork's own
+  event name, whatever scene it borrows. With it, the build retires the kit's script shadows, as on every MCF
+  field. Delete the `mapconfig` line to go back.
+- **A borrow ships its MCF verbatim, always.** It ships no walkmesh (the engine runs it on the donor's own
+  `.bgi`), so the per-floor lights key exactly. `build.mapconfig_bytes` no longer re-keys them for a borrow,
+  whatever its `[walkmesh]` says.
+- **Byte identity:** `tests/test_fork_mapconfig.py` now pins the on/off invariant on both fork shapes. A borrow
+  changes by exactly the shipped MCF plus the kit shadow ops it retires, and still ships no scene of its own.
+  Campaign borrow members get the file and the line too. Existing member tomls are untouched.
+- **In-game proven** (harness, `studies/actor-shadow` rung 2, a borrow of field 1607, the rung-1 donor). With the
+  MCF the carried moogles cast a shadow on the art and take the room's tint; without it they cast nothing. The
+  tint matches the editable fork's to three decimals ((0.734, 0.661, 0.593) vs (0.735, 0.658, 0.595)), as does
+  the shadow under the lower-right moogle (581 vs 579 px).
+
 ### Fixed — marker renames no longer write world text block 68 with CRLF line endings
 - **The deployed overworld `68.mes` is LF-only again, like stock.** `navimap.deploy_marker_renames` wrote it
   with a bare text-mode `write_text`, so on Windows every LF became CRLF. That put a `\r` into every world message
@@ -31,6 +48,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   reproduces its exact link set, where the old reconcile dropped 3,756 seams in 353 walkmeshes.
   `tests/test_fork_walkmesh_links.py` pins this on an authored 5-floor donor and on the real 7-floor fixture,
   plus reorder, delete and rename reshapes.
+- **In-game proven** (harness, the 1607 reshape bench at slot 30930,
+  `studies/actor-shadow/seam_rekey_ingame.py`). The player walks from donor floor 0 across a seam onto floor 5
+  and back. Built with the old reconcile, the same seam stops him.
 
 ### Fixed — the vanilla-overwrite text warning no longer fires for a field that ships no `.mes`
 - **The vanilla-overwrite warning now fires only when the deploy writes a `.mes` for the real block.** It used to
