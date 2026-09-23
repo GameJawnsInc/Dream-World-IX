@@ -82,6 +82,13 @@ FRAMES_PER_SECOND = 60.0
 #: running game does.
 LIVE_WITHIN = 2.0
 
+#: How long state.json may stay unreadable before the CHANNEL, not one read, is called dead. A single
+#: `Channel.state()` of None is not that: the agent rewrites the file in place, so it is EMPTY between
+#: the truncate and the bytes, and MEASURED 2026-09-23 that gap reaches ~80 ms at p99 and ~200 ms at
+#: worst against the channel's own ~30 ms parse retry. Five times the worst gap, and the same order
+#: as the channel's lock budget; a dead channel costs this once, then raises.
+STATE_MISS_BUDGET = 1.0
+
 #: How many notes of Unity's log size to keep -- 15 minutes at one a second, far past any `window`
 #: a diagnosis asks about. See Session.UNITY_NOTE_EVERY for why the notes exist at all.
 UNITY_NOTES = 900
@@ -372,10 +379,11 @@ class Session:
            degradation is recorded in the report, because "we ran against an engine that publishes
            the raw dialogue source" is exactly the kind of caveat a green result must carry. A
            NEWER engine is refused outright: this driver does not know what its keys mean.
+
+        ⚠ Reads through :attr:`state`, which raises on a dead channel. It used to read the channel
+        once and RETURN on None, so one stalled publish skipped both defences without a word.
         """
-        st = self.channel.state()
-        if st is None:
-            return
+        st = self.state
         self.engine_protocol = st.protocol
         if st.protocol is not None and st.protocol > PROTOCOL:
             raise HarnessError(
@@ -442,11 +450,10 @@ class Session:
         """Verify the engine moved its save path off the player's file -- never assume it.
 
         A sandbox that is trusted rather than checked is a check that cannot fail, and the thing it
-        would fail to catch is silently overwriting the owner's game.
+        would fail to catch is silently overwriting the owner's game. So a read that finds nothing
+        RAISES (via :attr:`state`); returning on it let one stalled publish skip this check.
         """
-        st = self.channel.state()
-        if st is None:
-            return
+        st = self.state
         sandboxed = st.raw.get("save_sandboxed")
         if sandboxed is None:
             self._log("!! this engine does not sandbox saves (protocol < 2): an autosave on field "
@@ -874,14 +881,37 @@ class Session:
 
     @property
     def state(self) -> State:
-        st = self.channel.state()
+        """The latest published state. Rides out a transient miss; raises when the channel is dead.
+
+        ⚠ ONE None FROM THE CHANNEL IS NOT "NO STATE". This raised on the first one, and a scenario
+        polling it every 4 ms through a ride at ``state_every(1)`` died on ``no state published --
+        OK`` while the game went on publishing: the read had landed in the agent's in-place rewrite
+        (see :data:`STATE_MISS_BUDGET`). Only a channel unreadable for the whole budget raises, and
+        the message names which kind of dead it is.
+        """
+        st = self._read_state()
         if st is None:
             self._assert_alive()          # a dead game should say so, not blame the arming
             hint = self.diagnose()
             raise HarnessError(
-                f"no state published -- {self.channel.classify()}"
-                + (f" -- {hint}" if hint else "")
+                f"no state published: state.json stayed unreadable for {STATE_MISS_BUDGET:.1f}s -- "
+                f"{self.channel.classify()}" + (f" -- {hint}" if hint else "")
             )
+        return st
+
+    def _read_state(self) -> State | None:
+        """One read that rides out a transient miss. ``None`` only when the channel stayed
+        unreadable for :data:`STATE_MISS_BUDGET` -- the caller reports that, never a single miss.
+
+        Readable is all this waits for. Whether a document is LIVE is the waits' business, as it
+        always was: a photograph a hung agent left is returned here with or without a miss first.
+        """
+        st = self.channel.state()
+        deadline = time.time() + STATE_MISS_BUDGET
+        while st is None and time.time() < deadline:
+            self._assert_alive()          # a game that died mid-miss says so now, not after the budget
+            time.sleep(0.01)
+            st = self.channel.state()
         return st
 
     def wait_for(self, predicate, *, timeout: float = 20.0, what: str = "condition") -> State:
@@ -2941,7 +2971,9 @@ class Session:
         and that verb requires it. Checked rather than assumed: the entire point of a ladder is that
         each rung is verified.
         """
-        st = self.channel.state()
+        # Rides out a stalled publish: a single miss read as "not at the baseline" climbs the ladder
+        # for nothing, and on the final re-check it poisons a scenario that was ready to run.
+        st = self._read_state()
         if st is None:
             return False, f"no state published -- {self.channel.classify()}"
         # ⚠ FRESHNESS FIRST. Every predicate below is satisfied just as well by the last document a
