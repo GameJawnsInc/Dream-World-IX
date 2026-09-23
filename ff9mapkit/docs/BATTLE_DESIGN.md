@@ -143,7 +143,8 @@ implemented — the raw16 `flags` key targets the per-enemy MON Flags @48, a sep
 The one lever above that runs the OTHER way. An enemy's AI can record how the fight went — who fell, to
 whom, with what, how many hits it took, where the fight began — into a `persist = true` table a field
 declares ([BEHAVIOR.md § Persistent tables](BEHAVIOR.md)), and the field that catches the player, or any
-field later, reads it back with the readers it already has. No raw RPN on either side; stock Memoria.
+field later, reads it back with the readers it already has. No raw RPN on the battle side, and none in the
+field's conditions; stock Memoria.
 Proven in-game by the harness: `studies/fight-ledger/PLAN.md`.
 
 <!-- ledger-example -->
@@ -215,6 +216,8 @@ index = 8910
 
 and any later field can name the killer through a `[[text_table]]` and a `[[choice]]` value
 (`values = ["expr:const4(6412001) const(2) B_VECTOR"]`, `[TEXT=heroes,0]`), gated on `requires_flag = 8910`.
+That value is an `expr:` read, and it restates the table id — keep it in step with the declaration (the
+battle side reads the id from `declared_in`; an `expr:` string cannot).
 
 **The hooks are the engine's** (measured in-game, `studies/fight-ledger/PLAN.md` rung 0):
 
@@ -228,6 +231,10 @@ and any later field can name the killer through a `[[text_table]]` and a `[[choi
   the type then dies through the `die_atk` path — the build warns). It refuses when `[[scene.enemy]] flags`
   is given without it (that key replaces the word), on a `non_dying_boss`, and when OR-ing would wake a
   donor tag-9 function that never ran (the message names both fixes).
+- **Slots must spawn one enemy in every pattern.** A slot with no `[[scene.enemy]] type` keeps each
+  pattern's own type under `monster_count`; a ledger row on a slot whose enemy differs between patterns is
+  refused (give it a `type`). A multipart boss's SLAVE parts route their hits and death to the master:
+  write rows on the master's slot (type 0), whose `reaction` rows see every part's hits.
 - **The replay.** When tag 9 takes the lethal effect the engine refuses that hit's tag-7 request, so the
   kit re-runs the slot's `reaction` rows at the top of tag 9 — a hit count never misses the killing blow.
 - **Which enemy** is a `slot` (an int or a list). Every row runs behind a filter on the object's own battle

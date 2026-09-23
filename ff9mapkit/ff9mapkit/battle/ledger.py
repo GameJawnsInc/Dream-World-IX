@@ -75,8 +75,9 @@ KNOWN_SCENE_KEYS = frozenset({
 
 R_BIND = ("init runs before the engine binds this enemy's battle data (StartEvents runs Init; InitEnemyData "
           "assigns its battle id later), so a member read here finds no unit and returns 0")
-R_LEVEL = ("B_SYSVAR[28]/[29] read the TRIGGERING command only at call level <= 2 (reaction = 2, dying = 0); in "
-           "init they read the enemy's own current command, which is not bound yet")
+R_LEVEL = ("B_SYSVAR[28]/[29] return the command of the LAST request the engine dispatched (a global, "
+           "EventEngine._btlCmdPrmCmd/_btlCmdPrmSub, at call level <= 2); init runs before any effect on this enemy, "
+           "so it would read a stale command -- possibly from an earlier battle")
 R_KILLER = ("B_SYSLIST[0] is the killer only inside dying (the Dying request sets it); in init/reaction it is a "
             "counter caster, the AI's own target pick, or stale")
 R_ZERO = "hp inside dying always reads 0 -- use on = \"reaction\" for the HP an effect left (the replay records the lethal 0)"
@@ -204,11 +205,13 @@ def resolve_table(base_dir, spec: dict) -> LedgerTable:
     path = Path(base_dir) / ref
     try:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
-    except OSError:
-        raise LedgerError(f"declared_in {ref!r}: not found (resolved to {path.resolve()}) -- a PATH, relative to "
-                          f"this battle.toml, to the field.toml that declares the table")
-    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as ex:
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as ex:   # both ARE ValueErrors: test them first
         raise LedgerError(f"declared_in {ref!r}: not readable TOML ({ex})")
+    except OSError:
+        raise LedgerError(f"declared_in {ref!r}: not found (resolved to {path.absolute()}) -- a PATH, relative to "
+                          f"this battle.toml, to the field.toml that declares the table")
+    except ValueError as ex:                          # open() refuses the path itself (an embedded NUL)
+        raise LedgerError(f"declared_in {ref!r}: not a usable path ({ex})")
     name = spec.get("table")
     if not isinstance(name, str) or not name:
         raise LedgerError("[scene.ledger] needs table = \"<name>\" -- the persist = true [[behavior.table]] "
@@ -262,9 +265,9 @@ def parse_writes(spec: dict, table: LedgerTable, n_slots: int) -> tuple:
         for extra in sorted(set(r) - WRITE_KEYS):
             errors.append(f"{at}: unknown key {extra!r} -- the build ignores it{_near(extra, WRITE_KEYS)}")
         on = r.get("on")
-        if on not in HOOK_TAGS:
-            hint = (f" -- did you mean {HOOK_SYNONYMS[on.lower()]!r}?" if isinstance(on, str)
-                    and on.lower() in HOOK_SYNONYMS else _near(on, HOOK_TAGS))
+        if not isinstance(on, str) or on not in HOOK_TAGS:
+            hint = ((f" -- did you mean {HOOK_SYNONYMS[on.lower()]!r}?" if on.lower() in HOOK_SYNONYMS
+                     else _near(on, HOOK_TAGS)) if isinstance(on, str) else " (one hook per row: repeat the row)")
             errors.append(f"{at}: on = {on!r}: the hooks are init (tag 0), reaction (tag 7), dying (tag 9){hint}")
             continue
         slots = r.get("slot")
@@ -426,19 +429,33 @@ def plan(base_dir, sc: dict, *, raw16: bytes, eb_donor: bytes, eb_composed: byte
     bindings = tuple(Binding(s, slot_types[s], entries[s], _scene_data.slot_put(raw16, s)[1]) for s in range(mc))
     writes, errs = parse_writes(spec, table, mc)
     errors += [f"[scene.ledger] {e}" if not e.startswith("[") else e for e in errs]
+    patcount = _scene_data.parse_counts(raw16)[0]
     for s in sorted({w.slot for w in writes}):
-        if bindings[s].put_flags & _scene_data.PUT_FLAG_MULTIPART:
-            errors.append(f"[scene.ledger]: slot {s} is a MULTIPART part: its hits and death route to its master's "
-                          f"object -- give that slot a 'type' in [[scene.enemy]] (a single-part enemy) or name the "
-                          f"master slot")
+        puts = {_scene_data.slot_put(raw16, s, pattern=p) for p in range(patcount)}
+        if len(puts) > 1:
+            shown = ", ".join(f"type {t} (put flags {f})" for t, f in sorted(puts))
+            errors.append(f"[scene.ledger]: slot {s} spawns a different enemy in different patterns ({shown}) -- "
+                          f"monster_count keeps each pattern's type for a slot with no [[scene.enemy]] type, so its "
+                          f"hooks and die_atk would fit only some rolls; give slot {s} a type")
+            continue
+        if bindings[s].type_no > 0 and bindings[s].put_flags & _scene_data.PUT_FLAG_MULTIPART:
+            errors.append(f"[scene.ledger]: slot {s} is a MULTIPART SLAVE part (type > 0 with the multipart flag): "
+                          f"its hits and death route to its master's object -- write the row on the master's slot "
+                          f"(the multipart slot of type 0), whose reaction rows see every part's hits")
     if errors:
         return None, errors, warnings
 
     donor, composed = EbScript.from_bytes(eb_donor), EbScript.from_bytes(eb_composed)
     explicit = set()
     for e in sc.get("enemy", []) or []:
-        if isinstance(e, dict) and "flags" in e and _int(e.get("slot")) and 0 <= e["slot"] < 4:
-            explicit.add(_scene_data.slot_put(raw16, e["slot"])[0])
+        if not (isinstance(e, dict) and "flags" in e):
+            continue
+        try:                                          # the same int() apply_scene_edits applies to the slot
+            es = int(e.get("slot"))
+        except (TypeError, ValueError):
+            continue                                  # validate_scene reports a bad slot
+        if 0 <= es < 4:
+            explicit.add(_scene_data.slot_put(raw16, es)[0])
     or_types = []
     for t in sorted({bindings[w.slot].type_no for w in writes if w.on == "dying"}):
         word = _scene_data.mon_flags(raw16, t)

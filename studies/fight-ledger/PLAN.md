@@ -113,9 +113,21 @@ Goblins sharing AI entry 2 + a Fang on entry 1, which has no tag 7 — the ledge
 Artifacts: `.harness-runs/20260922-232643-fl-rung1`. The benches stay deployed at 30870-30872 and 30880-30883
 (scratch; revert with `tools/scroll_out/revert_deploy_<id>.py` / `revert_battle_<BBG>.py`).
 
-**Offline:** `tests/test_battle_ledger.py` (64) runs the emitted fragments through `tests/_ebengine.BattleEngine`,
-calibrated first against rung 0's measured cells; ten mutations of the guards each turn a test red.
+**Offline:** `tests/test_battle_ledger.py` runs the emitted fragments through `tests/_ebengine.BattleEngine`,
+calibrated first against rung 0's measured cells; sixteen mutations of the guards and sources each turn a test red.
 `tests/test_battle_compose.py` pins the validate/build composition parity.
+
+### The review round
+
+A 39-agent adversarial review (five lenses, two skeptics per finding) confirmed nine distinct defects, all fixed in
+`fix(battle): the fight-ledger review round`: the multipart refusal blocked a boss's MASTER slot too (the engine's
+slave test is `TypeNo > 0` with the multipart bit, `BTL_SCENE.GetMonGeoID`) and its advice led to a battle-init
+null dereference; the plan read pattern 0 only, though `monster_count` keeps each pattern's type for an untyped
+slot (now refused unless every pattern spawns the same enemy); a list-valued `on` and a NUL in `declared_in`
+raised instead of refusing; an explicit `flags` word slipped past its refusal when the slot was written as a
+string; the `command`/`ability`-in-init message gave the wrong engine reason; and three tests could not fail
+(the killer source, the flag-row slot filter, the ledger-after-`ai_insert` order) -- each now has a test that a
+mutation turns red. Five findings were refuted.
 
 **Deferred** (and why): a row log (ring/cursor) — the only runtime-index write, needs its own fence; `max`/`min`;
 `turn` (tag 5) and `counter` (tag 6) hooks and counting hits on a countering enemy (the tag-6 replay); total death

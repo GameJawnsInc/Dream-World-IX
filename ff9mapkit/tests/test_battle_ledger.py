@@ -184,13 +184,44 @@ def test_twin_without_the_gate_the_same_writes_would_create_and_append():
 
 
 def test_live_table_takes_the_writes(tmp_path):
+    """Cells start at a sentinel (99) and the killer is Steiner (CharacterId 3), so every asserted value is one
+    the fragment WROTE -- a zero-seeded table would pass with no write at all."""
     p = ok_plan(tmp_path, ALL_ROWS)
-    e = run(splice(p, 2, 0).body, LIVE, me=16)
-    assert e.vec[TID][:2] == [2, 1]
-    e = run(splice(p, 2, 9).body, LIVE, me=32)
-    assert e.vec[TID][5] == 0 and e.vec[TID][N - 1] == 1                 # killer = CharacterId 0 (Zidane)
-    assert e.vec[TID][2] == 1 and e.vec[TID][3] == 0                     # the REPLAYED reaction rows (lethal hp 0)
+    live = {TID: [99] * N, GID: [W]}
+    e = run(splice(p, 2, 0).body, live, me=16)
+    assert e.vec[TID][:2] == [2, 100]
+    units = {1: {70: 3, 36: 77}, 32: {36: 0}}
+    e = run(splice(p, 2, 9).body, live, me=32, units=units)
+    assert e.vec[TID][5] == 3 and e.vec[TID][N - 1] == 1                 # killer = CharacterId 3 (Steiner)
+    assert e.vec[TID][2] == 100 and e.vec[TID][3] == 0                   # the REPLAYED reaction rows: add, hp set
     assert len(e.vec[TID]) == N
+
+
+@pytest.mark.parametrize("src,hook,ctx,want", [
+    ("field", "init", {"sysvar": {191: 30880}}, 30880),
+    ("hp", "reaction", {"units": {16: {36: 41}}}, 41),
+    ("command", "reaction", {"sysvar": {28: 3}}, 3),
+    ("ability", "dying", {"sysvar": {29: 188}}, 188),
+    ("killer", "dying", {"syslist": {0: 4}, "units": {4: {70: 2}}}, 2),
+    ("killer_hp", "dying", {"syslist": {0: 2}, "units": {2: {36: 123}}}, 123),
+])
+def test_every_source_reads_its_own_engine_value(tmp_path, src, hook, ctx, want):
+    """Each source's RPN reads the engine slot it claims, with a value no other source would produce."""
+    p = ok_plan(tmp_path, [{"on": hook, "slot": 0, "cell": 4, "set": src}])
+    body = splice(p, 2, L.HOOK_TAGS[hook]).body
+    sl = {1: 16, **ctx.get("syslist", {})}
+    e = BattleEngine({TID: [99] * N, GID: [W]}, syslist=sl, sysvar=ctx.get("sysvar", {}),
+                     units=ctx.get("units", {})).run(body)
+    assert e.vec[TID][4] == want
+
+
+def test_a_flag_row_is_scoped_to_its_slot(tmp_path):
+    """Goblin A (slot 0) shares entry 2's tag 9 with Goblin B: B's story flag must not fire on A's death."""
+    p = ok_plan(tmp_path, [{"on": "dying", "slot": 1, "flag": "slain", "set": 1},
+                           {"on": "dying", "slot": 0, "cell": 0, "set": 1}])
+    body = splice(p, 2, 9).body
+    assert f"Global.Bit[{FLAG_IDX}]" not in run(body, LIVE, me=16).scalars
+    assert run(body, LIVE, me=32).scalars.get(f"Global.Bit[{FLAG_IDX}]") == 1
 
 
 # ---------------------------------------------------------------------------------------- the slot filter
@@ -587,3 +618,81 @@ def test_the_rung1_bench_battles_resolve_their_ledgers():
         assert (t.n, t.word) == (n, word)
         writes, errors = L.parse_writes(sc["ledger"], t, sc["monster_count"])
         assert errors == [] and writes
+
+
+# ---------------------------------------------------------------------------------------- review round
+def test_a_multipart_master_takes_rows_and_a_slave_is_refused(tmp_path):
+    """BTL_SCENE.GetMonGeoID: a SLAVE is TypeNo > 0 WITH the multipart bit; the master (type 0) carries the bit
+    too, and every part's hits route to it -- so it must be writable, and the slave refused."""
+    write_field(tmp_path)
+    raw16 = _raw16(typcount=2, monster_count=2, put_flags=3)            # [(type 0, 3), (type 1, 3)]
+    for slot, ok in ((0, True), (1, False)):
+        sc = {"monster_count": 2, "ledger": {"declared_in": "keep.field.toml", "table": NAME,
+                                              "write": [{"on": "init", "slot": slot, "cell": 0, "set": 1}]}}
+        p, errors, _w = L.plan(tmp_path, sc, raw16=raw16, eb_donor=goblin_eb(), eb_composed=goblin_eb())
+        assert (p is not None) == ok, errors
+        if not ok:
+            assert any("SLAVE" in e and "master" in e for e in errors), errors
+
+
+def test_a_slot_whose_enemy_differs_between_patterns_is_refused(tmp_path):
+    write_field(tmp_path)
+    raw = bytearray(_raw16(patcount=2, typcount=2, monster_count=1))
+    raw[8 + 56 + 8] = 1                                                  # pattern 1, slot 0 -> type 1
+    sc = {"monster_count": 1, "ledger": {"declared_in": "keep.field.toml", "table": NAME,
+                                         "write": [{"on": "dying", "slot": 0, "cell": 0, "set": 1}]}}
+    r16, _ = scene_data.apply_scene_edits(bytes(raw), sc)
+    _p, errors, _w = L.plan(tmp_path, sc, raw16=r16, eb_donor=goblin_eb(), eb_composed=goblin_eb())
+    assert any("different enemy in different patterns" in e for e in errors), errors
+    sc["enemy"] = [{"slot": 0, "type": 0}]                               # the fix the message names
+    r16, _ = scene_data.apply_scene_edits(bytes(raw), sc)
+    p, errors, _w = L.plan(tmp_path, sc, raw16=r16, eb_donor=goblin_eb(), eb_composed=goblin_eb())
+    assert errors == [] and p is not None
+
+
+@pytest.mark.parametrize("on", [["init"], {"a": 1}, 3, None])
+def test_a_non_string_hook_is_a_clean_refusal(tmp_path, on):
+    _p, errors, _w = plan(tmp_path, [{"on": on, "slot": 0, "cell": 0, "set": 1}])
+    assert any("the hooks are init" in e for e in errors), errors
+
+
+def test_an_unusable_declared_in_path_is_a_clean_refusal(tmp_path):
+    sc = scene([{"on": "init", "slot": 0, "cell": 0, "set": 1}])
+    sc["ledger"]["declared_in"] = "a\x00b.toml"
+    _p, errors, _w = plan(tmp_path, None, sc=sc)
+    assert any("not a usable path" in e for e in errors), errors
+
+
+def test_explicit_flags_are_seen_through_a_string_slot(tmp_path):
+    """apply_scene_edits int()s the slot, so the ledger must too, or it ORs die_atk over an explicit word."""
+    sc = scene([{"on": "dying", "slot": 0, "cell": 0, "set": 1}])
+    sc["enemy"] = [dict(sc["enemy"][0], slot="0", flags=["die_dmg"])] + sc["enemy"][1:]
+    _p, errors, _w = plan(tmp_path, None, sc=sc)
+    assert any("REPLACES the type's flag word without die_atk" in e for e in errors), errors
+
+
+def test_command_in_init_is_refused_for_the_real_reason(tmp_path):
+    _p, errors, _w = plan(tmp_path, [{"on": "init", "slot": 0, "cell": 0, "set": "command"}])
+    assert any("stale command" in e for e in errors), errors
+
+
+def test_the_build_runs_an_author_ai_insert_BEFORE_the_ledger_splice(tmp_path):
+    """The shipped function must be [ledger fragment][author ai_insert][donor body]: the author's at = 0 is
+    measured against the donor, and the ledger prepends last. Built through the real pipeline."""
+    proj = _mint(tmp_path, ROWS_TOML + '''
+    [[scene.ai_insert]]
+    entry = 2
+    tag = 7
+    at = 0
+    source = "SET({Instance.Byte[30] const(7) B_LET B_EXPR_END})"
+    ''')
+    assert validate_battle(proj) == []
+    build_battle_mod([proj], tmp_path / "dist")
+    shipped = EbScript.from_bytes(ModLayout(tmp_path / "dist").battle_eb_path("us", "LEDGERT").read_bytes())
+    f = shipped.entries[2].func_by_tag(7)
+    body = bytes(shipped.data[f.abs_start:f.abs_end])
+    author = _stmt_body("Instance.Byte[30] const(7) B_LET")
+    donor = _stmt_body("Instance.Byte[7] const(1) B_LET") + bytes([0x04])
+    assert body.endswith(author + donor), body.hex()
+    assert body.startswith(bytes([0x05])) and body.index(author) > 0     # the ledger's gate comes first
+    assert B.persist_live_expr(NAME, TID, N) in _text(body[:body.index(author)])
