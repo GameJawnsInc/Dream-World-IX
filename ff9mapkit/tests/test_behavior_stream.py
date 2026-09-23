@@ -406,3 +406,20 @@ def test_the_branch_editor_round_trips_a_roll_branch():
           "roll": {"stream": "eph", "counter": "pick", "range": [0, 5]}}
     parsed, err = BS.parse_branch(BS.branch_toml(br))
     assert err is None and parsed == br
+
+
+def test_the_behavior_doc_example_builds_and_its_rolls_are_the_oracles():
+    """The docs' roll-stream example is what authors copy: it must validate, compile as written, and its one
+    draw site must advance the persistent stream the oracle predicts (x0 from (name, seed); die 1..6)."""
+    from pathlib import Path
+    doc = (Path(__file__).resolve().parents[1] / "docs" / "BEHAVIOR.md").read_text(encoding="utf-8")
+    sect = doc[doc.index("### Roll streams"):]
+    start = sect.index("```toml") + len("```toml")
+    raw = tomllib.loads('[[npc]]\nname = "teller"\npos = [0, 0]\n' + sect[start:sect.index("```", start)])
+    assert BT.validate(raw) == []
+    fb, _cb = BT.dry_compile(raw)
+    info = fb.streams["mymod_fate"]
+    assert info.persist and info.tid == 6412346 and info.x0 == R.seed_state("mymod_fate", 7)
+    assert [(o, f, c, lo, hi) for o, f, _b, c, lo, hi in fb.stream_sites["mymod_fate"]] == \
+        [("teller", "ask", "omen", 1, 6)]
+    assert list(fb.persist_words) == [R.backing_key("mymod_fate")] and         fb.persist_words[R.backing_key("mymod_fate")] == info.word

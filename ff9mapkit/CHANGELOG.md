@@ -5,6 +5,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — roll streams: seeded randomness a field can predict
+- **`[[behavior.stream]]` + a branch `roll`** (the roll-stream arc, board entry #5, in-game proven by the
+  harness). A stream is a seeded Lehmer generator in one vector cell (`x' = 236·x mod 65537`, full period —
+  the largest product stays inside the 26-bit CalcStack); `roll = { stream, counter, range = [lo, hi] }` advances
+  it once and writes `lo + S % n`. Ephemeral streams re-seed at every field entry, so a visit replays its draws;
+  `persist = true` + `id` (6000000..6999999) guards the state like a persistent table, so **a reload cannot
+  re-roll**. The build prints each stream's start state and first states; `behavior compile` lists the rolls
+  each site will see — the numbers the game then draws.
+- **`wander` gains `seed = N`**: the targets come from a private stream, the same sequence after every entry
+  (the Workspace simulator replays it). A HUD value `"stream:<name>"` shows a stream's state.
+- The draw-cadence laws are refusals at build: a roll rides the edge idiom (a public flag its branch requires
+  and clears, raised by nothing inside the tree); a `roll` in `when` is refused; so is a walk tread with
+  `once = false` that raises a roll's flag.
+
+### Changed
+- **A `[behavior]` table with no `[[behavior.unit]]` is now refused** (outside verbatim forks). It compiled to
+  nothing — its tables, streams, counters and HUDs never ran — and said nothing.
+
+### Fixed — the overflow docs, the wander simulator, the branch editor
+- **CalcStack overflow wraps mod 2^26** and stays an integer, measured in-game; the kit's comments and docs
+  said it changed the value's class.
+- **The Workspace simulator's `wander`** honours `every` and counts down per unit, as the compiled wander does.
+- **The Workspace branch editor** dropped a branch's `adjust` on open + Apply.
+
 ### Added — the fight ledger: a battle writes a field's persistent table
 - **`[scene.ledger]`** (the fight-ledger arc, board entry #4,
   in-game proven by the harness). A minted battle names the field that declares a `persist = true` table and

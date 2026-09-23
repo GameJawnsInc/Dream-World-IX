@@ -2735,7 +2735,9 @@ the walkability sweep finds off-mesh is re-routed through the walkmesh pathfinde
 spliced in, clear legs untouched; walls-only, 8-point ceiling — see
 [BEHAVIOR.md](BEHAVIOR.md)) · `flee` (threat; `to` = refuge points in
 priority order — the first the threat is NOT within `avoid_r` of; `speed`) · `wander` (centre;
-`radius`, `every` = ticks between random re-targets, `speed`) · `swing_at` (a unit with `hp`;
+`radius`, `every` = ticks between random re-targets, `speed`, `seed` = N — targets from a private
+seeded [roll stream](BEHAVIOR.md#roll-streams--seeded-randomness-you-can-predict), the same sequence
+every entry) · `swing_at` (a unit with `hp`;
 `damage`, `interval`) · `die` (`true`, or a **counter name** — `die = "kills"` bumps that
 counter once) · `battle` (a battle SCENE id — a REAL fight, one-shot per
 field load by construction; the build auto-installs the after-battle Main_Reinit + BGM
@@ -2755,6 +2757,10 @@ numeric write applied while the branch is selected (one row or a list; `clamp` i
 mandatory; `index` is an int or a counter name — the computed-index write; `every` = a
 byte rate divider, 0 = every selected tick; refused on `engage` branches). See
 [BEHAVIOR.md § Adjust and drift](BEHAVIOR.md#adjust-and-drift--the-numeric-write-lane).
+`roll = { stream =, counter =, range = [lo, hi] }` — draws once from a declared roll stream into a
+counter (`lo + S % n`, n = 2..256), run before the branch's `adjust`. Refused unless the branch rides
+the edge idiom: its `when` requires a public flag this branch clears and nothing else raises or
+clears. A `roll` inside `when` is refused.
 A `point` anywhere is `[x, z]` or a marker/NPC name. Everything resets on field reload.
 
 **Brains + classes:** `brains = true` in `[behavior]` moves each unit's branch logic into its
@@ -2825,6 +2831,16 @@ T + 1000000 holds its guard word) and values within ±1000000. See
 HUD sits below `table[counter]`; when the counter walks off the table's end the read fails
 soft to 0 and the clock stops itself. Wave bands become data instead of unrolled
 `time_below` branches. See [BEHAVIOR.md § Data tables](BEHAVIOR.md#data-tables-counters-and-the-schedule-clock).
+
+**Roll streams (`[[behavior.stream]]`):** a seeded generator in one vector cell
+(`x' = 236·x mod 65537`, full period). Keys: `name` (`[A-Za-z0-9_]+`), `seed` (REQUIRED,
+1..2147483647 — hashed with the name to the start state; never time-seeded), optional
+`persist = true` + `id` (REQUIRED with persist, 6000000..6999999; guarded like a persistent table,
+so a reload cannot re-roll it; without `persist` the stream re-seeds at every field entry and `id` is
+refused). Drawn by a branch `roll`; every declared stream must be drawn; v1 ticker only (not on
+class rows or `brains = true`). The build prints each stream's start state and first states — the
+offline oracle. HUD source `"stream:<name>"` shows the state. See
+[BEHAVIOR.md § Roll streams](BEHAVIOR.md#roll-streams--seeded-randomness-you-can-predict).
 
 **Drift (`[[behavior.drift]]`):** a field-level periodic clamped write — the metabolism
 lane (need decay, regeneration, upkeep). Keys: one target (`counter =` | `table =` +
