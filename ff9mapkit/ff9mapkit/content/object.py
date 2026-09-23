@@ -154,16 +154,18 @@ def remap_entry_refs(data, slot, donor_idx, donor_player_entry, donor2new, playe
 def _arm(data, slot, arg, needs_d9):
     """Spawn the grafted object from ``Main_Init``. A self-positioning object arms with a shift-free
     ``InitObject`` (overwrite a ``Wait`` filler, else insert). A ``Main_Init``-D9-positioned object gets
-    its D9 placement set immediately before the ``InitObject`` (one inserted block, so the order holds)."""
+    its D9 placement set immediately before the ``InitObject`` (one inserted block, so the order holds).
+    That block is a Main_Init PREPEND through :func:`edit.insert_in_function` (always safe), NOT a raw
+    ``insert_bytes``, so entry 0's other function pointers move with the bytes (the blank's Main_Loop sits
+    past the entry's end and must stay there -- see :func:`edit.insert_bytes`)."""
     if needs_d9:
         # TOML inline-table keys arrive as strings ("0"/"4"); coerce to the int var index the engine reads
         block = b"".join(_region.set_var(eventscan.POS_VAR_CLASS, idx, val)
                          for idx, val in sorted((int(i), int(v)) for i, v in needs_d9.items()))
         block += opcodes.init_object(slot, arg)
-        f0 = EbScript.from_bytes(data).entry(0).func_by_tag(0)
-        if f0 is None:
+        if EbScript.from_bytes(data).entry(0).func_by_tag(0) is None:
             raise ValueError("field has no Main_Init (entry 0 tag 0) to arm the object from")
-        return edit.insert_bytes(data, f0.abs_start, block)
+        return edit.insert_in_function(data, 0, 0, 0, block)
     return edit.activate(data, opcodes.init_object(slot, arg))
 
 

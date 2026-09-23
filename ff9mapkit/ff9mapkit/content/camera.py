@@ -30,14 +30,16 @@ def enable_camera_services(eb_bytes, *, frame_count: int = 0, scroll_type: int =
 
     ``frame_count`` = duration (frames) of the camera's reposition-to-player when it activates
     (0 = instant; -1 defaults to 30 in the engine). ``scroll_type`` = 8 for sinusoidal, else linear.
-    Uses :func:`edit.insert_bytes` (relocates jumps/fpos), so it is safe alongside other injectors.
+    A prepend through :func:`edit.insert_in_function` (always safe), NOT a raw ``insert_bytes``: entry 0's
+    other function pointers must move with the bytes. The blank's Main_Loop (tag 1) sits 65 bytes PAST
+    entry 0's end -- an out-of-range IP the engine just returns from -- and a raw insert left it behind,
+    eating that margin byte for byte until the engine ran Main_Loop from inside Main_Reinit.
     """
     eb = EbScript.from_bytes(eb_bytes)
-    f = eb.entry(0).func_by_tag(0)
-    if f is None:
+    if eb.entry(0).func_by_tag(0) is None:
         raise ValueError("entry 0 has no Main_Init (tag 0) to enable camera services in")
     code = opcodes.encode(BGCACTIVE_OP, 1, int(frame_count), int(scroll_type))
-    return edit.insert_bytes(eb_bytes, f.abs_start, code)
+    return edit.insert_in_function(eb_bytes, 0, 0, 0, code)
 
 
 # --------------------------------------------------------------------------- multi-camera switch
