@@ -10,9 +10,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   simply returns from. Enabling scroll (`EnableCameraServices`) and arming a Main_Init-D9-positioned object
   graft (`needs_d9`) inserted their Main_Init code without moving that pointer, so each byte they added
   ate one byte of the margin: 5 per scrolling field, 19 per D9-armed instance, on top of what the
-  after-battle handler eats. A 3-camera scrolling field with an `[encounter]` and `[music]` went past zero,
-  and the engine ran Main_Loop from inside the after-battle handler on every field load. Both now move
-  the pointer with the bytes. A scrolling or D9-grafting field's `.eb` changes in that one pointer only;
+  after-battle handler ate (the other half of this fix, in the `[behavior]` battle entry below). A 3-camera
+  scrolling field with an `[encounter]` and `[music]` went past zero, and the engine ran Main_Loop from
+  inside the after-battle handler on every field load. Both now move the pointer with the bytes. A scrolling or D9-grafting field's `.eb` changes in that one pointer only;
   every other field is byte-identical.
 
 ### Added — the fight ledger: a battle writes a field's persistent table
