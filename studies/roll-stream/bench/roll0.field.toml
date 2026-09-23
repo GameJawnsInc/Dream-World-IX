@@ -1,0 +1,79 @@
+# =====================================================================================
+# THE ROLL STREAM, RUNG 0 -- INSTRUMENT CALIBRATION  --  field 30890
+# =====================================================================================
+# No new kit code. Two instruments the rung-1 proof depends on, checked in-game first:
+#
+#  1. The arithmetic, as pure HUD expr rows (re-evaluated every tick, no state):
+#       MULREM  237 * 65536 mod 65537            = 65300    (the generator's largest intermediate path)
+#       STEP    237 * 12345 mod 65537            = 42137    (one advance from a 5-digit state)
+#       BIG     65536 * 237                      = 15532032 (the max intermediate, wider than 16 bits)
+#       WRAP    33554431 + 1                     = -33554432 (CalcStack overflow WRAPS mod 2^26)
+#       HIBYTE  65535 / 256                      = 255      (the byte split a wander re-roll uses)
+#  2. A STOCK wander unit (B_SYSVAR[0] draws): its rolled targets live in two Global.Int16
+#     blackboard slots the harness can watch bit-for-bit; NPCX/NPCZ show where the NPC stands.
+#     Two ~Reloads must give DIFFERENT target sequences -- the control that shows the instrument
+#     can tell a seeded stream from an unseeded one.
+#
+#   py tools/deploy_field.py studies/roll-stream/bench/roll0.field.toml --id 30890 --name ROLL0 --text-block 30890
+
+[field]
+id = 30890
+name = "ROLL0"
+area = 11
+title = "ROLL 0"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [-900, -300]
+
+[[npc]]
+name = "strider"
+model = "GEO_NPC_F0_CSO"
+pos = [0, -1100]
+
+[behavior]
+warmup = 30
+
+  [[behavior.unit]]
+  npc = "strider"
+    [[behavior.unit.branch]]
+    do = { wander = [0, -1100], radius = 400, every = 45, speed = 40 }
+
+  [[behavior.hud]]
+  window = 6
+  digits = [5, 5, 7, 7, 3, 5, 5]
+  values = [
+    "expr:const(237) const4(65536) B_MULT const4(65537) B_REM",
+    "expr:const(237) const4(12345) B_MULT const4(65537) B_REM",
+    "expr:const4(65536) const(237) B_MULT",
+    "expr:const4(33554431) const(1) B_PLUS",
+    "expr:const4(65535) const(256) B_DIV",
+    "expr:obj(uid=2).f[0] const(10000) B_PLUS",
+    "expr:obj(uid=2).f[2] const(10000) B_PLUS",
+  ]
+  text = """[MPOS=8,8]== ROLL 0 30890 ==
+MULREM   [NUMB=0]
+STEP     [NUMB=1]
+BIG      [NUMB=2]
+WRAP     [NUMB=3]
+HIBYTE   [NUMB=4]
+NPCX     [NUMB=5]
+NPCZ     [NUMB=6]"""
