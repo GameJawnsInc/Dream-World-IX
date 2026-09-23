@@ -21,6 +21,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   gate. A wander box past the Int16 target slots (±32767) is refused for every wander.
 
 ### Changed
+- **`eb.edit.insert_bytes` refuses an insert that would strand a function pointer.** It fixes only the entry
+  table, so it was safe only when no function of the containing entry starts past the insert point -- a
+  docstring rule four callers broke (the blank's past-the-end Main_Loop pointer drifted toward Main_Reinit).
+  It now raises `ValueError` naming the function; everything else goes through `insert_in_function`, which
+  moves the siblings' `fpos` with the bytes. Kit builds are byte-identical. The three pre-kit tools that
+  carried private copies of the raw relayout (`alex_add_music`, `wire_alexandria`, `eb_add_field_music`)
+  now route through the kit.
 - **A `[behavior]` table with no `[[behavior.unit]]` is now refused.** It compiled to nothing — its tables,
   streams, counters and HUDs never ran — and said nothing. On a verbatim fork any `[behavior]` block is refused
   by name (it was silently dropped when it had no unit).

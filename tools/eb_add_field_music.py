@@ -12,30 +12,19 @@
 #      once on field load via InitCode in Main_Init -> plays the theme on room ENTRY.
 #   2) entry-0 tag-10 "Main_Reinit" (currently FadeFilter 0xEC; EnableMove; return) — runs after
 #      BATTLE -> replays the theme so it's not silent on battle-return.
-# Re-layout per insertion: grow the containing entry's size, shift later entries' table offsets
-# (internal fpos are relative so they're unchanged). Verified with eb_disasm.
+# Both insertions go through the kit: (1) is a prepend onto tag-10 via edit.insert_in_function, which
+# moves entry 0's other fpos with the bytes -- the blank's Main_Loop pointer sits PAST the entry's end,
+# and the local raw relayout this tool used to carry (entry table only) ate 6 bytes of that margin;
+# (2) is a raw edit.insert_bytes, legal because the encounter entry's code start is its last function
+# (insert_bytes refuses the insert otherwise). Verified with eb_disasm.
 import struct, os, sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit")))
+from ff9mapkit.eb import edit  # noqa: E402
 
 def u16(b, o): return struct.unpack_from('<H', b, o)[0]
 
 RUNSOUND_VIVI = bytes([0xC5, 0x00, 0x00, 0x00, 0x09, 0x00])  # RunSoundCode(0, 9) = play Vivi's Theme
-
-def insert_bytes(data, abs_off, ins):
-    b = bytearray(data)
-    E = Eoff = None
-    for i in range(10):
-        off, sz = u16(b, 128+i*8), u16(b, 128+i*8+2)
-        if off > 0 and 128+off <= abs_off < 128+off+sz:
-            E, Eoff, Esz = i, off, sz; break
-    if E is None:
-        raise SystemExit(f"no entry contains file offset {abs_off}")
-    struct.pack_into('<H', b, 128+E*8+2, Esz + len(ins))            # grow containing entry
-    for j in range(10):                                            # shift entries after it
-        if j == E: continue
-        off = u16(b, 128+j*8)
-        if off > 0 and off > Eoff:
-            struct.pack_into('<H', b, 128+j*8, off + len(ins))
-    return bytes(b[:abs_off]) + ins + bytes(b[abs_off:])
 
 def tag10_body_start(data):
     off0 = u16(data, 128); es = 128 + off0; fc = data[es+1]; fbase = es + 2
@@ -58,12 +47,12 @@ def add_music(data):
     t10 = tag10_body_start(data)
     if data[t10] != 0xEC:
         raise SystemExit(f"tag-10 body doesn't start with FadeFilter(0xEC): {data[t10]:#x} (run eb_reinit_add_fade first)")
-    data = insert_bytes(data, t10, RUNSOUND_VIVI)
+    data = edit.insert_in_function(data, 0, 10, 0, RUNSOUND_VIVI)
     # 2) on-entry: insert at the last entry's code start (before SetRandomBattles)
     ce = last_entry_code_start(data)
     if data[ce] != 0x3C:
         raise SystemExit(f"last entry code doesn't start with SetRandomBattles(0x3C): {data[ce]:#x}")
-    data = insert_bytes(data, ce, RUNSOUND_VIVI)
+    data = edit.insert_bytes(data, ce, RUNSOUND_VIVI)
     return data
 
 if __name__ == "__main__":

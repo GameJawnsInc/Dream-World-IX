@@ -3,15 +3,16 @@
 The blank template's entry 0 is Main_Init (tag 0) + Main_Loop (tag 1), and Main_Loop's ``fpos`` points 65
 bytes PAST entry 0's declared size. The engine loads exactly ``size`` bytes per entry, so that is an
 out-of-range IP it simply returns from (EventEngine.Return -> GetIP(sid, 1); Obj.getByteIP catches the OOB).
-A raw ``edit.insert_bytes`` at Main_Init's start fixes only the ENTRY table: the pointer stays put while
+A bare entry-table relayout at Main_Init's start fixes only the ENTRY table: the pointer stays put while
 the code grows under it, each inserted byte eats one byte of the margin, and past zero the engine runs
 Main_Loop from the middle of entry 0's code (the after-battle tag-10 Main_Reinit) on every field load.
 
 ``[camera.scroll]`` (``content.camera.enable_camera_services``) and a Main_Init-D9-positioned object graft
-(``content.object._arm``) were raw callers; both now prepend through ``edit.insert_in_function`` (rel 0),
-which moves the other functions' ``fpos`` with the bytes. These tests go red if either -- or any other
-Main_Init lever listed in ``LEVERS`` -- regresses to a raw insert. The synthetic fixture runs without the
-game install; the blank-template and build checks need ``ff9mapkit extract-templates``.
+(``content.object._arm``) were raw ``edit.insert_bytes`` callers; both now prepend through
+``edit.insert_in_function`` (rel 0), which moves the other functions' ``fpos`` with the bytes, and
+``insert_bytes`` itself now REFUSES any insert that would strand a pointer. These tests go red if either --
+or any other Main_Init lever listed in ``LEVERS`` -- regresses to the bare relayout. The synthetic fixture
+runs without the game install; the blank-template and build checks need ``ff9mapkit extract-templates``.
 """
 from __future__ import annotations
 
@@ -104,14 +105,28 @@ LEVERS = [
 
 
 def test_the_fixture_bites():
-    """The contract ``insert_bytes``' docstring states: it fixes the ENTRY table only, so a raw insert ahead
-    of a past-the-end pointer eats its margin byte for byte. If this stops holding, the fixture no longer
+    """The bare relayout (``edit._insert_bytes_raw``) fixes the ENTRY table only, so an insert ahead of a
+    past-the-end pointer eats its margin byte for byte. If this stops holding, the fixture no longer
     discriminates and every test below would pass vacuously."""
     eb = _dangling_fixture()
     assert _margin(eb) == BLANK_MAIN_LOOP_MARGIN
     f0 = EbScript.from_bytes(eb).entry(0).func_by_tag(0)
-    out = edit.insert_bytes(eb, f0.abs_start, opcodes.ENABLE_MOVE * 70)
+    out = edit._insert_bytes_raw(eb, f0.abs_start, opcodes.ENABLE_MOVE * 70)
     assert _margin(out) == BLANK_MAIN_LOOP_MARGIN - 70 < 0          # now INSIDE entry 0's code
+
+
+def test_insert_bytes_refuses_to_strand_the_past_end_pointer():
+    """The law enforced at the call site: the public ``insert_bytes`` refuses ANY insert into an entry whose
+    function pointer sits past the insert point -- one byte, anywhere in Main_Init -- instead of eating the
+    margin. The four raw callers that shipped the bug would now fail their build loudly."""
+    eb = _dangling_fixture()
+    f0 = EbScript.from_bytes(eb).entry(0).func_by_tag(0)
+    for off in (f0.abs_start, f0.abs_start + 1):
+        with pytest.raises(ValueError, match=r"strand entry 0's function tag 1 \(starts at/past the entry's end\)"):
+            edit.insert_bytes(eb, off, RET)
+    e1 = EbScript.from_bytes(eb).entry(1)               # entry 1's lone function is its last -> allowed
+    assert edit.insert_bytes(eb, e1.func_by_tag(0).abs_start, RET) \
+        == edit._insert_bytes_raw(eb, e1.func_by_tag(0).abs_start, RET)
 
 
 @pytest.mark.parametrize("name,apply,block", LEVERS, ids=[lv[0] for lv in LEVERS])
@@ -149,6 +164,8 @@ def test_levers_still_refuse_a_field_without_main_init():
 def test_blank_template_levers_keep_the_main_loop_out_of_range():
     blank = data.blank_field_bytes("us")
     assert _margin(blank) == BLANK_MAIN_LOOP_MARGIN                  # the shape the fixture models
+    with pytest.raises(ValueError, match="strand entry 0's function tag 1 "):
+        edit.insert_bytes(blank, EbScript.from_bytes(blank).entry(0).func_by_tag(0).abs_start, RET)
     out = camera.enable_camera_services(blank)
     for arg in range(3):
         out = _object._arm(out, 1, arg, D9)
