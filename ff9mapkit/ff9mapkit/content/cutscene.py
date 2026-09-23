@@ -246,7 +246,9 @@ def raise_windows() -> bytes:
 # the guard is seeded to 250 frames (~8s) at every one of them. So the kit's wait is guarded by
 # construction: there is no unguarded form to author. The counter is a MAP int16 (transient, wiped on
 # field load) rather than stock's save-backed global byte, so it can never leak into a save.
-SIGNAL_GUARD_IDX = 3           # MAP.I16[3] -- the spin-wait countdown (the ladder owns MAP.I16[2])
+SIGNAL_GUARD_IDX = 68          # MAP Int16 at BYTE offset 68 (bytes 68-69) -- the spin-wait countdown. Map var
+                               # indices are byte offsets, so the old 3 straddled the ladder's 2-3 and the
+                               # Init position scratch (y 2-3, z 4-5); see tests/test_mapvar_layout.py
 SIGNAL_GUARD_FRAMES = 250      # stock's own seed at every guarded wait site
 
 

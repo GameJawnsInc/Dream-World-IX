@@ -39,10 +39,16 @@ PLAYER_UID = 250          # the controlled player's runtime UID (standard across
 FIRST_PLATFORM_TAG = 56   # player ride funcs start here -- clear of ladder (17+) / jump (40+) climb tags,
                           #   below the object-carry player band (64+); one tag per platform
 RUNSCRIPT_LEVEL = 2       # the script level RunScriptSync uses (matches the real ladder/jump triggers)
-PLATFORM_SCRATCH = 3      # MAP.I16[3]: this frame's stepped selfY target (transient per-field)
-PLATFORM_START = 4        # MAP.I16[4]: the captured boarding selfY (the height the player rides FROM)
-PLATFORM_START_X = 5      # MAP.I16[5]: the captured boarding world-X
-PLATFORM_START_Z = 6      # MAP.I16[6]: the captured boarding world-Z
+# The ride's MAP Int16 scratch. A Map var index is a BYTE OFFSET into EventContext.mapvar (Byte[80]), not
+# a slot number: an Int16 at k spans bytes k..k+1 (EBin.GetVariableValueInternal), so neighbours sit 2
+# apart. The old 3/4/5/6 overlapped -- capturing x, z, then selfY left START_X holding selfY's high byte
+# and z's low byte, and the land ride flung the player sideways. Bytes 70-77 are clear of the Init
+# position scratch (0/2/4/6), the ladder (2), the cutscene signal guard (68), every kit MAP bit band
+# (the highest is byte 79) and nearly all stock scripts. tests/test_mapvar_layout.py pins the layout.
+PLATFORM_SCRATCH = 70     # MAP bytes 70-71: this frame's stepped selfY target (transient per-field)
+PLATFORM_START = 72       # MAP bytes 72-73: the captured boarding selfY (the height the player rides FROM)
+PLATFORM_START_X = 74     # MAP bytes 74-75: the captured boarding world-X
+PLATFORM_START_Z = 76     # MAP bytes 76-77: the captured boarding world-Z
 DEFAULT_DURATION = 32     # ride frames (for the relative `rise` mode -- linear, always terminates)
 DEFAULT_SPEED = 30        # world-units/frame for the absolute `land` mode (ride duration = distance/speed)
 
