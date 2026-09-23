@@ -20,6 +20,48 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `tests/test_mapvar_layout.py` checks the declared constants, each emitter's bytes and a whole built field, and it
   runs the ride on a byte-offset model of `mapvar`. With the old constants patched back in, 10 of its 16 tests fail.
 
+### Fixed — an authored shadow `intensity` stops at 15, because the engine's blob colour wraps after it
+- **`shadow = { intensity = N }` now takes 0–15, not 0–31**, on `[player]`, `[[npc]]`, `[[prop]]`, `[[chest]]`
+  and `[[savepoint]]`. The kit emits `SetShadowAmplifier(intensity << 3)`, and the op's one-byte argument encodes
+  all of 0–31. But `EventEngine.SetRenderer` draws the blob in colour `(Byte)(amp * 2)`, so from 16 the colour
+  wraps: 16 drew no shadow at all, and 31 drew the same as 15. An author asking for a darker shadow got a lighter
+  one or none. Validate (and the build) now refuse 16–31. The message explains the wrap and names the model's
+  census value when the model is known (`[[npc]]`, and every build-time resolve).
+- **The census is unchanged.** Models 200 and 488 carry stock's own MapConfigData intensity 16, which wraps the
+  same way in stock, so an absent key still emits it and still matches stock.
+- **In-game proven** (harness, bench 30922, `studies/actor-shadow/intensity_wrap.py`). Two runs swap the
+  intensities between the same four NPC slots. The same slot at 15 and at 31 is pixel-identical, within each run's
+  own repeat-shot noise, and so is 16 against 0. Against a no-shadow control, 15 and 31 darken the floor by 8–11%
+  luminance, and 16 and 0 read 0.998–1.000. `tests/test_shadow_intensity_wrap.py` pins the cap to the engine's
+  colour formula (`shadow.blob_colour`). Each test is mutation-checked.
+
+### Fixed — a kit-built player is the player from its first tick, so 2507's fork keeps it on the walkmesh
+- **Every synthesized field's player took ~1.6 s to become the player.** The blank template's player Init
+  carries eight stale `RunSoundCode(4616, 912)` preloads, and the build zero-filled them to stop the per-frame
+  "Music Id 912" exception. But `0x00` is not a no-op in the engine: `DoEventCode` `case NOP` returns 1, a
+  one-tick yield. The 48 zero bytes sat between `SetModel` and `DefinePlayerCharacter`, so the player's
+  controller existed with `isPlayer` false for ~48 ticks.
+- **That window is where 2507's delayed hotfix struck.** `FieldMap.DelayedActiveTri` runs 0.5 s after load and
+  detaches every controller whose `isPlayer` is false. On a `--native`, `--editable` or BG-borrow fork with a
+  donor row it caught the player, who then walked off the stairwell walkway. `--verbatim` forks run the real
+  script and were never affected.
+- **The build now jumps over those ops instead** (`content.npc.neutralize_player_audio_cruft`, via the new
+  `eb.edit.skip_range`). The player's Init runs in one tick and binds before the pass, as the real one does. The
+  re-attach guard added for this (`content.walkmesh_hotfix.reattach_player`, never released) is removed.
+- **The entry-settle hold moved ahead of Main_Init's `set MAP159 = 1`.** With the player ready on its first tick,
+  its own handshake grant would have handed control back during the black hold. Main is now "not ready" for the
+  hold, so the template's handshake grants when it ends, and `[player] locked_entrances` stays covered by the two
+  sites `content.entrylock` already gates. A Main_Init without that handshake keeps the old
+  `DisableMove; Wait; EnableMove` before the reveal fade.
+- **`eb.edit.nop_range` / `nop_cinematics` now document that each 0x00 costs one event tick.** Their behavior
+  is unchanged.
+- Every synthesized field builds different bytes; the vivi-hut build golden is re-pinned.
+- **In-game (harness, no guard anywhere):** `--editable`, `--native` and BG-borrow forks of 2507 with a donor
+  row all stop at the real field's exact edge point, as does the real field. On the borrow, 3 s after arrival,
+  the HUD shows the chests detached (the pass fired) and the player still on its triangle. Each kit player is
+  published 2–4 frames after the switch (was ~1.7 s), and control returns when the settle hold ends. 9/9 and
+  14/14, no engine exceptions (`studies/fork-walkmesh-hotfix/FINDINGS.md`).
+
 ### Fixed — `fetch-assets` restores a campaign member's missing MapConfigData
 - **A member whose toml declares `[field] mapconfig` now requires that file.** Both fork writers (borrow and
   native) emit `mapconfig.bytes` and the line, and the build refuses a member whose MCF is absent. But
@@ -40,7 +82,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   so the name-keyed ones (s31 overlay offsets, s32) already resolved. Now 2161's tri 69 comes from the engine (a
   borrow lost it outright before: no row and no prepend), 2507's delayed pass fires (the chests settle, then their
   landing tris drop), and the in-field menu LOCATION shows the donor's place name instead of a blank
-  (`[field] location = "…"` still overrides it). A borrow of 2507 gets the player re-attach guard above.
+  (`[field] location = "…"` still overrides it). A borrow of 2507 keeps its player through the
+  first-tick player bind above.
 - **What else sees the donor:** `lint` and the deploy-time text guard accept the donor's own text block, as they do
   for a native fork, and the Workspace Place tab places content on the donor's real room, which is the room a
   borrow renders. A fork forked in place on the donor's id, or whose donor id did not resolve, records nothing.
@@ -54,26 +97,6 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   **In-game (harness):** the 2356 borrow with the toggle line and without it (the chest removed from both,
   since its ~268u collision walls off the whole patch). Without it the player walks onto tri 80; with it the
   player is held on tri 5 at the patch edge. 5/5, no engine exceptions.
-
-### Fixed — a kit-built fork of field 2507 no longer lets the player walk off the walkmesh
-- **2507's delayed engine hotfix detached the player on every kit-built fork with a donor row.**
-  `FieldMap.DelayedActiveTri` runs 0.5 s after load and detaches every actor whose `isPlayer` is false from the
-  walkmesh. On a `--native`, `--editable` or BG-borrow fork, whose `.eb` the kit builds, that included the
-  player, who could then walk straight off the stairwell walkway. The real 2507 keeps its player, whose script
-  calls `SetPathing(1)`. `--verbatim` forks run that script and were never affected.
-- **The build now turns the player's idle Loop into a guard** (`content.walkmesh_hotfix.reattach_player`).
-  Every frame, when the player has control (`B_SYSVAR[2]`) but no walkmesh triangle, it runs `SetPathing(1)`.
-  Every kit sequence that turns pathing off (ladders, platforms, jumps, cutscenes) disables movement first, so the
-  guard never fights one. It is added only where 2507's pass will run: a recorded donor of 2507, the field forked
-  in place, or a `borrow_bg` of 2507's scene (a campaign BG-borrow member gets its row from the campaign).
-  Everything else builds byte-identically. The catalog flags the pass as `Hotfix.detaches_actors`.
-- A fixed one-shot (`Wait(30)` then `SetPathing(1)`) was tried first. It passed one launch and failed the next,
-  because the pass lands at a load-dependent moment.
-- **In-game (harness, two launches):** from 2507's entrance-128 platform, 12 run frames toward its east edge.
-  The real field, a no-row fork, and the rebuilt `--editable` and `--native` forks all stop at the edge, at the
-  same point. Before the fix, both forks walked 360u off the walkway. On the editable fork, a HUD shows the chests
-  still detached (the hotfix fires) and the player back on a triangle. No engine exceptions.
-  (`studies/fork-walkmesh-hotfix/`)
 
 ### Fixed — an `import --editable` fork records its donor, so it gets a ForkDonorPatch row
 - **`import --editable` now writes `[field] source_field = <donor id>`**, as `--native`, `--verbatim` and every

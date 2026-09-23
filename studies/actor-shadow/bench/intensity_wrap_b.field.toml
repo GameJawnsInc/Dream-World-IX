@@ -1,0 +1,78 @@
+# =====================================================================================
+# ACTOR SHADOWS -- THE INTENSITY WRAP, run B  --  field 30922
+# =====================================================================================
+# SetShadowAmplifier (0x85) takes a one-byte amp, and the kit emits amp = intensity << 3, so every
+# intensity 0-31 ENCODES fine. The engine DRAWS the blob in colour (Byte)(amp * 2)
+# (EventEngine.ProcessEvents.cs:612), so from amp 128 up the colour WRAPS: intensity i >= 16 draws as
+# i - 16 (16 -> colour 0, 31 -> 240 = the same as 15). This bench checks that in-game.
+#
+# SWAP DESIGN. Four GEO_NPC_F0_CSO NPCs, all size 9, stand at shadow0.field.toml's calibrated slots (the
+# same floor, camera and positions, so measure_shadows.py's feet boxes apply). Run A and run B put the
+# intensities in swapped slots, so each wrap claim is a SAME-SLOT comparison across the two runs:
+#         slot (shadow0 name)   run A   run B    colour (A / B)
+#   s1    [450, -250]  stock      15      31      240 / 240   -> must match
+#   s2    [900, -900]  big        16       0        0 / 0     -> must match
+#   s3    [-150, -1000] none      31      15      240 / 240   -> must match
+#   s4    [-800, -1000] rover      0      16        0 / 0     -> must match
+# The player casts nothing in either run: it is the in-frame UNCHANGED control, and its box gives the
+# run-to-run noise floor. The CONTROL run (intensity_wrap_control.field.toml, every actor at shadow = false)
+# is what separates the two colours: if the amp op were dead every slot would draw the same colour, and
+# 15 == 31 would hold vacuously.
+#
+# Authored BEFORE validate capped an authored intensity at 15: the 16 and 31 here are the defect under
+# test, and validate refuses them now. Rebuild this file only from a checkout that predates the cap.
+#
+#   py tools/deploy_field.py studies/actor-shadow/bench/intensity_wrap_b.field.toml --id 30922 --name SHWR --text-block 30922 --mod-folder FF9CustomMap
+
+[field]
+id = 30922
+name = "SHWR"
+area = 11
+title = "SHADOW WRAP"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+obj = "shadow0.walkmesh.obj"
+links = "shadow0.walkmesh.links.toml"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [-407, -472]
+shadow = false
+
+[[npc]]
+name = "s1"
+model = "GEO_NPC_F0_CSO"
+pos = [450, -250]
+shadow = { size = 9, intensity = 31 }
+
+[[npc]]
+name = "s2"
+model = "GEO_NPC_F0_CSO"
+pos = [900, -900]
+shadow = { size = 9, intensity = 0 }
+
+[[npc]]
+name = "s3"
+model = "GEO_NPC_F0_CSO"
+pos = [-150, -1000]
+shadow = { size = 9, intensity = 15 }
+
+[[npc]]
+name = "s4"
+model = "GEO_NPC_F0_CSO"
+pos = [-800, -1000]
+shadow = { size = 9, intensity = 16 }

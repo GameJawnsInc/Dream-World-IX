@@ -213,6 +213,12 @@ class FakeGame:
         #: inferring it from a state that several other ops could also have produced.
         self.executed: list[list[str]] = []
         self.arm_transitions = 0
+        #: Publishes that STALL MID-REWRITE, one queued duration (seconds) consumed per publish --
+        #: see :meth:`stall_publish`. Empty by default: the ordinary publish replaces the file.
+        self._publish_stalls: list[float] = []
+        #: Set while a stalled publish holds state.json truncated and EMPTY, so a test can read the
+        #: channel inside the gap rather than hoping to land in it.
+        self.stalling = threading.Event()
 
     # -- lifecycle -----------------------------------------------------------------------------
     def start(self) -> "FakeGame":
@@ -783,7 +789,28 @@ class FakeGame:
             "netsync": self._netsync_doc(),
             "held": held,
         }
-        _publish_atomic(self.dir / "state.json", json.dumps(doc))
+        if self._publish_stalls:
+            _publish_in_place(self.dir / "state.json", json.dumps(doc),
+                              stall=self._publish_stalls.pop(0), began=self.stalling,
+                              stop=self._stop)
+        else:
+            _publish_atomic(self.dir / "state.json", json.dumps(doc))
+
+    def stall_publish(self, seconds: float, *, times: int = 1) -> None:
+        """Make the next ``times`` publishes stall MID-REWRITE for ``seconds`` each.
+
+        THE REAL AGENT'S SHAPE, which the ordinary publish here is not. ``HarnessAgent.WriteAtomic``
+        writes state.json IN PLACE (``FileMode.Create``: truncate, then the bytes land), so between
+        the two the file is EMPTY -- and MEASURED 2026-09-23 with that exact open mode at 60 Hz, the
+        gap has a median of 0.7 ms and a p99 of ~80 ms (max ~200 ms, an on-access scan holding the
+        rewrite). The channel's own parse retry spans ~30 ms, so a stall past it turned a healthy
+        game into "no state published" (studies/platform-land/rung0_land.py, 40-frame ride).
+
+        The frame loop blocks for the stall, as the game's main thread does inside the write. A
+        long stall is the game hung INSIDE the publish; ``stop()`` cuts it short, so a test's
+        teardown never waits one out.
+        """
+        self._publish_stalls.extend([float(seconds)] * max(1, int(times)))
 
     def _event(self, kind: str, **kv) -> None:
         row = {"frame": self.frame, "kind": kind}
@@ -1224,6 +1251,22 @@ def _publish_atomic(path: Path, text: str, attempts: int = 6) -> None:
         tmp.unlink()
     except OSError:
         pass
+
+
+def _publish_in_place(path: Path, text: str, *, stall: float, began: threading.Event,
+                      stop: threading.Event) -> None:
+    """``HarnessAgent.WriteAtomic`` as deployed: truncate in place, then write -- gap held open.
+
+    Python's ``open(..., "w")`` is CREATE_ALWAYS with read+write sharing, like the agent's
+    ``FileMode.Create`` + ``FileShare.Read``: a reader is never locked out, it reads an empty file.
+    """
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            began.set()
+            stop.wait(stall)
+            fh.write(text)
+    finally:
+        began.clear()
 
 
 def _chunk(tag: bytes, data: bytes) -> bytes:
