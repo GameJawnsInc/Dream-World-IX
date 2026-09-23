@@ -66,6 +66,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   reproduces its exact link set, where the old reconcile dropped 3,756 seams in 353 walkmeshes.
   `tests/test_fork_walkmesh_links.py` pins this on an authored 5-floor donor and on the real 7-floor fixture,
   plus reorder, delete and rename reshapes.
+- **An authored multi-floor mesh keeps its seams again.** An `.obj` naming no floor `floor_<N>` (`o ground` / `o terrace`)
+  got an EMPTY re-key map, which dropped every seam of its links sidecar and every per-floor MCF light; it is
+  not a re-export, so nothing is translated.
 
 ### Fixed — `deploy_field.py` no longer warns "TEXT OVERWRITES VANILLA" for a field that ships no `.mes`
 - **The vanilla-overwrite warning now fires only when the deploy writes a `.mes` for the real block.** It used to

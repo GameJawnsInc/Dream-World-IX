@@ -4483,9 +4483,13 @@ def _donor_floor_map(obj_path):
     deleting or reordering an ``o floor_N`` block shifts the floors after it; the ``floor_<donor index>``
     names both exporters write (:func:`bgi.obj_built_floor_donors`) are what survives. Anything keyed by a
     donor floor -- the MCF's per-floor lights, the links sidecar's seams -- is re-keyed through this. The
-    unedited round-trip is the identity (None) on every shipping field walkmesh (census: 674 of 674)."""
+    unedited round-trip is the identity (None) on every shipping field walkmesh (census: 674 of 674).
+
+    An .obj that names NO floor ``floor_<N>`` is None too: it is not an exporter's re-export but an authored
+    mesh (``o ground`` / ``o terrace``), whose sidecar -- if it has one -- is numbered by its own BUILT floors,
+    so there is nothing to translate. (An empty map there dropped every seam and every per-floor light.)"""
     donors = bgi.obj_built_floor_donors(str(obj_path))
-    if all(d == i for i, d in enumerate(donors)):
+    if all(d is None for d in donors) or all(d == i for i, d in enumerate(donors)):
         return None
     return {d: i for i, d in enumerate(donors) if d is not None}
 

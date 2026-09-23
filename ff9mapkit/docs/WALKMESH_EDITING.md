@@ -117,6 +117,8 @@ of the `.obj`'s `o floor_<N>` blocks. `bgi.build` numbers floors in first-seen f
 reordering a block renumbers the floors after it. The build translates
 each seam through those names first (`build._donor_floor_map`, the same map that re-keys the MapConfigData
 per-floor lights). An unedited re-export keeps every index, so it skips the translation and builds byte for byte.
+An authored mesh that names no floor `floor_<N>` (`o ground` / `o terrace`) skips it too: its sidecar is
+numbered by its own built floors.
 
 ### 3.4 Failure modes (graceful, never silent)
 

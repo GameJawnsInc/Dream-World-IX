@@ -444,6 +444,7 @@ _NON_CARRY_READERS = {
     "verify_walkmesh": "a shipped [walkmesh] bgi the build refuses (verify still reports its table)",
     "build_field": "SPS effect bins ([[sps_edit]])",
     "build_mod": "the BUILT .eb read back from the output layout",
+    "mapconfig_bytes": "the donor's MapConfigData (per-floor lights), re-keyed for a renumbered reshape",
 }
 
 
