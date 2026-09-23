@@ -150,6 +150,56 @@ def test_the_vanilla_text_axis_is_fed_by_the_mes_the_deploy_copies():
     assert len(inits) == 1 and isinstance(inits[0], ast.List) and not inits[0].elts, f"{rec} starts empty, once"
 
 
+def test_the_revert_is_told_which_mes_the_deploy_wrote_fresh():
+    """The leak: a .mes the deploy wrote where none stood has no backup, so the revert left it -- and on a REAL
+    block that leftover keeps overwriting the location's dialogue through every later redeploy's prelude,
+    unflagged (the guard above now fires only for a .mes THIS deploy writes). Pin the deploy half of the fix:
+      * ``mes_fresh`` starts as one empty map and is handed to build_revert_script as ``mes_fresh=``;
+      * it is filled ONLY in the branch that copies the .mes into the live folder (so it can never name a
+        language the deploy did not write), and only past a test on ``mes_backed``;
+      * ``mes_backed`` is filled ONLY in the branch that takes the pre-deploy ``.mes.preDEPLOY`` backup -- the
+        exact file whose presence makes the revert restore instead of delete;
+      * the recorded value is the sha256 hexdigest the revert compares against (its behaviour is pinned by
+        running it, in test_revert_script)."""
+    tree = ast.parse(_SRC)
+    inits = _assignments("mes_fresh")
+    assert len(inits) == 1 and isinstance(inits[0], ast.Dict) and not inits[0].keys, "mes_fresh starts empty, once"
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+             and n.func.attr == "build_revert_script"]
+    assert len(calls) == 1
+    kw = [k.value for k in calls[0].keywords if k.arg == "mes_fresh"]
+    assert len(kw) == 1 and isinstance(kw[0], ast.Name) and kw[0].id == "mes_fresh", \
+        "the revert must be told which languages were written fresh"
+
+    def _stores_into(node, name):             # <name>[...] = ...
+        return [n for n in ast.walk(node) if isinstance(n, ast.Assign) for t in n.targets
+                if isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name) and t.value.id == name]
+
+    stores = _stores_into(tree, "mes_fresh")
+    assert len(stores) == 1, "mes_fresh is recorded in exactly one place"
+    copy_branch = [n for n in ast.walk(tree) if isinstance(n, ast.If)
+                   and any("mes_written.append" in ast.unparse(s) for s in n.body)]
+    assert len(copy_branch) == 1
+    assert any(s is stores[0] for s in ast.walk(copy_branch[0])), \
+        "mes_fresh must be recorded inside the branch that copies the .mes into the live folder"
+    guard = [n for n in ast.walk(copy_branch[0]) if isinstance(n, ast.If)
+             and any(s is stores[0] for s in ast.walk(n))
+             and "mes_backed" in {x.id for x in ast.walk(n.test) if isinstance(x, ast.Name)}]
+    assert guard, "only a language with NO backup is fresh"
+    val = ast.unparse(stores[0].value)
+    assert "sha256" in val and "hexdigest" in val and "mes_path" in val, \
+        "record the sha256 hexdigest of the live .mes that landed -- the revert compares exactly that"
+
+    adds = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "add" and isinstance(n.func.value, ast.Name) and n.func.value.id == "mes_backed"]
+    assert len(adds) == 1, "mes_backed is recorded in exactly one place"
+    backup_branch = [n for n in ast.walk(tree) if isinstance(n, ast.If)
+                     and any(isinstance(s, ast.Expr) and s.value is adds[0] for s in n.body)]
+    assert len(backup_branch) == 1 and ".mes.preDEPLOY." in ast.unparse(backup_branch[0]), \
+        "mes_backed must be recorded in the branch that writes the .mes backup the revert restores from"
+    assert _SRC.index("mes_backed = set()") < _SRC.index("mes_fresh = {}"), "backups are taken before the copy"
+
+
 def test_the_slot_id_is_band_checked_through_the_shared_validator_before_the_build():
     """Lane G: ``--id`` (and the .ff9deploy pin) override the toml's id AFTER its author-time checks ran,
     and 9000-9012 is the engine's world-dispatcher hole -- a FieldScene there clobbers EVT_WORLD_WORLDxx

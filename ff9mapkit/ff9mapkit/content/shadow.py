@@ -17,8 +17,8 @@ an object Init that sets its shadow does it at the tail, ``81 00 RR RR`` straigh
 (field 576's Brahne ``SetShadowSize(5, 5)``), size before amplifier (field 207's chest,
 ``81 00 20 20 85 00 C0``); a player Init does it after its ``SetHeadFocusMask`` (field 451's Zidane).
 
-Only a field WITHOUT MapConfigData takes it: a native or editable fork ships its donor's MCF (``[field]
-mapconfig``), whose service shadows every actor -- grafted donor objects included -- and would overwrite a
+Only a field WITHOUT MapConfigData takes it: a native, editable or BG-borrow fork ships its donor's MCF
+(``[field] mapconfig``), whose service shadows every actor -- grafted donor objects included -- and would overwrite a
 script value on the first frame anyway -- so native and verbatim forks stay byte-identical.
 
 The TOML key, on ``[player]`` and every ``[[npc]]`` (so every behavior unit)::
