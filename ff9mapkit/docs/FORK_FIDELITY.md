@@ -74,6 +74,13 @@ caveats above are then governed by each donor's real story gating, presettable p
 - **SCENE** — camera math (decompose/synthesize, `k=14/15`, exact scale-1 canvas map, yaw, character-offset
   measured 0); walkmesh frame (`vert+orgPos+floor.org`, verbatim `.bgi`, 7-floor seam reconcile); native
   seam-free per-tile occlusion (`--native`, no `.bgx`) + MapConfigData lighting.
+- **WALKMESH IDS (guarded)** — donor code keys on walkmesh triangle ids / floor indices as LITERALS
+  (`B_BGIID`/`B_BGIFLOOR` compares + switches, `EnablePathTriangle`/`EnablePath` immediates — 210 of 818 stock
+  scripts — plus the engine's own C# hotfix tris that fire on forks), so a fork that REBUILDS the donor mesh
+  (`[walkmesh] obj`) can silently re-point them; the fork walkmesh-literal lint (`build._lint_fork_walkmesh_ids`,
+  at build / `walkmesh verify` / `lint`) warns and never rewrites donor bytes. Fix: keep the donor mesh
+  (`[walkmesh] bgi = "walkmesh.bgi"`), or reshape without adding, deleting or reordering faces (the editable OBJ
+  round trip preserves every id).
 - **MECHANICS** — navigable ladders (single/multi-rung/bent-vine) + jumps (Ice-Cavern arcs), verbatim;
   save-point synthesis (`Menu(4,0)`, save→reload into a custom field works); spawn-off-trigger guard.
 - **BATTLE** — random-encounter scene/frequency/pattern carry + field BGM (entry + after-battle resume) +
