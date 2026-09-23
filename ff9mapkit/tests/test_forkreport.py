@@ -916,8 +916,11 @@ def test_verdict_recommends_verbatim_with_reasons_and_startup():
 
 
 def test_verdict_lost_on_mint_steer_skips_auto_reproduced():
-    real = FR._verdict_line(FR.ForkReport(field_id=1, lost_on_mint=[("narrow-map letterbox", "real width 382 ... is lost")]))
-    assert "Loses narrow-map letterbox" in real and "fork IN-PLACE" in real
+    real = FR._verdict_line(FR.ForkReport(field_id=1, lost_on_mint=[("narrow-camera letterbox", "camera 1 ... fork in-place")]))
+    assert "Loses narrow-camera letterbox" in real and "fork IN-PLACE" in real
+    remap = FR._verdict_line(FR.ForkReport(field_id=1, lost_on_mint=[
+        ("narrow-map letterbox", "real width 382 -- reproduced by the engine fork-donor remap on a fork that records its donor")]))
+    assert "Loses" not in remap                         # the engine reproduces it -> not a fork-in-place steer
     auto = FR._verdict_line(FR.ForkReport(field_id=1, lost_on_mint=[("walkmesh hotfix", "X (auto-reproduced on fork)")]))
     assert "Loses" not in auto                          # the kit reproduces it -> not a fork-in-place steer
 

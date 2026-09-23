@@ -5,6 +5,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `fork-report` no longer lists behaviours the fork-gate engine restores as lost
+- **The narrow-map letterbox, the Chocobo dig HUD, most ATE-trophy mappings and four per-actor tweaks are kept.**
+  `idgated.lost_on_mint` said a fork lost all of them. The custom engine routes their gates through
+  `EffectiveFieldId`: s23 and s65 for the map width, s24 for `EventHUD`'s Hot&Cold state, s65 for `FieldMapActor`
+  661/2102/2107/3002 and for `MappingATEID`'s inner field compares. So a fork that records its donor
+  (`import --native`/`--verbatim`) keeps them. Their details now say "reproduced", which drops them from the
+  verdict's fork-in-place steer. With no donor row (a standalone `import --editable`) the width falls back to the BG
+  camera's own width.
+- **The ATE trophy key carries even without the engine.** `MappingATEID` keys on `fldLocNo`, the registered mes id,
+  and every kit import puts a fork on its donor's text block. Only field 956's compulsory ATE, a raw `fldMapNo`
+  compare, is still lost. Locations 8, 359 and 525 map only one field's ATE, so their other fields no longer report
+  an ATE trophy at all. This comes from the source; it has not been checked in-game.
+- **New loss reported: the narrow-camera letterbox.** `NarrowMapList.RestrictedCams` holds one camera of 24 fields
+  narrower than the field, and `PSXCameraAspect.cs` reads it on the raw `fldMapNo`. No patch touches that file, so a
+  fork renders that camera at the field's width. `tools/bake_narrowmap.py` now bakes the table as
+  `_narrowmap_data.RESTRICTED_CAMS`, and `idgated.restricted_cams` reports each camera.
+- Still lost, unchanged: the field-70 intro FMV and the other 10 per-actor tweaks.
+- **The catalog is checked against `memoria-patches/`.** `tests/test_idgated.py` and
+  `tests/test_fieldmapactor_tweaks.py` name the engine gates each claim rests on and fail when a patch wraps or
+  unwraps one. Each check was mutation-tested with a throwaway patch. The patch-stack reader moved to
+  `tests/_patchstack.py`, shared with `tests/test_walkmesh_hotfix.py`.
+- API: `idgated.is_letterboxed` (the old `loses_letterbox` meaning), `loses_letterbox(donor_recorded=)`,
+  `restricted_cams`, `ate_field_gate`, `ATE_FIELD_GATES`; `ActorTweak.engine_remapped`.
+
 ### Fixed — marker renames no longer write world text block 68 with CRLF line endings
 - **The deployed overworld `68.mes` is LF-only again, like stock.** `navimap.deploy_marker_renames` wrote it
   with a bare text-mode `write_text`, so on Windows every LF became CRLF. That put a `\r` into every world message

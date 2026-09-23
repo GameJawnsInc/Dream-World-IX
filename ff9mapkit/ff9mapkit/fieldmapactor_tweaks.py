@@ -1,4 +1,4 @@
-"""Engine FieldMapActor.cs PER-ACTOR TWEAKS that a fork loses on a minted id -- the catalog.
+"""Engine FieldMapActor.cs PER-ACTOR TWEAKS keyed on a real field id -- which ones a fork keeps -- the catalog.
 
 A handful of real fields rely on a **hardcoded Memoria per-actor tweak in ``FieldMapActor.cs``, keyed on the
 real ``fldMapNo``** plus an actor condition (``sid``/``uid``/``isPlayer``/``anim``/a map-index story var): a
@@ -6,21 +6,27 @@ camera-priority override (``actor.frontCamera``, deciding which actor draws in F
 out of range), a ``GeoAttach``/``GeoDetach`` parent-node graft quirk (a ``curPos`` special-case, an attach-offset
 override, or a ``HonoBehaviorSystem.ExtraLoopCount`` bump on detach), or a shadow-render tweak (a hardcoded
 shadow offset, a renderer's ``_CharZ``, or a shadow-position override). A verbatim/native fork ships the same
-actor at a CUSTOM id (>= 4000), so every ``fldMapNo == <real id>`` guard is false and the tweak never fires --
-the forked actor is subtly wrong at that beat (the wrong actor draws in front, a graft snaps to the wrong spot,
-a shadow sits in the wrong place). This is ``docs/FORK_FIDELITY.md`` residual #5 ("Field-70 FMV + ~12 per-actor
-anim tweaks on a mint" -- *generalizes: any real-``fldMapNo``-gated engine behavior is lost on a mint*), made
-concrete + per-field-queryable for the per-actor dimension.
+actor at a CUSTOM id (>= 4000). Whether the tweak still fires there depends on its gate:
+
+* **REMAPPED** (``engine_remapped``: 661, 2102, 2107, 3002): patch s65 routes the gate through
+  ``EffectiveFieldId``, so the custom engine fires the tweak for a fork WHOSE DONOR IS RECORDED --
+  ``[verbatim_eb] donor`` / ``[field] source_field`` becomes a ``ForkDonorPatch.txt`` row, the only thing
+  ``EffectiveFieldId`` reads. ``import --native``/``--verbatim`` record it; a standalone ``import --editable``
+  does not.
+* **RAW** (the rest): ``fldMapNo == <real id>`` is false at a custom id, so the tweak never fires -- the forked
+  actor is subtly wrong at that beat (the wrong actor draws in front, a graft snaps to the wrong spot, a shadow
+  sits in the wrong place). This is ``docs/FORK_FIDELITY.md`` residual #5 (*any real-``fldMapNo``-gated engine
+  behavior is lost on a mint*), made concrete + per-field-queryable for the per-actor dimension.
 
 **NONE of these are reproducible by a fork's own ``.eb``**: there is no opcode that sets ``actor.frontCamera``,
 a shadow-renderer property, a ``GeoAttach`` offset, or ``HonoBehaviorSystem.ExtraLoopCount`` -- so, unlike the
 walkmesh hotfix's ``EnablePathTriangle`` opcode (:mod:`ff9mapkit.walkmesh_hotfixes`), no ``content/*.py`` injector
-exists for this axis. The whole axis is fork-in-place-or-accept, like the narrow-map letterbox
-(:mod:`ff9mapkit._narrowmap_data`): cataloged here so ``fork-report`` (:mod:`ff9mapkit.idgated`) can surface it
-as "lost on a mint", never auto-applied.
+exists for this axis. A raw tweak is fork-in-place-or-accept: cataloged here so ``fork-report``
+(:mod:`ff9mapkit.idgated`) can surface it as "lost on a mint", never auto-applied.
+``tests/test_fieldmapactor_tweaks.py`` checks ``engine_remapped`` against ``memoria-patches/``.
 
-Source (Memoria, ``Assembly-CSharp``, compile-matched to ``6b8bb2d5``): ``Global/Field/Map/Actor/FieldMapActor.cs``.
-Read-only reference data -- ships no Square-Enix bytes.
+Source (Memoria, ``Assembly-CSharp``, compile-matched to ``6b8bb2d5``; the wraps in ``memoria-patches/``):
+``Global/Field/Map/Actor/FieldMapActor.cs``. Read-only reference data -- ships no Square-Enix bytes.
 """
 from __future__ import annotations
 
@@ -38,7 +44,9 @@ class ActorTweak:
                    (visual-only -- a shadow's offset/depth), matching the tier in ``docs/FORK_IDGATE_MAP.md``.
     ``note``     : what the tweak does + the actor/condition it keys on (sid/uid/isPlayer/anim/map-index),
                    verified against the live source, prose.
-    ``source``   : ``FieldMapActor.cs:<line>``.
+    ``source``   : ``FieldMapActor.cs:<line>`` (stock ``6b8bb2d5`` line numbers).
+    ``engine_remapped`` : the tweak's gate reads ``EffectiveFieldId`` in the shipped custom engine (s65), so it
+                   fires on a fork whose donor is recorded (a ForkDonorPatch row). False = raw, lost on a mint.
     """
 
     field_id: int
@@ -47,6 +55,7 @@ class ActorTweak:
     severity: str
     note: str
     source: str
+    engine_remapped: bool = False
 
 
 _TWEAKS = {
@@ -101,7 +110,7 @@ _TWEAKS = {
                        "GeoDetach sets HonoBehaviorSystem.ExtraLoopCount = 1 when fldMapNo == 3002 AND the "
                        "detaching actor's originalActor.sid == 2 with originalActor.anim == 11022 -- a specific "
                        "actor/clip pair on the ending field gets one extra animation loop on detach.",
-                       "FieldMapActor.cs:297"),),
+                       "FieldMapActor.cs:297", engine_remapped=True),),
 
     # --- shadow_render (COSMETIC: shadow offset / renderer _CharZ / shadow-position override) -----------------
     2510: (ActorTweak(2510, "I. Castle/Mural Room", "shadow_render",
@@ -124,7 +133,7 @@ _TWEAKS = {
                       "COSMETIC",
                       "A hardcoded shadow offset (-39,-14,80) is applied when fldMapNo == 661 AND actor.uid == 3 "
                       "(Quale).",
-                      "FieldMapActor.cs:181"),),
+                      "FieldMapActor.cs:181", engine_remapped=True),),
     1659: (ActorTweak(1659, "Iifa Tree/Seashore", "shadow_render",
                        "COSMETIC",
                        "A shadow offset (0,-66,0) is applied when fldMapNo == 1659 AND actor.uid == 128 "
@@ -141,12 +150,12 @@ _TWEAKS = {
                        "The shadow position is overridden to the actor's own transform XZ with y=0 (instead of "
                        "the usual computed shadow-ground position) when fldMapNo == 2107 AND actor.uid == 5 -- "
                        "shares its site with field 2102 below (the Pickaxe prop).",
-                       "FieldMapActor.cs:190"),),
+                       "FieldMapActor.cs:190", engine_remapped=True),),
     2102: (ActorTweak(2102, "Lindblum/Main Street", "shadow_render",
                        "COSMETIC",
                        "Same shared site as 2107 above; fires when fldMapNo == 2102 AND actor.uid == 4 instead "
                        "(the Pickaxe prop's other placement).",
-                       "FieldMapActor.cs:190"),),
+                       "FieldMapActor.cs:190", engine_remapped=True),),
 }
 
 
