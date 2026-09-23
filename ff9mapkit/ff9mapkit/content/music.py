@@ -85,12 +85,15 @@ def add_field_music(eb_bytes, song: int, *, slot: int | None = None, spawn_wait_
 
 
 def add_music_to_reinit(eb_bytes, song: int) -> bytes:
-    """Insert RunSoundCode(0, song) at the start of the entry-0 tag-10 handler (after-battle resume)."""
+    """Insert RunSoundCode(0, song) at the start of the entry-0 tag-10 handler (after-battle resume).
+    A prepend through :func:`edit.insert_in_function` (always safe), NOT a raw ``insert_bytes``: entry 0's
+    other function pointers must move with the bytes (the blank's Main_Loop sits past the entry's end and
+    must stay there -- see :func:`edit.add_function`)."""
     eb = EbScript.from_bytes(eb_bytes)
     f = eb.entry(0).func_by_tag(REINIT_TAG)
     if f is None:
         raise ValueError("entry 0 has no tag-10 handler (run content.reinit.add_reinit first)")
-    return edit.insert_bytes(eb_bytes, f.abs_start, opcodes.run_sound_code(0, song))
+    return edit.insert_in_function(eb_bytes, 0, REINIT_TAG, 0, opcodes.run_sound_code(0, song))
 
 
 def replace_field_music(eb_bytes, new_song: int, *, old_song: int | None = None):

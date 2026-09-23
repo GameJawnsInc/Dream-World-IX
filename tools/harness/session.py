@@ -27,6 +27,7 @@ than racing it, and it only ever kills a process this session launched itself.
 from __future__ import annotations
 
 import atexit
+import collections
 import datetime as _dt
 import json
 import os
@@ -43,6 +44,8 @@ from ff9mapkit.config import find_game_path                      # noqa: E402
 
 from .artifacts import STATE_RING, StateRing, StepLog, build_env         # noqa: E402
 from .channel import BUTTONS, PROTOCOL, Channel, HarnessError, State   # noqa: E402
+from .logs import (MEMORIA_LOG, PARSERS, UNITY_LOG, UNITY_LOG_PATH,     # noqa: E402
+                   LogException, frame_after, line_start_offset, read_from, split_lines)
 
 REPO = Path(__file__).resolve().parents[2]
 RUNS = REPO / ".harness-runs"
@@ -78,6 +81,14 @@ FRAMES_PER_SECOND = 60.0
 #: so anything older is a photograph -- and a photograph satisfies most predicates just as well as a
 #: running game does.
 LIVE_WITHIN = 2.0
+
+#: How many notes of Unity's log size to keep -- 15 minutes at one a second, far past any `window`
+#: a diagnosis asks about. See Session.UNITY_NOTE_EVERY for why the notes exist at all.
+UNITY_NOTES = 900
+
+#: A log last written more than this long before OUR launch is a previous run's. Slack, not
+#: precision: a stale log is minutes or hours older, and the game writes both within a second.
+LAUNCH_SLACK = 2.0
 
 #: Stock FF9 field ids, read once from reference/field-manifest.tsv. `DictionaryPatch.txt` lists only
 #: MOD registrations, so a membership test against it alone refuses all ~674 shipping rooms with a
@@ -252,7 +263,9 @@ class Session:
         #: channel's observer) -- no thread, no extra poll. Flushed to states-<tag>.jsonl on failure
         #: and always once at stop, BEFORE quit, which is the moment state-final.json gets wrong.
         self._ring = StateRing(state_ring)
-        self.channel.observer = self._ring.push
+        #: (time, byte size) of Unity's log, noted on the same reads -- see UNITY_NOTE_EVERY.
+        self._unity_notes: collections.deque = collections.deque(maxlen=UNITY_NOTES)
+        self.channel.observer = self._observe
         #: steps.jsonl -- every request with its accept/ack latency. Drops are counted, never raised.
         self._steps = StepLog()
         self._steps_logged = 0
@@ -523,16 +536,27 @@ class Session:
             self._log(f"artifacts in {self.run_dir}")
 
     def _collect_log(self) -> None:
-        log = self.engine_log()
-        if log is None:
-            return
-        try:
-            shutil.copy2(log, self.run_dir / "Memoria.log")
-        except OSError:
-            pass
+        """Archive BOTH exception logs into the run directory, under their own file names.
+
+        Which one an exception lands in is decided by who caught it (see :mod:`harness.logs`), so a
+        run dir holding only Memoria.log is missing every uncaught field/world exception.
+        output_log.txt is rewritten on every launch: teardown is the last moment this run's copy
+        exists. One the game never wrote this launch is a previous run's, and is left out rather
+        than filed as this one's evidence -- Memoria.log timestamps every line, so a stale copy of
+        it documents itself; Unity's does not.
+        """
+        for name, log in self._log_paths():
+            if name == UNITY_LOG and self._predates_launch(log):
+                self._log(f"not archiving {log}: the game never wrote it this launch")
+                continue
+            try:
+                shutil.copy2(log, self.run_dir / name)
+            except OSError as err:
+                self._log(f"teardown: could not archive {name} ({err})")
 
     def _log_hint(self) -> str:
-        return f"Check {self.run_dir / 'Memoria.log'} once the run ends."
+        return (f"Check {self.run_dir / MEMORIA_LOG} (caught exceptions -- all battle code) and "
+                f"{self.run_dir / UNITY_LOG} (uncaught ones) once the run ends.")
 
     # -- sending --------------------------------------------------------------------------------
     def send(self, *steps: str, wait: bool = True, timeout: float = 60.0) -> None:
@@ -628,7 +652,7 @@ class Session:
             )
 
     # -- observing ------------------------------------------------------------------------------
-    #: Engine log lines that explain a failure better than any driver-side symptom can.
+    #: Lines, in EITHER exception log, that explain a failure better than any driver-side symptom can.
     #:
     #: ⚠ Every marker here must be something that does NOT happen in normal play. `invalidFieldMapID`
     #: was in this list and had to be removed: the engine emits it during an ordinary New Game boot,
@@ -660,26 +684,156 @@ class Session:
             return None
         return max(candidates, key=lambda p: p.stat().st_mtime)
 
+    def unity_log(self) -> Path | None:
+        """Unity's own log, ``x64/FF9_Data/output_log.txt`` -- where every UNCAUGHT exception goes.
+
+        The other half of :meth:`engine_log`, and not optional: an exception lands in exactly one of
+        the two, decided by who catches it (see :mod:`harness.logs`). Rewritten on every launch.
+        """
+        path = self.game_path / UNITY_LOG_PATH
+        return path if path.exists() else None
+
+    def _log_paths(self) -> list[tuple[str, Path]]:
+        """``[(name, path)]`` for each of the two logs that exists -- Memoria.log newest-wins."""
+        return [(name, path) for name, path in ((MEMORIA_LOG, self.engine_log()),
+                                                (UNITY_LOG, self.unity_log())) if path is not None]
+
+    def _predates_launch(self, log: Path) -> bool:
+        """Whether ``log`` was last written before the game THIS session launched -- a previous run's.
+
+        Always False for an attached game: its logs are the live process's, however quiet.
+        """
+        if not self._launched or self._boot_started is None:
+            return False
+        try:
+            return log.stat().st_mtime < self._boot_started - LAUNCH_SLACK
+        except OSError:
+            return True
+
+    #: How often (seconds) the size of Unity's log is noted, riding the state reads every wait
+    #: already makes -- no thread, no extra poll. output_log.txt carries NO timestamps, so these
+    #: notes are the only thing that lets diagnose() honour its `window` there: the size at the last
+    #: note before the cutoff is where "recent" begins.
+    UNITY_NOTE_EVERY = 1.0
+
+    def _observe(self, st: State) -> None:
+        """Every State a read returns: into the ring, and a note of how long Unity's log is."""
+        self._ring.push(st)
+        self._note_unity_log()
+
+    def _note_unity_log(self) -> None:
+        now = time.time()
+        if self._unity_notes and now - self._unity_notes[-1][0] < self.UNITY_NOTE_EVERY:
+            return
+        log = self.unity_log()
+        try:
+            size = log.stat().st_size if log is not None else None
+        except OSError:
+            size = None
+        self._unity_notes.append((now, size))
+
+    def _unity_offset_at(self, cutoff: float) -> int:
+        """Where Unity's log stood at ``cutoff``: the size at the last note taken at or before it.
+
+        Errs toward INCLUDING: with no note that old (a young session, a game that never published)
+        it is 0, the way an untimestamped Memoria line is kept rather than dropped. (A noted size
+        past the file's end -- rewritten since -- is :func:`harness.logs.read_from`'s to handle.)
+        """
+        at = 0
+        for t, noted in self._unity_notes:
+            if t > cutoff:
+                break
+            at = noted or 0
+        return at
+
+    def log_mark(self) -> dict[str, tuple[Path, int]]:
+        """A mark in BOTH logs, for :meth:`exceptions_since`: ``{name: (path, byte offset)}``.
+
+        The offset is snapped back to the start of any line the game is still writing, so a mark can
+        never split an exception's header from its own frames.
+        """
+        mark: dict[str, tuple[Path, int]] = {}
+        for name, log in self._log_paths():
+            try:
+                mark[name] = (log, line_start_offset(log))
+            except OSError:
+                pass
+        return mark
+
+    def exceptions_since(self, mark: dict | None = None) -> list[LogException]:
+        """Every exception either log recorded after ``mark`` (from :meth:`log_mark`).
+
+        ``mark=None`` means the whole of each current log: on a game this session launched that is
+        this launch (both logs are rewritten on launch, and one the game has not written since is
+        skipped); on an ATTACHED game it includes whatever came before you attached, so take a mark.
+
+        Memoria.log's come first, then output_log.txt's, each in the order written; nothing orders
+        them against each other, because Unity's log has no timestamps. Filter with
+        ``LogException.through(...)`` / ``.name`` / ``.log`` -- e.g. battle code is always in
+        Memoria.log, because the battle loop catches everything it throws.
+
+        A log absent from the mark, or no longer the file the mark was taken in (newest-wins moved
+        to the other Memoria.log), is read from its start: all of it is newer than the mark.
+        """
+        out: list[LogException] = []
+        for name, log in self._log_paths():
+            if self._predates_launch(log):
+                continue
+            offset = 0
+            if mark and name in mark:
+                marked, at = mark[name]
+                if Path(marked) == log:
+                    offset = int(at)
+            try:
+                text = read_from(log, offset)
+            except OSError:
+                continue
+            out.extend(PARSERS[name](split_lines(text)))
+        return out
+
     def diagnose(self, lines: int = 60, *, max_age: float = 300.0,
                  window: float = 30.0) -> str | None:
-        """Explain a hang from the engine's own log, rather than from driver-side symptoms.
+        """Explain a hang from the engine's own logs, rather than from driver-side symptoms.
 
         A driver only ever sees "state stopped arriving", which looks identical whether the game
         crashed, black-screened on a bad warp, or was merely slow -- the least useful of those to be
         told. The log usually says what happened one line earlier.
 
-        Refuses to speak from a STALE log: a marker older than `max_age` describes some previous run,
-        and a confidently wrong diagnosis costs more than none at all.
+        BOTH logs, because which one holds the exception is decided by who caught it: battle code is
+        caught and lands in Memoria.log; an uncaught field/world exception (a MonoBehaviour's
+        ``Update`` throwing) lands ONLY in Unity's output_log.txt. Reading one of them leaves every
+        hang the other explains looking like a driver fault. Every log that has a marker is
+        reported, the most recently written first.
+
+        Refuses to speak from a STALE log: one last written more than `max_age` ago, or before the
+        game this session launched, describes some previous run, and a confidently wrong diagnosis
+        costs more than none at all.
         """
-        log = self.engine_log()
-        if log is None:
-            return None
-        try:
-            if time.time() - log.stat().st_mtime > max_age:
-                return None
-            tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:]
-        except OSError:
-            return None
+        now = time.time()
+        live = []
+        for name, log in self._log_paths():
+            try:
+                mtime = log.stat().st_mtime
+            except OSError:
+                continue
+            if now - mtime > max_age or self._predates_launch(log):
+                continue
+            live.append((mtime, name, log))
+        found = []
+        for _mtime, name, log in sorted(live, key=lambda row: row[0], reverse=True):
+            try:
+                recent = (self._recent_memoria(log, lines, window) if name == MEMORIA_LOG
+                          else self._recent_unity(log, lines, window, now))
+            except OSError:
+                continue
+            why = self._explain(recent)
+            if why:
+                found.append(f"{why} (from {log})")
+        return "; ".join(found) or None
+
+    def _recent_memoria(self, log: Path, lines: int, window: float) -> list[str]:
+        """Memoria.log's last ``lines`` lines, minus any timestamped before the ``window``."""
+        tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:]
         # Only lines from the last `window` seconds may explain a failure happening NOW. Without
         # this a marker from earlier in the same run -- boot noise, a previous scenario step -- gets
         # offered as the cause of something minutes later.
@@ -695,10 +849,27 @@ class Session:
                 except ValueError:
                     pass
             recent.append(line)
+        return recent
 
+    def _recent_unity(self, log: Path, lines: int, window: float, now: float) -> list[str]:
+        """output_log.txt's lines written inside the ``window``, at most the last ``lines`` of them.
+
+        The same rule as Memoria.log's with no timestamps to apply it by: a file not written since
+        the cutoff contributes nothing (exact), and otherwise reading starts where the file stood at
+        the cutoff, per the size notes (:meth:`_unity_offset_at`).
+        """
+        if now - log.stat().st_mtime > window:
+            return []
+        offset = self._unity_offset_at(now - window)
+        return split_lines(read_from(log, offset))[-lines:]
+
+    def _explain(self, recent: list[str]) -> str | None:
+        """The first marker ``recent`` holds, with the frame its newest occurrence was thrown at."""
         for marker, explanation in self._LOG_MARKERS:
-            if any(marker in line for line in recent):
-                return f"{explanation} (from {log})"
+            hits = [i for i, line in enumerate(recent) if marker in line]
+            if hits:
+                where = frame_after(recent, hits[-1])
+                return explanation + (f" at {where}" if where else "")
         return None
 
     @property

@@ -192,6 +192,13 @@ def add_function(data, entry_index: int, tag: int, body: bytes) -> bytes:
     the ladder primitive's player climb function and ``tools/ladder_real.py`` all add a function through
     it. Raises if ``tag`` already exists, and if the entry is EMPTY (the inline copies silently returned
     a corrupt file there).
+
+    A function whose ``fpos`` points AT or PAST the entry's end stays past it (shifted by the whole growth,
+    not the table's +4). The engine loads exactly ``size`` bytes per entry, so such a pointer is an
+    out-of-range IP that simply returns -- the blank template's entry-0 Main_Loop (tag 1) is one, parked
+    65 bytes past entry 0's end. Shifting it by +4 only slid the appended body under it: a tag-10
+    longer than that margin (the ``[deathrules]`` wipe-warp prologue alone is 52 bytes) made the engine
+    run Main_Loop from the MIDDLE of Main_Reinit on every field load.
     """
     b = bytearray(_as_bytes(data))
     slot = ENTRY_TABLE_OFF + entry_index * ENTRY_SLOT_SIZE
@@ -205,7 +212,9 @@ def add_function(data, entry_index: int, tag: int, body: bytes) -> bytes:
     if any(t == tag for t, _ in funcs):
         raise ValueError(f"entry {entry_index} already has a function with tag {tag}")
     code = bytes(b[fbase + fc * 4: es + sz])
-    new_funcs = [(t, fp + 4) for t, fp in funcs] + [(tag, (fc + 1) * 4 + len(code))]
+    end = sz - 2                                      # the entry's end, fbase-relative (fpos units)
+    new_funcs = ([(t, fp + 4 + (len(body) if fp >= end else 0)) for t, fp in funcs]
+                 + [(tag, (fc + 1) * 4 + len(code))])
     new_entry = bytearray([etype, fc + 1])
     for t, fp in new_funcs:
         new_entry += struct.pack("<HH", t, fp)
