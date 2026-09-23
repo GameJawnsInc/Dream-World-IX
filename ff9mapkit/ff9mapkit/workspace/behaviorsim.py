@@ -108,6 +108,7 @@ class _Unit:
     wp: int = 0                        # patrol/march waypoint index
     marching_done: bool = False
     wander_tgt: tuple | None = None
+    wtimer: int = 0                    # wander re-roll countdown (per unit, selected ticks only)
     register: str | None = None        # engage target register
     mirror: tuple = (0, 0)             # last-alive position (scan-freeze semantics)
 
@@ -244,6 +245,7 @@ class Sim:
             u.hp = None if u.hp is None else self._hp0[u.name]
             u.sel, u.feed, u.feed_speed = -1, None, 0
             u.wp, u.marching_done, u.wander_tgt, u.register = 0, False, None, None
+            u.wtimer = 0
         self._history = []
         self._snapshot(0)
         self.run_to(tick)
@@ -627,10 +629,17 @@ class Sim:
             if centre is None:
                 return
             radius = int(do.get("radius") or _WANDER_R)
-            hold = int(do.get("hold") or _WANDER_HOLD)
-            if u.wander_tgt is None or tick % hold == 0:
-                ox = (_rand8(tick - tick % hold, u.name, "x") - 128) * radius / 128
-                oz = (_rand8(tick - tick % hold, u.name, "z") - 128) * radius / 128
+            # the compiled re-roll (behavior._feed_effect): `wt > 0 ? wt-- : { wt = every; roll }` on every
+            # SELECTED tick -- a per-unit countdown that freezes while another branch holds selection, the
+            # first roll on the first selected tick. (The TOML key is `every`; this read `hold`, a key a
+            # wander `do` can never carry, so every author period came out as the default 90.)
+            hold = int(do.get("every") or _WANDER_HOLD)
+            if u.wtimer > 0 and u.wander_tgt is not None:
+                u.wtimer -= 1
+            else:
+                u.wtimer = hold
+                ox = int((_rand8(tick, u.name, "x") - 128) * radius / 128)     # C# int division truncates
+                oz = int((_rand8(tick, u.name, "z") - 128) * radius / 128)
                 u.wander_tgt = (centre[0] + ox, centre[1] + oz)
             p = u.wander_tgt
         else:

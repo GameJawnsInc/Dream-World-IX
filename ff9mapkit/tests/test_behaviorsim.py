@@ -170,14 +170,17 @@ def test_cooldown_announce_is_an_event_and_the_greet_pair_unlatches():
     hold selection forever (the owner's playtest: statues after the first
     exchange). The event-cooldown fires, arms its timer AT DELIVERY, and
     releases: greet -> part -> wander -> greet again."""
-    npcs = [{"name": "a", "pos": [320, 0]}, {"name": "b", "pos": [-320, 0]}]
+    # the boxes overlap enough that the pair MEETS whatever the stand-in rolls are: the latch is
+    # the claim, not the luck of the hash (at +-320 a first meeting only came at tick 2739 once the
+    # simulator honoured `every` and counted down per unit, as the compiled wander does)
+    npcs = [{"name": "a", "pos": [200, 0]}, {"name": "b", "pos": [-200, 0]}]
     units = [
         _unit("a", [{"when": [{"near": ["b", 300]}],
                      "do": {"announce": "hi"}, "cooldown": 100},
-                    {"do": {"wander": [320, 0], "radius": 350, "speed": 25}}]),
+                    {"do": {"wander": [200, 0], "radius": 350, "speed": 25}}]),
         _unit("b", [{"when": [{"near": ["a", 300]}],
                      "do": {"announce": "yo"}, "cooldown": 120},
-                    {"do": {"wander": [-320, 0], "radius": 350, "speed": 25}}]),
+                    {"do": {"wander": [-200, 0], "radius": 350, "speed": 25}}]),
     ]
     sim = SIM.Sim(_field(units, npcs=npcs))
     sim.run_to(1500)
@@ -356,3 +359,19 @@ def test_a_persistent_table_is_named_in_the_honesty_ledger():
     assert any("persistent table(s) memo start at their SEED" in n for n in notes), notes
     assert not any("eph" in n for n in notes if "persistent" in n)
     assert not any("persistent" in n for n in SIM.Sim(_field([_unit("a")])).notes)
+
+
+def test_wander_rerolls_every_plus_one_selected_ticks():
+    """The simulator's wander follows the compiled countdown (`wt > 0 ? wt-- : { wt = every; roll }`):
+    `every` is the TOML key -- it used to read `hold` and so always ran the default 90 -- and a re-roll
+    lands every every+1 selected ticks, the first on the first selected tick."""
+    raw = _field([_unit("a", [{"do": {"wander": [0, 0], "radius": 300, "every": 10}}])])
+    sim = SIM.Sim(raw)
+    rolls, prev = [], None
+    for t in range(0, 60):
+        sim.run_to(t)
+        cur = sim._units[0].wander_tgt
+        if cur != prev:
+            rolls.append(t)
+        prev = cur
+    assert len(rolls) >= 4 and all(b - a == 11 for a, b in zip(rolls, rolls[1:])), rolls
