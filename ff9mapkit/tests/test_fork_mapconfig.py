@@ -1,13 +1,15 @@
-"""A fork's donor MapConfigData (MCF) -- shipped by EDITABLE forks too, re-keyed through a reshaped walkmesh.
+"""A fork's donor MapConfigData (MCF) -- shipped by EDITABLE and BG-borrow forks too, re-keyed through a
+reshaped walkmesh.
 
 The engine lights and shadows every field actor from the field's MCF (``fldmcf.ff9fieldMCFService``: the
-model's row + the light of the floor it stands on). An ``import --editable`` fork used to ship none, so the
-build's census shadow ops (content.shadow) reached its player and ``[[npc]]``s but never its grafted
-``[[object]]``s, and nothing tinted any model. It now ships the donor MCF exactly as a native fork does.
+model's row + the light of the floor it stands on). An ``import --editable`` fork, and a plain (BG-borrow)
+``import``, used to ship none, so the build's census shadow ops (content.shadow) reached its player and
+``[[npc]]``s but never its grafted ``[[object]]``s, and nothing tinted any model. Both now ship the donor MCF
+exactly as a native fork does -- a borrow always verbatim, since the engine runs it on the donor's own .bgi.
 
-THE INVARIANT pinned here: shipping the MCF changes an editable fork's build by EXACTLY the MCF file plus the
-kit shadow ops it retires (the MCF shadows every actor itself). Every other file is byte-identical, and the
-grafted objects' bytes never change. The per-floor lights follow their floors through a reshape that
+THE INVARIANT pinned here: shipping the MCF changes an editable or borrow fork's build by EXACTLY the MCF file
+plus the kit shadow ops it retires (the MCF shadows every actor itself). Every other file is byte-identical,
+and the grafted objects' bytes never change. The per-floor lights follow their floors through a reshape that
 renumbers them. All bytes here are authored; the build half is template-gated like tests/test_shadow.py.
 """
 from __future__ import annotations
@@ -156,6 +158,21 @@ def test_a_renumbering_reshape_rekeys_the_lights_and_says_what_it_dropped(tmp_pa
     assert len(w) == 1                                            # per-language rebuilds warn once
 
 
+@pytest.mark.parametrize("walkmesh", ['[walkmesh]\nreference="walkmesh.bgi"\n',   # what `import` writes
+                                      '[walkmesh]\nobj="wm.obj"\n'])               # a stray renumbering .obj
+def test_a_borrow_fork_ships_the_mcf_verbatim_whatever_its_walkmesh_says(tmp_path, walkmesh):
+    # a BG-borrow ships no walkmesh: the engine runs it on the donor's own .bgi, so the lights key exactly
+    _obj(tmp_path, ["floor_0", "floor_2"])                        # would renumber, if it were ever built
+    p = tmp_path / "b.field.toml"
+    p.write_text('[field]\nid=30990\nname="BOR"\narea=34\nborrow_bg="MDSR_MAP579_MS_KTN_0"\ntext_block=30990\n'
+                 'mapconfig = "mapconfig.bytes"\n[camera]\npitch=30\ndistance=900\nfov=40\n' + walkmesh,
+                 encoding="utf-8")
+    (tmp_path / "mapconfig.bytes").write_bytes(_mcf(LIGHTS))
+    w = []
+    assert build.mapconfig_bytes(build.FieldProject.load(p), w) == _mcf(LIGHTS)
+    assert w == []
+
+
 def test_validate_flags_a_missing_mapconfig_on_any_scene(tmp_path):
     p = tmp_path / "f.field.toml"
     p.write_text('[field]\nid=30990\nname="EDM"\narea=21\ntext_block=30990\nmapconfig="nope.bytes"\n'
@@ -163,12 +180,22 @@ def test_validate_flags_a_missing_mapconfig_on_any_scene(tmp_path):
     assert any("mapconfig" in s for s in build.validate(build.FieldProject.load(p)))
 
 
-# ---- THE INVARIANT: an editable fork with vs without its donor MCF (template-gated) ----------------------
+# ---- THE INVARIANT: a fork with vs without its donor MCF (template-gated) --------------------------------
 
-def _editable_fork(root, *, with_mcf: bool):
-    """The shape `import --editable` writes: a custom scene (per-depth [[layers]], the donor walkmesh as a
-    verbatim 2-floor .bgi), the player, a kit [[npc]], and a grafted [[object]] -- its entry bytes a
-    kit-authored prop, so no game data -- with or without `[field] mapconfig`."""
+# the scene half of each fork shape: what `import --editable` writes (a custom scene -- per-depth [[layers]],
+# the donor walkmesh as a verbatim .bgi) and what a plain `import` writes (BG-borrow -- the donor's own art,
+# walkmesh and camera; the .bgi is a validation reference only, never shipped)
+_SCENES = {
+    "editable": ('area=21\n', '[walkmesh]\nbgi = "walkmesh.bgi"\n[[layers]]\nimage = "layer_0.png"\nz = 100\n'),
+    "borrow": ('area=34\nborrow_bg = "MDSR_MAP579_MS_KTN_0"\n', '[walkmesh]\nreference = "walkmesh.bgi"\n'),
+}
+
+
+def _fork(root, *, with_mcf: bool, scene: str = "editable"):
+    """A fork of ``scene``'s shape: the donor walkmesh (an authored 2-floor .bgi), the player, a kit [[npc]],
+    and a grafted [[object]] -- its entry bytes a kit-authored prop, so no game data -- with or without
+    `[field] mapconfig`."""
+    field, scene_toml = _SCENES[scene]
     root.mkdir()
     wm = bgi.build(_quad(-300) + _quad(0), [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7)],
                    floor_ids=[0, 0, 1, 1])
@@ -178,12 +205,11 @@ def _editable_fork(root, *, with_mcf: bool):
     spec = eventscan.scan_objects_verbatim(
         _prop.inject_prop(data.blank_field_bytes("us"), -250, 50, model=133, pose=1872))[0]
     (root / "EDM.object0.bin").write_bytes(spec["entry_bytes"])
-    toml = ('[field]\nid=30990\nname="EDM"\narea=21\ntext_block=30990\n'
+    toml = ('[field]\nid=30990\nname="EDM"\n' + field + 'text_block=30990\n'
             + ('mapconfig = "mapconfig.bytes"\n' if with_mcf else "")
             + '[camera]\npitch=30\ndistance=900\nfov=40\n'
-            '[walkmesh]\nbgi = "walkmesh.bgi"\n'
-            '[[layers]]\nimage = "layer_0.png"\nz = 100\n'
-            '[player]\nspawn = [-150, 50]\n'
+            + scene_toml
+            + '[player]\nspawn = [-150, 50]\n'
             '[[npc]]\nname = "a"\nmodel = "GEO_NPC_F0_CSO"\npos = [50, 50]\ndialogue = "hi"\n\n'
             + extract._object_block(spec, "EDM.object0.bin") + "\n")
     (root / "EDM.field.toml").write_text(toml, encoding="utf-8")
@@ -200,10 +226,11 @@ def _object_entry(ebb: bytes, spec) -> bytes:
     return eventscan._entry_bytes(ebb, back[0]["donor_idx"])
 
 
-def test_the_donor_mcf_changes_an_editable_fork_by_exactly_the_file_and_the_retired_shadow_ops(
-        tmp_path, monkeypatch):
-    on_p, spec = _editable_fork(tmp_path / "on", with_mcf=True)
-    off_p, _ = _editable_fork(tmp_path / "off", with_mcf=False)
+@pytest.mark.parametrize("scene", sorted(_SCENES))
+def test_the_donor_mcf_changes_a_fork_by_exactly_the_file_and_the_retired_shadow_ops(
+        tmp_path, monkeypatch, scene):
+    on_p, spec = _fork(tmp_path / "on", with_mcf=True, scene=scene)
+    off_p, _ = _fork(tmp_path / "off", with_mcf=False, scene=scene)
     assert build.validate(on_p) == [] and build.validate(off_p) == []
     build.build_mod([on_p], tmp_path / "out_on", mod_name="M")
     build.build_mod([off_p], tmp_path / "out_off", mod_name="M")
@@ -222,6 +249,8 @@ def test_the_donor_mcf_changes_an_editable_fork_by_exactly_the_file_and_the_reti
     fon, foff = (json.loads(t[stamp])["files"] for t in (on, off))
     assert fon.pop(mcf) and mcf not in foff
     assert {k for k in fon if fon[k] != foff.get(k)} == set(ebs) and set(fon) == set(foff)
+    if scene == "borrow":                  # ...a borrow still ships no scene of its own: the donor's renders
+        assert not any(k.endswith((".bgx", ".bgi.bytes", ".png")) for k in on), sorted(on)
     for k in ebs:
         # 3. the OFF .eb = the ON .eb + exactly the kit shadow ops on the player and the [[npc]] ...
         _assert_only_shadow_ops_added(on[k], off[k], actors=2)
@@ -278,3 +307,21 @@ def test_editable_import_ships_the_donor_mcf(tmp_path):
     assert proj.field["mapconfig"] == "mapconfig.bytes"
     assert proj.raw.get("object"), "the fork carries the donor's objects"
     assert build._casts_stock_shadows(proj) is False                 # the MCF owns every actor's shadow
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_borrow_import_ships_the_donor_mcf(tmp_path):
+    # a plain `import` (BG-borrow) carries the donor's objects too -- the Madain Sari kitchen's moogles and
+    # pots -- so it ships the donor MCF, verbatim: the engine runs a borrow on the donor's own .bgi
+    field = "1607"                                                # area 34: borrowable; rung 1's donor
+    meta, toml = extract.write_field_project(field, tmp_path / "f", name="KTB", field_id=30990)
+    donor = extract.extract_mapconfig(field)
+    assert donor and meta["mapconfig"] is True
+    assert (tmp_path / "f" / "mapconfig.bytes").read_bytes() == donor
+    proj = build.FieldProject.load(toml)
+    assert proj.field["mapconfig"] == "mapconfig.bytes" and proj.field["borrow_bg"]
+    assert proj.raw.get("object"), "the fork carries the donor's objects"
+    assert build._casts_stock_shadows(proj) is False                 # the MCF owns every actor's shadow
+    out = tmp_path / "mod"
+    build.build_mod([proj], out, mod_name="M")
+    assert ModLayout(out).mapconfig_path("EVT_KTB").read_bytes() == donor
