@@ -729,6 +729,58 @@ def _member_flags_from_toml(member_raw: dict):
     return produced, consumed
 
 
+def persistent_table_conflicts(decls) -> "tuple[list, list]":
+    """``(errors, warnings)`` over persistent-table declarations ``[(who, name, tid, values)]`` gathered
+    from fields that SHARE ONE SAVE (a campaign's members, or every campaign of a journey). A persistent id
+    is save-global and its guard hashes name + length, so one id declared with a different name or length
+    is an ERROR (each declaring field's Main_Init re-seeds the others' copy on every alternating entry --
+    the player's data never survives). Different seed values on one id, or one name at two ids, WARN."""
+    from collections import defaultdict
+    errors, warnings = [], []
+    by_tid = defaultdict(list)
+    by_name = defaultdict(set)
+    for who, nm, tid, vals in decls:
+        by_tid[tid].append((who, nm, tuple(vals)))
+        by_name[nm].add(tid)
+    for tid, rows in sorted(by_tid.items()):
+        whos = sorted({w for w, _n, _v in rows})
+        if len({(nm, len(vals)) for _w, nm, vals in rows}) > 1:
+            shown = "; ".join(f"{w}: {nm!r} x{len(vals)}" for w, nm, vals in rows)
+            errors.append(f"{', '.join(whos)} declare persistent table id {tid} differently ({shown}) -- "
+                          f"a persistent id is save-GLOBAL and its guard hashes name + length, so each "
+                          f"field's Main_Init RE-SEEDS the others' copy on every alternating entry (the "
+                          f"player's data never survives). Declare it identically everywhere, or give each "
+                          f"table its own id.")
+        elif len({vals for _w, _n, vals in rows}) > 1:
+            warnings.append(f"persistent table {rows[0][1]!r} (id {tid}) seeds different values in "
+                            f"{', '.join(whos)} -- whichever the player enters first seeds it")
+    for nm, tids in sorted(by_name.items()):
+        if len(tids) > 1:
+            warnings.append(f"persistent table {nm!r} is declared at different ids {sorted(tids)} -- "
+                            f"those are SEPARATE saved tables; give them one id if they are one ledger")
+    return errors, warnings
+
+
+def member_persistent_tables(plan: CampaignPlan, manifest_dir) -> list:
+    """``[(member name, table name, tid, values)]`` for every persistent table a campaign's members
+    declare. Unreadable / escaping / missing member tomls are skipped -- :func:`lint_campaign` reports
+    those, so the journey's cross-campaign pass never double-reports or crashes on them."""
+    from .content import behaviortoml as _BT
+    manifest_dir = Path(manifest_dir)
+    base = manifest_dir.resolve()
+    out = []
+    for m in plan.members:
+        p = manifest_dir / m.toml_rel
+        if not (_rel_is_clean(m.toml_rel) or _within(base, p, base_resolved=True)) or not p.is_file():
+            continue
+        try:
+            raw = load_toml(p)
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        out.extend((m.name, nm, tid, vals) for nm, tid, vals in _BT.persistent_tables(raw))
+    return out
+
+
 def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
                   extra_flag_names=None) -> tuple:
     """Validate a campaign without building. Returns ``(errors, warnings)``; errors abort build-all,
@@ -893,34 +945,15 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
     # (e4) PERSISTENT TABLES are save-GLOBAL: a `persist = true` [[behavior.table]] id is one saved vector
     #      shared by EVERY member that declares it, and its guard hashes name + length. Two members that
     #      declare one id with a different name or length re-seed each other's copy on every alternating
-    #      entry -- the player's data never survives, and no single member's build can see it.
+    #      entry -- the player's data never survives, and no single member's build can see it. (A journey
+    #      runs the same check ACROSS its campaigns -- journey.lint_manifest (g3).)
     from .content import behaviortoml as _BT
-    _ptabs = defaultdict(list)                    # tid -> [(member, name, values)]
-    _pnames = defaultdict(set)                    # name -> {tid}
-    for m in plan.members:
-        raw = member_raw.get(m.name)
-        if raw is None:
-            continue
-        for nm, tid, vals in _BT.persistent_tables(raw):
-            _ptabs[tid].append((m.name, nm, vals))
-            _pnames[nm].add(tid)
-    for tid, decls in sorted(_ptabs.items()):
-        shapes = {(nm, len(vals)) for _mn, nm, vals in decls}
-        if len(shapes) > 1:
-            shown = "; ".join(f"{mn}: {nm!r} x{len(vals)}" for mn, nm, vals in decls)
-            errors.append(f"members {sorted({mn for mn, _n, _v in decls})} declare persistent table id {tid} "
-                          f"differently ({shown}) -- a persistent id is save-GLOBAL and its guard hashes "
-                          f"name + length, so each member's Main_Init RE-SEEDS the others' copy on every "
-                          f"alternating entry (the player's data never survives). Declare it identically in "
-                          f"every member, or give each table its own id.")
-        elif len({tuple(vals) for _mn, _nm, vals in decls}) > 1:
-            warnings.append(f"persistent table {decls[0][1]!r} (id {tid}) seeds different values in members "
-                            f"{sorted({mn for mn, _n, _v in decls})} -- whichever member the player enters "
-                            f"first seeds it")
-    for nm, tids in sorted(_pnames.items()):
-        if len(tids) > 1:
-            warnings.append(f"members name persistent table {nm!r} at different ids {sorted(tids)} -- those are "
-                            f"SEPARATE saved tables; give them one id if they are one ledger")
+    _decls = [(f"member {m.name!r}", nm, tid, vals)
+              for m in plan.members if member_raw.get(m.name) is not None
+              for nm, tid, vals in _BT.persistent_tables(member_raw[m.name])]
+    _perr, _pwarn = persistent_table_conflicts(_decls)
+    errors.extend(_perr)
+    warnings.extend(_pwarn)
 
     # (e3) MANIFEST <-> ARTIFACT reconciliation -- the only check here that compares the manifest to the files
     #      it describes; everything else validates the manifest's own model against itself. A member's field id

@@ -329,3 +329,36 @@ def test_persist_is_in_the_harvested_field_schema():
     from ff9mapkit import _fieldschema
     assert "persist" in _fieldschema.VOCAB["behavior.table"]
     assert "behavior.table" in _fieldschema.ENFORCED
+
+
+def test_the_negative_half_of_the_value_fence():
+    with pytest.raises(B.BehaviorError, match="within ±1000000"):
+        B.FieldBehavior([], tables=[B.TableSpec("a", (-1_000_001,), id=6_000_001, persist=True)])
+    assert B.persist_value_problem((-1_000_001,)) and not B.persist_value_problem((-1_000_000,))
+
+
+def test_the_compiler_refuses_a_toml_bool_id_through_table_specs():
+    """table_specs must pass a bool id through RAW -- coercing it with int() turns `id = true` into
+    table id 1 before the compiler can refuse it (validate refuses it too; this pins the second site)."""
+    from ff9mapkit.content import behaviortoml as BT
+    raw = {"npc": [{"name": "u", "pos": [0, 0]}],
+           "behavior": {"table": [{"name": "t", "values": [1], "id": True}],
+                        "unit": [{"npc": "u", "branch": [{"do": {"hold": [0, 0]}}]}]}}
+    assert BT.table_specs(raw)[0].id is True
+    with pytest.raises(B.BehaviorError, match="id must be"):
+        BT.build(raw, npc_slots={"u": 2})
+
+
+def test_the_behavior_doc_example_builds():
+    """The docs' persistent-table example is what authors copy: it must validate and compile to a
+    guarded persistent table as written (it once lacked a `do` and could not build at all)."""
+    import tomllib
+    from pathlib import Path
+    from ff9mapkit.content import behaviortoml as BT
+    doc = (Path(__file__).resolve().parents[1] / "docs" / "BEHAVIOR.md").read_text(encoding="utf-8")
+    sect = doc[doc.index("### Persistent tables"):]
+    block = sect[sect.index("```toml") + len("```toml"):sect.index("```", sect.index("```toml") + 7)]
+    raw = tomllib.loads('[[npc]]\nname = "innkeeper"\npos = [0, 0]\n' + block)
+    assert BT.validate(raw) == []
+    fb, _cb = BT.dry_compile(raw)
+    assert list(fb.persist_words) == ["mymod_visits"]

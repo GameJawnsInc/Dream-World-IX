@@ -666,20 +666,28 @@ table = "sched"                      # engine instead of N unrolled bands
 
 An ordinary table is re-seeded every time its field is entered. A **persistent** table is
 not: what play writes into it survives field entry, `~ → Reload`, battles, and save →
-quit → relaunch → load. It is the kit's first author-owned durable structure — counts,
-ledgers, "how many times", best times.
+quit → relaunch → load. It is the kit's first author-owned durable structure — counts, ledgers, "how many
+times".
 
 ```toml
+[behavior]
+public_flags = ["arrived"]           # raised by a [[choice]] / gateway / event elsewhere
+
 [[behavior.table]]
 name = "mymod_visits"                # prefer a mod-prefixed name: the identity is save-global
-id = 6004242                         # REQUIRED: 6000000..6999999, pick any unused one
-persist = true
+id = 6412345                         # REQUIRED, 6000000..6999999 -- pick YOUR OWN unused id;
+persist = true                       # every mod that copies this one shares one saved table
 values = [0, 0, 0]                   # the SEED -- what a fresh game (or a lost save) starts from
 
+[[behavior.unit]]
+npc = "innkeeper"
   [[behavior.unit.branch]]
   when = [{ flag = "arrived" }]
   adjust = { table = "mymod_visits", index = 0, by = 1, clamp = [0, 9999] }
   clear_flags = ["arrived"]
+  do = { hold_post = true }
+  [[behavior.unit.branch]]
+  do = { hold_post = true }
 ```
 
 - **How it works.** Each persistent table T owns a one-cell *guard* vector at T + 1000000
@@ -697,9 +705,12 @@ values = [0, 0, 0]                   # the SEED -- what a fresh game (or a lost 
   length (a reordered or retyped cell), give the table a new `id`.
 - **The id is the save identity** — like a `[[flag]]` index. Every field that declares the
   same id shares one saved table, so declare it **identically** (name, length) everywhere;
-  `lint-campaign` refuses campaign members that disagree. Two different tables on one id
-  re-seed each other forever: data is lost, never misread. Nothing is auto-allocated in the
-  band, and an ordinary table may not name an id inside 6000000..7999999.
+  `lint-campaign` refuses campaign members that disagree, and `lint-journey` does the same
+  across the campaigns of one journey (they play into one save). Two tables that differ in
+  name or length on one id re-seed each other forever: data is lost, never misread — but two
+  with the SAME name and length on one id are one table, whatever their authors meant. Nothing
+  is auto-allocated in the band, and an ordinary table may not name an id inside
+  6000000..7999999.
 - **Values** stay within ±1000000 (a saved cell outlives the deploy that seeded it, and every
   later `adjust` computes `cell + by` on it).
 - **Writes reach disk at the next save** — the field-entry autosave, or a save point.

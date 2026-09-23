@@ -1551,3 +1551,52 @@ def test_text_block_windows_refuse_to_pass_the_int16_ceiling():
     over = J.TEXT_BLOCK_CEILING - J.TEXT_BLOCK_BASE + 1
     with pytest.raises(J.JourneyError, match="Int16"):
         windows([over])
+
+
+def _append_persist(root, folder, member, name, values, tid=6004242):
+    f = root / folder / member / f"{member}.field.toml"
+    f.write_text(f.read_text(encoding="utf-8")
+                 + '\n[[npc]]\nname = "u"\npos = [0, 0]\n\n[behavior]\n'
+                 + f'\n[[behavior.table]]\nname = "{name}"\nid = {tid}\npersist = true\nvalues = {values}\n'
+                 + '\n[[behavior.unit]]\nnpc = "u"\n[[behavior.unit.branch]]\ndo = { hold = [0, 0] }\n',
+                 encoding="utf-8", newline="\n")
+
+
+_ARC = """
+[[journey]]
+id = "arc"
+campaigns = ["ca", "cb"]
+entry = { campaign = "ca", field = "A1" }
+[[journey.link]]
+from = { campaign = "ca", field = "A2" }
+to = { campaign = "cb", field = "B1" }
+"""
+
+
+def test_lint_persistent_tables_across_campaigns(tmp_path):
+    """(g3) Every campaign of a journey plays into ONE save, so a persistent table id is one saved vector
+    for the whole journey. Two campaigns that each take the docs' example id with DIFFERENT tables pass
+    their own (e4) lint -- each sees one declaration -- and re-seed each other forever in play."""
+    _two_campaigns(tmp_path)
+    _append_persist(tmp_path, "ca", "A1", "memo", "[1, 2, 3]")
+    _append_persist(tmp_path, "cb", "B1", "ledger", "[0, 0, 0, 0]")
+    errors, _ = journey.lint_manifest(journey.load_journeys(_write_manifest(tmp_path, _ARC)))
+    assert any("declare persistent table id 6004242 differently" in e and "campaign 'ca' member 'A1'" in e
+               and "campaign 'cb' member 'B1'" in e for e in errors), errors
+
+
+def test_lint_persistent_tables_across_campaigns_identical_is_clean(tmp_path):
+    _two_campaigns(tmp_path)
+    _append_persist(tmp_path, "ca", "A1", "memo", "[1, 2, 3]")
+    _append_persist(tmp_path, "cb", "B1", "memo", "[1, 2, 3]")
+    errors, warnings = journey.lint_manifest(journey.load_journeys(_write_manifest(tmp_path, _ARC)))
+    assert not any("persistent" in x for x in errors + warnings), (errors, warnings)
+
+
+def test_lint_persistent_conflict_inside_one_campaign_is_not_reported_twice(tmp_path):
+    _two_campaigns(tmp_path)
+    _append_persist(tmp_path, "ca", "A1", "memo", "[1, 2, 3]")
+    _append_persist(tmp_path, "ca", "A2", "memo", "[1, 2, 3, 4]")
+    errors, _ = journey.lint_manifest(journey.load_journeys(_write_manifest(tmp_path, _ARC)))
+    hits = [e for e in errors if "declare persistent table id 6004242 differently" in e]
+    assert len(hits) == 1 and hits[0].startswith("campaign 'ca':"), hits      # (e4)'s, not (g3)'s

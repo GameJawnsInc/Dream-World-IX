@@ -15,7 +15,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - The id is the table's save-global identity: required, author-chosen, inside 6000000..6999999 (like a
   `[[flag]]` index). The kit's auto allocators refuse to reach the reserved band 6000000..7999999, and
   `lint-campaign` refuses campaign members that declare one persistent id with a different name or
-  length (they would re-seed each other's copy on every entry). Values are fenced to ±1000000.
+  length (they would re-seed each other's copy on every entry), and `lint-journey` runs the same check
+  across the campaigns of one journey. Values are fenced to ±1000000.
 - A counter-indexed `adjust`/`drift` write to a persistent table is fenced at `index < length`: the
   engine APPENDS a cell at exactly `index == length` (not a no-op, as the docs used to say), which would
   otherwise ride the save and trip the table's own guard.

@@ -495,14 +495,26 @@ def table_specs(raw: dict) -> list:
 
 
 def persistent_tables(raw: dict) -> list:
-    """``[(name, id, values)]`` for every ``persist = true`` row with an int id — the save-GLOBAL
-    identities a campaign lint compares across members. ``[]`` when there is no behavior."""
+    """``[(name, id, values)]`` for every WELL-FORMED ``persist = true`` row (an int id, a list of plain int
+    values) — the save-GLOBAL identities the campaign and journey lints compare across fields. ``[]`` when
+    there is no behavior. Never raises on a malformed table: a single-bracket ``[behavior.table]``, a scalar
+    ``values`` or a nested array is skipped here and reported by the field's own :func:`validate` — a
+    cross-member lint that crashed on one member's typo would hide every OTHER member's findings."""
     b = table(raw)
+    rows = b.get("table", []) if b else []
+    if not isinstance(rows, list):
+        return []
     out = []
-    for row in (b.get("table", []) if b else []) or []:
-        rid = row.get("id")
-        if row.get("persist") is True and isinstance(rid, int) and not isinstance(rid, bool):
-            out.append((str(row.get("name", "")), rid, tuple(row.get("values", []) or [])))
+    for row in rows:
+        if not isinstance(row, dict) or row.get("persist") is not True:
+            continue
+        rid, vals = row.get("id"), row.get("values")
+        if not isinstance(rid, int) or isinstance(rid, bool):
+            continue
+        if not isinstance(vals, list) or not all(
+                isinstance(v, int) and not isinstance(v, bool) for v in vals):
+            continue
+        out.append((str(row.get("name", "")), rid, tuple(vals)))
     return out
 
 

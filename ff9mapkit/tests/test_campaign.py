@@ -1145,3 +1145,20 @@ def test_logic_only_member_omits_source_field_without_a_donor(tmp_path, monkeypa
             "600", tmp_path, "MEMBER", 30100, {}, False, None, real_id=real_id)
         raw = tomllib.loads(p.read_text(encoding="utf-8"))
         assert "source_field" not in raw["field"], f"real_id={real_id} should emit no source_field"
+
+
+def test_lint_persistent_pass_survives_malformed_member_tables(tmp_path):
+    """The cross-member persistent pass must never CRASH the campaign lint on one member's typo -- a
+    single-bracket [behavior.table], a scalar or nested `values`: it skips the row (the member's own
+    validate reports it) and every OTHER member's findings still arrive."""
+    unit = '\n[[npc]]\nname = "u"\npos = [0, 0]\n\n[[behavior.unit]]\nnpc = "u"\n[[behavior.unit.branch]]\ndo = { hold = [0, 0] }\n'
+    bad = {
+        "single-bracket": '\n[behavior]\n[behavior.table]\nname = "memo"\nid = 6004242\npersist = true\nvalues = [1]\n' + unit,
+        "scalar values": '\n[behavior]\n[[behavior.table]]\nname = "memo"\nid = 6004242\npersist = true\nvalues = 3\n' + unit,
+        "nested values": '\n[behavior]\n[[behavior.table]]\nname = "memo"\nid = 6004242\npersist = true\nvalues = [[1, 2]]\n' + unit,
+    }
+    for i, (label, text) in enumerate(bad.items()):
+        root = tmp_path / str(i)
+        plan = _lint_plan(root, member_content={"A": text, "B": _persist_member("[1, 2, 3]")})
+        errs, warns = campaign.lint_campaign(plan, root)       # must not raise
+        assert isinstance(errs, list), label

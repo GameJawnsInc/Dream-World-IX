@@ -647,6 +647,24 @@ def lint_manifest(manifest: JourneyManifest, *, deep: bool = True) -> "tuple[lis
     for f in manifest.flags:
         _claim_flag(f.get("index"), f"journey-global flag {f.get('name')!r}")
 
+    # (g3) CROSS-CAMPAIGN persistent-table agreement: a `persist = true` [[behavior.table]] id is one saved
+    #      vector for the WHOLE journey (every campaign plays into one save), so the per-campaign (e4) check
+    #      is not enough -- two campaigns that both take the docs' example id with different tables re-seed
+    #      each other's copy forever. Within-campaign conflicts are (e4)'s and are not repeated here.
+    if deep:
+        decls, camp_of = [], {}
+        for folder, (plan, cdir) in plans.items():
+            for mname, nm, tid, vals in _campaign.member_persistent_tables(plan, cdir):
+                who = f"campaign {folder!r} member {mname!r}"
+                decls.append((who, nm, tid, vals))
+                camp_of[who] = folder
+        for tid in sorted({d[2] for d in decls}):
+            rows = [d for d in decls if d[2] == tid]
+            if len({camp_of[d[0]] for d in rows}) > 1:       # an id SHARED across campaigns
+                perr, pwarn = _campaign.persistent_table_conflicts(rows)
+                errors.extend(perr)
+                warnings.extend(pwarn)
+
     return errors, warnings
 
 
