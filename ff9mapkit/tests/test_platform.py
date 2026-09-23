@@ -40,7 +40,7 @@ def test_carry_body_has_terminating_loop():
     assert 0x03 in ops                           # JMP_TRUE -- the loop back-edge (so it can repeat)
     assert ops[-1] == 0x04                        # ends in RETURN
     assert 0xA8 in ops                           # SetPathing (detach at board, re-attach at land)
-    # captures the boarding selfY (MAP.I16[4]) + the destination (MAP.I16[3]) -- the relative ride
+    # captures the boarding selfY (PLATFORM_START) + the destination (PLATFORM_SCRATCH) -- the relative ride
     assert bytes([_platform._region.MAP_INT16, _platform.PLATFORM_START]) in body
     assert bytes([_platform._region.MAP_INT16, _platform.PLATFORM_SCRATCH]) in body
 
@@ -68,7 +68,7 @@ def test_carry_land_rides_to_absolute_point():
     ops = _ops(body)
     assert ops.count(0xA1) == 2                  # interpolated loop snap + exact final snap (to the landing)
     assert 0x22 in ops and 0x03 in ops and ops[-1] == 0x04
-    # captures boarding x / z / selfY (MAP.I16[5]/[6]/[4]) -- the ride interpolates FROM there
+    # captures boarding x / z / selfY (PLATFORM_START_X/_Z/PLATFORM_START) -- the ride interpolates FROM there
     for idx in (_platform.PLATFORM_START_X, _platform.PLATFORM_START_Z, _platform.PLATFORM_START):
         assert bytes([_platform._region.MAP_INT16, idx]) in body
     # the exact final snap carries the landing's x (12) and selfY (-(-474)=474) as constants

@@ -148,7 +148,7 @@ def climb_arc_body(arc_from, arc_to, *, rungs: int = 4, steps: int = 6) -> bytes
 SELF = 255
 F_Y = 1                  # op78 field 1 = world-Y-up (= -pos.y); the climb tracks this
 F_ANIMFRAME = 7
-CLIMB_SCRATCH = 2        # MAP.I16[2]: the per-frame climb target (matches 706; transient per-field)
+CLIMB_SCRATCH = 2        # MAP.I16[2] = bytes 2-3: the per-frame climb target (matches 706; transient per-field)
 CLIMB_ANIM = 10539       # the per-frame climb-cycle animation (model-specific; Zidane in 706)
 MOUNT_ANIM = 10687       # SetJumpAnimation for the mount arc
 DISMOUNT_ANIM = 11453    # SetJumpAnimation for the dismount arc

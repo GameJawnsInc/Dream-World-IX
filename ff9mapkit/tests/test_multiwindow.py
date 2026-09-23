@@ -132,7 +132,7 @@ def test_wait_signal_compiles_stocks_guarded_shape():
     assert names == ["op_05", "op_05", "op_02", "op_22", "op_05", "op_01"]
     assert _region.SYSVAR_MES_SIGNAL == 8
     assert disasm.pretty_expr(b, ins[1].off + 1)[0] == (
-        "{B_SYSVAR[8] const(2) B_LT Map.Int16[3] const(0) B_GT B_ANDAND B_EXPR_END}")
+        "{B_SYSVAR[8] const(2) B_LT Map.Int16[68] const(0) B_GT B_ANDAND B_EXPR_END}")
 
 
 def test_the_back_jump_lands_on_the_condition_not_the_seed():
