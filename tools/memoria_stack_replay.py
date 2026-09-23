@@ -7,12 +7,15 @@ It was done four times by hand for s83 alone and it produced a patch that LOOKED
 missing a hunk (the README's s83 row). This is that procedure as a tool, with the traps it learned
 built in:
 
-  * the DEAD patches (README: s12/s18/s21 never applied; s59 withdrawn) are skipped -- applying s21
-    is what made s22/s37/s44 look fuzzy; without it the whole live stack lands at ZERO fuzz;
+  * the DEAD patches (README: s12/s18/s21 never applied; s59 withdrawn; s35 retired; s63/s67 removed)
+    are skipped -- applying s21 is what made s22/s37/s44 look fuzzy; without it the whole live stack
+    lands at ZERO fuzz. s35/s63/s67 were reverse-applied OUT of the live tree, so replaying them
+    reported a false DIFF on BGSCENE_DEF.cs / ff9.cs in every full-file audit;
   * base blobs are CRLF-matched to the autocrlf=true working tree; each patch SECTION's line endings
     are normalised to its target file's (the LF-stored s48 onto a CRLF file);
   * the s22-created DebugMenu blob is BOM-less while the live file carries a BOM -- a BOM is not a
-    hunk any patch should own, so comparisons BOM-match;
+    hunk any patch should own, so comparisons BOM-match; diag likewise EOL-matches an ALL-LF live file
+    (BGSCENE_DEF.cs) and labels that row -- mixed endings stay a DIFF;
   * emitted patches are captured as BYTES with `core.autocrlf=false` for that one command (the global
     autocrlf=true clean-filters CRLF worktree files to LF and emits a patch that can never apply), with
     canonical `a/Assembly-CSharp/...` headers and a proper `/dev/null` header for a created file;
@@ -46,8 +49,12 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 PATCHES = REPO / "memoria-patches"
-DEAD = {"s12-engine-edits.patch", "s18-field-reload-hotkey.patch", "s21-dev-hotkeys-f6-f10.patch",
-        "s59-debug-warp-settle.patch"}
+# Pinned to the README's RETIRED/REMOVED/WITHDRAWN + "Superseded" rows by test_memoria_stack_replay.py.
+DEAD = {"s12-engine-edits.patch", "s18-field-reload-hotkey.patch", "s21-dev-hotkeys-f6-f10.patch",  # never applied
+        "s59-debug-warp-settle.patch",      # withdrawn the same day
+        "s35-overlay-texture-cache.patch",  # retired, reverted out of BGSCENE_DEF.cs
+        "s63-world-scene-probe.patch",      # probe, removed from ff9.cs (its headers do not even parse)
+        "s67-rig-probe.patch"}              # probe, removed from ff9.cs at ladder close
 BOM = b"\xef\xbb\xbf"
 
 DEFAULT_FILES = [
@@ -214,6 +221,15 @@ def bom_match(tree_bytes, live_bytes):
     return tree_bytes
 
 
+def eol_match(tree_bytes, live_bytes):
+    """diag only: an ALL-LF live file (BGSCENE_DEF.cs, a text-mode write -- README b18 note) against
+    the all-CRLF replay compares EOL-matched, like the BOM. Mixed endings are not matched: still a DIFF."""
+    if (live_bytes.count(b"\r") == 0 and b"\r\n" in tree_bytes
+            and tree_bytes.count(b"\r") == tree_bytes.count(b"\r\n") == tree_bytes.count(b"\n")):
+        return tree_bytes.replace(b"\r\n", b"\n"), True
+    return tree_bytes, False
+
+
 def emit_section(out, lhs_dir, rhs_dir, f, tree_bytes, live_bytes, created):
     for d, data in ((lhs_dir, tree_bytes), (rhs_dir, live_bytes)):
         q = d / f
@@ -322,17 +338,18 @@ def main():
         return
 
     print("\nresidual vs LIVE" + (" (after stripping the known insertions)" if strip else "") + ":")
-    exact = 0
+    exact = eol_matched = 0
     for f in files:
         p = rp.work / f
         if not (rp.clone / f).exists():
             print(f"  {f}: not in the live tree")
             continue
         lb = rp.live(f, strip)
-        rb = bom_match(p.read_bytes() if p.exists() else b"", lb)
+        rb, eol = eol_match(bom_match(p.read_bytes() if p.exists() else b"", lb), lb)
         if rb == lb:
             exact += 1
-            print(f"  ==   {f}")
+            eol_matched += eol
+            print(f"  ==   {f}" + ("  (live copy is all-LF; compared EOL-matched)" if eol else ""))
         else:
             (out / "live").mkdir(exist_ok=True)
             (out / "live" / Path(f).name).write_bytes(lb)
@@ -340,7 +357,7 @@ def main():
                                capture_output=True)
             stat = r.stdout.decode("utf-8", "replace").strip().splitlines()[-1] if r.stdout else "?"
             print(f"  DIFF {f}: {stat}")
-    print(f"{exact} of {len(files)} files byte-exact")
+    print(f"{exact} of {len(files)} files byte-exact" + (f" ({eol_matched} EOL-matched)" if eol_matched else ""))
     sys.exit(0 if exact == len(files) else 1)
 
 
