@@ -125,11 +125,13 @@ def _npc_object_params(model, animset):
 
 def build_npc_init(*, model, animset, anims, x: int, z: int, facing: int = 0, y: int = 0,
                    head_focus=DEFAULT_HEAD_FOCUS, logical_size=DEFAULT_LOGICAL_SIZE,
-                   init_tail: bytes = b"") -> bytes:
+                   init_tail: bytes = b"", shadow: bytes = b"") -> bytes:
     """Emit a faithful standing-NPC Init (func tag 0) from scratch -- the real-NPC opcode shape, NO player
     clone. ``anims`` must hold all five movement clips (see :func:`_complete_anims`). ``init_tail``
     (the prop recipe: EnableHeadFocus(0) / AttachObject ...) is spliced just before the RETURN, applying to
-    the freshly created object.
+    the freshly created object. ``shadow`` (:func:`ff9mapkit.content.shadow.init_ops`) goes LAST, straight
+    into the RETURN -- where stock sets an object's shadow (field 576: ``81 00 05 05 04``); ``b""`` (the
+    default) keeps the Init byte-identical.
 
     ⚠ The Init is UNCONDITIONAL by law: a story/scenario gate must wrap the ``InitObject`` CALL SITE
     (``inject_npc`` composes it via ``region.guarded_call``), never return early from here -- an Init that
@@ -150,6 +152,7 @@ def build_npc_init(*, model, animset, anims, x: int, z: int, facing: int = 0, y:
     parts.append(STAND_SPEED)
     parts.append(bytes([0x8B, 0x00, head_focus[0] & 0xFF, head_focus[1] & 0xFF]))
     parts.append(bytes(init_tail))
+    parts.append(bytes(shadow))
     parts.append(opcodes.RETURN)         # 0x04 -- the real NPC Init terminator
     return b"".join(parts)
 
@@ -224,8 +227,13 @@ def inject_npc(data, x: int, z: int, *, facing: int = 0, preset: str | None = No
                reserve_party_band: bool = False, logical_size=None,
                boot_spawn: bool = True, talk_window: int = 1, talk_flags: int = 128,
                talk_dim=False, talk_dim_tint=None,
-               talk_lock: bool = True, talk_lock_menu: bool = False) -> bytes:
+               talk_lock: bool = True, talk_lock_menu: bool = False, shadow=None) -> bytes:
     """Inject an NPC at world (x, z), standing turned to ``facing``. Returns new .eb bytes.
+
+    ``shadow`` casts the stock blob shadow (:mod:`ff9mapkit.content.shadow`) -- the ``[[npc]] shadow``
+    value, sized for the NPC's FINAL model (after the player-rig default below). ``None`` (the default)
+    emits nothing, so every caller that does not pass it builds byte-identically; the synthesize path passes
+    it on a field without MapConfigData (a real field's MCF shadows its actors on its own).
 
     ``facing`` is the raw FF9 compass byte (0=south/toward the camera, 64=west, 128=north, 192=east) --
     the ``[[npc]] face`` key. It rides the object's OWN ``SetVar D9(6)`` const, which the real-NPC Init's
@@ -275,9 +283,13 @@ def inject_npc(data, x: int, z: int, *, facing: int = 0, preset: str | None = No
 
     # Init (tag 0): the real-NPC object shape, emitted FROM SCRATCH -- no player clone, no control cruft,
     # UNCONDITIONAL (the OBJECT-INIT GATE LAW). Story/beat gating wraps the InitObject call site below.
+    shadow_ops = b""
+    if shadow is not None:
+        from . import shadow as _shadow
+        shadow_ops = _shadow.init_ops(model, shadow)
     body0 = build_npc_init(model=model, animset=animset_v, anims=anims, x=x, z=z, facing=int(facing),
                            head_focus=head_focus, logical_size=ls,
-                           init_tail=bytes(init_tail or b""))
+                           init_tail=bytes(init_tail or b""), shadow=shadow_ops)
     # Loop (tag 1): the real 2-op standby. An ACTOR cutscene's `intro` choreography PREPENDS here (NOT the
     # Init): the engine only advances animation frames at loop state 1, so a cutscene baked into the Init
     # (state 2) would glide FROZEN. It self-gates to run once per visit.

@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — actors on a kit-built field cast the stock blob shadow
+- **The player and every `[[npc]]` (so every behavior unit) now get FF9's blob shadow.** A real field never
+  scripts its shadows: its MapConfigData (MCF) gives each model a size and darkness through
+  `fldmcf.ff9fieldMCFService`. A synthesized field ships no MCF, so that service never ran and each actor's
+  shadow kept its zero default scale. The build now emits `SetShadowSize` + `SetShadowAmplifier`, the two
+  engine calls the MCF service makes, with per-model values from a census of all 818 shipping MCFs
+  (`_shadowparams.py`, regenerate with `python -m ff9mapkit._regen_shadowparams`; Zidane `(9, 4)`, the CSO
+  NPC `(9, 3)`, the moogle `(6, 2)`). They go where stock puts them: the tail of an NPC Init, straight into
+  its RETURN, and right after the player Init's `SetHeadFocusMask`.
+- **`shadow = false`** on `[player]` or an `[[npc]]` opts out; **`shadow = { size = N, intensity = N }`**
+  overrides either value (a custom model with an unusual footprint).
+- **Byte identity:** a built `.eb` gains exactly 7 bytes per actor and nothing else changes. The tests build
+  each field with shadows on and with them forced off and compare the decompiled source. A field that ships an
+  MCF (`[field] mapconfig`, a native fork) and every verbatim fork build byte-identically, because their MCF
+  already shadows every actor. The vivi-hut golden hash moves for its two actors.
+- New `ff9mapkit.mapconfig`: a MapConfigData decoder that mirrors the engine's row lookup.
+
 ### Added — roll streams: seeded randomness a field can predict
 - **`[[behavior.stream]]` + a branch `roll`** (the roll-stream arc, board entry #5, in-game proven by the
   harness). A stream is a seeded Lehmer generator in one vector cell (`x' = 236·x mod 65537`, full period —

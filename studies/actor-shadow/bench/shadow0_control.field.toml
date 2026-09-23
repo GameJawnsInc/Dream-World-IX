@@ -1,0 +1,73 @@
+# =====================================================================================
+# ACTOR SHADOWS, RUNG 0 -- the CONTROL: shadow0.field.toml with every actor at shadow = false
+# =====================================================================================
+# Same id, geometry, camera, positions and behavior as shadow0.field.toml; the ONLY difference is that no actor
+# carries shadow ops, which is exactly what every kit field shipped before the fix. Deployed to the same slot,
+# its frames are the pixel-exact reference rung0_shadow.py --control measures the shadows against.
+#
+#   py tools/deploy_field.py studies/actor-shadow/bench/shadow0_control.field.toml --id 30920 --name SHD0 --text-block 30920
+
+[field]
+id = 30920
+name = "SHD0"
+area = 11
+title = "SHADOW 0"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+obj = "shadow0.walkmesh.obj"
+links = "shadow0.walkmesh.links.toml"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [-407, -472]
+shadow = false
+
+[[npc]]
+name = "stock"
+shadow = false
+model = "GEO_NPC_F0_CSO"
+pos = [450, -250]
+
+[[npc]]
+name = "big"
+model = "GEO_NPC_F0_CSO"
+pos = [900, -900]
+shadow = false
+
+[[npc]]
+name = "none"
+model = "GEO_NPC_F0_CSO"
+pos = [-150, -1000]
+shadow = false
+
+[[npc]]
+name = "rover"
+shadow = false
+model = "GEO_NPC_F0_CSO"
+pos = [-800, -1000]
+
+[behavior]
+warmup = 30
+public_flags = ["walk"]
+
+  [[behavior.unit]]
+  npc = "rover"
+    [[behavior.unit.branch]]
+    when = [{ flag = "walk" }]
+    do = { wander = [-800, -1000], radius = 160, every = 45, speed = 40, seed = 3 }
+    [[behavior.unit.branch]]
+    do = { hold_post = true }
