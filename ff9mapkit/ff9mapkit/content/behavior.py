@@ -504,8 +504,11 @@ class Battle(Action):
     scene: int
 
     def __post_init__(self):
-        if not 0 <= int(self.scene) <= 0xFFFF:
-            raise BehaviorError("Battle scene must be 0..65535")
+        # 0..32767, NOT 0..65535: the engine takes `btlId & 0x7FFF` as the scene and bit 15 as
+        # Steiner's state (EventEngine.DoEventCode.cs ENCOUNT) -- a higher id fights a different scene
+        if not 0 <= int(self.scene) <= 0x7FFF:
+            raise BehaviorError("Battle scene must be 0..32767 (the engine reads bit 15 as Steiner's "
+                                "state and masks the scene id to 15 bits)")
 
 
 @dataclass

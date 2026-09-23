@@ -321,6 +321,10 @@ def test_timer_battle_toml_surface():
         {"npc": "guard", "branch": [{"do": {"battle": "zaghnol"}},
                                     {"do": {"hold": "post"}}]}]}}
     assert any("battle takes a battle SCENE id" in p for p in BT.validate(bad))
+    bad = {**raw, "behavior": {**raw["behavior"], "unit": [
+        {"npc": "guard", "branch": [{"do": {"battle": 40000}},
+                                    {"do": {"hold": "post"}}]}]}}
+    assert any("Steiner" in p for p in BT.validate(bad))      # > 0x7FFF: bit 15 is Steiner's state
     bad = {**raw, "behavior": {**raw["behavior"], "timer": 999999}}
     assert any("timer must be" in p for p in BT.validate(bad))
 

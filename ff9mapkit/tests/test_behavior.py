@@ -288,6 +288,11 @@ def test_timer_and_battle_compile():
 def test_battle_scene_range_refused():
     with pytest.raises(B.BehaviorError, match="scene"):
         B.Battle(70000)
+    # bit 15 of the 0x2A operand is Steiner's state and the engine masks the scene to 15 bits, so
+    # 32768 would fight scene 0 -- the range is 0..32767, not the u16 the operand could carry
+    with pytest.raises(B.BehaviorError, match="Steiner"):
+        B.Battle(32768)
+    assert B.Battle(32767).scene == 32767
     with pytest.raises(B.BehaviorError, match="timer"):
         B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))], timer=0)
     fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))])

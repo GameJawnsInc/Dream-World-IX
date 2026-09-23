@@ -1869,9 +1869,10 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                     problems.append(f"{ctx}: hold_ground takes `true` (stand and idle "
                                     f"while the branch holds — the pin)")
                 if verb == "battle":
-                    if not isinstance(v, int) or not 0 <= v <= 0xFFFF:
+                    if not isinstance(v, int) or isinstance(v, bool) or not 0 <= v <= 0x7FFF:
                         problems.append(f"{ctx}: battle takes a battle SCENE id int "
-                                        f"(0..65535; a STOCK scene needs no BattlePatch)")
+                                        f"(0..32767 -- the engine masks the id to 15 bits and reads "
+                                        f"bit 15 as Steiner's state; a STOCK scene needs no BattlePatch)")
                 if verb in ("die", "swing_at", "engage"):
                     # THE OWN-CLIP LAW at the call site: a gesture the model does
                     # not own is refused here, with the owned list in the message
