@@ -193,6 +193,7 @@ def deploy_marker_renames(cfg_list, *, mod_folder: str, game=None, langs=None) -
     ``ValueError`` on a bad config."""
     from pathlib import Path
     from .. import config, dialogue
+    from ..fsutil import atomic_write_text
     renames = resolve_renames(cfg_list)                                # validates
     if not renames:
         return []
@@ -209,6 +210,7 @@ def deploy_marker_renames(cfg_list, *, mod_folder: str, game=None, langs=None) -
             # erased R1's "Lantern Quay" split[53] exactly this way -- caught by a byte check,
             # invisible to every other gate). apply_marker_renames splices only the locIds given,
             # so layering on the deployed file is idempotent and preserves the rest verbatim.
+            # (Universal-newline read: a CRLF file an older deploy wrote heals to LF here.)
             base = dest.read_text(encoding="utf-8")
         else:
             base = dialogue.extract_field_mes(9000, lang=lang, game=game, zone_id=WORLD_TEXT_BLOCK)
@@ -216,7 +218,9 @@ def deploy_marker_renames(cfg_list, *, mod_folder: str, game=None, langs=None) -
             continue                                                   # this lang's block 68 not found -> skip
         out = apply_marker_renames(base, renames)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(out, encoding="utf-8")
+        # newline="\n": stock block 68 is pure LF; a bare text-mode write on Windows put a CRLF into
+        # EVERY world message (item-get, Moguo, Zorn/Thorn, the navigation menus), not just the label.
+        atomic_write_text(dest, out, newline="\n")
         written.append(dest)
     return written
 
