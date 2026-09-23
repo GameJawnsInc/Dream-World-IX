@@ -5,6 +5,8 @@ actor casts none. ★ rung 1 PASSED in-game (harness, bench 30930). An `--editab
 MCF, so its grafted donor objects cast the stock shadow and take the room's tint. A reshaped walkmesh keeps
 its per-floor lights. ★ The SET PIECES follow-up PASSED in-game (harness, bench 30921): props follow stock's
 own per-model treatment, chests and the save moogle cast, held props never do (see "Set pieces" below).
+★ rung 2 PASSED in-game (harness, bench 30935). A plain (BG-borrow) `import` now ships its donor's MCF too,
+so its grafted donor objects are shadowed and tinted exactly as the editable fork's are.
 
 ## The defect
 
@@ -158,6 +160,58 @@ player, spawned in view on donor floor 0 only. Floor 0's light is clr -1 / shado
 `FieldMapActorController.MovePC` throws its NullReferenceException 26-28 times in every variant, EMPTY included:
 it is unrelated to the MCF.
 
+## Rung 2 — a plain (BG-borrow) `import`'s grafted objects (bench 30935)
+
+**The gap.** A plain `import` forks an area>=10 field as a BG-borrow: the engine renders the donor's own art,
+walkmesh and camera while it runs the fork's script. It carries the donor's objects through the same
+`_content_for_import` as `--editable`, but `write_field_project` wrote no MCF. Its grafted `[[object]]`s cast
+no shadow and rendered bright and untinted, as the editable fork's did before rung 1.
+
+**The fix.** `write_field_project` writes `mapconfig.bytes` + `[field] mapconfig`, mirroring
+`write_editable_project`. Since rung 1 the build ships the MCF from any scene type. The MCF loads by the
+fork's running event name (`HonoluluFieldMain`), whatever scene it borrows. Two consequences:
+
+- **No re-key.** A borrow ships no walkmesh: the engine runs it on the donor's own `.bgi`, so every floor index
+  is the donor's. `build.mapconfig_bytes` now ships a borrow's MCF verbatim whatever its `[walkmesh]` says
+  (`bgs` still wins, as in `build_field`). A stray `[walkmesh] obj` on a borrow can't mis-key its lights.
+- **Script shadows retire, as on every MCF field.** The player's census ops go (the MCF shadows him), and
+  so do those of any kit set piece. The import's refused-graft `[[prop]]` stub is a moogle, which casts per
+  `STOCK_CASTS` on a field with no MCF.
+
+**Byte identity.** `tests/test_fork_mapconfig.py` now runs the on/off invariant over both fork shapes
+(editable, borrow). A borrow fork changes by exactly the MCF file plus the kit shadow ops it retires. The
+grafted object's entry is byte-identical to the donor's in both builds, and a borrow still ships no scene of
+its own. An install-gated test imports field 1607 as a borrow and checks that the MCF ships byte for byte.
+Each fix was broken once to confirm its test goes red: dropping the borrow short-circuit, skipping the MCF
+write for a borrow, and writing no `mapconfig.bytes` in the importer.
+
+**In-game** (`rung2_borrow_mcf.py`, `rung2_variants.py`, measured with `measure_rung1.py objects`; the bench
+is `import 1607 --name MCF_KTB --id 30935`, the same donor as rung 1, SE-derived, regenerated under the
+gitignored `imported/`). Runs are archived in the main repo's `.harness-runs/*-mcf-rung2-*`. Every run passed
+its preflight:
+
+- the deployed MCF is the donor's, byte for byte (ON), or absent;
+- the slot is registered as a borrow of `MDSR_MAP579_MS_KTN_0`, and no scene of its own is deployed;
+- the `.eb` carries no shadow op in ON. CONTROL carries the player's census plus the `[[prop]]` stub's
+  (found by its position), and none on any of the 14 grafted objects;
+- no exception passed through `fldmcf`/`ff9shadow`/`SetRenderer`.
+
+| measure (`1-spawn` frame) | rung 2, borrow | rung 1, editable |
+|---|---|---|
+| model tint, ON / CONTROL | (0.734, 0.661, 0.593) | (0.735, 0.658, 0.595) |
+| shadow under the lower-right moogle | 581 px, the art darkened to 0.038 | 579 px, 0.038 |
+| shadow at the top frame edge (clipped) | 326 px | 142 px |
+| calibration: CONTROL-darkened background | 0 | 0 |
+
+The repeat shot 120 frames later gives the same answer: tint (0.722, 0.659, 0.598), 594 + 290 px, calibration 0.
+By eye (zoomed crops), the CONTROL moogles stand bright white on bare ground, and the ON moogles are warm-tinted
+with a dark elliptical blob under them. The top-edge shadow falls partly under a co-op status overlay (the
+shared ini had a `coop` client on). The overlay is identical in all three variants, so it masks out, but the
+frame edge clips that shadow differently in the two benches. The bottom ellipse is the comparable number.
+
+`FieldMapActorController.MovePC` threw its NullReferenceException 14-28 times per variant, EMPTY included:
+the field-70 NRE, unrelated to the MCF.
+
 ## Set pieces — props, chests, the save point (bench 30921, `set_pieces_shadow.py`)
 
 ### The census said the obvious design was wrong
@@ -245,13 +299,15 @@ repo's `.harness-runs/`: `20260923-112310-shadow-rung1-on`, `-112430-shadow-rung
   stock objects mostly `DisableShadow` in their Init: chocobos (`GEO_NPC_F0_CCB` 32/43), frogs, tadpoles,
   several monsters. An NPC of those models casts a shadow stock never shows. The same per-model rule could
   apply, but it changes rung 0's semantics and needs its own in-game check.
-- On a field that ships MapConfigData (a native fork, and since rung 1 an `--editable` one), a held prop gets
+- On a field that ships MapConfigData (a native fork, since rung 1 an `--editable` one, since rung 2 a BG-borrow), a held prop gets
   the MCF's shadow, its height taken from the bone-local offset. Stock would `DisableShadow` it. The kit
   emits nothing on an MCF field by design.
 - The pre-existing `FieldMapActorController.MovePC` NullReferenceException, about 26 per run on the
   checkerboard benches and on the 1607 fork (EMPTY included), with and without shadows or an MCF.
-- A plain `import` (BG-borrow) carries objects too and ships no MCF: the same gap. Its walkmesh is the borrowed
-  donor's, so the lights would key exactly.
+- ~~A plain `import` (BG-borrow) carries objects too and ships no MCF~~ -- DONE, rung 2.
+- `campaign._REQUIRED_ASSETS` does not list `mapconfig.bytes` for a borrow or a native member, though both
+  writers now emit it and the member toml references it. `fetch_assets` copies it whenever it re-runs a writer,
+  but `missing_assets` cannot report it missing on its own. `validate` catches it at build, loudly.
 - CLOSED: `walkmesh.links.toml` seams were keyed on donor floor numbers too, so a renumbering reshape dropped
   them (2 of 14 on the 1607 swap). The build now re-keys them through the same map as the lights
   (`build._donor_floor_map` -> `apply_seams(seams, floor_map)`). `census_seam_rekey.py` checked all 674 field

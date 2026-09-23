@@ -73,8 +73,9 @@ caveats above are then governed by each donor's real story gating, presettable p
 
 - **SCENE** — camera math (decompose/synthesize, `k=14/15`, exact scale-1 canvas map, yaw, character-offset
   measured 0); walkmesh frame (`vert+orgPos+floor.org`, verbatim `.bgi`, 7-floor seam reconcile); native
-  seam-free per-tile occlusion (`--native`, no `.bgx`) + MapConfigData lighting (native AND `--editable`: the
-  donor MCF lights + shadows every carried object; a reshaped editable walkmesh re-keys its per-floor lights).
+  seam-free per-tile occlusion (`--native`, no `.bgx`) + MapConfigData lighting (native, `--editable` AND a
+  plain BG-borrow `import`: the donor MCF lights + shadows every carried object; a reshaped editable walkmesh
+  re-keys its per-floor lights, a borrow keys exactly on the donor's own `.bgi`).
 - **MECHANICS** — navigable ladders (single/multi-rung/bent-vine) + jumps (Ice-Cavern arcs), verbatim;
   save-point synthesis (`Menu(4,0)`, save→reload into a custom field works); spawn-off-trigger guard.
 - **BATTLE** — random-encounter scene/frequency/pattern carry + field BGM (entry + after-battle resume) +

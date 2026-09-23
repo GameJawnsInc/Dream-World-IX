@@ -7696,8 +7696,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
 
 def _casts_stock_shadows(project: FieldProject, warnings: list | None = None) -> bool:
     """Whether a synthesized field's actors get the stock blob shadow from the SCRIPT (content.shadow):
-    true unless the field ships MapConfigData (``[field] mapconfig``: a native or editable fork carries its
-    donor's) -- that MCF's per-model service already shadows every actor, grafted donor objects included,
+    true unless the field ships MapConfigData (``[field] mapconfig``: a native, editable or BG-borrow fork
+    carries its donor's) -- that MCF's per-model service already shadows every actor, grafted donor objects included,
     and would overwrite a script value on the first frame, so those builds carry no shadow ops and an
     explicit ``shadow`` key there is reported as having no effect."""
     if not project.field.get("mapconfig"):
@@ -7727,11 +7727,15 @@ def mapconfig_bytes(project: FieldProject, warnings: list | None = None):
     ``bgi.build`` numbers floors in first-seen face order: delete ``o floor_1`` of three and ``floor_2``
     becomes floor 1, lit with floor 1's colour and shadow. So the lights are re-keyed through the floor
     NAMES both exporters write (``o floor_<donor index>``). The unedited round-trip is the identity on all
-    816 shipping walkmeshes -- shipped verbatim, byte for byte -- as is a ``[walkmesh] bgi`` (verbatim)."""
+    816 shipping walkmeshes -- shipped verbatim, byte for byte -- as is a ``[walkmesh] bgi`` (verbatim).
+    A BG-borrow fork ships verbatim whatever its ``[walkmesh]`` says: it ships no walkmesh, the engine runs
+    it on the borrowed donor's own ``.bgi``, so every floor index is the donor's."""
     mc = project.field.get("mapconfig")
     if not mc:
         return None
     data = project.path(mc).read_bytes()
+    if project.field.get("borrow_bg") and not project.field.get("bgs"):   # build_field's order: bgs wins
+        return data
     wm = project.raw.get("walkmesh", {}) or {}
     if wm.get("bgi") or not wm.get("obj"):                # resolve_walkmesh's own order: bgi ships verbatim
         return data
