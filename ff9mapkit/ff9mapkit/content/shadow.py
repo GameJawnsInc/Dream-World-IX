@@ -112,7 +112,9 @@ def cast_player_shadow(data, value=None) -> bytes:
     """Splice the player's shadow ops into its Init right after ``SetHeadFocusMask`` (field 451's
     Zidane; straight-line setup code, ahead of the grant chain's jumps). ``value`` is ``[player] shadow``;
     false returns ``data`` unchanged. Sized from the player's CURRENT model, so run it after the
-    ``[player] model`` re-skin."""
+    ``[player] model`` re-skin. Any model casts, including one ``STOCK_CASTS`` disables: 1022 of stock's
+    1054 player objects cast, and the 32 that do not are scripted scenes, not the model
+    (studies/actor-shadow/NPC-STOCK-CASTS.md)."""
     ins = init_ops(player_model(data), value)
     if not ins:
         return data

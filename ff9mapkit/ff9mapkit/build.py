@@ -6581,6 +6581,10 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                        greeting_txid=txid if n.get("dialogue") else None,
                                        lock=n.get("lock", True), lock_menu=bool(n.get("lock_menu")))
         _nw, _nf, _ = _window_attrs(n, None, label=f"[[npc]] {n.get('name') or '#' + str(i)}")
+        # shadow: an absent key casts the census for ANY model. An [[npc]] does NOT follow STOCK_CASTS the way a
+        # [[prop]] does: it always stands on the walkmesh, where stock's objects cast (2141 of 2191), and the
+        # models STOCK_CASTS disables are disabled perched, flying, walkmesh-unbound or hidden, not standing.
+        # studies/actor-shadow/NPC-STOCK-CASTS.md; pinned by tests/test_shadow_npc_default.py
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), facing=int(n.get("face") or 0),
                              talk_text_id=txid, slot=slot,
                              gate_flag=gf, gate_require_set=gs, appears_scenario_min=smin,
