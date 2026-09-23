@@ -227,10 +227,10 @@ def test_a_field_with_mapconfig_is_left_to_its_mcf():
     w = []
     assert build._casts_stock_shadows(P, w) is False
     assert build._casts_stock_shadows(P, w) is False               # per-language rebuild: warned ONCE
-    assert len(w) == 1 and "[player]" in w[0] and "'b'" in w[0] and "'a'" not in w[0]
-    # a prop's one lever on an MCF field is OFF: its false/true take effect; only a size table is ignored
+    # the one lever on an MCF field is OFF: every actor's false/true take effect; only a size table is ignored
+    assert len(w) == 1 and "'b'" in w[0] and "'a'" not in w[0] and "[player]" not in w[0]
     assert "[[prop]] 'sign'" in w[0] and "'cask'" not in w[0] and "'barrel'" not in w[0] and "'tent'" not in w[0]
-    assert "[[chest]] #1" in w[0] and "[[chest]] #0" not in w[0] and "[[savepoint]] #0" in w[0]
+    assert "[[chest]]" not in w[0] and "[[savepoint]]" not in w[0]
     P.field = {}
     assert build._casts_stock_shadows(P, []) is True
 
@@ -376,8 +376,8 @@ def test_build_shadows_the_set_pieces_stock_shadows(tmp_path, monkeypatch):
 
 
 def test_set_pieces_change_by_exactly_their_shadow_ops(tmp_path, monkeypatch):
-    # "off" is the MCF-field build: no size/amp op anywhere, and the five [[prop]] parts that must not cast --
-    # the stock-dark tent, the opted-out cask, the composite's book, both held props -- switched off
+    # "off" is the MCF-field build: no size/amp op anywhere, and the six actors that must not cast -- the
+    # stock-dark tent, the opted-out cask, the composite's book, both held props, the opted-out chest -- off
     from ff9mapkit import build
     proj = build.FieldProject.load(_toml(tmp_path, _SET_PIECES))
     off = _built_mod(proj, tmp_path / "off", shadows=False, monkeypatch=monkeypatch)
@@ -385,8 +385,10 @@ def test_set_pieces_change_by_exactly_their_shadow_ops(tmp_path, monkeypatch):
     _assert_only_shadow_ops_added(off, on, actors=len(_SET_PIECE_CASTS), dark=len(_SET_PIECE_DARK))
 
 
-# every [[prop]] part that must not cast, (model, x, z): on an MCF field each gets stock's DisableShadow
-_SET_PIECE_DARK = [(TENT, 200, 100), (CASK, 400, 100), (SAVE_BOOK, 500, 100), (234, 300, 0), (CASK, 600, 100)]
+# every [[prop]] part that must not cast, (model, x, z): on an MCF field each gets stock's DisableShadow --
+# and so does every other actor whose `shadow = false` (here the F1 chest)
+_SET_PIECE_DARK = [(TENT, 200, 100), (CASK, 400, 100), (SAVE_BOOK, 500, 100), (234, 300, 0), (CASK, 600, 100),
+                   (91, 100, 400)]
 _SET_PIECE_PROPS_CAST = [(CASK, 100, 100), (TENT, 300, 100), (MOOGLE, 500, 100)]
 
 
@@ -423,6 +425,95 @@ def test_on_an_mcf_field_a_set_piece_that_must_not_cast_is_switched_off(tmp_path
     plain_proj = build.FieldProject.load(_toml(tmp_path / "plain", _SET_PIECES))
     plain = _built_mod(plain_proj, tmp_path / "plain_out", shadows=True, monkeypatch=monkeypatch)
     _assert_only_shadow_ops_added(ebb, plain, actors=len(_SET_PIECE_CASTS), dark=len(_SET_PIECE_DARK))
+
+
+_OFF_EVERYWHERE = '''[player]
+spawn=[0,0]
+shadow=false
+[[flag]]
+name="c1"
+index=8712
+[[npc]]
+name="dark"
+model="GEO_NPC_F0_CSO"
+pos=[300,0]
+shadow=false
+[[npc]]
+name="lit"
+model="GEO_NPC_F0_MOG"
+pos=[-300,0]
+[[chest]]
+pos=[0,400]
+item="Potion"
+flag="c1"
+shadow=false
+[[savepoint]]
+zone=[[-500,-100],[-300,-100],[-300,-300],[-500,-300]]
+pos=[-400,-200]
+reveal_style="barrel_pop"
+reveal_from=[-400,-250]
+act_hop_to=[-400,-150]
+shadow=false
+[[jump]]
+zone=[[400,-100],[500,-100],[500,-200],[400,-200]]
+to=[450,-400]
+[[ladder]]
+navigable=true
+zone=[[600,-100],[700,-100],[700,100],[600,100]]
+bottom=[650,0,0]
+top=[650,0,800]
+floor_landing=[650,0]
+top_landing=[650,100,0]
+'''
+
+
+def _ops(eb, entry, tag=0):
+    f = eb.entry(entry).func_by_tag(tag)
+    return [i.op for i in eb.instrs(f)]
+
+
+def test_on_an_mcf_field_shadow_false_switches_every_actor_off_and_keeps_it_off(tmp_path, monkeypatch):
+    # The MCF shadows every actor, so `shadow = false` is stock's DisableShadow on the player, an [[npc]], a
+    # [[chest]] and a [[savepoint]] (its moogle AND its cask) -- and whatever would turn it back on is handled
+    # where it happens: the save act's landing EnableShadow becomes DisableShadow, and the player (the only
+    # kit actor that jumps: the engine's FinishJump re-enables a jumper's shadow) re-disables it before the
+    # RETURN of every function that Jumps -- its jump arc and its ladder climb.
+    from ff9mapkit import build
+    from ff9mapkit.content.ladder import find_player_entry
+    proj = build.FieldProject.load(_mcf_field(tmp_path, _OFF_EVERYWHERE))
+    assert build.validate(proj) == []
+    ebb = _built_mod(proj, tmp_path / "mcf", shadows=True, monkeypatch=monkeypatch)
+    objs, eb = _object_inits(ebb)
+    for e in eb.entries:                                            # the MCF owns every size + intensity
+        if not e.empty:
+            assert not any(i.op in (SH.SET_SHADOW_SIZE, SH.SET_SHADOW_AMP) for f in e.funcs
+                           for i in eb.instrs(f)), e.index
+    for key in [(CSO, 300, 0), (CHEST, 0, 400), (CASK, -400, -250), (MOOGLE, -400, -200)]:
+        assert [i.op for i in objs[key][1][-2:]] == [SH.DISABLE_SHADOW, 0x04], key
+    assert SH.DISABLE_SHADOW not in [i.op for i in objs[(MOOGLE, -300, 0)][1]]        # "lit" casts: the MCF's
+    # the save act: both landings now keep it off -- no EnableShadow anywhere in the moogle's functions
+    moogle = objs[(MOOGLE, -400, -200)][0]
+    act = [op for f in eb.entry(moogle).funcs for op in _ops(eb, moogle, f.tag)]
+    assert 0x7F not in act and act.count(SH.DISABLE_SHADOW) >= 4          # Init + airborne x2 + landings x2
+    # the player: off right after SetHeadFocusMask, and again before the RETURN of each function that Jumps
+    pe = find_player_entry(eb)
+    init = _ops(eb, pe)
+    assert init[init.index(SH.SET_HEAD_FOCUS_MASK) + 1] == SH.DISABLE_SHADOW
+    jumping = [f.tag for f in eb.entry(pe).funcs if SH.JUMP in _ops(eb, pe, f.tag)]
+    assert len(jumping) >= 2, "the jump arc and the ladder climb both Jump"
+    for tag in jumping:
+        ops = _ops(eb, pe, tag)
+        assert all(ops[k - 1] == SH.DISABLE_SHADOW for k, op in enumerate(ops) if op == 0x04), tag
+    # the same field without the MCF: false is still "no ops" (the census path, byte-identical to before)
+    (tmp_path / "plain").mkdir()
+    plain = _built_mod(build.FieldProject.load(_toml(tmp_path / "plain", _OFF_EVERYWHERE)), tmp_path / "po",
+                       shadows=True, monkeypatch=monkeypatch)
+    pobjs, peb = _object_inits(plain)
+    for key in [(CSO, 300, 0), (CHEST, 0, 400), (CASK, -400, -250), (ZIDANE, None, None)]:
+        assert _init_shadow(plain, pobjs[key][0]) is None and SH.DISABLE_SHADOW not in [
+            i.op for i in pobjs[key][1]], key
+    pm = pobjs[(MOOGLE, -400, -200)][0]
+    assert [op for f in peb.entry(pm).funcs for op in _ops(peb, pm, f.tag)].count(0x7F) == 2   # donor landings
 
 
 def test_savepoint_shadow_false_darkens_the_moogle_and_its_cask(tmp_path, monkeypatch):
@@ -513,7 +604,8 @@ def test_only_the_shadow_ops_are_added(tmp_path, monkeypatch):
                         '[[npc]]\nname="b"\nmodel="GEO_NPC_F0_MOG"\npos=[-300,0]\nshadow=false\n')
     proj = build.FieldProject.load(p)
     _assert_only_shadow_ops_added(_built(proj, shadows=False, monkeypatch=monkeypatch),
-                                  _built(proj, shadows=True, monkeypatch=monkeypatch), actors=2)
+                                  _built(proj, shadows=True, monkeypatch=monkeypatch), actors=2,
+                                  dark=1)                       # "b" (shadow = false) is switched off on an MCF field
 
 
 _EXAMPLES = ["vivi-hut/hut_int.field.toml", "siege/siege.field.toml", "SHOWCASE/showcase.field.toml",

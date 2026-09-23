@@ -5,6 +5,31 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `shadow = false` works on a field that ships MapConfigData, for every actor
+- **The player, an `[[npc]]`, a `[[chest]]` and a `[[savepoint]]` now honour `shadow = false` on an MCF field.**
+  The key used to be ignored there with a build warning, because the MCF (`fldmcf`) sets every actor's shadow
+  itself. The one lever a script has there is off, and the build now uses it. It emits stock's `DisableShadow` at
+  the actor's Init tail, as the rung-3 set pieces already do, on synthesized forks and on kit actors added to a
+  verbatim fork that ships its donor's MCF.
+- **Whatever would turn the shadow back on is handled where it happens.** The save act's two landing
+  `EnableShadow` ops become `DisableShadow`, so a save no longer brings the moogle's shadow back. The player is
+  the only kit actor that jumps. The engine turns a jumper's shadow back on when it lands (`FinishJump`), so the
+  kit re-disables it before the RETURN of every player function that Jumps: its jump arcs and ladder climbs. All
+  51 stock jump arcs and 52 stock ladder climbs have exactly one RETURN and take the insert. During the landing
+  animation the shadow still shows.
+- The build warning now names only `{ size, intensity }` tables, whose values the MCF overwrites. `true` and
+  `false` both take effect.
+- **Byte identity:** a field without an MCF builds byte for byte as before. On an MCF field the build changes by
+  exactly the `DisableShadow` ops of the `false` actors plus the act's swapped landings. `tests/test_shadow.py`
+  and `tests/test_verbatim.py` pin this with a real `[field] mapconfig`. Seven mutations (never disable, no
+  post-jump re-disable, the act unwired, the synth NPC, the cask, the verbatim NPC, the verbatim chest) each turn
+  a test red.
+- **In-game proven** (harness, `studies/actor-shadow` rung 4, bench 30937: the set-pieces bench on field 1607's
+  MCF, with `shadow = false` on the player, the chest, a save point and an NPC, plus a player `[[jump]]`). Against
+  a HEAD-identical control, those four actors' spawn boxes read 1.05-1.11 on/control, and the untouched actors
+  read 1.000. After the jump, the landed player's feet read 1.160 against a build without the post-jump
+  re-disable, where the engine had brought the full blob back (1.158 against control). The noise floor is 0.999.
+
 ### Fixed — on a field that ships MapConfigData, a held or stock-dark prop no longer casts the MCF's shadow
 - **A `[[prop]]` part that must not cast now gets stock's `DisableShadow` when the field ships an MCF.** That
   covers a held prop (`attach_to`, `[[npc]] holds`), a model stock keeps dark (`STOCK_CASTS`: the tent, the

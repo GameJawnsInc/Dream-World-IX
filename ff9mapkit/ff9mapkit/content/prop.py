@@ -88,8 +88,8 @@ def inject_prop(data, x: int, z: int, *, model: int, pose: int, face: int | None
         tail = prop_init_tail(face)
         if not collision:                                       # walk-through marker/scenery: show-only
             tail += opcodes.encode(SET_OBJECT_FLAGS, SCENERY_FLAGS)
-    if mcf and (attach_to is not None or shadow is False):      # the MCF would shadow it: switch it off
-        tail += opcodes.encode(_shadow.DISABLE_SHADOW)
+    if mcf:                                                     # the MCF would shadow it: off where it must not
+        tail += _shadow.mcf_ops(False if attach_to is not None else shadow)     # cast (a held prop never does)
     # a non-interactive prop is BARE (Init-only, no tag-3 talk func -> the engine's IsActuallyTalkable
     # short-circuits instead of indexing past it = no per-frame IndexOutOfRange). A prop with dialogue
     # keeps a real tag-3 WindowSync so it stays readable.

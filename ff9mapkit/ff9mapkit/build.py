@@ -6511,7 +6511,7 @@ def _verbatim_cutscene_messages(project: FieldProject, langs) -> tuple[list, dic
 
 
 def _inject_chests(project: FieldProject, eb: bytes, chest_txids: dict, *,
-                   reserve_party_band: bool, warnings=None, shadows: bool = False) -> bytes:
+                   reserve_party_band: bool, warnings=None, shadows: bool = False, mcf: bool = False) -> bytes:
     """Inject each authored ``[[chest]]`` (a real openable, savable treasure chest) into the field's ``.eb``.
     Each chest is ONE object whose Init pose is gated on a save-persistent opened-flag (the chest stays open
     across saves) and whose press handler animates the lid, gives the item/gil, shows the Received box, and
@@ -6525,7 +6525,9 @@ def _inject_chests(project: FieldProject, eb: bytes, chest_txids: dict, *,
     ``validate()`` guarantees ``pos`` + exactly-one-payload up front, so the defensive guards here only fire
     on a programmatic caller; ``warnings`` (optional) collects a skipped pos-less chest. ``shadows`` casts
     each chest's stock blob shadow (``[[chest]] shadow``, :mod:`ff9mapkit.content.shadow`) -- the synthesize
-    path passes :func:`_casts_stock_shadows`; the verbatim path leaves it off, byte-identical. Returns new
+    path passes :func:`_casts_stock_shadows`; the verbatim path leaves it off, byte-identical. ``mcf`` (the
+    field ships MapConfigData, either path) honours a chest's ``shadow = false`` with stock's DisableShadow and
+    emits nothing else (content.shadow.mcf_ops). Returns new
     bytes."""
     chests = project.raw.get("chest", []) or []
     if not chests:
@@ -6554,7 +6556,7 @@ def _inject_chests(project: FieldProject, eb: bytes, chest_txids: dict, *,
                                  model=ch.get("model") or "F0", face=int(ch.get("face", 0)),
                                  gate=(gf, gs) if gf is not None else None,
                                  reserve_party_band=reserve_party_band,
-                                 shadow=(ch.get("shadow", True) if shadows else None), **kw)
+                                 shadow=(ch.get("shadow", True) if shadows or mcf else None), mcf=mcf, **kw)
     return eb
 
 
@@ -6730,6 +6732,7 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
     # NPC-attached [[choice]]s with a built prompt entry (the verbatim text channel) -> a talk-to-branch body
     choice_by_npc = {ch["npc"]: (c, ch) for c, ch in enumerate(project.raw.get("choice", []) or [])
                      if ch.get("npc") and c in choice_txids}
+    _vb_mcf = bool(project.field.get("mapconfig"))      # the donor MCF shadows every actor, kit NPCs included
     for i, n in enumerate(npcs):
         name = n.get("name") or f"#{i}"
         if "pos" not in n:
@@ -6770,6 +6773,8 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
                              talk_window=_nw, talk_flags=_nf, talk_dim=n.get("dim", False),
                              talk_dim_tint=n.get("dim_tint"),
                              talk_lock=n.get("lock", True), talk_lock_menu=bool(n.get("lock_menu")),
+                             # no kit shadow ops on a verbatim fork; under its donor MCF, `false` switches it off
+                             shadow=(n.get("shadow", True) if _vb_mcf else None), mcf=_vb_mcf,
                              **kwargs)
         if n.get("name"):
             npc_slots[n["name"]] = slot                                       # name -> uid (stable below the band)
@@ -7187,7 +7192,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                              talk_window=_nw, talk_flags=_nf, talk_dim=n.get("dim", False),
                              talk_dim_tint=n.get("dim_tint"),
                              talk_lock=n.get("lock", True), talk_lock_menu=bool(n.get("lock_menu")),
-                             shadow=(n.get("shadow", True) if _stock_shadows else None),
+                             shadow=n.get("shadow", True), mcf=not _stock_shadows,
                              **kwargs)
         if gf is not None and n.get("name") not in _pooled_bh:
             gated_npc_slots.setdefault(gf, []).append(slot)
@@ -7362,7 +7367,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # press-to-open handler that animates the lid, gives the item/gil, shows the centered "Received X" box,
     # and latches the opened-flag). Self-contained objects with no cross-refs, so appended (no party-band
     # reserve on the synthesize path -- a from-scratch field has no reserved character band). Absent -> none.
-    eb = _inject_chests(project, eb, chest_txids, reserve_party_band=False, shadows=_stock_shadows)
+    eb = _inject_chests(project, eb, chest_txids, reserve_party_band=False, shadows=_stock_shadows,
+                        mcf=not _stock_shadows)
 
     # zone-triggered choices: a region the player triggers for a choice menu (a lever / sign).
     #   trigger="action" (default): press-action-in-quad (tag 3). Edge-triggered by the button, so it
@@ -7853,8 +7859,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     container=sp.get("reveal_container", True), index=_reveal_idx[k],
                     # the cask casts by the [[prop]] rule (stock's casks do); `shadow = false` on the
                     # save point turns off BOTH its shadows, a table only sizes the moogle's
-                    shadow=((sp.get("shadow") is not False and _shadow.stock_casts(_savepoint.cask_model()))
-                            if _stock_shadows else None))
+                    shadow=(sp.get("shadow") is not False and _shadow.stock_casts(_savepoint.cask_model())),
+                    mcf=not _stock_shadows)
                 # the moogle's tag 1 becomes the state loop OUTRIGHT (see reveal_state_loop): a one-shot
                 # intro splice could pop him out but never put him back, which is half the real cycle.
                 reveal_loop = _savepoint.reveal_state_loop(
@@ -7893,7 +7899,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     pose_tag=cl.pose_tag, release_tag=cl.release_tag,
                     act_txid=t_act.get("act"), rest=act_rest,
                     hop_to=(tuple(int(v) for v in hop_to) if hop_to else None),
-                    latch=sp.get("latch", True))
+                    latch=sp.get("latch", True),
+                    # under an MCF a `shadow = false` moogle's hops must not switch its shadow back on
+                    keep_shadow_off=(not _stock_shadows and sp.get("shadow") is False))
                 m_init_tail = _savepoint.moogle_act_init_tail()   # the load-bearing hop-clip preload
                 m_slot = cl.moogle_slot
             # flag write FIRST, donor order (field115 @3850/3856, field253 @4114/4120) -- the reveal's
@@ -7915,7 +7923,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), model=m_model, animset=m_animset,
                                  anims=dict(m_anims or {}), speak_body=talk,
                                  init_tail=m_init_tail, slot=m_slot,
-                                 shadow=(sp.get("shadow", True) if _stock_shadows else None))
+                                 shadow=sp.get("shadow", True), mcf=not _stock_shadows)
             if reveal_loop is not None:
                 # replace tag 1 outright -- the moogle's whole loop IS the state machine (donor shape)
                 from .eb import edit as _rv_edit
@@ -8259,8 +8267,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # the player's stock blob shadow (content.shadow) -- LAST, so it is sized for the model the player
     # finally wears ([player] model re-skin) and no later pass has to step around it. [[npc]]s, [[prop]]s,
     # [[chest]]s and the save points' moogles + casks got theirs at injection, above.
+    _pshadow = (project.raw.get("player") or {}).get("shadow", True)
     if _stock_shadows:
-        eb = _shadow.cast_player_shadow(eb, (project.raw.get("player") or {}).get("shadow", True))
+        eb = _shadow.cast_player_shadow(eb, _pshadow)
+    elif _pshadow is False:                     # an MCF field: off at Init, and again after every jump/climb
+        eb = _shadow.keep_player_shadow_off(eb)
     return eb
 
 
@@ -8269,22 +8280,24 @@ def _casts_stock_shadows(project: FieldProject, warnings: list | None = None) ->
     true unless the field ships MapConfigData (``[field] mapconfig``: a native, editable or BG-borrow fork
     carries its donor's) -- that MCF's per-model service already shadows every actor, grafted donor objects included,
     and would overwrite a script value on the first frame, so those builds carry no size/amplifier ops and an
-    explicit ``shadow`` key there is reported as having no effect. A ``[[prop]]`` is the exception: its one
-    lever on an MCF field is OFF (content.prop ``mcf``), so its ``false``/``true`` take effect and only a
-    ``{ size, intensity }`` table is reported."""
+    ``shadow`` there has one lever, OFF (content.shadow.mcf_ops): ``false`` takes effect (stock's DisableShadow)
+    and ``true`` is the MCF's own shadow, so only a ``{ size, intensity }`` table -- whose values the MCF
+    overwrites -- is reported as having no effect."""
     if not project.field.get("mapconfig"):
         return True
     raw = project.raw
-    authored = (["[player]"] if "shadow" in (raw.get("player") or {}) else []) + \
-        [f"[[npc]] {n.get('name', '#' + str(i))!r}" for i, n in enumerate(raw.get("npc", []))
-         if "shadow" in n] + \
+    def table(d):
+        return isinstance((d or {}).get("shadow"), dict)
+    authored = (["[player]"] if table(raw.get("player")) else []) + \
+        [f"[[npc]] {n.get('name', '#' + str(i))!r}" for i, n in enumerate(raw.get("npc", [])) if table(n)] + \
         [f"[[prop]] {p.get('prop', p.get('name', '#' + str(i)))!r}" for i, p in enumerate(raw.get("prop", []))
-         if isinstance(p.get("shadow"), dict)] + \
-        [f"[[chest]] #{i}" for i, ch in enumerate(raw.get("chest", [])) if "shadow" in ch] + \
-        [f"[[savepoint]] #{i}" for i, sp in enumerate(raw.get("savepoint", [])) if "shadow" in sp]
+         if table(p)] + \
+        [f"[[chest]] #{i}" for i, ch in enumerate(raw.get("chest", [])) if table(ch)] + \
+        [f"[[savepoint]] #{i}" for i, sp in enumerate(raw.get("savepoint", [])) if table(sp)]
     if authored and warnings is not None:
-        msg = (f"{', '.join(authored)} shadow: ignored -- this field ships MapConfigData ([field] mapconfig), "
-               f"whose per-model shadow service sets every actor's shadow itself")
+        msg = (f"{', '.join(authored)} shadow: size/intensity ignored -- this field ships MapConfigData "
+               f"([field] mapconfig), whose per-model shadow service sets every actor's size and intensity "
+               f"itself (`shadow = false` still switches a shadow off)")
         if msg not in warnings:                    # build_script runs once per language -- warn once
             warnings.append(msg)
     return False
@@ -9914,7 +9927,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             from . import eblint as _eblint
             _ch_txids, chest_suffix = _verbatim_chest_messages(project, langs)
             verbatim_bytes = _inject_chests(project, verbatim_bytes, _ch_txids,
-                                            reserve_party_band=True, warnings=warnings)
+                                            reserve_party_band=True, warnings=warnings,
+                                            mcf=bool(project.field.get("mapconfig")))
             _ch_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
             if _ch_errs:
                 raise BuildError(f"[[chest]] broke the composed .eb of {project.name}: "

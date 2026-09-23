@@ -163,7 +163,7 @@ def build_chest_open(flag_idx: int, *, give: bytes, received_text_id: int, paylo
 def inject_chest(data, x, z, *, flag_idx: int, item=None, gil=None, count: int = 1,
                  received_text_id: int = 62, model="F0", face: int = 0, gate=None,
                  reserve_party_band: bool = False, spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
-                 shadow=None):
+                 shadow=None, mcf: bool = False):
     """Inject an openable, savable treasure chest at world (x, z) -- ONE object (tag 0 Init + tag 3 open).
     Exactly one of ``item`` (id/name + ``count``) or ``gil`` (amount). ``flag_idx`` (a GLOB_BOOL save index)
     is the opened bit -- it drives the Init open/closed pose+flags and the open handler's once-guard + latch.
@@ -173,7 +173,9 @@ def inject_chest(data, x, z, *, flag_idx: int, item=None, gil=None, count: int =
     shadow (:mod:`ff9mapkit.content.shadow`) -- the ``[[chest]] shadow`` value with the ``[[npc]]``
     semantics (true = the census for the variant's model; every TBX model casts in stock, 221 of 224 chests);
     ``None`` (the default) emits nothing, so every caller that does not pass it -- the verbatim-fork lane, a
-    field shipping MapConfigData -- builds byte-identically. Returns new ``.eb`` bytes."""
+    field shipping MapConfigData -- builds byte-identically. With ``mcf`` (the field ships MapConfigData) the
+    only op is stock's ``DisableShadow`` for a ``shadow`` of False (:func:`ff9mapkit.content.shadow.mcf_ops`).
+    Returns new ``.eb`` bytes."""
     if (item is None) == (gil is None):
         raise ValueError("inject_chest needs exactly one of item= or gil=")
     model_id, neutral_pose, open_pose, closed_pose, lid_anim = resolve_chest_variant(model)
@@ -185,7 +187,7 @@ def inject_chest(data, x, z, *, flag_idx: int, item=None, gil=None, count: int =
     shadow_ops = b""
     if shadow is not None:
         from . import shadow as _shadow
-        shadow_ops = _shadow.init_ops(model_id, shadow)
+        shadow_ops = _shadow.mcf_ops(shadow) if mcf else _shadow.init_ops(model_id, shadow)
     init = build_chest_init(x=int(x), z=int(z), flag_idx=flag_idx, model=model_id, face=int(face),
                             neutral_pose=neutral_pose, open_pose=open_pose, closed_pose=closed_pose,
                             shadow=shadow_ops)
