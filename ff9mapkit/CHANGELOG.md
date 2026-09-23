@@ -64,6 +64,53 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - Blender add-on **0.9.30**: the vendored walkmesh builder carries the regroup, so `bridge.mesh_to_bgi_bytes`
   (Blender face order, material slots interleaved) now yields a floor-major `.bgi` equal to the OBJ route.
 
+### Fixed — `fork-report` no longer lists behaviours the fork-gate engine restores as lost
+- **The narrow-map letterbox, the Chocobo dig HUD, most ATE-trophy mappings and four per-actor tweaks are kept.**
+  `idgated.lost_on_mint` said a fork lost all of them. The custom engine routes their gates through
+  `EffectiveFieldId`: s23 and s65 for the map width, s24 for `EventHUD`'s Hot&Cold state, s65 for `FieldMapActor`
+  661/2102/2107/3002 and for `MappingATEID`'s inner field compares. So a fork that records its donor
+  (`import --native`/`--verbatim`) keeps them. Their details now say "reproduced", which drops them from the
+  verdict's fork-in-place steer. With no donor row (an `--editable` or plain BG-borrow import) the width falls back to the BG
+  camera's own width.
+- **The ATE trophy key carries even without the engine.** `MappingATEID` keys on `fldLocNo`, the registered mes id,
+  and every kit import puts a fork on its donor's text block. Only field 956's compulsory ATE, a raw `fldMapNo`
+  compare, is still lost. Locations 8, 359 and 525 map only one field's ATE, so their other fields no longer report
+  an ATE trophy at all. This comes from the source; it has not been checked in-game.
+- **New loss reported: the narrow-camera letterbox.** `NarrowMapList.RestrictedCams` holds one camera of 24 fields
+  narrower than the field, and `PSXCameraAspect.cs` reads it on the raw `fldMapNo`. No patch touches that file, so a
+  fork renders that camera at the field's width. `tools/bake_narrowmap.py` now bakes the table as
+  `_narrowmap_data.RESTRICTED_CAMS`, and `idgated.restricted_cams` reports each camera.
+- Still lost, unchanged: the field-70 intro FMV and the other 10 per-actor tweaks.
+- **The catalog is checked against `memoria-patches/`.** `tests/test_idgated.py` and
+  `tests/test_fieldmapactor_tweaks.py` name the engine gates each claim rests on and fail when a patch wraps or
+  unwraps one. Each check was mutation-tested with a throwaway patch. The patch-stack reader moved to
+  `tests/_patchstack.py`, shared with `tests/test_walkmesh_hotfix.py`.
+- API: `idgated.is_letterboxed` (the old `loses_letterbox` meaning), `loses_letterbox(donor_recorded=)`,
+  `restricted_cams`, `ate_field_gate`, `ATE_FIELD_GATES`; `ActorTweak.engine_remapped`.
+
+
+### Fixed — `import` stops prepending a walkmesh hotfix the fork-gate engine already applies
+- **A fork of field 2161 (L. Castle/Guest Room, disc 3) no longer gets `walkmesh_tri_toggles = [[69, 0]]`.**
+  Memoria patch s65 routes its `FieldMap.cs` gate through `EffectiveFieldId`, so the custom engine deactivates
+  tri 69 on any fork that records its donor. `import --native` and `--verbatim` forks got it twice, once from
+  the engine and once from the kit's Main_Init prepend. `BGI_triSetActive` sets the bit absolutely, the engine
+  writes first (in `FieldMap.HonoAwake`), and 2161's own script never touches tri 69, so the second write was
+  redundant, not harmful. Existing tomls that carry the line keep working.
+- **`walkmesh_hotfixes` now records which gates the engine remaps, checked against `memoria-patches/`.**
+  2161 (s65), 2507 (s29), and 450 / 1421 / 1753 / 1606 (s30, DoEventCode) are `engine_remapped`. 2356 and all
+  of `turnOffTriManually` (1900, 1455, and the second halves of 900 / 2803) stay on the raw id. A new `delayed`
+  flag carries 2507's 0.5 s timing, which `engine_remapped` had been standing in for. The catalog also gains
+  `fork_tris`, the tris the engine still toggles on a fork. `tests/test_walkmesh_hotfix.py` reads the live patch
+  stack and fails when a gate's wrap and the catalog disagree.
+- **The prepend now follows the fork's donor row** (`Hotfix.needs_prepend(donor_recorded=)`). A standalone
+  `import --editable` records no donor, so it gets no ForkDonorPatch row and the engine's remapped gates stay
+  false. It keeps the 2161 prepend. For 2507 its toml now says the hotfix is lost on that fork, where it used
+  to claim the engine reproduced it. A fork on the real id (in place) gets no prepend, since every engine gate
+  fires there.
+- **`fork-report`:** remapped walkmesh hotfixes read "reproduced by the engine fork-donor remap" and drop out of
+  the verdict's fork-in-place steer. 900 and 2803 stay losses, and the report names the tri the remapped half
+  keeps.
+
 ### Fixed — a plain (BG-borrow) import's carried donor objects are lit and shadowed like the real field
 - **A plain `ff9mapkit import` now ships the donor's MapConfigData** (`mapconfig.bytes` + `[field] mapconfig`),
   as `--native` and `--editable` do. A BG-borrow fork carries the donor's objects too, but it wrote no MCF, so

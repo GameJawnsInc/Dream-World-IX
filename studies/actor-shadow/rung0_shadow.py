@@ -16,9 +16,11 @@ PRE  the DEPLOYED .eb (what the engine will run, not what the build says) carrie
      SetShadowSize(s, s) + SetShadowAmplifier(i << 3) per actor, none on `none`
 A0   no exception THROUGH a shadow path, in either log (a shadow op before SetModel would KeyNotFound on
      shadowArray inside DoEventCode; the render side is SetRenderer / ff9shadow). Every OTHER exception is
-     reported by name + count, never silently passed: FieldMapActorController.MovePC throws a
-     NullReferenceException ~28x on this floor with or without shadows (the pre-fix bgi rung-0 runs show it
-     too), so the control run's count is the comparison, not zero.
+     reported by name + count, never silently passed. The ~26-28 FieldMapActorController.MovePC
+     NullReferenceExceptions the pre-s87 runs tallied were NOT this floor's. Field 70 (the New Game FMV
+     field) has no walkmesh, and it threw them between newgame() and the warp; the mark is taken before the
+     warp, so they count. Engine patch s87 fixed that stock bug and the count is now 0. Compare only against
+     a control run on the same engine.
 F1   the spawn frame (a LOOK, read by eye): a blob under player / stock / big / rover, NONE under `none`,
      `big` visibly larger and darker than `stock`
 F2   the rover walking (the behavior unit's shadow travels with it)

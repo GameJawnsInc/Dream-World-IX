@@ -167,7 +167,8 @@ form; the known residual is `y` (a donor block that also sets `D9(2)` re-emits x
 **wrong** (`NarrowMapList` is the camera-WIDTH / widescreen table, zero cutscene logic); a field's entry cutscene runs from its
 own `.eb`. So `--verbatim` carries the real cutscene (proven — Vivi/field 100's opening), and `[[on_entry]]`
 (`content/onentry.py`) re-authors a gated, once entry beat for a synth fork. The only residual is cosmetic + keyed on the
-donor's real id (widescreen `NarrowMapList.MapWidth` defaults to 500 for a custom id; a few per-actor anim tweaks; field-70 FMV).
+donor's real id (a few per-camera `RestrictedCams` widths; ~10 raw per-actor tweaks; field-70 FMV. The map width itself
+follows the donor on the fork-gate engine, `s23`).
 
 **#14 — render-only NPC talk-handler graft (closed, proven infeasible).** A census of all 675 fields under maximal
 grafting found **55 NPCs / 36 fields lose their tag-3 talk handler, and 0 are blocked only by a graftable gesture** — a dropped
@@ -211,12 +212,13 @@ worldmap unlocks, noise-filtered + region-labeled) a downstream fork should seed
 > **Now machine-queryable per field** (kit 0.9.98, +v2 0.10.0): `ff9mapkit fork-report <id>` operationalizes the
 > taxonomy so you don't consult the table by hand — an **Area title** line (the donor-identity card you DROP on a
 > reuse / keep on `--verbatim`) and a **Lost on mint** section (the engine behaviors keyed on the real `fldMapNo`
-> a fork loses: walkmesh hotfix, narrow-map letterbox, Chocobo dig HUD, intro FMV, **ATE achievement** — each
-> noted auto-reproduced vs fork-in-place). Backed by `idgated.py` (+ the baked `_narrowmap_data.py` widths) and
-> `walkmesh_hotfixes.py`. **v2 (kit 0.10.0):** the **ATE achievement** is now per-field — the *ATE80* trophy is
-> keyed on `fldLocNo`, and `fldLocNo == eventIDToMESID[fldMapNo]` (`HonoluluFieldMain.cs:19`), i.e. the field's
-> registered MES id, so `idgated` resolves it from the baked `EVENT_ID_TO_MES` and flags the loss when that
-> location is in `EMinigame.MappingATEID` (the ATE still plays; only the trophy bookkeeping is id-bound). And the
+> a fork could lose: walkmesh hotfix, narrow-map and narrow-camera letterbox, Chocobo dig HUD, intro FMV, **ATE
+> achievement**, per-actor tweaks — each noted reproduced (by the fork-gate engine for a fork that records its donor,
+> or by the kit) vs fork-in-place; only the unreproduced ones reach the verdict). Backed by `idgated.py` (+ the baked
+> `_narrowmap_data.py` widths) and `walkmesh_hotfixes.py`. **v2 (kit 0.10.0):** the **ATE achievement** is per-field —
+> the *ATE80* trophy is keyed on `fldLocNo`, and `fldLocNo == eventIDToMESID[fldMapNo]` (`HonoluluFieldMain.cs:19`),
+> i.e. the field's registered MES id, which a fork inherits with its donor's text block; `idgated` resolves it from
+> the baked `EVENT_ID_TO_MES` and flags the one raw inner compare (field 956). And the
 > **Verdict** line now SYNTHESIZES across every axis: the recommended fork MODE (`--verbatim` when the field has
 > story-gated cast/logic / a non-Zidane player / party or item grants / per-door arrival — plus a `[startup]`
 > beat; else `--native`) and a lost-on-mint fork-in-place steer. Plus an **Entry settle** line (coarse flag): a
@@ -306,10 +308,13 @@ blocked is in [`ENGINE.md`](ENGINE.md). The rows below mark what stays genuinely
 | # | Residual | Why engine-blocked | Stock band-aid |
 |---|----------|--------------------|----------------|
 | 1 | **Entry-camera ease elimination** | `SmoothCamDelay`/`SmoothCamActive` engine internals; player binds AFTER the snap window; `SmoothCamExcludeMaps` is a hardcoded real-id set (`FieldMap.cs:2532`); no `.eb` op re-arms it. **Universal across all synth modes** — verbatim only *hides* it behind a long real entry sequence. | `entry_settle` black-hold (faithful, not a kludge) + source-side `WARP_FADE`. Runtime `CameraStabilizer` is per-user (`Memoria.ini`) → a baked `Wait` can't adapt; offline default-stabilizer estimator is UNBUILT-not-impossible. |
-| 2 | **ATE seen-state + ATE80 trophy** on a custom id | `EMinigame.MappingATEID` is a hardcoded if/else on real `fldMapNo` → −1 for ≥4000; `AteCheck` lives on `AchievementState`, not `gEventGlobal`. The ATE itself *plays* fine (verbatim / `[ate]`); only the bookkeeping is lost. | Fork in-place on the real id (in tension with verbatim's normal ≥4000 mint). |
-| 3 | **Narrow-map letterbox masking** on a mint | `NarrowMapList.MapWidth` is a hardcoded `fldMapNo` table (ids ≤3100) → mint falls to `return 500` = not-narrow; the `ConditionalForceNarrow` escape ALSO requires a real-id match (`RestrictedWidthScenesList`). | Fork in-place (keeps `fldMapNo`), **or the shipped `s23` patch** (gives the fork the donor's exact tuned width). |
-| 4 | **Chocobo live dig-HUD** on a minted fork of 2950–2952 | `EventHUD.cs:384` gates the live timer HUD on literal `fldMapNo==2950\|\|2951\|\|2952`. (The *instruction popup* is `FieldZoneId==945`-keyed → reachable via `--text-block 945`; only the live HUD is id-locked.) | Fork in-place on 2950–2952. |
-| 5 | **Field-70 FMV + ~12 per-actor anim tweaks** on a mint | `FieldMapActor.cs` has `fldMapNo`-keyed per-actor tweaks; FMV bound to the real id. *Generalizes:* any real-`fldMapNo`-gated engine behavior is lost on a mint. The per-actor census is now baked (`fieldmapactor_tweaks.py`) and surfaced by `fork-report`'s "Lost on mint" (still NOT reproducible -- reporting only). | Retarget the stock field-70 override rather than mint FMV behavior. |
+| 2 | **ATE seen-state + ATE80 trophy** on a custom id | `EMinigame.MappingATEID` keys on `fldLocNo` (= the registered mes id), and every kit import keeps the donor's text block, so the location key carries. Its inner `fldMapNo` compares are wrapped by `s65` except field 956's. Left: Gargant-956's compulsory ATE, and a NOVEL field (own text block, no row). Source-derived; not yet observed in-game. `AteCheck` lives on `AchievementState`, not `gEventGlobal`. | Fork 956 in-place on the real id. |
+| 3 | **Narrow-camera letterbox** (`NarrowMapList.RestrictedCams`) on a mint | The map width itself is restored (`s23` looks `MapWidth`/`ConditionalForceNarrow` up by the donor id, `s65` wraps FieldMap's widescreen setup). But `RestrictedCams` holds one camera of 24 fields narrower than the field, and `PSXCameraAspect.LateUpdate` reads it on the raw `fldMapNo`; no patch touches that file. | Fork in-place. |
+| 4 | ~~Chocobo live dig-HUD~~ **restored by `s24`** | `EventHUD.CheckUIMiniGameForMobile` reads a `fldMapNo` alias `s24` routes through `EffectiveFieldId`, so a donor-recorded fork of 2950–2952 gets it. The instruction popup keys on text zone 945, which a fork keeps. (On PC the MinigameHUD prefab is mobile-only; the state still keeps player control on during the dig.) | — |
+| 5 | **Field-70 FMV + ~10 per-actor tweaks** on a mint | Field-70's gates (`LoadFieldMap`, `BG_init`, `BGI_DEF`, the actor updates) stay on the raw id. `FieldMapActor.cs` has `fldMapNo`-keyed per-actor tweaks; `s65` wraps 661/2102/2107/3002, the other 10 stay raw. *Generalizes:* any raw-`fldMapNo`-gated engine behavior is lost on a mint. The census is baked (`fieldmapactor_tweaks.py`) and surfaced by `fork-report`'s "Lost on mint" (NOT reproducible by the kit -- reporting only). | Retarget the stock field-70 override rather than mint FMV behavior. |
+
+`tests/test_idgated.py` and `tests/test_fieldmapactor_tweaks.py` read `memoria-patches/` and fail when a patch wraps or
+unwraps a gate these rows (and `idgated.py`) rely on.
 | 6 | **A brand-NEW FMV slot** (beyond FMV000–060) + paired audio | `MBG.MBGDiscTable` is a fixed `static readonly` jagged array `MBG.Seek` indexes directly — no `.eb` reach; `.akb` audio is name-keyed (doubly blocked). | Reuse/repoint an existing slot (`fmv-swap` proven on FMV000); the `.bytes` layer is open. |
 | 7 | **Per-fork BBG/tuning on a REUSED vanilla scene** | scene→BBG resolves `Info.BattleBackground ?? MapModel[...]`; `BattleBackground` is the `[PatchableField]` override point but still **per-scene-id global**, no per-field dimension; `raw16`/`raw17` are per-scene-id whole-file. | **Unnecessary**: MINT a fresh scene (`battle-import --fork-scene`) → its own BBG + tuning on stock. |
 | 8 | **A brand-NEW custom playable member** (13th+ in menu/battle/save) | `CharacterId` is a fixed 0–11 compile-time enum; fixed-layout save (`PLAYER[9]`); `SetupPartyUID` can't bind a no-event-id member. The hard frontier. | None for a true new member (reskin a slot or add existing cast). |
@@ -435,6 +440,17 @@ fork in-place") rather than auto-applied.
 
 Refines #14's "verbatim is the answer": even a verbatim fork at a remapped id loses these; the load-time
 subset is now reproduced, the dynamic ones steer to fork-in-place.
+
+**UPDATE — the fork-gate engine now fires most of these itself.** The custom engine routes a gate through
+`EffectiveFieldId`, which resolves a fork's id to its donor through the fork's ForkDonorPatch row. s29 does
+this for 2507, s30 for every DoEventCode gate (450, 1421, 1753, 1606, and the RunScript arms of 900/2803),
+and s65 for 2161. On a fork that records its donor (`--native`, `--verbatim`, every campaign member) those
+hotfixes are the engine's job, and `import` no longer prepends 2161's toggle. It used to, so forks got tri 69
+twice. That was redundant, not harmful, because `BGI_triSetActive` sets the bit absolutely. What still needs
+the kit: 2356 (a raw gate, so the kit prepends it everywhere), 2161 on a standalone `--editable` fork (which
+records no donor, so it gets no row), and anything in `turnOffTriManually.cs` (1900, 1455, the other halves of
+900/2803), which stays lost on a mint. `walkmesh_hotfixes.py` records each gate's state, and
+`tests/test_walkmesh_hotfix.py` checks it against `memoria-patches/`.
 
 IN-GAME PROVEN by A/B (Gulug 2356): two identical native forks — id 30003 *with* the toggle, id 30004
 *without* — teleporting to the deactivated-patch EDGE (−543,1667), ~120u from the chest (beyond its

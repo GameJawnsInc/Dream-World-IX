@@ -5117,10 +5117,11 @@ def _lint_fork_walkmesh_ids(project: FieldProject, wmesh, warnings: list) -> Non
         if hf.kind == "collision":            # FieldMapActorController reads the tri the actor stands on
             uses.append(("engine hotfix (Memoria C# collision rule, fires on forks)", "tri", hf.source, "immediate",
                          tuple(hf.fork_tris)))
-        elif hf.kind == "opcode_augment":     # acts only when the fork's OWN script toggles the trigger tri
-            if carried_toggles & set(hf.trigger_tris):
+        elif hf.kind == "opcode_augment":     # acts only when the fork's OWN script toggles the trigger tri,
+            added = tuple(t for t in hf.fork_tris if t not in hf.trigger_tris)   # and adds only these (the
+            if added and carried_toggles & set(hf.trigger_tris):                  # trigger is in the .eb scan)
                 uses.append((f"engine hotfix (Memoria C#, fires beside the carried EnablePathTriangle"
-                             f"{list(hf.trigger_tris)})", "enable", hf.source, "immediate", tuple(hf.fork_tris)))
+                             f"{list(hf.trigger_tris)})", "enable", hf.source, "immediate", added))
         else:
             when = "fires on forks" if hf.kind == "load_time" else "fires on a fork when its trigger runs"
             uses.append((f"engine hotfix (Memoria C#, {when})", "enable", hf.source, "immediate",
@@ -5936,8 +5937,8 @@ def resolve_playable_animset(field, *, name=None, game=None) -> dict:
 
 def _apply_walkmesh_hotfix(project: FieldProject, eb: bytes) -> bytes:
     """Prepend ``[field] walkmesh_tri_toggles`` to Main_Init -- reproduce a real field's LOAD-TIME engine
-    walkmesh hotfix (``BGI_triSetActive`` keyed on the real ``fldMapNo``, lost when the field is forked to a
-    custom id; see :mod:`ff9mapkit.walkmesh_hotfixes`). Each ``[tri, state]`` becomes an
+    walkmesh hotfix (``BGI_triSetActive`` keyed on the real ``fldMapNo``, which the engine won't apply to this
+    fork's custom id; see :mod:`ff9mapkit.walkmesh_hotfixes`). Each ``[tri, state]`` becomes an
     ``EnablePathTriangle(tri, state)`` (opcode 0x9A == the engine's ``BGI_triSetActive``). Shared by the
     synthesize path (:func:`build_script`) AND the verbatim-`.eb` path. Absent -> unchanged (byte-identical);
     ``import`` auto-emits the key for the donors whose hotfix is statically reproducible."""

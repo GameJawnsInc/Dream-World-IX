@@ -348,13 +348,14 @@ def test_hotfix_catalog_fork_tris_pin():
     """A PIN of the catalog, not a derivation (the clone-gated test below derives the collision rules): fork_tris =
     the tris the ENGINE acts on at a fork's id -- its C# gate reads EffectiveFieldId (the s29/s30/s65 fork-gate
     patches); a gate still on the raw fldMapNo (FieldMap 2356, FieldMapActorController 1752, all of
-    turnOffTriManually) never fires on a fork. An opcode augment lists only what the engine ADDS (1753 adds 208;
-    1606 only rewrites the script's own toggle, which the .eb scan reports)."""
-    want = {2356: (), 2161: (69,), 2507: (174, 175, 177, 178), 450: (24,), 1753: (208,), 1606: (),
+    turnOffTriManually) never fires on a fork. For an opcode augment the LINT reports only what the engine ADDS,
+    fork_tris minus trigger_tris (1753 adds 208; 1606 only rewrites the script's own toggle of 107)."""
+    want = {2356: (), 2161: (69,), 2507: (174, 175, 177, 178), 450: (24,), 1753: (207, 208), 1606: (107,),
             406: (103, 111, 113), 1752: (), 2803: (105, 106), 900: (62,), 1421: (109, 110), 1900: (), 1455: ()}
     assert {k: h.fork_tris for k, h in whf._HOTFIXES.items()} == want
     assert all(set(h.fork_tris) <= set(h.tris) for h in whf._HOTFIXES.values())
-    assert all(h.trigger_tris for h in whf._HOTFIXES.values() if h.kind == "opcode_augment")
+    assert {k: tuple(t for t in h.fork_tris if t not in h.trigger_tris)
+            for k, h in whf._HOTFIXES.items() if h.kind == "opcode_augment"} == {1753: (208,), 1606: ()}
 
 
 _MEMORIA_FMAC = Path(r"C:\gd\FFIX\Memoria\Assembly-CSharp\Global\Field\Map\Actor\FieldMapActorController.cs")
