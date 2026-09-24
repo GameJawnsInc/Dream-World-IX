@@ -489,134 +489,119 @@ def max_step(spec: MotionSpec) -> tuple:
     return math.hypot(xz, dh), fb
 
 
-SWING_PX = 0.5                                    # field px a track must move back before a reversal counts
-BOB_SEEN_PX = 1.0                                 # a bob or a retrace smaller than this (field px) is not seen
-BOB_READ_PER_LAP = 2                              # a bob that READS adds MORE reversals a path lap than this: more
-                                                  # up-and-downs than the path makes itself (an orbit: one a lap)
-BOB_WINDOWS = 4                                   # sub-windows a long joint cycle is sampled at, spread across it
-BOB_SAMPLES = 64                                  # samples a reading takes per cycle of the faster channel
-BOB_FIX_DIVS = (3, 4, 6, 8, 12, 16)               # bob periods a note tries: the path's period / these
-BOB_FIX_AMPS = (1.5, 2, 3, 4, 6, 8)               # amps a note tries: the bob's amp x these, then the out-travel amp
-BOB_PERIOD_MIN = 4                                # a 2-tick sine never leaves its height, a 3-tick one flickers
+BOB_SEEN_PX = 1.0                                 # a bob moving the prop less than this (field px) is not seen
+BOB_LAP_SAMPLES = 256                             # points of the path's lap a reading measures
+BOB_PERIOD_MIN = 4                                # a 2-tick sine flips or stands still, a 3-tick one jitters
+BOB_NEAR = 1.0                                    # camera-space depth a pose must exceed to be in front
+_TAU = 2 * math.pi
 
 
-def _swings(vs, h: float = SWING_PX, *, cyclic: bool = True) -> int:
-    """Direction reversals of a screen track. A reversal counts only once the track has moved back ``h`` px from its
-    last extreme, so the fraction-of-a-px jitter of integer poses never counts. A CYCLIC track is walked twice (the
-    first lap settles the direction, the second counts); a window cut from a longer cycle is walked once."""
-    n = len(vs)
-    if n < 2:
-        return 0
-    dirn, ext, count = 0, vs[0], 0
-    for i, v in enumerate(list(vs) * 2 if cyclic else list(vs)):
-        if dirn == 0:
-            if abs(v - ext) >= h:
-                dirn, ext = (1 if v > ext else -1), v
-        elif (v - ext) * dirn > 0:
-            ext = v
-        elif abs(v - ext) >= h:
-            dirn, ext = -dirn, v
-            count += (i >= n) if cyclic else 1
-    return count
+class View(NamedTuple):
+    """One camera a bob is judged through: ``project(x, height, z)`` -> ``(u, v)`` or ``(u, v, depth)`` (field-canvas
+    px, v down; depth > 0 in front of the camera), and the canvas ``size`` (w, h), or None for unbounded."""
+    name: str
+    project: object
+    size: tuple | None = None
 
 
 class BobReading(NamedTuple):
-    px: float                  # the largest on-screen offset the bob adds (field px)
-    with_bob: int              # screen-vertical reversals (each retracing >= BOB_SEEN_PX) measured, with the bob
-    without: int               # ... the path alone
-    path_span: float           # the path's own screen-vertical travel (field px)
-    window: int                # ticks measured
-    cyclic: bool               # the window is the whole joint cycle (else BOB_WINDOWS spread across it)
-    laps: float                # path laps measured (0 without a path)
-
-    @property
-    def added_per_lap(self) -> float:
-        return (self.with_bob - self.without) / self.laps if self.laps else 0.0
+    px: float                  # the bob's smallest on-screen offset from its path over the lap (field px)
+    bob_speed: float           # its screen-vertical speed at that offset, px a tick (2 pi / bob period x px)
+    path_speed: float          # the path's own fastest screen-vertical speed, px a tick (0 without a path)
+    path_span: float           # the path's own screen-vertical travel over a lap (field px)
+    ratio: float               # min over the lap of bob speed / path speed at each point (inf: no vertical motion)
 
     @property
     def reads(self) -> bool:
-        """THE BOB-READING LAW: a bob reads as a bob when it moves the prop a visible amount AND either out-travels
-        the path's own up-and-down (on a nearly flat track the bob IS the vertical motion, whatever its period) or
-        adds visible up-and-downs of its own at a steady RATE -- more than one a path lap, i.e. more than a path
-        makes on its own (over BOB_READ_PER_LAP reversals a lap, each retracing >= BOB_SEEN_PX). A rate, not a
-        total: one retrace in forty laps, or a window edge, is not a bob; nor is one extra wiggle a lap."""
-        if self.px < BOB_SEEN_PX:
-            return False
-        return 2 * self.px >= self.path_span or (self.laps > 0 and self.added_per_lap > BOB_READ_PER_LAP)
+        """THE BOB-READING LAW: a bob reads as a bob when it moves the prop a visible amount AND either its own
+        up-and-down beats the path's everywhere on the lap (at every point its screen-vertical speed exceeds the
+        path's there, so it can turn the prop around anywhere) or it out-travels the path's own up-and-down."""
+        return self.px >= BOB_SEEN_PX and (self.ratio >= 1.0 or 2 * self.px >= self.path_span)
 
 
-def _windows(spec: MotionSpec) -> tuple:
-    """(cyclic, [(start tick, length)]): the whole joint cycle when it is at most STEP_EXACT_MAX ticks; past that,
-    BOB_WINDOWS sub-windows spread evenly across the joint cycle, totalling eight of the slower channel's periods
-    (capped at STEP_EXACT_MAX) -- a near-commensurate bob drifts against its path over the cycle, so one window at
-    its start would judge a single phase of that drift."""
-    if spec.cycle <= STEP_EXACT_MAX:
-        return True, [(0, spec.cycle)]
-    total = min(STEP_EXACT_MAX, 8 * max(spec.period, spec.bob_period))
-    part = total // BOB_WINDOWS
-    return False, [(j * (spec.cycle // BOB_WINDOWS), part) for j in range(BOB_WINDOWS)]
+class _Profile(NamedTuple):
+    offsets: tuple             # per lap point: the bob's screen-vertical half-extent there (field px)
+    speeds: tuple              # per lap point: the path's screen-vertical speed there, px a RADIAN of the lap
+    span: float                # the path's screen-vertical travel (field px)
+    seen: bool                 # the path is in front of the camera and touches its canvas: the camera shows it
+    front: bool                # every pose, bob extremes included, is in front of the camera
+    inside: bool               # every pose, bob extremes included, is on the canvas
 
 
-class _PathTrack:
-    """The path alone through one camera, filled lazily: ``at(k)`` = (x, z, (u, v)) at tick ``k`` (the path repeats
-    every horizontal period; a mover without a path has one pose). Every bob candidate a note re-measures for this
-    mover, height and camera shares it."""
-
-    def __init__(self, spec: MotionSpec, project):
-        self.spec, self.project = spec, project
-        self.m = spec.period if spec.path else 1
-        self.cache: dict = {}
-
-    def at(self, k: int) -> tuple:
-        k %= self.m
-        e = self.cache.get(k)
-        if e is None:
-            p = pose(self.spec, k)
-            e = self.cache[k] = (p.x, p.z, self.project(p.x, self.spec.height, p.z))
-        return e
-
-
-def _stride(spec: MotionSpec) -> int:
-    """Ticks between samples: BOB_SAMPLES per cycle of the mover's faster channel. A reversal that retraces
-    BOB_SEEN_PX spans half a cycle of whichever channel makes it, so tick-by-tick sampling of a slow mover buys
-    nothing but time (a long-period field linted 16384 ticks x every camera x every candidate fix)."""
-    fast = min(spec.period, spec.bob_period) if spec.path else spec.bob_period
-    return max(1, fast // BOB_SAMPLES)
+def _lap(spec: MotionSpec) -> list:
+    """(x, z, dx/dθ, dz/dθ) at BOB_LAP_SAMPLES evenly spaced points of the IDEAL path (the curve the engine's integer
+    poses round to the unit) -- sampled by angle, so neither ``phase`` nor ``reverse`` changes the set."""
+    if spec.path is None:
+        return [(float(spec.pos[0]), float(spec.pos[1]), 0.0, 0.0)]
+    out = []
+    for j in range(BOB_LAP_SAMPLES):
+        th = _TAU * j / BOB_LAP_SAMPLES
+        s, c = math.sin(th), math.cos(th)
+        if spec.path == "orbit":
+            r = spec.radius
+            out.append((spec.pos[0] + r * s, spec.pos[1] + r * c, r * c, -r * s))
+        else:
+            (mx, mz), (hx, hz) = spec.mid, spec.half
+            out.append((mx - hx * c, mz - hz * c, hx * s, hz * s))
+    return out
 
 
-def bob_reading(spec: MotionSpec, project, _track: _PathTrack | None = None) -> BobReading | None:
-    """How a mover's bob READS through ``project(x, height, z) -> (u, v)`` (field-canvas px, v down). None for a
-    mover without a bob. Measured over the joint cycle when it is at most STEP_EXACT_MAX ticks, else over
-    :func:`_windows` spread across it, every :func:`_stride` ticks; a reversal counts only once the track retraces
-    BOB_SEEN_PX. ``_track`` = this spec's :class:`_PathTrack` through ``project``, when the caller already has one.
+def _profile(spec: MotionSpec, view: View, height: int, amp: int) -> _Profile:
+    """The path through one camera at ``height``, with a bob of ``amp``: everything a reading needs except the bob
+    period, which only scales the bob's speed (so a period fix is solved, not searched)."""
+    proj, size, eps = view.project, view.size, 1e-3
+
+    def pt(x, h, z):
+        p = proj(x, h, z)
+        return p[0], p[1], (p[2] if len(p) > 2 else math.inf)
+
+    def on(u, v):
+        return size is None or (0 <= u <= size[0] and 0 <= v <= size[1])
+    offs, spds, vs = [], [], []
+    seen_any, path_front, front, inside = False, True, True, True
+    for x, z, dx, dz in _lap(spec):
+        u, v, d = pt(x, height, z)
+        hu, hv, hd = pt(x, height + amp, z)
+        lu, lv, ld = pt(x, height - amp, z)
+        path_front &= d > BOB_NEAR
+        front &= min(d, hd, ld) > BOB_NEAR
+        inside &= on(u, v) and on(hu, hv) and on(lu, lv)
+        seen_any |= d > BOB_NEAR and on(u, v)
+        offs.append(abs(lv - hv) / 2)
+        vs.append(v)
+        if dx or dz:
+            _a, v1, _d = pt(x + eps * dx, height, z + eps * dz)
+            _b, v0, _e = pt(x - eps * dx, height, z - eps * dz)
+            spds.append(abs(v1 - v0) / (2 * eps))
+        else:
+            spds.append(0.0)
+    return _Profile(tuple(offs), tuple(spds), max(vs) - min(vs), path_front and seen_any, front, inside)
+
+
+def _reading(spec: MotionSpec, prof: _Profile, bob_period: int) -> BobReading:
+    w = _TAU / bob_period                                # the bob's angular speed, radians a tick
+    lap = _TAU / spec.period if spec.path else 0.0        # the path's, radians a tick
+    ratio = min((w * o / (s * lap) for o, s in zip(prof.offsets, prof.speeds) if s * lap > 1e-12), default=math.inf)
+    px = min(prof.offsets)
+    return BobReading(px, w * px, max(prof.speeds) * lap, prof.span, ratio)
+
+
+def _view(v) -> View:
+    return v if isinstance(v, View) else View("", v) if callable(v) else View(*v)
+
+
+def bob_reading(spec: MotionSpec, project) -> BobReading | None:
+    """How a mover's bob READS through ``project`` (a :class:`View`, or ``(x, height, z) -> (u, v)``). None for a
+    mover without a bob. Measured on the ideal path at BOB_LAP_SAMPLES points of its lap -- no joint cycle, no
+    window, no phase: the verdict moves continuously with every parameter, monotone in amp and bob period.
 
     Why: on a pitched camera a path toward or away from the camera already moves the prop up and down the screen,
     and a bob small and slow next to that folds into it -- bench 30946's cask (+-60 every 256 ticks on a 128-tick
-    r 300 orbit) moved +-4.3 px against the orbit's 60, added no up-and-down of its own, and the owner saw no bob."""
+    r 300 orbit) moved +-4 px against the orbit's 60, its speed a fifteenth of the orbit's, and the owner saw no
+    bob."""
     if not spec.bob_amp:
         return None
-    track = _track if _track is not None else _PathTrack(spec, project)
-    bp, step, heights = spec.bob_period, _stride(spec), {}
-    cyclic, wins = _windows(spec)
-    px2, w_rev, o_rev, lo, hi, n = 0.0, 0, 0, math.inf, -math.inf, 0
-    for start, length in wins:
-        vw, vo = [], []
-        for k in range(start, start + length, step):
-            x, z, (ou, ov) = track.at(k)
-            h = heights.get(k % bp)
-            if h is None:
-                h = heights[k % bp] = spec.height + cdiv(SIN[_bob_angle(spec, k)] * spec.bob_amp, 4096)  # pose()'s
-            wu, wv = project(x, h, z)
-            d2 = (wu - ou) * (wu - ou) + (wv - ov) * (wv - ov)
-            if d2 > px2:
-                px2 = d2
-            vw.append(wv)
-            vo.append(ov)
-        w_rev += _swings(vw, BOB_SEEN_PX, cyclic=cyclic)
-        o_rev += _swings(vo, BOB_SEEN_PX, cyclic=cyclic)
-        lo, hi, n = min(lo, min(vo)), max(hi, max(vo)), n + length
-    laps = n / spec.period if spec.path else 0.0
-    return BobReading(math.sqrt(px2), w_rev, o_rev, hi - lo, n, cyclic, laps)
+    return _reading(spec, _profile(spec, _view(project), spec.height, spec.bob_amp), spec.bob_period)
 
 
 def _replace(spec: MotionSpec, **kw) -> MotionSpec:
@@ -629,98 +614,113 @@ def _fmt_px(v: float) -> str:
     return f"{math.floor(v * 100) / 100:.2f}" if v < BOB_SEEN_PX else f"{v:.1f}"
 
 
-def bob_note(spec: MotionSpec, cams) -> str | None:
-    """The lint advisory for a bob that will not read as one, or None. ``cams`` = one projector
-    ``(x, height, z) -> (u, v)``, or ``[(camera name, projector)]`` for a field with several cameras (a [[camera]]
-    field shows a prop through whichever camera its zone selects). ONE note per mover: it names every camera the
-    bob fails on, and only fixes re-measured to read on EVERY camera, to stay under the smoother's snap, and to keep
-    a bob that cleared the y-0 floor clear of it (a larger amp there comes with the height it needs)."""
-    cams = [("", cams)] if callable(cams) else list(cams)
-    if not spec.bob_amp or not cams:
+def _period_limit(spec: MotionSpec, prof: _Profile) -> float:
+    """The longest bob period that reads through this profile at the current amp: inf when the bob already
+    out-travels the path or the path has no vertical speed, 0 when the bob is too small to see at any period."""
+    px = min(prof.offsets)
+    if px < BOB_SEEN_PX:
+        return 0.0
+    if 2 * px >= prof.span or not spec.path:
+        return math.inf
+    lap = _TAU / spec.period
+    return min((_TAU * o / (s * lap) for o, s in zip(prof.offsets, prof.speeds) if s * lap > 1e-12), default=math.inf)
+
+
+def bob_note(spec: MotionSpec, views, *, clocks=None) -> str | None:
+    """The lint advisory for a bob that will not read as one, or None. ``views`` = one projector, or
+    [:class:`View`] / [(name, projector[, size])] for a field with several cameras; a camera that never shows the
+    mover's path (behind it, or off its canvas) is not judged. ``clocks`` = the periods the field's OTHER channels
+    already use, so a named bob period never takes the field past CLOCKS_MAX. ONE note per mover: it names every
+    camera the bob fails on, and only fixes that read on every judged camera, stay under the smoother's snap (its
+    bound, exact or not), keep a floor-clearing bob above the floor, stay in front of every camera, and stay on
+    the canvas of every camera where the author's bob already did."""
+    views = [_view(views)] if callable(views) or isinstance(views, View) else [_view(v) for v in views]
+    if not spec.bob_amp:
         return None
-
-    def read(s: MotionSpec, proj, tr=None) -> BobReading | None:
+    clocks = list(clocks or [])
+    judged = []
+    for v in views:
         try:
-            return bob_reading(s, proj, tr)
-        except ZeroDivisionError:                       # a pose on this camera's plane: it cannot project it
-            return None
-
-    flicker = spec.bob_period < BOB_PERIOD_MIN          # a 2-tick sine never moves, a 3-tick one only jitters
-    tracks, bad = [], []
-    for name, proj in cams:
-        tr = _PathTrack(spec, proj)
-        rd = read(spec, proj, tr)
-        if rd is None:
+            prof = _profile(spec, v, spec.height, spec.bob_amp)
+        except ZeroDivisionError:                      # a pose exactly on this camera's plane
             continue
-        if rd.reads and not flicker:
-            tracks.append((name, proj, tr))
-        else:                                           # a failing camera first: a candidate fix fails there fastest
-            tracks.insert(len(bad), (name, proj, tr))
-            bad.append((name, rd))
+        if prof.seen:
+            judged.append((v, prof))
+    if not judged:
+        return None
+    flicker = spec.bob_period < BOB_PERIOD_MIN
+    bad = [(v, prof, _reading(spec, prof, spec.bob_period)) for v, prof in judged]
+    bad = [b for b in bad if flicker or not b[2].reads]
     if not bad:
         return None
-    names = [nm for nm, _r in bad if nm]
+    names = [v.name for v, _p, _r in bad if v.name]
     on = (f" on {', '.join(names[:-1])} and {names[-1]}" if len(names) > 1 else
           f" on {names[0]}" if names else " on this camera")
-    r = min((rd for _n, rd in bad), key=lambda x: x.px)
     what = f"{spec.label} motion: its bob (+-{spec.bob_amp} every {spec.bob_period} ticks)"
 
-    def ok(fixed: MotionSpec) -> bool:
-        step, _fb = max_step(fixed)
-        if step >= SNAP_UNITS and step_is_exact(fixed):
-            return False
-        same = fixed.height == spec.height                # a new height moves the path track: re-project it
-        for _n, proj, tr in tracks:
-            rd = read(fixed, proj, tr if same else None)
-            if rd is None or not rd.reads:
-                return False
-        return True
+    def snaps(fixed: MotionSpec) -> bool:
+        return max_step(fixed)[0] >= SNAP_UNITS                  # the bound, exact or not
+
+    def allowed(bp: int) -> bool:
+        return bp in clocks or len(set(clocks) | {bp}) <= CLOCKS_MAX
 
     fixes = []
-    if flicker:
-        cands = ([spec.period // d for d in BOB_FIX_DIVS] if spec.path else []) + [8 << i for i in range(8)]
-        for bp in sorted({c for c in cands if BOB_PERIOD_MIN <= c <= PERIOD_MAX}):
-            if ok(_replace(spec, bob_period=bp)):
-                fixes.append(f"a bob period of {bp}")
+    limit = min(_period_limit(spec, prof) for _v, prof, _r in bad)
+    if limit >= BOB_PERIOD_MIN:
+        shared = [c for c in clocks if BOB_PERIOD_MIN <= c <= limit]     # the law is monotone: all faster than now
+        own = math.floor(min(limit, PERIOD_MAX)) if limit < math.inf else None
+        ladder = [TICKS_PER_SECOND << i for i in range(8)] if limit == math.inf and flicker else []  # 1 s, 2 s, ...
+        for bp in sorted(shared, reverse=True) + ([own] if own else []) + ladder:
+            if bp >= BOB_PERIOD_MIN and allowed(bp) and not snaps(_replace(spec, bob_period=bp)):
+                fixes.append(f"a bob period of {bp}{' or less' if bp == own and not flicker else ''} (same amp"
+                             + ("; a clock the field already runs)" if bp in clocks else ")"))
                 break
-        why = ("a 2-tick sine never moves (it samples the sine at 0 and 180 degrees, where it is 0)"
-               if spec.bob_period == 2 else f"a {spec.bob_period}-tick sine is a {TICKS_PER_SECOND // 3}-a-second "
-                                            f"jitter, never a bob")
-        return (f"{what}: {why}, on any camera -- give the bob a period of {BOB_PERIOD_MIN} or more"
-                + (f"; try {fixes[0]} (same amp)" if fixes else ""))
-    if spec.path is not None:
-        for div in BOB_FIX_DIVS:
-            bp = spec.period // div
-            if bp < BOB_PERIOD_MIN or bp >= spec.bob_period:
-                continue
-            if ok(_replace(spec, bob_period=bp)):
-                fixes.append(f"a bob period of {bp} (same amp)")
+    if not flicker:
+        floored = spec.height - spec.bob_amp >= 0          # the author kept the bob above the y-0 floor: keep it there
+        need = 1.0
+        for _v, prof, r in bad:
+            k_vis = BOB_SEEN_PX / r.px if r.px else math.inf
+            k_speed = 1 / r.ratio if r.ratio > 0 else math.inf
+            k_out = r.path_span / (2 * r.px) if r.px else math.inf
+            need = max(need, k_vis, min(k_speed, k_out))
+        amp = math.ceil(spec.bob_amp * need) + 1 if need < math.inf else None
+        for _try in range(4):
+            if amp is None or amp > AMP_MAX:
                 break
-    floored = spec.height - spec.bob_amp >= 0           # the author kept the bob above the y-0 floor: keep it there
-    amps = [math.ceil(spec.bob_amp * k) for k in BOB_FIX_AMPS]
-    if r.px:
-        amps.append(math.ceil(spec.bob_amp * max(BOB_SEEN_PX, r.path_span / 2) / r.px) + 1)
-    for amp in sorted({a for a in amps if spec.bob_amp < a <= AMP_MAX}):
-        h = max(spec.height, amp) if floored else spec.height
-        if h > HEIGHT_MAX:
-            continue
-        if ok(_replace(spec, bob_amp=amp, height=h)):
-            fixes.append(f"an amp of {amp} (same period)" if h == spec.height else
-                         f"an amp of {amp} with height {h} (same period; the bob stays above the floor)")
-            break
+            h = max(spec.height, amp) if floored else spec.height
+            fixed = _replace(spec, bob_amp=amp, height=h)
+            ok = h <= HEIGHT_MAX and not snaps(fixed)
+            for v, prof in judged if ok else ():
+                try:
+                    p2 = _profile(fixed, v, h, amp)
+                except ZeroDivisionError:
+                    ok = False
+                    break
+                if not (p2.front and (p2.inside or not prof.inside) and _reading(fixed, p2, spec.bob_period).reads):
+                    ok = False
+                    break
+            if ok:
+                fixes.append(f"an amp of {amp} (same period)" if h == spec.height else
+                             f"an amp of {amp} with height {h} (same period; the bob stays above the floor)")
+                break
+            amp = math.ceil(amp * 1.15)
     tail = f" -- try {' or '.join(fixes)}" if fixes else ""
+    if flicker:
+        hs = {cdiv(SIN[_bob_angle(spec, k)] * spec.bob_amp, 4096) for k in range(spec.bob_period)}
+        why = ("never leaves its height" if len(hs) == 1 else "flips between two heights every tick"
+               if spec.bob_period == 2 else f"jitters {TICKS_PER_SECOND // spec.bob_period} times a second")
+        return (f"{what}: a {spec.bob_period}-tick bob {why} -- never a bob, on any camera; give it a period of "
+                f"{BOB_PERIOD_MIN} or more{tail}")
+    r = min((b[2] for b in bad), key=lambda x: (x.px >= BOB_SEEN_PX, x.ratio))
     if spec.path is None:
         return f"{what} moves it at most {_fmt_px(r.px)} field px{on} -- too small to see{tail}"
-    window = "" if r.cyclic else f" (sampled over {r.window} ticks across its {spec.cycle}-tick joint cycle)"
     if r.px < BOB_SEEN_PX:
-        why = f"it moves the prop at most {_fmt_px(r.px)} field px -- too small to see"
+        why = f"it moves the prop only {_fmt_px(r.px)} field px -- too small to see"
     else:
-        added = ("adds no up-and-down of its own" if r.added_per_lap <= 0 else
-                 f"adds only {r.added_per_lap / 2:.2f} up-and-downs of its own a lap (a bob that reads adds more "
-                 f"than 1)")
-        why = (f"it moves the prop at most {_fmt_px(r.px)} field px and {added} to the path's {r.path_span:.0f} px, "
-               f"so it reads as a reshaped path")
-    return f"{what} does not read as a bob{on}: {why}{window}{tail}"
+        why = (f"it moves the prop {_fmt_px(r.px)} field px, and its up-and-down ({r.bob_speed:.2f} px a tick) is "
+               f"slower than the path's own ({r.path_speed:.2f}) and smaller than the path's {r.path_span:.0f} px, so it "
+               f"folds into the path")
+    return f"{what} does not read as a bob{on}: {why}{tail}"
 
 
 def clocks(specs) -> list:

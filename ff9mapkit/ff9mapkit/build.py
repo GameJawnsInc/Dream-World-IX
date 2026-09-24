@@ -4307,26 +4307,29 @@ def _motion_floor_notes(project: FieldProject) -> list:
 
 
 def _motion_bob_notes(project: FieldProject) -> list:
-    """[[prop]] motion bobs that will not READ as a bob (motion.bob_note, THE BOB-READING LAW), projected through
-    EVERY camera of the field (cam.canvas_projector == cam.to_canvas, the kit's exact field-canvas map) -- the
-    verdict depends on the camera, and a [[camera]] field shows a prop through whichever camera its zone selects.
-    ONE note per mover, naming the cameras it fails on when there is more than one, with fixes that read on all of
-    them. Owner-observed on bench 30946's cask, then measured (the drawn height itself IS the 0xAD height: bench
-    30948). A camera or a mover that cannot be projected is skipped, never fatal (lint's contract)."""
+    """[[prop]] motion bobs that will not READ as a bob (motion.bob_note, THE BOB-READING LAW), judged through
+    EVERY camera of the field that shows the mover (cam.canvas_projector == cam.to_canvas, the kit's exact
+    field-canvas map, plus the signed depth and the canvas size, so a fix never sends a prop behind a camera or off
+    its canvas) -- a [[camera]] field shows a prop through whichever camera its zone selects. ONE note per mover,
+    naming the cameras it fails on when there is more than one, with fixes that read on all of them and never take
+    the field past CLOCKS_MAX. Owner-observed on bench 30946's cask, then measured (the drawn height itself IS the
+    0xAD height: bench 30948). A camera or a mover that cannot be projected is skipped, never fatal (lint's
+    contract)."""
     if not _motion.any_motion(project.raw):
         return []
     try:
         cfgs, scrolling = camera_cfgs(project), is_scrolling(project)
     except Exception:                                   # noqa: BLE001 -- no camera: nothing to project through
         return []
-    cams = []
+    views = []
     for ci, c in enumerate(cfgs):
         try:
-            cams.append((f"camera {ci}" if len(cfgs) > 1 else "",
-                         cam.canvas_projector(_resolve_one_camera(project, c, scrolling))))
+            rc = _resolve_one_camera(project, c, scrolling)
+            views.append(_motion.View(f"camera {ci}" if len(cfgs) > 1 else "", cam.canvas_projector(rc, depth=True),
+                                      (float(rc.range[0]), float(rc.range[1]))))
         except Exception:                               # noqa: BLE001 -- e.g. an unextracted borrow .bgx
             continue
-    out = []
+    specs = []
     for i, p in enumerate(project.raw.get("prop") or []):
         if not isinstance(p, dict) or p.get("motion") is None:
             continue
@@ -4334,11 +4337,14 @@ def _motion_bob_notes(project: FieldProject) -> list:
             spec = _motion.parse(p, i)
         except _motion.MotionError:
             continue                                   # problems() reports it
-        if spec is None:
-            continue
+        if spec is not None:
+            specs.append(spec)
+    out = []
+    for spec in specs:
+        others = [q for s2 in specs if s2 is not spec for q in s2.periods] + ([spec.period] if spec.period else [])
         try:
-            note = _motion.bob_note(spec, cams)
-        except Exception:                               # noqa: BLE001 -- a pose on the camera plane, say
+            note = _motion.bob_note(spec, views, clocks=others)
+        except Exception:                               # noqa: BLE001 -- one mover's note never costs the others
             continue
         if note:
             out.append(note)

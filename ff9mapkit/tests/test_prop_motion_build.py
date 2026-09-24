@@ -455,7 +455,7 @@ def test_lint_projects_each_bob_through_the_fields_camera(tmp_path):
     fast = [("cask", (0, -800), "collision = false\nshadow = false",
              '{ radius = 300, period = 128, height = 150, turn = "travel", bob = { amp = 120, period = 32 } }')]
     notes = [n for n in build.lint_all(_load(tmp_path, _toml(slow), "slow")).logic if "bob (" in n]
-    assert len(notes) == 1 and "adds no up-and-down of its own" in notes[0], notes
+    assert len(notes) == 1 and "folds into the path" in notes[0], notes
     assert not [n for n in build.lint_all(_load(tmp_path, _toml(fast), "fast")).logic if "bob (" in n]
 
 
@@ -530,6 +530,24 @@ def test_a_failing_motion_hook_does_not_hide_the_bob_note(tmp_path, monkeypatch)
     assert [n for n in logic if "bob (" in n and "on camera 1:" in n], logic
 
 
+_ORBIT = [("balloon", (0, -900), "collision = false\nshadow = false",
+           "{ radius = 300, period = 128, height = 150, bob = { amp = 60, period = 256 } }")]
+
+
+def test_a_bob_failing_on_two_cameras_gets_one_note_whose_fix_clears_both(tmp_path):
+    """[review 3 claims-5: one-note-per-prop was pinned only in motion.bob_note, so the build hook could regress to a
+    note per camera with every test green] An orbit folds its slow bob on BOTH cameras: lint_all prints ONE note
+    naming both, and applying the amp it names to the toml clears the note on both."""
+    head = _TWO_CAMERAS.format(yaw0=0, yaw1=90)
+    notes = [n for n in build.lint_all(_load(tmp_path, _toml(_ORBIT, head=head), "both")).logic if "bob (" in n]
+    assert len(notes) == 1 and "on camera 0 and camera 1:" in notes[0], notes
+    amp, h = re.search(r"an amp of (\d+) with height (\d+)", notes[0]).groups()
+    fixed = [(_ORBIT[0][0], _ORBIT[0][1], _ORBIT[0][2],
+              f"{{ radius = 300, period = 128, height = {h}, bob = {{ amp = {amp}, period = 256 }} }}")]
+    after = build.lint_all(_load(tmp_path, _toml(fixed, head=head), "fixed")).logic
+    assert not [n for n in after if "bob (" in n or "SNAP" in n], after
+
+
 def test_the_fast_projector_is_to_canvas_bit_for_bit(tmp_path):
     """The bob lint projects through cam.canvas_projector; it must be cam.to_canvas exactly (same float operations
     in the same order), or a threshold verdict could differ from the map every other tool uses."""
@@ -538,6 +556,9 @@ def test_the_fast_projector_is_to_canvas_bit_for_bit(tmp_path):
     proj = _two(tmp_path, 30, 135)
     cams = [build._resolve_one_camera(proj, c, build.is_scrolling(proj)) for c in build.camera_cfgs(proj)]
     cams.append(build.resolve_camera(_load(tmp_path, _toml([]), "one")))
+    shifted = build.resolve_camera(_load(tmp_path, _toml([]), "shifted"))     # [review 3 claims-8] a real imported
+    shifted.centerOffset, shifted.t = [26, 400], [137, -58, 4321]              # camera carries both
+    cams.append(shifted)
     rnd = random.Random(1)
     for c in cams:
         f = C.canvas_projector(c)
@@ -548,6 +569,7 @@ def test_the_fast_projector_is_to_canvas_bit_for_bit(tmp_path):
             except ZeroDivisionError:
                 continue
             assert f(x, y, z) == want, (x, y, z)
+            assert C.canvas_projector(c, depth=True)(x, y, z)[:2] == want
 
 
 # ================================================================ a height alone is a HOLD -- the zero-clock daemon
@@ -591,3 +613,24 @@ def test_lint_has_nothing_to_say_about_a_hold(tmp_path):
     assert len(notes) == 1 and "too small to see" in notes[0], notes
     rep = build.lint_all(_load(tmp_path, _toml([_HOLD]), "hold"))
     assert not [n for n in rep.logic + rep.errors if "motion" in n], (rep.logic, rep.errors)
+
+
+def test_lint_names_a_clock_the_field_already_runs_when_it_is_full(tmp_path):
+    """[review 3 advice-1: the named period could be a 9th clock, and the field then failed validate] The field is
+    at CLOCKS_MAX (8): seven spinning props hold 16, 200, 300, 400, 500, 600 and 256, and the cask orbits on 128
+    with a +-60 bob on 256. A new period for the bob would be a 9th clock, so lint names the field's own 16 -- and
+    the toml with it applied still validates and lints clean of bob notes."""
+    spins = [(n, (-1000 + 280 * i, -300), "", f'{{ turn = "spin", period = {per} }}')
+             for i, (n, per) in enumerate(zip(("scroll", "letter", "chest", "sword", "fish", "book", "feather"),
+                                              (16, 200, 300, 400, 500, 600, 256)))]
+    cask = [("cask", (0, -1100), "collision = false\nshadow = false",
+             "{ radius = 300, period = 128, height = 150, bob = { amp = 60, period = BP } }")]
+
+    def field(bp, name):
+        mo = [(n, p, x, m.replace("BP", str(bp))) for n, p, x, m in cask]
+        return _load(tmp_path, _toml(spins + mo), name)
+    assert len(motion.clocks([motion.parse(p, i) for i, p in enumerate(field(256, "full").raw["prop"])])) == 8
+    notes = [n for n in build.lint_all(field(256, "full")).logic if "bob (" in n]
+    assert len(notes) == 1 and "a bob period of 16 (same amp; a clock the field already runs)" in notes[0], notes
+    fixed = build.lint_all(field(16, "fixed"))
+    assert not [n for n in fixed.logic + fixed.errors if "bob (" in n or "distinct periods" in n], fixed
