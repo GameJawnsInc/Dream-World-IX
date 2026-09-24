@@ -1,0 +1,75 @@
+# =====================================================================================
+# PHOTO MODE, RUNG 1 -- the kit feature, in-game  --  field 30956
+# =====================================================================================
+# The rung-0 frame (768x448, the seeded 16-px test pattern) authored ONLY through the kit's own surface: the photo
+# mode below is `[photo]`, nothing seated by hand. studies/photo-mode/photo1_bench.py seats one study-local OBSERVER
+# (mirrors the view, control, keys and each target's show bit into Global bytes for the harness, and can play a
+# foreign EnableMove / DisableMove / scene flag) -- it never touches the camera.
+#
+#   py studies/photo-mode/photo1_bench.py deploy
+#   py tools/play.py studies/photo-mode/rung1_photo.py --label photo-rung1
+#
+# Plain `py tools/deploy_field.py studies/photo-mode/bench/photo1.field.toml --id 30956` gives the owner the same field
+# without the observer.
+
+[field]
+id = 30956
+name = "PHOTO1"
+area = 11
+title = "PHOTO 1"
+
+[camera]
+pitch = 40.0
+distance = 4500
+fov = 42.2
+range = [768, 448]
+window_width = 384
+
+[camera.scroll]
+enabled = true
+
+[walkmesh]
+quad = [[-2122,-161],[2122,-161],[2122,-2043],[-2122,-2043]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+
+[player]
+spawn = [0, -1102]
+
+[[prop]]
+prop = "balloon"
+name = "balloon-l"
+pos = [-1000, -1102]
+collision = false
+shadow = false
+
+[[prop]]
+prop = "balloon"
+name = "balloon-c"
+pos = [0, -450]
+collision = false
+shadow = false
+
+[[prop]]
+prop = "balloon"
+name = "balloon-r"
+pos = [1000, -1102]
+collision = false
+shadow = false
+
+[[npc]]
+name = "guard"
+preset = "zidane"
+pos = [600, -800]
+
+[[npc]]
+name = "talker"
+preset = "vivi"
+pos = [-600, -800]
+dialogue = "Photo mode waits until I stop talking."
+
+[photo]
+hide = ["balloon-l", "balloon-c", "guard", "player", "all"]

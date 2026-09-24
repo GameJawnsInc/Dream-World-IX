@@ -262,6 +262,45 @@ separately.
 | Hide | By mesh (0x3A over meshes 0-15, any uid, flags untouched), by flags (a function seated on the target's own entry, run through `RunScriptSync(2, uid, tag)`), or all at once (0xD5/0xD6). Every one comes back |
 | Grade | A held SUB `FadeFilter`, subtracted in gamma space; the same channel at 0 clears it |
 
+## Rung 1: the kit feature (`[photo]`)
+
+★ **In-game 16/16** (`photo-rung1b`, bench **30956** `bench/photo1.field.toml`, authored ONLY through `[photo]`).
+
+**How it was designed.** A design workflow ran:
+- four readers: feature wiring, button ownership, camera code, the test interpreter;
+- two designs, author-first and safety-first;
+- a judge that checked both against the kit's code and merged them (the scratchpad spec).
+
+The kit now has:
+- **`content/photo.py`:**
+  - `parse`;
+  - `problems`, one text for validate, lint and the build;
+  - `pan_boxes`, `box_lines` and `lint_notes`;
+  - the daemon, with state in its own locals;
+  - a self-audit on its bytes;
+  - `arm`: hide functions seated on the targets' own entries from tag 96, armed after every target, and
+    CAMERA-OWNER and E-POLL checked on the final bytes.
+- **Opcodes:** `move_camera`, `release_camera` and `calculate_screen_origin`.
+- **Tests:** `_ebengine.CameraModel` plus `FieldTickEngine`, where the daemon runs tick by tick against a camera
+  calibrated on runs 2-6. `test_photo_mode*` covers 98 cases.
+- **Other surfaces:** the schema stub, the campaign and deploy fork guards, and FORMAT.md.
+
+**What the kit daemon does that rung 0's did not** (each proven by run r1):
+
+| Change | Why | In-game |
+|---|---|---|
+| A **B_KEY latch** instead of B_KEYON | No dialogue-turbo arming | Every edge and toggle behaved |
+| **A 30-tick settle** after control returns | Never opens mid-cutscene, mid-dialogue or the moment one ends | K1, Y1 |
+| **Yield** on a foreign EnableMove, MAP 110 or a camera change | A full, exact close | Y2, Y3 |
+| **PRIOR** | An object already hidden stays hidden | Y4 |
+| Hide/show on an **NPC** entry | New target kind | K2: the guard |
+| **Tag allocation from 96** | Rung 0's 40/41 collided with `[[jump]]` | — |
+
+**The run's two instrument lessons.** The daemon was right both times; only the instruments needed fixing.
+- **The entry fade.** The kit's entry fade-in is a SUB FadeFilter ramp that the harness's `fading` flag does not
+  report, so the first run's calibration shot was darkened. The rung-0 daemon's latch had hidden this.
+- **The talker's ribbon.** Its red is a 288-300 px body. Balloons are now matched by position and a 600 px floor.
+
 ## What rung 1 (the kit feature) inherits
 
 What the kit needs to ship this as a `field.toml` surface, from the runs above:

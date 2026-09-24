@@ -5,6 +5,46 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — Photo mode (`[photo]`): the player pans, hides and tints, and gets the camera back
+- **A bare `[photo]` gives any novel field a photo mode.**
+  - **Open (Select):** stops the player and takes the camera exactly where it is.
+  - **Pan (d-pad):** 4 px of the painting a tick, never past the camera's own scroll box.
+  - **Hide (R1):** hides the next step of `hide`: the player, an `[[npc]]` or `[[prop]]` by name, then `"all"`.
+  - **Grade (L1):** toggles a held warm tint.
+  - **Close (Cancel):** puts back exactly what was hidden (an object already hidden stays hidden), clears the tint,
+    gives control back and eases the camera onto the player. The camera follows the player if he walks off at once,
+    so it lands on him with no snap.
+
+  Every button is rebindable to Select, Cancel, L1, R1, L2 or R2.
+- **Safety.**
+  - It opens only after a second of player control, so never mid-cutscene, mid-dialogue or the instant one ends.
+  - It closes itself with the same exact restore when anything else takes over: a script giving control back, a
+    conductor scene starting, a camera switch.
+  - It writes no story flag and no field variable (its state is its own script's locals).
+  - It never switches the camera services off, which would silently drop every scripted camera move.
+- **Refusals (one text in validate, `lint` and the build).** The first four are the hard ones:
+  - forks (a donor, `[verbatim_eb]`, a borrowed camera or background; `lint-campaign` and `deploy_field` refuse the
+    forked-member and live-donor-row cases);
+  - an open button another feature already polls on the field (`[ate]`, a hire pool, `[siege]`, or any poll the
+    build finds in the finished script);
+  - hide targets that do not exist the whole visit (flag- or scenario-gated, behavior units, carriers, held props);
+  - a field where no camera can pan.
+
+  Also refused: Start, Menu, the d-pad, Confirm and Special as photo buttons; `"all"` not last; more than 8 steps
+  or 15 objects. `lint` prints each camera's pan box for 4:3 and 16:9, and notes a 384-wide room whose X is pinned
+  under widescreen.
+- **Byte identity:** a field without `[photo]` never reaches its code, and the vivi-hut oracle is unchanged.
+- **Proof:**
+  - **Rung 0** proved every mechanism with a study-local script, 154/154 checks over six harness runs, and the owner
+    playtested it (hotkeys, pan speed and exit glide confirmed; the one defect, a snap when walking during the exit
+    glide, fixed by re-issuing the release every tick).
+  - **Rung 1 in-game (bench 30956, 16/16):** everything above, authored only through `[photo]`, including the first
+    in-game flags-hide of an NPC.
+  - **Offline:** the daemon runs tick by tick in a camera model calibrated on rung 0's measurements
+    (`tests/_ebengine.py`).
+
+  `docs/FORMAT.md` § `[photo]`; studies/photo-mode/PLAN.md.
+
 ### Added — `[[prop]] motion = { height = N }` holds a prop at a height
 - **A non-zero `height` on its own is now a hold**: the prop stays at that height, re-placed each tick by the
   field's motion script like any other mover (walk-through, shadowless). Before, `motion` needed a `radius`,
