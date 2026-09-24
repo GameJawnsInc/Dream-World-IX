@@ -392,18 +392,23 @@ def run(g) -> None:
         _poke_sentinel(g)                                  # NOW only a Main_Init re-run could overwrite it
         last_pre = max(pre) if pre else None
         g.start_battle(BATTLE_SCENE)
+        # FIGHT FIRST: the claim is "after A battle" (a win and an escape both return through Main_Reinit), and
+        # scene 67 is a lone 33 HP Goblin one Attack kills. Fleeing is a dice roll: run 3 held 60 s without a
+        # roll landing while the Goblin wore the party down to a Game Over. Flee stays the fallback.
         escaped, how = False, []
+        try:
+            how.append(f"fight -> {g.fight(finish=False, timeout=240, max_turns=40)}")
+        except HarnessError as err:
+            how.append(f"fight refused: {err}")
         for _attempt in range(3):
+            if not g.state.in_battle or g.state.battle_result != 0:     # won / lost / left: nothing to flee
+                break
             try:
                 escaped = g.flee(timeout=30)
             except HarnessError as err:
                 how.append(f"flee refused: {err}")
                 break
             how.append(f"flee -> {escaped}")
-            if escaped or not g.state.in_battle:
-                break
-        if not escaped and g.state.in_battle:
-            how.append(f"fight -> {g.fight(finish=False)}")
         how.append(f"leave -> {g.leave_battle()}")
         g.wait_for(lambda s: s.ui_state == "FieldHUD" and s.field_id == SB.FIELD_ID and not s.in_battle,
                    timeout=90, what="back on 30946 after the battle")

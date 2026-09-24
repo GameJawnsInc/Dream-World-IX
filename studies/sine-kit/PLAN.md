@@ -249,6 +249,10 @@ so every sample must equal `motion.pose(K)`.
 Run 1 was 25/26: CAL predicted the spawn height as the floor (0) but read -32768. 0x1D CreateObject parks a new
 actor at y = `POS_COMMAND_DEFAULTY` (32768, `EventEngine.Constructor.cs:11`, `DoEventCode.cs:384`) until its
 controller snaps it; the kit is unaffected (tick 0 writes y explicitly). The bench now predicts it; run 2 is 26/26.
+After the adversarial review's fixes (no daemon byte changed; P1 re-derives the deployed bytes from the final
+kit), run 3 was 25/26: C9's flee never rolled in 60 s and the Goblin won (Game Over), which no motion check depends
+on. C9 now fights first (scene 67 is a lone 33 HP Goblin; a win returns through Main_Reinit like an escape) with
+flee as the fallback. Run 4, the final code: 26/26 (969/969 exact; C9 via a win, K 230 -> 266).
 
 ## Corrections to the board entry
 
