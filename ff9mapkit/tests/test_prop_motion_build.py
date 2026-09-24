@@ -457,3 +457,40 @@ def test_lint_projects_each_bob_through_the_fields_camera(tmp_path):
     notes = [n for n in build.lint_all(_load(tmp_path, _toml(slow), "slow")).logic if "bob (" in n]
     assert len(notes) == 1 and "adds no up-and-down of its own" in notes[0], notes
     assert not [n for n in build.lint_all(_load(tmp_path, _toml(fast), "fast")).logic if "bob (" in n]
+
+
+_TWO_CAMERAS = """
+[field]
+id = 30990
+name = "MOTB"
+area = 11
+
+[[camera]]
+pitch = 48
+yaw = 0
+[[camera]]
+pitch = 48
+yaw = 90
+
+[[camera_zone]]
+to_camera = 1
+zone = [[500, -150], [900, -150], [900, -550], [500, -550]]
+[[camera_zone]]
+to_camera = 0
+zone = [[-900, -150], [-500, -150], [-500, -550], [-900, -550]]
+
+[walkmesh]
+quad = [[-1400, -100], [1400, -100], [1400, -2000], [-1400, -2000]]
+
+[player]
+spawn = [0, -1600]
+"""
+
+
+def test_lint_judges_a_bob_through_every_camera(tmp_path):
+    """[review: camera 0 only] An x-shuttle with a +-100 bob is sideways to camera 0 (the bob reads) but runs
+    toward camera 1 (yaw 90: the shuttle is depth there, and the bob folds into it). lint names camera 1 only."""
+    mover = [("balloon", (-600, -900), "collision = false\nshadow = false",
+              "{ to = [600, -900], period = 128, height = 150, bob = { amp = 100, period = 64 } }")]
+    notes = [n for n in build.lint_all(_load(tmp_path, _toml(mover, head=_TWO_CAMERAS), "two")).logic if "bob (" in n]
+    assert len(notes) == 1 and "on camera 1" in notes[0], notes

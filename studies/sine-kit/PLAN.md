@@ -271,12 +271,20 @@ model).
 
 **Why no bob on the cask?** Perception, measured through the kit's camera (`cam.to_canvas`): a unit of depth moves
 a prop 0.100 field px up the screen at this pitch and a unit of height 0.069 px. The cask's +-60 bob moves it at
-most 4.3 field px against its orbit's 60, and at 2x the orbit's period it is phase-locked: it lands on the same
-points of the loop every lap, adds no up-and-down of its own (the same screen-vertical reversals with and without
-it), and reads as an uneven loop. THE BOB-READING LAW: a bob reads as a bob exactly when it adds screen-vertical
-reversals to its path's own. `motion.bob_reading` / `bob_note` measure it and `ff9mapkit lint` projects every bob
-through the field's camera. 30948 also carries the owner's demo: a cask on an r 200 orbit with a bob four times
-faster (+-120 every 32 ticks), which lint passes.
+most 4.3 field px against its orbit's 60 and adds no up-and-down of its own (the same screen-vertical reversals
+with and without it): it reads as an uneven loop. It is small and slow next to the orbit's own up-and-down; its
+2:1 period ratio is not the cause (alternate laps even get opposite offsets) -- +-60 every 32 ticks does not read
+either, +-120 every 32 does.
+
+THE BOB-READING LAW: a bob reads as a bob when it moves the prop a visible amount (>= 1 field px) AND either adds
+screen-vertical reversals of its own or out-travels the path's own vertical travel (2 x its offset >= the path's
+span -- on a nearly flat track the bob IS the vertical motion, whatever its period). `motion.bob_reading` /
+`bob_note` measure it (the joint cycle, or a bounded window of eight of the slower period); `ff9mapkit lint`
+projects every bob through each of the field's cameras and names the faster bob period and the larger amp it has
+re-measured do read. A first cut counted reversals only; its adversarial review built false alarms (a big bob on a
+small orbit, a shuttle with a 10-unit depth drift) and silent misses (any joint cycle past 16384 ticks, camera 0
+only), all now pinned by tests. 30948 also carries the owner's demo: a cask on an r 200 orbit with +-120 every 32
+ticks (four bobs a lap), which lint passes.
 
 The trace also found that `shadow = false`'s stated reason was wrong: the engine draws an airborne prop's blob at
 the prop's own height (`FieldMapActor.GetShadowCurrentPos`), not on the floor. The rule stands; the text is fixed.

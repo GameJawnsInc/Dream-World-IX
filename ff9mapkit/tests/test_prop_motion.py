@@ -1215,29 +1215,81 @@ def test_swings_count_reversals_not_integer_jitter():
     assert M._swings(lap) == 2                                   # one up, one down a cycle
     assert M._swings([v + (0.2 if n % 2 else -0.2) for n, v in enumerate(lap)]) == 2   # sub-0.5 px jitter ignored
     assert M._swings([3.0] * 20) == 0 and M._swings([1.0]) == 0
+    assert M._swings(lap * 3, cyclic=False) == 6                 # a cut window: every turn once the direction settles
 
 
-def test_a_slow_phase_locked_bob_folds_into_the_orbit():
-    """[bench 30946's cask, owner-observed] +-60 every 256 ticks on a 128-tick r 300 orbit adds NO up-and-down of
-    its own through a pitched camera -- the same reversals with and without it -- so the note fires; the default
-    bob period (the orbit's own) folds completely too."""
+def test_a_small_slow_bob_folds_into_the_orbit():
+    """[bench 30946's cask, owner-observed] +-60 every 256 ticks on a 128-tick r 300 orbit moves the prop ~4 px on
+    a pitched camera, adds no up-and-down of its own and is far smaller than the orbit's own ~60 px: no read. The
+    default bob period (the orbit's own) and a 4x faster +-60 bob fold too -- amp matters, not only speed."""
     cask = M.parse(BENCH["B"], 1)
-    px, w, wo = M.bob_reading(cask, _pitched)
-    assert w == wo and 3.5 < px < 5.0                          # ~60 u x 0.069: ~4 px
+    r = M.bob_reading(cask, _pitched)
+    assert (r.with_bob, r.cyclic) == (r.without, True) and 3.5 < r.px < 5.0 and not r.reads
     assert "adds no up-and-down of its own" in M.bob_note(cask, _pitched)
-    same = _spec({"radius": 300, "period": 128, "height": 150, "turn": "travel", "bob": {"amp": 120}})
+    same = _spec({"radius": 300, "period": 128, "height": 150, "turn": "travel", "bob": {"amp": 60}})
     assert same.bob_period == 128 and M.bob_note(same, _pitched) is not None
+    assert M.bob_note(_spec({"radius": 300, "period": 128, "height": 150, "bob": {"amp": 60, "period": 32}}),
+                      _pitched) is not None
 
 
-def test_a_fast_bob_reads_while_arcing_and_a_bob_only_prop_always_does():
-    """The fixes the note names: a bob four times faster than its orbit adds its own reversals; a bob-only prop
-    reads as a bob once it moves a visible amount, and a +-1 bob is flagged as too small."""
-    demo = _spec({"radius": 200, "period": 128, "height": 150, "turn": "travel", "bob": {"amp": 120, "period": 32}},
-                 prop="cask", pos=[0, -1500])
-    _px, w, wo = M.bob_reading(demo, _pitched)
-    assert w > wo and M.bob_note(demo, _pitched) is None
-    solo = _spec({"height": 150, "bob": {"amp": 150, "period": 60}})
-    assert M.bob_reading(solo, _pitched)[1:] == (2, 0) and M.bob_note(solo, _pitched) is None
-    tiny = _spec({"height": 300, "bob": {"amp": 1, "period": 60}})
-    assert "too small to read as a bob" in M.bob_note(tiny, _pitched)
+_READS = [
+    # (id, motion, pos) -- each READS as a bob; the old reversal-only rule flagged every one but the first two
+    ("demo_4x_faster", {"radius": 200, "period": 128, "height": 150, "turn": "travel",
+                        "bob": {"amp": 120, "period": 32}}, [0, -1500]),
+    ("bob_only", {"height": 150, "bob": {"amp": 150, "period": 60}}, [0, -800]),
+    ("sideways_slow", {"to": [600, -800], "period": 120, "height": 150, "bob": {"amp": 60, "period": 240}}, [-600, -800]),
+    ("shuttle_depth_drift", {"to": [900, -990], "period": 128, "height": 150, "bob": {"amp": 100}}, [300, -1000]),
+    ("small_orbit_big_bob", {"radius": 40, "period": 120, "height": 200, "bob": {"amp": 150}}, [0, -800]),
+    ("bob_swallows_reversals", {"radius": 50, "period": 64, "height": 400, "bob": {"amp": 400, "period": 128}}, [0, -800]),
+]
+
+
+@pytest.mark.parametrize("motion, pos", [r[1:] for r in _READS], ids=[r[0] for r in _READS])
+def test_a_bob_that_moves_or_outtravels_its_path_reads(motion, pos):
+    """[review: the reversal-only rule] A bob reads when it adds up-and-downs of its own OR out-travels the path's own
+    up-and-down: a bob on a nearly flat track (sideways, a small orbit, a slight depth drift) IS the vertical motion,
+    whatever its period -- and a sub-px depth change cannot flip the verdict."""
+    s = _spec(motion, prop="cask", pos=pos)
+    r = M.bob_reading(s, _pitched)
+    assert r.reads and M.bob_note(s, _pitched) is None, r
+
+
+def test_a_long_joint_cycle_is_measured_not_skipped():
+    """[review: past STEP_EXACT_MAX the check went silent] The owner's +-60 bob at period 257 (lcm 32896 with the
+    128-tick orbit) folds exactly like period 256: it is measured over a window and flagged, and the note says so."""
+    s = _spec({"radius": 300, "period": 128, "phase": 0.5, "height": 150, "bob": {"amp": 60, "period": 257}})
+    r = M.bob_reading(s, _pitched)
+    assert s.cycle > M.STEP_EXACT_MAX and not r.cyclic and r.window == 8 * 257 and not r.reads
+    assert "measured over 2056 ticks of its 32896-tick joint cycle" in M.bob_note(s, _pitched)
+
+
+def test_a_pathless_bob_too_small_to_see_gets_the_amp_advice():
+    """[review: a spin/swing prop got the path advice] Any mover without radius/to -- bob-only, spin or swing -- whose
+    bob moves it under a field px is told its amp, never a bob period (it has no path to outpace)."""
+    for m in ({"height": 300, "bob": {"amp": 1, "period": 60}},
+              {"turn": "spin", "period": 64, "height": 150, "bob": {"amp": 2, "period": 60}},
+              {"turn": "swing", "swing": 20, "period": 64, "height": 150, "bob": {"amp": 3, "period": 60}}):
+        note = M.bob_note(_spec(m, shadow=False), _pitched)
+        assert "too small to see; try an amp of" in note and "bob period" not in note, note
     assert M.bob_reading(_spec({"radius": 300, "period": 128}), _pitched) is None          # no bob, no reading
+
+
+_FIX_RE = re.compile(r"a bob period of (\d+) \(same amp\)|an amp of (\d+)")
+
+
+@pytest.mark.parametrize("motion", [
+    {"radius": 300, "period": 128, "phase": 0.5, "height": 150, "bob": {"amp": 60, "period": 256}},
+    {"radius": 300, "period": 128, "height": 150, "bob": {"amp": 60, "period": 40}},
+    {"radius": 300, "period": 300, "height": 150, "bob": {"amp": 60, "period": 256}},
+    {"height": 300, "bob": {"amp": 1, "period": 60}},
+], ids=["cask", "cask_40", "long_cycle", "tiny"])
+def test_every_fix_a_note_names_really_reads(motion):
+    """[review: the advice could not clear the note] A note names only fixes it has re-measured: applying each named
+    bob period or amp to the same mover gives a bob that reads on the same camera."""
+    s = _spec(motion)
+    note = M.bob_note(s, _pitched)
+    fixes = _FIX_RE.findall(note)
+    assert fixes, note
+    for bp, amp in fixes:
+        fixed = dataclasses.replace(s, bob_period=int(bp)) if bp else dataclasses.replace(s, bob_amp=int(amp))
+        assert M.bob_reading(fixed, _pitched).reads, (note, bp, amp)

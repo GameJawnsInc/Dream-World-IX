@@ -6,13 +6,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 ## [Unreleased]
 
 ### Added — `lint` warns when a `[[prop]] motion` bob will not read as a bob
-- **A bob no faster than its orbit or shuttle is invisible on a pitched camera**, and `ff9mapkit lint` now says
-  so. Moving away already moves a prop up the screen (at the usual pitch a unit of depth moves it about 1.4 times
-  as far as a unit of height), so a slow bob folds into the path's own up-and-down. The owner saw this on bench
-  30946: a cask bobbing +-60 every 256 ticks on a 128-tick orbit showed no bob. lint projects every bob through
-  the field's camera and warns when it adds no up-and-down of its own (or, bob-only, is too small to see).
-  `docs/FORMAT.md` § A bob that reads gives the rule: a bob several times faster than its path, with a sizable
-  amp.
+- **A small, slow bob on a path toward or away from the camera is invisible**, and `ff9mapkit lint` now says
+  so. Such a path already carries the prop up and down the screen (at a 48° pitch a unit of depth moves it about
+  1.45 times as far as a unit of height), and a bob small and slow next to that folds into it. The owner saw this
+  on bench 30946: a cask bobbing +-60 every 256 ticks on a 128-tick orbit showed no bob. A bob reads when it adds
+  up-and-downs of its own or out-travels the path's; lint projects every bob through each of the field's cameras
+  (a long joint cycle over a bounded window) and names the faster bob period and the larger amp it has checked
+  do read. `docs/FORMAT.md` § A bob that reads.
 - **In-game proof that the height is drawn** (bench 30948): a prop held at height 300 draws 76 px above the
   floor at 720p and a 0..300 bob sweeps the same band (5/5; the rung-1 proof had read only the event pos).
 

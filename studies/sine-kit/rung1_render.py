@@ -12,7 +12,7 @@ the check calibrates itself -- no camera math, no guessed scale.
   R0  three red blobs in every shot; L and C (no height change) move <= 0.2 D across the shots -- the balloon
       model's own idle sway only (run 1 measured ~10 px of it; a 3 px bound was wrong for an animated model)
   R1  C is drawn ABOVE L by D >= 20 px: a constant motion height is drawn
-  R2  R's centroid span, LESS the larger idle sway of L and C, is >= 0.7 D across shots spread over three bob
+  R2  R's centroid span, LESS the larger idle sway of L and C, is >= 0.7 D across shots spread over several bob
       cycles: the bob is drawn (the sway rides on R too, so it is taken off before the comparison)
   R3  R stays inside [row(C) - 0.15 D, row(L) + 0.15 D]: it sweeps the same 0..300 band and no further
 
@@ -24,7 +24,7 @@ from __future__ import annotations
 import time
 
 FIELD = 30948
-SHOTS = 18                  # ~0.37 s apart: 6.7 s, three 2 s bob cycles, the phase stepping ~0.19 cycle a shot
+SHOTS = 18                  # ~0.5 s apart in practice (the capture itself takes time): ~8.5 s, four 2 s bob cycles
 GAP_S = 0.37
 MIN_BLOB = 60               # red pixels a balloon must show to count
 
@@ -86,7 +86,7 @@ def run(g) -> None:
     g.check(D >= 20, "R1: C (height 300) is drawn ABOVE L (the floor) by D >= 20 px -- a constant motion height is drawn",
             f"D = {D:.1f} px (row L {mean(L):.1f}, row C {mean(C):.1f})")
     g.check(D >= 20 and span(R) - sway >= 0.7 * D,
-            "R2: R's centroid span less the idle sway is >= 0.7 D across three bob cycles -- the bob is drawn",
+            "R2: R's centroid span less the idle sway is >= 0.7 D across the shots (several bob cycles) -- the bob is drawn",
             f"R span {span(R):.1f} px - sway {sway:.1f} = {span(R) - sway:.1f} px vs D {D:.1f} px "
             f"({(span(R) - sway) / D if D else 0:.2f} D)")
     lo, hi = mean(C) - 0.15 * D, mean(L) + 0.15 * D
