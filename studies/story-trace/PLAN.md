@@ -1,6 +1,8 @@
 # The story-write trace (EB board #3)
 
-**Status:** ★ **rung 0 in-game PROVEN 11/11** (`story-rung0`): s88 is live (sha `c55377f6c137d442…`, backups `20260924-172331`), and the trace on stock Lindblum 552 joined every script write to a store in the stock bytes. Next: rung 1 (residue and epochs).
+**Status:** ★ **rung 0 in-game PROVEN 11/11** (`story-rung0`): s88 is live (sha `c55377f6c137d442…`, backups `20260924-172331`), and the trace on stock Lindblum 552 joined every script write to a store in the stock bytes. **Rung 1 ★ in-game 11/11** (`story-rung1`): the residue net and the epochs. **Rung 2 ★ in-game 8/8**
+(`story-rung2`): THE NULL PAIR -- stock 552 x3 vs its verbatim fork x3, STOCK ONLY and FORK ONLY both empty.
+Next: rung 3 (the Dali retrodiction).
 
 Board entry #3 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It is the narrative-state arc's missing
 instrument ([`../narrative-state/PLAN.md`](../narrative-state/PLAN.md)).
@@ -128,6 +130,45 @@ the `rows` the engine counted, and raises on a published `error`.
 - The analysis was checked offline first against rows built from the real 552 bytes: the good run passed and five
   mutants (an ip one off, two rows swapped, no `off`, the seed as a script row, a wrong tag) each failed their own
   check.
+
+## Rung 1 result
+
+★ **In-game 11/11** (`story-rung1`, [`rung1_trace.py`](rung1_trace.py)), one traced run from the title: New
+Game, harness pokes, `warp 552 3 3115`, ~5 s standing, `warp 552 5 3120`, soft reset, title -> Continue (the
+sandbox autosave).
+
+- **Epochs:** `arm`, New Game = ONE `swap`, the load = ONE `swap`, `off` -- no flood, and zero residue at the load.
+- **The residue net is exact.** The calibration writer is the debug menu's own warp, a real C# bypass writing
+  values the scenario chose: SC 3115 -> byte 0 = 43, byte 1 = 12, entrance 3 -> byte 2 = 3; then SC 3120 -> byte
+  0 = 48, entrance 5 -> byte 2 = 5, and NO row for byte 1 (unchanged at 12). Those 5 rows are the run's only
+  residue, and none of them sits within a frame of any of the run's 47 hooked writes to the same byte: the net and
+  the hook never double-count.
+- **The harness's own pokes** (`flag 12200`, `byte 236`, `byte 237`) arrived as `harness` rows, none as residue.
+- **The quiet window** (~5 s standing in 552) held no rows at all -- no spontaneous residue, but also no script
+  writes, so it is a weak check; the no-double-count result above is the strong one.
+- **Not exercised in-game:** the debug menu's `debug-restore` / `debug-clear` epochs (no harness verb --
+  `HarnessWarp` passes `resetFlags = false`), co-op's `netsync` epoch (two games), the `prestore` residue (needs a
+  bypass write inside a pass), and the world map's `SC += 10` (a one-off continent-title beat). All are
+  code-reviewed; verbs for the debug paths can ride the next s88 rebuild.
+
+## Rung 2 result -- the null pair
+
+★ **In-game 8/8** (`story-rung2`, [`rung2_trace.py`](rung2_trace.py)). The fork: `ff9mapkit import 552 --verbatim
+--id 30830 --name TRC552`, deployed with `tools/deploy_field.py --id 30830` (it wrote `ForkDonorPatch.txt` 30830 ->
+552). Six runs in one launch, interleaved stock/fork, each New Game -> `storytrace 1` -> seed byte 236 = 0x0F ->
+`warp <field> 3 3115` -> ~3 s -> `storytrace 0` -> soft reset.
+
+- **STOCK ONLY: 0. FORK ONLY: 0. UNSTABLE: 0.** 11 story keys matched in all six runs (552's Main_Init, joined at
+  the same function offsets on both sides); 0 join failures -- each side joined against the bytes it ran (the
+  install's 552, the mod folder's 30830, the field-70 New Game override on both).
+- **The donor mapping is live in the engine:** every one of the fork's 39 rows carries `don` 552, written by the
+  engine from ForkDonorPatch, not assumed by the reader.
+- **Six genuine runs:** distinct frame ranges (516-808 ... 3176-3572) and the tracer's pass counter monotonic
+  across them (0 -> 927).
+- **The falsifier bites** (checked offline first, on real rows): a fork run that never writes one of 552's
+  Main_Init stores is named exactly in STOCK ONLY -- `WriteKey(donor=552, sid=0, tag=0, off=509,
+  Global.Int16[239] = 552)`.
+- The residue is the warp's own ~ menu writes, identical on both sides (bytes 0-2, 3/3 each), and so never a key.
 
 ## Rungs
 
