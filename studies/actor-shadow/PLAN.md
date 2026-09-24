@@ -341,7 +341,8 @@ Every run passed 10/10 (preflight per variant, the jump landed exactly at its `t
 The noise floor (ON's own two landed shots, same box) is 0.999. By eye, CONTROL and INIT-ONLY show a dark blob
 at the landed player's feet and ON none, in both shots. INIT-ONLY equals CONTROL after the landing, so the
 engine's re-enable is real and complete, and the post-jump re-disable is what removes it. The save act's
-landings are proven offline only (bytes); the harness did not run a save. Runs are archived in the main repo's
+landings are proven in-game too, against an ACT-UNFIXED build: after a save the moogle's feet read
+ON / ACT-UNFIXED 1.050 (1.000 before it). See the follow-up below. Runs are archived in the main repo's
 `.harness-runs/*-mcf-rung4-*`.
 
 ## Set pieces — props, chests, the save point (bench 30921, `set_pieces_shadow.py`)
@@ -472,9 +473,21 @@ checkout that predates the cap.
 
 ## Follow-ups (not in this change)
 
-- OPEN (rung 4): the save act's landings under `shadow = false` on an MCF field are proven offline only (its two
-  `EnableShadow` become `DisableShadow`, pinned by `test_shadow.py`). An in-game check needs a harness SAVE on
-  bench 30937's instant save point, then the moogle's feet after its return hop.
+- CLOSED (rung 4, in-game): the save act's landings keep a `shadow = false` moogle's shadow off on an MCF field.
+  `rung4_save_act.py` walks to the moogle from the north, talks to it, saves (Save, Yes, the act's line, the save
+  screen, Cancel) and shoots its feet. Two builds: ON, and ACT-UNFIXED (only the act's two landing ops differ).
+  At the moogle's feet, ON / ACT-UNFIXED reads 1.000 before the save and 1.050 after it (1.049 on the repeat
+  shot). By eye, ACT-UNFIXED's moogle has a dark blob after the save and ON's has none. Within each run:
+  ON 1.014, ACT-UNFIXED 1.064 (the moogle turns to face the player during the act, which alone moves ~1%).
+  Runs: `.harness-runs/20260923-202648-mcf-rung4-save-on`, `20260923-202523-mcf-rung4-save-act-unfixed`.
+  Two traps on the way:
+  - **A press inside a save point's ZONE never runs the act.** The zone is a press region, and `_dispatch`
+    gives it no act (a type-1 region has no model to animate). The first two runs pressed in the zone, so the
+    negative control showed no blob either: it measured nothing. The act plays only when you TALK to the
+    moogle, and the scenario now proves it ran by its line ("Here we go, kupo!").
+  - **A still-typewriting choice window eats the first Confirm.** `choose()` presses once, so the option
+    window stayed open. The scenario's `_pick` presses, checks the window moved on, and presses again,
+    never twice blind.
 - DECIDED, no change: `[[npc]]` and `[player]` take the census shadow for every model and do not follow
   `STOCK_CASTS`. Stock's disables for creatures and characters follow where the object is (perched, flying,
   walkmesh-unbound, hidden until a scene), not the model; stock's standing objects cast 2141 of 2191. Bench

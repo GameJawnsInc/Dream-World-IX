@@ -1,11 +1,14 @@
-"""Deploy rung 4's bench (rung4_variants.py) as ON, INIT-ONLY or CONTROL -- the SAME toml, built three ways.
+"""Deploy rung 4's bench (rung4_variants.py) as ON, INIT-ONLY, ACT-UNFIXED or CONTROL -- the SAME toml, built
+four ways.
 
-    py studies/actor-shadow/rung4_deploy.py on|init-only|control --id N --name SHD4F --text-block N
+    py studies/actor-shadow/rung4_deploy.py on|init-only|act-unfixed|control --id N --name SHD4F --text-block N
 
 on         this change: on the MCF field every `shadow = false` actor gets stock's DisableShadow, the save act's
            landings keep it off, and the player re-disables it before the RETURN of its jump arc
 init-only  on, minus the player's post-jump re-disable (its Init op stays) -- the instrument's negative
            control: the engine's FinishJump must bring the player's shadow back after the landing
+act-unfixed  on, minus the save act's kept-off landings (its two donor EnableShadow stay) -- the negative
+           control for the act: after a save the moogle's shadow must come back (rung4_save_act.py)
 control    the pre-change calls, byte-identical to a HEAD build: on an MCF field every injector got no
            `shadow` value and no `mcf`, the act kept its EnableShadow, the player got nothing
 """
@@ -42,6 +45,9 @@ def apply(variant: str) -> None:
     """Patch the kit in-process for ``variant`` (also used by the offline byte comparison)."""
     if variant == "init-only":
         _shadow.keep_player_shadow_off = _init_only
+    elif variant == "act-unfixed":
+        real_act = _sp.act_save_body
+        _sp.act_save_body = lambda **kw: real_act(**{**kw, "keep_shadow_off": False})
     elif variant == "control":
         _npc.inject_npc = _pre_change(_npc.inject_npc)
         _chest.inject_chest = _pre_change(_chest.inject_chest)
