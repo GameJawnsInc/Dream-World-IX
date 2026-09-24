@@ -961,7 +961,7 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
     #      ForkDonorPatch line from THIS manifest's `source` -- so the effective id becomes the donor's even when
     #      the member toml records no donor that build.validate could see (a toml written before source_field
     #      was). Only the manifest knows; build_campaign runs this lint first, so lint and build-all agree.
-    from .content import motion as _motion
+    from .content import motion as _motion, photo as _photo
     for m in plan.members:
         raw = member_raw.get(m.name)
         if raw is not None and m.real_id and m.real_id != m.new_id and _motion.any_motion(raw):
@@ -970,6 +970,11 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
                           f"per-field hotfixes keyed on the effective id, which the campaign's "
                           f"ForkDonorPatch.txt makes the donor's ({m.real_id}); forks are rung 2. Drop the "
                           f"motion, or author the room as a novel member.")
+        if raw is not None and m.real_id and m.real_id != m.new_id and _photo.any_photo(raw):
+            errors.append(f"member {m.name}: [photo] on a FORKED member (donor field {m.real_id} -> {m.new_id}) -- "
+                          f"photo mode is novel fields only: the campaign's ForkDonorPatch.txt makes the effective "
+                          f"id the donor's ({m.real_id}), so the engine's pan box and widescreen width would be the "
+                          f"donor's; forks are rung 2. Drop [photo], or author the room as a novel member.")
 
     # (e3) MANIFEST <-> ARTIFACT reconciliation -- the only check here that compares the manifest to the files
     #      it describes; everything else validates the manifest's own model against itself. A member's field id

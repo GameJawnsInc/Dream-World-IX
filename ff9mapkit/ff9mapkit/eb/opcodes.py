@@ -462,6 +462,38 @@ def fade_filter(a: int, b: int, c: int, d: int, e: int, f: int) -> bytes:  # 0xE
     return encode(0xEC, a, b, c, d, e, f)
 
 
+# --- the scripted camera (studies/photo-mode: rung 0 proved each of these in-game) ---
+def move_camera(x, y, dur: int = 1, typ: int = 0) -> bytes:   # 0x6F [2,2,1,1]
+    """MoveCamera(x, y, dur, type): scroll the view centre to canvas (x, y) over ``dur`` ticks, then HOLD there --
+    follow stays off until a ReleaseCamera (FieldMap.cs:1461-1484, 1839-1900). ``x`` / ``y`` are ints or assembled
+    expression bytes (arg-flag bits 0 / 1). The engine clamps X only at issue and only under widescreen, and never
+    clamps Y: a caller clamps. A 0 duration is a NaN (type 0) or a per-tick DivideByZero (type 8) -- refused, as
+    is any type but 0 (linear) and 8 (cosine)."""
+    if not 1 <= int(dur) <= 255:
+        raise ValueError(f"MoveCamera duration {dur} is outside 1..255 (0 divides by zero in the engine)")
+    if int(typ) not in (0, 8):
+        raise ValueError(f"MoveCamera type {typ} is neither 0 (linear) nor 8 (cosine)")
+    flags = (1 if isinstance(x, (bytes, bytearray)) else 0) | (2 if isinstance(y, (bytes, bytearray)) else 0)
+    return encode(0x6F, x, y, int(dur), int(typ), arg_flags=flags)
+
+
+def release_camera(dur: int, typ: int = 0) -> bytes:           # 0x70 [1,1]
+    """ReleaseCamera(dur, type): glide from the held view to the player's follow point -- computed ONCE, here --
+    then follow resumes. Re-issued every tick it re-reads the point (the photo-mode tracking exit). 1..254 (255
+    is read back as the engine's -1 = 30 only through an expression; a 0 divides by zero)."""
+    if not 1 <= int(dur) <= 254:
+        raise ValueError(f"ReleaseCamera duration {dur} is outside 1..254")
+    if int(typ) not in (0, 8):
+        raise ValueError(f"ReleaseCamera type {typ} is neither 0 (linear) nor 8 (cosine)")
+    return encode(0x70, int(dur), int(typ))
+
+
+def calculate_screen_origin() -> bytes:                          # 0xEA (no operands)
+    """CalculateScreenOrigin: the view centre into B_SYSVAR[12] / [13], in MoveCamera's own space (FieldMap.cs:
+    869-878). 0xA9 writes the same two registers -- copy them before anything else runs."""
+    return encode(0xEA)
+
+
 # --- battles ---
 def set_random_battles(slot: int, b1: int, b2: int, b3: int, b4: int) -> bytes:  # 0x3C [1,2,2,2,2]
     return encode(0x3C, slot, b1, b2, b3, b4)

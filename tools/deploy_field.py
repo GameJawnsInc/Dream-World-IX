@@ -158,15 +158,19 @@ live = ModLayout(GAME / MOD_FOLDER)
 # 1207 left at this id -> the branch dereferences the daemon's null actor: a NullReference EVERY tick). The build
 # can only see the toml's own donor, so the live rows are checked here -- after the prelude revert (which drops
 # this id's OWN earlier fork row) and before anything live is touched.
-from ff9mapkit.content import motion as _motion
-if _motion.any_motion(proj.raw):
+# [photo] is novel-only too: a donor row would make the engine's pan box and widescreen width the donor's.
+from ff9mapkit.content import motion as _motion, photo as _photo
+if _motion.any_motion(proj.raw) or _photo.any_photo(proj.raw):
     from ff9mapkit.deploystack import fork_donor_rows_for
     _stale = fork_donor_rows_for(GAME, FID, extra=[MOD_FOLDER])
     if _stale:
-        print(f"!! [[prop]] motion: field {FID} is novel, but a live ForkDonorPatch row still maps it to a donor: "
+        _what = "[[prop]] motion" if _motion.any_motion(proj.raw) else "[photo]"
+        _why = ("the engine would run the motion under that donor's per-field hotfixes (two dereference the "
+                "daemon's null actor)" if _what != "[photo]" else "the engine would size photo mode's pan box and "
+                "widescreen width from that donor, not this field")
+        print(f"!! {_what}: field {FID} is novel, but a live ForkDonorPatch row still maps it to a donor: "
               + "; ".join(f"{f}/ForkDonorPatch.txt '{r}'" for f, r in _stale)
-              + f"\n!! THE NOVEL-FIELD LAW: the engine would run the motion under that donor's per-field hotfixes "
-              f"(two dereference the daemon's null actor). Remove the row (or deploy to an id no fork used), "
+              + f"\n!! THE NOVEL-FIELD LAW: {_why}. Remove the row (or deploy to an id no fork used), "
               f"then re-run. Nothing was touched.", file=sys.stderr)
         shutil.rmtree(tmp, ignore_errors=True)
         sys.exit(2)

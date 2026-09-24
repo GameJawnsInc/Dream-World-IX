@@ -1007,10 +1007,12 @@ def _calls(eb: bytes, op: int, slot: int) -> list:
     return out
 
 
-def arming_problems(eb: bytes, daemon_slot: int, mover_slots) -> list:
+def arming_problems(eb: bytes, daemon_slot: int, mover_slots, *, noun: str = "mover",
+                     why: str = "tick 0 would move a prop that has not run its Init") -> list:
     """THE ORDER LAW on the FINAL bytes: one InitCode(daemon), in Main_Init; one InitObject per mover, in
     Main_Init; every mover InitObject dominates the InitCode (earlier in the same block); the InitCode dominates
-    every reachable exit of Main_Init."""
+    every reachable exit of Main_Init. ``noun`` / ``why`` word the texts for another daemon's targets (photo mode's
+    hide targets); the defaults are motion's own texts, unchanged."""
     from ..eb.cfg import CfgError, FuncFlow
     out = []
     ic = _calls(eb, _OP_INITCODE, daemon_slot)
@@ -1020,7 +1022,7 @@ def arming_problems(eb: bytes, daemon_slot: int, mover_slots) -> list:
     for m in mover_slots:
         c = _calls(eb, _OP_INITOBJ, m)
         if len(c) != 1 or c[0][:2] != (0, 0):
-            out.append(f"mover slot {m} must be created by exactly one InitObject in Main_Init, found {c}")
+            out.append(f"{noun} slot {m} must be created by exactly one InitObject in Main_Init, found {c}")
         else:
             objs[m] = c[0][2]
     if out:
@@ -1041,8 +1043,8 @@ def arming_problems(eb: bytes, daemon_slot: int, mover_slots) -> list:
     for m, off in objs.items():
         mb = bo.get(off)
         if mb is None or not dom(mb, ci) or (mb == ci and off > ic[0][2]):
-            out.append(f"the daemon is armed before mover slot {m}'s InitObject on some path -- THE ORDER LAW: "
-                       f"tick 0 would move a prop that has not run its Init")
+            out.append(f"the daemon is armed before {noun} slot {m}'s InitObject on some path -- THE ORDER LAW: "
+                       f"{why}")
     exits = [b.index for b in flow.blocks if flow._dom[b.index] and not b.succs]
     for x in exits:
         if not dom(ci, x):

@@ -514,3 +514,13 @@ def test_a_motion_deploy_checks_the_live_fork_donor_rows_before_touching_anythin
     assert ifs, "the fork-donor guard must be gated on motion.any_motion"
     body = ast.unparse(ifs[0])
     assert "sys.exit(2)" in body and "rmtree(tmp" in body
+
+
+def test_a_photo_deploy_is_gated_by_the_same_fork_donor_guard():
+    """[photo] is novel-only too: a live ForkDonorPatch row would size its pan box from the donor. The guard's
+    condition names photo as well as motion, so dropping either half is caught."""
+    tree = ast.parse(_SRC)
+    guard = _first_call_line(tree, lambda n: isinstance(n.func, ast.Name) and n.func.id == "fork_donor_rows_for")
+    ifs = [n for n in ast.walk(tree) if isinstance(n, ast.If) and n.lineno < guard <= max(
+        getattr(s, "end_lineno", s.lineno) for s in n.body) and "any_motion" in ast.unparse(n.test)]
+    assert ifs and "any_photo" in ast.unparse(ifs[0].test)
