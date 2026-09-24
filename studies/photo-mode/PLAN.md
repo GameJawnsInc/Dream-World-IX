@@ -65,6 +65,7 @@ run, so each run changes one thing:
 | 3 | The d-pad pan, `STEP` = 4 px a tick, clamped in the script. MODE 1 is relative (the stock 507 form); MODE 3 is absolute |
 | 4 | Hides and the grade (commands 9-18) plus a FLAGS mirror of the show bits. The hides are hide-all/show-all, balloon L by mesh, and C and the player by flags, run through RunScriptSync into functions seated on their own entries. The grade is a held SUB FadeFilter |
 | 5 | The modal loop, buttons only. A Select edge opens it (lock, then take). The d-pad pans. R1 hides L (mesh), then C (flags), then the player (flags). L1 toggles the grade. Cancel restores everything and releases |
+| 6 | The tracking exit (after the owner's playtest): the release is re-issued every tick of the glide, so it lands on a player who walks during it. A poked byte selects the stage-5 single release as the negative control |
 
 **Stage 4's open question: does a show undo a flags-hide?** Read in `EventEngine.ProcessEvents.SetRenderer` and
 `PosObj.SetIsEnabledMeshRenderer`:
