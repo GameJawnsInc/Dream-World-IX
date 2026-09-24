@@ -59,6 +59,7 @@ from .content import walkmesh_hotfix as _walkmesh_hotfix
 from .content import savepoint as _savepoint
 from .content import shadow as _shadow
 from .content import shop as _shop
+from .content import motion as _motion
 from .content import summon as _summon
 from .content import synthesis as _synthesis
 from .content import startup as _startup
@@ -2602,6 +2603,9 @@ def validate(project: FieldProject) -> list[str]:
         elif len(project.raw.get("layers", []) or []) + g_overlay_cells > 255:
             problems.append(f"[[gauge]] overlay budget: {len(project.raw.get('layers', []) or [])} "
                             f"layers + gauge {g_overlay_cells} states > 255")
+    # [[prop]] motion (content.motion): the key/range rules, the prop co-rules and THE NOVEL-FIELD LAW -- the same
+    # texts the build's arm() raises, so validate, lint and build agree
+    problems += _motion.problems(project.raw, donor=donor_field_id(project.raw))
     # [siege] (content.siege): validated against the surface the author WROTE; the desugared
     # [behavior]/[[npc]]/[[choice]] blocks below get the full downstream validation for free.
     if project.raw.get("siege"):
@@ -4267,6 +4271,41 @@ def lint_behavior_compile(project: FieldProject) -> list[str]:
     return []
 
 
+def _motion_floor_notes(project: FieldProject) -> list:
+    """[[prop]] motion's ``height`` is ABSOLUTE (0 = the y-0 plane, the flat floor rung 1 proved): a mover whose path
+    runs over walkmesh that is NOT at height 0 is untested -- it may float or sink. An advisory, sampled at 16 points
+    of each mover's path over its own period plus the anchor when the prop stands on it (a shuttle's start, a bob's
+    spot -- never an orbit's centre, which the prop circles and never crosses); off-mesh points are skipped (a
+    pathing-off prop needs no floor). The walkmesh y is up-NEGATIVE, so it is printed as ``height`` = -y, the
+    number the author would write. Never raises (lint's contract)."""
+    if not _motion.any_motion(project.raw):
+        return []
+    try:
+        idx = _WalkIndex(behavior_walkmesh(project))
+    except Exception:                                   # noqa: BLE001 -- no walkmesh resolved: nothing to sample
+        return []
+    out = []
+    for i, p in enumerate(project.raw.get("prop") or []):
+        if not isinstance(p, dict) or p.get("motion") is None:
+            continue
+        try:
+            spec = _motion.parse(p, i)
+        except _motion.MotionError:
+            continue                                   # problems() reports it
+        if spec is None or not spec.moves:
+            continue
+        per = spec.period or 1
+        anchor = [] if spec.path == "orbit" else [spec.pos]
+        pts = anchor + [(q.x, q.z) for q in (_motion.pose(spec, n * per // 16) for n in range(16))]
+        hs = sorted({-round(h) for x, z in pts for _t, h in idx.at(x, z)})
+        off = [h for h in hs if h != 0]
+        if off:
+            out.append(f"{spec.label} motion runs over walkmesh at height {off[:4]} (up-positive, the motion height "
+                       f"that sits on it) -- motion height is ABSOLUTE (0 = the y-0 plane) and only a flat height-0 "
+                       f"floor is proven in-game; check the prop in-game before relying on it")
+    return out
+
+
 def lint_all(project: FieldProject) -> LintReport:
     """Run EVERY offline validator in one pass and return a :class:`LintReport`: schema (:func:`validate`),
     story/flag logic (:func:`lint_logic` + :func:`lint_flag_bands`), walkmesh geometry + content placement +
@@ -4288,6 +4327,11 @@ def lint_all(project: FieldProject) -> LintReport:
     rep.logic.extend(lint_entry_settle(project))          # settle honesty: verbatim dead-key / bad value / multicam
     rep.logic.extend(lint_text_block(project))            # a REAL location's block -> its dialogue is overwritten
     rep.logic.extend(_summon.lint_notes(project.raw.get("summon", [])))  # cast-trigger (vfx1) reminder + ignored cross-lane keys
+    try:                                                  # lint never raises: a motion hook that does is a note
+        rep.logic.extend(_motion.lint_notes(project.raw))  # a mover faster than the smoother interpolates
+        rep.logic.extend(_motion_floor_notes(project))     # a mover over a floor that is not at height 0
+    except Exception as e:                                # noqa: BLE001
+        rep.logic.append(f"[[prop]] motion lint could not finish: {type(e).__name__}: {e}")
     _lint_scripts_toolchain(project, rep.errors)          # a scripted ability needs a C# compiler -> fail at lint, not mid-build
     # `lint` runs against arbitrary user TOML + (for forks) game-derived binaries, so resolving the
     # camera/walkmesh can fail in many ways (a missing borrow .bgx -> FileNotFoundError, a malformed quad
@@ -7206,6 +7250,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
 
     # props (static set-dressing: SetModel + a fixed pose + EnableHeadFocus(0) -- a non-character object
     # that does NOT turn to face the player, the real FF9 prop recipe). Same gating as an NPC.
+    _mo_seats: list = []                               # (prop, model, slot) per seated part -- [[prop]] motion
     for p in project.raw.get("prop", []):
         pos = p["pos"]
         x, z, face = int(pos[0]), int(pos[1]), p.get("face")
@@ -7238,6 +7283,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                    collision=bool(p.get("collision", True)),
                                    shadow=_shadow.set_piece_value(p.get("shadow"), mid),
                                    mcf=not _stock_shadows)
+            _mo_seats.append((p, mid, slot))
 
     # gateways
     gw_names = _story_names(project)                    # [[flag]] name -> index, for set_flags resolution
@@ -8272,6 +8318,18 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         eb = _shadow.cast_player_shadow(eb, _pshadow)
     elif _pshadow is False:                     # an MCF field: off at Init, and again after every jump/climb
         eb = _shadow.keep_player_shadow_off(eb)
+
+    # [[prop]] motion -- LAST: the daemon is armed in Main_Init right after the last mover's InitObject and THE
+    # ORDER LAW is proved on these final bytes (content.motion.arm). A field with no motion never gets here.
+    if _motion.any_motion(project.raw):
+        try:
+            eb, _mo_slot, _mo_lines = _motion.arm(eb, project.raw, _mo_seats, donor=donor_field_id(project.raw))
+        except _motion.MotionError as e:
+            raise BuildError(str(e)) from e
+        if warnings is not None:
+            for ln in _mo_lines:                     # build_script runs once per language: report once
+                if ln not in warnings:
+                    warnings.append(ln)
     return eb
 
 

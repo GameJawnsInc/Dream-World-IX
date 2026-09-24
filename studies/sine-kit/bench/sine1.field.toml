@@ -1,0 +1,113 @@
+# =====================================================================================
+# THE SINE KIT, RUNG 1 -- `[[prop]] motion` in-game  --  field 30946 (and 30947, the CAL arm)
+# =====================================================================================
+# Rung 0's room, art and camera; the motion is authored ONLY with the kit's `[[prop]] motion` -- the build seats
+# and arms the daemon (content/motion.py). studies/sine-kit/sine1_bench.py then seats a read-only OBSERVER into
+# every language's live .eb (it mirrors the movers' published transform into Global Int16s, keyed by its own tick
+# counter) and deploys the same toml again as 30947 "SINE1C" with the daemon armed FIRST (the calibration mutant).
+#   A balloon    orbit r 300 about (0,-800), 128 ticks, height 150, facing along the travel   (= rung 0's A)
+#   B cask       the same half a turn behind, plus a +-60 bob every 256 ticks                  (= rung 0's B)
+#   C letter     orbit r 250 about (-750,-450) REVERSE, 90 ticks (not a divisor of 4096), height 80, travel +32
+#   D chest      shuttle (-1000,-1600) -> (-301,-1600), 150 ticks, on the floor, its shadow at the default
+#                (an odd axis difference: the far end is -302; C-WALK crosses its line)
+#   E sword      spin REVERSE every 64 ticks, height 0, SOLID (a turn-only mover keeps its collision)
+#   F fish       swing +-40 bytes about face 128 (north), 75 ticks, phase 0.25
+#   G hand_bell  orbit r 8191 about (0,-800), 64 ticks, no turn -- THE 26-BIT EDGE (off-screen, SNAPS by design)
+#   H scroll     STATIC control at (-750,-1300), face 64 -- the daemon must never touch it
+# [encounter] scene 67 at freq 0 arms the after-battle Main_Reinit (the C9 round trip) with no random battles
+# (SetRandomBattleFrequency 0 disables them, DoEventCode.cs ENCRATE).
+#
+#   py studies/sine-kit/sine1_bench.py deploy      (deploys 30946 + 30947, then patches the live .eb)
+#   py tools/play.py studies/sine-kit/rung1_motion.py --label sine-rung1
+
+[field]
+id = 30946
+name = "SINE1"
+area = 11
+title = "SINE 1"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -1600]
+
+[encounter]
+scene = 67
+freq = 0
+
+# A
+[[prop]]
+prop = "balloon"
+pos = [0, -800]
+collision = false
+shadow = false
+motion = { radius = 300, period = 128, height = 150, turn = "travel" }
+
+# B
+[[prop]]
+prop = "cask"
+pos = [0, -800]
+collision = false
+shadow = false
+motion = { radius = 300, period = 128, phase = 0.5, height = 150, turn = "travel", bob = { amp = 60, period = 256 } }
+
+# C
+[[prop]]
+prop = "letter"
+pos = [-750, -450]
+face = 32
+collision = false
+shadow = false
+motion = { radius = 250, period = 90, reverse = true, height = 80, turn = "travel" }
+
+# D
+[[prop]]
+prop = "chest"
+pos = [-1000, -1600]
+collision = false
+motion = { to = [-301, -1600], period = 150 }
+
+# E
+[[prop]]
+prop = "sword"
+pos = [750, -350]
+collision = true
+motion = { turn = "spin", period = 64, reverse = true }
+
+# F
+[[prop]]
+prop = "fish"
+pos = [750, -1350]
+face = 128
+collision = false
+motion = { turn = "swing", swing = 40, period = 75, phase = 0.25 }
+
+# G
+[[prop]]
+prop = "hand_bell"
+pos = [0, -800]
+collision = false
+shadow = false
+motion = { radius = 8191, period = 64 }
+
+# H -- the STATIC control
+[[prop]]
+prop = "scroll"
+pos = [-750, -1300]
+face = 64

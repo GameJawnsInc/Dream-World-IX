@@ -30,6 +30,9 @@ cure: don't reason from raw coordinates -- render the layout offline and look at
 - **Facing byte** (`[player] face`, `[[npc]] face`, arrival `face`, chest/prop `face`, TurnInstant):
   raw FF9 0-255 compass, written verbatim -- **0 = south (faces the camera), 64 = west, 128 = north
   (faces away), 192 = east**. Direction vector: `(dx, dz) = (-sin(f/256*2pi), -cos(f/256*2pi))`.
+- **Computed motion** (`[[prop]] motion`): an orbit's angle 0 is due north of its centre (+z, the far
+  side) and angles run clockwise seen from above (N, E, S, W); facing bytes also increase clockwise, so
+  the `travel` facing is the orbit angle (as a facing byte) + 192. Recipes → FORMAT.md § Computed motion.
 - **Movement**: with the default control TWIST (-1), W/up moves the player toward **+z** (up-screen,
   into the back). The kit auto-derives the TWIST from camera yaw so W tracks "up the screen" at any
   yaw (`build.resolve_control_value`).
