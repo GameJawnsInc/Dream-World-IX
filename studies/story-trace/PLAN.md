@@ -1,6 +1,6 @@
 # The story-write trace (EB board #3)
 
-**Status:** designed, owner-approved; rung 0 in progress.
+**Status:** ★ **rung 0 in-game PROVEN 11/11** (`story-rung0`): s88 is live (sha `c55377f6c137d442…`, backups `20260924-172331`), and the trace on stock Lindblum 552 joined every script write to a store in the stock bytes. Next: rung 1 (residue and epochs).
 
 Board entry #3 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It is the narrative-state arc's missing
 instrument ([`../narrative-state/PLAN.md`](../narrative-state/PLAN.md)).
@@ -106,6 +106,28 @@ the `rows` the engine counted, and raises on a published `error`.
 4. **N = 3 runs per side**, no RNG-seed engine command.
 5. **The stock side may start from real saves** (needs a save-load lane; a later rung).
 6. **Unify the kit's three story-noise masks and fix `named_word_at`'s byte/bit callers first.**
+
+## Rung 0 result
+
+★ **In-game 11/11** (`story-rung0`, [`rung0_trace.py`](rung0_trace.py)). New Game, the harness seeds byte 236 =
+0x0F, `warp 552 3 3115`, stand ~2 s, `storytrace 0`.
+
+- **The join is exact.** 13 script writes in 552, all 13 on a store instruction of the STOCK bytes at their (sid,
+  tag, offset); every row attributed (sid 0, uid 0, a level, the opcode-start ip, tag 0).
+- **Main_Init in script order, 10/10**, ATE branch included: `Bit[191]:=0`, `Bit[184]:=0`, `Int16[9]:=1582`,
+  `Byte[13]`, `Int16[11]:=1587`, `Byte[14]`, `Int16[239]:=552`, `SByte[238]:=1`, `Int16[241]:=15`,
+  `UInt16[251] |= 15`; ips ascending.
+- **It saw what the static reading missed.** The design's checker listed `Byte[8]:=125` as entrance-99-101 only
+  and never listed a second `Byte[13]`/`Byte[14]` write. The trace recorded `Byte[8]:=125` at ip 872 (a
+  same-value store, `same: 1`) and `Byte[13]:=2` / `Byte[14]:=2` at ips 1591/1632 two frames later, from
+  Main_Init's tail after its wait loop -- each joined to a real store.
+- **The seed** arrived as a `harness` row; **the residue** was exactly the warp's own ~ menu writes (SC 3115 in
+  bytes 0-1 = 43/12, the entrance 3 in byte 2), seen in field 70 before the load; `R0-OFF`: an armed, unstarted
+  tracer wrote nothing; `ff9mapkit story-trace --strict` read the run back (and warned, correctly, that
+  FF9CustomMap-world overrides field 70). No exceptions.
+- The analysis was checked offline first against rows built from the real 552 bytes: the good run passed and five
+  mutants (an ip one off, two rows swapped, no `off`, the seed as a script row, a wrong tag) each failed their own
+  check.
 
 ## Rungs
 
