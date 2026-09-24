@@ -1,0 +1,74 @@
+# =====================================================================================
+# THE SINE KIT, RUNG 1 -- is the motion's HEIGHT DRAWN?  --  field 30948
+# =====================================================================================
+# The rung-1 proof read the EVENT pos an observer sees right after the daemon's 0xAD; it never measured the drawn
+# frame, and the owner saw no bob on the orbiting cask (30946). Rung 0's room and camera; three red balloons at ONE
+# depth (z -900), so one screen scale applies to all three:
+#   L  x -600   static on the floor (no motion)                   the height-0 reference
+#   C  x    0   a HOLD at height 300 (motion = { height = 300 })   the height-300 reference
+#   R  x  600   height 150, bob +-150 every 60 ticks (2 s)         sweeps 0..300, top to bottom of [C, L]
+# studies/sine-kit/rung1_render.py shoots the frame repeatedly and segments the red balloons.
+#   D  cask     the OWNER'S DEMO, not measured: a bob you can see WHILE arcing -- r 200 about (0,-1500), 128 ticks,
+#               bob +-120 every 32 ticks (four bobs a lap). 30946's cask bobs +-60 every 256 ticks on a 128-tick
+#               orbit: that bob folds into the orbit's own on-screen up-and-down (+-4 field px vs the orbit's 60) and
+#               cannot be seen -- `ff9mapkit lint` now says so. Clear of the balloons on screen (projected offline).
+#
+#   py tools/deploy_field.py studies/sine-kit/bench/sine1r.field.toml --id 30948
+#   py tools/play.py studies/sine-kit/rung1_render.py --label sine-render
+
+[field]
+id = 30948
+name = "SINE1R"
+area = 11
+title = "SINE 1R"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [-750, -1750]
+
+# L -- the floor reference
+[[prop]]
+prop = "balloon"
+pos = [-600, -900]
+shadow = false
+
+# C -- the constant-height reference: a hold (a height alone; it was a +-1 bob before holds existed)
+[[prop]]
+prop = "balloon"
+pos = [0, -900]
+collision = false
+shadow = false
+motion = { height = 300 }
+
+# R -- the bob
+[[prop]]
+prop = "balloon"
+pos = [600, -900]
+collision = false
+shadow = false
+motion = { height = 150, bob = { amp = 150, period = 60 } }
+
+# D -- the owner's demo: a bob four times faster than its orbit reads as a bob while arcing
+[[prop]]
+prop = "cask"
+pos = [0, -1500]
+collision = false
+shadow = false
+motion = { radius = 200, period = 128, height = 150, turn = "travel", bob = { amp = 120, period = 32 } }

@@ -1,0 +1,53 @@
+# =====================================================================================
+# THE SINE KIT -- a field whose ONLY mover is a HOLD (a daemon with no clock)  --  field 30949
+# =====================================================================================
+# `motion = { height = N }` alone is a hold. Beside clocked movers (30948's C) it shares their daemon; ALONE on a
+# field its daemon has no locals at all (loc 0: no clock prelude, no advance -- the 0xAD, Wait(1) and JMP only), a
+# shape no clocked field builds. 30948's camera and depth, and only two balloons:
+#   L  x -600   static on the floor (no motion)       the height-0 reference
+#   C  x    0   a HOLD at height 300                  must draw exactly as 30948's C does (D ~ 76 px at 720p)
+# studies/sine-kit/rung1_hold.py segments the red balloons like rung1_render.py.
+#
+#   py tools/deploy_field.py studies/sine-kit/bench/sine1h.field.toml --id 30949
+#   py tools/play.py studies/sine-kit/rung1_hold.py --label sine-hold
+
+[field]
+id = 30949
+name = "SINE1H"
+area = 11
+title = "SINE 1H"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [-750, -1750]
+
+# L -- the floor reference
+[[prop]]
+prop = "balloon"
+pos = [-600, -900]
+shadow = false
+
+# C -- the hold, the field's only mover
+[[prop]]
+prop = "balloon"
+pos = [0, -900]
+collision = false
+shadow = false
+motion = { height = 300 }

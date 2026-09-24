@@ -4306,6 +4306,53 @@ def _motion_floor_notes(project: FieldProject) -> list:
     return out
 
 
+def _motion_bob_notes(project: FieldProject) -> list:
+    """[[prop]] motion bobs that will not READ as a bob (motion.bob_note, THE BOB-READING LAW), judged through
+    EVERY camera of the field that shows the mover (cam.canvas_projector == cam.to_canvas, the kit's exact
+    field-canvas map, plus the signed depth and the canvas size, so a fix never sends a prop behind a camera or off
+    its canvas) -- a [[camera]] field shows a prop through whichever camera its zone selects. ONE note per mover,
+    naming the cameras it fails on when there is more than one, with fixes that read on all of them and never take
+    the field past CLOCKS_MAX, even with every note applied. Owner-observed on bench 30946's cask, then measured (the drawn height itself IS the
+    0xAD height: bench 30948). A camera or a mover that cannot be projected is skipped, never fatal (lint's
+    contract)."""
+    if not _motion.any_motion(project.raw):
+        return []
+    try:
+        cfgs, scrolling = camera_cfgs(project), is_scrolling(project)
+    except Exception:                                   # noqa: BLE001 -- no camera: nothing to project through
+        return []
+    views = []
+    for ci, c in enumerate(cfgs):
+        try:
+            rc = _resolve_one_camera(project, c, scrolling)
+            views.append(_motion.View(f"camera {ci}" if len(cfgs) > 1 else "", cam.canvas_projector(rc, depth=True),
+                                      (float(rc.range[0]), float(rc.range[1]))))
+        except Exception:                               # noqa: BLE001 -- e.g. an unextracted borrow .bgx
+            continue
+    specs = []
+    for i, p in enumerate(project.raw.get("prop") or []):
+        if not isinstance(p, dict) or p.get("motion") is None:
+            continue
+        try:
+            spec = _motion.parse(p, i)
+        except _motion.MotionError:
+            continue                                   # problems() reports it
+        if spec is not None:
+            specs.append(spec)
+    running = [q for s2 in specs for q in s2.periods]   # every clock the field runs now: none assumed freed
+    out, planned = [], []                               # new periods earlier notes name: later notes share them
+    for spec in specs:
+        try:
+            note, named = _motion.bob_advice(spec, views, clocks=running, planned=planned)
+        except Exception:                               # noqa: BLE001 -- one mover's note never costs the others
+            continue
+        if note:
+            out.append(note)
+        if named is not None and named not in planned:
+            planned.append(named)
+    return out
+
+
 def lint_all(project: FieldProject) -> LintReport:
     """Run EVERY offline validator in one pass and return a :class:`LintReport`: schema (:func:`validate`),
     story/flag logic (:func:`lint_logic` + :func:`lint_flag_bands`), walkmesh geometry + content placement +
@@ -4327,11 +4374,13 @@ def lint_all(project: FieldProject) -> LintReport:
     rep.logic.extend(lint_entry_settle(project))          # settle honesty: verbatim dead-key / bad value / multicam
     rep.logic.extend(lint_text_block(project))            # a REAL location's block -> its dialogue is overwritten
     rep.logic.extend(_summon.lint_notes(project.raw.get("summon", [])))  # cast-trigger (vfx1) reminder + ignored cross-lane keys
-    try:                                                  # lint never raises: a motion hook that does is a note
-        rep.logic.extend(_motion.lint_notes(project.raw))  # a mover faster than the smoother interpolates
-        rep.logic.extend(_motion_floor_notes(project))     # a mover over a floor that is not at height 0
-    except Exception as e:                                # noqa: BLE001
-        rep.logic.append(f"[[prop]] motion lint could not finish: {type(e).__name__}: {e}")
+    for hook in (lambda: _motion.lint_notes(project.raw),  # a mover faster than the smoother interpolates
+                 lambda: _motion_floor_notes(project),      # a mover over a floor that is not at height 0
+                 lambda: _motion_bob_notes(project)):       # a bob a camera folds into the path (no bob seen)
+        try:                                              # lint never raises, and one hook never hides another
+            rep.logic.extend(hook())
+        except Exception as e:                            # noqa: BLE001
+            rep.logic.append(f"[[prop]] motion lint could not finish: {type(e).__name__}: {e}")
     _lint_scripts_toolchain(project, rep.errors)          # a scripted ability needs a C# compiler -> fail at lint, not mid-build
     # `lint` runs against arbitrary user TOML + (for forks) game-derived binaries, so resolving the
     # camera/walkmesh can fail in many ways (a missing borrow .bgx -> FileNotFoundError, a malformed quad

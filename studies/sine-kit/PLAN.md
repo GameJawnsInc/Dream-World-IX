@@ -254,6 +254,94 @@ kit), run 3 was 25/26: C9's flee never rolled in 60 s and the Goblin won (Game O
 on. C9 now fights first (scene 67 is a lone 33 HP Goblin; a win returns through Main_Reinit like an escape) with
 flee as the fallback. Run 4, the final code: 26/26 (969/969 exact; C9 via a win, K 230 -> 266).
 
+### The owner's playtest, and the drawn frame
+
+The owner watched 30946: everything looked right except that **the cask did not visibly bob**. The rung-1 proof
+could not have caught it: its observer reads the EVENT pos right after the daemon's 0xAD, in the same pass, never
+the drawn frame. Two questions, answered separately:
+
+**Is the height drawn?** Yes. Source: 0xAD clears pathing (`BGI_charSetActive(ctrl, 0)`,
+`DoEventCode.cs:2192`), so `FieldMapActorController.SetPosition` takes the direct branch (`curPos = pos`, `:36-41`)
+and `SyncPosToTransform` writes the model's transform (`:93-97`); every per-frame re-grounding path is gated on
+pathing being on (an adversarially verified trace). In-game: bench **30948** (`bench/sine1r.field.toml`,
+`rung1_render.py`) shoots the frame and segments three red balloons at one depth, a floor one, one at height 300
+and one bobbing 0..300. Height 300 draws 76 px above the floor at 720p, and the bob sweeps 0.86 of that after the
+balloon model's own ~10 px idle sway is taken off (5/5; run 1's 3 px stillness bound was wrong for an animated
+model).
+
+**Why no bob on the cask?** Perception, measured through the kit's camera (`cam.to_canvas`): a unit of depth moves
+a prop 0.100 field px up the screen at this pitch and a unit of height 0.069 px. The cask's +-60 bob moves it at
+most 4.3 field px against its orbit's 60 and adds no up-and-down of its own (the same screen-vertical reversals
+with and without it): it reads as an uneven loop. It is small and slow next to the orbit's own up-and-down; its
+2:1 period ratio is not the cause (alternate laps even get opposite offsets) -- +-60 every 32 ticks does not read
+either, +-120 every 32 does.
+
+THE BOB-READING LAW (fourth cut, the one that shipped): a bob reads as a bob when it moves the prop a visible amount
+(>= 1 field px) AND either its own screen-vertical speed beats the path's at EVERY point of the lap -- 2 pi / bob
+period x its on-screen offset there >= the path's screen-vertical speed there, so it can turn the prop around
+anywhere -- or it out-travels the path's own vertical travel (2 x its offset >= the path's span). A bob period of 2
+or 3 ticks is a flicker. `motion.bob_reading` / `bob_note` measure it on the IDEAL path at 256 points of its lap
+(sampled by angle, so the phase and the direction cannot matter) through `cam.canvas_projector` (bit-identical to
+`to_canvas`, plus the signed depth). There is no joint cycle, no window, no stride: the verdict is a continuous
+function of every parameter, monotone in amp and bob period by construction, and the longest period that reads is
+SOLVED, not searched. Each camera judges the ARC of the path it shows (in front of it and on its canvas, the bob's
+extremes in front). `ff9mapkit lint` gives ONE note per prop; a named period reuses a clock the field runs or one an
+earlier prop's note names before it adds one, so applying every note stays within CLOCKS_MAX; a named amp comes
+with the height that keeps the bob's lowest point, and is checked on every camera that shows the FIXED prop -- it
+never snaps (the step bound, exact or not), never carries the path or the bob behind a camera's plane, and never
+strays further off a canvas than the author's bob.
+
+How it got here -- three adversarial reviews, each refuting the cut before it:
+- cut 1 (reversals added, whole-cycle totals, 0.5 px hysteresis, camera 0): false alarms on a big bob over a small
+  orbit and on a shuttle with a 10-unit depth drift; silent past a 16384-tick joint cycle; camera 0 only.
+- cut 2 (+ an out-travel clause, one window at the cycle's start, every camera): still a TOTAL. One 0.68 px retrace
+  in 41 laps made the cask's +-60 bob "read" at period 41 but not 40 or 42; a window edge decided long cycles; a
+  2-tick bob was told to raise its amp; the amp advice sank the cask 270 u under the floor; 153 s on a legal field.
+- cut 3 (a per-lap RATE of reversals, 1 px retraces, four spread windows, 64 samples a cycle): at an exact 4:1 the
+  "rate" was one lap's count, so 1/4096 of phase, 1 unit of radius or the path period 127/128/129 flipped it; the
+  windows aliased with the beat (all four saw one relative phase), so long cycles disagreed with the exact verdict;
+  a pose behind a camera came back mirrored and "read"; a named period could be a 9th clock; 15-49 s on shapes the
+  cost test did not try.
+- cut 4 (this): counting reversals was the defect -- every cut put a threshold on a discrete count of a sampled
+  track. The speed law has none: on the bench camera the verdict is monotone in bob period for every amp from 40 to
+  300, identical at every phase and direction, and moves by a few percent for a 1-unit change; the reviewers'
+  slowest shapes lint in 0.4-2.0 s. Each review defect is pinned by a test, and 19 mutations of the law, the advice
+  guards, the build hook and the projector each turn a test red.
+- a fourth review (15 confirmed) found no discontinuity in the law, only its EDGES: the reading used lap points the
+  camera never shows (a wide orbit 36% on screen was told it folds; one point behind the plane dropped the camera),
+  a mirrored bob extreme, an amp fix checked only on cameras that showed the path at the author's height, two notes
+  that together made a 9th clock, 'or less' naming unchecked periods, an all-or-nothing floor rule, a bob that
+  inherits the motion period told the wrong key, and untested build wiring (depth, canvas size). All fixed and
+  pinned; 16 new mutations (and the earlier ones re-expressed) each turn a test red, and two pieces of code the
+  mutations showed were redundant (a snap memo, a path-overshoot term) were deleted.
+- its fix-verification (re-running all 15 reproductions: 10 fixed, 4 partly, 2 regressions) closed the rest: every
+  clock the field runs now counts as taken (a note reused a clock another note retires; one note's amp mixed with
+  another's period made 9) -- any mix of the notes' fixes is tested to stay within 8; a bob extreme behind a
+  camera's plane is infinite overshoot, so an amp can no longer lift a wide orbit off the only camera (a
+  regression of the arc rule); a flicker is reported whenever a camera shows the path (its note had vanished when
+  the bob left through the plane); the lap sampling is pinned against a 4096-point reference on non-axis cameras.
+
+The rule is the kit's MODEL, not a measurement of perception: the one owner observation behind it is the invisible
++-60/256 cask (speed ratio 0.07). 30948 carries the owner's demo -- a cask on an r 200 orbit with +-120 every 32
+ticks (ratio 1.13), which lint passes -- still waiting for the owner's look.
+
+The trace also found that `shadow = false`'s stated reason was wrong: the engine draws an airborne prop's blob at
+the prop's own height (`FieldMapActor.GetShadowCurrentPos`), not on the floor. The rule stands; the text is fixed.
+
+### The hold: a height alone
+
+The review's last open finding: a still prop off the floor could only be written as a +-1 bob (a motion needed
+`radius`, `to`, `bob` or `turn`), and the new lint rightly calls that bob too small to see -- 30948's own C balloon
+drew the note. A non-zero `height` alone is now a **hold**: a mover with no clock, whose 0xAD operands are all
+constants. Beside clocked movers it shares their daemon; a field whose only movers are holds gets a daemon with
+**no locals** (loc 0: `0xAD`, `Wait(1)`, `JMP` -- a shape no clocked field builds). `height = 0` alone is still
+refused. Both shapes in-game, one change per run:
+
+| run | bench | what changed | result |
+|---|---|---|---|
+| render-hold | 30948, C = `{ height = 300 }` | C was a +-1 bob | 5/5 -- C draws D = 76.6 px above L (76.2 / 76.3 as a +-1 bob) |
+| sine-hold | **30949** (`bench/sine1h.field.toml`, `rung1_hold.py`) | the hold is the field's only mover (the loc-0 daemon, read back off the deployed bytes) | 4/4 -- D = 76.8 px, within 0.6 px of 30948's; the hold does not drift (C span 10.4 px, the model's idle sway) |
+
 ## Corrections to the board entry
 
 - The tangent is θ + **192**, not + 64 (calibrated on the engine's own walk, C6).

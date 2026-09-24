@@ -865,12 +865,12 @@ collision = false         # required: a prop that changes position is walk-throu
 shadow = false            # required: an airborne prop casts no blob
 motion = { radius = 300, period = 128, height = 150, turn = "travel" }
 
-[[prop]]                  # the same orbit half a lap behind, bobbing ±60 every 256 ticks
+[[prop]]                  # the same orbit half a lap behind, bobbing ±150 four times a lap
 prop = "cask"
 pos = [0, -800]
 collision = false
 shadow = false
-motion = { radius = 300, period = 128, phase = 0.5, height = 150, turn = "travel", bob = { amp = 60, period = 256 } }
+motion = { radius = 300, period = 128, phase = 0.5, height = 200, turn = "travel", bob = { amp = 150, period = 32 } }
 
 [[prop]]                  # slides from (-1000, -1600) to (-302, -1600) and back, easing at each end
 prop = "chest"
@@ -897,12 +897,15 @@ motion = { turn = "swing", swing = 40, period = 75, phase = 0.25 }
 | `period` | integer, 2..8192 ticks | — | One full cycle: an orbit lap, a shuttle round trip, a spin turn, a swing there and back. Required with `radius`, `to` or `turn`. |
 | `phase` | number in [0, 1) | `0` | Where the cycle starts at tick 0, as a fraction of a cycle along the direction of travel (resolution 1/4096). Needs `radius`, `to` or `turn`; a bob takes its own `phase`. |
 | `reverse` | boolean | `false` | Counter-clockwise seen from above. Only for an orbit or `turn = "spin"`. On an orbit it reverses the one shared angle, so a `turn = "swing"` on that orbit swings counter-clockwise first too. |
-| `height` | integer, within ±16383 world units | `0` | The path's height: **absolute** world height, up-positive (the `y` of `[[jump]] to` and `[[platform]] land`), NOT height above the floor. `0` is the floor of a flat novel field (the y-0 plane). Only that flat floor is proven in-game: `ff9mapkit lint` warns when a mover's path runs over walkmesh at another height. |
-| `bob` | table `{ amp, period, phase }` | — | A vertical sine added to any motion: `amp` 1..8191 world units either side of `height`; `period` 2..8192 ticks (default: the motion's `period`); `phase` in [0, 1) (default 0). It rises first. |
+| `height` | integer, within ±16383 world units | `0` | The path's height: **absolute** world height, up-positive (the `y` of `[[jump]] to` and `[[platform]] land`), NOT height above the floor. `0` is the floor of a flat novel field (the y-0 plane). Only that flat floor is proven in-game: `ff9mapkit lint` warns when a mover's path runs over walkmesh at another height. A non-zero `height` on its own, with no other key, is a **hold**: the prop stays put at that height (`motion = { height = 300 }`). |
+| `bob` | table `{ amp, period, phase }` | — | A vertical sine added to any motion: `amp` 1..8191 world units either side of `height`; `period` 2..8192 ticks (default: the motion's `period`); `phase` in [0, 1) (default 0). It rises first. On an orbit, or a shuttle toward or away from the camera, a small slow bob folds into the path's own on-screen up-and-down and cannot be seen (see **A bob that reads**). |
 | `turn` | `"travel"` / `"spin"` / `"swing"` | absent | The facing channel. `travel` faces along the orbit (needs `radius`). `spin` turns in place, one full turn per `period` (not with `radius`: an orbiter already turns once a lap — use `travel` plus a `face` offset). `swing` rocks either side of `face` (with any path, or none). Absent = the prop keeps its `face`; the motion never touches its facing. |
 | `swing` | integer, 1..127 facing bytes | — | How far `turn = "swing"` rocks either side of `face` (32 = 45 degrees). Required with, and only with, `turn = "swing"`. |
 
-At least one of `radius`, `to`, `bob` or `turn` is required.
+At least one of `radius`, `to`, `bob` or `turn` is required, or a non-zero `height` alone (a hold). A
+hold takes no `period`, `phase` or `reverse`: nothing about it repeats. It is still a mover: walk-through,
+shadowless, re-placed every tick by the same script (which carries on after a battle), and one of the 16.
+A hold draws at its height both beside other movers and as a field's only mover (proven in-game).
 
 **Ticks.** A tick is one pass of the field's event engine: 30 a second at Memoria's default
 `FieldTPS = 30` (`Memoria.ini` `[Graphics]`), faster with a higher `FieldTPS` or the game's High Speed
@@ -922,6 +925,29 @@ and rises first.
 along-the-path facing. An orbiter that **faces the centre** is `turn = "travel"` with `face = 64`
 (`face = 192` with `reverse`); one that **faces outward** is `face = 192` (`64` with `reverse`).
 
+**A bob that reads.** The height and the bob are drawn exactly (proven in-game), but a bob can still be
+invisible. The camera looks down at the floor, so a path that moves toward or away from the camera (an
+orbit, or a shuttle with any depth in it) already carries the prop up and down the screen: at a 48°
+pitch a unit of depth moves it about 1.45 times as far as a unit of height. A bob that is small and slow
+next to that up-and-down folds into it and reads as a slightly reshaped loop. `ff9mapkit lint` counts a
+bob as reading when it moves the prop at least one field pixel and either its own up-and-down is
+**faster on screen than the path's** at every point of the lap (so it can turn the prop around
+anywhere), or it **out-travels** the path's own up-and-down -- judged on the part of the path each
+camera actually shows. That rule is the kit's model; the one owner observation behind it is the
+invisible cask below. Neither the phase nor the direction changes the verdict, and a slightly faster
+or larger bob never reads worse. On a radius-300, 128-tick orbit at that
+pitch the orbit's up-and-down peaks at about 1.5 field px a tick: ±60 every 256 ticks (0.1 px a tick)
+could not be seen, ±60 every 32 ticks (0.8) does not read either, and ±120 every 32 (1.6) and ±150
+every 32 (2.0) do. A sideways shuttle, a small orbit under a big bob, or a bob-only prop has little or no
+up-and-down to fold into, so its bob reads once it moves the prop a visible amount. A bob period of 2 or
+3 ticks is a flicker, never a bob. lint judges every bob through each of the field's cameras that shows
+the prop and gives one note per prop, naming the cameras it fails on and only fixes it has checked on
+every camera that shows the fixed prop: the longest bob period that reads (a period the field already
+runs, or one another prop's note names, when a new one would pass the field's 8 -- so any mix of the
+notes' fixes stays within them), or a larger amp with the height that keeps the bob's lowest point (above the
+floor, if it was). A fix never snaps, never carries the prop behind a camera, and never takes it
+further off a camera's canvas than the author's own bob goes.
+
 **Rules.** `ff9mapkit lint`, `ff9mapkit motion` and the build refuse each of these with the same message:
 
 - **Novel fields only.** A field with `[verbatim_eb]` or a donor (`[verbatim_eb] donor`,
@@ -930,8 +956,9 @@ along-the-path facing. An orbiter that **faces the centre** is `turn = "travel"`
   from a real field the same way. A novel field that borrows only art (`[field] borrow_bg`) is fine.
 - **A prop that changes position is walk-through**: `radius`, `to`, `bob` or a non-zero `height` needs
   `collision = false`. A prop that only turns, at height 0 (a spinning statue), may stay solid.
-- **An airborne prop casts no shadow**: a non-zero `height` or a `bob` needs `shadow = false` (its blob
-  would stay on the floor). A mover at floor level keeps whatever shadow it declares.
+- **An airborne prop casts no shadow**: a non-zero `height` or a `bob` needs `shadow = false` (the engine
+  draws the blob at the prop's own height, a dark disc hanging in mid-air, never on the floor below). A mover
+  at floor level keeps whatever shadow it declares.
 - **No airborne mover on a field that ships `[field] mapconfig`**: after a battle the engine rebuilds
   the actor and the MapConfigData gives it a shadow again.
 - **A mover exists for the whole visit**: no `requires_flag` / `requires_flag_clear`, no `attach_to`,

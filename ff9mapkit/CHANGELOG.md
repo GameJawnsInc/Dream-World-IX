@@ -5,6 +5,32 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[[prop]] motion = { height = N }` holds a prop at a height
+- **A non-zero `height` on its own is now a hold**: the prop stays at that height, re-placed each tick by the
+  field's motion script like any other mover (walk-through, shadowless). Before, `motion` needed a `radius`,
+  `to`, `bob` or `turn`, so the only way to raise a still prop was a ±1 bob, and the new bob lint rightly called
+  that bob too small to see. A hold takes no clock; a field whose only movers are holds gets a script with no
+  counters at all. `height = 0` alone is still refused (it would do nothing). In-game: a hold at 300 draws
+  exactly where the ±1 bob did, beside other movers (bench 30948, 5/5) and alone on its field (bench 30949, 4/4).
+
+### Added — `lint` warns when a `[[prop]] motion` bob will not read as a bob
+- **A small, slow bob on a path toward or away from the camera is invisible**, and `ff9mapkit lint` now says
+  so. Such a path already carries the prop up and down the screen (at a 48° pitch a unit of depth moves it about
+  1.45 times as far as a unit of height), and a bob small and slow next to that folds into it. The owner saw this
+  on bench 30946: a cask bobbing +-60 every 256 ticks on a 128-tick orbit showed no bob. A bob reads when its own
+  up-and-down is faster on screen than the path's at every point of the lap, or out-travels the path's; a 2- or
+  3-tick bob is a flicker. lint judges every bob on the part of its path each camera shows, and gives one note
+  per prop with only fixes it has checked on every camera that shows the fixed prop: the longest bob period that
+  reads (never a 9th clock, whatever mix of the notes' fixes is applied), or a larger amp that keeps the bob's lowest point,
+  never snapping, crossing a camera's plane or straying further off a canvas than the author's bob. A legal
+  16-mover field on 8-16 cameras lints in a few seconds. `docs/FORMAT.md` § A bob that reads.
+- **In-game proof that the height is drawn** (bench 30948): a prop held at height 300 draws 76 px above the
+  floor at 720p and a 0..300 bob sweeps the same band (5/5; the rung-1 proof had read only the event pos).
+
+### Fixed — `[[prop]] motion`'s shadow rule states the right reason
+- An airborne mover still needs `shadow = false`, but the reason was wrong: the engine draws the blob at the
+  prop's own height, a dark disc in mid-air, not on the floor below.
+
 ### Added — `[[prop]] motion`: props that orbit, shuttle, bob, spin and swing
 - **A `[[prop]]` gains `motion = { ... }`** (the sine-kit arc, board entry #7, rung 1). An orbit (`radius`) or
   a sine-eased shuttle (`to`), a `height`, a vertical `bob` and a facing channel (`turn = "travel"`, `"spin"`
