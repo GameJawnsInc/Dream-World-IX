@@ -141,12 +141,14 @@ class Sim:
         elif self.state == 3 and self.move:
             s, e, n, k = self.move
             k += 1
-            self.vrp = [int(s[i] + (e[i] - s[i]) * k / n) for i in (0, 1)]
+            self.fvrp = [s[i] + (e[i] - s[i]) * k / n for i in (0, 1)]
+            self.vrp = [int(v) for v in self.fvrp]
             self.move = (s, e, n, k)
             if k >= n:
                 self.state = 0
         elif self.state == 0 and self.active:
             self.vrp = list(self.follow)
+            self.fvrp = None
 
     def _op(self, i):
         b = self.body
@@ -171,7 +173,8 @@ class Sim:
                 x = min(max(vals[0], self.boxw[0]), self.boxw[1])
                 self.move, self.state = (list(self.vrp), [x, vals[1]], vals[2], 0), 2
             else:
-                self.move, self.state = (list(self.vrp), list(self.follow), vals[0], 0), 3
+                start = list(getattr(self, "fvrp", None) or self.vrp) if self.state == 3 else list(self.vrp)
+                self.move, self.state = (start, list(self.follow), vals[0], 0), 3
         elif i.op == 0x71:
             self.active = bool(b[i.off + 2])
             self.effects.append((self.tick, "0x71", [b[i.off + 2]]))
@@ -449,6 +452,67 @@ def selftest():
             "CANCEL: everything shown, grade cleared, ReleaseCamera(16, 8), unlocked, closed")
     want = 1 * 1 + 16 * 2 + 256 * 5 + 4096 * 4
     _expect(s.g("edges") == want, "EDGES counts every edge, open or closed", (s.g("edges"), want))
+    print("stage 6")
+    import math
+
+    def boot6():
+        s6 = Sim(6)
+        s6.uc, s6.mem[P.PBOUND >> 3] = 1, s6.mem[P.PBOUND >> 3] | (1 << (P.PBOUND & 7))
+        for b in (P.READY_L, P.READY_C, P.READY_R):
+            s6.mem[b >> 3] |= 1 << (b & 7)
+        for _ in range(P.SETTLE + 3):
+            s6.run_tick()
+        return s6
+
+    def tap(s6, name):
+        s6.keys = P.KEYMASK[name]
+        s6.run_tick()
+        s6.keys = 0
+
+    def exit_run(exitmode, walk):
+        s6 = boot6()
+        s6.mem[P.EXITMODE] = exitmode
+        tap(s6, "select")
+        s6.run_tick()
+        s6.keys = P.KEYMASK["right"]
+        for _ in range(11):
+            s6.run_tick()
+        s6.keys = 0
+        s6.run_tick(), s6.run_tick()
+        start = s6.g("vx")
+        tap(s6, "cancel")                                # the Cancel tick's own LateUpdate is glide step 1
+        xs = [s6.vrp[0]]
+        for k in range(29):
+            if walk:
+                s6.follow = [s6.follow[0] - 10, s6.follow[1]]   # the player walks left ~10 canvas px a tick
+            s6.run_tick()
+            xs.append(s6.vrp[0])
+        return s6, start, xs
+
+    s6, start, xs = exit_run(0, walk=False)
+    ease = [start + (384 - start) * (1 - math.cos(math.pi * k / 16)) / 2 for k in range(1, 17)]
+    dev = max(abs(a - b) for a, b in zip(xs[:16], ease))
+    _expect(dev <= 1.5 and xs[16:] == [384] * 14 and s6.g("modal") == 0,
+            "TRACKING EXIT, still player: traces the approved cosine ease and lands", (round(dev, 2), xs[:17]))
+    s6, start, xs = exit_run(0, walk=True)
+    steps = [abs(b - a) for a, b in zip([start] + xs[:-1], xs)]
+    _expect(xs[-1] == s6.follow[0] and max(steps) <= 40, "TRACKING EXIT, walking player: lands on him, no snap",
+            (max(steps), xs[15:18], s6.follow[0]))
+    s6o, starto, xso = exit_run(1, walk=True)
+    stepso = [abs(b - a) for a, b in zip([starto] + xso[:-1], xso)]
+    _expect(max(stepso) >= 100, "EXITMODE 1 (the stage-5 single release), walking: the model shows the snap",
+            max(stepso))
+    s6 = boot6()
+    tap(s6, "select")
+    s6.run_tick()
+    tap(s6, "cancel")
+    s6.run_tick(), s6.run_tick()
+    tap(s6, "select")
+    n70 = sum(e[1] == "0x70" for e in s6.effects)
+    for _ in range(20):
+        s6.run_tick()
+    _expect(s6.g("modal") & 1 and not s6.g("modal") & 16 and sum(e[1] == "0x70" for e in s6.effects) == n70,
+            "re-opening mid-glide stops the tracking: no release is issued into the held camera", s6.g("modal"))
     print("daemon_sim: all green")
 
 
