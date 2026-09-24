@@ -1,8 +1,9 @@
 # Photo mode: a script-driven camera pan (board entry #8)
 
-**Status:** rung 0 ★ **PASSED in-game, 132/132 over five runs** (harness, one change per run, readback and frame
-agreeing). The camera-pan primitive is proven: take, pan, clamp, hide, grade, give back. Next is rung 1, the kit
-feature. The feel of it is the owner's to judge on bench 30955.
+**Status:** rung 0 ★ **PASSED in-game, 154/154 over six runs** (harness, one change per run, readback and frame
+agreeing) and **owner-playtested**: hotkeys, pan speed and the exit glide confirmed. The owner's one defect, a snap
+when walking during the exit glide, was fixed by the tracking exit (stage 6). The fix was re-tested by hand and
+measured in-game. Next is rung 1, the kit feature.
 
 Board entry #8 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It was the runner-up when #7, the sine
 kit, was picked. Its reframe is the kit's **first camera-pan primitive**:
@@ -64,6 +65,7 @@ run, so each run changes one thing:
 | 3 | The d-pad pan, `STEP` = 4 px a tick, clamped in the script. MODE 1 is relative (the stock 507 form); MODE 3 is absolute |
 | 4 | Hides and the grade (commands 9-18) plus a FLAGS mirror of the show bits. The hides are hide-all/show-all, balloon L by mesh, and C and the player by flags, run through RunScriptSync into functions seated on their own entries. The grade is a held SUB FadeFilter |
 | 5 | The modal loop, buttons only. A Select edge opens it (lock, then take). The d-pad pans. R1 hides L (mesh), then C (flags), then the player (flags). L1 toggles the grade. Cancel restores everything and releases |
+| 6 | The tracking exit (after the owner's playtest): the release is re-issued every tick of the glide, so it lands on a player who walks during it. A poked byte selects the stage-5 single release as the negative control |
 
 **Stage 4's open question: does a show undo a flags-hide?** Read in `EventEngine.ProcessEvents.SetRenderer` and
 `PosObj.SetIsEnabledMeshRenderer`:
@@ -109,6 +111,7 @@ on, CameraStabilizer 0):
 | 3 | 3: the pan | ★ **27/27** (`photo-rung0-s3`, 61 s) |
 | 4 | 4: hides + grade | ★ **30/30** (`photo-rung0-s4`, 55 s) |
 | 5 | 5: the modal loop | ★ **26/26** (`photo-rung0-s5`, 54 s) |
+| 6 | 6: the tracking exit | ★ **22/22** (`photo-rung0-s6`, 49 s) |
 
 **Run 1: the instrument is calibrated.** Every frozen prediction held exactly:
 - **Spawn:** view (384, 286).
@@ -213,16 +216,48 @@ separately.
 - **Edges.** Every one of the 14 photo-button presses was exactly one edge (EDGES +17697, as predicted).
 - **Afterwards.** Follow tracked the walking player again.
 
+## The owner's playtest, and stage 6
+
+**The owner playtested bench 30955 (stage 5).**
+- **Confirmed:** every hotkey worked, the pan speed is good, and the exit glide is good.
+- **The defect:** it does not track a player who walks during the glide. The camera glides to where the player *was*
+  at Cancel, then snaps to where he moved.
+- **Why:** `ReleaseCamera` computes its target **once** (FieldMap.cs:1486-1537), and `EnableMove` hands control back
+  in the same Cancel tick. The engine research had flagged this as inferred; no stage 1-5 check walked during a
+  release.
+
+**Stage 6, the tracking exit.**
+- **How it tracks.** Cancel issues `ReleaseCamera(104, 0)`, and every tick of the glide re-issues
+  `ReleaseCamera(n_k, 0)` with n = (104, 35, 21, 15, 11, 9, 7, 6, 5, 4, 4, 3, 2, 2, 1, 1).
+  - A linear release covers 1/n of what remains in its first frame, and each re-issue re-reads the player's follow
+    point.
+  - So the camera eases toward a **moving** target and lands on it at n = 1, where follow resumes with nothing left to
+    jump.
+- **Why it keeps the feel.** The table is the approved cosine ease re-expressed as per-tick fractions of the
+  remainder. On a still player it traces `ReleaseCamera(16, 8)` within 0.55 px (offline).
+- **Re-opening.** Re-opening photo mode mid-glide stops the tracking.
+- **Byte discipline.** Stages 1-5 still build byte-identical to their in-game-proven bodies.
+- **The owner's re-test.** The owner played it by hand on 30955 and confirmed the chase-in works.
+
+**Run 6** (the harness, one launch, the same exit run three ways):
+
+| Case | Exit | Result |
+|---|---|---|
+| NC-SNAP | Stage-5 single release; the player runs 1080u through the glide | Glides out to 470, where he was at Cancel, then **jumps 113 px in one tick** to 357. The owner's defect, reproduced and measured |
+| Tracking | Per-tick re-issued release; the same run | Turns and chases him in: 438 → 405 → 366 → 357 → … 314. **Largest one-tick move 28 px.** Rests exactly on the follow point (314); control was back from Cancel |
+| Still | Tracking; the player stands | Traces the approved cosine ease with worst error **1 px** over 16 ticks and lands on him |
+| Re-open | Select during the glide | Stops the tracking and the camera holds (one view for 25 ticks); Cancel closes cleanly |
+
 ## Rung 0 verdict
 
-★ **PASSED: 132/132 checks over five in-game runs, one change per run.** Every claim was measured two independent ways
+★ **PASSED: 154/154 checks over six in-game runs, one change per run** (stage 6 added after the owner's playtest). Every claim was measured two independent ways
 (the engine's own readback and the registered frame), with negative controls. The camera-pan primitive is:
 
 | Step | How |
 |---|---|
 | Take | `DisableMove`, then `MoveCamera(VX, VY, 1, 0)`, where VX/VY come from `CalculateScreenOrigin` (0xEA → `B_SYSVAR[12]/[13]`). It takes the camera exactly where it is, and the camera then HOLDS |
 | Pan | Each tick, relative to the mirrored view (stock 507's form, no wind-up): `MoveCamera(VX ± step, VY ± step, 1, 0)`, clamped **in the script**. The engine clamps X only at issue, to the widescreen-narrowed window, and never clamps Y |
-| Give back | `ReleaseCamera(n, 8)` eases to the player's clamped follow point, then `EnableMove` |
+| Give back | `EnableMove`, then a **tracking** release: `ReleaseCamera(n_k, 0)` re-issued every tick with n = (104, 35, 21, 15, 11, 9, 7, 6, 5, 4, 4, 3, 2, 2, 1, 1). It eases like `ReleaseCamera(16, 8)` and lands on a player who walks during it. A single release computes its target once and snaps |
 | Never | `EnableCameraServices(0)` (it kills every pan), 0x73/0x74 (clamp unlock/lock) or 0x1E |
 | Hide | By mesh (0x3A over meshes 0-15, any uid, flags untouched), by flags (a function seated on the target's own entry, run through `RunScriptSync(2, uid, tag)`), or all at once (0xD5/0xD6). Every one comes back |
 | Grade | A held SUB `FadeFilter`, subtracted in gamma space; the same channel at 0 clears it |

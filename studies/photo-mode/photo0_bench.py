@@ -38,6 +38,14 @@ plus one block, so a run changes one thing:
      MoveCamera to the view it is already on -- the take); the d-pad pans (MODE 1); each R1 edge hides the next of L
      (mesh), C (flags), the player (flags), a 4th does nothing; each L1 edge toggles the grade; a Cancel edge shows
      everything hidden, clears the grade, ReleaseCamera(16, 8), EnableMove. EDGES counts every edge, open or not.
+  6  + the TRACKING exit (the owner's playtest: ReleaseCamera computes its target ONCE, and control returns at Cancel,
+     so a player who walks during the glide gets a camera that lands where he WAS, then follow snaps to where he IS).
+     Cancel now issues ReleaseCamera(RELEASE_TABLE[0], 0) and every tick of the glide re-issues ReleaseCamera(n_k, 0):
+     each re-issue re-reads the player's follow point and covers 1/n_k of what is left, so the camera eases toward a
+     MOVING target and lands on it (n_16 = 1). The table is the approved cosine ease re-expressed as per-tick
+     fractions of the remainder -- on a still player it traces ReleaseCamera(16, 8) within 0.55 px. Re-opening photo
+     mode mid-glide stops the tracking. EXITMODE (a poked byte) = 1 selects the stage-5 single release: the in-run
+     negative control that reproduces the snap.
 
 Usage (repo root):  py studies/photo-mode/photo0_bench.py art | probe [--stage N] | predict | deploy --stage N
 30955 is a NEW id -> the FIRST deploy needs a relaunch (a harness launch is one).
@@ -71,7 +79,7 @@ FIELD_ID, FIELD_NAME, MOD_FOLDER = 30955, "PHOTO0", "FF9CustomMap"
 BENCH_TOML = HERE / "bench" / "photo0.field.toml"
 ART = HERE / "bench" / "art" / "back.png"
 PREDICTIONS = HERE / "rung0_predictions.json"
-STAGES = (1, 2, 3, 4, 5)
+STAGES = (1, 2, 3, 4, 5, 6)
 MODEL = 226                          # balloon (the bench's three [[prop]]s)
 RANGE = (768, 448)
 BOX43 = (160, 608, 112, 336)         # scroll_bounds(RANGE): the vrp window (view-centre limits), what the script clamps to
@@ -84,14 +92,18 @@ G16 = {"t": 1500, "vx": 1502, "vy": 1504, "psx": 1506, "psy": 1508, "tx": 1510, 
        "cam": 1516, "keys": 1518, "nr": 1520, "nl": 1522, "nd": 1524, "nu": 1526, "ack": 1528, "last": 1530,
        "gate": 1532, "fpb": 1534, "fuc": 1536, "nmc": 1538, "rt": 1540, "flags": 1542, "edges": 1544,
        "txp": 1546, "typ": 1548, "issp": 1550, "ackt": 1554,
-       "modal": 1556}                # stage 5: STATE (1) + GRADE (2) + HIDX * 4
+       "modal": 1556}                # stage 5: STATE (1) + GRADE (2) + HIDX * 4 (+ TRACK * 16 from stage 6)
 WATCHED = tuple(G16)                 # 1500-1557: the published mirrors
 CMD, MODE, AD, AT = 1560, 1561, 1566, 1567                          # Global.Byte, harness-poked (CMD last)
+EXITMODE = 1568                      # Global.Byte, harness-poked: 0 = the tracking exit, 1 = the stage-5 single release
 AX, AY = 1562, 1564                                                 # Global.Int16, harness-poked (lo, hi)
 S16 = {"dx": 1570, "dy": 1572, "iss": 1580, "pmode": 1582,          # scratch, not watched
-       "state": 1574, "hidx": 1576, "grade": 1578}
+       "state": 1574, "hidx": 1576, "grade": 1578, "track": 1584}
 EDGE_WEIGHT = {"select": 1, "cancel": 16, "r1": 256, "l1": 4096}   # EDGES += weight per B_KEYON edge
 RELEASE = (16, 8)                    # the modal exit: ReleaseCamera over 16 ticks, type 8 (the cosine ease)
+# stage 6: the same ease as per-tick fractions of the REMAINDER -- n_k = round((1 - e(k-1)) / (e(k) - e(k-1))) for
+# e(k) = (1 - cos(pi k / 16)) / 2; a linear ReleaseCamera(n, 0) covers 1/n of what is left in its first frame
+RELEASE_TABLE = (104, 35, 21, 15, 11, 9, 7, 6, 5, 4, 4, 3, 2, 2, 1, 1)
 # B_KEY masks (EventInput.cs:537-562) and the KEYS mirror bit each one sets
 KEYS = (("up", 0x10, 1), ("right", 0x20, 2), ("down", 0x40, 4), ("left", 0x80, 8), ("select", 0x1, 16),
         ("cancel", 0x10000, 32), ("r1", 0x200000, 64), ("l1", 0x100000, 128))
@@ -447,7 +459,7 @@ def keyon(name: str) -> str:
     return f"{_const(KEYMASK[name])} B_KEYON"
 
 
-def _modal(uids: dict) -> list:
+def _modal(uids: dict, stage: int = 5) -> list:
     """Stage 5: photo mode as the player drives it (no harness pokes). B_KEYON is an edge computed once per tick, so
     every read in a tick sees the same edge. No window is ever opened, so the [NTUR] turbo trap cannot arm."""
     L, C = uids["L"], uids["C"]
@@ -457,6 +469,7 @@ def _modal(uids: dict) -> list:
         _inc("edges", edges),
         _stmt(f"{st} const(0) B_EQ"), (JMP_IFNOT, "m_open"),
         _stmt(keyon("select")), (JMP_IFNOT, "m_done"),
+        *([_set("track", "const(0)")] if stage >= 6 else []),        # re-opened mid-glide: stop tracking
         opcodes.encode(0x2D),                                         # the lock first, then the take
         _set("tx", g("vx")), _set("ty", g("vy")), move_camera(g("tx"), g("ty")), *_issued(),
         _set("state", "const(1)"), _stmt(f"{mode} const(1) B_LET"),
@@ -496,12 +509,33 @@ def _modal(uids: dict) -> list:
         _stmt(gr), (JMP_IFNOT, "m_nograde"),
         opcodes.encode(0xEC, *GRADE_CLEAR),
         label("m_nograde"),
-        opcodes.encode(0x70, *RELEASE), _set("rt", "const(1)"),
+        *(_exit_release() if stage >= 6 else [opcodes.encode(0x70, *RELEASE)]), _set("rt", "const(1)"),
         opcodes.encode(0x2E),
         _set("state", "const(0)"), _set("hidx", "const(0)"), _set("grade", "const(0)"), _stmt(f"{mode} const(0) B_LET"),
         label("m_done"),
-        _set("modal", f"{st} {gr} const(2) B_MULT B_PLUS {hx} const(4) B_MULT B_PLUS"),
+        _set("modal", f"{st} {gr} const(2) B_MULT B_PLUS {hx} const(4) B_MULT B_PLUS"
+                      + (f" {g('track')} const(16) B_MULT B_PLUS" if stage >= 6 else "")),
     ]
+
+
+def _exit_release() -> list:
+    """Stage 6's Cancel: EXITMODE 1 = the stage-5 single ReleaseCamera(16, 8); 0 = the first tracking step."""
+    return [_stmt(f"Global.Byte[{EXITMODE}] const(1) B_EQ"), (JMP_IFNOT, "m_track"),
+            opcodes.encode(0x70, *RELEASE), (JMP, "m_released"),
+            label("m_track"),
+            opcodes.encode(0x70, RELEASE_TABLE[0], 0), _set("track", "const(1)"),
+            label("m_released")]
+
+
+def _tracker() -> list:
+    """Stage 6, every tick: while TRACK, re-issue ReleaseCamera(n_RT, 0) for RT 2..16 (RT counts up from the Cancel
+    tick's 1), so each step re-reads where the player IS; the last step (n = 1) lands on him and follow resumes."""
+    rt = g("rt")
+    B = [_stmt(g("track")), (JMP_IFNOT, "k_done")]
+    for k, n in enumerate(RELEASE_TABLE[1:], 2):
+        B += [_stmt(f"{rt} const({k}) B_EQ"), (JMP_IFNOT, f"k_not{k}"), opcodes.encode(0x70, n, 0), label(f"k_not{k}")]
+    B += [_set("track", f"{g('track')} {rt} const({len(RELEASE_TABLE)}) B_LT B_MULT"), label("k_done")]
+    return B
 
 
 def flags_expr(uids: dict) -> str:
@@ -524,8 +558,9 @@ def daemon_body(stage: int, uids: dict | None = None) -> bytes:
     uids = {k: (uids or UIDS)[k] for k in ("L", "C", "R")}
     zero = ("t", "ackt", "gate", "fpb", "fuc", "nmc", "rt", "ack", "last", "nr", "nl", "nd", "nu", "edges", "tx", "ty",
             "txp", "typ", "issp", "flags", "keys", "iss", "pmode", "dx", "dy", "modal", "state", "hidx", "grade")
+    zero += ("track",) if stage >= 6 else ()
     B: list = [_set(n, "const(0)") for n in zero]
-    B += [_stmt(f"Global.Byte[{b}] const(0) B_LET") for b in (CMD, MODE)]
+    B += [_stmt(f"Global.Byte[{b}] const(0) B_LET") for b in (CMD, MODE) + ((EXITMODE,) if stage >= 6 else ())]
     B.append(label("gate"))
     firsts = (("fpb", f"Global.Bit[{PBOUND}]"), ("fuc", "B_SYSVAR[2] const(0) B_NE"))
     B += [_stmt(f"{g(k)} {g(k)} {g(k)} const(0) B_EQ {src} B_MULT {g('gate')} const(1) B_PLUS B_MULT B_PLUS B_LET")
@@ -547,7 +582,9 @@ def daemon_body(stage: int, uids: dict | None = None) -> bytes:
     if stage >= 2:
         B += _dispatcher(stage, uids)
     if stage >= 5:
-        B += _modal(uids)
+        B += _modal(uids, stage)
+    if stage >= 6:
+        B += _tracker()
     if stage >= 3:
         B += _pan()
     B += [opcodes.wait(1), (JMP, "top"), opcodes.RETURN]
@@ -658,6 +695,10 @@ def audit(body: bytes, stage: int) -> list:
         bad.append("the modal exit's literal ReleaseCamera(16, 8) is missing")
     if stage >= 5 and not re.search(rb"\x7d\x01\x00\x4f", body):
         bad.append("no Select B_KEYON (const(1) B_KEYON) -- the modal cannot open")
+    if stage >= 6:
+        tracked = sorted(body[i.off + 2] for i in n70 if body[i.off + 1] == 0 and body[i.off + 3] == 0)
+        if tracked != sorted(RELEASE_TABLE):
+            bad.append(f"the tracking releases {tracked} are not RELEASE_TABLE")
     n71 = sum(i.op == 0x71 for i in ops)
     if n71 != (2 if stage >= 2 else 0):
         bad.append(f"0x71 appears {n71}x (want exactly the CMD 5/6 pair from stage 2)")

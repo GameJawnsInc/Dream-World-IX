@@ -31,6 +31,7 @@ STAGE 2 (the dispatcher)  2.1 LOCK .. 2.10 the 0x71 negative control -- see run_
 STAGE 3 (the pan)         3.1 .. 3.8 -- see run_stage3
 STAGE 4 (hides + grade)   4.0 .. 4.6 -- every hide AND every show measured on the frame; see run_stage4
 STAGE 5 (the modal loop)  5.0 .. 5.7 -- Select opens, R1 hides, L1 grades, the d-pad pans, Cancel restores; buttons only
+STAGE 6 (tracking exit)   6.0 .. 6.3 -- the owner's snap reproduced (old exit) and gone (per-tick re-issued release)
 C-CORE (stages 2-3)  over EVERY sample whose previous tick issued a one-tick move: VX == clamp(TXP, the widescreen X
           window) and VY == TYP -- the engine applies the command exactly, next tick, X clamped at issue, Y never
 NC-THROW  no NullReference / InvalidCast / IndexOutOfRange / DivideByZero through EventEngine, EBin or FieldMap
@@ -845,6 +846,91 @@ def run_stage5(g, rec: Rec, cal: dict, ref) -> None:
             f"model {model}")
 
 
+# ------------------------------------------------------------------- stage 6: the tracking exit (the owner's playtest)
+def _exit_trace(g, rec: Rec, ref, *, exitmode: int, walk: bool, px0: int, pan: str) -> dict:
+    """Stand at (px0, -1102), open, pan 20 frames, Cancel -- and, if ``walk``, run left through the whole glide (the
+    owner's case: control comes back at Cancel). Returns the per-tick view trace from the Cancel tick on."""
+    g.walk_to(px0, -1102)
+    settle(rec)
+    poke(g, P.EXITMODE, exitmode)
+    _press(g, rec, "select")
+    rec.until(lambda m: m["modal"] & 1, 4, "photo mode to open")
+    hold_and_watch(g, rec, pan, 20)
+    here = settle(rec)
+    x0 = here["px"]
+    g.press("cancel", 2)
+    if walk:
+        g.hold("left", 36)
+    mc = rec.until(lambda m: m["modal"] & 1 == 0 and m["rt"] >= 1, 4, "photo mode to close")
+    t_c = mc["t"] - (mc["rt"] - 1)                        # the Cancel tick
+    rec.ticks(40)
+    end = settle(rec, n=6)
+    trace = rec.between(t_c - 1, t_c + 40)
+    steps = [abs(b["vx"] - a["vx"]) / max(1, b["t"] - a["t"]) for a, b in zip(trace, trace[1:])]
+    model = P.follow_model(end["px"], end["pz"], 199)
+    return {"t_c": t_c, "start": (here["vx"], here["vy"]), "trace": [(m["t"] - t_c, m["vx"], m["rt"]) for m in trace],
+            "max_step": max(steps) if steps else None, "walked": x0 - end["px"], "end": (end["vx"], end["vy"]),
+            "model": model, "control": rec.poll()["control"]}
+
+
+def run_stage6(g, rec: Rec, cal: dict, ref) -> None:
+    hfw = cal["hfw"]
+    # A. the NEGATIVE CONTROL: the stage-5 single release, the player running through the glide -- the snap
+    old = _exit_trace(g, rec, ref, exitmode=1, walk=True, px0=600, pan="left")
+    # B. the tracking exit, the same walk
+    new = _exit_trace(g, rec, ref, exitmode=0, walk=True, px0=600, pan="left")
+    for k, r in (("old", old), ("new", new)):
+        print(f"[photo-rung0] 6 {k}: start {r['start']}, walked {r['walked']:.0f}, max step {r['max_step']}, end "
+              f"{r['end']} model {r['model']}, trace {[(d, x) for d, x, _rt in r['trace']][:24]}")
+    rec.notes["6 old exit"], rec.notes["6 new exit"] = old, new
+    g.check(old["walked"] >= 300 and old["max_step"] is not None and old["max_step"] >= 60,
+            "6.0 NC-SNAP: the stage-5 exit (one ReleaseCamera 16, 8) with the player running through the glide lands "
+            "where he WAS, then follow jumps to where he IS -- the owner's playtest, reproduced",
+            f"walked {old['walked']:.0f}u, largest one-tick move {old['max_step']}")
+    g.check(new["walked"] >= 300 and new["max_step"] is not None and new["max_step"] <= 40
+            and abs(new["end"][0] - new["model"][0]) <= 1 and abs(new["end"][1] - new["model"][1]) <= 1
+            and new["control"],
+            "6.1 TRACKING: the same exit and the same run, with ReleaseCamera re-issued every tick of the glide, "
+            "eases onto the MOVING player -- no jump, control back at Cancel, and it rests on the follow point",
+            f"walked {new['walked']:.0f}u, largest one-tick move {new['max_step']} (the old exit's {old['max_step']}), "
+            f"end {new['end']} model {new['model']}")
+
+    # C. the tracking exit on a still player keeps the approved ease
+    still = _exit_trace(g, rec, ref, exitmode=0, walk=False, px0=0, pan="right")
+    t_c = still["t_c"]
+    vs = still["start"]
+    here = rec.poll()
+    end = P.follow_model(here["px"], here["pz"], hfw)
+    fit = _glide_fit(rec.between(t_c, t_c + 16), t_c, vs, end, 16, cosine=True)   # step 1 = the Cancel tick's
+    rec.notes["6 still fit"] = fit
+    print(f"[photo-rung0] 6 still: {vs} -> {end}, fit {json.dumps(fit[1])}")
+    g.check(fit[1]["worst"] <= 2 and fit[1]["n"] >= 8 and abs(still["end"][0] - end[0]) <= 1
+            and abs(still["end"][1] - end[1]) <= 1,
+            "6.2 STILL: on a player who stands still the tracking exit traces the approved cosine ease "
+            "(ReleaseCamera 16, 8) within 2 px and lands on him", f"worst {fit[1]['worst']} over {fit[1]['n']}, "
+            f"end {still['end']} vs {end}")
+
+    # D. re-opening mid-glide stops the tracking and holds the camera
+    g.walk_to(600, -1102)
+    settle(rec)
+    _press(g, rec, "select")
+    hold_and_watch(g, rec, "left", 20)
+    settle(rec)
+    g.press("cancel", 2)
+    rec.until(lambda m: m["modal"] & 16, 4, "the tracking glide to start")
+    g.press("select", 2)
+    mo = rec.until(lambda m: m["modal"] & 1, 4, "photo mode to re-open")
+    rec.ticks(25)
+    after = rec.between(mo["t"] + 2)
+    g.check(not mo["modal"] & 16 and after and len({(x["vx"], x["vy"]) for x in after}) == 1 and mo["uc"] == 0,
+            "6.3 RE-OPEN MID-GLIDE: Select during the glide stops the tracking and the camera holds where it is",
+            f"modal {mo['modal']}, views after {sorted({(x['vx'], x['vy']) for x in after})}")
+    _press(g, rec, "cancel")
+    rec.ticks(25)
+    m = settle(rec)
+    g.check(m["modal"] == 0 and m["uc"] == 1, "6.3 ... and Cancel still closes it cleanly", f"modal {m['modal']}")
+
+
 def core(g, rec: Rec, hfw: int, min_rows: int) -> None:
     lo, hi = 160 + (2 * hfw - 320) // 2, 608 - (2 * hfw - 320) // 2
     inside = lambda t: any(a < t <= b for a, b in rec.exclude)          # noqa: E731
@@ -888,6 +974,8 @@ def run(g) -> None:
             run_stage4(g, rec, cal, ref)
         elif stage == 5:
             run_stage5(g, rec, cal, ref)
+        elif stage == 6:
+            run_stage6(g, rec, cal, ref)
         if stage in (2, 3, 5):
             core(g, rec, cal["hfw"], min_rows={2: 6, 3: 30, 5: 5}[stage])
     except (Stop, HarnessError) as e:
