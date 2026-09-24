@@ -520,12 +520,14 @@ class BobReading(NamedTuple):
 
 
 class _Profile(NamedTuple):
-    offsets: tuple             # per lap point: the bob's screen-vertical half-extent there (field px)
-    speeds: tuple              # per lap point: the path's screen-vertical speed there, px a RADIAN of the lap
-    span: float                # the path's screen-vertical travel (field px)
-    seen: bool                 # the path is in front of the camera and touches its canvas: the camera shows it
-    front: bool                # every pose, bob extremes included, is in front of the camera
-    inside: bool               # every pose, bob extremes included, is on the canvas
+    offsets: tuple             # per SHOWN lap point: the bob's screen-vertical half-extent there (field px)
+    speeds: tuple              # per shown lap point: the path's screen-vertical speed there, px a RADIAN of the lap
+    span: float                # the path's screen-vertical travel over the shown arc (field px)
+    seen: bool                 # the camera shows some of the path: a lap point in front of it and on its canvas
+                               # (offsets may still be empty: the bob leaves through its plane wherever it is shown)
+    front: bool                # wherever the path is shown, both bob extremes are in front of the camera too
+    overshoot: float           # how far (field px) the bob strays past the canvas, wherever it is in front
+    behind: int                # lap points where the path itself is behind the camera's plane
 
 
 def _lap(spec: MotionSpec) -> list:
@@ -547,26 +549,37 @@ def _lap(spec: MotionSpec) -> list:
 
 
 def _profile(spec: MotionSpec, view: View, height: int, amp: int) -> _Profile:
-    """The path through one camera at ``height``, with a bob of ``amp``: everything a reading needs except the bob
-    period, which only scales the bob's speed (so a period fix is solved, not searched)."""
+    """The path through one camera at ``height``, with a bob of ``amp``, over the ARC THE CAMERA SHOWS -- the lap
+    points where the path is in front of the camera and on its canvas and both bob extremes are in front (a pose
+    behind the plane comes back mirrored, never refused): everything a reading needs except the bob period, which
+    only scales the bob's speed (so a period fix is solved, not searched)."""
     proj, size, eps = view.project, view.size, 1e-3
 
     def pt(x, h, z):
         p = proj(x, h, z)
         return p[0], p[1], (p[2] if len(p) > 2 else math.inf)
 
-    def on(u, v):
-        return size is None or (0 <= u <= size[0] and 0 <= v <= size[1])
+    def off(u, v):                                       # px outside the canvas (0 on it)
+        if size is None:
+            return 0.0
+        return math.hypot(max(0.0, -u, u - size[0]), max(0.0, -v, v - size[1]))
     offs, spds, vs = [], [], []
-    seen_any, path_front, front, inside = False, True, True, True
+    shown, front, over, behind = False, True, 0.0, 0
     for x, z, dx, dz in _lap(spec):
         u, v, d = pt(x, height, z)
+        if d <= BOB_NEAR:
+            behind += 1
+            continue
         hu, hv, hd = pt(x, height + amp, z)
         lu, lv, ld = pt(x, height - amp, z)
-        path_front &= d > BOB_NEAR
-        front &= min(d, hd, ld) > BOB_NEAR
-        inside &= on(u, v) and on(hu, hv) and on(lu, lv)
-        seen_any |= d > BOB_NEAR and on(u, v)
+        over = max(over, *(off(a, b) for a, b, dd in ((hu, hv, hd), (lu, lv, ld)) if dd > BOB_NEAR))  # the path
+        #                   lies between its bob's extremes, so theirs bounds its own
+        if off(u, v) > 0:
+            continue                                     # the camera does not show the path here
+        shown = True
+        if min(hd, ld) <= BOB_NEAR:
+            front = False                                # the bob leaves through the camera's plane here
+            continue
         offs.append(abs(lv - hv) / 2)
         vs.append(v)
         if dx or dz:
@@ -575,7 +588,7 @@ def _profile(spec: MotionSpec, view: View, height: int, amp: int) -> _Profile:
             spds.append(abs(v1 - v0) / (2 * eps))
         else:
             spds.append(0.0)
-    return _Profile(tuple(offs), tuple(spds), max(vs) - min(vs), path_front and seen_any, front, inside)
+    return _Profile(tuple(offs), tuple(spds), (max(vs) - min(vs)) if vs else 0.0, shown, front, over, behind)
 
 
 def _reading(spec: MotionSpec, prof: _Profile, bob_period: int) -> BobReading:
@@ -591,9 +604,11 @@ def _view(v) -> View:
 
 
 def bob_reading(spec: MotionSpec, project) -> BobReading | None:
-    """How a mover's bob READS through ``project`` (a :class:`View`, or ``(x, height, z) -> (u, v)``). None for a
-    mover without a bob. Measured on the ideal path at BOB_LAP_SAMPLES points of its lap -- no joint cycle, no
-    window, no phase: the verdict moves continuously with every parameter, monotone in amp and bob period.
+    """How a mover's bob READS through ``project`` (a :class:`View`, or ``(x, height, z) -> (u, v)``), over the arc
+    of its path that camera shows. None for a mover without a bob, or a camera that shows none of its path.
+    Measured on the ideal path at BOB_LAP_SAMPLES points of its lap -- no joint cycle, no window, no phase: the
+    verdict moves continuously with every parameter, monotone in amp and bob period while the bob stays in front
+    of the camera.
 
     Why: on a pitched camera a path toward or away from the camera already moves the prop up and down the screen,
     and a bob small and slow next to that folds into it -- bench 30946's cask (+-60 every 256 ticks on a 128-tick
@@ -601,7 +616,8 @@ def bob_reading(spec: MotionSpec, project) -> BobReading | None:
     bob."""
     if not spec.bob_amp:
         return None
-    return _reading(spec, _profile(spec, _view(project), spec.height, spec.bob_amp), spec.bob_period)
+    prof = _profile(spec, _view(project), spec.height, spec.bob_amp)
+    return _reading(spec, prof, spec.bob_period) if prof.offsets else None
 
 
 def _replace(spec: MotionSpec, **kw) -> MotionSpec:
@@ -626,59 +642,70 @@ def _period_limit(spec: MotionSpec, prof: _Profile) -> float:
     return min((_TAU * o / (s * lap) for o, s in zip(prof.offsets, prof.speeds) if s * lap > 1e-12), default=math.inf)
 
 
-def bob_note(spec: MotionSpec, views, *, clocks=None) -> str | None:
-    """The lint advisory for a bob that will not read as one, or None. ``views`` = one projector, or
-    [:class:`View`] / [(name, projector[, size])] for a field with several cameras; a camera that never shows the
-    mover's path (behind it, or off its canvas) is not judged. ``clocks`` = the periods the field's OTHER channels
-    already use, so a named bob period never takes the field past CLOCKS_MAX. ONE note per mover: it names every
-    camera the bob fails on, and only fixes that read on every judged camera, stay under the smoother's snap (its
-    bound, exact or not), keep a floor-clearing bob above the floor, stay in front of every camera, and stay on
-    the canvas of every camera where the author's bob already did."""
+def bob_note(spec: MotionSpec, views, *, clocks=None, planned=None) -> str | None:
+    """The lint advisory for a bob that will not read as one, or None -- :func:`bob_advice`'s note."""
+    return bob_advice(spec, views, clocks=clocks, planned=planned)[0]
+
+
+def bob_advice(spec: MotionSpec, views, *, clocks=None, planned=None) -> tuple:
+    """(the lint advisory for a bob that will not read as one, or None; the NEW bob period it names, or None).
+    ``views`` = one projector, or [:class:`View`] / [(name, projector[, size])] for a field with several cameras;
+    each judges the arc of the path it shows, and one that shows none of it is not judged. ``clocks`` = the periods
+    the field's OTHER channels already run; ``planned`` = new periods the notes for earlier movers name -- a named
+    period reuses one of those before it adds a clock, and never takes the field past CLOCKS_MAX even when every
+    note is applied. ONE note per mover: it names every camera the bob fails on, and only fixes that read on every
+    camera that shows the fixed path, stay under the smoother's snap (its bound, exact or not), keep the bob's
+    lowest point (above the floor if it was), never send the bob through a camera's plane, and never carry it
+    further off a canvas than the author's own bob goes."""
     views = [_view(views)] if callable(views) or isinstance(views, View) else [_view(v) for v in views]
     if not spec.bob_amp:
-        return None
-    clocks = list(clocks or [])
-    judged = []
+        return None, None
+    clocks, planned = list(dict.fromkeys(clocks or [])), [p for p in dict.fromkeys(planned or []) if p not in (clocks or [])]
+    profs = []
     for v in views:
         try:
-            prof = _profile(spec, v, spec.height, spec.bob_amp)
+            profs.append((v, _profile(spec, v, spec.height, spec.bob_amp)))
         except ZeroDivisionError:                      # a pose exactly on this camera's plane
-            continue
-        if prof.seen:
-            judged.append((v, prof))
+            profs.append((v, None))
+    judged = [(v, p) for v, p in profs if p is not None and p.offsets]   # a camera that shows the path and its bob
     if not judged:
-        return None
+        return None, None
     flicker = spec.bob_period < BOB_PERIOD_MIN
-    bad = [(v, prof, _reading(spec, prof, spec.bob_period)) for v, prof in judged]
+    bad = [(v, p, _reading(spec, p, spec.bob_period)) for v, p in judged]
     bad = [b for b in bad if flicker or not b[2].reads]
     if not bad:
-        return None
+        return None, None
     names = [v.name for v, _p, _r in bad if v.name]
     on = (f" on {', '.join(names[:-1])} and {names[-1]}" if len(names) > 1 else
           f" on {names[0]}" if names else " on this camera")
     what = f"{spec.label} motion: its bob (+-{spec.bob_amp} every {spec.bob_period} ticks)"
 
-    def snaps(fixed: MotionSpec) -> bool:
-        return max_step(fixed)[0] >= SNAP_UNITS                  # the bound, exact or not
+    def snaps(fixed: MotionSpec) -> bool:                # the step BOUND, exact or not
+        return max_step(fixed)[0] >= SNAP_UNITS
 
     def allowed(bp: int) -> bool:
-        return bp in clocks or len(set(clocks) | {bp}) <= CLOCKS_MAX
+        return bp in clocks or bp in planned or len(set(clocks) | set(planned) | {bp}) <= CLOCKS_MAX
 
-    fixes = []
-    limit = min(_period_limit(spec, prof) for _v, prof, _r in bad)
+    fixes, named = [], None
+    inherited = spec.path is None and spec.turn is None and spec.period   # the bob rides the motion's own period
+    limit = min(_period_limit(spec, p) for _v, p, _r in bad)
     if limit >= BOB_PERIOD_MIN:
-        shared = [c for c in clocks if BOB_PERIOD_MIN <= c <= limit]     # the law is monotone: all faster than now
         own = math.floor(min(limit, PERIOD_MAX)) if limit < math.inf else None
         ladder = [TICKS_PER_SECOND << i for i in range(8)] if limit == math.inf and flicker else []  # 1 s, 2 s, ...
-        for bp in sorted(shared, reverse=True) + ([own] if own else []) + ladder:
+        cands = (sorted((c for c in clocks if BOB_PERIOD_MIN <= c <= limit), reverse=True)
+                 + sorted((c for c in planned if BOB_PERIOD_MIN <= c <= limit), reverse=True)
+                 + ([own] if own else []) + ladder)
+        for bp in cands:
             if bp >= BOB_PERIOD_MIN and allowed(bp) and not snaps(_replace(spec, bob_period=bp)):
-                fixes.append(f"a bob period of {bp}{' or less' if bp == own and not flicker else ''} (same amp"
-                             + ("; a clock the field already runs)" if bp in clocks else ")"))
+                why = ("; a clock the field already runs" if bp in clocks else
+                       "; the period another prop's note names, so the two share a clock" if bp in planned else "")
+                fixes.append(f"a {'motion' if inherited else 'bob'} period of {bp} (same amp{why})")
+                named = None if bp in clocks else bp
                 break
     if not flicker:
-        floored = spec.height - spec.bob_amp >= 0          # the author kept the bob above the y-0 floor: keep it there
+        lowest = spec.height - spec.bob_amp                # keep the author's lowest point: above the floor if it was
         need = 1.0
-        for _v, prof, r in bad:
+        for _v, _p, r in bad:
             k_vis = BOB_SEEN_PX / r.px if r.px else math.inf
             k_speed = 1 / r.ratio if r.ratio > 0 else math.inf
             k_out = r.path_span / (2 * r.px) if r.px else math.inf
@@ -687,21 +714,28 @@ def bob_note(spec: MotionSpec, views, *, clocks=None) -> str | None:
         for _try in range(4):
             if amp is None or amp > AMP_MAX:
                 break
-            h = max(spec.height, amp) if floored else spec.height
+            h = max(spec.height, amp + min(0, lowest))
             fixed = _replace(spec, bob_amp=amp, height=h)
             ok = h <= HEIGHT_MAX and not snaps(fixed)
-            for v, prof in judged if ok else ():
+            for v, p in profs if ok else ():
                 try:
                     p2 = _profile(fixed, v, h, amp)
                 except ZeroDivisionError:
                     ok = False
                     break
-                if not (p2.front and (p2.inside or not prof.inside) and _reading(fixed, p2, spec.bob_period).reads):
+                was = p if p is not None else _Profile((), (), 0.0, False, True, 0.0, 0)
+                if (p2.overshoot > was.overshoot + 1e-6 and was.seen) or p2.behind > was.behind:
+                    ok = False                           # the fix carries the prop further off this camera's canvas
+                    break                                # or behind its plane than the author's bob went
+                if not p2.seen:
+                    continue                             # this camera shows none of the fixed path either
+                if not (p2.front and p2.offsets and _reading(fixed, p2, spec.bob_period).reads):
                     ok = False
                     break
             if ok:
                 fixes.append(f"an amp of {amp} (same period)" if h == spec.height else
-                             f"an amp of {amp} with height {h} (same period; the bob stays above the floor)")
+                             f"an amp of {amp} with height {h} (same period; "
+                             + ("the bob stays above the floor)" if lowest >= 0 else "the bob dips no lower than it did)"))
                 break
             amp = math.ceil(amp * 1.15)
     tail = f" -- try {' or '.join(fixes)}" if fixes else ""
@@ -710,17 +744,17 @@ def bob_note(spec: MotionSpec, views, *, clocks=None) -> str | None:
         why = ("never leaves its height" if len(hs) == 1 else "flips between two heights every tick"
                if spec.bob_period == 2 else f"jitters {TICKS_PER_SECOND // spec.bob_period} times a second")
         return (f"{what}: a {spec.bob_period}-tick bob {why} -- never a bob, on any camera; give it a period of "
-                f"{BOB_PERIOD_MIN} or more{tail}")
+                f"{BOB_PERIOD_MIN} or more{tail}"), named
     r = min((b[2] for b in bad), key=lambda x: (x.px >= BOB_SEEN_PX, x.ratio))
     if spec.path is None:
-        return f"{what} moves it at most {_fmt_px(r.px)} field px{on} -- too small to see{tail}"
+        return f"{what} moves it at most {_fmt_px(r.px)} field px{on} -- too small to see{tail}", named
     if r.px < BOB_SEEN_PX:
         why = f"it moves the prop only {_fmt_px(r.px)} field px -- too small to see"
     else:
         why = (f"it moves the prop {_fmt_px(r.px)} field px, and its up-and-down ({r.bob_speed:.2f} px a tick) is "
                f"slower than the path's own ({r.path_speed:.2f}) and smaller than the path's {r.path_span:.0f} px, so it "
                f"folds into the path")
-    return f"{what} does not read as a bob{on}: {why}{tail}"
+    return f"{what} does not read as a bob{on}: {why}{tail}", named
 
 
 def clocks(specs) -> list:

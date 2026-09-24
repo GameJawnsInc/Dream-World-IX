@@ -4312,7 +4312,7 @@ def _motion_bob_notes(project: FieldProject) -> list:
     field-canvas map, plus the signed depth and the canvas size, so a fix never sends a prop behind a camera or off
     its canvas) -- a [[camera]] field shows a prop through whichever camera its zone selects. ONE note per mover,
     naming the cameras it fails on when there is more than one, with fixes that read on all of them and never take
-    the field past CLOCKS_MAX. Owner-observed on bench 30946's cask, then measured (the drawn height itself IS the
+    the field past CLOCKS_MAX, even with every note applied. Owner-observed on bench 30946's cask, then measured (the drawn height itself IS the
     0xAD height: bench 30948). A camera or a mover that cannot be projected is skipped, never fatal (lint's
     contract)."""
     if not _motion.any_motion(project.raw):
@@ -4339,15 +4339,17 @@ def _motion_bob_notes(project: FieldProject) -> list:
             continue                                   # problems() reports it
         if spec is not None:
             specs.append(spec)
-    out = []
+    out, planned = [], []                               # new periods earlier notes name: later notes share them
     for spec in specs:
         others = [q for s2 in specs if s2 is not spec for q in s2.periods] + ([spec.period] if spec.period else [])
         try:
-            note = _motion.bob_note(spec, views, clocks=others)
+            note, named = _motion.bob_advice(spec, views, clocks=others, planned=planned)
         except Exception:                               # noqa: BLE001 -- one mover's note never costs the others
             continue
         if note:
             out.append(note)
+        if named is not None and named not in planned:
+            planned.append(named)
     return out
 
 

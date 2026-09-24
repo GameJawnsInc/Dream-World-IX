@@ -284,10 +284,12 @@ or 3 ticks is a flicker. `motion.bob_reading` / `bob_note` measure it on the IDE
 (sampled by angle, so the phase and the direction cannot matter) through `cam.canvas_projector` (bit-identical to
 `to_canvas`, plus the signed depth). There is no joint cycle, no window, no stride: the verdict is a continuous
 function of every parameter, monotone in amp and bob period by construction, and the longest period that reads is
-SOLVED, not searched. `ff9mapkit lint` gives ONE note per prop over the cameras that show it; a named period is one
-the field already runs when it is at CLOCKS_MAX, and a named amp comes with the height that keeps the bob above the
-floor, never snaps (the step bound, exact or not), never crosses a camera's plane, never leaves a canvas the
-author's bob stayed on.
+SOLVED, not searched. Each camera judges the ARC of the path it shows (in front of it and on its canvas, the bob's
+extremes in front). `ff9mapkit lint` gives ONE note per prop; a named period reuses a clock the field runs or one an
+earlier prop's note names before it adds one, so applying every note stays within CLOCKS_MAX; a named amp comes
+with the height that keeps the bob's lowest point, and is checked on every camera that shows the FIXED prop -- it
+never snaps (the step bound, exact or not), never carries the path or the bob behind a camera's plane, and never
+strays further off a canvas than the author's bob.
 
 How it got here -- three adversarial reviews, each refuting the cut before it:
 - cut 1 (reversals added, whole-cycle totals, 0.5 px hysteresis, camera 0): false alarms on a big bob over a small
@@ -305,6 +307,13 @@ How it got here -- three adversarial reviews, each refuting the cut before it:
   300, identical at every phase and direction, and moves by a few percent for a 1-unit change; the reviewers'
   slowest shapes lint in 0.4-2.0 s. Each review defect is pinned by a test, and 19 mutations of the law, the advice
   guards, the build hook and the projector each turn a test red.
+- a fourth review (15 confirmed) found no discontinuity in the law, only its EDGES: the reading used lap points the
+  camera never shows (a wide orbit 36% on screen was told it folds; one point behind the plane dropped the camera),
+  a mirrored bob extreme, an amp fix checked only on cameras that showed the path at the author's height, two notes
+  that together made a 9th clock, 'or less' naming unchecked periods, an all-or-nothing floor rule, a bob that
+  inherits the motion period told the wrong key, and untested build wiring (depth, canvas size). All fixed and
+  pinned; 16 new mutations (and the earlier ones re-expressed) each turn a test red, and two pieces of code the
+  mutations showed were redundant (a snap memo, a path-overshoot term) were deleted.
 
 The rule is the kit's MODEL, not a measurement of perception: the one owner observation behind it is the invisible
 +-60/256 cask (speed ratio 0.07). 30948 carries the owner's demo -- a cask on an r 200 orbit with +-120 every 32

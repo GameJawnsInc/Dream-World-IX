@@ -1398,27 +1398,29 @@ def _apply(s, bp, amp, h):
     {"height": 300, "bob": {"amp": 1, "period": 60}},
     {"radius": 300, "period": 128, "height": -200, "bob": {"amp": 60, "period": 256}},
     {**_CASK, "height": 60, "bob": {"amp": 60, "period": 256}},
+    {**_CASK, "height": 59, "bob": {"amp": 60, "period": 256}},
     {"radius": 300, "period": 8191, "height": 150, "bob": {"amp": 60, "period": 8179}},
 ], ids=["cask", "cask_40", "long_cycle", "default_period", "short_shuttle", "sub_px_path", "tiny", "below_floor",
-        "resting_on_the_floor", "coprime_long"])
+        "resting_on_the_floor", "one_under_the_floor", "coprime_long"])
 def test_every_fix_a_note_names_really_works(motion, bench_view):
     """[reviews 1-3] A note names only fixes it has re-measured on the REAL bench camera: applied to the same mover,
     each named bob period or amp (with the height it names) reads, is >= 4 ticks, stays under the smoother's snap,
-    stays in front of the camera and on its canvas, and -- for a bob that cleared (or rested on) the y-0 floor --
-    still clears it (claims-2: the amp advice once sank the owner's cask 270 u under the floor)."""
+    stays in front of the camera, strays no further off its canvas than the author's bob, and keeps the bob's
+    lowest point -- above the y-0 floor if it was (claims-2: the amp advice once sank the owner's cask 270 u under the
+    floor; review 4: a bob 1 u under the floor was then sunk 400 u, and 'or less' named periods nothing checked)."""
     s = _spec(motion)
     note = M.bob_note(s, bench_view)
     fixes = _FIX_RE.findall(note)
-    assert fixes, note
+    assert fixes and "or less" not in note, note
     for bp, amp, h in fixes:
         fixed = _apply(s, bp, amp, h)
         assert not bp or int(bp) >= M.BOB_PERIOD_MIN, note
         assert M.bob_reading(fixed, bench_view).reads, (note, fixed)
         assert M.max_step(fixed)[0] < M.SNAP_UNITS, (note, fixed)
         prof = M._profile(fixed, bench_view, fixed.height, fixed.bob_amp)
-        assert prof.front and prof.inside, (note, fixed)
-        if s.height - s.bob_amp >= 0:
-            assert M.bounds(fixed)["h"][0] >= 0, (note, M.bounds(fixed))
+        orig = M._profile(s, bench_view, s.height, s.bob_amp)
+        assert prof.front and prof.overshoot <= orig.overshoot + 1e-6, (note, fixed, prof.overshoot, orig.overshoot)
+        assert M.bounds(fixed)["h"][0] >= min(0, s.height - s.bob_amp), (note, M.bounds(fixed))  # its lowest point
 
 
 def test_a_fix_never_carries_the_prop_behind_the_camera_or_off_the_canvas(bench_view):
@@ -1427,12 +1429,12 @@ def test_a_fix_never_carries_the_prop_behind_the_camera_or_off_the_canvas(bench_
     up-and-down is so large that out-travelling it would lift the prop past this camera; the note names the period
     fix and no amp at all."""
     s = _spec({"radius": 1100, "period": 256, "height": 150, "bob": {"amp": 60, "period": 256}}, pos=[0, -700])
-    assert M._profile(s, bench_view, s.height, s.bob_amp).inside
+    assert M._profile(s, bench_view, s.height, s.bob_amp).overshoot == 0
     note = M.bob_note(s, bench_view)
     assert "a bob period of" in note and "an amp of" not in note, note
     big = dataclasses.replace(s, bob_amp=3000, height=3000)
     prof = M._profile(big, bench_view, 3000, 3000)
-    assert not prof.front or not prof.inside                    # what the amp search refused
+    assert not prof.front or prof.overshoot > 0                  # what the amp search refused
 
 
 def test_a_named_period_never_takes_the_field_past_its_clocks():
@@ -1446,7 +1448,7 @@ def test_a_named_period_never_takes_the_field_past_its_clocks():
     note = M.bob_note(s, _pitched, clocks=full[:-1] + [100])             # none of them reads
     assert "a bob period of" not in note, note
     note = M.bob_note(s, _pitched, clocks=[128])                         # room for a new clock
-    assert re.findall(r"a bob period of (\d+) or less", note), note
+    assert re.findall(r"a bob period of (\d+) \(same amp\)", note), note
 
 
 def test_a_fix_is_refused_when_its_step_bound_snaps():
@@ -1536,3 +1538,141 @@ def test_a_fix_never_crosses_a_camera_plane():
     assert 2 * fixed_h > 800                                         # the fix camera 1 wants crosses camera 0's plane
     note = M.bob_note(s, [cam0, cam1])
     assert "a bob period of" in note and "an amp of" not in note, note
+
+
+@pytest.mark.parametrize("motion, pos, reads", [
+    ({"radius": 1800, "period": 256, "height": 300, "bob": {"amp": 300, "period": 32}}, [0, -800], True),
+    ({"radius": 2500, "period": 512, "height": 150, "bob": {"amp": 60, "period": 128}}, [0, -800], False),
+], ids=["wide_orbit_reads_on_screen", "wider_orbit_folds_on_screen"])
+def test_a_camera_judges_the_arc_it_shows(motion, pos, reads, bench_view):
+    """[review 4 law-offcanvas-lap: px, the speed ratio and the span came from all 256 lap points, most of them off the
+    canvas -- a bob that reads on everything the camera shows was told it folds, one moving the prop 4.3 px was told
+    'only 0.03 px'] On a wide orbit only part of the lap is on the bench camera's canvas; the reading and the note's
+    numbers come from that arc."""
+    s = _spec(motion, pos=pos)
+    prof = M._profile(s, bench_view, s.height, s.bob_amp)
+    assert 0 < len(prof.offsets) < M.BOB_LAP_SAMPLES / 2
+    r = M.bob_reading(s, bench_view)
+    assert r.reads == reads and r.px > 4, r
+    note = M.bob_note(s, bench_view)
+    assert (note is None) == reads, note
+    if note:
+        assert "moves the prop 4.3 field px" in note and "0.0" not in note.split("px")[0], note
+
+
+def test_a_path_through_a_camera_plane_is_judged_on_what_it_shows(bench_view):
+    """[review 4 law-offcanvas-lap: one lap point behind the camera dropped the camera outright, so moving an
+    OFF-SCREEN far end 20 u switched the note on and off] A shuttle running out through the camera's plane is judged
+    on the arc in front of it: the far end at -6720 or -6740 gives the same verdict and numbers."""
+    rs = [M.bob_reading(_spec({"to": [0, far], "period": 256, "height": 150, "bob": {"amp": 60, "period": 256}},
+                              pos=[0, -1000]), bench_view) for far in (-6720, -6740)]
+    ps = [M._profile(_spec({"to": [0, far], "period": 256, "height": 150, "bob": {"amp": 60, "period": 256}},
+                           pos=[0, -1000]), bench_view, 150, 60) for far in (-6720, -6740)]
+    assert all(p.behind > 0 and p.offsets for p in ps)
+    assert [r.reads for r in rs] == [False, False]
+    assert rs[0].px == pytest.approx(rs[1].px, rel=0.03) and rs[0].ratio == pytest.approx(rs[1].ratio, rel=0.03)
+
+
+def test_the_bob_offset_is_the_smallest_on_screen(bench_view):
+    """[review 4 claims-8: px = max(offsets) kept every test green] A deep shuttle toward the camera: the pitched
+    view foreshortens height more near the camera, so the bob's on-screen offset is smallest at the near end --
+    that, computed independently, is the reading's px."""
+    s = _spec({"to": [0, 100], "period": 256, "height": 150, "bob": {"amp": 60, "period": 256}}, pos=[0, -1800])
+    near = (bench_view.project(0, 90, -1800)[1] - bench_view.project(0, 210, -1800)[1]) / 2
+    far = (bench_view.project(0, 90, 100)[1] - bench_view.project(0, 210, 100)[1]) / 2
+    r = M.bob_reading(s, bench_view)
+    assert near < far - 0.5 and r.px == pytest.approx(near, rel=1e-3), (r.px, near, far)
+
+
+def test_a_larger_bob_never_reads_worse_while_it_stays_in_front(bench_view):
+    """[review 4 law-mirrored-bob-extremes: a bob extreme behind the camera came back mirrored, so +-800 read and
+    +-900..1100 folded] A high cask whose bob top crosses the camera's plane as the amp grows: the verdict never goes
+    from reading back to folding (a lap point where the bob leaves through the plane is not judged)."""
+    verdicts = []
+    for amp in range(100, 2600, 100):
+        r = M.bob_reading(_spec({**_CASK, "height": 4600, "bob": {"amp": amp, "period": 32}}), bench_view)
+        verdicts.append(True if r is None else r.reads)
+    first = verdicts.index(True) if True in verdicts else len(verdicts)
+    assert all(verdicts[first:]), "".join("R" if v else "." for v in verdicts)
+
+
+def test_the_law_is_sampled_finely_enough_on_a_yawed_camera(tmp_path):
+    """[review 4 claims-6: 4 lap samples kept every test green -- every test camera was axis-aligned, where any
+    multiple of 4 lands on the orbit's peak speed] On a yaw-45 camera an orbit bob just under the threshold is
+    flagged, and doubling the samples moves the ratio by under 0.5%."""
+    from ff9mapkit.scene import cam as C
+    toml = (_STUDY / "bench" / "sine1.field.toml").read_text(encoding="utf-8").replace("pitch = 48.0", "pitch = 48.0\nyaw = 45")
+    (tmp_path / "art").mkdir()
+    p = tmp_path / "y45.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    c = build.resolve_camera(build.FieldProject.load(p))
+    view = M.View("", C.canvas_projector(c, depth=True), (float(c.range[0]), float(c.range[1])))
+    amp = next(a for a in range(60, 400) if 0.93 < M.bob_reading(_spec({**_CASK, "bob": {"amp": a, "period": 32}}), view).ratio < 0.99)
+    s = _spec({**_CASK, "bob": {"amp": amp, "period": 32}})
+    r = M.bob_reading(s, view)
+    assert not r.reads and M.bob_note(s, view) is not None
+    import unittest.mock as um
+    with um.patch.object(M, "BOB_LAP_SAMPLES", 2 * M.BOB_LAP_SAMPLES):
+        assert M.bob_reading(s, view).ratio == pytest.approx(r.ratio, rel=0.005)
+
+
+def test_a_bob_riding_the_motion_period_is_told_the_motion_period():
+    """[review 4 law-inherited-period-parse: 'a bob period of N' could not be written into a bob that inherits the
+    motion's period -- parse refuses it] A bob-only prop whose bob rides the motion-level period is told the motion
+    period, and that fix parses and reads."""
+    raw = _prop({"period": 3, "height": 300, "bob": {"amp": 60}})
+    s = M.parse(raw, 0)
+    note = M.bob_note(s, _pitched)
+    (bp,) = re.findall(r"a motion period of (\d+)", note)
+    fixed = M.parse({**raw, "motion": {"period": int(bp), "height": 300, "bob": {"amp": 60}}}, 0)
+    assert M.bob_reading(fixed, _pitched).reads and "a bob period" not in note, note
+
+
+def test_duplicate_clocks_cost_nothing():
+    """[review 4 claims-3: every duplicate in the clocks list re-walked max_step] A note given a clock list full of
+    repeats walks max_step once per candidate period, however many times the list repeats it."""
+    import unittest.mock as um
+    calls = [0]
+    real = M.max_step
+
+    def counted(spec):
+        calls[0] += 1
+        return real(spec)
+    s = _spec({"to": [300, -300], "period": 40, "height": 150, "bob": {"amp": 60, "period": 3}})
+    with um.patch.object(M, "max_step", counted):
+        M.bob_note(s, _pitched, clocks=[8, 12, 16, 20] * 50)
+    assert calls[0] <= 8, calls[0]
+
+
+def test_a_fix_is_checked_on_a_camera_the_raised_path_first_enters():
+    """[review 4 law-amp-fix-unjudged-camera: the amp fix was checked only on cameras that showed the path at the
+    AUTHOR's height] Camera 1 shows none of the orbit at height 150 but all of it once an amp fix raises it (its
+    canvas sits above the prop), and it looks along the orbit's depth steeply and at the bob shallowly, so a fix sized
+    for camera 0 folds there: every fix the note names must read on camera 1 too."""
+    cam0 = M.View("camera 0", _pitched)
+    cam1 = M.View("camera 1", lambda x, h, z: (0.1 * x + 0.5 * h - 200, -0.05 * h - 0.3 * z - 100), (400.0, 400.0))
+    s = _spec({**_CASK, "bob": {"amp": 60, "period": 256}})
+    assert not M._profile(s, cam1, s.height, s.bob_amp).seen
+    alone = M.bob_note(s, cam0)
+    (amp, h), = re.findall(r"an amp of (\d+) with height (\d+)", alone)
+    assert M._profile(M._replace(s, bob_amp=int(amp), height=int(h)), cam1, int(h), int(amp)).seen   # it enters
+    note = M.bob_note(s, [cam0, cam1])
+    for bp, a, hh in _FIX_RE.findall(note):
+        fixed = _apply(s, bp, a, hh)
+        for v in (cam0, cam1):
+            p = M._profile(fixed, v, fixed.height, fixed.bob_amp)
+            assert not p.offsets or M._reading(fixed, p, fixed.bob_period).reads, (note, v.name, fixed)
+
+
+def test_a_fix_never_carries_the_path_behind_a_camera():
+    """[review 4] A deep z-shuttle folds on camera 1; camera 0 sees it side-on (its bob reads) and its plane sits at
+    height 1200. The amp that out-travels camera 1's 480 px span needs a height past that plane, carrying the whole
+    path behind camera 0 -- so no amp is named, however much larger (and the shuttle's 11.8 px a tick is too fast for
+    any bob period of 4 or more to beat: the honest note names no fix)."""
+    cam0 = M.View("camera 0", lambda x, h, z: (0.1 * z + 300, 5000 - 0.069 * h - 0.1 * x, 1200.0 - h))
+    cam1 = M.View("camera 1", _pitched)
+    s = _spec({"to": [0, 4000], "period": 128, "height": 150, "bob": {"amp": 60, "period": 256}})
+    assert M.bob_reading(s, cam0).reads and not M.bob_reading(s, cam1).reads
+    assert int(re.search(r"with height (\d+)", M.bob_note(s, cam1)).group(1)) > 1200
+    note = M.bob_note(s, [cam0, cam1])
+    assert "does not read as a bob on camera 1:" in note and "an amp of" not in note, note

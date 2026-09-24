@@ -569,7 +569,8 @@ def test_the_fast_projector_is_to_canvas_bit_for_bit(tmp_path):
             except ZeroDivisionError:
                 continue
             assert f(x, y, z) == want, (x, y, z)
-            assert C.canvas_projector(c, depth=True)(x, y, z)[:2] == want
+            got = C.canvas_projector(c, depth=True)(x, y, z)
+            assert got[:2] == want and got[2] == C.project((x, y, z), c)[2]       # [review 4 claims-4] SIGNED depth
 
 
 # ================================================================ a height alone is a HOLD -- the zero-clock daemon
@@ -634,3 +635,127 @@ def test_lint_names_a_clock_the_field_already_runs_when_it_is_full(tmp_path):
     assert len(notes) == 1 and "a bob period of 16 (same amp; a clock the field already runs)" in notes[0], notes
     fixed = build.lint_all(field(16, "fixed"))
     assert not [n for n in fixed.logic + fixed.errors if "bob (" in n or "distinct periods" in n], fixed
+
+
+_CAMS3 = """
+[field]
+id = 30990
+name = "MOTB"
+area = 11
+
+[[camera]]
+pitch = 48
+yaw = 0
+[[camera]]
+pitch = 70
+yaw = 0
+center_offset = [0, {cy}]
+
+[[camera_zone]]
+to_camera = 1
+zone = [[0, -150], [1400, -150], [1400, -2000], [0, -2000]]
+[[camera_zone]]
+to_camera = 0
+zone = [[-1400, -150], [0, -150], [0, -2000], [-1400, -2000]]
+
+[walkmesh]
+quad = [[-1400, -100], [1400, -100], [1400, -2000], [-1400, -2000]]
+
+[player]
+spawn = [0, -1600]
+"""
+
+
+def _apply_notes(props, notes):
+    """The toml's movers with every fix the notes name applied (a period, else an amp with its height)."""
+    out = []
+    for (n, pos, extra, mo), note in zip(props, notes):
+        m = re.search(r"a (?:bob|motion) period of (\d+)", note or "")
+        if m:
+            mo = re.sub(r"bob = \{ amp = (\d+), period = \d+ \}", rf"bob = {{ amp = \1, period = {m.group(1)} }}", mo)
+        out.append((n, pos, extra, mo))
+    return out
+
+
+@pytest.mark.parametrize("cy", [178, 181, 184])
+def test_a_named_amp_holds_on_a_camera_the_raised_path_enters(tmp_path, cy):
+    """[review 4 law-amp-fix-unjudged-camera: the amp fix was checked only on cameras that showed the path at the
+    AUTHOR's height, so raising it onto camera 1's canvas produced a fresh note there] Every fix the note names,
+    written into the toml, lints clean on both cameras."""
+    head = _CAMS3.format(cy=cy)
+    notes = [n for n in build.lint_all(_load(tmp_path, _toml(_ORBIT, head=head), f"c{cy}")).logic if "bob (" in n]
+    assert len(notes) == 1, notes
+    for bp, amp, h in re.findall(r"a bob period of (\d+)|an amp of (\d+)(?: with height (\d+))?", notes[0]):
+        mo = (f"{{ radius = 300, period = 128, height = 150, bob = {{ amp = 60, period = {bp} }} }}" if bp else
+              f"{{ radius = 300, period = 128, height = {h or 150}, bob = {{ amp = {amp}, period = 256 }} }}")
+        fixed = [(_ORBIT[0][0], _ORBIT[0][1], _ORBIT[0][2], mo)]
+        after = build.lint_all(_load(tmp_path, _toml(fixed, head=head), f"f{cy}{bp}{amp}")).logic
+        assert not [n for n in after if "bob (" in n], (notes[0], after)
+
+
+def test_two_notes_applied_together_stay_within_the_clocks(tmp_path):
+    """[review 4 law-two-notes-ninth-clock: each note was checked against CLOCKS_MAX alone, so applying two made a 9th
+    clock] Five spinning props and two folding casks fill 7 clocks; the two notes name ONE new period between them,
+    and the toml with both applied validates and lints clean of bob notes."""
+    spins = [(n, (-1000 + 280 * i, -300), "", f'{{ turn = "spin", period = {per} }}')
+             for i, (n, per) in enumerate(zip(("scroll", "letter", "chest", "sword", "fish"), (200, 300, 400, 500, 600)))]
+    casks = [(n, pos, "collision = false\nshadow = false",
+              "{ radius = 300, period = 128, height = 150, bob = { amp = 60, period = 256 } }")
+             for n, pos in (("cask", (-600, -1100)), ("balloon", (600, -1100)))]
+    props = spins + casks
+    proj = _load(tmp_path, _toml(props), "two")
+    assert len(motion.clocks([motion.parse(p, i) for i, p in enumerate(proj.raw["prop"])])) == 7
+    notes = [n for n in build.lint_all(proj).logic if "bob (" in n]
+    assert len(notes) == 2 and "share a clock" in notes[1], notes
+    fixed = _apply_notes(casks, notes)
+    after = build.lint_all(_load(tmp_path, _toml(spins + fixed), "applied"))
+    assert not [n for n in after.logic + after.errors if "bob (" in n or "distinct periods" in n], after
+
+
+def test_a_camera_whose_canvas_the_mover_never_enters_is_not_judged(tmp_path):
+    """[review 4 claims-5: the build's canvas-size wiring was untested -- without it an off-screen mover was judged]
+    Camera 1's canvas is pushed far off the orbit by its center_offset; the folding bob is noted on camera 0 only."""
+    head = _CAMS3.format(cy=4000)
+    notes = [n for n in build.lint_all(_load(tmp_path, _toml(_ORBIT, head=head), "off")).logic if "bob (" in n]
+    assert len(notes) == 1 and "on camera 0:" in notes[0], notes
+
+
+_BENCH_CAM = """
+[field]
+id = 30990
+name = "MOTB"
+area = 11
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+
+[player]
+spawn = [-750, -1750]
+"""
+
+
+def test_lint_judges_a_path_through_the_camera_plane_on_what_it_shows(tmp_path):
+    """[review 4 claims-4: the build could drop depth=True and every test stayed green] A shuttle running out through
+    the bench camera's plane: lint_all's note is the one the depth-aware reading gives -- judged on the arc in front
+    -- and the same whether the off-screen far end is at -6720 or -6740. Run far behind the camera (-12000), an amp
+    fix would carry more of the path behind the plane: without the depth the build passes, lint named one."""
+    from ff9mapkit.scene import cam as C
+    notes = []
+    for far in (-6720, -6740, -12000):
+        mover = [("cask", (0, -1000), "collision = false\nshadow = false",
+                  f"{{ to = [0, {far}], period = 256, height = 150, bob = {{ amp = 60, period = 256 }} }}")]
+        proj = _load(tmp_path, _toml(mover, head=_BENCH_CAM), f"p{-far}")
+        got = [n for n in build.lint_all(proj).logic if "bob (" in n]
+        c = build.resolve_camera(proj)
+        view = motion.View("", C.canvas_projector(c, depth=True), (float(c.range[0]), float(c.range[1])))
+        assert got == [motion.bob_note(motion.parse(proj.raw["prop"][0], 0), view, clocks=[256])], got
+        notes.append(re.sub(r"\d+(?:\.\d+)?", "N", got[0]))
+    assert notes[0] == notes[1] and "an amp of" not in notes[2], notes
