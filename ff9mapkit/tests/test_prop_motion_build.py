@@ -494,3 +494,46 @@ def test_lint_judges_a_bob_through_every_camera(tmp_path):
               "{ to = [600, -900], period = 128, height = 150, bob = { amp = 100, period = 64 } }")]
     notes = [n for n in build.lint_all(_load(tmp_path, _toml(mover, head=_TWO_CAMERAS), "two")).logic if "bob (" in n]
     assert len(notes) == 1 and "on camera 1" in notes[0], notes
+
+
+# ================================================================ a height alone is a HOLD -- the zero-clock daemon
+_HOLD = ("balloon", (0, -900), "collision = false\nshadow = false", "{ height = 300 }")
+_BOBBER = ("letter", (600, -900), "collision = false\nshadow = false",
+           "{ height = 150, bob = { amp = 150, period = 60 } }")
+
+
+@pytest.mark.parametrize("props, loc", [([_HOLD], 0), ([_HOLD, _BOBBER], 2)], ids=["hold_only", "hold_and_bob"])
+def test_a_hold_builds_and_its_daemon_re_places_it_every_tick(tmp_path, props, loc, templates):
+    """[review: `height` alone was refused, so a held prop had to be an amp-1 bob that lint flags] A hold is a
+    mover with no clock. Alone on a field its daemon has NO locals (loc 0: no prelude, no advance -- just the 0xAD,
+    Wait(1) and the JMP, a shape no clocked field builds); beside a clocked mover it shares that mover's daemon.
+    Either way the shipped bytes run the predictor: the hold's pose is the same (x, -300, z) every tick."""
+    text = _toml(props)
+    res, ebs = _build(tmp_path, text)
+    raw = _load(tmp_path, text, "raw").raw
+    us = ebs["us"]
+    movers = _movers(raw, us)
+    dslot, want, got_loc = _daemon(us, movers)
+    assert got_loc == loc
+    assert motion.arming_problems(us, dslot, [u for _s, u in movers]) == []
+    ticks = MotionEngine(loc).ticks(want[6:], 121)
+    hold_uid = movers[0][1]
+    for n, got in enumerate(ticks):
+        assert [(op, u, v) for op, u, v in got] == [(motion.MOVE_EX, u, motion.pose(s, n)[:3]) for s, u in movers], n
+        assert got[0] == (motion.MOVE_EX, hold_uid, (0, -300, -900)), n
+    _r, plain = _build(tmp_path, _toml(props, motion_on=False), "plain")
+    for lang in LANGS:
+        assert _errors(ebs[lang]) - _errors(plain[lang]) == Counter(), lang
+    head = motion.report_lines(movers, dslot, loc)[0]
+    assert head in res.warnings and (("all holds" in head) == (loc == 0)), head
+
+
+def test_lint_has_nothing_to_say_about_a_hold(tmp_path):
+    """The hold replaces the amp-1 bob bench 30948 used to pin a height: that bob draws the 'too small to see'
+    note, the hold draws no motion note at all."""
+    amp1 = [("balloon", (0, -900), "collision = false\nshadow = false",
+             "{ height = 300, bob = { amp = 1, period = 60 } }")]
+    notes = [n for n in build.lint_all(_load(tmp_path, _toml(amp1), "amp1")).logic if "motion" in n]
+    assert len(notes) == 1 and "too small to see" in notes[0], notes
+    rep = build.lint_all(_load(tmp_path, _toml([_HOLD]), "hold"))
+    assert not [n for n in rep.logic + rep.errors if "motion" in n], (rep.logic, rep.errors)

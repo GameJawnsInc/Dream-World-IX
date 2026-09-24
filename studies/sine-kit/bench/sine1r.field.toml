@@ -5,7 +5,7 @@
 # frame, and the owner saw no bob on the orbiting cask (30946). Rung 0's room and camera; three red balloons at ONE
 # depth (z -900), so one screen scale applies to all three:
 #   L  x -600   static on the floor (no motion)                   the height-0 reference
-#   C  x    0   height 300 (a +-1 bob: effectively constant)      the height-300 reference
+#   C  x    0   a HOLD at height 300 (motion = { height = 300 })   the height-300 reference
 #   R  x  600   height 150, bob +-150 every 60 ticks (2 s)         sweeps 0..300, top to bottom of [C, L]
 # studies/sine-kit/rung1_render.py shoots the frame repeatedly and segments the red balloons.
 #   D  cask     the OWNER'S DEMO, not measured: a bob you can see WHILE arcing -- r 200 about (0,-1500), 128 ticks,
@@ -49,13 +49,13 @@ prop = "balloon"
 pos = [-600, -900]
 shadow = false
 
-# C -- the constant-height reference
+# C -- the constant-height reference: a hold (a height alone; it was a +-1 bob before holds existed)
 [[prop]]
 prop = "balloon"
 pos = [0, -900]
 collision = false
 shadow = false
-motion = { height = 300, bob = { amp = 1, period = 60 } }
+motion = { height = 300 }
 
 # R -- the bob
 [[prop]]

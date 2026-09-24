@@ -242,7 +242,12 @@ _REFUSED = [
     ("reverse_bob", {"bob": {"amp": 60, "period": 100}, "reverse": True}, {}, "reverse applies only"),
     ("reverse_not_bool", {"radius": 300, "period": 128, "reverse": 1}, {}, "reverse must be true or false"),
     ("period_no_channel", {"period": 100}, {}, "period without a channel"),
-    ("height_no_channel", {"height": 100}, {}, "no channel"),
+    ("height_0_no_channel", {"height": 0}, {}, "no channel"),
+    ("hold_with_period", {"height": 100, "period": 64}, {}, "period without a channel"),
+    ("hold_with_phase", {"height": 100, "phase": 0.5}, {}, "phase needs a horizontal or turn channel"),
+    ("hold_with_reverse", {"height": 100, "reverse": True}, {}, "reverse applies only"),
+    ("hold_collides", {"height": 300}, {"collision": None}, "must be walk-through"),
+    ("hold_casts_shadow", {"height": 300}, {"shadow": None}, "must set shadow = false"),
     ("empty", {}, {}, "is empty"),
     ("not_a_table", 5, {}, "must be a table"),
     ("a_list", [300, 128], {}, "must be a table"),
@@ -303,6 +308,21 @@ def test_parse_accepts_boundaries(motion, field, want):
     """[an over-tight cap] Every legal extreme parses, and to the value the predictor then uses."""
     s = M.parse(_prop(motion), 0)
     assert getattr(s, field) == want
+
+
+def test_a_height_alone_is_a_hold():
+    """[review: an amp-1 bob was the only way to hold a height, and lint flags it] ``motion = { height = N }`` holds
+    the prop at N: no clock, no path, no bob, no turn -- every tick writes the same pose, nothing can snap, and
+    there is no bob for the reading law to judge. Negative heights hold too (below the y-0 floor)."""
+    for h in (300, -40, 16383):
+        s = _spec({"height": h})
+        assert (s.path, s.bob_amp, s.turn, s.periods, s.cycle) == (None, 0, None, [], 1)
+        assert s.moves and s.airborne and not s.turns
+        assert {M.pose(s, n) for n in range(0, 600, 7)} == {M.Pose(0, -h, -800, None)}
+        assert M.max_step(s) == (0.0, 0) and M.bounds(s)["h"] == (h, h)
+        assert M.bob_reading(s, _pitched) is None and M.bob_note(s, _pitched) is None
+    assert M.lint_notes({"prop": [_prop({"height": 300})]}) == []
+    assert "at (0, -800); height 300;" in M.describe(_spec({"height": 300}))
 
 
 def test_parse_face_is_the_init_byte():

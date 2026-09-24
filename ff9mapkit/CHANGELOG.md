@@ -5,6 +5,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[[prop]] motion = { height = N }` holds a prop at a height
+- **A non-zero `height` on its own is now a hold**: the prop stays at that height, re-placed each tick by the
+  field's motion script like any other mover (walk-through, shadowless). Before, `motion` needed a `radius`,
+  `to`, `bob` or `turn`, so the only way to raise a still prop was a ±1 bob, and the new bob lint rightly called
+  that bob too small to see. A hold takes no clock; a field whose only movers are holds gets a script with no
+  counters at all. `height = 0` alone is still refused (it would do nothing). In-game: a hold at 300 draws
+  exactly where the ±1 bob did, beside other movers (bench 30948, 5/5) and alone on its field (bench 30949, 4/4).
+
 ### Added — `lint` warns when a `[[prop]] motion` bob will not read as a bob
 - **A small, slow bob on a path toward or away from the camera is invisible**, and `ff9mapkit lint` now says
   so. Such a path already carries the prop up and down the screen (at a 48° pitch a unit of depth moves it about

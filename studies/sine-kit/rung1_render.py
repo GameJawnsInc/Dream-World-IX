@@ -4,7 +4,7 @@ The rung-1 proof (rung1_motion.py) reads the EVENT pos an observer sees right af
 event pass -- before HonoLateUpdate copies the controller's curPos back. It never measured the drawn frame, and the
 owner saw no bob on the orbiting cask. This measures the frame itself.
 
-Three red balloons at ONE depth (z -900): L static on the floor, C at a constant height 300, R bobbing 0..300 every
+Three red balloons at ONE depth (z -900): L static on the floor, C held at height 300, R bobbing 0..300 every
 2 s. Every in-engine shot is segmented for red pixels; the three blobs are split by x and each blob's red centroid
 row is its drawn height, projected. D = row(L) - row(C) is what 300 world units of height draw as at this depth, so
 the check calibrates itself -- no camera math, no guessed scale.

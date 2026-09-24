@@ -289,6 +289,20 @@ ticks (four bobs a lap), which lint passes.
 The trace also found that `shadow = false`'s stated reason was wrong: the engine draws an airborne prop's blob at
 the prop's own height (`FieldMapActor.GetShadowCurrentPos`), not on the floor. The rule stands; the text is fixed.
 
+### The hold: a height alone
+
+The review's last open finding: a still prop off the floor could only be written as a +-1 bob (a motion needed
+`radius`, `to`, `bob` or `turn`), and the new lint rightly calls that bob too small to see -- 30948's own C balloon
+drew the note. A non-zero `height` alone is now a **hold**: a mover with no clock, whose 0xAD operands are all
+constants. Beside clocked movers it shares their daemon; a field whose only movers are holds gets a daemon with
+**no locals** (loc 0: `0xAD`, `Wait(1)`, `JMP` -- a shape no clocked field builds). `height = 0` alone is still
+refused. Both shapes in-game, one change per run:
+
+| run | bench | what changed | result |
+|---|---|---|---|
+| render-hold | 30948, C = `{ height = 300 }` | C was a +-1 bob | 5/5 -- C draws D = 76.6 px above L (76.2 / 76.3 as a +-1 bob) |
+| sine-hold | **30949** (`bench/sine1h.field.toml`, `rung1_hold.py`) | the hold is the field's only mover (the loc-0 daemon, read back off the deployed bytes) | 4/4 -- D = 76.8 px, within 0.6 px of 30948's; the hold does not drift (C span 10.4 px, the model's idle sway) |
+
 ## Corrections to the board entry
 
 - The tangent is θ + **192**, not + 64 (calibrated on the engine's own walk, C6).

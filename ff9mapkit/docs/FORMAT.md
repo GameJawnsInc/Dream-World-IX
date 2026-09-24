@@ -897,12 +897,15 @@ motion = { turn = "swing", swing = 40, period = 75, phase = 0.25 }
 | `period` | integer, 2..8192 ticks | — | One full cycle: an orbit lap, a shuttle round trip, a spin turn, a swing there and back. Required with `radius`, `to` or `turn`. |
 | `phase` | number in [0, 1) | `0` | Where the cycle starts at tick 0, as a fraction of a cycle along the direction of travel (resolution 1/4096). Needs `radius`, `to` or `turn`; a bob takes its own `phase`. |
 | `reverse` | boolean | `false` | Counter-clockwise seen from above. Only for an orbit or `turn = "spin"`. On an orbit it reverses the one shared angle, so a `turn = "swing"` on that orbit swings counter-clockwise first too. |
-| `height` | integer, within ±16383 world units | `0` | The path's height: **absolute** world height, up-positive (the `y` of `[[jump]] to` and `[[platform]] land`), NOT height above the floor. `0` is the floor of a flat novel field (the y-0 plane). Only that flat floor is proven in-game: `ff9mapkit lint` warns when a mover's path runs over walkmesh at another height. |
+| `height` | integer, within ±16383 world units | `0` | The path's height: **absolute** world height, up-positive (the `y` of `[[jump]] to` and `[[platform]] land`), NOT height above the floor. `0` is the floor of a flat novel field (the y-0 plane). Only that flat floor is proven in-game: `ff9mapkit lint` warns when a mover's path runs over walkmesh at another height. A non-zero `height` on its own, with no other key, is a **hold**: the prop stays put at that height (`motion = { height = 300 }`). |
 | `bob` | table `{ amp, period, phase }` | — | A vertical sine added to any motion: `amp` 1..8191 world units either side of `height`; `period` 2..8192 ticks (default: the motion's `period`); `phase` in [0, 1) (default 0). It rises first. On an orbit, or a shuttle toward or away from the camera, a small slow bob folds into the path's own on-screen up-and-down and cannot be seen (see **A bob that reads**). |
 | `turn` | `"travel"` / `"spin"` / `"swing"` | absent | The facing channel. `travel` faces along the orbit (needs `radius`). `spin` turns in place, one full turn per `period` (not with `radius`: an orbiter already turns once a lap — use `travel` plus a `face` offset). `swing` rocks either side of `face` (with any path, or none). Absent = the prop keeps its `face`; the motion never touches its facing. |
 | `swing` | integer, 1..127 facing bytes | — | How far `turn = "swing"` rocks either side of `face` (32 = 45 degrees). Required with, and only with, `turn = "swing"`. |
 
-At least one of `radius`, `to`, `bob` or `turn` is required.
+At least one of `radius`, `to`, `bob` or `turn` is required, or a non-zero `height` alone (a hold). A
+hold takes no `period`, `phase` or `reverse`: nothing about it repeats. It is still a mover: walk-through,
+shadowless, re-placed every tick by the same script (which carries on after a battle), and one of the 16.
+A hold draws at its height both beside other movers and as a field's only mover (proven in-game).
 
 **Ticks.** A tick is one pass of the field's event engine: 30 a second at Memoria's default
 `FieldTPS = 30` (`Memoria.ini` `[Graphics]`), faster with a higher `FieldTPS` or the game's High Speed

@@ -1,8 +1,9 @@
 """Computed prop motion -- ``[[prop]] motion`` (the sine kit, studies/sine-kit, board entry #7).
 
 A prop can ORBIT a point, SHUTTLE between two points, BOB up and down, SPIN or SWING its facing -- channels that
-compose -- driven by ONE per-field daemon entry that re-places every mover each tick with ``MoveInstantXZYEx`` (0xAD)
-and ``TurnInstantEx`` (0x87) from ``B_SIN2`` / ``B_COS2``. This module is the single owner of the math: the build
+compose -- or, given only a ``height``, HOLD there. ONE per-field daemon entry re-places every mover each tick with
+``MoveInstantXZYEx`` (0xAD) and ``TurnInstantEx`` (0x87) from ``B_SIN2`` / ``B_COS2`` (a hold's operands are all
+constants: it needs no clock). This module is the single owner of the math: the build
 emits the daemon from it, and the report, the CLI, the tests and the in-game harness all read the same
 :func:`pose`, which predicts every frame EXACTLY (rung 0 proved the engine's float32 ``rsin`` in-game, C1 + C7).
 
@@ -198,7 +199,7 @@ def parse(prop: dict, idx: int) -> MotionSpec | None:
     if unknown:
         raise MotionError(f"{where}: unknown key(s) {', '.join(unknown)} (have: {', '.join(_KEYS)})")
     if not m:
-        raise MotionError(f"{where} is empty -- give at least one of radius, to, bob, turn")
+        raise MotionError(f"{where} is empty -- give at least one of radius, to, bob, turn, or a non-zero height")
     pos = prop.get("pos")
     if not isinstance(pos, (list, tuple)) or len(pos) < 2 or not (_is_int(pos[0]) and _is_int(pos[1])):
         raise MotionError(f"{where}: the prop needs an integer pos = [x, z] (the motion's anchor)")
@@ -295,8 +296,9 @@ def parse(prop: dict, idx: int) -> MotionSpec | None:
                               f"(32 = 45 degrees either side), got {swing!r}")
     elif swing is not None:
         raise MotionError(f"{where}: swing is only for turn = \"swing\"")
-    if path is None and bob is None and turn is None:
-        raise MotionError(f"{where}: no channel -- give at least one of radius, to, bob, turn")
+    if path is None and bob is None and turn is None and not height:
+        raise MotionError(f"{where}: no channel -- give at least one of radius, to, bob, turn, or a non-zero "
+                          f"height (a hold)")
 
     spec = MotionSpec(idx=idx, label=lab, model=prop.get("prop", prop.get("model")), pos=(px, pz), path=path,
                       radius=r, mid=mid, half=half, period=per, phase_u=phase_u, reverse=reverse,
@@ -977,7 +979,8 @@ def report_lines(movers, daemon_slot=None, loc=None) -> list:
     specs = [s for s, _u in movers]
     ks = clocks(specs)
     head = (f"[[prop]] motion: {len(specs)} mover(s) on {len(ks)} clock(s) ({', '.join(map(str, ks))} ticks; "
-            f"{TICKS_PER_SECOND} ticks = 1 s at the default FieldTPS)")
+            f"{TICKS_PER_SECOND} ticks = 1 s at the default FieldTPS)" if ks else
+            f"[[prop]] motion: {len(specs)} mover(s), all holds -- no clock (each tick re-places them unchanged)")
     if daemon_slot is not None:
         head += (f" -- daemon entry {daemon_slot} (loc {loc} B), armed in Main_Init after the last mover's "
                  f"InitObject (THE ORDER LAW); tick 0 = the field's first frame; state = the daemon's own locals")
