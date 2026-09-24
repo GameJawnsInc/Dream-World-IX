@@ -1,7 +1,7 @@
 # Computed prop motion — the sine kit (board entry #7)
 
 **Status:** rung 0 ★ PASSED in-game (harness, 15/15, every claim backed by a check that can fail). Rung 1 (the kit
-feature, `[[prop]] motion`) is implemented; its in-game proof is pending. It adds no `[[prop]]` emitter change: the
+feature, `[[prop]] motion`) ★ PASSED in-game (harness, 26/26 on bench 30946/30947). It adds no `[[prop]]` emitter change: the
 prop loop only records each mover's seat.
 
 Board entry #7 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md): nothing in the kit moves by
@@ -115,7 +115,7 @@ to 0x87 and corrected law 6 to 26 bits; see "Corrections to the rung-0 design" b
 ## Rung 1 — the kit feature: `[[prop]] motion`
 
 **Status:** implemented in the kit (`content/motion.py`, five `build.py` hooks, the campaign guard,
-`ff9mapkit motion`, `tests/test_prop_motion*.py`). **Rung 1 in-game proof: pending.** The user reference is
+`ff9mapkit motion`, `tests/test_prop_motion*.py`). **Rung 1 in-game proof: ★ PASSED, 26/26.** The user reference is
 [`ff9mapkit/docs/FORMAT.md`](../../ff9mapkit/docs/FORMAT.md) § Computed motion.
 
 ### The surface
@@ -237,14 +237,18 @@ difference, E a solid reversed spin, F a swing, G the r 8191 26-bit edge, H a st
 daemon armed first (the calibration mutant). A study-side observer mirrors each mover's pose with its own tick count,
 so every sample must equal `motion.pose(K)`.
 
-**Rung 1 in-game proof: pending.**
+**Rung 1 in-game proof: ★ PASSED, 26/26** (`py tools/play.py studies/sine-kit/rung1_motion.py`, run 2).
 
 | Check | Result |
 |---|---|
-| P0-P3 preflight (served alone; the tested daemon is the shipped one; the ORDER LAW verdict per arm; the daemon interpreted == `path()`) | pending |
-| C0 coverage · C1 exact · C2 still · C3 phase lock · C4 first frame | pending |
-| C5 26-bit edge · C6 cadence · C7 horizon · C8 re-entry · C9 battle | pending |
-| C-WALK · CAL · NC-THROW | pending |
+| P0-P3 preflight (served alone; the tested daemon is the shipped one; the ORDER LAW verdict per arm; the daemon interpreted == `path()`) | PASS: both arms served by FF9CustomMap alone; 30946 rebuilt from the toml == the deployed bytes in all 7 languages; the law holds on 30946 and refuses 30947; 512 interpreted ticks == `path()` |
+| C0 coverage · C1 exact · C2 still · C3 phase lock · C4 first frame | PASS: 571 distinct K over 600 ticks, 16/16 bob bins; **979/979 samples exact, worst 0**; D, G and the control H never turn; B is A's antipode in every sample; the FIRST band == pose(0) |
+| C5 26-bit edge · C6 cadence · C7 horizon · C8 re-entry · C9 battle | PASS: G (r 8191) 304/304 exact; 30.01 ticks/s at FieldTPS 30; 298/298 exact past K 1024; re-entry restarts at tick 0 (first K 4, 309/309 exact); after a battle Main_Init does not re-run and the clocks carry on (Main_Reinit resumes the daemon mid-cycle) |
+| C-WALK · CAL · NC-THROW | PASS: the player walks through the shuttling chest (D 75/75 exact meanwhile); the daemon-first arm loses tick 0 to CreateObject and is exact from K 1; no NullReference / InvalidCast / IndexOutOfRange anywhere |
+
+Run 1 was 25/26: CAL predicted the spawn height as the floor (0) but read -32768. 0x1D CreateObject parks a new
+actor at y = `POS_COMMAND_DEFAULTY` (32768, `EventEngine.Constructor.cs:11`, `DoEventCode.cs:384`) until its
+controller snaps it; the kit is unaffected (tick 0 writes y explicitly). The bench now predicts it; run 2 is 26/26.
 
 ## Corrections to the board entry
 

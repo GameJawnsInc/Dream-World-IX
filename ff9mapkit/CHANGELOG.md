@@ -37,7 +37,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   writes the per-tick path.
 - **Byte identity:** a field without `motion` builds byte for byte as before; the arm step runs only when some
   `[[prop]]` has one.
-- **In-game proof** (harness, `studies/sine-kit` rung 1): (in-game proof: pending)
+- **In-game proof** (harness, `studies/sine-kit` rung 1, bench 30946/30947): 26/26. Eight props (orbits, a
+  reversed orbit, a shuttle, a spin, a swing, the r 8191 edge, a static control) matched the predictor in 979 of
+  979 samples, worst error 0, from the first frame, across a re-entry, past 1024 ticks and through a battle
+  (the motion resumes mid-cycle). The daemon-first mutant loses tick 0, as THE ORDER LAW predicts.
 
 ### Fixed — `shadow = false` works on a field that ships MapConfigData, for every actor
 - **The player, an `[[npc]]`, a `[[chest]]` and a `[[savepoint]]` now honour `shadow = false` on an MCF field.**

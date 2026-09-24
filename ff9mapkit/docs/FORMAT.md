@@ -944,8 +944,9 @@ mover's object must be the prop the toml names, its setup must finish in one fra
 script must start after every mover exists.
 
 **When it runs.** The motion starts on the field's first frame, already at its tick-0 pose (no pop
-into place), and restarts from tick 0 on every field entry and every ~ → Reload field. By the engine's
-rules it also restarts when a save is loaded in the field and keeps running through fades, dialogue and
+into place), and restarts from tick 0 on every field entry. After a random battle it carries on from
+where it was, mid-cycle. (All three are proven in-game.) By the engine's rules it also restarts on
+~ → Reload field and when a save is loaded in the field, and it keeps running through fades, dialogue and
 cutscenes (read from the engine source; not yet observed in-game). In co-op each machine
 runs its own motion from its own entry, so the two players can see a prop at different points of its
 cycle.
