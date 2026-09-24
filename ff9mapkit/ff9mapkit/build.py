@@ -4306,6 +4306,33 @@ def _motion_floor_notes(project: FieldProject) -> list:
     return out
 
 
+def _motion_bob_notes(project: FieldProject) -> list:
+    """[[prop]] motion bobs that will not READ as a bob on this field's camera (motion.bob_note): projected through
+    the primary camera (cam.to_canvas, the kit's exact field-canvas map), a bob that adds no screen-vertical
+    reversal of its own folds into the path's up-and-down. Owner-observed on bench 30946's cask, then measured
+    (the drawn height itself IS the 0xAD height: bench 30948). Never raises (lint's contract)."""
+    if not _motion.any_motion(project.raw):
+        return []
+    try:
+        camera = resolve_camera(project)
+    except Exception:                                   # noqa: BLE001 -- no camera: nothing to project through
+        return []
+    out = []
+    for i, p in enumerate(project.raw.get("prop") or []):
+        if not isinstance(p, dict) or p.get("motion") is None:
+            continue
+        try:
+            spec = _motion.parse(p, i)
+        except _motion.MotionError:
+            continue                                   # problems() reports it
+        if spec is None:
+            continue
+        note = _motion.bob_note(spec, lambda x, h, z: cam.to_canvas((x, h, z), camera))
+        if note:
+            out.append(note)
+    return out
+
+
 def lint_all(project: FieldProject) -> LintReport:
     """Run EVERY offline validator in one pass and return a :class:`LintReport`: schema (:func:`validate`),
     story/flag logic (:func:`lint_logic` + :func:`lint_flag_bands`), walkmesh geometry + content placement +
@@ -4330,6 +4357,7 @@ def lint_all(project: FieldProject) -> LintReport:
     try:                                                  # lint never raises: a motion hook that does is a note
         rep.logic.extend(_motion.lint_notes(project.raw))  # a mover faster than the smoother interpolates
         rep.logic.extend(_motion_floor_notes(project))     # a mover over a floor that is not at height 0
+        rep.logic.extend(_motion_bob_notes(project))       # a bob this camera folds into the path (no bob seen)
     except Exception as e:                                # noqa: BLE001
         rep.logic.append(f"[[prop]] motion lint could not finish: {type(e).__name__}: {e}")
     _lint_scripts_toolchain(project, rep.errors)          # a scripted ability needs a C# compiler -> fail at lint, not mid-build

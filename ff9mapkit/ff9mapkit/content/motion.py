@@ -312,8 +312,9 @@ def _co_rules(prop: dict, spec: MotionSpec) -> None:
         raise MotionError(f"{lab} motion: a prop that moves must be walk-through -- set collision = false (the "
                           f"player push against an actor re-placed every tick is unproven)")
     if spec.airborne and prop.get("shadow") is not False:
-        raise MotionError(f"{lab} motion: an airborne prop (height or bob) must set shadow = false (its blob "
-                          f"would stay on the floor)")
+        raise MotionError(f"{lab} motion: an airborne prop (height or bob) must set shadow = false (the engine "
+                          f"draws its blob at the prop's own height -- a dark disc hanging in mid-air, never on "
+                          f"the floor below)")
     for k in ("requires_flag", "requires_flag_clear", "attach_to"):
         if prop.get(k) is not None:
             raise MotionError(f"{lab} motion: a moving prop may not use {k} -- THE NULL-TARGET LAW: 0xAD has no "
@@ -484,6 +485,67 @@ def max_step(spec: MotionSpec) -> tuple:
         hs = [cdiv(SIN[_bob_angle(spec, n)] * spec.bob_amp, 4096) for n in range(spec.bob_period + 1)]
         dh = max(abs(hs[i + 1] - hs[i]) for i in range(len(hs) - 1))
     return math.hypot(xz, dh), fb
+
+
+SWING_PX = 0.5                                    # field px a track must move back before a reversal counts
+
+
+def _swings(vs, h: float = SWING_PX) -> int:
+    """Direction reversals of a CYCLIC screen track. A reversal counts only once the track has moved back ``h`` px
+    from its last extreme, so the fraction-of-a-px jitter of integer poses never counts. Two laps: the first settles
+    the direction, the second counts."""
+    n = len(vs)
+    if n < 2:
+        return 0
+    dirn, ext, count = 0, vs[0], 0
+    for i, v in enumerate(list(vs) * 2):
+        if dirn == 0:
+            if abs(v - ext) >= h:
+                dirn, ext = (1 if v > ext else -1), v
+        elif (v - ext) * dirn > 0:
+            ext = v
+        elif abs(v - ext) >= h:
+            dirn, ext = -dirn, v
+            count += i >= n
+    return count
+
+
+def bob_reading(spec: MotionSpec, project) -> tuple | None:
+    """How a mover's bob READS through ``project(x, height, z) -> (u, v)`` (field-canvas px, v down): (the largest
+    on-screen offset the bob adds, px; screen-vertical reversals per joint cycle WITH the bob; WITHOUT it). None for
+    a mover without a bob, or a joint cycle past STEP_EXACT_MAX.
+
+    On a pitched camera DEPTH also moves a prop up and down the screen, so a bob no faster than its path folds into
+    the path's own up-and-down -- it reshapes the loop and adds no reversal of its own (bench 30946's cask: +-60
+    every 256 ticks on a 128-tick orbit, +-4.3 px against the orbit's 60 px, owner-observed as "no bob"). A bob
+    reads as a bob exactly when it adds reversals: WITH > WITHOUT."""
+    if not spec.bob_amp or not step_is_exact(spec):
+        return None
+    w, o = [], []
+    for n in range(spec.cycle):
+        p = pose(spec, n)
+        w.append(project(p.x, p.height, p.z))
+        o.append(project(p.x, spec.height, p.z))
+    px = max(math.dist(a, b) for a, b in zip(w, o))
+    return px, _swings([v for _u, v in w]), _swings([v for _u, v in o])
+
+
+def bob_note(spec: MotionSpec, project) -> str | None:
+    """The lint advisory for a bob that will not read as one on this camera, or None."""
+    r = bob_reading(spec, project)
+    if r is None:
+        return None
+    px, with_bob, without = r
+    if with_bob > without:
+        return None
+    what = f"its bob (+-{spec.bob_amp} every {spec.bob_period} ticks)"
+    if spec.path is None and not spec.turns:
+        return (f"{spec.label} motion: {what} moves it at most {px:.1f} field px on this camera -- too small to read "
+                f"as a bob; raise amp")
+    return (f"{spec.label} motion: {what} adds no up-and-down of its own on this camera (at most {px:.1f} field px, "
+            f"folded into the path's own on-screen motion) -- it reads as a reshaped path, not a bob. A bob reads when "
+            f"it is several times faster than the path: a bob period <= {max(2, spec.period // 3)} here, and a "
+            f"larger amp")
 
 
 def clocks(specs) -> list:

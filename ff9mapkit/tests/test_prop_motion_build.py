@@ -445,3 +445,15 @@ def test_lint_reports_a_malformed_prop_key_instead_of_raising(tmp_path):
     hits = [n for n in [*rep.errors, *rep.logic] if "face must be an integer" in n]
     assert hits, (rep.errors, rep.logic)
     assert not [n for n in rep.logic if "could not finish" in n]
+
+
+def test_lint_projects_each_bob_through_the_fields_camera(tmp_path):
+    """[owner: "I don't see the cask bobbing"] lint projects every bob through the field's own camera: the bench
+    cask's slow bob (+-60 / 256 on a 128-tick orbit) is flagged, the same orbit with a 4x faster bob is not."""
+    slow = [("cask", (0, -800), "collision = false\nshadow = false",
+             '{ radius = 300, period = 128, phase = 0.5, height = 150, turn = "travel", bob = { amp = 60, period = 256 } }')]
+    fast = [("cask", (0, -800), "collision = false\nshadow = false",
+             '{ radius = 300, period = 128, height = 150, turn = "travel", bob = { amp = 120, period = 32 } }')]
+    notes = [n for n in build.lint_all(_load(tmp_path, _toml(slow), "slow")).logic if "bob (" in n]
+    assert len(notes) == 1 and "adds no up-and-down of its own" in notes[0], notes
+    assert not [n for n in build.lint_all(_load(tmp_path, _toml(fast), "fast")).logic if "bob (" in n]

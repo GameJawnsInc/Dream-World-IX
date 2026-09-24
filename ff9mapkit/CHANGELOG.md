@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `lint` warns when a `[[prop]] motion` bob will not read as a bob
+- **A bob no faster than its orbit or shuttle is invisible on a pitched camera**, and `ff9mapkit lint` now says
+  so. Moving away already moves a prop up the screen (at the usual pitch a unit of depth moves it about 1.4 times
+  as far as a unit of height), so a slow bob folds into the path's own up-and-down. The owner saw this on bench
+  30946: a cask bobbing +-60 every 256 ticks on a 128-tick orbit showed no bob. lint projects every bob through
+  the field's camera and warns when it adds no up-and-down of its own (or, bob-only, is too small to see).
+  `docs/FORMAT.md` § A bob that reads gives the rule: a bob several times faster than its path, with a sizable
+  amp.
+- **In-game proof that the height is drawn** (bench 30948): a prop held at height 300 draws 76 px above the
+  floor at 720p and a 0..300 bob sweeps the same band (5/5; the rung-1 proof had read only the event pos).
+
+### Fixed — `[[prop]] motion`'s shadow rule states the right reason
+- An airborne mover still needs `shadow = false`, but the reason was wrong: the engine draws the blob at the
+  prop's own height, a dark disc in mid-air, not on the floor below.
+
 ### Added — `[[prop]] motion`: props that orbit, shuttle, bob, spin and swing
 - **A `[[prop]]` gains `motion = { ... }`** (the sine-kit arc, board entry #7, rung 1). An orbit (`radius`) or
   a sine-eased shuttle (`to`), a `height`, a vertical `bob` and a facing channel (`turn = "travel"`, `"spin"`

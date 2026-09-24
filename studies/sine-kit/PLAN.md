@@ -254,6 +254,33 @@ kit), run 3 was 25/26: C9's flee never rolled in 60 s and the Goblin won (Game O
 on. C9 now fights first (scene 67 is a lone 33 HP Goblin; a win returns through Main_Reinit like an escape) with
 flee as the fallback. Run 4, the final code: 26/26 (969/969 exact; C9 via a win, K 230 -> 266).
 
+### The owner's playtest, and the drawn frame
+
+The owner watched 30946: everything looked right except that **the cask did not visibly bob**. The rung-1 proof
+could not have caught it: its observer reads the EVENT pos right after the daemon's 0xAD, in the same pass, never
+the drawn frame. Two questions, answered separately:
+
+**Is the height drawn?** Yes. Source: 0xAD clears pathing (`BGI_charSetActive(ctrl, 0)`,
+`DoEventCode.cs:2192`), so `FieldMapActorController.SetPosition` takes the direct branch (`curPos = pos`, `:36-41`)
+and `SyncPosToTransform` writes the model's transform (`:93-97`); every per-frame re-grounding path is gated on
+pathing being on (an adversarially verified trace). In-game: bench **30948** (`bench/sine1r.field.toml`,
+`rung1_render.py`) shoots the frame and segments three red balloons at one depth, a floor one, one at height 300
+and one bobbing 0..300. Height 300 draws 76 px above the floor at 720p, and the bob sweeps 0.86 of that after the
+balloon model's own ~10 px idle sway is taken off (5/5; run 1's 3 px stillness bound was wrong for an animated
+model).
+
+**Why no bob on the cask?** Perception, measured through the kit's camera (`cam.to_canvas`): a unit of depth moves
+a prop 0.100 field px up the screen at this pitch and a unit of height 0.069 px. The cask's +-60 bob moves it at
+most 4.3 field px against its orbit's 60, and at 2x the orbit's period it is phase-locked: it lands on the same
+points of the loop every lap, adds no up-and-down of its own (the same screen-vertical reversals with and without
+it), and reads as an uneven loop. THE BOB-READING LAW: a bob reads as a bob exactly when it adds screen-vertical
+reversals to its path's own. `motion.bob_reading` / `bob_note` measure it and `ff9mapkit lint` projects every bob
+through the field's camera. 30948 also carries the owner's demo: a cask on an r 200 orbit with a bob four times
+faster (+-120 every 32 ticks), which lint passes.
+
+The trace also found that `shadow = false`'s stated reason was wrong: the engine draws an airborne prop's blob at
+the prop's own height (`FieldMapActor.GetShadowCurrentPos`), not on the floor. The rule stands; the text is fixed.
+
 ## Corrections to the board entry
 
 - The tangent is θ + **192**, not + 64 (calibrated on the engine's own walk, C6).

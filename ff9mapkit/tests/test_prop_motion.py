@@ -1201,3 +1201,43 @@ def test_reverse_orbit_swings_counter_clockwise_first():
     rev = _spec({"radius": 200, "period": 64, "reverse": True, "turn": "swing", "swing": 40}, face=128)
     assert M.pose(fwd, 0).face == M.pose(rev, 0).face == 128
     assert M.pose(fwd, 1).face > 128 > M.pose(rev, 1).face
+
+
+# ------------------------------------------------------------------ a bob that READS (owner: "no cask bob")
+def _pitched(x, h, z):
+    """A pitched camera's field-canvas map, linearised: 1 u of height moves a prop 0.069 px up the screen, 1 u of
+    depth (away, +z) 0.100 px -- the bench camera's measured gains (pitch 48). v grows DOWN."""
+    return (0.1 * x, -0.069 * h - 0.100 * z)
+
+
+def test_swings_count_reversals_not_integer_jitter():
+    lap = [10 * math.sin(2 * math.pi * n / 64) for n in range(64)]
+    assert M._swings(lap) == 2                                   # one up, one down a cycle
+    assert M._swings([v + (0.2 if n % 2 else -0.2) for n, v in enumerate(lap)]) == 2   # sub-0.5 px jitter ignored
+    assert M._swings([3.0] * 20) == 0 and M._swings([1.0]) == 0
+
+
+def test_a_slow_phase_locked_bob_folds_into_the_orbit():
+    """[bench 30946's cask, owner-observed] +-60 every 256 ticks on a 128-tick r 300 orbit adds NO up-and-down of
+    its own through a pitched camera -- the same reversals with and without it -- so the note fires; the default
+    bob period (the orbit's own) folds completely too."""
+    cask = M.parse(BENCH["B"], 1)
+    px, w, wo = M.bob_reading(cask, _pitched)
+    assert w == wo and 3.5 < px < 5.0                          # ~60 u x 0.069: ~4 px
+    assert "adds no up-and-down of its own" in M.bob_note(cask, _pitched)
+    same = _spec({"radius": 300, "period": 128, "height": 150, "turn": "travel", "bob": {"amp": 120}})
+    assert same.bob_period == 128 and M.bob_note(same, _pitched) is not None
+
+
+def test_a_fast_bob_reads_while_arcing_and_a_bob_only_prop_always_does():
+    """The fixes the note names: a bob four times faster than its orbit adds its own reversals; a bob-only prop
+    reads as a bob once it moves a visible amount, and a +-1 bob is flagged as too small."""
+    demo = _spec({"radius": 200, "period": 128, "height": 150, "turn": "travel", "bob": {"amp": 120, "period": 32}},
+                 prop="cask", pos=[0, -1500])
+    _px, w, wo = M.bob_reading(demo, _pitched)
+    assert w > wo and M.bob_note(demo, _pitched) is None
+    solo = _spec({"height": 150, "bob": {"amp": 150, "period": 60}})
+    assert M.bob_reading(solo, _pitched)[1:] == (2, 0) and M.bob_note(solo, _pitched) is None
+    tiny = _spec({"height": 300, "bob": {"amp": 1, "period": 60}})
+    assert "too small to read as a bob" in M.bob_note(tiny, _pitched)
+    assert M.bob_reading(_spec({"radius": 300, "period": 128}), _pitched) is None          # no bob, no reading
