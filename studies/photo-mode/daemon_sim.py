@@ -281,6 +281,14 @@ def selftest():
     for _ in range(5):
         s.run_tick()
     _expect(s.g("nmc") == 0 and s.g("vx") == 384, "MODE 1 idle issues nothing")
+    s.cmd(1, 300, 200)
+    s.run_tick()
+    s.run_tick()
+    _expect((s.g("txp"), s.g("typ"), s.g("issp"), s.g("vx")) == (300, 200, 1, 300),
+            "a dispatcher move in MODE 1 with nothing held keeps its target (the idle pan pass writes no TX)",
+            (s.g("txp"), s.g("typ"), s.g("issp"), s.g("vx")))
+    s.cmd(1, 384, 286)
+    s.run_tick(), s.run_tick()
     s.keys = P.KEYMASK["right"]
     for _ in range(10):
         s.run_tick()

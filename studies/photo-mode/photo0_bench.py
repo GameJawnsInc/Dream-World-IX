@@ -339,6 +339,9 @@ def _pan() -> list:
          _stmt(f"{mode} const(3) B_EQ {g('pmode')} const(3) B_NE B_ANDAND"), (JMP_IFNOT, "p_seeded"),
          _set("tx", g("vx")), _set("ty", g("vy")),
          label("p_seeded"),
+         # nothing held -> write no target: a dispatcher move issued this same tick keeps its TX/TY (the review's
+         # latent C-CORE false-off: a MODE-1 idle pass used to overwrite them with VX + 0)
+         _stmt(f"{g('dx')} {g('dy')} B_OROR"), (JMP_IFNOT, "p_done"),
          _stmt(f"{mode} const(1) B_EQ"), (JMP_IFNOT, "p_abs"),
          _set("tx", f"{g('vx')} {g('dx')} const({STEP}) B_MULT B_PLUS"),
          _set("ty", f"{g('vy')} {g('dy')} const({STEP}) B_MULT B_PLUS"),
@@ -348,7 +351,6 @@ def _pan() -> list:
          _set("ty", f"{g('ty')} {g('dy')} const({STEP}) B_MULT B_PLUS"),
          label("p_clamp"),
          *_clamp("tx", BOX43[0], BOX43[1]), *_clamp("ty", BOX43[2], BOX43[3]),
-         _stmt(f"{g('dx')} {g('dy')} B_OROR"), (JMP_IFNOT, "p_done"),
          move_camera(g("tx"), g("ty")), *_issued(),
          label("p_done"),
          _set("pmode", mode)]

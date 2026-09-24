@@ -93,6 +93,8 @@ on, CameraStabilizer 0):
 | Run | Stage | Result |
 |---|---|---|
 | 1 | 1: calibration | ★ **17/17** (`photo-rung0-s1`, 39 s) |
+| 2 | 2: the dispatcher | ★ **32/32** (`photo-rung0-s2`, 53 s) |
+| 3 | 3: the pan | ★ **27/27** (`photo-rung0-s3`, 61 s) |
 
 **Run 1: the instrument is calibrated.** Every frozen prediction held exactly:
 - **Spawn:** view (384, 286).
@@ -107,3 +109,53 @@ on, CameraStabilizer 0):
 
 The one logged exception is Memoria's `TextImporter` "Failed to load embaded resources". It appears in every earlier
 bench run (the sine-kit ones included), so it is not this bench's.
+
+**Between runs 1 and 2: an adversarial review** (three lenses: engine truth, check validity, harness protocol) found
+no engine-truth error in the bytes. Every opcode, operand order and RPN rule it checked held against the C#. It did
+find checks that could not fail or could fail for the wrong reason:
+- **3.3 could not fail.** Calibration left the view at the X edge, so the pan's rate was never tested. The run now walks
+  back to mid-window first and refuses a saturated pan.
+- **2.8 was a coin flip.** Where the walk landed decided it. It now walks to a fixed point 185 px from the release
+  target.
+- **LATCH was true by construction.** It now checks the latch held at least one tick.
+- **C-CORE had no slack.** Its sample floor was exactly the number of moves. It now expects a sample per dispatched
+  move and reports poll gaps separately.
+- **Single-sample verdicts** in 2.2 and 3.7 were rebuilt so one missed poll cannot decide them.
+- **A latent daemon bug.** A MODE-1 idle pass overwrote a dispatcher move's target in the same tick. The pan now writes
+  a target only when it issues a move, and `daemon_sim.py` pins that.
+- **Harness protocol.** The scenario no longer calls `g.quit()`, which would close an attached game. A preflight crash
+  is now recorded as a failed check. Each run writes `photo_run.json` with commands, fits and notes.
+
+**Run 2: the dispatcher.** Every prediction held, glides to the pixel:
+- **Take and hold.**
+  - A one-tick `MoveCamera(300,200)` from follow read back **exactly** on the next tick; the ack tick still showed the
+    old view.
+  - The frame registered at (101, 88).
+  - It **held** while the unlocked player walked 900u under it, with no move re-issued.
+- **Clamps.**
+  - X is clamped **at issue** to the widescreen window: 100 became 199, and 700 became 569, with the frame at the
+    canvas edges.
+  - Y is **never** clamped. At 40 and 400 the view read back as commanded, and the frame drew 72 and 64 rows past
+    the painting.
+- **Glides.**
+  - A 30-tick glide matched the engine's per-logic-tick interpolation with worst error **0** over 30 samples. The
+    per-render-frame model misses by 125.
+  - `ReleaseCamera(20,0)` glided linearly to the follow point (worst 0), and follow resumed after a walk.
+  - `ReleaseCamera(16,8)` followed the float32 cosine ease (worst 0).
+- **The board's recipe.** After `EnableCameraServices(0)` the same move was dropped: neither the readback nor the
+  frame moved. `EnableCameraServices(1)` recovered.
+- **Registration.** The balloons moved with the view within 6 px across four pairs of rest shots.
+- **C-CORE.** All 8 one-tick moves were observed, all exact.
+
+**Run 3: the pan.**
+- **Rate.** Held right with the player locked, the view moved exactly 4 px per polled tick (11 ticks = +44). The
+  frame moved the same 44 px, and the player did not move.
+- **Edges.** The relative pan stops at 569 while its target reads 573 (68 samples) and leaves the edge on the first
+  left tick, with no wind-up. The script's Y clamp holds the frame on the painting's top and bottom edges.
+- **Lock.** Unlocked, the same hold walks the player 600u **and** pans. So the lock, not the poll, kept the player
+  still.
+- **Absolute form.** Its target winds up to 608 behind the engine's 569, 9 commands pinned, and the first under the
+  edge lands exactly (568).
+- **Exit.** Release plus unlock hands the view back to follow.
+- **C-CORE.** All **412** samples whose previous tick issued a one-tick move read that target exactly, with X
+  clamped at issue and Y untouched.

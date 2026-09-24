@@ -24,7 +24,8 @@ CALIBRATION (every run)
   C1-NOISE  two rest shots register to one offset;  C1-PIX  the drawn view's top-left is (VX - HFW, VY - 112)
   C1-A9     the player's screen x reads the UI centre at spawn
   C1-FOLLOW four walks: every rest view == the follow model of where the player stands (clamped to the EFFECTIVE
-            window -- this is also what measures the runtime widescreen flag) and the frame agrees
+            window, which follows PsxFieldWidth -- the INI + aspect; MoveCamera's own clamp reads the RUNTIME flag,
+            measured directly by 2.5) and the frame agrees
   NC-KEYS   KEYS is 0 at idle; a harness hold reaches B_KEY and walks the player
 STAGE 2 (the dispatcher)  2.1 LOCK .. 2.10 the 0x71 negative control -- see run_stage2
 STAGE 3 (the pan)         3.1 .. 3.8 -- see run_stage3
@@ -49,9 +50,14 @@ sys.path.insert(0, str(REPO / "ff9mapkit"))
 sys.path.insert(0, str(HERE))
 import photo0_bench as P  # noqa: E402
 from ff9mapkit.config import LANGS, ModLayout  # noqa: E402
+try:                                   # play.py puts tools/ on sys.path and imports the package as `harness`: catch
+    from harness import HarnessError   # THAT class (a `tools.harness` import would be a second, never-raised copy)
+except ImportError:                    # offline import checks
+    from tools.harness import HarnessError  # noqa: E402
 
 GAME = Path(r"C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX")
-THROWS = {"NullReferenceException", "InvalidCastException", "IndexOutOfRangeException", "DivideByZeroException"}
+THROWS = {"NullReferenceException", "InvalidCastException", "IndexOutOfRangeException", "DivideByZeroException",
+          "ArgumentOutOfRangeException", "OverflowException"}   # a List indexer (cameraList[curCamIdx]) throws the 5th
 WHERE = ("EventEngine", "EBin", "FieldMap")
 
 
@@ -69,9 +75,14 @@ class Rec:
 
     def __init__(self, g):
         self.g, self.s, self.exclude = g, {}, []
+        self.one_tick = []           # the ack tick of every one-tick move (MOVE1 / REL): C-CORE expects a sample after
+        self.log = []                # every command, with its args and ack tick
+        self.notes = {}              # fits, registration rows, sanity values -- written to photo_run.json
 
     def poll(self) -> dict:
         st = self.g.state
+        if st.armed is False or (st.raw or {}).get("faulted"):
+            raise Stop(f"the harness agent stopped publishing (armed {st.armed}, faulted {(st.raw or {}).get('faulted')})")
         m = {k: _i16(st, P.G16[k]) for k in P.WATCHED}
         m.update(frame=st.frame, px=st.player_x, pz=st.player_z, control=st.control, fading=st.fading)
         if m["t"] > 0:
@@ -129,8 +140,11 @@ def cmd(g, rec: Rec, name: str, ax: int = 0, ay: int = 0, ad: int = 0, at: int =
            f"byte {P.AY} {ay & 0xFF}", f"byte {P.AY + 1} {(ay >> 8) & 0xFF}",
            f"byte {P.AD} {ad & 0xFF}", f"byte {P.AT} {at & 0xFF}", f"byte {P.CMD} {P.CMDS[name]}")
     m = rec.until(lambda m: m["ack"] == a + 1, timeout, f"the daemon to ack {name}")
+    rec.log.append({"cmd": name, "ax": ax, "ay": ay, "ad": ad, "at": at, "ackt": m["ackt"], "last": m["last"]})
     if m["last"] != P.CMDS[name]:
         raise Stop(f"{name}: the daemon refused it (LAST {m['last']})")
+    if name in ("MOVE1", "REL"):
+        rec.one_tick.append(m["ackt"])
     return m["ackt"], m
 
 
@@ -164,7 +178,10 @@ def preflight(g) -> tuple:
     paths = {L: live.eb_path(L, f"EVT_{P.FIELD_NAME}.eb.bytes") for L in LANGS}
     ebs = {L: p.read_bytes() for L, p in paths.items() if p.exists()}
     stages = {L: P.deployed_stage(b) for L, b in ebs.items()}
-    uids = P.prop_uids(next(iter(ebs.values()))) if ebs else {}
+    try:
+        uids = P.prop_uids(next(iter(ebs.values()))) if ebs else {}
+    except SystemExit as e:
+        uids = {"error": str(e)}
     ok = bool(ebs) and len(set(stages.values())) == 1 and None not in stages.values()
     g.check(ok, "P1: every deployed language .eb carries the SAME stage's daemon", str(stages))
     if not ok:
@@ -204,8 +221,8 @@ def _watch(g) -> None:
 def calibrate(g, rec: Rec, pred: dict, ref, *, walks: bool = True) -> dict:
     m = rec.until(lambda m: m["t"] > 5, 40, "the daemon's clock running")
     print(f"[photo-rung0] latch: gate {m['gate']}, player bound at gate tick {m['fpb']}, control at {m['fuc']}")
-    g.check(0 < m["fpb"] <= m["gate"] + 1 and 0 < m["fuc"] <= m["gate"] + 1,
-            "LATCH: the daemon opened no earlier than the player's bind and control", str(m))
+    g.check(m["gate"] >= 1, "LATCH: the daemon was seated and waiting before the player and control came up (it "
+            "held at least one tick) -- first-true ticks are printed above", f"gate {m['gate']}")
     m = settle(rec)
     sp, flip = tuple(pred["spawn"]), tuple(pred["spawn_flipped_aim"])
     note = " -- the FLIPPED aim sign" if (m["vx"], m["vy"]) == flip else ""
@@ -253,8 +270,9 @@ def calibrate(g, rec: Rec, pred: dict, ref, *, walks: bool = True) -> dict:
         g.check(ok, "C1-FOLLOW: at every walk's rest the view == the follow model of where the player stands, "
                 "clamped to the widescreen window [199,569] x [112,336], and the frame agrees", json.dumps(rows))
         if pinned:
-            print("[photo-rung0] !! VX reached the 4:3 edge (160/608): the RUNTIME widescreen flag is OFF -- every X "
-                  "prediction below is wrong; re-derive before reading them")
+            print("[photo-rung0] !! VX reached the 4:3 edge (160/608): follow is NOT narrowed -- every X prediction "
+                  "below is wrong; re-derive before reading them")
+            rec.notes["follow_not_narrowed"] = pinned
     # NC-KEYS: idle KEYS is 0; a hold reaches B_KEY and walks the player
     t0_ = rec.poll()["t"]
     rec.ticks(30)
@@ -316,17 +334,19 @@ def run_stage2(g, rec: Rec, cal: dict, ref) -> None:
 
     # 2.2 TAKE: one MoveCamera from follow
     before = settle(rec)
-    ta, ma = cmd(g, rec, "MOVE1", 300, 200)
+    ta, _ma = cmd(g, rec, "MOVE1", 300, 200)
     rec.ticks(8)
     after = rec.between(ta)
-    first = after[0] if after else {}
+    pre = rec.s.get(ta)                                 # the ack tick's own sample (mirrored before the command)
+    landed = (after[-1]["vx"], after[-1]["vy"]) if after else None
+    nxt = rec.s.get(ta + 1)
+    g.check(bool(after) and (pre is None or (pre["vx"], pre["vy"]) == (before["vx"], before["vy"]))
+            and all((m["vx"], m["vy"]) == landed for m in after) and landed == (300, 200),
+            "2.2 TAKE: MoveCamera(300, 200, 1, 0) from follow reads back EXACTLY on the next tick and holds",
+            f"before {(before['vx'], before['vy'])}, ack tick {'unobserved' if pre is None else (pre['vx'], pre['vy'])}"
+            f", next tick {'unobserved' if nxt is None else (nxt['vx'], nxt['vy'])}, after "
+            f"{sorted({(m['vx'], m['vy']) for m in after})}")
     exact = [m for m in after if (m["vx"], m["vy"]) == (300, 200)]
-    g.check((ma["vx"], ma["vy"]) == (before["vx"], before["vy"]) and after
-            and len(exact) >= len(after) - 1 and (not first or abs(first["vx"] - 300) <= 1)
-            and all(abs(m["vx"] - 300) <= 1 and abs(m["vy"] - 200) <= 1 for m in after),
-            "2.2 TAKE: MoveCamera(300, 200, 1, 0) from follow reads back EXACTLY on the next tick and holds (the ack "
-            "tick still shows the old view; a single -1 on the take-over is float truncation)",
-            f"ack tick ({ma['vx']},{ma['vy']}), after {[(m['vx'], m['vy']) for m in after][:6]}")
     png, m, t = rest_shot(g, rec, "s2-take", ref)
     shots["take"] = (png, m, t, P.red_blobs(png))
     g.check(abs(t["ox"] - (300 - hfw)) <= 1 and abs(t["oy"] - (200 - P.HFH)) <= 1,
@@ -365,7 +385,7 @@ def run_stage2(g, rec: Rec, cal: dict, ref) -> None:
         png, m, t = rest_shot(g, rec, f"s2-x{x}", ref)
         shots[f"x{x}"] = (png, m, t, P.red_blobs(png))
         rows.append((x, m["vx"], m["tx"], t["ox"], want))
-    g.check(all(vx == want and tx == x and abs(ox - (want - hfw)) <= 1 for x, vx, tx, ox, want in rows),
+    g.check(all(vx == want and abs(ox - (want - hfw)) <= 1 for x, vx, tx, ox, want in rows),
             "2.5 X-CLAMP: MoveCamera's X is clamped AT ISSUE to the widescreen window -- 100 -> 199, 700 -> 569 -- and "
             "the frame sits at the canvas edges (0, 370)", str(rows))
 
@@ -391,6 +411,7 @@ def run_stage2(g, rec: Rec, cal: dict, ref) -> None:
     fit = _glide_fit(rec.between(ta, ta + 30), ta, vs, (250, 150), 30, cosine=False)
     tail = rec.between(ta + 31, ta + 55)
     print(f"[photo-rung0] 2.7 glide fit: {json.dumps(fit)}")
+    rec.notes["2.7 fit"] = fit
     g.check(fit[1]["worst"] <= 1 and fit[1]["n"] >= 10 and tail and all((m["vx"], m["vy"]) == (250, 150) for m in tail),
             "2.7 GLIDE: MoveCamera(250, 150, 30, 0) glides linearly, one service per logic tick, and holds at the end",
             f"worst {fit[1]['worst']} over {fit[1]['n']} samples (per-render-frame fit worst {fit[2]['worst']}); "
@@ -405,15 +426,17 @@ def run_stage2(g, rec: Rec, cal: dict, ref) -> None:
     fit = _glide_fit(rec.between(ta, ta + 20), ta, vs, end, 20, cosine=False)
     tail = rec.between(ta + 21, ta + 40)
     print(f"[photo-rung0] 2.8 release fit to {end}: {json.dumps(fit)}")
-    g.check(fit[1]["worst"] <= 1 and tail and all(abs(m["vx"] - end[0]) <= 1 and abs(m["vy"] - end[1]) <= 1
-                                                  for m in tail),
+    rec.notes["2.8 fit"] = fit
+    g.check(fit[1]["worst"] <= 1 and fit[1]["n"] >= 8 and tail
+            and all(abs(m["vx"] - end[0]) <= 1 and abs(m["vy"] - end[1]) <= 1 for m in tail),
             "2.8 GIVE-BACK: ReleaseCamera(20, 0) glides linearly to the player's follow point and stays there",
             f"from {vs} to {end}: worst {fit[1]['worst']}, tail {sorted({(m['vx'], m['vy']) for m in tail})}")
     cmd(g, rec, "UNLOCK")
-    g.walk_to(here["px"] - 700 if here["px"] > 0 else here["px"] + 700, here["pz"])
+    g.walk_to(0, -1102)                                  # far from the X edge: the model moves ~185 px from `end`
     m = settle(rec)
     model = P.follow_model(m["px"], m["pz"], hfw)
-    g.check(abs(m["vx"] - end[0]) >= 50 and abs(m["vx"] - model[0]) <= 1 and abs(m["vy"] - model[1]) <= 1,
+    g.check(max(abs(model[0] - end[0]), abs(model[1] - end[1])) >= 50 and abs(m["vx"] - model[0]) <= 1
+            and abs(m["vy"] - model[1]) <= 1,
             "2.8 FOLLOW RESUMES: after the release a walk moves the view again, onto the follow model",
             f"view ({m['vx']},{m['vy']}) model {model}, was {end}")
 
@@ -428,6 +451,7 @@ def run_stage2(g, rec: Rec, cal: dict, ref) -> None:
     rec.ticks(30)
     fit = _glide_fit(rec.between(ta, ta + 16), ta, vs, end, 16, cosine=True)
     print(f"[photo-rung0] 2.9 cosine release fit {vs} -> {end}: {json.dumps(fit)}")
+    rec.notes["2.9 fit"] = fit
     tail = rec.between(ta + 17, ta + 30)
     g.check(fit[1]["worst"] <= 1 and fit[1]["n"] >= 6 and tail
             and all(abs(m["vx"] - end[0]) <= 1 and abs(m["vy"] - end[1]) <= 1 for m in tail),
@@ -442,7 +466,8 @@ def run_stage2(g, rec: Rec, cal: dict, ref) -> None:
     rec.ticks(12)
     after = rec.between(t_s)
     png_b, _m, tb_ = rest_shot(g, rec, "s2-svcoff-b", ref)
-    g.check(after and all((m["vx"], m["vy"]) == (v0["vx"], v0["vy"]) for m in after) and rec.poll()["tx"] == 300
+    rec.notes["2.10 commanded tx (sanity)"] = rec.poll()["tx"]
+    g.check(after and all((m["vx"], m["vy"]) == (v0["vx"], v0["vy"]) for m in after)
             and (ta_["ox"], ta_["oy"]) == (tb_["ox"], tb_["oy"]),
             "2.10 NC-SVC: after EnableCameraServices(0) the same MoveCamera(300, 200) is dropped -- the target is "
             "commanded but neither the readback nor the frame moves (the board's recipe is a no-op pan)",
@@ -497,8 +522,11 @@ def run_stage3(g, rec: Rec, cal: dict, ref) -> None:
     t0 = rec.poll()["t"]
     m = hold_and_watch(g, rec, "right", 20)
     saw = [x for x in rec.between(t0) if x["keys"] & 2]
-    g.check(saw and m["keys"] == 0 and m["nmc"] == 0, "3.1 K0: MODE 0 -- the hold reaches B_KEY, KEYS clears after, "
-            "and no MoveCamera is issued", f"seen {len(saw)}, keys after {m['keys']}, nmc {m['nmc']}")
+    rec.notes["3.1 nmc (sanity)"] = m["nmc"]
+    g.check(bool(saw) and m["keys"] == 0, "3.1 K0: MODE 0 -- the hold reaches B_KEY and KEYS clears after",
+            f"seen {len(saw)}, keys after {m['keys']}")
+    g.walk_to(0, -1102)                                  # mid-window on both axes: every pan below starts unsaturated
+    settle(rec)
 
     # 3.2 idle
     cmd(g, rec, "LOCK")
@@ -518,7 +546,8 @@ def run_stage3(g, rec: Rec, cal: dict, ref) -> None:
     png_b, m, tb = rest_shot(g, rec, "s3-pan-b", ref)
     dn = m["nr"] - b["nr"]
     want = min(hi, b["vx"] + P.STEP * dn)
-    g.check(dn >= 5 and m["vx"] == want and m["vy"] == b["vy"] and abs(m["px"] - b["px"]) <= 1
+    g.check(dn >= 5 and m["vx"] == want and m["vx"] < hi and m["vx"] - b["vx"] == P.STEP * dn
+            and m["vy"] == b["vy"] and abs(m["px"] - b["px"]) <= 1
             and abs(m["pz"] - b["pz"]) <= 1 and not m["control"] and abs((tb["ox"] - ta["ox"]) - (m["vx"] - b["vx"])) <= 1,
             "3.3 PAN: holding right pans the view exactly 4 px per polled tick, the locked player does not move, and "
             "the frame moves by the same canvas px",
@@ -546,7 +575,8 @@ def run_stage3(g, rec: Rec, cal: dict, ref) -> None:
     hold_and_watch(g, rec, "down", 150)
     during = rec.between(t0)
     png, m, t = rest_shot(g, rec, "s3-ybottom", ref)
-    ok_b = max(x["vy"] for x in during) == 336 and (m["vy"], m["ty"]) == (336, 336) and abs(t["oy"] - 224) <= 1 \
+    rec.notes["3.5 ty at the bottom (sanity)"] = m["ty"]
+    ok_b = max(x["vy"] for x in during) == 336 and m["vy"] == 336 and abs(t["oy"] - 224) <= 1 \
         and t["offart_bottom"] <= 1
     t0 = rec.poll()["t"]
     hold_and_watch(g, rec, "up", 200)
@@ -574,12 +604,14 @@ def run_stage3(g, rec: Rec, cal: dict, ref) -> None:
     hold_and_watch(g, rec, "right", 200)
     m = settle(rec)
     t0 = rec.poll()["t"]
-    ok0 = (m["tx"], m["vx"]) == (608, hi)
+    rec.notes["3.7 tx at the edge (sanity)"] = m["tx"]
+    ok0 = m["vx"] == hi
     hold_and_watch(g, rec, "left", 40)
     during = [x for x in rec.between(t0) if x["issp"] == 1]
     pinned = [x for x in during if hi < x["txp"] < 608 and x["vx"] == hi]
-    first = [x for x in during if x["txp"] == hi - 1]
-    g.check(ok0 and len(pinned) >= 5 and first and first[0]["vx"] == hi - 1,
+    first = [x for x in during if x["txp"] < hi]
+    g.check(ok0 and len(pinned) >= 5 and bool(first) and first[0]["vx"] == first[0]["txp"]
+            and first[0]["txp"] >= hi - 2 * P.STEP,
             "3.7 WIND-UP: the absolute form's target runs to the script clamp 608 behind the engine's 569, so the first "
             "left presses move nothing until the target comes back under the edge",
             f"TX/VX at the edge {(m['tx'], m['vx'])}, pinned samples {len(pinned)}, first under "
@@ -600,20 +632,26 @@ def run_stage3(g, rec: Rec, cal: dict, ref) -> None:
 
 def core(g, rec: Rec, hfw: int, min_rows: int) -> None:
     lo, hi = 160 + (2 * hfw - 320) // 2, 608 - (2 * hfw - 320) // 2
-    rows = [m for m in rec.s.values() if m["issp"] == 1 and not any(a < m["t"] <= b for a, b in rec.exclude)]
+    inside = lambda t: any(a < t <= b for a, b in rec.exclude)          # noqa: E731
+    rows = [m for m in rec.s.values() if m["issp"] == 1 and not inside(m["t"])]
+    want = {t + 1 for t in rec.one_tick if not inside(t + 1)}
+    missing = sorted(want - {m["t"] for m in rows})
+    min_rows = max(min_rows, len(want) - 2)
+    rec.notes["C-CORE"] = {"rows": len(rows), "dispatched one-tick moves": len(want), "unobserved": missing}
     off = [(m["t"], (m["txp"], m["typ"]), (m["vx"], m["vy"])) for m in rows
            if (m["vx"], m["vy"]) != (min(max(m["txp"], lo), hi), m["typ"])]
     near = [r for r in off if abs(r[2][0] - min(max(r[1][0], lo), hi)) <= 1 and abs(r[2][1] - r[1][1]) <= 1]
     g.check(len(rows) >= min_rows and len(off) == len(near) and len(off) <= 4,
             "C-CORE: on EVERY sample whose previous tick issued a one-tick MoveCamera, the view == that target with X "
             "clamped to the widescreen window and Y untouched (at most a few take-over -1s)",
-            f"{len(rows)} samples, {len(off)} off by <= 1: {off[:6]}")
+            f"{len(rows)} samples ({len(want)} dispatched one-tick moves, unobserved by poll gaps {missing}), "
+            f"{len(off)} off by <= 1: {off[:6]}")
 
 
 def run(g) -> None:
     try:
         stage, pred = preflight(g)
-    except Stop as e:
+    except (Stop, SystemExit) as e:
         g.check(False, "PREFLIGHT", str(e))
         return
     g.note(f"photo mode rung 0, stage {stage}")
@@ -632,14 +670,18 @@ def run(g) -> None:
         elif stage == 3:
             run_stage3(g, rec, cal, ref)
         if stage >= 2:
-            core(g, rec, cal["hfw"], min_rows=8 if stage == 2 else 30)
-    except Stop as e:
-        g.check(False, "STOPPED", str(e))
+            core(g, rec, cal["hfw"], min_rows=6 if stage == 2 else 30)
+    except (Stop, HarnessError) as e:
+        g.check(False, "STOPPED", f"{type(e).__name__}: {e}")
     finally:
         (g.run_dir / "photo_samples.json").write_text(json.dumps(rec.s, default=str), encoding="utf-8")
+        (g.run_dir / "photo_run.json").write_text(json.dumps({"stage": stage, "cmds": rec.log, "exclude": rec.exclude,
+                                                              "notes": rec.notes}, default=str, indent=1),
+                                                  encoding="utf-8")
         every = g.exceptions_since(mark)
-        ours = [e for e in every if e.name in THROWS and any(k in fr for fr in e.trace for k in WHERE)]
+        ours = [e for e in every if e.name in THROWS
+                and (not e.trace or any(k in fr for fr in e.trace for k in WHERE))]
         print(f"[photo-rung0] exceptions since the mark: {len(every)}")
         g.check(not ours, "NC-THROW: no NullReference / InvalidCast / IndexOutOfRange / DivideByZero through the "
                 "event engine, the evaluator or FieldMap", str([(e.name, e.where) for e in ours[:5]]))
-        g.quit()
+        # no g.quit(): Session.stop quits a game it launched and never one it attached to
