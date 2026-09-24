@@ -467,10 +467,10 @@ area = 11
 
 [[camera]]
 pitch = 48
-yaw = 0
+yaw = {yaw0}
 [[camera]]
 pitch = 48
-yaw = 90
+yaw = {yaw1}
 
 [[camera_zone]]
 to_camera = 1
@@ -487,13 +487,67 @@ spawn = [0, -1600]
 """
 
 
-def test_lint_judges_a_bob_through_every_camera(tmp_path):
-    """[review: camera 0 only] An x-shuttle with a +-100 bob is sideways to camera 0 (the bob reads) but runs
-    toward camera 1 (yaw 90: the shuttle is depth there, and the bob folds into it). lint names camera 1 only."""
-    mover = [("balloon", (-600, -900), "collision = false\nshadow = false",
-              "{ to = [600, -900], period = 128, height = 150, bob = { amp = 100, period = 64 } }")]
-    notes = [n for n in build.lint_all(_load(tmp_path, _toml(mover, head=_TWO_CAMERAS), "two")).logic if "bob (" in n]
-    assert len(notes) == 1 and "on camera 1" in notes[0], notes
+_SHUTTLE_X = [("balloon", (-600, -900), "collision = false\nshadow = false",
+               "{ to = [600, -900], period = 128, height = 150, bob = { amp = 100, period = 64 } }")]
+
+
+def _two(tmp_path, yaw0, yaw1, name="two"):
+    return _load(tmp_path, _toml(_SHUTTLE_X, head=_TWO_CAMERAS.format(yaw0=yaw0, yaw1=yaw1)), name)
+
+
+@pytest.mark.parametrize("yaws, bad", [((0, 90), 1), ((90, 0), 0)], ids=["fails_on_1", "fails_on_0"])
+def test_lint_judges_a_bob_through_every_camera(tmp_path, yaws, bad):
+    """[review: camera 0 only; then claims-3: the test passed with the LAST camera only] An x-shuttle with a +-100
+    bob is sideways to a yaw-0 camera (the bob reads) but runs toward a yaw-90 one (the shuttle is depth there, and
+    the bob folds into it). Whichever index the yaw-90 camera has, lint names it, and only it, in ONE note."""
+    notes = [n for n in build.lint_all(_two(tmp_path, *yaws)).logic if "bob (" in n]
+    assert len(notes) == 1 and f"on camera {bad}:" in notes[0], notes
+
+
+def test_an_unresolvable_camera_does_not_silence_the_others(tmp_path, monkeypatch):
+    """[review claims-4: the per-camera guard was untested] Camera 0 fails to resolve (as an unextracted borrow .bgx
+    does); camera 1's note still comes out, and nothing says the lint could not finish."""
+    real = build._resolve_one_camera
+
+    def flaky(project, c, scrolling):
+        if c.get("yaw") == 0:
+            raise FileNotFoundError("borrow .bgx not extracted")
+        return real(project, c, scrolling)
+    monkeypatch.setattr(build, "_resolve_one_camera", flaky)
+    logic = build.lint_all(_two(tmp_path, 0, 90)).logic
+    assert [n for n in logic if "bob (" in n and "on camera 1:" in n], logic
+    assert not [n for n in logic if "could not finish" in n], logic
+
+
+def test_a_failing_motion_hook_does_not_hide_the_bob_note(tmp_path, monkeypatch):
+    """[review claims-4: the hook isolation was untested] The floor advisory raising is reported as its own note,
+    and the bob advisory after it still runs."""
+    def boom(project):
+        raise RuntimeError("floor index exploded")
+    monkeypatch.setattr(build, "_motion_floor_notes", boom)
+    logic = build.lint_all(_two(tmp_path, 0, 90)).logic
+    assert [n for n in logic if "could not finish: RuntimeError: floor index exploded" in n], logic
+    assert [n for n in logic if "bob (" in n and "on camera 1:" in n], logic
+
+
+def test_the_fast_projector_is_to_canvas_bit_for_bit(tmp_path):
+    """The bob lint projects through cam.canvas_projector; it must be cam.to_canvas exactly (same float operations
+    in the same order), or a threshold verdict could differ from the map every other tool uses."""
+    import random
+    from ff9mapkit.scene import cam as C
+    proj = _two(tmp_path, 30, 135)
+    cams = [build._resolve_one_camera(proj, c, build.is_scrolling(proj)) for c in build.camera_cfgs(proj)]
+    cams.append(build.resolve_camera(_load(tmp_path, _toml([]), "one")))
+    rnd = random.Random(1)
+    for c in cams:
+        f = C.canvas_projector(c)
+        for _ in range(3000):
+            x, y, z = rnd.randint(-9000, 9000), rnd.randint(-16383, 16383), rnd.randint(-9000, 9000)
+            try:
+                want = C.to_canvas((x, y, z), c)
+            except ZeroDivisionError:
+                continue
+            assert f(x, y, z) == want, (x, y, z)
 
 
 # ================================================================ a height alone is a HOLD -- the zero-clock daemon

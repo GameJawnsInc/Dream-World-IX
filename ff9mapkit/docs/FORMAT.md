@@ -929,14 +929,18 @@ along-the-path facing. An orbiter that **faces the centre** is `turn = "travel"`
 invisible. The camera looks down at the floor, so a path that moves toward or away from the camera (an
 orbit, or a shuttle with any depth in it) already carries the prop up and down the screen: at a 48°
 pitch a unit of depth moves it about 1.45 times as far as a unit of height. A bob that is small and slow
-next to that up-and-down folds into it and reads as a slightly reshaped loop. A bob reads when it adds
-up-and-downs of its own, which takes speed *and* size, or when it out-travels the path's own
-up-and-down. On a radius-300, 128-tick orbit at that pitch: ±60 every 256 ticks moved the prop about 4
-field px against the orbit's 60 and could not be seen, and ±60 every 32 ticks still does not read; ±120
-every 32 does, and ±150 every 32 shows all four bobs a lap. A sideways shuttle, a small orbit under a big
-bob, or a bob-only prop has little or no up-and-down to fold into, so its bob reads once it moves the
-prop a visible amount. `ff9mapkit lint` projects every bob through each of the field's cameras and, for
-one that will not read, names the fixes it has checked do (a faster bob, a larger amp).
+next to that up-and-down folds into it and reads as a slightly reshaped loop. `ff9mapkit lint` counts a
+bob as reading when it moves the prop at least one field pixel and either out-travels the path's own
+up-and-down, or adds up-and-downs of its own at a steady rate: more than one a lap (an orbit makes one
+itself), each at least a field pixel tall. That threshold is the kit's model; the one owner observation
+behind it is the invisible cask below. On a radius-300, 128-tick orbit at that pitch: ±60 every 256 ticks
+moved the prop about 4 field px against the orbit's 60 and could not be seen; ±60 every 32 ticks does not
+read either, ±120 every 32 reads at most bob phases, and ±150 every 32 reads at every phase, all four
+bobs a lap. A sideways shuttle, a small orbit under a big bob, or a bob-only prop has little or no
+up-and-down to fold into, so its bob reads once it moves the prop a visible amount. A bob period of 2 or
+3 ticks is a flicker, never a bob. lint projects every bob through each of the field's cameras and gives
+one note per prop, naming the cameras it fails on and only fixes it has checked read on all of them: a
+faster bob, or a larger amp (with the height that keeps the bob above the floor).
 
 **Rules.** `ff9mapkit lint`, `ff9mapkit motion` and the build refuse each of these with the same message:
 

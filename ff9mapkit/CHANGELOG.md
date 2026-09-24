@@ -17,10 +17,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **A small, slow bob on a path toward or away from the camera is invisible**, and `ff9mapkit lint` now says
   so. Such a path already carries the prop up and down the screen (at a 48° pitch a unit of depth moves it about
   1.45 times as far as a unit of height), and a bob small and slow next to that folds into it. The owner saw this
-  on bench 30946: a cask bobbing +-60 every 256 ticks on a 128-tick orbit showed no bob. A bob reads when it adds
-  up-and-downs of its own or out-travels the path's; lint projects every bob through each of the field's cameras
-  (a long joint cycle over a bounded window) and names the faster bob period and the larger amp it has checked
-  do read. `docs/FORMAT.md` § A bob that reads.
+  on bench 30946: a cask bobbing +-60 every 256 ticks on a 128-tick orbit showed no bob. A bob reads when it
+  out-travels the path's up-and-down, or adds up-and-downs of its own at a steady rate (more than one a lap, each
+  at least a field pixel tall); a 2- or 3-tick bob is a flicker. lint projects every bob through each of the
+  field's cameras (a long joint cycle sampled across its length) and gives one note per prop, with only fixes it
+  has checked read on every camera, stay under the smoother's snap, and keep the bob above the floor. A legal
+  worst-case field (16 movers, 8 cameras, near-maximal coprime periods) lints in about 3 s.
+  `docs/FORMAT.md` § A bob that reads.
 - **In-game proof that the height is drawn** (bench 30948): a prop held at height 300 draws 76 px above the
   floor at 720p and a 0..300 bob sweeps the same band (5/5; the rung-1 proof had read only the event pos).
 

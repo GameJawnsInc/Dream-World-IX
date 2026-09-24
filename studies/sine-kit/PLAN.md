@@ -276,15 +276,30 @@ with and without it): it reads as an uneven loop. It is small and slow next to t
 2:1 period ratio is not the cause (alternate laps even get opposite offsets) -- +-60 every 32 ticks does not read
 either, +-120 every 32 does.
 
-THE BOB-READING LAW: a bob reads as a bob when it moves the prop a visible amount (>= 1 field px) AND either adds
-screen-vertical reversals of its own or out-travels the path's own vertical travel (2 x its offset >= the path's
-span -- on a nearly flat track the bob IS the vertical motion, whatever its period). `motion.bob_reading` /
-`bob_note` measure it (the joint cycle, or a bounded window of eight of the slower period); `ff9mapkit lint`
-projects every bob through each of the field's cameras and names the faster bob period and the larger amp it has
-re-measured do read. A first cut counted reversals only; its adversarial review built false alarms (a big bob on a
-small orbit, a shuttle with a 10-unit depth drift) and silent misses (any joint cycle past 16384 ticks, camera 0
-only), all now pinned by tests. 30948 also carries the owner's demo: a cask on an r 200 orbit with +-120 every 32
-ticks (four bobs a lap), which lint passes.
+THE BOB-READING LAW (third cut): a bob reads as a bob when it moves the prop a visible amount (>= 1 field px) AND
+either out-travels the path's own vertical travel (2 x its offset >= the path's span -- on a nearly flat track the
+bob IS the vertical motion, whatever its period) or adds up-and-downs of its own at a steady RATE: more than one a
+path lap (an orbit makes one itself), each retracing >= 1 field px. A bob period of 2 or 3 ticks is a flicker, never
+a bob. `motion.bob_reading` / `bob_note` measure it through `cam.canvas_projector` (bit-identical to `to_canvas`):
+the whole joint cycle, or four windows spread across a longer one, sampled 64 times per cycle of the faster channel.
+`ff9mapkit lint` gives ONE note per prop over every camera, naming only fixes re-measured to read on every camera,
+stay under the smoother's snap and keep a floor-clearing bob above the floor.
+
+How it got here -- two adversarial reviews, each refuting the cut before it:
+- cut 1 (reversals added, whole-cycle totals, 0.5 px hysteresis, camera 0): false alarms on a big bob over a small
+  orbit and on a shuttle with a 10-unit depth drift; silent past a 16384-tick joint cycle; camera 0 only.
+- cut 2 (+ an out-travel clause, one window at the cycle's start, every camera): still a TOTAL. One 0.68 px retrace
+  in 41 laps made the cask's +-60 bob "read" at period 41 but not 40 or 42; a window edge let one track finish a
+  reversal the other did not (33 vs 32) and validated fixes that did not work; a sub-px path bob got no advice; a
+  2-tick bob (which never moves) was told to raise its amp; the amp advice sank the cask 270 u under the floor; a
+  legal 16-mover, 8-camera field linted in 153 s.
+- cut 3 (this): the verdict is monotone in bob period for every amp tried, +-60 every 32 reads at no phase and +-150
+  every 32 at every phase, sampled long cycles agree with the exact whole-cycle verdict, and that worst field lints in
+  about 3 s. Each defect is pinned by a test, and each guard by a mutation that turns a test red.
+
+The threshold is the kit's MODEL, not a measurement of perception: the one owner observation behind it is the
+invisible +-60/256 cask. 30948 carries the owner's demo -- a cask on an r 200 orbit with +-120 every 32 ticks (four
+bobs a lap), which lint passes -- still waiting for the owner's look.
 
 The trace also found that `shadow = false`'s stated reason was wrong: the engine draws an airborne prop's blob at
 the prop's own height (`FieldMapActor.GetShadowCurrentPos`), not on the floor. The rule stands; the text is fixed.

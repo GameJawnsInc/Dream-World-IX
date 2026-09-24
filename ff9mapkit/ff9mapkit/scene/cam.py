@@ -212,6 +212,27 @@ def to_canvas(P, cam):
             cam.range[1]/2.0 + cam.centerOffset[1] - py)
 
 
+def canvas_projector(cam):
+    """``to_canvas`` as a fast closure ``f(x, y, z) -> (canvasX, canvasY)`` for one camera: ``Rf``, ``t`` and the
+    canvas offsets are read ONCE, and each call does the same float operations in the same order as
+    ``to_canvas((x, y, z), cam)`` (``mv`` left to right, then ``+ t``; the two flips; ``* proj / |res.z|``), so
+    the two agree bit for bit. For callers that project thousands of points through one camera (the motion bob
+    lint): ``to_canvas`` rebuilds ``Rf`` and runs ``mv`` three times per point."""
+    (r00, r01, r02), (r10, r11, r12), (r20, r21, r22) = cam.Rf()
+    t0, t1, t2 = cam.t[0], cam.t[1], cam.t[2]
+    proj = cam.proj
+    cx0, cx1 = cam.centerOffset[0], cam.range[0]/2.0
+    cy0 = cam.range[1]/2.0 + cam.centerOffset[1]
+
+    def f(x, y, z):
+        v1 = -y                                 # flip 1
+        a0 = r00*x + r01*v1 + r02*z + t0
+        a1 = r10*x + r11*v1 + r12*z + t1
+        num = abs(r20*x + r21*v1 + r22*z + t2)
+        return (a0*proj/num + 0.0 + cx0 + cx1, cy0 - (-a1*proj/num + 0.0))   # flip 2 on y
+    return f
+
+
 # ---------- the inverse map: a painted-canvas row -> world z ----------
 # canvasY(z) along a vertical world line (x, y, *) is a MOBIUS function of z, so its inverse is
 # CLOSED FORM — no search is needed, and searching was actively WRONG. `project` is affine in z:

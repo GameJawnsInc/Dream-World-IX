@@ -1276,11 +1276,12 @@ def test_a_bob_that_moves_or_outtravels_its_path_reads(motion, pos):
 
 def test_a_long_joint_cycle_is_measured_not_skipped():
     """[review: past STEP_EXACT_MAX the check went silent] The owner's +-60 bob at period 257 (lcm 32896 with the
-    128-tick orbit) folds exactly like period 256: it is measured over a window and flagged, and the note says so."""
+    128-tick orbit) folds exactly like period 256: it is sampled across its joint cycle and flagged, and the note
+    says so."""
     s = _spec({"radius": 300, "period": 128, "phase": 0.5, "height": 150, "bob": {"amp": 60, "period": 257}})
     r = M.bob_reading(s, _pitched)
     assert s.cycle > M.STEP_EXACT_MAX and not r.cyclic and r.window == 8 * 257 and not r.reads
-    assert "measured over 2056 ticks of its 32896-tick joint cycle" in M.bob_note(s, _pitched)
+    assert "sampled over 2056 ticks across its 32896-tick joint cycle" in M.bob_note(s, _pitched)
 
 
 def test_a_pathless_bob_too_small_to_see_gets_the_amp_advice():
@@ -1290,26 +1291,168 @@ def test_a_pathless_bob_too_small_to_see_gets_the_amp_advice():
               {"turn": "spin", "period": 64, "height": 150, "bob": {"amp": 2, "period": 60}},
               {"turn": "swing", "swing": 20, "period": 64, "height": 150, "bob": {"amp": 3, "period": 60}}):
         note = M.bob_note(_spec(m, shadow=False), _pitched)
-        assert "too small to see; try an amp of" in note and "bob period" not in note, note
+        assert "too small to see -- try an amp of" in note and "bob period" not in note, note
     assert M.bob_reading(_spec({"radius": 300, "period": 128}), _pitched) is None          # no bob, no reading
 
 
-_FIX_RE = re.compile(r"a bob period of (\d+) \(same amp\)|an amp of (\d+)")
+_CASK = {"radius": 300, "period": 128, "phase": 0.5, "height": 150}
+
+
+@pytest.mark.parametrize("amp", [60, 90, 120, 150, 200])
+def test_the_verdict_is_monotone_in_the_bob_period(amp):
+    """[review rule-1: +-60 read at bob periods 31, 33 and 41 but not 32, 40 or 42 -- one 0.68 px retrace in 41 laps
+    made a folding bob 'read'] A bob reads at a steady RATE of visible up-and-downs, so on the owner's cask orbit
+    the periods that read are exactly the fast ones: once it stops reading as the period grows, it never reads
+    again."""
+    verdicts = [M.bob_reading(_spec({**_CASK, "bob": {"amp": amp, "period": bp}}), _pitched).reads
+                for bp in range(8, 65)]
+    first_no = verdicts.index(False) if False in verdicts else len(verdicts)
+    assert not any(verdicts[first_no:]), (amp, "".join("R" if v else "." for v in verdicts))
+    if amp == 60:
+        assert not any(verdicts[31 - 8:42 - 8])                  # 31..41: the review's flip-flop band
+
+
+def test_a_borderline_bob_does_not_read_by_phase_alone():
+    """[review rule-1: at the commensurate 4:1 the verdict turned on the bob phase] +-60 every 32 ticks on the cask
+    orbit reads at NO phase and +-150 every 32 at EVERY phase; a single extra wiggle a lap is not a bob."""
+    for amp, want in ((60, False), (150, True)):
+        got = {M.bob_reading(_spec({**_CASK, "bob": {"amp": amp, "period": 32, "phase": ph / 16}}), _pitched).reads
+               for ph in range(16)}
+        assert got == {want}, (amp, got)
 
 
 @pytest.mark.parametrize("motion", [
-    {"radius": 300, "period": 128, "phase": 0.5, "height": 150, "bob": {"amp": 60, "period": 256}},
+    {**_CASK, "phase": ph / 32, "bob": {"amp": 60, "period": 258}} for ph in (10, 12, 13, 14, 16)] + [
+    {"radius": 300, "period": 120, "height": 150, "bob": {"amp": amp, "period": bp}}
+    for bp in (143, 173, 233) for amp in (60, 120)] + [
+    # a near-3:1 bob drifts against its path over the cycle: one window at its START judges one phase of that drift
+    # and says no; the windows spread across the cycle agree with the exact verdict (reads)
+    {"radius": 300, "period": 500, "height": 150, "bob": {"amp": 150, "period": 165}},
+    {"radius": 300, "period": 1000, "height": 150, "bob": {"amp": 150, "period": 332}}])
+def test_a_sampled_long_cycle_agrees_with_the_whole_cycle(motion, monkeypatch):
+    """[review rule-2 / claims-1: a window edge let one track finish a reversal the other did not, so a folding bob
+    'read' 33 vs 32] The sampled verdict equals the exact one over the WHOLE joint cycle (STEP_EXACT_MAX lifted)."""
+    s = _spec(motion)
+    sampled = M.bob_reading(s, _pitched)
+    assert not sampled.cyclic
+    monkeypatch.setattr(M, "STEP_EXACT_MAX", 10 ** 7)
+    exact = M.bob_reading(s, _pitched)
+    assert exact.cyclic and exact.window == s.cycle
+    assert sampled.reads == exact.reads, (sampled, exact)
+
+
+def test_a_path_mover_with_a_sub_pixel_bob_gets_path_advice():
+    """[review rule-3: a path mover under 1 px fell into the pathless branch and no fix was named] It is told the bob
+    is too small AND given an amp that reads against its path; the px it prints never rounds up to 1.0."""
+    s = _spec({**_CASK, "bob": {"amp": 1, "period": 60}})
+    note = M.bob_note(s, _pitched)
+    assert "does not read as a bob" in note and "too small to see" in note and "an amp of" in note, note
+    assert "1.0 field px" not in M.bob_note(_spec({**_CASK, "bob": {"amp": 14, "period": 60}}), _pitched)
+
+
+@pytest.mark.parametrize("bp", [2, 3])
+def test_a_2_or_3_tick_bob_is_blamed_on_its_period(bp):
+    """[review rule-4: a 2-tick bob (SIN at 0 and 2048 is 0: it never moves) was told to raise its amp, even at
+    +-8191; a 3-tick one was told an amp that snaps -- or, reading as fast motion, got no note at all] The note
+    names the period, and a period >= 4 that reads without snapping (+-8191 needs one past 128)."""
+    for m in ({**_CASK, "bob": {"amp": 60, "period": bp}}, {"height": 300, "bob": {"amp": 8191, "period": bp}}):
+        s = _spec(m)
+        note = M.bob_note(s, _pitched)
+        assert f"a {bp}-tick sine" in note and ("never moves" if bp == 2 else "jitter") in note, note
+        assert "an amp of" not in note, note
+        (fix,) = re.findall(r"try a bob period of (\d+)", note)
+        fixed = dataclasses.replace(s, bob_period=int(fix))
+        assert int(fix) >= M.BOB_PERIOD_MIN and M.bob_reading(fixed, _pitched).reads
+        assert M.max_step(fixed)[0] < M.SNAP_UNITS, (note, M.max_step(fixed))        # +-8191 at 8 ticks would snap
+
+
+_FIX_RE = re.compile(r"a bob period of (\d+)|an amp of (\d+)(?: with height (\d+))?")
+
+
+@pytest.mark.parametrize("motion", [
+    {**_CASK, "bob": {"amp": 60, "period": 256}},
     {"radius": 300, "period": 128, "height": 150, "bob": {"amp": 60, "period": 40}},
     {"radius": 300, "period": 300, "height": 150, "bob": {"amp": 60, "period": 256}},
+    {"radius": 300, "period": 130, "height": 150, "bob": {"amp": 60}},
+    {"to": [300, -300], "period": 40, "height": 150, "bob": {"amp": 20, "period": 38}},
+    {**_CASK, "bob": {"amp": 1, "period": 60}},
     {"height": 300, "bob": {"amp": 1, "period": 60}},
-], ids=["cask", "cask_40", "long_cycle", "tiny"])
-def test_every_fix_a_note_names_really_reads(motion):
-    """[review: the advice could not clear the note] A note names only fixes it has re-measured: applying each named
-    bob period or amp to the same mover gives a bob that reads on the same camera."""
+    {"radius": 300, "period": 128, "height": -200, "bob": {"amp": 60, "period": 256}},
+], ids=["cask", "cask_40", "long_cycle", "default_period", "short_shuttle", "sub_px_path", "tiny", "below_floor"])
+def test_every_fix_a_note_names_really_works(motion):
+    """[review: the advice] A note names only fixes it has re-measured: applied to the same mover, each named bob
+    period or amp (with the height it names) reads, is >= 4 ticks, stays under the smoother's snap, and -- for a bob
+    that cleared the y-0 floor -- still clears it (claims-2: the amp advice sank the owner's cask 270 u under the
+    floor)."""
     s = _spec(motion)
     note = M.bob_note(s, _pitched)
     fixes = _FIX_RE.findall(note)
     assert fixes, note
-    for bp, amp in fixes:
-        fixed = dataclasses.replace(s, bob_period=int(bp)) if bp else dataclasses.replace(s, bob_amp=int(amp))
-        assert M.bob_reading(fixed, _pitched).reads, (note, bp, amp)
+    for bp, amp, h in fixes:
+        if bp:
+            fixed = dataclasses.replace(s, bob_period=int(bp))
+            assert int(bp) >= M.BOB_PERIOD_MIN, note
+        else:
+            fixed = dataclasses.replace(s, bob_amp=int(amp), height=int(h) if h else s.height)
+        assert M.bob_reading(fixed, _pitched).reads, (note, fixed)
+        assert M.max_step(fixed)[0] < M.SNAP_UNITS, (note, fixed)
+        if s.height - s.bob_amp >= 0:
+            assert M.bounds(fixed)["h"][0] >= 0, (note, M.bounds(fixed))
+
+
+def test_one_note_per_mover_and_its_fix_reads_on_every_camera():
+    """[review lint-advice-3: one note per camera, each with its own fix, so applying one left the others flagged]
+    A bob that fails on two cameras gets ONE note naming both, and the fix it names reads on both."""
+    cams = [("camera 0", _pitched), ("camera 1", lambda x, h, z: (0.1 * z, -0.069 * h + 0.100 * x))]   # yaw 90
+    s = _spec({"to": [600, -800], "period": 128, "height": 150, "bob": {"amp": 60, "period": 256}}, pos=[-600, -1400])
+    assert [M.bob_reading(s, p).reads for _n, p in cams] == [False, False]
+    note = M.bob_note(s, cams)
+    assert note.count("does not read") == 1 and "on camera 0 and camera 1" in note, note
+    for bp, amp, h in _FIX_RE.findall(note):
+        fixed = (dataclasses.replace(s, bob_period=int(bp)) if bp else
+                 dataclasses.replace(s, bob_amp=int(amp), height=int(h) if h else s.height))
+        assert all(M.bob_reading(fixed, p).reads for _n, p in cams), (note, fixed)
+
+
+def test_the_bob_lint_cost_is_bounded():
+    """[review lint-cost-1: a legal 16-mover field linted in 153 s] A reading samples BOB_SAMPLES per cycle of the
+    faster channel, so the worst legal mover -- two near-maximal coprime periods (joint cycle ~67 M ticks), a bob
+    that folds so the whole fix search runs -- costs a bounded number of projections for its whole note."""
+    calls = [0]
+
+    def counted(x, h, z):
+        calls[0] += 1
+        return _pitched(x, h, z)
+    s = _spec({"radius": 300, "period": 8191, "height": 150, "bob": {"amp": 60, "period": 8179}})
+    assert s.cycle > 60_000_000
+    assert M.bob_note(s, counted) is not None
+    assert calls[0] < 25_000, calls[0]
+
+
+def test_a_retrace_under_a_field_px_is_not_a_reversal():
+    """[review rule-1: reversals counted at 0.5 px, under the kit's own 1 px visibility] +-15 every 8 ticks on the
+    cask orbit moves the prop about a field px; every up-and-down it adds retraces less than that, so it does not
+    read (at 0.5 px it would)."""
+    s = _spec({**_CASK, "bob": {"amp": 15, "period": 8}})
+    r = M.bob_reading(s, _pitched)
+    assert r.px >= M.BOB_SEEN_PX and not r.reads, r
+
+
+def test_a_fix_must_hold_on_a_camera_the_bob_already_reads_on():
+    """[review lint-advice-3] A fix is checked on EVERY camera, not only the failing ones: raising the height with
+    a larger amp (to keep the bob off the floor) can carry the prop through a low camera's plane. Camera A sees the
+    z-shuttle side-on (its bob reads there) and cannot project a prop above height 400; camera B looks along it (the
+    bob folds). The note may name only fixes both cameras can show."""
+    def cam_a(x, h, z):
+        if h >= 400:
+            raise ZeroDivisionError("the prop crosses camera A's plane")
+        return (0.1 * z, -0.069 * h - 0.1 * x)
+    cams = [("camera 0", cam_a), ("camera 1", _pitched)]
+    s = _spec({"to": [0, -200], "period": 128, "height": 150, "bob": {"amp": 60, "period": 256}})
+    assert M.bob_reading(s, cam_a).reads and not M.bob_reading(s, _pitched).reads
+    note = M.bob_note(s, cams)
+    assert "on camera 1:" in note, note
+    for bp, amp, h in _FIX_RE.findall(note):
+        fixed = (dataclasses.replace(s, bob_period=int(bp)) if bp else
+                 dataclasses.replace(s, bob_amp=int(amp), height=int(h) if h else s.height))
+        assert all(M.bob_reading(fixed, proj).reads for _n, proj in cams), (note, fixed)
