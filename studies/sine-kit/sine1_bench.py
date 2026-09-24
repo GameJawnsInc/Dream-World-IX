@@ -116,7 +116,11 @@ def expected(lab: str, fi: int, k: int) -> int:
 
 
 FIRST_POSE0 = {k: expected(k[0], k[1], 0) for k in FIRST}                  # C4 / C8: the daemon's tick 0 landed
-FIRST_SPAWN = {k: SPAWN[k[0]][k[1]] for k in FIRST}                        # CAL: CreateObject overwrote it
+# CAL: CreateObject overwrote tick 0. At that instant y is not the floor yet: 0x1D CreateObject places the actor at
+# y = POS_COMMAND_DEFAULTY = 32768 (EventEngine.Constructor.cs:11, DoEventCode.cs:384) until its controller snaps it,
+# so f1 (= -pos[1]) reads -32768 there; the SETTLED spawn (C2's H) is the flat floor, b 0. Run 1 measured it.
+POS_COMMAND_DEFAULTY = 32768
+FIRST_SPAWN = {k: (-POS_COMMAND_DEFAULTY if k[1] == 1 else SPAWN[k[0]][k[1]]) for k in FIRST}
 _bad = [k for k in FIRST if FIRST_POSE0[k] == FIRST_SPAWN[k] or SENTINEL in (FIRST_POSE0[k], FIRST_SPAWN[k])]
 if _bad:
     raise SystemExit(f"the FIRST band must discriminate pose(0) / spawn / sentinel, but {_bad} do not")
