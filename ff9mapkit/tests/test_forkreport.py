@@ -364,18 +364,28 @@ def test_party_need_line_renders_and_steers_verdict():
 
 
 # ---- the 'Story writes' axis: gEventGlobal state a field advances -> seed a downstream fork's [startup] ----
-def test_story_write_noise_filters_chest_and_handshake():
-    assert FR._story_write_noise(8400)                 # chest opened-dispatch block (8376-8511) -> noise
-    assert FR._story_write_noise(191)                  # byte-23 menu/transition handshake (184-191) -> noise
-    assert not FR._story_write_noise(3458)             # a real once-event -> kept
+def test_scan_story_writes_drops_exactly_the_kit_population_mask():
+    # the axis filters through flags.non_story_bits (the noise + the moogle-latch side state), not a
+    # local range: the old 184-191 + 8376-8511 hid stock-clear byte23_spare (186) and the lock margin's
+    # clear bits (8505), and let the Mognet mailbox (8200), read-mail payload (8520) and the kit's
+    # behavior Blackboard (14864) through; the payload hole (outpost word 8600, clear 8620) stays visible
+    from tests.test_ebcfg import _eb_field
+    bits = (184, 186, 189, 191, 770, 3458, 8200, 8400, 8505, 8508, 8511, 8520, 8600, 8620, 14864, 14976)
+    src = "\n".join(f"SET({{Global.Bit[{b}] const(1) B_LET B_EXPR_END}})" for b in bits) + "\nRET()"
+    sw = FR.scan_story_writes(_eb_field([(0, [(0, src)])]))
+    assert sw == [(186, "byte23_spare"), (770, "worldmap_unlocks"), (3458, "ipsen_ice_cavern_events"),
+                  (8505, "mognet_lock_margin"), (8600, "deathrules_outpost_word"),
+                  (8620, "readmail_payload_hole"), (14976, "kit_world_flags")]
 
 
 def test_scan_story_writes_labels_and_drops_noise():
     # ALEX100 writes a real alexandria_events once-bit (3718) plus byte-23 handshake noise -> only the real
     # bit survives, region-labeled. Grounds the scan+filter on real bytecode, not a synthetic buffer.
+    from ff9mapkit import eventscan, flags
+    assert {184, 191} <= {i for i, _ in eventscan.scan_flags_set(ALEX100)}   # the noise is there to drop
     sw = FR.scan_story_writes(ALEX100)
-    assert (3718, "alexandria_events") in sw
-    assert not any(184 <= i <= 191 or 8376 <= i <= 8511 for i, _ in sw)   # noise dropped
+    assert sw == [(3718, "alexandria_events")]
+    assert not any(i in flags.non_story_bits() for i, _ in sw)
 
 
 def test_story_writes_line_renders_and_omits():

@@ -376,6 +376,50 @@ def test_outpost_registration_in_main_init(tmp_path):
     assert _apply_startup(proj, CLEAN) == CLEAN      # no outpost, no [startup] -> byte-identical
 
 
+def test_startup_once_refusal_takes_a_bit_index(tmp_path):
+    """`[startup] once` is a BIT index and so is flags.named_word_at's argument. The old check passed
+    once // 8 -- testing byte once // 64 -- so it waved through a sentinel INSIDE a named engine word
+    (1816 = MagicDisabledFlag, byte 227; byte 28 is no word) and refused a clean campaign-lane bit
+    (12200, byte 1525; byte 190 is MoveControl)."""
+    import pytest
+    from ff9mapkit.build import BuildError, FieldProject, _apply_startup
+    p = tmp_path / "f.field.toml"
+
+    def load(once):
+        p.write_text("[field]\nid = 4003\nname = 'CAMP'\narea = 11\ntext_block = 1073\n"
+                     "\n[camera]\npitch = 45\n"
+                     "\n[walkmesh]\nquad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]\n"
+                     "\n[player]\nspawn = [0, -300]\n"
+                     f"\n[startup]\nscenario = 2600\nonce = {once}\n", encoding="utf-8")
+        return FieldProject.load(p)
+
+    with pytest.raises(BuildError, match="named engine word"):
+        _apply_startup(load(1816), CLEAN)
+    assert _apply_startup(load(12200), CLEAN) != CLEAN   # the safe-band sentinel is stamped
+
+
+def test_startup_once_refuses_a_stock_story_bit(tmp_path):
+    """The refusal says 'pick a sentinel at or above FIRST_SAFE_FLAG' -- so the check enforces exactly that
+    (flags.is_safe_custom), not just 'not reserved': a real story bit (2647, a Lindblum latch; 197, the
+    Hilda Garde events) as the sentinel either never stamps (stock already set it) or corrupts it."""
+    import pytest
+    from ff9mapkit.build import BuildError, FieldProject, _apply_startup
+    p = tmp_path / "f.field.toml"
+
+    def load(once):
+        p.write_text("[field]\nid = 4003\nname = 'CAMP'\narea = 11\ntext_block = 1073\n"
+                     "\n[camera]\npitch = 45\n"
+                     "\n[walkmesh]\nquad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]\n"
+                     "\n[player]\nspawn = [0, -300]\n"
+                     f"\n[startup]\nscenario = 2600\nonce = {once}\n", encoding="utf-8")
+        return FieldProject.load(p)
+
+    for stock in (2647, 197, 8710):                    # story bit, story band, read-mail payload
+        with pytest.raises(BuildError, match="safe custom band"):
+            _apply_startup(load(stock), CLEAN)
+    assert _apply_startup(load(12200), CLEAN) != CLEAN
+
+
 def test_apply_wipe_warp_into_existing_reinit():
     """The verbatim twin of the add_reinit prologue: [deathrules] on_defeat prepends the wipe-warp check
     into an EXISTING tag-10 (offset 0 -- always safe); no tag-10 (no battles) or no block -> byte-identical."""

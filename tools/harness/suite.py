@@ -292,6 +292,12 @@ class SuiteRunner:
         # BEFORE the ladder: its steps, and the ring of a baseline it could not restore, are this
         # member's evidence -- filed under it, not under the previous member or the run.
         self.session.bind_artifacts(label, phase="baseline")
+        # The story trace (s88) is ONE append-only file per launch: where it stands now is where this
+        # member's own runs will begin.
+        try:
+            story_mark = self.session.story_mark()
+        except HarnessError as err:
+            story_mark, row["story_error"] = None, f"story.jsonl was unreadable before this member ran: {err}"
 
         # ---- the precondition, verified ------------------------------------------------------
         try:
@@ -353,7 +359,7 @@ class SuiteRunner:
         # evidence was switched off, would otherwise be the one verdict with nothing to read.
         if row["verdict"] != "pass" and self.session._evidence == 0 and not row.get("capture"):
             self.session.flush_states("END")
-        self._collect(label, row)
+        self._collect(label, row, story_mark)
         self._log(f"    {row['verdict'].upper()} in {row['seconds']}s -- {row['detail']}")
         return row
 
@@ -371,12 +377,13 @@ class SuiteRunner:
                     f"{' ...' if len(failed) > 3 else ''}): {message}")
         return message
 
-    def _collect(self, label: str, row: dict) -> None:
+    def _collect(self, label: str, row: dict, story_mark: tuple | None = None) -> None:
         """Give every scenario its own artifact directory.
 
         The screenshots are already namespaced by `Session.shot_prefix`, so they can be sorted out of
         the shared channel directory by name -- which is what stops two scenarios that both captured
-        "walk-before" from overwriting each other's evidence.
+        "walk-before" from overwriting each other's evidence. A member that traced gets its own
+        story.jsonl the same way: the runs the launch's one file gained since ``story_mark``, closed.
         """
         # ⚠ SANITISE THE DIRECTORY NAME TOO, not just the glob. A label like "walk: north" is an
         # illegal Windows path component, so this raised OSError, the except swallowed it, and the
@@ -402,6 +409,13 @@ class SuiteRunner:
                     shutil.copy2(png, out / png.name)
                     moved.append(png.name)
             row["shots"] = moved
+            if story_mark is not None:
+                try:
+                    runs = self.session.collect_story(dest / "story.jsonl", story_mark)
+                    if runs:
+                        row["story_runs"] = runs
+                except (HarnessError, OSError) as err:            # never cost the shots
+                    row["story_error"] = str(err)
             try:
                 row["states"] = sorted(p.name for p in dest.glob("states-*.jsonl"))
                 steps = dest / "steps.jsonl"

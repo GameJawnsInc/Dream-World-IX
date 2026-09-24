@@ -158,7 +158,9 @@ def test_entry_and_call():
     # read-mail scratch, the co-op cells) plus the game's own scratch band.
     ({"flag": 8300}, "mognet_mailbox"),          # a live letter-slot byte (the old bench value)
     ({"flag": 8400}, "mognet_give_locks"),
-    ({"flag": 8600}, "mognet_readmail_payload"),
+    ({"flag": 8520}, "mognet_readmail_payload"),
+    ({"flag": 8600}, "deathrules_outpost_word"),  # the payload hole: the kit's save-backed outpost word
+    ({"flag": 8620}, "readmail_payload_hole"),    # ...and its stock-clear rest, reserved with the band
     ({"flag": 16200}, "qte_scratch"),            # the game's OWN scratch (bytes 2018-2031)
     ({"flag": 16256}, "netsync_coop_cells"),     # reserved INSIDE the band's numeric range
     ({"flag": 16320}, "choice_scratch"),

@@ -5916,10 +5916,11 @@ def _apply_startup(project: FieldProject, eb: bytes) -> bytes:
     once = su.get("once")
     if once is not None:
         once = _flags.resolve(once, names)
-        if _flags.is_reserved(once) or _flags.named_word_at(once // 8) is not None:
+        if not _flags.is_safe_custom(once) or _flags.named_word_at(once) is not None:
             raise BuildError(
-                f"[startup] once = {once} lands in a reserved band / named engine word -- pick a "
-                f"sentinel bit at or above {_flags.FIRST_SAFE_FLAG} (the safe custom band)")
+                f"[startup] once = {once} is a stock story bit, a reserved band or a named engine word -- "
+                f"pick a sentinel bit at or above {_flags.FIRST_SAFE_FLAG} (the safe custom band); a stock "
+                f"bit either never stamps (the game already set it) or is corrupted by the stamp")
     always_words = []
     if outpost:
         from .battle import deathrules as _dr

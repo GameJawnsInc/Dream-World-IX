@@ -2748,6 +2748,263 @@ def test_netsync_talk_is_gated_like_the_other_benches(game):
         assert st.netsync["last_talk_uid"] == 3
 
 
+# --------------------------------------------------------------------------- the story-write trace (s88)
+
+
+def test_state_maps_the_storytrace_block_and_tells_absent_from_off():
+    """No block = an engine that cannot trace -- NOT a trace that is off. Reading the absence as "off" would
+    let an empty story.jsonl pass for "no script wrote anything"."""
+    assert State({"frame": 1}).storytrace is None
+    st = State({"frame": 1, "storytrace": {"proto": 1, "on": False, "rows": 0, "suppressed": 0,
+                                           "error": None}})
+    assert st.storytrace == {"proto": 1, "on": False, "rows": 0, "suppressed": 0, "error": None}
+
+
+def test_reset_clears_the_story_trace_and_collect_keeps_it(game, tmp_path):
+    """The engine only APPENDS to story.jsonl: a reset that left it would hand this run the last run's rows."""
+    ch = Channel(game)
+    ch.reset()
+    ch.story_path.write_text('{"k":"e"}\n', encoding="utf-8")
+    ch.collect(tmp_path / "out")
+    assert (tmp_path / "out" / "story.jsonl").read_text(encoding="utf-8") == '{"k":"e"}\n'
+    ch.reset()
+    assert not ch.story_path.exists() and ch.story_text() is None
+
+
+def test_storytrace_refuses_an_engine_that_does_not_advertise_it(game):
+    fake = FakeGame(game)
+    fake.storytrace_proto = None
+    with session(game, fake) as g:
+        boot(g)
+        with pytest.raises(HarnessError, match="predates the story trace"):
+            g.storytrace()
+        assert not any(step[0] == "storytrace" for step in fake.executed)   # refused before sending
+
+
+def test_storytrace_refuses_a_proto_this_driver_does_not_read(game):
+    fake = FakeGame(game)
+    fake.storytrace_proto = 2
+    with session(game, fake) as g:
+        boot(g)
+        with pytest.raises(HarnessError, match="proto 2, this driver reads proto 1"):
+            g.storytrace()
+
+
+def test_story_rows_refuses_before_a_trace_was_started(game):
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        with pytest.raises(HarnessError, match="no story trace was started"):
+            g.story_rows()
+
+
+def test_a_trace_reads_back_as_validated_contract_rows(game):
+    """storytrace() -> the arm epoch; the driver's own flag/byte pokes land as `harness` rows (never residue);
+    a script store as an `eb` row; storytrace(False) -> the off epoch. Every row passes the kit's proto-1
+    parser, and the epochs segment the way the engine closes them."""
+    from ff9mapkit.storytrace import epochs
+
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        st = g.storytrace()
+        assert st.storytrace["on"] is True
+        g.flag(9000)
+        g.poke(236, 15)
+        fake.script_store(sid=0, tag=0, ip=77, byte=9, width="UInt16", new=1582)
+        rows = g.story_rows()
+        assert [(r.k, r.src) for r in rows] == [("e", None), ("w", "harness"), ("w", "harness"), ("w", "eb")]
+        assert rows[1].target == "Global.Bit[9000]" and (rows[1].old, rows[1].new) == (0, 1)
+        assert rows[2].target == "Global.Byte[236]" and rows[2].new == 15
+        assert (rows[3].sid, rows[3].tag, rows[3].ip, rows[3].fld) == (0, 0, 77, 30810)
+        st = g.storytrace(False)
+        assert st.storytrace["on"] is False
+        rows = g.story_rows()
+        assert rows[-1].k == "e" and rows[-1].why == "off"
+        [ep] = epochs(rows)
+        assert (ep.why, ep.closed_by, len(ep.writes)) == ("arm", "off", 3)
+    assert (game / "run" / "story.jsonl").is_file()                          # collected with the run
+
+
+def test_an_append_in_flight_waits_and_a_broken_line_raises(game):
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.storytrace()
+        path = g.channel.story_path
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write('{"k":"w","f":9')                                        # the engine mid-append
+        assert [r.k for r in g.story_rows()] == ["e"]
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(',"oops":1}\n')                                         # ...and it lands broken
+        with pytest.raises(HarnessError, match="breaks the row contract"):
+            g.story_rows()
+
+
+def test_an_armed_run_that_never_traces_writes_no_file(game):
+    """Arming resets the tracer to OFF, silently: pokes without `storytrace 1` leave no story.jsonl."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.flag(9000)
+        g.poke(236, 15)
+        assert g.channel.story_text() is None
+    assert not (game / "run" / "story.jsonl").exists()
+
+
+def test_reset_stops_the_trace_and_a_faulted_tracer_refuses_with_its_reason(game):
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.storytrace()
+        g.send("reset")                                     # one scenario's trace must not run into the next
+        st = published(g, lambda s: s.storytrace is not None and not s.storytrace["on"])
+        assert g.story_rows()[-1].why == "off" and st.storytrace["error"] is None
+        fake.story_fault("story.jsonl has not accepted an append")
+        with pytest.raises(HarnessError, match="turned itself off earlier"):
+            g.storytrace()
+
+
+def test_closing_a_faulted_trace_raises_with_the_engines_reason(game):
+    """StoryTrace.Fail turns the tracer off with NO `off` row: `on` is already false, so a close that only
+    waited for `on` would return, and the cut file would read as a whole run -- an empty STOCK ONLY from a
+    broken instrument."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.storytrace()
+        fake.script_store(sid=0, tag=0, ip=77, byte=9, width="UInt16", new=1582)
+        fake.story_fault("story.jsonl has not accepted an append for 16777216 buffered chars")
+        with pytest.raises(HarnessError, match="FAULTED .*16777216 buffered chars"):
+            g.storytrace(False)
+        with pytest.raises(HarnessError, match="FAULTED"):
+            g.story_rows()
+
+
+def test_closing_the_trace_waits_for_every_row_the_engine_counted(game):
+    """The engine appends once per frame and keeps rows buffered while the file is locked: after `on` goes
+    false, the published `rows` is final and the file catches up to it -- a close returns only then."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.storytrace()
+        path = g.channel.story_path
+
+        def land():
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(path.read_text(encoding="utf-8").splitlines()[0] + "\n")
+
+        fake.story_rows += 1                                  # counted, still in the engine's buffer...
+        late = threading.Timer(0.4, land)
+        late.start()                                          # ...and it lands a few frames later
+        try:
+            t0 = time.time()
+            g.storytrace(False)
+            assert time.time() - t0 >= 0.3
+        finally:
+            late.join()
+
+
+def test_closing_the_trace_refuses_a_shortfall_and_a_strangers_rows(game):
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.storytrace()
+        fake.story_rows += 2                                  # rows the engine wrote that never landed
+        with pytest.raises(HarnessError, match="2 of the 4 rows the engine wrote never reached"):
+            g.storytrace(False, timeout=1.0)
+        fake.story_rows -= 2
+        g.storytrace()
+        with g.channel.story_path.open("a", encoding="utf-8") as fh:
+            fh.write(g.channel.story_path.read_text(encoding="utf-8").splitlines()[0] + "\n")
+        with pytest.raises(HarnessError, match="holds 5 rows but the engine wrote 4 since the arm"):
+            g.storytrace(False)
+
+
+def test_teardown_closes_an_open_trace_before_the_disarm(game):
+    """keep_open/attach: no `quit`, so the agent stops the trace only when it NOTICES the disarm -- up to 30
+    frames after a collect that runs at once. Closed first, the collected file carries its `off`."""
+    from ff9mapkit.storytrace import epochs, read_trace
+    fake = FakeGame(game)
+    try:
+        with session(game, fake, keep_open=True) as g:
+            boot(g)
+            g.storytrace()
+            fake.script_store(sid=0, tag=0, ip=77, byte=9, width="UInt16", new=1582)
+        [ep] = epochs(read_trace(game / "run" / "story.jsonl"))
+        assert (ep.why, ep.closed_by, len(ep.writes)) == ("arm", "off", 1)
+    finally:
+        fake.stop()
+
+
+def test_rearming_over_a_leaked_trace_drops_its_tail(game):
+    """A driver crashed with the trace on. The next run's reset clears story.jsonl, then its arm cycle's
+    disarm makes the still-tracing agent run StoryTrace.Stop -- whose last append would OPEN the new run's
+    file with another arm's rows."""
+    ch = Channel(game, label="leaked")
+    ch.reset()
+    fake = FakeGame(game).start()
+    try:
+        ch.arm(force_cycle=False)
+        deadline = time.time() + 5
+        while time.time() < deadline and not fake.armed:
+            time.sleep(0.02)
+        ch.send(["storytrace 1"])
+        while time.time() < deadline and not fake.story_on:
+            time.sleep(0.02)
+        assert fake.story_on and ch.story_path.exists()
+        second = Channel(game, label="next", owner_pid=ch.owner_pid)
+        second.reset()
+        second.arm()                                        # the cycle: the leaked agent stops, then re-arms
+        deadline = time.time() + 5
+        while time.time() < deadline and fake.arm_transitions < 2:
+            time.sleep(0.02)
+        assert fake.arm_transitions == 2 and not fake.story_on
+        assert not second.story_path.exists(), second.story_path.read_text(encoding="utf-8")
+    finally:
+        ch.disarm()
+        fake.stop()
+
+
+def test_the_fake_refuses_the_verb_on_an_engine_that_cannot_trace(game):
+    """A pre-s88 agent throws `unknown op` -- the stand-in must not trace for a driver that skips the gate."""
+    fake = FakeGame(game)
+    fake.storytrace_proto = None
+    with session(game, fake) as g:
+        boot(g)
+        with pytest.raises(HarnessError, match="unknown op 'storytrace'"):
+            g.send("storytrace 1")
+        assert not g.channel.story_path.exists()
+
+
+def test_each_suite_member_collects_its_own_traced_runs(game):
+    """One story.jsonl holds every trace of a launch; a member's directory gets exactly its own, closed."""
+    from ff9mapkit.storytrace import read_trace, split_runs
+    fake = FakeGame(game)
+    a = _scenario(game, "trace_a", "def run(g):\n    g.newgame(settle=0)\n    g.storytrace()\n"
+                                   "    g.flag(9000)\n    g.check(True, 'traced')\n")
+    b = _scenario(game, "quiet", "def run(g):\n    g.newgame(settle=0)\n    g.check(True, 'no trace')\n")
+    c = _scenario(game, "trace_c", "def run(g):\n    g.newgame(settle=0)\n    g.storytrace()\n"
+                                   "    g.poke(236, 15)\n    g.check(True, 'traced')\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{a}"\n\n[[scenario]]\npath="{b}"\n\n'
+                           f'[[scenario]]\npath="{c}"\n')
+    with session(game, fake) as g:
+        meta, scenarios = load_manifest(path, game)
+        results = SuiteRunner(g, scenarios, meta=meta, verbose=False).run()
+    assert [r.get("story_runs") for r in results] == [1, None, 1]
+    runs = {}
+    for r in results:
+        member = game / "run" / f"{r['index']:02d}-{r['label']}" / "story.jsonl"
+        runs[r["label"]] = split_runs(read_trace(member)) if member.exists() else None
+    assert runs["quiet"] is None
+    [[arm, w, off]] = runs["trace_a"]
+    assert (arm.why, w.target, off.why) == ("arm", "Global.Bit[9000]", "off")
+    [[arm, w, off]] = runs["trace_c"]
+    assert (arm.why, w.target, off.why) == ("arm", "Global.Byte[236]", "off")
+    assert len(split_runs(read_trace(game / "run" / "story.jsonl"))) == 2    # the launch's file holds both
+
+
 # ======================================================================================
 # THE BENCH PREFLIGHT
 #

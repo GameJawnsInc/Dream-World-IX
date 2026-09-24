@@ -621,6 +621,107 @@ def _cmd_story_seed(args: argparse.Namespace) -> int:
     return 0
 
 
+def _story_pairs(pairs, flag: str, *, read: bool) -> dict:
+    """``FIELD=VALUE`` options -> ``{field id: value}`` (the value read as bytes when ``read``)."""
+    from pathlib import Path
+
+    out = {}
+    for s in pairs or []:
+        k, sep, v = s.partition("=")
+        if not sep or not k.strip().isdigit() or not v.strip():
+            raise ValueError(f"{flag} takes FIELD=VALUE, got {s!r}")
+        out[int(k)] = Path(v.strip()).read_bytes() if read else int(v)
+    return out
+
+
+def _cmd_story_trace(args: argparse.Namespace) -> int:
+    """Read collected story-write traces (memoria-patch s88): one side joined to its scripts, or N stock runs
+    against N fork runs as the set difference (studies/story-trace/PLAN.md)."""
+    from pathlib import Path
+
+    from . import storytrace as S
+
+    notes: list = []
+
+    def load(spec: str) -> list:
+        """``RUN`` or ``RUN#N`` -> ``[(label, rows)]``: every traced run the file holds, or its N-th (1-based).
+        One story.jsonl holds every ``storytrace 1`` of a launch; read whole, their union would count a key
+        reached in 1 of 3 runs as reached in 1 of 1."""
+        head, sep, tail = spec.rpartition("#")
+        pick = int(tail) if sep and head and tail.isdigit() else None
+        q = Path(head if pick is not None else spec)
+        p = q / "story.jsonl" if q.is_dir() else q          # a harness run dir holds its story.jsonl
+        runs = S.split_runs(S.read_trace(p))
+        label = f"{p.parent.name}/{p.name}"
+        if not runs:
+            raise S.TraceError(f"{p}: no traced run (no `arm` epoch)")
+        if pick is not None:
+            if not 1 <= pick <= len(runs):
+                raise ValueError(f"{spec}: {p} holds {len(runs)} traced run(s)")
+            return [(f"{label}#{pick}", runs[pick - 1])]
+        if len(runs) == 1:
+            return [(label, runs[0])]
+        notes.append(f"story-trace: {p} holds {len(runs)} traced runs (one per `storytrace 1`) -- each is "
+                     f"read as its own run on this side; name one as {spec}#N")
+        return [(f"{label}#{i}", rows) for i, rows in enumerate(runs, 1)]
+
+    try:
+        stock_ex = _story_pairs(args.script, "--script", read=True)
+        fork_ex = _story_pairs(args.fork_script, "--fork-script", read=True)
+        donors = _story_pairs(args.donor, "--donor", read=False)
+        stock_runs = [run for spec in args.runs for run in load(spec)]
+        fork_runs = [run for spec in args.fork or [] for run in load(spec)]
+    except (ValueError, OSError) as ex:                         # TraceError is a ValueError
+        print(f"story-trace: {ex}", file=sys.stderr)
+        return 1
+
+    roots = [Path(r) for r in args.fork_root or []]
+    if not roots:                                   # default: every mod folder the install stacks
+        try:
+            roots = sorted(p.parent for p in find_game_path(args.game).glob("*/DictionaryPatch.txt"))
+        except ConfigError:
+            pass                                    # no install: only --script/--fork-script resolve
+    stock = S.stock_script_source(args.game, lang=args.lang, explicit=stock_ex)
+    fork = S.mod_script_source(roots, fallback=stock, lang=args.lang, explicit=fork_ex)
+
+    _safe_console()
+    for note in notes:
+        print(note, file=sys.stderr)
+    # A mod folder's own copy of a STOCK field's script is what the game ran there, on BOTH sides: the fork
+    # side joins against it (mod_script_source), the stock side against the install's bytes -- warned.
+    for side, runs, explicit in (("stock", stock_runs, stock_ex), ("fork", fork_runs, fork_ex)):
+        for fid in sorted({r.fld for _l, rows in runs for r in rows if r.k == "w" and r.m == S.FIELD_MODE}):
+            if fid in explicit:
+                continue
+            for root in S.stock_overrides(fid, roots, lang=args.lang):
+                if side == "stock":
+                    print(f"story-trace: WARN {root} overrides stock field {fid}'s script -- the stock side "
+                          f"ran that, not the install's bytes it is joined against", file=sys.stderr)
+                else:
+                    print(f"story-trace: the fork side's field {fid} joins against {root}'s override of its "
+                          f"stock script (the bytes the game ran)", file=sys.stderr)
+    try:
+        sd = [S.digest(label, rows, scripts=stock) for label, rows in stock_runs]
+        fd = [S.digest(label, rows, scripts=fork, donor_scripts=stock, donors=donors) for label, rows in fork_runs]
+    except (ValueError, RuntimeError, OSError) as ex:
+        print(f"story-trace: {ex}", file=sys.stderr)
+        return 1
+    if fd:
+        c = S.compare(sd, fd)
+        text = S.report(c)
+        bad = bool(c.stock_only) or any(d.failures for d in sd + fd)
+    else:
+        text = S.report_runs(sd)
+        bad = any(d.failures for d in sd)
+    bad = bad or any(d.incomplete for d in sd + fd)         # a cut run's absences are not evidence
+    if args.out:
+        Path(args.out).write_text(text, encoding="utf-8")
+        print(f"wrote {args.out}")
+    else:
+        print(text, end="")
+    return 1 if (bad and args.strict) else 0
+
+
 def _cmd_eb_src(args: argparse.Namespace) -> int:
     from pathlib import Path
 
@@ -7722,6 +7823,35 @@ def build_parser() -> argparse.ArgumentParser:
     sse.add_argument("--census", help="path to dominance_census.json (default: found by walking "
                                       "up from cwd; regenerate with research/dominance_census.py)")
     sse.set_defaults(func=_cmd_story_seed)
+
+    stc = sub.add_parser("story-trace", help="read collected story-write traces (the s88 engine's "
+                                             "story.jsonl): join every script write to its instruction, "
+                                             "or diff N stock runs against N fork runs")
+    stc.add_argument("runs", nargs="+", metavar="RUN",
+                     help="the stock side's story.jsonl files (or harness run dirs holding one); alone, "
+                          "each write is listed with the instruction it joined to. A file holding several "
+                          "traced runs (one per `storytrace 1`) counts each as a run; RUN#N picks the N-th")
+    stc.add_argument("--fork", nargs="+", metavar="RUN",
+                     help="the fork side's runs: report STOCK ONLY / FORK ONLY / UNSTABLE / RESIDUE / "
+                          "CENSUS GAPS / JOIN FAILURES over the set of (donor, entry, tag, offset, "
+                          "variable, value)")
+    stc.add_argument("--donor", action="append", metavar="FORK=DONOR",
+                     help="the donor of a fork field id, for an engine with no ForkDonorPatch row "
+                          "(every row then says don == fld). Repeatable")
+    stc.add_argument("--fork-root", action="append", metavar="DIR",
+                     help="a mod root whose DictionaryPatch.txt registers the fork (default: every "
+                          "mod folder in the install). Repeatable")
+    stc.add_argument("--script", action="append", metavar="FIELD=EB",
+                     help="join the stock side's field FIELD against this .eb instead of the install's")
+    stc.add_argument("--fork-script", action="append", metavar="FIELD=EB",
+                     help="join the fork side's field FIELD against this .eb (e.g. a build output)")
+    stc.add_argument("--lang", default="us",
+                     help="script language (default us: trace the US build -- the census is US bytes)")
+    stc.add_argument("--strict", action="store_true",
+                     help="exit 1 on any JOIN FAILURE, any INCOMPLETE run (no `off`: the tracer faulted "
+                          "or the file was cut), or (with --fork) a non-empty STOCK ONLY")
+    stc.add_argument("-o", "--out", help="write the report here (default: stdout)")
+    stc.set_defaults(func=_cmd_story_trace)
 
     eas = sub.add_parser("eb-asm", help="assemble .ebs source back into a complete .eb")
     eas.add_argument("src", help="path to a .ebs source file")

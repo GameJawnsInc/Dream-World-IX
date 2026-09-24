@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import base64
 import difflib
+import functools
 import json
 import struct
 from dataclasses import dataclass, field
@@ -38,7 +39,7 @@ from dataclasses import dataclass, field
 #                     mislabelled "the treasure-chest bitfield"; the ~58 writers are the moogle fields'
 #                     twin switch-64 lock tables, decoded to the instruction (content/mognet.py).
 #   bits 8504-8509  = clear (the kit's deathrules wipe marker sits at 8508).
-#   bits 8510-8511  = two real stock bools (byte 1063).
+#   bits 8510-8511  = two real stock bools (byte 1063): the moogle-talk one-shot latches.
 #   bits 8512-8591  = stock READ-MAIL row VARIANTS (Byte[1064..1073] -- whole-byte writes on every
 #   bits 8632-8711    Mognet open at any moogle with known letters) and row SENDERS (Byte[1079..1088]).
 #                     A custom flag here is CLOBBERED by ordinary play -- never allocate in either run.
@@ -268,8 +269,21 @@ BIT_REGIONS = [
               "world/entrance.py extend_nameplate_band"),
     BitRegion("field_menu_guard", 184, 184, "Engine handshake: 'in-field menu/transition in progress'. "
               "Re-checked + cleared every Main_Init.", True, "a", "disassembly fields 50/100/300"),
+    BitRegion("savepoint_tent_guard", 189, 189, "Stock save-point TENT-rest guard: set to 1 just before "
+              "the rest (hide objects, half HP/MP to every non-KO slot, the rest fade + chime) and back "
+              "to 0 right after it -- in the moogle talk function of all 58 moogle fields and the "
+              "save-sphere function of the final dungeon's 7 save points (2901-2925). Read only by Ice "
+              "Cavern 306's entry-12 loop (toggles a Map.Byte[24] bit while a rest runs). Every rest "
+              "clears it -- never story state.", True, "a",
+              "var sweep 2026-09-24 (818 field .eb): 115 e2 tag3 0x16B6/0x18E1; 2901 e11 tag32 "
+              "0x284D/0x2A77; 306 e12 tag1 0x12C2/0x12EB"),
     BitRegion("boot_scratch", 191, 191, "Companion scratch bit zeroed on every boot.", True, "a",
               "disassembly"),
+    BitRegion("byte23_spare", 185, 190, "The rest of the handshake byte (bits 185-188, 190; 189 is named "
+              "above): stock-clear -- no field/world/battle script reads or writes them at any width and "
+              "no engine C# indexes byte 23. Named so a write here reads as a surprise, not a story bit.",
+              False, "a", "var sweep 2026-09-24 (818 field, 13 world, 562 battle .eb; every var type, "
+              "byte/word spans over byte 23 included); Memoria gEventGlobal grep"),
     BitRegion("chocobo_paradise_discovered", 814, 814, "Chocobo's Paradise discovered (byte 101 & 0x40); "
               "gates its world-map alternate form.", True, "a", "WorldConfiguration.cs:183-184"),
     BitRegion("mognet_central_discovered", 815, 815, "Mognet Central discovered (byte 101 & 0x80); gates its "
@@ -296,15 +310,37 @@ BIT_REGIONS = [
               "8447): set on letter ARRIVAL (accept-delivery or scenario auto-arrival); each gates that "
               "variant's row in the moogle's read-mail list. NEVER allocate here.", True, "a",
               "content/mognet.py decode; live vectors: variants 19/22/33 -> bytes 1057b4/1057b1/1059b6"),
-    BitRegion("mognet_lock_margin", 8504, 8511, "The lock bands' margin byte (1063): bits 8510-8511 are "
-              "real stock bools; 8508 is the kit's deathrules wipe marker (bit-disjoint). Reserved.",
-              True, "a", "census 2026-07-19 (bool sweep, reference/test2); battle/deathrules.py"),
+    BitRegion("deathrules_wipe_marker", 8508, 8508, "The kit's [deathrules] on_defeat WIPE marker "
+              "(the default `flag`): the battle DLL sets it at a canceled game over, the field's tag-10 "
+              "clears it and warps -- a transient kit handshake, stock-clear.", True, "a",
+              "battle/deathrules.py WIPE_FLAG_DEFAULT"),
+    BitRegion("mognet_moogle_latches", 8510, 8511, "Stock moogle-talk one-shot latches, compiled into the "
+              "moogle talk function of all 58 moogle fields beside the lock tables: 8511 gates the "
+              "first-meeting Mognet explanation (shown once while ScenarioCounter < 5990), 8510 a one-shot "
+              "line for moogle id 36. Real save state, but Mognet side-quest state -- not story progression "
+              "(STORY_SIDE_STATE_REGION_NAMES: out of the story populations, never masked as noise).",
+              True, "a", "var sweep 2026-09-24: field 115 e2 tag3 0x19DA/0x1A4C (8511), 0x1A58/0x1A6B (8510)"),
+    BitRegion("mognet_lock_margin", 8504, 8511, "The lock bands' margin byte (1063). 8508 (the kit's "
+              "deathrules wipe marker) and 8510-8511 (stock moogle-talk latches) are named above; the rest "
+              "(8504-8507, 8509) is stock-clear -- no field/world/battle script touches them at any width. "
+              "Reserved.", True, "a",
+              "census 2026-07-19 (bool sweep, reference/test2); var sweep 2026-09-24 (every var type)"),
+    BitRegion("deathrules_outpost_word", 8592, 8607, "The kit's [deathrules] OUTPOST word (bytes 1074-1075, "
+              "a GLOB_UINT16 field id): the last `[field] outpost = true` field ENTERED, written on every "
+              "entry and read by the wipe-warp prologue's computed Field(). Save-backed kit state, not "
+              "scratch -- it sits in the read-mail payload's stock-clear hole.", True, "a",
+              "battle/deathrules.py OUTPOST_BYTE"),
+    BitRegion("readmail_payload_hole", 8608, 8631, "The rest of the read-mail payload's hole (bytes "
+              "1076-1078): stock-clear -- no field/world/battle script touches bytes 1074-1078 at any width. "
+              "Named so a write here reads as a surprise, not payload scratch; reserved with the band.",
+              True, "a", "census 2026-07-19 (byte-var sweep); var sweep 2026-09-24 (every var type, bytes "
+              "1074-1078, calibrated on 1073/1079)"),
     BitRegion("mognet_readmail_payload", READMAIL_PAYLOAD_LO, READMAIL_PAYLOAD_HI, "Stock READ-MAIL menu "
               "scratch: row VARIANTS Byte[1064-1073] (bits 8512-8591) and row SENDERS Byte[1079-1088] "
               "(bits 8632-8711), whole-byte-written on every Mognet open at any moogle with known "
               "letters -- ordinary play clobbers any custom bit here. The stock-clear hole bytes "
-              "1074-1078 (bits 8592-8631) holds the kit's outpost word (deathrules OUTPOST_BYTE 1074). "
-              "NEVER allocate anywhere in this band.", True, "a",
+              "1074-1078 (bits 8592-8631) between the runs are named above (the outpost word + the "
+              "clear rest). NEVER allocate anywhere in this band.", True, "a",
               "census 2026-07-19 (byte-var sweep: 1064-1073/1079-1088 are the ONLY stock byte vars >= 1046)"),
     BitRegion("qte_scratch", QTE_SCRATCH_FLOOR, COOP_CELLS_FLOOR - 1,
               "The [[qte]] modal scratch band (bytes 2018-2031: bout state, combo/points channels; "
@@ -489,7 +525,8 @@ def named_word_at(bit: int):
     """The :class:`WordVar` whose byte range covers ``bit``'s byte, or None. A raw bit edit landing inside
     a named word (ScenarioCounter, TranceGaugeFlag, ...) touches a fixed offset the engine C# reads by
     BYTE, not a free story bit -- ``bit_region``/``is_reserved`` don't cover this (they only walk
-    ``BIT_REGIONS``/``STORY_REGIONS``, never ``NAMED_WORDS``)."""
+    ``BIT_REGIONS``/``STORY_REGIONS``, never ``NAMED_WORDS``). ``bit`` is a BIT index: passing a byte
+    offset (``bit // 8``) checks byte ``bit // 64`` instead -- the story-seed/[startup] once bug."""
     byte = bit >> 3
     for w in NAMED_WORDS:
         if w.byte <= byte < w.byte + w.width:
@@ -501,6 +538,74 @@ def is_safe_custom(bit: int) -> bool:
     """True if ``bit`` is in the provably-safe custom band [FIRST_SAFE_FLAG, CHOICE_SCRATCH_FLOOR) and not
     inside a reserved region."""
     return FIRST_SAFE_FLAG <= bit < CHOICE_SCRATCH_FLOOR and not is_reserved(bit)
+
+
+# ============================ the story-noise mask ============================
+# THE ONE noise mask every story analysis drops (studies/story-trace/PLAN.md, owner decision 6): the
+# rung-0 census falsifier (research/dominance_census.py), fork-report's Story-writes axis, story-seed's
+# read set and the story trace. Chosen BY REGION NAME, never by BitRegion.reserved -- worldmap_unlocks,
+# kit_world_flags and nameplate_explored_words are reserved AND live progression. A bit is noise when the
+# region it RESOLVES to (bit_region: the specific name before its broad band) is listed, so a stock-clear
+# bit with no owner (byte23_spare, the lock margin's clear bits, the payload hole) and live kit state (the
+# outpost word) stay visible: a write there is a surprise or real state, not noise.
+STORY_NOISE_REGION_NAMES = (
+    # stock handshakes: bracketed or re-cleared by ordinary play, never state
+    "field_menu_guard", "savepoint_tent_guard", "boot_scratch",
+    # the stock Mognet letter network: the mailbox, the twin switch-64 lock tables and the read-mail
+    # payload runs, compiled verbatim into every moogle field -- side-quest mail, never story progression
+    "mognet_mailbox", "mognet_give_locks", "mognet_read_locks", "mognet_readmail_payload",
+    # kit runtime scratch: the wipe handshake, the DEFAULT-band behavior Blackboard (flags + bytes,
+    # cleared/preset by every emitted Main_Init), the default [siege] spawn-request lane (a hire row sets
+    # it, the pool consumes it), the [[qte]] modal scratch, and the co-op cells + choice scratch (bytes
+    # 2032-2041 -- exactly the engine's NetSyncState.MaskLo..MaskHi). NOT masked: a WIDE-band Blackboard
+    # ([behavior] byte_band = "wide", and every [siege], which always builds it: flags 9520-9759, bytes
+    # 1220-1875 -- 1876+ is the default band's) or a [siege] flag_base moved off the default. Those sit in
+    # the campaign lane, where a global region would hide real campaign story bits, so their writes read
+    # as story in fork-report and the trace.
+    "deathrules_wipe_marker", "behavior_blackboard_flags", "siege_request_flags",
+    "behavior_blackboard_bytes", "qte_scratch", "netsync_coop_cells", "choice_scratch",
+)
+# Real save state that is NOT story progression -- and so NOT noise. The per-field tools must still see
+# it (story-seed refuses a read by name; the trace keys a write as state a fork has to reproduce), but a
+# story POPULATION (the census falsifier's sites, fork-report's seed candidates) leaves it out, as both
+# always did. The moogle-talk latches: 8511 is the first-meeting Mognet explanation (shown while
+# SC < 5990), so a fork booted mid-story with it clear replays the tutorial at its first moogle.
+STORY_SIDE_STATE_REGION_NAMES = ("mognet_moogle_latches",)
+
+
+def _resolved_bits(names, what: str) -> frozenset:
+    """Every BIT index whose resolved :func:`bit_region` is one of ``names``. Raises on a name no
+    BIT_REGIONS entry carries, or one every bit of which resolves to an earlier region -- either would
+    silently mask nothing."""
+    by_name = {r.name: r for r in BIT_REGIONS}
+    out: set = set()
+    for name in names:
+        r = by_name.get(name)
+        if r is None:
+            raise ValueError(f"{what} region {name!r} is not a BIT_REGIONS name")
+        bits = {b for b in range(r.lo, r.hi + 1) if bit_region(b) is r}
+        if not bits:
+            raise ValueError(f"{what} region {name!r} resolves no bit (shadowed by an earlier region)")
+        out |= bits
+    return frozenset(out)
+
+
+@functools.lru_cache(maxsize=None)
+def story_noise_bits() -> frozenset:
+    """Every gEventGlobal BIT index whose resolved region is named in :data:`STORY_NOISE_REGION_NAMES`:
+    what story-seed's read set and the story trace drop (they still see the side state). Raises on a
+    name in both tiers -- the side state would silently vanish from those per-field tools."""
+    both = set(STORY_NOISE_REGION_NAMES) & set(STORY_SIDE_STATE_REGION_NAMES)
+    if both:
+        raise ValueError(f"region(s) {sorted(both)} are named both story noise and story side state")
+    return _resolved_bits(STORY_NOISE_REGION_NAMES, "story-noise")
+
+
+@functools.lru_cache(maxsize=None)
+def non_story_bits() -> frozenset:
+    """:func:`story_noise_bits` plus the :data:`STORY_SIDE_STATE_REGION_NAMES` bits: what a story
+    POPULATION drops (the census falsifier, fork-report's Story-writes axis)."""
+    return story_noise_bits() | _resolved_bits(STORY_SIDE_STATE_REGION_NAMES, "story side-state")
 
 
 def nearest_milestone(scenario: int):

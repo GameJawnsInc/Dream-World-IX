@@ -198,28 +198,25 @@ def scan_party_ops(eb_bytes) -> dict:
 # Discoverability for seeding a DOWNSTREAM fork's [startup] flags: run this on a PREDECESSOR field to see what
 # story state it produces, then seed the fork you're building. A --verbatim fork RUNS these writes (advances
 # state as the real field does); a synth fork DROPS them. The raw scan (eventscan.scan_flags_set) is NOISY: every
-# field rewrites the byte-23 menu/transition HANDSHAKE (bits 184-191, re-cleared each Main_Init), and a moogle
-# field compiles its whole STATIC Mognet lock dispatch (the twin switch-64 tables, bits 8376-8511; long
-# mislabelled "the chest block") -- neither is story progression, so both are filtered. What remains (once-events, worldmap/first-visit unlocks) is the meaningful state, labeled
-# by flags.bit_region. In-game grounded on the Ice Cavern (IC_TER/JMP/BRI write ipsen_ice_cavern_events once-bits).
-_HANDSHAKE_LO, _HANDSHAKE_HI = 184, 191   # byte-23 menu/transition handshake (flags.py field_menu_guard/boot_scratch)
-
-
-def _story_write_noise(bit: int) -> bool:
-    """True for a flag WRITE that isn't story progression: the static Mognet lock dispatch tables or the
-    transient byte-23 menu/transition handshake -- excluded from the Story-writes axis."""
-    return (_flags.MOGNET_LOCK_LO <= bit <= _flags.MOGNET_LOCK_HI) or (_HANDSHAKE_LO <= bit <= _HANDSHAKE_HI)
+# field rewrites the byte-23 menu/transition HANDSHAKE (bit 184 re-checked + cleared each Main_Init, 191
+# zeroed), every save point brackets its tent rest with bit 189, and a moogle field compiles its whole
+# STATIC Mognet dispatch (the twin switch-64 lock tables, bits 8376-8503, + the moogle-talk latches
+# 8510-8511; long mislabelled "the chest block") -- none of it is story progression, so the kit's story
+# POPULATION mask (flags.non_story_bits: the one noise mask + the latch side state) filters it. What
+# remains (once-events, worldmap/first-visit unlocks) is the meaningful state, labeled by flags.bit_region.
+# In-game grounded on the Ice Cavern (IC_TER/JMP/BRI write ipsen_ice_cavern_events once-bits).
 
 
 def scan_story_writes(eb_bytes) -> list:
-    """The MEANINGFUL GLOB story-flag writes a field performs (once-events, worldmap unlocks) -- noise-filtered
-    (chest dispatch block + byte-23 handshake) and region-labeled. Returns sorted ``[(glob_idx, region_name|None)]``.
+    """The MEANINGFUL GLOB story-flag writes a field performs (once-events, worldmap unlocks) -- filtered by
+    :func:`flags.non_story_bits` and region-labeled. Returns sorted ``[(glob_idx, region_name|None)]``.
     Run on a PREDECESSOR field to discover which ``[startup]`` flags a downstream fork should seed (the AUTHOR
     still picks -- game knowledge outranks the raw list; this just makes the candidates visible offline)."""
     from . import eventscan as _es
+    non_story = _flags.non_story_bits()
     out = []
     for idx, _op in _es.scan_flags_set(eb_bytes):
-        if _story_write_noise(idx):
+        if idx in non_story:
             continue
         r = _flags.bit_region(idx)
         out.append((idx, r.name if r else None))

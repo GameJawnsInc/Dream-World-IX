@@ -112,8 +112,15 @@ disassembler — `scan_item_ops` reads `AddItem`/`AddGil`/`Menu(2,id)` and class
 literal `B_CONST <CharacterOldIndex> B_PARTYCHK` (`7D <id> 6B`) *only within `0x05` EXPR_STMT ranges* (a bare
 `0x6B` elsewhere is an anim-id / jump-table byte, not a party check), mirroring how the `B_PARTYADD` scan is
 bounded — grounded on the Ice Cavern's Vivi-gated screens. The **Story writes** axis (`scan_story_writes`) wraps
-`eventscan.scan_flags_set` (which decodes GLOB flag writes `05 <glob-var> 7D <i16> <2C|3F> 7F`) and drops the
-noise the raw scan is swamped by — the static Mognet lock dispatch (`8376-8511` -- the twin switch-64 lock tables, long mislabelled the chest block, compiled into every
-chest field) and the byte-23 menu/transition handshake (`184-191`, rewritten each load) — then labels the rest
-via `flags.bit_region`, leaving the meaningful once-events and worldmap unlocks. The analysis (`forkreport.analyze_eb`) is pure over
-`.eb` bytes and unit-tested offline against a fixture.
+`eventscan.scan_flags_set` (which decodes GLOB flag writes `05 <glob-var> 7D <i16> <2C|3F> 7F`) and drops
+every bit in `flags.non_story_bits()` — the kit's one story-noise mask (`flags.STORY_NOISE_REGION_NAMES`,
+chosen by region name) plus the moogle-talk latches (`flags.STORY_SIDE_STATE_REGION_NAMES`). That covers
+the stock handshakes (the byte-23 menu guard and boot scratch, and the save-point tent-rest guard), the
+Mognet network compiled into every moogle field (the mailbox, the twin switch-64 lock tables long
+mislabelled the chest block, the moogle-talk latches and the read-mail payload runs), and the kit's runtime
+scratch. It then labels the rest via `flags.bit_region`, leaving the meaningful once-events and worldmap
+unlocks. Stock-clear bits (the rest of byte 23, the lock band's margin bits) stay listed, because a write
+there is a surprise. So does the kit's outpost word. The mask covers only the **default-band** behavior
+Blackboard: a field built with `[behavior] byte_band = "wide"` or any `[siege]` lists its Blackboard resets
+as story writes, because the wide band shares the campaign lane and cannot be masked globally. The analysis
+(`forkreport.analyze_eb`) is pure over `.eb` bytes and unit-tested offline against a fixture.

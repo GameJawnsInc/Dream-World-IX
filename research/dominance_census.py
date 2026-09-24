@@ -34,6 +34,7 @@ from ff9mapkit.extract import EventBundle, ID_TO_EVT            # noqa: E402
 from ff9mapkit.eb import EbScript                               # noqa: E402
 from ff9mapkit.eb.cfg import CfgError, FieldFlow, FuncFlow, OP_SET  # noqa: E402
 from ff9mapkit.eb._optables import OP_NAMES                     # noqa: E402
+from ff9mapkit.flags import non_story_bits                      # noqa: E402
 from ff9mapkit.forkreport import (                              # noqa: E402
     PARTY_NONE, REMOVE_PARTY_OP, SET_PARTY_RESERVE_OP, _PARTYADD_RE, _PARTYCHK_RE)
 import struct                                                   # noqa: E402
@@ -66,6 +67,15 @@ def _sibling_ops(fl: FuncFlow, block: int) -> list[str]:
             if nm:
                 names.add(nm)
     return sorted(names)
+
+
+def story_sites(bit_sites: list[dict]) -> list[dict]:
+    """The STORY population the falsifier is scored on: the byte-23 handshakes, the save-point
+    tent guard and the Mognet bands are compiled dispatch noise (77% of raw sites), dropped
+    through the kit's story POPULATION mask (``flags.non_story_bits``: the one noise mask + the
+    moogle-latch side state) -- never a local range."""
+    non_story = non_story_bits()
+    return [x for x in bit_sites if x["bit"] not in non_story]
 
 
 def main() -> int:
@@ -210,11 +220,7 @@ def main() -> int:
         fl.stats.get("killed_guards", 0)
         for ffl in field_flows for fl in ffl.flows.values())
 
-    # story-site metrics: the byte-23 handshake and the Mognet bands are compiled dispatch
-    # noise (77% of raw sites) -- the falsifier is scored on the STORY population
-    _HANDSHAKE = set(range(184, 192))
-    _MOGNET = set(range(8192, 8712))
-    story = [x for x in bit_sites if x["bit"] not in _HANDSHAKE and x["bit"] not in _MOGNET]
+    story = story_sites(bit_sites)
     sc_by_func = {}
     for x in sc_sites:
         sc_by_func.setdefault((x["field"], x["entry"], x["func"]), []).append(x["value"])
