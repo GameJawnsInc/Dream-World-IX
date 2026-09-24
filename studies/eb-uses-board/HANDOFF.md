@@ -13,6 +13,9 @@
 >
 > **FOURTH CONSUMER PICKED:** entry #7, *The sine kit* -- rung 0 in-game proven (15/15), arc in
 > [`../sine-kit/PLAN.md`](../sine-kit/PLAN.md).
+>
+> **FIFTH CONSUMER PICKED:** entry #8, *Photo mode*, reframed as the kit's first camera-pan primitive -- rung 0 in-game
+> proven (132/132 over five runs), arc in [`../photo-mode/PLAN.md`](../photo-mode/PLAN.md).
 
 **Picked:** entry #1 of [`BOARD.md`](BOARD.md), a `gScriptVector` table class that survives field entry.
 **Paused because:** its first rung is a hard-quit/relaunch round trip. That needs the real machine: the game install,

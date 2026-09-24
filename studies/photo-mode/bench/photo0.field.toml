@@ -1,0 +1,57 @@
+# =====================================================================================
+# PHOTO MODE, RUNG 0 -- a script-driven camera pan, in-game  --  field 30955
+# =====================================================================================
+# A 768x448 canvas (2x the screen wide, the scroll-demo spike's frame) so there is somewhere to pan, painted with a
+# generated test pattern (photo0_bench.py art: 16-px cells, seeded, zero SE bytes) that a frame can be registered
+# against to the canvas pixel. Three red balloons: L and C are hide targets in the later stages, R is never hidden
+# (the control). The CAMERA WORK is not authored here: studies/photo-mode/photo0_bench.py seats a code-entry DAEMON
+# into the deployed .eb, one stage per in-game run (see studies/photo-mode/PLAN.md).
+#
+#   py studies/photo-mode/photo0_bench.py art             (writes art/back.png)
+#   py studies/photo-mode/photo0_bench.py deploy --stage N
+#   py tools/play.py studies/photo-mode/rung0_photo.py --label photo-rung0-sN
+
+[field]
+id = 30955
+name = "PHOTO0"
+area = 11
+title = "PHOTO 0"
+
+[camera]
+pitch = 40.0
+distance = 4500
+fov = 42.2
+range = [768, 448]
+window_width = 384
+
+[camera.scroll]
+enabled = true
+
+[walkmesh]
+quad = [[-2122,-161],[2122,-161],[2122,-2043],[-2122,-2043]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+
+[player]
+spawn = [0, -1102]
+
+[[prop]]
+prop = "balloon"
+pos = [-1000, -1102]
+collision = false
+shadow = false
+
+[[prop]]
+prop = "balloon"
+pos = [0, -450]
+collision = false
+shadow = false
+
+[[prop]]
+prop = "balloon"
+pos = [1000, -1102]
+collision = false
+shadow = false
