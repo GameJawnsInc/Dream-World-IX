@@ -230,8 +230,13 @@ def parse(prop: dict, idx: int) -> MotionSpec | None:
         raise MotionError(f"{where}: period (ticks for one full cycle) is required with "
                           f"{'radius' if path == 'orbit' else 'to' if path == 'shuttle' else 'turn'}")
     per = _period(period, where) if period is not None else 0
-    if per and path is None and turn is None and m.get("bob") is None:
-        raise MotionError(f"{where}: period without a channel -- add radius, to, turn or bob")
+    if per and path is None and turn is None:
+        bob0 = m.get("bob")
+        if bob0 is None:
+            raise MotionError(f"{where}: period without a channel -- add radius, to, turn or bob")
+        if isinstance(bob0, dict) and "period" in bob0:
+            raise MotionError(f"{where}: period drives nothing here -- the bob has its own period and there is no "
+                              f"radius, to or turn; drop the motion period")
 
     phase_u = 0
     if "phase" in m:
@@ -300,7 +305,7 @@ def _co_rules(prop: dict, spec: MotionSpec) -> None:
     if spec.airborne and prop.get("shadow") is not False:
         raise MotionError(f"{lab} motion: an airborne prop (height or bob) must set shadow = false (its blob "
                           f"would stay on the floor)")
-    for k in ("requires_flag", "requires_flag_clear", "attach_to", "holds"):
+    for k in ("requires_flag", "requires_flag_clear", "attach_to"):
         if prop.get(k) is not None:
             raise MotionError(f"{lab} motion: a moving prop may not use {k} -- THE NULL-TARGET LAW: 0xAD has no "
                               f"null guard, so every mover must exist for the whole visit")
@@ -558,6 +563,28 @@ def audit_body(body: bytes, loc: int, uids) -> list:
     from ..eb import exprsem
     bad: list = []
     clock_offs = set()
+    prelude_re = re.compile(r"Instance\.Int16\[(\d+)\] const\(0\) B_LET")
+    advance_re = re.compile(r"Instance\.Int16\[(\d+)\] Instance\.Int16\[(\d+)\] const\(1\) B_PLUS "
+                            r"const\((\d+)\) B_REM B_LET")
+    preludes, advances, waits, jumps, movers_at = {}, {}, [], [], []
+    for ins in D.iter_code(body, 0, len(body)):
+        if ins.op == 0x05:
+            txt = D.pretty_expr(body, ins.off + 1)[0].strip().strip("{}").strip()
+            txt = txt[:-len(" B_EXPR_END")] if txt.endswith(" B_EXPR_END") else txt
+            m1, m2 = prelude_re.fullmatch(txt), advance_re.fullmatch(txt)
+            if m1:
+                preludes.setdefault(int(m1.group(1)), []).append(ins.off)
+            elif m2 and m2.group(1) == m2.group(2):
+                advances.setdefault(int(m2.group(1)), []).append(ins.off)
+            else:
+                bad.append(f"SET at +{ins.off} is neither a clock prelude nor a clock advance -- only the clocks "
+                           f"may be written ({txt[:60]!r})")
+        elif ins.op in (MOVE_EX, TURN_EX):
+            movers_at.append(ins.off)
+        elif ins.op == 0x22:
+            waits.append(ins)
+        elif ins.op == 0x01:
+            jumps.append(ins)
     for ins in D.iter_code(body, 0, len(body)):
         if ins.op not in DAEMON_OPS:
             bad.append(f"op 0x{ins.op:02X} at +{ins.off} is not a motion-daemon op")
@@ -578,6 +605,8 @@ def audit_body(body: bytes, loc: int, uids) -> list:
                 exprsem.analyze(inner if inner.endswith("B_EXPR_END") else inner + " B_EXPR_END")
             except Exception as e:                       # noqa: BLE001 -- the audit reports, it never crashes
                 bad.append(f"expression {inner[:60]!r}: {e}")
+            if ins.op in (MOVE_EX, TURN_EX) and "B_LET" in inner.split():
+                bad.append(f"0x{ins.op:02X} at +{ins.off} writes inside an operand -- only the clock SETs write")
             for tok in inner.split():
                 m = re.fullmatch(r"Instance\.Int16\[(\d+)\]", tok)
                 if m:
@@ -585,6 +614,21 @@ def audit_body(body: bytes, loc: int, uids) -> list:
                 elif not (re.fullmatch(r"const\(\d+\)", tok) or tok in _ALLOWED_TOKENS):
                     bad.append(f"token {tok!r} is not allowed in the motion daemon (nothing shared, nothing read)")
     want = set(range(0, loc, 2))
+    for k in sorted(want):
+        if len(preludes.get(k, [])) != 1 or len(advances.get(k, [])) != 1:
+            bad.append(f"clock at byte {k} needs exactly one prelude and one advance, found "
+                       f"{len(preludes.get(k, []))} / {len(advances.get(k, []))}")
+    if len(waits) != 1 or (waits and body[waits[0].off + 2] != 1):     # 0x22 [arg flags] [n]
+        bad.append("the loop must yield with exactly one Wait(1) per tick")
+    if len(jumps) != 1:
+        bad.append(f"the loop must close with exactly one JMP, found {len(jumps)}")
+    else:
+        top = D.jump_target(jumps[0])
+        first_pre = max((o for offs in preludes.values() for o in offs), default=-1)
+        loop_ops = movers_at + [o for offs in advances.values() for o in offs]
+        if top <= first_pre or any(o < top for o in loop_ops) or (waits and waits[0].off < top):
+            bad.append("the loop's JMP must return to just after the clock preludes (the preludes run once, "
+                       "every mover op and clock advance runs every tick)")
     if clock_offs != want:
         bad.append(f"the clocks sit at Instance byte offsets {sorted(clock_offs)}, not exactly {sorted(want)} "
                    f"(an Int16 index is a BYTE offset)")
@@ -704,9 +748,14 @@ def arming_problems(eb: bytes, daemon_slot: int, mover_slots) -> list:
     return out
 
 
-def arm(eb: bytes, raw: dict, seats) -> tuple:
+def arm(eb: bytes, raw: dict, seats, *, donor=None) -> tuple:
     """Seat and arm the motion daemon. ``seats`` = [(prop dict, model id, slot)] recorded by the build's [[prop]]
-    loop. Returns (bytes, daemon slot, report lines). Raises :class:`MotionError` on any law."""
+    loop; ``donor`` = ``build.donor_field_id(raw)``. Re-runs :func:`problems` (so a direct build_script call cannot
+    slip a fork, the caps or the MapConfigData rule past validate). Returns (bytes, daemon slot, report lines).
+    Raises :class:`MotionError` on any law."""
+    probs = problems(raw, donor=donor)
+    if probs:
+        raise MotionError(probs[0])
     props = raw.get("prop") or []
     specs = []
     for i, p in enumerate(props):
@@ -736,9 +785,13 @@ def arm(eb: bytes, raw: dict, seats) -> tuple:
     if bad:
         raise MotionError("[[prop]] motion: " + "; ".join(bad))
     main = EbScript.from_bytes(out).entry(0).func_by_tag(0)
-    lasts = [off for _e, _t, off in (c for m in (sl for _s, sl in movers) for c in _calls(out, _OP_INITOBJ, m))]
-    if not lasts:
-        raise MotionError("[[prop]] motion: no mover InitObject found in Main_Init")
+    lasts = []
+    for _s, sl in movers:
+        hits = [off for e, t, off in _calls(out, _OP_INITOBJ, sl) if (e, t) == (0, 0)]
+        if len(hits) != 1:
+            raise MotionError(f"[[prop]] motion: mover slot {sl} must be created by exactly one InitObject in "
+                              f"Main_Init, found {len(hits)} (THE ORDER LAW)")
+        lasts.append(hits[0])
     last = max(lasts)
     ins = next(i for i in D.iter_code(out, main.abs_start, main.abs_end) if i.off == last)
     out = eb_edit.insert_in_function(out, 0, 0, ins.end - main.abs_start, opcodes.init_code(dslot, 0))
@@ -765,17 +818,23 @@ def describe(spec: MotionSpec, uid: int | None = None) -> str:
     if spec.period:
         parts.append(f"period {spec.period} ({_secs(spec.period)}), phase {spec.phase_u / PHASE_UNITS:g}")
     if spec.bob_amp:
-        parts.append(f"bob +-{spec.bob_amp} every {spec.bob_period} ({_secs(spec.bob_period)})")
-    if spec.turn:
-        extra = f" swing +-{spec.swing}" if spec.turn == "swing" else ""
-        parts.append(f"turn {spec.turn}{extra}{f' +{spec.face}' if spec.face else ''}")
+        bph = f", phase {spec.bob_phase_u / PHASE_UNITS:g}" if spec.bob_phase_u else ""
+        parts.append(f"bob +-{spec.bob_amp} every {spec.bob_period} ({_secs(spec.bob_period)}){bph}")
+    if len(spec.periods) > 1:
+        parts.append(f"cycle {spec.cycle} ({_secs(spec.cycle)})")
+    if spec.turn == "swing":
+        parts.append(f"turn swing +-{spec.swing} about face {spec.face}")
+    elif spec.turn:
+        parts.append(f"turn {spec.turn}{f' +{spec.face}' if spec.face else ''}")
     b = bounds(spec)
     step, fb = max_step(spec)
     first = " ".join(f"({p.x},{p.height},{p.z},{'-' if p.face is None else p.face})" for p in path(spec, 0, 4))
     snap = " -- SNAPS: over the smoother's 400 u / 45 deg per tick" if step >= SNAP_UNITS or fb >= SNAP_BYTES else ""
     who = f"{spec.label} motion" + (f" uid {uid}" if uid is not None else "")
-    return (f"{who}: {'; '.join(parts)}; x {b['x'][0]}..{b['x'][1]} z {b['z'][0]}..{b['z'][1]} "
-            f"h {b['h'][0]}..{b['h'][1]}; max {step:.1f} u, {fb} bytes/tick; ticks 0-3 (x,h,z,face): {first}{snap}")
+    def rng(lo_hi):
+        return f"{lo_hi[0]}" if lo_hi[0] == lo_hi[1] else f"{lo_hi[0]}..{lo_hi[1]}"
+    return (f"{who}: {'; '.join(parts)}; x {rng(b['x'])} z {rng(b['z'])} h {rng(b['h'])}; max {step:.1f} u, "
+            f"{fb} bytes/tick; ticks 0-3 (x,h,z,face): {first}{snap}")
 
 
 def report_lines(movers, daemon_slot=None, loc=None) -> list:

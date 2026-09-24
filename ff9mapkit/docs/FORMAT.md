@@ -809,7 +809,8 @@ markers, so a newline inside a line is safe, and the `.mes` is written with LF.)
 A static **set-dressing object** — a chest, tent, save point, barrel, ladder, sign. Unlike an `[[npc]]`,
 a prop is **not a character**: it does NOT turn to face the player (no head-tracking) and just holds a
 fixed pose. Placed via the real FF9 prop recipe (`SetModel` + a static `SetStandAnimation` +
-`EnableHeadFocus(0)`), grounded byte-for-byte in shipping fields — not emulated.
+`EnableHeadFocus(0)`), grounded byte-for-byte in shipping fields — not emulated. A `motion` table sets
+it moving on a computed path instead ([Computed motion](#computed-motion-motion)).
 
 ```toml
 [[prop]]
@@ -829,17 +830,149 @@ pose  = "close"           # optional pose (see below)
 | `model` | explicit alternative to `prop`: a prop model **id** or exact **GEO name** (`"GEO_ACC_F0_TBX"`). |
 | `pose` | OPTIONAL static pose — an **action name** (`"close"`, `"save_open"`) resolved via the model→anim catalog, **or a raw clip id**. Omitted → a sensible resting pose. A held pose is a **one-shot**, so a name resolves against the model's **own form first**; a name only the cross-form join answers still builds (backward compat) but `lint` names the trap and the own-form alternatives — a different form code is a different skeleton. A prop's *true* pose is often a raw clip the name-join doesn't list (the save book rests at `1872`); `tools/extract_prop_poses.py` harvests the canonical one from shipping fields (already baked into the archetypes). In the Workspace, **Browse…** previews this prop's own clips. |
 | `pos` | `[x, z]` world position (on the walkmesh). |
-| `face` | OPTIONAL facing (0..255; 0=south, 64=west, 128=north, 192=east). |
+| `face` | OPTIONAL facing (0..255; 0=south, 64=west, 128=north, 192=east). With a `motion` that turns, `face` is an offset added to the computed facing (see [Computed motion](#computed-motion-motion)). |
 | `requires_flag` | OPTIONAL GlobBool index (or a `[[flag]]` name) — the prop only appears when that story flag is set (same gating as `[[npc]]`). |
-| `collision` | OPTIONAL, default `true`. `false` = a **walk-through** prop (`SetObjectFlags(7)` — show + both collision-EXEMPT bits, the pattern 3345 shipping objects use for held items/effects/render-only set dressing): the player passes straight over/through it. For floor markers (a `[[coop]]` plate stone, a painted-circle stand-in) and dense scenery. Talk/dialogue still works. |
+| `motion` | OPTIONAL **computed motion**: the prop orbits a point, shuttles between two points, bobs, spins or swings, on its own, from the field's first frame. A table (`{ radius = 300, period = 128, turn = "travel" }`) — see [Computed motion](#computed-motion-motion). |
+| `collision` | OPTIONAL, default `true`. `false` = a **walk-through** prop (`SetObjectFlags(7)` — show + both collision-EXEMPT bits, the pattern 3345 shipping objects use for held items/effects/render-only set dressing): the player passes straight over/through it. For floor markers (a `[[coop]]` plate stone, a painted-circle stand-in) and dense scenery. Talk/dialogue still works. A `motion` prop that changes position must set `false` (see [Computed motion](#computed-motion-motion)). |
 | `attach_to` | OPTIONAL — the **`name` of an `[[npc]]`** to *attach* this prop to (a held item: a cup, a sword). The prop binds to that NPC's `bone` and follows it (the engine's `AttachObject`). Give it the **held** `pose` — props often have a per-holder held orientation (the cup has `dom`/`zdn`/`jjy` poses), so pick the one matching the carrier. |
 | `bone` | OPTIONAL attachment bone index (default **11**, the right hand the shipping cup uses; e.g. 13/19 for other models). |
-| `shadow` | OPTIONAL blob shadow. Absent = **what stock does with this model**: stock's own scripts switch the shadow OFF (`DisableShadow` in the object's Init) for most set dressing — 68 of the 84 accessory models it shows standing free: the tent, the save book, the letter, the cactus — and leave it on for the rest (every chest, the cask/barrel, the aircab), so the prop casts only where stock's does (census `_shadowparams.STOCK_CASTS`). A model no stock object shows standing free (custom / minted / only ever held) casts none. `true` = cast anyway at the census size, `false` = none, `{ size = N, intensity = N }` = cast with an override (the ranges of `[player] shadow`: intensity stops at 15). A composite applies an explicit value to every part; absent, each part follows its own model (a `save_point` composite's moogle casts, its book does not). **A held prop (`attach_to`) never casts** — stock disables 139 of its 140 held objects, and the engine takes a held item's blob height from its bone-local offset — so `shadow = true`/a table there is a validate error. On a field that ships `[field] mapconfig` the MCF shadows every actor at its own size, so the one lever is OFF, as stock's is: a part that must not cast (held, a stock-dark model, or `false`) gets stock's `DisableShadow` in its Init, one that casts gets nothing, and a `{ size, intensity }` table is ignored (build warning). This holds on a verbatim fork too. |
+| `shadow` | OPTIONAL blob shadow. Absent = **what stock does with this model**: stock's own scripts switch the shadow OFF (`DisableShadow` in the object's Init) for most set dressing — 68 of the 84 accessory models it shows standing free: the tent, the save book, the letter, the cactus — and leave it on for the rest (every chest, the cask/barrel, the aircab), so the prop casts only where stock's does (census `_shadowparams.STOCK_CASTS`). A model no stock object shows standing free (custom / minted / only ever held) casts none. `true` = cast anyway at the census size, `false` = none, `{ size = N, intensity = N }` = cast with an override (the ranges of `[player] shadow`: intensity stops at 15). A composite applies an explicit value to every part; absent, each part follows its own model (a `save_point` composite's moogle casts, its book does not). **A held prop (`attach_to`) never casts** — stock disables 139 of its 140 held objects, and the engine takes a held item's blob height from its bone-local offset — so `shadow = true`/a table there is a validate error. On a field that ships `[field] mapconfig` the MCF shadows every actor at its own size, so the one lever is OFF, as stock's is: a part that must not cast (held, a stock-dark model, or `false`) gets stock's `DisableShadow` in its Init, one that casts gets nothing, and a `{ size, intensity }` table is ignored (build warning). This holds on a verbatim fork too. An airborne `motion` prop must set `false` (see [Computed motion](#computed-motion-motion)). |
 
 A prop is non-interactive by default. Composite set pieces (a full **save point** = `moogle` + `save_book`
 + `feather` + `balloon`) are just several `[[prop]]` / `[[npc]]` at one position. An **attached** prop
 (`attach_to`) is the held-item path — `[[npc]] name = "barkeep"` + `[[prop]] model = "GEO_ACC_F0_CUP",
 attach_to = "barkeep", pose = <held>` puts the cup in the barkeep's hand.
+
+### Computed motion (`motion`)
+
+A `[[prop]]` with a `motion` table moves on its own: it can **orbit** a point, **shuttle** between two
+points, **bob** up and down, and **spin** or **swing** its facing. The channels combine — a balloon can
+orbit, bob and face along its path at once. The build adds ONE small script per field that re-places
+every moving prop each tick from the engine's own sine and cosine. Its only state is that script's own
+private counters: no flags, no Map or Global variables, nothing that reaches a save. The build computes
+the motion with the same integer math the engine runs, so it knows every prop's exact position on every
+tick and prints it.
+
+The prop's `pos = [x, z]` anchors the motion: the orbit's centre, the shuttle's start, or the spot a
+bob, spin or swing happens on. `motion` is an inline table or a `[prop.motion]` sub-table (with
+`[prop.motion.bob]` for the bob).
+
+```toml
+[[prop]]                  # orbits (0, -800) at radius 300, 150 units up, facing along its path
+prop = "balloon"
+pos = [0, -800]
+collision = false         # required: a prop that changes position is walk-through
+shadow = false            # required: an airborne prop casts no blob
+motion = { radius = 300, period = 128, height = 150, turn = "travel" }
+
+[[prop]]                  # the same orbit half a lap behind, bobbing ±60 every 256 ticks
+prop = "cask"
+pos = [0, -800]
+collision = false
+shadow = false
+motion = { radius = 300, period = 128, phase = 0.5, height = 150, turn = "travel", bob = { amp = 60, period = 256 } }
+
+[[prop]]                  # slides from (-1000, -1600) to (-302, -1600) and back, easing at each end
+prop = "chest"
+pos = [-1000, -1600]
+collision = false         # a mover at floor level keeps its shadow
+motion = { to = [-301, -1600], period = 150 }
+
+[[prop]]                  # turns in place, counter-clockwise, once every 64 ticks
+prop = "sword"
+pos = [750, -350]         # turns only, so it may stay solid
+motion = { turn = "spin", period = 64, reverse = true }
+
+[[prop]]                  # rocks ±40 facing bytes (±56 degrees) either side of north
+prop = "fish"
+pos = [750, -1350]
+face = 128
+motion = { turn = "swing", swing = 40, period = 75, phase = 0.25 }
+```
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `radius` | integer, 1..8191 world units | — | **Orbit**: a circle of this radius around `pos`. Not with `to`. |
+| `to` | `[x, z]` integers | — | **Shuttle**: back and forth between `pos` and `to`, sine-eased (slow at each end, fastest midway). Each axis at most 16382 from `pos`; not equal to `pos`. On an odd difference the far end stops 1 unit short of `to` on that axis; the build prints the far end. |
+| `period` | integer, 2..8192 ticks | — | One full cycle: an orbit lap, a shuttle round trip, a spin turn, a swing there and back. Required with `radius`, `to` or `turn`. |
+| `phase` | number in [0, 1) | `0` | Where the cycle starts at tick 0, as a fraction of a cycle along the direction of travel (resolution 1/4096). Needs `radius`, `to` or `turn`; a bob takes its own `phase`. |
+| `reverse` | boolean | `false` | Counter-clockwise seen from above. Only for an orbit or `turn = "spin"`. |
+| `height` | integer, within ±16383 world units | `0` | The path's height: **absolute** world height, up-positive (the `y` of `[[jump]] to` and `[[platform]] land`), NOT height above the floor. `0` is the floor of a flat novel field (the y-0 plane). Only that flat floor is proven in-game: `ff9mapkit lint` warns when a mover's path runs over walkmesh at another height. |
+| `bob` | table `{ amp, period, phase }` | — | A vertical sine added to any motion: `amp` 1..8191 world units either side of `height`; `period` 2..8192 ticks (default: the motion's `period`); `phase` in [0, 1) (default 0). It rises first. |
+| `turn` | `"travel"` / `"spin"` / `"swing"` | absent | The facing channel. `travel` faces along the orbit (needs `radius`). `spin` turns in place, one full turn per `period` (not with `radius`: an orbiter already turns once a lap — use `travel` plus a `face` offset). `swing` rocks either side of `face` (with any path, or none). Absent = the prop keeps its `face`; the motion never touches its facing. |
+| `swing` | integer, 1..127 facing bytes | — | How far `turn = "swing"` rocks either side of `face` (32 = 45 degrees). Required with, and only with, `turn = "swing"`. |
+
+At least one of `radius`, `to`, `bob` or `turn` is required.
+
+**Ticks.** A tick is one pass of the field's event engine: 30 a second at Memoria's default
+`FieldTPS = 30` (`Memoria.ini` `[Graphics]`), faster with a higher `FieldTPS` or the game's High Speed
+Mode. Periods are exact in ticks, with no rounding: a prop returns to exactly the same pose every
+period, and props that share a period stay in step for the whole visit.
+
+**Compass.** At phase 0 an orbiter sits due north of its centre (+z, the far side of an unyawed room)
+and moves clockwise seen from above: north, east, south, west (`reverse` goes the other way). Facing
+bytes also increase clockwise: 0 south (facing the camera), 64 west, 128 north, 192 east — so a
+forward `spin` turns clockwise. The `travel` facing is the orbit angle (as a facing byte, 256 a
+turn) plus 192: at north, heading east, it faces 192. A shuttle starts at `pos`, a swing starts at
+`face` and turns clockwise first, and a bob starts at `height` and rises first.
+
+**`face` is an offset.** With a `turn`, the prop's `face` (0..255) is added to the computed facing:
+`spin` turns from `face`, `swing` rocks ±`swing` about `face`, and `travel` adds `face` to the
+along-the-path facing. An orbiter that **faces the centre** is `turn = "travel"` with `face = 64`
+(`face = 192` with `reverse`); one that **faces outward** is `face = 192` (`64` with `reverse`).
+
+**Rules.** `ff9mapkit lint`, `ff9mapkit motion` and the build refuse each of these with the same message:
+
+- **Novel fields only.** A field with `[verbatim_eb]` or a donor (`[verbatim_eb] donor`,
+  `[field] source_field`, `[field] borrow_field`) is refused: the engine runs per-field fixes inside
+  these opcodes, keyed on the donor's id. `lint-campaign` refuses a campaign member the manifest forks
+  from a real field the same way. A novel field that borrows only art (`[field] borrow_bg`) is fine.
+- **A prop that changes position is walk-through**: `radius`, `to`, `bob` or a non-zero `height` needs
+  `collision = false`. A prop that only turns, at height 0 (a spinning statue), may stay solid.
+- **An airborne prop casts no shadow**: a non-zero `height` or a `bob` needs `shadow = false` (its blob
+  would stay on the floor). A mover at floor level keeps whatever shadow it declares.
+- **No airborne mover on a field that ships `[field] mapconfig`**: after a battle the engine rebuilds
+  the actor and the MapConfigData gives it a shadow again.
+- **A mover exists for the whole visit**: no `requires_flag` / `requires_flag_clear`, no `attach_to`,
+  and not a composite archetype (`save_point`). The prop's other keys work as usual.
+- At most **16** moving props and **8** distinct periods per field (a bob's own period counts).
+- `motion` is a `[[prop]]` key; on an `[[npc]]` it is an error (the engine re-grounds a walker every
+  frame).
+
+The build also re-checks the script it compiled and refuses rather than move the wrong thing: each
+mover's object must be the prop the toml names, its setup must finish in one frame, and the motion
+script must start after every mover exists.
+
+**When it runs.** The motion starts on the field's first frame, already at its tick-0 pose (no pop
+into place), and restarts from tick 0 on every field entry and every ~ → Reload field. By the engine's
+rules it also restarts when a save is loaded in the field and keeps running through fades, dialogue and
+cutscenes (read from the engine source; not yet observed in-game). In co-op each machine
+runs its own motion from its own entry, so the two players can see a prop at different points of its
+cycle.
+
+**What the build prints.** Among its `warning:` lines, `ff9mapkit build` (and `tools/deploy_field.py`)
+prints one summary line and one line per mover: the path, the period in ticks and seconds, the
+x/z/height ranges, the largest step per tick, and the exact pose (x, height, z, facing byte; `-` = no
+facing written) of ticks 0-3. The build's lines also name the entry slots (the motion script's, and
+each mover's `uid`). As `ff9mapkit motion` prints them for the balloon and chest above plus a fast
+orbiter (`motion = { radius = 8191, period = 64 }`):
+
+```
+[[prop]] motion: 3 mover(s) on 3 clock(s) (128, 150, 64 ticks; 30 ticks = 1 s at the default FieldTPS)
+[[prop]] 'balloon' motion: orbit r 300 about (0, -800); height 150; period 128 (4.27 s), phase 0; turn travel; x -300..300 z -1100..-500 h 150; max 15.3 u, 2 bytes/tick; ticks 0-3 (x,h,z,face): (0,150,-500,192) (14,150,-501,194) (29,150,-502,196) (44,150,-504,198)
+[[prop]] 'chest' motion: shuttle (-1000, -1600) -> (-302, -1600); height 0; period 150 (5.00 s), phase 0; x -1000..-302 z -1600 h 0; max 15.0 u, 0 bytes/tick; ticks 0-3 (x,h,z,face): (-1000,0,-1600,-) (-999,0,-1600,-) (-998,0,-1600,-) (-997,0,-1600,-)
+[[prop]] 'hand_bell' motion: orbit r 8191 about (0, -800); height 0; period 64 (2.13 s), phase 0; x -8191..8191 z -8991..7391 h 0; max 804.7 u, 0 bytes/tick; ticks 0-3 (x,h,z,face): (0,0,7391,-) (801,0,7351,-) (1597,0,7233,-) (2377,0,7037,-) -- SNAPS: over the smoother's 400 u / 45 deg per tick
+```
+
+Memoria's frame smoother interpolates a step under 400 world units and a turn under 45 degrees (32
+facing bytes) per tick. A prop past either limit visibly jumps: its line ends in `SNAPS`, and
+`ff9mapkit lint` repeats it as an advisory. Slow it with a longer `period` or a smaller `radius`.
+
+**`ff9mapkit motion <field.toml>`** runs the same checks (an error exits 1) and prints the same lines
+without building (no templates, no install; the entry slots are left out because the build assigns
+them). `--csv OUT` writes every mover's pose tick by tick (`prop,label,tick,x,height,z,face`; `prop` is
+the `[[prop]]` index, `face` is blank for a prop that does not turn): one full cycle of each mover by
+default (capped at 8192 ticks, with a note), or `--ticks N` for all of them.
 
 ---
 

@@ -25,8 +25,9 @@ from pathlib import Path
 
 from .. import fsutil
 
-# Dict values emitted INLINE as ``key = {..}`` (small value-tables, not their own [section]).
-_INLINE_TABLE_KEYS = frozenset({"anims", "scene", "scroll", "frame"})
+# Dict values emitted INLINE as ``key = {..}`` (small value-tables, not their own [section]). ``motion`` is the
+# [[prop]] computed-motion table (content/motion.py) -- one line per mover, its nested ``bob`` inline too.
+_INLINE_TABLE_KEYS = frozenset({"anims", "scene", "scroll", "frame", "motion"})
 # List-of-table values emitted as a multiline inline-table array ``key = [ {..}, {..} ]``.
 _INLINE_AOT_KEYS = frozenset({"steps"})
 

@@ -956,6 +956,21 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
     errors.extend(_perr)
     warnings.extend(_pwarn)
 
+    # (e5) [[prop]] motion is NOVEL-FIELD ONLY (content/motion.py, THE NOVEL-FIELD LAW): 0xAD/0x87 carry per-field
+    #      hotfix branches keyed on the engine's EFFECTIVE id, and build_campaign writes a forked member's
+    #      ForkDonorPatch line from THIS manifest's `source` -- so the effective id becomes the donor's even when
+    #      the member toml records no donor that build.validate could see (a toml written before source_field
+    #      was). Only the manifest knows; build_campaign runs this lint first, so lint and build-all agree.
+    from .content import motion as _motion
+    for m in plan.members:
+        raw = member_raw.get(m.name)
+        if raw is not None and m.real_id and m.real_id != m.new_id and _motion.any_motion(raw):
+            errors.append(f"member {m.name}: [[prop]] motion on a FORKED member (donor field {m.real_id} -> "
+                          f"{m.new_id}) -- motion is novel fields only. THE NOVEL-FIELD LAW: 0xAD/0x87 carry "
+                          f"per-field hotfixes keyed on the effective id, which the campaign's "
+                          f"ForkDonorPatch.txt makes the donor's ({m.real_id}); forks are rung 2. Drop the "
+                          f"motion, or author the room as a novel member.")
+
     # (e3) MANIFEST <-> ARTIFACT reconciliation -- the only check here that compares the manifest to the files
     #      it describes; everything else validates the manifest's own model against itself. A member's field id
     #      is stored TWICE (the [[field]] id row here, and the member's own [field] id) and the two are read by

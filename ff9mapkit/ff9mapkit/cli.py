@@ -954,6 +954,80 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
     return 0
 
 
+_MOTION_CSV_HEADER = ("prop", "label", "tick", "x", "height", "z", "face")
+
+
+def _cmd_motion(args: argparse.Namespace) -> int:
+    """motion <field.toml> [--csv OUT] [--ticks N] -- the ``[[prop]] motion`` surface, offline and PURE (no
+    build, no templates, no install).
+
+    Runs the refusals validate, lint and the build share (``motion.problems``, the donor read through
+    ``build.donor_field_id`` exactly as validate reads it) and exits 1 on any; otherwise prints the build's own
+    report lines for every mover WITHOUT uids (the entry slots bind at build): path, period in ticks and
+    seconds, bounds, the largest per-tick step (SNAPS past the smoother) and ticks 0-3. ``--csv`` writes the
+    predictor's path (``motion.csv_rows`` -> ``motion.pose``; THE PREDICTOR IS THE ORACLE -- nothing here
+    re-derives the math): one full cycle of every mover, or ``--ticks N`` for all of them.
+
+    THE CSV TICK CAP: a mover's cycle is the lcm of its periods, and two coprime legal periods (8191 with a bob
+    of 8192) make it ~67 million ticks -- a de-facto hang and a CSV of millions of rows. So the DEFAULT stops at
+    ``motion.PERIOD_MAX`` ticks, which still spans one whole period of EVERY channel on its own (no legal period
+    exceeds it), and says so per capped mover. An explicit ``--ticks`` is honoured as given."""
+    from . import build as _build
+    from .content import motion as _motion
+
+    if args.ticks is not None and args.csv is None:
+        print("--ticks sets the CSV's length -- give --csv OUT too", file=sys.stderr)
+        return 2
+    if args.ticks is not None and args.ticks < 1:
+        print(f"--ticks must be at least 1, got {args.ticks}", file=sys.stderr)
+        return 2
+    try:
+        project = _build.FieldProject.load(args.field)
+    except (OSError, ValueError) as e:
+        print(f"failed to load: {e}", file=sys.stderr)
+        return 2
+    raw = project.raw
+    problems = _motion.problems(raw, donor=_build.donor_field_id(raw))
+    if problems:
+        for p in problems:
+            print(f"error: {p}", file=sys.stderr)
+        return 1
+    specs = []                                     # TOML order, idx = the [[prop]] index (what the build reports)
+    for i, p in enumerate(raw.get("prop") or []):
+        s = _motion.parse(p, i) if isinstance(p, dict) else None
+        if s is not None:
+            specs.append(s)
+    if not specs:
+        print("no [[prop]] with a motion table in this field.toml", file=sys.stderr)
+        return 2
+    for line in _motion.report_lines([(s, None) for s in specs]):
+        print(line)
+    if args.csv is None:
+        return 0
+
+    import csv
+    rows = []
+    for s in specs:
+        n = args.ticks
+        if n is None:
+            n = min(s.cycle, _motion.PERIOD_MAX)
+            if s.cycle > n:
+                print(f"note: {s.label} repeats every {s.cycle} ticks (the lcm of its periods "
+                      f"{', '.join(map(str, s.periods))}) -- its CSV stops at {n} ticks, which spans one whole "
+                      f"period of each channel; pass --ticks N for more", file=sys.stderr)
+        rows += _motion.csv_rows(s, n)
+    try:
+        with open(args.csv, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            w.writerow(_MOTION_CSV_HEADER)
+            w.writerows(rows)
+    except OSError as e:
+        print(f"could not write {args.csv}: {e}", file=sys.stderr)
+        return 2
+    print(f"wrote {args.csv} ({len(rows)} rows, {len(specs)} mover(s))")
+    return 0
+
+
 def _cmd_camera(args: argparse.Namespace) -> int:
     from .scene import bgx, cam
     scene = bgx.BgxScene.from_file(args.bgx)
@@ -7713,6 +7787,19 @@ def build_parser() -> argparse.ArgumentParser:
                          "every generated body")
     bh.add_argument("field", help="path to the field.toml")
     bh.set_defaults(func=_cmd_behavior)
+
+    mo = sub.add_parser("motion", help="the [[prop]] motion surface: check a field's moving props and print "
+                                       "the build's exact per-mover report (path, bounds, max step, ticks 0-3) "
+                                       "-- pure, no build; --csv writes the predicted pose tick by tick")
+    mo.add_argument("field", help="path to the field.toml")
+    mo.add_argument("--csv", metavar="OUT", default=None,
+                    help="write prop,label,tick,x,height,z,face rows: the exact pose each tick writes (tick 0 = "
+                         "the field's first frame; prop = the [[prop]] index; height absolute, up-positive; "
+                         "face blank when the prop does not turn)")
+    mo.add_argument("--ticks", type=int, default=None, metavar="N",
+                    help="with --csv: N ticks for every mover (default: one full cycle each -- the lcm of its "
+                         "periods -- capped at the longest legal period, 8192 ticks, with a note)")
+    mo.set_defaults(func=_cmd_motion)
 
     ln = sub.add_parser("lint", help="check a field.toml without building -- one pass over every offline "
                         "validator (schema, unknown/typo'd keys the build would silently ignore, story/flag "

@@ -5,6 +5,40 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[[prop]] motion`: props that orbit, shuttle, bob, spin and swing
+- **A `[[prop]]` gains `motion = { ... }`** (the sine-kit arc, board entry #7, rung 1). An orbit (`radius`) or
+  a sine-eased shuttle (`to`), a `height`, a vertical `bob` and a facing channel (`turn = "travel"`, `"spin"`
+  or `"swing"`, with the prop's `face` as an offset) combine on one prop. `period` is exact in ticks; `phase`
+  and `reverse` place the cycle. See `docs/FORMAT.md` § Computed motion.
+- **One latch-free daemon per field** re-places every mover each tick with `MoveInstantXZYEx` (0xAD) and
+  `TurnInstantEx` (0x87) from `B_SIN2`/`B_COS2`, on angles masked into [0, 4095]. On that range the engine's
+  float32 `rsin` equals the exact truncated sine, so the predictor in `content/motion.py` is an integer table
+  that gives every tick exactly (it reproduces rung 0's in-game path for n < 771). There is one clock per
+  distinct period, in the daemon's own `Instance.Int16` locals at byte offsets 0, 2, …: no flags, no Map or
+  Global variables, nothing saved. The daemon audits its own emitted bytes against an op and a token
+  allowlist.
+- **THE ORDER LAW replaces rung 0's latch.** The build arms the daemon in Main_Init right after the last
+  mover's `InitObject`, and proves on the final bytes, by dominance, that every mover is created before it on
+  every path. Objects first run the frame after they are created, in creation order, so each mover's
+  straight-line Init (checked against an op allowlist) finishes before tick 0 writes pose 0. The daemon reads
+  nothing outside its own locals, so it needs no ready bits, and no movement latch (which would freeze the
+  props through every entry cutscene).
+- **Refusals**, with one text in validate, `lint` and the build: novel fields only (no `[verbatim_eb]`, no
+  donor: 0xAD and 0x87 carry per-field hotfixes keyed on the donor id; `lint-campaign` refuses a member the
+  manifest forks from a real field); a prop that changes position needs
+  `collision = false` and an airborne one `shadow = false`; no airborne mover on a field with
+  `[field] mapconfig`; no `requires_flag`, `requires_flag_clear`, `attach_to` or composite archetype on a
+  mover; at most 16 movers and 8 periods; `motion` on an `[[npc]]`. The build also checks each mover's slot
+  (its SetModel is the toml's model; not a player/party alias uid), its Init, and the 64-stride law (a
+  STARTSEQ from entry S-64, such as a ladder climb, would dispose the object at slot S).
+- **The build prints each mover's exact path**: bounds, the largest step per tick, ticks 0-3, a shuttle's far
+  end, and `SNAPS` past the smoother's 400 u or 45 degrees per tick (which `lint` repeats as an advisory).
+  **`ff9mapkit motion <field.toml> [--csv OUT] [--ticks N]`** prints the same lines without building and
+  writes the per-tick path.
+- **Byte identity:** a field without `motion` builds byte for byte as before; the arm step runs only when some
+  `[[prop]]` has one.
+- **In-game proof** (harness, `studies/sine-kit` rung 1): (in-game proof: pending)
+
 ### Fixed — `shadow = false` works on a field that ships MapConfigData, for every actor
 - **The player, an `[[npc]]`, a `[[chest]]` and a `[[savepoint]]` now honour `shadow = false` on an MCF field.**
   The key used to be ignored there with a build warning, because the MCF (`fldmcf`) sets every actor's shadow

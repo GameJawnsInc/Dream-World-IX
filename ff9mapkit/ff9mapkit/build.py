@@ -4271,6 +4271,38 @@ def lint_behavior_compile(project: FieldProject) -> list[str]:
     return []
 
 
+def _motion_floor_notes(project: FieldProject) -> list:
+    """[[prop]] motion's ``height`` is ABSOLUTE (0 = the y-0 plane, the flat floor rung 1 proved): a mover whose path
+    runs over walkmesh that is NOT at y 0 is untested -- it may float or sink. An advisory, sampled at the anchor and
+    16 points of each mover's path over its own period; off-mesh points are skipped (a pathing-off prop needs no
+    floor). Never raises (lint's contract)."""
+    if not _motion.any_motion(project.raw):
+        return []
+    try:
+        idx = _WalkIndex(behavior_walkmesh(project))
+    except Exception:                                   # noqa: BLE001 -- no walkmesh resolved: nothing to sample
+        return []
+    out = []
+    for i, p in enumerate(project.raw.get("prop") or []):
+        if not isinstance(p, dict) or p.get("motion") is None:
+            continue
+        try:
+            spec = _motion.parse(p, i)
+        except _motion.MotionError:
+            continue                                   # problems() reports it
+        if spec is None or not spec.moves:
+            continue
+        per = spec.period or 1
+        pts = [spec.pos] + [(q.x, q.z) for q in (_motion.pose(spec, n * per // 16) for n in range(16))]
+        ys = sorted({round(h) for x, z in pts for _t, h in idx.at(x, z)})
+        off = [y for y in ys if y != 0]
+        if off:
+            out.append(f"{spec.label} motion runs over walkmesh at y {off[:4]} -- motion height is ABSOLUTE (0 = the "
+                       f"y-0 plane) and only a flat y-0 floor is proven in-game; check the prop in-game before relying "
+                       f"on it")
+    return out
+
+
 def lint_all(project: FieldProject) -> LintReport:
     """Run EVERY offline validator in one pass and return a :class:`LintReport`: schema (:func:`validate`),
     story/flag logic (:func:`lint_logic` + :func:`lint_flag_bands`), walkmesh geometry + content placement +
@@ -4291,8 +4323,9 @@ def lint_all(project: FieldProject) -> LintReport:
     rep.logic.extend(lint_player_arrivals(project))       # verbatim dead-keys + uncovered self-loop entrances
     rep.logic.extend(lint_entry_settle(project))          # settle honesty: verbatim dead-key / bad value / multicam
     rep.logic.extend(lint_text_block(project))            # a REAL location's block -> its dialogue is overwritten
-    rep.logic.extend(_summon.lint_notes(project.raw.get("summon", [])))
-    rep.logic.extend(_motion.lint_notes(project.raw))     # a mover faster than the smoother interpolates  # cast-trigger (vfx1) reminder + ignored cross-lane keys
+    rep.logic.extend(_summon.lint_notes(project.raw.get("summon", [])))  # cast-trigger (vfx1) reminder + ignored cross-lane keys
+    rep.logic.extend(_motion.lint_notes(project.raw))     # a mover faster than the smoother interpolates
+    rep.logic.extend(_motion_floor_notes(project))        # a mover over a floor that is not at y 0
     _lint_scripts_toolchain(project, rep.errors)          # a scripted ability needs a C# compiler -> fail at lint, not mid-build
     # `lint` runs against arbitrary user TOML + (for forks) game-derived binaries, so resolving the
     # camera/walkmesh can fail in many ways (a missing borrow .bgx -> FileNotFoundError, a malformed quad
@@ -8284,7 +8317,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # ORDER LAW is proved on these final bytes (content.motion.arm). A field with no motion never gets here.
     if _motion.any_motion(project.raw):
         try:
-            eb, _mo_slot, _mo_lines = _motion.arm(eb, project.raw, _mo_seats)
+            eb, _mo_slot, _mo_lines = _motion.arm(eb, project.raw, _mo_seats, donor=donor_field_id(project.raw))
         except _motion.MotionError as e:
             raise BuildError(str(e)) from e
         if warnings is not None:

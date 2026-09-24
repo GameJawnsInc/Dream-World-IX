@@ -259,6 +259,27 @@ steps = [
   { set_flag = [8794, 1] },
 ]
 """),
+    # [[prop]] motion (content/motion.py, the sine kit): no bundled example moves a prop, so without this stub
+    # `prop.motion` / `prop.motion.bob` never OCCUR in a built item and a typo there ('raduis') would pass lint
+    # silently. Two movers carry every key between them (radius and to are exclusive; reverse needs an orbit;
+    # swing needs turn = "swing"): an airborne reversed orbit with a travel facing and a phased bob, and a
+    # swinging shuttle at floor height. vivi-hut is NOVEL (id 4002: no donor, no [field] mapconfig), the only
+    # place motion builds; the co-rules (collision = false on a position mover, shadow = false airborne) hold.
+    ("motion", """
+[[prop]]
+prop = "balloon"
+pos = [-600, -1600]
+collision = false
+shadow = false
+motion = { radius = 200, period = 128, phase = 0.25, reverse = true, height = 150, turn = "travel", bob = { amp = 40, period = 256, phase = 0.5 } }
+
+[[prop]]
+prop = "fish"
+pos = [600, -1600]
+face = 128
+collision = false
+motion = { to = [900, -1600], period = 150, turn = "swing", swing = 32 }
+"""),
 ]
 
 # Standalone stub projects (whole tomls, no vivi-hut base) -- for paths a vivi-hut graft can't
@@ -335,8 +356,8 @@ _EXPECTED_PARTIAL: "set[str]" = set()
 # This is the won ground: every path here HAS built end-to-end from the examples + stubs, so a
 # regen that loses one has lost corpus coverage, not gained flexibility.
 _REQUIRED_ENFORCED = {"", "field", "camera", "walkmesh", "layers", "player", "npc", "gateway",
-                      "event", "chest", "prop", "marker", "flag", "choice", "choice.options",
-                      "cutscene", "cutscene.steps", "dialogue", "encounter", "music", "party",
+                      "event", "chest", "prop", "prop.motion", "prop.motion.bob", "marker", "flag", "choice",
+                      "choice.options", "cutscene", "cutscene.steps", "dialogue", "encounter", "music", "party",
                       "startup", "ferry", "ferry.destination", "behavior", "behavior.unit", "mint"}
 
 
