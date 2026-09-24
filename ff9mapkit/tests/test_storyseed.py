@@ -55,9 +55,30 @@ def test_toggle_is_reported_never_seeded():
 
 
 def test_reserved_band_read_is_refused():
-    eb = _field_reading(8400)          # the Mognet lock band
-    v = storyseed.resolve(eb, 9999, _census(8400, sc=[[0, 7, 0, "==", 1000]])).verdicts[0]
-    assert v.decision == "refused"
+    eb = _field_reading(770)           # worldmap_unlocks: reserved, and story (not in the noise mask)
+    v = storyseed.resolve(eb, 9999, _census(770, sc=[[0, 7, 0, "==", 1000]])).verdicts[0]
+    assert v.decision == "refused" and v.note == "worldmap_unlocks"
+
+
+def test_named_word_read_is_refused_by_bit_index():
+    # named_word_at takes a BIT index; the old call passed bit // 8, which checked byte bit // 64 --
+    # a read inside MagicDisabledFlag (byte 227 = bits 1816-1823) was seeded (byte 28 is no word)...
+    v = storyseed.resolve(_field_reading(1816), 9999,
+                          _census(1816, sc=[[0, 7, 0, "==", 1000]])).verdicts[0]
+    assert v.decision == "refused" and v.note == "named word MagicDisabledFlag"
+    # ...while a plain story bit at byte 25 was refused as FieldEntrance (byte 3)
+    v = storyseed.resolve(_field_reading(200), 9999,
+                          _census(200, sc=[[0, 7, 0, "==", 1000]])).verdicts[0]
+    assert v.decision == "set" and v.lo == 1000
+
+
+def test_moogle_latch_read_is_refused_by_name():
+    # 8511 gates the first-meeting Mognet explanation (58 moogle fields): real save state, not noise, so
+    # a fork's seed report names it -- booted mid-story with it clear, the fork replays the tutorial
+    rep = storyseed.resolve(_field_reading(8510, 8511), 3115, _census(8511, sc=[[0, 7, 0, "<", 5990]]))
+    assert [(v.bit, v.decision, v.note) for v in rep.verdicts] == [
+        (8510, "refused", "mognet_moogle_latches"), (8511, "refused", "mognet_moogle_latches")]
+    assert "# bit 8511: REFUSED" in storyseed.render_startup(rep)
 
 
 def test_render_contains_provenance_and_flags_row():
@@ -68,20 +89,25 @@ def test_render_contains_provenance_and_flags_row():
     assert "{ flag = 2647, value = 1 }" in out and "window" in out
 
 
-def test_read_set_skips_assign_target_and_handshake():
+def test_read_set_skips_assign_target_and_story_noise():
     eb = EbScript.from_bytes(_eb_field([(0, [(0, """
-        SET({Global.Bit[190] B_EXPR_END})
+        SET({Global.Bit[184] Global.Bit[189] B_ANDAND B_EXPR_END})
         JMP_IFNOT(l1)
         NOTHING()
     l1:
+        SET({Global.Bit[8511] Global.Bit[14864] B_ANDAND Global.Bit[186] B_ANDAND B_EXPR_END})
         SET({Global.Bit[700] const(1) B_LET B_EXPR_END})
         SET({Global.Bit[701] Global.Bit[702] B_ANDAND B_EXPR_END})
         RET()
     """)])]))
     rs = storyseed.read_set(eb)
     assert 700 not in rs                    # assignment target is a write, not a read
-    assert 190 not in rs                    # handshake band excluded
     assert 701 in rs and 702 in rs          # compound reads both count
+    # the kit's ONE story-noise mask (flags.story_noise_bits), not a local range: the menu + tent
+    # guards and the behavior Blackboard never reach a verdict...
+    assert rs.keys().isdisjoint({184, 189, 14864})
+    assert 186 in rs                        # ...while stock-clear byte23_spare stays visible,
+    assert 8511 in rs                       # and so does a moogle latch (side state, not noise)
 
 
 def test_real_553_seed(tmp_path):
@@ -97,6 +123,28 @@ def test_real_553_seed(tmp_path):
     rep = storyseed.resolve(EbScript.from_bytes(data), 3115,
                             json.load(open(cpath, encoding="utf-8")))
     assert any(v.bit == 2647 and v.decision == "set" for v in rep.verdicts)
+
+
+def test_census_story_population_is_the_kit_mask():
+    # research/dominance_census.py scores the rung-0 falsifier on story_sites(): the kit's story
+    # POPULATION mask (flags.non_story_bits -- the noise plus the moogle latches), not its old local
+    # 184-191 + 8192-8711 (which hid byte23_spare, byte 1046 and the payload hole, and let the kit's
+    # Blackboard through). Loaded from the repo root with sys.path restored -- the script prepends.
+    import importlib.util
+    import pathlib
+    import sys
+    repo = pathlib.Path(__file__).resolve().parents[2]
+    saved = list(sys.path)
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "_dominance_census", repo / "research" / "dominance_census.py")
+        census = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(census)
+    finally:
+        sys.path[:] = saved
+    sites = [{"bit": b} for b in (184, 186, 189, 770, 8368, 8400, 8505, 8508, 8511, 8520, 8600, 8620,
+                                  14864, 14976)]
+    assert [x["bit"] for x in census.story_sites(sites)] == [186, 770, 8368, 8505, 8600, 8620, 14976]
 
 
 def _install_eb(fid):

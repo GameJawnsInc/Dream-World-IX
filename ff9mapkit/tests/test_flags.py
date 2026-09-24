@@ -40,6 +40,11 @@ def test_named_word_at():
     assert flags.named_word_at(15).name == "ScenarioCounter"
     assert flags.named_word_at(32) is None                           # byte 4 -- the gap before TranceGaugeFlag
     assert flags.named_word_at(2600) is None                         # far outside any named word
+    # the argument is a BIT index; a byte offset (bit // 8) silently checks byte bit // 64 instead
+    assert flags.named_word_at(1816).name == "MagicDisabledFlag"     # byte 227 = bits 1816-1823
+    assert flags.named_word_at(1816 // 8) is None                    # ...the byte form lands on byte 28
+    assert flags.named_word_at(200) is None                          # byte 25 -- no word
+    assert flags.named_word_at(200 // 8).name == "FieldEntrance"     # ...the byte form lands on byte 3
 
 
 def test_lock_band_is_disjoint_from_engine_treasure_hunter_scoring():
@@ -152,6 +157,134 @@ def test_lock_band_formula_covers_exactly_the_reserved_bands():
     for v in range(mognet.VARIANT_LIMIT):
         assert flags.bit_region(mognet.give_lock_bit(v)).name == "mognet_give_locks"
         assert flags.bit_region(mognet.read_lock_bit(v)).name == "mognet_read_locks"
+
+
+def test_byte23_is_named_bit_by_bit():
+    """Byte 23 has no anonymous bits. The 2026-09-24 var sweep (818 field, 13 world, 562 battle .eb,
+    every var type incl. byte/word spans) found stock touching only 184 (the menu guard), 189 (the
+    save-point tent-rest guard, 65 fields) and 191 (boot scratch); 185-188 + 190 are stock-clear, named
+    as such and NOT reserved (they were in no region, so nothing that allocates or lints moves)."""
+    assert [flags.bit_region(b).name for b in range(184, 192)] == [
+        "field_menu_guard", "byte23_spare", "byte23_spare", "byte23_spare", "byte23_spare",
+        "savepoint_tent_guard", "byte23_spare", "boot_scratch"]
+    assert flags.is_reserved(189)                                    # every rest rewrites it
+    assert not any(flags.is_reserved(b) for b in (185, 186, 187, 188, 190))
+
+
+def test_lock_margin_byte_is_named_bit_by_bit():
+    """Byte 1063: the kit's wipe marker (8508) and stock's moogle-talk latches (8510-8511, 58 moogle
+    fields) carry their own names; 8504-8507 + 8509 keep the margin name. The whole byte stays reserved."""
+    from ff9mapkit.battle.deathrules import WIPE_FLAG_DEFAULT
+    assert flags.bit_region(WIPE_FLAG_DEFAULT).name == "deathrules_wipe_marker"
+    assert flags.bit_region(8510).name == flags.bit_region(8511).name == "mognet_moogle_latches"
+    assert {flags.bit_region(b).name for b in (8504, 8505, 8506, 8507, 8509)} == {"mognet_lock_margin"}
+    assert all(flags.is_reserved(b) for b in range(8504, 8512))
+
+
+def test_readmail_payload_hole_is_named():
+    """The payload band's stock-clear hole (bytes 1074-1078; the 2026-09-24 sweep of 818 field, 13 world
+    and 562 battle .eb found no access at any width) is not payload scratch: bytes 1074-1075 are the kit's
+    save-backed OUTPOST word, the rest is clear. Both keep the band's reservation."""
+    from ff9mapkit.battle.deathrules import OUTPOST_BYTE
+    word = range(OUTPOST_BYTE * 8, OUTPOST_BYTE * 8 + 16)
+    assert {flags.bit_region(b).name for b in word} == {"deathrules_outpost_word"}
+    assert {flags.bit_region(b).name for b in range(1076 * 8, 1079 * 8)} == {"readmail_payload_hole"}
+    assert flags.bit_region(1074 * 8 - 1).name == flags.bit_region(1079 * 8).name == "mognet_readmail_payload"
+    assert all(flags.is_reserved(b) for b in range(flags.READMAIL_PAYLOAD_LO, flags.READMAIL_PAYLOAD_HI + 1))
+
+
+# ---- the story-noise mask (studies/story-trace/PLAN.md, owner decision 6) ----------------------
+def test_story_noise_mask_members():
+    """The ONE noise mask every story analysis drops: the stock handshakes, the Mognet letter network
+    (mailbox, lock tables, read-mail payload runs), and the kit's runtime scratch -- including every bit
+    of bytes 2032-2041, the engine's own NetSyncState mask."""
+    noise = flags.story_noise_bits()
+    assert {184, 189, 191} <= noise                                  # byte-23 handshakes
+    assert {8192, 8367, 8376, 8439, 8440, 8503, 8512, 8591, 8632, 8711} <= noise   # Mognet, end to end
+    assert flags.READMAIL_PAYLOAD_LO in noise and flags.READMAIL_PAYLOAD_HI in noise
+    from ff9mapkit.battle.deathrules import WIPE_FLAG_DEFAULT
+    assert WIPE_FLAG_DEFAULT in noise
+    assert {flags.BEHAVIOR_FLAG_BASE, flags.BEHAVIOR_FLAG_END, flags.SIEGE_REQUEST_BASE,
+            flags.BEHAVIOR_BYTE_BASE * 8, flags.BEHAVIOR_BYTE_END * 8 + 7, flags.QTE_SCRATCH_FLOOR} <= noise
+    netsync = set(range(2032 * 8, 2042 * 8))                         # NetSyncState.MaskLo..MaskHi
+    assert netsync <= noise and {b for b in noise if b >= flags.COOP_CELLS_FLOOR} == netsync
+    assert isinstance(noise, frozenset) and noise is flags.story_noise_bits()
+
+
+def test_story_noise_mask_exclusions():
+    """Chosen by region NAME, never by ``reserved``: reserved bands that are live progression stay story,
+    and a stock-clear bit with no owner stays visible (a write there is a surprise, not noise)."""
+    noise = flags.story_noise_bits()
+    for lo, hi in ((736, 823),                                                   # worldmap_unlocks
+                   (flags.KIT_WORLD_FLAG_BASE, flags.KIT_WORLD_FLAG_BASE + 31),  # the ferry words
+                   (flags.NAMEPLATE_EXPLORED_FLOOR, flags.QTE_SCRATCH_FLOOR - 1)):
+        assert all(flags.is_reserved(b) for b in range(lo, hi + 1))
+        assert noise.isdisjoint(range(lo, hi + 1))
+    assert noise.isdisjoint({185, 186, 187, 188, 190})               # byte23_spare
+    assert noise.isdisjoint(range(8368, 8376))                       # byte 1046, between mailbox + locks
+    assert noise.isdisjoint({8504, 8505, 8506, 8507, 8509})          # the lock margin's clear bits
+    assert noise.isdisjoint({8510, 8511})                            # moogle latches: real save state
+    assert noise.isdisjoint(range(1074 * 8, 1079 * 8))               # the payload hole: outpost word + clear
+    assert noise.isdisjoint(range(flags.AUTO_EVENT_BASE, flags.BEHAVIOR_FLAG_BASE))   # kit once-bands
+    assert noise.isdisjoint({flags.FIRST_SAFE_FLAG, 2600, 3458, 3718})               # story proper
+    # the WIDE Blackboard ([behavior] byte_band = "wide", every [siege]) is NOT masked: its flags 9520+
+    # and bytes 1220+ sit in the campaign lane, where a global region would hide real campaign bits
+    from ff9mapkit.content import behavior
+    assert noise.isdisjoint(range(behavior.WIDE_FLAG_BASE, flags.KIT_STANDING_FLOOR))
+    # exactly the listed names resolve into the mask -- nothing else, nothing missing
+    names = set(flags.STORY_NOISE_REGION_NAMES)
+    for b in range(2048 * 8):
+        r = flags.bit_region(b)
+        assert (b in noise) == bool(r and r.name in names), b
+
+
+def test_non_story_bits_is_the_noise_plus_the_side_state():
+    """The story POPULATIONS (the census falsifier's sites, fork-report's seed candidates) drop the noise
+    AND the side state -- real save state that is not story progression (the moogle-talk latches; 8511
+    is the first-meeting Mognet explanation). story-seed and a trace drop only the noise, so a latch
+    read is still refused by name and a latch write is still a compared key."""
+    noise, non_story = flags.story_noise_bits(), flags.non_story_bits()
+    assert non_story - noise == {8510, 8511}
+    assert noise < non_story and non_story is flags.non_story_bits()
+    assert not set(flags.STORY_NOISE_REGION_NAMES) & set(flags.STORY_SIDE_STATE_REGION_NAMES)
+    # over the Mognet run the populations drop what the census's old 8192-8711 did, less the stock-clear
+    # bits that are now named and visible: byte 1046, the margin's clear bits and the payload hole
+    clear = set(range(8368, 8376)) | {8504, 8505, 8506, 8507, 8509} | set(range(1074 * 8, 1079 * 8))
+    assert non_story & set(range(8192, 8712)) == set(range(8192, 8712)) - clear
+
+
+def test_story_noise_names_are_checked_where_the_mask_is_built(monkeypatch):
+    """A misspelled name, a region wholly shadowed by an earlier one, or a name in both tiers would mask
+    the wrong bits without a sound -- story_noise_bits / non_story_bits refuse all three (the overlap in
+    story_noise_bits itself: it is what story-seed and the trace call, and they would lose the side state)."""
+    def clear():
+        flags.story_noise_bits.cache_clear()
+        flags.non_story_bits.cache_clear()
+    clear()
+    try:
+        monkeypatch.setattr(flags, "STORY_NOISE_REGION_NAMES", ("field_menu_guard", "handshake"))
+        with pytest.raises(ValueError, match="not a BIT_REGIONS name"):
+            flags.story_noise_bits()
+        ghost = flags.BitRegion("ghost", 184, 184, "", True, "a", "")
+        monkeypatch.setattr(flags, "BIT_REGIONS", flags.BIT_REGIONS + [ghost])
+        monkeypatch.setattr(flags, "STORY_NOISE_REGION_NAMES", ("ghost",))
+        with pytest.raises(ValueError, match="shadowed"):
+            flags.story_noise_bits()
+        monkeypatch.setattr(flags, "STORY_NOISE_REGION_NAMES", ("field_menu_guard",))
+        monkeypatch.setattr(flags, "STORY_SIDE_STATE_REGION_NAMES", ("latches",))
+        clear()
+        with pytest.raises(ValueError, match="not a BIT_REGIONS name"):
+            flags.non_story_bits()
+        monkeypatch.setattr(flags, "STORY_SIDE_STATE_REGION_NAMES", ("field_menu_guard",))
+        clear()
+        with pytest.raises(ValueError, match="both"):
+            flags.story_noise_bits()
+        with pytest.raises(ValueError, match="both"):
+            flags.non_story_bits()
+    finally:
+        monkeypatch.undo()
+        clear()
+    assert 184 in flags.story_noise_bits() and 8511 in flags.non_story_bits()
 
 
 # ---- author-side name resolution --------------------------------------------------------

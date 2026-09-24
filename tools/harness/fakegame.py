@@ -131,6 +131,18 @@ class FakeGame:
         }
         self._lockstep_seq = 0
         self._wait_since_frame = 0
+        #: The story-write trace (s88), modelled as its CONTRACT: the `storytrace` verb's gates, the
+        #: state block, and proto-1 rows -- the `arm`/`off` epochs, the harness's own pokes as `harness`
+        #: rows, and a script store a test drives through :meth:`script_store`. Not the engine's
+        #: suppression or its residue net: those are the DLL's to prove in-game. `storytrace_proto`
+        #: None models an engine that predates the trace (no block published at all).
+        self.storytrace_proto: int | None = 1
+        self.story_on = False
+        self.story_rows = 0
+        self.story_error: str | None = None
+        self.story_bytes = bytearray(2048)          # the modelled gEventGlobal the rows read old/new from
+        self.scenario = 0
+        self.donor = None                           # EffectiveFieldId: None = the field's own id
         self.walkmesh = walkmesh
         #: Frames the character keeps moving after the direction is released. ⚠ NOT ZERO, and the
         #: value is measured rather than chosen: on bench 30801 a hold covers what it commanded give
@@ -346,8 +358,14 @@ class FakeGame:
                 self.error = None
                 self.watch = []
                 self.note = ""
+            # s88: arming resets the tracer to OFF, silently -- an armed run that never sends
+            # `storytrace 1` writes no story.jsonl at all
+            self.story_on = False
+            self.story_rows = 0
+            self.story_error = None
             self._event("armed", protocol=PROTOCOL)
         else:
+            self._story_stop()                 # the trace is dormant unless armed
             self._release_netsync()            # the override is process-local: it dies with the run
             self._publish(force=True)          # a final document that says it stood down
             self._event("disarmed")
@@ -473,8 +491,19 @@ class FakeGame:
             if bit < 0:
                 raise RuntimeError(f"flag bit {bit} is out of range")
             self.flags[bit] = num(1, 1) != 0
+            self._story_store("harness", bit >> 3, "Bit", int(self.flags[bit]), bit=bit)
         elif op == "byte":
-            pass
+            idx = num(0, -1)
+            if not 0 <= idx < len(self.story_bytes):
+                raise RuntimeError(f"byte index {idx} is out of range")
+            self._story_store("harness", idx, "Byte", num(1, 0) & 0xFF)
+        elif op == "storytrace":
+            if self.storytrace_proto is None:          # a pre-s88 agent has no such verb
+                raise RuntimeError(f"unknown op '{op}'")
+            if num(0, 1) != 0:
+                self._story_start()
+            else:
+                self._story_stop()
         elif op == "watch":
             for a in args:
                 try:
@@ -497,6 +526,7 @@ class FakeGame:
             self.error = None
             self.state_every = 2
             self._release_netsync()
+            self._story_stop()                 # one scenario's trace must not run on into the next
             self._block(2)
         elif op == "timescale":
             if real(0, 1.0) <= 0.0:
@@ -512,6 +542,7 @@ class FakeGame:
             self._netsync(args)
             self._block(2)
         elif op == "quit":
+            self._story_stop()                 # the trace's last rows land before the window closes
             self.returncode = 0
         else:
             raise RuntimeError(f"unknown op '{op}'")
@@ -770,7 +801,7 @@ class FakeGame:
             "save_path": str(self.dir / "save" / "SavedData_ww.dat"),
             "save_sandboxed": self.save_sandboxed,
             "ui_state": self.ui_state, "scene": "FieldMap", "fading": False,
-            "sys_mode": 1, "scenario": 0,
+            "sys_mode": 1, "scenario": self.scenario,
             "field": {"id": self.field_id, "name": f"FBG_FAKE_{self.field_id}"},
             "world": dict(self.world),
             # floor/tri mirror s83 faithfully, dead values and all: PosObj's battle-entry snapshot
@@ -789,6 +820,9 @@ class FakeGame:
             "netsync": self._netsync_doc(),
             "held": held,
         }
+        if self.storytrace_proto is not None:
+            doc["storytrace"] = {"proto": self.storytrace_proto, "on": self.story_on,
+                                 "rows": self.story_rows, "suppressed": 0, "error": self.story_error}
         if self._publish_stalls:
             _publish_in_place(self.dir / "state.json", json.dumps(doc),
                               stall=self._publish_stalls.pop(0), began=self.stalling,
@@ -1122,6 +1156,60 @@ class FakeGame:
         self.ui_state = "FieldHUD"
 
     # -- test conveniences ---------------------------------------------------------------------
+    # -- the story-write trace (s88) -----------------------------------------------------------
+    def _story_row(self, kind: str, **kv) -> None:
+        """Append one proto-1 row: the common fields, then the kind's own (StoryTrace.BeginRow)."""
+        mode = 3 if self.ui_state == "WorldHUD" else 2 if self.battle_active else 1
+        fld = self.field_id
+        row = {"k": kind, "f": self.frame, "p": self.frame, "m": mode, "fld": fld,
+               "don": fld if self.donor is None else self.donor, "sc": self.scenario, **kv}
+        with (self.dir / "story.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, separators=(",", ":")) + "\n")
+        self.story_rows += 1
+
+    def _story_start(self) -> None:
+        if self.story_error is not None:
+            raise RuntimeError(f"storytrace: turned itself off earlier ({self.story_error}); re-arm the "
+                               f"harness to clear it")
+        self.story_on = True
+        self._story_row("e", why="arm")
+
+    def _story_stop(self) -> None:
+        if not self.story_on:
+            return
+        self._story_row("e", why="off")
+        self.story_on = False
+
+    def _story_store(self, src: str, byte: int, width: str, new: int, *, bit: int = -1,
+                     sid: int = -1, tag: int = -1, ip: int = -1) -> None:
+        """A store to the modelled gEventGlobal, and -- when tracing -- its `w` row. Only a script row
+        names its writer (StoryTrace.AfterStore): cs/harness rows carry -1 attribution."""
+        if width == "Bit":
+            old = (self.story_bytes[byte] >> (bit & 7)) & 1
+            self.story_bytes[byte] = (self.story_bytes[byte] & ~(1 << (bit & 7))) | (new << (bit & 7))
+        elif width == "Byte":
+            old = self.story_bytes[byte]
+            self.story_bytes[byte] = new
+        else:
+            old = self.story_bytes[byte] | (self.story_bytes[byte + 1] << 8)
+            self.story_bytes[byte:byte + 2] = bytes((new & 0xFF, (new >> 8) & 0xFF))
+        if not self.story_on:
+            return
+        script = src == "eb"
+        self._story_row("w", src=src, sid=sid if script else -1, uid=sid if script else -1,
+                        lvl=0 if script else -1, ip=ip if script else -1, tag=tag if script else -1,
+                        add=0, byte=byte, w=width, bit=bit, old=old, new=new, same=int(old == new))
+
+    def script_store(self, sid: int, tag: int, ip: int, byte: int, width: str, new: int, *,
+                     bit: int = -1) -> None:
+        """Model a field script's store (an ``eb`` row). ``width`` is ``Bit`` / ``Byte`` / ``UInt16``."""
+        self._story_store("eb", byte, width, new, bit=bit, sid=sid, tag=tag, ip=ip)
+
+    def story_fault(self, why: str = "story.jsonl has not accepted an append") -> None:
+        """The tracer turning itself off (StoryTrace.Fail): off, no `off` epoch, the reason published."""
+        self.story_on = False
+        self.story_error = why
+
     # -- co-op (netsync) benches ---------------------------------------------------------------
     def _netsync(self, args: list[str]) -> None:
         """The agent's `netsync` verb: the same gates, the same refusal texts, the same state."""

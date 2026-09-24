@@ -27,8 +27,6 @@ from . import flags as flagsmod
 from .eb import EbScript
 from .eb.cfg import CfgError, FuncFlow, OP_SET
 
-_HANDSHAKE = frozenset(range(184, 192))
-
 
 def find_census(start: str | None = None) -> str | None:
     """Walk upward from *start* (or cwd) looking for research/dominance_census.json."""
@@ -47,8 +45,12 @@ def find_census(start: str | None = None) -> str | None:
 def read_set(eb: EbScript) -> dict[int, int]:
     """Every GLOB story bit the field's scripts READ → the number of read sites. A read is any
     Global bit var token in a ``SET`` statement that is not the statement's assignment target
-    (token-complete: compounds, unsure conditions and computed expressions all count)."""
+    (token-complete: compounds, unsure conditions and computed expressions all count). Bits in the
+    kit's story-noise mask (``flags.story_noise_bits``: handshakes, the Mognet letter network, kit
+    scratch) are not story reads and never reach a verdict; the side state (the moogle-talk latches)
+    is real save state and does -- :func:`resolve` refuses it by name."""
     from .eb.cfg import parse_set
+    noise = flagsmod.story_noise_bits()
     out: dict[int, int] = {}
     for e in eb.entries:
         if e.empty:
@@ -81,7 +83,7 @@ def read_set(eb: EbScript) -> dict[int, int]:
                             pos += 2 if o >= 0xE0 else 1
                             is_bit = (o & 3) == 0 and ((o >> 2) & 7) in (0, 1)
                             if is_bit and not (first and skip_first) \
-                                    and idx not in _HANDSHAKE:
+                                    and idx not in noise:
                                 out[idx] = out.get(idx, 0) + 1
                             first = False
                             continue
@@ -172,9 +174,11 @@ def resolve(eb: EbScript, beat: int, census: dict) -> SeedReport:
 
     rep = SeedReport(beat)
     for bit in sorted(read_set(eb)):
-        if flagsmod.is_reserved(bit) or flagsmod.named_word_at(bit // 8) is not None:
-            rep.verdicts.append(BitVerdict(bit, "refused",
-                                           note=str(flagsmod.bit_region(bit) or "named word")))
+        word = flagsmod.named_word_at(bit)          # a BIT index -- never bit // 8
+        if flagsmod.is_reserved(bit) or word is not None:
+            note = (flagsmod.bit_region(bit).name if flagsmod.is_reserved(bit)
+                    else f"named word {word.name}")
+            rep.verdicts.append(BitVerdict(bit, "refused", note=note))
             continue
         sites = by_bit.get(bit, [])
         writers = tuple(sorted({s["field"] for s in sites}))

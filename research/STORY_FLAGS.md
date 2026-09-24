@@ -91,7 +91,7 @@ single-source/uncertain.
 | **8–14** | — | Per-field standard variable block (party/coord/camera scratch); written in every `Main_Init` | Byte/Int16 | (b) | census (676 fields) |
 | **16** | — | TRANCE_GAUGE_FLAG (trance enable 0/1); also gates a status-UI category | Byte | (a) | `battle.cs:38`; `StatusUI.cs:291` |
 | **17–18** | — | GARNET_DEPRESS_FLAG / GARNET_SUMMON_FLAG (summon availability) | Byte | (a) | `battle.cs:39-40` |
-| **23** | **184–191** | **ENGINE HANDSHAKE — not story state.** bit 184 = in-field menu/transition guard (set around `Menu`, checked+cleared every `Main_Init`); bit 191 = boot scratch, always `=0`. Reset on every field load. | Global Bit | (a) | disassembly (fields 50/100/300 `Main_Init`); engine grep = 0 hits |
+| **23** | **184–191** | **ENGINE HANDSHAKE — not story state.** bit 184 = in-field menu/transition guard (set around `Menu`, checked+cleared every `Main_Init`); bit 191 = boot scratch, always `=0`. Reset on every field load. **Bit 189** = the save-point TENT-rest guard (set/cleared around the rest in all 58 moogle fields + the final dungeon's 7 save points; read only by Ice Cavern 306). Bits 185–188 + 190 are stock-clear at every width. flags.py names all eight (`byte23_spare` for the clear ones). | Global Bit | (a) | disassembly (fields 50/100/300 `Main_Init`); engine grep = 0 hits; var sweep 2026-09-24 (818 field / 13 world / 562 battle `.eb`) |
 | **60–91** | — | Mid-game shared transport/position state (SByte/Int24/Int16) | word-vars, ~67 fields | (b) | census |
 | **92–102** | **736–823** | **Worldmap / Navi cursor + location-unlock / first-visit flags.** Set on arrival by field scripts, *consumed by worldmap/menu C#* → mostly write-only on the field side. The bulk of the 276 write-only bits. | Bit + Byte | (a)/(b) | `ff9.cs:2259-2333`; census |
 | **112** | — | Chocobo Hot & Cold dig progress | Int24 (n14 chcb) | (a) | census; `EMinigame.cs` |
@@ -312,6 +312,7 @@ A starter table of the best-named flags/regions/milestones defensible *now*. Tie
 | `FieldEntrance` | bytes 2–3 | Global Int16 (`0x2D8`) | Last entrance / map index | (a) | `EventState.cs:26-34`; `EBin.cs:35` |
 | `_RESERVED_field_menu_guard` | bit 184 (byte 23.0) | Global Bit | Engine handshake — in-field menu/transition guard. **Do not use.** | (a) | disassembly; engine grep=0 |
 | `_RESERVED_boot_scratch` | bit 191 (byte 23.7) | Global Bit | Zeroed every boot. **Do not use.** | (a) | disassembly |
+| `_RESERVED_savepoint_tent_guard` | bit 189 (byte 23.5) | Global Bit | Save-point Tent-rest guard, set/cleared around every rest. **Do not use.** | (a) | var sweep 2026-09-24 (field 115 e2 tag3) |
 | `TranceGaugeFlag` | byte 16 | Byte | Trance gauge enable | (a) | `battle.cs:38` |
 | `GarnetSummonAvailable` | bytes 17–18 | Byte | Garnet summon depression/reserve | (a) | `battle.cs:39-40` |
 | `_RESERVED_TH_standard` | bytes 896–960 | Bit-packed | Treasure-Hunter scored flags (1 pt/bit) | (a) | `EventState.cs:65-66` |

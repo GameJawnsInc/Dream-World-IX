@@ -22,13 +22,14 @@ playtest, and "it built" was routinely mistaken for "it works".
 | **Agent** | `memoria-patches/s83-harness-agent.patch` → `Memoria/Harness/HarnessAgent.cs` | Injects virtual controller input, publishes per-frame state, captures PNGs from inside the renderer. |
 | **Driver** | `tools/harness/` + `tools/play.py` | Owns the process, sends steps, waits on state, records checks, keeps artifacts. |
 
-They meet over four files in `<game>/x64/ff9harness/`:
+They meet over these files in `<game>/x64/ff9harness/`:
 
 ```
 arm            presence gates the whole mechanism -- no file, no harness
 req.txt        driver -> game.  line-oriented text, first line `seq <n>`
 state.json     game -> driver.  rewritten every other frame
 events.jsonl   game -> driver.  append-only log of accepts, acks, shots, errors
+story.jsonl    game -> driver.  the story-write trace (s88), only after `storytrace 1`
 shots/         PNGs captured by the engine itself
 ```
 
@@ -435,7 +436,7 @@ def run(g):
 Exit code is 0 only when every check passed **and at least one check was recorded** — a scenario that
 asserts nothing is reported as having proved nothing, rather than passing.
 
-Artifacts land in `.harness-runs/<stamp>-<label>/`: `report.json`, `events.jsonl`,
+Artifacts land in `.harness-runs/<stamp>-<label>/`: `report.json`, `events.jsonl`, `story.jsonl` (when traced),
 `state-final.json`, **both** exception logs (`Memoria.log` and Unity's `output_log.txt` — see
 [Engine exceptions live in two logs](#engine-exceptions-live-in-two-logs)), and every `shots/*.png`.
 
@@ -469,6 +470,7 @@ with Session(label="chest") as g:
 | `g.warp(field, entrance=, scenario=)` | Warp and wait until actually playable. |
 | `g.teleport(x, z)` | Overworld position. |
 | `g.flag(bit, value)` / `g.poke(index, value)` | Story flags / raw `gEventGlobal` bytes. |
+| `g.storytrace(on=True)` / `g.story_rows()` | The s88 story-write trace: every `gEventGlobal` store with the script position that made it, as validated rows (`ff9mapkit.storytrace`; read collected runs with `ff9mapkit story-trace`). Refused on an engine whose `state.json` does not advertise it. `storytrace(False)` returns only once `story.jsonl` holds every row the engine counted, and raises on a tracer that faulted; teardown closes an open trace before the disarm, and a suite member that traced gets its own `story.jsonl`. One launch's file holds one run per `storytrace 1` -- `story-trace RUN#N` picks one. |
 | `g.timescale(x)` | Speed the game up — a long walk need not cost real seconds. |
 | `g.shot(name)` | Returns the PNG path once it is on disk. |
 

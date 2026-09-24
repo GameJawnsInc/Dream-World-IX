@@ -253,6 +253,7 @@ class Session:
         self._axes: dict[int, dict] = {}      # field id -> measured button->world basis
         self._last_error: str | None = None   # the agent's error latch as of the last successful ack
         self.engine_protocol: int | None = None   # what the DEPLOYED engine speaks, once it answers
+        self._story_starts = 0                # storytrace() turned the s88 trace on this many times
         #: Prefix stamped onto every screenshot name. A suite sets it per scenario, because two
         #: scenarios both capturing "walk-before" otherwise overwrite each other's evidence in the
         #: one channel directory -- and the evidence you lose is always the failing run's.
@@ -504,6 +505,8 @@ class Session:
 
     def stop(self, failed: bool = False) -> None:
         try:
+            # FIRST, while the agent still answers: the collect below must take a closed trace.
+            self._close_story_trace()
             if self._launched and not self.keep_open and self.proc and self.proc.poll() is None:
                 self._log("asking the game to quit")
                 try:
@@ -2815,6 +2818,147 @@ class Session:
         self.send("netsync " + " ".join([str(sub), *(str(a) for a in args)]), timeout=timeout)
         return self.state
 
+    # -- the story-write trace (memoria-patch s88) ---------------------------------------------
+    def storytrace(self, on: bool = True, *, timeout: float = 10.0) -> State:
+        """Start (``on``) or stop the engine's story-write trace: every ``gEventGlobal`` store, with the
+        script position that made it, appended to ``story.jsonl`` beside events.jsonl (the row contract:
+        studies/story-trace/PLAN.md). Starting writes an ``arm`` epoch; stopping flushes the suppressed
+        counts and an ``off`` epoch. Arming the harness resets the tracer to off, so a run traces only
+        from here. Returns the state that shows the change.
+
+        Refuses unless ``state.json`` ADVERTISES the trace at the proto this driver reads: an older engine
+        answers ``unknown op`` only after the step, and a trace it never wrote would read as "no script
+        wrote anything" -- the one wrong answer this instrument must never give.
+
+        ⚠ STOPPING PROVES THE FILE WHOLE, or raises. ``on`` going false is not enough: a tracer that
+        FAULTED (``storytrace.error``) is already off, wrote no ``off``, and its file stops at the fault;
+        and the engine appends once per frame, keeping rows buffered while the file is locked. So a stop
+        returns only once story.jsonl holds exactly the ``rows`` the engine counted since the arm --
+        raising on a fault, on rows that never landed, and on rows this arm never wrote.
+        """
+        from ff9mapkit.storytrace import PROTO
+
+        cap = self.state.storytrace
+        if cap is None:
+            raise HarnessError(
+                "storytrace: the deployed engine publishes no `storytrace` block -- it predates the story "
+                "trace (memoria-patch s88). Rebuild the DLL.")
+        if cap.get("proto") != PROTO:
+            raise HarnessError(
+                f"storytrace: the engine writes trace proto {cap.get('proto')}, this driver reads proto "
+                f"{PROTO} -- update the one that is behind rather than read rows by guesswork.")
+        on = bool(on)
+        self.send(f"storytrace {1 if on else 0}", timeout=timeout)
+        st = self.wait_for(lambda s: s.storytrace is not None and bool(s.storytrace.get("on")) == on,
+                           timeout=timeout, what=f"the story trace to turn {'on' if on else 'off'}")
+        if on:
+            self._story_starts += 1
+            return st
+        return self._story_settled(st, timeout)
+
+    def _story_settled(self, st: State, timeout: float) -> State:
+        """After ``storytrace 0``: no hook writes while the tracer is off, so the published ``rows`` (every
+        row since the arm -- a harness ``reset`` stops the trace but keeps counting) is final. Wait for the
+        file to catch up to it, exactly."""
+        deadline = time.time() + timeout
+        while True:
+            _raise_if_story_faulted(st)
+            want = st.storytrace.get("rows")
+            if isinstance(want, bool) or not isinstance(want, int):
+                raise HarnessError(f"storytrace: the engine publishes no row count ({want!r}) -- not proto 1")
+            have = _story_lines(self.channel.story_text())
+            if have == want:
+                return st
+            if have > want:
+                raise HarnessError(
+                    f"storytrace: story.jsonl holds {have} rows but the engine wrote {want} since the arm -- "
+                    f"{have - want} are another arm's (a leaked run's tail landing after the reset), so this "
+                    f"file is not this run's trace")
+            if time.time() >= deadline:
+                raise HarnessError(
+                    f"storytrace: {want - have} of the {want} rows the engine wrote never reached story.jsonl "
+                    f"within {timeout:.0f}s -- the trace is incomplete")
+            time.sleep(0.02)
+            st = self.state
+
+    def story_rows(self) -> list:
+        """The live trace's rows so far, parsed and VALIDATED by the kit (``ff9mapkit.storytrace.Row``).
+
+        An append in flight (an unterminated last line) waits for the next read; any complete line that
+        breaks the contract raises, and so does a tracer that FAULTED -- its rows stop at the fault, and
+        "so far" would read as "all". Refuses before :meth:`storytrace` started a trace in this session:
+        no file then means "never traced", not "nothing was written".
+        """
+        from ff9mapkit.storytrace import TraceError, parse_text
+
+        if not self._story_starts:
+            raise HarnessError("story_rows: no story trace was started in this session -- call "
+                               "storytrace() first. An absent story.jsonl is not 'no writes'.")
+        _raise_if_story_faulted(self.state)
+        text = self.channel.story_text()
+        if text is None:
+            return []
+        try:
+            return parse_text(text, live=True)
+        except TraceError as err:
+            raise HarnessError(f"story.jsonl breaks the row contract: {err}") from err
+
+    def story_mark(self) -> tuple:
+        """Where the trace stands -- ``(traces started, traced runs in story.jsonl)`` -- for
+        :meth:`collect_story`. A suite takes it before each member runs."""
+        return (self._story_starts, len(self._story_arm_lines()))
+
+    def collect_story(self, dest: Path, mark: tuple) -> int:
+        """Hand one member its own trace: if it started one since ``mark``, close it (verified, as
+        :meth:`storytrace` does), then write the traced runs story.jsonl gained since ``mark`` to ``dest``.
+        Returns how many (0: it traced nothing, and no file is written).
+
+        The runs are written even when the close raises -- a cut run is still evidence, and the kit's
+        reader marks it INCOMPLETE on its own -- and the close's error is re-raised after.
+        """
+        starts, runs = mark
+        if self._story_starts == starts:
+            return 0
+        failure: HarnessError | None = None
+        try:
+            self.storytrace(False)
+        except HarnessError as err:
+            failure = err
+        text = self.channel.story_text() or ""
+        arms = self._story_arm_lines(text)
+        if len(arms) > runs:
+            body = "\n".join(text.split("\n")[arms[runs] - 1:])
+            dest = Path(dest)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(body[:body.rfind("\n") + 1], encoding="utf-8")   # complete lines only
+        if failure is not None:
+            raise failure
+        return max(0, len(arms) - runs)
+
+    def _story_arm_lines(self, text: str | None = None) -> list:
+        """The 1-based line of every ``arm`` epoch in story.jsonl -- one per traced run."""
+        from ff9mapkit.storytrace import TraceError, parse_text
+
+        if text is None:
+            text = self.channel.story_text()
+        try:
+            return [r.line for r in parse_text(text or "", live=True) if r.k == "e" and r.why == "arm"]
+        except TraceError as err:
+            raise HarnessError(f"story.jsonl breaks the row contract: {err}") from err
+
+    def _close_story_trace(self) -> None:
+        """Teardown's ``storytrace 0``, with its proof that the file is whole. ⚠ BEFORE the quit and the
+        disarm: with no ``quit`` (keep_open, attach) the agent stops the trace only when it NOTICES the
+        disarm, up to 30 frames after a collect that runs at once -- a file with no counts, no ``off`` and
+        none of the last frames. Never raises (the disarm outranks the trace); a trace that is not whole
+        is said loudly here, and the kit's reader marks the run INCOMPLETE on its own."""
+        if not self._story_starts or (self.proc is not None and self.proc.poll() is not None):
+            return
+        try:
+            self.storytrace(False, timeout=5.0)
+        except Exception as err:                           # noqa: BLE001 - teardown
+            self._log(f"!! the story trace did not close whole: {err}")
+
     def _check_flag_bit(self, bit: int, verb: str) -> None:
         # ⚠ A NEGATIVE BIT CORRUPTS THE STATE CHANNEL, not just this call. The agent's bound test is
         # `(n >> 3) < length`, and -1 >> 3 is -1 in C# too, so it passes -- then the array read
@@ -3360,3 +3504,18 @@ def _vec(v) -> str:
 
 def _sanitize(name: str) -> str:
     return "".join(c if (c.isalnum() or c in "-_.") else "_" for c in name) or "shot"
+
+
+def _raise_if_story_faulted(st: State) -> None:
+    """A tracer that FAULTED (StoryTrace.Fail) turned itself off with no ``off`` row: its file stops at the
+    fault, and reading it as a whole run turns every later write into "never written"."""
+    err = (st.storytrace or {}).get("error")
+    if err:
+        raise HarnessError(
+            f"storytrace: the tracer FAULTED and turned itself off ({err}) -- story.jsonl stops at the fault "
+            f"with no `off` epoch, so every write after it is missing, not absent. Re-arm to trace again.")
+
+
+def _story_lines(text: str | None) -> int:
+    """Complete (newline-terminated) rows in a story.jsonl body -- an append in flight is not one yet."""
+    return sum(1 for ln in (text or "").split("\n")[:-1] if ln.strip())

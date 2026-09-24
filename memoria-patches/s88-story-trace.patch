@@ -1,0 +1,1006 @@
+diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
+index 0327d36..2731b88 100644
+--- a/Assembly-CSharp/Assembly-CSharp.csproj
++++ b/Assembly-CSharp/Assembly-CSharp.csproj
+@@ -1379,6 +1379,7 @@
+     <Compile Include="Memoria\Test\Values\Unity\Vector3Message.cs" />
+     <Compile Include="Memoria\Test\Values\Unity\Vector4Message.cs" />
+     <Compile Include="Memoria\Harness\HarnessAgent.cs" />
++    <Compile Include="Memoria\Harness\StoryTrace.cs" />
+     <Compile Include="Memoria\World\WorldConfiguration.cs" />
+     <Compile Include="Memoria\World\WorldMeshOverride.cs" />
+     <Compile Include="Memoria\World\WorldDiscSpike.cs" />
+diff --git a/Assembly-CSharp/Global/EBin.cs b/Assembly-CSharp/Global/EBin.cs
+index 4581f22..764a6f0 100644
+--- a/Assembly-CSharp/Global/EBin.cs
++++ b/Assembly-CSharp/Global/EBin.cs
+@@ -192,6 +192,9 @@ public class EBin
+             if (_s2 == 0)
+             {
+                 Int32 a0 = s1.getByteIP();
++                // [ff9mapkit s88] the story trace's opcode-start latch: by the store, `ip` is mid-expression
++                if (Memoria.Harness.StoryTrace.On)
++                    Memoria.Harness.StoryTrace.LatchOp(s1);
+                 if (s1.sid == 1 || s1.sid == 0)
+                 {
+                 }
+@@ -485,7 +488,20 @@ public class EBin
+             varArrayIndex |= (varOperation >> 8) & 0xFF00;
+         varCode |= varArrayIndex;
+         _s7.push(varCode);
+-        SetVariableValue(value);
++        // [ff9mapkit s88] the only non-script road into the store: the story trace records it as `cs`.
++        // Off, the one static bool test; the local keeps the flag's clear paired with its set.
++        Boolean traced = Memoria.Harness.StoryTrace.On;
++        if (traced)
++            Memoria.Harness.StoryTrace.InSetVarManually = true;
++        try
++        {
++            SetVariableValue(value);
++        }
++        finally
++        {
++            if (traced)
++                Memoria.Harness.StoryTrace.InSetVarManually = false;
++        }
+         varCode |= encodeVarClass(VariableSource.Int26);
+         _s7.push(varCode);
+ 
+@@ -1990,6 +2006,9 @@ public class EBin
+ 
+     public Int32 SetVariableValueInternal(Byte[] buffer, Int32 ofs, VariableType type, Int32 value, Int32 bufferOffset = 0)
+     {
++        // [ff9mapkit s88] the story-write trace: every script write to gEventGlobal passes this switch.
++        // Off, it costs the one static bool test; on, the tracer reads the touched bytes either side of it.
++        Boolean traced = Memoria.Harness.StoryTrace.On && Memoria.Harness.StoryTrace.BeforeStore(buffer, ofs, type, bufferOffset);
+         switch (type)
+         {
+             case VariableType.SBit:
+@@ -2031,6 +2050,8 @@ public class EBin
+                 buffer[ofs + 1 + bufferOffset] = (Byte)((value >> 8) & 0xFF);
+                 break;
+         }
++        if (traced)
++            Memoria.Harness.StoryTrace.AfterStore();
+         return 0;
+     }
+ 
+diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs
+index 61bb10e..4945700 100644
+--- a/Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs
++++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs
+@@ -10,6 +10,12 @@ public partial class EventEngine
+ {
+     public Int32 ProcessEvents()
+     {
++        // [ff9mapkit s88] the story-write trace: count the pass, then the residue net for the C# writers
++        // that bypass the script store (and a replaced array = a `swap` epoch). First, so whatever C#
++        // changed since the last pass is residue before this pass's script stores. (The no-encounter
++        // setVarManually writes below are MAP variables -- source 0xC5 & 3 = Map -- never story bytes.)
++        if (Memoria.Harness.StoryTrace.On)
++            Memoria.Harness.StoryTrace.OnProcessEvents(this);
+         EventEngine.LastProcessTime = RealTime.time;
+         VoicePlayer.scriptRequestedButtonPress = false;
+         if (FF9StateSystem.Settings.IsNoEncounter)
+diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+index 34cabdb..505a7db 100644
+--- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+@@ -2600,6 +2600,9 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         }
+         Byte[] g = FF9StateSystem.EventState.gEventGlobal;
+         System.Array.Copy(_snapshot, g, System.Math.Min(_snapshot.Length, g.Length));
++        // [ff9mapkit s88] a whole-array write in place: one story-trace epoch, not 2048 residue rows
++        if (Memoria.Harness.StoryTrace.On)
++            Memoria.Harness.StoryTrace.Epoch("debug-restore");
+         _status = "flag state restored (Reload field to apply)";
+     }
+ 
+@@ -2614,6 +2617,9 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         System.Array.Clear(FF9StateSystem.EventState.gEventGlobal, 0, FF9StateSystem.EventState.gEventGlobal.Length);
+         FF9StateSystem.EventState.gScriptVector.Clear();
+         FF9StateSystem.EventState.gScriptDictionary.Clear();
++        // [ff9mapkit s88] also reached from a debug warp with reset; same one-epoch rule as the restore
++        if (Memoria.Harness.StoryTrace.On)
++            Memoria.Harness.StoryTrace.Epoch("debug-clear");
+     }
+ 
+     // ---------------------------------------------------------------- helpers
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index f0967c1..0ef9497 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -17,6 +17,7 @@ using UnityEngine;
+ //   IN   a plain-text request file  (ff9harness/req.txt)    -- frame-exact button presses, warps, flags
+ //   OUT  a JSON state file          (ff9harness/state.json) -- where you are, what you can see
+ //   OUT  an append-only event log   (ff9harness/events.jsonl)
++//   OUT  the story-write trace      (ff9harness/story.jsonl) -- s88, only after `storytrace 1` (StoryTrace.cs)
+ //   OUT  PNG frames                 (ff9harness/shots/)
+ //
+ // Input is injected at HonoInputManager.IsInput/IsInputDown/IsInputUp -- the single choke point every
+@@ -257,6 +258,7 @@ namespace Memoria.Harness
+                     RedirectSaves(true);
+                 PollRequest();
+                 DrainQueue();
++                StoryTrace.Tick();              // s88: the story trace's one append per frame
+                 PublishState(false);
+             }
+             catch (Exception err)
+@@ -277,6 +279,7 @@ namespace Memoria.Harness
+                 Time.timeScale = 1f;
+                 try { RedirectSaves(false); } catch (Exception) { }
+                 ReleaseNetsyncOverride();
++                StoryTrace.Stop();              // dormant unless armed: a faulted agent traces nothing
+                 try { PublishState(true); } catch (Exception) { }
+                 Memoria.Prime.Log.Message("[ff9mk harness] FAULTED and disarmed: " + err);
+             }
+@@ -320,6 +323,8 @@ namespace Memoria.Harness
+                 _note = "";
+                 _stateEvery = 2;
+                 ForgetMenus();
++                // s88: arming resets the story trace to OFF -- a run traces only after `storytrace 1`.
++                StoryTrace.Reset();
+                 Time.timeScale = 1f;
+                 RedirectSaves(true);
+                 Event("armed", "protocol", ProtocolVersion.ToString(CultureInfo.InvariantCulture));
+@@ -333,6 +338,9 @@ namespace Memoria.Harness
+                 Time.timeScale = 1f;
+                 RedirectSaves(false);
+                 ReleaseNetsyncOverride();
++                // s88: the trace is dormant unless armed -- stop it (counts, the `off` epoch, a last
++                // append) rather than let a disarmed game keep writing story.jsonl.
++                StoryTrace.Stop();
+                 Event("disarmed");
+                 // Active is already false here, which is the point: this final document publishes
+                 // "armed": false. Forcing it true to "make the publish work" would have made the one
+@@ -709,10 +717,14 @@ namespace Memoria.Harness
+                     if (n < 0 || (n >> 3) >= FF9StateSystem.EventState.gEventGlobal.Length)
+                         throw new ArgumentOutOfRangeException("flag", "bit " + n + " is out of range");
+                     Byte[] g = FF9StateSystem.EventState.gEventGlobal;
++                    // s88: the harness's own poke is a traced write (src "harness"), never residue.
++                    Boolean traced = StoryTrace.On && StoryTrace.BeforeHarnessStore(g, n, EBin.VariableType.Bit);
+                     if (Arg(s, 1, 1) != 0)
+                         g[n >> 3] |= (Byte)(1 << (n & 7));
+                     else
+                         g[n >> 3] &= (Byte)~(1 << (n & 7));
++                    if (traced)
++                        StoryTrace.AfterStore();
+                     break;
+                 }
+ 
+@@ -721,10 +733,30 @@ namespace Memoria.Harness
+                     Int32 idx = Arg(s, 0, -1);
+                     if (idx < 0 || idx >= FF9StateSystem.EventState.gEventGlobal.Length)
+                         throw new ArgumentOutOfRangeException("byte", "index " + idx + " is out of range");
+-                    FF9StateSystem.EventState.gEventGlobal[idx] = (Byte)Arg(s, 1, 0);
++                    Byte[] g = FF9StateSystem.EventState.gEventGlobal;
++                    Boolean traced = StoryTrace.On && StoryTrace.BeforeHarnessStore(g, idx, EBin.VariableType.Byte);
++                    g[idx] = (Byte)Arg(s, 1, 0);
++                    if (traced)
++                        StoryTrace.AfterStore();
+                     break;
+                 }
+ 
++                // THE STORY-WRITE TRACE (s88): `storytrace 1` starts story.jsonl rows beside events.jsonl
++                // (an `arm` epoch), `storytrace 0` closes them (counts, an `off` epoch, a last append).
++                // The row contract is studies/story-trace/PLAN.md (proto 1, published as `storytrace`).
++                case "storytrace":
++                    if (Arg(s, 0, 1) != 0)
++                    {
++                        String why;
++                        if (!StoryTrace.Start(_dir, out why))
++                            throw new InvalidOperationException(why ?? "storytrace refused");
++                    }
++                    else
++                    {
++                        StoryTrace.Stop();
++                    }
++                    break;
++
+                 case "watch":
+                     foreach (String a in s.Args)
+                     {
+@@ -788,6 +820,7 @@ namespace Memoria.Harness
+                     _stateEvery = 2;
+                     ForgetMenus();
+                     ReleaseNetsyncOverride();
++                    StoryTrace.Stop();          // s88: one scenario's trace must not run on into the next
+                     Time.timeScale = 1f;
+                     Event("reset");
+                     Block(2);
+@@ -801,6 +834,7 @@ namespace Memoria.Harness
+                 case "quit":
+                     Event("quit");
+                     FlushEvents();
++                    StoryTrace.Stop();          // s88: the trace's last rows land before the window closes
+                     // Leave the SHARED install as we found it. A run that crashed with the scale
+                     // turned up used to hand the next person's game a fast-forward it never asked for.
+                     Time.timeScale = 1f;
+@@ -1145,6 +1179,7 @@ namespace Memoria.Harness
+             AppendBattle(sb); sb.Append(",");
+             AppendWatch(sb); sb.Append(",");
+             AppendNetsync(sb); sb.Append(",");
++            AppendStoryTrace(sb); sb.Append(",");
+             AppendHeld(sb);
+             sb.Append("}");
+ 
+@@ -1773,6 +1808,29 @@ namespace Memoria.Harness
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+         }
+ 
++        // The story-write trace (s88) as a CAPABILITY: an engine without it publishes no block, so a
++        // driver asking for a trace fails visibly instead of reading an empty story.jsonl as "no script
++        // wrote anything". Additive -- the protocol `v` stays 5. `error` is why the tracer turned itself
++        // off, if it did (null while healthy).
++        private static void AppendStoryTrace(StringBuilder outer)
++        {
++            StringBuilder sb = new StringBuilder(96);
++            try
++            {
++                Num(sb, "proto", StoryTrace.Proto); sb.Append(",");
++                Bool(sb, "on", StoryTrace.On); sb.Append(",");
++                Num(sb, "rows", StoryTrace.Rows); sb.Append(",");
++                Num(sb, "suppressed", StoryTrace.Suppressed); sb.Append(",");
++                Str(sb, "error", StoryTrace.Error);
++            }
++            catch (Exception)
++            {
++                outer.Append("\"storytrace\":null");
++                return;
++            }
++            outer.Append("\"storytrace\":{").Append(sb).Append("}");
++        }
++
+         private static void AppendHeld(StringBuilder sb)
+         {
+             sb.Append("\"held\":[");
+diff --git a/Assembly-CSharp/Memoria/Harness/StoryTrace.cs b/Assembly-CSharp/Memoria/Harness/StoryTrace.cs
+new file mode 100644
+index e69de29..873cabb 100644
+--- /dev/null
++++ b/Assembly-CSharp/Memoria/Harness/StoryTrace.cs
+@@ -0,0 +1,729 @@
++using System;
++using System.Collections.Generic;
++using System.Globalization;
++using System.IO;
++using System.Text;
++using UnityEngine;
++
++// [ff9mapkit s88] THE STORY-WRITE TRACE -- which script wrote which story byte, recorded while the game plays.
++//
++// WHY THIS EXISTS: to boot a fork mid-story the kit must know which gEventGlobal state the real game has
++// written by a beat, and which scripts wrote it. Reading scripts cannot say when a once-gated interaction
++// write fires -- the static census reached 18.3% of story write sites directly, 36.2% at best -- so the
++// trace watches the game write them instead. Spec: studies/story-trace/PLAN.md; its ROW CONTRACT (proto 1)
++// is what the kit reads, and every field written below is named there.
++//
++// THE HOOK is EBin.SetVariableValueInternal: every script store to gEventGlobal passes through it -- every
++// width, every opcode, bit read-modify-writes included, in fields, battles and the world map, plus the one
++// in-script bypass (the Oeilvert hotfix in DoEventCode). At the store `ip` points mid-expression, so the
++// opcode start is latched where EBin.next reads the opcode byte. setVarManually, the one non-script road
++// into the store, is flagged so its rows say `cs`.
++//
++// THE SAFETY NET: about twenty C# writers bypass the store (the world map's SC += 10, ItemUI, VoicePlayer,
++// the ~ menu, Scripts-DLL battle formulas handed the live array). A shadow copy compared at the top of
++// every ProcessEvents pass catches them as RESIDUE. Hooked writes update the shadow, so residue is exactly
++// the bypass set.
++//
++// ⚠ THE ORDERING LAW. Before a hooked store, the bytes it touches are compared live vs shadow and any
++// difference is emitted as `prestore` residue FIRST; then the store; then the shadow takes those bytes and
++// the write row follows. Taking `old` from the live array alone would silently absorb an earlier bypass
++// write to the same byte -- or, for a bit write, to a sibling bit of it -- into the hooked write.
++//
++// DORMANT: `On` is false unless the harness is armed and sent `storytrace 1`. Every engine hook tests it
++// first, so an off tracer costs one static bool test on the store, the opcode read, the ProcessEvents pass
++// and setVarManually. And it can never throw into the engine: every entry point is caught, and a failure is
++// logged once, turns the tracer off, and is published in state.json -- the interpreter it observes keeps
++// running either way.
++namespace Memoria.Harness
++{
++    public static class StoryTrace
++    {
++        public const Int32 Proto = 1;
++
++        // Read on every opcode and every variable store of every frame: a plain static field, nothing else.
++        public static Boolean On;
++
++        // Set by EBin.setVarManually around its store -- the only non-script road into the store point.
++        // Its story-byte callers are GUIManager, EMinigame and HonoluluFieldMain's stock OnGUI debug jump;
++        // the no-encounter hacks, WorldHUD and UIKeyTrigger write MAP variables and never reach the trace.
++        // EMinigame can fire MID-opcode, so "is a script running" cannot tell these apart; only the call
++        // site can.
++        public static Boolean InSetVarManually;
++
++        private const Int32 StoryLen = 2048;        // FF9StateSystem.EventState.gEventGlobal is Byte[2048]
++        private const Int32 MaskLo = 2032;          // the netsync cells, rewritten every frame under co-op
++        private const Int32 MaskHi = 2041;          // (NetSyncState.MaskLo/MaskHi) -- their residue is dropped
++        private const Int32 ChangeRowsPerSite = 64; // changing-value writes emitted per site per epoch
++        private const Int32 MaxBuffered = 16 << 20; // chars; a sink that never drains turns the tracer off
++
++        private const Int32 SrcScript = 0;
++        private const Int32 SrcCs = 1;
++        private const Int32 SrcHarness = 2;
++        private static readonly String[] SrcName = { "eb", "cs", "harness" };
++
++        private static String _sink;                // <channel>/story.jsonl, beside events.jsonl
++        private static readonly Byte[] _shadow = new Byte[StoryLen];
++        private static Byte[] _shadowOf;            // WHICH array the shadow mirrors: New Game and a save load
++                                                    // replace gEventGlobal wholesale, a ReferenceEquals test
++        private static readonly StringBuilder _rows = new StringBuilder(4096);
++        private static Int32 _flushFrame = -1;
++        private static Int64 _pass;                 // `p`: ProcessEvents passes -- several per frame, never reset
++        private static EventEngine _ee;             // for gMode; cached from ProcessEvents (Start seeds it from
++                                                    // the singleton PublishState already reads every publish)
++        private static Int64 _rowCount;
++        private static Int64 _suppressed;
++        private static String _error;
++
++        // The opcode latch -- which object, at which opcode start.
++        private static Obj _opObj;
++        private static Int32 _opIp = -1;
++
++        // The store in flight between BeforeStore and AfterStore.
++        private static Byte[] _live;
++        private static Int32 _src;
++        private static Int32 _ofs;
++        private static Int32 _bufferOffset;
++        private static EBin.VariableType _type;
++        private static Int32 _first;
++        private static Int32 _count;
++        private static Int32 _bit;
++        private static Int32 _old;
++
++        // ---- suppression: per site key, per epoch ------------------------------------------------
++        // The owner's rule is "record same-value stores, collapsed": the FIRST same-value store at a site
++        // is emitted with same:1 (it proves the function ran), later ones are counted; the first 64
++        // changing writes are emitted, later ones counted. Counts leave as `c` rows at every epoch and at
++        // `storytrace 0`, so a per-frame script write costs one line per epoch, not one per tick.
++        // ⚠ The key carries the FIELD and the MODE: a field change opens no epoch, and sibling fields run
++        // byte-identical code at one (sid, tag, ip) -- Dali's Bit[2102] store in 350/352/.../358 and in
++        // 450 -- so a key without them counts the second field's store under the first field's row. A `c`
++        // row is stamped with its site's fld/don/m (where the stores ran), not the flush's.
++        private struct Site : IEquatable<Site>
++        {
++            public Int32 Fld, M, Src, Sid, Tag, Ip, First, Bit;
++            public EBin.VariableType Type;
++
++            public Boolean Equals(Site o)
++            {
++                return Fld == o.Fld && M == o.M && Src == o.Src && Sid == o.Sid && Tag == o.Tag && Ip == o.Ip
++                       && First == o.First && Bit == o.Bit && Type == o.Type;
++            }
++
++            public override Boolean Equals(System.Object obj)
++            {
++                return obj is Site && Equals((Site)obj);
++            }
++
++            public override Int32 GetHashCode()
++            {
++                Int32 h = Fld;
++                h = h * 31 + M;
++                h = h * 31 + Src;
++                h = h * 31 + Sid;
++                h = h * 31 + Tag;
++                h = h * 31 + Ip;
++                h = h * 31 + First;
++                h = h * 31 + Bit;
++                return h * 31 + (Int32)Type;
++            }
++        }
++
++        private sealed class SiteCount
++        {
++            public Boolean SameEmitted;
++            public Int32 Changes;       // changing writes emitted so far
++            public Int32 N;             // rows suppressed
++            public Int32 Last;          // the `new` of the last suppressed row
++        }
++
++        private static readonly Dictionary<Site, SiteCount> _sites = new Dictionary<Site, SiteCount>();
++
++        // ---- the state.json block ----------------------------------------------------------------
++        public static Int64 Rows => _rowCount;
++        public static Int64 Suppressed => _suppressed;
++        public static String Error => _error;
++
++        // ------------------------------------------------------------------------------------------
++        // Control -- the harness's `storytrace 1|0`, its arm, disarm, fault, `reset` and `quit`.
++        // ------------------------------------------------------------------------------------------
++        public static Boolean Start(String channelDir, out String why)
++        {
++            why = null;
++            // A failure is TERMINAL until the harness re-arms (Reset clears it): a tracer that quietly
++            // restarts has erased the diagnosis of why it stopped -- the harness's own fault law.
++            if (_error != null)
++            {
++                why = "storytrace: turned itself off earlier (" + _error + "); re-arm the harness to clear it";
++                return false;
++            }
++            try
++            {
++                Byte[] live = FF9StateSystem.EventState.gEventGlobal;
++                if (live == null || live.Length != StoryLen)
++                {
++                    why = "storytrace: no " + StoryLen + "-byte gEventGlobal to trace";
++                    return false;
++                }
++                if (_ee == null)
++                    _ee = PersistenSingleton<EventEngine>.Instance;
++                _sink = Path.Combine(channelDir, "story.jsonl");
++                // A second `storytrace 1` restarts the epoch: the running one's residue first, as Stop
++                // does, then Resync closes its counts.
++                if (On)
++                    Sync(live);
++                On = true;
++                Resync(live, "arm");
++                Flush(true);
++                return true;
++            }
++            catch (Exception err)
++            {
++                Fail(err);
++                why = "storytrace: " + err.Message;
++                return false;
++            }
++        }
++
++        public static void Stop()
++        {
++            if (!On)
++                return;
++            try
++            {
++                // Close the gap since the last pass first: a bypass write between the last ProcessEvents and
++                // this stop is still residue, and the `off` epoch claims the shadow equals live.
++                Byte[] live = FF9StateSystem.EventState.gEventGlobal;
++                if (live != null && live.Length == StoryLen)
++                    Sync(live);
++                EmitCounts(live);
++                _sites.Clear();
++                BeginRow("e", live);
++                Str("why", "off");
++                EndRow();
++                On = false;
++                Flush(true);
++            }
++            catch (Exception err)
++            {
++                Fail(err);
++            }
++        }
++
++        // The harness ARMED: back to off with nothing buffered, nothing counted, no latched fault. Silent
++        // by design -- an armed run that never sends `storytrace 1` must write no file at all.
++        public static void Reset()
++        {
++            On = false;
++            _rows.Length = 0;
++            _sites.Clear();
++            _shadowOf = null;
++            _live = null;
++            _opObj = null;
++            _opIp = -1;
++            _flushFrame = -1;
++            _rowCount = 0;
++            _suppressed = 0;
++            _error = null;
++        }
++
++        // Once per frame from HarnessAgent.Update, while armed. Deliberately not gated on On: rows a
++        // `storytrace 0` could not append (the driver held the file) still drain here. A disarm's tail that
++        // could not land is dropped by the next arm's Reset -- after a disarm the channel is the driver's to
++        // collect and clear, and a late append would open the NEXT run's story.jsonl with this run's rows.
++        public static void Tick()
++        {
++            try
++            {
++                Flush(false);
++            }
++            catch (Exception err)
++            {
++                Fail(err);
++            }
++        }
++
++        // ------------------------------------------------------------------------------------------
++        // Engine hooks. Callers test On first; everything past that test is caught.
++        // ------------------------------------------------------------------------------------------
++
++        // EBin.next, where the opcode byte is read -- before `ip` moves into the operands.
++        public static void LatchOp(Obj obj)
++        {
++            try
++            {
++                _opObj = obj;
++                _opIp = obj != null ? obj.ip : -1;
++            }
++            catch (Exception err)
++            {
++                Fail(err);
++            }
++        }
++
++        // The top of every ProcessEvents pass: count the pass, then the safety net -- a replaced array is a
++        // `swap` epoch, anything else that moved since the last look is `frame` residue.
++        public static void OnProcessEvents(EventEngine ee)
++        {
++            try
++            {
++                _ee = ee;
++                _pass++;
++                Byte[] live = FF9StateSystem.EventState.gEventGlobal;
++                if (live != null && live.Length == StoryLen)
++                    Sync(live);
++                Flush(false);
++            }
++            catch (Exception err)
++            {
++                Fail(err);
++            }
++        }
++
++        // An in-place whole-array writer finished (the ~ menu's restore / clear, co-op's ApplyStory): the
++        // shadow resyncs without a row per byte, and the epoch row says why.
++        public static void Epoch(String why)
++        {
++            if (!On)
++                return;
++            try
++            {
++                Byte[] live = FF9StateSystem.EventState.gEventGlobal;
++                if (live == null || live.Length != StoryLen)
++                    return;
++                // A replacement no pass has seen yet is its own `swap` epoch first, the old array's residue
++                // with it -- as at every other place the tracer notices one.
++                if (!ReferenceEquals(live, _shadowOf))
++                    Swap(live);
++                Resync(live, why);
++            }
++            catch (Exception err)
++            {
++                Fail(err);
++            }
++        }
++
++        // EBin.SetVariableValueInternal, before its switch. True = a gEventGlobal store is in flight and
++        // AfterStore must follow it. Map and instance variables share the store and are ignored here.
++        public static Boolean BeforeStore(Byte[] buffer, Int32 ofs, EBin.VariableType type, Int32 bufferOffset)
++        {
++            try
++            {
++                Byte[] live = FF9StateSystem.EventState.gEventGlobal;
++                if (buffer == null || !ReferenceEquals(buffer, live))
++                    return false;
++                return Begin(live, ofs, type, bufferOffset, InSetVarManually ? SrcCs : SrcScript);
++            }
++            catch (Exception err)
++            {
++                Fail(err);
++                return false;
++            }
++        }
++
++        // The harness's own `flag` / `byte` pokes: a traced write with src "harness", never residue.
++        public static Boolean BeforeHarnessStore(Byte[] buffer, Int32 ofs, EBin.VariableType type)
++        {
++            try
++            {
++                Byte[] live = FF9StateSystem.EventState.gEventGlobal;
++                if (buffer == null || !ReferenceEquals(buffer, live))
++                    return false;
++                return Begin(live, ofs, type, 0, SrcHarness);
++            }
++            catch (Exception err)
++            {
++                Fail(err);
++                return false;
++            }
++        }
++
++        public static void AfterStore()
++        {
++            try
++            {
++                Byte[] live = _live;
++                _live = null;
++                if (live == null || !On)
++                    return;
++                Int32 nw = ReadAs(live, _ofs, _type, _bufferOffset);
++                for (Int32 i = _first; i < _first + _count; i++)
++                    _shadow[i] = live[i];
++
++                // Attribution. Only a SCRIPT row names its writer: at a cs or harness store s1 is whatever
++                // object the interpreter last ran, so every attribution field is -1 there.
++                Int32 sid = -1, uid = -1, lvl = -1, ip = -1, tag = -1, add = 0;
++                if (_src == SrcScript)
++                {
++                    Obj o = EBin.s1;
++                    if (o != null)
++                    {
++                        sid = o.sid;
++                        uid = o.uid;
++                        lvl = o.level;
++                        // A latch left by another object is not this store's opcode.
++                        ip = ReferenceEquals(o, _opObj) ? _opIp : -1;
++                        // An ADDITION buffer (movQData / neckTurnData, via Call's CallAdditionCommand) is
++                        // running: ip indexes that little array, not the entry, so no tag can be derived.
++                        if (o.isAdditionCommand || !ReferenceEquals(o.currentByte, o.ebData))
++                            add = 1;
++                        else
++                            tag = TagAt(o.ebData, ip);
++                    }
++                }
++
++                Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
++                Int32 mode = Mode();
++                Site key = new Site { Fld = fld, M = mode, Src = _src, Sid = sid, Tag = tag, Ip = ip, First = _first, Bit = _bit, Type = _type };
++                SiteCount site;
++                if (!_sites.TryGetValue(key, out site))
++                {
++                    site = new SiteCount();
++                    _sites.Add(key, site);
++                }
++                Boolean same = _old == nw;
++                Boolean emit;
++                if (same)
++                {
++                    emit = !site.SameEmitted;
++                    site.SameEmitted = true;
++                }
++                else
++                {
++                    emit = site.Changes < ChangeRowsPerSite;
++                    if (emit)
++                        site.Changes++;
++                }
++                if (!emit)
++                {
++                    site.N++;
++                    site.Last = nw;
++                    _suppressed++;
++                    return;
++                }
++
++                BeginRow("w", fld, mode, live);
++                Str("src", SrcName[_src]);
++                Num("sid", sid);
++                Num("uid", uid);
++                Num("lvl", lvl);
++                Num("ip", ip);
++                Num("tag", tag);
++                Num("add", add);
++                Num("byte", _first);
++                Str("w", WidthName(_type));
++                Num("bit", _bit);
++                Num("old", _old);
++                Num("new", nw);
++                Num("same", same ? 1 : 0);
++                EndRow();
++            }
++            catch (Exception err)
++            {
++                Fail(err);
++            }
++        }
++
++        // ------------------------------------------------------------------------------------------
++        // Internals. Everything below runs inside a caller's catch.
++        // ------------------------------------------------------------------------------------------
++        private static Boolean Begin(Byte[] live, Int32 ofs, EBin.VariableType type, Int32 bufferOffset, Int32 src)
++        {
++            if (live.Length != StoryLen)
++                return false;
++            // The bytes this store touches, exactly as the engine's switch addresses them.
++            Int32 first, count, bit = -1;
++            switch (type)
++            {
++                case EBin.VariableType.SBit:
++                case EBin.VariableType.Bit:
++                    first = (ofs >> 3) + bufferOffset;
++                    count = 1;
++                    bit = first * 8 + (ofs & 7);    // the GLOBAL bit index -- the kit's story-flag number
++                    break;
++                case EBin.VariableType.Int24:
++                case EBin.VariableType.UInt24:
++                    first = ofs + bufferOffset;
++                    count = 3;
++                    break;
++                case EBin.VariableType.SByte:
++                case EBin.VariableType.Byte:
++                    first = ofs + bufferOffset;
++                    count = 1;
++                    break;
++                case EBin.VariableType.Int16:
++                case EBin.VariableType.UInt16:
++                    first = ofs + bufferOffset;
++                    count = 2;
++                    break;
++                default:
++                    return false;
++            }
++            // Out of range: the engine's own store faults (or not) exactly as it always did; the byte it
++            // may still have written is residue at the next pass.
++            if (first < 0 || first + count > live.Length)
++                return false;
++
++            if (!ReferenceEquals(live, _shadowOf))
++                Swap(live);
++            // THE ORDERING LAW: bypass writes to these bytes are residue BEFORE this write is recorded.
++            for (Int32 i = first; i < first + count; i++)
++            {
++                Byte now = live[i];
++                if (now == _shadow[i])
++                    continue;
++                if (i < MaskLo || i > MaskHi)
++                    Residue(live, i, _shadow[i], now, "prestore");
++                _shadow[i] = now;
++            }
++
++            _live = live;
++            _src = src;
++            _ofs = ofs;
++            _bufferOffset = bufferOffset;
++            _type = type;
++            _first = first;
++            _count = count;
++            _bit = bit;
++            _old = ReadAs(live, ofs, type, bufferOffset);
++            return true;
++        }
++
++        // A replaced array is an epoch; otherwise every byte that moved without a hooked store is residue.
++        private static void Sync(Byte[] live)
++        {
++            if (!ReferenceEquals(live, _shadowOf))
++            {
++                Swap(live);
++                return;
++            }
++            Diff(live);
++        }
++
++        // New Game or a save load replaced the array. The OLD array's bypass writes since the last pass are
++        // residue first -- stamped with its own SC, while `_shadowOf` still holds it -- or the swap epoch
++        // would absorb them. Then the epoch.
++        private static void Swap(Byte[] live)
++        {
++            if (_shadowOf != null && _shadowOf.Length == StoryLen)
++                Diff(_shadowOf);
++            Resync(live, "swap");
++        }
++
++        // Every byte of `arr` that differs from the shadow is `frame` residue (bar the netsync cells), and
++        // the shadow takes it.
++        private static void Diff(Byte[] arr)
++        {
++            for (Int32 i = 0; i < StoryLen; i++)
++            {
++                Byte now = arr[i];
++                if (now == _shadow[i])
++                    continue;
++                if (i < MaskLo || i > MaskHi)
++                    Residue(arr, i, _shadow[i], now, "frame");
++                _shadow[i] = now;
++            }
++        }
++
++        // The epoch: close the running epoch's counts, take the whole array silently (never 2048 rows),
++        // and say why.
++        private static void Resync(Byte[] live, String why)
++        {
++            EmitCounts(live);
++            _sites.Clear();
++            Buffer.BlockCopy(live, 0, _shadow, 0, StoryLen);
++            _shadowOf = live;
++            BeginRow("e", live);
++            Str("why", why);
++            EndRow();
++        }
++
++        private static void EmitCounts(Byte[] live)
++        {
++            foreach (KeyValuePair<Site, SiteCount> kv in _sites)
++            {
++                if (kv.Value.N == 0)
++                    continue;
++                Site s = kv.Key;
++                BeginRow("c", s.Fld, s.M, live);
++                Str("src", SrcName[s.Src]);
++                Num("sid", s.Sid);
++                Num("tag", s.Tag);
++                Num("ip", s.Ip);
++                Num("byte", s.First);
++                Str("w", WidthName(s.Type));
++                Num("bit", s.Bit);
++                Num("n", kv.Value.N);
++                Num("last", kv.Value.Last);
++                EndRow();
++            }
++        }
++
++        private static void Residue(Byte[] live, Int32 index, Byte old, Byte now, String why)
++        {
++            BeginRow("r", live);
++            Num("byte", index);
++            Num("old", old);
++            Num("new", now);
++            Str("why", why);
++            EndRow();
++        }
++
++        // A value as the engine READS that width -- EBin.GetVariableValueInternal's arithmetic, UInt24's
++        // sign-extending read included. Not a call to it: that method writes EBin._v0, the interpreter's
++        // result register, and an observer may not touch what it observes.
++        private static Int32 ReadAs(Byte[] b, Int32 ofs, EBin.VariableType type, Int32 bufferOffset)
++        {
++            switch (type)
++            {
++                case EBin.VariableType.SBit:
++                case EBin.VariableType.Bit:
++                    return (b[(ofs >> 3) + bufferOffset] >> (ofs & 7)) & 1;
++                case EBin.VariableType.Int24:
++                case EBin.VariableType.UInt24:
++                    return b[ofs + bufferOffset] | (b[ofs + 1 + bufferOffset] << 8) | ((SByte)b[ofs + 2 + bufferOffset] << 16);
++                case EBin.VariableType.SByte:
++                    return (SByte)b[ofs + bufferOffset];
++                case EBin.VariableType.Byte:
++                    return b[ofs + bufferOffset];
++                case EBin.VariableType.Int16:
++                    return b[ofs + bufferOffset] | ((SByte)b[ofs + 1 + bufferOffset] << 8);
++                case EBin.VariableType.UInt16:
++                    return b[ofs + bufferOffset] | (b[ofs + 1 + bufferOffset] << 8);
++                default:
++                    return 0;
++            }
++        }
++
++        // The engine's own names for the widths (EBin.VariableType) -- the names the kit's disassembler
++        // prints (eb/_exprtable.py VAR_TYPE). Never type.ToString(): the enum aliases Any/Vector/VectorSize/
++        // Dictionary onto 0-3, so the name it returns for those values is unspecified.
++        private static String WidthName(EBin.VariableType type)
++        {
++            switch (type)
++            {
++                case EBin.VariableType.SBit: return "SBit";
++                case EBin.VariableType.Bit: return "Bit";
++                case EBin.VariableType.Int24: return "Int24";
++                case EBin.VariableType.UInt24: return "UInt24";
++                case EBin.VariableType.SByte: return "SByte";
++                case EBin.VariableType.Byte: return "Byte";
++                case EBin.VariableType.Int16: return "Int16";
++                case EBin.VariableType.UInt16: return "UInt16";
++                default: return "?";
++            }
++        }
++
++        // The function tag containing `ip`. The entry's function table is EventEngine.GetIP's layout --
++        // [byte][count] then count x (UInt16 tag, UInt16 offset), a function starting at 2 + offset -- and
++        // the containing function is the one with the LARGEST start at or below ip. -1 if none.
++        private static Int32 TagAt(Byte[] eb, Int32 ip)
++        {
++            if (eb == null || eb.Length < 2 || ip < 0)
++                return -1;
++            Int32 count = eb[1];
++            Int32 tag = -1, best = -1;
++            for (Int32 i = 0; i < count; i++)
++            {
++                Int32 p = 2 + 4 * i;
++                if (p + 4 > eb.Length)
++                    break;
++                Int32 start = 2 + (eb[p + 2] | (eb[p + 3] << 8));
++                if (start <= ip && start > best)
++                {
++                    best = start;
++                    tag = eb[p] | (eb[p + 1] << 8);
++                }
++            }
++            return tag;
++        }
++
++        // gMode as StartEvents sets it (1 field, 2 battle, 3 world, 4 system mode 8's battle); -1 before the
++        // tracer has seen an EventEngine.
++        private static Int32 Mode()
++        {
++            return _ee != null ? _ee.gMode : -1;
++        }
++
++        // ---- the row writer: one JSON object per line, numbers as numbers, invariant culture ------
++        private static void BeginRow(String kind, Byte[] live)
++        {
++            BeginRow(kind, FF9StateSystem.Common.FF9.fldMapNo, Mode(), live);
++        }
++
++        // `fld` and `m` given: a `c` row names where its site's stores ran; f/p/sc stay the flush's.
++        private static void BeginRow(String kind, Int32 fld, Int32 mode, Byte[] live)
++        {
++            _rows.Append("{\"k\":\"").Append(kind).Append('"');
++            Num("f", Time.frameCount);
++            Num("p", _pass);
++            Num("m", mode);
++            Num("fld", fld);
++            Num("don", Memoria.DataPatchers.EffectiveFieldId(fld));
++            Num("sc", live != null && live.Length >= 2 ? live[0] | (live[1] << 8) : -1);
++        }
++
++        private static void EndRow()
++        {
++            _rows.Append("}\n");
++            _rowCount++;
++        }
++
++        private static void Num(String key, Int64 value)
++        {
++            _rows.Append(",\"").Append(key).Append("\":").Append(value.ToString(CultureInfo.InvariantCulture));
++        }
++
++        // Keys and values here are the contract's own ASCII constants -- nothing to escape.
++        private static void Str(String key, String value)
++        {
++            _rows.Append(",\"").Append(key).Append("\":\"").Append(value).Append('"');
++        }
++
++        // One append per Unity frame (force: at start and stop). A locked file -- the driver reading it --
++        // keeps the rows buffered for the next frame; never spin for a file inside the frame loop.
++        private static void Flush(Boolean force)
++        {
++            if (_rows.Length == 0 || _sink == null)
++                return;
++            if (!force && Time.frameCount == _flushFrame)
++                return;
++            try
++            {
++                File.AppendAllText(_sink, _rows.ToString());
++                _rows.Length = 0;
++                _flushFrame = Time.frameCount;
++                return;
++            }
++            catch (IOException)
++            {
++            }
++            catch (UnauthorizedAccessException)
++            {
++            }
++            if (_rows.Length > MaxBuffered)
++            {
++                _rows.Length = 0;
++                throw new IOException("story.jsonl has not accepted an append for " + MaxBuffered + " buffered chars");
++            }
++        }
++
++        private static void Fail(Exception err)
++        {
++            On = false;
++            _live = null;
++            if (_error != null)
++                return;
++            _error = err.Message;
++            Memoria.Prime.Log.Message("[ff9mk storytrace] FAILED and turned itself off: " + err);
++            // The rows before the failure are sound; let them land.
++            try
++            {
++                Flush(true);
++            }
++            catch (Exception)
++            {
++            }
++            _rows.Length = 0;
++        }
++    }
++}
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
+index d814e2d..b093cb2 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
+@@ -87,6 +87,10 @@ namespace Memoria.Netsync
+             try { g = FF9StateSystem.EventState.gEventGlobal; }
+             catch { return false; }
+             Boolean applied = ApplyStoryTo(payload, g);
++            // [ff9mapkit s88] the host's story landed on the live array in place: one story-trace epoch.
++            // Here, not in ApplyStoryTo -- SelfTest drives that loop against a scratch buffer.
++            if (applied && Memoria.Harness.StoryTrace.On)
++                Memoria.Harness.StoryTrace.Epoch("netsync");
+             if (applied)
+                 NetSyncParty.ParseSections(payload);
+             return applied;

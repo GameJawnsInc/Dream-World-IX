@@ -360,6 +360,15 @@ class State:
 
     # -- co-op (netsync) --------------------------------------------------------------------
     @property
+    def storytrace(self) -> dict | None:
+        """The story-write trace's block (memoria-patch s88): ``proto``, ``on``, ``rows``, ``suppressed``
+        and ``error`` (why the tracer turned itself off, null while healthy). ``None`` on an engine without
+        the trace -- a CAPABILITY, additive under protocol 5, so "this DLL cannot trace" is never read as
+        an empty story.jsonl, i.e. "no script wrote anything"."""
+        st = self.raw.get("storytrace")
+        return st if isinstance(st, dict) else None
+
+    @property
     def netsync(self) -> dict | None:
         """The co-op client's observables (agent >= protocol 5), or None on an engine without them.
 
@@ -642,7 +651,9 @@ class Channel:
     def reset(self) -> None:
         """Clear the channel for a fresh run. Leaves ``arm`` alone -- arming is a separate decision."""
         self.shots.mkdir(parents=True, exist_ok=True)
-        for name in ("req.txt", "state.json", "state.json.tmp", "events.jsonl"):
+        # story.jsonl is the s88 trace sink: the engine only ever APPENDS to it, so a run that did not
+        # clear it would read the previous run's rows as its own.
+        for name in ("req.txt", "state.json", "state.json.tmp", "events.jsonl", "story.jsonl"):
             _unlink(self.dir / name)
         for png in self.shots.glob("*.png"):
             _unlink(png)
@@ -703,6 +714,11 @@ class Channel:
             _unlink(self.arm_path)
             if force_cycle:
                 time.sleep(ARM_CYCLE_SECONDS)
+                # The disarm just observed ran a still-tracing agent's StoryTrace.Stop, whose last append
+                # (residue, counts, `off`) lands AFTER reset() cleared story.jsonl -- a leaked arm's tail
+                # that would open this run's trace. The arm below resets the tracer, so none of this
+                # run's rows exist yet.
+                _unlink(self.story_path)
         self.arm_path.write_text(json.dumps({
             "pid": self.owner_pid,
             "label": self.label,
@@ -883,13 +899,38 @@ class Channel:
                 pass
         return out
 
+    @property
+    def story_path(self) -> Path:
+        """The story-write trace's sink (s88), beside events.jsonl."""
+        return self.dir / "story.jsonl"
+
+    def story_text(self, *, lock_budget: float = 1.0) -> str | None:
+        """The live story.jsonl, or ``None`` when the engine never wrote one.
+
+        The agent APPENDS once per frame, so a read can collide with the append (a sharing violation --
+        waited out on the same budget as :meth:`state`, never reported as absence) or land mid-append,
+        leaving an unterminated last line; that one is the parser's to hold back (``parse_text(live=True)``).
+        """
+        deadline = time.time() + lock_budget
+        while True:
+            try:
+                return self.story_path.read_text(encoding="utf-8-sig")
+            except FileNotFoundError:
+                return None
+            except PermissionError:
+                if time.time() >= deadline:
+                    raise HarnessError(f"story.jsonl stayed locked for {lock_budget:.1f}s -- the agent "
+                                       f"holds it mid-append") from None
+                time.sleep(0.005)
+
     def collect(self, dest: Path) -> None:
-        """Copy this run's artifacts (events + every screenshot) into ``dest``."""
+        """Copy this run's artifacts (events, the story trace, every screenshot) into ``dest``."""
         dest = Path(dest)
         dest.mkdir(parents=True, exist_ok=True)
-        events = self.dir / "events.jsonl"
-        if events.exists():
-            shutil.copy2(events, dest / "events.jsonl")
+        for name in ("events.jsonl", "story.jsonl"):
+            src = self.dir / name
+            if src.exists():
+                shutil.copy2(src, dest / name)
         state = self.dir / "state.json"
         if state.exists():
             shutil.copy2(state, dest / "state-final.json")

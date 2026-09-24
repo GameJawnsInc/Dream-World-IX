@@ -326,6 +326,7 @@ extra (UnityPy).
 | `import-all` | Bulk-import a foldered, Blender-ready archive — whole game / `--pattern` zone (`--editable`). |
 | `import-chain <seed>` | Fork a connected region into a campaign (`--zones`, `--whole-zone`, `--ids <ranges>`, `--verbatim`, `--id-base`, `--out`). |
 | `fork-report <field>` | Preview a fork's fidelity offline (`--explain` decodes NPC talk routines). |
+| `story-trace <run…>` | Read the engine's story-write trace (`story.jsonl`, harness + s88): join each write to its instruction, or `--fork` runs to diff stock vs fork (`--strict`). |
 | `list-fields [pat]` | List real fields available to import (`--players`, `--non-zidane`). |
 | `find-field <q>` | Resolve a field id / name / FBG substring. |
 | `find-rooms` | Sweep all fields for the best swap/demo test rooms. |
