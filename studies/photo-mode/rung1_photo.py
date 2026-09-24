@@ -183,13 +183,13 @@ def preflight(g) -> None:
         if p.exists():
             eb = p.read_bytes()
             try:
-                rows[lang] = (B.photo_slot(eb, raw), B.is_patched(eb, raw))
+                rows[lang] = (B.photo_slot(eb, raw, lang), B.is_patched(eb, raw))
             except SystemExit as e:
                 rows[lang] = (str(e), False)
     ok = bool(rows) and len({r[0] for r in rows.values()}) == 1 and all(isinstance(r[0], int) and r[1]
                                                                           for r in rows.values())
-    g.check(ok, "P-BYTES: every language runs the KIT's photo daemon (== photo.entry_bytes over the parts read back "
-            "off the live bytes) and carries the observer", str(rows))
+    g.check(ok, "P-BYTES: every language runs the KIT's photo daemon (== its language's photo.entry_bytes over the parts "
+            "read back off the live bytes) and carries the observer", str(rows))
     text = (GAME / "Memoria.ini").read_text(encoding="utf-8", errors="replace")
     ini = {k: int(re.search(rf"^\s*{k}\s*=\s*(-?\d+)", text, re.M).group(1)) for k in ("WidescreenSupport",
                                                                                      "CameraStabilizer")}

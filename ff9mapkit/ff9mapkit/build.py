@@ -4384,12 +4384,10 @@ def lint_all(project: FieldProject) -> LintReport:
             rep.logic.extend(hook())
         except Exception as e:                            # noqa: BLE001
             rep.logic.append(f"[[prop]] motion lint could not finish: {type(e).__name__}: {e}")
-    for hook, slot in ((lambda: _photo.lint_notes(project.raw), rep.logic),   # widescreen X pin, several cameras, ...
-                       (lambda: _photo.box_lines(project.raw), rep.camera)):  # what photo mode can pan, per camera
-        try:                                              # its own loop: a photo hook never hides a motion one
-            slot.extend(hook())
-        except Exception as e:                            # noqa: BLE001
-            rep.logic.append(f"[photo] lint could not finish: {type(e).__name__}: {e}")
+    try:                                                  # [photo]: ACTIONABLE notes only -- lint exits 1 on any note, so
+        rep.logic.extend(_photo.lint_notes(project.raw))  # what is merely true of the field (its pan box, a pinned X)
+    except Exception as e:                                # noqa: BLE001 -- is in the build's report instead
+        rep.logic.append(f"[photo] lint could not finish: {type(e).__name__}: {e}")
     _lint_scripts_toolchain(project, rep.errors)          # a scripted ability needs a C# compiler -> fail at lint, not mid-build
     # `lint` runs against arbitrary user TOML + (for forks) game-derived binaries, so resolving the
     # camera/walkmesh can fail in many ways (a missing borrow .bgx -> FileNotFoundError, a malformed quad
@@ -8394,7 +8392,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     if _photo.any_photo(project.raw):
         try:
             eb, _ph_slot, _ph_lines = _photo.arm(eb, project.raw, prop_seats=_mo_seats, npc_slots=npc_slots,
-                                                 donor=donor_field_id(project.raw))
+                                                 donor=donor_field_id(project.raw), lang=lang)
         except _photo.PhotoError as e:
             raise BuildError(str(e)) from e
         if warnings is not None:

@@ -428,7 +428,8 @@ class FieldTickEngine(MotionEngine):
         self.effects: list = []
         self.tick = 0
         self.pc = 0
-        self.no_tick = False                        # a dialog animating open: no object runs this tick
+        self.no_tick = False                        # field 257 only (ProcessEvents.cs:112-116): no object runs
+                                                    # while a dialog animates open -- never a novel field's case
         self._ins = None
         self._body = None
 
@@ -556,13 +557,14 @@ class FieldTickEngine(MotionEngine):
                     self._run_function(uid, tag)
                     self.pc = nxt                           # the caller waits (wait=255) until the callee returns:
                     break                                   # its next op runs on the next tick
-                elif op in (0xD5, 0xD6):
-                    for u in self.objects:
-                        if op == 0xD5 and not self.objects[u] & 32:
-                            self.pflags[u] = self.objects[u]
-                            self.objects[u] &= ~1
-                        elif op == 0xD6:
-                            self.objects[u] = (self.objects[u] & ~1) | (self.pflags.get(u, self.objects[u]) & 1)
+                elif op in (0xD5, 0xD6):                    # DoEventCode.cs:2680-2706: PUSHHIDE snapshots EVERY
+                    for u in self.objects:                      # PosObj (flag 32 only skips the hide); POPSHOW restores
+                        if op == 0xD5:                          # bit 0 from pflags, which is 0 until a PUSHHIDE ran
+                            self.pflags[u] = self.objects[u]    # (PosObj.cs:181) -- a ShowAll with no HideAll HIDES
+                            if not self.objects[u] & 32:
+                                self.objects[u] &= ~1
+                        else:
+                            self.objects[u] = (self.objects[u] & ~1) | (self.pflags.get(u, 0) & 1)
                     self.effects.append((self.tick, op, ()))
                 elif op == 0xEC:
                     args = tuple(body[ins.off + 2:ins.end])

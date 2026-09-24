@@ -9,7 +9,9 @@
     restore, the grade, the tracking release, the yields.
   * THE SELF-AUDIT BITES -- each law of ``audit_body`` refuses a mutant daemon built by swapping one emitter.
 
-Each test that guards a named mutant names it in [brackets]; each was run against that mutant and failed.
+Each test that guards a named mutant names it in [brackets]. A mutation pass ran every bracket against its mutant and
+each failed; the two it found EQUIVALENT (RT zeroed at open -- dead code, now gone; the usercontrol open gate, which
+CTL's reset already implies) carry no bracket.
 """
 from __future__ import annotations
 
@@ -21,7 +23,8 @@ from pathlib import Path
 import pytest
 
 from ff9mapkit.content import photo as P
-from ff9mapkit.eb import opcodes
+from ff9mapkit.eb import edit as eb_edit, exprasm, opcodes
+from ff9mapkit.eb.model import pack_entry
 
 from ._ebengine import CameraModel, FieldTickEngine
 
@@ -91,6 +94,26 @@ REFUSED = [
     ("viewport-past-art", {"photo": {}, "camera": {"pitch": 40, "range": [320, 224]}}, "reaches past the painting"),
     ("nothing-pans", {"photo": {}, "camera": {"pitch": 40, "range": [398, 224], "viewport": [160, 238, 112, 112]}},
      "no camera can pan either axis"),
+    ("close-is-hide", _raw({"close_button": "r1"}), "close_button and hide_button are both 'r1'"),
+    ("viewport-past-art-y", {"photo": {}, "camera": dict(_WIDE, viewport=[160, 608, 112, 400])},
+     "reaches past the painting"),
+    ("borrow-bg", _raw(field={"borrow_bg": 1207}), "[field] borrow_bg"),
+    # a shoulder press sets its logical bit AND its physical twin (EventInput.cs:521-531)
+    ("pool-l1-physical", _raw({"open_button": "l1", "grade_button": "r2"},
+                              behavior={"unit": [{"npc": "g"}], "pool": [{"name": "p", "button": 1024}]}), "hire button"),
+    ("pool-l2-physical", _raw({"open_button": "l2"},
+                              behavior={"unit": [{"npc": "g"}], "pool": [{"name": "p", "button": 256}]}), "hire button"),
+    # a target that can be busy while photo mode opens would stall the RunScriptSync (level 2 waits for level 7)
+    ("free-cast-npc", _raw({"hide": ["guard"]}, npc=[_NPC], cutscene=[{"actors": ["guard"], "owns_control": False}]),
+     "owns_control = false"),
+    ("free-cast-table", _raw({"hide": ["guard"]}, npc=[_NPC], cutscene={"actors": ["guard"], "owns_control": False}),
+     "owns_control = false"),
+    ("free-cast-player", _raw({"hide": ["player"]}, cutscene=[{"actors": ["player"], "owns_control": False}]),
+     "owns_control = false"),
+    ("lock-false", _raw({"hide": ["guard"]}, npc=[dict(_NPC, lock=False)]), "lock = false"),
+    ("range-short", {"photo": {}, "camera": dict(_WIDE, range=[768])}, "range must be [width, height]"),
+    ("range-str", {"photo": {}, "camera": dict(_WIDE, range="wide")}, "range must be [width, height]"),
+    ("viewport-short", {"photo": {}, "camera": dict(_WIDE, viewport=[160, 608, 112])}, "viewport must be"),
 ]
 
 
@@ -118,6 +141,12 @@ ACCEPTED = [
     ("npc-target", _raw({"hide": ["guard", "player", "all"]}, npc=[_NPC])),
     ("prop-target", _raw({"hide": ["b"]}, prop=[_PROPC])),
     ("default-room-y-only", {"photo": {}, "camera": {"pitch": 40}}),
+    ("one-camera-pans", {"photo": {}, "camera": [dict(_WIDE), {"pitch": 40, "range": [398, 224],
+                                                               "viewport": [160, 238, 112, 112]}]}),
+    ("pool-other-shoulder", _raw({"open_button": "l1", "grade_button": "r2"},
+                                 behavior={"unit": [{"npc": "g"}], "pool": [{"name": "p", "button": 256}]})),
+    ("owning-cast", _raw({"hide": ["guard"]}, npc=[_NPC], cutscene=[{"actors": ["guard"]}])),
+    ("locking-npc", _raw({"hide": ["guard"]}, npc=[dict(_NPC, lock=True)])),
 ]
 
 
@@ -129,6 +158,7 @@ def test_the_boundaries_are_accepted(raw):
 def test_a_field_without_photo_has_no_problems_and_no_lint():
     raw = {"camera": _WIDE}
     assert P.problems(raw) == [] and P.lint_notes(raw) == [] and P.box_lines(raw) == [] and not P.any_photo(raw)
+    assert P.report_notes(raw) == []
 
 
 def test_too_many_parts_counts_every_composite_part():
@@ -165,11 +195,42 @@ def test_the_pan_box_drift_test_against_the_build(tmp_path):
         assert tuple(int(v) for v in c.viewport) == mine, (cfg, c.viewport, mine)
 
 
-def test_the_lint_reports_both_boxes_and_the_widescreen_pin():
+def test_the_report_carries_what_is_true_and_lint_stays_quiet():
+    """[box lines as lint warnings] `ff9mapkit lint` exits 1 on any note, so what is merely TRUE of a valid field -- its
+    pan boxes, a widescreen-pinned X, several cameras, a live ticker -- is in the build's report, never in lint."""
     assert P.box_lines(_raw()) == ["[photo] camera 0 768x448: 4:3 X 160..608 (448 px), Y 112..336 (224 px) | "
                                    "16:9 X 199..569 (370 px), Y 112..336 (224 px)"]
-    notes = P.lint_notes({"photo": {}, "camera": {"pitch": 40}})
-    assert any("pinned under widescreen" in n for n in notes), notes
+    narrow = {"photo": {}, "camera": {"pitch": 40}}
+    assert any("pinned under widescreen" in n for n in P.report_notes(narrow)), P.report_notes(narrow)
+    assert P.report_notes(_raw())[:1] == P.box_lines(_raw())
+    multi = {"photo": {}, "camera": [dict(_WIDE), dict(_WIDE)]}
+    assert any("several cameras" in n for n in P.report_notes(multi))
+    assert any("keep running" in n for n in P.report_notes(_raw(behavior={"unit": [{"npc": "g"}]})))
+    for raw in (_raw(), narrow, multi):
+        assert P.lint_notes(raw) == [], raw
+
+
+@pytest.mark.parametrize("photo, mask, frag", [
+    ({}, "select", "cannot open"),
+    ({}, "directions", "cannot pan"),
+    ({}, ["select", "up"], "cannot open or pan"),
+    ({"open_button": "l1", "grade_button": "r2"}, ["l1"], None),     # l1's logical bit survives its physical mask
+    ({"open_button": "l2"}, ["select"], None),
+], ids=["select", "directions", "both", "shoulder-survives", "select-not-open"])
+def test_lint_names_a_mask_that_blocks_photo_mode(photo, mask, frag):
+    """The mask clears PHYSICAL bits (EventInput.cs:192): only Select and the d-pad share their logical bit."""
+    for kind in ("event", "on_entry"):
+        notes = P.lint_notes(_raw(photo, **{kind: [{"mask_buttons": mask}]}))
+        if frag is None:
+            assert notes == [], notes
+        else:
+            assert len(notes) == 1 and frag in notes[0] and f"[[{kind}]] #0" in notes[0], notes
+
+
+def test_lint_warns_that_all_blinks_a_pooled_unit():
+    notes = P.lint_notes(_raw(behavior={"unit": [{"npc": "g", "pooled": True}]}))
+    assert any("spawns pooled units" in n for n in notes), notes
+    assert P.lint_notes(_raw({"hide": ["player"]}, behavior={"unit": [{"npc": "g", "pooled": True}]})) == []
 
 
 # ============================================================== the proven bytes
@@ -214,7 +275,7 @@ _UIDS = {"player": [250], "g": [5], "c": [6, 7]}        # "c" = a two-part compo
 
 class Rig:
     def __init__(self, steps=("player", "all"), *, boxes=(_BOX,), widescreen=True, objects=None, photo=None,
-                 body=None):
+                 body=None, lang="us"):
         raw = {"photo": dict(photo or {}, hide=list(steps))}
         self.spec = P.parse(raw)
         self.parts, fns = [], {}
@@ -226,7 +287,7 @@ class Rig:
         self.follow = (384, 286)
         self.cam = CameraModel(boxes[0], lambda: self.follow, widescreen=widescreen)
         self.boxes = list(boxes)
-        self.body = body or P.daemon_body(self.spec, self.parts, self.boxes)
+        self.body = body or P.daemon_body(self.spec, self.parts, self.boxes, lang)
         self.e = FieldTickEngine(P.LOC, self.cam, objects=dict(objects or {250: 15, 5: 7, 6: 7, 7: 7, 9: 7}),
                                  functions=fns)
 
@@ -271,8 +332,9 @@ def test_closed_the_daemon_reads_and_moves_nothing():
 
 @pytest.mark.parametrize("why", ["settle", "usercontrol", "scene", "stay-locked"])
 def test_the_open_gate(why):
-    """[a gate removed] Open needs 30 ticks of player control, usercontrol on, no conductor scene (MAP 110) and no
-    stay-locked latch (MAP 156)."""
+    """[a gate removed: settle, scene, stay-locked] Open needs 30 ticks of player control, usercontrol on, no conductor
+    scene (MAP 110) and no stay-locked latch (MAP 156). (Dropping the usercontrol term alone is equivalent -- CTL >= 30
+    implies it; the two re-settle tests below kill the pair.)"""
     r = Rig()
     if why == "settle":
         r.run(P.SETTLE - 3)
@@ -289,10 +351,31 @@ def test_the_open_gate(why):
     assert len(r.ops(0x2D)) == 1 and r.local("ST") == 1
 
 
-def test_a_held_open_button_opens_once():
-    """[PREV update removed] The latch turns a held button into ONE edge."""
-    r = Rig().settled().hold(P.BUTTONS["select"], 40).run(5)
-    assert len(r.ops(0x2D)) == 1 and r.local("ST") == 1
+def test_control_regained_must_resettle():
+    """[CTL not reset on a lock] 30 ticks of control are re-earned after ANY lock -- a cutscene handing control back
+    does not let one press open photo mode at once."""
+    r = Rig().settled()
+    r.e.usercontrol = 0
+    r.run(5)
+    r.e.usercontrol = 1
+    r.run(5)
+    r.press("select")
+    assert not r.ops(0x2D) and r.local("ST") == 0
+    r.run(P.SETTLE).press("select")
+    assert len(r.ops(0x2D)) == 1
+
+
+def test_the_settle_counter_is_bounded():
+    """[CTL unbounded] An Int16 counter left to run wraps after 32768 ticks (~18 min) and shuts the gate as long."""
+    assert Rig().run(200).local("CTL") == P.SETTLE
+
+
+@pytest.mark.parametrize("photo", [{}, {"close_button": "select"}], ids=["cancel-close", "toggle"])
+def test_a_held_open_button_opens_once(photo):
+    """[PREV update removed] The latch turns a held button into ONE edge -- under a toggle a held Select must not
+    flap open / closed."""
+    r = Rig(photo=photo).settled().hold(P.BUTTONS["select"], 40).run(5)
+    assert len(r.ops(0x2D)) == 1 and not r.ops(0x2E) and r.local("ST") == 1
 
 
 def test_open_locks_then_takes_the_camera_where_it_is():
@@ -422,7 +505,7 @@ def test_the_walking_exit_lands_on_the_player():
 
 
 def test_reopening_mid_glide_stops_the_tracking():
-    """[RT not zeroed on open]"""
+    """Open holds the camera: the tracking release re-issues only while closed."""
     r = Rig(steps=()).opened().hold(P.PAD["right"], 11).run(3)
     r.press("cancel", n=1)
     r.run(1)
@@ -448,8 +531,10 @@ def test_photo_mode_yields_with_a_full_restore(how):
     assert r.ops(0x70)
 
 
-def test_the_tracking_continues_under_a_lock_and_stops_on_a_camera_change():
-    """[CAM0 not refreshed]"""
+def test_the_tracking_continues_under_a_lock_and_through_a_camera_switch():
+    """[tracking stops on a camera switch] A lock or a [[camera_zone]] switch mid-glide keeps the release running: each
+    re-issue re-reads the follow point (on the NEW camera), where stopping would leave the last release gliding to the
+    old camera's point, then snap."""
     r = Rig(steps=()).opened().hold(P.PAD["right"], 11).run(3)
     r.press("cancel", n=1)
     r.e.usercontrol = 0                                    # something else locks the player mid-glide
@@ -459,7 +544,45 @@ def test_the_tracking_continues_under_a_lock_and_stops_on_a_camera_change():
     r2.press("cancel", n=1)
     r2.e.camidx = 1
     r2.run(20)
-    assert len(r2.ops(0x70)) < len(P.RELEASE_TABLE)
+    assert [a[0] for _t, _o, a in r2.ops(0x70)] == list(P.RELEASE_TABLE)
+
+
+def test_a_camera_switch_yield_tracks_on_the_new_camera():
+    """[CAM0 not refreshed at close] The yield-close re-reads CAM0, so the glide it starts is not cut short."""
+    r = Rig(steps=()).opened().hold(P.PAD["right"], 11).run(3)
+    r.e.camidx = 1
+    r.run(20)
+    assert [a[0] for _t, _o, a in r.ops(0x70)] == list(P.RELEASE_TABLE) and r.local("ST") == 0
+
+
+def test_a_second_session_restores_only_its_own_hides():
+    """[ShowAll ungated] [PRIOR never reset] A session that never reaches "all" must not replay the last session's
+    pflags snapshot (a ShowAll with nothing snapshotted HIDES: pflags defaults to 0), and PRIOR must not carry over."""
+    r = Rig(steps=("g", "player", "all"))
+    r.opened().press("r1").press("r1").press("r1").press("cancel").run(20)
+    assert r.e.objects == {250: 15, 5: 7, 6: 7, 7: 7, 9: 7}
+    r.e.objects[5] &= ~1                                   # a script hides g and uid 9 between the sessions
+    r.e.objects[9] &= ~1
+    want = dict(r.e.objects)
+    r.settled().press("select").press("r1").press("r1").press("cancel").run(20)
+    assert r.local("HX") == 0 and r.e.objects == want
+
+
+def test_the_jp_daemon_closes_on_the_players_cancel():
+    """[jp mask swap removed] On the Japanese build scripts see Cancel and Confirm swapped (the talk check does not),
+    so the jp daemon's Cancel role tests 0x20000 -- the bit the player's Cancel press arrives as. The us daemon's
+    0x10000 would there be the Confirm press that also talks."""
+    spec = P.parse({"photo": {}})
+    assert spec.mask("close_button", "jp") == 0x20000 and spec.mask("close_button", "us") == 0x10000
+    assert all(spec.mask(r, "jp") == spec.mask(r, "us") for r in ("open_button", "hide_button", "grade_button"))
+    r = Rig(steps=(), lang="jp").opened()
+    r.hold(0x10000, 3).run(3)
+    assert r.local("ST") == 1, "a jp Confirm press (0x10000 to scripts) must not close photo mode"
+    r.hold(0x20000, 2).run(5)
+    assert r.local("ST") == 0 and r.ops(0x70)
+    assert P.daemon_body(spec, [], [_BOX], "jp") != P.daemon_body(spec, [], [_BOX], "us")
+    toggle = P.parse({"photo": {"close_button": "select"}})
+    assert P.daemon_body(toggle, [], [_BOX], "jp") == P.daemon_body(toggle, [], [_BOX], "us")
 
 
 def test_an_absent_target_would_freeze_the_daemon():
@@ -519,6 +642,11 @@ _MUTANTS = [
     ("second-0xEA", {"encode": lambda op, *a, **k: opcodes.encode(0xEA if op == 0x2D else op, *a, **k)},
      "exactly one 0xEA"),
     ("screen-position", {"calculate_screen_origin": lambda: opcodes.encode(0xA9, 250)}, "0xA9"),
+    ("return-in-loop", {"encode": lambda op, *a, **k: opcodes.encode(op, *a, **k) + (opcodes.RETURN if op == 0x2E
+                                                                                        else b"")},
+     "exactly one RETURN"),
+    ("second-disablemove", {"encode": lambda op, *a, **k: opcodes.encode(0x2D if op == 0x2E else op, *a, **k)},
+     "exactly one DisableMove"),
 ]
 
 
@@ -536,9 +664,10 @@ def test_the_audit_refuses_each_mutant_emitter(monkeypatch, over, frag):
     ("keyon", "B_KEYON"),
     ("negative-mask", "reads back NEGATIVE"),
     ("global-write", "not allowed"),
+    ("map-write", "a write to something other than"),
 ])
 def test_the_audit_refuses_forbidden_tokens(monkeypatch, mut, frag):
-    """[B_KEY -> B_KEYON] [const(32768) key mask] [a Global write]"""
+    """[B_KEY -> B_KEYON] [const(32768) key mask] [a Global write] [a Map write]"""
     if mut == "keyon":
         monkeypatch.setattr(P, "_key", lambda m: f"{P._k(m)} B_KEYON")
     elif mut == "negative-mask":
@@ -546,6 +675,77 @@ def test_the_audit_refuses_forbidden_tokens(monkeypatch, mut, frag):
                                                                                else f"const4({m})"))
     else:
         real = P.L
-        monkeypatch.setattr(P, "L", lambda n: "Global.Int16[1500]" if n == "GR" else real(n))
+        into = "Global.Int16[1500]" if mut == "global-write" else f"Map.Bit[{P.SCENE_BIT}]"
+        monkeypatch.setattr(P, "L", lambda n: into if n == "GR" else real(n))
     bad = P.audit_body(P.daemon_body(_spec(), _parts(), [_BOX]), _spec(), _parts(), [_BOX])
     assert any(frag in b for b in bad), bad
+
+
+# ============================================================== the seating laws, template-free
+def _synthetic_eb(*slots) -> bytes:
+    b = bytearray(0x80)
+    b[0:2] = b"EV"
+    out = bytes(b)
+    for slot, funcs in enumerate(slots):
+        out = eb_edit.append_entry(out, slot, pack_entry(0, funcs))
+    return out
+
+
+def _poll(tok: str, read: str = "B_KEYON") -> bytes:
+    return opcodes.encode(0x05, exprasm.assemble(f"{tok} {read} B_EXPR_END"), arg_flags=1) + opcodes.RETURN
+
+
+_R = opcodes.RETURN
+
+
+@pytest.mark.parametrize("photo, tok, read, frag", [
+    ({}, "const4(65536)", "B_KEYON", None),                          # a Cancel poll elsewhere is lawful
+    ({}, "const(1)", "B_KEYON", "polls the open button"),
+    ({}, "const(1)", "B_KEYOFF", "polls the open button"),            # the release edge reads the bit too
+    ({}, "Instance.Int16[0]", "B_KEY", "computed mask"),
+    ({"open_button": "l1", "grade_button": "r2"}, "const(1024)", "B_KEY", "polls the open button"),   # the twin
+    ({"open_button": "l1", "grade_button": "r2"}, "const4(1048576)", "B_KEY", "polls the open button"),
+    ({"open_button": "l1", "grade_button": "r2"}, "const(256)", "B_KEY", None),                        # l2's twin
+], ids=["cancel-ok", "keyon", "keyoff", "computed", "l1-twin", "l1-logical", "l2-twin-ok"])
+def test_e_poll_on_synthetic_bytes(photo, tok, read, frag):
+    """[B_KEYOFF unread] [the physical twin untested] [close mask in E-POLL]"""
+    spec = P.parse({"photo": photo})
+    eb = _synthetic_eb([(0, _R)], [(0, _R), (5, _poll(tok, read))], [(0, _R)])
+    got = P._whole_script_laws(eb, 2, spec)
+    assert (got == []) if frag is None else any(frag in g for g in got), got
+
+
+def test_camera_owner_on_synthetic_bytes():
+    """[CAMERA-OWNER removed] -- and the photo entry itself is exempt."""
+    spec = P.parse({"photo": {}})
+    cam = _synthetic_eb([(0, _R)], [(0, opcodes.encode(0xEA) + _R)], [(0, _R)])
+    assert any("CAMERA-OWNER" in p for p in P._whole_script_laws(cam, 2, spec))
+    assert P._whole_script_laws(cam, 1, spec) == []
+
+
+def test_the_free_pair_skips_a_taken_odd_tag():
+    """[free pair ignores t+1]"""
+    assert P._free_pair(_synthetic_eb([(0, _R)], [(0, _R), (97, _R)]), 1) == (98, 99)
+
+
+def test_the_target_law_checks_the_model_the_toml_names():
+    """[SetModel compare dropped] THE SLOT-MAP LAW: the slot's Init must set the model the build seated there."""
+    eb = _synthetic_eb([(0, _R)], [(0, opcodes.set_model(212, 0) + _R)])
+    assert P._target_law(eb, 1, "b", 212) == []
+    assert any("sets model 212, not the 99" in p for p in P._target_law(eb, 1, "b", 99))
+    assert any("sets no model" in p for p in P._target_law(_synthetic_eb([(0, _R)], [(0, _R)]), 1, "b", 212))
+    assert any("does not exist" in p for p in P._target_law(eb, 7, "b", 212))
+
+
+def test_the_daemon_seats_clear_of_the_64_stride():
+    """[stride false refusal] A STARTSEQ in entry 1 makes slot 65 a trap; the daemon takes the next slot, not a refusal."""
+    entries = [[(0, _R)], [(0, opcodes.run_shared_script(3) + _R)]] + [[(0, _R)]] * 63
+    eb = _synthetic_eb(*entries)                           # slots 0..64 full: the first free slot is 65
+    assert _used_slots(eb) == 65
+    _out, dslot = P._seat_daemon(eb, P.entry_bytes(P.parse({"photo": {"hide": []}}), [], [_BOX]))
+    assert dslot == 66
+
+
+def _used_slots(eb: bytes) -> int:
+    from ff9mapkit.eb import EbScript
+    return sum(1 for e in EbScript.from_bytes(eb).entries if not e.empty)

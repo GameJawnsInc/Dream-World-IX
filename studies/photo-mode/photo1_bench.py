@@ -117,9 +117,10 @@ def parts(eb: bytes, raw: dict) -> list:
     return out
 
 
-def photo_slot(eb: bytes, raw: dict) -> int:
-    """The ONE entry equal to the kit's photo.entry_bytes over the parts read back -- P-BYTES: the kit's daemon."""
-    want = photo.entry_bytes(photo.parse(raw), parts(eb, raw), [bx.viewport for bx in photo.pan_boxes(raw)])
+def photo_slot(eb: bytes, raw: dict, lang: str) -> int:
+    """The ONE entry equal to the kit's photo.entry_bytes over the parts read back, for THIS language's build (the jp
+    daemon tests the swapped Cancel bit) -- P-BYTES: the kit's daemon."""
+    want = photo.entry_bytes(photo.parse(raw), parts(eb, raw), [bx.viewport for bx in photo.pan_boxes(raw)], lang)
     s = EbScript.from_bytes(eb)
     hits = [e.index for e in s.entries if e.size > 0 and eb[e.abs_start:e.abs_end] == want]
     if len(hits) != 1:
@@ -180,9 +181,9 @@ def _objs(eb: bytes) -> dict:
     return {"player": 250, "L": b["L"], "C": b["C"], "R": b["R"], "guard": n["guard"], "talker": n["talker"]}
 
 
-def patch_eb(eb0: bytes, raw: dict) -> tuple:
+def patch_eb(eb0: bytes, raw: dict, lang: str) -> tuple:
     """Seat + arm the observer right after the photo daemon's InitCode. Returns (bytes, observer slot, photo slot)."""
-    pslot = photo_slot(eb0, raw)
+    pslot = photo_slot(eb0, raw, lang)
     objs = _objs(eb0)
     c_tags = seated(eb0)[objs["C"]]
     baseline = {str(p) for p in eblint.lint_eb(eb0)}
@@ -218,11 +219,12 @@ def probe() -> None:
     r = subprocess.run([sys.executable, "-m", "ff9mapkit", "build", str(BENCH_TOML), "--out", str(out)],
                        cwd=REPO / "ff9mapkit", capture_output=True, text=True)
     print("\n".join(ln for ln in r.stderr.splitlines() + r.stdout.splitlines() if "[photo]" in ln))
-    eb = next(out.rglob(f"EVT_{FIELD_NAME}.eb.bytes")).read_bytes()
+    path = next(out.rglob(f"EVT_{FIELD_NAME}.eb.bytes"))
+    eb, lang = path.read_bytes(), path.parent.name             # <lang>/EVT_*.eb.bytes
     rr = raw()
     print("parts", parts(eb, rr))
-    print("objects", _objs(eb), "photo slot", photo_slot(eb, rr))
-    patched, oslot, pslot = patch_eb(eb, rr)
+    print("objects", _objs(eb), "photo slot", photo_slot(eb, rr, lang), "lang", lang)
+    patched, oslot, pslot = patch_eb(eb, rr, lang)
     print(f"observer at slot {oslot} ({len(patched) - len(eb)} bytes), photo daemon slot {pslot}; is_patched "
           f"{is_patched(patched, rr)}")
 
@@ -238,7 +240,7 @@ def deploy() -> None:
     for lang in LANGS:
         p = live.eb_path(lang, f"EVT_{FIELD_NAME}.eb.bytes")
         if p.exists():
-            out, oslot, pslot = patch_eb(p.read_bytes(), rr)
+            out, oslot, pslot = patch_eb(p.read_bytes(), rr, lang)
             atomic_write_bytes(p, out)
             n += 1
     if not n:

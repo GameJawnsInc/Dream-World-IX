@@ -23,15 +23,21 @@ THE CAMERA LAWS (engine-read, then proven in-game):
   the camera's own vrp box, relative to the engine's readback (``CalculateScreenOrigin`` 0xEA -> ``B_SYSVAR[12]/[13]``),
   so the widescreen narrowing costs no wind-up.
 * THE TRACKING RELEASE: one ``ReleaseCamera`` computes its target ONCE; control comes back at close, so a player who
-  walks during the glide gets a camera that lands where he WAS and then snaps (113 px in one tick, measured).
+  walks during the glide gets a camera that lands where they WERE and then snaps (113 px in one tick, measured).
   ``ReleaseCamera(n_k, 0)`` re-issued every tick with :data:`RELEASE_TABLE` eases like ``ReleaseCamera(16, 8)`` on a
   still player (within 1 px in-game) and lands on a walking one (largest step 28 px).
 
 THE DAEMON keeps all state in its OWN Instance locals (no Global / Map write), reads only its buttons (B_KEY, a
 per-tick latch -- never B_KEYON, which arms the dialog turbo), usercontrol, the camera index, the view, the kit's
 conductor / stay-locked MAP bits, and its targets' flags. It opens only after 30 ticks of player control, closes
-itself (a full, exact restore) when anything else takes control, a scene starts or the camera switches, and hides by
-running a function seated on each target's own entry (0x93 is self-only), restoring exactly what it hid.
+itself (a full, exact restore) when another script GRANTS control back (an EnableMove), a conductor scene starts
+(MAP 110) or the camera switches, and hides by running a function seated on each target's own entry (0x93 is
+self-only), restoring exactly what it hid. (A foreign DisableMove while it is open is invisible to it -- usercontrol is
+already 0 -- and its closing EnableMove would release that lock; the conductor's watchdog re-locks within a tick.)
+
+On the Japanese build the engine swaps logical Cancel and Confirm for SCRIPTS (ETb.ProcessJapaneseLayout, B_KEY's
+JP flag) but not for the talk check, so a role bound to ``cancel`` tests 0x20000 in the ``jp`` daemon: the player's
+Cancel press, never the Confirm that would also talk.
 
 ``problems(raw)`` is the one refusal text validate, lint and the build share; ``arm`` seats and arms the daemon LAST in
 ``build_script`` and proves THE ORDER LAW (armed after every target's InitObject) and the whole-script laws on the
@@ -57,6 +63,10 @@ class PhotoError(ValueError):
 BUTTONS = {"select": 0x1, "start": 0x8, "up": 0x10, "right": 0x20, "down": 0x40, "left": 0x80,
            "cancel": 0x10000, "confirm": 0x20000, "special": 0x80000, "l1": 0x100000, "r1": 0x200000,
            "l2": 0x400000, "r2": 0x800000, "menu": 0x1000000}
+#: a shoulder press sets its logical bit AND its PSX physical alias (EventInput.cs:521-531) -- a poller written with the
+#: physical int (a [[behavior.pool]] button = 1024) fires on the same press
+_PHYS_TWIN = {"l1": 0x400, "r1": 0x800, "l2": 0x100, "r2": 0x200}
+_CANCEL, _CONFIRM = 0x10000, 0x20000
 ROLES = ("open_button", "close_button", "hide_button", "grade_button")
 DEFAULTS = {"open_button": "select", "close_button": "cancel", "hide_button": "r1", "grade_button": "l1"}
 _SAFE = frozenset({"cancel", "select", "l1", "r1", "l2", "r2"})
@@ -119,8 +129,11 @@ class PhotoSpec:
     steps: tuple                      # hide steps, in press order
     grade: bool
 
-    def mask(self, role: str) -> int:
-        return BUTTONS[self.buttons[role]]
+    def mask(self, role: str, lang: str = "us") -> int:
+        """The B_KEY mask for a role on this language's build: the jp daemon tests Confirm's bit for a Cancel role
+        (the engine swaps the two for scripts on the Japanese layout)."""
+        m = BUTTONS[self.buttons[role]]
+        return _CONFIRM if lang == "jp" and m == _CANCEL else m
 
     def roles(self) -> tuple:
         """The roles this spec polls (hide only with steps, grade only when on)."""
@@ -241,11 +254,19 @@ def _target_problems(raw: dict, spec: PhotoSpec) -> list:
     except Exception:                                      # noqa: BLE001 -- behavior validate() reports its own
         pooled, members = set(), set()
     carriers = {p.get("attach_to") for p in (raw.get("prop") or []) if isinstance(p, dict) and p.get("attach_to")}
+    cs = raw.get("cutscene")
+    free_cast = {str(a) for c in (cs if isinstance(cs, list) else [cs] if isinstance(cs, dict) else [])
+                 if isinstance(c, dict) and c.get("owns_control", True) is False for a in (c.get("actors") or [])}
+    busy = ("an actor of a [[cutscene]] with owns_control = false (it walks while the player can still open photo "
+            "mode: a hide or show would wait on its walk, and if it walks into the locked player they wait on each "
+            "other for ever)")
     for step in spec.steps:
         if step == "all":
             continue
         if step == "player":
             parts += 1
+            if "player" in free_cast:
+                out.append(f"[photo] hide 'player': {busy}")
             continue
         npcs, props = _named(raw, "npc", step), _named(raw, "prop", step)
         if not npcs and not props:
@@ -268,6 +289,11 @@ def _target_problems(raw: dict, spec: PhotoSpec) -> list:
                 why.append("holds")
             if step in carriers:
                 why.append("carries a [[prop]] (attach_to)")
+            if d.get("lock") is False:
+                why.append("lock = false (its dialogue leaves the player free, so photo mode can open over it, and a "
+                           "hide of it would wait until the window closes)")
+            if step in free_cast:
+                why.append(busy)
         else:
             parts += _parts_of_prop(d)
             if d.get("attach_to"):
@@ -289,6 +315,20 @@ def _camera_cfgs(raw: dict) -> list:
     return [c] if isinstance(c, dict) else []
 
 
+def _ints(v, n: int) -> bool:
+    return isinstance(v, (list, tuple)) and len(v) == n and all(isinstance(x, int) and not isinstance(x, bool)
+                                                                 for x in v)
+
+
+def _shape_problem(c: dict, i: int) -> str | None:
+    if "range" in c and not _ints(c["range"], 2):
+        return f"[photo] camera {i}: range must be [width, height] (two integers) to size the pan box, got {c['range']!r}"
+    if "viewport" in c and not _ints(c["viewport"], 4):
+        return (f"[photo] camera {i}: viewport must be [min_x, max_x, min_y, max_y] (four integers), got "
+                f"{c['viewport']!r}")
+    return None
+
+
 def pan_boxes(raw: dict) -> list:
     """Per camera, the box the daemon clamps to -- the camera's own vrp box, chosen exactly as the build's
     ``_resolve_one_camera`` does (explicit ``viewport``, else ``scroll_bounds(range)`` on a scrolling field, else the
@@ -299,8 +339,8 @@ def pan_boxes(raw: dict) -> list:
     scrolling = bool(cfgs and (cfgs[0].get("scroll") or {}).get("enabled"))
     out = []
     for i, c in enumerate(cfgs):
-        if "borrow" in c:
-            continue
+        if "borrow" in c or _shape_problem(c, i):
+            continue                                        # problems() reports a malformed range / viewport
         w, h = (int(v) for v in c.get("range", (384, 448)))
         if "viewport" in c:
             vp = tuple(int(v) for v in c["viewport"])
@@ -357,7 +397,9 @@ def problems(raw: dict, *, donor=None) -> list:
                    f"other cameras and its widescreen width are invisible to the build -- forks are rung 2")
     out += _collision_problems(raw, spec)
     out += _target_problems(raw, spec)
-    if not fork:
+    shapes = [p for i, c in enumerate(_camera_cfgs(raw)) for p in [_shape_problem(c, i)] if p]
+    out += shapes
+    if not fork and not shapes:
         boxes = pan_boxes(raw)
         for b in boxes:
             if not b.ok:
@@ -374,7 +416,7 @@ def problems(raw: dict, *, donor=None) -> list:
 def _collision_problems(raw: dict, spec: PhotoSpec) -> list:
     out = []
     ob = spec.buttons["open_button"]
-    om = BUTTONS[ob]
+    om = BUTTONS[ob] | _PHYS_TWIN.get(ob, 0)
     if raw.get("ate") and om & 0x1:
         out.append(f"[photo] open_button {ob!r} is also [ate]'s menu button (content/ate.py) -- one press opens one and "
                    f"silently shadows the other; rebind (l2 / r2 are free) or drop [ate]")
@@ -398,7 +440,9 @@ def _collision_problems(raw: dict, spec: PhotoSpec) -> list:
 
 
 def lint_notes(raw: dict) -> list:
-    """Advisories (never raises; skips what :func:`problems` refuses)."""
+    """ACTIONABLE advisories only -- `ff9mapkit lint` exits 1 on any, so what is merely true of a field (its pan box,
+    a pinned X, several cameras) goes in the build report (:func:`report_notes`) instead. Never raises; skips what
+    :func:`problems` refuses."""
     if not any_photo(raw):
         return []
     try:
@@ -406,20 +450,50 @@ def lint_notes(raw: dict) -> list:
     except PhotoError:
         return []
     out = []
+    from .movement import button_mask
+    for kind in ("event", "on_entry"):
+        for i, e in enumerate(raw.get(kind) or []):
+            if not isinstance(e, dict) or e.get("mask_buttons") is None:
+                continue
+            try:
+                m = button_mask(e["mask_buttons"])
+            except Exception:                              # noqa: BLE001 -- validate() reports a bad name
+                continue
+            # the mask clears PHYSICAL bits (EventInput.cs:192): Select and the d-pad share their logical bit, a
+            # shoulder's logical bit survives its physical mask -- so only these two can block photo mode
+            sel = 0x1 if spec.buttons["open_button"] == "select" else 0
+            hit = [(n, v) for n, bit, v in (("select (the open button)", sel, "open"), ("the d-pad (the pan)", 0xF0, "pan"))
+                   if m & bit]
+            if hit:
+                out.append(f"[photo]: [[{kind}]] #{i} mask_buttons masks {' and '.join(n for n, _v in hit)} -- while "
+                           f"that mask holds photo mode cannot {' or '.join(v for _n, v in hit)}")
+    if "all" in spec.steps:
+        try:
+            from . import behaviortoml as _bt
+            pooled = bool(_bt.pooled_npcs(raw)) or bool(_bt.pool_specs(raw))
+        except Exception:                                  # noqa: BLE001
+            pooled = False
+        if pooled:
+            out.append("[photo] hide \"all\": this field spawns pooled units at runtime -- one spawned while \"all\" is "
+                       "up comes back hidden at the close (it was not there to be snapshotted) until its next duty "
+                       "pass re-shows it; drop \"all\" to avoid the blink")
+    return out
+
+
+def report_notes(raw: dict) -> list:
+    """What is TRUE of a [photo] field -- printed with the build's report, not as a lint warning."""
+    out = list(box_lines(raw))
     boxes = pan_boxes(raw)
     for b in boxes:
         if b.pans_x_43 and not b.x169:
             out.append(f"[photo] camera {b.cam} ({b.w} wide): X pans at 4:3 but is pinned under widescreen -- a canvas "
                        f"wider than {PSX_W_169} px pans sideways on every screen")
     if len(boxes) > 1:
-        out.append("[photo]: this field has several cameras -- a camera switch closes photo mode (the player is locked "
-                   "while it is open, so a [[camera_zone]] cannot switch it)")
+        out.append("[photo]: several cameras -- a camera switch closes photo mode (the player is locked while it is "
+                   "open, so a [[camera_zone]] cannot switch it)")
     if raw.get("behavior") or raw.get("siege"):
         out.append("[photo]: [behavior] / [siege] keep running while photo mode is open -- units move, countdowns "
                    "tick, a Flash overwrites the grade, and units re-show themselves under \"all\"")
-    if spec.buttons["open_button"] in ("l2", "r2"):
-        out.append(f"[photo] open_button {spec.buttons['open_button']!r}: the default keyboard binding of L2 / R2 is F "
-                   f"/ J -- check it on the player's controls")
     return out
 
 
@@ -472,15 +546,16 @@ def flag_function(uid: int, show: bool) -> bytes:
     return opcodes.encode(0x93, _x(e), arg_flags=0b1) + opcodes.RETURN
 
 
-def daemon_body(spec: PhotoSpec, parts, boxes) -> bytes:
+def daemon_body(spec: PhotoSpec, parts, boxes, lang: str = "us") -> bytes:
     """The photo daemon: a prelude zeroing its locals, then one tick per loop pass. ``parts`` = [:class:`Part`];
-    ``boxes`` = [(lox, hix, loy, hiy)] per camera index."""
+    ``boxes`` = [(lox, hix, loy, hiy)] per camera index; ``lang`` = the build's language (the jp daemon tests the
+    swapped Cancel bit, :meth:`PhotoSpec.mask`)."""
     parts = list(parts)
     steps = spec.steps
     roles = spec.roles()
     held = {}
     for r in roles:                                        # one latch bit per distinct button
-        held.setdefault(spec.bit(r), spec.mask(r))
+        held.setdefault(spec.bit(r), spec.mask(r, lang))
     sys2, sys1 = "B_SYSVAR[2]", "B_SYSVAR[1]"
     B: list = [_set(n, "const(0)") for n in LOCALS]
     B += [label("top"),
@@ -496,8 +571,8 @@ def daemon_body(spec: PhotoSpec, parts, boxes) -> bytes:
           label("read"),                                    # THE one 0xEA, copied at once (0xA9 shares the registers)
           opcodes.calculate_screen_origin(), _set("VX", "B_SYSVAR[12]"), _set("VY", "B_SYSVAR[13]"),
           _stmt(f"{L('ST')} const(0) B_EQ"), (JMP_IFNOT, "opened"),
-          # ---- open: lock, THEN take the camera where it is (rung 0's order), and pick this camera's box
-          _set("RT", "const(0)"),
+          # ---- open: lock, THEN take the camera where it is (rung 0's order), and pick this camera's box. A tracking
+          # glide still counting (RT > 0) is inert while open: only the closed path re-issues, and the close resets RT.
           opcodes.encode(0x2D),
           opcodes.move_camera(_x(L("VX")), _x(L("VY")), 1, 0),
           _set("CAM0", sys1),
@@ -512,12 +587,16 @@ def daemon_body(spec: PhotoSpec, parts, boxes) -> bytes:
           # ---- closed and not opening: the tracking release, one step a tick
           label("track"),
           _stmt(f"{L('RT')} const(0) B_NE"), (JMP_IFNOT, "tail"),
-          _stmt(f"{sys1} {L('CAM0')} B_EQ"), (JMP_IFNOT, "trackstop")]
+          _stmt(f"{sys1} {L('CAM0')} B_EQ"), (JMP_IFNOT, "retarget"),
+          label("chain")]
     for k, n in enumerate(RELEASE_TABLE[1:], 2):
         B += [_stmt(f"{L('RT')} const({k}) B_EQ"), (JMP_IFNOT, f"rel{k}"), opcodes.release_camera(n, 0),
               (JMP, "tail"), label(f"rel{k}")]
     B += [(JMP, "tail"),
-          label("trackstop"), _set("RT", "const(0)"), (JMP, "tail"),
+          # a camera switch mid-glide (a [[camera_zone]] the player walked into): keep tracking -- the next re-issue
+          # re-reads the follow point on the NEW camera and lands there (stopping would leave the last release gliding
+          # to the old camera's point, then snap)
+          label("retarget"), _set("CAM0", sys1), (JMP, "chain"),
           # ---- open: yield (a full close) when anything else takes over, else hide / grade / pan
           label("opened"),
           _stmt(f"{sys2} const(0) B_NE {sys1} {L('CAM0')} B_NE B_OROR Map.Bit[{SCENE_BIT}] const(0) B_NE B_OROR "
@@ -614,6 +693,8 @@ def audit_body(body: bytes, spec: PhotoSpec, parts, boxes) -> list:
                    f"{sorted(body[i.off + 2] for i in rc)}")
     if count.get(0x2D, 0) != 1 or count.get(0x2E, 0) != 1:
         bad.append("exactly one DisableMove and one EnableMove")
+    if count.get(0x04, 0) != 1:
+        bad.append("exactly one RETURN (the unreachable tail) -- a RETURN in the loop stops photo mode for the visit")
     for i in ops:
         if i.op == 0x14:
             lv, uid, tg = body[i.off + 2], body[i.off + 3], body[i.off + 4]
@@ -700,9 +781,9 @@ def _expr_texts(body: bytes, ins) -> list:
     return out
 
 
-def entry_bytes(spec: PhotoSpec, parts, boxes) -> bytes:
+def entry_bytes(spec: PhotoSpec, parts, boxes, lang: str = "us") -> bytes:
     """The seated code entry -- type 0, ONE tag-0 function at fpos 4 -- self-audited: raises :class:`PhotoError`."""
-    body = daemon_body(spec, parts, boxes)
+    body = daemon_body(spec, parts, boxes, lang)
     bad = audit_body(body, spec, parts, boxes)
     if bad:
         raise PhotoError("[photo]: the photo daemon failed its self-audit: " + "; ".join(bad[:4]))
@@ -732,9 +813,9 @@ def _free_pair(eb: bytes, entry: int) -> tuple:
     return t, t + 1
 
 
-def _target_law(eb: bytes, slot: int, name: str) -> list:
-    """A hide target's Init must finish (level 7 -- RunScriptSync(2, ...) is accepted only then): a SetModel, no
-    backward jump, a closing RETURN."""
+def _target_law(eb: bytes, slot: int, name: str, model: int | None = None) -> list:
+    """A hide target's Init must finish (level 7 -- RunScriptSync(2, ...) is accepted only then) and be the object the
+    toml names: a SetModel (of ``model`` when the build knows it -- THE SLOT-MAP LAW), no backward jump, a RETURN."""
     s = EbScript.from_bytes(eb)
     if not 0 <= slot < s.entry_count or s.entry(slot).size <= 0:
         return [f"hide {name!r}: slot {slot} does not exist"]
@@ -743,8 +824,12 @@ def _target_law(eb: bytes, slot: int, name: str) -> list:
         return [f"hide {name!r}: slot {slot} has no Init"]
     ops = list(D.iter_code(eb, f0.abs_start, f0.abs_end))
     out = []
-    if not any(i.op == _OP_SETMODEL for i in ops):
+    sm = [struct.unpack_from("<H", eb, i.off + 2)[0] for i in ops if i.op == _OP_SETMODEL and eb[i.off + 1] == 0]
+    if not sm:
         out.append(f"hide {name!r}: slot {slot}'s Init sets no model (THE SLOT-MAP LAW)")
+    elif model is not None and model not in sm:
+        out.append(f"hide {name!r}: slot {slot}'s Init sets model {sm[0]}, not the {model} the toml names (THE "
+                   f"SLOT-MAP LAW)")
     if any(i.op in (0x01, 0x03) and (D.jump_target(i) or 0) < i.off for i in ops):
         out.append(f"hide {name!r}: slot {slot}'s Init loops -- it never finishes, so a RunScriptSync on it waits "
                    f"for ever")
@@ -753,12 +838,16 @@ def _target_law(eb: bytes, slot: int, name: str) -> list:
     return out
 
 
+_KEY_READS = (0x59, 0x4F, 0x58)                  # B_KEY / B_KEYON / B_KEYOFF
+
+
 def _whole_script_laws(eb: bytes, photo_slot: int, spec: PhotoSpec) -> list:
     """CAMERA-OWNER (0x6F / 0x70 / 0xEA only in the photo entry; 0x71 only as EnableCameraServices(1, ...); 0x73 /
-    0x74 / 0x1E nowhere) and E-POLL (no key read outside the photo entry may test the open button, and none may take
-    a computed mask) on the FINAL bytes."""
+    0x74 / 0x1E nowhere) and E-POLL (no key read outside the photo entry may test the open button -- its logical bit
+    or, for a shoulder button, its physical twin -- and none may take a computed mask) on the FINAL bytes."""
     out = []
-    om = spec.mask("open_button")
+    ob = spec.buttons["open_button"]
+    om = BUTTONS[ob] | _PHYS_TWIN.get(ob, 0)
     s = EbScript.from_bytes(eb)
     for e in s.entries:
         if e.size <= 0 or e.index == photo_slot:
@@ -777,22 +866,37 @@ def _whole_script_laws(eb: bytes, photo_slot: int, spec: PhotoSpec) -> list:
                     if not toks:
                         continue
                     for n, (op, _v) in enumerate(toks):
-                        if op in (0x59, 0x4F):             # B_KEY / B_KEYON
+                        if op in _KEY_READS:
                             prev = toks[n - 1] if n else (None, None)
                             if prev[0] not in (0x7D, 0x7E):
                                 out.append(f"{where} reads a key with a computed mask -- it may be photo mode's "
                                            f"open button (E-POLL)")
                             elif int(prev[1]) & om:
-                                out.append(f"{where} also polls the open button {spec.buttons['open_button']!r} "
-                                           f"(E-POLL) -- one press would open photo mode and fire it")
+                                out.append(f"{where} also polls the open button {ob!r} (E-POLL) -- one press would "
+                                           f"open photo mode and fire it")
     return out
 
 
-def arm(eb: bytes, raw: dict, *, prop_seats, npc_slots, donor=None) -> tuple:
-    """Seat and arm the photo daemon (LAST in build_script). ``prop_seats`` = [(prop dict, model, slot)] from the
-    build's [[prop]] loop; ``npc_slots`` = {npc name: slot}. Returns (bytes, daemon slot, report lines). Raises
-    :class:`PhotoError` on any law."""
+def _seat_daemon(eb: bytes, entry: bytes) -> tuple:
+    """Seat the daemon in the first free slot that is not 64 above a STARTSEQ entry (THE 64-STRIDE LAW: a Seq there
+    takes uid slot and disposes the object), so a ladder in the player entry never refuses a field another slot fits."""
     from . import motion as _motion, object as _object
+    s = EbScript.from_bytes(eb)
+    free = [e.index for e in s.entries if e.empty] + list(range(s.entry_count, 250))   # append_entry grows the table
+    for slot in free:
+        if not 1 <= slot <= 249:
+            continue
+        out, dslot = _object.seat_entry(eb, entry, loc=LOC, slot=slot)
+        if not _motion._stride_problems(out, dslot, "photo daemon"):
+            return out, dslot
+    raise PhotoError("[photo]: no free entry slot in 1..249 clears THE 64-STRIDE LAW for the photo daemon")
+
+
+def arm(eb: bytes, raw: dict, *, prop_seats, npc_slots, donor=None, lang: str = "us") -> tuple:
+    """Seat and arm the photo daemon (LAST in build_script). ``prop_seats`` = [(prop dict, model, slot)] from the
+    build's [[prop]] loop; ``npc_slots`` = {npc name: slot}; ``lang`` = this build's language (the jp daemon tests the
+    swapped Cancel bit). Returns (bytes, daemon slot, report lines). Raises :class:`PhotoError` on any law."""
+    from . import motion as _motion
     probs = problems(raw, donor=donor)
     if probs:
         raise PhotoError(probs[0])
@@ -805,23 +909,23 @@ def arm(eb: bytes, raw: dict, *, prop_seats, npc_slots, donor=None) -> tuple:
         if step == "all":
             continue
         if step == "player":
-            targets = [(pl, 250, "player")]
+            targets = [(pl, 250, "player", None)]
         elif _named(raw, "npc", step):
             slot = npc_slots.get(step)
             if slot is None:
                 raise PhotoError(f"[photo] hide {step!r}: the [[npc]] was not seated")
-            targets = [(slot, slot, step)]
+            targets = [(slot, slot, step, None)]
         else:
             p = _named(raw, "prop", step)[0][1]
-            mine = [slot for q, _mid, slot in prop_seats if q is p]
+            mine = [(slot, mid) for q, mid, slot in prop_seats if q is p]
             if not mine:
                 raise PhotoError(f"[photo] hide {step!r}: the [[prop]] was not seated")
-            targets = [(slot, slot, step) for slot in mine]
-        for entry, uid, name in targets:
+            targets = [(slot, slot, step, mid) for slot, mid in mine]
+        for entry, uid, name, model in targets:
             if uid != 250:
                 if not 1 <= uid <= 249:
                     raise PhotoError(f"[photo] hide {name!r}: slot {uid} is outside 1..249")
-                bad = _target_law(out, entry, name) + _motion._stride_problems(out, entry, "hide target")
+                bad = _target_law(out, entry, name, model) + _motion._stride_problems(out, entry, "hide target")
                 if bad:
                     raise PhotoError("[photo] " + "; ".join(bad))
                 slots.append(entry)
@@ -830,13 +934,8 @@ def arm(eb: bytes, raw: dict, *, prop_seats, npc_slots, donor=None) -> tuple:
             out = eb_edit.add_function(out, entry, st, flag_function(uid, show=True))
             parts.append(Part(step=t, uid=uid, entry=entry, hide_tag=ht, show_tag=st))
     boxes = [b.viewport for b in pan_boxes(raw)]
-    entry = entry_bytes(spec, parts, boxes)
-    out, dslot = _object.seat_entry(out, entry, loc=LOC)
-    if not 1 <= dslot <= 249:
-        raise PhotoError(f"[photo]: the daemon landed at slot {dslot}, outside 1..249")
-    bad = _motion._stride_problems(out, dslot, "photo daemon")
-    if bad:
-        raise PhotoError("[photo]: " + "; ".join(bad))
+    entry = entry_bytes(spec, parts, boxes, lang)
+    out, dslot = _seat_daemon(out, entry)
     main = EbScript.from_bytes(out).entry(0).func_by_tag(0)
     lasts = []
     for sl in slots:
@@ -844,6 +943,10 @@ def arm(eb: bytes, raw: dict, *, prop_seats, npc_slots, donor=None) -> tuple:
         if len(hits) != 1:
             raise PhotoError(f"[photo]: hide target slot {sl} must be created by exactly one InitObject in Main_Init, "
                              f"found {len(hits)} (THE ORDER LAW)")
+        if sl != pl and out[hits[0] + 2] not in (0, sl):  # InitObject(entry, uid): 0 = the entry's own slot; the
+            # player is addressed as uid 250 (controlUID), whatever its InitObject names
+            raise PhotoError(f"[photo]: hide target slot {sl} is created with uid {out[hits[0] + 2]} -- photo mode "
+                             f"addresses it as uid {sl}")
         lasts.append(hits[0])
     ins = next(i for i in D.iter_code(out, main.abs_start, main.abs_end) if i.off == max(lasts))
     out = eb_edit.insert_in_function(out, 0, 0, ins.end - main.abs_start, opcodes.init_code(dslot, 0))
@@ -852,10 +955,12 @@ def arm(eb: bytes, raw: dict, *, prop_seats, npc_slots, donor=None) -> tuple:
     bad += _whole_script_laws(out, dslot, spec)
     if bad:
         raise PhotoError("[photo]: " + "; ".join(bad[:3]))
-    return out, dslot, report_lines(spec, parts, boxes, dslot, len(entry))
+    return out, dslot, report_lines(spec, parts, boxes, dslot, len(entry), raw)
 
 
-def report_lines(spec: PhotoSpec, parts, boxes, slot: int, nbytes: int) -> list:
+def report_lines(spec: PhotoSpec, parts, boxes, slot: int, nbytes: int, raw: dict | None = None) -> list:
+    """What the build prints: the daemon, each hide step, and what is true of the field's cameras
+    (:func:`report_notes`: the pan box at 4:3 and 16:9, a widescreen-pinned X, several cameras, a live ticker)."""
     b = spec.buttons
     steps = ", ".join(spec.steps) if spec.steps else "none"
     out = [f"[photo] daemon entry {slot} ({LOC} B of locals, {nbytes} bytes): open {b['open_button']} after "
@@ -869,7 +974,9 @@ def report_lines(spec: PhotoSpec, parts, boxes, slot: int, nbytes: int) -> list:
         mine = [p for p in parts if p.step == t]
         where = ", ".join(f"tags {p.hide_tag}/{p.show_tag} on entry {p.entry}" for p in mine)
         out.append(f"[photo] hide {t + 1} {step!r}: flags ({where})")
-    for k, (lox, hix, loy, hiy) in enumerate(boxes):
-        out.append(f"[photo] camera {k}: the pan box X {lox}..{hix}, Y {loy}..{hiy} (4:3; the engine narrows X under "
-                   f"widescreen)")
+    if raw is not None:
+        out += report_notes(raw)
+    else:
+        for k, (lox, hix, loy, hiy) in enumerate(boxes):
+            out.append(f"[photo] camera {k}: the pan box X {lox}..{hix}, Y {loy}..{hiy} (4:3)")
     return out

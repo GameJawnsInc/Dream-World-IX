@@ -3,7 +3,8 @@ real built bytes.
 
   * THE DAEMON IS THE SPEC'S -- a built field carries exactly one entry equal to ``photo.entry_bytes`` over the hide
     targets' REAL slots and tags (read back off the built script: SetModel for the slots, the seated function bodies
-    for the tags), identical in every language, byte-identical on a rebuild, reporting once; THE ORDER LAW and the
+    for the tags), in the same slot in every language -- the jp daemon tests the swapped Cancel bit, every other
+    language's is the us one -- byte-identical on a rebuild, reporting once; THE ORDER LAW and the
     whole-script laws (CAMERA-OWNER, E-POLL) hold on the final bytes; and the SHIPPED daemon, run in
     ``_ebengine.FieldTickEngine`` with the SHIPPED hide/show functions, hides and exactly restores every target.
   * ONE REFUSAL TEXT -- a ``photo.problems`` refusal is in ``validate()``, in ``lint_all().errors`` and in
@@ -11,7 +12,8 @@ real built bytes.
   * BYTE IDENTITY -- a field without [photo] never reaches ``photo.arm`` (it is monkeypatched to raise) and the vivi-hut
     oracle still hashes to its manifest golden.
   * THE LAWS BITE on real bytes: a taken tag slides the pair, a planted EnableCameraServices(0) or a foreign poll of the
-    open button is refused, a raising lint hook hides neither the other hook nor motion's.
+    open button is refused, a target the daemon would misaddress (another model, an InitObject uid) is refused, and a
+    valid [photo] adds nothing to lint (it exits 1 on any note) while a raising lint hook is reported, not raised.
   * THE CAMPAIGN GUARD -- a FORKED member with [photo] is refused by ``lint_campaign`` (only the manifest can see it).
 
 Template-gated (THE WORKTREE SKIP TRAP): without the extracted blank-field template these WARN and skip.
@@ -174,17 +176,20 @@ def test_build_arms_the_specs_daemon(tmp_path, templates):
     parts = _parts(raw, us)
     assert [p.step for p in parts] == [0, 1, 1, 2, 3]                  # the save point is two parts
     boxes = [b.viewport for b in photo.pan_boxes(raw)]
-    want = photo.entry_bytes(photo.parse(raw), parts, boxes)
+    spec = photo.parse(raw)
+    want = photo.entry_bytes(spec, parts, boxes)
     dslot = _photo_entry(us, want)
     assert EbScript.from_bytes(us).entry(dslot).loc == photo.LOC
     slots = [photo.player_entry(us)] + [p.entry for p in parts if p.uid != 250]
     assert motion.arming_problems(us, dslot, slots, noun="hide target", why="x") == []
-    assert photo._whole_script_laws(us, dslot, photo.parse(raw)) == []
+    assert photo._whole_script_laws(us, dslot, spec) == []
 
-    # every language: the same daemon in the same slot, the same seated tags
+    # every language: its own daemon in the same slot, the same seated tags; only jp's differs (the Cancel swap)
     for lang, ebb in ebs.items():
         assert _parts(raw, ebb) == parts, lang
-        assert _photo_entry(ebb, want) == dslot, lang
+        assert _photo_entry(ebb, photo.entry_bytes(spec, parts, boxes, lang)) == dslot, lang
+    assert "jp" in ebs and photo.entry_bytes(spec, parts, boxes, "jp") != want
+    assert all(photo.entry_bytes(spec, parts, boxes, lang) == want for lang in ebs if lang != "jp")
     # a rebuild is byte-identical
     _r2, again = _build(tmp_path, _HEAD + _PHOTO, "again")
     assert again == ebs
@@ -193,8 +198,9 @@ def test_build_arms_the_specs_daemon(tmp_path, templates):
     for lang in LANGS:
         assert _errors(ebs[lang]) - _errors(plain[lang]) == Counter(), lang
     # the report, once each
-    want_lines = photo.report_lines(photo.parse(raw), parts, boxes, dslot, len(want))
+    want_lines = photo.report_lines(spec, parts, boxes, dslot, len(want), raw)
     assert [w for w in res.warnings if w.startswith("[photo]")] == want_lines
+    assert photo.box_lines(raw)[0] in want_lines
 
     # the SHIPPED daemon + the SHIPPED hide/show functions: open, hide every step, close -> an exact restore
     s = EbScript.from_bytes(us)
@@ -222,6 +228,19 @@ def test_build_arms_the_specs_daemon(tmp_path, templates):
     press("cancel")
     e.run(body, 30)
     assert e.objects == objects and e.usercontrol == 1
+
+    # the SHIPPED jp daemon closes on 0x20000 -- the bit the player's Cancel arrives as on that build
+    jp = FieldTickEngine(photo.LOC, CameraModel(boxes[0], lambda: (384, 286)), objects=dict(objects), functions=fns)
+    jbody = photo.entry_bytes(spec, parts, boxes, "jp")[6:]
+    jp.run(jbody, photo.SETTLE + 2)
+    for keys, n in ((photo.BUTTONS["select"], 2), (0, 3), (0x10000, 2), (0, 3)):
+        jp.keys = keys
+        jp.run(jbody, n)
+    assert jp.usercontrol == 0, "the jp daemon closed on 0x10000 -- on that build it is the Confirm that talks"
+    for keys, n in ((0x20000, 2), (0, 30)):
+        jp.keys = keys
+        jp.run(jbody, n)
+    assert jp.usercontrol == 1 and jp.objects == objects
 
 
 # ================================================================ one refusal text
@@ -295,7 +314,16 @@ def test_the_whole_script_laws_refuse_a_foreign_poll_or_camera_op(tmp_path, temp
         assert any(frag in p for p in photo._whole_script_laws(planted, dslot, spec)), frag
 
 
-def test_a_raising_photo_lint_hook_hides_nothing(tmp_path, monkeypatch):
+def test_a_valid_photo_adds_nothing_to_lint(tmp_path):
+    """[box lines as lint warnings] `ff9mapkit lint` exits 1 on any note: a valid [photo] must add none (its pan boxes
+    are in the build report)."""
+    plain = build.lint_all(_load(tmp_path, _HEAD, "plain"))
+    with_photo = build.lint_all(_load(tmp_path, _HEAD + _PHOTO, "photo"))
+    assert with_photo.tagged == plain.tagged and with_photo.ok == plain.ok
+    assert not any("[photo]" in n for n in with_photo.tagged), with_photo.tagged
+
+
+def test_a_raising_photo_lint_hook_is_reported_not_raised(tmp_path, monkeypatch):
     proj = _load(tmp_path, _HEAD + _PHOTO)
 
     def _boom(_raw):
@@ -303,8 +331,28 @@ def test_a_raising_photo_lint_hook_hides_nothing(tmp_path, monkeypatch):
 
     monkeypatch.setattr(photo, "lint_notes", _boom)
     rep = build.lint_all(proj)
-    assert any("[photo] lint could not finish" in n for n in rep.logic)
-    assert any(c.startswith("[photo] camera 0 768x448") for c in rep.camera)
+    assert any("[photo] lint could not finish: RuntimeError: boom" in n for n in rep.logic)
+
+
+def test_arm_refuses_a_target_it_would_misaddress(tmp_path, templates):
+    """[SetModel compare dropped] [InitObject uid unchecked] On real bytes: a prop slot whose Init sets another model
+    than the build seated there, or an InitObject that names another uid, would hide the wrong object or freeze."""
+    _r, ebs = _build(tmp_path, _HEAD, "plain")
+    ebb = ebs["us"]
+    raw = _load(tmp_path, _HEAD + '\n[photo]\nhide = ["bl", "player"]\n', "raw").raw
+    bl = next(q for q in raw["prop"] if q.get("name") == "bl")
+    m = prop_archetypes.resolve("balloon")[0]
+    (slot,) = _slots_by_model(ebb)[m]
+    seats = [(bl, m, slot)]
+    _out, dslot, lines = photo.arm(ebb, raw, prop_seats=seats, npc_slots={})
+    assert dslot > slot and lines[0].startswith("[photo] daemon")
+    with pytest.raises(photo.PhotoError, match="SLOT-MAP"):
+        photo.arm(ebb, raw, prop_seats=[(bl, m + 1, slot)], npc_slots={})
+    (off,) = [o for e, t, o in motion._calls(ebb, 0x09, slot) if (e, t) == (0, 0)]
+    planted = bytearray(ebb)
+    planted[off + 2] = 77
+    with pytest.raises(photo.PhotoError, match="created with uid 77"):
+        photo.arm(bytes(planted), raw, prop_seats=seats, npc_slots={})
 
 
 # ================================================================ the campaign guard

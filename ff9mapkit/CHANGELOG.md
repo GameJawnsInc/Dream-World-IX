@@ -12,12 +12,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   - **Hide (R1):** hides the next step of `hide`: the player, an `[[npc]]` or `[[prop]]` by name, then `"all"`.
   - **Grade (L1):** toggles a held warm tint.
   - **Close (Cancel):** puts back exactly what was hidden (an object already hidden stays hidden), clears the tint,
-    gives control back and eases the camera onto the player. The camera follows the player if he walks off at once,
-    so it lands on him with no snap.
+    gives control back and eases the camera onto the player. The camera follows the player if they walk off at once,
+    so it lands on them with no snap.
 
-  Every button is rebindable to Select, Cancel, L1, R1, L2 or R2.
+  Every button is rebindable: open to Select, L1, R1, L2 or R2; the others to those or Cancel. On the Japanese
+  build, where scripts see Cancel and Confirm swapped, the player's own Cancel still closes it.
 - **Safety.**
-  - It opens only after a second of player control, so never mid-cutscene, mid-dialogue or the instant one ends.
+  - It opens only after a second of player control, so never mid-cutscene, mid-dialogue (one that stops the player,
+    as dialogue does by default) or the instant one ends.
   - It closes itself with the same exact restore when anything else takes over: a script giving control back, a
     conductor scene starting, a camera switch.
   - It writes no story flag and no field variable (its state is its own script's locals).
@@ -25,14 +27,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **Refusals (one text in validate, `lint` and the build).** The first four are the hard ones:
   - forks (a donor, `[verbatim_eb]`, a borrowed camera or background; `lint-campaign` and `deploy_field` refuse the
     forked-member and live-donor-row cases);
-  - an open button another feature already polls on the field (`[ate]`, a hire pool, `[siege]`, or any poll the
-    build finds in the finished script);
-  - hide targets that do not exist the whole visit (flag- or scenario-gated, behavior units, carriers, held props);
+  - an open button another feature already polls on the field (`[ate]`, a hire pool, including one written as the
+    shoulder's physical int, or `[siege]`);
+  - hide targets that do not exist the whole visit, or can be busy when it opens (flag- or scenario-gated, behavior
+    units, carriers, held props, a `lock = false` NPC, an actor of a `[[cutscene]]` that leaves the player free);
   - a field where no camera can pan.
 
   Also refused: Start, Menu, the d-pad, Confirm and Special as photo buttons; `"all"` not last; more than 8 steps
-  or 15 objects. `lint` prints each camera's pan box for 4:3 and 16:9, and notes a 384-wide room whose X is pinned
-  under widescreen.
+  or 15 objects; a camera `range` / `viewport` of the wrong shape.
+- **The build re-checks the finished script** (build only): no other script moves the camera, switches camera
+  services off or polls the open button; each hide target is the object the toml names, created under its own slot.
+- **Reports:** the build prints each camera's pan box for 4:3 and 16:9 and notes a room whose X is pinned under
+  widescreen. `lint` adds only notes to act on (a `mask_buttons` that blocks opening or panning; `"all"` beside
+  pooled units), so a valid `[photo]` lints clean.
 - **Byte identity:** a field without `[photo]` never reaches its code, and the vivi-hut oracle is unchanged.
 - **Proof:**
   - **Rung 0** proved every mechanism with a study-local script, 154/154 checks over six harness runs, and the owner
