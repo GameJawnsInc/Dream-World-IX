@@ -4339,11 +4339,11 @@ def _motion_bob_notes(project: FieldProject) -> list:
             continue                                   # problems() reports it
         if spec is not None:
             specs.append(spec)
+    running = [q for s2 in specs for q in s2.periods]   # every clock the field runs now: none assumed freed
     out, planned = [], []                               # new periods earlier notes name: later notes share them
     for spec in specs:
-        others = [q for s2 in specs if s2 is not spec for q in s2.periods] + ([spec.period] if spec.period else [])
         try:
-            note, named = _motion.bob_advice(spec, views, clocks=others, planned=planned)
+            note, named = _motion.bob_advice(spec, views, clocks=running, planned=planned)
         except Exception:                               # noqa: BLE001 -- one mover's note never costs the others
             continue
         if note:

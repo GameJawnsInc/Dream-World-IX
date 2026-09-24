@@ -314,6 +314,12 @@ How it got here -- three adversarial reviews, each refuting the cut before it:
   inherits the motion period told the wrong key, and untested build wiring (depth, canvas size). All fixed and
   pinned; 16 new mutations (and the earlier ones re-expressed) each turn a test red, and two pieces of code the
   mutations showed were redundant (a snap memo, a path-overshoot term) were deleted.
+- its fix-verification (re-running all 15 reproductions: 10 fixed, 4 partly, 2 regressions) closed the rest: every
+  clock the field runs now counts as taken (a note reused a clock another note retires; one note's amp mixed with
+  another's period made 9) -- any mix of the notes' fixes is tested to stay within 8; a bob extreme behind a
+  camera's plane is infinite overshoot, so an amp can no longer lift a wide orbit off the only camera (a
+  regression of the arc rule); a flicker is reported whenever a camera shows the path (its note had vanished when
+  the bob left through the plane); the lap sampling is pinned against a 4096-point reference on non-axis cameras.
 
 The rule is the kit's MODEL, not a measurement of perception: the one owner observation behind it is the invisible
 +-60/256 cask (speed ratio 0.07). 30948 carries the owner's demo -- a cask on an r 200 orbit with +-120 every 32

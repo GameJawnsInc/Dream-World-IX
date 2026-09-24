@@ -525,8 +525,8 @@ class _Profile(NamedTuple):
     span: float                # the path's screen-vertical travel over the shown arc (field px)
     seen: bool                 # the camera shows some of the path: a lap point in front of it and on its canvas
                                # (offsets may still be empty: the bob leaves through its plane wherever it is shown)
-    front: bool                # wherever the path is shown, both bob extremes are in front of the camera too
-    overshoot: float           # how far (field px) the bob strays past the canvas, wherever it is in front
+    overshoot: float           # how far (field px) the bob strays past the canvas where the path is in front --
+                               # inf when a bob extreme is behind the camera's plane there (it comes back mirrored)
     behind: int                # lap points where the path itself is behind the camera's plane
 
 
@@ -564,7 +564,7 @@ def _profile(spec: MotionSpec, view: View, height: int, amp: int) -> _Profile:
             return 0.0
         return math.hypot(max(0.0, -u, u - size[0]), max(0.0, -v, v - size[1]))
     offs, spds, vs = [], [], []
-    shown, front, over, behind = False, True, 0.0, 0
+    shown, over, behind = False, 0.0, 0
     for x, z, dx, dz in _lap(spec):
         u, v, d = pt(x, height, z)
         if d <= BOB_NEAR:
@@ -572,13 +572,12 @@ def _profile(spec: MotionSpec, view: View, height: int, amp: int) -> _Profile:
             continue
         hu, hv, hd = pt(x, height + amp, z)
         lu, lv, ld = pt(x, height - amp, z)
-        over = max(over, *(off(a, b) for a, b, dd in ((hu, hv, hd), (lu, lv, ld)) if dd > BOB_NEAR))  # the path
-        #                   lies between its bob's extremes, so theirs bounds its own
+        crosses = min(hd, ld) <= BOB_NEAR                # the bob leaves through the camera's plane here
+        over = math.inf if crosses else max(over, off(hu, hv), off(lu, lv))   # the path lies between the extremes
         if off(u, v) > 0:
             continue                                     # the camera does not show the path here
         shown = True
-        if min(hd, ld) <= BOB_NEAR:
-            front = False                                # the bob leaves through the camera's plane here
+        if crosses:
             continue
         offs.append(abs(lv - hv) / 2)
         vs.append(v)
@@ -588,7 +587,7 @@ def _profile(spec: MotionSpec, view: View, height: int, amp: int) -> _Profile:
             spds.append(abs(v1 - v0) / (2 * eps))
         else:
             spds.append(0.0)
-    return _Profile(tuple(offs), tuple(spds), (max(vs) - min(vs)) if vs else 0.0, shown, front, over, behind)
+    return _Profile(tuple(offs), tuple(spds), (max(vs) - min(vs)) if vs else 0.0, shown, over, behind)
 
 
 def _reading(spec: MotionSpec, prof: _Profile, bob_period: int) -> BobReading:
@@ -650,10 +649,11 @@ def bob_note(spec: MotionSpec, views, *, clocks=None, planned=None) -> str | Non
 def bob_advice(spec: MotionSpec, views, *, clocks=None, planned=None) -> tuple:
     """(the lint advisory for a bob that will not read as one, or None; the NEW bob period it names, or None).
     ``views`` = one projector, or [:class:`View`] / [(name, projector[, size])] for a field with several cameras;
-    each judges the arc of the path it shows, and one that shows none of it is not judged. ``clocks`` = the periods
-    the field's OTHER channels already run; ``planned`` = new periods the notes for earlier movers name -- a named
-    period reuses one of those before it adds a clock, and never takes the field past CLOCKS_MAX even when every
-    note is applied. ONE note per mover: it names every camera the bob fails on, and only fixes that read on every
+    each judges the arc of the path it shows, and one that shows none of it is not judged. ``clocks`` = EVERY period
+    the field runs now (this mover's own bob included -- no note assumes a clock is freed, since another note may
+    reuse it or the author may take the amp fix instead); ``planned`` = new periods earlier movers' notes name. A
+    named period reuses one of those before it adds a clock, so applying any set of the notes' fixes stays within
+    CLOCKS_MAX. ONE note per mover: it names every camera the bob fails on, and only fixes that read on every
     camera that shows the fixed path, stay under the smoother's snap (its bound, exact or not), keep the bob's
     lowest point (above the floor if it was), never send the bob through a camera's plane, and never carry it
     further off a canvas than the author's own bob goes."""
@@ -668,12 +668,12 @@ def bob_advice(spec: MotionSpec, views, *, clocks=None, planned=None) -> tuple:
         except ZeroDivisionError:                      # a pose exactly on this camera's plane
             profs.append((v, None))
     judged = [(v, p) for v, p in profs if p is not None and p.offsets]   # a camera that shows the path and its bob
-    if not judged:
+    flicker = spec.bob_period < BOB_PERIOD_MIN            # camera-independent: reported wherever the path is shown
+    if not judged and not (flicker and any(p is not None and p.seen for _v, p in profs)):
         return None, None
-    flicker = spec.bob_period < BOB_PERIOD_MIN
     bad = [(v, p, _reading(spec, p, spec.bob_period)) for v, p in judged]
     bad = [b for b in bad if flicker or not b[2].reads]
-    if not bad:
+    if not bad and not flicker:
         return None, None
     names = [v.name for v, _p, _r in bad if v.name]
     on = (f" on {', '.join(names[:-1])} and {names[-1]}" if len(names) > 1 else
@@ -688,7 +688,7 @@ def bob_advice(spec: MotionSpec, views, *, clocks=None, planned=None) -> tuple:
 
     fixes, named = [], None
     inherited = spec.path is None and spec.turn is None and spec.period   # the bob rides the motion's own period
-    limit = min(_period_limit(spec, p) for _v, p, _r in bad)
+    limit = min((_period_limit(spec, p) for _v, p, _r in bad), default=math.inf)
     if limit >= BOB_PERIOD_MIN:
         own = math.floor(min(limit, PERIOD_MAX)) if limit < math.inf else None
         ladder = [TICKS_PER_SECOND << i for i in range(8)] if limit == math.inf and flicker else []  # 1 s, 2 s, ...
@@ -723,13 +723,16 @@ def bob_advice(spec: MotionSpec, views, *, clocks=None, planned=None) -> tuple:
                 except ZeroDivisionError:
                     ok = False
                     break
-                was = p if p is not None else _Profile((), (), 0.0, False, True, 0.0, 0)
-                if (p2.overshoot > was.overshoot + 1e-6 and was.seen) or p2.behind > was.behind:
-                    ok = False                           # the fix carries the prop further off this camera's canvas
-                    break                                # or behind its plane than the author's bob went
+                was = p if p is not None else _Profile((), (), 0.0, False, 0.0, 0)
+                # a fix that takes the prop out of a camera's view must carry its bob further off that canvas or
+                # through the plane (a real projection is monotone in height along a vertical line): both refused
+                if (was.seen and p2.overshoot > was.overshoot + 1e-6) or p2.behind > was.behind \
+                        or (p2.overshoot == math.inf and was.overshoot != math.inf):
+                    ok = False
+                    break
                 if not p2.seen:
-                    continue                             # this camera shows none of the fixed path either
-                if not (p2.front and p2.offsets and _reading(fixed, p2, spec.bob_period).reads):
+                    continue                             # this camera shows none of the fixed path, nor did it before
+                if not (p2.offsets and _reading(fixed, p2, spec.bob_period).reads):
                     ok = False
                     break
             if ok:
@@ -743,8 +746,8 @@ def bob_advice(spec: MotionSpec, views, *, clocks=None, planned=None) -> tuple:
         hs = {cdiv(SIN[_bob_angle(spec, k)] * spec.bob_amp, 4096) for k in range(spec.bob_period)}
         why = ("never leaves its height" if len(hs) == 1 else "flips between two heights every tick"
                if spec.bob_period == 2 else f"jitters {TICKS_PER_SECOND // spec.bob_period} times a second")
-        return (f"{what}: a {spec.bob_period}-tick bob {why} -- never a bob, on any camera; give it a period of "
-                f"{BOB_PERIOD_MIN} or more{tail}"), named
+        return (f"{what}: a {spec.bob_period}-tick bob {why} -- never a bob, on any camera"
+                + (tail if fixes else f"; give it a period of {BOB_PERIOD_MIN} or more")), named
     r = min((b[2] for b in bad), key=lambda x: (x.px >= BOB_SEEN_PX, x.ratio))
     if spec.path is None:
         return f"{what} moves it at most {_fmt_px(r.px)} field px{on} -- too small to see{tail}", named

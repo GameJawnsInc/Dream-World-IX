@@ -1419,7 +1419,7 @@ def test_every_fix_a_note_names_really_works(motion, bench_view):
         assert M.max_step(fixed)[0] < M.SNAP_UNITS, (note, fixed)
         prof = M._profile(fixed, bench_view, fixed.height, fixed.bob_amp)
         orig = M._profile(s, bench_view, s.height, s.bob_amp)
-        assert prof.front and prof.overshoot <= orig.overshoot + 1e-6, (note, fixed, prof.overshoot, orig.overshoot)
+        assert prof.seen and prof.overshoot <= orig.overshoot + 1e-6, (note, fixed, prof.overshoot, orig.overshoot)
         assert M.bounds(fixed)["h"][0] >= min(0, s.height - s.bob_amp), (note, M.bounds(fixed))  # its lowest point
 
 
@@ -1434,7 +1434,7 @@ def test_a_fix_never_carries_the_prop_behind_the_camera_or_off_the_canvas(bench_
     assert "a bob period of" in note and "an amp of" not in note, note
     big = dataclasses.replace(s, bob_amp=3000, height=3000)
     prof = M._profile(big, bench_view, 3000, 3000)
-    assert not prof.front or prof.overshoot > 0                  # what the amp search refused
+    assert not prof.seen or prof.overshoot > 0                   # what the amp search refused
 
 
 def test_a_named_period_never_takes_the_field_past_its_clocks():
@@ -1676,3 +1676,57 @@ def test_a_fix_never_carries_the_path_behind_a_camera():
     assert int(re.search(r"with height (\d+)", M.bob_note(s, cam1)).group(1)) > 1200
     note = M.bob_note(s, [cam0, cam1])
     assert "does not read as a bob on camera 1:" in note and "an amp of" not in note, note
+
+
+@pytest.mark.parametrize("motion", [
+    {"height": 150, "bob": {"amp": 8191, "period": 2}},
+    {"radius": 10, "period": 127, "height": 150, "bob": {"amp": 8191, "period": 2}},
+    {"height": 150, "bob": {"amp": 8191, "period": 3}},
+], ids=["p2_bob_only", "p2_tiny_orbit", "p3_bob_only"])
+def test_a_flicker_is_reported_even_when_its_bob_leaves_through_the_camera(motion, bench_view):
+    """[review 4 fix-verify: a 2- or 3-tick bob whose extremes pass behind the camera wherever the path is shown lost
+    its note -- the flicker branch sat behind the 'no camera judges the bob' exit] A flicker is camera-independent:
+    it is reported whenever a camera shows the path."""
+    s = _spec(motion)
+    prof = M._profile(s, bench_view, s.height, s.bob_amp)
+    assert prof.seen and not prof.offsets                    # shown, but the bob leaves through the plane everywhere
+    note = M.bob_note(s, bench_view)
+    assert note and "never a bob" in note, note
+
+
+@pytest.mark.parametrize("pitch, yaw, motion", [
+    (30, 45, {"radius": 600, "period": 64, "height": 150, "bob": {"amp": 30, "period": 16}}),
+    (30, 60, {"radius": 200, "period": 64, "height": 150, "bob": {"amp": 30, "period": 16}}),
+    (48, 135, {"radius": 300, "period": 128, "height": 150, "bob": {"amp": 90, "period": 26}}),
+    (30, 200, {"to": [700, -300], "period": 96, "height": 150, "bob": {"amp": 40, "period": 20}}),
+], ids=["p30y45", "p30y60", "p48y135", "p30y200_shuttle"])
+def test_the_lap_sampling_matches_a_fine_reference(tmp_path, pitch, yaw, motion):
+    """[review 4 claims-6, then its fix-verify: 16 lap samples still passed every test and named fixes the 256-point
+    law rejects] On non-axis cameras the reading at BOB_LAP_SAMPLES agrees with a 4096-point reference within 0.5%."""
+    from ff9mapkit.scene import cam as C
+    import unittest.mock as um
+    toml = (_STUDY / "bench" / "sine1.field.toml").read_text(encoding="utf-8").replace(
+        "pitch = 48.0", f"pitch = {pitch}.0\nyaw = {yaw}")
+    (tmp_path / "art").mkdir()
+    p = tmp_path / "y.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    c = build.resolve_camera(build.FieldProject.load(p))
+    view = M.View("", C.canvas_projector(c, depth=True), (float(c.range[0]), float(c.range[1])))
+    s = _spec(motion)
+    r = M.bob_reading(s, view)
+    with um.patch.object(M, "BOB_LAP_SAMPLES", 4096):
+        ref = M.bob_reading(s, view)
+    assert r.ratio == pytest.approx(ref.ratio, rel=0.005) and r.px == pytest.approx(ref.px, rel=0.005), (r, ref)
+
+
+def test_a_fix_never_lifts_the_path_off_the_only_camera(bench_view):
+    """[review 4 fix-verify regression: an amp fix was accepted that lifted a wide orbit's whole path off the only
+    camera's canvas and put the bob's top behind its plane -- a camera that stopped showing the path was skipped]
+    Out-travelling this orbit would take the prop out of the picture, and no period helps a sub-pixel bob: the note
+    says so and names no fix."""
+    s = _spec({"radius": 1500, "period": 128, "height": 0, "bob": {"amp": 20, "period": 256}})
+    assert M._profile(s, bench_view, s.height, s.bob_amp).seen
+    note = M.bob_note(s, bench_view)
+    assert "too small to see" in note and "an amp of" not in note, note
+    lifted = M._profile(M._replace(s, bob_amp=3371, height=3351), bench_view, 3351, 3371)   # what used to be named
+    assert not lifted.seen and lifted.overshoot == math.inf

@@ -943,8 +943,8 @@ up-and-down to fold into, so its bob reads once it moves the prop a visible amou
 3 ticks is a flicker, never a bob. lint judges every bob through each of the field's cameras that shows
 the prop and gives one note per prop, naming the cameras it fails on and only fixes it has checked on
 every camera that shows the fixed prop: the longest bob period that reads (a period the field already
-runs, or one another prop's note names, when a new one would pass the field's 8 -- so applying every
-note stays within them), or a larger amp with the height that keeps the bob's lowest point (above the
+runs, or one another prop's note names, when a new one would pass the field's 8 -- so any mix of the
+notes' fixes stays within them), or a larger amp with the height that keeps the bob's lowest point (above the
 floor, if it was). A fix never snaps, never carries the prop behind a camera, and never takes it
 further off a camera's canvas than the author's own bob goes.
 

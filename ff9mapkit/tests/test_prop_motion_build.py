@@ -759,3 +759,49 @@ def test_lint_judges_a_path_through_the_camera_plane_on_what_it_shows(tmp_path):
         assert got == [motion.bob_note(motion.parse(proj.raw["prop"][0], 0), view, clocks=[256])], got
         notes.append(re.sub(r"\d+(?:\.\d+)?", "N", got[0]))
     assert notes[0] == notes[1] and "an amp of" not in notes[2], notes
+
+
+_ALT = re.compile(r"a (?:bob|motion) period of (\d+)|an amp of (\d+)(?: with height (\d+))?")
+
+
+def _choices(note):
+    """Every way an author can act on a note: ignore it, or take one of the fixes it offers."""
+    return [None] + [(int(bp),) if bp else (None, int(amp), int(h) if h else None) for bp, amp, h in _ALT.findall(note)]
+
+
+@pytest.mark.parametrize("spins, movers", [
+    ((400, 500, 600, 700, 800),                              # the cask's own clock is the one the balloon is told
+     [("cask", (-500, -1100), "{ radius = 300, period = 128, height = 150, bob = { amp = 60, period = 256 } }"),
+      ("balloon", (500, -1100), "{ radius = 300, period = 512, height = 150, bob = { amp = 300, period = 400 } }")]),
+    ((257, 300, 400, 500, 600, 700),                        # one note's amp with the other's period
+     [("cask", (-500, -1100), "{ radius = 300, period = 128, height = 150, bob = { amp = 60, period = 256 } }"),
+      ("balloon", (500, -1100), "{ radius = 300, period = 128, height = 150, bob = { amp = 70, period = 257 } }")]),
+    ((200, 300, 400, 500, 600, 256),                        # a note reusing a clock the other note retires
+     [("cask", (0, -1100), "{ radius = 300, period = 128, height = 150, bob = { amp = 20, period = 12 } }"),
+      ("balloon", (500, -1500), "{ radius = 200, period = 128, height = 150, bob = { amp = 60, period = 200 } }")]),
+], ids=["reuse_a_retiring_clock", "mixed_alternatives", "reuse_what_another_retires"])
+def test_any_mix_of_the_notes_fixes_stays_within_the_clocks(tmp_path, spins, movers):
+    """[review 4 two-notes-ninth-clock, and its fix-verify's variants: a note reused a clock another note retires, or
+    one note's amp was mixed with another's period, and the field reached 9 clocks] Every clock the field runs counts
+    as taken, so EVERY combination of the notes' offered fixes -- each ignored or taken -- stays within CLOCKS_MAX."""
+    import itertools
+    sp = [(n, (-1000 + 280 * i, -300), "", f'{{ turn = "spin", period = {per} }}')
+          for i, (n, per) in enumerate(zip(("scroll", "letter", "chest", "sword", "fish", "book"), spins))]
+    base = [(n, pos, "collision = false\nshadow = false", mo) for n, pos, mo in movers]
+    proj = _load(tmp_path, _toml(sp + base), "base")
+    assert not [e for e in build.lint_all(proj).errors if "distinct periods" in e]
+    notes = {m[0]: n for m in base for n in build.lint_all(proj).logic if n.startswith(f"[[prop]] '{m[0]}' motion: its bob")}
+    assert notes, "the shape must produce notes"
+    options = [_choices(notes[m[0]]) if m[0] in notes else [None] for m in base]
+    for k, combo in enumerate(itertools.product(*options)):
+        applied = []
+        for (n, pos, extra, mo), ch in zip(base, combo):
+            if ch and len(ch) == 1:
+                mo = re.sub(r"bob = \{ amp = (\d+), period = \d+ \}", rf"bob = {{ amp = \1, period = {ch[0]} }}", mo)
+            elif ch:
+                mo = re.sub(r"bob = \{ amp = \d+,", f"bob = {{ amp = {ch[1]},", mo)
+                if ch[2] is not None:
+                    mo = re.sub(r"height = \d+", f"height = {ch[2]}", mo)
+            applied.append((n, pos, extra, mo))
+        errs = build.lint_all(_load(tmp_path, _toml(sp + applied), f"c{k}")).errors
+        assert not [e for e in errs if "distinct periods" in e], (combo, notes, errs)

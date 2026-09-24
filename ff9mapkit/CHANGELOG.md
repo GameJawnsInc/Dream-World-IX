@@ -21,7 +21,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   up-and-down is faster on screen than the path's at every point of the lap, or out-travels the path's; a 2- or
   3-tick bob is a flicker. lint judges every bob on the part of its path each camera shows, and gives one note
   per prop with only fixes it has checked on every camera that shows the fixed prop: the longest bob period that
-  reads (never a 9th clock, even with every note applied), or a larger amp that keeps the bob's lowest point,
+  reads (never a 9th clock, whatever mix of the notes' fixes is applied), or a larger amp that keeps the bob's lowest point,
   never snapping, crossing a camera's plane or straying further off a canvas than the author's bob. A legal
   16-mover field on 8-16 cameras lints in a few seconds. `docs/FORMAT.md` § A bob that reads.
 - **In-game proof that the height is drawn** (bench 30948): a prop held at height 300 draws 76 px above the
