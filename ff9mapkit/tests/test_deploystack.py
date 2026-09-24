@@ -641,3 +641,19 @@ def test_registry_readers_tolerate_a_utf8_bom(tmp_path):
     # (fork_donor_blocks_at is NOT asserted here: it consumes column 1 only, so a BOM on column 0 never
     # reached its output -- the assertion passed on the plain-utf-8 tree too. The BOM'd ForkDonorPatch
     # case that CAN fail is build._foreign_donor_lines, pinned in test_dictpatch.py.)
+
+
+def test_fork_donor_rows_for_reads_every_stacked_folder_and_the_target(tmp_path):
+    """[review: THE NOVEL-FIELD LAW at deploy] A row for the id in ANY stacked folder (or the deploy's own target,
+    stacked or not) is reported; a row for another id (even a prefix: 3095 vs 30950) is not; a folder outside the
+    stack is not loaded by the engine and not read."""
+    from ff9mapkit.deploystack import fork_donor_rows_for
+    (tmp_path / "Memoria.ini").write_text('[Mod]\nFolderNames = "Hi", "Lo"\n', encoding="utf-8")
+    for f, text in (("Hi", "3095 1207\n"), ("Lo", "# a note\n30950 2456 # a campaign fork\n"),
+                    ("Target", "30950 1860\n"), ("Unstacked", "30950 103\n")):
+        (tmp_path / f).mkdir()
+        (tmp_path / f / "ForkDonorPatch.txt").write_text(text, encoding="utf-8")
+    got = fork_donor_rows_for(tmp_path, 30950, extra=["Target"])
+    assert [f for f, _r in got] == ["Lo", "Target"] and got[0][1].split()[:2] == ["30950", "2456"]
+    assert fork_donor_rows_for(tmp_path, 30951, extra=["Target"]) == []
+    assert fork_donor_rows_for(tmp_path / "nowhere", 30950) == []

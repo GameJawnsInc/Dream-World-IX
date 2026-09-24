@@ -19,6 +19,7 @@ PRE  P0 30946 and 30947 are each served by FF9CustomMap alone
 C0   COVERAGE: W1 holds >= 150 distinct K spanning > 256 ticks and all 16 phase bins of B's 256-tick bob
 C1   EXACT: every mirror == pose(K) (x, b, z, facing byte) in every 30946 window -- worst error 0
 C2   STILL: D and G (no turn) keep their spawn facing; the control H == its spawn (x, 0, z, 64) in every sample
+     (on K 0 its y is still CreateObject's 32768 placeholder -- sine1_bench.expected predicts it)
 C3   PHASE LOCK: B is A's antipode in every sample (one shared clock)
 C4   FIRST FRAME / THE ORDER LAW: the FIRST band == pose(0) -- tick 0 landed after CreateObject, before any later
      entry ran (the band is poked to a sentinel first, so the read needs a fresh write)
@@ -328,7 +329,7 @@ def run(g) -> None:
     still = [(k, e) for k, e in still if e]
     g.check(n > 0 and not still,
             "C2: STILL -- D and G (no turn) keep their spawn facing and the control H == its spawn (x, 0, z, 64) in "
-            "every sample (the daemon writes only what a mover asks for)", str(still[:4]))
+            "every sample, y the CreateObject placeholder on K 0 (the daemon writes only what a mover asks for)", str(still[:4]))
     cx, cz = SB.SPECS["A"].pos
     anti = [k for k, m in visit1.items() if abs((m[("A", 0)] - cx) + (m[("B", 0)] - cx)) > 1
             or abs((m[("A", 2)] - cz) + (m[("B", 2)] - cz)) > 1]

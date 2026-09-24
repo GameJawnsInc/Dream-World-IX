@@ -64,7 +64,7 @@ VOCAB = {
     'playable.abilities.command2.abilities': ('animation1', 'animation2', 'camera', 'category', 'default_ally', 'default_on_dead', 'element', 'elements', 'for_dead', 'menu_window', 'mp', 'power', 'rate', 'script', 'script_id', 'targets', 'type', 'vfx1', 'vfx2'),
     'playable.abilities.learn': ('ability', 'ap'),
     'player': ('arrival', 'face', 'locked_entrances', 'model', 'shadow', 'spawn'),
-    'prop': ('attach_to', 'bone', 'box', 'collision', 'dialogue', 'duration', 'face', 'flag', 'hold', 'holds', 'instant', 'lock', 'lock_menu', 'model', 'motion', 'name', 'no_focus', 'no_turbo', 'options', 'pos', 'pose', 'prop', 'requires_flag', 'requires_flag_clear', 'set_flag', 'set_flags', 'shadow', 'signal', 'speed', 'steps', 'tail', 'window_pos'),
+    'prop': ('attach_to', 'bone', 'box', 'collision', 'dialogue', 'duration', 'face', 'flag', 'hold', 'instant', 'lock', 'lock_menu', 'model', 'motion', 'name', 'no_focus', 'no_turbo', 'options', 'pos', 'pose', 'prop', 'requires_flag', 'requires_flag_clear', 'set_flag', 'set_flags', 'shadow', 'signal', 'speed', 'steps', 'tail', 'window_pos'),
     'prop.motion': ('bob', 'height', 'period', 'phase', 'radius', 'reverse', 'swing', 'to', 'turn'),
     'prop.motion.bob': ('amp', 'period', 'phase'),
     'savepoint': ('act', 'act_hop_to', 'act_text', 'bubble', 'cancel_row', 'confirm', 'dialogue', 'latch', 'lock', 'lock_menu', 'menu_pos', 'mognet', 'moogle', 'no_row', 'no_tent', 'party', 'party_locked', 'party_min', 'party_row', 'pos', 'prompt', 'reveal_container', 'reveal_from', 'reveal_height', 'reveal_sfx', 'reveal_steps', 'reveal_style', 'save_row', 'shadow', 'shop', 'shop_row', 'speaker', 'tail', 'tent', 'tent_no', 'tent_prompt', 'tent_row', 'tent_yes', 'yes_row', 'zone'),

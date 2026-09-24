@@ -4273,9 +4273,11 @@ def lint_behavior_compile(project: FieldProject) -> list[str]:
 
 def _motion_floor_notes(project: FieldProject) -> list:
     """[[prop]] motion's ``height`` is ABSOLUTE (0 = the y-0 plane, the flat floor rung 1 proved): a mover whose path
-    runs over walkmesh that is NOT at y 0 is untested -- it may float or sink. An advisory, sampled at the anchor and
-    16 points of each mover's path over its own period; off-mesh points are skipped (a pathing-off prop needs no
-    floor). Never raises (lint's contract)."""
+    runs over walkmesh that is NOT at height 0 is untested -- it may float or sink. An advisory, sampled at 16 points
+    of each mover's path over its own period plus the anchor when the prop stands on it (a shuttle's start, a bob's
+    spot -- never an orbit's centre, which the prop circles and never crosses); off-mesh points are skipped (a
+    pathing-off prop needs no floor). The walkmesh y is up-NEGATIVE, so it is printed as ``height`` = -y, the
+    number the author would write. Never raises (lint's contract)."""
     if not _motion.any_motion(project.raw):
         return []
     try:
@@ -4293,13 +4295,14 @@ def _motion_floor_notes(project: FieldProject) -> list:
         if spec is None or not spec.moves:
             continue
         per = spec.period or 1
-        pts = [spec.pos] + [(q.x, q.z) for q in (_motion.pose(spec, n * per // 16) for n in range(16))]
-        ys = sorted({round(h) for x, z in pts for _t, h in idx.at(x, z)})
-        off = [y for y in ys if y != 0]
+        anchor = [] if spec.path == "orbit" else [spec.pos]
+        pts = anchor + [(q.x, q.z) for q in (_motion.pose(spec, n * per // 16) for n in range(16))]
+        hs = sorted({-round(h) for x, z in pts for _t, h in idx.at(x, z)})
+        off = [h for h in hs if h != 0]
         if off:
-            out.append(f"{spec.label} motion runs over walkmesh at y {off[:4]} -- motion height is ABSOLUTE (0 = the "
-                       f"y-0 plane) and only a flat y-0 floor is proven in-game; check the prop in-game before relying "
-                       f"on it")
+            out.append(f"{spec.label} motion runs over walkmesh at height {off[:4]} (up-positive, the motion height "
+                       f"that sits on it) -- motion height is ABSOLUTE (0 = the y-0 plane) and only a flat height-0 "
+                       f"floor is proven in-game; check the prop in-game before relying on it")
     return out
 
 
@@ -4324,8 +4327,11 @@ def lint_all(project: FieldProject) -> LintReport:
     rep.logic.extend(lint_entry_settle(project))          # settle honesty: verbatim dead-key / bad value / multicam
     rep.logic.extend(lint_text_block(project))            # a REAL location's block -> its dialogue is overwritten
     rep.logic.extend(_summon.lint_notes(project.raw.get("summon", [])))  # cast-trigger (vfx1) reminder + ignored cross-lane keys
-    rep.logic.extend(_motion.lint_notes(project.raw))     # a mover faster than the smoother interpolates
-    rep.logic.extend(_motion_floor_notes(project))        # a mover over a floor that is not at y 0
+    try:                                                  # lint never raises: a motion hook that does is a note
+        rep.logic.extend(_motion.lint_notes(project.raw))  # a mover faster than the smoother interpolates
+        rep.logic.extend(_motion_floor_notes(project))     # a mover over a floor that is not at height 0
+    except Exception as e:                                # noqa: BLE001
+        rep.logic.append(f"[[prop]] motion lint could not finish: {type(e).__name__}: {e}")
     _lint_scripts_toolchain(project, rep.errors)          # a scripted ability needs a C# compiler -> fail at lint, not mid-build
     # `lint` runs against arbitrary user TOML + (for forks) game-derived binaries, so resolving the
     # camera/walkmesh can fail in many ways (a missing borrow .bgx -> FileNotFoundError, a malformed quad

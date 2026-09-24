@@ -404,7 +404,44 @@ def test_lint_warns_a_mover_over_a_floor_not_at_y0(tmp_path):
                            'obj = "raised.obj"\nframe = "world"')
     proj = _load(tmp_path, _toml(mover, head=raised), "raised")
     (tmp_path / "raised" / "raised.obj").write_text(_RAISED_OBJ, encoding="utf-8")
-    notes = [n for n in build.lint_all(proj).logic if "runs over walkmesh at y" in n]
-    assert len(notes) == 1 and "'balloon'" in notes[0] and "-600" in notes[0], notes
+    notes = [n for n in build.lint_all(proj).logic if "runs over walkmesh at height" in n]
+    # the walkmesh y is up-NEGATIVE: y -600 is 600 up, the height = 600 an author would write (the [[jump]] rule)
+    assert len(notes) == 1 and "'balloon'" in notes[0] and "height [600]" in notes[0], notes
+    assert "-600" not in notes[0]
     flat = _load(tmp_path, _toml(mover), "flat")
-    assert not [n for n in build.lint_all(flat).logic if "runs over walkmesh at y" in n]
+    assert not [n for n in build.lint_all(flat).logic if "runs over walkmesh at height" in n]
+
+
+# a y-0 floor with a small platform 200 up (y -200) over the orbit's centre -- the orbit (r 300) never crosses it
+_RING_OBJ = ("v -1400 0 -100\nv 1400 0 -100\nv 1400 0 -2000\nv -1400 0 -2000\n"
+             "v -100 -200 -700\nv 100 -200 -700\nv 100 -200 -900\nv -100 -200 -900\n"
+             "f 1 2 3\nf 1 3 4\nf 5 6 7\nf 5 7 8\n")
+
+
+def test_lint_floor_note_skips_an_orbits_centre(tmp_path):
+    """[review: the orbit centre is not on the path] An orbit around a raised centre, whose whole path is over the
+    height-0 floor, gets no advisory; a bob-only mover standing ON the platform (its anchor is its spot) does."""
+    ring = _HEAD.replace('quad = [[-1400, -100], [1400, -100], [1400, -2000], [-1400, -2000]]',
+                         'obj = "ring.obj"\nframe = "world"')
+    orbit = [("balloon", (0, -800), "collision = false\nshadow = false",
+              '{ radius = 300, period = 128, height = 150, turn = "travel" }')]
+    proj = _load(tmp_path, _toml(orbit, head=ring), "orbit")
+    (tmp_path / "orbit" / "ring.obj").write_text(_RING_OBJ, encoding="utf-8")
+    assert not [n for n in build.lint_all(proj).logic if "runs over walkmesh" in n]
+    spot = [("balloon", (0, -800), "collision = false\nshadow = false", '{ height = 250, bob = { amp = 20, period = 60 } }')]
+    proj2 = _load(tmp_path, _toml(spot, head=ring), "spot")
+    (tmp_path / "spot" / "ring.obj").write_text(_RING_OBJ, encoding="utf-8")
+    notes = [n for n in build.lint_all(proj2).logic if "runs over walkmesh" in n]
+    assert len(notes) == 1 and "200" in notes[0], notes
+
+
+def test_lint_reports_a_malformed_prop_key_instead_of_raising(tmp_path):
+    """[review: lint's never-raise contract] A mover with a non-integer ``face`` used to escape parse() as a bare
+    ValueError, so lint_all (and every deploy's lint) died with a traceback. It is now one refusal, reported."""
+    bad = [("balloon", (0, -800), 'collision = false\nshadow = false\nface = "north"',
+            '{ radius = 300, period = 128, height = 150, turn = "travel" }')]
+    proj = _load(tmp_path, _toml(bad), "bad")
+    rep = build.lint_all(proj)                                   # must not raise
+    hits = [n for n in [*rep.errors, *rep.logic] if "face must be an integer" in n]
+    assert hits, (rep.errors, rep.logic)
+    assert not [n for n in rep.logic if "could not finish" in n]

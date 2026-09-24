@@ -496,3 +496,21 @@ def test_every_tool_side_patch_file_read_decodes_utf8_sig():
             if patchy.search(ln) and 'encoding="utf-8")' in ln and "read_text" in ln:
                 bad.append(f"{f.name}:{i}: {ln.strip()[:100]}")
     assert not bad, "patch-file reads still decoding plain utf-8 (use utf-8-sig):\n  " + "\n  ".join(bad)
+
+
+def test_a_motion_deploy_checks_the_live_fork_donor_rows_before_touching_anything():
+    """[review: THE NOVEL-FIELD LAW where the engine decides it] The build sees only the toml's own donor; a live
+    ForkDonorPatch row for the id (a campaign's fork left behind) would run the motion under that donor's
+    null-actor hotfixes. The guard is gated on motion, runs AFTER the prelude revert (which drops this id's own old
+    row) and BEFORE the folder lock (nothing live touched), and exits."""
+    tree = ast.parse(_SRC)
+    guard = _first_call_line(tree, lambda n: isinstance(n.func, ast.Name) and n.func.id == "fork_donor_rows_for")
+    run_ln = _first_call_line(tree, lambda n: isinstance(n.func, ast.Attribute) and n.func.attr == "run"
+                              and isinstance(n.func.value, ast.Name) and n.func.value.id == "subprocess")
+    lock_ln = _first_call_line(tree, lambda n: isinstance(n.func, ast.Name) and n.func.id == "locked_mod_folder")
+    assert run_ln < guard < lock_ln
+    ifs = [n for n in ast.walk(tree) if isinstance(n, ast.If) and n.lineno < guard <= max(
+        getattr(s, "end_lineno", s.lineno) for s in n.body) and "any_motion" in ast.unparse(n.test)]
+    assert ifs, "the fork-donor guard must be gated on motion.any_motion"
+    body = ast.unparse(ifs[0])
+    assert "sys.exit(2)" in body and "rmtree(tmp" in body

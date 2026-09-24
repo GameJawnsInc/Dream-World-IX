@@ -153,9 +153,14 @@ class MotionSpec:
 
     @property
     def far_end(self) -> tuple | None:
+        """The shuttle point farthest from ``pos`` that the path REACHES: ``to`` (1 short on an odd axis
+        difference) when the period is even at phase 0; short of it otherwise -- the clock never lands on the half
+        turn."""
         if self.path != "shuttle":
             return None
-        return (self.mid[0] + self.half[0], self.mid[1] + self.half[1])
+        far = max((pose(self, n) for n in range(self.period)),
+                  key=lambda p: (p.x - self.pos[0]) ** 2 + (p.z - self.pos[1]) ** 2)
+        return (far.x, far.z)
 
 
 def _label(prop: dict, idx: int) -> str:
@@ -194,10 +199,14 @@ def parse(prop: dict, idx: int) -> MotionSpec | None:
         raise MotionError(f"{where}: unknown key(s) {', '.join(unknown)} (have: {', '.join(_KEYS)})")
     if not m:
         raise MotionError(f"{where} is empty -- give at least one of radius, to, bob, turn")
-    pos = prop.get("pos") or []
-    if len(pos) < 2 or not (_is_int(pos[0]) and _is_int(pos[1])):
+    pos = prop.get("pos")
+    if not isinstance(pos, (list, tuple)) or len(pos) < 2 or not (_is_int(pos[0]) and _is_int(pos[1])):
         raise MotionError(f"{where}: the prop needs an integer pos = [x, z] (the motion's anchor)")
     px, pz = int(pos[0]), int(pos[1])
+    face0 = prop.get("face")
+    if face0 is not None and not _is_int(face0):
+        raise MotionError(f"{where}: face must be an integer facing byte (0 south, 64 west, 128 north, 192 east), "
+                          f"got {face0!r}")
 
     radius = m.get("radius")
     to = m.get("to")
@@ -292,7 +301,7 @@ def parse(prop: dict, idx: int) -> MotionSpec | None:
     spec = MotionSpec(idx=idx, label=lab, model=prop.get("prop", prop.get("model")), pos=(px, pz), path=path,
                       radius=r, mid=mid, half=half, period=per, phase_u=phase_u, reverse=reverse,
                       height=int(height), bob_amp=bob_amp, bob_period=bob_period, bob_phase_u=bob_phase_u,
-                      turn=turn, swing=int(swing or 0), face=int(prop.get("face") or 0) & 0xFF)
+                      turn=turn, swing=int(swing or 0), face=int(face0 or 0) & 0xFF)
     _co_rules(prop, spec)
     return spec
 
@@ -445,9 +454,19 @@ def bounds(spec: MotionSpec) -> dict:
     return {"x": (min(xs), max(xs)), "z": (min(zs), max(zs)), "h": (min(hs), max(hs))}
 
 
+STEP_EXACT_MAX = 16384                            # the joint cycle max_step walks tick by tick
+
+
+def step_is_exact(spec: MotionSpec) -> bool:
+    """True when :func:`max_step`'s 3-D step is the real largest step, False when it is an upper bound."""
+    return spec.cycle <= STEP_EXACT_MAX
+
+
 def max_step(spec: MotionSpec) -> tuple:
-    """(the largest per-tick 3-D step in world units, the largest per-tick facing change in bytes -- circular),
-    each channel over its own period; the 3-D step combines the channel maxima (an upper bound)."""
+    """(the largest per-tick 3-D step in world units, the largest per-tick facing change in bytes -- circular).
+    The facing is exact over the horizontal period (it depends on nothing else). The 3-D step is exact over the
+    joint cycle when that is at most STEP_EXACT_MAX ticks; past it (e.g. two coprime periods, ~67 M ticks) it
+    combines each channel's own maximum -- an UPPER BOUND (:func:`step_is_exact`)."""
     xz = fb = 0
     if spec.period:
         prev = pose(spec, 0)
@@ -457,6 +476,9 @@ def max_step(spec: MotionSpec) -> tuple:
             if spec.turns:
                 fb = max(fb, _circ(p.face, prev.face))
             prev = p
+    if step_is_exact(spec):
+        seq = [pose(spec, n) for n in range(spec.cycle + 1)]
+        return max(math.dist((a.x, a.b, a.z), (c.x, c.b, c.z)) for a, c in zip(seq, seq[1:])), fb
     dh = 0
     if spec.bob_amp:
         hs = [cdiv(SIN[_bob_angle(spec, n)] * spec.bob_amp, 4096) for n in range(spec.bob_period + 1)]
@@ -566,7 +588,7 @@ def audit_body(body: bytes, loc: int, uids) -> list:
     prelude_re = re.compile(r"Instance\.Int16\[(\d+)\] const\(0\) B_LET")
     advance_re = re.compile(r"Instance\.Int16\[(\d+)\] Instance\.Int16\[(\d+)\] const\(1\) B_PLUS "
                             r"const\((\d+)\) B_REM B_LET")
-    preludes, advances, waits, jumps, movers_at = {}, {}, [], [], []
+    preludes, advances, waits, jumps, movers_at, rets = {}, {}, [], [], [], []
     for ins in D.iter_code(body, 0, len(body)):
         if ins.op == 0x05:
             txt = D.pretty_expr(body, ins.off + 1)[0].strip().strip("{}").strip()
@@ -585,6 +607,8 @@ def audit_body(body: bytes, loc: int, uids) -> list:
             waits.append(ins)
         elif ins.op == 0x01:
             jumps.append(ins)
+        elif ins.op == 0x04:
+            rets.append(ins)
     for ins in D.iter_code(body, 0, len(body)):
         if ins.op not in DAEMON_OPS:
             bad.append(f"op 0x{ins.op:02X} at +{ins.off} is not a motion-daemon op")
@@ -629,6 +653,11 @@ def audit_body(body: bytes, loc: int, uids) -> list:
         if top <= first_pre or any(o < top for o in loop_ops) or (waits and waits[0].off < top):
             bad.append("the loop's JMP must return to just after the clock preludes (the preludes run once, "
                        "every mover op and clock advance runs every tick)")
+        end = jumps[0].off
+        if any(o > end for o in loop_ops) or (waits and waits[0].off > end):
+            bad.append("every mover op, clock advance and the Wait(1) must sit INSIDE the loop, before its JMP")
+        if any(r.off < end for r in rets):
+            bad.append("a RETURN inside the loop would stop the daemon -- only the unreachable tail may RETURN")
     if clock_offs != want:
         bad.append(f"the clocks sit at Instance byte offsets {sorted(clock_offs)}, not exactly {sorted(want)} "
                    f"(an Int16 index is a BYTE offset)")
@@ -828,13 +857,18 @@ def describe(spec: MotionSpec, uid: int | None = None) -> str:
         parts.append(f"turn {spec.turn}{f' +{spec.face}' if spec.face else ''}")
     b = bounds(spec)
     step, fb = max_step(spec)
+    exact = step_is_exact(spec)
     first = " ".join(f"({p.x},{p.height},{p.z},{'-' if p.face is None else p.face})" for p in path(spec, 0, 4))
-    snap = " -- SNAPS: over the smoother's 400 u / 45 deg per tick" if step >= SNAP_UNITS or fb >= SNAP_BYTES else ""
+    snap = ""
+    if fb >= SNAP_BYTES or (step >= SNAP_UNITS and exact):
+        snap = " -- SNAPS: over the smoother's 400 u / 45 deg per tick"
+    elif step >= SNAP_UNITS:
+        snap = " -- MAY SNAP: its step bound is over the smoother's 400 u per tick"
     who = f"{spec.label} motion" + (f" uid {uid}" if uid is not None else "")
     def rng(lo_hi):
         return f"{lo_hi[0]}" if lo_hi[0] == lo_hi[1] else f"{lo_hi[0]}..{lo_hi[1]}"
-    return (f"{who}: {'; '.join(parts)}; x {rng(b['x'])} z {rng(b['z'])} h {rng(b['h'])}; max {step:.1f} u, "
-            f"{fb} bytes/tick; ticks 0-3 (x,h,z,face): {first}{snap}")
+    return (f"{who}: {'; '.join(parts)}; x {rng(b['x'])} z {rng(b['z'])} h {rng(b['h'])}; "
+            f"max {'' if exact else '<= '}{step:.1f} u, {fb} bytes/tick; ticks 0-3 (x,h,z,face): {first}{snap}")
 
 
 def report_lines(movers, daemon_slot=None, loc=None) -> list:
@@ -859,8 +893,11 @@ def lint_notes(raw: dict) -> list:
         except MotionError:
             continue                                   # the error is reported by problems()
         step, fb = max_step(s)
-        if step >= SNAP_UNITS or fb >= SNAP_BYTES:
+        if fb >= SNAP_BYTES or (step >= SNAP_UNITS and step_is_exact(s)):
             out.append(f"{s.label} motion moves {step:.0f} u / turns {fb} bytes in one tick -- over the smoother's "
                        f"{SNAP_UNITS} u / {SNAP_BYTES} bytes, so it will visibly SNAP (slow it: a longer period or "
                        f"a smaller radius)")
+        elif step >= SNAP_UNITS:
+            out.append(f"{s.label} motion may move up to {step:.0f} u in one tick (a bound: its periods' joint cycle "
+                       f"is {s.cycle} ticks) -- over the smoother's {SNAP_UNITS} u, so it may visibly SNAP")
     return out

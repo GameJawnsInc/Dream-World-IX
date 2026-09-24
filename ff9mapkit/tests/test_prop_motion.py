@@ -248,6 +248,11 @@ _REFUSED = [
     ("a_list", [300, 128], {}, "must be a table"),
     ("pos_float", {"radius": 300, "period": 128}, {"pos": [0.5, -800]}, "needs an integer pos"),
     ("pos_missing", {"radius": 300, "period": 128}, {"pos": None}, "needs an integer pos"),
+    # [review] a malformed PROP-level key parse() reads is a MotionError, never a bare TypeError / ValueError
+    ("pos_scalar", {"radius": 300, "period": 128}, {"pos": 5}, "needs an integer pos"),
+    ("pos_string", {"radius": 300, "period": 128}, {"pos": "ab"}, "needs an integer pos"),
+    ("face_string", {"radius": 300, "period": 128, "turn": "travel"}, {"face": "north"}, "face must be an integer"),
+    ("face_float", {"radius": 300, "period": 128, "turn": "travel"}, {"face": 1.5}, "face must be an integer"),
 ]
 
 
@@ -614,6 +619,43 @@ def test_daemon_audit_bites(doctor, frag, monkeypatch):
     monkeypatch.setattr(M, "daemon_body", lambda movers: doctor + body)
     with pytest.raises(M.MotionError, match="failed its self-audit"):
         M.entry_bytes([(A, 7), (B, 8)])
+
+
+def _shaped(order: str):
+    """The daemon body for BENCH A+B, assembled from its real parts in ``order`` (labels keep every jump right)."""
+    from ff9mapkit.eb.labelasm import JMP
+    A, B = M.parse(BENCH["A"], 0), M.parse(BENCH["B"], 1)
+    ks = M.clocks([A, B])
+    clock_of = {p: k for k, p in enumerate(ks)}
+    mv = [op for s, u in ((A, 7), (B, 8)) for op in M.mover_ops(s, u, clock_of)]
+    parts = {
+        "pre": [M._stmt(f"{M._clock_ref(k)} const(0) B_LET") for k in range(len(ks))],
+        "top": [label("top")], "mv": mv, "mv-": mv[:-1], "mv1": mv[-1:],
+        "adv": [M._stmt(f"{M._clock_ref(k)} {M._clock_ref(k)} const(1) B_PLUS const({p}) B_REM B_LET")
+                for k, p in enumerate(ks)],
+        "wait": [opcodes.wait(1)], "jmp": [(JMP, "top")], "ret": [opcodes.RETURN],
+    }
+    return asm([x for key in order.split() for x in parts[key]])
+
+
+_LOOP_SHAPES = [
+    # (id, order, the audit fragment) -- each was audit-CLEAN before the loop-shape law (review, refuted-but-real)
+    ("wait_past_jmp", "pre top mv adv jmp wait ret", "must sit INSIDE the loop"),
+    ("mover_past_jmp", "pre top mv- adv wait jmp mv1 ret", "must sit INSIDE the loop"),
+    ("return_in_loop", "pre top mv adv wait ret jmp ret", "RETURN inside the loop"),
+]
+
+
+@pytest.mark.parametrize("order, frag", [r[1:] for r in _LOOP_SHAPES], ids=[r[0] for r in _LOOP_SHAPES])
+def test_audit_refuses_a_broken_loop_shape(order, frag):
+    """[the loop's shape] Nothing that must run every tick may sit past the JMP, and no RETURN may sit inside the
+    loop -- either would stop the motion after tick 0 while the audit's other laws all pass."""
+    good = _shaped("pre top mv adv wait jmp ret")
+    A, B = M.parse(BENCH["A"], 0), M.parse(BENCH["B"], 1)
+    assert good == M.daemon_body([(A, 7), (B, 8)])                 # the helper IS the emitter's shape
+    assert M.audit_body(good, 4, {7, 8}) == []
+    bad = M.audit_body(_shaped(order), 4, {7, 8})
+    assert any(frag in b for b in bad), bad
 
 
 def test_audit_catches_the_k_indexed_clock_emitter(monkeypatch):
@@ -1014,10 +1056,10 @@ def test_report_lines():
                           max(p.z for p in full), min(p.height for p in full), max(p.height for p in full))
         ms = M.max_step(s)
         assert (step, fb) == (round(ms[0], 1), ms[1])
-        # the per-channel step is an upper bound on the joint one, and exact for a single-channel mover
+        # the step is the real joint one on a small cycle (every bench mover); past the cap it is an upper bound
         seq = M.path(s, 0, s.cycle + 1)
         joint = max(math.dist((a.x, a.b, a.z), (b.x, b.b, b.z)) for a, b in zip(seq, seq[1:]))
-        assert joint <= ms[0] + 1e-9 and (s.bob_amp or abs(joint - ms[0]) < 1e-9)
+        assert M.step_is_exact(s) and abs(joint - ms[0]) < 1e-9
         assert ("SNAPS" in line) == (s.label == "[[prop]] 'hand_bell'")
     by = {s.label: line for (s, _u), line in zip(movers, lines[1:])}
     # the spec's section 5 numbers, verbatim
@@ -1115,3 +1157,47 @@ def test_coprime_periods_report_fast():
     assert time.perf_counter() - t0 < 2.0
     assert b == {"x": (-300, 300), "z": (-1100, -500), "h": (90, 210)}
     assert notes == [] and "x -300..300 z -1100..-500 h 90..210" in lines[1]
+
+
+# ------------------------------------------------------------------ review: the report says what the path does
+def test_shuttle_far_end_is_the_point_reached():
+    """[review: far end = mid + half] With an odd period the clock never lands on the half turn, so the prop turns
+    back short of mid + half; the far end the report prints is the farthest pose the path REACHES."""
+    for period in (151, 3):
+        s = _spec({"to": [-301, -1600], "period": period}, pos=[-1000, -1600], shadow=None)
+        reached = max(M.path(s, 0, period), key=lambda p: abs(p.x + 1000))
+        assert s.far_end == (reached.x, reached.z)
+        assert s.far_end[0] == M.bounds(s)["x"][1] < -302           # short of mid + half (-302)
+        assert f"-> {s.far_end}" in M.describe(s)
+    assert _spec({"to": [-301, -1600], "period": 3}, pos=[-1000, -1600], shadow=None).far_end[0] < -450
+
+
+def test_max_step_is_exact_over_a_small_joint_cycle():
+    """[review: the combined channel maxima flagged a SNAP that never happens] A shuttle + a bob whose maxima fall
+    on different ticks: the real largest step is under 400 u, so no SNAPS, no lint advisory."""
+    m = {"to": [3800, -800], "period": 32, "height": 1200, "bob": {"amp": 1000}}
+    s = _spec(m)
+    assert M.step_is_exact(s)
+    step, _fb = M.max_step(s)
+    seq = M.path(s, 0, s.cycle + 1)
+    assert step == max(math.dist((a.x, a.b, a.z), (c.x, c.b, c.z)) for a, c in zip(seq, seq[1:])) < 400
+    assert "SNAP" not in M.describe(s) and M.lint_notes({"prop": [_prop(m)]}) == []
+
+
+def test_max_step_past_the_exact_cap_is_named_a_bound():
+    """A joint cycle over STEP_EXACT_MAX ticks keeps the per-channel bound, and the report and lint say so."""
+    m = {"radius": 8191, "period": 129, "bob": {"amp": 8191, "period": 128}}
+    s = _spec(m)
+    assert s.cycle == 129 * 128 > M.STEP_EXACT_MAX and not M.step_is_exact(s)
+    line = M.describe(s)
+    assert "max <= " in line and line.endswith("MAY SNAP: its step bound is over the smoother's 400 u per tick")
+    notes = M.lint_notes({"prop": [_prop(m)]})
+    assert len(notes) == 1 and "may move up to" in notes[0] and "a bound" in notes[0]
+
+
+def test_reverse_orbit_swings_counter_clockwise_first():
+    """[review: FORMAT's compass] reverse on an orbit reverses the one shared angle, swing included (documented)."""
+    fwd = _spec({"radius": 200, "period": 64, "turn": "swing", "swing": 40}, face=128)
+    rev = _spec({"radius": 200, "period": 64, "reverse": True, "turn": "swing", "swing": 40}, face=128)
+    assert M.pose(fwd, 0).face == M.pose(rev, 0).face == 128
+    assert M.pose(fwd, 1).face > 128 > M.pose(rev, 1).face

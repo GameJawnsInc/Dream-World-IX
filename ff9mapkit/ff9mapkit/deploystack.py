@@ -560,6 +560,28 @@ def dictionary_ids_at(root) -> dict:
     return out
 
 
+def fork_donor_rows_for(game_dir, fid, folder_names: list | None = None, extra=()) -> list:
+    """Every live ``ForkDonorPatch.txt`` row that maps ``fid`` -- ``[(folder, row)]`` -- across the Memoria.ini
+    ``FolderNames`` stack plus ``extra`` folders (a deploy's target, stacked or not). The engine loads EVERY
+    stacked folder's rows into one map (``DataPatchers.cs`` ForkDonorMap), so any of them rewrites ``fid``'s
+    effective id -- and with it every ``effMapNo``-keyed hotfix branch. ``[]`` when clear; the stack degrades to
+    ``[]`` when Memoria.ini is unreadable (``extra`` is still read)."""
+    from .forkdonor import own_row
+    game_dir = Path(game_dir)
+    order = folder_names
+    if order is None:
+        ini = game_dir / "Memoria.ini"
+        order = parse_folder_names(ini.read_text(encoding="utf-8", errors="ignore")) if ini.is_file() else []
+    out: list = []
+    for f in dict.fromkeys([*order, *extra]):
+        p = game_dir / f / "ForkDonorPatch.txt"
+        if p.is_file():
+            row = own_row(p.read_text(encoding="utf-8-sig", errors="ignore"), fid)
+            if row is not None:
+                out.append((f, row))
+    return out
+
+
 def check_id_collisions(game_dir, target_folder: str, ids, folder_names: list | None = None) -> list:
     """Do any field/scene ``ids`` a deploy registers into ``target_folder`` collide with an id ANOTHER live
     FolderNames folder's ``DictionaryPatch`` already uses? (``EventDB`` is GLOBAL -> a shared id makes one side

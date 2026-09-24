@@ -99,6 +99,12 @@ MODELS = {lab: prop_archetypes.resolve(p["prop"])[0] for lab, p in PROPS.items()
 SPAWN = {lab: (int(p["pos"][0]), 0, int(p["pos"][1]), int(p.get("face") or 0) & 0xFF) for lab, p in PROPS.items()}
 
 
+# 0x1D CreateObject places an actor at y = POS_COMMAND_DEFAULTY = 32768 (EventEngine.Constructor.cs:11,
+# DoEventCode.cs:384) until its controller snaps it at the frame's LateUpdate, so f1 (= -pos[1]) reads -32768 in
+# the pass the object was created in -- unless the daemon's 0xAD wrote y first. Run 1 measured it (CAL).
+POS_COMMAND_DEFAULTY = 32768
+
+
 def component(pose: M.Pose, fi: int):
     """``obj(uid).f[fi]`` of a pose: f0 x, f1 the 0xAD height operand b, f2 z, f3 the facing byte."""
     return (pose.x, pose.b, pose.z, pose.face)[fi]
@@ -107,6 +113,8 @@ def component(pose: M.Pose, fi: int):
 def expected(lab: str, fi: int, k: int) -> int:
     """What ``obj(uid).f[fi]`` holds on the observer's tick ``k`` -- the kit's predictor, never re-derived here."""
     spec, sp = SPECS[lab], SPAWN[lab]
+    if fi == 1 and k == 0 and (spec is None or not spec.moves):
+        return -POS_COMMAND_DEFAULTY          # K 0 = the pass its CreateObject ran in; no 0xAD has written y
     if spec is None:
         return sp[fi]
     p = M.pose(spec, k)
@@ -116,10 +124,8 @@ def expected(lab: str, fi: int, k: int) -> int:
 
 
 FIRST_POSE0 = {k: expected(k[0], k[1], 0) for k in FIRST}                  # C4 / C8: the daemon's tick 0 landed
-# CAL: CreateObject overwrote tick 0. At that instant y is not the floor yet: 0x1D CreateObject places the actor at
-# y = POS_COMMAND_DEFAULTY = 32768 (EventEngine.Constructor.cs:11, DoEventCode.cs:384) until its controller snaps it,
-# so f1 (= -pos[1]) reads -32768 there; the SETTLED spawn (C2's H) is the flat floor, b 0. Run 1 measured it.
-POS_COMMAND_DEFAULTY = 32768
+# CAL: CreateObject overwrote tick 0, so the FIRST band holds the spawn pose with y still the placeholder (above);
+# the SETTLED spawn (C2's H from K 1) is the flat floor, b 0.
 FIRST_SPAWN = {k: (-POS_COMMAND_DEFAULTY if k[1] == 1 else SPAWN[k[0]][k[1]]) for k in FIRST}
 _bad = [k for k in FIRST if FIRST_POSE0[k] == FIRST_SPAWN[k] or SENTINEL in (FIRST_POSE0[k], FIRST_SPAWN[k])]
 if _bad:
@@ -340,7 +346,9 @@ def live_path(fid: int, lang: str, game: Path | None = None) -> Path:
 # ------------------------------------------------------------------- P3: the daemon run offline
 def engine_mismatches(eb: bytes, n_ticks: int | None = None) -> tuple:
     """Run the DAEMON entry of ``eb`` in tests/_ebengine.MotionEngine for ``n_ticks`` (default two cycles of the
-    slowest mover) and compare every captured 0xAD / 0x87 operand with motion.pose. Returns (ticks, mismatches)."""
+    slowest mover) and compare every captured 0xAD / 0x87 operand with motion.pose. Returns (ticks RUN,
+    mismatches): a daemon that stops early (a RETURN in its loop) runs fewer ticks than asked, and that is itself
+    a mismatch -- never a vacuous pass over the ticks it skipped."""
     sys.path.insert(0, str(REPO / "ff9mapkit" / "tests"))
     from _ebengine import MotionEngine
     uids = prop_uids(eb)
@@ -361,7 +369,9 @@ def engine_mismatches(eb: bytes, n_ticks: int | None = None) -> tuple:
         have = [(op, uid, (vals[0] & 0xFF,) if op == M.TURN_EX else vals) for op, uid, vals in ops]
         if have != want and len(bad) < 5:
             bad.append((t, have, want))
-    return n, bad
+    if len(got) != n:
+        bad.insert(0, ("ran", len(got), "of", n))
+    return len(got), bad
 
 
 # ------------------------------------------------------------------- verbs

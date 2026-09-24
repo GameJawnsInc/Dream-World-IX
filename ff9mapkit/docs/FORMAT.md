@@ -893,10 +893,10 @@ motion = { turn = "swing", swing = 40, period = 75, phase = 0.25 }
 | key | type | default | meaning |
 |---|---|---|---|
 | `radius` | integer, 1..8191 world units | — | **Orbit**: a circle of this radius around `pos`. Not with `to`. |
-| `to` | `[x, z]` integers | — | **Shuttle**: back and forth between `pos` and `to`, sine-eased (slow at each end, fastest midway). Each axis at most 16382 from `pos`; not equal to `pos`. On an odd difference the far end stops 1 unit short of `to` on that axis; the build prints the far end. |
+| `to` | `[x, z]` integers | — | **Shuttle**: back and forth between `pos` and `to`, sine-eased (slow at each end, fastest midway). Each axis at most 16382 from `pos`; not equal to `pos`. The far end is reached exactly when `period` is even at phase 0 (1 unit short of `to` on an axis with an odd difference); otherwise the clock never lands on the half cycle and the prop turns back a little short. The build prints the far end the prop actually reaches. |
 | `period` | integer, 2..8192 ticks | — | One full cycle: an orbit lap, a shuttle round trip, a spin turn, a swing there and back. Required with `radius`, `to` or `turn`. |
 | `phase` | number in [0, 1) | `0` | Where the cycle starts at tick 0, as a fraction of a cycle along the direction of travel (resolution 1/4096). Needs `radius`, `to` or `turn`; a bob takes its own `phase`. |
-| `reverse` | boolean | `false` | Counter-clockwise seen from above. Only for an orbit or `turn = "spin"`. |
+| `reverse` | boolean | `false` | Counter-clockwise seen from above. Only for an orbit or `turn = "spin"`. On an orbit it reverses the one shared angle, so a `turn = "swing"` on that orbit swings counter-clockwise first too. |
 | `height` | integer, within ±16383 world units | `0` | The path's height: **absolute** world height, up-positive (the `y` of `[[jump]] to` and `[[platform]] land`), NOT height above the floor. `0` is the floor of a flat novel field (the y-0 plane). Only that flat floor is proven in-game: `ff9mapkit lint` warns when a mover's path runs over walkmesh at another height. |
 | `bob` | table `{ amp, period, phase }` | — | A vertical sine added to any motion: `amp` 1..8191 world units either side of `height`; `period` 2..8192 ticks (default: the motion's `period`); `phase` in [0, 1) (default 0). It rises first. |
 | `turn` | `"travel"` / `"spin"` / `"swing"` | absent | The facing channel. `travel` faces along the orbit (needs `radius`). `spin` turns in place, one full turn per `period` (not with `radius`: an orbiter already turns once a lap — use `travel` plus a `face` offset). `swing` rocks either side of `face` (with any path, or none). Absent = the prop keeps its `face`; the motion never touches its facing. |
@@ -914,7 +914,8 @@ and moves clockwise seen from above: north, east, south, west (`reverse` goes th
 bytes also increase clockwise: 0 south (facing the camera), 64 west, 128 north, 192 east — so a
 forward `spin` turns clockwise. The `travel` facing is the orbit angle (as a facing byte, 256 a
 turn) plus 192: at north, heading east, it faces 192. A shuttle starts at `pos`, a swing starts at
-`face` and turns clockwise first, and a bob starts at `height` and rises first.
+`face` and turns clockwise first (counter-clockwise on a `reverse` orbit), and a bob starts at `height`
+and rises first.
 
 **`face` is an offset.** With a `turn`, the prop's `face` (0..255) is added to the computed facing:
 `spin` turns from `face`, `swing` rocks ±`swing` about `face`, and `travel` adds `face` to the
@@ -953,7 +954,8 @@ cycle.
 
 **What the build prints.** Among its `warning:` lines, `ff9mapkit build` (and `tools/deploy_field.py`)
 prints one summary line and one line per mover: the path, the period in ticks and seconds, the
-x/z/height ranges, the largest step per tick, and the exact pose (x, height, z, facing byte; `-` = no
+x/z/height ranges, the largest step per tick (`max <= N u` when it is only a bound: a mover whose
+periods' joint cycle is over 16384 ticks), and the exact pose (x, height, z, facing byte; `-` = no
 facing written) of ticks 0-3. The build's lines also name the entry slots (the motion script's, and
 each mover's `uid`). As `ff9mapkit motion` prints them for the balloon and chest above plus a fast
 orbiter (`motion = { radius = 8191, period = 64 }`):
@@ -966,8 +968,8 @@ orbiter (`motion = { radius = 8191, period = 64 }`):
 ```
 
 Memoria's frame smoother interpolates a step under 400 world units and a turn under 45 degrees (32
-facing bytes) per tick. A prop past either limit visibly jumps: its line ends in `SNAPS`, and
-`ff9mapkit lint` repeats it as an advisory. Slow it with a longer `period` or a smaller `radius`.
+facing bytes) per tick. A prop past either limit visibly jumps: its line ends in `SNAPS` (`MAY SNAP` when only the
+bound is over), and `ff9mapkit lint` repeats it as an advisory. Slow it with a longer `period` or a smaller `radius`.
 
 **`ff9mapkit motion <field.toml>`** runs the same checks (an error exits 1) and prints the same lines
 without building (no templates, no install; the entry slots are left out because the build assigns

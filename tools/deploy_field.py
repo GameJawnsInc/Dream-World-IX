@@ -153,6 +153,23 @@ if prior.exists():
 # deploy reversibly
 GAME = find_game_path()
 live = ModLayout(GAME / MOD_FOLDER)
+# THE NOVEL-FIELD LAW where the engine decides it: [[prop]] motion's 0xAD/0x87 carry hotfix branches keyed on the
+# EFFECTIVE id, and ANY stacked folder's ForkDonorPatch row for this id rewrites it (a campaign's fork of 2456 or
+# 1207 left at this id -> the branch dereferences the daemon's null actor: a NullReference EVERY tick). The build
+# can only see the toml's own donor, so the live rows are checked here -- after the prelude revert (which drops
+# this id's OWN earlier fork row) and before anything live is touched.
+from ff9mapkit.content import motion as _motion
+if _motion.any_motion(proj.raw):
+    from ff9mapkit.deploystack import fork_donor_rows_for
+    _stale = fork_donor_rows_for(GAME, FID, extra=[MOD_FOLDER])
+    if _stale:
+        print(f"!! [[prop]] motion: field {FID} is novel, but a live ForkDonorPatch row still maps it to a donor: "
+              + "; ".join(f"{f}/ForkDonorPatch.txt '{r}'" for f, r in _stale)
+              + f"\n!! THE NOVEL-FIELD LAW: the engine would run the motion under that donor's per-field hotfixes "
+              f"(two dereference the daemon's null actor). Remove the row (or deploy to an id no fork used), "
+              f"then re-run. Nothing was touched.", file=sys.stderr)
+        shutil.rmtree(tmp, ignore_errors=True)
+        sys.exit(2)
 # FOLDER LOCK (M8, two-level: folder THEN sidecar): hold <game>/<MOD_FOLDER>.ff9lock -- OUTSIDE the
 # folder, beside Memoria.ini -- across the WHOLE live-mutation section below (bootstrap through the
 # TextPatch splice). The per-file sidecar locks serialise RMW pairs, but a wholesale installer

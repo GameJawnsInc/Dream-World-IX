@@ -193,3 +193,14 @@ def test_lint_stage_probes_are_a_subset_of_the_shipped_vocab():
     build.lint_all(proj)
     for path, keys in rec.probes.items():
         assert keys <= vocab.get(path, frozenset()), (path, keys - vocab.get(path, frozenset()))
+
+
+def test_shipped_schema_matches_a_fresh_harvest(capsys):
+    """Freshness, full half: the shipped _fieldschema.py == a fresh harvest, BOTH directions. The cheap test above
+    catches a newly read key; only this catches a key no consumer reads any more (a removed probe left ``holds`` a
+    legal [[prop]] key, so an author's typo passed silently). Install-gated: the harvest builds the corpus, so a
+    tree without the extract cache skips (exit 1 = corpus trouble), never a false green on drift (exit 2)."""
+    rc = _regen_fieldschema.main(["--check"])
+    if rc == 1:
+        pytest.skip("the schema corpus cannot build here (empty extract cache / missing install)")
+    assert rc == 0, capsys.readouterr().err
