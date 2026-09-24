@@ -310,7 +310,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Roll streams (`[[behavior.stream]]` + `roll`) — ★★ rungs 0-1 in-game PROVEN: seeded draws the build predicts, a reload cannot re-roll, seeded `wander` → `studies/roll-stream/PLAN.md`
 - Walkmesh floor sensors (`on_floor`/`same_floor`/`other_floor`) — ★★ rungs 0-1 in-game PROVEN: a floor-gated chaser holds at a lip; floor-major tris; fork id lint → `studies/walkmesh-sensor/PLAN.md`
 - Computed prop motion (sine kit) — ★★ rungs 0-1 in-game PROVEN 26/26: `[[prop]] motion` orbit/shuttle/bob/spin/swing/hold, one ORDER-LAW daemon, bob-reading lint → `studies/sine-kit/PLAN.md`
-- Photo mode, the kit's first camera pan — ★ rung 0 in-game PROVEN by the harness: take/pan/clamp/hide/grade/give-back; never EnableCameraServices(0); rung 1 = the kit feature → `studies/photo-mode/PLAN.md`
+- Photo mode, the kit's first camera pan — ★ rung 0 in-game PROVEN + owner-playtested: take/pan/clamp/hide/grade/tracking release; next = rung 1, the kit feature → `studies/photo-mode/PLAN.md`
 - `.eb` source round-trip — ★★ rungs 1-4+6-7 DONE, playtest-confirmed (source-edited chest at slot 30810 gave the edited reward in-game): annotated `eb-src`/`eb-asm` + `--against` splice edits + the 9753-binary gate → `studies/eb-roundtrip/PLAN.md`
 
 **Latest release:** kit **1.0.0b19** (tag pushed, CI green, PyPI live; engine bundle rebuilt s22-s79, first full-stack replay).
