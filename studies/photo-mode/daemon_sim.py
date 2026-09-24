@@ -29,6 +29,8 @@ class Sim:
         self.mem = bytearray(2048)
         self.pc = 0
         self.keys = 0                     # held logical input bits
+        self.prev_keys = 0
+        self.keyon = 0                    # this tick's rising edges (ETb.ProcessKeyEvents, once per tick)
         self.uc = 0
         self.bound = False
         self.vrp = list(spawn)            # the engine's view centre (curVRP + co + half), MoveCamera space
@@ -41,6 +43,11 @@ class Sim:
         self.effects = []                 # (tick, name, args)
         self.tick = 0
         self.player_screen = (960, 540)
+        self.objflags = {250: 15, 2: 7, 3: 7, 4: 7}  # the show bit is bit 0
+        self.meshflags = {2: 0, 3: 0, 4: 0, 250: 0}
+        self.pflags = {}
+        self.grade = (0, 0, 0)
+        self.funcs = {}                   # (uid, tag) -> the flags a seated hide/show function writes
 
     # -- memory
     def i16(self, off):
@@ -92,6 +99,10 @@ class Sim:
                     v -= 0x10000                          # B_CONST is a signed Int16
                 st.append((v, None))
                 continue
+            m = re.match(r"^obj\(uid=(\d+)\)\.f\[4\]$", t)
+            if m:
+                st.append((self.objflags[int(m.group(1))], None))
+                continue
             m = re.match(r"^B_SYSVAR\[(\d+)\]$", t)
             if m:
                 st.append((self._sysvar(int(m.group(1))), None))
@@ -99,6 +110,10 @@ class Sim:
             if t == "B_KEY":
                 v, _ = st.pop()
                 st.append((1 if (self.keys & v) else 0, None))
+                continue
+            if t == "B_KEYON":
+                v, _ = st.pop()
+                st.append((1 if (self.keyon & v) else 0, None))
                 continue
             b, _rb = st.pop()
             a, ra = st.pop()
@@ -110,7 +125,7 @@ class Sim:
                  "B_DIV": lambda: int(a / b), "B_LT": lambda: int(a < b), "B_GT": lambda: int(a > b),
                  "B_LE": lambda: int(a <= b), "B_GE": lambda: int(a >= b), "B_EQ": lambda: int(a == b),
                  "B_NE": lambda: int(a != b), "B_ANDAND": lambda: int(bool(a) and bool(b)),
-                 "B_OROR": lambda: int(bool(a) or bool(b))}[t]
+                 "B_OROR": lambda: int(bool(a) or bool(b)), "B_AND": lambda: a & b, "B_OR": lambda: a | b}[t]
             st.append((f(), None))
         return (st[-1][0] if st else 0), end
 
@@ -163,6 +178,26 @@ class Sim:
         elif i.op == 0x2D:
             self.uc = 0
             self.effects.append((self.tick, "0x2D", []))
+        elif i.op == 0x14:                               # RunScriptSync(level, uid, tag): the seated flag function
+            _lv, uid, tag = b[i.off + 2], b[i.off + 3], b[i.off + 4]
+            f = self.objflags[uid]
+            self.objflags[uid] = (f & ~1) | {40: 0, 41: 1}[tag]
+            self.effects.append((self.tick, "0x14", [uid, tag]))
+        elif i.op in (0xD5, 0xD6):
+            for u in self.objflags:
+                if i.op == 0xD5:
+                    self.pflags[u] = self.objflags[u]
+                    self.objflags[u] &= ~1
+                else:
+                    self.objflags[u] = (self.objflags[u] & ~1) | (self.pflags.get(u, 0) & 1)
+            self.effects.append((self.tick, "0x%02X" % i.op, []))
+        elif i.op in (0x39, 0x3A):
+            uid, mesh = b[i.off + 2], b[i.off + 3]
+            bit = 1 << mesh
+            self.meshflags[uid] = self.meshflags[uid] | bit if i.op == 0x3A else self.meshflags[uid] & ~bit
+        elif i.op == 0xEC:
+            self.grade = tuple(b[i.off + 5:i.off + 8])
+            self.effects.append((self.tick, "0xEC", list(b[i.off + 2:i.off + 8])))
         elif i.op == 0x2E:
             self.uc = 1
             self.effects.append((self.tick, "0x2E", []))
@@ -170,6 +205,7 @@ class Sim:
     def run_tick(self, limit: int = 20000):
         """Execute until the next Wait (the tick's end), then one LateUpdate."""
         b = self.body
+        self.keyon, self.prev_keys = self.keys & ~self.prev_keys, self.keys
         for _ in range(limit):
             i = next(D.iter_code(b, self.pc, len(b)))
             if i.op == 0x05:
@@ -328,6 +364,91 @@ def selftest():
     for _ in range(5):
         s.run_tick()
     _expect(s.g("nmc") == n, "MODE 0: the d-pad pans nothing")
+    print("stage 4")
+    s = Sim(4)
+    for _ in range(3):
+        s.run_tick()
+    s.uc, s.mem[P.PBOUND >> 3] = 1, s.mem[P.PBOUND >> 3] | (1 << (P.PBOUND & 7))
+    for _ in range(3):
+        s.run_tick()
+    _expect(s.g("t") == 0, "stage 4's latch also waits for the props' ready bits")
+    for b in (P.READY_L, P.READY_C, P.READY_R):
+        s.mem[b >> 3] |= 1 << (b & 7)
+    for _ in range(P.SETTLE + 3):
+        s.run_tick()
+    _expect(s.g("t") >= 1 and s.g("flags") == 15, "FLAGS: all four show bits", s.g("flags"))
+    steps = [("FLAG_HIDE_C", 13), ("FLAG_SHOW_C", 15), ("MESH_HIDE_L", 15), ("MESH_SHOW_L", 15),
+             ("FLAG_HIDE_P", 14), ("FLAG_SHOW_P", 15), ("HIDEALL", 0), ("SHOWALL", 15)]
+    for name, want in steps:
+        s.cmd(P.CMDS[name])
+        s.run_tick()
+        s.run_tick()
+        _expect(s.g("flags") == want and s.g("last") == P.CMDS[name], f"{name}: FLAGS {want}", s.g("flags"))
+        if name == "MESH_HIDE_L":
+            _expect(s.meshflags[2] == 0xFFFF, "MESH_HIDE_L hides meshes 0-15 of uid 2 (the flags untouched)")
+        if name == "MESH_SHOW_L":
+            _expect(s.meshflags[2] == 0, "MESH_SHOW_L shows them all again")
+    s.cmd(P.CMDS["GRADE"])
+    s.run_tick()
+    _expect(s.grade == (0, 64, 128) and s.effects[-1][2][0] == 2, "GRADE: SUB (mode 2) 0,64,128", s.effects[-1])
+    s.cmd(P.CMDS["GRADE_CLEAR"])
+    s.run_tick()
+    _expect(s.grade == (0, 0, 0), "GRADE_CLEAR", s.grade)
+    print("stage 5")
+    s = Sim(5)
+    s.uc, s.mem[P.PBOUND >> 3] = 1, s.mem[P.PBOUND >> 3] | (1 << (P.PBOUND & 7))
+    for b in (P.READY_L, P.READY_C, P.READY_R):
+        s.mem[b >> 3] |= 1 << (b & 7)
+    for _ in range(P.SETTLE + 3):
+        s.run_tick()
+
+    def press(name, ticks=1):
+        s.keys = P.KEYMASK[name]
+        for _ in range(ticks):
+            s.run_tick()
+        s.keys = 0
+        s.run_tick()
+        s.run_tick()
+
+    for n in ("r1", "l1", "cancel"):
+        press(n)
+    _expect(s.g("modal") == 0 and s.objflags == {250: 15, 2: 7, 3: 7, 4: 7} and s.meshflags[2] == 0
+            and s.grade == (0, 0, 0) and s.uc == 1, "closed: R1 / L1 / Cancel edges do nothing")
+    v0 = (s.g("vx"), s.g("vy"))
+    press("select", ticks=2)
+    _expect(s.g("modal") == 1 and s.uc == 0 and s.mem[P.MODE] == 1 and (s.g("vx"), s.g("vy")) == v0
+            and any(e[1] == "0x6F" and e[2][:2] == list(v0) for e in s.effects),
+            "OPEN: a Select edge (held 2 ticks = ONE edge) locks, takes the view it is on, MODE 1",
+            (s.g("modal"), s.uc, s.mem[P.MODE]))
+    press("r1")
+    _expect(s.meshflags[2] == 0xFFFF and s.g("modal") == 1 + 4, "R1 #1: L by mesh", s.g("modal"))
+    press("r1")
+    _expect(s.objflags[3] & 1 == 0 and s.g("modal") == 1 + 8, "R1 #2: C by flags", s.g("modal"))
+    press("r1")
+    _expect(s.objflags[250] & 1 == 0 and s.g("modal") == 1 + 12, "R1 #3: the player by flags", s.g("modal"))
+    n14 = sum(e[1] == "0x14" for e in s.effects)
+    press("r1")
+    _expect(s.g("modal") == 1 + 12 and sum(e[1] == "0x14" for e in s.effects) == n14, "R1 #4: nothing")
+    press("l1")
+    _expect(s.grade == (0, 64, 128) and s.g("modal") == 1 + 2 + 12, "L1: grade on", s.g("modal"))
+    press("l1")
+    _expect(s.grade == (0, 0, 0) and s.g("modal") == 1 + 12, "L1: grade off")
+    press("l1")
+    _expect(s.grade == (0, 64, 128), "L1: grade on again")
+    vx = s.g("vx")
+    s.keys = P.KEYMASK["right"]
+    for _ in range(5):
+        s.run_tick()
+    s.keys = 0
+    s.run_tick(), s.run_tick()
+    _expect(s.g("vx") == vx + 20, "the d-pad pans while open", (vx, s.g("vx")))
+    press("cancel")
+    _expect(s.meshflags[2] == 0 and s.objflags[3] & 1 and s.objflags[250] & 1 and s.grade == (0, 0, 0)
+            and s.uc == 1 and s.g("modal") == 0 and s.mem[P.MODE] == 0
+            and any(e[1] == "0x70" and e[2] == [16, 8] for e in s.effects),
+            "CANCEL: everything shown, grade cleared, ReleaseCamera(16, 8), unlocked, closed")
+    want = 1 * 1 + 16 * 2 + 256 * 5 + 4096 * 4
+    _expect(s.g("edges") == want, "EDGES counts every edge, open or closed", (s.g("edges"), want))
     print("daemon_sim: all green")
 
 

@@ -30,6 +30,14 @@ plus one block, so a run changes one thing:
      control and its recovery, lock/unlock movement).
   3  + the PAN: while MODE is 1 (relative, the stock 507/606 form) or 3 (absolute), the d-pad moves the view STEP px a
      tick, clamped in the script to the 4:3 box.
+  4  + HIDES and the GRADE (commands 9-18): hide-all / show-all (0xD5/0xD6); balloon L by MESH (0x3A/0x39 over mesh
+     0-15, by uid); balloon C and the player by FLAGS -- 0x93 SetObjectFlags is self-only, so RunScriptSync(2, uid,
+     40/41) runs a function seated on the target's OWN entry that writes its flags with bit 0 cleared / set; a held
+     SUB FadeFilter and its clear. A FLAGS mirror publishes the show bit of the player, C, L and R every tick.
+  5  + the MODAL loop, driven only by the player's buttons: a Select EDGE opens photo mode (DisableMove, then a one-tick
+     MoveCamera to the view it is already on -- the take); the d-pad pans (MODE 1); each R1 edge hides the next of L
+     (mesh), C (flags), the player (flags), a 4th does nothing; each L1 edge toggles the grade; a Cancel edge shows
+     everything hidden, clears the grade, ReleaseCamera(16, 8), EnableMove. EDGES counts every edge, open or not.
 
 Usage (repo root):  py studies/photo-mode/photo0_bench.py art | probe [--stage N] | predict | deploy --stage N
 30955 is a NEW id -> the FIRST deploy needs a relaunch (a harness launch is one).
@@ -63,7 +71,7 @@ FIELD_ID, FIELD_NAME, MOD_FOLDER = 30955, "PHOTO0", "FF9CustomMap"
 BENCH_TOML = HERE / "bench" / "photo0.field.toml"
 ART = HERE / "bench" / "art" / "back.png"
 PREDICTIONS = HERE / "rung0_predictions.json"
-STAGES = (1, 2, 3)
+STAGES = (1, 2, 3, 4, 5)
 MODEL = 226                          # balloon (the bench's three [[prop]]s)
 RANGE = (768, 448)
 BOX43 = (160, 608, 112, 336)         # scroll_bounds(RANGE): the vrp window (view-centre limits), what the script clamps to
@@ -75,16 +83,29 @@ PBOUND, READY_L, READY_C, READY_R = 12416, 12417, 12418, 12419      # Global bit
 G16 = {"t": 1500, "vx": 1502, "vy": 1504, "psx": 1506, "psy": 1508, "tx": 1510, "ty": 1512, "uc": 1514,
        "cam": 1516, "keys": 1518, "nr": 1520, "nl": 1522, "nd": 1524, "nu": 1526, "ack": 1528, "last": 1530,
        "gate": 1532, "fpb": 1534, "fuc": 1536, "nmc": 1538, "rt": 1540, "flags": 1542, "edges": 1544,
-       "txp": 1546, "typ": 1548, "issp": 1550, "ackt": 1554}
-WATCHED = tuple(G16)                 # 1500-1555: the published mirrors
+       "txp": 1546, "typ": 1548, "issp": 1550, "ackt": 1554,
+       "modal": 1556}                # stage 5: STATE (1) + GRADE (2) + HIDX * 4
+WATCHED = tuple(G16)                 # 1500-1557: the published mirrors
 CMD, MODE, AD, AT = 1560, 1561, 1566, 1567                          # Global.Byte, harness-poked (CMD last)
 AX, AY = 1562, 1564                                                 # Global.Int16, harness-poked (lo, hi)
-S16 = {"dx": 1570, "dy": 1572, "iss": 1580, "pmode": 1582}          # scratch, not watched
+S16 = {"dx": 1570, "dy": 1572, "iss": 1580, "pmode": 1582,          # scratch, not watched
+       "state": 1574, "hidx": 1576, "grade": 1578}
+EDGE_WEIGHT = {"select": 1, "cancel": 16, "r1": 256, "l1": 4096}   # EDGES += weight per B_KEYON edge
+RELEASE = (16, 8)                    # the modal exit: ReleaseCamera over 16 ticks, type 8 (the cosine ease)
 # B_KEY masks (EventInput.cs:537-562) and the KEYS mirror bit each one sets
 KEYS = (("up", 0x10, 1), ("right", 0x20, 2), ("down", 0x40, 4), ("left", 0x80, 8), ("select", 0x1, 16),
         ("cancel", 0x10000, 32), ("r1", 0x200000, 64), ("l1", 0x100000, 128))
 KEYMASK = {n: m for n, m, _b in KEYS}
-CMDS = {"MOVE1": 1, "MOVEN": 2, "REL": 3, "RELEASE": 4, "SVC_OFF": 5, "SVC_ON": 6, "LOCK": 7, "UNLOCK": 8}
+CMDS = {"MOVE1": 1, "MOVEN": 2, "REL": 3, "RELEASE": 4, "SVC_OFF": 5, "SVC_ON": 6, "LOCK": 7, "UNLOCK": 8,
+        "HIDEALL": 9, "SHOWALL": 10, "MESH_HIDE_L": 11, "MESH_SHOW_L": 12, "FLAG_HIDE_C": 13, "FLAG_SHOW_C": 14,
+        "FLAG_HIDE_P": 15, "FLAG_SHOW_P": 16, "GRADE": 17, "GRADE_CLEAR": 18}
+UIDS = {"L": 2, "C": 3, "R": 4}      # the kit props' uids on this bench (prop_uids reads them back off the bytes)
+HIDE_TAG, SHOW_TAG = 40, 41          # the functions seated on C's and the player's own entries
+SYNC_LEVEL = 2                       # RunScriptSync's level -- the stock cutscene idiom (content/cutscene.py)
+GRADE = (2, 8, 0, 0, 64, 128)        # FadeFilter SUB over 8 ticks: take 0 R, 64 G, 128 B -- a warm tint
+GRADE_CLEAR = (2, 8, 0, 0, 0, 0)
+# FLAGS mirror bits: the show bit (flags & 1) of each object
+FLAG_BITS = (("P", 250, 1), ("C", None, 2), ("L", None, 4), ("R", None, 8))
 
 
 # ------------------------------------------------------------------- the art (a registration target, zero SE bytes)
@@ -205,6 +226,57 @@ def red_blobs(png, min_blob: int = 60) -> list:
             for gx, gy in zip(np.split(xs, cuts), np.split(ys, cuts)) if gx.size >= min_blob]
 
 
+def red_bodies(png, min_px: int = 300) -> list:
+    """[(x, y, n)] of the red CONNECTED components of at least ``min_px`` pixels -- the balloon bodies (750-1230 px
+    at 1280x720), never a balloon's knot (<= 51) or the player's few red pixels (<= 104)."""
+    from PIL import Image
+    from scipy import ndimage
+    a = np.asarray(Image.open(png).convert("RGB")).astype(np.int16)
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    lab, n = ndimage.label((r > 140) & (r - g > 90) & (r - b > 80))
+    out = []
+    for k in range(1, n + 1):
+        ys, xs = np.nonzero(lab == k)
+        if xs.size >= min_px:
+            out.append((float(xs.mean()), float(ys.mean()), int(xs.size)))
+    return sorted(out)
+
+
+def player_px(png, psx: int, psy: int) -> int:
+    """Non-palette canvas samples in a box on the player's 0xA9 screen point (UI 1920x1080, y up from the bottom:
+    at spawn PSX 960 / PSY 404 is his feet). ~520 with him drawn there, 0-12 without (stage-1 shots)."""
+    lab = classify(png)
+    s = 720 / 224
+    cx, fy = psx * 1280 / 1920, (1080 - psy) * 720 / 1080
+    x0, x1, y0, y1 = (int(v / s) for v in (cx - 55, cx + 55, fy - 175, fy + 15))
+    return int((lab[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] < 0).sum())
+
+
+def white_median(png, ox: int, oy: int, thirds: bool = False):
+    """The median RGB of the frame over the WHITE (235,235,235) cells of the canvas, at a KNOWN registration (ox, oy)
+    -- a graded frame no longer classifies, so the offset comes from an ungraded shot of the same view. Cell centres
+    only (4..11 of 16), so bilinear edges stay out. ``thirds`` = (left, middle, right) medians too."""
+    from PIL import Image
+    a = np.asarray(Image.open(png).convert("RGB")).astype(np.int32)
+    ref = canvas_labels()
+    s = a.shape[0] / 224
+    vw = int(a.shape[1] / s)
+    rows = {0: [], 1: [], 2: []}
+    for j in range(224):
+        cy = oy + j
+        if not 0 <= cy < RANGE[1] or not 4 <= cy % CELL <= 11:
+            continue
+        for i in range(vw):
+            cx = ox + i
+            if 0 <= cx < RANGE[0] and ref[cy, cx] == 4 and 4 <= cx % CELL <= 11:
+                rows[min(2, 3 * i // vw)].append(a[int((j + .5) * s), int((i + .5) * s)])
+    allv = np.array(rows[0] + rows[1] + rows[2])
+    med = tuple(int(x) for x in np.median(allv, axis=0))
+    if not thirds:
+        return med
+    return med, [tuple(int(x) for x in np.median(np.array(rows[k]), axis=0)) for k in range(3)]
+
+
 # ------------------------------------------------------------------- predictions (from the BUILT camera)
 def _camera():
     from ff9mapkit import build
@@ -299,7 +371,7 @@ def _clamp(name: str, lo: int, hi: int) -> list:
             _stmt(f"{v} {v} {v} const({lo}) B_LT const({lo}) {v} B_MINUS B_MULT B_PLUS B_LET")]
 
 
-def _dispatcher() -> list:
+def _dispatcher(stage: int, uids: dict) -> list:
     """Stage 2: one command per poke of CMD (the harness pokes the args first, CMD last). Each accepted command ends
     LAST = CMD, ACK += 1, ACKT = T (the tick it ran in -- its samples' VX is still the pre-command view), CMD = 0; an
     unknown or refused one (a zero duration) LAST = -CMD."""
@@ -317,6 +389,20 @@ def _dispatcher() -> list:
         7: [opcodes.encode(0x2D)],
         8: [opcodes.encode(0x2E)],
     }
+    if stage >= 4:
+        L, C = uids["L"], uids["C"]
+        bodies.update({
+            9: [opcodes.encode(0xD5)],
+            10: [opcodes.encode(0xD6)],
+            11: [opcodes.encode(0x3A, L, i) for i in range(16)],
+            12: [opcodes.encode(0x39, L, i) for i in range(16)],
+            13: [opcodes.run_script_sync(SYNC_LEVEL, C, HIDE_TAG)],
+            14: [opcodes.run_script_sync(SYNC_LEVEL, C, SHOW_TAG)],
+            15: [opcodes.run_script_sync(SYNC_LEVEL, 250, HIDE_TAG)],
+            16: [opcodes.run_script_sync(SYNC_LEVEL, 250, SHOW_TAG)],
+            17: [opcodes.encode(0xEC, *GRADE)],
+            18: [opcodes.encode(0xEC, *GRADE_CLEAR)],
+        })
     B: list = [_stmt(f"{cmd} const(0) B_NE"), (JMP_IFNOT, "c_done")]
     for k, body in bodies.items():
         B += [_stmt(f"{cmd} const({k}) B_EQ"), (JMP_IFNOT, f"c_not{k}"), *body, (JMP, "c_ok"), label(f"c_not{k}")]
@@ -357,18 +443,96 @@ def _pan() -> list:
     return B
 
 
-def daemon_body(stage: int) -> bytes:
+def keyon(name: str) -> str:
+    return f"{_const(KEYMASK[name])} B_KEYON"
+
+
+def _modal(uids: dict) -> list:
+    """Stage 5: photo mode as the player drives it (no harness pokes). B_KEYON is an edge computed once per tick, so
+    every read in a tick sees the same edge. No window is ever opened, so the [NTUR] turbo trap cannot arm."""
+    L, C = uids["L"], uids["C"]
+    st, hx, gr, mode = g("state"), g("hidx"), g("grade"), f"Global.Byte[{MODE}]"
+    edges = " ".join(f"{keyon(n)} const({w}) B_MULT" + (" B_PLUS" if i else "") for i, (n, w) in enumerate(EDGE_WEIGHT.items()))
+    return [
+        _inc("edges", edges),
+        _stmt(f"{st} const(0) B_EQ"), (JMP_IFNOT, "m_open"),
+        _stmt(keyon("select")), (JMP_IFNOT, "m_done"),
+        opcodes.encode(0x2D),                                         # the lock first, then the take
+        _set("tx", g("vx")), _set("ty", g("vy")), move_camera(g("tx"), g("ty")), *_issued(),
+        _set("state", "const(1)"), _stmt(f"{mode} const(1) B_LET"),
+        (JMP, "m_done"),
+        label("m_open"),
+        # R1: hide the next target
+        _stmt(keyon("r1")), (JMP_IFNOT, "m_r1done"),
+        _stmt(f"{hx} const(0) B_EQ"), (JMP_IFNOT, "m_h1"),
+        *[opcodes.encode(0x3A, L, i) for i in range(16)],
+        label("m_h1"),
+        _stmt(f"{hx} const(1) B_EQ"), (JMP_IFNOT, "m_h2"),
+        opcodes.run_script_sync(SYNC_LEVEL, C, HIDE_TAG),
+        label("m_h2"),
+        _stmt(f"{hx} const(2) B_EQ"), (JMP_IFNOT, "m_h3"),
+        opcodes.run_script_sync(SYNC_LEVEL, 250, HIDE_TAG),
+        label("m_h3"),
+        _set("hidx", f"{hx} {hx} const(3) B_LT B_PLUS"),
+        label("m_r1done"),
+        # L1: toggle the grade
+        _stmt(keyon("l1")), (JMP_IFNOT, "m_l1done"),
+        _stmt(f"{gr} const(0) B_EQ"), (JMP_IFNOT, "m_gradeoff"),
+        opcodes.encode(0xEC, *GRADE), _set("grade", "const(1)"), (JMP, "m_l1done"),
+        label("m_gradeoff"),
+        opcodes.encode(0xEC, *GRADE_CLEAR), _set("grade", "const(0)"),
+        label("m_l1done"),
+        # Cancel: undo everything, hand the camera back
+        _stmt(keyon("cancel")), (JMP_IFNOT, "m_done"),
+        _stmt(f"{hx} const(0) B_GT"), (JMP_IFNOT, "m_s1"),
+        *[opcodes.encode(0x39, L, i) for i in range(16)],
+        label("m_s1"),
+        _stmt(f"{hx} const(1) B_GT"), (JMP_IFNOT, "m_s2"),
+        opcodes.run_script_sync(SYNC_LEVEL, C, SHOW_TAG),
+        label("m_s2"),
+        _stmt(f"{hx} const(2) B_GT"), (JMP_IFNOT, "m_s3"),
+        opcodes.run_script_sync(SYNC_LEVEL, 250, SHOW_TAG),
+        label("m_s3"),
+        _stmt(gr), (JMP_IFNOT, "m_nograde"),
+        opcodes.encode(0xEC, *GRADE_CLEAR),
+        label("m_nograde"),
+        opcodes.encode(0x70, *RELEASE), _set("rt", "const(1)"),
+        opcodes.encode(0x2E),
+        _set("state", "const(0)"), _set("hidx", "const(0)"), _set("grade", "const(0)"), _stmt(f"{mode} const(0) B_LET"),
+        label("m_done"),
+        _set("modal", f"{st} {gr} const(2) B_MULT B_PLUS {hx} const(4) B_MULT B_PLUS"),
+    ]
+
+
+def flags_expr(uids: dict) -> str:
+    """FLAGS = the show bit of the player (1), C (2), L (4), R (8) -- obj(uid).f[4] is the object's flags byte."""
+    who = {"P": 250, **uids}
+    parts = [f"obj(uid={who[k]}).f[4] const(1) B_AND const({bit}) B_MULT" for k, _u, bit in FLAG_BITS]
+    return parts[0] + "".join(f" {q} B_PLUS" for q in parts[1:])
+
+
+def flag_function(uid: int, show: bool) -> bytes:
+    """The body seated as tag 40 (hide) / 41 (show) on the target's own entry: SetObjectFlags(its flags with bit 0
+    cleared / set) -- 0x93 writes flags = (flags & ~63) | (arg & 63), so the other five low bits ride through."""
+    e = f"obj(uid={uid}).f[4] const(1) B_OR" if show else f"obj(uid={uid}).f[4] const(62) B_AND"
+    return opcodes.encode(0x93, _x(e), arg_flags=0b1) + opcodes.RETURN
+
+
+def daemon_body(stage: int, uids: dict | None = None) -> bytes:
     if stage not in STAGES:
         raise SystemExit(f"stage {stage} is not built yet (have {STAGES})")
+    uids = {k: (uids or UIDS)[k] for k in ("L", "C", "R")}
     zero = ("t", "ackt", "gate", "fpb", "fuc", "nmc", "rt", "ack", "last", "nr", "nl", "nd", "nu", "edges", "tx", "ty",
-            "txp", "typ", "issp", "flags", "keys", "iss", "pmode", "dx", "dy")
+            "txp", "typ", "issp", "flags", "keys", "iss", "pmode", "dx", "dy", "modal", "state", "hidx", "grade")
     B: list = [_set(n, "const(0)") for n in zero]
     B += [_stmt(f"Global.Byte[{b}] const(0) B_LET") for b in (CMD, MODE)]
     B.append(label("gate"))
     firsts = (("fpb", f"Global.Bit[{PBOUND}]"), ("fuc", "B_SYSVAR[2] const(0) B_NE"))
     B += [_stmt(f"{g(k)} {g(k)} {g(k)} const(0) B_EQ {src} B_MULT {g('gate')} const(1) B_PLUS B_MULT B_PLUS B_LET")
           for k, src in firsts]
-    B += [_stmt(f"Global.Bit[{PBOUND}] B_SYSVAR[2] B_ANDAND"), (JMP_IFNOT, "hold"), (JMP, "go"),
+    ready = f" Global.Bit[{READY_L}] B_ANDAND Global.Bit[{READY_C}] B_ANDAND Global.Bit[{READY_R}] B_ANDAND" \
+        if stage >= 4 else ""                           # stage 4 reads the props' flags: they must exist first
+    B += [_stmt(f"Global.Bit[{PBOUND}] B_SYSVAR[2] B_ANDAND{ready}"), (JMP_IFNOT, "hold"), (JMP, "go"),
           label("hold"), _inc("gate"), opcodes.wait(1), (JMP, "gate"),
           label("go"), opcodes.wait(SETTLE),
           label("top"),
@@ -378,17 +542,21 @@ def daemon_body(stage: int) -> bytes:
           _inc("t"), _set("uc", "B_SYSVAR[2]"), _set("cam", "B_SYSVAR[1]"),
           _set("keys", keys_expr()),
           _stmt(f"{g('rt')} {g('rt')} {g('rt')} const(0) B_GT {g('rt')} const(999) B_LT B_MULT B_PLUS B_LET")]
+    if stage >= 4:
+        B.append(_set("flags", flags_expr(uids)))
     if stage >= 2:
-        B += _dispatcher()
+        B += _dispatcher(stage, uids)
+    if stage >= 5:
+        B += _modal(uids)
     if stage >= 3:
         B += _pan()
     B += [opcodes.wait(1), (JMP, "top"), opcodes.RETURN]
     return asm(B)
 
 
-def entry_bytes(stage: int) -> bytes:
+def entry_bytes(stage: int, uids: dict | None = None) -> bytes:
     """A seated code entry: type 0, ONE tag-0 function at fpos 4 (the sine-kit / gauge-daemon shape)."""
-    return bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + daemon_body(stage)
+    return bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + daemon_body(stage, uids)
 
 
 def prop_uids(eb: bytes) -> dict:
@@ -441,7 +609,11 @@ def patch_eb(eb0: bytes, stage: int) -> tuple:
     out = eb_edit.insert_in_function(eb0, pl, 0, _after_op(eb0, pl, 0x2C), _bit(PBOUND, 1))
     for tag, bit in (("L", READY_L), ("C", READY_C), ("R", READY_R)):
         out = eb_edit.insert_in_function(out, uids[tag], 0, _after_op(out, uids[tag], 0x1D), _bit(bit, 1))
-    out, slot = _object.seat_entry(out, entry_bytes(stage))
+    if stage >= 4:                                      # the flag hide/show functions, on the targets' OWN entries
+        for entry, uid in ((uids["C"], uids["C"]), (pl, 250)):
+            out = eb_edit.add_function(out, entry, HIDE_TAG, flag_function(uid, show=False))
+            out = eb_edit.add_function(out, entry, SHOW_TAG, flag_function(uid, show=True))
+    out, slot = _object.seat_entry(out, entry_bytes(stage, uids))
     out = eb_edit.activate_block(out, _bit(PBOUND, 0) + _bit(READY_L, 0) + _bit(READY_C, 0) + _bit(READY_R, 0)
                                  + opcodes.init_code(slot, 0))
     fresh = [p for p in eblint.lint_eb(out)
@@ -452,8 +624,12 @@ def patch_eb(eb0: bytes, stage: int) -> tuple:
 
 
 def deployed_stage(eb: bytes) -> int | None:
+    try:
+        uids = prop_uids(eb)
+    except SystemExit:
+        return None
     for st in sorted(STAGES, reverse=True):
-        if daemon_body(st) in eb:
+        if daemon_body(st, uids) in eb:
             return st
     return None
 
@@ -477,6 +653,11 @@ def audit(body: bytes, stage: int) -> list:
             bad.append(f"0x{i.op:02X} @{i.off}: never emitted by this bench")
         if i.op == 0x14 and body[i.off + 1] & 0b100:
             bad.append(f"0x14 @{i.off}: its tag operand is geti(), never an expression")
+    n70 = [i for i in ops if i.op == 0x70]
+    if stage >= 5 and not any(body[i.off:i.end] == opcodes.encode(0x70, *RELEASE) for i in n70):
+        bad.append("the modal exit's literal ReleaseCamera(16, 8) is missing")
+    if stage >= 5 and not re.search(rb"\x7d\x01\x00\x4f", body):
+        bad.append("no Select B_KEYON (const(1) B_KEYON) -- the modal cannot open")
     n71 = sum(i.op == 0x71 for i in ops)
     if n71 != (2 if stage >= 2 else 0):
         bad.append(f"0x71 appears {n71}x (want exactly the CMD 5/6 pair from stage 2)")

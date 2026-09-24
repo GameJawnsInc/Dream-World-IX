@@ -1,7 +1,8 @@
 # Photo mode: a script-driven camera pan (board entry #8)
 
-**Status:** rung 0 in progress. The bench, the daemon for stages 1-3, the offline stepper and the harness scenario are
-built; stage 1 is the first in-game run.
+**Status:** rung 0 ★ **PASSED in-game, 132/132 over five runs** (harness, one change per run, readback and frame
+agreeing). The camera-pan primitive is proven: take, pan, clamp, hide, grade, give back. Next is rung 1, the kit
+feature. The feel of it is the owner's to judge on bench 30955.
 
 Board entry #8 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It was the runner-up when #7, the sine
 kit, was picked. Its reframe is the kit's **first camera-pan primitive**:
@@ -61,7 +62,18 @@ run, so each run changes one thing:
 | 1 | Mirrors only: the view (0xEA), the player's screen position (0xA9), usercontrol, the camera index, the held keys. No camera op anywhere; this is the calibration |
 | 2 | A command dispatcher driven by harness-poked bytes: move, glide, relative move, release, lock/unlock, and the 0x71 negative control with its recovery |
 | 3 | The d-pad pan, `STEP` = 4 px a tick, clamped in the script. MODE 1 is relative (the stock 507 form); MODE 3 is absolute |
-| 4-5 | Hides and the grade, then the modal Select/Cancel loop. Not built yet; next after 3 |
+| 4 | Hides and the grade (commands 9-18) plus a FLAGS mirror of the show bits. The hides are hide-all/show-all, balloon L by mesh, and C and the player by flags, run through RunScriptSync into functions seated on their own entries. The grade is a held SUB FadeFilter |
+| 5 | The modal loop, buttons only. A Select edge opens it (lock, then take). The d-pad pans. R1 hides L (mesh), then C (flags), then the player (flags). L1 toggles the grade. Cancel restores everything and releases |
+
+**Stage 4's open question: does a show undo a flags-hide?** Read in `EventEngine.ProcessEvents.SetRenderer` and
+`PosObj.SetIsEnabledMeshRenderer`:
+- A flags-hide disables every renderer under the object directly.
+- A show only calls `SetIsEnabledMeshRenderer` per mesh. That call is guarded by the `meshIsRendering[mesh]`
+  bookkeeping, which the hide never cleared, so it would be a no-op.
+
+Stock hides and shows NPCs this way thousands of times (`SetObjectFlags(14)`/`(7)`), so some path must re-enable
+them. No other re-enabling code was found. Every show in stage 4 is therefore measured on the frame on its own, not
+inferred from the flags.
 
 **Two independent instruments**, in [`rung0_photo.py`](rung0_photo.py):
 
@@ -95,6 +107,8 @@ on, CameraStabilizer 0):
 | 1 | 1: calibration | ★ **17/17** (`photo-rung0-s1`, 39 s) |
 | 2 | 2: the dispatcher | ★ **32/32** (`photo-rung0-s2`, 53 s) |
 | 3 | 3: the pan | ★ **27/27** (`photo-rung0-s3`, 61 s) |
+| 4 | 4: hides + grade | ★ **30/30** (`photo-rung0-s4`, 55 s) |
+| 5 | 5: the modal loop | ★ **26/26** (`photo-rung0-s5`, 54 s) |
 
 **Run 1: the instrument is calibrated.** Every frozen prediction held exactly:
 - **Spawn:** view (384, 286).
@@ -159,3 +173,86 @@ find checks that could not fail or could fail for the wrong reason:
 - **Exit.** Release plus unlock hands the view back to follow.
 - **C-CORE.** All **412** samples whose previous tick issued a one-tick move read that target exactly, with X
   clamped at issue and Y untouched.
+
+**Run 4: hides and the grade.** Each hide and each show was measured on the frame (red connected components for the
+balloons, non-palette pixels in a box on the player's 0xA9 point), not inferred from flags:
+- **Flag hides.** C and the player by flags, through RunScriptSync(2, uid, 40/41) into functions seated on their own
+  entries: the show bit clears, the object vanishes, and the show brings it back. The daemon kept ticking; it acked
+  each command.
+- **Mesh hide.** Balloon L by mesh (0x3A/0x39 over meshes 0-15, by uid): it vanishes with its **flags untouched**,
+  and comes back.
+- **Hide-all / show-all.** 0xD5 hides the player and all three balloons (FLAGS 0). 0xD6 restores exactly the state
+  before.
+- **Negative control.** R, never a target, stayed drawn with its show bit set through every step but hide-all.
+- **The grade.** A SUB `FadeFilter(2, 8, 0, 0, 64, 128)` took the white cells from (235, 235, 235) to exactly
+  **(235, 171, 107)**, the same in all three thirds of the frame. That is the gamma-space subtraction; the
+  linear-space prediction (~235, 228, 206) is refuted. It held with no drift over 120 frames, and the same channel at
+  (0, 0, 0) restored the frame exactly.
+
+**The source-read prediction was wrong.** Shows after a flags-hide **do** come back, for both a kit prop and the
+player. Some engine path re-enables the renderers that `SetRenderer`'s show branch alone would not; it was not found
+in the read. This is recorded as a reading that failed against the frame. It is the reason every show was measured
+separately.
+
+**Run 5: photo mode, driven by the player's buttons alone.** No harness pokes.
+- **Closed.** R1, L1 and Cancel edges reached the poll (EDGES counted them) and changed nothing.
+- **Open.** One Select edge locked the player and **took the camera where it already was**: no jump on the readback,
+  and the frame registered at the same offset.
+- **Hide cycle.** R1 hid balloon L (mesh), then C (flags), then the player (flags). A fourth R1 changed nothing.
+- **Pan.** The d-pad panned the open view exactly 4 px a polled tick (11 ticks = +44). The frame followed by 44, and
+  the hidden player did not move.
+- **Grade.** L1 toggled the grade on (235, 171, 107), off (235, 235, 235), then on again.
+- **Exit.** One Cancel edge did all of this together:
+  - showed everything it had hidden (FLAGS 15, three balloons, the player);
+  - cleared the grade;
+  - eased the camera back with `ReleaseCamera(16, 8)`, matching the float32 cosine curve with worst error 0 over 16
+    ticks;
+  - handed control back.
+
+  **The frame registered exactly where photo mode found it.**
+- **Edges.** Every one of the 14 photo-button presses was exactly one edge (EDGES +17697, as predicted).
+- **Afterwards.** Follow tracked the walking player again.
+
+## Rung 0 verdict
+
+★ **PASSED: 132/132 checks over five in-game runs, one change per run.** Every claim was measured two independent ways
+(the engine's own readback and the registered frame), with negative controls. The camera-pan primitive is:
+
+| Step | How |
+|---|---|
+| Take | `DisableMove`, then `MoveCamera(VX, VY, 1, 0)`, where VX/VY come from `CalculateScreenOrigin` (0xEA → `B_SYSVAR[12]/[13]`). It takes the camera exactly where it is, and the camera then HOLDS |
+| Pan | Each tick, relative to the mirrored view (stock 507's form, no wind-up): `MoveCamera(VX ± step, VY ± step, 1, 0)`, clamped **in the script**. The engine clamps X only at issue, to the widescreen-narrowed window, and never clamps Y |
+| Give back | `ReleaseCamera(n, 8)` eases to the player's clamped follow point, then `EnableMove` |
+| Never | `EnableCameraServices(0)` (it kills every pan), 0x73/0x74 (clamp unlock/lock) or 0x1E |
+| Hide | By mesh (0x3A over meshes 0-15, any uid, flags untouched), by flags (a function seated on the target's own entry, run through `RunScriptSync(2, uid, tag)`), or all at once (0xD5/0xD6). Every one comes back |
+| Grade | A held SUB `FadeFilter`, subtracted in gamma space; the same channel at 0 clears it |
+
+## What rung 1 (the kit feature) inherits
+
+What the kit needs to ship this as a `field.toml` surface, from the runs above:
+
+- **Emitters.** Add 0x6F / 0x70 / 0xEA to `eb/opcodes.py`. Take, pan and give-back as above. Never emit 0x71(0),
+  0x73, 0x74 or 0x1E.
+- **The pan box, per camera, chosen by `B_SYSVAR[1]`.**
+  - The script must clamp to the **effective** box.
+  - The engine narrows X at 16:9: 199..569 on a 768 canvas, against the baked 160..608. At 4:3 it clamps nothing.
+  - The lint reports both boxes in pixels and refuses a field whose canvas is no wider than `PsxFieldWidth`, where X
+    is pinned. A default 384-wide kit field is Y-only.
+- **Button contention.**
+  - `[[ate]]`, the behavior hire poller and `[siege]` already own Select, so the open button is author-set, and the
+    lint catches a collision.
+  - Key masks of 0x8000 or more must be `const4`. The kit's assembler accepts `const(32768)` and emits a value the
+    engine reads as negative.
+  - Photo mode opens no windows today. Any caption window it adds must carry `[NTUR]`.
+- **Hide targets.** Kit props and the player both work by flags and by mesh. Which one to ship is a design choice:
+  flags also hides the blob shadow, and mesh does not.
+
+**Still open, and the owner's call:**
+- **The feel.** Pan speed, whether 4 px a tick feels right, and the ease on exit. Bench 30955 is deployed now: ~ →
+  Warp to field → 30955, press **Select** to open photo mode, the d-pad pans, R1 hides, L1 grades, Cancel exits.
+- **`CameraStabilizer` at its default of 85.** This install runs 0, so the on-screen lag of a pan is unmeasured.
+- **Whether `content/camera.py`'s injected `EnableCameraServices(1,0,0)` is a no-op.** The source says `BG_init`
+  already sets Active; run 6 would prove it.
+
+Offline aids: `daemon_sim.py` (this study) steps the daemon's bytes. `ff9mapkit/tests/_ebengine.py` is the suite's own
+`.eb` interpreter and is the one to use when rung 1's emitters get unit tests.

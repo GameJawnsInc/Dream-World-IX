@@ -29,6 +29,8 @@ CALIBRATION (every run)
   NC-KEYS   KEYS is 0 at idle; a harness hold reaches B_KEY and walks the player
 STAGE 2 (the dispatcher)  2.1 LOCK .. 2.10 the 0x71 negative control -- see run_stage2
 STAGE 3 (the pan)         3.1 .. 3.8 -- see run_stage3
+STAGE 4 (hides + grade)   4.0 .. 4.6 -- every hide AND every show measured on the frame; see run_stage4
+STAGE 5 (the modal loop)  5.0 .. 5.7 -- Select opens, R1 hides, L1 grades, the d-pad pans, Cancel restores; buttons only
 C-CORE (stages 2-3)  over EVERY sample whose previous tick issued a one-tick move: VX == clamp(TXP, the widescreen X
           window) and VY == TYP -- the engine applies the command exactly, next tick, X clamped at issue, Y never
 NC-THROW  no NullReference / InvalidCast / IndexOutOfRange / DivideByZero through EventEngine, EBin or FieldMap
@@ -629,6 +631,219 @@ def run_stage3(g, rec: Rec, cal: dict, ref) -> None:
             "3.8 EXIT: release + unlock hands the view back -- follow tracks the walking player again",
             f"view ({m['vx']},{m['vy']}) model {model}")
 
+# ------------------------------------------------------------------- stage 4: hides and the grade
+def _look(png, m) -> dict:
+    """Which balloons are drawn (by screen x at the spawn view: L ~143, C ~621, R ~1095) and how much of the player."""
+    cls = set()
+    for x, _y, _n in P.red_bodies(png):
+        cls.add("L" if x < 380 else "C" if x < 860 else "R")
+    return {"cls": cls, "player": P.player_px(png, m["psx"], m["psy"])}
+
+
+def run_stage4(g, rec: Rec, cal: dict, ref) -> None:
+    g.walk_to(0, -1102)                                  # the spawn view: all three balloons and the player on screen
+    settle(rec)
+    cmd(g, rec, "LOCK")
+    png, m0, t0 = rest_shot(g, rec, "s4-base", ref)
+    base = _look(png, m0)
+    view = (m0["vx"], m0["vy"])
+    print(f"[photo-rung0] 4 base: view {view}, FLAGS {m0['flags']}, look {base}")
+    g.check(m0["flags"] == 15 and base["cls"] == {"L", "C", "R"} and base["player"] >= 200,
+            "4.0 BASE: FLAGS reads all four show bits, the three balloons and the player are drawn",
+            f"FLAGS {m0['flags']}, {base}")
+    vis, pvis, flags = set(base["cls"]), True, m0["flags"]
+    saved = None
+    rows = []
+    # (label, command, the flags it should leave, what it should leave drawn) -- expectations follow the MEASURED state
+    # before each step, so a show that fails is reported once and does not poison the steps after it
+    steps = [
+        ("4.4 FLAG HIDE C", "FLAG_HIDE_C", lambda f: f & ~2, lambda v, p: (v - {"C"}, p)),
+        ("4.4 FLAG SHOW C", "FLAG_SHOW_C", lambda f: f | 2, lambda v, p: (v | {"C"}, p)),
+        ("4.3 MESH HIDE L", "MESH_HIDE_L", lambda f: f, lambda v, p: (v - {"L"}, p)),
+        ("4.3 MESH SHOW L", "MESH_SHOW_L", lambda f: f, lambda v, p: (v | {"L"}, p)),
+        ("4.5 FLAG HIDE PLAYER", "FLAG_HIDE_P", lambda f: f & ~1, lambda v, p: (v, False)),
+        ("4.5 FLAG SHOW PLAYER", "FLAG_SHOW_P", lambda f: f | 1, lambda v, p: (v, True)),
+        ("4.1 HIDE ALL", "HIDEALL", lambda f: 0, lambda v, p: (set(), False)),
+        ("4.2 SHOW ALL", "SHOWALL", None, None),
+    ]
+    for label, name, fl, dr in steps:
+        if name == "HIDEALL":
+            saved = (flags, set(vis), pvis)
+        want_f = saved[0] if name == "SHOWALL" else fl(flags)
+        want_v, want_p = (saved[1], saved[2]) if name == "SHOWALL" else dr(vis, pvis)
+        t_a, _ = cmd(g, rec, name)
+        try:
+            mf = rec.until(lambda m: m["t"] > t_a and m["flags"] == want_f, 4, f"FLAGS {want_f} after {name}")
+        except Stop:
+            mf = rec.poll()
+        png, m, _t = rest_shot(g, rec, f"s4-{name.lower()}", ref)
+        look = _look(png, m)
+        pdrawn = look["player"] >= 200 if want_p else look["player"] <= 60
+        ok = mf["flags"] == want_f and look["cls"] == want_v and pdrawn and (m["vx"], m["vy"]) == view
+        rows.append((label, m["flags"], sorted(look["cls"]), look["player"]))
+        g.check(ok, f"{label}: FLAGS {want_f}, balloons drawn {sorted(want_v)}, player "
+                f"{'drawn' if want_p else 'hidden'} -- measured on the frame, the daemon kept running (it acked)",
+                f"FLAGS {mf['flags']}, balloons {sorted(look['cls'])}, player px {look['player']}, view "
+                f"{(m['vx'], m['vy'])}")
+        flags, vis, pvis = mf["flags"], look["cls"], look["player"] >= 200
+    rec.notes["stage 4 hides"] = rows
+    r_rows = [r for r in rows if r[0] != "4.1 HIDE ALL"]
+    g.check(all("R" in r[2] and r[1] & 8 for r in r_rows),
+            "NC-HIDE: balloon R, never a target, stays drawn with its show bit set through every step but hide-all",
+            str(rows))
+
+    # 4.6 the held grade
+    w0, th0 = P.white_median(png, t0["ox"], t0["oy"], thirds=True)
+    cmd(g, rec, "GRADE")
+    rec.ticks(12)
+    png1, m1, _t = rest_shot(g, rec, "s4-grade", ref)
+    w1, th1 = P.white_median(png1, t0["ox"], t0["oy"], thirds=True)
+    rec.frames(120)
+    png2, _m2, _t = rest_shot(g, rec, "s4-grade-held", ref)
+    w2 = P.white_median(png2, t0["ox"], t0["oy"])
+    cmd(g, rec, "GRADE_CLEAR")
+    rec.ticks(12)
+    png3, _m3, t3 = rest_shot(g, rec, "s4-grade-clear", ref)
+    w3 = P.white_median(png3, t0["ox"], t0["oy"])
+    d = [w1[i] - w0[i] for i in range(3)]
+    rec.notes["4.6 grade"] = {"white before": w0, "graded": w1, "thirds": th1, "held 120f": w2, "cleared": w3,
+                              "gamma-space prediction": (235, 171, 107), "linear-space prediction": "~(235,228,206)"}
+    print(f"[photo-rung0] 4.6 grade: white {w0} -> {w1} (thirds {th1}) -> held {w2} -> cleared {w3}")
+    g.check(abs(d[0]) <= 3 and d[1] <= -5 and d[2] <= -20 and d[2] < d[1]
+            and all(max(abs(a - b) for a, b in zip(t, w1)) <= 3 for t in th1),
+            "4.6 GRADE: a SUB FadeFilter (0, 64, 128) holds a warm tint over the whole frame -- red untouched, blue "
+            "cut deepest, the same in every third", f"white {w0} -> {w1} (d {d}), thirds {th1}")
+    g.check(max(abs(a - b) for a, b in zip(w1, w2)) <= 2,
+            "4.6 HELD: the grade does not drift over 120 frames (FadeFilter latches its colour)", f"{w1} -> {w2}")
+    g.check(max(abs(a - b) for a, b in zip(w3, w0)) <= 3 and (t3["ox"], t3["oy"]) == (t0["ox"], t0["oy"]),
+            "4.6 CLEAR: the same channel at (0, 0, 0) restores the frame, which registers where it was",
+            f"{w0} -> {w3}, frame {(t3['ox'], t3['oy'])}")
+    cmd(g, rec, "UNLOCK")
+
+
+# ------------------------------------------------------------------- stage 5: the modal loop, driven by buttons only
+def _press(g, rec: Rec, button: str) -> dict:
+    """One edge: press for 2 frames, then let a few ticks pass so the next press is a new edge."""
+    g.press(button, 2)
+    return rec.ticks(4)
+
+
+def run_stage5(g, rec: Rec, cal: dict, ref) -> None:
+    hfw = cal["hfw"]
+    hi = 608 - (2 * hfw - 320) // 2
+    g.walk_to(0, -1102)                                  # the last walk: walk_to may hold Cancel (its walk modifier)
+    png0, m0, t0 = rest_shot(g, rec, "s5-base", ref)
+    base, w0, e0 = _look(png0, m0), P.white_median(png0, t0["ox"], t0["oy"]), m0["edges"]
+    v0 = (m0["vx"], m0["vy"])
+    print(f"[photo-rung0] 5 base: view {v0}, look {base}, white {w0}, edges {e0}")
+
+    # CLOSED: the photo buttons do nothing until Select opens it
+    for b in ("r1", "l1", "cancel"):
+        _press(g, rec, b)
+    png, m, t = rest_shot(g, rec, "s5-closed", ref)
+    look = _look(png, m)
+    g.check(m["modal"] == 0 and m["flags"] == 15 and look["cls"] == {"L", "C", "R"} and look["player"] >= 200
+            and max(abs(a - b) for a, b in zip(P.white_median(png, t0["ox"], t0["oy"]), w0)) <= 3 and m["uc"] == 1
+            and (m["vx"], m["vy"]) == v0 and m["edges"] - e0 == 256 + 4096 + 16,
+            "5.0 CLOSED: R1 / L1 / Cancel edges reach the poll (EDGES counts them) but change nothing until Select",
+            f"modal {m['modal']}, FLAGS {m['flags']}, look {look}, uc {m['uc']}, edges +{m['edges'] - e0}")
+
+    # OPEN on a Select edge: lock, take the view it is already on -- no jump
+    t_o = rec.poll()["t"]
+    g.press("select", 2)
+    mo = rec.until(lambda m: m["modal"] & 1, 4, "photo mode to open")
+    rec.ticks(6)
+    png, m, t = rest_shot(g, rec, "s5-open", ref)
+    after = rec.between(mo["t"])
+    g.check(m["uc"] == 0 and not rec.poll()["control"] and all((x["vx"], x["vy"]) == v0 for x in after)
+            and (t["ox"], t["oy"]) == (t0["ox"], t0["oy"]) and m["edges"] - e0 == 256 + 4096 + 16 + 1,
+            "5.1 OPEN: one Select edge locks the player and takes the camera where it already is -- no jump on the "
+            "readback or the frame", f"uc {m['uc']}, views {sorted({(x['vx'], x['vy']) for x in after})}, frame "
+            f"{(t['ox'], t['oy'])} vs {(t0['ox'], t0['oy'])}, opened at tick {mo['t']} (pressed after {t_o})")
+
+    # HIDE cycle: L by mesh, C by flags, the player by flags, a 4th press nothing
+    want = [({"C", "R"}, True, 15, 1 + 4), ({"R"}, True, 13, 1 + 8), ({"R"}, False, 12, 1 + 12),
+            ({"R"}, False, 12, 1 + 12)]
+    rows = []
+    for i, (cls, pdr, fl, md) in enumerate(want, 1):
+        _press(g, rec, "r1")
+        try:
+            rec.until(lambda m: m["modal"] == md and m["flags"] == fl, 3, f"R1 #{i}")
+        except Stop:
+            pass
+        png, m, t = rest_shot(g, rec, f"s5-r1-{i}", ref)
+        look = _look(png, m)
+        ok = look["cls"] == cls and (look["player"] >= 200) == pdr and m["flags"] == fl and m["modal"] == md
+        rows.append((i, sorted(look["cls"]), look["player"], m["flags"], m["modal"], ok))
+    print(f"[photo-rung0] 5.2 hide cycle {rows}")
+    g.check(all(r[-1] for r in rows), "5.2 HIDE CYCLE: R1 hides balloon L (mesh), then C (flags), then the player "
+            "(flags); a 4th R1 changes nothing", str(rows))
+
+    # PAN while open (grade off): exact 4 px a polled tick, the hidden player does not move
+    b = settle(rec)
+    _p, _m, ta = rest_shot(g, rec, "s5-pan-a", ref)
+    m = hold_and_watch(g, rec, "right", 20)
+    _p, m, tb = rest_shot(g, rec, "s5-pan-b", ref)
+    dn = m["nr"] - b["nr"]
+    g.check(dn >= 5 and m["vx"] == min(hi, b["vx"] + P.STEP * dn) and m["vx"] < hi and m["vy"] == b["vy"]
+            and abs(m["px"] - b["px"]) <= 1 and abs(m["pz"] - b["pz"]) <= 1
+            and abs((tb["ox"] - ta["ox"]) - (m["vx"] - b["vx"])) <= 1,
+            "5.3 PAN: the d-pad pans the open view 4 px a polled tick, the frame follows, the player stays put",
+            f"VX {b['vx']} -> {m['vx']} ({dn} ticks), frame dx {tb['ox'] - ta['ox']}, player "
+            f"({b['px']:.0f},{b['pz']:.0f}) -> ({m['px']:.0f},{m['pz']:.0f})")
+
+    # GRADE toggles on L1, at the panned view (registered on its ungraded shot)
+    grades = []
+    for i, on in enumerate((True, False, True), 1):
+        _press(g, rec, "l1")
+        try:
+            rec.until(lambda m: bool(m["modal"] & 2) == on, 3, f"L1 #{i}")
+        except Stop:
+            pass
+        rec.ticks(12)
+        png, m, _t = rest_shot(g, rec, f"s5-l1-{i}", ref)
+        w = P.white_median(png, tb["ox"], tb["oy"])
+        good = (abs(w[0] - 235) <= 3 and w[1] <= 235 - 40 and w[2] <= 235 - 90) if on \
+            else max(abs(a - b) for a, b in zip(w, w0)) <= 3
+        grades.append((i, on, w, bool(m["modal"] & 2), good))
+    print(f"[photo-rung0] 5.4 grade toggles {grades}")
+    g.check(all(r[-1] and r[1] == r[3] for r in grades), "5.4 GRADE: L1 toggles the held warm grade on, off, on",
+            str(grades))
+
+    # EXIT on Cancel: show all, clear the grade, cosine release to the follow point, unlock
+    here = settle(rec)
+    vs = (here["vx"], here["vy"])
+    end = P.follow_model(here["px"], here["pz"], hfw)
+    g.press("cancel", 2)
+    mx = rec.until(lambda m: m["modal"] == 0 and m["rt"] >= 1, 4, "photo mode to close")
+    rec.ticks(30)
+    t_r = mx["t"] - (mx["rt"] - 1)                        # the tick the release was issued in
+    fit = _glide_fit(rec.between(t_r, t_r + 16), t_r, vs, end, 16, cosine=True)
+    rec.notes["5.5 release fit"] = fit
+    png, m, t = rest_shot(g, rec, "s5-exit", ref)
+    look = _look(png, m)
+    w = P.white_median(png, t["ox"], t["oy"])
+    print(f"[photo-rung0] 5.5 exit: release {vs} -> {end} fit worst {fit[1]['worst']} (n {fit[1]['n']}); view "
+          f"{(m['vx'], m['vy'])}, look {look}, white {w}")
+    g.check(m["flags"] == 15 and look["cls"] == {"L", "C", "R"} and look["player"] >= 200
+            and max(abs(a - b) for a, b in zip(w, w0)) <= 3 and m["uc"] == 1 and rec.poll()["control"]
+            and fit[1]["worst"] <= 1 and fit[1]["n"] >= 6 and abs(m["vx"] - end[0]) <= 1 and abs(m["vy"] - end[1]) <= 1
+            and abs(t["ox"] - t0["ox"]) <= 1 and abs(t["oy"] - t0["oy"]) <= 1,
+            "5.5 EXIT: one Cancel edge shows everything it hid, clears the grade, eases the camera back to the player "
+            "(ReleaseCamera 16, type 8) and hands control back -- the frame is where photo mode found it",
+            f"FLAGS {m['flags']}, look {look}, white {w}, uc {m['uc']}, release worst {fit[1]['worst']} over "
+            f"{fit[1]['n']}, view {(m['vx'], m['vy'])} vs {end}, frame {(t['ox'], t['oy'])} vs {(t0['ox'], t0['oy'])}")
+    edges = m["edges"] - e0
+    want_e = (256 + 4096 + 16) + 1 + 4 * 256 + 3 * 4096 + 16
+    g.check(edges == want_e, "5.6 EDGES: every photo-button press was exactly one edge, open or closed",
+            f"+{edges} (want +{want_e})")
+    g.walk_to(600, -1102)
+    m = settle(rec)
+    model = P.follow_model(m["px"], m["pz"], hfw)
+    g.check(abs(m["vx"] - model[0]) <= 1 and abs(m["vy"] - model[1]) <= 1 and abs(m["vx"] - end[0]) >= 50,
+            "5.7 FOLLOW: after photo mode the camera follows the walking player again", f"view ({m['vx']},{m['vy']}) "
+            f"model {model}")
+
 
 def core(g, rec: Rec, hfw: int, min_rows: int) -> None:
     lo, hi = 160 + (2 * hfw - 320) // 2, 608 - (2 * hfw - 320) // 2
@@ -669,8 +884,12 @@ def run(g) -> None:
             run_stage2(g, rec, cal, ref)
         elif stage == 3:
             run_stage3(g, rec, cal, ref)
-        if stage >= 2:
-            core(g, rec, cal["hfw"], min_rows=6 if stage == 2 else 30)
+        elif stage == 4:
+            run_stage4(g, rec, cal, ref)
+        elif stage == 5:
+            run_stage5(g, rec, cal, ref)
+        if stage in (2, 3, 5):
+            core(g, rec, cal["hfw"], min_rows={2: 6, 3: 30, 5: 5}[stage])
     except (Stop, HarnessError) as e:
         g.check(False, "STOPPED", f"{type(e).__name__}: {e}")
     finally:
