@@ -1,6 +1,8 @@
 # The story-write trace (EB board #3)
 
-**Status:** ★ **rung 0 in-game PROVEN 11/11** (`story-rung0`): s88 is live (sha `c55377f6c137d442…`, backups `20260924-172331`), and the trace on stock Lindblum 552 joined every script write to a store in the stock bytes. **Rung 1 ★ in-game 11/11** (`story-rung1`): the residue net and the epochs. Next: rung 2 (the null pair).
+**Status:** ★ **rung 0 in-game PROVEN 11/11** (`story-rung0`): s88 is live (sha `c55377f6c137d442…`, backups `20260924-172331`), and the trace on stock Lindblum 552 joined every script write to a store in the stock bytes. **Rung 1 ★ in-game 11/11** (`story-rung1`): the residue net and the epochs. **Rung 2 ★ in-game 8/8**
+(`story-rung2`): THE NULL PAIR -- stock 552 x3 vs its verbatim fork x3, STOCK ONLY and FORK ONLY both empty.
+Next: rung 3 (the Dali retrodiction).
 
 Board entry #3 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It is the narrative-state arc's missing
 instrument ([`../narrative-state/PLAN.md`](../narrative-state/PLAN.md)).
@@ -148,6 +150,25 @@ sandbox autosave).
   `HarnessWarp` passes `resetFlags = false`), co-op's `netsync` epoch (two games), the `prestore` residue (needs a
   bypass write inside a pass), and the world map's `SC += 10` (a one-off continent-title beat). All are
   code-reviewed; verbs for the debug paths can ride the next s88 rebuild.
+
+## Rung 2 result -- the null pair
+
+★ **In-game 8/8** (`story-rung2`, [`rung2_trace.py`](rung2_trace.py)). The fork: `ff9mapkit import 552 --verbatim
+--id 30830 --name TRC552`, deployed with `tools/deploy_field.py --id 30830` (it wrote `ForkDonorPatch.txt` 30830 ->
+552). Six runs in one launch, interleaved stock/fork, each New Game -> `storytrace 1` -> seed byte 236 = 0x0F ->
+`warp <field> 3 3115` -> ~3 s -> `storytrace 0` -> soft reset.
+
+- **STOCK ONLY: 0. FORK ONLY: 0. UNSTABLE: 0.** 11 story keys matched in all six runs (552's Main_Init, joined at
+  the same function offsets on both sides); 0 join failures -- each side joined against the bytes it ran (the
+  install's 552, the mod folder's 30830, the field-70 New Game override on both).
+- **The donor mapping is live in the engine:** every one of the fork's 39 rows carries `don` 552, written by the
+  engine from ForkDonorPatch, not assumed by the reader.
+- **Six genuine runs:** distinct frame ranges (516-808 ... 3176-3572) and the tracer's pass counter monotonic
+  across them (0 -> 927).
+- **The falsifier bites** (checked offline first, on real rows): a fork run that never writes one of 552's
+  Main_Init stores is named exactly in STOCK ONLY -- `WriteKey(donor=552, sid=0, tag=0, off=509,
+  Global.Int16[239] = 552)`.
+- The residue is the warp's own ~ menu writes, identical on both sides (bytes 0-2, 3/3 each), and so never a key.
 
 ## Rungs
 

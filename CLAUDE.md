@@ -311,7 +311,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Walkmesh floor sensors (`on_floor`/`same_floor`/`other_floor`) — ★★ rungs 0-1 in-game PROVEN: a floor-gated chaser holds at a lip; floor-major tris; fork id lint → `studies/walkmesh-sensor/PLAN.md`
 - Computed prop motion (sine kit) — ★★ rungs 0-1 in-game PROVEN 26/26: `[[prop]] motion` orbit/shuttle/bob/spin/swing/hold, one ORDER-LAW daemon, bob-reading lint → `studies/sine-kit/PLAN.md`
 - Photo mode (`[photo]`), the kit's first camera pan — ★★ rungs 0-1 in-game PROVEN: rung 0 owner-playtested, rung 1 the kit feature; next = owner playtest of bench 30956 → `studies/photo-mode/PLAN.md`
-- Story-write trace (s88) — ★ rung 0 in-game PROVEN: records which script wrote each story byte, every 552 write joined to its store; next = rung 1 → `studies/story-trace/PLAN.md`
+- Story-write trace (s88) — ★★ rungs 0-2 in-game PROVEN: which script wrote each story byte; the null pair (552 vs its verbatim fork) diffs empty; next = rung 3, Dali → `studies/story-trace/PLAN.md`
 - `.eb` source round-trip — ★★ rungs 1-4+6-7 DONE, playtest-confirmed (source-edited chest at slot 30810 gave the edited reward in-game): annotated `eb-src`/`eb-asm` + `--against` splice edits + the 9753-binary gate → `studies/eb-roundtrip/PLAN.md`
 
 **Latest release:** kit **1.0.0b19** (tag pushed, CI green, PyPI live; engine bundle rebuilt s22-s79, first full-stack replay).
