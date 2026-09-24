@@ -3,7 +3,9 @@
 **Status:** rung 0 ★ **PASSED in-game, 154/154 over six runs** (harness, one change per run, readback and frame
 agreeing) and **owner-playtested**: hotkeys, pan speed and the exit glide confirmed. The owner's one defect, a snap
 when walking during the exit glide, was fixed by the tracking exit (stage 6). The fix was re-tested by hand and
-measured in-game. Next is rung 1, the kit feature.
+measured in-game. **Rung 1 ★ in-game 16/16 twice**: `[photo]`, the kit feature, authored only through the toml
+(bench 30956), re-run after three adversarial reviews' fix pass (`photo-rung1c`, every language running its own
+daemon). Next is the owner's playtest of 30956.
 
 Board entry #8 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It was the runner-up when #7, the sine
 kit, was picked. Its reframe is the kit's **first camera-pan primitive**:
@@ -264,7 +266,9 @@ separately.
 
 ## Rung 1: the kit feature (`[photo]`)
 
-★ **In-game 16/16** (`photo-rung1b`, bench **30956** `bench/photo1.field.toml`, authored ONLY through `[photo]`).
+★ **In-game 16/16** (`photo-rung1b`, bench **30956** `bench/photo1.field.toml`, authored ONLY through `[photo]`), and
+**16/16 again after the review fix pass below** (`photo-rung1c`: P-BYTES in all seven languages, jp's daemon its own;
+the walking exit's largest step 27 px).
 
 **How it was designed.** A design workflow ran:
 - four readers: feature wiring, button ownership, camera code, the test interpreter;
@@ -282,7 +286,7 @@ The kit now has:
     CAMERA-OWNER and E-POLL checked on the final bytes.
 - **Opcodes:** `move_camera`, `release_camera` and `calculate_screen_origin`.
 - **Tests:** `_ebengine.CameraModel` plus `FieldTickEngine`, where the daemon runs tick by tick against a camera
-  calibrated on runs 2-6. `test_photo_mode*` covers 98 cases.
+  calibrated on runs 2-6.
 - **Other surfaces:** the schema stub, the campaign and deploy fork guards, and FORMAT.md.
 
 **What the kit daemon does that rung 0's did not** (each proven by run r1):
