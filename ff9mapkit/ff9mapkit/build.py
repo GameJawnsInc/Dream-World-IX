@@ -60,6 +60,7 @@ from .content import savepoint as _savepoint
 from .content import shadow as _shadow
 from .content import shop as _shop
 from .content import motion as _motion
+from .content import photo as _photo
 from .content import summon as _summon
 from .content import synthesis as _synthesis
 from .content import startup as _startup
@@ -2606,6 +2607,8 @@ def validate(project: FieldProject) -> list[str]:
     # [[prop]] motion (content.motion): the key/range rules, the prop co-rules and THE NOVEL-FIELD LAW -- the same
     # texts the build's arm() raises, so validate, lint and build agree
     problems += _motion.problems(project.raw, donor=donor_field_id(project.raw))
+    # [photo] (content.photo): the buttons, the hide targets, the scope and the pan boxes -- the same texts arm() raises
+    problems += _photo.problems(project.raw, donor=donor_field_id(project.raw))
     # [siege] (content.siege): validated against the surface the author WROTE; the desugared
     # [behavior]/[[npc]]/[[choice]] blocks below get the full downstream validation for free.
     if project.raw.get("siege"):
@@ -4381,6 +4384,10 @@ def lint_all(project: FieldProject) -> LintReport:
             rep.logic.extend(hook())
         except Exception as e:                            # noqa: BLE001
             rep.logic.append(f"[[prop]] motion lint could not finish: {type(e).__name__}: {e}")
+    try:                                                  # [photo]: ACTIONABLE notes only -- lint exits 1 on any note, so
+        rep.logic.extend(_photo.lint_notes(project.raw))  # what is merely true of the field (its pan box, a pinned X)
+    except Exception as e:                                # noqa: BLE001 -- is in the build's report instead
+        rep.logic.append(f"[photo] lint could not finish: {type(e).__name__}: {e}")
     _lint_scripts_toolchain(project, rep.errors)          # a scripted ability needs a C# compiler -> fail at lint, not mid-build
     # `lint` runs against arbitrary user TOML + (for forks) game-derived binaries, so resolving the
     # camera/walkmesh can fail in many ways (a missing borrow .bgx -> FileNotFoundError, a malformed quad
@@ -8377,6 +8384,19 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             raise BuildError(str(e)) from e
         if warnings is not None:
             for ln in _mo_lines:                     # build_script runs once per language: report once
+                if ln not in warnings:
+                    warnings.append(ln)
+    # [photo] -- after motion: its hide functions are seated on the targets' own entries, the daemon is armed in
+    # Main_Init right after the last target's InitObject, and THE ORDER LAW + the whole-script laws (CAMERA-OWNER,
+    # E-POLL) are proved on these final bytes (content.photo.arm). A field with no [photo] never gets here.
+    if _photo.any_photo(project.raw):
+        try:
+            eb, _ph_slot, _ph_lines = _photo.arm(eb, project.raw, prop_seats=_mo_seats, npc_slots=npc_slots,
+                                                 donor=donor_field_id(project.raw), lang=lang)
+        except _photo.PhotoError as e:
+            raise BuildError(str(e)) from e
+        if warnings is not None:
+            for ln in _ph_lines:
                 if ln not in warnings:
                     warnings.append(ln)
     return eb

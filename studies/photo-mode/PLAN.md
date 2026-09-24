@@ -3,7 +3,9 @@
 **Status:** rung 0 ★ **PASSED in-game, 154/154 over six runs** (harness, one change per run, readback and frame
 agreeing) and **owner-playtested**: hotkeys, pan speed and the exit glide confirmed. The owner's one defect, a snap
 when walking during the exit glide, was fixed by the tracking exit (stage 6). The fix was re-tested by hand and
-measured in-game. Next is rung 1, the kit feature.
+measured in-game. **Rung 1 ★ in-game 16/16 twice**: `[photo]`, the kit feature, authored only through the toml
+(bench 30956), re-run after three adversarial reviews' fix pass (`photo-rung1c`, every language running its own
+daemon). Next is the owner's playtest of 30956.
 
 Board entry #8 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It was the runner-up when #7, the sine
 kit, was picked. Its reframe is the kit's **first camera-pan primitive**:
@@ -261,6 +263,71 @@ separately.
 | Never | `EnableCameraServices(0)` (it kills every pan), 0x73/0x74 (clamp unlock/lock) or 0x1E |
 | Hide | By mesh (0x3A over meshes 0-15, any uid, flags untouched), by flags (a function seated on the target's own entry, run through `RunScriptSync(2, uid, tag)`), or all at once (0xD5/0xD6). Every one comes back |
 | Grade | A held SUB `FadeFilter`, subtracted in gamma space; the same channel at 0 clears it |
+
+## Rung 1: the kit feature (`[photo]`)
+
+★ **In-game 16/16** (`photo-rung1b`, bench **30956** `bench/photo1.field.toml`, authored ONLY through `[photo]`), and
+**16/16 again after the review fix pass below** (`photo-rung1c`: P-BYTES in all seven languages, jp's daemon its own;
+the walking exit's largest step 27 px).
+
+**How it was designed.** A design workflow ran:
+- four readers: feature wiring, button ownership, camera code, the test interpreter;
+- two designs, author-first and safety-first;
+- a judge that checked both against the kit's code and merged them (the scratchpad spec).
+
+The kit now has:
+- **`content/photo.py`:**
+  - `parse`;
+  - `problems`, one text for validate, lint and the build;
+  - `pan_boxes`, `box_lines` and `lint_notes`;
+  - the daemon, with state in its own locals;
+  - a self-audit on its bytes;
+  - `arm`: hide functions seated on the targets' own entries from tag 96, armed after every target, and
+    CAMERA-OWNER and E-POLL checked on the final bytes.
+- **Opcodes:** `move_camera`, `release_camera` and `calculate_screen_origin`.
+- **Tests:** `_ebengine.CameraModel` plus `FieldTickEngine`, where the daemon runs tick by tick against a camera
+  calibrated on runs 2-6.
+- **Other surfaces:** the schema stub, the campaign and deploy fork guards, and FORMAT.md.
+
+**What the kit daemon does that rung 0's did not** (each proven by run r1):
+
+| Change | Why | In-game |
+|---|---|---|
+| A **B_KEY latch** instead of B_KEYON | No dialogue-turbo arming | Every edge and toggle behaved |
+| **A 30-tick settle** after control returns | Never opens mid-cutscene, mid-dialogue or the moment one ends | K1, Y1 |
+| **Yield** on a foreign EnableMove, MAP 110 or a camera change | A full, exact close | Y2, Y3 |
+| **PRIOR** | An object already hidden stays hidden | Y4 |
+| Hide/show on an **NPC** entry | New target kind | K2: the guard |
+| **Tag allocation from 96** | Rung 0's 40/41 collided with `[[jump]]` | — |
+
+**The run's two instrument lessons.** The daemon was right both times; only the instruments needed fixing.
+- **The entry fade.** The kit's entry fade-in is a SUB FadeFilter ramp that the harness's `fading` flag does not
+  report, so the first run's calibration shot was darkened. The rung-0 daemon's latch had hidden this.
+- **The talker's ribbon.** Its red is a 288-300 px body. Balloons are now matched by position and a 600 px floor.
+
+### The review fix pass (three adversarial reviews: engine, integration, mutation)
+
+Every finding was engine-read or reproduced before it was fixed. Each fix has a test that fails on its mutant (16
+mutants re-run, all killed).
+
+| Finding | Fix |
+|---|---|
+| **THE JP CANCEL SWAP.** On the Japanese build the engine swaps logical Cancel and Confirm for scripts, but not for the talk check | The jp `.eb` tests 0x20000 for a `cancel` role (`PhotoSpec.mask(role, lang)`); `arm` takes the build's `lang`, so the jp daemon differs from the others |
+| **A busy target deadlocks.** `RunScriptSync(2, …)` waits for level 7; a `lock = false` NPC mid-talk or a free-cast `[[cutscene]]` actor mid-walk never gets there while the player is locked | Both refused |
+| **THE PHYSICAL TWIN.** A shoulder press sets its logical bit and its PSX alias, so a hire pool written `button = 1024` fires on L1 | Collision and E-POLL test logical OR twin; E-POLL also reads `B_KEYOFF` |
+| **`lint` exits 1 on any note**, so the pan-box lines failed every valid `[photo]` field | Facts (boxes, pinned X, several cameras, live ticker) moved to the build report; `lint` keeps only notes to act on (a `mask_buttons` over Select or the d-pad, `"all"` beside pooled units) |
+| A malformed `range` / `viewport` raised in `problems` | A refusal text instead |
+| A camera switch mid-glide stopped the tracking, so the last release glided to the old camera's point | It re-targets and keeps tracking |
+| The SLOT-MAP check only required some SetModel | It compares the prop's model; the InitObject must name uid 0 or its own slot |
+| The daemon took only the first free slot, falsely refusing a 64-stride clash | It seats in the first slot that clears the law |
+| The self-audit accepted a RETURN inside the loop | Exactly one RETURN |
+| `_ebengine`'s ShowAll kept an object's flags with no snapshot | It matches the engine: HideAll snapshots every PosObj, ShowAll restores bit 0 from pflags, which is 0 until a HideAll ran (a ShowAll alone HIDES everything) |
+
+Equivalent mutants (no test can kill them) lost their bracket claims: the RT reset at open was dead code and is
+gone, and the usercontrol open gate is implied by the settle counter's reset. **Deferred, unmeasured:** the spec's
+battle-return replay. By the source, a battle cannot start while photo mode is open (the player is locked). Objects
+are suspended across a battle, not re-created (`EnterBattleEnd`, `build._install_after_battle`), so the daemon
+resumes with its locals. Its settle counter may still read 30 then, so it can open during the after-battle fade-in.
 
 ## What rung 1 (the kit feature) inherits
 

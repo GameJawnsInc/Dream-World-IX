@@ -10,7 +10,7 @@ pipeline completed). See ff9mapkit/fieldschema.py; regenerate with
 # generated-from: examples by _regen_fieldschema.py
 
 VOCAB = {
-    '': ('_siege_conflict', '_siege_error', 'ability_feature', 'ability_gem', 'armor', 'ate', 'battle_action', 'battle_attack', 'battle_bgm', 'battle_enemy', 'battle_patch', 'behavior', 'camera', 'camera_zone', 'carry_text', 'character', 'character_param', 'chest', 'chocobo', 'choice', 'command_set', 'coop', 'cutscene', 'deathrules', 'dialogue', 'difficulty', 'encounter', 'equip_bonus', 'equipment', 'event', 'ferry', 'field', 'flag', 'folklore', 'gateway', 'gateway_carry', 'gauge', 'item', 'item_effect', 'item_text', 'jump', 'ladder', 'layers', 'learn', 'leveling', 'logic_add', 'logic_edit', 'lowhp', 'magic_sword_set', 'marker', 'mint', 'music', 'npc', 'numeric_input', 'object', 'on_entry', 'party', 'platform', 'playable', 'player', 'player_func', 'prop', 'qte', 'rebalance', 'save_moogle', 'savepoint', 'scene', 'shop', 'siege', 'sps', 'sps_edit', 'start_inventory', 'startup', 'status', 'status_set', 'summon', 'synthesis', 'synthesis_edit', 'text_table', 'verbatim_eb', 'walkmesh', 'weapon'),
+    '': ('_siege_conflict', '_siege_error', 'ability_feature', 'ability_gem', 'armor', 'ate', 'battle_action', 'battle_attack', 'battle_bgm', 'battle_enemy', 'battle_patch', 'behavior', 'camera', 'camera_zone', 'carry_text', 'character', 'character_param', 'chest', 'chocobo', 'choice', 'command_set', 'coop', 'cutscene', 'deathrules', 'dialogue', 'difficulty', 'encounter', 'equip_bonus', 'equipment', 'event', 'ferry', 'field', 'flag', 'folklore', 'gateway', 'gateway_carry', 'gauge', 'item', 'item_effect', 'item_text', 'jump', 'ladder', 'layers', 'learn', 'leveling', 'logic_add', 'logic_edit', 'lowhp', 'magic_sword_set', 'marker', 'mint', 'music', 'npc', 'numeric_input', 'object', 'on_entry', 'party', 'photo', 'platform', 'playable', 'player', 'player_func', 'prop', 'qte', 'rebalance', 'save_moogle', 'savepoint', 'scene', 'shop', 'siege', 'sps', 'sps_edit', 'start_inventory', 'startup', 'status', 'status_set', 'summon', 'synthesis', 'synthesis_edit', 'text_table', 'verbatim_eb', 'walkmesh', 'weapon'),
     'armor': ('m_def', 'm_eva', 'name', 'p_def', 'p_eva'),
     'behavior': ('alternators', 'brains', 'byte_band', 'counters', 'drift', 'group', 'hud', 'pool', 'public_flags', 'scan', 'schedule', 'stream', 'table', 'tick', 'timer', 'unit', 'warmup'),
     'behavior.alternators': ('frames', 'name'),
@@ -56,6 +56,7 @@ VOCAB = {
     'npc': ('actor', 'anims', 'animset', 'archetype', 'box', 'dialogue', 'dim', 'dim_tint', 'duration', 'face', 'flag', 'hold', 'holds', 'instant', 'lock', 'lock_menu', 'model', 'motion', 'name', 'no_focus', 'no_turbo', 'opens_shop', 'options', 'pos', 'preset', 'requires_flag', 'requires_flag_clear', 'scenario_max', 'scenario_min', 'set_flag', 'set_flags', 'shadow', 'signal', 'speaker', 'speed', 'steps', 'style', 'tail', 'text_id', 'window', 'window_pos'),
     'npc.anims': ('left', 'right', 'run', 'stand', 'walk'),
     'party': ('add', 'remove'),
+    'photo': ('close_button', 'grade', 'grade_button', 'hide', 'hide_button', 'open_button'),
     'playable': ('abilities', 'anim_edits', 'battle_borrow_serial', 'battle_model_from', 'battle_model_id', 'battle_serial', 'borrow', 'custom_battle_anims', 'custom_battle_model', 'id', 'name', 'names', 'params', 'portrait', 'recruit', 'stats'),
     'playable.abilities': ('command1', 'command1_trance', 'command2', 'command2_trance', 'learn', 'menu_from', 'preset'),
     'playable.abilities.command1': ('abilities', 'name'),
@@ -126,6 +127,7 @@ ENFORCED = frozenset({
     'npc',
     'npc.anims',
     'party',
+    'photo',
     'playable',
     'playable.abilities',
     'playable.abilities.command1',

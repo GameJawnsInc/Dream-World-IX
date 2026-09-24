@@ -332,3 +332,246 @@ class MotionEngine(Engine):
                 break
             pc = ins.end
         return out
+
+
+# ================================================================================ the photo daemon's engine
+class CameraModel:
+    """The field camera as rung 0 of photo mode MEASURED it (studies/photo-mode, runs 2-6, worst error 0 px):
+
+    * follow: the view centre = the follow point clamped to the effective box (X narrowed under widescreen);
+    * ``MoveCamera(x, y, n, type)`` starts from the CURRENT view, X is clamped once AT ISSUE and only under widescreen,
+      Y never; frame k of n puts the view at start + (end - start) * f(k) (f = k/n, or the cosine ease for type 8);
+      the finished move HOLDS (follow stays off);
+    * ``ReleaseCamera(n, type)`` computes its target ONCE, from the follow point at issue, and glides there; on its last
+      frame follow resumes in the SAME update (so a moved player is snapped to at once);
+    * the readback (0xEA) truncates the float view.
+    ``box`` = the camera's vrp box (lox, hix, loy, hiy); under widescreen X narrows by d = min(78, hix - lox) // 2."""
+
+    def __init__(self, box, follow, *, widescreen: bool = True):
+        self.box = tuple(box)
+        self.widescreen = widescreen
+        lox, hix, loy, hiy = self.box
+        d = min(78, max(0, hix - lox)) // 2 if widescreen else 0
+        self.xbox = (lox + d, hix - d)
+        self.follow = follow                        # callable -> the raw (unclamped) follow point (x, y)
+        self.v = list(self._follow_point())
+        self.state, self.move = "follow", None
+        self.active = True
+
+    def _follow_point(self) -> tuple:
+        fx, fy = self.follow()
+        _lox, _hix, loy, hiy = self.box
+        return (min(max(fx, self.xbox[0]), self.xbox[1]), min(max(fy, loy), hiy))
+
+    def readback(self) -> tuple:
+        return int(self.v[0]), int(self.v[1])
+
+    def move_camera(self, x: int, y: int, n: int, typ: int) -> None:
+        assert n > 0, "a MoveCamera duration of 0 divides by zero in the engine"
+        if not self.active:
+            return
+        if self.widescreen:
+            x = min(max(x, self.xbox[0]), self.xbox[1])
+        self.move = (list(self.v), (x, y), n, 0, typ)
+        self.state = "move"
+
+    def release_camera(self, n: int, typ: int) -> None:
+        assert n > 0, "a ReleaseCamera duration of 0 divides by zero in the engine"
+        if not self.active:
+            return
+        self.move = (list(self.v), self._follow_point(), n, 0, typ)
+        self.state = "release"
+
+    def update(self) -> None:
+        import math
+        if self.state in ("move", "release"):
+            s, e, n, k, typ = self.move
+            k += 1
+            if typ == 8:
+                f = (ff9_rtrig(math.cos, 2048 * k // n + 2048) + 4096) / 8192
+            else:
+                f = k / n
+            self.v = [s[i] + (e[i] - s[i]) * f for i in (0, 1)]
+            self.move = (s, e, n, k, typ)
+            if k >= n:
+                if self.state == "move":
+                    self.state = "hold"
+                else:
+                    self.state = "follow"
+                    self.v = list(self._follow_point())
+        elif self.state == "follow" and self.active:
+            self.v = list(self._follow_point())
+
+
+class FieldTickEngine(MotionEngine):
+    """:class:`MotionEngine` + what the ``[photo]`` daemon reads and does, run TICK by tick against a
+    :class:`CameraModel`: ``B_KEY`` (``keys`` = the held logical bits), ``B_SYSVAR[1|2|12|13]`` (camera index,
+    usercontrol, the 0xEA readback -- any other index raises), ``Map.Bit[n]`` (``map_bits``), ``obj(uid=U).f[4]``
+    (``objects`` = {uid: flags}; an absent uid RAISES, as the engine's getvobj does), B_AND / B_OR / B_ANDAND / B_OROR;
+    ops 0x2D / 0x2E (usercontrol), 0xEA, 0x6F / 0x70 (the camera), 0x14 (runs the SEATED function bytes in
+    ``functions[(uid, tag)]`` -- its 0x93 applies (flags & ~63) | (v & 63) -- and ends the caller's tick, the engine's
+    wait=255 until the callee returns; an absent uid stalls FOR EVER), 0xD5 / 0xD6 (pflags), 0xEC (the grade).
+    Any other op raises (STRICT). ``effects`` = [(tick, op, args)]."""
+
+    def __init__(self, loc: int, camera: CameraModel, *, objects=None, functions=None):
+        super().__init__(loc, strict_reduced=True)
+        self.camera = camera
+        self.objects = dict(objects or {250: 15})
+        self.pflags: dict = {}
+        self.functions = dict(functions or {})
+        self.keys = 0
+        self.usercontrol = 1
+        self.camidx = 0
+        self.map_bits: dict = {}
+        self.ssys = [0, 0]
+        self.grade = (0, 0, 0)
+        self.effects: list = []
+        self.tick = 0
+        self.pc = 0
+        self.no_tick = False                        # field 257 only (ProcessEvents.cs:112-116): no object runs
+                                                    # while a dialog animates open -- never a novel field's case
+        self._ins = None
+        self._body = None
+
+    def eval(self, text: str) -> int:
+        st: list = []
+        for tok in text.strip("{} ").split():
+            if tok == "B_EXPR_END":
+                break
+            ref = self._inst_ref(tok)
+            m = re.fullmatch(r"const4?\((-?\d+)\)", tok)
+            mo = re.fullmatch(r"obj\(uid=(\d+)\)\.f\[4\]", tok)
+            if ref is not None:
+                st.append(ref)
+            elif m:
+                v = int(m.group(1))
+                if tok.startswith("const4"):
+                    v &= 0x3FFFFFF
+                    v = v - (1 << 26) if v & (1 << 25) else v
+                elif v > 0x7FFF:
+                    v -= 0x10000
+                st.append(v)
+            elif re.fullmatch(r"B_SYSVAR\[\d+\]", tok):
+                n = int(tok[9:-1])
+                st.append({1: self.camidx, 2: self.usercontrol, 12: self.ssys[0], 13: self.ssys[1]}[n])
+            elif re.fullmatch(r"Map\.Bit\[\d+\]", tok):
+                st.append(int(bool(self.map_bits.get(int(tok[8:-1]), 0))))
+            elif mo:
+                uid = int(mo.group(1))
+                if uid not in self.objects:
+                    raise AssertionError(f"obj(uid={uid}) does not exist -- the engine's getvobj throws")
+                st.append(self.objects[uid])
+            elif tok == "B_KEY":
+                st.append(1 if (self.keys & self._read(st.pop())) else 0)
+            elif tok == "B_LET":
+                val, dst = self._read(st.pop()), st.pop()
+                self._write(dst, val)
+                st.append(val)
+            else:
+                b, a = self._read(st.pop()), self._read(st.pop())
+                if tok in _ARITH:
+                    st.append(_wrap26(_ARITH[tok](a, b)))
+                    continue
+                ops = {"B_AND": a & b, "B_OR": a | b, "B_LT": int(a < b), "B_GT": int(a > b), "B_LE": int(a <= b),
+                       "B_GE": int(a >= b), "B_EQ": int(a == b), "B_NE": int(a != b),
+                       "B_ANDAND": int(bool(a) and bool(b)), "B_OROR": int(bool(a) or bool(b))}
+                if tok not in ops:
+                    raise AssertionError(f"interpreter has no rule for {tok!r} in {text!r}")
+                st.append(_wrap26(ops[tok]))
+        return self._read(st[-1]) if st else 0
+
+    def _operands(self, body: bytes, ins, sizes) -> list:
+        flags, off, vals = body[ins.off + 1], ins.off + 2, []
+        for k, sz in enumerate(sizes):
+            if flags & (1 << k):
+                txt, off = D.pretty_expr(body, off)
+                vals.append(self.eval(txt))
+            else:
+                vals.append(int.from_bytes(body[off:off + sz], "little", signed=(sz == 2)))
+                off += sz
+        return vals
+
+    def _run_function(self, uid: int, tag: int) -> None:
+        body = self.functions[(uid, tag)]
+        for ins in D.iter_code(body, 0, len(body)):
+            if ins.op == 0x93:
+                v = self._operands(body, ins, (1,))[0]
+                self.objects[uid] = (self.objects[uid] & ~63) | (v & 63)
+            elif ins.op == 0x04:
+                return
+            else:
+                raise AssertionError(f"a seated function runs op 0x{ins.op:02X} the interpreter does not model")
+
+    def run(self, body: bytes, ticks: int) -> "FieldTickEngine":
+        """Run ``ticks`` more ticks of ``body`` (the pc persists between calls)."""
+        if self._body is not body:
+            self._body, self._ins, self.pc = body, {i.off: i for i in D.iter_code(body, 0, len(body))}, 0
+        for _ in range(ticks):
+            self._one_tick()
+        return self
+
+    def _one_tick(self) -> None:
+        body, last, steps = self._body, 0, 0
+        if not self.no_tick:
+            while True:
+                steps += 1
+                assert steps < 100_000, "runaway daemon tick"
+                ins = self._ins[self.pc]
+                op, nxt = ins.op, ins.end
+                if op == 0x05:
+                    last = self.eval(D.pretty_expr(body, ins.off + 1)[0])
+                elif op == 0x01:
+                    self.pc = D.jump_target(ins)
+                    continue
+                elif op == 0x02:
+                    if last == 0:
+                        self.pc = D.jump_target(ins)
+                        continue
+                elif op == 0x22:
+                    self.pc = nxt
+                    break
+                elif op == 0x04:
+                    raise AssertionError("the daemon RETURNED")
+                elif op == 0xEA:
+                    self.ssys = list(self.camera.readback())
+                    self.effects.append((self.tick, 0xEA, tuple(self.ssys)))
+                elif op == 0x6F:
+                    x, y, n, typ = self._operands(body, ins, (2, 2, 1, 1))
+                    self.effects.append((self.tick, 0x6F, (x, y, n, typ)))
+                    self.camera.move_camera(x, y, n, typ)
+                elif op == 0x70:
+                    n, typ = self._operands(body, ins, (1, 1))
+                    self.effects.append((self.tick, 0x70, (n, typ)))
+                    self.camera.release_camera(n, typ)
+                elif op == 0x2D:
+                    self.usercontrol = 0
+                    self.effects.append((self.tick, 0x2D, ()))
+                elif op == 0x2E:
+                    self.usercontrol = 1
+                    self.effects.append((self.tick, 0x2E, ()))
+                elif op == 0x14:
+                    lv, uid, tag = body[ins.off + 2], body[ins.off + 3], body[ins.off + 4]
+                    self.effects.append((self.tick, 0x14, (lv, uid, tag)))
+                    if uid not in self.objects:
+                        raise AssertionError(f"RunScriptSync on absent uid {uid}: the engine re-runs it for ever")
+                    self._run_function(uid, tag)
+                    self.pc = nxt                           # the caller waits (wait=255) until the callee returns:
+                    break                                   # its next op runs on the next tick
+                elif op in (0xD5, 0xD6):                    # DoEventCode.cs:2680-2706: PUSHHIDE snapshots EVERY
+                    for u in self.objects:                      # PosObj (flag 32 only skips the hide); POPSHOW restores
+                        if op == 0xD5:                          # bit 0 from pflags, which is 0 until a PUSHHIDE ran
+                            self.pflags[u] = self.objects[u]    # (PosObj.cs:181) -- a ShowAll with no HideAll HIDES
+                            if not self.objects[u] & 32:
+                                self.objects[u] &= ~1
+                        else:
+                            self.objects[u] = (self.objects[u] & ~1) | (self.pflags.get(u, 0) & 1)
+                    self.effects.append((self.tick, op, ()))
+                elif op == 0xEC:
+                    args = tuple(body[ins.off + 2:ins.end])
+                    self.grade = args[3:]
+                    self.effects.append((self.tick, 0xEC, args))
+                else:
+                    raise AssertionError(f"op 0x{op:02X} is not modelled (STRICT)")
+                self.pc = nxt
+        self.camera.update()
+        self.tick += 1

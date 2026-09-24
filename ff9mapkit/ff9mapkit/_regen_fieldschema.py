@@ -280,6 +280,19 @@ face = 128
 collision = false
 motion = { to = [900, -1600], period = 150, turn = "swing", swing = 32 }
 """),
+    # [photo] (content/photo.py, photo mode): no bundled example has one, so without this stub a typo in the table
+    # ('hide_buton') would pass lint silently. Every key, on vivi-hut (NOVEL, 384 wide: photo mode pans Y there, X is
+    # pinned under widescreen -- a lint note, not a refusal); its ungated NPC "Vivi" is a lawful hide target, and
+    # open_button l2 collides with nothing vivi-hut polls.
+    ("photo", """
+[photo]
+open_button = "l2"
+close_button = "cancel"
+hide_button = "r1"
+grade_button = "l1"
+hide = ["player", "Vivi", "all"]
+grade = true
+"""),
 ]
 
 # Standalone stub projects (whole tomls, no vivi-hut base) -- for paths a vivi-hut graft can't
@@ -356,7 +369,7 @@ _EXPECTED_PARTIAL: "set[str]" = set()
 # This is the won ground: every path here HAS built end-to-end from the examples + stubs, so a
 # regen that loses one has lost corpus coverage, not gained flexibility.
 _REQUIRED_ENFORCED = {"", "field", "camera", "walkmesh", "layers", "player", "npc", "gateway",
-                      "event", "chest", "prop", "prop.motion", "prop.motion.bob", "marker", "flag", "choice",
+                      "event", "chest", "prop", "prop.motion", "prop.motion.bob", "photo", "marker", "flag", "choice",
                       "choice.options", "cutscene", "cutscene.steps", "dialogue", "encounter", "music", "party",
                       "startup", "ferry", "ferry.destination", "behavior", "behavior.unit", "mint"}
 

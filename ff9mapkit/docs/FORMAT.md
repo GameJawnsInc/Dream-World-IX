@@ -15,7 +15,8 @@ ff9mapkit build my_room.field.toml --out dist --mod-name MyMod --author you
 [`[camera.scroll]`](#camerascroll-optional--larger-than-screen-rooms) ·
 [`[[camera]]` + `[[camera_zone]]`](#camera--camera_zone-optional--multiple-camera-angles) ·
 [`[[layers]]`](#layers-background-overlays-back-to-front) ·
-[`[walkmesh]`](#walkmesh)
+[`[walkmesh]`](#walkmesh) ·
+[`[photo]`](#photo-optional--player-photo-mode)
 
 **Content** —
 [`[player]`](#player-optional) ·
@@ -1003,6 +1004,124 @@ without building (no templates, no install; the entry slots are left out because
 them). `--csv OUT` writes every mover's pose tick by tick (`prop,label,tick,x,height,z,face`; `prop` is
 the `[[prop]]` index, `face` is blank for a prop that does not turn): one full cycle of each mover by
 default (capped at 8192 ticks, with a note), or `--ticks N` for all of them.
+
+---
+
+## `[photo]` (optional — player photo mode)
+
+A **photo mode** for the player: a button press stops the player, and the view pans across the painting on the
+d-pad. The player can hide characters and set pieces one at a time, and lay a warm tint over the screen. The close
+button puts everything back and eases the camera back onto the player. A bare `[photo]` turns it on with the
+defaults below:
+
+```toml
+[photo]                               # minimal: Select opens, d-pad pans, R1 hides, L1 tints, Cancel closes
+```
+
+```toml
+[photo]                               # everything
+open_button  = "select"               # select l1 r1 l2 r2
+close_button = "cancel"               # cancel select l1 r1 l2 r2 -- may equal open_button (one button toggles it)
+hide_button  = "r1"                   # each press hides the next step of `hide`
+grade_button = "l1"                   # toggles the tint
+hide  = ["guard", "lamp", "player", "all"]
+grade = true
+```
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `open_button` | button name | `"select"` | opens photo mode: one of `select`, `l1`, `r1`, `l2`, `r2` |
+| `close_button` | button name | `"cancel"` | closes it: `cancel`, `select`, `l1`, `r1`, `l2` or `r2`; the same button as `open_button` makes one button a toggle |
+| `hide_button` | button name | `"r1"` | each press hides the next step of `hide`; a press after the last step does nothing |
+| `grade_button` | button name | `"l1"` | turns the tint on and off |
+| `hide` | list of names | `["player", "all"]` | what the hide button hides, one step per press: `"player"`, the `name` of an `[[npc]]` or a `[[prop]]` (a prop is matched by its `name` key, and a composite hides every part), and `"all"` (every character and set piece left, except chests), which must be last. At most 8 steps and 15 objects. `[]` turns hiding off |
+| `grade` | bool | `true` | the tint (a held warm grade: white becomes (235, 171, 107)); `false` turns it off |
+
+These button names are **logical**: the game's own Select/Cancel/L1/R1/L2/R2, wherever the player has bound them. `[[event]]`
+`mask_buttons` uses different, physical names. On the default keyboard, Select is **1**, Cancel **C**, L1 **G**, R1 **H**,
+L2 **F** and R2 **J**. On the Japanese build the engine swaps Cancel and Confirm for scripts (not for talking), so
+that language's script tests the swapped bit: the player's own Cancel press closes photo mode everywhere.
+
+**How it plays.** Photo mode opens only after the player has had control for a second. So it cannot open during a
+cutscene, a dialogue that stops the player (every dialogue does by default) or the moment one ends.
+- **Opening.** The camera stays exactly where it is, with no jump. The player stops, and the menu cannot open.
+- **The d-pad** pans 4 px of the painting per tick, and never past the painting's edge. How far a room can pan is
+  the camera's own scroll box: a 768-wide room pans sideways on every screen, while the default 384-wide room pans
+  only up and down under widescreen (the build prints both boxes).
+- **Hide steps** take effect one press at a time.
+- **Closing** undoes them in reverse order, and anything that was already hidden when photo mode opened stays
+  hidden. It clears the tint and gives control back. The camera then eases back to the player over about half a
+  second, following the player if they walk off straight away, so it lands on them with no snap.
+- **Hand-off.** If anything else takes over while photo mode is open (a scene starting, a script giving control
+  back, a camera switch), photo mode closes itself exactly as the close button would. A script that *locks* the
+  player while photo mode is open cannot be seen (the player is already locked), and closing gives control back.
+  A conductor scene re-locks within a tick.
+
+**How a hide step works.** A named step runs a small function the build places on that object's own entry. The
+function switches the object's "show" flag, so its blob shadow goes with it. It still blocks the path while
+hidden, but the player cannot move anyway. `"all"` is the engine's own hide-everything. So every hide target must
+exist, unchanged, for the whole visit: a hidden-until-flagged NPC does not.
+
+**Rules.** `ff9mapkit lint` and the build refuse each of these with the same message:
+
+- **Novel fields only.** A field with `[verbatim_eb]`, a donor (`[verbatim_eb] donor`, `[field] source_field`,
+  `[field] borrow_field`), a `[camera] borrow`, `[field] bgs` or `[field] borrow_bg` is refused: a donor's own camera
+  scripts, other cameras and widescreen width are invisible to the build. `lint-campaign` refuses a campaign member
+  the manifest forks from a real field the same way, and `tools/deploy_field.py` refuses a live ForkDonorPatch row
+  for the id.
+- **Buttons.**
+  - `start` pauses, `menu` opens the main menu, and the d-pad pans.
+  - `confirm` and `special` would also talk to whoever the player faces in the same tick.
+  - Held Cancel is the walk modifier, so it cannot open photo mode.
+  - Every role needs its own button; only the close button may share the open button.
+- **No button fight.** `open_button` may not be a button another feature already polls on this field:
+  - `[ate]`'s Select;
+  - a `[[behavior.pool]]` hire button, including one written as a physical int (a shoulder press sets both, so
+    `button = 1024` is L1);
+  - `[siege]`'s council button.
+  (The build, but not `lint`, also scans the finished script for any other poll of it.)
+- **Hide targets exist all visit.** A target is refused if it is any of these:
+  - `requires_flag` / `requires_flag_clear` / `scenario_min` / `scenario_max` gated;
+  - a `[behavior]` unit (its loop would re-show it) or a pooled unit;
+  - an NPC that `holds` or carries an `attach_to` prop;
+  - an attached prop;
+  - an `[[npc]]` with `lock = false`, or an actor (including `"player"`) of a `[[cutscene]]` with
+    `owns_control = false`. Photo mode can open while such an object is busy talking or walking, and a hide
+    waits for it to finish.
+
+  A name must match exactly one `[[npc]]` or `[[prop]]`.
+- **The steps.** `"all"` last, no step twice, at most 8 steps and 15 objects, and no `hide_button` with
+  `hide = []` or `grade_button` with `grade = false`.
+- **Something must pan.** A field where no camera can pan either axis at 16:9 is refused. So is a `viewport` that
+  reaches past the painting (`viewport` must lie inside the `range`'s scroll bounds), because photo mode pans to the
+  engine's own box. A camera's `range` must be two integers and its `viewport` four.
+
+The build also re-checks the script it compiled. Each hide target's entry must set a model (for a prop, the model
+the toml names), finish setting up, and be created under its own slot number. Photo mode's script must start after every hide target exists. No other script on the field may
+move the camera (`MoveCamera` / `ReleaseCamera` / `CalculateScreenOrigin`), switch the camera services off
+(`EnableCameraServices(0)`), or change the camera's scroll box.
+
+**What it never does.** It never writes a story flag or a field variable: its state is its own script's. It never
+reads a button with the edge test that arms Memoria's dialogue turbo. It never switches the camera services off,
+which silently stops every scripted camera move (the engine's `Active` flag).
+
+**What the build prints.** Among its `warning:` lines, `ff9mapkit build` (and `tools/deploy_field.py`) prints one
+summary line, one line per hide step naming the function tags it placed, and each camera's pan box for both screen
+shapes:
+
+```
+[photo] daemon entry 7 (30 B of locals, 1387 bytes): open select after 30 ticks of control, pan 4 px/tick, hide r1 (balloon-l, balloon-c, guard, player, all), grade l1, close cancel + tracking release; state = the daemon's own locals
+[photo] hide 1 'balloon-l': flags (tags 96/97 on entry 4)
+[photo] hide 5 'all': HideAllObjects / ShowAllObjects (chests stay)
+[photo] camera 0 768x448: 4:3 X 160..608 (448 px), Y 112..336 (224 px) | 16:9 X 199..569 (370 px), Y 112..336 (224 px)
+```
+
+It also notes a camera whose X pans at 4:3 but not under widescreen, a field with several cameras, and a
+`[behavior]` / `[siege]` field (units keep moving while photo mode is open).
+
+`ff9mapkit lint` exits 1 on any note, so it adds only what to act on: an `[[event]]` / `[[on_entry]]`
+`mask_buttons` that masks Select (the open button) or the d-pad, and `"all"` on a field that spawns pooled units,
+which could come back hidden at the close. A valid `[photo]` alone adds nothing to `lint`.
 
 ---
 
