@@ -113,6 +113,17 @@ class FakeGame:
         self.texts: list[str] = []
         self.raw_texts: list[str] = []
         self.choice: dict | None = None
+        #: A scripted scene with control withheld (:meth:`scene`): the beats still to play, where its choice
+        #: window is ("opening" / "ready" / "closing") and the frame that ends that phase, every choice the
+        #: scene was answered with (the absolute index taken), and when each window became READY as
+        #: ``len(self.executed)`` then -- so a test can name the steps a waiter issued before it could answer.
+        self._beats: list = []
+        self._beat_phase: str | None = None
+        self._beat_until = 0
+        self._beat_frames = (6, 6)                 # (opening, closing) frames of a choice window
+        self._typing_until = 0                     # a ready choice's prompt types on until this frame
+        self.answered: list[int] = []
+        self.readied: list[int] = []
         self.menu = {"selected": None, "hovered": None, "label": None, "group": None}
         self.menu_entries: list[str] = []
         self.menu_index = 0
@@ -146,7 +157,16 @@ class FakeGame:
         self.donor = None                           # EffectiveFieldId: None = the field's own id
         #: The floor: one box ``(x0, z0, x1, z1)``, or a list of boxes whose UNION is walkable (a room
         #: opening into a corridor). A step that lands in none of them is clamped to the box he is in.
+        #: Or a real walkmesh (anything with ``point_on_walkmesh``: a stock field's, through
+        #: ``pathfind.PlayerWalkmesh``): his centre must stand on it -- see :meth:`_move_to`.
         self.walkmesh = walkmesh
+        #: On a real walkmesh, how far his CENTRE is kept off every wall (``distance_to_boundary``) -- the
+        #: engine's controller radius, cam.COLLISION_RADIUS_W, when a test sets it; None = anywhere on the mesh.
+        #: A step that would come closer stops where it reaches that line, as the engine pushes him back out
+        #: to it (2507's wall-slide samples sit 80-81u off its boundary), and the rest of the step slides on
+        #: along the wall. A gateway zone only a few units deep past that line is then as hard to stand in as
+        #: in the game.
+        self.clearance: float | None = None
         #: Frames the character keeps moving after the direction is released. ⚠ NOT ZERO, and the
         #: value is measured rather than chosen: on bench 30801 a hold covers what it commanded give
         #: or take ONE frame (`hold down 1` moves 60 units at run speed, `hold down 31` moves 900),
@@ -355,6 +375,7 @@ class FakeGame:
                     self._drain()
                     self._check_soft_reset()
                     self._step_world()
+                    self._step_scene()
                     self._step_battle()
                     self._publish()
             except OSError as err:
@@ -704,10 +725,50 @@ class FakeGame:
                 self._coll = 4
                 pushed = True
             break                                   # WalkMesh.Collision answers with ONE body
-        boxes = self.walkmesh if isinstance(self.walkmesh[0], (tuple, list)) else [self.walkmesh]
-        if not any(b[0] <= x <= b[2] and b[1] <= z <= b[3] for b in boxes):
-            x0, z0, x1, z1 = next((b for b in boxes if b[0] <= ox <= b[2] and b[1] <= oz <= b[3]), boxes[0])
-            x, z = min(max(x, x0), x1), min(max(z, z0), z1)
+        on = getattr(self.walkmesh, "point_on_walkmesh", None)
+        if on is not None and self.clearance is not None:
+            # his centre kept `clearance` off every wall -- or, where he already stands closer (placed there),
+            # never closer still: the step stops on that line, and its rest slides on along the wall
+            def wall(px, pz):
+                d = self.walkmesh.distance_to_boundary(int(round(px)), int(round(pz)))
+                return -1.0 if d is None or on(int(round(px)), int(round(pz))) is None else d
+            least = max(0.0, min(self.clearance, wall(ox, oz)))     # off the mesh (an arrival): onto it
+
+            def floor(px, pz):
+                return wall(px, pz) >= least
+            if not floor(x, z):
+                lo, hi = 0.0, 1.0
+                for _ in range(16):
+                    mid = (lo + hi) / 2
+                    lo, hi = (mid, hi) if floor(ox + (x - ox) * mid, oz + (z - oz) * mid) else (lo, mid)
+                bx, bz = ox + (x - ox) * lo, oz + (z - oz) * lo
+                # the rest of the step, slid along the wall: its component along the nearest bearing (15-degree
+                # steps either side) that still stands -- the engine keeps the part of a step along the wall
+                import math
+                rx, rz = x - bx, z - bz
+                x, z = bx, bz
+                for deg in (15, 30, 45, 60, 75):
+                    c = math.cos(math.radians(deg))
+                    for s in (math.sin(math.radians(deg)), -math.sin(math.radians(deg))):
+                        px, pz = bx + (rx * c - rz * s) * c, bz + (rx * s + rz * c) * c
+                        if floor(px, pz):
+                            x, z = px, pz
+                            break
+                    else:
+                        continue
+                    break
+        elif on is not None:
+            # a real walkmesh: his centre must stand on it -- a step off keeps whichever one axis of it
+            # still does (a crude slide along the edge), or he stays put
+            def floor(px, pz):
+                return on(int(round(px)), int(round(pz))) is not None
+            if not floor(x, z):
+                x, z = next(((px, pz) for px, pz in ((x, oz), (ox, z)) if floor(px, pz)), (ox, oz))
+        else:
+            boxes = self.walkmesh if isinstance(self.walkmesh[0], (tuple, list)) else [self.walkmesh]
+            if not any(b[0] <= x <= b[2] and b[1] <= z <= b[3] for b in boxes):
+                x0, z0, x1, z1 = next((b for b in boxes if b[0] <= ox <= b[2] and b[1] <= oz <= b[3]), boxes[0])
+                x, z = min(max(x, x0), x1), min(max(z, z0), z1)
         if pushed and any((x - b[0]) ** 2 + (z - b[1]) ** 2 < (b[2] - 1e-6) ** 2 for b in bodies):
             self._lock_fallback(calls)
             return False
@@ -788,6 +849,7 @@ class FakeGame:
         self.texts = []
         self.raw_texts = []
         self.choice = None
+        self._beats, self._beat_phase = [], None
         self.menu = {"selected": None, "hovered": None, "label": None, "group": None}
         self.menu_entries = []
         self.player = [0.0, 0.0, 0.0]
@@ -881,6 +943,9 @@ class FakeGame:
                 self._close_battle_cursor()
 
     def _menu_step(self, button: str) -> None:
+        if self._beats:
+            self._scene_press(button)
+            return
         if str(self.menu.get("group") or "").startswith("Battle."):
             self._battle_menu_step(button)
             return
@@ -1435,6 +1500,88 @@ class FakeGame:
         if active is not None:
             self.choice["active"] = list(active)
         self.menu["label"] = options[0] if options else None
+
+    def scene(self, *beats, stale: int = 0, opening: int = 6, closing: int = 6) -> None:
+        """Play a scripted scene with control withheld, beat by beat; control comes back after the last. A
+        beat is a page (a str) that Confirm turns, or a CHOICE (a dict: ``options``; ``default``, the script's
+        defaultChoice -- the ABSOLUTE index its cursor starts on; optionally ``header``, and ``disabled``, the
+        absolute indexes the script's mask leaves out; ``typing``, frames its prompt types on once the window
+        is ready) that Confirm answers at the cursor, into :attr:`answered`.
+
+        A choice window as the engine publishes it (recorded at 30937 frames 900/906/936 and 30921): for
+        ``opening`` frames it is up with group '' and no button and ``selected`` reads ``stale`` -- whatever
+        the pooled window last held (Dialog.selectedChoice survives Reset) -- and it takes no answer; then
+        group ``Dialog.Choice``, the cursor on the default (no button when that line is disabled: choiceList
+        holds null there), answers taken; after one, ``closing`` frames with group '' again and the choice
+        still published, then the next beat. While the prompt TYPES (the window already ready: the engine sets
+        the group and the default cursor in AfterShown, with the text still animating) a Confirm only
+        finishes the text (Dialog.OnKeyConfirm's TextAnimation branch) and is not an answer."""
+        self._beats = list(beats)
+        self._beat_frames = (int(opening), int(closing))
+        self.control = False
+        self._next_beat(stale)
+
+    def _next_beat(self, stale: int = 0) -> None:
+        self.menu = {"selected": None, "hovered": None, "label": None, "group": None}
+        self._beat_phase = None
+        if not self._beats:
+            self.texts, self.raw_texts, self.choice = [], [], None
+            self.control = True
+            return
+        beat = self._beats[0]
+        if isinstance(beat, str):
+            self.say(beat)
+            self.choice = None
+            return
+        header = beat.get("header", "What now?")
+        disabled = list(beat.get("disabled", ()))
+        active = [i for i in range(len(beat["options"])) if i not in disabled]
+        shown = [beat["options"][i] for i in active]
+        self.say("\n".join([header, *shown]))
+        self.choice = {"selected": stale, "count": len(beat["options"]), "active": active, "disabled": disabled,
+                       "options": [header, *shown]}
+        self.menu = {"selected": None, "hovered": None, "label": None, "group": "", "button": None}
+        self._beat_phase, self._beat_until = "opening", self.frame + self._beat_frames[0]
+
+    def _choice_cursor(self, index: int) -> None:
+        self.choice["selected"] = index
+        button = None if index in self.choice["disabled"] else f"Choice#{index}"
+        self.menu = {"selected": button, "hovered": None, "label": None, "group": "Dialog.Choice", "button": button}
+
+    def _step_scene(self) -> None:
+        """A choice window's frame-driven phases: opening -> ready, closing -> the next beat."""
+        if not self._beats or self._beat_phase not in ("opening", "closing") or self.frame < self._beat_until:
+            return
+        if self._beat_phase == "opening":
+            self._beat_phase = "ready"
+            self._choice_cursor(int(self._beats[0]["default"]))
+            self._typing_until = self.frame + int(self._beats[0].get("typing", 0))
+            self.readied.append(len(self.executed))
+        else:
+            self._beats.pop(0)
+            self._next_beat()
+
+    def _scene_press(self, button: str) -> None:
+        """A press during a scene: Confirm turns a page or answers a READY choice; up/down move a ready
+        choice's cursor over the enabled lines, clamped (Dialog.MoveCurrentChoice); nothing else acts."""
+        if isinstance(self._beats[0], str):
+            if button in ("confirm", "ok"):
+                self._beats.pop(0)
+                self._next_beat()
+            return
+        if self._beat_phase != "ready":
+            return
+        if button in ("confirm", "ok") and self.frame < self._typing_until:
+            self._typing_until = self.frame              # the text completes; nothing is answered
+        elif button in ("confirm", "ok"):
+            self.answered.append(int(self.choice["selected"]))
+            self.menu = {"selected": None, "hovered": None, "label": None, "group": "", "button": None}
+            self._beat_phase, self._beat_until = "closing", self.frame + self._beat_frames[1]
+        elif button in ("up", "down"):
+            active = self.choice["active"]
+            at = active.index(self.choice["selected"]) if self.choice["selected"] in active else 0
+            at = max(0, min(len(active) - 1, at + (1 if button == "down" else -1)))
+            self._choice_cursor(active[at])
 
     def open_menu(self, entries: list[str], group: str = "MainMenu") -> None:
         self.ui_state = "MainMenu"

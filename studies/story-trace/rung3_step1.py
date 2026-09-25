@@ -36,8 +36,9 @@ failed crossing is one of two things, and only one of them STRIKES:
   destination took control and never gave it back (353: Mayor Kapu's arrival scene puts the player back where he
   came from), a MISS that stood INSIDE the zone and nothing fired (350 -> 358 once its scene has played: the story
   shut the region; judged by zone membership, route_cross's `inside`, not by the goal distance), a MISS where
-  something else took control mid-walk, NO ROUTE, or BLOCKED -- he moved after the first unseen blocker went in,
-  and then blockers sealed the way. BOUNCES of them: unreachable.
+  something else took control mid-walk, NO ROUTE, BLOCKED -- he moved after the first unseen blocker went in,
+  and then blockers sealed the way -- or BOXED: the smooth walk stood where no press keeps clear of the other
+  exits (the geometry of that spot, like NO ROUTE; nothing waited or pushed). BOUNCES of them: unreachable.
 - a LIVE miss says something about the village, and does not strike: the walk stalled with control held, waited,
   pushed or routed round (or found movement held -- `frozen`, which also covers a first blocker that sealed the
   way before he had moved again: nothing tells that from a hold), and still ended short, OUTSIDE the zone. The
@@ -56,6 +57,19 @@ is not on (the way back to 350 is a scripted position check, not a gateway regio
 stranded an offline dry run of this tour in 358, one exit short of 450. So a pass takes one-way doors only once
 nothing two-way is left, and never hops through one. The rule reads only walkmesh and script bytes -- it knows
 nothing of 450 or the story; an arrival spot the scan cannot decode counts as two-way.
+
+A CHOICE IS THE GAME'S (after the third run: the tour reached 450, the story moved, and the run stopped in 354 on
+Garnet's "You changed the way you talk!" -- the scene waiter turns boxes and stopped at the choice until its 240 s
+ran out). Every scene is sat through with watch_cutscene(choices="default"): a choice is answered with the option
+the game's own cursor rests on once the window is ready -- the script's defaultChoice, never one the tour prefers,
+so the route stays the story's -- and each one taken is logged (rung3s1_log.json "choices", and per scene).
+
+THE WALK IS SMOOTH (the owner, watching the third run: it works, the movement is choppy). Every crossing is
+route_cross(smooth=True): each planned leg walked in whole holds, two keys at once on a diagonal, instead of
+one-axis bursts with a settle after each; a hold is only as long as its straight line, movement tail included --
+and every line within the calibrated basis's heading error of it -- stays clear of every other exit zone and near
+the leg still to walk. And the zone goes with it: the last leg finishes IN the exit's zone (its nearest spot
+where his centre can stand), not within a walk frame of a goal point that may lie outside what he can reach.
 
 S1-SEGMENT  the scripted segment hands control back in 352 at SC 2600
 S1-TOUR     the tour ran: crossings attempted / landed, the fields reached, the stop reason
@@ -186,27 +200,30 @@ def one_way(fid: int, i: int) -> bool:
 
 
 def settle(g, log, why: str) -> None:
-    """Sit through whatever the game plays until the player has control again."""
+    """Sit through whatever the game plays until the player has control again -- answering every choice with
+    the option the game's own cursor rests on (watch_cutscene(choices="default")), each one logged."""
     st = g.state
     if not st.control:
-        pages = g.watch_cutscene(timeout=240)
+        pages = g.watch_cutscene(timeout=240, choices="default")
         rec = {"k": "scene", "why": why, "field": g.state.field_id, "sc": g.state.scenario,
-               "pages": len(pages), "first": (pages[0][:80] if pages else "")}
+               "pages": len(pages), "first": (pages[0][:80] if pages else ""), "choices": pages.choices}
         log.append(rec)
         say(json.dumps(rec))
 
 
 def failure(rec: dict) -> str:
     """What a crossing that did not land where its exit leads was, by the module docstring's strike rule:
-    "bounce", "no route", "blocked" or "miss" (REAL: they strike the exit), or "live" (the village was in the
-    way: a stall with control held that the walk waited on, pushed or routed round, ending short OUTSIDE the
-    zone). Standing inside the zone with nothing fired is a miss whatever the walk met on the way."""
+    "bounce", "no route", "blocked", "boxed" or "miss" (REAL: they strike the exit), or "live" (the village was
+    in the way: a stall with control held that the walk waited on, pushed or routed round, ending short OUTSIDE
+    the zone). Standing inside the zone with nothing fired is a miss whatever the walk met on the way."""
     if rec.get("landed") is not None:
         return "bounce"
     if "route" in rec and rec["route"] is None:
         return "no route"
     if rec.get("blocked"):
         return "blocked"
+    if rec.get("boxed"):
+        return "boxed"
     if rec.get("inside"):
         return "miss"
     if ("error" not in rec and rec.get("during") is None and not rec.get("reached")
@@ -281,13 +298,13 @@ def tour(g, log) -> str:
                 continue
             try:
                 r = g.route_cross(goal[0], goal[1], avoid=avoid_for(f, zone), margin=MARGIN, timeout=20,
-                                  walkmesh=floor(f), unstick=True, zone=zone)
+                                  walkmesh=floor(f), unstick=True, zone=zone, smooth=True)
                 rec.update(landed=r["landed"], reached=r["reached"], inside=r["inside"],
                            travelled=round(r["travelled"]), during=r["during"], replans=r["replans"],
                            route=len(r["waypoints"]) if r["waypoints"] is not None else None,
                            waits=r["waits"], cleared=r["cleared"], pushes=r["pushes"], pushed=r["pushed"],
                            blockers=r["blockers"], remembered=r["remembered"], blocked=r["blocked"],
-                           frozen=r["frozen"])
+                           frozen=r["frozen"], boxed=r["boxed"])
             except HarnessError as err:
                 rec.update(landed=None, error=str(err)[:200])
             settle(g, log, f"after crossing {n}")
@@ -313,7 +330,7 @@ def tour(g, log) -> str:
                 if len(tally) >= cap:
                     dead.add((f, i))
                     rec["verdict"] += " -> unreachable"
-                if kind in ("miss", "live", "blocked"):
+                if kind in ("miss", "live", "blocked", "boxed"):
                     g.shot(f"{kind}-{n}-{f}-to-{to}")
             rec.update(now=g.state.field_id, sc1=g.state.scenario, t=round(time.time() - t0))
             log.append(rec)
@@ -343,9 +360,9 @@ def run(g) -> None:
             if st.field_id == 352 and st.control and st.scenario == BEAT:
                 break
             if not st.control:
-                pages = g.watch_cutscene(timeout=300)
+                pages = g.watch_cutscene(timeout=300, choices="default")
                 log.append({"k": "scene", "why": "segment", "field": g.state.field_id, "sc": g.state.scenario,
-                            "pages": len(pages)})
+                            "pages": len(pages), "choices": pages.choices})
             else:
                 g.wait_frames(15)
         st = g.state
@@ -359,9 +376,12 @@ def run(g) -> None:
     except HarnessError as err:
         stop = f"STOPPED: {type(err).__name__}: {str(err)[:300]}"
     finally:
+        choices = [dict(c, why=x["why"]) for x in log if x["k"] == "scene" for c in x.get("choices", [])]
         (g.run_dir / "story_rung3s1.jsonl").write_text(g.channel.story_text() or "", encoding="utf-8")
-        (g.run_dir / "rung3s1_log.json").write_text(json.dumps({"stop": stop, "log": log}, indent=1),
-                                                     encoding="utf-8")
+        (g.run_dir / "rung3s1_log.json").write_text(
+            json.dumps({"stop": stop, "choices": choices, "log": log}, indent=1), encoding="utf-8")
+        say(f"{len(choices)} default choice(s) taken: "
+            f"{[(c['field'], c['index'], c['text']) for c in choices]}")
     g.check(seg_ok, f"S1-SEGMENT: the game's own segment 359 -> 351 -> 352 hands control back in 352 at SC {BEAT}",
             str([x for x in log if x["k"] == "segment"]))
     crossings = [x for x in log if x["k"] == "cross"]
