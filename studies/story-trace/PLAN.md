@@ -208,6 +208,28 @@ pushes through in one unbroken hold, and only then routes round an unseen blocke
 `pathfind.PlayerWalkmesh` (closed triangles are walls: 356 -> 358 becomes a clean NO ROUTE) and scores
 "stood inside the zone, nothing fired" by zone membership (`rung3_step1.py` docstring has the strike rule).
 
+**Attempt 3 (`story-rung3-s1c`) -- THE PREMISE HOLDS: the blind tour reached 450 and the stock game wrote the
+ping there.** With `route_cross(unstick=True)` the tour made 25 crossings (16 landed) through 350, 351, 352, 354,
+355, 356 and 450 -- the 350 -> 355 and 350 -> 450 crossings that failed before now landed after waits and a push
+through a villager (the owner, watching: the walker works, movement is choppy, roaming NPCs block it at times). The
+controller's latch then flipped, Garnet spawned in the weapon shop, and the run stopped on her dialogue CHOICE
+("You changed the way you talk!"): the cutscene waiter presses Confirm through boxes but never picks a choice, and
+timed out after 240 s. So the formal checks read an empty trace; the raw trace was saved, and read offline it shows
+the story's own route, found by a blind tour, writing exactly what the design predicted:
+
+| Write | Where (field entry func +offset) | Frame |
+|---|---|---|
+| SC 2540 -> 2600 | 352 e17 f1 +5340 (the wake) | 9375 |
+| 2078 := 1, 2086 := 1 | 352 e17 f1 (the wake) | 9375 |
+| 2064 := 1, 2078 := 0 | 351 e16 f2 (the lobby exit) | 10628 |
+| 2086 := 0 | 450 e0 Main_Init | 18172 |
+| **2102 := 1**, 2085 := 1 | **450 e19 f2 +89 -- "Walk-in trigger (tag 2)"** | **18388** |
+| 2102 := 0, **2079 := 1**, 2075 := 1 | 356 e2 f1 (the controller's latch flip, in the windmill) | 20861 |
+
+The only writer of `Bit[2102] := 1` is field 450. All 381 script rows join a store in the bytes the game ran
+(0 failures). Next: take a scene's default choice (the cursor's option) so the run finishes on its own and the
+formal checks run; smoother movement; NPC positions from the agent (an engine change, owner's call).
+
 ## Rungs
 
 | Rung | What | Pass |
