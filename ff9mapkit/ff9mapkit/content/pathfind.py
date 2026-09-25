@@ -13,6 +13,9 @@ operates on a :class:`ff9mapkit.scene.bgi.BgiWalkmesh`.
 KEEP-OUT POLYGONS (:func:`route_avoiding`): the same router can also refuse whole regions -- a field's
 OTHER gateway zones, so a walk to one exit cannot step through another. A walker that crosses a gateway
 region leaves the field; "the route grazed a door" is not a near miss, it is a different room.
+
+THE PLAYER'S FLOOR (:class:`PlayerWalkmesh`): the triangles the engine refuses the controlled player (stock
+door strips) are walls to a route planned for him -- opt-in, because an NPC's bar is a different bit.
 """
 
 from __future__ import annotations
@@ -296,6 +299,12 @@ def route_polyline(wmesh, points, *, closed=False, obstacles=(), clearance=None)
     return [(int(round(x)), int(round(z))) for (x, z) in out], inserted
 
 
+#: The walker<->character collision distance, world units: two characters' OBJECT_COLLISION_W, centre to
+#: centre. :func:`route`'s default ``obstacle_r``, and where the harness puts an unseen blocker it walked
+#: into (``Session.route_to(unstick=True)``: this far ahead of where he stopped).
+OBSTACLE_R_W = 2 * cam.OBJECT_COLLISION_W
+
+
 def route(wmesh, start, goal, obstacles=(), *, cell=64.0, clearance=None, obstacle_r=None,
           max_expand=20000, avoid=()):
     """Waypoints routing ``start``->``goal`` around walls + obstacles, or ``None`` if unreachable.
@@ -305,7 +314,7 @@ def route(wmesh, start, goal, obstacles=(), *, cell=64.0, clearance=None, obstac
     is a list of (x, z) character centres. ``avoid`` is a list of :class:`Keepout` -- use
     :func:`route_avoiding`, which builds them (and exempts the region the walker starts in)."""
     clearance = cam.COLLISION_RADIUS_W if clearance is None else clearance
-    obstacle_r = 2 * cam.OBJECT_COLLISION_W if obstacle_r is None else obstacle_r
+    obstacle_r = OBSTACLE_R_W if obstacle_r is None else obstacle_r
     sx, sz = float(start[0]), float(start[1])
     gx, gz = float(goal[0]), float(goal[1])
 
@@ -389,6 +398,8 @@ def route_avoiding(wmesh, start, goal, avoid_polygons, margin: float = KEEPOUT_M
 
     Returns the waypoints after ``start`` ending at the exact ``goal``, or ``None`` when no such route
     exists -- including when the goal itself lies in (or within the margin of) an avoided region.
+    ``obstacles`` (character centres, kept ``obstacle_r`` clear) are an ADDITIONAL constraint: they never
+    relax a keep-out -- a route that goes round one still stays out of every avoided region.
 
     THE START IS EXEMPT, because the walker is where it is -- but only as far as it has to be. A polygon
     CONTAINING the start becomes a leaving :class:`Keepout`: the route may walk out of it once and never
@@ -399,9 +410,14 @@ def route_avoiding(wmesh, start, goal, avoid_polygons, margin: float = KEEPOUT_M
 
     THE GRID IS ALIGNED ON THE START, so a passage barely wider than twice the clearance can fall between
     cell centres. A miss is retried at half the cell, :data:`ROUTE_REFINES` times, before it is called
-    unreachable."""
+    unreachable.
+
+    On a :class:`PlayerWalkmesh` the start is exempt from the closed triangles too: the strip he stands in is
+    open to him (:meth:`PlayerWalkmesh.standing_at`)."""
     sx, sz = float(start[0]), float(start[1])
     gx, gz = float(goal[0]), float(goal[1])
+    if isinstance(wmesh, PlayerWalkmesh):
+        wmesh = wmesh.standing_at(sx, sz)
     keep = []
     for poly in avoid_polygons:
         gap = poly_gap(sx, sz, [(float(p[0]), float(p[1])) for p in poly])
@@ -453,3 +469,79 @@ def region_goal(wmesh, polygon, *, clearance=None, step: float = 24.0):
             z += step
         x += step
     return None if best is None else best[1]
+
+
+#: The triFlags high-byte bit the engine refuses to the CONTROLLED player: WalkMesh.BGI_findAccessibleTriangle
+#: (and RadiusValid, which walls such an edge at his radius like any other) tests ``(triFlags >> 8) &
+#: attributeMask & 0x80``, and ``attributeMask`` is 255 in play -- a script lowers it to 127
+#: (SetTriangleFlagMask) only for its own scripted walk through a door. 0x40 is the same bar for everyone
+#: else, and a triangle whose low bit is clear is closed to all.
+TRI_PLAYER_CLOSED = 0x80
+
+
+class PlayerWalkmesh:
+    """A walkmesh as the CONTROLLED PLAYER may walk it: its triangles minus the ones the engine refuses him.
+
+    Stock door strips are such triangles (``triFlags`` 0xA001 across Dali's doorways: 350, 351, 352, 353,
+    356, 357), and :class:`BgiWalkmesh` knows nothing of the rule -- to it they are floor. A route or a
+    :func:`region_goal` over the raw mesh can therefore aim at a point he can never stand on: stock 356's
+    exit to 358 stalled four times exactly COLLISION_RADIUS_W off triangle 50's edge, pressing into a wall
+    the router did not have. Here a closed triangle is not floor (:meth:`point_on_walkmesh` skips it) and
+    every edge an open triangle shares with one is a WALL (:meth:`distance_to_boundary`), which is all
+    :func:`route`, :func:`route_avoiding` and :func:`region_goal` ask of a walkmesh.
+
+    An explicit wrapper, not a change to the router: an NPC is not the controlled player (its bar is 0x40),
+    so the kit's build-time routing keeps the raw mesh. ``mask`` is the attributeMask to assume; ``opened``
+    triangles count as open whatever their flags (:meth:`standing_at`)."""
+
+    def __init__(self, wmesh, mask: int = 0xFF, opened=()):
+        from ..scene import bgi
+        self.mesh = wmesh
+        self.mask = mask
+        tris = wmesh.tris
+        self.closed = frozenset(i for i, t in enumerate(tris) if i not in opened
+                                and (not t.tri_flags & 1 or (t.tri_flags >> 8) & mask & TRI_PLAYER_CLOSED))
+        wv = wmesh.world_verts()
+        self._floor = wmesh._tri_floor()
+        walls: dict = {}
+        for ti, t in enumerate(tris):
+            if ti in self.closed:
+                continue
+            segs = walls.setdefault(self._floor.get(ti, t.floor_ndx), [])
+            for k, (i, j) in enumerate(bgi.SLOT_PAIRS):
+                if 0 <= t.nbr[k] < len(tris) and t.nbr[k] not in self.closed:
+                    continue                            # an open neighbour across this edge: not a wall
+                a, b = wv[t.vtx[i]], wv[t.vtx[j]]
+                segs.append(((a[0], a[2]), (b[0], b[2])))
+        self._walls = walls
+
+    def point_on_walkmesh(self, x, z):
+        """Floor index of the first OPEN triangle containing (x, z), else None (off-mesh, or closed to him)."""
+        for ti in self.mesh.tris_at(x, z):
+            if ti not in self.closed:
+                return self._floor.get(ti, self.mesh.tris[ti].floor_ndx)
+        return None
+
+    def distance_to_boundary(self, x, z):
+        """Min XZ distance from (x, z) to a wall of its floor -- a mesh boundary or the edge of a closed
+        triangle. None off the open floor."""
+        floor = self.point_on_walkmesh(x, z)
+        if floor is None:
+            return None
+        return min((_routes.seg_dist_xz(x, z, a, b) for a, b in self._walls.get(floor, ())), default=None)
+
+    def standing_at(self, x, z) -> "PlayerWalkmesh":
+        """This view with the closed STRIP he stands in opened -- every closed triangle linked to the one
+        under (x, z) through other closed ones. Only a script puts him there: its walk through a door ran at
+        mask 127, a mask the router cannot see, and the strip is the way out that walk was taking. (At 255
+        the engine bars only ENTERING a closed triangle -- BGI_findAccessibleTriangle judges the neighbour
+        across an edge -- so a route out through the strip may still stall; it cannot be worse than the
+        raw mesh, which ignores every strip.) :func:`route_avoiding` asks for this at its start."""
+        todo = list(self.closed.intersection(self.mesh.tris_at(x, z)))
+        strip = set(todo)
+        while todo:
+            for n in self.mesh.tris[todo.pop()].nbr:
+                if n in self.closed and n not in strip:
+                    strip.add(n)
+                    todo.append(n)
+        return PlayerWalkmesh(self.mesh, self.mask, opened=strip) if strip else self

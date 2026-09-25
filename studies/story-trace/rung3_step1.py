@@ -24,6 +24,32 @@ landing anywhere else is a BOUNCE, finding no route a NO ROUTE, and not landing 
 marked tried, the field's other exits taken first, and after BOUNCES of them the (field, exit) is UNREACHABLE and
 the tour moves on, so it cannot loop.
 
+THE VILLAGE IS LIVE (after the second run: 350 -> 450 and 350 -> 355 planned a route and travelled 0, pressed
+into a villager and into a Dali child with control held -- the "ACTIVE TIME EVENT" corner card in those frames is
+the optional-ATE indicator, on screen through walks of 2446u and 3665u too, and holds nothing; each miss struck the
+exit, and 450 went unreachable without its door ever being tried). Every crossing runs with
+route_cross(unstick=True): a stall with control held is waited out, then PUSHED through (one unbroken hold: the
+engine lets the player through anyone without object flag 16 once he insists, no NPC on 350 sets it, and the
+short bursts of a routed walk never insisted long enough), and only then routed round as an unseen body. So a
+failed crossing is one of two things, and only one of them STRIKES:
+- a REAL failure says something about the exit, and strikes it -- a BOUNCE (landed elsewhere), a MISS whose
+  destination took control and never gave it back (353: Mayor Kapu's arrival scene puts the player back where he
+  came from), a MISS that stood INSIDE the zone and nothing fired (350 -> 358 once its scene has played: the story
+  shut the region; judged by zone membership, route_cross's `inside`, not by the goal distance), a MISS where
+  something else took control mid-walk, NO ROUTE, or BLOCKED -- he moved after the first unseen blocker went in,
+  and then blockers sealed the way. BOUNCES of them: unreachable.
+- a LIVE miss says something about the village, and does not strike: the walk stalled with control held, waited,
+  pushed or routed round (or found movement held -- `frozen`, which also covers a first blocker that sealed the
+  way before he had moved again: nothing tells that from a hold), and still ended short, OUTSIDE the zone. The
+  exit goes behind the field's other exits and is tried again; only after LIVE of them is it unreachable, so a
+  village that never clears still cannot hold the tour.
+
+THE ROUTER WALKS THE PLAYER'S FLOOR (after the second run: 356 -> 358 stalled four times exactly the controller
+radius off stock 356's triangle 50, a door strip whose triFlags 0xA001 bar the controlled player while the
+attribute mask is 255 -- 356's own door walk lowers it to 127 -- and pathfind knew nothing of the rule). Goals,
+routes and the one-way rule all use pathfind.PlayerWalkmesh: closed triangles are walls. Across Dali that changes
+exactly one exit -- 356 -> 358, now NO ROUTE from anywhere in 356, a clean REAL failure instead of a stall.
+
 A ONE-WAY DOOR GOES LAST. A door is one-way when its destination's own script puts the arriving player where
 none of that destination's exits can be routed to: 350 -> 358 lands on a walkmesh piece 358's only gateway zone
 is not on (the way back to 350 is a scripted position check, not a gateway region). Crossed in scan order it
@@ -61,12 +87,14 @@ START, START_SC, BEAT = 359, 2540, 2600
 LABEL = "Dali/"
 MAX_CROSSINGS, MAX_PASSES, BUDGET_S = 80, 3, 40 * 60
 MARGIN = pathfind.KEEPOUT_MARGIN_W        # keep-out around every gateway zone the crossing is not aimed at
-BOUNCES = 2                               # failed crossings (bounce or miss) before a (field, exit) is unreachable
+BOUNCES = 2                               # REAL failures (the docstring) before a (field, exit) is unreachable
+LIVE = 3                                  # LIVE misses (the village in the way) before it is unreachable too
 THROWS = {"NullReferenceException", "InvalidCastException", "IndexOutOfRangeException", "DivideByZeroException",
           "ArgumentOutOfRangeException", "OverflowException"}
 WHERE = ("EventEngine", "EBin", "StoryTrace", "HarnessAgent")
 
 _names: dict = {}
+_floors: dict = {}
 _gates: dict = {}
 _goals: dict = {}
 _oneway: dict = {}
@@ -83,6 +111,14 @@ def label(fid: int) -> str:
         rows = [r for r in extract.find_fields(str(fid)) if int(r["id"]) == fid]
         _names[fid] = (rows[0]["name"] or "") if rows else ""
     return _names[fid]
+
+
+def floor(fid: int):
+    """Field ``fid``'s stock walkmesh as the controlled player may walk it (pathfind.PlayerWalkmesh); raises like
+    extract.stock_walkmesh when the id has none."""
+    if fid not in _floors:
+        _floors[fid] = pathfind.PlayerWalkmesh(extract.stock_walkmesh(fid))
+    return _floors[fid]
 
 
 def gateways(fid: int) -> list:
@@ -109,10 +145,10 @@ def avoid_for(fid: int, zone) -> list:
 
 
 def goal_for(fid: int, i: int):
-    """A standable point inside exit i's zone (pathfind.region_goal on the install's walkmesh), or None."""
+    """A standable point inside exit i's zone (pathfind.region_goal on the player's floor), or None."""
     if (fid, i) not in _goals:
         try:
-            _goals[(fid, i)] = pathfind.region_goal(extract.stock_walkmesh(fid), exits(fid)[i][2])
+            _goals[(fid, i)] = pathfind.region_goal(floor(fid), exits(fid)[i][2])
         except (OSError, ValueError, RuntimeError) as err:     # no walkmesh for this id: no goal, no route
             say(f"field {fid}: no walkmesh to aim exit {i} on ({type(err).__name__}: {err})")
             _goals[(fid, i)] = None
@@ -138,7 +174,7 @@ def one_way(fid: int, i: int) -> bool:
         back = pos is None
         for j, (_t, _e, zone) in enumerate(exits(to) if pos is not None else ()):
             goal = goal_for(to, j)                       # None also when the walkmesh cannot be read
-            if goal is not None and pathfind.route_avoiding(extract.stock_walkmesh(to), pos, goal,
+            if goal is not None and pathfind.route_avoiding(floor(to), pos, goal,
                                                             avoid_for(to, zone), MARGIN) is not None:
                 back = True
                 break
@@ -160,6 +196,25 @@ def settle(g, log, why: str) -> None:
         say(json.dumps(rec))
 
 
+def failure(rec: dict) -> str:
+    """What a crossing that did not land where its exit leads was, by the module docstring's strike rule:
+    "bounce", "no route", "blocked" or "miss" (REAL: they strike the exit), or "live" (the village was in the
+    way: a stall with control held that the walk waited on, pushed or routed round, ending short OUTSIDE the
+    zone). Standing inside the zone with nothing fired is a miss whatever the walk met on the way."""
+    if rec.get("landed") is not None:
+        return "bounce"
+    if "route" in rec and rec["route"] is None:
+        return "no route"
+    if rec.get("blocked"):
+        return "blocked"
+    if rec.get("inside"):
+        return "miss"
+    if ("error" not in rec and rec.get("during") is None and not rec.get("reached")
+            and (rec.get("waits") or rec.get("pushes") or rec.get("blockers") or rec.get("frozen"))):
+        return "live"
+    return "miss"
+
+
 def next_hop(start: int, want, dead: set):
     """BFS over the exit graph from ``start`` -- never through an unreachable or a one-way exit -- to the
     nearest field satisfying ``want``: the index of the first exit to take, or None."""
@@ -178,7 +233,8 @@ def next_hop(start: int, want, dead: set):
 def tour(g, log) -> str:
     t0 = time.time()
     n = 0
-    fails: dict = {}                     # (field, exit) -> ["bounce" | "miss" | "no route", ...], across passes
+    fails: dict = {}                     # (field, exit) -> its REAL failures (failure()), across passes
+    live: dict = {}                      # (field, exit) -> its LIVE misses, across passes
     dead: set = set()                    # (field, exit) unreachable this run
     visit, later = None, set()           # exits that failed on THIS visit: the field's other exits go first
     for p in range(1, MAX_PASSES + 1):
@@ -224,10 +280,14 @@ def tour(g, log) -> str:
                 say(json.dumps(rec))
                 continue
             try:
-                r = g.route_cross(goal[0], goal[1], avoid=avoid_for(f, zone), margin=MARGIN, timeout=20)
-                rec.update(landed=r["landed"], reached=r["reached"], travelled=round(r["travelled"]),
-                           during=r["during"], replans=r["replans"],
-                           route=len(r["waypoints"]) if r["waypoints"] is not None else None)
+                r = g.route_cross(goal[0], goal[1], avoid=avoid_for(f, zone), margin=MARGIN, timeout=20,
+                                  walkmesh=floor(f), unstick=True, zone=zone)
+                rec.update(landed=r["landed"], reached=r["reached"], inside=r["inside"],
+                           travelled=round(r["travelled"]), during=r["during"], replans=r["replans"],
+                           route=len(r["waypoints"]) if r["waypoints"] is not None else None,
+                           waits=r["waits"], cleared=r["cleared"], pushes=r["pushes"], pushed=r["pushed"],
+                           blockers=r["blockers"], remembered=r["remembered"], blocked=r["blocked"],
+                           frozen=r["frozen"])
             except HarnessError as err:
                 rec.update(landed=None, error=str(err)[:200])
             settle(g, log, f"after crossing {n}")
@@ -244,16 +304,17 @@ def tour(g, log) -> str:
             else:
                 # no route is a failed attempt like the others, not a verdict: it was planned from where he
                 # stood THIS time, and the next visit arrives somewhere else
-                kind = ("bounce" if rec.get("landed") is not None
-                        else "no route" if "route" in rec and rec["route"] is None else "miss")
+                kind = failure(rec)
                 later.add((f, i))
-                fails.setdefault((f, i), []).append(kind)
-                rec["verdict"] = f"{kind} {len(fails[(f, i)])}/{BOUNCES}"
-                if len(fails[(f, i)]) >= BOUNCES:
+                tally = (live if kind == "live" else fails).setdefault((f, i), [])
+                tally.append(kind)
+                cap = LIVE if kind == "live" else BOUNCES
+                rec["verdict"] = f"{kind} {len(tally)}/{cap}"
+                if len(tally) >= cap:
                     dead.add((f, i))
                     rec["verdict"] += " -> unreachable"
-                if kind == "miss":
-                    g.shot(f"miss-{n}-{f}-to-{to}")
+                if kind in ("miss", "live", "blocked"):
+                    g.shot(f"{kind}-{n}-{f}-to-{to}")
             rec.update(now=g.state.field_id, sc1=g.state.scenario, t=round(time.time() - t0))
             log.append(rec)
             say(json.dumps(rec))

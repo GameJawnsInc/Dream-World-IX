@@ -160,6 +160,52 @@ def test_region_goal_is_inside_the_region_and_standable():
     assert P.region_goal(ROOM, _rect(1100, -200, 1300, 200)) is None     # off the mesh entirely
 
 
+def _strip():
+    """A room in three columns; the middle one (x -100..100, triangles 2 and 3) is a door strip with stock Dali's
+    triFlags 0xA001 -- closed to the controlled player at attributeMask 255."""
+    v = [(-1000, 0, 1000), (-100, 0, 1000), (100, 0, 1000), (1000, 0, 1000),
+         (-1000, 0, -1000), (-100, 0, -1000), (100, 0, -1000), (1000, 0, -1000)]
+    f = [(0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6)]
+    wm = bgi.BgiWalkmesh.from_bytes(bgi.build(v, f).to_bytes())
+    for ti in (2, 3):
+        wm.tris[ti].tri_flags = 0xA001
+    return wm
+
+
+def test_the_players_walkmesh_walls_off_a_triangle_closed_to_him():
+    """THE 356 -> 358 STALL, synthetic: the raw mesh routes straight through a door strip the engine refuses
+    the player; his view has no floor there, walls its edges at his radius, and aims a region goal off it."""
+    wm = _strip()
+    view = P.PlayerWalkmesh(wm)
+    assert view.closed == {2, 3}
+    assert wm.point_on_walkmesh(0, 0) is not None and view.point_on_walkmesh(0, 0) is None
+    assert view.point_on_walkmesh(-500, 0) == wm.point_on_walkmesh(-500, 0)
+    assert wm.distance_to_boundary(-180, 0) == pytest.approx(820)
+    assert view.distance_to_boundary(-180, 0) == pytest.approx(80)       # the strip's edge is a wall now
+    assert P.route_avoiding(wm, (-700, 0), (700, 0), []) is not None
+    assert P.route_avoiding(view, (-700, 0), (700, 0), []) is None
+    door = _rect(-300, -200, 300, 200)                                  # a zone straddling the strip
+    assert abs(P.region_goal(wm, door)[0]) < 100                        # the raw goal: in the strip
+    g = P.region_goal(view, door)
+    assert view.point_on_walkmesh(*g) is not None and view.distance_to_boundary(*g) >= cam.COLLISION_RADIUS_W - 1
+    assert P.PlayerWalkmesh(wm, mask=127).closed == frozenset()         # a script's door walk opens it
+    for ti in (2, 3):
+        wm.tris[ti].tri_flags = 0x4001                                  # 0x40 bars everyone ELSE
+    assert P.PlayerWalkmesh(wm).closed == frozenset()
+
+
+def test_the_players_walkmesh_opens_the_strip_he_stands_in():
+    """A script can leave him inside a strip (its walk ran at mask 127, which the router cannot see): the route
+    starts there and leaves it. The exemption is the start's alone -- walking up to the strip, it is still shut."""
+    wm = _strip()
+    view = P.PlayerWalkmesh(wm)
+    assert view.standing_at(-500, 0) is view
+    assert view.standing_at(0, 0).closed == frozenset()
+    wps = P.route_avoiding(view, (0, 0), (700, 0), [])
+    assert wps is not None and tuple(wps[-1]) == (700, 0)
+    assert P.route_avoiding(view, (-700, 0), (700, 0), []) is None
+
+
 def test_key_move_basis_is_the_engines_rotation():
     """``FieldMapActorController``: a digital press rotated by Euler(0, (v+1)/256*360, 0). The kit's blank TWIST
     (-1 / 255) is 0 deg; stock 351/352's TWIST 0 is 1.4 deg -- the harness MEASURED up (+0.02, +1.00), right
@@ -380,6 +426,51 @@ def test_the_one_dali_door_a_router_cannot_walk_back_out_of_is_350_to_358(stock)
             if not back:
                 one_way.add((f, to, g["entrance"]))
     assert one_way == {(350, 358, 22)}, one_way
+
+
+#: rung-3 s1b, crossings 20 and 22: where 356 -> 358 stalled, pressing a wall the raw mesh does not have
+STALLS_356_TO_358 = [(831, 1234), (836, 1224), (795, 1301), (864, 1175)]
+
+
+def test_on_the_players_floor_356_to_358_has_no_route_and_every_other_dali_exit_still_routes(stock):
+    """THE 356 -> 358 STALLS: all four stood the controller radius off a wall only the player's floor has --
+    the edge of triangle 50, a door strip (triFlags 0xA001) the raw mesh treats as floor. On his floor that exit
+    has no route from anywhere the tour stood in 356; from every decoded Dali arrival, every other Dali exit
+    still routes -- the strips close nothing else."""
+    from ff9mapkit import eventscan
+    walkmesh, script = stock
+    raw = walkmesh(356)
+    view = P.PlayerWalkmesh(raw)
+    assert 50 in view.closed
+    for s in STALLS_356_TO_358:
+        assert raw.distance_to_boundary(*s) > cam.COLLISION_RADIUS_W, s             # raw: open floor
+        assert abs(view.distance_to_boundary(*s) - cam.COLLISION_RADIUS_W) <= 3, s  # his: against a wall
+    starts: dict = {}
+    for f in DALI:
+        for g in eventscan.scan_gateways(script(f)):
+            if g["to"] in DALI:
+                t = eventscan.scan_arrival_table(script(g["to"]))
+                row = next((r for r in t["table"] if r["entrance"] == g["entrance"]), None) or t["default"]
+                if row is not None:
+                    starts.setdefault(g["to"], set()).add(tuple(row["pos"]))
+    starts[356] |= set(STALLS_356_TO_358)
+    routed, sealed = 0, []
+    for f, pts in sorted(starts.items()):
+        wm, zones = P.PlayerWalkmesh(walkmesh(f)), _zones(script, f)
+        for i, (to, zone) in enumerate(zones):
+            if to not in DALI:
+                continue
+            goal = P.region_goal(wm, zone)
+            others = [z for j, (_t, z) in enumerate(zones) if j != i]
+            for s in sorted(pts):
+                if P.route_avoiding(wm.mesh, s, P.region_goal(wm.mesh, zone), others) is None:
+                    continue                    # no route on the raw mesh either (358's one-way arrival)
+                if P.route_avoiding(wm, s, goal, others) is None:
+                    sealed.append((f, to, s))
+                else:
+                    routed += 1
+    assert {(f, to) for f, to, _s in sealed} == {(356, 358)}, sealed
+    assert len(sealed) == len(starts[356]) and routed >= 60, (routed, sealed)
 
 
 def test_351_from_the_stuck_landing_reaches_every_exit(stock):

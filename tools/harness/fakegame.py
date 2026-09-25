@@ -3,10 +3,11 @@
 
 WHAT THIS PROVES, AND WHAT IT DOES NOT. It implements the s83 wire protocol -- sequence handling,
 the arm transition, frame-stepped queue draining, state publication, screenshots -- plus just enough
-of a world (a rectangular walkmesh, a run/walk speed, a gateway, a dialogue box, a menu cursor) for
-the driver's closed-loop verbs to actually close their loops. A green run against it says the DRIVER
-is correct: seq numbers advance, acks belong to the request that earned them, torn reads are
-survived, timeouts fire, bad bases are rejected, artifacts land.
+of a world (a rectangular walkmesh, a run/walk speed, a gateway, a dialogue box, a menu cursor, a body
+standing in the way and the engine's walk-through-by-insisting, a freeze with control held) for the
+driver's closed-loop verbs to actually close their loops. A green run against it says the DRIVER is
+correct: seq numbers advance, acks belong to the request that earned them, torn reads are survived,
+timeouts fire, bad bases are rejected, artifacts land.
 
 ⚠ IT SAYS NOTHING ABOUT THE ENGINE. It models the agent as SPECIFIED, not the DLL as deployed -- so
 a green suite means the driver still handles what it was taught, and nothing about whether a warp
@@ -143,6 +144,8 @@ class FakeGame:
         self.story_bytes = bytearray(2048)          # the modelled gEventGlobal the rows read old/new from
         self.scenario = 0
         self.donor = None                           # EffectiveFieldId: None = the field's own id
+        #: The floor: one box ``(x0, z0, x1, z1)``, or a list of boxes whose UNION is walkable (a room
+        #: opening into a corridor). A step that lands in none of them is clamped to the box he is in.
         self.walkmesh = walkmesh
         #: Frames the character keeps moving after the direction is released. ⚠ NOT ZERO, and the
         #: value is measured rather than chosen: on bench 30801 a hold covers what it commanded give
@@ -233,6 +236,28 @@ class FakeGame:
         #: ``len(self.executed)`` at that moment, so a test can name the steps issued AFTER it.
         self.fired: list[dict] = []
         self._exit: tuple[int, int, tuple[float, float]] | None = None   # (due frame, dest, arrive)
+        #: Bodies the walkmesh does not know about -- someone standing still in the way: ``{field id:
+        #: [(x, z, r) or (x, z, r, solid), ...]}``, ``r`` centre to centre (WalkMesh.Collision). A step
+        #: into one that has it in FRONT of him is pushed back out to ``r`` along the line from its
+        #: centre (FieldMapActorController.cs:776-797), so a press at an angle slides him round it and a
+        #: press straight at it stops him dead -- stock Zidane pressed into a Dali child on 350, six
+        #: bursts, 0u. A push-out that lands in another body is undone, move and all.
+        #: A body is PASSABLE unless ``solid`` (object flag 16, which no NPC on stock 350 sets): the
+        #: engine's sLockTimer (CheckCollFallback, :822) counts one a colliding MovePC call, flips to
+        #: -25 at 25, and the push-out is off until it counts back to 0 -- so one unbroken hold walks
+        #: through him, and bursts with a pause between never do. Counted here in MovePC calls: a
+        #: running frame is one (two 30u calls a tick, two frames a tick), a walking or idle frame half.
+        self.blockers: dict[int, list[tuple]] = {}
+        self._lock = 0.0                          # EventEngine.sLockTimer
+        self._lock_free = 1                       # sLockFree: 0 while the last body touched is solid
+        self._coll = 0                            # SCollTimer, in frames (2 ticks after a push-out)
+        #: Movement FREEZES with control held -- MovePC's other gate, the script's pad mask
+        #: (EventInput.IsMovementControl), which the agent does not publish: ``{field id: [{"zone":
+        #: [[x, z], ...], "frames": n}]}``. Stepping into a zone holds all movement for ``n`` frames
+        #: (None = for good) while `control` stays True. Each zone fires once; a warp ends a freeze.
+        self.freezes: dict[int, list[dict]] = {}
+        self._frozen_until: float = 0
+        self._froze: set = set()                  # (field id, index) of every freeze zone that fired
         #: every op the fake ever executed, so a test can assert a step was DELIVERED rather than
         #: inferring it from a state that several other ops could also have produced.
         self.executed: list[list[str]] = []
@@ -471,6 +496,8 @@ class FakeGame:
             self.control = True
             self.player = [0.0, 0.0, 0.0]
             self._exit = None                  # a warp outruns any exit still fading
+            self._frozen_until = 0             # ...and any freeze
+            self._lock, self._coll = 0.0, 0
             self._block(3)
         elif op == "battle":
             if self.ui_state != "FieldHUD":
@@ -593,7 +620,12 @@ class FakeGame:
         """
         if self._exit is not None and self.frame >= self._exit[0]:
             self._step_exit_now()
+        if self._coll > 0:
+            self._coll -= 1                     # ProcessEvents counts SCollTimer down every tick
         if self.ui_state != "FieldHUD" or not self.control:
+            return
+        if self.frame < self._frozen_until:
+            self._coast = None                  # MovePC returns before it moves anyone
             return
         vx = vz = 0.0
         if self._is_held("up"):
@@ -607,15 +639,13 @@ class FakeGame:
         if vx == 0.0 and vz == 0.0:
             # Nothing held -- but the engine is still applying the last movement it sampled.
             if not self._coast:
+                self._lock_fallback(0.5)        # MovePC still runs, once a tick
                 return
             vx, vz, left = self._coast
             self._coast = (vx, vz, left - 1) if left > 1 else None
-            x = self.player[0] + vx
-            z = self.player[2] + vz
-            x0, z0, x1, z1 = self.walkmesh
-            self.player[0] = min(max(x, x0), x1)
-            self.player[2] = min(max(z, z0), z1)
+            self._move_to(self.player[0] + vx, self.player[2] + vz, (vx * vx + vz * vz) ** 0.5 / RUN_SPEED)
             self._enter_regions()
+            self._enter_freezes()
             return
         mag = (vx * vx + vz * vz) ** 0.5
         vx, vz = vx / mag, vz / mag
@@ -635,14 +665,10 @@ class FakeGame:
             if vx == 0.0 and vz == 0.0:
                 return
 
-        x = self.player[0] + vx * speed
-        z = self.player[2] + vz * speed
-        x0, z0, x1, z1 = self.walkmesh
-        self.player[0] = min(max(x, x0), x1)
-        self.player[2] = min(max(z, z0), z1)
+        moved = self._move_to(self.player[0] + vx * speed, self.player[2] + vz * speed, speed / RUN_SPEED)
         # Arm the tail with the velocity actually applied this frame.
         self._coast = ((vx * speed, vz * speed, self.coast_frames)
-                       if self.coast_frames > 0 else None)
+                       if self.coast_frames > 0 and moved else None)
 
         if self.gateway is not None:
             gx0, gz0, gx1, gz1, dest = self.gateway
@@ -651,6 +677,64 @@ class FakeGame:
                 self.player = [0.0, 0.0, 0.0]
                 self.control = True
         self._enter_regions()
+        self._enter_freezes()
+
+    def _move_to(self, x: float, z: float, calls: float = 1.0) -> bool:
+        """One frame's step to (x, z), worth ``calls`` MovePC calls: kept on the floor (`walkmesh`), and --
+        while sLockTimer is not negative -- pushed out of a body it enters that is in front of him (see
+        `blockers`), refused (False, he stays put) when the push-out lands in another. Then the lock's
+        count for the frame (CheckCollFallback)."""
+        ox, oz = self.player[0], self.player[2]
+        bodies = self.blockers.get(self.field_id, ())
+        pushed = False
+        for b in bodies:
+            bx, bz, r = b[0], b[1], b[2]
+            d = ((x - bx) ** 2 + (z - bz) ** 2) ** 0.5
+            if d >= r:
+                continue
+            self._lock_free = 0 if len(b) > 3 and b[3] else 1
+            if not self._lock_free:
+                self._lock = 0.0
+            # facing = the step (the engine lerps toward it); the push-out wants the body within +-90 deg
+            if self._lock >= 0 and (x - ox) * (bx - x) + (z - oz) * (bz - z) >= 0:
+                if d < 1e-6:
+                    self._lock_fallback(calls)
+                    return False
+                x, z = bx + (x - bx) / d * r, bz + (z - bz) / d * r
+                self._coll = 4
+                pushed = True
+            break                                   # WalkMesh.Collision answers with ONE body
+        boxes = self.walkmesh if isinstance(self.walkmesh[0], (tuple, list)) else [self.walkmesh]
+        if not any(b[0] <= x <= b[2] and b[1] <= z <= b[3] for b in boxes):
+            x0, z0, x1, z1 = next((b for b in boxes if b[0] <= ox <= b[2] and b[1] <= oz <= b[3]), boxes[0])
+            x, z = min(max(x, x0), x1), min(max(z, z0), z1)
+        if pushed and any((x - b[0]) ** 2 + (z - b[1]) ** 2 < (b[2] - 1e-6) ** 2 for b in bodies):
+            self._lock_fallback(calls)
+            return False
+        self.player[0], self.player[2] = x, z
+        self._lock_fallback(calls)
+        return True
+
+    def _lock_fallback(self, calls: float) -> None:
+        """FieldMapActorController.CheckCollFallback, ``calls`` times over: while SCollTimer runs, count
+        sLockTimer up by sLockFree -- flipping it to -25 at 25, which turns the push-out off -- else
+        reset a non-negative count to 0 and count a negative one back up to it."""
+        if self._coll > 0:
+            self._lock = -25.0 if self._lock >= 25 else self._lock + self._lock_free * calls
+        elif self._lock >= 0:
+            self._lock = 0.0
+        else:
+            self._lock = min(0.0, self._lock + calls)
+
+    def _enter_freezes(self) -> None:
+        """A step into one of this field's `freezes` zones holds movement from the next frame on."""
+        x, z = self.player[0], self.player[2]
+        for i, f in enumerate(self.freezes.get(self.field_id, ())):
+            if (self.field_id, i) not in self._froze and _in_poly(x, z, f["zone"]):
+                self._froze.add((self.field_id, i))
+                n = f.get("frames")
+                self._frozen_until = float("inf") if n is None else self.frame + int(n)
+                self._coast = None
 
     def _enter_regions(self) -> None:
         """ExitField, modelled: a step into one of this field's `regions` takes control now and

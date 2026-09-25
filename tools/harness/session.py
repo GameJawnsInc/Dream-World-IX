@@ -264,6 +264,11 @@ class Session:
         self.last_fight: dict | None = None
         self._axes: dict[int, dict] = {}      # field id -> measured button->world basis
         self._priors: dict[int, dict | None] = {}   # field id -> PREDICTED basis (key_prior), never a measurement
+        #: Unseen blockers route_to(unstick=True) walked into on the CURRENT field visit: (field id, [(x, z)]).
+        #: Kept only while every published sample shows that field with control held -- see _observe --
+        #: and each for ROUTE_BLOCKER_TTL from when it went in (_blocker_at; see _visit_blockers).
+        self._blockers: tuple[int, list] = (-1, [])
+        self._blocker_at: dict = {}
         self._events = None                   # the install's field event bundle, opened on first key_prior
         self._last_error: str | None = None   # the agent's error latch as of the last successful ack
         self.engine_protocol: int | None = None   # what the DEPLOYED engine speaks, once it answers
@@ -741,9 +746,15 @@ class Session:
     UNITY_NOTE_EVERY = 1.0
 
     def _observe(self, st: State) -> None:
-        """Every State a read returns: into the ring, and a note of how long Unity's log is."""
+        """Every State a read returns: into the ring, and a note of how long Unity's log is -- and the end
+        of a field VISIT for the unseen blockers route_to remembers. A sample on another field, or with
+        control gone (a gateway, a scene, a warp's fade: anything that may move the room's people),
+        drops them. Here and not at the verbs, so no way of leaving can forget to."""
         self._ring.push(st)
         self._note_unity_log()
+        if self._blockers[1] and (st.field_id != self._blockers[0] or not st.control):
+            self._blockers = (-1, [])
+            self._blocker_at = {}
 
     def _note_unity_log(self) -> None:
         now = time.time()
@@ -1540,7 +1551,7 @@ class Session:
         return basis
 
     def walk_to(self, x: float, z: float, *, tolerance: float = 40.0, max_bursts: int = 24,
-                strict: bool = True, halt_on_transition: bool = False) -> bool:
+                strict: bool = True, halt_on_transition: bool = False, slides: bool = False) -> bool:
         """Walk to a world (x, z), steering on the published position. Returns whether it arrived.
 
         Moves one axis at a time rather than solving a diagonal: the engine's diagonal is a single
@@ -1559,6 +1570,12 @@ class Session:
         changes a fade later, so without it the next "correction" burst is pressed during the fade and
         its hold carries into the DESTINATION -- where, at an arrival spot beside the door, it walks the
         player straight back. :meth:`route_to` always sets it; the default keeps the old loop.
+
+        ``slides`` is for a LIVE room (:meth:`route_to` ``unstick``). A burst pressed into someone
+        standing a little off the pressed line is pushed back out along the line from that body's
+        centre (FieldMapActorController.cs:776-797): he slides SIDEWAYS, and the basis check below
+        reads that as a wrong basis -- raises, and throws a good basis away. With ``slides`` such a
+        burst ends the walk instead (not arrived, basis kept), for the caller to treat as a stall.
         """
         # A tolerance under one WALK frame cannot be aimed for -- the smallest correction the engine
         # can make is one frame of travel, so the loop oscillates around the target and then fails on
@@ -1590,16 +1607,7 @@ class Session:
             if remaining <= tolerance:
                 return True
 
-            # Project the remaining offset onto each measured axis, and drive the bigger one.
-            along_v = dx * basis["v"][0] + dz * basis["v"][1]
-            along_h = dx * basis["h"][0] + dz * basis["h"][1]
-            if abs(along_v) >= abs(along_h):
-                direction, need = ("up" if along_v > 0 else "down"), abs(along_v)
-                axis, sign = basis["v"], (1.0 if along_v > 0 else -1.0)
-            else:
-                direction, need = ("right" if along_h > 0 else "left"), abs(along_h)
-                axis, sign = basis["h"], (1.0 if along_h > 0 else -1.0)
-
+            direction, need, axis, sign = _press_axis(basis, dx, dz)
             slow = need < self.RUN_SPEED * 3
             speed = self.WALK_SPEED if slow else self.RUN_SPEED
             frames = max(1, min(45, int(need / speed)))
@@ -1625,6 +1633,10 @@ class Session:
             # and then blaming the field's geometry.
             if self._burst_is_evidence(moved, frames * speed):
                 projected = (mx * axis[0] + mz * axis[1]) * sign
+                if projected < 0.35 * moved and slides:
+                    self._log(f"  walk_to: holding {direction} slid him {moved:.0f}u along ({mx:+.0f},{mz:+.0f}) "
+                              f"-- round someone in the way, not a wrong basis; stopping here")
+                    break
                 if projected < 0.35 * moved:
                     self._axes.pop(field, None)
                     raise HarnessError(
@@ -1906,6 +1918,31 @@ class Session:
     ROUTE_WAYPOINT_TOLERANCE = 45.0
     #: Replans from wherever a leg stalled (a wall the grid did not see, an NPC) before giving up.
     ROUTE_REPLANS = 2
+    #: route_to(unstick=True) at a stall with control held: frames to WAIT before walking the same chunk
+    #: again, how many times per stall, and how many waits one call may spend in all. ~1.5 s at 60 fps:
+    #: an NPC walking through, or a movement freeze the agent cannot see (the script's pad mask), clears.
+    ROUTE_WAIT_FRAMES = 90
+    ROUTE_WAITS = 2
+    ROUTE_WAIT_BUDGET = 8
+    #: route_to(unstick=True), still stuck after the waits: ONE unbroken hold INTO whoever is in the way.
+    #: The engine lets the player through any body without object flag 16 (no NPC on stock 350 sets it)
+    #: once he has pressed into it for 26 MovePC calls unbroken: CheckCollFallback counts sLockTimer up
+    #: one a colliding call, flips it to -25 at 25, and the push-out is off until it counts back to 0
+    #: (FieldMapActorController.cs:768-822). A walk_to burst never gets there -- a chunk is at most 12
+    #: frames, and the gap before the next one resets the count. A running player makes two calls of 30u
+    #: a tick, so the lock is this much COMMANDED movement (the 27th call is the first not pushed back),
+    #: sized in frames by RUN_SPEED like every burst; the hold then presses on for what the chunk needs.
+    ROUTE_PUSH_LOCK_W = 27 * 30.0
+    ROUTE_PUSH_BUDGET = 6
+    #: Unseen blockers one route_to(unstick=True) call may place, each followed by a replan round it.
+    ROUTE_BLOCKERS = 3
+    #: Seconds an unseen blocker is remembered on its field visit. People in a live room walk about --
+    #: the Dali villagers do between frames -- so a blocker is a guess about where someone STOOD, and it
+    #: ages out rather than steering the rest of the visit round someone who has left.
+    ROUTE_BLOCKER_TTL = 20.0
+    #: route_cross with a ``zone``: how long to wait for a crossing when the walk ended OUTSIDE it with
+    #: control held. A gateway cannot fire from there; the wait only covers a trigger still settling.
+    ROUTE_OUTSIDE_WAIT = 2.0
 
     def key_prior(self, field: int) -> dict | None:
         """The PREDICTED button->world basis on stock ``field``, from its own script: ``{"v", "h"}``.
@@ -1983,18 +2020,25 @@ class Session:
             return None
         return self.expect_field_change(timeout=timeout, was=origin)
 
-    def _route_chunks(self, legs, hazards) -> list:
+    def _route_chunks(self, legs, hazards, blockers=()) -> list:
         """Split each routed leg into walk_to targets ``(x, z, tolerance)`` short enough that the L of
         one-axis steering cannot reach a hazard: a chunk's corner strays at most half its length off
         the line, so a leg ``c`` clear of every hazard is cut into chunks of ``2 * (c -
         PROBE_HAZARD_PAD)``. A leg that starts INSIDE a hazard (walking out of the arrival door) counts
         as clearance 0 -- the shortest chunks, so the L strays least from a line planned to cross that
         boundary once. The tolerance is at most half a chunk -- a chunk end already within tolerance is
-        'arrived' without a press, and two skipped chunks make one twice as long."""
+        'arrived' without a press, and two skipped chunks make one twice as long.
+
+        ``blockers`` (unseen bodies, :meth:`route_to` ``unstick``) count too, OBSTACLE_R_W round. A
+        detour is planned TANGENT to a body, and an L that cuts into it is pushed round it by the
+        engine: a sideways slide that ends the walk as a stall (walk_to ``slides``), or a stall that
+        places a needless blocker. Shorter chunks there cost bursts, not a wrong answer."""
         from ff9mapkit.content import pathfind
+        from ff9mapkit.scene import routes
         out = []
         for a, b in zip(legs, legs[1:]):
             gaps = [max(0.0, pathfind.seg_poly_gap(a, b, p)) for p in hazards]
+            gaps += [max(0.0, routes.seg_dist_xz(p[0], p[1], a, b) - pathfind.OBSTACLE_R_W) for p in blockers]
             clear = min(gaps) if gaps else self.ROUTE_CHUNK_MAX
             chunk = min(self.ROUTE_CHUNK_MAX,
                         max(self.ROUTE_CHUNK_MIN, 2.0 * (clear - self.PROBE_HAZARD_PAD)))
@@ -2006,7 +2050,8 @@ class Session:
         return out
 
     def route_to(self, x: float, z: float, *, avoid=(), margin: float | None = None,
-                 tolerance: float = 45.0, walkmesh=None, prior="stock", timeout: float = 20.0) -> dict:
+                 tolerance: float = 45.0, walkmesh=None, prior="stock", timeout: float = 20.0,
+                 unstick: bool = False) -> dict:
         """Walk to (x, z) along a route over the field's walkmesh that keeps out of ``avoid``.
 
         ``avoid`` is a list of polygons (world ``[x, z]`` corners -- a field's gateway zones as
@@ -2022,11 +2067,40 @@ class Session:
         stall up to ROUTE_REPLANS times. The instant control goes away -- a probe or a step fired a
         trigger -- it stops pressing and reports where that led.
 
+        ``unstick`` (opt-in) is for a LIVE room -- people walking about, scripts that hold movement.
+        The router knows walls and zones, not bodies, and the agent publishes nothing that tells a
+        movement freeze with control held (the script's pad mask, EventInput.IsMovementControl) from a
+        body in the way, so MOVEMENT decides, rung by rung (:meth:`_unstick_leg`). A chunk that stalls
+        with control held is not a failure yet. WAIT ROUTE_WAIT_FRAMES and walk it again, ROUTE_WAITS
+        times (ROUTE_WAIT_BUDGET per call): a freeze, or someone walking through, clears on its own.
+        Still stuck: PUSH -- one unbroken hold into whoever stands there, long enough for the engine
+        to let him through anyone without object flag 16 (ROUTE_PUSH_LOCK_W), pressed only once a
+        two-frame probe shows he really is stuck (an overshoot or a slide is not). Still stuck: an
+        UNSEEN BLOCKER -- someone he cannot pass -- stands just ahead; it goes in as a point obstacle
+        OBSTACLE_R_W (the collision distance) ahead of him along the axis he was pressing
+        (:meth:`_blocker_ahead`), and the route is replanned round it, at most ROUTE_BLOCKERS times,
+        by the same route_avoiding, so no replan ever enters an ``avoid`` zone. Each replan presses a
+        way the blockers before it left open. If he never moves again after the first blocker went in
+        -- every replan stalled on the spot, or this call's own blockers leave no way at all -- nothing
+        tells a hold on movement from bodies on every side: ``frozen``, and this call's blockers are
+        withdrawn as the misreadings they may be. If he DID move, and then the blockers seal the way,
+        that is ``blocked``; its blockers are withdrawn too, so a phantom never outlives the call that
+        could not use it. A blocker kept is remembered on this field VISIT for ROUTE_BLOCKER_TTL (a
+        heuristic: people walk off) and dropped the moment a published sample shows another field or
+        control gone (:meth:`_observe`); see :meth:`_plan_round` for the ones he has walked through.
+        Walks under ``unstick`` pass ``slides`` to walk_to: sliding round someone is not a bad basis.
+
         Returns ``{"from", "landed", "reached", "travelled", "waypoints", "toward", "replans",
-        "during"}``: ``landed`` the field it ended up in (None = still here), ``reached`` whether it
+        "during", "waits", "cleared", "pushes", "pushed", "blockers", "remembered", "blocked",
+        "frozen"}``: ``landed`` the field it ended up in (None = still here), ``reached`` whether it
         stood within ``tolerance`` of the goal, ``travelled`` the distance actually covered (summed
         over the walk, not end-to-end), ``waypoints`` the first plan (None = no route exists),
-        ``during`` what lost control -- "calibrate" (a probe), "walk" (a step), None (nothing did).
+        ``during`` what lost control -- "calibrate" (a probe), "walk" (a step), "wait" (during an
+        unstick wait), "push" (during a push), None (nothing did). The rest stay zero/empty without
+        ``unstick``: ``waits`` taken, the stalls a wait ``cleared``, ``pushes`` pressed and how many
+        of them ``pushed`` him through, the ``blockers`` this call placed ([x, z]; ``replans`` counts
+        the plans after the first), how many ``remembered`` ones its first plan went round,
+        ``blocked`` and ``frozen`` as above.
         """
         from ff9mapkit.content import pathfind
         margin = pathfind.KEEPOUT_MARGIN_W if margin is None else float(margin)
@@ -2034,7 +2108,9 @@ class Session:
         origin = st.field_id
         polys = [[(float(p[0]), float(p[1])) for p in poly] for poly in avoid]
         record = {"from": origin, "landed": None, "reached": False, "travelled": 0.0,
-                  "toward": [round(x), round(z)], "waypoints": None, "replans": 0, "during": None}
+                  "toward": [round(x), round(z)], "waypoints": None, "replans": 0, "during": None,
+                  "waits": 0, "cleared": 0, "pushes": 0, "pushed": 0, "blockers": [], "remembered": 0,
+                  "blocked": False, "frozen": False}
         self.wait_control(timeout=timeout)
         wmesh = walkmesh if walkmesh is not None else self._stock_walkmesh(origin)
         if isinstance(prior, str):
@@ -2047,54 +2123,253 @@ class Session:
             record["during"] = "calibrate"
             record["landed"] = self._await_landing(origin, timeout)
             return record
-        travelled = 0.0
-        for attempt in range(self.ROUTE_REPLANS + 1):
+        known = self._visit_blockers(origin) if unstick else []
+        fresh: list = []                  # the blockers THIS call placed, exact centres (all also in known)
+        walked = [0.0]                    # distance covered, summed over every walk_to of the call
+        first = None                      # walked[0] when this call's first blocker went in
+        stalled = False
+        attempts = (self.ROUTE_BLOCKERS if unstick else self.ROUTE_REPLANS) + 1
+        for attempt in range(attempts):
             st = self.state
             here = (st.player_x, st.player_z)
-            wps = pathfind.route_avoiding(wmesh, here, (x, z), polys, margin)
+            wps = (self._plan_round(wmesh, here, (x, z), polys, margin, known, fresh) if unstick
+                   else pathfind.route_avoiding(wmesh, here, (x, z), polys, margin))
             if wps is None:
+                stalled = False
                 self._log(f"  route_to: no route on field {origin} from ({here[0]:.0f}, {here[1]:.0f}) "
-                          f"to ({x:.0f}, {z:.0f}) clear of {len(polys)} region(s)")
+                          f"to ({x:.0f}, {z:.0f}) clear of {len(polys)} region(s)"
+                          + (f" and {len(known)} unseen blocker(s)" if known else ""))
+                if fresh:
+                    # this call's own blockers sealed it (_plan_round has already planned without the
+                    # older ones). They go -- a phantom never outlives the call that could not use it
+                    # -- and whether the way is really shut depends on whether he moved since the first
+                    self._withdraw(fresh, known)
+                    if walked[0] - first < self.WALK_SPEED:
+                        record["frozen"], record["blockers"] = True, []
+                        self._log("  route_to: and he has not moved since the first of them went in -- a hold "
+                                  "on movement, or bodies on every side: not told apart; withdrawn")
+                    else:
+                        record["blocked"] = True
                 break
             if attempt == 0:
                 record["waypoints"] = [list(w) for w in wps]
+                record["remembered"] = len(known)
             record["replans"] = attempt
-            chunks = self._route_chunks([here] + [(float(a), float(b)) for a, b in wps], polys)
+            chunks = self._route_chunks([here] + [(float(a), float(b)) for a, b in wps], polys, known)
             stalled = False
             for i, (cx, cz, tol) in enumerate(chunks):
                 last = i == len(chunks) - 1
-                before = self.state
-                arrived = self.walk_to(cx, cz, tolerance=tolerance if last else tol,
-                                       strict=False, halt_on_transition=True)
-                after = self.state
-                if after.field_id == origin and None not in (before.player_x, after.player_x):
-                    travelled += ((after.player_x - before.player_x) ** 2
-                                  + (after.player_z - before.player_z) ** 2) ** 0.5
-                if after.field_id != origin or not after.control:
-                    record["travelled"] = round(travelled, 1)
-                    record["during"] = "walk"
+                tol = tolerance if last else tol
+                got = self._route_leg(cx, cz, tol, last, origin, walked, slides=unstick)
+                if got == "stalled" and unstick:
+                    got = self._unstick_leg(cx, cz, tol, last, origin, walked, record)
+                if got in ("walk", "wait", "push"):
+                    record["travelled"] = round(walked[0], 1)
+                    record["during"] = got
                     record["landed"] = self._await_landing(origin, timeout)
                     return record
-                # a chunk end missed by less than the waypoint tolerance is a near miss, not a stall:
-                # a tight chunk tolerance can be overshot by one frame's tail, and replanning from
-                # right beside the line would only plan the same line again
-                if not arrived and (last or ((after.player_x - cx) ** 2 + (after.player_z - cz) ** 2) ** 0.5
-                                    > self.ROUTE_WAYPOINT_TOLERANCE):
+                if got == "stalled":
                     stalled = True
                     break
             st = self.state
-            if not stalled or attempt == self.ROUTE_REPLANS:
+            if not stalled or attempt == attempts - 1:
                 break
-            self._log(f"  route_to: stalled at ({st.player_x:.0f}, {st.player_z:.0f}); replanning")
+            if not unstick:
+                self._log(f"  route_to: stalled at ({st.player_x:.0f}, {st.player_z:.0f}); replanning")
+                continue
+            first = walked[0] if first is None else first
+            body = self._blocker_ahead(origin, (st.player_x, st.player_z), (cx, cz))
+            known.append(body)
+            fresh.append(body)
+            self._blocker_at[body] = time.time()
+            record["blockers"].append([round(body[0]), round(body[1])])
+            self._log(f"  route_to: stuck at ({st.player_x:.0f}, {st.player_z:.0f}) with control held "
+                      f"after {record['waits']} wait(s) and {record['pushes']} push(es): an unseen blocker "
+                      f"at ({body[0]:.0f}, {body[1]:.0f}); replanning round it")
+        if stalled and first is not None and walked[0] - first < self.WALK_SPEED:
+            # Every replan since the first blocker -- each pressing a way the blockers before it left
+            # open -- ended exactly where he stood. Bodies do not do that; a hold on MOVEMENT does (a
+            # freeze that outlasted every wait), or walls and bodies on every side. The blockers were
+            # misreadings of it: withdrawn, from the record and from the visit.
+            self._withdraw(fresh, known)
+            record["blockers"] = []
+            record["frozen"] = True
+            self._log(f"  route_to: did not move at all from ({st.player_x:.0f}, {st.player_z:.0f}) through "
+                      f"{record['waits']} wait(s), {record['pushes']} push(es) and {len(fresh)} replan(s) in "
+                      f"other directions -- movement is held (or he is boxed in); stopping")
         st = self.state
-        record["travelled"] = round(travelled, 1)
+        record["travelled"] = round(walked[0], 1)
         record["reached"] = (st.field_id == origin and st.player_x is not None
                              and ((st.player_x - x) ** 2 + (st.player_z - z) ** 2) ** 0.5 <= tolerance)
         return record
 
+    def _route_leg(self, cx: float, cz: float, tol: float, last: bool, origin: int, walked: list,
+                   slides: bool = False) -> str:
+        """walk_to one chunk end of a route; adds the distance covered to ``walked[0]``. Returns "arrived",
+        "stalled", or "walk" when control went away (a step fired a trigger, or the field changed).
+        ``slides`` is walk_to's: a slide round someone ends the walk as a stall instead of raising.
+
+        A chunk end missed by less than ROUTE_WAYPOINT_TOLERANCE is a near miss, not a stall: a tight
+        chunk tolerance can be overshot by one frame's tail, and replanning from right beside the line
+        would only plan the same line again. The LAST chunk (the goal) has no such slack."""
+        before = self.state
+        arrived = self.walk_to(cx, cz, tolerance=tol, strict=False, halt_on_transition=True, slides=slides)
+        after = self.state
+        if after.field_id == origin and None not in (before.player_x, after.player_x):
+            walked[0] += ((after.player_x - before.player_x) ** 2 + (after.player_z - before.player_z) ** 2) ** 0.5
+        if after.field_id != origin or not after.control:
+            return "walk"
+        if arrived or (not last and ((after.player_x - cx) ** 2 + (after.player_z - cz) ** 2) ** 0.5
+                       <= self.ROUTE_WAYPOINT_TOLERANCE):
+            return "arrived"
+        return "stalled"
+
+    def _outwait(self, cx: float, cz: float, tol: float, last: bool, origin: int, walked: list,
+                 record: dict) -> str:
+        """route_to(unstick=True) at a stall with control held: WAIT ROUTE_WAIT_FRAMES, then walk the same
+        chunk again -- ROUTE_WAITS times, and never past the call's ROUTE_WAIT_BUDGET. Counts
+        ``record["waits"]`` and, for a wait after which the chunk was reached, ``record["cleared"]``.
+        Returns what the last :meth:`_route_leg` did, or "wait" when control went away during a wait."""
+        got = "stalled"
+        for _ in range(self.ROUTE_WAITS):
+            if record["waits"] >= self.ROUTE_WAIT_BUDGET:
+                break
+            record["waits"] += 1
+            self.wait_frames(self.ROUTE_WAIT_FRAMES)
+            st = self.state
+            if st.field_id != origin or not st.control:
+                return "wait"
+            got = self._route_leg(cx, cz, tol, last, origin, walked, slides=True)
+            if got == "arrived":
+                record["cleared"] += 1
+                self._log(f"  route_to: moving again after a wait (stall {record['cleared']} cleared)")
+            if got != "stalled":
+                return got
+        return got
+
+    def _unstick_leg(self, cx: float, cz: float, tol: float, last: bool, origin: int, walked: list,
+                     record: dict) -> str:
+        """route_to(unstick=True) at a stall with control held, rung by rung: the waits (:meth:`_outwait`),
+        then a push (:meth:`_push_through`) and the chunk walked again after it. The waits go FIRST
+        because a push is one long blind hold: a freeze or a walker that clears in the middle of it lets
+        him run the rest. Returns "arrived", "stalled" (still stuck -- route_to places a blocker), or
+        "walk" / "wait" / "push" when control went away."""
+        got = self._outwait(cx, cz, tol, last, origin, walked, record)
+        if got != "stalled":
+            return got
+        pushed = self._push_through(cx, cz, origin, walked, record)
+        if pushed in ("push", "stuck"):
+            return "push" if pushed == "push" else "stalled"
+        return self._route_leg(cx, cz, tol, last, origin, walked, slides=True)
+
+    def _push_through(self, cx: float, cz: float, origin: int, walked: list, record: dict) -> str:
+        """Hold toward the chunk end ``(cx, cz)`` UNBROKEN for ROUTE_PUSH_LOCK_W of commanded movement plus
+        what the chunk still needs along the axis pressed -- the engine's pass-through for anyone
+        without object flag 16 (see ROUTE_PUSH_LOCK_W). Counts ``record["pushes"]`` / ``["pushed"]``,
+        never past ROUTE_PUSH_BUDGET; adds what he covered to ``walked[0]``. Returns "pushed" (he went
+        through), "free" (he was not stuck, so nothing was pushed), "stuck", or "push" when control
+        went away.
+
+        A TWO-FRAME PROBE FIRST, at walk speed: a push that meets nobody is a blind run of the whole
+        hold, and walk_to also stops on an overshoot, a slide or max_bursts, none of them a body. Only
+        a probe that moved him under a unit -- walk_to's own stall test -- earns the push."""
+        if record["pushes"] >= self.ROUTE_PUSH_BUDGET:
+            return "stuck"
+        st = self.state
+        button, need, _axis, _sign = _press_axis(self._axes[origin], cx - st.player_x, cz - st.player_z)
+        moved = self._pressed(origin, walked, "hold cancel 2", f"hold {button} 2", "wait 6")
+        if moved is None:
+            return "push"
+        if moved >= 1.0:
+            return "free"
+        tail = max(3, min(int(self.ROUTE_CHUNK_MAX / self.RUN_SPEED), int(need / self.RUN_SPEED)))
+        frames = int(-(-self.ROUTE_PUSH_LOCK_W // self.RUN_SPEED)) + tail
+        record["pushes"] += 1
+        moved = self._pressed(origin, walked, f"hold {button} {frames}", f"wait {frames + 4}")
+        if moved is None:
+            return "push"
+        if moved < self.WALK_SPEED:
+            return "stuck"
+        record["pushed"] += 1
+        self._log(f"  route_to: one unbroken {frames}-frame hold {button} took him {moved:.0f}u through "
+                  f"whoever stood there (push {record['pushes']})")
+        return "pushed"
+
+    def _pressed(self, origin: int, walked: list, *steps: str) -> float | None:
+        """Send ``steps``, settle, and add the displacement to ``walked[0]``: how far he went, or None when
+        the field changed or control went away."""
+        before = self.state
+        self.send(*steps)
+        after = self.settle()
+        if after.field_id != origin or None in (before.player_x, after.player_x):
+            return None
+        moved = ((after.player_x - before.player_x) ** 2 + (after.player_z - before.player_z) ** 2) ** 0.5
+        walked[0] += moved
+        return moved if after.control else None
+
+    def _withdraw(self, fresh: list, known: list) -> None:
+        """Take this call's blockers ``fresh`` back out of the visit's ``known``."""
+        for body in fresh:
+            if body in known:
+                known.remove(body)
+            self._blocker_at.pop(body, None)
+
+    def _blocker_ahead(self, field: int, here, toward) -> tuple[float, float]:
+        """Where the body he stopped against stands: OBSTACLE_R_W (+1, so he is not inside it) from
+        ``here`` along the direction walk_to was PRESSING toward the chunk end ``toward`` -- one
+        calibrated axis, not the leg's diagonal. A press that meets a body off its line does not stop
+        him: the engine pushes him back out along the line from its centre and he slides round it
+        (FieldMapActorController.cs:779-791). A dead stop means the body is on the line pressed. (Two
+        bodies, or a body and a wall, can still stop him off that line; the replan then stalls again
+        and the next blocker goes where that stall says.)"""
+        from ff9mapkit.content import pathfind
+        _button, _need, axis, sign = _press_axis(self._axes[field], toward[0] - here[0], toward[1] - here[1])
+        r = pathfind.OBSTACLE_R_W + 1.0
+        return (here[0] + axis[0] * sign * r, here[1] + axis[1] * sign * r)
+
+    def _visit_blockers(self, field: int) -> list:
+        """The unseen blockers remembered on this visit to ``field`` -- the live list route_to adds to --
+        less any placed more than ROUTE_BLOCKER_TTL ago. A different field starts a new visit (and
+        :meth:`_observe` empties it the moment one ends)."""
+        if self._blockers[0] != field:
+            self._blockers = (field, [])
+            self._blocker_at = {}
+        known = self._blockers[1]
+        now = time.time()
+        for body in [b for b in known if now - self._blocker_at.get(b, now) > self.ROUTE_BLOCKER_TTL]:
+            known.remove(body)
+            self._blocker_at.pop(body, None)
+        return known
+
+    def _plan_round(self, wmesh, here, goal, polys, margin, known: list, fresh: list):
+        """:func:`~ff9mapkit.content.pathfind.route_avoiding` round the visit's unseen blockers ``known``
+        (updated in place; ``fresh`` = the ones this call placed), still clear of every ``polys`` zone.
+
+        A blocker he STANDS INSIDE is not there any more -- he could not stand in a body -- and is
+        dropped. When the OLDER ones seal the way they may have walked off, so the plan is made again
+        from this call's own evidence alone, and they are dropped if that finds a way (if they are
+        still there the walk stalls on them and places them afresh)."""
+        from ff9mapkit.content import pathfind
+        inside = (pathfind.OBSTACLE_R_W - 1.0) ** 2
+        for b in [b for b in known if (here[0] - b[0]) ** 2 + (here[1] - b[1]) ** 2 < inside]:
+            known.remove(b)
+            self._blocker_at.pop(b, None)
+            if b in fresh:
+                fresh.remove(b)
+        wps = pathfind.route_avoiding(wmesh, here, goal, polys, margin, obstacles=list(known))
+        older = [b for b in known if b not in fresh]
+        if wps is None and older:
+            wps = pathfind.route_avoiding(wmesh, here, goal, polys, margin, obstacles=list(fresh))
+            if wps is not None:
+                self._log(f"  route_to: {len(older)} remembered blocker(s) sealed the way; planned without them")
+                for b in older:
+                    known.remove(b)
+                    self._blocker_at.pop(b, None)
+        return wps
+
     def route_cross(self, x: float, z: float, *, expect: int | None = None, avoid=(),
                     margin: float | None = None, timeout: float = 20.0, walkmesh=None,
-                    prior="stock") -> dict:
+                    prior="stock", unstick: bool = False, zone=None) -> dict:
         """:meth:`route_to` a point inside a gateway region, then wait for the crossing like :meth:`cross`.
 
         ``(x, z)`` should be INSIDE the target region and standable --
@@ -2103,11 +2378,39 @@ class Session:
         the walk ended; ``expect`` asserts the destination. A route that does not exist
         (``waypoints`` None), or a walk that already saw control go (``during`` set; route_to waited
         for that landing itself), is returned at once: there is no further crossing to wait for.
+        ``unstick`` is route_to's (waits, pushes, unseen blockers).
+
+        ``zone`` (opt-in: the target region's polygon) adds ``"inside"`` -- where the walk ended with
+        control held, was he standing IN the region? -- the difference between "the way there was
+        blocked" and "he got there and nothing fired", which the goal distance behind ``reached``
+        cannot tell apart. And a walk that ended OUTSIDE it waits ROUTE_OUTSIDE_WAIT for the crossing,
+        not ``timeout``: a gateway does not fire for someone standing outside its zone. Without
+        ``zone``, ``inside`` is None and the wait is unchanged.
         """
+        from ff9mapkit.content import pathfind
         record = self.route_to(x, z, avoid=avoid, margin=margin, tolerance=45.0, walkmesh=walkmesh,
-                               prior=prior, timeout=timeout)
+                               prior=prior, timeout=timeout, unstick=unstick)
         origin = record["from"]
-        if record["landed"] is None and record["waypoints"] is not None and record["during"] is None:
+        record["inside"] = None
+        pending = record["landed"] is None and record["waypoints"] is not None and record["during"] is None
+        if zone is not None and record["landed"] is None and record["during"] is None:
+            st = self.state
+            standing = st.field_id == origin and st.player_x is not None and st.control
+            record["inside"] = bool(standing and pathfind.poly_gap(
+                st.player_x, st.player_z, [(float(p[0]), float(p[1])) for p in zone]) < 0)
+            if pending and standing and not record["inside"]:
+                # outside the zone with control: only a trigger still settling can take him now, so
+                # the full wait applies once one visibly has (the destination may take that long to
+                # become playable), and not otherwise
+                try:
+                    self.wait_for(lambda s: s.field_id != origin or not s.control,
+                                  timeout=min(timeout, self.ROUTE_OUTSIDE_WAIT),
+                                  what=f"a crossing from outside the zone on field {origin}")
+                except HarnessError as err:
+                    if "live samples" not in str(err):
+                        raise                 # a frozen or silent channel says nothing about the zone
+                    pending = False
+        if pending:
             try:
                 record["landed"] = self.expect_field_change(timeout=timeout, was=origin)
             except HarnessError as err:
@@ -3941,6 +4244,16 @@ def _button(name: str) -> str:
 
 def _vec(v) -> str:
     return f"({v[0]:+.2f}, {v[1]:+.2f})"
+
+
+def _press_axis(basis: dict, dx: float, dz: float):
+    """The button walk_to presses to cover world offset (dx, dz): the calibrated axis the offset projects
+    onto more. Returns ``(button, need, axis, sign)`` -- ``axis * sign`` is the world direction pressed."""
+    along_v = dx * basis["v"][0] + dz * basis["v"][1]
+    along_h = dx * basis["h"][0] + dz * basis["h"][1]
+    if abs(along_v) >= abs(along_h):
+        return ("up" if along_v > 0 else "down"), abs(along_v), basis["v"], (1.0 if along_v > 0 else -1.0)
+    return ("right" if along_h > 0 else "left"), abs(along_h), basis["h"], (1.0 if along_h > 0 else -1.0)
 
 
 def _sanitize(name: str) -> str:

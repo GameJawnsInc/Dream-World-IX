@@ -191,14 +191,22 @@ calibration that never presses toward a zone; an exit counts only when it lands;
 never 450.** What stopped it was the live village, not the story:
 - 353 (the Mayor's house): the gateway works; Mayor Kapu's arrival scene puts the player back in 350 (the story
   bars the house at this beat).
-- 350 -> 450 and 350 -> 355: planned, but the player never moved (travelled 0). The frames show why: once the
-  ATE title card ("ACTIVE TIME EVENT") was up, which freezes movement; once Zidane was pressed against Vivi
-  standing in the path. The router avoids walls and exit zones but not NPCs -- the harness publishes no object
-  positions.
+- 350 -> 450 and 350 -> 355 (and 350 -> 356 twice): planned, then stuck with control held, travelled 0. Every
+  frame shows Zidane pressed into a villager or a Dali child standing in the path. (A first reading blamed the
+  "ACTIVE TIME EVENT" card; that is the optional-ATE corner indicator, up through walks of 2446u and 3665u too,
+  and it gates no movement.) The router avoids walls and exit zones but not NPCs -- the harness publishes no
+  object positions -- and none of those NPCs is solid: stock 350 never sets object flag 16, so the engine lets
+  the player through by insisting (FieldMapActorController.CheckCollFallback: 26 MovePC calls unbroken), which the
+  routed walk's short bursts never did.
+- 356 -> 358: stalled four times exactly the controller radius off triangle 50, a door strip whose triFlags
+  0xA001 bar the controlled player (356's own door walk lowers the mask to 127). Not a body: a wall the router's
+  raw walkmesh did not have.
 - The trace: 0 join failures, no exceptions; no `Bit[2102] := 1` (450 was never entered).
 
-Open: NPC-aware routing (publish object positions from the agent: an engine change) and waiting out ATE title
-cards, OR a different route source (see the session's options).
+Driver-side fix, built and fake-tested, not yet run in-game: `route_cross(unstick=True)` waits a stall out, then
+pushes through in one unbroken hold, and only then routes round an unseen blocker; the tour routes on
+`pathfind.PlayerWalkmesh` (closed triangles are walls: 356 -> 358 becomes a clean NO ROUTE) and scores
+"stood inside the zone, nothing fired" by zone membership (`rung3_step1.py` docstring has the strike rule).
 
 ## Rungs
 

@@ -2851,6 +2851,329 @@ def test_route_to_reports_no_route_rather_than_walking_into_the_region(game):
         assert not fake.fired
 
 
+# --------------------------------------------------------------------------- route_to(unstick=True)
+# The rung-3 run's crossings in stock Dali that planned a route and then travelled 0: pressed into a villager
+# and into a Dali child, with control held the whole time. The router knows walls and zones, not bodies, and
+# nothing published tells a freeze with control held (the script's pad mask) from a body in the way -- so these
+# pin what MOVEMENT decides: wait a freeze out, push through anyone the engine lets him pass (no object flag
+# 16: no NPC on stock 350 sets it), route round anyone it does not, stay out of every avoided zone doing it,
+# give up cleanly on a freeze that never lifts, and never leave a phantom behind a call that could not use it.
+
+_BAND = _rect(-160, -600, -100, 600)                   # a strip across the route: step on it and movement holds
+_LANE = (-600, -150, 600, 150)                         # narrower than 2 * (OBSTACLE_R_W + the 80u radius)
+
+
+_ROOM_AND_LANE = [(-1200, -600, 0, 600), (0, -150, 1200, 150)]     # a wide room opening into a 300-wide lane
+
+
+def _l_bgi():
+    """:data:`_ROOM_AND_LANE` as a real walkmesh in WORLD coords, for the router (the fake takes the boxes)."""
+    from ff9mapkit.scene import bgi
+    v = [(-1200, 0, 600), (0, 0, 600), (0, 0, 150), (1200, 0, 150), (1200, 0, -150), (0, 0, -150), (0, 0, -600),
+         (-1200, 0, -600)]
+    faces = [(0, 1, 2), (0, 2, 5), (0, 5, 7), (5, 6, 7), (2, 3, 4), (2, 4, 5)]
+    return bgi.BgiWalkmesh.from_bytes(bgi.build(v, faces).to_bytes())
+
+
+def test_one_unbroken_hold_walks_through_a_passable_body_and_bursts_never_do(game):
+    """The engine's walk-through-by-insisting, as the fake models it (FieldMapActorController.CheckCollFallback):
+    route_to's bursts, a pause apart, are pushed back every time; one hold past the 26-call lock goes through --
+    unless the body is solid (object flag 16), when nothing does."""
+    fake = FakeGame(game)
+    fake.blockers = {30820: [(0.0, 0.0, 152.0)]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -152, 0)                        # in contact
+        for _ in range(6):
+            g.send("hold right 12", "wait 16")
+        assert abs(g.settle().player_x + 152) < 1, g.state.pos
+        g.send("hold right 40", "wait 44")
+        assert g.settle().player_x > 152, g.state.pos
+        fake.blockers = {30820: [(0.0, 0.0, 152.0, True)]}
+        _stand(g, fake, -152, 0)
+        g.send("hold right 60", "wait 64")
+        assert abs(g.settle().player_x + 152) < 1, g.state.pos
+
+
+def test_a_push_is_pressed_only_when_a_probe_finds_him_stuck(game):
+    """A push is ~30 frames held blind, and walk_to also stops on an overshoot, a slide or max_bursts -- none of
+    them a body. Pressed into nobody it would be a run, so a two-frame walk probe goes first: free, no push; into
+    a passable body, through; into a solid one, stuck -- and only the last two count as pushes."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -300, -300)
+        g.calibrate_axes(hazards=[], prior=_prior())
+        _stand(g, fake, -400, 0)
+        record, walked = {"pushes": 0, "pushed": 0}, [0.0]
+        mark = len(fake.executed)
+        assert g._push_through(0.0, 0.0, 30820, walked, record) == "free"
+        holds = [int(s[2]) for s in fake.executed[mark:] if s[0] == "hold" and s[1] != "cancel"]
+        assert holds == [2] and record == {"pushes": 0, "pushed": 0} and walked[0] < 60, (holds, record, walked)
+        fake.blockers = {30820: [(0.0, 0.0, 152.0)]}
+        _stand(g, fake, -152, 0)
+        assert g._push_through(200.0, 0.0, 30820, walked, record) == "pushed", g.state.pos
+        assert record == {"pushes": 1, "pushed": 1} and g.state.player_x > 152, (record, g.state.pos)
+        fake.blockers = {30820: [(0.0, 0.0, 152.0, True)]}
+        _stand(g, fake, -152, 0)
+        assert g._push_through(200.0, 0.0, 30820, walked, record) == "stuck"
+        assert record == {"pushes": 2, "pushed": 1} and abs(g.state.player_x + 152) < 1, (record, g.state.pos)
+
+
+def test_route_to_unstick_waits_out_a_freeze_with_control_held(game):
+    """A freeze that outlasts the stall check and ends inside one wait: the walk goes on from where it stood,
+    and neither a push nor a blocker goes in -- nobody was there."""
+    fake = FakeGame(game)
+    fake.freezes = {30820: [{"zone": _BAND, "frames": 360}]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 480                      # one wait covers the freeze, whatever the stall check took
+        rec = g.route_to(400.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), unstick=True)
+        assert fake._froze, "premise: the walk never stepped on the freeze"
+        assert rec["reached"] and rec["landed"] is None, rec
+        assert rec["waits"] >= 1 and rec["cleared"] >= 1 and rec["pushes"] == 0, rec
+        assert rec["blockers"] == [] and not rec["frozen"] and not rec["blocked"], rec
+        assert g._blockers[1] == []
+
+
+def test_route_to_without_unstick_is_unchanged_by_a_freeze(game):
+    """The control: the same freeze (for good, here) and no flag -- the old stall-and-replan, no wait, no push,
+    and the new record fields all at rest."""
+    fake = FakeGame(game)
+    fake.freezes = {30820: [{"zone": _BAND, "frames": None}]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        mark = len(fake.executed)
+        rec = g.route_to(400.0, 0.0, walkmesh=_flat_bgi(), prior=_prior())
+        assert not rec["reached"] and rec["replans"] == g.ROUTE_REPLANS, rec
+        assert (rec["waits"], rec["cleared"], rec["pushes"], rec["pushed"], rec["blockers"], rec["blocked"],
+                rec["frozen"]) == (0, 0, 0, 0, [], False, False), rec
+        waits = [s for s in fake.executed[mark:] if s[0] == "wait" and int(s[1]) == g.ROUTE_WAIT_FRAMES]
+        assert not waits, waits
+        long_holds = [s for s in fake.executed[mark:] if s[0] == "hold" and int(s[2]) > 20]
+        assert not long_holds, long_holds
+
+
+def test_route_to_unstick_gives_up_cleanly_on_a_freeze_that_never_lifts(game):
+    """No hang, bounded waits and pushes, and no phantoms: each stall reads as a body ahead and each replan
+    presses a way the ones before it left open, and he never moves -- so they were no bodies. Withdrawn, from
+    the record and from the visit."""
+    fake = FakeGame(game)
+    fake.freezes = {30820: [{"zone": _BAND, "frames": None}]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        t0 = time.time()
+        rec = g.route_to(400.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), unstick=True)
+        assert time.time() - t0 < 60, "a freeze that never lifts must end the call, not hang it"
+        assert rec["frozen"] and not rec["reached"] and rec["landed"] is None and rec["during"] is None, rec
+        assert 1 <= rec["waits"] <= g.ROUTE_WAIT_BUDGET, rec
+        assert 1 <= rec["pushes"] <= g.ROUTE_PUSH_BUDGET and rec["pushed"] == 0, rec
+        assert rec["blockers"] == [] and not rec["blocked"], rec
+        assert g._blockers[1] == [], "a blocker read off a freeze must not outlive the call"
+        assert g.state.control and g.state.field_id == 30820
+
+
+def test_a_freeze_in_a_narrow_lane_is_not_read_as_a_sealed_way(game):
+    """No body anywhere, a freeze in a lane too narrow to route round one: the first phantom seals it at once.
+    He has not moved since it went in, so that is not evidence of a body -- ``frozen``, never the REAL strike
+    ``blocked``, and the phantom leaves with the call instead of sealing the lane for the rest of the visit."""
+    fake = FakeGame(game)
+    fake.walkmesh = _LANE
+    fake.freezes = {30820: [{"zone": _BAND, "frames": None}]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        rec = g.route_to(400.0, 0.0, walkmesh=_flat_bgi(*_LANE), prior=_prior(), unstick=True)
+        assert rec["frozen"] and not rec["blocked"] and rec["blockers"] == [], rec
+        assert g._blockers[1] == [], g._blockers
+
+
+def test_route_to_unstick_pushes_through_a_passable_body_without_placing_a_blocker(game):
+    """THE 350 VILLAGER, as the engine has it: someone standing on the line pressed, without object flag 16.
+    Without the flag the bursts stall against him forever; with it the waits go first (he might walk off), then
+    one unbroken hold takes him through -- no blocker, no detour, nothing remembered."""
+    fake = FakeGame(game)
+    fake.blockers = {30820: [(0.0, 0.0, 152.0)]}       # 350's NPCs: SetObjectLogicalSize(14, 14, 22), flags 5/7/1
+    wm = _flat_bgi()
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        old = g.route_to(400.0, 0.0, walkmesh=wm, prior=_prior())
+        assert not old["reached"] and abs(g.state.player_x + 152) < 2, (old, g.state.pos)     # the premise
+        rec = g.route_to(400.0, 0.0, walkmesh=wm, prior=_prior(), unstick=True)
+        assert rec["reached"] and not rec["frozen"] and not rec["blocked"], rec
+        assert rec["waits"] == g.ROUTE_WAITS and rec["pushes"] == 1 and rec["pushed"] == 1, rec
+        assert rec["blockers"] == [] and g._blockers[1] == [], rec
+
+
+def test_route_to_unstick_routes_round_a_solid_body_and_remembers_it_for_the_visit(game):
+    """A body on the straight line that the engine never lets him through (object flag 16), standing still. Without
+    the flag the route stalls and replans the SAME line from the same spot; with it the push fails, the body
+    goes in as an obstacle and the walk goes round. The walk back plans round it from the start; a field change,
+    anything taking control, or ROUTE_BLOCKER_TTL forgets it."""
+    fake = FakeGame(game)
+    fake.blockers = {30820: [(0.0, 0.0, 192.0, True)]}     # pathfind.OBSTACLE_R_W: the distance the router keeps
+    wm = _flat_bgi()
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 30                       # a body does not walk off in a test; keep the waits short
+        old = g.route_to(400.0, 0.0, walkmesh=wm, prior=_prior())
+        assert not old["reached"] and old["replans"] == g.ROUTE_REPLANS, old     # the premise
+        assert abs(g.state.player_x + 192) < 2, g.state.pos                    # stopped dead against it
+        rec = g.route_to(400.0, 0.0, walkmesh=wm, prior=_prior(), unstick=True)
+        assert rec["reached"], rec
+        assert len(rec["blockers"]) >= 1 and rec["waits"] >= g.ROUTE_WAITS and rec["cleared"] == 0, rec
+        assert rec["pushes"] >= 1 and rec["pushed"] == 0, rec
+        bx, bz = rec["blockers"][0]
+        assert abs(bx - 1) <= 2 and abs(bz) <= 2, "placed on the line pressed, at the collision distance"
+        assert g._blockers[0] == 30820 and g._blockers[1]
+        back = g.route_to(-400.0, 0.0, walkmesh=wm, prior=_prior(), unstick=True)
+        assert back["reached"] and back["remembered"] >= 1, back
+        assert (back["waits"], back["pushes"], back["blockers"]) == (0, 0, []), "walked into the remembered body"
+        g.warp(30821)
+        g.warp(30820)
+        assert g._blockers[1] == [], "a new visit starts with no blockers"
+        g._visit_blockers(30820).append((1.0, 0.0))    # ...and so does anything that takes control on the field
+        fake.control = False                           # (a scene: the room's people may have moved)
+        published(g, lambda s: not s.control)
+        assert g._blockers[1] == []
+        fake.control = True
+        published(g, lambda s: s.control)
+        g._visit_blockers(30820).append((1.0, 0.0))    # ...and so does time: people walk off
+        g._blocker_at[(1.0, 0.0)] = time.time() - g.ROUTE_BLOCKER_TTL - 1
+        assert g._visit_blockers(30820) == []
+
+
+def test_route_to_unstick_reads_a_wedge_as_bodies_not_a_freeze(game):
+    """Stuck against one body, and the first way round is shut by another (up and right both moved him 0u at
+    350's crossings 10-12). Two directions that do not move him are a wedge, not a freeze: the third way does,
+    and the walk goes round both. Solid here, so the pushes cannot settle it for him."""
+    fake = FakeGame(game)
+    fake.blockers = {30820: [(0.0, 192.0, 192.0, True), (192.0, 0.0, 192.0, True)]}   # touching him, N and E
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -300, -300)
+        g.calibrate_axes(hazards=[], prior=_prior())       # in the open, so its probes do not unwedge him
+        _stand(g, fake, 0, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        rec = g.route_to(400.0, 400.0, walkmesh=_flat_bgi(), prior=_prior(), unstick=True)
+        assert rec["reached"] and not rec["frozen"], rec
+        assert len(rec["blockers"]) >= 2, rec
+
+
+def test_a_way_sealed_after_he_moved_is_blocked_and_leaves_no_phantom(game):
+    """``blocked`` -- the REAL strike -- needs him to have MOVED since the call's first blocker: round one solid
+    body in the wide room, then another sealing the 300-wide corridor. And even then the call's blockers are
+    withdrawn from the visit: a phantom never outlives the call that could not use it."""
+    fake = FakeGame(game)
+    fake.walkmesh = _ROOM_AND_LANE
+    fake.blockers = {30820: [(-700.0, 0.0, 192.0, True), (300.0, 0.0, 152.0, True)]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -1000, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        rec = g.route_to(1000.0, 0.0, walkmesh=_l_bgi(), prior=_prior(), unstick=True)
+        assert rec["blocked"] and not rec["frozen"] and not rec["reached"], rec
+        assert len(rec["blockers"]) >= 2 and g.state.player_x > 0, (rec, g.state.pos)   # it got into the corridor
+        assert g._blockers[1] == [], g._blockers
+
+
+@pytest.mark.parametrize("off, solid", [(10, True), (30, True), (60, True), (30, False)])
+def test_route_to_unstick_reads_a_slide_round_a_body_as_a_stall_not_a_bad_basis(game, off, solid):
+    """A body a little off the pressed line: the engine pushes him out along the line from its centre, so he
+    slides SIDEWAYS -- which walk_to's basis check reads as a wrong basis, raising and throwing the basis away.
+    Under unstick the slide is a stall like any other: no raise, the basis kept, the goal reached."""
+    body = (0.0, float(off), 192.0, True) if solid else (0.0, float(off), 152.0)
+    fake = FakeGame(game)
+    fake.blockers = {30820: [body]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        if off == 30 and solid:                        # the control: the old verb still raises (and pops)
+            with pytest.raises(HarnessError, match="disagrees"):
+                g.route_to(400.0, 0.0, walkmesh=_flat_bgi(), prior=_prior())
+            assert 30820 not in g._axes
+            _stand(g, fake, -400, 0)
+        rec = g.route_to(400.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), unstick=True)
+        assert rec["reached"], rec
+        assert 30820 in g._axes
+
+
+def test_route_cross_with_its_zone_says_where_the_walk_ended(game):
+    """``zone`` tells "never got there" (``inside`` False -- and no 20 s wait for a gateway that cannot fire
+    from out there) from "got there and nothing fired" (``inside`` True, the whole wait)."""
+    from ff9mapkit.content import pathfind
+    door = _rect(450, -150, 600, 150)
+    wm = _flat_bgi(*_LANE)
+    fake = FakeGame(game)
+    fake.walkmesh = _LANE
+    fake.blockers = {30820: [(200.0, 0.0, 152.0, True)]}   # a solid body shuts the lane short of the door
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0)}]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        goal = pathfind.region_goal(wm, door)
+        waited = []
+        crossing = g.expect_field_change
+        g.expect_field_change = lambda **kw: waited.append(kw["timeout"]) or crossing(**kw)
+        rec = g.route_cross(goal[0], goal[1], walkmesh=wm, prior=_prior(), unstick=True, zone=door, timeout=20)
+        assert rec["landed"] is None and rec["inside"] is False and not fake.fired, rec
+        assert waited == [], "waited out a crossing that could not come"
+        fake.blockers = {}
+        fake.regions = {}                              # the zone is there; the gateway is story-gated shut
+        rec = g.route_cross(goal[0], goal[1], walkmesh=wm, prior=_prior(), unstick=True, zone=door, timeout=2)
+        assert rec["landed"] is None and rec["inside"] is True and waited == [2], (rec, waited)
+        rec = g.route_cross(-400.0, 0.0, walkmesh=wm, prior=_prior(), unstick=True, timeout=2)
+        assert rec["inside"] is None and waited == [2, 2], "no zone: no verdict, and the wait as it was"
+
+
+def test_a_blocker_replan_never_enters_an_avoided_zone(game):
+    """The detour round a body is planned by the same route_avoiding, so a door on the side the router would
+    otherwise take is kept out of exactly as before. The door is a LIVE region here: entering it fires."""
+    from ff9mapkit.content import pathfind
+    door = _rect(-300, -600, 300, -150)
+    wm = _flat_bgi()
+    stall, body_seen = (-192.0, 0.0), (1.0, 0.0)       # where he stops, and where _blocker_ahead puts the body
+    free = pathfind.route_avoiding(wm, stall, (400, 0), [], obstacles=[body_seen])
+    legs = [stall] + [tuple(w) for w in free]
+    assert any(pathfind.seg_poly_gap(a, b, door) < 0 for a, b in zip(legs, legs[1:])), \
+        f"premise: without the door the detour goes through it ({free})"
+    fake = FakeGame(game)
+    fake.blockers = {30820: [(0.0, 0.0, 192.0, True)]}
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0)}]}
+    fake.exit_frames = 30
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        rec = g.route_to(400.0, 0.0, avoid=[door], walkmesh=wm, prior=_prior(), unstick=True)
+        assert rec["blockers"], f"premise: the walk never met the body ({rec})"
+        assert not fake.fired, fake.fired
+        assert rec["landed"] is None and g.state.field_id == 30820 and rec["reached"], rec
+
+
 def test_key_twist_operand_follows_memoria_ini(game):
     """Keys read TWIST arg2 (twist.y) unless [AnalogControl] makes key orientation absolute (1 or 2)."""
     fake = FakeGame(game)
