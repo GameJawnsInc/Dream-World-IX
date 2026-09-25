@@ -170,6 +170,36 @@ sandbox autosave).
   Global.Int16[239] = 552)`.
 - The residue is the warp's own ~ menu writes, identical on both sides (bytes 0-2, 3/3 each), and so never a key.
 
+## Rung 3, step 1 -- driving the stock Dali morning unattended (in progress)
+
+The design (a read-only research pass + an adversarial check; notes in the session scratchpad): start where the
+story does -- the village entrance 359 at SC 2540, which reads neither SC nor its entrance and sets the party
+itself -- let the game play 359 -> 351 -> 352 on its own, then a BLIND tour crosses every exit of every field
+reached (the kit's `eventscan.scan_gateways` order, bounded by the in-game location label "Dali/", never talking
+to anyone) until SC leaves 2600. The story forces the route through 450 by itself: SC 2610 needs latch 2079, 2079
+needs bit 2102, and only field 450 writes 2102 = 1. The research also found a THIRD round-4 defect nobody had
+seen: the round-4 seed wrote byte 296 = 192 as a 16-bit word, zeroing the hub byte 297 in every member.
+
+**Attempt 1 (`story-rung3-s1`): the tour ping-ponged 350 <-> 351 80 times.** The segment worked (control in 352 at
+SC 2600). Then: the 350 arrival spot is 18u outside the 351 door zone, `walk_to` steers one axis at a time with no
+knowledge of doors, a key held into the fade carried the player back through, and the tour marked an exit tried
+when it chose it. Fixed by the harness's new walkmesh routing (`Session.route_to` / `route_cross`, commit
+`fad76077`: A* over the stock walkmesh avoiding every other exit zone; the frame proven on recorded positions;
+calibration that never presses toward a zone; an exit counts only when it lands; one-way doors last).
+
+**Attempt 2 (`story-rung3-s1b`, 5/7): no ping-pong -- 40 crossings, 26 landed, fields 350/351/352/354/356 -- but
+never 450.** What stopped it was the live village, not the story:
+- 353 (the Mayor's house): the gateway works; Mayor Kapu's arrival scene puts the player back in 350 (the story
+  bars the house at this beat).
+- 350 -> 450 and 350 -> 355: planned, but the player never moved (travelled 0). The frames show why: once the
+  ATE title card ("ACTIVE TIME EVENT") was up, which freezes movement; once Zidane was pressed against Vivi
+  standing in the path. The router avoids walls and exit zones but not NPCs -- the harness publishes no object
+  positions.
+- The trace: 0 join failures, no exceptions; no `Bit[2102] := 1` (450 was never entered).
+
+Open: NPC-aware routing (publish object positions from the agent: an engine change) and waiting out ATE title
+cards, OR a different route source (see the session's options).
+
 ## Rungs
 
 | Rung | What | Pass |
