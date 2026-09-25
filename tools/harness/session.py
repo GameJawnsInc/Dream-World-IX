@@ -103,6 +103,18 @@ LAUNCH_SLACK = 2.0
 _STOCK_FIELDS: set[int] | None = None
 
 
+class ProbeLeftControl(HarnessError):
+    """A calibration probe set something off: it walked into a gateway, or into anything else that took
+    control away. ``field`` is where the probe started, ``direction`` the button it held.
+
+    A HarnessError, so every caller that already stops on one still does; :meth:`Session.route_to` catches
+    it to report the crossing as a record instead of steering on into a room it is no longer in."""
+
+    def __init__(self, message: str, *, field: int, direction: str):
+        super().__init__(message)
+        self.field, self.direction = field, direction
+
+
 def stock_field_ids() -> set[int]:
     """Field ids the base game ships, so the warp guard does not refuse a real room."""
     global _STOCK_FIELDS
@@ -251,6 +263,8 @@ class Session:
         #: None until one runs. See fight() for why the TURN COUNT is worth keeping.
         self.last_fight: dict | None = None
         self._axes: dict[int, dict] = {}      # field id -> measured button->world basis
+        self._priors: dict[int, dict | None] = {}   # field id -> PREDICTED basis (key_prior), never a measurement
+        self._events = None                   # the install's field event bundle, opened on first key_prior
         self._last_error: str | None = None   # the agent's error latch as of the last successful ack
         self.engine_protocol: int | None = None   # what the DEPLOYED engine speaks, once it answers
         self._story_starts = 0                # storytrace() turned the s88 trace on this many times
@@ -1168,7 +1182,8 @@ class Session:
             raise HarnessError("no player position published -- not on a field?")
         return ((st.player_x - x) ** 2 + (st.player_z - z) ** 2) ** 0.5
 
-    def calibrate_axes(self, *, probe: int = 4, recalibrate: bool = False) -> dict:
+    def calibrate_axes(self, *, probe: int = 4, recalibrate: bool = False, hazards=(),
+                       prior: dict | None = None) -> dict:
         """Discover which BUTTON moves the character which way in WORLD space, on this field.
 
         This cannot be hard-coded. FF9 fields are viewed by a fixed camera that is frequently yawed,
@@ -1179,11 +1194,18 @@ class Session:
         So: press each axis briefly, measure the actual world displacement, and keep the basis. If a
         probe barely moves -- the usual cause is standing against a wall -- it retries the opposite
         direction and negates, which is why this is a probe and not a single press.
+
+        ``hazards`` (polygons, world ``[x, z]`` corners) and ``prior`` (a PREDICTED basis, e.g.
+        :meth:`key_prior`) switch to :meth:`_calibrate_clear_of`, the mode :meth:`route_to` uses: a
+        character who just arrived through a door is standing beside its gateway, and a blind probe
+        in the wrong direction walks him straight back out. Without them this is unchanged.
         """
         st = self._require_field("calibrate_axes")
         key = st.field_id
         if not recalibrate and key in self._axes:
             return self._axes[key]
+        if hazards or prior is not None:
+            return self._calibrate_clear_of(key, hazards, prior, probe)
 
         # Probe BOTH directions of each axis and cross-check them. A single probe cannot tell free
         # movement from a slide: pressed into a wall at an angle the engine keeps the character
@@ -1317,36 +1339,208 @@ class Session:
                       f"{self.SETTLE_TIMEOUT:.0f}s at {last.pos}")
         return last if last is not None else self.state
 
-    def _probe_axis(self, direction: str, frames: int):
+    def _probe_axis(self, direction: str, frames: int, *, slow: bool = False,
+                    watch_control: bool = False):
         """Hold one direction briefly; return ``((ux, uz), magnitude)``, or None if it did not move.
 
         "Did not move" is judged against what was COMMANDED, not against an absolute floor. The old
         15-unit floor accepted a character shoved a few units sideways by a wall as a real
         measurement of that axis, cached the resulting basis, and then steered every later walk_to
         along the wall -- reporting the field as unreachable.
+
+        ``slow`` holds Cancel too (walk speed: half the reach per frame). ``watch_control`` also
+        refuses a probe after which the player no longer has control -- see :class:`ProbeLeftControl`.
         """
         # ⚠ BOTH ENDS SETTLED. The old code waited a flat 6 frames, which is a guess at the
         # engine's movement tail -- and the tail is not a constant: `hold down 31` covers 1020 units
         # for 930 commanded, and on 30820 it ran ~5 frames past the hold. A probe that measures
         # during the tail reports a length that is part its own and part the previous probe's.
         before = self.settle()
-        self.walk(direction, frames)
+        if slow:
+            self.send(f"hold cancel {int(frames) + 1}", f"hold {_button(direction)} {int(frames)}",
+                      f"wait {int(frames) + 2}")
+        else:
+            self.walk(direction, frames)
         after = self.settle()
-        if before.player_x is None or after.player_x is None:
+        if not watch_control and (before.player_x is None or after.player_x is None):
             return None
         if after.field_id != before.field_id:
-            raise HarnessError(
+            raise ProbeLeftControl(
                 f"probing {direction} left field {before.field_id} for {after.field_id} -- the probe "
-                f"walked into a gateway. Calibrate somewhere with room around the character."
-            )
+                f"walked into a gateway. Calibrate somewhere with room around the character.",
+                field=before.field_id, direction=direction)
+        # ⚠ THE FIELD ID IS THE LAST THING TO CHANGE. A gateway's walk-in trigger runs ExitField,
+        # which zeroes usercontrol on the frame it fires (DoEventCode.cs:866) and auto-walks the
+        # player out; the id flips only when the next room loads, a fade later. A probe settled in
+        # between reads "same field" -- and the next press lands in the destination. Stock 350
+        # ping-ponged with 351 eighty times that way.
+        if watch_control and before.control and not after.control:
+            raise ProbeLeftControl(
+                f"probing {direction} on field {before.field_id} took control away (at "
+                f"({after.player_x}, {after.player_z})) -- the probe fired a trigger, most likely "
+                f"a gateway's ExitField.", field=before.field_id, direction=direction)
+        if before.player_x is None or after.player_x is None:
+            return None
         dx, dz = after.player_x - before.player_x, after.player_z - before.player_z
         mag = (dx * dx + dz * dz) ** 0.5
-        if mag < frames * self.RUN_SPEED * self.PROBE_MIN_FRACTION:
+        speed = self.WALK_SPEED if slow else self.RUN_SPEED
+        if mag < frames * speed * self.PROBE_MIN_FRACTION:
             return None
         return ((dx / mag, dz / mag), mag)
 
+    #: How far a probe (or a steering burst) may run past its command before it counts as someone
+    #: else's movement -- the same two run frames `_burst_is_evidence` allows.
+    PROBE_TAIL_FRAMES = 2
+    #: Clearance a probe keeps from a hazard polygon, world units: one run frame, so the prior's
+    #: angular error over a probe's reach (a few units per degree) cannot carry it in.
+    PROBE_HAZARD_PAD = 30.0
+    #: A measured axis within this of its predicted direction (cos ~ 15 deg) agrees with the prior.
+    PRIOR_AGREE = 0.96
+
+    def _probe_is_clear(self, start, direction, reach: float, hazards) -> bool:
+        """Would a probe from ``start`` along unit ``direction`` for ``reach`` stay out of every hazard?
+
+        One he stands within PROBE_HAZARD_PAD of may not be approached any closer than he already
+        is. One he stands IN may be left but not re-entered: the probe may stay inside or cross its
+        boundary once, never twice (:class:`~ff9mapkit.content.pathfind.Keepout` ``leave``) -- and the
+        NEXT probe, planned from where this one ended, then sees it as a door beside him. Judged from
+        ``start``, so the caller passes where he stands NOW, not where calibration began."""
+        from ff9mapkit.content import pathfind
+        end = (start[0] + direction[0] * reach, start[1] + direction[1] * reach)
+        for poly in hazards:
+            gap = pathfind.poly_gap(start[0], start[1], poly)
+            if gap < 0:
+                if pathfind.Keepout(poly, self.PROBE_HAZARD_PAD, leave=True).blocks_leg(start, end):
+                    return False
+            elif pathfind.seg_poly_gap(start, end, poly) < min(self.PROBE_HAZARD_PAD, gap) - 0.5:
+                return False
+        return True
+
+    def _blind_probe_is_clear(self, here, hazards) -> bool:
+        """Is a BLIND probe (no prior: its direction is unknown) safe from ``here``? Only if no hazard's
+        boundary lies within the probe's whole reach -- one walk frame plus the movement tail
+        (PLAN: ``walk f=1 commanded=15 settled=30``) -- plus PROBE_HAZARD_PAD, in ANY direction."""
+        from ff9mapkit.scene import routes
+        reach = (1 + self.PROBE_TAIL_FRAMES) * self.WALK_SPEED + self.PROBE_HAZARD_PAD
+        for poly in hazards:
+            n = len(poly)
+            if min(routes.seg_dist_xz(here[0], here[1], poly[i], poly[(i + 1) % n]) for i in range(n)) < reach:
+                return False
+        return True
+
+    def _calibrate_clear_of(self, key: int, hazards, prior: dict | None, probe: int) -> dict:
+        """:meth:`calibrate_axes` for a character standing beside things he must not walk into.
+
+        THE PROBE ORDER COMES FROM THE PRIOR. ``prior`` predicts each button's world direction (from
+        the field's own TWIST, :meth:`key_prior`); a direction whose probe -- its reach plus the
+        movement tail -- would enter or approach a hazard is never pressed, a run probe that would is
+        tried again as a short walk probe, and an axis with only one safe side is measured one-sided.
+        A one-sided measurement has no opposite press to cross-check a wall slide against, so it must
+        AGREE with the prior (PRIOR_AGREE) or the calibration refuses. An axis with no safe side at
+        all -- or one whose only safe side is blocked -- is DERIVED from the other: a digital press is
+        rotated by a pure Y rotation (``FieldMapActorController.cs:712-720``), so up is always
+        ``(-right.z, right.x)``. Never both derived: at least one axis is always a measurement.
+
+        Without a prior every probe is a one-frame walk (the shortest press there is), and both sides
+        of an axis must agree the usual way. A blind probe's direction is unknown, so it is pressed
+        only where it is safe in EVERY direction (:meth:`_blind_probe_is_clear`); beside a hazard,
+        blind calibration refuses instead of guessing -- pass ``prior``.
+
+        EACH PROBE IS JUDGED FROM WHERE THE CHARACTER STANDS WHEN IT IS PRESSED: a one-sided probe
+        moves him 120-180u, so the next axis's probes do not start where calibration did.
+
+        EVERY PROBE WATCHES CONTROL: one that fires a gateway raises :class:`ProbeLeftControl` rather
+        than measuring on in the next room. No backing off -- a back-off is a blind 8-frame walk.
+        """
+        from ff9mapkit.content import pathfind   # noqa: F401 -- fail here, not mid-probe, if absent
+        polys = [[(float(p[0]), float(p[1])) for p in poly] for poly in hazards]
+        st = self.settle()
+        if st.player_x is None:
+            raise HarnessError(f"calibrate_axes on field {key}: no player position published")
+        basis: dict = {}
+        how: dict = {}
+        for name, (fwd, back) in (("v", ("up", "down")), ("h", ("right", "left"))):
+            plan = []                                         # the buttons pressed on this axis
+            got = []                                          # [(button, sign, unit, length)]
+            for button, sign in ((fwd, 1.0), (back, -1.0)):
+                st = self.state                               # settled: the previous probe settled it
+                if st.player_x is None:
+                    raise HarnessError(f"calibrate_axes on field {key}: no player position published")
+                here = (st.player_x, st.player_z)
+                if prior is None:
+                    if not self._blind_probe_is_clear(here, polys):
+                        raise HarnessError(
+                            f"calibrate_axes on field {key}: a blind probe from ({here[0]:.0f}, "
+                            f"{here[1]:.0f}) could reach one of {len(polys)} hazard region(s) -- its "
+                            f"direction is what calibration is for. Pass prior= (key_prior(<field>), or "
+                            f"movement.key_move_basis(<TWIST>) for a fork), or calibrate from open ground.")
+                    frames, slow = 1, True
+                else:
+                    u = (prior[name][0] * sign, prior[name][1] * sign)
+                    for frames, slow in ((probe, False), (2, True)):
+                        speed = self.WALK_SPEED if slow else self.RUN_SPEED
+                        if self._probe_is_clear(here, u, (frames + self.PROBE_TAIL_FRAMES) * speed, polys):
+                            break
+                    else:
+                        continue                              # both lengths lead into a hazard
+                plan.append(button)
+                m = self._probe_axis(button, frames, slow=slow, watch_control=True)
+                if m is not None:
+                    got.append((button, sign, m[0], m[1]))
+            vec = None
+            if len(got) == 2:
+                (_b, _s, a, la), (_b2, _s2, b, lb) = got
+                anti = -(a[0] * b[0] + a[1] * b[1])
+                if anti >= 0.85 and min(la, lb) / max(la, lb) >= 0.5:
+                    vec, how[name] = a, f"{fwd}/{back} {min(la, lb):.0f}u"
+                    if prior is not None and a[0] * prior[name][0] + a[1] * prior[name][1] < self.PRIOR_AGREE:
+                        how[name] += f", DISAGREES with the prior {_vec(prior[name])}"
+            elif len(got) == 1 and prior is None:
+                # blind, one side blocked: the old one-sided rule (the measurement is all there is)
+                button, sign, u, length = got[0]
+                vec, how[name] = (u[0] * sign, u[1] * sign), f"{button} alone {length:.0f}u, blind"
+            if vec is None and prior is not None:
+                for button, sign, u, length in got:
+                    cand = (u[0] * sign, u[1] * sign)
+                    if cand[0] * prior[name][0] + cand[1] * prior[name][1] >= self.PRIOR_AGREE:
+                        vec, how[name] = cand, f"{button} alone {length:.0f}u, agrees with the prior"
+                        break
+                if vec is None and got:
+                    raise HarnessError(
+                        f"the {name} axis on field {key} disagrees with its prior: measured "
+                        f"{[(b, _vec(u), round(ln)) for b, _s, u, ln in got]} against predicted "
+                        f"{_vec(prior[name])}. A slide along a wall, or the prior is wrong for this "
+                        f"field (a TWIST changed after Main_Init?). Calibrate from open ground.")
+            if vec is None and got and prior is None:
+                raise HarnessError(
+                    f"the {name} axis on field {key} is not a free axis: "
+                    f"{[(b, _vec(u), round(ln)) for b, _s, u, ln in got]} (probed blind, one walk "
+                    f"frame each, beside {len(polys)} hazard region(s)). Calibrate from open ground.")
+            if vec is None:
+                how[name] = (f"not probed: {fwd} and {back} both lead into a hazard" if not plan
+                             else f"{'/'.join(plan)} blocked")
+            basis[name] = vec
+        if basis["v"] is None and basis["h"] is None:
+            raise HarnessError(
+                f"could not calibrate field {key} without risking a hazard: v {how['v']}; h "
+                f"{how['h']}. The character is boxed in between trigger regions -- move him first.")
+        if basis["v"] is None:
+            basis["v"], how["v"] = (-basis["h"][1], basis["h"][0]), f"derived from right ({how['v']})"
+        elif basis["h"] is None:
+            basis["h"], how["h"] = (basis["v"][1], -basis["v"][0]), f"derived from up ({how['h']})"
+        skew = abs(basis["v"][0] * basis["h"][0] + basis["v"][1] * basis["h"][1])
+        if skew > 0.35:
+            raise HarnessError(
+                f"axis calibration on field {key} looks deflected: up={_vec(basis['v'])} "
+                f"right={_vec(basis['h'])} are not perpendicular (|dot|={skew:.2f}). Something "
+                f"(an NPC, a wall) pushed a probe. Move to clearer ground and recalibrate.")
+        self._axes[key] = basis
+        self._log(f"axes on field {key} (clear of {len(polys)} region(s)): up={_vec(basis['v'])} "
+                  f"[{how['v']}] right={_vec(basis['h'])} [{how['h']}] |dot|={skew:.2f}")
+        return basis
+
     def walk_to(self, x: float, z: float, *, tolerance: float = 40.0, max_bursts: int = 24,
-                strict: bool = True) -> bool:
+                strict: bool = True, halt_on_transition: bool = False) -> bool:
         """Walk to a world (x, z), steering on the published position. Returns whether it arrived.
 
         Moves one axis at a time rather than solving a diagonal: the engine's diagonal is a single
@@ -1359,6 +1553,12 @@ class Session:
 
         Gives up early when a burst produces no progress -- that is a wall or a walkmesh edge, and
         retrying it 24 times just turns a clear failure into a slow one.
+
+        ``halt_on_transition`` stops (returning False) the moment the player has lost control, before
+        another burst is issued. A gateway takes control on the frame it fires but the field id only
+        changes a fade later, so without it the next "correction" burst is pressed during the fade and
+        its hold carries into the DESTINATION -- where, at an arrival spot beside the door, it walks the
+        player straight back. :meth:`route_to` always sets it; the default keeps the old loop.
         """
         # A tolerance under one WALK frame cannot be aimed for -- the smallest correction the engine
         # can make is one frame of travel, so the loop oscillates around the target and then fails on
@@ -1383,6 +1583,8 @@ class Session:
             # outcome of walking -- stop cleanly and let the caller notice.
             if st.field_id != field or st.player_x is None:
                 return False
+            if halt_on_transition and not st.control:
+                return False          # something took control (a gateway's ExitField): no more presses
             dx, dz = x - st.player_x, z - st.player_z
             remaining = (dx * dx + dz * dz) ** 0.5
             if remaining <= tolerance:
@@ -1409,6 +1611,8 @@ class Session:
             after = self.settle()
             if after.field_id != field or after.player_x is None:
                 return False          # the burst carried us out of the field -- see above
+            if halt_on_transition and not after.control:
+                return False          # ...or into a trigger; its scripted walk is not this burst's
             mx, mz = after.player_x - st.player_x, after.player_z - st.player_z
             moved = (mx * mx + mz * mz) ** 0.5
 
@@ -1678,6 +1882,243 @@ class Session:
         if expect is not None and record["landed"] != expect:
             raise HarnessError(f"crossing at ({x}, {z}) led to field {record['landed']}, "
                                f"expected {expect}")
+        return record
+
+    # -- routed walking ---------------------------------------------------------------------------
+    # walk_to steers one axis at a time with no idea where the doors are. On stock 350 that was fatal:
+    # the arrival from 351 stands 18u from 351's own gateway, and the first press toward the next exit
+    # -- or the calibration probe before it -- stepped straight back through it, eighty times. The
+    # routed verbs plan over the field's real walkmesh, keep out of every gateway region they were not
+    # sent to, and stop pressing the moment anything takes control away.
+    #
+    # THE FRAME, measured before building on it: the published player position IS the field script's
+    # coordinate space (stock 552's arrivals for entrances 3 and 5, 105's default, 1606's entrance 11
+    # and 2507's entrance 128 each land on the script's own D9 x/z literal EXACTLY), and SetRegion
+    # corners are the same script's literals; every recorded standing position of those fields lies on
+    # the install's walkmesh through BgiWalkmesh.world_verts (vert + orgPos + floor.org), and 2507's
+    # wall-slide samples sit 80-81u from its boundary -- the controller radius. No transform.
+
+    #: A route leg is walked in chunks no longer than this: walk_to's one-axis steering turns a
+    #: diagonal leg into an L whose corner sits up to half a chunk off the planned line.
+    ROUTE_CHUNK_MAX = 360.0
+    ROUTE_CHUNK_MIN = 48.0
+    #: How close an intermediate chunk point must be reached; the final goal uses the caller's.
+    ROUTE_WAYPOINT_TOLERANCE = 45.0
+    #: Replans from wherever a leg stalled (a wall the grid did not see, an NPC) before giving up.
+    ROUTE_REPLANS = 2
+
+    def key_prior(self, field: int) -> dict | None:
+        """The PREDICTED button->world basis on stock ``field``, from its own script: ``{"v", "h"}``.
+
+        :func:`ff9mapkit.content.movement.key_move_basis` of the Main_Init ``SetControlDirection``
+        operand a keyboard press is rotated by (:meth:`_key_twist_operand`). A prediction, used only to
+        choose which probes are safe to press -- ``calibrate_axes`` still measures. ``None`` when the
+        field's script cannot be read (no install, a mod-only id): calibration then probes blind.
+        """
+        field = int(field)
+        if field in self._priors:
+            return self._priors[field]
+        prior = None
+        try:
+            from ff9mapkit import eventscan
+            from ff9mapkit.content import movement
+            from ff9mapkit.extract import EventBundle
+            if self._events is None:
+                self._events = EventBundle(self.game_path)
+            data = self._events.eb_for_id(field)
+            if data:
+                twist = eventscan.scan_control_twist(data)
+                value = None if twist is None else twist[self._key_twist_operand()]
+                if twist is None or value is not None:            # a computed operand predicts nothing
+                    prior = movement.key_move_basis(value)
+        except Exception as err:                                  # noqa: BLE001 -- no install: go blind
+            self._log(f"  no movement prior for field {field}: {type(err).__name__}: {err}")
+        self._priors[field] = prior
+        return prior
+
+    def _key_twist_operand(self) -> int:
+        """Which SetControlDirection operand a harness press is rotated by: 1 (``twist.y``), or 0 when
+        ``Memoria.ini [AnalogControl]`` has ``Enabled`` on and ``UseAbsoluteOrientation`` 1 or 2.
+
+        The agent answers ``CheckPersistentDirectionInput`` as a KEYBOARD (s83), so the press is not
+        stick movement, and ``FieldMapActorController.cs:715-718`` reads ``twist.x`` for keys only under
+        ``UseAbsoluteOrientationKeys`` (``Control.cs:14``: setting 1 or 2). This install ships 3."""
+        try:
+            text = (self.game_path / "Memoria.ini").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return 1
+        m = re.search(r"^\s*\[AnalogControl\]\s*$(.*?)(?=^\s*\[|\Z)", text, re.M | re.S)
+        body = m.group(1) if m else ""
+
+        def val(key: str, default: int) -> int:
+            k = re.search(rf"^\s*{key}\s*=\s*(-?\d+)", body, re.M)
+            return int(k.group(1)) if k else default
+
+        return 0 if val("Enabled", 1) != 0 and val("UseAbsoluteOrientation", 3) in (1, 2) else 1
+
+    def _stock_walkmesh(self, field: int):
+        """The install's walkmesh for stock ``field`` -- :func:`ff9mapkit.extract.stock_walkmesh`."""
+        try:
+            from ff9mapkit import extract
+            return extract.stock_walkmesh(field, game=self.game_path)
+        except Exception as err:                                  # noqa: BLE001 -- say which, and how
+            raise HarnessError(
+                f"routing on field {field} needs its walkmesh, and the install's could not be read "
+                f"({type(err).__name__}: {err}). A fork or a custom field has its own: pass "
+                f"walkmesh=BgiWalkmesh.from_file(<its .bgi>)."
+            ) from err
+
+    def _await_landing(self, origin: int, timeout: float) -> int | None:
+        """After control went away on ``origin``: the field it led to, or None if control came back
+        there instead (a trigger that was not a gateway). Raises -- like :meth:`cross` -- only for a
+        destination that loaded and never became playable."""
+        try:
+            self.wait_for(lambda s: (s.field_id != origin and s.field_id > 0)
+                          or (s.field_id == origin and s.control),
+                          timeout=timeout, what=f"the field to change from {origin}, or control to return")
+        except HarnessError:
+            pass
+        now = self.state.field_id
+        if now == origin or now <= 0:
+            return None
+        return self.expect_field_change(timeout=timeout, was=origin)
+
+    def _route_chunks(self, legs, hazards) -> list:
+        """Split each routed leg into walk_to targets ``(x, z, tolerance)`` short enough that the L of
+        one-axis steering cannot reach a hazard: a chunk's corner strays at most half its length off
+        the line, so a leg ``c`` clear of every hazard is cut into chunks of ``2 * (c -
+        PROBE_HAZARD_PAD)``. A leg that starts INSIDE a hazard (walking out of the arrival door) counts
+        as clearance 0 -- the shortest chunks, so the L strays least from a line planned to cross that
+        boundary once. The tolerance is at most half a chunk -- a chunk end already within tolerance is
+        'arrived' without a press, and two skipped chunks make one twice as long."""
+        from ff9mapkit.content import pathfind
+        out = []
+        for a, b in zip(legs, legs[1:]):
+            gaps = [max(0.0, pathfind.seg_poly_gap(a, b, p)) for p in hazards]
+            clear = min(gaps) if gaps else self.ROUTE_CHUNK_MAX
+            chunk = min(self.ROUTE_CHUNK_MAX,
+                        max(self.ROUTE_CHUNK_MIN, 2.0 * (clear - self.PROBE_HAZARD_PAD)))
+            length = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
+            n = max(1, int(-(-length // chunk)))
+            tol = max(self.WALK_SPEED + 1.0, min(self.ROUTE_WAYPOINT_TOLERANCE, length / n / 2.0))
+            out.extend((a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n, tol)
+                       for k in range(1, n + 1))
+        return out
+
+    def route_to(self, x: float, z: float, *, avoid=(), margin: float | None = None,
+                 tolerance: float = 45.0, walkmesh=None, prior="stock", timeout: float = 20.0) -> dict:
+        """Walk to (x, z) along a route over the field's walkmesh that keeps out of ``avoid``.
+
+        ``avoid`` is a list of polygons (world ``[x, z]`` corners -- a field's gateway zones as
+        ``eventscan.scan_gateways`` decodes them); the route stays ``margin`` clear of each, except a
+        region the player is standing in or beside (:func:`ff9mapkit.content.pathfind.route_avoiding`).
+        ``walkmesh`` defaults to the install's for the CURRENT field (a fork passes its own);
+        ``prior`` to :meth:`key_prior` of it (``None`` = calibrate blind, which refuses -- raises --
+        within a probe's reach of any ``avoid`` region; or pass a basis).
+
+        In order: wait for settled control (an arrival walk-in is not a place to probe from);
+        calibrate CLEAR of ``avoid`` (:meth:`_calibrate_clear_of`); plan from where that left him; walk
+        the route in chunks with ``walk_to(strict=False, halt_on_transition=True)``, replanning from a
+        stall up to ROUTE_REPLANS times. The instant control goes away -- a probe or a step fired a
+        trigger -- it stops pressing and reports where that led.
+
+        Returns ``{"from", "landed", "reached", "travelled", "waypoints", "toward", "replans",
+        "during"}``: ``landed`` the field it ended up in (None = still here), ``reached`` whether it
+        stood within ``tolerance`` of the goal, ``travelled`` the distance actually covered (summed
+        over the walk, not end-to-end), ``waypoints`` the first plan (None = no route exists),
+        ``during`` what lost control -- "calibrate" (a probe), "walk" (a step), None (nothing did).
+        """
+        from ff9mapkit.content import pathfind
+        margin = pathfind.KEEPOUT_MARGIN_W if margin is None else float(margin)
+        st = self._require_field("route_to")
+        origin = st.field_id
+        polys = [[(float(p[0]), float(p[1])) for p in poly] for poly in avoid]
+        record = {"from": origin, "landed": None, "reached": False, "travelled": 0.0,
+                  "toward": [round(x), round(z)], "waypoints": None, "replans": 0, "during": None}
+        self.wait_control(timeout=timeout)
+        wmesh = walkmesh if walkmesh is not None else self._stock_walkmesh(origin)
+        if isinstance(prior, str):
+            prior = self.key_prior(origin)
+        try:
+            if origin not in self._axes:     # always the clear-of mode, even with nothing to avoid:
+                self._calibrate_clear_of(origin, polys, prior, 4)      # its probes watch control
+        except ProbeLeftControl as err:
+            self._log(f"  route_to: {err}")
+            record["during"] = "calibrate"
+            record["landed"] = self._await_landing(origin, timeout)
+            return record
+        travelled = 0.0
+        for attempt in range(self.ROUTE_REPLANS + 1):
+            st = self.state
+            here = (st.player_x, st.player_z)
+            wps = pathfind.route_avoiding(wmesh, here, (x, z), polys, margin)
+            if wps is None:
+                self._log(f"  route_to: no route on field {origin} from ({here[0]:.0f}, {here[1]:.0f}) "
+                          f"to ({x:.0f}, {z:.0f}) clear of {len(polys)} region(s)")
+                break
+            if attempt == 0:
+                record["waypoints"] = [list(w) for w in wps]
+            record["replans"] = attempt
+            chunks = self._route_chunks([here] + [(float(a), float(b)) for a, b in wps], polys)
+            stalled = False
+            for i, (cx, cz, tol) in enumerate(chunks):
+                last = i == len(chunks) - 1
+                before = self.state
+                arrived = self.walk_to(cx, cz, tolerance=tolerance if last else tol,
+                                       strict=False, halt_on_transition=True)
+                after = self.state
+                if after.field_id == origin and None not in (before.player_x, after.player_x):
+                    travelled += ((after.player_x - before.player_x) ** 2
+                                  + (after.player_z - before.player_z) ** 2) ** 0.5
+                if after.field_id != origin or not after.control:
+                    record["travelled"] = round(travelled, 1)
+                    record["during"] = "walk"
+                    record["landed"] = self._await_landing(origin, timeout)
+                    return record
+                # a chunk end missed by less than the waypoint tolerance is a near miss, not a stall:
+                # a tight chunk tolerance can be overshot by one frame's tail, and replanning from
+                # right beside the line would only plan the same line again
+                if not arrived and (last or ((after.player_x - cx) ** 2 + (after.player_z - cz) ** 2) ** 0.5
+                                    > self.ROUTE_WAYPOINT_TOLERANCE):
+                    stalled = True
+                    break
+            st = self.state
+            if not stalled or attempt == self.ROUTE_REPLANS:
+                break
+            self._log(f"  route_to: stalled at ({st.player_x:.0f}, {st.player_z:.0f}); replanning")
+        st = self.state
+        record["travelled"] = round(travelled, 1)
+        record["reached"] = (st.field_id == origin and st.player_x is not None
+                             and ((st.player_x - x) ** 2 + (st.player_z - z) ** 2) ** 0.5 <= tolerance)
+        return record
+
+    def route_cross(self, x: float, z: float, *, expect: int | None = None, avoid=(),
+                    margin: float | None = None, timeout: float = 20.0, walkmesh=None,
+                    prior="stock") -> dict:
+        """:meth:`route_to` a point inside a gateway region, then wait for the crossing like :meth:`cross`.
+
+        ``(x, z)`` should be INSIDE the target region and standable --
+        :func:`ff9mapkit.content.pathfind.region_goal` picks one -- and ``avoid`` every OTHER region of
+        the field. Returns route_to's record with ``landed`` filled in when the field changed after
+        the walk ended; ``expect`` asserts the destination. A route that does not exist
+        (``waypoints`` None), or a walk that already saw control go (``during`` set; route_to waited
+        for that landing itself), is returned at once: there is no further crossing to wait for.
+        """
+        record = self.route_to(x, z, avoid=avoid, margin=margin, tolerance=45.0, walkmesh=walkmesh,
+                               prior=prior, timeout=timeout)
+        origin = record["from"]
+        if record["landed"] is None and record["waypoints"] is not None and record["during"] is None:
+            try:
+                record["landed"] = self.expect_field_change(timeout=timeout, was=origin)
+            except HarnessError as err:
+                if "never became playable" in str(err):
+                    raise
+                now = self.state.field_id
+                if now != origin and now > 0:
+                    record["landed"] = now
+        if expect is not None and record["landed"] != expect:
+            raise HarnessError(f"routed crossing to ({x}, {z}) on field {origin} led to field "
+                               f"{record['landed']}, expected {expect} ({record})")
         return record
 
     def find_transitions(self, *, radius: float = 1200.0, back_to: int | None = None,

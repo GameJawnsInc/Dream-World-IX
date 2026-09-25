@@ -221,6 +221,18 @@ class FakeGame:
         self.battle_intro_frames = 30
         self._intro_until = 0
         self.gateway: tuple[float, float, float, float, int] | None = None
+        #: Walk-in gateway REGIONS per field, modelled on the engine's ExitField rather than on the
+        #: instant `gateway` box above: ``{field id: [{"zone": [[x, z], ...], "to": id,
+        #: "arrive": (x, z)}]}``. Stepping into a zone takes control on THAT frame; the field changes
+        #: `exit_frames` later (the fade), and the player appears at ``arrive`` with control -- so a
+        #: button still held at that moment walks him in the destination, which is the whole bug the
+        #: routed verbs exist to avoid. ``exit_frames = 0`` changes the field on the same frame.
+        self.regions: dict[int, list[dict]] = {}
+        self.exit_frames = 0
+        #: Every region that fired: ``{"frame", "from", "to", "executed"}`` -- ``executed`` is
+        #: ``len(self.executed)`` at that moment, so a test can name the steps issued AFTER it.
+        self.fired: list[dict] = []
+        self._exit: tuple[int, int, tuple[float, float]] | None = None   # (due frame, dest, arrive)
         #: every op the fake ever executed, so a test can assert a step was DELIVERED rather than
         #: inferring it from a state that several other ops could also have produced.
         self.executed: list[list[str]] = []
@@ -458,6 +470,7 @@ class FakeGame:
             self.ui_state = "FieldHUD"
             self.control = True
             self.player = [0.0, 0.0, 0.0]
+            self._exit = None                  # a warp outruns any exit still fading
             self._block(3)
         elif op == "battle":
             if self.ui_state != "FieldHUD":
@@ -578,6 +591,8 @@ class FakeGame:
         camera and movement is expressed in screen space, which is why `calibrate_axes` exists at
         all. A stand-in that always mapped "up" to +z would let a broken calibration pass.
         """
+        if self._exit is not None and self.frame >= self._exit[0]:
+            self._step_exit_now()
         if self.ui_state != "FieldHUD" or not self.control:
             return
         vx = vz = 0.0
@@ -600,6 +615,7 @@ class FakeGame:
             x0, z0, x1, z1 = self.walkmesh
             self.player[0] = min(max(x, x0), x1)
             self.player[2] = min(max(z, z0), z1)
+            self._enter_regions()
             return
         mag = (vx * vx + vz * vz) ** 0.5
         vx, vz = vx / mag, vz / mag
@@ -634,6 +650,32 @@ class FakeGame:
                 self.field_id = dest
                 self.player = [0.0, 0.0, 0.0]
                 self.control = True
+        self._enter_regions()
+
+    def _enter_regions(self) -> None:
+        """ExitField, modelled: a step into one of this field's `regions` takes control now and
+        schedules the field change (see `regions`)."""
+        if not self.control or self._exit is not None:
+            return
+        x, z = self.player[0], self.player[2]
+        for r in self.regions.get(self.field_id, ()):
+            if _in_poly(x, z, r["zone"]):
+                self.fired.append({"frame": self.frame, "from": self.field_id, "to": int(r["to"]),
+                                   "executed": len(self.executed)})
+                self.control = False
+                self._coast = None
+                self._exit = (self.frame + self.exit_frames, int(r["to"]), tuple(r["arrive"]))
+                if self.exit_frames <= 0:
+                    self._step_exit_now()
+                return
+
+    def _step_exit_now(self) -> None:
+        _due, dest, arrive = self._exit
+        self._exit = None
+        self.field_id = dest
+        self.player = [float(arrive[0]), 0.0, float(arrive[1])]
+        self._coast = None
+        self.control = True
 
     def _check_soft_reset(self) -> None:
         """All six buttons reporting a DOWN EDGE on the same frame sends the game to the title.
@@ -1316,6 +1358,18 @@ class FakeGame:
         self.menu_index = 0
         self.menu = {"selected": "Button0", "hovered": None,
                      "label": entries[0] if entries else None, "group": group}
+
+
+def _in_poly(x: float, z: float, poly) -> bool:
+    """(x, z) inside polygon ``poly`` ([[x, z], ...]), even-odd rule -- the stand-in's IsInQuad."""
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        ax, az = poly[i]
+        bx, bz = poly[(i + 1) % n]
+        if (az > z) != (bz > z) and x < ax + (z - az) * (bx - ax) / (bz - az):
+            inside = not inside
+    return inside
 
 
 def _publish_atomic(path: Path, text: str, attempts: int = 6) -> None:

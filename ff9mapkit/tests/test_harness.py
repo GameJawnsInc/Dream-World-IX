@@ -2655,6 +2655,216 @@ def test_backing_off_refuses_to_leave_the_field(game):
             g.calibrate_axes(recalibrate=True)
 
 
+# --------------------------------------------------------------------------- routed walking
+# Stock 350 <-> 351, eighty times: the arrival from 351 stands 18u from 351's own gateway, and the
+# one-axis walk_to (or its calibration probe, or a correction burst pressed during the fade) walked
+# straight back through it. These pin route_to / route_cross against the fake's ExitField model:
+# entering a region takes control on that frame, the field changes `exit_frames` later.
+
+
+def _flat_bgi(x0=-600, z0=-600, x1=600, z1=600):
+    """The fake's rectangular floor as a real walkmesh in WORLD coords (bgi.build: orgPos 0)."""
+    from ff9mapkit.scene import bgi
+    c = [(x0, 0, z1), (x1, 0, z1), (x1, 0, z0), (x0, 0, z0)]
+    return bgi.BgiWalkmesh.from_bytes(bgi.build(c, [(0, 1, 2), (0, 2, 3)]).to_bytes())
+
+
+def _rect(x0, z0, x1, z1):
+    return [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
+
+
+def _prior():
+    """The fake's twist 0 is the engine's TWIST -1 (0 deg): up = +z, right = +x."""
+    from ff9mapkit.content import movement
+    return movement.key_move_basis(-1)
+
+
+def _stand(g, fake, x, z):
+    fake.player = [float(x), 0.0, float(z)]
+    published(g, lambda s: s.player_x is not None and abs(s.player_x - x) < 1 and abs(s.player_z - z) < 1)
+
+
+def test_route_to_goes_round_a_gateway_the_straight_walk_takes(game):
+    from ff9mapkit.content import pathfind
+    door = _rect(-100, -300, 100, 300)                   # a band across the middle of the room
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0)}]}
+    fake.exit_frames = 20
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        assert pathfind.seg_poly_gap((-400, 0), (400, 0), door) < 0        # the premise
+        rec = g.route_to(400.0, 0.0, avoid=[door], walkmesh=_flat_bgi(), prior=_prior())
+        assert rec["landed"] is None and rec["reached"], rec
+        assert len(rec["waypoints"]) > 1 and not fake.fired, (rec, fake.fired)
+        assert g.state.field_id == 30820
+        # ...and the control: the one-axis walk back takes the door
+        g.walk_to(-400.0, 0.0, strict=False)
+        assert fake.fired and fake.fired[0]["to"] == 30821
+
+
+def test_route_cross_from_an_arrival_beside_the_door_takes_the_exit_it_was_sent_to(game):
+    """THE 350 SHAPE: standing 18u west of door A, sent to door B on the far side. The calibration may not
+    press toward A (east); the route must not go back through it; the crossing must be B's."""
+    from ff9mapkit.content import pathfind
+    door_a = _rect(300, -150, 600, 150)
+    door_b = _rect(-600, -150, -380, 150)
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door_a, "to": 30821, "arrive": (-282, 0)},
+                            {"zone": door_b, "to": 30810, "arrive": (0, 0)}],
+                    30821: [{"zone": _rect(-600, -150, -300, 150), "to": 30820, "arrive": (282, 0)}]}
+    fake.exit_frames = 30
+    wm = _flat_bgi()
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 282, 0)
+        mark = len(fake.executed)
+        basis = g.calibrate_axes(hazards=[door_a], prior=_prior())
+        pressed = {s[1] for s in fake.executed[mark:] if s[0] == "hold" and s[1] != "cancel"}
+        assert "right" not in pressed and "left" in pressed, pressed      # never toward A; left one-sided
+        assert basis["h"][0] > 0.99 and basis["v"][1] > 0.99, basis       # measured: right is +x
+        assert not fake.fired
+        goal = pathfind.region_goal(wm, door_b)
+        rec = g.route_cross(goal[0], goal[1], avoid=[door_a], walkmesh=wm, prior=_prior(), expect=30810)
+        assert rec["landed"] == 30810 and rec["during"] == "walk", rec
+        assert [f["to"] for f in fake.fired] == [30810], fake.fired        # door A never fired
+
+
+def test_a_probe_that_fires_a_gateway_is_reported_not_measured_through(game):
+    """A door nobody listed, 10u away: a blind one-frame probe still reaches it. It must be REPORTED -- the
+    old probe settled during the fade, read 'same field', and measured on in the next room."""
+    from harness.session import ProbeLeftControl
+    door = _rect(10, -600, 300, 600)
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, -400)}]}
+    fake.exit_frames = 60
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 0, 0)
+        with pytest.raises(ProbeLeftControl, match="took control away|left field"):
+            g._calibrate_clear_of(30820, [], None, 4)          # nothing to avoid: probes blind
+        assert 30820 not in g._axes, "a probe that crossed must not cache a basis"
+        g.wait_playable(timeout=10)
+        g.warp(30820)
+        _stand(g, fake, 0, 0)
+        rec = g.route_to(-400.0, 0.0, avoid=[], walkmesh=_flat_bgi(), prior=None)
+        assert rec["during"] == "calibrate" and rec["landed"] == 30821, rec
+
+
+def test_blind_calibration_beside_a_known_door_refuses_before_pressing(game):
+    """Without a prior a probe's direction is unknown, and one walk frame settles ~30u: beside a door it
+    LISTED, blind calibration must refuse, not press and find out."""
+    door = _rect(10, -600, 300, 600)
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, -400)}]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 0, 0)
+        mark = len(fake.executed)
+        with pytest.raises(HarnessError, match="blind probe"):
+            g.calibrate_axes(hazards=[door], prior=None)
+        with pytest.raises(HarnessError, match="blind probe"):
+            g.route_to(-400.0, 0.0, avoid=[door], walkmesh=_flat_bgi(), prior=None)
+        assert not [s for s in fake.executed[mark:] if s[0] == "hold"], fake.executed[mark:]
+        assert not fake.fired and 30820 not in g._axes
+        _stand(g, fake, -300, 0)                             # 310u clear: blind is safe again
+        g.calibrate_axes(hazards=[door], prior=None)
+        assert not fake.fired
+
+
+def test_each_probe_is_judged_from_where_the_last_one_left_him(game):
+    """Door D below (30u) leaves the up axis one-sided, and the up probe carries him ~150u north -- beside
+    door H, which the right probe would have cleared from where calibration BEGAN. Judged from where he
+    stands when it is pressed, the right probe shrinks to a walk; judged from the start it ran into H."""
+    door_d = _rect(-600, -100, 600, -30)
+    door_h = _rect(100, 90, 400, 400)
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door_d, "to": 30821, "arrive": (0, 0)},
+                            {"zone": door_h, "to": 30810, "arrive": (0, 0)}]}
+    fake.exit_frames = 60
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 0, 0)
+        mark = len(fake.executed)
+        basis = g.calibrate_axes(hazards=[door_d, door_h], prior=_prior())
+        assert not fake.fired, fake.fired
+        assert basis["h"][0] > 0.99 and basis["v"][1] > 0.99, basis
+        holds = [s for s in fake.executed[mark:] if s[0] == "hold" and s[1] != "cancel"]
+        assert ["hold", "right", "4"] not in holds, holds       # the run that reached H from (0, 150)
+
+
+def test_a_probe_may_leave_the_region_he_stands_in_but_not_come_back(game):
+    """Standing inside a region (Z, a hazard with no live trigger here), the up probe walks out of it. The
+    down probe after it starts OUTSIDE Z now, and a run would carry him back in: it must shrink to a walk.
+    The old guard ignored any region containing the START, for every probe of the calibration."""
+    zone = _rect(-600, -40, 600, 60)
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 0, 20)
+        mark = len(fake.executed)
+        g.calibrate_axes(hazards=[zone], prior=_prior())
+        holds = [s for s in fake.executed[mark:] if s[0] == "hold" and s[1] != "cancel"]
+        assert ["hold", "up", "4"] in holds, holds              # out through the top: allowed
+        assert ["hold", "down", "4"] not in holds, holds        # back in: refused
+        assert g.state.player_z > 60, "he ended back inside the region he walked out of"
+
+
+def test_walk_to_halts_the_moment_control_goes(game):
+    """A gateway takes control on the frame it fires; the field id changes a fade later. A burst pressed in
+    between carries its hold into the destination -- the 350 bounce. halt_on_transition presses nothing more."""
+    door = _rect(100, -600, 300, 600)
+    for halt in (True, False):
+        fake = FakeGame(game)
+        fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (-400, 0)}]}
+        fake.exit_frames = 240                            # a slow fade, so the driver sees it
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30820)
+            _stand(g, fake, -300, 0)
+            g.calibrate_axes()
+            assert g.walk_to(500.0, 0.0, strict=False, halt_on_transition=halt) is False
+            assert fake.fired, "the walk never reached the door"
+            after = [s for s in fake.executed[fake.fired[0]["executed"]:] if s[0] == "hold"]
+            if halt:
+                assert not after, f"pressed {after} after control was gone"
+            else:
+                assert after, "the default loop was expected to keep pressing (the leak it documents)"
+
+
+def test_route_to_reports_no_route_rather_than_walking_into_the_region(game):
+    door = _rect(100, -200, 400, 200)
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0)}]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -300, 0)
+        rec = g.route_to(250.0, 0.0, avoid=[door], walkmesh=_flat_bgi(), prior=_prior())
+        assert rec["waypoints"] is None and rec["landed"] is None and not rec["reached"], rec
+        assert not fake.fired
+
+
+def test_key_twist_operand_follows_memoria_ini(game):
+    """Keys read TWIST arg2 (twist.y) unless [AnalogControl] makes key orientation absolute (1 or 2)."""
+    fake = FakeGame(game)
+    g = session(game, fake)
+    ini = game / "Memoria.ini"
+    assert g._key_twist_operand() == 1                    # no ini: the engine default (3)
+    for text, want in (("[AnalogControl]\nEnabled = 1\nUseAbsoluteOrientation = 3\n", 1),
+                       ("[AnalogControl]\nEnabled = 1\nUseAbsoluteOrientation = 2\n", 0),
+                       ("[AnalogControl]\nEnabled = 0\nUseAbsoluteOrientation = 1\n", 1),
+                       ("[Graphics]\nUseAbsoluteOrientation = 1\n[AnalogControl]\nEnabled = 1\n", 1)):
+        ini.write_text(text, encoding="utf-8")
+        assert g._key_twist_operand() == want, text
+
+
 # --------------------------------------------------------------------------- co-op (netsync) benches
 
 

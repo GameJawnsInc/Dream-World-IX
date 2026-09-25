@@ -13,6 +13,24 @@ research (studies/story-trace/PLAN.md, rung 3) found that SC 2610 needs latch 20
 field 450 writes 2102 = 1 -- so "until the story moves on" reaches 450 without anyone choosing it. This run tests
 that claim; it does not assume it.
 
+HOW AN EXIT IS CROSSED (after the first run ping-ponged 350 <-> 351 eighty times: it arrived in 350 standing 18u
+from 351's own door, and every step toward the next exit -- a one-axis walk_to, a calibration probe, or a held
+correction burst that outlived the fade -- walked it straight back). Each exit is taken with Session.route_cross:
+a route over the field's real walkmesh to a standable point INSIDE the exit's zone, keeping out of every OTHER
+gateway zone of the field (all of them, Dali-labelled or not), calibrated without pressing toward any of them, and
+no press issued once control is gone. An exit counts as TRIED only when a crossing into ITS destination actually
+happened (read after the scene settles, so an arrival scene that outlasts the crossing's timeout still counts);
+landing anywhere else is a BOUNCE, finding no route a NO ROUTE, and not landing at all a MISS -- logged, never
+marked tried, the field's other exits taken first, and after BOUNCES of them the (field, exit) is UNREACHABLE and
+the tour moves on, so it cannot loop.
+
+A ONE-WAY DOOR GOES LAST. A door is one-way when its destination's own script puts the arriving player where
+none of that destination's exits can be routed to: 350 -> 358 lands on a walkmesh piece 358's only gateway zone
+is not on (the way back to 350 is a scripted position check, not a gateway region). Crossed in scan order it
+stranded an offline dry run of this tour in 358, one exit short of 450. So a pass takes one-way doors only once
+nothing two-way is left, and never hops through one. The rule reads only walkmesh and script bytes -- it knows
+nothing of 450 or the story; an arrival spot the scan cannot decode counts as two-way.
+
 S1-SEGMENT  the scripted segment hands control back in 352 at SC 2600
 S1-TOUR     the tour ran: crossings attempted / landed, the fields reached, the stop reason
 S1-PING     the premise: a script write Bit[2102] := 1 in field 450 -- and the WRITERS of 2102 := 1 are only 450
@@ -32,6 +50,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(REPO / "ff9mapkit"))
 from ff9mapkit import eventscan, extract, storytrace as T  # noqa: E402
+from ff9mapkit.content import pathfind  # noqa: E402
 
 try:
     from harness import HarnessError
@@ -41,13 +60,22 @@ except ImportError:
 START, START_SC, BEAT = 359, 2540, 2600
 LABEL = "Dali/"
 MAX_CROSSINGS, MAX_PASSES, BUDGET_S = 80, 3, 40 * 60
+MARGIN = pathfind.KEEPOUT_MARGIN_W        # keep-out around every gateway zone the crossing is not aimed at
+BOUNCES = 2                               # failed crossings (bounce or miss) before a (field, exit) is unreachable
 THROWS = {"NullReferenceException", "InvalidCastException", "IndexOutOfRangeException", "DivideByZeroException",
           "ArgumentOutOfRangeException", "OverflowException"}
 WHERE = ("EventEngine", "EBin", "StoryTrace", "HarnessAgent")
 
 _names: dict = {}
-_exits: dict = {}
+_gates: dict = {}
+_goals: dict = {}
+_oneway: dict = {}
 _stock = T.stock_script_source()
+
+
+def say(*parts) -> None:
+    """Every log line, flushed: the first run's block-buffered prints surfaced only at exit."""
+    print("[rung3-s1]", *parts, flush=True)
 
 
 def label(fid: int) -> str:
@@ -57,20 +85,68 @@ def label(fid: int) -> str:
     return _names[fid]
 
 
-def exits(fid: int) -> list:
-    """This field's walk-in exits, in scan order, bounded by the location label: [(to, entrance, cx, cz)]."""
-    if fid not in _exits:
+def gateways(fid: int) -> list:
+    """EVERY walk-in gateway of the field, one per distinct (destination, zone), in scan order: [(to, entrance,
+    zone)]. 350 lists its 353 exit twice with one zone -- one exit, not two."""
+    if fid not in _gates:
         idx = _stock(fid)
         out = []
         for gw in (eventscan.scan_gateways(idx.data) if idx else []):
-            if not label(gw["to"]).startswith(LABEL):
-                continue
-            zone = gw["zone"]
-            cx = sum(p[0] for p in zone) / len(zone)
-            cz = sum(p[1] for p in zone) / len(zone)
-            out.append((gw["to"], gw["entrance"], cx, cz))
-        _exits[fid] = out
-    return _exits[fid]
+            if all((gw["to"], gw["zone"]) != (t, z) for t, _e, z in out):
+                out.append((gw["to"], gw["entrance"], gw["zone"]))
+        _gates[fid] = out
+    return _gates[fid]
+
+
+def exits(fid: int) -> list:
+    """The exits the tour takes: the gateways whose destination carries the location label, in scan order."""
+    return [gw for gw in gateways(fid) if label(gw[0]).startswith(LABEL)]
+
+
+def avoid_for(fid: int, zone) -> list:
+    """Every OTHER gateway zone of the field -- label-bounded or not: a door out of Dali is still a door."""
+    return [z for _t, _e, z in gateways(fid) if z != zone]
+
+
+def goal_for(fid: int, i: int):
+    """A standable point inside exit i's zone (pathfind.region_goal on the install's walkmesh), or None."""
+    if (fid, i) not in _goals:
+        try:
+            _goals[(fid, i)] = pathfind.region_goal(extract.stock_walkmesh(fid), exits(fid)[i][2])
+        except (OSError, ValueError, RuntimeError) as err:     # no walkmesh for this id: no goal, no route
+            say(f"field {fid}: no walkmesh to aim exit {i} on ({type(err).__name__}: {err})")
+            _goals[(fid, i)] = None
+    return _goals[(fid, i)]
+
+
+def arrival(fid: int, entrance: int):
+    """Where field ``fid``'s own script stands the player arriving by ``entrance`` (its table row, else its
+    default), or None when neither decodes -- 351, 353, 354 and 450 place him some other way."""
+    idx = _stock(fid)
+    t = eventscan.scan_arrival_table(idx.data) if idx else {"table": [], "default": None}
+    row = next((r for r in t["table"] if r["entrance"] == entrance), None) or t["default"]
+    return tuple(row["pos"]) if row else None
+
+
+def one_way(fid: int, i: int) -> bool:
+    """Could the tour NOT walk back out of exit i's destination? True only when the destination's arrival spot
+    for this exit's entrance is known and none of the destination's exits routes from it (see the module
+    docstring: 350 -> 358). An undecoded arrival is two-way."""
+    if (fid, i) not in _oneway:
+        to, entrance, _zone = exits(fid)[i]
+        pos = arrival(to, entrance)
+        back = pos is None
+        for j, (_t, _e, zone) in enumerate(exits(to) if pos is not None else ()):
+            goal = goal_for(to, j)                       # None also when the walkmesh cannot be read
+            if goal is not None and pathfind.route_avoiding(extract.stock_walkmesh(to), pos, goal,
+                                                            avoid_for(to, zone), MARGIN) is not None:
+                back = True
+                break
+        _oneway[(fid, i)] = not back
+        if not back:
+            say(f"field {fid} exit {i} (to {to}, entrance {entrance}) is ONE-WAY: no exit of {to} routes from "
+                f"its arrival {pos} -- it goes last")
+    return _oneway[(fid, i)]
 
 
 def settle(g, log, why: str) -> None:
@@ -78,29 +154,40 @@ def settle(g, log, why: str) -> None:
     st = g.state
     if not st.control:
         pages = g.watch_cutscene(timeout=240)
-        log.append({"k": "scene", "why": why, "field": g.state.field_id, "sc": g.state.scenario,
-                    "pages": len(pages), "first": (pages[0][:80] if pages else "")})
+        rec = {"k": "scene", "why": why, "field": g.state.field_id, "sc": g.state.scenario,
+               "pages": len(pages), "first": (pages[0][:80] if pages else "")}
+        log.append(rec)
+        say(json.dumps(rec))
 
 
-def next_hop(start: int, want) -> tuple | None:
-    """BFS over the exit graph from ``start`` to the nearest field satisfying ``want``: the first exit to take."""
+def next_hop(start: int, want, dead: set):
+    """BFS over the exit graph from ``start`` -- never through an unreachable or a one-way exit -- to the
+    nearest field satisfying ``want``: the index of the first exit to take, or None."""
     seen, q = {start}, deque([(start, None)])
     while q:
         f, first = q.popleft()
         if f != start and want(f):
             return first
-        for i, (to, _e, cx, cz) in enumerate(exits(f)):
-            if to not in seen:
+        for i, (to, _e, _z) in enumerate(exits(f)):
+            if (f, i) not in dead and to not in seen and not one_way(f, i):
                 seen.add(to)
-                q.append((to, first if first is not None else (i, to, cx, cz)))
+                q.append((to, first if first is not None else i))
     return None
 
 
 def tour(g, log) -> str:
     t0 = time.time()
     n = 0
+    fails: dict = {}                     # (field, exit) -> ["bounce" | "miss" | "no route", ...], across passes
+    dead: set = set()                    # (field, exit) unreachable this run
+    visit, later = None, set()           # exits that failed on THIS visit: the field's other exits go first
     for p in range(1, MAX_PASSES + 1):
         tried: set = set()
+
+        def open_(h, one_ways=False):
+            return [j for j in range(len(exits(h))) if (h, j) not in tried and (h, j) not in dead
+                    and (one_ways or not one_way(h, j))]
+
         while True:
             st = g.state
             if st.scenario != BEAT:
@@ -108,31 +195,68 @@ def tour(g, log) -> str:
             if n >= MAX_CROSSINGS or time.time() - t0 > BUDGET_S:
                 return f"budget spent (crossings {n}, {time.time() - t0:.0f}s)"
             f = st.field_id
-            mine = [(i, x) for i, x in enumerate(exits(f)) if (f, i) not in tried]
+            if f != visit:
+                visit, later = f, set()
+            mine = sorted(open_(f), key=lambda j: (f, j) in later)
             if mine:
-                i, (to, _e, cx, cz) = mine[0]
-                tried.add((f, i))
-                leg = "tour"
+                i, leg = mine[0], "tour"
             else:
-                hop = next_hop(f, lambda h: any((h, j) not in tried for j in range(len(exits(h)))))
-                if hop is None:
-                    break                                            # this pass has crossed everything
-                i, to, cx, cz = hop
-                leg = "back"
+                i, leg = next_hop(f, lambda h: bool(open_(h)), dead), "back"
+            if i is None:
+                # nothing two-way is left anywhere reachable: now the one-way doors, last -- past one, the
+                # tour may well have no way back
+                mine = sorted(open_(f, True), key=lambda j: (f, j) in later)
+                if mine:
+                    i, leg = mine[0], "one-way"
+                else:
+                    i, leg = next_hop(f, lambda h: bool(open_(h, True)), dead), "back"
+                    if i is None:
+                        break                                        # this pass has crossed everything
+            to, _e, zone = exits(f)[i]
             n += 1
+            goal = goal_for(f, i)
             rec = {"k": "cross", "n": n, "pass": p, "leg": leg, "from": f, "exit": i, "to": to,
-                   "target": [round(cx), round(cz)], "sc0": st.scenario}
+                   "target": list(goal) if goal else None, "sc0": st.scenario}
+            if goal is None:
+                dead.add((f, i))
+                rec.update(verdict="unreachable: no standable goal inside its zone")
+                log.append(rec)
+                say(json.dumps(rec))
+                continue
             try:
-                r = g.cross(cx, cz, timeout=20)
-                rec.update(reached=r.get("reached"), travelled=round(r.get("travelled") or 0), landed=r.get("landed"))
-                if r.get("landed") is None and not r.get("reached"):
-                    g.shot(f"stuck-{n}-{f}-to-{to}")
+                r = g.route_cross(goal[0], goal[1], avoid=avoid_for(f, zone), margin=MARGIN, timeout=20)
+                rec.update(landed=r["landed"], reached=r["reached"], travelled=round(r["travelled"]),
+                           during=r["during"], replans=r["replans"],
+                           route=len(r["waypoints"]) if r["waypoints"] is not None else None)
             except HarnessError as err:
-                rec.update(error=str(err)[:200])
+                rec.update(landed=None, error=str(err)[:200])
             settle(g, log, f"after crossing {n}")
+            now = g.state.field_id
+            if rec.get("landed") is None and now != f and now > 0:
+                # the crossing call gave up but the room DID change -- e.g. the destination held control
+                # past its timeout for an arrival scene ("never became playable"), which settle() just
+                # sat through. Where he stands now is where the crossing led.
+                rec.update(landed=now, landed_late=True)
+            if rec.get("landed") == to:
+                if leg != "back":
+                    tried.add((f, i))
+                rec["verdict"] = "crossed"
+            else:
+                # no route is a failed attempt like the others, not a verdict: it was planned from where he
+                # stood THIS time, and the next visit arrives somewhere else
+                kind = ("bounce" if rec.get("landed") is not None
+                        else "no route" if "route" in rec and rec["route"] is None else "miss")
+                later.add((f, i))
+                fails.setdefault((f, i), []).append(kind)
+                rec["verdict"] = f"{kind} {len(fails[(f, i)])}/{BOUNCES}"
+                if len(fails[(f, i)]) >= BOUNCES:
+                    dead.add((f, i))
+                    rec["verdict"] += " -> unreachable"
+                if kind == "miss":
+                    g.shot(f"miss-{n}-{f}-to-{to}")
             rec.update(now=g.state.field_id, sc1=g.state.scenario, t=round(time.time() - t0))
             log.append(rec)
-            print(f"[rung3-s1] {json.dumps(rec)}")
+            say(json.dumps(rec))
     return f"passes exhausted ({MAX_PASSES}) without the story moving on"
 
 
@@ -167,8 +291,7 @@ def run(g) -> None:
         seg_ok = st.field_id == 352 and st.control and st.scenario == BEAT
         log.append({"k": "segment", "field": st.field_id, "sc": st.scenario, "control": st.control})
         if seg_ok:
-            g.calibrate_axes()
-            stop = tour(g, log)
+            stop = tour(g, log)                  # route_cross calibrates each field itself, clear of its doors
             settle(g, log, "after the tour")
         g.storytrace(False)
         rows = g.story_rows()

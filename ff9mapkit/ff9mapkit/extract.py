@@ -894,6 +894,35 @@ def find_field(field: str, game=None, bundle: str | None = None):
     return str(sa / bundle), folder, roles, env
 
 
+# Stock `.bgi` bytes by (field id, install), read once per process. BYTES, not the parsed walkmesh:
+# a BgiWalkmesh is mutable (apply_seams / rebuild_neighbors rewrite it in place), so each caller gets
+# its own -- a shared cached object would let one caller's edit leak into every later route.
+_STOCK_BGI: dict = {}
+
+
+def stock_walkmesh(field_id: int, game=None) -> bgi.BgiWalkmesh:
+    """The walkmesh a STOCK field runs on, straight from the install's field bundle (cached per id).
+
+    Its frame is the engine's: :meth:`BgiWalkmesh.world_verts` (``vert + orgPos + floor.org``) is the
+    space the published player position and a field script's ``SetRegion`` corners both live in, so a
+    route over it can be walked by the harness and checked against gateway zones with no transform.
+    Raises ``FileNotFoundError`` for an id with no field bundle or no ``.bgi`` (field 70, the world map).
+    """
+    fid = int(field_id)
+    key = (fid, str(config.find_game_path(game)))
+    data = _STOCK_BGI.get(key)
+    if data is None:
+        with env_lock:
+            _path, folder, roles, env = find_field(str(fid), game=game)
+            if "bgi" not in roles:
+                raise FileNotFoundError(f"field {fid} ({folder}) has no .bgi walkmesh in its bundle")
+            data = _raw_bytes(env.container[roles["bgi"]].read())
+        if not data:
+            raise FileNotFoundError(f"field {fid} ({folder}): the .bgi walkmesh read back empty")
+        _STOCK_BGI[key] = data
+    return bgi.BgiWalkmesh.from_bytes(data)
+
+
 def field_camera_info(field: str, *, game=None, bundle: str | None = None) -> dict | None:
     """A field's lens, read cheaply -- pitch/FOV/scrolling/camera-count from the scene `.bgs` ONLY (no
     walkmesh/atlas extraction). Returns None if the install/scene can't be read (so callers degrade
