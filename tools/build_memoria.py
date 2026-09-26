@@ -24,9 +24,12 @@
 #   py tools/build_memoria.py [--label L] [--no-deploy] [--skip-backup] [--clone PATH]
 #
 #   --label L      label for the pre-build backup set (letters/digits/hyphens, e.g. pre-s81)
-#   --no-deploy    compile-check only: passes -p:DWIXNoDeploy=true (the s45 csproj lever).
-#                  REFUSED if the clone's csproj lacks the DWIXNoDeploy condition -- without it
-#                  the flag would be ignored and the build would deploy anyway.
+#   --no-deploy    compile-check only: passes -p:DWIXNoDeploy=true (the s45 + s91 csproj lever).
+#                  REFUSED unless EVERY Deploy task in Assembly-CSharp's ProjectReference closure
+#                  is gated on it -- msbuild builds Memoria.Prime + UnityEngine.UI first, and before
+#                  s91 their own AfterBuild deployed them on every "compile-check". Then a TRIPWIRE:
+#                  every live DLL + .mdb is sha-compared before/after the build; any change exits 4,
+#                  names the files, and keeps the drifted DLLs' pre-run bytes for restore_memoria_dll.
 #   --skip-backup  allowed only when a FULL backup set (all 3 DLLs x both arches) newer than
 #                  24h already exists in backups/ -- otherwise refused. Prefer the default.
 #   --clone PATH   the Memoria source clone (default $MEMORIA_CLONE or C:\gd\FFIX\Memoria)
@@ -35,12 +38,14 @@
 import argparse
 import hashlib
 import os
+import re
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # tools/ -- sibling imports
-from backup_memoria_dll import backup as take_backup, check_label
+from backup_memoria_dll import backup as take_backup, canonical_name, check_label
 from restore_memoria_dll import ARCHES, BKP, DLLS, MANAGED, find_backups
 
 DEFAULT_CLONE = os.environ.get("MEMORIA_CLONE", r"C:\gd\FFIX\Memoria")
@@ -50,6 +55,8 @@ DEFAULT_MSBUILD = os.environ.get(
 BASE_COMMIT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
                                 "memoria-patches", "BASE_COMMIT")
 FRESH_BACKUP_MAX_AGE_S = 24 * 3600
+NO_DEPLOY_GATE = re.compile(r"'\$\(DWIXNoDeploy\)'\s*!=\s*'true'")   # the s45/s91 Condition
+LIVE_FILES = [n for dll in DLLS for n in (dll, dll + ".mdb")]         # what a Deploy task writes
 RUN = subprocess.run                              # seam: tests monkeypatch this
 
 
@@ -87,14 +94,100 @@ def msbuild_args(msbuild, csproj, clone, no_deploy=False):
     return args
 
 
+def _local(tag):
+    return tag.rsplit("}", 1)[-1]                  # the msbuild/2003 namespace, or none
+
+
+def deploy_gate_audit(csproj_path):
+    """Every `<Deploy>` task in the ProjectReference closure of `csproj_path`, split by whether
+    -p:DWIXNoDeploy=true switches it off. Returns (gated, ungated, problems), each a list of
+    labels like 'Memoria.Prime/Memoria.Prime.csproj: AfterBuild'.
+
+    WHY THE CLOSURE: s45 gated only Assembly-CSharp.csproj, but msbuild BUILDS its
+    ProjectReferences first, and Memoria.Prime + UnityEngine.UI each carry their own AfterBuild
+    Deploy (s91 gates those) -- so every --no-deploy run still copied both siblings' .dll and a
+    fresh .dll.mdb over the live install. A property on the command line reaches the referenced
+    builds too, so a Deploy is off when its own Condition or its Target's names it."""
+    gated, ungated, problems = [], [], []
+    root = os.path.dirname(os.path.dirname(os.path.abspath(csproj_path)))  # the clone
+    todo, seen = [os.path.abspath(csproj_path)], set()
+    while todo:
+        path = todo.pop(0)
+        key = os.path.normcase(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        rel = os.path.relpath(path, root).replace("\\", "/")
+        try:
+            tree = ET.parse(path)
+        except (OSError, ET.ParseError) as e:
+            problems.append(f"{rel}: unreadable ({e})")
+            continue
+        for tgt in tree.getroot().iter():
+            if _local(tgt.tag) != "Target":
+                continue
+            for el in tgt.iter():
+                if _local(el.tag) != "Deploy":
+                    continue
+                label = f"{rel}: {tgt.get('Name', '?')}"
+                on = any(NO_DEPLOY_GATE.search(c or "") for c in (tgt.get("Condition"), el.get("Condition")))
+                (gated if on else ungated).append(label)
+        for ref in tree.getroot().iter():
+            if _local(ref.tag) == "ProjectReference" and ref.get("Include"):
+                todo.append(os.path.normpath(os.path.join(os.path.dirname(path),
+                                                          ref.get("Include").replace("\\", os.sep))))
+    if not gated and not ungated and not problems:
+        problems.append("no <Deploy> task found anywhere in the reference closure -- cannot tell "
+                        "what the build deploys, so cannot promise it deploys nothing")
+    return gated, ungated, problems
+
+
 def no_deploy_supported(csproj_path):
-    """True when the clone's csproj carries the s45 DWIXNoDeploy AfterBuild condition. Without
-    it, -p:DWIXNoDeploy=true is silently ignored and the build DEPLOYS anyway -- so --no-deploy
-    must be refused rather than become a false promise."""
-    try:
-        return "DWIXNoDeploy" in open(csproj_path, encoding="utf-8", errors="replace").read()
-    except OSError:
-        return False
+    """True when EVERY Deploy the build reaches is gated on DWIXNoDeploy (s45 + s91). Otherwise
+    -p:DWIXNoDeploy=true is ignored somewhere and the build DEPLOYS anyway -- so --no-deploy must
+    be refused rather than become a false promise."""
+    gated, ungated, problems = deploy_gate_audit(csproj_path)
+    return bool(gated) and not ungated and not problems
+
+
+def live_snapshot(managed=None, names=None):
+    """{(name, arch): bytes or None} for every live engine file a Deploy task writes: each DLL and
+    the .dll.mdb pdb2mdb regenerates beside it (a fresh one per deploy, so the .mdb is what shows a
+    deploy of unchanged DLL bytes). The bytes are kept so a drifted DLL can be put back."""
+    managed = MANAGED if managed is None else managed
+    names = LIVE_FILES if names is None else names
+    snap = {}
+    for arch, mgd in managed.items():
+        for name in names:
+            try:
+                with open(os.path.join(mgd, name), "rb") as f:
+                    snap[(name, arch)] = f.read()
+            except FileNotFoundError:
+                snap[(name, arch)] = None
+    return snap
+
+
+def live_drift(before, after):
+    """'<name> [<arch>]' for every live file whose bytes changed, appeared or vanished."""
+    return [f"{name} [{arch}]" for (name, arch), b in before.items() if after.get((name, arch)) != b]
+
+
+def keep_preimages(before, after, ts, bkp=None):
+    """Write each DRIFTED DLL's pre-run bytes to `bkp` under the canonical backup name (label
+    'pre-nodeploy-drift'), so `restore_memoria_dll.py <ts>` puts them back. The .mdb is not kept,
+    as the pre-build backup regime never keeps it: it is debug line info, regenerated per deploy.
+    Returns the written paths."""
+    bkp = BKP if bkp is None else bkp
+    written = []
+    for (name, arch), b in before.items():
+        if b is None or not name.endswith(".dll") or after.get((name, arch)) == b:
+            continue
+        dst = os.path.join(bkp, canonical_name(name, arch, ts, "pre-nodeploy-drift"))
+        if not os.path.exists(dst):
+            with open(dst, "wb") as f:
+                f.write(b)
+            written.append(dst)
+    return written
 
 
 def full_backup_set_age_s(bkp=BKP, now=None):
@@ -183,11 +276,18 @@ def main(argv):
     if err:
         print(f"!!! REFUSED: {err}. Nothing built.")
         return 2
-    if args.no_deploy and not no_deploy_supported(csproj):
-        print("!!! --no-deploy REFUSED: this clone's csproj has no DWIXNoDeploy condition, so the "
-              "flag would be silently ignored and the build WOULD deploy. Apply the s45 csproj "
-              "hunk (or build without --no-deploy after a backup).")
-        return 2
+    if args.no_deploy:
+        gated, ungated, problems = deploy_gate_audit(csproj)
+        if ungated or problems or not gated:
+            print("!!! --no-deploy REFUSED: the build reaches a Deploy task that DWIXNoDeploy does "
+                  "not switch off, so the flag would be ignored there and the build WOULD deploy:")
+            for label in ungated:
+                print(f"      ungated  {label}")
+            for label in problems:
+                print(f"      ??       {label}")
+            print("    Apply the s45 (Assembly-CSharp) + s91 (Memoria.Prime, UnityEngine.UI) csproj "
+                  "hunks, or build without --no-deploy after a backup.")
+            return 2
 
     print("Pre-flight:")
     preflight_report(clone)
@@ -213,11 +313,35 @@ def main(argv):
                       "failed) -- NOT building: a partial backup is partial safety.")
                 return 2
 
+    # THE --no-deploy TRIPWIRE: the gate audit above reads the csprojs; this reads the install. Every
+    # live DLL + .mdb is fingerprinted before the build and compared after it, on the failure path
+    # too (a sibling deploys BEFORE Assembly-CSharp compiles, so a failed build can still deploy).
+    before = live_snapshot(MANAGED) if args.no_deploy else None
     print(f"\nBuilding ({'compile-check only' if args.no_deploy else 'auto-deploys on success'}):")
     argv_ms = msbuild_args(DEFAULT_MSBUILD, csproj, clone, args.no_deploy)
     r = RUN(argv_ms, capture_output=True, text=True)
     tail = "\n".join((r.stdout or "").splitlines()[-12:])
     print(tail)
+    if args.no_deploy:
+        after = live_snapshot(MANAGED)
+        drift = live_drift(before, after)
+        if drift:
+            ts = time.strftime("%Y%m%d-%H%M%S")
+            kept = keep_preimages(before, after, ts, BKP)
+            print(f"\n!!! --no-deploy DEPLOYED ANYWAY: {len(drift)} live engine file(s) changed during "
+                  "the build (or another session's deploying build landed in the same window -- "
+                  "check before restoring):")
+            for label in drift:
+                print(f"      CHANGED  {label}")
+            if kept:
+                print(f"!!! the pre-run DLL bytes were kept ({len(kept)} file(s)); put them back with: "
+                      f"py tools/restore_memoria_dll.py {ts}")
+            else:
+                print("!!! no DLL bytes changed -- only .mdb debug symbols (no behavior change); the "
+                      "DWIXNoDeploy gate still leaked and must be fixed.")
+            if r.returncode:
+                print(f"!!! and the build FAILED (msbuild exit {r.returncode}).")
+            return 4
     if r.returncode:
         print(f"\n!!! BUILD FAILED (msbuild exit {r.returncode}).")
         if not args.no_deploy:
@@ -232,7 +356,10 @@ def main(argv):
         return r.returncode or 1
 
     if args.no_deploy:
-        print("\nDone: compile-check clean; NOTHING deployed (DWIXNoDeploy).")
+        absent = sum(b is None for b in before.values())
+        print(f"\nDone: compile-check clean; NOTHING deployed -- verified: all {len(before)} live "
+              "engine files (each DLL + its .mdb, every arch) are byte-identical before and after "
+              "the build" + (f" ({absent} absent both times)." if absent else "."))
         return 0
 
     ok, mism, absent = verify_deploy(output_dir, MANAGED)       # pass the global so tests can patch it
