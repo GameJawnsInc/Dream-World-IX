@@ -3,7 +3,12 @@
 **Status:** ★ **rung 0 in-game PROVEN 11/11** (`story-rung0`): s88 is live (sha `c55377f6c137d442…`, backups `20260924-172331`), and the trace on stock Lindblum 552 joined every script write to a store in the stock bytes. **Rung 1 ★ in-game 11/11** (`story-rung1`): the residue net and the epochs. **Rung 2 ★ in-game 8/8**
 (`story-rung2`): THE NULL PAIR -- stock 552 x3 vs its verbatim fork x3, STOCK ONLY and FORK ONLY both empty.
 **Rung 3 step 1 ★ in-game 7/7** (`story-rung3-s1d`): an unattended blind tour of stock Dali reached 450, the
-trace named 450 as the only writer of the ping, and the story moved on by itself. Next: rung 3's fork sides.
+trace named 450 as the only writer of the ping, and the story moved on by itself. **Rung 3 ★★ THE RETRODICTION,
+in-game 17/18 + 1 VOID** (`story-rung3c`, predictions v2): against stock Dali x3, today's import-chain (F0, x3,
+each replaying its stock partner's walk) and the round-4 seed (F4, x3), the trace -- no script reading -- named
+450 as the ping's only writer, F0's seam into the real 450, F4's pre-empted latches and its byte-297 clobber, and
+found F0 otherwise write-for-write stock (MIRROR: FORK ONLY and STOCK ONLY empty). The VOID is NULL-PRE's
+stock-side evidence from 355 (a walker at its door). Next: rung 4 (fork-report's story-writes axis).
 
 Board entry #3 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It is the narrative-state arc's missing
 instrument ([`../narrative-state/PLAN.md`](../narrative-state/PLAN.md)).
@@ -310,6 +315,34 @@ Next: (1) a box whose rule-breakers are walking waits for them before it scores 
 of the comparison by construction -- each fork run REPLAYS its stock partner's landed crossings (same exits, same
 order, each retried until it lands, VOID if it cannot), then tours blind past the partner's advance -- registered as
 predictions v2 before session 3, the claims unchanged; (3) session 3.
+
+### Rung 3, the retrodiction -- session 3 (`story-rung3c`, predictions v2): ★★ 17/18, the one non-PASS a VOID
+
+Nine runs, 5481s, no re-run needed: S 3 of 3, F0 3 of 3 (each replayed every step of its partner's walk -- 21, 23,
+23 -- and its story moved on at its partner's advancing step, in the real 354), F4 3 of 3. Predictions v2 (sha d6dd541c),
+frozen before run 1.
+- **PASS** -- the six pre-flight checks, P-FROZEN, R3-RUNS (0 VOID runs), R3-DONOR, R3-JOIN (0 failures), NC-THROW;
+  and the retrodiction: R3-PING (`Bit[2102] := 1`, writers {450: 3}), R3-SEAM (every F0 run's first seam
+  `member(350) [30833] -> 450`, the ping reached only across it, no F0 donor writes it), **R3-MIRROR (0 FORK ONLY,
+  0 STOCK ONLY, 0 clobbers -- with the walks paired, today's import-chain writes exactly what stock writes, less
+  what lives across its seam)**, R3-ADVANCE (F0 at 2610 in the real 354 every run; F4 never), R3-LATCH (every
+  hub-gated write STOCK ONLY for F4; CLOBBER names byte 297, 1 -> 0 by the seed's `UInt16[296] = 192`),
+  R3-PREEMPT (2064/2079/2075 stamped in every F4 member, beside their stock writers).
+- **VOID R3-NULL-PRE** -- the claim held: 205 keys stock writes before 450 in every run, MISSING 0; 80 of them first
+  written in the tour, from 350/351/352/353/354/356 -- but no stock run gave 355 before 450 (S#1 never entered it:
+  a Dali child pinned Zidane short of its door twice; S#7 took it after 450 after a LIVE miss there), so v2 names
+  the stock side's evidence short: too little to say, not a falsification. Its six PARTIAL keys are one site,
+  `359 e5 t17 +49 Byte[299] = 1..6`: the villager's count of frames until Confirm, in the scripted segment (F0#5's
+  Confirm landed before the loop's first tick) -- input timing, not the fork.
+
+**What rung 3 proves.** The instrument does the job the arc built it for: pointed at a stock zone and two forks of
+it, with no script reading, the set difference names the missing field and its store (450 e19 +59, the ping), the
+fork's seam into the real game, the seed's pre-empted latches beside the stock writers they pre-empt, and the
+16-bit write that clobbers its neighbour byte -- and says nothing else. What it cost to get a clean comparison is a
+law of its own: **a fork-vs-stock diff is only as good as the walk is paired** -- a story byte like the
+`SByte[296]` countdown carries the visit order, and a blind walker that behaves systematically differently on two
+sides (3 of 3 boxed vs 0 of 3) fabricates STOCK/FORK ONLY keys the pattern-level compare cannot tell from a fork
+difference. Replay the stock walk on the fork side; judge coverage, not outcome.
 
 ## Rungs
 
