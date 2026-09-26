@@ -1,0 +1,546 @@
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 94e5e57..2c9536e 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -41,8 +41,9 @@ namespace Memoria.Harness
+     {
+         // 5 (rev 5): the `netsync` block + verbs -- the co-op client's F3 dialogue-lockstep
+         // observables and the solo-bench entry points, so the F1-F3 benches run unattended.
+-        // Additive under 5, no bump: `storytrace` (s88), `objects` + `pushout` (s89) -- an engine without them
+-        // publishes no key, which a driver must read as "cannot", never as "nothing there".
++        // Additive under 5, no bump: `storytrace` (s88), `objects` + `pushout` (s89), `player.yaw` +
++        // `player.face` and the `turn` verb (s90) -- an engine without them publishes no key (and answers
++        // `turn` with "unknown op"), which a driver must read as "cannot", never as "nothing there".
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -99,19 +100,22 @@ namespace Memoria.Harness
+         /// unit vector (rather than a ramp) also makes harness movement deterministic: the same hold
+         /// for the same frame count covers the same distance on every run, which is what lets a
+         /// scenario assert on a position at all.
++        ///
++        /// s90: a direction held by `turn` is left OUT (MoveHeld) -- a key with no axis is what makes MovePC
++        /// turn him in place instead of stepping him (see _turnMask).
+         /// </remarks>
+         public static Boolean TryGetAxis(out Vector2 axis)
+         {
+             axis = Vector2.zero;
+             if (!Active)
+                 return false;
+-            if (IsHeld(Control.Up))
++            if (MoveHeld(Control.Up))
+                 axis.y += 1f;
+-            if (IsHeld(Control.Down))
++            if (MoveHeld(Control.Down))
+                 axis.y -= 1f;
+-            if (IsHeld(Control.Left))
++            if (MoveHeld(Control.Left))
+                 axis.x -= 1f;
+-            if (IsHeld(Control.Right))
++            if (MoveHeld(Control.Right))
+                 axis.x += 1f;
+             if (axis.x == 0f && axis.y == 0f)
+                 return false;
+@@ -135,18 +139,20 @@ namespace Memoria.Harness
+             value = 0f;
+             if (!Active)
+                 return false;
++            // s90: a `turn` key never steps a cursor either. No NGUI surface is live on a controlled field
++            // HUD, so this only matters for the frame a cut turn's keys take to lift.
+             if (axisName == "Horizontal")
+             {
+-                if (IsHeld(Control.Left))
++                if (MoveHeld(Control.Left))
+                     value -= 1f;
+-                if (IsHeld(Control.Right))
++                if (MoveHeld(Control.Right))
+                     value += 1f;
+             }
+             else if (axisName == "Vertical")
+             {
+-                if (IsHeld(Control.Up))
++                if (MoveHeld(Control.Up))
+                     value += 1f;
+-                if (IsHeld(Control.Down))
++                if (MoveHeld(Control.Down))
+                     value -= 1f;
+             }
+             else
+@@ -156,6 +162,58 @@ namespace Memoria.Harness
+             return value != 0f;
+         }
+ 
++        // ---- s90: the in-place turn ---------------------------------------------------------------
++        // `turn` holds direction KEYS with no analog AXIS. IsHeld reports a turn key like any held direction,
++        // so everything that reads a key sees the press -- MovePC's movingUp/Down/Left/Right
++        // (FieldMapActorController.cs:612-615, via UIKeyTrigger.GetKey -> HonoInputManager.IsInput) and the
++        // keyboard probe behind isStickMovement (:627-634) -- but TryGetAxis and TryGetNavigationAxis leave it
++        // out. Under [AnalogControl] Enabled=1 that is the engine's own turn in place: the key branch builds the
++        // 8-way target (:698-708, the direction the axis gives a hold), the stick-threshold test zeroes the step
++        // because the axis is under threshold (:736-737), and the facing lerp (:749-764) keys on the booleans,
++        // never on the step. It is the state s83's missing axis produced by accident (HonoInputManager.cs:940-950):
++        // "the actor even ROTATED ... and never translated".
++        //
++        // One bit per Control index. A bit means something only while its key is down or scheduled; a stale bit
++        // on a lifted key is inert, and the next hold/press of that direction drops it.
++        private static Int32 _turnMask;
++        private static Int32 _turnFrom = -1;    // first frame of the turn being reported; -1 = none
++        private static Int32 _turnField = -1;   // the fldMapNo it began on
++        private static PosObj _turnPo;          // the controlled actor it began on (a same-id reload makes new ones)
++        private static Single _turnX, _turnY, _turnZ, _turnYaw;
++        // THE FIELD JUDGES A TURN AFTER ITS KEYS LIFT, so its report waits for that. The region pass that reads
++        // the final facing runs on a LATER event pass than the MovePC call that wrote it: CollisionRequest only
++        // Requests the region's tag 2 (EventEngine.ProcessEvents.cs:187 -> EventCollision.cs:300-303 ->
++        // EventEngine.cs:339-349, which sets its ip) after that pass's ProcessCode (:122), so the tag 2 -- the
++        // code that reads obj(250).f[3] -- runs on the next pass. Reported at the lift (as first drafted), a door
++        // the last lerp brought into the window read `ended` and fired a tick later. The report stays open until
++        // TurnSettlePasses event passes have run since the lift (the first of them reads the final facing at the
++        // latest), counted on EventEngine.LastProcessTime, the stamp every pass writes (ProcessEvents.cs:19) and
++        // the engine's own "has a pass run since" test (DialogBoxSymbols.cs:836-857). A frame that runs two
++        // passes counts once, so the wait only ever errs long.
++        private static Int32 _turnLift = -1;    // the frame the report's keys lifted; -1 = still down (or none)
++        private static Single _turnPassMark;    // LastProcessTime as last seen while settling
++        private static Int32 _turnPasses;       // event passes seen since the lift
++        private const Int32 TurnSettlePasses = 2;
++        private const Int32 TurnMaxFrames = 36000;
++        private const Int32 TurnUpDown = (1 << (Int32)Control.Up) | (1 << (Int32)Control.Down);
++        private const Int32 TurnLeftRight = (1 << (Int32)Control.Left) | (1 << (Int32)Control.Right);
++
++        // A direction held to MOVE: down, and not a `turn` key.
++        private static Boolean MoveHeld(Control c)
++        {
++            return IsHeld(c) && (_turnMask & (1 << (Int32)c)) == 0;
++        }
++
++        // The turn keys down on `frame` or any later frame (a key is down on [_downFrame, _upFrame)).
++        private static Int32 TurnKeysFrom(Int32 frame)
++        {
++            Int32 keys = 0;
++            for (Int32 i = (Int32)Control.Up; i <= (Int32)Control.Right; i++)
++                if ((_turnMask & (1 << i)) != 0 && _upFrame[i] > frame)
++                    keys |= 1 << i;
++            return keys;
++        }
++
+         // ---- request queue ---------------------------------------------------------------------
+         private sealed class Step
+         {
+@@ -260,6 +318,7 @@ namespace Memoria.Harness
+                     RedirectSaves(true);
+                 PollRequest();
+                 DrainQueue();
++                ServiceTurn();                  // s90: end, or cut, an in-place turn
+                 StoryTrace.Tick();              // s88: the story trace's one append per frame
+                 PublishState(false);
+             }
+@@ -417,6 +476,12 @@ namespace Memoria.Harness
+                 _downFrame[i] = -1;
+                 _upFrame[i] = -1;
+             }
++            // s90: every turn key is up with them -- drop the bits and the pending report (reset, disarm and a
++            // fault end a turn silently; their own events say why).
++            _turnMask = 0;
++            _turnFrom = -1;
++            _turnLift = -1;
++            _turnPo = null;
+         }
+ 
+         // ------------------------------------------------------------------------------------------
+@@ -534,6 +599,7 @@ namespace Memoria.Harness
+                 case "press":
+                 {
+                     Control c = ParseControl(s.Args.Length > 0 ? s.Args[0] : "");
++                    ClaimForMove(c);            // s90: never a step inside a turn
+                     Int32 frames = Math.Max(1, Arg(s, 1, 2));
+                     Schedule(c, frames);
+                     Block(frames + 2);          // +1 for the scheduling offset, +1 so IsInputUp lands inside the step
+@@ -543,6 +609,7 @@ namespace Memoria.Harness
+                 case "hold":
+                 {
+                     Control c = ParseControl(s.Args.Length > 0 ? s.Args[0] : "");
++                    ClaimForMove(c);            // s90: never a step inside a turn
+                     // Extend, not Schedule: a re-issued hold must not punch a one-frame hole in a
+                     // press the driver believes is continuous. See Extend for what that cost.
+                     Extend(c, Math.Max(1, Arg(s, 1, 30)));
+@@ -571,6 +638,17 @@ namespace Memoria.Harness
+                     break;
+                 }
+ 
++                // [s90] THE IN-PLACE TURN: `turn <dir>[+<dir>] [frames]` presses the direction keys with NO analog
++                // axis, so each MovePC call turns him 40% of the way and does not step him (see _turnMask).
++                // Non-blocking and frame-counted like `hold` (sync with `wait`); lifted by `release <dir>`, `reset`,
++                // disarm and a fault like every held input, and cut by the agent the moment the field stops
++                // honouring it. Its one `turn_end` comes once the field has judged the final facing (ServiceTurn):
++                // AFTER the keys lift, so after a `wait` of its frames + 2. Refusals throw -- nothing is pressed.
++                case "turn":
++                    BeginTurn(ParseTurnDirections(s.Args.Length > 0 ? s.Args[0] : ""),
++                              Math.Min(TurnMaxFrames, Math.Max(1, Arg(s, 1, 30))));
++                    break;
++
+                 case "warp":
+                     if (!Ff9mkDebugMenu.HarnessWarp(Arg(s, 0, -1), Arg(s, 1, -1), Arg(s, 2, -1)))
+                         throw new InvalidOperationException("warp refused (not on a field?)");
+@@ -1019,6 +1097,319 @@ namespace Memoria.Harness
+             }
+         }
+ 
++        // `up`, `up+right`, ... -- ParseControl's names and aliases, directions only.
++        private static Int32 ParseTurnDirections(String arg)
++        {
++            if (String.IsNullOrEmpty(arg))
++                throw new ArgumentException("needs a direction (up|down|left|right, '+'-joined)");
++            Int32 mask = 0;
++            foreach (String part in arg.Split('+'))
++            {
++                Control c = ParseControl(part);
++                if (c != Control.Up && c != Control.Down && c != Control.Left && c != Control.Right)
++                    throw new ArgumentException("'" + part + "' is not a direction (up|down|left|right, '+'-joined)");
++                mask |= 1 << (Int32)c;
++            }
++            return mask;
++        }
++
++        // Why the field would not honour a turn right now, as a token -- null when it would. The gates a held key
++        // already meets on its way to the facing, in MovePC's own terms (FieldMapActorController.cs):
++        //   field     gMode 1 and the field scene;
++        //   player    a controlled actor (GetControlChar, EventEngine.cs:425-431) whose controller runs MovePC at
++        //             all (isPlayer, :324);
++        //   control   user control (MovePC masks every key with it, :636-642);
++        //   movement  no movement pad-mask and no battle backup position (MovePC returns at :586; HonoUpdate at
++        //             :170-173);
++        //   actor     the actor is running (MovePC returns at :588);
++        //   hud       the field HUD. UIKeyTrigger.GetKey answers false for every key outside FieldHUD, WorldHUD,
++        //             BattleHUD, QuadMistBattle and the EndGame scene (UIKeyTrigger.cs:94-95); FieldHUD alone is
++        //             this verb's own, stricter rule.
++        // Never throws: it runs from Update, where a throw FAULTS the agent.
++        private static String TurnBlocker(out PosObj po, out FieldMapActorController ctrl)
++        {
++            po = null;
++            ctrl = null;
++            try
++            {
++                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                if (ee == null || ee.gMode != 1 || !SceneDirector.IsFieldScene())
++                    return "field";
++                po = ee.GetControlChar();
++                Actor actor = po as Actor;
++                ctrl = actor != null ? actor.fieldMapActorController : null;
++                if (ctrl == null || !ctrl.isPlayer)
++                    return "player";
++                if (!ee.GetUserControl())
++                    return "control";
++                if (!EventInput.IsMovementControl || (ctrl.fieldMap != null && ctrl.fieldMap.isBattleBackupPos))
++                    return "movement";
++                if (po.state != EventEngine.stateRunning)
++                    return "actor";
++                if (PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.FieldHUD)
++                    return "hud";
++                return null;
++            }
++            catch (Exception)
++            {
++                po = null;
++                ctrl = null;
++                return "unreadable";
++            }
++        }
++
++        // |axis| from a PHYSICAL stick or key (or the mouse's virtual analog) -- the value MovePC compares with the
++        // stick threshold (FieldMapActorController.cs:601-608). A turn is in place only while it stays at or under
++        // the threshold: above it `analogMove` is true, the axis branch wins (:693-697) and the step is not zeroed
++        // (:736-737) -- he WALKS. Readable only while the harness pushes no axis of its own (GetAxis answers with
++        // TryGetAxis's vector first, HonoInputManager.cs:951-957): -1 then, and when unreadable.
++        private static Single PhysicalAxis()
++        {
++            Vector2 own;
++            if (TryGetAxis(out own))
++                return -1f;
++            return Try(() => PersistenSingleton<HonoInputManager>.Instance.GetAxis().magnitude, -1f);
++        }
++
++        // `turn`. Refusals throw (the per-request error latch) and NOTHING is written unless every check passed:
++        // the start is read into locals, every refusal runs, and only then is the turn committed.
++        private static void BeginTurn(Int32 mask, Int32 frames)
++        {
++            PosObj po;
++            FieldMapActorController ctrl;
++            String why = TurnBlocker(out po, out ctrl);
++            if (why != null)
++                throw new InvalidOperationException("needs a field with a controlled player under user control ("
++                    + why + ")");
++            Int32 f = Time.frameCount;
++            Int32 field = Try(() => (Int32)FF9StateSystem.Common.FF9.fldMapNo, -1);
++            Single x = Try(() => po.pos[0], Single.NaN);
++            Single y = Try(() => po.pos[1], Single.NaN);
++            Single z = Try(() => po.pos[2], Single.NaN);
++            Single yaw = Try(() => po.rotAngle[1], Single.NaN);
++            if (field < 0 || Single.IsNaN(x) || Single.IsNaN(y) || Single.IsNaN(z) || Single.IsNaN(yaw))
++                throw new InvalidOperationException("the player's field, position or facing is unreadable");
++            // A turn composes onto another only while that one's keys are down. Once they are up (this very frame
++            // included: the queue drains before ServiceTurn sees the lift) the field is still judging it, and
++            // folding a new turn in would swallow its turn_end and merge two turns' yaw0/frames/moved.
++            if (_turnFrom >= 0 && (_turnLift >= 0 || TurnKeysFrom(f) == 0))
++                throw new InvalidOperationException("the last turn's keys are up and the field is still judging it"
++                    + " -- wait for its turn_end");
++            // Composing onto a turn in progress needs the SAME actor on the same field: after a same-id reload or a
++            // control hand-off, ServiceTurn cuts that turn this very frame and would take these keys with it.
++            if (_turnFrom >= 0 && (po != _turnPo || field != _turnField))
++                throw new InvalidOperationException("the turn in progress began on another actor or field -- it is cut"
++                    + " this frame; turn again after its turn_end");
++            // Without the analog path the SAME keys walk him: the key branch normalises the vector
++            // (FieldMapActorController.cs:710-711) and nothing zeroes it -- the threshold test (:736-737) sits
++            // inside the analog block.
++            if (!Memoria.Configuration.AnalogControl.Enabled)
++                throw new InvalidOperationException("[AnalogControl] Enabled=0 -- MovePC's key path would step him,"
++                    + " not turn him");
++            // A direction held by hold/press feeds the axis, and the axis wins MovePC's branch (:693-697): the turn
++            // keys would only steer that walk. So no direction may be down NOW or on any later frame -- the start
++            // below is read this frame, and this frame's tick can run after the agent's Update (the FRAME MODEL
++            // note), so a key down on its last frame would step and turn him after the snapshot. Composing, the
++            // turn's own keys are exempt (no other direction can be down then: this refusal, and ClaimForMove, its
++            // mirror).
++            Boolean fresh = _turnFrom < 0;
++            for (Int32 i = (Int32)Control.Up; i <= (Int32)Control.Right; i++)
++            {
++                if (!fresh && (_turnMask & (1 << i)) != 0)
++                    continue;
++                if (IsHeld((Control)i) || _upFrame[i] > f + 1)
++                    throw new InvalidOperationException((Control)i + " is held or scheduled -- release it (and let it"
++                        + " lift) first");
++            }
++            // Opposite keys cancel in the key branch (:700-707) to a ZERO vector, whose atan2(-0,-0) at :751 is
++            // -180 degrees -- a facing nobody pressed for.
++            Int32 all = TurnKeysFrom(f + 1) | mask;
++            if ((all & TurnUpDown) == TurnUpDown || (all & TurnLeftRight) == TurnLeftRight)
++                throw new ArgumentException("opposite directions cancel to no direction");
++            // A physical stick or key over the threshold walks him whatever the harness holds (see PhysicalAxis).
++            // Mid-turn the same test CUTS the turn (ServiceTurn), and turn_end's `moved` is the witness for the
++            // frame the cut can take to land.
++            Single stick = PhysicalAxis();
++            if (stick > Memoria.Configuration.AnalogControl.StickThreshold)
++                throw new InvalidOperationException("a physical stick or key is pushing the axis (|a| "
++                    + stick.ToString("0.###", CultureInfo.InvariantCulture) + ") -- MovePC's axis branch would walk him");
++            // A pending click-to-move path: the turn keys clear the target (:643-644, ClearMoveTargetAndPath keeps
++            // movePaths) and each call under control pops the next leg (:648-657) -- the turn would consume a walk
++            // the player asked for.
++            if (ctrl.hasTarget || (ctrl.movePaths != null && ctrl.movePaths.Count > 0))
++                throw new InvalidOperationException("a click-to-move path is pending -- the turn keys would consume it");
++            // Standing, the one branch of a zero-step MovePC that can shove him is the object test at :765:
++            // overlapping a collidable body he now faces, the push-out (:772-793) shoves him clear. A blocked press
++            // does the same; standing never runs it. Asked with the engine's own mode-0 query (WalkMesh.cs:899-965,
++            // a pure read) at his current position. A body that walks into him mid-turn is not caught here --
++            // turn_end's `moved` is the witness for that. (Not refused, and also witnessed by `moved`: MovePC's own
++            // UpdateActiveTri (:795) re-projects him onto his triangle BEFORE ServiceChar -- float noise, twice a
++            // call with UpdateMovement's own (:366), so it builds over a turn and grows with the coordinates: a
++            // float32 emulation of a 16-call turn put its worst at 0.075u at +-16000 and 0.18u at +-30000 -- so
++            // ServiceChar's walkmesh pass (:950-1010) runs on that noise where standing's never does, exactly as for
++            // a blocked press; at a spot closer to a walkmesh edge than his radius, its edge force can move him
++            // further. Its RadiusValid / ServiceForces are private, so it cannot be asked here.)
++            if (ctrl.walkMesh != null)
++            {
++                Single dist;
++                PosObj body = ctrl.walkMesh.Collision(ctrl, 0, out dist);
++                if (body != null)
++                    throw new InvalidOperationException("overlapping object uid " + body.uid
++                        + " -- a turn toward it would push him out");
++            }
++            // COMMIT. A turn whose keys are down keeps its start (overlapping requests compose, like `hold`).
++            if (fresh)
++            {
++                _turnFrom = f + 1;
++                _turnLift = -1;
++                _turnField = field;
++                _turnPo = po;
++                _turnX = x;
++                _turnY = y;
++                _turnZ = z;
++                _turnYaw = yaw;
++            }
++            // The bits go up BEFORE the keys go down (Extend: next frame), so no frame ever puts a turn key on the
++            // axis. Bits of turn keys still down THIS frame are kept (a released one lifts next frame); older
++            // stale bits are dropped.
++            _turnMask = TurnKeysFrom(f) | mask;
++            for (Int32 i = (Int32)Control.Up; i <= (Int32)Control.Right; i++)
++                if ((mask & (1 << i)) != 0)
++                    Extend((Control)i, frames);
++        }
++
++        // hold/press of a DIRECTION while a turn is open would hand MovePC an axis mid-turn (:693-697) -- a step
++        // inside what the driver believes is a turn in place -- or, once its keys are up, a walk inside the passes
++        // the field is judging the turn on, landing in its turn_end as `moved` (or a door walked into). Refused
++        // while a turn is open, while a turn key is still down when this key goes down (next frame), or while this
++        // very direction is a turn key down now. Otherwise its stale bit is dropped, so the hold feeds the axis.
++        private static void ClaimForMove(Control c)
++        {
++            Int32 i = (Int32)c;
++            if (i < (Int32)Control.Up || i > (Int32)Control.Right)
++                return;
++            if (_turnFrom >= 0)
++                throw new InvalidOperationException("a `turn` is still open (its keys down, or up and being judged)"
++                    + " -- wait for its turn_end");
++            if (TurnKeysFrom(Time.frameCount + 1) != 0 || ((_turnMask & (1 << i)) != 0 && IsHeld(c)))
++                throw new InvalidOperationException("a `turn` key is still down -- release it (and let it lift)"
++                    + " first");
++            _turnMask &= ~(1 << i);
++        }
++
++        // Once per armed frame, after the queue. A turn is a FIELD verb under control and it ends the moment the
++        // field stops honouring it: MovePC already ignores the keys then, but they would stay DOWN for the rest of
++        // their frames -- into a choice window, a menu, the next field. Beyond TurnBlocker it is cut when the
++        // field id or the controlled ACTOR changes (a same-id reload, or a script handing control to another
++        // character, keeps the id) and when a physical stick crosses the threshold ("axis": he would walk).
++        // Once the keys lift the report stays open for TurnSettlePasses event passes (see _turnLift) under the
++        // same tests: one that trips then is the field taking him on the final facing -- a door gate that fires
++        // runs DisableMove (DoEventCode.cs:1046-1062) in the pass that reads it, so it shows as `control` -- and
++        // `ended` means the field ran its passes on that facing and did not. Never throws.
++        private void ServiceTurn()
++        {
++            Int32 f = Time.frameCount;
++            if (_turnFrom < 0)
++            {
++                // No report open: nothing, or a cut turn whose keys lift this frame. Once every key is up its
++                // bits are stale.
++                if (_turnMask != 0 && TurnKeysFrom(f) == 0)
++                    _turnMask = 0;
++                return;
++            }
++            Boolean down = TurnKeysFrom(f) != 0;
++            if (!down && _turnLift < 0)
++            {
++                // The keys lifted: the facing is final, and the field's next pass reads it.
++                _turnLift = f;
++                _turnMask = 0;              // every turn key is up: the bits are stale
++                _turnPasses = 0;
++                _turnPassMark = Try(() => EventEngine.LastProcessTime, 0f);
++            }
++            PosObj po;
++            FieldMapActorController ctrl;
++            String why = TurnBlocker(out po, out ctrl);
++            if (why == null && Try(() => (Int32)FF9StateSystem.Common.FF9.fldMapNo, -1) != _turnField)
++                why = "field";
++            if (why == null && po != _turnPo)
++                why = "player";
++            if (why == null && PhysicalAxis() > Memoria.Configuration.AnalogControl.StickThreshold)
++                why = "axis";
++            if (why == null)
++            {
++                if (down)
++                    return;
++                Single mark = Try(() => EventEngine.LastProcessTime, _turnPassMark);
++                if (mark != _turnPassMark)
++                {
++                    _turnPassMark = mark;
++                    _turnPasses++;
++                }
++                if (_turnPasses < TurnSettlePasses)
++                    return;
++                why = "ended";
++            }
++            if (!down)
++            {
++                EndTurn(why, _turnLift - _turnFrom);
++                return;
++            }
++            // Lift every turn key by the `release` rule (A RELEASE MUST NEVER PRESS): a key that is down gets its Up
++            // on the next frame, a key not yet down is cleared. The keys are still down on THIS frame, so the turn
++            // held them for f + 1 - _turnFrom frames.
++            for (Int32 i = (Int32)Control.Up; i <= (Int32)Control.Right; i++)
++            {
++                if ((_turnMask & (1 << i)) == 0 || _upFrame[i] <= f)
++                    continue;
++                if (f >= _downFrame[i])
++                    _upFrame[i] = f + 1;
++                else
++                {
++                    _downFrame[i] = -1;
++                    _upFrame[i] = -1;
++                }
++            }
++            EndTurn(why, f + 1 - _turnFrom);
++        }
++
++        // `turn_end`, one per turn: why it ended (`ended` = its keys lifted -- its frames ran out or `release`
++        // lifted them -- and the field then ran TurnSettlePasses event passes on the final facing with him still
++        // under control, on the same field and actor; otherwise the token that cut it, while its keys were down or
++        // during those passes), how many frames its keys were down, the yaw it began and ended at, the facing byte
++        // it ended at (the obj.f[3] a gate reads -- EBin.HarnessFacingByte), and how far he MOVED in 3-D -- 0, or
++        // the walkmesh re-projection's float noise (an emulation's worst: 0.18u at +-30000, see BeginTurn), for a
++        // true turn in place; anything more is the engine's push-out or edge force, a human's stick, or a script.
++        // The end values are null when he is off a field or the controlled actor or field id is no longer the
++        // one the turn began on.
++        private void EndTurn(String why, Int32 frames)
++        {
++            EventEngine ee = Try(() => PersistenSingleton<EventEngine>.Instance);
++            PosObj po = ee == null ? null : Try(() => ee.GetControlChar());
++            Boolean same = po != null && po == _turnPo
++                        && Try(() => ee.gMode == 1 && SceneDirector.IsFieldScene(), false)
++                        && Try(() => (Int32)FF9StateSystem.Common.FF9.fldMapNo, -1) == _turnField;
++            Single yaw = same ? Try(() => po.rotAngle[1], Single.NaN) : Single.NaN;
++            Int32 face = same ? Try(() => ee.eBin.HarnessFacingByte(po), -1) : -1;
++            Single moved = same ? Try(() =>
++            {
++                Single dx = po.pos[0] - _turnX, dy = po.pos[1] - _turnY, dz = po.pos[2] - _turnZ;
++                return Mathf.Sqrt(dx * dx + dy * dy + dz * dz);
++            }, Single.NaN) : Single.NaN;
++            Event("turn_end", "why", why,
++                  "frames", Math.Max(0, frames).ToString(CultureInfo.InvariantCulture),
++                  "yaw0", Fmt(_turnYaw), "yaw", Fmt(yaw),
++                  "face", face < 0 ? null : face.ToString(CultureInfo.InvariantCulture),
++                  "moved", Fmt(moved));
++            _turnFrom = -1;
++            _turnLift = -1;
++            _turnPo = null;
++        }
++
++        private static String Fmt(Single v)
++        {
++            return Single.IsNaN(v) || Single.IsInfinity(v) ? null : v.ToString("0.###", CultureInfo.InvariantCulture);
++        }
++
+         private static Int32 Arg(Step s, Int32 i, Int32 fallback)
+         {
+             Int32 v;
+@@ -1168,6 +1559,22 @@ namespace Memoria.Harness
+             Num(sb, "y", po != null && po.pos != null && po.pos.Length > 1 ? po.pos[1] : Single.NaN); sb.Append(",");
+             Num(sb, "z", po != null && po.pos != null && po.pos.Length > 2 ? po.pos[2] : Single.NaN); sb.Append(",");
+             Num(sb, "dir", po != null && po.rot != null && po.rot.Length > 1 ? po.rot[1] : -1); sb.Append(",");
++            // [s90] THE FACING A DOOR GATE READS. `dir` is PosObj.rot[1], which only the world map writes
++            // (WMActor.cs:101) -- 0 on every field whatever way he faces. On a field the facing is rotAngle[1]
++            // (PosObj.cs:165), in degrees: MovePC's lerp writes it wrapped to [-180, 180]
++            // (FieldMapActorController.cs:759-764), a script's turn or direct set can leave it anywhere (putvobj of
++            // a byte: [0, 358.6], EventEngine.cs:1180-1188) -- published RAW as `yaw`. `face` is the byte a
++            // script's obj(250).f[3] reads, from EBin's own getvobj (EBin.HarnessFacingByte), so it cannot drift
++            // from what the gate compares. Both null with no controlled player or off a field.
++            Boolean onField = po != null && Try(() => PersistenSingleton<EventEngine>.Instance.gMode == 1
++                                                      && SceneDirector.IsFieldScene(), false);
++            Num(sb, "yaw", onField ? Try(() => po.rotAngle[1], Single.NaN) : Single.NaN); sb.Append(",");
++            Int32 face = onField ? Try(() => PersistenSingleton<EventEngine>.Instance.eBin.HarnessFacingByte(po), -1) : -1;
++            if (face < 0)
++                sb.Append("\"face\":null");
++            else
++                Num(sb, "face", face);
++            sb.Append(",");
+             Num(sb, "floor", po != null ? po.activeFloor : -1); sb.Append(",");
+             Num(sb, "tri", po != null ? po.activeTri : -1); sb.Append(",");
+             // The uid the player's LAST talk targeted (Actor.listener) -- how a scenario learns an NPC's uid.
+diff --git a/Assembly-CSharp/Global/EBin.cs b/Assembly-CSharp/Global/EBin.cs
+index 764a6f0..3aa94ae 100644
+--- a/Assembly-CSharp/Global/EBin.cs
++++ b/Assembly-CSharp/Global/EBin.cs
+@@ -1843,6 +1843,16 @@ public class EBin
+         return result;
+     }
+ 
++    // [ff9mapkit s90] The harness's read of a script's `obj.f[3]` -- the facing byte a stock door gate compares
++    // with the exit bearing (`obj(250).f[3] SYSVAR[10] obj(250).f[0] B_MINUS ... B_ANGLE2 B_MINUS 255 B_AND`).
++    // It CALLS getvobj rather than re-deriving the byte, so the `player.face` HarnessAgent publishes is the value
++    // the gate reads, byte for byte: the same gMode branch, the same ConvertFloatAngleToFixedPoint, the same
++    // `>> 4 & 255`. Type 3 only reads -- no interpreter state (not even _v0) is touched.
++    public Int32 HarnessFacingByte(Obj obj)
++    {
++        return getvobj(obj, 3);
++    }
++
+     private static Int32 CastFloatToIntWithChecking(Single floatValue)
+     {
+         Int32 int1 = Mathf.FloorToInt(floatValue);

@@ -21,3 +21,5 @@ see [`../HANDOFF.md`](../HANDOFF.md)).
 - `rung3-4-adversarial-check.md` -- the adversarial check of that design (its corrections won).
 - `rung3-5-the-116-miss-diagnosis.md` -- every walker "miss" of sessions 1-3 classified; the walker door pin
   (fixed) and THE FACING GATE (open -- the spec is in ../HANDOFF.md).
+- `rung3-6-the-facing-gate.md` -- the facing gate grounded: the engine rule (units, strict window, per-call turn),
+  the stock census (122 of 1393 walk-in gateways, 98 fields), the harness code map; behind the walker fix and s90.
