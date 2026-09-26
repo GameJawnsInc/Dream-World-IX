@@ -118,8 +118,15 @@ Treat this as **verify-and-iterate**, not one-shot-trust. (Claude can run this v
      (plain text mode corrupts CRLF files); note TWO distinct patches are both numbered `s48` —
      disambiguate by filename — and the stored `s48` patch is LF while the tree is CRLF, so
      normalize it on replay. Build from a PROOF worktree of the pinned Memoria base `6b8bb2d5`,
-     never the live dev clone, with the auto-deploy gated off via the `DWIXNoDeploy` csproj
-     condition; then compile `Assembly-CSharp` (see ENGINE.md "Build from source").
+     never the live dev clone, with the auto-deploy gated off. The stack itself does the gating:
+     s45 conditions `Assembly-CSharp.csproj`'s `AfterBuild` on `DWIXNoDeploy`, and s91 does the
+     same for `Memoria.Prime` and `UnityEngine.UI`. Those two are built first as ProjectReferences,
+     and each deploys over the LIVE install unless gated. So do not hand-edit a condition, and
+     never use `DWIXNoDeploy=1`: the stack's condition is `!= 'true'`.
+     Restore packages first (`-t:Restore`, since a fresh tree needs it), then compile
+     `Assembly-CSharp` with `py tools/build_memoria.py --no-deploy --clone <proof-dir>`. It
+     refuses if any Deploy in the build is ungated, and it fails loudly if a live engine file
+     changes anyway (see ENGINE.md "Build from source").
    - Assemble `dwix-custom-memoria-1.0.0b2.zip` = the three managed DLLs (`Assembly-CSharp.dll` + the
      matched `Memoria.Prime.dll` / `UnityEngine.UI.dll`) + an `INSTALL.txt` + MIT/Albeoris attribution.
      (A pre-built bundle exists at `dwix-custom-memoria-1.0.0b2.zip` outside the repo — rebuild only if

@@ -30,7 +30,11 @@ passes **`-p:SolutionDir=<clone>\`** with the load-bearing trailing backslash (e
 machine's .NET v4.0 mscorlib leaks in → `CS1703`/`CS0433`), and **verifies post-deploy** that
 Output sha256 == both arches' live copies — a build while FF9 runs can fail the Deploy task
 partway, and a MIXED deploy is flagged loudly with the restore one-liner. `--no-deploy` =
-compile-check only (refused if the clone's csproj lacks the s45 `DWIXNoDeploy` condition).
+compile-check only: refused unless EVERY Deploy in Assembly-CSharp's ProjectReference closure is
+gated on `DWIXNoDeploy` (s45 = Assembly-CSharp; s91 = the Memoria.Prime + UnityEngine.UI siblings,
+which msbuild builds first and which each deployed on every "compile-check" before s91), then all
+12 live DLL + `.mdb` files are sha-compared around the build; any drift exits 4 and keeps the
+drifted DLLs' pre-run bytes for `restore_memoria_dll.py`.
 It also reports the shared clone's in-flight edit count first — a build deploys other
 sessions' edits too. Tests: `ff9mapkit/tests/test_build_memoria.py`.
 
