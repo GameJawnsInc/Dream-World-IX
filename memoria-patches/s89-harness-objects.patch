@@ -1,0 +1,193 @@
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 0ef9497..94e5e57 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -41,6 +41,8 @@ namespace Memoria.Harness
+     {
+         // 5 (rev 5): the `netsync` block + verbs -- the co-op client's F3 dialogue-lockstep
+         // observables and the solo-bench entry points, so the F1-F3 benches run unattended.
++        // Additive under 5, no bump: `storytrace` (s88), `objects` + `pushout` (s89) -- an engine without them
++        // publishes no key, which a driver must read as "cannot", never as "nothing there".
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1180,6 +1182,7 @@ namespace Memoria.Harness
+             AppendWatch(sb); sb.Append(",");
+             AppendNetsync(sb); sb.Append(",");
+             AppendStoryTrace(sb); sb.Append(",");
++            AppendObjects(sb); sb.Append(",");
+             AppendHeld(sb);
+             sb.Append("}");
+ 
+@@ -1831,6 +1834,171 @@ namespace Memoria.Harness
+             outer.Append("\"storytrace\":{").Append(sb).Append("}");
+         }
+ 
++        // [ff9mapkit s89] THE FIELD'S OBJECTS -- every other actor on the field, and what the engine's own
++        // player-vs-object collision does with it. Before this the player was the only object published, so
++        // the driver's router found NPCs by walking into them, and could not tell a villager it may push
++        // through from one that holds the player forever -- on a tight map, a true movement lock.
++        //
++        // THE SET is what WalkMesh.Collision walks for the player (mode 0): the active object list, actors
++        // only (cid 4; regions and code entries never collide), minus the player. An actor with no model,
++        // or hidden, still collides if its collision bit says so -- an invisible wall -- so it is listed
++        // with `shown` false, never dropped.
++        //   r      4*(obj.collRad + player.collRad): the centre distance inside which the engine calls it a
++        //          collision (disdif < -1: a hit must beat 0 by more than 1). collRad is SetObjectLogicalSize's
++        //          2nd argument (PosObj default 16). The pair only collides while |dy| < 400 -- the driver
++        //          compares `y` to the player's.
++        //   coll   the pair is skipped only when the PLAYER has flag 4 AND the object has flag 2 (actors are
++        //          born with 4, so in practice: object flag 2 = walk-through). A field debug mode skips all.
++        //   solid  coll and object flag 16: touching it resets sLockTimer, so CheckCollFallback never
++        //          reaches 25 and never opens its walk-through window. Without 16 the push-out is released
++        //          after ~26 unbroken colliding MovePC calls. Field 2207 at SC 9840 skips the fallback, so
++        //          there every collidable object is solid -- unless the window was already open on entry
++        //          (sLockTimer < 0 is then frozen until a flag-16 contact zeroes it; see `pushout`).
++        //   range  the entry HAS a tag-2 (Range) function. range_r = r + speed + 60 is where the engine's
++        //          per-tick search (CollisionRequest, mode 2) REQUESTS it: with the player under control,
++        //          standing still or not -- a contact script (a warp, a battle) the router must not blunder
++        //          into. null when coll is false (mode 2 uses the same pair rule). Only the closest such entry
++        //          is requested per tick, and only while it is idle (Request needs level > 1); CheckNPCPush
++        //          exempts fields 103/107 sid 3-4 and 1856 sid 5-6, which this does not mirror.
++        //   talk   the entry HAS a tag-3 (talk) function. talk_r = 4*(obj.talkRad + player.talkRad) + speed
++        //          + 60 is the talk search (mode 4), null when object flag 8 bars talk. When that search
++        //          shows the talk icon it requests the TALK object's tag 2 instead of running mode 2, so an
++        //          entry with range AND talk may also fire its Range inside talk_r while the player faces it.
++        //          (Both searches also box |dx|,|dz| < 2048, which only a radius above 2048 can feel.)
++        //   shown  the renderer gate: a GameObject, flag 1, frontCamera (projected depth in range) and at
++        //          least one mesh not hidden by HideMesh (a model with no mesh list counts as shown). null
++        //          when the GameObject carries no HonoBehavior: the gate never drives its renderers.
++        //   moving a scripted walk in progress (actMove), a controller path, or displaced this tick (the
++        //          engine's own walk-animation test). A walker held by a collision still reads true.
++        // r/coll/solid/range_r/talk_r are relations to the player; with no controlled player they are null.
++        // `pushout` is the push-out's GLOBAL state, which decides whether a non-solid body blocks RIGHT NOW:
++        // slock = EventEngine.sLockTimer (< 0: the walk-through window is open and every non-16 object is
++        // passable), scoll = SCollTimer, slockfree = sLockFree (set by the CLOSEST colliding object), and
++        // fallback = whether CheckCollFallback runs here at all. Off a field both values are null, and ANY
++        // failure makes both null: a partial list would tell a router that a blocked path is clear.
++        // Additive -- the protocol `v` stays 5.
++        private const Int32 MaxObjectWalk = 512;    // a runaway list must not hang the publisher
++        private const Int32 FallbackExemptField = 2207;     // Palace/Hall ...
++        private const Int32 FallbackExemptScenario = 9840;  // ... while Zidane is summoned past the stairs
++
++        private static void AppendObjects(StringBuilder outer)
++        {
++            StringBuilder sb = new StringBuilder(1024);
++            StringBuilder pb = new StringBuilder(96);
++            try
++            {
++                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                if (ee == null || ee.gMode != 1 || !SceneDirector.IsFieldScene())
++                {
++                    outer.Append("\"objects\":null,\"pushout\":null");
++                    return;
++                }
++                PosObj player = ee.GetControlChar();
++                Int32 controlUid = ee.GetControlUID();
++                Boolean debug = FF9StateSystem.Field.isDebug;
++                // A READ of CheckCollFallback's own early return, not a gate -- held in a local so the fork-gate
++                // censuses (which grep the wrapped `EffectiveFieldId(...fldMapNo) == N` form) do not count it.
++                Int32 effField = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
++                Boolean fallbackRuns = !(effField == FallbackExemptField
++                                      && FF9StateSystem.EventState.ScenarioCounter == FallbackExemptScenario);
++                // Where the fallback is skipped a non-16 object is held forever -- but only while the window is
++                // shut: a window already open on entry stays open (nothing else counts sLockTimer back up).
++                Boolean neverReleases = !fallbackRuns && ee.sLockTimer >= 0L;
++                Int32 n = 0;
++                Int32 walked = 0;
++                for (ObjList l = ee.GetActiveObjList(); l != null; l = l.next)
++                {
++                    if (++walked > MaxObjectWalk)
++                        throw new InvalidOperationException("object list exceeds " + MaxObjectWalk);
++                    Obj obj = l.obj;
++                    if (obj == null || obj.cid != 4 || obj == player || obj.uid == controlUid)
++                        continue;
++                    Actor actor = obj as Actor;
++                    if (actor == null || actor.pos == null || actor.pos.Length < 3)
++                        continue;
++                    Int32 flags = obj.flags;
++
++                    if (n > 0) sb.Append(",");
++                    n++;
++                    sb.Append("{");
++                    Num(sb, "uid", obj.uid); sb.Append(",");
++                    Num(sb, "sid", obj.sid); sb.Append(",");
++                    Num(sb, "x", actor.pos[0]); sb.Append(",");
++                    Num(sb, "y", actor.pos[1]); sb.Append(",");
++                    Num(sb, "z", actor.pos[2]); sb.Append(",");
++                    // GetIP reads the entry's function table; a null ebData would throw and void the whole list.
++                    Byte[] eb = obj.ebData;
++                    Boolean hasRange = eb != null && ee.GetIP(obj.sid, 2, eb) != ee.nil;
++                    Boolean hasTalk = eb != null && ee.GetIP(obj.sid, 3, eb) != ee.nil;
++                    Bool(sb, "range", hasRange); sb.Append(",");
++                    Bool(sb, "talk", hasTalk); sb.Append(",");
++                    if (player == null)
++                    {
++                        sb.Append("\"r\":null,\"solid\":null,\"coll\":null,\"range_r\":null,\"talk_r\":null,");
++                    }
++                    else
++                    {
++                        Boolean coll = !debug && !((player.flags & 4) != 0 && (flags & 2) != 0);
++                        Int32 r = 4 * (actor.collRad + player.collRad);
++                        Num(sb, "r", r); sb.Append(",");
++                        Bool(sb, "solid", coll && (neverReleases || (flags & 16) != 0)); sb.Append(",");
++                        Bool(sb, "coll", coll); sb.Append(",");
++                        // WalkMesh.Collision, (mode & 6) != 0: both searches add the object's speed + 60.
++                        if (coll && hasRange)
++                            Num(sb, "range_r", r + actor.speed + 60);
++                        else
++                            sb.Append("\"range_r\":null");
++                        sb.Append(",");
++                        if (!debug && hasTalk && (flags & 8) == 0)
++                            Num(sb, "talk_r", 4 * (actor.talkRad + player.talkRad) + actor.speed + 60);
++                        else
++                            sb.Append("\"talk_r\":null");
++                        sb.Append(",");
++                    }
++                    // The renderer gate (ProcessEvents SetRenderer): it only drives a GameObject that carries a
++                    // HonoBehavior, and enables a mesh only while HideMesh has not set its meshflags bit.
++                    if (actor.go == null)
++                    {
++                        Bool(sb, "shown", false);
++                    }
++                    else if (actor.go.GetComponent<HonoBehavior>() == null)
++                    {
++                        sb.Append("\"shown\":null");
++                    }
++                    else
++                    {
++                        Int32 meshCount = actor.geoGetMeshCount();
++                        Boolean anyMesh = meshCount == 0;
++                        for (Int32 m = 0; m < meshCount && !anyMesh; m++)
++                            anyMesh = actor.geoMeshChkFlags(m) == 0;
++                        Bool(sb, "shown", (flags & 1) != 0 && actor.frontCamera && anyMesh);
++                    }
++                    sb.Append(",");
++                    Boolean moving = (actor.actf & EventEngine.actMove) != 0;
++                    FieldMapActorController c = actor.fieldMapActorController;
++                    if (!moving && c != null)
++                        moving = c.hasTarget || (c.movePaths != null && c.movePaths.Count > 0)
++                              || !EventEngineUtils.nearlyEqual(c.curPos.x, c.lastPos.x)
++                              || !EventEngineUtils.nearlyEqual(c.curPos.z, c.lastPos.z);
++                    Bool(sb, "moving", moving); sb.Append(",");
++                    Num(sb, "flags", flags);    // the raw byte solid / coll / shown are read from
++                    sb.Append("}");
++                }
++                pb.Append("{");
++                Num(pb, "slock", ee.sLockTimer); pb.Append(",");
++                Num(pb, "scoll", ee.SCollTimer); pb.Append(",");
++                Num(pb, "slockfree", ee.sLockFree); pb.Append(",");
++                Bool(pb, "fallback", fallbackRuns);
++                pb.Append("}");
++            }
++            catch (Exception)
++            {
++                outer.Append("\"objects\":null,\"pushout\":null");
++                return;
++            }
++            outer.Append("\"objects\":[").Append(sb).Append("],\"pushout\":").Append(pb);
++        }
++
+         private static void AppendHeld(StringBuilder sb)
+         {
+             sb.Append("\"held\":[");

@@ -3,10 +3,12 @@
 
 WHAT THIS PROVES, AND WHAT IT DOES NOT. It implements the s83 wire protocol -- sequence handling,
 the arm transition, frame-stepped queue draining, state publication, screenshots -- plus just enough
-of a world (a rectangular walkmesh, a run/walk speed, a gateway, a dialogue box, a menu cursor) for
-the driver's closed-loop verbs to actually close their loops. A green run against it says the DRIVER
-is correct: seq numbers advance, acks belong to the request that earned them, torn reads are
-survived, timeouts fire, bad bases are rejected, artifacts land.
+of a world (a rectangular walkmesh, a run/walk speed, a gateway, a dialogue box, a menu cursor, a body
+standing in the way and the engine's walk-through-by-insisting, the field's actors published as s89's
+``objects`` -- walkers and contact triggers included -- a freeze with control held) for the
+driver's closed-loop verbs to actually close their loops. A green run against it says the DRIVER is
+correct: seq numbers advance, acks belong to the request that earned them, torn reads are survived,
+timeouts fire, bad bases are rejected, artifacts land.
 
 ⚠ IT SAYS NOTHING ABOUT THE ENGINE. It models the agent as SPECIFIED, not the DLL as deployed -- so
 a green suite means the driver still handles what it was taught, and nothing about whether a warp
@@ -112,6 +114,17 @@ class FakeGame:
         self.texts: list[str] = []
         self.raw_texts: list[str] = []
         self.choice: dict | None = None
+        #: A scripted scene with control withheld (:meth:`scene`): the beats still to play, where its choice
+        #: window is ("opening" / "ready" / "closing") and the frame that ends that phase, every choice the
+        #: scene was answered with (the absolute index taken), and when each window became READY as
+        #: ``len(self.executed)`` then -- so a test can name the steps a waiter issued before it could answer.
+        self._beats: list = []
+        self._beat_phase: str | None = None
+        self._beat_until = 0
+        self._beat_frames = (6, 6)                 # (opening, closing) frames of a choice window
+        self._typing_until = 0                     # a ready choice's prompt types on until this frame
+        self.answered: list[int] = []
+        self.readied: list[int] = []
         self.menu = {"selected": None, "hovered": None, "label": None, "group": None}
         self.menu_entries: list[str] = []
         self.menu_index = 0
@@ -143,7 +156,18 @@ class FakeGame:
         self.story_bytes = bytearray(2048)          # the modelled gEventGlobal the rows read old/new from
         self.scenario = 0
         self.donor = None                           # EffectiveFieldId: None = the field's own id
+        #: The floor: one box ``(x0, z0, x1, z1)``, or a list of boxes whose UNION is walkable (a room
+        #: opening into a corridor). A step that lands in none of them is clamped to the box he is in.
+        #: Or a real walkmesh (anything with ``point_on_walkmesh``: a stock field's, through
+        #: ``pathfind.PlayerWalkmesh``): his centre must stand on it -- see :meth:`_move_to`.
         self.walkmesh = walkmesh
+        #: On a real walkmesh, how far his CENTRE is kept off every wall (``distance_to_boundary``) -- the
+        #: engine's controller radius, cam.COLLISION_RADIUS_W, when a test sets it; None = anywhere on the mesh.
+        #: A step that would come closer stops where it reaches that line, as the engine pushes him back out
+        #: to it (2507's wall-slide samples sit 80-81u off its boundary), and the rest of the step slides on
+        #: along the wall. A gateway zone only a few units deep past that line is then as hard to stand in as
+        #: in the game.
+        self.clearance: float | None = None
         #: Frames the character keeps moving after the direction is released. ⚠ NOT ZERO, and the
         #: value is measured rather than chosen: on bench 30801 a hold covers what it commanded give
         #: or take ONE frame (`hold down 1` moves 60 units at run speed, `hold down 31` moves 900),
@@ -221,6 +245,64 @@ class FakeGame:
         self.battle_intro_frames = 30
         self._intro_until = 0
         self.gateway: tuple[float, float, float, float, int] | None = None
+        #: Walk-in gateway REGIONS per field, modelled on the engine's ExitField rather than on the
+        #: instant `gateway` box above: ``{field id: [{"zone": [[x, z], ...], "to": id,
+        #: "arrive": (x, z)}]}``. Stepping into a zone takes control on THAT frame; the field changes
+        #: `exit_frames` later (the fade), and the player appears at ``arrive`` with control -- so a
+        #: button still held at that moment walks him in the destination, which is the whole bug the
+        #: routed verbs exist to avoid. ``exit_frames = 0`` changes the field on the same frame.
+        self.regions: dict[int, list[dict]] = {}
+        self.exit_frames = 0
+        #: Every region that fired: ``{"frame", "from", "to", "executed"}`` -- ``executed`` is
+        #: ``len(self.executed)`` at that moment, so a test can name the steps issued AFTER it.
+        self.fired: list[dict] = []
+        self._exit: tuple[int, int, tuple[float, float]] | None = None   # (due frame, dest, arrive)
+        #: Bodies the walkmesh does not know about -- someone standing still in the way: ``{field id:
+        #: [(x, z, r) or (x, z, r, solid), ...]}``, ``r`` centre to centre (WalkMesh.Collision). A step
+        #: into one that has it in FRONT of him is pushed back out to ``r`` along the line from its
+        #: centre (FieldMapActorController.cs:776-797), so a press at an angle slides him round it and a
+        #: press straight at it stops him dead -- stock Zidane pressed into a Dali child on 350, six
+        #: bursts, 0u. A push-out that lands in another body is undone, move and all.
+        #: A body is PASSABLE unless ``solid`` (object flag 16, which no NPC on stock 350 sets): the
+        #: engine's sLockTimer (CheckCollFallback, :822) counts one a colliding MovePC call, flips to
+        #: -25 at 25, and the push-out is off until it counts back to 0 -- so one unbroken hold walks
+        #: through him, and bursts with a pause between never do. Counted here in MovePC calls: a
+        #: running frame is one (two 30u calls a tick, two frames a tick), a walking or idle frame half.
+        #:
+        #: A body may also be a DICT -- the s89 object it models, published under ``objects`` (see
+        #: `objects_mode`): ``{"x", "z", "r"}`` and optionally ``"y"`` (it collides only while |dy| < 400,
+        #: WalkMesh.cs:922), ``"solid"``, ``"coll"`` (False: walk-through), ``"uid"`` / ``"sid"`` (default
+        #: 128 + / 10 + its index), ``"shown"``; ``"range_r"`` -- a CONTACT trigger: with control, standing
+        #: still or not, his centre inside it fires the entry's Range (CollisionRequest, every tick; logged
+        #: in `touched`; only while ``coll``, as mode 2 keeps the pair rule), and with ``"talk_r"`` too it
+        #: also fires inside that while he faces it; ``"to"`` / ``"arrive"`` make that Range a warp (stock
+        #: 350's Vivi sends the run to 358); and ``"path"`` [(x, z), ...] with ``"speed"`` (u/frame) makes
+        #: it a WALKER, back and forth along the path (``"once"``: to its end, then it stands), published
+        #: ``moving`` -- and held while its next step would come within ``r`` of him (MoveToward stops on
+        #: the player), still ``moving``.
+        self.blockers: dict[int, list] = {}
+        #: What `objects` / `pushout` publish: "listed" (the s89 agent: the list on a field, null off
+        #: one), "null" (an agent that could not walk the list -- never a partial one) or "absent" (an
+        #: engine without s89: no key at all).
+        self.objects_mode = "listed"
+        #: Every contact trigger that fired: ``{"frame", "field", "uid", "kind" ("range" / "talk"),
+        #: "executed"}`` -- once per entry into its radius.
+        self.touched: list[dict] = []
+        #: Every step that met a body -- the push-out ran, or the step was refused: ``{"frame", "uid"}``.
+        #: A router that sees the bodies should leave this empty.
+        self.contacts: list[dict] = []
+        self._in_trigger: set = set()             # (field, body index) whose trigger he stands in
+        self._facing = (0.0, 1.0)                 # the direction last pressed (the talk search wants +-90 deg)
+        self._lock = 0.0                          # EventEngine.sLockTimer
+        self._lock_free = 1                       # sLockFree: 0 while the last body touched is solid
+        self._coll = 0                            # SCollTimer, in frames (2 ticks after a push-out)
+        #: Movement FREEZES with control held -- MovePC's other gate, the script's pad mask
+        #: (EventInput.IsMovementControl), which the agent does not publish: ``{field id: [{"zone":
+        #: [[x, z], ...], "frames": n}]}``. Stepping into a zone holds all movement for ``n`` frames
+        #: (None = for good) while `control` stays True. Each zone fires once; a warp ends a freeze.
+        self.freezes: dict[int, list[dict]] = {}
+        self._frozen_until: float = 0
+        self._froze: set = set()                  # (field id, index) of every freeze zone that fired
         #: every op the fake ever executed, so a test can assert a step was DELIVERED rather than
         #: inferring it from a state that several other ops could also have produced.
         self.executed: list[list[str]] = []
@@ -318,6 +400,7 @@ class FakeGame:
                     self._drain()
                     self._check_soft_reset()
                     self._step_world()
+                    self._step_scene()
                     self._step_battle()
                     self._publish()
             except OSError as err:
@@ -458,6 +541,10 @@ class FakeGame:
             self.ui_state = "FieldHUD"
             self.control = True
             self.player = [0.0, 0.0, 0.0]
+            self._in_trigger.clear()           # a new visit: a trigger he lands in fires afresh
+            self._exit = None                  # a warp outruns any exit still fading
+            self._frozen_until = 0             # ...and any freeze
+            self._lock, self._coll = 0.0, 0
             self._block(3)
         elif op == "battle":
             if self.ui_state != "FieldHUD":
@@ -578,7 +665,23 @@ class FakeGame:
         camera and movement is expressed in screen space, which is why `calibrate_axes` exists at
         all. A stand-in that always mapped "up" to +z would let a broken calibration pass.
         """
-        if self.ui_state != "FieldHUD" or not self.control:
+        if self._exit is not None and self.frame >= self._exit[0]:
+            self._step_exit_now()
+        if self._coll > 0:
+            self._coll -= 1                     # ProcessEvents counts SCollTimer down every tick
+        if self.ui_state != "FieldHUD":
+            return
+        self._step_walkers()
+        if not self.control:
+            return
+        self._step_player()
+        if self.control:
+            self._fire_contacts()               # CollisionRequest: every tick he has control, moving or not
+
+    def _step_player(self) -> None:
+        """The controlled player's frame: the pad, the push-out, the floor, the regions (see _step_world)."""
+        if self.frame < self._frozen_until:
+            self._coast = None                  # MovePC returns before it moves anyone
             return
         vx = vz = 0.0
         if self._is_held("up"):
@@ -592,14 +695,13 @@ class FakeGame:
         if vx == 0.0 and vz == 0.0:
             # Nothing held -- but the engine is still applying the last movement it sampled.
             if not self._coast:
+                self._lock_fallback(0.5)        # MovePC still runs, once a tick
                 return
             vx, vz, left = self._coast
             self._coast = (vx, vz, left - 1) if left > 1 else None
-            x = self.player[0] + vx
-            z = self.player[2] + vz
-            x0, z0, x1, z1 = self.walkmesh
-            self.player[0] = min(max(x, x0), x1)
-            self.player[2] = min(max(z, z0), z1)
+            self._move_to(self.player[0] + vx, self.player[2] + vz, (vx * vx + vz * vz) ** 0.5 / RUN_SPEED)
+            self._enter_regions()
+            self._enter_freezes()
             return
         mag = (vx * vx + vz * vz) ** 0.5
         vx, vz = vx / mag, vz / mag
@@ -619,14 +721,10 @@ class FakeGame:
             if vx == 0.0 and vz == 0.0:
                 return
 
-        x = self.player[0] + vx * speed
-        z = self.player[2] + vz * speed
-        x0, z0, x1, z1 = self.walkmesh
-        self.player[0] = min(max(x, x0), x1)
-        self.player[2] = min(max(z, z0), z1)
+        moved = self._move_to(self.player[0] + vx * speed, self.player[2] + vz * speed, speed / RUN_SPEED)
         # Arm the tail with the velocity actually applied this frame.
         self._coast = ((vx * speed, vz * speed, self.coast_frames)
-                       if self.coast_frames > 0 else None)
+                       if self.coast_frames > 0 and moved else None)
 
         if self.gateway is not None:
             gx0, gz0, gx1, gz1, dest = self.gateway
@@ -634,6 +732,232 @@ class FakeGame:
                 self.field_id = dest
                 self.player = [0.0, 0.0, 0.0]
                 self.control = True
+        self._enter_regions()
+        self._enter_freezes()
+
+    def _move_to(self, x: float, z: float, calls: float = 1.0) -> bool:
+        """One frame's step to (x, z), worth ``calls`` MovePC calls: kept on the floor (`walkmesh`), and --
+        while sLockTimer is not negative -- pushed out of a body it enters that is in front of him (see
+        `blockers`), refused (False, he stays put) when the push-out lands in another. Then the lock's
+        count for the frame (CheckCollFallback). Only a body that collides is met: ``coll``, and within
+        400 of him in y (WalkMesh.Collision's pair rule and its |dy| band)."""
+        ox, oz = self.player[0], self.player[2]
+        if (x, z) != (ox, oz):
+            m = ((x - ox) ** 2 + (z - oz) ** 2) ** 0.5
+            self._facing = ((x - ox) / m, (z - oz) / m)
+        bodies = [(d["x"], d["z"], d["r"], bool(d.get("solid")), i) for i, d in self._bodies()
+                  if d.get("coll", True) and abs(float(d.get("y", 0.0)) - self.player[1]) < 400]
+        pushed = False
+        for b in bodies:
+            bx, bz, r = b[0], b[1], b[2]
+            d = ((x - bx) ** 2 + (z - bz) ** 2) ** 0.5
+            if d >= r:
+                continue
+            self.contacts.append({"frame": self.frame, "uid": self._uid(b[4])})
+            self._lock_free = 0 if b[3] else 1
+            if not self._lock_free:
+                self._lock = 0.0
+            # facing = the step (the engine lerps toward it); the push-out wants the body within +-90 deg
+            if self._lock >= 0 and (x - ox) * (bx - x) + (z - oz) * (bz - z) >= 0:
+                if d < 1e-6:
+                    self._lock_fallback(calls)
+                    return False
+                x, z = bx + (x - bx) / d * r, bz + (z - bz) / d * r
+                self._coll = 4
+                pushed = True
+            break                                   # WalkMesh.Collision answers with ONE body
+        on = getattr(self.walkmesh, "point_on_walkmesh", None)
+        if on is not None and self.clearance is not None:
+            # his centre kept `clearance` off every wall -- or, where he already stands closer (placed there),
+            # never closer still: the step stops on that line, and its rest slides on along the wall
+            def wall(px, pz):
+                d = self.walkmesh.distance_to_boundary(int(round(px)), int(round(pz)))
+                return -1.0 if d is None or on(int(round(px)), int(round(pz))) is None else d
+            least = max(0.0, min(self.clearance, wall(ox, oz)))     # off the mesh (an arrival): onto it
+
+            def floor(px, pz):
+                return wall(px, pz) >= least
+            if not floor(x, z):
+                lo, hi = 0.0, 1.0
+                for _ in range(16):
+                    mid = (lo + hi) / 2
+                    lo, hi = (mid, hi) if floor(ox + (x - ox) * mid, oz + (z - oz) * mid) else (lo, mid)
+                bx, bz = ox + (x - ox) * lo, oz + (z - oz) * lo
+                # the rest of the step, slid along the wall: its component along the nearest bearing (15-degree
+                # steps either side) that still stands -- the engine keeps the part of a step along the wall
+                import math
+                rx, rz = x - bx, z - bz
+                x, z = bx, bz
+                for deg in (15, 30, 45, 60, 75):
+                    c = math.cos(math.radians(deg))
+                    for s in (math.sin(math.radians(deg)), -math.sin(math.radians(deg))):
+                        px, pz = bx + (rx * c - rz * s) * c, bz + (rx * s + rz * c) * c
+                        if floor(px, pz):
+                            x, z = px, pz
+                            break
+                    else:
+                        continue
+                    break
+        elif on is not None:
+            # a real walkmesh: his centre must stand on it -- a step off keeps whichever one axis of it
+            # still does (a crude slide along the edge), or he stays put
+            def floor(px, pz):
+                return on(int(round(px)), int(round(pz))) is not None
+            if not floor(x, z):
+                x, z = next(((px, pz) for px, pz in ((x, oz), (ox, z)) if floor(px, pz)), (ox, oz))
+        else:
+            boxes = self.walkmesh if isinstance(self.walkmesh[0], (tuple, list)) else [self.walkmesh]
+            if not any(b[0] <= x <= b[2] and b[1] <= z <= b[3] for b in boxes):
+                x0, z0, x1, z1 = next((b for b in boxes if b[0] <= ox <= b[2] and b[1] <= oz <= b[3]), boxes[0])
+                x, z = min(max(x, x0), x1), min(max(z, z0), z1)
+        if pushed and any((x - b[0]) ** 2 + (z - b[1]) ** 2 < (b[2] - 1e-6) ** 2 for b in bodies):
+            self._lock_fallback(calls)
+            return False
+        self.player[0], self.player[2] = x, z
+        self._lock_fallback(calls)
+        return True
+
+    def _lock_fallback(self, calls: float) -> None:
+        """FieldMapActorController.CheckCollFallback, ``calls`` times over: while SCollTimer runs, count
+        sLockTimer up by sLockFree -- flipping it to -25 at 25, which turns the push-out off -- else
+        reset a non-negative count to 0 and count a negative one back up to it."""
+        if self._coll > 0:
+            self._lock = -25.0 if self._lock >= 25 else self._lock + self._lock_free * calls
+        elif self._lock >= 0:
+            self._lock = 0.0
+        else:
+            self._lock = min(0.0, self._lock + calls)
+
+    # -- the field's other actors (s89) ---------------------------------------------------------
+    def _bodies(self) -> list:
+        """This field's `blockers` as ``(index, dict)`` -- a tuple is ``(x, z, r[, solid])``."""
+        out = []
+        for i, b in enumerate(self.blockers.get(self.field_id, ())):
+            if not isinstance(b, dict):
+                b = {"x": b[0], "z": b[1], "r": b[2], "solid": len(b) > 3 and bool(b[3])}
+            out.append((i, b))
+        return out
+
+    def _uid(self, i: int) -> int:
+        b = self.blockers.get(self.field_id, ())[i]
+        return int(b.get("uid", 128 + i)) if isinstance(b, dict) else 128 + i
+
+    @staticmethod
+    def _walking(b: dict) -> bool:
+        return bool(b.get("path")) and float(b.get("speed", 0)) > 0 and not b.get("_done")
+
+    def _step_walkers(self) -> None:
+        """Every walker (a body with a ``path``) one frame along it -- unless that step would bring it within ``r``
+        of the player, where it waits, still moving (MoveToward.cs:187-189)."""
+        for _i, b in self._bodies():
+            if not self._walking(b):
+                continue
+            path = b["path"]
+            k = b.setdefault("_k", 1 if len(path) > 1 else 0)
+            tx, tz = path[k]
+            dx, dz = tx - b["x"], tz - b["z"]
+            dist = (dx * dx + dz * dz) ** 0.5
+            step = min(float(b["speed"]), dist)
+            nx, nz = (b["x"] + dx / dist * step, b["z"] + dz / dist * step) if dist > 0 else (tx, tz)
+            px, pz = self.player[0], self.player[2]
+            near = ((nx - px) ** 2 + (nz - pz) ** 2) ** 0.5
+            if near < b["r"] and near < ((b["x"] - px) ** 2 + (b["z"] - pz) ** 2) ** 0.5:
+                continue                                   # held by him
+            b["x"], b["z"] = nx, nz
+            if step < dist:
+                continue
+            if len(path) < 2 or (b.get("once") and k == len(path) - 1):
+                b["_done"] = True
+                continue
+            way = b.setdefault("_way", 1)
+            if not 0 <= k + way < len(path):
+                way = b["_way"] = -way
+            b["_k"] = k + way
+
+    def _fire_contacts(self) -> None:
+        """CollisionRequest, modelled for the triggers it can fire: his centre inside a body's ``range_r`` (the
+        mode-2 search: the pair rule, so only while ``coll``; |dy| < 400), or -- for an entry with both
+        functions -- inside ``talk_r`` while he faces it (+-90 degrees). Logged once per entry into the radius
+        (`touched`); a ``"to"`` makes it an ExitField, control taken now and the field changed a fade later."""
+        px, pz = self.player[0], self.player[2]
+        for i, b in self._bodies():
+            rr, tr = b.get("range_r"), b.get("talk_r")
+            if rr is None or abs(float(b.get("y", 0.0)) - self.player[1]) >= 400:
+                continue
+            dx, dz = b["x"] - px, b["z"] - pz
+            dist = (dx * dx + dz * dz) ** 0.5
+            kind = "range" if b.get("coll", True) and dist < rr else None
+            if kind is None and tr is not None and dist < tr and dx * self._facing[0] + dz * self._facing[1] > 0:
+                kind = "talk"
+            key = (self.field_id, i)
+            if kind is None:
+                self._in_trigger.discard(key)
+                continue
+            if key in self._in_trigger:
+                continue
+            self._in_trigger.add(key)
+            self.touched.append({"frame": self.frame, "field": self.field_id, "uid": self._uid(i), "kind": kind,
+                                 "executed": len(self.executed)})
+            if b.get("to") is not None and self._exit is None:
+                self.control = False
+                self._coast = None
+                self._exit = (self.frame + self.exit_frames, int(b["to"]), tuple(b.get("arrive", (0, 0))))
+                if self.exit_frames <= 0:
+                    self._step_exit_now()
+                return
+
+    def _objects_doc(self) -> list:
+        """``objects`` as the s89 agent publishes it, for this field's bodies."""
+        out = []
+        for i, b in self._bodies():
+            coll = bool(b.get("coll", True))
+            rr, tr = b.get("range_r"), b.get("talk_r")
+            shown = bool(b.get("shown", True))
+            out.append({"uid": self._uid(i), "sid": int(b.get("sid", 10 + i)),
+                        "x": float(b["x"]), "y": float(b.get("y", 0.0)), "z": float(b["z"]),
+                        "range": rr is not None, "talk": tr is not None,
+                        "r": float(b["r"]), "solid": coll and bool(b.get("solid")), "coll": coll,
+                        "range_r": float(rr) if rr is not None and coll else None,
+                        "talk_r": float(tr) if tr is not None else None,
+                        "shown": shown, "moving": self._walking(b),
+                        "flags": (1 if shown else 0) | (0 if coll else 14) | (16 if b.get("solid") else 0)})
+        return out
+
+    def _enter_freezes(self) -> None:
+        """A step into one of this field's `freezes` zones holds movement from the next frame on."""
+        x, z = self.player[0], self.player[2]
+        for i, f in enumerate(self.freezes.get(self.field_id, ())):
+            if (self.field_id, i) not in self._froze and _in_poly(x, z, f["zone"]):
+                self._froze.add((self.field_id, i))
+                n = f.get("frames")
+                self._frozen_until = float("inf") if n is None else self.frame + int(n)
+                self._coast = None
+
+    def _enter_regions(self) -> None:
+        """ExitField, modelled: a step into one of this field's `regions` takes control now and
+        schedules the field change (see `regions`)."""
+        if not self.control or self._exit is not None:
+            return
+        x, z = self.player[0], self.player[2]
+        for r in self.regions.get(self.field_id, ()):
+            if _in_poly(x, z, r["zone"]):
+                self.fired.append({"frame": self.frame, "from": self.field_id, "to": int(r["to"]),
+                                   "executed": len(self.executed)})
+                self.control = False
+                self._coast = None
+                self._exit = (self.frame + self.exit_frames, int(r["to"]), tuple(r["arrive"]))
+                if self.exit_frames <= 0:
+                    self._step_exit_now()
+                return
+
+    def _step_exit_now(self) -> None:
+        _due, dest, arrive = self._exit
+        self._exit = None
+        self.field_id = dest
+        self.player = [float(arrive[0]), 0.0, float(arrive[1])]
+        self._in_trigger.clear()
+        self._coast = None
+        self.control = True
 
     def _check_soft_reset(self) -> None:
         """All six buttons reporting a DOWN EDGE on the same frame sends the game to the title.
@@ -662,6 +986,7 @@ class FakeGame:
         self.texts = []
         self.raw_texts = []
         self.choice = None
+        self._beats, self._beat_phase = [], None
         self.menu = {"selected": None, "hovered": None, "label": None, "group": None}
         self.menu_entries = []
         self.player = [0.0, 0.0, 0.0]
@@ -755,6 +1080,9 @@ class FakeGame:
                 self._close_battle_cursor()
 
     def _menu_step(self, button: str) -> None:
+        if self._beats:
+            self._scene_press(button)
+            return
         if str(self.menu.get("group") or "").startswith("Battle."):
             self._battle_menu_step(button)
             return
@@ -823,6 +1151,12 @@ class FakeGame:
         if self.storytrace_proto is not None:
             doc["storytrace"] = {"proto": self.storytrace_proto, "on": self.story_on,
                                  "rows": self.story_rows, "suppressed": 0, "error": self.story_error}
+        if self.objects_mode != "absent":
+            # s89: both null off a field or on any failure, never a partial list
+            listed = self.objects_mode == "listed" and self.ui_state == "FieldHUD"
+            doc["objects"] = self._objects_doc() if listed else None
+            doc["pushout"] = ({"slock": int(self._lock), "scoll": int(self._coll), "slockfree": int(self._lock_free),
+                               "fallback": True} if listed else None)
         if self._publish_stalls:
             _publish_in_place(self.dir / "state.json", json.dumps(doc),
                               stall=self._publish_stalls.pop(0), began=self.stalling,
@@ -1310,12 +1644,106 @@ class FakeGame:
             self.choice["active"] = list(active)
         self.menu["label"] = options[0] if options else None
 
+    def scene(self, *beats, stale: int = 0, opening: int = 6, closing: int = 6) -> None:
+        """Play a scripted scene with control withheld, beat by beat; control comes back after the last. A
+        beat is a page (a str) that Confirm turns, or a CHOICE (a dict: ``options``; ``default``, the script's
+        defaultChoice -- the ABSOLUTE index its cursor starts on; optionally ``header``, and ``disabled``, the
+        absolute indexes the script's mask leaves out; ``typing``, frames its prompt types on once the window
+        is ready) that Confirm answers at the cursor, into :attr:`answered`.
+
+        A choice window as the engine publishes it (recorded at 30937 frames 900/906/936 and 30921): for
+        ``opening`` frames it is up with group '' and no button and ``selected`` reads ``stale`` -- whatever
+        the pooled window last held (Dialog.selectedChoice survives Reset) -- and it takes no answer; then
+        group ``Dialog.Choice``, the cursor on the default (no button when that line is disabled: choiceList
+        holds null there), answers taken; after one, ``closing`` frames with group '' again and the choice
+        still published, then the next beat. While the prompt TYPES (the window already ready: the engine sets
+        the group and the default cursor in AfterShown, with the text still animating) a Confirm only
+        finishes the text (Dialog.OnKeyConfirm's TextAnimation branch) and is not an answer."""
+        self._beats = list(beats)
+        self._beat_frames = (int(opening), int(closing))
+        self.control = False
+        self._next_beat(stale)
+
+    def _next_beat(self, stale: int = 0) -> None:
+        self.menu = {"selected": None, "hovered": None, "label": None, "group": None}
+        self._beat_phase = None
+        if not self._beats:
+            self.texts, self.raw_texts, self.choice = [], [], None
+            self.control = True
+            return
+        beat = self._beats[0]
+        if isinstance(beat, str):
+            self.say(beat)
+            self.choice = None
+            return
+        header = beat.get("header", "What now?")
+        disabled = list(beat.get("disabled", ()))
+        active = [i for i in range(len(beat["options"])) if i not in disabled]
+        shown = [beat["options"][i] for i in active]
+        self.say("\n".join([header, *shown]))
+        self.choice = {"selected": stale, "count": len(beat["options"]), "active": active, "disabled": disabled,
+                       "options": [header, *shown]}
+        self.menu = {"selected": None, "hovered": None, "label": None, "group": "", "button": None}
+        self._beat_phase, self._beat_until = "opening", self.frame + self._beat_frames[0]
+
+    def _choice_cursor(self, index: int) -> None:
+        self.choice["selected"] = index
+        button = None if index in self.choice["disabled"] else f"Choice#{index}"
+        self.menu = {"selected": button, "hovered": None, "label": None, "group": "Dialog.Choice", "button": button}
+
+    def _step_scene(self) -> None:
+        """A choice window's frame-driven phases: opening -> ready, closing -> the next beat."""
+        if not self._beats or self._beat_phase not in ("opening", "closing") or self.frame < self._beat_until:
+            return
+        if self._beat_phase == "opening":
+            self._beat_phase = "ready"
+            self._choice_cursor(int(self._beats[0]["default"]))
+            self._typing_until = self.frame + int(self._beats[0].get("typing", 0))
+            self.readied.append(len(self.executed))
+        else:
+            self._beats.pop(0)
+            self._next_beat()
+
+    def _scene_press(self, button: str) -> None:
+        """A press during a scene: Confirm turns a page or answers a READY choice; up/down move a ready
+        choice's cursor over the enabled lines, clamped (Dialog.MoveCurrentChoice); nothing else acts."""
+        if isinstance(self._beats[0], str):
+            if button in ("confirm", "ok"):
+                self._beats.pop(0)
+                self._next_beat()
+            return
+        if self._beat_phase != "ready":
+            return
+        if button in ("confirm", "ok") and self.frame < self._typing_until:
+            self._typing_until = self.frame              # the text completes; nothing is answered
+        elif button in ("confirm", "ok"):
+            self.answered.append(int(self.choice["selected"]))
+            self.menu = {"selected": None, "hovered": None, "label": None, "group": "", "button": None}
+            self._beat_phase, self._beat_until = "closing", self.frame + self._beat_frames[1]
+        elif button in ("up", "down"):
+            active = self.choice["active"]
+            at = active.index(self.choice["selected"]) if self.choice["selected"] in active else 0
+            at = max(0, min(len(active) - 1, at + (1 if button == "down" else -1)))
+            self._choice_cursor(active[at])
+
     def open_menu(self, entries: list[str], group: str = "MainMenu") -> None:
         self.ui_state = "MainMenu"
         self.menu_entries = list(entries)
         self.menu_index = 0
         self.menu = {"selected": "Button0", "hovered": None,
                      "label": entries[0] if entries else None, "group": group}
+
+
+def _in_poly(x: float, z: float, poly) -> bool:
+    """(x, z) inside polygon ``poly`` ([[x, z], ...]), even-odd rule -- the stand-in's IsInQuad."""
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        ax, az = poly[i]
+        bx, bz = poly[(i + 1) % n]
+        if (az > z) != (bz > z) and x < ax + (z - az) * (bx - ax) / (bz - az):
+            inside = not inside
+    return inside
 
 
 def _publish_atomic(path: Path, text: str, attempts: int = 6) -> None:

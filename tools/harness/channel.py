@@ -282,6 +282,45 @@ class State:
         """Whether the player currently has control -- false during cutscenes and transitions."""
         return bool(self.raw.get("player", {}).get("control", False))
 
+    # -- the field's other actors (memoria-patch s89) ----------------------------------------
+    # THREE CASES, AND ONLY ONE OF THEM IS A LIST. The key ABSENT is an engine that cannot publish
+    # objects (pre-s89); null is an engine that can and does not know right now (off a field, or its
+    # walk of the object list failed -- it never publishes a partial list); a list is the objects.
+    # ``objects`` is None for both of the first two, never [], so neither can be iterated as an empty
+    # field -- "unknown" read as "no obstacles" would plan a leg straight through a solid body.
+    # ``objects_status`` names which.
+    @property
+    def objects_status(self) -> str:
+        """``"cannot"`` (the key is absent: this engine publishes no objects), ``"unknown"`` (null: it
+        does, and could not say this sample) or ``"listed"`` (``objects`` is the list -- [] is a field
+        with no other actor)."""
+        if "objects" not in self.raw:
+            return "cannot"
+        return "listed" if isinstance(self.raw.get("objects"), list) else "unknown"
+
+    @property
+    def objects(self) -> list[dict] | None:
+        """Every actor on the field other than the controlled player, as s89 publishes them: ``uid``,
+        ``sid``, ``x``/``y``/``z`` (the ``player`` frame), ``r`` (the centre distance the engine keeps
+        him from it; it only collides while ``|dy| < 400``), ``solid`` (never let through), ``coll``
+        (false: walk-through), ``range``/``talk`` (it HAS a contact / talk function), ``range_r`` /
+        ``talk_r`` (where those fire -- a trigger zone, not a wall), ``shown``, ``moving``, ``flags``.
+        ``r``/``solid``/``coll``/``range_r``/``talk_r`` are relations to the player and null without
+        one. ``None`` unless :attr:`objects_status` is ``"listed"`` -- never an empty list for "cannot"
+        or "unknown"."""
+        objs = self.raw.get("objects")
+        return objs if isinstance(objs, list) else None
+
+    @property
+    def pushout(self) -> dict | None:
+        """The engine's push-through state, published beside ``objects`` (s89): ``slock``
+        (``sLockTimer``; < 0 = the walk-through window is open and every non-solid body passable),
+        ``scoll``, ``slockfree`` (0 = the closest contact is solid) and ``fallback`` (whether the
+        release runs on this field at all). ``None`` when absent or null -- :attr:`objects_status`
+        tells which, as the two keys are published and nulled together."""
+        po = self.raw.get("pushout")
+        return po if isinstance(po, dict) else None
+
     # -- the walkmesh triangle: NOT PUBLISHED LIVE ------------------------------------------
     # No agent yet publishes the triangle or floor the player stands on. What s83 publishes under
     # player.tri / player.floor is a battle-entry snapshot, so it is exposed only under names that

@@ -103,6 +103,29 @@ LAUNCH_SLACK = 2.0
 _STOCK_FIELDS: set[int] | None = None
 
 
+class ProbeLeftControl(HarnessError):
+    """A calibration probe set something off: it walked into a gateway, or into anything else that took
+    control away. ``field`` is where the probe started, ``direction`` the button it held.
+
+    A HarnessError, so every caller that already stops on one still does; :meth:`Session.route_to` catches
+    it to report the crossing as a record instead of steering on into a room it is no longer in."""
+
+    def __init__(self, message: str, *, field: int, direction: str):
+        super().__init__(message)
+        self.field, self.direction = field, direction
+
+
+class Transcript(list):
+    """What :meth:`Session.watch_cutscene` returns: the scene's distinct pages -- the plain list every caller
+    has always read -- plus ``choices``, one record per choice the scene was waited through under
+    ``choices="default"``: ``{"index", "text", "prompt", "count", "field", "frame"}``, the ABSOLUTE index the
+    game's cursor rested on and the words of that option. Empty without the opt-in, which takes no choice."""
+
+    def __init__(self, pages=(), choices=()):
+        super().__init__(pages)
+        self.choices: list[dict] = list(choices)
+
+
 def stock_field_ids() -> set[int]:
     """Field ids the base game ships, so the warp guard does not refuse a real room."""
     global _STOCK_FIELDS
@@ -251,6 +274,13 @@ class Session:
         #: None until one runs. See fight() for why the TURN COUNT is worth keeping.
         self.last_fight: dict | None = None
         self._axes: dict[int, dict] = {}      # field id -> measured button->world basis
+        self._priors: dict[int, dict | None] = {}   # field id -> PREDICTED basis (key_prior), never a measurement
+        #: Unseen blockers route_to(unstick=True) walked into on the CURRENT field visit: (field id, [(x, z)]).
+        #: Kept only while every published sample shows that field with control held -- see _observe --
+        #: and each for ROUTE_BLOCKER_TTL from when it went in (_blocker_at; see _visit_blockers).
+        self._blockers: tuple[int, list] = (-1, [])
+        self._blocker_at: dict = {}
+        self._events = None                   # the install's field event bundle, opened on first key_prior
         self._last_error: str | None = None   # the agent's error latch as of the last successful ack
         self.engine_protocol: int | None = None   # what the DEPLOYED engine speaks, once it answers
         self._story_starts = 0                # storytrace() turned the s88 trace on this many times
@@ -727,9 +757,15 @@ class Session:
     UNITY_NOTE_EVERY = 1.0
 
     def _observe(self, st: State) -> None:
-        """Every State a read returns: into the ring, and a note of how long Unity's log is."""
+        """Every State a read returns: into the ring, and a note of how long Unity's log is -- and the end
+        of a field VISIT for the unseen blockers route_to remembers. A sample on another field, or with
+        control gone (a gateway, a scene, a warp's fade: anything that may move the room's people),
+        drops them. Here and not at the verbs, so no way of leaving can forget to."""
         self._ring.push(st)
         self._note_unity_log()
+        if self._blockers[1] and (st.field_id != self._blockers[0] or not st.control):
+            self._blockers = (-1, [])
+            self._blocker_at = {}
 
     def _note_unity_log(self) -> None:
         now = time.time()
@@ -1168,7 +1204,8 @@ class Session:
             raise HarnessError("no player position published -- not on a field?")
         return ((st.player_x - x) ** 2 + (st.player_z - z) ** 2) ** 0.5
 
-    def calibrate_axes(self, *, probe: int = 4, recalibrate: bool = False) -> dict:
+    def calibrate_axes(self, *, probe: int = 4, recalibrate: bool = False, hazards=(),
+                       prior: dict | None = None) -> dict:
         """Discover which BUTTON moves the character which way in WORLD space, on this field.
 
         This cannot be hard-coded. FF9 fields are viewed by a fixed camera that is frequently yawed,
@@ -1179,11 +1216,18 @@ class Session:
         So: press each axis briefly, measure the actual world displacement, and keep the basis. If a
         probe barely moves -- the usual cause is standing against a wall -- it retries the opposite
         direction and negates, which is why this is a probe and not a single press.
+
+        ``hazards`` (polygons, world ``[x, z]`` corners) and ``prior`` (a PREDICTED basis, e.g.
+        :meth:`key_prior`) switch to :meth:`_calibrate_clear_of`, the mode :meth:`route_to` uses: a
+        character who just arrived through a door is standing beside its gateway, and a blind probe
+        in the wrong direction walks him straight back out. Without them this is unchanged.
         """
         st = self._require_field("calibrate_axes")
         key = st.field_id
         if not recalibrate and key in self._axes:
             return self._axes[key]
+        if hazards or prior is not None:
+            return self._calibrate_clear_of(key, hazards, prior, probe)
 
         # Probe BOTH directions of each axis and cross-check them. A single probe cannot tell free
         # movement from a slide: pressed into a wall at an angle the engine keeps the character
@@ -1317,36 +1361,242 @@ class Session:
                       f"{self.SETTLE_TIMEOUT:.0f}s at {last.pos}")
         return last if last is not None else self.state
 
-    def _probe_axis(self, direction: str, frames: int):
+    def _probe_axis(self, direction: str, frames: int, *, slow: bool = False,
+                    watch_control: bool = False):
         """Hold one direction briefly; return ``((ux, uz), magnitude)``, or None if it did not move.
 
         "Did not move" is judged against what was COMMANDED, not against an absolute floor. The old
         15-unit floor accepted a character shoved a few units sideways by a wall as a real
         measurement of that axis, cached the resulting basis, and then steered every later walk_to
         along the wall -- reporting the field as unreachable.
+
+        ``slow`` holds Cancel too (walk speed: half the reach per frame). ``watch_control`` also
+        refuses a probe after which the player no longer has control -- see :class:`ProbeLeftControl`.
         """
         # ⚠ BOTH ENDS SETTLED. The old code waited a flat 6 frames, which is a guess at the
         # engine's movement tail -- and the tail is not a constant: `hold down 31` covers 1020 units
         # for 930 commanded, and on 30820 it ran ~5 frames past the hold. A probe that measures
         # during the tail reports a length that is part its own and part the previous probe's.
         before = self.settle()
-        self.walk(direction, frames)
+        if slow:
+            self.send(f"hold cancel {int(frames) + 1}", f"hold {_button(direction)} {int(frames)}",
+                      f"wait {int(frames) + 2}")
+        else:
+            self.walk(direction, frames)
         after = self.settle()
-        if before.player_x is None or after.player_x is None:
+        if not watch_control and (before.player_x is None or after.player_x is None):
             return None
         if after.field_id != before.field_id:
-            raise HarnessError(
+            raise ProbeLeftControl(
                 f"probing {direction} left field {before.field_id} for {after.field_id} -- the probe "
-                f"walked into a gateway. Calibrate somewhere with room around the character."
-            )
+                f"walked into a gateway. Calibrate somewhere with room around the character.",
+                field=before.field_id, direction=direction)
+        # ⚠ THE FIELD ID IS THE LAST THING TO CHANGE. A gateway's walk-in trigger runs ExitField,
+        # which zeroes usercontrol on the frame it fires (DoEventCode.cs:866) and auto-walks the
+        # player out; the id flips only when the next room loads, a fade later. A probe settled in
+        # between reads "same field" -- and the next press lands in the destination. Stock 350
+        # ping-ponged with 351 eighty times that way.
+        if watch_control and before.control and not after.control:
+            raise ProbeLeftControl(
+                f"probing {direction} on field {before.field_id} took control away (at "
+                f"({after.player_x}, {after.player_z})) -- the probe fired a trigger, most likely "
+                f"a gateway's ExitField.", field=before.field_id, direction=direction)
+        if before.player_x is None or after.player_x is None:
+            return None
         dx, dz = after.player_x - before.player_x, after.player_z - before.player_z
         mag = (dx * dx + dz * dz) ** 0.5
-        if mag < frames * self.RUN_SPEED * self.PROBE_MIN_FRACTION:
+        speed = self.WALK_SPEED if slow else self.RUN_SPEED
+        if mag < frames * speed * self.PROBE_MIN_FRACTION:
             return None
         return ((dx / mag, dz / mag), mag)
 
+    #: How far a probe (or a steering burst) may run past its command before it counts as someone
+    #: else's movement -- the same two run frames `_burst_is_evidence` allows.
+    PROBE_TAIL_FRAMES = 2
+    #: Clearance a probe keeps from a hazard polygon, world units: one run frame, so the prior's
+    #: angular error over a probe's reach (a few units per degree) cannot carry it in.
+    PROBE_HAZARD_PAD = 30.0
+    #: A measured axis within this of its predicted direction (cos ~ 15 deg) agrees with the prior.
+    PRIOR_AGREE = 0.96
+
+    def _probe_is_clear(self, start, direction, reach: float, hazards, spread: float = 0.0, *, discs=()) -> bool:
+        """Would a probe from ``start`` along unit ``direction`` for ``reach`` stay out of every hazard?
+
+        One he stands within PROBE_HAZARD_PAD of may not be approached any closer than he already
+        is. One he stands IN may be left but not re-entered: the probe may stay inside or cross its
+        boundary once, never twice (:class:`~ff9mapkit.content.pathfind.Keepout` ``leave``) -- and the
+        NEXT probe, planned from where this one ended, then sees it as a door beside him. Judged from
+        ``start``, so the caller passes where he stands NOW, not where calibration began.
+
+        ``spread`` (radians; route_to(smooth=True)'s holds and pushes, :meth:`_heading_spread`) is how far
+        off ``direction`` the press may truly head: the calibrated basis is a measurement, and over a hold
+        of a thousand units a degree is seventeen. Then the rule is kept by the whole FAN of lines within
+        ``spread`` either side -- judged on the triangle from ``start`` to the fan's two edges at ``reach /
+        cos(spread)``, which holds every line of it whole: a region he stands in must be left at most once
+        along both edges and the middle (exact for a convex region, as every stock gateway zone is -- a
+        straight line leaves one once), and any other must keep the rule's gap from the whole triangle.
+        At 0 -- calibration's probes -- the single line, as before.
+
+        ``discs`` (route_to(npcs=True): the published objects its plan kept, :meth:`_npc_discs`) are held to
+        the same rule by the same line or fan, each at its own radius ``R`` and ``pad``: kept ``pad`` off
+        ``R``, or -- one he stands nearer than that, or inside -- never approached closer than he stands."""
+        import math
+        from ff9mapkit.content import pathfind
+        from ff9mapkit.scene import routes
+        end = (start[0] + direction[0] * reach, start[1] + direction[1] * reach)
+        edges = [_turn(direction, -spread), _turn(direction, spread)] if spread > 0 else []
+        far = [(start[0] + e[0] * reach / math.cos(spread), start[1] + e[1] * reach / math.cos(spread))
+               for e in edges]
+        for d in discs:
+            gap = math.hypot(start[0] - d["x"], start[1] - d["z"]) - d["R"]
+            near = (max(0.0, pathfind.poly_gap(d["x"], d["z"], (start, far[0], far[1]))) if edges
+                    else routes.seg_dist_xz(d["x"], d["z"], start, end))
+            if near - d["R"] < min(d["pad"], gap) - 0.5:
+                return False
+        for poly in hazards:
+            gap = pathfind.poly_gap(start[0], start[1], poly)
+            if gap < 0:
+                keep = pathfind.Keepout(poly, self.PROBE_HAZARD_PAD, leave=True)
+                if any(keep.blocks_leg(start, (start[0] + e[0] * reach, start[1] + e[1] * reach))
+                       for e in [direction, *edges]):
+                    return False
+            elif not edges:
+                if pathfind.seg_poly_gap(start, end, poly) < min(self.PROBE_HAZARD_PAD, gap) - 0.5:
+                    return False
+            else:
+                fan = (start, far[0], far[1])
+                clear = min(pathfind.seg_poly_gap(fan[i], fan[(i + 1) % 3], poly) for i in range(3))
+                if clear >= 0 and pathfind.poly_gap(poly[0][0], poly[0][1], fan) < 0:
+                    clear = -1.0                          # the region lies wholly inside the fan
+                if clear < min(self.PROBE_HAZARD_PAD, gap) - 0.5:
+                    return False
+        return True
+
+    def _blind_probe_is_clear(self, here, hazards) -> bool:
+        """Is a BLIND probe (no prior: its direction is unknown) safe from ``here``? Only if no hazard's
+        boundary lies within the probe's whole reach -- one walk frame plus the movement tail
+        (PLAN: ``walk f=1 commanded=15 settled=30``) -- plus PROBE_HAZARD_PAD, in ANY direction."""
+        from ff9mapkit.scene import routes
+        reach = (1 + self.PROBE_TAIL_FRAMES) * self.WALK_SPEED + self.PROBE_HAZARD_PAD
+        for poly in hazards:
+            n = len(poly)
+            if min(routes.seg_dist_xz(here[0], here[1], poly[i], poly[(i + 1) % n]) for i in range(n)) < reach:
+                return False
+        return True
+
+    def _calibrate_clear_of(self, key: int, hazards, prior: dict | None, probe: int) -> dict:
+        """:meth:`calibrate_axes` for a character standing beside things he must not walk into.
+
+        THE PROBE ORDER COMES FROM THE PRIOR. ``prior`` predicts each button's world direction (from
+        the field's own TWIST, :meth:`key_prior`); a direction whose probe -- its reach plus the
+        movement tail -- would enter or approach a hazard is never pressed, a run probe that would is
+        tried again as a short walk probe, and an axis with only one safe side is measured one-sided.
+        A one-sided measurement has no opposite press to cross-check a wall slide against, so it must
+        AGREE with the prior (PRIOR_AGREE) or the calibration refuses. An axis with no safe side at
+        all -- or one whose only safe side is blocked -- is DERIVED from the other: a digital press is
+        rotated by a pure Y rotation (``FieldMapActorController.cs:712-720``), so up is always
+        ``(-right.z, right.x)``. Never both derived: at least one axis is always a measurement.
+
+        Without a prior every probe is a one-frame walk (the shortest press there is), and both sides
+        of an axis must agree the usual way. A blind probe's direction is unknown, so it is pressed
+        only where it is safe in EVERY direction (:meth:`_blind_probe_is_clear`); beside a hazard,
+        blind calibration refuses instead of guessing -- pass ``prior``.
+
+        EACH PROBE IS JUDGED FROM WHERE THE CHARACTER STANDS WHEN IT IS PRESSED: a one-sided probe
+        moves him 120-180u, so the next axis's probes do not start where calibration did.
+
+        EVERY PROBE WATCHES CONTROL: one that fires a gateway raises :class:`ProbeLeftControl` rather
+        than measuring on in the next room. No backing off -- a back-off is a blind 8-frame walk.
+        """
+        from ff9mapkit.content import pathfind   # noqa: F401 -- fail here, not mid-probe, if absent
+        polys = [[(float(p[0]), float(p[1])) for p in poly] for poly in hazards]
+        st = self.settle()
+        if st.player_x is None:
+            raise HarnessError(f"calibrate_axes on field {key}: no player position published")
+        basis: dict = {}
+        how: dict = {}
+        for name, (fwd, back) in (("v", ("up", "down")), ("h", ("right", "left"))):
+            plan = []                                         # the buttons pressed on this axis
+            got = []                                          # [(button, sign, unit, length)]
+            for button, sign in ((fwd, 1.0), (back, -1.0)):
+                st = self.state                               # settled: the previous probe settled it
+                if st.player_x is None:
+                    raise HarnessError(f"calibrate_axes on field {key}: no player position published")
+                here = (st.player_x, st.player_z)
+                if prior is None:
+                    if not self._blind_probe_is_clear(here, polys):
+                        raise HarnessError(
+                            f"calibrate_axes on field {key}: a blind probe from ({here[0]:.0f}, "
+                            f"{here[1]:.0f}) could reach one of {len(polys)} hazard region(s) -- its "
+                            f"direction is what calibration is for. Pass prior= (key_prior(<field>), or "
+                            f"movement.key_move_basis(<TWIST>) for a fork), or calibrate from open ground.")
+                    frames, slow = 1, True
+                else:
+                    u = (prior[name][0] * sign, prior[name][1] * sign)
+                    for frames, slow in ((probe, False), (2, True)):
+                        speed = self.WALK_SPEED if slow else self.RUN_SPEED
+                        if self._probe_is_clear(here, u, (frames + self.PROBE_TAIL_FRAMES) * speed, polys):
+                            break
+                    else:
+                        continue                              # both lengths lead into a hazard
+                plan.append(button)
+                m = self._probe_axis(button, frames, slow=slow, watch_control=True)
+                if m is not None:
+                    got.append((button, sign, m[0], m[1]))
+            vec = None
+            if len(got) == 2:
+                (_b, _s, a, la), (_b2, _s2, b, lb) = got
+                anti = -(a[0] * b[0] + a[1] * b[1])
+                if anti >= 0.85 and min(la, lb) / max(la, lb) >= 0.5:
+                    vec, how[name] = a, f"{fwd}/{back} {min(la, lb):.0f}u"
+                    if prior is not None and a[0] * prior[name][0] + a[1] * prior[name][1] < self.PRIOR_AGREE:
+                        how[name] += f", DISAGREES with the prior {_vec(prior[name])}"
+            elif len(got) == 1 and prior is None:
+                # blind, one side blocked: the old one-sided rule (the measurement is all there is)
+                button, sign, u, length = got[0]
+                vec, how[name] = (u[0] * sign, u[1] * sign), f"{button} alone {length:.0f}u, blind"
+            if vec is None and prior is not None:
+                for button, sign, u, length in got:
+                    cand = (u[0] * sign, u[1] * sign)
+                    if cand[0] * prior[name][0] + cand[1] * prior[name][1] >= self.PRIOR_AGREE:
+                        vec, how[name] = cand, f"{button} alone {length:.0f}u, agrees with the prior"
+                        break
+                if vec is None and got:
+                    raise HarnessError(
+                        f"the {name} axis on field {key} disagrees with its prior: measured "
+                        f"{[(b, _vec(u), round(ln)) for b, _s, u, ln in got]} against predicted "
+                        f"{_vec(prior[name])}. A slide along a wall, or the prior is wrong for this "
+                        f"field (a TWIST changed after Main_Init?). Calibrate from open ground.")
+            if vec is None and got and prior is None:
+                raise HarnessError(
+                    f"the {name} axis on field {key} is not a free axis: "
+                    f"{[(b, _vec(u), round(ln)) for b, _s, u, ln in got]} (probed blind, one walk "
+                    f"frame each, beside {len(polys)} hazard region(s)). Calibrate from open ground.")
+            if vec is None:
+                how[name] = (f"not probed: {fwd} and {back} both lead into a hazard" if not plan
+                             else f"{'/'.join(plan)} blocked")
+            basis[name] = vec
+        if basis["v"] is None and basis["h"] is None:
+            raise HarnessError(
+                f"could not calibrate field {key} without risking a hazard: v {how['v']}; h "
+                f"{how['h']}. The character is boxed in between trigger regions -- move him first.")
+        if basis["v"] is None:
+            basis["v"], how["v"] = (-basis["h"][1], basis["h"][0]), f"derived from right ({how['v']})"
+        elif basis["h"] is None:
+            basis["h"], how["h"] = (basis["v"][1], -basis["v"][0]), f"derived from up ({how['h']})"
+        skew = abs(basis["v"][0] * basis["h"][0] + basis["v"][1] * basis["h"][1])
+        if skew > 0.35:
+            raise HarnessError(
+                f"axis calibration on field {key} looks deflected: up={_vec(basis['v'])} "
+                f"right={_vec(basis['h'])} are not perpendicular (|dot|={skew:.2f}). Something "
+                f"(an NPC, a wall) pushed a probe. Move to clearer ground and recalibrate.")
+        self._axes[key] = basis
+        self._log(f"axes on field {key} (clear of {len(polys)} region(s)): up={_vec(basis['v'])} "
+                  f"[{how['v']}] right={_vec(basis['h'])} [{how['h']}] |dot|={skew:.2f}")
+        return basis
+
     def walk_to(self, x: float, z: float, *, tolerance: float = 40.0, max_bursts: int = 24,
-                strict: bool = True) -> bool:
+                strict: bool = True, halt_on_transition: bool = False, slides: bool = False) -> bool:
         """Walk to a world (x, z), steering on the published position. Returns whether it arrived.
 
         Moves one axis at a time rather than solving a diagonal: the engine's diagonal is a single
@@ -1359,6 +1609,18 @@ class Session:
 
         Gives up early when a burst produces no progress -- that is a wall or a walkmesh edge, and
         retrying it 24 times just turns a clear failure into a slow one.
+
+        ``halt_on_transition`` stops (returning False) the moment the player has lost control, before
+        another burst is issued. A gateway takes control on the frame it fires but the field id only
+        changes a fade later, so without it the next "correction" burst is pressed during the fade and
+        its hold carries into the DESTINATION -- where, at an arrival spot beside the door, it walks the
+        player straight back. :meth:`route_to` always sets it; the default keeps the old loop.
+
+        ``slides`` is for a LIVE room (:meth:`route_to` ``unstick``). A burst pressed into someone
+        standing a little off the pressed line is pushed back out along the line from that body's
+        centre (FieldMapActorController.cs:776-797): he slides SIDEWAYS, and the basis check below
+        reads that as a wrong basis -- raises, and throws a good basis away. With ``slides`` such a
+        burst ends the walk instead (not arrived, basis kept), for the caller to treat as a stall.
         """
         # A tolerance under one WALK frame cannot be aimed for -- the smallest correction the engine
         # can make is one frame of travel, so the loop oscillates around the target and then fails on
@@ -1383,21 +1645,14 @@ class Session:
             # outcome of walking -- stop cleanly and let the caller notice.
             if st.field_id != field or st.player_x is None:
                 return False
+            if halt_on_transition and not st.control:
+                return False          # something took control (a gateway's ExitField): no more presses
             dx, dz = x - st.player_x, z - st.player_z
             remaining = (dx * dx + dz * dz) ** 0.5
             if remaining <= tolerance:
                 return True
 
-            # Project the remaining offset onto each measured axis, and drive the bigger one.
-            along_v = dx * basis["v"][0] + dz * basis["v"][1]
-            along_h = dx * basis["h"][0] + dz * basis["h"][1]
-            if abs(along_v) >= abs(along_h):
-                direction, need = ("up" if along_v > 0 else "down"), abs(along_v)
-                axis, sign = basis["v"], (1.0 if along_v > 0 else -1.0)
-            else:
-                direction, need = ("right" if along_h > 0 else "left"), abs(along_h)
-                axis, sign = basis["h"], (1.0 if along_h > 0 else -1.0)
-
+            direction, need, axis, sign = _press_axis(basis, dx, dz)
             slow = need < self.RUN_SPEED * 3
             speed = self.WALK_SPEED if slow else self.RUN_SPEED
             frames = max(1, min(45, int(need / speed)))
@@ -1409,6 +1664,8 @@ class Session:
             after = self.settle()
             if after.field_id != field or after.player_x is None:
                 return False          # the burst carried us out of the field -- see above
+            if halt_on_transition and not after.control:
+                return False          # ...or into a trigger; its scripted walk is not this burst's
             mx, mz = after.player_x - st.player_x, after.player_z - st.player_z
             moved = (mx * mx + mz * mz) ** 0.5
 
@@ -1421,6 +1678,10 @@ class Session:
             # and then blaming the field's geometry.
             if self._burst_is_evidence(moved, frames * speed):
                 projected = (mx * axis[0] + mz * axis[1]) * sign
+                if projected < 0.35 * moved and slides:
+                    self._log(f"  walk_to: holding {direction} slid him {moved:.0f}u along ({mx:+.0f},{mz:+.0f}) "
+                              f"-- round someone in the way, not a wrong basis; stopping here")
+                    break
                 if projected < 0.35 * moved:
                     self._axes.pop(field, None)
                     raise HarnessError(
@@ -1680,6 +1941,1922 @@ class Session:
                                f"expected {expect}")
         return record
 
+    # -- routed walking ---------------------------------------------------------------------------
+    # walk_to steers one axis at a time with no idea where the doors are. On stock 350 that was fatal:
+    # the arrival from 351 stands 18u from 351's own gateway, and the first press toward the next exit
+    # -- or the calibration probe before it -- stepped straight back through it, eighty times. The
+    # routed verbs plan over the field's real walkmesh, keep out of every gateway region they were not
+    # sent to, and stop pressing the moment anything takes control away.
+    #
+    # THE FRAME, measured before building on it: the published player position IS the field script's
+    # coordinate space (stock 552's arrivals for entrances 3 and 5, 105's default, 1606's entrance 11
+    # and 2507's entrance 128 each land on the script's own D9 x/z literal EXACTLY), and SetRegion
+    # corners are the same script's literals; every recorded standing position of those fields lies on
+    # the install's walkmesh through BgiWalkmesh.world_verts (vert + orgPos + floor.org), and 2507's
+    # wall-slide samples sit 80-81u from its boundary -- the controller radius. No transform.
+
+    #: A route leg is walked in chunks no longer than this: walk_to's one-axis steering turns a
+    #: diagonal leg into an L whose corner sits up to half a chunk off the planned line.
+    ROUTE_CHUNK_MAX = 360.0
+    ROUTE_CHUNK_MIN = 48.0
+    #: How close an intermediate chunk point must be reached; the final goal uses the caller's.
+    ROUTE_WAYPOINT_TOLERANCE = 45.0
+    #: Replans from wherever a leg stalled (a wall the grid did not see, an NPC) before giving up.
+    ROUTE_REPLANS = 2
+    #: route_to(unstick=True) at a stall with control held: frames to WAIT before walking the same chunk
+    #: again, how many times per stall, and how many waits one call may spend in all. ~1.5 s at 60 fps:
+    #: an NPC walking through, or a movement freeze the agent cannot see (the script's pad mask), clears.
+    ROUTE_WAIT_FRAMES = 90
+    ROUTE_WAITS = 2
+    ROUTE_WAIT_BUDGET = 8
+    #: route_to(unstick=True), still stuck after the waits: ONE unbroken hold INTO whoever is in the way.
+    #: The engine lets the player through any body without object flag 16 (no NPC on stock 350 sets it)
+    #: once he has pressed into it for 26 MovePC calls unbroken: CheckCollFallback counts sLockTimer up
+    #: one a colliding call, flips it to -25 at 25, and the push-out is off until it counts back to 0
+    #: (FieldMapActorController.cs:768-822). A walk_to burst never gets there -- a chunk is at most 12
+    #: frames, and the gap before the next one resets the count. A running player makes two calls of 30u
+    #: a tick, so the lock is this much COMMANDED movement (the 27th call is the first not pushed back),
+    #: sized in frames by RUN_SPEED like every burst; the hold then presses on for what the chunk needs.
+    ROUTE_PUSH_LOCK_W = 27 * 30.0
+    ROUTE_PUSH_BUDGET = 6
+    #: Unseen blockers one route_to(unstick=True) call may place, each followed by a replan round it.
+    ROUTE_BLOCKERS = 3
+    #: Seconds an unseen blocker is remembered on its field visit. People in a live room walk about --
+    #: the Dali villagers do between frames -- so a blocker is a guess about where someone STOOD, and it
+    #: ages out rather than steering the rest of the visit round someone who has left.
+    ROUTE_BLOCKER_TTL = 20.0
+    #: route_cross with a ``zone``: how long to wait for a crossing when the walk ended OUTSIDE it with
+    #: control held. A gateway cannot fire from there; the wait only covers a trigger still settling.
+    ROUTE_OUTSIDE_WAIT = 2.0
+    #: route_to(smooth=True): the most frames one hold may run -- walk_to's own burst cap, so a hold that walks
+    #: into the exit it was sent to (the one region it may enter) runs on into the ExitField fade no longer
+    #: than a burst could -- and the most holds one leg may take (walk_to's max_bursts).
+    ROUTE_HOLD_MAX = 45
+    ROUTE_HOLDS = 24
+    #: route_to(smooth=True): the least heading error, degrees, a hold on a calibrated basis is planned for
+    #: (:meth:`_heading_spread`). The longest hold runs ~1400u with its tail, and a line held that far is
+    #: only as good as its direction: 2 degrees is 49u off at its end. The in-game run's two-sided
+    #: calibrations agreed with their priors within that; its one-sided ones did not (352's up 6.3 degrees
+    #: off the truth, 350's right 1.4) -- a basis that disagrees with its prior adds the disagreement.
+    ROUTE_HEADING_FLOOR = 2.0
+    #: route_to(smooth=True, zone=...): how far round him the last leg looks for a spot IN the zone where his
+    #: centre can stand (:meth:`_zone_foothold`), once he is within one walk frame of the goal and still out.
+    ROUTE_FOOTHOLD_REACH = 96.0
+    #: route_to(npcs=True) plans round the field's published objects (memoria-patch s89, :meth:`_npc_discs`).
+    #: A BODY is a disc of its published ``r`` -- the centre distance the engine keeps him at -- planned
+    #: ROUTE_BODY_MARGIN wider, and a hold keeps ROUTE_BODY_PAD off ``r`` itself. Touching one costs a slide round
+    #: it or a stall, never a wrong room, so its margin only has to carry the walk's own drift past it: a chunk's
+    #: L or a hold strays up to ROUTE_CHUNK_MIN / 2 off a leg that close, leaving ROUTE_BODY_PAD. A TRIGGER
+    #: (``range_r``, ``talk_r``) fires a script the walk did not choose -- a warp, a battle -- which is what an
+    #: exit zone does, so it is kept out of like one: the call's ``margin`` wide, PROBE_HAZARD_PAD for a hold. A plan
+    #: that cannot keep those margins keeps only the pads a hold keeps (the TIGHT radius, :meth:`_npc_discs` ``T``)
+    #: before it gives any object up: a lane a margin closes is still a lane the walk can hold.
+    ROUTE_BODY_MARGIN = 32.0
+    ROUTE_BODY_PAD = 8.0
+    #: The engine pairs the player with an object only while they are this close in y (WalkMesh.cs:922): a body
+    #: on another floor neither blocks nor fires.
+    NPC_DY_BAND = 400.0
+    #: route_to(npcs=True): how far a published object must have moved since the plan before it can cause a
+    #: re-plan -- an idle actor's position jitters; a walker covers this in a frame or two -- and how many re-plans
+    #: one call may make for movement. After those a walker that keeps crossing the path is met by the stall
+    #: ladder (a wait first: "wait for it" is a real answer), never re-planned round without end.
+    ROUTE_NPC_MOVED = 16.0
+    ROUTE_NPC_REPLANS = 4
+    #: route_to(npcs=True, smooth=True): a hold whose line passes within ROUTE_WALKER_NEAR of a MOVING object's
+    #: radius runs at most ROUTE_WALKER_HOLD frames. The objects are read again only when a hold ends, and a
+    #: walker covers a whole hold's length (up to ROUTE_HOLD_MAX frames) before that read; near one, the reads
+    #: come every ~180u of his walk, and a walker at run speed covers ROUTE_WALKER_NEAR in two such holds.
+    #: A WALKING TRIGGER is not left to the cap: each point of a press must keep clear of it wherever it can have
+    #: walked by the time he gets there, and the end until the next read (:meth:`_walker_clear`); a press that
+    #: refuses (or cuts short, :meth:`_held_up`) is waited for, ROUTE_WALKER_WAIT frames at a time, standing still,
+    #: within ROUTE_WALKER_BUDGET frames a call (:meth:`_outwait_walkers`) -- then the walk is ``boxed``. How many
+    #: frames pass between two reads beyond the ones pressed is MEASURED, press by press (the send, its wait, the
+    #: settle's polling -- ROUTE_WALKER_LAG until the first press says: the send's own 4-frame wait and the tail,
+    #: twice over).
+    ROUTE_WALKER_HOLD = 6
+    ROUTE_WALKER_NEAR = 360.0
+    ROUTE_WALKER_WAIT = 8
+    ROUTE_WALKER_BUDGET = 480
+    ROUTE_WALKER_LAG = 12
+    #: route_to(npcs=True): where a WALKING trigger will be is judged two ways. While he is moving, it may have come
+    #: its speed a frame in ANY direction (a few frames: it cannot get far). While he STANDS (the end of a press, until
+    #: the next read) it keeps to the LINE it was last seen walking along, either way -- a patrol turns back down its
+    #: own beat -- give or take ROUTE_WALKER_TURN of its speed a frame (:meth:`_walker_path`); judged in any direction
+    #: there, a walker anywhere in a room would forbid every press in it. And a plan first tries to keep off each
+    #: walking trigger's line, ROUTE_WALKER_AHEAD frames of it either way (:meth:`_plan_npcs`).
+    ROUTE_WALKER_TURN = 0.1
+    ROUTE_WALKER_AHEAD = 120
+    #: route_to(npcs=True): a stall is laid on a published body only when he is IN CONTACT with it -- his centre within
+    #: WALK_SPEED of its ``r`` (the engine holds it at ``r``) and the body within this many degrees of the press. One
+    #: further off did not stop him, and one met off the line slides him round it (:meth:`_body_ahead`).
+    ROUTE_CONTACT_ANGLE = 60.0
+    #: route_to(npcs=True): samples read, ROUTE_NPC_READ_FRAMES apart, before a null ``objects`` (the engine could
+    #: not say) is taken as "unknown" for the call.
+    ROUTE_NPC_READS = 3
+    ROUTE_NPC_READ_FRAMES = 4
+
+    def key_prior(self, field: int) -> dict | None:
+        """The PREDICTED button->world basis on stock ``field``, from its own script: ``{"v", "h"}``.
+
+        :func:`ff9mapkit.content.movement.key_move_basis` of the Main_Init ``SetControlDirection``
+        operand a keyboard press is rotated by (:meth:`_key_twist_operand`). A prediction, used only to
+        choose which probes are safe to press -- ``calibrate_axes`` still measures. ``None`` when the
+        field's script cannot be read (no install, a mod-only id): calibration then probes blind.
+        """
+        field = int(field)
+        if field in self._priors:
+            return self._priors[field]
+        prior = None
+        try:
+            from ff9mapkit import eventscan
+            from ff9mapkit.content import movement
+            from ff9mapkit.extract import EventBundle
+            if self._events is None:
+                self._events = EventBundle(self.game_path)
+            data = self._events.eb_for_id(field)
+            if data:
+                twist = eventscan.scan_control_twist(data)
+                value = None if twist is None else twist[self._key_twist_operand()]
+                if twist is None or value is not None:            # a computed operand predicts nothing
+                    prior = movement.key_move_basis(value)
+        except Exception as err:                                  # noqa: BLE001 -- no install: go blind
+            self._log(f"  no movement prior for field {field}: {type(err).__name__}: {err}")
+        self._priors[field] = prior
+        return prior
+
+    def _key_twist_operand(self) -> int:
+        """Which SetControlDirection operand a harness press is rotated by: 1 (``twist.y``), or 0 when
+        ``Memoria.ini [AnalogControl]`` has ``Enabled`` on and ``UseAbsoluteOrientation`` 1 or 2.
+
+        The agent answers ``CheckPersistentDirectionInput`` as a KEYBOARD (s83), so the press is not
+        stick movement, and ``FieldMapActorController.cs:715-718`` reads ``twist.x`` for keys only under
+        ``UseAbsoluteOrientationKeys`` (``Control.cs:14``: setting 1 or 2). This install ships 3."""
+        try:
+            text = (self.game_path / "Memoria.ini").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return 1
+        m = re.search(r"^\s*\[AnalogControl\]\s*$(.*?)(?=^\s*\[|\Z)", text, re.M | re.S)
+        body = m.group(1) if m else ""
+
+        def val(key: str, default: int) -> int:
+            k = re.search(rf"^\s*{key}\s*=\s*(-?\d+)", body, re.M)
+            return int(k.group(1)) if k else default
+
+        return 0 if val("Enabled", 1) != 0 and val("UseAbsoluteOrientation", 3) in (1, 2) else 1
+
+    def _stock_walkmesh(self, field: int):
+        """The install's walkmesh for stock ``field`` -- :func:`ff9mapkit.extract.stock_walkmesh`."""
+        try:
+            from ff9mapkit import extract
+            return extract.stock_walkmesh(field, game=self.game_path)
+        except Exception as err:                                  # noqa: BLE001 -- say which, and how
+            raise HarnessError(
+                f"routing on field {field} needs its walkmesh, and the install's could not be read "
+                f"({type(err).__name__}: {err}). A fork or a custom field has its own: pass "
+                f"walkmesh=BgiWalkmesh.from_file(<its .bgi>)."
+            ) from err
+
+    def _await_landing(self, origin: int, timeout: float) -> int | None:
+        """After control went away on ``origin``: the field it led to, or None if control came back
+        there instead (a trigger that was not a gateway). Raises -- like :meth:`cross` -- only for a
+        destination that loaded and never became playable."""
+        try:
+            self.wait_for(lambda s: (s.field_id != origin and s.field_id > 0)
+                          or (s.field_id == origin and s.control),
+                          timeout=timeout, what=f"the field to change from {origin}, or control to return")
+        except HarnessError:
+            pass
+        now = self.state.field_id
+        if now == origin or now <= 0:
+            return None
+        return self.expect_field_change(timeout=timeout, was=origin)
+
+    def _route_chunks(self, legs, hazards, blockers=()) -> list:
+        """Split each routed leg into walk_to targets ``(x, z, tolerance)`` short enough that the L of
+        one-axis steering cannot reach a hazard: a chunk's corner strays at most half its length off
+        the line, so a leg ``c`` clear of every hazard is cut into chunks of ``2 * (c -
+        PROBE_HAZARD_PAD)``. A leg that starts INSIDE a hazard (walking out of the arrival door) counts
+        as clearance 0 -- the shortest chunks, so the L strays least from a line planned to cross that
+        boundary once. The tolerance is at most half a chunk -- a chunk end already within tolerance is
+        'arrived' without a press, and two skipped chunks make one twice as long.
+
+        ``blockers`` (unseen bodies, :meth:`route_to` ``unstick``) count too, OBSTACLE_R_W round. A
+        detour is planned TANGENT to a body, and an L that cuts into it is pushed round it by the
+        engine: a sideways slide that ends the walk as a stall (walk_to ``slides``), or a stall that
+        places a needless blocker. Shorter chunks there cost bursts, not a wrong answer."""
+        out = []
+        for a, b in zip(legs, legs[1:]):
+            chunk = self._leg_chunk(a, b, hazards, blockers)
+            length = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
+            n = max(1, int(-(-length // chunk)))
+            tol = max(self.WALK_SPEED + 1.0, min(self.ROUTE_WAYPOINT_TOLERANCE, length / n / 2.0))
+            out.extend((a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n, tol)
+                       for k in range(1, n + 1))
+        return out
+
+    def _leg_chunk(self, a, b, hazards, blockers=()) -> float:
+        """:meth:`_route_chunks`' chunk length for the leg a->b: ``2 * (c - PROBE_HAZARD_PAD)`` for the leg's
+        clearance ``c`` from every hazard and every blocker (OBSTACLE_R_W round, or ``(x, z, r)``: a published
+        object's own radius, route_to(npcs=True); a leg starting inside a hazard counts 0), within
+        [ROUTE_CHUNK_MIN, ROUTE_CHUNK_MAX]. Half of it is how far a walk may stray from the leg: an L's corner
+        under walk_to, a hold's end under route_to(smooth=True) (:meth:`_route_legs`)."""
+        from ff9mapkit.content import pathfind
+        from ff9mapkit.scene import routes
+        gaps = [max(0.0, pathfind.seg_poly_gap(a, b, p)) for p in hazards]
+        gaps += [max(0.0, routes.seg_dist_xz(p[0], p[1], a, b) - (p[2] if len(p) > 2 else pathfind.OBSTACLE_R_W))
+                 for p in blockers]
+        clear = min(gaps) if gaps else self.ROUTE_CHUNK_MAX
+        return min(self.ROUTE_CHUNK_MAX, max(self.ROUTE_CHUNK_MIN, 2.0 * (clear - self.PROBE_HAZARD_PAD)))
+
+    def _heading_spread(self, basis: dict, prior: dict | None) -> float:
+        """How far off its calibrated direction a press on ``basis`` may truly head, in radians -- what a smooth
+        hold's line is judged with (:meth:`_probe_is_clear` ``spread``). ROUTE_HEADING_FLOOR, plus the larger
+        angle between a calibrated axis and its ``prior`` (:meth:`key_prior`): calibration accepts a one-sided
+        measurement within PRIOR_AGREE of the prior (~16 degrees), and the in-game run took 352's up 6.3
+        degrees off a truth its prior had exactly, so where the two disagree either may be the truth, and the
+        hold is planned for both. With no prior, the most calibration ever lets a measured axis disagree with
+        one: acos(PRIOR_AGREE)."""
+        import math
+        if prior is None:
+            worst = math.acos(self.PRIOR_AGREE)
+        else:
+            worst = 0.0
+            for k in ("v", "h"):
+                b, p = basis[k], prior[k]
+                cos = (b[0] * p[0] + b[1] * p[1]) / ((b[0] ** 2 + b[1] ** 2) * (p[0] ** 2 + p[1] ** 2)) ** 0.5
+                worst = max(worst, math.acos(max(-1.0, min(1.0, cos))))
+        return math.radians(self.ROUTE_HEADING_FLOOR) + worst
+
+    def _route_legs(self, legs, hazards, blockers, *, spread: float, zone=None, floor=None, watch=None) -> list:
+        """route_to(smooth=True)'s targets: every planned waypoint WHOLE, as ``(x, z, tolerance, leg)`` -- no
+        chunks, ROUTE_WAYPOINT_TOLERANCE each (route_to puts the caller's on the last). ``leg`` is what the
+        leg's holds are planned in (:meth:`_plan_hold`): ``from`` and ``to``, the ``hazards`` and ``blockers``
+        its drift is judged against, the heading ``spread`` (:meth:`_heading_spread`), and ``pressed``, the
+        ``(buttons, world direction)`` of its last hold, which is where :meth:`_blocker_ahead` puts a body he
+        stopped against and :meth:`_push_through` insists. ``watch`` (route_to(npcs=True)) is the call's view of
+        the published objects: its ``discs`` bound every hold like the hazards do (:meth:`_leg_discs`), and it is
+        read again after every hold (:meth:`_walk_leg`).
+
+        THE LAST LEG AIMS AT THE GOAL ITSELF (``aim``: within one walk frame, the closest a press can steer),
+        and is still judged by the caller's tolerance. The goal route_cross walks to is a point INSIDE a gateway
+        zone (pathfind.region_goal), often only a few units in -- stock 350's 353 door: 2u -- so a walk that
+        stops anywhere within 45u of it can stand him outside the zone with nothing fired. Given that ``zone``
+        (route_to's), the last leg carries it, and the ``floor`` he walks, and FINISHES ON IT (:meth:`_walk_leg`)."""
+        out = []
+        for a, b in zip(legs, legs[1:]):
+            out.append((float(b[0]), float(b[1]), self.ROUTE_WAYPOINT_TOLERANCE,
+                        {"from": (float(a[0]), float(a[1])), "to": (float(b[0]), float(b[1])),
+                         "hazards": hazards, "blockers": tuple(blockers), "spread": float(spread),
+                         "pressed": None, "aim": None, "zone": None, "floor": None, "watch": watch}))
+        if out:
+            out[-1][3]["aim"] = self.WALK_SPEED + 1.0
+            out[-1][3]["zone"], out[-1][3]["floor"] = zone, floor
+        return out
+
+    def _zone_foothold(self, here, zone, floor):
+        """Where the last leg presses to get INTO ``zone`` from ``here``, just outside it: the nearest point
+        within ROUTE_FOOTHOLD_REACH (rings of 4u, 36 bearings) that lies in the zone, on ``floor`` and
+        COLLISION_RADIUS_W off its walls -- where his CENTRE can stand; the engine keeps it that far off a wall,
+        so a zone whose inner edge runs near that line is standable only in a sliver or a corner (stock 350's
+        door to 353: only a 34u wedge by its east corner -- the grid region_goal samples misses it, and its
+        goal stands 77u off the wall, where he cannot). None when no such point is that near."""
+        import math
+        from ff9mapkit.content import pathfind
+        from ff9mapkit.scene import cam
+        for k in range(1, int(self.ROUTE_FOOTHOLD_REACH // 4) + 1):
+            for j in range(36):
+                a = math.radians(10 * j)
+                q = (here[0] + 4 * k * math.cos(a), here[1] + 4 * k * math.sin(a))
+                if pathfind.poly_gap(q[0], q[1], zone) >= 0:
+                    continue
+                x, z = int(round(q[0])), int(round(q[1]))
+                if floor.point_on_walkmesh(x, z) is None:
+                    continue
+                wall = floor.distance_to_boundary(x, z)
+                if wall is not None and wall >= cam.COLLISION_RADIUS_W:
+                    return q
+        return None
+
+    def _plan_hold(self, basis: dict, here, target, leg: dict, exclude=(), *, sweep: bool = True):
+        """The next hold of a smooth routed leg (:meth:`_walk_leg`) toward ``target`` -- the leg's end, or a
+        point just inside its zone: ``(buttons, (ux, uz), frames, slow)``, or None when no hold from ``here``
+        keeps both rules below. Pads whose buttons are in ``exclude`` are not pressed (the zone finish: a pad
+        that moved him nothing from here).
+
+        THE DIRECTION is one of the two pad directions (:func:`_eight_way`) either side of the bearing to
+        ``target``: the one that gains the most ground toward it within the rules -- which is how a leg between
+        two of the eight is walked, the next hold re-aiming from where this one ends. Only when neither can hold
+        even one walk frame, any other that still gains ground (under 90 degrees off): beside a door, a leg
+        running along it has its own pad refused (the heading error could close on the door) and the next one
+        closes on it outright, so the first step is AWAY from it. A run if any run fits, a walk (Cancel held)
+        only when none does or ``target`` is under three run frames away (walk_to's rule: a run frame overshoots
+        any tighter tolerance). THE LENGTH is the longest -- up to what ``target`` needs (a run stops a frame
+        short: its tail carries it) and ROUTE_HOLD_MAX -- that keeps
+          * THE ZONES: the straight line the hold covers, its frames plus PROBE_TAIL_FRAMES of movement tail,
+            passes :meth:`_probe_is_clear` of every ``leg["hazards"]`` region -- the calibration probe's own
+            rule: a region he stands in may be left and never re-entered, one he stands beside never
+            approached, any other kept PROBE_HAZARD_PAD clear -- and not that line alone but every line within
+            ``leg["spread"]`` of it: the pressed direction is a calibrated MEASUREMENT (:meth:`_heading_spread`);
+          * THE LEG: the line's end stays within the DRIFT of the leg still to walk -- from the point of the
+            planned leg nearest ``here`` to ``leg["to"]`` -- less what the heading error can add at that length
+            (``reach * tan(spread)``), or no further off that leg than he already is. The drift is the chunked
+            walk's budget (:meth:`_leg_chunk`): half of that remaining leg's clearance less PROBE_HAZARD_PAD,
+            re-judged every hold, so the pad's heading error -- up to 22.5 degrees -- is taken back at the next
+            hold instead of carried down the leg, and a hold that meets a wall -- pushed back onto the floor,
+            toward a leg that lies on it (on a floor convex where he walks) -- still slides PROBE_HAZARD_PAD clear
+            of every region. Beside a door (or a blocker) the remaining leg's clearance is under ROUTE_CHUNK_MIN
+            / 2 + PROBE_HAZARD_PAD and the drift is clamped up to ROUTE_CHUNK_MIN / 2: there it keeps nothing, the
+            zone rule does, and so it never refuses the SMALLEST press there is (one walk frame, at most (1 +
+            PROBE_TAIL_FRAMES) * WALK_SPEED off the line). Without that, a leg leaving a door at an angle to both
+            pads had no first step at all (stock 356, 6u beside its 350 door, sent to 353: the one zone-clear
+            pad strayed 24.04u against a drift of 24). Judged from the REMAINING leg, the clamp binds only while
+            he is still beside the door, not down the whole of a long leg.
+          * THE OBJECTS (route_to(npcs=True)): the same fan keeps clear of every published object the plan kept,
+            where it stands NOW (:meth:`_leg_discs`) -- a body ROUTE_BODY_PAD off its ``r``, a trigger
+            PROBE_HAZARD_PAD off its radius, one he stands nearer than that never approached closer
+            (:meth:`_probe_is_clear` ``discs``); the drift counts them like blockers, at their own radii. And a
+            line that passes within ROUTE_WALKER_NEAR of a MOVING one's radius is held at most ROUTE_WALKER_HOLD
+            frames: they are read again only when the hold ends (:meth:`_walk_leg`). A MOVING TRIGGER is judged
+            where it could have walked by the time he gets to each point of the line, and where he stands until the
+            next read, not where it was read (:meth:`_walker_clear`) -- a patrol that walks into him fires its script
+            as surely as he walks into it (``sweep`` False judges it where it was read: whether the walker alone is
+            what refuses the press).
+        Each rule that holds for a length holds for every shorter one, so the longest is found by bisection -- all
+        but the walker's: a press that crosses a beat whole clears where a shorter one stopping on it does not. So with
+        a walker the lengths above the bisection's are tried too, longest first; every length taken was checked."""
+        import math
+        from ff9mapkit.scene import routes
+        b = leg["to"]
+        dx, dz = target[0] - here[0], target[1] - here[1]
+        dist = (dx * dx + dz * dz) ** 0.5
+        if dist < 1.0:
+            return None
+        p = _nearest_on_seg(here, leg["from"], b)
+        discs = self._leg_discs(leg)
+        walkers = [d for d in discs if d["moving"]]
+        swept = [d for d in walkers if d["kind"] == "trigger"] if sweep else []
+        still = [d for d in discs if all(d is not s for s in swept)]
+        walkers = [d for d in walkers if all(d is not s for s in swept)]    # a swept trigger is judged exactly
+        blockers = list(leg["blockers"]) + [(d["x"], d["z"], d["R"]) for d in discs]
+        drift = self._leg_chunk(p, b, leg["hazards"], blockers) / 2.0
+        off = math.hypot(here[0] - p[0], here[1] - p[1]) + 0.5
+        spread = leg["spread"]
+        order = sorted(_eight_way(basis), key=lambda p: -(p[1][0] * dx + p[1][1] * dz))
+        for pads in (order[:2], order[2:]):
+            for slow in ((True,) if dist < 3 * self.RUN_SPEED else (False, True)):
+                speed = self.WALK_SPEED if slow else self.RUN_SPEED
+                best = None
+                for buttons, u in pads:
+                    along = u[0] * dx + u[1] * dz              # where the line pressed passes nearest the target
+                    if along <= 0 or buttons in exclude:
+                        continue
+
+                    def fits(n, u=u, speed=speed, slow=slow):
+                        reach = (n + self.PROBE_TAIL_FRAMES) * speed
+                        end = (here[0] + u[0] * reach, here[1] + u[1] * reach)
+                        near = (slow and n == 1) or (routes.seg_dist_xz(end[0], end[1], p, b)
+                                                     <= max(drift - reach * math.tan(spread), off))
+                        if n > self.ROUTE_WALKER_HOLD and any(
+                                routes.seg_dist_xz(d["x"], d["z"], here, end) < d["R"] + self.ROUTE_WALKER_NEAR
+                                for d in walkers):
+                            return False
+                        until = n + self._walker_lag(leg.get("watch"))
+                        ends = [(here[0] + e[0] * reach, here[1] + e[1] * reach)
+                                for e in (_turn(u, spread * k / 2.0) for k in (-2, -1, 0, 1, 2))]
+                        if not all(self._walker_clear(here, u, reach, spread, d, speed, until)
+                                   and self._off_beat(here, ends, d) for d in swept):
+                            return False
+                        return near and self._probe_is_clear(here, u, reach, leg["hazards"], spread, discs=still)
+
+                    top = min(self.ROUTE_HOLD_MAX, max(1, int(along / speed) - (0 if slow else 1)))
+                    lo, hi = 0, top
+                    while lo < hi:
+                        mid = (lo + hi + 1) // 2
+                        lo, hi = (mid, hi) if fits(mid) else (lo, mid - 1)
+                    if swept:                         # across a walker's beat whole, where stopping on it may not:
+                        lo = next((n for n in range(top, lo, -1) if fits(n)), lo)      # the longest that clears
+                    gain = lo * speed * along / dist
+                    if lo and (best is None or gain > best[0]):
+                        best = (gain, buttons, u, lo, slow)
+                if best is not None:
+                    return best[1:]
+        return None
+
+    def _held_up(self, basis: dict, target, leg: dict, exclude=(), hold=False) -> bool:
+        """route_to(npcs=True, smooth=True): is the next hold toward ``target``, from where he stands now, refused or
+        CUT SHORT by a WALKING trigger's reach alone (:meth:`_plan_hold` ``sweep``)? Short: under ROUTE_WALKER_HOLD
+        frames of run, or of what the hold would be without the walkers if that is less. A walk that creeps along a
+        patrol's beat a frame at a time stalls on its own overshoots, and the stall ladder then reads the walker's
+        refusals as bodies -- waiting for the walker to go by is what gets him across. ``hold`` is the hold already
+        planned from here, if the caller has it."""
+        if not any(d["moving"] and d["kind"] == "trigger" for d in self._leg_discs(leg)):
+            return False
+        here = self._standing()
+        if hold is False:
+            hold = self._plan_hold(basis, here, target, leg, exclude)
+        free = self._plan_hold(basis, here, target, leg, exclude, sweep=False)
+        if free is None:
+            return False                                  # not the walkers: the caller's own verdict stands
+
+        def reach(h) -> float:
+            return 0.0 if h is None else h[2] * (self.WALK_SPEED if h[3] else self.RUN_SPEED)
+        return reach(hold) < min(reach(free), self.ROUTE_WALKER_HOLD * self.RUN_SPEED) - 0.5
+
+    def _walkers_let_press(self, here, hold, leg: dict) -> bool:
+        """route_to(npcs=True, smooth=True): does ``hold``, planned from ``here``, still keep clear of every WALKING
+        trigger by a read taken NOW -- the one it was planned on is as old as the planning, and a walker walks
+        meanwhile? The same rules as the plan (:meth:`_walker_clear`, :meth:`_off_beat`), with PROBE_TAIL_FRAMES of
+        head start for the send itself. True with no walker to ask about, or no fresh list to judge by."""
+        watch = leg["watch"]
+        if hold is None or not any(d["moving"] and d["kind"] == "trigger" for d in self._leg_discs(leg)):
+            return True
+        st = self.state
+        if self._npc_view(watch, st) is None:
+            return True
+        _buttons, u, n, slow = hold
+        pace = self.WALK_SPEED if slow else self.RUN_SPEED
+        reach = (n + self.PROBE_TAIL_FRAMES) * pace
+        spread = leg["spread"]
+        ends = [(here[0] + e[0] * reach, here[1] + e[1] * reach)
+                for e in (_turn(u, spread * k / 2.0) for k in (-2, -1, 0, 1, 2))]
+        walking = [d for d in watch["discs"] if d["kind"] == "trigger" and d["moving"]]
+        return all(self._walker_clear(here, u, reach, spread, d, pace, n + self._walker_lag(watch),
+                                      lead=self.PROBE_TAIL_FRAMES) and self._off_beat(here, ends, d) for d in walking)
+
+    def _walk_leg(self, x: float, z: float, tolerance: float, leg: dict, slides: bool) -> str:
+        """route_to(smooth=True)'s walk to one planned waypoint (x, z), in place of walk_to: hold after hold from
+        :meth:`_plan_hold`, each ONE continuous press -- two directions at once where the leg runs diagonal on
+        the calibrated basis -- and a fresh aim only when one ends, instead of one-axis bursts with a settle
+        between each. walk_to's contract otherwise, as route_to calls it (strict=False, halt_on_transition=
+        True): settled at both ends of every hold; nothing pressed once control is gone; a stall is two holds
+        in a row that moved nothing or overshot; a hold that covered real ground but not along what it
+        pressed is a slide round someone under ``slides`` (the walk ends, a stall) and a wrong basis otherwise
+        (discarded, raises). Holds go on until he is within ``leg["aim"]`` when it is tighter (the last leg
+        without a zone, see :meth:`_route_legs` -- an overshoot past it then counts as a stall, so the aim costs
+        a hold or two, never an oscillation).
+
+        THE LAST LEG FINISHES ON ITS ``zone`` when it has one: standing in it is arrival wherever that is, and
+        once within ``tolerance`` of the goal but still outside, the holds press INTO it -- walked, the zone rule
+        still kept -- toward the nearest spot in it where his centre can stand (:meth:`_zone_foothold`), or, with
+        none that near (or no ``floor``), a point WALK_SPEED past the zone's nearest edge (:func:`_into_zone`):
+        pressing on into a wall is harmless, the engine stops his centre on its clearance line -- but a pad that
+        moved him nothing is not pressed again from that spot: the other side of the bearing slides along the
+        wall instead (350's 353 wedge, reached diagonally into the wall 10u short of it). A press that moves
+        him no nearer the zone is a stall; an overshoot of the goal that leaves him within ``tolerance`` is not
+        -- the finish takes over from there. A goal a few units deep lies by that line (stock 350's door to
+        353: 2u in, and 77u off the wall -- short of the line), so "within one walk frame of it" can stand him
+        outside; and the smallest press moves ~30u, so a walk aimed that close bounces round it and stalls on
+        the overshoots before it ever gets there (350's door to 450 in the wall-slide simulator). The zone,
+        not the goal point, is the target.
+
+        UNDER A ``leg["watch"]`` (route_to(npcs=True)) the objects are read again after every hold
+        (:meth:`_npc_moved`): the next hold is bounded by where they stand now, and one that moved onto the
+        path still to walk ends the leg as "moved" -- route_to plans again from here. Where the only thing that
+        refuses every hold is a WALKING trigger's reach (:meth:`_plan_hold` ``sweep``), he stands still until it
+        has gone by (:meth:`_outwait_walkers`) instead of pressing toward it.
+
+        Returns "arrived" (within ``tolerance``, or standing in ``leg["zone"]``), "boxed" when no hold from
+        where he stands keeps :meth:`_plan_hold`'s rules and he is not within ``tolerance`` -- nothing may be
+        pressed from here, which is not a stall: a wait, a push or a blocker cannot change it -- or when the
+        call's wait for walkers is spent, "moved" (above), or "short" (anything else: a stall, a slide, the
+        holds spent, control gone)."""
+        import math
+        from ff9mapkit.content import pathfind
+        field = self.state.field_id
+        basis = self._axes[field]
+        aim = min(tolerance, leg.get("aim") or tolerance)
+        zone = leg.get("zone")
+        watch = leg.get("watch")
+        stalls = 0
+        stuck: set = set()                        # the zone finish: pads that moved him nothing from here
+        st = self.settle()
+        for _ in range(self.ROUTE_HOLDS):
+            if st.field_id != field or st.player_x is None or not st.control:
+                return "short"
+            here = (st.player_x, st.player_z)
+            if zone is not None and pathfind.poly_gap(here[0], here[1], zone) < 0:
+                return "arrived"                  # in the region he was sent to, control held: a gated gateway
+            if zone is None and math.hypot(x - here[0], z - here[1]) <= aim:
+                return "arrived"
+            finish = zone is not None and math.hypot(x - here[0], z - here[1]) <= tolerance
+            target = (x, z)
+            if finish:
+                target = ((leg.get("floor") is not None and self._zone_foothold(here, zone, leg["floor"]))
+                          or _into_zone(here, zone, self.WALK_SPEED))
+            exclude = stuck if finish else ()
+            hold = self._plan_hold(basis, here, target, leg, exclude)
+            if watch is not None and self._held_up(basis, target, leg, exclude, hold):
+                # a WALKING trigger's reach is what refuses or cuts short the press from here: stand still until it
+                # has gone by, rather than creep up to its beat -- or, where standing is not safe either, step out of
+                # its way first
+                got = self._outwait_walkers(watch, field,
+                                            lambda: not self._held_up(basis, target, leg, exclude),
+                                            lambda: self._walker_escape(basis, leg))
+                if got != "clear":
+                    return got
+                st = self.state
+                continue
+            if hold is None:
+                if finish or math.hypot(x - here[0], z - here[1]) <= tolerance:
+                    break                         # nowhere further to press; the tolerance decides
+                self._log(f"  route_to: no hold from ({here[0]:.0f}, {here[1]:.0f}) toward ({x:.0f}, {z:.0f}) "
+                          f"keeps clear of the avoided regions and near the leg; nothing may be pressed from here")
+                return "boxed"
+            if watch is not None and not self._walkers_let_press(here, hold, leg):
+                # planning took frames a walker spent walking: judged again on a read taken now, the hold no longer
+                # keeps clear -- wait for it (once at the least) as for any walker in the way
+                got = self._outwait_walkers(watch, field,
+                                            lambda: not self._held_up(basis, target, leg, exclude),
+                                            lambda: self._walker_escape(basis, leg), first=True)
+                if got != "clear":
+                    return got
+                st = self.state
+                continue
+            buttons, u, frames, slow = hold
+            leg["pressed"] = (buttons, u)
+            steps = [f"hold {b} {frames}" for b in buttons]
+            if slow:
+                steps.insert(0, f"hold cancel {frames}")
+            self.send(*steps, f"wait {frames + 4}")
+            after = self.settle()
+            if after.field_id != field or after.player_x is None or not after.control:
+                return "short"        # out of the field, or into a trigger: its scripted walk is not this hold's
+            if watch is not None:
+                self._note_lag(watch, after.frame - st.frame - frames)      # read to read, beyond the press
+                if self._npc_moved(after, watch):
+                    return "moved"
+            mx, mz = after.player_x - st.player_x, after.player_z - st.player_z
+            moved = (mx * mx + mz * mz) ** 0.5
+            # walk_to's basis check, on the direction actually pressed (see there)
+            if self._burst_is_evidence(moved, frames * (self.WALK_SPEED if slow else self.RUN_SPEED)):
+                projected = mx * u[0] + mz * u[1]
+                if projected < 0.35 * moved and slides:
+                    self._log(f"  route_to: holding {'+'.join(buttons)} slid him {moved:.0f}u along "
+                              f"({mx:+.0f},{mz:+.0f}) -- round someone in the way, not a wrong basis; stopping here")
+                    break
+                if projected < 0.35 * moved:
+                    self._axes.pop(field, None)
+                    raise HarnessError(
+                        f"the axis basis for field {field} disagrees with what the game did: holding "
+                        f"{'+'.join(buttons)} moved {moved:.0f}u along ({mx:+.0f},{mz:+.0f}), which projects only "
+                        f"{projected:.0f}u onto the calibrated direction {_vec(u)}. The basis was probably measured "
+                        f"against a wall; it has been discarded. Recalibrate from open ground.")
+            gap = ((x - after.player_x) ** 2 + (z - after.player_z) ** 2) ** 0.5
+            if finish:        # into the zone, past the goal point if need be: a press no nearer the zone stalls
+                overshot = (pathfind.poly_gap(after.player_x, after.player_z, zone)
+                            >= pathfind.poly_gap(here[0], here[1], zone) - 0.5)
+            else:             # past the goal -- unless it left him where the zone's finish takes over
+                overshot = ((x - after.player_x) * u[0] + (z - after.player_z) * u[1] < 0 and gap > aim
+                            and (zone is None or gap > tolerance))
+            stalls = stalls + 1 if (moved < 1.0 or overshot) else 0
+            stuck = stuck | {buttons} if moved < 1.0 else set()
+            if stalls >= 2:
+                break
+            st = after
+        final = self.state
+        if final.field_id != field or final.player_x is None:
+            return "short"
+        if zone is not None and pathfind.poly_gap(final.player_x, final.player_z, zone) < 0:
+            return "arrived"
+        return "arrived" if ((final.player_x - x) ** 2 + (final.player_z - z) ** 2) ** 0.5 <= tolerance else "short"
+
+    def route_to(self, x: float, z: float, *, avoid=(), margin: float | None = None,
+                 tolerance: float = 45.0, walkmesh=None, prior="stock", timeout: float = 20.0,
+                 unstick: bool = False, smooth: bool = False, zone=None, npcs: bool = False) -> dict:
+        """Walk to (x, z) along a route over the field's walkmesh that keeps out of ``avoid``.
+
+        ``avoid`` is a list of polygons (world ``[x, z]`` corners -- a field's gateway zones as
+        ``eventscan.scan_gateways`` decodes them); the route stays ``margin`` clear of each, except a
+        region the player is standing in or beside (:func:`ff9mapkit.content.pathfind.route_avoiding`).
+        ``walkmesh`` defaults to the install's for the CURRENT field (a fork passes its own);
+        ``prior`` to :meth:`key_prior` of it (``None`` = calibrate blind, which refuses -- raises --
+        within a probe's reach of any ``avoid`` region; or pass a basis).
+
+        In order: wait for settled control (an arrival walk-in is not a place to probe from);
+        calibrate CLEAR of ``avoid`` (:meth:`_calibrate_clear_of`); plan from where that left him; walk
+        the route in chunks with ``walk_to(strict=False, halt_on_transition=True)``, replanning from a
+        stall up to ROUTE_REPLANS times. The instant control goes away -- a probe or a step fired a
+        trigger -- it stops pressing and reports where that led.
+
+        ``unstick`` (opt-in) is for a LIVE room -- people walking about, scripts that hold movement.
+        The router knows walls and zones, not bodies, and the agent publishes nothing that tells a
+        movement freeze with control held (the script's pad mask, EventInput.IsMovementControl) from a
+        body in the way, so MOVEMENT decides, rung by rung (:meth:`_unstick_leg`). A chunk that stalls
+        with control held is not a failure yet. WAIT ROUTE_WAIT_FRAMES and walk it again, ROUTE_WAITS
+        times (ROUTE_WAIT_BUDGET per call): a freeze, or someone walking through, clears on its own.
+        Still stuck: PUSH -- one unbroken hold into whoever stands there, long enough for the engine
+        to let him through anyone without object flag 16 (ROUTE_PUSH_LOCK_W), pressed only once a
+        two-frame probe shows he really is stuck (an overshoot or a slide is not). Still stuck: an
+        UNSEEN BLOCKER -- someone he cannot pass -- stands just ahead; it goes in as a point obstacle
+        OBSTACLE_R_W (the collision distance) ahead of him along the axis he was pressing
+        (:meth:`_blocker_ahead`), and the route is replanned round it, at most ROUTE_BLOCKERS times,
+        by the same route_avoiding, so no replan ever enters an ``avoid`` zone. Each replan presses a
+        way the blockers before it left open. If he never moves again after the first blocker went in
+        -- every replan stalled on the spot, or this call's own blockers leave no way at all -- nothing
+        tells a hold on movement from bodies on every side: ``frozen``, and this call's blockers are
+        withdrawn as the misreadings they may be. If he DID move, and then the blockers seal the way,
+        that is ``blocked``; its blockers are withdrawn too, so a phantom never outlives the call that
+        could not use it. A blocker kept is remembered on this field VISIT for ROUTE_BLOCKER_TTL (a
+        heuristic: people walk off) and dropped the moment a published sample shows another field or
+        control gone (:meth:`_observe`); see :meth:`_plan_round` for the ones he has walked through.
+        Walks under ``unstick`` pass ``slides`` to walk_to: sliding round someone is not a bad basis.
+
+        ``smooth`` (opt-in) walks each planned leg WHOLE (:meth:`_route_legs`) instead of in chunks of
+        one-axis walk_to bursts with a settle between each -- the choppy walk: every hold is one continuous
+        press toward the leg's waypoint, two directions at once where the leg runs diagonal on the calibrated
+        basis, re-aimed only when it ends (:meth:`_walk_leg`). The no-zone guarantee is kept per hold, not by
+        chunk length: a hold is only as long as the straight line it covers, movement tail included, stays
+        clear of every ``avoid`` region by the calibration probe's own rule -- and every line within the
+        basis's heading error of it (:meth:`_heading_spread`: the calibrated direction is a measurement) --
+        and its end stays within the chunked walk's own drift of the leg still to walk (:meth:`_plan_hold`).
+        The stall, wait, push and blocker machinery runs on top unchanged; under it a push insists along the
+        direction last held, only as far as that fan is clear too (:meth:`_push_through`), and a blocker goes
+        ahead along it. A spot from which no hold keeps those rules is ``boxed``: nothing is pressed, and it is
+        not a stall -- no wait, push or blocker (none can change it), no ``frozen``. Without ``smooth``
+        walk_to is untouched, and so is every caller of it.
+
+        ``zone`` (smooth only -- it raises without; the polygon the goal lies in, as route_cross passes it)
+        makes the last leg FINISH ON IT: standing in it is arrival, and a walk that stops within one walk
+        frame of the goal but still outside presses on into it (:meth:`_walk_leg`); ``reached`` then also
+        counts standing in it.
+
+        ``npcs`` (opt-in; it implies ``unstick``) plans round the field's OTHER ACTORS as the engine publishes
+        them (memoria-patch s89, :attr:`State.objects`) instead of finding them by walking into them -- on a
+        tight map a solid one is a true movement lock. Every object that collides with him (``coll``, standing
+        within NPC_DY_BAND in y of a floor under it -- where the walk can meet it, on whatever level the route
+        climbs to) is a disc of its published ``r`` in the same A* the zones are kept out of, ROUTE_BODY_MARGIN
+        wider; one with a contact function is also a TRIGGER disc of its ``range_r`` (its ``talk_r`` where
+        larger and it talks too), kept out of like a zone, ``margin`` wide: a Range the walk did not choose can
+        warp the run or start a battle (:meth:`_npc_discs`) -- and a calibration probe keeps clear of the
+        triggers as it does of the zones (:meth:`_npc_hazards`). The plan gives them up only as far as it must
+        (:meth:`_plan_npcs`): the margins first, down to the pads a hold keeps; then a NON-SOLID body is planned
+        THROUGH -- a push, the ladder's last rung -- only when no route goes round it, and a trigger radius is
+        entered only when no route stays out, one object at a time, never a class at once, and then the record
+        says so; a SOLID body never -- solids that seal every way even at the pad are ``blocked``, with nothing
+        pressed (waited on only while one of them is walking: then the plan is made again after
+        ROUTE_WAIT_FRAMES, within ROUTE_WAIT_BUDGET). The discs bound every hold and every chunk the way the zones
+        do, where the objects stand NOW: they are read again after every hold (every chunk, chunked), and one
+        that moved onto the path still to walk re-plans from where he stands, at most ROUTE_NPC_REPLANS times a
+        call (:meth:`_npc_moved`); a WALKING trigger is held to where it could have walked by the next read, and
+        a press that reach refuses is waited for, standing still (:meth:`_outwait_walkers`). A push is never
+        pressed into a solid object, nor along a line that meets a kept trigger or solid
+        (:meth:`_push_through`); a stall pressed against a published body -- in contact, :meth:`_body_ahead` --
+        that the plan did not go round where it stands now replans round it instead of guessing an unseen
+        blocker (one it did go round gets the guess: the next plan would only repeat the last), and a walk held
+        against one to the end is not ``frozen`` -- that verdict is for what nothing published can explain. When
+        control goes away mid-walk inside a trigger's reach, that trigger is named in ``entered`` too
+        (:meth:`_npc_fired`). When the engine publishes no
+        objects (the key absent: pre-s89) the call is route_to(unstick=True) exactly, and ``npcs`` says
+        "cannot"; when it publishes null through ROUTE_NPC_READS samples (it could not say) the walk is that
+        same blind one and ``npcs`` says "unknown" -- never a plan that reads the field as empty. A null sample
+        mid-walk leaves the last list read standing.
+
+        Returns ``{"from", "landed", "reached", "travelled", "waypoints", "toward", "replans",
+        "during", "waits", "cleared", "pushes", "pushed", "blockers", "remembered", "blocked",
+        "frozen", "boxed", "npcs", "avoided", "entered", "through", "sealed", "npc_replans", "npc_waits"}``: ``landed``
+        the field it ended up in (None = still here), ``reached`` whether it
+        stood within ``tolerance`` of the goal, ``travelled`` the distance actually covered (summed
+        over the walk, not end-to-end), ``waypoints`` the first plan (None = no route exists),
+        ``during`` what lost control -- "calibrate" (a probe), "walk" (a step), "wait" (during an
+        unstick wait), "push" (during a push), None (nothing did). The rest stay zero/empty without
+        ``unstick``: ``waits`` taken, the stalls a wait ``cleared``, ``pushes`` pressed and how many
+        of them ``pushed`` him through, the ``blockers`` this call placed ([x, z]; ``replans`` counts
+        the plans after the first that a stall caused), how many ``remembered`` ones its first plan went
+        round, ``blocked`` and ``frozen`` as above; ``boxed`` (smooth only; or, under ``npcs``, a walk whose wait
+        for walking triggers ran out) as above. Without ``npcs``,
+        ``npcs`` is None and the rest empty/zero; with it, ``npcs`` is "listed", "cannot" or "unknown"
+        (above), and every object a plan went round -- in the straight line's way, or hugged by the route --
+        is in ``avoided``, every trigger radius a plan had to enter (or that reached him as control went) in
+        ``entered`` (``kind`` "range" / "talk"), every non-solid body it had to push through in ``through``, and
+        the solids that left no way at all in ``sealed``: each ``{"uid", "sid", "kind", "at", "radius", "solid",
+        "moving"}``, once per object and kind over the call. ``npc_replans`` counts the plans an object's
+        movement caused, ``npc_waits`` the waits a walking trigger's reach cost (ROUTE_WALKER_WAIT frames each).
+        """
+        from ff9mapkit.content import pathfind
+        if zone is not None and not smooth:
+            raise HarnessError(
+                "route_to(zone=...) finishes the last leg on the zone, and only the smooth walk does that: pass "
+                "smooth=True (route_cross passes its zone on only then). The chunked walk stops within "
+                "tolerance of the goal, wherever that leaves him.")
+        unstick = unstick or npcs
+        margin = pathfind.KEEPOUT_MARGIN_W if margin is None else float(margin)
+        st = self._require_field("route_to")
+        origin = st.field_id
+        polys = [[(float(p[0]), float(p[1])) for p in poly] for poly in avoid]
+        zpoly = None if zone is None else [(float(p[0]), float(p[1])) for p in zone]
+        record = {"from": origin, "landed": None, "reached": False, "travelled": 0.0,
+                  "toward": [round(x), round(z)], "waypoints": None, "replans": 0, "during": None,
+                  "waits": 0, "cleared": 0, "pushes": 0, "pushed": 0, "blockers": [], "remembered": 0,
+                  "blocked": False, "frozen": False, "boxed": False,
+                  "npcs": None, "avoided": [], "entered": [], "through": [], "sealed": [], "npc_replans": 0,
+                  "npc_waits": 0}
+        self.wait_control(timeout=timeout)
+        wmesh = walkmesh if walkmesh is not None else self._stock_walkmesh(origin)
+        if isinstance(prior, str):
+            prior = self.key_prior(origin)
+        # None: blind to bodies, as unstick is
+        watch = self._npc_watch(margin, record, self._floor_heights(wmesh)) if npcs else None
+        if watch is not None:
+            watch["floor"] = wmesh
+        try:
+            if origin not in self._axes:     # always the clear-of mode, even with nothing to avoid:
+                st = self.state              # (and clear of the published triggers: a probe fires one too)
+                hazards = polys + (self._npc_hazards(watch, st) if watch is not None else [])
+                self._calibrate_clear_of(origin, hazards, prior, 4)      # its probes watch control
+        except ProbeLeftControl as err:
+            self._log(f"  route_to: {err}")
+            record["during"] = "calibrate"
+            self._npc_fired(watch, record, origin)
+            record["landed"] = self._await_landing(origin, timeout)
+            return record
+        spread = self._heading_spread(self._axes[origin], prior) if smooth else 0.0
+        known = self._visit_blockers(origin) if unstick else []
+        fresh: list = []                  # the blockers THIS call placed, exact centres (all also in known)
+        walked = [0.0]                    # distance covered, summed over every walk_to of the call
+        first = None                      # walked[0] when this call's first blocker went in
+        stalled = False
+        attempts = (self.ROUTE_BLOCKERS if unstick else self.ROUTE_REPLANS) + 1
+        attempt = plans = 0               # the plans a stall caused / every plan made
+        while True:
+            st = self.state
+            here = (st.player_x, st.player_z)
+            sealing = []
+            if watch is not None:
+                wps, sealing = self._plan_npcs(wmesh, st, (x, z), polys, margin, known, fresh, watch, record)
+            else:
+                wps = (self._plan_round(wmesh, here, (x, z), polys, margin, known, fresh) if unstick
+                       else pathfind.route_avoiding(wmesh, here, (x, z), polys, margin))
+            if wps is None:
+                stalled = False
+                self._log(f"  route_to: no route on field {origin} from ({here[0]:.0f}, {here[1]:.0f}) "
+                          f"to ({x:.0f}, {z:.0f}) clear of {len(polys)} region(s)"
+                          + (f" and {len(known)} unseen blocker(s)" if known else ""))
+                walking = [d for d in sealing if d["moving"]]
+                if (walking and record["waits"] < self.ROUTE_WAIT_BUDGET
+                        and self._walkers_let_stand(watch, self.ROUTE_WAIT_FRAMES)):
+                    # a solid that is WALKING seals the way only until it has walked on: wait for it, then plan
+                    # again from where the objects stand then ("wait for it" is the engine's own answer to a walker)
+                    record["waits"] += 1
+                    self._log(f"  route_to: walking SOLID object(s) {[d['uid'] for d in walking]} seal the way; "
+                              f"waiting {self.ROUTE_WAIT_FRAMES} frames (wait {record['waits']})")
+                    self.wait_frames(self.ROUTE_WAIT_FRAMES)
+                    st = self.state
+                    if st.field_id != origin or not st.control:
+                        record["travelled"] = round(walked[0], 1)
+                        record["during"] = "wait"
+                        record["npc_waits"] = watch["walker_waits"]
+                        record["landed"] = self._await_landing(origin, timeout)
+                        return record
+                    continue
+                if sealing:
+                    # published SOLID bodies leave no way: a real outcome, with nothing to push through -- and this
+                    # call's guesses go with it, as they do for any seal
+                    self._withdraw(fresh, known)
+                    record["blocked"] = True
+                    self._npc_note(record["sealed"], sealing)
+                    self._log(f"  route_to: SOLID object(s) {[d['uid'] for d in sealing]} seal every way: blocked")
+                elif fresh:
+                    # this call's own blockers sealed it (_plan_round has already planned without the
+                    # older ones). They go -- a phantom never outlives the call that could not use it
+                    # -- and whether the way is really shut depends on whether he moved since the first
+                    self._withdraw(fresh, known)
+                    if walked[0] - first < self.WALK_SPEED:
+                        record["frozen"], record["blockers"] = True, []
+                        self._log("  route_to: and he has not moved since the first of them went in -- a hold "
+                                  "on movement, or bodies on every side: not told apart; withdrawn")
+                    else:
+                        record["blocked"] = True
+                break
+            if plans == 0:
+                record["waypoints"] = [list(w) for w in wps]
+                record["remembered"] = len(known)
+            plans += 1
+            record["replans"] = attempt
+            pts = [here] + [(float(a), float(b)) for a, b in wps]
+            chunks = (self._route_legs(pts, polys, known, spread=spread, zone=zpoly, floor=wmesh, watch=watch)
+                      if smooth else [(cx, cz, tol, None) for cx, cz, tol
+                                      in self._route_chunks(pts, polys, self._chunk_blockers(known, watch))])
+            stalled = moved = False
+            for i, (cx, cz, tol, leg) in enumerate(chunks):
+                last = i == len(chunks) - 1
+                tol = tolerance if last else tol
+                got = None
+                if watch is not None:
+                    watch["path"] = [(c[0], c[1]) for c in chunks[i:]]
+                    if leg is None:               # chunked: a WALKING trigger's reach is waited for before a chunk
+                        waited = self._outwait_walkers(watch, origin, lambda: self._chunk_clear(cx, cz, watch))
+                        got = None if waited == "clear" else ("wait" if waited == "short" else waited)
+                if got is None:
+                    before = self.state
+                    got = self._route_leg(cx, cz, tol, last, origin, walked, slides=unstick, leg=leg)
+                    if watch is not None and leg is None and before.player_x is not None:
+                        # read to read, beyond what the chunk pressed: what a walking trigger's reach is sized by
+                        pressed = self._chunk_frames(((cx - before.player_x) ** 2 + (cz - before.player_z) ** 2) ** 0.5)
+                        self._note_lag(watch, self.state.frame - before.frame - pressed)
+                if (watch is not None and (got == "stalled" or (got == "arrived" and not last))
+                        and self._npc_moved(self.state, watch)):
+                    got = "moved"                 # an object moved onto the path still to walk
+                if got == "stalled" and unstick:
+                    got = self._unstick_leg(cx, cz, tol, last, origin, walked, record, leg=leg, watch=watch)
+                if got in ("walk", "wait", "push"):
+                    record["travelled"] = round(walked[0], 1)
+                    record["during"] = got
+                    self._npc_fired(watch, record, origin, zpoly)
+                    if watch is not None:
+                        record["npc_waits"] = watch["walker_waits"]
+                    record["landed"] = self._await_landing(origin, timeout)
+                    return record
+                if got == "boxed":
+                    record["boxed"] = True        # no press keeps the rules: a replan from here plans the same
+                    break
+                if got in ("stalled", "moved"):
+                    stalled, moved = got == "stalled", got == "moved"
+                    break
+            if moved:
+                record["npc_replans"] += 1
+                watch["moves"] = record["npc_replans"]
+                st = self.state
+                self._log(f"  route_to: an object moved onto the path ahead of ({st.player_x:.0f}, "
+                          f"{st.player_z:.0f}); planning again from here (movement re-plan {record['npc_replans']} "
+                          f"of at most {self.ROUTE_NPC_REPLANS})")
+                continue
+            st = self.state
+            if record["boxed"] or not stalled or attempt == attempts - 1:
+                break
+            attempt += 1
+            if not unstick:
+                self._log(f"  route_to: stalled at ({st.player_x:.0f}, {st.player_z:.0f}); replanning")
+                continue
+            first = walked[0] if first is None else first
+            if watch is not None:
+                body = self._body_ahead(st, self._press_dir(origin, (st.player_x, st.player_z), (cx, cz), leg), watch)
+                if body is not None and self._npc_shifted(body, watch):
+                    # pressed against a body the engine publishes, which the plan did not go round where it stands
+                    # now: the next plan does, no guess needed. One it already went round, unmoved, it would plan
+                    # round the same way again -- that stall is something the walkmesh does not show, and gets the
+                    # unseen blocker below, as the blind walk would
+                    self._log(f"  route_to: stuck at ({st.player_x:.0f}, {st.player_z:.0f}) against object "
+                              f"{body['uid']} ({'solid' if body['solid'] else 'non-solid'}) at ({body['x']:.0f}, "
+                              f"{body['z']:.0f}); replanning round where it stands")
+                    continue
+            body = self._blocker_ahead(origin, (st.player_x, st.player_z), (cx, cz), leg)
+            known.append(body)
+            fresh.append(body)
+            self._blocker_at[body] = time.time()
+            record["blockers"].append([round(body[0]), round(body[1])])
+            self._log(f"  route_to: stuck at ({st.player_x:.0f}, {st.player_z:.0f}) with control held "
+                      f"after {record['waits']} wait(s) and {record['pushes']} push(es): an unseen blocker "
+                      f"at ({body[0]:.0f}, {body[1]:.0f}); replanning round it")
+        against = None
+        if stalled and first is not None and walked[0] - first < self.WALK_SPEED and watch is not None:
+            # with the objects published, a body he is held against is told apart from a hold on movement
+            against = self._body_ahead(st, self._press_dir(origin, (st.player_x, st.player_z), (cx, cz), leg), watch)
+            if against is not None:
+                self._log(f"  route_to: held at ({st.player_x:.0f}, {st.player_z:.0f}) against object "
+                          f"{against['uid']} at ({against['x']:.0f}, {against['z']:.0f}) -- a body, not a hold on "
+                          f"movement; stopping")
+        if stalled and first is not None and walked[0] - first < self.WALK_SPEED and against is None:
+            # Every replan since the first blocker -- each pressing a way the blockers before it left
+            # open -- ended exactly where he stood. Bodies do not do that; a hold on MOVEMENT does (a
+            # freeze that outlasted every wait), or walls and bodies on every side. The blockers were
+            # misreadings of it: withdrawn, from the record and from the visit.
+            self._withdraw(fresh, known)
+            record["blockers"] = []
+            record["frozen"] = True
+            self._log(f"  route_to: did not move at all from ({st.player_x:.0f}, {st.player_z:.0f}) through "
+                      f"{record['waits']} wait(s), {record['pushes']} push(es) and {len(fresh)} replan(s) in "
+                      f"other directions -- movement is held (or he is boxed in); stopping")
+        st = self.state
+        record["travelled"] = round(walked[0], 1)
+        if watch is not None:
+            record["npc_waits"] = watch["walker_waits"]
+        record["reached"] = (st.field_id == origin and st.player_x is not None
+                             and (((st.player_x - x) ** 2 + (st.player_z - z) ** 2) ** 0.5 <= tolerance
+                                  or (zpoly is not None and pathfind.poly_gap(st.player_x, st.player_z, zpoly) < 0)))
+        return record
+
+    def _route_leg(self, cx: float, cz: float, tol: float, last: bool, origin: int, walked: list,
+                   slides: bool = False, leg: dict | None = None) -> str:
+        """walk_to one chunk end of a route -- or, given a smooth ``leg`` (:meth:`_route_legs`), walk to its
+        waypoint in holds (:meth:`_walk_leg`); adds the distance covered to ``walked[0]``. Returns "arrived",
+        "stalled", "boxed" (smooth only: nothing may be pressed from where he stands -- not a stall), "moved"
+        (smooth, route_to(npcs=True): an object moved onto the path ahead -- plan again), or "walk" when control
+        went away (a step fired a trigger, or the field changed).
+        ``slides`` is walk_to's: a slide round someone ends the walk as a stall instead of raising.
+
+        A chunk end missed by less than ROUTE_WAYPOINT_TOLERANCE is a near miss, not a stall: a tight
+        chunk tolerance can be overshot by one frame's tail, and replanning from right beside the line
+        would only plan the same line again. The LAST chunk (the goal) has no such slack."""
+        before = self.state
+        if leg is None:
+            arrived = self.walk_to(cx, cz, tolerance=tol, strict=False, halt_on_transition=True, slides=slides)
+            outcome = "arrived" if arrived else "short"
+        else:
+            outcome = self._walk_leg(cx, cz, tol, leg, slides)
+            arrived = outcome == "arrived"
+        after = self.state
+        if after.field_id == origin and None not in (before.player_x, after.player_x):
+            walked[0] += ((after.player_x - before.player_x) ** 2 + (after.player_z - before.player_z) ** 2) ** 0.5
+        if after.field_id != origin or not after.control:
+            return "walk"
+        if outcome in ("boxed", "moved"):
+            return outcome
+        if arrived or (not last and ((after.player_x - cx) ** 2 + (after.player_z - cz) ** 2) ** 0.5
+                       <= self.ROUTE_WAYPOINT_TOLERANCE):
+            return "arrived"
+        return "stalled"
+
+    def _outwait(self, cx: float, cz: float, tol: float, last: bool, origin: int, walked: list,
+                 record: dict, leg: dict | None = None, watch: dict | None = None) -> str:
+        """route_to(unstick=True) at a stall with control held: WAIT ROUTE_WAIT_FRAMES, then walk the same
+        chunk (or smooth ``leg``) again -- ROUTE_WAITS times, and never past the call's ROUTE_WAIT_BUDGET.
+        Counts ``record["waits"]`` and, for a wait after which the chunk was reached, ``record["cleared"]``.
+        Returns what the last :meth:`_route_leg` did ("boxed" included: that is not waited on again), or "wait"
+        when control went away during a wait. Under route_to(npcs=True)'s ``watch`` a wait a WALKING trigger could
+        reach him in is not stood through (:meth:`_walkers_let_stand`): the stall goes on up the ladder instead."""
+        got = "stalled"
+        for _ in range(self.ROUTE_WAITS):
+            if record["waits"] >= self.ROUTE_WAIT_BUDGET:
+                break
+            if not self._walkers_let_stand(watch, self.ROUTE_WAIT_FRAMES):
+                self._log(f"  route_to: not waiting {self.ROUTE_WAIT_FRAMES} frames here: a walking trigger could "
+                          f"reach him meanwhile")
+                break
+            record["waits"] += 1
+            self.wait_frames(self.ROUTE_WAIT_FRAMES)
+            st = self.state
+            if st.field_id != origin or not st.control:
+                return "wait"
+            got = self._route_leg(cx, cz, tol, last, origin, walked, slides=True, leg=leg)
+            if got == "arrived":
+                record["cleared"] += 1
+                self._log(f"  route_to: moving again after a wait (stall {record['cleared']} cleared)")
+            if got != "stalled":
+                return got
+        return got
+
+    def _unstick_leg(self, cx: float, cz: float, tol: float, last: bool, origin: int, walked: list,
+                     record: dict, leg: dict | None = None, watch: dict | None = None) -> str:
+        """route_to(unstick=True) at a stall with control held, rung by rung: the waits (:meth:`_outwait`),
+        then a push (:meth:`_push_through`; given route_to(npcs=True)'s ``watch``, never into a solid object)
+        and the chunk (or smooth ``leg``) walked again after it. The
+        waits go FIRST because a push is one long blind hold: a freeze or a walker that clears in the middle
+        of it lets him run the rest. Returns "arrived", "stalled" (still stuck -- route_to places a blocker),
+        "boxed" (a smooth leg with no press that keeps the rules: nothing further is tried), "moved" (a smooth
+        leg under a ``watch`` saw an object move onto the path), or "walk" / "wait" / "push" when control went
+        away."""
+        got = self._outwait(cx, cz, tol, last, origin, walked, record, leg, watch)
+        if got != "stalled":
+            return got
+        pushed = self._push_through(cx, cz, origin, walked, record, leg, watch)
+        if pushed in ("push", "stuck"):
+            return "push" if pushed == "push" else "stalled"
+        return self._route_leg(cx, cz, tol, last, origin, walked, slides=True, leg=leg)
+
+    def _push_through(self, cx: float, cz: float, origin: int, walked: list, record: dict,
+                      leg: dict | None = None, watch: dict | None = None) -> str:
+        """Hold toward the chunk end ``(cx, cz)`` UNBROKEN for ROUTE_PUSH_LOCK_W of commanded movement plus
+        what the chunk still needs along the axis pressed -- the engine's pass-through for anyone
+        without object flag 16 (see ROUTE_PUSH_LOCK_W). Counts ``record["pushes"]`` / ``["pushed"]``,
+        never past ROUTE_PUSH_BUDGET; adds what he covered to ``walked[0]``. Returns "pushed" (he went
+        through), "free" (he was not stuck, so nothing was pushed), "stuck", or "push" when control
+        went away.
+
+        A TWO-FRAME PROBE FIRST, at walk speed: a push that meets nobody is a blind run of the whole
+        hold, and walk_to also stops on an overshoot, a slide or max_bursts, none of them a body. Only
+        a probe that moved him under a unit -- walk_to's own stall test -- earns the push.
+
+        Given a smooth ``leg`` it insists along the line the leg last HELD (``leg["pressed"]``: both
+        buttons of a diagonal -- the line he stopped on), not one axis toward the chunk end. And the whole
+        line is checked first, because a push runs blind for all of it once whoever stood there moves: lock,
+        press and movement tail must pass :meth:`_probe_is_clear` of the leg's avoided regions, from where he
+        stands, over the leg's heading ``spread``. The press after the lock shrinks to fit (never under 3
+        frames); a push that cannot fit is not pressed ("stuck").
+
+        Given route_to(npcs=True)'s ``watch`` it is not pressed at all while a SOLID published object stands
+        against him along that line (:meth:`_body_ahead`) -- the engine never lets him through one, so the hold
+        would only wait out a lock that cannot open -- and the line, chunked or smooth, must also keep clear of
+        every kept trigger and solid object (:meth:`_probe_is_clear` ``discs``): a push runs blind once the lock
+        opens, and must not carry him on into a contact script beyond whoever he pushed through."""
+        if record["pushes"] >= self.ROUTE_PUSH_BUDGET:
+            return "stuck"
+        st = self.state
+        dx, dz = cx - st.player_x, cz - st.player_z
+        lock = int(-(-self.ROUTE_PUSH_LOCK_W // self.RUN_SPEED))
+        if leg is None:
+            button, need, axis, sign = _press_axis(self._axes[origin], dx, dz)
+            buttons, u = (button,), (axis[0] * sign, axis[1] * sign)
+        else:
+            if leg["pressed"] is None:
+                leg["pressed"] = max(_eight_way(self._axes[origin]), key=lambda p: p[1][0] * dx + p[1][1] * dz)
+            buttons, u = leg["pressed"]
+            need = max(0.0, u[0] * dx + u[1] * dz)
+        tail = max(3, min(int(self.ROUTE_CHUNK_MAX / self.RUN_SPEED), int(need / self.RUN_SPEED)))
+        hazards, spread = (leg["hazards"], leg["spread"]) if leg is not None else ((), 0.0)
+        discs = [] if watch is None else [d for d in watch["discs"] if d["kind"] == "trigger" or d["solid"]]
+        judged = leg is not None or watch is not None          # the chunked push, blind, is judged only then
+        if watch is not None:
+            solid = self._body_ahead(st, u, watch, solid=True)
+            if solid is not None:
+                self._log(f"  route_to: SOLID object {solid['uid']} at ({solid['x']:.0f}, {solid['z']:.0f}) stands "
+                          f"against him along {'+'.join(buttons)}: never pushed")
+                return "stuck"
+
+        movers = [] if watch is None else [d for d in watch["discs"] if d["moving"] and d["kind"] == "trigger"]
+        lag = self._walker_lag(watch)
+
+        def fit(tail: int) -> int:
+            """The longest press after the lock, up to ``tail``, whose whole push line is clear; 0 = none -- of a
+            WALKING trigger by the most it can walk while the whole push runs (he may stand the lock out anywhere
+            on the line)."""
+            from ff9mapkit.scene import routes
+            here = (self.state.player_x, self.state.player_z)
+
+            def clear(n: int) -> bool:
+                reach = (lock + n + self.PROBE_TAIL_FRAMES) * self.RUN_SPEED
+                end = (here[0] + u[0] * reach, here[1] + u[1] * reach)
+                return (self._probe_is_clear(here, u, reach, hazards, spread, discs=discs)
+                        and all(routes.seg_dist_xz(d["x"], d["z"], here, end) - d["R"] - d["pad"]
+                                >= d["speed"] * (lock + n + lag) for d in movers))
+            while tail >= 3 and not clear(tail):
+                tail -= 1
+            return tail if tail >= 3 else 0
+
+        if judged and not fit(tail):
+            self._log(f"  route_to: no push along {'+'.join(buttons)} from ({st.player_x:.0f}, {st.player_z:.0f}) "
+                      f"keeps clear of the avoided regions{' and objects' if discs else ''}; not pressed")
+            return "stuck"
+        moved = self._pressed(origin, walked, "hold cancel 2", *[f"hold {b} 2" for b in buttons], "wait 6")
+        if moved is None:
+            return "push"
+        if moved >= 1.0:
+            return "free"
+        if judged:
+            tail = fit(tail)                          # judged again from where the probe left him
+            if not tail:
+                return "stuck"
+        frames = lock + tail
+        record["pushes"] += 1
+        moved = self._pressed(origin, walked, *[f"hold {b} {frames}" for b in buttons], f"wait {frames + 4}")
+        if moved is None:
+            return "push"
+        if moved < self.WALK_SPEED:
+            return "stuck"
+        record["pushed"] += 1
+        self._log(f"  route_to: one unbroken {frames}-frame hold {'+'.join(buttons)} took him {moved:.0f}u "
+                  f"through whoever stood there (push {record['pushes']})")
+        return "pushed"
+
+    def _pressed(self, origin: int, walked: list, *steps: str) -> float | None:
+        """Send ``steps``, settle, and add the displacement to ``walked[0]``: how far he went, or None when
+        the field changed or control went away."""
+        before = self.state
+        self.send(*steps)
+        after = self.settle()
+        if after.field_id != origin or None in (before.player_x, after.player_x):
+            return None
+        moved = ((after.player_x - before.player_x) ** 2 + (after.player_z - before.player_z) ** 2) ** 0.5
+        walked[0] += moved
+        return moved if after.control else None
+
+    def _withdraw(self, fresh: list, known: list) -> None:
+        """Take this call's blockers ``fresh`` back out of the visit's ``known``."""
+        for body in fresh:
+            if body in known:
+                known.remove(body)
+            self._blocker_at.pop(body, None)
+
+    def _blocker_ahead(self, field: int, here, toward, leg: dict | None = None) -> tuple[float, float]:
+        """Where the body he stopped against stands: OBSTACLE_R_W (+1, so he is not inside it) from
+        ``here`` along the direction he was PRESSING (:meth:`_press_dir`). A press that meets a body off its
+        line does not stop him: the engine pushes him back out along the line from its centre and he slides
+        round it (FieldMapActorController.cs:779-791). A dead stop means the body is on the line pressed. (Two
+        bodies, or a body and a wall, can still stop him off that line; the replan then stalls again
+        and the next blocker goes where that stall says.)"""
+        from ff9mapkit.content import pathfind
+        u = self._press_dir(field, here, toward, leg)
+        r = pathfind.OBSTACLE_R_W + 1.0
+        return (here[0] + u[0] * r, here[1] + u[1] * r)
+
+    def _press_dir(self, field: int, here, toward, leg: dict | None = None) -> tuple[float, float]:
+        """The world direction a stalled walk was pressing: walk_to's toward the chunk end ``toward`` -- one
+        calibrated axis, not the leg's diagonal -- or, on a smooth ``leg``, the direction its last hold pressed
+        (``leg["pressed"]``, a diagonal too)."""
+        if leg is not None and leg["pressed"] is not None:
+            return leg["pressed"][1]
+        _button, _need, axis, sign = _press_axis(self._axes[field], toward[0] - here[0], toward[1] - here[1])
+        return (axis[0] * sign, axis[1] * sign)
+
+    def _visit_blockers(self, field: int) -> list:
+        """The unseen blockers remembered on this visit to ``field`` -- the live list route_to adds to --
+        less any placed more than ROUTE_BLOCKER_TTL ago. A different field starts a new visit (and
+        :meth:`_observe` empties it the moment one ends)."""
+        if self._blockers[0] != field:
+            self._blockers = (field, [])
+            self._blocker_at = {}
+        known = self._blockers[1]
+        now = time.time()
+        for body in [b for b in known if now - self._blocker_at.get(b, now) > self.ROUTE_BLOCKER_TTL]:
+            known.remove(body)
+            self._blocker_at.pop(body, None)
+        return known
+
+    def _plan_round(self, wmesh, here, goal, polys, margin, known: list, fresh: list, discs=(), memo=None):
+        """:func:`~ff9mapkit.content.pathfind.route_avoiding` round the visit's unseen blockers ``known``
+        (updated in place; ``fresh`` = the ones this call placed), still clear of every ``polys`` zone -- and
+        of ``discs``, ``(x, z, r)`` obstacles each kept its own ``r`` clear (route_to(npcs=True)'s published
+        objects, :meth:`_plan_npcs`), which this never drops. ``memo`` is route_avoiding's: one per start, shared
+        by every plan a caller makes from there.
+
+        A blocker he STANDS INSIDE is not there any more -- he could not stand in a body -- and is
+        dropped. When the OLDER ones seal the way they may have walked off, so the plan is made again
+        from this call's own evidence alone, and they are dropped if that finds a way (if they are
+        still there the walk stalls on them and places them afresh)."""
+        from ff9mapkit.content import pathfind
+        inside = (pathfind.OBSTACLE_R_W - 1.0) ** 2
+        for b in [b for b in known if (here[0] - b[0]) ** 2 + (here[1] - b[1]) ** 2 < inside]:
+            known.remove(b)
+            self._blocker_at.pop(b, None)
+            if b in fresh:
+                fresh.remove(b)
+        wps = pathfind.route_avoiding(wmesh, here, goal, polys, margin, obstacles=list(known) + list(discs),
+                                      memo=memo)
+        older = [b for b in known if b not in fresh]
+        if wps is None and older:
+            wps = pathfind.route_avoiding(wmesh, here, goal, polys, margin, obstacles=list(fresh) + list(discs),
+                                          memo=memo)
+            if wps is not None:
+                self._log(f"  route_to: {len(older)} remembered blocker(s) sealed the way; planned without them")
+                for b in older:
+                    known.remove(b)
+                    self._blocker_at.pop(b, None)
+        return wps
+
+    # -- route_to(npcs=True): the field's published objects (memoria-patch s89) -------------------
+    def _npc_watch(self, margin: float, record: dict, heights=None) -> dict | None:
+        """route_to(npcs=True)'s view of the published objects for one call, or None -- with ``record["npcs"]``
+        saying why -- when there is nothing to plan on: "cannot" (the key absent: an engine without s89) or
+        "unknown" (null through ROUTE_NPC_READS samples, ROUTE_NPC_READ_FRAMES apart: the engine could not
+        say). The walk is then route_to(unstick=True)'s, blind to bodies; nothing reads the field as empty.
+
+        The view: ``objs`` (the last list read -- a null sample never replaces it), ``y`` (his), ``margin`` (the
+        call's, a trigger's), ``heights`` (:meth:`_floor_heights` of the call's walkmesh -- what the |dy| band of a
+        plan is judged by, :meth:`_npc_levels`; None judges it against his y), ``keep`` (the ``(uid, kind)`` discs
+        the current plan keeps), ``planned`` (where each object stood when it was made), ``discs`` (the kept discs
+        where they stand NOW -- what every hold is bounded by), ``path`` (the walk still ahead), ``moves`` (the
+        re-plans movement has caused), ``seen`` / ``last`` / ``speed`` / ``heading`` (where each object was last
+        read, its velocity then, the pace it has been measured walking and the line it walks: :meth:`_npc_read`),
+        ``floor`` (the call's walkmesh), ``waited`` / ``walker_waits`` (the frames, and the waits,
+        walking triggers have cost the call: :meth:`_outwait_walkers`) and ``lag`` (the most frames seen to pass
+        between two reads beyond the ones pressed -- ROUTE_WALKER_LAG until a press measures it:
+        :meth:`_walker_clear`)."""
+        st = self.state
+        for _ in range(self.ROUTE_NPC_READS):
+            if st.objects_status != "unknown":
+                break
+            self.wait_frames(self.ROUTE_NPC_READ_FRAMES)
+            st = self.state
+        record["npcs"] = st.objects_status
+        if st.objects is None:
+            self._log("  route_to: npcs asked for, but " + (
+                "this engine publishes no objects (pre-s89)" if record["npcs"] == "cannot"
+                else "the engine could not list the objects (null)") + ": bodies are found by walking into them")
+            return None
+        watch = {"objs": st.objects, "y": st.player_y, "margin": float(margin), "heights": heights, "keep": set(),
+                 "planned": {}, "discs": [], "path": [], "moves": 0, "seen": {}, "speed": {}, "waited": 0,
+                 "walker_waits": 0, "lag": None}
+        self._npc_read(watch, st)
+        return watch
+
+    @staticmethod
+    def _floor_heights(wmesh):
+        """``(x, z) -> [the height of every walkmesh triangle over that point]`` on ``wmesh`` -- what a plan's |dy| band
+        is judged by (:meth:`_npc_levels`) -- or None for a mesh with no triangles to read (the band is then judged
+        against his y). A :class:`~ff9mapkit.content.pathfind.PlayerWalkmesh` answers for the mesh it views: a
+        triangle closed to HIM is still a floor an actor stands on. BgiWalkmesh.height_at's interpolation, over
+        every stacked floor rather than the first."""
+        mesh = getattr(wmesh, "mesh", wmesh)
+        if not all(hasattr(mesh, a) for a in ("tris", "tris_at", "world_verts")):
+            return None
+        wv = mesh.world_verts()
+
+        def heights(x, z) -> list:
+            out = []
+            for ti in mesh.tris_at(x, z):
+                a, b, c = (wv[k] for k in mesh.tris[ti].vtx)
+                den = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
+                if den == 0:
+                    out.append(float(a[1]))
+                    continue
+                wa = ((b[2] - c[2]) * (x - c[0]) + (c[0] - b[0]) * (z - c[2])) / den
+                wb = ((c[2] - a[2]) * (x - c[0]) + (a[0] - c[0]) * (z - c[2])) / den
+                out.append(wa * a[1] + wb * b[1] + (1.0 - wa - wb) * c[1])
+            return out
+        return heights
+
+    def _npc_levels(self, heights, here, y):
+        """route_to(npcs=True)'s |dy| judgment for a PLAN: a predicate over a published object -- does it stand within
+        NPC_DY_BAND of a floor under it, where the walk can meet it? -- or None when the frame cannot be told from
+        where he stands (the band is then judged against his ``y`` now, as the engine judges it at this instant).
+
+        The engine pairs him with an object only while |dy| < 400 (WalkMesh.cs:922), so an object on a level the
+        route CLIMBS to is out of the band where he starts and in it where he gets there: judged against his y now,
+        it is left out of the plan and of every hold until one hold can carry him into it.
+
+        THE FRAME: the published ``y`` is not the walkmesh's height. In every recorded harness state that stood on a
+        stock floor it is the height NEGATED -- ``y + height_at == 0`` exactly, at 105 and at four heights on 1606 --
+        but neither sign is assumed: a frame ``y = s * height + c`` counts when it puts HIM on a floor under his own
+        feet (``|c|`` under half the band), for either ``s``. Where every floor under him is near height 0 both do,
+        and an object is then kept if either puts it on a level -- the conservative side. An object with no floor
+        under it is kept (it may stand on a ledge the route passes under)."""
+        if y is None:
+            return None
+        mine = heights(here[0], here[1])
+        frames = {(s, float(y) - s * h) for s in (-1.0, 1.0) for h in mine
+                  if abs(float(y) - s * h) < self.NPC_DY_BAND / 2}
+        if not frames:
+            return None
+
+        def level(o) -> bool:
+            under = heights(float(o["x"]), float(o["z"]))
+            return not under or any(abs(float(o["y"]) - (s * h + c)) < self.NPC_DY_BAND
+                                    for s, c in frames for h in under)
+        return level
+
+    def _npc_read(self, watch: dict, st: State) -> bool:
+        """Take ``st``'s object list into ``watch`` -- ``objs``, his ``y`` -- and how each object has been seen to walk.
+        ``speed`` keeps, per uid, the most per frame it covered over two STEADY reads running -- the same direction
+        and within a fifth of the same pace, so a straight walk and not a turn or a stop between reads, which averages
+        to a crawl (at most twice RUN_SPEED: a script placing an actor is not a walk). ``heading`` keeps the direction
+        (a unit vector) of the last read in which it covered at least half its likely pace a frame -- half its
+        published speed (:meth:`_told_speed`), or else half the most it has been seen to cover: a read across a
+        turn keeps the line it was walking, as a patrol turns back along it. False, changing nothing, for a sample
+        with no list (null: the engine could not say) or no player position."""
+        import math
+        objs = st.objects
+        if objs is None or st.player_x is None:
+            return False
+        seen, speed = watch.setdefault("seen", {}), watch.setdefault("speed", {})
+        heading, last = watch.setdefault("heading", {}), watch.setdefault("last", {})
+        for o in objs:
+            if o.get("x") is None or o.get("z") is None:
+                continue
+            uid, at = o.get("uid"), (float(o["x"]), float(o["z"]))
+            was = seen.get(uid)
+            if was is not None and st.frame > was[2]:
+                vel = ((at[0] - was[0]) / (st.frame - was[2]), (at[1] - was[1]) / (st.frame - was[2]))
+                v = math.hypot(*vel)
+                before = last.get(uid)
+                if before is not None and 0.0 < v <= 2 * self.RUN_SPEED:
+                    w = math.hypot(*before)
+                    if (w > 0.0 and abs(v - w) <= 0.2 * max(v, w)
+                            and vel[0] * before[0] + vel[1] * before[1] >= 0.95 * v * w):
+                        speed[uid] = max(speed.get(uid, 0.0), v, w)
+                last[uid] = vel
+                told = self._told_speed(o)
+                if 0.0 < v <= 2 * self.RUN_SPEED and v >= (told / 2.0 if told else max(speed.get(uid, 0.0), v)) / 2.0:
+                    heading[uid] = (vel[0] / v, vel[1] / v)
+            seen[uid] = (at[0], at[1], st.frame)
+        watch["objs"], watch["y"] = objs, st.player_y
+        return True
+
+    @staticmethod
+    def _told_speed(o: dict) -> float | None:
+        """The engine's own walk speed for published object ``o``, per call of its walk (one an event tick), where the
+        entry says: its ``range_r`` less its ``r`` and 60 (s89: range_r = r + speed + 60). None without a Range."""
+        if o.get("range_r") is None or o.get("r") is None:
+            return None
+        return max(0.0, float(o["range_r"]) - float(o["r"]) - 60.0)
+
+    def _npc_discs(self, objs, here, y, margin: float, heights=None, speeds=None, headings=None) -> list:
+        """The obstacles route_to(npcs=True) plans round, from the published ``objs`` (s89), as seen from ``here`` by a
+        player at height ``y``. Only objects the engine would pair with him, within NPC_DY_BAND in y (WalkMesh.cs:922):
+        given ``heights`` (:meth:`_floor_heights`), of a floor under the object (:meth:`_npc_levels`) -- a plan, and
+        every hold and chunk of it, is about where he WILL walk, and a route that climbs meets an object on the level
+        it climbs to; without them (or where the frame cannot be told), of his ``y`` now -- the engine's own test at
+        this instant, what a live contact check wants.
+
+        A BODY disc for each object that collides with him (``coll``): radius ``R`` its ``r``, the centre
+        distance the engine keeps him at. A TRIGGER disc for each with a contact function: radius its
+        ``range_r`` -- where CollisionRequest requests its Range every tick he has control -- or its ``talk_r``
+        where that is larger and it talks too (the talk search then requests the Range instead, facing it);
+        the larger is the one that can fire first. Each is ``{"uid", "sid", "kind" ("body" / "trigger"), "via"
+        ("body" / "range" / "talk"), "x", "z", "R", "T", "P", "pad", "solid", "moving", "speed", "dir", "shown",
+        "inside"}``: ``pad`` what a hold keeps off ``R`` (ROUTE_BODY_PAD / PROBE_HAZARD_PAD), ``T`` the TIGHT radius a
+        plan keeps its legs outside at the least -- ``R`` plus that pad -- and ``P`` the one it keeps them outside
+        first: ``R`` plus ROUTE_BODY_MARGIN for a body, the call's zone ``margin`` for a trigger (never under ``T``).
+        A disc he already stands within ``T`` or ``P`` of has it shrunk to just under his distance, so a route may
+        walk out of it and never deeper -- ``inside`` when he is within ``R`` itself (a trigger that has not fired,
+        a walker that stopped on him). ``speed`` is how far a frame a WALKING one may come. Where the entry publishes
+        the engine's own speed (:meth:`_told_speed`): its walk moves that a call, a call an event tick and a tick two
+        frames, so a frame is likely HALF of it -- but that is a reading of the engine, not a measurement, so until
+        ``speeds`` has MEASURED it (:meth:`_npc_read`: the most it covered over two steady reads running) the whole
+        published speed is taken a frame, and after, the measured pace, never under half the published one. A single
+        read cannot measure it: one that spans a turn averages to a crawl, and a walker taken slower than it walks
+        walks into him. Where the entry publishes none, the measured pace, never under half RUN_SPEED (a running
+        NPC). ``dir`` the line ``headings`` last saw it walk along (a unit vector; None: not seen walking)."""
+        import math
+        level = None if heights is None else self._npc_levels(heights, here, y)
+        out = []
+        for o in objs:
+            if o.get("x") is None or o.get("z") is None:
+                continue
+            if o.get("y") is not None:
+                if level is not None:
+                    if not level(o):
+                        continue
+                elif y is not None and abs(float(o["y"]) - float(y)) >= self.NPC_DY_BAND:
+                    continue
+            told = self._told_speed(o)                     # the engine's own walk speed, a call (one an event tick)
+            steady = (speeds or {}).get(o.get("uid")) or 0.0
+            if told:                                       # a frame: half a call, once two steady reads say so
+                speed = max(steady, told / 2.0) if steady else told
+            else:
+                speed = max(steady, self.RUN_SPEED / 2.0)
+            base = {"uid": o.get("uid"), "sid": o.get("sid"), "x": float(o["x"]), "z": float(o["z"]),
+                    "solid": bool(o.get("solid")), "moving": bool(o.get("moving")), "shown": o.get("shown"),
+                    "speed": speed, "dir": (headings or {}).get(o.get("uid"))}
+            if o.get("coll") and o.get("r") is not None:
+                r = float(o["r"])
+                out.append(dict(base, kind="body", via="body", R=r, T=r + self.ROUTE_BODY_PAD,
+                                P=r + self.ROUTE_BODY_MARGIN, pad=self.ROUTE_BODY_PAD))
+            radius, via = None, None
+            if o.get("range") and o.get("range_r") is not None:
+                radius, via = float(o["range_r"]), "range"
+            talk = o.get("talk_r") if o.get("range") and o.get("talk") else None
+            if talk is not None and float(talk) > (radius or 0.0):
+                radius, via = float(talk), "talk"
+            if radius is not None:
+                out.append(dict(base, kind="trigger", via=via, R=radius, T=radius + self.PROBE_HAZARD_PAD,
+                                P=radius + max(float(margin), self.PROBE_HAZARD_PAD), pad=self.PROBE_HAZARD_PAD))
+        for d in out:
+            dist = math.hypot(here[0] - d["x"], here[1] - d["z"])
+            for key in ("T", "P"):
+                if dist < d[key]:
+                    d[key] = max(0.0, dist - 0.5)
+            d["inside"] = dist < d["R"]
+        return out
+
+    def _plan_npcs(self, wmesh, st, goal, polys, margin, known: list, fresh: list, watch: dict, record: dict):
+        """route_to(npcs=True)'s plan from where ``st`` stands him: :meth:`_plan_round` (walls, the ``polys`` zones,
+        the unseen blockers) round the published objects (:meth:`_npc_discs` of the last list read -- ``st``'s own
+        when it has one), giving up only as much as it must, in this order:
+          0. THE SOLIDS ALONE, each at its tight radius ``T``. A SOLID body is never given up, and every plan below
+             keeps a superset of these, so when they leave no route nothing does: ``(None, sealing)`` at once, the
+             solids the route round the walls and zones alone passes within ``r`` of (all of them if it passes
+             none) -- or ``(None, [])`` when that route does not exist either (no route, as without ``npcs``). Only
+             a seal at ``r`` plus the pad a hold keeps is a movement lock: a lane a margin closes is still a lane.
+          1. every disc at its plan radius ``P`` -- first with the line each WALKING trigger walks kept out of too
+             (ROUTE_WALKER_AHEAD frames of it either way, at the speed it may walk: a route that stays off a patrol's
+             beat where one can); else every disc at ``T`` -- a hold keeps that pad off each, so the route still
+             enters nothing, only the slack for the walk's drift is gone. A WALKING trigger (its body too) is no
+             obstacle beyond that line: where it stands now it will not be when he gets there, and a detour round it
+             only puts a waypoint on its beat. The walk keeps every press and wait clear of where it walks
+             (:meth:`_walker_clear`) instead, and it stays in ``watch["discs"]`` for that whatever the plan gave up.
+          2. through NON-SOLID bodies with every trigger kept -- a push, the ladder's last rung, pressed only when
+             he meets one; else into trigger radii with every body kept; else through the bodies the solids-only
+             route crosses and into triggers after that. Each by :meth:`_npc_relax`: one object at a time, never a
+             class -- a chest's Range across the only corridor does not let the route through a warp beyond it.
+        A plan is taken only when no leg of it enters a disc it kept -- the grid's last hop to the exact goal is
+        not checked by the string-pull, so a goal inside one would otherwise pass. Every plan of the call shares one
+        memo of the floor's answers (route_avoiding ``memo``): they all start here, on one grid, and those answers
+        are the planning's whole cost. Returns ``(waypoints, [])`` or ``(None, sealing)`` -- naming the sealing
+        solids in the record is route_to's, which waits for a walking one first. The plan taken goes into ``watch``
+        (``keep``, ``planned``, ``discs``) and the record: the kept objects it went round in ``avoided`` (in the
+        straight line's way, or hugged by the route), the given-up triggers its legs enter in ``entered``, the
+        given-up bodies in ``through``."""
+        import math
+        from ff9mapkit.scene import routes
+        if st.objects is not None:
+            self._npc_read(watch, st)
+        here = (st.player_x, st.player_z)
+        seen = self._npc_discs(watch["objs"], here, watch["y"], margin, watch.get("heights"), watch.get("speed"),
+                               watch.get("heading"))
+        # a WALKING trigger is no obstacle where it stands now -- it will not be there when he is -- and neither is its
+        # body: the plan keeps off the line it walks where it can (``ahead``), and the walk keeps every press and wait
+        # clear of where it walks
+        walkers = {w["uid"] for w in seen if w["kind"] == "trigger" and w["moving"]}
+        walking = [d for d in seen if d["moving"] and d["uid"] in walkers]
+        every = [d for d in seen if all(d is not w for w in walking)]
+        memo: dict = {}
+
+        def enters(pts, d, radius) -> bool:
+            return any(routes.seg_dist_xz(d["x"], d["z"], a, b) < radius - 0.5 for a, b in zip(pts, pts[1:]))
+
+        def line(wps) -> list:
+            return [here] + [(float(a), float(b)) for a, b in wps]
+
+        def plan(kept, key="T"):
+            wps = self._plan_round(wmesh, here, goal, polys, margin, known, fresh,
+                                   discs=[(d["x"], d["z"], d[key]) for d in kept], memo=memo)
+            return None if wps is None or any(enters(line(wps), d, min(d["R"], d[key])) for d in kept) else wps
+
+        solids = [d for d in every if d["kind"] == "body" and d["solid"]]
+        bodies = [d for d in every if d["kind"] == "body" and not d["solid"]]
+        triggers = [d for d in every if d["kind"] == "trigger"]
+        base = plan(solids)
+        if base is None:
+            bare = plan([]) if solids else None
+            if bare is None:
+                return None, []
+            return None, [d for d in solids if enters(line(bare), d, d["R"])] or solids
+        ahead = []                           # ROUTE_WALKER_AHEAD frames of each walking trigger's line, either way
+        for d in [w for w in walking if w["kind"] == "trigger"]:
+            beat = self._walker_path(d, self.ROUTE_WALKER_AHEAD)
+            steps = 0 if beat is None else int(math.dist(*beat) / 2.0 // max(1.0, d["R"] / 2.0))
+            for k in [k for j in range(1, steps + 1) for k in (j, -j)]:
+                at = (d["x"] + (beat[1][0] - d["x"]) * k / steps, d["z"] + (beat[1][1] - d["z"]) * k / steps)
+                r = min(d["P"], max(0.0, math.hypot(here[0] - at[0], here[1] - at[1]) - 0.5))
+                ahead.append({"x": at[0], "z": at[1], "R": r, "T": r, "P": r})
+        wps, given = (plan(every + ahead, "P") if ahead else None), []
+        if wps is None:
+            wps = plan(every, "P") if every else base
+        if wps is None:
+            wps = plan(every) if bodies or triggers else base
+        if wps is None and bodies:
+            wps, given = self._npc_relax(plan, here, solids + triggers, bodies, None if triggers else base)
+        if wps is None and triggers:
+            wps, given = self._npc_relax(plan, here, solids + bodies, triggers, None if bodies else base)
+        if wps is None:
+            crossed = [d for d in bodies if enters(line(base), d, d["T"])]
+            wps, given = self._npc_relax(plan, here, solids + [d for d in bodies if all(d is not c for c in crossed)],
+                                         triggers, base)
+            given = crossed + given
+        pts = line(wps)
+        kept = [d for d in every if all(d is not g for g in given)]
+        watch["keep"] = {(d["uid"], d["kind"]) for d in kept + walking}
+        watch["planned"] = {d["uid"]: (d["x"], d["z"]) for d in seen}
+        watch["discs"] = kept + walking
+        self._npc_note(record["avoided"], [
+            d for d in kept if routes.seg_dist_xz(d["x"], d["z"], here, goal) < d["P"]
+            or enters(pts, d, d["P"] + self.ROUTE_WAYPOINT_TOLERANCE)])
+        entered = [d for d in given if d["kind"] == "trigger" and enters(pts, d, d["R"])]
+        through = [d for d in given if d["kind"] == "body" and enters(pts, d, d["R"])]
+        self._npc_note(record["entered"], entered)
+        self._npc_note(record["through"], through)
+        if entered or through:
+            self._log(f"  route_to: no route stays clear of every object: this one "
+                      + " and ".join(p for p in (
+                          f"enters the trigger radius of {[d['uid'] for d in entered]}" if entered else "",
+                          f"pushes through non-solid {[d['uid'] for d in through]}" if through else "") if p))
+        return wps, []
+
+    @staticmethod
+    def _npc_relax(plan, here, fixed: list, pool: list, guide=None):
+        """:meth:`_plan_npcs`' way of giving up as little of ``pool`` as it must while keeping every disc of ``fixed``:
+        ``(waypoints, given_up)``, or ``(None, [])`` when no route keeps ``fixed`` alone. ``guide`` is that route --
+        ``plan(fixed)`` when not given -- and the pool discs it passes inside the tight radius ``T`` of are the ones in
+        the way. One: that one. Several: each given up ALONE, the first that routes -- a chest's Range across the only
+        corridor does not open the way through an avoidable warp beyond it -- and only when none alone does, every
+        one the guide crosses (the guide is then the route: it keeps ``fixed`` and enters no other). ``plan(kept)``
+        is :meth:`_plan_npcs`' own: ``kept`` at their tight radius, every leg checked exactly."""
+        from ff9mapkit.scene import routes
+        guide = plan(fixed) if guide is None else guide
+        if guide is None:
+            return None, []
+        pts = [here] + [(float(a), float(b)) for a, b in guide]
+        crossed = [d for d in pool if any(routes.seg_dist_xz(d["x"], d["z"], a, b) < d["T"] - 0.5
+                                          for a, b in zip(pts, pts[1:]))]
+        if len(crossed) > 1:
+            for d in crossed:
+                wps = plan(fixed + [p for p in pool if p is not d])
+                if wps is not None:
+                    return wps, [d]
+        return guide, crossed
+
+    def _npc_moved(self, st: State, watch: dict) -> bool:
+        """route_to(npcs=True), after every hold (every chunk, walked chunked), every wait for a walker and at every
+        stall: read the objects again (:meth:`_npc_read`). The discs every hold keeps clear follow them
+        (``watch["discs"]``: the plan's kept ``(uid, kind)`` discs where they stand now, and whole any object the
+        plan never saw). True -- plan again from here -- when one of those has moved ROUTE_NPC_MOVED or more since
+        the plan (or is new) and now comes within its radius and ``pad`` of the path still to walk
+        (``watch["path"]``, from where he stands); never once the call has re-planned for movement
+        ROUTE_NPC_REPLANS times, so a walker that keeps crossing the path cannot hold the call. A sample with no
+        list (null: the engine could not say) changes nothing -- the last list read stands, and it is never read
+        as the objects gone."""
+        import math
+        from ff9mapkit.scene import routes
+        now = self._npc_view(watch, st)
+        if now is None:
+            return False
+        here = (st.player_x, st.player_z)
+        if watch["moves"] >= self.ROUTE_NPC_REPLANS:
+            return False
+        path = [here] + list(watch["path"])
+        for d in now:
+            was = watch["planned"].get(d["uid"])
+            if was is not None and math.hypot(d["x"] - was[0], d["z"] - was[1]) < self.ROUTE_NPC_MOVED:
+                continue
+            if d["kind"] == "trigger" and d["moving"]:
+                continue                          # a walking trigger: the plan never went round where it stood
+            if any(routes.seg_dist_xz(d["x"], d["z"], a, b) < d["R"] + d["pad"] for a, b in zip(path, path[1:])):
+                return True
+        return False
+
+    def _npc_view(self, watch: dict, st: State) -> list | None:
+        """Read ``st``'s objects into ``watch`` (:meth:`_npc_read`) and bring the discs every hold keeps clear
+        (``watch["discs"]``) to where they stand in it: the plan's kept ``(uid, kind)`` discs, and whole any object the
+        plan never saw. None, changing nothing, for a sample with no list."""
+        if not self._npc_read(watch, st):
+            return None
+        watch["discs"] = [d for d in self._npc_discs(watch["objs"], (st.player_x, st.player_z), st.player_y,
+                                                     watch["margin"], watch.get("heights"), watch.get("speed"),
+                                                     watch.get("heading"))
+                          if (d["uid"], d["kind"]) in watch["keep"] or d["uid"] not in watch["planned"]]
+        return watch["discs"]
+
+    def _npc_shifted(self, d: dict, watch: dict) -> bool:
+        """Would a plan made now go round published object ``d`` any differently from the plan he is walking? Only
+        if that plan never saw it, or it has moved ROUTE_NPC_MOVED or more since (``watch["planned"]``); otherwise
+        the plan would be made round it the same way again."""
+        import math
+        was = watch["planned"].get(d["uid"])
+        return was is None or math.hypot(d["x"] - was[0], d["z"] - was[1]) >= self.ROUTE_NPC_MOVED
+
+    def _body_ahead(self, st: State, u, watch: dict, *, solid: bool = False) -> dict | None:
+        """The published body he stands pressed against along unit ``u``: of every body the last list read holds
+        (:meth:`_npc_discs` by the engine's |dy| test where he stands now -- not only the ones a plan kept), the
+        nearest he is IN CONTACT with -- his centre within WALK_SPEED of its ``r``, where the engine holds it, and
+        the body within ROUTE_CONTACT_ANGLE of ``u`` (one met further off the line slides him round it, it does not
+        stop him); None when there is none. ``solid``: only a solid one. A body standing clear of him did not stop
+        him, however near: laying the stall on it re-plans round a body the plan already went round, and never
+        places the blocker the stall is really about -- a wall the walkmesh lacks, beside a villager."""
+        import math
+        here = (st.player_x, st.player_z)
+        cos = math.cos(math.radians(self.ROUTE_CONTACT_ANGLE))
+        best = None
+        for d in self._npc_discs(watch["objs"], here, st.player_y, watch["margin"]):
+            if d["kind"] != "body" or (solid and not d["solid"]):
+                continue
+            dx, dz = d["x"] - here[0], d["z"] - here[1]
+            dist = math.hypot(dx, dz)
+            if (dist < d["R"] + self.WALK_SPEED and dx * u[0] + dz * u[1] >= cos * dist
+                    and (best is None or dist < best[0])):
+                best = (dist, d)
+        return None if best is None else best[1]
+
+    def _npc_fired(self, watch: dict | None, record: dict, origin: int, zone=None) -> None:
+        """route_to(npcs=True), control gone before the walk ended: name in ``record["entered"]`` every published
+        trigger he stands within reach of -- two run frames past its radius, by the engine's |dy| test where he
+        stands -- while he is still on ``origin`` and not in ``zone`` (the exit he was sent to, which takes control
+        itself). The plan kept out of those, so one there is a Range that reached him -- a walker's, or one a walk
+        strayed into -- and the record names it rather than leave ``entered`` empty beside a run that was warped."""
+        import math
+        from ff9mapkit.content import pathfind
+        if watch is None:
+            return
+        st = self.state
+        if st.field_id != origin or st.player_x is None:
+            return
+        here = (st.player_x, st.player_z)
+        if zone is not None and pathfind.poly_gap(here[0], here[1], zone) < 0:
+            return
+        self._npc_read(watch, st)
+        hit = [d for d in self._npc_discs(watch["objs"], here, st.player_y, watch["margin"])
+               if d["kind"] == "trigger"
+               and math.hypot(here[0] - d["x"], here[1] - d["z"]) < d["R"] + 2 * self.RUN_SPEED]
+        if hit:
+            self._npc_note(record["entered"], hit)
+            self._log(f"  route_to: control went at ({here[0]:.0f}, {here[1]:.0f}) within reach of trigger(s) "
+                      f"{[d['uid'] for d in hit]}: a contact script the plan kept out of reached him")
+
+    def _npc_hazards(self, watch: dict, st: State) -> list:
+        """The published TRIGGERS as regions a calibration keeps its probes out of (route_to(npcs=True), before the
+        first plan): every trigger disc of :meth:`_npc_discs`, at its ``R``, as the regular 16-gon that holds it -- a
+        probe that fires one is lost like one that fires a gateway. A BODY is not one: a probe pressed into it costs
+        a slide, which calibration's own cross-checks catch as they catch a wall, never a wrong room -- and a
+        villager standing by the arrival must not refuse a calibration route_to(unstick=True) makes there."""
+        import math
+        n = 16
+        out = []
+        for d in self._npc_discs(watch["objs"], (st.player_x, st.player_z), st.player_y, watch["margin"],
+                                 watch.get("heights"), watch.get("speed"), watch.get("heading")):
+            k = d["R"] / math.cos(math.pi / n)
+            if d["kind"] == "trigger" and k > 0:
+                out.append([(d["x"] + k * math.cos(2 * math.pi * i / n), d["z"] + k * math.sin(2 * math.pi * i / n))
+                            for i in range(n)])
+        return out
+
+    def _walker_clear(self, here, u, reach: float, spread: float, d: dict, pace: float, until: float,
+                      stray: float = 0.0, lead: float = 0.0) -> bool:
+        """May a press from ``here`` along unit ``u`` -- covering ``reach`` at ``pace`` units a frame, truly heading
+        anywhere within ``spread`` (radians) of ``u`` and straying up to ``stray`` off that -- be made beside WALKING
+        trigger ``d``, wherever it walks, until the objects are read again ``until`` frames on (the press and
+        :meth:`_walker_lag`)?
+
+        WHILE HE MOVES each point of the press is judged at the moment he gets there: ``l`` along it he is at frame
+        ``l / pace``, and the nearest the fan's arc at ``l`` comes to ``d`` less that stray, less how far ``d`` can have
+        come by then in any direction (its ``speed`` a frame, :meth:`_npc_discs`), must keep ``d["pad"]`` off its
+        radius. WHILE HE STANDS at the end, until the read, ``d`` is taken to keep to the LINE it was last seen walking
+        along (``dir``) -- either way along it: a patrol turns back down its own path -- give or take ROUTE_WALKER_TURN
+        of its speed a frame (:meth:`_walker_path`); one not yet seen walking, in any direction there too. A walker he
+        already stands nearer than that pad to may not gain on him at any point either. A disc read where it stood
+        (:meth:`_probe_is_clear` ``discs``) is not enough: the press can move away from where a walker was and still
+        meet where it will be -- and "never closer than he stands" is no rule for something that walks toward him.
+        ``lead`` is a head start: frames the walker walks before the press begins (the read is that old when it is
+        sent)."""
+        import math
+        from ff9mapkit.scene import routes
+        wx, wz = d["x"] - here[0], d["z"] - here[1]
+        dist = math.hypot(wx, wz)
+        off = 0.0 if dist < 1e-9 else math.acos(max(-1.0, min(1.0, (wx * u[0] + wz * u[1]) / dist)))
+        bend = math.cos(max(0.0, off - spread))        # the fan's heading nearest the bearing to d
+        side = dist * math.sqrt(max(0.0, 1.0 - bend * bend))
+        rate = d["speed"] / pace                       # the walker's reach per unit of his
+
+        def gap(ell: float) -> float:                  # how near the fan's arc at ell comes to d, less the stray
+            return math.sqrt(max(0.0, dist * dist + ell * ell - 2.0 * dist * ell * bend)) - stray
+
+        need = min(d["R"] + d["pad"], dist - stray) - 0.5
+        ahead = d["speed"] * lead
+        # gap(l) - rate * l is convex in l (a distance to a point on a line, less a linear term): its least value on
+        # [0, reach] is at the clamped stationary point -- l = dist*bend + rate*side / sqrt(1 - rate^2) -- or, when the
+        # walker is as fast as he is, at the far end
+        worst = reach if rate >= 1.0 else min(reach, max(0.0, dist * bend + rate * side / math.sqrt(1.0 - rate * rate)))
+        if min(gap(0.0), gap(worst) - rate * worst, gap(reach) - rate * reach) - ahead < need:
+            return False
+        until += lead
+        path = self._walker_path(d, until)
+        if path is None:
+            return gap(reach) - d["speed"] * until >= need
+        a, b = path
+        slack = self.ROUTE_WALKER_TURN * d["speed"] * until
+        ends = [_turn(u, spread * k / 2.0) for k in (-2, -1, 0, 1, 2)]
+        return all(routes.seg_dist_xz(here[0] + e[0] * reach, here[1] + e[1] * reach, a, b) - stray - slack >= need
+                   for e in ends)
+
+    @staticmethod
+    def _walker_path(d: dict, frames: float):
+        """Where WALKING disc ``d`` can be within ``frames`` of the read, keeping to the LINE it was last seen walking
+        along (``dir``, :meth:`_npc_read`) in either direction -- ahead as it goes, or back the way it came, as a
+        patrol does at the end of its beat -- at its ``speed``: the segment ``(a, b)``, or None when it has not been
+        seen walking. The turns off that line are the caller's slack (ROUTE_WALKER_TURN)."""
+        u = d.get("dir")
+        if u is None:
+            return None
+        k = d["speed"] * frames
+        return ((d["x"] - u[0] * k, d["z"] - u[1] * k), (d["x"] + u[0] * k, d["z"] + u[1] * k))
+
+    def _walker_lag(self, watch: dict | None) -> float:
+        """How many frames after what was pressed (or waited) the objects are read again, as a walking trigger's reach
+        is judged (:meth:`_walker_clear`): the most the call has measured (``watch["lag"]``, :meth:`_note_lag`;
+        ROUTE_WALKER_LAG before it has one), taken half again over -- the settle polls the clock, not the frame
+        counter, so the lag jitters."""
+        lag = (watch or {}).get("lag")
+        return 1.5 * (self.ROUTE_WALKER_LAG if lag is None else lag)
+
+    @staticmethod
+    def _note_lag(watch: dict, lag: float) -> None:
+        """Keep the most frames seen to pass between two reads beyond those pressed or waited (``watch["lag"]``)."""
+        watch["lag"] = lag if watch.get("lag") is None else max(watch["lag"], lag)
+
+    def _standing(self) -> tuple[float, float]:
+        """Where the published state stands him now, ``(x, z)``."""
+        st = self.state
+        return (st.player_x, st.player_z)
+
+    def _stand_safe(self, here, d: dict, watch: dict, frames: float | None = None) -> bool:
+        """Can he stand at ``here`` through ``frames`` (one wait for walkers, ROUTE_WALKER_WAIT, by default) and the
+        read after them without WALKING trigger ``d`` coming within its pad of him -- judged as a press's end is
+        (:meth:`_walker_clear`: along the line it was last seen walking, give or take ROUTE_WALKER_TURN; in any
+        direction before it has one)?"""
+        return self._walker_clear(here, (1.0, 0.0), 0.0, 0.0, d, self.RUN_SPEED,
+                                  (self.ROUTE_WALKER_WAIT if frames is None else frames) + self._walker_lag(watch))
+
+    def _walkers_let_stand(self, watch: dict | None, frames: float) -> bool:
+        """route_to(npcs=True): may he stand where he is for ``frames`` -- an unstick wait, a wait for a walking
+        solid -- with no WALKING trigger reaching him (:meth:`_stand_safe`)? Always, without a watch."""
+        st = self.state
+        if watch is None or st.player_x is None:
+            return True
+        return all(self._stand_safe((st.player_x, st.player_z), d, watch, frames)
+                   for d in watch["discs"] if d["moving"] and d["kind"] == "trigger")
+
+    def _off_beat(self, here, ends, d: dict) -> bool:
+        """Do the ``ends`` of a press from ``here`` keep off WALKING trigger ``d``'s BEAT -- the line it walks,
+        ROUTE_WALKER_AHEAD frames of it either way (:meth:`_walker_path`), ``R`` and ``pad`` wide? A press may cross a
+        beat (the time that takes is :meth:`_walker_clear`'s to judge) but not stop on it, where the walker comes back
+        along its path to a man who waits there; one that starts on it must end further off its line than it began.
+        True for a walker with no heading to trust."""
+        from ff9mapkit.scene import routes
+        beat = self._walker_path(d, self.ROUTE_WALKER_AHEAD)
+        if beat is None:
+            return True
+        wide = d["R"] + d["pad"]
+        now = routes.seg_dist_xz(here[0], here[1], *beat)
+        for e in ends:
+            off = routes.seg_dist_xz(e[0], e[1], *beat)
+            if off < wide and off <= now + 0.5:
+                return False
+        return True
+
+    def _walker_escape(self, basis: dict, leg: dict) -> bool:
+        """route_to(npcs=True, smooth=True), waiting for walkers where standing is NOT safe (:meth:`_stand_safe`: a
+        walking trigger could reach him before the read after a wait -- a press left him beside its path): one hold
+        AWAY, ROUTE_WALKER_HOLD frames at a run, along whichever of the eight pad directions ends furthest from the
+        line each such walker walks (:meth:`_walker_path`) -- and further than he stands now, or it is not worth a
+        press -- while the press itself, as it runs, keeps clear of every walking trigger (:meth:`_walker_clear`) and
+        off their beats bar leaving them (:meth:`_off_beat`), of every zone and every standing object
+        (:meth:`_probe_is_clear`, the leg's heading spread), and ends where his centre can stand -- on the call's
+        walkmesh, COLLISION_RADIUS_W off its walls, where a plan can start again; the leg's drift is not asked (he is
+        getting out of the way). Better a press that does not make him safe than standing where it cannot be stood.
+        True when it pressed one, False when none keeps the rules (he stands)."""
+        from ff9mapkit.scene import cam, routes
+        watch = leg["watch"]
+        floor = watch.get("floor")
+        st = self.state
+        if st.player_x is None:
+            return False
+        here = (st.player_x, st.player_z)
+        swept = [d for d in watch["discs"] if d["moving"] and d["kind"] == "trigger"]
+        threat = [d for d in swept if not self._stand_safe(here, d, watch)]
+        if not threat:
+            return False
+        still = [d for d in watch["discs"] if all(d is not s for s in swept)]
+        n = self.ROUTE_WALKER_HOLD
+        reach = (n + self.PROBE_TAIL_FRAMES) * self.RUN_SPEED
+        horizon = self.ROUTE_WALKER_WAIT + self._walker_lag(watch)
+
+        def score(at) -> float:
+            return min(routes.seg_dist_xz(at[0], at[1], *(self._walker_path(d, horizon) or ((d["x"], d["z"]),) * 2))
+                       - d["R"] for d in threat)
+        best = (score(here), None, None)
+        for buttons, u in _eight_way(basis):
+            end = (here[0] + u[0] * reach, here[1] + u[1] * reach)
+            spot = (int(round(end[0])), int(round(end[1])))
+            if floor is not None and (floor.point_on_walkmesh(*spot) is None
+                                      or (floor.distance_to_boundary(*spot) or 0.0) < cam.COLLISION_RADIUS_W):
+                continue
+            if not (all(self._walker_clear(here, u, reach, leg["spread"], d, self.RUN_SPEED, n + self.PROBE_TAIL_FRAMES)
+                        and self._off_beat(here, [end], d) for d in swept)
+                    and self._probe_is_clear(here, u, reach, leg["hazards"], leg["spread"], discs=still)):
+                continue
+            if score(end) > best[0] + 0.5:
+                best = (score(end), buttons, u)
+        if best[1] is None:
+            return False
+        _score, buttons, u = best
+        leg["pressed"] = (buttons, u)
+        self._log(f"  route_to: standing at ({here[0]:.0f}, {here[1]:.0f}) is not safe from walking trigger(s) "
+                  f"{[d['uid'] for d in threat]}: {n} frames {'+'.join(buttons)} out of the way")
+        self.send(*[f"hold {b} {n}" for b in buttons], f"wait {n + 4}")
+        after = self.settle()
+        self._note_lag(watch, after.frame - st.frame - n)
+        return True
+
+    def _chunk_frames(self, length: float) -> int:
+        """The frames a chunk of ``length`` presses, walked chunked: both arms of one-axis steering's L at a run."""
+        import math
+        return int(math.ceil(math.sqrt(2.0) * length / self.RUN_SPEED))
+
+    def _outwait_walkers(self, watch: dict, origin: int, clear, escape=None, first: bool = False) -> str:
+        """route_to(npcs=True): stand still while a WALKING trigger's reach refuses the next press (``clear()`` False),
+        ROUTE_WALKER_WAIT frames at a time, reading the objects again after each (:meth:`_npc_moved`), within the
+        call's ROUTE_WALKER_BUDGET frames. A walker going elsewhere has gone by in a wait or two; one parked in the way
+        spends the budget. Standing is not always safe -- a short press can leave him beside a walker's path, and it
+        walks on toward him -- so, given ``escape`` (:meth:`_walker_escape`: True when it pressed him out of the way),
+        that is tried in place of a wait that could not be stood through. Returns "clear" (``clear()`` holds, at once
+        or after waits), "moved" (a read saw an object move onto the path still to walk: plan again), "boxed" (the
+        budget is spent: nothing may be pressed) or "short" (the field or control went away while he stood). ``first``
+        waits once before ``clear()`` is asked at all (the caller has just seen a read it refuses)."""
+        told = False
+        while first or not clear():
+            first = False
+            if watch["waited"] >= self.ROUTE_WALKER_BUDGET:
+                self._log(f"  route_to: a walking trigger still reaches every press after {watch['waited']} frames of "
+                          f"waiting for walkers; nothing may be pressed from here")
+                return "boxed"
+            if not told:
+                st = self.state
+                self._log(f"  route_to: a walking trigger could reach the next press from ({st.player_x:.0f}, "
+                          f"{st.player_z:.0f}); standing still until it has gone by")
+                told = True
+            watch["walker_waits"] += 1
+            if escape is not None and escape():
+                watch["waited"] += self.ROUTE_WALKER_HOLD
+            else:
+                watch["waited"] += self.ROUTE_WALKER_WAIT
+                before = self.state
+                self.wait_frames(self.ROUTE_WALKER_WAIT)
+                self._note_lag(watch, self.state.frame - before.frame - self.ROUTE_WALKER_WAIT)
+            st = self.state
+            if st.field_id != origin or st.player_x is None or not st.control:
+                return "short"
+            if self._npc_moved(st, watch):
+                return "moved"
+        return "clear"
+
+    def _chunk_clear(self, cx: float, cz: float, watch: dict) -> bool:
+        """route_to(npcs=True), walked chunked: may the chunk to ``(cx, cz)`` be walked now, as far as the WALKING
+        triggers go? :meth:`_walker_clear` of the chunk's line, strayed off by the L of one-axis steering (half the
+        chunk, :meth:`_route_chunks`), walked at a run along both arms of that L (:meth:`_chunk_frames`), with the lag
+        route_to measures around a chunk -- on the objects as a read taken now has them."""
+        import math
+        st = self.state
+        if st.player_x is None:
+            return True
+        here = (st.player_x, st.player_z)
+        self._npc_read(watch, st)                         # judged on a read taken now, not at the chunk before
+        movers = [d for d in self._npc_discs(watch["objs"], here, st.player_y, watch["margin"], watch.get("heights"),
+                                             watch.get("speed"), watch.get("heading"))
+                  if d["kind"] == "trigger" and d["moving"]]
+        if not movers:
+            return True
+        length = math.hypot(cx - here[0], cz - here[1])
+        if length < 1.0:
+            return True
+        frames = self._chunk_frames(length)
+        u = ((cx - here[0]) / length, (cz - here[1]) / length)
+        until = frames + self._walker_lag(watch)
+        return all(self._walker_clear(here, u, length, 0.0, d, length / frames, until, stray=length / 2.0,
+                                      lead=self.PROBE_TAIL_FRAMES) for d in movers)
+
+    @staticmethod
+    def _chunk_blockers(known: list, watch: dict | None) -> list:
+        """What the chunked walk sizes its chunks by (:meth:`_route_chunks`): the unseen blockers, and the
+        published objects the plan keeps at their own radii (route_to(npcs=True))."""
+        return list(known) + ([(d["x"], d["z"], d["R"]) for d in watch["discs"]] if watch is not None else [])
+
+    @staticmethod
+    def _leg_discs(leg: dict) -> list:
+        """The published objects a smooth leg's holds keep clear of: its call's watch's ``discs``, where they
+        stood at the last read (:meth:`_npc_moved`); none without route_to(npcs=True)."""
+        watch = leg.get("watch")
+        return watch["discs"] if watch is not None else []
+
+    @staticmethod
+    def _npc_note(into: list, discs) -> None:
+        """Name each disc in a route_to record list, once per object and kind: ``{"uid", "sid", "kind", "at",
+        "radius", "solid", "moving"}`` -- ``kind`` "body", "range" or "talk"."""
+        have = {(e["uid"], e["kind"]) for e in into}
+        for d in discs:
+            if (d["uid"], d["via"]) in have:
+                continue
+            have.add((d["uid"], d["via"]))
+            into.append({"uid": d["uid"], "sid": d["sid"], "kind": d["via"], "at": [round(d["x"]), round(d["z"])],
+                         "radius": round(d["R"]), "solid": d["solid"], "moving": d["moving"]})
+
+    def route_cross(self, x: float, z: float, *, expect: int | None = None, avoid=(),
+                    margin: float | None = None, timeout: float = 20.0, walkmesh=None,
+                    prior="stock", unstick: bool = False, zone=None, smooth: bool = False,
+                    npcs: bool = False) -> dict:
+        """:meth:`route_to` a point inside a gateway region, then wait for the crossing like :meth:`cross`.
+
+        ``(x, z)`` should be INSIDE the target region and standable --
+        :func:`ff9mapkit.content.pathfind.region_goal` picks one -- and ``avoid`` every OTHER region of
+        the field. Returns route_to's record with ``landed`` filled in when the field changed after
+        the walk ended; ``expect`` asserts the destination. A route that does not exist
+        (``waypoints`` None), or a walk that already saw control go (``during`` set; route_to waited
+        for that landing itself), is returned at once: there is no further crossing to wait for.
+        ``unstick``, ``smooth`` and ``npcs`` are route_to's (waits, pushes, unseen blockers; whole-leg holds;
+        planning round the published objects).
+
+        ``zone`` (opt-in: the target region's polygon) adds ``"inside"`` -- where the walk ended with
+        control held, was he standing IN the region? -- the difference between "the way there was
+        blocked" and "he got there and nothing fired", which the goal distance behind ``reached``
+        cannot tell apart. And a walk that ended OUTSIDE it waits ROUTE_OUTSIDE_WAIT for the crossing,
+        not ``timeout``: a gateway does not fire for someone standing outside its zone. Without
+        ``zone``, ``inside`` is None and the wait is unchanged. Under ``smooth`` it also goes to route_to,
+        whose last leg then finishes IN the zone rather than within tolerance of the goal point.
+        """
+        from ff9mapkit.content import pathfind
+        record = self.route_to(x, z, avoid=avoid, margin=margin, tolerance=45.0, walkmesh=walkmesh,
+                               prior=prior, timeout=timeout, unstick=unstick, smooth=smooth,
+                               zone=zone if smooth else None, npcs=npcs)
+        origin = record["from"]
+        record["inside"] = None
+        pending = record["landed"] is None and record["waypoints"] is not None and record["during"] is None
+        if zone is not None and record["landed"] is None and record["during"] is None:
+            st = self.state
+            standing = st.field_id == origin and st.player_x is not None and st.control
+            record["inside"] = bool(standing and pathfind.poly_gap(
+                st.player_x, st.player_z, [(float(p[0]), float(p[1])) for p in zone]) < 0)
+            if pending and standing and not record["inside"]:
+                # outside the zone with control: only a trigger still settling can take him now, so
+                # the full wait applies once one visibly has (the destination may take that long to
+                # become playable), and not otherwise
+                try:
+                    self.wait_for(lambda s: s.field_id != origin or not s.control,
+                                  timeout=min(timeout, self.ROUTE_OUTSIDE_WAIT),
+                                  what=f"a crossing from outside the zone on field {origin}")
+                except HarnessError as err:
+                    if "live samples" not in str(err):
+                        raise                 # a frozen or silent channel says nothing about the zone
+                    pending = False
+        if pending:
+            try:
+                record["landed"] = self.expect_field_change(timeout=timeout, was=origin)
+            except HarnessError as err:
+                if "never became playable" in str(err):
+                    raise
+                now = self.state.field_id
+                if now != origin and now > 0:
+                    record["landed"] = now
+        if expect is not None and record["landed"] != expect:
+            raise HarnessError(f"routed crossing to ({x}, {z}) on field {origin} led to field "
+                               f"{record['landed']}, expected {expect} ({record})")
+        return record
+
     def find_transitions(self, *, radius: float = 1200.0, back_to: int | None = None,
                          bearings: int = 8, timeout: float = 15.0) -> list[dict]:
         """Walk outward on several bearings and report every spot that changed the field.
@@ -1791,8 +3968,108 @@ class Session:
             lambda s: s.control and s.player_x is not None and not s.fading and not s.dialog_open,
             timeout=timeout, what="control to return to the player", settle=settle)
 
+    #: Dialog.DialogGroupButton: the button group a choice window activates in the same coroutine step that
+    #: puts its cursor on the script's default (Dialog.InitializeChoiceProcess: ActiveGroup, then
+    #: SetCurrentChoice(defaultChoice)). Before it -- the window's open animation -- the agent publishes the
+    #: group as '' and ``selected`` as whatever the POOLED window last held (Dialog.selectedChoice survives
+    #: Reset); after Confirm it is '' again through the close animation, the choice block still published.
+    #: Recorded: 30937 frames 900/906/936, 30921 frames 1012/1018/1050.
+    CHOICE_GROUP = "Dialog.Choice"
+    #: watch_cutscene(choices="default"): live frames a Confirmed choice is watched for leaving readiness before
+    #: Confirm is pressed again, and how many Confirms one answer gets before the long wait. A prompt still
+    #: TYPING is already ready -- DialogAnimator sets TextAnimation, then AfterShown -> InitializeChoice sets
+    #: the group and the default cursor (DialogAnimator.cs:117-124, Dialog.cs:645-647, 161-164) -- and a
+    #: Confirm then only completes the text (Dialog.OnKeyConfirm's TextAnimation branch, :798-808).
+    CHOICE_CONFIRM_FRAMES = 20
+    CHOICE_CONFIRMS = 3
+    #: How many times one watch answers the SAME question (field, prompt and options, cursor) with its
+    #: default before calling it a loop: a script that asks again after its own default answer.
+    CHOICE_REPEATS = 3
+
+    def _choice_ready(self, st: State) -> bool:
+        """Is a choice open and taking its answer -- its cursor on the game's default until someone moves it?
+        True on ``group`` CHOICE_GROUP; also on a group the engine does not publish at all (None), where only
+        watch_cutscene's hold (``settle``) stands between a stale cursor and the default."""
+        return st.choice is not None and st.menu_group in (None, self.CHOICE_GROUP)
+
+    def _take_default_choice(self, st: State, *, timeout: float = 5.0) -> dict | None:
+        """Answer the ready choice in ``st`` with the option its cursor rests on -- the script's defaultChoice
+        (Dialog.InitializeChoiceProcess), never an option of ours. :meth:`select` steers on the engine's own
+        cursor (here it confirms the cursor is where ``st`` saw it), then Confirm, then a wait for the window
+        to stop taking answers. Returns the choice's record (see :class:`Transcript`), or None when the window
+        was still taking answers after ``timeout`` of live frames -- the Confirm did not land; the caller waits
+        on it again. Nothing is recorded that the game did not take.
+
+        ⚠ Not :meth:`choose`: its blind 12 frames after Confirm can outlast the gap between one choice window
+        and the next (16 frames at 30937), and a record of the second would then be missing. This watches the
+        window leave readiness instead.
+
+        A PROMPT STILL TYPING takes the first Confirm as "finish the text" (CHOICE_CONFIRM_FRAMES), so a window
+        still taking answers CHOICE_CONFIRM_FRAMES live frames after a Confirm gets another -- up
+        to CHOICE_CONFIRMS, the last one waited on for ``timeout`` -- instead of costing the whole timeout and
+        a re-arm. Only on a published group: without one the choice block lingers through the close
+        animation, and a second Confirm there would land on whatever comes next. (A voiced line holds the
+        window, answer committed, until its voice ends; the second Confirm then closes it early -- the same
+        answer.)
+
+        Raises when the cursor rests on a DISABLED line (``disabled``, or outside ``active``): the game then
+        has no default to take, and picking another option would be this harness's choice."""
+        ch = dict(st.choice)
+        index = int(ch.get("selected", -1))
+        active = ch.get("active")
+        disabled = list(ch.get("disabled") or [])
+        if index < 0 or index in disabled or (active is not None and index not in active):
+            raise HarnessError(
+                f"a choice is waiting with its cursor on option {index}, which the script has disabled (active "
+                f"{active}, disabled {disabled}): there is no default to take, and choosing another option would "
+                f"be the harness's preference, not the game's. Pick one explicitly with choose().")
+        names = self.options(timeout=timeout)
+        pos = active.index(index) if active else index
+        record = {"index": index, "text": names[pos] if 0 <= pos < len(names) else None,
+                  "prompt": (ch.get("options") or [""])[0], "count": int(ch.get("count", 0)),
+                  "field": st.field_id, "frame": st.frame}
+        self.select(index, timeout=timeout)
+        again = self.CHOICE_CONFIRMS - 1 if st.menu_group == self.CHOICE_GROUP else 0
+        for _ in range(again):
+            self.press("confirm", 4)
+            if self._choice_left(self.CHOICE_CONFIRM_FRAMES, timeout):
+                break
+            self._log(f"  watch_cutscene: the choice still waits {self.CHOICE_CONFIRM_FRAMES} frames after a "
+                      f"Confirm -- its prompt was still typing; Confirm again")
+        else:
+            self.press("confirm", 4)
+            try:
+                self.wait_for(lambda s: not self._choice_ready(s), timeout=timeout,
+                              what=f"the choice to take option {index}")
+            except HarnessError as err:
+                if "live samples" not in str(err):
+                    raise                 # a frozen or silent channel says nothing about the Confirm
+                return None
+        self._log(f"  watch_cutscene: took the default choice {index} {record['text']!r} on field {st.field_id}")
+        return record
+
+    def _choice_left(self, frames: int, timeout: float) -> bool:
+        """After a Confirm: did the choice stop taking answers (:meth:`_choice_ready`) within ``frames`` live
+        frames? False when it still took them that many frames on (or ``timeout`` passed first). Readiness
+        alone decides: while a prompt types its published options can still grow (ChoicePhrases is built from
+        the text parsed so far, :meth:`options`), and a window changing is not a window answered; the next
+        choice cannot be ready before this one has closed and the next opened, both with no group."""
+        start = None
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            self._assert_alive()
+            st = self.channel.state()
+            if st is not None:
+                if not self._choice_ready(st):
+                    return True
+                start = st.frame if start is None else start
+                if st.frame >= start + frames:
+                    return False
+            time.sleep(0.02)
+        return False
+
     def watch_cutscene(self, *, timeout: float = 90.0, advance_boxes: bool = True,
-                       settle: float = 1.0) -> list[str]:
+                       settle: float = 1.0, choices: str | None = None) -> list[str]:
         """Sit through a cutscene, collecting its dialogue, until control returns.
 
         A cutscene is exactly the state a naive harness hangs in: control is withheld, so every
@@ -1802,8 +4079,29 @@ class Session:
 
         Advances text boxes by default, since many scripted scenes will not proceed without a
         Confirm; pass advance_boxes=False to watch a self-playing scene without touching it.
+
+        A CHOICE stops the Confirms by default -- picking an option is :meth:`choose`'s job -- and a scene
+        waiting on one then never gives control back. ``choices="default"`` (opt-in) answers each choice
+        with the option the game's own cursor rests on (``choice.selected`` once the window is ready: the
+        script's defaultChoice), and carries on through the rest of the scene; each one taken is recorded
+        in the returned :class:`Transcript`'s ``choices``. The choice is the game's, never a preference of
+        the caller's, so there is no other policy: a cursor resting on a disabled line raises. A window is
+        answered only once it is ready (:meth:`_choice_ready`) and has stayed so, unchanged, for
+        ``settle`` -- the same hold the "control is back" condition needs. A script whose default answer
+        asks the same question again would be answered until the timeout: the same question (field, prompt
+        and options, cursor) is answered CHOICE_REPEATS times, and then this raises -- that branch is not
+        the default's to take; choose() one.
+
+        Returns a :class:`Transcript` -- a list of the pages, as before.
         """
-        pages: list[str] = []
+        if choices not in (None, "default"):
+            raise HarnessError(
+                f"watch_cutscene(choices={choices!r}): the only policy is 'default', the option the game's "
+                f"own cursor rests on. A scripted preference would pick the branch the run then reports on; "
+                f"choose() one explicitly instead.")
+        pages = Transcript()
+        waiting = None                   # (snapshot, since, frame): a ready choice seen holding still
+        asked: dict = {}                 # (field, options, cursor) -> answers taken this watch
         deadline = time.time() + timeout
         # Require the "it's over" condition to HOLD, not merely to occur. Control flickers true for a
         # moment as a field loads, before its script takes it away again -- so a single sample was
@@ -1831,6 +4129,32 @@ class Session:
                     self.press("confirm", 3)
                     self.wait_frames(8)
                     continue
+            if choices and st.choice is not None:
+                # the same rule as control coming back: a ready window must HOLD, unchanged, over live
+                # frames before its cursor is believed to rest where the game put it
+                calm = 0
+                snap = (json.dumps(st.choice, sort_keys=True), st.menu_group,
+                        (st.raw.get("menu") or {}).get("button"))
+                if not self._choice_ready(st):
+                    waiting = None
+                elif waiting is None or waiting[0] != snap:
+                    waiting = (snap, time.time(), st.frame)
+                elif time.time() - waiting[1] >= settle and st.frame > waiting[2]:
+                    waiting = None
+                    key = (st.field_id, json.dumps(st.choice.get("options")), st.choice.get("selected"))
+                    if asked.get(key, 0) >= self.CHOICE_REPEATS:
+                        raise HarnessError(
+                            f"field {st.field_id} asked {st.choice.get('options', [''])[0]!r} again after "
+                            f"{asked[key]} default answers (option {st.choice.get('selected')}): the script "
+                            f"re-asks after its own default, so waiting on it only loops. Taking another branch is "
+                            f"not the default's to do -- choose() one. Collected {len(pages)} page(s).")
+                    taken = self._take_default_choice(st)
+                    if taken is not None:
+                        asked[key] = asked.get(key, 0) + 1
+                        pages.choices.append(taken)
+                    continue
+                time.sleep(0.05)
+                continue
             if st.control and st.player_x is not None and not st.fading and not st.dialog_open:
                 calm += 1
                 if calm >= settle_polls:
@@ -1855,10 +4179,17 @@ class Session:
                 f"counter never moved off {next(iter(frames))} -- the channel is frozen, so this is "
                 f"NOT a soft-lock finding. {self.channel.classify()}" + (f" -- {hint}" if hint else "")
             )
+        last = self.channel.state()
+        open_choice = last is not None and last.choice is not None
         raise HarnessError(
             f"control never returned within {timeout:.0f}s across {len(frames)} live frames -- the "
             f"cutscene is still running, waiting on input this did not send, or has soft-locked. "
-            f"Collected {len(pages)} page(s) so far."
+            f"Collected {len(pages)} page(s) so far"
+            + (f", took {len(pages.choices)} default choice(s)" if choices else "") + "."
+            + ("" if not open_choice else
+               " A dialogue CHOICE is open: this waiter stops at one unless choices='default'." if not choices else
+               f" A dialogue CHOICE is still open, unanswered (group {last.menu_group!r}): it never became ready "
+               f"and held still, or it would not take its Confirm.")
         )
 
     # -- menus ----------------------------------------------------------------------------------
@@ -3500,6 +5831,61 @@ def _button(name: str) -> str:
 
 def _vec(v) -> str:
     return f"({v[0]:+.2f}, {v[1]:+.2f})"
+
+
+def _press_axis(basis: dict, dx: float, dz: float):
+    """The button walk_to presses to cover world offset (dx, dz): the calibrated axis the offset projects
+    onto more. Returns ``(button, need, axis, sign)`` -- ``axis * sign`` is the world direction pressed."""
+    along_v = dx * basis["v"][0] + dz * basis["v"][1]
+    along_h = dx * basis["h"][0] + dz * basis["h"][1]
+    if abs(along_v) >= abs(along_h):
+        return ("up" if along_v > 0 else "down"), abs(along_v), basis["v"], (1.0 if along_v > 0 else -1.0)
+    return ("right" if along_h > 0 else "left"), abs(along_h), basis["h"], (1.0 if along_h > 0 else -1.0)
+
+
+def _eight_way(basis: dict) -> list:
+    """The eight directions a pad presses on a calibrated basis, ``[(buttons, (ux, uz))]``: each axis alone, and
+    each pair at once -- the engine normalises a two-key press before rotating it (FieldMapActorController.cs:
+    698-712), so a pair walks the unit bisector of its two axes, at the speed one key does."""
+    out = []
+    for sv, vb in ((1.0, "up"), (0.0, None), (-1.0, "down")):
+        for sh, hb in ((1.0, "right"), (0.0, None), (-1.0, "left")):
+            if vb is None and hb is None:
+                continue
+            x = sv * basis["v"][0] + sh * basis["h"][0]
+            z = sv * basis["v"][1] + sh * basis["h"][1]
+            m = (x * x + z * z) ** 0.5
+            out.append((tuple(b for b in (vb, hb) if b), (x / m, z / m)))
+    return out
+
+
+def _turn(u, angle: float) -> tuple[float, float]:
+    """Unit ``u`` turned by ``angle`` radians in the XZ plane."""
+    import math
+    c, s = math.cos(angle), math.sin(angle)
+    return (u[0] * c - u[1] * s, u[0] * s + u[1] * c)
+
+
+def _nearest_on_seg(p, a, b) -> tuple[float, float]:
+    """The point of segment a->b nearest ``p`` (XZ)."""
+    dx, dz = b[0] - a[0], b[1] - a[1]
+    n = dx * dx + dz * dz
+    t = 0.0 if n == 0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / n))
+    return (a[0] + t * dx, a[1] + t * dz)
+
+
+def _into_zone(here, zone, depth: float) -> tuple[float, float]:
+    """A point ``depth`` inside ``zone`` for someone standing outside it: past the point of its boundary nearest
+    ``here``, straight on (toward the corner average when he stands on the boundary itself)."""
+    n = len(zone)
+    q = min((_nearest_on_seg(here, zone[i], zone[(i + 1) % n]) for i in range(n)),
+            key=lambda c: (c[0] - here[0]) ** 2 + (c[1] - here[1]) ** 2)
+    dx, dz = q[0] - here[0], q[1] - here[1]
+    if dx * dx + dz * dz < 1e-6:
+        dx = sum(c[0] for c in zone) / n - here[0]
+        dz = sum(c[1] for c in zone) / n - here[1]
+    m = (dx * dx + dz * dz) ** 0.5 or 1.0
+    return (q[0] + dx / m * depth, q[1] + dz / m * depth)
 
 
 def _sanitize(name: str) -> str:

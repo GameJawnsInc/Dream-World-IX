@@ -2,7 +2,8 @@
 
 **Status:** ★ **rung 0 in-game PROVEN 11/11** (`story-rung0`): s88 is live (sha `c55377f6c137d442…`, backups `20260924-172331`), and the trace on stock Lindblum 552 joined every script write to a store in the stock bytes. **Rung 1 ★ in-game 11/11** (`story-rung1`): the residue net and the epochs. **Rung 2 ★ in-game 8/8**
 (`story-rung2`): THE NULL PAIR -- stock 552 x3 vs its verbatim fork x3, STOCK ONLY and FORK ONLY both empty.
-Next: rung 3 (the Dali retrodiction).
+**Rung 3 step 1 ★ in-game 7/7** (`story-rung3-s1d`): an unattended blind tour of stock Dali reached 450, the
+trace named 450 as the only writer of the ping, and the story moved on by itself. Next: rung 3's fork sides.
 
 Board entry #3 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It is the narrative-state arc's missing
 instrument ([`../narrative-state/PLAN.md`](../narrative-state/PLAN.md)).
@@ -169,6 +170,82 @@ sandbox autosave).
   Main_Init stores is named exactly in STOCK ONLY -- `WriteKey(donor=552, sid=0, tag=0, off=509,
   Global.Int16[239] = 552)`.
 - The residue is the warp's own ~ menu writes, identical on both sides (bytes 0-2, 3/3 each), and so never a key.
+
+## Rung 3, step 1 -- driving the stock Dali morning unattended (in progress)
+
+The design (a read-only research pass + an adversarial check; notes in the session scratchpad): start where the
+story does -- the village entrance 359 at SC 2540, which reads neither SC nor its entrance and sets the party
+itself -- let the game play 359 -> 351 -> 352 on its own, then a BLIND tour crosses every exit of every field
+reached (the kit's `eventscan.scan_gateways` order, bounded by the in-game location label "Dali/", never talking
+to anyone) until SC leaves 2600. The story forces the route through 450 by itself: SC 2610 needs latch 2079, 2079
+needs bit 2102, and only field 450 writes 2102 = 1. The research also found a THIRD round-4 defect nobody had
+seen: the round-4 seed wrote byte 296 = 192 as a 16-bit word, zeroing the hub byte 297 in every member.
+
+**Attempt 1 (`story-rung3-s1`): the tour ping-ponged 350 <-> 351 80 times.** The segment worked (control in 352 at
+SC 2600). Then: the 350 arrival spot is 18u outside the 351 door zone, `walk_to` steers one axis at a time with no
+knowledge of doors, a key held into the fade carried the player back through, and the tour marked an exit tried
+when it chose it. Fixed by the harness's new walkmesh routing (`Session.route_to` / `route_cross`, commit
+`fad76077`: A* over the stock walkmesh avoiding every other exit zone; the frame proven on recorded positions;
+calibration that never presses toward a zone; an exit counts only when it lands; one-way doors last).
+
+**Attempt 2 (`story-rung3-s1b`, 5/7): no ping-pong -- 40 crossings, 26 landed, fields 350/351/352/354/356 -- but
+never 450.** What stopped it was the live village, not the story:
+- 353 (the Mayor's house): the gateway works; Mayor Kapu's arrival scene puts the player back in 350 (the story
+  bars the house at this beat).
+- 350 -> 450 and 350 -> 355 (and 350 -> 356 twice): planned, then stuck with control held, travelled 0. Every
+  frame shows Zidane pressed into a villager or a Dali child standing in the path. (A first reading blamed the
+  "ACTIVE TIME EVENT" card; that is the optional-ATE corner indicator, up through walks of 2446u and 3665u too,
+  and it gates no movement.) The router avoids walls and exit zones but not NPCs -- the harness publishes no
+  object positions -- and none of those NPCs is solid: stock 350 never sets object flag 16, so the engine lets
+  the player through by insisting (FieldMapActorController.CheckCollFallback: 26 MovePC calls unbroken), which the
+  routed walk's short bursts never did.
+- 356 -> 358: stalled four times exactly the controller radius off triangle 50, a door strip whose triFlags
+  0xA001 bar the controlled player (356's own door walk lowers the mask to 127). Not a body: a wall the router's
+  raw walkmesh did not have.
+- The trace: 0 join failures, no exceptions; no `Bit[2102] := 1` (450 was never entered).
+
+Driver-side fix, built and fake-tested, not yet run in-game: `route_cross(unstick=True)` waits a stall out, then
+pushes through in one unbroken hold, and only then routes round an unseen blocker; the tour routes on
+`pathfind.PlayerWalkmesh` (closed triangles are walls: 356 -> 358 becomes a clean NO ROUTE) and scores
+"stood inside the zone, nothing fired" by zone membership (`rung3_step1.py` docstring has the strike rule).
+
+**Attempt 3 (`story-rung3-s1c`) -- THE PREMISE HOLDS: the blind tour reached 450 and the stock game wrote the
+ping there.** With `route_cross(unstick=True)` the tour made 25 crossings (16 landed) through 350, 351, 352, 354,
+355, 356 and 450 -- the 350 -> 355 and 350 -> 450 crossings that failed before now landed after waits and a push
+through a villager (the owner, watching: the walker works, movement is choppy, roaming NPCs block it at times). The
+controller's latch then flipped, Garnet spawned in the weapon shop, and the run stopped on her dialogue CHOICE
+("You changed the way you talk!"): the cutscene waiter presses Confirm through boxes but never picks a choice, and
+timed out after 240 s. So the formal checks read an empty trace; the raw trace was saved, and read offline it shows
+the story's own route, found by a blind tour, writing exactly what the design predicted:
+
+| Write | Where (field entry func +offset) | Frame |
+|---|---|---|
+| SC 2540 -> 2600 | 352 e17 f1 +5340 (the wake) | 9375 |
+| 2078 := 1, 2086 := 1 | 352 e17 f1 (the wake) | 9375 |
+| 2064 := 1, 2078 := 0 | 351 e16 f2 (the lobby exit) | 10628 |
+| 2086 := 0 | 450 e0 Main_Init | 18172 |
+| **2102 := 1**, 2085 := 1 | **450 e19 f2 +89 -- "Walk-in trigger (tag 2)"** | **18388** |
+| 2102 := 0, **2079 := 1**, 2075 := 1 | 356 e2 f1 (the controller's latch flip, in the windmill) | 20861 |
+
+The only writer of `Bit[2102] := 1` is field 450. All 381 script rows join a store in the bytes the game ran
+(0 failures). Next: take a scene's default choice (the cursor's option) so the run finishes on its own and the
+formal checks run; smoother movement; NPC positions from the agent (an engine change, owner's call).
+
+**Attempt 4 (`story-rung3-s1d`) -- ★ STEP 1 PASSED IN-GAME 7/7, unattended.** The walker now plans around the
+field's published objects (engine patch s89, live: every actor's position, collision radius, `solid`, and the
+contact/talk trigger radii) with `route_cross(npcs=True, smooth=True)`, and scenes answer a choice with the game's
+own default (`watch_cutscene(choices="default")`). 27 crossings, 17 landed, through 350/351/352/354/355/356/450;
+mostly clean plans round NPCs, one push-through, no bump loops.
+- **S1-PING:** `Bit[2102] := 1` written once, by field 450 alone -- entry 19, tag 2, offset 89, its walk-in trigger.
+- **S1-ADVANCE:** the latch flipped, Garnet spawned in the weapon shop, the walker answered her two choices with
+  the defaults ("You're doing great!", "You were Ruby!"), and the story moved to SC 2610 -- the tour stopped by its
+  own rule (pass 2, crossing 27).
+- **S1-JOIN:** every script row joined its store in the bytes the game ran; NC-THROW clean.
+- One open oddity: 350 -> 351 in pass 2 came back `blocked` both in this run and the last (NPCs gather near the
+  inn door by then); it did not stop the tour.
+
+Next: the fork sides (F0 = the current import-chain output, which omits 450; F4 = the round-4 seed, with the
+297-clobber the research found) against this stock run -- the retrodiction itself.
 
 ## Rungs
 

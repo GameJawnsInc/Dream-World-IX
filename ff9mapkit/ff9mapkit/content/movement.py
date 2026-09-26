@@ -130,6 +130,25 @@ def control_value_for_angle(angle_deg: float) -> int:
     return v
 
 
+def key_move_basis(value) -> dict:
+    """Which world direction a held D-pad/keyboard direction walks the player, for TWIST ``value``.
+
+    ``FieldMapActorController.cs:698-720``: a digital press builds ``moveVec`` in controller space
+    (up = +z, right = +x), normalises it, and rotates it by ``Quaternion.Euler(0, angle, 0)`` with
+    ``angle = (value + 1) / 256 * 360`` -- so up -> ``(sin a, cos a)`` and right -> ``(cos a, -sin a)``,
+    always perpendicular, always this handedness. ``value`` None = no TWIST ran (the engine zeroes it on
+    field load, ``FieldMapLocalMain.cs:8``) = 0 deg. Returns ``{"v": up, "h": right}`` as world (x, z)
+    unit vectors -- the shape ``Session.calibrate_axes`` MEASURES, so this is a prediction to check a
+    measurement against, never a substitute for one. Which operand the keys read (arg2 under stock
+    Memoria's ``UseAbsoluteOrientation = 3``) is the caller's to pick: see
+    :func:`ff9mapkit.eventscan.scan_control_twist`. Measured on stock 351/352 (value 0): up (+0.02,
+    +1.00), right (+1.00, -0.02) -- exactly the 1.4 deg this predicts."""
+    import math
+    a = 0.0 if value is None else math.radians((int(value) + 1) / 256.0 * 360.0)
+    s, c = math.sin(a), math.cos(a)
+    return {"v": (s, c), "h": (c, -s)}
+
+
 def set_control_direction(eb_bytes, value: int, *, entry_index: int = 0,
                           func_tag: int | None = 0) -> bytes:
     """Overwrite the existing TWIST args (both analog + digital) with ``value``, in place.

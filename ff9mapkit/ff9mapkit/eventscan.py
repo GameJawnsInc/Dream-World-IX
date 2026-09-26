@@ -315,6 +315,24 @@ def scan_control_direction(eb_bytes):
     return None if ins is None else (None if ins.imm(0) is None else int(ins.imm(0)))
 
 
+def scan_control_twist(eb_bytes):
+    """BOTH operands of the Main_Init ``SetControlDirection`` (TWIST) -- ``(arg1, arg2)`` -- or ``None``.
+
+    The engine keeps them apart (``DoEventCode.cs:1849`` -> ``FieldState.SetTwistAD``: arg1 -> ``twist.x``,
+    arg2 -> ``twist.y``) and ``FieldMapActorController`` picks ONE per input device, so a caller predicting
+    how a key press moves the player needs the one its device reads, not :func:`scan_control_direction`'s
+    first. Stock fields do differ (354 is ``(242, 0)``, 450 ``(0, 18)``). ``None`` = no TWIST in the script
+    (the engine zeroes ``twist`` on field load); an operand is ``None`` when it is computed."""
+    eb = EbScript.from_bytes(eb_bytes)
+    ins = next(_first_instr(eb, TWIST_OP, entry_index=0), None)
+    if ins is None:
+        ins = next(_first_instr(eb, TWIST_OP), None)
+    if ins is None:
+        return None
+    a, d = ins.imm(0), ins.imm(1)
+    return (None if a is None else int(a), None if d is None else int(d))
+
+
 def _player_entry_index(eb):
     """Index of the controlled player's entry (the one defining the player character), or None."""
     for e in eb.entries:

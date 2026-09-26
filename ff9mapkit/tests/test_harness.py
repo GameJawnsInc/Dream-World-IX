@@ -15,6 +15,7 @@ hard way.
 """
 
 import json
+import math
 import os
 import pathlib
 import re
@@ -906,6 +907,118 @@ def test_options_drops_the_header_when_the_spaces_agree(game):
         fake.offer(["Yes", "No"], header="Really?")
         published(g, lambda s: s.choice is not None)
         assert g.options() == ["Yes", "No"]
+
+
+# --------------------------------------------------------------------------- watch_cutscene(choices="default")
+# The rung-3 tour stopped on Garnet's choice in the 354 weapon shop ("You changed the way you talk!"): the waiter
+# presses Confirm through boxes and stops at a choice, and the scene waited on it for 240 s. The opt-in answers
+# with the option the GAME's cursor rests on -- once the window is ready: before that the agent publishes the
+# group as '' and whatever cursor the pooled window last held (recorded at 30937 and 30921; the fake's scene()).
+
+_TALK = "Zidane\n“You changed the way you talk!”"
+_ANSWERS = ["You’re doing great!", "You still sound funny, though"]
+
+
+def test_watch_cutscene_takes_the_games_default_choice_and_plays_the_scene_out(game):
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        # the cursor rests on option 1; for longer than the waiter's hold the opening window reads a stale 0.
+        # Then a second choice straight after the first -- one masked line, the default past it.
+        mark = len(fake.executed)
+        fake.scene("Garnet\n“Zidane!”", {"header": _TALK, "options": _ANSWERS, "default": 1},
+                   {"header": "Well?", "options": ["Sword", "Dagger", "Nothing"], "disabled": [0], "default": 2},
+                   "Garnet\n“Hmph.”", stale=0, opening=360)
+        pages = g.watch_cutscene(timeout=30, choices="default")
+        seen = [raw for _t, _age, raw in g._ring._buf
+                if (raw["dialog"].get("choice") or {}).get("options", [""])[0] == _TALK]
+        assert any(r["dialog"]["choice"]["selected"] == 0 and r["menu"]["group"] == "" for r in seen), \
+            "premise: the waiter never saw the opening window's stale cursor"
+        early = [s for s in fake.executed[mark:fake.readied[0]] if s[0] == "press"]
+        assert early == [["press", "confirm", "3"]], f"pressed at a window not yet taking answers: {early}"
+        assert fake.answered == [1, 2], fake.answered
+        assert [(c["index"], c["text"]) for c in pages.choices] == [(1, _ANSWERS[1]), (2, "Nothing")], pages.choices
+        assert pages.choices[0]["prompt"] == _TALK and pages.choices[0]["field"] == 30820
+        assert isinstance(pages, list) and pages[0] == "Garnet\n“Zidane!”" and pages[-1] == "Garnet\n“Hmph.”"
+        assert g.state.control and not g.state.dialog_open
+
+
+def test_without_the_opt_in_the_waiter_still_stops_at_a_choice(game):
+    """The control: no ``choices``, the old waiter -- it turns the page, never presses at the choice, and says so
+    when it times out."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        mark = len(fake.executed)
+        fake.scene("Garnet\n“Zidane!”", {"header": _TALK, "options": _ANSWERS, "default": 1})
+        with pytest.raises(HarnessError, match="CHOICE is open"):
+            g.watch_cutscene(timeout=3)
+        confirms = [s for s in fake.executed[mark:] if s[:2] == ["press", "confirm"]]
+        assert len(confirms) == 1 and fake.answered == [] and fake.choice is not None, (confirms, fake.answered)
+        with pytest.raises(HarnessError, match="only policy"):
+            g.watch_cutscene(timeout=3, choices="first")          # no preference of ours, ever
+
+
+def test_a_default_on_a_disabled_line_is_refused_not_replaced(game):
+    """The script's mask can leave the cursor's own line out; there is then no game default, and taking another
+    option would be the harness choosing."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        fake.scene({"header": "Well?", "options": ["Sword", "Dagger", "Nothing"], "disabled": [1], "default": 1})
+        with pytest.raises(HarnessError, match="disabled"):
+            g.watch_cutscene(timeout=10, choices="default")
+        assert fake.answered == []
+
+
+def test_a_choice_whose_prompt_is_still_typing_is_confirmed_again_not_waited_out(game):
+    """The engine readies a choice -- its group and default cursor -- while the prompt still TYPES (DialogAnimator
+    sets TextAnimation, then AfterShown -> InitializeChoice), and a Confirm then only finishes the text
+    (Dialog.OnKeyConfirm's TextAnimation branch). A window still waiting, unchanged, CHOICE_CONFIRM_FRAMES after a
+    Confirm gets another at once -- not the 5 s wait for the window to close plus a re-arm (over 6 s a choice)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        fake.scene({"header": _TALK, "options": _ANSWERS, "default": 1, "typing": 10 ** 6}, "Garnet\n“Hmph.”")
+        t0 = time.time()
+        pages = g.watch_cutscene(timeout=30, choices="default")
+        spent = time.time() - t0
+        assert fake.answered == [1] and [c["index"] for c in pages.choices] == [1], (fake.answered, pages.choices)
+        confirms = [s for s in fake.executed[fake.readied[0]:] if s[:2] == ["press", "confirm"]]
+        assert len(confirms) == 3, confirms           # finish the text, answer, turn the last page
+        assert spent < 4.5, f"sat out the Confirm that only finished the text: {spent:.1f}s"
+
+
+def test_a_question_asked_again_after_its_default_is_named_as_a_loop(game):
+    """A script whose default answer asks the same question again: answered CHOICE_REPEATS times, then the waiter
+    says what it is -- instead of pressing Confirm every second and a half until its timeout ran out."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        again = {"header": "Leave the shop?", "options": ["No", "Yes"], "default": 0}
+        fake.scene(*[again] * 6)
+        t0 = time.time()
+        with pytest.raises(HarnessError, match="again after 3 default answers"):
+            g.watch_cutscene(timeout=60, choices="default")
+        assert fake.answered == [0, 0, 0], fake.answered
+        assert time.time() - t0 < 30
+
+
+def test_a_choice_left_unanswered_under_the_opt_in_is_named_when_the_waiter_times_out(game):
+    """The timeout says a choice is open with or without ``choices``: here one that never becomes ready."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        fake.scene({"header": _TALK, "options": _ANSWERS, "default": 1}, opening=10 ** 6)
+        with pytest.raises(HarnessError, match="CHOICE is still open, unanswered"):
+            g.watch_cutscene(timeout=3, choices="default")
+        assert fake.answered == []
 
 
 # --------------------------------------------------------------------------- channel diagnosis
@@ -2653,6 +2766,1757 @@ def test_backing_off_refuses_to_leave_the_field(game):
         published(g, lambda s: s.player_x is not None and s.player_x > 500)
         with pytest.raises(HarnessError, match="left the field|gateway"):
             g.calibrate_axes(recalibrate=True)
+
+
+# --------------------------------------------------------------------------- routed walking
+# Stock 350 <-> 351, eighty times: the arrival from 351 stands 18u from 351's own gateway, and the
+# one-axis walk_to (or its calibration probe, or a correction burst pressed during the fade) walked
+# straight back through it. These pin route_to / route_cross against the fake's ExitField model:
+# entering a region takes control on that frame, the field changes `exit_frames` later.
+
+
+def _flat_bgi(x0=-600, z0=-600, x1=600, z1=600):
+    """The fake's rectangular floor as a real walkmesh in WORLD coords (bgi.build: orgPos 0)."""
+    from ff9mapkit.scene import bgi
+    c = [(x0, 0, z1), (x1, 0, z1), (x1, 0, z0), (x0, 0, z0)]
+    return bgi.BgiWalkmesh.from_bytes(bgi.build(c, [(0, 1, 2), (0, 2, 3)]).to_bytes())
+
+
+def _rect(x0, z0, x1, z1):
+    return [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
+
+
+def _prior():
+    """The fake's twist 0 is the engine's TWIST -1 (0 deg): up = +z, right = +x."""
+    from ff9mapkit.content import movement
+    return movement.key_move_basis(-1)
+
+
+def _stand(g, fake, x, z):
+    fake.player = [float(x), 0.0, float(z)]
+    published(g, lambda s: s.player_x is not None and abs(s.player_x - x) < 1 and abs(s.player_z - z) < 1)
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_route_to_goes_round_a_gateway_the_straight_walk_takes(game, smooth):
+    from ff9mapkit.content import pathfind
+    door = _rect(-100, -300, 100, 300)                   # a band across the middle of the room
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0)}]}
+    fake.exit_frames = 20
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        assert pathfind.seg_poly_gap((-400, 0), (400, 0), door) < 0        # the premise
+        rec = g.route_to(400.0, 0.0, avoid=[door], walkmesh=_flat_bgi(), prior=_prior(), smooth=smooth)
+        assert rec["landed"] is None and rec["reached"], rec
+        assert len(rec["waypoints"]) > 1 and not fake.fired, (rec, fake.fired)
+        assert g.state.field_id == 30820
+        # ...and the control: the one-axis walk back takes the door
+        g.walk_to(-400.0, 0.0, strict=False)
+        assert fake.fired and fake.fired[0]["to"] == 30821
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_route_cross_from_an_arrival_beside_the_door_takes_the_exit_it_was_sent_to(game, smooth):
+    """THE 350 SHAPE: standing 18u west of door A, sent to door B on the far side. The calibration may not
+    press toward A (east); the route must not go back through it; the crossing must be B's."""
+    from ff9mapkit.content import pathfind
+    door_a = _rect(300, -150, 600, 150)
+    door_b = _rect(-600, -150, -380, 150)
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door_a, "to": 30821, "arrive": (-282, 0)},
+                            {"zone": door_b, "to": 30810, "arrive": (0, 0)}],
+                    30821: [{"zone": _rect(-600, -150, -300, 150), "to": 30820, "arrive": (282, 0)}]}
+    fake.exit_frames = 30
+    wm = _flat_bgi()
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 282, 0)
+        mark = len(fake.executed)
+        basis = g.calibrate_axes(hazards=[door_a], prior=_prior())
+        pressed = {s[1] for s in fake.executed[mark:] if s[0] == "hold" and s[1] != "cancel"}
+        assert "right" not in pressed and "left" in pressed, pressed      # never toward A; left one-sided
+        assert basis["h"][0] > 0.99 and basis["v"][1] > 0.99, basis       # measured: right is +x
+        assert not fake.fired
+        goal = pathfind.region_goal(wm, door_b)
+        rec = g.route_cross(goal[0], goal[1], avoid=[door_a], walkmesh=wm, prior=_prior(), expect=30810,
+                            smooth=smooth)
+        assert rec["landed"] == 30810 and rec["during"] == "walk", rec
+        assert [f["to"] for f in fake.fired] == [30810], fake.fired        # door A never fired
+
+
+def test_a_probe_that_fires_a_gateway_is_reported_not_measured_through(game):
+    """A door nobody listed, 10u away: a blind one-frame probe still reaches it. It must be REPORTED -- the
+    old probe settled during the fade, read 'same field', and measured on in the next room."""
+    from harness.session import ProbeLeftControl
+    door = _rect(10, -600, 300, 600)
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, -400)}]}
+    fake.exit_frames = 60
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 0, 0)
+        with pytest.raises(ProbeLeftControl, match="took control away|left field"):
+            g._calibrate_clear_of(30820, [], None, 4)          # nothing to avoid: probes blind
+        assert 30820 not in g._axes, "a probe that crossed must not cache a basis"
+        g.wait_playable(timeout=10)
+        g.warp(30820)
+        _stand(g, fake, 0, 0)
+        rec = g.route_to(-400.0, 0.0, avoid=[], walkmesh=_flat_bgi(), prior=None)
+        assert rec["during"] == "calibrate" and rec["landed"] == 30821, rec
+
+
+def test_blind_calibration_beside_a_known_door_refuses_before_pressing(game):
+    """Without a prior a probe's direction is unknown, and one walk frame settles ~30u: beside a door it
+    LISTED, blind calibration must refuse, not press and find out."""
+    door = _rect(10, -600, 300, 600)
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, -400)}]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 0, 0)
+        mark = len(fake.executed)
+        with pytest.raises(HarnessError, match="blind probe"):
+            g.calibrate_axes(hazards=[door], prior=None)
+        with pytest.raises(HarnessError, match="blind probe"):
+            g.route_to(-400.0, 0.0, avoid=[door], walkmesh=_flat_bgi(), prior=None)
+        assert not [s for s in fake.executed[mark:] if s[0] == "hold"], fake.executed[mark:]
+        assert not fake.fired and 30820 not in g._axes
+        _stand(g, fake, -300, 0)                             # 310u clear: blind is safe again
+        g.calibrate_axes(hazards=[door], prior=None)
+        assert not fake.fired
+
+
+def test_each_probe_is_judged_from_where_the_last_one_left_him(game):
+    """Door D below (30u) leaves the up axis one-sided, and the up probe carries him ~150u north -- beside
+    door H, which the right probe would have cleared from where calibration BEGAN. Judged from where he
+    stands when it is pressed, the right probe shrinks to a walk; judged from the start it ran into H."""
+    door_d = _rect(-600, -100, 600, -30)
+    door_h = _rect(100, 90, 400, 400)
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door_d, "to": 30821, "arrive": (0, 0)},
+                            {"zone": door_h, "to": 30810, "arrive": (0, 0)}]}
+    fake.exit_frames = 60
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 0, 0)
+        mark = len(fake.executed)
+        basis = g.calibrate_axes(hazards=[door_d, door_h], prior=_prior())
+        assert not fake.fired, fake.fired
+        assert basis["h"][0] > 0.99 and basis["v"][1] > 0.99, basis
+        holds = [s for s in fake.executed[mark:] if s[0] == "hold" and s[1] != "cancel"]
+        assert ["hold", "right", "4"] not in holds, holds       # the run that reached H from (0, 150)
+
+
+def test_a_probe_may_leave_the_region_he_stands_in_but_not_come_back(game):
+    """Standing inside a region (Z, a hazard with no live trigger here), the up probe walks out of it. The
+    down probe after it starts OUTSIDE Z now, and a run would carry him back in: it must shrink to a walk.
+    The old guard ignored any region containing the START, for every probe of the calibration."""
+    zone = _rect(-600, -40, 600, 60)
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 0, 20)
+        mark = len(fake.executed)
+        g.calibrate_axes(hazards=[zone], prior=_prior())
+        holds = [s for s in fake.executed[mark:] if s[0] == "hold" and s[1] != "cancel"]
+        assert ["hold", "up", "4"] in holds, holds              # out through the top: allowed
+        assert ["hold", "down", "4"] not in holds, holds        # back in: refused
+        assert g.state.player_z > 60, "he ended back inside the region he walked out of"
+
+
+def test_walk_to_halts_the_moment_control_goes(game):
+    """A gateway takes control on the frame it fires; the field id changes a fade later. A burst pressed in
+    between carries its hold into the destination -- the 350 bounce. halt_on_transition presses nothing more."""
+    door = _rect(100, -600, 300, 600)
+    for halt in (True, False):
+        fake = FakeGame(game)
+        fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (-400, 0)}]}
+        fake.exit_frames = 240                            # a slow fade, so the driver sees it
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30820)
+            _stand(g, fake, -300, 0)
+            g.calibrate_axes()
+            assert g.walk_to(500.0, 0.0, strict=False, halt_on_transition=halt) is False
+            assert fake.fired, "the walk never reached the door"
+            after = [s for s in fake.executed[fake.fired[0]["executed"]:] if s[0] == "hold"]
+            if halt:
+                assert not after, f"pressed {after} after control was gone"
+            else:
+                assert after, "the default loop was expected to keep pressing (the leak it documents)"
+
+
+def test_route_to_reports_no_route_rather_than_walking_into_the_region(game):
+    door = _rect(100, -200, 400, 200)
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0)}]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -300, 0)
+        rec = g.route_to(250.0, 0.0, avoid=[door], walkmesh=_flat_bgi(), prior=_prior())
+        assert rec["waypoints"] is None and rec["landed"] is None and not rec["reached"], rec
+        assert not fake.fired
+
+
+# --------------------------------------------------------------------------- route_to(unstick=True)
+# The rung-3 run's crossings in stock Dali that planned a route and then travelled 0: pressed into a villager
+# and into a Dali child, with control held the whole time. The router knows walls and zones, not bodies, and
+# nothing published tells a freeze with control held (the script's pad mask) from a body in the way -- so these
+# pin what MOVEMENT decides: wait a freeze out, push through anyone the engine lets him pass (no object flag
+# 16: no NPC on stock 350 sets it), route round anyone it does not, stay out of every avoided zone doing it,
+# give up cleanly on a freeze that never lifts, and never leave a phantom behind a call that could not use it.
+
+_BAND = _rect(-160, -600, -100, 600)                   # a strip across the route: step on it and movement holds
+_LANE = (-600, -150, 600, 150)                         # narrower than 2 * (OBSTACLE_R_W + the 80u radius)
+
+
+_ROOM_AND_LANE = [(-1200, -600, 0, 600), (0, -150, 1200, 150)]     # a wide room opening into a 300-wide lane
+
+
+def _l_bgi():
+    """:data:`_ROOM_AND_LANE` as a real walkmesh in WORLD coords, for the router (the fake takes the boxes)."""
+    from ff9mapkit.scene import bgi
+    v = [(-1200, 0, 600), (0, 0, 600), (0, 0, 150), (1200, 0, 150), (1200, 0, -150), (0, 0, -150), (0, 0, -600),
+         (-1200, 0, -600)]
+    faces = [(0, 1, 2), (0, 2, 5), (0, 5, 7), (5, 6, 7), (2, 3, 4), (2, 4, 5)]
+    return bgi.BgiWalkmesh.from_bytes(bgi.build(v, faces).to_bytes())
+
+
+def test_one_unbroken_hold_walks_through_a_passable_body_and_bursts_never_do(game):
+    """The engine's walk-through-by-insisting, as the fake models it (FieldMapActorController.CheckCollFallback):
+    route_to's bursts, a pause apart, are pushed back every time; one hold past the 26-call lock goes through --
+    unless the body is solid (object flag 16), when nothing does."""
+    fake = FakeGame(game)
+    fake.blockers = {30820: [(0.0, 0.0, 152.0)]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -152, 0)                        # in contact
+        for _ in range(6):
+            g.send("hold right 12", "wait 16")
+        assert abs(g.settle().player_x + 152) < 1, g.state.pos
+        g.send("hold right 40", "wait 44")
+        assert g.settle().player_x > 152, g.state.pos
+        fake.blockers = {30820: [(0.0, 0.0, 152.0, True)]}
+        _stand(g, fake, -152, 0)
+        g.send("hold right 60", "wait 64")
+        assert abs(g.settle().player_x + 152) < 1, g.state.pos
+
+
+def test_a_push_is_pressed_only_when_a_probe_finds_him_stuck(game):
+    """A push is ~30 frames held blind, and walk_to also stops on an overshoot, a slide or max_bursts -- none of
+    them a body. Pressed into nobody it would be a run, so a two-frame walk probe goes first: free, no push; into
+    a passable body, through; into a solid one, stuck -- and only the last two count as pushes."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -300, -300)
+        g.calibrate_axes(hazards=[], prior=_prior())
+        _stand(g, fake, -400, 0)
+        record, walked = {"pushes": 0, "pushed": 0}, [0.0]
+        mark = len(fake.executed)
+        assert g._push_through(0.0, 0.0, 30820, walked, record) == "free"
+        holds = [int(s[2]) for s in fake.executed[mark:] if s[0] == "hold" and s[1] != "cancel"]
+        assert holds == [2] and record == {"pushes": 0, "pushed": 0} and walked[0] < 60, (holds, record, walked)
+        fake.blockers = {30820: [(0.0, 0.0, 152.0)]}
+        _stand(g, fake, -152, 0)
+        assert g._push_through(200.0, 0.0, 30820, walked, record) == "pushed", g.state.pos
+        assert record == {"pushes": 1, "pushed": 1} and g.state.player_x > 152, (record, g.state.pos)
+        fake.blockers = {30820: [(0.0, 0.0, 152.0, True)]}
+        _stand(g, fake, -152, 0)
+        assert g._push_through(200.0, 0.0, 30820, walked, record) == "stuck"
+        assert record == {"pushes": 2, "pushed": 1} and abs(g.state.player_x + 152) < 1, (record, g.state.pos)
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_route_to_unstick_waits_out_a_freeze_with_control_held(game, smooth):
+    """A freeze that outlasts the stall check and ends inside one wait: the walk goes on from where it stood,
+    and neither a push nor a blocker goes in -- nobody was there."""
+    fake = FakeGame(game)
+    fake.freezes = {30820: [{"zone": _BAND, "frames": 360}]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 480                      # one wait covers the freeze, whatever the stall check took
+        rec = g.route_to(400.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), unstick=True, smooth=smooth)
+        assert fake._froze, "premise: the walk never stepped on the freeze"
+        assert rec["reached"] and rec["landed"] is None, rec
+        assert rec["waits"] >= 1 and rec["cleared"] >= 1 and rec["pushes"] == 0, rec
+        assert rec["blockers"] == [] and not rec["frozen"] and not rec["blocked"], rec
+        assert g._blockers[1] == []
+
+
+def test_route_to_without_unstick_is_unchanged_by_a_freeze(game):
+    """The control: the same freeze (for good, here) and no flag -- the old stall-and-replan, no wait, no push,
+    and the new record fields all at rest."""
+    fake = FakeGame(game)
+    fake.freezes = {30820: [{"zone": _BAND, "frames": None}]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        mark = len(fake.executed)
+        rec = g.route_to(400.0, 0.0, walkmesh=_flat_bgi(), prior=_prior())
+        assert not rec["reached"] and rec["replans"] == g.ROUTE_REPLANS, rec
+        assert (rec["waits"], rec["cleared"], rec["pushes"], rec["pushed"], rec["blockers"], rec["blocked"],
+                rec["frozen"]) == (0, 0, 0, 0, [], False, False), rec
+        waits = [s for s in fake.executed[mark:] if s[0] == "wait" and int(s[1]) == g.ROUTE_WAIT_FRAMES]
+        assert not waits, waits
+        long_holds = [s for s in fake.executed[mark:] if s[0] == "hold" and int(s[2]) > 20]
+        assert not long_holds, long_holds
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_route_to_unstick_gives_up_cleanly_on_a_freeze_that_never_lifts(game, smooth):
+    """No hang, bounded waits and pushes, and no phantoms: each stall reads as a body ahead and each replan
+    presses a way the ones before it left open, and he never moves -- so they were no bodies. Withdrawn, from
+    the record and from the visit."""
+    fake = FakeGame(game)
+    fake.freezes = {30820: [{"zone": _BAND, "frames": None}]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        t0 = time.time()
+        rec = g.route_to(400.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), unstick=True, smooth=smooth)
+        assert time.time() - t0 < 60, "a freeze that never lifts must end the call, not hang it"
+        assert rec["frozen"] and not rec["reached"] and rec["landed"] is None and rec["during"] is None, rec
+        assert 1 <= rec["waits"] <= g.ROUTE_WAIT_BUDGET, rec
+        assert 1 <= rec["pushes"] <= g.ROUTE_PUSH_BUDGET and rec["pushed"] == 0, rec
+        assert rec["blockers"] == [] and not rec["blocked"], rec
+        assert g._blockers[1] == [], "a blocker read off a freeze must not outlive the call"
+        assert g.state.control and g.state.field_id == 30820
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_a_freeze_in_a_narrow_lane_is_not_read_as_a_sealed_way(game, smooth):
+    """No body anywhere, a freeze in a lane too narrow to route round one: the first phantom seals it at once.
+    He has not moved since it went in, so that is not evidence of a body -- ``frozen``, never the REAL strike
+    ``blocked``, and the phantom leaves with the call instead of sealing the lane for the rest of the visit."""
+    fake = FakeGame(game)
+    fake.walkmesh = _LANE
+    fake.freezes = {30820: [{"zone": _BAND, "frames": None}]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        rec = g.route_to(400.0, 0.0, walkmesh=_flat_bgi(*_LANE), prior=_prior(), unstick=True, smooth=smooth)
+        assert rec["frozen"] and not rec["blocked"] and rec["blockers"] == [], rec
+        assert g._blockers[1] == [], g._blockers
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_route_to_unstick_pushes_through_a_passable_body_without_placing_a_blocker(game, smooth):
+    """THE 350 VILLAGER, as the engine has it: someone standing on the line pressed, without object flag 16.
+    Without the flag the bursts stall against him forever; with it the waits go first (he might walk off), then
+    one unbroken hold takes him through -- no blocker, no detour, nothing remembered. (Smooth, a hold that
+    presses him for the whole lock goes through on its own; these are shorter, so the same rungs run.)"""
+    fake = FakeGame(game)
+    fake.blockers = {30820: [(0.0, 0.0, 152.0)]}       # 350's NPCs: SetObjectLogicalSize(14, 14, 22), flags 5/7/1
+    wm = _flat_bgi()
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        old = g.route_to(400.0, 0.0, walkmesh=wm, prior=_prior(), smooth=smooth)
+        assert not old["reached"] and abs(g.state.player_x + 152) < 2, (old, g.state.pos)     # the premise
+        rec = g.route_to(400.0, 0.0, walkmesh=wm, prior=_prior(), unstick=True, smooth=smooth)
+        assert rec["reached"] and not rec["frozen"] and not rec["blocked"], rec
+        assert rec["waits"] == g.ROUTE_WAITS and rec["pushes"] == 1 and rec["pushed"] == 1, rec
+        assert rec["blockers"] == [] and g._blockers[1] == [], rec
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_route_to_unstick_routes_round_a_solid_body_and_remembers_it_for_the_visit(game, smooth):
+    """A body on the straight line that the engine never lets him through (object flag 16), standing still. Without
+    the flag the route stalls and replans the SAME line from the same spot; with it the push fails, the body
+    goes in as an obstacle and the walk goes round. The walk back plans round it from the start; a field change,
+    anything taking control, or ROUTE_BLOCKER_TTL forgets it."""
+    fake = FakeGame(game)
+    fake.blockers = {30820: [(0.0, 0.0, 192.0, True)]}     # pathfind.OBSTACLE_R_W: the distance the router keeps
+    wm = _flat_bgi()
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 30                       # a body does not walk off in a test; keep the waits short
+        old = g.route_to(400.0, 0.0, walkmesh=wm, prior=_prior(), smooth=smooth)
+        assert not old["reached"] and old["replans"] == g.ROUTE_REPLANS, old     # the premise
+        assert abs(g.state.player_x + 192) < 2, g.state.pos                    # stopped dead against it
+        rec = g.route_to(400.0, 0.0, walkmesh=wm, prior=_prior(), unstick=True, smooth=smooth)
+        assert rec["reached"], rec
+        assert len(rec["blockers"]) >= 1 and rec["waits"] >= g.ROUTE_WAITS and rec["cleared"] == 0, rec
+        assert rec["pushes"] >= 1 and rec["pushed"] == 0, rec
+        bx, bz = rec["blockers"][0]
+        assert abs(bx - 1) <= 2 and abs(bz) <= 2, "placed on the line pressed, at the collision distance"
+        assert g._blockers[0] == 30820 and g._blockers[1]
+        back = g.route_to(-400.0, 0.0, walkmesh=wm, prior=_prior(), unstick=True, smooth=smooth)
+        assert back["reached"] and back["remembered"] >= 1, back
+        assert (back["waits"], back["pushes"], back["blockers"]) == (0, 0, []), "walked into the remembered body"
+        g.warp(30821)
+        g.warp(30820)
+        assert g._blockers[1] == [], "a new visit starts with no blockers"
+        g._visit_blockers(30820).append((1.0, 0.0))    # ...and so does anything that takes control on the field
+        fake.control = False                           # (a scene: the room's people may have moved)
+        published(g, lambda s: not s.control)
+        assert g._blockers[1] == []
+        fake.control = True
+        published(g, lambda s: s.control)
+        g._visit_blockers(30820).append((1.0, 0.0))    # ...and so does time: people walk off
+        g._blocker_at[(1.0, 0.0)] = time.time() - g.ROUTE_BLOCKER_TTL - 1
+        assert g._visit_blockers(30820) == []
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_route_to_unstick_reads_a_wedge_as_bodies_not_a_freeze(game, smooth):
+    """Stuck against one body, and the first way round is shut by another (up and right both moved him 0u at
+    350's crossings 10-12). Two directions that do not move him are a wedge, not a freeze: the third way does,
+    and the walk goes round both. Solid here, so the pushes cannot settle it for him."""
+    fake = FakeGame(game)
+    fake.blockers = {30820: [(0.0, 192.0, 192.0, True), (192.0, 0.0, 192.0, True)]}   # touching him, N and E
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -300, -300)
+        g.calibrate_axes(hazards=[], prior=_prior())       # in the open, so its probes do not unwedge him
+        _stand(g, fake, 0, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        rec = g.route_to(400.0, 400.0, walkmesh=_flat_bgi(), prior=_prior(), unstick=True, smooth=smooth)
+        assert rec["reached"] and not rec["frozen"], rec
+        assert len(rec["blockers"]) >= 2, rec
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_a_way_sealed_after_he_moved_is_blocked_and_leaves_no_phantom(game, smooth):
+    """``blocked`` -- the REAL strike -- needs him to have MOVED since the call's first blocker: round one solid
+    body in the wide room, then another sealing the 300-wide corridor. And even then the call's blockers are
+    withdrawn from the visit: a phantom never outlives the call that could not use it.
+
+    Smooth, the corridor's body is wider: 152 seals the 300-wide lane only against one-axis bursts. One long hold
+    is pushed round its front, slides to the lane's edge and grazes past its side, where its centre is BEHIND him
+    and the engine pushes nobody out (the fake's +-90 degree rule) -- so there it would be no seal at all."""
+    fake = FakeGame(game)
+    fake.walkmesh = _ROOM_AND_LANE
+    fake.blockers = {30820: [(-700.0, 0.0, 192.0, True), (300.0, 0.0, 192.0 if smooth else 152.0, True)]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -1000, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        rec = g.route_to(1000.0, 0.0, walkmesh=_l_bgi(), prior=_prior(), unstick=True, smooth=smooth)
+        assert rec["blocked"] and not rec["frozen"] and not rec["reached"], rec
+        assert len(rec["blockers"]) >= 2 and g.state.player_x > 0, (rec, g.state.pos)   # it got into the corridor
+        assert g._blockers[1] == [], g._blockers
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+@pytest.mark.parametrize("off, solid", [(10, True), (30, True), (60, True), (30, False)])
+def test_route_to_unstick_reads_a_slide_round_a_body_as_a_stall_not_a_bad_basis(game, off, solid, smooth):
+    """A body a little off the pressed line: the engine pushes him out along the line from its centre, so he
+    slides SIDEWAYS -- which walk_to's basis check reads as a wrong basis, raising and throwing the basis away.
+    Under unstick the slide is a stall like any other: no raise, the basis kept, the goal reached. (The control
+    is the chunked walk's: a smooth hold runs free before it meets the body, so the slide round it is a minor
+    part of the hold's displacement and not read as a basis at all.)"""
+    body = (0.0, float(off), 192.0, True) if solid else (0.0, float(off), 152.0)
+    fake = FakeGame(game)
+    fake.blockers = {30820: [body]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        if off == 30 and solid and not smooth:         # the control: the old verb still raises (and pops)
+            with pytest.raises(HarnessError, match="disagrees"):
+                g.route_to(400.0, 0.0, walkmesh=_flat_bgi(), prior=_prior())
+            assert 30820 not in g._axes
+            _stand(g, fake, -400, 0)
+        rec = g.route_to(400.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), unstick=True, smooth=smooth)
+        assert rec["reached"], rec
+        assert 30820 in g._axes
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_route_cross_with_its_zone_says_where_the_walk_ended(game, smooth):
+    """``zone`` tells "never got there" (``inside`` False -- and no 20 s wait for a gateway that cannot fire
+    from out there) from "got there and nothing fired" (``inside`` True, the whole wait)."""
+    from ff9mapkit.content import pathfind
+    door = _rect(450, -150, 600, 150)
+    wm = _flat_bgi(*_LANE)
+    fake = FakeGame(game)
+    fake.walkmesh = _LANE
+    fake.blockers = {30820: [(200.0, 0.0, 152.0, True)]}   # a solid body shuts the lane short of the door
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0)}]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        goal = pathfind.region_goal(wm, door)
+        waited = []
+        crossing = g.expect_field_change
+        g.expect_field_change = lambda **kw: waited.append(kw["timeout"]) or crossing(**kw)
+        rec = g.route_cross(goal[0], goal[1], walkmesh=wm, prior=_prior(), unstick=True, zone=door, timeout=20,
+                            smooth=smooth)
+        assert rec["landed"] is None and rec["inside"] is False and not fake.fired, rec
+        assert waited == [], "waited out a crossing that could not come"
+        fake.blockers = {}
+        fake.regions = {}                              # the zone is there; the gateway is story-gated shut
+        rec = g.route_cross(goal[0], goal[1], walkmesh=wm, prior=_prior(), unstick=True, zone=door, timeout=2,
+                            smooth=smooth)
+        assert rec["landed"] is None and rec["inside"] is True and waited == [2], (rec, waited)
+        rec = g.route_cross(-400.0, 0.0, walkmesh=wm, prior=_prior(), unstick=True, timeout=2, smooth=smooth)
+        assert rec["inside"] is None and waited == [2, 2], "no zone: no verdict, and the wait as it was"
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_a_blocker_replan_never_enters_an_avoided_zone(game, smooth):
+    """The detour round a body is planned by the same route_avoiding, so a door on the side the router would
+    otherwise take is kept out of exactly as before. The door is a LIVE region here: entering it fires."""
+    from ff9mapkit.content import pathfind
+    door = _rect(-300, -600, 300, -150)
+    wm = _flat_bgi()
+    stall, body_seen = (-192.0, 0.0), (1.0, 0.0)       # where he stops, and where _blocker_ahead puts the body
+    free = pathfind.route_avoiding(wm, stall, (400, 0), [], obstacles=[body_seen])
+    legs = [stall] + [tuple(w) for w in free]
+    assert any(pathfind.seg_poly_gap(a, b, door) < 0 for a, b in zip(legs, legs[1:])), \
+        f"premise: without the door the detour goes through it ({free})"
+    fake = FakeGame(game)
+    fake.blockers = {30820: [(0.0, 0.0, 192.0, True)]}
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0)}]}
+    fake.exit_frames = 30
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        rec = g.route_to(400.0, 0.0, avoid=[door], walkmesh=wm, prior=_prior(), unstick=True, smooth=smooth)
+        assert rec["blockers"], f"premise: the walk never met the body ({rec})"
+        assert not fake.fired, fake.fired
+        assert rec["landed"] is None and g.state.field_id == 30820 and rec["reached"], rec
+
+
+# --------------------------------------------------------------------------- route_to(smooth=True)
+# The owner, watching the rung-3 tour: "the movement is non-continuous/choppy but it works". route_to walked every
+# leg in chunks of one-axis walk_to bursts with a settle after each. ``smooth`` walks a leg as one continuous hold
+# toward its waypoint -- two directions at once where it runs diagonal on the calibrated basis -- re-aimed only
+# when a hold ends. What must not change: no hold ever carries him into a region he was not sent to.
+
+
+def _yawed(deg):
+    """The fake's key basis under ``twist=deg`` (FakeGame._step_world's rotation): up and right in world."""
+    a = math.radians(deg)
+    return {"v": (-math.sin(a), math.cos(a)), "h": (math.cos(a), math.sin(a))}
+
+
+def _counting(g):
+    """Every request ``g`` sends from now on, as its tuple of steps."""
+    sent, send = [], g.send
+    g.send = lambda *steps, **kw: (sent.append(steps), send(*steps, **kw))[1]
+    return sent
+
+
+def _diagonal(steps) -> bool:
+    return len({s.split()[1] for s in steps if s.startswith("hold ")} - {"cancel"}) == 2
+
+
+def test_a_smooth_route_holds_whole_legs_in_fewer_requests(game):
+    """A yawed room, a door band across the straight line: both walks go round it and stay out -- the smooth one
+    in a fraction of the requests, pressing two directions at once on its diagonal legs (the chunked walk never
+    does)."""
+    door = _rect(-100, -300, 100, 300)
+    fake = FakeGame(game, twist=17.0)
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0)}]}
+    fake.exit_frames = 30
+    prior = _yawed(17.0)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -450, -150)
+        g.calibrate_axes(hazards=[door], prior=prior)       # one measured basis for both walks
+        sent = _counting(g)
+        spent = {}
+        for smooth in (False, True):
+            _stand(g, fake, -450, -150)
+            sent.clear()
+            rec = g.route_to(450.0, 200.0, avoid=[door], walkmesh=_flat_bgi(), prior=prior, smooth=smooth)
+            assert rec["reached"] and rec["landed"] is None and len(rec["waypoints"]) > 1, (smooth, rec)
+            spent[smooth] = len(sent)
+            assert any(_diagonal(s) for s in sent) == smooth, (smooth, sent)
+        assert not fake.fired, fake.fired
+        print(f"synthetic requests: chunked {spent[False]}, smooth {spent[True]}")
+        assert spent[True] <= 0.6 * spent[False], spent
+
+
+def test_a_hold_whose_pad_direction_would_run_into_a_region_is_cut_short(game):
+    """The leg keeps its margin from a door below it; the pad direction nearest the leg does not. From
+    (-800, -500) the goal (700, 0) bears 18 degrees off 'right', and 'right' held down the leg runs straight
+    through the door (the premise). The smooth walk presses 'right' -- and cuts it short, well before the door
+    (the drift from the leg, and PROBE_HAZARD_PAD from the door, each bound it) -- then re-aims. Nothing fires."""
+    from ff9mapkit.content import pathfind
+    door = _rect(-300, -620, 100, -470)
+    room = (-1000, -1000, 1000, 1000)
+    assert pathfind.seg_poly_gap((-800, -500), (700, 0), door) >= pathfind.KEEPOUT_MARGIN_W     # the leg: clear
+    assert pathfind.seg_poly_gap((-800, -500), (700, -500), door) < 0                           # 'right': not
+    fake = FakeGame(game, walkmesh=room)
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0)}]}
+    fake.exit_frames = 30
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -800, 0)
+        g.calibrate_axes(hazards=[door], prior=_prior())
+        _stand(g, fake, -800, -500)
+        sent = _counting(g)
+        rec = g.route_to(700.0, 0.0, avoid=[door], walkmesh=_flat_bgi(*room), prior=_prior(), smooth=True)
+        assert rec["reached"] and rec["landed"] is None and not fake.fired, (rec, fake.fired)
+        assert rec["waypoints"] == [[700, 0]], rec                      # one leg: the straight line
+        first = sent[0]
+        assert [s.split()[:2] for s in first if s.startswith("hold ")] == [["hold", "right"]], first
+        frames = int(first[0].split()[2])
+        assert (frames + g.PROBE_TAIL_FRAMES) * g.RUN_SPEED < 500 - g.PROBE_HAZARD_PAD, first  # short of the door
+
+
+@pytest.mark.parametrize("err", [3.0, 6.3])
+def test_a_smooth_hold_is_planned_for_the_heading_error_of_its_basis(game, err):
+    """A basis measured a few degrees off the game's -- in-game, 352's up one-sided 6.3 degrees off a prior that had
+    it exactly -- and a leg running 60u beside a door. Planned as if the measured direction were exact, the first
+    hold runs 45 frames down the leg and its true line drifts into the door (the control). Planned for every heading
+    within the basis's disagreement with its prior, plus ROUTE_HEADING_FLOOR, the holds end short of that and
+    re-aim: nothing fires."""
+    from ff9mapkit.content import pathfind
+    room = (-3000, -1000, 3000, 1000)
+    door = _rect(-1400, 60, -1000, 400)
+    assert pathfind.seg_poly_gap((-2500, 0), (2500, 0), door) >= pathfind.KEEPOUT_MARGIN_W     # the leg: clear
+    fake = FakeGame(game, walkmesh=room, twist=err)          # the game's right is err degrees toward +z
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0)}]}
+    fake.exit_frames = 30
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -2500, 0)
+        g._axes[30820] = _prior()                            # measured: err degrees off the game's
+        rec = g.route_to(2500.0, 0.0, avoid=[door], walkmesh=_flat_bgi(*room), prior=_yawed(err), smooth=True)
+        assert rec["reached"] and rec["landed"] is None and not fake.fired, (rec, fake.fired)
+        _stand(g, fake, -2500, 0)
+        g._heading_spread = lambda basis, prior: 0.0         # the control: the measured direction taken as exact
+        rec = g.route_to(2500.0, 0.0, avoid=[door], walkmesh=_flat_bgi(*room), prior=_yawed(err), smooth=True)
+        assert rec["landed"] == 30821 and [f["to"] for f in fake.fired] == [30821], (rec, fake.fired)
+
+
+def test_a_smooth_walk_with_no_press_that_keeps_the_rules_is_boxed_not_stalled(game):
+    """Beside two doors at once, 20u from each, with the leg running north between them: every pad either closes on
+    a door outright or could by its heading error. That is no press at all, which the unstick ladder must not read
+    as a stall -- no wait, no push, no blocker, not ``frozen`` (a wait cannot change geometry): ``boxed``, with
+    nothing pressed and nothing fired."""
+    left, right = _rect(-400, -300, -20, 300), _rect(20, -300, 400, 300)
+    fake = FakeGame(game, walkmesh=(-1000, -1000, 1000, 1000))
+    fake.regions = {30820: [{"zone": left, "to": 30821, "arrive": (0, 0)}, {"zone": right, "to": 30822,
+                                                                             "arrive": (0, 0)}]}
+    fake.exit_frames = 30
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 0, -200)
+        g._axes[30820] = _prior()
+        sent = _counting(g)
+        rec = g.route_to(0.0, 800.0, avoid=[left, right], walkmesh=_flat_bgi(-1000, -1000, 1000, 1000),
+                         prior=_prior(), smooth=True, unstick=True)
+        assert rec["waypoints"] is not None, "premise: the router has a way -- the planner does not"
+        assert rec["boxed"] and not rec["frozen"] and not rec["reached"], rec
+        assert (rec["waits"], rec["pushes"], rec["blockers"]) == (0, 0, []), rec
+        assert sent == [] and not fake.fired, (sent, fake.fired)
+
+
+def test_route_to_refuses_a_zone_it_cannot_finish_on(game):
+    """``zone`` finishes the last leg on it, which only the smooth walk does: the chunked walk refuses it rather
+    than take it and stop within tolerance anyway. route_cross passes its zone on only under ``smooth``."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        with pytest.raises(HarnessError, match="only the smooth walk"):
+            g.route_to(400.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), zone=_rect(300, -100, 500, 100))
+
+
+@pytest.fixture(scope="module")
+def dali():
+    """``(player walkmesh(fid), script(fid))`` from the install, or a warned skip (THE WORKTREE SKIP TRAP) --
+    tests/test_route_avoiding.py's ``stock``. Read-only: the Session under test never reads the install (its
+    walkmesh and prior are passed in), the fake walks the same walkmesh."""
+    import warnings
+    try:
+        from ff9mapkit import extract, storytrace
+        from ff9mapkit.content import pathfind
+        src = storytrace.stock_script_source()
+        extract.stock_walkmesh(350)
+        assert src(350) is not None
+    except Exception as err:                                   # noqa: BLE001 -- no install here
+        warnings.warn(
+            f"the smooth-walk zone checks went UNVERIFIED against real bytes in this run: the game install is not "
+            f"readable here ({type(err).__name__}). Run on the machine with the install.", UserWarning)
+        pytest.skip("game install unavailable")
+    return (lambda fid: pathfind.PlayerWalkmesh(extract.stock_walkmesh(fid))), (lambda fid: src(fid).data)
+
+
+#: Where each field's walks start: 350's arrival from 351 (entrance 2: 18u beside the 351 door -- the ping-pong
+#: spot), 356's decoded arrival (350, -158); 351 and 450 place him by other means, so a standable spot -- 351's
+#: in the middle of the street, 450's 20-40u beside its 350 door (test_route_avoiding's 450 start).
+_DALI_STARTS = {350: (258, -58), 351: (-450, 1800), 356: (350, -158), 450: (160, -1568)}
+
+
+def _dali_places(script, fid):
+    """The regions of stock ``fid`` a walk is sent to, in scan order: every distinct gateway zone, and on 450 --
+    whose one gateway leads back to 350 -- its other trigger regions too (test_route_avoiding's 450 case)."""
+    from ff9mapkit import eventscan
+    places = []
+    for gw in eventscan.scan_gateways(script(fid)):
+        if gw["zone"] not in places:
+            places.append(gw["zone"])
+    if fid == 450:
+        places += [z for z in eventscan.scan_region_zones(script(fid)) if z not in places]
+    return places
+
+
+def _dali_fake(game, walkmesh, script, fid, *, radius=True):
+    """A fake standing in stock ``fid``: its player walkmesh for a floor -- his centre kept COLLISION_RADIUS_W off
+    its walls, as the engine keeps it (``radius``; off, anywhere on the mesh) -- every place a LIVE region
+    (entering one fires it -- to 30000 + its index, so ``fired`` names it), the field's own key yaw, and 4x the
+    frame rate (the protocol counts frames, so the suite pays a quarter of the wall clock)."""
+    from ff9mapkit import eventscan
+    from ff9mapkit.content import movement
+    from ff9mapkit.scene import cam
+    twist = eventscan.scan_control_twist(script(fid))
+    prior = movement.key_move_basis(None if twist is None else twist[1])
+    fake = FakeGame(game, fps=960, twist=math.degrees(math.atan2(-prior["v"][0], prior["v"][1])))
+    fake.walkmesh = walkmesh(fid)
+    fake.clearance = cam.COLLISION_RADIUS_W if radius else None
+    fake.regions = {fid: [{"zone": z, "to": 30000 + i, "arrive": (0, 0)} for i, z in enumerate(_dali_places(script, fid))]}
+    fake.exit_frames = 30
+    return fake, prior
+
+
+@pytest.mark.parametrize("fid", [350, 351, 356, 450])
+def test_a_smooth_walk_on_stock_dali_never_enters_a_region_it_was_not_sent_to(game, dali, fid):
+    """THE GUARANTEE, on the real floors the tour walks. From each start, a smooth route_to every place of the
+    field -- its goal inside that region (pathfind.region_goal), every other place avoided and LIVE: the only
+    region any walk may fire is its own. 356 -> 358 alone has no route (a door strip closed to the player,
+    test_route_avoiding); every other walk lands. On a floor that keeps his centre COLLISION_RADIUS_W off the
+    walls, as the engine does, where a zone that reaches past that line only in a corner -- 350's door to 353 --
+    fires only for a walk that finishes ON the zone (``zone``), not within a walk frame of its goal."""
+    from ff9mapkit.content import pathfind
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, fid)
+    places = _dali_places(script, fid)
+    wm, start = walkmesh(fid), _DALI_STARTS[fid]
+    assert all(pathfind.poly_gap(start[0], start[1], z) >= 0 for z in places), "premise: the start fires nothing"
+    landed, unrouted = [], []
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(fid)
+        _stand(g, fake, *start)
+        g.calibrate_axes(hazards=places, prior=prior)     # clear of them all: the walks, not a probe, are on test
+        for i, zone in enumerate(places):
+            g.warp(fid)
+            _stand(g, fake, *start)
+            fired = len(fake.fired)
+            goal = pathfind.region_goal(wm, zone)
+            rec = g.route_to(goal[0], goal[1], avoid=[z for z in places if z is not zone], walkmesh=wm, prior=prior,
+                             smooth=True, zone=zone)
+            assert [f["to"] for f in fake.fired[fired:]] in ([], [30000 + i]), (i, rec, fake.fired[fired:])
+            (unrouted if rec["waypoints"] is None else landed).append(i)
+            if rec["waypoints"] is not None:
+                assert rec["landed"] == 30000 + i, (i, rec)
+    assert unrouted == ([2] if fid == 356 else []), unrouted          # 356's third gateway leads to 358
+    assert landed, "premise: no walk ran"
+
+
+@pytest.mark.parametrize("start", [(-1085, 2302), (153, 1398)])
+def test_a_smooth_route_cross_finishes_inside_a_zone_standable_only_in_a_corner(game, dali, start):
+    """Stock 350's door to 353: his centre, kept COLLISION_RADIUS_W off the walls, can stand in that zone only in
+    a 34u wedge by its east corner, and region_goal's point lies 77u off the wall, where he cannot. Stopping
+    within a walk frame of it left him 2-4u OUTSIDE, reached and nothing fired (the in-game run's crossings 9 and
+    12). route_cross passes its zone on under ``smooth``; the last leg presses into the zone's nearest standable
+    spot, and the 353 door fires -- from 350's arrival from 353 (entrance 9) and from its entrance 6."""
+    from ff9mapkit.content import pathfind
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 350)
+    wm, places = walkmesh(350), _dali_places(script, 350)
+    door = places[2]
+    goal = pathfind.region_goal(wm, door)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(350)
+        _stand(g, fake, *_DALI_STARTS[350])
+        g.calibrate_axes(hazards=places, prior=prior)             # on open ground: the walk is on test
+        _stand(g, fake, *start)
+        rec = g.route_cross(goal[0], goal[1], avoid=[z for z in places if z is not door], walkmesh=wm, prior=prior,
+                            zone=door, smooth=True, timeout=3)
+        assert rec["landed"] == 30002 and [f["to"] for f in fake.fired] == [30002], (rec, fake.fired)
+
+
+def test_a_smooth_leg_out_of_a_door_at_an_angle_to_both_pads_takes_its_first_step(game, dali):
+    """Stock 356, 5.8u beside its 350 door, sent to 353: the leg's one zone-clear pad runs 32 degrees off it, and
+    its smallest press strayed 24.04u against the door-side leg's drift of 24 -- no hold at all, which the unstick
+    ladder read as a stall: two waits, a push refused, a phantom blocker, and ``frozen`` without a step. The drift
+    no longer refuses the smallest press, and is judged from the leg still to walk: the walk lands, and nothing
+    waited, pushed or was placed."""
+    from ff9mapkit.content import pathfind
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 356)
+    wm, places = walkmesh(356), _dali_places(script, 356)
+    zone, start = places[1], (1055, -521)
+    assert 3 < pathfind.poly_gap(start[0], start[1], places[0]) < 10, "premise: beside the 350 door"
+    goal = pathfind.region_goal(wm, zone)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(356)
+        _stand(g, fake, *_DALI_STARTS[356])
+        g.calibrate_axes(hazards=places, prior=prior)
+        _stand(g, fake, *start)
+        g.ROUTE_WAIT_FRAMES = 30
+        rec = g.route_to(goal[0], goal[1], avoid=[z for z in places if z is not zone], walkmesh=wm, prior=prior,
+                         smooth=True, unstick=True)
+        assert rec["landed"] == 30001 and [f["to"] for f in fake.fired] == [30001], (rec, fake.fired)
+        assert (rec["waits"], rec["pushes"], rec["blockers"], rec["frozen"]) == (0, 0, [], False), rec
+        assert not rec["boxed"], rec
+
+
+def _swept_holds(g, wm, basis, start, goal, avoid, boxed=None):
+    """The holds a smooth route_to plans from ``start`` to ``goal`` round ``avoid``, as the straight lines they
+    sweep -- each from where he stands, its frames plus PROBE_TAIL_FRAMES long -- executed as planned (he stops
+    where the frames end), on a basis that agrees with its prior (the heading spread's floor). None when no
+    route exists. A leg left where no hold keeps the rules (route_to's ``boxed``) is appended to ``boxed``.
+    No game: :meth:`Session._plan_hold` is pure."""
+    import math as _m
+    from ff9mapkit.content import pathfind
+    wps = pathfind.route_avoiding(wm, start, goal, avoid)
+    if wps is None:
+        return None
+    here, swept = (float(start[0]), float(start[1])), []
+    legs = g._route_legs([here] + [(float(a), float(b)) for a, b in wps], avoid, (),
+                         spread=g._heading_spread(basis, basis))
+    for x, z, tol, leg in legs:
+        aim = min(tol, leg["aim"] or tol)
+        for _ in range(g.ROUTE_HOLDS):
+            if _m.hypot(x - here[0], z - here[1]) <= aim:
+                break
+            hold = g._plan_hold(basis, here, (x, z), leg)
+            if hold is None:
+                if boxed is not None and _m.hypot(x - here[0], z - here[1]) > tol:
+                    boxed.append((start, goal, here))
+                break
+            _buttons, u, n, slow = hold
+            speed = g.WALK_SPEED if slow else g.RUN_SPEED
+            reach = (n + g.PROBE_TAIL_FRAMES) * speed
+            swept.append((here, (here[0] + u[0] * reach, here[1] + u[1] * reach)))
+            here = (here[0] + u[0] * n * speed, here[1] + u[1] * n * speed)
+    return swept
+
+
+def test_no_smooth_hold_planned_across_stock_350_sweeps_into_another_exit(game, dali):
+    """THE GUARANTEE AS GEOMETRY, wider than a fake run can afford: every hold planned on the routes from a 400u
+    grid of standable starts over stock 350 (the tour's biggest field, 7 exits) -- and from starts 3-60u beside
+    each of its zones, where arrivals stand and the drift is clamped -- to each exit, the others avoided, sweeps
+    a line that never enters an avoided zone, and no leg is left with no hold at all (``boxed``). The falsifier:
+    with the zone rule and the leg's drift switched off, the same planner walks the route from (-24, 3397) to
+    the 450 exit into another zone."""
+    from ff9mapkit import eventscan
+    from ff9mapkit.content import movement, pathfind
+    from ff9mapkit.scene import cam
+    walkmesh, script = dali
+    wm, places = walkmesh(350), _dali_places(script, 350)
+    basis = movement.key_move_basis(eventscan.scan_control_twist(script(350))[1])
+    goals = [pathfind.region_goal(wm, z) for z in places]
+    g = session(game, None)
+
+    def entered(swept, avoid):
+        return any(pathfind.seg_poly_gap(a, b, q) < 0 for a, b in swept for q in avoid)
+
+    broken = session(game, None)
+    broken._probe_is_clear = lambda *a, **k: True
+    broken._leg_chunk = lambda *a, **k: 1e6
+    avoid = places[:6]
+    assert entered(_swept_holds(broken, wm, basis, (-24, 3397), goals[6], avoid), avoid), "premise: it can fail"
+    xs = [v[0] for v in wm.mesh.world_verts()]
+    zs = [v[2] for v in wm.mesh.world_verts()]
+    starts = [(x, z) for x in range(int(min(xs)), int(max(xs)), 400) for z in range(int(min(zs)), int(max(zs)), 400)
+              if (wm.distance_to_boundary(x, z) or 0) >= cam.COLLISION_RADIUS_W
+              and all(pathfind.poly_gap(x, z, q) >= pathfind.KEEPOUT_MARGIN_W for q in places)]
+    beside = []
+    for q in places:                                  # the first standable spot 3-60u out, on 24 bearings
+        cx, cz = sum(p[0] for p in q) / len(q), sum(p[1] for p in q) / len(q)
+        for k in range(24):
+            a = math.radians(15 * k)
+            for r in range(40, 800, 20):
+                x, z = round(cx + r * math.cos(a)), round(cz + r * math.sin(a))
+                if (3 <= pathfind.poly_gap(x, z, q) <= 60 and (wm.distance_to_boundary(x, z) or 0) >= cam.COLLISION_RADIUS_W
+                        and all(pathfind.poly_gap(x, z, o) >= 0 for o in places)):
+                    beside.append((x, z))
+                    break
+    routes = holds = 0
+    boxed: list = []
+    for s in starts + beside:
+        for i, zone in enumerate(places):
+            avoid = [q for q in places if q is not zone]
+            swept = _swept_holds(g, wm, basis, s, goals[i], avoid, boxed)
+            if swept is None:
+                continue
+            routes, holds = routes + 1, holds + len(swept)
+            assert not entered(swept, avoid), (s, i)
+    assert len(beside) >= 25 and routes >= 350 and holds >= 3000, (len(beside), routes, holds)
+    assert boxed == [], boxed[:5]
+
+
+def test_on_stock_350_the_smooth_walk_to_450_takes_a_fraction_of_the_requests(game, dali):
+    """The sample the owner watched: 350 from the 351-door arrival to the 450 exit, chunked and smooth, from the
+    same calibrated basis. Both land in 450's region and nothing else fires; smooth spends far fewer requests."""
+    from ff9mapkit.content import pathfind
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 350)
+    places = _dali_places(script, 350)
+    door = places[-1]                                              # scan order: 450's is 350's last gateway
+    wm = walkmesh(350)
+    goal = pathfind.region_goal(wm, door)
+    spent = {}
+    with session(game, fake) as g:
+        boot(g)
+        sent = _counting(g)
+        for smooth in (False, True):
+            g.warp(350)
+            _stand(g, fake, *_DALI_STARTS[350])
+            if 350 not in g._axes:
+                g.calibrate_axes(hazards=places, prior=prior)
+            fired = len(fake.fired)
+            sent.clear()
+            rec = g.route_to(goal[0], goal[1], avoid=[z for z in places if z is not door], walkmesh=wm,
+                             prior=prior, smooth=smooth)
+            spent[smooth] = len(sent)
+            assert rec["landed"] == 30000 + len(places) - 1, (smooth, rec)
+            assert [f["to"] for f in fake.fired[fired:]] == [30000 + len(places) - 1], fake.fired[fired:]
+    print(f"350 -> 450 requests: chunked {spent[False]}, smooth {spent[True]}")
+    assert spent[True] <= 0.6 * spent[False], spent
+
+
+# --------------------------------------------------------------------------- route_to(npcs=True)
+# The owner, on the blind tour that found Dali's villagers by walking into them: "other maps may not be as forgiving
+# as this one, it could cause a true movement lock". memoria-patch s89 publishes every other actor on the field;
+# these pin the router that plans round them: never a leg through a body, a SOLID one never pushed and a seal by
+# solids "blocked", a contact trigger kept out of while a way exists and entered -- and recorded -- only when none
+# does, a walker re-planned round a bounded number of times, and an engine that cannot (or could not) list them
+# walked exactly as unstick walks, never as an empty field.
+
+
+def _villager(x, z, **kw):
+    """A published body as the fake models it: 350's villagers (SetObjectLogicalSize 14, with Zidane's 24: r 152)."""
+    return dict({"x": float(x), "z": float(z), "r": 152.0}, **kw)
+
+
+def test_state_tells_an_engine_that_cannot_from_one_that_does_not_know_from_a_list():
+    """s89's three cases, kept apart: the key ABSENT (an engine without s89), null (it could not say), a list. Only
+    the last reads as a list -- "unknown" read as [] would plan a leg straight through a solid body -- and [] is a
+    real answer: a field with no other actor."""
+    old = State({"frame": 1})
+    assert (old.objects_status, old.objects, old.pushout) == ("cannot", None, None)
+    unknown = State({"frame": 1, "objects": None, "pushout": None})
+    assert (unknown.objects_status, unknown.objects, unknown.pushout) == ("unknown", None, None)
+    po = {"slock": -3, "scoll": 2, "slockfree": 1, "fallback": True}
+    empty = State({"frame": 1, "objects": [], "pushout": po})
+    assert (empty.objects_status, empty.objects, empty.pushout) == ("listed", [], po)
+    one = State({"frame": 1, "objects": [{"uid": 3, "x": 1.0, "y": 0.0, "z": 2.0, "r": 152}], "pushout": po})
+    assert one.objects_status == "listed" and [o["uid"] for o in one.objects] == [3]
+
+
+def test_the_fake_publishes_its_bodies_as_s89_objects(game):
+    """The stand-in's half of the contract: every body on the field in s89's shape -- a tuple one too -- with its
+    solidity, walk-through, trigger radii (``range_r`` only while it collides), height and walking; ``pushout``
+    beside it; null in the "null" mode and off a field, and no key at all in the "absent" mode."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -500, -500)
+        fake.blockers = {30820: [(0.0, 300.0, 152.0, True),
+                                 _villager(300, 0, uid=200, sid=12, range_r=314.0, talk_r=280.0),
+                                 _villager(-300, 0, coll=False, range_r=300.0, talk_r=200.0),
+                                 _villager(0, -300, y=-500.0, path=[(0, -300), (0, -400)], speed=5)]}
+        st = published(g, lambda s: s.objects is not None and len(s.objects) == 4)
+        a, b, c, d = st.objects
+        assert set(a) == {"uid", "sid", "x", "y", "z", "range", "talk", "r", "solid", "coll", "range_r", "talk_r",
+                          "shown", "moving", "flags"}
+        assert (a["uid"], a["r"], a["solid"], a["coll"], a["range"], a["range_r"], a["moving"]) == \
+            (128, 152.0, True, True, False, None, False)
+        assert (b["uid"], b["sid"], b["range"], b["talk"], b["range_r"], b["talk_r"]) == (200, 12, True, True, 314.0, 280.0)
+        assert (c["coll"], c["solid"], c["range"], c["range_r"], c["talk_r"]) == (False, False, True, None, 200.0)
+        assert d["moving"] and d["y"] == -500.0
+        assert st.objects_status == "listed" and set(st.pushout) == {"slock", "scoll", "slockfree", "fallback"}
+        fake.objects_mode = "null"
+        assert published(g, lambda s: s.objects_status == "unknown").pushout is None
+        fake.objects_mode = "absent"
+        assert "pushout" not in published(g, lambda s: s.objects_status == "cannot").raw
+        fake.objects_mode = "listed"
+        fake.ui_state = "WorldHUD"                          # off a field: null, never a list
+        published(g, lambda s: s.on_world and s.objects_status == "unknown")
+
+
+def test_the_obstacles_are_the_engines_own_radii_in_its_own_dy_band(game):
+    """The obstacle model (_npc_discs), on the published fields alone: a body is its ``r`` -- the centre distance the
+    engine keeps him at -- planned ROUTE_BODY_MARGIN wider; a Range is its ``range_r``, or its ``talk_r`` where that
+    is larger and the entry talks too (the talk search then requests the Range), planned the call's zone margin
+    wider; a walk-through object is no body, and a trigger only through the talk search; nothing 400 or more away
+    in y is anything; and a disc he stands within shrinks to his distance -- a route may leave it, never go deeper."""
+    g = session(game, None)
+    far = 2000.0
+
+    def obj(uid, x, z, **kw):
+        return dict({"uid": uid, "sid": uid, "x": x, "y": 0.0, "z": z, "r": 152.0, "coll": True, "solid": False,
+                     "range": False, "talk": False, "range_r": None, "talk_r": None, "moving": False}, **kw)
+    objs = [obj(1, far, 0, solid=True, talk=True, talk_r=250.0),                    # talks, no Range: a body only
+            obj(2, -far, 0, r=224.0, range=True, talk=True, range_r=314.0, talk_r=400.0),
+            obj(3, 0, far, coll=False, range=True, talk=True, talk_r=260.0),          # walk-through, talks, Range
+            obj(4, 0, -far, coll=False, talk=True, talk_r=260.0),                     # walk-through, talks: nothing
+            obj(5, far, far, y=-400.0),                                               # another floor: nothing
+            obj(6, 0, 100)]                                                           # 100u away: he is inside it
+    by = {(d["uid"], d["via"]): d for d in g._npc_discs(objs, (0.0, 0.0), 0.0, 56.0)}
+    assert set(by) == {(1, "body"), (2, "body"), (2, "talk"), (3, "talk"), (6, "body")}, set(by)
+    assert (by[1, "body"]["R"], by[1, "body"]["P"], by[1, "body"]["solid"]) == (152.0, 152.0 + g.ROUTE_BODY_MARGIN, True)
+    assert (by[2, "body"]["R"], by[2, "talk"]["kind"], by[2, "talk"]["R"], by[2, "talk"]["P"]) == (224.0, "trigger",
+                                                                                                400.0, 456.0)
+    assert (by[3, "talk"]["R"], by[3, "talk"]["pad"]) == (260.0, g.PROBE_HAZARD_PAD)
+    assert by[6, "body"]["inside"] and by[6, "body"]["P"] == 99.5 and not by[1, "body"]["inside"]
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_route_to_npcs_plans_round_a_published_body_and_never_bumps_it(game, smooth):
+    """THE 350 VILLAGER, published: the blind walk presses into him (and waits, and pushes -- the premise); the
+    NPC-aware plan goes round him -- no contact, no wait, no push -- and names him in ``avoided``."""
+    fake = FakeGame(game)
+    fake.blockers = {30820: [_villager(0, 0, uid=140)]}
+    wm = _flat_bgi()
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        blind = g.route_to(400.0, 0.0, walkmesh=wm, prior=_prior(), unstick=True, smooth=smooth)
+        assert blind["reached"] and blind["pushes"] == 1 and fake.contacts, blind
+        assert blind["npcs"] is None and (blind["avoided"], blind["npc_replans"]) == ([], 0), blind
+        _stand(g, fake, -400, 0)
+        mark = len(fake.contacts)
+        rec = g.route_to(400.0, 0.0, walkmesh=wm, prior=_prior(), npcs=True, smooth=smooth)
+        assert rec["reached"] and rec["npcs"] == "listed" and len(rec["waypoints"]) > 1, rec
+        assert fake.contacts[mark:] == [], fake.contacts[mark:]
+        assert (rec["waits"], rec["pushes"], rec["blockers"], rec["through"], rec["entered"]) == (0, 0, [], [], []), rec
+        assert [(o["uid"], o["kind"], o["radius"]) for o in rec["avoided"]] == [(140, "body", 152)], rec
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_a_solid_object_is_never_pushed_through_and_solids_that_seal_the_way_are_blocked(game, smooth):
+    """A SOLID body across a lane too narrow to pass it (object flag 16: the engine never lets him through): the plan
+    knows at once that no way goes round it -- ``blocked``, the body named in ``sealed``, not a hold pressed and
+    nothing waited on. The same body without the flag is the push the planner falls back to: the route goes
+    through him (``through``), one push, reached."""
+    fake = FakeGame(game)
+    fake.walkmesh = _LANE
+    wm = _flat_bgi(*_LANE)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.calibrate_axes(hazards=[], prior=_prior())
+        _stand(g, fake, -400, 0)
+        fake.blockers = {30820: [_villager(0, 0, uid=150, solid=True)]}
+        published(g, lambda s: s.objects and s.objects[0]["solid"])
+        g.ROUTE_WAIT_FRAMES = 30
+        sent = _counting(g)
+        rec = g.route_to(400.0, 0.0, walkmesh=wm, prior=_prior(), npcs=True, smooth=smooth)
+        assert rec["blocked"] and rec["waypoints"] is None and not rec["reached"] and not rec["frozen"], rec
+        assert [(o["uid"], o["solid"]) for o in rec["sealed"]] == [(150, True)], rec
+        assert (rec["waits"], rec["pushes"], rec["blockers"]) == (0, 0, []), rec
+        assert not [s for s in sent if any(x.startswith("hold ") for x in s)], sent
+        fake.blockers = {30820: [_villager(0, 0, uid=150)]}
+        published(g, lambda s: s.objects and not s.objects[0]["solid"])
+        rec = g.route_to(400.0, 0.0, walkmesh=wm, prior=_prior(), npcs=True, smooth=smooth)
+        assert rec["reached"] and [o["uid"] for o in rec["through"]] == [150], rec
+        assert (rec["pushes"], rec["pushed"], rec["sealed"], rec["blocked"]) == (1, 1, [], False), rec
+
+
+def test_the_push_is_never_pressed_into_a_published_solid_object(game):
+    """The ladder's own guard, whatever the plan was: standing against a SOLID published object _push_through presses
+    nothing -- not even its two-frame probe -- and counts no push; against the same body non-solid it pushes, as it
+    always has; and a push whose line runs on into a trigger beyond is not pressed either."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -300, -300)
+        g.calibrate_axes(hazards=[], prior=_prior())
+
+        def against(bodies, check):
+            fake.blockers = {30820: bodies}
+            _stand(g, fake, -152, 0)                             # in contact with the one at the origin
+            st = published(g, check)
+            watch = g._npc_watch(56.0, {})
+            watch["discs"] = g._npc_discs(st.objects, (st.player_x, st.player_z), st.player_y, 56.0)
+            record, mark = {"pushes": 0, "pushed": 0}, len(fake.executed)
+            got = g._push_through(200.0, 0.0, 30820, [0.0], record, None, watch)
+            return got, record, [s for s in fake.executed[mark:] if s[0] == "hold"]
+
+        got, record, holds = against([_villager(0, 0, uid=150, solid=True)], lambda s: s.objects and s.objects[0]["solid"])
+        assert (got, record, holds) == ("stuck", {"pushes": 0, "pushed": 0}, []), (got, record, holds)
+        got, record, holds = against([_villager(0, 0, uid=150)], lambda s: s.objects and not s.objects[0]["solid"])
+        assert got == "pushed" and record == {"pushes": 1, "pushed": 1} and holds, (got, record)
+        got, record, holds = against([_villager(0, 0, uid=150), _villager(500, 0, uid=151, range_r=300.0)],
+                                     lambda s: s.objects and len(s.objects) == 2)
+        assert (got, record, holds) == ("stuck", {"pushes": 0, "pushed": 0}, []), (got, record, holds)
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_a_contact_trigger_is_kept_out_of_while_a_route_exists_and_entered_only_when_none_does(game, smooth):
+    """STOCK 350's VIVI: her Range warps the run to 358 from 314u (r 224, speed 30, + 60). A walk that passes within
+    that is a crossing the tour never chose. Blind, the straight walk passes her at 200u and is warped (the premise);
+    NPC-aware, the plan keeps out of her radius as it keeps out of an exit zone, and nothing fires. Across a lane the
+    radius covers wall to wall there is no way round: then -- only then -- the route enters it, and says so."""
+    fake = FakeGame(game)
+    fake.exit_frames = 20
+    vivi = _villager(0, 200, uid=141, r=224.0, range_r=314.0, to=30821, arrive=(0, 0))
+    wm = _flat_bgi()
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -450, -300)
+        g.calibrate_axes(hazards=[], prior=_prior())
+        g.ROUTE_WAIT_FRAMES = 30
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [vivi]}
+        blind = g.route_to(450.0, 0.0, walkmesh=wm, prior=_prior(), unstick=True, smooth=smooth)
+        assert blind["landed"] == 30821 and [t["uid"] for t in fake.touched] == [141], (blind, fake.touched)
+        fake.blockers = {}
+        g.warp(30820)
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [vivi]}
+        rec = g.route_to(450.0, 0.0, walkmesh=wm, prior=_prior(), npcs=True, smooth=smooth)
+        assert rec["reached"] and rec["landed"] is None and rec["entered"] == [], rec
+        assert [t["uid"] for t in fake.touched] == [141], f"fired again: {fake.touched}"
+        assert (141, "range") in [(o["uid"], o["kind"]) for o in rec["avoided"]], rec
+        fake.blockers = {}
+        fake.walkmesh = _LANE
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [_villager(0, 280, uid=142, range_r=400.0)]}     # beside the lane, its radius across it
+        rec = g.route_to(450.0, 0.0, walkmesh=_flat_bgi(*_LANE), prior=_prior(), npcs=True, smooth=smooth)
+        assert rec["reached"] and [(o["uid"], o["kind"], o["radius"]) for o in rec["entered"]] == [(142, "range", 400)], rec
+        assert [t["uid"] for t in fake.touched] == [141, 142], "entered -- and it fired, as the record said it would"
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_a_walker_stepping_onto_the_path_ahead_re_plans_the_route_round_it(game, smooth):
+    """The first plan is the straight line; once he is on his way a villager walks down onto it ahead of him and
+    stops there. The objects are read again after every hold (every chunk), so the walk plans again round where
+    the villager stands now -- no contact -- and ``npc_replans`` counts it. (He is a slow walker from the start, so
+    the holds near him are short: a long one would run on blind while he walked in.)"""
+    fake = FakeGame(game)
+    walker = _villager(200, 500, uid=160, path=[(200, 500), (200, 0)], speed=1.0, once=True)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [walker]}
+        published(g, lambda s: s.objects and s.objects[0]["moving"])
+        settle = g.settle
+
+        def settle_then_step_in(*a, **kw):
+            st = settle(*a, **kw)
+            if walker["speed"] < 50 and st.player_x is not None and st.player_x > -420:
+                walker["speed"] = 50.0                      # he is on his way: the villager walks down onto the path
+                st = published(g, lambda s: s.objects and abs(s.objects[0]["z"]) < 1)
+            return st
+
+        g.settle = settle_then_step_in
+        rec = g.route_to(450.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=smooth)
+        assert walker.get("_done") and rec["waypoints"] == [[450, 0]], (walker, rec)      # the premise
+        assert rec["reached"] and rec["npc_replans"] >= 1, rec
+        assert not fake.contacts, fake.contacts
+        assert (160, "body") in [(o["uid"], o["kind"]) for o in rec["avoided"]], rec
+
+
+def test_a_walker_that_keeps_crossing_the_path_cannot_hold_the_call(game):
+    """The adversary: whenever he has moved, a villager steps in again 250u ahead of him along the way he was
+    going -- onto the path still to walk. Each of those is grounds for a re-plan: ROUTE_NPC_REPLANS of them are
+    made, no more, though it cuts in more often than that; then the walk goes on under the stall ladder, and the
+    call ENDS, wherever that leaves him -- bounded, never an endless re-plan."""
+    fake = FakeGame(game)
+    goal = (550.0, 450.0)
+    body = _villager(-550, 0, uid=170, path=[(-550, 0), (-550, 1)], speed=0.5)     # walking: the holds near it are short
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -550, -450)
+        fake.blockers = {30820: [body]}
+        published(g, lambda s: s.objects and s.objects[0]["moving"])
+        g.ROUTE_WAIT_FRAMES = 30
+        settle, last, cuts = g.settle, {}, []
+
+        def settle_then_cut_in(*a, **kw):
+            st = settle(*a, **kw)
+            if st.player_x is None or not st.control:
+                return st
+            here, prev = (st.player_x, st.player_z), last.get("here")
+            last["here"] = here
+            if prev is None or math.dist(prev, here) < 10:
+                return st
+            d = math.dist(prev, here)
+            x, z = here[0] + (here[0] - prev[0]) / d * 250, here[1] + (here[1] - prev[1]) / d * 250
+            if math.dist((x, z), goal) < 300:
+                return st                                  # never onto the goal itself
+            body["x"], body["z"], body["path"] = x, z, [(x, z), (x, z + 1)]
+            cuts.append((round(x), round(z)))
+            return published(g, lambda s: s.objects and math.dist((s.objects[0]["x"], s.objects[0]["z"]), (x, z)) < 2)
+
+        g.settle = settle_then_cut_in
+        t0 = time.time()
+        rec = g.route_to(*goal, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=True)
+        assert time.time() - t0 < 120, "a walker that keeps crossing must end the call, not hold it"
+        assert rec["npc_replans"] == g.ROUTE_NPC_REPLANS < len(cuts), (rec, cuts)
+        assert g.state.control and g.state.field_id == 30820
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_an_engine_that_cannot_list_objects_walks_exactly_as_unstick(game, smooth):
+    """The key ABSENT (an engine without s89): ``npcs`` degrades to the blind unstick walk -- the same waits, the same
+    push through the villager, the same plan -- and says "cannot"."""
+    recs = []
+    for npcs in (False, True):
+        fake = FakeGame(game)
+        fake.objects_mode = "absent"
+        fake.blockers = {30820: [_villager(0, 0, uid=140)]}
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30820)
+            _stand(g, fake, -400, 0)
+            g.ROUTE_WAIT_FRAMES = 30
+            recs.append(g.route_to(400.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), unstick=True, npcs=npcs,
+                                   smooth=smooth))
+    blind, degraded = recs
+    assert blind["npcs"] is None and degraded["npcs"] == "cannot", recs
+    for k in ("reached", "waypoints", "waits", "pushes", "pushed", "blockers", "blocked", "frozen", "avoided"):
+        assert blind[k] == degraded[k], (k, blind[k], degraded[k])
+    assert degraded["pushes"] == 1 and degraded["reached"], degraded
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_null_objects_are_never_read_as_an_empty_field(game, smooth):
+    """null -- the engine could not say -- is read again ROUTE_NPC_READS times, then walked blind (``npcs``
+    "unknown"): the villager is still found by walking into him and pushed through, as unstick finds him, and no plan
+    claims to have gone round anyone. A null sample mid-walk leaves the last list read standing: a re-plan still
+    goes round the villager, and the discs every hold keeps off are not emptied by it."""
+    from ff9mapkit.content import pathfind
+    from ff9mapkit.scene import routes
+    fake = FakeGame(game)
+    fake.objects_mode = "null"
+    fake.blockers = {30820: [_villager(0, 0, uid=140)]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, 0)
+        g.ROUTE_WAIT_FRAMES = 30
+        sent = _counting(g)
+        rec = g.route_to(400.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=smooth)
+        assert rec["npcs"] == "unknown" and rec["avoided"] == [] and rec["reached"], rec
+        assert rec["pushes"] == 1 and fake.contacts, "found by walking into him, as the blind walk finds him"
+        reads = [s for s in sent if s == (f"wait {g.ROUTE_NPC_READ_FRAMES}",)]
+        assert len(reads) == g.ROUTE_NPC_READS, sent[:8]
+    listed = [dict(_villager(0, 0, uid=140), y=0.0, coll=True, solid=False)]
+    watch = {"objs": listed, "y": 0.0, "margin": 56.0, "keep": set(), "planned": {}, "discs": [], "path": [],
+             "moves": 0}
+    null = State({"player": {"x": -400.0, "y": 0.0, "z": 0.0}, "objects": None})
+    record = {"avoided": [], "entered": [], "through": [], "sealed": []}
+    wps, _sealing = g._plan_npcs(_flat_bgi(), null, (400.0, 0.0), [], 56.0, [], [], watch, record)
+    pts = [(-400.0, 0.0)] + [tuple(map(float, w)) for w in wps]
+    assert all(routes.seg_dist_xz(0, 0, a, b) >= 152 for a, b in zip(pts, pts[1:])), wps
+    kept = list(watch["discs"])
+    assert kept and g._npc_moved(null, watch) is False and watch["discs"] == kept and watch["objs"] is listed
+    assert pathfind.route_avoiding(_flat_bgi(), (-400, 0), (400, 0), []) == [(400, 0)], "premise: empty = straight"
+
+
+def test_a_smooth_hold_is_bounded_by_the_nearest_object_as_by_a_zone(game):
+    """_plan_hold with the published objects in its leg. The pad nearest the leg's bearing runs past a villager
+    standing beside the leg: without the objects (the control) the hold runs on into him; with them the hold -- its
+    whole heading-error fan -- stays ROUTE_BODY_PAD off his ``r``. And a hold whose line passes near a WALKER runs
+    ROUTE_WALKER_HOLD frames at most: the objects are read again only when it ends."""
+    from ff9mapkit.scene import routes
+    g = session(game, None)
+    basis = _prior()
+    here, goal = (-800.0, -500.0), (700.0, 0.0)
+    villager = {"uid": 1, "x": -450.0, "y": 0.0, "z": -520.0, "r": 100.0, "coll": True}
+    legs = g._route_legs([here, goal], [], (), spread=g._heading_spread(basis, basis))
+    leg = legs[0][3]
+
+    def line(hold):
+        _buttons, u, n, slow = hold
+        reach = (n + g.PROBE_TAIL_FRAMES) * (g.WALK_SPEED if slow else g.RUN_SPEED)
+        return here, (here[0] + u[0] * reach, here[1] + u[1] * reach)
+
+    free = g._plan_hold(basis, here, goal, leg)
+    assert routes.seg_dist_xz(-450, -520, *line(free)) < 100, f"premise: the hold runs into him ({free})"
+    leg["watch"] = {"discs": g._npc_discs([villager], here, 0.0, 56.0)}
+    held = g._plan_hold(basis, here, goal, leg)
+    assert held is not None and routes.seg_dist_xz(-450, -520, *line(held)) >= 100 + g.ROUTE_BODY_PAD - 0.5, held
+    beside = g._npc_discs([dict(villager, x=300.0, z=150.0)], (0.0, 0.0), 0.0, 56.0)     # the rule itself
+    assert g._probe_is_clear((0.0, 0.0), (1.0, 0.0), 400.0, [], 0.0, discs=beside)      # the line passes 150 off
+    assert not g._probe_is_clear((0.0, 0.0), (1.0, 0.0), 400.0, [], 0.3, discs=beside)  # its fan comes within 8
+    ahead = g._npc_discs([dict(villager, x=300.0, z=50.0)], (0.0, 0.0), 0.0, 56.0)
+    assert not g._probe_is_clear((0.0, 0.0), (1.0, 0.0), 400.0, [], 0.0, discs=ahead)   # into him
+    assert g._probe_is_clear((0.0, 0.0), (1.0, 0.0), 150.0, [], 0.0, discs=ahead)       # short of him
+    open_leg = g._route_legs([(-800.0, 0.0), (800.0, 0.0)], [], (), spread=g._heading_spread(basis, basis))[0][3]
+    assert g._plan_hold(basis, (-800.0, 0.0), (800.0, 0.0), open_leg)[2] > g.ROUTE_WALKER_HOLD    # the control
+    walker = g._npc_discs([dict(villager, x=-600.0, z=250.0, moving=True)], (-800.0, 0.0), 0.0, 56.0)
+    open_leg["watch"] = {"discs": walker}
+    assert g._plan_hold(basis, (-800.0, 0.0), (800.0, 0.0), open_leg)[2] == g.ROUTE_WALKER_HOLD
+    open_leg["watch"] = {"discs": [dict(walker[0], moving=False)]}                        # standing: no cap
+    assert g._plan_hold(basis, (-800.0, 0.0), (800.0, 0.0), open_leg)[2] > g.ROUTE_WALKER_HOLD
+
+
+def test_on_stock_350_the_walk_to_450_goes_round_a_villager_and_clear_of_vivis_range(game, dali):
+    """The owner's crossing on real floors: 350 from the 351-door arrival to the 450 exit, a villager standing on the
+    longest leg of the route the router takes, and a Range like Vivi's (a warp from 314u) 200u off the next longest.
+    Blind (unstick), the walk presses into the villager and passes inside Vivi's radius -- the run is warped (the
+    premise). NPC-aware, the crossing lands in 450's region with no contact and nothing fired, both avoided."""
+    from ff9mapkit.content import pathfind
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 350)
+    wm, places = walkmesh(350), _dali_places(script, 350)
+    door, start = places[-1], _DALI_STARTS[350]
+    goal = pathfind.region_goal(wm, door)
+    avoid = [z for z in places if z is not door]
+    pts = [start] + [tuple(w) for w in pathfind.route_avoiding(wm, start, goal, avoid)]
+    (a, b), (c, d) = sorted(zip(pts, pts[1:]), key=lambda ab: -math.dist(*ab))[:2]
+    villager = _villager((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, uid=140)
+    n = math.dist(c, d)
+    vx, vz = (c[0] + d[0]) / 2 - (d[1] - c[1]) / n * 200, (c[1] + d[1]) / 2 + (d[0] - c[0]) / n * 200
+    assert wm.point_on_walkmesh(int(vx), int(vz)) is not None, "premise: Vivi stands on the floor"
+    vivi = _villager(vx, vz, uid=141, r=224.0, range_r=314.0, to=30099, arrive=(0, 0))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(350)
+        _stand(g, fake, *start)
+        g.calibrate_axes(hazards=places, prior=prior)
+        g.ROUTE_WAIT_FRAMES = 30
+        recs = {}
+        for npcs in (False, True):
+            fake.blockers = {}
+            g.warp(350)
+            _stand(g, fake, *start)
+            fake.blockers = {350: [villager, vivi]}
+            published(g, lambda s: s.objects and len(s.objects) == 2)
+            touched, contacts = len(fake.touched), len(fake.contacts)
+            recs[npcs] = g.route_cross(goal[0], goal[1], avoid=avoid, walkmesh=wm, prior=prior, zone=door, smooth=True,
+                                       unstick=True, npcs=npcs, timeout=3)
+            recs[npcs]["contacts"] = len(fake.contacts) - contacts
+            recs[npcs]["touched"] = [t["uid"] for t in fake.touched[touched:]]
+        blind, aware = recs[False], recs[True]
+        assert blind["contacts"] and blind["touched"] == [141] and blind["landed"] == 30099, blind
+        assert aware["landed"] == 30000 + len(places) - 1 and aware["npcs"] == "listed", aware
+        assert (aware["contacts"], aware["touched"], aware["entered"], aware["through"]) == (0, [], [], []), aware
+        assert {(140, "body"), (141, "range")} <= {(o["uid"], o["kind"]) for o in aware["avoided"]}, aware
+
+
+def test_on_stock_352_a_solid_body_in_the_inn_rooms_one_way_out_is_blocked(game, dali):
+    """352's inn room leaves through one corner-to-corner pinch, ~82u from both walls against the 80u controller
+    radius. A SOLID body standing in it is the owner's true movement lock: the plan knows there is no way -- ``blocked``
+    at once, the body named, not a hold pressed. The same body non-solid is the planner's last resort, a push: the
+    route goes through him (``through``)."""
+    from ff9mapkit.content import pathfind
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 352)
+    wm, (zone,) = walkmesh(352), _dali_places(script, 352)
+    start, goal = (0, 600), pathfind.region_goal(wm, zone)
+    pts = [start] + [tuple(w) for w in pathfind.route_avoiding(wm, start, goal, [])]
+    samples = [(a[0] + (b[0] - a[0]) * k / 64, a[1] + (b[1] - a[1]) * k / 64) for a, b in zip(pts, pts[1:])
+               for k in range(65)]
+    pinch = min(samples, key=lambda p: wm.distance_to_boundary(int(round(p[0])), int(round(p[1]))) or 1e9)
+    assert wm.distance_to_boundary(int(round(pinch[0])), int(round(pinch[1]))) < 100, "premise: the pinch"
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(352)
+        _stand(g, fake, *start)
+        g.calibrate_axes(hazards=[], prior=prior)
+        _stand(g, fake, *start)
+        fake.blockers = {352: [_villager(*pinch, uid=150, solid=True)]}
+        published(g, lambda s: s.objects and s.objects[0]["solid"])
+        sent = _counting(g)
+        rec = g.route_to(goal[0], goal[1], walkmesh=wm, prior=prior, npcs=True, smooth=True, zone=zone)
+        assert rec["blocked"] and rec["waypoints"] is None and [o["uid"] for o in rec["sealed"]] == [150], rec
+        assert (rec["waits"], rec["pushes"], sent) == (0, 0, []), (rec, sent)
+        fake.blockers = {352: [_villager(*pinch, uid=150)]}
+        st = published(g, lambda s: s.objects and not s.objects[0]["solid"])
+        record = {"avoided": [], "entered": [], "through": [], "sealed": []}
+        watch = g._npc_watch(56.0, {})
+        wps, sealing = g._plan_npcs(wm, st, goal, [], 56.0, [], [], watch, record)
+        assert wps is not None and sealing == [] and [o["uid"] for o in record["through"]] == [150], record
+
+
+# ----------------------------------------------------------- route_to(npcs=True): the review's findings, pinned
+# A stall laid on a body he was not touching; one trigger across a corridor opening every other; a margin read as
+# a wall; a patrolling Range judged where it stood; a band judged at the start's height; a seal that cost a sweep a
+# tier; a calibration refused for a villager; a walking solid read as a lock. Each test below fails on the code the
+# review read.
+
+
+class _Rooms:
+    """A floor that is a union of axis-aligned rectangles with explicit walls -- the router's view of it (no triangles,
+    so no floor heights: the |dy| band is judged against his y)."""
+
+    def __init__(self, rects, walls):
+        self.rects, self.walls = rects, walls
+
+    def point_on_walkmesh(self, x, z):
+        return 0 if any(x0 <= x <= x1 and z0 <= z <= z1 for x0, z0, x1, z1 in self.rects) else None
+
+    def distance_to_boundary(self, x, z):
+        from ff9mapkit.scene import routes
+        if self.point_on_walkmesh(x, z) is None:
+            return None
+        return min(routes.seg_dist_xz(x, z, a, b) for a, b in self.walls)
+
+
+#: Room A x -1200..-200, a corridor x -200..200 (z -150..150), room B x 200..1200 (z -600..600).
+_DUMBBELL = [(-1200, -600, -200, 600), (-200, -150, 200, 150), (200, -600, 1200, 600)]
+
+
+def _dumbbell():
+    c = [(-1200, -600), (-200, -600), (-200, -150), (200, -150), (200, -600), (1200, -600), (1200, 600), (200, 600),
+         (200, 150), (-200, 150), (-200, 600), (-1200, 600)]
+    return _Rooms(_DUMBBELL, list(zip(c, c[1:] + c[:1])))
+
+
+def _rect_rooms(x0, z0, x1, z1):
+    c = [(x0, z0), (x1, z0), (x1, z1), (x0, z1)]
+    return _Rooms([(x0, z0, x1, z1)], list(zip(c, c[1:] + c[:1])))
+
+
+def _obj(uid, x, z, **kw):
+    """A published object as s89 lists it (a non-solid villager by default)."""
+    return dict({"uid": uid, "sid": uid, "x": float(x), "y": 0.0, "z": float(z), "r": 152.0, "coll": True,
+                 "solid": False, "range": False, "talk": False, "range_r": None, "talk_r": None, "moving": False,
+                 "shown": True, "flags": 1}, **kw)
+
+
+def _plan_on(g, wm, here, goal, objs, polys=(), heights=None, y=0.0):
+    """_plan_npcs from ``here`` over ``objs``: ``(waypoints, sealing, record, points)``."""
+    st = State({"player": {"x": float(here[0]), "y": y, "z": float(here[1]), "control": True}, "objects": objs})
+    watch = {"objs": objs, "y": y, "margin": 56.0, "heights": heights, "keep": set(), "planned": {}, "discs": [],
+             "path": [], "moves": 0}
+    record = {"avoided": [], "entered": [], "through": [], "sealed": []}
+    wps, sealing = g._plan_npcs(wm, st, goal, [list(p) for p in polys], 56.0, [], [], watch, record)
+    pts = None if wps is None else [tuple(map(float, here))] + [tuple(map(float, w)) for w in wps]
+    return wps, sealing, record, pts
+
+
+def _nearest(pts, x, z):
+    from ff9mapkit.scene import routes
+    return min(routes.seg_dist_xz(x, z, a, b) for a, b in zip(pts, pts[1:]))
+
+
+@pytest.mark.parametrize("smooth", [False, True])
+def test_a_stall_is_laid_on_a_published_body_only_when_he_is_pressed_against_it(game, smooth):
+    """A wall the router's floor lacks (x -20..20 from z -300 up) beside a villager standing 54u clear of his ``r``
+    from where the walk stops: the stall is the wall's, and the walk must place the unseen blocker the blind walk
+    places -- not lay it on the villager, re-plan round him the same way three times and give up. The contact test
+    itself: within WALK_SPEED of ``r`` and within ROUTE_CONTACT_ANGLE of the press -- and a body the plan already went
+    round, unmoved, would be planned round the same way again."""
+    fake = FakeGame(game)
+    fake.walkmesh = [(-600, -600, -20, 600), (-20, -600, 20, -300), (20, -600, 600, 600)]
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 100)
+        fake.blockers = {30820: [_villager(60, 260, uid=140)]}
+        published(g, lambda s: s.objects and len(s.objects) == 1)
+        g.ROUTE_WAIT_FRAMES = 20
+        rec = g.route_to(450.0, 100.0, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=smooth)
+        assert rec["reached"] and rec["blockers"] and not rec["frozen"], rec
+    watch = {"objs": [_obj(1, 0.0, 0.0)], "margin": 56.0, "planned": {1: (0.0, 0.0)}}
+
+    def at(x, z):
+        return State({"player": {"x": x, "y": 0.0, "z": z}})
+    assert g._body_ahead(at(-157.0, 0.0), (1.0, 0.0), watch)["uid"] == 1              # r + 5, dead ahead
+    assert g._body_ahead(at(-206.0, 0.0), (1.0, 0.0), watch) is None                  # 54 clear of r
+    assert g._body_ahead(at(-157.0, 0.0), (math.cos(1.4), math.sin(1.4)), watch) is None     # 80 degrees off
+    d = g._npc_discs(watch["objs"], (-157.0, 0.0), 0.0, 56.0)[0]
+    assert not g._npc_shifted(d, watch)                                              # planned round, unmoved
+    assert g._npc_shifted(dict(d, x=20.0), watch) and g._npc_shifted(dict(d, uid=2), watch)
+
+
+def test_one_trigger_across_the_only_corridor_does_not_open_the_way_through_the_others(game):
+    """A chest's Range spans the only corridor; a warp's radius in the far room is avoidable. The plan must give up the
+    chest alone -- not every trigger on the field -- and go round the warp; and walked, only the chest fires. The
+    review's plan passed the warp 261u from its centre (R 314) and the fake landed in 30821."""
+    g = session(game, None)
+    chest = _obj(1, 0, 140, r=100.0, range=True, range_r=260.0)
+    vivi = _obj(2, 700, 150, r=224.0, range=True, range_r=314.0)
+    wps, sealing, record, pts = _plan_on(g, _dumbbell(), (-800, 0), (1000, 0), [chest, vivi])
+    assert wps is not None and _nearest(pts, 700, 150) >= 314, (wps, record)
+    assert [(o["uid"], o["kind"]) for o in record["entered"]] == [(1, "range")], record
+    fake = FakeGame(game)
+    fake.exit_frames = 20
+    fake.walkmesh = _DUMBBELL
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -800, 0)
+        fake.blockers = {30820: [_villager(0, 140, uid=1, r=100.0, range_r=260.0),
+                                 _villager(700, 150, uid=2, r=224.0, range_r=314.0, to=30821, arrive=(0, 0))]}
+        published(g, lambda s: s.objects and len(s.objects) == 2)
+        rec = g.route_to(1000.0, 0.0, walkmesh=_dumbbell(), prior=_prior(), npcs=True, smooth=True)
+        assert rec["landed"] is None and rec["reached"], rec
+        assert [t["uid"] for t in fake.touched] == [1], fake.touched
+
+
+def test_a_lane_a_margin_closes_is_still_a_lane(game):
+    """THE TIGHT RADIUS. A Range whose radius plus the plan's margin (56) closes the corridor, while its radius plus
+    the pad a hold keeps (30) leaves it open: the route stays out -- nothing entered. And a SOLID body whose ``r``
+    leaves a pass the engine lets him through (20u each side of the wall's clearance line), which ``r`` + 32 closes:
+    a route, not ``blocked`` -- and it keeps ``r`` clear of the body."""
+    g = session(game, None)
+    chest = _obj(1, 0, 150, r=60.0, range=True, range_r=170.0)
+    wps, sealing, record, pts = _plan_on(g, _dumbbell(), (-800, 0), (1000, 0), [chest])
+    assert wps is not None and record["entered"] == [] and _nearest(pts, 0, 150) >= 170 + g.PROBE_HAZARD_PAD - 1, \
+        (wps, record)
+    lane = _rect_rooms(-1200, -300, 1200, 300)
+    body = _obj(1, 0, 0, r=200.0, solid=True)
+    wps, sealing, record, pts = _plan_on(g, lane, (-800, 0), (800, 0), [body])
+    assert wps is not None and sealing == [] and _nearest(pts, 0, 0) >= 200, (wps, sealing)
+
+
+def test_a_seal_by_solids_costs_one_sweep_and_every_plan_shares_the_floors_answers(game, monkeypatch):
+    """The solids alone, at their tight radius, are planned FIRST: every other plan keeps a superset of them, so when
+    they seal, one failed sweep (and the walls-and-zones route that names them) is all it costs -- not one full sweep
+    a tier. And every plan of a call is handed the same floor memo (route_avoiding ``memo``)."""
+    from ff9mapkit.content import pathfind
+    g = session(game, None)
+    calls = []
+    route = pathfind.route_avoiding
+
+    def counted(*a, **kw):
+        wps = route(*a, **kw)
+        calls.append((wps is None, id(kw.get("memo"))))
+        return wps
+    monkeypatch.setattr(pathfind, "route_avoiding", counted)
+    lane = _rect_rooms(-1200, -150, 1200, 150)
+    objs = [_obj(1, 0, 0, solid=True), _obj(2, -600, 60, range=True, range_r=90.0), _obj(3, 600, -60)]
+    wps, sealing, record, _pts = _plan_on(g, lane, (-900, 0), (900, 0), objs)
+    assert wps is None and [d["uid"] for d in sealing] == [1], sealing
+    assert [failed for failed, _memo in calls] == [True, False], calls              # the solids plan, then the bare
+    assert len({memo for _failed, memo in calls}) == 1 and calls[0][1] != id(None), calls
+
+
+def test_a_press_is_judged_where_a_walking_trigger_will_be_not_where_it_was_read(game):
+    """A walker 300u off a press's line and walking toward it: read where it stood, the press keeps its pad (the
+    premise -- the rule every hold used); judged by where it can be by the time he gets there, it does not. A press
+    away from it does. Standing is judged along the line it walks (either way), not in every direction."""
+    g = session(game, None)
+    walker = g._npc_discs([_obj(1, 300, -300, range=True, range_r=227.0, moving=True)], (0.0, 0.0), 0.0, 56.0,
+                          speeds={1: 15.0}, headings={1: (0.0, 1.0)})
+    trigger = walker[-1]
+    assert trigger["kind"] == "trigger" and trigger["speed"] == 15.0 and trigger["dir"] == (0.0, 1.0)
+    assert g._probe_is_clear((0.0, 0.0), (1.0, 0.0), 300.0, [], 0.0, discs=[trigger])        # the premise
+    assert not g._walker_clear((0.0, 0.0), (1.0, 0.0), 300.0, 0.0, trigger, g.RUN_SPEED, 10 + 12)
+    assert g._walker_clear((0.0, 0.0), (-1.0, 0.0), 300.0, 0.0, trigger, g.RUN_SPEED, 10 + 12)
+    a, b = g._walker_path(trigger, 20)
+    assert a == (300.0, -600.0) and b == (300.0, 0.0)
+    far = dict(trigger, x=-2000.0, z=0.0)                                            # its beat runs past him, far off
+    assert g._walker_clear((0.0, 1000.0), (1.0, 0.0), 0.0, 0.0, far, g.RUN_SPEED, 30)
+    assert not g._walker_clear((0.0, 1000.0), (1.0, 0.0), 0.0, 0.0, dict(far, dir=None), g.RUN_SPEED, 30 * 60)
+
+
+@pytest.mark.parametrize("phase", [200, 600])
+def test_a_patrolling_trigger_is_never_walked_into(game, phase):
+    """A warp's Range PATROLLING across the only way (x = 100, z -520..520), at the game's own frame rate and
+    speed scale (published ``speed`` 15 a call, a call a two-frame tick: 7.5u a frame). The review's walk was warped
+    in every run: each hold judged the walker where it was last read. Now the walk waits for it to go by and crosses
+    in one press when it can -- reached, or out of patience (boxed, having waited) -- and never fires it."""
+    fake = FakeGame(game, fps=60)
+    fake.exit_frames = 20
+    z0 = 520 - phase
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [_villager(100, z0, uid=141, range_r=152.0 + 15.0 + 60.0, to=30821, arrive=(0, 0),
+                                           path=[(100, z0), (100, -520), (100, 520)], speed=7.5)]}
+        published(g, lambda s: s.objects and s.objects[0]["moving"])
+        g.ROUTE_WAIT_FRAMES = 30
+        rec = g.route_to(450.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=True)
+        assert fake.touched == [] and rec["landed"] is None, (rec, fake.touched)
+        assert rec["reached"] or (rec["boxed"] and rec["npc_waits"]), rec
+
+
+def test_a_trigger_that_reaches_him_as_control_goes_is_named_in_entered(game):
+    """When a walk loses control inside a published trigger's reach -- a walker's Range, one a walk strayed into -- the
+    record names it, instead of an empty ``entered`` beside a warped run. Not when he stands in the zone he was sent
+    to, which took control itself."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 0, -200)
+        fake.blockers = {30820: [_villager(0, 0, uid=141, range_r=227.0)]}      # no warp: control stays for the read
+        published(g, lambda s: s.objects and len(s.objects) == 1)
+        watch = g._npc_watch(56.0, {})
+        record = {"entered": []}
+        g._npc_fired(watch, record, 30820, zone=[(-100, -300), (100, -300), (100, -100), (-100, -100)])
+        assert record["entered"] == []
+        g._npc_fired(watch, record, 30820)
+        assert [(o["uid"], o["kind"], o["radius"]) for o in record["entered"]] == [(141, "range", 227)], record
+        g._npc_fired(watch, record, 30821)                                    # he is not on that field: nothing
+        assert len(record["entered"]) == 1
+
+
+def test_a_plan_judges_the_dy_band_by_the_floor_under_each_object(game):
+    """The engine pairs him with an object only while |dy| < 400; judged against where he stands NOW, an object on the
+    level a route climbs to is out of the plan until he is on its level. Given the floor's heights, an object counts
+    when it stands on a floor under it -- in the published frame, which puts him on the floor under his own feet
+    (every recorded stock state reads ``y == -height``; either sign is allowed). One floating off every floor under it
+    is left out; one with no floor under it is kept."""
+    g = session(game, None)
+
+    def heights(x, z):
+        if abs(z) > 600:
+            return []
+        return [0.0] if x < 0 else [900.0]                          # a terrace 900 up, east of x = 0
+    objs = [_obj(1, 500, 0, y=-900.0), _obj(2, 500, 100, y=-1800.0), _obj(3, 500, 900, y=-3000.0)]
+    now = {d["uid"] for d in g._npc_discs(objs, (-500.0, 0.0), 0.0, 56.0)}
+    assert now == set(), now                                      # the premise: his y now is 900+ off every one
+    kept = {d["uid"] for d in g._npc_discs(objs, (-500.0, 0.0), 0.0, 56.0, heights)}
+    assert kept == {1, 3}, kept
+    level = g._npc_levels(heights, (500.0, 0.0), 900.0)          # the other sign's frame, stood on the terrace
+    assert level(_obj(1, 500, 0, y=900.0)) and not level(_obj(1, 500, 0, y=-900.0))
+
+
+def test_on_stock_309_a_body_on_the_level_the_route_climbs_to_is_planned_round(game, dali):
+    """THE REVIEW'S 309: from the 307 door (floor 967 up) to the 310 door (1665 down) the route passes a SOLID body with
+    a Range standing on the floor 534 up -- 433 off his height at the start, so the band judged there left it out and
+    the plan walked through it. Judged by the floor under it (the call's walkmesh, the published frame negated) it is
+    planned round."""
+    from ff9mapkit import eventscan
+    from ff9mapkit.content import pathfind
+    walkmesh, script = dali
+    wm = walkmesh(309)
+    zones = {}
+    for gw in eventscan.scan_gateways(script(309)):
+        zones.setdefault(gw["to"], gw["zone"])
+    a, b = pathfind.region_goal(wm, zones[307]), pathfind.region_goal(wm, zones[310])
+    polys = [z for t, z in zones.items() if t != 310]
+    g = session(game, None)
+    heights = g._floor_heights(wm)
+    ha = wm.mesh.height_at(*a)
+    body = _obj(7, -1103, 1596, y=-534.0, solid=True, range=True, range_r=152.0 + 30 + 60)
+    assert abs(-534.0 - (-ha)) >= g.NPC_DY_BAND, "premise: out of the band where he starts"
+    wps, sealing, record, pts = _plan_on(g, wm, a, b, [body], polys, heights=heights, y=-float(ha))
+    assert wps is not None and _nearest(pts, -1103, 1596) >= 152, (wps, record)
+    assert (7, "body") in [(o["uid"], o["kind"]) for o in record["avoided"]], record
+
+
+def test_on_stock_356_a_solid_villager_beside_a_wall_leaves_the_pass_the_engine_leaves(game, dali):
+    """THE REVIEW'S 356: from the arrival to the 350 door, a SOLID villager (r 152) 108u off a wall. At r + 32 the plan
+    called it a seal; the engine keeps his centre only ``r`` off the body and 80u off the wall, and the pass is there
+    -- the plan must find it, and keep ``r`` clear of the body."""
+    from ff9mapkit import eventscan
+    from ff9mapkit.content import pathfind
+    walkmesh, script = dali
+    wm = walkmesh(356)
+    zones = []
+    for gw in eventscan.scan_gateways(script(356)):
+        if all(gw["zone"] != z for _t, z in zones):
+            zones.append((gw["to"], gw["zone"]))
+    to, zone = zones[0]
+    assert to == 350, zones
+    g = session(game, None)
+    wps, sealing, record, pts = _plan_on(g, wm, (350, -158), pathfind.region_goal(wm, zone),
+                                         [_obj(99, 804, -147, solid=True)], [z for _t, z in zones if z is not zone])
+    assert wps is not None and sealing == [] and _nearest(pts, 804, -147) >= 152, (wps, sealing)
+
+
+def test_a_calibration_beside_a_villager_is_not_refused_under_npcs(game):
+    """A villager (a body, no trigger) standing 200u from where he arrives, calibrated with no prior:
+    route_to(npcs=True) kept every published disc as a calibration hazard, and a blind probe refuses any hazard within
+    its reach -- so it raised where route_to(unstick=True) calibrates fine. A body costs a probe a slide, never a wrong room: only the
+    TRIGGERS are hazards."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -300, 0)
+        fake.blockers = {30820: [_villager(-300, 200, uid=140)]}
+        published(g, lambda s: s.objects and len(s.objects) == 1)
+        rec = g.route_to(300.0, 0.0, walkmesh=_flat_bgi(), prior=None, npcs=True)
+        assert 30820 in g._axes and rec["reached"], rec
+        watch = g._npc_watch(56.0, {})
+        assert g._npc_hazards(watch, g.state) == []
+        fake.blockers = {30820: [_villager(-300, 200, uid=140, range_r=300.0)]}
+        published(g, lambda s: s.objects and s.objects[0]["range_r"])
+        assert len(g._npc_hazards(g._npc_watch(56.0, {}), g.state)) == 1
+
+
+def test_a_walking_solid_that_seals_the_lane_is_waited_for(game):
+    """A SOLID villager walking out of a lane too narrow to pass him: the seal is his only while he is in it. The walk
+    waits for him (ROUTE_WAIT_FRAMES, within the budget) and plans again -- not ``blocked`` at once, a strike spent on
+    someone who walks off within seconds."""
+    fake = FakeGame(game)
+    fake.walkmesh = _LANE
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        # walking up across the lane: in it -- sealing it -- for its first ~430 frames
+        fake.blockers = {30820: [_villager(0, -200, uid=150, solid=True, path=[(0, -200), (0, 900)], speed=1.0,
+                                          once=True)]}
+        published(g, lambda s: s.objects and s.objects[0]["moving"])
+        g.ROUTE_WAIT_FRAMES = 60
+        rec = g.route_to(450.0, 0.0, walkmesh=_flat_bgi(*_LANE), prior=_prior(), npcs=True, smooth=True)
+        assert rec["reached"] and not rec["blocked"] and rec["waits"] >= 1 and rec["sealed"] == [], rec
+
+
+def test_the_tour_reads_a_walk_boxed_after_waiting_on_walkers_as_live():
+    """The tour's strike rule: a walk that waited on walking triggers and was then left with nothing it could press is
+    the village in the way (LIVE), not a boxed exit (REAL); a walk boxed without waiting is still BOXED."""
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import rung3_step1 as tour
+    assert tour.failure({"boxed": True, "npc_waits": 3, "route": 2}) == "live"
+    assert tour.failure({"boxed": True, "npc_waits": 0, "route": 2}) == "boxed"
+
+
+def test_key_twist_operand_follows_memoria_ini(game):
+    """Keys read TWIST arg2 (twist.y) unless [AnalogControl] makes key orientation absolute (1 or 2)."""
+    fake = FakeGame(game)
+    g = session(game, fake)
+    ini = game / "Memoria.ini"
+    assert g._key_twist_operand() == 1                    # no ini: the engine default (3)
+    for text, want in (("[AnalogControl]\nEnabled = 1\nUseAbsoluteOrientation = 3\n", 1),
+                       ("[AnalogControl]\nEnabled = 1\nUseAbsoluteOrientation = 2\n", 0),
+                       ("[AnalogControl]\nEnabled = 0\nUseAbsoluteOrientation = 1\n", 1),
+                       ("[Graphics]\nUseAbsoluteOrientation = 1\n[AnalogControl]\nEnabled = 1\n", 1)):
+        ini.write_text(text, encoding="utf-8")
+        assert g._key_twist_operand() == want, text
 
 
 # --------------------------------------------------------------------------- co-op (netsync) benches
