@@ -2,7 +2,8 @@
 
 **Status:** ★ **rung 0 in-game PROVEN 11/11** (`story-rung0`): s88 is live (sha `c55377f6c137d442…`, backups `20260924-172331`), and the trace on stock Lindblum 552 joined every script write to a store in the stock bytes. **Rung 1 ★ in-game 11/11** (`story-rung1`): the residue net and the epochs. **Rung 2 ★ in-game 8/8**
 (`story-rung2`): THE NULL PAIR -- stock 552 x3 vs its verbatim fork x3, STOCK ONLY and FORK ONLY both empty.
-Next: rung 3 (the Dali retrodiction).
+**Rung 3 step 1 ★ in-game 7/7** (`story-rung3-s1d`): an unattended blind tour of stock Dali reached 450, the
+trace named 450 as the only writer of the ping, and the story moved on by itself. Next: rung 3's fork sides.
 
 Board entry #3 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It is the narrative-state arc's missing
 instrument ([`../narrative-state/PLAN.md`](../narrative-state/PLAN.md)).
@@ -229,6 +230,22 @@ the story's own route, found by a blind tour, writing exactly what the design pr
 The only writer of `Bit[2102] := 1` is field 450. All 381 script rows join a store in the bytes the game ran
 (0 failures). Next: take a scene's default choice (the cursor's option) so the run finishes on its own and the
 formal checks run; smoother movement; NPC positions from the agent (an engine change, owner's call).
+
+**Attempt 4 (`story-rung3-s1d`) -- ★ STEP 1 PASSED IN-GAME 7/7, unattended.** The walker now plans around the
+field's published objects (engine patch s89, live: every actor's position, collision radius, `solid`, and the
+contact/talk trigger radii) with `route_cross(npcs=True, smooth=True)`, and scenes answer a choice with the game's
+own default (`watch_cutscene(choices="default")`). 27 crossings, 17 landed, through 350/351/352/354/355/356/450;
+mostly clean plans round NPCs, one push-through, no bump loops.
+- **S1-PING:** `Bit[2102] := 1` written once, by field 450 alone -- entry 19, tag 2, offset 89, its walk-in trigger.
+- **S1-ADVANCE:** the latch flipped, Garnet spawned in the weapon shop, the walker answered her two choices with
+  the defaults ("You're doing great!", "You were Ruby!"), and the story moved to SC 2610 -- the tour stopped by its
+  own rule (pass 2, crossing 27).
+- **S1-JOIN:** every script row joined its store in the bytes the game ran; NC-THROW clean.
+- One open oddity: 350 -> 351 in pass 2 came back `blocked` both in this run and the last (NPCs gather near the
+  inn door by then); it did not stop the tour.
+
+Next: the fork sides (F0 = the current import-chain output, which omits 450; F4 = the round-4 seed, with the
+297-clobber the research found) against this stock run -- the retrodiction itself.
 
 ## Rungs
 
