@@ -4498,9 +4498,10 @@ def test_a_walking_solid_that_seals_the_lane_is_waited_for(game):
 
 def test_the_tour_reads_a_walk_boxed_after_waiting_on_walkers_as_live():
     """The tour's strike rule: a walk that waited on walking triggers and was then left with nothing it could press is
-    the village in the way (LIVE), not a boxed exit (REAL); a walk boxed without waiting is still BOXED."""
+    the village in the way (LIVE), not a boxed exit (REAL); a walk boxed without waiting is still BOXED. The rule's
+    one implementation is dali_tour (rung3_step1 and rung3_trace both drive it)."""
     sys.path.insert(0, str(REPO / "studies" / "story-trace"))
-    import rung3_step1 as tour
+    import dali_tour as tour
     assert tour.failure({"boxed": True, "npc_waits": 3, "route": 2}) == "live"
     assert tour.failure({"boxed": True, "npc_waits": 0, "route": 2}) == "boxed"
 

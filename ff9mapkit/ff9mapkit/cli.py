@@ -622,15 +622,20 @@ def _cmd_story_seed(args: argparse.Namespace) -> int:
 
 
 def _story_pairs(pairs, flag: str, *, read: bool) -> dict:
-    """``FIELD=VALUE`` options -> ``{field id: value}`` (the value read as bytes when ``read``)."""
+    """``FIELD=VALUE`` options -> ``{field id: value}`` (the value read as bytes when ``read``). A numeric
+    option also takes ``A=B,C=D`` lists (a path never splits: it may hold a comma); one field given two
+    values is an error, never last-wins."""
     from pathlib import Path
 
     out = {}
-    for s in pairs or []:
+    for s in (p for arg in pairs or [] for p in ([arg] if read else arg.split(",")) if p.strip()):
         k, sep, v = s.partition("=")
-        if not sep or not k.strip().isdigit() or not v.strip():
+        if not sep or not k.strip().isdigit() or not v.strip() or not (read or v.strip().isdigit()):
             raise ValueError(f"{flag} takes FIELD=VALUE, got {s!r}")
-        out[int(k)] = Path(v.strip()).read_bytes() if read else int(v)
+        value = Path(v.strip()).read_bytes() if read else int(v)
+        if out.get(int(k), value) != value:
+            raise ValueError(f"{flag} gives field {int(k)} two values")
+        out[int(k)] = value
     return out
 
 
@@ -669,6 +674,9 @@ def _cmd_story_trace(args: argparse.Namespace) -> int:
         stock_ex = _story_pairs(args.script, "--script", read=True)
         fork_ex = _story_pairs(args.fork_script, "--fork-script", read=True)
         donors = _story_pairs(args.donor, "--donor", read=False)
+        members = _story_pairs(args.member, "--member", read=False)
+        if members and not args.fork:
+            raise ValueError("--member names the FORK side's chain -- give its runs with --fork")
         stock_runs = [run for spec in args.runs for run in load(spec)]
         fork_runs = [run for spec in args.fork or [] for run in load(spec)]
     except (ValueError, OSError) as ex:                         # TraceError is a ValueError
@@ -702,16 +710,20 @@ def _cmd_story_trace(args: argparse.Namespace) -> int:
                           f"stock script (the bytes the game ran)", file=sys.stderr)
     try:
         sd = [S.digest(label, rows, scripts=stock) for label, rows in stock_runs]
-        fd = [S.digest(label, rows, scripts=fork, donor_scripts=stock, donors=donors) for label, rows in fork_runs]
+        fd = [S.digest(label, rows, scripts=fork, donor_scripts=stock, donors=donors, members=members)
+              for label, rows in fork_runs]
     except (ValueError, RuntimeError, OSError) as ex:
         print(f"story-trace: {ex}", file=sys.stderr)
         return 1
     if fd:
-        c = S.compare(sd, fd)
-        text = S.report(c)
-        bad = bool(c.stock_only) or any(d.failures for d in sd + fd)
+        c = S.compare(sd, fd, members=members)
+        text = S.report(c, writers=args.writers)
+        # with a member set, a member whose rows name another donor (no ForkDonorPatch row) was keyed by the
+        # set, not by the engine -- the deploy the run exercised is not the one named
+        bad = (bool(c.stock_only) or bool(c.clobbers) or any(d.failures or d.seams for d in sd + fd)
+               or any(d.mismatched for d in fd))
     else:
-        text = S.report_runs(sd)
+        text = S.report_runs(sd, writers=args.writers)
         bad = any(d.failures for d in sd)
     bad = bad or any(d.incomplete for d in sd + fd)         # a cut run's absences are not evidence
     if args.out:
@@ -7838,6 +7850,15 @@ def build_parser() -> argparse.ArgumentParser:
     stc.add_argument("--donor", action="append", metavar="FORK=DONOR",
                      help="the donor of a fork field id, for an engine with no ForkDonorPatch row "
                           "(every row then says don == fld). Repeatable")
+    stc.add_argument("--member", action="append", metavar="FORK=DONOR",
+                     help="a member of the fork side's chain (repeatable; FORK=DONOR,FORK=DONOR lists "
+                          "too). A fork run's rows in a REAL field that is no member, once it stood in "
+                          "one, are its SEAM: reported as the crossing that led there, and a stock key "
+                          "the fork reached only there as REACHED ONLY ACROSS A SEAM -- never matched")
+    stc.add_argument("--writers", action="store_true",
+                     help="list every donor that wrote each stock value (Global.Bit[2102] := 1 <- "
+                          "{450}); with --member the values no member's donor writes lead the list, marked. "
+                          "Without --writers, --member still lists the writers of the values the members missed")
     stc.add_argument("--fork-root", action="append", metavar="DIR",
                      help="a mod root whose DictionaryPatch.txt registers the fork (default: every "
                           "mod folder in the install). Repeatable")
@@ -7849,7 +7870,9 @@ def build_parser() -> argparse.ArgumentParser:
                      help="script language (default us: trace the US build -- the census is US bytes)")
     stc.add_argument("--strict", action="store_true",
                      help="exit 1 on any JOIN FAILURE, any INCOMPLETE run (no `off`: the tracer faulted "
-                          "or the file was cut), or (with --fork) a non-empty STOCK ONLY")
+                          "or the file was cut), or (with --fork) a non-empty STOCK ONLY, a "
+                          "NEIGHBOUR-BYTE CLOBBER, or (with --member) a seam crossing or a member whose "
+                          "rows name another donor than the set's (a missing ForkDonorPatch row)")
     stc.add_argument("-o", "--out", help="write the report here (default: stdout)")
     stc.set_defaults(func=_cmd_story_trace)
 

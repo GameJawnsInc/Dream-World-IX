@@ -1,0 +1,124 @@
+{
+ "what": "Rung 3's registered predictions: the Dali retrodiction's pass conditions, written down BEFORE the first in-game run of its fork sides. rung3_trace.analyse reads every expectation from this file and from nowhere else; the session records this file's sha256 before its first run and the analysis refuses a file that no longer matches it (P-FROZEN), so a run cannot be read to fit.",
+ "frozen": "2026-09-25, before session story-rung3 (no fork-side run of rung 3 had been made); revised the same day, still before any run, after the adversarial review of the built session: per-run COVERAGE with VOID runs re-run, the tour-scale non-vacuity guard, PRE-EMPTED, F0's STOCK ONLY, the wake as the segment's end",
+ "sources": [
+  "studies/story-trace/PLAN.md (rung 3 step 1: the stock tour, in-game 7/7)",
+  "session scratchpad trace/rung3/3.md (the rung-3 design)",
+  "trace/rung3/4.md (the adversarial check -- its corrections win: F4 carries the 297 clobber as well as the latches; F4 enters the real 450 too; the controller's room varies)",
+  "trace/rung3/2.md (the stock morning: which script writes each latch, under which guard)",
+  "studies/story-trace/rung3_forks.json (the two deployed chains)",
+  "the stock store sites of each latch, read off the install's 312/350-359/450 .eb (the controller is one shared routine: tag 1, +222 Bit[2079] := 1, +315 Bit[2075] := 1, in every room); the unconditional exit stores: 351 e16 +313 Int16[2] := 2, 450 e19 +296 Int16[2] := 25; the wake: 352 e17 tag 1 +4385 SC := 2600, after its unconditional 2078/2086 and before its hub-gated ATE branch"
+ ],
+ "order": ["S", "F0", "F4", "S", "F0", "F4", "S", "F0", "F4"],
+ "sides": {
+  "S": "stock Dali (the install's scripts)",
+  "F0": "today's import-chain 351 --verbatim --whole-zone, no seed: 11 members, NOT 450 (FBG zone airp) -- its only defect is the seam member(350) -> real 450",
+  "F4": "the same chain seeded at beat 2600 by the round-4 kit (d3e2f4a1): latches 2064/2075/2079 pre-set AND UInt16[296] = 192, whose high byte zeroes hub byte 297"
+ },
+ "start": {"S": 359, "F0": 30841, "F4": 30852},
+ "start_sc": 2540,
+ "beat": 2600,
+ "segment_place": 352,
+ "wake": {"name": "352's wake: SC := 2600", "donor": 352, "sid": 17, "tag": 1, "off": [4385], "target": "Global.UInt16[0]", "value": [2600]},
+ "members": {
+  "F0": {"30831": 351, "30832": 312, "30833": 350, "30834": 352, "30835": 353, "30836": 354, "30837": 355,
+         "30838": 356, "30839": 357, "30840": 358, "30841": 359},
+  "F4": {"30842": 351, "30843": 312, "30844": 350, "30845": 352, "30846": 353, "30847": 354, "30848": 355,
+         "30849": 356, "30850": 357, "30851": 358, "30852": 359}
+ },
+ "budget": {
+  "segment_s": 720,
+  "tour_s": 1080,
+  "max_passes": 3,
+  "max_crossings": 80,
+  "session_s": 10800,
+  "run_min_s": 720,
+  "expected_minutes": {"S": 11, "F0": 11, "F4": 22, "session": 132},
+  "why": "step 1's stock run took ~11 min (segment ~2.5, tour 8.2); a tour gets 18 min (x2.2 stock's) on every side, the same rule everywhere; F4 never advances, so it runs to its passes or its 18 min. A run starts only with 12 min of the 3 h session left, and a tour never runs past the session's end. The ~48 min left over is the re-runs' (\"rerun\")."
+ },
+ "coverage": {
+  "expect": "A run is COVERED -- evidence either way -- only when the drive gave it the chance to show what the checks read: its trace closed and it stood in its start field; the rows before that first row are New Game's and the harness's, read on neither side; its segment handed control back in 352 at the beat AFTER the wake (the log's segment record, and the wake's own store in the trace); its tour stopped the way its side's tour ends (clean_stop -- never STOPPED on an error, a donor mismatch, the session's budget, a skip, or the install changing under it); 351's lobby exit and 450's e19 exit both ran (their unconditional stores, member or seam alike); on S and F0 the controller flipped and the story reached SC 2610 (Garnet); on F4 a budget or passes stop came after at least as many crossings as the most any covered stock run needed to reach SC 2610. Every other run is VOID: listed with why, read by no check but R3-DONOR/R3-JOIN, and never a falsification. Each check reads only covered runs, and is VOID (not PASS) while a side it reads has fewer than min_covered.",
+  "min_covered": 3,
+  "clean_stop": {"S": ["SC left"], "F0": ["SC left"], "F4": ["SC left", "budget spent", "passes exhausted"]},
+  "ran": [
+   {"name": "351's lobby exit ran (e16 +313 Int16[2] := 2)", "donor": 351, "sid": 16, "tag": 2, "off": [313], "target": "Global.Int16[2]", "value": [2]},
+   {"name": "450's e19 exit ran (+296 Int16[2] := 25)", "donor": 450, "sid": 19, "tag": 2, "off": [296], "target": "Global.Int16[2]", "value": [25]}
+  ],
+  "advancing": ["S", "F0"],
+  "flip": {"name": "the controller's flip (tag 1 +222 Bit[2079] := 1)", "tag": 1, "off": [222], "target": "Global.Bit[2079]", "value": [1]},
+  "advanced_sc": 2610,
+  "floor": ["F4"],
+  "floor_stops": ["budget spent", "passes exhausted"]
+ },
+ "rerun": {
+  "max": 4,
+  "why": "after the nine, while a side has fewer than min_covered covered runs and a run still fits the session's budget, that side runs again (S first: every comparison and F4's crossing floor read it; then F0, F4), at most max times. The analysis reads EVERY run the session recorded -- a re-run adds a covered run, it never replaces or hides one."
+ },
+ "checks": {
+  "P-FROZEN": {
+   "expect": "this file is byte-identical to the one the session recorded before its first run, and its member sets are the deployed chains' (rung3_forks.json)"
+  },
+  "R3-RUNS": {
+   "expect": "the session's runs are the frozen nine in order, then only re-runs (at most rerun.max); every recorded trace keeps the row contract, one traced run per file; and each side has at least min_covered COVERED runs (short of that: VOID, listing why each run was)"
+  },
+  "R3-DONOR": {
+   "expect": "every row a fork run wrote in a member names that member's donor (ForkDonorPatch, live in the engine); every row in a real field names the field itself; no stock run stands in a fork id, no fork run in the other chain's ids -- over EVERY run read, covered or not"
+  },
+  "R3-JOIN": {
+   "expect": "0 join failures and no note over every run read: every script row from the start field on joins a store in the bytes its side ran (a member's mod-folder .eb, the install's for a real field)",
+   "max_failures": 0
+  },
+  "R3-PING": {
+   "expect": "the premise, stock: Bit[2102] := 1 written in every covered stock run, and WRITERS names only field 450 for it",
+   "target": "Global.Bit[2102]",
+   "value": 1,
+   "writers": [450]
+  },
+  "R3-NULL-PRE": {
+   "expect": "F0, rung 2 at zone scale: no stock key written in every covered stock run before that run first stood in 450 is missing from every covered F0 run's MEMBER keys (a key F0 wrote only across the seam does not count as written); and it is not vacuous AT TOUR SCALE -- at least min_matched such keys are written by the members in every covered F0 run, and of those at least min_tour_keys were first written in every stock run during its TOUR (at or after its first row outside 352 after the wake), from at least the tour_donors",
+   "seam_field": 450,
+   "min_matched": 100,
+   "min_tour_keys": 60,
+   "tour_donors": [350, 351, 354, 355, 356]
+  },
+  "R3-SEAM": {
+   "expect": "F0: in every covered run the first crossing out of the members is member(350) -> real 450, and every visit to 450 is across member(350)'s seam; 450's ping comes out as REACHED ONLY ACROSS A SEAM in every covered F0 run, under that crossing; no F0 member writes Bit[2102] := 1; and WRITERS names none of F0's donors for it (the report marks it: no member's donor writes it)",
+   "seam": {"donor": 350, "to": 450},
+   "ping": {"donor": 450, "sid": 19, "tag": 2, "target": "Global.Bit[2102]", "value": 1}
+  },
+  "R3-MIRROR": {
+   "expect": "F0: FORK ONLY and STOCK ONLY are both empty and no neighbour-byte clobber -- a verbatim chain writes nothing its donors do not, and every stock key is matched by its members or reached across the seam"
+  },
+  "R3-ADVANCE": {
+   "expect": "F0's story moves on (its first row at SC >= 2610) in a REAL field, across the seam, in every covered run; no covered F4 run ever reaches SC 2610 (S's own advance is coverage, not a check)",
+   "sc": 2610
+  },
+  "R3-LATCH": {
+   "expect": "F4: (a) every hub-gated write below is STOCK ONLY at pattern level -- written in every covered stock run and by no covered F4 run (members or across the seam) outside the seed's own prepend; (b) the CLOBBER report names byte 297 changed 1 -> 0 by the prepend's UInt16[296] = 192, in every covered F4 run, on stock evidence that byte 297 is UInt16[297]'s; (c) not vacuous: every covered F4 run entered the real 450 across member(350)'s seam (and, by coverage, walked out through e19 and took 351's lobby exit), so the 450 and 351 writes are absent where their gateways ran",
+   "stock_only": [
+    {"name": "351 lobby exit e16: Bit[2064] := 1", "donor": 351, "sid": 16, "tag": 2, "off": [112], "target": "Global.Bit[2064]", "value": [1]},
+    {"name": "351 lobby exit e16: Bit[2078] := 0", "donor": 351, "sid": 16, "tag": 2, "off": [71], "target": "Global.Bit[2078]", "value": [0]},
+    {"name": "450 Main_Init: Bit[2086] := 0", "donor": 450, "sid": 0, "tag": 0, "off": [320], "target": "Global.Bit[2086]", "value": [0]},
+    {"name": "450 e19 walk-in: Bit[2102] := 1 (the ping)", "donor": 450, "sid": 19, "tag": 2, "off": [59, 80], "target": "Global.Bit[2102]", "value": [1]},
+    {"name": "450 e19 walk-in: SByte[296] := 3 or 2", "donor": 450, "sid": 19, "tag": 2, "off": [68, 89], "target": "Global.SByte[296]", "value": [3, 2]},
+    {"name": "450 e19 walk-in: Bit[2085] := 1", "donor": 450, "sid": 19, "tag": 2, "off": [98], "target": "Global.Bit[2085]", "value": [1]},
+    {"name": "the controller's flip, any room: Bit[2079] := 1", "tag": 1, "off": [222], "target": "Global.Bit[2079]", "value": [1]},
+    {"name": "the controller's flip, any room: Bit[2075] := 1", "tag": 1, "off": [315], "target": "Global.Bit[2075]", "value": [1]}
+   ],
+   "clobber": {"byte": 297, "old": 1, "new": 0, "target": "Global.UInt16[296]", "value": 192, "evidence": "Global.UInt16[297]"},
+   "seam": {"donor": 350, "to": 450}
+  },
+  "R3-PREEMPT": {
+   "expect": "F4, the latches' own half (round 5's fix, named by the trace): PRE-EMPTED names each round-4 latch -- the prepend stamps it in every covered F4 run (FORK ONLY, off < 0) and every covered stock run writes it itself at the site below: 2064 at 351's lobby exit, 2079/2075 at the controller's flip, in whichever room",
+   "latches": [
+    {"target": "Global.Bit[2064]", "value": 1, "stock": {"name": "351 lobby exit e16 +112", "donor": 351, "sid": 16, "tag": 2, "off": [112], "target": "Global.Bit[2064]", "value": [1]}},
+    {"target": "Global.Bit[2079]", "value": 1, "stock": {"name": "the controller's flip, tag 1 +222", "tag": 1, "off": [222], "target": "Global.Bit[2079]", "value": [1]}},
+    {"target": "Global.Bit[2075]", "value": 1, "stock": {"name": "the controller's flip, tag 1 +315", "tag": 1, "off": [315], "target": "Global.Bit[2075]", "value": [1]}}
+   ]
+  },
+  "NC-THROW": {
+   "expect": "nothing thrown through the event engine, the evaluator, the tracer or the agent"
+  }
+ },
+ "not_failed": "UNSTABLE keys are listed, not failed. F4's absent ping has two causes the trace cannot separate (297 = 0 fails 450 e19's hub term, 2079 = 1 its latch term): R3-LATCH names the clobber's evidence and R3-PREEMPT the latches', and neither claims which gate stopped the ping. Separating them needs a chain with the latches but 297 intact (F4b: the words written as bytes) -- not in this session: 11 more ids, and ~66 min more than the 3 h cap holds."
+}

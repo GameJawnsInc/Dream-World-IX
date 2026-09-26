@@ -1,0 +1,921 @@
+{
+ "what": "Rung 3's two fork chains of the Dali village zone, built by tools and deployed for the retrodiction (studies/story-trace/PLAN.md, rung 3). F0 = today's import-chain output, no seed: it omits field 450, so its only defect is the seam into the real 450. F4 = the same import seeded at beat 2600 by the round-4 kit (git d3e2f4a1): latches 2064/2075/2079 pre-set and UInt16[296] = 192, which zeroes hub byte 297 in every 350-358 member.",
+ "import": "py -m ff9mapkit import-chain 351 --verbatim --whole-zone --fresh-ids --id-base <base> --name-prefix <T0|T4> --mod-folder FF9CustomMap --out <dir>  (today's kit: worktree story-trace-walk, HEAD 4b5424e8)",
+ "deploy": "py tools/deploy_field.py <member toml> --id <fork id> --mod-folder FF9CustomMap --name <member name>, one member at a time, F0 then F4, in id order",
+ "deployed_at": "2026-09-25 21:39-21:42 local",
+ "mod_folder": "FF9CustomMap",
+ "relaunch_needed": true,
+ "relaunch_why": "22 new FieldScene ids and 22 ForkDonorPatch rows are read at launch only",
+ "not_members": {
+  "450": "Dali/Field, FBG zone airp: import-chain's zone rule leaves it out (a PORTAL)",
+  "404": "the 356 windmill's scripted exit (a later beat's hand-off)"
+ },
+ "chains": {
+  "F0": {
+   "name_prefix": "T0",
+   "id_range": [
+    30831,
+    30841
+   ],
+   "dir": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F0",
+   "campaign_toml": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F0\\campaign.toml",
+   "start_field": {
+    "fork": 30841,
+    "donor": 359,
+    "name": "T0_DL_ENT",
+    "how": "warp(<fork>, 0, 2540) as in step 1; its Main_Init writes UInt16[297] := 1 itself and plays 359 -> 351 -> 352 inside the chain"
+   },
+   "members": {
+    "30831": 351,
+    "30832": 312,
+    "30833": 350,
+    "30834": 352,
+    "30835": 353,
+    "30836": 354,
+    "30837": 355,
+    "30838": 356,
+    "30839": 357,
+    "30840": 358,
+    "30841": 359
+   },
+   "names": {
+    "30831": "T0_DL_INN",
+    "30832": "T0_DL_VIW",
+    "30833": "T0_DL_WHL",
+    "30834": "T0_VGDL_DL_INN",
+    "30835": "T0_DL_MYR",
+    "30836": "T0_DL_SHP",
+    "30837": "T0_DL_BAR",
+    "30838": "T0_DL_WMS",
+    "30839": "T0_VGDL_DL_WMS",
+    "30840": "T0_DL_FWM",
+    "30841": "T0_DL_ENT"
+   },
+   "member_arg": "30831=351,30832=312,30833=350,30834=352,30835=353,30836=354,30837=355,30838=356,30839=357,30840=358,30841=359",
+   "tomls": {
+    "30831": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F0\\T0_DL_INN\\T0_DL_INN.field.toml",
+    "30832": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F0\\T0_DL_VIW\\T0_DL_VIW.field.toml",
+    "30833": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F0\\T0_DL_WHL\\T0_DL_WHL.field.toml",
+    "30834": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F0\\T0_VGDL_DL_INN\\T0_VGDL_DL_INN.field.toml",
+    "30835": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F0\\T0_DL_MYR\\T0_DL_MYR.field.toml",
+    "30836": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F0\\T0_DL_SHP\\T0_DL_SHP.field.toml",
+    "30837": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F0\\T0_DL_BAR\\T0_DL_BAR.field.toml",
+    "30838": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F0\\T0_DL_WMS\\T0_DL_WMS.field.toml",
+    "30839": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F0\\T0_VGDL_DL_WMS\\T0_VGDL_DL_WMS.field.toml",
+    "30840": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F0\\T0_DL_FWM\\T0_DL_FWM.field.toml",
+    "30841": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F0\\T0_DL_ENT\\T0_DL_ENT.field.toml"
+   },
+   "revert_scripts": {
+    "30831": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30831.py",
+    "30832": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30832.py",
+    "30833": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30833.py",
+    "30834": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30834.py",
+    "30835": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30835.py",
+    "30836": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30836.py",
+    "30837": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30837.py",
+    "30838": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30838.py",
+    "30839": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30839.py",
+    "30840": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30840.py",
+    "30841": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30841.py"
+   },
+   "seams": [
+    {
+     "from": 30831,
+     "from_donor": 351,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 3,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30831,
+     "from_donor": 351,
+     "to_real": 450,
+     "entrance": 17,
+     "kind": "scripted",
+     "host_entry": 13,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30832,
+     "from_donor": 312,
+     "to_real": "WorldMap",
+     "kind": "overworld",
+     "world_locations": [
+      9000,
+      9001,
+      9002,
+      9003,
+      9004,
+      9005,
+      9006,
+      9007,
+      9008,
+      9009,
+      9010,
+      9011,
+      9012
+     ]
+    },
+    {
+     "from": 30833,
+     "from_donor": 350,
+     "to_real": 450,
+     "entrance": 1,
+     "kind": "walk_in"
+    },
+    {
+     "from": 30833,
+     "from_donor": 350,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 1,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30833,
+     "from_donor": 350,
+     "to_real": 450,
+     "entrance": 17,
+     "kind": "scripted",
+     "host_entry": 34,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30833,
+     "from_donor": 350,
+     "to_real": "WorldMap",
+     "kind": "overworld",
+     "world_locations": [
+      9000,
+      9001,
+      9002,
+      9003,
+      9004,
+      9005,
+      9006,
+      9007,
+      9008,
+      9009,
+      9010,
+      9011,
+      9012
+     ]
+    },
+    {
+     "from": 30834,
+     "from_donor": 352,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 1,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30835,
+     "from_donor": 353,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 2,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30836,
+     "from_donor": 354,
+     "to_real": 450,
+     "entrance": 17,
+     "kind": "scripted",
+     "host_entry": 0,
+     "host_tag": 11,
+     "trigger": "scripted"
+    },
+    {
+     "from": 30836,
+     "from_donor": 354,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 1,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30836,
+     "from_donor": 354,
+     "to_real": 450,
+     "entrance": 17,
+     "kind": "scripted",
+     "host_entry": 3,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30837,
+     "from_donor": 355,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 2,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30837,
+     "from_donor": 355,
+     "to_real": 450,
+     "entrance": 17,
+     "kind": "scripted",
+     "host_entry": 21,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30838,
+     "from_donor": 356,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 1,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30838,
+     "from_donor": 356,
+     "to_real": 404,
+     "entrance": 11,
+     "kind": "scripted",
+     "host_entry": 16,
+     "host_tag": 15,
+     "trigger": "scripted"
+    },
+    {
+     "from": 30838,
+     "from_donor": 356,
+     "to_real": 404,
+     "entrance": 11,
+     "kind": "scripted",
+     "host_entry": 16,
+     "host_tag": 15,
+     "trigger": "scripted"
+    },
+    {
+     "from": 30838,
+     "from_donor": 356,
+     "to_real": 404,
+     "entrance": 11,
+     "kind": "scripted",
+     "host_entry": 16,
+     "host_tag": 15,
+     "trigger": "scripted"
+    },
+    {
+     "from": 30838,
+     "from_donor": 356,
+     "to_real": 404,
+     "entrance": 11,
+     "kind": "scripted",
+     "host_entry": 18,
+     "host_tag": 15,
+     "trigger": "scripted"
+    },
+    {
+     "from": 30839,
+     "from_donor": 357,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 2,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30840,
+     "from_donor": 358,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 1,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    }
+   ],
+   "seam_summary": "every exit to a non-member, read from the BUILT bytes: the 350 member's walk-in gateway (entry 32, tag 2) -> real 450 entrance 1; scripted cutscene-loop Field(450, 16|17) in every 351-358 member (354 also entry 0 tag 11 -> 450 entrance 17); 356 -> real 404 entrance 11 (entries 16/18 tag 15); WorldMap exits from the 312 and 350 members. 359's one exit is in-chain (-> the 351 member).",
+   "seed": null
+  },
+  "F4": {
+   "name_prefix": "T4",
+   "id_range": [
+    30842,
+    30852
+   ],
+   "dir": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F4",
+   "campaign_toml": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F4\\campaign.toml",
+   "start_field": {
+    "fork": 30852,
+    "donor": 359,
+    "name": "T4_DL_ENT",
+    "how": "warp(<fork>, 0, 2540) as in step 1; its Main_Init writes UInt16[297] := 1 itself and plays 359 -> 351 -> 352 inside the chain; NOTE: this member's own prefix re-stamps SC := 2600 at entry, so the warp's 2540 does not survive Main_Init (stock arrives at 2540), and it adds all four party members before 359's own party code runs"
+   },
+   "members": {
+    "30842": 351,
+    "30843": 312,
+    "30844": 350,
+    "30845": 352,
+    "30846": 353,
+    "30847": 354,
+    "30848": 355,
+    "30849": 356,
+    "30850": 357,
+    "30851": 358,
+    "30852": 359
+   },
+   "names": {
+    "30842": "T4_DL_INN",
+    "30843": "T4_DL_VIW",
+    "30844": "T4_DL_WHL",
+    "30845": "T4_VGDL_DL_INN",
+    "30846": "T4_DL_MYR",
+    "30847": "T4_DL_SHP",
+    "30848": "T4_DL_BAR",
+    "30849": "T4_DL_WMS",
+    "30850": "T4_VGDL_DL_WMS",
+    "30851": "T4_DL_FWM",
+    "30852": "T4_DL_ENT"
+   },
+   "member_arg": "30842=351,30843=312,30844=350,30845=352,30846=353,30847=354,30848=355,30849=356,30850=357,30851=358,30852=359",
+   "tomls": {
+    "30842": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F4\\T4_DL_INN\\T4_DL_INN.field.toml",
+    "30843": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F4\\T4_DL_VIW\\T4_DL_VIW.field.toml",
+    "30844": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F4\\T4_DL_WHL\\T4_DL_WHL.field.toml",
+    "30845": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F4\\T4_VGDL_DL_INN\\T4_VGDL_DL_INN.field.toml",
+    "30846": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F4\\T4_DL_MYR\\T4_DL_MYR.field.toml",
+    "30847": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F4\\T4_DL_SHP\\T4_DL_SHP.field.toml",
+    "30848": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F4\\T4_DL_BAR\\T4_DL_BAR.field.toml",
+    "30849": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F4\\T4_DL_WMS\\T4_DL_WMS.field.toml",
+    "30850": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F4\\T4_VGDL_DL_WMS\\T4_VGDL_DL_WMS.field.toml",
+    "30851": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F4\\T4_DL_FWM\\T4_DL_FWM.field.toml",
+    "30852": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\be17d74b-f7ed-4a69-99d9-2c34ea90cd1a\\scratchpad\\forks\\F4\\T4_DL_ENT\\T4_DL_ENT.field.toml"
+   },
+   "revert_scripts": {
+    "30842": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30842.py",
+    "30843": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30843.py",
+    "30844": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30844.py",
+    "30845": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30845.py",
+    "30846": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30846.py",
+    "30847": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30847.py",
+    "30848": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30848.py",
+    "30849": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30849.py",
+    "30850": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30850.py",
+    "30851": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30851.py",
+    "30852": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_30852.py"
+   },
+   "seams": [
+    {
+     "from": 30842,
+     "from_donor": 351,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 3,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30842,
+     "from_donor": 351,
+     "to_real": 450,
+     "entrance": 17,
+     "kind": "scripted",
+     "host_entry": 13,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30843,
+     "from_donor": 312,
+     "to_real": "WorldMap",
+     "kind": "overworld",
+     "world_locations": [
+      9000,
+      9001,
+      9002,
+      9003,
+      9004,
+      9005,
+      9006,
+      9007,
+      9008,
+      9009,
+      9010,
+      9011,
+      9012
+     ]
+    },
+    {
+     "from": 30844,
+     "from_donor": 350,
+     "to_real": 450,
+     "entrance": 1,
+     "kind": "walk_in"
+    },
+    {
+     "from": 30844,
+     "from_donor": 350,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 1,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30844,
+     "from_donor": 350,
+     "to_real": 450,
+     "entrance": 17,
+     "kind": "scripted",
+     "host_entry": 34,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30844,
+     "from_donor": 350,
+     "to_real": "WorldMap",
+     "kind": "overworld",
+     "world_locations": [
+      9000,
+      9001,
+      9002,
+      9003,
+      9004,
+      9005,
+      9006,
+      9007,
+      9008,
+      9009,
+      9010,
+      9011,
+      9012
+     ]
+    },
+    {
+     "from": 30845,
+     "from_donor": 352,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 1,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30846,
+     "from_donor": 353,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 2,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30847,
+     "from_donor": 354,
+     "to_real": 450,
+     "entrance": 17,
+     "kind": "scripted",
+     "host_entry": 0,
+     "host_tag": 11,
+     "trigger": "scripted"
+    },
+    {
+     "from": 30847,
+     "from_donor": 354,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 1,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30847,
+     "from_donor": 354,
+     "to_real": 450,
+     "entrance": 17,
+     "kind": "scripted",
+     "host_entry": 3,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30848,
+     "from_donor": 355,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 2,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30848,
+     "from_donor": 355,
+     "to_real": 450,
+     "entrance": 17,
+     "kind": "scripted",
+     "host_entry": 21,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30849,
+     "from_donor": 356,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 1,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30849,
+     "from_donor": 356,
+     "to_real": 404,
+     "entrance": 11,
+     "kind": "scripted",
+     "host_entry": 16,
+     "host_tag": 15,
+     "trigger": "scripted"
+    },
+    {
+     "from": 30849,
+     "from_donor": 356,
+     "to_real": 404,
+     "entrance": 11,
+     "kind": "scripted",
+     "host_entry": 16,
+     "host_tag": 15,
+     "trigger": "scripted"
+    },
+    {
+     "from": 30849,
+     "from_donor": 356,
+     "to_real": 404,
+     "entrance": 11,
+     "kind": "scripted",
+     "host_entry": 16,
+     "host_tag": 15,
+     "trigger": "scripted"
+    },
+    {
+     "from": 30849,
+     "from_donor": 356,
+     "to_real": 404,
+     "entrance": 11,
+     "kind": "scripted",
+     "host_entry": 18,
+     "host_tag": 15,
+     "trigger": "scripted"
+    },
+    {
+     "from": 30850,
+     "from_donor": 357,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 2,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    },
+    {
+     "from": 30851,
+     "from_donor": 358,
+     "to_real": 450,
+     "entrance": 16,
+     "kind": "scripted",
+     "host_entry": 1,
+     "host_tag": 1,
+     "trigger": "cutscene-loop"
+    }
+   ],
+   "seam_summary": "every exit to a non-member, read from the BUILT bytes: the 350 member's walk-in gateway (entry 32, tag 2) -> real 450 entrance 1; scripted cutscene-loop Field(450, 16|17) in every 351-358 member (354 also entry 0 tag 11 -> 450 entrance 17); 356 -> real 404 entrance 11 (entries 16/18 tag 15); WorldMap exits from the 312 and 350 members. 359's one exit is in-chain (-> the 351 member).",
+   "seed": {
+    "beat": 2600,
+    "by": "round-4 kit (git d3e2f4a1, exported at scratchpad\\r4kit; all 364 package files match the commit): py -m ff9mapkit story-seed --chain <F4> --beat 2600 --census scratchpad\\r4kit\\research\\dominance_census.json",
+    "census": "regenerated with d3e2f4a1's research/dominance_census.py over the r4kit package: the same site lists as today's census, save the ORDER of one guard list at two sites (no value differs)",
+    "startup_per_member": {
+     "30842": {
+      "scenario": 2600,
+      "flags": {
+       "2064": 1,
+       "2075": 1,
+       "2079": 1
+      },
+      "words": {
+       "239": 6,
+       "296": 192
+      },
+      "party_add": []
+     },
+     "30843": {
+      "scenario": 2600,
+      "flags": {},
+      "words": {},
+      "party_add": []
+     },
+     "30844": {
+      "scenario": 2600,
+      "flags": {
+       "2064": 1,
+       "2075": 1,
+       "2079": 1
+      },
+      "words": {
+       "239": 6,
+       "296": 192
+      },
+      "party_add": [
+       "zidane"
+      ]
+     },
+     "30845": {
+      "scenario": 2600,
+      "flags": {
+       "2064": 1,
+       "2075": 1,
+       "2079": 1,
+       "2092": 1,
+       "2093": 1,
+       "7278": 1,
+       "7279": 1
+      },
+      "words": {
+       "239": 6,
+       "296": 192
+      },
+      "party_add": [
+       "garnet",
+       "steiner",
+       "vivi",
+       "zidane"
+      ]
+     },
+     "30846": {
+      "scenario": 2600,
+      "flags": {
+       "2064": 1,
+       "2075": 1,
+       "2079": 1
+      },
+      "words": {
+       "239": 6,
+       "296": 192
+      },
+      "party_add": []
+     },
+     "30847": {
+      "scenario": 2600,
+      "flags": {
+       "2064": 1,
+       "2075": 1,
+       "2079": 1
+      },
+      "words": {
+       "239": 6,
+       "296": 192
+      },
+      "party_add": []
+     },
+     "30848": {
+      "scenario": 2600,
+      "flags": {
+       "2064": 1,
+       "2075": 1,
+       "2079": 1
+      },
+      "words": {
+       "239": 6,
+       "296": 192
+      },
+      "party_add": []
+     },
+     "30849": {
+      "scenario": 2600,
+      "flags": {
+       "2064": 1,
+       "2075": 1,
+       "2079": 1
+      },
+      "words": {
+       "239": 6,
+       "296": 192
+      },
+      "party_add": []
+     },
+     "30850": {
+      "scenario": 2600,
+      "flags": {
+       "2064": 1,
+       "2075": 1,
+       "2079": 1
+      },
+      "words": {
+       "239": 6,
+       "296": 192
+      },
+      "party_add": []
+     },
+     "30851": {
+      "scenario": 2600,
+      "flags": {
+       "2064": 1,
+       "2075": 1,
+       "2079": 1
+      },
+      "words": {
+       "239": 6,
+       "296": 192
+      },
+      "party_add": []
+     },
+     "30852": {
+      "scenario": 2600,
+      "flags": {},
+      "words": {},
+      "party_add": [
+       "garnet",
+       "steiner",
+       "vivi",
+       "zidane"
+      ]
+     }
+    },
+    "matches_playtest_round4": "members 350-358: SC 2600, bits 2064/2075/2079 = 1, words 239 = 6 and 296 = 192, no 297 (352 also sets 2092/2093/7278/7279); 312 and 359: SC only; party adds Zidane in 350, all four in 352 and 359 (PLAYTEST.md round 4)",
+    "is_round4": "the round-4 kit's own import-chain + story-seed produce a tree byte-identical to this one (101 files), and the round-4 build.py and today's build.py compile every member to identical .eb bytes in all 7 languages",
+    "compiled_prefix": {
+     "30842": {
+      "bytes": 52,
+      "ops": [
+       "+0   05 dc 00 7d 28 0a 2c 7f  Global.UInt16[0] := 2600",
+       "+8   05 dc ef 7d 06 00 2c 7f  Global.UInt16[239] := 6",
+       "+16  05 fc 28 01 7d c0 00 2c 7f  Global.UInt16[296] := 192",
+       "+25  05 e4 10 08 7d 01 00 2c 7f  Global.Bit[2064] := 1",
+       "+34  05 e4 1b 08 7d 01 00 2c 7f  Global.Bit[2075] := 1",
+       "+43  05 e4 1f 08 7d 01 00 2c 7f  Global.Bit[2079] := 1"
+      ],
+      "byte297_after_prefix_when_1_before": 0
+     },
+     "30843": {
+      "bytes": 8,
+      "ops": [
+       "+0   05 dc 00 7d 28 0a 2c 7f  Global.UInt16[0] := 2600"
+      ],
+      "byte297_after_prefix_when_1_before": 1
+     },
+     "30844": {
+      "bytes": 61,
+      "ops": [
+       "+0   05 c5 93 7d 00 00 6d 2c 7f  (op 0x05, not a gEventGlobal assign)",
+       "+9   05 dc 00 7d 28 0a 2c 7f  Global.UInt16[0] := 2600",
+       "+17  05 dc ef 7d 06 00 2c 7f  Global.UInt16[239] := 6",
+       "+25  05 fc 28 01 7d c0 00 2c 7f  Global.UInt16[296] := 192",
+       "+34  05 e4 10 08 7d 01 00 2c 7f  Global.Bit[2064] := 1",
+       "+43  05 e4 1b 08 7d 01 00 2c 7f  Global.Bit[2075] := 1",
+       "+52  05 e4 1f 08 7d 01 00 2c 7f  Global.Bit[2079] := 1"
+      ],
+      "byte297_after_prefix_when_1_before": 0
+     },
+     "30845": {
+      "bytes": 124,
+      "ops": [
+       "+0   05 c5 93 7d 02 00 6d 2c 7f  (op 0x05, not a gEventGlobal assign)",
+       "+9   05 c5 93 7d 03 00 6d 2c 7f  (op 0x05, not a gEventGlobal assign)",
+       "+18  05 c5 93 7d 01 00 6d 2c 7f  (op 0x05, not a gEventGlobal assign)",
+       "+27  05 c5 93 7d 00 00 6d 2c 7f  (op 0x05, not a gEventGlobal assign)",
+       "+36  05 dc 00 7d 28 0a 2c 7f  Global.UInt16[0] := 2600",
+       "+44  05 dc ef 7d 06 00 2c 7f  Global.UInt16[239] := 6",
+       "+52  05 fc 28 01 7d c0 00 2c 7f  Global.UInt16[296] := 192",
+       "+61  05 e4 10 08 7d 01 00 2c 7f  Global.Bit[2064] := 1",
+       "+70  05 e4 1b 08 7d 01 00 2c 7f  Global.Bit[2075] := 1",
+       "+79  05 e4 1f 08 7d 01 00 2c 7f  Global.Bit[2079] := 1",
+       "+88  05 e4 2c 08 7d 01 00 2c 7f  Global.Bit[2092] := 1",
+       "+97  05 e4 2d 08 7d 01 00 2c 7f  Global.Bit[2093] := 1",
+       "+106 05 e4 6e 1c 7d 01 00 2c 7f  Global.Bit[7278] := 1",
+       "+115 05 e4 6f 1c 7d 01 00 2c 7f  Global.Bit[7279] := 1"
+      ],
+      "byte297_after_prefix_when_1_before": 0
+     },
+     "30846": {
+      "bytes": 52,
+      "ops": [
+       "+0   05 dc 00 7d 28 0a 2c 7f  Global.UInt16[0] := 2600",
+       "+8   05 dc ef 7d 06 00 2c 7f  Global.UInt16[239] := 6",
+       "+16  05 fc 28 01 7d c0 00 2c 7f  Global.UInt16[296] := 192",
+       "+25  05 e4 10 08 7d 01 00 2c 7f  Global.Bit[2064] := 1",
+       "+34  05 e4 1b 08 7d 01 00 2c 7f  Global.Bit[2075] := 1",
+       "+43  05 e4 1f 08 7d 01 00 2c 7f  Global.Bit[2079] := 1"
+      ],
+      "byte297_after_prefix_when_1_before": 0
+     },
+     "30847": {
+      "bytes": 52,
+      "ops": [
+       "+0   05 dc 00 7d 28 0a 2c 7f  Global.UInt16[0] := 2600",
+       "+8   05 dc ef 7d 06 00 2c 7f  Global.UInt16[239] := 6",
+       "+16  05 fc 28 01 7d c0 00 2c 7f  Global.UInt16[296] := 192",
+       "+25  05 e4 10 08 7d 01 00 2c 7f  Global.Bit[2064] := 1",
+       "+34  05 e4 1b 08 7d 01 00 2c 7f  Global.Bit[2075] := 1",
+       "+43  05 e4 1f 08 7d 01 00 2c 7f  Global.Bit[2079] := 1"
+      ],
+      "byte297_after_prefix_when_1_before": 0
+     },
+     "30848": {
+      "bytes": 52,
+      "ops": [
+       "+0   05 dc 00 7d 28 0a 2c 7f  Global.UInt16[0] := 2600",
+       "+8   05 dc ef 7d 06 00 2c 7f  Global.UInt16[239] := 6",
+       "+16  05 fc 28 01 7d c0 00 2c 7f  Global.UInt16[296] := 192",
+       "+25  05 e4 10 08 7d 01 00 2c 7f  Global.Bit[2064] := 1",
+       "+34  05 e4 1b 08 7d 01 00 2c 7f  Global.Bit[2075] := 1",
+       "+43  05 e4 1f 08 7d 01 00 2c 7f  Global.Bit[2079] := 1"
+      ],
+      "byte297_after_prefix_when_1_before": 0
+     },
+     "30849": {
+      "bytes": 52,
+      "ops": [
+       "+0   05 dc 00 7d 28 0a 2c 7f  Global.UInt16[0] := 2600",
+       "+8   05 dc ef 7d 06 00 2c 7f  Global.UInt16[239] := 6",
+       "+16  05 fc 28 01 7d c0 00 2c 7f  Global.UInt16[296] := 192",
+       "+25  05 e4 10 08 7d 01 00 2c 7f  Global.Bit[2064] := 1",
+       "+34  05 e4 1b 08 7d 01 00 2c 7f  Global.Bit[2075] := 1",
+       "+43  05 e4 1f 08 7d 01 00 2c 7f  Global.Bit[2079] := 1"
+      ],
+      "byte297_after_prefix_when_1_before": 0
+     },
+     "30850": {
+      "bytes": 52,
+      "ops": [
+       "+0   05 dc 00 7d 28 0a 2c 7f  Global.UInt16[0] := 2600",
+       "+8   05 dc ef 7d 06 00 2c 7f  Global.UInt16[239] := 6",
+       "+16  05 fc 28 01 7d c0 00 2c 7f  Global.UInt16[296] := 192",
+       "+25  05 e4 10 08 7d 01 00 2c 7f  Global.Bit[2064] := 1",
+       "+34  05 e4 1b 08 7d 01 00 2c 7f  Global.Bit[2075] := 1",
+       "+43  05 e4 1f 08 7d 01 00 2c 7f  Global.Bit[2079] := 1"
+      ],
+      "byte297_after_prefix_when_1_before": 0
+     },
+     "30851": {
+      "bytes": 52,
+      "ops": [
+       "+0   05 dc 00 7d 28 0a 2c 7f  Global.UInt16[0] := 2600",
+       "+8   05 dc ef 7d 06 00 2c 7f  Global.UInt16[239] := 6",
+       "+16  05 fc 28 01 7d c0 00 2c 7f  Global.UInt16[296] := 192",
+       "+25  05 e4 10 08 7d 01 00 2c 7f  Global.Bit[2064] := 1",
+       "+34  05 e4 1b 08 7d 01 00 2c 7f  Global.Bit[2075] := 1",
+       "+43  05 e4 1f 08 7d 01 00 2c 7f  Global.Bit[2079] := 1"
+      ],
+      "byte297_after_prefix_when_1_before": 0
+     },
+     "30852": {
+      "bytes": 44,
+      "ops": [
+       "+0   05 c5 93 7d 02 00 6d 2c 7f  (op 0x05, not a gEventGlobal assign)",
+       "+9   05 c5 93 7d 03 00 6d 2c 7f  (op 0x05, not a gEventGlobal assign)",
+       "+18  05 c5 93 7d 01 00 6d 2c 7f  (op 0x05, not a gEventGlobal assign)",
+       "+27  05 c5 93 7d 00 00 6d 2c 7f  (op 0x05, not a gEventGlobal assign)",
+       "+36  05 dc 00 7d 28 0a 2c 7f  Global.UInt16[0] := 2600"
+      ],
+      "byte297_after_prefix_when_1_before": 1
+     }
+    },
+    "clobber": "the 350-358 members' Main_Init prefix holds 05 FC 28 01 7D C0 00 2C 7F = Global.UInt16[296] := 192 (token 0xFC = Global | UInt16 | long index 0x0128); EBin.SetVariableValueInternal stores byte 296 = 0xC0 and byte 297 = 0x00, so hub byte 297 (set to 1 by 359's own Main_Init) is 0 from the 351 member on"
+   }
+  }
+ },
+ "revert": {
+  "scripts_dir": "C:\\gd\\Dream-World-IX\\tools\\scroll_out",
+  "order": "reverse deploy order: 30852 down to 30842, then 30841 down to 30831",
+  "why_order": "all 20 Dali members write the same text block 47 .mes and both 312 members block 8: the FIRST deploy of a block (30831 for 47, 30832 for 8) wrote it fresh and its revert deletes it; every later deploy backed it up and its revert restores it. The content is the donor's own verbatim text, so an out-of-order revert only drops the mod copy back to stock text.",
+  "generic_latest": "C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy.py  (= 30852's; not for the others)"
+ },
+ "verified": {
+  "registrations": "every fork id registered exactly once across all six FolderNames folders, in FF9CustomMap; no FieldScene id registered twice anywhere; every pre-deploy DictionaryPatch line kept",
+  "forkdonor_rows": "22 rows, each fork -> its donor; 30830 552 (TRC552) kept; 23 rows total in FF9CustomMap",
+  "eb": "each member's EVT_<name>.eb.bytes present in all 7 languages and byte-identical to the offline-verified build",
+  "text": "block 47 and block 8 .mes present in all 7 languages",
+  "problems": []
+ }
+}

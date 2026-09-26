@@ -90,20 +90,18 @@ S1-PING     the premise: a script write Bit[2102] := 1 in field 450 -- and the W
 S1-ADVANCE  the story moved on (SC left 2600) inside the budget
 S1-JOIN     every script row joins its store in the stock bytes
 NC-THROW
+
+The tour itself (the rules above) lives in dali_tour.py, shared with rung3_trace.py's fork-side runs.
 """
 from __future__ import annotations
 
 import json
 import sys
-import time
-from collections import deque
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-REPO = HERE.parents[1]
-sys.path.insert(0, str(REPO / "ff9mapkit"))
-from ff9mapkit import eventscan, extract, storytrace as T  # noqa: E402
-from ff9mapkit.content import pathfind  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import dali_tour as D  # noqa: E402
+from dali_tour import T  # noqa: E402
 
 try:
     from harness import HarnessError
@@ -111,253 +109,14 @@ except ImportError:
     from tools.harness import HarnessError  # noqa: E402
 
 START, START_SC, BEAT = 359, 2540, 2600
-LABEL = "Dali/"
 MAX_CROSSINGS, MAX_PASSES, BUDGET_S = 80, 3, 40 * 60
-MARGIN = pathfind.KEEPOUT_MARGIN_W        # keep-out around every gateway zone the crossing is not aimed at
-BOUNCES = 2                               # REAL failures (the docstring) before a (field, exit) is unreachable
-LIVE = 3                                  # LIVE misses (the village in the way) before it is unreachable too
 THROWS = {"NullReferenceException", "InvalidCastException", "IndexOutOfRangeException", "DivideByZeroException",
           "ArgumentOutOfRangeException", "OverflowException"}
 WHERE = ("EventEngine", "EBin", "StoryTrace", "HarnessAgent")
 
-_names: dict = {}
-_floors: dict = {}
-_gates: dict = {}
-_goals: dict = {}
-_oneway: dict = {}
 _stock = T.stock_script_source()
-
-
-def say(*parts) -> None:
-    """Every log line, flushed: the first run's block-buffered prints surfaced only at exit."""
-    print("[rung3-s1]", *parts, flush=True)
-
-
-def label(fid: int) -> str:
-    if fid not in _names:
-        rows = [r for r in extract.find_fields(str(fid)) if int(r["id"]) == fid]
-        _names[fid] = (rows[0]["name"] or "") if rows else ""
-    return _names[fid]
-
-
-def floor(fid: int):
-    """Field ``fid``'s stock walkmesh as the controlled player may walk it (pathfind.PlayerWalkmesh); raises like
-    extract.stock_walkmesh when the id has none."""
-    if fid not in _floors:
-        _floors[fid] = pathfind.PlayerWalkmesh(extract.stock_walkmesh(fid))
-    return _floors[fid]
-
-
-def gateways(fid: int) -> list:
-    """EVERY walk-in gateway of the field, one per distinct (destination, zone), in scan order: [(to, entrance,
-    zone)]. 350 lists its 353 exit twice with one zone -- one exit, not two."""
-    if fid not in _gates:
-        idx = _stock(fid)
-        out = []
-        for gw in (eventscan.scan_gateways(idx.data) if idx else []):
-            if all((gw["to"], gw["zone"]) != (t, z) for t, _e, z in out):
-                out.append((gw["to"], gw["entrance"], gw["zone"]))
-        _gates[fid] = out
-    return _gates[fid]
-
-
-def exits(fid: int) -> list:
-    """The exits the tour takes: the gateways whose destination carries the location label, in scan order."""
-    return [gw for gw in gateways(fid) if label(gw[0]).startswith(LABEL)]
-
-
-def avoid_for(fid: int, zone) -> list:
-    """Every OTHER gateway zone of the field -- label-bounded or not: a door out of Dali is still a door."""
-    return [z for _t, _e, z in gateways(fid) if z != zone]
-
-
-def goal_for(fid: int, i: int):
-    """A standable point inside exit i's zone (pathfind.region_goal on the player's floor), or None."""
-    if (fid, i) not in _goals:
-        try:
-            _goals[(fid, i)] = pathfind.region_goal(floor(fid), exits(fid)[i][2])
-        except (OSError, ValueError, RuntimeError) as err:     # no walkmesh for this id: no goal, no route
-            say(f"field {fid}: no walkmesh to aim exit {i} on ({type(err).__name__}: {err})")
-            _goals[(fid, i)] = None
-    return _goals[(fid, i)]
-
-
-def arrival(fid: int, entrance: int):
-    """Where field ``fid``'s own script stands the player arriving by ``entrance`` (its table row, else its
-    default), or None when neither decodes -- 351, 353, 354 and 450 place him some other way."""
-    idx = _stock(fid)
-    t = eventscan.scan_arrival_table(idx.data) if idx else {"table": [], "default": None}
-    row = next((r for r in t["table"] if r["entrance"] == entrance), None) or t["default"]
-    return tuple(row["pos"]) if row else None
-
-
-def one_way(fid: int, i: int) -> bool:
-    """Could the tour NOT walk back out of exit i's destination? True only when the destination's arrival spot
-    for this exit's entrance is known and none of the destination's exits routes from it (see the module
-    docstring: 350 -> 358). An undecoded arrival is two-way."""
-    if (fid, i) not in _oneway:
-        to, entrance, _zone = exits(fid)[i]
-        pos = arrival(to, entrance)
-        back = pos is None
-        for j, (_t, _e, zone) in enumerate(exits(to) if pos is not None else ()):
-            goal = goal_for(to, j)                       # None also when the walkmesh cannot be read
-            if goal is not None and pathfind.route_avoiding(floor(to), pos, goal,
-                                                            avoid_for(to, zone), MARGIN) is not None:
-                back = True
-                break
-        _oneway[(fid, i)] = not back
-        if not back:
-            say(f"field {fid} exit {i} (to {to}, entrance {entrance}) is ONE-WAY: no exit of {to} routes from "
-                f"its arrival {pos} -- it goes last")
-    return _oneway[(fid, i)]
-
-
-def settle(g, log, why: str) -> None:
-    """Sit through whatever the game plays until the player has control again -- answering every choice with
-    the option the game's own cursor rests on (watch_cutscene(choices="default")), each one logged."""
-    st = g.state
-    if not st.control:
-        pages = g.watch_cutscene(timeout=240, choices="default")
-        rec = {"k": "scene", "why": why, "field": g.state.field_id, "sc": g.state.scenario,
-               "pages": len(pages), "first": (pages[0][:80] if pages else ""), "choices": pages.choices}
-        log.append(rec)
-        say(json.dumps(rec))
-
-
-def failure(rec: dict) -> str:
-    """What a crossing that did not land where its exit leads was, by the module docstring's strike rule:
-    "bounce", "no route", "blocked", "boxed" or "miss" (REAL: they strike the exit), or "live" (the village was
-    in the way: a stall with control held that the walk waited on, pushed or routed round, or a villager walking
-    onto the path, ending short OUTSIDE the zone; published solids sealing the way while one of them walks; or a
-    walk that waited on walking triggers and was then left with nothing it could press). Standing inside the zone
-    with nothing fired is a miss whatever the walk met on the way. A seal by published solids has no route either,
-    and is BLOCKED, not NO ROUTE: the walls and zones alone had one."""
-    if rec.get("landed") is not None:
-        return "bounce"
-    if rec.get("blocked"):
-        return "live" if any(moving for _uid, moving in rec.get("sealed") or ()) else "blocked"
-    if "route" in rec and rec["route"] is None:
-        return "no route"
-    if rec.get("boxed"):
-        return "live" if rec.get("npc_waits") else "boxed"
-    if rec.get("inside"):
-        return "miss"
-    if ("error" not in rec and rec.get("during") is None and not rec.get("reached")
-            and (rec.get("waits") or rec.get("pushes") or rec.get("blockers") or rec.get("frozen")
-                 or rec.get("npc_replans"))):
-        return "live"
-    return "miss"
-
-
-def next_hop(start: int, want, dead: set):
-    """BFS over the exit graph from ``start`` -- never through an unreachable or a one-way exit -- to the
-    nearest field satisfying ``want``: the index of the first exit to take, or None."""
-    seen, q = {start}, deque([(start, None)])
-    while q:
-        f, first = q.popleft()
-        if f != start and want(f):
-            return first
-        for i, (to, _e, _z) in enumerate(exits(f)):
-            if (f, i) not in dead and to not in seen and not one_way(f, i):
-                seen.add(to)
-                q.append((to, first if first is not None else i))
-    return None
-
-
-def tour(g, log) -> str:
-    t0 = time.time()
-    n = 0
-    fails: dict = {}                     # (field, exit) -> its REAL failures (failure()), across passes
-    live: dict = {}                      # (field, exit) -> its LIVE misses, across passes
-    dead: set = set()                    # (field, exit) unreachable this run
-    visit, later = None, set()           # exits that failed on THIS visit: the field's other exits go first
-    for p in range(1, MAX_PASSES + 1):
-        tried: set = set()
-
-        def open_(h, one_ways=False):
-            return [j for j in range(len(exits(h))) if (h, j) not in tried and (h, j) not in dead
-                    and (one_ways or not one_way(h, j))]
-
-        while True:
-            st = g.state
-            if st.scenario != BEAT:
-                return f"SC left {BEAT}: now {st.scenario} in field {st.field_id} (pass {p}, crossing {n})"
-            if n >= MAX_CROSSINGS or time.time() - t0 > BUDGET_S:
-                return f"budget spent (crossings {n}, {time.time() - t0:.0f}s)"
-            f = st.field_id
-            if f != visit:
-                visit, later = f, set()
-            mine = sorted(open_(f), key=lambda j: (f, j) in later)
-            if mine:
-                i, leg = mine[0], "tour"
-            else:
-                i, leg = next_hop(f, lambda h: bool(open_(h)), dead), "back"
-            if i is None:
-                # nothing two-way is left anywhere reachable: now the one-way doors, last -- past one, the
-                # tour may well have no way back
-                mine = sorted(open_(f, True), key=lambda j: (f, j) in later)
-                if mine:
-                    i, leg = mine[0], "one-way"
-                else:
-                    i, leg = next_hop(f, lambda h: bool(open_(h, True)), dead), "back"
-                    if i is None:
-                        break                                        # this pass has crossed everything
-            to, _e, zone = exits(f)[i]
-            n += 1
-            goal = goal_for(f, i)
-            rec = {"k": "cross", "n": n, "pass": p, "leg": leg, "from": f, "exit": i, "to": to,
-                   "target": list(goal) if goal else None, "sc0": st.scenario}
-            if goal is None:
-                dead.add((f, i))
-                rec.update(verdict="unreachable: no standable goal inside its zone")
-                log.append(rec)
-                say(json.dumps(rec))
-                continue
-            try:
-                r = g.route_cross(goal[0], goal[1], avoid=avoid_for(f, zone), margin=MARGIN, timeout=20,
-                                  walkmesh=floor(f), unstick=True, zone=zone, smooth=True, npcs=True)
-                rec.update(landed=r["landed"], reached=r["reached"], inside=r["inside"],
-                           travelled=round(r["travelled"]), during=r["during"], replans=r["replans"],
-                           route=len(r["waypoints"]) if r["waypoints"] is not None else None,
-                           waits=r["waits"], cleared=r["cleared"], pushes=r["pushes"], pushed=r["pushed"],
-                           blockers=r["blockers"], remembered=r["remembered"], blocked=r["blocked"],
-                           frozen=r["frozen"], boxed=r["boxed"], npcs=r["npcs"],
-                           avoided=[(o["uid"], o["kind"]) for o in r["avoided"]],
-                           entered=[(o["uid"], o["kind"], o["radius"]) for o in r["entered"]],
-                           through=[o["uid"] for o in r["through"]],
-                           sealed=[(o["uid"], o["moving"]) for o in r["sealed"]], npc_replans=r["npc_replans"],
-                           npc_waits=r["npc_waits"])
-            except HarnessError as err:
-                rec.update(landed=None, error=str(err)[:200])
-            settle(g, log, f"after crossing {n}")
-            now = g.state.field_id
-            if rec.get("landed") is None and now != f and now > 0:
-                # the crossing call gave up but the room DID change -- e.g. the destination held control
-                # past its timeout for an arrival scene ("never became playable"), which settle() just
-                # sat through. Where he stands now is where the crossing led.
-                rec.update(landed=now, landed_late=True)
-            if rec.get("landed") == to:
-                if leg != "back":
-                    tried.add((f, i))
-                rec["verdict"] = "crossed"
-            else:
-                # no route is a failed attempt like the others, not a verdict: it was planned from where he
-                # stood THIS time, and the next visit arrives somewhere else
-                kind = failure(rec)
-                later.add((f, i))
-                tally = (live if kind == "live" else fails).setdefault((f, i), [])
-                tally.append(kind)
-                cap = LIVE if kind == "live" else BOUNCES
-                rec["verdict"] = f"{kind} {len(tally)}/{cap}"
-                if len(tally) >= cap:
-                    dead.add((f, i))
-                    rec["verdict"] += " -> unreachable"
-                if kind in ("miss", "live", "blocked", "boxed"):
-                    g.shot(f"{kind}-{n}-{f}-to-{to}")
-            rec.update(now=g.state.field_id, sc1=g.state.scenario, t=round(time.time() - t0))
-            log.append(rec)
-            say(json.dumps(rec))
-    return f"passes exhausted ({MAX_PASSES}) without the story moving on"
+_tour = D.Tour(stock=_stock, tag="rung3-s1")
+say = _tour.say
 
 
 def run(g) -> None:
@@ -374,25 +133,11 @@ def run(g) -> None:
         g.newgame()
         g.wait_frames(30)
         g.storytrace(True)
-        g.send(f"warp {START} 0 {START_SC}")                 # raw: warp() waits for control this segment never gives
-        g.wait_for(lambda s: s.field_id == START, timeout=60, what=f"field {START} to load")
-        deadline = time.time() + 900
-        while time.time() < deadline:
-            st = g.state
-            if st.field_id == 352 and st.control and st.scenario == BEAT:
-                break
-            if not st.control:
-                pages = g.watch_cutscene(timeout=300, choices="default")
-                log.append({"k": "scene", "why": "segment", "field": g.state.field_id, "sc": g.state.scenario,
-                            "pages": len(pages), "choices": pages.choices})
-            else:
-                g.wait_frames(15)
-        st = g.state
-        seg_ok = st.field_id == 352 and st.control and st.scenario == BEAT
-        log.append({"k": "segment", "field": st.field_id, "sc": st.scenario, "control": st.control})
+        seg_ok = D.segment(g, log, start=START, sc=START_SC, beat=BEAT)["ok"]
         if seg_ok:
-            stop = tour(g, log)                  # route_cross calibrates each field itself, clear of its doors
-            settle(g, log, "after the tour")
+            stop = _tour.run(g, log, beat=BEAT, max_crossings=MAX_CROSSINGS, max_passes=MAX_PASSES,
+                             budget_s=BUDGET_S)   # route_cross calibrates each field itself, clear of its doors
+            D.settle(g, log, "after the tour", say)
         g.storytrace(False)
         rows = g.story_rows()
     except HarnessError as err:
@@ -420,13 +165,7 @@ def run(g) -> None:
             f"{[(r.fld, r.sid, r.tag, r.ip) for r in ping[:4]]}")
     g.check(stop.startswith("SC left"), f"S1-ADVANCE: the story moved on past SC {BEAT} inside the budget", stop)
     if run_:
-        import re as _re
-        text = (Path(r"C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX") / "Memoria.ini").read_text(
-            encoding="utf-8", errors="replace")
-        m = _re.search(r'^\s*FolderNames\s*=\s*(.+)$', text, _re.M)
-        game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX")
-        roots = [game / n for n in (_re.findall(r'"([^"]+)"', m.group(1)) if m else []) if (game / n).is_dir()]
-        ran = T.mod_script_source(roots, fallback=_stock)             # the bytes the game RAN (field 70 override)
+        ran = T.mod_script_source(D.mod_roots(), fallback=_stock)   # the bytes the game RAN (field 70 override)
         fails = []
         for r in run_:
             if r.k == "w" and r.src == "eb" and not r.add:
