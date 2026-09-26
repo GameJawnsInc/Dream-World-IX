@@ -95,7 +95,17 @@ contact -- the engine undoes a whole step, and the children outpace his run -- s
 second: one hold along the pad that ends furthest from the line it was walking, or from the line at him when it was
 never seen walking, as long as the room round him lets a slide carry him nowhere near a door or a Range: beside a
 door, shorter or walked), and plans again once a press is free -- a box they let go of is no box at all, and strikes
-nothing. One that outlasts that wait is the village holding him (``boxed_by`` "walkers"): LIVE, not BOXED. A
+nothing. One that outlasts that wait is the village holding him (``boxed_by`` "walkers"): LIVE, not BOXED.
+
+THE DOOR STEP IS NO EXCEPTION (rung-3 session 3, run 1, stock: both attempts at 350 -> 355 ended on the door step, a
+Dali child held on him between him and the zone's one standable patch; the walk's finish took "within 45u of the goal"
+for arrival, each end was a MISS, and the two made 355 unreachable to a stock run that never saw it). The finish -- the
+last leg pressing INTO the zone -- now meets walkers as the rest of the walk does, but only walkers that are the
+CAUSE: standing in the way to a spot of the zone he could get into with every walker gone. Those it waits on, and
+steps out of the way of any held on him, within the same wait; a walk the finish still ends outside the zone with
+walkers so in the way is the village (route_to's ``held_by`` "walkers", the bodies in ``pinned``: the finish's own
+verdict): LIVE. A door no walker's going would open -- its own geometry (350's door to 353 is standable only in a
+34u wedge), or a body that does not walk in the doorway -- is a MISS, as before, however many walkers pace nearby. A
 talk-only villager (a talk script, no Range) is a body and nothing more: inside its talk radius the "!" is a prompt
 for a Confirm the tour never presses. Per
 crossing the log names the objects avoided, the trigger radii entered (a Range that reached him as control went

@@ -4561,8 +4561,8 @@ def test_the_tour_reads_a_walk_boxed_after_waiting_on_walkers_as_live():
 # A box a WALKER is part of is not the spot: waited out, stepped away from when it is held on him, planned again.
 
 
-def _step_in_front(g, *moves):
-    """Once he is on his way (past x -420, after the hold that got him there, where the walk reads the objects next)
+def _step_in_front(g, *moves, past=-420.0):
+    """Once he is on his way (past x ``past``, after the hold that got him there, where the walk reads the objects next)
     each ``(body, at, path, speed)`` of ``moves`` steps up to ``at`` -- an offset from where he stands -- and walks
     ``path`` (offsets too) at ``speed``, once. Returns where he stood when they did (empty until then)."""
     from ff9mapkit.scene import routes
@@ -4570,7 +4570,7 @@ def _step_in_front(g, *moves):
 
     def settle_then_step_in(*a, **kw):
         st = settle(*a, **kw)
-        if done or st.player_x is None or st.player_x <= -420 or not st.control:
+        if done or st.player_x is None or st.player_x <= past or not st.control:
             return st
         px, pz = st.player_x, st.player_z
         done.append((px, pz))
@@ -4998,6 +4998,337 @@ def test_a_step_out_of_a_walkers_way_keeps_clear_of_a_trigger_the_plan_gave_up(g
         assert not fake.touched, fake.touched
 
 
+# ---- the session-3 door step: both attempts of the stock run at 350's door to 355 ended on the step, a Dali child (a
+# talk-only walker, non-solid, r 152) held on him between him and the zone's one standable patch. The last leg's finish
+# -- within 45u of a goal a few units inside the zone -- found no press, called that arrival, and each crossing came
+# back a MISS: a REAL strike, and two made 355 unreachable. The finish now meets walkers as the rest of the walk does.
+# A door at the east wall of the fake's room, 80u wide and standable (80u off the wall) only where x <= 520, its goal
+# 4u in; he starts 34u short of it, outside the zone, so the finish takes over at once. A child standing against him
+# there covers the whole standable patch, as the frame shows.
+
+_DOOR = _rect(480, -40, 600, 40)
+_DOOR_GOAL = (484.0, 0.0)
+
+
+def _door_kid(uid, walks, at=(605.0, 0.0)):
+    """A Dali child parked far off ON the line it will walk -- so the read that sees it step up to ``at`` (see
+    :func:`_step_in_front`) reads a jump along that line, never a heading across it -- creeping: "on" walks on north,
+    across the door; "into him" walks west, along his line into him, and is held."""
+    x, z = at
+    park = (x, z - 700) if walks == "on" else (x + 500, z)
+    ahead = (park[0], park[1] + 1) if walks == "on" else (park[0] - 1, park[1])
+    return _villager(*park, uid=uid, path=[park, ahead], speed=0.01)
+
+
+def _door_step_up(kid, walks):
+    """The :func:`_step_in_front` move of a child stepping up 155u in front of him on the door step: walking "on" north
+    across the door at 1u a frame -- slow enough to stand in the way a while, too fast to read as held (ROUTE_NPC_MOVED
+    in ROUTE_WALKER_HELD frames) -- or walking "into him", west along his line, where it is held."""
+    if walks == "on":
+        return (kid, (155, 0), [(155, 0), (155, 700)], 1.0)
+    return (kid, (155, 0), [(155, 0), (-1100, 0)], 3.0)
+
+
+def _door_fake(game, fake=None):
+    """The fake with 350's door on the east wall of its room, a LIVE region (entering it fires, to 30821)."""
+    fake = fake or FakeGame(game)
+    fake.regions = {30820: [{"zone": _DOOR, "to": 30821, "arrive": (0, 0)}]}
+    fake.exit_frames = 30
+    return fake
+
+
+def _door_start(g, fake, bodies, *, replans=0):
+    """Standing 34u short of the door's goal, outside its zone, on 30820 with its basis known and ``bodies`` listed (and
+    published). ``replans``: the movement re-plans the call may make -- session 3's crossing 13 had spent its four."""
+    boot(g)
+    g.warp(30820)
+    g._axes[30820] = _prior()
+    _stand(g, fake, 450, 0)
+    fake.blockers = {30820: list(bodies)}
+    published(g, lambda s: s.objects is not None and len(s.objects) == len(bodies))
+    g.ROUTE_NPC_REPLANS = replans
+
+
+def _cross_the_door(g):
+    """The tour's own crossing call (dali_tour.Tour._cross) at the door: route_cross into its zone, smooth, npcs."""
+    return g.route_cross(*_DOOR_GOAL, walkmesh=_flat_bgi(), prior=_prior(), unstick=True, zone=_DOOR, smooth=True,
+                         npcs=True, timeout=3)
+
+
+def _tour_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import dali_tour
+    return dali_tour
+
+
+def test_a_walker_that_pins_him_on_the_door_step_and_walks_on_is_waited_for_and_he_crosses(game):
+    """On the door step -- within tolerance of the goal, outside the zone -- a Dali child steps up against him, between
+    him and the zone, and walks on across the door. Every press into the zone comes nearer it: the finish used to stop
+    right there and call it arrival (the zone's gateway never fired: a MISS). A walker at the door is waited for as it
+    is anywhere else: it walks on, the finish presses in, and the door fires -- the child named in ``boxers``."""
+    fake = _door_fake(game)
+    kid = _door_kid(4, "on")
+    with session(game, fake) as g:
+        _door_start(g, fake, [kid])
+        stood = _step_in_front(g, _door_step_up(kid, "on"), past=440)
+        rec = _cross_the_door(g)
+        assert stood, "premise: the child stepped up on the door step"
+        assert rec["landed"] == 30821 and [f["to"] for f in fake.fired] == [30821], rec
+        assert rec["box_waits"] >= 1 and rec["box_cleared"] >= 1 and not rec["boxed"], rec
+        assert (4, "body", True) in [(o["uid"], o["kind"], o["moving"]) for o in rec["boxers"]], rec
+
+
+@pytest.mark.parametrize("replans", [0, 4])
+def test_a_walker_held_on_him_on_the_door_step_is_stepped_away_from_and_he_crosses(game, replans):
+    """The session-3 frame: the child walked INTO him on the door step and is held there -- the engine undoes every step
+    a scripted walker takes into him (MoveToward.cs:187-189; the fake: `_step_walkers`) -- so a wait for it waits on
+    himself. Once it has not moved in ROUTE_WALKER_HELD frames he steps out of its way; it walks on, and he presses into
+    the zone and crosses. With the movement re-plans spent (0) the plan still keeps the child's disc and the finish
+    finds no press at all; with them left (4) a re-plan gives the child up to walk through -- it stands over the goal --
+    and the presses into the zone are made, and held: two held presses, a walker holding him, the same wait and step
+    (and the step is taken from a walker the plan gave up: it is held on him all the same)."""
+    fake = _door_fake(game)
+    kid = _door_kid(6, "into him")
+    with session(game, fake) as g:
+        _door_start(g, fake, [kid], replans=replans)
+        g.ROUTE_WALKER_BUDGET = 240
+        stood = _step_in_front(g, _door_step_up(kid, "into him"), past=440)
+        t0 = time.time()
+        rec = _cross_the_door(g)
+        assert stood and time.time() - t0 < 60, "bounded"
+        if replans:
+            assert rec["npc_replans"] >= 1 and 6 in [o["uid"] for o in rec["through"]], "premise: planned through"
+        assert rec["landed"] == 30821 and [f["to"] for f in fake.fired] == [30821], rec
+        assert rec["box_cleared"] >= 1 and (6, "body", True) in [(o["uid"], o["kind"], o["moving"])
+                                                                 for o in rec["boxers"]], rec
+        assert kid["x"] < stood[0][0], "freed, it walked on along its line, past where he stood"
+
+
+def test_a_walker_that_holds_him_on_the_door_step_past_the_wait_is_the_village_not_the_door(game):
+    """The same child held on him on the door step, and no step out of its way that the room allows (taken out here):
+    the wait for it runs out (ROUTE_WALKER_BUDGET, bounded) and the crossing ends short of the zone, the door unfired.
+    The record says why -- ``boxed_by`` walkers, ``held_by`` walkers, the child in ``pinned`` -- and the tour's strike
+    rule reads it as the village in the way, LIVE: never the door's MISS."""
+    D = _tour_module()
+    fake = _door_fake(game)
+    kid = _door_kid(6, "into him")
+    with session(game, fake) as g:
+        _door_start(g, fake, [kid])
+        g.ROUTE_WALKER_BUDGET = 80
+        g._box_step = lambda *a, **kw: False
+        stood = _step_in_front(g, _door_step_up(kid, "into him"), past=440)
+        t0 = time.time()
+        rec = _cross_the_door(g)
+        assert stood and time.time() - t0 < 60, "bounded: the wait has a budget"
+    assert rec["landed"] is None and rec["inside"] is False and rec["reached"] and not fake.fired, rec
+    assert rec["boxed"] and rec["boxed_by"] == "walkers" and rec["box_waits"] >= 1, rec
+    assert rec["held_by"] == "walkers" and [(o["uid"], o["kind"], o["moving"]) for o in rec["pinned"]] == [
+        (6, "body", True)], rec
+    assert D.failure(rec) == "live", rec
+
+
+def test_a_body_that_does_not_walk_in_the_doorway_is_the_doors_miss_at_once(game):
+    """A villager who never walks stands in the doorway, against him on the door step, over the zone's whole standable
+    strip within reach. Nothing will walk off: no wait, no step, no push -- the finish ends short of the zone at once
+    (bounded), and it is a MISS as it always was, REAL. The record names the body (``pinned``, ``held_by`` "bodies"),
+    so a strike on a door is never a walker's doing unseen."""
+    D = _tour_module()
+    fake = _door_fake(game)
+    with session(game, fake) as g:
+        _door_start(g, fake, [_creeping(4)])
+        settle, placed = g.settle, []
+
+        def settle_then_stand_there(*a, **kw):
+            st = settle(*a, **kw)
+            if not placed and st.player_x is not None and st.control:
+                # it was never in any plan and never walked: nothing the call saw says it could walk off
+                placed.append((st.player_x, st.player_z))
+                fake.blockers[30820].append(_villager(st.player_x + 155, st.player_z, uid=7))
+                return published(g, lambda s: s.objects and any(o["uid"] == 7 for o in s.objects))
+            return st
+        g.settle = settle_then_stand_there
+        sent = _counting(g)
+        t0 = time.time()
+        rec = _cross_the_door(g)
+        assert placed and time.time() - t0 < 30, "bounded"
+    assert rec["landed"] is None and rec["inside"] is False and rec["reached"] and not fake.fired, rec
+    assert (rec["boxed"], rec["box_waits"], rec["waits"], rec["pushes"], rec["boxers"]) == (False, 0, 0, 0, []), rec
+    assert rec["held_by"] == "bodies" and [(o["uid"], o["moving"]) for o in rec["pinned"]] == [(7, False)], rec
+    assert len(sent) <= 3, f"no waiting, stepping or pushing: {sent}"
+    assert D.failure(rec) == "miss", rec
+
+
+def test_standing_in_a_dead_zone_is_a_miss_whatever_held_him_on_the_way(game):
+    """The story has shut the door (the zone is there, nothing fires). A child held on him on the door step is stepped
+    away from, the finish presses into the zone, and he stands IN it with nothing fired: a MISS, REAL, exactly as
+    before -- whatever the walk met on the way. Nothing holds him short of a zone he stands in: ``held_by`` None,
+    ``pinned`` empty."""
+    D = _tour_module()
+    fake = _door_fake(game)
+    fake.regions = {}
+    kid = _door_kid(6, "into him")
+    with session(game, fake) as g:
+        _door_start(g, fake, [kid])
+        g.ROUTE_WALKER_BUDGET = 240
+        stood = _step_in_front(g, _door_step_up(kid, "into him"), past=440)
+        rec = _cross_the_door(g)
+        assert stood, "premise: the child walked into him"
+    assert rec["box_cleared"] >= 1, f"premise: the child held him on the way ({rec})"
+    assert rec["inside"] is True and rec["landed"] is None and not fake.fired, rec
+    assert rec["held_by"] is None and rec["pinned"] == [], rec
+    assert D.failure(rec) == "miss", rec
+
+
+def test_the_tour_reads_a_walk_held_short_of_the_zone_by_walkers_as_live():
+    """The strike rule, record by record: short of the zone with walkers in the way to a spot of it he could have
+    entered with them gone (``held_by`` walkers) is the village, LIVE; held by a body that does not walk, or by nothing
+    published (the door's geometry:
+    350's door to 353, standable only in a 34u wedge), a MISS as before -- waits on the way or not, since the walk came
+    within tolerance; standing IN the zone, a MISS whatever held him; walkers that outlasted the wait, LIVE."""
+    D = _tour_module()
+    short = {"boxed": False, "boxed_by": None, "reached": True, "inside": False, "during": None, "route": 2,
+             "waits": 0, "pushes": 0, "blockers": [], "frozen": False, "npc_replans": 0, "box_waits": 0,
+             "held_by": None, "pinned": []}
+    assert D.failure(dict(short, held_by="walkers", pinned=[(13, "body", True)])) == "live"
+    assert D.failure(dict(short, held_by="bodies", pinned=[(7, "body", False)])) == "miss"
+    assert D.failure(short) == "miss"                                                   # the spot
+    assert D.failure(dict(short, waits=2, npc_replans=2)) == "miss"                 # session 3's 353 wedge, as before
+    assert D.failure(dict(short, inside=True, box_waits=4, box_cleared=1)) == "miss"    # in the zone, nothing fired
+    assert D.failure(dict(short, boxed=True, boxed_by="walkers", held_by="walkers")) == "live"
+    assert D.failure(dict(short, held_by="walkers", error="crossing ... never became playable")) == "miss"
+
+
+# ---- the door step, judged PER CAUSE: a walker counts at the zone's edge only where it is what keeps him out -- in the
+# way to a spot of the zone he could get into with every walker gone (Session._short_of_zone). A door dead by its own
+# geometry, or held shut by a villager who never walks, is the door's REAL miss however many walkers pace nearby: read
+# as the village it was three LIVE attempts and a replay retried without end, where two strikes break a dead door. And
+# the record is the finish's own verdict, never a second look taken after the walk toward another point.
+
+_DEAD = _rect(530, -40, 600, 40)        # wholly inside the east wall's 80u clearance: nowhere his centre can stand in it
+
+
+def _pacer(uid, x=600.0, z=180.0, beat=60.0):
+    """A villager pacing a short beat at 1u a frame, from (x, z) ``beat`` north and back: near the door step, never in
+    contact with him there, never across the way in."""
+    return _villager(x, z, uid=uid, path=[(x, z), (x, z + beat)], speed=1.0)
+
+
+@pytest.mark.parametrize("walker", ["paces a beat nearby", "is held on him from the door's side"])
+def test_a_dead_door_is_the_doors_miss_whatever_walker_is_about(game, walker):
+    """The zone lies wholly inside the wall's clearance (the fake's floor walled as the planner's is): there is no spot
+    in it his centre can stand, and a villager is about -- pacing a short beat 180-253u off the door step (the review's
+    probe: 6 of 6 runs LIVE), or walked into him from the north-east, the door's side, and held there in contact. With
+    every walker gone the door is no more his to enter, so no walker is the cause: the finish ends short of the zone
+    at once -- no wait, no step -- and the tour strikes the door (REAL miss). ``held_by`` None, ``pinned`` empty: the
+    finish's own verdict (a look taken again after the walk, toward another point, had named the pacer)."""
+    D = _tour_module()
+    fake = _door_fake(game)
+    fake.walkmesh, fake.clearance = _flat_bgi(), 80.0
+    fake.regions = {30820: [{"zone": _DEAD, "to": 30821, "arrive": (0, 0)}]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        g.ROUTE_WALKER_BUDGET = 120
+        if walker == "paces a beat nearby":
+            _stand(g, fake, 400, 0)
+            fake.blockers = {30820: [_pacer(5)]}
+            published(g, lambda s: s.objects and s.objects[0]["moving"])
+            stood = [(400.0, 0.0)]
+        else:
+            _stand(g, fake, 500, 0)
+            kid = _villager(908, 974, uid=5, path=[(908, 974), (907, 972)], speed=0.01)   # parked on its line, at him
+            fake.blockers = {30820: [kid]}
+            published(g, lambda s: s.objects and s.objects[0]["moving"])
+            stood = _step_in_front(g, (kid, (60, 143), [(60, 143), (-366, -872)], 3.0), past=440)
+        t0 = time.time()
+        rec = g.route_cross(540.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), unstick=True, zone=_DEAD, smooth=True,
+                            npcs=True, timeout=3)
+        assert stood and time.time() - t0 < 30, "bounded"
+    assert rec["landed"] is None and rec["inside"] is False and rec["reached"] and not fake.fired, rec
+    assert (rec["boxed"], rec["box_waits"], rec["box_cleared"], rec["boxers"]) == (False, 0, 0, []), rec
+    assert (rec["held_by"], rec["pinned"]) == (None, []), rec
+    assert D.failure(rec) == "miss", rec
+
+
+def test_a_still_villager_in_the_doorway_is_the_doors_miss_with_a_walker_pacing_nearby(game):
+    """A villager who never walks stands in the doorway against him, over the zone's whole standable strip within
+    reach, and another paces a short beat ~200u off the door's axis (the review's probe: LIVE in 4 of 6 runs). The still
+    one keeps him out, and would with every walker gone: nothing is waited on, and it is the door's MISS -- the record
+    naming the still body alone (``held_by`` "bodies"), never the pacer."""
+    D = _tour_module()
+    fake = _door_fake(game)
+    with session(game, fake) as g:
+        _door_start(g, fake, [_creeping(4), _pacer(9, z=200.0)])
+        g.ROUTE_WALKER_BUDGET = 120
+        settle, placed = g.settle, []
+
+        def settle_then_stand_there(*a, **kw):
+            st = settle(*a, **kw)
+            if not placed and st.player_x is not None and st.control:
+                placed.append((st.player_x, st.player_z))
+                fake.blockers[30820].append(_villager(st.player_x + 155, st.player_z, uid=7))
+                return published(g, lambda s: s.objects and any(o["uid"] == 7 for o in s.objects))
+            return st
+        g.settle = settle_then_stand_there
+        t0 = time.time()
+        rec = _cross_the_door(g)
+        assert placed and time.time() - t0 < 30, "bounded"
+    assert rec["landed"] is None and rec["inside"] is False and rec["reached"] and not fake.fired, rec
+    assert (rec["boxed"], rec["box_waits"], rec["boxers"]) == (False, 0, []), rec
+    assert rec["held_by"] == "bodies" and [(o["uid"], o["moving"]) for o in rec["pinned"]] == [(7, False)], rec
+    assert D.failure(rec) == "miss", rec
+
+
+def test_an_end_of_the_finish_that_pressed_nothing_is_judged_like_any_other(game):
+    """No hold left to press (ROUTE_HOLDS spent -- here none at all): the finish ends where it stands, 34u short of the
+    door, as a child steps up across the way in. That end is judged as every other end of the finish is -- the child
+    stands in the way to a spot of the zone he could enter with it gone -- so it is waited on until it has walked on
+    (``box_waits``, named in ``boxers``), never recorded as holding him without a wait (a LIVE for nothing) nor left
+    unasked (a door's MISS for the village's doing). After it has gone nothing stands in the way, and the end is the
+    door's: ``held_by`` None, a MISS -- no hold was pressed at all."""
+    D = _tour_module()
+    fake = _door_fake(game)
+    kid = _door_kid(4, "on")
+    with session(game, fake) as g:
+        _door_start(g, fake, [kid])
+        g.ROUTE_HOLDS = 0
+        stood = _step_in_front(g, _door_step_up(kid, "on"), past=440)
+        rec = _cross_the_door(g)
+        assert stood, "premise: the child stepped up on the door step"
+    assert rec["landed"] is None and rec["inside"] is False and not fake.fired, rec
+    assert rec["box_waits"] >= 1 and (4, "body", True) in [(o["uid"], o["kind"], o["moving"])
+                                                           for o in rec["boxers"]], rec
+    assert (rec["held_by"], rec["pinned"]) == (None, []), rec
+    assert D.failure(rec) == "miss", rec
+
+
+def test_a_walker_pacing_a_short_beat_beside_him_is_never_held_on_him(game):
+    """A villager 206u off him paces to and fro, and every read finds it 12u from the last -- across a turn of its beat,
+    back where it stood: within one of its own steps of contact (a step is judged at 2 * RUN_SPEED at the least), and
+    never ROUTE_NPC_MOVED from where it was first seen, so read end to end it has "not moved" in ROUTE_WALKER_HELD
+    frames. It walked all that while -- the engine never undid a step of it (MoveToward.cs:187-189) -- so it is not
+    held on him, and he is never stepped away from it (the review's pacer, on a 60u beat, read as held at a turn and had
+    him stepped 210u off the door, twice). What moved is summed read to read. Its reads are placed by hand: a pacer
+    walked by the fake is read at a cadence its own period can alias, and the test would be a coin toss."""
+    fake = FakeGame(game, walkmesh=(-1000, -1000, 1000, 1000))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        pacer = _villager(0, 206, uid=5, path=[(0, 206), (0, 9000)], speed=0.001)     # published moving; placed below
+        leg, watch = _box_leg(g, fake, [pacer])
+        basis, since = g._axes[30820], {}
+        frame0 = g.state.frame
+        for k in range(16):
+            z = (206.0, 218.0, 206.0, 194.0)[k % 4]
+            pacer["z"] = z
+            g._npc_view(watch, published(g, lambda s, z=z: s.objects and abs(s.objects[0]["z"] - z) < 0.5))
+            assert not g._box_step(basis, leg, since), f"stepped out of the way of a pacer (read {k}, z {z})"
+            g.wait_frames(8)
+        assert g.state.frame - frame0 >= 4 * g.ROUTE_WALKER_HELD, "premise: read over several ROUTE_WALKER_HELD spans"
+
+
 # ---- Tour.replay (rung-3 predictions v2): session 2's sides walked Dali in different ORDERS -- every stock run boxed at
 # 350 -> 355 and saw 355 after 450, every F0 run crossed it first -- and SByte[296] wrote the order into the trace. An F0
 # run now walks its stock partner's ENTERED walk step for step, under the tour's own crossing call and strike rules,
@@ -5270,6 +5601,42 @@ def test_after_the_whole_walk_the_run_tours_blind_on_the_budget_left(game, monke
     assert [x["n"] for x in cross] == list(range(1, len(cross) + 1)), cross
     assert stop == f"SC left 2600: now 2610 in field {_C} (pass 1, crossing {len(cross)})", stop
     assert cross[-1]["entered"] == _C and fake.fired[-1]["to"] == _C
+
+
+@pytest.mark.parametrize("leg", ["replay", "tour"])
+@pytest.mark.parametrize("kid_walks", ["on", "into him"])
+def test_a_door_a_walker_held_him_at_is_crossed_by_the_tour_and_the_replay_alike(game, monkeypatch, leg, kid_walks):
+    """Session 3's stock run, through the tour's own crossing call (Tour._cross -- the one route_cross call the tour and
+    the replay both make): on A's door step a child steps up against him and walks on, or walks into him and is held
+    there. The crossing used to come back a MISS, a REAL strike (two made the door unreachable). Now the walker is
+    waited on or stepped away from and the door is crossed: no strike, and the replay's step is replayed as the tour's
+    is crossed. A's east door: its goal 4u inside the zone, he 34u short of it."""
+    fake, tour, D = _replay_world(game, monkeypatch)
+    fake.advance = (_B, 2610)
+    door = _rect(400, -40, 600, 40)                    # A's east door, 80u wide: the child covers its standable patch
+    fake.regions[_A][0]["zone"] = door
+    tour._gates[_A] = [(_B, 0, door), (_C, 0, _WEST)]
+    tour.goal_for = lambda fid, i: (404, 0) if (fid, i) == (_A, 0) else D.Tour.goal_for(tour, fid, i)
+    kid = _door_kid(6, kid_walks, at=(525.0, 0.0))
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        _stand(g, fake, 370, 0)
+        fake.blockers = {_A: [kid]}
+        published(g, lambda s: s.objects and s.objects[0]["moving"])
+        g.ROUTE_NPC_REPLANS = 0
+        g.ROUTE_WALKER_BUDGET = 240
+        stood = _step_in_front(g, _door_step_up(kid, kid_walks), past=360)
+        if leg == "replay":
+            stop = tour.replay(g, log, [[_A, 0, _B]], beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+        else:
+            stop = tour.run(g, log, beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    assert stood, "premise: the child stepped up on the door step"
+    first = [x for x in log if x["k"] == "cross"][0]
+    assert first["entered"] == _B and first["verdict"] == ("replayed" if leg == "replay" else "crossed"), first
+    assert first["box_cleared"] >= 1 and 6 in [uid for uid, _kind, _moving in first["boxers"]], first
+    assert (first["held_by"], first["pinned"]) == (None, []), first
+    assert stop.startswith(f"SC left 2600: now 2610 in field {_B}"), stop
+    assert [f["to"] for f in fake.fired] == [_B], fake.fired
 
 
 def test_a_walk_reads_off_any_log_the_tour_wrote():

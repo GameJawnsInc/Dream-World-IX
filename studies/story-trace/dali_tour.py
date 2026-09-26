@@ -136,7 +136,17 @@ def failure(rec: dict) -> str:
     BOXED is the SPOT, and only the spot (route_to's ``boxed_by`` "spot": no press keeps the rules, and no walker's
     going would change that). A box walkers let go of is never ``boxed`` at all, so it strikes nothing: the walk goes
     on, and its end is judged like any other; one they held past route_to's wait (``boxed_by`` "walkers": villagers
-    that walked onto him and stayed) is the village in the way, LIVE."""
+    that walked onto him and stayed) is the village in the way, LIVE.
+
+    HELD SHORT OF THE ZONE BY WALKERS is the village too (rung-3 session 3, stock 350's door to 355, both attempts of
+    the stock run: a Dali child held on him on the door step, between him and the zone's one standable patch -- each
+    a REAL miss, and the two made 355 unreachable to a run that never saw it). route_to now waits on such a walker at
+    the zone's edge, and steps out of its way, as anywhere else -- but only one that is the CAUSE: standing in the way
+    to a spot of the zone he could get into with every walker gone (Session._short_of_zone). A walk the finish ended
+    outside the zone with walkers so in the way (``held_by`` "walkers", the bodies in ``pinned``: the finish's own
+    verdict, as it judged it) is LIVE. A door no walker's going would open -- dead by its own geometry (``held_by``
+    None), or held shut by a body that does not walk (``held_by`` "bodies") -- is what it was, a MISS, however many
+    walkers pace nearby: that body is not leaving, and the door's own geometry is the door's."""
     if rec.get("landed") is not None:
         return "bounce"
     if rec.get("blocked"):
@@ -147,6 +157,8 @@ def failure(rec: dict) -> str:
         return "live" if rec.get("npc_waits") or rec.get("boxed_by") == "walkers" else "boxed"
     if rec.get("inside"):
         return "miss"
+    if "error" not in rec and rec.get("during") is None and rec.get("held_by") == "walkers":
+        return "live"
     if ("error" not in rec and rec.get("during") is None and not rec.get("reached")
             and (rec.get("waits") or rec.get("pushes") or rec.get("blockers") or rec.get("frozen")
                  or rec.get("npc_replans") or rec.get("box_waits"))):
@@ -393,7 +405,8 @@ class Tour:
                        through=[o["uid"] for o in r["through"]],
                        sealed=[(o["uid"], o["moving"]) for o in r["sealed"]], npc_replans=r["npc_replans"],
                        npc_waits=r["npc_waits"], box_waits=r["box_waits"], box_cleared=r["box_cleared"],
-                       boxers=[(o["uid"], o["kind"], o["moving"]) for o in r["boxers"]])
+                       boxers=[(o["uid"], o["kind"], o["moving"]) for o in r["boxers"]],
+                       held_by=r["held_by"], pinned=[(o["uid"], o["kind"], o["moving"]) for o in r["pinned"]])
         except HarnessError as err:
             rec.update(landed=None, error=str(err)[:200])
         settle(g, log, f"after crossing {rec['n']}", self.say)
