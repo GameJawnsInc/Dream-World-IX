@@ -151,6 +151,50 @@ def test_route_without_avoid_is_unchanged():
     assert P._free(ROOM, 0, 0, [], cam.COLLISION_RADIUS_W, 192.0)
 
 
+def test_an_obstacle_may_carry_its_own_radius():
+    """``(x, z, r)`` is kept its own ``r`` clear, a bare ``(x, z)`` still ``obstacle_r`` -- the harness plans the
+    engine's published objects, whose collision radii differ, in the same call as its unseen blockers
+    (``Session.route_to(npcs=True)``)."""
+    from ff9mapkit.scene import routes
+    start, goal = (-700, 0), (700, 0)
+    assert P.route(ROOM, start, goal, [(0, 300)]) == [(700, 0)]          # 300 > obstacle_r 192: straight on
+    assert P.route(ROOM, start, goal, [(0, 300, 280)]) == [(700, 0)]
+    for obstacles in ([(0, 300, 320)], [(0, 300, 320), (0, -700)]):
+        wps = P.route_avoiding(ROOM, start, goal, [], obstacles=obstacles)
+        pts = [start] + [tuple(w) for w in wps]
+        assert len(wps) > 1 and all(routes.seg_dist_xz(0, 300, a, b) >= 320 - 1e-6 for a, b in zip(pts, pts[1:]))
+    assert not P._free(ROOM, 0, 0, [(0, 300, 320)], cam.COLLISION_RADIUS_W, 192.0)
+    assert P._free(ROOM, 0, 0, [(0, 300)], cam.COLLISION_RADIUS_W, 192.0)
+
+
+
+def test_a_memo_answers_the_floor_once_for_every_route_from_one_start():
+    """``memo`` (route_avoiding): several routes planned from ONE start -- other obstacle sets, as the harness plans a
+    field's published objects tier by tier -- share the grid's cell centres, so each point's floor and wall answer is
+    asked of the walkmesh once. The routes are the same with it as without; a second plan from that start asks the
+    walkmesh nothing new; and a plan from another start keeps its own answers (on a PlayerWalkmesh the view differs by
+    start)."""
+    asked = []
+
+    class Counted:
+        def point_on_walkmesh(self, x, z):
+            asked.append(("on", x, z))
+            return ROOM.point_on_walkmesh(x, z)
+
+        def distance_to_boundary(self, x, z):
+            asked.append(("wall", x, z))
+            return ROOM.distance_to_boundary(x, z)
+    door = _rect(-150, -150, 150, 150)
+    start, goal = (-700, 0), (700, 0)
+    memo: dict = {}
+    for obstacles in ([], [(0, 400, 300)], [(0, -400, 300), (0, 400, 300)]):
+        assert P.route_avoiding(Counted(), start, goal, [door], 56, obstacles=obstacles, memo=memo) ==             P.route_avoiding(ROOM, start, goal, [door], 56, obstacles=obstacles)
+    asked.clear()
+    P.route_avoiding(Counted(), start, goal, [door], 56, obstacles=[(0, 400, 300)], memo=memo)
+    assert asked == [], asked[:5]
+    P.route_avoiding(Counted(), (-700, 100), goal, [door], 56, memo=memo)
+    assert asked and set(memo) == {(-700.0, 0.0), (-700.0, 100.0)}
+
 def test_region_goal_is_inside_the_region_and_standable():
     door = _rect(800, -200, 1200, 200)                       # straddles the room's east edge (x = 1000)
     g = P.region_goal(ROOM, door)

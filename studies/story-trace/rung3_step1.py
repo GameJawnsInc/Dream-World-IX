@@ -71,6 +71,19 @@ and every line within the calibrated basis's heading error of it -- stays clear 
 the leg still to walk. And the zone goes with it: the last leg finishes IN the exit's zone (its nearest spot
 where his centre can stand), not within a walk frame of a goal point that may lie outside what he can reach.
 
+THE ROUTER SEES THE VILLAGERS (the owner: other maps may not be as forgiving as this one -- a body found only by
+bumping into it can be a true movement lock). Every crossing is route_cross(npcs=True): the live engine publishes
+the field's objects (memoria-patch s89, deployed), so each villager is an obstacle of its own collision radius in the
+same plan the other exits are kept out of, and each contact trigger (an entry's Range: 350's Vivi warps the run to
+358 from 314u) is kept out of like an exit zone -- entered only when no route stays clear, and then logged. A
+non-solid villager is pushed through only when no route goes round; a solid one never, and solids that seal every
+way are BLOCKED (a REAL failure -- unless a sealing solid is itself walking: that is the village, LIVE). A villager
+walking onto the path re-plans the route, a bounded number of times, and a WALKING trigger is waited for until it
+has gone by -- a walk that waited on walkers and then found nothing it could press is LIVE too, not BOXED. Per
+crossing the log names the objects avoided, the trigger radii entered (a Range that reached him as control went
+included), the bodies pushed through, the movement re-plans and the waits for walkers (``npcs`` says whether the
+engine listed its objects at all: "cannot" on an engine without s89, where the walk is the blind unstick one above).
+
 S1-SEGMENT  the scripted segment hands control back in 352 at SC 2600
 S1-TOUR     the tour ran: crossings attempted / landed, the fields reached, the stop reason
 S1-PING     the premise: a script write Bit[2102] := 1 in field 450 -- and the WRITERS of 2102 := 1 are only 450
@@ -214,20 +227,24 @@ def settle(g, log, why: str) -> None:
 def failure(rec: dict) -> str:
     """What a crossing that did not land where its exit leads was, by the module docstring's strike rule:
     "bounce", "no route", "blocked", "boxed" or "miss" (REAL: they strike the exit), or "live" (the village was
-    in the way: a stall with control held that the walk waited on, pushed or routed round, ending short OUTSIDE
-    the zone). Standing inside the zone with nothing fired is a miss whatever the walk met on the way."""
+    in the way: a stall with control held that the walk waited on, pushed or routed round, or a villager walking
+    onto the path, ending short OUTSIDE the zone; published solids sealing the way while one of them walks; or a
+    walk that waited on walking triggers and was then left with nothing it could press). Standing inside the zone
+    with nothing fired is a miss whatever the walk met on the way. A seal by published solids has no route either,
+    and is BLOCKED, not NO ROUTE: the walls and zones alone had one."""
     if rec.get("landed") is not None:
         return "bounce"
+    if rec.get("blocked"):
+        return "live" if any(moving for _uid, moving in rec.get("sealed") or ()) else "blocked"
     if "route" in rec and rec["route"] is None:
         return "no route"
-    if rec.get("blocked"):
-        return "blocked"
     if rec.get("boxed"):
-        return "boxed"
+        return "live" if rec.get("npc_waits") else "boxed"
     if rec.get("inside"):
         return "miss"
     if ("error" not in rec and rec.get("during") is None and not rec.get("reached")
-            and (rec.get("waits") or rec.get("pushes") or rec.get("blockers") or rec.get("frozen"))):
+            and (rec.get("waits") or rec.get("pushes") or rec.get("blockers") or rec.get("frozen")
+                 or rec.get("npc_replans"))):
         return "live"
     return "miss"
 
@@ -298,13 +315,18 @@ def tour(g, log) -> str:
                 continue
             try:
                 r = g.route_cross(goal[0], goal[1], avoid=avoid_for(f, zone), margin=MARGIN, timeout=20,
-                                  walkmesh=floor(f), unstick=True, zone=zone, smooth=True)
+                                  walkmesh=floor(f), unstick=True, zone=zone, smooth=True, npcs=True)
                 rec.update(landed=r["landed"], reached=r["reached"], inside=r["inside"],
                            travelled=round(r["travelled"]), during=r["during"], replans=r["replans"],
                            route=len(r["waypoints"]) if r["waypoints"] is not None else None,
                            waits=r["waits"], cleared=r["cleared"], pushes=r["pushes"], pushed=r["pushed"],
                            blockers=r["blockers"], remembered=r["remembered"], blocked=r["blocked"],
-                           frozen=r["frozen"], boxed=r["boxed"])
+                           frozen=r["frozen"], boxed=r["boxed"], npcs=r["npcs"],
+                           avoided=[(o["uid"], o["kind"]) for o in r["avoided"]],
+                           entered=[(o["uid"], o["kind"], o["radius"]) for o in r["entered"]],
+                           through=[o["uid"] for o in r["through"]],
+                           sealed=[(o["uid"], o["moving"]) for o in r["sealed"]], npc_replans=r["npc_replans"],
+                           npc_waits=r["npc_waits"])
             except HarnessError as err:
                 rec.update(landed=None, error=str(err)[:200])
             settle(g, log, f"after crossing {n}")

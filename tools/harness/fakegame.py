@@ -4,7 +4,8 @@
 WHAT THIS PROVES, AND WHAT IT DOES NOT. It implements the s83 wire protocol -- sequence handling,
 the arm transition, frame-stepped queue draining, state publication, screenshots -- plus just enough
 of a world (a rectangular walkmesh, a run/walk speed, a gateway, a dialogue box, a menu cursor, a body
-standing in the way and the engine's walk-through-by-insisting, a freeze with control held) for the
+standing in the way and the engine's walk-through-by-insisting, the field's actors published as s89's
+``objects`` -- walkers and contact triggers included -- a freeze with control held) for the
 driver's closed-loop verbs to actually close their loops. A green run against it says the DRIVER is
 correct: seq numbers advance, acks belong to the request that earned them, torn reads are survived,
 timeouts fire, bad bases are rejected, artifacts land.
@@ -267,7 +268,31 @@ class FakeGame:
         #: -25 at 25, and the push-out is off until it counts back to 0 -- so one unbroken hold walks
         #: through him, and bursts with a pause between never do. Counted here in MovePC calls: a
         #: running frame is one (two 30u calls a tick, two frames a tick), a walking or idle frame half.
-        self.blockers: dict[int, list[tuple]] = {}
+        #:
+        #: A body may also be a DICT -- the s89 object it models, published under ``objects`` (see
+        #: `objects_mode`): ``{"x", "z", "r"}`` and optionally ``"y"`` (it collides only while |dy| < 400,
+        #: WalkMesh.cs:922), ``"solid"``, ``"coll"`` (False: walk-through), ``"uid"`` / ``"sid"`` (default
+        #: 128 + / 10 + its index), ``"shown"``; ``"range_r"`` -- a CONTACT trigger: with control, standing
+        #: still or not, his centre inside it fires the entry's Range (CollisionRequest, every tick; logged
+        #: in `touched`; only while ``coll``, as mode 2 keeps the pair rule), and with ``"talk_r"`` too it
+        #: also fires inside that while he faces it; ``"to"`` / ``"arrive"`` make that Range a warp (stock
+        #: 350's Vivi sends the run to 358); and ``"path"`` [(x, z), ...] with ``"speed"`` (u/frame) makes
+        #: it a WALKER, back and forth along the path (``"once"``: to its end, then it stands), published
+        #: ``moving`` -- and held while its next step would come within ``r`` of him (MoveToward stops on
+        #: the player), still ``moving``.
+        self.blockers: dict[int, list] = {}
+        #: What `objects` / `pushout` publish: "listed" (the s89 agent: the list on a field, null off
+        #: one), "null" (an agent that could not walk the list -- never a partial one) or "absent" (an
+        #: engine without s89: no key at all).
+        self.objects_mode = "listed"
+        #: Every contact trigger that fired: ``{"frame", "field", "uid", "kind" ("range" / "talk"),
+        #: "executed"}`` -- once per entry into its radius.
+        self.touched: list[dict] = []
+        #: Every step that met a body -- the push-out ran, or the step was refused: ``{"frame", "uid"}``.
+        #: A router that sees the bodies should leave this empty.
+        self.contacts: list[dict] = []
+        self._in_trigger: set = set()             # (field, body index) whose trigger he stands in
+        self._facing = (0.0, 1.0)                 # the direction last pressed (the talk search wants +-90 deg)
         self._lock = 0.0                          # EventEngine.sLockTimer
         self._lock_free = 1                       # sLockFree: 0 while the last body touched is solid
         self._coll = 0                            # SCollTimer, in frames (2 ticks after a push-out)
@@ -516,6 +541,7 @@ class FakeGame:
             self.ui_state = "FieldHUD"
             self.control = True
             self.player = [0.0, 0.0, 0.0]
+            self._in_trigger.clear()           # a new visit: a trigger he lands in fires afresh
             self._exit = None                  # a warp outruns any exit still fading
             self._frozen_until = 0             # ...and any freeze
             self._lock, self._coll = 0.0, 0
@@ -643,8 +669,17 @@ class FakeGame:
             self._step_exit_now()
         if self._coll > 0:
             self._coll -= 1                     # ProcessEvents counts SCollTimer down every tick
-        if self.ui_state != "FieldHUD" or not self.control:
+        if self.ui_state != "FieldHUD":
             return
+        self._step_walkers()
+        if not self.control:
+            return
+        self._step_player()
+        if self.control:
+            self._fire_contacts()               # CollisionRequest: every tick he has control, moving or not
+
+    def _step_player(self) -> None:
+        """The controlled player's frame: the pad, the push-out, the floor, the regions (see _step_world)."""
         if self.frame < self._frozen_until:
             self._coast = None                  # MovePC returns before it moves anyone
             return
@@ -704,16 +739,22 @@ class FakeGame:
         """One frame's step to (x, z), worth ``calls`` MovePC calls: kept on the floor (`walkmesh`), and --
         while sLockTimer is not negative -- pushed out of a body it enters that is in front of him (see
         `blockers`), refused (False, he stays put) when the push-out lands in another. Then the lock's
-        count for the frame (CheckCollFallback)."""
+        count for the frame (CheckCollFallback). Only a body that collides is met: ``coll``, and within
+        400 of him in y (WalkMesh.Collision's pair rule and its |dy| band)."""
         ox, oz = self.player[0], self.player[2]
-        bodies = self.blockers.get(self.field_id, ())
+        if (x, z) != (ox, oz):
+            m = ((x - ox) ** 2 + (z - oz) ** 2) ** 0.5
+            self._facing = ((x - ox) / m, (z - oz) / m)
+        bodies = [(d["x"], d["z"], d["r"], bool(d.get("solid")), i) for i, d in self._bodies()
+                  if d.get("coll", True) and abs(float(d.get("y", 0.0)) - self.player[1]) < 400]
         pushed = False
         for b in bodies:
             bx, bz, r = b[0], b[1], b[2]
             d = ((x - bx) ** 2 + (z - bz) ** 2) ** 0.5
             if d >= r:
                 continue
-            self._lock_free = 0 if len(b) > 3 and b[3] else 1
+            self.contacts.append({"frame": self.frame, "uid": self._uid(b[4])})
+            self._lock_free = 0 if b[3] else 1
             if not self._lock_free:
                 self._lock = 0.0
             # facing = the step (the engine lerps toward it); the push-out wants the body within +-90 deg
@@ -787,6 +828,101 @@ class FakeGame:
         else:
             self._lock = min(0.0, self._lock + calls)
 
+    # -- the field's other actors (s89) ---------------------------------------------------------
+    def _bodies(self) -> list:
+        """This field's `blockers` as ``(index, dict)`` -- a tuple is ``(x, z, r[, solid])``."""
+        out = []
+        for i, b in enumerate(self.blockers.get(self.field_id, ())):
+            if not isinstance(b, dict):
+                b = {"x": b[0], "z": b[1], "r": b[2], "solid": len(b) > 3 and bool(b[3])}
+            out.append((i, b))
+        return out
+
+    def _uid(self, i: int) -> int:
+        b = self.blockers.get(self.field_id, ())[i]
+        return int(b.get("uid", 128 + i)) if isinstance(b, dict) else 128 + i
+
+    @staticmethod
+    def _walking(b: dict) -> bool:
+        return bool(b.get("path")) and float(b.get("speed", 0)) > 0 and not b.get("_done")
+
+    def _step_walkers(self) -> None:
+        """Every walker (a body with a ``path``) one frame along it -- unless that step would bring it within ``r``
+        of the player, where it waits, still moving (MoveToward.cs:187-189)."""
+        for _i, b in self._bodies():
+            if not self._walking(b):
+                continue
+            path = b["path"]
+            k = b.setdefault("_k", 1 if len(path) > 1 else 0)
+            tx, tz = path[k]
+            dx, dz = tx - b["x"], tz - b["z"]
+            dist = (dx * dx + dz * dz) ** 0.5
+            step = min(float(b["speed"]), dist)
+            nx, nz = (b["x"] + dx / dist * step, b["z"] + dz / dist * step) if dist > 0 else (tx, tz)
+            px, pz = self.player[0], self.player[2]
+            near = ((nx - px) ** 2 + (nz - pz) ** 2) ** 0.5
+            if near < b["r"] and near < ((b["x"] - px) ** 2 + (b["z"] - pz) ** 2) ** 0.5:
+                continue                                   # held by him
+            b["x"], b["z"] = nx, nz
+            if step < dist:
+                continue
+            if len(path) < 2 or (b.get("once") and k == len(path) - 1):
+                b["_done"] = True
+                continue
+            way = b.setdefault("_way", 1)
+            if not 0 <= k + way < len(path):
+                way = b["_way"] = -way
+            b["_k"] = k + way
+
+    def _fire_contacts(self) -> None:
+        """CollisionRequest, modelled for the triggers it can fire: his centre inside a body's ``range_r`` (the
+        mode-2 search: the pair rule, so only while ``coll``; |dy| < 400), or -- for an entry with both
+        functions -- inside ``talk_r`` while he faces it (+-90 degrees). Logged once per entry into the radius
+        (`touched`); a ``"to"`` makes it an ExitField, control taken now and the field changed a fade later."""
+        px, pz = self.player[0], self.player[2]
+        for i, b in self._bodies():
+            rr, tr = b.get("range_r"), b.get("talk_r")
+            if rr is None or abs(float(b.get("y", 0.0)) - self.player[1]) >= 400:
+                continue
+            dx, dz = b["x"] - px, b["z"] - pz
+            dist = (dx * dx + dz * dz) ** 0.5
+            kind = "range" if b.get("coll", True) and dist < rr else None
+            if kind is None and tr is not None and dist < tr and dx * self._facing[0] + dz * self._facing[1] > 0:
+                kind = "talk"
+            key = (self.field_id, i)
+            if kind is None:
+                self._in_trigger.discard(key)
+                continue
+            if key in self._in_trigger:
+                continue
+            self._in_trigger.add(key)
+            self.touched.append({"frame": self.frame, "field": self.field_id, "uid": self._uid(i), "kind": kind,
+                                 "executed": len(self.executed)})
+            if b.get("to") is not None and self._exit is None:
+                self.control = False
+                self._coast = None
+                self._exit = (self.frame + self.exit_frames, int(b["to"]), tuple(b.get("arrive", (0, 0))))
+                if self.exit_frames <= 0:
+                    self._step_exit_now()
+                return
+
+    def _objects_doc(self) -> list:
+        """``objects`` as the s89 agent publishes it, for this field's bodies."""
+        out = []
+        for i, b in self._bodies():
+            coll = bool(b.get("coll", True))
+            rr, tr = b.get("range_r"), b.get("talk_r")
+            shown = bool(b.get("shown", True))
+            out.append({"uid": self._uid(i), "sid": int(b.get("sid", 10 + i)),
+                        "x": float(b["x"]), "y": float(b.get("y", 0.0)), "z": float(b["z"]),
+                        "range": rr is not None, "talk": tr is not None,
+                        "r": float(b["r"]), "solid": coll and bool(b.get("solid")), "coll": coll,
+                        "range_r": float(rr) if rr is not None and coll else None,
+                        "talk_r": float(tr) if tr is not None else None,
+                        "shown": shown, "moving": self._walking(b),
+                        "flags": (1 if shown else 0) | (0 if coll else 14) | (16 if b.get("solid") else 0)})
+        return out
+
     def _enter_freezes(self) -> None:
         """A step into one of this field's `freezes` zones holds movement from the next frame on."""
         x, z = self.player[0], self.player[2]
@@ -819,6 +955,7 @@ class FakeGame:
         self._exit = None
         self.field_id = dest
         self.player = [float(arrive[0]), 0.0, float(arrive[1])]
+        self._in_trigger.clear()
         self._coast = None
         self.control = True
 
@@ -1014,6 +1151,12 @@ class FakeGame:
         if self.storytrace_proto is not None:
             doc["storytrace"] = {"proto": self.storytrace_proto, "on": self.story_on,
                                  "rows": self.story_rows, "suppressed": 0, "error": self.story_error}
+        if self.objects_mode != "absent":
+            # s89: both null off a field or on any failure, never a partial list
+            listed = self.objects_mode == "listed" and self.ui_state == "FieldHUD"
+            doc["objects"] = self._objects_doc() if listed else None
+            doc["pushout"] = ({"slock": int(self._lock), "scoll": int(self._coll), "slockfree": int(self._lock_free),
+                               "fallback": True} if listed else None)
         if self._publish_stalls:
             _publish_in_place(self.dir / "state.json", json.dumps(doc),
                               stall=self._publish_stalls.pop(0), began=self.stalling,

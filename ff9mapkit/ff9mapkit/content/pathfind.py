@@ -166,9 +166,9 @@ def _free(wmesh, x, z, obstacles, clearance, obstacle_r, avoid=()) -> bool:
         d = wmesh.distance_to_boundary(int(round(x)), int(round(z)))
         if d is not None and d < clearance:
             return False
-    r2 = obstacle_r * obstacle_r
-    for ox, oz in obstacles:
-        if (x - ox) ** 2 + (z - oz) ** 2 < r2:
+    for o in obstacles:
+        r = o[2] if len(o) > 2 else obstacle_r
+        if (x - o[0]) ** 2 + (z - o[1]) ** 2 < r * r:
             return False
     return True
 
@@ -183,9 +183,10 @@ def _clear(wmesh, a, b, obstacles, clearance, obstacle_r, avoid=()) -> bool:
     Measured: the demo-room route pulled a leg passing 188.6u from a character centre (192 required)
     and the 80u-stepped sample walked straight over the 72u chord -- the router emitted a path its
     own validator then rejected. The mesh/wall half still samples, at the radius-independent
-    :data:`_MESH_STEP_W`. Keep-out polygons (``avoid``) are tested exactly too."""
-    for ox, oz in obstacles:
-        if _routes.seg_dist_xz(ox, oz, a, b) < obstacle_r:
+    :data:`_MESH_STEP_W`. Keep-out polygons (``avoid``) are tested exactly too. An obstacle is ``(x, z)``, kept
+    ``obstacle_r`` clear, or ``(x, z, r)``, a disc with its own radius (:func:`route`)."""
+    for o in obstacles:
+        if _routes.seg_dist_xz(o[0], o[1], a, b) < (o[2] if len(o) > 2 else obstacle_r):
             return False
     for k in avoid:
         if k.blocks_leg(a, b):
@@ -311,7 +312,8 @@ def route(wmesh, start, goal, obstacles=(), *, cell=64.0, clearance=None, obstac
 
     Returns the interior waypoints + the exact goal (EXCLUDING start), suitable as a ``path``. Stays on
     the walkmesh, >= ``clearance`` from walls, >= ``obstacle_r`` from each obstacle centre. ``obstacles``
-    is a list of (x, z) character centres. ``avoid`` is a list of :class:`Keepout` -- use
+    is a list of (x, z) character centres -- or of ``(x, z, r)`` discs, each kept its own ``r`` clear instead
+    (the harness's published field objects, whose collision radii differ). ``avoid`` is a list of :class:`Keepout` -- use
     :func:`route_avoiding`, which builds them (and exempts the region the walker starts in)."""
     clearance = cam.COLLISION_RADIUS_W if clearance is None else clearance
     obstacle_r = OBSTACLE_R_W if obstacle_r is None else obstacle_r
@@ -392,14 +394,38 @@ KEEPOUT_MARGIN_W = 56.0
 ROUTE_REFINES = 3
 
 
+class _Remembered:
+    """A walkmesh view whose two point queries -- all :func:`route` asks of it -- are remembered in ``memo`` by
+    integer point. The wall distance is the router's whole cost (see :func:`route`), and several routes from ONE
+    start share every grid cell centre (the grid is aligned on the start, each grain half the last), so a caller
+    planning the same floor several ways from where it stands pays for each point once (:func:`route_avoiding`
+    ``memo``)."""
+
+    def __init__(self, wmesh, memo: dict):
+        self.mesh, self.memo = wmesh, memo
+
+    def point_on_walkmesh(self, x, z):
+        key = ("on", x, z)
+        if key not in self.memo:
+            self.memo[key] = self.mesh.point_on_walkmesh(x, z)
+        return self.memo[key]
+
+    def distance_to_boundary(self, x, z):
+        key = ("wall", x, z)
+        if key not in self.memo:
+            self.memo[key] = self.mesh.distance_to_boundary(x, z)
+        return self.memo[key]
+
+
 def route_avoiding(wmesh, start, goal, avoid_polygons, margin: float = KEEPOUT_MARGIN_W, *,
-                   obstacles=(), cell=64.0, clearance=None, obstacle_r=None, max_expand=20000):
+                   obstacles=(), cell=64.0, clearance=None, obstacle_r=None, max_expand=20000, memo=None):
     """:func:`route` that also keeps out of every polygon in ``avoid_polygons`` (and ``margin`` around it).
 
     Returns the waypoints after ``start`` ending at the exact ``goal``, or ``None`` when no such route
     exists -- including when the goal itself lies in (or within the margin of) an avoided region.
-    ``obstacles`` (character centres, kept ``obstacle_r`` clear) are an ADDITIONAL constraint: they never
-    relax a keep-out -- a route that goes round one still stays out of every avoided region.
+    ``obstacles`` (character centres, kept ``obstacle_r`` clear, or ``(x, z, r)`` discs -- :func:`route`) are an
+    ADDITIONAL constraint: they never relax a keep-out -- a route that goes round one still stays out of every
+    avoided region.
 
     THE START IS EXEMPT, because the walker is where it is -- but only as far as it has to be. A polygon
     CONTAINING the start becomes a leaving :class:`Keepout`: the route may walk out of it once and never
@@ -413,11 +439,17 @@ def route_avoiding(wmesh, start, goal, avoid_polygons, margin: float = KEEPOUT_M
     unreachable.
 
     On a :class:`PlayerWalkmesh` the start is exempt from the closed triangles too: the strip he stands in is
-    open to him (:meth:`PlayerWalkmesh.standing_at`)."""
+    open to him (:meth:`PlayerWalkmesh.standing_at`).
+
+    ``memo`` (a dict the caller keeps, for one ``wmesh``) remembers the floor and wall answers across calls: a caller
+    that plans the same floor several ways -- other obstacle sets, other keep-outs -- from the same start pays for
+    each grid point once. Kept per start inside it, since the view differs by start (the opened strip)."""
     sx, sz = float(start[0]), float(start[1])
     gx, gz = float(goal[0]), float(goal[1])
     if isinstance(wmesh, PlayerWalkmesh):
         wmesh = wmesh.standing_at(sx, sz)
+    if memo is not None:
+        wmesh = _Remembered(wmesh, memo.setdefault((sx, sz), {}))
     keep = []
     for poly in avoid_polygons:
         gap = poly_gap(sx, sz, [(float(p[0]), float(p[1])) for p in poly])
