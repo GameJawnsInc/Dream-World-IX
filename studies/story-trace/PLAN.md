@@ -275,6 +275,42 @@ failures over all 13 runs) and NC-THROW passed.
 Next: the start-clearance fix (plan out of a spot tighter than the planning clearance, never deeper), then the
 session again for three covered runs a side.
 
+### Rung 3, the retrodiction -- session 2 (`story-rung3b`): 16/18; both misses are the walk's order, not the fork
+
+Ten runs, 7005s, against the same frozen predictions (sha 220532a8). Coverage: S 3 of 3, F0 3 of 4 (run 2 VOID:
+boxed among the walking Dali children after Vivi's scene, the story never moved; re-run 10 replaced it), F4 3 of 3.
+- **PASS:** the six pre-flight checks, P-FROZEN, R3-RUNS, R3-DONOR, R3-JOIN (0 failures), NC-THROW, and every
+  retrodiction claim at N = 3 -- R3-PING (`Bit[2102] := 1`, writers {450: 3}), R3-SEAM (every F0 run's first seam
+  `member(350) [30833] -> 450`, the ping reached only across it, no F0 donor writes it), R3-ADVANCE (F0 reached 2610
+  in the REAL 354 every run, F4 never), R3-LATCH (every hub-gated write STOCK ONLY for F4; the CLOBBER report
+  names byte 297), R3-PREEMPT (2064/2079/2075 stamped in every F4 member beside their stock writers).
+- **FAIL R3-NULL-PRE:** its claim held -- MISSING 0: all 171 keys stock writes before 450 in every run were
+  written by the members in every F0 run -- but its non-vacuity clause did not: 40 tour keys (want >= 60), none
+  from 355 or 356.
+- **FAIL R3-MIRROR:** FORK ONLY `355 e3 t0 +12 SByte[296] = -64`, `355 e18 t0 +383 Int16[241] = 12`; STOCK ONLY
+  `350 e2 t1 +12 / +49 SByte[296] = 1 / 2`, `356 e2 t1 +12 SByte[296] = 1`, `355 e18 t0 +383 Int16[241] = 8`.
+
+**The diagnosis (the traces, run by run): one cause -- the sides walked Dali in different orders.**
+- S#7 and F0#5/#8 crossed identically until 350 exit 4 (to 355). There all three stock runs came back `boxed`
+  (the children, the defect below) and went on to 450 first, seeing 355 only after it; all three F0 runs crossed
+  first time and saw 355 before the seam. (S#1 also missed 356 before 450.)
+- `SByte[296]` is a countdown the morning runs after the ping: 450 e19 sets it to 3, each room's controller
+  (tag 1, +12) steps it down on entry (350's re-arms it, +49), and the room that takes it to 0 does the flip
+  (`Int16[241]` 8 -> 32, 296 := -64). Which room writes which value IS the visit order after 450. `Int16[241]`
+  is order-carried the same way (450's Main_Init sets 12 -> 8; 355's +383 stores what it finds), and 355 e3's
+  same-value `-64` store runs only while the countdown is idle -- only when 355 comes before 450.
+- NULL-PRE's "before 450 in every stock run" lost 355 (after 450 in every stock run) and 356 (after it in S#1).
+- None of the six keys is a fork difference: each is a (state, order) pair both sides write under the same walk.
+  The registered verdict stays 16/18. What failed is the design's untested premise that both sides walk the same
+  route -- `dali_tour.py` said so in a docstring and nothing checked it. The within-side walks are not fixed
+  either (every stock run's room sequence differs), so noise was never the risk; a SYSTEMATIC side difference
+  (3 of 3 boxed vs 0 of 3) was, and pattern-level STOCK/FORK ONLY cannot tell that from a fork difference.
+
+Next: (1) a box whose rule-breakers are walking waits for them before it scores a strike; (2) take the order out
+of the comparison by construction -- each fork run REPLAYS its stock partner's landed crossings (same exits, same
+order, each retried until it lands, VOID if it cannot), then tours blind past the partner's advance -- registered as
+predictions v2 before session 3, the claims unchanged; (3) session 3.
+
 ## Rungs
 
 | Rung | What | Pass |
