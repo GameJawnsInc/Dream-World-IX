@@ -247,6 +247,34 @@ mostly clean plans round NPCs, one push-through, no bump loops.
 Next: the fork sides (F0 = the current import-chain output, which omits 450; F4 = the round-4 seed, with the
 297-clobber the research found) against this stock run -- the retrodiction itself.
 
+### Rung 3, the retrodiction -- session 1 (`story-rung3`, VOID by its own rule)
+
+The fork sides are deployed (F0 = today's import-chain, 30831-30841, 450 a seam from member(350); F4 = round 4
+exactly, 30842-30852 -- `rung3_forks.json`) and the nine-run session ran against the frozen predictions
+(`rung3_predictions.json`, sha 220532a8, recorded before run 1). Pre-flight passed on the live install (manifest,
+registrations, ForkDonorPatch, member floors = donor floors, exits, no stock overrides).
+
+**Round 1 was covered on every side (S#1, F0#2, F4#3); every later run was VOID** -- the scripted wake left
+Zidane at (-133, 847) in the inn room, 59u off the walkmesh edge, and the planner's fixed 80u wall clearance
+found no route out (the real player radius there is smaller). The VOID rule did its job: every retrodiction
+check reported VOID (1 of 3 covered runs a side), never a verdict it had not earned; R3-DONOR, R3-JOIN (0 join
+failures over all 13 runs) and NC-THROW passed.
+
+**An exploratory N=1 look at round 1 (NOT the registered verdict -- the analysis re-run with min_covered = 1):**
+- R3-PING: `Bit[2102] := 1` written by 450 alone.
+- R3-SEAM: F0's first seam `member(350) [30833] -> 450`; the ping reached only across it; no F0 donor writes it.
+- R3-ADVANCE: F0 reached 2610 in the REAL 354 (after the seam the morning plays in the real game); F4 never did.
+- R3-LATCH: for F4 every hub-gated write is STOCK ONLY (351's lobby 2064/2078, 450's 2086 := 0, 450 e19's
+  ping/296/2085, the controller's 2079/2075), and the CLOBBER report names byte 297.
+- R3-PREEMPT: 2064, 2079, 2075 stamped in every F4 member, beside the stock writers that set them later
+  (351 e16 +112; the 356 controller +222/+315).
+- R3-NULL-PRE / MIRROR: two STOCK ONLY keys, `359 e5 t17 +49 Byte[299] = 6 / 7` -- a villager's dialogue
+  timer that counts frames until Confirm (`while Byte[299] < 30 && !KEYON(Confirm): Byte[299]++`), i.e. input
+  timing, not a fork difference. N = 3 exists to turn exactly this into UNSTABLE rather than STOCK ONLY.
+
+Next: the start-clearance fix (plan out of a spot tighter than the planning clearance, never deeper), then the
+session again for three covered runs a side.
+
 ## Rungs
 
 | Rung | What | Pass |
