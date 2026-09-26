@@ -4555,6 +4555,449 @@ def test_the_tour_reads_a_walk_boxed_after_waiting_on_walkers_as_live():
     assert tour.failure({"boxed": True, "npc_waits": 0, "route": 2}) == "boxed"
 
 
+# ---- the session-2 box: two Dali children (talk-only walkers, non-solid, r 152) walked into Zidane on 350 and stood
+# there, held -- the engine undoes every step a scripted walker takes into the player -- and every press toward any exit
+# came nearer one of them, so seven crossings in a row came back ``boxed``, each a REAL strike, and the run went VOID.
+# A box a WALKER is part of is not the spot: waited out, stepped away from when it is held on him, planned again.
+
+
+def _step_in_front(g, *moves):
+    """Once he is on his way (past x -420, after the hold that got him there, where the walk reads the objects next)
+    each ``(body, at, path, speed)`` of ``moves`` steps up to ``at`` -- an offset from where he stands -- and walks
+    ``path`` (offsets too) at ``speed``, once. Returns where he stood when they did (empty until then)."""
+    from ff9mapkit.scene import routes
+    settle, done = g.settle, []
+
+    def settle_then_step_in(*a, **kw):
+        st = settle(*a, **kw)
+        if done or st.player_x is None or st.player_x <= -420 or not st.control:
+            return st
+        px, pz = st.player_x, st.player_z
+        done.append((px, pz))
+        ways = []
+        for body, at, path, speed in moves:
+            for k in ("_k", "_way", "_done"):
+                body.pop(k, None)
+            way = [(px + x, pz + z) for x, z in path]
+            body.update(x=px + at[0], z=pz + at[1], path=way, speed=speed, once=True)
+            ways.append((body["uid"], way))
+
+        def stepped(s) -> bool:
+            at = {o["uid"]: (o["x"], o["z"]) for o in s.objects or ()}
+            return all(uid in at and routes.seg_dist_xz(*at[uid], way[0], way[-1]) < 1 for uid, way in ways)
+        return published(g, stepped)
+    g.settle = settle_then_step_in
+    return done
+
+
+def _creeping(uid):
+    """A villager walking, barely, well off the path: the holds near him are short from the start (ROUTE_WALKER_HOLD),
+    so the walk reads the objects every ~180u -- as it does beside 350's children -- instead of running the room in
+    one hold before anyone can step in."""
+    return _villager(-100, 500, uid=uid, path=[(-100, 500), (-100, 501)], speed=0.01)
+
+
+@pytest.mark.parametrize("fixed", [False, True])
+def test_a_walker_that_boxes_him_in_is_waited_for_and_the_route_goes_on(game, fixed):
+    """Once he is on his way a villager steps up right in front of him -- in contact with its ``r`` -- walking on,
+    across the path; with the movement re-plans spent (ROUTE_NPC_REPLANS 0: the session-2 walk had spent its four)
+    every press toward the leg comes nearer it, and no hold keeps the rules. The run's code called that ``boxed`` at once
+    (the premise: the box's wait taken out) -- a REAL strike on an exit someone crossed in front of for a second. Boxed
+    by a WALKER is not boxed: he stands still until it has walked off, plans again and arrives, the villager named in
+    ``boxers``, never pressed into."""
+    fake = FakeGame(game)
+    kid = _creeping(4)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [kid]}
+        published(g, lambda s: s.objects and s.objects[0]["moving"])
+        g.ROUTE_NPC_REPLANS = 0
+        if not fixed:
+            g._outwait_box = lambda *a, **kw: "boxed"
+        stood = _step_in_front(g, (kid, (160, 0), [(160, 0), (160, 700)], 3.0))
+        rec = g.route_to(450.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=True)
+        assert stood, "premise: the villager stepped in"
+        if not fixed:
+            assert rec["boxed"] and not rec["reached"] and rec["box_waits"] == 0, rec
+            return
+        assert rec["reached"] and not rec["boxed"] and rec["landed"] is None, rec
+        assert rec["box_waits"] >= 1 and rec["box_cleared"] >= 1, rec
+        assert [(o["uid"], o["kind"], o["moving"]) for o in rec["boxers"]] == [(4, "body", True)], rec
+        assert not fake.contacts, fake.contacts
+
+
+@pytest.mark.parametrize("step", [False, True])
+def test_a_walker_held_on_him_is_stepped_away_from(game, step):
+    """The session-2 children themselves: a villager walks INTO him and is held there -- the engine undoes every step a
+    scripted walker takes into the player (MoveToward.cs:187-189; the fake: `_step_walkers`) -- still ``moving``. A
+    wait for it waits on himself (the premise: the step taken out, the box outlasts its wait -- ``boxed``, the villager
+    exactly where it stopped). So once it has not moved in ROUTE_WALKER_HELD frames he steps out of its way, off the
+    line it was walking; it walks on, and so does he: reached, and it went on its way."""
+    fake = FakeGame(game)
+    kid = _creeping(6)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [kid]}
+        published(g, lambda s: s.objects and s.objects[0]["moving"])
+        g.ROUTE_NPC_REPLANS = 0
+        g.ROUTE_WALKER_BUDGET = 160
+        if not step:
+            g._box_step = lambda *a, **kw: False
+        stood = _step_in_front(g, (kid, (170, 0), [(170, 0), (-1100, 0)], 3.0))     # along his line, into him
+        t0 = time.time()
+        rec = g.route_to(450.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=True)
+        assert stood and time.time() - t0 < 60, "bounded: the wait has a budget"
+        held_at = stood[0][0] + 152.0
+        if not step:
+            assert rec["boxed"] and not rec["reached"] and rec["box_waits"] >= 1, rec
+            assert abs(kid["x"] - held_at) < 4 and kid["z"] == stood[0][1], (kid, held_at)     # held there all along
+            return
+        assert rec["reached"] and not rec["boxed"] and rec["box_cleared"] >= 1, rec
+        assert (6, "body", True) in [(o["uid"], o["kind"], o["moving"]) for o in rec["boxers"]], rec
+        assert kid["x"] < held_at - 300, "freed, it walked on along its line"
+
+
+def test_two_walkers_held_on_him_from_either_side_are_stepped_away_from(game):
+    """The session-2 frame itself: two children walked into him from either side -- one from ahead and up, one from
+    below -- and both are held there. Every press toward the leg comes nearer one of them; each is waiting on him. He
+    steps off BOTH lines they were walking, they walk on, and so does he."""
+    fake = FakeGame(game)
+    a, b = _creeping(4), _villager(-100, -500, uid=6, path=[(-100, -500), (-100, -501)], speed=0.01)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [a, b]}
+        published(g, lambda s: s.objects and len(s.objects) == 2 and all(o["moving"] for o in s.objects))
+        g.ROUTE_NPC_REPLANS = 0
+        stood = _step_in_front(g, (a, (120, 120), [(120, 120), (-700, -700)], 3.0),
+                               (b, (0, -170), [(0, -170), (0, 900)], 3.0))
+        rec = g.route_to(450.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=True)
+        assert stood, "premise: they stepped in"
+        px, pz = stood[0]
+        assert rec["reached"] and not rec["boxed"] and rec["box_cleared"] >= 1, rec
+        assert {o["uid"] for o in rec["boxers"]} == {4, 6}, rec
+        assert a["x"] < px - 200 and b["z"] > pz + 300, "both freed: each walked on along its line"
+
+
+def test_a_walker_that_outlasts_the_wait_is_boxed_and_bounded(game):
+    """A villager that stays in the way -- walking, but slowly -- outlasts the box's wait (ROUTE_WALKER_BUDGET): then
+    it IS ``boxed``, the waits counted, in bounded time -- ``boxed_by`` the walkers, not the spot. (A walker this slow,
+    this near, is stepped away from like one held on him -- :meth:`_box_step` -- which is taken out here: this is the
+    wait's own bound.)"""
+    fake = FakeGame(game)
+    kid = _creeping(8)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [kid]}
+        published(g, lambda s: s.objects and s.objects[0]["moving"])
+        g.ROUTE_NPC_REPLANS = 0
+        g.ROUTE_WALKER_BUDGET = 80
+        g._box_step = lambda *a, **kw: False
+        stood = _step_in_front(g, (kid, (170, 0), [(170, 0), (170, 700)], 0.05))
+        t0 = time.time()
+        rec = g.route_to(450.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=True)
+        assert stood and time.time() - t0 < 60
+        assert rec["boxed"] and not rec["reached"] and rec["box_waits"] >= g.ROUTE_WALKER_BUDGET // g.ROUTE_WALKER_WAIT, rec
+        assert rec["box_cleared"] == 0 and [o["uid"] for o in rec["boxers"]] == [8], rec
+        assert rec["boxed_by"] == "walkers", rec
+
+
+def test_a_box_nothing_walking_is_part_of_is_boxed_at_once(game):
+    """THE SPOT. Beside two doors (the zones alone refuse every press), with the objects listed: nothing that walks is
+    part of the box -- ``boxed`` at once, nothing pressed or waited, no ``boxers``. And a villager STANDING in contact
+    where the plan saw him boxes the leg just as surely: not walking, not moved -- nothing will walk off, so ``boxed``
+    at once too. The same villager walking off across the path is waited for, and the leg ends "unboxed"."""
+    left, right = _rect(-400, -300, -20, 300), _rect(20, -300, 400, 300)
+    fake = FakeGame(game, walkmesh=(-1000, -1000, 1000, 1000))
+    fake.regions = {30820: [{"zone": left, "to": 30821, "arrive": (0, 0)}, {"zone": right, "to": 30822,
+                                                                             "arrive": (0, 0)}]}
+    fake.exit_frames = 30
+    fake.blockers = {30820: [_villager(700, 700, uid=9)]}              # listed, standing, far off: not in the box
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 0, -200)
+        g._axes[30820] = _prior()
+        published(g, lambda s: s.objects and len(s.objects) == 1)
+        sent = _counting(g)
+        rec = g.route_to(0.0, 800.0, avoid=[left, right], walkmesh=_flat_bgi(-1000, -1000, 1000, 1000),
+                         prior=_prior(), smooth=True, npcs=True)
+        assert rec["boxed"] and rec["boxed_by"] == "spot" and not rec["reached"], rec
+        assert (rec["box_waits"], rec["box_cleared"], rec["boxers"], rec["waits"], rec["pushes"]) == (0, 0, [], 0, 0), rec
+        assert sent == [] and not fake.fired, (sent, fake.fired)
+
+        def leg_against(villager):
+            fake.regions = {}
+            fake.blockers = {30820: [villager]}
+            _stand(g, fake, 0, 0)
+            st = published(g, lambda s: s.objects and s.objects[0]["uid"] == villager["uid"])
+            watch = g._npc_watch(56.0, {})
+            watch["keep"], watch["planned"] = {(villager["uid"], "body")}, {villager["uid"]: (160.0, 0.0)}
+            g._npc_view(watch, st)
+            spread = g._heading_spread(_prior(), _prior())
+            leg = g._route_legs([(0.0, 0.0), (1000.0, 0.0)], [], (), spread=spread, watch=watch)[0][3]
+            return g._walk_leg(1000.0, 0.0, 45.0, leg, True), watch
+
+        mark = len(sent)
+        got, watch = leg_against(_villager(160, 0, uid=4))
+        assert got == "boxed" and watch["box_waits"] == 0 and watch["boxers"] == [], (got, watch["boxers"])
+        assert sent[mark:] == [], sent[mark:]
+        got, watch = leg_against(_villager(160, 0, uid=5, path=[(160, 0), (160, 700)], speed=3.0, once=True))
+        assert got == "unboxed" and watch["box_waits"] >= 1 and watch["box_cleared"] == 1, (got, watch)
+
+
+def test_a_talk_only_neighbour_is_a_body_and_no_trigger(game):
+    """s89's contract: ``talk_r`` is the talk SEARCH. Inside it the engine requests the entry's tag-2 Range -- which a
+    talk-only entry (350's children: ``talk`` true, ``range`` false) does not have -- and its tag-3 talk runs only on a
+    Confirm press, which a routed walk never sends. So it is a BODY and nothing more: a press may pass inside its talk
+    radius, keeping only ROUTE_BODY_PAD off its ``r``; the same radius on an entry WITH a Range is a trigger, kept its
+    pad clear. Walked in the fake: straight past the child 300u off -- inside its "!" radius -- reached, nothing fired,
+    the child ``avoided`` as a body only."""
+    g = session(game, None)
+    kid = _obj(4, 0, 300, talk=True, talk_r=353.0)
+    ranged = _obj(5, 0, 300, range=True, range_r=250.0, talk=True, talk_r=353.0)
+    here = (-500.0, 0.0)
+    only = g._npc_discs([kid], here, 0.0, 56.0)
+    assert [(d["kind"], d["via"], d["R"]) for d in only] == [("body", "body", 152.0)], only
+    both = g._npc_discs([ranged], here, 0.0, 56.0)
+    assert sorted((d["kind"], d["via"], d["R"]) for d in both) == [("body", "body", 152.0), ("trigger", "talk", 353.0)]
+    assert g._probe_is_clear(here, (1.0, 0.0), 1000.0, [], 0.0, discs=only)          # 300 off: inside its talk_r
+    assert not g._probe_is_clear(here, (1.0, 0.0), 1000.0, [], 0.0, discs=both)
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [_villager(0, 300, uid=4, talk_r=353.0)]}
+        st = published(g, lambda s: s.objects and s.objects[0]["talk"] and not s.objects[0]["range"])
+        assert st.objects[0]["talk_r"] == 353.0
+        rec = g.route_to(450.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=True)
+        assert rec["reached"] and rec["waypoints"] == [[450, 0]] and rec["entered"] == [], rec
+        assert [(o["uid"], o["kind"]) for o in rec["avoided"]] in ([], [(4, "body")]), rec
+        assert fake.touched == [] and not fake.contacts, (fake.touched, fake.contacts)
+
+
+def test_the_tour_strikes_a_box_only_when_it_is_the_spot():
+    """The tour's strike rule for the session-2 box: a box walkers let go of never comes back ``boxed`` -- the walk
+    goes on, and a walk that then ends short OUTSIDE the zone having waited out walkers (``box_waits``) is the village
+    in the way, LIVE; so is one they held past the wait (``boxed_by`` "walkers": beside a door the step out of their
+    way may not fit at all, and the children never walk off him). Only the SPOT -- no walker's going would free a
+    press -- is BOXED and strikes (REAL)."""
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import dali_tour as tour
+    short = {"boxed": False, "boxed_by": None, "reached": False, "inside": False, "during": None, "route": 3,
+             "waits": 0, "pushes": 0, "blockers": [], "frozen": False, "npc_replans": 0}
+    assert tour.failure(dict(short, box_waits=4, box_cleared=1)) == "live"
+    assert tour.failure(dict(short, box_waits=0, box_cleared=0)) == "miss"                 # the premise: no evidence
+    assert tour.failure(dict(short, boxed=True, boxed_by="spot", box_waits=0)) == "boxed"          # the spot
+    assert tour.failure(dict(short, boxed=True, boxed_by="spot", box_waits=4, box_cleared=1)) == "boxed"
+    assert tour.failure(dict(short, boxed=True, boxed_by="walkers", box_waits=60)) == "live"       # outlasted the wait
+    assert tour.failure(dict(short, inside=True, box_waits=4)) == "miss"                   # stood in the zone: REAL
+
+
+def _box_leg(g, fake, bodies, *, settled=None):
+    """A smooth leg from (0, 0) toward (1000, 0) on 30820 under a fresh watch of ``bodies`` (the fake's blockers, placed
+    once he stands there), every one of them kept -- body and trigger -- as a plan made round where they stand would
+    keep them: ``(leg, watch)``. ``settled`` (a predicate over the published state) is waited for first."""
+    _stand(g, fake, 0, 0)
+    fake.regions = {}
+    fake.blockers = {30820: list(bodies)}
+    uids = {b["uid"] for b in bodies}
+    published(g, lambda s: s.objects is not None and {o["uid"] for o in s.objects} == uids
+              and (settled is None or settled(s)))
+    watch = g._npc_watch(56.0, {})
+    watch["keep"] = {(uid, kind) for uid in uids for kind in ("body", "trigger")}
+    watch["planned"] = {o["uid"]: (float(o["x"]), float(o["z"])) for o in watch["objs"]}
+    g._npc_view(watch, g.state)
+    spread = g._heading_spread(_prior(), _prior())
+    return g._route_legs([(0.0, 0.0), (1000.0, 0.0)], [], (), spread=spread, watch=watch)[0][3], watch
+
+
+@pytest.mark.parametrize("speed, at", [(40.0, 170), (60.0, 210)])
+def test_a_walker_held_on_him_at_its_own_pace_is_stepped_away_from(game, speed, at):
+    """350's children outpace his run (~40u a frame to his 30), and the engine undoes the WHOLE of a walker's step into
+    him (MoveToward.cs:187-189): one walking straight at him stops anywhere up to a step short of contact -- here 18u
+    and 58u beyond ``r``, where the contact of his own walk (WALK_SPEED past ``r``) never reaches. Judged so, it was
+    never held on him: the box outlasted the wait -- ``boxed``, a strike. Judged by the walker's own step
+    (:meth:`_walker_step`) it is held all the same: he steps off the line it walks, it walks on, and so does he."""
+    fake = FakeGame(game)
+    kid = _villager(-100, 500, uid=6, path=[(-100, 500), (-101, 500)], speed=0.01)   # creeping, along the line it walks
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [kid]}
+        published(g, lambda s: s.objects and s.objects[0]["moving"])
+        g.ROUTE_NPC_REPLANS = 0
+        g.ROUTE_WALKER_BUDGET = 160
+        stood = _step_in_front(g, (kid, (at, 0), [(at, 0), (-1100, 0)], speed))     # along his line, into him
+        rec = g.route_to(450.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=True)
+        assert stood, "premise: it walked into him"
+        assert rec["reached"] and not rec["boxed"] and rec["box_cleared"] >= 1, rec
+        assert (6, "body", True) in [(o["uid"], o["kind"], o["moving"]) for o in rec["boxers"]], rec
+        assert kid["x"] < stood[0][0] - 300, "freed, it walked on along its line"
+
+
+def test_a_walker_held_on_him_since_before_the_call_is_stepped_off_the_line_at_him(game):
+    """Session 2, crossings 25-30: each call began with the children already held on him, so none was ever seen
+    walking -- no line to step off. Stepping straight AWAY from where it stands leaves him on its way: freed, it walks
+    on after him and is held again. It is held BECAUSE its step comes at him, so the line it walks is the one at him:
+    the step goes across it, and freed, it walks on past."""
+    fake = FakeGame(game, walkmesh=(-1000, -1000, 1000, 1000))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        kid = _villager(160, 0, uid=6, path=[(160, 0), (-900, 0)], speed=3.0)       # straight into him: held at 154
+        leg, watch = _box_leg(g, fake, [kid], settled=lambda s: s.objects[0]["x"] < 155)
+        basis, since = g._axes[30820], {}
+        for _ in range(12):
+            if g._box_step(basis, leg, since):
+                break
+            g.wait_frames(8)
+            g._npc_view(watch, g.state)
+        else:
+            pytest.fail("it never stepped out of the way of a walker held on him")
+        assert watch["heading"].get(6) is None and watch["discs"][0]["dir"] is None, "premise: never seen walking"
+        _buttons, u = leg["pressed"]
+        assert abs(u[0]) < 0.1, f"straight across the line at him, not back along it: {u}"
+        published(g, lambda s: s.objects[0]["x"] < -300)                  # freed, it walked on past him
+        assert not fake.contacts, fake.contacts
+
+
+def test_a_walker_held_on_him_beside_a_door_is_stepped_away_from_in_the_room_there(game):
+    """The (-470, 142) spot of the session-2 log, 174u from 350's door to 354: a step of ROUTE_WALKER_HOLD frames at a
+    run could slide him 270u (its reach and the zone pad) -- into the door -- so beside it the step was refused
+    outright, the wait for the walker waited on himself, and the box came back ``boxed``. The room there takes a
+    SHORTER step, and away from the door where two are about as good: the walker walks on, and so does he, the door
+    never entered."""
+    from ff9mapkit.content import pathfind
+    door = _rect(-560, 120, -240, 400)
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0)}]}
+    kid = _villager(-100, -500, uid=6, path=[(-100, -500), (-101, -500)], speed=0.01)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [kid]}
+        published(g, lambda s: s.objects and s.objects[0]["moving"])
+        g.ROUTE_NPC_REPLANS = 0
+        g.ROUTE_WALKER_BUDGET = 160
+        stood = _step_in_front(g, (kid, (170, 0), [(170, 0), (-1100, 0)], 3.0))
+        rec = g.route_to(450.0, 0.0, avoid=[door], walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=True)
+        assert stood, "premise: it walked into him"
+        gap = pathfind.poly_gap(stood[0][0], stood[0][1], door)
+        assert gap < (g.ROUTE_WALKER_HOLD + g.PROBE_TAIL_FRAMES) * g.RUN_SPEED + g.PROBE_HAZARD_PAD, gap   # premise
+        assert rec["reached"] and not rec["boxed"] and rec["box_cleared"] >= 1 and rec["landed"] is None, rec
+        assert not fake.fired, fake.fired
+
+
+def test_a_box_the_walkers_are_not_the_cause_of_is_boxed_at_once(game):
+    """A villager STANDING in contact ahead boxes the leg on its own; a walker beside him refuses a press too. Any
+    walker among the boxers used to make it a walkers' box -- the whole wait spent (ROUTE_WALKER_BUDGET, 8 s a
+    crossing) for the same verdict. Judged by CAUSE, planned without the walker there is still no press: the spot,
+    ``boxed`` at once, nothing pressed or waited."""
+    fake = FakeGame(game, walkmesh=(-1000, -1000, 1000, 1000))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        g.ROUTE_WALKER_BUDGET = 80
+        sent = _counting(g)
+        leg, watch = _box_leg(g, fake, [_villager(160, 0, uid=4),
+                                        _villager(0, 165, uid=5, path=[(0, 165), (700, 165)], speed=0.3)])
+        basis, here, goal = g._axes[30820], g._standing(), (1000.0, 0.0)
+        assert g._plan_hold(basis, here, goal, leg) is None, "premise: boxed"
+        assert {d["uid"] for d in g._boxers(basis, here, goal, leg)} == {4, 5}, "premise: the walker refuses one too"
+        mark = len(sent)
+        got = g._walk_leg(1000.0, 0.0, 45.0, leg, True)
+        assert got == "boxed" and (watch["box_waits"], watch["boxers"], watch["boxed_by"]) == (0, [], None), watch
+        assert sent[mark:] == [], sent[mark:]
+
+
+def test_a_wanderer_seen_walking_that_stops_in_front_of_him_is_waited_for(game):
+    """``moving`` is an instant's flag: a wanderer reads false at the turns of its loop (uid 6 in live 350). One the
+    call has SEEN walking, standing now where the plan saw it, boxes the leg alone -- a walker all the same, so the box
+    is waited on, not ``boxed`` at once as the spot; still standing when the wait runs out, it is ``boxed_by``
+    walkers."""
+    fake = FakeGame(game, walkmesh=(-1000, -1000, 1000, 1000))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        g.ROUTE_WALKER_BUDGET = 40
+        kid = _villager(160, 0, uid=6, path=[(160, 0), (160, 1)], speed=0.01)       # walking, barely
+        leg, watch = _box_leg(g, fake, [kid])
+        assert 6 in watch["walked"], "premise: seen walking"
+        kid["_done"] = True                                                        # it stops: published standing
+        published(g, lambda s: not s.objects[0]["moving"])
+        g._npc_view(watch, g.state)
+        got = g._walk_leg(1000.0, 0.0, 45.0, leg, True)
+        assert got == "boxed" and watch["box_waits"] >= 1 and watch["boxed_by"] == "walkers", watch
+        assert [o["uid"] for o in watch["boxers"]] == [6], watch["boxers"]
+
+
+def test_what_walks_is_published_moving_or_seen_walking_by_the_call(game):
+    """:meth:`_npc_walks`: published ``moving`` (a walker held on him still reads so), published ``moving`` by any read
+    of the call (``walked``, :meth:`_npc_read`), or moved ROUTE_NPC_MOVED since the plan -- never jitter, and never an
+    object only because the plan did not see it."""
+    g = session(game, None)
+    w: dict = {}
+    g._npc_read(w, State({"frame": 5, "player": {"x": 0.0, "y": 0.0, "z": 0.0, "control": True},
+                          "objects": [_obj(7, 0, 0, moving=True), _obj(8, 0, 0)]}))
+    assert w["walked"] == {7}
+    watch = {"planned": {1: (0.0, 0.0), 2: (0.0, 0.0), 3: (0.0, 0.0)}, "walked": {2}}
+
+    def d(uid, x=0.0, moving=False):
+        return {"uid": uid, "x": x, "z": 0.0, "moving": moving}
+    assert g._npc_walks(d(1, moving=True), watch)
+    assert g._npc_walks(d(2), watch)                   # standing at a turn: published moving by an earlier read
+    assert g._npc_walks(d(3, x=20.0), watch)           # moved since the plan
+    assert not g._npc_walks(d(3, x=5.0), watch)        # jitter
+    assert not g._npc_walks(d(9), watch)               # never planned, never seen moving
+
+
+def test_a_step_out_of_a_walkers_way_keeps_clear_of_a_trigger_the_plan_gave_up(game):
+    """What a slide could carry the step into is kept out of his whole reach round him -- EVERY published trigger, not
+    only the ones the plan kept: a Range the plan gave up (entered, or not in the way) fires just as surely. Beside
+    one that leaves no room for even a walk frame, he does not step at all."""
+    fake = FakeGame(game, walkmesh=(-1000, -1000, 1000, 1000))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        kid = _villager(160, 0, uid=6, path=[(160, 0), (-900, 0)], speed=3.0)
+        chest = _villager(0, -260, uid=7, range_r=200.0)                            # its Range 30u short of the pad
+        leg, watch = _box_leg(g, fake, [kid, chest], settled=lambda s: s.objects[0]["x"] < 155)
+        watch["keep"].discard((7, "trigger"))                                      # the plan gave its Range up
+        g._npc_view(watch, g.state)
+        assert not any(d["uid"] == 7 and d["kind"] == "trigger" for d in watch["discs"]), "premise: given up"
+        basis, since = g._axes[30820], {}
+        sent = _counting(g)
+        for _ in range(8):
+            assert not g._box_step(basis, leg, since)
+            g.wait_frames(8)
+            g._npc_view(watch, g.state)
+        assert 6 in since and g.state.frame - since[6][2] >= g.ROUTE_WALKER_HELD, "premise: held on him"
+        assert not [s for steps in sent for s in steps if s.startswith("hold")], sent
+        assert not fake.touched, fake.touched
+
+
 def test_key_twist_operand_follows_memoria_ini(game):
     """Keys read TWIST arg2 (twist.y) unless [AnalogControl] makes key orientation absolute (1 or 2)."""
     fake = FakeGame(game)

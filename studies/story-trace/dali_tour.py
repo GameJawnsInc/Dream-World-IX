@@ -115,11 +115,17 @@ def segment(g, log, *, start: int, sc: int, beat: int, place=lambda f: f, until:
 def failure(rec: dict) -> str:
     """What a crossing that did not land where its exit leads was, by rung3_step1's strike rule:
     "bounce", "no route", "blocked", "boxed" or "miss" (REAL: they strike the exit), or "live" (the village was
-    in the way: a stall with control held that the walk waited on, pushed or routed round, or a villager walking
-    onto the path, ending short OUTSIDE the zone; published solids sealing the way while one of them walks; or a
-    walk that waited on walking triggers and was then left with nothing it could press). Standing inside the zone
-    with nothing fired is a miss whatever the walk met on the way. A seal by published solids has no route either,
-    and is BLOCKED, not NO ROUTE: the walls and zones alone had one."""
+    in the way: a stall with control held that the walk waited on, pushed or routed round, a villager walking
+    onto the path, or walkers that boxed him in and let him go (``box_waits``), ending short OUTSIDE the zone;
+    published solids sealing the way while one of them walks; or a walk that waited on walking triggers, or on
+    walkers boxing him in, and was then left with nothing it could press). Standing inside the zone with nothing
+    fired is a miss whatever the walk met on the way. A seal by published solids has no route either, and is
+    BLOCKED, not NO ROUTE: the walls and zones alone had one.
+
+    BOXED is the SPOT, and only the spot (route_to's ``boxed_by`` "spot": no press keeps the rules, and no walker's
+    going would change that). A box walkers let go of is never ``boxed`` at all, so it strikes nothing: the walk goes
+    on, and its end is judged like any other; one they held past route_to's wait (``boxed_by`` "walkers": villagers
+    that walked onto him and stayed) is the village in the way, LIVE."""
     if rec.get("landed") is not None:
         return "bounce"
     if rec.get("blocked"):
@@ -127,12 +133,12 @@ def failure(rec: dict) -> str:
     if "route" in rec and rec["route"] is None:
         return "no route"
     if rec.get("boxed"):
-        return "live" if rec.get("npc_waits") else "boxed"
+        return "live" if rec.get("npc_waits") or rec.get("boxed_by") == "walkers" else "boxed"
     if rec.get("inside"):
         return "miss"
     if ("error" not in rec and rec.get("during") is None and not rec.get("reached")
             and (rec.get("waits") or rec.get("pushes") or rec.get("blockers") or rec.get("frozen")
-                 or rec.get("npc_replans"))):
+                 or rec.get("npc_replans") or rec.get("box_waits"))):
         return "live"
     return "miss"
 
@@ -352,12 +358,13 @@ class Tour:
                                route=len(r["waypoints"]) if r["waypoints"] is not None else None,
                                waits=r["waits"], cleared=r["cleared"], pushes=r["pushes"], pushed=r["pushed"],
                                blockers=r["blockers"], remembered=r["remembered"], blocked=r["blocked"],
-                               frozen=r["frozen"], boxed=r["boxed"], npcs=r["npcs"],
+                               frozen=r["frozen"], boxed=r["boxed"], boxed_by=r["boxed_by"], npcs=r["npcs"],
                                avoided=[(o["uid"], o["kind"]) for o in r["avoided"]],
                                entered=[(o["uid"], o["kind"], o["radius"]) for o in r["entered"]],
                                through=[o["uid"] for o in r["through"]],
                                sealed=[(o["uid"], o["moving"]) for o in r["sealed"]], npc_replans=r["npc_replans"],
-                               npc_waits=r["npc_waits"])
+                               npc_waits=r["npc_waits"], box_waits=r["box_waits"], box_cleared=r["box_cleared"],
+                               boxers=[(o["uid"], o["kind"], o["moving"]) for o in r["boxers"]])
                 except HarnessError as err:
                     rec.update(landed=None, error=str(err)[:200])
                 settle(g, log, f"after crossing {n}", self.say)

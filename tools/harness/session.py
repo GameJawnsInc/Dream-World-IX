@@ -2038,6 +2038,18 @@ class Session:
     ROUTE_WALKER_WAIT = 8
     ROUTE_WALKER_BUDGET = 480
     ROUTE_WALKER_LAG = 12
+    #: route_to(npcs=True, smooth=True): a spot where no hold keeps the rules is boxed by the SPOT -- ``boxed`` at
+    #: once -- unless it is the WALKERS among the objects that refuse the presses (:meth:`_boxers`, :meth:`_npc_walks`)
+    #: whose going would free one. Then he stands still and reads again, ROUTE_WALKER_WAIT frames at a time within
+    #: ROUTE_WALKER_BUDGET frames a call on the box's own tally (:meth:`_outwait_box`), and plans again from where a
+    #: hold keeps the rules again -- ROUTE_BOX_REPLANS times a call, then the leg walks on from there; a box that
+    #: outlasts the wait is ``boxed`` by walkers (``boxed_by``), the village and not the spot. A walker within its own
+    #: step of contact with him (:meth:`_walker_step`), still ``moving``, that has not moved ROUTE_NPC_MOVED in
+    #: ROUTE_WALKER_HELD frames is HELD ON HIM -- the engine undoes every step a scripted walker takes into him
+    #: (MoveToward.cs:187-189), so it walks on only once he moves -- and is stepped away from, not waited on
+    #: (:meth:`_box_step`). Stock 350, session 2 run 2: two Dali children held on him for 21 s, seven crossings boxed.
+    ROUTE_WALKER_HELD = 30
+    ROUTE_BOX_REPLANS = 4
     #: route_to(npcs=True): where a WALKING trigger will be is judged two ways. While he is moving, it may have come
     #: its speed a frame in ANY direction (a few frames: it cannot get far). While he STANDS (the end of a press, until
     #: the next read) it keeps to the LINE it was last seen walking along, either way -- a patrol turns back down its
@@ -2413,13 +2425,17 @@ class Session:
         (:meth:`_npc_moved`): the next hold is bounded by where they stand now, and one that moved onto the
         path still to walk ends the leg as "moved" -- route_to plans again from here. Where the only thing that
         refuses every hold is a WALKING trigger's reach (:meth:`_plan_hold` ``sweep``), he stands still until it
-        has gone by (:meth:`_outwait_walkers`) instead of pressing toward it.
+        has gone by (:meth:`_outwait_walkers`) instead of pressing toward it. And where no hold keeps the rules only
+        because of WALKING objects among the ones that refuse them (:meth:`_boxers`: their going would free a press),
+        the spot is not boxed yet: he waits for them to walk off -- stepping out of the way of any held on him -- and
+        the leg ends "unboxed" once a hold keeps the rules again, so route_to plans again from there
+        (:meth:`_outwait_box`; ROUTE_BOX_REPLANS times a call, then the leg walks on).
 
         Returns "arrived" (within ``tolerance``, or standing in ``leg["zone"]``), "boxed" when no hold from
         where he stands keeps :meth:`_plan_hold`'s rules and he is not within ``tolerance`` -- nothing may be
-        pressed from here, which is not a stall: a wait, a push or a blocker cannot change it -- or when the
-        call's wait for walkers is spent, "moved" (above), or "short" (anything else: a stall, a slide, the
-        holds spent, control gone)."""
+        pressed from here, which is not a stall: a wait, a push or a blocker cannot change it -- and no walker's
+        going would change that, or the call's wait for walkers is spent; "unboxed" (above), "moved" (above), or
+        "short" (anything else: a stall, a slide, the holds spent, control gone)."""
         import math
         from ff9mapkit.content import pathfind
         field = self.state.field_id
@@ -2459,6 +2475,18 @@ class Session:
             if hold is None:
                 if finish or math.hypot(x - here[0], z - here[1]) <= tolerance:
                     break                         # nowhere further to press; the tolerance decides
+                if watch is not None:
+                    # boxed by WALKING objects is not boxed: they walk off (or, held on him, walk on once he steps out
+                    # of their way) -- wait for that, then plan again from where the presses are free
+                    got = self._outwait_box(basis, target, leg, exclude, field)
+                    if got == "clear":
+                        watch["box_cleared"] += 1
+                        if watch["box_cleared"] <= self.ROUTE_BOX_REPLANS:
+                            return "unboxed"
+                        st = self.state
+                        continue
+                    if got != "boxed":
+                        return got
                 self._log(f"  route_to: no hold from ({here[0]:.0f}, {here[1]:.0f}) toward ({x:.0f}, {z:.0f}) "
                           f"keeps clear of the avoided regions and near the leg; nothing may be pressed from here")
                 return "boxed"
@@ -2605,7 +2633,11 @@ class Session:
         do, where the objects stand NOW: they are read again after every hold (every chunk, chunked), and one
         that moved onto the path still to walk re-plans from where he stands, at most ROUTE_NPC_REPLANS times a
         call (:meth:`_npc_moved`); a WALKING trigger is held to where it could have walked by the next read, and
-        a press that reach refuses is waited for, standing still (:meth:`_outwait_walkers`). A push is never
+        a press that reach refuses is waited for, standing still (:meth:`_outwait_walkers`). A spot where no hold
+        keeps the rules only because of WALKING objects -- their going would free a press -- is not ``boxed``: he
+        waits for them to walk off -- stepping out of the way of any held on him, which walk on only once he moves --
+        and plans again from where a press is free (:meth:`_outwait_box`); only a box the walkers are not the cause
+        of (``boxed_by`` "spot"), or one that outlasts that wait ("walkers"), is ``boxed``. A push is never
         pressed into a solid object, nor along a line that meets a kept trigger or solid
         (:meth:`_push_through`); a stall pressed against a published body -- in contact, :meth:`_body_ahead` --
         that the plan did not go round where it stands now replans round it instead of guessing an unseen
@@ -2620,7 +2652,8 @@ class Session:
 
         Returns ``{"from", "landed", "reached", "travelled", "waypoints", "toward", "replans",
         "during", "waits", "cleared", "pushes", "pushed", "blockers", "remembered", "blocked",
-        "frozen", "boxed", "npcs", "avoided", "entered", "through", "sealed", "npc_replans", "npc_waits"}``: ``landed``
+        "frozen", "boxed", "boxed_by", "npcs", "avoided", "entered", "through", "sealed", "npc_replans", "npc_waits",
+        "box_waits", "box_cleared", "boxers"}``: ``landed``
         the field it ended up in (None = still here), ``reached`` whether it
         stood within ``tolerance`` of the goal, ``travelled`` the distance actually covered (summed
         over the walk, not end-to-end), ``waypoints`` the first plan (None = no route exists),
@@ -2630,14 +2663,18 @@ class Session:
         of them ``pushed`` him through, the ``blockers`` this call placed ([x, z]; ``replans`` counts
         the plans after the first that a stall caused), how many ``remembered`` ones its first plan went
         round, ``blocked`` and ``frozen`` as above; ``boxed`` (smooth only; or, under ``npcs``, a walk whose wait
-        for walking triggers ran out) as above. Without ``npcs``,
+        for walking triggers, or for walkers boxing him in, ran out) as above, and ``boxed_by`` why: "spot" (no
+        press keeps the rules, and no walker's going would change that), "walkers" (the wait for them ran out), None
+        (not boxed). Without ``npcs``,
         ``npcs`` is None and the rest empty/zero; with it, ``npcs`` is "listed", "cannot" or "unknown"
         (above), and every object a plan went round -- in the straight line's way, or hugged by the route --
         is in ``avoided``, every trigger radius a plan had to enter (or that reached him as control went) in
         ``entered`` (``kind`` "range" / "talk"), every non-solid body it had to push through in ``through``, and
         the solids that left no way at all in ``sealed``: each ``{"uid", "sid", "kind", "at", "radius", "solid",
         "moving"}``, once per object and kind over the call. ``npc_replans`` counts the plans an object's
-        movement caused, ``npc_waits`` the waits a walking trigger's reach cost (ROUTE_WALKER_WAIT frames each).
+        movement caused, ``npc_waits`` the waits a walking trigger's reach cost (ROUTE_WALKER_WAIT frames each),
+        ``box_waits`` the waits (and steps out of the way) that walking objects boxing him in cost, ``box_cleared``
+        the boxes they let go of, and ``boxers`` every object that refused the presses of a box walkers were among.
         """
         from ff9mapkit.content import pathfind
         if zone is not None and not smooth:
@@ -2654,9 +2691,9 @@ class Session:
         record = {"from": origin, "landed": None, "reached": False, "travelled": 0.0,
                   "toward": [round(x), round(z)], "waypoints": None, "replans": 0, "during": None,
                   "waits": 0, "cleared": 0, "pushes": 0, "pushed": 0, "blockers": [], "remembered": 0,
-                  "blocked": False, "frozen": False, "boxed": False,
+                  "blocked": False, "frozen": False, "boxed": False, "boxed_by": None,
                   "npcs": None, "avoided": [], "entered": [], "through": [], "sealed": [], "npc_replans": 0,
-                  "npc_waits": 0}
+                  "npc_waits": 0, "box_waits": 0, "box_cleared": 0, "boxers": []}
         self.wait_control(timeout=timeout)
         wmesh = walkmesh if walkmesh is not None else self._stock_walkmesh(origin)
         if isinstance(prior, str):
@@ -2711,7 +2748,7 @@ class Session:
                     if st.field_id != origin or not st.control:
                         record["travelled"] = round(walked[0], 1)
                         record["during"] = "wait"
-                        record["npc_waits"] = watch["walker_waits"]
+                        self._npc_tally(record, watch)
                         record["landed"] = self._await_landing(origin, timeout)
                         return record
                     continue
@@ -2743,7 +2780,7 @@ class Session:
             chunks = (self._route_legs(pts, polys, known, spread=spread, zone=zpoly, floor=wmesh, watch=watch)
                       if smooth else [(cx, cz, tol, None) for cx, cz, tol
                                       in self._route_chunks(pts, polys, self._chunk_blockers(known, watch))])
-            stalled = moved = False
+            stalled = moved = unboxed = False
             for i, (cx, cz, tol, leg) in enumerate(chunks):
                 last = i == len(chunks) - 1
                 tol = tolerance if last else tol
@@ -2769,15 +2806,15 @@ class Session:
                     record["travelled"] = round(walked[0], 1)
                     record["during"] = got
                     self._npc_fired(watch, record, origin, zpoly)
-                    if watch is not None:
-                        record["npc_waits"] = watch["walker_waits"]
+                    self._npc_tally(record, watch)
                     record["landed"] = self._await_landing(origin, timeout)
                     return record
                 if got == "boxed":
                     record["boxed"] = True        # no press keeps the rules: a replan from here plans the same
+                    record["boxed_by"] = (watch or {}).get("boxed_by") or "spot"
                     break
-                if got in ("stalled", "moved"):
-                    stalled, moved = got == "stalled", got == "moved"
+                if got in ("stalled", "moved", "unboxed"):
+                    stalled, moved, unboxed = got == "stalled", got == "moved", got == "unboxed"
                     break
             if moved:
                 record["npc_replans"] += 1
@@ -2786,6 +2823,14 @@ class Session:
                 self._log(f"  route_to: an object moved onto the path ahead of ({st.player_x:.0f}, "
                           f"{st.player_z:.0f}); planning again from here (movement re-plan {record['npc_replans']} "
                           f"of at most {self.ROUTE_NPC_REPLANS})")
+                continue
+            if unboxed:
+                # the walkers that boxed him in let a press through: the plan he walked went round where they stood
+                # before they walked onto him -- plan again round where they stand now
+                st = self.state
+                self._log(f"  route_to: the walkers that boxed him in let a press through at ({st.player_x:.0f}, "
+                          f"{st.player_z:.0f}); planning again from here (box {watch['box_cleared']} of at most "
+                          f"{self.ROUTE_BOX_REPLANS} re-planned)")
                 continue
             st = self.state
             if record["boxed"] or not stalled or attempt == attempts - 1:
@@ -2835,8 +2880,7 @@ class Session:
                       f"other directions -- movement is held (or he is boxed in); stopping")
         st = self.state
         record["travelled"] = round(walked[0], 1)
-        if watch is not None:
-            record["npc_waits"] = watch["walker_waits"]
+        self._npc_tally(record, watch)
         record["reached"] = (st.field_id == origin and st.player_x is not None
                              and (((st.player_x - x) ** 2 + (st.player_z - z) ** 2) ** 0.5 <= tolerance
                                   or (zpoly is not None and pathfind.poly_gap(st.player_x, st.player_z, zpoly) < 0)))
@@ -2847,7 +2891,8 @@ class Session:
         """walk_to one chunk end of a route -- or, given a smooth ``leg`` (:meth:`_route_legs`), walk to its
         waypoint in holds (:meth:`_walk_leg`); adds the distance covered to ``walked[0]``. Returns "arrived",
         "stalled", "boxed" (smooth only: nothing may be pressed from where he stands -- not a stall), "moved"
-        (smooth, route_to(npcs=True): an object moved onto the path ahead -- plan again), or "walk" when control
+        (smooth, route_to(npcs=True): an object moved onto the path ahead -- plan again), "unboxed" (smooth,
+        route_to(npcs=True): walkers that boxed him in have let a press through -- plan again), or "walk" when control
         went away (a step fired a trigger, or the field changed).
         ``slides`` is walk_to's: a slide round someone ends the walk as a stall instead of raising.
 
@@ -2866,7 +2911,7 @@ class Session:
             walked[0] += ((after.player_x - before.player_x) ** 2 + (after.player_z - before.player_z) ** 2) ** 0.5
         if after.field_id != origin or not after.control:
             return "walk"
-        if outcome in ("boxed", "moved"):
+        if outcome in ("boxed", "moved", "unboxed"):
             return outcome
         if arrived or (not last and ((after.player_x - cx) ** 2 + (after.player_z - cz) ** 2) ** 0.5
                        <= self.ROUTE_WAYPOINT_TOLERANCE):
@@ -2910,8 +2955,8 @@ class Session:
         waits go FIRST because a push is one long blind hold: a freeze or a walker that clears in the middle
         of it lets him run the rest. Returns "arrived", "stalled" (still stuck -- route_to places a blocker),
         "boxed" (a smooth leg with no press that keeps the rules: nothing further is tried), "moved" (a smooth
-        leg under a ``watch`` saw an object move onto the path), or "walk" / "wait" / "push" when control went
-        away."""
+        leg under a ``watch`` saw an object move onto the path), "unboxed" (walkers that boxed a smooth leg in let a
+        press through: plan again), or "walk" / "wait" / "push" when control went away."""
         got = self._outwait(cx, cz, tol, last, origin, walked, record, leg, watch)
         if got != "stalled":
             return got
@@ -3112,10 +3157,14 @@ class Session:
         plan is judged by, :meth:`_npc_levels`; None judges it against his y), ``keep`` (the ``(uid, kind)`` discs
         the current plan keeps), ``planned`` (where each object stood when it was made), ``discs`` (the kept discs
         where they stand NOW -- what every hold is bounded by), ``path`` (the walk still ahead), ``moves`` (the
-        re-plans movement has caused), ``seen`` / ``last`` / ``speed`` / ``heading`` (where each object was last
-        read, its velocity then, the pace it has been measured walking and the line it walks: :meth:`_npc_read`),
+        re-plans movement has caused), ``seen`` / ``last`` / ``speed`` / ``heading`` / ``walked`` (where each object
+        was last read, its velocity then, the pace it has been measured walking, the line it walks and whether any
+        read published it ``moving``: :meth:`_npc_read`),
         ``floor`` (the call's walkmesh), ``waited`` / ``walker_waits`` (the frames, and the waits,
-        walking triggers have cost the call: :meth:`_outwait_walkers`) and ``lag`` (the most frames seen to pass
+        walking triggers have cost the call: :meth:`_outwait_walkers`), ``box_waited`` / ``box_waits`` / ``box_cleared``
+        / ``boxers`` (the same for walkers that boxed him in, the boxes they let go of, and every object that refused
+        the presses of one: :meth:`_outwait_box`), ``boxed_by`` ("walkers" once a wait for walkers has run out: the
+        call ends ``boxed``, and by them) and ``lag`` (the most frames seen to pass
         between two reads beyond the ones pressed -- ROUTE_WALKER_LAG until a press measures it:
         :meth:`_walker_clear`)."""
         st = self.state
@@ -3132,7 +3181,8 @@ class Session:
             return None
         watch = {"objs": st.objects, "y": st.player_y, "margin": float(margin), "heights": heights, "keep": set(),
                  "planned": {}, "discs": [], "path": [], "moves": 0, "seen": {}, "speed": {}, "waited": 0,
-                 "walker_waits": 0, "lag": None}
+                 "walker_waits": 0, "box_waited": 0, "box_waits": 0, "box_cleared": 0, "boxers": [], "boxed_by": None,
+                 "lag": None}
         self._npc_read(watch, st)
         return watch
 
@@ -3198,18 +3248,22 @@ class Session:
         to a crawl (at most twice RUN_SPEED: a script placing an actor is not a walk). ``heading`` keeps the direction
         (a unit vector) of the last read in which it covered at least half its likely pace a frame -- half its
         published speed (:meth:`_told_speed`), or else half the most it has been seen to cover: a read across a
-        turn keeps the line it was walking, as a patrol turns back along it. False, changing nothing, for a sample
-        with no list (null: the engine could not say) or no player position."""
+        turn keeps the line it was walking, as a patrol turns back along it. ``walked`` keeps every uid any read has
+        published ``moving`` (:meth:`_npc_walks`). False, changing nothing, for a sample with no list (null: the
+        engine could not say) or no player position."""
         import math
         objs = st.objects
         if objs is None or st.player_x is None:
             return False
         seen, speed = watch.setdefault("seen", {}), watch.setdefault("speed", {})
         heading, last = watch.setdefault("heading", {}), watch.setdefault("last", {})
+        walked = watch.setdefault("walked", set())
         for o in objs:
             if o.get("x") is None or o.get("z") is None:
                 continue
             uid, at = o.get("uid"), (float(o["x"]), float(o["z"]))
+            if o.get("moving"):
+                walked.add(uid)
             was = seen.get(uid)
             if was is not None and st.frame > was[2]:
                 vel = ((at[0] - was[0]) / (st.frame - was[2]), (at[1] - was[1]) / (st.frame - was[2]))
@@ -3248,7 +3302,10 @@ class Session:
         distance the engine keeps him at. A TRIGGER disc for each with a contact function: radius its
         ``range_r`` -- where CollisionRequest requests its Range every tick he has control -- or its ``talk_r``
         where that is larger and it talks too (the talk search then requests the Range instead, facing it);
-        the larger is the one that can fire first. Each is ``{"uid", "sid", "kind" ("body" / "trigger"), "via"
+        the larger is the one that can fire first. A TALK-ONLY entry (``talk`` without ``range``: 350's Dali
+        children) is a body and no trigger: inside its ``talk_r`` the talk search requests its tag-2 Range, which it
+        does not have, and its tag-3 talk runs only on a Confirm press, which a routed walk never sends (s89's
+        contract) -- its "!" is a prompt, not a reach. Each is ``{"uid", "sid", "kind" ("body" / "trigger"), "via"
         ("body" / "range" / "talk"), "x", "z", "R", "T", "P", "pad", "solid", "moving", "speed", "dir", "shown",
         "inside"}``: ``pad`` what a hold keeps off ``R`` (ROUTE_BODY_PAD / PROBE_HAZARD_PAD), ``T`` the TIGHT radius a
         plan keeps its legs outside at the least -- ``R`` plus that pad -- and ``P`` the one it keeps them outside
@@ -3291,6 +3348,7 @@ class Session:
             radius, via = None, None
             if o.get("range") and o.get("range_r") is not None:
                 radius, via = float(o["range_r"]), "range"
+            # talk_r reaches only through a Range: a talk-only entry's talk search requests a tag 2 it lacks
             talk = o.get("talk_r") if o.get("range") and o.get("talk") else None
             if talk is not None and float(talk) > (radius or 0.0):
                 radius, via = float(talk), "talk"
@@ -3712,12 +3770,197 @@ class Session:
         self._note_lag(watch, after.frame - st.frame - n)
         return True
 
+    def _boxers(self, basis: dict, here, target, leg: dict, exclude=()) -> list:
+        """route_to(npcs=True, smooth=True), where :meth:`_plan_hold` finds no hold from ``here`` toward ``target``: the
+        published objects that make the presses illegal. Every disc the leg's holds keep clear of (:meth:`_leg_discs`)
+        that refuses the SMALLEST press -- one walk frame and its tail, which the leg's drift never refuses -- along a
+        pad direction that gains ground toward ``target`` and that the zones alone let him make: by where it stands
+        (:meth:`_probe_is_clear`), or, a WALKING trigger, by where it can walk (:meth:`_walker_clear`,
+        :meth:`_off_beat`), each as :meth:`_plan_hold` judges it. None when the zones and the leg alone leave no hold
+        either: that is the spot's geometry, and nothing walking off can change it."""
+        discs = self._leg_discs(leg)
+        if not discs or self._plan_hold(basis, here, target, dict(leg, watch=None), exclude) is None:
+            return []
+        dx, dz = target[0] - here[0], target[1] - here[1]
+        reach = (1 + self.PROBE_TAIL_FRAMES) * self.WALK_SPEED
+        spread = leg["spread"]
+        until = 1 + self._walker_lag(leg["watch"])
+        pads = [u for buttons, u in _eight_way(basis) if u[0] * dx + u[1] * dz > 0 and buttons not in exclude
+                and self._probe_is_clear(here, u, reach, leg["hazards"], spread)]
+
+        def refuses(d, u) -> bool:
+            if d["moving"] and d["kind"] == "trigger":
+                ends = [(here[0] + e[0] * reach, here[1] + e[1] * reach)
+                        for e in (_turn(u, spread * k / 2.0) for k in (-2, -1, 0, 1, 2))]
+                return not (self._walker_clear(here, u, reach, spread, d, self.WALK_SPEED, until)
+                            and self._off_beat(here, ends, d))
+            return not self._probe_is_clear(here, u, reach, (), spread, discs=[d])
+        return [d for d in discs if any(refuses(d, u) for u in pads)]
+
+    def _outwait_box(self, basis: dict, target, leg: dict, exclude, origin: int) -> str:
+        """route_to(npcs=True, smooth=True): no hold from where he stands keeps :meth:`_plan_hold`'s rules. Boxed by the
+        SPOT -- the zones and the leg alone refuse every press, or the objects that refuse them (:meth:`_boxers`) would
+        refuse them still with every WALKER among them gone (:meth:`_npc_walks`; a hold planned without them) -- that
+        is final, at once: "boxed", nothing pressed or waited. Boxed by WALKERS -- their going would free a press -- it
+        is not: he stands still, reading the objects again, until a hold keeps the rules again (:meth:`_outwait_walkers`
+        on the box's own tally, ROUTE_WALKER_BUDGET frames a call; a wait that runs out is ``boxed_by`` walkers) -- and
+        steps out of the way of any held on him (:meth:`_box_step`), who never walk off while he stands. Every object
+        that refused the presses of a box by walkers goes into the watch's ``boxers``. Returns "clear" (a hold keeps
+        the rules: the caller plans again), "boxed" (the spot, or the wait spent), "moved" or "short"
+        (:meth:`_outwait_walkers`)."""
+        watch = leg["watch"]
+        here = self._standing()
+        boxers = self._boxers(basis, here, target, leg, exclude)
+        gone = {d["uid"] for d in boxers if self._npc_walks(d, watch)}
+        without = dict(leg, watch=dict(watch, discs=[d for d in watch["discs"] if d["uid"] not in gone]))
+        if not gone or self._plan_hold(basis, here, target, without, exclude) is None:
+            return "boxed"
+        self._npc_note(watch["boxers"], boxers)
+        since: dict = {}
+        return self._outwait_walkers(
+            watch, origin, lambda: self._plan_hold(basis, self._standing(), target, leg, exclude) is not None,
+            lambda: self._box_step(basis, leg, since), first=True, boxers=[d for d in boxers if d["uid"] in gone])
+
+    def _npc_walks(self, d: dict, watch: dict) -> bool:
+        """Is published object ``d`` a WALKER, as a box is judged (:meth:`_outwait_box`)? Published ``moving`` now -- a
+        walker held on him still reads so (s89) -- or seen walking by this call: published ``moving`` by any read of it
+        (``watch["walked"]``, :meth:`_npc_read`), or ROUTE_NPC_MOVED from where the plan saw it. ``moving`` is an
+        instant's flag: a wanderer paused at a turn of its loop reads false between steps (stock 350's children). An
+        object the plan never saw is none of these by that alone."""
+        import math
+        if d["moving"] or d["uid"] in watch.get("walked", ()):
+            return True
+        was = watch["planned"].get(d["uid"])
+        return was is not None and math.hypot(d["x"] - was[0], d["z"] - was[1]) >= self.ROUTE_NPC_MOVED
+
+    def _walker_step(self, d: dict) -> float:
+        """How far one call of WALKING disc ``d``'s walk may carry it (a call an event tick, a tick two frames): two
+        frames of its ``speed``, and never under two frames of the most a walk covers in one (2 * RUN_SPEED,
+        :meth:`_npc_read`'s bound on a walk). The engine undoes the WHOLE of a step that would bring it within ``r``
+        of him (MoveToward.cs:187-189), so a walker held on him stops anywhere up to one step short of contact -- 350's
+        children, faster than his run, well beyond the WALK_SPEED his own contact is judged by (:meth:`_body_ahead`) --
+        and a pace read before it walked into him is no bound on its step: none at all for one held since before the
+        call, a crawl for one that stood about first."""
+        return 2.0 * max(d["speed"], 2.0 * self.RUN_SPEED)
+
+    def _box_step(self, basis: dict, leg: dict, since: dict) -> bool:
+        """route_to(npcs=True, smooth=True), boxed in by walkers (:meth:`_outwait_box`), in place of a wait: one hold
+        OUT OF THE WAY of the walkers HELD ON HIM, when there are any -- a non-solid body within its own step of contact
+        with him (its centre within :meth:`_walker_step` of its ``r``), still published ``moving``, that has not moved
+        ROUTE_NPC_MOVED in ROUTE_WALKER_HELD frames. The engine undoes every step a scripted walker takes into him
+        (MoveToward.cs:187-189): it walks on only once HE moves, so a wait for it waits on himself. ``since`` keeps, per
+        walker that near, where and when it was last seen to move.
+
+        The hold runs along whichever of the eight pad directions ends furthest from the LINE each held walker walks
+        (:meth:`_walker_path`, ROUTE_WALKER_AHEAD frames of it either way: freed, it walks on along it) -- the line it
+        was last seen walking, or, never seen walking (held since before the call), the one from it to him: it is held
+        BECAUSE its step comes at him, and a step straight away from it only leaves him on its way -- and further than
+        he stands now, or it is not worth a press; of two about as far, the one that ends further from the leg's zones.
+        It may press INTO a held walker -- that is the point -- which costs a slide round it (the push-out holds him at
+        ``r``): the hold is far short of the engine's pass-through (ROUTE_PUSH_LOCK_W), and a talk-only child fires
+        nothing even then. So what a SLIDE could carry him into is kept out of the whole reach round him, whichever way
+        the slide turns the press: every zone of the leg PROBE_HAZARD_PAD beyond it and every published trigger -- one
+        the plan gave up included -- its ``pad`` beyond it (a walking one, what it can walk meanwhile too). The hold is
+        the LONGEST that room leaves: ROUTE_WALKER_HOLD frames at a run where it can, shorter, or walked, beside a door
+        -- a short step still takes him off the walker's line, and the next one further -- and none only where not even
+        one walk frame fits. Every other body -- a solid included, never pressed into -- keeps the fan rule
+        (:meth:`_probe_is_clear`, the leg's heading spread); and the end stands on the call's walkmesh,
+        COLLISION_RADIUS_W off its walls, where a plan can start. True when it pressed, False when he stands (none held
+        on him yet, or no hold keeps those rules)."""
+        import math
+        from ff9mapkit.content import pathfind
+        from ff9mapkit.scene import cam, routes
+        watch = leg["watch"]
+        st = self.state
+        if st.player_x is None:
+            return False
+        here = (st.player_x, st.player_z)
+        held = []
+        for d in watch["discs"]:
+            if d["kind"] != "body" or d["solid"] or not d["moving"]:
+                continue
+            if math.hypot(here[0] - d["x"], here[1] - d["z"]) >= d["R"] + self._walker_step(d):
+                since.pop(d["uid"], None)                  # a whole step off contact: nothing of his holds it
+                continue
+            was = since.get(d["uid"])
+            if was is None or math.hypot(d["x"] - was[0], d["z"] - was[1]) >= self.ROUTE_NPC_MOVED:
+                since[d["uid"]] = (d["x"], d["z"], st.frame)      # seen walking: held from here on, if at all
+            elif st.frame - was[2] >= self.ROUTE_WALKER_HELD:
+                held.append(d)
+        if not held:
+            return False
+        lag = self._walker_lag(watch)
+        room = min((pathfind.poly_gap(here[0], here[1], poly) - self.PROBE_HAZARD_PAD for poly in leg["hazards"]),
+                   default=math.inf)
+        triggers = [d for d in self._npc_discs(watch["objs"], here, st.player_y, watch["margin"], watch.get("heights"),
+                                               watch.get("speed"), watch.get("heading")) if d["kind"] == "trigger"]
+
+        def fits(n: int, pace: float) -> bool:
+            reach = (n + self.PROBE_TAIL_FRAMES) * pace
+            return reach <= room and all(
+                math.hypot(here[0] - d["x"], here[1] - d["z"]) - d["R"] - d["pad"]
+                - (d["speed"] * (n + self.PROBE_TAIL_FRAMES + lag) if d["moving"] else 0.0) >= reach for d in triggers)
+        sizes = sorted(((n, slow) for n in range(1, self.ROUTE_WALKER_HOLD + 1) for slow in (False, True)),
+                       key=lambda s: (-(s[0] + self.PROBE_TAIL_FRAMES) * (self.WALK_SPEED if s[1] else self.RUN_SPEED),
+                                      s[1]))
+        size = next(((n, slow) for n, slow in sizes if fits(n, self.WALK_SPEED if slow else self.RUN_SPEED)), None)
+        if size is None:
+            return False
+        n, slow = size
+        reach = (n + self.PROBE_TAIL_FRAMES) * (self.WALK_SPEED if slow else self.RUN_SPEED)
+        bodies = [d for d in watch["discs"] if d["kind"] == "body" and all(d is not h for h in held)]
+        floor = watch.get("floor")
+
+        def line(d):
+            if d["dir"] is None:                      # never seen walking: it walks at him, or it would not be held
+                bx, bz = here[0] - d["x"], here[1] - d["z"]
+                k = math.hypot(bx, bz)
+                d = dict(d, dir=(bx / k, bz / k)) if k > 1e-9 else d
+            return self._walker_path(d, self.ROUTE_WALKER_AHEAD) or ((d["x"], d["z"]),) * 2
+        lines = [(d, line(d)) for d in held]
+
+        def score(at) -> float:
+            return min(routes.seg_dist_xz(at[0], at[1], *ab) - d["R"] for d, ab in lines)
+
+        def clear_of_zones(at) -> float:
+            return min((pathfind.poly_gap(at[0], at[1], poly) for poly in leg["hazards"]), default=math.inf)
+        base, best = score(here), None
+        for buttons, u in _eight_way(basis):
+            end = (here[0] + u[0] * reach, here[1] + u[1] * reach)
+            spot = (int(round(end[0])), int(round(end[1])))
+            if floor is not None and (floor.point_on_walkmesh(*spot) is None
+                                      or (floor.distance_to_boundary(*spot) or 0.0) < cam.COLLISION_RADIUS_W):
+                continue
+            if not self._probe_is_clear(here, u, reach, (), leg["spread"], discs=bodies):
+                continue
+            far, wide = score(end), clear_of_zones(end)
+            if far <= base + 0.5:
+                continue                              # no further off their lines: not worth a press
+            if best is None or far > best[0] + 0.5 or (far > best[0] - 0.5 and wide > best[1] + 0.5):
+                best = (far, wide, buttons, u)
+        if best is None:
+            return False
+        _far, _wide, buttons, u = best
+        leg["pressed"] = (buttons, u)
+        self._log(f"  route_to: walker(s) {[d['uid'] for d in held]} held on him at ({here[0]:.0f}, {here[1]:.0f}) -- "
+                  f"a walker walks on only once he moves: {n} frames {'+'.join(buttons)}{' walked' if slow else ''} "
+                  f"out of their way")
+        steps = [f"hold {b} {n}" for b in buttons]
+        if slow:
+            steps.insert(0, f"hold cancel {n}")
+        self.send(*steps, f"wait {n + 4}")
+        after = self.settle()
+        self._note_lag(watch, after.frame - st.frame - n)
+        since.clear()
+        return True
+
     def _chunk_frames(self, length: float) -> int:
         """The frames a chunk of ``length`` presses, walked chunked: both arms of one-axis steering's L at a run."""
         import math
         return int(math.ceil(math.sqrt(2.0) * length / self.RUN_SPEED))
 
-    def _outwait_walkers(self, watch: dict, origin: int, clear, escape=None, first: bool = False) -> str:
+    def _outwait_walkers(self, watch: dict, origin: int, clear, escape=None, first: bool = False,
+                         boxers=None) -> str:
         """route_to(npcs=True): stand still while a WALKING trigger's reach refuses the next press (``clear()`` False),
         ROUTE_WALKER_WAIT frames at a time, reading the objects again after each (:meth:`_npc_moved`), within the
         call's ROUTE_WALKER_BUDGET frames. A walker going elsewhere has gone by in a wait or two; one parked in the way
@@ -3725,25 +3968,36 @@ class Session:
         walks on toward him -- so, given ``escape`` (:meth:`_walker_escape`: True when it pressed him out of the way),
         that is tried in place of a wait that could not be stood through. Returns "clear" (``clear()`` holds, at once
         or after waits), "moved" (a read saw an object move onto the path still to walk: plan again), "boxed" (the
-        budget is spent: nothing may be pressed) or "short" (the field or control went away while he stood). ``first``
-        waits once before ``clear()`` is asked at all (the caller has just seen a read it refuses)."""
+        budget is spent: nothing may be pressed -- and it is walkers that boxed him, not the spot: the watch's
+        ``boxed_by`` says so) or "short" (the field or control went away while he stood). ``first`` waits once before
+        ``clear()`` is asked at all (the caller has just seen a read it refuses).
+
+        ``boxers`` (the WALKING objects among those whose discs refuse every press from here: :meth:`_outwait_box`)
+        makes it the wait of a box: the same loop and budget on the box's own tally (``box_waited`` / ``box_waits``),
+        so neither wait spends the other's frames, and ``escape`` is :meth:`_box_step`."""
+        waited, waits = ("waited", "walker_waits") if boxers is None else ("box_waited", "box_waits")
+        who = ("a walking trigger" if boxers is None
+               else f"walking object(s) {list(dict.fromkeys(d['uid'] for d in boxers))}")
         told = False
         while first or not clear():
             first = False
-            if watch["waited"] >= self.ROUTE_WALKER_BUDGET:
-                self._log(f"  route_to: a walking trigger still reaches every press after {watch['waited']} frames of "
-                          f"waiting for walkers; nothing may be pressed from here")
+            if watch[waited] >= self.ROUTE_WALKER_BUDGET:
+                self._log(f"  route_to: {who} still {'reaches every press' if boxers is None else 'box him in'} "
+                          f"after {watch[waited]} frames of waiting for walkers; nothing may be pressed from here")
+                watch["boxed_by"] = "walkers"
                 return "boxed"
             if not told:
                 st = self.state
-                self._log(f"  route_to: a walking trigger could reach the next press from ({st.player_x:.0f}, "
-                          f"{st.player_z:.0f}); standing still until it has gone by")
+                self._log(f"  route_to: {who} could reach the next press from ({st.player_x:.0f}, "
+                          f"{st.player_z:.0f}); standing still until it has gone by" if boxers is None else
+                          f"  route_to: {who} box him in at ({st.player_x:.0f}, {st.player_z:.0f}) -- every press "
+                          f"toward the leg comes nearer one of them; standing still until they walk off")
                 told = True
-            watch["walker_waits"] += 1
+            watch[waits] += 1
             if escape is not None and escape():
-                watch["waited"] += self.ROUTE_WALKER_HOLD
+                watch[waited] += self.ROUTE_WALKER_HOLD
             else:
-                watch["waited"] += self.ROUTE_WALKER_WAIT
+                watch[waited] += self.ROUTE_WALKER_WAIT
                 before = self.state
                 self.wait_frames(self.ROUTE_WALKER_WAIT)
                 self._note_lag(watch, self.state.frame - before.frame - self.ROUTE_WALKER_WAIT)
@@ -3803,6 +4057,15 @@ class Session:
             have.add((d["uid"], d["via"]))
             into.append({"uid": d["uid"], "sid": d["sid"], "kind": d["via"], "at": [round(d["x"]), round(d["z"])],
                          "radius": round(d["R"]), "solid": d["solid"], "moving": d["moving"]})
+
+    @staticmethod
+    def _npc_tally(record: dict, watch: dict | None) -> None:
+        """What the call's walkers cost, from its ``watch`` into route_to's ``record`` (nothing without one):
+        ``npc_waits`` (walking triggers' reach, :meth:`_outwait_walkers`) and ``box_waits`` / ``box_cleared`` /
+        ``boxers`` (walkers that boxed him in, :meth:`_outwait_box`)."""
+        if watch is not None:
+            record["npc_waits"], record["box_waits"] = watch["walker_waits"], watch["box_waits"]
+            record["box_cleared"], record["boxers"] = watch["box_cleared"], list(watch["boxers"])
 
     def route_cross(self, x: float, z: float, *, expect: int | None = None, avoid=(),
                     margin: float | None = None, timeout: float = 20.0, walkmesh=None,

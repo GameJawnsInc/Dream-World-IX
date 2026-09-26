@@ -38,12 +38,14 @@ failed crossing is one of two things, and only one of them STRIKES:
   shut the region; judged by zone membership, route_cross's `inside`, not by the goal distance), a MISS where
   something else took control mid-walk, NO ROUTE, BLOCKED -- he moved after the first unseen blocker went in,
   and then blockers sealed the way -- or BOXED: the smooth walk stood where no press keeps clear of the other
-  exits (the geometry of that spot, like NO ROUTE; nothing waited or pushed). BOUNCES of them: unreachable.
+  exits and of the villagers standing still round him, and no walker's going would change that (the geometry of
+  that spot, like NO ROUTE; nothing waited or pushed). BOUNCES of them: unreachable.
 - a LIVE miss says something about the village, and does not strike: the walk stalled with control held, waited,
   pushed or routed round (or found movement held -- `frozen`, which also covers a first blocker that sealed the
-  way before he had moved again: nothing tells that from a hold), and still ended short, OUTSIDE the zone. The
-  exit goes behind the field's other exits and is tried again; only after LIVE of them is it unreachable, so a
-  village that never clears still cannot hold the tour.
+  way before he had moved again: nothing tells that from a hold), or waited out walkers that boxed him in and let
+  him go, and still ended short, OUTSIDE the zone -- or villagers WALKING round him boxed him in and outlasted the
+  walk's wait for them (below). The exit goes behind the field's other exits and is tried again; only after LIVE
+  of them is it unreachable, so a village that never clears still cannot hold the tour.
 
 THE ROUTER WALKS THE PLAYER'S FLOOR (after the second run: 356 -> 358 stalled four times exactly the controller
 radius off stock 356's triangle 50, a door strip whose triFlags 0xA001 bar the controlled player while the
@@ -79,9 +81,26 @@ same plan the other exits are kept out of, and each contact trigger (an entry's 
 non-solid villager is pushed through only when no route goes round; a solid one never, and solids that seal every
 way are BLOCKED (a REAL failure -- unless a sealing solid is itself walking: that is the village, LIVE). A villager
 walking onto the path re-plans the route, a bounded number of times, and a WALKING trigger is waited for until it
-has gone by -- a walk that waited on walkers and then found nothing it could press is LIVE too, not BOXED. Per
+has gone by -- a walk that waited on walkers and then found nothing it could press is LIVE too, not BOXED.
+
+A BOX BY WALKERS IS NOT THE SPOT (rung-3 session 2, run 2: two Dali children -- talk-only walkers, non-solid bodies of
+r 152 -- walked into Zidane in 350 and stood there, held; every press toward any exit came nearer one of them, so
+crossings 24-30 all came back BOXED from that one spot, each a REAL strike, until the passes ran out: VOID). The
+engine undoes every step a scripted walker takes into the player (MoveToward.cs:187-189): the
+children would have waited on him for ever, and he on them. Now a spot where no press keeps the rules is BOXED at once
+only when the walkers among what refuses the presses (published walking, or seen walking by the call -- a wanderer
+reads still at the turns of its loop) are not the cause: planned without them, still no press. Where their going would
+free one, the walk stands and reads again, steps out of the way of any walker HELD ON HIM (within its own step of
+contact -- the engine undoes a whole step, and the children outpace his run -- still walking, not moved in half a
+second: one hold along the pad that ends furthest from the line it was walking, or from the line at him when it was
+never seen walking, as long as the room round him lets a slide carry him nowhere near a door or a Range: beside a
+door, shorter or walked), and plans again once a press is free -- a box they let go of is no box at all, and strikes
+nothing. One that outlasts that wait is the village holding him (``boxed_by`` "walkers"): LIVE, not BOXED. A
+talk-only villager (a talk script, no Range) is a body and nothing more: inside its talk radius the "!" is a prompt
+for a Confirm the tour never presses. Per
 crossing the log names the objects avoided, the trigger radii entered (a Range that reached him as control went
-included), the bodies pushed through, the movement re-plans and the waits for walkers (``npcs`` says whether the
+included), the bodies pushed through, the movement re-plans, the waits for walkers, and the objects that boxed him
+in with the waits (and steps aside) that box cost and whether it let go (``npcs`` says whether the
 engine listed its objects at all: "cannot" on an engine without s89, where the walk is the blind unstick one above).
 
 S1-SEGMENT  the scripted segment hands control back in 352 at SC 2600
