@@ -2,7 +2,9 @@
 route, and the trace (not a human reading scripts) names what each chain gets wrong.
 
     py tools/play.py studies/story-trace/rung3_trace.py --label story-rung3 --timeout 240
-    py studies/story-trace/rung3_trace.py --analyse <run dir>      # the analysis alone, offline, on saved traces
+    py studies/story-trace/rung3_trace.py --analyse <run dir>      # the analysis alone, offline, on saved traces,
+                                                                   # against the predictions the session recorded
+                                                                   # (--predictions FILE overrides; P-FROZEN judges it)
 
 THE SIDES (studies/story-trace/rung3_forks.json; deployed to FF9CustomMap, ONE RELAUNCH before the session):
   S   stock Dali -- the install's scripts. Start: 359.
@@ -17,12 +19,30 @@ THE SESSION: one launch, nine runs interleaved S F0 F4 x3. Each run: (the recove
 the first) -> New Game -> `storytrace 1` -> raw `warp <start> 0 2540` -> the game's own segment 359 -> 351 -> 352
 (scenes sat through, choices answered with the game's default) until control returns in 352 at SC 2600 AFTER the
 wake -- the run's own trace must show the wake's SC := 2600 (F4's prefix stamps 2600 on arrival, so SC alone would
-start its tour mid-night) -> the blind tour (dali_tour.py -- the step-1 rules; one Tour per side, over that side's
-chain alone: on a fork run every rule reads the member's DONOR, the exits come from the bytes the field runs, and a
-seam into the real game is crossed and toured like any other place) until SC leaves 2600, the passes run out, or
-the budget does -> `storytrace 0`, verified whole. Each run's trace and log are saved as it ends
+start its tour mid-night) -> the walk (dali_tour.py -- the step-1 rules; one Tour per side, over that side's chain
+alone: on a fork run every rule reads the member's DONOR, the exits come from the bytes the field runs, and a seam
+into the real game is crossed and toured like any other place) until SC leaves 2600, the passes run out, or the
+budget does -> `storytrace 0`, verified whole. Each run's trace and log are saved as it ends
 (run<i>_<side>.jsonl / run<i>_<side>_log.json), with the session record (rung3_session.json) rewritten after every
 run, so a session that dies keeps every run it finished.
+
+THE WALK IS THE PARTNER'S (predictions v2, "replay"). S and F4 runs walk the blind tour. An F0 run REPLAYS its stock
+PARTNER's walk first (Tour.replay): the partner's crossings that ENTERED another field, landed or bounced back
+(353), in order, in donor terms -- each step crossed by the tour's own call under its own strike rules (a retry
+after a REAL failure walked from where the step began: a miss leaves him inside the zone, where a retry fires
+nothing), and required to enter the partner's place -- and only then, the story still at 2600, tours blind on the
+budget left. The story moving on stops it at that crossing, which is never judged: where the story's own move took
+him is the fork's doing. Session 2 is why: the sides walked Dali in different ORDERS (every stock run boxed at 350
+-> 355, every F0 run through it), and SByte[296] -- the countdown 450's ping arms and each room's controller steps
+down -- writes the visit order into the trace, so pattern-level STOCK ONLY / FORK ONLY read a systematic order
+difference as a fork difference. Replayed, the order is the same by construction. THE PAIRING: the round's F0
+partners the round's S (the S just before it); a re-run F0 partners the oldest COVERED S with no covered F0 twin
+yet whose walk has not already broken max_breaks replays ("replay broke": a walk that will not replay is partnered
+no more, so the re-runs cannot starve on it), and when there is none S re-runs first for a fresh walk; each covered
+S is partnered by at most one covered F0. An F0 whose partner is VOID -- or cannot be read -- is recorded VOID
+without being driven ("partner S#k VOID"). The session record stores each F0 run's "partner" and the "walk" it was
+given; the analysis checks them and recomputes every re-run's plan from the runs before it (R3-RUNS), and reads the
+replay off the run's own log (coverage).
 
 THE SHARED INSTALL IS RE-READ AROUND EVERY RUN. The members live in FF9CustomMap, which another session's
 deploy_campaign replaces wholesale: before and after each run the session fingerprints what its runs rely on
@@ -31,25 +51,36 @@ walkmesh it runs, the folder list, any mod override of a stock Dali script) agai
 passed on. A run begun on a changed install is skipped, a run the install changed under is kept but never read --
 both VOID, with what changed.
 
-COVERAGE, NOT OUTCOME, DECIDES WHAT A RUN IS (rung3_predictions.json "coverage"). A blind walker failing -- an exit
-gone dead, a scene that never returned control, the budget -- says nothing about the scripts. So each run is
-COVERED only when the drive gave it the chance to show what the checks read (its trace closed, the wake ran, its
-tour ended its side's way, 351's lobby exit and 450's e19 exit both ran -- their unconditional stores, never the
-guarded writes the checks judge -- and on S/F0 the controller flipped and Garnet moved the story on, on F4 it
-toured at least as far as stock needed to). Anything else is VOID: listed with why, never read as a falsification.
-Every check reads covered runs only and is VOID -- not PASS -- while a side it needs has fewer than min_covered.
-After the nine, a side short of covered runs RUNS AGAIN while the budget holds (S first; at most rerun.max); the
-analysis reads every run the session recorded.
+COVERAGE, NOT OUTCOME, DECIDES WHAT A RUN IS (the predictions' "coverage"). A blind walker failing -- an exit gone
+dead, a scene that never returned control, the budget -- says nothing about the scripts. So each run is COVERED
+only when the drive gave it the chance to show what the checks read (its trace closed, the wake ran, its tour ended
+its side's way, 351's lobby exit and 450's e19 exit both ran -- their unconditional stores, never the guarded
+writes the checks judge -- and on S/F0 the controller flipped and Garnet moved the story on, on F4 it toured at
+least as far as stock needed to; and on F0, under v2, its partner is covered and its log's replay steps ARE the
+partner's walk -- or, when the story moved on during the replay, its steps before the crossing it moved on at are
+the partner's first steps: that crossing is the fork's doing, not the drive's). Anything else is VOID: listed with
+why, never read as a falsification. Every check reads covered runs only and is VOID -- not PASS -- while a side it
+needs has fewer than min_covered. So, under v2, is R3-NULL-PRE's non-vacuity guard short on the STOCK side (too
+few stock keys before 450, too few of them in every stock tour, a tour donor with none): the evidence the claim
+needs does not exist, which is coverage. Short only on the F0 side -- the stock evidence there, the members writing
+part of it in only SOME covered F0 runs -- it FAILs, as under v1: that is a fork difference, not too little
+evidence. After the nine, a side short of covered runs RUNS AGAIN while the budget holds (S first; F0 by the
+pairing; at most rerun.max); the analysis reads every run the session recorded.
 
-THE BUDGET (rung3_predictions.json "budget", one rule for every side): a segment gets 12 min (step 1's took ~2.5),
-a tour 18 min (x2.2 step 1's 8.2) and at most 3 passes / 80 crossings. F4 never advances (its 297 is 0), so it
-runs to its passes or its 18 min. Expected: S ~11 min, F0 ~11 min, F4 ~22 min -> ~2 h 12 min for the nine. The
-session is capped at 3 h: a run starts only with 12 min left, and no tour runs past the cap (it stops "session
-budget spent", VOID -- a cut session is a VOID session, never a short pass).
+THE BUDGET (the predictions' "budget", one rule for every side): a segment gets 12 min (step 1's took ~2.5), a tour
+18 min (x2.2 step 1's 8.2) and at most 3 passes / 80 crossings -- an F0 run's replay and the tour after it share
+its 18 min and its 80 crossings. F4 never advances (its 297 is 0), so it runs to its passes or its 18 min.
+Expected (v1): S ~11 min, F0 ~11 min, F4 ~22 min -> ~2 h 12 min for the nine; measured (session 2): 9-13 min a run
+on every side, F4's tours ending on their passes -- the nine in 1 h 44 min. The session is capped at 3 h: a run
+starts only with 12 min left, and no tour runs past the cap (it stops "session budget spent", VOID -- a cut session
+is a VOID session, never a short pass).
 
-THE PREDICTIONS ARE FROZEN (rung3_predictions.json, written before any fork-side run): every check below reads its
-expectation from that file and from nowhere else, and the session records the file's sha256 before its first run.
-The analysis refuses a file that no longer matches (P-FROZEN), so a run cannot be read to fit.
+THE PREDICTIONS ARE FROZEN (rung3_predictions.json, v1, written before any fork-side run -- sessions 1 and 2 ran
+against it; rung3_predictions_v2.json, written after session 2 and before session 3, the one a session now
+registers): every check below reads its expectation from the file the session recorded and from nowhere else, and
+the session records that file's path and sha256 before its first run. The analysis reads the recorded file unless
+told otherwise (--predictions), refuses a file that no longer matches (P-FROZEN), so a run cannot be read to fit,
+and refuses outright to read a session whose F0 runs are not replays against v2 (NotReplays) -- never a verdict.
 
 P-CAP       the engine advertises the story trace at proto 1
 P-MANIFEST  the frozen member sets are the deployed chains' (rung3_forks.json)
@@ -59,13 +90,15 @@ P-FLOOR     every member's deployed walkmesh is its donor's stock walkmesh (what
 P-EXITS     every member's running exits are its donor's with only the targets remapped INTO ITS OWN CHAIN
 P-STOCK     no mod folder overrides a stock Dali script (else the stock side is not stock)
 P-FROZEN    the predictions the analysis reads are the ones the session recorded
-R3-RUNS     the frozen nine in order, then re-runs only; every trace keeps the contract; >= min_covered covered
-            runs per side (VOID short of that)
+R3-RUNS     the frozen nine in order, then re-runs only; every trace keeps the contract; (v2) the pairing is the
+            registered one, and every re-run the plan names from the runs before it; >= min_covered covered runs
+            per side (VOID short of that)
 R3-DONOR    every member row names its donor, every real row itself; no side strays into another's ids
 R3-JOIN     0 join failures, no note: every script row joins a store in the bytes its side ran
 R3-PING     stock: Bit[2102] := 1 in every covered run, and WRITERS names only 450 for it
 R3-NULL-PRE F0: nothing stock writes before 450 is missing from the members -- rung 2 at zone scale, and at
-            TOUR scale (keys first written in the tour, from its member donors), not just the scripted segment
+            TOUR scale (keys first written in the tour, from its member donors), not just the scripted segment;
+            (v2) its non-vacuity guard short on the STOCK side, nothing missing: VOID; short only on F0's: FAIL
 R3-SEAM     F0: every covered run reaches 450 only across member(350)'s seam; the ping is REACHED ONLY ACROSS A
             SEAM, and written by no F0 donor
 R3-MIRROR   F0: FORK ONLY and STOCK ONLY empty, no clobber
@@ -91,7 +124,8 @@ sys.path.insert(0, str(HERE))
 import dali_tour as D  # noqa: E402
 from dali_tour import T  # noqa: E402
 
-PREDICTIONS = HERE / "rung3_predictions.json"
+PREDICTIONS_V1 = HERE / "rung3_predictions.json"      # sessions 1 and 2 (sha 220532a8); FROZEN, never edited
+PREDICTIONS = HERE / "rung3_predictions_v2.json"       # what a session registers now: F0 replays its partner
 MANIFEST = HERE / "rung3_forks.json"
 SESSION_FILE = "rung3_session.json"
 SIDES = ("S", "F0", "F4")
@@ -106,6 +140,74 @@ def load_predictions(path: Path = PREDICTIONS) -> tuple:
     """``(predictions, sha256 of the file's bytes)``."""
     data = Path(path).read_bytes()
     return json.loads(data.decode("utf-8")), hashlib.sha256(data).hexdigest()
+
+
+def recorded_predictions(session: dict) -> Path:
+    """The predictions file a session recorded before its first run: its ``predictions`` path, or the file of that
+    name here when the path is gone (another worktree's); a record that names none predates the path and ran v1.
+    P-FROZEN still judges the bytes against the recorded sha256."""
+    named = session.get("predictions")
+    if not named:
+        return PREDICTIONS_V1
+    p = Path(named)
+    return p if p.is_file() else HERE / p.name
+
+
+class NotReplays(ValueError):
+    """Predictions that pair F0 with a stock partner (v2 "replay") asked to read a session whose F0 runs are not
+    replays: refused, never a verdict -- such a session is read against the file it recorded."""
+
+
+def replaying(pred: dict) -> bool:
+    """Do these predictions have F0 replay its stock partner's walk (v2)?"""
+    return bool(pred.get("replay"))
+
+
+def round_partner(order: list, i: int) -> int | None:
+    """The stock run a frozen-order F0 at run ``i`` partners: its round's S, the nearest S before it in ``order``.
+    None past the frozen order: a re-run has no round (rerun_plan names its partner)."""
+    if i > len(order):
+        return None
+    return next((j for j in range(i - 1, 0, -1) if order[j - 1] == "S"), None)
+
+
+def short_sides(runs: list, pred: dict) -> list:
+    """The sides with fewer than min_covered covered runs, in SIDES order."""
+    n = pred["coverage"]["min_covered"]
+    return [s for s in SIDES if sum(1 for r in runs if r["side"] == s and not r["why_void"]) < n]
+
+
+def broken_on(runs: list) -> Counter:
+    """How many F0 replays each stock run's walk has broken: ``{partner i: n}`` over the F0 runs that stopped "replay
+    broke" (a step entered another place, struck out, or left him elsewhere) -- the walk's own failures, never a
+    budget, an error or a segment that handed back no control."""
+    return Counter(r["rec"].get("partner") for r in runs if r["side"] == "F0" and _stop(r).startswith("replay broke"))
+
+
+def untwinned(runs: list, max_breaks: int | None = None) -> list:
+    """The covered stock runs no covered F0 run partners yet, oldest first (their ``i``) -- less those whose walk has
+    broken ``max_breaks`` replays already (v2 "replay".max_breaks): a walk that will not replay is partnered no more,
+    so the re-runs cannot starve on it."""
+    twinned = {r["rec"].get("partner") for r in runs if r["side"] == "F0" and not r["why_void"]}
+    broke = broken_on(runs) if max_breaks is not None else Counter()
+    return [r["i"] for r in runs if r["side"] == "S" and not r["why_void"] and r["i"] not in twinned
+            and (max_breaks is None or broke[r["i"]] < max_breaks)]
+
+
+def rerun_plan(runs: list, pred: dict) -> tuple | None:
+    """What runs next after the nine, from the judged runs (:func:`judge`): ``(side, partner)``, or None when no side
+    is short. S first when it is short (every comparison and F4's crossing floor read it); then F0 -- under v2
+    partnering the oldest covered stock run with no covered F0 twin whose walk has not broken ``max_breaks`` replays,
+    and when there is none, S runs first to give it a fresh walk; then F4. ``partner`` is None but for an F0 re-run
+    under v2. R3-RUNS recomputes this plan for every re-run from the runs before it (:func:`pairing_faults`), so a
+    session that ran anything else FAILs it."""
+    short = short_sides(runs, pred)
+    if not short:
+        return None
+    if short[0] == "F0" and replaying(pred):
+        free = untwinned(runs, pred["replay"].get("max_breaks"))
+        return ("F0", free[0]) if free else ("S", None)
+    return (short[0], None)
 
 
 def chain_members(pred: dict) -> dict:
@@ -260,8 +362,8 @@ def run(g) -> None:
     for fid in sorted(every):
         (scripts / f"{fid}.eb").write_bytes(ran(fid).data)
     session = {"label": g.run_dir.name, "predictions": str(PREDICTIONS), "predictions_sha256": sha,
-               "order": pred["order"], "budget": b, "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
-               "install": fp0, "runs": []}
+               "predictions_version": pred.get("version", 1), "order": pred["order"], "budget": b,
+               "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "install": fp0, "runs": []}
 
     def save() -> None:
         (g.run_dir / SESSION_FILE).write_text(json.dumps(session, indent=1), encoding="utf-8")
@@ -271,18 +373,47 @@ def run(g) -> None:
     t0 = time.time()
     deadline = t0 + b["session_s"]
 
-    def one(i: int, side: str, rerun: bool = False) -> None:
+    def partner_walk(k: int | None) -> tuple:
+        """``(walk, why not)`` for an F0 partnering stock run ``k``: that run judged by the frozen coverage rule
+        (read_session, the analysis's own reading) -- its entered walk when it is covered, else why the F0 is VOID.
+        Reading every recorded run before each F0 must not cost the session: whatever that read raises makes this
+        one F0 VOID (unread partner), never the runs after it."""
+        if k is None:
+            return None, "no stock run before it to partner"
+        try:
+            runs = {r["i"]: r for r in read_session(g.run_dir, pred, stock=stock, roots=roots, session=session)}
+            p = runs.get(k)
+            if p is None or p["side"] != "S":
+                return None, f"its partner #{k} is not a recorded stock run"
+            if p["why_void"]:
+                return None, f"partner S#{k} VOID: {'; '.join(p['why_void'])[:200]}"
+            return D.entered_walk(p["log"]["log"]), None
+        except Exception as err:                  # noqa: BLE001 -- one unreadable record must not end the session
+            return None, f"partner S#{k} unreadable: {type(err).__name__}: {str(err)[:200]}"
+
+    def one(i: int, side: str, rerun: bool = False, partner: int | None = None) -> None:
         tour = side_tours[side]
         trace_name, log_name = run_names(i, side)
         rec = {"i": i, "side": side, "start": pred["start"][side], "trace": trace_name, "log": log_name}
         if rerun:
             rec["rerun"] = True
-        if time.time() + b["run_min_s"] > deadline:
-            rec["skipped"] = f"session budget: under {b['run_min_s']}s of the {b['session_s']}s left"
-        else:
-            moved = _changed(fp0, fingerprint(roots, every))
-            if moved:
-                rec["install"] = "before the run: " + moved
+        walk = None
+        if side == "F0" and replaying(pred):
+            # THE PAIRING, at the call site: a round's F0 partners its round's S; a re-run F0 the partner the
+            # re-run plan chose (rerun_plan: a covered S with no covered twin). A VOID partner is not driven.
+            rec["partner"] = partner if rerun else round_partner(pred["order"], i)
+            walk, why = partner_walk(rec["partner"])
+            if walk is None:
+                rec["skipped"] = why
+            else:
+                rec["walk"] = walk
+        if not rec.get("skipped"):
+            if time.time() + b["run_min_s"] > deadline:
+                rec["skipped"] = f"session budget: under {b['run_min_s']}s of the {b['session_s']}s left"
+            else:
+                moved = _changed(fp0, fingerprint(roots, every))
+                if moved:
+                    rec["install"] = "before the run: " + moved
         if rec.get("skipped") or rec.get("install"):
             session["runs"].append(rec)
             save()
@@ -331,10 +462,15 @@ def run(g) -> None:
                             place=tour.place, until=pred["segment_place"], timeout=b["segment_s"], woke=woke)
             rec["segment"] = seg
             tour.say(f"run {i} ({side}) segment: {json.dumps(seg)}")
-            if seg["ok"]:
+            if seg["ok"] and walk is not None:
+                stop = tour.replay(g, log, walk, beat=pred["beat"], max_crossings=b["max_crossings"],
+                                   max_passes=b["max_passes"], budget_s=b["tour_s"], deadline=deadline,
+                                   engine_donor=engine_donor)
+            elif seg["ok"]:
                 stop = tour.run(g, log, beat=pred["beat"], max_crossings=b["max_crossings"],
                                 max_passes=b["max_passes"], budget_s=b["tour_s"], deadline=deadline,
                                 engine_donor=engine_donor)
+            if seg["ok"]:
                 try:                # Garnet's scene, sat through before the trace closes: the tour's stop stands
                     D.settle(g, log, "after the tour", tour.say)
                 except HarnessError as err:
@@ -355,9 +491,12 @@ def run(g) -> None:
                 except HarnessError as err:
                     rec["trace_error"] = str(err)[:300]
             crossings = [x for x in log if x["k"] == "cross"]
+            # landed: the crossings that landed where their exit leads, tour ("crossed") and replay alike
             rec.update(stop=stop, t1=round(time.time() - t0), crossings=len(crossings),
-                       landed=sum(1 for x in crossings if x.get("verdict") == "crossed"),
+                       landed=sum(1 for x in crossings if x.get("landed") is not None and x["landed"] == x.get("to")),
                        fields=sorted({x["now"] for x in crossings if x.get("now")}))
+            if walk is not None:
+                rec["replayed"] = sum(1 for x in crossings if x.get("verdict") == "replayed")
             moved = _changed(fp0, fingerprint(roots, every))
             if moved:
                 rec["install"] = "during the run: " + moved
@@ -372,16 +511,22 @@ def run(g) -> None:
         one(i, side)
     reruns = 0
     while reruns < pred["rerun"]["max"]:
-        runs = read_session(g.run_dir, pred, stock=stock, roots=roots, session=session)
-        short = [s for s in SIDES if len([r for r in runs if r["side"] == s and not r["why_void"]])
-                 < pred["coverage"]["min_covered"]]
-        if not short:
+        try:
+            runs = read_session(g.run_dir, pred, stock=stock, roots=roots, session=session)
+            plan = rerun_plan(runs, pred)
+        except Exception as err:                  # noqa: BLE001 -- the nine are kept and analysed all the same
+            session["rerun_stop"] = (f"the runs could not be read to plan a re-run: {type(err).__name__}: "
+                                     f"{str(err)[:200]}")
+            side_tours["S"].say(f"!! re-runs stopped: {traceback.format_exc()[-1500:]}")
+            break
+        if plan is None:
             break
         if time.time() + b["run_min_s"] > deadline:
-            session["rerun_stop"] = f"sides {short} still short of covered runs, and no run fits the budget left"
+            session["rerun_stop"] = (f"sides {short_sides(runs, pred)} still short of covered runs, and no run fits "
+                                     f"the budget left")
             break
         reruns += 1
-        one(len(session["runs"]) + 1, short[0], rerun=True)
+        one(len(session["runs"]) + 1, plan[0], rerun=True, partner=plan[1])
     session["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     save()
     checks, reports = analyse(g.run_dir, stock=stock, roots=roots)
@@ -491,7 +636,7 @@ def read_run(run_dir: Path, rec: dict, pred: dict, chains: dict, ran, stock) -> 
 
 
 def _stop(r) -> str:
-    return str((r["log"] or {}).get("stop", r["rec"].get("stop", "")))
+    return str((r.get("log") or {}).get("stop", r["rec"].get("stop", "")))
 
 
 def _void_why(r, pred, chains, floor) -> list:
@@ -528,6 +673,42 @@ def _void_why(r, pred, chains, floor) -> list:
     return out
 
 
+def _replay_why(r, by_i: dict, pred, chains) -> list:
+    """Why F0 run ``r`` is not a replay of a covered partner (v2 "replay", its coverage clause) -- [] when it is:
+    its recorded partner must be an earlier stock run, covered, and the replay steps its own log records --
+    ``[place, exit, entered place]`` of every replay crossing that entered a field, in order -- must BE the partner's
+    entered walk; or, when the story moved on during the replay (the run stopped "SC left" -- coverage has the trace
+    show the advance), its steps BEFORE the crossing the story moved on at must be the partner's first steps. That
+    crossing itself is never judged -- where the story's own move took him is the fork's doing -- and a flip that
+    came between crossings (no replay crossing settled off the beat) leaves every step recorded to be judged."""
+    if r["rec"].get("skipped") or r["rec"].get("install"):
+        return []                                  # never driven: VOID already, and the skip says why
+    k = r["rec"].get("partner")
+    p = by_i.get(k)
+    if not isinstance(k, int) or p is None or p["side"] != "S" or k >= r["i"]:
+        return [f"not a replay: its partner {k} is not an earlier stock run"]
+    if p["why_void"]:
+        return [f"partner S#{k} VOID"]
+    if r["log"] is None or p["log"] is None:
+        return []                                  # no log: VOID already, and said so ("no log")
+    want = D.entered_walk(p["log"]["log"])
+    steps = [x for x in r["log"]["log"] if x.get("k") == "cross" and x.get("leg") == "replay"]
+    got = D.entered_walk(steps, chains.get("F0"))
+    if got == want:
+        return []
+    moved = _stop(r).startswith("SC left")
+    if moved:
+        at = next((j for j, x in enumerate(steps) if x.get("sc1", pred["beat"]) != pred["beat"]), len(steps))
+        got = D.entered_walk(steps[:at], chains.get("F0"))
+        if got == want[:len(got)]:
+            return []
+    bad = next((j for j, (a, b) in enumerate(zip(got, want)) if a != b), None)
+    if bad is not None:
+        return [f"its replay of S#{k}'s walk diverged at step {bad + 1}: {D.step_name(got[bad])}, not "
+                f"{D.step_name(want[bad])}"]
+    return [f"it replayed {len(got)} of the {len(want)} steps of S#{k}'s walk"]
+
+
 def crossing_floor(stock_runs, pred) -> int | None:
     """The most crossings any covered stock run needed before SC reached the advance (its log's first crossing
     whose settled SC is there), or None with no such run."""
@@ -537,23 +718,72 @@ def crossing_floor(stock_runs, pred) -> int | None:
     return max(need) if need else None
 
 
-def read_session(run_dir, pred: dict, *, stock, roots, session: dict | None = None) -> list:
-    """Every run the session recorded, read and judged: each :func:`read_run` dict plus ``why_void`` (the coverage
-    rule's reasons, [] = covered). S and F0 are judged first: F4's crossing floor reads the covered stock runs."""
-    run_dir = Path(run_dir)
-    session = session or json.loads((run_dir / SESSION_FILE).read_text(encoding="utf-8"))
+def judge(runs: list, pred: dict) -> list:
+    """Judge read runs (:func:`read_run` dicts) by the frozen coverage rule, in place: each gets ``why_void`` (the
+    rule's reasons, [] = covered). S is judged first, then F0 (under v2 its coverage reads its partner's), then F4
+    (its crossing floor reads the covered stock runs) -- over ``runs`` alone, so the runs a session had recorded when
+    it planned a re-run are judged as it judged them."""
     chains = chain_members(pred)
-    snap = {int(p.stem): p.read_bytes() for p in (run_dir / "scripts").glob("*.eb")}
-    ran = T.mod_script_source(roots, fallback=stock, explicit=snap)
-    runs = [read_run(run_dir, rec, pred, chains, ran, stock) for rec in session.get("runs", [])]
-    for r in runs:
-        if r["side"] != "F4":
-            r["why_void"] = _void_why(r, pred, chains, None)
+    by_i = {r["i"]: r for r in runs}
+    for side in ("S", "F0"):
+        for r in runs:
+            if r["side"] == side:
+                r["why_void"] = _void_why(r, pred, chains, None)
+                if side == "F0" and replaying(pred):
+                    r["why_void"] += _replay_why(r, by_i, pred, chains)
     floor = crossing_floor([r for r in runs if r["side"] == "S" and not r["why_void"]], pred)
     for r in runs:
         if r["side"] == "F4":
             r["why_void"] = _void_why(r, pred, chains, floor)
     return runs
+
+
+def read_session(run_dir, pred: dict, *, stock, roots, session: dict | None = None) -> list:
+    """Every run the session recorded, read (:func:`read_run`) and judged (:func:`judge`)."""
+    run_dir = Path(run_dir)
+    session = session or json.loads((run_dir / SESSION_FILE).read_text(encoding="utf-8"))
+    chains = chain_members(pred)
+    snap = {int(p.stem): p.read_bytes() for p in (run_dir / "scripts").glob("*.eb")}
+    ran = T.mod_script_source(roots, fallback=stock, explicit=snap)
+    return judge([read_run(run_dir, rec, pred, chains, ran, stock) for rec in session.get("runs", [])], pred)
+
+
+def pairing_faults(runs: list, pred: dict) -> list:
+    """Where the session broke the registered pairing (v2 "replay".partner) -- [] when it kept it. Every F0 run
+    names an earlier stock run as its partner; a frozen-order F0 its round's S; the walk the session gave it is that
+    partner's entered walk, read off the partner's log now; no covered stock run has two covered F0 twins; and every
+    re-run is the one the plan names (:func:`rerun_plan`) from the runs recorded before it, judged as the session
+    judged them then -- S first while S is short, an F0 on the oldest untwinned stock run whose walk has not broken
+    max_breaks replays, S for a fresh walk when there is none. A session's own rule broken is the instrument's fault:
+    it FAILs R3-RUNS, never a VOID."""
+    order = pred["order"]
+    by_i = {r["i"]: r for r in runs}
+    out = []
+    for r in runs:
+        if r["side"] != "F0":
+            continue
+        k = r["rec"].get("partner")
+        p = by_i.get(k)
+        if not isinstance(k, int) or p is None or p["side"] != "S" or k >= r["i"]:
+            out.append(f"{r['label']}'s partner {k} is not an earlier stock run")
+            continue
+        own = round_partner(order, r["i"])
+        if r["i"] <= len(order) and k != own:
+            out.append(f"{r['label']} partners S#{k}, not its round's S#{own}")
+        if "walk" in r["rec"] and p["log"] is not None and r["rec"]["walk"] != D.entered_walk(p["log"]["log"]):
+            out.append(f"{r['label']} was given a walk that is not S#{k}'s")
+    twins = Counter(r["rec"].get("partner") for r in runs if r["side"] == "F0" and not r["why_void"])
+    out += [f"S#{k} is partnered by {n} covered F0 runs" for k, n in sorted(twins.items()) if n > 1]
+    for r in runs:
+        if r["i"] <= len(order):
+            continue
+        plan = rerun_plan(judge([dict(x) for x in runs if x["i"] < r["i"]], pred), pred)
+        ran = (r["side"], r["rec"].get("partner") if r["side"] == "F0" and replaying(pred) else None)
+        if plan != ran:
+            out.append(f"{r['label']} re-ran {ran[0]}" + (f" on S#{ran[1]}" if ran[1] is not None else "")
+                       + (f", where the plan named {plan[0]}" + (f" on S#{plan[1]}" if plan[1] is not None else "")
+                          if plan else ", where no side was short"))
+    return out
 
 
 def _places(rows, members: dict) -> str:
@@ -569,16 +799,30 @@ def _places(rows, members: dict) -> str:
 
 
 # ======================================================================== the analysis (pure, offline)
-def analyse(run_dir, *, pred_path: Path = PREDICTIONS, stock=None, roots=None) -> tuple:
+def analyse(run_dir, *, pred_path: Path | None = None, stock=None, roots=None) -> tuple:
     """The rung's checks over one session's saved traces and logs: ``([(ok, what, detail)], {file name: text})``,
     ``ok`` True (PASS), False (FAIL) or None (VOID: a side it needs has too few covered runs to say). Pure given
     the install and the session dir (the members' .eb come from the session's own snapshot when it has one, so
-    the analysis outlives the deploy)."""
+    the analysis outlives the deploy). The predictions are the file the session recorded
+    (:func:`recorded_predictions`) unless ``pred_path`` overrides it -- P-FROZEN judges either against the recorded
+    sha256 -- and predictions that pair F0 with a stock partner (v2) refuse a session whose F0 runs are not replays:
+    :class:`NotReplays`, never a verdict."""
     run_dir = Path(run_dir)
+    session = json.loads((run_dir / SESSION_FILE).read_text(encoding="utf-8"))
+    pred_path = recorded_predictions(session) if pred_path is None else Path(pred_path)
     pred, sha = load_predictions(pred_path)
+    replay = replaying(pred)
+    if replay:
+        bare = [f"F0#{x.get('i')}" for x in session.get("runs", []) if x.get("side") == "F0" and "partner" not in x]
+        if bare:
+            raise NotReplays(
+                f"session {session.get('label')}: F0 runs are not replays -- {', '.join(bare)} name no stock partner, "
+                f"so they walked their own blind tours and the sides' orders were never paired; {pred_path.name} "
+                f"(predictions v{pred.get('version')}) reads only a session whose every F0 run replayed its partner's "
+                f"walk. This session recorded {Path(str(session.get('predictions') or PREDICTIONS_V1)).name} "
+                f"(sha {str(session.get('predictions_sha256'))[:8]}): analyse it against that file")
     C, n_min = pred["checks"], pred["coverage"]["min_covered"]
     out = []
-    session = json.loads((run_dir / SESSION_FILE).read_text(encoding="utf-8"))
     out.append((session.get("predictions_sha256") == sha,
                 "P-FROZEN: the predictions this analysis reads are the ones the session recorded before its first run",
                 f"session {str(session.get('predictions_sha256'))[:16]} / file {sha[:16]}"))
@@ -607,6 +851,8 @@ def analyse(run_dir, *, pred_path: Path = PREDICTIONS, stock=None, roots=None) -
                       f"re-runs (at most {pred['rerun']['max']})")
     if [x.get("i") for x in recs] != list(range(1, len(recs) + 1)):
         struct.append("the runs are not numbered 1..n")
+    if replay:
+        struct += pairing_faults(runs, pred)
     struct += [f"{r['label']}: {b}" for r in runs for b in r["broken"]]
     tally = "; ".join(f"{s} {len(cov[s])} covered / {sum(1 for r in runs if r['side'] == s) - len(cov[s])} VOID"
                       for s in SIDES)
@@ -691,14 +937,40 @@ def analyse(run_dir, *, pred_path: Path = PREDICTIONS, stock=None, roots=None) -
                                              for d in dig["S"])]
         donors = Counter(k.donor for k in in_tour)
         lacking = sorted(set(p["tour_donors"]) - set(donors))
-        ok = (not missing and len(matched) >= p["min_matched"] and len(in_tour) >= p["min_tour_keys"]
-              and not lacking)
+        short = []                   # the non-vacuity guard, as v1 reads it: matched in every covered F0 run
+        if len(matched) < p["min_matched"]:
+            short.append(f"{len(matched)} matched (want >= {p['min_matched']})")
+        if len(in_tour) < p["min_tour_keys"]:
+            short.append(f"{len(in_tour)} tour keys (want >= {p['min_tour_keys']})")
+        if lacking:
+            short.append(f"none from {lacking}")
+        # the same guard on the STOCK side alone: does the evidence the claim needs exist? matched is a subset of pre,
+        # in_tour of stock_tour, so a stock shortfall is always a short guard; the converse is F0 writing the
+        # evidence in only SOME runs (partial) -- a fork difference, never too little evidence
+        stock_tour = [k for k in pre if all(tl[d.label] is not None and d.keys[k].at >= tl[d.label] for d in dig["S"])]
+        thin = []
+        if len(pre) < p["min_matched"]:
+            thin.append(f"{len(pre)} stock keys before 450 (want >= {p['min_matched']})")
+        if len(stock_tour) < p["min_tour_keys"]:
+            thin.append(f"{len(stock_tour)} of them first written in every stock tour (want >= {p['min_tour_keys']})")
+        s_lacking = sorted(set(p["tour_donors"]) - {k.donor for k in stock_tour})
+        if s_lacking:
+            thin.append(f"no stock tour key from {s_lacking}")
+        split = p.get("shortfall") == "VOID"       # v2: a thin stock side is VOID; v1 (no field): any short guard FAILs
+        ok = False if missing else (None if split and thin else False) if short else True
+        show = lambda ks: [f"{k.donor} e{k.sid} t{k.tag} {k.off:+d} {k.target}={k.value}" for k in ks[:4]]  # noqa: E731
         out.append((ok, what,
                     f"{len(pre)} stock keys before 450 in every covered stock run; {len(matched)} written by the "
                     f"members in every covered F0 run, {len(partial)} in some; MISSING {len(missing)} "
-                    f"{[f'{k.donor} e{k.sid} t{k.tag} {k.off:+d} {k.target}={k.value}' for k in missing[:4]]}; "
+                    f"{show(missing)}; "
                     f"{len(in_tour)} of the matched first written in the TOUR (want >= {p['min_tour_keys']}), by "
-                    f"donor {dict(sorted(donors.items()))}" + (f" -- none from {lacking}" if lacking else "")))
+                    f"donor {dict(sorted(donors.items()))}" + (f" -- none from {lacking}" if lacking else "")
+                    + (f" || the claim held on this evidence, but the stock side's evidence is short "
+                       f"({'; '.join(thin)}): too little evidence to say, not a falsification" if ok is None else "")
+                    + (f" || the stock evidence is there ({len(pre)} keys, {len(stock_tour)} in every stock tour), but "
+                       f"the members wrote {len(partial)} of them in only some covered F0 runs ({'; '.join(short)}): "
+                       f"PARTIAL {show(sorted(partial, key=T.WriteKey.sort_key))}"
+                       if split and ok is False and not missing else "")))
 
     # -- R3-SEAM (F0) --------------------------------------------------------------------------------------
     p = C["R3-SEAM"]
@@ -817,7 +1089,10 @@ def analyse(run_dir, *, pred_path: Path = PREDICTIONS, stock=None, roots=None) -
     # -- the summary ---------------------------------------------------------------------------------------
     lines = [f"story trace rung 3 -- session {session.get('label')} ({session.get('started')} .. "
              f"{session.get('finished', 'unfinished')})"
-             + (f"; re-runs stopped: {session['rerun_stop']}" if session.get("rerun_stop") else ""), ""]
+             + (f"; re-runs stopped: {session['rerun_stop']}" if session.get("rerun_stop") else "")
+             + (f"; predictions {pred_path.name} v{pred.get('version')} (F0 replays its stock partner)"
+                if replay else ""), ""]
+    by_i = {r["i"]: r for r in runs}
     for r in runs:
         rec = r["rec"]
         lines.append(f"  {r['label']:<6} {rec.get('t0', '?')}..{rec.get('t1', '?')}s  "
@@ -825,6 +1100,13 @@ def analyse(run_dir, *, pred_path: Path = PREDICTIONS, stock=None, roots=None) -
                      f"stop: {rec.get('stop', rec.get('skipped', rec.get('install', '?')))}")
         if r["why_void"]:
             lines.append(f"         VOID: {'; '.join(r['why_void'])}")
+        if replay and r["side"] == "F0":
+            mate = by_i.get(rec.get("partner"))
+            want = D.entered_walk(mate["log"]["log"]) if mate is not None and mate["log"] is not None else None
+            got = D.entered_walk(r["log"]["log"], chains["F0"], legs=("replay",)) if r["log"] is not None else None
+            lines.append(f"         partner: S#{rec.get('partner')}"
+                         + (f"; replayed {len(got)} of its {len(want)} steps" if got is not None and want is not None
+                            else ""))
         if r["rows"] is not None:
             lines.append(f"         places: {_places(r['rows'], chains.get(r['side'], {}))}"
                          + (f"   (rows before the start field, not read: fields {r['pre']})" if r["pre"] else ""))
@@ -837,9 +1119,15 @@ def analyse(run_dir, *, pred_path: Path = PREDICTIONS, stock=None, roots=None) -
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Rung 3's analysis, offline, on a session's saved traces.")
     ap.add_argument("--analyse", required=True, metavar="RUN_DIR", help="the session's run directory")
-    ap.add_argument("--predictions", default=str(PREDICTIONS))
+    ap.add_argument("--predictions", metavar="FILE", default=None,
+                    help="read these predictions instead of the file the session recorded (P-FROZEN still judges "
+                         "them against the sha256 the session recorded)")
     a = ap.parse_args(argv)
-    checks, reports = analyse(a.analyse, pred_path=Path(a.predictions))
+    try:
+        checks, reports = analyse(a.analyse, pred_path=None if a.predictions is None else Path(a.predictions))
+    except NotReplays as err:
+        print(f"REFUSED: {err}", file=sys.stderr)
+        return 2
     for name, text in reports.items():
         (Path(a.analyse) / name).write_text(text, encoding="utf-8")
     print(reports["rung3_summary.txt"])

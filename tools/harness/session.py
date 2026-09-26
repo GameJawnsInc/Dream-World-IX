@@ -1879,7 +1879,8 @@ class Session:
     # an invisible region, so "is the gateway where I think it is" has historically been a question
     # only a human walking into it could answer.
 
-    def expect_field_change(self, *, timeout: float = 25.0, was: int | None = None) -> int:
+    def expect_field_change(self, *, timeout: float = 25.0, was: int | None = None,
+                            record: dict | None = None) -> int:
         """Wait for the field id to change and return the new one.
 
         Waits for the destination to be PLAYABLE, not merely for the id to flip. The id changes the
@@ -1891,11 +1892,18 @@ class Session:
         control" are opposite findings: the first means there is no gateway here, the second means
         there is one and it leads somewhere broken. Collapsing them reported a working gateway as a
         missing one.
+
+        The id returned is where control came back, which is not always where the id first went: a
+        room whose arrival scene puts him straight back where he came from, inside the wait, returns
+        ``was``. ``record`` (a crossing record) gets that first id as ``changed_to`` the moment the id
+        flips -- where the crossing ENTERED, whatever the wait for control then finds.
         """
         was = self.state.field_id if was is None else was
         self.wait_for(lambda s: s.field_id != was and s.field_id > 0,
                       timeout=timeout, what=f"the field to change from {was}")
         landed = self.state.field_id
+        if record is not None:
+            record["changed_to"] = landed
         try:
             return self.wait_playable(timeout=timeout).field_id
         except HarnessError as err:
@@ -2128,10 +2136,11 @@ class Session:
                 f"walkmesh=BgiWalkmesh.from_file(<its .bgi>)."
             ) from err
 
-    def _await_landing(self, origin: int, timeout: float) -> int | None:
+    def _await_landing(self, origin: int, timeout: float, record: dict | None = None) -> int | None:
         """After control went away on ``origin``: the field it led to, or None if control came back
         there instead (a trigger that was not a gateway). Raises -- like :meth:`cross` -- only for a
-        destination that loaded and never became playable."""
+        destination that loaded and never became playable. ``record`` is expect_field_change's (its
+        ``changed_to``)."""
         try:
             self.wait_for(lambda s: (s.field_id != origin and s.field_id > 0)
                           or (s.field_id == origin and s.control),
@@ -2141,7 +2150,7 @@ class Session:
         now = self.state.field_id
         if now == origin or now <= 0:
             return None
-        return self.expect_field_change(timeout=timeout, was=origin)
+        return self.expect_field_change(timeout=timeout, was=origin, record=record)
 
     def _route_chunks(self, legs, hazards, blockers=()) -> list:
         """Split each routed leg into walk_to targets ``(x, z, tolerance)`` short enough that the L of
@@ -2653,8 +2662,10 @@ class Session:
         Returns ``{"from", "landed", "reached", "travelled", "waypoints", "toward", "replans",
         "during", "waits", "cleared", "pushes", "pushed", "blockers", "remembered", "blocked",
         "frozen", "boxed", "boxed_by", "npcs", "avoided", "entered", "through", "sealed", "npc_replans", "npc_waits",
-        "box_waits", "box_cleared", "boxers"}``: ``landed``
-        the field it ended up in (None = still here), ``reached`` whether it
+        "box_waits", "box_cleared", "boxers", "changed_to"}``: ``landed``
+        the field it ended up in (None = still here), ``changed_to`` the one the id first changed to (None: it
+        never changed) -- they differ when that room's scene put him straight back (:meth:`expect_field_change`),
+        ``landed`` then the origin -- ``reached`` whether it
         stood within ``tolerance`` of the goal, ``travelled`` the distance actually covered (summed
         over the walk, not end-to-end), ``waypoints`` the first plan (None = no route exists),
         ``during`` what lost control -- "calibrate" (a probe), "walk" (a step), "wait" (during an
@@ -2693,7 +2704,7 @@ class Session:
                   "waits": 0, "cleared": 0, "pushes": 0, "pushed": 0, "blockers": [], "remembered": 0,
                   "blocked": False, "frozen": False, "boxed": False, "boxed_by": None,
                   "npcs": None, "avoided": [], "entered": [], "through": [], "sealed": [], "npc_replans": 0,
-                  "npc_waits": 0, "box_waits": 0, "box_cleared": 0, "boxers": []}
+                  "npc_waits": 0, "box_waits": 0, "box_cleared": 0, "boxers": [], "changed_to": None}
         self.wait_control(timeout=timeout)
         wmesh = walkmesh if walkmesh is not None else self._stock_walkmesh(origin)
         if isinstance(prior, str):
@@ -2711,7 +2722,7 @@ class Session:
             self._log(f"  route_to: {err}")
             record["during"] = "calibrate"
             self._npc_fired(watch, record, origin)
-            record["landed"] = self._await_landing(origin, timeout)
+            record["landed"] = self._await_landing(origin, timeout, record)
             return record
         spread = self._heading_spread(self._axes[origin], prior) if smooth else 0.0
         known = self._visit_blockers(origin) if unstick else []
@@ -2749,7 +2760,7 @@ class Session:
                         record["travelled"] = round(walked[0], 1)
                         record["during"] = "wait"
                         self._npc_tally(record, watch)
-                        record["landed"] = self._await_landing(origin, timeout)
+                        record["landed"] = self._await_landing(origin, timeout, record)
                         return record
                     continue
                 if sealing:
@@ -2807,7 +2818,7 @@ class Session:
                     record["during"] = got
                     self._npc_fired(watch, record, origin, zpoly)
                     self._npc_tally(record, watch)
-                    record["landed"] = self._await_landing(origin, timeout)
+                    record["landed"] = self._await_landing(origin, timeout, record)
                     return record
                 if got == "boxed":
                     record["boxed"] = True        # no press keeps the rules: a replan from here plans the same
@@ -4076,7 +4087,8 @@ class Session:
         ``(x, z)`` should be INSIDE the target region and standable --
         :func:`ff9mapkit.content.pathfind.region_goal` picks one -- and ``avoid`` every OTHER region of
         the field. Returns route_to's record with ``landed`` filled in when the field changed after
-        the walk ended; ``expect`` asserts the destination. A route that does not exist
+        the walk ended (and ``changed_to``, the field the id first went to, either way); ``expect``
+        asserts the destination. A route that does not exist
         (``waypoints`` None), or a walk that already saw control go (``during`` set; route_to waited
         for that landing itself), is returned at once: there is no further crossing to wait for.
         ``unstick``, ``smooth`` and ``npcs`` are route_to's (waits, pushes, unseen blockers; whole-leg holds;
@@ -4116,7 +4128,7 @@ class Session:
                     pending = False
         if pending:
             try:
-                record["landed"] = self.expect_field_change(timeout=timeout, was=origin)
+                record["landed"] = self.expect_field_change(timeout=timeout, was=origin, record=record)
             except HarnessError as err:
                 if "never became playable" in str(err):
                     raise

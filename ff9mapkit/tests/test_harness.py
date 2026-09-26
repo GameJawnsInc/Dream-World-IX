@@ -4998,6 +4998,318 @@ def test_a_step_out_of_a_walkers_way_keeps_clear_of_a_trigger_the_plan_gave_up(g
         assert not fake.touched, fake.touched
 
 
+# ---- Tour.replay (rung-3 predictions v2): session 2's sides walked Dali in different ORDERS -- every stock run boxed at
+# 350 -> 355 and saw 355 after 450, every F0 run crossed it first -- and SByte[296] wrote the order into the trace. An F0
+# run now walks its stock partner's ENTERED walk step for step, under the tour's own crossing call and strike rules,
+# and only then tours blind. A three-room world on the fake: A (30820) with a door east to B (30821) and one west to C
+# (30810), each of those a door back; the Tour's own model of it has the same doors, the fake's flat floor, every
+# room in "Dali/", no door one-way.
+
+_A, _B, _C = 30820, 30821, 30810
+_EAST, _WEST = _rect(400, -150, 600, 150), _rect(-600, -150, -400, 150)
+
+
+class _StoryFake(FakeGame):
+    """The fake with the three things a replay meets that the stand-in does not model: the story moving on
+    (``advance`` = (field, SC): arriving in that field sets the scenario, as Garnet's scene does); a room that never
+    hands control over (``bounce`` = {field: (back to, arrive)}: ``bounce_frames`` after he arrives it puts him back
+    where he came from -- stock 353, Mayor Kapu's arrival scene); and a villager in the way who walks off while the
+    camera looks (a screenshot -- the tour takes one after every LIVE miss -- lifts every freeze)."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.advance = None
+        self.bounce: dict = {}
+        self.bounce_frames = 0
+
+    def _step_exit_now(self) -> None:
+        super()._step_exit_now()
+        if self.advance and self.field_id == self.advance[0]:
+            self.scenario = self.advance[1]
+        back = self.bounce.get(self.field_id)
+        if back is not None:
+            self.control = False
+            self._exit = (self.frame + self.bounce_frames, back[0], tuple(back[1]))
+
+    def _write_png(self, name: str) -> None:
+        super()._write_png(name)
+        self._frozen_until = 0
+
+
+class _MissOnceFake(_StoryFake):
+    """A door that misses the first time he walks in (``miss_once`` = (field, zone)): nothing fires while he stays in
+    its zone, and it is live again once he has left it -- a gateway that fires on the way IN, never for someone
+    standing in it. Session 2's two same-exit retries after a miss started inside the zone, travelled 0 and missed
+    again; a replay has no other exit to try in between."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.miss_once = None
+        self._missed = False
+
+    def _enter_regions(self) -> None:
+        from ff9mapkit.content import pathfind
+        if self.miss_once is not None and self.field_id == self.miss_once[0]:
+            poly = [(float(p[0]), float(p[1])) for p in self.miss_once[1]]
+            if pathfind.poly_gap(self.player[0], self.player[2], poly) < 0:
+                self._missed = True
+                return
+            if self._missed:
+                self.miss_once = None              # he left the zone: the door is live again
+        super()._enter_regions()
+
+
+def _replay_world(game, monkeypatch, cls=None):
+    """``(fake, tour, dali_tour)``: the three rooms on the fake (``cls``, default :class:`_StoryFake`) -- every door a
+    live region -- and a Tour over the same doors. The crossing wait is cut to 1.5 s (a bounce outlasts it, as 353's
+    scene outlasts the tour's 20 s)."""
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import dali_tour
+    monkeypatch.setattr(dali_tour, "CROSS_TIMEOUT", 1.5)
+    fake = (cls or _StoryFake)(game, fps=960)
+    fake.regions = {_A: [{"zone": _EAST, "to": _B, "arrive": (-250, 0)}, {"zone": _WEST, "to": _C, "arrive": (250, 0)}],
+                    _B: [{"zone": _WEST, "to": _A, "arrive": (250, 0)}],
+                    _C: [{"zone": _EAST, "to": _A, "arrive": (-250, 0)}]}
+    fake.exit_frames = 30
+    floor = _flat_bgi()
+
+    class WorldTour(dali_tour.Tour):
+        def label(self, fid):
+            return "Dali/Test"
+
+        def floor(self, fid):
+            return floor
+
+        def one_way(self, fid, i):
+            return False
+
+    tour = WorldTour(stock=lambda fid: None, tag="test")
+    tour._gates = {_A: [(_B, 0, _EAST), (_C, 0, _WEST)], _B: [(_A, 0, _WEST)], _C: [(_A, 0, _EAST)]}
+    return fake, tour, dali_tour
+
+
+def _replay_start(g, fake):
+    """Standing in A at SC 2600 with control, each room's basis known (the walks, not calibration, are on test)."""
+    boot(g)
+    g.warp(_A)
+    fake.scenario = 2600
+    _stand(g, fake, 0, 0)
+    published(g, lambda s: s.scenario == 2600)
+    for fid in (_A, _B, _C):
+        g._priors[fid] = g._axes[fid] = _prior()
+    return []
+
+
+def _replayed(log):
+    return [(x["leg"], x.get("step"), x.get("expect"), x["entered"], x["verdict"]) for x in log if x["k"] == "cross"]
+
+
+def test_a_replay_walks_the_partners_walk_step_for_step_and_stops_where_the_story_moves(game, monkeypatch):
+    """Each step is crossed by the tour's own route_cross call and must ENTER the partner's place; every crossing is
+    logged like a tour crossing with leg "replay", its step, the place it expected and the place it entered -- so the
+    replayed walk reads back off the log as exactly the partner's. The story moving on stops it, as the tour stops."""
+    fake, tour, D = _replay_world(game, monkeypatch)
+    fake.advance = (_C, 2610)
+    walk = [[_A, 0, _B], [_B, 0, _A], [_A, 1, _C]]
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, walk, beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    assert stop.startswith(f"SC left 2600: now 2610 in field {_C} (replayed 3 of 3 steps"), stop
+    assert _replayed(log) == [("replay", 1, _B, _B, "replayed"), ("replay", 2, _A, _A, "replayed"),
+                              ("replay", 3, _C, _C, "replayed")], log
+    assert D.entered_walk(log, legs=("replay",)) == walk
+    assert [f["to"] for f in fake.fired] == [_B, _A, _C], fake.fired
+
+
+def test_a_live_miss_in_a_replay_is_retried_in_the_same_room_not_struck(game, monkeypatch):
+    """A villager in the way (a freeze with control held, for good -- until he walks off) makes the step's first
+    crossing LIVE by the tour's own failure(): it strikes nothing, and the step is crossed again from the same room --
+    a replay has no other exit to take and no other order to try."""
+    fake, tour, D = _replay_world(game, monkeypatch)
+    fake.freezes = {_A: [{"zone": _rect(100, -600, 200, 600), "frames": None}]}      # a band across A, before B's door
+    fake.advance = (_B, 2610)
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        g.ROUTE_WAIT_FRAMES = 30
+        stop = tour.replay(g, log, [[_A, 0, _B]], beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    assert fake._froze, "premise: the walk never stepped on the freeze"
+    assert stop.startswith(f"SC left 2600: now 2610 in field {_B} (replayed 1 of 1 steps"), stop
+    first, *_rest, last = [x for x in log if x["k"] == "cross"]
+    assert first["frozen"] and D.failure(first) == "live" and first["verdict"] == "live 1 (retried)", first
+    assert first["entered"] is None and first["now"] == _A, first
+    assert (last["step"], last["entered"], last["verdict"]) == (1, _B, "replayed"), last
+    assert all(x["step"] == 1 and not x.get("back") for x in log if x["k"] == "cross")    # LIVE: no step back
+
+
+def test_a_replay_that_enters_another_place_stops_the_run_at_that_step(game, monkeypatch):
+    """The partner entered B through A's east door; here that door leads to C. Entering a different place breaks the
+    replay at once -- no strike, no retry, no tour after it: the run's walk is no longer its partner's."""
+    fake, tour, _D = _replay_world(game, monkeypatch)
+    fake.regions[_A][0].update(to=_C, arrive=(250, 0))
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, [[_A, 0, _B], [_B, 0, _A]], beat=2600, max_crossings=20, max_passes=2,
+                           budget_s=120)
+    assert stop == f"replay broke at step 1 ({_A}.0 -> {_B}): entered {_C}", stop
+    assert _replayed(log) == [("replay", 1, _B, _C, f"diverged: entered {_C}")], log
+
+
+def test_a_replay_step_that_can_only_be_missed_is_struck_out(game, monkeypatch):
+    """The story shut B's door (the zone is there, nothing fires): standing inside it is a REAL miss by the tour's
+    rule, and BOUNCES of them break the replay -- a step that cannot be entered is not retried for ever, though the
+    retry does walk in anew from where the step began. A step whose place is not where he stands breaks it before
+    any crossing."""
+    fake, tour, D = _replay_world(game, monkeypatch)
+    fake.regions[_A] = fake.regions[_A][1:]
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, [[_A, 0, _B]], beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+        assert stop == f"replay broke at step 1 ({_A}.0 -> {_B}): miss, miss", stop
+        cross = [x for x in log if x["k"] == "cross"]
+        assert [(x["inside"], x.get("back", False), x["verdict"]) for x in cross] == [
+            (True, False, f"miss 1/{D.BOUNCES}"), (None, True, "stepped back"),
+            (True, False, f"miss 2/{D.BOUNCES} -> the step fails")], log
+        assert cross[2]["travelled"] > 0, cross[2]
+        elsewhere = tour.replay(g, [], [[_B, 0, _A]], beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    assert elsewhere == f"replay broke at step 1 ({_B}.0 -> {_A}): he stands in place {_A} (field {_A}), not {_B}"
+
+
+def test_a_real_miss_in_a_replay_is_retried_from_where_the_step_began(game, monkeypatch):
+    """A miss leaves him INSIDE the zone, and a retry from there walks nowhere and fires nothing (session 2: both
+    same-exit retries after a miss travelled 0 and missed again). So the replay walks him BACK to the spot the step
+    began on -- a walk that strikes nothing, logged as a replay crossing with ``back`` -- and the retry walks in anew:
+    here the door that missed the first time fires on the second walk in."""
+    fake, tour, D = _replay_world(game, monkeypatch, _MissOnceFake)
+    fake.miss_once = (_A, _EAST)
+    fake.advance = (_B, 2610)
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, [[_A, 0, _B]], beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    assert fake._missed and fake.miss_once is None, "premise: the first walk in missed, and he left the zone after"
+    assert stop.startswith(f"SC left 2600: now 2610 in field {_B} (replayed 1 of 1 steps"), stop
+    miss, back, retry = [x for x in log if x["k"] == "cross"]
+    assert (miss["inside"], miss["verdict"]) == (True, f"miss 1/{D.BOUNCES}"), miss
+    assert (back["back"], back["target"], back["entered"], back["verdict"]) == (True, [0, 0], None,
+                                                                                "stepped back"), back
+    assert back["travelled"] > 0 and (retry["entered"], retry["verdict"]) == (_B, "replayed"), (back, retry)
+    assert [x["step"] for x in (miss, back, retry)] == [1, 1, 1]
+    assert [f["to"] for f in fake.fired] == [_B], fake.fired
+    assert D.entered_walk(log, legs=("replay",)) == [[_A, 0, _B]]
+
+
+def test_a_crossing_that_moves_the_story_on_is_never_judged(game, monkeypatch):
+    """The story moving on stops the replay where it happens -- read right after the crossing, BEFORE it is judged:
+    where the story's own move took him is the fork's doing. Here A's east door leads to C, not to the partner's B,
+    and arriving in C moves the story on: no divergence and no strike, "the story moved on", and the run stops as the
+    tour stops, "SC left"."""
+    fake, tour, _D = _replay_world(game, monkeypatch)
+    fake.regions[_A][0].update(to=_C, arrive=(250, 0))
+    fake.advance = (_C, 2610)
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, [[_A, 0, _B], [_B, 0, _A]], beat=2600, max_crossings=20, max_passes=2,
+                           budget_s=120)
+    assert stop == f"SC left 2600: now 2610 in field {_C} (replayed 0 of 2 steps, crossing 1)", stop
+    assert _replayed(log) == [("replay", 1, _B, _C, f"the story moved on (entered {_C})")], log
+
+
+def test_a_bounce_the_partner_entered_is_a_replayed_step_that_leaves_him_where_he_was(game, monkeypatch):
+    """Stock 353: the gateway works, the arrival scene never hands control over, and he is put back where he came
+    from. The partner's walk holds that step (it ENTERED 353), so the replay must enter it too: route_cross's error
+    names the room it reached, nothing landed, and the next step starts from the room he was put back in."""
+    fake, tour, D = _replay_world(game, monkeypatch)
+    fake.bounce = {_C: (_A, (-250, 0))}
+    fake.bounce_frames = 3000                                    # ~3 s at 960 fps: past the 1.5 s crossing wait
+    fake.advance = (_B, 2610)
+    walk = [[_A, 1, _C], [_A, 0, _B]]
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, walk, beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    assert stop.startswith(f"SC left 2600: now 2610 in field {_B} (replayed 2 of 2 steps"), stop
+    bounce, into_b = [x for x in log if x["k"] == "cross"]
+    assert f"reached field {_C}, but it never became playable" in bounce["error"] and bounce["landed"] is None, bounce
+    assert (bounce["entered"], bounce["now"], bounce["verdict"]) == (_C, _A, "replayed"), bounce
+    assert (into_b["step"], into_b["entered"], into_b["verdict"]) == (2, _B, "replayed"), into_b
+    assert D.entered_walk(log, legs=("replay",)) == walk
+
+
+def test_a_bounce_over_inside_the_crossing_wait_still_entered_its_room(game, monkeypatch):
+    """353's scene can hand control back in the room he came from INSIDE the crossing's wait: route_cross then finds
+    the origin playable, ``landed`` names the origin and there is no error to read. The crossing ENTERED 353 all the
+    same, and its record says so -- ``changed_to``, the field the id first went to -- so the partner's walk and the
+    replay name the step alike however long the scene took (read off ``landed``, the replay 'diverged' into the room
+    it stood in)."""
+    fake, tour, D = _replay_world(game, monkeypatch)
+    fake.bounce = {_C: (_A, (-250, 0))}
+    fake.bounce_frames = 200                                     # ~0.2 s at 960 fps: inside the 1.5 s crossing wait
+    fake.advance = (_B, 2610)
+    walk = [[_A, 1, _C], [_A, 0, _B]]
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, walk, beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    assert stop.startswith(f"SC left 2600: now 2610 in field {_B} (replayed 2 of 2 steps"), stop
+    bounce, into_b = [x for x in log if x["k"] == "cross"]
+    assert (bounce["landed"], bounce["changed_to"], bounce.get("error")) == (_A, _C, None), bounce
+    assert (bounce["entered"], bounce["verdict"]) == (_C, "replayed"), bounce
+    assert D.entered_walk(log, legs=("replay",)) == walk
+    assert [f["to"] for f in fake.fired] == [_C, _B], fake.fired
+
+
+def test_after_the_whole_walk_the_run_tours_blind_on_the_budget_left(game, monkeypatch):
+    """The partner's walk replayed and the story still at the beat: the run goes on as the blind tour -- its crossing
+    count and clock carried on, its stop reasons the tour's -- so a fork whose story moves on later than its
+    partner's still gets its chance."""
+    fake, tour, _D = _replay_world(game, monkeypatch)
+    fake.advance = (_C, 2610)
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, [[_A, 0, _B]], beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    cross = [x for x in log if x["k"] == "cross"]
+    assert (cross[0]["leg"], cross[0]["verdict"]) == ("replay", "replayed"), cross[0]
+    assert cross[1:] and all(x["leg"] in ("tour", "back") and "step" not in x for x in cross[1:]), cross
+    assert [x["n"] for x in cross] == list(range(1, len(cross) + 1)), cross
+    assert stop == f"SC left 2600: now 2610 in field {_C} (pass 1, crossing {len(cross)})", stop
+    assert cross[-1]["entered"] == _C and fake.fired[-1]["to"] == _C
+
+
+def test_a_walk_reads_off_any_log_the_tour_wrote():
+    """The partner's walk, off its log: every crossing that ENTERED a field, in order, in donor terms. A crossing the
+    tour or a replay drives names the place it entered (``entered``); a log written before that (session 2's: its
+    ``entered`` named the trigger radii, now ``triggers``) is read the old way -- landed (late or not), or the room
+    route_cross's error names (the 353 bounce) -- a fork id as its donor, and the attempts that never left the room
+    are not part of the walk."""
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import dali_tour as D
+    reached = "crossing from {} reached field {}, but it never became playable within 20s -- the gateway WORKS and"
+    old = [
+        {"k": "segment", "ok": True},
+        {"k": "cross", "leg": "tour", "from": 352, "exit": 0, "to": 351, "landed": 351, "entered": [[12, "range", 90]]},
+        {"k": "cross", "leg": "tour", "from": 350, "exit": 0, "to": 351, "landed": None, "inside": True, "entered": []},
+        {"k": "scene", "why": "after crossing 3"},
+        {"k": "cross", "leg": "tour", "from": 350, "exit": 2, "to": 353, "landed": None, "error": reached.format(350, 353)},
+        {"k": "donor", "field": 30833, "members": 350, "engine": 350},
+        {"k": "cross", "leg": "tour", "from": 30833, "exit": 2, "to": 30835, "place": 350, "to_place": 353,
+         "landed": None, "error": reached.format(30833, 30835)},
+        {"k": "cross", "leg": "back", "from": 30833, "exit": 6, "to": 450, "place": 350, "to_place": 450, "landed": 450},
+        {"k": "cross", "leg": "tour", "from": 356, "exit": 2, "to": 358, "verdict": "unreachable: no standable goal"},
+        {"k": "cross", "leg": "tour", "from": 350, "exit": 1, "to": 354, "landed": 354, "landed_late": True,
+         "error": reached.format(350, 354)},
+    ]
+    assert D.entered_walk(old, {30833: 350, 30835: 353}) == [
+        [352, 0, 351], [350, 2, 353], [350, 2, 353], [350, 6, 450], [350, 1, 354]]
+    new = [{"k": "cross", "leg": "replay", "from": 350, "exit": 2, "to": 353, "place": 350, "entered": 353,
+            "landed": None, "error": reached.format(350, 353)},
+           {"k": "cross", "leg": "tour", "from": 350, "exit": 4, "to": 355, "landed": None, "entered": None,
+            "triggers": [[12, "range", 90]]},
+           {"k": "cross", "leg": "tour", "from": 355, "exit": 0, "to": 350, "landed": 350, "entered": 350}]
+    assert D.entered_walk(new) == [[350, 2, 353], [355, 0, 350]]
+    assert D.entered_walk(new, legs=("replay",)) == [[350, 2, 353]]
+    # the crossing's own record: a bounce over inside the wait "landed" in the room it left -- it entered 353
+    assert D.entered_field({"from": 350, "landed": 350, "changed_to": 353}) == 353
+    assert D.entered_field({"from": 350, "landed": 354, "changed_to": 354}) == 354
+    assert D.entered_field({"from": 350, "landed": 350}) == 350            # no changed_to: read as before
+
+
 def test_key_twist_operand_follows_memoria_ini(game):
     """Keys read TWIST arg2 (twist.y) unless [AnalogControl] makes key orientation absolute (1 or 2)."""
     fake = FakeGame(game)

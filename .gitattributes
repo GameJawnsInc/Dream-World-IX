@@ -14,3 +14,9 @@ memoria-patches/*.patch -text
 # Committed FBX (only minted-from-scratch exceptions escape the *.fbx ignore, e.g. NIMBRA's
 # 6400.fbx): binary, byte-exact — never line-end convert.
 *.fbx -text
+
+# Rung 3's registered predictions are sha256-frozen (studies/story-trace/rung3_trace.py P-FROZEN): a session
+# records the sha of the bytes it read, and the analysis refuses a file that no longer matches -- so a checkout
+# that re-CRLFs one fails P-FROZEN with no content changed. The committed LF bytes are the recorded ones
+# (v1: 220532a8); never line-end convert them.
+studies/story-trace/rung3_predictions*.json -text
