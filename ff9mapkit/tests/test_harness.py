@@ -3568,6 +3568,55 @@ def test_a_smooth_route_cross_finishes_inside_a_zone_standable_only_in_a_corner(
         assert rec["landed"] == 30002 and [f["to"] for f in fake.fired] == [30002], (rec, fake.fired)
 
 
+@pytest.mark.parametrize("press", [(1, 0), (0, -1), (-1, 0), (0, 1)])
+def test_the_fake_pushes_a_centre_placed_inside_his_radius_straight_out_onto_it(game, dali, press):
+    """FakeGame's floor, as the engine's (FieldMapActorController.RadiusValid -> ServiceForces): placed nearer a wall
+    than his radius -- 352's wake, 22.8u off a strip closed to him, 59u off the back wall -- his first moving frame
+    lands him on the radius line, whichever way he pressed, even straight into the strip; it does not leave him
+    where he stood nor walk him along the wall."""
+    from ff9mapkit.scene import cam
+    walkmesh, script = dali
+    fake, _prior = _dali_fake(game, walkmesh, script, 352)
+    wm = walkmesh(352)
+    start = (-133.0, 847.0)
+    assert wm.distance_to_boundary(-133, 847) < 25, "premise: deep in the band"
+    fake.player = [start[0], 0.0, start[1]]
+    fake._move_to(start[0] + 30 * press[0], start[1] + 30 * press[1])
+    x, z = fake.player[0], fake.player[2]
+    assert wm.distance_to_boundary(round(x), round(z)) >= cam.COLLISION_RADIUS_W - 1, (press, x, z)
+    assert math.dist((x, z), start) < 100, (press, x, z)
+
+
+@pytest.mark.parametrize("tour", [False, True])
+def test_a_route_from_352s_wake_spot_walks_out_of_the_wall_band_and_through_its_door(game, dali, tour):
+    """THE 352 WAKE (rung-3 runs 4 and 5 -- stock 352 and its verbatim fork 30834, one .bgi): the scene hands control
+    back at (-133, 847), 22.8u off a strip closed to him, inside the 80u band a plan keeps off the walls, and
+    route_to said "no route" twice, ending the tour. Planned from where he stands (route_avoiding ``leave_wall``),
+    the walk leaves the band and fires 352's one door -- on a floor that pushes him straight out onto the radius
+    line on his first moving frame, as the engine does (so off the planned leg, up to 57u along the wall's normal:
+    FakeGame._pushed_out), and the walk goes on from wherever that put him. Plain, and as the tour walks it
+    (unstick, npcs, smooth, zone)."""
+    from ff9mapkit.content import pathfind
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 352)
+    wm, places = walkmesh(352), _dali_places(script, 352)
+    zone, start = places[0], (-133, 847)
+    assert len(places) == 1 and wm.distance_to_boundary(*start) < 25, "premise: 352's one door; deep in the band"
+    goal = pathfind.region_goal(wm, zone)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(352)
+        _stand(g, fake, 0, -600)                                  # open ground: the walk is on test
+        g.calibrate_axes(hazards=places, prior=prior)
+        _stand(g, fake, *start)
+        rec = g.route_cross(goal[0], goal[1], walkmesh=wm, prior=prior, zone=zone, smooth=True, unstick=tour,
+                            npcs=tour, timeout=3)
+        assert rec["waypoints"] is not None, rec
+        assert rec["landed"] == 30000 and [f["to"] for f in fake.fired] == [30000], (rec, fake.fired)
+        assert (rec["waits"], rec["pushes"], rec["blockers"]) == (0, 0, []), rec
+        assert not rec["frozen"] and not rec["boxed"], rec
+
+
 def test_a_smooth_leg_out_of_a_door_at_an_angle_to_both_pads_takes_its_first_step(game, dali):
     """Stock 356, 5.8u beside its 350 door, sent to 353: the leg's one zone-clear pad runs 32 degrees off it, and
     its smallest press strayed 24.04u against the door-side leg's drift of 24 -- no hold at all, which the unstick

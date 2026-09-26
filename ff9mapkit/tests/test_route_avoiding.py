@@ -19,12 +19,13 @@ The synthetic tests run everywhere.
 """
 from __future__ import annotations
 
+import math
 import warnings
 
 import pytest
 
 from ff9mapkit.content import pathfind as P
-from ff9mapkit.scene import bgi, cam
+from ff9mapkit.scene import bgi, cam, routes
 
 
 def _floor(x0, z0, x1, z1):
@@ -248,6 +249,208 @@ def test_the_players_walkmesh_opens_the_strip_he_stands_in():
     wps = P.route_avoiding(view, (0, 0), (700, 0), [])
     assert wps is not None and tuple(wps[-1]) == (700, 0)
     assert P.route_avoiding(view, (-700, 0), (700, 0), []) is None
+
+
+def _along(start, wps, step=2.0):
+    """Points every ``step`` units along the walk start -> wps, the corners included."""
+    pts = [tuple(map(float, start))] + [tuple(map(float, w)) for w in wps]
+    out = [pts[0]]
+    for a, b in zip(pts, pts[1:]):
+        n = max(1, int(math.dist(a, b) // step))
+        out += [(a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n) for k in range(1, n + 1)]
+    return out
+
+
+def _band_exit(wm, start, wps, clearance=cam.COLLISION_RADIUS_W):
+    """Walk start -> wps as ``leave_wall`` promises it, from a start ``d0`` < ``clearance`` off the walls. EITHER its
+    first leg is one step of the coarsest grid (64 * sqrt 2 at most) straight onto a spot ``clearance`` clear -- the
+    start is taken as given, as it always was (:func:`_walked_on_the_floor` holds that step to no wall) -- OR it walks
+    never nearer a wall than it has been, out of the band -- ``clearance`` off every wall -- within
+    ``(clearance - d0) / WALL_LEAVE_GAIN`` of walking. Measured every 2u at the exact point, as the rule is judged;
+    the slack is what the rule's own sampling may leave: 1u deeper between two of its samples 4u apart (the wall
+    distance moves at most a unit per unit walked, so a quarter of the spacing), and 4u of walking (this walk's 2u
+    sampling, twice). A fixed 1u, not pathfind's _BAND_STEP_W / 4: a slack read off the code under test widens with
+    it. Returns (how far it walked in the band, the samples after it)."""
+    d0 = wm.distance_to_boundary(*start)
+    assert d0 is not None and d0 < clearance, "premise: the start stands inside the band"
+    first = tuple(map(float, wps[0]))
+    if math.dist(start, first) <= 64 * 2 ** 0.5 + 1 and wm.distance_to_boundary(*first) >= clearance:
+        return math.dist(start, first), _along(first, wps[1:])
+    pts = _along(start, wps)
+    level, walked = d0, 0.0
+    for i in range(1, len(pts)):
+        d = wm.distance_to_boundary(*pts[i])
+        assert d is not None and d >= level - 1.0, (pts[i], d, level)            # never deeper
+        walked += math.dist(pts[i - 1], pts[i])
+        level = max(level, d)
+        if d >= clearance:
+            assert walked <= (clearance - d0) / P.WALL_LEAVE_GAIN + 4.0, (walked, d0)    # out, not along
+            return walked, pts[i:]
+    raise AssertionError("the walk never left the band")
+
+
+def _walked_on_the_floor(wm, start, wps):
+    """Every point of the walk start -> wps, 1u apart, stands on ``wm``'s floor (a PlayerWalkmesh's: its closed
+    triangles are no floor), and each steps to the next within one triangle or across an edge the two LINK -- the
+    engine walks triangle to triangle. Never through a wall, however thin: past an unlinked edge the far side is floor
+    too, and only the link tells the step from a crossing. A step whose ends do not link is halved until the
+    triangles between them show (a sliver, a fan round a corner the walk passes close to) or the crossing is pinned
+    to a point, which must be a corner both sides touch. Which triangles he is on narrows to those the walk reaches:
+    a point ON an unlinked edge lies in both triangles, and must not carry him across."""
+    mesh = getattr(wm, "mesh", wm)
+    closed = getattr(wm, "closed", frozenset())
+    wv = mesh.world_verts()
+
+    def under(p):
+        return {t for t in mesh.tris_at(p[0], p[1]) if t not in closed}
+
+    def corners(tris):
+        return {(wv[i][0], wv[i][2]) for t in tris for i in mesh.tris[t].vtx}
+
+    def walk(a, here, b, depth=0):
+        """The triangles at b that the walk a -> b reaches from ``here`` (empty: it cannot)."""
+        there = under(b)
+        reach = there & (here | {n for t in here for n in mesh.tris[t].nbr})
+        if reach or not there:
+            return reach
+        if depth == 12:
+            shared = corners(here) & corners(there)
+            return there if any(routes.seg_dist_xz(c[0], c[1], a, b) < 0.01 for c in shared) else set()
+        m = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+        mid = walk(a, here, m, depth + 1)
+        return walk(m, mid, b, depth + 1) if mid else set()
+
+    pts = _along(start, wps, 1.0)
+    here = under(pts[0])
+    assert here, f"the start {start} is off the floor"
+    for a, b in zip(pts, pts[1:]):
+        assert under(b), f"off the floor at {b}"
+        reached = walk(a, here, b)
+        assert reached, f"through a wall between {a} and {b}: {sorted(here)} -> {sorted(under(b))}"
+        here = reached
+
+
+@pytest.mark.parametrize("start, goal", [((-990, -500), (-900, 500)),     # 10u off a wall, the goal up along it
+                                         ((-990, -990), (0, 0))])         # 10u off both walls of a corner
+def test_a_start_inside_the_wall_band_walks_out_of_it_never_deeper_nor_along_it(start, goal):
+    """THE 352 WAKE, synthetic. A scene can hand control back with his centre nearer a wall than the controller
+    radius (stock 352: 22.8u off a closed strip's edge); the engine pushes him straight back out to it when he
+    moves. Every cell within 64u of a start 10u off the wall is itself inside the band, so the planner that treats
+    the start like any other cell -- the build's -- has nowhere to step, at every grain. ``leave_wall`` plans out:
+    never nearer a wall, out within (80 - 10) / WALL_LEAVE_GAIN of walking, and clear from there on. The walk
+    straight up the wall never gets deeper either -- and never gets out: refused."""
+    assert P.route(ROOM, start, goal) is None                            # the build's rule, unchanged
+    assert P.route_avoiding(ROOM, start, goal, []) is None
+    wps = P.route_avoiding(ROOM, start, goal, [], leave_wall=True)
+    assert wps and tuple(wps[-1]) == goal
+    _walked, after = _band_exit(ROOM, start, wps)
+    assert all(ROOM.distance_to_boundary(round(x), round(z)) >= cam.COLLISION_RADIUS_W - 1.0 for x, z in after)
+    assert not P._clear(ROOM, (-990, -500), (-990, 500), (), cam.COLLISION_RADIUS_W, 192.0, leave_wall=True)
+    assert not P._clear(ROOM, (-990, -500), (-900, 500), (), cam.COLLISION_RADIUS_W, 192.0, leave_wall=True)
+    assert P._clear(ROOM, (-990, -500), (-800, -500), (), cam.COLLISION_RADIUS_W, 192.0, leave_wall=True)
+
+
+def test_leaving_the_wall_band_keeps_the_zones_and_the_bodies():
+    """The way straight out of the band is a gateway (kept 56 clear) and someone stands beside it: the route
+    leaves the band round both, enters neither -- and from a start already clear of the walls ``leave_wall``
+    changes nothing."""
+    from ff9mapkit.scene import routes
+    start, goal = (-990, 0), (500, 0)
+    door, body = _rect(-850, -60, -650, 60), (-880, 260, 150)
+    wps = P.route_avoiding(ROOM, start, goal, [door], 56, obstacles=[body], leave_wall=True)
+    assert wps and tuple(wps[-1]) == goal
+    assert _legs_clear(start, wps, [door], 56 - 1e-6)
+    pts = [start] + [tuple(w) for w in wps]
+    assert all(routes.seg_dist_xz(body[0], body[1], a, b) >= body[2] - 1e-6 for a, b in zip(pts, pts[1:]))
+    _band_exit(ROOM, start, wps)
+    for s in ((-700, 0), (-700, 400)):
+        assert (P.route_avoiding(ROOM, s, goal, [door], 56, obstacles=[body], leave_wall=True)
+                == P.route_avoiding(ROOM, s, goal, [door], 56, obstacles=[body]))
+
+
+def test_leaving_the_wall_band_on_the_players_floor_keeps_the_closed_strip_shut():
+    """His floor (PlayerWalkmesh): he stands 10u off a door strip closed to him -- its edge is a wall -- and the goal
+    lies up along it, so the shortest walk would hug the strip. The way out of the band is AWAY from the strip,
+    never into it nor along it; every point of the route is on the floor open to him."""
+    view = P.PlayerWalkmesh(_strip())
+    start, goal = (-110, -500), (-200, 600)
+    assert view.distance_to_boundary(*start) == pytest.approx(10)
+    assert P.route_avoiding(view, start, goal, []) is None
+    wps = P.route_avoiding(view, start, goal, [], leave_wall=True)
+    assert wps and tuple(wps[-1]) == goal
+    _walked_on_the_floor(view, start, wps)
+    _band_exit(view, start, wps)
+
+
+def _two_rooms():
+    """Two rooms meeting along x = 0 with no link between them (each its own vertices -- bgi.build links only
+    shared ones): a zero-width wall, floor on both sides of it."""
+    v = [(-1000, 0, 1000), (0, 0, 1000), (0, 0, -1000), (-1000, 0, -1000),
+         (0, 0, 1000), (1000, 0, 1000), (1000, 0, -1000), (0, 0, -1000)]
+    return bgi.BgiWalkmesh.from_bytes(bgi.build(v, [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7)]).to_bytes())
+
+
+def _thin_strip():
+    """_strip()'s room with its door strip 10u wide (x -5..5): closed to him, a wall two edges thick."""
+    v = [(-1000, 0, 1000), (-5, 0, 1000), (5, 0, 1000), (1000, 0, 1000),
+         (-1000, 0, -1000), (-5, 0, -1000), (5, 0, -1000), (1000, 0, -1000)]
+    f = [(0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6)]
+    wm = bgi.BgiWalkmesh.from_bytes(bgi.build(v, f).to_bytes())
+    for ti in (2, 3):
+        wm.tris[ti].tri_flags = 0xA001
+    return P.PlayerWalkmesh(wm)
+
+
+@pytest.mark.parametrize("floor, start", [(_two_rooms, (-5, 0)), (_two_rooms, (-1, 0)), (_thin_strip, (-12, 0))])
+def test_leaving_the_wall_band_never_steps_through_the_wall_it_stands_beside(floor, start):
+    """A wall with floor on its far side -- a zero-width divider, a thin strip closed to him: the far side measures
+    its OWN walls, so judged at two points a grid step apart the step across reads as ground gained (5u off the
+    divider, 400u past it), and a route out of the band walked straight through (review: [(600, 0)] from (-5, 0)).
+    The way out is walked in samples no further apart than he stands off the walls, which no wall can hide between:
+    across, no route; on his own side, a route that stays there."""
+    wm = floor()
+    assert wm.distance_to_boundary(*start) < 10 and wm.point_on_walkmesh(600, 0) is not None
+    assert P.route_avoiding(wm, start, (600, 0), []) is None                  # the build's rule: none either
+    assert P.route_avoiding(wm, start, (600, 0), [], leave_wall=True) is None
+    assert P.route(wm, start, (600, 0), leave_wall=True) is None
+    assert not P._clear(wm, start, (600, 0), (), cam.COLLISION_RADIUS_W, 192.0, leave_wall=True)
+    wps = P.route_avoiding(wm, start, (-600, 300), [], leave_wall=True)
+    assert wps and tuple(wps[-1]) == (-600, 300)
+    _walked_on_the_floor(wm, start, wps)
+    _band_exit(wm, start, wps)
+
+
+def test_the_starts_first_step_onto_a_free_cell_never_crosses_a_wall():
+    """The start is taken as given, as it always was: its first step may go straight onto any free cell. A wall at 45
+    degrees to the grid puts a free cell ACROSS it one diagonal step (90.5u) from a start 5.7u off it -- the one move
+    the planner never checked, and the build still does not. Under ``leave_wall`` that step is walked no further
+    apart than he stands off the walls: across, no route; on his side, one."""
+    v = [(-1000, 0, -1000), (1000, 0, -1000), (-1000, 0, 1000),
+         (1000, 0, 1000), (-1000, 0, 1000), (1000, 0, -1000)]           # split along x + z = 0, nothing linked
+    wm = bgi.BgiWalkmesh.from_bytes(bgi.build(v, [(0, 1, 2), (3, 4, 5)]).to_bytes())
+    start = (-4, -4)
+    assert wm.distance_to_boundary(*start) == pytest.approx(8 / 2 ** 0.5)
+    assert P._free(wm, start[0] + 64, start[1] + 64, (), cam.COLLISION_RADIUS_W, 192.0), \
+        "premise: a free cell across the wall, one diagonal step from the start"
+    assert P.route_avoiding(wm, start, (600, 0), [], leave_wall=True) is None
+    wps = P.route_avoiding(wm, start, (-600, -300), [], leave_wall=True)
+    assert wps and tuple(wps[-1]) == (-600, -300)
+    _walked_on_the_floor(wm, start, wps)
+    _band_exit(wm, start, wps)
+
+
+def test_the_starts_first_step_is_walked_by_the_triangles_it_links():
+    """``_steps_linked``, the start's first step: every unit of it on the floor, every change of triangle across a
+    linked edge. Its samples from (-5, 0) land ON the zero-width wall at x = 0, where both rooms' triangles contain
+    the point -- which triangles he stands on narrows to those he reached, so that sample does not carry him over.
+    A strip closed to him is no floor; opened (he stands in it) it is."""
+    rooms = _two_rooms()
+    assert P._steps_linked(rooms, (-5, 0), (-59, 64)) and not P._steps_linked(rooms, (-5, 0), (59, 0))
+    assert len(rooms.tris_at(0, 0)) == 2, "premise: a sample on the wall lies in both rooms"
+    view = P.PlayerWalkmesh(_strip())
+    assert not P._steps_linked(view, (-150, 0), (150, 0)) and P._steps_linked(view, (-150, 0), (-150, 90))
+    assert P._steps_linked(view.standing_at(0, 0), (0, 0), (150, 0))
+
 
 
 def test_key_move_basis_is_the_engines_rotation():
@@ -515,6 +718,119 @@ def test_on_the_players_floor_356_to_358_has_no_route_and_every_other_dali_exit_
                     routed += 1
     assert {(f, to) for f, to, _s in sealed} == {(356, 358)}, sealed
     assert len(sealed) == len(starts[356]) and routed >= 60, (routed, sealed)
+
+
+#: rung-3 runs 4 and 5: where 352's wake scene handed control back -- in stock 352 and in its verbatim fork 30834,
+#: which runs 352's .bgi byte for byte -- and route_to answered "no route" twice, ending the tour
+WAKE_352 = (-133, 847)
+
+
+def test_from_352s_wake_spot_the_route_walks_out_of_the_wall_band_to_the_351_door(stock):
+    """THE 352 WAKE. On his floor the wake spot stands 22.8u off the edge of a strip closed to him (triangles 64/66/67,
+    triFlags 0xA001) and 59u off the back wall -- inside the 80u band -- so no cell of any grain near it was free
+    and the plan never left the start. ``leave_wall`` plans out of the band -- never nearer a wall, out within
+    (80 - 22.8) / WALL_LEAVE_GAIN of walking -- to the one door, 351's, with every point of the route on the floor
+    open to him and every waypoint after the band clear of the walls."""
+    walkmesh, script = stock
+    view = P.PlayerWalkmesh(walkmesh(352))
+    zones = _zones(script, 352)
+    assert [t for t, _z in zones] == [351]
+    zone = zones[0][1]
+    goal = P.region_goal(view, zone)
+    assert view.distance_to_boundary(*WAKE_352) == pytest.approx(22.8, abs=0.1)
+    assert walkmesh(352).distance_to_boundary(*WAKE_352) == pytest.approx(59.0)          # the raw mesh: the back wall
+    assert P.route_avoiding(view, WAKE_352, goal, []) is None                          # the failure, pinned
+    wps = P.route_avoiding(view, WAKE_352, goal, [], leave_wall=True)
+    assert wps and tuple(wps[-1]) == tuple(goal) and P.poly_gap(goal[0], goal[1], zone) < 0
+    _walked_on_the_floor(view, WAKE_352, wps)
+    walked, _after = _band_exit(view, WAKE_352, wps)
+    assert walked < 120
+    assert all(view.distance_to_boundary(*w) >= cam.COLLISION_RADIUS_W for w in wps)
+
+
+#: Stock band starts a few units off an UNLINKED edge with floor past it (review of the 352 fix): 2216's (-333, 3160)
+#: stands 11.5u off the edge of triangle 26, past which triangles 54/55 lie 1136u lower, and the goal is on them;
+#: 1863's (-236, 1071) stands 5.2u off a wall. Judged at cell centres, the way out stepped straight across (2216:
+#: [(-333, 3096), (-317, 2999)]) or off the mesh for 8u (1863's first leg).
+UNLINKED_EDGE_STARTS = [(2216, (-333, 3160), (-317, 2999)), (1863, (-236, 1071), (-1764, -258))]
+
+
+@pytest.mark.parametrize("fid, start, goal", UNLINKED_EDGE_STARTS)
+def test_the_way_out_of_the_wall_band_never_crosses_an_unlinked_edge(stock, fid, start, goal):
+    """The route that walks out of the band takes the linked way round -- on the raw mesh and on his floor."""
+    walkmesh, _script = stock
+    for wm in (walkmesh(fid), P.PlayerWalkmesh(walkmesh(fid))):
+        here = wm.standing_at(*start) if isinstance(wm, P.PlayerWalkmesh) else wm
+        assert here.distance_to_boundary(*start) < 12
+        wps = P.route_avoiding(wm, start, goal, [], leave_wall=True)
+        assert wps and tuple(wps[-1]) == goal
+        _walked_on_the_floor(here, start, wps)
+        _band_exit(here, start, wps)
+
+
+#: Band starts ON a seam between two floors (the start's point lies in a triangle of each): the floor found first
+#: measures its own walls, and the planner's way onto the other floor passes the corner where that wall begins --
+#: 0.1u off it, by distance a touch. Every one routed before ``leave_wall`` existed; a first step judged by distance
+#: refused all three (13 of 51 such starts in stock 1000-1009).
+SEAM_STARTS = [(57, (-1511, -582), (-1364, -632)), (1006, (-637, -1544), (-746, -1433)),
+               (1008, (-919, 4322), (-829, 4449))]
+
+
+@pytest.mark.parametrize("fid, start, goal", SEAM_STARTS)
+def test_a_band_start_on_a_seam_still_routes_onto_the_other_floor(stock, fid, start, goal):
+    walkmesh, _script = stock
+    wm = walkmesh(fid)
+    assert len(wm.tris_at(*start)) == 2 and wm.distance_to_boundary(*start) < 6
+    plain = P.route_avoiding(wm, start, goal, [])
+    assert plain is not None, "premise: the planner without leave_wall routes it"
+    wps = P.route_avoiding(wm, start, goal, [], leave_wall=True)
+    assert wps and tuple(wps[-1]) == goal
+    _walked_on_the_floor(wm, start, wps)
+
+
+#: The Dali fields with an exit to walk to (357 and 359 have no gateway zone)
+DALI_EXITS = (350, 351, 352, 353, 354, 355, 356, 358, 450)
+
+#: Band starts the quantiles miss. 350's (-581, 810) stands 64u off the walls of triangle 314's floor, beside its seam
+#: onto triangle 48's: the straight way out crosses it within 13u, and on 314's floor it first comes 7.6u NEARER the
+#: walls -- which band samples 32u apart (no further than he stands off them, nor past the band's edge) step over.
+EXTRA_BAND_STARTS = {350: [(-581, 810)]}
+
+
+@pytest.mark.parametrize("fid", DALI_EXITS)
+def test_from_the_wall_band_anywhere_on_a_dali_floor_the_route_walks_out_on_his_floor(stock, fid):
+    """``leave_wall`` beyond the hand-picked starts: on his floor in every Dali field with an exit, four starts in the
+    band -- from ON a wall to the band's edge (quantiles of a 37u grid's band points; and EXTRA_BAND_STARTS) -- routed
+    to the field's first two exits as the tour routes them (the other zones kept out). Every route walks on his floor,
+    never through a wall, and out of the band as promised (:func:`_band_exit`); no start the build's rule routes goes
+    unrouted."""
+    walkmesh, script = stock
+    view = P.PlayerWalkmesh(walkmesh(fid))
+    zones = _zones(script, fid)
+    goals = [(P.region_goal(view, z), [o for j, (_t, o) in enumerate(zones) if j != i])
+             for i, (_t, z) in enumerate(zones)]
+    goals = [(g, others) for g, others in goals if g is not None][:2]
+    wv = view.mesh.world_verts()
+    xs, zs = [v[0] for v in wv], [v[2] for v in wv]
+    band = sorted((view.distance_to_boundary(x, z), (x, z))
+                  for x in range(int(min(xs)), int(max(xs)), 37) for z in range(int(min(zs)), int(max(zs)), 37)
+                  if view.point_on_walkmesh(x, z) is not None
+                  and (view.distance_to_boundary(x, z) or cam.COLLISION_RADIUS_W) < cam.COLLISION_RADIUS_W)
+    starts = [band[k * (len(band) - 1) // 3][1] for k in range(4)] + EXTRA_BAND_STARTS.get(fid, [])
+    assert goals and band[0][0] < 1.0, "premise: an exit, and a band start (nearly) on a wall"
+    routed = 0
+    for s in starts:
+        here = view.standing_at(*s)
+        for goal, others in goals:
+            wps = P.route_avoiding(view, s, goal, others, leave_wall=True)
+            if wps is None:
+                assert P.route_avoiding(view, s, goal, others) is None, (s, goal)
+                continue
+            routed += 1
+            _walked_on_the_floor(here, s, wps)
+            if here.distance_to_boundary(*s) < cam.COLLISION_RADIUS_W:
+                _band_exit(here, s, wps)
+    assert routed, "premise: some band start routes"
 
 
 def test_351_from_the_stuck_landing_reaches_every_exit(stock):

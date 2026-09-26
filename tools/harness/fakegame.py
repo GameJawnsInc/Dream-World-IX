@@ -166,7 +166,8 @@ class FakeGame:
         #: A step that would come closer stops where it reaches that line, as the engine pushes him back out
         #: to it (2507's wall-slide samples sit 80-81u off its boundary), and the rest of the step slides on
         #: along the wall. A gateway zone only a few units deep past that line is then as hard to stand in as
-        #: in the game.
+        #: in the game. Placed nearer a wall than that (a scene's own spot), his first moving frame pushes him
+        #: straight out onto the line, as the engine's does (:meth:`_pushed_out`).
         self.clearance: float | None = None
         #: Frames the character keeps moving after the direction is released. ⚠ NOT ZERO, and the
         #: value is measured rather than chosen: on bench 30801 a hold covers what it commanded give
@@ -768,8 +769,9 @@ class FakeGame:
             break                                   # WalkMesh.Collision answers with ONE body
         on = getattr(self.walkmesh, "point_on_walkmesh", None)
         if on is not None and self.clearance is not None:
-            # his centre kept `clearance` off every wall -- or, where he already stands closer (placed there),
-            # never closer still: the step stops on that line, and its rest slides on along the wall
+            # his centre kept `clearance` off every wall -- pushed out onto that line where he stands closer (placed
+            # there), or, where no push lands him on it, never closer still: the step stops on that line, and its
+            # rest slides on along the wall
             def wall(px, pz):
                 d = self.walkmesh.distance_to_boundary(int(round(px)), int(round(pz)))
                 return -1.0 if d is None or on(int(round(px)), int(round(pz))) is None else d
@@ -798,6 +800,11 @@ class FakeGame:
                     else:
                         continue
                     break
+            if 0.0 <= wall(ox, oz) < self.clearance and 0.0 <= wall(x, z) < self.clearance:
+                # placed nearer a wall than his radius (a scene's own spot): where the step ends -- kept on the floor
+                # above, as the engine's triangle walk keeps it -- is pushed straight out onto the radius line, as the
+                # engine pushes it on his first moving frame
+                x, z = self._pushed_out(x, z, wall) or (x, z)
         elif on is not None:
             # a real walkmesh: his centre must stand on it -- a step off keeps whichever one axis of it
             # still does (a crude slide along the edge), or he stays put
@@ -816,6 +823,32 @@ class FakeGame:
         self.player[0], self.player[2] = x, z
         self._lock_fallback(calls)
         return True
+
+    def _pushed_out(self, x: float, z: float, wall):
+        """Where the engine's push off the walls puts a centre standing nearer one than his radius: straight away from
+        it, onto the radius line (FieldMapActorController.RadiusValid -> ServiceForces: one force lands it exactly
+        there, several are averaged). Modelled as the move to ``clearance`` off every wall along whichever of 64
+        bearings stands it furthest off them, over floor all the way -- again from there while a second wall holds
+        it (a corner: 352's pocket between strip and back wall takes five). None when no bearing gets further out:
+        the caller keeps its never-closer-still rule."""
+        import math
+        for _ in range(16):                         # each round nearer the line, or it gives up
+            d = wall(x, z)
+            if d >= self.clearance:
+                return x, z
+            r = self.clearance - d + 0.5
+            best = None
+            for k in range(64):
+                ux, uz = math.cos(k * math.pi / 32), math.sin(k * math.pi / 32)
+                if any(wall(x + ux * r * s / 8, z + uz * r * s / 8) < 0 for s in range(1, 9)):
+                    continue                            # off the floor on the way: not a push he gets
+                there = wall(x + ux * r, z + uz * r)
+                if best is None or there > best[0]:
+                    best = (there, x + ux * r, z + uz * r)
+            if best is None or best[0] <= d:
+                return None
+            x, z = best[1], best[2]
+        return (x, z) if wall(x, z) >= self.clearance else None
 
     def _lock_fallback(self, calls: float) -> None:
         """FieldMapActorController.CheckCollFallback, ``calls`` times over: while SCollTimer runs, count

@@ -2538,6 +2538,13 @@ class Session:
         stall up to ROUTE_REPLANS times. The instant control goes away -- a probe or a step fired a
         trigger -- it stops pressing and reports where that led.
 
+        Every plan starts where he STANDS, even nearer a wall than the controller radius the route keeps --
+        a scene can hand control back there (stock 352's wake: 22.8u off a closed strip on his floor, where a
+        plan that treated the start like any other cell could not take a step): it steps straight onto a clear
+        spot, as a start always could, or walks OUT of that band gaining clearance, never deeper and never along
+        the wall -- never through a wall either way (route_avoiding ``leave_wall``). The engine pushes him out
+        onto the radius line on his first moving frame, off the planned leg; the walk goes on from there.
+
         ``unstick`` (opt-in) is for a LIVE room -- people walking about, scripts that hold movement.
         The router knows walls and zones, not bodies, and the agent publishes nothing that tells a
         movement freeze with control held (the script's pad mask, EventInput.IsMovementControl) from a
@@ -2685,7 +2692,7 @@ class Session:
                 wps, sealing = self._plan_npcs(wmesh, st, (x, z), polys, margin, known, fresh, watch, record)
             else:
                 wps = (self._plan_round(wmesh, here, (x, z), polys, margin, known, fresh) if unstick
-                       else pathfind.route_avoiding(wmesh, here, (x, z), polys, margin))
+                       else pathfind.route_avoiding(wmesh, here, (x, z), polys, margin, leave_wall=True))
             if wps is None:
                 stalled = False
                 self._log(f"  route_to: no route on field {origin} from ({here[0]:.0f}, {here[1]:.0f}) "
@@ -3066,7 +3073,8 @@ class Session:
         (updated in place; ``fresh`` = the ones this call placed), still clear of every ``polys`` zone -- and
         of ``discs``, ``(x, z, r)`` obstacles each kept its own ``r`` clear (route_to(npcs=True)'s published
         objects, :meth:`_plan_npcs`), which this never drops. ``memo`` is route_avoiding's: one per start, shared
-        by every plan a caller makes from there.
+        by every plan a caller makes from there. Planned from where he stands, so ``leave_wall``: a start nearer
+        a wall than the controller radius gets out of that band first (:meth:`route_to`).
 
         A blocker he STANDS INSIDE is not there any more -- he could not stand in a body -- and is
         dropped. When the OLDER ones seal the way they may have walked off, so the plan is made again
@@ -3080,11 +3088,11 @@ class Session:
             if b in fresh:
                 fresh.remove(b)
         wps = pathfind.route_avoiding(wmesh, here, goal, polys, margin, obstacles=list(known) + list(discs),
-                                      memo=memo)
+                                      memo=memo, leave_wall=True)
         older = [b for b in known if b not in fresh]
         if wps is None and older:
             wps = pathfind.route_avoiding(wmesh, here, goal, polys, margin, obstacles=list(fresh) + list(discs),
-                                          memo=memo)
+                                          memo=memo, leave_wall=True)
             if wps is not None:
                 self._log(f"  route_to: {len(older)} remembered blocker(s) sealed the way; planned without them")
                 for b in older:
