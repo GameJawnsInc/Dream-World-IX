@@ -30,6 +30,7 @@ WORLDMAP_OP = 0xB6         # WorldMap(loc)            -- leave to the overworld;
                            #                            LOCATION id (e.g. 9000-9012), NOT a field id
 SHARED_MENU_WARPS = frozenset(range(2950, 2956))  # chocobo/mognet shared menu warps -- not geography
 SETREGION_OP = 0x29        # SetRegion(points)        -- the trigger polygon
+MJPOS_OP = 0xA4            # CalculateExitPosition -- the player projected onto the region's first edge -> SYSVAR 10/11
 SET_RANDOM_BATTLES = 0x3C  # SetRandomBattles(slot, s1..s4)
 SET_BATTLE_FREQ = 0x57     # SetRandomBattleFrequency(freq)
 BATTLE_OP = 0x2A           # Battle(rush, btlId)         -- scripted battle; scene = btlId & 0x7FFF, arg index 1
@@ -88,8 +89,8 @@ def _region_points(instr) -> list:
 def _zone_quad(points) -> list:
     """Normalise a region polygon to the kit's quad: drop a doubled trailing vertex, take 4 corners."""
     pts = list(points)
-    if len(pts) >= 2 and pts[-1] == pts[-2]:     # the IsInQuad-safe doubled last vertex (kit + real)
-        pts = pts[:-1]
+    if len(pts) >= 2 and pts[-1] == pts[-2]:     # the kit's own doubled last vertex (content.gateway.quad_zone);
+        pts = pts[:-1]                           # stock never doubles one (0 of 2110 static SetRegions)
     return [list(p) for p in pts[:4]]
 
 
@@ -103,19 +104,39 @@ def _entrance_at(data: bytes, off: int):
 
 
 def scan_gateways(eb_bytes) -> list:
-    """Exit gateways in the script. Returns ``[{to, entrance, zone}]`` (zone = up to 4 [x, z] corners).
+    """Exit gateways in the script. Returns ``[{to, entrance, zone, region, face_gate, entry}]``, one per ``Field``.
 
     A gateway is an entry that holds BOTH a ``SetRegion`` (the trigger polygon) and a ``Field``
     (the destination) -- the walk-into-a-zone exit pattern. A bare ``Field`` with no region (e.g. a
     scripted cutscene warp) is intentionally skipped. The arrival entrance is the ``D8:02`` assignment
-    immediately preceding the ``Field`` (default 0)."""
+    immediately preceding the ``Field`` (default 0).
+
+      * ``zone``      -- the kit's QUAD: the entry's first SetRegion with a doubled trailing vertex dropped, cut to
+        its first 4 corners (the authoring shape every importer, the build's validation and ``region_goal`` expect).
+        Its first two corners are the engine's q0 -> q1 for every stock gateway, so the facing gate reads them.
+      * ``region``    -- the SAME SetRegion's raw points, ALL of them, in engine order (the engine holds up to 8,
+        Quad.cs:40): what IsInQuad actually tests (content.doorface.region_contains -- for 5 to 8 points the
+        ring of its ears, not the quad). Equal to ``zone`` for a stock 3- or 4-point region; longer for one of 5 to
+        8 points (267 of stock's 2110 static SetRegions) and for the kit's own doubled-vertex zones. Two stock
+        regions (1458 e11, 3057 e10) switch polygon by arrival entrance in tag 0; both keys hold the FIRST one, and
+        their facing gate is live only on the SECOND -- its first edge is not ``zone[0] -> zone[1]``. Neither key
+        applies the engine's -257 -> -157 Z rewrite in fields 1608 / 1707 (DoEventCode.cs:947): the scan does not
+        know its field's id.
+      * ``face_gate`` -- ``[lo, hi]`` when stock's DOOR FACING GATE guards this row's ``Field()``: the region's tag 2
+        computes the exit position and lets the warp run only when he FACES it (:func:`_face_gates`;
+        content.doorface.door_faced with ``window=(lo, hi)``) -- ``[48, 208]`` on every stock warp so gated. None
+        when no such gate guards this warp -- including a row on the ungated branch of a region whose other
+        branch is gated, a warp outside the tag 2, and the class-3 fixed-window doors, which are not modelled.
+      * ``entry``     -- the region's entry index (its object slot), so rows can be matched to the script.
+
+    ``region``, ``face_gate`` and ``entry`` are additive: ``zone`` is unchanged, and consumers read rows by key."""
     eb = EbScript.from_bytes(eb_bytes)
     out = []
     for e in eb.entries:
         if e.empty:
             continue
-        zone = None
-        fields = []                          # (target, entrance) for each Field in this entry
+        zone = region = None
+        fields = []                          # (target, entrance, the Field instr's offset) for each Field here
         for f in e.funcs:
             entrance = 0
             for ins in eb.instrs(f):
@@ -123,6 +144,7 @@ def scan_gateways(eb_bytes) -> list:
                     pts = _region_points(ins)
                     if len(pts) >= 3:
                         zone = _zone_quad(pts)
+                        region = [list(p) for p in pts]
                 elif ins.op == 0x05:
                     ent = _entrance_at(eb.data, ins.off)
                     if ent is not None:
@@ -130,10 +152,12 @@ def scan_gateways(eb_bytes) -> list:
                 elif ins.op == FIELD_OP:
                     tgt = ins.imm(0)
                     if tgt is not None:
-                        fields.append((tgt, entrance))
+                        fields.append((tgt, entrance, ins.off))
         if zone and fields:
-            for tgt, entrance in fields:
-                out.append({"to": int(tgt), "entrance": int(entrance), "zone": zone})
+            gates = _face_gates(eb, e)
+            for tgt, entrance, off in fields:
+                out.append({"to": int(tgt), "entrance": int(entrance), "zone": zone, "region": region,
+                            "face_gate": gates.get(off), "entry": e.index})
     return out
 
 
@@ -1569,6 +1593,106 @@ _T_END = 0x7F
 _JMP_FALSE = 0x02
 _JMP_TRUE = 0x03
 _RETURN = 0x04            # eb/opcodes.RETURN == bytes([0x04])
+_T_MINUS = 0x15           # B_MINUS
+_T_LT = 0x18              # B_LT
+_T_GT = 0x19              # B_GT
+_T_AND = 0x24             # B_AND
+_T_OROR = 0x28            # B_OROR
+_T_ANGLE2 = 0x66          # B_ANGLE2: the bearing of (dx, dz), in 256ths of a turn
+_T_OBJSPECA = 0x78        # B_OBJSPECA: obj(uid).f[field]
+_T_SYSVAR = 0x7A          # B_SYSVAR
+
+
+# --- the stock DOOR FACING GATE (content.doorface computes what it tests) -----------------------------------------
+#: The gate's let AFTER its variable, token for token (disasm._expr_tokens' ``(op, value)``) -- ``V = obj(250).f[3]
+#: - ANGLE2(SYSVAR[10] - obj(250).f[0], SYSVAR[11] - obj(250).f[2]) & 255``: his facing byte minus the bearing from
+#: his rounded position to the exit point, wrapped to 0..255 (stock 6b8bb2d5: B_ANGLE2 at EBin.cs:1182-1192, f[3] at
+#: getvobj ``case 3``, :1786-1799).
+_FACE_LET_TAIL = (
+    (_T_OBJSPECA, (PLAYER_UID, 3)), (_T_SYSVAR, 10), (_T_OBJSPECA, (PLAYER_UID, 0)), (_T_MINUS, None),
+    (_T_SYSVAR, 11), (_T_OBJSPECA, (PLAYER_UID, 2)), (_T_MINUS, None), (_T_ANGLE2, None), (_T_MINUS, None),
+    (_PUSH_CONST16, 255), (_T_AND, None), (_T_ASSIGN, None), (_T_END, None),
+)
+
+
+def _is_plain_var(tok) -> bool:
+    """A variable read/write token (0xC0+), not the flexible_varfunc 0xD3 carved out of that space."""
+    return tok[0] >= 0xC0 and tok[0] != 0xD3
+
+
+def _face_gate_at(data: bytes, ins: list, k: int):
+    """``(lo, hi)`` when ``ins[k-1 .. k+2]`` is the stock door facing gate, else None -- matched on the opcode and
+    operand SHAPE through the disassembler's tokens, never on offsets or raw bytes:
+
+      * ``ins[k-1]`` CalculateExitPosition (0xA4) -- immediately before the let, as at all 114 stock lets of this
+        shape (83 fields, every US script scanned);
+      * ``ins[k]`` the let ``V = f[3] - ANGLE2(sys10 - f[0], sys11 - f[2]) & 255`` (:data:`_FACE_LET_TAIL`), on the
+        control character (uid 250), into any plain variable ``V`` (stock: always ``Map.Int16[6]``);
+      * ``ins[k+1]`` ``V < lo || V > hi`` -- the same ``V``, two B_CONST literals;
+      * ``ins[k+2]`` JMP_IFNOT: a failed compare jumps away, a passing one falls through toward the warp.
+
+    ``(lo, hi)`` are the compare constants: the door fires when ``V < lo or V > hi`` (strict: B_LT's ``_v0 < t3`` and
+    B_GT's ``t3 < _v0``, EBin.cs:722 / :735 at stock 6b8bb2d5) -- (48, 208) at 112 of the 114 stock lets; the other
+    two, (56, 200) in 1460 and 3059, guard no warp (content.doorface.door_faced reads them as its ``window``)."""
+    from .eb.disasm import instr_expr_tokens
+    if k < 1 or k + 2 >= len(ins):
+        return None
+    a, let, cmp_, jmp = ins[k - 1], ins[k], ins[k + 1], ins[k + 2]
+    if a.op != MJPOS_OP or let.op != SETVAR_EXPR_OP or cmp_.op != SETVAR_EXPR_OP or jmp.op != _JMP_FALSE:
+        return None
+    lt = instr_expr_tokens(data, let)[0]
+    if len(lt) != 1 + len(_FACE_LET_TAIL) or not _is_plain_var(lt[0]) or tuple(lt[1:]) != _FACE_LET_TAIL:
+        return None
+    v = lt[0]
+    ct = instr_expr_tokens(data, cmp_)[0]
+    if (len(ct) != 8 or ct[0] != v or ct[1][0] != _PUSH_CONST16 or ct[2] != (_T_LT, None) or ct[3] != v
+            or ct[4][0] != _PUSH_CONST16 or ct[5] != (_T_GT, None) or ct[6] != (_T_OROR, None)
+            or ct[7] != (_T_END, None)):
+        return None
+    return int(ct[1][1]), int(ct[4][1])
+
+
+def _face_gates(eb, entry) -> dict:
+    """``{offset of a Field() in the entry's tag 2: [lo, hi]}`` -- each warp a stock DOOR FACING GATE
+    (:func:`_face_gate_at`) in that same tag 2 guards: the block the gate's JMP_IFNOT falls through to -- entered
+    ONLY by that fall-through -- dominates the ``Field()`` (``eb.cfg.FuncFlow``), so every path to the warp passed
+    the compare. A warp the gate does not guard is left out: 10 stock class-2 gateways (203 e4, 619 e7, ...) gate
+    only one of their warp branches, the others ride a branch the story or the arrival picks.
+
+    Scope, measured against the facing census (a control-flow classification of every region of all 818 US
+    scripts, done independently of this matcher): every stock gate sits in the region's OWN tag 2, right after
+    its CalculateExitPosition, so this reads nothing else -- and it marks exactly the 107 ``Field()`` sites the
+    census found gated by this idiom, no other. Of the census's 102 "class 2" gateways, 100 get a gated
+    :func:`scan_gateways` row; the other two (707 e7, 2152 e5) leave only to the world map, and scan_gateways lists
+    ``Field()`` warps alone. NOT matched, by design: a gate in a function tag 2 calls (the census found none on a
+    region; 2364 e6's scripted door runs the idiom from e7's tag 22), a warp in a called function (the gate would
+    guard the call, not the ``Field()``), the class-3 FIXED facing windows (``f[3] > LO && f[3] < HI`` -- the
+    Lindblum cab / castle-lift doors, most of them Confirm doors in tag 2 or tag 3) and bearings to a constant
+    point or an object. A function the control-flow layer cannot analyse (``CfgError``) claims no gate."""
+    from .content.region import RANGE_TAG          # the tread function; local: content imports reach this module
+    func = entry.func_by_tag(RANGE_TAG)
+    if func is None:
+        return {}
+    ins = list(eb.instrs(func))
+    sites = [(ins[k + 2], w) for k in range(1, len(ins) - 2)
+             if ins[k - 1].op == MJPOS_OP and (w := _face_gate_at(eb.data, ins, k)) is not None]
+    if not sites:
+        return {}
+    from .eb.cfg import CfgError, FuncFlow
+    try:
+        flow = FuncFlow.build(eb.data, func.abs_start, func.abs_end)
+    except CfgError:
+        return {}
+    out = {}
+    for jmp, (lo, hi) in sites:
+        g = flow.block_at(jmp.end)
+        if g is None or flow.blocks[g].preds != [flow.block_at(jmp.off)]:
+            continue                                   # the pass side is also entered some other way: not a guard
+        guarded = set(flow.dominated_by(g))
+        for i in ins:
+            if i.op == FIELD_OP and flow.block_at(i.off) in guarded:
+                out.setdefault(i.off, [lo, hi])
+    return out
 
 
 def _glob_var_token(data: bytes, off: int):

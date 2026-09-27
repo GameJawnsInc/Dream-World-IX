@@ -91,6 +91,77 @@ def test_gateway_roundtrip():
     assert g["zone"] == [[-200, 200], [200, 200], [200, 400], [-200, 400]]   # doubled vertex dropped
 
 
+# --- the stock DOOR FACING GATE (scan_gateways' face_gate) and the engine polygon (region) ---------------------------
+def _face_gate_bytes(lo=48, hi=208, *, mask=255, jump=0x02):
+    """Stock's door facing gate, spelled from the .eb opcode vocabulary (content/doorface.py's module docstring):
+    CalculateExitPosition; ``Map.Int16[6] = obj(250).f[3] - ANGLE2(SYSVAR[10] - obj(250).f[0], SYSVAR[11] -
+    obj(250).f[2]) & mask``; ``Map.Int16[6] < lo || Map.Int16[6] > hi``; then ``jump`` -- JMP_IFNOT past a JMP to a
+    RET, so a failed compare returns and a passing one falls through (JMP +1, over the RET) to the door's warp."""
+    import struct
+    v = bytes([0xD9, 6])                                                   # Map.Int16[6]
+
+    def obj(f):
+        return bytes([0x78, 250, f])                                       # B_OBJSPECA: obj(250).f[f]
+
+    def sysv(n):
+        return bytes([0x7A, n])                                            # B_SYSVAR
+
+    def const(k):
+        return b"\x7d" + struct.pack("<h", k)                              # B_CONST
+    let = (b"\x05" + v + obj(3) + sysv(10) + obj(0) + b"\x15" + sysv(11) + obj(2) + b"\x15\x66\x15"   # - ANGLE2 -
+           + const(mask) + b"\x24\x2c\x7f")                                                        # & mask, LET
+    cmp_ = b"\x05" + v + const(lo) + b"\x18" + v + const(hi) + b"\x19\x28\x7f"                    # < lo || > hi
+    return b"\xa4" + let + cmp_ + bytes([jump, 3, 0]) + bytes([0x01, 1, 0]) + b"\x04"
+
+
+def _gated_door(gate: bytes):
+    from ff9mapkit.content import region as _region
+    zone = _gw.quad_zone([(-200, 200), (200, 200), (200, 400), (-200, 400)])
+    eb = _gw.inject_gateway(CLEAN, 1234, entrance=42, zone=zone)
+    slot = eventscan.scan_gateways(eb)[0]["entry"]
+    return eventscan.scan_gateways(_region.prepend_range_gate(eb, slot, gate)), slot
+
+
+def test_scan_gateways_rows_carry_the_engine_polygon_and_no_gate_by_default():
+    """``region`` is the SetRegion's every point in engine order -- the kit's doubled trailing vertex included --
+    ``entry`` its slot, and a door with no facing gate has ``face_gate`` None; ``zone`` is unchanged."""
+    from ff9mapkit.eb import EbScript
+    zone = _gw.quad_zone([(-200, 200), (200, 200), (200, 400), (-200, 400)])
+    eb = _gw.inject_gateway(CLEAN, 1234, entrance=42, zone=zone)
+    g = eventscan.scan_gateways(eb)[0]
+    assert g["region"] == [list(p) for p in zone] and len(g["region"]) == 5
+    assert g["zone"] == g["region"][:4] and g["face_gate"] is None
+    assert EbScript.from_bytes(eb).entry(g["entry"]).func_by_tag(2) is not None     # ``entry`` is the region's slot
+    for g in eventscan.scan_gateways(ALEX100):                            # field 100: no gated door
+        assert g["face_gate"] is None and g["region"][:len(g["zone"])] == g["zone"]
+
+
+def test_scan_gateways_reads_the_facing_gate_by_its_shape():
+    """The stock shape -- A4, the let, ``V < lo || V > hi``, JMP_IFNOT guarding the warp -- gives its window; the
+    compare constants are read, not assumed; a changed token (``& 127``) or the other jump (JMP_IF: the warp would
+    run on a FAILED compare) is not the gate."""
+    rows, slot = _gated_door(_face_gate_bytes())
+    assert [(g["to"], g["face_gate"], g["entry"]) for g in rows] == [(1234, [48, 208], slot)]
+    assert _gated_door(_face_gate_bytes(56, 200))[0][0]["face_gate"] == [56, 200]
+    assert _gated_door(_face_gate_bytes(mask=127))[0][0]["face_gate"] is None
+    assert _gated_door(_face_gate_bytes(jump=0x03))[0][0]["face_gate"] is None
+
+
+def test_a_warp_reached_round_the_gate_is_not_the_gates():
+    """The gate guards a warp only when its pass side is entered by the compare's fall-through ALONE: a JMP_IF from
+    before the A4 straight into that block reaches the warp without the compare, so the row claims no gate -- though
+    the block still dominates the Field(), which is why the single-predecessor test exists. The same jump aimed at the
+    A4 itself passes through the compare, and the gate stands."""
+    import struct
+    gate = _face_gate_bytes()
+    test = b"\x05\xd9\x07\x7f"                                             # an expression: Map.Int16[7]
+
+    def jump_to(rel):
+        return test + bytes([0x03]) + struct.pack("<h", rel)                  # JMP_IF rel, from the gate's start
+    assert _gated_door(jump_to(len(gate) - 4) + gate)[0][0]["face_gate"] is None   # into the pass side: round it
+    assert _gated_door(jump_to(0) + gate)[0][0]["face_gate"] == [48, 208]          # onto the A4: through it
+
+
 def test_encounter_roundtrip():
     eb = _enc.inject_encounter(CLEAN, scene=67, freq=200)
     enc = eventscan.scan_encounter(eb)
@@ -200,6 +271,35 @@ def test_import_flags_stacked_story_branch_doors(tmp_path):
     blocks, _cd, summary = extract._imported_content_toml(eb, name="CONDT", out_dir=tmp_path)
     assert summary["story_branch"] >= 2                 # both branches of the stacked door flagged
     assert "STORY-BRANCH door" in blocks and "# requires_flag =" in blocks
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_stock_350s_six_gated_doors_and_their_polygons():
+    """Stock 350 (Dali, Village Road): entries 18-23 -- the doors to 351, 354, 353 (twice), 356 and 355 -- carry the
+    stock gate [48, 208], and its two other gateways none. Every region keeps its first two points (q0 -> q1, the
+    edge the gate projects onto) in ``zone``; a 4-point region's ``region`` IS its zone, a 5-point one's is longer."""
+    from ff9mapkit.extract import EventBundle
+    rows = eventscan.scan_gateways(EventBundle().eb_for_id(350))
+    gated = {g["entry"]: (g["to"], g["face_gate"]) for g in rows if g["face_gate"] is not None}
+    assert gated == {18: (351, [48, 208]), 19: (354, [48, 208]), 20: (353, [48, 208]), 21: (353, [48, 208]),
+                     22: (356, [48, 208]), 23: (355, [48, 208])}
+    assert {g["entry"] for g in rows} - set(gated)                         # the ungated ones are still listed
+    for g in rows:
+        assert g["region"][:2] == g["zone"][:2]
+        if len(g["region"]) == 4:
+            assert g["region"] == g["zone"]
+    five = [g for g in rows if len(g["region"]) == 5]
+    assert five and all(len(g["zone"]) == 4 and g["region"][:4] == g["zone"] for g in five)
+    assert 18 in {g["entry"] for g in five}
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_scan_gateways_marks_only_the_warp_the_gate_guards():
+    """Stock 203 entry 4 warps to 202 on two branches of its tag 2, and the facing gate stands on only one of them
+    (a Map.Byte[33] test picks): the gated warp's row carries [48, 208], the other None."""
+    from ff9mapkit.extract import EventBundle
+    rows = [g for g in eventscan.scan_gateways(EventBundle().eb_for_id(203)) if g["entry"] == 4]
+    assert [(g["to"], g["face_gate"]) for g in rows] == [(202, None), (202, [48, 208])]
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")

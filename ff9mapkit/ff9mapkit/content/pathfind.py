@@ -98,7 +98,9 @@ class Keepout:
     (stock 350 from inside its 353 zone to the 351 exit did). Monotone is a property of a step's
     DIRECTION, so a leaving region blocks no point, and :meth:`blocks_leg` reads a->b as walked from a.
     Checked at the leg's ends plus "no entry" / "one boundary cut" -- exact for a CONVEX region, where the
-    distance along a straight leg is convex (all 1477 stock gateway zones are convex 3- or 4-gons).
+    distance along a straight leg is convex (all 1477 stock gateway zones -- the kit's quad cut of each region --
+    are convex 3- or 4-gons; the engine's own polygon, ``scan_gateways``' ``region``, has 5 to 8 points on 158 of
+    those rows, all convex too, of which IsInQuad covers only the ring of ears: content.doorface.region_contains).
 
     Built by :func:`route_avoiding`; the router tests cells with :meth:`blocks_point` and legs with
     :meth:`blocks_leg` (exact)."""
