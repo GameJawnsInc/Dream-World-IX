@@ -8,7 +8,9 @@ in-game 17/18 + 1 VOID** (`story-rung3c`, predictions v2): against stock Dali x3
 each replaying its stock partner's walk) and the round-4 seed (F4, x3), the trace -- no script reading -- named
 450 as the ping's only writer, F0's seam into the real 450, F4's pre-empted latches and its byte-297 clobber, and
 found F0 otherwise write-for-write stock (MIRROR: FORK ONLY and STOCK ONLY empty). The VOID is NULL-PRE's
-stock-side evidence from 355 (a walker at its door). Next: rung 4 (fork-report's story-writes axis).
+stock-side evidence from 355 (a walker at its door). **The walker now meets stock's door facing gate** (the 23
+facing misses; s90 closed loop, built offline, not yet walked in the game). Next: its in-game check, then rung 4
+(fork-report's story-writes axis).
 
 Board entry #3 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It is the narrative-state arc's missing
 instrument ([`../narrative-state/PLAN.md`](../narrative-state/PLAN.md)).
@@ -343,6 +345,25 @@ law of its own: **a fork-vs-stock diff is only as good as the walk is paired** -
 `SByte[296]` countdown carries the visit order, and a blind walker that behaves systematically differently on two
 sides (3 of 3 boxed vs 0 of 3) fabricates STOCK/FORK ONLY keys the pattern-level compare cannot tell from a fork
 difference. Replay the stock walk on the fork side; judge coverage, not outcome.
+
+### After rung 3: the walker meets stock's door facing gate (built and reviewed offline; not yet walked in the game)
+
+The 116-miss diagnosis (research `rung3-5`) left one class open: **23 misses were stock's door facing gate** -- he
+stood in the door's region facing wherever the walk left him, nothing fired, and the tour struck the door. Grounded
+in the engine and the stock bytes (research `rung3-6`): 122 of 1393 walk-in gateways (98 fields; 6 of 350's doors,
+and 351/353/356 have one each) run the warp only while his facing byte is within 47/256 of a turn of the bearing to
+his projection onto the region's FIRST edge -- strict (48 fails), re-tested every tick he stands in it; the facing
+lerps 40% per MovePC CALL (a walked tick is one), a press into a wall still turns him, and `player.dir` is 0 on
+every field. Built: `content.doorface` (the rule, engine-exact, no game table), `scan_gateways`' `face_gate` /
+`region` (the detector matches the stock census 100/100), a fake game that models the gate (so a test can fail),
+and a walker that faces a GATED door when it stands in it with nothing fired. **Engine patch s90** (deployed by the
+owner) publishes the real facing (`player.face`, the byte the gate compares, from EBin's own read) and a `turn`
+verb that turns him in place, so on this engine the step is a closed loop: turn with zero travel, judge the door by
+the MEASURED byte. The walked press, sized by a prediction and kept inside the region, is the fallback on an engine
+without s90. The tour's verdicts: a gated door the walker never faced is LIVE (no strike; a replay steps back first),
+a door faced and still shut is the door's MISS, and the 353 "never became playable" crossing is a bounce. Four
+workflows, each reviewed from several lenses with every finding verified (31 + 16, all real, all fixed or pinned),
+mutation-tested; the in-game check is the next session's first job, on the owner's go (HANDOFF.md).
 
 ## Rungs
 

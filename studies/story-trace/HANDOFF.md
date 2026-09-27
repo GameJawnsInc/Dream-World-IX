@@ -1,47 +1,42 @@
-# Story-write trace -- handoff (2026-09-26)
+# Story-write trace -- handoff (2026-09-27)
 
-Written when the session's usage ran out, so the next session (possibly on another account) can pick up without
-this one's context. The study's own record is [`PLAN.md`](PLAN.md) (rungs 0-3, every session's result and
-diagnosis); this file is the open work, where the research lives, and the one spec that exists nowhere else yet.
+Rewritten at the end of the facing-gate session so the next session (possibly on another account) can pick up
+without its context. The study's own record is [`PLAN.md`](PLAN.md) (rungs 0-3, every session's result and
+diagnosis); this file is the open work and where the research lives.
 
 ## Where things stand
 
-- **Branch `claude/story-trace`** (worktree `C:\gd\Dream-World-IX\.claude\worktrees\story-trace-walk`; if the
-  worktree was pruned, the branch is the truth: `git worktree add .claude\worktrees\story-trace-walk claude/story-trace`).
-  **NOT merged to master since `be9b47b0`** (rung-3 step 1). Everything after it is on the branch only:
-  rung-3 retrodiction build, sessions 1-3, the boxed-by-walkers fix, predictions v2 (the replay), the door-pin fix,
-  PLAN/brief/memory updates.
+- **Merged to master** (branch `claude/story-trace`, worktree `C:\gd\Dream-World-IX\.claude\worktrees\story-trace-walk`)
+  after the full suite: rung-3 retrodiction build, sessions 1-3, the walker fixes (boxed-by-walkers, door pin), the
+  facing-gate fix and its s90 closed loop, predictions v2, PLAN/brief/memory updates.
 - **Rungs 0-3 in-game PROVEN.** Rung 3 = session 3 (`story-rung3c`, predictions v2 sha `d6dd541c`): 17/18 + one
   VOID (R3-NULL-PRE: no stock run gave 355 before 450 -- a Dali child at its door). R3-MIRROR clean once the F0
   side REPLAYS its stock partner's walk. Session 2 (`story-rung3b`, v1 sha `220532a8`) is the 16/18 that found the
   order confound. Both prediction files are sha-frozen (`.gitattributes -text`); never edit them -- a change is a
   new version registered before its session.
-- **Engine:** s88 (story trace) + s89 (harness publishes field objects) are in the LIVE install DLL (sha
-  `f1fcea745aa651d2`, backups `20260925-152631`), NOT in the shipped engine bundle yet.
+- **Engine:** s88 (story trace) + s89 (harness publishes field objects) + s90 (harness publishes the facing, `turn`
+  in place) are in the LIVE install DLL (sha `ba9762423da8f3d7`, backups `20260926-171239`, built by the owner),
+  NOT in the shipped engine bundle yet. s90 is compile-checked and deployed but NOT yet exercised in the game.
 - **Deployed in `FF9CustomMap`:** 23 fork ids -- 30830 (rung 2's verbatim 552) and the rung-3 chains 30831-30841
   (F0) / 30842-30852 (F4), `studies/story-trace/rung3_forks.json`. Every session's pre-flight re-verifies them.
 
 ## Open work, in order
 
-1. **The facing-gate fix -- BUILT on the branch** (what landed, and what it still does not cover: THE FACING GATE,
-   below). Not yet walked in the game: the next session's first crossings of 350 -> 351 are its in-game check.
-2. **Full suite, then merge.** `content/pathfind.py`'s shared `route()` changed on this branch (`leave_wall`, the
-   unlinked-edge check), and `build.py` / the behavior autoroute call it, so run the FULL suite `-n 6` before
-   merging (this worktree has extracted templates -- `provision.templates_present()` was True; a fresh worktree
-   needs `py -m ff9mapkit extract-templates` or it silently skips the core). Domain tests alone:
-   `cd ff9mapkit && py -m pytest -q -p no:cacheprovider -n 6 tests/test_harness.py tests/test_route_avoiding.py tests/test_storytrace.py tests/test_eventscan.py tests/test_doorface.py`
-   and `py studies/story-trace/rung3_dryrun.py` (80/80; it reads session 2 from the main repo's
-   `.harness-runs`). Merge from the main repo (`git -C C:\gd\Dream-World-IX branch --show-current` first -- it was
-   `master`), `--no-ff` like `be9b47b0`; read `.test-gate/latest.json` before and heed the post-merge ledger.
-3. **Optional session 4 -- needs the OWNER's go (the standing rule: never launch the harness without it).** On the
-   fixed walker (door pin + facing), for three stock runs that enter 355 before 450, turning R3-NULL-PRE's VOID
-   into a verdict. `PYTHONUNBUFFERED=1 py tools/play.py studies/story-trace/rung3_trace.py --label story-rung3d
-   --timeout 240` (v2 is the default predictions file; ~1.5 h; the analysis alone, offline:
-   `py studies/story-trace/rung3_trace.py --analyse <run dir>`). Archive the run dir to the main repo's
-   `.harness-runs` the moment it ends (the install is shared).
-4. **Later:** rung 4 (`fork-report`'s story-writes axis -- PLAN.md "Rungs"); s88/s89 into the next engine-bundle
-   re-cut (a release -- outward-facing, confirm first); keep or revert the 23 fork ids (owner's call). Unrelated arc
-   still pending from this session: the owner playtest of photo-mode bench 30956 (`studies/photo-mode/PLAN.md`).
+1. **The in-game check of the facing step -- needs the OWNER's go (the standing rule: never launch the harness
+   without it).** Nothing of this session has been walked in the game. Cheapest first look: on stock 350, stand in
+   the 351 door's region facing away, read `state.player_face` (it must equal what `doorface.gate_value_from_face`
+   predicts from the pad), `g.turn_in_place("right", 16)` (the `turn_end` must show `moved` <= 0.25 and the door
+   firing), then one tour pass (`studies/story-trace/dali_tour.py`) and read the crossing records' `faced` /
+   `face_measured`.
+2. **Optional session 4 -- the owner's go too.** On the fixed walker (door pin + the closed-loop facing), for three
+   stock runs that enter 355 before 450, turning R3-NULL-PRE's VOID into a verdict. `PYTHONUNBUFFERED=1 py
+   tools/play.py studies/story-trace/rung3_trace.py --label story-rung3d --timeout 240` (v2 is the default
+   predictions file; ~1.5 h; the analysis alone, offline: `py studies/story-trace/rung3_trace.py --analyse <run
+   dir>`). Archive the run dir to the main repo's `.harness-runs` the moment it ends (the install is shared).
+3. **Later:** rung 4 (`fork-report`'s story-writes axis -- PLAN.md "Rungs"); s88/s89/s90 into the next engine-bundle
+   re-cut (a release -- outward-facing, confirm first); keep or revert the 23 fork ids (owner's call); the facing
+   gate's open items below. Unrelated arc still pending: the owner playtest of photo-mode bench 30956
+   (`studies/photo-mode/PLAN.md`).
 
 ## THE FACING GATE (landed on the branch; the settled rule and what is still open)
 
@@ -69,15 +64,23 @@ Range at SC 2600 then scene-gated region 25, 32; 5 are the 353 door step's ~34u 
   slides included), and is checked against what it moved him. Ungated doors are never turned to. `failure()` reads
   a gated door he stood in and never faced as LIVE (`unfaced()`), a replay steps back before retrying it (LIVE of
   them fail the step), and a faced door that stayed shut is the door's MISS; the 353 bounce reads "bounce".
-- **Still open.** (1) The prediction is open-loop: reading s90's `player.face` (and its `turn` verb, an in-place turn)
-  would make it measured -- the harness side of s90 is unbuilt. (2) The walk's finish still targets the kit's quad:
-  a walk can end in a 5-point region's dead middle, which the step reads LIVE (no Dali gated door has standable dead
-  middle; 8 stock gated rows elsewhere do). (3) At 350's door to 353 the wall-slide bound refuses every press from
-  the tour's goal pocket (LIVE; a replay steps back and walks in again) -- a slide bound that knows the wall's line
-  would open it. (4) Not modelled: the class-3 fixed-window doors (Lindblum cabs, castle lifts -- most need a
-  Confirm tap), 1458 e11 / 3057 e10 (whose gate is live only on the polygon tag 0 switches to), and the ~40 other
-  region sites that read the facing some other way. (5) WALK_SPEED is a 60 fps bench constant: on another refresh
-  rate the calls a frame spends differ (the press check catches a free press that ran short, not one into a wall).
+- **The closed loop (s90).** On an engine that publishes `player.face` (State.facing_status "known") the step turns
+  him IN PLACE (`Session.turn_in_place`, the agent's `turn` verb: the direction keys held, no analog axis, so the
+  engine lerps his yaw and zeroes the step) and judges the door by the MEASURED byte in `turn_end` (polled past the
+  ack, never read before its own request's receipt): the field changing is the door; in the strict window and still
+  shut is the door's MISS (`face_measured` True); out of it turns again; a cut or a refusal a press would share is
+  waited out, never a strike; control gone on an unchanged field is no door. The walked press above stays as the
+  fallback only for a pre-s90 engine or `[AnalogControl] Enabled=0` (an overlapping body is waited for once first).
+- **Still open.** (1) Nothing here has run in the game yet (open work 1). (2) The walk's finish still targets the
+  kit's quad: a walk can end in a 5-point region's dead middle, which the step reads LIVE (no Dali gated door has a
+  standable dead middle; 8 stock gated rows elsewhere do). (3) On a pre-s90 engine, 350's door to 353 is still
+  refused from the tour's goal pocket by the wall-slide bound (LIVE; the in-place turn faces it). (4) Not modelled:
+  the class-3 fixed-window doors (Lindblum cabs, castle lifts -- most need a Confirm tap), 1458 e11 / 3057 e10
+  (whose gate is live only on the polygon tag 0 switches to), and the ~40 other region sites that read the facing
+  some other way. (5) WALK_SPEED is a 60 fps bench constant: on another refresh rate a walked press's calls differ
+  (the closed loop measures instead; the open-loop press check catches a free press that ran short, not one into a
+  wall). (6) The tour's goal for 350's door to 353, (-1188, 2307), is 77.5u off a wall -- inside the 80u collision
+  radius, so the engine pushes him out on his first moving call.
 
 ## Where the research lives
 
@@ -101,3 +104,7 @@ Range at SC 2600 then scene-gated region 25, 32; 5 are the 353 door step's ~34u 
     `wf_55559065-206` predictions v2 / the replay, `wf_e30deb95-606` the 116-miss diagnosis + the door-pin fix,
     `wf_b4d457ce-760` the facing fix (stopped, empty); earlier ids are rung 0-3 builds and reviews -- the
     `results.md` headers say which.
+  - `story-trace-archive\facing-session\` -- the facing-gate session (2026-09-26/27): `workflows\` (the understand
+    `wf_0c8b27cc-198`, the build + five-lens review `wf_0a36f57d-e49`, engine patch s90 `wf_5c7015d9-2df`, the s90
+    driver `wf_75e5a330-185`: scripts, journals, readable results) and `scratchpad\` (the census data -- game bytes
+    in `stock_eb.pkl`/`eb350.bin`/`ratan_tbl.bin`, never commit -- the s90 gate logs, DRIVER.md, the mutation plugins).
