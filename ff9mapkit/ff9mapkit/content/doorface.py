@@ -29,8 +29,9 @@ local clone carries the memoria-patches stack, whose working-tree lines differ:
     degrees, through ConvertFloatAngleToFixedPoint (EBin.cs:1248-1258: the float32 of deg/360*4096, RoundToInt,
     i.e. round half to even) ``>> 4 & 255``. The yaw shares the bearing's zero and handedness: the controller turns
     it toward ``atan2(-moveVec.x, -moveVec.z)`` (Field/Map/Actor/FieldMapActorController.cs:748, in MovePC).
-  * :func:`door_faced` -- the compare: ``v = (facing - bearing) & 255`` (an Int32 AND, so it wraps), and the
-    door fires when ``v < lo || v > hi`` -- B_LT is ``_v0 < t3`` (EBin.cs:710-724, the compare at :722), B_GT
+  * :func:`door_faced` -- the compare (on a gate value alone: :func:`gate_faced`): ``v = (facing - bearing) & 255``
+    (an Int32 AND, so it wraps), and the door fires when ``v < lo || v > hi`` -- B_LT is ``_v0 < t3``
+    (EBin.cs:710-724, the compare at :722), B_GT
     ``t3 < _v0`` (:726-745, at :735): both STRICT, so with the stock (48, 208) the signed error must lie in
     [-47, +47] (+-66.1 degrees); 48 and 208 themselves fail. The bearing is taken from his ROUNDED position (f[0] /
     f[2], getvobj ``case 0`` / ``case 2`` at EBin.cs:1753 / :1779, go through CastFloatToIntWithChecking,
@@ -48,9 +49,11 @@ wall clock (Memoria/Application/FPSManager.cs:77-110) -- 0 or 1 a frame at 60 fp
 see. So an n-frame hold spends a whole number of calls, ``n * per`` rounded either way, where ``per`` is the calls a
 frame spends on AVERAGE: :func:`movepc_calls` of the harness's calibrated speed. A planner counts on
 :func:`sure_calls` -- the whole calls ``n`` frames are sure of -- never on the average. ``player.dir`` in the
-harness's state.json is NOT this yaw: it is ``PosObj.rot[1]``, which nothing writes on a field (it reads 0 there);
-memoria-patch s90 publishes the yaw itself (``player.face``), but nothing here reads it yet, so the yaw is PREDICTED
-from the presses that made it.
+harness's state.json is NOT this yaw: it is ``PosObj.rot[1]``, which nothing writes on a field (it reads 0 there).
+Memoria-patch s90 publishes the yaw itself (``player.yaw``) and the facing BYTE the gate reads (``player.face``), and
+turns him in place (the agent's ``turn`` verb): where the engine publishes them the harness MEASURES the facing
+(:func:`gate_value_from_face`); on an engine without s90 the yaw is PREDICTED from the presses that made it
+(:func:`turn_step`, :func:`worst_face_error`).
 
 WHICH REGION ANSWERS (:func:`region_contains`). IsInQuad (Event/Engine/EventEngine.TreadQuad.cs:24-39) tests the
 n triangles ``(q[i], q[i+1 mod n], q[i+2 mod n])`` for i in 0..n-1 -- every run of three consecutive vertices,
@@ -192,9 +195,18 @@ def yaw_of_byte(b: int) -> float:
 def gate_value(px: float, pz: float, yaw_deg: float, q0, q1) -> int:
     """``Map.Int16[6]`` exactly as the stock let stores it: ``(facing - bearing) & 255`` -- the facing of
     ``yaw_deg`` against the bearing from his ROUNDED position (f[0], f[2]) to :func:`calc_exit_position` of his
-    float one."""
+    float one. :func:`gate_value_from_face` of :func:`facing_byte` of the yaw."""
+    return gate_value_from_face(px, pz, facing_byte(yaw_deg), q0, q1)
+
+
+def gate_value_from_face(px: float, pz: float, face: int, q0, q1) -> int:
+    """:func:`gate_value` from the FACING BYTE itself -- ``face``, 0..255, the obj(250).f[3] the gate reads, as
+    memoria-patch s90 publishes it (state.json ``player.face``, ``turn_end``'s ``face``: the engine's own getvobj,
+    EBin.cs:1786-1799) -- against the bearing from his rounded position to :func:`calc_exit_position` of his float
+    one. What a driver judges a MEASURED facing by: the byte is the gate's own operand, so nothing is re-derived
+    from a yaw (a script can leave the yaw anywhere in [0, 358.6], and its byte is what counts)."""
     jx, jz = calc_exit_position(px, pz, q0, q1)
-    return (facing_byte(yaw_deg) - eb_bearing(jx - _round_to_int(px), jz - _round_to_int(pz))) & 255
+    return (int(face) - eb_bearing(jx - _round_to_int(px), jz - _round_to_int(pz))) & 255
 
 
 def signed_error(v: int) -> int:
@@ -204,16 +216,26 @@ def signed_error(v: int) -> int:
     return v - 256 if v >= 128 else v
 
 
+def gate_faced(v: int, window=FACE_WINDOW) -> bool:
+    """THE COMPARE, on the gate value ``v`` (:func:`gate_value` / :func:`gate_value_from_face`, 0..255): whether the
+    gate lets tag 2 on to the warp -- ``v < lo or v > hi`` for ``window`` = ``(lo, hi)``, both STRICT (B_LT / B_GT,
+    EBin.cs:722 / :735), so ``v == lo`` and ``v == hi`` are shut: with the stock (48, 208), faced iff ``-47 <=
+    signed_error(v) <= 47``. The one place the rule lives -- a prediction (:func:`door_faced`) and a measured facing
+    byte (the harness's in-place turn) are judged by the same compare."""
+    lo, hi = int(window[0]), int(window[1])
+    v = int(v) & 255
+    return v < lo or v > hi
+
+
 def door_faced(px: float, pz: float, yaw_deg: float, q0, q1, window=FACE_WINDOW) -> tuple[bool, int]:
     """``(faced, signed_err)`` for a stock class-2 door: whether its gate lets tag 2 on to the warp for a player at
     (``px``, ``pz``) with yaw ``yaw_deg`` (degrees, ``Actor.rotAngle[1]`` -- NOT state.json ``player.dir``), and the
     gate value as a signed error in 256ths. ``q0``, ``q1`` = the region's first two SetRegion points, in engine
     order (``scan_gateways``' ``zone[0]`` / ``zone[1]`` -- or ``region[0]`` / ``region[1]``). ``window`` =
-    ``(lo, hi)``, the compare constants: faced iff ``v < lo or v > hi`` (strict) -- with the stock (48, 208),
-    iff ``-47 <= signed_err <= 47``."""
-    lo, hi = int(window[0]), int(window[1])
+    ``(lo, hi)``, the compare constants (:func:`gate_faced`: faced iff ``v < lo or v > hi``, strict) -- with the
+    stock (48, 208), iff ``-47 <= signed_err <= 47``."""
     v = gate_value(px, pz, yaw_deg, q0, q1)
-    return (v < lo or v > hi), signed_error(v)
+    return gate_faced(v, window), signed_error(v)
 
 
 def yaw_of(dx: float, dz: float) -> float:

@@ -31,6 +31,7 @@ import ctypes
 import datetime as _dt
 import json
 import os
+import re
 import shutil
 import time
 from pathlib import Path
@@ -53,7 +54,8 @@ from pathlib import Path
 #:      the ``netsync`` verb family -- ``selftest``/``bench``/``l1``/``advance``/``choice``/
 #:      ``unmatched`` -- so the F1-F3 solo benches run unattended instead of behind IMGUI buttons.
 #:      (Additive, same version: ``player.listener`` and the ``netsync talk <uid>`` sub-verb --
-#:      the F3.1 talk-relay bench.)
+#:      the F3.1 talk-relay bench; s88's ``storytrace`` and s89's ``objects``; s90's ``player.yaw`` /
+#:      ``player.face``, the ``turn`` verb and its ``turn_end`` event -- :attr:`State.facing_status`.)
 PROTOCOL = 5
 
 #: The agent polls the arm file every 30 frames (HarnessAgent.PollArm). A delete+create inside one
@@ -74,6 +76,19 @@ MID_WRITE_WITHIN = 0.5
 
 class HarnessError(RuntimeError):
     """A harness-level failure: the game is gone, a step was refused, or a wait timed out."""
+
+
+class StepRefused(HarnessError):
+    """The agent REFUSED a step of the request that was just acked -- its error latch, stamped with this request
+    (Session._raise_if_this_step_failed). ``error`` is the latch's own text, ``"<op>: <message>"`` (HarnessAgent.
+    DrainQueue: the LAST refusal of the request), exactly as the state that carried the ack published it -- so a
+    caller that classifies a refusal reads it HERE, from the sample the verdict was made on, never from a second read
+    of state.json (which can come back None mid-rewrite on a healthy game, :meth:`Channel.state`). ``steps`` the
+    request's steps."""
+
+    def __init__(self, error: str, steps):
+        super().__init__(f"the game refused a step: {error} (steps={list(steps)})")
+        self.error, self.steps = str(error), list(steps)
 
 
 def pid_alive(pid: int) -> bool:
@@ -123,6 +138,95 @@ BUTTONS = {
     "start", "pause", "select",
     "up", "north", "down", "south", "left", "west", "right", "east",
 }
+
+#: The four DIRECTIONS among :data:`BUTTONS`, each alias to its Control name -- ParseControl's names, directions
+#: only: what the s90 ``turn`` verb takes (HarnessAgent.ParseTurnDirections), ``+``-joined.
+DIRECTIONS = {"up": "up", "north": "up", "down": "down", "south": "down",
+              "left": "left", "west": "left", "right": "right", "east": "right"}
+
+
+# -- the in-place turn (memoria-patch s90) ----------------------------------------------------------
+class TurnRefused(HarnessError):
+    """The agent REFUSED a ``turn`` (HarnessAgent.BeginTurn: every refusal throws before anything is pressed, the rest
+    of the request still runs and acks). ``kind`` is the refusal named by the agent's own stable message
+    (:func:`turn_refusal`), ``message`` those words, ``why`` the TurnBlocker token of a ``"blocked"`` one
+    (``field``, ``player``, ``control``, ``movement``, ``actor``, ``hud``, ``unreadable``), ``uid`` the body of an
+    ``"overlap"``."""
+
+    def __init__(self, message: str, *, kind: str, why: str | None = None, uid: int | None = None):
+        super().__init__(f"the game refused the turn ({kind}): {message}")
+        self.message, self.kind, self.why, self.uid = message, kind, why, uid
+
+
+#: The agent's refusal messages for ``turn``, by their stable PREFIX (HarnessAgent.cs, s90: BeginTurn,
+#: ParseTurnDirections, ParseControl, and Execute's default for an engine without the verb), each to its ``kind``:
+#:   * ``argument``   -- ``needs a direction ...`` / ``'x' is not a direction ...`` / ``unknown button 'x'``;
+#:   * ``blocked``    -- ``needs a field with a controlled player under user control (<why>)`` -- TurnBlocker's token;
+#:   * ``unreadable`` -- ``the player's field, position or facing is unreadable``;
+#:   * ``judging``    -- ``the last turn's keys are up and the field is still judging it``: wait for its turn_end;
+#:   * ``cut``        -- ``the turn in progress began on another actor or field``: turn again after its turn_end;
+#:   * ``analog``     -- ``[AnalogControl] Enabled=0``: this install cannot turn in place (the key path steps him);
+#:   * ``held``       -- ``<Dir> is held or scheduled``: a direction is down now or on a later frame;
+#:   * ``opposite``   -- ``opposite directions cancel to no direction``;
+#:   * ``axis``       -- ``a physical stick or key is pushing the axis``: a human is at the controls;
+#:   * ``path``       -- ``a click-to-move path is pending``: a mouse walk is in progress;
+#:   * ``overlap``    -- ``overlapping object uid N``: a turn toward that body would push him out;
+#:   * ``cannot``     -- ``unknown op 'turn'``: an engine without s90, whatever a sample said.
+TURN_REFUSALS = (
+    ("needs a direction", "argument"),
+    ("unknown button", "argument"),
+    ("needs a field with a controlled player under user control", "blocked"),
+    ("the player's field, position or facing is unreadable", "unreadable"),
+    ("the last turn's keys are up and the field is still judging it", "judging"),
+    ("the turn in progress began on another actor or field", "cut"),
+    ("[AnalogControl] Enabled=0", "analog"),
+    ("opposite directions cancel", "opposite"),
+    ("a physical stick or key is pushing the axis", "axis"),
+    ("a click-to-move path is pending", "path"),
+    ("overlapping object uid", "overlap"),
+    ("unknown op 'turn'", "cannot"),
+)
+
+
+def turn_refusal(message: str) -> TurnRefused:
+    """The agent's ``turn`` refusal ``message`` (the error latch's text after ``turn: ``) as a :class:`TurnRefused`,
+    classified on the stable prefixes of :data:`TURN_REFUSALS` -- and the two whose variable part leads: ``'x' is not
+    a direction ...`` (``argument``) and ``<Dir> is held or scheduled ...`` (``held``). A message none of them
+    matches is ``kind`` ``"other"``: an agent newer than this driver, never guessed at."""
+    text = str(message).strip()
+    for prefix, kind in TURN_REFUSALS:
+        if text.startswith(prefix):
+            why = uid = None
+            if kind == "blocked":
+                m = re.search(r"\((\w+)\)", text)
+                why = m.group(1) if m else None
+            elif kind == "overlap":
+                m = re.match(r"overlapping object uid (-?\d+)", text)
+                uid = int(m.group(1)) if m else None
+            return TurnRefused(text, kind=kind, why=why, uid=uid)
+    if re.match(r"'[^']*' is not a direction", text):
+        return TurnRefused(text, kind="argument")
+    if re.match(r"(Up|Down|Left|Right) is held or scheduled", text):
+        return TurnRefused(text, kind="held")
+    return TurnRefused(text, kind="other")
+
+
+def parse_turn_end(ev: dict) -> dict:
+    """A ``turn_end`` event (s90, HarnessAgent.EndTurn) with its values PARSED: the agent's event writer quotes every
+    value but ``frame`` (``{"why": "ended", "frames": "8", "yaw0": "69.12", "yaw": "-85.301", "face": "195", "moved":
+    "0"}``), so each is read back here -- ``frame`` / ``frames`` / ``face`` ints, ``yaw0`` / ``yaw`` / ``moved``
+    floats, ``why`` the token (``ended``; else what cut it: ``field``, ``player``, ``control``, ``movement``,
+    ``actor``, ``hud``, ``unreadable``, ``axis``). ``yaw``, ``face`` and ``moved`` are None where the agent wrote null:
+    off a field at the end, or on another field id or controlled actor than the turn began on (a door's warp, a
+    same-id reload) -- read the new state instead."""
+    def num(key, cast):
+        v = ev.get(key)
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        return cast(float(v)) if cast is int else cast(v)
+    return {"frame": num("frame", int), "why": ev.get("why"), "frames": num("frames", int),
+            "yaw0": num("yaw0", float), "yaw": num("yaw", float), "face": num("face", int),
+            "moved": num("moved", float)}
 
 
 class State:
@@ -320,6 +424,45 @@ class State:
         tells which, as the two keys are published and nulled together."""
         po = self.raw.get("pushout")
         return po if isinstance(po, dict) else None
+
+    # -- the facing (memoria-patch s90) ------------------------------------------------------
+    # THREE CASES, AND ONLY ONE OF THEM IS A FACING -- the objects_status precedent. The ``face`` key ABSENT from
+    # ``player`` is an engine that CANNOT publish the facing (pre-s90 -- and one that cannot ``turn`` either: the one
+    # probe covers both halves of the patch); null is an engine that can and has none this sample (off a field --
+    # title, battle, world map -- or no controlled character); a number is the facing. "Cannot" is never read as
+    # "nothing there": a driver that took a pre-s90 engine's missing key for "no facing right now" would wait for one
+    # that never comes, and one that took null for "cannot" would give up a turn the engine can make.
+    # ``player.dir`` is NOT the facing on a field: it is PosObj.rot[1], which only the world map writes (0 on every
+    # field, whatever way he faces). The agent publishes both keys whenever a controlled character stands on a field,
+    # with or without user control -- ``yaw`` follows a scripted turn too (HarnessAgent.PublishState, s90).
+    @property
+    def facing_status(self) -> str:
+        """``"cannot"`` (``player.face`` absent: this engine publishes no facing and has no ``turn`` verb),
+        ``"unknown"`` (null: it does, and there is none this sample) or ``"known"`` (:attr:`player_face` is the
+        byte)."""
+        p = self.raw.get("player") or {}
+        if "face" not in p:
+            return "cannot"
+        return "known" if isinstance(p.get("face"), int) and not isinstance(p.get("face"), bool) else "unknown"
+
+    @property
+    def player_yaw(self) -> float | None:
+        """``Actor.rotAngle[1]`` in DEGREES, raw, to 0.001: 0 faces -z, 90 -x, +-180 +z, -90 +x. MovePC's lerp leaves
+        it in [-180, 180] (FieldMapActorController.cs:759-764), a script's direct set of a byte in [0, 358.6]
+        (EventEngine.cs:1180-1188) -- never assume a range. For a gate decision read :attr:`player_face`, the byte
+        the gate compares; the yaw is for measuring a turn (its lerp) and for the eye. None when absent or null
+        (:attr:`facing_status` says which)."""
+        v = (self.raw.get("player") or {}).get("yaw")
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+    @property
+    def player_face(self) -> int | None:
+        """The ``.eb`` facing byte, 0..255 in 256ths of a turn (0 = -z, 64 = -x, 128 = +z, 192 = +x) -- obj(250).f[3],
+        computed by the engine's OWN getvobj (EBin.HarnessFacingByte): the exact value a stock door gate compares
+        (content.doorface.gate_value_from_face). Every gate decision uses this, never a byte re-derived from
+        :attr:`player_yaw`. None when absent or null (:attr:`facing_status` says which)."""
+        v = (self.raw.get("player") or {}).get("face")
+        return v if isinstance(v, int) and not isinstance(v, bool) else None
 
     # -- the walkmesh triangle: NOT PUBLISHED LIVE ------------------------------------------
     # No agent yet publishes the triangle or floor the player stands on. What s83 publishes under

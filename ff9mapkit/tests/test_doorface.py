@@ -32,6 +32,30 @@ def test_the_worked_check_at_350s_door_to_351():
     assert D.gate_value(*AT, PAD_YAW["up"], Q0, Q1) == 208 and D.gate_value(*AT, PAD_YAW["down+right"], Q0, Q1) == 48
 
 
+def test_a_measured_facing_byte_is_judged_by_the_same_gate():
+    """``gate_value_from_face`` takes the facing BYTE itself -- s90's published ``player.face`` / ``turn_end``'s
+    ``face``, the gate's own operand -- against the same bearing: equal to ``gate_value`` of any yaw with that byte,
+    so a measured byte and a predicted yaw are judged alike (and a byte a script left at, say, 250 -- a yaw of 351.6,
+    outside MovePC's range -- is judged as that byte)."""
+    for pad, yaw in PAD_YAW.items():
+        assert D.gate_value_from_face(*AT, D.facing_byte(yaw), Q0, Q1) == D.gate_value(*AT, yaw, Q0, Q1), pad
+    assert D.gate_value_from_face(*AT, 177, Q0, Q1) == 0                    # facing the bearing's own byte
+    assert D.gate_value_from_face(0, 0, 250, _W0, _W1) == D.gate_value(0, 0, 351.6, _W0, _W1) == 245
+
+
+def test_the_gates_compare_is_strict_at_both_edges_and_the_one_rule_door_faced_uses():
+    """``gate_faced`` is THE compare (B_LT / B_GT, both strict): with the stock (48, 208) the values 48 and 208 are
+    shut and 47 / 209 open -- signed errors -47..+47 faced, +-48 not -- and a site's own constants (the (56, 200) of
+    fields 1460 and 3059) the same way. ``door_faced`` answers with it for every yaw."""
+    assert [v for v in range(256) if D.gate_faced(v)] == list(range(0, 48)) + list(range(209, 256))
+    assert [D.gate_faced(v) for v in (47, 48, 208, 209)] == [True, False, False, True]
+    assert [D.gate_faced(v, (56, 200)) for v in (55, 56, 200, 201)] == [True, False, False, True]
+    assert all(D.gate_faced(D.signed_error(v) & 255) == (abs(D.signed_error(v)) <= 47) for v in range(256))
+    for yaw in range(-180, 181, 3):
+        faced, err = D.door_faced(*AT, float(yaw), Q0, Q1)
+        assert faced == D.gate_faced(D.gate_value(*AT, float(yaw), Q0, Q1)) == (abs(err) <= 47), yaw
+
+
 def test_the_arrival_from_351_turns_to_face_the_door_on_the_third_walked_call():
     """He walked out of 351 away from this door (yaw 69): error -128. Pressing right, one MovePC call a walked tick,
     the lerp reaches 6.0, -31.9, -54.6 degrees -- errors +83, +56, +40: faced only at the third call."""

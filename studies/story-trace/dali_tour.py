@@ -144,10 +144,16 @@ def failure(rec: dict) -> str:
     door facing gate, content.doorface -- 6 of 350's 9 walk-in doors fire only while he FACES the door) is judged by
     the walk's FACING STEP (route_to's ``faced``, Session._face_the_door). Faced (True) -- a press the prediction says
     left him facing it, and the door still shut -- is the door's MISS, REAL, wherever the rest of that press then took
-    him (it keeps him in the region only as far as the call it faced the door by). Never faced -- ``faced`` False: no
+    him (it keeps him in the region only as far as the call it faced the door by); on an engine that publishes the
+    facing (memoria-patch s90) the step turns him IN PLACE and ``faced`` True is MEASURED (``face_measured``: the field
+    judged the facing byte the engine reported, in the window, and did not take him) -- the same MISS, on the gate's
+    own read. Never faced -- ``faced`` False: no
     press that would face the door kept the walk's rules from where he stood (it would carry him out of the region,
     into another zone, or at an object), or he stood in the dead middle of a 5- to 8-point region, where the gate never
-    runs; or None: the walk ended frozen, a hold on movement, and he was never turned -- is LIVE (:func:`unfaced`): the
+    runs, or the turns in place never brought the reported facing into the window (no pad heads within it, the turns
+    spent, a human at the controls), or control went during them and the field never changed (``during`` "face":
+    ``control`` is not proof a door fired -- a talk, a scene, a battle take him too); or None: the walk ended frozen,
+    a hold on movement, and he was never turned -- is LIVE (:func:`unfaced`): the
     walker never gave the door its chance, which says nothing of the door; it strikes nothing, and the tour tries the
     exit again, from wherever the next visit leaves him, LIVE times (a replay steps back and retries it, LIVE times).
     A record with no ``face_gate`` (a log from before the facing step) reads as it always did: a MISS.
@@ -469,7 +475,7 @@ class Tour:
                        held_by=r["held_by"], pinned=[(o["uid"], o["kind"], o["moving"]) for o in r["pinned"]],
                        face_gate=r["face_gate"], faced=r["faced"], face_err=r["face_err"],
                        face_worst=r["face_worst"], face_to=r["face_to"], face_calls=r["face_calls"],
-                       face_pad=r["face_pad"])
+                       face_pad=r["face_pad"], face_measured=r["face_measured"], face_moved=r["face_moved"])
         except HarnessError as err:
             rec.update(landed=None, error=str(err)[:200])
         settle(g, log, f"after crossing {rec['n']}", self.say)

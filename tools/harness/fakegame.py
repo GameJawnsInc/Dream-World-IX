@@ -5,7 +5,8 @@ WHAT THIS PROVES, AND WHAT IT DOES NOT. It implements the s83 wire protocol -- s
 the arm transition, frame-stepped queue draining, state publication, screenshots -- plus just enough
 of a world (a rectangular walkmesh, a run/walk speed, a gateway, a dialogue box, a menu cursor, a body
 standing in the way and the engine's walk-through-by-insisting, the field's actors published as s89's
-``objects`` -- walkers and contact triggers included -- a freeze with control held) for the
+``objects`` -- walkers and contact triggers included -- a freeze with control held, stock's door facing
+gate, and s90's published facing with its in-place ``turn``) for the
 driver's closed-loop verbs to actually close their loops. A green run against it says the DRIVER is
 correct: seq numbers advance, acks belong to the request that earned them, torn reads are survived,
 timeouts fire, bad bases are rejected, artifacts land.
@@ -39,7 +40,7 @@ from pathlib import Path
 #: permanently in a compatibility mode it is not meant to be testing. It was a second literal
 #: until rev 4, and a second literal is a skew waiting for someone to bump only one of them: that
 #: is exactly what happened, and 23 tests failed reporting the wrong cause.
-from .channel import PROTOCOL
+from .channel import BUTTONS, DIRECTIONS, PROTOCOL
 
 #: The real agent polls req.txt every 2 frames while idle and every 10 while a queue is running, and
 #: the arm file every 30. Modelled because the driver's "do not overwrite an unaccepted request" gate
@@ -50,6 +51,13 @@ ARM_POLL = 30
 
 RUN_SPEED = 30.0
 WALK_SPEED = 15.0
+
+#: The most frames one ``turn`` may hold its keys (HarnessAgent.TurnMaxFrames; its ``frames`` is clamped to
+#: 1..this, 30 when not given).
+TURN_MAX_FRAMES = 36000
+#: Memoria.ini ``[AnalogControl] StickThreshold`` (default 10, in hundredths: Configuration/Access/Control.cs:10):
+#: the |axis| over which MovePC's axis branch walks him -- a `turn` is refused, or cut, over it.
+STICK_THRESHOLD = 0.10
 
 #: FF9's own soft reset: L1+R1+L2+R2+Start+Select, all reporting IsInputDown on ONE frame.
 #: Modelled with the same-frame requirement intact, because that requirement is the whole reason the
@@ -332,6 +340,43 @@ class FakeGame:
         #: fewer whole calls in one phase and the more in the other -- what a planner that credits half calls
         #: cannot see (content.doorface.sure_calls).
         self.tick_phase: int | None = None
+        #: The facing as memoria-patch s90 publishes it, and its in-place ``turn``. "absent" (the DEFAULT -- an
+        #: engine without s90, what every walk written before it was written against): no ``player.yaw`` /
+        #: ``player.face`` keys, and ``turn`` raises ``unknown op 'turn'`` as the old agent's Execute does.
+        #: "published" (the s90 agent): on a field with a controlled character ``player.yaw`` is round(`_face_deg`,
+        #: 3) and ``player.face`` content.doorface.facing_byte of it -- a JSON NUMBER, as state.json's numbers are --
+        #: both null off one (HarnessAgent.PublishState); and ``turn <dir>[+<dir>] [frames]`` (:meth:`_begin_turn`)
+        #: holds the direction KEYS with no axis, turning `_face_deg` by the frame's MovePC calls and never stepping
+        #: him, then reports ``turn_end`` once the field has judged the final facing (:meth:`_service_turn`).
+        self.facing_mode = "absent"
+        #: `[AnalogControl] Enabled` in Memoria.ini. False models the install whose key path would STEP him (MovePC
+        #: normalises the key vector and nothing zeroes it, FieldMapActorController.cs:710-711): the agent refuses
+        #: every ``turn`` there (``[AnalogControl] Enabled=0 -- ...``).
+        self.analog_control = True
+        #: The event passes the agent lets the field run on a turn's final facing, after its keys lift, before it
+        #: reports ``turn_end`` (HarnessAgent.TurnSettlePasses: the region pass that reads the facing runs a pass
+        #: after the MovePC call that wrote it). Counted on the fake's ticks -- every frame, or under `tick_phase` the
+        #: tick frames. A test raises it to hold the report well past the request's ack.
+        self.turn_settle_passes = 2
+        #: MovePC calls one frame of an IN-PLACE turn spends, when set. None: content.doorface.movepc_calls of the
+        #: frame's speed (run: one; with ``cancel`` held, walk: half) -- the calibrated 60 fps rate the driver plans
+        #: by. A monitor that is not the calibrated one turns him fewer (or more) calls a frame than that.
+        self.turn_calls: float | None = None
+        #: A HUMAN at the controls, as ``turn`` sees one: ``stick`` the |axis| a physical stick or key pushes
+        #: (HarnessAgent.PhysicalAxis), ``click_path`` a click-to-move path pending (the controller's hasTarget /
+        #: movePaths). Over STICK_THRESHOLD the agent refuses a turn (``a physical stick or key is pushing the axis``)
+        #: and CUTS one open (``axis``); a pending path refuses one (``a click-to-move path is pending``). Neither
+        #: moves him here -- the fake's walk is the harness's keys alone.
+        self.stick = 0.0
+        self.click_path = False
+        #: The ``turn`` being reported, None when none is (HarnessAgent's _turnFrom / _turnLift / _turnField /
+        #: _turnPo and its start): ``{"from", "lift", "field", "visit", "x", "y", "z", "yaw0", "passes"}``; and
+        #: `_turn_keys`, the directions a turn holds (_turnMask) -- held keys no step is ever taken on (MoveHeld).
+        self._turn_open: dict | None = None
+        self._turn_keys: set = set()
+        #: Bumped by every warp and every arrival: a new visit's actor is a new controlled actor, as a same-id reload
+        #: makes new ones -- a turn begun on the old one is cut ("player"; "field" when the id changed too).
+        self._visit = 0
         self._lock = 0.0                          # EventEngine.sLockTimer
         self._lock_free = 1                       # sLockFree: 0 while the last body touched is solid
         self._coll = 0                            # SCollTimer, in frames (2 ticks after a push-out)
@@ -349,6 +394,13 @@ class FakeGame:
         #: Publishes that STALL MID-REWRITE, one queued duration (seconds) consumed per publish --
         #: see :meth:`stall_publish`. Empty by default: the ordinary publish replaces the file.
         self._publish_stalls: list[float] = []
+        #: events.jsonl appends that COLLIDE with the driver's read, by event kind: ``{"turn_end": 1}`` makes the next
+        #: ``turn_end`` append fail as the agent's File.AppendAllText does while the driver has the log open
+        #: (IOException). The agent keeps such rows BUFFERED and writes them with its next event, whatever that is
+        #: (HarnessAgent.Event / FlushEvents) -- so a row can reach the log late, behind a row written after it was
+        #: made, and only once something else is logged. `_pending_events` is that buffer.
+        self.event_collisions: dict = {}
+        self._pending_events: list = []
         #: Set while a stalled publish holds state.json truncated and EMPTY, so a test can read the
         #: channel inside the gap rather than hoping to land in it.
         self.stalling = threading.Event()
@@ -441,6 +493,7 @@ class FakeGame:
                     self._step_world()
                     self._step_scene()
                     self._step_battle()
+                    self._service_turn()        # s90: end, or cut, an in-place turn
                     self._publish()
             except OSError as err:
                 # Mirrors the agent's own try/catch. Without this a single transient sharing
@@ -469,6 +522,7 @@ class FakeGame:
         self.queue.clear()
         self.held.clear()
         self.down_at.clear()
+        self._turn_open, self._turn_keys = None, set()     # s90: an arm transition clears a turn silently
         if present:
             self.arm_transitions += 1
             if self.resets_on_arm:
@@ -520,10 +574,14 @@ class FakeGame:
         # later step, and the driver blames innocent requests for it.
         self.error = None
         self.pending_ack = True
+        added = 0
         for line in lines[1:]:
             tok = line.split()
             if tok and not tok[0].startswith("#"):
                 self.queue.append(tok)
+                added += 1
+        # the agent's receipt in the event log (HarnessAgent.PollRequest): what a turn's report is ordered after
+        self._event("accepted", seq=seq, steps=added)
 
     def _drain(self) -> None:
         while self.queue and self.frame >= self.block_until:
@@ -534,6 +592,9 @@ class FakeGame:
             except Exception as err:                       # mirrors the agent: report, never die
                 self.error = f"{step[0]}: {err}"
                 self.error_seq = self.seq
+                # ...and log it, as HarnessAgent.DrainQueue does: the error latch holds the LAST refusal of a
+                # request, the event log every one
+                self._event("error", op=step[0].lower(), message=str(err))
         # Persistent latch, not a frame-local "was busy" -- see the matching comment in
         # HarnessAgent.DrainQueue. A blocking final step empties the queue one frame before the block
         # elapses, so a frame-local flag is already false by the time the ack is due.
@@ -560,14 +621,31 @@ class FakeGame:
         if op == "wait":
             self._block(num(0, 1))
         elif op == "press":
-            self._schedule(args[0], max(1, num(1, 2)))
+            button = _control(args[0])
+            self._claim_for_move(button)               # s90: never a step inside a turn
+            self._schedule(button, max(1, num(1, 2)))
             self._block(num(1, 2) + 2)
-            self._menu_step(args[0])
+            self._menu_step(button)
         elif op == "hold":
-            self._extend(args[0], max(1, num(1, 30)))
+            button = _control(args[0])
+            self._claim_for_move(button)               # s90: never a step inside a turn
+            self._extend(button, max(1, num(1, 30)))
         elif op == "release":
-            self.held.pop(args[0], None)
-            self.down_at.pop(args[0], None)
+            # ⚠ A RELEASE MUST NEVER PRESS, and it lands NEXT frame (HarnessAgent `release`): a key down now stays
+            # down this frame and lifts on the next -- so `release up` then `turn up` in one request is still a
+            # direction down on the turn's frame, and refused, as the agent refuses it -- a key not down now (only
+            # scheduled, or never pressed) is cleared outright
+            button = _control(args[0])
+            if self._is_held(button):
+                self.held[button] = self.frame + 1
+            else:
+                self.held.pop(button, None)
+                self.down_at.pop(button, None)
+        elif op == "turn":
+            # s90's in-place turn (an engine without it: `unknown op`, like any verb it never had)
+            if self.facing_mode != "published":
+                raise RuntimeError(f"unknown op '{op}'")
+            self._begin_turn(_turn_directions(args[0] if args else ""), min(TURN_MAX_FRAMES, max(1, num(1, 30))))
         elif op == "newgame":
             if self.ui_state != "Title":
                 raise RuntimeError("newgame: not at the title screen")
@@ -580,6 +658,7 @@ class FakeGame:
             self.ui_state = "FieldHUD"
             self.control = True
             self.player = [0.0, 0.0, 0.0]
+            self._visit += 1                   # a new visit's actor: a turn begun before it is cut
             self._in_trigger.clear()           # a new visit: a trigger he lands in fires afresh
             self._exit = None                  # a warp outruns any exit still fading
             self._frozen_until = 0             # ...and any freeze
@@ -647,6 +726,7 @@ class FakeGame:
         elif op == "reset":
             self.held.clear()
             self.down_at.clear()
+            self._turn_open, self._turn_keys = None, set()      # s90: cleared silently, one being judged included
             self.watch = []
             self.note = ""
             self.error = None
@@ -725,14 +805,16 @@ class FakeGame:
             self._retest_gated()
             return
         vx = vz = 0.0
-        if self._is_held("up"):
+        if self._move_held("up"):
             vz += 1.0
-        if self._is_held("down"):
+        if self._move_held("down"):
             vz -= 1.0
-        if self._is_held("right"):
+        if self._move_held("right"):
             vx += 1.0
-        if self._is_held("left"):
+        if self._move_held("left"):
             vx -= 1.0
+        if vx == 0.0 and vz == 0.0 and self._turn_in_place():
+            return                              # s90: the keys of a `turn`, with no axis -- he turns in place
         if vx == 0.0 and vz == 0.0:
             # Nothing held -- but the engine is still applying the last movement it sampled.
             if not self._coast:
@@ -781,6 +863,47 @@ class FakeGame:
                 self.control = True
         self._enter_regions()
         self._enter_freezes()
+
+    def _move_held(self, button: str) -> bool:
+        """A direction held to MOVE: down, and not a ``turn`` key (HarnessAgent.MoveHeld: a turn key feeds no
+        axis)."""
+        return self._is_held(button) and button not in self._turn_keys
+
+    def _turn_in_place(self) -> bool:
+        """The frame of an s90 ``turn`` whose keys are down (and no other direction: the agent refuses both ways):
+        MovePC's key branch builds the 8-way target from them (FieldMapActorController.cs:698-708, the direction a hold
+        of those keys gives, after the twist), the stick-threshold test zeroes the step because the axis is under
+        threshold (:736-737), and the facing lerp (:749-764) keys on the booleans -- so `_face_deg` turns by the frame's
+        MovePC calls (`turn_calls`, or the run / walk rate) and he takes no step. The zero step still runs the
+        push-outs a step would (:meth:`_move_to` to where he stands: a body he overlaps, or a wall nearer than his
+        radius, moves him -- what ``turn_end``'s ``moved`` witnesses), and the region he stands in is re-tested, a
+        gated door he now faces firing (:meth:`_retest_gated`). False when no turn key is down this frame."""
+        from ff9mapkit.content import doorface
+        keys = [b for b in self._turn_keys if self._is_held(b)]
+        if not keys:
+            return False
+        vx = (1.0 if "right" in keys else 0.0) - (1.0 if "left" in keys else 0.0)
+        vz = (1.0 if "up" in keys else 0.0) - (1.0 if "down" in keys else 0.0)
+        if vx == 0.0 and vz == 0.0:
+            return False                        # opposite keys: refused at the start, never composed here
+        mag = (vx * vx + vz * vz) ** 0.5
+        vx, vz = vx / mag, vz / mag
+        if self.twist:
+            import math
+            a = math.radians(self.twist)
+            vx, vz = vx * math.cos(a) - vz * math.sin(a), vx * math.sin(a) + vz * math.cos(a)
+        calls = (self.turn_calls if self.turn_calls is not None
+                 else doorface.movepc_calls(WALK_SPEED if self._is_held("cancel") else RUN_SPEED))
+        self._coast = None                      # the keys' own sample replaces the last movement's
+        self._facing = (vx, vz)
+        self._turn(vx, vz, calls)
+        before = (self.player[0], self.player[2])
+        self._move_to(before[0], before[1], calls)
+        if (self.player[0], self.player[2]) != before:
+            self._enter_regions()               # pushed: a step's rule
+        else:
+            self._retest_gated()                # standing: the gated region's every-tick re-test
+        return True
 
     def _turn(self, vx: float, vz: float, calls: float) -> None:
         """His yaw (`_face_deg`) after a frame that held world direction (``vx``, ``vz``) -- the press after the
@@ -1083,6 +1206,7 @@ class FakeGame:
         _due, dest, arrive = self._exit
         self._exit = None
         self.field_id = dest
+        self._visit += 1
         self.player = [float(arrive[0]), 0.0, float(arrive[1])]
         if self._arrive_face is not None:          # the firing region's ``arrive_face`` (see `regions`)
             self._face_deg = float(self._arrive_face)
@@ -1090,6 +1214,163 @@ class FakeGame:
         self._in_trigger.clear()
         self._coast = None
         self.control = True
+
+    # -- the in-place turn (memoria-patch s90) ------------------------------------------------------
+    # Modelled as the agent's CONTRACT (the s90 DRIVER.md, and where they differ HarnessAgent.cs: BeginTurn,
+    # ServiceTurn, EndTurn, TurnBlocker, ClaimForMove): the refusals, in the agent's order and words, raised
+    # through the ordinary error path; the keys held with no axis, so he turns and never steps
+    # (:meth:`_turn_in_place`); the report held until the field has judged the final facing, a door that fires in
+    # those passes reported as the `control` that took him. Not the engine's float noise: a turn in place moves him
+    # exactly 0, unless a push-out does (then ``moved`` says how far).
+    def _on_field(self) -> bool:
+        """A field is up with a controlled character: what the agent publishes ``player.yaw`` / ``face`` on."""
+        return (self.field_id > 0 and self.ui_state not in ("Title", "WorldHUD", "BattleHUD")
+                and not self.battle_active and self.has_position)
+
+    def _turn_blocker(self) -> str | None:
+        """HarnessAgent.TurnBlocker's token -- why the field would not honour a turn now -- for the fake's world,
+        in the agent's order: ``field`` (no field up), ``player`` (no controlled character: `has_position` off),
+        ``control``, ``movement`` (a hold on movement, `_frozen_until`), ``hud`` (a UI other than the field HUD);
+        None when it would."""
+        if self.field_id <= 0 or self.ui_state in ("Title", "WorldHUD", "BattleHUD") or self.battle_active:
+            return "field"
+        if not self.has_position:
+            return "player"
+        if not self.control:
+            return "control"
+        if self.frame < self._frozen_until:
+            return "movement"
+        if self.ui_state != "FieldHUD":
+            return "hud"
+        return None
+
+    def _turn_keys_from(self, frame: int) -> set:
+        """The turn keys down on ``frame`` or any later one (HarnessAgent.TurnKeysFrom: down on [down, up))."""
+        return {b for b in self._turn_keys if self.held.get(b, -1) > frame}
+
+    def _begin_turn(self, dirs: list, frames: int) -> None:
+        """``turn`` (HarnessAgent.BeginTurn): every refusal raises before anything is pressed, in the agent's order
+        and words -- no field / player / control / movement / HUD; the last turn still being judged; a turn in
+        progress on another visit; `analog_control` off; any direction down now or on a later frame (the turn's own
+        keys exempt while composing onto it); opposite directions (turn keys still down counted); a human's `stick`
+        over STICK_THRESHOLD, or a `click_path` pending; a collidable body he overlaps. Then the turn is committed --
+        its start kept while its keys are down, so two turns sent while the first's keys are down compose into one
+        report -- and each key is held by `_extend`, as `hold` holds."""
+        import math
+        why = self._turn_blocker()
+        if why is not None:
+            raise RuntimeError(f"needs a field with a controlled player under user control ({why})")
+        f = self.frame
+        t = self._turn_open
+        if t is not None and (t["lift"] is not None or not self._turn_keys_from(f)):
+            raise RuntimeError("the last turn's keys are up and the field is still judging it -- wait for its turn_end")
+        if t is not None and (t["field"] != self.field_id or t["visit"] != self._visit):
+            raise RuntimeError("the turn in progress began on another actor or field -- it is cut this frame; turn "
+                               "again after its turn_end")
+        if not self.analog_control:
+            raise RuntimeError("[AnalogControl] Enabled=0 -- MovePC's key path would step him, not turn him")
+        fresh = self._turn_open is None
+        for d in ("up", "down", "left", "right"):
+            if not fresh and d in self._turn_keys:
+                continue
+            if self._is_held(d) or self.held.get(d, -1) > f + 1:
+                raise RuntimeError(f"{d.capitalize()} is held or scheduled -- release it (and let it lift) first")
+        every = self._turn_keys_from(f + 1) | set(dirs)
+        if {"up", "down"} <= every or {"left", "right"} <= every:
+            raise RuntimeError("opposite directions cancel to no direction")
+        if self.stick > STICK_THRESHOLD:
+            raise RuntimeError(f"a physical stick or key is pushing the axis (|a| {_fmt(self.stick)}) -- MovePC's "
+                               f"axis branch would walk him")
+        if self.click_path:
+            raise RuntimeError("a click-to-move path is pending -- the turn keys would consume it")
+        px, py, pz = self.player
+        for i, b in self._bodies():
+            if (b.get("coll", True) and abs(float(b.get("y", 0.0)) - py) < 400
+                    and math.hypot(b["x"] - px, b["z"] - pz) < b["r"]):
+                raise RuntimeError(f"overlapping object uid {self._uid(i)} -- a turn toward it would push him out")
+        if fresh:
+            self._turn_open = {"from": f + 1, "lift": None, "field": self.field_id, "visit": self._visit,
+                               "x": px, "y": py, "z": pz, "yaw0": self._face_deg, "passes": 0}
+        self._turn_keys = self._turn_keys_from(f) | set(dirs)
+        for d in dirs:
+            self._extend(d, frames)
+
+    def _claim_for_move(self, button: str) -> None:
+        """``hold`` / ``press`` of a DIRECTION while a turn is open (HarnessAgent.ClaimForMove): refused -- it would
+        hand MovePC an axis inside what the driver believes is a turn in place, or a walk inside the passes the field
+        judges it on; refused too while a turn key is still down when this key would go down. Otherwise the key's
+        stale turn bit is dropped, so the hold feeds the axis. Any other button passes."""
+        if button not in ("up", "down", "left", "right"):
+            return
+        if self._turn_open is not None:
+            raise RuntimeError("a `turn` is still open (its keys down, or up and being judged) -- wait for its "
+                               "turn_end")
+        if self._turn_keys_from(self.frame + 1) or (button in self._turn_keys and self._is_held(button)):
+            raise RuntimeError("a `turn` key is still down -- release it (and let it lift) first")
+        self._turn_keys.discard(button)
+
+    def _service_turn(self) -> None:
+        """Once a frame, after the world's (HarnessAgent.ServiceTurn): end, or cut, the turn being reported. While its
+        keys are down it is CUT the moment the field stops honouring it (`_turn_blocker`, the field id or the visit
+        changing, a human's `stick` over STICK_THRESHOLD: ``axis``) -- `turn_end` with that token, the keys lifted on
+        the next frame by the release rule. Once they
+        lift, the report stays open `turn_settle_passes` ticks after the lift frame (every frame, or under
+        `tick_phase` the tick frames) under the same tests: a gated door that fires on the final facing takes
+        control, and is reported as that ``control``; ``ended`` means the field ran its passes on that facing and
+        nothing took him."""
+        f = self.frame
+        t = self._turn_open
+        if t is None:
+            if self._turn_keys and not self._turn_keys_from(f):
+                self._turn_keys = set()             # a cut turn's keys have lifted: the bits are stale
+            return
+        down = bool(self._turn_keys_from(f))
+        if not down and t["lift"] is None:
+            t["lift"], t["passes"] = f, 0           # the facing is final; the field's next passes read it
+            self._turn_keys = set()
+        why = self._turn_blocker()
+        if why is None and self.field_id != t["field"]:
+            why = "field"
+        if why is None and self._visit != t["visit"]:
+            why = "player"
+        if why is None and self.stick > STICK_THRESHOLD:
+            why = "axis"                            # a human's stick crossed the threshold: he would walk
+        if why is None:
+            if down:
+                return
+            if f > t["lift"] and (self.tick_phase is None or f % 2 == self.tick_phase):
+                t["passes"] += 1
+            if t["passes"] < self.turn_settle_passes:
+                return
+            why = "ended"
+        if not down:
+            self._end_turn(why, t["lift"] - t["from"])
+            return
+        for b in list(self._turn_keys):             # lifted by the release rule: never a press
+            if self.held.get(b, -1) <= f:
+                continue
+            if f >= self.down_at.get(b, 1 << 30):
+                self.held[b] = f + 1
+            else:
+                self.held.pop(b, None)
+                self.down_at.pop(b, None)
+        self._end_turn(why, f + 1 - t["from"])
+
+    def _end_turn(self, why: str, frames: int) -> None:
+        """``turn_end`` (HarnessAgent.EndTurn), every value but ``frame`` a STRING as the agent's event writer quotes
+        them: ``why``, ``frames`` (the frames its keys were down), ``yaw0`` / ``yaw`` (degrees, "0.###"), ``face``
+        (content.doorface.facing_byte of the yaw) and ``moved`` (3-D distance from the start) -- the last three null
+        off a field or on another field id or visit than the turn began on."""
+        import math
+        from ff9mapkit.content import doorface
+        t = self._turn_open
+        same = self._on_field() and self.field_id == t["field"] and self._visit == t["visit"]
+        yaw = self._face_deg if same else None
+        moved = (math.sqrt((self.player[0] - t["x"]) ** 2 + (self.player[1] - t["y"]) ** 2
+                           + (self.player[2] - t["z"]) ** 2) if same else None)
+        self._event("turn_end", why=why, frames=max(0, int(frames)), yaw0=_fmt(t["yaw0"]), yaw=_fmt(yaw),
+                    face=None if yaw is None else doorface.facing_byte(yaw), moved=_fmt(moved))
+        self._turn_open = None
 
     def _check_soft_reset(self) -> None:
         """All six buttons reporting a DOWN EDGE on the same frame sends the game to the title.
@@ -1280,6 +1561,13 @@ class FakeGame:
             "netsync": self._netsync_doc(),
             "held": held,
         }
+        if self.facing_mode == "published":
+            # s90: the yaw raw (to 0.001) and the gate's facing byte, both null exactly together -- off a field or with
+            # no controlled character; published with or without user control (a scripted turn moves the yaw too)
+            from ff9mapkit.content import doorface
+            on = self._on_field()
+            doc["player"]["yaw"] = round(self._face_deg, 3) if on else None
+            doc["player"]["face"] = doorface.facing_byte(self._face_deg) if on else None
         if self.storytrace_proto is not None:
             doc["storytrace"] = {"proto": self.storytrace_proto, "on": self.story_on,
                                  "rows": self.story_rows, "suppressed": 0, "error": self.story_error}
@@ -1313,11 +1601,19 @@ class FakeGame:
         self._publish_stalls.extend([float(seconds)] * max(1, int(times)))
 
     def _event(self, kind: str, **kv) -> None:
+        # every value but `frame` a STRING, as the agent's Event() writes them -- or null (its Str of a null)
         row = {"frame": self.frame, "kind": kind}
-        row.update({k: str(v) for k, v in kv.items()})
+        row.update({k: None if v is None else str(v) for k, v in kv.items()})
+        # buffered first and flushed whole, as HarnessAgent.Event / FlushEvents: an append that fails keeps every row
+        # it carried for the next event's append (`event_collisions` makes one fail on purpose)
+        self._pending_events.append(json.dumps(row))
+        if self.event_collisions.get(kind, 0) > 0:
+            self.event_collisions[kind] -= 1
+            return
         try:
             with (self.dir / "events.jsonl").open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(row) + "\n")
+                fh.write("\n".join(self._pending_events) + "\n")
+            self._pending_events.clear()
         except OSError:
             pass
 
@@ -1864,6 +2160,40 @@ class FakeGame:
         self.menu_index = 0
         self.menu = {"selected": "Button0", "hovered": None,
                      "label": entries[0] if entries else None, "group": group}
+
+
+def _control(name: str) -> str:
+    """A ``press`` / ``hold`` / ``release`` button as the agent keys it (HarnessAgent.ParseControl): the direction
+    aliases ``north`` / ``south`` / ``west`` / ``east`` ARE ``up`` / ``down`` / ``left`` / ``right`` -- one Control,
+    one held key: a ``hold north`` walks him up, and a ``turn`` refuses it as the Up it is. The other buttons keep the
+    name they were sent as (nothing in the fake tells their aliases apart)."""
+    return DIRECTIONS.get(str(name).lower(), name)
+
+
+def _turn_directions(arg: str) -> list:
+    """``up``, ``up+right``, ... as the agent parses a ``turn``'s directions (HarnessAgent.ParseTurnDirections over
+    ParseControl): ``+``-joined names or aliases, directions only, each to its Control name -- and its refusals in its
+    words."""
+    if not arg:
+        raise RuntimeError("needs a direction (up|down|left|right, '+'-joined)")
+    out = []
+    for part in arg.split("+"):
+        name = part.lower()
+        if name not in BUTTONS:
+            raise RuntimeError(f"unknown button '{part}'")
+        if name not in DIRECTIONS:
+            raise RuntimeError(f"'{part}' is not a direction (up|down|left|right, '+'-joined)")
+        out.append(DIRECTIONS[name])
+    return out
+
+
+def _fmt(v) -> str | None:
+    """A float as the agent's Fmt writes it: C#'s ``"0.###"`` -- at most three decimals, no trailing zeros -- or None
+    for a missing one."""
+    if v is None:
+        return None
+    s = f"{float(v):.3f}".rstrip("0").rstrip(".")
+    return "0" if s in ("-0", "") else s
 
 
 def _in_poly(x: float, z: float, poly) -> bool:

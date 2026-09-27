@@ -43,7 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ff9mapkit"))
 from ff9mapkit.config import find_game_path                      # noqa: E402
 
 from .artifacts import STATE_RING, StateRing, StepLog, build_env         # noqa: E402
-from .channel import BUTTONS, PROTOCOL, Channel, HarnessError, State   # noqa: E402
+from .channel import BUTTONS, PROTOCOL, Channel, HarnessError, State, StepRefused   # noqa: E402
 from .logs import (MEMORIA_LOG, PARSERS, UNITY_LOG, UNITY_LOG_PATH,     # noqa: E402
                    LogException, frame_after, line_start_offset, read_from, split_lines)
 
@@ -673,10 +673,10 @@ class Session:
             return
         if st.error_seq is not None:
             if st.error_seq >= seq:
-                raise HarnessError(f"the game refused a step: {st.error} (steps={list(steps)})")
+                raise StepRefused(st.error, steps)
             return
         if st.error != self._last_error:
-            raise HarnessError(f"the game refused a step: {st.error} (steps={list(steps)})")
+            raise StepRefused(st.error, steps)
 
     def _sleep_alive(self, seconds: float) -> None:
         """Sleep, but keep noticing if the game dies -- a plain sleep turns a crash into a timeout."""
@@ -1122,6 +1122,112 @@ class Session:
     def wait_frames(self, frames: int) -> None:
         self.send(f"wait {int(frames)}")
 
+    # -- turning in place (memoria-patch s90) -----------------------------------------------------
+    #: turn_in_place: the most frames the agent's ``turn`` holds its keys (HarnessAgent.TurnMaxFrames).
+    TURN_MAX_FRAMES = 36000
+    #: turn_in_place: frames of ``state.frame`` past the request's ack within which the turn's ``turn_end`` must come.
+    #: The agent reports a turn once the field has run TurnSettlePasses (2) event passes on its final facing after
+    #: the keys lift -- 3-5 frames at 30 Hz ticks on a 60 Hz display, the ack itself landing a frame after the lift;
+    #: a field that runs no event pass that long (timescale 0, a stalled field) has not judged it.
+    TURN_END_FRAMES = 120
+
+    def turn_in_place(self, directions, frames: int, *, timeout: float = 10.0) -> dict:
+        """Turn him IN PLACE toward ``directions`` for ``frames`` frames -- memoria-patch s90's ``turn`` -- and return
+        its ``turn_end``, PARSED (channel.parse_turn_end): ``{"frame", "why", "frames", "yaw0", "yaw", "face",
+        "moved"}``. ``directions`` is one pad name or several (``"up"``, ``"up+right"``, ``("up", "right")``, the
+        aliases ``north``/``south``/``west``/``east`` too). At the RUN rate, two MovePC calls a 30 Hz tick -- and only
+        at it: a walked turn is ``hold cancel`` over the same frames IN THE SAME REQUEST, and the agent runs every step
+        of a request whatever another step's refusal (HarnessAgent.DrainQueue), so a refused walked turn would still
+        hold Cancel for its frames -- on a walk under way (the ``held`` refusal: it flips his speed) or on whatever
+        took control (a choice window's Cancel). Nothing here needs the walk rate, so nothing here can press that.
+
+        THE VERB (HarnessAgent.BeginTurn / ServiceTurn / EndTurn, s90). It holds the direction KEYS and feeds no analog
+        axis: MovePC builds the 8-way target from the keys, zeroes the step because the axis is under the stick
+        threshold, and lerps his yaw 40% of the way to the target each call (FieldMapActorController.cs:698-764) -- he
+        turns and does not step. Non-blocking and frame-counted like ``hold``, so it is sent with a ``wait`` of its
+        frames + 2 (the keys lift the frame after their last; the ack lands after that). THE FIELD JUDGES THE TURN
+        AFTER ITS KEYS LIFT: the region pass that reads the final facing runs an event pass after the MovePC call that
+        wrote it, so the agent keeps the turn open until the field has run 2 event passes since the lift and only then
+        writes ``turn_end`` -- usually AFTER the ack. So this polls the event log for the first ``turn_end`` after this
+        request's ``accepted`` receipt (never reading the outcome at the ack), within TURN_END_FRAMES frames of it and
+        ``timeout`` seconds. The agent retries an event append the driver's read collided with on its NEXT event
+        (HarnessAgent.FlushEvents), so a report not seen by then is asked for once more with a ``wait 1`` -- whose
+        own receipt flushes it -- before this gives up (HarnessError: the field ran no event pass on his final facing;
+        the turn stays open on the agent, a hold of a direction is refused until its ``turn_end``, and ``reset`` clears
+        it).
+
+        ``why`` is ``"ended"`` -- the keys lifted and the field ran its passes on the final facing with him under
+        control, on the same field and actor: a gate there had its read and did not take him -- or the token that CUT
+        it (``field``, ``player``, ``control``, ``movement``, ``actor``, ``hud``, ``unreadable``, ``axis``). ``control``
+        is not proof a door fired (a script can take him): the field changing is. ``face`` is the facing byte the
+        gate compares (content.doorface.gate_value_from_face); ``yaw``/``face``/``moved`` are None off a field or
+        after the field id or controlled actor changed. ``moved`` over 0.25 was not a turn in place (a push-out, a
+        wall's edge force, a human's stick, a script).
+
+        Refused -- nothing pressed: the request is the ``turn`` and its ``wait``, and a ``wait`` is never refused -- it
+        raises :class:`channel.TurnRefused`, ``kind`` naming the agent's stable message (channel.TURN_REFUSALS), read
+        from the error latch of the very sample that acked the request (:class:`channel.StepRefused`), never from a
+        second read of state.json, which a healthy game can answer None mid-rewrite. Off a field or with a UI over it
+        the AGENT refuses (TurnBlocker's ``field`` / ``hud``: ``kind`` "blocked"), so a caller handles a UI that comes
+        up between its own look and this call as that refusal, not as a driver error; the field verbs' world-map guard
+        (:meth:`_require_field`) is for positions, and a turn reads none. NEVER SENT to an engine that cannot
+        (State.facing_status "cannot": no ``player.face`` key, a pre-s90 DLL, which has no ``turn`` verb): that raises
+        HarnessError here, as does a button that is not a direction, a pair of opposite directions, or ``frames``
+        outside 1..TURN_MAX_FRAMES."""
+        from .channel import DIRECTIONS, parse_turn_end, turn_refusal
+        dirs = []
+        for d in ([directions] if isinstance(directions, str) else list(directions)):
+            for part in str(d).split("+"):
+                key = _button(part)
+                if key not in DIRECTIONS:
+                    raise HarnessError(f"turn_in_place turns him toward a DIRECTION (up/down/left/right, or "
+                                       f"north/south/west/east) -- {part!r} is not one")
+                if DIRECTIONS[key] not in dirs:
+                    dirs.append(DIRECTIONS[key])
+        if not dirs:
+            raise HarnessError("turn_in_place needs a direction")
+        if {"up", "down"} <= set(dirs) or {"left", "right"} <= set(dirs):
+            raise HarnessError(f"turn_in_place({dirs}): opposite directions cancel to no direction (the engine's "
+                               f"atan2(-0, -0) would face him -180 degrees, where nobody pressed)")
+        frames = int(frames)
+        if not 1 <= frames <= self.TURN_MAX_FRAMES:
+            raise HarnessError(f"turn_in_place holds its keys 1..{self.TURN_MAX_FRAMES} frames -- got {frames}")
+        if self.state.facing_status == "cannot":
+            raise HarnessError(
+                "turn_in_place needs memoria-patch s90: this engine publishes no player.face, so it has no `turn` "
+                "verb either (a pre-s90 DLL) -- nothing was sent. A walked press turns him too, and moves him.")
+        before = len(self.channel.events())
+        try:
+            self.send(f"turn {'+'.join(dirs)} {frames}", f"wait {frames + 2}")
+        except StepRefused as err:
+            if err.error.startswith("turn: "):
+                raise turn_refusal(err.error[len("turn: "):]) from err
+            raise
+        seq, start = self.channel.seq, self.state.frame
+        deadline = time.time() + timeout
+        nudged = False
+        while True:
+            evs = self.channel.events()[before:]
+            got = next((k for k, e in enumerate(evs)
+                        if e.get("kind") == "accepted" and str(e.get("seq")) == str(seq)), -1)
+            # no receipt yet (the agent still holds it back): an earlier turn's report is all a search could find
+            end = next((e for e in evs[got + 1:] if e.get("kind") == "turn_end"), None) if got >= 0 else None
+            if end is not None:
+                return parse_turn_end(end)
+            now = self.channel.state()
+            if (now is not None and now.frame - start > self.TURN_END_FRAMES) or time.time() > deadline:
+                if not nudged:
+                    nudged = True
+                    self.send("wait 1")               # its own receipt flushes a report the agent still holds
+                    continue
+                raise HarnessError(
+                    f"turn_in_place({'+'.join(dirs)}, {frames}): no turn_end within {self.TURN_END_FRAMES} frames "
+                    f"of the ack ({self.channel.classify()}) -- the field ran no event pass on his final facing "
+                    f"(timescale 0, a stalled field). The turn is still open on the agent: a hold or press of a "
+                    f"direction is refused until its turn_end, and `reset` clears it. Last state: {now!r}")
+            self._assert_alive()
+            time.sleep(0.02)
+
     # -- going somewhere ------------------------------------------------------------------------
     # `walk(direction, frames)` is a poor primitive and measurement says so: on the 30801 bench the
     # character runs at 30 units/frame, so a 75-frame hold "should" cover 2250 units -- and covered
@@ -1134,9 +1240,10 @@ class Session:
     #: (a tick of movement follows the wall clock), so on another monitor a frame covers another distance.
     #: Used to SIZE a burst -- every move is still verified against the real position afterwards, so a field
     #: where these are wrong costs an extra iteration rather than a wrong answer -- and, through
-    #: content.doorface.movepc_calls, to count the MovePC calls a press spends turning him (the facing step,
-    #: :meth:`_face_the_door`), which nothing reads back: there it counts only the whole calls a press is sure
-    #: of, and a free press that moved him less than those calls step is counted by what it moved.
+    #: content.doorface.movepc_calls, to count the MovePC calls a press spends turning him (the facing step's open
+    #: loop, :meth:`_face_the_door`), which nothing reads back on an engine without s90: there it counts only the
+    #: whole calls a press is sure of, and a free press that moved him less than those calls step is counted by what
+    #: it moved -- and to size an in-place turn (:meth:`_turn_to_the_door`), whose outcome the engine reports.
     RUN_SPEED = 30.0
     WALK_SPEED = 15.0
 
@@ -2027,12 +2134,46 @@ class Session:
     #: nearest pad faces it from any yaw (doorface.worst_face_error); never planned past ROUTE_FACE_MAX_CALLS of one pad
     #: (3 degrees of the turn left: more buys nothing). Where no whole press keeps the rules, shorter bursts may,
     #: ROUTE_FACE_PRESSES presses in all at the most. Where a press may carry him is judged on a grid ROUTE_FACE_GRID
-    #: units apart (:meth:`_face_reach`).
+    #: units apart (:meth:`_face_reach`). That press is the OPEN loop, for an engine that cannot publish the facing;
+    #: one that can (memoria-patch s90) turns him in place instead and reads the outcome (ROUTE_TURN_* below).
     ROUTE_FACE_WAIT = 4
     ROUTE_FACE_CALLS = 4
     ROUTE_FACE_MAX_CALLS = 8
     ROUTE_FACE_PRESSES = 8
     ROUTE_FACE_GRID = 4.0
+    #: route_to(face=...) on an engine that PUBLISHES the facing (memoria-patch s90, State.facing_status "known"): THE
+    #: CLOSED LOOP (:meth:`_turn_to_the_door`). The facing step turns him IN PLACE (:meth:`turn_in_place`: the keys
+    #: with no axis -- each MovePC call turns him 40% of the way and steps him nowhere) and judges the gate on the
+    #: facing byte the engine reports once the field has judged it, instead of predicting it from a walked press. A
+    #: turn is ROUTE_TURN_CALLS whole calls of the pad nearest the door's bearing at the RUN rate (two a 30 Hz tick):
+    #: twice ROUTE_FACE_CALLS, the margin for a machine that spends fewer calls a frame than the calibrated one -- in
+    #: place, more calls cost only frames (the lerp converges on the pad, never past it). A turn the engine reports
+    #: out of the window turns again, at most ROUTE_TURN_TRIES turns in all (refusals waited out included). A turn
+    #: that MOVED his yaw, by less than ROUTE_TURN_SETTLED degrees, had nothing left to turn -- that pad heads where it
+    #: left him -- and is not turned again: the next pad is ranked by what that heading says of the basis. A turn that
+    #: did not move his yaw AT ALL (``yaw`` == ``yaw0`` at the agent's 0.001 print) proves no call ran: the calls come
+    #: whole, 30 Hz ticks on the wall clock (FPSManager.cs:77-110), and a display over ~240 Hz can fit a turn's frames
+    #: between two -- or the pad already heads where he stands. Nothing is learnt from it: that pad is turned again
+    #: for twice the frames (and every turn after it keeps the longer count), and only a second unmoved turn of it in
+    #: a row settles it. A ``turn_end`` that moved him more than ROUTE_TURN_MOVED -- the agent's ceiling for a turn in
+    #: place, the walkmesh re-projection's float noise (0.075u at +-16000, 0.18u at +-30000: HarnessAgent.BeginTurn)
+    #: -- was not one: a push-out or a wall's edge force moved him, and it is judged as the press it was, from where
+    #: it left him.
+    ROUTE_TURN_CALLS = 2 * ROUTE_FACE_CALLS
+    ROUTE_TURN_TRIES = 6
+    ROUTE_TURN_SETTLED = 4.0
+    ROUTE_TURN_MOVED = 0.25
+    #: The ``turn`` refusals (channel.TURN_REFUSALS) a walked PRESS does not share, where the closed loop falls back to
+    #: the open-loop press (:meth:`_face_the_door`) at once instead of waiting one out: ``cannot`` (``unknown op
+    #: 'turn'``: the engine has no s90, whatever a sample said) and ``analog`` (``[AnalogControl] Enabled=0``: the key
+    #: path steps him -- which a walked press does on purpose, planned for). ``overlap`` (a body he overlaps would push
+    #: a turn in place out -- "step clear of that body first", the s90 contract) is waited out ONCE for that body,
+    #: ROUTE_WAIT_FRAMES, as a walker walks on; the SAME body still on him after it is one that stays, and the press,
+    #: planned to move him clear of the objects by its own rules, is the step. Every other refusal a press shares --
+    #: without control, movement, a field HUD or a readable player MovePC turns no one; a direction held, a turn still
+    #: being judged, a stick or a mouse walk would fight the press's keys as they fight the turn's -- and is waited
+    #: out, or ends the step, in place.
+    TURN_FALLBACK = ("cannot", "analog")
     #: route_to(npcs=True) plans round the field's published objects (memoria-patch s89, :meth:`_npc_discs`).
     #: A BODY is a disc of its published ``r`` -- the centre distance the engine keeps him at -- planned
     #: ROUTE_BODY_MARGIN wider, and a hold keeps ROUTE_BODY_PAD off ``r`` itself. Touching one costs a slide round
@@ -2862,7 +3003,7 @@ class Session:
         return True
 
     def _face_the_door(self, zone, record: dict, origin: int, walked: list, leg: dict, held=None, window=None,
-                       walk_zone=None) -> str | None:
+                       walk_zone=None, timeout: float = 20.0) -> str | None:
         """route_to's last step at a GATED door (:meth:`route_to` ``face``) once the walk has ended standing IN its
         region ``zone`` -- world ``(x, z)`` corners, the ENGINE's polygon in the engine's order (scan_gateways'
         ``region``), membership by IsInQuad (content.doorface.region_contains) -- with control, and ROUTE_FACE_WAIT
@@ -2878,9 +3019,21 @@ class Session:
         wall turns him and moves him nowhere -- and standing keeps it exactly (FieldMapActorController.cs:744-761). The
         calls come WHOLE, a walked one a 30 Hz tick (:197-208, HonoBehaviorSystem.cs:106), in a phase nobody sees: a
         press of ``n`` walked frames counts doorface.sure_calls of them -- ``n`` times the calls a frame spends on
-        average at the calibrated WALK_SPEED (doorface.movepc_calls), rounded DOWN -- never the average. The yaw is not
-        read (the agent's ``player.dir`` is PosObj.rot[1], which a field never writes; memoria-patch s90's
-        ``player.face`` is not read here yet), so whether he faces the door is PREDICTED from the presses.
+        average at the calibrated WALK_SPEED (doorface.movepc_calls), rounded DOWN -- never the average.
+
+        TWO WAYS, BY WHAT THE ENGINE CAN DO -- decided on the sample the step starts from:
+
+          * THE CLOSED LOOP (State.facing_status "known": memoria-patch s90 publishes the facing byte the gate reads
+            and turns him in place): :meth:`_turn_to_the_door` turns him IN PLACE toward the door and judges it on the
+            MEASURED facing -- no step, so none of the press's zone-keeping, slide bound or bursts below is needed, and
+            a door the press could not reach without leaving the region (stock 350's door to 353 from the tour's goal
+            pocket) is faced where he stands. ``face_measured`` True where the engine's own report decided ``faced``.
+          * THE OPEN LOOP (the engine CANNOT: facing_status "cannot", a pre-s90 DLL -- or "unknown", no facing this
+            sample; or the turn is refused for a reason a press does not share, TURN_FALLBACK: ``unknown op``,
+            ``[AnalogControl] Enabled=0`` -- or a body he overlaps that is still on him after the wait for it): the
+            walked press below, UNCHANGED. The yaw is not read
+            (``player.dir`` is PosObj.rot[1], which a field never writes), so whether he faces the door is PREDICTED
+            from the presses; ``face_measured`` False.
 
         THE PRESS: one of the eight pads (:func:`_eight_way` of the calibrated basis), WALKED -- a run spends the same
         calls over the same ground with twice the tail, so it keeps the rules nowhere a walk does not -- for the fewest
@@ -2920,11 +3073,15 @@ class Session:
         the dead middle of a 5- to 8-point region, which IsInQuad never holds -- the door cannot fire at all, and no
         press is planned from there: ``faced`` False, as for a door no press could face.
 
-        Returns "face" when control went away during its presses -- the door fired, or something the press met did:
-        the caller lands it as the walk's own loss of control is landed -- else None, with ``record``'s ``faced``,
-        ``face_err``, ``face_worst``, ``face_to``, ``face_calls`` and ``face_pad`` said (:meth:`route_to`; the calls and
-        pad of the last pad pressed, the ones the prediction counts): all left None where he did not stand in the zone
-        with control, or the door fired while he stood there (the caller waits for that crossing as for any)."""
+        Returns "face" when control went away during its presses (or turns) -- the door fired, or something the press
+        met did: the caller lands it as the walk's own loss of control is landed; a press so cut reads ``faced`` True
+        (its prediction), a turn only where the field then changed (:meth:`_turn_landing`) -- else None, with
+        ``record``'s ``faced``, ``face_measured``, ``face_err``, ``face_worst``, ``face_to``, ``face_calls``,
+        ``face_pad`` and
+        ``face_moved`` said (:meth:`route_to`; the calls and pad of the last pad pressed, the ones the prediction
+        counts -- or turned, the ones the engine reported): all left None where he did not stand in the zone with
+        control, or the door fired while he stood there (the caller waits for that crossing as for any). ``timeout``
+        is route_to's: how long a turn's loss of control is waited on to say whether the field changed."""
         import math
         from ff9mapkit.content import doorface, pathfind
         window = doorface.FACE_WINDOW if window is None else (int(window[0]), int(window[1]))
@@ -2939,7 +3096,7 @@ class Session:
         if not inside(st):
             if walk_zone is not None and standing(st) and pathfind.poly_gap(st.player_x, st.player_z, walk_zone) < 0:
                 record["face_to"] = list(doorface.calc_exit_position(st.player_x, st.player_z, q0, q1))
-                record["faced"] = False
+                record["faced"], record["face_measured"] = False, False
                 self._log(f"  route_to: standing at ({st.player_x:.0f}, {st.player_z:.0f}) in the zone but in no "
                           f"triangle of the door's region (its dead middle: the gate never runs there) -- nothing "
                           f"pressed")
@@ -2948,12 +3105,27 @@ class Session:
         st = self.state
         if not inside(st):
             return None
+        record["face_to"] = list(doorface.calc_exit_position(st.player_x, st.player_z, q0, q1))
+        record["faced"], record["face_measured"] = False, False
+        if st.facing_status == "known":
+            # the engine publishes the facing and turns him in place (s90): the closed loop -- unless the turn is
+            # refused for a reason a walked press does not share (TURN_FALLBACK), when the press below is the step
+            got = self._turn_to_the_door(zone, record, origin, window, timeout)
+            if got != "press":
+                return got
+            # the press decides now, from scratch: what a turn before the fallback measured is not its prediction --
+            # and a turn that ran has moved his yaw off where the walk's last hold left it (``held``): any yaw, then
+            if record["face_pad"] is not None:
+                held = None
+            record.update(face_measured=False, face_err=None, face_worst=None, face_calls=None, face_pad=None)
+            st = self.state
+            if not inside(st):
+                return None
         watch = leg.get("watch")
         if watch is not None:
             self._npc_view(watch, st)                             # the objects where they stand now
         here = (st.player_x, st.player_z)
         record["face_to"] = list(doorface.calc_exit_position(here[0], here[1], q0, q1))
-        record["faced"] = False
         limit = doorface.face_limit_deg(window)
         spread_deg = math.degrees(leg["spread"])
         per = doorface.movepc_calls(self.WALK_SPEED)              # the MovePC calls a walked frame spends on average
@@ -3079,6 +3251,208 @@ class Session:
             record["face_err"] = doorface.signed_error(doorface.gate_value(here[0], here[1], yaw, q0, q1))
         return "face" if moved is None else None
 
+    def _turn_to_the_door(self, zone, record: dict, origin: int, window, timeout: float) -> str | None:
+        """:meth:`_face_the_door`'s CLOSED LOOP, on an engine that publishes the facing (memoria-patch s90): standing IN
+        the door's region ``zone`` (the engine's polygon, its first edge ``zone[0] -> zone[1]``) with control and
+        nothing fired, turn him IN PLACE toward the door and decide by what the ENGINE reports, never by a prediction.
+
+        THE TURN. The pad (:func:`_eight_way` of the calibrated basis) whose heading -- content.doorface.yaw_of of its
+        world direction, the field's twist already in the basis -- is nearest the bearing to the exit point
+        (doorface.bearing_deg: his projection onto the first edge), held by :meth:`turn_in_place` at the run rate for
+        the fewest frames whose whole MovePC calls (doorface.sure_calls at doorface.movepc_calls(RUN_SPEED)) reach
+        ROUTE_TURN_CALLS. He does not step, so no zone is left, entered or neared and no slide is bounded: the press's
+        rules have nothing to keep. Its ``turn_end`` comes once the field has run its event passes on the final facing
+        (HarnessAgent.ServiceTurn), so the outcome below is the gate's own.
+
+        THE OUTCOME, by the ``turn_end``:
+          * the field changed, or control went and the field then changed (the door's DisableMove runs in the pass
+            that reads the facing -- Dali 350 e18 before any Wait -- so a door that fires ends the turn ``control``):
+            the door fired. "face" -- landed by route_to as the walk's own loss of control is (``during`` "face"),
+            ``faced`` True and, the field change seen, ``face_measured`` True (no final facing: ``face_err`` None).
+            Control gone and never back within ``timeout``, the field unchanged, is landed the same way but is NO door
+            (``control`` is not proof one fired: a talk the turn now faces, an ATE, a timed script take him as well --
+            the s90 contract): ``faced`` False, ``face_measured`` False -- LIVE, never the door's strike
+            (:meth:`_turn_landing`; a door that fires late is still landed by route_to's own wait).
+          * ``ended``: the field judged the final facing and did not take him. The gate value is computed from the
+            facing BYTE it reports -- doorface.gate_value_from_face, against the engine's exit point from his published
+            position -- and in the window (doorface.gate_faced, the gate's own strict compare) the door read that
+            facing and stayed shut: ``faced`` True, ``face_measured`` True, ``face_err`` that MEASURED signed error,
+            ``face_worst`` its size -- a REAL miss, measured. Out of the window he is turned again, at most
+            ROUTE_TURN_TRIES turns: the same pad while its turn still moved his yaw (fewer calls than planned -- a
+            machine not the calibrated one), a different pad once one SETTLED (moved his yaw, under ROUTE_TURN_SETTLED
+            degrees: that pad heads where it left him, outside the window -- pad offset and twist) -- ranked by the
+            heading the settled one measured, the basis's own error carried over. A turn that did not move his yaw AT
+            ALL proves no call ran (ROUTE_TURN_SETTLED's note): never read as settled, nor as a basis, until the same
+            pad, turned again for twice the frames, is unmoved a second time in a row. A turn that moved him more than
+            ROUTE_TURN_MOVED was not in place (a push-out, a wall's edge force): it is judged as the press it was, from
+            where it left him, and if that is outside the region the gate never ran there -- ``faced`` False. None of
+            the pads' headings within the window's doorface.face_limit_deg of the bearing, or the turns spent:
+            ``faced`` False (``face_measured`` True where a turn's report was judged), LIVE -- the walker's limit,
+            never the door's strike.
+          * any other ``why`` -- a CUT (``movement``, ``hud``, ``actor``, ``unreadable``; ``player``/``control`` with
+            control back on the same field -- a script or a talk took him, not the door): handled as the matching
+            REFUSAL is -- waited out (ROUTE_WAIT_FRAMES for a hold on movement or a UI, ROUTE_FACE_WAIT else) and
+            turned again within the bound, never judged on the cut turn's byte (the field never had its passes on it)
+            and never a strike. ``axis`` (a physical stick: a human at the controls) ends the step, ``faced`` False.
+
+        A REFUSAL (:class:`channel.TurnRefused`, nothing pressed): one in TURN_FALLBACK returns "press" -- the walked
+        press of the open loop is the step instead; ``overlap`` is waited out once for its body and returns "press"
+        when the same body is still on him (TURN_FALLBACK's note); ``argument``/``opposite``/``other`` are the
+        driver's own error and raise; ``axis``/``path`` (a human's stick or mouse walk) end the step, ``faced`` False;
+        control or the field gone is landed as above; the rest are waited out and turned again within the bound.
+
+        ``face_pad`` is the last pad turned, ``face_calls`` the whole calls every turn's reported ``frames`` are sure
+        of at the run rate, ``face_moved`` the largest ``moved`` a turn reported (0: in place). Returns "face", None
+        (``record`` said), or "press" (fall back)."""
+        import math
+        from ff9mapkit.content import doorface
+        from .channel import TurnRefused
+        q0, q1 = zone[0], zone[1]
+        limit = doorface.face_limit_deg(window)
+        per = doorface.movepc_calls(self.RUN_SPEED)               # the MovePC calls a run-rate frame spends on average
+        frames = max(1, math.ceil(self.ROUTE_TURN_CALLS / per - 1e-9))
+        pads = _eight_way(self._axes[origin])
+        settled: set = set()                                     # pads whose heading a settled turn measured
+        unmoved: set = set()                                     # pads whose last turn left his yaw exactly as it was
+        basis = 0.0                                              # the basis's own error the settled turn measured
+        waited_for: list = []                                    # the bodies an ``overlap`` refusal was waited out for
+        for _ in range(self.ROUTE_TURN_TRIES):
+            st = self.state
+            if st.field_id != origin or not st.control:
+                landed = self._turn_landing(origin, timeout, record)
+                if landed is not None:
+                    return landed
+                st = self.state
+            if st.ui_state != "FieldHUD":
+                # a UI over the field (the agent's ``hud`` refusal, before it is asked): waited out like that refusal
+                self._log(f"  route_to: {st.ui_state} is up over the field; waiting before the turn")
+                self.wait_frames(self.ROUTE_WAIT_FRAMES)
+                continue
+            here = (st.player_x, st.player_z)
+            if here[0] is None or not doorface.region_contains(here[0], here[1], zone):
+                self._log(f"  route_to: no longer in the door's region before a turn (at {here}): nothing turned")
+                return None
+            bearing = doorface.bearing_deg(here[0], here[1], q0, q1)
+            ranked = sorted((doorface.angle_off(doorface.yaw_of(*u) + basis, bearing), buttons, u)
+                            for buttons, u in pads if buttons not in settled)
+            ranked = [r for r in ranked if r[0] <= limit]
+            if not ranked:
+                self._log(f"  route_to: no pad heads within {limit:.0f} degrees of the door's bearing "
+                          f"({bearing:.1f}) once measured: the door cannot be faced from here -- LIVE")
+                return None
+            _off, buttons, u = ranked[0]
+            try:
+                end = self.turn_in_place(buttons, frames, timeout=timeout)
+            except TurnRefused as err:
+                if err.kind in self.TURN_FALLBACK:
+                    self._log(f"  route_to: the turn was refused ({err.message}) -- a walked press does not share "
+                              f"that: the open-loop press faces the door instead")
+                    return "press"
+                if err.kind == "overlap":
+                    if err.uid in waited_for:
+                        self._log(f"  route_to: the turn was refused again ({err.message}) -- that body stays on him: "
+                                  f"the open-loop press, planned clear of the objects, faces the door instead")
+                        return "press"
+                    waited_for.append(err.uid)
+                    self._log(f"  route_to: the turn was refused ({err.message}); waiting for that body to move on")
+                    self.wait_frames(self.ROUTE_WAIT_FRAMES)
+                    continue
+                if err.kind in ("argument", "opposite", "other"):
+                    raise
+                if err.kind in ("axis", "path"):
+                    self._log(f"  route_to: the turn was refused ({err.message}): a human's input -- not fought")
+                    return None
+                st = self.state
+                if st.field_id != origin or not st.control:
+                    landed = self._turn_landing(origin, timeout, record)
+                    if landed is not None:
+                        return landed
+                self._log(f"  route_to: the turn was refused ({err.message}); waiting it out")
+                self.wait_frames(self.ROUTE_WAIT_FRAMES if err.why in ("movement", "hud", "actor")
+                                 else self.ROUTE_FACE_WAIT)
+                continue
+            record["face_pad"] = "+".join(buttons)
+            record["face_calls"] = (record["face_calls"] or 0) + doorface.sure_calls(end["frames"] or 0, per)
+            if end["moved"] is not None:
+                record["face_moved"] = max(record["face_moved"] or 0.0, end["moved"])
+            why = end["why"]
+            st = self.state
+            if why != "ended" or st.field_id != origin or not st.control:
+                if why == "axis":
+                    self._log("  route_to: the turn was cut by a physical stick: a human at the controls -- not fought")
+                    return None
+                if why in ("field", "control", "player") or st.field_id != origin or not st.control:
+                    landed = self._turn_landing(origin, timeout, record)
+                    if landed is not None:
+                        return landed                # the field changed: the door fired
+                self._log(f"  route_to: the turn was cut ({why}), nothing fired; turning again")
+                self.wait_frames(self.ROUTE_WAIT_FRAMES if why in ("movement", "hud", "actor")
+                                 else self.ROUTE_FACE_WAIT)
+                continue
+            here = (st.player_x, st.player_z)
+            if end["moved"] is not None and end["moved"] > self.ROUTE_TURN_MOVED:
+                self._log(f"  route_to: the turn moved him {end['moved']:.2f}u -- not in place (a push-out or a "
+                          f"wall's edge force): judged as the press it was, from ({here[0]:.0f}, {here[1]:.0f})")
+                if not doorface.region_contains(here[0], here[1], zone):
+                    return None                      # out of the region: the gate never ran on that facing there
+            face = end["face"] if end["face"] is not None else st.player_face
+            if face is None:
+                continue
+            v = doorface.gate_value_from_face(here[0], here[1], face, q0, q1)
+            err = doorface.signed_error(v)
+            record.update(face_measured=True, face_err=err, face_worst=abs(err))
+            if doorface.gate_faced(v, window):
+                record["faced"] = True
+                self._log(f"  route_to: turned in place to face the door (measured error {err}/256, byte {face}) "
+                          f"and the field judged it: still shut -- the door's REAL miss")
+                return None
+            if end["yaw"] is None or end["yaw0"] is None:
+                continue
+            turned = doorface.angle_off(end["yaw"], end["yaw0"])
+            if turned > 0.0:
+                unmoved.discard(buttons)             # a call ran: the next unmoved turn of it starts a new count
+            elif buttons not in unmoved:
+                # his yaw EXACTLY where it was: no call is proven to have run -- the turn's frames fit between two
+                # 30 Hz ticks (a display over ~240 Hz), or the pad already heads where he stands. Neither settled nor
+                # a basis: the same pad again, for twice the frames -- and every turn after it keeps the longer count
+                unmoved.add(buttons)
+                frames = min(self.TURN_MAX_FRAMES, 2 * frames)
+                self._log(f"  route_to: {record['face_pad']} did not move his yaw ({end['yaw']:.3f}) over "
+                          f"{end['frames']} frame(s) -- no call is proven to have run; turning it again for "
+                          f"{frames} frames")
+                continue
+            if turned <= self.ROUTE_TURN_SETTLED:
+                settled.add(buttons)                 # this pad heads where it left him, outside the window
+                basis = (end["yaw"] - doorface.yaw_of(*u) + 180.0) % 360.0 - 180.0
+                self._log(f"  route_to: {record['face_pad']} settled at yaw {end['yaw']:.1f}, {err}/256 off the "
+                          f"door -- it cannot face it; the basis heads {basis:+.1f} degrees off its calibration")
+            else:
+                self._log(f"  route_to: turned to yaw {end['yaw']:.1f}, still {err}/256 off the door; turning again")
+        self._log(f"  route_to: {self.ROUTE_TURN_TRIES} turns and the door not faced -- LIVE")
+        return None
+
+    def _turn_landing(self, origin: int, timeout: float, record: dict) -> str | None:
+        """Control went during (or just before) an in-place turn at the door: was it the door? Waits, as
+        :meth:`_await_landing` does, for the field to change or control to come back on ``origin``. None when control
+        came back on the same field (a script or a talk took him, not the door: a cut). Else "face" -- route_to lands
+        it as the walk's own loss of control is, its own wait still catching a door that loads late -- with
+        ``face_err`` / ``face_worst`` cleared (no final facing was the gate's to judge) and ``faced`` /
+        ``face_measured`` True ONLY where the field changed: the door fired. Control gone and never back on an
+        unchanged field is no door: ``control`` is not proof one fired (the s90 contract: a talk the turn now faces,
+        an ATE, a timed script or a battle take him as well -- and a turn REFUSED for want of control pressed nothing
+        at all), so it reads ``faced`` False, LIVE (dali_tour.unfaced), never the door's REAL miss."""
+        try:
+            self.wait_for(lambda s: (s.field_id != origin and s.field_id > 0) or (s.field_id == origin and s.control),
+                          timeout=timeout, what=f"the field to change from {origin}, or control to return")
+        except HarnessError:
+            pass
+        st = self.state
+        if st.field_id == origin and st.control:
+            return None
+        fired = st.field_id != origin and st.field_id > 0
+        record.update(faced=fired, face_measured=fired, face_err=None, face_worst=None)
+        return "face"
+
     def route_to(self, x: float, z: float, *, avoid=(), margin: float | None = None,
                  tolerance: float = 45.0, walkmesh=None, prior="stock", timeout: float = 20.0,
                  unstick: bool = False, smooth: bool = False, zone=None, npcs: bool = False, face=None,
@@ -3157,10 +3531,13 @@ class Session:
         constants (scan_gateways' ``face_gate``; None: the stock (48, 208)). Pass it for a GATED door only: one with no
         gate fires the first tick he stands in it with control, so one still shut is shut, and a press toward it
         would only walk him about for nothing (route_cross passes it on only for a ``gate``). When the walk ends
-        standing IN that region (IsInQuad) with control and nothing fired, it ends with a press that turns him to face
-        the door, planned to leave him facing it -- never carrying him out of the region before the call that faces
-        it, and never, its tail and a slide along a wall included, into another zone or at an object
-        (:meth:`_face_the_door`). A walk that ended ``frozen`` is not turned: a hold on movement holds the turn too.
+        standing IN that region (IsInQuad) with control and nothing fired, it ends with a step that turns him to face
+        the door (:meth:`_face_the_door`): on an engine that publishes the facing (memoria-patch s90), a turn IN PLACE
+        judged on the facing byte the engine reports once the field has judged it (:meth:`_turn_to_the_door`) -- he
+        does not move, so nothing is left, entered or neared; on one that cannot, a walked press planned to leave him
+        facing it -- never carrying him out of the region before the call that faces it, and never, its tail and a
+        slide along a wall included, into another zone or at an object. A walk that ended ``frozen`` is not turned: a
+        hold on movement holds the turn too.
 
         ``npcs`` (opt-in; it implies ``unstick``) plans round the field's OTHER ACTORS as the engine publishes
         them (memoria-patch s89, :attr:`State.objects`) instead of finding them by walking into them -- on a
@@ -3201,7 +3578,7 @@ class Session:
         "during", "waits", "cleared", "pushes", "pushed", "blockers", "remembered", "blocked",
         "frozen", "boxed", "boxed_by", "npcs", "avoided", "entered", "through", "sealed", "npc_replans", "npc_waits",
         "box_waits", "box_cleared", "boxers", "held_by", "pinned", "changed_to", "face_gate", "faced", "face_err",
-        "face_worst", "face_to", "face_calls", "face_pad"}``: ``landed``
+        "face_worst", "face_to", "face_calls", "face_pad", "face_measured", "face_moved"}``: ``landed``
         the field it ended up in (None = still here), ``changed_to`` the one the id first changed to (None: it
         never changed) -- they differ when that room's scene put him straight back (:meth:`expect_field_change`),
         ``landed`` then the origin -- ``reached`` whether it
@@ -3209,7 +3586,7 @@ class Session:
         route_cross's ``inside`` says which), ``travelled`` the distance actually covered (summed
         over the walk, not end-to-end), ``waypoints`` the first plan (None = no route exists),
         ``during`` what lost control -- "calibrate" (a probe), "walk" (a step), "wait" (during an
-        unstick wait), "push" (during a push), "face" (during the press that turns him to face the door), None
+        unstick wait), "push" (during a push), "face" (during the press or turn that faces him to the door), None
         (nothing did). The rest stay zero/empty without
         ``unstick``: ``waits`` taken, the stalls a wait ``cleared``, ``pushes`` pressed and how many
         of them ``pushed`` him through, the ``blockers`` this call placed ([x, z]; ``replans`` counts
@@ -3235,23 +3612,37 @@ class Session:
         bodies that do not walk stand in the way to the one the geometry leaves), None (the spot's geometry, or
         nothing published in the way), ``pinned`` those bodies. Any other end leaves them None and empty.
         ``face_gate`` is the gate the walk was asked to face (``[lo, hi]``, ``face_window`` or the stock one), None when
-        it was given no ``face``. ``faced`` is the facing step's verdict (:meth:`_face_the_door`) -- a PREDICTION, from
-        the presses that turned him: the yaw is not read (``player.dir`` is PosObj.rot[1], which a field never writes).
-        None: no step was pressed -- no ``face``, he did not stand in its region with control once the walk ended, the
-        door fired while he stood there, or the walk ended ``frozen``. True: a press was made that the prediction says
-        leaves him facing the door (nothing fired after it: the door stayed shut with him facing it), or control went
-        during its presses (``during`` "face"). False: he stood inside with control, nothing fired, and no press that
-        faces the door kept the rules above -- or the short ones that did ran out before the prediction said faced
-        (they were pressed; nothing is scored faced before it says so) -- or he stood in the walk's ``zone`` but in the
-        dead middle of the door's region, where the gate never runs. ``face_to`` the point the gate takes his bearing
-        to (content.doorface.calc_exit_position: his projection onto the first edge) where the step began,
-        ``face_pad`` the buttons it pressed ("up+left"), ``face_calls`` the WHOLE MovePC calls it counted them for
-        (content.doorface.sure_calls; fewer where a free press moved him less than they step), ``face_worst`` the
-        largest error, in 256ths, the prediction leaves him with where the step left him (doorface.worst_face_error:
-        within the window's limit when ``faced`` is True), and ``face_err`` the gate's signed error, in 256ths, for the
-        yaw the prediction's CENTRE gives him (the engine's formula, doorface.gate_value) -- None when his yaw before
-        the step was unknown (a chunked walk, or none of the walk's holds measured), as the step's own bound is then
-        all there is. Each None when the step made no press.
+        it was given no ``face``. ``faced`` is the facing step's verdict (:meth:`_face_the_door`), and
+        ``face_measured`` says what it rests on: True, the ENGINE's own report (the closed loop, s90: a turn in place
+        whose ``turn_end`` gave the facing byte the gate read, or during which the field changed); False, a PREDICTION
+        from the presses that turned him (the open loop: an engine that cannot publish the facing, or a turn refused
+        for a reason a press does not share -- ``player.dir`` is PosObj.rot[1], which a field never writes), or a
+        closed loop that measured nothing (every turn cut or refused); None with ``faced``. ``faced`` None: no step was
+        taken -- no ``face``, he did not stand in its region with control once the walk ended, the door fired while he
+        stood there, or the walk ended ``frozen``. True: a press was made that the prediction says leaves him facing
+        the door, or a turn the field judged left him facing it (``face_measured``) -- nothing fired after it: the door
+        stayed shut with him facing it -- or control went during its presses (``during`` "face"), or during its turns
+        and the field then changed (``during`` "face", ``face_measured``). False: he stood inside with control,
+        nothing fired, and no press that faces the door kept the rules above -- or the short ones that did ran out
+        before the prediction said faced (they were pressed; nothing is scored faced before it says so) -- or no turn
+        reached the window within the bound (every pad's measured heading outside it, the turns cut, refused or
+        spent; a human at the controls) -- or control went during (or before) its turns and never came back on an
+        unchanged field (``during`` "face": no door seen, ``control`` is not proof one fired) -- or he stood in the
+        walk's ``zone`` but in the dead middle of the door's region, where the gate never runs. ``face_to`` the point
+        the gate takes his bearing to (content.doorface.calc_exit_position: his projection onto the first edge) where
+        the step began,
+        ``face_pad`` the buttons it pressed or turned ("up+left"), ``face_calls`` the WHOLE MovePC calls it counted
+        them for (content.doorface.sure_calls; a press's fewer where a free press moved him less than they step; a
+        turn's, of the frames the engine reported its keys down), ``face_worst`` the largest error, in 256ths, the
+        step leaves him with where it left him (the prediction's doorface.worst_face_error, within the window's limit
+        when ``faced`` is True; measured, the measured error's size), and ``face_err`` the gate's signed error, in
+        256ths -- MEASURED (``face_measured``): the facing byte the engine reported at the last turn's end, against
+        the engine's exit point from his published position (doorface.gate_value_from_face), None when the door fired
+        (no final facing was the gate's to judge); PREDICTED: for the yaw the prediction's CENTRE gives him (the
+        engine's formula, doorface.gate_value) -- None when his yaw before the step was unknown (a chunked walk, or
+        none of the walk's holds measured), as the step's own bound is then all there is. ``face_moved`` the largest
+        distance a turn's ``turn_end`` says it moved him (0 in place; over ROUTE_TURN_MOVED it was judged as the press
+        it was), None when no turn ran. Each None when the step made no press or turn.
         """
         from ff9mapkit.content import pathfind
         if zone is not None and not smooth:
@@ -3275,7 +3666,7 @@ class Session:
                   "npcs": None, "avoided": [], "entered": [], "through": [], "sealed": [], "npc_replans": 0,
                   "npc_waits": 0, "box_waits": 0, "box_cleared": 0, "boxers": [], "held_by": None, "pinned": [],
                   "changed_to": None, "face_gate": None, "faced": None, "face_err": None, "face_worst": None,
-                  "face_to": None, "face_calls": None, "face_pad": None}
+                  "face_to": None, "face_calls": None, "face_pad": None, "face_measured": None, "face_moved": None}
         if fpoly is not None:
             from ff9mapkit.content import doorface
             record["face_gate"] = list(doorface.FACE_WINDOW if face_window is None else map(int, face_window))
@@ -3481,7 +3872,7 @@ class Session:
             turn = {"hazards": polys, "spread": self._heading_spread(self._axes[origin], prior), "watch": watch,
                     "floor": wmesh}
             if self._face_the_door(fpoly, record, origin, walked, turn, self._held_yaw(leg), record["face_gate"],
-                                   zpoly) is not None:
+                                   zpoly, timeout=timeout) is not None:
                 # control went during a facing press: the door fired, or a trigger the press met -- never told apart
                 # from here, so every trigger he stands within reach of is named, in the door's region or not
                 return land("face", None)
@@ -4877,7 +5268,8 @@ class Session:
         ``gate`` (opt-in, with ``zone``: scan_gateways' ``face_gate`` for this door -- ``[lo, hi]``, or True for the
         stock window; None: the door has no facing gate) is stock's DOOR FACING GATE: smooth or not, the walk goes to
         route_to with the door's ``region`` to FACE (``face``, ``face_window``) -- a walk that ends standing in it with
-        nothing fired ends with a press that turns him to face the door (:meth:`_face_the_door`), ``faced`` and the
+        nothing fired ends with a step that turns him to face the door (:meth:`_face_the_door`: a turn in place judged
+        on the engine's own facing where it publishes one, s90; a walked press where it cannot), ``faced`` and the
         other ``face_*`` keys say what it did, and ``inside`` where that left him. The region's corners are the
         ENGINE's order, the first edge first: that edge is the one the gate takes his bearing to. A door with no gate
         is not faced: it fires for anyone standing in it, so one still shut stays shut however he turns.
