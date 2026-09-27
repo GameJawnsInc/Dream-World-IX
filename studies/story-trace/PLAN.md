@@ -8,9 +8,9 @@ in-game 17/18 + 1 VOID** (`story-rung3c`, predictions v2): against stock Dali x3
 each replaying its stock partner's walk) and the round-4 seed (F4, x3), the trace -- no script reading -- named
 450 as the ping's only writer, F0's seam into the real 450, F4's pre-empted latches and its byte-297 clobber, and
 found F0 otherwise write-for-write stock (MIRROR: FORK ONLY and STOCK ONLY empty). The VOID is NULL-PRE's
-stock-side evidence from 355 (a walker at its door). **The walker now meets stock's door facing gate** (the 23
-facing misses; s90 closed loop, built offline, not yet walked in the game). Next: its in-game check, then rung 4
-(fork-report's story-writes axis).
+stock-side evidence from 355 (a walker at its door). **The walker now meets stock's door facing gate ★★ in-game
+8/8** (`story-facing-check`: the rung-3 miss measured, then the s90 closed loop turned him in place and crossed) and
+a tour on it 7/7 with no facing miss. Next: rung 4 (fork-report's story-writes axis); optional session 4.
 
 Board entry #3 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It is the narrative-state arc's missing
 instrument ([`../narrative-state/PLAN.md`](../narrative-state/PLAN.md)).
@@ -346,7 +346,7 @@ law of its own: **a fork-vs-stock diff is only as good as the walk is paired** -
 sides (3 of 3 boxed vs 0 of 3) fabricates STOCK/FORK ONLY keys the pattern-level compare cannot tell from a fork
 difference. Replay the stock walk on the fork side; judge coverage, not outcome.
 
-### After rung 3: the walker meets stock's door facing gate (built and reviewed offline; not yet walked in the game)
+### After rung 3: the walker meets stock's door facing gate (★★ in-game 8/8, and a tour on it 7/7)
 
 The 116-miss diagnosis (research `rung3-5`) left one class open: **23 misses were stock's door facing gate** -- he
 stood in the door's region facing wherever the walk left him, nothing fired, and the tour struck the door. Grounded
@@ -363,7 +363,25 @@ the MEASURED byte. The walked press, sized by a prediction and kept inside the r
 without s90. The tour's verdicts: a gated door the walker never faced is LIVE (no strike; a replay steps back first),
 a door faced and still shut is the door's MISS, and the 353 "never became playable" crossing is a bounce. Four
 workflows, each reviewed from several lenses with every finding verified (31 + 16, all real, all fixed or pinned),
-mutation-tested; the in-game check is the next session's first job, on the owner's go (HANDOFF.md).
+mutation-tested.
+
+**In the game, 2026-09-27 (owner's go): ★★ `story-facing-check` 8/8** (`facing_check.py`, 189 s; run 1 stopped at a
+calibration a wall slide deflected -- the scenario now seeds 350's TWIST prediction and checks it). At 350's door to
+351, from the tour's own story state (the segment to 352 at SC 2600, then 350 by entrance 2 at (258, -58), byte 50):
+s90 publishes the facing and it is the kit's byte of the yaw (FC-CAP, FC-BYTE); three in-place turns moved him 0.0u
+and each reported the byte state.json shows (FC-INPLACE); both pads converged to the TWIST's predicted heading to
+0.001 deg (FC-BASIS, right -88.594 / left 91.406); a 3-frame turn left 180 x 0.6^6.00002 of the angle -- whole
+MovePC calls, 40% each (FC-LERP); **standing in the door's region 113/256 off the door, it stayed shut for 90 frames
+(FC-SHUT: the rung-3 miss, measured)**; and **from that spot the walker's closed loop turned him in place on `right`,
+travelled 0.0, and crossed to 351 (FC-FACE: faced, face_measured, during "face")**. Then **`story-facing-tour` 7/7**
+(`rung3_step1.py` on the fixed walker, 723 s): 28 crossings, 19 landed, SC 2600 -> 2610 by itself, 450 again the
+ping's only writer; every gated door it walked to opened -- 350 -> 351 twice (the door session 2 missed 10/10), 351
+-> 352, 350 -> 354, 350 -> 356 twice, 350 -> 355 -- with no facing miss (23 in sessions 1-3). Honest limits: those
+all opened DURING the walk (the facing step was not needed on this tour; FC-FACE is its proof), 355 was again entered
+only after 450 (R3-NULL-PRE still wants a 355-before-450 run), 356 -> 358 found no route twice (planner geometry,
+not facing), and **the game rendered at 28-53 fps under the harness across runs (31, 53, 28, 32), never the 60 the
+harness's per-frame WALK_SPEED/RUN_SPEED assume** -- the closed loop measures, but the open-loop fallback and every
+press sized in frames inherit that error.
 
 ## Rungs
 
