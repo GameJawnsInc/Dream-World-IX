@@ -1,0 +1,27 @@
+diff --git a/Memoria.Prime/Memoria.Prime.csproj b/Memoria.Prime/Memoria.Prime.csproj
+index c0b9252..251ddb1 100644
+--- a/Memoria.Prime/Memoria.Prime.csproj
++++ b/Memoria.Prime/Memoria.Prime.csproj
+@@ -189,7 +189,7 @@
+     <Compile Include="WinAPI\User32.cs" />
+   </ItemGroup>
+   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+-  <Target Name="AfterBuild">
++  <Target Name="AfterBuild" Condition="'$(DWIXNoDeploy)' != 'true'">
+     <Deploy SolutionDir="$(SolutionDir)" TargetPath="$(TargetPath)" TargetDir="$(TargetDir)" TargetName="$(TargetName)" />
+   </Target>
+ </Project>
+\ No newline at end of file
+diff --git a/UnityEngine.UI/UnityEngine.UI.csproj b/UnityEngine.UI/UnityEngine.UI.csproj
+index c33ea28..b76dc4e 100644
+--- a/UnityEngine.UI/UnityEngine.UI.csproj
++++ b/UnityEngine.UI/UnityEngine.UI.csproj
+@@ -302,7 +302,7 @@
+   <PropertyGroup>
+   </PropertyGroup>
+ 
+-  <Target Name="AfterBuild">
++  <Target Name="AfterBuild" Condition="'$(DWIXNoDeploy)' != 'true'">
+ 	<Deploy SolutionDir="$(SolutionDir)" TargetPath="$(TargetPath)" TargetDir="$(TargetDir)" TargetName="$(TargetName)" />
+   </Target>
+   

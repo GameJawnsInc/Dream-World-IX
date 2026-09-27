@@ -64,7 +64,11 @@ The csproj `AfterBuild` runs `Memoria.MSBuild.Deploy`, which "auto-finds the gam
 `FF9_Launcher.exe` and copies the built `Assembly-CSharp.dll` + `Memoria.Prime.dll` +
 `UnityEngine.UI.dll` into BOTH `x64\` and `x86\` `FF9_Data\Managed\`". It does NOT keep a
 backup — hence precondition 2. (`XInputDotNetPure.dll` / `Newtonsoft.Json.dll` are not
-redeployed.) A rebuild also bumps the Assembly-CSharp FileVersion, so the Scripts-DLL drift
+redeployed.) There are THREE such targets, one per deployed project: `Memoria.Prime` and
+`UnityEngine.UI` are ProjectReferences that build (and deploy themselves, with a fresh
+pdb2mdb `.dll.mdb`) BEFORE Assembly-CSharp. `-p:DWIXNoDeploy=true` switches off all three
+only because s45 + s91 condition each one; a raw build of a clone missing s91 still deploys
+the siblings. A rebuild also bumps the Assembly-CSharp FileVersion, so the Scripts-DLL drift
 check may fire even on an API-compatible rebuild — recompile the mod scripts DLL once the game
 is closed to clear the cosmetic stamp.
 

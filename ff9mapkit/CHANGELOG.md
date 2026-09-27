@@ -5,6 +5,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `tools/build_memoria.py --no-deploy` no longer deploys the two sibling DLLs
+- **What leaked.** `--no-deploy` passed `-p:DWIXNoDeploy=true`, which s45 honored only in
+  `Assembly-CSharp.csproj`. msbuild builds `Memoria.Prime` and `UnityEngine.UI` first, and each has its
+  own `AfterBuild` Deploy with no condition. So every compile check copied their `.dll` and a freshly
+  generated `.dll.mdb` over both arches of the live install, with no backup.
+- **The engine side.** New stack patch `s91-sibling-afterbuild-nodeploy.patch` gives both targets the
+  s45 condition. msbuild passes the property down to referenced projects, so one flag now switches off
+  all three deploys. The siblings are still compiled, so an edit to them is still checked.
+- **The wrapper side.**
+  - `--no-deploy` refuses unless every Deploy task in Assembly-CSharp's ProjectReference closure is gated.
+  - It sha-compares all 12 live engine files (each DLL and its `.mdb`, both arches) before and after the
+    build. This also runs when the build fails, because a sibling deploys before Assembly-CSharp compiles.
+  - On any drift it exits 4, names each changed file, and keeps the changed DLLs' previous bytes where
+    `restore_memoria_dll.py` can restore them.
+  - It prints "NOTHING deployed" only after that comparison passes.
+
 ### Added — Photo mode (`[photo]`): the player pans, hides and tints, and gets the camera back
 - **A bare `[photo]` gives any novel field a photo mode.**
   - **Open (Select):** stops the player and takes the camera exactly where it is.
