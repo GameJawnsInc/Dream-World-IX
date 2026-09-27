@@ -3491,11 +3491,18 @@ def _dali_places(script, fid):
     return places
 
 
-def _dali_fake(game, walkmesh, script, fid, *, radius=True):
+def _dali_fake(game, walkmesh, script, fid, *, radius=True, face_gates=False):
     """A fake standing in stock ``fid``: its player walkmesh for a floor -- his centre kept COLLISION_RADIUS_W off
     its walls, as the engine keeps it (``radius``; off, anywhere on the mesh) -- every place a LIVE region
     (entering one fires it -- to 30000 + its index, so ``fired`` names it), the field's own key yaw, and 4x the
-    frame rate (the protocol counts frames, so the suite pays a quarter of the wall clock)."""
+    frame rate (the protocol counts frames, so the suite pays a quarter of the wall clock).
+
+    ``face_gates`` (opt-in, OFF by default so the walks written before the gate keep the doors they were written
+    against): a place that is a stock gateway zone whose warp stock's DOOR FACING GATE guards -- any
+    ``scan_gateways`` row of that zone with a ``face_gate`` -- carries that window as its region's ``"face"``, so
+    the fake fires it only while his yaw faces the door, and the engine's polygon (the row's ``region``, every
+    SetRegion point) as its ``"points"``, so it answers where IsInQuad does (FakeGame ``regions``); on 350 that is
+    the doors to 351, 354, 353, 356 and 355, as in the game -- each a 5-point region."""
     from ff9mapkit import eventscan
     from ff9mapkit.content import movement
     from ff9mapkit.scene import cam
@@ -3504,7 +3511,18 @@ def _dali_fake(game, walkmesh, script, fid, *, radius=True):
     fake = FakeGame(game, fps=960, twist=math.degrees(math.atan2(-prior["v"][0], prior["v"][1])))
     fake.walkmesh = walkmesh(fid)
     fake.clearance = cam.COLLISION_RADIUS_W if radius else None
-    fake.regions = {fid: [{"zone": z, "to": 30000 + i, "arrive": (0, 0)} for i, z in enumerate(_dali_places(script, fid))]}
+    gates = {}
+    if face_gates:
+        for gw in eventscan.scan_gateways(script(fid)):
+            if gw["face_gate"] is not None:
+                gates.setdefault(tuple(map(tuple, gw["zone"])), (gw["face_gate"], gw["region"]))
+    fake.regions = {fid: []}
+    for i, z in enumerate(_dali_places(script, fid)):
+        region = {"zone": z, "to": 30000 + i, "arrive": (0, 0)}
+        if tuple(map(tuple, z)) in gates:
+            window, points = gates[tuple(map(tuple, z))]
+            region["face"], region["points"] = list(window), [list(p) for p in points]
+        fake.regions[fid].append(region)
     fake.exit_frames = 30
     return fake, prior
 
@@ -3758,6 +3776,824 @@ def test_on_stock_350_the_smooth_walk_to_450_takes_a_fraction_of_the_requests(ga
             assert [f["to"] for f in fake.fired[fired:]] == [30000 + len(places) - 1], fake.fired[fired:]
     print(f"350 -> 450 requests: chunked {spent[False]}, smooth {spent[True]}")
     assert spent[True] <= 0.6 * spent[False], spent
+
+
+# --------------------------------------------------------------------------- the fake's door facing gate
+# Stock's class-2 doors (content.doorface): a region whose tag 2 fires only while he FACES his projection onto its
+# first edge. The fake models it opt-in (``regions`` ``"face"``) with a private yaw the presses turn, 40% a MovePC
+# call -- so a walker that never faces the door can FAIL offline, as it did in the game at 350's door to 351. These
+# step the fake BY HAND, frame by frame (no thread, no driver), so each names the exact frame a press turns him or
+# a door fires.
+def _hand_fake(game, regions=(), *, at=(0.0, 0.0), yaw=0.0, walkmesh=(-600.0, -600.0, 600.0, 600.0)):
+    """A FakeGame on field 30820 with control, standing at ``at`` with yaw ``yaw``, its ``regions``, no coast tail
+    (a released press stops dead, so a frame's turn is the press's alone), stepped only by :func:`_hand_frames`."""
+    fake = FakeGame(game, walkmesh=walkmesh)
+    fake.ui_state, fake.field_id, fake.control = "FieldHUD", 30820, True
+    fake.player = [float(at[0]), 0.0, float(at[1])]
+    fake._face_deg = float(yaw)
+    fake.coast_frames = 0
+    fake.regions = {30820: list(regions)}
+    return fake
+
+
+def _hand_frames(fake, n, *buttons):
+    """Step ``fake`` ``n`` frames holding ``buttons`` for exactly those frames (none: he stands)."""
+    for _ in range(n):
+        fake.frame += 1
+        for b in buttons:
+            fake.down_at[b], fake.held[b] = fake.frame, fake.frame + 1
+        fake._step_world()
+
+
+#: A gated door on the south wall: its first edge z = -1000, x -500..500 -- from anywhere in it straight ahead of
+#: him the exit point lies due -z, bearing 0, so his facing byte IS the gate's error.
+_SOUTH_DOOR = [[-500, -1000], [500, -1000], [500, 100], [-500, 100]]
+
+
+@pytest.mark.parametrize("walked", [False, True])
+def test_the_fake_turns_him_40_percent_a_movepc_call_a_run_frame_one_a_walked_frame_half(game, walked):
+    from ff9mapkit.content import doorface
+    fake = _hand_fake(game, yaw=0.0)
+    _hand_frames(fake, 1, "right", *(["cancel"] if walked else []))
+    calls = 0.5 if walked else 1.0
+    assert fake._face_deg == pytest.approx(-90.0 * (1 - 0.6 ** calls))            # toward +x: yaw -90
+    assert fake._face_deg == pytest.approx(doorface.turn_step(0.0, -90.0, doorface.movepc_calls(15 if walked else 30)))
+    assert fake.player[0] == pytest.approx(15.0 if walked else 30.0)
+    _hand_frames(fake, 5, "right", *(["cancel"] if walked else []))
+    assert fake._face_deg == pytest.approx(-90.0 * (1 - 0.6 ** (6 * calls)))
+
+
+def test_the_fake_turns_him_on_a_press_into_a_wall_and_the_door_fires_where_he_stands(game):
+    """His step blocked by the wall at x = 590, the press still turns him (the turn precedes the collision): he stands
+    still at the wall and the east door -- its first edge beyond the wall, on x = 600 -- fires on the second frame,
+    when 90 -> 18 -> -25.2 degrees brings its error from 76 to 46."""
+    door = {"zone": [[600, -100], [600, 100], [400, 100], [400, -100]], "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _hand_fake(game, [door], at=(560, 0), yaw=90.0, walkmesh=(-600.0, -600.0, 590.0, 600.0))
+    _hand_frames(fake, 1, "right")
+    assert (fake.player[0], fake._face_deg, fake.fired) == (590.0, pytest.approx(18.0), [])
+    _hand_frames(fake, 1, "right")
+    assert fake._face_deg == pytest.approx(-25.2) and [f["to"] for f in fake.fired] == [30821]
+
+
+def test_the_fake_keeps_his_yaw_standing_and_without_control(game):
+    fake = _hand_fake(game, yaw=33.0)
+    _hand_frames(fake, 10)
+    assert fake._face_deg == 33.0
+    fake.control = False
+    _hand_frames(fake, 5, "left")
+    assert fake._face_deg == 33.0 and fake.player[0] == 0.0
+    fake._frozen_until = fake.frame + 100
+    fake.control = True
+    _hand_frames(fake, 5, "left")                                                # frozen: MovePC moves no one
+    assert fake._face_deg == 33.0 and fake.player[0] == 0.0
+
+
+@pytest.mark.parametrize("err,fires", [(47, True), (48, False), (-47, True), (-48, False)])
+def test_the_fakes_facing_gate_is_the_engines_strict_window(game, err, fires):
+    """Standing in the south door at yaw ``err`` 256ths off its bearing: the gate is re-tested every frame he stands,
+    and fires for +-47, never for +-48 (B_LT / B_GT are strict)."""
+    from ff9mapkit.content import doorface
+    door = {"zone": _SOUTH_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _hand_fake(game, [door], at=(0, 0), yaw=doorface.yaw_of_byte(err))
+    _hand_frames(fake, 3)
+    assert [f["to"] for f in fake.fired] == ([30821] if fires else [])
+
+
+def test_the_fakes_facing_gate_takes_an_explicit_window(game):
+    from ff9mapkit.content import doorface
+    door = {"zone": _SOUTH_DOOR, "to": 30821, "arrive": (0, 0), "face": [56, 200]}
+    fake = _hand_fake(game, [door], at=(0, 0), yaw=doorface.yaw_of_byte(50))
+    _hand_frames(fake, 1)
+    assert [f["to"] for f in fake.fired] == [30821]
+
+
+def test_a_gated_door_fires_on_a_standing_retest_once_he_faces_it_and_an_ungated_one_keeps_the_step_rule(game):
+    """He stands in the gated door facing away: nothing, frame after frame -- and the moment his yaw faces it (as a
+    press that moved him nowhere would leave it) it fires with no step at all. An UNGATED region he is placed in
+    stays the fake's step-only trigger: standing there fires nothing."""
+    door = {"zone": _SOUTH_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _hand_fake(game, [door], at=(0, 0), yaw=180.0)
+    _hand_frames(fake, 5)
+    assert fake.fired == [] and fake.field_id == 30820
+    fake._face_deg = 10.0
+    _hand_frames(fake, 1)
+    assert [f["to"] for f in fake.fired] == [30821] and fake.field_id == 30821
+    plain = _hand_fake(game, [{"zone": _SOUTH_DOOR, "to": 30821, "arrive": (0, 0)}], at=(0, 0), yaw=0.0)
+    _hand_frames(plain, 5)
+    assert plain.fired == []
+
+
+def test_a_dead_region_and_a_failed_gate_shadow_the_regions_after_them(game):
+    """The FIRST region containing him answers (TreadQuad): a dead one (``to`` None) and a gated one he does not face
+    both end the search, so the live door listed after them fires only where he is in it alone."""
+    live = {"zone": _rect(-200, -200, 200, 200), "to": 30821, "arrive": (0, 0)}
+    for first in ({"zone": _rect(-200, -200, 0, 200), "to": None},
+                  {"zone": _rect(-200, -200, 0, 200), "to": 30822, "arrive": (0, 0), "face": True}):
+        fake = _hand_fake(game, [first, live], at=(-300, 0), yaw=180.0)           # facing +z; the first's edge is -z
+        _hand_frames(fake, 4, "right")                                             # into the overlap, x -270 .. -180
+        assert fake.fired == [] and fake.player[0] == pytest.approx(-180.0), first
+        _hand_frames(fake, 7, "right")                                             # on, into the live door alone
+        assert [f["to"] for f in fake.fired] == [30821], first
+
+
+def test_arrive_face_sets_his_yaw_where_he_appears(game):
+    door = {"zone": _rect(-100, -100, 100, 100), "to": 30821, "arrive": (5, 5), "arrive_face": 45.0}
+    fake = _hand_fake(game, [door], at=(-130, 0), yaw=0.0)
+    _hand_frames(fake, 1, "right")
+    assert (fake.field_id, fake.player[0], fake._face_deg) == (30821, 5.0, 45.0)
+    plain = _hand_fake(game, [dict(door, arrive_face=None)], at=(-130, 0), yaw=0.0)
+    _hand_frames(plain, 1, "right")
+    assert plain.field_id == 30821 and plain._face_deg == pytest.approx(-36.0)     # kept: the press's own turn
+
+
+def test_a_region_with_engine_points_is_dead_in_a_pentagons_middle(game):
+    """``points`` = the engine's polygon: IsInQuad's ring of ears. A step into a 5-gon's middle fires nothing, a step
+    into an ear fires (the even-odd ``zone`` alone would have fired both)."""
+    penta = [[round(400 * math.sin(2 * math.pi * k / 5)), round(400 * math.cos(2 * math.pi * k / 5))] for k in range(5)]
+    door = {"zone": penta, "points": penta, "to": 30821, "arrive": (0, 0)}
+    fake = _hand_fake(game, [door], at=(-30, 0), walkmesh=(-600.0, -600.0, 600.0, 600.0))
+    _hand_frames(fake, 1, "right")                                                 # to the middle (0, 0)
+    assert fake.fired == [] and fake.player[0] == pytest.approx(0.0)
+    _hand_frames(fake, 12, "up")                                                   # north, into the top ear
+    assert [f["to"] for f in fake.fired] == [30821]
+
+
+def test_the_fake_publishes_dir_0_whatever_his_yaw(game):
+    """The agent publishes PosObj.rot[1] as ``dir`` -- 0 on a field, which never writes it -- and so does the fake,
+    however its private yaw has turned: a driver can predict the facing, never read it."""
+    fake = _hand_fake(game, yaw=0.0)
+    _hand_frames(fake, 3, "right")
+    assert fake._face_deg != 0.0
+    fake.armed = True
+    fake.dir.mkdir(parents=True, exist_ok=True)
+    fake._publish(force=True)
+    assert json.loads((fake.dir / "state.json").read_text(encoding="utf-8"))["player"]["dir"] == 0
+
+
+@pytest.mark.parametrize("walked", [False, True])
+def test_the_coast_after_a_press_turns_him_too(game, walked):
+    """The frame after a press is released the engine is still applying it (`coast_frames`): it moves him and TURNS
+    him, the same calls as a frame of the press -- a walked frame half a call, a run frame one (research D6: the
+    rotation keys on the same pressed booleans as the step). One frame of right, then one released frame."""
+    from ff9mapkit.content import doorface
+    fake = _hand_fake(game, yaw=0.0)
+    fake.coast_frames = 1
+    _hand_frames(fake, 1, "right", *(["cancel"] if walked else []))
+    _hand_frames(fake, 1)
+    calls = doorface.movepc_calls(15.0 if walked else 30.0)
+    assert fake._face_deg == pytest.approx(doorface.turn_step(doorface.turn_step(0.0, -90.0, calls), -90.0, calls))
+    assert fake.player[0] == pytest.approx(30.0 if walked else 60.0)                 # it moved him, too
+
+
+def test_a_frozen_frame_still_retests_the_gated_door_he_stands_in(game):
+    """A hold on movement with control kept (`_frozen_until`): MovePC moves and turns no one, but the region's tag 2
+    still runs every tick he has control -- so standing in a gated door already facing it, it fires, frozen or not."""
+    door = {"zone": _SOUTH_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _hand_fake(game, [door], at=(0, 0), yaw=180.0)
+    fake._frozen_until = float("inf")
+    _hand_frames(fake, 3)
+    assert fake.fired == []                                                        # facing away: shut
+    fake._face_deg = 0.0
+    _hand_frames(fake, 1)
+    assert [f["to"] for f in fake.fired] == [30821]
+
+
+@pytest.mark.parametrize("phase", [0, 1])
+def test_the_fakes_tick_phase_turns_him_in_whole_calls(game, phase):
+    """`tick_phase`: the engine's 30 Hz ticks on every other frame of the fake's 60, a walked frame's call whole on its
+    tick frame and none between -- so three walked frames are 2 calls in one phase and 1 in the other (the average,
+    1.5, in neither), while the step stays the frame's average (45u either way)."""
+    from ff9mapkit.content import doorface
+    fake = _hand_fake(game, yaw=0.0)
+    fake.tick_phase = phase
+    ticks = sum(1 for f in range(fake.frame + 1, fake.frame + 4) if f % 2 == phase)
+    _hand_frames(fake, 3, "right", "cancel")
+    assert ticks in (1, 2) and fake._face_deg == pytest.approx(doorface.turn_step(0.0, -90.0, ticks))
+    assert fake.player[0] == pytest.approx(45.0)
+
+
+@pytest.mark.parametrize("face_gates", [False, True])
+def test_dali_fake_carries_the_stock_face_gates_only_when_asked(game, dali, face_gates):
+    """``_dali_fake(face_gates=True)`` gives each gated stock door its scan_gateways window and its engine polygon: on
+    350 the doors to 351, 354, 353, 356 and 355 (entries 18-23; the two to 353 share a zone), each a 5-point region
+    whose first four points are its zone -- and nothing without the flag."""
+    from ff9mapkit import eventscan
+    walkmesh, script = dali
+    fake, _prior = _dali_fake(game, walkmesh, script, 350, face_gates=face_gates)
+    faced = {tuple(map(tuple, r["zone"])): r.get("face") for r in fake.regions[350]}
+    rows = [gw for gw in eventscan.scan_gateways(script(350)) if gw["face_gate"]]
+    want = {tuple(map(tuple, gw["zone"])) for gw in rows}
+    assert len(want) == 5
+    assert {z for z, f in faced.items() if f} == (want if face_gates else set())
+    assert all(f in (None, [48, 208]) for f in faced.values())
+    points = {tuple(map(tuple, r["zone"])): r.get("points") for r in fake.regions[350] if r.get("face")}
+    assert all(len(p) == 5 and p[:4] == [list(q) for q in z] for z, p in points.items())
+
+
+# --------------------------------------------------------------------------- the walker faces the door
+# In-game, 350 -> 351 missed 10 of 10 session-2 runs: the walk stood him IN the door's zone facing back up the street,
+# and a door stock's facing gate keeps fires only while he faces it -- a REAL miss each time. A walk that ends in the
+# zone with nothing fired now ends with a press that turns him to face it (Session._face_the_door). These walk the
+# fake with the gate on (FakeGame ``regions`` ``"face"``), its floor keeping his centre 80u off the walls as the
+# engine's does, so a walker that never faces the door FAILS here as it did in the game.
+
+#: A door in the fake's east wall: its zone reaches from the room (x 300) to the wall (x 600), its FIRST EDGE the
+#: wall's own, as a stock door's is -- so from anywhere in it the door bears due east. He stands in it only where
+#: x <= 520 (80u off the wall).
+_EAST_DOOR = [[600, -150], [600, 150], [300, 150], [300, -150]]
+
+
+def _gated_room(game, regions):
+    """The fake with ``regions`` on 30820 (a region's ``"face"`` gates it), its floor walled as the engine walls it."""
+    fake = FakeGame(game)
+    fake.walkmesh, fake.clearance = _flat_bgi(), 80.0
+    fake.regions = {30820: list(regions)}
+    fake.exit_frames = 30
+    return fake
+
+
+def _gated_start(g, fake, at, yaw=0.0):
+    """Standing at ``at`` on 30820 with control, its basis known and his yaw ``yaw`` (the walk turns it from there)."""
+    boot(g)
+    g.warp(30820)
+    g._axes[30820] = _prior()
+    _stand(g, fake, *at)
+    fake._face_deg = float(yaw)
+
+
+def _gated_cross(g, zone, *, avoid=(), smooth=True, timeout=3, gate=(48, 208), region=None, goal=None):
+    """The tour's crossing call (dali_tour.Tour._cross): route_cross to ``zone``'s region_goal (or ``goal``), the other
+    doors kept out of, told the door's facing ``gate`` (scan_gateways' ``face_gate``; None: an ungated door) and its
+    engine ``region`` -- smooth and minding the objects, or (``smooth`` False) the chunked walk."""
+    from ff9mapkit.content import pathfind
+    goal = pathfind.region_goal(_flat_bgi(), zone) if goal is None else goal
+    return g.route_cross(goal[0], goal[1], avoid=list(avoid), walkmesh=_flat_bgi(), prior=_prior(), unstick=True,
+                         zone=zone, smooth=smooth, npcs=smooth, timeout=timeout,
+                         gate=None if gate is None else list(gate), region=region)
+
+
+def test_a_gated_door_reached_facing_away_is_turned_to_and_crosses(game):
+    """He walks into the east-wall door from the south: the walk's last holds press up, so he stands in the zone facing
+    north, 90 degrees off the door's bearing -- where HEAD's walker stopped, the door shut. The facing step turns him
+    to it (at least ROUTE_FACE_CALLS MovePC calls of a pad the prediction says faces it) and the door fires DURING that
+    press: ``during`` "face", ``faced`` True, the exit point on the wall's edge in ``face_to``."""
+    door = {"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _gated_room(game, [door])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (410, -450))
+        rec = _gated_cross(g, _EAST_DOOR)
+    assert rec["landed"] == 30821 and [f["to"] for f in fake.fired] == [30821], rec
+    assert rec["during"] == "face" and rec["faced"] is True, rec
+    assert rec["face_to"][0] == 600 and rec["face_calls"] >= 4 and "right" in rec["face_pad"], rec     # the rule's 4
+    assert rec["face_gate"] == [48, 208], rec
+
+
+def test_an_approach_that_already_faces_the_door_crosses_with_no_turn(game):
+    """Walked into from the west, the walk's own holds press right -- toward the door -- and it fires on the way in, as
+    stock's does: the facing step is never taken (``faced`` None, no pad, no calls) and ``during`` is the walk's."""
+    door = {"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _gated_room(game, [door])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (-300, 0), yaw=180.0)
+        rec = _gated_cross(g, _EAST_DOOR)
+    assert rec["landed"] == 30821 and [f["to"] for f in fake.fired] == [30821], rec
+    assert rec["during"] == "walk" and rec["faced"] is None, rec
+    assert (rec["face_to"], rec["face_pad"], rec["face_calls"], rec["face_err"]) == (None, None, None, None), rec
+
+
+def test_a_door_dead_even_when_faced_is_the_doors_real_miss_in_bounded_time(game):
+    """The same door, dead (a region that answers and never fires: the story has shut it). The facing step turns him
+    to it -- ``faced`` True, the predicted error inside the stock window -- and nothing fires: he stood IN the zone
+    FACING the door, so the tour's strike rule reads it as the door's MISS, REAL. The crossing's wait is route_cross's
+    own ``timeout``, and the whole call is bounded."""
+    D = _tour_module()
+    door = {"zone": _EAST_DOOR, "to": None, "face": True}
+    fake = _gated_room(game, [door])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (410, -450))
+        t0 = time.time()
+        rec = _gated_cross(g, _EAST_DOOR, timeout=2)
+        assert time.time() - t0 < 30, "bounded"
+    assert rec["landed"] is None and rec["inside"] is True and not fake.fired, rec
+    assert rec["faced"] is True and rec["face_calls"] >= 4 and abs(rec["face_err"]) <= 47, rec          # the rule's 4
+    assert rec["face_worst"] <= 47, rec
+    assert D.failure(rec) == "miss", rec
+
+
+def test_the_door_faced_is_the_zones_first_edge_not_the_side_he_came_in_by(game):
+    """A free-standing zone on open floor whose FIRST edge is its west side (x = -100), walked into through its south
+    side: the gate takes his bearing to his projection onto the first edge, wherever that lies -- here due west, with
+    floor beyond it he could walk out across. The step presses a pad with a westward part, keeps him in the zone to
+    the call it faces the door by, and the door fires."""
+    zone = [[-100, 150], [-100, -150], [100, -150], [100, 150]]
+    fake = _gated_room(game, [{"zone": zone, "to": 30821, "arrive": (0, 0), "face": True}])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (0, -450))
+        rec = _gated_cross(g, zone)
+    assert rec["landed"] == 30821 and rec["during"] == "face" and rec["faced"] is True, rec
+    assert rec["face_to"][0] == -100 and "left" in rec["face_pad"], rec
+
+
+def test_a_turn_press_that_would_leave_the_zone_or_near_another_door_is_not_pressed(game):
+    """A small gated zone (80u square on open floor, its first edge the east side) with another door 20u east of it:
+    every press that would face this door either walks him out of its zone or up to the other one (PROBE_HAZARD_PAD).
+    Nothing is pressed -- ``faced`` False, no pad, no calls -- nothing fires, and the tour does NOT strike the door:
+    the walker never gave it its chance (LIVE, never the door's MISS)."""
+    D = _tour_module()
+    small = [[40, -40], [40, 40], [-40, 40], [-40, -40]]
+    other = _rect(60, -300, 300, 300)
+    fake = _gated_room(game, [{"zone": small, "to": 30821, "arrive": (0, 0), "face": True},
+                              {"zone": other, "to": 30822, "arrive": (0, 0)}])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (0, -400))
+        rec = _gated_cross(g, small, avoid=[other], timeout=2)
+    assert rec["landed"] is None and rec["inside"] is True and not fake.fired, rec
+    assert rec["faced"] is False and rec["face_pad"] is None and rec["face_calls"] is None, rec
+    assert rec["face_to"][0] == 40 and rec["face_err"] is None and rec["face_worst"] is None, rec
+    assert D.failure(rec) == "live", rec
+
+
+def test_the_chunked_route_cross_faces_the_door_too(game):
+    """route_cross without ``smooth``: the chunked walk (one-axis walk_to bursts) that ends in the zone gets the same
+    facing step -- route_cross hands a gated door to route_to to face either way. Walked in from due south, the last
+    bursts press up, and it would stand there, the door shut. The chunked walk measures no hold's turn, so the step
+    starts from ANY yaw: it records the bound its prediction holds him to (``face_worst``, inside the window) and no
+    centre error at all (``face_err`` None) -- from an unknown yaw there is no single predicted yaw to name."""
+    fake = _gated_room(game, [{"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, -450))
+        rec = _gated_cross(g, _EAST_DOOR, smooth=False)
+    assert rec["landed"] == 30821 and [f["to"] for f in fake.fired] == [30821], rec
+    assert rec["during"] == "face" and rec["faced"] is True, rec
+    assert rec["face_err"] is None and 0 <= rec["face_worst"] <= 47, rec
+
+
+def test_a_door_that_fires_during_the_facing_press_is_landed_as_the_walks_own(game):
+    """Control goes during the facing press: route_to lands it exactly as a step that fired a door -- ``during``
+    "face", the field it changed to in ``changed_to`` and ``landed``, what the press covered in ``travelled`` -- and
+    nothing more is pressed once control is gone (the fade runs 90 frames here). route_cross has nothing left to wait
+    for, and ``inside`` is not judged."""
+    fake = _gated_room(game, [{"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}])
+    fake.exit_frames = 90
+    with session(game, fake) as g:
+        _gated_start(g, fake, (410, -450))
+        rec = _gated_cross(g, _EAST_DOOR)
+    assert (rec["during"], rec["landed"], rec["changed_to"], rec["inside"]) == ("face", 30821, 30821, None), rec
+    fired = fake.fired[0]["executed"]
+    assert not [s for s in fake.executed[fired:] if s[0] == "hold"], fake.executed[fired:]
+    assert rec["travelled"] >= 450 + g.WALK_SPEED, rec          # the walk's 450u up to the door, and the press's own
+
+
+def test_a_smooth_walk_on_stock_350_crosses_every_door_its_facing_gate_keeps(game, dali):
+    """THE IN-GAME MISS, OFFLINE: stock 350 with stock's door facing gate on its doors to 351, 354, 353, 356 and 355
+    (``_dali_fake(face_gates=True)``), his yaw where the arrival from 351 leaves it (69 degrees, back up the street).
+    From that arrival a smooth route_to every place of the field: the walk HEAD made ended in the 351 door's zone
+    facing away and stood there, the door shut. Every walk now lands, and only in the region it was sent to -- the 351
+    door by the facing step's own press."""
+    from ff9mapkit.content import pathfind
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 350, face_gates=True)
+    places = _dali_places(script, 350)
+    wm, start = walkmesh(350), _DALI_STARTS[350]
+    turned = []
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(350)
+        _stand(g, fake, *start)
+        g.calibrate_axes(hazards=places, prior=prior)
+        for i, zone in enumerate(places):
+            g.warp(350)
+            _stand(g, fake, *start)
+            fake._face_deg = 69.0
+            fired = len(fake.fired)
+            goal = pathfind.region_goal(wm, zone)
+            door = fake.regions[350][i]              # a gated door is faced by its engine polygon, as the tour does
+            rec = g.route_to(goal[0], goal[1], avoid=[z for z in places if z is not zone], walkmesh=wm, prior=prior,
+                             smooth=True, zone=zone, face=door.get("points") if door.get("face") else None,
+                             face_window=door.get("face"))
+            assert [f["to"] for f in fake.fired[fired:]] == [30000 + i] and rec["landed"] == 30000 + i, (i, rec)
+            if rec["during"] == "face":
+                turned.append(i)
+    assert sum(1 for r in fake.regions[350] if r.get("face")) == 5, "premise: the gates are on"
+    assert 0 in turned, turned                      # the 351 door: only the facing step opened it
+
+
+def test_the_walks_last_hold_is_where_the_facing_step_starts():
+    """``leg["turned"]`` -- the last hold and the MovePC calls it is known to have spent -- is the facing step's start:
+    his yaw within 180 * 0.6**calls of that hold's, plus the leg's heading spread. None (unknown: any yaw) without
+    it."""
+    from harness.session import Session
+    yaw, off = Session._held_yaw({"turned": ((("up",), (0.0, 1.0)), 6.0), "spread": math.radians(2.0)})
+    assert abs(yaw) == pytest.approx(180.0) and off == pytest.approx(180 * 0.6 ** 6 + 2.0)
+    assert Session._held_yaw({"turned": None, "spread": 0.0}) is None and Session._held_yaw(None) is None
+
+
+def test_the_tour_reads_the_facing_step_and_a_bounce_by_what_they_were():
+    """The strike rule on the facing step's verdict, at a GATED door (``face_gate``): IN the region FACING the door with
+    nothing fired is the door's MISS (REAL) -- and so is a faced press whose rest took him on out of the region; in it
+    with no press that faces the door possible, or standing in its dead middle, or left there frozen and never turned,
+    is LIVE (the walker's limit). At a door with NO gate standing inside with nothing fired is the door's MISS, turned
+    or not -- it fires for anyone standing in it; and a record with no gate (older logs) reads as before, a MISS. And a
+    crossing that reached a destination which never handed control over -- route_cross's own error naming it -- is a
+    BOUNCE."""
+    D = _tour_module()
+    rec = {"boxed": False, "boxed_by": None, "reached": True, "inside": True, "during": None, "route": 2, "waits": 0,
+           "pushes": 0, "blockers": [], "frozen": False, "npc_replans": 0, "box_waits": 0, "held_by": None,
+           "pinned": [], "landed": None}
+    gated = dict(rec, face_gate=[48, 208])
+    assert D.failure(dict(gated, faced=True)) == "miss"
+    assert D.failure(dict(gated, faced=False)) == "live" and D.unfaced(dict(gated, faced=False))
+    assert D.failure(dict(gated, faced=None, frozen=True)) == "live"                 # frozen inside: never turned
+    assert D.failure(dict(gated, inside=False, faced=False)) == "live"               # the region's dead middle
+    assert D.failure(dict(gated, inside=False, faced=True, waits=2, reached=False)) == "miss"
+    assert D.failure(dict(rec, faced=False)) == "miss" and not D.unfaced(dict(rec, faced=False))   # no gate
+    assert D.failure(dict(rec, faced=None)) == "miss" and D.failure(rec) == "miss"
+    real = ("crossing from 350 reached field 353, but it never became playable within 20s -- the gateway WORKS and the "
+            "destination is the problem. (timed out after 20.0s waiting for the player to have control)")
+    assert D.failure({"landed": None, "error": real[:200], "inside": None, "during": None}) == "bounce"
+    assert D.entered_field({"error": real[:200]}) == 353
+
+
+# --- what the facing step must never do (the review of the step above; each a case that once went wrong offline) ---
+def _here_cross(g, zone, *, avoid=(), gate=(48, 208), region=None, smooth=True, npcs=True, timeout=2):
+    """route_cross whose goal is where he STANDS, inside the zone: the walk is over at once, and the facing step runs
+    from exactly this spot (smooth or chunked; the door told its ``gate`` and ``region`` as the tour tells it)."""
+    st = g.state
+    return g.route_cross(st.player_x, st.player_z, avoid=list(avoid), walkmesh=_flat_bgi(), prior=_prior(),
+                         unstick=True, zone=zone, smooth=smooth, npcs=npcs, timeout=timeout,
+                         gate=None if gate is None else list(gate), region=region)
+
+
+def _holds_after(fake, mark):
+    return [s for s in fake.executed[mark:] if s[0] == "hold"]
+
+
+def test_a_door_with_no_gate_is_never_turned_to_and_standing_in_it_shut_is_its_miss(game):
+    """A door with NO facing gate (scan_gateways' ``face_gate`` None), shut by the story: he stands in its small zone
+    and nothing fires -- which for an ungated region IS the verdict: it fires the first tick anyone stands in it with
+    control. Nothing turns him (no hold at all), ``faced`` stays None, and the tour strikes the door (MISS): no press
+    toward its first edge -- which would only walk him about, here up to the other door -- and no LIVE for a walker's
+    limit that does not apply. A route_to into a zone it is not told to face presses nothing either."""
+    D = _tour_module()
+    small = [[40, -40], [40, 40], [-40, 40], [-40, -40]]
+    other = _rect(60, -300, 300, 300)
+    fake = _gated_room(game, [{"zone": small, "to": None}, {"zone": other, "to": 30822, "arrive": (0, 0)}])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (0, 0))
+        mark = len(fake.executed)
+        rec = _here_cross(g, small, avoid=[other], gate=None)
+        assert not _holds_after(fake, mark), fake.executed[mark:]
+        again = g.route_to(0.0, 0.0, avoid=[other], walkmesh=_flat_bgi(), prior=_prior(), smooth=True, zone=small)
+    assert rec["inside"] is True and not fake.fired and rec["face_gate"] is None, rec
+    assert (rec["faced"], rec["face_pad"], rec["face_to"]) == (None, None, None), rec
+    assert D.failure(rec) == "miss", rec
+    assert again["faced"] is None and again["face_gate"] is None and not _holds_after(fake, mark), again
+
+
+@pytest.mark.parametrize("tx,tz,rr", [(470, -40, 60), (465, -45, 60), (480, -50, 50)])
+def test_the_facing_press_never_slides_him_into_a_triggers_range(game, tx, tz, rr):
+    """A dead gated door (the whole press runs) along the fake's east wall, a Range beside the wall: the press aimed
+    diagonally into the wall passes the Range well off its LINE, but slides along the wall into it (FakeGame slides as
+    the engine's ServiceChar does) -- its script would fire, and the door's record would carry the blame. The points a
+    slide reaches are held to the rules the line is (Session._slide_clear): the Range is never touched. Walked from a
+    known yaw facing away (+z)."""
+    zone = [[1400, 900], [900, 1400], [-300, 300], [300, -500]]
+    fake = _gated_room(game, [{"zone": zone, "to": None, "face": True}])
+    trig = {"x": float(tx), "z": float(tz), "r": 10.0, "range_r": float(rr), "uid": 150, "coll": True}
+    with session(game, fake) as g:
+        _gated_start(g, fake, (505, -150), yaw=180.0)
+        fake.blockers = {30820: [trig]}
+        published(g, lambda s: s.objects is not None and len(s.objects) == 1)
+        rec = _here_cross(g, zone)
+    assert not [t for t in fake.touched if t["uid"] == 150], (rec, fake.touched, fake.player)
+    assert rec["faced"] in (True, False) and not fake.fired, rec
+
+
+@pytest.mark.parametrize("coast", [1, 2])
+def test_a_dead_doors_facing_press_and_its_tail_never_slide_into_the_live_door_beside_it(game, coast):
+    """A DEAD gated door beside a LIVE one along the same wall, their shared side slanted to it: a press run parallel
+    to that side keeps its line 60u off the live door, but slides up the wall -- and the press's movement TAIL (the
+    harness allows PROBE_TAIL_FRAMES of it; the fake's ``coast_frames``) slides it on, over the shared side. The rest of
+    a press matters for a door that stays shut: its whole travel, tail and slides included, keeps out of every other
+    zone. Nothing fires, whatever the tail."""
+    dead = [[1400, 830], [1500, 500], [300, -500], [300, -270]]
+    live = [[300, -270], [1400, 830], [1400, 1100], [300, 30]]
+    fake = _gated_room(game, [{"zone": dead, "to": None, "face": True}, {"zone": live, "to": 30821, "arrive": (0, 0)}])
+    fake.coast_frames = coast
+    with session(game, fake) as g:
+        _gated_start(g, fake, (505, -150), yaw=180.0)
+        rec = _here_cross(g, dead, avoid=[live], npcs=False)
+    assert not fake.fired and rec["landed"] is None, (rec, fake.fired, fake.player)
+
+
+def test_a_facing_press_into_a_hold_on_movement_is_not_counted(game):
+    """A hold on movement that keeps control (the pad mask) starts as he steps into a live gated door and lasts 100
+    frames: MovePC moves and turns no one. A press that moved him nothing where its line ran free did not run -- it is
+    counted by what it moved (nothing), and the step presses on: once the hold lifts, a press turns him and the door
+    fires. Never ``faced`` True with the door shut and the yaw unturned."""
+    fake = _gated_room(game, [{"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}])
+    fake.freezes = {30820: [{"zone": _EAST_DOOR, "frames": 100}]}
+    with session(game, fake) as g:
+        _gated_start(g, fake, (410, -450))
+        rec = _gated_cross(g, _EAST_DOOR, timeout=2)
+    assert fake._froze, "premise: the hold took him on the step into the zone"
+    assert not (rec["faced"] is True and not fake.fired), rec
+    assert [f["to"] for f in fake.fired] == [30821] and rec["during"] == "face", rec
+
+
+@pytest.mark.parametrize("phase", [0, 1])
+def test_an_odd_walked_press_is_counted_by_the_whole_calls_it_is_sure_of(game, phase):
+    """The engine turns him in WHOLE MovePC calls, a walked one a 30 Hz tick, in a phase nobody sees (the fake's
+    ``tick_phase``): 9 walked frames are 4 calls or 5. The nearest pad (right, 0.6 degrees off the bearing) runs into
+    another door; the next (down+right) is 44 degrees off, and from a yaw turned all the way away from it (the chunked
+    walk: unknown), its 4.5 AVERAGE calls say faced where 4 whole ones leave the door shut (an error of 48, which the
+    strict gate fails). Counting only whole calls, the press is 10 frames -- 5 calls in either phase -- and the door
+    fires in both."""
+    from ff9mapkit.content import doorface
+    q0 = (30000, -300)                            # the exit point stays clamped to q0: the bearing barely moves
+    zone = [list(q0), [30000, -5000], [-200, -5000], [-200, 400]]
+    other = _rect(150, -30, 250, 30)
+    fake = _gated_room(game, [{"zone": zone, "to": 30821, "arrive": (0, 0), "face": True},
+                              {"zone": other, "to": 30822, "arrive": (0, 0)}])
+    fake.tick_phase, fake.coast_frames = phase, 0         # a press's frames are its held input, no more
+    with session(game, fake) as g:
+        _gated_start(g, fake, (0, 0), yaw=doorface.yaw_of(0.7071, -0.7071) + 179.9)
+        rec = _here_cross(g, zone, avoid=[other], smooth=False, npcs=False)
+    assert rec["faced"] is True and rec["face_pad"] == "down+right" and rec["face_calls"] == 5, rec
+    assert [f["to"] for f in fake.fired] == [30821] and rec["during"] == "face", rec
+
+
+def test_a_hold_cut_short_by_an_object_moving_leaves_his_yaw_unknown(game, monkeypatch):
+    """A smooth hold that changed pad returns "moved" when an object moves onto the path -- after the hold was pressed,
+    before its turn was measured. If the replan then finds no route, the facing step starts from where the walk's last
+    hold left him: that must be THIS hold's pad or unknown, never the hold before it (a yaw known to 2 degrees, of the
+    wrong pad, would let a farther pad pass as facing the door)."""
+    holds, seen, state = [], [], {"moved": False}
+    send = Session.send
+
+    def spy_send(self, *steps):
+        hb = tuple(s.split()[1] for s in steps if s.startswith("hold ") and s.split()[1] != "cancel")
+        if hb:
+            holds.append(hb)
+        return send(self, *steps)
+    npc_moved, plan_npcs, held_yaw = Session._npc_moved, Session._plan_npcs, Session._held_yaw
+
+    def moved(self, st, watch):
+        if not state["moved"] and len(holds) >= 2 and holds[-1] != holds[-2]:
+            state["moved"] = True
+            return True
+        return npc_moved(self, st, watch)
+
+    def plan(self, *a, **kw):
+        return (None, []) if state["moved"] else plan_npcs(self, *a, **kw)
+
+    def spy_held(leg):
+        seen.append(None if leg is None else (leg.get("pressed"), leg.get("turned")))
+        return held_yaw(leg)
+    monkeypatch.setattr(Session, "send", spy_send)
+    monkeypatch.setattr(Session, "_npc_moved", moved)
+    monkeypatch.setattr(Session, "_plan_npcs", plan)
+    monkeypatch.setattr(Session, "_held_yaw", staticmethod(spy_held))
+    from ff9mapkit.content import pathfind
+    fake = _gated_room(game, [{"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (200, 520))
+        goal = pathfind.region_goal(_flat_bgi(), _EAST_DOOR)
+        g.route_to(goal[0], goal[1], walkmesh=_flat_bgi(), prior=_prior(), unstick=True, smooth=True, npcs=True,
+                   zone=_EAST_DOOR, face=_EAST_DOOR, timeout=3)
+    assert state["moved"] and seen, "premise: a pad change, then an object moved"
+    pressed, turned = seen[-1]
+    assert turned is None or turned[0][0] == pressed[0], (pressed, turned)
+
+
+def test_a_walk_that_ends_frozen_in_a_gated_door_is_not_turned_and_is_no_strike(game):
+    """A hold on movement that never lifts takes him on the step into a gated door: the walk ends ``frozen``, standing
+    in it. MovePC turns no one while movement is held, so the facing step is not taken (``faced`` None, nothing pressed
+    after it) -- and a gated door he was never turned to is the walker's limit, LIVE, not the door's MISS."""
+    D = _tour_module()
+    fake = _gated_room(game, [{"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}])
+    fake.freezes = {30820: [{"zone": _rect(300, -150, 600, -60), "frames": None}]}
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, -450))
+        rec = _gated_cross(g, _EAST_DOOR, smooth=False, timeout=2)
+    assert rec["frozen"] and rec["inside"] and not fake.fired, rec
+    assert (rec["faced"], rec["face_pad"], rec["face_calls"]) == (None, None, None), rec
+    assert D.failure(rec) == "live", rec
+
+
+def test_a_press_that_would_leave_the_region_before_it_faces_the_door_is_never_made(game):
+    """A small free-standing gated zone whose first edge (east, x = 50) he walked in ACROSS, heading west: he stands
+    in it facing away, open floor beyond the edge. Every press that faces the door carries him out across it before the
+    call that faces it -- and out of the region the gate never runs. None is pressed that would: on no frame with
+    control after he first stood in the zone is he outside it before the door fires, and a step that cannot face it
+    reads ``faced`` False (LIVE), never a press that walked him out and then read faced."""
+    from ff9mapkit.content import doorface, pathfind
+    D = _tour_module()
+    zone = [[50, -60], [50, 60], [-50, 60], [-50, -60]]
+    fake = _gated_room(game, [{"zone": zone, "to": 30821, "arrive": (0, 0), "face": True}])
+    trail = []
+    with session(game, fake) as g:
+        _gated_start(g, fake, (400, 0), yaw=90.0)
+        move = fake._move_to
+
+        def spy(x, z, calls=1.0):
+            moved = move(x, z, calls)
+            trail.append((fake.player[0], fake.player[2], fake.control))
+            return moved
+        fake._move_to = spy
+        rec = _gated_cross(g, zone, goal=pathfind.region_goal(_flat_bgi(), zone), timeout=2)
+    first = next((k for k, (x, z, _c) in enumerate(trail) if doorface.region_contains(x, z, zone)), None)
+    assert first is not None, "premise: the walk got him into the zone"
+    left = [(x, z) for x, z, c in trail[first:] if c and not doorface.region_contains(x, z, zone)]
+    assert not left, left
+    assert fake.fired or (rec["faced"] is False and D.failure(rec) == "live"), rec
+
+
+@pytest.mark.parametrize("place,at,yaw", [(0, (317, -102), 70.0), (4, (1043, 3370), None), (4, (1059, 3370), None)])
+def test_on_stock_350_a_slide_along_the_wall_never_carries_the_facing_press_out_of_the_region(game, dali, place, at,
+                                                                                               yaw):
+    """Stock 350's doors to 351 and to 355, standing in them facing away (``yaw`` None: straight away from the door):
+    their standable strips run along walls, and a press into a wall slides along it -- out of the region, where the
+    gate never runs, before the call that faces the door if the slide is not bounded (Session._face_reach's disc). On
+    no frame with control after the facing step begins is he outside the door's region before it fires; and never
+    ``faced`` True standing outside it with the door shut (a false MISS)."""
+    from ff9mapkit.content import doorface
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 350, face_gates=True)
+    places = _dali_places(script, 350)
+    wm = walkmesh(350)
+    zone, door = places[place], fake.regions[350][place]
+    if yaw is None:
+        yaw = doorface.bearing_deg(at[0], at[1], door["points"][0], door["points"][1]) + 180.0
+        yaw = yaw - 360.0 if yaw > 180.0 else yaw
+    trail = []
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(350)
+        _stand(g, fake, *_DALI_STARTS[350])
+        g.calibrate_axes(hazards=places, prior=prior)
+        g.warp(350)
+        fake._face_deg = yaw
+        _stand(g, fake, *at)
+        assert not fake.fired and doorface.region_contains(*at, door["points"]), "premise: in the door, facing away"
+        move = fake._move_to
+
+        def spy(x, z, calls=1.0):
+            moved = move(x, z, calls)
+            trail.append((fake.player[0], fake.player[2], fake.control))
+            return moved
+        fake._move_to = spy
+        rec = g.route_cross(at[0], at[1], avoid=[z for z in places if z is not zone], walkmesh=wm, prior=prior,
+                            unstick=True, zone=zone, smooth=True, npcs=True, timeout=2, gate=door["face"],
+                            region=door["points"])
+    out = [(round(x), round(z)) for x, z, c in trail if c and not doorface.region_contains(x, z, door["points"])]
+    assert not out, (out[:3], rec)
+    assert not (rec["faced"] is True and rec["inside"] is False and rec["landed"] is None), rec
+
+
+@pytest.mark.parametrize("start", [(500, 0), (500, 30), (480, -20)])
+def test_the_facing_press_is_sized_in_movepc_calls_not_frames(game, start):
+    """A walked frame is HALF a MovePC call: the press that turns him must be 8 walked frames for its 4 calls, never 4.
+    A gated zone whose first edge (its east side, tilted) he walked in across heading up+left: he stands in it facing
+    far from the door, the nearest pad 20 degrees off its bearing -- 2 calls do not face it, 4 do -- and the door
+    fires during the facing press."""
+    from ff9mapkit.content import doorface, pathfind
+    zone = [[250, -150], [100, 221], [-200, 221], [-200, -150]]
+    fake = _gated_room(game, [{"zone": zone, "to": 30821, "arrive": (0, 0), "face": True}])
+    presses = []
+    with session(game, fake) as g:
+        _gated_start(g, fake, start, yaw=90.0)
+        pressed = g._pressed
+
+        def spy(origin, walked, *steps):
+            presses.append(steps)
+            return pressed(origin, walked, *steps)
+        g._pressed = spy
+        rec = _gated_cross(g, zone, goal=pathfind.region_goal(_flat_bgi(), zone), timeout=2)
+    assert rec["landed"] == 30821 and rec["during"] == "face" and rec["faced"] is True, rec
+    frames = int(presses[0][0].split()[2])
+    assert presses[0][0].startswith("hold cancel") and frames >= 4 / doorface.movepc_calls(g.WALK_SPEED) == 8, presses
+
+
+def test_standing_in_a_gated_regions_dead_middle_nothing_is_pressed_and_it_is_no_strike(game):
+    """A gated door whose region has FIVE points -- the kit's zone keeps its first four -- and a wall that stops him
+    short of its live ears: standing where the zone holds him but no triangle of the region does (IsInQuad's dead
+    middle, content.doorface.region_contains), the gate never runs, whatever he faces. Judged by the engine's polygon,
+    the facing step presses nothing there (a press into the wall would read ``faced`` and leave the door shut: a false
+    MISS) -- ``faced`` False, ``inside`` False (route_cross judges by the region too), the tour reads LIVE, and the
+    door, which the fake answers only where the engine would, never fires."""
+    D = _tour_module()
+    penta = [[600, -150], [600, 150], [300, 150], [300, -150], [450, -400]]
+    quad = penta[:4]
+    fake = _gated_room(game, [{"zone": quad, "points": penta, "to": 30821, "arrive": (0, 0), "face": True}])
+    floor = _flat_bgi(-600, -600, 550, 600)                     # his centre stands to x = 470: short of the live ears
+    fake.walkmesh = floor
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, -100))
+        mark = len(fake.executed)
+        rec = g.route_cross(450.0, -100.0, walkmesh=floor, prior=_prior(), unstick=True, zone=quad, smooth=True,
+                            npcs=True, timeout=2, gate=[48, 208], region=penta)
+    from ff9mapkit.content import doorface
+    assert not doorface.region_contains(450, -100, penta), "premise: the dead middle"
+    assert rec["faced"] is False and rec["inside"] is False and not _holds_after(fake, mark), rec
+    assert not fake.fired and D.failure(rec) == "live", rec
+
+
+def test_on_stock_350_the_351_door_is_faced_by_its_engine_polygon(game, dali):
+    """Stock 350's door to 351 is a FIVE-point region; the kit's zone keeps four. Standing at the tour's goal in it, as
+    the arrival from 351 leaves his yaw (69): judged by the region -- where IsInQuad holds him, which on this door's
+    standable ground is more than the quad -- one whole press (up+right) faces the door, and it fires during it. The
+    quad alone admits no whole press there, only bursts."""
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 350, face_gates=True)
+    places = _dali_places(script, 350)
+    wm = walkmesh(350)
+    door = fake.regions[350][0]
+    zone, penta = places[0], door["points"]
+    got, presses = {}, []
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(350)
+        _stand(g, fake, *_DALI_STARTS[350])
+        g.calibrate_axes(hazards=places, prior=prior)
+        pressed = g._pressed
+
+        def spy(origin, walked, *steps):
+            presses.append(steps)
+            return pressed(origin, walked, *steps)
+        g._pressed = spy
+        for face in ("region", "quad"):
+            g.warp(350)
+            fake._face_deg = 69.0
+            _stand(g, fake, 289, -74)
+            presses.clear()
+            fired = len(fake.fired)
+            rec = g.route_cross(289.0, -74.0, avoid=[z for z in places if z is not zone], walkmesh=wm, prior=prior,
+                                unstick=True, zone=zone, smooth=True, npcs=True, timeout=2, gate=[48, 208],
+                                region=penta if face == "region" else None)
+            got[face] = (rec, list(presses), [f["to"] for f in fake.fired[fired:]])
+    rec, presses, fired = got["region"]
+    assert rec["during"] == "face" and fired == [30000] and len(presses) == 1, (rec, presses)
+    assert int(presses[0][0].split()[2]) >= 8 and rec["face_pad"] == "up+right", presses
+    _rec, presses, _fired = got["quad"]
+    assert presses and int(presses[0][0].split()[2]) < 8, presses          # the quad: a burst first
+
+
+def test_at_350s_door_to_353_the_slide_bound_leaves_the_goal_unfaced(game, dali):
+    """PINNED, a trade-off the bound makes: stock 350's door to 353 is standable only in a 34u pocket by its corner, and
+    at the tour's goal there every facing press's WALL SLIDE bound (Session._face_reach: a slide either way along a wall
+    whose line is not known) reaches out of the region -- though a plain press into the corner would open the door. So
+    standing there facing away, the step presses nothing: ``faced`` False, LIVE, never the door's MISS (a replay steps
+    back and walks in again; the tour's next visit arrives elsewhere). A tighter slide bound would change this: then
+    expect the crossing here instead."""
+    from ff9mapkit.content import pathfind
+    D = _tour_module()
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 350, face_gates=True)
+    places = _dali_places(script, 350)
+    wm = walkmesh(350)
+    zone, door = places[2], fake.regions[350][2]
+    goal = pathfind.region_goal(wm, zone)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(350)
+        _stand(g, fake, *_DALI_STARTS[350])
+        g.calibrate_axes(hazards=places, prior=prior)
+        g.warp(350)
+        fake._face_deg = 0.0
+        _stand(g, fake, *goal)
+        rec = g.route_cross(goal[0], goal[1], avoid=[z for z in places if z is not zone], walkmesh=wm, prior=prior,
+                            unstick=True, zone=zone, smooth=True, npcs=True, timeout=2, gate=door["face"],
+                            region=door["points"])
+    assert rec["faced"] is False and rec["face_pad"] is None and not fake.fired, rec
+    assert D.failure(rec) == "live", rec
+
+
+def test_a_replay_steps_back_from_a_gated_door_it_could_not_face(game, monkeypatch):
+    """A replay step through a small GATED door (its first edge the north side) the walk comes into heading east: no
+    facing press keeps the rules in so small a zone -- ``faced`` False, and the tour's own record says so (``faced``,
+    ``face_gate``). LIVE: nothing struck. A retry from where he stands would only repeat it (the walk goes nowhere, the
+    step judges the same spot), so the replay walks BACK to where the step began before it tries again -- and the
+    step is done, one way or the other, well inside the budget: never "budget spent" on retries in place."""
+    fake, tour, D = _replay_world(game, monkeypatch)
+    small = [[360, 40], [440, 40], [440, -40], [360, -40]]
+    fake.regions[_A][0] = {"zone": small, "to": _B, "arrive": (-250, 0), "face": True}
+    tour._gates[_A] = [(_B, 0, small), (_C, 0, _WEST)]
+    tour._doors[_A] = {(_B, tuple(map(tuple, small))): {"gate": [48, 208], "region": small}}
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, [[_A, 0, _B]], beat=2600, max_crossings=12, max_passes=2, budget_s=120)
+    step = [x for x in log if x["k"] == "cross" and x["leg"] == "replay"]
+    first = step[0]
+    assert first["inside"] and first["faced"] is False and first["face_gate"] == [48, 208], first
+    assert D.failure(first) == "live" and first["verdict"] == "live 1 (retried)", first
+    walks = [(x.get("back", False), x["verdict"]) for x in step]
+    for k, x in enumerate(step[:-1]):                # every retry after an unfaced door walked back first
+        if D.unfaced(x) and not x.get("back"):
+            assert step[k + 1].get("back") is True, walks
+    unfaced = [x for x in step if D.unfaced(x) and not x.get("back")]
+    assert len(unfaced) <= D.LIVE, walks
+    assert walks[-1][1] == "replayed" or "the gated door was never faced" in stop, (stop, walks)
 
 
 # --------------------------------------------------------------------------- route_to(npcs=True)
@@ -4863,6 +5699,7 @@ def test_a_walker_held_on_him_since_before_the_call_is_stepped_off_the_line_at_h
         g._axes[30820] = _prior()
         kid = _villager(160, 0, uid=6, path=[(160, 0), (-900, 0)], speed=3.0)       # straight into him: held at 154
         leg, watch = _box_leg(g, fake, [kid], settled=lambda s: s.objects[0]["x"] < 155)
+        leg["turned"] = ((("right",), (1.0, 0.0)), 6.0)          # an earlier hold's turn: known, to 2 degrees
         basis, since = g._axes[30820], {}
         for _ in range(12):
             if g._box_step(basis, leg, since):
@@ -4874,6 +5711,9 @@ def test_a_walker_held_on_him_since_before_the_call_is_stepped_off_the_line_at_h
         assert watch["heading"].get(6) is None and watch["discs"][0]["dir"] is None, "premise: never seen walking"
         _buttons, u = leg["pressed"]
         assert abs(u[0]) < 0.1, f"straight across the line at him, not back along it: {u}"
+        # a step along another line turned him toward IT: where the earlier hold left his yaw is no longer known
+        # (a facing step would otherwise start from the wrong pad's yaw, Session._held_yaw)
+        assert Session._held_yaw(leg) is None, leg["turned"]
         published(g, lambda s: s.objects[0]["x"] < -300)                  # freed, it walked on past him
         assert not fake.contacts, fake.contacts
 
@@ -5162,7 +6002,8 @@ def test_standing_in_a_dead_zone_is_a_miss_whatever_held_him_on_the_way(game):
     """The story has shut the door (the zone is there, nothing fires). A child held on him on the door step is stepped
     away from, the finish presses into the zone, and he stands IN it with nothing fired: a MISS, REAL, exactly as
     before -- whatever the walk met on the way. Nothing holds him short of a zone he stands in: ``held_by`` None,
-    ``pinned`` empty."""
+    ``pinned`` empty. The door has no facing gate, so nothing turns him to it (``faced`` None): one that fires for
+    anyone standing in it and has not is shut."""
     D = _tour_module()
     fake = _door_fake(game)
     fake.regions = {}
@@ -5175,7 +6016,7 @@ def test_standing_in_a_dead_zone_is_a_miss_whatever_held_him_on_the_way(game):
         assert stood, "premise: the child walked into him"
     assert rec["box_cleared"] >= 1, f"premise: the child held him on the way ({rec})"
     assert rec["inside"] is True and rec["landed"] is None and not fake.fired, rec
-    assert rec["held_by"] is None and rec["pinned"] == [], rec
+    assert rec["held_by"] is None and rec["pinned"] == [] and rec["faced"] is None and rec["face_gate"] is None, rec
     assert D.failure(rec) == "miss", rec
 
 
@@ -5369,9 +6210,13 @@ class _StoryFake(FakeGame):
 
 class _MissOnceFake(_StoryFake):
     """A door that misses the first time he walks in (``miss_once`` = (field, zone)): nothing fires while he stays in
-    its zone, and it is live again once he has left it -- a gateway that fires on the way IN, never for someone
-    standing in it. Session 2's two same-exit retries after a miss started inside the zone, travelled 0 and missed
-    again; a replay has no other exit to try in between."""
+    its zone, and it is live again once he has left it. Session 2's two same-exit retries after a miss started inside
+    the zone, travelled 0 and missed again; a replay has no other exit to try in between, and walks back out first.
+    Kept as that regression. What it is NOT is a model of the engine's doors: the engine runs a region's tag 2 every
+    tick he stands in it with control (EventEngine.ProcessEvents.cs:174-178 -> EventCollision.cs:281-284, at stock
+    6b8bb2d5), so a door with no gate fires for someone standing in it as surely as for someone walking in -- one that
+    stays shut while he stands there is shut to HIM, and what shut 350's in session 2 was stock's door FACING GATE
+    (content.doorface; FakeGame ``regions`` ``"face"``): he stood facing away."""
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)

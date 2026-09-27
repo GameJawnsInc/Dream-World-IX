@@ -23,14 +23,14 @@ diagnosis); this file is the open work, where the research lives, and the one sp
 
 ## Open work, in order
 
-1. **The facing-gate fix** -- spec below. A workflow was building it when usage ran out; it was stopped before it
-   edited anything (the worktree was clean at handoff).
+1. **The facing-gate fix -- BUILT on the branch** (what landed, and what it still does not cover: THE FACING GATE,
+   below). Not yet walked in the game: the next session's first crossings of 350 -> 351 are its in-game check.
 2. **Full suite, then merge.** `content/pathfind.py`'s shared `route()` changed on this branch (`leave_wall`, the
    unlinked-edge check), and `build.py` / the behavior autoroute call it, so run the FULL suite `-n 6` before
    merging (this worktree has extracted templates -- `provision.templates_present()` was True; a fresh worktree
    needs `py -m ff9mapkit extract-templates` or it silently skips the core). Domain tests alone:
-   `cd ff9mapkit && py -m pytest -q -p no:cacheprovider -n 6 tests/test_harness.py tests/test_route_avoiding.py tests/test_storytrace.py`
-   (494 at handoff) and `py studies/story-trace/rung3_dryrun.py` (80/80; it reads session 2 from the main repo's
+   `cd ff9mapkit && py -m pytest -q -p no:cacheprovider -n 6 tests/test_harness.py tests/test_route_avoiding.py tests/test_storytrace.py tests/test_eventscan.py tests/test_doorface.py`
+   and `py studies/story-trace/rung3_dryrun.py` (80/80; it reads session 2 from the main repo's
    `.harness-runs`). Merge from the main repo (`git -C C:\gd\Dream-World-IX branch --show-current` first -- it was
    `master`), `--no-ff` like `be9b47b0`; read `.test-gate/latest.json` before and heed the post-merge ledger.
 3. **Optional session 4 -- needs the OWNER's go (the standing rule: never launch the harness without it).** On the
@@ -43,44 +43,41 @@ diagnosis); this file is the open work, where the research lives, and the one sp
    re-cut (a release -- outward-facing, confirm first); keep or revert the 23 fork ids (owner's call). Unrelated arc
    still pending from this session: the owner playtest of photo-mode bench 30956 (`studies/photo-mode/PLAN.md`).
 
-## THE FACING-GATE SPEC (from the 116-miss diagnosis, workflow `wf_e30deb95-606`, section 4-6)
+## THE FACING GATE (landed on the branch; the settled rule and what is still open)
 
 Of 116 misses in sessions 1-3: 2 were the walker pinning him at 350 -> 355 (fixed, `3641b126`); **23 are the facing
 gate**; the rest are real (353 is a bounce room -- its arrival scene puts him back, 54; 350 -> 358 is object 34's
 Range at SC 2600 then scene-gated region 25, 32; 5 are the 353 door step's ~34u standable wedge).
 
-- **The gate.** Every stock 350 door's region tag 2 checks, after `CalculateExitPosition`, that the player FACES
-  within +-48/256 of a turn (+-67.5 deg) of the bearing to his projection onto the region's FIRST edge (q0 -> q1);
-  if not, it resets and returns -- nothing fires, and the region re-tests while he stands in it.
-
-  | Region entry | Door | .eb offsets |
-  |---|---|---|
-  | 18 | 351 | 11123 / 11149 / 11164 |
-  | 20 | 353 (the one armed below SC 2990) | 12110 / 12136 / 12151 |
-  | 22 | 356 | 12979 / 13005 / 13020 |
-  | 23 | 355 | 13407 / 13433 / 13448 |
-
-  Engine: `DoEventCode.cs:2247-2275`, `EBin.cs:1811-1826` and `1207-1216`, operators 0x18 `B_LT`, 0x19 `B_GT`,
-  0x28 `B_OROR`. A region fires only under user control and only the FIRST armed region containing him
-  (`EventEngine.TreadQuad.cs:12-19`, Init order `Obj.cs:31-37`); membership is a fan of consecutive vertex
-  triplets (`TreadQuad.cs:24-39`). Facing turns 40% toward the pressed direction per moving frame and holds while
-  he stands (`FieldMapActorController.cs:749-796`).
-- **The harness defect.** `_walk_leg` (tools/harness/session.py) returns "arrived" the moment he stands in the
-  zone and never turns him, so he stands facing wherever the walk left him; `dali_tour.failure()` then scores a
-  REAL miss (inside, nothing fired). 350 -> 351 missed this way in 10 of 10 session-2 runs; a calibration probe that
-  pressed toward the door from the same spot fired it at once. It made 351/356 "unreachable" in whole runs.
-- **The fix plan.** In route_cross (or where `_walk_leg` returns in the zone): if nothing fires within a few
-  frames, press ONE short walked hold toward the q0 -> q1 projection, its line kept inside the zone (better: make
-  the final approach arrive heading at the door). `eventscan.scan_gateways` keeps q0/q1 as `zone[0]`/`zone[1]` --
-  verify end to end. **Test first:** `FakeGame._enter_regions` (`tools/harness/fakegame.py` ~969-985) fires on
-  centre-inside today, so a facing test could never fail -- teach it the facing gate and the first-armed-region
-  rule first. A door that stays shut while he stands inside FACING it stays a REAL miss; record `faced` / the
-  bearing error so a reader can tell the two. Worth a census first: how common the idiom is across the ~674 stock
-  fields (and its variants), so the harness rule is the stock rule, not Dali's.
-- **Smaller findings from the same diagnosis:** `eventscan._zone_quad` cuts 5-point SetRegions to 4 while the
-  engine tests the triplet fan -- 356's exits to 350/353 have 1464/626 standable 8u points in the fan's dead zone
-  (a latent miss); at SC 2600 the working 358 door is object 34 (a Range the planner avoids), not region 25;
-  `failure()` labels the 353 bounce "miss" (same cap, wrong name).
+- **The rule** (`ff9mapkit/content/doorface.py`, engine lines cited there at STOCK 6b8bb2d5). On 102 stock gateways
+  in 81 fields -- 6 of 350's 9 walk-in doors (regions 18-23: to 351, 354, 353 twice, 356, 355), and 351 e18,
+  353 e15, 356 e15 -- the region's tag 2 computes the exit position (his projection onto the region's FIRST edge
+  q0 -> q1, clamped to the segment) and runs the warp only while his yaw is within 47/256 of a turn of the bearing
+  to it: `v = (facing - bearing) & 255`, fired iff `v < 48 || v > 208`, both strict (+-66.1 deg). The yaw turns
+  40% a MovePC CALL toward the pressed direction -- one call a 30 Hz tick walking, two running, in WHOLE calls --
+  before the walls have their say (a press into a wall turns him), and holds while he stands. Region membership is
+  the triangles `(q[i], q[i+1], q[i+2])` mod n, NOT a fan from q0: a 5- to 8-point region has a dead middle. The
+  gate is re-tested every tick he stands in the region with control. `player.dir` is 0 on every field; memoria-patch
+  s90 (now live) publishes the real yaw as `player.face`, which the harness does NOT read yet.
+- **What landed.** `content/doorface.py` (the engine math, the math atan table -- never the game's);
+  `eventscan.scan_gateways` rows carry `region` (every SetRegion point) and `face_gate` (per warp, by control flow);
+  FakeGame models the gate opt-in (`regions` `"face"`, `"points"`, `"to": None`, `tick_phase`); route_cross takes
+  the door's `gate` and `region` (the tour reads both from the running bytes, `Tour.door`) and route_to ends a walk
+  that stands IN a GATED door's region with nothing fired with a press that turns him to face it
+  (`Session._face_the_door`). The press counts only the whole calls it is sure of, keeps him in the region to the
+  call that faces it (a wall slide bounded), keeps every zone and object clear over its whole travel (tail and
+  slides included), and is checked against what it moved him. Ungated doors are never turned to. `failure()` reads
+  a gated door he stood in and never faced as LIVE (`unfaced()`), a replay steps back before retrying it (LIVE of
+  them fail the step), and a faced door that stayed shut is the door's MISS; the 353 bounce reads "bounce".
+- **Still open.** (1) The prediction is open-loop: reading s90's `player.face` (and its `turn` verb, an in-place turn)
+  would make it measured -- the harness side of s90 is unbuilt. (2) The walk's finish still targets the kit's quad:
+  a walk can end in a 5-point region's dead middle, which the step reads LIVE (no Dali gated door has standable dead
+  middle; 8 stock gated rows elsewhere do). (3) At 350's door to 353 the wall-slide bound refuses every press from
+  the tour's goal pocket (LIVE; a replay steps back and walks in again) -- a slide bound that knows the wall's line
+  would open it. (4) Not modelled: the class-3 fixed-window doors (Lindblum cabs, castle lifts -- most need a
+  Confirm tap), 1458 e11 / 3057 e10 (whose gate is live only on the polygon tag 0 switches to), and the ~40 other
+  region sites that read the facing some other way. (5) WALK_SPEED is a 60 fps bench constant: on another refresh
+  rate the calls a frame spends differ (the press check catches a free press that ran short, not one into a wall).
 
 ## Where the research lives
 

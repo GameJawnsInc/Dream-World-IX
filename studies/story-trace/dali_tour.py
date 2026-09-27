@@ -125,13 +125,32 @@ def segment(g, log, *, start: int, sc: int, beat: int, place=lambda f: f, until:
 
 def failure(rec: dict) -> str:
     """What a crossing that did not land where its exit leads was, by rung3_step1's strike rule:
-    "bounce", "no route", "blocked", "boxed" or "miss" (REAL: they strike the exit), or "live" (the village was
-    in the way: a stall with control held that the walk waited on, pushed or routed round, a villager walking
-    onto the path, or walkers that boxed him in and let him go (``box_waits``), ending short OUTSIDE the zone;
-    published solids sealing the way while one of them walks; or a walk that waited on walking triggers, or on
-    walkers boxing him in, and was then left with nothing it could press). Standing inside the zone with nothing
-    fired is a miss whatever the walk met on the way. A seal by published solids has no route either, and is
-    BLOCKED, not NO ROUTE: the walls and zones alone had one.
+    "bounce", "no route", "blocked", "boxed" or "miss" (REAL: they strike the exit), or "live" (NOT the exit's doing,
+    and no strike -- the village was in the way: a stall with control held that the walk waited on, pushed or
+    routed round, a villager walking onto the path, or walkers that boxed him in and let him go (``box_waits``),
+    ending short OUTSIDE the zone; published solids sealing the way while one of them walks; or a walk that waited on
+    walking triggers, or on walkers boxing him in, and was then left with nothing it could press -- or the walker
+    never turned him to face the door, below). A seal by published solids has no route either, and is BLOCKED, not
+    NO ROUTE: the walls and zones alone had one.
+
+    A BOUNCE is any crossing that ENTERED a field (:func:`entered_field`) and did not land at the exit's: landed
+    elsewhere, or reached a destination that loaded and never handed control over -- 353, whose arrival scene puts
+    the player back where he came from (route_cross's own error names it). It said "miss" before: same strike, same
+    cap, the wrong name (and a screenshot of the room he was put back in).
+
+    STANDING INSIDE THE ZONE WITH NOTHING FIRED is the door's MISS, REAL, whatever the walk met on the way -- at a door
+    with no facing gate (the record's ``face_gate`` None) a region fires the first tick he stands in it with control
+    (ProcessEvents -> CollisionRequest, every tick), so one still shut is shut. A GATED door (``face_gate``: stock's
+    door facing gate, content.doorface -- 6 of 350's 9 walk-in doors fire only while he FACES the door) is judged by
+    the walk's FACING STEP (route_to's ``faced``, Session._face_the_door). Faced (True) -- a press the prediction says
+    left him facing it, and the door still shut -- is the door's MISS, REAL, wherever the rest of that press then took
+    him (it keeps him in the region only as far as the call it faced the door by). Never faced -- ``faced`` False: no
+    press that would face the door kept the walk's rules from where he stood (it would carry him out of the region,
+    into another zone, or at an object), or he stood in the dead middle of a 5- to 8-point region, where the gate never
+    runs; or None: the walk ended frozen, a hold on movement, and he was never turned -- is LIVE (:func:`unfaced`): the
+    walker never gave the door its chance, which says nothing of the door; it strikes nothing, and the tour tries the
+    exit again, from wherever the next visit leaves him, LIVE times (a replay steps back and retries it, LIVE times).
+    A record with no ``face_gate`` (a log from before the facing step) reads as it always did: a MISS.
 
     BOXED is the SPOT, and only the spot (route_to's ``boxed_by`` "spot": no press keeps the rules, and no walker's
     going would change that). A box walkers let go of is never ``boxed`` at all, so it strikes nothing: the walk goes
@@ -147,7 +166,7 @@ def failure(rec: dict) -> str:
     verdict, as it judged it) is LIVE. A door no walker's going would open -- dead by its own geometry (``held_by``
     None), or held shut by a body that does not walk (``held_by`` "bodies") -- is what it was, a MISS, however many
     walkers pace nearby: that body is not leaving, and the door's own geometry is the door's."""
-    if rec.get("landed") is not None:
+    if rec.get("landed") is not None or entered_field(rec) is not None:
         return "bounce"
     if rec.get("blocked"):
         return "live" if any(moving for _uid, moving in rec.get("sealed") or ()) else "blocked"
@@ -155,8 +174,8 @@ def failure(rec: dict) -> str:
         return "no route"
     if rec.get("boxed"):
         return "live" if rec.get("npc_waits") or rec.get("boxed_by") == "walkers" else "boxed"
-    if rec.get("inside"):
-        return "miss"
+    if rec.get("inside") or rec.get("faced") is not None:
+        return "live" if unfaced(rec) else "miss"
     if "error" not in rec and rec.get("during") is None and rec.get("held_by") == "walkers":
         return "live"
     if ("error" not in rec and rec.get("during") is None and not rec.get("reached")
@@ -164,6 +183,15 @@ def failure(rec: dict) -> str:
                  or rec.get("npc_replans") or rec.get("box_waits"))):
         return "live"
     return "miss"
+
+
+def unfaced(rec: dict) -> bool:
+    """Did the crossing stand at a GATED door (``face_gate``: stock's door facing gate) with nothing fired and never
+    face it -- the walker's limit, not the door's: IN its region (``inside``) or judged by the facing step, and not
+    ``faced`` True (False: no press that faces it kept the rules, or he stood in its dead middle; None: the walk ended
+    frozen)? :func:`failure` reads it as LIVE, and :meth:`Tour.replay` steps back before it tries again."""
+    return (rec.get("face_gate") is not None and rec.get("faced") is not True
+            and (bool(rec.get("inside")) or rec.get("faced") is False))
 
 
 # route_cross's own words for a destination that loaded and never handed control over (Session.expect_field_change)
@@ -216,6 +244,11 @@ def step_name(step) -> str:
     return f"{step[0]}.{step[1]} -> {step[2]}"
 
 
+def _zone_key(zone) -> tuple:
+    """A zone's corners as a hashable key."""
+    return tuple((int(p[0]), int(p[1])) for p in zone)
+
+
 class Tour:
     """The blind tour over one side's fields. ``members`` = ``{fork id: donor id}``, THAT side's chain only (one
     Tour per side: with every chain's ids mapped, a member's exit into ANOTHER chain would read as its donor's
@@ -231,6 +264,7 @@ class Tour:
         self._names: dict = {}
         self._floors: dict = {}
         self._gates: dict = {}
+        self._doors: dict = {}
         self._goals: dict = {}
         self._oneway: dict = {}
 
@@ -268,6 +302,28 @@ class Tour:
             if all((gw["to"], gw["zone"]) != (t, z) for t, _e, z in out):
                 out.append((gw["to"], gw["entrance"], gw["zone"]))
         return out
+
+    @staticmethod
+    def _doors_of(idx) -> dict:
+        """What each walk-in gateway of a script is as a DOOR, by ``(destination, zone)`` as :meth:`_scan` keys it:
+        ``{"gate", "region"}`` -- stock's door facing gate on its warp (scan_gateways' ``face_gate``, ``[lo, hi]`` or
+        None), OR'd over the rows of one exit (gated when any of its branches is: the story may be sending him through
+        the gated one, and a door the walker could not face is never struck for it), and the engine's polygon
+        (``region``: every SetRegion point, where the kit's ``zone`` keeps 4)."""
+        out: dict = {}
+        for gw in (eventscan.scan_gateways(idx.data) if idx else []):
+            d = out.setdefault((gw["to"], _zone_key(gw["zone"])), {"gate": None, "region": gw["region"]})
+            if d["gate"] is None and gw["face_gate"] is not None:
+                d["gate"] = list(gw["face_gate"])
+        return out
+
+    def door(self, fid: int, to: int, zone) -> dict:
+        """The exit of field ``fid`` to ``to`` through ``zone`` as a DOOR (:meth:`_doors_of`), from the bytes the field
+        RUNS -- a member's are its donor's, targets remapped, as its gateways are. ``{"gate": None, "region": zone}``
+        where the scan knows none."""
+        if fid not in self._doors:
+            self._doors[fid] = self._doors_of(self.ran(fid))
+        return self._doors[fid].get((to, _zone_key(zone))) or {"gate": None, "region": zone}
 
     def gateways(self, fid: int) -> list:
         """Field ``fid``'s gateways as the bytes it RUNS decode them -- for a member, checked to be its donor's
@@ -371,7 +427,9 @@ class Tour:
 
     def _cross(self, g, log, rec: dict, f: int, zone, goal, *, back: bool = False) -> None:
         """Drive the crossing ``rec`` names from field ``f`` -- the one route_cross call every walk makes (unstick,
-        smooth, npcs, the zone, every other gateway zone kept out of), the scene after it sat through -- and fill
+        smooth, npcs, the zone, every other gateway zone kept out of, and -- at a door stock's facing gate keeps
+        (:meth:`door`) -- that gate and the door's own polygon, so the walk turns him to face it), the scene after it
+        sat through -- and fill
         ``rec``: route_cross's record (or its error), ``landed`` late when the call gave up but the room did change,
         and ``entered``, the donor place the crossing entered (:func:`entered_field`), or None.
 
@@ -390,9 +448,11 @@ class Tour:
                                tolerance=45.0, timeout=CROSS_TIMEOUT, walkmesh=self.floor(f),
                                prior=g.key_prior(k), unstick=True, smooth=True, npcs=True)
             else:
+                door = self.door(f, rec["to"], zone)
                 r = g.route_cross(goal[0], goal[1], avoid=self.avoid_for(f, zone), margin=MARGIN,
                                   timeout=CROSS_TIMEOUT, walkmesh=self.floor(f), prior=g.key_prior(k),
-                                  unstick=True, zone=zone, smooth=True, npcs=True)
+                                  unstick=True, zone=zone, smooth=True, npcs=True, gate=door["gate"],
+                                  region=door["region"])
             rec.update(landed=r["landed"], changed_to=r.get("changed_to"), reached=r["reached"],
                        inside=r.get("inside"),
                        travelled=round(r["travelled"]), during=r["during"], replans=r["replans"],
@@ -406,7 +466,10 @@ class Tour:
                        sealed=[(o["uid"], o["moving"]) for o in r["sealed"]], npc_replans=r["npc_replans"],
                        npc_waits=r["npc_waits"], box_waits=r["box_waits"], box_cleared=r["box_cleared"],
                        boxers=[(o["uid"], o["kind"], o["moving"]) for o in r["boxers"]],
-                       held_by=r["held_by"], pinned=[(o["uid"], o["kind"], o["moving"]) for o in r["pinned"]])
+                       held_by=r["held_by"], pinned=[(o["uid"], o["kind"], o["moving"]) for o in r["pinned"]],
+                       face_gate=r["face_gate"], faced=r["faced"], face_err=r["face_err"],
+                       face_worst=r["face_worst"], face_to=r["face_to"], face_calls=r["face_calls"],
+                       face_pad=r["face_pad"])
         except HarnessError as err:
             rec.update(landed=None, error=str(err)[:200])
         settle(g, log, f"after crossing {rec['n']}", self.say)
@@ -529,7 +592,12 @@ class Tour:
         route_cross call, the same scene sat through), and must ENTER the step's place. A crossing that entered
         nothing is judged by :func:`failure`, the tour's rule: a LIVE failure (the village in the way) is retried in
         the same room while the budget holds -- a replay has no other exit to take and no other order to try -- and
-        a REAL one strikes the step, BOUNCES strikes breaking it. Entering another place breaks it at once, and so
+        a REAL one strikes the step, BOUNCES strikes breaking it. A LIVE failure at a GATED door the walker never faced
+        (:func:`unfaced`: no facing press kept the rules from where the walk left him, or the walk ended frozen) is
+        the walker's limit where it stands, which a retry from that same spot only repeats: it strikes nothing, but
+        the retry starts back where the step began, as after a REAL failure (below) -- a new approach, a new spot and
+        yaw -- and after LIVE of them the step fails ("the gated door was never faced"), rather than spend the whole
+        run's budget on it. Entering another place breaks it at once, and so
         does standing anywhere but the step's place: "replay broke at step n (place.exit -> place): why". Every
         crossing is logged like a tour crossing, with ``leg`` "replay", ``step`` and ``expect`` (the place the
         partner entered).
@@ -559,6 +627,7 @@ class Tour:
             where = f"replay broke at step {s} ({step_name((pid, i, want))})"
             real: list = []                  # this step's REAL failures
             live = 0                         # its LIVE ones (retried, never struck)
+            blind = 0                        # of those, the gated door never faced (unfaced(): retried from home)
             home = None                      # where the step's first attempt started: every retry's spot
             back = False                     # the next walk goes back to it (a REAL failure left him elsewhere)
             while True:
@@ -609,6 +678,13 @@ class Tour:
                     if kind == "live":
                         live += 1
                         rec["verdict"] = f"live {live} (retried)"
+                        if unfaced(rec):
+                            blind += 1
+                            if blind >= LIVE:
+                                rec["verdict"] += " -> the step fails"
+                                stop = f"{where}: the gated door was never faced ({blind} times)"
+                            else:
+                                back = self._away(g.state, f, home)
                     else:
                         real.append(kind)
                         rec["verdict"] = f"{kind} {len(real)}/{BOUNCES}"

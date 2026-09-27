@@ -252,12 +252,32 @@ class FakeGame:
         #: `exit_frames` later (the fade), and the player appears at ``arrive`` with control -- so a
         #: button still held at that moment walks him in the destination, which is the whole bug the
         #: routed verbs exist to avoid. ``exit_frames = 0`` changes the field on the same frame.
+        #:
+        #: As TreadQuad (TreadQuad.cs:6-22), the FIRST region in the list that contains his centre answers,
+        #: and only it: a region that answers without firing shadows every region after it. Opt-in keys, each
+        #: absent by default (and a region without them behaves exactly as above):
+        #:   * ``"face"`` -- stock's DOOR FACING GATE (scan_gateways' ``face_gate``): the region fires only
+        #:     while his yaw `_face_deg` faces his projection onto its first edge
+        #:     (content.doorface.door_faced) -- True for the stock window (48, 208), or an explicit
+        #:     ``[lo, hi]``. A region that fails it answers and fires nothing, and -- as the engine's tag 2
+        #:     runs every tick he has control -- it is tested again on every frame he STANDS in it too, so a
+        #:     press that turns him without moving him (into a wall) can fire it.
+        #:   * ``"to": None`` -- a DEAD region: armed, answers, never fires (a stock region whose tag 2 returns
+        #:     at once still blocks every region after it).
+        #:   * ``"arrive_face"`` -- his yaw, in degrees, where he appears (applied with ``arrive``).
+        #:   * ``"points"`` -- the ENGINE's polygon (scan_gateways' ``region``): membership by
+        #:     content.doorface.region_contains (the ring of triplet triangles; a 5+-gon's middle is dead)
+        #:     instead of the even-odd test on ``zone``, and the facing gate's first edge.
+        #: ⚠ An UNGATED region fires only on a frame a step (or the coast after one) lands him in it, never
+        #: while he stands there -- the engine re-tests those every tick too, but the suite's fixtures that
+        #: place him inside a zone depend on the step-only rule, so only a gated region gets the standing test.
         self.regions: dict[int, list[dict]] = {}
         self.exit_frames = 0
         #: Every region that fired: ``{"frame", "from", "to", "executed"}`` -- ``executed`` is
         #: ``len(self.executed)`` at that moment, so a test can name the steps issued AFTER it.
         self.fired: list[dict] = []
         self._exit: tuple[int, int, tuple[float, float]] | None = None   # (due frame, dest, arrive)
+        self._arrive_face: float | None = None     # the firing region's ``arrive_face``, applied on arrival
         #: Bodies the walkmesh does not know about -- someone standing still in the way: ``{field id:
         #: [(x, z, r) or (x, z, r, solid), ...]}``, ``r`` centre to centre (WalkMesh.Collision). A step
         #: into one that has it in FRONT of him is pushed back out to ``r`` along the line from its
@@ -294,6 +314,24 @@ class FakeGame:
         self.contacts: list[dict] = []
         self._in_trigger: set = set()             # (field, body index) whose trigger he stands in
         self._facing = (0.0, 1.0)                 # the direction last pressed (the talk search wants +-90 deg)
+        #: His model yaw, Actor.rotAngle[1] in degrees (0 faces -z, 90 -x, +-180 +z, -90 +x) -- what a gated
+        #: region reads (``regions`` ``"face"``). Every frame a held direction spends MovePC calls (a press, or the
+        #: coast after one, whether or not he moves: a press into a wall turns him too) turns it toward that
+        #: direction, 40% a call (content.doorface.turn_step; FieldMapActorController.cs:744-761 at stock 6b8bb2d5)
+        #: -- a frame's calls its step over the 30u a call steps (content.doorface.movepc_calls): a run frame one
+        #: call, a walked one half, ON AVERAGE (`tick_phase` turns him in whole calls instead). Standing, frozen or
+        #: without control it holds. PRIVATE, and settable by a test: the agent publishes ``dir`` 0 on a field
+        #: (PosObj.rot[1], which a field never writes), and so does this stand-in.
+        self._face_deg = 0.0
+        #: None (the default): a frame turns him by its AVERAGE calls, half a call a walked frame -- smooth, and
+        #: what every walk written before this was written against. 0 or 1: the engine's WHOLE calls -- a 30 Hz
+        #: tick on every other frame of this 60 fps model (FPSManager.cs:77-110 at stock), falling on the frames
+        #: whose number is that phase mod 2, where the frame turns him by its tick's whole calls (a walked frame 1,
+        #: a run frame 2; nothing on the frames between). Only the TURN is whole: the step stays a frame's average,
+        #: as every walk in the suite measures it. A press of an odd number of walked frames then turns him the
+        #: fewer whole calls in one phase and the more in the other -- what a planner that credits half calls
+        #: cannot see (content.doorface.sure_calls).
+        self.tick_phase: int | None = None
         self._lock = 0.0                          # EventEngine.sLockTimer
         self._lock_free = 1                       # sLockFree: 0 while the last body touched is solid
         self._coll = 0                            # SCollTimer, in frames (2 ticks after a push-out)
@@ -681,8 +719,10 @@ class FakeGame:
 
     def _step_player(self) -> None:
         """The controlled player's frame: the pad, the push-out, the floor, the regions (see _step_world)."""
+        from ff9mapkit.content import doorface
         if self.frame < self._frozen_until:
             self._coast = None                  # MovePC returns before it moves anyone
+            self._retest_gated()
             return
         vx = vz = 0.0
         if self._is_held("up"):
@@ -697,10 +737,13 @@ class FakeGame:
             # Nothing held -- but the engine is still applying the last movement it sampled.
             if not self._coast:
                 self._lock_fallback(0.5)        # MovePC still runs, once a tick
+                self._retest_gated()
                 return
             vx, vz, left = self._coast
             self._coast = (vx, vz, left - 1) if left > 1 else None
-            self._move_to(self.player[0] + vx, self.player[2] + vz, (vx * vx + vz * vz) ** 0.5 / RUN_SPEED)
+            calls = doorface.movepc_calls((vx * vx + vz * vz) ** 0.5)
+            self._turn(vx, vz, calls)           # the coast is the press still being applied: it turns him too
+            self._move_to(self.player[0] + vx, self.player[2] + vz, calls)
             self._enter_regions()
             self._enter_freezes()
             return
@@ -711,6 +754,9 @@ class FakeGame:
             a = math.radians(self.twist)
             vx, vz = vx * math.cos(a) - vz * math.sin(a), vx * math.sin(a) + vz * math.cos(a)
         speed = WALK_SPEED if self._is_held("cancel") else RUN_SPEED
+        calls = doorface.movepc_calls(speed)    # the MovePC calls this frame's step is worth (30u each)
+        # the turn comes first, as in MovePC: the press turns him whether or not the step then moves him
+        self._turn(vx, vz, calls)
 
         if self.mode == "wall_slide":
             # Every press is projected onto one fixed wall direction. The character always MOVES --
@@ -722,7 +768,7 @@ class FakeGame:
             if vx == 0.0 and vz == 0.0:
                 return
 
-        moved = self._move_to(self.player[0] + vx * speed, self.player[2] + vz * speed, speed / RUN_SPEED)
+        moved = self._move_to(self.player[0] + vx * speed, self.player[2] + vz * speed, calls)
         # Arm the tail with the velocity actually applied this frame.
         self._coast = ((vx * speed, vz * speed, self.coast_frames)
                        if self.coast_frames > 0 and moved else None)
@@ -735,6 +781,19 @@ class FakeGame:
                 self.control = True
         self._enter_regions()
         self._enter_freezes()
+
+    def _turn(self, vx: float, vz: float, calls: float) -> None:
+        """His yaw (`_face_deg`) after a frame that held world direction (``vx``, ``vz``) -- the press after the
+        twist, as MovePC's ``moveVec`` -- for ``calls`` MovePC calls (the frame's average): content.doorface.turn_step
+        toward ``yaw_of(vx, vz)``; under `tick_phase`, the tick's whole calls on a tick frame and none between.
+        Called on every frame a direction is applied, BEFORE the step: whatever the walls or a body then do to his
+        position, the yaw has turned (FieldMapActorController.cs:744-761 precede the collision at :762, at stock)."""
+        from ff9mapkit.content import doorface
+        if self.tick_phase is not None:
+            if self.frame % 2 != self.tick_phase:
+                return                          # no tick this frame: MovePC does not run
+            calls = round(2 * calls)            # the tick's whole calls: a walked frame's 1, a run frame's 2
+        self._face_deg = doorface.turn_step(self._face_deg, doorface.yaw_of(vx, vz), calls)
 
     def _move_to(self, x: float, z: float, calls: float = 1.0) -> bool:
         """One frame's step to (x, z), worth ``calls`` MovePC calls: kept on the floor (`walkmesh`), and --
@@ -966,28 +1025,68 @@ class FakeGame:
                 self._frozen_until = float("inf") if n is None else self.frame + int(n)
                 self._coast = None
 
+    def _region_at(self, x: float, z: float):
+        """The region that ANSWERS for a centre at (``x``, ``z``): the first of this field's `regions` containing it
+        (TreadQuad's first match) -- by its engine polygon ``points`` (content.doorface.region_contains) when it has
+        one, else by the even-odd test on its ``zone`` -- or None."""
+        from ff9mapkit.content import doorface
+        for r in self.regions.get(self.field_id, ()):
+            pts = r.get("points")
+            if doorface.region_contains(x, z, pts) if pts is not None else _in_poly(x, z, r["zone"]):
+                return r
+        return None
+
+    def _faces(self, r: dict) -> bool:
+        """Whether region ``r``'s facing gate lets it fire now: True when it has none (no ``"face"``); else
+        content.doorface.door_faced of his centre and `_face_deg` against its first edge (``points`` when it has
+        them, else ``zone``), with the stock window for ``"face": True`` or the given ``[lo, hi]``."""
+        face = r.get("face")
+        if not face:
+            return True
+        from ff9mapkit.content import doorface
+        q = r.get("points") or r["zone"]
+        window = doorface.FACE_WINDOW if face is True else (int(face[0]), int(face[1]))
+        return doorface.door_faced(self.player[0], self.player[2], self._face_deg, q[0], q[1], window)[0]
+
     def _enter_regions(self) -> None:
         """ExitField, modelled: a step into one of this field's `regions` takes control now and
-        schedules the field change (see `regions`)."""
+        schedules the field change (see `regions`) -- when the region that answers (the first containing
+        him) is live (``to`` not None) and, if gated (``face``), faced. A region that answers without firing
+        ends the search: no region after it is tried."""
         if not self.control or self._exit is not None:
             return
-        x, z = self.player[0], self.player[2]
-        for r in self.regions.get(self.field_id, ()):
-            if _in_poly(x, z, r["zone"]):
-                self.fired.append({"frame": self.frame, "from": self.field_id, "to": int(r["to"]),
-                                   "executed": len(self.executed)})
-                self.control = False
-                self._coast = None
-                self._exit = (self.frame + self.exit_frames, int(r["to"]), tuple(r["arrive"]))
-                if self.exit_frames <= 0:
-                    self._step_exit_now()
-                return
+        r = self._region_at(self.player[0], self.player[2])
+        if r is None or r.get("to") is None or not self._faces(r):
+            return
+        self.fired.append({"frame": self.frame, "from": self.field_id, "to": int(r["to"]),
+                           "executed": len(self.executed)})
+        self.control = False
+        self._coast = None
+        self._exit = (self.frame + self.exit_frames, int(r["to"]), tuple(r["arrive"]))
+        self._arrive_face = r.get("arrive_face")
+        if self.exit_frames <= 0:
+            self._step_exit_now()
+
+    def _retest_gated(self) -> None:
+        """CollisionRequest on a frame he STANDS -- nothing held and no coast, or frozen: the engine runs the tag 2
+        of the region he stands in every tick he has control (EventEngine.ProcessEvents.cs:174-178 at stock
+        6b8bb2d5, then EventCollision.cs:281-284), so a gated door whose
+        facing a blocked press has turned fires without a step. Only when the answering region IS gated (see
+        `regions`: ungated regions keep the step-only rule)."""
+        if not self.control or self._exit is not None:
+            return
+        r = self._region_at(self.player[0], self.player[2])
+        if r is not None and r.get("face"):
+            self._enter_regions()
 
     def _step_exit_now(self) -> None:
         _due, dest, arrive = self._exit
         self._exit = None
         self.field_id = dest
         self.player = [float(arrive[0]), 0.0, float(arrive[1])]
+        if self._arrive_face is not None:          # the firing region's ``arrive_face`` (see `regions`)
+            self._face_deg = float(self._arrive_face)
+            self._arrive_face = None
         self._in_trigger.clear()
         self._coast = None
         self.control = True

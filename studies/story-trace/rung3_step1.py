@@ -32,10 +32,13 @@ route_cross(unstick=True): a stall with control held is waited out, then PUSHED 
 engine lets the player through anyone without object flag 16 once he insists, no NPC on 350 sets it, and the
 short bursts of a routed walk never insisted long enough), and only then routed round as an unseen body. So a
 failed crossing is one of two things, and only one of them STRIKES:
-- a REAL failure says something about the exit, and strikes it -- a BOUNCE (landed elsewhere), a MISS whose
-  destination took control and never gave it back (353: Mayor Kapu's arrival scene puts the player back where he
-  came from), a MISS that stood INSIDE the zone and nothing fired (350 -> 358 once its scene has played: the story
-  shut the region; judged by zone membership, route_cross's `inside`, not by the goal distance), a MISS where
+- a REAL failure says something about the exit, and strikes it -- a BOUNCE (landed elsewhere, or entered a room that
+  took control and never gave it back: 353, whose arrival scene -- Mayor Kapu's -- puts the player back where he came
+  from; route_cross's error names the room), a MISS that stood INSIDE the zone FACING the door and nothing fired
+  (judged by zone membership, route_cross's `inside`, not by the goal distance, and by the walk's facing step,
+  `faced`: THE DOOR MUST BE FACED, below) -- 350 -> 358 once its scene has played: at SC 2600 the crossing into 358 is
+  object 34's Range, a one-shot the scene shuts (the next load of 350 arms the children in its place), while the
+  exit's own region 25 acts only at SC 2650-2709 -- a MISS where
   something else took control mid-walk, NO ROUTE, BLOCKED -- he moved after the first unseen blocker went in,
   and then blockers sealed the way -- or BOXED: the smooth walk stood where no press keeps clear of the other
   exits and of the villagers standing still round him, and no walker's going would change that (the geometry of
@@ -44,8 +47,10 @@ failed crossing is one of two things, and only one of them STRIKES:
   pushed or routed round (or found movement held -- `frozen`, which also covers a first blocker that sealed the
   way before he had moved again: nothing tells that from a hold), or waited out walkers that boxed him in and let
   him go, and still ended short, OUTSIDE the zone -- or villagers WALKING round him boxed him in and outlasted the
-  walk's wait for them (below). The exit goes behind the field's other exits and is tried again; only after LIVE
-  of them is it unreachable, so a village that never clears still cannot hold the tour.
+  walk's wait for them (below) -- or the walk stood IN a GATED door's region with nothing fired and never turned him to
+  face it, no press that would keep its rules from where he stood (below: the walker's limit, not the door's). The
+  exit goes behind the field's other exits and is tried again; only after LIVE of them is it unreachable, so a
+  village that never clears still cannot hold the tour.
 
 THE ROUTER WALKS THE PLAYER'S FLOOR (after the second run: 356 -> 358 stalled four times exactly the controller
 radius off stock 356's triangle 50, a door strip whose triFlags 0xA001 bar the controlled player while the
@@ -112,6 +117,22 @@ crossing the log names the objects avoided, the trigger radii entered (a Range t
 included), the bodies pushed through, the movement re-plans, the waits for walkers, and the objects that boxed him
 in with the waits (and steps aside) that box cost and whether it let go (``npcs`` says whether the
 engine listed its objects at all: "cannot" on an engine without s89, where the walk is the blind unstick one above).
+
+THE DOOR MUST BE FACED (sessions 2 and 3: 350 -> 351 stood INSIDE its zone with nothing fired in 10 of 10 session-2
+runs, each a REAL miss -- and a calibration probe that pressed toward the door from the same spot fired it at once).
+Six of 350's nine walk-in doors, and 102 stock gateways in all, run the warp only while he FACES his projection onto the
+zone's first edge (content.doorface: the stock DOOR FACING GATE), and his yaw turns only while a direction is held --
+a walk that stops in the zone facing elsewhere stands there with the door shut. So a crossing to a door scan_gateways
+reads the gate on (``face_gate``) whose walk ends IN its region with nothing fired ends with a walked press that turns
+him to face the door: long enough, in whole MovePC calls, that the prediction says he faces it from any yaw he may have
+(his yaw is not read), kept inside the region to the call that faces it wherever a slide along a wall can take him, and
+-- the whole press, its tail and its slides included -- clear of every other exit and object as any hold is; in short
+bursts, pad by pad, where the region is too narrow for one press (Session._face_the_door). A door with no gate is never
+turned to: it fires for anyone standing in it, so one still shut is shut. The log carries the verdict --
+``face_gate``, ``faced``, the predicted error ``face_err`` and its bound ``face_worst``, the exit point ``face_to``,
+``face_calls``, ``face_pad``. Standing inside a gated door FACING it with it still shut is the door's MISS; standing
+inside with no such press possible from there is LIVE -- the walker never gave the door its chance -- and a replay
+steps back before it tries again.
 
 S1-SEGMENT  the scripted segment hands control back in 352 at SC 2600
 S1-TOUR     the tour ran: crossings attempted / landed, the fields reached, the stop reason

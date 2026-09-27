@@ -1129,9 +1129,14 @@ class Session:
     # distance nobody measured, saturate silently against geometry, and bake in a constant that is
     # wrong on the next field. Everything below is closed-loop against the published position.
 
-    #: World units per frame, measured on 30801 (studies/test-harness/scenarios/calibrate_movement.py).
-    #: Used only to SIZE a burst; every move is still verified against the real position afterwards, so
-    #: a field where these are wrong costs an extra iteration rather than a wrong answer.
+    #: World units per frame, measured on 30801 (studies/test-harness/scenarios/calibrate_movement.py) at that
+    #: machine's 60 fps -- a CONSTANT: nothing measures them again, and the render rate follows the monitor
+    #: (a tick of movement follows the wall clock), so on another monitor a frame covers another distance.
+    #: Used to SIZE a burst -- every move is still verified against the real position afterwards, so a field
+    #: where these are wrong costs an extra iteration rather than a wrong answer -- and, through
+    #: content.doorface.movepc_calls, to count the MovePC calls a press spends turning him (the facing step,
+    #: :meth:`_face_the_door`), which nothing reads back: there it counts only the whole calls a press is sure
+    #: of, and a free press that moved him less than those calls step is counted by what it moved.
     RUN_SPEED = 30.0
     WALK_SPEED = 15.0
 
@@ -2010,6 +2015,24 @@ class Session:
     #: route_to(smooth=True, zone=...): how far round him the last leg looks for a spot IN the zone where his
     #: centre can stand (:meth:`_zone_foothold`), once he is within one walk frame of the goal and still out.
     ROUTE_FOOTHOLD_REACH = 96.0
+    #: route_to(face=...) / route_cross(gate=...) at a gated door: STOCK'S DOOR FACING GATE (content.doorface). On 102
+    #: stock gateways -- 6 of stock 350's 9 walk-in doors -- the region's tag 2 lets the warp run only while he FACES
+    #: his projection onto the zone's first edge, his yaw within 47/256 of a turn of it; and the yaw turns only while a
+    #: direction is held, 40% of the way a MovePC call. A walk that stops in the zone facing elsewhere stands there with
+    #: the door shut for good (350 -> 351: 10 of 10 session-2 runs, each a REAL miss). So a walk that ends IN a GATED
+    #: door's region (scan_gateways' ``face_gate``: a door with no gate fires the first tick he stands in it, and one
+    #: still shut is shut), with control and nothing fired ROUTE_FACE_WAIT frames later (two 30 Hz ticks at the
+    #: calibrated 60 fps), ends with a press that turns him to face it (:meth:`_face_the_door`): walked, the least reach
+    #: a MovePC call can cost; ROUTE_FACE_CALLS WHOLE calls at the least (content.doorface.sure_calls), after which the
+    #: nearest pad faces it from any yaw (doorface.worst_face_error); never planned past ROUTE_FACE_MAX_CALLS of one pad
+    #: (3 degrees of the turn left: more buys nothing). Where no whole press keeps the rules, shorter bursts may,
+    #: ROUTE_FACE_PRESSES presses in all at the most. Where a press may carry him is judged on a grid ROUTE_FACE_GRID
+    #: units apart (:meth:`_face_reach`).
+    ROUTE_FACE_WAIT = 4
+    ROUTE_FACE_CALLS = 4
+    ROUTE_FACE_MAX_CALLS = 8
+    ROUTE_FACE_PRESSES = 8
+    ROUTE_FACE_GRID = 4.0
     #: route_to(npcs=True) plans round the field's published objects (memoria-patch s89, :meth:`_npc_discs`).
     #: A BODY is a disc of its published ``r`` -- the centre distance the engine keeps him at -- planned
     #: ROUTE_BODY_MARGIN wider, and a hold keeps ROUTE_BODY_PAD off ``r`` itself. Touching one costs a slide round
@@ -2218,7 +2241,11 @@ class Session:
         leg's holds are planned in (:meth:`_plan_hold`): ``from`` and ``to``, the ``hazards`` and ``blockers``
         its drift is judged against, the heading ``spread`` (:meth:`_heading_spread`), and ``pressed``, the
         ``(buttons, world direction)`` of its last hold, which is where :meth:`_blocker_ahead` puts a body he
-        stopped against and :meth:`_push_through` insists. ``watch`` (route_to(npcs=True)) is the call's view of
+        stopped against and :meth:`_push_through` insists -- and ``turned``, that hold again with the MovePC calls it
+        is known to have spent turning him toward it (:meth:`_held_yaw`: where a facing step starts from), None once a
+        press made along another line follows it (a push insists along the same one: it only turns him further toward
+        it).
+        ``watch`` (route_to(npcs=True)) is the call's view of
         the published objects: its ``discs`` bound every hold like the hazards do (:meth:`_leg_discs`), and it is
         read again after every hold (:meth:`_walk_leg`).
 
@@ -2232,7 +2259,7 @@ class Session:
             out.append((float(b[0]), float(b[1]), self.ROUTE_WAYPOINT_TOLERANCE,
                         {"from": (float(a[0]), float(a[1])), "to": (float(b[0]), float(b[1])),
                          "hazards": hazards, "blockers": tuple(blockers), "spread": float(spread),
-                         "pressed": None, "aim": None, "zone": None, "floor": None, "watch": watch}))
+                         "pressed": None, "turned": None, "aim": None, "zone": None, "floor": None, "watch": watch}))
         if out:
             out[-1][3]["aim"] = self.WALK_SPEED + 1.0
             out[-1][3]["zone"], out[-1][3]["floor"] = zone, floor
@@ -2253,13 +2280,35 @@ class Session:
                 q = (here[0] + 4 * k * math.cos(a), here[1] + 4 * k * math.sin(a))
                 if pathfind.poly_gap(q[0], q[1], zone) >= 0:
                     continue
-                x, z = int(round(q[0])), int(round(q[1]))
-                if floor.point_on_walkmesh(x, z) is None:
-                    continue
-                wall = floor.distance_to_boundary(x, z)
-                if wall is None or wall < cam.COLLISION_RADIUS_W:
+                if not self._can_stand(floor, q[0], q[1], cam.COLLISION_RADIUS_W):
                     continue
                 yield q
+
+    @staticmethod
+    def _wall_gap(floor, x: float, z: float, memo: dict | None = None) -> float | None:
+        """How far his centre at (``x``, ``z``) -- rounded to the integer point the floor is asked about -- stands off
+        the walls of ``floor`` (a pathfind.PlayerWalkmesh): None off the open floor, ``inf`` on a floor with no wall
+        edge at all (every edge a seam to another floor: nothing to keep off), else the distance to the nearest.
+        ``memo`` keeps the answers by point, across one caller's many asks."""
+        import math
+        key = (int(round(x)), int(round(z)))
+        if memo is not None and key in memo:
+            return memo[key]
+        gap = None
+        if floor.point_on_walkmesh(*key) is not None:
+            wall = floor.distance_to_boundary(*key)
+            gap = math.inf if wall is None else wall
+        if memo is not None:
+            memo[key] = gap
+        return gap
+
+    @classmethod
+    def _can_stand(cls, floor, x: float, z: float, least: float, memo: dict | None = None) -> bool:
+        """Can his CENTRE stand at (``x``, ``z``) on ``floor``: on it, and at least ``least`` off its walls
+        (:meth:`_wall_gap`) -- COLLISION_RADIUS_W where the engine keeps it (the radius push-out, ServiceChar), or
+        less where he already stands nearer. The one test every standability judgement here makes."""
+        gap = cls._wall_gap(floor, x, z, memo)
+        return gap is not None and gap >= least
 
     @staticmethod
     def _covers(discs, q) -> list:
@@ -2350,10 +2399,7 @@ class Session:
             return None
         p = _nearest_on_seg(here, leg["from"], b)
         discs = self._leg_discs(leg)
-        walkers = [d for d in discs if d["moving"]]
-        swept = [d for d in walkers if d["kind"] == "trigger"] if sweep else []
-        still = [d for d in discs if all(d is not s for s in swept)]
-        walkers = [d for d in walkers if all(d is not s for s in swept)]    # a swept trigger is judged exactly
+        walkers, swept, still = self._press_discs(leg, sweep)
         blockers = list(leg["blockers"]) + [(d["x"], d["z"], d["R"]) for d in discs]
         drift = self._leg_chunk(p, b, leg["hazards"], blockers) / 2.0
         off = math.hypot(here[0] - p[0], here[1] - p[1]) + 0.5
@@ -2373,17 +2419,7 @@ class Session:
                         end = (here[0] + u[0] * reach, here[1] + u[1] * reach)
                         near = (slow and n == 1) or (routes.seg_dist_xz(end[0], end[1], p, b)
                                                      <= max(drift - reach * math.tan(spread), off))
-                        if n > self.ROUTE_WALKER_HOLD and any(
-                                routes.seg_dist_xz(d["x"], d["z"], here, end) < d["R"] + self.ROUTE_WALKER_NEAR
-                                for d in walkers):
-                            return False
-                        until = n + self._walker_lag(leg.get("watch"))
-                        ends = [(here[0] + e[0] * reach, here[1] + e[1] * reach)
-                                for e in (_turn(u, spread * k / 2.0) for k in (-2, -1, 0, 1, 2))]
-                        if not all(self._walker_clear(here, u, reach, spread, d, speed, until)
-                                   and self._off_beat(here, ends, d) for d in swept):
-                            return False
-                        return near and self._probe_is_clear(here, u, reach, leg["hazards"], spread, discs=still)
+                        return near and self._press_clear(here, u, n, speed, leg, walkers, swept, still)
 
                     top = min(self.ROUTE_HOLD_MAX, max(1, int(along / speed) - (0 if slow else 1)))
                     lo, hi = 0, top
@@ -2398,6 +2434,42 @@ class Session:
                 if best is not None:
                     return best[1:]
         return None
+
+    def _press_discs(self, leg: dict, sweep: bool = True) -> tuple:
+        """The published objects a smooth press is judged against (:meth:`_press_clear`), from the leg's discs where
+        they stand now (:meth:`_leg_discs`): ``(walkers, swept, still)`` -- ``swept`` the WALKING triggers, judged where
+        they can walk (``sweep`` False: none, every one judged where it was read -- whether the walker alone refuses a
+        press), ``walkers`` every other moving object, ``still`` every disc that is not swept."""
+        discs = self._leg_discs(leg)
+        walkers = [d for d in discs if d["moving"]]
+        swept = [d for d in walkers if d["kind"] == "trigger"] if sweep else []
+        still = [d for d in discs if all(d is not s for s in swept)]
+        walkers = [d for d in walkers if all(d is not s for s in swept)]    # a swept trigger is judged exactly
+        return walkers, swept, still
+
+    def _press_clear(self, here, u, n: int, speed: float, leg: dict, walkers, swept, still) -> bool:
+        """Does a press from ``here`` along ``u`` -- ``n`` frames at ``speed`` units a frame, and PROBE_TAIL_FRAMES of
+        movement tail -- keep the rules every smooth press keeps, whatever it is pressed for (:meth:`_plan_hold`'s
+        holds, :meth:`_face_the_door`'s turn)? Over the leg's heading ``spread``, the line: no ``leg["hazards"]`` region
+        entered or approached, and every ``still`` object kept clear (:meth:`_probe_is_clear`); every WALKING trigger of
+        ``swept`` kept clear wherever it can walk by the next read (:meth:`_walker_clear`) and the press not ending on
+        its beat (:meth:`_off_beat`); and a press held past ROUTE_WALKER_HOLD frames only where no other moving object
+        of ``walkers`` is within ROUTE_WALKER_NEAR of its line -- the objects are read again only when it ends
+        (:meth:`_press_discs` sorts them)."""
+        from ff9mapkit.scene import routes
+        spread = leg["spread"]
+        reach = (n + self.PROBE_TAIL_FRAMES) * speed
+        end = (here[0] + u[0] * reach, here[1] + u[1] * reach)
+        if n > self.ROUTE_WALKER_HOLD and any(
+                routes.seg_dist_xz(d["x"], d["z"], here, end) < d["R"] + self.ROUTE_WALKER_NEAR for d in walkers):
+            return False
+        until = n + self._walker_lag(leg.get("watch"))
+        ends = [(here[0] + e[0] * reach, here[1] + e[1] * reach)
+                for e in (_turn(u, spread * k / 2.0) for k in (-2, -1, 0, 1, 2))]
+        if not all(self._walker_clear(here, u, reach, spread, d, speed, until)
+                   and self._off_beat(here, ends, d) for d in swept):
+            return False
+        return self._probe_is_clear(here, u, reach, leg["hazards"], spread, discs=still)
 
     def _held_up(self, basis: dict, target, leg: dict, exclude=(), hold=False) -> bool:
         """route_to(npcs=True, smooth=True): is the next hold toward ``target``, from where he stands now, refused or
@@ -2506,7 +2578,7 @@ class Session:
         box him in or hold him out of the zone past that wait); "unboxed" (above), "moved" (above), or
         "short" (anything else: a stall, a slide, the holds spent, control gone)."""
         import math
-        from ff9mapkit.content import pathfind
+        from ff9mapkit.content import doorface, pathfind
         field = self.state.field_id
         basis = self._axes[field]
         aim = min(tolerance, leg.get("aim") or tolerance)
@@ -2585,6 +2657,7 @@ class Session:
                 continue
             buttons, u, frames, slow = hold
             leg["pressed"] = (buttons, u)
+            leg["turned"] = None              # the yaw the last hold left is no longer his: known again once measured
             steps = [f"hold {b} {frames}" for b in buttons]
             if slow:
                 steps.insert(0, f"hold cancel {frames}")
@@ -2598,6 +2671,14 @@ class Session:
                     return "moved"
             mx, mz = after.player_x - st.player_x, after.player_z - st.player_z
             moved = (mx * mx + mz * mz) ** 0.5
+            # the yaw this hold leaves him (where a facing step starts, :meth:`_held_yaw`): every MovePC call it spent
+            # turned him toward ``u`` -- the whole calls its frames are sure of (doorface.sure_calls), and no more than
+            # the STEP_PER_CALL steps it moved him (a wall stops a step and not the turn; a hold on movement stops
+            # both). Set only here, after the measurement: a hold that returned before it (an object moved) left the
+            # yaw unknown
+            speed = self.WALK_SPEED if slow else self.RUN_SPEED
+            leg["turned"] = ((buttons, u), min(doorface.sure_calls(frames, doorface.movepc_calls(speed)),
+                                               moved / doorface.STEP_PER_CALL))
             slid = False
             # walk_to's basis check, on the direction actually pressed (see there)
             if self._burst_is_evidence(moved, frames * (self.WALK_SPEED if slow else self.RUN_SPEED)):
@@ -2670,9 +2751,338 @@ class Session:
                   f"goal and OUTSIDE its zone: nothing further gets him in")
         return "outside"
 
+    @staticmethod
+    def _held_yaw(leg: dict | None) -> tuple | None:
+        """Where the walk's last hold left his yaw, when that is known: ``(yaw, off)``, degrees -- the yaw of the
+        direction it held (content.doorface.yaw_of) and how far off that he may still face: what the hold's MovePC
+        calls left of a turn from ANY yaw (180 * 0.6**calls, doorface.worst_face_error's first term) plus the leg's
+        heading spread (the pad truly heads that far off its calibrated direction). From ``leg["turned"]``
+        (:meth:`_walk_leg`); None -- unknown -- with no smooth leg, before its first hold, and once a press along
+        another line followed it."""
+        import math
+        from ff9mapkit.content import doorface
+        if leg is None or leg.get("turned") is None:
+            return None
+        (_buttons, u), calls = leg["turned"]
+        return (doorface.yaw_of(*u), 180.0 * (1.0 - doorface.TURN_PER_CALL) ** calls + math.degrees(leg["spread"]))
+
+    def _face_reach(self, here, u, reach: float, spread: float, floor, memo: dict, zone=None):
+        """Every point a press from ``here`` along unit ``u``, covering ``reach``, can leave him at -- sampled
+        ROUTE_FACE_GRID apart, ``here`` first -- as ``(points, slid, free)``: ``points`` all of them, ``slid`` the ones
+        only a slide along a wall reaches (below), ``free`` how far EVERY line runs before the floor stops it (``reach``
+        when none meets a wall). With ``zone`` (the door's region, the ENGINE's polygon: content.doorface.
+        region_contains, IsInQuad), None as soon as one point is not IN it.
+
+        FREE, he goes straight: along every line within ``spread`` (radians) of ``u`` -- five of them, as a hold's fan
+        is judged -- until his centre can stand no further on ``floor`` (:meth:`_can_stand`: COLLISION_RADIUS_W off its
+        walls, or no nearer than he already stands). THEN THE WALL. The engine keeps the part of a step along the wall
+        -- a centre a step left within his radius of a wall edge is pushed back along the edge's normal onto the radius
+        line (ServiceChar -> RadiusValid -> ServiceForces, FieldMapActorController.cs:947-1252 at stock 6b8bb2d5) --
+        and a step projected onto any line through its start lands on the circle whose DIAMETER is that step (Thales)
+        -- so each call of the rest moves him within that circle, and a run of calls, a slide round a corner too, stays
+        within the disc whose diameter is the reach still to go, laid along the press from where the line met the wall
+        (discs of diameters laid end to end add up to the disc of their sum). Every point of that disc his centre can
+        stand on -- the disc widened for the lines between the five, and a grid step -- is a point the press can leave
+        him at: a slide can take him anywhere in it, and one along a wall that crosses the zone's side takes him out of
+        it (the fake's floor, which slides so, carries presses out of most of Dali's gated door zones from some of their
+        standable points, 350's door to 351 among them). Where no line meets a wall there is no disc: the lines are all
+        of it. Where one meets it head on the disc still counts a slide either way -- the price of not knowing the
+        wall's line.
+
+        ``memo`` keeps the floor's answers (:meth:`_wall_gap`), by integer point, across the calls of one facing
+        step."""
+        import math
+        from ff9mapkit.content import doorface
+        from ff9mapkit.scene import cam
+        g = self.ROUTE_FACE_GRID
+        own = self._wall_gap(floor, here[0], here[1], memo)
+        least = min(cam.COLLISION_RADIUS_W, own if own is not None else 0.0) - 1.0
+
+        def keeps(x, z) -> bool:
+            return zone is None or doorface.region_contains(x, z, zone)
+
+        pts, slid, free = [(float(here[0]), float(here[1]))], [], reach
+        walls = []                                    # (where the line met the wall, the reach still to go, its line)
+        for e in ([_turn(u, spread * k / 2.0) for k in (-2, -1, 0, 1, 2)] if spread > 0 else [u]):
+            at, gone = here, 0.0
+            while gone < reach:
+                ahead = min(reach, gone + g)
+                p = (here[0] + e[0] * ahead, here[1] + e[1] * ahead)
+                if not self._can_stand(floor, p[0], p[1], least, memo):
+                    break
+                if not keeps(*p):
+                    return None
+                pts.append(p)
+                at, gone = p, ahead
+            free = min(free, gone)
+            if reach - gone > 1e-6:
+                walls.append((at, reach - gone, e))
+        if not walls:
+            return pts, slid, free
+        centres = [(a[0] + e[0] * rest / 2.0, a[1] + e[1] * rest / 2.0) for a, rest, e in walls]
+        cx, cz = sum(c[0] for c in centres) / len(centres), sum(c[1] for c in centres) / len(centres)
+        rest = max(w[1] for w in walls)
+        r = (max(math.hypot(c[0] - cx, c[1] - cz) + w[1] / 2.0 for c, w in zip(centres, walls))
+             + rest / 2.0 * spread / 2.0 + g)
+        for i in range(math.floor((cx - r) / g), math.ceil((cx + r) / g) + 1):
+            for j in range(math.floor((cz - r) / g), math.ceil((cz + r) / g) + 1):
+                x, z = i * g, j * g
+                if (x - cx) ** 2 + (z - cz) ** 2 > r * r or not self._can_stand(floor, x, z, least, memo):
+                    continue
+                if not keeps(x, z):
+                    return None
+                pts.append((x, z))
+                slid.append((x, z))
+        return pts, slid, free
+
+    def _slide_clear(self, here, slid, leg: dict, frames: int) -> bool:
+        """Do the points a press can only SLIDE him to (:meth:`_face_reach`'s ``slid``: along a wall, off the lines
+        :meth:`_press_clear` judges) keep what those lines keep -- whatever the press is for, its movement tail
+        included? No other zone of ``leg["hazards"]`` entered or approached nearer than PROBE_HAZARD_PAD (or than he
+        already stands; one he stands IN is the lines' to leave, by their Keepout rule), and no published object of
+        the leg (:meth:`_leg_discs`) neared past its ``pad`` off its radius ``R`` (or nearer than he already stands) --
+        a WALKING one by as far again as it can walk by the next read (its ``speed`` a frame over the press, its tail
+        and :meth:`_walker_lag`): a slide into a trigger's Range fires its script exactly as a straight walk into it
+        would, and the door's record would carry the blame."""
+        import math
+        from ff9mapkit.content import pathfind
+        if not slid:
+            return True
+        for poly in leg["hazards"]:
+            gap = pathfind.poly_gap(here[0], here[1], poly)
+            if gap >= 0 and any(pathfind.poly_gap(x, z, poly) < min(self.PROBE_HAZARD_PAD, gap) - 0.5
+                                for x, z in slid):
+                return False
+        until = frames + self.PROBE_TAIL_FRAMES + self._walker_lag(leg.get("watch"))
+        for d in self._leg_discs(leg):
+            walk = d["speed"] * until if d["moving"] else 0.0
+            need = min(d["pad"], math.hypot(here[0] - d["x"], here[1] - d["z"]) - d["R"]) - 0.5 + walk
+            if any(math.hypot(x - d["x"], z - d["z"]) - d["R"] < need for x, z in slid):
+                return False
+        return True
+
+    def _face_the_door(self, zone, record: dict, origin: int, walked: list, leg: dict, held=None, window=None,
+                       walk_zone=None) -> str | None:
+        """route_to's last step at a GATED door (:meth:`route_to` ``face``) once the walk has ended standing IN its
+        region ``zone`` -- world ``(x, z)`` corners, the ENGINE's polygon in the engine's order (scan_gateways'
+        ``region``), membership by IsInQuad (content.doorface.region_contains) -- with control, and ROUTE_FACE_WAIT
+        frames on nothing has fired: turn him to FACE THE DOOR, as stock's gate needs, and give it its chance.
+
+        THE GATE (content.doorface; Memoria 6b8bb2d5, stock line numbers). The region's tag 2 runs every tick he stands
+        in it with control (EventEngine.ProcessEvents.cs:174-178 -> EventCollision.CollisionRequest, :281-284). On a
+        class-2 door it computes the exit position -- his projection onto the region's FIRST EDGE, ``zone[0] ->
+        zone[1]`` (EventEngine.DoEventCode.cs:2213-2240, ``case MJPOS``) -- and runs the warp only while his yaw is
+        within the gate's ``window`` (``(lo, hi)``, scan_gateways' ``face_gate``: 47/256 of a turn for the stock (48,
+        208); B_LT / B_GT strict, EBin.cs:722 / :735) of the bearing to it. The yaw moves only while a direction is
+        held with control, 40% of the way a MovePC call, BEFORE the walls and bodies have their say -- a press into a
+        wall turns him and moves him nowhere -- and standing keeps it exactly (FieldMapActorController.cs:744-761). The
+        calls come WHOLE, a walked one a 30 Hz tick (:197-208, HonoBehaviorSystem.cs:106), in a phase nobody sees: a
+        press of ``n`` walked frames counts doorface.sure_calls of them -- ``n`` times the calls a frame spends on
+        average at the calibrated WALK_SPEED (doorface.movepc_calls), rounded DOWN -- never the average. The yaw is not
+        read (the agent's ``player.dir`` is PosObj.rot[1], which a field never writes; memoria-patch s90's
+        ``player.face`` is not read here yet), so whether he faces the door is PREDICTED from the presses.
+
+        THE PRESS: one of the eight pads (:func:`_eight_way` of the calibrated basis), WALKED -- a run spends the same
+        calls over the same ground with twice the tail, so it keeps the rules nowhere a walk does not -- for the fewest
+        frames after which the prediction says he faces the door: ROUTE_FACE_CALLS whole calls at the least,
+        ROUTE_FACE_MAX_CALLS of one pad at the most, and doorface.worst_face_error at most the window's
+        doorface.face_limit_deg -- the turn left from his yaw before it (``held``, where the walk's last hold left it,
+        :meth:`_held_yaw`, when that is known; any yaw when not), the pad's offset from the bearing at the WORST point
+        the press can have taken him to by then (the bearing moves as he does), the leg's heading ``spread``, and a unit
+        of the bytes' quantization. It keeps the rules. Every point it can have taken him to by the call the prediction
+        says faced stands IN the region (:meth:`_face_reach`: along the line until the floor stops him, then as far as
+        a slide along the wall can go) -- the gate is tested every tick he stands there, so it fires by then. And the
+        WHOLE press, its movement tail (PROBE_TAIL_FRAMES) included, keeps every rule a smooth hold keeps -- the rest
+        of it runs on for a door that stays shut: its lines by :meth:`_press_clear` (no other zone of ``leg["hazards"]``
+        entered or approached, no object ``leg["watch"]`` keeps neared, a walking trigger judged where it can walk --
+        and, on a read taken just before it is sent, :meth:`_walkers_let_press`), the points only a slide along a wall
+        reaches by :meth:`_slide_clear` (the same zones and objects, from where the slide takes him).
+
+        Of the pads whose press keeps them all, the one that needs the fewest frames (the nearest, of two alike) --
+        where the nearest pad's press breaks a rule, a farther pad's, with the calls its offset asks. Where no press
+        does, a BURST: the longest press whose WHOLE travel, tail included, stays in the region and keeps the rules --
+        of the pad the bursts so far pressed, whose whole calls add up (standing keeps the yaw), else of the nearest pad
+        that has one, starting from the yaw the presses so far leave him (their own prediction) -- and then the choice
+        again from where it left him, at most ROUTE_FACE_PRESSES presses in all, until one the prediction says faced
+        has been made (stock 350's door to 351, where he can stand in a strip of the zone 30-60u wide along the wall: a
+        burst of right to the wall, then up+right along it). A pad that could not face the door from where he stands
+        with all its calls is never pressed. Nothing keeps the rules: nothing is pressed.
+
+        EACH PRESS IS CHECKED against what it moved him. A press whose every line ran FREE for its own frames (no wall
+        within them) moves him a full 30u a call it ran (a call never steps further), so one that moved him less than
+        the calls it was counted for did not run them all -- a hold on movement (the pad mask: control kept, MovePC
+        returns before it moves or turns anyone, FieldMapActorController.cs:586), or a frame rate that is not the
+        calibrated one (a frame fewer calls): it is counted only by the whole calls its travel proves, and the step
+        presses on. (A press into a wall is not checkable so -- the wall stops the steps and not the turn -- and keeps
+        its count.)
+
+        Standing in the zone the walk was sent into (``walk_zone``, the kit's quad) but in NO triangle of the region --
+        the dead middle of a 5- to 8-point region, which IsInQuad never holds -- the door cannot fire at all, and no
+        press is planned from there: ``faced`` False, as for a door no press could face.
+
+        Returns "face" when control went away during its presses -- the door fired, or something the press met did:
+        the caller lands it as the walk's own loss of control is landed -- else None, with ``record``'s ``faced``,
+        ``face_err``, ``face_worst``, ``face_to``, ``face_calls`` and ``face_pad`` said (:meth:`route_to`; the calls and
+        pad of the last pad pressed, the ones the prediction counts): all left None where he did not stand in the zone
+        with control, or the door fired while he stood there (the caller waits for that crossing as for any)."""
+        import math
+        from ff9mapkit.content import doorface, pathfind
+        window = doorface.FACE_WINDOW if window is None else (int(window[0]), int(window[1]))
+
+        def standing(s) -> bool:
+            return s.field_id == origin and s.player_x is not None and s.control
+
+        def inside(s) -> bool:
+            return standing(s) and doorface.region_contains(s.player_x, s.player_z, zone)
+        q0, q1 = zone[0], zone[1]
+        st = self.state
+        if not inside(st):
+            if walk_zone is not None and standing(st) and pathfind.poly_gap(st.player_x, st.player_z, walk_zone) < 0:
+                record["face_to"] = list(doorface.calc_exit_position(st.player_x, st.player_z, q0, q1))
+                record["faced"] = False
+                self._log(f"  route_to: standing at ({st.player_x:.0f}, {st.player_z:.0f}) in the zone but in no "
+                          f"triangle of the door's region (its dead middle: the gate never runs there) -- nothing "
+                          f"pressed")
+            return None
+        self.wait_frames(self.ROUTE_FACE_WAIT)
+        st = self.state
+        if not inside(st):
+            return None
+        watch = leg.get("watch")
+        if watch is not None:
+            self._npc_view(watch, st)                             # the objects where they stand now
+        here = (st.player_x, st.player_z)
+        record["face_to"] = list(doorface.calc_exit_position(here[0], here[1], q0, q1))
+        record["faced"] = False
+        limit = doorface.face_limit_deg(window)
+        spread_deg = math.degrees(leg["spread"])
+        per = doorface.movepc_calls(self.WALK_SPEED)              # the MovePC calls a walked frame spends on average
+        step = doorface.STEP_PER_CALL
+        left = 1.0 - doorface.TURN_PER_CALL                       # what one call leaves of a turn
+        memo: dict = {}
+        walkers, swept, still = self._press_discs(leg)
+
+        def turn_from(u, yaw) -> float:
+            """How far his yaw may be from where pad ``u`` truly heads, before it is pressed: ``yaw`` =
+            ``(centre, off)`` -- he faces within ``off`` of ``centre`` -- or None, anywhere (180)."""
+            if yaw is None:
+                return 180.0
+            return min(180.0, doorface.angle_off(yaw[0], doorface.yaw_of(*u)) + yaw[1] + spread_deg)
+
+        def sure(n: int) -> int:
+            return doorface.sure_calls(n, per)
+
+        def ruled(at, u, n: int, within=None):
+            """Where the WHOLE press of ``n`` frames from ``at`` along ``u`` can leave him, its tail included
+            (:meth:`_face_reach`), when it keeps every rule a smooth press keeps -- its lines (:meth:`_press_clear`)
+            and its slides (:meth:`_slide_clear`) -- and, with ``within``, stays in that region all the way (a
+            burst's rule); else None."""
+            if not self._press_clear(at, u, n, self.WALK_SPEED, leg, walkers, swept, still):
+                return None
+            got = self._face_reach(at, u, (n + self.PROBE_TAIL_FRAMES) * self.WALK_SPEED, leg["spread"],
+                                   leg["floor"], memo, within)
+            return got if got is not None and self._slide_clear(at, got[1], leg, n) else None
+
+        def scan(u, at, spent: float, off: float):
+            """``(frames, faced, worst, free)`` for pad ``u`` from ``at``, ``spent`` whole calls of it already made
+            from a yaw ``off`` (:func:`turn_from`) off it: the fewest frames whose prediction says faced, in the
+            region to that call and keeping the rules over the whole press (``faced`` True, ``worst`` the pad's
+            largest offset from the bearing it can meet by then); else the longest burst whose whole travel stays in
+            the region and keeps them, found by bisection -- a rule a press keeps, a shorter one keeps (``faced``
+            False; 0 frames: none). ``free``: its lines run free of walls for all its frames (what a press is checked
+            against after it is made)."""
+            need = max(1, math.ceil(math.ceil(self.ROUTE_FACE_CALLS - spent - 1e-9) / per - 1e-9))
+            most = int((self.ROUTE_FACE_MAX_CALLS - spent) / per + 1e-9)
+            if most < 1:
+                return 0, False, None, False
+            yaw = doorface.yaw_of(*u)
+            for n in range(min(need, most), most + 1):
+                faced_by = self._face_reach(at, u, sure(n) * step, leg["spread"], leg["floor"], memo, zone)
+                travel = None if faced_by is None else ruled(at, u, n)
+                if travel is None:
+                    break
+                worst = max(doorface.angle_off(yaw, doorface.bearing_deg(x, z, q0, q1)) for x, z in faced_by[0])
+                if doorface.worst_face_error(worst, spent + sure(n), spread_deg, off) <= limit:
+                    return n, True, worst, travel[2] >= n * self.WALK_SPEED - 1e-6
+
+            lo, hi = 0, most
+            while lo < hi:
+                mid = (lo + hi + 1) // 2
+                lo, hi = (mid, hi) if ruled(at, u, mid, zone) is not None else (lo, mid - 1)
+            got = ruled(at, u, lo, zone) if lo else None
+            return lo, False, None, got is not None and got[2] >= lo * self.WALK_SPEED - 1e-6
+
+        pad, spent, est = None, 0.0, held          # the pad pressed so far, its whole calls, and his yaw before them
+        moved = 0.0
+        for _ in range(self.ROUTE_FACE_PRESSES):
+            bearing = doorface.bearing_deg(here[0], here[1], q0, q1)
+            now = (est if pad is None
+                   else (doorface.yaw_of(*pad[1]), spread_deg + turn_from(pad[1], est) * left ** spent))
+            whole, more, other = [], [], []                # presses that face it; bursts of this pad; of another
+            for buttons, u in sorted(_eight_way(self._axes[origin]),
+                                     key=lambda p: doorface.angle_off(doorface.yaw_of(*p[1]), bearing)):
+                mine = pad is not None and buttons == pad[0]
+                off, calls = (turn_from(u, est), spent) if mine else (turn_from(u, now), 0.0)
+                if doorface.worst_face_error(doorface.angle_off(doorface.yaw_of(*u), bearing),
+                                             self.ROUTE_FACE_MAX_CALLS, spread_deg, off) > limit:
+                    continue                               # not even all its calls would face it from here
+                n, done, worst, free = scan(u, here, calls, off)
+                if n:
+                    (whole if done else more if mine else other).append((n, buttons, u, done, mine, worst, free))
+            pick = next((p for p in sorted(whole, key=lambda p: p[0]) + more + other
+                         if self._walkers_let_press(here, (p[1], p[2], p[0], True), leg)), None)
+            if pick is None:
+                break
+            n, buttons, u, done, mine, worst, free = pick
+            if not mine:
+                est, pad, spent = now, (buttons, u), 0.0
+            self._log(f"  route_to: standing in the door's zone at ({here[0]:.0f}, {here[1]:.0f}) with nothing fired: "
+                      f"{n} walked frame(s) {'+'.join(buttons)} to face its exit point {tuple(record['face_to'])}"
+                      + ("" if done else " (a burst)"))
+            moved = self._pressed(origin, walked, f"hold cancel {n}", *[f"hold {b} {n}" for b in buttons],
+                                  f"wait {n + 4}")
+            got = sure(n)
+            if moved is not None and free and moved < got * step - 1.0:
+                proved = int(math.floor((moved + 1.0) / step))
+                self._log(f"  route_to: the press moved him {moved:.0f}u on free floor, where its {got} call(s) step "
+                          f"{got * step:.0f}u -- they did not all run (a hold on movement, or a frame rate not the "
+                          f"calibrated one): counted {proved}")
+                got = proved
+                done = done and doorface.worst_face_error(worst, spent + got, spread_deg,
+                                                          turn_from(u, est)) <= limit
+            spent += got
+            record["face_pad"], record["face_calls"] = "+".join(buttons), spent
+            if moved is None or done:
+                record["faced"] = True
+                break
+            st = self.state
+            here = (st.player_x, st.player_z)
+            if watch is not None:
+                self._npc_view(watch, st)
+                walkers, swept, still = self._press_discs(leg)
+        if pad is None:
+            self._log(f"  route_to: standing in the door's zone at ({here[0]:.0f}, {here[1]:.0f}) with nothing fired, "
+                      f"and no press that faces its exit point {tuple(record['face_to'])} keeps the rules: nothing "
+                      f"pressed")
+            return None
+        st = self.state
+        if standing(st):
+            here = (st.player_x, st.player_z)
+        target = doorface.yaw_of(*pad[1])
+        # the bound the prediction holds him to where the step left him, in units (the gate's), and -- when his yaw
+        # before the pad was known -- the error its centre predicts; from an unknown yaw there is no centre to name
+        record["face_worst"] = math.ceil(doorface.worst_face_error(
+            doorface.angle_off(target, doorface.bearing_deg(here[0], here[1], q0, q1)), spent, spread_deg,
+            turn_from(pad[1], est)) / doorface.UNIT_DEG - 1e-9)
+        if est is not None:
+            yaw = doorface.turn_step(est[0], target, spent)
+            record["face_err"] = doorface.signed_error(doorface.gate_value(here[0], here[1], yaw, q0, q1))
+        return "face" if moved is None else None
+
     def route_to(self, x: float, z: float, *, avoid=(), margin: float | None = None,
                  tolerance: float = 45.0, walkmesh=None, prior="stock", timeout: float = 20.0,
-                 unstick: bool = False, smooth: bool = False, zone=None, npcs: bool = False) -> dict:
+                 unstick: bool = False, smooth: bool = False, zone=None, npcs: bool = False, face=None,
+                 face_window=None) -> dict:
         """Walk to (x, z) along a route over the field's walkmesh that keeps out of ``avoid``.
 
         ``avoid`` is a list of polygons (world ``[x, z]`` corners -- a field's gateway zones as
@@ -2741,6 +3151,17 @@ class Session:
         ROUTE_WALKER_BUDGET, never taken for the door -- and a walk the finish ends OUTSIDE the zone says what it found
         holding him there (``held_by``, ``pinned``: its own judgement, recorded as it was made).
 
+        ``face`` (opt-in: None, the default, faces nothing) is a door stock's FACING GATE keeps: its region, world
+        ``[x, z]`` corners, the ENGINE's polygon in the engine's order -- the region's first edge first, every point
+        (scan_gateways' ``region``; its ``zone`` for a 3- or 4-point one) -- and ``face_window`` its gate's compare
+        constants (scan_gateways' ``face_gate``; None: the stock (48, 208)). Pass it for a GATED door only: one with no
+        gate fires the first tick he stands in it with control, so one still shut is shut, and a press toward it
+        would only walk him about for nothing (route_cross passes it on only for a ``gate``). When the walk ends
+        standing IN that region (IsInQuad) with control and nothing fired, it ends with a press that turns him to face
+        the door, planned to leave him facing it -- never carrying him out of the region before the call that faces
+        it, and never, its tail and a slide along a wall included, into another zone or at an object
+        (:meth:`_face_the_door`). A walk that ended ``frozen`` is not turned: a hold on movement holds the turn too.
+
         ``npcs`` (opt-in; it implies ``unstick``) plans round the field's OTHER ACTORS as the engine publishes
         them (memoria-patch s89, :attr:`State.objects`) instead of finding them by walking into them -- on a
         tight map a solid one is a true movement lock. Every object that collides with him (``coll``, standing
@@ -2779,7 +3200,8 @@ class Session:
         Returns ``{"from", "landed", "reached", "travelled", "waypoints", "toward", "replans",
         "during", "waits", "cleared", "pushes", "pushed", "blockers", "remembered", "blocked",
         "frozen", "boxed", "boxed_by", "npcs", "avoided", "entered", "through", "sealed", "npc_replans", "npc_waits",
-        "box_waits", "box_cleared", "boxers", "held_by", "pinned", "changed_to"}``: ``landed``
+        "box_waits", "box_cleared", "boxers", "held_by", "pinned", "changed_to", "face_gate", "faced", "face_err",
+        "face_worst", "face_to", "face_calls", "face_pad"}``: ``landed``
         the field it ended up in (None = still here), ``changed_to`` the one the id first changed to (None: it
         never changed) -- they differ when that room's scene put him straight back (:meth:`expect_field_change`),
         ``landed`` then the origin -- ``reached`` whether it
@@ -2787,7 +3209,8 @@ class Session:
         route_cross's ``inside`` says which), ``travelled`` the distance actually covered (summed
         over the walk, not end-to-end), ``waypoints`` the first plan (None = no route exists),
         ``during`` what lost control -- "calibrate" (a probe), "walk" (a step), "wait" (during an
-        unstick wait), "push" (during a push), None (nothing did). The rest stay zero/empty without
+        unstick wait), "push" (during a push), "face" (during the press that turns him to face the door), None
+        (nothing did). The rest stay zero/empty without
         ``unstick``: ``waits`` taken, the stalls a wait ``cleared``, ``pushes`` pressed and how many
         of them ``pushed`` him through, the ``blockers`` this call placed ([x, z]; ``replans`` counts
         the plans after the first that a stall caused), how many ``remembered`` ones its first plan went
@@ -2811,6 +3234,24 @@ class Session:
         spot of the zone he could have got into with them gone: the village, not the door), "bodies" (no such spot --
         bodies that do not walk stand in the way to the one the geometry leaves), None (the spot's geometry, or
         nothing published in the way), ``pinned`` those bodies. Any other end leaves them None and empty.
+        ``face_gate`` is the gate the walk was asked to face (``[lo, hi]``, ``face_window`` or the stock one), None when
+        it was given no ``face``. ``faced`` is the facing step's verdict (:meth:`_face_the_door`) -- a PREDICTION, from
+        the presses that turned him: the yaw is not read (``player.dir`` is PosObj.rot[1], which a field never writes).
+        None: no step was pressed -- no ``face``, he did not stand in its region with control once the walk ended, the
+        door fired while he stood there, or the walk ended ``frozen``. True: a press was made that the prediction says
+        leaves him facing the door (nothing fired after it: the door stayed shut with him facing it), or control went
+        during its presses (``during`` "face"). False: he stood inside with control, nothing fired, and no press that
+        faces the door kept the rules above -- or the short ones that did ran out before the prediction said faced
+        (they were pressed; nothing is scored faced before it says so) -- or he stood in the walk's ``zone`` but in the
+        dead middle of the door's region, where the gate never runs. ``face_to`` the point the gate takes his bearing
+        to (content.doorface.calc_exit_position: his projection onto the first edge) where the step began,
+        ``face_pad`` the buttons it pressed ("up+left"), ``face_calls`` the WHOLE MovePC calls it counted them for
+        (content.doorface.sure_calls; fewer where a free press moved him less than they step), ``face_worst`` the
+        largest error, in 256ths, the prediction leaves him with where the step left him (doorface.worst_face_error:
+        within the window's limit when ``faced`` is True), and ``face_err`` the gate's signed error, in 256ths, for the
+        yaw the prediction's CENTRE gives him (the engine's formula, doorface.gate_value) -- None when his yaw before
+        the step was unknown (a chunked walk, or none of the walk's holds measured), as the step's own bound is then
+        all there is. Each None when the step made no press.
         """
         from ff9mapkit.content import pathfind
         if zone is not None and not smooth:
@@ -2824,13 +3265,20 @@ class Session:
         origin = st.field_id
         polys = [[(float(p[0]), float(p[1])) for p in poly] for poly in avoid]
         zpoly = None if zone is None else [(float(p[0]), float(p[1])) for p in zone]
+        fpoly = None if face is None else [(float(p[0]), float(p[1])) for p in face]
+        if fpoly is not None and len(fpoly) < 3:
+            raise HarnessError(f"route_to(face=...) is a door's region, 3 to 8 corners -- got {face!r}")
         record = {"from": origin, "landed": None, "reached": False, "travelled": 0.0,
                   "toward": [round(x), round(z)], "waypoints": None, "replans": 0, "during": None,
                   "waits": 0, "cleared": 0, "pushes": 0, "pushed": 0, "blockers": [], "remembered": 0,
                   "blocked": False, "frozen": False, "boxed": False, "boxed_by": None,
                   "npcs": None, "avoided": [], "entered": [], "through": [], "sealed": [], "npc_replans": 0,
                   "npc_waits": 0, "box_waits": 0, "box_cleared": 0, "boxers": [], "held_by": None, "pinned": [],
-                  "changed_to": None}
+                  "changed_to": None, "face_gate": None, "faced": None, "face_err": None, "face_worst": None,
+                  "face_to": None, "face_calls": None, "face_pad": None}
+        if fpoly is not None:
+            from ff9mapkit.content import doorface
+            record["face_gate"] = list(doorface.FACE_WINDOW if face_window is None else map(int, face_window))
         self.wait_control(timeout=timeout)
         wmesh = walkmesh if walkmesh is not None else self._stock_walkmesh(origin)
         if isinstance(prior, str):
@@ -2859,6 +3307,19 @@ class Session:
         ended = None                      # "boxed" / "outside": the leg that ended the walk there
         attempts = (self.ROUTE_BLOCKERS if unstick else self.ROUTE_REPLANS) + 1
         attempt = plans = 0               # the plans a stall caused / every plan made
+        leg = None                        # the smooth leg walked last: its last hold is where the facing step starts
+
+        def land(during: str, into) -> dict:
+            """Control went away ``during`` a step of the walk: the record, with where that led -- the trigger radii
+            he stood within reach of named (:meth:`_npc_fired`; ``into``, the zone the walk was sent into, takes
+            control itself), the walkers' cost tallied, the landing waited for (:meth:`_await_landing`)."""
+            record["travelled"] = round(walked[0], 1)
+            record["during"] = during
+            self._npc_fired(watch, record, origin, into)
+            self._npc_tally(record, watch)
+            record["landed"] = self._await_landing(origin, timeout, record)
+            return record
+
         while True:
             st = self.state
             here = (st.player_x, st.player_z)
@@ -2941,12 +3402,7 @@ class Session:
                 if got == "stalled" and unstick:
                     got = self._unstick_leg(cx, cz, tol, last, origin, walked, record, leg=leg, watch=watch)
                 if got in ("walk", "wait", "push"):
-                    record["travelled"] = round(walked[0], 1)
-                    record["during"] = got
-                    self._npc_fired(watch, record, origin, zpoly)
-                    self._npc_tally(record, watch)
-                    record["landed"] = self._await_landing(origin, timeout, record)
-                    return record
+                    return land(got, zpoly)
                 if got == "boxed":
                     record["boxed"] = True        # no press keeps the rules: a replan from here plans the same
                     record["boxed_by"] = (watch or {}).get("boxed_by") or "spot"
@@ -3020,6 +3476,15 @@ class Session:
             self._log(f"  route_to: did not move at all from ({st.player_x:.0f}, {st.player_z:.0f}) through "
                       f"{record['waits']} wait(s), {record['pushes']} push(es) and {len(fresh)} replan(s) in "
                       f"other directions -- movement is held (or he is boxed in); stopping")
+        if fpoly is not None and not record["frozen"]:
+            # the walk is over; standing IN a gated door's region with nothing fired, only facing it opens it
+            turn = {"hazards": polys, "spread": self._heading_spread(self._axes[origin], prior), "watch": watch,
+                    "floor": wmesh}
+            if self._face_the_door(fpoly, record, origin, walked, turn, self._held_yaw(leg), record["face_gate"],
+                                   zpoly) is not None:
+                # control went during a facing press: the door fired, or a trigger the press met -- never told apart
+                # from here, so every trigger he stands within reach of is named, in the door's region or not
+                return land("face", None)
         st = self.state
         record["travelled"] = round(walked[0], 1)
         self._npc_tally(record, watch)
@@ -3905,9 +4370,7 @@ class Session:
         best = (score(here), None, None)
         for buttons, u in _eight_way(basis):
             end = (here[0] + u[0] * reach, here[1] + u[1] * reach)
-            spot = (int(round(end[0])), int(round(end[1])))
-            if floor is not None and (floor.point_on_walkmesh(*spot) is None
-                                      or (floor.distance_to_boundary(*spot) or 0.0) < cam.COLLISION_RADIUS_W):
+            if floor is not None and not self._can_stand(floor, end[0], end[1], cam.COLLISION_RADIUS_W):
                 continue
             if not (all(self._walker_clear(here, u, reach, leg["spread"], d, self.RUN_SPEED, n + self.PROBE_TAIL_FRAMES)
                         and self._off_beat(here, [end], d) for d in swept)
@@ -3919,6 +4382,7 @@ class Session:
             return False
         _score, buttons, u = best
         leg["pressed"] = (buttons, u)
+        leg["turned"] = None                          # the yaw the last hold left is no longer his (:meth:`_held_yaw`)
         self._log(f"  route_to: standing at ({here[0]:.0f}, {here[1]:.0f}) is not safe from walking trigger(s) "
                   f"{[d['uid'] for d in threat]}: {n} frames {'+'.join(buttons)} out of the way")
         self.send(*[f"hold {b} {n}" for b in buttons], f"wait {n + 4}")
@@ -4239,9 +4703,7 @@ class Session:
         base, best = score(here), None
         for buttons, u in _eight_way(basis):
             end = (here[0] + u[0] * reach, here[1] + u[1] * reach)
-            spot = (int(round(end[0])), int(round(end[1])))
-            if floor is not None and (floor.point_on_walkmesh(*spot) is None
-                                      or (floor.distance_to_boundary(*spot) or 0.0) < cam.COLLISION_RADIUS_W):
+            if floor is not None and not self._can_stand(floor, end[0], end[1], cam.COLLISION_RADIUS_W):
                 continue
             if not self._probe_is_clear(here, u, reach, (), leg["spread"], discs=bodies):
                 continue
@@ -4254,6 +4716,7 @@ class Session:
             return False
         _far, _wide, buttons, u = best
         leg["pressed"] = (buttons, u)
+        leg["turned"] = None                          # the yaw the last hold left is no longer his (:meth:`_held_yaw`)
         self._log(f"  route_to: walker(s) {[d['uid'] for d in held]} held on him at ({here[0]:.0f}, {here[1]:.0f}) -- "
                   f"a walker walks on only once he moves: {n} frames {'+'.join(buttons)}{' walked' if slow else ''} "
                   f"out of their way")
@@ -4387,7 +4850,7 @@ class Session:
     def route_cross(self, x: float, z: float, *, expect: int | None = None, avoid=(),
                     margin: float | None = None, timeout: float = 20.0, walkmesh=None,
                     prior="stock", unstick: bool = False, zone=None, smooth: bool = False,
-                    npcs: bool = False) -> dict:
+                    npcs: bool = False, gate=None, region=None) -> dict:
         """:meth:`route_to` a point inside a gateway region, then wait for the crossing like :meth:`cross`.
 
         ``(x, z)`` should be INSIDE the target region and standable --
@@ -4400,28 +4863,40 @@ class Session:
         ``unstick``, ``smooth`` and ``npcs`` are route_to's (waits, pushes, unseen blockers; whole-leg holds;
         planning round the published objects).
 
-        ``zone`` (opt-in: the target region's polygon) adds ``"inside"`` -- where the walk ended with
-        control held, was he standing IN the region? -- the difference between "the way there was
-        blocked" and "he got there and nothing fired", which the goal distance behind ``reached``
-        cannot tell apart. And a walk that ended OUTSIDE it waits ROUTE_OUTSIDE_WAIT for the crossing,
-        not ``timeout``: a gateway does not fire for someone standing outside its zone. Without
-        ``zone``, ``inside`` is None and the wait is unchanged. Under ``smooth`` it also goes to route_to,
-        whose last leg then finishes IN the zone rather than within tolerance of the goal point -- and, under
-        ``npcs`` too, waits on walkers at the zone's edge, and says in ``held_by`` / ``pinned`` what held a walk
-        that still ended outside it (:meth:`route_to`).
+        ``zone`` (opt-in: the target region's polygon, the kit's quad -- scan_gateways' ``zone``) adds ``"inside"`` --
+        where the walk ended with control held, was he standing IN the region, by the engine's own test (IsInQuad,
+        content.doorface.region_contains, on ``region``: the engine's polygon, every point -- scan_gateways'
+        ``region``; default ``zone``)? -- the difference between "the way there was blocked" and "he got there and
+        nothing fired", which the goal distance behind ``reached`` cannot tell apart. And a walk that ended OUTSIDE it
+        waits ROUTE_OUTSIDE_WAIT for the crossing, not ``timeout``: a gateway does not fire for someone standing
+        outside its region (the dead middle of a 5- to 8-point one included). Without ``zone``, ``inside`` is None and
+        the wait is unchanged. Under ``smooth`` it also goes to route_to, whose last leg then finishes IN the zone
+        rather than within tolerance of the goal point -- and, under ``npcs`` too, waits on walkers at the zone's
+        edge, and says in ``held_by`` / ``pinned`` what held a walk that still ended outside it (:meth:`route_to`).
+
+        ``gate`` (opt-in, with ``zone``: scan_gateways' ``face_gate`` for this door -- ``[lo, hi]``, or True for the
+        stock window; None: the door has no facing gate) is stock's DOOR FACING GATE: smooth or not, the walk goes to
+        route_to with the door's ``region`` to FACE (``face``, ``face_window``) -- a walk that ends standing in it with
+        nothing fired ends with a press that turns him to face the door (:meth:`_face_the_door`), ``faced`` and the
+        other ``face_*`` keys say what it did, and ``inside`` where that left him. The region's corners are the
+        ENGINE's order, the first edge first: that edge is the one the gate takes his bearing to. A door with no gate
+        is not faced: it fires for anyone standing in it, so one still shut stays shut however he turns.
         """
-        from ff9mapkit.content import pathfind
+        from ff9mapkit.content import doorface
+        door = zone if region is None else region
+        if gate is not None and door is None:
+            raise HarnessError("route_cross(gate=...) faces a door: give its zone (or its region)")
         record = self.route_to(x, z, avoid=avoid, margin=margin, tolerance=45.0, walkmesh=walkmesh,
                                prior=prior, timeout=timeout, unstick=unstick, smooth=smooth,
-                               zone=zone if smooth else None, npcs=npcs)
+                               zone=zone if smooth else None, npcs=npcs, face=None if gate is None else door,
+                               face_window=None if gate is None or gate is True else gate)
         origin = record["from"]
         record["inside"] = None
         pending = record["landed"] is None and record["waypoints"] is not None and record["during"] is None
         if zone is not None and record["landed"] is None and record["during"] is None:
             st = self.state
             standing = st.field_id == origin and st.player_x is not None and st.control
-            record["inside"] = bool(standing and pathfind.poly_gap(
-                st.player_x, st.player_z, [(float(p[0]), float(p[1])) for p in zone]) < 0)
+            record["inside"] = bool(standing and doorface.region_contains(st.player_x, st.player_z, door))
             if pending and standing and not record["inside"]:
                 # outside the zone with control: only a trigger still settling can take him now, so
                 # the full wait applies once one visibly has (the destination may take that long to
