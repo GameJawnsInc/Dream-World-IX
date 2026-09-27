@@ -16,6 +16,11 @@ region leaves the field; "the route grazed a door" is not a near miss, it is a d
 
 THE PLAYER'S FLOOR (:class:`PlayerWalkmesh`): the triangles the engine refuses the controlled player (stock
 door strips) are walls to a route planned for him -- opt-in, because an NPC's bar is a different bit.
+
+THE START'S WALL BAND (:func:`route` ``leave_wall``): a start a script placed nearer a wall than ``clearance``
+may step straight onto a clear spot, as the start always could, or walk OUT of that band gaining clearance --
+never deeper, never along the wall -- and never through a wall nor back in. Opt-in, for a walker planned from
+where it stands (the harness); the build's routes are unchanged.
 """
 
 from __future__ import annotations
@@ -93,7 +98,9 @@ class Keepout:
     (stock 350 from inside its 353 zone to the 351 exit did). Monotone is a property of a step's
     DIRECTION, so a leaving region blocks no point, and :meth:`blocks_leg` reads a->b as walked from a.
     Checked at the leg's ends plus "no entry" / "one boundary cut" -- exact for a CONVEX region, where the
-    distance along a straight leg is convex (all 1477 stock gateway zones are convex 3- or 4-gons).
+    distance along a straight leg is convex (all 1477 stock gateway zones -- the kit's quad cut of each region --
+    are convex 3- or 4-gons; the engine's own polygon, ``scan_gateways``' ``region``, has 5 to 8 points on 158 of
+    those rows, all convex too, of which IsInQuad covers only the ring of ears: content.doorface.region_contains).
 
     Built by :func:`route_avoiding`; the router tests cells with :meth:`blocks_point` and legs with
     :meth:`blocks_leg` (exact)."""
@@ -173,7 +180,134 @@ def _free(wmesh, x, z, obstacles, clearance, obstacle_r, avoid=()) -> bool:
     return True
 
 
-def _clear(wmesh, a, b, obstacles, clearance, obstacle_r, avoid=()) -> bool:
+#: How much clearance a step INSIDE the start's wall band (:func:`route` ``leave_wall``) must gain per unit it
+#: walks, until it is out: at least half, i.e. heading within 60 degrees of straight away from the walls. The
+#: engine pushes his centre straight out along the wall's normal (a gain of 1); every direction lies within
+#: 22.5 degrees of one of the grid's eight (0.92), and the bisector out of a right-angled corner gains 0.71 --
+#: both pass. A route that runs ALONG the wall inside the band -- never deeper, never out: stock 352's wake spot
+#: 22.8u off a strip that diverges 28u over 518u gains 0.05 -- does not.
+WALL_LEAVE_GAIN = 0.5
+
+
+def _wall_level(wmesh, x, z, clearance):
+    """How far (x, z) stands off the walls, capped at ``clearance`` -- the level :func:`route`'s ``leave_wall``
+    rule raises out of the band -- or None off the mesh. A point with no wall on its floor counts as clear.
+
+    Asked at the exact point, not the rounded one :func:`_free` asks at: the band's samples are a few units apart
+    (:data:`_BAND_STEP_W`), and rounding each would add up to 1.4u of noise to a gain the rule needs to be 2."""
+    if wmesh.point_on_walkmesh(x, z) is None:
+        return None
+    d = wmesh.distance_to_boundary(x, z)
+    return float(clearance) if d is None else min(float(clearance), d)
+
+
+def _leaves_wall(before, after, step, clearance) -> bool:
+    """A move of ``step`` from wall level ``before`` (inside the band) to ``after``: out of the band, or at least
+    :data:`WALL_LEAVE_GAIN` of the step further off the walls -- never nearer them, never along them."""
+    return after is not None and after >= min(clearance, before + WALL_LEAVE_GAIN * step)
+
+
+#: How far apart :func:`_walks_out` samples a move inside the start's wall band. The wall distance changes by at
+#: most a unit per unit walked, so between two samples W apart that pass :func:`_leaves_wall` it can dip at most
+#: W/4 below the first: 1u, the resolution the rest of the router asks the walkmesh at (integer points). Nearer a
+#: wall than W, the samples close in to his distance from it (a move no longer than that cannot cross it).
+_BAND_STEP_W = 4.0
+
+#: The shortest sub-step :func:`_walks_out` takes, so a move from a point ON a wall still gets going. A point within a
+#: quarter of it of a wall is judged at that resolution: the sample after it could reach the wall's far side.
+_BAND_MIN_STEP_W = 0.01
+
+
+def _walks_out(wmesh, a, b, level, clearance) -> bool:
+    """Does the straight move a->b, from wall level ``level`` at ``a``, walk OUT of the start's wall band
+    (:func:`route` ``leave_wall``) -- and stay out?
+
+    Sampled inside the band at most :data:`_BAND_STEP_W` apart and never further than he stands off the walls, since
+    a move no longer than the distance to every wall of his floor cannot cross one. Samples further apart can: past
+    an unlinked edge -- a zero-width divider, a terrace base, a thin closed strip -- the far side measures its OWN
+    walls, reads as ground gained, and a route judged at cell centres walked straight through the wall (stock 2216:
+    11.5u off one, a 64u step onto a floor 1136u lower). Nor further than the step whose required gain would carry
+    him past the band's edge, so the sample that leaves the band is held to the gain too. Every sample in the band must
+    pass :func:`_leaves_wall` against the one before; every sample after it must be ``clearance`` clear, at most
+    :data:`_MESH_STEP_W` apart (as :func:`_clear` samples), so the move never comes back in."""
+    dx, dz = b[0] - a[0], b[1] - a[1]
+    dist = (dx * dx + dz * dz) ** 0.5
+    done = 0.0
+    while dist - done > 1e-9:
+        if level < clearance:
+            step = max(_BAND_MIN_STEP_W, min(level, (clearance - level) / WALL_LEAVE_GAIN, _BAND_STEP_W))
+        else:
+            step = _MESH_STEP_W
+        step = min(step, _MESH_STEP_W, dist - done)
+        done += step
+        now = _wall_level(wmesh, a[0] + dx * done / dist, a[1] + dz * done / dist, clearance)
+        if now is None or not (_leaves_wall(level, now, step, clearance) if level < clearance else now >= clearance):
+            return False
+        level = now
+    return True
+
+
+def _triangles(wmesh):
+    """``(under, links, corners)`` of the floor ``wmesh`` lets him walk -- the open triangles under a point, the open
+    ones across a triangle's edges, a triangle's corners (x, z) -- or None for a view with no triangles."""
+    while isinstance(wmesh, _Remembered):
+        wmesh = wmesh.mesh
+    if isinstance(wmesh, PlayerWalkmesh):
+        mesh, closed = wmesh.mesh, wmesh.closed
+    elif hasattr(wmesh, "tris_at") and hasattr(wmesh, "world_verts"):
+        mesh, closed = wmesh, frozenset()
+    else:
+        return None
+    wv = mesh.world_verts()
+    return (lambda x, z: {t for t in mesh.tris_at(x, z) if t not in closed},
+            lambda tris: {n for t in tris for n in mesh.tris[t].nbr if n >= 0 and n not in closed},
+            lambda tris: {(wv[i][0], wv[i][2]) for t in tris for i in mesh.tris[t].vtx})
+
+
+def _steps_linked(wmesh, a, b) -> bool:
+    """Does the straight move a->b walk the floor triangle to triangle -- every point of it on an open triangle, and
+    every change of triangle across an edge the two LINK, as the engine walks (or over a corner both touch)?
+
+    The one rule :func:`route` holds the START's first step to (``leave_wall``): exact where a wall distance is not.
+    Past an unlinked edge the far side is floor too; and where he stands on a seam the floor found first measures its
+    own walls, so the way onto the other floor, passing the corner where that wall begins, reads as touching a wall
+    (stock 57, 1006, 1008: a distance walk refused 13 of 51 band starts beside unlinked edges in stock 1000-1009 whose
+    routes the planner had found, every one of them linked all the way). Sampled every unit; a step whose ends do not
+    link is halved until the triangles between them show or the change is pinned to a point. Which triangles he is
+    on narrows to those the walk can reach, so a sample ON an unlinked edge -- or over the floor beneath a raised one
+    -- does not carry him across: the old first step walked off a raised floor's unlinked edge onto the floor under
+    it (stock 1008, triangle 118 onto 51; 1753, 233 onto 173), and this refuses it. A view with no triangles keeps
+    the step the planner always allowed off the start."""
+    tri = _triangles(wmesh)
+    if tri is None:
+        return True
+    under, links, corners = tri
+
+    def walk(p, here, q, depth=0):             # the triangles at q the walk p -> q reaches from ``here``, or None
+        there = under(*q)
+        reach = there & (here | links(here))
+        if reach or not there:
+            return reach or None
+        if depth == 12:                        # pinned to a point: only a corner both touch passes
+            return there if any(_routes.seg_dist_xz(c[0], c[1], p, q) < 0.01
+                                for c in corners(here) & corners(there)) else None
+        m = ((p[0] + q[0]) / 2, (p[1] + q[1]) / 2)
+        mid = walk(p, here, m, depth + 1)
+        return None if mid is None else walk(m, mid, q, depth + 1)
+
+    here = under(*a)
+    n = max(1, int(((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5))
+    prev = a
+    for k in range(1, n + 1):
+        q = (a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n)
+        here = walk(prev, here, q) if here else None
+        if here is None:
+            return False
+        prev = q
+    return True
+
+
+def _clear(wmesh, a, b, obstacles, clearance, obstacle_r, avoid=(), leave_wall=False) -> bool:
     """Is the straight leg a->b fully free?
 
     Obstacles are discs, so they are tested EXACTLY (point-to-segment distance) rather than
@@ -184,13 +318,19 @@ def _clear(wmesh, a, b, obstacles, clearance, obstacle_r, avoid=()) -> bool:
     and the 80u-stepped sample walked straight over the 72u chord -- the router emitted a path its
     own validator then rejected. The mesh/wall half still samples, at the radius-independent
     :data:`_MESH_STEP_W`. Keep-out polygons (``avoid``) are tested exactly too. An obstacle is ``(x, z)``, kept
-    ``obstacle_r`` clear, or ``(x, z, r)``, a disc with its own radius (:func:`route`)."""
+    ``obstacle_r`` clear, or ``(x, z, r)``, a disc with its own radius (:func:`route`).
+
+    ``leave_wall`` (:func:`route`): a leg that STARTS nearer a wall than ``clearance`` must walk out of that band
+    and stay out (:func:`_walks_out`); any other leg is sampled as above."""
     for o in obstacles:
         if _routes.seg_dist_xz(o[0], o[1], a, b) < (o[2] if len(o) > 2 else obstacle_r):
             return False
     for k in avoid:
         if k.blocks_leg(a, b):
             return False
+    level = _wall_level(wmesh, a[0], a[1], clearance) if leave_wall and clearance > 0 else None
+    if level is not None and level < clearance:
+        return _walks_out(wmesh, a, b, level, clearance)        # a leg from inside the start's band
     dx, dz = b[0] - a[0], b[1] - a[1]
     dist = (dx * dx + dz * dz) ** 0.5
     n = max(1, int(dist / _MESH_STEP_W))
@@ -201,13 +341,14 @@ def _clear(wmesh, a, b, obstacles, clearance, obstacle_r, avoid=()) -> bool:
     return True
 
 
-def _simplify(wmesh, pts, obstacles, clearance, obstacle_r, avoid=()) -> list:
+def _simplify(wmesh, pts, obstacles, clearance, obstacle_r, avoid=(), leave_wall=False) -> list:
     """String-pull a dense point list to a few waypoints (drop a point when you can see past it).
-    Returns the waypoints AFTER the start, always ending at the exact goal (pts[-1])."""
+    Returns the waypoints AFTER the start, always ending at the exact goal (pts[-1]). ``leave_wall`` is
+    :func:`route`'s, for every leg (:func:`_clear`)."""
     out, i = [], 0
     while i < len(pts) - 1:
         j = len(pts) - 1
-        while j > i + 1 and not _clear(wmesh, pts[i], pts[j], obstacles, clearance, obstacle_r, avoid):
+        while j > i + 1 and not _clear(wmesh, pts[i], pts[j], obstacles, clearance, obstacle_r, avoid, leave_wall):
             j -= 1
         out.append(pts[j])
         i = j
@@ -307,14 +448,35 @@ OBSTACLE_R_W = 2 * cam.OBJECT_COLLISION_W
 
 
 def route(wmesh, start, goal, obstacles=(), *, cell=64.0, clearance=None, obstacle_r=None,
-          max_expand=20000, avoid=()):
+          max_expand=20000, avoid=(), leave_wall=False):
     """Waypoints routing ``start``->``goal`` around walls + obstacles, or ``None`` if unreachable.
 
     Returns the interior waypoints + the exact goal (EXCLUDING start), suitable as a ``path``. Stays on
     the walkmesh, >= ``clearance`` from walls, >= ``obstacle_r`` from each obstacle centre. ``obstacles``
     is a list of (x, z) character centres -- or of ``(x, z, r)`` discs, each kept its own ``r`` clear instead
     (the harness's published field objects, whose collision radii differ). ``avoid`` is a list of :class:`Keepout` -- use
-    :func:`route_avoiding`, which builds them (and exempts the region the walker starts in)."""
+    :func:`route_avoiding`, which builds them (and exempts the region the walker starts in).
+
+    ``leave_wall`` (opt-in: the harness, planning from where the player STANDS) is for a start nearer a wall than
+    ``clearance`` -- a script put him there (stock 352's wake scene leaves him 22.8u off a closed strip's edge
+    on his floor), and the engine pushes his centre straight back out to its radius line the moment he moves
+    (FieldMapActorController.RadiusValid -> ServiceForces). Every cell within ``clearance`` of a wall is still a
+    wall -- except on the way OUT, and no step of it goes THROUGH a wall, however thin:
+
+      * the start is taken as given, as it always was: its first step may go straight onto any free cell -- by
+        whatever bearing, even past a corner -- provided it walks triangle to triangle, through no wall
+        (:func:`_steps_linked`). Holding that step to the gain as well refused about 190 of 886 sampled stock band
+        starts beside unlinked edges whose route the planner without ``leave_wall`` found (stock 57's way out
+        passes 1.5u from a corner, then a seam), and a lost route is what ended the tour;
+      * every other step from a cell inside the band -- onto one still in it, or out of it -- is walked by
+        :func:`_walks_out`: gaining :data:`WALL_LEAVE_GAIN` of its length at every sample, until it is out, and
+        clear from there on. Where no free cell is one step away (352's wake at every grain the pinch lets
+        through), the route walks out of the band never deeper and never along the wall;
+      * the string-pull's legs from inside the band keep that same rule (:func:`_clear`), so straightening the path
+        never turns it into a walk along the wall.
+
+    Once out, the route never comes back in (a free cell only steps to free cells). Without ``leave_wall`` -- the
+    build's callers -- or from a start already ``clearance`` clear, the route is exactly what it was."""
     clearance = cam.COLLISION_RADIUS_W if clearance is None else clearance
     obstacle_r = OBSTACLE_R_W if obstacle_r is None else obstacle_r
     sx, sz = float(start[0]), float(start[1])
@@ -333,6 +495,35 @@ def route(wmesh, start, goal, obstacles=(), *, cell=64.0, clearance=None, obstac
         if v is None:
             x, z = cell_xz(i, j)
             v = known[(i, j)] = _free(wmesh, x, z, obstacles, clearance, obstacle_r, avoid)
+        return v
+
+    # THE START'S WALL BAND: the rule is live only when he stands nearer a wall than the clearance. The start
+    # cell's level is where he stands, whatever else is there (the start is taken as given)
+    level0 = _wall_level(wmesh, sx, sz, clearance) if leave_wall and clearance > 0 else None
+    leave_wall = level0 is not None and level0 < clearance
+    levels: dict = {(0, 0): level0}
+    steps: dict = {}
+
+    def band_level(i, j):
+        """The cell's wall level (:func:`_wall_level`) where it is free of all BUT the wall clearance, else None."""
+        if (i, j) not in levels:
+            x, z = cell_xz(i, j)
+            levels[(i, j)] = (_wall_level(wmesh, x, z, clearance)
+                              if _free(wmesh, x, z, obstacles, 0, obstacle_r, avoid) else None)
+        return levels[(i, j)]
+
+    def band_step(c, n) -> bool:
+        """A step from cell ``c``, inside the band: the start's straight onto a free cell, through no wall
+        (:func:`_steps_linked`); any other onto a cell free of all but the wall clearance, walked out of the band
+        (:func:`_walks_out`) -- whether it ends inside it or out. Fixed for this call, like ``known``."""
+        v = steps.get((c, n))
+        if v is None:
+            if c == (0, 0) and free_cell(*n):
+                v = _steps_linked(wmesh, (sx, sz), cell_xz(*n))
+            else:
+                v = (band_level(*n) is not None
+                     and _walks_out(wmesh, cell_xz(*c), cell_xz(*n), band_level(*c), clearance))
+            steps[(c, n)] = v
         return v
 
     start_c = (0, 0)
@@ -355,7 +546,10 @@ def route(wmesh, start, goal, obstacles=(), *, cell=64.0, clearance=None, obstac
             return None
         for di, dj in _NEIGHBORS:
             n = (c[0] + di, c[1] + dj)
-            if n != goal_c and not free_cell(*n):       # start/goal cells are taken as given
+            if leave_wall and not free_cell(*c):
+                if not band_step(c, n):                 # still in the start's band: band_step judges every step
+                    continue
+            elif n != goal_c and not free_cell(*n):     # start/goal cells are taken as given
                 continue
             # two free cells can still have a keep-out CORNER between them (a diagonal step cuts it),
             # and the string-pull keeps adjacent steps unchecked -- so the step itself is tested
@@ -376,7 +570,7 @@ def route(wmesh, start, goal, obstacles=(), *, cell=64.0, clearance=None, obstac
         chain.append(came[chain[-1]])
     chain.reverse()                                     # start_c .. goal_c
     pts = [(sx, sz)] + [cell_xz(i, j) for (i, j) in chain[1:-1]] + [(gx, gz)]   # exact start..exact goal
-    wps = _simplify(wmesh, pts, obstacles, clearance, obstacle_r, avoid)
+    wps = _simplify(wmesh, pts, obstacles, clearance, obstacle_r, avoid, leave_wall)
     return [(int(round(x)), int(round(z))) for (x, z) in wps]
 
 
@@ -418,7 +612,8 @@ class _Remembered:
 
 
 def route_avoiding(wmesh, start, goal, avoid_polygons, margin: float = KEEPOUT_MARGIN_W, *,
-                   obstacles=(), cell=64.0, clearance=None, obstacle_r=None, max_expand=20000, memo=None):
+                   obstacles=(), cell=64.0, clearance=None, obstacle_r=None, max_expand=20000, memo=None,
+                   leave_wall=False):
     """:func:`route` that also keeps out of every polygon in ``avoid_polygons`` (and ``margin`` around it).
 
     Returns the waypoints after ``start`` ending at the exact ``goal``, or ``None`` when no such route
@@ -440,6 +635,11 @@ def route_avoiding(wmesh, start, goal, avoid_polygons, margin: float = KEEPOUT_M
 
     On a :class:`PlayerWalkmesh` the start is exempt from the closed triangles too: the strip he stands in is
     open to him (:meth:`PlayerWalkmesh.standing_at`).
+
+    ``leave_wall`` (opt-in) exempts the start from the wall clearance the same way: a start nearer a wall than
+    ``clearance`` may step straight onto a clear spot or walk OUT of that band -- gaining clearance, never deeper
+    nor along the wall -- and never through a wall nor back in (:func:`route`). The zones, the obstacles and (on a
+    PlayerWalkmesh) the closed triangles bind the way out as they bind the rest of the route.
 
     ``memo`` (a dict the caller keeps, for one ``wmesh``) remembers the floor and wall answers across calls: a caller
     that plans the same floor several ways -- other obstacle sets, other keep-outs -- from the same start pays for
@@ -463,7 +663,7 @@ def route_avoiding(wmesh, start, goal, avoid_polygons, margin: float = KEEPOUT_M
         return None
     for k in range(ROUTE_REFINES + 1):
         wps = route(wmesh, (sx, sz), (gx, gz), obstacles, cell=cell / 2 ** k, clearance=clearance,
-                    obstacle_r=obstacle_r, max_expand=max_expand * 4 ** k, avoid=keep)
+                    obstacle_r=obstacle_r, max_expand=max_expand * 4 ** k, avoid=keep, leave_wall=leave_wall)
         if wps is None:
             continue
         legs = [(sx, sz)] + [(float(x), float(z)) for (x, z) in wps]

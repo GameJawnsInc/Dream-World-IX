@@ -35,6 +35,25 @@ one (sid, tag, ip) -- Dali's ``Bit[2102]`` store in 350/352/.../358 and in 450 -
 there is its own row, and a ``c`` row carries its SITE's ``fld``/``don``/``m`` (the flush's ``f``/``p``/``sc``).
 A count therefore folds onto exactly one field's site.
 
+THE MEMBERS AND THE SEAM. A chain fork is a SET of fork fields (``members``, ``{fork id: donor id}``); a member
+whose exit was left pointing at a real field walks the run into the real game, where every row is the real
+game's own and keys exactly like stock's (the key carries no ``fld``). Merged, a chain that misses a field would
+match stock by leaving itself. So with a member set, a fork run's rows in a REAL field that is not a member,
+after the run first stood in a member, are SEAM rows: kept in their own keys, reported as the crossing that
+led there (the member, the real field, the first frame, the member's last write), and a stock key the fork
+side wrote only there is REACHED ONLY ACROSS A SEAM -- never matched, never folded into STOCK ONLY.
+
+WRITERS and CLOBBERS. The stock runs say who writes what: :func:`writers` indexes every stock ``(variable,
+value)`` by the donors that wrote it (``Global.Bit[2102] := 1 <- {450}``). And they say how wide each variable
+is: a fork's multi-byte write whose old/new show a byte changing OUTSIDE the variable stock writes at its start
+(a 16-bit ``[startup]`` word at 296, where stock stores ``SByte[296]`` and ``UInt16[297]``) is a
+NEIGHBOUR-BYTE CLOBBER -- the trace records no reads, so this is the only place a clobbered gate shows.
+
+PRE-EMPTED. A fork's prepend that stamps a value every stock run writes ITSELF, at its own site (round 4's seed
+set latch 2064 := 1, which stock's 351 lobby exit sets on the way out), does the story's work before the story
+does: whatever the stock writer's guard does with the value it finds is decided by the seed. The prepend key is
+FORK ONLY by construction (a negative offset stock can never match); PRE-EMPTED names the stock writer beside it.
+
 Provenance: reads the user's own install and build output; ships no SE bytes.
 """
 
@@ -132,6 +151,18 @@ class Row:
     def target(self) -> str:
         """The written variable as eb-src spells it: ``Global.Bit[2345]`` / ``Global.UInt16[236]``."""
         return f"Global.{self.width}[{self.bit if self.is_bit else self.byte}]"
+
+    def byte_changes(self) -> dict:
+        """``{byte: (old, new)}`` for each byte a multi-byte ``w`` row changed, read off its old/new the way
+        the engine lays the value down (two's complement, little-endian: SC 3115 is bytes 43, 12). A bit or
+        byte store touches only its own byte: ``{}``."""
+        n = WIDTH_BYTES[self.width]
+        if n == 1:
+            return {}
+        mask = (1 << 8 * n) - 1
+        old, new = self.old & mask, self.new & mask
+        return {self.byte + i: ((old >> 8 * i) & 0xFF, (new >> 8 * i) & 0xFF) for i in range(n)
+                if (old >> 8 * i) & 0xFF != (new >> 8 * i) & 0xFF}
 
 
 def _fail(line: int, msg: str):
@@ -656,10 +687,41 @@ class WriteKey:
 
 
 @dataclass
+class Seam:
+    """One crossing out of the fork's members into the real game: the run stood in ``frm`` (a member; its
+    donor ``donor``) and its next row was in real field ``to``. ``frame``/``line`` are that first seam row's;
+    ``exit`` is the last row the run wrote in ``frm`` before it (normally the exit's own ``Int16[2] :=
+    entrance``), ``exit_where`` that row's place in the script. ``fields``: every real field the trace saw across
+    it, in order, until the run stood in a member again."""
+
+    frm: int
+    donor: int | None
+    to: int
+    frame: int
+    line: int
+    exit: Row | None = None
+    exit_where: str = ""
+    fields: list = dfield(default_factory=list)
+
+    @property
+    def source(self) -> str:
+        """``member(350)`` -- the member by its donor; the plain field when the run crossed from a non-member."""
+        return f"member({self.donor})" if self.donor is not None else f"field {self.frm}"
+
+    @property
+    def origin(self) -> str:
+        """``member(350) [fork 30838]``."""
+        return self.source + (f" [fork {self.frm}]" if self.donor is not None else "")
+
+
+@dataclass
 class Observed:
     """A key as first seen in a run: its join (None off the field join) and why the census cannot see it.
     ``at`` is the line that first evidenced it -- the row's own, or for a site's last SUPPRESSED value
-    (``counted``) the `c` row's at the epoch's close: the file's line order is the engine's emission order."""
+    (``counted``) the `c` row's at the epoch's close: the file's line order is the engine's emission order.
+    ``changed``: ``{byte: (old, new, line)}``, the first change each byte of a multi-byte store showed over
+    EVERY emitted row of the key (a suppressed value has no old). ``seam``: the crossing a seam key was
+    written across."""
 
     key: WriteKey
     row: Row
@@ -668,6 +730,8 @@ class Observed:
     where: str = ""
     at: int = 0
     counted: bool = False
+    changed: dict = dfield(default_factory=dict)
+    seam: Seam | None = None
 
 
 @dataclass
@@ -684,15 +748,25 @@ class RunDigest:
     residue_masked: int = 0
     notes: list = dfield(default_factory=list)
     incomplete: str = ""                                  # why the run has no `off`; "" = it closed
+    members: dict = dfield(default_factory=dict)          # {fork id: donor id} -- the fork side's chain
+    mismatched: dict = dfield(default_factory=dict)       # {member: the donor its rows name}, when not the set's
+    seams: list = dfield(default_factory=list)            # [Seam] in the order the run crossed
+    seam_keys: dict = dfield(default_factory=dict)        # WriteKey -> Observed, written across a seam
+    stores: dict = dfield(default_factory=dict)           # (byte, width) -> {target} every store site's
 
 
-def digest(label: str, rows, *, scripts, donor_scripts=None, donors=None) -> RunDigest:
+def digest(label: str, rows, *, scripts, donor_scripts=None, donors=None, members=None) -> RunDigest:
     """Reduce ONE run's rows (:func:`split_runs`) to its comparable story writes.
 
     ``scripts(field_id)`` -> the :class:`ScriptIndex` this side's game RAN for that field (the install's
     bytes on the stock side; the mod folder's on the fork side), or None. ``donor_scripts(donor_id)`` -> the
     donor's stock script, to align a fork's function offsets (default: ``scripts``). ``donors`` overrides
     ``{fork field: donor}`` for an engine with no ForkDonorPatch row (every row then says ``don == fld``).
+
+    ``members`` = ``{fork id: donor id}``, the FORK side's chain: its rows in a real non-member field after
+    the run first stood in a member go to :attr:`RunDigest.seam_keys` (never :attr:`RunDigest.keys`), each
+    under the :class:`Seam` that led there. A member's donor also keys its rows when ``donors`` does not name
+    it; a member whose rows carry another donor (or none) is noted.
 
     A run that never reached its ``off`` is still digested, and says so in :attr:`RunDigest.incomplete`: a
     tracer that faulted writes no ``off`` (``StoryTrace.Fail``), and every key after the cut would otherwise
@@ -701,13 +775,15 @@ def digest(label: str, rows, *, scripts, donor_scripts=None, donors=None) -> Run
     if len(runs) != 1:
         raise TraceError(f"{label}: {len(runs)} traced runs where one was given -- split_runs() them"
                          if runs else f"{label}: no traced run (no `arm` epoch)")
-    d = RunDigest(label, epochs(runs[0]))
+    members = dict(members or {})
+    d = RunDigest(label, epochs(runs[0]), members=members)
     if d.epochs[-1].closed_by is None:
         d.incomplete = (f"the trace ends inside its {d.epochs[-1].why!r} epoch with no `off` -- the tracer "
                         f"faulted (state.json storytrace.error), the game died, a second `storytrace 1` "
                         f"restarted it, or the file was taken before `storytrace 0` landed. Every write "
                         f"after the cut reads as absent")
-    ctx = _Ctx(scripts, donor_scripts or scripts, donors or {})
+    ctx = _Ctx(scripts, donor_scripts or scripts, {**members, **(donors or {})})
+    across = _walk_seams(d, runs[0]) if members else {}
     for ep in d.epochs:
         for r in ep.residue:
             if noise_regions(r):
@@ -719,16 +795,70 @@ def digest(label: str, rows, *, scripts, donor_scripts=None, donors=None) -> Run
             if first.src == "harness":
                 d.harness += len(site.rows) + site.suppressed
                 continue
+            d.stores.setdefault((first.byte, first.width), set()).add(first.target)
             regions = noise_regions(first)
             if regions:
                 for name in regions:
                     d.masked[name] += len(site.rows) + site.suppressed
                 continue
             for r in site.rows:
-                _observe(d, ctx, r, r.new)
+                _observe(d, ctx, r, r.new, seam=across.get(id(r)))
             if site.suppressed:
-                _observe(d, ctx, first, site.last, counted_at=site.counted_at)
+                # the counted stores ran after the site's first row: they sit where its LAST emitted one did
+                _observe(d, ctx, first, site.last, counted_at=site.counted_at, seam=across.get(id(site.rows[-1])))
+    for s in d.seams:
+        if s.exit is not None:
+            got = _locate(d, ctx, s.exit, s.exit.new, record=False)
+            s.exit_where = got[3] if got else f"e{s.exit.sid} tag {s.exit.tag} ip {s.exit.ip}"
     return d
+
+
+def real_field(fid: int) -> bool:
+    """A field of the game's own table (``extract.ID_TO_EVT``) -- where a fork run is in the real game."""
+    from .extract import ID_TO_EVT
+    return fid in ID_TO_EVT
+
+
+def _walk_seams(d: RunDigest, run) -> dict:
+    """Walk ONE run in the engine's order and mark its seam rows: ``{id(w row): Seam}``. Places come from
+    every row but ``c`` (a count row carries its SITE's field, at the epoch's close). A row in a real field
+    that is not a member, once the run has stood in a member, is across a seam; the run is back when it
+    stands in a member again. Also notes each member whose rows name a donor other than the member set's."""
+    members = d.members
+    out: dict = {}
+    inside = False                  # the run has stood in a member
+    here = None                     # the field of the last placed row
+    last_w = None                   # the last `w` row of the current field visit
+    cur: Seam | None = None         # the crossing the run is across
+    said: set = set()
+    for r in run:
+        if r.k == "c":
+            continue
+        if r.fld != here:
+            if r.fld in members:
+                inside, cur = True, None
+            elif inside and real_field(r.fld):
+                if cur is None:
+                    exit_row = last_w if here in members else None
+                    cur = Seam(here, members.get(here), r.fld, r.f, r.line, exit_row)
+                    d.seams.append(cur)
+                if r.fld not in cur.fields:
+                    cur.fields.append(r.fld)
+            else:
+                cur = None          # a custom non-member (a hub) is the fork's own ground, not a seam
+            here, last_w = r.fld, None
+        if r.k != "w":
+            continue
+        last_w = r
+        if cur is not None:
+            out[id(r)] = cur
+        elif r.fld in members and r.don != members[r.fld] and r.fld not in said:
+            said.add(r.fld)
+            d.mismatched[r.fld] = r.don
+            d.notes.append(f"member {r.fld}: its rows name donor {r.don}"
+                           + (" (no ForkDonorPatch row)" if r.don == r.fld else "")
+                           + f", the member set says {members[r.fld]}")
+    return out
 
 
 class _Ctx:
@@ -753,33 +883,33 @@ class _Ctx:
         return self._delta[k]
 
 
-def _observe(d: RunDigest, ctx: _Ctx, r: Row, value: int, *, counted_at: int = 0) -> None:
+def _locate(d: RunDigest, ctx: _Ctx, r: Row, value: int, *, record: bool = True):
+    """``(key, join, gap, where)`` for one store and the value it left -- or None when a field row does not
+    join (recorded once in :attr:`RunDigest.failures`, with the run's notes, unless ``record`` is False: a
+    place asked only to NAME a row)."""
     donor = ctx.donors.get(r.fld, r.don)
     if r.src == "cs":
-        key = WriteKey(donor, r.m, "cs", -1, -1, -1, r.target, value)
-        _keep(d, key, r, None, "a C# writer through setVarManually -- no script position", "C#", counted_at)
-        return
+        return (WriteKey(donor, r.m, "cs", -1, -1, -1, r.target, value), None,
+                "a C# writer through setVarManually -- no script position", "C#")
     if r.m != FIELD_MODE:
-        key = WriteKey(donor, r.m, "eb", r.sid, r.tag, r.ip, r.target, value)
-        _keep(d, key, r, None, f"a mode-{r.m} (battle/world) script -- the census reads field scripts only",
-              f"mode {r.m} sid {r.sid} tag {r.tag} ip {r.ip}", counted_at)
-        return
+        return (WriteKey(donor, r.m, "eb", r.sid, r.tag, r.ip, r.target, value), None,
+                f"a mode-{r.m} (battle/world) script -- the census reads field scripts only",
+                f"mode {r.m} sid {r.sid} tag {r.tag} ip {r.ip}")
     if r.add:
-        key = WriteKey(donor, r.m, "eb", r.sid, -1, r.ip, r.target, value)
-        _keep(d, key, r, None, "an addition buffer (movQData/neckTurnData): ip indexes the buffer",
-              f"e{r.sid} addition buffer ip {r.ip}", counted_at)
-        return
+        return (WriteKey(donor, r.m, "eb", r.sid, -1, r.ip, r.target, value), None,
+                "an addition buffer (movQData/neckTurnData): ip indexes the buffer",
+                f"e{r.sid} addition buffer ip {r.ip}")
     ran = ctx.scripts(r.fld)
     j = ran.join(r, donor=donor) if ran is not None else Join("fail", f"no .eb for field {r.fld} on this side")
     if not j.ok:
-        if not any(fr is r for fr, _why in d.failures):  # a site's `last` re-joins its first row
+        if record and not any(fr is r for fr, _why in d.failures):  # a site's `last` re-joins its first row
             d.failures.append((r, j.reason))
-        return
+        return None
     delta = ctx.delta(ran, r.fld, donor, r.sid, r.tag)
     ok = delta is not None
     off = j.rel - delta if ok else j.rel
     note = f"no stock .eb for donor {donor}: field {r.fld}'s rows stay unaligned"
-    if ctx.donor_scripts(donor) is None and note not in d.notes:
+    if record and ctx.donor_scripts(donor) is None and note not in d.notes:
         d.notes.append(note)
     key = WriteKey(donor, r.m, "eb", r.sid, r.tag, off, r.target, value, ok)
     if j.status == "store":
@@ -790,23 +920,133 @@ def _observe(d: RunDigest, ctx: _Ctx, r: Row, value: int, *, counted_at: int = 0
     where = f"e{r.sid} {j.name} {off:+d}" + ("" if ok else f" [fork {r.fld} +{j.rel}, no donor function aligns]")
     if ok and off < 0:
         where += " [the fork's prepend]"
-    _keep(d, key, r, j, gap, where, counted_at)
+    return key, j, gap, where
 
 
-def _keep(d: RunDigest, key: WriteKey, row: Row, join, gap: str, where: str, counted_at: int = 0) -> None:
-    if key not in d.keys:
-        d.keys[key] = Observed(key, row, join, gap, where, at=counted_at or row.line, counted=bool(counted_at))
+def _observe(d: RunDigest, ctx: _Ctx, r: Row, value: int, *, counted_at: int = 0, seam: Seam | None = None) -> None:
+    """Key one store (a seam row into :attr:`RunDigest.seam_keys`, never :attr:`RunDigest.keys`)."""
+    got = _locate(d, ctx, r, value)
+    if got is None:
+        return
+    key, j, gap, where = got
+    keys = d.seam_keys if seam is not None else d.keys
+    o = keys.get(key)
+    if o is None:
+        o = keys[key] = Observed(key, r, j, gap, where, at=counted_at or r.line, counted=bool(counted_at),
+                                 seam=seam)
+    if not counted_at:                                   # a suppressed value has no old: no byte to compare
+        for b, (old, new) in r.byte_changes().items():
+            o.changed.setdefault(b, (old, new, r.line))
 
 
 # ================================================================== N stock runs vs N fork runs
 @dataclass
+class Clobber:
+    """A fork store that changed ``byte`` -- a byte of its span OUTSIDE the variable stock writes at its start
+    -- from ``old`` to ``new`` (the first run that showed it: ``label`` line ``line``), in ``runs`` fork runs.
+    ``why`` is the stock evidence (what the stock runs store at the start byte, and at the clobbered one)."""
+
+    key: WriteKey
+    seen: Observed
+    byte: int
+    old: int
+    new: int
+    runs: int
+    label: str
+    line: int
+    why: str
+
+
+@dataclass
+class PreEmpted:
+    """A value the fork's PREPEND stamps (``stamps``: its FORK ONLY keys at a negative offset, one per member
+    donor that runs the prepend) that every stock run writes itself: ``stock`` = ``{stock key: stock runs}``,
+    each store of the same (variable, value) at its own site -- one key in every run, or (the controller's
+    flip, in whichever room its count ran out) a different one per run."""
+
+    target: str
+    value: int
+    stamps: list
+    stock: Counter
+
+
+def writers(runs) -> dict:
+    """``{(target, value): Counter({donor: runs})}``: every donor that wrote each (variable, value) in the
+    runs, counted once per run -- ``("Global.Bit[2102]", 1): {450: 3}`` says, with no script read, that only
+    field 450 ever sets the Dali ping."""
+    out: dict = {}
+    for d in runs:
+        for target, value, donor in {(k.target, k.value, k.donor) for k in d.keys}:
+            out.setdefault((target, value), Counter())[donor] += 1
+    return out
+
+
+def stock_layout(runs) -> dict:
+    """``{(start byte, width): {target}}`` -- every variable the runs stored through (masked sites included,
+    the driver's pokes not): how wide the real game writes each byte."""
+    out: dict = {}
+    for d in runs:
+        for site, targets in d.stores.items():
+            out.setdefault(site, set()).update(targets)
+    return out
+
+
+def _names(layout: dict, sites) -> str:
+    names = sorted({t for s in sites for t in layout[s]})
+    return ", ".join(names[:3]) + (f" (+{len(names) - 3} more)" if len(names) > 3 else "")
+
+
+def outside_target(layout: dict, start: int, byte: int) -> str:
+    """Why ``byte`` lies outside the variable a store at ``start`` is meant to write, by the stock evidence
+    in ``layout`` (:func:`stock_layout`) -- or "" when the evidence does not say so (no claim without it).
+    Outside = stock stores ``start`` only through variables that end before ``byte``, or stores ``byte`` only
+    through variables that do not start at ``start`` (it is another variable's)."""
+    here = [(s, w) for s, w in layout if s <= byte < s + WIDTH_BYTES[w]]
+    at = [(s, w) for s, w in layout if s == start]
+    parts = []
+    if here and all(s != start for s, _w in here):
+        parts.append(f"byte {byte} as {_names(layout, here)}")
+    if at and byte >= start + max(WIDTH_BYTES[w] for _s, w in at):
+        parts.append(f"byte {start} only as {_names(layout, at)}")
+    return "the stock runs store " + ", and ".join(parts) if parts else ""
+
+
+def find_clobbers(stock, fork) -> list:
+    """Every NEIGHBOUR-BYTE CLOBBER on the fork side (never across a seam: that is the real game's own
+    store) -- a multi-byte store's changed byte, other than its start, that :func:`outside_target` places
+    outside its variable. One per (key, byte), counted over the fork runs that showed it."""
+    layout = stock_layout(stock)
+    found: dict = {}
+    for d in fork:
+        for k, o in d.keys.items():
+            for b, (old, new, line) in sorted(o.changed.items()):
+                if b == o.row.byte:
+                    continue
+                why = outside_target(layout, o.row.byte, b)
+                if not why:
+                    continue
+                got = found.get((k, b))
+                if got is None:
+                    found[(k, b)] = Clobber(k, o, b, old, new, 1, d.label, line, why)
+                else:
+                    got.runs += 1
+    return sorted(found.values(), key=lambda c: (c.key.sort_key(), c.byte))
+
+
+@dataclass
 class Comparison:
-    """The set difference (PLAN.md "The deliverable"): per key, in how many runs of each side it appears."""
+    """The set difference (PLAN.md "The deliverable"): per key, in how many runs of each side it appears.
+    With a member set, the fork side's counts are its MEMBER keys; its seam keys count apart
+    (``seam_counts``), so a key the fork reached only by leaving its members never matches."""
 
     stock: list
     fork: list
     counts: dict = dfield(default_factory=dict)           # WriteKey -> (stock runs, fork runs)
     seen: dict = dfield(default_factory=dict)             # WriteKey -> Observed (either side)
+    members: dict = dfield(default_factory=dict)          # the fork side's {fork id: donor id}
+    seam_counts: dict = dfield(default_factory=dict)      # WriteKey -> fork runs that wrote it across a seam
+    seam_seen: dict = dfield(default_factory=dict)        # WriteKey -> Observed (the first fork seam run's)
+    clobbers: list = dfield(default_factory=list)         # [Clobber]
 
     def _cat(self, pred) -> list:
         """The keys whose ``(stock runs, fork runs, stock N, fork N)`` satisfy ``pred``, in report order."""
@@ -815,12 +1055,57 @@ class Comparison:
 
     @property
     def stock_only(self) -> list:
-        """In EVERY stock run and no fork run -- what the fork never reaches (rung 2: must be empty)."""
-        return self._cat(lambda s, f, ns, nf: s == ns and f == 0)
+        """In EVERY stock run and no fork run -- what the fork never reaches (rung 2: must be empty). With a
+        member set: reached by no member AND not across any seam either (those are :attr:`across_seam`)."""
+        return [k for k in self._cat(lambda s, f, ns, nf: s == ns and f == 0) if not self.seam_counts.get(k)]
+
+    @property
+    def across_seam(self) -> list:
+        """In EVERY stock run, written by no fork member, and written across a seam in some fork run: the
+        stock key the fork side reached only by leaving its members (Dali's ping, when 450 is no member)."""
+        return [k for k in self._cat(lambda s, f, ns, nf: s == ns and f == 0) if self.seam_counts.get(k)]
+
+    @property
+    def seam_only(self) -> list:
+        """Written across a seam and nowhere else -- by no stock run and no fork member: the real game's own
+        writes in a state no stock run reached."""
+        return sorted((k for k in self.seam_counts if k not in self.counts), key=WriteKey.sort_key)
+
+    @property
+    def seams(self) -> list:
+        """``[(Seam, [run label, ...])]``: each crossing (member -> real field) once, with the fork runs that
+        made it, in the order first made."""
+        out: dict = {}
+        for d in self.fork:
+            for s in d.seams:
+                out.setdefault((s.frm, s.to), (s, []))[1].append(d.label)
+        return list(out.values())
+
+    @property
+    def writers(self) -> dict:
+        """:func:`writers` over the stock runs."""
+        return writers(self.stock)
 
     @property
     def fork_only(self) -> list:
         return self._cat(lambda s, f, ns, nf: f == nf and s == 0)
+
+    @property
+    def pre_empted(self) -> list:
+        """``[PreEmpted]``: each (variable, value) a FORK ONLY prepend key stamps (``off`` < 0, aligned) that
+        EVERY stock run writes itself at a site of its own -- the seed doing the story's work before the story
+        does. In variable order."""
+        stamps: dict = {}
+        for k in self.fork_only:
+            if k.off < 0 and k.aligned:
+                stamps.setdefault((k.target, k.value), []).append(k)
+        out = []
+        for (target, value), ks in sorted(stamps.items(), key=lambda tv: (_target_order(tv[0][0]), tv[0])):
+            own = [{k for k in d.keys if (k.target, k.value, k.src) == (target, value, "eb") and k.off >= 0}
+                   for d in self.stock]
+            if self.stock and all(own):
+                out.append(PreEmpted(target, value, ks, Counter(k for keys in own for k in keys)))
+        return out
 
     @property
     def unstable(self) -> list:
@@ -853,10 +1138,24 @@ class Comparison:
         return {b: tuple(c) for b, c in sorted(out.items())}
 
 
-def compare(stock, fork) -> Comparison:
+def compare(stock, fork, *, members=None) -> Comparison:
     """Compare digested runs as SETS: logic ticks per frame vary and randomness is unseeded, so an ordered
-    diff would report noise -- a key present in every run of one side and none of the other is the signal."""
-    c = Comparison(list(stock), list(fork))
+    diff would report noise -- a key present in every run of one side and none of the other is the signal.
+
+    ``members`` = the fork side's ``{fork id: donor id}``. The seam is cut where the rows are in the engine's
+    order, in :func:`digest` -- so every fork run must have been digested with this same member set, and no
+    stock run with any: a comparison that claims a member set over runs digested without one would merge
+    the seam rows it exists to keep apart."""
+    members = dict(members or {})
+    for d in stock:
+        if d.members:
+            raise TraceError(f"{d.label}: a stock run digested with a member set -- the members are the "
+                             f"fork side's chain; the stock side is the real game")
+    for d in fork:
+        if d.members != members:
+            raise TraceError(f"{d.label}: digested with member set {d.members or 'none'}, compared with "
+                             f"{members or 'none'} -- digest every fork run with the member set compare() gets")
+    c = Comparison(list(stock), list(fork), members=members)
     for side, runs in ((0, c.stock), (1, c.fork)):
         for d in runs:
             for k, o in d.keys.items():
@@ -864,6 +1163,11 @@ def compare(stock, fork) -> Comparison:
                 n[side] += 1
                 c.seen.setdefault(k, o)
     c.counts = {k: tuple(v) for k, v in c.counts.items()}
+    for d in c.fork:
+        for k, o in d.seam_keys.items():
+            c.seam_counts[k] = c.seam_counts.get(k, 0) + 1
+            c.seam_seen.setdefault(k, o)
+    c.clobbers = find_clobbers(c.stock, c.fork)
     return c
 
 
@@ -886,8 +1190,41 @@ def _run_header(d: RunDigest) -> list:
     whys = ", ".join(ep.why + ("" if ep.closed_by else " (open)") for ep in d.epochs) or "none"
     rows = sum(len(ep.writes) for ep in d.epochs)
     supp = sum(s.suppressed for ep in d.epochs for s in ep.sites.values())
+    seam = (f", {len(d.seam_keys)} across {len(d.seams)} seam crossing(s)" if d.members else "")
     return [f"  {d.label}: {len(d.epochs)} epoch(s) [{whys}], {rows} write rows (+{supp} suppressed), "
-            f"{len(d.keys)} story keys"]
+            f"{len(d.keys)} story keys{seam}"]
+
+
+def _target_order(target: str) -> tuple:
+    """``Global.Bit[2102]`` -> (262, 2102): the byte a variable starts at, then its own index."""
+    idx = int(target[target.index("[") + 1:-1])
+    return ((idx >> 3) if target[len("Global."):target.index("[")] in BIT_WIDTHS else idx, idx)
+
+
+def _writers_section(runs, pairs, note: str, donors=None) -> list:
+    """``Global.Bit[2102] := 1 <- {450}`` per (target, value); a donor in fewer than all the runs says in
+    how many. ``donors`` = the member set's donors: a value none of them writes is listed FIRST and says so
+    -- the stock field the chain would need, named with no script read."""
+    pairs = list(dict.fromkeys(pairs))
+    index, ns = writers(runs), len(runs)
+    outside = [] if donors is None else [tv for tv in pairs if not set(index.get(tv, ())) & set(donors)]
+    head = f"WRITERS ({len(pairs)}" + (f"; {len(outside)} written only outside the members" if outside else "")
+    out = ["", f"{head}) -- {note}"]
+    for tv in outside + [tv for tv in pairs if tv not in outside]:
+        who = index.get(tv, Counter())
+        names = ", ".join(f"{don}" + ("" if n == ns else f" ({n}/{ns})") for don, n in sorted(who.items()))
+        out.append(f"  {tv[0]} := {tv[1]} <- {{{names}}}" + ("   -- no member's donor writes it"
+                                                              if tv in outside else ""))
+    return out
+
+
+def _reached(o: Observed) -> str:
+    """The plain words for a seam key: ``450 reached only across a seam from member(350)`` (``the real 350
+    ... into 450`` for a field beyond the crossing)."""
+    s = o.seam
+    if o.row.fld == s.to:
+        return f"{s.to} reached only across a seam from {s.source}"
+    return f"the real {o.row.fld} reached only across a seam from {s.source} into {s.to}"
 
 
 def _side_notes(runs, side: str) -> list:
@@ -918,8 +1255,14 @@ def _failures(runs) -> list:
     return out
 
 
-def report(c: Comparison, *, title: str = "") -> str:
-    """The comparison as plain text: STOCK ONLY, FORK ONLY, UNSTABLE, RESIDUE, CENSUS GAPS, JOIN FAILURES."""
+def report(c: Comparison, *, title: str = "", writers: bool = False) -> str:
+    """The comparison as plain text: STOCK ONLY, FORK ONLY, UNSTABLE, RESIDUE, CENSUS GAPS, JOIN FAILURES.
+
+    With a member set, also SEAMS (each crossing into the real game), REACHED ONLY ACROSS A SEAM, SEAM ONLY,
+    and the WRITERS of every stock value the fork's members never wrote. NEIGHBOUR-BYTE CLOBBERS whenever
+    one is found (FORK ONLY flags its own), and PRE-EMPTED whenever the prepend stamps a value stock writes
+    itself. ``writers`` = the WRITERS of EVERY stock value (with a member set, a value no member's donor writes
+    still first and marked). With none of these, the report is the one rung 2 read."""
     ns, nf = len(c.stock), len(c.fork)
     lines = [title or f"story trace: stock x{ns} vs fork x{nf}"]
     lines += _incomplete_banner(c.stock + c.fork, "a key such a run never reached may lie past its cut, so "
@@ -929,17 +1272,70 @@ def report(c: Comparison, *, title: str = "") -> str:
     for d in c.fork:
         lines += _run_header(d)
     lines += _side_notes(c.stock, "stock") + _side_notes(c.fork, "fork")
-    lines.append(f"  matched in every run of both sides: {len(c.matched)} key(s)")
+    lines.append(f"  matched in every run of both sides: {len(c.matched)} key(s)"
+                 + (" (fork MEMBERS only: a row across a seam never matches)" if c.members else ""))
+    clobbered: dict = {}
+    for cl in c.clobbers:
+        clobbered.setdefault(cl.key, []).append(cl)
 
-    def section(name, keys, tail=lambda k: "", note=""):
+    def section(name, keys, tail=lambda k: "", note="", seen=None):
         lines.append("")
         lines.append(f"{name} ({len(keys)})" + (f" -- {note}" if note else ""))
         for k in keys:
-            lines.append(_key_line(k, c.seen[k], tail(k)))
+            lines.append(_key_line(k, (c.seen if seen is None else seen)[k], tail(k)))
 
     section("STOCK ONLY", c.stock_only, note=f"in {ns}/{ns} stock runs, 0/{nf} fork runs")
-    section("FORK ONLY", c.fork_only, note=f"in 0/{ns} stock runs, {nf}/{nf} fork runs")
+    section("FORK ONLY", c.fork_only, note=f"in 0/{ns} stock runs, {nf}/{nf} fork runs",
+            tail=lambda k: "".join(f"   !! NEIGHBOUR-BYTE CLOBBER: byte {cl.byte} {cl.old} -> {cl.new}"
+                                   for cl in clobbered.get(k, ())))
     section("UNSTABLE", c.unstable, lambda k: f"   stock {c.counts[k][0]}/{ns} fork {c.counts[k][1]}/{nf}")
+    if c.members:
+        seams = c.seams
+        lines.append("")
+        lines.append(f"SEAMS ({len(seams)}) -- a fork run left its members into the real game; every row from "
+                     f"there is the real game's own, kept apart from the keys above")
+        for s, labels in seams:
+            after = (f"; the member's last write before it: {s.exit_where}  {s.exit.target} = {s.exit.new}"
+                     if s.exit is not None else "")
+            lines.append(f"  {s.origin} -> real {s.to}: {len(labels)}/{nf} fork runs; first seam row at frame "
+                         f"{s.frame} ({labels[0]} line {s.line}){after}")
+            lines.append(f"    real fields seen across it: {', '.join(map(str, s.fields))}")
+        section("REACHED ONLY ACROSS A SEAM", c.across_seam,
+                lambda k: f"   -- {_reached(c.seam_seen[k])}, fork {c.seam_counts[k]}/{nf}",
+                note=f"in {ns}/{ns} stock runs, written by no fork member: the fork side wrote them only in a "
+                     f"real field it reached across a seam")
+        section("SEAM ONLY", c.seam_only,
+                lambda k: f"   -- {_reached(c.seam_seen[k])}, fork {c.seam_counts[k]}/{nf}",
+                note="the real game's writes across a seam that no stock run and no fork member made",
+                seen=c.seam_seen)
+    if c.clobbers:
+        lines.append("")
+        lines.append(f"NEIGHBOUR-BYTE CLOBBERS ({len(c.clobbers)}) -- a fork store changed a byte outside the "
+                     f"variable the stock runs write at its start")
+        for cl in c.clobbers:
+            lines.append(_key_line(cl.key, cl.seen,
+                                   f"   changes byte {cl.byte}: {cl.old} -> {cl.new} in {cl.runs}/{nf} fork runs "
+                                   f"(first {cl.label} line {cl.line}) -- {cl.why}"))
+    pre = c.pre_empted
+    if pre:
+        lines.append("")
+        lines.append(f"PRE-EMPTED ({len(pre)}) -- the fork's prepend stamps a value every stock run writes itself, "
+                     f"at its own site: the seed does the story's work before the story does")
+        for p in pre:
+            donors = sorted({k.donor for k in p.stamps})
+            where = ", ".join(f"{k.donor} {c.seen[k].where} ({n}/{ns})"
+                              for k, n in sorted(p.stock.items(), key=lambda kn: kn[0].sort_key()))
+            lines.append(f"  {p.target} := {p.value}  stamped by the prepend in {len(donors)} donor(s) "
+                         f"({', '.join(map(str, donors))}); stock writes it at {where}")
+    if writers:
+        lines += _writers_section(c.stock, sorted({(k.target, k.value) for d in c.stock for k in d.keys},
+                                                  key=lambda tv: (_target_order(tv[0]), tv)),
+                                  "every donor that wrote each value in the stock runs",
+                                  donors=c.members.values() if c.members else None)
+    elif c.members:
+        lines += _writers_section(c.stock, [(k.target, k.value) for k in c.stock_only + c.across_seam],
+                                  "who wrote each STOCK ONLY / across-seam value in the stock runs",
+                                  donors=c.members.values())
     res = c.residue
     lines.append("")
     lines.append(f"RESIDUE ({len(res)} byte(s) changed with no hooked store)")
@@ -955,9 +1351,9 @@ def report(c: Comparison, *, title: str = "") -> str:
     return "\n".join(lines) + "\n"
 
 
-def report_runs(runs, *, title: str = "") -> str:
+def report_runs(runs, *, title: str = "", writers: bool = False) -> str:
     """One side alone (the rung-0 check): every story key with the instruction it joined to, then the
-    census gaps, residue and join failures.
+    census gaps, residue and join failures -- and with ``writers``, every donor that wrote each value.
 
     WRITES are listed in the ENGINE'S order (the line that first evidenced each key), never re-sorted by
     offset: rung 0 asks whether Main_Init's writes arrive in the script's order, and a list sorted by
@@ -978,6 +1374,10 @@ def report_runs(runs, *, title: str = "") -> str:
         for b, rs in sorted(d.residue.items()):
             lines.append(f"  byte {b}: {len(rs)} row(s) ({', '.join(sorted({r.why for r in rs}))}), "
                          f"last {rs[-1].old} -> {rs[-1].new}")
+    if writers:
+        lines += _writers_section(runs, sorted({(k.target, k.value) for d in runs for k in d.keys},
+                                               key=lambda tv: (_target_order(tv[0]), tv)),
+                                  "every donor that wrote each value in these runs")
     fails = _failures(runs)
     lines.append("")
     lines.append(f"JOIN FAILURES ({len(fails)})")

@@ -6,10 +6,14 @@ Field(target)), patches its trigger polygon + target field + arrival entrance, a
 into a free entry slot, and activates it by overwriting a Main_Init ``Wait(2)`` filler with
 ``InitRegion`` (shift-free).
 
-Zone gotchas (baked into :func:`quad_zone`): the engine's IsInQuad tests a *fan* of
-consecutive vertex triplets, so three collinear points make a dead zone — use a convex quad
-with the **last vertex doubled** (5 points). Point order matters: q0->q1 is the edge the
-player walks out across, so put the front edge first for a natural forward exit.
+Zone gotchas (baked into :func:`quad_zone`): the engine's IsInQuad tests the n triangles of
+consecutive vertex triplets ``(q[i], q[i+1], q[i+2])``, wrapping round (NOT a fan from q0), so three
+collinear points make a dead triangle, and a polygon of 5+ corners leaves its inner polygon dead
+(:func:`ff9mapkit.content.doorface.region_contains`). The kit's convex quad with the **last vertex
+doubled** (5 points) still covers exactly the quad -- the two triangles through the double are
+empty -- though 4 points would too; stock never doubles one. Point order matters: q0->q1 is the
+edge the player walks out across (CalculateExitPosition projects him onto it, and a stock door's
+facing gate asks him to face that point), so put the front edge first for a natural forward exit.
 """
 
 from __future__ import annotations

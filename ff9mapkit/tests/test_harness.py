@@ -3491,11 +3491,18 @@ def _dali_places(script, fid):
     return places
 
 
-def _dali_fake(game, walkmesh, script, fid, *, radius=True):
+def _dali_fake(game, walkmesh, script, fid, *, radius=True, face_gates=False):
     """A fake standing in stock ``fid``: its player walkmesh for a floor -- his centre kept COLLISION_RADIUS_W off
     its walls, as the engine keeps it (``radius``; off, anywhere on the mesh) -- every place a LIVE region
     (entering one fires it -- to 30000 + its index, so ``fired`` names it), the field's own key yaw, and 4x the
-    frame rate (the protocol counts frames, so the suite pays a quarter of the wall clock)."""
+    frame rate (the protocol counts frames, so the suite pays a quarter of the wall clock).
+
+    ``face_gates`` (opt-in, OFF by default so the walks written before the gate keep the doors they were written
+    against): a place that is a stock gateway zone whose warp stock's DOOR FACING GATE guards -- any
+    ``scan_gateways`` row of that zone with a ``face_gate`` -- carries that window as its region's ``"face"``, so
+    the fake fires it only while his yaw faces the door, and the engine's polygon (the row's ``region``, every
+    SetRegion point) as its ``"points"``, so it answers where IsInQuad does (FakeGame ``regions``); on 350 that is
+    the doors to 351, 354, 353, 356 and 355, as in the game -- each a 5-point region."""
     from ff9mapkit import eventscan
     from ff9mapkit.content import movement
     from ff9mapkit.scene import cam
@@ -3504,7 +3511,18 @@ def _dali_fake(game, walkmesh, script, fid, *, radius=True):
     fake = FakeGame(game, fps=960, twist=math.degrees(math.atan2(-prior["v"][0], prior["v"][1])))
     fake.walkmesh = walkmesh(fid)
     fake.clearance = cam.COLLISION_RADIUS_W if radius else None
-    fake.regions = {fid: [{"zone": z, "to": 30000 + i, "arrive": (0, 0)} for i, z in enumerate(_dali_places(script, fid))]}
+    gates = {}
+    if face_gates:
+        for gw in eventscan.scan_gateways(script(fid)):
+            if gw["face_gate"] is not None:
+                gates.setdefault(tuple(map(tuple, gw["zone"])), (gw["face_gate"], gw["region"]))
+    fake.regions = {fid: []}
+    for i, z in enumerate(_dali_places(script, fid)):
+        region = {"zone": z, "to": 30000 + i, "arrive": (0, 0)}
+        if tuple(map(tuple, z)) in gates:
+            window, points = gates[tuple(map(tuple, z))]
+            region["face"], region["points"] = list(window), [list(p) for p in points]
+        fake.regions[fid].append(region)
     fake.exit_frames = 30
     return fake, prior
 
@@ -3566,6 +3584,55 @@ def test_a_smooth_route_cross_finishes_inside_a_zone_standable_only_in_a_corner(
         rec = g.route_cross(goal[0], goal[1], avoid=[z for z in places if z is not door], walkmesh=wm, prior=prior,
                             zone=door, smooth=True, timeout=3)
         assert rec["landed"] == 30002 and [f["to"] for f in fake.fired] == [30002], (rec, fake.fired)
+
+
+@pytest.mark.parametrize("press", [(1, 0), (0, -1), (-1, 0), (0, 1)])
+def test_the_fake_pushes_a_centre_placed_inside_his_radius_straight_out_onto_it(game, dali, press):
+    """FakeGame's floor, as the engine's (FieldMapActorController.RadiusValid -> ServiceForces): placed nearer a wall
+    than his radius -- 352's wake, 22.8u off a strip closed to him, 59u off the back wall -- his first moving frame
+    lands him on the radius line, whichever way he pressed, even straight into the strip; it does not leave him
+    where he stood nor walk him along the wall."""
+    from ff9mapkit.scene import cam
+    walkmesh, script = dali
+    fake, _prior = _dali_fake(game, walkmesh, script, 352)
+    wm = walkmesh(352)
+    start = (-133.0, 847.0)
+    assert wm.distance_to_boundary(-133, 847) < 25, "premise: deep in the band"
+    fake.player = [start[0], 0.0, start[1]]
+    fake._move_to(start[0] + 30 * press[0], start[1] + 30 * press[1])
+    x, z = fake.player[0], fake.player[2]
+    assert wm.distance_to_boundary(round(x), round(z)) >= cam.COLLISION_RADIUS_W - 1, (press, x, z)
+    assert math.dist((x, z), start) < 100, (press, x, z)
+
+
+@pytest.mark.parametrize("tour", [False, True])
+def test_a_route_from_352s_wake_spot_walks_out_of_the_wall_band_and_through_its_door(game, dali, tour):
+    """THE 352 WAKE (rung-3 runs 4 and 5 -- stock 352 and its verbatim fork 30834, one .bgi): the scene hands control
+    back at (-133, 847), 22.8u off a strip closed to him, inside the 80u band a plan keeps off the walls, and
+    route_to said "no route" twice, ending the tour. Planned from where he stands (route_avoiding ``leave_wall``),
+    the walk leaves the band and fires 352's one door -- on a floor that pushes him straight out onto the radius
+    line on his first moving frame, as the engine does (so off the planned leg, up to 57u along the wall's normal:
+    FakeGame._pushed_out), and the walk goes on from wherever that put him. Plain, and as the tour walks it
+    (unstick, npcs, smooth, zone)."""
+    from ff9mapkit.content import pathfind
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 352)
+    wm, places = walkmesh(352), _dali_places(script, 352)
+    zone, start = places[0], (-133, 847)
+    assert len(places) == 1 and wm.distance_to_boundary(*start) < 25, "premise: 352's one door; deep in the band"
+    goal = pathfind.region_goal(wm, zone)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(352)
+        _stand(g, fake, 0, -600)                                  # open ground: the walk is on test
+        g.calibrate_axes(hazards=places, prior=prior)
+        _stand(g, fake, *start)
+        rec = g.route_cross(goal[0], goal[1], walkmesh=wm, prior=prior, zone=zone, smooth=True, unstick=tour,
+                            npcs=tour, timeout=3)
+        assert rec["waypoints"] is not None, rec
+        assert rec["landed"] == 30000 and [f["to"] for f in fake.fired] == [30000], (rec, fake.fired)
+        assert (rec["waits"], rec["pushes"], rec["blockers"]) == (0, 0, []), rec
+        assert not rec["frozen"] and not rec["boxed"], rec
 
 
 def test_a_smooth_leg_out_of_a_door_at_an_angle_to_both_pads_takes_its_first_step(game, dali):
@@ -3709,6 +3776,1785 @@ def test_on_stock_350_the_smooth_walk_to_450_takes_a_fraction_of_the_requests(ga
             assert [f["to"] for f in fake.fired[fired:]] == [30000 + len(places) - 1], fake.fired[fired:]
     print(f"350 -> 450 requests: chunked {spent[False]}, smooth {spent[True]}")
     assert spent[True] <= 0.6 * spent[False], spent
+
+
+# --------------------------------------------------------------------------- the fake's door facing gate
+# Stock's class-2 doors (content.doorface): a region whose tag 2 fires only while he FACES his projection onto its
+# first edge. The fake models it opt-in (``regions`` ``"face"``) with a private yaw the presses turn, 40% a MovePC
+# call -- so a walker that never faces the door can FAIL offline, as it did in the game at 350's door to 351. These
+# step the fake BY HAND, frame by frame (no thread, no driver), so each names the exact frame a press turns him or
+# a door fires.
+def _hand_fake(game, regions=(), *, at=(0.0, 0.0), yaw=0.0, walkmesh=(-600.0, -600.0, 600.0, 600.0)):
+    """A FakeGame on field 30820 with control, standing at ``at`` with yaw ``yaw``, its ``regions``, no coast tail
+    (a released press stops dead, so a frame's turn is the press's alone), stepped only by :func:`_hand_frames`."""
+    fake = FakeGame(game, walkmesh=walkmesh)
+    fake.ui_state, fake.field_id, fake.control = "FieldHUD", 30820, True
+    fake.player = [float(at[0]), 0.0, float(at[1])]
+    fake._face_deg = float(yaw)
+    fake.coast_frames = 0
+    fake.regions = {30820: list(regions)}
+    return fake
+
+
+def _hand_frames(fake, n, *buttons):
+    """Step ``fake`` ``n`` frames holding ``buttons`` for exactly those frames (none: he stands)."""
+    for _ in range(n):
+        fake.frame += 1
+        for b in buttons:
+            fake.down_at[b], fake.held[b] = fake.frame, fake.frame + 1
+        fake._step_world()
+
+
+#: A gated door on the south wall: its first edge z = -1000, x -500..500 -- from anywhere in it straight ahead of
+#: him the exit point lies due -z, bearing 0, so his facing byte IS the gate's error.
+_SOUTH_DOOR = [[-500, -1000], [500, -1000], [500, 100], [-500, 100]]
+
+
+@pytest.mark.parametrize("walked", [False, True])
+def test_the_fake_turns_him_40_percent_a_movepc_call_a_run_frame_one_a_walked_frame_half(game, walked):
+    from ff9mapkit.content import doorface
+    fake = _hand_fake(game, yaw=0.0)
+    _hand_frames(fake, 1, "right", *(["cancel"] if walked else []))
+    calls = 0.5 if walked else 1.0
+    assert fake._face_deg == pytest.approx(-90.0 * (1 - 0.6 ** calls))            # toward +x: yaw -90
+    assert fake._face_deg == pytest.approx(doorface.turn_step(0.0, -90.0, doorface.movepc_calls(15 if walked else 30)))
+    assert fake.player[0] == pytest.approx(15.0 if walked else 30.0)
+    _hand_frames(fake, 5, "right", *(["cancel"] if walked else []))
+    assert fake._face_deg == pytest.approx(-90.0 * (1 - 0.6 ** (6 * calls)))
+
+
+def test_the_fake_turns_him_on_a_press_into_a_wall_and_the_door_fires_where_he_stands(game):
+    """His step blocked by the wall at x = 590, the press still turns him (the turn precedes the collision): he stands
+    still at the wall and the east door -- its first edge beyond the wall, on x = 600 -- fires on the second frame,
+    when 90 -> 18 -> -25.2 degrees brings its error from 76 to 46."""
+    door = {"zone": [[600, -100], [600, 100], [400, 100], [400, -100]], "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _hand_fake(game, [door], at=(560, 0), yaw=90.0, walkmesh=(-600.0, -600.0, 590.0, 600.0))
+    _hand_frames(fake, 1, "right")
+    assert (fake.player[0], fake._face_deg, fake.fired) == (590.0, pytest.approx(18.0), [])
+    _hand_frames(fake, 1, "right")
+    assert fake._face_deg == pytest.approx(-25.2) and [f["to"] for f in fake.fired] == [30821]
+
+
+def test_the_fake_keeps_his_yaw_standing_and_without_control(game):
+    fake = _hand_fake(game, yaw=33.0)
+    _hand_frames(fake, 10)
+    assert fake._face_deg == 33.0
+    fake.control = False
+    _hand_frames(fake, 5, "left")
+    assert fake._face_deg == 33.0 and fake.player[0] == 0.0
+    fake._frozen_until = fake.frame + 100
+    fake.control = True
+    _hand_frames(fake, 5, "left")                                                # frozen: MovePC moves no one
+    assert fake._face_deg == 33.0 and fake.player[0] == 0.0
+
+
+@pytest.mark.parametrize("err,fires", [(47, True), (48, False), (-47, True), (-48, False)])
+def test_the_fakes_facing_gate_is_the_engines_strict_window(game, err, fires):
+    """Standing in the south door at yaw ``err`` 256ths off its bearing: the gate is re-tested every frame he stands,
+    and fires for +-47, never for +-48 (B_LT / B_GT are strict)."""
+    from ff9mapkit.content import doorface
+    door = {"zone": _SOUTH_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _hand_fake(game, [door], at=(0, 0), yaw=doorface.yaw_of_byte(err))
+    _hand_frames(fake, 3)
+    assert [f["to"] for f in fake.fired] == ([30821] if fires else [])
+
+
+def test_the_fakes_facing_gate_takes_an_explicit_window(game):
+    from ff9mapkit.content import doorface
+    door = {"zone": _SOUTH_DOOR, "to": 30821, "arrive": (0, 0), "face": [56, 200]}
+    fake = _hand_fake(game, [door], at=(0, 0), yaw=doorface.yaw_of_byte(50))
+    _hand_frames(fake, 1)
+    assert [f["to"] for f in fake.fired] == [30821]
+
+
+def test_a_gated_door_fires_on_a_standing_retest_once_he_faces_it_and_an_ungated_one_keeps_the_step_rule(game):
+    """He stands in the gated door facing away: nothing, frame after frame -- and the moment his yaw faces it (as a
+    press that moved him nowhere would leave it) it fires with no step at all. An UNGATED region he is placed in
+    stays the fake's step-only trigger: standing there fires nothing."""
+    door = {"zone": _SOUTH_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _hand_fake(game, [door], at=(0, 0), yaw=180.0)
+    _hand_frames(fake, 5)
+    assert fake.fired == [] and fake.field_id == 30820
+    fake._face_deg = 10.0
+    _hand_frames(fake, 1)
+    assert [f["to"] for f in fake.fired] == [30821] and fake.field_id == 30821
+    plain = _hand_fake(game, [{"zone": _SOUTH_DOOR, "to": 30821, "arrive": (0, 0)}], at=(0, 0), yaw=0.0)
+    _hand_frames(plain, 5)
+    assert plain.fired == []
+
+
+def test_a_dead_region_and_a_failed_gate_shadow_the_regions_after_them(game):
+    """The FIRST region containing him answers (TreadQuad): a dead one (``to`` None) and a gated one he does not face
+    both end the search, so the live door listed after them fires only where he is in it alone."""
+    live = {"zone": _rect(-200, -200, 200, 200), "to": 30821, "arrive": (0, 0)}
+    for first in ({"zone": _rect(-200, -200, 0, 200), "to": None},
+                  {"zone": _rect(-200, -200, 0, 200), "to": 30822, "arrive": (0, 0), "face": True}):
+        fake = _hand_fake(game, [first, live], at=(-300, 0), yaw=180.0)           # facing +z; the first's edge is -z
+        _hand_frames(fake, 4, "right")                                             # into the overlap, x -270 .. -180
+        assert fake.fired == [] and fake.player[0] == pytest.approx(-180.0), first
+        _hand_frames(fake, 7, "right")                                             # on, into the live door alone
+        assert [f["to"] for f in fake.fired] == [30821], first
+
+
+def test_arrive_face_sets_his_yaw_where_he_appears(game):
+    door = {"zone": _rect(-100, -100, 100, 100), "to": 30821, "arrive": (5, 5), "arrive_face": 45.0}
+    fake = _hand_fake(game, [door], at=(-130, 0), yaw=0.0)
+    _hand_frames(fake, 1, "right")
+    assert (fake.field_id, fake.player[0], fake._face_deg) == (30821, 5.0, 45.0)
+    plain = _hand_fake(game, [dict(door, arrive_face=None)], at=(-130, 0), yaw=0.0)
+    _hand_frames(plain, 1, "right")
+    assert plain.field_id == 30821 and plain._face_deg == pytest.approx(-36.0)     # kept: the press's own turn
+
+
+def test_a_region_with_engine_points_is_dead_in_a_pentagons_middle(game):
+    """``points`` = the engine's polygon: IsInQuad's ring of ears. A step into a 5-gon's middle fires nothing, a step
+    into an ear fires (the even-odd ``zone`` alone would have fired both)."""
+    penta = [[round(400 * math.sin(2 * math.pi * k / 5)), round(400 * math.cos(2 * math.pi * k / 5))] for k in range(5)]
+    door = {"zone": penta, "points": penta, "to": 30821, "arrive": (0, 0)}
+    fake = _hand_fake(game, [door], at=(-30, 0), walkmesh=(-600.0, -600.0, 600.0, 600.0))
+    _hand_frames(fake, 1, "right")                                                 # to the middle (0, 0)
+    assert fake.fired == [] and fake.player[0] == pytest.approx(0.0)
+    _hand_frames(fake, 12, "up")                                                   # north, into the top ear
+    assert [f["to"] for f in fake.fired] == [30821]
+
+
+def test_the_fake_publishes_dir_0_whatever_his_yaw(game):
+    """The agent publishes PosObj.rot[1] as ``dir`` -- 0 on a field, which never writes it -- and so does the fake,
+    however its private yaw has turned: a driver can predict the facing, never read it."""
+    fake = _hand_fake(game, yaw=0.0)
+    _hand_frames(fake, 3, "right")
+    assert fake._face_deg != 0.0
+    fake.armed = True
+    fake.dir.mkdir(parents=True, exist_ok=True)
+    fake._publish(force=True)
+    assert json.loads((fake.dir / "state.json").read_text(encoding="utf-8"))["player"]["dir"] == 0
+
+
+@pytest.mark.parametrize("walked", [False, True])
+def test_the_coast_after_a_press_turns_him_too(game, walked):
+    """The frame after a press is released the engine is still applying it (`coast_frames`): it moves him and TURNS
+    him, the same calls as a frame of the press -- a walked frame half a call, a run frame one (research D6: the
+    rotation keys on the same pressed booleans as the step). One frame of right, then one released frame."""
+    from ff9mapkit.content import doorface
+    fake = _hand_fake(game, yaw=0.0)
+    fake.coast_frames = 1
+    _hand_frames(fake, 1, "right", *(["cancel"] if walked else []))
+    _hand_frames(fake, 1)
+    calls = doorface.movepc_calls(15.0 if walked else 30.0)
+    assert fake._face_deg == pytest.approx(doorface.turn_step(doorface.turn_step(0.0, -90.0, calls), -90.0, calls))
+    assert fake.player[0] == pytest.approx(30.0 if walked else 60.0)                 # it moved him, too
+
+
+def test_a_frozen_frame_still_retests_the_gated_door_he_stands_in(game):
+    """A hold on movement with control kept (`_frozen_until`): MovePC moves and turns no one, but the region's tag 2
+    still runs every tick he has control -- so standing in a gated door already facing it, it fires, frozen or not."""
+    door = {"zone": _SOUTH_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _hand_fake(game, [door], at=(0, 0), yaw=180.0)
+    fake._frozen_until = float("inf")
+    _hand_frames(fake, 3)
+    assert fake.fired == []                                                        # facing away: shut
+    fake._face_deg = 0.0
+    _hand_frames(fake, 1)
+    assert [f["to"] for f in fake.fired] == [30821]
+
+
+@pytest.mark.parametrize("phase", [0, 1])
+def test_the_fakes_tick_phase_turns_him_in_whole_calls(game, phase):
+    """`tick_phase`: the engine's 30 Hz ticks on every other frame of the fake's 60, a walked frame's call whole on its
+    tick frame and none between -- so three walked frames are 2 calls in one phase and 1 in the other (the average,
+    1.5, in neither), while the step stays the frame's average (45u either way)."""
+    from ff9mapkit.content import doorface
+    fake = _hand_fake(game, yaw=0.0)
+    fake.tick_phase = phase
+    ticks = sum(1 for f in range(fake.frame + 1, fake.frame + 4) if f % 2 == phase)
+    _hand_frames(fake, 3, "right", "cancel")
+    assert ticks in (1, 2) and fake._face_deg == pytest.approx(doorface.turn_step(0.0, -90.0, ticks))
+    assert fake.player[0] == pytest.approx(45.0)
+
+
+@pytest.mark.parametrize("face_gates", [False, True])
+def test_dali_fake_carries_the_stock_face_gates_only_when_asked(game, dali, face_gates):
+    """``_dali_fake(face_gates=True)`` gives each gated stock door its scan_gateways window and its engine polygon: on
+    350 the doors to 351, 354, 353, 356 and 355 (entries 18-23; the two to 353 share a zone), each a 5-point region
+    whose first four points are its zone -- and nothing without the flag."""
+    from ff9mapkit import eventscan
+    walkmesh, script = dali
+    fake, _prior = _dali_fake(game, walkmesh, script, 350, face_gates=face_gates)
+    faced = {tuple(map(tuple, r["zone"])): r.get("face") for r in fake.regions[350]}
+    rows = [gw for gw in eventscan.scan_gateways(script(350)) if gw["face_gate"]]
+    want = {tuple(map(tuple, gw["zone"])) for gw in rows}
+    assert len(want) == 5
+    assert {z for z, f in faced.items() if f} == (want if face_gates else set())
+    assert all(f in (None, [48, 208]) for f in faced.values())
+    points = {tuple(map(tuple, r["zone"])): r.get("points") for r in fake.regions[350] if r.get("face")}
+    assert all(len(p) == 5 and p[:4] == [list(q) for q in z] for z, p in points.items())
+
+
+# --------------------------------------------------------------------------- the walker faces the door
+# In-game, 350 -> 351 missed 10 of 10 session-2 runs: the walk stood him IN the door's zone facing back up the street,
+# and a door stock's facing gate keeps fires only while he faces it -- a REAL miss each time. A walk that ends in the
+# zone with nothing fired now ends with a press that turns him to face it (Session._face_the_door). These walk the
+# fake with the gate on (FakeGame ``regions`` ``"face"``), its floor keeping his centre 80u off the walls as the
+# engine's does, so a walker that never faces the door FAILS here as it did in the game.
+
+#: A door in the fake's east wall: its zone reaches from the room (x 300) to the wall (x 600), its FIRST EDGE the
+#: wall's own, as a stock door's is -- so from anywhere in it the door bears due east. He stands in it only where
+#: x <= 520 (80u off the wall).
+_EAST_DOOR = [[600, -150], [600, 150], [300, 150], [300, -150]]
+
+
+def _gated_room(game, regions):
+    """The fake with ``regions`` on 30820 (a region's ``"face"`` gates it), its floor walled as the engine walls it."""
+    fake = FakeGame(game)
+    fake.walkmesh, fake.clearance = _flat_bgi(), 80.0
+    fake.regions = {30820: list(regions)}
+    fake.exit_frames = 30
+    return fake
+
+
+def _gated_start(g, fake, at, yaw=0.0):
+    """Standing at ``at`` on 30820 with control, its basis known and his yaw ``yaw`` (the walk turns it from there)."""
+    boot(g)
+    g.warp(30820)
+    g._axes[30820] = _prior()
+    _stand(g, fake, *at)
+    fake._face_deg = float(yaw)
+
+
+def _gated_cross(g, zone, *, avoid=(), smooth=True, timeout=3, gate=(48, 208), region=None, goal=None):
+    """The tour's crossing call (dali_tour.Tour._cross): route_cross to ``zone``'s region_goal (or ``goal``), the other
+    doors kept out of, told the door's facing ``gate`` (scan_gateways' ``face_gate``; None: an ungated door) and its
+    engine ``region`` -- smooth and minding the objects, or (``smooth`` False) the chunked walk."""
+    from ff9mapkit.content import pathfind
+    goal = pathfind.region_goal(_flat_bgi(), zone) if goal is None else goal
+    return g.route_cross(goal[0], goal[1], avoid=list(avoid), walkmesh=_flat_bgi(), prior=_prior(), unstick=True,
+                         zone=zone, smooth=smooth, npcs=smooth, timeout=timeout,
+                         gate=None if gate is None else list(gate), region=region)
+
+
+def test_a_gated_door_reached_facing_away_is_turned_to_and_crosses(game):
+    """He walks into the east-wall door from the south: the walk's last holds press up, so he stands in the zone facing
+    north, 90 degrees off the door's bearing -- where HEAD's walker stopped, the door shut. The facing step turns him
+    to it (at least ROUTE_FACE_CALLS MovePC calls of a pad the prediction says faces it) and the door fires DURING that
+    press: ``during`` "face", ``faced`` True, the exit point on the wall's edge in ``face_to``."""
+    door = {"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _gated_room(game, [door])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (410, -450))
+        rec = _gated_cross(g, _EAST_DOOR)
+    assert rec["landed"] == 30821 and [f["to"] for f in fake.fired] == [30821], rec
+    assert rec["during"] == "face" and rec["faced"] is True, rec
+    assert rec["face_to"][0] == 600 and rec["face_calls"] >= 4 and "right" in rec["face_pad"], rec     # the rule's 4
+    assert rec["face_gate"] == [48, 208], rec
+
+
+def test_an_approach_that_already_faces_the_door_crosses_with_no_turn(game):
+    """Walked into from the west, the walk's own holds press right -- toward the door -- and it fires on the way in, as
+    stock's does: the facing step is never taken (``faced`` None, no pad, no calls) and ``during`` is the walk's."""
+    door = {"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _gated_room(game, [door])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (-300, 0), yaw=180.0)
+        rec = _gated_cross(g, _EAST_DOOR)
+    assert rec["landed"] == 30821 and [f["to"] for f in fake.fired] == [30821], rec
+    assert rec["during"] == "walk" and rec["faced"] is None, rec
+    assert (rec["face_to"], rec["face_pad"], rec["face_calls"], rec["face_err"]) == (None, None, None, None), rec
+
+
+def test_a_door_dead_even_when_faced_is_the_doors_real_miss_in_bounded_time(game):
+    """The same door, dead (a region that answers and never fires: the story has shut it). The facing step turns him
+    to it -- ``faced`` True, the predicted error inside the stock window -- and nothing fires: he stood IN the zone
+    FACING the door, so the tour's strike rule reads it as the door's MISS, REAL. The crossing's wait is route_cross's
+    own ``timeout``, and the whole call is bounded."""
+    D = _tour_module()
+    door = {"zone": _EAST_DOOR, "to": None, "face": True}
+    fake = _gated_room(game, [door])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (410, -450))
+        t0 = time.time()
+        rec = _gated_cross(g, _EAST_DOOR, timeout=2)
+        assert time.time() - t0 < 30, "bounded"
+    assert rec["landed"] is None and rec["inside"] is True and not fake.fired, rec
+    assert rec["faced"] is True and rec["face_calls"] >= 4 and abs(rec["face_err"]) <= 47, rec          # the rule's 4
+    assert rec["face_worst"] <= 47, rec
+    assert D.failure(rec) == "miss", rec
+
+
+def test_the_door_faced_is_the_zones_first_edge_not_the_side_he_came_in_by(game):
+    """A free-standing zone on open floor whose FIRST edge is its west side (x = -100), walked into through its south
+    side: the gate takes his bearing to his projection onto the first edge, wherever that lies -- here due west, with
+    floor beyond it he could walk out across. The step presses a pad with a westward part, keeps him in the zone to
+    the call it faces the door by, and the door fires."""
+    zone = [[-100, 150], [-100, -150], [100, -150], [100, 150]]
+    fake = _gated_room(game, [{"zone": zone, "to": 30821, "arrive": (0, 0), "face": True}])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (0, -450))
+        rec = _gated_cross(g, zone)
+    assert rec["landed"] == 30821 and rec["during"] == "face" and rec["faced"] is True, rec
+    assert rec["face_to"][0] == -100 and "left" in rec["face_pad"], rec
+
+
+def test_a_turn_press_that_would_leave_the_zone_or_near_another_door_is_not_pressed(game):
+    """A small gated zone (80u square on open floor, its first edge the east side) with another door 20u east of it:
+    every press that would face this door either walks him out of its zone or up to the other one (PROBE_HAZARD_PAD).
+    Nothing is pressed -- ``faced`` False, no pad, no calls -- nothing fires, and the tour does NOT strike the door:
+    the walker never gave it its chance (LIVE, never the door's MISS)."""
+    D = _tour_module()
+    small = [[40, -40], [40, 40], [-40, 40], [-40, -40]]
+    other = _rect(60, -300, 300, 300)
+    fake = _gated_room(game, [{"zone": small, "to": 30821, "arrive": (0, 0), "face": True},
+                              {"zone": other, "to": 30822, "arrive": (0, 0)}])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (0, -400))
+        rec = _gated_cross(g, small, avoid=[other], timeout=2)
+    assert rec["landed"] is None and rec["inside"] is True and not fake.fired, rec
+    assert rec["faced"] is False and rec["face_pad"] is None and rec["face_calls"] is None, rec
+    assert rec["face_to"][0] == 40 and rec["face_err"] is None and rec["face_worst"] is None, rec
+    assert D.failure(rec) == "live", rec
+
+
+def test_the_chunked_route_cross_faces_the_door_too(game):
+    """route_cross without ``smooth``: the chunked walk (one-axis walk_to bursts) that ends in the zone gets the same
+    facing step -- route_cross hands a gated door to route_to to face either way. Walked in from due south, the last
+    bursts press up, and it would stand there, the door shut. The chunked walk measures no hold's turn, so the step
+    starts from ANY yaw: it records the bound its prediction holds him to (``face_worst``, inside the window) and no
+    centre error at all (``face_err`` None) -- from an unknown yaw there is no single predicted yaw to name."""
+    fake = _gated_room(game, [{"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, -450))
+        rec = _gated_cross(g, _EAST_DOOR, smooth=False)
+    assert rec["landed"] == 30821 and [f["to"] for f in fake.fired] == [30821], rec
+    assert rec["during"] == "face" and rec["faced"] is True, rec
+    assert rec["face_err"] is None and 0 <= rec["face_worst"] <= 47, rec
+
+
+def test_a_door_that_fires_during_the_facing_press_is_landed_as_the_walks_own(game):
+    """Control goes during the facing press: route_to lands it exactly as a step that fired a door -- ``during``
+    "face", the field it changed to in ``changed_to`` and ``landed``, what the press covered in ``travelled`` -- and
+    nothing more is pressed once control is gone (the fade runs 90 frames here). route_cross has nothing left to wait
+    for, and ``inside`` is not judged."""
+    fake = _gated_room(game, [{"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}])
+    fake.exit_frames = 90
+    with session(game, fake) as g:
+        _gated_start(g, fake, (410, -450))
+        rec = _gated_cross(g, _EAST_DOOR)
+    assert (rec["during"], rec["landed"], rec["changed_to"], rec["inside"]) == ("face", 30821, 30821, None), rec
+    fired = fake.fired[0]["executed"]
+    assert not [s for s in fake.executed[fired:] if s[0] == "hold"], fake.executed[fired:]
+    assert rec["travelled"] >= 450 + g.WALK_SPEED, rec          # the walk's 450u up to the door, and the press's own
+
+
+def test_a_smooth_walk_on_stock_350_crosses_every_door_its_facing_gate_keeps(game, dali):
+    """THE IN-GAME MISS, OFFLINE: stock 350 with stock's door facing gate on its doors to 351, 354, 353, 356 and 355
+    (``_dali_fake(face_gates=True)``), his yaw where the arrival from 351 leaves it (69 degrees, back up the street).
+    From that arrival a smooth route_to every place of the field: the walk HEAD made ended in the 351 door's zone
+    facing away and stood there, the door shut. Every walk now lands, and only in the region it was sent to -- the 351
+    door by the facing step's own press."""
+    from ff9mapkit.content import pathfind
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 350, face_gates=True)
+    places = _dali_places(script, 350)
+    wm, start = walkmesh(350), _DALI_STARTS[350]
+    turned = []
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(350)
+        _stand(g, fake, *start)
+        g.calibrate_axes(hazards=places, prior=prior)
+        for i, zone in enumerate(places):
+            g.warp(350)
+            _stand(g, fake, *start)
+            fake._face_deg = 69.0
+            fired = len(fake.fired)
+            goal = pathfind.region_goal(wm, zone)
+            door = fake.regions[350][i]              # a gated door is faced by its engine polygon, as the tour does
+            rec = g.route_to(goal[0], goal[1], avoid=[z for z in places if z is not zone], walkmesh=wm, prior=prior,
+                             smooth=True, zone=zone, face=door.get("points") if door.get("face") else None,
+                             face_window=door.get("face"))
+            assert [f["to"] for f in fake.fired[fired:]] == [30000 + i] and rec["landed"] == 30000 + i, (i, rec)
+            if rec["during"] == "face":
+                turned.append(i)
+    assert sum(1 for r in fake.regions[350] if r.get("face")) == 5, "premise: the gates are on"
+    assert 0 in turned, turned                      # the 351 door: only the facing step opened it
+
+
+def test_the_walks_last_hold_is_where_the_facing_step_starts():
+    """``leg["turned"]`` -- the last hold and the MovePC calls it is known to have spent -- is the facing step's start:
+    his yaw within 180 * 0.6**calls of that hold's, plus the leg's heading spread. None (unknown: any yaw) without
+    it."""
+    from harness.session import Session
+    yaw, off = Session._held_yaw({"turned": ((("up",), (0.0, 1.0)), 6.0), "spread": math.radians(2.0)})
+    assert abs(yaw) == pytest.approx(180.0) and off == pytest.approx(180 * 0.6 ** 6 + 2.0)
+    assert Session._held_yaw({"turned": None, "spread": 0.0}) is None and Session._held_yaw(None) is None
+
+
+def test_the_tour_reads_the_facing_step_and_a_bounce_by_what_they_were():
+    """The strike rule on the facing step's verdict, at a GATED door (``face_gate``): IN the region FACING the door with
+    nothing fired is the door's MISS (REAL) -- and so is a faced press whose rest took him on out of the region; in it
+    with no press that faces the door possible, or standing in its dead middle, or left there frozen and never turned,
+    is LIVE (the walker's limit). At a door with NO gate standing inside with nothing fired is the door's MISS, turned
+    or not -- it fires for anyone standing in it; and a record with no gate (older logs) reads as before, a MISS. And a
+    crossing that reached a destination which never handed control over -- route_cross's own error naming it -- is a
+    BOUNCE."""
+    D = _tour_module()
+    rec = {"boxed": False, "boxed_by": None, "reached": True, "inside": True, "during": None, "route": 2, "waits": 0,
+           "pushes": 0, "blockers": [], "frozen": False, "npc_replans": 0, "box_waits": 0, "held_by": None,
+           "pinned": [], "landed": None}
+    gated = dict(rec, face_gate=[48, 208])
+    assert D.failure(dict(gated, faced=True)) == "miss"
+    assert D.failure(dict(gated, faced=False)) == "live" and D.unfaced(dict(gated, faced=False))
+    assert D.failure(dict(gated, faced=None, frozen=True)) == "live"                 # frozen inside: never turned
+    assert D.failure(dict(gated, inside=False, faced=False)) == "live"               # the region's dead middle
+    assert D.failure(dict(gated, inside=False, faced=True, waits=2, reached=False)) == "miss"
+    assert D.failure(dict(rec, faced=False)) == "miss" and not D.unfaced(dict(rec, faced=False))   # no gate
+    assert D.failure(dict(rec, faced=None)) == "miss" and D.failure(rec) == "miss"
+    real = ("crossing from 350 reached field 353, but it never became playable within 20s -- the gateway WORKS and the "
+            "destination is the problem. (timed out after 20.0s waiting for the player to have control)")
+    assert D.failure({"landed": None, "error": real[:200], "inside": None, "during": None}) == "bounce"
+    assert D.entered_field({"error": real[:200]}) == 353
+
+
+# --- what the facing step must never do (the review of the step above; each a case that once went wrong offline) ---
+def _here_cross(g, zone, *, avoid=(), gate=(48, 208), region=None, smooth=True, npcs=True, timeout=2):
+    """route_cross whose goal is where he STANDS, inside the zone: the walk is over at once, and the facing step runs
+    from exactly this spot (smooth or chunked; the door told its ``gate`` and ``region`` as the tour tells it)."""
+    st = g.state
+    return g.route_cross(st.player_x, st.player_z, avoid=list(avoid), walkmesh=_flat_bgi(), prior=_prior(),
+                         unstick=True, zone=zone, smooth=smooth, npcs=npcs, timeout=timeout,
+                         gate=None if gate is None else list(gate), region=region)
+
+
+def _holds_after(fake, mark):
+    return [s for s in fake.executed[mark:] if s[0] == "hold"]
+
+
+def test_a_door_with_no_gate_is_never_turned_to_and_standing_in_it_shut_is_its_miss(game):
+    """A door with NO facing gate (scan_gateways' ``face_gate`` None), shut by the story: he stands in its small zone
+    and nothing fires -- which for an ungated region IS the verdict: it fires the first tick anyone stands in it with
+    control. Nothing turns him (no hold at all), ``faced`` stays None, and the tour strikes the door (MISS): no press
+    toward its first edge -- which would only walk him about, here up to the other door -- and no LIVE for a walker's
+    limit that does not apply. A route_to into a zone it is not told to face presses nothing either."""
+    D = _tour_module()
+    small = [[40, -40], [40, 40], [-40, 40], [-40, -40]]
+    other = _rect(60, -300, 300, 300)
+    fake = _gated_room(game, [{"zone": small, "to": None}, {"zone": other, "to": 30822, "arrive": (0, 0)}])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (0, 0))
+        mark = len(fake.executed)
+        rec = _here_cross(g, small, avoid=[other], gate=None)
+        assert not _holds_after(fake, mark), fake.executed[mark:]
+        again = g.route_to(0.0, 0.0, avoid=[other], walkmesh=_flat_bgi(), prior=_prior(), smooth=True, zone=small)
+    assert rec["inside"] is True and not fake.fired and rec["face_gate"] is None, rec
+    assert (rec["faced"], rec["face_pad"], rec["face_to"]) == (None, None, None), rec
+    assert D.failure(rec) == "miss", rec
+    assert again["faced"] is None and again["face_gate"] is None and not _holds_after(fake, mark), again
+
+
+@pytest.mark.parametrize("tx,tz,rr", [(470, -40, 60), (465, -45, 60), (480, -50, 50)])
+def test_the_facing_press_never_slides_him_into_a_triggers_range(game, tx, tz, rr):
+    """A dead gated door (the whole press runs) along the fake's east wall, a Range beside the wall: the press aimed
+    diagonally into the wall passes the Range well off its LINE, but slides along the wall into it (FakeGame slides as
+    the engine's ServiceChar does) -- its script would fire, and the door's record would carry the blame. The points a
+    slide reaches are held to the rules the line is (Session._slide_clear): the Range is never touched. Walked from a
+    known yaw facing away (+z)."""
+    zone = [[1400, 900], [900, 1400], [-300, 300], [300, -500]]
+    fake = _gated_room(game, [{"zone": zone, "to": None, "face": True}])
+    trig = {"x": float(tx), "z": float(tz), "r": 10.0, "range_r": float(rr), "uid": 150, "coll": True}
+    with session(game, fake) as g:
+        _gated_start(g, fake, (505, -150), yaw=180.0)
+        fake.blockers = {30820: [trig]}
+        published(g, lambda s: s.objects is not None and len(s.objects) == 1)
+        rec = _here_cross(g, zone)
+    assert not [t for t in fake.touched if t["uid"] == 150], (rec, fake.touched, fake.player)
+    assert rec["faced"] in (True, False) and not fake.fired, rec
+
+
+@pytest.mark.parametrize("coast", [1, 2])
+def test_a_dead_doors_facing_press_and_its_tail_never_slide_into_the_live_door_beside_it(game, coast):
+    """A DEAD gated door beside a LIVE one along the same wall, their shared side slanted to it: a press run parallel
+    to that side keeps its line 60u off the live door, but slides up the wall -- and the press's movement TAIL (the
+    harness allows PROBE_TAIL_FRAMES of it; the fake's ``coast_frames``) slides it on, over the shared side. The rest of
+    a press matters for a door that stays shut: its whole travel, tail and slides included, keeps out of every other
+    zone. Nothing fires, whatever the tail."""
+    dead = [[1400, 830], [1500, 500], [300, -500], [300, -270]]
+    live = [[300, -270], [1400, 830], [1400, 1100], [300, 30]]
+    fake = _gated_room(game, [{"zone": dead, "to": None, "face": True}, {"zone": live, "to": 30821, "arrive": (0, 0)}])
+    fake.coast_frames = coast
+    with session(game, fake) as g:
+        _gated_start(g, fake, (505, -150), yaw=180.0)
+        rec = _here_cross(g, dead, avoid=[live], npcs=False)
+    assert not fake.fired and rec["landed"] is None, (rec, fake.fired, fake.player)
+
+
+def test_a_facing_press_into_a_hold_on_movement_is_not_counted(game):
+    """A hold on movement that keeps control (the pad mask) starts as he steps into a live gated door and lasts 100
+    frames: MovePC moves and turns no one. A press that moved him nothing where its line ran free did not run -- it is
+    counted by what it moved (nothing), and the step presses on: once the hold lifts, a press turns him and the door
+    fires. Never ``faced`` True with the door shut and the yaw unturned."""
+    fake = _gated_room(game, [{"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}])
+    fake.freezes = {30820: [{"zone": _EAST_DOOR, "frames": 100}]}
+    with session(game, fake) as g:
+        _gated_start(g, fake, (410, -450))
+        rec = _gated_cross(g, _EAST_DOOR, timeout=2)
+    assert fake._froze, "premise: the hold took him on the step into the zone"
+    assert not (rec["faced"] is True and not fake.fired), rec
+    assert [f["to"] for f in fake.fired] == [30821] and rec["during"] == "face", rec
+
+
+@pytest.mark.parametrize("phase", [0, 1])
+def test_an_odd_walked_press_is_counted_by_the_whole_calls_it_is_sure_of(game, phase):
+    """The engine turns him in WHOLE MovePC calls, a walked one a 30 Hz tick, in a phase nobody sees (the fake's
+    ``tick_phase``): 9 walked frames are 4 calls or 5. The nearest pad (right, 0.6 degrees off the bearing) runs into
+    another door; the next (down+right) is 44 degrees off, and from a yaw turned all the way away from it (the chunked
+    walk: unknown), its 4.5 AVERAGE calls say faced where 4 whole ones leave the door shut (an error of 48, which the
+    strict gate fails). Counting only whole calls, the press is 10 frames -- 5 calls in either phase -- and the door
+    fires in both."""
+    from ff9mapkit.content import doorface
+    q0 = (30000, -300)                            # the exit point stays clamped to q0: the bearing barely moves
+    zone = [list(q0), [30000, -5000], [-200, -5000], [-200, 400]]
+    other = _rect(150, -30, 250, 30)
+    fake = _gated_room(game, [{"zone": zone, "to": 30821, "arrive": (0, 0), "face": True},
+                              {"zone": other, "to": 30822, "arrive": (0, 0)}])
+    fake.tick_phase, fake.coast_frames = phase, 0         # a press's frames are its held input, no more
+    with session(game, fake) as g:
+        _gated_start(g, fake, (0, 0), yaw=doorface.yaw_of(0.7071, -0.7071) + 179.9)
+        rec = _here_cross(g, zone, avoid=[other], smooth=False, npcs=False)
+    assert rec["faced"] is True and rec["face_pad"] == "down+right" and rec["face_calls"] == 5, rec
+    assert [f["to"] for f in fake.fired] == [30821] and rec["during"] == "face", rec
+
+
+def test_a_hold_cut_short_by_an_object_moving_leaves_his_yaw_unknown(game, monkeypatch):
+    """A smooth hold that changed pad returns "moved" when an object moves onto the path -- after the hold was pressed,
+    before its turn was measured. If the replan then finds no route, the facing step starts from where the walk's last
+    hold left him: that must be THIS hold's pad or unknown, never the hold before it (a yaw known to 2 degrees, of the
+    wrong pad, would let a farther pad pass as facing the door)."""
+    holds, seen, state = [], [], {"moved": False}
+    send = Session.send
+
+    def spy_send(self, *steps):
+        hb = tuple(s.split()[1] for s in steps if s.startswith("hold ") and s.split()[1] != "cancel")
+        if hb:
+            holds.append(hb)
+        return send(self, *steps)
+    npc_moved, plan_npcs, held_yaw = Session._npc_moved, Session._plan_npcs, Session._held_yaw
+
+    def moved(self, st, watch):
+        if not state["moved"] and len(holds) >= 2 and holds[-1] != holds[-2]:
+            state["moved"] = True
+            return True
+        return npc_moved(self, st, watch)
+
+    def plan(self, *a, **kw):
+        return (None, []) if state["moved"] else plan_npcs(self, *a, **kw)
+
+    def spy_held(leg):
+        seen.append(None if leg is None else (leg.get("pressed"), leg.get("turned")))
+        return held_yaw(leg)
+    monkeypatch.setattr(Session, "send", spy_send)
+    monkeypatch.setattr(Session, "_npc_moved", moved)
+    monkeypatch.setattr(Session, "_plan_npcs", plan)
+    monkeypatch.setattr(Session, "_held_yaw", staticmethod(spy_held))
+    from ff9mapkit.content import pathfind
+    fake = _gated_room(game, [{"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (200, 520))
+        goal = pathfind.region_goal(_flat_bgi(), _EAST_DOOR)
+        g.route_to(goal[0], goal[1], walkmesh=_flat_bgi(), prior=_prior(), unstick=True, smooth=True, npcs=True,
+                   zone=_EAST_DOOR, face=_EAST_DOOR, timeout=3)
+    assert state["moved"] and seen, "premise: a pad change, then an object moved"
+    pressed, turned = seen[-1]
+    assert turned is None or turned[0][0] == pressed[0], (pressed, turned)
+
+
+def test_a_walk_that_ends_frozen_in_a_gated_door_is_not_turned_and_is_no_strike(game):
+    """A hold on movement that never lifts takes him on the step into a gated door: the walk ends ``frozen``, standing
+    in it. MovePC turns no one while movement is held, so the facing step is not taken (``faced`` None, nothing pressed
+    after it) -- and a gated door he was never turned to is the walker's limit, LIVE, not the door's MISS."""
+    D = _tour_module()
+    fake = _gated_room(game, [{"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}])
+    fake.freezes = {30820: [{"zone": _rect(300, -150, 600, -60), "frames": None}]}
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, -450))
+        rec = _gated_cross(g, _EAST_DOOR, smooth=False, timeout=2)
+    assert rec["frozen"] and rec["inside"] and not fake.fired, rec
+    assert (rec["faced"], rec["face_pad"], rec["face_calls"]) == (None, None, None), rec
+    assert D.failure(rec) == "live", rec
+
+
+def test_a_press_that_would_leave_the_region_before_it_faces_the_door_is_never_made(game):
+    """A small free-standing gated zone whose first edge (east, x = 50) he walked in ACROSS, heading west: he stands
+    in it facing away, open floor beyond the edge. Every press that faces the door carries him out across it before the
+    call that faces it -- and out of the region the gate never runs. None is pressed that would: on no frame with
+    control after he first stood in the zone is he outside it before the door fires, and a step that cannot face it
+    reads ``faced`` False (LIVE), never a press that walked him out and then read faced."""
+    from ff9mapkit.content import doorface, pathfind
+    D = _tour_module()
+    zone = [[50, -60], [50, 60], [-50, 60], [-50, -60]]
+    fake = _gated_room(game, [{"zone": zone, "to": 30821, "arrive": (0, 0), "face": True}])
+    trail = []
+    with session(game, fake) as g:
+        _gated_start(g, fake, (400, 0), yaw=90.0)
+        move = fake._move_to
+
+        def spy(x, z, calls=1.0):
+            moved = move(x, z, calls)
+            trail.append((fake.player[0], fake.player[2], fake.control))
+            return moved
+        fake._move_to = spy
+        rec = _gated_cross(g, zone, goal=pathfind.region_goal(_flat_bgi(), zone), timeout=2)
+    first = next((k for k, (x, z, _c) in enumerate(trail) if doorface.region_contains(x, z, zone)), None)
+    assert first is not None, "premise: the walk got him into the zone"
+    left = [(x, z) for x, z, c in trail[first:] if c and not doorface.region_contains(x, z, zone)]
+    assert not left, left
+    assert fake.fired or (rec["faced"] is False and D.failure(rec) == "live"), rec
+
+
+@pytest.mark.parametrize("place,at,yaw", [(0, (317, -102), 70.0), (4, (1043, 3370), None), (4, (1059, 3370), None)])
+def test_on_stock_350_a_slide_along_the_wall_never_carries_the_facing_press_out_of_the_region(game, dali, place, at,
+                                                                                               yaw):
+    """Stock 350's doors to 351 and to 355, standing in them facing away (``yaw`` None: straight away from the door):
+    their standable strips run along walls, and a press into a wall slides along it -- out of the region, where the
+    gate never runs, before the call that faces the door if the slide is not bounded (Session._face_reach's disc). On
+    no frame with control after the facing step begins is he outside the door's region before it fires; and never
+    ``faced`` True standing outside it with the door shut (a false MISS)."""
+    from ff9mapkit.content import doorface
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 350, face_gates=True)
+    places = _dali_places(script, 350)
+    wm = walkmesh(350)
+    zone, door = places[place], fake.regions[350][place]
+    if yaw is None:
+        yaw = doorface.bearing_deg(at[0], at[1], door["points"][0], door["points"][1]) + 180.0
+        yaw = yaw - 360.0 if yaw > 180.0 else yaw
+    trail = []
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(350)
+        _stand(g, fake, *_DALI_STARTS[350])
+        g.calibrate_axes(hazards=places, prior=prior)
+        g.warp(350)
+        fake._face_deg = yaw
+        _stand(g, fake, *at)
+        assert not fake.fired and doorface.region_contains(*at, door["points"]), "premise: in the door, facing away"
+        move = fake._move_to
+
+        def spy(x, z, calls=1.0):
+            moved = move(x, z, calls)
+            trail.append((fake.player[0], fake.player[2], fake.control))
+            return moved
+        fake._move_to = spy
+        rec = g.route_cross(at[0], at[1], avoid=[z for z in places if z is not zone], walkmesh=wm, prior=prior,
+                            unstick=True, zone=zone, smooth=True, npcs=True, timeout=2, gate=door["face"],
+                            region=door["points"])
+    out = [(round(x), round(z)) for x, z, c in trail if c and not doorface.region_contains(x, z, door["points"])]
+    assert not out, (out[:3], rec)
+    assert not (rec["faced"] is True and rec["inside"] is False and rec["landed"] is None), rec
+
+
+@pytest.mark.parametrize("start", [(500, 0), (500, 30), (480, -20)])
+def test_the_facing_press_is_sized_in_movepc_calls_not_frames(game, start):
+    """A walked frame is HALF a MovePC call: the press that turns him must be 8 walked frames for its 4 calls, never 4.
+    A gated zone whose first edge (its east side, tilted) he walked in across heading up+left: he stands in it facing
+    far from the door, the nearest pad 20 degrees off its bearing -- 2 calls do not face it, 4 do -- and the door
+    fires during the facing press."""
+    from ff9mapkit.content import doorface, pathfind
+    zone = [[250, -150], [100, 221], [-200, 221], [-200, -150]]
+    fake = _gated_room(game, [{"zone": zone, "to": 30821, "arrive": (0, 0), "face": True}])
+    presses = []
+    with session(game, fake) as g:
+        _gated_start(g, fake, start, yaw=90.0)
+        pressed = g._pressed
+
+        def spy(origin, walked, *steps):
+            presses.append(steps)
+            return pressed(origin, walked, *steps)
+        g._pressed = spy
+        rec = _gated_cross(g, zone, goal=pathfind.region_goal(_flat_bgi(), zone), timeout=2)
+    assert rec["landed"] == 30821 and rec["during"] == "face" and rec["faced"] is True, rec
+    frames = int(presses[0][0].split()[2])
+    assert presses[0][0].startswith("hold cancel") and frames >= 4 / doorface.movepc_calls(g.WALK_SPEED) == 8, presses
+
+
+def test_standing_in_a_gated_regions_dead_middle_nothing_is_pressed_and_it_is_no_strike(game):
+    """A gated door whose region has FIVE points -- the kit's zone keeps its first four -- and a wall that stops him
+    short of its live ears: standing where the zone holds him but no triangle of the region does (IsInQuad's dead
+    middle, content.doorface.region_contains), the gate never runs, whatever he faces. Judged by the engine's polygon,
+    the facing step presses nothing there (a press into the wall would read ``faced`` and leave the door shut: a false
+    MISS) -- ``faced`` False, ``inside`` False (route_cross judges by the region too), the tour reads LIVE, and the
+    door, which the fake answers only where the engine would, never fires."""
+    D = _tour_module()
+    penta = [[600, -150], [600, 150], [300, 150], [300, -150], [450, -400]]
+    quad = penta[:4]
+    fake = _gated_room(game, [{"zone": quad, "points": penta, "to": 30821, "arrive": (0, 0), "face": True}])
+    floor = _flat_bgi(-600, -600, 550, 600)                     # his centre stands to x = 470: short of the live ears
+    fake.walkmesh = floor
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, -100))
+        mark = len(fake.executed)
+        rec = g.route_cross(450.0, -100.0, walkmesh=floor, prior=_prior(), unstick=True, zone=quad, smooth=True,
+                            npcs=True, timeout=2, gate=[48, 208], region=penta)
+    from ff9mapkit.content import doorface
+    assert not doorface.region_contains(450, -100, penta), "premise: the dead middle"
+    assert rec["faced"] is False and rec["inside"] is False and not _holds_after(fake, mark), rec
+    assert not fake.fired and D.failure(rec) == "live", rec
+
+
+def test_on_stock_350_the_351_door_is_faced_by_its_engine_polygon(game, dali):
+    """Stock 350's door to 351 is a FIVE-point region; the kit's zone keeps four. Standing at the tour's goal in it, as
+    the arrival from 351 leaves his yaw (69): judged by the region -- where IsInQuad holds him, which on this door's
+    standable ground is more than the quad -- one whole press (up+right) faces the door, and it fires during it. The
+    quad alone admits no whole press there, only bursts."""
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 350, face_gates=True)
+    places = _dali_places(script, 350)
+    wm = walkmesh(350)
+    door = fake.regions[350][0]
+    zone, penta = places[0], door["points"]
+    got, presses = {}, []
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(350)
+        _stand(g, fake, *_DALI_STARTS[350])
+        g.calibrate_axes(hazards=places, prior=prior)
+        pressed = g._pressed
+
+        def spy(origin, walked, *steps):
+            presses.append(steps)
+            return pressed(origin, walked, *steps)
+        g._pressed = spy
+        for face in ("region", "quad"):
+            g.warp(350)
+            fake._face_deg = 69.0
+            _stand(g, fake, 289, -74)
+            presses.clear()
+            fired = len(fake.fired)
+            rec = g.route_cross(289.0, -74.0, avoid=[z for z in places if z is not zone], walkmesh=wm, prior=prior,
+                                unstick=True, zone=zone, smooth=True, npcs=True, timeout=2, gate=[48, 208],
+                                region=penta if face == "region" else None)
+            got[face] = (rec, list(presses), [f["to"] for f in fake.fired[fired:]])
+    rec, presses, fired = got["region"]
+    assert rec["during"] == "face" and fired == [30000] and len(presses) == 1, (rec, presses)
+    assert int(presses[0][0].split()[2]) >= 8 and rec["face_pad"] == "up+right", presses
+    _rec, presses, _fired = got["quad"]
+    assert presses and int(presses[0][0].split()[2]) < 8, presses          # the quad: a burst first
+
+
+def test_at_350s_door_to_353_the_slide_bound_leaves_the_goal_unfaced(game, dali):
+    """PINNED, a trade-off the bound makes: stock 350's door to 353 is standable only in a 34u pocket by its corner, and
+    at the tour's goal there every facing press's WALL SLIDE bound (Session._face_reach: a slide either way along a wall
+    whose line is not known) reaches out of the region -- though a plain press into the corner would open the door. So
+    standing there facing away, the step presses nothing: ``faced`` False, LIVE, never the door's MISS (a replay steps
+    back and walks in again; the tour's next visit arrives elsewhere). A tighter slide bound would change this: then
+    expect the crossing here instead."""
+    from ff9mapkit.content import pathfind
+    D = _tour_module()
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 350, face_gates=True)
+    places = _dali_places(script, 350)
+    wm = walkmesh(350)
+    zone, door = places[2], fake.regions[350][2]
+    goal = pathfind.region_goal(wm, zone)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(350)
+        _stand(g, fake, *_DALI_STARTS[350])
+        g.calibrate_axes(hazards=places, prior=prior)
+        g.warp(350)
+        fake._face_deg = 0.0
+        _stand(g, fake, *goal)
+        rec = g.route_cross(goal[0], goal[1], avoid=[z for z in places if z is not zone], walkmesh=wm, prior=prior,
+                            unstick=True, zone=zone, smooth=True, npcs=True, timeout=2, gate=door["face"],
+                            region=door["points"])
+    assert rec["faced"] is False and rec["face_pad"] is None and not fake.fired, rec
+    assert D.failure(rec) == "live", rec
+
+
+def test_a_replay_steps_back_from_a_gated_door_it_could_not_face(game, monkeypatch):
+    """A replay step through a small GATED door (its first edge the north side) the walk comes into heading east: no
+    facing press keeps the rules in so small a zone -- ``faced`` False, and the tour's own record says so (``faced``,
+    ``face_gate``). LIVE: nothing struck. A retry from where he stands would only repeat it (the walk goes nowhere, the
+    step judges the same spot), so the replay walks BACK to where the step began before it tries again -- and the
+    step is done, one way or the other, well inside the budget: never "budget spent" on retries in place."""
+    fake, tour, D = _replay_world(game, monkeypatch)
+    small = [[360, 40], [440, 40], [440, -40], [360, -40]]
+    fake.regions[_A][0] = {"zone": small, "to": _B, "arrive": (-250, 0), "face": True}
+    tour._gates[_A] = [(_B, 0, small), (_C, 0, _WEST)]
+    tour._doors[_A] = {(_B, tuple(map(tuple, small))): {"gate": [48, 208], "region": small}}
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, [[_A, 0, _B]], beat=2600, max_crossings=12, max_passes=2, budget_s=120)
+    step = [x for x in log if x["k"] == "cross" and x["leg"] == "replay"]
+    first = step[0]
+    assert first["inside"] and first["faced"] is False and first["face_gate"] == [48, 208], first
+    assert D.failure(first) == "live" and first["verdict"] == "live 1 (retried)", first
+    walks = [(x.get("back", False), x["verdict"]) for x in step]
+    for k, x in enumerate(step[:-1]):                # every retry after an unfaced door walked back first
+        if D.unfaced(x) and not x.get("back"):
+            assert step[k + 1].get("back") is True, walks
+    unfaced = [x for x in step if D.unfaced(x) and not x.get("back")]
+    assert len(unfaced) <= D.LIVE, walks
+    assert walks[-1][1] == "replayed" or "the gated door was never faced" in stop, (stop, walks)
+
+
+# --------------------------------------------------------------------------- the walker turns in place (s90)
+# memoria-patch s90 publishes the facing a stock door gate reads (state.json player.yaw / player.face) and adds the
+# agent verb `turn`, which turns him IN PLACE by the engine's own per-MovePC-call lerp and reports `turn_end` once the
+# field has judged the final facing. Where the engine publishes it, the facing step turns him in place and decides by
+# the MEASURED outcome (Session._turn_to_the_door); where it cannot, the open-loop press above is the step, unchanged.
+# The fake models both (FakeGame ``facing_mode``: "absent", the default every test above runs on, and "published").
+
+
+def _s90(fake):
+    """``fake`` as an s90 engine: the facing published, ``turn`` understood."""
+    fake.facing_mode = "published"
+    return fake
+
+
+def _moves(fake, trail):
+    """Record where he stands after every frame he has control -- ``(x, z, control, field)`` -- a spy on the fake's
+    MovePC frame."""
+    step = fake._step_player
+
+    def spy():
+        step()
+        trail.append((round(fake.player[0], 3), round(fake.player[2], 3), fake.control, fake.field_id))
+    fake._step_player = spy
+
+
+def _pads_turned(fake, mark):
+    return [s[1] for s in fake.executed[mark:] if s[0] == "turn"]
+
+
+def _direction_holds(fake, mark):
+    return [s for s in fake.executed[mark:] if s[0] in ("hold", "press") and s[1] in ("up", "down", "left", "right")]
+
+
+def _logged(fake, kind):
+    """Every event of ``kind`` the fake has logged, as written (every value but ``frame`` a string)."""
+    path = fake.dir / "events.jsonl"
+    rows = [json.loads(ln) for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    return [r for r in rows if r["kind"] == kind]
+
+
+def _turn_ends(fake):
+    return _logged(fake, "turn_end")
+
+
+def _on_turns(fake, *acts):
+    """Run each ``(k, frames, fn)`` of ``acts`` -- ``fn()`` once, on the fake's frame ``frames`` frames after the one
+    its k-th ACCEPTED ``turn`` (1-based) began on, after that frame's world has stepped: a script, a UI, a hold on
+    movement or a human that comes or goes while a turn is on. Returns the frames the accepted turns began on."""
+    begin, step, began = fake._begin_turn, fake._step_world, []
+
+    def begin_spy(*a, **kw):
+        begin(*a, **kw)                      # a refusal raises before it is counted
+        began.append(fake.frame)
+
+    def step_spy():
+        step()
+        for k, frames, fn in acts:
+            if len(began) >= k and fake.frame == began[k - 1] + frames:
+                fn()
+    fake._begin_turn, fake._step_world = begin_spy, step_spy
+    return began
+
+
+def test_state_tells_an_engine_that_cannot_face_from_one_with_no_facing_now_from_a_facing():
+    """s90's three cases, kept apart as s89's objects are: ``player.face`` ABSENT -- an engine that cannot publish the
+    facing (and cannot ``turn``); null -- it can, and there is none this sample; a number -- the facing byte, with the
+    raw yaw beside it. 0 is a facing (-z), never "none"; and ``dir`` is not the facing whatever it holds."""
+    for raw in ({"frame": 1}, {"frame": 1, "player": {"x": 1.0, "z": 2.0, "dir": 0, "control": True}}):
+        st = State(raw)
+        assert (st.facing_status, st.player_yaw, st.player_face) == ("cannot", None, None), raw
+    unknown = State({"frame": 1, "player": {"x": None, "dir": 0, "yaw": None, "face": None}})
+    assert (unknown.facing_status, unknown.player_yaw, unknown.player_face) == ("unknown", None, None)
+    known = State({"frame": 1, "player": {"x": 5.0, "dir": 0, "yaw": -85.301, "face": 195}})
+    assert (known.facing_status, known.player_yaw, known.player_face) == ("known", -85.301, 195)
+    zero = State({"frame": 1, "player": {"dir": 77, "yaw": 0, "face": 0}})
+    assert (zero.facing_status, zero.player_yaw, zero.player_face) == ("known", 0.0, 0)
+
+
+def test_a_turn_refusal_is_classified_on_the_agents_own_words_and_a_turn_end_is_parsed():
+    """Every refusal message HarnessAgent.cs (s90) can give a ``turn``, verbatim, to its kind -- on the stable prefix,
+    the TurnBlocker token and an overlapping body's uid pulled out; one no rule knows is "other", never guessed.
+    And ``turn_end`` as the agent writes it -- every value but ``frame`` quoted -- read back as numbers, the end values
+    null after a door's warp."""
+    from harness.channel import parse_turn_end, turn_refusal
+    said = {
+        "needs a direction (up|down|left|right, '+'-joined)": ("argument", None, None),
+        "'confirm' is not a direction (up|down|left|right, '+'-joined)": ("argument", None, None),
+        "unknown button 'sideways'": ("argument", None, None),
+        "needs a field with a controlled player under user control (movement)": ("blocked", "movement", None),
+        "needs a field with a controlled player under user control (hud)": ("blocked", "hud", None),
+        "the player's field, position or facing is unreadable": ("unreadable", None, None),
+        "the last turn's keys are up and the field is still judging it -- wait for its turn_end":
+            ("judging", None, None),
+        "the turn in progress began on another actor or field -- it is cut this frame; turn again after its turn_end":
+            ("cut", None, None),
+        "[AnalogControl] Enabled=0 -- MovePC's key path would step him, not turn him": ("analog", None, None),
+        "Right is held or scheduled -- release it (and let it lift) first": ("held", None, None),
+        "opposite directions cancel to no direction": ("opposite", None, None),
+        "a physical stick or key is pushing the axis (|a| 0.8) -- MovePC's axis branch would walk him":
+            ("axis", None, None),
+        "a click-to-move path is pending -- the turn keys would consume it": ("path", None, None),
+        "overlapping object uid 147 -- a turn toward it would push him out": ("overlap", None, 147),
+        "unknown op 'turn'": ("cannot", None, None),
+        "a refusal this driver has never seen": ("other", None, None),
+    }
+    for message, want in said.items():
+        got = turn_refusal(message)
+        assert (got.kind, got.why, got.uid) == want and got.message == message, (message, got)
+        assert isinstance(got, HarnessError)
+    end = parse_turn_end({"frame": 1234, "kind": "turn_end", "why": "ended", "frames": "8", "yaw0": "69.12",
+                          "yaw": "-85.301", "face": "195", "moved": "0"})
+    assert end == {"frame": 1234, "why": "ended", "frames": 8, "yaw0": 69.12, "yaw": -85.301, "face": 195,
+                   "moved": 0.0}
+    warped = parse_turn_end({"frame": 9, "kind": "turn_end", "why": "field", "frames": "3", "yaw0": "0", "yaw": None,
+                             "face": None, "moved": None})
+    assert (warped["why"], warped["frames"], warped["yaw"], warped["face"], warped["moved"]) == ("field", 3, None,
+                                                                                                None, None)
+
+
+def test_the_fake_publishes_the_facing_only_as_the_s90_agent_does(game):
+    """``facing_mode`` "absent" (the default): no ``yaw`` / ``face`` key at all. "published": the yaw to 0.001 and the
+    facing BYTE (content.doorface.facing_byte) as numbers on a field, both null together off one; ``dir`` stays 0."""
+    from ff9mapkit.content import doorface
+    fake = _hand_fake(game, yaw=-85.3014)
+    fake.armed = True
+    fake.dir.mkdir(parents=True, exist_ok=True)
+
+    def player():
+        fake._publish(force=True)
+        return json.loads((fake.dir / "state.json").read_text(encoding="utf-8"))["player"]
+    assert "yaw" not in player() and "face" not in player()
+    fake.facing_mode = "published"
+    p = player()
+    assert (p["yaw"], p["face"], p["dir"]) == (-85.301, doorface.facing_byte(-85.3014), 0) and p["face"] == 195
+    fake.ui_state = "WorldHUD"
+    p = player()
+    assert p["yaw"] is None and p["face"] is None
+
+
+def test_the_fakes_turn_refuses_as_the_agent_does_and_never_steps_him(game):
+    """The fake's ``turn``, stepped by hand: the agent's refusals in its words -- no direction, not a direction, an
+    unknown button, no control, opposite keys, a direction held or scheduled, a body he overlaps, the last turn still
+    being judged -- and ``hold`` / ``press`` of a direction refused while a turn is open; an engine without s90
+    answers ``unknown op 'turn'``. An accepted turn turns him 40% a MovePC call and never moves him, and its
+    ``turn_end`` -- every value a string -- comes two ticks after the keys lift."""
+    from ff9mapkit.content import doorface
+    fake = _hand_fake(game, at=(100.0, 50.0), yaw=90.0)
+
+    def refused(step, match):
+        with pytest.raises(RuntimeError, match=match):
+            fake._execute(step)
+    refused(["turn", "right", "8"], r"^unknown op 'turn'$")
+    _s90(fake)
+    refused(["turn"], r"^needs a direction \(up\|down\|left\|right, '\+'-joined\)$")
+    refused(["turn", "confirm"], r"^'confirm' is not a direction")
+    refused(["turn", "up+sideways"], r"^unknown button 'sideways'$")
+    refused(["turn", "north+south"], r"^opposite directions cancel to no direction$")
+    fake.control = False
+    refused(["turn", "right"], r"^needs a field with a controlled player under user control \(control\)$")
+    fake.control = True
+    fake._execute(["hold", "up", "5"])
+    refused(["turn", "right"], r"^Up is held or scheduled -- release it \(and let it lift\) first$")
+    fake.held.clear()
+    fake.down_at.clear()
+    fake.blockers = {30820: [{"x": 120.0, "z": 50.0, "r": 40.0, "uid": 133}]}
+    refused(["turn", "right"], r"^overlapping object uid 133 -- a turn toward it would push him out$")
+    fake.blockers = {}
+    fake._execute(["turn", "east", "8"])
+    refused(["hold", "up", "3"], r"^a `turn` is still open")
+    refused(["press", "left", "2"], r"^a `turn` is still open")
+    fake._execute(["hold", "cancel", "3"])                                        # never refused
+    fake.dir.mkdir(parents=True, exist_ok=True)
+    for _ in range(12):
+        fake.frame += 1
+        fake._step_world()
+        fake._service_turn()
+        if fake.frame == 9:                                                        # the keys lifted this frame
+            refused(["turn", "up"], r"^the last turn's keys are up and the field is still judging it")
+    rows = [json.loads(ln) for ln in (fake.dir / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    ends = [r for r in rows if r["kind"] == "turn_end"]
+    assert fake.player == [100.0, 0.0, 50.0] and fake._face_deg < -80.0, (fake.player, fake._face_deg)
+    assert len(ends) == 1 and ends[0]["frame"] == 11, ends                        # two ticks after the lift
+    e = ends[0]
+    assert (e["why"], e["frames"], e["yaw0"], e["moved"]) == ("ended", "8", "90", "0"), e
+    assert all(isinstance(e[k], str) for k in ("why", "frames", "yaw0", "yaw", "face", "moved")), e
+    assert isinstance(e["frame"], int) and e["face"] == str(doorface.facing_byte(float(e["yaw"]))), e
+
+
+def test_turn_in_place_waits_past_the_ack_for_the_turn_end_and_parses_its_strings(game):
+    """Session.turn_in_place sends ``turn right 8`` and ``wait 10``, and the ack comes BEFORE the field has judged the
+    final facing -- here, with the report held 60 ticks past the lift, a quarter of a second of the fake's clock after
+    it. The call waits for the ``turn_end`` that request produced and returns it with every value PARSED: the frames
+    its keys were down, the yaw it began and ended at, the facing byte, and ``moved`` 0 -- he turned where he stood."""
+    from ff9mapkit.content import doorface
+    fake = _s90(FakeGame(game))
+    fake.turn_settle_passes = 60
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 100, 50)
+        fake._face_deg = 90.0
+        st = published(g, lambda s: s.player_face == doorface.facing_byte(90.0))
+        assert st.facing_status == "known" and st.player_yaw == 90.0
+        seq = g.channel.seq + 1
+        end = g.turn_in_place("right", 8)
+        evs = g.channel.events()
+    assert (end["why"], end["frames"], end["moved"]) == ("ended", 8, 0.0), end
+    assert end["yaw0"] == 90.0 and end["yaw"] == pytest.approx(doorface.turn_step(90.0, -90.0, 8), abs=1e-3), end
+    assert isinstance(end["face"], int) and end["face"] == doorface.facing_byte(end["yaw"]), end
+    assert fake.player == [100.0, 0.0, 50.0]
+    acked = next(k for k, e in enumerate(evs) if e["kind"] == "ack" and e["seq"] == str(seq))
+    ended = next(k for k, e in enumerate(evs) if e["kind"] == "turn_end")
+    assert acked < ended and evs[ended]["frame"] - evs[acked]["frame"] >= 40, (evs[acked], evs[ended])
+
+
+def test_turn_in_place_refuses_an_engine_that_cannot_and_surfaces_the_agents_refusal(game):
+    """Never sent to an engine without s90 (no ``player.face`` key: "cannot"), nor for a button that is not a direction:
+    the driver refuses before the wire. On an s90 engine the agent's own refusal comes back as TurnRefused, classified
+    on its stable words -- a direction still scheduled ("held"), a body he overlaps ("overlap", its uid) -- and a
+    ``hold`` of a direction while a turn is still open is refused the other way round."""
+    from harness.channel import TurnRefused
+    old = FakeGame(game)
+    with session(game, old) as g:
+        boot(g)
+        g.warp(30820)
+        assert g.state.facing_status == "cannot"
+        with pytest.raises(HarnessError, match="s90"):
+            g.turn_in_place("right", 8)
+        with pytest.raises(HarnessError, match="DIRECTION"):
+            g.turn_in_place("confirm", 8)
+        assert not [s for s in old.executed if s[0] == "turn"], old.executed
+    fake = _s90(FakeGame(game))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 0, 0)
+        g.hold("up", 400)
+        with pytest.raises(TurnRefused) as got:
+            g.turn_in_place("right", 8)
+        assert got.value.kind == "held" and got.value.message.startswith("Up is held or scheduled"), got.value
+        g.release("up")
+        g.wait_frames(2)
+        _stand(g, fake, 0, 0)                                  # the hold walked him: back where the body stands on him
+        fake.blockers = {30820: [{"x": 20.0, "z": 0.0, "r": 60.0, "uid": 141}]}
+        with pytest.raises(TurnRefused) as got:
+            g.turn_in_place("right", 8)
+        assert (got.value.kind, got.value.uid) == ("overlap", 141), got.value
+        fake.blockers = {}
+        g.send("turn left 60", wait=False)
+        g.wait_frames(3)
+        with pytest.raises(HarnessError, match="a `turn` is still open"):
+            g.send("hold up 5")
+
+
+def test_on_an_s90_engine_the_walker_turns_in_place_to_face_a_gated_door_and_it_crosses(game):
+    """He stands in the east-wall door facing straight away from it (yaw 90: -x). On an engine that publishes the
+    facing, the facing step does not walk: it turns him IN PLACE toward the door (the pad nearest its bearing, right)
+    and the door fires during the turn -- ``during`` "face", ``faced`` True, ``face_measured`` True (the field
+    changed), ``face_moved`` 0 -- with ZERO travel: no direction held or pressed, and on every frame he had control he
+    stood where he stood."""
+    door = {"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _s90(_gated_room(game, [door]))
+    trail = []
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=90.0)
+        mark = len(fake.executed)
+        _moves(fake, trail)
+        rec = _here_cross(g, _EAST_DOOR)
+    assert _pads_turned(fake, mark) == ["right"] and not _direction_holds(fake, mark), fake.executed[mark:]
+    assert [e["why"] for e in _turn_ends(fake)] == ["control"]           # the door's DisableMove took him mid-turn
+    assert trail and all((x, z) == (450.0, 0.0) for x, z, c, f in trail if c and f == 30820), trail
+    assert rec["landed"] == 30821 and [f["to"] for f in fake.fired] == [30821], rec
+    assert (rec["during"], rec["faced"], rec["face_measured"], rec["face_moved"]) == ("face", True, True, 0.0), rec
+    assert rec["face_pad"] == "right" and rec["travelled"] == 0, rec
+
+
+def test_a_door_still_shut_with_the_measured_face_in_the_window_is_a_real_miss(game):
+    """The same door, dead (the story has shut it). The turn in place ends ``ended``: the field ran its passes on the
+    final facing and did not take him. The facing byte the ENGINE reported is in the window, so the gate read it and
+    stayed shut -- ``faced`` True, ``face_measured`` True, ``face_err`` the MEASURED signed error (the byte his yaw
+    really has, against the engine's exit point from where he stands), ``face_worst`` its size -- and the tour strikes
+    the door: a REAL miss, measured. Nothing walked him."""
+    from ff9mapkit.content import doorface
+    D = _tour_module()
+    fake = _s90(_gated_room(game, [{"zone": _EAST_DOOR, "to": None, "face": True}]))
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=90.0)
+        mark = len(fake.executed)
+        rec = _here_cross(g, _EAST_DOOR)
+    truth = doorface.signed_error(doorface.gate_value(fake.player[0], fake.player[2], fake._face_deg,
+                                                      _EAST_DOOR[0], _EAST_DOOR[1]))
+    assert _pads_turned(fake, mark) == ["right"] and not _direction_holds(fake, mark), fake.executed[mark:]
+    assert abs(truth) <= 47 and fake.player == [450.0, 0.0, 0.0], (truth, fake.player)
+    assert rec["landed"] is None and rec["inside"] is True and not fake.fired, rec
+    assert (rec["faced"], rec["face_measured"], rec["face_err"], rec["face_worst"]) == (True, True, truth, abs(truth))
+    assert D.failure(rec) == "miss", rec
+
+
+def test_a_turn_that_lands_out_of_the_window_turns_again(game):
+    """A machine that spends fewer MovePC calls a frame than the calibrated one (the fake's ``turn_calls``: one call in
+    the whole 8-frame turn): the first turn ends with his measured facing still out of the window -- and it MOVED his
+    yaw, so the pad has more to give. He is turned again, the same pad, and the second turn's measured facing is in
+    the window: ``faced`` True on the engine's report, never on the plan's calls. (The door is dead, so each turn's end
+    is judged by its report alone.)"""
+    from ff9mapkit.content import doorface
+    fake = _s90(_gated_room(game, [{"zone": _EAST_DOOR, "to": None, "face": True}]))
+    fake.turn_calls = 1.0 / 8
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=60.0)
+        mark = len(fake.executed)
+        rec = _here_cross(g, _EAST_DOOR)
+    assert _pads_turned(fake, mark) == ["right", "right"], fake.executed[mark:]
+    assert fake._face_deg == pytest.approx(doorface.turn_step(60.0, -90.0, 2), abs=0.01)
+    assert (rec["faced"], rec["face_measured"]) == (True, True) and abs(rec["face_err"]) <= 47, rec
+    assert not _direction_holds(fake, mark) and not fake.fired, fake.executed[mark:]
+
+
+def test_a_pad_whose_measured_heading_cannot_face_the_door_gives_way_to_one_that_can(game):
+    """The basis the driver holds is 100 degrees off the field's (the fake's twist): the pad nearest the door's bearing
+    on paper, right, truly heads 100 degrees off it. Its first turn moves his yaw and ends out of the window; its
+    second SETTLES there (it has nothing left to turn) -- so that pad cannot face the door, and the heading it settled
+    at says how far off the basis is. The next pad is ranked by that measurement, not by the paper: down, which truly
+    heads the door's way, and the door fires during its turn. Never a walked step."""
+    door = {"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _s90(_gated_room(game, [door]))
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=90.0)
+        fake.twist = 100.0
+        mark = len(fake.executed)
+        rec = _here_cross(g, _EAST_DOOR)
+    turned = _pads_turned(fake, mark)
+    assert turned[:2] == ["right", "right"] and turned[2:] == ["down"], turned
+    assert rec["landed"] == 30821 and rec["during"] == "face" and rec["face_measured"] is True, rec
+    assert rec["face_pad"] == "down" and not _direction_holds(fake, mark), rec
+
+
+def test_a_turn_refused_for_a_reason_a_press_does_not_share_falls_back_to_the_press(game):
+    """``[AnalogControl] Enabled=0``: the agent refuses every ``turn`` (the key path would step him). A walked press
+    does not share that -- it is MEANT to step him -- so the facing step falls back to the open-loop press: one turn
+    tried, then the press, which faces the door and it fires (``face_measured`` False: a prediction)."""
+    door = {"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _s90(_gated_room(game, [door]))
+    fake.analog_control = False
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=90.0)
+        mark = len(fake.executed)
+        rec = _here_cross(g, _EAST_DOOR)
+    assert _pads_turned(fake, mark) == ["right"] and _direction_holds(fake, mark), fake.executed[mark:]
+    assert rec["landed"] == 30821 and rec["during"] == "face" and rec["faced"] is True, rec
+    assert rec["face_measured"] is False, rec
+
+
+def test_a_turn_refused_for_a_reason_a_press_shares_is_waited_out_never_pressed_through(game):
+    """A hold on movement (the script's pad mask, control kept) lands on the very frame the first turn is asked for:
+    the agent refuses it (``needs a field ... (movement)``). A press shares that -- MovePC turns no one while movement
+    is held -- so nothing is pressed: the step waits it out and turns again, and the door fires on the turn."""
+    door = {"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _s90(_gated_room(game, [door]))
+    execute, froze = fake._execute, []
+
+    def freeze_first_turn(step):
+        if step[0] == "turn" and not froze:
+            froze.append(fake.frame)
+            fake._frozen_until = fake.frame + 40
+        return execute(step)
+    fake._execute = freeze_first_turn
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=90.0)
+        mark = len(fake.executed)
+        rec = _here_cross(g, _EAST_DOOR)
+    assert froze and _pads_turned(fake, mark) == ["right", "right"], fake.executed[mark:]
+    assert not _direction_holds(fake, mark), fake.executed[mark:]
+    assert rec["landed"] == 30821 and rec["during"] == "face" and rec["face_measured"] is True, rec
+
+
+def test_on_a_pre_s90_engine_the_facing_step_is_the_open_loop_press_unchanged(game):
+    """An engine that cannot publish the facing (``facing_mode`` "absent": no ``player.face`` key) is never sent a
+    ``turn``: the facing step is the walked press it always was -- the door fires during it, ``faced`` True on the
+    prediction, and ``face_measured`` False says so."""
+    door = {"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _gated_room(game, [door])
+    with session(game, fake) as g:
+        _gated_start(g, fake, (410, -450))
+        mark = len(fake.executed)
+        rec = _gated_cross(g, _EAST_DOOR)
+    assert not _pads_turned(fake, mark) and _direction_holds(fake, mark), fake.executed[mark:]
+    assert rec["landed"] == 30821 and rec["during"] == "face" and rec["faced"] is True, rec
+    assert rec["face_measured"] is False and rec["face_moved"] is None and rec["face_calls"] >= 4, rec
+
+
+def test_a_turn_that_moved_him_is_judged_as_the_press_it_was(game):
+    """A turn in place moves him 0 (the agent's ceiling for its float noise: 0.25u). Standing nearer the wall than his
+    radius, the turn's zero step is still pushed out onto the radius line (the fake's floor, as the engine's walls do)
+    -- 20u, out of a door region that ends 70u off the wall. His measured facing faces the door; but the gate never
+    ran where the push left him, so that is no measured miss: ``faced`` False (nothing judged), ``face_moved`` the
+    20u the report witnessed."""
+    zone = [[600, -150], [600, 150], [530, 150], [530, -150]]
+    fake = _s90(_gated_room(game, [{"zone": zone, "to": None, "face": True}]))
+    with session(game, fake) as g:
+        _gated_start(g, fake, (540, 0), yaw=-90.0)
+        record = {"faced": False, "face_measured": False, "face_err": None, "face_worst": None, "face_calls": None,
+                  "face_pad": None, "face_moved": None}
+        got = g._turn_to_the_door(zone, record, 30820, (48, 208), 3.0)
+    assert got is None and fake.player[0] == pytest.approx(520.0, abs=1.0), (got, fake.player)
+    assert record["face_moved"] == pytest.approx(20.0, abs=1.0), record
+    assert (record["faced"], record["face_measured"], record["face_err"]) == (False, False, None), record
+
+
+def test_at_350s_door_to_353_an_s90_engine_faces_the_goal_pocket_the_slide_bound_refused(game, dali):
+    """The case the open loop PINS unfaced (test_at_350s_door_to_353_the_slide_bound_leaves_the_goal_unfaced): stock
+    350's door to 353 is standable only in a 34u pocket by its corner, where every facing PRESS's wall-slide bound
+    reaches out of the region. Standing in that pocket where his centre can stand -- the spot nearest the tour's goal
+    that is COLLISION_RADIUS_W off every wall (the goal itself is 77u off one: no walk leaves him there, the engine's
+    radius pushes him out, and out of the region) -- facing away (yaw 0): on a pre-s90 engine the step presses nothing
+    (``faced`` False, the premise), and on one that publishes the facing it turns him where he stands and the door
+    fires -- ``faced`` True, measured, not a direction held."""
+    from ff9mapkit.content import doorface, pathfind
+    from ff9mapkit.scene import cam
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 350, face_gates=True)
+    places = _dali_places(script, 350)
+    wm = walkmesh(350)
+    zone, door = places[2], fake.regions[350][2]
+    goal = pathfind.region_goal(wm, zone)
+    spots = [(x, z) for x in range(goal[0] - 40, goal[0] + 41, 4) for z in range(goal[1] - 40, goal[1] + 41, 4)
+             if doorface.region_contains(x, z, door["points"])
+             and (wm.distance_to_boundary(x, z) or 0.0) >= cam.COLLISION_RADIUS_W + 1.0]
+    spot = min(spots, key=lambda p: (p[0] - goal[0]) ** 2 + (p[1] - goal[1]) ** 2)
+    got = {}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(350)
+        _stand(g, fake, *_DALI_STARTS[350])
+        g.calibrate_axes(hazards=places, prior=prior)
+        for mode in ("absent", "published"):
+            fake.facing_mode = mode
+            g.warp(350)
+            fake._face_deg = 0.0
+            _stand(g, fake, *spot)                      # published after the mode is set: the facing, or no key
+            mark, fired = len(fake.executed), len(fake.fired)
+            rec = g.route_cross(spot[0], spot[1], avoid=[z for z in places if z is not zone], walkmesh=wm,
+                                prior=prior, unstick=True, zone=zone, smooth=True, npcs=True, timeout=2,
+                                gate=door["face"], region=door["points"])
+            got[mode] = (rec, [f["to"] for f in fake.fired[fired:]], fake.executed[mark:])
+    rec, fired, steps = got["absent"]
+    assert rec["faced"] is False and rec["face_pad"] is None and not fired, rec          # the premise: no press fits
+    assert not [s for s in steps if s[0] in ("hold", "turn") and s[1] != "cancel"], steps
+    rec, fired, steps = got["published"]
+    assert fired == [30002] and rec["landed"] == 30002, rec
+    assert [s for s in steps if s[0] == "turn"], steps
+    assert not [s for s in steps if s[0] in ("hold", "press") and s[1] in ("up", "down", "left", "right")], steps
+    assert (rec["during"], rec["faced"], rec["face_measured"], rec["face_moved"]) == ("face", True, True, 0.0), rec
+
+
+def test_on_stock_350_an_s90_engine_crosses_every_gated_door_with_no_facing_press_moving_him(game, dali):
+    """Stock 350 end to end with its facing gates on and the facing published: from the arrival from 351 (his yaw 69,
+    back up the street) a smooth route_to every place of the field lands in the region it was sent to, and only there
+    -- and the facing step, wherever it runs, never presses a walked step: it turns him in place (the 351 door among
+    the doors it opens that way)."""
+    from ff9mapkit.content import pathfind
+    walkmesh, script = dali
+    fake, prior = _dali_fake(game, walkmesh, script, 350, face_gates=True)
+    _s90(fake)
+    places = _dali_places(script, 350)
+    wm, start = walkmesh(350), _DALI_STARTS[350]
+    turned, pressed, rows = [], [], []
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(350)
+        _stand(g, fake, *start)
+        g.calibrate_axes(hazards=places, prior=prior)
+        face, press = g._face_the_door, g._pressed
+        inside = []
+
+        def spy_face(*a, **kw):
+            inside.append(True)
+            try:
+                return face(*a, **kw)
+            finally:
+                inside.pop()
+
+        def spy_press(*a, **kw):
+            if inside:
+                pressed.append(a[2:])
+            return press(*a, **kw)
+        g._face_the_door, g._pressed = spy_face, spy_press
+        for i, zone in enumerate(places):
+            g.warp(350)
+            _stand(g, fake, *start)
+            fake._face_deg = 69.0
+            fired, mark = len(fake.fired), len(fake.executed)
+            goal = pathfind.region_goal(wm, zone)
+            door = fake.regions[350][i]
+            rec = g.route_to(goal[0], goal[1], avoid=[z for z in places if z is not zone], walkmesh=wm, prior=prior,
+                             smooth=True, zone=zone, face=door.get("points") if door.get("face") else None,
+                             face_window=door.get("face"))
+            assert [f["to"] for f in fake.fired[fired:]] == [30000 + i] and rec["landed"] == 30000 + i, (i, rec)
+            if rec["during"] == "face":
+                rows.append((i, rec.get("face_measured"), _pads_turned(fake, mark)))
+                turned.append(i)
+    assert sum(1 for r in fake.regions[350] if r.get("face")) == 5, "premise: the gates are on"
+    assert not pressed, pressed                       # no facing step pressed a walked step, on any door
+    assert 0 in turned, turned
+    assert all(measured is True and pads for _i, measured, pads in rows), rows
+
+
+# --- the closed loop's review (each a case that once went wrong, or that nothing pinned) ---
+def _east_record():
+    """A facing-step record as :meth:`Session._face_the_door` hands :meth:`Session._turn_to_the_door` one."""
+    return {"faced": False, "face_measured": False, "face_err": None, "face_worst": None, "face_calls": None,
+            "face_pad": None, "face_moved": None}
+
+
+def test_a_turn_that_ran_no_movepc_call_is_turned_again_for_longer_never_read_as_settled(game):
+    """A turn's MovePC calls come whole, on 30 Hz ticks paced by the wall clock: on a display fast enough its 8 frames
+    fall between two ticks and no call runs -- the ``turn_end``'s yaw is its yaw0 to the print. That is no pad that
+    has SETTLED (it proves nothing ran), and no basis may be read off it (it would say the pad heads 150 degrees off
+    its calibration, and send the next turn away from the door): the same pad is turned again for twice the frames,
+    and the door fires on that turn."""
+    door = {"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _s90(_gated_room(game, [door]))
+    fake.turn_calls = 0.0                                   # no tick falls in the first turn's frames
+    _on_turns(fake, (1, 9, lambda: setattr(fake, "turn_calls", None)))     # its keys are up by then
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=60.0)
+        mark = len(fake.executed)
+        rec = _here_cross(g, _EAST_DOOR)
+    first = _turn_ends(fake)[0]
+    assert (first["why"], first["yaw0"], first["yaw"]) == ("ended", "60", "60"), first      # the premise
+    turns = [s for s in fake.executed[mark:] if s[0] == "turn"]
+    assert [s[1] for s in turns] == ["right", "right"] and turns[1][2] == "16", turns
+    assert rec["landed"] == 30821 and rec["during"] == "face" and rec["face_measured"] is True, rec
+    assert not _direction_holds(fake, mark), fake.executed[mark:]
+
+
+def test_a_pad_that_already_heads_where_he_stands_settles_on_its_one_longer_turn(game):
+    """The other reading of a turn that moves his yaw not at all: the pad already heads where he stands. The basis is
+    100 degrees off the field's (the fake's twist) and he already faces right's TRUE heading, 100 degrees off the
+    door: right's turn leaves his yaw exactly where it was. The one longer turn tells the two apart -- unmoved again,
+    so right heads there and SETTLES -- and the next pad, ranked by the heading it measured, faces the door: right,
+    right, down. The ambiguity costs one turn, never the step."""
+    from ff9mapkit.content import doorface
+    door = {"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _s90(_gated_room(game, [door]))
+    a = math.radians(100.0)
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=doorface.yaw_of(math.cos(a), math.sin(a)))      # right, twisted
+        fake.twist = 100.0
+        mark = len(fake.executed)
+        rec = _here_cross(g, _EAST_DOOR)
+    turns = [s for s in fake.executed[mark:] if s[0] == "turn"]
+    assert [s[1] for s in turns] == ["right", "right", "down"] and turns[1][2] == "16", turns
+    assert [e["yaw"] == e["yaw0"] for e in _turn_ends(fake)][:2] == [True, True], _turn_ends(fake)
+    assert rec["landed"] == 30821 and rec["during"] == "face" and rec["face_pad"] == "down", rec
+
+
+@pytest.mark.parametrize("phase", [0, 1])
+def test_a_turn_in_whole_calls_that_lands_out_of_the_window_turns_again(game, phase):
+    """The engine's own call model (the fake's ``tick_phase``): one WHOLE call a 30 Hz tick, four in a turn's 8
+    frames, in either phase. On a narrow gate -- (8, 248): 7 units either way -- the first turn leaves him 14 units off
+    the door (out of the window; it moved his yaw, so the pad has more to give) and the second 2 units off: the same
+    pad twice, and ``faced`` True on the engine's report."""
+    from ff9mapkit.content import doorface
+    fake = _s90(_gated_room(game, [{"zone": _EAST_DOOR, "to": None, "face": True}]))
+    fake.tick_phase, fake.turn_calls = phase, 0.5
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=60.0)
+        mark = len(fake.executed)
+        rec = _here_cross(g, _EAST_DOOR, gate=(8, 248))
+    assert _pads_turned(fake, mark) == ["right", "right"], fake.executed[mark:]
+    assert fake._face_deg == pytest.approx(doorface.turn_step(60.0, -90.0, 8), abs=0.01)
+    assert (rec["faced"], rec["face_measured"]) == (True, True) and abs(rec["face_err"]) <= 7, rec
+
+
+def test_turns_that_never_reach_the_window_end_live_never_a_miss(game):
+    """Every turn moves his yaw (a machine spending a sixth of a call a turn: never settled) and none reaches the
+    window: ROUTE_TURN_TRIES turns, then the step ends -- ``faced`` False, measured (the reports were judged), the
+    last measured error out of the window -- and the tour reads LIVE, never the dead door's REAL miss."""
+    D = _tour_module()
+    fake = _s90(_gated_room(game, [{"zone": _EAST_DOOR, "to": None, "face": True}]))
+    fake.turn_calls = 0.02
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=90.0)
+        mark = len(fake.executed)
+        rec = _here_cross(g, _EAST_DOOR)
+        tries = g.ROUTE_TURN_TRIES
+    assert _pads_turned(fake, mark) == ["right"] * tries, fake.executed[mark:]
+    assert (rec["faced"], rec["face_measured"]) == (False, True) and abs(rec["face_err"]) > 47, rec
+    assert D.failure(rec) == "live", rec
+
+
+def test_no_pad_heading_within_a_narrow_window_turns_nothing_and_is_live(game):
+    """A gate of (8, 248) -- 7 units, 9.8 degrees either way -- on a basis whose every pad heads 22.5 degrees off the
+    door's bearing: no pad can face it, so nothing is turned -- ``faced`` False, and the tour reads LIVE."""
+    from harness.session import _turn
+    D = _tour_module()
+    fake = _s90(_gated_room(game, [{"zone": _EAST_DOOR, "to": None, "face": [8, 248]}]))
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=90.0)
+        b = dict(g._axes[30820])
+        b["v"], b["h"] = _turn(b["v"], math.radians(22.5)), _turn(b["h"], math.radians(22.5))
+        g._axes[30820] = b
+        mark = len(fake.executed)
+        rec = _here_cross(g, _EAST_DOOR, gate=(8, 248))
+    assert not _pads_turned(fake, mark) and not _direction_holds(fake, mark), fake.executed[mark:]
+    assert rec["faced"] is False and rec["face_pad"] is None and D.failure(rec) == "live", rec
+
+
+@pytest.mark.parametrize("v,faced", [(47, True), (48, False), (208, False), (209, True)])
+def test_a_measured_byte_on_the_windows_edge_is_judged_by_the_gates_strict_compare(game, v, faced):
+    """The stock gate is STRICT (B_LT / B_GT): 48 and 208 themselves are shut, 47 and 209 open. A turn whose reported
+    byte puts the gate value on either edge is judged exactly so -- 48 / 208 turned again (never a REAL miss), 47 /
+    209 a measured miss of +47 / -47."""
+    from ff9mapkit.content import doorface
+    fake = _s90(_gated_room(game, [{"zone": _EAST_DOOR, "to": None, "face": True}]))
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=90.0)
+        st = g.state
+        jx, jz = doorface.calc_exit_position(st.player_x, st.player_z, _EAST_DOOR[0], _EAST_DOOR[1])
+        face = (doorface.eb_bearing(jx - round(st.player_x), jz - round(st.player_z)) + v) & 255
+        assert doorface.gate_value_from_face(st.player_x, st.player_z, face, *_EAST_DOOR[:2]) == v    # the premise
+        asked = []
+
+        def turned(buttons, frames, **kw):
+            asked.append(buttons)
+            return {"frame": 1, "why": "ended", "frames": frames, "yaw0": 90.0, "yaw": -80.0, "face": face,
+                    "moved": 0.0}
+        g.turn_in_place = turned
+        record = _east_record()
+        g._turn_to_the_door(_EAST_DOOR, record, 30820, (48, 208), 2.0)
+    assert record["faced"] is faced and record["face_err"] == doorface.signed_error(v), record
+    assert len(asked) == (1 if faced else g.ROUTE_TURN_TRIES), asked
+
+
+def test_a_turn_the_engine_has_no_verb_for_falls_back_to_the_press_at_once(game):
+    """A sample published a facing, and the agent answers the turn ``unknown op 'turn'`` all the same (an engine
+    without s90, whatever a sample said): a press does not share that, so it is the step at once -- one turn asked,
+    then the walked press, which faces the door (``face_measured`` False: its prediction)."""
+    door = {"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _s90(_gated_room(game, [door]))
+
+    def no_verb(*a, **kw):
+        raise RuntimeError("unknown op 'turn'")
+    fake._begin_turn = no_verb
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=90.0)
+        mark = len(fake.executed)
+        rec = _here_cross(g, _EAST_DOOR)
+    assert _pads_turned(fake, mark) == ["right"] and _direction_holds(fake, mark), fake.executed[mark:]
+    assert rec["landed"] == 30821 and rec["during"] == "face" and rec["face_measured"] is False, rec
+
+
+@pytest.mark.parametrize("stays", [True, False])
+def test_a_body_he_overlaps_is_waited_for_once_and_the_press_is_the_step_only_if_it_stays(game, stays):
+    """``overlapping object uid N`` -- the s90 contract's action is "step clear of that body first". A body that is
+    only passing (``stays`` False: gone before the wait is out) is waited for, and the turn asked again faces the
+    door: no walked step. One that stays on him refuses the second turn too, for the same uid, and then the walked
+    press -- planned to move him clear of the objects -- is the step (``face_measured`` False)."""
+    door = {"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _s90(_gated_room(game, [door]))
+    execute, asked = fake._execute, []
+
+    def passing(step):
+        if step[0] == "turn":
+            asked.append(fake.frame)
+            if len(asked) == 2 and not stays:
+                fake.blockers = {}                                        # it walked on during the wait
+        return execute(step)
+    fake._execute = passing
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=90.0)
+        fake.blockers = {30820: [{"x": 420.0, "z": 60.0, "r": 70.0, "uid": 150}]}     # 67u from him: on him
+        mark = len(fake.executed)
+        rec = _here_cross(g, _EAST_DOOR, npcs=False)
+    assert _pads_turned(fake, mark) == ["right", "right"], fake.executed[mark:]
+    assert asked[1] - asked[0] >= g.ROUTE_WAIT_FRAMES, asked                             # waited out in between
+    refused = [e["message"] for e in _logged(fake, "error") if e.get("op") == "turn"]
+    assert all(m.startswith("overlapping object uid 150 ") for m in refused), refused
+    if stays:
+        assert len(refused) == 2 and _direction_holds(fake, mark), (refused, fake.executed[mark:])
+        assert rec["face_measured"] is False, rec
+    else:
+        assert len(refused) == 1 and not _direction_holds(fake, mark), (refused, fake.executed[mark:])
+        assert rec["landed"] == 30821 and rec["during"] == "face" and rec["face_measured"] is True, rec
+
+
+@pytest.mark.parametrize("live", [True, False])
+def test_control_taken_and_given_back_on_the_same_field_is_a_cut_not_the_door(game, live):
+    """Something takes control a frame into the first turn and hands it back 20 frames on, the field unchanged: a talk,
+    an ATE, a timed script -- ``control`` is not proof a door fired. The turn is cut, waited out and asked again,
+    never landed as the door: a live door fires on the next turn; a dead one is the measured REAL miss."""
+    door = {"zone": _EAST_DOOR, "to": 30821 if live else None, "arrive": (0, 0), "face": True}
+    fake = _s90(_gated_room(game, [door]))
+    _on_turns(fake, (1, 1, lambda: setattr(fake, "control", False)), (1, 21, lambda: setattr(fake, "control", True)))
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=90.0)
+        mark = len(fake.executed)
+        rec = _here_cross(g, _EAST_DOOR)
+    assert _turn_ends(fake)[0]["why"] == "control" and len(_pads_turned(fake, mark)) == 2, fake.executed[mark:]
+    if live:
+        assert [f["to"] for f in fake.fired] == [30821] and rec["landed"] == 30821, rec
+        assert rec["during"] == "face" and rec["face_measured"] is True, rec
+    else:
+        assert rec["during"] is None and rec["landed"] is None and not fake.fired, rec
+        assert (rec["faced"], rec["face_measured"]) == (True, True) and abs(rec["face_err"]) <= 47, rec
+
+
+@pytest.mark.parametrize("how", ["refused", "cut"])
+def test_control_gone_for_good_on_an_unchanged_field_is_no_door_and_no_strike(game, how):
+    """Control goes and never comes back, and the field never changes: a talk box waiting for Confirm, a scene -- the
+    s90 contract: ``control`` is not proof a door fired; the field changing is. Taken on the frame the first turn is
+    asked for (``refused``: the agent refuses it, nothing is turned) or two frames into it (``cut``): landed as the
+    walk's loss of control is (``during`` "face"), but ``faced`` False and nothing measured -- the tour reads LIVE,
+    never the door's REAL miss."""
+    D = _tour_module()
+    fake = _s90(_gated_room(game, [{"zone": _EAST_DOOR, "to": None, "face": True}]))
+    if how == "refused":
+        execute = fake._execute
+
+        def take(step):
+            if step[0] == "turn":
+                fake.control = False
+            return execute(step)
+        fake._execute = take
+    else:
+        _on_turns(fake, (1, 2, lambda: setattr(fake, "control", False)))
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=90.0)
+        rec = _here_cross(g, _EAST_DOOR, timeout=1)
+    assert not fake.control and not fake.fired, "premise: control gone, the field unchanged"
+    assert rec["during"] == "face" and rec["landed"] is None, rec
+    assert (rec["faced"], rec["face_measured"], rec["face_err"]) == (False, False, None), rec
+    assert (rec["face_pad"] is None) == (how == "refused"), rec
+    assert D.failure(rec) == "live", rec
+
+
+@pytest.mark.parametrize("cut", ["movement", "hud"])
+def test_a_turn_cut_before_the_field_judged_it_is_turned_again_never_judged_on_its_byte(game, cut):
+    """A hold on movement (control kept) or a UI over the field lands six frames into the first turn: the agent CUTS
+    it (``turn_end`` ``movement`` / ``hud``) before the field had its passes on the facing. Its byte is judged by no
+    one: the cut is waited out and the pad turned again, and the dead door's REAL miss is scored on the second turn's
+    report -- never on the cut one."""
+    fake = _s90(_gated_room(game, [{"zone": _EAST_DOOR, "to": None, "face": True}]))
+    if cut == "movement":
+        _on_turns(fake, (1, 6, lambda: setattr(fake, "_frozen_until", fake.frame + 20)))
+    else:
+        _on_turns(fake, (1, 6, lambda: setattr(fake, "ui_state", "MainMenu")),
+                  (1, 36, lambda: setattr(fake, "ui_state", "FieldHUD")))
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=90.0)
+        mark = len(fake.executed)
+        rec = _here_cross(g, _EAST_DOOR)
+    ends = _turn_ends(fake)
+    assert ends[0]["why"] == cut and ends[-1]["why"] == "ended", ends
+    assert _pads_turned(fake, mark) == ["right", "right"], fake.executed[mark:]
+    assert (rec["faced"], rec["face_measured"]) == (True, True) and abs(rec["face_err"]) <= 47, rec
+
+
+@pytest.mark.parametrize("human", ["stick", "path"])
+def test_a_human_at_the_controls_ends_the_step_never_fought(game, human):
+    """A physical stick over the threshold (``a physical stick or key is pushing the axis``) or a mouse walk pending
+    (``a click-to-move path is pending``): a human at the controls. The step is not fought -- one turn asked, nothing
+    turned or pressed after it -- and ends ``faced`` False, LIVE. The stick cuts a turn already open the same way
+    (``turn_end`` ``axis``)."""
+    D = _tour_module()
+    fake = _s90(_gated_room(game, [{"zone": _EAST_DOOR, "to": None, "face": True}]))
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=90.0)
+        if human == "stick":
+            fake.stick = 0.8
+        else:
+            fake.click_path = True
+        mark = len(fake.executed)
+        rec = _here_cross(g, _EAST_DOOR)
+    assert _pads_turned(fake, mark) == ["right"] and not _direction_holds(fake, mark), fake.executed[mark:]
+    assert rec["faced"] is False and D.failure(rec) == "live", rec
+    fake = _s90(_gated_room(game, [{"zone": _EAST_DOOR, "to": None, "face": True}]))
+    _on_turns(fake, (1, 3, lambda: setattr(fake, "stick", 0.8)))
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=90.0)
+        mark = len(fake.executed)
+        rec = _here_cross(g, _EAST_DOOR)
+    assert [e["why"] for e in _turn_ends(fake)] == ["axis"], _turn_ends(fake)
+    assert _pads_turned(fake, mark) == ["right"] and not _direction_holds(fake, mark), fake.executed[mark:]
+    assert rec["faced"] is False and D.failure(rec) == "live", rec
+
+
+def test_a_refusal_is_classified_from_the_acking_sample_not_a_second_read(game):
+    """A hold on movement lands on the frame the first turn is asked for, and the agent refuses it -- a refusal the
+    step waits out -- and the one read of state.json after the refusal comes back None, as a healthy game's
+    mid-rewrite read can. The refusal is still a TurnRefused (read off the sample that acked it), waited out, and the
+    door fires on the next turn: never a plain error out of route_cross, which the tour scores a REAL miss."""
+    door = {"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _s90(_gated_room(game, [door]))
+    execute, froze = fake._execute, []
+
+    def freeze_first_turn(step):
+        if step[0] == "turn" and not froze:
+            froze.append(fake.frame)
+            fake._frozen_until = fake.frame + 40
+        return execute(step)
+    fake._execute = freeze_first_turn
+    with session(game, fake) as g:
+        _gated_start(g, fake, (450, 0), yaw=90.0)
+        send, state, torn = g.send, g.channel.state, []
+
+        def spy_send(*steps, **kw):
+            try:
+                return send(*steps, **kw)
+            except HarnessError:
+                if any(s.startswith("turn ") for s in steps):
+                    torn.append(True)
+                raise
+
+        def spy_state(*a, **kw):
+            if torn and torn[-1] is True:
+                torn[-1] = "torn"
+                return None                        # one mid-rewrite read, right after the refusal
+            return state(*a, **kw)
+        g.send, g.channel.state = spy_send, spy_state
+        rec = _here_cross(g, _EAST_DOOR)
+    assert froze and torn == ["torn"], torn
+    assert rec["landed"] == 30821 and rec["during"] == "face" and rec["face_measured"] is True, rec
+
+
+def test_a_ui_over_the_field_at_the_turn_is_the_agents_hud_refusal(game):
+    """A UI that comes up between the step's own look and the turn: the AGENT refuses the turn (TurnBlocker ``hud``)
+    and turn_in_place raises that refusal -- ``blocked``, ``hud`` -- which the step waits out like any, never the field
+    verbs' world-map error. Nothing is turned."""
+    from harness.channel import TurnRefused
+    fake = _s90(FakeGame(game))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 100, 50)
+        fake.ui_state = "MainMenu"
+        published(g, lambda s: s.ui_state == "MainMenu")
+        with pytest.raises(TurnRefused) as got:
+            g.turn_in_place("right", 8)
+        asked = [s[0] for s in fake.executed[-2:]]
+    assert (got.value.kind, got.value.why) == ("blocked", "hud"), got.value
+    assert fake._turn_open is None and asked == ["turn", "wait"], asked
+
+
+def test_a_press_after_a_turn_plans_from_any_yaw_and_measures_nothing(game):
+    """He walks into the east door from the south (the walk's last hold is up: its yaw is known), and the first turn
+    in place moves his yaw toward the door and ends out of the window. A body then stands on him and stays: the next
+    turn is refused for it twice, and the walked press is the step. The press decides from scratch: the turn moved his
+    yaw off where the walk's hold left it, so it plans from ANY yaw (no predicted ``face_err``), and nothing the turn
+    measured is its verdict (``face_measured`` False)."""
+    door = {"zone": _EAST_DOOR, "to": 30821, "arrive": (0, 0), "face": True}
+    fake = _s90(_gated_room(game, [door]))
+    fake.turn_calls = 1.0 / 16                       # half a call a turn: from up, 50 units off the door
+
+    def a_body_on_him():                             # on the lift frame: the turn is over, the next one not asked
+        fake.blockers = {30820: [{"x": fake.player[0] - 30.0, "z": fake.player[2], "r": 60.0, "uid": 151}]}
+    _on_turns(fake, (1, 9, a_body_on_him))
+    with session(game, fake) as g:
+        _gated_start(g, fake, (410, -450))
+        mark = len(fake.executed)
+        rec = g.route_cross(410.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), unstick=True, zone=_EAST_DOOR,
+                            smooth=True, npcs=False, timeout=3, gate=[48, 208])
+    assert _pads_turned(fake, mark) == ["right"] * 3, fake.executed[mark:]    # turned; refused twice for the body
+    assert [e["why"] for e in _turn_ends(fake)] == ["ended"] and _direction_holds(fake, mark), fake.executed[mark:]
+    assert rec["landed"] == 30821 and rec["during"] == "face" and rec["faced"] is True, rec
+    assert rec["face_measured"] is False and rec["face_err"] is None, rec
+
+
+def test_turn_in_place_asks_again_for_a_report_a_collided_append_held_back(game):
+    """The agent's event append can COLLIDE with the driver's read of the log; it keeps the rows and writes them with
+    its NEXT event (HarnessAgent.FlushEvents) -- so a turn's ``turn_end`` can sit unwritten with nothing else to log.
+    turn_in_place asks once more (a ``wait 1``, whose own receipt flushes it) before it gives up, and returns that
+    turn's report."""
+    fake = _s90(FakeGame(game))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 100, 50)
+        fake._face_deg = 90.0
+        fake.event_collisions = {"turn_end": 1}
+        end = g.turn_in_place("right", 8)
+        steps = [s for s in fake.executed if s[0] == "wait"]
+    assert (end["why"], end["frames"], end["yaw0"]) == ("ended", 8, 90.0), end
+    assert steps[-1] == ["wait", "1"], steps
+
+
+def test_turn_in_place_reads_only_the_report_after_its_own_receipt(game):
+    """A turn_end from an EARLIER turn -- held back by a collided append and flushed with this request's receipt --
+    lands in the log after the driver's mark and BEFORE this request's ``accepted`` row. It is not this turn's:
+    turn_in_place returns the report that follows its own receipt."""
+    fake = _s90(FakeGame(game))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 100, 50)
+        fake._face_deg = 90.0
+        event, stale = fake._event, []
+
+        def flush_a_stale_report_first(kind, **kv):
+            if kind == "accepted" and not stale:
+                stale.append(True)
+                event("turn_end", why="control", frames=999, yaw0="0", yaw=None, face=None, moved=None)
+            return event(kind, **kv)
+        fake._event = flush_a_stale_report_first
+        end = g.turn_in_place("right", 8)
+    assert stale and (end["why"], end["frames"]) == ("ended", 8), end
+
+
+def test_turn_in_place_waits_for_its_own_receipt_before_reading_any_report(game):
+    """The other order: an EARLIER turn's report is in the log after the driver's mark, and this request's own
+    ``accepted`` row is the one a collided append held back (HarnessAgent.FlushEvents writes it with the next event) --
+    as is every row after it, this turn's report too, until the receipt of turn_in_place's own ``wait 1`` flushes
+    them all. With no receipt to read after, turn_in_place waits for it -- it never takes the report it can see for
+    its own."""
+    fake = _s90(FakeGame(game))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 100, 50)
+        fake._face_deg = 90.0
+        event, stale, holding = fake._event, [], []
+
+        def a_stale_report_then_a_held_receipt(kind, **kv):
+            if kind == "accepted" and not stale:
+                stale.append(True)
+                event("turn_end", why="control", frames=999, yaw0="0", yaw=None, face=None, moved=None)
+                holding.append(True)
+            elif holding and kind == "accepted":
+                holding.clear()                       # the nudge's receipt: its append flushes every held row
+            if holding:
+                fake.event_collisions[kind] = fake.event_collisions.get(kind, 0) + 1
+            return event(kind, **kv)
+        fake._event = a_stale_report_then_a_held_receipt
+        end = g.turn_in_place("right", 8)
+    assert stale and (end["why"], end["frames"]) == ("ended", 8), end
+
+
+def test_the_fake_keeps_the_agents_frame_rule_and_its_direction_aliases(game):
+    """The fake's input as the agent keys it. A ``release`` lands NEXT frame (HarnessAgent `release`: A RELEASE MUST
+    NEVER PRESS, and a key down now stays down this frame), so ``release up`` then ``turn up`` in ONE request is
+    refused -- a frame later it is not. The direction aliases are the Controls they name (ParseControl): a turn is
+    refused while ``hold north`` is down, and ``hold north`` is refused while a turn is open."""
+    fake = _s90(_hand_fake(game, at=(100.0, 50.0), yaw=90.0))
+
+    def refused(step, match):
+        with pytest.raises(RuntimeError, match=match):
+            fake._execute(step)
+    fake._execute(["hold", "up", "30"])
+    _hand_frames(fake, 2)
+    fake._execute(["release", "up"])
+    refused(["turn", "up", "8"], r"^Up is held or scheduled")
+    _hand_frames(fake, 1)
+    fake._execute(["turn", "up", "8"])                                   # a frame on: Up has lifted
+    refused(["hold", "north", "3"], r"^a `turn` is still open")
+    fake = _s90(_hand_fake(game, at=(100.0, 50.0), yaw=90.0))
+    fake._execute(["hold", "north", "30"])
+    refused(["turn", "east", "8"], r"^Up is held or scheduled")
+    _hand_frames(fake, 3)
+    assert fake.player[2] > 50.0, fake.player                             # `hold north` walks him up, as Up does
 
 
 # --------------------------------------------------------------------------- route_to(npcs=True)
@@ -4498,11 +6344,1143 @@ def test_a_walking_solid_that_seals_the_lane_is_waited_for(game):
 
 def test_the_tour_reads_a_walk_boxed_after_waiting_on_walkers_as_live():
     """The tour's strike rule: a walk that waited on walking triggers and was then left with nothing it could press is
-    the village in the way (LIVE), not a boxed exit (REAL); a walk boxed without waiting is still BOXED."""
+    the village in the way (LIVE), not a boxed exit (REAL); a walk boxed without waiting is still BOXED. The rule's
+    one implementation is dali_tour (rung3_step1 and rung3_trace both drive it)."""
     sys.path.insert(0, str(REPO / "studies" / "story-trace"))
-    import rung3_step1 as tour
+    import dali_tour as tour
     assert tour.failure({"boxed": True, "npc_waits": 3, "route": 2}) == "live"
     assert tour.failure({"boxed": True, "npc_waits": 0, "route": 2}) == "boxed"
+
+
+# ---- the session-2 box: two Dali children (talk-only walkers, non-solid, r 152) walked into Zidane on 350 and stood
+# there, held -- the engine undoes every step a scripted walker takes into the player -- and every press toward any exit
+# came nearer one of them, so seven crossings in a row came back ``boxed``, each a REAL strike, and the run went VOID.
+# A box a WALKER is part of is not the spot: waited out, stepped away from when it is held on him, planned again.
+
+
+def _step_in_front(g, *moves, past=-420.0):
+    """Once he is on his way (past x ``past``, after the hold that got him there, where the walk reads the objects next)
+    each ``(body, at, path, speed)`` of ``moves`` steps up to ``at`` -- an offset from where he stands -- and walks
+    ``path`` (offsets too) at ``speed``, once. Returns where he stood when they did (empty until then)."""
+    from ff9mapkit.scene import routes
+    settle, done = g.settle, []
+
+    def settle_then_step_in(*a, **kw):
+        st = settle(*a, **kw)
+        if done or st.player_x is None or st.player_x <= past or not st.control:
+            return st
+        px, pz = st.player_x, st.player_z
+        done.append((px, pz))
+        ways = []
+        for body, at, path, speed in moves:
+            for k in ("_k", "_way", "_done"):
+                body.pop(k, None)
+            way = [(px + x, pz + z) for x, z in path]
+            body.update(x=px + at[0], z=pz + at[1], path=way, speed=speed, once=True)
+            ways.append((body["uid"], way))
+
+        def stepped(s) -> bool:
+            at = {o["uid"]: (o["x"], o["z"]) for o in s.objects or ()}
+            return all(uid in at and routes.seg_dist_xz(*at[uid], way[0], way[-1]) < 1 for uid, way in ways)
+        return published(g, stepped)
+    g.settle = settle_then_step_in
+    return done
+
+
+def _creeping(uid):
+    """A villager walking, barely, well off the path: the holds near him are short from the start (ROUTE_WALKER_HOLD),
+    so the walk reads the objects every ~180u -- as it does beside 350's children -- instead of running the room in
+    one hold before anyone can step in."""
+    return _villager(-100, 500, uid=uid, path=[(-100, 500), (-100, 501)], speed=0.01)
+
+
+@pytest.mark.parametrize("fixed", [False, True])
+def test_a_walker_that_boxes_him_in_is_waited_for_and_the_route_goes_on(game, fixed):
+    """Once he is on his way a villager steps up right in front of him -- in contact with its ``r`` -- walking on,
+    across the path; with the movement re-plans spent (ROUTE_NPC_REPLANS 0: the session-2 walk had spent its four)
+    every press toward the leg comes nearer it, and no hold keeps the rules. The run's code called that ``boxed`` at once
+    (the premise: the box's wait taken out) -- a REAL strike on an exit someone crossed in front of for a second. Boxed
+    by a WALKER is not boxed: he stands still until it has walked off, plans again and arrives, the villager named in
+    ``boxers``, never pressed into."""
+    fake = FakeGame(game)
+    kid = _creeping(4)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [kid]}
+        published(g, lambda s: s.objects and s.objects[0]["moving"])
+        g.ROUTE_NPC_REPLANS = 0
+        if not fixed:
+            g._outwait_box = lambda *a, **kw: "boxed"
+        stood = _step_in_front(g, (kid, (160, 0), [(160, 0), (160, 700)], 3.0))
+        rec = g.route_to(450.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=True)
+        assert stood, "premise: the villager stepped in"
+        if not fixed:
+            assert rec["boxed"] and not rec["reached"] and rec["box_waits"] == 0, rec
+            return
+        assert rec["reached"] and not rec["boxed"] and rec["landed"] is None, rec
+        assert rec["box_waits"] >= 1 and rec["box_cleared"] >= 1, rec
+        assert [(o["uid"], o["kind"], o["moving"]) for o in rec["boxers"]] == [(4, "body", True)], rec
+        assert not fake.contacts, fake.contacts
+
+
+@pytest.mark.parametrize("step", [False, True])
+def test_a_walker_held_on_him_is_stepped_away_from(game, step):
+    """The session-2 children themselves: a villager walks INTO him and is held there -- the engine undoes every step a
+    scripted walker takes into the player (MoveToward.cs:187-189; the fake: `_step_walkers`) -- still ``moving``. A
+    wait for it waits on himself (the premise: the step taken out, the box outlasts its wait -- ``boxed``, the villager
+    exactly where it stopped). So once it has not moved in ROUTE_WALKER_HELD frames he steps out of its way, off the
+    line it was walking; it walks on, and so does he: reached, and it went on its way."""
+    fake = FakeGame(game)
+    kid = _creeping(6)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [kid]}
+        published(g, lambda s: s.objects and s.objects[0]["moving"])
+        g.ROUTE_NPC_REPLANS = 0
+        g.ROUTE_WALKER_BUDGET = 160
+        if not step:
+            g._box_step = lambda *a, **kw: False
+        stood = _step_in_front(g, (kid, (170, 0), [(170, 0), (-1100, 0)], 3.0))     # along his line, into him
+        t0 = time.time()
+        rec = g.route_to(450.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=True)
+        assert stood and time.time() - t0 < 60, "bounded: the wait has a budget"
+        held_at = stood[0][0] + 152.0
+        if not step:
+            assert rec["boxed"] and not rec["reached"] and rec["box_waits"] >= 1, rec
+            assert abs(kid["x"] - held_at) < 4 and kid["z"] == stood[0][1], (kid, held_at)     # held there all along
+            return
+        assert rec["reached"] and not rec["boxed"] and rec["box_cleared"] >= 1, rec
+        assert (6, "body", True) in [(o["uid"], o["kind"], o["moving"]) for o in rec["boxers"]], rec
+        assert kid["x"] < held_at - 300, "freed, it walked on along its line"
+
+
+def test_two_walkers_held_on_him_from_either_side_are_stepped_away_from(game):
+    """The session-2 frame itself: two children walked into him from either side -- one from ahead and up, one from
+    below -- and both are held there. Every press toward the leg comes nearer one of them; each is waiting on him. He
+    steps off BOTH lines they were walking, they walk on, and so does he."""
+    fake = FakeGame(game)
+    a, b = _creeping(4), _villager(-100, -500, uid=6, path=[(-100, -500), (-100, -501)], speed=0.01)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [a, b]}
+        published(g, lambda s: s.objects and len(s.objects) == 2 and all(o["moving"] for o in s.objects))
+        g.ROUTE_NPC_REPLANS = 0
+        stood = _step_in_front(g, (a, (120, 120), [(120, 120), (-700, -700)], 3.0),
+                               (b, (0, -170), [(0, -170), (0, 900)], 3.0))
+        rec = g.route_to(450.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=True)
+        assert stood, "premise: they stepped in"
+        px, pz = stood[0]
+        assert rec["reached"] and not rec["boxed"] and rec["box_cleared"] >= 1, rec
+        assert {o["uid"] for o in rec["boxers"]} == {4, 6}, rec
+        assert a["x"] < px - 200 and b["z"] > pz + 300, "both freed: each walked on along its line"
+
+
+def test_a_walker_that_outlasts_the_wait_is_boxed_and_bounded(game):
+    """A villager that stays in the way -- walking, but slowly -- outlasts the box's wait (ROUTE_WALKER_BUDGET): then
+    it IS ``boxed``, the waits counted, in bounded time -- ``boxed_by`` the walkers, not the spot. (A walker this slow,
+    this near, is stepped away from like one held on him -- :meth:`_box_step` -- which is taken out here: this is the
+    wait's own bound.)"""
+    fake = FakeGame(game)
+    kid = _creeping(8)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [kid]}
+        published(g, lambda s: s.objects and s.objects[0]["moving"])
+        g.ROUTE_NPC_REPLANS = 0
+        g.ROUTE_WALKER_BUDGET = 80
+        g._box_step = lambda *a, **kw: False
+        stood = _step_in_front(g, (kid, (170, 0), [(170, 0), (170, 700)], 0.05))
+        t0 = time.time()
+        rec = g.route_to(450.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=True)
+        assert stood and time.time() - t0 < 60
+        assert rec["boxed"] and not rec["reached"] and rec["box_waits"] >= g.ROUTE_WALKER_BUDGET // g.ROUTE_WALKER_WAIT, rec
+        assert rec["box_cleared"] == 0 and [o["uid"] for o in rec["boxers"]] == [8], rec
+        assert rec["boxed_by"] == "walkers", rec
+
+
+def test_a_box_nothing_walking_is_part_of_is_boxed_at_once(game):
+    """THE SPOT. Beside two doors (the zones alone refuse every press), with the objects listed: nothing that walks is
+    part of the box -- ``boxed`` at once, nothing pressed or waited, no ``boxers``. And a villager STANDING in contact
+    where the plan saw him boxes the leg just as surely: not walking, not moved -- nothing will walk off, so ``boxed``
+    at once too. The same villager walking off across the path is waited for, and the leg ends "unboxed"."""
+    left, right = _rect(-400, -300, -20, 300), _rect(20, -300, 400, 300)
+    fake = FakeGame(game, walkmesh=(-1000, -1000, 1000, 1000))
+    fake.regions = {30820: [{"zone": left, "to": 30821, "arrive": (0, 0)}, {"zone": right, "to": 30822,
+                                                                             "arrive": (0, 0)}]}
+    fake.exit_frames = 30
+    fake.blockers = {30820: [_villager(700, 700, uid=9)]}              # listed, standing, far off: not in the box
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 0, -200)
+        g._axes[30820] = _prior()
+        published(g, lambda s: s.objects and len(s.objects) == 1)
+        sent = _counting(g)
+        rec = g.route_to(0.0, 800.0, avoid=[left, right], walkmesh=_flat_bgi(-1000, -1000, 1000, 1000),
+                         prior=_prior(), smooth=True, npcs=True)
+        assert rec["boxed"] and rec["boxed_by"] == "spot" and not rec["reached"], rec
+        assert (rec["box_waits"], rec["box_cleared"], rec["boxers"], rec["waits"], rec["pushes"]) == (0, 0, [], 0, 0), rec
+        assert sent == [] and not fake.fired, (sent, fake.fired)
+
+        def leg_against(villager):
+            fake.regions = {}
+            fake.blockers = {30820: [villager]}
+            _stand(g, fake, 0, 0)
+            st = published(g, lambda s: s.objects and s.objects[0]["uid"] == villager["uid"])
+            watch = g._npc_watch(56.0, {})
+            watch["keep"], watch["planned"] = {(villager["uid"], "body")}, {villager["uid"]: (160.0, 0.0)}
+            g._npc_view(watch, st)
+            spread = g._heading_spread(_prior(), _prior())
+            leg = g._route_legs([(0.0, 0.0), (1000.0, 0.0)], [], (), spread=spread, watch=watch)[0][3]
+            return g._walk_leg(1000.0, 0.0, 45.0, leg, True), watch
+
+        mark = len(sent)
+        got, watch = leg_against(_villager(160, 0, uid=4))
+        assert got == "boxed" and watch["box_waits"] == 0 and watch["boxers"] == [], (got, watch["boxers"])
+        assert sent[mark:] == [], sent[mark:]
+        got, watch = leg_against(_villager(160, 0, uid=5, path=[(160, 0), (160, 700)], speed=3.0, once=True))
+        assert got == "unboxed" and watch["box_waits"] >= 1 and watch["box_cleared"] == 1, (got, watch)
+
+
+def test_a_talk_only_neighbour_is_a_body_and_no_trigger(game):
+    """s89's contract: ``talk_r`` is the talk SEARCH. Inside it the engine requests the entry's tag-2 Range -- which a
+    talk-only entry (350's children: ``talk`` true, ``range`` false) does not have -- and its tag-3 talk runs only on a
+    Confirm press, which a routed walk never sends. So it is a BODY and nothing more: a press may pass inside its talk
+    radius, keeping only ROUTE_BODY_PAD off its ``r``; the same radius on an entry WITH a Range is a trigger, kept its
+    pad clear. Walked in the fake: straight past the child 300u off -- inside its "!" radius -- reached, nothing fired,
+    the child ``avoided`` as a body only."""
+    g = session(game, None)
+    kid = _obj(4, 0, 300, talk=True, talk_r=353.0)
+    ranged = _obj(5, 0, 300, range=True, range_r=250.0, talk=True, talk_r=353.0)
+    here = (-500.0, 0.0)
+    only = g._npc_discs([kid], here, 0.0, 56.0)
+    assert [(d["kind"], d["via"], d["R"]) for d in only] == [("body", "body", 152.0)], only
+    both = g._npc_discs([ranged], here, 0.0, 56.0)
+    assert sorted((d["kind"], d["via"], d["R"]) for d in both) == [("body", "body", 152.0), ("trigger", "talk", 353.0)]
+    assert g._probe_is_clear(here, (1.0, 0.0), 1000.0, [], 0.0, discs=only)          # 300 off: inside its talk_r
+    assert not g._probe_is_clear(here, (1.0, 0.0), 1000.0, [], 0.0, discs=both)
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [_villager(0, 300, uid=4, talk_r=353.0)]}
+        st = published(g, lambda s: s.objects and s.objects[0]["talk"] and not s.objects[0]["range"])
+        assert st.objects[0]["talk_r"] == 353.0
+        rec = g.route_to(450.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=True)
+        assert rec["reached"] and rec["waypoints"] == [[450, 0]] and rec["entered"] == [], rec
+        assert [(o["uid"], o["kind"]) for o in rec["avoided"]] in ([], [(4, "body")]), rec
+        assert fake.touched == [] and not fake.contacts, (fake.touched, fake.contacts)
+
+
+def test_the_tour_strikes_a_box_only_when_it_is_the_spot():
+    """The tour's strike rule for the session-2 box: a box walkers let go of never comes back ``boxed`` -- the walk
+    goes on, and a walk that then ends short OUTSIDE the zone having waited out walkers (``box_waits``) is the village
+    in the way, LIVE; so is one they held past the wait (``boxed_by`` "walkers": beside a door the step out of their
+    way may not fit at all, and the children never walk off him). Only the SPOT -- no walker's going would free a
+    press -- is BOXED and strikes (REAL)."""
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import dali_tour as tour
+    short = {"boxed": False, "boxed_by": None, "reached": False, "inside": False, "during": None, "route": 3,
+             "waits": 0, "pushes": 0, "blockers": [], "frozen": False, "npc_replans": 0}
+    assert tour.failure(dict(short, box_waits=4, box_cleared=1)) == "live"
+    assert tour.failure(dict(short, box_waits=0, box_cleared=0)) == "miss"                 # the premise: no evidence
+    assert tour.failure(dict(short, boxed=True, boxed_by="spot", box_waits=0)) == "boxed"          # the spot
+    assert tour.failure(dict(short, boxed=True, boxed_by="spot", box_waits=4, box_cleared=1)) == "boxed"
+    assert tour.failure(dict(short, boxed=True, boxed_by="walkers", box_waits=60)) == "live"       # outlasted the wait
+    assert tour.failure(dict(short, inside=True, box_waits=4)) == "miss"                   # stood in the zone: REAL
+
+
+def _box_leg(g, fake, bodies, *, settled=None):
+    """A smooth leg from (0, 0) toward (1000, 0) on 30820 under a fresh watch of ``bodies`` (the fake's blockers, placed
+    once he stands there), every one of them kept -- body and trigger -- as a plan made round where they stand would
+    keep them: ``(leg, watch)``. ``settled`` (a predicate over the published state) is waited for first."""
+    _stand(g, fake, 0, 0)
+    fake.regions = {}
+    fake.blockers = {30820: list(bodies)}
+    uids = {b["uid"] for b in bodies}
+    published(g, lambda s: s.objects is not None and {o["uid"] for o in s.objects} == uids
+              and (settled is None or settled(s)))
+    watch = g._npc_watch(56.0, {})
+    watch["keep"] = {(uid, kind) for uid in uids for kind in ("body", "trigger")}
+    watch["planned"] = {o["uid"]: (float(o["x"]), float(o["z"])) for o in watch["objs"]}
+    g._npc_view(watch, g.state)
+    spread = g._heading_spread(_prior(), _prior())
+    return g._route_legs([(0.0, 0.0), (1000.0, 0.0)], [], (), spread=spread, watch=watch)[0][3], watch
+
+
+@pytest.mark.parametrize("speed, at", [(40.0, 170), (60.0, 210)])
+def test_a_walker_held_on_him_at_its_own_pace_is_stepped_away_from(game, speed, at):
+    """350's children outpace his run (~40u a frame to his 30), and the engine undoes the WHOLE of a walker's step into
+    him (MoveToward.cs:187-189): one walking straight at him stops anywhere up to a step short of contact -- here 18u
+    and 58u beyond ``r``, where the contact of his own walk (WALK_SPEED past ``r``) never reaches. Judged so, it was
+    never held on him: the box outlasted the wait -- ``boxed``, a strike. Judged by the walker's own step
+    (:meth:`_walker_step`) it is held all the same: he steps off the line it walks, it walks on, and so does he."""
+    fake = FakeGame(game)
+    kid = _villager(-100, 500, uid=6, path=[(-100, 500), (-101, 500)], speed=0.01)   # creeping, along the line it walks
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [kid]}
+        published(g, lambda s: s.objects and s.objects[0]["moving"])
+        g.ROUTE_NPC_REPLANS = 0
+        g.ROUTE_WALKER_BUDGET = 160
+        stood = _step_in_front(g, (kid, (at, 0), [(at, 0), (-1100, 0)], speed))     # along his line, into him
+        rec = g.route_to(450.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=True)
+        assert stood, "premise: it walked into him"
+        assert rec["reached"] and not rec["boxed"] and rec["box_cleared"] >= 1, rec
+        assert (6, "body", True) in [(o["uid"], o["kind"], o["moving"]) for o in rec["boxers"]], rec
+        assert kid["x"] < stood[0][0] - 300, "freed, it walked on along its line"
+
+
+def test_a_walker_held_on_him_since_before_the_call_is_stepped_off_the_line_at_him(game):
+    """Session 2, crossings 25-30: each call began with the children already held on him, so none was ever seen
+    walking -- no line to step off. Stepping straight AWAY from where it stands leaves him on its way: freed, it walks
+    on after him and is held again. It is held BECAUSE its step comes at him, so the line it walks is the one at him:
+    the step goes across it, and freed, it walks on past."""
+    fake = FakeGame(game, walkmesh=(-1000, -1000, 1000, 1000))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        kid = _villager(160, 0, uid=6, path=[(160, 0), (-900, 0)], speed=3.0)       # straight into him: held at 154
+        leg, watch = _box_leg(g, fake, [kid], settled=lambda s: s.objects[0]["x"] < 155)
+        leg["turned"] = ((("right",), (1.0, 0.0)), 6.0)          # an earlier hold's turn: known, to 2 degrees
+        basis, since = g._axes[30820], {}
+        for _ in range(12):
+            if g._box_step(basis, leg, since):
+                break
+            g.wait_frames(8)
+            g._npc_view(watch, g.state)
+        else:
+            pytest.fail("it never stepped out of the way of a walker held on him")
+        assert watch["heading"].get(6) is None and watch["discs"][0]["dir"] is None, "premise: never seen walking"
+        _buttons, u = leg["pressed"]
+        assert abs(u[0]) < 0.1, f"straight across the line at him, not back along it: {u}"
+        # a step along another line turned him toward IT: where the earlier hold left his yaw is no longer known
+        # (a facing step would otherwise start from the wrong pad's yaw, Session._held_yaw)
+        assert Session._held_yaw(leg) is None, leg["turned"]
+        published(g, lambda s: s.objects[0]["x"] < -300)                  # freed, it walked on past him
+        assert not fake.contacts, fake.contacts
+
+
+def test_a_walker_held_on_him_beside_a_door_is_stepped_away_from_in_the_room_there(game):
+    """The (-470, 142) spot of the session-2 log, 174u from 350's door to 354: a step of ROUTE_WALKER_HOLD frames at a
+    run could slide him 270u (its reach and the zone pad) -- into the door -- so beside it the step was refused
+    outright, the wait for the walker waited on himself, and the box came back ``boxed``. The room there takes a
+    SHORTER step, and away from the door where two are about as good: the walker walks on, and so does he, the door
+    never entered."""
+    from ff9mapkit.content import pathfind
+    door = _rect(-560, 120, -240, 400)
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0)}]}
+    kid = _villager(-100, -500, uid=6, path=[(-100, -500), (-101, -500)], speed=0.01)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, -450, 0)
+        fake.blockers = {30820: [kid]}
+        published(g, lambda s: s.objects and s.objects[0]["moving"])
+        g.ROUTE_NPC_REPLANS = 0
+        g.ROUTE_WALKER_BUDGET = 160
+        stood = _step_in_front(g, (kid, (170, 0), [(170, 0), (-1100, 0)], 3.0))
+        rec = g.route_to(450.0, 0.0, avoid=[door], walkmesh=_flat_bgi(), prior=_prior(), npcs=True, smooth=True)
+        assert stood, "premise: it walked into him"
+        gap = pathfind.poly_gap(stood[0][0], stood[0][1], door)
+        assert gap < (g.ROUTE_WALKER_HOLD + g.PROBE_TAIL_FRAMES) * g.RUN_SPEED + g.PROBE_HAZARD_PAD, gap   # premise
+        assert rec["reached"] and not rec["boxed"] and rec["box_cleared"] >= 1 and rec["landed"] is None, rec
+        assert not fake.fired, fake.fired
+
+
+def test_a_box_the_walkers_are_not_the_cause_of_is_boxed_at_once(game):
+    """A villager STANDING in contact ahead boxes the leg on its own; a walker beside him refuses a press too. Any
+    walker among the boxers used to make it a walkers' box -- the whole wait spent (ROUTE_WALKER_BUDGET, 8 s a
+    crossing) for the same verdict. Judged by CAUSE, planned without the walker there is still no press: the spot,
+    ``boxed`` at once, nothing pressed or waited."""
+    fake = FakeGame(game, walkmesh=(-1000, -1000, 1000, 1000))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        g.ROUTE_WALKER_BUDGET = 80
+        sent = _counting(g)
+        leg, watch = _box_leg(g, fake, [_villager(160, 0, uid=4),
+                                        _villager(0, 165, uid=5, path=[(0, 165), (700, 165)], speed=0.3)])
+        basis, here, goal = g._axes[30820], g._standing(), (1000.0, 0.0)
+        assert g._plan_hold(basis, here, goal, leg) is None, "premise: boxed"
+        assert {d["uid"] for d in g._boxers(basis, here, goal, leg)} == {4, 5}, "premise: the walker refuses one too"
+        mark = len(sent)
+        got = g._walk_leg(1000.0, 0.0, 45.0, leg, True)
+        assert got == "boxed" and (watch["box_waits"], watch["boxers"], watch["boxed_by"]) == (0, [], None), watch
+        assert sent[mark:] == [], sent[mark:]
+
+
+def test_a_wanderer_seen_walking_that_stops_in_front_of_him_is_waited_for(game):
+    """``moving`` is an instant's flag: a wanderer reads false at the turns of its loop (uid 6 in live 350). One the
+    call has SEEN walking, standing now where the plan saw it, boxes the leg alone -- a walker all the same, so the box
+    is waited on, not ``boxed`` at once as the spot; still standing when the wait runs out, it is ``boxed_by``
+    walkers."""
+    fake = FakeGame(game, walkmesh=(-1000, -1000, 1000, 1000))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        g.ROUTE_WALKER_BUDGET = 40
+        kid = _villager(160, 0, uid=6, path=[(160, 0), (160, 1)], speed=0.01)       # walking, barely
+        leg, watch = _box_leg(g, fake, [kid])
+        assert 6 in watch["walked"], "premise: seen walking"
+        kid["_done"] = True                                                        # it stops: published standing
+        published(g, lambda s: not s.objects[0]["moving"])
+        g._npc_view(watch, g.state)
+        got = g._walk_leg(1000.0, 0.0, 45.0, leg, True)
+        assert got == "boxed" and watch["box_waits"] >= 1 and watch["boxed_by"] == "walkers", watch
+        assert [o["uid"] for o in watch["boxers"]] == [6], watch["boxers"]
+
+
+def test_what_walks_is_published_moving_or_seen_walking_by_the_call(game):
+    """:meth:`_npc_walks`: published ``moving`` (a walker held on him still reads so), published ``moving`` by any read
+    of the call (``walked``, :meth:`_npc_read`), or moved ROUTE_NPC_MOVED since the plan -- never jitter, and never an
+    object only because the plan did not see it."""
+    g = session(game, None)
+    w: dict = {}
+    g._npc_read(w, State({"frame": 5, "player": {"x": 0.0, "y": 0.0, "z": 0.0, "control": True},
+                          "objects": [_obj(7, 0, 0, moving=True), _obj(8, 0, 0)]}))
+    assert w["walked"] == {7}
+    watch = {"planned": {1: (0.0, 0.0), 2: (0.0, 0.0), 3: (0.0, 0.0)}, "walked": {2}}
+
+    def d(uid, x=0.0, moving=False):
+        return {"uid": uid, "x": x, "z": 0.0, "moving": moving}
+    assert g._npc_walks(d(1, moving=True), watch)
+    assert g._npc_walks(d(2), watch)                   # standing at a turn: published moving by an earlier read
+    assert g._npc_walks(d(3, x=20.0), watch)           # moved since the plan
+    assert not g._npc_walks(d(3, x=5.0), watch)        # jitter
+    assert not g._npc_walks(d(9), watch)               # never planned, never seen moving
+
+
+def test_a_step_out_of_a_walkers_way_keeps_clear_of_a_trigger_the_plan_gave_up(game):
+    """What a slide could carry the step into is kept out of his whole reach round him -- EVERY published trigger, not
+    only the ones the plan kept: a Range the plan gave up (entered, or not in the way) fires just as surely. Beside
+    one that leaves no room for even a walk frame, he does not step at all."""
+    fake = FakeGame(game, walkmesh=(-1000, -1000, 1000, 1000))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        kid = _villager(160, 0, uid=6, path=[(160, 0), (-900, 0)], speed=3.0)
+        chest = _villager(0, -260, uid=7, range_r=200.0)                            # its Range 30u short of the pad
+        leg, watch = _box_leg(g, fake, [kid, chest], settled=lambda s: s.objects[0]["x"] < 155)
+        watch["keep"].discard((7, "trigger"))                                      # the plan gave its Range up
+        g._npc_view(watch, g.state)
+        assert not any(d["uid"] == 7 and d["kind"] == "trigger" for d in watch["discs"]), "premise: given up"
+        basis, since = g._axes[30820], {}
+        sent = _counting(g)
+        for _ in range(8):
+            assert not g._box_step(basis, leg, since)
+            g.wait_frames(8)
+            g._npc_view(watch, g.state)
+        assert 6 in since and g.state.frame - since[6][2] >= g.ROUTE_WALKER_HELD, "premise: held on him"
+        assert not [s for steps in sent for s in steps if s.startswith("hold")], sent
+        assert not fake.touched, fake.touched
+
+
+# ---- the session-3 door step: both attempts of the stock run at 350's door to 355 ended on the step, a Dali child (a
+# talk-only walker, non-solid, r 152) held on him between him and the zone's one standable patch. The last leg's finish
+# -- within 45u of a goal a few units inside the zone -- found no press, called that arrival, and each crossing came
+# back a MISS: a REAL strike, and two made 355 unreachable. The finish now meets walkers as the rest of the walk does.
+# A door at the east wall of the fake's room, 80u wide and standable (80u off the wall) only where x <= 520, its goal
+# 4u in; he starts 34u short of it, outside the zone, so the finish takes over at once. A child standing against him
+# there covers the whole standable patch, as the frame shows.
+
+_DOOR = _rect(480, -40, 600, 40)
+_DOOR_GOAL = (484.0, 0.0)
+
+
+def _door_kid(uid, walks, at=(605.0, 0.0)):
+    """A Dali child parked far off ON the line it will walk -- so the read that sees it step up to ``at`` (see
+    :func:`_step_in_front`) reads a jump along that line, never a heading across it -- creeping: "on" walks on north,
+    across the door; "into him" walks west, along his line into him, and is held."""
+    x, z = at
+    park = (x, z - 700) if walks == "on" else (x + 500, z)
+    ahead = (park[0], park[1] + 1) if walks == "on" else (park[0] - 1, park[1])
+    return _villager(*park, uid=uid, path=[park, ahead], speed=0.01)
+
+
+def _door_step_up(kid, walks):
+    """The :func:`_step_in_front` move of a child stepping up 155u in front of him on the door step: walking "on" north
+    across the door at 1u a frame -- slow enough to stand in the way a while, too fast to read as held (ROUTE_NPC_MOVED
+    in ROUTE_WALKER_HELD frames) -- or walking "into him", west along his line, where it is held."""
+    if walks == "on":
+        return (kid, (155, 0), [(155, 0), (155, 700)], 1.0)
+    return (kid, (155, 0), [(155, 0), (-1100, 0)], 3.0)
+
+
+def _door_fake(game, fake=None):
+    """The fake with 350's door on the east wall of its room, a LIVE region (entering it fires, to 30821)."""
+    fake = fake or FakeGame(game)
+    fake.regions = {30820: [{"zone": _DOOR, "to": 30821, "arrive": (0, 0)}]}
+    fake.exit_frames = 30
+    return fake
+
+
+def _door_start(g, fake, bodies, *, replans=0):
+    """Standing 34u short of the door's goal, outside its zone, on 30820 with its basis known and ``bodies`` listed (and
+    published). ``replans``: the movement re-plans the call may make -- session 3's crossing 13 had spent its four."""
+    boot(g)
+    g.warp(30820)
+    g._axes[30820] = _prior()
+    _stand(g, fake, 450, 0)
+    fake.blockers = {30820: list(bodies)}
+    published(g, lambda s: s.objects is not None and len(s.objects) == len(bodies))
+    g.ROUTE_NPC_REPLANS = replans
+
+
+def _cross_the_door(g):
+    """The tour's own crossing call (dali_tour.Tour._cross) at the door: route_cross into its zone, smooth, npcs."""
+    return g.route_cross(*_DOOR_GOAL, walkmesh=_flat_bgi(), prior=_prior(), unstick=True, zone=_DOOR, smooth=True,
+                         npcs=True, timeout=3)
+
+
+def _tour_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import dali_tour
+    return dali_tour
+
+
+def test_a_walker_that_pins_him_on_the_door_step_and_walks_on_is_waited_for_and_he_crosses(game):
+    """On the door step -- within tolerance of the goal, outside the zone -- a Dali child steps up against him, between
+    him and the zone, and walks on across the door. Every press into the zone comes nearer it: the finish used to stop
+    right there and call it arrival (the zone's gateway never fired: a MISS). A walker at the door is waited for as it
+    is anywhere else: it walks on, the finish presses in, and the door fires -- the child named in ``boxers``."""
+    fake = _door_fake(game)
+    kid = _door_kid(4, "on")
+    with session(game, fake) as g:
+        _door_start(g, fake, [kid])
+        stood = _step_in_front(g, _door_step_up(kid, "on"), past=440)
+        rec = _cross_the_door(g)
+        assert stood, "premise: the child stepped up on the door step"
+        assert rec["landed"] == 30821 and [f["to"] for f in fake.fired] == [30821], rec
+        assert rec["box_waits"] >= 1 and rec["box_cleared"] >= 1 and not rec["boxed"], rec
+        assert (4, "body", True) in [(o["uid"], o["kind"], o["moving"]) for o in rec["boxers"]], rec
+
+
+@pytest.mark.parametrize("replans", [0, 4])
+def test_a_walker_held_on_him_on_the_door_step_is_stepped_away_from_and_he_crosses(game, replans):
+    """The session-3 frame: the child walked INTO him on the door step and is held there -- the engine undoes every step
+    a scripted walker takes into him (MoveToward.cs:187-189; the fake: `_step_walkers`) -- so a wait for it waits on
+    himself. Once it has not moved in ROUTE_WALKER_HELD frames he steps out of its way; it walks on, and he presses into
+    the zone and crosses. With the movement re-plans spent (0) the plan still keeps the child's disc and the finish
+    finds no press at all; with them left (4) a re-plan gives the child up to walk through -- it stands over the goal --
+    and the presses into the zone are made, and held: two held presses, a walker holding him, the same wait and step
+    (and the step is taken from a walker the plan gave up: it is held on him all the same)."""
+    fake = _door_fake(game)
+    kid = _door_kid(6, "into him")
+    with session(game, fake) as g:
+        _door_start(g, fake, [kid], replans=replans)
+        g.ROUTE_WALKER_BUDGET = 240
+        stood = _step_in_front(g, _door_step_up(kid, "into him"), past=440)
+        t0 = time.time()
+        rec = _cross_the_door(g)
+        assert stood and time.time() - t0 < 60, "bounded"
+        if replans:
+            assert rec["npc_replans"] >= 1 and 6 in [o["uid"] for o in rec["through"]], "premise: planned through"
+        assert rec["landed"] == 30821 and [f["to"] for f in fake.fired] == [30821], rec
+        assert rec["box_cleared"] >= 1 and (6, "body", True) in [(o["uid"], o["kind"], o["moving"])
+                                                                 for o in rec["boxers"]], rec
+        assert kid["x"] < stood[0][0], "freed, it walked on along its line, past where he stood"
+
+
+def test_a_walker_that_holds_him_on_the_door_step_past_the_wait_is_the_village_not_the_door(game):
+    """The same child held on him on the door step, and no step out of its way that the room allows (taken out here):
+    the wait for it runs out (ROUTE_WALKER_BUDGET, bounded) and the crossing ends short of the zone, the door unfired.
+    The record says why -- ``boxed_by`` walkers, ``held_by`` walkers, the child in ``pinned`` -- and the tour's strike
+    rule reads it as the village in the way, LIVE: never the door's MISS."""
+    D = _tour_module()
+    fake = _door_fake(game)
+    kid = _door_kid(6, "into him")
+    with session(game, fake) as g:
+        _door_start(g, fake, [kid])
+        g.ROUTE_WALKER_BUDGET = 80
+        g._box_step = lambda *a, **kw: False
+        stood = _step_in_front(g, _door_step_up(kid, "into him"), past=440)
+        t0 = time.time()
+        rec = _cross_the_door(g)
+        assert stood and time.time() - t0 < 60, "bounded: the wait has a budget"
+    assert rec["landed"] is None and rec["inside"] is False and rec["reached"] and not fake.fired, rec
+    assert rec["boxed"] and rec["boxed_by"] == "walkers" and rec["box_waits"] >= 1, rec
+    assert rec["held_by"] == "walkers" and [(o["uid"], o["kind"], o["moving"]) for o in rec["pinned"]] == [
+        (6, "body", True)], rec
+    assert D.failure(rec) == "live", rec
+
+
+def test_a_body_that_does_not_walk_in_the_doorway_is_the_doors_miss_at_once(game):
+    """A villager who never walks stands in the doorway, against him on the door step, over the zone's whole standable
+    strip within reach. Nothing will walk off: no wait, no step, no push -- the finish ends short of the zone at once
+    (bounded), and it is a MISS as it always was, REAL. The record names the body (``pinned``, ``held_by`` "bodies"),
+    so a strike on a door is never a walker's doing unseen."""
+    D = _tour_module()
+    fake = _door_fake(game)
+    with session(game, fake) as g:
+        _door_start(g, fake, [_creeping(4)])
+        settle, placed = g.settle, []
+
+        def settle_then_stand_there(*a, **kw):
+            st = settle(*a, **kw)
+            if not placed and st.player_x is not None and st.control:
+                # it was never in any plan and never walked: nothing the call saw says it could walk off
+                placed.append((st.player_x, st.player_z))
+                fake.blockers[30820].append(_villager(st.player_x + 155, st.player_z, uid=7))
+                return published(g, lambda s: s.objects and any(o["uid"] == 7 for o in s.objects))
+            return st
+        g.settle = settle_then_stand_there
+        sent = _counting(g)
+        t0 = time.time()
+        rec = _cross_the_door(g)
+        assert placed and time.time() - t0 < 30, "bounded"
+    assert rec["landed"] is None and rec["inside"] is False and rec["reached"] and not fake.fired, rec
+    assert (rec["boxed"], rec["box_waits"], rec["waits"], rec["pushes"], rec["boxers"]) == (False, 0, 0, 0, []), rec
+    assert rec["held_by"] == "bodies" and [(o["uid"], o["moving"]) for o in rec["pinned"]] == [(7, False)], rec
+    assert len(sent) <= 3, f"no waiting, stepping or pushing: {sent}"
+    assert D.failure(rec) == "miss", rec
+
+
+def test_standing_in_a_dead_zone_is_a_miss_whatever_held_him_on_the_way(game):
+    """The story has shut the door (the zone is there, nothing fires). A child held on him on the door step is stepped
+    away from, the finish presses into the zone, and he stands IN it with nothing fired: a MISS, REAL, exactly as
+    before -- whatever the walk met on the way. Nothing holds him short of a zone he stands in: ``held_by`` None,
+    ``pinned`` empty. The door has no facing gate, so nothing turns him to it (``faced`` None): one that fires for
+    anyone standing in it and has not is shut."""
+    D = _tour_module()
+    fake = _door_fake(game)
+    fake.regions = {}
+    kid = _door_kid(6, "into him")
+    with session(game, fake) as g:
+        _door_start(g, fake, [kid])
+        g.ROUTE_WALKER_BUDGET = 240
+        stood = _step_in_front(g, _door_step_up(kid, "into him"), past=440)
+        rec = _cross_the_door(g)
+        assert stood, "premise: the child walked into him"
+    assert rec["box_cleared"] >= 1, f"premise: the child held him on the way ({rec})"
+    assert rec["inside"] is True and rec["landed"] is None and not fake.fired, rec
+    assert rec["held_by"] is None and rec["pinned"] == [] and rec["faced"] is None and rec["face_gate"] is None, rec
+    assert D.failure(rec) == "miss", rec
+
+
+def test_the_tour_reads_a_walk_held_short_of_the_zone_by_walkers_as_live():
+    """The strike rule, record by record: short of the zone with walkers in the way to a spot of it he could have
+    entered with them gone (``held_by`` walkers) is the village, LIVE; held by a body that does not walk, or by nothing
+    published (the door's geometry:
+    350's door to 353, standable only in a 34u wedge), a MISS as before -- waits on the way or not, since the walk came
+    within tolerance; standing IN the zone, a MISS whatever held him; walkers that outlasted the wait, LIVE."""
+    D = _tour_module()
+    short = {"boxed": False, "boxed_by": None, "reached": True, "inside": False, "during": None, "route": 2,
+             "waits": 0, "pushes": 0, "blockers": [], "frozen": False, "npc_replans": 0, "box_waits": 0,
+             "held_by": None, "pinned": []}
+    assert D.failure(dict(short, held_by="walkers", pinned=[(13, "body", True)])) == "live"
+    assert D.failure(dict(short, held_by="bodies", pinned=[(7, "body", False)])) == "miss"
+    assert D.failure(short) == "miss"                                                   # the spot
+    assert D.failure(dict(short, waits=2, npc_replans=2)) == "miss"                 # session 3's 353 wedge, as before
+    assert D.failure(dict(short, inside=True, box_waits=4, box_cleared=1)) == "miss"    # in the zone, nothing fired
+    assert D.failure(dict(short, boxed=True, boxed_by="walkers", held_by="walkers")) == "live"
+    assert D.failure(dict(short, held_by="walkers", error="crossing ... never became playable")) == "miss"
+
+
+# ---- the door step, judged PER CAUSE: a walker counts at the zone's edge only where it is what keeps him out -- in the
+# way to a spot of the zone he could get into with every walker gone (Session._short_of_zone). A door dead by its own
+# geometry, or held shut by a villager who never walks, is the door's REAL miss however many walkers pace nearby: read
+# as the village it was three LIVE attempts and a replay retried without end, where two strikes break a dead door. And
+# the record is the finish's own verdict, never a second look taken after the walk toward another point.
+
+_DEAD = _rect(530, -40, 600, 40)        # wholly inside the east wall's 80u clearance: nowhere his centre can stand in it
+
+
+def _pacer(uid, x=600.0, z=180.0, beat=60.0):
+    """A villager pacing a short beat at 1u a frame, from (x, z) ``beat`` north and back: near the door step, never in
+    contact with him there, never across the way in."""
+    return _villager(x, z, uid=uid, path=[(x, z), (x, z + beat)], speed=1.0)
+
+
+@pytest.mark.parametrize("walker", ["paces a beat nearby", "is held on him from the door's side"])
+def test_a_dead_door_is_the_doors_miss_whatever_walker_is_about(game, walker):
+    """The zone lies wholly inside the wall's clearance (the fake's floor walled as the planner's is): there is no spot
+    in it his centre can stand, and a villager is about -- pacing a short beat 180-253u off the door step (the review's
+    probe: 6 of 6 runs LIVE), or walked into him from the north-east, the door's side, and held there in contact. With
+    every walker gone the door is no more his to enter, so no walker is the cause: the finish ends short of the zone
+    at once -- no wait, no step -- and the tour strikes the door (REAL miss). ``held_by`` None, ``pinned`` empty: the
+    finish's own verdict (a look taken again after the walk, toward another point, had named the pacer)."""
+    D = _tour_module()
+    fake = _door_fake(game)
+    fake.walkmesh, fake.clearance = _flat_bgi(), 80.0
+    fake.regions = {30820: [{"zone": _DEAD, "to": 30821, "arrive": (0, 0)}]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        g.ROUTE_WALKER_BUDGET = 120
+        if walker == "paces a beat nearby":
+            _stand(g, fake, 400, 0)
+            fake.blockers = {30820: [_pacer(5)]}
+            published(g, lambda s: s.objects and s.objects[0]["moving"])
+            stood = [(400.0, 0.0)]
+        else:
+            _stand(g, fake, 500, 0)
+            kid = _villager(908, 974, uid=5, path=[(908, 974), (907, 972)], speed=0.01)   # parked on its line, at him
+            fake.blockers = {30820: [kid]}
+            published(g, lambda s: s.objects and s.objects[0]["moving"])
+            stood = _step_in_front(g, (kid, (60, 143), [(60, 143), (-366, -872)], 3.0), past=440)
+        t0 = time.time()
+        rec = g.route_cross(540.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), unstick=True, zone=_DEAD, smooth=True,
+                            npcs=True, timeout=3)
+        assert stood and time.time() - t0 < 30, "bounded"
+    assert rec["landed"] is None and rec["inside"] is False and rec["reached"] and not fake.fired, rec
+    assert (rec["boxed"], rec["box_waits"], rec["box_cleared"], rec["boxers"]) == (False, 0, 0, []), rec
+    assert (rec["held_by"], rec["pinned"]) == (None, []), rec
+    assert D.failure(rec) == "miss", rec
+
+
+def test_a_still_villager_in_the_doorway_is_the_doors_miss_with_a_walker_pacing_nearby(game):
+    """A villager who never walks stands in the doorway against him, over the zone's whole standable strip within
+    reach, and another paces a short beat ~200u off the door's axis (the review's probe: LIVE in 4 of 6 runs). The still
+    one keeps him out, and would with every walker gone: nothing is waited on, and it is the door's MISS -- the record
+    naming the still body alone (``held_by`` "bodies"), never the pacer."""
+    D = _tour_module()
+    fake = _door_fake(game)
+    with session(game, fake) as g:
+        _door_start(g, fake, [_creeping(4), _pacer(9, z=200.0)])
+        g.ROUTE_WALKER_BUDGET = 120
+        settle, placed = g.settle, []
+
+        def settle_then_stand_there(*a, **kw):
+            st = settle(*a, **kw)
+            if not placed and st.player_x is not None and st.control:
+                placed.append((st.player_x, st.player_z))
+                fake.blockers[30820].append(_villager(st.player_x + 155, st.player_z, uid=7))
+                return published(g, lambda s: s.objects and any(o["uid"] == 7 for o in s.objects))
+            return st
+        g.settle = settle_then_stand_there
+        t0 = time.time()
+        rec = _cross_the_door(g)
+        assert placed and time.time() - t0 < 30, "bounded"
+    assert rec["landed"] is None and rec["inside"] is False and rec["reached"] and not fake.fired, rec
+    assert (rec["boxed"], rec["box_waits"], rec["boxers"]) == (False, 0, []), rec
+    assert rec["held_by"] == "bodies" and [(o["uid"], o["moving"]) for o in rec["pinned"]] == [(7, False)], rec
+    assert D.failure(rec) == "miss", rec
+
+
+def test_an_end_of_the_finish_that_pressed_nothing_is_judged_like_any_other(game):
+    """No hold left to press (ROUTE_HOLDS spent -- here none at all): the finish ends where it stands, 34u short of the
+    door, as a child steps up across the way in. That end is judged as every other end of the finish is -- the child
+    stands in the way to a spot of the zone he could enter with it gone -- so it is waited on until it has walked on
+    (``box_waits``, named in ``boxers``), never recorded as holding him without a wait (a LIVE for nothing) nor left
+    unasked (a door's MISS for the village's doing). After it has gone nothing stands in the way, and the end is the
+    door's: ``held_by`` None, a MISS -- no hold was pressed at all."""
+    D = _tour_module()
+    fake = _door_fake(game)
+    kid = _door_kid(4, "on")
+    with session(game, fake) as g:
+        _door_start(g, fake, [kid])
+        g.ROUTE_HOLDS = 0
+        stood = _step_in_front(g, _door_step_up(kid, "on"), past=440)
+        rec = _cross_the_door(g)
+        assert stood, "premise: the child stepped up on the door step"
+    assert rec["landed"] is None and rec["inside"] is False and not fake.fired, rec
+    assert rec["box_waits"] >= 1 and (4, "body", True) in [(o["uid"], o["kind"], o["moving"])
+                                                           for o in rec["boxers"]], rec
+    assert (rec["held_by"], rec["pinned"]) == (None, []), rec
+    assert D.failure(rec) == "miss", rec
+
+
+def test_a_walker_pacing_a_short_beat_beside_him_is_never_held_on_him(game):
+    """A villager 206u off him paces to and fro, and every read finds it 12u from the last -- across a turn of its beat,
+    back where it stood: within one of its own steps of contact (a step is judged at 2 * RUN_SPEED at the least), and
+    never ROUTE_NPC_MOVED from where it was first seen, so read end to end it has "not moved" in ROUTE_WALKER_HELD
+    frames. It walked all that while -- the engine never undid a step of it (MoveToward.cs:187-189) -- so it is not
+    held on him, and he is never stepped away from it (the review's pacer, on a 60u beat, read as held at a turn and had
+    him stepped 210u off the door, twice). What moved is summed read to read. Its reads are placed by hand: a pacer
+    walked by the fake is read at a cadence its own period can alias, and the test would be a coin toss."""
+    fake = FakeGame(game, walkmesh=(-1000, -1000, 1000, 1000))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        pacer = _villager(0, 206, uid=5, path=[(0, 206), (0, 9000)], speed=0.001)     # published moving; placed below
+        leg, watch = _box_leg(g, fake, [pacer])
+        basis, since = g._axes[30820], {}
+        frame0 = g.state.frame
+        for k in range(16):
+            z = (206.0, 218.0, 206.0, 194.0)[k % 4]
+            pacer["z"] = z
+            g._npc_view(watch, published(g, lambda s, z=z: s.objects and abs(s.objects[0]["z"] - z) < 0.5))
+            assert not g._box_step(basis, leg, since), f"stepped out of the way of a pacer (read {k}, z {z})"
+            g.wait_frames(8)
+        assert g.state.frame - frame0 >= 4 * g.ROUTE_WALKER_HELD, "premise: read over several ROUTE_WALKER_HELD spans"
+
+
+# ---- Tour.replay (rung-3 predictions v2): session 2's sides walked Dali in different ORDERS -- every stock run boxed at
+# 350 -> 355 and saw 355 after 450, every F0 run crossed it first -- and SByte[296] wrote the order into the trace. An F0
+# run now walks its stock partner's ENTERED walk step for step, under the tour's own crossing call and strike rules,
+# and only then tours blind. A three-room world on the fake: A (30820) with a door east to B (30821) and one west to C
+# (30810), each of those a door back; the Tour's own model of it has the same doors, the fake's flat floor, every
+# room in "Dali/", no door one-way.
+
+_A, _B, _C = 30820, 30821, 30810
+_EAST, _WEST = _rect(400, -150, 600, 150), _rect(-600, -150, -400, 150)
+
+
+class _StoryFake(FakeGame):
+    """The fake with the three things a replay meets that the stand-in does not model: the story moving on
+    (``advance`` = (field, SC): arriving in that field sets the scenario, as Garnet's scene does); a room that never
+    hands control over (``bounce`` = {field: (back to, arrive)}: ``bounce_frames`` after he arrives it puts him back
+    where he came from -- stock 353, Mayor Kapu's arrival scene); and a villager in the way who walks off while the
+    camera looks (a screenshot -- the tour takes one after every LIVE miss -- lifts every freeze)."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.advance = None
+        self.bounce: dict = {}
+        self.bounce_frames = 0
+
+    def _step_exit_now(self) -> None:
+        super()._step_exit_now()
+        if self.advance and self.field_id == self.advance[0]:
+            self.scenario = self.advance[1]
+        back = self.bounce.get(self.field_id)
+        if back is not None:
+            self.control = False
+            self._exit = (self.frame + self.bounce_frames, back[0], tuple(back[1]))
+
+    def _write_png(self, name: str) -> None:
+        super()._write_png(name)
+        self._frozen_until = 0
+
+
+class _MissOnceFake(_StoryFake):
+    """A door that misses the first time he walks in (``miss_once`` = (field, zone)): nothing fires while he stays in
+    its zone, and it is live again once he has left it. Session 2's two same-exit retries after a miss started inside
+    the zone, travelled 0 and missed again; a replay has no other exit to try in between, and walks back out first.
+    Kept as that regression. What it is NOT is a model of the engine's doors: the engine runs a region's tag 2 every
+    tick he stands in it with control (EventEngine.ProcessEvents.cs:174-178 -> EventCollision.cs:281-284, at stock
+    6b8bb2d5), so a door with no gate fires for someone standing in it as surely as for someone walking in -- one that
+    stays shut while he stands there is shut to HIM, and what shut 350's in session 2 was stock's door FACING GATE
+    (content.doorface; FakeGame ``regions`` ``"face"``): he stood facing away."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.miss_once = None
+        self._missed = False
+
+    def _enter_regions(self) -> None:
+        from ff9mapkit.content import pathfind
+        if self.miss_once is not None and self.field_id == self.miss_once[0]:
+            poly = [(float(p[0]), float(p[1])) for p in self.miss_once[1]]
+            if pathfind.poly_gap(self.player[0], self.player[2], poly) < 0:
+                self._missed = True
+                return
+            if self._missed:
+                self.miss_once = None              # he left the zone: the door is live again
+        super()._enter_regions()
+
+
+def _replay_world(game, monkeypatch, cls=None):
+    """``(fake, tour, dali_tour)``: the three rooms on the fake (``cls``, default :class:`_StoryFake`) -- every door a
+    live region -- and a Tour over the same doors. The crossing wait is cut to 1.5 s (a bounce outlasts it, as 353's
+    scene outlasts the tour's 20 s)."""
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import dali_tour
+    monkeypatch.setattr(dali_tour, "CROSS_TIMEOUT", 1.5)
+    fake = (cls or _StoryFake)(game, fps=960)
+    fake.regions = {_A: [{"zone": _EAST, "to": _B, "arrive": (-250, 0)}, {"zone": _WEST, "to": _C, "arrive": (250, 0)}],
+                    _B: [{"zone": _WEST, "to": _A, "arrive": (250, 0)}],
+                    _C: [{"zone": _EAST, "to": _A, "arrive": (-250, 0)}]}
+    fake.exit_frames = 30
+    floor = _flat_bgi()
+
+    class WorldTour(dali_tour.Tour):
+        def label(self, fid):
+            return "Dali/Test"
+
+        def floor(self, fid):
+            return floor
+
+        def one_way(self, fid, i):
+            return False
+
+    tour = WorldTour(stock=lambda fid: None, tag="test")
+    tour._gates = {_A: [(_B, 0, _EAST), (_C, 0, _WEST)], _B: [(_A, 0, _WEST)], _C: [(_A, 0, _EAST)]}
+    return fake, tour, dali_tour
+
+
+def _replay_start(g, fake):
+    """Standing in A at SC 2600 with control, each room's basis known (the walks, not calibration, are on test)."""
+    boot(g)
+    g.warp(_A)
+    fake.scenario = 2600
+    _stand(g, fake, 0, 0)
+    published(g, lambda s: s.scenario == 2600)
+    for fid in (_A, _B, _C):
+        g._priors[fid] = g._axes[fid] = _prior()
+    return []
+
+
+def _replayed(log):
+    return [(x["leg"], x.get("step"), x.get("expect"), x["entered"], x["verdict"]) for x in log if x["k"] == "cross"]
+
+
+def test_a_replay_walks_the_partners_walk_step_for_step_and_stops_where_the_story_moves(game, monkeypatch):
+    """Each step is crossed by the tour's own route_cross call and must ENTER the partner's place; every crossing is
+    logged like a tour crossing with leg "replay", its step, the place it expected and the place it entered -- so the
+    replayed walk reads back off the log as exactly the partner's. The story moving on stops it, as the tour stops."""
+    fake, tour, D = _replay_world(game, monkeypatch)
+    fake.advance = (_C, 2610)
+    walk = [[_A, 0, _B], [_B, 0, _A], [_A, 1, _C]]
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, walk, beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    assert stop.startswith(f"SC left 2600: now 2610 in field {_C} (replayed 3 of 3 steps"), stop
+    assert _replayed(log) == [("replay", 1, _B, _B, "replayed"), ("replay", 2, _A, _A, "replayed"),
+                              ("replay", 3, _C, _C, "replayed")], log
+    assert D.entered_walk(log, legs=("replay",)) == walk
+    assert [f["to"] for f in fake.fired] == [_B, _A, _C], fake.fired
+
+
+def test_a_live_miss_in_a_replay_is_retried_in_the_same_room_not_struck(game, monkeypatch):
+    """A villager in the way (a freeze with control held, for good -- until he walks off) makes the step's first
+    crossing LIVE by the tour's own failure(): it strikes nothing, and the step is crossed again from the same room --
+    a replay has no other exit to take and no other order to try."""
+    fake, tour, D = _replay_world(game, monkeypatch)
+    fake.freezes = {_A: [{"zone": _rect(100, -600, 200, 600), "frames": None}]}      # a band across A, before B's door
+    fake.advance = (_B, 2610)
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        g.ROUTE_WAIT_FRAMES = 30
+        stop = tour.replay(g, log, [[_A, 0, _B]], beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    assert fake._froze, "premise: the walk never stepped on the freeze"
+    assert stop.startswith(f"SC left 2600: now 2610 in field {_B} (replayed 1 of 1 steps"), stop
+    first, *_rest, last = [x for x in log if x["k"] == "cross"]
+    assert first["frozen"] and D.failure(first) == "live" and first["verdict"] == "live 1 (retried)", first
+    assert first["entered"] is None and first["now"] == _A, first
+    assert (last["step"], last["entered"], last["verdict"]) == (1, _B, "replayed"), last
+    assert all(x["step"] == 1 and not x.get("back") for x in log if x["k"] == "cross")    # LIVE: no step back
+
+
+def test_a_replay_that_enters_another_place_stops_the_run_at_that_step(game, monkeypatch):
+    """The partner entered B through A's east door; here that door leads to C. Entering a different place breaks the
+    replay at once -- no strike, no retry, no tour after it: the run's walk is no longer its partner's."""
+    fake, tour, _D = _replay_world(game, monkeypatch)
+    fake.regions[_A][0].update(to=_C, arrive=(250, 0))
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, [[_A, 0, _B], [_B, 0, _A]], beat=2600, max_crossings=20, max_passes=2,
+                           budget_s=120)
+    assert stop == f"replay broke at step 1 ({_A}.0 -> {_B}): entered {_C}", stop
+    assert _replayed(log) == [("replay", 1, _B, _C, f"diverged: entered {_C}")], log
+
+
+def test_a_replay_step_that_can_only_be_missed_is_struck_out(game, monkeypatch):
+    """The story shut B's door (the zone is there, nothing fires): standing inside it is a REAL miss by the tour's
+    rule, and BOUNCES of them break the replay -- a step that cannot be entered is not retried for ever, though the
+    retry does walk in anew from where the step began. A step whose place is not where he stands breaks it before
+    any crossing."""
+    fake, tour, D = _replay_world(game, monkeypatch)
+    fake.regions[_A] = fake.regions[_A][1:]
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, [[_A, 0, _B]], beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+        assert stop == f"replay broke at step 1 ({_A}.0 -> {_B}): miss, miss", stop
+        cross = [x for x in log if x["k"] == "cross"]
+        assert [(x["inside"], x.get("back", False), x["verdict"]) for x in cross] == [
+            (True, False, f"miss 1/{D.BOUNCES}"), (None, True, "stepped back"),
+            (True, False, f"miss 2/{D.BOUNCES} -> the step fails")], log
+        assert cross[2]["travelled"] > 0, cross[2]
+        elsewhere = tour.replay(g, [], [[_B, 0, _A]], beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    assert elsewhere == f"replay broke at step 1 ({_B}.0 -> {_A}): he stands in place {_A} (field {_A}), not {_B}"
+
+
+def test_a_real_miss_in_a_replay_is_retried_from_where_the_step_began(game, monkeypatch):
+    """A miss leaves him INSIDE the zone, and a retry from there walks nowhere and fires nothing (session 2: both
+    same-exit retries after a miss travelled 0 and missed again). So the replay walks him BACK to the spot the step
+    began on -- a walk that strikes nothing, logged as a replay crossing with ``back`` -- and the retry walks in anew:
+    here the door that missed the first time fires on the second walk in."""
+    fake, tour, D = _replay_world(game, monkeypatch, _MissOnceFake)
+    fake.miss_once = (_A, _EAST)
+    fake.advance = (_B, 2610)
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, [[_A, 0, _B]], beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    assert fake._missed and fake.miss_once is None, "premise: the first walk in missed, and he left the zone after"
+    assert stop.startswith(f"SC left 2600: now 2610 in field {_B} (replayed 1 of 1 steps"), stop
+    miss, back, retry = [x for x in log if x["k"] == "cross"]
+    assert (miss["inside"], miss["verdict"]) == (True, f"miss 1/{D.BOUNCES}"), miss
+    assert (back["back"], back["target"], back["entered"], back["verdict"]) == (True, [0, 0], None,
+                                                                                "stepped back"), back
+    assert back["travelled"] > 0 and (retry["entered"], retry["verdict"]) == (_B, "replayed"), (back, retry)
+    assert [x["step"] for x in (miss, back, retry)] == [1, 1, 1]
+    assert [f["to"] for f in fake.fired] == [_B], fake.fired
+    assert D.entered_walk(log, legs=("replay",)) == [[_A, 0, _B]]
+
+
+def test_a_crossing_that_moves_the_story_on_is_never_judged(game, monkeypatch):
+    """The story moving on stops the replay where it happens -- read right after the crossing, BEFORE it is judged:
+    where the story's own move took him is the fork's doing. Here A's east door leads to C, not to the partner's B,
+    and arriving in C moves the story on: no divergence and no strike, "the story moved on", and the run stops as the
+    tour stops, "SC left"."""
+    fake, tour, _D = _replay_world(game, monkeypatch)
+    fake.regions[_A][0].update(to=_C, arrive=(250, 0))
+    fake.advance = (_C, 2610)
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, [[_A, 0, _B], [_B, 0, _A]], beat=2600, max_crossings=20, max_passes=2,
+                           budget_s=120)
+    assert stop == f"SC left 2600: now 2610 in field {_C} (replayed 0 of 2 steps, crossing 1)", stop
+    assert _replayed(log) == [("replay", 1, _B, _C, f"the story moved on (entered {_C})")], log
+
+
+def test_a_bounce_the_partner_entered_is_a_replayed_step_that_leaves_him_where_he_was(game, monkeypatch):
+    """Stock 353: the gateway works, the arrival scene never hands control over, and he is put back where he came
+    from. The partner's walk holds that step (it ENTERED 353), so the replay must enter it too: route_cross's error
+    names the room it reached, nothing landed, and the next step starts from the room he was put back in."""
+    fake, tour, D = _replay_world(game, monkeypatch)
+    fake.bounce = {_C: (_A, (-250, 0))}
+    fake.bounce_frames = 3000                                    # ~3 s at 960 fps: past the 1.5 s crossing wait
+    fake.advance = (_B, 2610)
+    walk = [[_A, 1, _C], [_A, 0, _B]]
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, walk, beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    assert stop.startswith(f"SC left 2600: now 2610 in field {_B} (replayed 2 of 2 steps"), stop
+    bounce, into_b = [x for x in log if x["k"] == "cross"]
+    assert f"reached field {_C}, but it never became playable" in bounce["error"] and bounce["landed"] is None, bounce
+    assert (bounce["entered"], bounce["now"], bounce["verdict"]) == (_C, _A, "replayed"), bounce
+    assert (into_b["step"], into_b["entered"], into_b["verdict"]) == (2, _B, "replayed"), into_b
+    assert D.entered_walk(log, legs=("replay",)) == walk
+
+
+def test_a_bounce_over_inside_the_crossing_wait_still_entered_its_room(game, monkeypatch):
+    """353's scene can hand control back in the room he came from INSIDE the crossing's wait: route_cross then finds
+    the origin playable, ``landed`` names the origin and there is no error to read. The crossing ENTERED 353 all the
+    same, and its record says so -- ``changed_to``, the field the id first went to -- so the partner's walk and the
+    replay name the step alike however long the scene took (read off ``landed``, the replay 'diverged' into the room
+    it stood in)."""
+    fake, tour, D = _replay_world(game, monkeypatch)
+    fake.bounce = {_C: (_A, (-250, 0))}
+    fake.bounce_frames = 200                                     # ~0.2 s at 960 fps: inside the 1.5 s crossing wait
+    fake.advance = (_B, 2610)
+    walk = [[_A, 1, _C], [_A, 0, _B]]
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, walk, beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    assert stop.startswith(f"SC left 2600: now 2610 in field {_B} (replayed 2 of 2 steps"), stop
+    bounce, into_b = [x for x in log if x["k"] == "cross"]
+    assert (bounce["landed"], bounce["changed_to"], bounce.get("error")) == (_A, _C, None), bounce
+    assert (bounce["entered"], bounce["verdict"]) == (_C, "replayed"), bounce
+    assert D.entered_walk(log, legs=("replay",)) == walk
+    assert [f["to"] for f in fake.fired] == [_C, _B], fake.fired
+
+
+def test_after_the_whole_walk_the_run_tours_blind_on_the_budget_left(game, monkeypatch):
+    """The partner's walk replayed and the story still at the beat: the run goes on as the blind tour -- its crossing
+    count and clock carried on, its stop reasons the tour's -- so a fork whose story moves on later than its
+    partner's still gets its chance."""
+    fake, tour, _D = _replay_world(game, monkeypatch)
+    fake.advance = (_C, 2610)
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = tour.replay(g, log, [[_A, 0, _B]], beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    cross = [x for x in log if x["k"] == "cross"]
+    assert (cross[0]["leg"], cross[0]["verdict"]) == ("replay", "replayed"), cross[0]
+    assert cross[1:] and all(x["leg"] in ("tour", "back") and "step" not in x for x in cross[1:]), cross
+    assert [x["n"] for x in cross] == list(range(1, len(cross) + 1)), cross
+    assert stop == f"SC left 2600: now 2610 in field {_C} (pass 1, crossing {len(cross)})", stop
+    assert cross[-1]["entered"] == _C and fake.fired[-1]["to"] == _C
+
+
+@pytest.mark.parametrize("leg", ["replay", "tour"])
+@pytest.mark.parametrize("kid_walks", ["on", "into him"])
+def test_a_door_a_walker_held_him_at_is_crossed_by_the_tour_and_the_replay_alike(game, monkeypatch, leg, kid_walks):
+    """Session 3's stock run, through the tour's own crossing call (Tour._cross -- the one route_cross call the tour and
+    the replay both make): on A's door step a child steps up against him and walks on, or walks into him and is held
+    there. The crossing used to come back a MISS, a REAL strike (two made the door unreachable). Now the walker is
+    waited on or stepped away from and the door is crossed: no strike, and the replay's step is replayed as the tour's
+    is crossed. A's east door: its goal 4u inside the zone, he 34u short of it."""
+    fake, tour, D = _replay_world(game, monkeypatch)
+    fake.advance = (_B, 2610)
+    door = _rect(400, -40, 600, 40)                    # A's east door, 80u wide: the child covers its standable patch
+    fake.regions[_A][0]["zone"] = door
+    tour._gates[_A] = [(_B, 0, door), (_C, 0, _WEST)]
+    tour.goal_for = lambda fid, i: (404, 0) if (fid, i) == (_A, 0) else D.Tour.goal_for(tour, fid, i)
+    kid = _door_kid(6, kid_walks, at=(525.0, 0.0))
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        _stand(g, fake, 370, 0)
+        fake.blockers = {_A: [kid]}
+        published(g, lambda s: s.objects and s.objects[0]["moving"])
+        g.ROUTE_NPC_REPLANS = 0
+        g.ROUTE_WALKER_BUDGET = 240
+        stood = _step_in_front(g, _door_step_up(kid, kid_walks), past=360)
+        if leg == "replay":
+            stop = tour.replay(g, log, [[_A, 0, _B]], beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+        else:
+            stop = tour.run(g, log, beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    assert stood, "premise: the child stepped up on the door step"
+    first = [x for x in log if x["k"] == "cross"][0]
+    assert first["entered"] == _B and first["verdict"] == ("replayed" if leg == "replay" else "crossed"), first
+    assert first["box_cleared"] >= 1 and 6 in [uid for uid, _kind, _moving in first["boxers"]], first
+    assert (first["held_by"], first["pinned"]) == (None, []), first
+    assert stop.startswith(f"SC left 2600: now 2610 in field {_B}"), stop
+    assert [f["to"] for f in fake.fired] == [_B], fake.fired
+
+
+def test_a_walk_reads_off_any_log_the_tour_wrote():
+    """The partner's walk, off its log: every crossing that ENTERED a field, in order, in donor terms. A crossing the
+    tour or a replay drives names the place it entered (``entered``); a log written before that (session 2's: its
+    ``entered`` named the trigger radii, now ``triggers``) is read the old way -- landed (late or not), or the room
+    route_cross's error names (the 353 bounce) -- a fork id as its donor, and the attempts that never left the room
+    are not part of the walk."""
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import dali_tour as D
+    reached = "crossing from {} reached field {}, but it never became playable within 20s -- the gateway WORKS and"
+    old = [
+        {"k": "segment", "ok": True},
+        {"k": "cross", "leg": "tour", "from": 352, "exit": 0, "to": 351, "landed": 351, "entered": [[12, "range", 90]]},
+        {"k": "cross", "leg": "tour", "from": 350, "exit": 0, "to": 351, "landed": None, "inside": True, "entered": []},
+        {"k": "scene", "why": "after crossing 3"},
+        {"k": "cross", "leg": "tour", "from": 350, "exit": 2, "to": 353, "landed": None, "error": reached.format(350, 353)},
+        {"k": "donor", "field": 30833, "members": 350, "engine": 350},
+        {"k": "cross", "leg": "tour", "from": 30833, "exit": 2, "to": 30835, "place": 350, "to_place": 353,
+         "landed": None, "error": reached.format(30833, 30835)},
+        {"k": "cross", "leg": "back", "from": 30833, "exit": 6, "to": 450, "place": 350, "to_place": 450, "landed": 450},
+        {"k": "cross", "leg": "tour", "from": 356, "exit": 2, "to": 358, "verdict": "unreachable: no standable goal"},
+        {"k": "cross", "leg": "tour", "from": 350, "exit": 1, "to": 354, "landed": 354, "landed_late": True,
+         "error": reached.format(350, 354)},
+    ]
+    assert D.entered_walk(old, {30833: 350, 30835: 353}) == [
+        [352, 0, 351], [350, 2, 353], [350, 2, 353], [350, 6, 450], [350, 1, 354]]
+    new = [{"k": "cross", "leg": "replay", "from": 350, "exit": 2, "to": 353, "place": 350, "entered": 353,
+            "landed": None, "error": reached.format(350, 353)},
+           {"k": "cross", "leg": "tour", "from": 350, "exit": 4, "to": 355, "landed": None, "entered": None,
+            "triggers": [[12, "range", 90]]},
+           {"k": "cross", "leg": "tour", "from": 355, "exit": 0, "to": 350, "landed": 350, "entered": 350}]
+    assert D.entered_walk(new) == [[350, 2, 353], [355, 0, 350]]
+    assert D.entered_walk(new, legs=("replay",)) == [[350, 2, 353]]
+    # the crossing's own record: a bounce over inside the wait "landed" in the room it left -- it entered 353
+    assert D.entered_field({"from": 350, "landed": 350, "changed_to": 353}) == 353
+    assert D.entered_field({"from": 350, "landed": 354, "changed_to": 354}) == 354
+    assert D.entered_field({"from": 350, "landed": 350}) == 350            # no changed_to: read as before
 
 
 def test_key_twist_operand_follows_memoria_ini(game):

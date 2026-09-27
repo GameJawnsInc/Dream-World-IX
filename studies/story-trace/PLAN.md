@@ -3,7 +3,14 @@
 **Status:** ★ **rung 0 in-game PROVEN 11/11** (`story-rung0`): s88 is live (sha `c55377f6c137d442…`, backups `20260924-172331`), and the trace on stock Lindblum 552 joined every script write to a store in the stock bytes. **Rung 1 ★ in-game 11/11** (`story-rung1`): the residue net and the epochs. **Rung 2 ★ in-game 8/8**
 (`story-rung2`): THE NULL PAIR -- stock 552 x3 vs its verbatim fork x3, STOCK ONLY and FORK ONLY both empty.
 **Rung 3 step 1 ★ in-game 7/7** (`story-rung3-s1d`): an unattended blind tour of stock Dali reached 450, the
-trace named 450 as the only writer of the ping, and the story moved on by itself. Next: rung 3's fork sides.
+trace named 450 as the only writer of the ping, and the story moved on by itself. **Rung 3 ★★ THE RETRODICTION,
+in-game 17/18 + 1 VOID** (`story-rung3c`, predictions v2): against stock Dali x3, today's import-chain (F0, x3,
+each replaying its stock partner's walk) and the round-4 seed (F4, x3), the trace -- no script reading -- named
+450 as the ping's only writer, F0's seam into the real 450, F4's pre-empted latches and its byte-297 clobber, and
+found F0 otherwise write-for-write stock (MIRROR: FORK ONLY and STOCK ONLY empty). The VOID is NULL-PRE's
+stock-side evidence from 355 (a walker at its door). **The walker now meets stock's door facing gate** (the 23
+facing misses; s90 closed loop, built offline, not yet walked in the game). Next: its in-game check, then rung 4
+(fork-report's story-writes axis).
 
 Board entry #3 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It is the narrative-state arc's missing
 instrument ([`../narrative-state/PLAN.md`](../narrative-state/PLAN.md)).
@@ -246,6 +253,117 @@ mostly clean plans round NPCs, one push-through, no bump loops.
 
 Next: the fork sides (F0 = the current import-chain output, which omits 450; F4 = the round-4 seed, with the
 297-clobber the research found) against this stock run -- the retrodiction itself.
+
+### Rung 3, the retrodiction -- session 1 (`story-rung3`, VOID by its own rule)
+
+The fork sides are deployed (F0 = today's import-chain, 30831-30841, 450 a seam from member(350); F4 = round 4
+exactly, 30842-30852 -- `rung3_forks.json`) and the nine-run session ran against the frozen predictions
+(`rung3_predictions.json`, sha 220532a8, recorded before run 1). Pre-flight passed on the live install (manifest,
+registrations, ForkDonorPatch, member floors = donor floors, exits, no stock overrides).
+
+**Round 1 was covered on every side (S#1, F0#2, F4#3); every later run was VOID** -- the scripted wake left
+Zidane at (-133, 847) in the inn room, 59u off the walkmesh edge, and the planner's fixed 80u wall clearance
+found no route out (the real player radius there is smaller). The VOID rule did its job: every retrodiction
+check reported VOID (1 of 3 covered runs a side), never a verdict it had not earned; R3-DONOR, R3-JOIN (0 join
+failures over all 13 runs) and NC-THROW passed.
+
+**An exploratory N=1 look at round 1 (NOT the registered verdict -- the analysis re-run with min_covered = 1):**
+- R3-PING: `Bit[2102] := 1` written by 450 alone.
+- R3-SEAM: F0's first seam `member(350) [30833] -> 450`; the ping reached only across it; no F0 donor writes it.
+- R3-ADVANCE: F0 reached 2610 in the REAL 354 (after the seam the morning plays in the real game); F4 never did.
+- R3-LATCH: for F4 every hub-gated write is STOCK ONLY (351's lobby 2064/2078, 450's 2086 := 0, 450 e19's
+  ping/296/2085, the controller's 2079/2075), and the CLOBBER report names byte 297.
+- R3-PREEMPT: 2064, 2079, 2075 stamped in every F4 member, beside the stock writers that set them later
+  (351 e16 +112; the 356 controller +222/+315).
+- R3-NULL-PRE / MIRROR: two STOCK ONLY keys, `359 e5 t17 +49 Byte[299] = 6 / 7` -- a villager's dialogue
+  timer that counts frames until Confirm (`while Byte[299] < 30 && !KEYON(Confirm): Byte[299]++`), i.e. input
+  timing, not a fork difference. N = 3 exists to turn exactly this into UNSTABLE rather than STOCK ONLY.
+
+Next: the start-clearance fix (plan out of a spot tighter than the planning clearance, never deeper), then the
+session again for three covered runs a side.
+
+### Rung 3, the retrodiction -- session 2 (`story-rung3b`): 16/18; both misses are the walk's order, not the fork
+
+Ten runs, 7005s, against the same frozen predictions (sha 220532a8). Coverage: S 3 of 3, F0 3 of 4 (run 2 VOID:
+boxed among the walking Dali children after Vivi's scene, the story never moved; re-run 10 replaced it), F4 3 of 3.
+- **PASS:** the six pre-flight checks, P-FROZEN, R3-RUNS, R3-DONOR, R3-JOIN (0 failures), NC-THROW, and every
+  retrodiction claim at N = 3 -- R3-PING (`Bit[2102] := 1`, writers {450: 3}), R3-SEAM (every F0 run's first seam
+  `member(350) [30833] -> 450`, the ping reached only across it, no F0 donor writes it), R3-ADVANCE (F0 reached 2610
+  in the REAL 354 every run, F4 never), R3-LATCH (every hub-gated write STOCK ONLY for F4; the CLOBBER report
+  names byte 297), R3-PREEMPT (2064/2079/2075 stamped in every F4 member beside their stock writers).
+- **FAIL R3-NULL-PRE:** its claim held -- MISSING 0: all 171 keys stock writes before 450 in every run were
+  written by the members in every F0 run -- but its non-vacuity clause did not: 40 tour keys (want >= 60), none
+  from 355 or 356.
+- **FAIL R3-MIRROR:** FORK ONLY `355 e3 t0 +12 SByte[296] = -64`, `355 e18 t0 +383 Int16[241] = 12`; STOCK ONLY
+  `350 e2 t1 +12 / +49 SByte[296] = 1 / 2`, `356 e2 t1 +12 SByte[296] = 1`, `355 e18 t0 +383 Int16[241] = 8`.
+
+**The diagnosis (the traces, run by run): one cause -- the sides walked Dali in different orders.**
+- S#7 and F0#5/#8 crossed identically until 350 exit 4 (to 355). There all three stock runs came back `boxed`
+  (the children, the defect below) and went on to 450 first, seeing 355 only after it; all three F0 runs crossed
+  first time and saw 355 before the seam. (S#1 also missed 356 before 450.)
+- `SByte[296]` is a countdown the morning runs after the ping: 450 e19 sets it to 3, each room's controller
+  (tag 1, +12) steps it down on entry (350's re-arms it, +49), and the room that takes it to 0 does the flip
+  (`Int16[241]` 8 -> 32, 296 := -64). Which room writes which value IS the visit order after 450. `Int16[241]`
+  is order-carried the same way (450's Main_Init sets 12 -> 8; 355's +383 stores what it finds), and 355 e3's
+  same-value `-64` store runs only while the countdown is idle -- only when 355 comes before 450.
+- NULL-PRE's "before 450 in every stock run" lost 355 (after 450 in every stock run) and 356 (after it in S#1).
+- None of the six keys is a fork difference: each is a (state, order) pair both sides write under the same walk.
+  The registered verdict stays 16/18. What failed is the design's untested premise that both sides walk the same
+  route -- `dali_tour.py` said so in a docstring and nothing checked it. The within-side walks are not fixed
+  either (every stock run's room sequence differs), so noise was never the risk; a SYSTEMATIC side difference
+  (3 of 3 boxed vs 0 of 3) was, and pattern-level STOCK/FORK ONLY cannot tell that from a fork difference.
+
+Next: (1) a box whose rule-breakers are walking waits for them before it scores a strike; (2) take the order out
+of the comparison by construction -- each fork run REPLAYS its stock partner's landed crossings (same exits, same
+order, each retried until it lands, VOID if it cannot), then tours blind past the partner's advance -- registered as
+predictions v2 before session 3, the claims unchanged; (3) session 3.
+
+### Rung 3, the retrodiction -- session 3 (`story-rung3c`, predictions v2): ★★ 17/18, the one non-PASS a VOID
+
+Nine runs, 5481s, no re-run needed: S 3 of 3, F0 3 of 3 (each replayed every step of its partner's walk -- 21, 23,
+23 -- and its story moved on at its partner's advancing step, in the real 354), F4 3 of 3. Predictions v2 (sha d6dd541c),
+frozen before run 1.
+- **PASS** -- the six pre-flight checks, P-FROZEN, R3-RUNS (0 VOID runs), R3-DONOR, R3-JOIN (0 failures), NC-THROW;
+  and the retrodiction: R3-PING (`Bit[2102] := 1`, writers {450: 3}), R3-SEAM (every F0 run's first seam
+  `member(350) [30833] -> 450`, the ping reached only across it, no F0 donor writes it), **R3-MIRROR (0 FORK ONLY,
+  0 STOCK ONLY, 0 clobbers -- with the walks paired, today's import-chain writes exactly what stock writes, less
+  what lives across its seam)**, R3-ADVANCE (F0 at 2610 in the real 354 every run; F4 never), R3-LATCH (every
+  hub-gated write STOCK ONLY for F4; CLOBBER names byte 297, 1 -> 0 by the seed's `UInt16[296] = 192`),
+  R3-PREEMPT (2064/2079/2075 stamped in every F4 member, beside their stock writers).
+- **VOID R3-NULL-PRE** -- the claim held: 205 keys stock writes before 450 in every run, MISSING 0; 80 of them first
+  written in the tour, from 350/351/352/353/354/356 -- but no stock run gave 355 before 450 (S#1 never entered it:
+  a Dali child pinned Zidane short of its door twice; S#7 took it after 450 after a LIVE miss there), so v2 names
+  the stock side's evidence short: too little to say, not a falsification. Its six PARTIAL keys are one site,
+  `359 e5 t17 +49 Byte[299] = 1..6`: the villager's count of frames until Confirm, in the scripted segment (F0#5's
+  Confirm landed before the loop's first tick) -- input timing, not the fork.
+
+**What rung 3 proves.** The instrument does the job the arc built it for: pointed at a stock zone and two forks of
+it, with no script reading, the set difference names the missing field and its store (450 e19 +59, the ping), the
+fork's seam into the real game, the seed's pre-empted latches beside the stock writers they pre-empt, and the
+16-bit write that clobbers its neighbour byte -- and says nothing else. What it cost to get a clean comparison is a
+law of its own: **a fork-vs-stock diff is only as good as the walk is paired** -- a story byte like the
+`SByte[296]` countdown carries the visit order, and a blind walker that behaves systematically differently on two
+sides (3 of 3 boxed vs 0 of 3) fabricates STOCK/FORK ONLY keys the pattern-level compare cannot tell from a fork
+difference. Replay the stock walk on the fork side; judge coverage, not outcome.
+
+### After rung 3: the walker meets stock's door facing gate (built and reviewed offline; not yet walked in the game)
+
+The 116-miss diagnosis (research `rung3-5`) left one class open: **23 misses were stock's door facing gate** -- he
+stood in the door's region facing wherever the walk left him, nothing fired, and the tour struck the door. Grounded
+in the engine and the stock bytes (research `rung3-6`): 122 of 1393 walk-in gateways (98 fields; 6 of 350's doors,
+and 351/353/356 have one each) run the warp only while his facing byte is within 47/256 of a turn of the bearing to
+his projection onto the region's FIRST edge -- strict (48 fails), re-tested every tick he stands in it; the facing
+lerps 40% per MovePC CALL (a walked tick is one), a press into a wall still turns him, and `player.dir` is 0 on
+every field. Built: `content.doorface` (the rule, engine-exact, no game table), `scan_gateways`' `face_gate` /
+`region` (the detector matches the stock census 100/100), a fake game that models the gate (so a test can fail),
+and a walker that faces a GATED door when it stands in it with nothing fired. **Engine patch s90** (deployed by the
+owner) publishes the real facing (`player.face`, the byte the gate compares, from EBin's own read) and a `turn`
+verb that turns him in place, so on this engine the step is a closed loop: turn with zero travel, judge the door by
+the MEASURED byte. The walked press, sized by a prediction and kept inside the region, is the fallback on an engine
+without s90. The tour's verdicts: a gated door the walker never faced is LIVE (no strike; a replay steps back first),
+a door faced and still shut is the door's MISS, and the 353 "never became playable" crossing is a bounce. Four
+workflows, each reviewed from several lenses with every finding verified (31 + 16, all real, all fixed or pinned),
+mutation-tested; the in-game check is the next session's first job, on the owner's go (HANDOFF.md).
 
 ## Rungs
 
