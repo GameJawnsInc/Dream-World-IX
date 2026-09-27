@@ -16,19 +16,18 @@ diagnosis); this file is the open work and where the research lives.
   new version registered before its session.
 - **Engine:** s88 (story trace) + s89 (harness publishes field objects) + s90 (harness publishes the facing, `turn`
   in place) are in the LIVE install DLL (sha `ba9762423da8f3d7`, backups `20260926-171239`, built by the owner),
-  NOT in the shipped engine bundle yet. s90 is compile-checked and deployed but NOT yet exercised in the game.
+  NOT in the shipped engine bundle yet. s90 is proven in the game (`story-facing-check` 8/8, 2026-09-27).
 - **Deployed in `FF9CustomMap`:** 23 fork ids -- 30830 (rung 2's verbatim 552) and the rung-3 chains 30831-30841
   (F0) / 30842-30852 (F4), `studies/story-trace/rung3_forks.json`. Every session's pre-flight re-verifies them.
 
 ## Open work, in order
 
-1. **The in-game check of the facing step -- needs the OWNER's go (the standing rule: never launch the harness
-   without it).** Nothing of this session has been walked in the game. Cheapest first look: on stock 350, stand in
-   the 351 door's region facing away, read `state.player_face` (it must equal what `doorface.gate_value_from_face`
-   predicts from the pad), `g.turn_in_place("right", 16)` (the `turn_end` must show `moved` <= 0.25 and the door
-   firing), then one tour pass (`studies/story-trace/dali_tour.py`) and read the crossing records' `faced` /
-   `face_measured`.
-2. **Optional session 4 -- the owner's go too.** On the fixed walker (door pin + the closed-loop facing), for three
+1. **DONE: the in-game check** (owner's go, 2026-09-27): `studies/story-trace/facing_check.py` 8/8
+   (`.harness-runs/20260927-110005-story-facing-check`) -- the rung-3 miss measured at 350's door to 351 (inside the
+   region 113/256 off, shut 90 frames), then the closed loop turned him in place (0.0u) and crossed; and one tour on
+   the fixed walker, `rung3_step1.py` 7/7 (`20260927-110443-story-facing-tour`), no facing miss. PLAN.md has the
+   numbers and the honest limits (the tour's gated doors all opened DURING the walk; the render rate, below).
+2. **Optional session 4 -- the owner's go.** On the fixed walker (door pin + the closed-loop facing), for three
    stock runs that enter 355 before 450, turning R3-NULL-PRE's VOID into a verdict. `PYTHONUNBUFFERED=1 py
    tools/play.py studies/story-trace/rung3_trace.py --label story-rung3d --timeout 240` (v2 is the default
    predictions file; ~1.5 h; the analysis alone, offline: `py studies/story-trace/rung3_trace.py --analyse <run
@@ -71,7 +70,11 @@ Range at SC 2600 then scene-gated region 25, 32; 5 are the 353 door step's ~34u 
   shut is the door's MISS (`face_measured` True); out of it turns again; a cut or a refusal a press would share is
   waited out, never a strike; control gone on an unchanged field is no door. The walked press above stays as the
   fallback only for a pre-s90 engine or `[AnalogControl] Enabled=0` (an overlapping body is waited for once first).
-- **Still open.** (1) Nothing here has run in the game yet (open work 1). (2) The walk's finish still targets the
+- **Still open.** (1) THE RENDER RATE: under the harness the game ran at 28-53 fps across runs (31, 53, 28, 32 --
+  measured from the state ring), never the 60 that `WALK_SPEED`/`RUN_SPEED` (per FRAME) assume, so a frame is up to
+  a whole 30 Hz tick: the open-loop press's call count, and every hold sized in frames, can be off 2x (the closed
+  loop measures and is immune). Derive calls per frame from the measured frame rate, or from a turn's yaw0 -> yaw.
+  (2) The walk's finish still targets the
   kit's quad: a walk can end in a 5-point region's dead middle, which the step reads LIVE (no Dali gated door has a
   standable dead middle; 8 stock gated rows elsewhere do). (3) On a pre-s90 engine, 350's door to 353 is still
   refused from the tour's goal pocket by the wall-slide bound (LIVE; the in-place turn faces it). (4) Not modelled:
