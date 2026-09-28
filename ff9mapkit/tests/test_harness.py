@@ -2620,7 +2620,10 @@ def test_settle_waits_for_the_character_to_actually_stop(game):
     """Every displacement this driver measures is a difference of two positions, and it is only
     attributable to the burst between them if the character is stationary at both ends."""
     fake = FakeGame(game)
-    fake.coast_frames = 8               # an exaggerated tail, to make the window visible
+    # an exaggerated tail, to make the window visible: long enough (half a second of the fake's loop) that the read
+    # right after the ack still lands inside it on a loaded machine -- at 8 frames a slow read missed it (the premise
+    # assert below) in suite runs beside other agents' runs
+    fake.coast_frames = 30
     with session(game, fake) as g:
         boot(g)
         g.warp(30810)
@@ -5346,7 +5349,9 @@ def test_control_gone_for_good_on_an_unchanged_field_is_no_door_and_no_strike(ga
         _on_turns(fake, (1, 2, lambda: setattr(fake, "control", False)))
     with session(game, fake) as g:
         _gated_start(g, fake, (450, 0), yaw=90.0)
-        rec = _here_cross(g, _EAST_DOOR, timeout=1)
+        # the budget covers route_to's own start (control held a whole Session.SETTLE, 1 s) before the wait for control
+        # to come back: 1 s left no room for the first, and a loaded suite (-n 6 beside other runs) timed it out there
+        rec = _here_cross(g, _EAST_DOOR, timeout=3)
     assert not fake.control and not fake.fired, "premise: control gone, the field unchanged"
     assert rec["during"] == "face" and rec["landed"] is None, rec
     assert (rec["faced"], rec["face_measured"], rec["face_err"]) == (False, False, None), rec
