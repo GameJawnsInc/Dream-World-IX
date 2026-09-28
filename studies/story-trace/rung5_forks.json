@@ -7,7 +7,7 @@
  "gen_hub": "py -m ff9mapkit gen-hub C:\\gd\\_ns_playtest\\f5\\hub\\journeys.toml  (WITHOUT --extract-camera: the camera is the co-located camera_hub.bgx)",
  "build": "py -m ff9mapkit build <toml> --out <build dir>/<id>  (offline; only advisory spawn/pitch warnings)",
  "deploy": "only on the owner's go, FF9 closed, from the worktree: py tools/deploy_field.py <toml> --id N --name <T5 name> --mod-folder FF9CustomMap -- one id per call, >= 1.1 s apart, members 31101..31112 then the hub 31100; after each, its revert STAMP distinct and its backups free of its own lines. Never deploy-campaign / deploy-journey (they wholesale-replace FF9CustomMap).",
- "deployed_at": null,
+ "deployed_at": "2026-09-28 15:27:00-15:28:03 local",
  "mod_folder": "FF9CustomMap",
  "relaunch_needed": true,
  "relaunch_why": "13 FieldScene lines, MessageFile 31100 and 12 ForkDonorPatch rows are read at launch only",
@@ -122,14 +122,39 @@
  "journal_patch": {
   "built_sha256": "85332e7972db3ac5fc501f41c3ef2bb761dcedc321f53484d50ecb227e663073",
   "live_sha256_at_build": "85332e7972db3ac5fc501f41c3ef2bb761dcedc321f53484d50ecb227e663073",
-  "live_sha256_at_deploy": null,
-  "guard": "the live sha must equal the built one right before the first deploy (stop if not), and be compared again before any revert"
+  "live_sha256_at_deploy": "85332e7972db3ac5fc501f41c3ef2bb761dcedc321f53484d50ecb227e663073",
+  "guard": "the live sha must equal the built one right before the first deploy (stop if not), and be compared again before any revert",
+  "live_sha256_after_deploy": "85332e7972db3ac5fc501f41c3ef2bb761dcedc321f53484d50ecb227e663073"
  },
- "stamps": null,
- "verified": null,
+ "stamps": {
+  "31101": "20260928-152700-671588",
+  "31102": "20260928-152739-518967",
+  "31103": "20260928-152741-732670",
+  "31104": "20260928-152743-958169",
+  "31105": "20260928-152746-144496",
+  "31106": "20260928-152748-340633",
+  "31107": "20260928-152750-530872",
+  "31108": "20260928-152752-818133",
+  "31109": "20260928-152755-068979",
+  "31110": "20260928-152757-241088",
+  "31111": "20260928-152759-415107",
+  "31112": "20260928-152801-596213",
+  "31100": "20260928-152803-879589"
+ },
+ "verified": {
+  "ids_free_before": "step 0 re-run right before the deploy: no FieldScene/MessageFile 311xx in the six Memoria.ini folders, no 311xx ForkDonorPatch row, none in the ledger, no revert_deploy_311* script",
+  "per_call": "13 calls, members 31101-31112 then the hub, >=1.2 s apart; every revert script's STAMP distinct (microsecond stamps); each DictionaryPatch.txt.preDEPLOY.<STAMP> without its own FieldScene line, each ForkDonorPatch backup (12 members; none for the hub) without its own row",
+  "registered": "each of 31100-31112 registered exactly once across the six folders; MessageFile 31100 MES_DWIX_31100 once",
+  "kept": "DictionaryPatch and ForkDonorPatch keep every pre-deploy line (diff against the f5pre backups: 0 missing; added exactly the 13 FieldScene lines + MessageFile 31100, and the 12 rows 31101 351 .. 31112 450, none for 31100)",
+  "journal_patch": "live sha unchanged by the deploy (85332e79...)",
+  "eb": "each member's EVT_<name>.eb.bytes present in all 7 languages and equal to its frozen sha; the hub's us/uk equal its frozen sha, its es/fr/gr/it/jp differ in ~25 bytes near offset 44 (per-language window data), same length and the same 14 store sites and values in every language",
+  "reverts": "13 per-id scripts in C:\\gd\\Dream-World-IX\\tools\\scroll_out; the generic revert_deploy.py now names 31100 (never use it)",
+  "preflight": "py studies\\story-trace\\rung5_hub.py --preflight: P-MANIFEST, P-DEPLOY, P-HUB (twist [255,255]), P-PURE, P-FLOOR, P-EXITS, P-STOCK all PASS against the live install"
+ },
  "revert": {
   "scripts_dir": "C:\\gd\\Dream-World-IX\\tools\\scroll_out",
   "order": "per-id scripts only, 31100, then 31112 down to 31101",
   "generic_latest": "tools\\scroll_out\\revert_deploy.py will name 31100 after the deploy: never use it"
- }
+ },
+ "pre_deploy_backups": "C:\\gd\\Dream-World-IX\\backups\\{DictionaryPatch,ForkDonorPatch,JournalPatch}.txt.f5pre.20260928-152612 (FF9CustomMap, taken right before the first deploy)"
 }

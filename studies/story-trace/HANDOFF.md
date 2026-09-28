@@ -21,6 +21,9 @@ Rewritten at the end of the facing-gate session, and updated after rung 4 and se
   NOT in the shipped engine bundle yet. s90 is proven in the game (`story-facing-check` 8/8, 2026-09-27).
 - **Deployed in `FF9CustomMap`:** 23 fork ids -- 30830 (rung 2's verbatim 552) and the rung-3 chains 30831-30841
   (F0) / 30842-30852 (F4), `studies/story-trace/rung3_forks.json`. Every session's pre-flight re-verifies them.
+  **Also F5's 13 ids** since 2026-09-28 15:27: the hub 31100 and the members 31101-31112 (`rung5_forks.json`:
+  stamps, the f5pre backups, verified; `--preflight` 7/7 PASS). Revert only through the per-id scripts, 31100 first
+  and then 31112 down to 31101. The generic `revert_deploy.py` now names 31100.
 
 ## Open work, in order
 
