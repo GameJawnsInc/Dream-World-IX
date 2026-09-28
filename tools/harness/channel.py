@@ -58,11 +58,20 @@ from pathlib import Path
 #:      ``player.face``, the ``turn`` verb and its ``turn_end`` event -- :attr:`State.facing_status`.)
 PROTOCOL = 5
 
-#: The agent polls the arm file every 30 frames (HarnessAgent.PollArm). A delete+create inside one
+#: The agent polls the arm file every 30 FRAMES (HarnessAgent.PollArm). A delete+create inside one
 #: window is INVISIBLE to it -- ``armed == Active``, early return, no reset of seq/ack, no button
-#: clear. So a re-arm has to outlast the poll to be a real transition, and this is that wait, sized
-#: for a game running well below 60fps.
-ARM_CYCLE_SECONDS = 0.85
+#: clear. So a re-arm has to outlast the poll to be a real transition -- and the agent SAYS when it
+#: has seen the disarm: the frame its poll finds the arm file gone, it publishes one last document,
+#: ``"armed": false`` (HarnessAgent.cs:396-409, the s83 agent), before it stops publishing. The arm
+#: cycle waits for that document (:meth:`Channel.arm`), at most this long -- 30 frames down to 10
+#: fps. It used to sleep 0.85 s, which was shorter than the poll at the ~31 fps the harness has
+#: rendered at for whole launches (a second): an attach-mode re-arm could go unobserved there, and
+#: the held keys, the error latch and the story tracer were never reset.
+ARM_CYCLE_TIMEOUT = 3.0
+
+#: How often the arm cycle reads state.json for the agent's disarm document -- a few times a frame at
+#: any render rate the harness has seen.
+ARM_CYCLE_POLL = 0.005
 
 #: A published document older than this is not a live game talking.
 STALE_AFTER = 5.0
@@ -877,7 +886,7 @@ class Channel:
                 f"is dead."
             )
 
-    def arm(self, *, force_cycle: bool = True) -> None:
+    def arm(self, *, force_cycle: bool = True) -> bool | None:
         """Arm the agent -- as a REAL false->true transition, not merely 'a file exists'.
 
         ⚠ Writing over an existing ``arm`` file is a NO-OP as far as the agent is concerned. Its
@@ -887,15 +896,25 @@ class Channel:
         next run an agent that discards its requests as stale while acking instantly -- every step a
         silent no-op, and the first measurement blames the game.
 
-        So: delete, wait out the agent's 30-frame poll so the disarm is OBSERVED, then create.
-        ``force_cycle=False`` skips the wait when there is no game running to observe it.
+        So: delete, wait until the agent has OBSERVED the disarm -- its published final document says
+        ``"armed": false`` (:data:`ARM_CYCLE_TIMEOUT`) -- then create. ``force_cycle=False`` skips the
+        wait when there is no game running to observe it.
+
+        Returns whether the disarm was seen: True (the agent published it), False (not within
+        ARM_CYCLE_TIMEOUT -- an agent that publishes no ``armed``, a faulted one, which publishes
+        nothing while disarmed, or a game stalled that long: the caller says so, and its own check of
+        the agent's sequence number still guards every request), None (no cycle: no arm file to
+        delete, or ``force_cycle`` False). An agent the last document already shows DISARMED needs no
+        wait: the arm below is a real transition whenever it next polls.
         """
         self.claim()
         self.dir.mkdir(parents=True, exist_ok=True)
+        seen = None
         if self.arm_path.exists():
+            before = self.state() if force_cycle else None
             _unlink(self.arm_path)
             if force_cycle:
-                time.sleep(ARM_CYCLE_SECONDS)
+                seen = True if before is not None and before.armed is False else self._await_disarm(before)
                 # The disarm just observed ran a still-tracing agent's StoryTrace.Stop, whose last append
                 # (residue, counts, `off`) lands AFTER reset() cleared story.jsonl -- a leaked arm's tail
                 # that would open this run's trace. The arm below resets the tracer, so none of this
@@ -908,6 +927,24 @@ class Channel:
             "tool": "tools/harness",
         }), encoding="utf-8")
         self._armed_by_us = True
+        return seen
+
+    def _await_disarm(self, before: State | None) -> bool:
+        """Read state.json until the agent's DISARM document is there -- ``"armed": false``, written after
+        ``before`` (the last document read before the arm file went: a later frame, or any when there was
+        none) -- at most ARM_CYCLE_TIMEOUT. The agent writes it on the frame its poll (every 30 frames)
+        finds the arm file gone, having released every held button, stopped the story tracer and cleared
+        its queue (HarnessAgent.PollArm); an ``armed`` true document meanwhile is the agent not having
+        polled yet. True once seen, False at the timeout."""
+        deadline = time.time() + ARM_CYCLE_TIMEOUT
+        while True:
+            st = self.state()
+            if (st is not None and st.armed is False
+                    and (before is None or st.frame > before.frame)):
+                return True
+            if time.time() >= deadline:
+                return False
+            time.sleep(ARM_CYCLE_POLL)
 
     def disarm(self) -> None:
         """Remove OUR arm. Never another live run's -- stealing it would silently un-gate their game."""
@@ -975,7 +1012,8 @@ class Channel:
         partly written document, and a 1-in-500 flake would discredit every assertion built on this.
 
         ⚠ A Windows SHARING VIOLATION is not "no state" and must not be reported as one. The agent
-        rewrites this file ~30 times a second and a poller can easily collide with it. Treating the
+        rewrites this file every 2nd frame -- 15 to 30 times a second at the ~31 or ~60 fps the harness
+        renders at -- and a poller can easily collide with it. Treating the
         resulting PermissionError as absence made the driver declare a perfectly healthy game dead,
         and that false verdict was then repeated as "walking out of the room hangs the game" -- a bug
         attributed to the game that lived entirely in the driver. Locks get their own, much longer,

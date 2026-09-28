@@ -41,11 +41,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ff9mapkit"))
 
 from ff9mapkit.config import find_game_path                      # noqa: E402
+from ff9mapkit.content.doorface import STEP_PER_CALL              # noqa: E402
 
 from .artifacts import STATE_RING, StateRing, StepLog, build_env         # noqa: E402
-from .channel import BUTTONS, PROTOCOL, Channel, HarnessError, State, StepRefused   # noqa: E402
+from .channel import (ARM_CYCLE_TIMEOUT, BUTTONS, PROTOCOL, Channel, HarnessError, State,   # noqa: E402
+                      StepRefused)
 from .logs import (MEMORIA_LOG, PARSERS, UNITY_LOG, UNITY_LOG_PATH,     # noqa: E402
                    LogException, frame_after, line_start_offset, read_from, split_lines)
+from .tickrate import CALLS_PER_TICK, TAIL_TICKS, Rate, TickClock, read_field_tps   # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 RUNS = REPO / ".harness-runs"
@@ -72,14 +75,9 @@ MAX_FIELD_ID = 32767
 PLAYER_SAVE_DIR = Path(os.path.expandvars(
     r"%USERPROFILE%\AppData\LocalLow\SquareEnix\FINAL FANTASY IX\Steam\EncryptedSavedData"))
 
-#: The game's render rate, used ONLY to convert a frame-counted hold into the wall-clock window a
-#: real-seconds engine threshold needs. Everything else in this driver is measured in frames or
-#: closed-loop on state; this is the one place the two units have to meet.
-FRAMES_PER_SECOND = 60.0
-
-#: A published document this recent counts as a LIVE game talking. The agent republishes ~30x/second,
-#: so anything older is a photograph -- and a photograph satisfies most predicates just as well as a
-#: running game does.
+#: A published document this recent counts as a LIVE game talking. The agent republishes every 2nd frame --
+#: 15 to 30 times a second, as the harness renders at ~31 or ~60 fps (harness.tickrate) -- so anything older
+#: is a photograph -- and a photograph satisfies most predicates just as well as a running game does.
 LIVE_WITHIN = 2.0
 
 #: How long state.json may stay unreadable before the CHANNEL, not one read, is called dead. A single
@@ -297,10 +295,31 @@ class Session:
         self._shot_on_failure = True
         self._evidence = 0
         self._last_failure_frame: int | None = None
-        #: The last ~10 s of published state, fed by the reads every wait already makes (the
-        #: channel's observer) -- no thread, no extra poll. Flushed to states-<tag>.jsonl on failure
-        #: and always once at stop, BEFORE quit, which is the moment state-final.json gets wrong.
+        #: The last ~10 s of published state (~20 s at 31 fps: artifacts.STATE_RING), fed by the reads
+        #: every wait already makes (the channel's observer) -- no thread, no extra poll. Flushed to
+        #: states-<tag>.jsonl on failure and always once at stop, BEFORE quit, which is the moment
+        #: state-final.json gets wrong.
         self._ring = StateRing(state_ring)
+        #: The game's render rate and field tick rate, MEASURED from the same reads (harness.tickrate.TickClock:
+        #: consecutive published frames paired with their write time) -- every press is sized, and every rule
+        #: judged, by :meth:`rate`, never by a frame count taken to mean a distance. The tick rate is the ini's
+        #: ``[Graphics] FieldTPS`` (30 when it does not say) until a published tick counter measures it.
+        self._clock = TickClock(read_field_tps(self.game_path))
+        #: Every move of the measured rate the clock reported (:meth:`_note_rate`): ``(before, now)`` as dicts --
+        #: the first estimate of the launch, and any later move past harness.tickrate.CHANGE_FRACTION (the 60 -> 31
+        #: switch seen once mid-launch). Logged as it happens and carried in report.json.
+        self.rate_changes: list[dict] = []
+        #: The movement cross-check's strikes in a row (:meth:`_check_movement`): free presses that moved him
+        #: outside what the measured rate says, since the last one that did not.
+        self._strikes: list[str] = []
+        #: Whether the newest state read says the field INHIBITS RUNNING (``input.dash_inh`` 1: stock's DASHOFF,
+        #: EventEngine.DoEventCode.cs:3009-3012 -- the Prima Vista cargo room, the Palace Dungeon, a Lindblum inn
+        #: region): a run hold then walks, one MovePC call a tick (FieldMapActorController.cs:196-198). Read on every
+        #: state, like the clock (:meth:`_observe`); what :meth:`_gait` answers.
+        self._dash_inh = False
+        #: The published frames the last :meth:`_pressed` measured between (its settled reads before and after): the
+        #: span the movement cross-check asks the clock about (TickClock.excess_ticks -- a hitch in it).
+        self._press_span: tuple | None = None
         #: (time, byte size) of Unity's log, noted on the same reads -- see UNITY_NOTE_EVERY.
         self._unity_notes: collections.deque = collections.deque(maxlen=UNITY_NOTES)
         self.channel.observer = self._observe
@@ -360,14 +379,24 @@ class Session:
         self.channel.reset()
         # A game that is already up must OBSERVE the disarm before the re-arm, or the agent never
         # resets its sequence numbers and every step we send is discarded as stale while acking
-        # instantly. With nothing running there is no observer, so the wait is skipped.
-        self.channel.arm(force_cycle=bool(running))
+        # instantly. With nothing running there is no observer, so the wait is skipped. The cycle
+        # waits for the agent's own disarm document (channel.ARM_CYCLE_TIMEOUT); one it never saw is
+        # said here -- _adopt_agent's sequence check still guards the requests, not the held keys.
+        if self.channel.arm(force_cycle=bool(running)) is False:
+            self._log(f"!! the agent published no disarm within {ARM_CYCLE_TIMEOUT:.0f}s of the arm file going (an "
+                      f"engine that does not publish `armed`, a faulted agent, or a game stalled that long): "
+                      f"re-armed anyway -- if it never saw the cycle, its held keys, error latch and story "
+                      f"tracer are the last run's")
         # The arm file gates a shared install: if this process dies without running stop(), the next
         # session's game silently boots with the harness live. __exit__ is not enough -- a bare
         # sys.exit or an unhandled raise outside the with-block skips it.
         atexit.register(self._atexit_disarm)
         self._log(f"channel {self.channel.dir}")
 
+        # A rate is never carried across launches (the regime is the launch's: 31 or 60 fps for a whole run),
+        # so whatever the clock saw before this start -- a previous game on the shared channel -- is forgotten.
+        self._clock.reset()
+        self._strikes.clear()
         self._boot_started = time.time()
         if not running:
             exe = self.game_path / "x64" / "FF9.exe"
@@ -757,11 +786,15 @@ class Session:
     UNITY_NOTE_EVERY = 1.0
 
     def _observe(self, st: State) -> None:
-        """Every State a read returns: into the ring, and a note of how long Unity's log is -- and the end
+        """Every State a read returns: into the ring, into the tick clock (:meth:`rate` -- the render rate is
+        measured from exactly these reads, no extra poll), and a note of how long Unity's log is -- and the end
         of a field VISIT for the unseen blockers route_to remembers. A sample on another field, or with
         control gone (a gateway, a scene, a warp's fade: anything that may move the room's people),
         drops them. Here and not at the verbs, so no way of leaving can forget to."""
         self._ring.push(st)
+        self._clock.observe(st)
+        inp = st.raw.get("input")
+        self._dash_inh = isinstance(inp, dict) and inp.get("dash_inh") == 1
         self._note_unity_log()
         if self._blockers[1] and (st.field_id != self._blockers[0] or not st.control):
             self._blockers = (-1, [])
@@ -1234,26 +1267,305 @@ class Session:
     # 1014, because he reached the edge of the walkmesh and stopped. Open-loop frame counts encode a
     # distance nobody measured, saturate silently against geometry, and bake in a constant that is
     # wrong on the next field. Everything below is closed-loop against the published position.
+    #
+    # THE CLOCK A PRESS IS PLANNED BY (harness.tickrate). He does not move per RENDER FRAME: field logic runs on
+    # wall-clock ticks, FieldTPS (30) a second (FPSManager.cs:77-111, HonoBehaviorSystem.cs:106 at stock 6b8bb2d5),
+    # and a tick moves him one MovePC call walking, two running, 30u each (FieldMapActorController.cs:198-209). So
+    # "30 units a frame" was true only at the 60 fps the bench was measured at -- and the harness has rendered at
+    # ~31 fps for whole launches, where a frame carries him twice that, and once at ~105. Every press here is
+    # planned by the MEASURED rate (:meth:`rate`), asking it for one of three kinds of number: the AVERAGE to SIZE
+    # a press (Rate.speed / frames_for: wrong costs an iteration), an UPPER bound for every RULE a press keeps
+    # (Rate.reach: how far he CAN have gone -- a zone he must not enter, a body he must not touch), a LOWER bound,
+    # in whole ticks, for anything that must be SURE (Rate.calls_sure / frames_for_ticks). A frame count taken to
+    # mean a distance is the one thing nothing here does any more -- and the constants that did (the per-frame run
+    # and walk speeds, the frames of movement tail) are gone, so a site that still asks fails loudly instead of
+    # silently judging half the reach.
+    #
+    # THE "AT 60 FPS" FIGURES QUOTED BELOW are an EXACT clock's -- the fake's published rt, a future engine's. Today's
+    # engine is timed by the state file's mtime, whose estimate is widened MTIME_WIDEN either way: at a steady 60 fps
+    # its spread is 58.8-61.2, and wherever N x 30 / fps is whole a sure count takes a frame more and a reach a tick
+    # more (a tick sure in 3 frames, not 2; the push lock 29, not 28; a settle a third still publish) -- honest at a
+    # 59.94 Hz display, and pinned by test_tickrate's test_todays_engine_at_a_steady_60_pays_a_tick_each_way.
 
-    #: World units per frame, measured on 30801 (studies/test-harness/scenarios/calibrate_movement.py) at that
-    #: machine's 60 fps -- a CONSTANT: nothing measures them again, and the render rate follows the monitor
-    #: (a tick of movement follows the wall clock), so on another monitor a frame covers another distance.
-    #: Used to SIZE a burst -- every move is still verified against the real position afterwards, so a field
-    #: where these are wrong costs an extra iteration rather than a wrong answer -- and, through
-    #: content.doorface.movepc_calls, to count the MovePC calls a press spends turning him (the facing step's open
-    #: loop, :meth:`_face_the_door`), which nothing reads back on an engine without s90: there it counts only the
-    #: whole calls a press is sure of, and a free press that moved him less than those calls step is counted by what
-    #: it moved -- and to size an in-place turn (:meth:`_turn_to_the_door`), whose outcome the engine reports.
-    RUN_SPEED = 30.0
-    WALK_SPEED = 15.0
+    #: Half of one MovePC call's step (content.doorface.STEP_PER_CALL): a DISTANCE, the same at every render rate --
+    #: the tolerance "moved at all", "in contact" and "one step past" are judged by, and the closest a walk can aim
+    #: (a call steps a whole 30u; a target nearer than half a step is as often passed as reached). It was once
+    #: spelled WALK_SPEED (15u, a walked frame at 60 fps), which is why it is 15 and not rescaled with the rate.
+    HALF_STEP = STEP_PER_CALL / 2.0
+    #: One field tick of RUNNING, in world units: two MovePC calls (tickrate.CALLS_PER_TICK) of STEP_PER_CALL. A
+    #: distance, never rescaled: the tail a burst may carry beyond its ticks (:meth:`_burst_is_evidence`), how near
+    #: a trigger's radius counts as within its reach (:meth:`_npc_fired`), a walker's fastest plausible walk
+    #: (:meth:`_npc_read`: two of these a tick).
+    RUN_TICK = CALLS_PER_TICK["run"] * STEP_PER_CALL
+    #: A need nearer than this is WALKED (Cancel held) -- walk_to's bursts and a smooth leg's holds
+    #: (:meth:`_plan_hold`): a run steps a whole RUN_TICK at a time, so a run press overshoots any tighter aim. A
+    #: DISTANCE, a run tick and a half: once ``3 x`` the run speed a frame, 90u at 60 fps -- but 180u at 30 fps and
+    #: 45u at 120, where a 3-frame run burst for a 50u need is sure of no tick at all.
+    WALK_UNDER = 1.5 * RUN_TICK
+
+    #: :meth:`rate` ``require=True``: seconds it waits for a MEASURED rate before it refuses -- seconds of the GAME'S
+    #: clock (its published ``rt``, else the state file's mtime) AND of the wall's, both: what it waits for is counted on
+    #: the game's clock -- the visit's first harness.tickrate.ARRIVAL_SECONDS (1 s) of steady frames, then MIN_PAIRS (8)
+    #: pairs of published frames, another half second at 31 fps publishing every other frame -- so 2 s from the first
+    #: frame with control covers the slowest regime seen. On the real engine the two clocks are one. A stand-in whose
+    #: frame loop runs slower than its virtual render rate (a busy machine, the nightly gate's six workers) lives its
+    #: second of arrival over several of the wall's, and a wall-only budget refused a rate on a healthy fake. After the
+    #: first estimate the rate carries across fields and the wait costs nothing.
+    RATE_WAIT = 2.0
+    #: ... and at most this many seconds of the WALL whatever the game's clock did: a game that publishes nothing new
+    #: (hung, paused, a frozen stand-in) has a clock that never moves, and the wait must still end.
+    RATE_WAIT_CAP = 10.0
+    #: :meth:`_measured_rate`: seconds between its reads while it waits for a measured rate. The clock pairs only
+    #: consecutive published frames at most harness.tickrate.PAIR_MAX_FRAMES (8) apart, so the reads must come round
+    #: faster than that many frames: at the settle's own 20 ms a stand-in turning 960 frames a second (the suite's Dali
+    #: fakes, a quarter of the wall clock) moved ~19 frames between two reads, paired none, and a wait that happened
+    #: to need one raised for want of a rate on a healthy game. 2 ms is every publish of that loop, and a real game
+    #: (a publish every 2nd frame: 14 ms apart at 144 fps) is read several times a publish -- for well under RATE_WAIT,
+    #: once a launch in practice.
+    RATE_POLL = 0.002
+    #: The movement cross-check (:meth:`_check_movement`): this many measured presses IN A ROW that moved him outside
+    #: what the rate says a press of their frames can -- further than Rate.reach, or (a press whose line ran free of
+    #: walls) less than its sure calls step -- and the driver refuses to plan by that rate any longer. One is a script
+    #: moving him, a platform, a push-out; three in a row is the rate.
+    MOVEMENT_STRIKES = 3
+    #: The fraction of its sure calls' 30u steps a FREE press is judged short against (:meth:`_check_movement`):
+    #: PSXMovementMethod (on in this install) scales every step by the floor's |n.up| -- cos(slope),
+    #: FieldMapActorController.cs:740-741 at stock 6b8bb2d5, WalkMesh.cs:2666-2677 -- so a healthy walk up a slope
+    #: steps short (stock 350's door to 353 stands on 0.854; two run ticks there read 104u and 113u). No floor holds
+    #: everywhere: a census of the 722 stock walkmeshes finds a triangle steeper than 60 degrees on about one field in
+    #: seven (ladders and cliff faces a script walks him down, the steepest near vertical). Half is 60 degrees of
+    #: slope -- far steeper than Dali's gated door regions (350's door to 353 the steepest measured, 31 degrees) -- and
+    #: what it still catches is a tick rate at half the ini's or less.
+    SLOPE_STEP_FLOOR = 0.5
+
+    def rate(self, require: bool = False) -> Rate:
+        """The game's render and field tick rate as the driver has measured it (harness.tickrate.Rate, from
+        :attr:`_clock`, fed by every state read) -- what EVERY press is sized by and every rule judged by.
+
+        Before the clock has measured anything the answer is the calibrated 60 fps (``Rate.ready`` False), which
+        SIZING may lean on: a press sized wrong costs an iteration of a closed loop. ``require=True`` is for a site
+        whose error cannot be undone -- a press whose reach is judged against a zone, a trigger, a body: at 31 fps
+        the default halves every reach -- and so is a ``stale`` one, measured before an unobserved stretch in which
+        the rate could have switched (harness.tickrate.STALE_GAP_SECONDS). It reads the game until a measured rate
+        is there -- RATE_WAIT of the game's clock and the wall's, RATE_WAIT_CAP at most (:meth:`_measured_rate`) --
+        and then RAISES (HarnessError, naming what the clock has): it never guesses. In practice the arrival settle
+        and calibration have measured it long before the first such press."""
+        rate = self._clock.rate()
+        self._note_rate()
+        if rate.ready or not require:
+            return rate
+        measured = self._measured_rate()
+        if measured is not None:
+            return measured
+        st = self.channel.state()
+        raise HarnessError(
+            f"no MEASURED render rate after {self.RATE_WAIT:.1f}s of reads (of the game's clock and the wall's) -- "
+            f"the clock has "
+            f"{self._clock.rate().describe()}. A press whose reach must keep a zone or a trigger is judged at the "
+            f"measured rate or not pressed at all (at 31 fps the calibrated 60's reach is half the truth). The clock "
+            f"pairs frames only on a field, with control or a dialog, nothing fading, past the visit's first second; "
+            f"last state: {st!r}")
+
+    #: The render rate a WAIT or a SPAN that must LAST is sized at while none is MEASURED (``Rate.ready`` False: before
+    #: the launch's first estimate, or a stale one): four times the calibrated 60 fps, past any rate the harness has
+    #: rendered at (~105 the most, once). Sized there, a wait lasts at least its seconds and a stillness at least its
+    #: ticks at any rate the game can truly be running -- the calibrated default's 4 frames of settle are ONE tick at
+    #: 120 fps and less than one at 144, so a settle could stop between two ticks, mid-walk. Too long costs only frames:
+    #: flee() releases its bumpers the moment its wait ends; a settle waits a few frames more.
+    UNMEASURED_FPS = 240.0
+
+    def _rate_at_most(self) -> Rate:
+        """The rate a wait or a span that must LAST is sized by: :meth:`rate` when it is MEASURED, else UNMEASURED_FPS
+        (``ready`` False: never a reach to judge by) -- the fastest the game can be taken to run, so Rate.frames_at_least
+        and Rate.frames_for_ticks are sure of their seconds and ticks at whatever it truly runs at."""
+        rate = self.rate()
+        if rate.ready:
+            return rate
+        fast = self.UNMEASURED_FPS
+        return Rate(fast, fast, fast, rate.tick_hz)
+
+    def _measured_rate(self) -> Rate | None:
+        """A MEASURED rate (``Rate.ready``): the clock's own at once when it has one, else after reading the game
+        until it does -- until RATE_WAIT seconds have passed on the game's own clock AND the wall's, at most
+        RATE_WAIT_CAP of the wall -- else None. :meth:`rate` ``require=True`` raises on the None; a step that has an
+        answer for "no rate" (the facing press: nothing pressed, ``faced`` False) asks here."""
+        rate = self._clock.rate()
+        began = time.time()
+        game0 = None                                      # the game's clock at the wait's first read
+        while not rate.ready:
+            self._assert_alive()
+            st = self.channel.state()                     # every read feeds the clock (the channel's observer)
+            rate = self._clock.rate()
+            if rate.ready:
+                break
+            now = _game_seconds(st)
+            game0 = now if game0 is None else game0
+            waited = time.time() - began
+            if waited >= self.RATE_WAIT_CAP or (waited >= self.RATE_WAIT and (
+                    now is None or game0 is None or now - game0 >= self.RATE_WAIT)):
+                break
+            time.sleep(self.RATE_POLL)                # faster than the clock's pairs are apart (RATE_POLL)
+        self._note_rate()
+        return rate if rate.ready else None
+
+    def _note_rate(self) -> None:
+        """Log -- and keep in :attr:`rate_changes`, for report.json -- a move of the measured rate the clock reports
+        (TickClock.changed: the launch's first estimate, then any move past CHANGE_FRACTION)."""
+        moved = self._clock.changed()
+        if moved is None:
+            return
+        before, now = moved
+        self.rate_changes.append({"before": before.as_dict(), "now": now.as_dict(), "t": round(time.time(), 3)})
+        self._log(f"  rate: {now.describe()}" + ("" if not before.ready else f" (was {before.describe()})"))
+
+    @staticmethod
+    def _tail_frames(rate: Rate) -> int:
+        """The frames the movement TAIL can last after a press's own: tickrate.TAIL_TICKS of wall time -- the frames
+        sure to hold that many ticks (Rate.frames_for_ticks: 2 at 60 fps, 1 at 30, 4 at 120). A TIME, what a walker
+        is given to walk after a press ends; the tail's DISTANCE is Rate.reach's own."""
+        return rate.frames_for_ticks(TAIL_TICKS)
+
+    @staticmethod
+    def _frames_within(ticks: float, rate: Rate) -> int:
+        """The most frames sure to run no more than ``ticks`` field ticks -- a CAP in time (Rate.frames_at_most of
+        ``ticks / tick_hz`` seconds), at least one: 6 frames for 3 ticks at 60 fps, 3 at 30, 12 at 120."""
+        return max(1, rate.frames_at_most(float(ticks) / rate.tick_hz))
+
+    def _frames_lasting(self, seconds: float, rate: Rate | None = None) -> int:
+        """The frames a WAIT of ``seconds`` is held for -- the fewest sure to last at least that long at ``rate``
+        (default :meth:`rate`; Rate.frames_at_least), at least one: 90 frames for 1.5 s at 60 fps, 45 at 30, 180 at
+        120. Every time budget the route verbs keep is SECONDS (ROUTE_WAIT_SECONDS, the ROUTE_WALKER_*_SECONDS): a
+        walker steps, a freeze counts down and a script runs on the wall clock, once a field tick; a frame count stood
+        for a time only at the rate it was written at. The agent's ``wait`` counts FRAMES, so this is what it is
+        sent -- and what a walker's measured speed a frame is multiplied by, the same stretch of its path at any
+        rate."""
+        return max(1, (self.rate() if rate is None else rate).frames_at_least(float(seconds)))
+
+    @staticmethod
+    def _least_frames(rate: Rate) -> int:
+        """The fewest frames SURE to hold one field tick at ``rate`` (Rate.frames_for_ticks(1): 2 at 60 fps, 1 at
+        30, 4 at 120) -- the least press that is sure to run a MovePC call at all. Fewer can fall between two ticks
+        and run none -- no step, no turn -- so a press of fewer that moved him nothing says nothing about a wall
+        (:meth:`_walk_leg`: the next press from there is this long)."""
+        return rate.frames_for_ticks(1)
+
+    def _gait(self, gait: str) -> str:
+        """The gait a hold of ``gait`` truly runs at: a RUN is a walk while the newest state says the field inhibits
+        running (:attr:`_dash_inh`; FieldMapActorController.cs:196-198) -- one MovePC call a tick, not two. Asked
+        wherever a run's calls must be SURE (the calls a hold or a turn is credited with, the movement cross-check) and
+        by the push throughout (its lock, its tail, its line): a lock counted in run ticks never opens on a walk.
+        Where any other press is SIZED or its REACH judged, the run's own figures are the larger and stay on the safe
+        side."""
+        return "walk" if gait == "run" and self._dash_inh else gait
+
+    #: :meth:`_calls_turned`: how near a whole count of calls -- whole TICKS of them, so pairs running -- a count read
+    #: off the yaw (content.doorface.calls_from_turn) must lie to be taken as the calls that ran. The yaw's print (0.001
+    #: degree) moves even a 14-call run turn's count by under 0.01 -- and a count that far from whole was no turn toward
+    #: that heading. It is not the heading's uncertainty: that is the caller's ``spread`` (below).
+    CALLS_WHOLE = 0.25
+
+    def _calls_turned(self, yaw0, yaw1, target: float, gait: str, spread: float = 0.0) -> int | None:
+        """The WHOLE MovePC calls a press or in-place turn held toward the heading ``target`` (degrees: the pad's --
+        content.doorface.yaw_of of its calibrated world direction) RAN, read off his yaw before and after it (``yaw0``
+        / ``yaw1``: ``player.yaw``, ``turn_end``'s ``yaw0`` / ``yaw`` -- published by memoria-patch s90): doorface.
+        calls_from_turn, taken to the nearest whole ticks' worth of calls at the gait truly held (:meth:`_gait`;
+        tickrate.CALLS_PER_TICK: one a tick walking, two running -- a run's calls come in PAIRS) where it lies within
+        CALLS_WHOLE of it. After the fact and exact: the ticks a hitched frame caught up in a burst, and the phase a
+        short press fell in, which no render rate can see -- where Rate.calls_sure only bounds them from below.
+
+        ONLY AS EXACT AS THE HEADING. ``target`` is a calibrated measurement, true within ``spread`` degrees (the leg's
+        heading spread, :meth:`_heading_spread`), and the count off a long turn moves by a whole call for a few tenths
+        of a degree of it (7 calls from 20 degrees off read 7.85 with the pad 0.2 degrees off) -- so the count is taken
+        only where the heading's WHOLE uncertainty reads the same whole count: at ``target`` and at ``target`` +-
+        ``spread`` alike. None when a yaw is not published, the two are no turn toward ``target`` (a script, a push),
+        or the heading's uncertainty spans two counts: the caller keeps the count the frames are sure of."""
+        from ff9mapkit.content import doorface
+        if yaw0 is None or yaw1 is None:
+            return None
+        per = CALLS_PER_TICK[self._gait(gait)]
+        counts = set()
+        for aim in ((target,) if spread <= 0 else (target - spread, target, target + spread)):
+            k = doorface.calls_from_turn(yaw0, yaw1, aim)
+            if k is None:
+                return None
+            whole = per * round(k / per)
+            if abs(k - whole) > self.CALLS_WHOLE:
+                return None
+            counts.add(int(whole))
+        return counts.pop() if len(counts) == 1 else None
+
+    def _face_wait_frames(self) -> int:
+        """The frames the facing step waits, standing in a gated door's region with control, for the door to fire on
+        its own before anything is pressed or turned (ROUTE_FACE_WAIT_TICKS): the fewest sure to hold that many field
+        ticks at the measured rate (:meth:`rate`, Rate.frames_for_ticks: 4 at 60 fps, 2 at 30, 8 at 120). The
+        region's tag 2 runs once a TICK (EventEngine.ProcessEvents.cs:174-178), so a door the walk already faces fires
+        within them, and its crossing is landed as the walk's own -- not as the facing step's, which it never was."""
+        return self._rate_at_most().frames_for_ticks(self.ROUTE_FACE_WAIT_TICKS)
+
+    def _check_movement(self, moved: float | None, frames: int, gait: str, rate: Rate, *, free: bool = False,
+                        what: str = "press", span: tuple | None = None) -> None:
+        """THE MOVEMENT CROSS-CHECK: a measured press -- ``frames`` of ``gait`` that moved him ``moved`` (settled at
+        both ends) -- against what ``rate`` says those frames can do, at the gait he truly held (:meth:`_gait`: a run
+        on a dash-inhibited field is a walk). Further than Rate.reach (the most its ticks and the tail can carry him)
+        OUTRAN the rate; ``free`` (its line ran clear of walls for its whole reach, so nothing stopped a step) and
+        short of the whole calls it is sure of (Rate.calls_sure x STEP_PER_CALL, on the steepest floor a walk meets:
+        SLOPE_STEP_FLOOR) FELL SHORT -- but a press that moved him nothing is a hold on movement (the pad mask), not a
+        rate, and is not judged. Each such press is a strike; a press within the bounds clears them.
+        MOVEMENT_STRIKES in a row RAISE: every reach the driver judges is wrong by the same factor, and pressing on
+        would walk him into what the reach was checked against. Not judged at all before the rate is measured, or
+        when ``moved`` is None (control or the field went).
+
+        A HITCH is not the rate. ``span`` -- the published frames the measurement began and ended on (its settled
+        reads) -- lets the clock say how many ticks more than the rate accounts for those frames took
+        (TickClock.excess_ticks: one frame of 120 ms at 60 fps catches up four, FPSManager.cs:94-99, and Rate.reach
+        is no bound through it). An overshoot within those ticks is logged as the hitch's, neither a strike nor a
+        clear: three hitched presses in a row are three hitches, not a wrong rate.
+
+        What moves him further than his ticks: F1 SPEED MODE (Memoria.ini [Cheats] SpeedFactor -- FastForwardFactor,
+        FPSManager.cs:83-97, which the engine publishes nowhere), a [Graphics] FieldTPS other than the ini the driver
+        read, or the Run/Walk option (``cfg.move``, FieldMapActorController.cs:198: it inverts Cancel, so a press held
+        as a walk runs). What moves a free press less: a FieldTPS below the ini's (dash-inhibit cannot: it is read,
+        and turns only a run into a walk)."""
+        import math
+        if moved is None or not rate.ready:
+            return
+        gait = self._gait(gait)
+        hi = rate.reach(frames, gait)
+        lo = rate.calls_sure(frames, gait) * STEP_PER_CALL * self.SLOPE_STEP_FLOOR
+        if moved > hi + 0.5:
+            extra = self._clock.excess_ticks(span[0], span[1], rate) if span is not None else 0.0
+            if extra >= 0.5 and moved <= hi + CALLS_PER_TICK[gait] * STEP_PER_CALL * math.ceil(extra) + 0.5:
+                self._log(f"  movement: {what} of {frames} {gait} frame(s) moved him {moved:.0f}u, past the {hi:.0f}u "
+                          f"it can reach -- in frames that ran {extra:.1f} tick(s) more than {rate.describe()} "
+                          f"accounts for: a HITCH, not a strike")
+                return
+            strike = f"{what} of {frames} {gait} frame(s) moved him {moved:.0f}u, past the {hi:.0f}u it can reach"
+        elif free and self.HALF_STEP <= moved < lo - 1.0:
+            strike = (f"{what} of {frames} {gait} frame(s) moved him {moved:.0f}u on free floor, short of the "
+                      f"{lo:.0f}u its sure calls step even up the steepest walkable slope")
+        else:
+            self._strikes.clear()
+            return
+        self._strikes.append(strike)
+        self._log(f"  movement: {strike} at {rate.describe()} (strike {len(self._strikes)} of {self.MOVEMENT_STRIKES})")
+        if len(self._strikes) >= self.MOVEMENT_STRIKES:
+            strikes, self._strikes = self._strikes, []
+            raise HarnessError(
+                f"{len(strikes)} presses in a row moved him outside what the measured rate says ({rate.describe()}): "
+                + "; ".join(strikes) + ". The driver judges every reach by that rate, so it will not press on. "
+                "Further than it can reach: F1 SPEED MODE is on (Memoria.ini [Cheats] SpeedFactor -- the engine "
+                "publishes no FastForwardFactor), or [Graphics] FieldTPS is not the ini's. Less than its sure calls: "
+                "the field inhibits running (a run hold walks), or FieldTPS is lower. Turn the speed mode off, or "
+                "fix the ini the driver read.")
 
     #: A probe that covers less than this fraction of what was COMMANDED did not measure free
     #: movement. An absolute floor cannot tell "he walked 40 units freely" from "he was pushed 40
     #: units along a wall while 900 were asked for".
     PROBE_MIN_FRACTION = 0.35
 
-    def _burst_is_evidence(self, moved: float, commanded: float) -> bool:
-        """Is this burst's displacement attributable to THIS burst, and worth judging a basis on?
+    def _burst_is_evidence(self, moved: float, frames: int, gait: str, rate: Rate | None = None) -> bool:
+        """Is this burst's displacement -- ``frames`` of ``gait`` (``"run"`` / ``"walk"``) that moved him ``moved``
+        -- attributable to THIS burst, and worth judging a basis on? Judged at ``rate`` (default: :meth:`rate`).
 
         ⚠ THE OLD TEST WAS `moved >= 15`, an absolute floor, and it is how a wall came to be
         reported as a broken axis calibration -- intermittently, because the distance the engine
@@ -1262,31 +1574,46 @@ class Session:
 
         * **TOO LITTLE** -- 24 units moved when 1350 were commanded (30820, pressed into a wall).
           He is BLOCKED, not mis-steered. This is the same law ``_probe_axis`` already applies, and
-          the same mistake it already fixed once, found here at a second site.
-        * **TOO MUCH** -- 114 units moved when 30 were commanded (30820, one frame of ``left``
-          credited with the tail of the previous ``down``). Movement that exceeds the command by
-          four frames was not all caused by this burst, so it says nothing about the direction this
-          burst pressed. ``walk_to`` concluded the BASIS was wrong: a well-argued verdict about
-          entirely the wrong thing, and the reason gateway_check failed on some runs and not others.
+          the same mistake it already fixed once, found here at a second site. The floor is
+          PROBE_MIN_FRACTION of the burst's AVERAGE travel at the rate (Rate.speed x frames).
+        * **TOO MUCH** -- 114 units moved when one frame of ``left`` was pressed (30820, credited
+          with the tail of the previous ``down``). Movement past what the burst's frames can carry
+          was not all caused by this burst, so it says nothing about the direction this burst
+          pressed. ``walk_to`` concluded the BASIS was wrong: a well-argued verdict about entirely
+          the wrong thing, and the reason gateway_check failed on some runs and not others. The
+          ceiling is the frames' field ticks at the SLOW end of the rate's spread -- ``frames x
+          tick_hz / fps_lo``, UNROUNDED -- at the gait's calls a tick, 30u each, plus one running
+          tick (RUN_TICK) of tail. At 60 fps that is the old ceiling at every count, odd or even
+          (30u a run frame, 15 a walked one, and two run frames), so the 114u above is still too
+          much; at 31 fps a frame carries a whole tick, where the old per-frame ceiling called every
+          run burst of three frames or more "too much" and the basis check below it never ran.
+          Not Rate.ticks_most's ceiling: that answers a RULE, which must hold at the one phase in
+          which an odd count's extra tick falls -- and credited here it made one run frame worth
+          two ticks and the recorded 30820 tail evidence. A clean burst that did run its extra tick
+          and its tail (``hold down 31`` covered 1020u on 30801: sixteen ticks and one more) is
+          only not judged -- the check skips it, never a basis it should have kept.
 
         A basis that is genuinely wrong sends the character walking FREELY in the wrong direction,
         so he covers very nearly what was commanded and still fails the projection test that
-        follows. The tolerance above the command is two frames of run: measured on 30801, a hold
-        covers what it asked for give or take ONE frame at either speed.
+        follows.
         """
-        if moved < self.WALK_SPEED:
+        rate = self.rate() if rate is None else rate
+        least = self.PROBE_MIN_FRACTION * rate.speed(gait) * frames          # (a gait that is not one: ValueError)
+        if moved < self.HALF_STEP:
             return False
-        return (self.PROBE_MIN_FRACTION * commanded <= moved
-                <= commanded + 2 * self.RUN_SPEED)
+        most = CALLS_PER_TICK[gait] * STEP_PER_CALL * frames * rate.tick_hz / rate.fps_lo + self.RUN_TICK
+        return least <= moved <= most + 1e-6
 
     #: How many times to step away from whatever is in the way and re-measure an axis before
     #: refusing. Calibrating with your back to a wall is a fact about the arrival position, not
     #: about the field, and the arrival position varies between runs -- which is exactly the shape
     #: of an intermittent failure.
     CALIBRATE_ATTEMPTS = 3
-    #: Frames of clearance to walk when backing off. ~240 units: further than a probe (120) so the
-    #: retry is measuring somewhere genuinely different, short enough not to cross a room.
-    CLEARANCE_FRAMES = 8
+    #: How far to run when backing off, world units -- a DISTANCE, sized into frames at the measured rate
+    #: (Rate.frames_for: 8 run frames at 60 fps, 4 at 30): further than a probe (120 at 60 fps) so the retry is
+    #: measuring somewhere genuinely different, short enough not to cross a room. (Once 8 FRAMES, which at 31 fps
+    #: ran ~480u.)
+    CLEARANCE_UNITS = 240.0
 
     def _back_off(self, direction: str, field: int) -> bool:
         """Walk a little way in ``direction`` to find clearer ground. False if it got us nowhere.
@@ -1296,7 +1623,9 @@ class Session:
         a wrong answer with no symptom until something steered by it.
         """
         before = self.settle()
-        self.walk(direction, self.CLEARANCE_FRAMES)
+        rate = self.rate()
+        frames = rate.frames_for(self.CLEARANCE_UNITS, "run")
+        self.walk(direction, frames)
         after = self.settle()
         if after.field_id != field or after.player_x is None:
             raise HarnessError(
@@ -1308,7 +1637,9 @@ class Session:
             return False
         moved = ((after.player_x - before.player_x) ** 2
                  + (after.player_z - before.player_z) ** 2) ** 0.5
-        return moved > self.WALK_SPEED
+        self._check_movement(moved if after.control else None, frames, "run", rate, what="a back-off",
+                             span=(before.frame, after.frame))
+        return moved > self.HALF_STEP
 
     def distance_to(self, x: float, z: float) -> float:
         st = self._require_field("distance_to")
@@ -1358,7 +1689,7 @@ class Session:
                     raise HarnessError(
                         f"could not calibrate the {name} axis on field {key}: neither {fwd} nor "
                         f"{back} moved the character more than {self.PROBE_MIN_FRACTION:.0%} of the "
-                        f"{probe * self.RUN_SPEED:.0f} units commanded. Is he boxed in, or is "
+                        f"{probe * self.rate().speed('run'):.0f} units commanded. Is he boxed in, or is "
                         f"control withheld?"
                     )
                 if a is None or b is None:
@@ -1421,10 +1752,12 @@ class Session:
 
     #: How long to wait for the character to come to rest before measuring a displacement, and
     #: how still he has to be. Two consecutive samples within half a unit is the engine's own
-    #: resolution -- the published position is exact, not interpolated.
+    #: resolution -- the published position is exact, not interpolated -- over at least the frames
+    #: sure to hold SETTLE_TICKS field ticks (see :meth:`settle`).
     SETTLE_TIMEOUT = 3.0
     SETTLE_SAMPLES = 2
     SETTLE_EPSILON = 0.5
+    SETTLE_TICKS = 2
 
     def settle(self, *, timeout: float | None = None) -> State:
         """Wait until the published position stops changing, and return that state.
@@ -1444,13 +1777,31 @@ class Session:
         `walk_to` concluded the axis BASIS was wrong -- a confident, well-argued verdict about the
         wrong thing, which is what made `gateway_check` fail on some runs and pass on others.
 
+        STILL MEANS STILL THROUGH FIELD TICKS, not publishes. He moves only on a tick -- FieldTPS a
+        second on the wall clock, whole, a frame holding 0, 1 or several (FPSManager.cs:77-111 at
+        stock 6b8bb2d5) -- so two samples at one spot say nothing when no tick ran between them. At
+        120 fps a tick falls on every 4th frame and two publishes a frame or two apart can both sit
+        between ticks, mid-walk; a settle that stopped there left the rest of the movement to land in
+        the next press -- the 30820 failure above, at a rate the bench never ran at. So the stillness
+        must also SPAN at least the frames sure to hold SETTLE_TICKS ticks at the measured rate
+        (:meth:`rate`, Rate.frames_for_ticks: 4 frames at an exact 60 fps -- which two still samples a
+        publish apart always spanned, so nothing changes there -- 2 at 30, 8 at 120; on today's engine,
+        timed by the state file's mtime, a 60 fps estimate's spread makes it 5, and a settle waits a
+        third still publish). Before any rate is measured, at UNMEASURED_FPS (:meth:`_rate_at_most`:
+        16 frames): the calibrated default's 4 are one tick at 120 fps. Two ticks, not one: the
+        published position lags its own frame's ticks (the agent's Update ran before the actors' in
+        the one frame measured -- an order Unity does not fix, so the lag may come and go), and the
+        first tick of the span may be one no sample shows yet.
+
         Polls the state file directly, so settling costs no round trip to the game. Returns the last
         state seen even if it never settles: something legitimately moving (a platform, a scripted
         walk) is not this method's business to refuse, and the callers all have their own verdicts.
         """
         deadline = time.time() + (self.SETTLE_TIMEOUT if timeout is None else timeout)
+        span = self._rate_at_most().frames_for_ticks(self.SETTLE_TICKS)      # sure of them: before any measurement too
         last: State | None = None
         still = 0
+        since = -1                        # the frame the stillness began on: the sample the first still one matched
         while time.time() < deadline:
             self._assert_alive()
             st = self.channel.state()
@@ -1461,8 +1812,10 @@ class Session:
                     and abs(st.player_x - last.player_x) <= self.SETTLE_EPSILON
                     and abs(st.player_z - last.player_z) <= self.SETTLE_EPSILON
                     and st.frame > last.frame):
+                if still == 0:
+                    since = last.frame
                 still += 1
-                if still >= self.SETTLE_SAMPLES:
+                if still >= self.SETTLE_SAMPLES and st.frame - since >= span:
                     return st
             elif last is None or st.frame > last.frame:
                 still = 0
@@ -1482,14 +1835,20 @@ class Session:
         measurement of that axis, cached the resulting basis, and then steered every later walk_to
         along the wall -- reporting the field as unreachable.
 
-        ``slow`` holds Cancel too (walk speed: half the reach per frame). ``watch_control`` also
+        ``slow`` holds Cancel too (walk speed: one MovePC call a tick, half a run's). ``watch_control`` also
         refuses a probe after which the player no longer has control -- see :class:`ProbeLeftControl`.
+        What was commanded is the probe's AVERAGE travel at the measured rate (:meth:`rate`, Rate.speed x
+        frames): at 31 fps a run frame carries him ~57u, and a floor of a third of the 60 fps 30u would pass
+        a character shoved along a wall. Every probe that moved him is checked against the rate too
+        (:meth:`_check_movement`).
         """
         # ⚠ BOTH ENDS SETTLED. The old code waited a flat 6 frames, which is a guess at the
         # engine's movement tail -- and the tail is not a constant: `hold down 31` covers 1020 units
         # for 930 commanded, and on 30820 it ran ~5 frames past the hold. A probe that measures
         # during the tail reports a length that is part its own and part the previous probe's.
         before = self.settle()
+        rate = self.rate()
+        gait = "walk" if slow else "run"
         if slow:
             self.send(f"hold cancel {int(frames) + 1}", f"hold {_button(direction)} {int(frames)}",
                       f"wait {int(frames) + 2}")
@@ -1517,16 +1876,15 @@ class Session:
             return None
         dx, dz = after.player_x - before.player_x, after.player_z - before.player_z
         mag = (dx * dx + dz * dz) ** 0.5
-        speed = self.WALK_SPEED if slow else self.RUN_SPEED
-        if mag < frames * speed * self.PROBE_MIN_FRACTION:
+        self._check_movement(mag if after.control else None, int(frames), gait, rate, what="a probe",
+                             span=(before.frame, after.frame))
+        if mag < frames * rate.speed(gait) * self.PROBE_MIN_FRACTION:
             return None
         return ((dx / mag, dz / mag), mag)
 
-    #: How far a probe (or a steering burst) may run past its command before it counts as someone
-    #: else's movement -- the same two run frames `_burst_is_evidence` allows.
-    PROBE_TAIL_FRAMES = 2
-    #: Clearance a probe keeps from a hazard polygon, world units: one run frame, so the prior's
-    #: angular error over a probe's reach (a few units per degree) cannot carry it in.
+    #: Clearance a probe keeps from a hazard polygon, world units: one MovePC call's step (a run frame at 60
+    #: fps), so the prior's angular error over a probe's reach (a few units per degree) cannot carry it in. A
+    #: DISTANCE: how far a press can carry him -- its movement tail included -- is Rate.reach's to say.
     PROBE_HAZARD_PAD = 30.0
     #: A measured axis within this of its predicted direction (cos ~ 15 deg) agrees with the prior.
     PRIOR_AGREE = 0.96
@@ -1584,12 +1942,16 @@ class Session:
                     return False
         return True
 
-    def _blind_probe_is_clear(self, here, hazards) -> bool:
-        """Is a BLIND probe (no prior: its direction is unknown) safe from ``here``? Only if no hazard's
-        boundary lies within the probe's whole reach -- one walk frame plus the movement tail
-        (PLAN: ``walk f=1 commanded=15 settled=30``) -- plus PROBE_HAZARD_PAD, in ANY direction."""
+    def _blind_probe_is_clear(self, here, hazards, rate: Rate | None = None, frames: int = 1) -> bool:
+        """Is a BLIND probe (no prior: its direction is unknown) of ``frames`` walked frames safe from ``here``? Only
+        if no hazard's boundary lies within the probe's whole reach -- the most its frames and the movement tail
+        can carry him at ``rate`` (Rate.reach: one frame 60u at 60 fps -- PLAN: ``walk f=1 commanded=15
+        settled=30`` -- and at 31 fps a frame holds a whole tick or two; two frames at 60 fps reach no further) --
+        plus PROBE_HAZARD_PAD, in ANY direction. ``rate`` defaults to a MEASURED one (:meth:`rate`
+        ``require=True``): the probe is pressed on this answer."""
         from ff9mapkit.scene import routes
-        reach = (1 + self.PROBE_TAIL_FRAMES) * self.WALK_SPEED + self.PROBE_HAZARD_PAD
+        rate = self.rate(require=True) if rate is None else rate
+        reach = rate.reach(frames, "walk") + self.PROBE_HAZARD_PAD
         for poly in hazards:
             n = len(poly)
             if min(routes.seg_dist_xz(here[0], here[1], poly[i], poly[(i + 1) % n]) for i in range(n)) < reach:
@@ -1609,16 +1971,21 @@ class Session:
         rotated by a pure Y rotation (``FieldMapActorController.cs:712-720``), so up is always
         ``(-right.z, right.x)``. Never both derived: at least one axis is always a measurement.
 
-        Without a prior every probe is a one-frame walk (the shortest press there is), and both sides
-        of an axis must agree the usual way. A blind probe's direction is unknown, so it is pressed
-        only where it is safe in EVERY direction (:meth:`_blind_probe_is_clear`); beside a hazard,
-        blind calibration refuses instead of guessing -- pass ``prior``.
+        Without a prior every probe is a one-frame walk (the shortest press there is to SEND -- not the
+        shortest SURE of a tick: one that moved nothing where a frame may hold no tick is pressed again
+        for the frames that are, :meth:`_least_frames`), and both sides of an axis must agree the usual
+        way. A blind probe's direction is unknown, so it is pressed only where it is safe in EVERY
+        direction (:meth:`_blind_probe_is_clear`, at its own length); beside a hazard, blind calibration
+        refuses instead of guessing -- pass ``prior``.
 
         EACH PROBE IS JUDGED FROM WHERE THE CHARACTER STANDS WHEN IT IS PRESSED: a one-sided probe
-        moves him 120-180u, so the next axis's probes do not start where calibration did.
+        moves him 120-180u, so the next axis's probes do not start where calibration did -- and AT THE MEASURED
+        RATE (:meth:`rate` ``require=True`` whenever there is a hazard to keep): a probe's reach is the most its
+        frames can carry him (Rate.reach), which at 31 fps is twice the 60 fps figure -- a 4-frame run probe
+        240u and its tail, not 120. No measured rate, no probe: it raises rather than guess.
 
         EVERY PROBE WATCHES CONTROL: one that fires a gateway raises :class:`ProbeLeftControl` rather
-        than measuring on in the next room. No backing off -- a back-off is a blind 8-frame walk.
+        than measuring on in the next room. No backing off -- a back-off is a blind run of CLEARANCE_UNITS.
         """
         from ff9mapkit.content import pathfind   # noqa: F401 -- fail here, not mid-probe, if absent
         polys = [[(float(p[0]), float(p[1])) for p in poly] for poly in hazards]
@@ -1631,12 +1998,15 @@ class Session:
             plan = []                                         # the buttons pressed on this axis
             got = []                                          # [(button, sign, unit, length)]
             for button, sign in ((fwd, 1.0), (back, -1.0)):
+                # the rate FIRST (nothing to keep clear of: any reach will do): a wait for it lets frames pass, and
+                # the position the probe is judged from is read after it
+                rate = self.rate(require=bool(polys))
                 st = self.state                               # settled: the previous probe settled it
                 if st.player_x is None:
                     raise HarnessError(f"calibrate_axes on field {key}: no player position published")
                 here = (st.player_x, st.player_z)
                 if prior is None:
-                    if not self._blind_probe_is_clear(here, polys):
+                    if not self._blind_probe_is_clear(here, polys, rate):
                         raise HarnessError(
                             f"calibrate_axes on field {key}: a blind probe from ({here[0]:.0f}, "
                             f"{here[1]:.0f}) could reach one of {len(polys)} hazard region(s) -- its "
@@ -1646,13 +2016,21 @@ class Session:
                 else:
                     u = (prior[name][0] * sign, prior[name][1] * sign)
                     for frames, slow in ((probe, False), (2, True)):
-                        speed = self.WALK_SPEED if slow else self.RUN_SPEED
-                        if self._probe_is_clear(here, u, (frames + self.PROBE_TAIL_FRAMES) * speed, polys):
+                        if self._probe_is_clear(here, u, rate.reach(frames, "walk" if slow else "run"), polys):
                             break
                     else:
                         continue                              # both lengths lead into a hazard
                 plan.append(button)
                 m = self._probe_axis(button, frames, slow=slow, watch_control=True)
+                if m is None and prior is None and rate.ticks_sure(frames) < 1:
+                    # a blind probe of one frame may fall between two field ticks and run no MovePC call at all (at
+                    # 120 fps three times in four): that is no wall. Pressed again for the frames SURE of a tick
+                    # (:meth:`_least_frames`) -- judged blind again at their reach, from where he stands now
+                    frames = self._least_frames(rate)
+                    st = self.state
+                    if st.player_x is not None and self._blind_probe_is_clear((st.player_x, st.player_z), polys,
+                                                                              rate, frames):
+                        m = self._probe_axis(button, frames, slow=slow, watch_control=True)
                 if m is not None:
                     got.append((button, sign, m[0], m[1]))
             vec = None
@@ -1682,8 +2060,8 @@ class Session:
             if vec is None and got and prior is None:
                 raise HarnessError(
                     f"the {name} axis on field {key} is not a free axis: "
-                    f"{[(b, _vec(u), round(ln)) for b, _s, u, ln in got]} (probed blind, one walk "
-                    f"frame each, beside {len(polys)} hazard region(s)). Calibrate from open ground.")
+                    f"{[(b, _vec(u), round(ln)) for b, _s, u, ln in got]} (probed blind, the fewest walk "
+                    f"frames each, beside {len(polys)} hazard region(s)). Calibrate from open ground.")
             if vec is None:
                 how[name] = (f"not probed: {fwd} and {back} both lead into a hazard" if not plan
                              else f"{'/'.join(plan)} blocked")
@@ -1715,9 +2093,15 @@ class Session:
         normalised vector split across both axes, so treating them independently converges in the same
         number of round trips without the trigonometry, and each leg is independently verifiable.
 
-        The last leg deliberately drops to walk speed (Cancel held). At 30 units/frame a single run
-        frame overshoots any tolerance tighter than ~32 units, so a run-only approach oscillates around
-        the target forever and then fails on max_bursts.
+        The last leg deliberately drops to walk speed (Cancel held) under WALK_UNDER. A run tick is 60
+        units -- a run frame 30 at 60 fps, ~57 at 31 -- so a run press overshoots any tight tolerance, and
+        a run-only approach oscillates around the target forever and then fails on max_bursts. A burst is
+        SIZED at the measured rate's average speed (:meth:`rate`, Rate.frames_for) -- at 31 fps half the
+        frames 60 fps would take -- and capped at ROUTE_HOLD_TICKS of field ticks, like a smooth hold. A
+        burst that may have run NO field tick (fewer frames than one is sure to hold, Rate.ticks_sure --
+        a 25u walked hop is one frame at 60 fps, a quarter tick at 120) and moved him nothing proves
+        nothing: no stall, and the next burst is the fewest frames sure of a tick (:meth:`_least_frames`,
+        :meth:`_walk_leg`'s own rule) -- counted as a wall, two such in a row read open floor as a wall.
 
         Gives up early when a burst produces no progress -- that is a wall or a walkmesh edge, and
         retrying it 24 times just turns a clear failure into a slow one.
@@ -1734,17 +2118,19 @@ class Session:
         reads that as a wrong basis -- raises, and throws a good basis away. With ``slides`` such a
         burst ends the walk instead (not arrived, basis kept), for the caller to treat as a stall.
         """
-        # A tolerance under one WALK frame cannot be aimed for -- the smallest correction the engine
-        # can make is one frame of travel, so the loop oscillates around the target and then fails on
+        # A tolerance under half a MovePC step cannot be aimed for -- the smallest correction the engine
+        # can make is one call of travel, so the loop oscillates around the target and then fails on
         # max_bursts, reporting the field unreachable when the request was impossible.
-        if tolerance < self.WALK_SPEED:
+        if tolerance < self.HALF_STEP:
             raise HarnessError(
-                f"tolerance {tolerance} is below the physical floor: one walk frame covers "
-                f"{self.WALK_SPEED} units, so nothing closer than that can be aimed for."
+                f"tolerance {tolerance} is below the physical floor: one MovePC call steps him "
+                f"{STEP_PER_CALL:g} units, so nothing closer than half of one ({self.HALF_STEP:g}) can be "
+                f"aimed for."
             )
         basis = self.calibrate_axes()
         field = self.state.field_id
         stalls = 0
+        least = 1                     # the least burst: sure of a tick after one that may have run none (below)
         for _ in range(max_bursts):
             # ⚠ SETTLED, so this burst's displacement is this burst's. The engine's movement runs a
             # few frames behind the input, so the previous burst is often still carrying the
@@ -1765,9 +2151,10 @@ class Session:
                 return True
 
             direction, need, axis, sign = _press_axis(basis, dx, dz)
-            slow = need < self.RUN_SPEED * 3
-            speed = self.WALK_SPEED if slow else self.RUN_SPEED
-            frames = max(1, min(45, int(need / speed)))
+            rate = self.rate()
+            slow = need < self.WALK_UNDER                          # under a run tick and a half: walk it
+            gait = "walk" if slow else "run"
+            frames = max(least, min(self._frames_within(self.ROUTE_HOLD_TICKS, rate), rate.frames_for(need, gait)))
             steps = [f"hold {direction} {frames}"]
             if slow:
                 steps.insert(0, f"hold cancel {frames}")
@@ -1780,6 +2167,8 @@ class Session:
                 return False          # ...or into a trigger; its scripted walk is not this burst's
             mx, mz = after.player_x - st.player_x, after.player_z - st.player_z
             moved = (mx * mx + mz * mz) ** 0.5
+            self._check_movement(moved if after.control else None, frames, gait, rate, what="a burst",
+                                 span=(st.frame, after.frame))
 
             # THE BASIS CONSISTENCY CHECK. Calibration can be fooled -- a character pressed into a
             # wall keeps moving, just not where he was sent, and the resulting basis is a well-formed
@@ -1788,7 +2177,7 @@ class Session:
             # project onto the axis it was sent along, the basis is wrong and every later burst is
             # steering by it. Say so, and throw the basis away, instead of grinding out max_bursts
             # and then blaming the field's geometry.
-            if self._burst_is_evidence(moved, frames * speed):
+            if self._burst_is_evidence(moved, frames, gait, rate):
                 projected = (mx * axis[0] + mz * axis[1]) * sign
                 if projected < 0.35 * moved and slides:
                     self._log(f"  walk_to: holding {direction} slid him {moved:.0f}u along ({mx:+.0f},{mz:+.0f}) "
@@ -1808,6 +2197,12 @@ class Session:
             # again shows progress every time and burns all 24 bursts before failing.
             left = (x - after.player_x) * axis[0] + (z - after.player_z) * axis[1]
             overshot = left * sign < 0 and abs(left) > tolerance
+            if moved < 1.0 and rate.ticks_sure(frames) < 1:
+                # a burst whose frames may all fall between two field ticks ran no MovePC call, perhaps -- and moved
+                # nothing: no wall, no stall (_walk_leg's own rule). The next burst is sure of a tick
+                least = self._least_frames(rate)
+                continue
+            least = 1
             stalls = stalls + 1 if (moved < 1.0 or overshot) else 0
             if stalls >= 2:
                 break
@@ -2083,21 +2478,26 @@ class Session:
     ROUTE_WAYPOINT_TOLERANCE = 45.0
     #: Replans from wherever a leg stalled (a wall the grid did not see, an NPC) before giving up.
     ROUTE_REPLANS = 2
-    #: route_to(unstick=True) at a stall with control held: frames to WAIT before walking the same chunk
-    #: again, how many times per stall, and how many waits one call may spend in all. ~1.5 s at 60 fps:
-    #: an NPC walking through, or a movement freeze the agent cannot see (the script's pad mask), clears.
-    ROUTE_WAIT_FRAMES = 90
+    #: route_to(unstick=True) at a stall with control held: SECONDS to WAIT before walking the same chunk again
+    #: (:meth:`_frames_lasting`: 90 frames at 60 fps, 45 at 30, 180 at 120), how many times per stall, and how many
+    #: waits one call may spend in all. An NPC walking through, or a movement freeze the agent cannot see (the
+    #: script's pad mask), clears in that -- on the wall clock: a walker steps and a script counts once a field TICK,
+    #: FieldTPS a second. (Once 90 FRAMES, which at 120 fps waited 0.75 s and the ladder climbed to a push sooner.)
+    ROUTE_WAIT_SECONDS = 1.5
     ROUTE_WAITS = 2
     ROUTE_WAIT_BUDGET = 8
     #: route_to(unstick=True), still stuck after the waits: ONE unbroken hold INTO whoever is in the way.
     #: The engine lets the player through any body without object flag 16 (no NPC on stock 350 sets it)
     #: once he has pressed into it for 26 MovePC calls unbroken: CheckCollFallback counts sLockTimer up
     #: one a colliding call, flips it to -25 at 25, and the push-out is off until it counts back to 0
-    #: (FieldMapActorController.cs:768-822). A walk_to burst never gets there -- a chunk is at most 12
-    #: frames, and the gap before the next one resets the count. A running player makes two calls of 30u
-    #: a tick, so the lock is this much COMMANDED movement (the 27th call is the first not pushed back),
-    #: sized in frames by RUN_SPEED like every burst; the hold then presses on for what the chunk needs.
-    ROUTE_PUSH_LOCK_W = 27 * 30.0
+    #: (FieldMapActorController.cs:768-822). A walk_to burst never gets there -- a chunk is at most
+    #: ROUTE_CHUNK_MAX, 12 run calls at any rate, and the gap before the next one resets the count. The lock is this
+    #: many MovePC calls into him
+    #: unbroken (the 27th is the first not pushed back) -- and a running player makes two a tick, in WHOLE ticks,
+    #: so the hold is the fewest frames SURE to hold ceil(27 / 2) = 14 run ticks at the measured rate
+    #: (Rate.frames_for_ticks: 28 frames at 60 fps, 14 at 30; frames sized at 30u a frame -- 27 -- ran 13.5 calls
+    #: at 120 fps and never opened it); the hold then presses on for what the chunk needs.
+    ROUTE_PUSH_LOCK_CALLS = 27
     ROUTE_PUSH_BUDGET = 6
     #: Unseen blockers one route_to(unstick=True) call may place, each followed by a replan round it.
     ROUTE_BLOCKERS = 3
@@ -2108,10 +2508,12 @@ class Session:
     #: route_cross with a ``zone``: how long to wait for a crossing when the walk ended OUTSIDE it with
     #: control held. A gateway cannot fire from there; the wait only covers a trigger still settling.
     ROUTE_OUTSIDE_WAIT = 2.0
-    #: route_to(smooth=True): the most frames one hold may run -- walk_to's own burst cap, so a hold that walks
-    #: into the exit it was sent to (the one region it may enter) runs on into the ExitField fade no longer
-    #: than a burst could -- and the most holds one leg may take (walk_to's max_bursts).
-    ROUTE_HOLD_MAX = 45
+    #: route_to(smooth=True): the most FIELD TICKS one hold may run -- walk_to's own burst cap, so a hold that walks
+    #: into the exit it was sent to (the one region it may enter) runs on into the ExitField fade no longer than a
+    #: burst could: three quarters of a second of the fade's own ticks, the frames sure to run no more
+    #: (:meth:`_frames_within`: 45 at 60 fps, 22 at 30 -- held as 45 FRAMES, a 30 fps game ran 1.5 s into the fade)
+    #: -- and the most holds one leg may take (walk_to's max_bursts).
+    ROUTE_HOLD_TICKS = 22.5
     ROUTE_HOLDS = 24
     #: route_to(smooth=True): the least heading error, degrees, a hold on a calibrated basis is planned for
     #: (:meth:`_heading_spread`). The longest hold runs ~1400u with its tail, and a line held that far is
@@ -2120,7 +2522,7 @@ class Session:
     #: off the truth, 350's right 1.4) -- a basis that disagrees with its prior adds the disagreement.
     ROUTE_HEADING_FLOOR = 2.0
     #: route_to(smooth=True, zone=...): how far round him the last leg looks for a spot IN the zone where his
-    #: centre can stand (:meth:`_zone_foothold`), once he is within one walk frame of the goal and still out.
+    #: centre can stand (:meth:`_zone_foothold`), once he is within HALF_STEP of the goal and still out.
     ROUTE_FOOTHOLD_REACH = 96.0
     #: route_to(face=...) / route_cross(gate=...) at a gated door: STOCK'S DOOR FACING GATE (content.doorface). On 102
     #: stock gateways -- 6 of stock 350's 9 walk-in doors -- the region's tag 2 lets the warp run only while he FACES
@@ -2128,15 +2530,17 @@ class Session:
     #: direction is held, 40% of the way a MovePC call. A walk that stops in the zone facing elsewhere stands there with
     #: the door shut for good (350 -> 351: 10 of 10 session-2 runs, each a REAL miss). So a walk that ends IN a GATED
     #: door's region (scan_gateways' ``face_gate``: a door with no gate fires the first tick he stands in it, and one
-    #: still shut is shut), with control and nothing fired ROUTE_FACE_WAIT frames later (two 30 Hz ticks at the
-    #: calibrated 60 fps), ends with a press that turns him to face it (:meth:`_face_the_door`): walked, the least reach
-    #: a MovePC call can cost; ROUTE_FACE_CALLS WHOLE calls at the least (content.doorface.sure_calls), after which the
+    #: still shut is shut), with control and nothing fired ROUTE_FACE_WAIT_TICKS field ticks later (the frames sure to
+    #: hold them at the measured rate, Rate.frames_for_ticks: 4 at 60 fps, 2 at 30, 8 at 120 -- once 4 FRAMES, which at
+    #: 120 fps held a single tick, and a door that fired on the next one was landed as the facing press's), ends with a
+    #: press that turns him to face it (:meth:`_face_the_door`): walked, the least reach
+    #: a MovePC call can cost; ROUTE_FACE_CALLS WHOLE calls at the least (Rate.calls_sure), after which the
     #: nearest pad faces it from any yaw (doorface.worst_face_error); never planned past ROUTE_FACE_MAX_CALLS of one pad
     #: (3 degrees of the turn left: more buys nothing). Where no whole press keeps the rules, shorter bursts may,
     #: ROUTE_FACE_PRESSES presses in all at the most. Where a press may carry him is judged on a grid ROUTE_FACE_GRID
     #: units apart (:meth:`_face_reach`). That press is the OPEN loop, for an engine that cannot publish the facing;
     #: one that can (memoria-patch s90) turns him in place instead and reads the outcome (ROUTE_TURN_* below).
-    ROUTE_FACE_WAIT = 4
+    ROUTE_FACE_WAIT_TICKS = 2
     ROUTE_FACE_CALLS = 4
     ROUTE_FACE_MAX_CALLS = 8
     ROUTE_FACE_PRESSES = 8
@@ -2145,15 +2549,17 @@ class Session:
     #: CLOSED LOOP (:meth:`_turn_to_the_door`). The facing step turns him IN PLACE (:meth:`turn_in_place`: the keys
     #: with no axis -- each MovePC call turns him 40% of the way and steps him nowhere) and judges the gate on the
     #: facing byte the engine reports once the field has judged it, instead of predicting it from a walked press. A
-    #: turn is ROUTE_TURN_CALLS whole calls of the pad nearest the door's bearing at the RUN rate (two a 30 Hz tick):
-    #: twice ROUTE_FACE_CALLS, the margin for a machine that spends fewer calls a frame than the calibrated one -- in
+    #: turn is ROUTE_TURN_CALLS whole calls of the pad nearest the door's bearing at the RUN rate (two a 30 Hz tick),
+    #: held for the frames SURE of them at the measured rate (Rate.frames_for_calls): twice ROUTE_FACE_CALLS, the
+    #: margin for a rate taken wrong -- the calibrated default before any is measured, a switch not yet seen -- and in
     #: place, more calls cost only frames (the lerp converges on the pad, never past it). A turn the engine reports
     #: out of the window turns again, at most ROUTE_TURN_TRIES turns in all (refusals waited out included). A turn
     #: that MOVED his yaw, by less than ROUTE_TURN_SETTLED degrees, had nothing left to turn -- that pad heads where it
     #: left him -- and is not turned again: the next pad is ranked by what that heading says of the basis. A turn that
     #: did not move his yaw AT ALL (``yaw`` == ``yaw0`` at the agent's 0.001 print) proves no call ran: the calls come
-    #: whole, 30 Hz ticks on the wall clock (FPSManager.cs:77-110), and a display over ~240 Hz can fit a turn's frames
-    #: between two -- or the pad already heads where he stands. Nothing is learnt from it: that pad is turned again
+    #: whole, 30 Hz ticks on the wall clock (FPSManager.cs:77-110), and a turn sized at a rate taken wrong (see above)
+    #: can fit its frames between two -- or the pad already heads where he stands. Nothing is learnt from it: that pad
+    #: is turned again
     #: for twice the frames (and every turn after it keeps the longer count), and only a second unmoved turn of it in
     #: a row settles it. A ``turn_end`` that moved him more than ROUTE_TURN_MOVED -- the agent's ceiling for a turn in
     #: place, the walkmesh re-projection's float noise (0.075u at +-16000, 0.18u at +-30000: HarnessAgent.BeginTurn)
@@ -2168,7 +2574,7 @@ class Session:
     #: 'turn'``: the engine has no s90, whatever a sample said) and ``analog`` (``[AnalogControl] Enabled=0``: the key
     #: path steps him -- which a walked press does on purpose, planned for). ``overlap`` (a body he overlaps would push
     #: a turn in place out -- "step clear of that body first", the s90 contract) is waited out ONCE for that body,
-    #: ROUTE_WAIT_FRAMES, as a walker walks on; the SAME body still on him after it is one that stays, and the press,
+    #: ROUTE_WAIT_SECONDS, as a walker walks on; the SAME body still on him after it is one that stays, and the press,
     #: planned to move him clear of the objects by its own rules, is the step. Every other refusal a press shares --
     #: without control, movement, a field HUD or a readable player MovePC turns no one; a direction held, a turn still
     #: being judged, a stick or a mouse walk would fight the press's keys as they fight the turn's -- and is waited
@@ -2195,47 +2601,58 @@ class Session:
     ROUTE_NPC_MOVED = 16.0
     ROUTE_NPC_REPLANS = 4
     #: route_to(npcs=True, smooth=True): a hold whose line passes within ROUTE_WALKER_NEAR of a MOVING object's
-    #: radius runs at most ROUTE_WALKER_HOLD frames. The objects are read again only when a hold ends, and a
-    #: walker covers a whole hold's length (up to ROUTE_HOLD_MAX frames) before that read; near one, the reads
-    #: come every ~180u of his walk, and a walker at run speed covers ROUTE_WALKER_NEAR in two such holds.
+    #: radius runs at most ROUTE_WALKER_HOLD_TICKS field ticks -- the frames sure to run no more
+    #: (:meth:`_frames_within`: 6 at 60 fps, 3 at 30; six FRAMES were 360u of his run at 30 fps). The objects are
+    #: read again only when a hold ends, and a walker covers a whole hold's length (up to ROUTE_HOLD_TICKS) before
+    #: that read; near one, the reads come every ~180u of his walk (three run ticks), and a walker at run speed
+    #: covers ROUTE_WALKER_NEAR in two such holds.
     #: A WALKING TRIGGER is not left to the cap: each point of a press must keep clear of it wherever it can have
     #: walked by the time he gets there, and the end until the next read (:meth:`_walker_clear`); a press that
-    #: refuses (or cuts short, :meth:`_held_up`) is waited for, ROUTE_WALKER_WAIT frames at a time, standing still,
-    #: within ROUTE_WALKER_BUDGET frames a call (:meth:`_outwait_walkers`) -- then the walk is ``boxed``. How many
+    #: refuses (or cuts short, :meth:`_held_up`) is waited for, ROUTE_WALKER_WAIT_SECONDS at a time, standing still,
+    #: within ROUTE_WALKER_BUDGET_SECONDS a call (:meth:`_outwait_walkers`) -- then the walk is ``boxed``. How many
     #: frames pass between two reads beyond the ones pressed is MEASURED, press by press (the send, its wait, the
-    #: settle's polling -- ROUTE_WALKER_LAG until the first press says: the send's own 4-frame wait and the tail,
-    #: twice over).
-    ROUTE_WALKER_HOLD = 6
+    #: settle's polling -- ROUTE_WALKER_LAG_SECONDS until the first press says: the send's own 4-frame wait and the
+    #: tail, twice over, at 60 fps). TIMES, all three, held as the frames sure to last them at the measured rate
+    #: (:meth:`_frames_lasting`: the wait 8 frames at 60 fps, 16 at 120; the budget 480 and 960): a walker walks on the
+    #: wall clock, a step a field tick -- and it is its speed A FRAME that the reads measure, so the frames it is given
+    #: must be the frames that time holds. (As 8 / 480 / 12 FRAMES a 120 fps game waited half as long, and ``boxed``
+    #: by walkers -- LIVE -- came at 4 s.)
+    ROUTE_WALKER_HOLD_TICKS = 3
     ROUTE_WALKER_NEAR = 360.0
-    ROUTE_WALKER_WAIT = 8
-    ROUTE_WALKER_BUDGET = 480
-    ROUTE_WALKER_LAG = 12
+    ROUTE_WALKER_WAIT_SECONDS = 0.13
+    ROUTE_WALKER_BUDGET_SECONDS = 8.0
+    ROUTE_WALKER_LAG_SECONDS = 0.2
     #: route_to(npcs=True, smooth=True): a spot where no hold keeps the rules is boxed by the SPOT -- ``boxed`` at
     #: once -- unless it is the WALKERS among the objects that refuse the presses (:meth:`_boxers`, :meth:`_npc_walks`)
-    #: whose going would free one. Then he stands still and reads again, ROUTE_WALKER_WAIT frames at a time within
-    #: ROUTE_WALKER_BUDGET frames a call on the box's own tally (:meth:`_outwait_box`), and plans again from where a
+    #: whose going would free one. Then he stands still and reads again, ROUTE_WALKER_WAIT_SECONDS at a time within
+    #: ROUTE_WALKER_BUDGET_SECONDS a call on the box's own tally (:meth:`_outwait_box`), and plans again from where a
     #: hold keeps the rules again -- ROUTE_BOX_REPLANS times a call, then the leg walks on from there; a box that
     #: outlasts the wait is ``boxed`` by walkers (``boxed_by``), the village and not the spot. A walker within its own
     #: step of contact with him (:meth:`_walker_step`), still ``moving``, that has not moved ROUTE_NPC_MOVED (summed
-    #: read to read) in ROUTE_WALKER_HELD frames is HELD ON HIM -- the engine undoes every step a scripted walker takes
+    #: read to read) in ROUTE_WALKER_HELD_SECONDS is HELD ON HIM (a time, :meth:`_frames_lasting`: 30 frames at 60 fps,
+    #: 60 at 120 -- as 30 FRAMES, a walker pausing a quarter second at 120 fps read as held) -- the engine undoes every
+    #: step a scripted walker takes
     #: into him (MoveToward.cs:187-189), so it walks on only once he moves -- and is stepped away from, not waited on
     #: (:meth:`_box_step`). Stock 350, session 2 run 2: two Dali
     #: children held on him for 21 s, seven crossings boxed. The zone's finish is no exception (:meth:`_walk_leg`): a
     #: walker in the way to a spot of the zone he could enter with the walkers gone (:meth:`_short_of_zone`) is waited
     #: on and stepped away from on the same tally -- session 3's stock run lost 350's door to 355 twice to a Dali child
     #: held on him there, each a REAL miss -- and nothing else at the zone's edge is: not a dead door, not a still body.
-    ROUTE_WALKER_HELD = 30
+    ROUTE_WALKER_HELD_SECONDS = 0.5
     ROUTE_BOX_REPLANS = 4
     #: route_to(npcs=True): where a WALKING trigger will be is judged two ways. While he is moving, it may have come
     #: its speed a frame in ANY direction (a few frames: it cannot get far). While he STANDS (the end of a press, until
     #: the next read) it keeps to the LINE it was last seen walking along, either way -- a patrol turns back down its
     #: own beat -- give or take ROUTE_WALKER_TURN of its speed a frame (:meth:`_walker_path`); judged in any direction
     #: there, a walker anywhere in a room would forbid every press in it. And a plan first tries to keep off each
-    #: walking trigger's line, ROUTE_WALKER_AHEAD frames of it either way (:meth:`_plan_npcs`).
+    #: walking trigger's line, ROUTE_WALKER_AHEAD_SECONDS of it either way (:meth:`_plan_npcs`) -- a time: the frames
+    #: sure to last it (:meth:`_frames_lasting`: 120 at 60 fps, 240 at 120) times its measured speed a frame, the same
+    #: stretch of its beat at any rate (as 120 FRAMES, a 120 fps game kept off one second of it, and a patrol came back
+    #: onto a press's end judged off its beat).
     ROUTE_WALKER_TURN = 0.1
-    ROUTE_WALKER_AHEAD = 120
+    ROUTE_WALKER_AHEAD_SECONDS = 2.0
     #: route_to(npcs=True): a stall is laid on a published body only when he is IN CONTACT with it -- his centre within
-    #: WALK_SPEED of its ``r`` (the engine holds it at ``r``) and the body within this many degrees of the press. One
+    #: HALF_STEP of its ``r`` (the engine holds it at ``r``) and the body within this many degrees of the press. One
     #: further off did not stop him, and one met off the line slides him round it (:meth:`_body_ahead`).
     ROUTE_CONTACT_ANGLE = 60.0
     #: route_to(npcs=True): samples read, ROUTE_NPC_READ_FRAMES apart, before a null ``objects`` (the engine could
@@ -2338,7 +2755,7 @@ class Session:
             chunk = self._leg_chunk(a, b, hazards, blockers)
             length = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
             n = max(1, int(-(-length // chunk)))
-            tol = max(self.WALK_SPEED + 1.0, min(self.ROUTE_WAYPOINT_TOLERANCE, length / n / 2.0))
+            tol = max(self.HALF_STEP + 1.0, min(self.ROUTE_WAYPOINT_TOLERANCE, length / n / 2.0))
             out.extend((a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n, tol)
                        for k in range(1, n + 1))
         return out
@@ -2390,7 +2807,7 @@ class Session:
         the published objects: its ``discs`` bound every hold like the hazards do (:meth:`_leg_discs`), and it is
         read again after every hold (:meth:`_walk_leg`).
 
-        THE LAST LEG AIMS AT THE GOAL ITSELF (``aim``: within one walk frame, the closest a press can steer),
+        THE LAST LEG AIMS AT THE GOAL ITSELF (``aim``: within HALF_STEP, the closest a press can steer),
         and is still judged by the caller's tolerance. The goal route_cross walks to is a point INSIDE a gateway
         zone (pathfind.region_goal), often only a few units in -- stock 350's 353 door: 2u -- so a walk that
         stops anywhere within 45u of it can stand him outside the zone with nothing fired. Given that ``zone``
@@ -2402,7 +2819,7 @@ class Session:
                          "hazards": hazards, "blockers": tuple(blockers), "spread": float(spread),
                          "pressed": None, "turned": None, "aim": None, "zone": None, "floor": None, "watch": watch}))
         if out:
-            out[-1][3]["aim"] = self.WALK_SPEED + 1.0
+            out[-1][3]["aim"] = self.HALF_STEP + 1.0
             out[-1][3]["zone"], out[-1][3]["floor"] = zone, floor
         return out
 
@@ -2479,27 +2896,37 @@ class Session:
     def _finish_target(self, here, zone, floor, discs=()):
         """Where the zone's finish (:meth:`_walk_leg`) presses from ``here``: the nearest spot in ``zone`` his centre
         can stand on ``floor`` that none of ``discs`` covers (:meth:`_zone_foothold`), or, with none that near (or no
-        ``floor``), a point WALK_SPEED past the zone's nearest edge (:func:`_into_zone`) -- pressing on into a wall is
+        ``floor``), a point HALF_STEP past the zone's nearest edge (:func:`_into_zone`) -- pressing on into a wall is
         harmless, the engine stops his centre on its clearance line."""
         return ((floor is not None and self._zone_foothold(here, zone, floor, discs))
-                or _into_zone(here, zone, self.WALK_SPEED))
+                or _into_zone(here, zone, self.HALF_STEP))
 
-    def _plan_hold(self, basis: dict, here, target, leg: dict, exclude=(), *, sweep: bool = True):
+    def _plan_hold(self, basis: dict, here, target, leg: dict, exclude=(), *, sweep: bool = True,
+                   rate: Rate | None = None, least: int = 1):
         """The next hold of a smooth routed leg (:meth:`_walk_leg`) toward ``target`` -- the leg's end, or a
         point just inside its zone: ``(buttons, (ux, uz), frames, slow)``, or None when no hold from ``here``
         keeps both rules below. Pads whose buttons are in ``exclude`` are not pressed (the zone finish: a pad
         that moved him nothing from here).
 
+        AT ``rate`` (default :meth:`rate`; the walk that presses it passes a MEASURED one, ``require=True``): the
+        length is SIZED at the rate's average speed (Rate.speed -- at 31 fps a run frame carries him ~57u, and a
+        hold sized at 30u a frame ran twice past its aim and the next hold came back: a quarter of the in-game
+        holds at 31 fps reversed the one before), and every rule below is judged at the most its frames can carry
+        him (Rate.reach -- sized there too, the far half of every 31 fps press went unjudged).
+
         THE DIRECTION is one of the two pad directions (:func:`_eight_way`) either side of the bearing to
         ``target``: the one that gains the most ground toward it within the rules -- which is how a leg between
         two of the eight is walked, the next hold re-aiming from where this one ends. Only when neither can hold
-        even one walk frame, any other that still gains ground (under 90 degrees off): beside a door, a leg
+        even the least press (``least`` frames walked: one, or -- after a press that may have run no tick moved
+        him nothing -- the frames sure of one, :meth:`_least_frames`), any other that still gains ground (under 90
+        degrees off): beside a door, a leg
         running along it has its own pad refused (the heading error could close on the door) and the next one
         closes on it outright, so the first step is AWAY from it. A run if any run fits, a walk (Cancel held)
-        only when none does or ``target`` is under three run frames away (walk_to's rule: a run frame overshoots
-        any tighter tolerance). THE LENGTH is the longest -- up to what ``target`` needs (a run stops a frame
-        short: its tail carries it) and ROUTE_HOLD_MAX -- that keeps
-          * THE ZONES: the straight line the hold covers, its frames plus PROBE_TAIL_FRAMES of movement tail,
+        only when none does or ``target`` is nearer than WALK_UNDER (walk_to's rule: a run TICK overshoots any
+        tighter tolerance -- a distance, a run tick and a half, whatever the frames). THE LENGTH is the longest -- up to what ``target`` needs (a run stops a frame
+        short: its tail carries it) and ROUTE_HOLD_TICKS -- that keeps
+          * THE ZONES: the straight line the hold covers -- Rate.reach of its frames: the most field ticks they
+            can hold and the movement tail --
             passes :meth:`_probe_is_clear` of every ``leg["hazards"]`` region -- the calibration probe's own
             rule: a region he stands in may be left and never re-entered, one he stands beside never
             approached, any other kept PROBE_HAZARD_PAD clear -- and not that line alone but every line within
@@ -2513,8 +2940,8 @@ class Session:
             toward a leg that lies on it (on a floor convex where he walks) -- still slides PROBE_HAZARD_PAD clear
             of every region. Beside a door (or a blocker) the remaining leg's clearance is under ROUTE_CHUNK_MIN
             / 2 + PROBE_HAZARD_PAD and the drift is clamped up to ROUTE_CHUNK_MIN / 2: there it keeps nothing, the
-            zone rule does, and so it never refuses the SMALLEST press there is (one walk frame, at most (1 +
-            PROBE_TAIL_FRAMES) * WALK_SPEED off the line). Without that, a leg leaving a door at an angle to both
+            zone rule does, and so it never refuses the SMALLEST press there is (``least`` frames walked, at most
+            their Rate.reach off the line). Without that, a leg leaving a door at an angle to both
             pads had no first step at all (stock 356, 6u beside its 350 door, sent to 353: the one zone-clear
             pad strayed 24.04u against a drift of 24). Judged from the REMAINING leg, the clamp binds only while
             he is still beside the door, not down the whole of a long leg.
@@ -2522,8 +2949,9 @@ class Session:
             where it stands NOW (:meth:`_leg_discs`) -- a body ROUTE_BODY_PAD off its ``r``, a trigger
             PROBE_HAZARD_PAD off its radius, one he stands nearer than that never approached closer
             (:meth:`_probe_is_clear` ``discs``); the drift counts them like blockers, at their own radii. And a
-            line that passes within ROUTE_WALKER_NEAR of a MOVING one's radius is held at most ROUTE_WALKER_HOLD
-            frames: they are read again only when the hold ends (:meth:`_walk_leg`). A MOVING TRIGGER is judged
+            line that passes within ROUTE_WALKER_NEAR of a MOVING one's radius is held at most
+            ROUTE_WALKER_HOLD_TICKS: they are read again only when the hold ends (:meth:`_walk_leg`). A MOVING TRIGGER
+            is judged
             where it could have walked by the time he gets to each point of the line, and where he stands until the
             next read, not where it was read (:meth:`_walker_clear`) -- a patrol that walks into him fires its script
             as surely as he walks into it (``sweep`` False judges it where it was read: whether the walker alone is
@@ -2533,6 +2961,7 @@ class Session:
         a walker the lengths above the bisection's are tried too, longest first; every length taken was checked."""
         import math
         from ff9mapkit.scene import routes
+        rate = self.rate() if rate is None else rate
         b = leg["to"]
         dx, dz = target[0] - here[0], target[1] - here[1]
         dist = (dx * dx + dz * dz) ** 0.5
@@ -2545,30 +2974,34 @@ class Session:
         drift = self._leg_chunk(p, b, leg["hazards"], blockers) / 2.0
         off = math.hypot(here[0] - p[0], here[1] - p[1]) + 0.5
         spread = leg["spread"]
+        least = max(1, int(least))
+        cap = max(least, self._frames_within(self.ROUTE_HOLD_TICKS, rate))
         order = sorted(_eight_way(basis), key=lambda p: -(p[1][0] * dx + p[1][1] * dz))
         for pads in (order[:2], order[2:]):
-            for slow in ((True,) if dist < 3 * self.RUN_SPEED else (False, True)):
-                speed = self.WALK_SPEED if slow else self.RUN_SPEED
+            for slow in ((True,) if dist < self.WALK_UNDER else (False, True)):
+                gait = "walk" if slow else "run"
+                speed = rate.speed(gait)
                 best = None
                 for buttons, u in pads:
                     along = u[0] * dx + u[1] * dz              # where the line pressed passes nearest the target
                     if along <= 0 or buttons in exclude:
                         continue
 
-                    def fits(n, u=u, speed=speed, slow=slow):
-                        reach = (n + self.PROBE_TAIL_FRAMES) * speed
+                    def fits(n, u=u, gait=gait, slow=slow):
+                        reach = rate.reach(n, gait)
                         end = (here[0] + u[0] * reach, here[1] + u[1] * reach)
-                        near = (slow and n == 1) or (routes.seg_dist_xz(end[0], end[1], p, b)
-                                                     <= max(drift - reach * math.tan(spread), off))
-                        return near and self._press_clear(here, u, n, speed, leg, walkers, swept, still)
+                        near = (slow and n == least) or (routes.seg_dist_xz(end[0], end[1], p, b)
+                                                         <= max(drift - reach * math.tan(spread), off))
+                        return near and self._press_clear(here, u, n, gait, leg, walkers, swept, still, rate)
 
-                    top = min(self.ROUTE_HOLD_MAX, max(1, int(along / speed) - (0 if slow else 1)))
-                    lo, hi = 0, top
+                    top = min(cap, max(least, rate.frames_for(along, gait) - (0 if slow else 1)))
+                    lo, hi = least - 1, top                  # least - 1: no press fits
                     while lo < hi:
                         mid = (lo + hi + 1) // 2
                         lo, hi = (mid, hi) if fits(mid) else (lo, mid - 1)
                     if swept:                         # across a walker's beat whole, where stopping on it may not:
                         lo = next((n for n in range(top, lo, -1) if fits(n)), lo)      # the longest that clears
+                    lo = lo if lo >= least else 0
                     gain = lo * speed * along / dist
                     if lo and (best is None or gain > best[0]):
                         best = (gain, buttons, u, lo, slow)
@@ -2588,70 +3021,82 @@ class Session:
         walkers = [d for d in walkers if all(d is not s for s in swept)]    # a swept trigger is judged exactly
         return walkers, swept, still
 
-    def _press_clear(self, here, u, n: int, speed: float, leg: dict, walkers, swept, still) -> bool:
-        """Does a press from ``here`` along ``u`` -- ``n`` frames at ``speed`` units a frame, and PROBE_TAIL_FRAMES of
-        movement tail -- keep the rules every smooth press keeps, whatever it is pressed for (:meth:`_plan_hold`'s
-        holds, :meth:`_face_the_door`'s turn)? Over the leg's heading ``spread``, the line: no ``leg["hazards"]`` region
-        entered or approached, and every ``still`` object kept clear (:meth:`_probe_is_clear`); every WALKING trigger of
-        ``swept`` kept clear wherever it can walk by the next read (:meth:`_walker_clear`) and the press not ending on
-        its beat (:meth:`_off_beat`); and a press held past ROUTE_WALKER_HOLD frames only where no other moving object
-        of ``walkers`` is within ROUTE_WALKER_NEAR of its line -- the objects are read again only when it ends
+    def _press_clear(self, here, u, n: int, gait: str, leg: dict, walkers, swept, still,
+                     rate: Rate | None = None) -> bool:
+        """Does a press from ``here`` along ``u`` -- ``n`` frames of ``gait`` (``"run"`` / ``"walk"``) at ``rate``
+        (default :meth:`rate`), as far as those frames can carry him, its movement tail included (Rate.reach: the
+        UPPER bound -- a rule is broken by where he CAN go) -- keep the rules every smooth press keeps, whatever it is
+        pressed for (:meth:`_plan_hold`'s holds, :meth:`_face_the_door`'s turn)? Over the leg's heading ``spread``,
+        the line: no ``leg["hazards"]`` region entered or approached, and every ``still`` object kept clear
+        (:meth:`_probe_is_clear`); every WALKING trigger of ``swept`` kept clear wherever it can walk by the next read
+        (:meth:`_walker_clear`, his pace the rate's average speed) and the press not ending on its beat
+        (:meth:`_off_beat`); and a press held past ROUTE_WALKER_HOLD_TICKS only where no other moving object of
+        ``walkers`` is within ROUTE_WALKER_NEAR of its line -- the objects are read again only when it ends
         (:meth:`_press_discs` sorts them)."""
         from ff9mapkit.scene import routes
+        rate = self.rate() if rate is None else rate
         spread = leg["spread"]
-        reach = (n + self.PROBE_TAIL_FRAMES) * speed
+        reach = rate.reach(n, gait)
         end = (here[0] + u[0] * reach, here[1] + u[1] * reach)
-        if n > self.ROUTE_WALKER_HOLD and any(
+        if n > self._frames_within(self.ROUTE_WALKER_HOLD_TICKS, rate) and any(
                 routes.seg_dist_xz(d["x"], d["z"], here, end) < d["R"] + self.ROUTE_WALKER_NEAR for d in walkers):
             return False
         until = n + self._walker_lag(leg.get("watch"))
         ends = [(here[0] + e[0] * reach, here[1] + e[1] * reach)
                 for e in (_turn(u, spread * k / 2.0) for k in (-2, -1, 0, 1, 2))]
-        if not all(self._walker_clear(here, u, reach, spread, d, speed, until)
+        if not all(self._walker_clear(here, u, reach, spread, d, rate.speed(gait), until)
                    and self._off_beat(here, ends, d) for d in swept):
             return False
         return self._probe_is_clear(here, u, reach, leg["hazards"], spread, discs=still)
 
-    def _held_up(self, basis: dict, target, leg: dict, exclude=(), hold=False) -> bool:
+    def _held_up(self, basis: dict, target, leg: dict, exclude=(), hold=False, rate: Rate | None = None) -> bool:
         """route_to(npcs=True, smooth=True): is the next hold toward ``target``, from where he stands now, refused or
-        CUT SHORT by a WALKING trigger's reach alone (:meth:`_plan_hold` ``sweep``)? Short: under ROUTE_WALKER_HOLD
-        frames of run, or of what the hold would be without the walkers if that is less. A walk that creeps along a
-        patrol's beat a frame at a time stalls on its own overshoots, and the stall ladder then reads the walker's
+        CUT SHORT by a WALKING trigger's reach alone (:meth:`_plan_hold` ``sweep``)? Short: under
+        ROUTE_WALKER_HOLD_TICKS of run (three run ticks, RUN_TICK each: a distance), or under what the hold would be
+        without the walkers if that is less -- the two holds compared by the ground they cover ON AVERAGE at ``rate``
+        (default :meth:`rate`; Rate.speed x frames): a question of how much of the press the walkers took, which a
+        wait answers, not a rule a press keeps (the hold itself was planned at Rate.reach). A walk that creeps along
+        a patrol's beat a frame at a time stalls on its own overshoots, and the stall ladder then reads the walker's
         refusals as bodies -- waiting for the walker to go by is what gets him across. ``hold`` is the hold already
         planned from here, if the caller has it."""
         if not any(d["moving"] and d["kind"] == "trigger" for d in self._leg_discs(leg)):
             return False
+        rate = self.rate() if rate is None else rate
         here = self._standing()
         if hold is False:
-            hold = self._plan_hold(basis, here, target, leg, exclude)
-        free = self._plan_hold(basis, here, target, leg, exclude, sweep=False)
+            hold = self._plan_hold(basis, here, target, leg, exclude, rate=rate)
+        free = self._plan_hold(basis, here, target, leg, exclude, sweep=False, rate=rate)
         if free is None:
             return False                                  # not the walkers: the caller's own verdict stands
 
-        def reach(h) -> float:
-            return 0.0 if h is None else h[2] * (self.WALK_SPEED if h[3] else self.RUN_SPEED)
-        return reach(hold) < min(reach(free), self.ROUTE_WALKER_HOLD * self.RUN_SPEED) - 0.5
+        def ground(h) -> float:
+            return 0.0 if h is None else h[2] * rate.speed("walk" if h[3] else "run")
+        return ground(hold) < min(ground(free), self.ROUTE_WALKER_HOLD_TICKS * self.RUN_TICK) - 0.5
 
-    def _walkers_let_press(self, here, hold, leg: dict) -> bool:
+    def _walkers_let_press(self, here, hold, leg: dict, rate: Rate | None = None) -> bool:
         """route_to(npcs=True, smooth=True): does ``hold``, planned from ``here``, still keep clear of every WALKING
         trigger by a read taken NOW -- the one it was planned on is as old as the planning, and a walker walks
-        meanwhile? The same rules as the plan (:meth:`_walker_clear`, :meth:`_off_beat`), with PROBE_TAIL_FRAMES of
-        head start for the send itself. True with no walker to ask about, or no fresh list to judge by."""
+        meanwhile? The same rules as the plan (:meth:`_walker_clear`, :meth:`_off_beat`) at the same ``rate``
+        (default :meth:`rate`) -- the hold's reach Rate.reach, his pace its average -- with the tail's frames
+        (:meth:`_tail_frames`) of head start for the send itself. True with no walker to ask about, or no fresh list
+        to judge by."""
         watch = leg["watch"]
         if hold is None or not any(d["moving"] and d["kind"] == "trigger" for d in self._leg_discs(leg)):
             return True
         st = self.state
         if self._npc_view(watch, st) is None:
             return True
+        rate = self.rate() if rate is None else rate
         _buttons, u, n, slow = hold
-        pace = self.WALK_SPEED if slow else self.RUN_SPEED
-        reach = (n + self.PROBE_TAIL_FRAMES) * pace
+        gait = "walk" if slow else "run"
+        pace = rate.speed(gait)
+        reach = rate.reach(n, gait)
         spread = leg["spread"]
         ends = [(here[0] + e[0] * reach, here[1] + e[1] * reach)
                 for e in (_turn(u, spread * k / 2.0) for k in (-2, -1, 0, 1, 2))]
         walking = [d for d in watch["discs"] if d["kind"] == "trigger" and d["moving"]]
         return all(self._walker_clear(here, u, reach, spread, d, pace, n + self._walker_lag(watch),
-                                      lead=self.PROBE_TAIL_FRAMES) and self._off_beat(here, ends, d) for d in walking)
+                                      lead=self._tail_frames(rate)) and self._off_beat(here, ends, d) for d in walking)
 
     def _walk_leg(self, x: float, z: float, tolerance: float, leg: dict, slides: bool) -> str:
         """route_to(smooth=True)'s walk to one planned waypoint (x, z), in place of walk_to: hold after hold from
@@ -2665,17 +3110,28 @@ class Session:
         without a zone, see :meth:`_route_legs` -- an overshoot past it then counts as a stall, so the aim costs
         a hold or two, never an oscillation).
 
+        EVERY HOLD IS PLANNED AT A MEASURED RATE (:meth:`rate` ``require=True``, fetched afresh for each: a launch's
+        regime can switch): sized at its average speed, its rules judged at the most it can reach -- so a hold at
+        31 fps neither runs twice past its aim nor carries him past the line its zones were checked to. A walk with
+        no measured rate raises rather than press on the calibrated 60 fps. And every hold is checked, once
+        settled, against what that rate says it can move him (:meth:`_check_movement`). A press that may have run NO
+        field tick -- fewer frames than one is sure to hold (Rate.ticks_sure) -- and moved him nothing proves nothing:
+        no stall, no pad of the finish marked stuck; the next press from there is the fewest frames sure of a tick
+        (:meth:`_least_frames`; a press that may run none only where no such press keeps the rules). At 120 fps a
+        one-frame finish press runs no tick three times in four, and read as a wall its pad was given up and the
+        finish could end outside the zone -- the door's strike, on a press that never ran.
+
         THE LAST LEG FINISHES ON ITS ``zone`` when it has one: standing in it is arrival wherever that is, and
         once within ``tolerance`` of the goal but still outside, the holds press INTO it -- walked, the zone rule
         still kept -- toward the nearest spot in it where his centre can stand and no object the holds keep clear
-        of stands over (:meth:`_finish_target`), or, with none that near (or no ``floor``), a point WALK_SPEED
+        of stands over (:meth:`_finish_target`), or, with none that near (or no ``floor``), a point HALF_STEP
         past the zone's nearest edge (:func:`_into_zone`):
         pressing on into a wall is harmless, the engine stops his centre on its clearance line -- but a pad that
         moved him nothing is not pressed again from that spot: the other side of the bearing slides along the
         wall instead (350's 353 wedge, reached diagonally into the wall 10u short of it). A press that moves
         him no nearer the zone is a stall; an overshoot of the goal that leaves him within ``tolerance`` is not
         -- the finish takes over from there. A goal a few units deep lies by that line (stock 350's door to
-        353: 2u in, and 77u off the wall -- short of the line), so "within one walk frame of it" can stand him
+        353: 2u in, and 77u off the wall -- short of the line), so "within HALF_STEP of it" can stand him
         outside; and the smallest press moves ~30u, so a walk aimed that close bounces round it and stalls on
         the overshoots before it ever gets there (350's door to 450 in the wall-slide simulator). The zone,
         not the goal point, is the target -- and "arrived" means standing IN it, enforced at the return.
@@ -2691,9 +3147,9 @@ class Session:
         ONE judgement first (:meth:`_outwait_hold`, by :meth:`_short_of_zone`): could he get into the zone with
         every walker gone, and does a walker stand in the way to that spot? Only then does he wait on them (where no
         hold keeps the rules, first as a box by them: :meth:`_outwait_box`), and step out of the way of any held on
-        him (:meth:`_box_step`), within the call's ROUTE_WALKER_BUDGET, until none stands in that way: their letting
-        go ends the leg "unboxed" (route_to plans again from where he stands, ROUTE_BOX_REPLANS times a call; after
-        that the finish presses on from there), their outlasting the wait ends it "boxed" (``boxed_by`` walkers).
+        him (:meth:`_box_step`), within the call's ROUTE_WALKER_BUDGET_SECONDS, until none stands in that way: their
+        letting go ends the leg "unboxed" (route_to plans again from where he stands, ROUTE_BOX_REPLANS times a call;
+        after that the finish presses on from there), their outlasting the wait ends it "boxed" (``boxed_by`` walkers).
         What no walker's going would change -- the spot's geometry, a body that does not walk -- ends the finish
         short of the zone at once, "outside", however many walkers pace nearby: nothing is pushed there, nothing is
         waited on. The judgement the finish ended on is the one route_to records (``watch["held"]``: ``held_by``,
@@ -2727,8 +3183,12 @@ class Session:
         watch = leg.get("watch")
         stalls = 0
         stuck: set = set()                        # the zone finish: pads that moved him nothing from here
+        least = 1                                 # the least press: sure of a tick after one that may have run none
         if watch is not None:
             watch["held"] = None                  # what the finish found short of the zone: this leg's, never another's
+        # measured BEFORE the position every hold is planned from is read: a wait for the rate lets frames -- and the
+        # room's walkers -- go by, and a plan made after it from a read taken before it is a plan of a room that was
+        self.rate(require=True)
         st = self.settle()
         for _ in range(self.ROUTE_HOLDS):
             if watch is not None:
@@ -2746,8 +3206,11 @@ class Session:
             if finish:
                 target = self._finish_target(here, zone, leg.get("floor"), self._leg_discs(leg))
             exclude = stuck if finish else ()
-            hold = self._plan_hold(basis, here, target, leg, exclude)
-            if watch is not None and self._held_up(basis, target, leg, exclude, hold):
+            rate = self.rate(require=True)          # measured (above), and afresh: a launch's regime can switch
+            hold = self._plan_hold(basis, here, target, leg, exclude, rate=rate, least=least)
+            if hold is None and least > 1:          # none that long keeps the rules: a press that may run no tick
+                hold = self._plan_hold(basis, here, target, leg, exclude, rate=rate)
+            if watch is not None and self._held_up(basis, target, leg, exclude, hold, rate):
                 # a WALKING trigger's reach is what refuses or cuts short the press from here: stand still until it
                 # has gone by, rather than creep up to its beat -- or, where standing is not safe either, step out of
                 # its way first
@@ -2786,7 +3249,7 @@ class Session:
                 self._log(f"  route_to: no hold from ({here[0]:.0f}, {here[1]:.0f}) toward ({x:.0f}, {z:.0f}) "
                           f"keeps clear of the avoided regions and near the leg; nothing may be pressed from here")
                 return "boxed"
-            if watch is not None and not self._walkers_let_press(here, hold, leg):
+            if watch is not None and not self._walkers_let_press(here, hold, leg, rate):
                 # planning took frames a walker spent walking: judged again on a read taken now, the hold no longer
                 # keeps clear -- wait for it (once at the least) as for any walker in the way
                 got = self._outwait_walkers(watch, field,
@@ -2797,6 +3260,7 @@ class Session:
                 st = self.state
                 continue
             buttons, u, frames, slow = hold
+            gait = "walk" if slow else "run"
             leg["pressed"] = (buttons, u)
             leg["turned"] = None              # the yaw the last hold left is no longer his: known again once measured
             steps = [f"hold {b} {frames}" for b in buttons]
@@ -2812,17 +3276,18 @@ class Session:
                     return "moved"
             mx, mz = after.player_x - st.player_x, after.player_z - st.player_z
             moved = (mx * mx + mz * mz) ** 0.5
+            self._check_movement(moved, frames, gait, rate, what="a hold", span=(st.frame, after.frame))
             # the yaw this hold leaves him (where a facing step starts, :meth:`_held_yaw`): every MovePC call it spent
-            # turned him toward ``u`` -- the whole calls its frames are sure of (doorface.sure_calls), and no more than
-            # the STEP_PER_CALL steps it moved him (a wall stops a step and not the turn; a hold on movement stops
-            # both). Set only here, after the measurement: a hold that returned before it (an object moved) left the
-            # yaw unknown
-            speed = self.WALK_SPEED if slow else self.RUN_SPEED
-            leg["turned"] = ((buttons, u), min(doorface.sure_calls(frames, doorface.movepc_calls(speed)),
+            # turned him toward ``u`` -- the whole calls its frames are sure of at the rate and the gait truly held
+            # (Rate.calls_sure: whole ticks, a run's in pairs -- a walk's on a dash-inhibited field, :meth:`_gait`), and
+            # no more than the STEP_PER_CALL steps it moved him (a wall stops a step and not the turn; a hold on
+            # movement stops both). Set only here, after the measurement: a hold that returned before it (an object
+            # moved) left the yaw unknown
+            leg["turned"] = ((buttons, u), min(rate.calls_sure(frames, self._gait(gait)),
                                                moved / doorface.STEP_PER_CALL))
             slid = False
             # walk_to's basis check, on the direction actually pressed (see there)
-            if self._burst_is_evidence(moved, frames * (self.WALK_SPEED if slow else self.RUN_SPEED)):
+            if self._burst_is_evidence(moved, frames, gait, rate):
                 projected = mx * u[0] + mz * u[1]
                 if projected < 0.35 * moved and slides:
                     self._log(f"  route_to: holding {'+'.join(buttons)} slid him {moved:.0f}u along "
@@ -2843,8 +3308,14 @@ class Session:
                 else:             # past the goal -- unless it left him where the zone's finish takes over
                     overshot = ((x - after.player_x) * u[0] + (z - after.player_z) * u[1] < 0 and gap > aim
                                 and (zone is None or gap > tolerance))
-                stalls = stalls + 1 if (moved < 1.0 or overshot) else 0
-                stuck = stuck | {buttons} if moved < 1.0 else set()
+                if moved < 1.0 and rate.ticks_sure(frames) < 1:
+                    # a press whose frames may all fall between two field ticks ran no MovePC call, perhaps -- and
+                    # moved nothing: no wall, no stall, nothing learnt. The next press from here is sure of a tick
+                    least = self._least_frames(rate)
+                else:
+                    least = 1
+                    stalls = stalls + 1 if (moved < 1.0 or overshot) else 0
+                    stuck = stuck | {buttons} if moved < 1.0 else set()
             if slid or stalls >= 2:
                 if finish and watch is not None:
                     # two presses into the zone moved him nothing, or no nearer it -- or one slid him round someone:
@@ -2976,15 +3447,16 @@ class Session:
                 slid.append((x, z))
         return pts, slid, free
 
-    def _slide_clear(self, here, slid, leg: dict, frames: int) -> bool:
+    def _slide_clear(self, here, slid, leg: dict, frames: int, rate: Rate | None = None) -> bool:
         """Do the points a press can only SLIDE him to (:meth:`_face_reach`'s ``slid``: along a wall, off the lines
         :meth:`_press_clear` judges) keep what those lines keep -- whatever the press is for, its movement tail
         included? No other zone of ``leg["hazards"]`` entered or approached nearer than PROBE_HAZARD_PAD (or than he
         already stands; one he stands IN is the lines' to leave, by their Keepout rule), and no published object of
         the leg (:meth:`_leg_discs`) neared past its ``pad`` off its radius ``R`` (or nearer than he already stands) --
-        a WALKING one by as far again as it can walk by the next read (its ``speed`` a frame over the press, its tail
-        and :meth:`_walker_lag`): a slide into a trigger's Range fires its script exactly as a straight walk into it
-        would, and the door's record would carry the blame."""
+        a WALKING one by as far again as it can walk by the next read (its ``speed`` a frame over the press, its tail's
+        frames at ``rate`` -- :meth:`_tail_frames`, default :meth:`rate` -- and :meth:`_walker_lag`): a slide into a
+        trigger's Range fires its script exactly as a straight walk into it would, and the door's record would carry
+        the blame."""
         import math
         from ff9mapkit.content import pathfind
         if not slid:
@@ -2994,7 +3466,8 @@ class Session:
             if gap >= 0 and any(pathfind.poly_gap(x, z, poly) < min(self.PROBE_HAZARD_PAD, gap) - 0.5
                                 for x, z in slid):
                 return False
-        until = frames + self.PROBE_TAIL_FRAMES + self._walker_lag(leg.get("watch"))
+        rate = self.rate() if rate is None else rate
+        until = frames + self._tail_frames(rate) + self._walker_lag(leg.get("watch"))
         for d in self._leg_discs(leg):
             walk = d["speed"] * until if d["moving"] else 0.0
             need = min(d["pad"], math.hypot(here[0] - d["x"], here[1] - d["z"]) - d["R"]) - 0.5 + walk
@@ -3006,8 +3479,9 @@ class Session:
                        walk_zone=None, timeout: float = 20.0) -> str | None:
         """route_to's last step at a GATED door (:meth:`route_to` ``face``) once the walk has ended standing IN its
         region ``zone`` -- world ``(x, z)`` corners, the ENGINE's polygon in the engine's order (scan_gateways'
-        ``region``), membership by IsInQuad (content.doorface.region_contains) -- with control, and ROUTE_FACE_WAIT
-        frames on nothing has fired: turn him to FACE THE DOOR, as stock's gate needs, and give it its chance.
+        ``region``), membership by IsInQuad (content.doorface.region_contains) -- with control, and
+        ROUTE_FACE_WAIT_TICKS field ticks on (:meth:`_face_wait_frames`) nothing has fired: turn him to FACE THE DOOR,
+        as stock's gate needs, and give it its chance.
 
         THE GATE (content.doorface; Memoria 6b8bb2d5, stock line numbers). The region's tag 2 runs every tick he stands
         in it with control (EventEngine.ProcessEvents.cs:174-178 -> EventCollision.CollisionRequest, :281-284). On a
@@ -3018,8 +3492,11 @@ class Session:
         held with control, 40% of the way a MovePC call, BEFORE the walls and bodies have their say -- a press into a
         wall turns him and moves him nowhere -- and standing keeps it exactly (FieldMapActorController.cs:744-761). The
         calls come WHOLE, a walked one a 30 Hz tick (:197-208, HonoBehaviorSystem.cs:106), in a phase nobody sees: a
-        press of ``n`` walked frames counts doorface.sure_calls of them -- ``n`` times the calls a frame spends on
-        average at the calibrated WALK_SPEED (doorface.movepc_calls), rounded DOWN -- never the average.
+        press of ``n`` walked frames counts the whole ticks its frames are SURE to hold at the measured rate
+        (Rate.calls_sure: ``n`` times the ticks a frame holds at the fastest rate the measurement allows, rounded
+        DOWN) -- never the average. The press is planned only at a MEASURED rate (:meth:`rate` ``require=True``): with
+        none, nothing is pressed and the step ends ``faced`` False (LIVE) -- the calibrated 60 fps would credit a
+        120 fps press twice the calls it ran, and at 31 fps judge half its reach.
 
         TWO WAYS, BY WHAT THE ENGINE CAN DO -- decided on the sample the step starts from:
 
@@ -3045,7 +3522,8 @@ class Session:
         of the bytes' quantization. It keeps the rules. Every point it can have taken him to by the call the prediction
         says faced stands IN the region (:meth:`_face_reach`: along the line until the floor stops him, then as far as
         a slide along the wall can go) -- the gate is tested every tick he stands there, so it fires by then. And the
-        WHOLE press, its movement tail (PROBE_TAIL_FRAMES) included, keeps every rule a smooth hold keeps -- the rest
+        WHOLE press, as far as its frames can carry him (Rate.reach, its tail included), keeps every rule a smooth hold
+        keeps -- the rest
         of it runs on for a door that stays shut: its lines by :meth:`_press_clear` (no other zone of ``leg["hazards"]``
         entered or approached, no object ``leg["watch"]`` keeps neared, a walking trigger judged where it can walk --
         and, on a read taken just before it is sent, :meth:`_walkers_let_press`), the points only a slide along a wall
@@ -3064,10 +3542,14 @@ class Session:
         EACH PRESS IS CHECKED against what it moved him. A press whose every line ran FREE for its own frames (no wall
         within them) moves him a full 30u a call it ran (a call never steps further), so one that moved him less than
         the calls it was counted for did not run them all -- a hold on movement (the pad mask: control kept, MovePC
-        returns before it moves or turns anyone, FieldMapActorController.cs:586), or a frame rate that is not the
-        calibrated one (a frame fewer calls): it is counted only by the whole calls its travel proves, and the step
-        presses on. (A press into a wall is not checkable so -- the wall stops the steps and not the turn -- and keeps
-        its count.)
+        returns before it moves or turns anyone, FieldMapActorController.cs:586), or fewer ticks than the measured
+        rate says: it is counted only by the whole calls its travel proves, and the step presses on -- and the press
+        goes to the movement cross-check (:meth:`_check_movement`, ``free``) either way. (A press into a wall is not
+        checkable so -- the wall stops the steps and not the turn -- and keeps its count.) Where the engine PUBLISHES
+        his yaw (memoria-patch s90: this press is its fallback -- a ``turn`` refused for a reason a press does not
+        share), the press's calls are read off the yaw instead, walled or free (:meth:`_calls_turned`: exact where it
+        answers, a hitched frame's burst of ticks included): fewer than its frames are sure of re-judge the
+        prediction, as a free press's short travel does.
 
         Standing in the zone the walk was sent into (``walk_zone``, the kit's quad) but in NO triangle of the region --
         the dead middle of a 5- to 8-point region, which IsInQuad never holds -- the door cannot fire at all, and no
@@ -3101,7 +3583,7 @@ class Session:
                           f"triangle of the door's region (its dead middle: the gate never runs there) -- nothing "
                           f"pressed")
             return None
-        self.wait_frames(self.ROUTE_FACE_WAIT)
+        self.wait_frames(self._face_wait_frames())
         st = self.state
         if not inside(st):
             return None
@@ -3110,7 +3592,7 @@ class Session:
         if st.facing_status == "known":
             # the engine publishes the facing and turns him in place (s90): the closed loop -- unless the turn is
             # refused for a reason a walked press does not share (TURN_FALLBACK), when the press below is the step
-            got = self._turn_to_the_door(zone, record, origin, window, timeout)
+            got = self._turn_to_the_door(zone, record, origin, window, timeout, math.degrees(leg["spread"]))
             if got != "press":
                 return got
             # the press decides now, from scratch: what a turn before the fallback measured is not its prediction --
@@ -3121,6 +3603,15 @@ class Session:
             st = self.state
             if not inside(st):
                 return None
+        rate = self._measured_rate()                              # the press is judged at it, or not pressed at all
+        if rate is None:
+            self._log(f"  route_to: standing in the door's zone with nothing fired, and no MEASURED render rate "
+                      f"({self._clock.rate().describe()}): the press's calls and reach cannot be judged -- nothing "
+                      f"pressed")
+            return None
+        st = self.state                                           # read after any wait for the rate: frames went by
+        if not inside(st):
+            return None
         watch = leg.get("watch")
         if watch is not None:
             self._npc_view(watch, st)                             # the objects where they stand now
@@ -3128,7 +3619,6 @@ class Session:
         record["face_to"] = list(doorface.calc_exit_position(here[0], here[1], q0, q1))
         limit = doorface.face_limit_deg(window)
         spread_deg = math.degrees(leg["spread"])
-        per = doorface.movepc_calls(self.WALK_SPEED)              # the MovePC calls a walked frame spends on average
         step = doorface.STEP_PER_CALL
         left = 1.0 - doorface.TURN_PER_CALL                       # what one call leaves of a turn
         memo: dict = {}
@@ -3142,18 +3632,17 @@ class Session:
             return min(180.0, doorface.angle_off(yaw[0], doorface.yaw_of(*u)) + yaw[1] + spread_deg)
 
         def sure(n: int) -> int:
-            return doorface.sure_calls(n, per)
+            return rate.calls_sure(n, "walk")                     # whole walked calls: one a tick it is sure of
 
         def ruled(at, u, n: int, within=None):
-            """Where the WHOLE press of ``n`` frames from ``at`` along ``u`` can leave him, its tail included
-            (:meth:`_face_reach`), when it keeps every rule a smooth press keeps -- its lines (:meth:`_press_clear`)
-            and its slides (:meth:`_slide_clear`) -- and, with ``within``, stays in that region all the way (a
-            burst's rule); else None."""
-            if not self._press_clear(at, u, n, self.WALK_SPEED, leg, walkers, swept, still):
+            """Where the WHOLE press of ``n`` frames from ``at`` along ``u`` can leave him, as far as its frames can
+            carry him (Rate.reach, its tail included; :meth:`_face_reach`), when it keeps every rule a smooth press
+            keeps -- its lines (:meth:`_press_clear`) and its slides (:meth:`_slide_clear`) -- and, with ``within``,
+            stays in that region all the way (a burst's rule); else None."""
+            if not self._press_clear(at, u, n, "walk", leg, walkers, swept, still, rate):
                 return None
-            got = self._face_reach(at, u, (n + self.PROBE_TAIL_FRAMES) * self.WALK_SPEED, leg["spread"],
-                                   leg["floor"], memo, within)
-            return got if got is not None and self._slide_clear(at, got[1], leg, n) else None
+            got = self._face_reach(at, u, rate.reach(n, "walk"), leg["spread"], leg["floor"], memo, within)
+            return got if got is not None and self._slide_clear(at, got[1], leg, n, rate) else None
 
         def scan(u, at, spent: float, off: float):
             """``(frames, faced, worst, free)`` for pad ``u`` from ``at``, ``spent`` whole calls of it already made
@@ -3161,10 +3650,12 @@ class Session:
             region to that call and keeping the rules over the whole press (``faced`` True, ``worst`` the pad's
             largest offset from the bearing it can meet by then); else the longest burst whose whole travel stays in
             the region and keeps them, found by bisection -- a rule a press keeps, a shorter one keeps (``faced``
-            False; 0 frames: none). ``free``: its lines run free of walls for all its frames (what a press is checked
-            against after it is made)."""
-            need = max(1, math.ceil(math.ceil(self.ROUTE_FACE_CALLS - spent - 1e-9) / per - 1e-9))
-            most = int((self.ROUTE_FACE_MAX_CALLS - spent) / per + 1e-9)
+            False; 0 frames: none). ``free``: its lines run free of walls for all its frames at the rate's average
+            walk (what a press is checked against after it is made). The fewest frames are the fewest SURE of the
+            calls still wanted (Rate.frames_for_ticks: a walked call a tick); the most, those whose average calls
+            reach ROUTE_FACE_MAX_CALLS."""
+            need = max(1, rate.frames_for_calls(self.ROUTE_FACE_CALLS - spent, "walk"))
+            most = int((self.ROUTE_FACE_MAX_CALLS - spent) / rate.per_frame() + 1e-9)
             if most < 1:
                 return 0, False, None, False
             yaw = doorface.yaw_of(*u)
@@ -3175,14 +3666,14 @@ class Session:
                     break
                 worst = max(doorface.angle_off(yaw, doorface.bearing_deg(x, z, q0, q1)) for x, z in faced_by[0])
                 if doorface.worst_face_error(worst, spent + sure(n), spread_deg, off) <= limit:
-                    return n, True, worst, travel[2] >= n * self.WALK_SPEED - 1e-6
+                    return n, True, worst, travel[2] >= n * rate.speed("walk") - 1e-6
 
             lo, hi = 0, most
             while lo < hi:
                 mid = (lo + hi + 1) // 2
                 lo, hi = (mid, hi) if ruled(at, u, mid, zone) is not None else (lo, mid - 1)
             got = ruled(at, u, lo, zone) if lo else None
-            return lo, False, None, got is not None and got[2] >= lo * self.WALK_SPEED - 1e-6
+            return lo, False, None, got is not None and got[2] >= lo * rate.speed("walk") - 1e-6
 
         pad, spent, est = None, 0.0, held          # the pad pressed so far, its whole calls, and his yaw before them
         moved = 0.0
@@ -3202,7 +3693,7 @@ class Session:
                 if n:
                     (whole if done else more if mine else other).append((n, buttons, u, done, mine, worst, free))
             pick = next((p for p in sorted(whole, key=lambda p: p[0]) + more + other
-                         if self._walkers_let_press(here, (p[1], p[2], p[0], True), leg)), None)
+                         if self._walkers_let_press(here, (p[1], p[2], p[0], True), leg, rate)), None)
             if pick is None:
                 break
             n, buttons, u, done, mine, worst, free = pick
@@ -3211,14 +3702,26 @@ class Session:
             self._log(f"  route_to: standing in the door's zone at ({here[0]:.0f}, {here[1]:.0f}) with nothing fired: "
                       f"{n} walked frame(s) {'+'.join(buttons)} to face its exit point {tuple(record['face_to'])}"
                       + ("" if done else " (a burst)"))
+            yaw0 = self.state.player_yaw                              # s90 publishes it; None before
             moved = self._pressed(origin, walked, f"hold cancel {n}", *[f"hold {b} {n}" for b in buttons],
                                   f"wait {n + 4}")
+            self._check_movement(moved, n, "walk", rate, free=free, what="a facing press", span=self._press_span)
             got = sure(n)
-            if moved is not None and free and moved < got * step - 1.0:
+            ran = None if moved is None else self._calls_turned(yaw0, self.state.player_yaw, doorface.yaw_of(*u),
+                                                                "walk", spread_deg)
+            if ran is not None:
+                if ran != got:
+                    self._log(f"  route_to: the press turned him {ran} call(s), read off his yaw, where its frames are "
+                              f"sure of {got} at {rate.describe()}: counted {ran}")
+                if ran < got:
+                    done = done and doorface.worst_face_error(worst, spent + ran, spread_deg,
+                                                              turn_from(u, est)) <= limit
+                got = ran
+            elif moved is not None and free and moved < got * step - 1.0:
                 proved = int(math.floor((moved + 1.0) / step))
                 self._log(f"  route_to: the press moved him {moved:.0f}u on free floor, where its {got} call(s) step "
-                          f"{got * step:.0f}u -- they did not all run (a hold on movement, or a frame rate not the "
-                          f"calibrated one): counted {proved}")
+                          f"{got * step:.0f}u -- they did not all run (a hold on movement, or fewer ticks than "
+                          f"{rate.describe()} holds): counted {proved}")
                 got = proved
                 done = done and doorface.worst_face_error(worst, spent + got, spread_deg,
                                                           turn_from(u, est)) <= limit
@@ -3251,7 +3754,8 @@ class Session:
             record["face_err"] = doorface.signed_error(doorface.gate_value(here[0], here[1], yaw, q0, q1))
         return "face" if moved is None else None
 
-    def _turn_to_the_door(self, zone, record: dict, origin: int, window, timeout: float) -> str | None:
+    def _turn_to_the_door(self, zone, record: dict, origin: int, window, timeout: float,
+                          spread: float = 0.0) -> str | None:
         """:meth:`_face_the_door`'s CLOSED LOOP, on an engine that publishes the facing (memoria-patch s90): standing IN
         the door's region ``zone`` (the engine's polygon, its first edge ``zone[0] -> zone[1]``) with control and
         nothing fired, turn him IN PLACE toward the door and decide by what the ENGINE reports, never by a prediction.
@@ -3259,8 +3763,10 @@ class Session:
         THE TURN. The pad (:func:`_eight_way` of the calibrated basis) whose heading -- content.doorface.yaw_of of its
         world direction, the field's twist already in the basis -- is nearest the bearing to the exit point
         (doorface.bearing_deg: his projection onto the first edge), held by :meth:`turn_in_place` at the run rate for
-        the fewest frames whose whole MovePC calls (doorface.sure_calls at doorface.movepc_calls(RUN_SPEED)) reach
-        ROUTE_TURN_CALLS. He does not step, so no zone is left, entered or neared and no slide is bounded: the press's
+        the fewest frames SURE of the whole run ticks -- two calls each -- that make ROUTE_TURN_CALLS, at the measured
+        rate (:meth:`rate`, Rate.frames_for_ticks: 8 frames at 60 fps, 4 at 30; a SIZE -- the engine reports what the
+        turn did, and more calls in place only cost frames). He does not step, so no zone is left, entered or neared
+        and no slide is bounded: the press's
         rules have nothing to keep. Its ``turn_end`` comes once the field has run its event passes on the final facing
         (HarnessAgent.ServiceTurn), so the outcome below is the gate's own.
 
@@ -3291,7 +3797,7 @@ class Session:
             never the door's strike.
           * any other ``why`` -- a CUT (``movement``, ``hud``, ``actor``, ``unreadable``; ``player``/``control`` with
             control back on the same field -- a script or a talk took him, not the door): handled as the matching
-            REFUSAL is -- waited out (ROUTE_WAIT_FRAMES for a hold on movement or a UI, ROUTE_FACE_WAIT else) and
+            REFUSAL is -- waited out (ROUTE_WAIT_SECONDS for a hold on movement or a UI, ROUTE_FACE_WAIT_TICKS else) and
             turned again within the bound, never judged on the cut turn's byte (the field never had its passes on it)
             and never a strike. ``axis`` (a physical stick: a human at the controls) ends the step, ``faced`` False.
 
@@ -3301,16 +3807,21 @@ class Session:
         driver's own error and raise; ``axis``/``path`` (a human's stick or mouse walk) end the step, ``faced`` False;
         control or the field gone is landed as above; the rest are waited out and turned again within the bound.
 
-        ``face_pad`` is the last pad turned, ``face_calls`` the whole calls every turn's reported ``frames`` are sure
-        of at the run rate, ``face_moved`` the largest ``moved`` a turn reported (0: in place). Returns "face", None
-        (``record`` said), or "press" (fall back)."""
+        ``face_pad`` is the last pad turned, ``face_calls`` the whole calls the turns RAN -- each read off the yaws its
+        ``turn_end`` reports toward the pad's heading, the basis's measured error carried (:meth:`_calls_turned`: at
+        31 fps a count of frames recorded half the calls a turn ran -- the facing check's 4 of about 8 -- and a hitched
+        frame's burst runs more than any rate is sure of) where the heading's uncertainty (``spread``, degrees: the
+        leg's) reads ONE whole count, or where they do not say -- a long turn ends a fraction of a degree off the pad,
+        and a tenth of one moves its count by a call -- the calls its reported ``frames`` are sure of at the run rate
+        (Rate.calls_sure: whole ticks, in pairs): never more than ran. ``face_moved`` the largest ``moved`` a turn
+        reported (0: in place). Returns "face", None (``record`` said), or "press" (fall back)."""
         import math
         from ff9mapkit.content import doorface
         from .channel import TurnRefused
         q0, q1 = zone[0], zone[1]
         limit = doorface.face_limit_deg(window)
-        per = doorface.movepc_calls(self.RUN_SPEED)               # the MovePC calls a run-rate frame spends on average
-        frames = max(1, math.ceil(self.ROUTE_TURN_CALLS / per - 1e-9))
+        rate = self.rate()                                       # a SIZE: the engine reports what the turn did
+        frames = rate.frames_for_calls(self.ROUTE_TURN_CALLS, self._gait("run"))
         pads = _eight_way(self._axes[origin])
         settled: set = set()                                     # pads whose heading a settled turn measured
         unmoved: set = set()                                     # pads whose last turn left his yaw exactly as it was
@@ -3326,7 +3837,7 @@ class Session:
             if st.ui_state != "FieldHUD":
                 # a UI over the field (the agent's ``hud`` refusal, before it is asked): waited out like that refusal
                 self._log(f"  route_to: {st.ui_state} is up over the field; waiting before the turn")
-                self.wait_frames(self.ROUTE_WAIT_FRAMES)
+                self.wait_frames(self._frames_lasting(self.ROUTE_WAIT_SECONDS))
                 continue
             here = (st.player_x, st.player_z)
             if here[0] is None or not doorface.region_contains(here[0], here[1], zone):
@@ -3355,7 +3866,7 @@ class Session:
                         return "press"
                     waited_for.append(err.uid)
                     self._log(f"  route_to: the turn was refused ({err.message}); waiting for that body to move on")
-                    self.wait_frames(self.ROUTE_WAIT_FRAMES)
+                    self.wait_frames(self._frames_lasting(self.ROUTE_WAIT_SECONDS))
                     continue
                 if err.kind in ("argument", "opposite", "other"):
                     raise
@@ -3368,11 +3879,13 @@ class Session:
                     if landed is not None:
                         return landed
                 self._log(f"  route_to: the turn was refused ({err.message}); waiting it out")
-                self.wait_frames(self.ROUTE_WAIT_FRAMES if err.why in ("movement", "hud", "actor")
-                                 else self.ROUTE_FACE_WAIT)
+                self.wait_frames(self._frames_lasting(self.ROUTE_WAIT_SECONDS)
+                                 if err.why in ("movement", "hud", "actor") else self._face_wait_frames())
                 continue
             record["face_pad"] = "+".join(buttons)
-            record["face_calls"] = (record["face_calls"] or 0) + doorface.sure_calls(end["frames"] or 0, per)
+            ran = self._calls_turned(end["yaw0"], end["yaw"], doorface.yaw_of(*u) + basis, "run", spread)
+            record["face_calls"] = (record["face_calls"] or 0) + (
+                ran if ran is not None else rate.calls_sure(end["frames"] or 0, "run"))
             if end["moved"] is not None:
                 record["face_moved"] = max(record["face_moved"] or 0.0, end["moved"])
             why = end["why"]
@@ -3386,8 +3899,8 @@ class Session:
                     if landed is not None:
                         return landed                # the field changed: the door fired
                 self._log(f"  route_to: the turn was cut ({why}), nothing fired; turning again")
-                self.wait_frames(self.ROUTE_WAIT_FRAMES if why in ("movement", "hud", "actor")
-                                 else self.ROUTE_FACE_WAIT)
+                self.wait_frames(self._frames_lasting(self.ROUTE_WAIT_SECONDS)
+                                 if why in ("movement", "hud", "actor") else self._face_wait_frames())
                 continue
             here = (st.player_x, st.player_z)
             if end["moved"] is not None and end["moved"] > self.ROUTE_TURN_MOVED:
@@ -3413,7 +3926,8 @@ class Session:
                 unmoved.discard(buttons)             # a call ran: the next unmoved turn of it starts a new count
             elif buttons not in unmoved:
                 # his yaw EXACTLY where it was: no call is proven to have run -- the turn's frames fit between two
-                # 30 Hz ticks (a display over ~240 Hz), or the pad already heads where he stands. Neither settled nor
+                # 30 Hz ticks (a rate taken wrong: see ROUTE_TURN_CALLS), or the pad already heads where he stands.
+                # Neither settled nor
                 # a basis: the same pad again, for twice the frames -- and every turn after it keeps the longer count
                 unmoved.add(buttons)
                 frames = min(self.TURN_MAX_FRAMES, 2 * frames)
@@ -3483,11 +3997,11 @@ class Session:
         The router knows walls and zones, not bodies, and the agent publishes nothing that tells a
         movement freeze with control held (the script's pad mask, EventInput.IsMovementControl) from a
         body in the way, so MOVEMENT decides, rung by rung (:meth:`_unstick_leg`). A chunk that stalls
-        with control held is not a failure yet. WAIT ROUTE_WAIT_FRAMES and walk it again, ROUTE_WAITS
+        with control held is not a failure yet. WAIT ROUTE_WAIT_SECONDS and walk it again, ROUTE_WAITS
         times (ROUTE_WAIT_BUDGET per call): a freeze, or someone walking through, clears on its own.
         Still stuck: PUSH -- one unbroken hold into whoever stands there, long enough for the engine
-        to let him through anyone without object flag 16 (ROUTE_PUSH_LOCK_W), pressed only once a
-        two-frame probe shows he really is stuck (an overshoot or a slide is not). Still stuck: an
+        to let him through anyone without object flag 16 (ROUTE_PUSH_LOCK_CALLS), pressed only once a
+        one-tick walked probe shows he really is stuck (an overshoot or a slide is not). Still stuck: an
         UNSEEN BLOCKER -- someone he cannot pass -- stands just ahead; it goes in as a point obstacle
         OBSTACLE_R_W (the collision distance) ahead of him along the axis he was pressing
         (:meth:`_blocker_ahead`), and the route is replanned round it, at most ROUTE_BLOCKERS times,
@@ -3522,8 +4036,8 @@ class Session:
         counts standing in it. Under ``npcs`` the finish waits on walkers as the rest of the walk does -- but only on
         walkers that are the cause: ones standing in the way to a spot of the zone he could get into with every walker
         gone (:meth:`_short_of_zone`), waited on, and stepped away from when held on him, within the walk's
-        ROUTE_WALKER_BUDGET, never taken for the door -- and a walk the finish ends OUTSIDE the zone says what it found
-        holding him there (``held_by``, ``pinned``: its own judgement, recorded as it was made).
+        ROUTE_WALKER_BUDGET_SECONDS, never taken for the door -- and a walk the finish ends OUTSIDE the zone says what
+        it found holding him there (``held_by``, ``pinned``: its own judgement, recorded as it was made).
 
         ``face`` (opt-in: None, the default, faces nothing) is a door stock's FACING GATE keeps: its region, world
         ``[x, z]`` corners, the ENGINE's polygon in the engine's order -- the region's first edge first, every point
@@ -3553,7 +4067,7 @@ class Session:
         entered only when no route stays out, one object at a time, never a class at once, and then the record
         says so; a SOLID body never -- solids that seal every way even at the pad are ``blocked``, with nothing
         pressed (waited on only while one of them is walking: then the plan is made again after
-        ROUTE_WAIT_FRAMES, within ROUTE_WAIT_BUDGET). The discs bound every hold and every chunk the way the zones
+        ROUTE_WAIT_SECONDS, within ROUTE_WAIT_BUDGET). The discs bound every hold and every chunk the way the zones
         do, where the objects stand NOW: they are read again after every hold (every chunk, chunked), and one
         that moved onto the path still to walk re-plans from where he stands, at most ROUTE_NPC_REPLANS times a
         call (:meth:`_npc_moved`); a WALKING trigger is held to where it could have walked by the next read, and
@@ -3578,7 +4092,10 @@ class Session:
         "during", "waits", "cleared", "pushes", "pushed", "blockers", "remembered", "blocked",
         "frozen", "boxed", "boxed_by", "npcs", "avoided", "entered", "through", "sealed", "npc_replans", "npc_waits",
         "box_waits", "box_cleared", "boxers", "held_by", "pinned", "changed_to", "face_gate", "faced", "face_err",
-        "face_worst", "face_to", "face_calls", "face_pad", "face_measured", "face_moved"}``: ``landed``
+        "face_worst", "face_to", "face_calls", "face_pad", "face_measured", "face_moved", "fps"}``: ``fps`` the
+        measured render rate its presses were planned by, as the walk ended (Rate.as_dict: ``fps``, its spread, the
+        ticks a frame, the ``source`` -- "default" when nothing was measured yet), so a record read tomorrow says what
+        a frame count in it meant; ``landed``
         the field it ended up in (None = still here), ``changed_to`` the one the id first changed to (None: it
         never changed) -- they differ when that room's scene put him straight back (:meth:`expect_field_change`),
         ``landed`` then the origin -- ``reached`` whether it
@@ -3601,7 +4118,7 @@ class Session:
         ``entered`` (``kind`` "range" / "talk"), every non-solid body it had to push through in ``through``, and
         the solids that left no way at all in ``sealed``: each ``{"uid", "sid", "kind", "at", "radius", "solid",
         "moving"}``, once per object and kind over the call. ``npc_replans`` counts the plans an object's
-        movement caused, ``npc_waits`` the waits a walking trigger's reach cost (ROUTE_WALKER_WAIT frames each),
+        movement caused, ``npc_waits`` the waits a walking trigger's reach cost (ROUTE_WALKER_WAIT_SECONDS each),
         ``box_waits`` the waits (and steps out of the way) that walking objects boxing him in cost, ``box_cleared``
         the boxes they let go of, and ``boxers`` every object that refused the presses of a box walkers were among --
         at the zone's finish, too, every walker it waited on in the way in (:meth:`_outwait_hold`).
@@ -3632,8 +4149,9 @@ class Session:
         the gate takes his bearing to (content.doorface.calc_exit_position: his projection onto the first edge) where
         the step began,
         ``face_pad`` the buttons it pressed or turned ("up+left"), ``face_calls`` the WHOLE MovePC calls it counted
-        them for (content.doorface.sure_calls; a press's fewer where a free press moved him less than they step; a
-        turn's, of the frames the engine reported its keys down), ``face_worst`` the largest error, in 256ths, the
+        them for -- read off the published yaw where s90 publishes it (:meth:`_calls_turned`), else Rate.calls_sure at
+        the measured rate (a press's fewer where a free press moved him less than they step; a turn's, of the frames
+        the engine reported its keys down) -- ``face_worst`` the largest error, in 256ths, the
         step leaves him with where it left him (the prediction's doorface.worst_face_error, within the window's limit
         when ``faced`` is True; measured, the measured error's size), and ``face_err`` the gate's signed error, in
         256ths -- MEASURED (``face_measured``): the facing byte the engine reported at the last turn's end, against
@@ -3666,11 +4184,19 @@ class Session:
                   "npcs": None, "avoided": [], "entered": [], "through": [], "sealed": [], "npc_replans": 0,
                   "npc_waits": 0, "box_waits": 0, "box_cleared": 0, "boxers": [], "held_by": None, "pinned": [],
                   "changed_to": None, "face_gate": None, "faced": None, "face_err": None, "face_worst": None,
-                  "face_to": None, "face_calls": None, "face_pad": None, "face_measured": None, "face_moved": None}
+                  "face_to": None, "face_calls": None, "face_pad": None, "face_measured": None, "face_moved": None,
+                  "fps": None}
         if fpoly is not None:
             from ff9mapkit.content import doorface
             record["face_gate"] = list(doorface.FACE_WINDOW if face_window is None else map(int, face_window))
         self.wait_control(timeout=timeout)
+        # the render rate, measured before anything is planned (a wait for it lets the room's walkers walk on, and the
+        # plan below reads them after it): every probe, hold, push and facing press is judged at it, and each that
+        # cannot be undone asks for it again -- raising, or pressing nothing, if it never came (:meth:`rate`)
+        if self._measured_rate() is None:
+            self._log(f"  route_to: no MEASURED render rate yet ({self._clock.rate().describe()}): presses are sized "
+                      f"at it, and every rule that cannot be undone -- a probe or hold near a zone, a push, a walking "
+                      f"trigger's reach -- asks for a measured one again, or refuses")
         wmesh = walkmesh if walkmesh is not None else self._stock_walkmesh(origin)
         if isinstance(prior, str):
             prior = self.key_prior(origin)
@@ -3688,6 +4214,7 @@ class Session:
             record["during"] = "calibrate"
             self._npc_fired(watch, record, origin)
             record["landed"] = self._await_landing(origin, timeout, record)
+            record["fps"] = self.rate().as_dict()
             return record
         spread = self._heading_spread(self._axes[origin], prior) if smooth else 0.0
         known = self._visit_blockers(origin) if unstick else []
@@ -3709,6 +4236,7 @@ class Session:
             self._npc_fired(watch, record, origin, into)
             self._npc_tally(record, watch)
             record["landed"] = self._await_landing(origin, timeout, record)
+            record["fps"] = self.rate().as_dict()
             return record
 
         while True:
@@ -3726,20 +4254,22 @@ class Session:
                           f"to ({x:.0f}, {z:.0f}) clear of {len(polys)} region(s)"
                           + (f" and {len(known)} unseen blocker(s)" if known else ""))
                 walking = [d for d in sealing if d["moving"]]
+                wait = self._frames_lasting(self.ROUTE_WAIT_SECONDS)
                 if (walking and record["waits"] < self.ROUTE_WAIT_BUDGET
-                        and self._walkers_let_stand(watch, self.ROUTE_WAIT_FRAMES)):
+                        and self._walkers_let_stand(watch, wait)):
                     # a solid that is WALKING seals the way only until it has walked on: wait for it, then plan
                     # again from where the objects stand then ("wait for it" is the engine's own answer to a walker)
                     record["waits"] += 1
                     self._log(f"  route_to: walking SOLID object(s) {[d['uid'] for d in walking]} seal the way; "
-                              f"waiting {self.ROUTE_WAIT_FRAMES} frames (wait {record['waits']})")
-                    self.wait_frames(self.ROUTE_WAIT_FRAMES)
+                              f"waiting {wait} frames (wait {record['waits']})")
+                    self.wait_frames(wait)
                     st = self.state
                     if st.field_id != origin or not st.control:
                         record["travelled"] = round(walked[0], 1)
                         record["during"] = "wait"
                         self._npc_tally(record, watch)
                         record["landed"] = self._await_landing(origin, timeout, record)
+                        record["fps"] = self.rate().as_dict()
                         return record
                     continue
                 if sealing:
@@ -3754,7 +4284,7 @@ class Session:
                     # older ones). They go -- a phantom never outlives the call that could not use it
                     # -- and whether the way is really shut depends on whether he moved since the first
                     self._withdraw(fresh, known)
-                    if walked[0] - first < self.WALK_SPEED:
+                    if walked[0] - first < self.HALF_STEP:
                         record["frozen"], record["blockers"] = True, []
                         self._log("  route_to: and he has not moved since the first of them went in -- a hold "
                                   "on movement, or bodies on every side: not told apart; withdrawn")
@@ -3849,14 +4379,14 @@ class Session:
                       f"after {record['waits']} wait(s) and {record['pushes']} push(es): an unseen blocker "
                       f"at ({body[0]:.0f}, {body[1]:.0f}); replanning round it")
         against = None
-        if stalled and first is not None and walked[0] - first < self.WALK_SPEED and watch is not None:
+        if stalled and first is not None and walked[0] - first < self.HALF_STEP and watch is not None:
             # with the objects published, a body he is held against is told apart from a hold on movement
             against = self._body_ahead(st, self._press_dir(origin, (st.player_x, st.player_z), (cx, cz), leg), watch)
             if against is not None:
                 self._log(f"  route_to: held at ({st.player_x:.0f}, {st.player_z:.0f}) against object "
                           f"{against['uid']} at ({against['x']:.0f}, {against['z']:.0f}) -- a body, not a hold on "
                           f"movement; stopping")
-        if stalled and first is not None and walked[0] - first < self.WALK_SPEED and against is None:
+        if stalled and first is not None and walked[0] - first < self.HALF_STEP and against is None:
             # Every replan since the first blocker -- each pressing a way the blockers before it left
             # open -- ended exactly where he stood. Bodies do not do that; a hold on MOVEMENT does (a
             # freeze that outlasted every wait), or walls and bodies on every side. The blockers were
@@ -3891,6 +4421,7 @@ class Session:
             if held["who"]:
                 self._log(f"  route_to: ended at ({st.player_x:.0f}, {st.player_z:.0f}) outside the zone, held short of "
                           f"it by {held['by']} {[d['uid'] for d in held['who']]}")
+        record["fps"] = self.rate().as_dict()
         return record
 
     def _route_leg(self, cx: float, cz: float, tol: float, last: bool, origin: int, walked: list,
@@ -3929,8 +4460,9 @@ class Session:
 
     def _outwait(self, cx: float, cz: float, tol: float, last: bool, origin: int, walked: list,
                  record: dict, leg: dict | None = None, watch: dict | None = None) -> str:
-        """route_to(unstick=True) at a stall with control held: WAIT ROUTE_WAIT_FRAMES, then walk the same
-        chunk (or smooth ``leg``) again -- ROUTE_WAITS times, and never past the call's ROUTE_WAIT_BUDGET.
+        """route_to(unstick=True) at a stall with control held: WAIT ROUTE_WAIT_SECONDS (the frames sure to last it
+        at the measured rate, :meth:`_frames_lasting`), then walk the same chunk (or smooth ``leg``) again --
+        ROUTE_WAITS times, and never past the call's ROUTE_WAIT_BUDGET.
         Counts ``record["waits"]`` and, for a wait after which the chunk was reached, ``record["cleared"]``.
         Returns what the last :meth:`_route_leg` did ("boxed" included: that is not waited on again), or "wait"
         when control went away during a wait. Under route_to(npcs=True)'s ``watch`` a wait a WALKING trigger could
@@ -3939,12 +4471,12 @@ class Session:
         for _ in range(self.ROUTE_WAITS):
             if record["waits"] >= self.ROUTE_WAIT_BUDGET:
                 break
-            if not self._walkers_let_stand(watch, self.ROUTE_WAIT_FRAMES):
-                self._log(f"  route_to: not waiting {self.ROUTE_WAIT_FRAMES} frames here: a walking trigger could "
-                          f"reach him meanwhile")
+            wait = self._frames_lasting(self.ROUTE_WAIT_SECONDS)
+            if not self._walkers_let_stand(watch, wait):
+                self._log(f"  route_to: not waiting {wait} frames here: a walking trigger could reach him meanwhile")
                 break
             record["waits"] += 1
-            self.wait_frames(self.ROUTE_WAIT_FRAMES)
+            self.wait_frames(wait)
             st = self.state
             if st.field_id != origin or not st.control:
                 return "wait"
@@ -3977,34 +4509,47 @@ class Session:
 
     def _push_through(self, cx: float, cz: float, origin: int, walked: list, record: dict,
                       leg: dict | None = None, watch: dict | None = None) -> str:
-        """Hold toward the chunk end ``(cx, cz)`` UNBROKEN for ROUTE_PUSH_LOCK_W of commanded movement plus
-        what the chunk still needs along the axis pressed -- the engine's pass-through for anyone
-        without object flag 16 (see ROUTE_PUSH_LOCK_W). Counts ``record["pushes"]`` / ``["pushed"]``,
+        """Hold toward the chunk end ``(cx, cz)`` UNBROKEN for the frames sure to make ROUTE_PUSH_LOCK_CALLS run
+        calls plus what the chunk still needs along the axis pressed -- the engine's pass-through for anyone
+        without object flag 16 (see ROUTE_PUSH_LOCK_CALLS). Counts ``record["pushes"]`` / ``["pushed"]``,
         never past ROUTE_PUSH_BUDGET; adds what he covered to ``walked[0]``. Returns "pushed" (he went
         through), "free" (he was not stuck, so nothing was pushed), "stuck", or "push" when control
         went away.
 
-        A TWO-FRAME PROBE FIRST, at walk speed: a push that meets nobody is a blind run of the whole
-        hold, and walk_to also stops on an overshoot, a slide or max_bursts, none of them a body. Only
-        a probe that moved him under a unit -- walk_to's own stall test -- earns the push.
+        ALL OF IT AT A MEASURED RATE (:meth:`rate` ``require=True``): the lock is counted in whole run ticks
+        (Rate.frames_for_ticks), every line judged at the most the frames can carry him (Rate.reach), and the
+        rest sized at the average -- a push sized in frames at 30u a frame ran 180-450u past the line it checked
+        at 31 fps, and at 120 fps held too few calls ever to open the lock.
+
+        A ONE-TICK PROBE FIRST, at walk speed (the fewest frames sure of a tick: two at 60 fps): a push that
+        meets nobody is a blind run of the whole hold, and walk_to also stops on an overshoot, a slide or
+        max_bursts, none of them a body. Only a probe that moved him under a unit -- walk_to's own stall test --
+        earns the push.
 
         Given a smooth ``leg`` it insists along the line the leg last HELD (``leg["pressed"]``: both
         buttons of a diagonal -- the line he stopped on), not one axis toward the chunk end. And the whole
         line is checked first, because a push runs blind for all of it once whoever stood there moves: lock,
         press and movement tail must pass :meth:`_probe_is_clear` of the leg's avoided regions, from where he
         stands, over the leg's heading ``spread``. The press after the lock shrinks to fit (never under 3
-        frames); a push that cannot fit is not pressed ("stuck").
+        frames); a push that cannot fit is not pressed ("stuck"). Both presses go to the movement cross-check
+        (:meth:`_check_movement`).
 
         Given route_to(npcs=True)'s ``watch`` it is not pressed at all while a SOLID published object stands
         against him along that line (:meth:`_body_ahead`) -- the engine never lets him through one, so the hold
         would only wait out a lock that cannot open -- and the line, chunked or smooth, must also keep clear of
         every kept trigger and solid object (:meth:`_probe_is_clear` ``discs``): a push runs blind once the lock
         opens, and must not carry him on into a contact script beyond whoever he pushed through."""
+        import math
         if record["pushes"] >= self.ROUTE_PUSH_BUDGET:
             return "stuck"
+        rate = self.rate(require=True)          # the lock must be SURE and the line judged at its reach
         st = self.state
         dx, dz = cx - st.player_x, cz - st.player_z
-        lock = int(-(-self.ROUTE_PUSH_LOCK_W // self.RUN_SPEED))
+        # the whole push at the gait he truly holds: a run -- or a walk, where the field inhibits running (:meth:`_gait`),
+        # whose lock counted in run ticks (14) would run 14 calls and never open, and whose tail sized at a run's
+        # speed would leave him inside whoever he pushed through
+        gait = self._gait("run")
+        lock = rate.frames_for_calls(self.ROUTE_PUSH_LOCK_CALLS, gait)
         if leg is None:
             button, need, axis, sign = _press_axis(self._axes[origin], dx, dz)
             buttons, u = (button,), (axis[0] * sign, axis[1] * sign)
@@ -4013,7 +4558,7 @@ class Session:
                 leg["pressed"] = max(_eight_way(self._axes[origin]), key=lambda p: p[1][0] * dx + p[1][1] * dz)
             buttons, u = leg["pressed"]
             need = max(0.0, u[0] * dx + u[1] * dz)
-        tail = max(3, min(int(self.ROUTE_CHUNK_MAX / self.RUN_SPEED), int(need / self.RUN_SPEED)))
+        tail = max(3, min(rate.frames_for(self.ROUTE_CHUNK_MAX, gait), rate.frames_for(need, gait)))
         hazards, spread = (leg["hazards"], leg["spread"]) if leg is not None else ((), 0.0)
         discs = [] if watch is None else [d for d in watch["discs"] if d["kind"] == "trigger" or d["solid"]]
         judged = leg is not None or watch is not None          # the chunked push, blind, is judged only then
@@ -4035,7 +4580,7 @@ class Session:
             here = (self.state.player_x, self.state.player_z)
 
             def clear(n: int) -> bool:
-                reach = (lock + n + self.PROBE_TAIL_FRAMES) * self.RUN_SPEED
+                reach = rate.reach(lock + n, gait)
                 end = (here[0] + u[0] * reach, here[1] + u[1] * reach)
                 return (self._probe_is_clear(here, u, reach, hazards, spread, discs=discs)
                         and all(routes.seg_dist_xz(d["x"], d["z"], here, end) - d["R"] - d["pad"]
@@ -4048,7 +4593,10 @@ class Session:
             self._log(f"  route_to: no push along {'+'.join(buttons)} from ({st.player_x:.0f}, {st.player_z:.0f}) "
                       f"keeps clear of the avoided regions{' and objects' if discs else ''}; not pressed")
             return "stuck"
-        moved = self._pressed(origin, walked, "hold cancel 2", *[f"hold {b} 2" for b in buttons], "wait 6")
+        probe = self._least_frames(rate)
+        moved = self._pressed(origin, walked, f"hold cancel {probe}", *[f"hold {b} {probe}" for b in buttons],
+                              f"wait {probe + 4}")
+        self._check_movement(moved, probe, "walk", rate, what="a push probe", span=self._press_span)
         if moved is None:
             return "push"
         if moved >= 1.0:
@@ -4060,9 +4608,10 @@ class Session:
         frames = lock + tail
         record["pushes"] += 1
         moved = self._pressed(origin, walked, *[f"hold {b} {frames}" for b in buttons], f"wait {frames + 4}")
+        self._check_movement(moved, frames, gait, rate, what="a push", span=self._press_span)
         if moved is None:
             return "push"
-        if moved < self.WALK_SPEED:
+        if moved < self.HALF_STEP:
             return "stuck"
         record["pushed"] += 1
         self._log(f"  route_to: one unbroken {frames}-frame hold {'+'.join(buttons)} took him {moved:.0f}u "
@@ -4075,6 +4624,7 @@ class Session:
         before = self.state
         self.send(*steps)
         after = self.settle()
+        self._press_span = (before.frame, after.frame)      # what the movement cross-check times it by
         if after.field_id != origin or None in (before.player_x, after.player_x):
             return None
         moved = ((after.player_x - before.player_x) ** 2 + (after.player_z - before.player_z) ** 2) ** 0.5
@@ -4177,7 +4727,7 @@ class Session:
         call ends ``boxed``, and by them), ``held`` (the zone's finish's verdict on what keeps him out of the zone,
         :meth:`_short_of_zone` -- the last one it judged by, this hold's; route_to records it when the finish ends the
         walk) and ``lag`` (the most frames seen to pass
-        between two reads beyond the ones pressed -- ROUTE_WALKER_LAG until a press measures it:
+        between two reads beyond the ones pressed -- ROUTE_WALKER_LAG_SECONDS' frames until a press measures it:
         :meth:`_walker_clear`)."""
         st = self.state
         for _ in range(self.ROUTE_NPC_READS):
@@ -4257,7 +4807,9 @@ class Session:
         """Take ``st``'s object list into ``watch`` -- ``objs``, his ``y`` -- and how each object has been seen to walk.
         ``speed`` keeps, per uid, the most per frame it covered over two STEADY reads running -- the same direction
         and within a fifth of the same pace, so a straight walk and not a turn or a stop between reads, which averages
-        to a crawl (at most twice RUN_SPEED: a script placing an actor is not a walk). ``heading`` keeps the direction
+        to a crawl (at most two run ticks, RUN_TICK each, a TICK -- the ticks a frame holds at the measured rate,
+        :meth:`rate`: 60u a frame at 60 fps, 120 at 30 -- a script placing an actor is not a walk; a cap of 60u a
+        frame dropped every walker faster than his run at 31 fps, the Dali children). ``heading`` keeps the direction
         (a unit vector) of the last read in which it covered at least half its likely pace a frame -- half its
         published speed (:meth:`_told_speed`), or else half the most it has been seen to cover: a read across a
         turn keeps the line it was walking, as a patrol turns back along it. ``walked`` keeps every uid any read has
@@ -4267,6 +4819,7 @@ class Session:
         objs = st.objects
         if objs is None or st.player_x is None:
             return False
+        cap = 2.0 * self.RUN_TICK * self.rate().per_frame()      # the fastest walk a frame: two run ticks a tick
         seen, speed = watch.setdefault("seen", {}), watch.setdefault("speed", {})
         heading, last = watch.setdefault("heading", {}), watch.setdefault("last", {})
         walked = watch.setdefault("walked", set())
@@ -4281,14 +4834,14 @@ class Session:
                 vel = ((at[0] - was[0]) / (st.frame - was[2]), (at[1] - was[1]) / (st.frame - was[2]))
                 v = math.hypot(*vel)
                 before = last.get(uid)
-                if before is not None and 0.0 < v <= 2 * self.RUN_SPEED:
+                if before is not None and 0.0 < v <= cap:
                     w = math.hypot(*before)
                     if (w > 0.0 and abs(v - w) <= 0.2 * max(v, w)
                             and vel[0] * before[0] + vel[1] * before[1] >= 0.95 * v * w):
                         speed[uid] = max(speed.get(uid, 0.0), v, w)
                 last[uid] = vel
                 told = self._told_speed(o)
-                if 0.0 < v <= 2 * self.RUN_SPEED and v >= (told / 2.0 if told else max(speed.get(uid, 0.0), v)) / 2.0:
+                if 0.0 < v <= cap and v >= (told / 2.0 if told else max(speed.get(uid, 0.0), v)) / 2.0:
                     heading[uid] = (vel[0] / v, vel[1] / v)
             seen[uid] = (at[0], at[1], st.frame)
         watch["objs"], watch["y"] = objs, st.player_y
@@ -4325,13 +4878,16 @@ class Session:
         A disc he already stands within ``T`` or ``P`` of has it shrunk to just under his distance, so a route may
         walk out of it and never deeper -- ``inside`` when he is within ``R`` itself (a trigger that has not fired,
         a walker that stopped on him). ``speed`` is how far a frame a WALKING one may come. Where the entry publishes
-        the engine's own speed (:meth:`_told_speed`): its walk moves that a call, a call an event tick and a tick two
-        frames, so a frame is likely HALF of it -- but that is a reading of the engine, not a measurement, so until
-        ``speeds`` has MEASURED it (:meth:`_npc_read`: the most it covered over two steady reads running) the whole
-        published speed is taken a frame, and after, the measured pace, never under half the published one. A single
-        read cannot measure it: one that spans a turn averages to a crawl, and a walker taken slower than it walks
-        walks into him. Where the entry publishes none, the measured pace, never under half RUN_SPEED (a running
-        NPC). ``dir`` the line ``headings`` last saw it walk along (a unit vector; None: not seen walking)."""
+        the engine's own speed (:meth:`_told_speed`): its walk moves that a call, a call an event tick -- half of it a
+        frame at 60 fps, all of it at 30, a quarter at 120 -- but that is a reading of the engine, not a measurement,
+        so until ``speeds`` has MEASURED it (:meth:`_npc_read`: the most it covered over two steady reads running) the
+        whole published speed is taken a frame (conservative at every rate up to 30 fps's tick a frame), and after, the
+        measured pace, never under HALF the published one (60 fps's figure: at 30 the steady reads measure the whole
+        call, and at 120 half is twice the truth: conservative both ways). A single read
+        cannot measure it: one that spans a turn averages to a crawl, and a walker taken slower than it walks walks
+        into him. Where the entry publishes none, the measured pace, never under one walked call a tick
+        (STEP_PER_CALL x the ticks a frame holds at :meth:`rate`: 15u a frame at 60 fps, 30 at 30).
+        ``dir`` the line ``headings`` last saw it walk along (a unit vector; None: not seen walking)."""
         import math
         level = None if heights is None else self._npc_levels(heights, here, y)
         out = []
@@ -4346,10 +4902,10 @@ class Session:
                     continue
             told = self._told_speed(o)                     # the engine's own walk speed, a call (one an event tick)
             steady = (speeds or {}).get(o.get("uid")) or 0.0
-            if told:                                       # a frame: half a call, once two steady reads say so
+            if told:                                       # never under half a call a frame, once steady reads say
                 speed = max(steady, told / 2.0) if steady else told
             else:
-                speed = max(steady, self.RUN_SPEED / 2.0)
+                speed = max(steady, STEP_PER_CALL * self.rate().per_frame())
             base = {"uid": o.get("uid"), "sid": o.get("sid"), "x": float(o["x"]), "z": float(o["z"]),
                     "solid": bool(o.get("solid")), "moving": bool(o.get("moving")), "shown": o.get("shown"),
                     "speed": speed, "dir": (headings or {}).get(o.get("uid"))}
@@ -4385,7 +4941,7 @@ class Session:
              none) -- or ``(None, [])`` when that route does not exist either (no route, as without ``npcs``). Only
              a seal at ``r`` plus the pad a hold keeps is a movement lock: a lane a margin closes is still a lane.
           1. every disc at its plan radius ``P`` -- first with the line each WALKING trigger walks kept out of too
-             (ROUTE_WALKER_AHEAD frames of it either way, at the speed it may walk: a route that stays off a patrol's
+             (ROUTE_WALKER_AHEAD_SECONDS of it either way, at the speed it may walk: a route that stays off a patrol's
              beat where one can); else every disc at ``T`` -- a hold keeps that pad off each, so the route still
              enters nothing, only the slack for the walk's drift is gone. A WALKING trigger (its body too) is no
              obstacle beyond that line: where it stands now it will not be when he gets there, and a detour round it
@@ -4438,9 +4994,9 @@ class Session:
             if bare is None:
                 return None, []
             return None, [d for d in solids if enters(line(bare), d, d["R"])] or solids
-        ahead = []                           # ROUTE_WALKER_AHEAD frames of each walking trigger's line, either way
+        ahead = []                           # ROUTE_WALKER_AHEAD_SECONDS of each walking trigger's line, either way
         for d in [w for w in walking if w["kind"] == "trigger"]:
-            beat = self._walker_path(d, self.ROUTE_WALKER_AHEAD)
+            beat = self._walker_path(d, self._frames_lasting(self.ROUTE_WALKER_AHEAD_SECONDS))
             steps = 0 if beat is None else int(math.dist(*beat) / 2.0 // max(1.0, d["R"] / 2.0))
             for k in [k for j in range(1, steps + 1) for k in (j, -j)]:
                 at = (d["x"] + (beat[1][0] - d["x"]) * k / steps, d["z"] + (beat[1][1] - d["z"]) * k / steps)
@@ -4554,7 +5110,7 @@ class Session:
     def _body_ahead(self, st: State, u, watch: dict, *, solid: bool = False) -> dict | None:
         """The published body he stands pressed against along unit ``u``: of every body the last list read holds
         (:meth:`_npc_discs` by the engine's |dy| test where he stands now -- not only the ones a plan kept), the
-        nearest he is IN CONTACT with -- his centre within WALK_SPEED of its ``r``, where the engine holds it, and
+        nearest he is IN CONTACT with -- his centre within HALF_STEP of its ``r``, where the engine holds it, and
         the body within ROUTE_CONTACT_ANGLE of ``u`` (one met further off the line slides him round it, it does not
         stop him); None when there is none. ``solid``: only a solid one. A body standing clear of him did not stop
         him, however near: laying the stall on it re-plans round a body the plan already went round, and never
@@ -4568,14 +5124,14 @@ class Session:
                 continue
             dx, dz = d["x"] - here[0], d["z"] - here[1]
             dist = math.hypot(dx, dz)
-            if (dist < d["R"] + self.WALK_SPEED and dx * u[0] + dz * u[1] >= cos * dist
+            if (dist < d["R"] + self.HALF_STEP and dx * u[0] + dz * u[1] >= cos * dist
                     and (best is None or dist < best[0])):
                 best = (dist, d)
         return None if best is None else best[1]
 
     def _npc_fired(self, watch: dict | None, record: dict, origin: int, zone=None) -> None:
         """route_to(npcs=True), control gone before the walk ended: name in ``record["entered"]`` every published
-        trigger he stands within reach of -- two run frames past its radius, by the engine's |dy| test where he
+        trigger he stands within reach of -- a run tick (RUN_TICK) past its radius, by the engine's |dy| test where he
         stands -- while he is still on ``origin`` and not in ``zone`` (the exit he was sent to, which takes control
         itself). The plan kept out of those, so one there is a Range that reached him -- a walker's, or one a walk
         strayed into -- and the record names it rather than leave ``entered`` empty beside a run that was warped."""
@@ -4592,7 +5148,7 @@ class Session:
         self._npc_read(watch, st)
         hit = [d for d in self._npc_discs(watch["objs"], here, st.player_y, watch["margin"])
                if d["kind"] == "trigger"
-               and math.hypot(here[0] - d["x"], here[1] - d["z"]) < d["R"] + 2 * self.RUN_SPEED]
+               and math.hypot(here[0] - d["x"], here[1] - d["z"]) < d["R"] + self.RUN_TICK]
         if hit:
             self._npc_note(record["entered"], hit)
             self._log(f"  route_to: control went at ({here[0]:.0f}, {here[1]:.0f}) within reach of trigger(s) "
@@ -4678,10 +5234,11 @@ class Session:
     def _walker_lag(self, watch: dict | None) -> float:
         """How many frames after what was pressed (or waited) the objects are read again, as a walking trigger's reach
         is judged (:meth:`_walker_clear`): the most the call has measured (``watch["lag"]``, :meth:`_note_lag`;
-        ROUTE_WALKER_LAG before it has one), taken half again over -- the settle polls the clock, not the frame
-        counter, so the lag jitters."""
+        ROUTE_WALKER_LAG_SECONDS' frames before it has one, :meth:`_frames_lasting`: 12 at 60 fps, 24 at 120 -- the
+        settle's polling is wall-clock time, and a faster game fits more frames in it), taken half again over -- the
+        settle polls the clock, not the frame counter, so the lag jitters."""
         lag = (watch or {}).get("lag")
-        return 1.5 * (self.ROUTE_WALKER_LAG if lag is None else lag)
+        return 1.5 * (self._frames_lasting(self.ROUTE_WALKER_LAG_SECONDS) if lag is None else lag)
 
     @staticmethod
     def _note_lag(watch: dict, lag: float) -> None:
@@ -4694,12 +5251,14 @@ class Session:
         return (st.player_x, st.player_z)
 
     def _stand_safe(self, here, d: dict, watch: dict, frames: float | None = None) -> bool:
-        """Can he stand at ``here`` through ``frames`` (one wait for walkers, ROUTE_WALKER_WAIT, by default) and the
+        """Can he stand at ``here`` through ``frames`` (one wait for walkers, ROUTE_WALKER_WAIT_SECONDS' frames, by
+        default) and the
         read after them without WALKING trigger ``d`` coming within its pad of him -- judged as a press's end is
         (:meth:`_walker_clear`: along the line it was last seen walking, give or take ROUTE_WALKER_TURN; in any
-        direction before it has one)?"""
-        return self._walker_clear(here, (1.0, 0.0), 0.0, 0.0, d, self.RUN_SPEED,
-                                  (self.ROUTE_WALKER_WAIT if frames is None else frames) + self._walker_lag(watch))
+        direction before it has one)? A press of no reach: his pace (the rate's run) never enters it."""
+        return self._walker_clear(here, (1.0, 0.0), 0.0, 0.0, d, self.rate().speed("run"),
+                                  (self._frames_lasting(self.ROUTE_WALKER_WAIT_SECONDS) if frames is None else frames)
+                                  + self._walker_lag(watch))
 
     def _walkers_let_stand(self, watch: dict | None, frames: float) -> bool:
         """route_to(npcs=True): may he stand where he is for ``frames`` -- an unstick wait, a wait for a walking
@@ -4712,12 +5271,12 @@ class Session:
 
     def _off_beat(self, here, ends, d: dict) -> bool:
         """Do the ``ends`` of a press from ``here`` keep off WALKING trigger ``d``'s BEAT -- the line it walks,
-        ROUTE_WALKER_AHEAD frames of it either way (:meth:`_walker_path`), ``R`` and ``pad`` wide? A press may cross a
+        ROUTE_WALKER_AHEAD_SECONDS of it either way (:meth:`_walker_path`), ``R`` and ``pad`` wide? A press may cross a
         beat (the time that takes is :meth:`_walker_clear`'s to judge) but not stop on it, where the walker comes back
         along its path to a man who waits there; one that starts on it must end further off its line than it began.
         True for a walker with no heading to trust."""
         from ff9mapkit.scene import routes
-        beat = self._walker_path(d, self.ROUTE_WALKER_AHEAD)
+        beat = self._walker_path(d, self._frames_lasting(self.ROUTE_WALKER_AHEAD_SECONDS))
         if beat is None:
             return True
         wide = d["R"] + d["pad"]
@@ -4731,7 +5290,9 @@ class Session:
     def _walker_escape(self, basis: dict, leg: dict) -> bool:
         """route_to(npcs=True, smooth=True), waiting for walkers where standing is NOT safe (:meth:`_stand_safe`: a
         walking trigger could reach him before the read after a wait -- a press left him beside its path): one hold
-        AWAY, ROUTE_WALKER_HOLD frames at a run, along whichever of the eight pad directions ends furthest from the
+        AWAY, ROUTE_WALKER_HOLD_TICKS at a run (the frames sure to run no more, at a MEASURED rate -- :meth:`rate`
+        ``require=True`` -- and judged at the most they can carry him, Rate.reach), along whichever of the eight pad
+        directions ends furthest from the
         line each such walker walks (:meth:`_walker_path`) -- and further than he stands now, or it is not worth a
         press -- while the press itself, as it runs, keeps clear of every walking trigger (:meth:`_walker_clear`) and
         off their beats bar leaving them (:meth:`_off_beat`), of every zone and every standing object
@@ -4739,9 +5300,11 @@ class Session:
         walkmesh, COLLISION_RADIUS_W off its walls, where a plan can start again; the leg's drift is not asked (he is
         getting out of the way). Better a press that does not make him safe than standing where it cannot be stood.
         True when it pressed one, False when none keeps the rules (he stands)."""
+        import math
         from ff9mapkit.scene import cam, routes
         watch = leg["watch"]
         floor = watch.get("floor")
+        rate = self.rate(require=True)                # before the read the step is judged from: a wait lets frames go
         st = self.state
         if st.player_x is None:
             return False
@@ -4751,9 +5314,9 @@ class Session:
         if not threat:
             return False
         still = [d for d in watch["discs"] if all(d is not s for s in swept)]
-        n = self.ROUTE_WALKER_HOLD
-        reach = (n + self.PROBE_TAIL_FRAMES) * self.RUN_SPEED
-        horizon = self.ROUTE_WALKER_WAIT + self._walker_lag(watch)
+        n = self._frames_within(self.ROUTE_WALKER_HOLD_TICKS, rate)
+        reach = rate.reach(n, "run")
+        horizon = self._frames_lasting(self.ROUTE_WALKER_WAIT_SECONDS, rate) + self._walker_lag(watch)
 
         def score(at) -> float:
             return min(routes.seg_dist_xz(at[0], at[1], *(self._walker_path(d, horizon) or ((d["x"], d["z"]),) * 2))
@@ -4763,7 +5326,8 @@ class Session:
             end = (here[0] + u[0] * reach, here[1] + u[1] * reach)
             if floor is not None and not self._can_stand(floor, end[0], end[1], cam.COLLISION_RADIUS_W):
                 continue
-            if not (all(self._walker_clear(here, u, reach, leg["spread"], d, self.RUN_SPEED, n + self.PROBE_TAIL_FRAMES)
+            if not (all(self._walker_clear(here, u, reach, leg["spread"], d, rate.speed("run"),
+                                           n + self._tail_frames(rate))
                         and self._off_beat(here, [end], d) for d in swept)
                     and self._probe_is_clear(here, u, reach, leg["hazards"], leg["spread"], discs=still)):
                 continue
@@ -4779,21 +5343,27 @@ class Session:
         self.send(*[f"hold {b} {n}" for b in buttons], f"wait {n + 4}")
         after = self.settle()
         self._note_lag(watch, after.frame - st.frame - n)
+        if after.field_id == st.field_id and after.player_x is not None:
+            self._check_movement(math.hypot(after.player_x - here[0], after.player_z - here[1]) if after.control
+                                 else None, n, "run", rate, what="a step out of a walker's way",
+                                 span=(st.frame, after.frame))
         return True
 
-    def _boxers(self, basis: dict, here, target, leg: dict, exclude=()) -> list:
+    def _boxers(self, basis: dict, here, target, leg: dict, exclude=(), rate: Rate | None = None) -> list:
         """route_to(npcs=True, smooth=True), where :meth:`_plan_hold` finds no hold from ``here`` toward ``target``: the
         published objects that make the presses illegal. Every disc the leg's holds keep clear of (:meth:`_leg_discs`)
-        that refuses the SMALLEST press -- one walk frame and its tail, which the leg's drift never refuses -- along a
+        that refuses the SMALLEST press -- one walk frame and its tail, as far as they can carry him at ``rate``
+        (default :meth:`rate`; Rate.reach), which the leg's drift never refuses -- along a
         pad direction that gains ground toward ``target`` and that the zones alone let him make: by where it stands
         (:meth:`_probe_is_clear`), or, a WALKING trigger, by where it can walk (:meth:`_walker_clear`,
         :meth:`_off_beat`), each as :meth:`_plan_hold` judges it. None when the zones and the leg alone leave no hold
         either: that is the spot's geometry, and nothing walking off can change it."""
         discs = self._leg_discs(leg)
-        if not discs or self._plan_hold(basis, here, target, dict(leg, watch=None), exclude) is None:
+        rate = self.rate() if rate is None else rate
+        if not discs or self._plan_hold(basis, here, target, dict(leg, watch=None), exclude, rate=rate) is None:
             return []
         dx, dz = target[0] - here[0], target[1] - here[1]
-        reach = (1 + self.PROBE_TAIL_FRAMES) * self.WALK_SPEED
+        reach = rate.reach(1, "walk")
         spread = leg["spread"]
         until = 1 + self._walker_lag(leg["watch"])
         pads = [u for buttons, u in _eight_way(basis) if u[0] * dx + u[1] * dz > 0 and buttons not in exclude
@@ -4803,7 +5373,7 @@ class Session:
             if d["moving"] and d["kind"] == "trigger":
                 ends = [(here[0] + e[0] * reach, here[1] + e[1] * reach)
                         for e in (_turn(u, spread * k / 2.0) for k in (-2, -1, 0, 1, 2))]
-                return not (self._walker_clear(here, u, reach, spread, d, self.WALK_SPEED, until)
+                return not (self._walker_clear(here, u, reach, spread, d, rate.speed("walk"), until)
                             and self._off_beat(here, ends, d))
             return not self._probe_is_clear(here, u, reach, (), spread, discs=[d])
         return [d for d in discs if any(refuses(d, u) for u in pads)]
@@ -4815,7 +5385,7 @@ class Session:
         (:meth:`_boxers`) would refuse them still with every WALKER among them gone (:meth:`_npc_walks`; a hold
         planned without them) -- that is final, at once: "boxed", nothing pressed or waited. Boxed by WALKERS -- their
         going would free a press -- it is not: he stands still, reading the objects again, until a hold keeps the
-        rules again (:meth:`_outwait_walkers` on the box's own tally, ROUTE_WALKER_BUDGET frames a call; a wait that
+        rules again (:meth:`_outwait_walkers` on the box's own tally, ROUTE_WALKER_BUDGET_SECONDS a call; a wait that
         runs out is ``boxed_by`` walkers) -- and steps out of the way of any held on him (:meth:`_box_step`), who never
         walk off while he stands. Every object that refused the presses of a box by walkers goes into the watch's
         ``boxers``. Returns "clear" (a hold keeps the rules: the caller plans again), "boxed" (the spot, or the wait
@@ -4873,7 +5443,7 @@ class Session:
 
         IN THE WAY, given a ``way``, a WALKER counts only when it stands IN it: its body, ``R`` and ``pad`` as a hold
         keeps it, over the spot or the straight way to it (routes.seg_dist_xz), or in CONTACT with him from that side
-        -- its centre within WALK_SPEED of its ``r``, within ROUTE_CONTACT_ANGLE of the bearing to the spot
+        -- its centre within HALF_STEP of its ``r``, within ROUTE_CONTACT_ANGLE of the bearing to the spot
         (:meth:`_body_ahead`'s rule: the engine pushes him out of a body only in contact, collDist <= 0, within 90
         degrees of where he faces -- FieldMapActorController.cs:772-779). Those are ``who``, ``by`` "walkers"; none,
         ``by`` None. A walker pacing its beat nearby is none of these, however near: a walker's step is undone only when
@@ -4913,7 +5483,7 @@ class Session:
             ux, uz = spot[0] - here[0], spot[1] - here[1]
             dx, dz = d["x"] - here[0], d["z"] - here[1]
             dist = math.hypot(dx, dz)
-            return dist < d["R"] + self.WALK_SPEED and dx * ux + dz * uz >= cos * dist * math.hypot(ux, uz)
+            return dist < d["R"] + self.HALF_STEP and dx * ux + dz * uz >= cos * dist * math.hypot(ux, uz)
         bodies = [d for d in discs if d["kind"] == "body"]
         if way is None:
             who = [d for d in bodies if d["uid"] not in walking and in_way(d, bare)]
@@ -4931,8 +5501,8 @@ class Session:
             not walk), or none standing in the way to one: None, at once. Nothing waited on or stepped from, however
             many walkers pace nearby; the finish's own verdict stands, and a body that does not walk is never waited on
             (it will not walk off) nor pushed.
-          * THE WALKERS -- he stands still and reads again, ROUTE_WALKER_WAIT frames at a time on the box's own tally
-            (:meth:`_outwait_walkers`, within ROUTE_WALKER_BUDGET frames a call; spent, ``boxed_by`` walkers), stepping
+          * THE WALKERS -- he stands still and reads again, ROUTE_WALKER_WAIT_SECONDS at a time on the box's own tally
+            (:meth:`_outwait_walkers`, within ROUTE_WALKER_BUDGET_SECONDS a call; spent, ``boxed_by`` walkers), stepping
             out of the way of any HELD on him (:meth:`_box_step`: the engine undoes every step a scripted walker takes
             into him, MoveToward.cs:187-189, so one held there walks on only once he moves), until no walker stands in
             the way in -- a walker freed by his step walks on along its line, and a press made while it is still
@@ -4987,46 +5557,48 @@ class Session:
         return was is not None and math.hypot(d["x"] - was[0], d["z"] - was[1]) >= self.ROUTE_NPC_MOVED
 
     def _walker_step(self, d: dict) -> float:
-        """How far one call of WALKING disc ``d``'s walk may carry it (a call an event tick, a tick two frames): two
-        frames of its ``speed``, and never under two frames of the most a walk covers in one (2 * RUN_SPEED,
-        :meth:`_npc_read`'s bound on a walk). The engine undoes the WHOLE of a step that would bring it within ``r``
+        """How far one call of WALKING disc ``d``'s walk may carry it (a call an event tick): a TICK of its ``speed``
+        (units a frame, over the ticks a frame holds at :meth:`rate` -- two frames at 60 fps, one at 30), and never
+        under a tick of the most a walk covers (two run ticks, 2 * RUN_TICK: :meth:`_npc_read`'s bound on a walk) --
+        a DISTANCE, the same at every rate. The engine undoes the WHOLE of a step that would bring it within ``r``
         of him (MoveToward.cs:187-189), so a walker held on him stops anywhere up to one step short of contact -- 350's
-        children, faster than his run, well beyond the WALK_SPEED his own contact is judged by (:meth:`_body_ahead`) --
+        children, faster than his run, well beyond the HALF_STEP his own contact is judged by (:meth:`_body_ahead`) --
         and a pace read before it walked into him is no bound on its step: none at all for one held since before the
         call, a crawl for one that stood about first."""
-        return 2.0 * max(d["speed"], 2.0 * self.RUN_SPEED)
+        return max(d["speed"] / self.rate().per_frame(), 2.0 * self.RUN_TICK)
 
     def _box_step(self, basis: dict, leg: dict, since: dict) -> bool:
         """route_to(npcs=True, smooth=True), boxed in by walkers (:meth:`_outwait_box`) or in the way into the zone at
         its finish (:meth:`_outwait_hold`), in place of a wait: one hold
         OUT OF THE WAY of the walkers HELD ON HIM, when there are any -- a non-solid body within its own step of contact
         with him (its centre within :meth:`_walker_step` of its ``r``), still published ``moving``, that has not MOVED
-        ROUTE_NPC_MOVED in ROUTE_WALKER_HELD frames. Moved is SUMMED read to read, not the gap between two reads: the
-        engine undoes a held walker's whole step (MoveToward.cs:187-189), so one held on him does not move at all,
-        while a walker pacing a short beat nearby comes back to where it was at every turn and has walked all the
-        while (the review's pacer, 45-100u clear of contact, read as held at each turn of its beat and stepped away
-        from, 210u off the door, twice). The line it was last seen walking is no test of it: a held walker's line is
-        from before it was held, and one that turned at a waypoint and was held on its first step still shows the old
-        one. Any the engine pairs with him where he stands (the last list read, its |dy| test), not only the ones the
-        plan kept -- one a re-plan gave up to walk through is held on him all the same. The engine undoes every step a
-        scripted walker takes into him
+        ROUTE_NPC_MOVED in ROUTE_WALKER_HELD_SECONDS (its frames at the measured rate, :meth:`_frames_lasting`).
+        Moved is SUMMED read to read, not the gap between two reads: the engine undoes a held walker's whole step
+        (MoveToward.cs:187-189), so one held on him does not move at all, while a walker pacing a short beat nearby
+        comes back to where it was at every turn and has walked all the while (the review's pacer, 45-100u clear of
+        contact, read as held at each turn of its beat and stepped away from, 210u off the door, twice). The line it
+        was last seen walking is no test of it: a held walker's line is from before it was held, and one that turned
+        at a waypoint and was held on its first step still shows the old one. Any the engine pairs with him where he
+        stands (the last list read, its |dy| test), not only the ones the plan kept -- one a re-plan gave up to walk
+        through is held on him all the same. The engine undoes every step a scripted walker takes into him
         (MoveToward.cs:187-189): it walks on only once HE moves, so a wait for it waits on himself. ``since`` keeps, per
         walker that near, where and when it was last seen to move, how far it has walked since, and where it was read
         last.
 
         The hold runs along whichever of the eight pad directions ends furthest from the LINE each held walker walks
-        (:meth:`_walker_path`, ROUTE_WALKER_AHEAD frames of it either way: freed, it walks on along it) -- the line it
+        (:meth:`_walker_path`, ROUTE_WALKER_AHEAD_SECONDS of it either way: freed, it walks on along it) -- the line it
         was last seen walking, or, never seen walking (held since before the call), the one from it to him: it is held
         BECAUSE its step comes at him, and a step straight away from it only leaves him on its way -- and further than
         he stands now, or it is not worth a press; of two about as far, the one that ends further from the leg's zones.
         It may press INTO a held walker -- that is the point -- which costs a slide round it (the push-out holds him at
-        ``r``): the hold is far short of the engine's pass-through (ROUTE_PUSH_LOCK_W), and a talk-only child fires
+        ``r``): the hold is far short of the engine's pass-through (ROUTE_PUSH_LOCK_CALLS), and a talk-only child fires
         nothing even then. So what a SLIDE could carry him into is kept out of the whole reach round him, whichever way
         the slide turns the press: every zone of the leg PROBE_HAZARD_PAD beyond it and every published trigger -- one
         the plan gave up included -- its ``pad`` beyond it (a walking one, what it can walk meanwhile too). The hold is
-        the LONGEST that room leaves: ROUTE_WALKER_HOLD frames at a run where it can, shorter, or walked, beside a door
+        the LONGEST that room leaves: ROUTE_WALKER_HOLD_TICKS at a run where it can, shorter, or walked, beside a door
         -- a short step still takes him off the walker's line, and the next one further -- and none only where not even
-        one walk frame fits. Every other body -- a solid included, never pressed into -- keeps the fan rule
+        one walk frame fits; each length judged, at a MEASURED rate (:meth:`rate` ``require=True``), by the most it can
+        carry him (Rate.reach). Every other body -- a solid included, never pressed into -- keeps the fan rule
         (:meth:`_probe_is_clear`, the leg's heading spread); and the end stands on the call's walkmesh,
         COLLISION_RADIUS_W off its walls, where a plan can start. True when it pressed, False when he stands (none held
         on him yet, or no hold keeps those rules)."""
@@ -5034,6 +5606,9 @@ class Session:
         from ff9mapkit.content import pathfind
         from ff9mapkit.scene import cam, routes
         watch = leg["watch"]
+        # a press into what a slide could carry him to, judged at a MEASURED rate -- asked before the read the step is
+        # judged from (a wait for it lets frames, and the walkers, go by)
+        rate = self.rate(require=True)
         st = self.state
         if st.player_x is None:
             return False
@@ -5052,29 +5627,31 @@ class Session:
                 since[d["uid"]] = (d["x"], d["z"], st.frame, 0.0, d["x"], d["z"])   # seen walking: held from here, if
                 continue
             since[d["uid"]] = (was[0], was[1], was[2], walked, d["x"], d["z"])
-            if st.frame - was[2] >= self.ROUTE_WALKER_HELD:
+            if st.frame - was[2] >= self._frames_lasting(self.ROUTE_WALKER_HELD_SECONDS, rate):
                 held.append(d)
         if not held:
             return False
-        lag = self._walker_lag(watch)
+        lag = self._walker_lag(watch) + self._tail_frames(rate)          # the walkers' time past the press itself
         room = min((pathfind.poly_gap(here[0], here[1], poly) - self.PROBE_HAZARD_PAD for poly in leg["hazards"]),
                    default=math.inf)
         triggers = [d for d in self._npc_discs(watch["objs"], here, st.player_y, watch["margin"], watch.get("heights"),
                                                watch.get("speed"), watch.get("heading")) if d["kind"] == "trigger"]
 
-        def fits(n: int, pace: float) -> bool:
-            reach = (n + self.PROBE_TAIL_FRAMES) * pace
+        def fits(n: int, gait: str) -> bool:
+            reach = rate.reach(n, gait)
             return reach <= room and all(
                 math.hypot(here[0] - d["x"], here[1] - d["z"]) - d["R"] - d["pad"]
-                - (d["speed"] * (n + self.PROBE_TAIL_FRAMES + lag) if d["moving"] else 0.0) >= reach for d in triggers)
-        sizes = sorted(((n, slow) for n in range(1, self.ROUTE_WALKER_HOLD + 1) for slow in (False, True)),
-                       key=lambda s: (-(s[0] + self.PROBE_TAIL_FRAMES) * (self.WALK_SPEED if s[1] else self.RUN_SPEED),
-                                      s[1]))
-        size = next(((n, slow) for n, slow in sizes if fits(n, self.WALK_SPEED if slow else self.RUN_SPEED)), None)
+                - (d["speed"] * (n + lag) if d["moving"] else 0.0) >= reach for d in triggers)
+        # the longest reach first -- of two alike a run before a walk, then the more frames (Rate.reach is whole ticks:
+        # at 60 fps five run frames reach as far as six)
+        sizes = sorted(((n, slow) for n in range(1, self._frames_within(self.ROUTE_WALKER_HOLD_TICKS, rate) + 1)
+                        for slow in (False, True)),
+                       key=lambda s: (-rate.reach(s[0], "walk" if s[1] else "run"), s[1], -s[0]))
+        size = next(((n, slow) for n, slow in sizes if fits(n, "walk" if slow else "run")), None)
         if size is None:
             return False
         n, slow = size
-        reach = (n + self.PROBE_TAIL_FRAMES) * (self.WALK_SPEED if slow else self.RUN_SPEED)
+        reach = rate.reach(n, "walk" if slow else "run")
         bodies = [d for d in watch["discs"] if d["kind"] == "body" and all(d["uid"] != h["uid"] for h in held)]
         floor = watch.get("floor")
 
@@ -5083,7 +5660,8 @@ class Session:
                 bx, bz = here[0] - d["x"], here[1] - d["z"]
                 k = math.hypot(bx, bz)
                 d = dict(d, dir=(bx / k, bz / k)) if k > 1e-9 else d
-            return self._walker_path(d, self.ROUTE_WALKER_AHEAD) or ((d["x"], d["z"]),) * 2
+            return (self._walker_path(d, self._frames_lasting(self.ROUTE_WALKER_AHEAD_SECONDS, rate))
+                    or ((d["x"], d["z"]),) * 2)
         lines = [(d, line(d)) for d in held]
 
         def score(at) -> float:
@@ -5117,19 +5695,28 @@ class Session:
         self.send(*steps, f"wait {n + 4}")
         after = self.settle()
         self._note_lag(watch, after.frame - st.frame - n)
+        if after.field_id == st.field_id and after.player_x is not None:
+            self._check_movement(math.hypot(after.player_x - here[0], after.player_z - here[1]) if after.control
+                                 else None, n, "walk" if slow else "run", rate,
+                                 what="a step out of a held walker's way", span=(st.frame, after.frame))
         since.clear()
         return True
 
-    def _chunk_frames(self, length: float) -> int:
-        """The frames a chunk of ``length`` presses, walked chunked: both arms of one-axis steering's L at a run."""
+    def _chunk_frames(self, length: float, rate: Rate | None = None) -> int:
+        """The frames a chunk of ``length`` presses, walked chunked: both arms of one-axis steering's L at a run, at the
+        rate's average speed (``rate``, default :meth:`rate`; Rate.speed -- what walk_to sizes its bursts by: at 120 fps
+        twice the frames of 60, and the time a walker is given to close in with them)."""
         import math
-        return int(math.ceil(math.sqrt(2.0) * length / self.RUN_SPEED))
+        return int(math.ceil(math.sqrt(2.0) * length / (self.rate() if rate is None else rate).speed("run")))
 
     def _outwait_walkers(self, watch: dict, origin: int, clear, escape=None, first: bool = False,
                          boxers=None, held: bool = False) -> str:
         """route_to(npcs=True): stand still while a WALKING trigger's reach refuses the next press (``clear()`` False),
-        ROUTE_WALKER_WAIT frames at a time, reading the objects again after each (:meth:`_npc_moved`), within the
-        call's ROUTE_WALKER_BUDGET frames. A walker going elsewhere has gone by in a wait or two; one parked in the way
+        ROUTE_WALKER_WAIT_SECONDS at a time, reading the objects again after each (:meth:`_npc_moved`), within the
+        call's ROUTE_WALKER_BUDGET_SECONDS -- each wait the frames sure to last its seconds at the measured rate
+        (:meth:`_frames_lasting`), the tally the SECONDS those frames hold (frames over the measured fps), so a switch
+        of the render rate mid-call neither stretches nor cuts the budget. A walker going elsewhere has gone by in a
+        wait or two; one parked in the way
         spends the budget. Standing is not always safe -- a short press can leave him beside a walker's path, and it
         walks on toward him -- so, given ``escape`` (:meth:`_walker_escape`: True when it pressed him out of the way),
         that is tried in place of a wait that could not be stood through. Returns "clear" (``clear()`` holds, at once
@@ -5150,8 +5737,8 @@ class Session:
         told = False
         while first or not clear():
             first = False
-            if watch[waited] >= self.ROUTE_WALKER_BUDGET:
-                self._log(f"  route_to: {who} still {what} after {watch[waited]} frames of waiting for walkers; "
+            if watch[waited] >= self.ROUTE_WALKER_BUDGET_SECONDS - 1e-9:
+                self._log(f"  route_to: {who} still {what} after {watch[waited]:.1f}s of waiting for walkers; "
                           f"nothing may be pressed from here")
                 watch["boxed_by"] = "walkers"
                 return "boxed"
@@ -5165,13 +5752,15 @@ class Session:
                           f"toward the leg comes nearer one of them; standing still until they walk off")
                 told = True
             watch[waits] += 1
+            rate = self.rate()
             if escape is not None and escape():
-                watch[waited] += self.ROUTE_WALKER_HOLD
+                watch[waited] += self._frames_within(self.ROUTE_WALKER_HOLD_TICKS, rate) / rate.fps
             else:
-                watch[waited] += self.ROUTE_WALKER_WAIT
+                wait = self._frames_lasting(self.ROUTE_WALKER_WAIT_SECONDS, rate)
+                watch[waited] += wait / rate.fps
                 before = self.state
-                self.wait_frames(self.ROUTE_WALKER_WAIT)
-                self._note_lag(watch, self.state.frame - before.frame - self.ROUTE_WALKER_WAIT)
+                self.wait_frames(wait)
+                self._note_lag(watch, self.state.frame - before.frame - wait)
             st = self.state
             if st.field_id != origin or st.player_x is None or not st.control:
                 return "short"
@@ -5183,8 +5772,11 @@ class Session:
         """route_to(npcs=True), walked chunked: may the chunk to ``(cx, cz)`` be walked now, as far as the WALKING
         triggers go? :meth:`_walker_clear` of the chunk's line, strayed off by the L of one-axis steering (half the
         chunk, :meth:`_route_chunks`), walked at a run along both arms of that L (:meth:`_chunk_frames`), with the lag
-        route_to measures around a chunk -- on the objects as a read taken now has them."""
+        route_to measures around a chunk -- on the objects as a read taken now has them. A walking trigger's reach
+        cannot be undone once it fires: judged at a MEASURED rate (:meth:`rate` ``require=True``, as every walker rule
+        of the smooth walk is), never the calibrated default."""
         import math
+        rate = self.rate()
         st = self.state
         if st.player_x is None:
             return True
@@ -5198,11 +5790,14 @@ class Session:
         length = math.hypot(cx - here[0], cz - here[1])
         if length < 1.0:
             return True
-        frames = self._chunk_frames(length)
+        if not rate.ready:
+            self.rate(require=True)                       # raises with none; the wait let them walk: judged afresh
+            return self._chunk_clear(cx, cz, watch)
+        frames = self._chunk_frames(length, rate)
         u = ((cx - here[0]) / length, (cz - here[1]) / length)
         until = frames + self._walker_lag(watch)
         return all(self._walker_clear(here, u, length, 0.0, d, length / frames, until, stray=length / 2.0,
-                                      lead=self.PROBE_TAIL_FRAMES) for d in movers)
+                                      lead=self._tail_frames(rate)) for d in movers)
 
     @staticmethod
     def _chunk_blockers(known: list, watch: dict | None) -> list:
@@ -5443,6 +6038,15 @@ class Session:
     #: How many times one watch answers the SAME question (field, prompt and options, cursor) with its
     #: default before calling it a loop: a script that asks again after its own default answer.
     CHOICE_REPEATS = 3
+    #: watch_cutscene: after the Confirm that turns a page, the field ticks it waits before it reads the next one --
+    #: the frames sure to hold them at the measured rate (:meth:`rate`, Rate.frames_for_ticks: 8 frames at 60 fps, 4
+    #: at 30, 16 at 120): the script takes the Confirm and opens its next box on its own ticks. As 8 FRAMES, a
+    #: 120 fps game gave it two ticks, and a short page could open and close between two reads.
+    CUTSCENE_PAGE_TICKS = 4
+    #: choose(): its BLIND wait after the Confirm, in field ticks (12 frames at 60 fps, 6 at 30). The gap between one
+    #: choice window and the next is 8 ticks (16 frames at 60 fps on 30937): as 12 FRAMES, a 31 fps game waited 12
+    #: ticks and the next window's record was gone before anyone read it.
+    CHOOSE_TICKS = 6
 
     def _choice_ready(self, st: State) -> bool:
         """Is a choice open and taking its answer -- its cursor on the game's default until someone moves it?
@@ -5458,9 +6062,9 @@ class Session:
         was still taking answers after ``timeout`` of live frames -- the Confirm did not land; the caller waits
         on it again. Nothing is recorded that the game did not take.
 
-        ⚠ Not :meth:`choose`: its blind 12 frames after Confirm can outlast the gap between one choice window
-        and the next (16 frames at 30937), and a record of the second would then be missing. This watches the
-        window leave readiness instead.
+        ⚠ Not :meth:`choose`: its blind wait after Confirm (CHOOSE_TICKS) comes close to the gap between one choice
+        window and the next (16 frames at 30937, 8 ticks), and a record of the second would then be missing. This
+        watches the window leave readiness instead.
 
         A PROMPT STILL TYPING takes the first Confirm as "finish the text" (CHOICE_CONFIRM_FRAMES), so a window
         still taking answers CHOICE_CONFIRM_FRAMES live frames after a Confirm gets another -- up
@@ -5585,7 +6189,7 @@ class Session:
                     pages.append(text)
                 if advance_boxes and not st.choice:
                     self.press("confirm", 3)
-                    self.wait_frames(8)
+                    self.wait_frames(self.rate().frames_for_ticks(self.CUTSCENE_PAGE_TICKS))
                     continue
             if choices and st.choice is not None:
                 # the same rule as control coming back: a ready window must HOLD, unchanged, over live
@@ -5916,10 +6520,11 @@ class Session:
         )
 
     def choose(self, index: int, *, timeout: float = 10.0) -> None:
-        """Select option `index` in an open choice dialogue and confirm it."""
+        """Select option `index` in an open choice dialogue and confirm it -- then wait CHOOSE_TICKS field ticks, the
+        frames sure to hold them at the measured rate (:meth:`rate`), for the window to take it."""
         self.select(index, timeout=timeout)
         self.press("confirm", 4)
-        self.wait_frames(12)
+        self.wait_frames(self.rate().frames_for_ticks(self.CHOOSE_TICKS))
 
     #: gEventGlobal is Byte[2048], so bits run 0 .. 16383. See [[project-ff9-story-flags]] for the
     #: SAFE allocation band (8712+) -- this is only the physical range.
@@ -6202,8 +6807,17 @@ class Session:
             )
         # One hold covering the whole window, plus a margin so it cannot lapse just before the
         # deadline. Both bumpers go in ONE request: a request's steps drain in a single pass and
-        # share a _downFrame, and CheckEscape needs them down together.
-        frames = int(timeout * FRAMES_PER_SECOND) + 120
+        # share a _downFrame, and CheckEscape needs them down together. The hold is FRAMES and the
+        # window is wall-clock SECONDS, so the frames are the ones SURE to last that long at the
+        # measured render rate (:meth:`rate`, Rate.frames_at_least) -- at the 60 fps a frame count
+        # once assumed, a 120 fps game lifted the keys halfway through the window and the dice took
+        # the blame -- plus two seconds of margin. A battle pairs no frames (the clock measures on a
+        # field), so the rate is the one the field before it measured, carried: it is the monitor's.
+        # With NONE measured the hold is sized at UNMEASURED_FPS (:meth:`_rate_at_most`): a hold past the
+        # window costs nothing -- both bumpers are released below the moment the wait ends -- and one short
+        # of it costs the verdict, so the unknown is taken on the side that cannot lie.
+        rate = self._rate_at_most()
+        frames = rate.frames_at_least(timeout) + rate.frames_at_least(2.0)
         self.send(f"hold l1 {frames}", f"hold r1 {frames}", wait=False)
         escaped = False
         # ⚠ SAMPLED DURING THE HOLD, NOT AFTER IT. The first cut read escape_held from a snapshot
@@ -7027,7 +7641,7 @@ class Session:
             self._log("!! steps.jsonl could not be written -- the step ledger for this run is incomplete")
 
     def flush_states(self, tag: str) -> Path | None:
-        """Write the ring (the last ~10 s of published state) as ``states-<tag>.jsonl``. Never raises."""
+        """Write the ring (the last ~10 s of published state, ~20 at 31 fps) as ``states-<tag>.jsonl``. Never raises."""
         path = self._artifact_dir() / f"states-{_sanitize(tag)}.jsonl"
         try:
             n = self._ring.dump(path)
@@ -7218,6 +7832,12 @@ class Session:
         """Whether every recorded check passed. ⚠ A run with NO checks has not passed anything."""
         return bool(self.checks) and all(c["ok"] for c in self.checks)
 
+    def _report_rate(self) -> dict:
+        """The measured rate as the run ended (Rate.as_dict; ``source`` "default" when nothing was measured), for
+        report.json -- beside :attr:`rate_changes`, every move of it the run saw."""
+        self._note_rate()
+        return self._clock.rate().as_dict()
+
     def _write_report(self, failed: bool) -> None:
         import json
         # ⚠ UNDER A SUITE THIS FILE MUST NOT CARRY A VERDICT. `self.checks` is rebound per scenario
@@ -7241,6 +7861,8 @@ class Session:
                 "artifacts": self._artifact_index(),
                 "steps_recorded": self._steps_logged,
                 "steps_dropped": self._steps_dropped,
+                "rate": self._report_rate(),
+                "rate_changes": self.rate_changes,
             }
             (self.run_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
             return
@@ -7271,6 +7893,9 @@ class Session:
             "artifacts": self._artifact_index(),
             "steps_recorded": self._steps_logged,
             "steps_dropped": self._steps_dropped,
+            # the render rate every press was sized and judged by -- a frame count in a record means nothing without it
+            "rate": self._report_rate(),
+            "rate_changes": self.rate_changes,
             "checks": self.checks,
         }
         (self.run_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -7289,6 +7914,18 @@ def _button(name: str) -> str:
 
 def _vec(v) -> str:
     return f"({v[0]:+.2f}, {v[1]:+.2f})"
+
+
+def _game_seconds(st: State | None) -> float | None:
+    """The GAME'S clock at ``st``, in seconds: its published ``rt`` (the fake game; a future engine) where there is one,
+    else the state file's mtime (today's engine writes it once a publish) -- None when neither can be read. What a wait
+    for something counted on the game's clock (the tick clock's arrival second) is bounded by, not the wall."""
+    if st is None:
+        return None
+    rt = st.raw.get("rt")
+    if isinstance(rt, (int, float)) and not isinstance(rt, bool):
+        return float(rt)
+    return st.mtime
 
 
 def _press_axis(basis: dict, dx: float, dz: float):

@@ -45,10 +45,12 @@ position only. Standing, or without control (the held directions are ANDed with 
 returns from MovePC before any of it, :586), the yaw does not change. Walking is one MovePC call per 30 Hz field
 tick; running is two, each a 30u step (FieldMapActorController.cs:197-208). A tick is WHOLE: the render loop runs
 ``FPSManager.MainLoopUpdateCount`` of them a frame (Global/Hono/Behavior/HonoBehaviorSystem.cs:106), paced on the
-wall clock (Memoria/Application/FPSManager.cs:77-110) -- 0 or 1 a frame at 60 fps, in a phase the harness does not
-see. So an n-frame hold spends a whole number of calls, ``n * per`` rounded either way, where ``per`` is the calls a
-frame spends on AVERAGE: :func:`movepc_calls` of the harness's calibrated speed. A planner counts on
-:func:`sure_calls` -- the whole calls ``n`` frames are sure of -- never on the average. ``player.dir`` in the
+wall clock (Memoria/Application/FPSManager.cs:77-110) -- 0 or 1 a frame at 60 fps, about 1 at 31, in a phase the
+harness does not see. So an n-frame hold spends a whole number of TICKS, ``n * r`` rounded either way (``r`` the
+ticks a frame holds: FieldTPS over the render rate, which the harness measures -- tools/harness/tickrate.py), and the
+calls come in whole ticks' worth: one a tick walking, two running. A planner counts on the whole calls ``n`` frames
+are SURE of (the harness's ``Rate.calls_sure``, tools/harness/tickrate.py: whole ticks at the fastest rate it measured,
+a run's calls in pairs) -- never on the average (:func:`movepc_calls` of a distance a frame). ``player.dir`` in the
 harness's state.json is NOT this yaw: it is ``PosObj.rot[1]``, which nothing writes on a field (it reads 0 there).
 Memoria-patch s90 publishes the yaw itself (``player.yaw``) and the facing BYTE the gate reads (``player.face``), and
 turns him in place (the agent's ``turn`` verb): where the engine publishes them the harness MEASURES the facing
@@ -251,10 +253,10 @@ def turn_step(yaw: float, pressed_yaw, calls: float = 1.0) -> float:
     nothing held -> unchanged, as standing keeps the yaw exactly). One call (FieldMapActorController.cs:744-761):
     unwrap the target to within 180 of the yaw (a target exactly 180 away is left as it is), lerp 0.4 of the way,
     wrap into [-180, 180]. Toward a fixed target the unwrap never changes side, so ``k`` calls are one lerp by
-    ``1 - 0.6**k`` -- the form used here. A FRACTION of a call is the AVERAGE a frame turns him (a walked harness
-    frame is half a call at 15u of a 30u step, :func:`movepc_calls` -- FakeGame's model); the engine turns in whole
-    calls, so a planner prices a press at :func:`sure_calls`. A press into a wall still turns him: the caller counts
-    the calls a held direction spent whether or not he moved."""
+    ``1 - 0.6**k`` -- the form used here. A FRACTION of a call is the AVERAGE a frame turns him (a walked frame at 60
+    fps is half a call, 15u of a 30u step, :func:`movepc_calls` -- FakeGame's mean-tick model); the engine turns in
+    whole calls, so a planner prices a press at the calls it is SURE of (the harness's ``Rate.calls_sure``). A press
+    into a wall still turns him: the caller counts the calls a held direction spent whether or not he moved."""
     if pressed_yaw is None or calls <= 0:
         return yaw
     m = float(pressed_yaw)
@@ -270,23 +272,43 @@ def turn_step(yaw: float, pressed_yaw, calls: float = 1.0) -> float:
 
 def movepc_calls(units_per_frame: float) -> float:
     """The MovePC calls a frame spends ON AVERAGE at ``units_per_frame`` of held movement -- its distance over the 30u
-    each call steps (:data:`STEP_PER_CALL`). At the harness's calibrated 30u (run) and 15u (walk) frames that is 1 and
-    0.5. It is exactly as good as the speed it is given: the harness's are constants measured once, on bench 30801,
-    at that machine's 60 fps (Session.RUN_SPEED / WALK_SPEED) -- the render rate follows the monitor, a tick the wall
-    clock, so on a 144 Hz monitor a walked frame is about 0.21 calls, not 0.5. A planner that counts on it checks the
-    presses it made against the distance they moved (a free press never moves him further than its calls step), and
-    counts only :func:`sure_calls` of it."""
+    each call steps (:data:`STEP_PER_CALL`). At 60 fps a run frame (30u) is 1 and a walked one (15u) 0.5; at 31 fps
+    about twice that, at 144 a walked frame about 0.21 -- a frame's distance follows the render rate, a tick the wall
+    clock (the harness measures the rate, tools/harness/tickrate.py, and plans in ticks). An average: a planner that
+    must be sure counts the whole calls its frames are sure of (``Rate.calls_sure`` there -- whole ticks, a run's
+    calls in pairs), and checks the presses it made against the distance they moved (a free press never moves him
+    further than its calls step)."""
     return float(units_per_frame) / STEP_PER_CALL
 
 
-def sure_calls(frames: int, per: float) -> int:
-    """The WHOLE MovePC calls a hold of ``frames`` frames is sure of at ``per`` calls a frame on average
-    (:func:`movepc_calls`): ``floor(frames * per)``. The engine turns and steps him in whole calls, one (walking) or
-    two (running) a 30 Hz tick, and a tick falls on a frame in a phase nobody sees (FPSManager.cs:77-110 paces it on
-    the wall clock; HonoBehaviorSystem.cs:106 runs the ticks a frame asks) -- so at 60 fps a 9-frame walked hold is 4
-    calls or 5, a 3-frame one 1 or 2: a planner counts the fewer. (A hold of an even count, at 0.5, is exactly its
-    half.)"""
-    return int(math.floor(frames * per + 1e-9))
+def calls_from_turn(yaw0: float, yaw1: float, target: float) -> float | None:
+    """The MovePC calls a turn toward ``target`` RAN, counted after the fact from his yaw before it (``yaw0``) and after
+    it (``yaw1``), degrees -- where the calls a press's frames are sure of can only plan. Each call lerps the yaw 0.4
+    of the way to the target and a run of them never changes side (:func:`turn_step`), so ``k`` calls leave ``0.6 **
+    k`` of the offset: ``k = ln(off1 / off0) / ln(0.6)``, the offsets :func:`angle_off` of each yaw from ``target``. A
+    FLOAT, exact to the print of the yaws when ``target`` is the heading the engine turned him toward (6.00002 for a
+    six-call run turn, measured on the harness's facing check) -- the caller rounds it, and a count far from a whole
+    number of calls says the target was not that heading. Only as exact as ``target``: the nearer ``yaw1`` has come to
+    it, the more a fraction of a degree of error in it moves the count (7 calls from 20 degrees off read 7.85 against a
+    target 0.2 degrees off) -- a caller whose heading is a measurement asks at its whole uncertainty. It counts what no
+    render rate can: a hitched frame's burst of ticks, the phase of
+    a short press.
+
+    0.0 where ``yaw1`` is exactly ``yaw0`` off the target: no call ran (a press whose frames fell between two ticks,
+    or a hold on movement -- MovePC returns before it turns anyone, :586). None where the yaws are no such turn:
+    ``yaw0`` on the target (nothing to measure) or ``yaw1`` on it (converged past what the print resolves), the two on
+    opposite sides of it, or ``yaw1`` further from it than ``yaw0`` (the lerp only closes on its target,
+    FieldMapActorController.cs:744-761 -- a script set the yaw, or another direction was held). A ``yaw0`` exactly
+    opposite the target (180 off) is on either side: the engine leaves such a target as it is and turns him
+    whichever way its raw value lies."""
+    s0 = (float(yaw0) - float(target) + 180.0) % 360.0 - 180.0
+    s1 = (float(yaw1) - float(target) + 180.0) % 360.0 - 180.0
+    off0, off1 = abs(s0), abs(s1)
+    if off0 == 0.0 or off1 == 0.0 or off1 > off0:
+        return None
+    if off0 < 180.0 and (s0 > 0.0) != (s1 > 0.0):
+        return None
+    return abs(math.log(off1 / off0) / math.log(1.0 - TURN_PER_CALL))
 
 
 def bearing_deg(px: float, pz: float, q0, q1) -> float:
@@ -306,7 +328,7 @@ def angle_off(a_deg: float, b_deg: float) -> float:
 
 def worst_face_error(offset_deg: float, calls: float, spread_deg: float = 0.0, off_before: float = 180.0) -> float:
     """The largest error, in degrees, a press can leave his yaw facing the door with -- PLANNED, never measured (the
-    yaw is not read): after ``calls`` WHOLE MovePC calls (:func:`sure_calls` of the frames pressed: a fraction of a
+    yaw is not read): after ``calls`` WHOLE MovePC calls (the calls the frames pressed are sure of: a fraction of a
     call is only an average, and the fewer whole calls the engine may deliver leave more of the turn -- with a
     fractional ``calls`` this is the average's error, not the largest) holding a direction ``offset_deg`` off the bearing
     (:func:`bearing_deg`), from a yaw at most ``off_before`` off that direction (180: unknown -- any yaw):
