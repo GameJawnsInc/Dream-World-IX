@@ -88,9 +88,10 @@ Range at SC 2600 then scene-gated region 25, 32; 5 are the 353 door step's ~34u 
   after): the clock measured 30.2 / 29.8 fps, check 8/8, tour 7/7, holds reversing 5.3% (the old code at ~31 fps:
   24.0% and 31.6%), no waits, no cleared stalls, never boxed. The fix is proven in both regimes. **Correction
   (session 4, 2026-09-28):** the rate is NOT fixed per launch. It flipped 59.0 -> 31.4 -> 59.7 -> 31.8 fps inside
-  one launch. The tick clock caught each flip and re-planned, and the session passed 18/18 across them. A possible
-  cause is VSync halving to 30 when frames miss 16.7 ms (both ~31 stretches overlapped heavy test runs beside the
-  game). That is unverified.
+  one launch. The tick clock caught each flip and re-planned, and the session passed 18/18 across them. CPU load is
+  NOT the cause: `studies/test-harness/render_rate_probe.py` held a flat 60.0 fps with all 12 logical CPUs busy
+  (`.harness-runs\20260928-092358-render-rate-probe`). The open lead, unverified: both drops came a crossing or two
+  after a failed bounce into 353 (Mayor's House), and the rate came back after the return to the title.
   (2) The walk's finish still targets the kit's quad: a walk can end in a 5-point region's dead middle, which the step reads LIVE (no Dali gated door has a
   standable dead middle; 8 stock gated rows elsewhere do). (3) On a pre-s90 engine, 350's door to 353 is still
   refused from the tour's goal pocket by the wall-slide bound (LIVE; the in-place turn faces it). (4) Not modelled:

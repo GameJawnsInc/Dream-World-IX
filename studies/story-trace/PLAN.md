@@ -366,8 +366,9 @@ exhausted, the story never moved). **Every stock run entered 355 before 450** (t
 - **The render rate flipped WITHIN the launch:** 59.0 fps at the start, 31.4 during run 3, 59.7 from run 4, then
   31.8 during run 7. Each flip was measured by the driver's tick clock (`TickClock`, "was ..."), and the walk
   planned on the new rate: 304 crossings, 10 gated doors faced by the closed loop (all measured), no facing
-  miss. So the rate is not fixed per launch. A possible cause: VSync halving to 30 fps whenever frames miss
-  16.7 ms. Both ~31 stretches overlap heavy test runs this session had beside the game. That is not verified.
+  miss. So the rate is not fixed per launch. CPU load is not the cause: a probe with all 12 logical CPUs busy
+  held a flat 60.0 fps (`studies/test-harness/render_rate_probe.py`). The open lead, unverified: both drops came
+  a crossing or two after a failed bounce into 353, and the rate came back after the return to the title.
 
 Archived at `C:\gd\Dream-World-IX\.harness-runs\20260928-011959-story-rung3d\` (traces, per-run logs, session record,
 the live log `rung3d_session.log`). **Rung 3 is closed: 18/18 on the registered predictions.**
