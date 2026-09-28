@@ -657,7 +657,7 @@ def _add_story_trace_sources(p) -> None:
                    help="join the stock side's field FIELD against this .eb instead of the install's")
     p.add_argument("--fork-script", action="append", metavar="FIELD=EB",
                    help="join the fork side's field FIELD against this .eb (e.g. a build output)")
-    p.add_argument("--lang", default="us",
+    p.add_argument("--lang", default=None,
                    help="script language (default us: trace the US build -- the census is US bytes)")
 
 
@@ -672,6 +672,7 @@ def _story_trace_digests(args: argparse.Namespace, stock_specs, fork_specs, *, w
     from . import storytrace as S
 
     notes: list = []
+    lang = args.lang or "us"
 
     def load(spec: str) -> list:
         """``RUN`` or ``RUN#N`` -> ``[(label, rows)]``: every traced run the file holds, or its N-th (1-based).
@@ -702,6 +703,13 @@ def _story_trace_digests(args: argparse.Namespace, stock_specs, fork_specs, *, w
         members = _story_pairs(args.member, "--member", read=False)
         if members and not fork_specs:
             raise ValueError(f"--member names the FORK side's chain -- give its runs with {fork_flag}")
+        for flag, given in (("--donor", donors), ("--fork-script", fork_ex)):
+            if given and not fork_specs:
+                raise ValueError(f"{flag} names the FORK side -- give its runs with {fork_flag}")
+        for fid in sorted(set(donors) & set(members)):
+            if donors[fid] != members[fid]:
+                raise ValueError(f"--donor gives fork {fid} donor {donors[fid]}, --member gives it "
+                                 f"{members[fid]} -- one fork, one donor")
         stock_runs = [run for spec in stock_specs for run in load(spec)]
         fork_runs = [run for spec in fork_specs or [] for run in load(spec)]
     except (ValueError, OSError) as ex:                         # TraceError is a ValueError
@@ -714,8 +722,12 @@ def _story_trace_digests(args: argparse.Namespace, stock_specs, fork_specs, *, w
             roots = sorted(p.parent for p in find_game_path(args.game).glob("*/DictionaryPatch.txt"))
         except ConfigError:
             pass                                    # no install: only --script/--fork-script resolve
-    stock = S.stock_script_source(args.game, lang=args.lang, explicit=stock_ex)
-    fork = S.mod_script_source(roots, fallback=stock, lang=args.lang, explicit=fork_ex)
+    try:
+        stock = S.stock_script_source(args.game, lang=lang, explicit=stock_ex)
+        fork = S.mod_script_source(roots, fallback=stock, lang=lang, explicit=fork_ex)
+    except (ValueError, OSError) as ex:                         # a --script/--fork-script that is no .eb
+        print(f"{who}: {ex}", file=sys.stderr)
+        return None
 
     _safe_console()
     for note in notes:
@@ -726,7 +738,7 @@ def _story_trace_digests(args: argparse.Namespace, stock_specs, fork_specs, *, w
         for fid in sorted({r.fld for _l, rows in runs for r in rows if r.k == "w" and r.m == S.FIELD_MODE}):
             if fid in explicit:
                 continue
-            for root in S.stock_overrides(fid, roots, lang=args.lang):
+            for root in S.stock_overrides(fid, roots, lang=lang):
                 if side == "stock":
                     print(f"{who}: WARN {root} overrides stock field {fid}'s script -- the stock side "
                           f"ran that, not the install's bytes it is joined against", file=sys.stderr)
@@ -7426,7 +7438,9 @@ def _cmd_fork_report(args: argparse.Namespace) -> int:
                                         ("--donor", getattr(args, "donor", None)),
                                         ("--script", getattr(args, "script", None)),
                                         ("--fork-script", getattr(args, "fork_script", None)),
-                                        ("--fork-root", getattr(args, "fork_root", None))) if v]
+                                        ("--fork-root", getattr(args, "fork_root", None)),
+                                        ("--lang", None if getattr(args, "explain", False)
+                                         else getattr(args, "lang", None))) if v]
     if needs_trace and not trace:                   # an option that would silently do nothing is refused
         print(f"fork-report: {', '.join(needs_trace)} read story traces -- give the stock side's runs with "
               f"--trace", file=sys.stderr)
@@ -7438,7 +7452,7 @@ def _cmd_fork_report(args: argparse.Namespace) -> int:
     try:
         fid = FR.resolve_field_id(args.field, game=args.game)
         if getattr(args, "explain", False):
-            print(FR.format_explain(FR.explain(fid, game=args.game)))
+            print(FR.format_explain(FR.explain(fid, game=args.game, lang=getattr(args, "lang", None) or "us")))
             return 0
         rep = FR.analyze(fid, game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
@@ -7459,7 +7473,7 @@ def _cmd_fork_report(args: argparse.Namespace) -> int:
             return 2
 
         whole = ("`ff9mapkit story-trace <the --trace runs> --fork <the --fork-trace runs>` and the same "
-                 "--member/--donor/--script/--fork-script/--fork-root") if fd else ""
+                 "--member/--donor/--script/--fork-script/--fork-root/--lang") if fd else ""
         text += "\n\n" + S.format_field_share(share, static=rep.story_writes, whole=whole).rstrip("\n")
     print(text)
     return 0
@@ -7914,7 +7928,7 @@ def build_parser() -> argparse.ArgumentParser:
                      help="the stock side's story.jsonl files (or harness run dirs holding one); alone, "
                           "each write is listed with the instruction it joined to. A file holding several "
                           "traced runs (one per `storytrace 1`) counts each as a run; RUN#N picks the N-th")
-    stc.add_argument("--fork", nargs="+", metavar="RUN",
+    stc.add_argument("--fork", nargs="+", action="extend", metavar="RUN",
                      help="the fork side's runs: report STOCK ONLY / FORK ONLY / UNSTABLE / RESIDUE / "
                           "CENSUS GAPS / JOIN FAILURES over the set of (donor, entry, tag, offset, "
                           "variable, value)")
@@ -10447,13 +10461,14 @@ def build_parser() -> argparse.ArgumentParser:
     fr.add_argument("field", help="real field id or FBG name (e.g. 354, dl_shp, lb_tmp) -- see `list-fields`")
     fr.add_argument("--explain", action="store_true",
                     help="decode each NPC's talk routine into readable English (dialogue + items + the funcs "
-                         "it runs) -- shows WHY a render-only NPC needs --verbatim")
-    fr.add_argument("--trace", nargs="+", metavar="RUN",
+                         "it runs) -- shows WHY a render-only NPC needs --verbatim (--lang picks the dialogue's)")
+    fr.add_argument("--trace", nargs="+", action="extend", metavar="RUN",
                     help="the STOCK side's story traces (the s88 engine's story.jsonl files, or harness run dirs "
-                         "holding one; RUN#N picks one run of a file): adds the TRACED story-writes axis -- what "
-                         "this field's scripts actually wrote on those walks, each in how many runs, held up "
-                         "against the static Story writes candidates")
-    fr.add_argument("--fork-trace", nargs="+", metavar="RUN",
+                         "holding one; RUN#N picks one run of a file; repeatable): adds the TRACED story-writes "
+                         "axis -- what this field's scripts actually wrote on those walks, each in how many runs, "
+                         "held up against the static Story writes candidates. Give the field FIRST "
+                         "(fork-report 351 --trace ...): the runs take every word after the flag")
+    fr.add_argument("--fork-trace", nargs="+", action="extend", metavar="RUN",
                     help="the FORK side's traces (with --trace): the traced axis becomes the SET DIFFERENCE cut "
                          "to this field -- STOCK ONLY (the fork never wrote it here), FORK ONLY, UNSTABLE, seams, "
                          "clobbers, pre-empted values -- with the whole comparison's totals")

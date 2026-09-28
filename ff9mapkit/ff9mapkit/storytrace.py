@@ -61,7 +61,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import dataclass, field as dfield
+from dataclasses import dataclass, field as dfield, replace
 from pathlib import Path
 
 from . import flags as flagsmod
@@ -95,6 +95,7 @@ _WIDTH_RANGE = {"SBit": (0, 1), "Bit": (0, 1), "SByte": (-128, 127), "Byte": (0,
 RESIDUE_WHY = ("frame", "prestore")
 EPOCH_WHY = ("arm", "swap", "debug-restore", "debug-clear", "netsync", "off")
 STORY_LEN = 2048                    # gEventGlobal is Byte[2048]
+EXPR_OP = 0x05                      # an expression statement: every scripted story store is one
 FIELD_MODE = 1                      # `m`: gMode 1 = field; only a field row joins a field .eb
 
 
@@ -646,7 +647,12 @@ def align_function(fork: ScriptIndex, donor: ScriptIndex, sid: int, tag: int):
     """How many bytes the fork PREPENDED to entry ``sid``'s function ``tag``: the ``delta`` with the donor's
     body the fork body's suffix, instruction for instruction (opcode + length -- a same-length operand
     remap like a verbatim fork's ``Field()`` targets still aligns). None when the donor has no such
-    function or the suffix does not match (the fork rewrote it: its rows are the fork's own)."""
+    function or the suffix does not match (the fork rewrote it: its rows are the fork's own).
+
+    An EXPRESSION statement (``0x05``, where every story store lives) must match byte for byte: the kit
+    remaps operands of commands, never an expression, and two same-shape expressions that differ are an
+    insertion the suffix slid over (``SET Bit[9100]`` inserted after ``SET Bit[9000]`` would pair them and
+    file the fork's real store as its prepend) -- unaligned, never a guess."""
     fa, da = fork.function(sid, tag), donor.function(sid, tag)
     if fa is None or da is None:
         return None
@@ -658,9 +664,17 @@ def align_function(fork: ScriptIndex, donor: ScriptIndex, sid: int, tag: int):
     if fork.data[fs + delta:fend] == donor.data[ds:dend]:
         return delta
     try:
-        return delta if fork.skeleton(fs + delta, fend) == donor.skeleton(ds, dend) else None
+        fi, di = list(fork.instrs(fs + delta, fend)), list(donor.instrs(ds, dend))
     except ValueError:
         return None
+    if len(fi) != len(di):
+        return None
+    for a, b in zip(fi, di):
+        if (a.op, a.length) != (b.op, b.length):
+            return None
+        if a.op == EXPR_OP and fork.data[a.off:a.off + a.length] != donor.data[b.off:b.off + b.length]:
+            return None
+    return delta
 
 
 # ================================================================== one run, digested
@@ -1076,11 +1090,18 @@ class Comparison:
     @property
     def seams(self) -> list:
         """``[(Seam, [run label, ...])]``: each crossing (member -> real field) once, with the fork runs that
-        made it, in the order first made."""
+        made it -- each run once, however often it crossed -- in the order first made. The Seam is the first
+        crossing's, its ``fields`` every real field ANY run saw across it (a later run that walked on further
+        still names the field it reached)."""
         out: dict = {}
         for d in self.fork:
             for s in d.seams:
-                out.setdefault((s.frm, s.to), (s, []))[1].append(d.label)
+                got = out.get((s.frm, s.to))
+                if got is None:
+                    got = out[(s.frm, s.to)] = (replace(s, fields=list(s.fields)), [])
+                got[0].fields.extend(f for f in s.fields if f not in got[0].fields)
+                if d.label not in got[1]:
+                    got[1].append(d.label)
         return list(out.values())
 
     @property
@@ -1512,16 +1533,43 @@ class FieldShare:
         return bool(self.writes or self.fork_keys or self.seams or self.failures)
 
     @property
+    def unattributed(self) -> dict:
+        """``{field: keys}``: fork keys filed under a field that is no real field -- a fork id whose rows name
+        no donor (no ForkDonorPatch row) and that no ``--donor``/``--member`` maps. No field's share can hold
+        them, so a share with them present must say so, or its STOCK ONLY reads as "the fork never wrote it"."""
+        out: dict = {}
+        for d in self.fork:
+            for keys in (d.keys, d.seam_keys):
+                for k in keys:
+                    if not real_field(k.donor):
+                        out.setdefault(k.donor, set()).add(k)
+        return {f: len(ks) for f, ks in sorted(out.items())}
+
+    @property
+    def notes(self) -> list:
+        """``[(note, [run label])]``: every run's digest notes (a member whose rows name another donor, a donor
+        with no stock script, ...), each once, with the runs that gave it -- the whole report prints them and
+        ``story-trace --strict`` fails on the member ones, so a share never drops them."""
+        out: dict = {}
+        for d in self.stock + self.fork:
+            for n in d.notes:
+                out.setdefault(n, []).append(d.label)
+        return list(out.items())
+
+    @property
     def chain(self) -> dict:
-        """The WHOLE comparison's category totals (every field): ``{}`` with no fork side."""
+        """The WHOLE comparison's totals (every field): ``{}`` with no fork side. Every category a whole report
+        or ``story-trace --strict`` would flag is counted, so a clean field in a broken chain never reads clean."""
         c = self.comparison
         if c is None:
             return {}
         out = {"STOCK ONLY": len(c.stock_only), "FORK ONLY": len(c.fork_only), "UNSTABLE": len(c.unstable)}
         if c.members:
             out.update({"SEAMS": len(c.seams), "REACHED ONLY ACROSS A SEAM": len(c.across_seam),
-                        "SEAM ONLY": len(c.seam_only)})
-        out.update({"NEIGHBOUR-BYTE CLOBBERS": len(c.clobbers), "PRE-EMPTED": len(c.pre_empted)})
+                        "SEAM ONLY": len(c.seam_only),
+                        "MEMBER DONOR MISMATCHES": len({m for d in c.fork for m in d.mismatched})})
+        out.update({"NEIGHBOUR-BYTE CLOBBERS": len(c.clobbers), "PRE-EMPTED": len(c.pre_empted),
+                    "JOIN FAILURES": sum(len(d.failures) for d in c.stock + c.fork)})
         return out
 
 
@@ -1549,28 +1597,36 @@ def _static_lines(sh: FieldShare, static) -> list:
     the walk set, which it never ran (no evidence either way -- a walk that did not trigger a store says nothing
     about it), and what it wrote that no candidate lists (a byte/word store, a noise-side latch, or a store the
     static pattern misses)."""
-    written: dict = {}
-    other: dict = {}
-    for k, _o, n in sh.writes:
-        bit = _bit_index(k.target)
-        if bit is not None and bit in {b for b, _r in static}:
-            written[bit] = max(written.get(bit, 0), n)
-        else:
-            other.setdefault(k.target, []).append(k.value)
-    ns = len(sh.stock)
     cands = sorted(dict(static))
-    hit = [f"{b}" + ("" if written[b] == ns else f" ({written[b]}/{ns})") for b in cands if b in written]
+    written: dict = {}                              # bit -> value -> {run index}: the RUNS, not the keys
+    other: dict = {}
+    for i, d in enumerate(sh.stock):
+        for k in d.keys:
+            if k.donor != sh.field:
+                continue
+            bit = _bit_index(k.target)
+            if bit in cands and k.src == "eb" and k.m == FIELD_MODE:    # the field's own script's store
+                written.setdefault(bit, {}).setdefault(k.value, set()).add(i)
+            else:
+                other.setdefault(k.target, set()).add(k.value)
+    ns = len(sh.stock)
+
+    def said(b):
+        return " / ".join(f":= {v}" + ("" if len(ix) == ns else f" ({len(ix)}/{ns})")
+                          for v, ix in sorted(written[b].items()))
+    hit = [f"{b} {said(b)}" for b in cands if b in written]
     miss = [str(b) for b in cands if b not in written]
-    out = [f"static candidates (the Story writes line above): {len(cands)} -- written on these walks: "
-           f"{', '.join(hit) or 'none'}"]
+    out = [f"static candidates (the Story writes line above): {len(cands)} -- written by this field's script on "
+           f"these walks: {', '.join(hit) or 'none'}"]
     if miss:
         out.append(f"  not written on them: {', '.join(miss)}  (these walks never ran the store -- no evidence "
                    f"either way)")
     if other:
-        shown = [f"{t} ({', '.join(map(str, sorted(set(v))))})"
+        shown = [f"{t} ({', '.join(map(str, sorted(v)))})"
                  for t, v in sorted(other.items(), key=lambda tv: _target_order(tv[0]))]
         out.append(f"written, and no static candidate: {', '.join(shown)}  (a byte/word store, a latch the "
-                   f"static axis drops as side state, or a store its pattern misses)")
+                   f"static axis drops as side state, a store its pattern misses, or a C#/battle/world writer "
+                   f"while in this field)")
     return out
 
 
@@ -1592,6 +1648,14 @@ def format_field_share(sh: FieldShare, *, static=None, whole: str = "") -> str:
                      + ", ".join(f"{label}: {a} -> real {b}" for label, a, b in crossed)
                      + ") and no member set names the chain: their rows there MATCH stock as if the fork wrote "
                        "them -- name the chain's members (--member FORK=DONOR,...) to keep them apart")
+    lost = sh.unattributed
+    if lost:
+        lines.append(f"    !! the fork runs wrote {sum(lost.values())} key(s) under field(s) "
+                     f"{', '.join(map(str, lost))}, which name no real donor (no ForkDonorPatch row, no --donor or "
+                     f"--member): no field's share holds them, so an absence below may be one of them -- map each "
+                     f"with --donor FORK=DONOR")
+    for note, labels in sh.notes:
+        lines.append(f"    note ({', '.join(labels)}): {note}")
     if not sh.touched:
         lines.append(f"    no traced run, on either side, wrote in field {sh.field} -- these walks never ran its "
                      f"scripts: nothing to show (trace a walk through it)")
@@ -1616,12 +1680,31 @@ def format_field_share(sh: FieldShare, *, static=None, whole: str = "") -> str:
             clobbered.setdefault(cl.key, []).append(cl)
         lines.append(f"    matched in every run of both sides: {len(sh.matched)} of the {len(sh.writes)} key(s) the "
                      f"stock runs wrote here" + (" (fork MEMBERS only)" if c.members else ""))
-        section("STOCK ONLY", sh.stock_only, f"in {ns}/{ns} stock runs, 0/{nf} fork runs: the fork never wrote these "
-                                             f"here")
+        mine_fork: dict = {}
+        for k in sh.fork_only:
+            mine_fork.setdefault((k.target, k.value), k)
+
+        def elsewhere(k):
+            f = mine_fork.get((k.target, k.value))
+            if f is None:
+                return ""
+            why = "its prepend" if f.aligned and f.off < 0 else "an unaligned place" if not f.aligned else "another place"
+            return f"   -- the fork wrote this value here at {why}: {c.seen[f].where} (FORK ONLY)"
+
+        def seed_clobber(k):
+            own = "".join(f"   !! NEIGHBOUR-BYTE CLOBBER: byte {cl.byte} {cl.old} -> {cl.new}"
+                          for cl in clobbered.get(k, ()))
+            if own or not (k.aligned and k.off < 0):
+                return own
+            first = [cl for cl in c.clobbers if cl.key.donor != sh.field and cl.key.aligned and cl.key.off < 0
+                     and (cl.key.target, cl.key.value) == (k.target, k.value)]
+            return "".join(f"   !! the same seed store clobbered byte {cl.byte} ({cl.old} -> {cl.new}) in "
+                           f"{cl.key.donor}'s member, which ran it first -- here the byte was already {cl.new}"
+                           for cl in first)
+        section("STOCK ONLY", sh.stock_only, f"in {ns}/{ns} stock runs, 0/{nf} fork runs: no fork run made these "
+                                             f"stores here", tail=elsewhere)
         section("FORK ONLY", sh.fork_only, f"in 0/{ns} stock runs, {nf}/{nf} fork runs (a negative offset is the "
-                                           f"kit's own prepend)",
-                tail=lambda k: "".join(f"   !! NEIGHBOUR-BYTE CLOBBER: byte {cl.byte} {cl.old} -> {cl.new}"
-                                       for cl in clobbered.get(k, ())))
+                                           f"kit's own prepend)", tail=seed_clobber)
         if sh.unstable:
             section("UNSTABLE", sh.unstable, "in some but not all runs of a side: drift, not a difference",
                     tail=lambda k: f"   stock {c.counts[k][0]}/{ns} fork {c.counts[k][1]}/{nf}")
