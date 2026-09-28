@@ -11,7 +11,7 @@ BattlePatch + engine DLL changes also need a relaunch.
 
 Usage:  python tools/deploy_field.py <field.toml> [--id N] [--name NAME]
 """
-import contextlib, hashlib, os, sys, struct, shutil, tempfile, datetime, glob
+import contextlib, hashlib, os, sys, struct, shutil, tempfile, glob
 from pathlib import Path
 
 KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
@@ -212,13 +212,32 @@ if not live.dictionary_patch.exists():
         pass
 BK = _MAIN / "backups"
 BK.mkdir(parents=True, exist_ok=True)                 # gitignored -- absent in a fresh clone
-STAMP = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-shutil.copyfile(live.dictionary_patch, BK / f"DictionaryPatch.txt.preDEPLOY.{STAMP}")
+# STAMP names every backup below, and the generated revert restores from exactly those names -- so it must be
+# UNIQUE per deploy. It was a one-second stamp: a scripted batch landed two deploys in one second, the later one's
+# backups OVERWROTE the earlier's (by then holding the earlier id's OWN FieldScene line + ForkDonorPatch row), and
+# the earlier id's revert deleted its .eb but RESTORED its registration -- the null-.eb black screen (six
+# story-trace rung-3 forks). claim_stamp draws a microsecond stamp and CLAIMS it by writing this first,
+# unconditional backup create-exclusive; every later backup goes through _backup, which refuses to overwrite.
+from ff9mapkit import deploybackup as _bkp
+STAMP = _bkp.claim_stamp(BK, live.dictionary_patch, "DictionaryPatch.txt")   # -> BK/DictionaryPatch.txt.preDEPLOY.<STAMP>
+
+
+def _backup(src, dst):
+    """Snapshot ``src`` to ``dst`` (a ``BK/<label>.preDEPLOY.<STAMP>`` name), never over an existing file."""
+    try:
+        _bkp.backup_exclusive(src, dst)
+    except _bkp.BackupExists as _be:
+        print(f"!! {_be}\n"
+              f"!! deploy of field {FID} STOPPED part-way, before writing its revert script. Re-run it: the prelude "
+              f"re-runs this slot's prior revert, and the re-run claims a fresh stamp.", file=sys.stderr)
+        sys.exit(2)
+
+
 mes_backed = set()                                     # langs whose live .mes pre-existed (the revert restores these)
 for L in LANGS:
     lm = live.mes_path(L, text_block)
     if lm.exists():
-        shutil.copyfile(lm, BK / f"{L}-{text_block}.mes.preDEPLOY.{STAMP}")
+        _backup(lm, BK / f"{L}-{text_block}.mes.preDEPLOY.{STAMP}")
         mes_backed.add(L)
 src_fm = tl.fieldmap_dir(FBG)
 if src_fm.exists() and any(src_fm.iterdir()):          # borrow fields ship no scene -> skip
@@ -399,7 +418,7 @@ if _donor and _donor != FID:
     try:
         with locked_sidecar(_fdp):
             if _fdp.exists():
-                shutil.copyfile(_fdp, BK / f"ForkDonorPatch.txt.preDEPLOY.{STAMP}")
+                _backup(_fdp, BK / f"ForkDonorPatch.txt.preDEPLOY.{STAMP}")
             atomic_write_text(_fdp, _fdon.merge_row(_fdp.read_text(encoding="utf-8-sig") if _fdp.exists() else "",
                                                     FID, _donor), newline="\n")
     except FileLockTimeout as _lke:
@@ -454,7 +473,7 @@ for src_csv, live_csv, label in ((tl.initial_items_csv, live.initial_items_csv, 
     live_csv.parent.mkdir(parents=True, exist_ok=True)
     had = live_csv.exists()
     if had:
-        shutil.copyfile(live_csv, BK / f"{label}{ext}.preDEPLOY.{STAMP}")
+        _backup(live_csv, BK / f"{label}{ext}.preDEPLOY.{STAMP}")
     shutil.copyfile(src_csv, live_csv)
     csv_reverts.append((label, str(live_csv), had))
     print(f"  + {label}{ext} (data delta)")
@@ -476,7 +495,7 @@ if _abil_dir.is_dir():
         _live_f.parent.mkdir(parents=True, exist_ok=True)
         _had = _live_f.exists()
         if _had:
-            shutil.copyfile(_live_f, BK / f"{_f.stem}.csv.preDEPLOY.{STAMP}")
+            _backup(_live_f, BK / f"{_f.stem}.csv.preDEPLOY.{STAMP}")
         shutil.copyfile(_f, _live_f)
         csv_reverts.append((_f.stem, str(_live_f), _had))
         print(f"  + Abilities/{_f.stem}.csv (learn list)")
@@ -491,7 +510,7 @@ for _lang in LANGS:
     _live_cn.parent.mkdir(parents=True, exist_ok=True)
     _had = _live_cn.exists()
     if _had:
-        shutil.copyfile(_live_cn, BK / f"com_name-{_lang}.mes.preDEPLOY.{STAMP}")
+        _backup(_live_cn, BK / f"com_name-{_lang}.mes.preDEPLOY.{STAMP}")
     shutil.copyfile(_src_cn, _live_cn)
     csv_reverts.append((f"com_name-{_lang}", str(_live_cn), _had))
     print(f"  + text/{_lang}/command/com_name.mes (command name)")
@@ -505,7 +524,7 @@ for _lang in LANGS:
     _live_an.parent.mkdir(parents=True, exist_ok=True)
     _had = _live_an.exists()
     if _had:
-        shutil.copyfile(_live_an, BK / f"aa_name-{_lang}.mes.preDEPLOY.{STAMP}")
+        _backup(_live_an, BK / f"aa_name-{_lang}.mes.preDEPLOY.{STAMP}")
     shutil.copyfile(_src_an, _live_an)
     csv_reverts.append((f"aa_name-{_lang}", str(_live_an), _had))
     print(f"  + text/{_lang}/ability/aa_name.mes (ability name)")
@@ -524,7 +543,7 @@ for _lang in LANGS:
         _live_fk.parent.mkdir(parents=True, exist_ok=True)
         _had = _live_fk.exists()
         if _had:
-            shutil.copyfile(_live_fk, BK / f"{_chan}-{_lang}.mes.preDEPLOY.{STAMP}")
+            _backup(_live_fk, BK / f"{_chan}-{_lang}.mes.preDEPLOY.{STAMP}")
         shutil.copyfile(_src_fk, _live_fk)
         csv_reverts.append((f"{_chan}-{_lang}", str(_live_fk), _had))
         _folk_deployed = True
@@ -534,7 +553,7 @@ if _src_fp.exists():
     _live_fp = live.folklore_patch
     _had = _live_fp.exists()
     if _had:
-        shutil.copyfile(_live_fp, BK / f"FolklorePatch.txt.preDEPLOY.{STAMP}")
+        _backup(_live_fp, BK / f"FolklorePatch.txt.preDEPLOY.{STAMP}")
     shutil.copyfile(_src_fp, _live_fp)
     csv_reverts.append(("FolklorePatch", str(_live_fp), _had))
     _folk_deployed = True
@@ -546,7 +565,7 @@ if _src_jp.exists():
     _live_jp = live.journal_patch
     _had = _live_jp.exists()
     if _had:
-        shutil.copyfile(_live_jp, BK / f"JournalPatch.txt.preDEPLOY.{STAMP}")
+        _backup(_live_jp, BK / f"JournalPatch.txt.preDEPLOY.{STAMP}")
     shutil.copyfile(_src_jp, _live_jp)
     csv_reverts.append(("JournalPatch", str(_live_jp), _had))
     print("  + JournalPatch.txt (completion-Journal catalog) -> RELAUNCH to apply (loads once per process)")
@@ -578,7 +597,7 @@ if _src_dll.exists():
     _live_dll.parent.mkdir(parents=True, exist_ok=True)
     _had_dll = _live_dll.exists()
     if _had_dll:
-        shutil.copyfile(_live_dll, BK / f"{_src_dll.name}.preDEPLOY.{STAMP}")
+        _backup(_live_dll, BK / f"{_src_dll.name}.preDEPLOY.{STAMP}")
     try:
         shutil.copyfile(_src_dll, _live_dll)
     except OSError as _dllerr:
@@ -596,7 +615,7 @@ if _src_dll.exists():
     if _src_stamp.exists():
         _had_stamp = _live_stamp.exists()
         if _had_stamp:
-            shutil.copyfile(_live_stamp, BK / f"{_live_stamp.name}.preDEPLOY.{STAMP}")
+            _backup(_live_stamp, BK / f"{_live_stamp.name}.preDEPLOY.{STAMP}")
         shutil.copyfile(_src_stamp, _live_stamp)
         csv_reverts.append((_live_stamp.stem, str(_live_stamp), _had_stamp))    # stem+".json" -> revert {label}{ext}
     # Sources are runtime-INERT (the game loads only the DLL) -- shipped for provenance + live recompiles.
@@ -665,7 +684,7 @@ try:
         _live_bp_text = live.battle_patch.read_text(encoding="utf-8-sig") if live.battle_patch.exists() else ""
         if _built_block or _bp.has_block(_live_bp_text, FID):
             if live.battle_patch.exists():
-                shutil.copyfile(live.battle_patch, BK / f"BattlePatch.txt.preDEPLOY.{STAMP}")
+                _backup(live.battle_patch, BK / f"BattlePatch.txt.preDEPLOY.{STAMP}")
             _merged = _bp.merge_battle_patch(_live_bp_text, _built_block, FID)
             if _merged:
                 atomic_write_text(live.battle_patch, _merged, newline="\n")
@@ -707,7 +726,7 @@ try:
         _live_tp_text = live.text_patch.read_text(encoding="utf-8") if live.text_patch.exists() else ""
         if _built_tp or _itxt.has_block(_live_tp_text, FID):   # exact marker, same as the BattlePatch trigger
             if live.text_patch.exists():
-                shutil.copyfile(live.text_patch, BK / f"TextPatch.txt.preDEPLOY.{STAMP}")
+                _backup(live.text_patch, BK / f"TextPatch.txt.preDEPLOY.{STAMP}")
             _merged_tp = _itxt.merge_text_patch(_live_tp_text, _built_tp, FID)
             if _merged_tp:
                 atomic_write_text(live.text_patch, _merged_tp, newline="\n")

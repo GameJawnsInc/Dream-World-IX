@@ -22,6 +22,7 @@ fullest fix text) and the memory recipes `project-ff9-eventdb-id-collision` /
 | Id registers but is unreachable; or the whole DictionaryPatch stops registering | Field id above 32767 (Int16 `fldMapNo`) | Stay in-band: custom 4000-9899, scratch 30000-32767 |
 | Black screen leaving a field to the OVERWORLD; log names a fork `.eb` under a `World/` path | Field ids collided with the reserved world-map band 9000-9012 | Re-fork off the band (it is a hole in the custom range) |
 | New-Game-only black screen; DictionaryPatch shorter than its backups | A wholesale DictionaryPatch rewrite clobbered registrations | Restore from `backups/DictionaryPatch.txt.preDEPLOY.*`, relaunch |
+| After `revert_deploy_<id>.py` the field is still registered (and ForkDonorPatch row back) but its `.eb` is gone | A pre-fix same-second deploy overwrote the revert's backups with a snapshot holding the id's own lines | Scan BEFORE reverting: `py tools/repair_collided_backups.py`; `--plan`/`--repair <id>` |
 | Wrong dialogue but correct flags/behavior | Text-block `.mes` shadow (a higher-priority folder defines the same block) | Unshadowed real MesDB id / pin `text_block` |
 | A "(saved)" Script-panel edit still shows the old line | Edit recorded in `field.toml` but not rebuilt + redeployed | Rebuild + redeploy, then ~ -> Reload field |
 | After-battle softlock (control never returns) | Missing entry-0 tag-10 Main_Reinit | Use the kit build path (it emits one for encounter fields) |
