@@ -381,7 +381,9 @@ all opened DURING the walk (the facing step was not needed on this tour; FC-FACE
 only after 450 (R3-NULL-PRE still wants a 355-before-450 run), 356 -> 358 found no route twice (planner geometry,
 not facing), and **the game rendered at 28-53 fps under the harness across runs (31, 53, 28, 32), never the 60 the
 harness's per-frame WALK_SPEED/RUN_SPEED assume** -- the closed loop measures, but the open-loop fallback and every
-press sized in frames inherit that error.
+press sized in frames inherit that error. (Measured since over 79 archived launches: the STEADY rate is ~31 or ~60 fps
+for a whole launch, the quoted figures ring averages over field loads; the driver now plans in 30 Hz ticks by a rate
+it measures -- `tools/harness/tickrate.py` -- and the per-frame constants are gone.)
 
 ## Rungs
 

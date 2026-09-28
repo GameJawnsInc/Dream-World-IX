@@ -70,19 +70,20 @@ Range at SC 2600 then scene-gated region 25, 32; 5 are the 353 door step's ~34u 
   shut is the door's MISS (`face_measured` True); out of it turns again; a cut or a refusal a press would share is
   waited out, never a strike; control gone on an unchanged field is no door. The walked press above stays as the
   fallback only for a pre-s90 engine or `[AnalogControl] Enabled=0` (an overlapping body is waited for once first).
-- **Still open.** (1) THE RENDER RATE: under the harness the game ran at 28-53 fps across runs (31, 53, 28, 32 --
-  measured from the state ring), never the 60 that `WALK_SPEED`/`RUN_SPEED` (per FRAME) assume, so a frame is up to
-  a whole 30 Hz tick: the open-loop press's call count, and every hold sized in frames, can be off 2x (the closed
-  loop measures and is immune). Derive calls per frame from the measured frame rate, or from a turn's yaw0 -> yaw.
-  (2) The walk's finish still targets the
+- **Still open.** (1) THE RENDER RATE -- addressed by the driver's tick clock (`tools/harness/tickrate.py`): the
+  steady rate is ~31 or ~60 fps per launch (the quoted 28-53 were ring averages over field loads), and the driver no
+  longer holds movement per frame -- it measures the rate from the state file's write times and plans every press in
+  30 Hz ticks (sized at the average, rules at the most a press can reach, sure counts in whole ticks, a run's calls in
+  pairs), the turn's calls read off its yaws where the heading allows. Not yet walked in the game: the first tour on
+  it is the in-game check. (2) The walk's finish still targets the
   kit's quad: a walk can end in a 5-point region's dead middle, which the step reads LIVE (no Dali gated door has a
   standable dead middle; 8 stock gated rows elsewhere do). (3) On a pre-s90 engine, 350's door to 353 is still
   refused from the tour's goal pocket by the wall-slide bound (LIVE; the in-place turn faces it). (4) Not modelled:
   the class-3 fixed-window doors (Lindblum cabs, castle lifts -- most need a Confirm tap), 1458 e11 / 3057 e10
   (whose gate is live only on the polygon tag 0 switches to), and the ~40 other region sites that read the facing
-  some other way. (5) WALK_SPEED is a 60 fps bench constant: on another refresh rate a walked press's calls differ
-  (the closed loop measures instead; the open-loop press check catches a free press that ran short, not one into a
-  wall). (6) The tour's goal for 350's door to 353, (-1188, 2307), is 77.5u off a wall -- inside the 80u collision
+  some other way. (5) (WALK_SPEED, the 60 fps bench constant, is gone with (1): a walked press's calls are the whole
+  ticks its frames are sure of at the measured rate, and the movement cross-check raises on three presses in a row
+  outside it.) (6) The tour's goal for 350's door to 353, (-1188, 2307), is 77.5u off a wall -- inside the 80u collision
   radius, so the engine pushes him out on his first moving call.
 
 ## Where the research lives

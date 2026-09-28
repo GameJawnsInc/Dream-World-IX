@@ -3,7 +3,8 @@
 
 WHAT THIS PROVES, AND WHAT IT DOES NOT. It implements the s83 wire protocol -- sequence handling,
 the arm transition, frame-stepped queue draining, state publication, screenshots -- plus just enough
-of a world (a rectangular walkmesh, a run/walk speed, a gateway, a dialogue box, a menu cursor, a body
+of a world (a rectangular walkmesh, the engine's 30 Hz field ticks behind a VIRTUAL render rate -- one MovePC call a
+tick walking, two running -- a gateway, a dialogue box, a menu cursor, a body
 standing in the way and the engine's walk-through-by-insisting, the field's actors published as s89's
 ``objects`` -- walkers and contact triggers included -- a freeze with control held, stock's door facing
 gate, and s90's published facing with its in-place ``turn``) for the
@@ -29,6 +30,8 @@ behaviour that must be asserted rather than assumed.
 from __future__ import annotations
 
 import json
+import math
+import os
 import struct
 import threading
 import time
@@ -41,6 +44,7 @@ from pathlib import Path
 #: until rev 4, and a second literal is a skew waiting for someone to bump only one of them: that
 #: is exactly what happened, and 23 tests failed reporting the wrong cause.
 from .channel import BUTTONS, DIRECTIONS, PROTOCOL
+from .tickrate import CALLS_PER_TICK, DEFAULT_FIELD_TPS, MAX_DELTA_TIME, TickAccumulator
 
 #: The real agent polls req.txt every 2 frames while idle and every 10 while a queue is running, and
 #: the arm file every 30. Modelled because the driver's "do not overwrite an unaccepted request" gate
@@ -49,8 +53,30 @@ REQ_POLL_IDLE = 2
 REQ_POLL_BUSY = 10
 ARM_POLL = 30
 
-RUN_SPEED = 30.0
-WALK_SPEED = 15.0
+#: ``[Graphics] FieldTPS``: the field ticks a second this stand-in runs (times `fast_forward`) -- the engine's
+#: default and this install's (harness.tickrate.DEFAULT_FIELD_TPS, the one literal).
+FIELD_TPS = DEFAULT_FIELD_TPS
+
+#: The field ticks one frame of the fake's CALIBRATED model holds -- 60 fps, 30 Hz: half a tick. The unit a walker's
+#: ``speed`` is given in (units a frame at 60 fps, so ``speed / WALKER_FRAME_TICKS`` a tick), which every walk written
+#: before the tick model was written against.
+WALKER_FRAME_TICKS = 0.5
+
+#: SCollTimer after a push-out, in field ticks: the engine counts it down once a tick (ProcessEvents), and the push lock
+#: counts only while it runs (see `_lock_fallback`). Four frames at 60 fps -- what the fake counted before ticks.
+COLL_TICKS = 2.0
+
+#: How the fake turns frames into field ticks (`FakeGame(ticks=...)`): "mean" -- every frame holds its AVERAGE,
+#: ``tick_hz / render_fps`` (half a tick at 60 fps: smooth, what every walk written before this was written against);
+#: "quantized" -- the engine's WHOLE ticks, FPSManager's accumulator (harness.tickrate.TickAccumulator): 0, 1 or more a
+#: frame, in a phase nobody publishes.
+TICK_MODES = ("mean", "quantized")
+
+#: The clocks the fake can publish (`FakeGame(publish=...)`): "rt" -- the virtual realtime clock, seconds (a future
+#: engine's ``Time.realtimeSinceStartup``); "ticks" -- the field ticks run so far (the s91 counter, a float in mean
+#: mode); "mtime" -- no key: state.json's MODIFIED TIME is stamped with the virtual write time instead, and the loop
+#: runs in real time (see `publish`), so the driver's mtime path measures the render rate.
+PUBLISHED_CLOCKS = ("rt", "ticks", "mtime")
 
 #: The most frames one ``turn`` may hold its keys (HarnessAgent.TurnMaxFrames; its ``frames`` is clamped to
 #: 1..this, 30 when not given).
@@ -67,15 +93,57 @@ SOFT_RESET_COMBO = ("l1", "l2", "r1", "r2", "start", "select")
 
 
 class FakeGame:
-    """Runs the agent's side of the protocol in a background thread at a simulated frame rate."""
+    """Runs the agent's side of the protocol in a background thread at a simulated frame rate.
+
+    Two rates, never one: the LOOP turns frames at `fps` a wall second (a test's speed), and each frame is one frame of
+    a game rendering at `render_fps` on a virtual clock -- whose seconds become the engine's field ticks (`tick_mode`,
+    `fast_forward`), and whose clocks the driver can time it by (`publish`). See "the clock" below."""
 
     def __init__(self, game_path: Path, *, fps: float = 240.0, boot_state: str = "Title",
                  mode: str = "normal", walkmesh=(-600.0, -600.0, 600.0, 600.0),
-                 resets_on_arm: bool = True, twist: float = 0.0):
+                 resets_on_arm: bool = True, twist: float = 0.0, render_fps: float = 60.0,
+                 ticks: str = "mean", hitches: dict | None = None, publish=("rt",)):
         self.game_path = Path(game_path)
         self.dir = self.game_path / "x64" / "ff9harness"
         self.shots = self.dir / "shots"
+        #: How fast the frame LOOP runs, in WALL-clock frames a second -- NOT a render rate: every frame is one
+        #: `render_fps` frame of the virtual clock, however fast the loop turns it (240 by default, so a suite spends
+        #: a quarter of the wall time a 60 fps game would). `FakeGame(fps=30)` tests nothing about 30 fps; set
+        #: `render_fps`. (With "mtime" published the loop runs in real time at `render_fps` and ignores this.)
         self.fps = fps
+        # -- the clock (see harness.tickrate): a VIRTUAL clock, frames -> seconds -> field ticks ----------------------
+        if ticks not in TICK_MODES:
+            raise ValueError(f"ticks must be one of {TICK_MODES}, not {ticks!r}")
+        publish = tuple(publish)
+        if any(p not in PUBLISHED_CLOCKS for p in publish):
+            raise ValueError(f"publish takes only {PUBLISHED_CLOCKS}, not {publish!r}")
+        #: FastForwardFactor (the F1 speed-mode cheat: Memoria.ini [Cheats] SpeedFactor): field ticks a second are
+        #: FIELD_TPS x this (FPSManager.cs:95-97), and the engine publishes it nowhere -- a driver sees it only as
+        #: movement that outruns its rate. 1 = off.
+        self.fast_forward = 1.0
+        self._tick_mode = ticks
+        self._render_fps = self._positive_fps(render_fps)
+        #: The clocks published (`PUBLISHED_CLOCKS`). The default, ``("rt",)``, lets the driver's TickClock time the
+        #: fake by its VIRTUAL clock whatever the loop's pace; ``()`` publishes none, so the driver falls back on
+        #: state.json's real mtime -- which follows the LOOP (`fps`), not `render_fps`, and only approximately
+        #: (sleep overshoot); ``("mtime",)`` makes that path exact: the loop paces itself in real time on the virtual
+        #: clock and stamps each state.json with its virtual write time, so the file's mtime IS the render clock.
+        self.publish = publish
+        #: Extra VIRTUAL seconds a frame takes, by frame number (``{frame: seconds}``): a hitch -- the frame runs the
+        #: ticks those seconds hold on top of its own (the engine catches a long frame up in the next frame's
+        #: ticks, FPSManager.cs:94-99, at most ~10: `MAX_DELTA_TIME`). :meth:`hitch` adds one to the next frame.
+        self._hitches: dict[int, float] = {int(k): float(v) for k, v in (hitches or {}).items()}
+        self.rt = 0.0                              # the virtual clock, seconds since the first frame
+        self._rt_anchor, self._rt_frames = 0.0, 0  # rt = anchor + frames / render_fps (exact: no drift to add)
+        self.ticks_run = 0.0                       # field ticks run since the first frame (int-valued when quantized)
+        self._acc = TickAccumulator(FIELD_TPS)     # the engine's accumulator, for "quantized"
+        self._dt = 0.0                             # this frame's virtual seconds (0 on a frame the counter froze)
+        self._frame_ticks = 0.0                    # this frame's field ticks
+        self._steps: list = []                     # ...as the world runs them: [avg] (mean), [1.0] * n (quantized)
+        self._clock_frame = 0                      # the frame those are for (a test may step `frame` by hand)
+        self._tick = 0.0                           # the step of `_steps` the world is running now
+        self._plan: tuple | None = None            # the player's plan for this frame (`_player_plan`), once read
+        self._wall0 = 0.0                          # time.time() the virtual clock's 0 is stamped at ("mtime")
         #: Unity rewrites output_log.txt on every launch. False models a game that died before it
         #: did, so the file on disk is the PREVIOUS launch's -- which the driver must not archive as
         #: this run's evidence, because nothing in an untimestamped log says it is stale.
@@ -177,15 +245,34 @@ class FakeGame:
         #: in the game. Placed nearer a wall than that (a scene's own spot), his first moving frame pushes him
         #: straight out onto the line, as the engine's does (:meth:`_pushed_out`).
         self.clearance: float | None = None
-        #: Frames the character keeps moving after the direction is released. ⚠ NOT ZERO, and the
-        #: value is measured rather than chosen: on bench 30801 a hold covers what it commanded give
-        #: or take ONE frame (`hold down 1` moves 60 units at run speed, `hold down 31` moves 900),
-        #: so the engine's input pipeline runs about a frame behind. A stand-in that stopped dead on
-        #: release could not reproduce that at all -- and the pathological case, where the tail lands
+        #: Frames the character keeps moving after the direction is released. Measured on bench 30801,
+        #: a hold covers what it commanded give or take ONE frame at 60 fps (`hold down 1` moves 60
+        #: units at run speed, `hold down 31` moves 900) -- which the smooth 60 fps model (half a tick
+        #: every frame) cannot reproduce without a frame of tail: a stand-in that stopped dead on
+        #: release could not reproduce it at all -- and the pathological case, where the tail lands
         #: inside the NEXT burst's measurement window and is attributed to the direction pressed
         #: there, is what a test raises this to reproduce.
-        self.coast_frames = 1
-        self._coast = None                  # (vx, vz, frames_left)
+        #: Counted in FRAMES, moved in TICKS: a coast frame applies the last press to that frame's own ticks.
+        #: ⚠ THE ENGINE RUNS NO SUCH COAST: HarnessAgent.IsHeld keys on the current Time.frameCount (:70-77) and MovePC
+        #: reads the pad on every call (FieldMapActorController.cs:601-630) -- nothing buffers a key a frame. The bench's
+        #: extra frame is the tick a one-frame hold catches in one phase of WHOLE ticks, and the published position's
+        #: lag (tickrate.TAIL_TICKS). So None (the default) is ONE frame only where the smooth model is the fake -- 60
+        #: fps, mean ticks, what every walk before the tick model was written against -- and NONE anywhere else: at
+        #: 30 fps a frame is a whole tick, and a coast there moved him a tick the engine never runs, exactly Rate.reach
+        #: with no slack (a sure-side test could not catch a tick of over-credit). A test that sets it gets what it sets.
+        self.coast_frames: int | None = None
+        self._coast = None                  # (dx, dz, calls a tick, frames_left): the last press's direction and gait
+        #: THE PUBLISHED POSITION'S LAG, where a test models it: None (the default) publishes each frame's position with
+        #: that frame's ticks run; else a predicate of the frame number -- true on a frame whose publish shows the
+        #: position from BEFORE its own ticks, as the agent's does when its Update runs before HonoBehaviorSystem's (the
+        #: one frame the research measured) -- an order Unity does not fix, so it may come and go (tickrate.TAIL_TICKS;
+        #: Session.SETTLE_TICKS is two ticks for it).
+        self.publish_lag = None
+        self._pos_before = [0.0, 0.0, 0.0]  # the player's position before this frame's ticks (`publish_lag`)
+        #: The field INHIBITS RUNNING (stock's DASHOFF, EventEngine.DoEventCode.cs:3009-3012): a run hold walks -- one
+        #: MovePC call a tick, a turn's lerp too (FieldMapActorController.cs:196-198) -- and ``input.dash_inh`` reads 1,
+        #: as the agent publishes it (AppendInput).
+        self.dash_inhibit = False
         #: Whether the agent has redirected its save path away from the player's folder. Modelled
         #: because the driver must VERIFY this rather than trust it -- an unchecked sandbox is a
         #: check that cannot fail, and what it would fail to catch is the owner's overwritten game.
@@ -295,8 +382,9 @@ class FakeGame:
         #: A body is PASSABLE unless ``solid`` (object flag 16, which no NPC on stock 350 sets): the
         #: engine's sLockTimer (CheckCollFallback, :822) counts one a colliding MovePC call, flips to
         #: -25 at 25, and the push-out is off until it counts back to 0 -- so one unbroken hold walks
-        #: through him, and bursts with a pause between never do. Counted here in MovePC calls: a
-        #: running frame is one (two 30u calls a tick, two frames a tick), a walking or idle frame half.
+        #: through him, and bursts with a pause between never do. Counted here in MovePC calls, a tick's
+        #: calls (two running, one walking or idle) times the ticks a frame holds -- at the default 60 fps, mean
+        #: ticks, a running frame one and a walking or idle frame half; whole calls one at a time when quantized.
         #:
         #: A body may also be a DICT -- the s89 object it models, published under ``objects`` (see
         #: `objects_mode`): ``{"x", "z", "r"}`` and optionally ``"y"`` (it collides only while |dy| < 400,
@@ -305,7 +393,9 @@ class FakeGame:
         #: still or not, his centre inside it fires the entry's Range (CollisionRequest, every tick; logged
         #: in `touched`; only while ``coll``, as mode 2 keeps the pair rule), and with ``"talk_r"`` too it
         #: also fires inside that while he faces it; ``"to"`` / ``"arrive"`` make that Range a warp (stock
-        #: 350's Vivi sends the run to 358); and ``"path"`` [(x, z), ...] with ``"speed"`` (u/frame) makes
+        #: 350's Vivi sends the run to 358); and ``"path"`` [(x, z), ...] with ``"speed"`` (units a frame of the
+        #: calibrated 60 fps model -- ``speed / WALKER_FRAME_TICKS`` a field tick, as MoveToward steps once a tick, so
+        #: the same units a SECOND at any `render_fps`) makes
         #: it a WALKER, back and forth along the path (``"once"``: to its end, then it stands), published
         #: ``moving`` -- and held while its next step would come within ``r`` of him (MoveToward stops on
         #: the player), still ``moving``.
@@ -323,22 +413,25 @@ class FakeGame:
         self._in_trigger: set = set()             # (field, body index) whose trigger he stands in
         self._facing = (0.0, 1.0)                 # the direction last pressed (the talk search wants +-90 deg)
         #: His model yaw, Actor.rotAngle[1] in degrees (0 faces -z, 90 -x, +-180 +z, -90 +x) -- what a gated
-        #: region reads (``regions`` ``"face"``). Every frame a held direction spends MovePC calls (a press, or the
+        #: region reads (``regions`` ``"face"``). Every tick a held direction spends MovePC calls (a press, or the
         #: coast after one, whether or not he moves: a press into a wall turns him too) turns it toward that
         #: direction, 40% a call (content.doorface.turn_step; FieldMapActorController.cs:744-761 at stock 6b8bb2d5)
-        #: -- a frame's calls its step over the 30u a call steps (content.doorface.movepc_calls): a run frame one
-        #: call, a walked one half, ON AVERAGE (`tick_phase` turns him in whole calls instead). Standing, frozen or
-        #: without control it holds. PRIVATE, and settable by a test: the agent publishes ``dir`` 0 on a field
-        #: (PosObj.rot[1], which a field never writes), and so does this stand-in.
+        #: -- a tick's calls its step over the 30u a call steps (content.doorface.movepc_calls): one a tick walking,
+        #: two running, so a frame's the ticks it holds times that -- at the default 60 fps, mean ticks, a run frame
+        #: one call and a walked one half, ON AVERAGE ("quantized" ticks, or `tick_phase`, turn him in whole calls
+        #: instead). Standing, frozen or without control it holds. PRIVATE, and settable by a test: the agent
+        #: publishes ``dir`` 0 on a field (PosObj.rot[1], which a field never writes), and so does this stand-in.
         self._face_deg = 0.0
-        #: None (the default): a frame turns him by its AVERAGE calls, half a call a walked frame -- smooth, and
-        #: what every walk written before this was written against. 0 or 1: the engine's WHOLE calls -- a 30 Hz
-        #: tick on every other frame of this 60 fps model (FPSManager.cs:77-110 at stock), falling on the frames
-        #: whose number is that phase mod 2, where the frame turns him by its tick's whole calls (a walked frame 1,
-        #: a run frame 2; nothing on the frames between). Only the TURN is whole: the step stays a frame's average,
-        #: as every walk in the suite measures it. A press of an odd number of walked frames then turns him the
-        #: fewer whole calls in one phase and the more in the other -- what a planner that credits half calls
-        #: cannot see (content.doorface.sure_calls).
+        #: None (the default): a frame turns him by its ticks' calls -- in mean mode its AVERAGE, half a call a walked
+        #: frame at 60 fps: smooth, and what every walk written before this was written against. 0 or 1: the
+        #: engine's WHOLE calls FOR THE TURN ALONE, the precursor of ``ticks="quantized"`` kept for the tests pinned
+        #: on it -- a 30 Hz tick on every other frame of the 60 fps model (FPSManager.cs:77-110 at stock), falling on
+        #: the frames whose number is that phase mod 2, where the frame turns him by its tick's whole calls (a walked
+        #: frame 1, a run frame 2; nothing on the frames between), and the settle passes of a turn count only there.
+        #: Only the TURN is whole: the step stays a frame's average, as every walk in the suite measures it. A press of
+        #: an odd number of walked frames then turns him the fewer whole calls in one phase and the more in the other
+        #: -- what a planner that credits half calls cannot see (harness.tickrate.Rate.calls_sure). Refused (ValueError)
+        #: unless the fake is that model: ``render_fps`` 60 and ``ticks`` "mean" -- `_check_legacy_knobs`.
         self.tick_phase: int | None = None
         #: The facing as memoria-patch s90 publishes it, and its in-place ``turn``. "absent" (the DEFAULT -- an
         #: engine without s90, what every walk written before it was written against): no ``player.yaw`` /
@@ -355,12 +448,16 @@ class FakeGame:
         self.analog_control = True
         #: The event passes the agent lets the field run on a turn's final facing, after its keys lift, before it
         #: reports ``turn_end`` (HarnessAgent.TurnSettlePasses: the region pass that reads the facing runs a pass
-        #: after the MovePC call that wrote it). Counted on the fake's ticks -- every frame, or under `tick_phase` the
+        #: after the MovePC call that wrote it). Counted as the agent counts them -- FRAMES that ran a pass
+        #: (HarnessAgent.ServiceTurn: "a frame that runs two passes counts once"): every frame in mean mode (each
+        #: holds a share of a tick), the frames that ran a whole tick in quantized mode, and under `tick_phase` its
         #: tick frames. A test raises it to hold the report well past the request's ack.
         self.turn_settle_passes = 2
-        #: MovePC calls one frame of an IN-PLACE turn spends, when set. None: content.doorface.movepc_calls of the
-        #: frame's speed (run: one; with ``cancel`` held, walk: half) -- the calibrated 60 fps rate the driver plans
-        #: by. A monitor that is not the calibrated one turns him fewer (or more) calls a frame than that.
+        #: MovePC calls one frame of an IN-PLACE turn spends, when set -- an override of the tick model. None: the
+        #: frame's ticks times the gait's calls a tick (run: two; with ``cancel`` held, walk: one) -- at the default
+        #: 60 fps, mean ticks, one call a run frame and half a walked one, the calibrated rate the driver used to plan
+        #: by. Set, it is the calls every frame spends whatever `render_fps` says (the turn of a monitor that is not
+        #: the calibrated one, before the fake had a render rate). Mean ticks only -- `_check_legacy_knobs`.
         self.turn_calls: float | None = None
         #: A HUMAN at the controls, as ``turn`` sees one: ``stick`` the |axis| a physical stick or key pushes
         #: (HarnessAgent.PhysicalAxis), ``click_path`` a click-to-move path pending (the controller's hasTarget /
@@ -379,13 +476,17 @@ class FakeGame:
         self._visit = 0
         self._lock = 0.0                          # EventEngine.sLockTimer
         self._lock_free = 1                       # sLockFree: 0 while the last body touched is solid
-        self._coll = 0                            # SCollTimer, in frames (2 ticks after a push-out)
+        self._coll = 0.0                          # SCollTimer, in ticks (COLL_TICKS after a push-out)
         #: Movement FREEZES with control held -- MovePC's other gate, the script's pad mask
         #: (EventInput.IsMovementControl), which the agent does not publish: ``{field id: [{"zone":
-        #: [[x, z], ...], "frames": n}]}``. Stepping into a zone holds all movement for ``n`` frames
-        #: (None = for good) while `control` stays True. Each zone fires once; a warp ends a freeze.
+        #: [[x, z], ...], "frames": n}]}``. Stepping into a zone holds all movement for ``n`` frames OF THE
+        #: CALIBRATED 60 FPS -- ``n`` / 2 field TICKS: the script that masks the pad counts once a tick
+        #: (ProcessEvents), whatever the render rate -- (None = for good) while `control` stays True. Each zone
+        #: fires once; a warp ends a freeze. `_frozen_ticks` is in `ticks_run`; `_frozen_until`, in FRAMES, is a hold on
+        #: movement a test lays on (or lifts) by hand -- a frame count it means literally, which replaces every hold.
         self.freezes: dict[int, list[dict]] = {}
-        self._frozen_until: float = 0
+        self._frozen_frames: float = 0
+        self._frozen_ticks: float = 0
         self._froze: set = set()                  # (field id, index) of every freeze zone that fired
         #: every op the fake ever executed, so a test can assert a step was DELIVERED rather than
         #: inferring it from a state that several other ops could also have produced.
@@ -411,9 +512,133 @@ class FakeGame:
         if self.writes_unity_log:
             self.unity_log.parent.mkdir(parents=True, exist_ok=True)
             self.unity_log.write_bytes(b"Initialize engine version: 5.2.3p2 (fakegame)\r\n")
+        self._wall0 = time.time()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
         return self
+
+    # -- the clock -----------------------------------------------------------------------------
+    # THE ENGINE'S TIME, MODELLED ON A VIRTUAL CLOCK. A frame is 1 / render_fps virtual seconds (plus any hitch), the
+    # seconds become field ticks at tick_hz (FIELD_TPS x fast_forward) -- their average ("mean") or FPSManager's whole
+    # ones ("quantized") -- and everything the engine does once a tick is done once a tick here: MovePC's steps (one
+    # call walking, two running, 30u each: FieldMapActorController.cs:198-209 at stock 6b8bb2d5) and its turn (40% a
+    # call), the push lock's count (a call at a time), SCollTimer, a walker's step, a contact's and a gated region's
+    # re-test, a freeze's countdown (the script's pad mask counts ticks). Frame-counted things stay frame-counted, as
+    # the agent counts them: holds, waits, publishes, polls -- and the fade, as a SIMPLIFICATION (its duration is the
+    # engine's, not the agent's; no test yet runs a fade off 60 fps). At the defaults -- 60 fps, mean -- every frame is
+    # half a tick, and the fake moves EXACTLY as it did when its speeds were 30u / 15u a frame.
+    @staticmethod
+    def _positive_fps(v) -> float:
+        v = float(v)
+        if not (math.isfinite(v) and v > 0):
+            raise ValueError(f"render_fps must be a positive number of frames a second, not {v!r}")
+        return v
+
+    @property
+    def render_fps(self) -> float:
+        """The VIRTUAL render rate: the seconds a frame spans on the fake's clock (default 60). Settable mid-run -- a
+        regime switch: the clock re-anchors, so rt stays continuous."""
+        return self._render_fps
+
+    @render_fps.setter
+    def render_fps(self, value) -> None:
+        value = self._positive_fps(value)
+        self._check_legacy_knobs(render_fps=value)
+        self._rt_anchor, self._rt_frames = self.rt, 0
+        self._render_fps = value
+
+    @property
+    def tick_mode(self) -> str:
+        """``"mean"`` or ``"quantized"`` (`TICK_MODES`), as constructed with ``ticks=``."""
+        return self._tick_mode
+
+    @tick_mode.setter
+    def tick_mode(self, value: str) -> None:
+        if value not in TICK_MODES:
+            raise ValueError(f"ticks must be one of {TICK_MODES}, not {value!r}")
+        self._check_legacy_knobs(tick_mode=value)
+        self._tick_mode = value
+
+    @property
+    def tick_phase(self) -> int | None:
+        return self._tick_phase
+
+    @tick_phase.setter
+    def tick_phase(self, value) -> None:
+        if value is not None and value not in (0, 1):
+            raise ValueError(f"tick_phase is None, 0 or 1, not {value!r}")
+        self._check_legacy_knobs(tick_phase=value)
+        self._tick_phase = value
+
+    @property
+    def turn_calls(self) -> float | None:
+        return self._turn_calls
+
+    @turn_calls.setter
+    def turn_calls(self, value) -> None:
+        self._check_legacy_knobs(turn_calls=value)
+        self._turn_calls = None if value is None else float(value)
+
+    def _check_legacy_knobs(self, **change) -> None:
+        """Refuse a combination the two pre-tick knobs cannot mean: `tick_phase` is the 60 fps model's turn-only whole
+        calls (a tick every other frame), so it needs ``render_fps`` 60 and mean ticks; `turn_calls` is calls a FRAME,
+        which quantized frames (0, 1, 2 ticks) have no one value of. Checked on every change of any of the four, so
+        no order of setting them can reach a silently wrong turn."""
+        fps = change.get("render_fps", getattr(self, "_render_fps", 60.0))
+        mode = change.get("tick_mode", getattr(self, "_tick_mode", "mean"))
+        phase = change.get("tick_phase", getattr(self, "_tick_phase", None))
+        calls = change.get("turn_calls", getattr(self, "_turn_calls", None))
+        if phase is not None and (fps != 60.0 or mode != "mean"):
+            raise ValueError(f"tick_phase models a 30 Hz tick every other frame of a 60 fps, mean-tick fake; this one "
+                             f"is {fps:g} fps, {mode} -- use ticks='quantized' for whole ticks at any rate")
+        if calls is not None and mode != "mean":
+            raise ValueError("turn_calls is MovePC calls a frame, which quantized ticks (0, 1 or more a frame) have no "
+                             "one value of -- leave it None and let the ticks turn him")
+
+    @property
+    def tick_hz(self) -> float:
+        """Field ticks a second: FIELD_TPS x `fast_forward`."""
+        return FIELD_TPS * self.fast_forward
+
+    def hitch(self, seconds: float, *, frame: int | None = None) -> None:
+        """Make ``frame`` (default: the next) take ``seconds`` more virtual time -- a stall the engine catches up in
+        that frame's ticks."""
+        at = self.frame + 1 if frame is None else int(frame)
+        self._hitches[at] = self._hitches.get(at, 0.0) + float(seconds)
+
+    def _advance_clock(self) -> None:
+        """The virtual clock's frame: its seconds (``_dt``: 1 / render_fps + any hitch), ``rt``, and its field ticks
+        (``_frame_ticks``; ``_steps`` as the world runs them -- one share in mean mode, one per whole tick quantized)."""
+        self._clock_frame = self.frame
+        extra = self._hitches.pop(self.frame, 0.0)
+        self._rt_frames += 1
+        if extra:
+            self._rt_anchor += extra
+        self.rt = self._rt_anchor + self._rt_frames / self._render_fps
+        self._dt = 1.0 / self._render_fps + extra
+        if self._tick_mode == "quantized":
+            self._acc.fast_forward = self.fast_forward
+            n = self._acc.advance(self._dt)
+            self._frame_ticks, self._steps = float(n), [1.0] * n
+        else:
+            # the average, EXACT at the defaults: 30 / 60 is 0.5, so a run frame is 1.0 call and 30.0 units
+            r = (self.tick_hz / self._render_fps if not extra
+                 else self.tick_hz * min(self._dt, MAX_DELTA_TIME))
+            self._frame_ticks, self._steps = r, [r]
+        self.ticks_run += self._frame_ticks
+
+    def _hold_frame(self) -> None:
+        """A frame the counter did NOT advance on (``mode="frozen"``): no time passes, no tick runs."""
+        self._clock_frame = self.frame
+        self._dt, self._frame_ticks, self._steps = 0.0, 0.0, []
+
+    def _frame_steps(self) -> list:
+        """This frame's field ticks as the world runs them (`_steps`), the clock advanced first if the frame moved on
+        without it -- a test that steps ``frame`` by hand and calls ``_step_world`` gets the same frame the loop
+        would."""
+        if self._clock_frame != self.frame:
+            self._advance_clock()
+        return self._steps
 
     # -- the two exception logs ----------------------------------------------------------------
     @property
@@ -484,6 +709,9 @@ class FakeGame:
         while not self._stop.is_set() and self.returncode is None:
             if self.mode != "frozen":
                 self.frame += 1
+                self._advance_clock()
+            else:
+                self._hold_frame()
             try:
                 self._poll_arm()
                 if self.armed:
@@ -501,7 +729,29 @@ class FakeGame:
                 # pointing at the wrong half of the system -- which is exactly how a harness
                 # earns a reputation for being flaky when it is actually deterministic.
                 self.error = str(err)
-            time.sleep(period)
+            if "mtime" in self.publish:
+                self._pace_real_time()
+            else:
+                time.sleep(period)
+
+    #: How far the real-time loop ("mtime" published) may fall behind the wall clock before it re-anchors rather than
+    #: catch up: past this a stamp would read stale to the driver (Session's LIVE_WITHIN is 2 s).
+    REALTIME_SLIP = 1.0
+
+    def _pace_real_time(self) -> None:
+        """Sleep until the wall clock reaches the virtual clock (``_wall0 + rt``), so each state.json stamped with its
+        virtual write time is stamped at about the real moment it was written. A loop that has fallen behind (a busy
+        machine) runs its frames back to back until it catches up -- their stamps stay exactly 1 / render_fps apart --
+        and one more than REALTIME_SLIP behind re-anchors instead: a jump in the stamps the driver drops as a stall.
+        A frozen frame advances nothing, so it just waits a frame."""
+        if not self._steps and not self._dt:
+            time.sleep(1.0 / self._render_fps)
+            return
+        ahead = self._wall0 + self.rt - time.time()
+        if ahead > 0:
+            time.sleep(ahead)
+        elif ahead < -self.REALTIME_SLIP:
+            self._wall0 -= ahead
 
     def _poll_arm(self) -> None:
         """Model the agent's arm gate EXACTLY, including the part that bites.
@@ -661,8 +911,8 @@ class FakeGame:
             self._visit += 1                   # a new visit's actor: a turn begun before it is cut
             self._in_trigger.clear()           # a new visit: a trigger he lands in fires afresh
             self._exit = None                  # a warp outruns any exit still fading
-            self._frozen_until = 0             # ...and any freeze
-            self._lock, self._coll = 0.0, 0
+            self._frozen_frames = self._frozen_ticks = 0      # ...and any freeze
+            self._lock, self._coll = 0.0, 0.0
             self._block(3)
         elif op == "battle":
             if self.ui_state != "FieldHUD":
@@ -786,24 +1036,31 @@ class FakeGame:
         """
         if self._exit is not None and self.frame >= self._exit[0]:
             self._step_exit_now()
-        if self._coll > 0:
-            self._coll -= 1                     # ProcessEvents counts SCollTimer down every tick
-        if self.ui_state != "FieldHUD":
-            return
-        self._step_walkers()
-        if not self.control:
-            return
-        self._step_player()
-        if self.control:
-            self._fire_contacts()               # CollisionRequest: every tick he has control, moving or not
+        self._pos_before = list(self.player)
+        self._plan, visit = None, self._visit
+        for ticks in self._frame_steps():       # the frame's field ticks: one share (mean) or each whole one
+            self._tick = ticks
+            self._coll = max(0.0, self._coll - ticks)       # ProcessEvents counts SCollTimer down every tick
+            if self.ui_state != "FieldHUD":
+                continue
+            self._step_walkers(ticks)
+            if not self.control or self._visit != visit:
+                continue                        # control gone, or a warp mid-frame: no tick of it moves him there
+            self._step_player()
+            if self.control:
+                self._fire_contacts()           # CollisionRequest: every tick he has control, moving or not
+        if self._plan is None and self.ui_state == "FieldHUD" and self.control:
+            self._player_plan()                 # a frame no tick ran on still reads the pad: a coast frame is spent
 
-    def _step_player(self) -> None:
-        """The controlled player's frame: the pad, the push-out, the floor, the regions (see _step_world)."""
-        from ff9mapkit.content import doorface
-        if self.frame < self._frozen_until:
+    def _player_plan(self) -> tuple:
+        """What the controlled player does THIS FRAME, read once from the pad (IsHeld keys on the frame: every tick in
+        it sees the same keys) -- ``("frozen",)``, ``("turn", ux, uz, calls a tick)`` (an s90 turn's keys, no axis),
+        ``("idle",)``, ``("coast", dx, dz, calls a tick)`` (the last press still applied: its frame consumed here, once,
+        however many ticks it holds), or ``("press", ux, uz, calls a tick)``: ``ux``/``uz`` the unit press after the
+        twist, ``dx``/``dz`` the direction a step actually took (after the wall-slide projection)."""
+        if self._frozen():
             self._coast = None                  # MovePC returns before it moves anyone
-            self._retest_gated()
-            return
+            return ("frozen",)
         vx = vz = 0.0
         if self._move_held("up"):
             vz += 1.0
@@ -813,30 +1070,63 @@ class FakeGame:
             vx += 1.0
         if self._move_held("left"):
             vx -= 1.0
-        if vx == 0.0 and vz == 0.0 and self._turn_in_place():
-            return                              # s90: the keys of a `turn`, with no axis -- he turns in place
+        gait = CALLS_PER_TICK["walk" if self._is_held("cancel") or self.dash_inhibit else "run"]
         if vx == 0.0 and vz == 0.0:
-            # Nothing held -- but the engine is still applying the last movement it sampled.
+            turn = self._turn_keys_direction()
+            if turn is not None:
+                self._coast = None              # the keys' own sample replaces the last movement's
+                self._facing = turn
+                return ("turn", turn[0], turn[1], gait)     # s90: the keys of a `turn`, no axis -- he turns in place
             if not self._coast:
-                self._lock_fallback(0.5)        # MovePC still runs, once a tick
-                self._retest_gated()
-                return
-            vx, vz, left = self._coast
-            self._coast = (vx, vz, left - 1) if left > 1 else None
+                return ("idle",)
+            # Nothing held -- but the engine is still applying the last movement it sampled.
+            dx, dz, c, left = self._coast
+            self._coast = (dx, dz, c, left - 1) if left > 1 else None
+            return ("coast", dx, dz, c)
+        mag = (vx * vx + vz * vz) ** 0.5
+        return ("press", *self._twisted(vx / mag, vz / mag), gait)
+
+    def _twisted(self, vx: float, vz: float) -> tuple[float, float]:
+        """A screen-space press as the world direction it moves him (`twist`)."""
+        if not self.twist:
+            return vx, vz
+        a = math.radians(self.twist)
+        return vx * math.cos(a) - vz * math.sin(a), vx * math.sin(a) + vz * math.cos(a)
+
+    def _step_player(self) -> None:
+        """The tick being run (`_tick`: one field tick, or in mean mode the frame's share of one -- so at the defaults
+        this is once a frame) of the controlled player, on the frame's plan (`_plan`, read from the pad at the frame's
+        first: :meth:`_player_plan`): the pad, the push-out, the floor, the regions. A tick's step is its MovePC calls
+        x 30u -- one call walking, two running (FieldMapActorController.cs:198-209 at stock 6b8bb2d5) -- so at the
+        defaults (60 fps, mean) a run frame steps 30u in one call and a walked frame 15u in half of one."""
+        from ff9mapkit.content import doorface
+        if self._plan is None:
+            self._plan = self._player_plan()   # the pad, read once: every tick of a frame sees the same keys
+        plan, ticks = self._plan, self._tick
+        kind = plan[0]
+        if kind == "frozen":
+            self._retest_gated()
+            return
+        if kind == "idle":
+            self._lock_fallback(ticks * CALLS_PER_TICK["walk"])   # MovePC still runs, once a tick
+            self._retest_gated()
+            return
+        if kind == "turn":
+            self._turn_in_place(plan[1], plan[2], ticks * plan[3])
+            return
+        if kind == "coast":
+            _k, dx, dz, c = plan
+            step = ticks * c * doorface.STEP_PER_CALL
+            vx, vz = dx * step, dz * step
             calls = doorface.movepc_calls((vx * vx + vz * vz) ** 0.5)
             self._turn(vx, vz, calls)           # the coast is the press still being applied: it turns him too
             self._move_to(self.player[0] + vx, self.player[2] + vz, calls)
             self._enter_regions()
             self._enter_freezes()
             return
-        mag = (vx * vx + vz * vz) ** 0.5
-        vx, vz = vx / mag, vz / mag
-        if self.twist:
-            import math
-            a = math.radians(self.twist)
-            vx, vz = vx * math.cos(a) - vz * math.sin(a), vx * math.sin(a) + vz * math.cos(a)
-        speed = WALK_SPEED if self._is_held("cancel") else RUN_SPEED
-        calls = doorface.movepc_calls(speed)    # the MovePC calls this frame's step is worth (30u each)
+        _k, vx, vz, c = plan
+        speed = ticks * c * doorface.STEP_PER_CALL
+        calls = doorface.movepc_calls(speed)    # the MovePC calls this tick's step is worth (30u each)
         # the turn comes first, as in MovePC: the press turns him whether or not the step then moves him
         self._turn(vx, vz, calls)
 
@@ -851,9 +1141,9 @@ class FakeGame:
                 return
 
         moved = self._move_to(self.player[0] + vx * speed, self.player[2] + vz * speed, calls)
-        # Arm the tail with the velocity actually applied this frame.
-        self._coast = ((vx * speed, vz * speed, self.coast_frames)
-                       if self.coast_frames > 0 and moved else None)
+        # Arm the tail with the direction and gait actually applied this tick.
+        coast = self._coast_frames()
+        self._coast = (vx, vz, c, coast) if coast > 0 and moved else None
 
         if self.gateway is not None:
             gx0, gz0, gx1, gz1, dest = self.gateway
@@ -864,38 +1154,58 @@ class FakeGame:
         self._enter_regions()
         self._enter_freezes()
 
+    @property
+    def _frozen_until(self) -> float:
+        """A hold on movement in FRAMES, as a test lays one by hand (movement held while ``frame`` is below it)."""
+        return self._frozen_frames
+
+    @_frozen_until.setter
+    def _frozen_until(self, frame: float) -> None:
+        """Lay -- or, with a frame already past, lift -- a hold in frames; it REPLACES every hold, a zone's tick-counted
+        freeze included (a test that lifts "the" hold lifts it, whichever kind the walk stepped on)."""
+        self._frozen_frames, self._frozen_ticks = frame, 0
+
+    def _frozen(self) -> bool:
+        """Whether movement is held this frame: a zone's freeze still counting its ticks, or a hold a test laid on in
+        frames."""
+        return self.frame < self._frozen_frames or self.ticks_run < self._frozen_ticks
+
+    def _coast_frames(self) -> int:
+        """`coast_frames` as set, or -- None -- one frame at the calibrated model (60 fps, mean ticks) and none off it
+        (see `coast_frames`)."""
+        if self.coast_frames is not None:
+            return int(self.coast_frames)
+        return 1 if self._render_fps == 60.0 and self._tick_mode == "mean" else 0
+
     def _move_held(self, button: str) -> bool:
         """A direction held to MOVE: down, and not a ``turn`` key (HarnessAgent.MoveHeld: a turn key feeds no
         axis)."""
         return self._is_held(button) and button not in self._turn_keys
 
-    def _turn_in_place(self) -> bool:
-        """The frame of an s90 ``turn`` whose keys are down (and no other direction: the agent refuses both ways):
-        MovePC's key branch builds the 8-way target from them (FieldMapActorController.cs:698-708, the direction a hold
-        of those keys gives, after the twist), the stick-threshold test zeroes the step because the axis is under
-        threshold (:736-737), and the facing lerp (:749-764) keys on the booleans -- so `_face_deg` turns by the frame's
-        MovePC calls (`turn_calls`, or the run / walk rate) and he takes no step. The zero step still runs the
-        push-outs a step would (:meth:`_move_to` to where he stands: a body he overlaps, or a wall nearer than his
-        radius, moves him -- what ``turn_end``'s ``moved`` witnesses), and the region he stands in is re-tested, a
-        gated door he now faces firing (:meth:`_retest_gated`). False when no turn key is down this frame."""
-        from ff9mapkit.content import doorface
+    def _turn_keys_direction(self) -> tuple[float, float] | None:
+        """The world direction the s90 ``turn`` keys down this frame compose (after the twist) -- MovePC's key branch
+        builds the 8-way target from them (FieldMapActorController.cs:698-708) -- or None when no turn key is down (or
+        they cancel: refused at the start, never composed here)."""
         keys = [b for b in self._turn_keys if self._is_held(b)]
         if not keys:
-            return False
+            return None
         vx = (1.0 if "right" in keys else 0.0) - (1.0 if "left" in keys else 0.0)
         vz = (1.0 if "up" in keys else 0.0) - (1.0 if "down" in keys else 0.0)
         if vx == 0.0 and vz == 0.0:
-            return False                        # opposite keys: refused at the start, never composed here
+            return None
         mag = (vx * vx + vz * vz) ** 0.5
-        vx, vz = vx / mag, vz / mag
-        if self.twist:
-            import math
-            a = math.radians(self.twist)
-            vx, vz = vx * math.cos(a) - vz * math.sin(a), vx * math.sin(a) + vz * math.cos(a)
-        calls = (self.turn_calls if self.turn_calls is not None
-                 else doorface.movepc_calls(WALK_SPEED if self._is_held("cancel") else RUN_SPEED))
-        self._coast = None                      # the keys' own sample replaces the last movement's
-        self._facing = (vx, vz)
+        return self._twisted(vx / mag, vz / mag)
+
+    def _turn_in_place(self, vx: float, vz: float, calls: float) -> None:
+        """A tick of an s90 ``turn`` whose keys are down (and no other direction: the agent refuses both ways) toward
+        world direction (``vx``, ``vz``): the stick-threshold test zeroes the step because the axis is under threshold
+        (FieldMapActorController.cs:736-737), and the facing lerp (:749-764) keys on the booleans -- so `_face_deg`
+        turns by the tick's MovePC calls (``calls``; `turn_calls` a frame when set) and he takes no step. The zero step
+        still runs the push-outs a step would (:meth:`_move_to` to where he stands: a body he overlaps, or a wall nearer
+        than his radius, moves him -- what ``turn_end``'s ``moved`` witnesses), and the region he stands in is
+        re-tested, a gated door he now faces firing (:meth:`_retest_gated`)."""
+        if self.turn_calls is not None:
+            calls = self.turn_calls
         self._turn(vx, vz, calls)
         before = (self.player[0], self.player[2])
         self._move_to(before[0], before[1], calls)
@@ -903,7 +1213,6 @@ class FakeGame:
             self._enter_regions()               # pushed: a step's rule
         else:
             self._retest_gated()                # standing: the gated region's every-tick re-test
-        return True
 
     def _turn(self, vx: float, vz: float, calls: float) -> None:
         """His yaw (`_face_deg`) after a frame that held world direction (``vx``, ``vz``) -- the press after the
@@ -946,7 +1255,7 @@ class FakeGame:
                     self._lock_fallback(calls)
                     return False
                 x, z = bx + (x - bx) / d * r, bz + (z - bz) / d * r
-                self._coll = 4
+                self._coll = COLL_TICKS
                 pushed = True
             break                                   # WalkMesh.Collision answers with ONE body
         on = getattr(self.walkmesh, "point_on_walkmesh", None)
@@ -1035,7 +1344,18 @@ class FakeGame:
     def _lock_fallback(self, calls: float) -> None:
         """FieldMapActorController.CheckCollFallback, ``calls`` times over: while SCollTimer runs, count
         sLockTimer up by sLockFree -- flipping it to -25 at 25, which turns the push-out off -- else
-        reset a non-negative count to 0 and count a negative one back up to it."""
+        reset a non-negative count to 0 and count a negative one back up to it. WHOLE calls (a quantized run tick's
+        two) are counted one at a time, as the engine calls it once a MovePC -- so the flip at 25 lands on the call
+        that reaches it; a mean frame's share of a call (half a call a walked frame at 60 fps) is counted at once."""
+        n = round(calls)
+        if n > 1 and abs(calls - n) < 1e-9:
+            for _ in range(n):
+                self._lock_call(1.0)
+        else:
+            self._lock_call(calls)
+
+    def _lock_call(self, calls: float) -> None:
+        """One CheckCollFallback, worth ``calls`` MovePC calls (see :meth:`_lock_fallback`)."""
         if self._coll > 0:
             self._lock = -25.0 if self._lock >= 25 else self._lock + self._lock_free * calls
         elif self._lock >= 0:
@@ -1061,9 +1381,10 @@ class FakeGame:
     def _walking(b: dict) -> bool:
         return bool(b.get("path")) and float(b.get("speed", 0)) > 0 and not b.get("_done")
 
-    def _step_walkers(self) -> None:
-        """Every walker (a body with a ``path``) one frame along it -- unless that step would bring it within ``r``
-        of the player, where it waits, still moving (MoveToward.cs:187-189)."""
+    def _step_walkers(self, ticks: float) -> None:
+        """Every walker (a body with a ``path``) one tick along it (or, in mean mode, the frame's share of one:
+        ``ticks``) -- ``speed / WALKER_FRAME_TICKS`` units a tick, MoveToward's step a tick -- unless that step would
+        bring it within ``r`` of the player, where it waits, still moving (MoveToward.cs:187-189)."""
         for _i, b in self._bodies():
             if not self._walking(b):
                 continue
@@ -1072,7 +1393,7 @@ class FakeGame:
             tx, tz = path[k]
             dx, dz = tx - b["x"], tz - b["z"]
             dist = (dx * dx + dz * dz) ** 0.5
-            step = min(float(b["speed"]), dist)
+            step = min(float(b["speed"]) * (ticks / WALKER_FRAME_TICKS), dist)
             nx, nz = (b["x"] + dx / dist * step, b["z"] + dz / dist * step) if dist > 0 else (tx, tz)
             px, pz = self.player[0], self.player[2]
             near = ((nx - px) ** 2 + (nz - pz) ** 2) ** 0.5
@@ -1145,7 +1466,7 @@ class FakeGame:
             if (self.field_id, i) not in self._froze and _in_poly(x, z, f["zone"]):
                 self._froze.add((self.field_id, i))
                 n = f.get("frames")
-                self._frozen_until = float("inf") if n is None else self.frame + int(n)
+                self._frozen_ticks = float("inf") if n is None else self.ticks_run + int(n) * WALKER_FRAME_TICKS
                 self._coast = None
 
     def _region_at(self, x: float, z: float):
@@ -1230,7 +1551,7 @@ class FakeGame:
     def _turn_blocker(self) -> str | None:
         """HarnessAgent.TurnBlocker's token -- why the field would not honour a turn now -- for the fake's world,
         in the agent's order: ``field`` (no field up), ``player`` (no controlled character: `has_position` off),
-        ``control``, ``movement`` (a hold on movement, `_frozen_until`), ``hud`` (a UI other than the field HUD);
+        ``control``, ``movement`` (a hold on movement, `_frozen`), ``hud`` (a UI other than the field HUD);
         None when it would."""
         if self.field_id <= 0 or self.ui_state in ("Title", "WorldHUD", "BattleHUD") or self.battle_active:
             return "field"
@@ -1238,7 +1559,7 @@ class FakeGame:
             return "player"
         if not self.control:
             return "control"
-        if self.frame < self._frozen_until:
+        if self._frozen():
             return "movement"
         if self.ui_state != "FieldHUD":
             return "hud"
@@ -1314,8 +1635,9 @@ class FakeGame:
         keys are down it is CUT the moment the field stops honouring it (`_turn_blocker`, the field id or the visit
         changing, a human's `stick` over STICK_THRESHOLD: ``axis``) -- `turn_end` with that token, the keys lifted on
         the next frame by the release rule. Once they
-        lift, the report stays open `turn_settle_passes` ticks after the lift frame (every frame, or under
-        `tick_phase` the tick frames) under the same tests: a gated door that fires on the final facing takes
+        lift, the report stays open `turn_settle_passes` passes after the lift frame (frames that ran a tick -- every
+        frame in mean mode; or under `tick_phase` the tick frames) under the same tests: a gated door that fires on the
+        final facing takes
         control, and is reported as that ``control``; ``ended`` means the field ran its passes on that facing and
         nothing took him."""
         f = self.frame
@@ -1338,7 +1660,9 @@ class FakeGame:
         if why is None:
             if down:
                 return
-            if f > t["lift"] and (self.tick_phase is None or f % 2 == self.tick_phase):
+            # a frame that RAN a pass counts once (HarnessAgent.ServiceTurn): every frame of mean ticks, a frame that
+            # ran a whole tick when quantized, and under tick_phase its tick frames
+            if f > t["lift"] and self._frame_steps() and (self.tick_phase is None or f % 2 == self.tick_phase):
                 t["passes"] += 1
             if t["passes"] < self.turn_settle_passes:
                 return
@@ -1528,7 +1852,7 @@ class FakeGame:
             return
         self.publish_frame = self.frame
         held = [b for b in self.held if self._is_held(b)]
-        px, py, pz = self.player
+        px, py, pz = self._pos_before if self.publish_lag is not None and self.publish_lag(self.frame) else self.player
         if not self.has_position:
             px = py = pz = None
         doc = {
@@ -1550,7 +1874,7 @@ class FakeGame:
             "player": {"x": px, "y": py, "z": pz,
                        "dir": 0, "floor": 0, "tri": 0, "control": self.control},
             "input": {"key_up": self._is_held("up"), "key_confirm": self._is_held("confirm"),
-                      "move_key": bool(held), "dash_inh": 0, "axis_x": 0.0, "axis_y": 0.0},
+                      "move_key": bool(held), "dash_inh": int(self.dash_inhibit), "axis_x": 0.0, "axis_y": 0.0},
             "dialog": {"open": bool(self.texts) or self.choice is not None,
                        "count": len(self.texts),
                        "texts": self.texts, "phrase_raw": self.raw_texts or self.texts,
@@ -1575,14 +1899,21 @@ class FakeGame:
             # s89: both null off a field or on any failure, never a partial list
             listed = self.objects_mode == "listed" and self.ui_state == "FieldHUD"
             doc["objects"] = self._objects_doc() if listed else None
-            doc["pushout"] = ({"slock": int(self._lock), "scoll": int(self._coll), "slockfree": int(self._lock_free),
-                               "fallback": True} if listed else None)
+            doc["pushout"] = ({"slock": int(self._lock), "scoll": math.ceil(self._coll - 1e-9),
+                               "slockfree": int(self._lock_free), "fallback": True} if listed else None)
+        # the clocks (`publish`): the virtual realtime clock and the ticks run, IN the document -- what a driver pairs
+        # frames with before it falls back on the file's mtime (harness.tickrate.TickClock)
+        if "rt" in self.publish:
+            doc["rt"] = self.rt
+        if "ticks" in self.publish:
+            doc["ticks"] = int(self.ticks_run) if self._tick_mode == "quantized" else self.ticks_run
+        stamp = self._wall0 + self.rt if "mtime" in self.publish else None
         if self._publish_stalls:
             _publish_in_place(self.dir / "state.json", json.dumps(doc),
                               stall=self._publish_stalls.pop(0), began=self.stalling,
-                              stop=self._stop)
+                              stop=self._stop, mtime=stamp)
         else:
-            _publish_atomic(self.dir / "state.json", json.dumps(doc))
+            _publish_atomic(self.dir / "state.json", json.dumps(doc), mtime=stamp)
 
     def stall_publish(self, seconds: float, *, times: int = 1) -> None:
         """Make the next ``times`` publishes stall MID-REWRITE for ``seconds`` each.
@@ -1848,7 +2179,7 @@ class FakeGame:
         # -- the escape roll. _runCounter counts UNBROKEN real seconds; either bumper lifting
         # resets it to zero, which is the defect class this whole model exists to preserve.
         if not self.deaf_bumpers and self._is_held("l1") and self._is_held("r1"):
-            self.run_counter += 1.0 / self.fps
+            self.run_counter += self._dt           # REAL seconds: the frame's, on the virtual clock
             if self.run_counter > 1.0:
                 self.run_counter = 0.0
                 if self._roll() < self.escape_rate:
@@ -2208,16 +2539,33 @@ def _in_poly(x: float, z: float, poly) -> bool:
     return inside
 
 
-def _publish_atomic(path: Path, text: str, attempts: int = 6) -> None:
+def _stamp(path: Path, mtime: float | None) -> None:
+    """Set ``path``'s modified time to ``mtime`` (epoch seconds) -- the fake's VIRTUAL write time, when it publishes
+    "mtime" -- or leave the real one (None). A stamp that cannot land costs one sample's time, never the publish."""
+    if mtime is None:
+        return
+    try:
+        ns = int(round(mtime * 1e9))
+        os.utime(path, ns=(ns, ns))
+    except OSError:
+        pass
+
+
+def _publish_atomic(path: Path, text: str, attempts: int = 6, *, mtime: float | None = None) -> None:
     """Replace ``path`` atomically, retrying the Windows sharing violation.
 
     ``os.replace`` fails with ERROR_ACCESS_DENIED whenever the reader happens to have the target
     open at that instant -- a real collision at a 60 Hz write against a 30 Hz poll, not a theoretical
     one. Retry briefly, then fall back to a direct write: the reader retries parse failures, so a
     torn read costs one poll, whereas a failed publish costs the whole run.
+
+    ``mtime`` stamps the file's modified time (:func:`_stamp`) BEFORE the rename, which keeps it -- so no reader ever
+    stats the new document with the wrong time. (The stamp changes only WHICH time the file carries; the
+    read-body-then-stat race of a driver against the next rewrite is still there, as in the game.)
     """
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(text, encoding="utf-8")
+    _stamp(tmp, mtime)
     for attempt in range(attempts):
         try:
             tmp.replace(path)
@@ -2225,6 +2573,7 @@ def _publish_atomic(path: Path, text: str, attempts: int = 6) -> None:
         except PermissionError:
             time.sleep(0.002 * (attempt + 1))
     path.write_text(text, encoding="utf-8")
+    _stamp(path, mtime)
     try:
         tmp.unlink()
     except OSError:
@@ -2232,7 +2581,7 @@ def _publish_atomic(path: Path, text: str, attempts: int = 6) -> None:
 
 
 def _publish_in_place(path: Path, text: str, *, stall: float, began: threading.Event,
-                      stop: threading.Event) -> None:
+                      stop: threading.Event, mtime: float | None = None) -> None:
     """``HarnessAgent.WriteAtomic`` as deployed: truncate in place, then write -- gap held open.
 
     Python's ``open(..., "w")`` is CREATE_ALWAYS with read+write sharing, like the agent's
@@ -2243,6 +2592,7 @@ def _publish_in_place(path: Path, text: str, *, stall: float, began: threading.E
             began.set()
             stop.wait(stall)
             fh.write(text)
+        _stamp(path, mtime)
     finally:
         began.clear()
 

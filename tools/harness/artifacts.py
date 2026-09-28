@@ -6,8 +6,9 @@ AFTER ``quit`` -- the wrong moment -- so "what was the game doing when this fail
 and under a suite a re-run costs the whole suite. These are the pieces that make a failure readable
 from the run directory alone:
 
-* :class:`StateRing` -- the last ~10 s of published state, fed by the reads every wait already
-  makes (no thread, no extra poll), flushed to ``states-<tag>.jsonl`` when something fails.
+* :class:`StateRing` -- the last ~10 s of published state (~20 s at 31 fps), fed by the reads every
+  wait already makes (no thread, no extra poll), flushed to ``states-<tag>.jsonl`` when something
+  fails.
 * :class:`StepLog` -- one row per request in ``steps.jsonl``: the literal steps, when the agent
   ACCEPTED it and when it FINISHED it. "Which step never landed" becomes a one-row read.
 * :func:`build_env` -- ``env.json``: the DLL that was actually driven (sha256), the registrations
@@ -31,10 +32,11 @@ from pathlib import Path
 
 from .channel import PROTOCOL
 
-#: How many distinct published frames the ring keeps. The agent publishes every 2nd frame (~30/s),
-#: and the ring dedupes on frame, so intake is capped at that rate whatever the poll rate: 300 is
-#: the last ~10 seconds at full rate -- the window a failed check or a timed-out wait is diagnosed
-#: from. Older history is already on disk in steps.jsonl (driver side) and events.jsonl (agent).
+#: How many distinct published frames the ring keeps. The agent publishes every 2nd frame -- 15 to 30
+#: a second, as the render rate is ~31 or ~60 fps under the harness -- and the ring dedupes on frame,
+#: so intake is capped at that rate whatever the poll rate: 300 is the last ~10 seconds at 60 fps,
+#: ~20 at 31 -- the window a failed check or a timed-out wait is diagnosed from. Older history is
+#: already on disk in steps.jsonl (driver side) and events.jsonl (agent).
 STATE_RING = 300
 
 
@@ -100,13 +102,18 @@ class StepLog:
 #: The ini sections env.json records, and which keys (None = the whole section). These are the
 #: values that change what a harness result MEANS: the analog axis the injected press has to
 #: satisfy, the boosters, the soft-reset gate the recovery ladder depends on, the autosave that
-#: once wrote the owner's file, and the folder order that decides which DictionaryPatch wins.
+#: once wrote the owner's file, the folder order that decides which DictionaryPatch wins, and the
+#: render and tick rates -- ``[Graphics] FieldTPS`` is the field ticks a second every press is
+#: converted by (harness.tickrate.field_tps_from_ini, which reads it through this table), and the
+#: FPS caps and VSync decide the render rate a frame count is measured against.
 INI_SECTIONS: dict[str, tuple[str, ...] | None] = {
     "AnalogControl": ("Enabled",),
     "Cheats": None,
     "Control": ("SoftReset",),
     "SaveFile": ("DisableAutoSave",),
     "Mod": ("FolderNames",),
+    "Graphics": ("Enabled", "VSync", "FieldFPS", "FieldTPS", "BattleFPS", "BattleTPS", "WorldFPS",
+                 "WorldTPS", "MenuFPS", "MenuTPS"),
 }
 
 

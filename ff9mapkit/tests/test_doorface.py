@@ -178,11 +178,21 @@ def test_calls_come_from_the_calibrated_speed():
     assert (D.movepc_calls(30.0), D.movepc_calls(15.0)) == (1.0, 0.5)
 
 
-def test_a_press_is_sure_only_of_its_whole_calls():
-    """The engine turns in WHOLE calls, a walked one a tick, in a phase nobody sees: at half a call a frame, 8 frames are
-    4 calls, 9 are 4 or 5 -- sure of 4 -- and 3 are sure of 1; one frame is sure of none. A run frame is a whole call."""
-    assert [D.sure_calls(n, 0.5) for n in (1, 2, 3, 8, 9, 10)] == [0, 1, 1, 4, 4, 5]
-    assert [D.sure_calls(n, 1.0) for n in (1, 4)] == [1, 4]
+def test_the_calls_a_turn_ran_come_back_off_its_yaws():
+    """``k`` calls toward a fixed target leave 0.6**k of the offset, so the two yaws give ``k`` back -- to the yaw's
+    0.001-degree print, from either side, and from dead opposite (the engine leaves a target 180 away as it is and turns
+    him whichever way its raw value lies): the six-call run turn of the harness's facing check, the fourteen of a hitched
+    30 fps turn, one walked call. None ran when the yaw did not move (0); yaws that are no such turn -- across the
+    target, away from it, already on it, converged onto it -- are None, never a count."""
+    for y0, target, k in ((60.0, -90.0, 14), (90.0, -90.0, 6), (-90.0, 90.0, 6), (170.0, -170.0, 3), (-45.0, 30.0, 1),
+                          (69.0, -88.6, 6)):
+        y1 = round(D.turn_step(y0, target, k), 3)
+        assert D.calls_from_turn(y0, y1, target) == pytest.approx(k, abs=0.05), (y0, target, k, y1)
+    assert D.calls_from_turn(20.0, 20.0, -90.0) == 0.0
+    assert D.calls_from_turn(10.0, -5.0, 0.0) is None           # across the target: no lerp does that
+    assert D.calls_from_turn(10.0, 20.0, 0.0) is None           # away from it
+    assert D.calls_from_turn(0.0, 5.0, 0.0) is None             # on it already: nothing to measure
+    assert D.calls_from_turn(10.0, 0.0, 0.0) is None            # onto it: past what the print resolves
 
 
 def test_the_window_sets_the_error_a_planner_may_count_on():

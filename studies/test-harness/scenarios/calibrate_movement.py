@@ -14,6 +14,14 @@ Measures, on the flat 30801 bench:
   * run speed, and which of walk/run is the unmodified default (Cancel XOR cfg.move decides it)
   * the diagonal, which is where a normalised vector could bite
 
+UNITS PER FRAME ARE ONLY HALF A MEASUREMENT. He moves on 30 Hz field ticks, not render frames (one MovePC
+call a tick walking, two running, 30u each: tools/harness/tickrate.py), so a speed a frame is the speed a
+tick times the ticks a frame holds -- 15/30u at 60 fps, ~29/58u at 31. The 15/30 this bench once gave the
+driver were a 60 fps machine's. So every row records the render rate the driver MEASURED while it was taken
+(``rate``: harness.tickrate.Rate.as_dict) and the speed a TICK that rate implies (``units_per_tick``) -- the
+number that does not move with the monitor -- and a row taken before any rate was measured says so
+(``rate.source`` "default").
+
     py tools/play.py studies/test-harness/scenarios/calibrate_movement.py --field 30801
 """
 import json
@@ -56,6 +64,7 @@ def _measure(g, label, steps, frames):
 
     total = ((end.player_x - start.player_x) ** 2 + (end.player_z - start.player_z) ** 2) ** 0.5
     per_frame = sum(steady) / len(steady) if steady else 0.0
+    rate = g.rate()                    # measured from the very reads the trace made (the channel's observer)
     row = {
         "label": label,
         "frames": frames,
@@ -64,10 +73,13 @@ def _measure(g, label, steps, frames):
         "total_displacement": round(total, 2),
         "units_per_frame": round(per_frame, 3),
         "implied_total": round(per_frame * frames, 1),
+        "units_per_tick": round(per_frame / rate.per_frame(), 3),
+        "rate": rate.as_dict(),
         "from": [round(start.player_x, 1), round(start.player_z, 1)],
         "to": [round(end.player_x, 1), round(end.player_z, 1)],
     }
-    print(f"[cal] {label:14} {total:8.1f}u over {frames} frames  ->  {per_frame:6.3f} u/frame")
+    print(f"[cal] {label:14} {total:8.1f}u over {frames} frames  ->  {per_frame:6.3f} u/frame, "
+          f"{row['units_per_tick']:6.2f} u/tick at {rate.describe()}")
     return row
 
 
