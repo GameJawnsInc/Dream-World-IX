@@ -20,3 +20,9 @@ memoria-patches/*.patch -text
 # that re-CRLFs one fails P-FROZEN with no content changed. The committed LF bytes are the recorded ones
 # (v1: 220532a8); never line-end convert them.
 studies/story-trace/rung3_predictions*.json -text
+
+# F5's registered predictions (rung 3's lineage, v3) are sha256-frozen the same way (studies/story-trace/rung5_hub.py
+# P-FROZEN): the session records the sha of the bytes it read, and the analysis refuses a file that no longer
+# matches -- so a checkout that re-CRLFs one fails P-FROZEN with no content changed. The committed LF bytes are the
+# recorded ones (v3: d3ae4121); never line-end convert them.
+studies/story-trace/rung5_predictions*.json -text

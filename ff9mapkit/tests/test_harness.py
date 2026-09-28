@@ -7530,6 +7530,578 @@ def test_a_walk_reads_off_any_log_the_tour_wrote():
     assert D.entered_field({"from": 350, "landed": 350}) == 350            # no changed_to: read as before
 
 
+# ---- F5, the hub lane (studies/story-trace/rung5_hub.py): an F5 run enters its start field through the kit's HUB --
+# New Game, `warp 31100 0 2540`, talk to Stiltzkin, pick "Dali (SC 2600)": the pick stamps the seed and runs
+# Field(31111), member(359). dali_tour.segment takes that leg as ``enter`` IN PLACE OF rung 3's raw warp and its wait;
+# from there the segment is the game's, the same loop on both sides. The hub on the fake: the moogle on the hub's spawn
+# (404, 127), a box floor -- the install has no walkmesh for 31100 (route_to would raise) and no script to read a key
+# prior from (calibration is blind) -- and Stiltzkin a SOLID body at (480, 127) with a talk ring.
+
+_HUB, _ENTRY, _WAKE = 31100, 31111, 31104                     # the hub, member(359), member(352)
+_DALI_ROW, _STAY_ROW = "Dali (SC 2600)", "Stay here, kupo..."
+_F5_PLACES = {_ENTRY: 359, _WAKE: 352}
+_NIGHT = ("Zidane\n“Where is everybody?”", "Vivi\n“...”")    # the entry's arrival scene, two pages
+
+
+class _HubFake(FakeGame):
+    """The F5 hub and its pick on the fake. ``warp 31100`` stands the moogle on the hub's spawn (and any warp's third
+    operand sets the SC, as the debug warp does); ``narrator`` is Stiltzkin, a solid body with a talk ring, published
+    under ``objects``. A Confirm with control, his centre inside the ring and facing him (+-90 degrees) opens the
+    journey menu -- a choice window as :meth:`FakeGame.scene` plays one (``journey`` is its beat: ``typing`` makes the
+    prompt eat the first Confirm, ``default`` is the row the cursor starts on, ``options`` the rows); ``silent``: the
+    press opens nothing; ``deaf``: a window that takes no Confirm at all; ``hang``: the game stops taking requests at
+    the first press into the ready menu (the press never lands, nothing after it is acked). The row ANSWERED is read by
+    its TEXT: the Dali row stamps SC 2600 and runs Field(``lands``) (None: nothing), the stay row gives control back
+    in the hub (``stay_lands``: a stay row that warps -- on the ``stay_after``-th ``wait`` request after the answer,
+    a few frames late, whatever the render rate; 0 at once; ``stay_control``
+    False: one that leaves control withheld; ``stay_throws``: one that logs a THROWS exception through the event
+    engine). A field in ``arrivals`` ({field: (pages, wake field)}) plays its arrival scene on entry -- pages Confirm
+    turns, control withheld -- then wakes: control back in the wake field at the beat, ``woken`` set (359's night to
+    352's wake -- the same after the raw warp and after the pick). ``spawn`` is where a warp into the hub stands him,
+    facing south (the hub's TurnInstant(0))."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.facing_mode = "published"                     # s90: the leg's turn in place is a live verb
+        self.narrator = {"x": 480.0, "z": 127.0, "r": 32.0, "talk_r": 96.0, "solid": True}
+        self.blockers = {_HUB: [self.narrator]}
+        self.spawn = (404.0, 127.0)
+        self.journey = {"header": "Kupo! Which piece of the story, kupo?", "options": [_DALI_ROW, _STAY_ROW],
+                        "default": 0}
+        self.lands, self.stay_lands, self.stay_after = _ENTRY, None, 0
+        self.stay_control, self.stay_throws = True, False
+        self.arrivals = {_ENTRY: (list(_NIGHT), _WAKE)}
+        self.beat = 2600
+        self.silent = self.deaf = self.hang = False
+        self.talks = 0
+        self.woken = False
+        self._then = None
+        self.objects_back_at: int | None = None            # a null objects window: listed again from this frame
+        self._stay_pending: tuple | None = None            # (wait requests left, dest) of a late stay-row warp
+
+    def _step_world(self) -> None:
+        if self.objects_back_at is not None and self.frame >= self.objects_back_at:
+            self.objects_mode, self.objects_back_at = "listed", None
+        super()._step_world()
+
+    def _execute(self, step: list[str]) -> None:
+        if self.hang and step[0].lower() == "press" and self._beat_phase == "ready":
+            self.block_until = 1 << 40                     # stalled at the pick's Confirm: never lands, never acks
+            return
+        if step[0].lower() == "wait" and self._stay_pending is not None:
+            n, dest = self._stay_pending                   # the late stay-row warp: on its n-th wait request
+            self._stay_pending = (n - 1, dest) if n > 1 else None
+            if n <= 1:
+                self._land(dest)
+        super()._execute(step)
+        if step[0].lower() == "warp":
+            if len(step) > 3 and int(step[3]) >= 0:
+                self.scenario = int(step[3])
+            if self.field_id == _HUB:
+                self.player = [float(self.spawn[0]), 0.0, float(self.spawn[1])]
+                self._face_deg = 0.0                       # the hub's TurnInstant(0): south
+            self._arrive()
+
+    def _arrive(self) -> None:
+        got = self.arrivals.get(self.field_id)
+        if got is not None:
+            pages, wake = got
+            self._then = lambda: self._wake(wake)
+            self.scene(*pages)
+
+    def _land(self, fid: int) -> None:
+        self.field_id, self.player, self.control = fid, [0.0, 0.0, 0.0], True
+        self._visit += 1
+        self._in_trigger.clear()
+        self._arrive()
+
+    def _wake(self, fid: int) -> None:
+        self._land(fid)
+        self.scenario = self.beat
+        self.woken = True
+
+    def _talkable(self) -> bool:
+        n = self.narrator
+        dx, dz = n["x"] - self.player[0], n["z"] - self.player[2]
+        return (self.field_id == _HUB and self.control and self.ui_state == "FieldHUD" and not self._beats
+                and math.hypot(dx, dz) < n["talk_r"] and dx * self._facing[0] + dz * self._facing[1] > 0)
+
+    def _menu_step(self, button: str) -> None:
+        if button in ("confirm", "ok") and self._talkable():
+            self.talks += 1
+            if not self.silent:
+                self._then = self._picked
+                self.scene(dict(self.journey))
+            return
+        super()._menu_step(button)
+
+    def _scene_press(self, button: str) -> None:
+        if self.deaf and button in ("confirm", "ok") and not isinstance(self._beats[0], str):
+            return
+        super()._scene_press(button)
+
+    def _next_beat(self, stale: int = 0) -> None:
+        super()._next_beat(stale)
+        if not self._beats and self._then is not None:
+            then, self._then = self._then, None
+            then()
+
+    def _picked(self) -> None:
+        row = self.journey["options"][self.answered[-1]]
+        if row == _DALI_ROW:
+            self.scenario = 2600                            # the stamp (the words and the party are untraced here)
+        dest = self.lands if row == _DALI_ROW else self.stay_lands
+        if row != _DALI_ROW:
+            if self.stay_throws:
+                self.throw("NullReferenceException", ("EventEngine.DoEventCode ()", "EventEngine.ProcessEvents ()",
+                                                      "HonoBehaviorSystem.Update ()"))
+            if not self.stay_control:
+                self.control = False
+            if dest is not None and self.stay_after:
+                self._stay_pending = (self.stay_after, dest)   # a warp that lands a few requests later
+                return
+        if dest is not None:
+            self._land(dest)
+
+
+class _MovePCHubFake(_HubFake):
+    """The hub at its BUILT sizes, Stiltzkin's body met the way MovePC meets it. The built hub gives him
+    SetObjectLogicalSize(14, 14, 22) and the moogle (20, 24, 40): his collision r = 4*(14 + 24) = 152 (WalkMesh.
+    Collision, HarnessAgent's ``r``), his talk ring 4*(22 + 40) + his speed + 60 (320 here), and a push-out lands at
+    ``safe`` = the moogle's radius 4*20 + 4*14 = 136 -- INSIDE r. The spawn (404, 127) stands 76u from him, inside
+    his body. MovePC (FieldMapActorController.cs:744-793 at stock 6b8bb2d5): the yaw turns first (the fake's
+    ``_turn``), then a step that ends within r of him, his bearing within +-90 degrees of that yaw, is pushed out to
+    ``safe`` along the line from his centre -- and, colliding again there, undone whole, move and all; any other
+    step stands. So from the spawn every press whose turn swings the yaw through east (at him) does not move him at
+    all -- up, down and right from TurnInstant(0) -- and only a press AWAY from him does."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.narrator.update(r=152.0, talk_r=320.0, safe=136.0)
+        self.met: list[str] = []                           # each step that ended within r: "undone" or "pushed"
+
+    def _move_to(self, x: float, z: float, calls: float = 1.0) -> bool:
+        n = self.narrator
+        if self.field_id != _HUB:
+            return super()._move_to(x, z, calls)
+        from ff9mapkit.content import doorface
+        ox, oz = self.player[0], self.player[2]
+        d = math.hypot(x - n["x"], z - n["z"])
+        if d < n["r"]:
+            off = (self._face_deg - doorface.yaw_of(n["x"] - ox, n["z"] - oz) + 180.0) % 360.0 - 180.0
+            if -90.0 <= off <= 90.0:                       # CollisionAngle within +-90: the push-out runs
+                px, pz = n["x"] + (x - n["x"]) / d * n["safe"], n["z"] + (z - n["z"]) / d * n["safe"]
+                if math.hypot(px - n["x"], pz - n["z"]) < n["r"]:
+                    self.met.append("undone")
+                    x, z = ox, oz                          # collides again at safeDist: both moves undone
+                else:
+                    self.met.append("pushed")
+                    x, z = px, pz
+        bodies, self.blockers = self.blockers, {}          # the floor and the walls as the fake keeps them
+        try:
+            return super()._move_to(x, z, calls)
+        finally:
+            self.blockers = bodies
+
+
+def _rung5():
+    """studies/story-trace/rung5_hub.py and dali_tour, loaded as the Tour.replay tests load dali_tour."""
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import dali_tour
+    import rung5_hub
+    return rung5_hub, dali_tour
+
+
+def _hub_world(game, cls=None):
+    """``(fake, rung5_hub, dali_tour, pred)``: the hub on the fake (``cls``, default :class:`_HubFake`, a 960 fps
+    loop), the modules, and the FROZEN predictions v3 the session reads; the hub and its entry member registered in the
+    fake install, as the deploy registers them (warp refuses an id no DictionaryPatch names)."""
+    with (game / "FF9CustomMap" / "DictionaryPatch.txt").open("a", encoding="utf-8") as fh:
+        fh.write(f"FieldScene {_HUB} 21 T5_HUB T5_HUB {_HUB}\nFieldScene {_ENTRY} 11 T5_DL_ENT T5_DL_ENT 359\n")
+    H, D = _rung5()
+    pred, _sha = H.load_predictions()
+    return (cls or _HubFake)(game, fps=960), H, D, pred
+
+
+def _spy(g, calls: list) -> None:
+    """Record every ``send`` and ``wait_for`` the session makes, in order: ``(verb, first arg, timeout, what)``."""
+    for name in ("send", "wait_for"):
+        real = getattr(g, name)
+
+        def spy(*a, _real=real, _name=name, **kw):
+            calls.append((_name, a[0] if a else None, kw.get("timeout"), kw.get("what")))
+            return _real(*a, **kw)
+        setattr(g, name, spy)
+
+
+def _confirms_after_ready(fake) -> int:
+    """The Confirm presses the fake executed after its first choice window became READY."""
+    return sum(1 for s in fake.executed[fake.readied[0]:] if s[:2] == ["press", "confirm"])
+
+
+def _after_entry(log: list) -> list:
+    """A segment's own records -- everything after the entry -- with each field as its PLACE (a member as its donor)."""
+    out = []
+    for x in log:
+        if x["k"] == "hub":
+            continue
+        y = dict(x, field=_F5_PLACES.get(x["field"], x["field"]))
+        out.append(y)
+    return out
+
+
+def test_segment_with_no_enter_is_rung_3s_raw_warp_and_its_wait(game):
+    """rung 3's path, unchanged: the FIRST things segment() does are ``warp <start> 0 <sc>`` sent RAW (warp() waits for
+    the control this segment never gives) and the 60 s wait for the start field -- then the game's own segment, its
+    scene sat through, control back at the beat in ``until`` after the wake. Break: drop the raw warp, or its wait, or
+    send it through warp() (which waits for control the night never gives)."""
+    fake, _H, D, _pred = _hub_world(game)
+    fake.arrivals = {359: (list(_NIGHT), 352)}
+    calls, log = [], []
+    with session(game, fake) as g:
+        boot(g)
+        _spy(g, calls)
+        seg = D.segment(g, log, start=359, sc=2540, beat=2600, until=352, timeout=30, woke=lambda: fake.woken)
+    assert calls[0] == ("send", "warp 359 0 2540", None, None), calls[:2]
+    assert calls[1][0] == "wait_for" and calls[1][2:] == (60, "field 359 to load"), calls[:2]
+    assert [c for c in calls if c[0] == "send" and str(c[1]).startswith("warp")] == [calls[0]]
+    assert seg == {"k": "segment", "field": 352, "place": 352, "sc": 2600, "control": True, "woke": True, "ok": True,
+                   "at_beat": True}, seg
+    assert _after_entry(log) == [{"k": "scene", "why": "segment", "field": 352, "sc": 2600, "pages": 2, "choices": []},
+                                 seg], log
+    assert fake.talks == 0 and not fake.answered
+
+
+def test_segment_with_enter_replaces_the_raw_warp_and_plays_the_rest_the_same(game):
+    """F5's path: ``enter`` (the hub leg) is segment()'s first act and REPLACES the raw warp and its wait -- nothing
+    is sent or waited on before it, no ``warp 31111`` is ever sent, and the only warp is the leg's own into the hub
+    -- and the rest is rung 3's loop: the same scene record and the same segment record, place for place, as the raw
+    warp's (test_segment_with_no_enter_is_rung_3s_raw_warp_and_its_wait). Break: ignore ``enter`` (the raw warp
+    lands in 31111 without the hub), or call it and warp as well."""
+    fake, H, D, pred = _hub_world(game)
+    calls, log, entered = [], [], []
+
+    def enter():
+        entered.append(len(calls))
+        H.hub_leg(g, log, pred)
+
+    with session(game, fake) as g:
+        boot(g)
+        _spy(g, calls)
+        seg = D.segment(g, log, start=_ENTRY, sc=2540, beat=2600, place=lambda f: _F5_PLACES.get(f, f), until=352,
+                        timeout=30, woke=lambda: fake.woken, enter=enter)
+    assert entered == [0], "enter() was not segment()'s first act"
+    warps = [c[1] for c in calls if c[0] == "send" and str(c[1]).startswith("warp")]
+    assert warps == [f"warp {_HUB} 0 2540"], warps
+    assert not any(c[3] == f"field {_ENTRY} to load" for c in calls), "the raw warp's wait ran as well"
+    assert [x["k"] for x in log] == ["hub", "scene", "segment"], log
+    assert seg == {"k": "segment", "field": _WAKE, "place": 352, "sc": 2600, "control": True, "woke": True, "ok": True,
+                   "at_beat": True}, seg
+    assert _after_entry(log) == [{"k": "scene", "why": "segment", "field": 352, "sc": 2600, "pages": 2, "choices": []},
+                                 dict(seg, field=352)], log
+    assert fake.answered == [0] and fake.talks >= 1
+
+
+def test_hub_leg_walks_up_to_a_solid_stiltzkin_and_picks_the_dali_row(game):
+    """The leg on a custom id: no key prior from the install (31100 has no install script) and no stock walkmesh
+    (route_to would raise there), so calibrate_axes on the hub's own frozen twist (rung5_hub.hub_prior) and a walk_to
+    that tolerates his body; Stiltzkin read off the published objects; the approach ``d = max(r + margin, min(talk_r
+    - margin, r + reach))`` west of him; turned IN PLACE to face him and Confirm -- the FIRST Confirm opens the talk,
+    though walk_to's last burst here can be an overshoot correction WEST, away from him ("hold right 13", then "hold
+    left 1"); the frozen menu, its cursor on the default; the Dali row picked with ONE Confirm; the wait for 31111.
+    The record -- the design's hub record -- is logged and returned. Break: turn only after a silent try (the first
+    Confirm, facing away, opens nothing: tries 2)."""
+    fake, H, _D, pred = _hub_world(game)
+    a = pred["hub"]["approach"]
+    n = fake.narrator
+    d = max(n["r"] + a["margin"], min(n["talk_r"] - a["margin"], n["r"] + a["reach"]))
+    log = []
+    with session(game, fake) as g:
+        boot(g)
+        assert g.key_prior(_HUB) is None, "premise: a custom id has no key prior of its own"
+        with pytest.raises(HarnessError):
+            g._stock_walkmesh(_HUB)                        # premise: route_to has no floor to route the hub on
+        t0 = time.time()
+        rec = H.hub_leg(g, log, pred)
+        took = time.time() - t0
+        st = g.state
+    assert st.field_id == _ENTRY and st.scenario == 2600, (st.field_id, st.scenario)
+    assert log == [rec] and rec["k"] == "hub", log
+    assert rec["options"] == pred["hub"]["options"] and rec["cursor"] == 0 and rec["picked"] == _DALI_ROW, rec
+    assert (rec["presses"], rec["r"], rec["talk_r"]) == (1, n["r"], n["talk_r"]), rec
+    assert rec["approach"] == [round(n["x"] - d), round(n["z"]), round(d, 1)], rec
+    assert (rec["tries"], rec["turns"], rec["nudges"]) == (1, 1, 0), rec
+    assert rec["t"] <= pred["budget"]["hub_s"] and took < 60, (rec, took)
+    assert fake.answered == [0] and fake.talks == 1, (fake.answered, fake.talks)
+    assert _confirms_after_ready(fake) == 1
+
+
+def test_hub_leg_a_confirm_the_prompt_eats_gets_one_more_press_and_the_record_says_so(game):
+    """A prompt still typing takes the first Confirm as "finish the text" (the _pick rule): the menu is still open and
+    taking answers 20 frames later, so the leg presses ONE more -- never a second one blind -- and the record logs
+    presses 2. The Dali row is answered once. Break: press once, or press twice without looking."""
+    fake, H, _D, pred = _hub_world(game)
+    fake.journey["typing"] = 10 ** 6
+    log = []
+    with session(game, fake) as g:
+        boot(g)
+        rec = H.hub_leg(g, log, pred)
+    assert rec["presses"] == 2 and log[-1]["presses"] == 2, log
+    assert fake.answered == [0] and _confirms_after_ready(fake) == 2, (fake.answered, fake.executed[-12:])
+
+
+def test_hub_leg_picks_the_row_by_its_label_not_by_its_place(game):
+    """hub_pick names the row: option_index(label) -> select -> Confirm. With the rows the other way round the cursor
+    starts on the stay row and the Dali row is answered at index 1 -- a Confirm on the default would have stayed."""
+    fake, H, _D, pred = _hub_world(game)
+    fake.journey.update(options=[_STAY_ROW, _DALI_ROW], default=0)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(_HUB)
+        fake._then = fake._picked
+        fake.scene(dict(fake.journey))
+        published(g, lambda s: g._choice_ready(s))
+        presses = H.hub_pick(g, pred, _DALI_ROW, time.time() + 30)
+        st = g.wait_for(lambda s: s.field_id == _ENTRY, timeout=10, what="the pick's Field()")
+    assert presses == 1 and fake.answered == [1] and st.scenario == 2600, (presses, fake.answered)
+
+
+def test_hub_leg_from_a_spawn_inside_his_body_calibrates_on_the_hubs_twist(game):
+    """The hub at its BUILT sizes (:class:`_MovePCHubFake`: r 152, the spawn 76u from him, MovePC undoing whole any
+    step that faces him). A BLIND calibrate_axes there refuses the v axis -- up and down both swing his yaw through
+    east, at him, and move him nothing -- which would stop P-HUBLEG, and the session, before run 1. The leg calibrates
+    on the hub's frozen twist instead (rung5_hub.hub_prior): the left probe, away from him, agrees with the prior and
+    the other axis is derived; then the approach 176u west of him (304, 127), the talk on the first Confirm, the
+    pick, 31111. A SECOND leg in the same launch reuses the cached basis: from the spawn inside his body the walk
+    heads west, away from him, and no step is undone. Break: calibrate blind."""
+    fake, H, D, pred = _hub_world(game, _MovePCHubFake)
+    log, segs, marks = [], [], []
+
+    def run_in():
+        """One F5 run's way in: segment() with the hub leg as its enter, the arrival scene sat through to the wake."""
+        fake.woken = False
+        marks.append(len(fake.met))
+        segs.append(D.segment(g, log, start=_ENTRY, sc=2540, beat=2600, place=lambda f: _F5_PLACES.get(f, f),
+                              until=352, timeout=30, woke=lambda: fake.woken, enter=lambda: H.hub_leg(g, log, pred)))
+
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(_HUB, entrance=0, scenario=2540)
+        with pytest.raises(HarnessError, match="neither up nor down moved"):
+            g.calibrate_axes()                             # premise: blind, from the spawn, it cannot calibrate
+        assert fake.met and set(fake.met) == {"undone"}, fake.met
+        assert _HUB not in g._axes
+        run_in()
+        run_in()                                           # the basis cached: no calibration this time
+    legs = [x for x in log if x["k"] == "hub"]
+    assert len(legs) == 2 and all(s["ok"] for s in segs), (legs, segs)
+    for rec in legs:
+        assert rec["approach"] == [304, 127, 176.0] and (rec["tries"], rec["nudges"]) == (1, 0), rec
+        assert rec["presses"] == 1 and rec["picked"] == _DALI_ROW and "error" not in rec, rec
+    assert "undone" in fake.met[marks[0]:marks[1]], "premise: the first leg's calibration met his body"
+    assert "undone" not in fake.met[marks[1]:], fake.met[marks[1]:]
+    assert fake.answered == [0, 0], fake.answered
+
+
+def test_hub_leg_a_walk_his_body_stops_dead_still_reaches_the_talk(game):
+    """walk_to toward a point his body lies across (a spawn the far side of him, the approach point west of him: the
+    press runs straight at him and the body stops it dead) returns short instead of raising -- strict False -- and
+    the leg turns him to face Stiltzkin and talks from where the body held him, inside the ring. The record says
+    ``walked`` False. Break: walk_to's defaults (strict True: 'could not reach')."""
+    fake, H, _D, pred = _hub_world(game)
+    fake.spawn = (560.0, 127.0)
+    n = fake.narrator
+    log = []
+    with session(game, fake) as g:
+        boot(g)
+        rec = H.hub_leg(g, log, pred)
+        st = g.state
+    assert rec["walked"] is False and abs(rec["at"][0] - (n["x"] + n["r"])) <= 2, rec
+    assert (rec["tries"], rec["presses"]) == (1, 1) and st.field_id == _ENTRY, (rec, st.field_id)
+
+
+def test_hub_leg_reads_stiltzkin_over_a_null_objects_sample(game):
+    """The agent nulls the whole objects list on ANY failure of its walk (null = "could not say THIS sample"): a
+    null list right after the calibration is waited out (a few seconds of samples), never read once and taken as
+    "the engine published no objects". Break: read g.state.objects once."""
+    fake, H, _D, pred = _hub_world(game)
+    real = None
+    log = []
+
+    def calibrate_then_null(**kw):
+        basis = real(**kw)
+        fake.objects_mode, fake.objects_back_at = "null", fake.frame + 300
+        published(g, lambda s: s.objects is None)
+        return basis
+
+    with session(game, fake) as g:
+        boot(g)
+        real = g.calibrate_axes
+        g.calibrate_axes = calibrate_then_null
+        rec = H.hub_leg(g, log, pred)
+    assert rec["narrator"] == [480, 127] and g.state is not None and fake.answered == [0], rec
+
+
+def test_hub_leg_the_landing_runs_on_its_own_clock_never_the_legs(game, monkeypatch):
+    """TWO CLOCKS: hub_s up to the pick's Confirm, the landing's own (budget.entry_s) from it on. (1) The wait for
+    31111 takes entry_s whole -- never the leg's time left, which would let a slow leg cut short the one wait that
+    tells a fork's stall from a slow drive. (2) The leg's clock is never READ after the Confirm: with its budget
+    spent the moment the pick's press is sent (every later read of it raising "hub leg: budget"), the leg still
+    lands -- a budget stop after the stamps would file a fork's stall as DRIVE. Break: the landing wait on the time
+    left; the polls or the wait reading the leg's clock."""
+    fake, H, _D, pred = _hub_world(game)
+    calls, log = [], []
+    confirmed = {"at": None}
+    real_left = H._left
+
+    def left(end):
+        if confirmed["at"] is not None:
+            raise HarnessError("hub leg: budget -- (the test) spent the moment the pick's Confirm was sent")
+        return real_left(end)
+
+    monkeypatch.setattr(H, "_left", left)
+    with session(game, fake) as g:
+        boot(g)
+        _spy(g, calls)
+        real_send = g.send
+
+        def send(*steps, **kw):
+            if steps[:1] == ("press confirm 4",) and g.state.choice is not None and g._choice_ready(g.state):
+                confirmed["at"] = len(calls)                # the pick's own press (interact's has no menu open)
+            return real_send(*steps, **kw)
+        g.send = send
+        rec = H.hub_leg(g, log, pred, budget_s=600.0, entry_s=7.0)
+        st = g.state
+    assert confirmed["at"] is not None and st.field_id == _ENTRY and rec["presses"] == 1, (confirmed, st.field_id)
+    at = next(i for i, c in enumerate(calls) if c[0] == "wait_for" and c[3] == f"the pick to land in {_ENTRY}")
+    assert calls[at][2] == 7.0, calls[at]
+    polls = calls[confirmed["at"]:at]                      # the press and its polls: every one on the landing clock
+    assert polls and all(c[0] == "send" and c[2] is not None and c[2] <= 7.0 for c in polls), polls
+
+
+def test_hub_leg_a_drive_bug_is_logged_and_re_raised_unchanged(game):
+    """An error that is not a HarnessError -- a bug in the drive -- is logged with the leg's record as far as it
+    got (its type in ``error``) and re-raised AS IT IS, the same object: the run's own handler names it (STOPPED
+    (unexpected): DRIVE). Break: swallow it, wrap it, or log only a HarnessError."""
+    fake, H, _D, pred = _hub_world(game)
+    boom = KeyError("the drive's own bug")
+    log = []
+    with session(game, fake) as g:
+        boot(g)
+
+        def options(**_kw):
+            raise boom
+        g.options = options
+        with pytest.raises(KeyError) as err:
+            H.hub_leg(g, log, pred)
+    assert err.value is boom
+    assert [x["k"] for x in log] == ["hub"] and log[0]["error"].startswith("KeyError: "), log
+    assert log[0]["r"] == fake.narrator["r"] and "t" in log[0], log
+
+
+@pytest.mark.parametrize("stay", ["stays", "warps", "warps late", "no control", "throws"])
+def test_hub_leg_p_hubleg_takes_the_stay_row_and_it_must_stay(game, monkeypatch, stay):
+    """P-HUBLEG, untraced, before run 1: New Game, the leg up to the menu, the STAY row picked by its label (the
+    cursor moved off the default) -- which must leave him in the hub with control, no menu and no field change for 60
+    frames, watched, not glanced at once -- no THROWS exception through the event engine since the leg's hub warp,
+    and the title restored. Each FAILs it: a stay row that warps at once, one that warps a few requests later (seen
+    by the watch's third look; a single look sees it stay), one that leaves control withheld, a NullReferenceException
+    with an EventEngine frame. Break: drop the watch, the control clause or the exception clause."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, H, _D, pred = _hub_world(game)
+    if stay in ("warps", "warps late"):
+        fake.stay_lands, fake.stay_after = _WAKE, (4 if stay == "warps late" else 0)    # late: on the 4th wait
+    fake.stay_control = stay != "no control"
+    fake.stay_throws = stay == "throws"
+    with session(game, fake) as g:
+        ok, detail, rec = H.p_hubleg(g, pred)
+        st = g.state
+    assert fake.answered == [1] and rec["presses"] == 1 and rec["options"] == pred["hub"]["options"], (fake.answered,
+                                                                                                         rec)
+    assert rec["picked"] == _STAY_ROW and rec["k"] == "hub", rec
+    assert st.ui_state == "Title", "the title was not restored"
+    want = {"stays": None, "warps": f"the stay row warped to {_WAKE}", "warps late": f"the stay row warped to {_WAKE}",
+            "no control": "the stay row left control False", "throws": "thrown: [('NullReferenceException'"}[stay]
+    if want is None:
+        assert ok and "stay row stayed" in detail, detail
+    else:
+        assert not ok and want in detail, detail
+
+
+@pytest.mark.parametrize("fault", ["no talk ring", "silent", "options", "cursor", "deaf", "never lands"])
+def test_hub_leg_every_failure_raises_harness_error_and_is_logged(game, fault):
+    """Each way the leg cannot reach its start field raises HarnessError -- the run then stops in phase "hub", read by
+    its trace -- with the leg's record logged, the error in it: Stiltzkin's talk ring not outside his body; no
+    dialogue after the frozen tries (each after a turn to face him, a walked tick between them); a menu whose rows are
+    not the frozen ones; its cursor not on the frozen default; a menu that takes neither Confirm (two presses, no
+    third); the pick taken and 31111 never reached (the landing's own wait, entry_s, timing out LIVE -- the text
+    FORK-STOP "hub" is read by)."""
+    fake, H, _D, pred = _hub_world(game)
+    budget = entry = None
+    if fault == "silent":
+        fake.silent = True
+        want = "no dialogue after 3 tries"
+    elif fault == "no talk ring":
+        fake.narrator["talk_r"] = fake.narrator["r"] + pred["hub"]["approach"]["margin"]
+        want = "no talk ring outside the body"
+    elif fault == "options":
+        fake.journey["options"] = [_DALI_ROW, "Treno (SC 3000)", _STAY_ROW]
+        want = "the menu offers"
+    elif fault == "cursor":
+        fake.journey["default"] = 1
+        want = "cursor rests on 1"
+    elif fault == "deaf":
+        fake.deaf = True
+        want = "never took its Confirm"
+    else:
+        fake.lands = None
+        budget, entry = 12.0, 3.0
+        want = f"timed out after 3s waiting for the pick to land in {_ENTRY} over"
+    log = []
+    with session(game, fake) as g:
+        boot(g)
+        with pytest.raises(HarnessError, match=re.escape(want)):
+            H.hub_leg(g, log, pred, budget_s=budget, entry_s=entry)
+        st = g.state
+    if fault == "never lands":
+        assert re.search(pred["coverage"]["fork_stop"]["hub"]["stop"], log[0]["error"]), log[0]["error"]
+    assert st.field_id == _HUB, st.field_id
+    assert [x["k"] for x in log] == ["hub"] and want in log[0]["error"], log
+    if fault == "silent":
+        assert (log[0]["tries"], log[0]["turns"], log[0]["nudges"], fake.talks) == (3, 3, 2, 3), log
+    if fault == "deaf":
+        assert _confirms_after_ready(fake) == 2 and not fake.answered, fake.executed[-12:]
+
+
+@pytest.mark.parametrize("stall", ["silent", "hang"])
+def test_hub_leg_a_stalled_step_stops_the_leg_within_its_clocks(game, stall):
+    """Two clocks, both enforced. Up to the pick's Confirm ONE deadline (hub_s): every call gets min(its default, the
+    time left) and a check between calls raises "hub leg: budget" -- Stiltzkin silent: each Confirm's wait for a
+    dialogue is cut to the time left, and the next call is refused, within the budget. From the Confirm on the
+    landing's own clock (entry_s) -- the game stalled at the pick's Confirm (it takes no more requests): the press's
+    wait for its ack is entry_s, not the budget's remainder, and the leg raises within it. Neither a default timeout
+    later."""
+    fake, H, _D, pred = _hub_world(game)
+    fake.silent = stall == "silent"
+    fake.hang = stall == "hang"
+    budget, entry = 12.0, 3.0
+    log = []
+    with session(game, fake) as g:
+        boot(g)
+        t0 = time.time()
+        with pytest.raises(HarnessError) as err:
+            H.hub_leg(g, log, pred, budget_s=budget, entry_s=entry)
+        took = time.time() - t0
+        fake.block_until = fake.frame                      # let the teardown's quit land
+    assert took < budget + 2.0, (took, str(err.value))
+    if stall == "silent":
+        assert "hub leg: budget" in str(err.value) and fake.talks >= 1 and not fake.answered, (str(err.value),
+                                                                                                fake.talks)
+    else:
+        assert "not acknowledged within 3s" in str(err.value) and not fake.answered, str(err.value)
+    assert log and log[-1]["k"] == "hub" and log[-1]["error"], log
+
+
 def test_key_twist_operand_follows_memoria_ini(game):
     """Keys read TWIST arg2 (twist.y) unless [AnalogControl] makes key orientation absolute (1 or 2)."""
     fake = FakeGame(game)

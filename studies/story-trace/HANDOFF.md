@@ -21,6 +21,9 @@ Rewritten at the end of the facing-gate session, and updated after rung 4 and se
   NOT in the shipped engine bundle yet. s90 is proven in the game (`story-facing-check` 8/8, 2026-09-27).
 - **Deployed in `FF9CustomMap`:** 23 fork ids -- 30830 (rung 2's verbatim 552) and the rung-3 chains 30831-30841
   (F0) / 30842-30852 (F4), `studies/story-trace/rung3_forks.json`. Every session's pre-flight re-verifies them.
+  **Also F5's 13 ids** since 2026-09-28 15:27: the hub 31100 and the members 31101-31112 (`rung5_forks.json`:
+  stamps, the f5pre backups, verified; `--preflight` 7/7 PASS). Revert only through the per-id scripts, 31100 first
+  and then 31112 down to 31101. The generic `revert_deploy.py` now names 31100.
 
 ## Open work, in order
 
@@ -36,7 +39,20 @@ Rewritten at the end of the facing-gate session, and updated after rung 4 and se
    --member ...]` shows the traced set difference cut to one field (`docs/FORK_REPORT.md`). On session 3's traces
    the per-field shares partition the whole comparison exactly. A five-agent review's 16 defects are fixed,
    three of them in the reader under every report.
-4. **Later:**
+4. **DONE: F5, the hub lane under the trace** (owner's go, 2026-09-28): `story-rung5` **28/28**, no re-runs
+   (PLAN.md's F5 section). The hub pick led into 12 pure verbatim members, which wrote what stock Dali writes, key
+   for key, on paired walks: MIRROR empty, 450 a member with no seam, the three frozen stamps exactly. P-HUBLEG
+   passed on its first in-game run (r 152 / talk_r 338 as read off the bytes; the twist-prior calibration).
+   `fork-report --trace` agrees field by field. Archived at
+   `C:\gd\Dream-World-IX\.harness-runs\20260928-153015-story-rung5\`. **Not tested at this entry:** the seed's
+   beat-instant values, which 359 and the segment re-create. The offline-predicted seed defects past the wake (ATE
+   latches 2078/2086, all four party members) wait for an F5b; that needs its own frozen predictions and a
+   seed-resolver fix first.
+   - F5's 13 ids stay deployed until the owner decides. The revert order is in `rung5_forks.json`: per-id scripts
+     only, 31100 first and then 31112 down to 31101, with the JournalPatch sha compared first.
+5. **Rung 3's dry-run is 79/80 on master too** (not F5's): session 2's archived reports predate `356ac508`'s seam
+   listing. Re-baseline, or compare that line modulo the seam list (owner's call).
+6. **Later:**
    - s88/s89/s90 go into the next engine-bundle re-cut. That is a release: outward-facing, confirm first.
    - Keep or revert the 23 fork ids (owner's call). **Do not run their reverts blind -- read
      [REVERTING THE FORKS](#reverting-the-forks-six-reverts-were-half-reverts) first.** Six of them were armed with
@@ -138,9 +154,10 @@ Range at SC 2600 then scene-gated region 25, 32; 5 are the 353 door step's ~34u 
   after): the clock measured 30.2 / 29.8 fps, check 8/8, tour 7/7, holds reversing 5.3% (the old code at ~31 fps:
   24.0% and 31.6%), no waits, no cleared stalls, never boxed. The fix is proven in both regimes. **Correction
   (session 4, 2026-09-28):** the rate is NOT fixed per launch. It flipped 59.0 -> 31.4 -> 59.7 -> 31.8 fps inside
-  one launch. The tick clock caught each flip and re-planned, and the session passed 18/18 across them. A possible
-  cause is VSync halving to 30 when frames miss 16.7 ms (both ~31 stretches overlapped heavy test runs beside the
-  game). That is unverified.
+  one launch. The tick clock caught each flip and re-planned, and the session passed 18/18 across them. CPU load is
+  NOT the cause: `studies/test-harness/render_rate_probe.py` held a flat 60.0 fps with all 12 logical CPUs busy
+  (`.harness-runs\20260928-092358-render-rate-probe`). The open lead, unverified: both drops came a crossing or two
+  after a failed bounce into 353 (Mayor's House), and the rate came back after the return to the title.
   (2) The walk's finish still targets the kit's quad: a walk can end in a 5-point region's dead middle, which the step reads LIVE (no Dali gated door has a
   standable dead middle; 8 stock gated rows elsewhere do). (3) On a pre-s90 engine, 350's door to 353 is still
   refused from the tour's goal pocket by the wall-slide bound (LIVE; the in-place turn faces it). (4) Not modelled:
@@ -173,6 +190,13 @@ Range at SC 2600 then scene-gated region 25, 32; 5 are the 353 door step's ~34u 
     `wf_55559065-206` predictions v2 / the replay, `wf_e30deb95-606` the 116-miss diagnosis + the door-pin fix,
     `wf_b4d457ce-760` the facing fix (stopped, empty); earlier ids are rung 0-3 builds and reviews -- the
     `results.md` headers say which.
+  - `story-trace-archive\f5\` -- F5 (`README.txt` maps it):
+    - the settled design (`design\design.md`, `checks.json`, `build_steps.txt`, `owner_decisions.txt`; may quote
+      `.eb` disassembly, never commit);
+    - `cont\fix\freeze_fix.py`, the generator of the committed predictions v3;
+    - the gate outputs and mutant harnesses;
+    - the design, build and resume workflows (`wf_4574eab4-845`, `wf_134bf773-81f`, the latter killed mid-build,
+      and `wf_b80d9ff6-de6`).
   - `story-trace-archive\facing-session\` -- the facing-gate session (2026-09-26/27): `workflows\` (the understand
     `wf_0c8b27cc-198`, the build + five-lens review `wf_0a36f57d-e49`, engine patch s90 `wf_5c7015d9-2df`, the s90
     driver `wf_75e5a330-185`: scripts, journals, readable results) and `scratchpad\` (the census data -- game bytes
