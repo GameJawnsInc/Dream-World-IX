@@ -198,6 +198,9 @@ Extraction of *which* flags a real prior field sets is now **surfaced** by `fork
 (`scan_story_writes`): run it on a *predecessor* field to read the meaningful `gEventGlobal` writes (once-events /
 worldmap unlocks, noise-filtered + region-labeled) a downstream fork should seed via `[startup]`. The author still
 *asserts* the beat — their game knowledge outranks the raw list — but the candidates are now discoverable offline.
+With a recorded walk, `fork-report <field> --trace` (story-trace rung 4, [FORK_REPORT](FORK_REPORT.md)) replaces
+the candidate list with what the field's scripts actually wrote, and with `--fork-trace` it names each write a
+fork misses, adds, pre-empts or clobbers in that field.
 
 ## The carry decision — bring-in vs drop vs impossible (fork-mode taxonomy)
 

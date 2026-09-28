@@ -91,6 +91,62 @@ of 55 render-only NPCs across 36 fields, 0 are blocked only by a graftable gestu
 field's own logic). Read the quest, decide per-field. Needs the install for the dialogue text (degrades to
 `<line N>` placeholders without it); the structure is `.eb`-only.
 
+## `--trace` — what the field's scripts actually wrote
+
+The **Story writes** line is static: the flags the field's script *can* set. `--trace` adds what a real walk *did*
+write, read from the **story-write trace**: one row per `gEventGlobal` store, joined to the instruction that made
+it (`ff9mapkit story-trace`, [studies/story-trace/PLAN.md](../../studies/story-trace/PLAN.md)). Traces come from an
+engine with memoria-patch **s88** (the dev engine; not yet in a shipped engine bundle), recorded by the in-game test
+harness between `storytrace 1` and `storytrace 0`. Each harness run dir holds its `story.jsonl`.
+
+```
+ff9mapkit fork-report 351 --trace S1 S2 S3                                   # the stock walk alone
+ff9mapkit fork-report 351 --trace S1 S2 S3 --fork-trace F1 F2 F3 --member 30842=351,30843=312,...
+```
+
+- **The stock walk alone** (`--trace`): every story write the stock runs made **in this field**, each with the
+  instruction it joined to and in how many runs (`3/3`), first written first. The static candidates are split
+  three ways:
+  - Those this field's own script wrote on these walks, each with the value it left and in how many runs
+    (`2102 := 0` is a clear, not the set the static line might suggest).
+  - Those the walks never ran. That is no evidence either way: the walk never triggered them.
+  - The traced writes no candidate lists: byte/word stores, the side-state latches the static axis drops,
+    stores its pattern misses, and a C#, battle or world writer while in this field.
+- **Against a fork** (`--fork-trace`): the **set difference cut to this field**. It lists the keys whose donor is
+  this field:
+  - **STOCK ONLY:** no fork run made that store here. When the fork wrote the same value elsewhere in the field
+    (its prepend, or a function that no longer aligns), the line says where.
+  - **FORK ONLY:** a negative offset is the kit's own `[startup]` prepend. A seed store that clobbered a
+    neighbour byte in the member it ran in first is flagged in every member's share.
+  - **UNSTABLE**, the **seams** out of this field's member or through the real field, **REACHED ONLY ACROSS A
+    SEAM**, **NEIGHBOUR-BYTE CLOBBERS**, **PRE-EMPTED** seed values, and the join failures.
+
+  The whole comparison's totals follow, with its join failures and member donor mismatches, so a clean field in
+  a broken chain never reads as a clean chain. Print the whole comparison with
+  `ff9mapkit story-trace <stock runs> --fork <fork runs>` and the same options.
+- **Name a chain's members** (`--member FORK=DONOR,...`). A fork run that walks from its own fields into the
+  real game writes rows that look exactly like stock's. Without a member set they would match stock as if the
+  fork wrote them. The report says so when it sees a fork run do that with no `--member`.
+- **A fork whose rows name no donor** (an engine with no ForkDonorPatch row) files its writes under its own id,
+  which no field's share holds. The report says so. Map it with `--donor FORK=DONOR`.
+- `--donor`, `--script`, `--fork-script`, `--fork-root` and `--lang` work as in `story-trace`, and the run
+  digests' notes print under the heading.
+- `--trace` and `--fork-trace` take every word after them, so give the field first
+  (`fork-report 351 --trace ...`). Both can be repeated.
+- These are refused: a trace option without `--trace`, `--trace` with `--explain`, a fork-side option
+  (`--member`, `--donor`, `--fork-script`) without `--fork-trace`, and a `--donor` that contradicts a `--member`.
+  With `--explain`, `--lang` picks the dialogue's language.
+
+On session 3 of the Dali retrodiction, `fork-report 351` against the round-4-seeded chain names the rung-3
+defects with no script reading. The lobby exit's `Bit[2064] := 1` is STOCK ONLY, because the seed stamped it
+first (PRE-EMPTED). The seed word `UInt16[296] = 192` is a NEIGHBOUR-BYTE CLOBBER of hub byte 297.
+`fork-report 450` against today's unseeded chain says 450 is **no member**, and that every stock write in it,
+the ping `Bit[2102] := 1` among them, the fork side made only in the real 450, across member(350)'s seam.
+
+Limits: the trace sees `gEventGlobal` only. ATE seen-state, the party, and the kit's persistent tables / fight
+ledger / roll streams are outside it. A key a run never reached is no evidence, and a cut run (no `off`) is
+flagged at the top.
+
 ## The workflow it fits
 
 1. `fork-report <field>` → pick a field whose verdict is **CLEAN static-roster** for a faithful fork (or accept

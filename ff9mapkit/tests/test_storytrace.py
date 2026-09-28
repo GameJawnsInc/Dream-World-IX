@@ -1587,3 +1587,20 @@ def test_fork_reports_traced_axis_names_450_on_the_real_rows(dali):
     assert "field 450 NO member of it)" in text.splitlines()[0]
     assert ("  450 e19 Walk-in trigger (tag 2) +59  Global.Bit[2102] = 1   SET({Global.Bit[2102] const(1) B_LET "
             "B_EXPR_END})   -- 450 reached only across a seam from member(350), fork 1/1") in text
+
+
+def test_the_fields_shares_partition_the_whole_comparison_on_the_real_rows(dali):
+    """Rung 4's own invariant on real rows: cut per field, every category of the whole comparison lands in
+    exactly one field's share, and the shares together are the whole -- no key lost, none counted twice."""
+    objs, src = dali
+    members = _members(DALI)
+    sd = S.digest("stock", S.parse_text(_text(*objs)), scripts=src)
+    fd = _chain_digest(src, members, "F0", _chain_run(objs, members, until=450))
+    c = S.compare([sd], [fd], members=members)
+    fields = sorted({k.donor for k in c.counts} | {k.donor for k in c.seam_counts})
+    assert 450 in fields and len(fields) >= 5
+    for cat in ("stock_only", "fork_only", "unstable", "matched", "across_seam", "seam_only", "clobbers"):
+        whole = list(getattr(c, cat))
+        parts = [x for f in fields for x in getattr(S.field_share(f, [sd], [fd], members=members), cat)]
+        assert sorted(map(repr, parts)) == sorted(map(repr, whole)), cat
+    assert sum(len(S.field_share(f, [sd], [fd], members=members).writes) for f in fields) == len(sd.keys)
