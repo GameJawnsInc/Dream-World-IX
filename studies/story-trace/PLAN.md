@@ -13,7 +13,8 @@ stock-side evidence from 355 (a walker at its door). **The walker now meets stoc
 a tour on it 7/7 with no facing miss. **Rung 4 ★ offline on session 3's real traces:** `fork-report <field> --trace`
 shows the traced set difference cut to one field (351: the pre-empted latches and the byte-297 clobber; 450: no
 member, every write reached only across the seam), and the per-field shares partition the whole comparison exactly.
-The ladder's rungs are all done. Session 4 (355 before 450, for R3-NULL-PRE's VOID) is under way.
+**Session 4 ★★★ 18/18** (`story-rung3d`): every stock run entered 355 before 450, and R3-NULL-PRE's VOID is a PASS
+(214 stock keys before 450, all written by the members). The ladder's rungs are all done.
 
 Board entry #3 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It is the narrative-state arc's missing
 instrument ([`../narrative-state/PLAN.md`](../narrative-state/PLAN.md)).
@@ -348,6 +349,28 @@ law of its own: **a fork-vs-stock diff is only as good as the walk is paired** -
 `SByte[296]` countdown carries the visit order, and a blind walker that behaves systematically differently on two
 sides (3 of 3 boxed vs 0 of 3) fabricates STOCK/FORK ONLY keys the pattern-level compare cannot tell from a fork
 difference. Replay the stock walk on the fork side; judge coverage, not outcome.
+
+### Rung 3, the retrodiction -- session 4 (`story-rung3d`, predictions v2): ★★★ 18/18, the VOID now a PASS
+
+Run on the fixed walker (door pin, the s90 closed-loop facing, the tick clock), same predictions v2 (sha d6dd541c,
+P-FROZEN), 5730 s, nine runs and no re-run: S 3 of 3 (each moved the story to 2610 in 354 by itself, pass 2,
+crossing 27), F0 3 of 3 (each replayed 24 of its partner's 24 steps, then 2610 in the real 354), F4 3 of 3 (passes
+exhausted, the story never moved). **Every stock run entered 355 before 450** (the tour order 350 353 350 355 350
+450), which is what session 3 lacked.
+- **R3-NULL-PRE PASS:** 214 stock keys before 450 in every covered stock run, and all 214 written by the members
+  in every covered F0 run: MISSING 0, PARTIAL 0. 95 of them were first written in the TOUR (want >= 60), by
+  donor {350: 29, 351: 12, 352: 3, 353: 10, 354: 15, **355: 12**, 356: 14}. `fork-report 355` on these traces:
+  12 of 12 matched, STOCK ONLY 0, FORK ONLY 0.
+- Every other check PASSed as in session 3: R3-PING (writers {450: 3}), R3-SEAM (member(350) [30833] -> 450 in
+  every F0 run), R3-MIRROR (0/0/0), R3-ADVANCE, R3-LATCH, R3-PREEMPT, R3-JOIN (0 failures), NC-THROW.
+- **The render rate flipped WITHIN the launch:** 59.0 fps at the start, 31.4 during run 3, 59.7 from run 4, then
+  31.8 during run 7. Each flip was measured by the driver's tick clock (`TickClock`, "was ..."), and the walk
+  planned on the new rate: 304 crossings, 10 gated doors faced by the closed loop (all measured), no facing
+  miss. So the rate is not fixed per launch. A possible cause: VSync halving to 30 fps whenever frames miss
+  16.7 ms. Both ~31 stretches overlap heavy test runs this session had beside the game. That is not verified.
+
+Archived at `C:\gd\Dream-World-IX\.harness-runs\20260928-011959-story-rung3d\` (traces, per-run logs, session record,
+the live log `rung3d_session.log`). **Rung 3 is closed: 18/18 on the registered predictions.**
 
 ### After rung 3: the walker meets stock's door facing gate (★★ in-game 8/8, and a tour on it 7/7)
 

@@ -1,19 +1,21 @@
-# Story-write trace -- handoff (2026-09-27)
+# Story-write trace -- handoff (2026-09-28)
 
-Rewritten at the end of the facing-gate session so the next session (possibly on another account) can pick up
-without its context. The study's own record is [`PLAN.md`](PLAN.md) (rungs 0-3, every session's result and
-diagnosis); this file is the open work and where the research lives.
+Rewritten at the end of the facing-gate session, and updated after rung 4 and session 4, so the next session
+(possibly on another account) can pick up without its context. The study's own record is [`PLAN.md`](PLAN.md)
+(rungs 0-4, every session's result and diagnosis); this file is the open work and where the research lives.
 
 ## Where things stand
 
 - **Merged to master** (branch `claude/story-trace`, worktree `C:\gd\Dream-World-IX\.claude\worktrees\story-trace-walk`)
   after the full suite: rung-3 retrodiction build, sessions 1-3, the walker fixes (boxed-by-walkers, door pin), the
   facing-gate fix and its s90 closed loop, predictions v2, PLAN/brief/memory updates.
-- **Rungs 0-3 in-game PROVEN.** Rung 3 = session 3 (`story-rung3c`, predictions v2 sha `d6dd541c`): 17/18 + one
-  VOID (R3-NULL-PRE: no stock run gave 355 before 450 -- a Dali child at its door). R3-MIRROR clean once the F0
-  side REPLAYS its stock partner's walk. Session 2 (`story-rung3b`, v1 sha `220532a8`) is the 16/18 that found the
-  order confound. Both prediction files are sha-frozen (`.gitattributes -text`); never edit them -- a change is a
-  new version registered before its session.
+- **Rungs 0-3 in-game PROVEN, rung 4 DONE (the ladder is complete).** Rung 3 = session 4 (`story-rung3d`,
+  predictions v2 sha `d6dd541c`): **18/18**. Session 3 (`story-rung3c`) was 17/18 + one VOID (R3-NULL-PRE: no
+  stock run gave 355 before 450 -- a Dali child at its door), and session 4 on the fixed walker made it a PASS.
+  R3-MIRROR is clean once the F0 side REPLAYS its stock partner's walk. Session 2 (`story-rung3b`, v1 sha
+  `220532a8`) is the 16/18 that found the order confound. Both prediction files are sha-frozen
+  (`.gitattributes -text`); never edit them -- a change is a new version registered before its session.
+  Rung 4 = `fork-report --trace` (merged `3c7fa847`).
 - **Engine:** s88 (story trace) + s89 (harness publishes field objects) + s90 (harness publishes the facing, `turn`
   in place) are in the LIVE install DLL (sha `ba9762423da8f3d7`, backups `20260926-171239`, built by the owner),
   NOT in the shipped engine bundle yet. s90 is proven in the game (`story-facing-check` 8/8, 2026-09-27).
@@ -27,15 +29,20 @@ diagnosis); this file is the open work and where the research lives.
    region 113/256 off, shut 90 frames), then the closed loop turned him in place (0.0u) and crossed; and one tour on
    the fixed walker, `rung3_step1.py` 7/7 (`20260927-110443-story-facing-tour`), no facing miss. PLAN.md has the
    numbers and the honest limits (the tour's gated doors all opened DURING the walk; the render rate, below).
-2. **Optional session 4 -- the owner's go.** On the fixed walker (door pin + the closed-loop facing), for three
-   stock runs that enter 355 before 450, turning R3-NULL-PRE's VOID into a verdict. `PYTHONUNBUFFERED=1 py
-   tools/play.py studies/story-trace/rung3_trace.py --label story-rung3d --timeout 240` (v2 is the default
-   predictions file; ~1.5 h; the analysis alone, offline: `py studies/story-trace/rung3_trace.py --analyse <run
-   dir>`). Archive the run dir to the main repo's `.harness-runs` the moment it ends (the install is shared).
-3. **Later:** rung 4 (`fork-report`'s story-writes axis -- PLAN.md "Rungs"); s88/s89/s90 into the next engine-bundle
-   re-cut (a release -- outward-facing, confirm first); keep or revert the 23 fork ids (owner's call); the facing
-   gate's open items below. Unrelated arc still pending: the owner playtest of photo-mode bench 30956
-   (`studies/photo-mode/PLAN.md`).
+2. **DONE: session 4** (owner's go, 2026-09-28): `story-rung3d` **18/18**. Every stock run entered 355 before 450,
+   and R3-NULL-PRE's VOID is a PASS (214 stock keys before 450, all written by the members; 355's own 12 matched).
+   Archived at `C:\gd\Dream-World-IX\.harness-runs\20260928-011959-story-rung3d\`. Rung 3 is closed.
+3. **DONE: rung 4** (merged `3c7fa847`): `fork-report <field> --trace <stock runs> [--fork-trace <fork runs>
+   --member ...]` shows the traced set difference cut to one field (`docs/FORK_REPORT.md`). On session 3's traces
+   the per-field shares partition the whole comparison exactly. A five-agent review's 16 defects are fixed,
+   three of them in the reader under every report.
+4. **Later:**
+   - s88/s89/s90 go into the next engine-bundle re-cut. That is a release: outward-facing, confirm first.
+   - Keep or revert the 23 fork ids (owner's call).
+   - An engine tick counter (`ticks`/`rt` in state.json) at the next DLL rebuild, to replace the mtime estimate.
+     It matters more now: session 4's render rate flipped between ~60 and ~31 fps four times WITHIN one launch.
+   - The facing gate's open items below.
+   - Unrelated arc still pending: the owner playtest of photo-mode bench 30956 (`studies/photo-mode/PLAN.md`).
 
 ## THE FACING GATE (landed on the branch; the settled rule and what is still open)
 
@@ -79,7 +86,11 @@ Range at SC 2600 then scene-gated region 25, 32; 5 are the 353 door step's ~34u 
   waits, no cleared stalls, never boxed -- as clean as the best 58 fps run); and at ~30 fps, forced for one launch
   (`[Graphics] FieldFPS = 30`, `VSync = 0` -- Unity ignores the target under VSync -- the ini restored byte-exact
   after): the clock measured 30.2 / 29.8 fps, check 8/8, tour 7/7, holds reversing 5.3% (the old code at ~31 fps:
-  24.0% and 31.6%), no waits, no cleared stalls, never boxed. The fix is proven in both regimes.
+  24.0% and 31.6%), no waits, no cleared stalls, never boxed. The fix is proven in both regimes. **Correction
+  (session 4, 2026-09-28):** the rate is NOT fixed per launch. It flipped 59.0 -> 31.4 -> 59.7 -> 31.8 fps inside
+  one launch. The tick clock caught each flip and re-planned, and the session passed 18/18 across them. A possible
+  cause is VSync halving to 30 when frames miss 16.7 ms (both ~31 stretches overlapped heavy test runs beside the
+  game). That is unverified.
   (2) The walk's finish still targets the kit's quad: a walk can end in a 5-point region's dead middle, which the step reads LIVE (no Dali gated door has a
   standable dead middle; 8 stock gated rows elsewhere do). (3) On a pre-s90 engine, 350's door to 353 is still
   refused from the tour's goal pocket by the wall-slide bound (LIVE; the in-place turn faces it). (4) Not modelled:
