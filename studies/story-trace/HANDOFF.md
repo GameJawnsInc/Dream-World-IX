@@ -38,11 +38,61 @@ Rewritten at the end of the facing-gate session, and updated after rung 4 and se
    three of them in the reader under every report.
 4. **Later:**
    - s88/s89/s90 go into the next engine-bundle re-cut. That is a release: outward-facing, confirm first.
-   - Keep or revert the 23 fork ids (owner's call).
+   - Keep or revert the 23 fork ids (owner's call). **Do not run their reverts blind -- read
+     [REVERTING THE FORKS](#reverting-the-forks-six-reverts-were-half-reverts) first.** Six of them were armed with
+     a half-revert. Their backups are now repaired, and the order still matters.
    - An engine tick counter (`ticks`/`rt` in state.json) at the next DLL rebuild, to replace the mtime estimate.
      It matters more now: session 4's render rate flipped between ~60 and ~31 fps four times WITHIN one launch.
    - The facing gate's open items below.
    - Unrelated arc still pending: the owner playtest of photo-mode bench 30956 (`studies/photo-mode/PLAN.md`).
+
+## REVERTING THE FORKS (six reverts were half-reverts)
+
+The 23 forks stay deployed until the owner decides. This is what a revert does now, and how to run it safely.
+
+- **The defect (found 2026-09-28, sweep during the F5 design).** `tools/deploy_field.py` stamped its backups
+  (`backups/<file>.preDEPLOY.<STAMP>`) to the second, and the rung-3 batch deployed 22 forks in about 20 s. Six
+  pairs landed in one second: 30832/30833, 30835/30836, 30839/30840, 30842/30843, 30846/30847, 30849/30850. In
+  each pair the later deploy's backups replaced the earlier one's. By then they held the earlier fork's own
+  `FieldScene <id>` line and its `<id> <donor>` ForkDonorPatch row. The earlier fork's revert re-adds every line it
+  owns that it finds in its backup (`dictpatch.revert_dictionary_patch`, `forkdonor.revert_row`). So
+  `revert_deploy_30832.py` etc. would have deleted the `.eb` and restored the registration, which is the null-.eb
+  black screen. The later fork of each pair was never affected. The deploy is fixed (`ff9mapkit.deploybackup`: a
+  claimed microsecond stamp, create-exclusive backups), so no new pair can form.
+- **The repair (DONE 2026-09-28, no revert run).** `py tools/repair_collided_backups.py --repair 30832 30835 30839
+  30842 30846 30849` removed each earlier fork's own line and row from the SHARED DictionaryPatch/ForkDonorPatch
+  backups. Each original is kept beside it as `<name>.collided-orig`, and the diff is exactly that line and row.
+  The revert scripts themselves are unchanged. The evidence the tool checked for every id:
+  - the predecessor snapshot (the previous fork's backup, a second earlier) differs from the shared one only by
+    the predecessor's own line and this fork's own line;
+  - the ledger shows no prelude revert before the deploy (it could have re-added an older registration);
+  - the block-47 `.mes` and JournalPatch snapshots are byte-identical to the predecessor's (30842's block-47
+    snapshots are its own, since 30843 is on block 8);
+  - the partner reads only its own lines from the shared files, so its revert is unchanged.
+  
+  A read-only simulation against the live folder gives, for each id: before the repair, the revert leaves
+  `FieldScene <id>` and its donor row behind; after it, nothing.
+- **Same defect outside rung 3:** 30880 (fight-ledger bench LEDGER1) shared stamp `20260922-232635` with 30883,
+  and its backup held `MessageFile 30880` + `FieldScene 30880`. It was repaired the same way with
+  `--allow-other-deploys`, because deploy_battle's BattleScene 30871/30872 landed in the gap. It is not a
+  story-trace id, so the fight-ledger study owns whether to keep it.
+- **To revert (only on the owner's word; never launch the game for it):**
+  1. From the main repo, `py tools/repair_collided_backups.py` must print `0 defective` (exit 0). A HALF-REVERT row
+     means a backup was restored or re-collided: stop, and `--plan <id>` it.
+  2. Run the reverts ONE AT A TIME in REVERSE deploy order, 30852 down to 30830:
+     `py tools/scroll_out/revert_deploy_<id>.py`. The dialogue `.mes` and JournalPatch are restored whole from
+     snapshots, so last-in-first-out is the order in which every snapshot is the right one. Block 8 depends on it.
+     30832 wrote `field/8.mes` fresh and 30843 later wrote the identical bytes over it. 30843's revert restores its
+     snapshot (30832's bytes) and 30832's revert then deletes the file. In the other order, or when reverting 30832
+     alone, 30832's hash check cannot tell the bytes apart: it deletes the block-8 `.mes` that 30843 still ships
+     (redeploy 30843), and a later 30843 revert leaves a copy no revert owns.
+  3. The rung-3 scripts import the kit from `.claude\worktrees\story-trace-walk\ff9mapkit`. 30830's (and 30880's /
+     30883's) import it from the DELETED `sad-lewin-6cdab0` worktree and fail with ModuleNotFoundError before
+     touching anything. Run those with `PYTHONPATH=C:\gd\Dream-World-IX\ff9mapkit`, and do the same for the rung-3
+     scripts once `story-trace-walk` is gone.
+  4. Check: no `FieldScene 308[3-5]x` line in `<game>\FF9CustomMap\DictionaryPatch.txt` and no `308xx` row in its
+     `ForkDonorPatch.txt`. Both files are read at launch, so the registrations drop at the next launch.
+  - Redeploying a fork instead is safe either way: its prelude runs its (now repaired) revert first.
 
 ## THE FACING GATE (landed on the branch; the settled rule and what is still open)
 
