@@ -5,6 +5,32 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `fork-report --trace`: what a field's scripts actually wrote, and what a fork of it gets wrong
+- **The stock walk alone (`--trace RUN...`).** Under the report, every story write the recorded stock runs
+  made in this field: the instruction it joined to, and in how many runs. The static Story-writes candidates
+  are split into three groups. The first is written by the field's own script on these walks, with each value
+  and its run count. The second is never run, which is no evidence. The third is traced writes no candidate
+  lists.
+- **Against a fork (`--fork-trace RUN...`).** The story-trace set difference cut to this field: STOCK ONLY,
+  FORK ONLY, UNSTABLE, seams, REACHED ONLY ACROSS A SEAM, neighbour-byte clobbers, pre-empted seed values and
+  join failures. The whole comparison's totals follow (join failures and member donor mismatches included), so
+  a clean field in a broken chain never reads clean.
+- **Chains.** `--member FORK=DONOR,...` names a chain's members. Two cases are flagged: a fork run that walks
+  into the real game with no member set (its rows there would silently match stock), and fork rows that name no
+  real donor (no ForkDonorPatch row, no `--donor`).
+- Reads runs exactly as `story-trace` does, with the same `--donor`/`--script`/`--fork-script`/`--fork-root`/
+  `--lang`. A trace option with nothing to read is refused, and so is `--trace` with `--explain`. Without
+  `--trace` the report is unchanged. Traces need an engine with memoria-patch s88 (the dev engine), recorded by
+  the in-game test harness.
+
+### Fixed — `story-trace` reads a few cases more truthfully
+- **Alignment.** A fork function is no longer aligned to its donor when a same-shape expression was inserted
+  in it. The old check filed the fork's real store as its `[startup]` prepend, and then as PRE-EMPTED.
+- **Seams.** A crossing counts each run once, and names every real field any run walked across it.
+- **Repeated flags.** `--fork` given twice now accumulates. Before, only the last one was kept.
+- **Refusals and errors.** `--donor`/`--fork-script` with no `--fork` are refused, and so is a `--donor` that
+  contradicts a `--member`. An unreadable `--script` is a message, not a traceback.
+
 ### Fixed — `tools/build_memoria.py --no-deploy` no longer deploys the two sibling DLLs
 - **What leaked.** `--no-deploy` passed `-p:DWIXNoDeploy=true`, which s45 honored only in
   `Assembly-CSharp.csproj`. msbuild builds `Memoria.Prime` and `UnityEngine.UI` first, and each has its

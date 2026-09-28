@@ -10,7 +10,10 @@ each replaying its stock partner's walk) and the round-4 seed (F4, x3), the trac
 found F0 otherwise write-for-write stock (MIRROR: FORK ONLY and STOCK ONLY empty). The VOID is NULL-PRE's
 stock-side evidence from 355 (a walker at its door). **The walker now meets stock's door facing gate ★★ in-game
 8/8** (`story-facing-check`: the rung-3 miss measured, then the s90 closed loop turned him in place and crossed) and
-a tour on it 7/7 with no facing miss. Next: rung 4 (fork-report's story-writes axis); optional session 4.
+a tour on it 7/7 with no facing miss. **Rung 4 ★ offline on session 3's real traces:** `fork-report <field> --trace`
+shows the traced set difference cut to one field (351: the pre-empted latches and the byte-297 clobber; 450: no
+member, every write reached only across the seam), and the per-field shares partition the whole comparison exactly.
+The ladder's rungs are all done. Session 4 (355 before 450, for R3-NULL-PRE's VOID) is under way.
 
 Board entry #3 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It is the narrative-state arc's missing
 instrument ([`../narrative-state/PLAN.md`](../narrative-state/PLAN.md)).
@@ -385,6 +388,39 @@ press sized in frames inherit that error. (Measured since over 79 archived launc
 for a whole launch, the quoted figures ring averages over field loads; the driver now plans in 30 Hz ticks by a rate
 it measures -- `tools/harness/tickrate.py` -- and the per-frame constants are gone.)
 
+## Rung 4 result -- fork-report shows the traced set difference (★ offline, on session 3's real traces)
+
+`fork-report <field> --trace <stock runs> [--fork-trace <fork runs> --member ...]` puts the trace under the report,
+cut to the one field (`storytrace.FieldShare`: every key names its donor, so a field's share is the keys whose
+donor is the field, over the same runs). Alone, it lists the stock walk's writes in the field and splits the
+static Story-writes candidates into three groups: written by the field's own script (value and run count), never
+run (no evidence), and traced writes no candidate lists. With a fork side, it prints the set difference cut to
+the field, and then the whole comparison's totals: a clean field in a broken chain never reads clean.
+`docs/FORK_REPORT.md` has the reference.
+
+**The pass, on session 3 (`story-rung3c`), no script reading:**
+- **`fork-report 351` against F4:** STOCK ONLY holds the lobby exit's `Bit[2078] := 0` / `Bit[2064] := 1`
+  (e16 +71/+112) and 351's hub-gated Main_Init stores. PRE-EMPTED names 2064/2075/2079 and SC 2600 beside their
+  stock writers. The seed word `UInt16[296] = 192` is the NEIGHBOUR-BYTE CLOBBER of hub byte 297 (1 -> 0, 3/3).
+- **`fork-report 450` against F0:** 450 is NO member; all 20 of its stock keys, the ping `Bit[2102] := 1` at e19
+  +59 among them, are REACHED ONLY ACROSS A SEAM from member(350).
+- **`fork-report 350` against F0:** clean (STOCK ONLY 0, FORK ONLY 0) and it names the seam.
+
+These are rung 3's R3-LATCH, R3-PREEMPT, R3-SEAM and R3-PING, one field at a time. Across every donor field on
+both chains, the shares partition the whole comparison exactly: each key is in exactly one field's share, and the
+shares' union equals the whole comparison. That invariant is now a test on the real Dali rows. Session 3's frozen
+analysis re-reads the same after the change (17/18 + the VOID).
+
+**Review (`wf_f8ed20fb-b09`):** three read-only lenses, a 108-mutant test-strength pass and a skeptic per group
+found 16 distinct confirmed defects, all fixed (`356ac508`); every new test fails on the code before it. Three
+were in the reader under every report:
+- **Alignment:** the skeleton fallback in `align_function` paired two different expression statements. An
+  inserted same-shape `SET` filed the fork's real store as its prepend, and then PRE-EMPTED it.
+- **Seams:** `Comparison.seams` counted a run twice when it crossed twice. It also kept only the first run's
+  fields: on session 3, F0's seam now also names the real 355 that run 8 walked, the only change in the whole
+  reports.
+- **Repeated flags:** argparse kept only the last of a repeated `--fork`.
+
 ## Rungs
 
 | Rung | What | Pass |
@@ -393,7 +429,7 @@ it measures -- `tools/harness/tickrate.py` -- and the per-frame constants are go
 | 1 | Residue and epochs | A harness poke, a debug-menu flag write and the world-map `SC += 10` appear as `harness` / `residue` rows; a script-only walk gives zero residue; New Game, load and clear each give exactly one epoch |
 | 2 | **The null pair** (the real falsifier) | Stock 552 vs its own verbatim fork, N = 3: STOCK ONLY is empty |
 | 3 | Retrodiction | The Dali chain vs stock Dali on the real story route: field 450 / bit 2102 comes out of the report with no script reading |
-| 4 | fork-report's story-writes axis | `fork-report` shows the traced set difference |
+| **4** | fork-report's story-writes axis | `fork-report` shows the traced set difference -- ★ DONE (offline, session 3) |
 
 The board's own falsifier ("refuted if it tightens no interval the save corpus gave") cannot fail as written: the
 intervals were never built, and with seven SC points almost any write tightens one. Rung 2 replaces it.

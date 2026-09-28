@@ -318,6 +318,20 @@ def test_a_prepend_and_a_same_length_remap_align_to_the_donor():
     assert S.align_function(fork, donor, 5, 0) is None
 
 
+def test_an_inserted_expression_of_the_same_shape_never_aligns_as_a_prepend():
+    """A store inserted mid-function (an eb-src splice) with the shape of its neighbour slides the suffix over
+    by one instruction: opcode + length still match, so the old skeleton check aligned it and filed the fork's
+    real Bit[9000] store at -9 as "the fork's prepend" (then PRE-EMPTED it). An expression must match byte for
+    byte -- the kit never remaps one -- so the function is unaligned, its rows the fork's own."""
+    donor = S.ScriptIndex(DONOR)
+    extra = "SET({Global.Bit[9100] const(1) B_LET B_EXPR_END})\n"
+    inserted = S.ScriptIndex(_eb(MAIN, [(3, NPC[0][1].replace("Field(552)", extra + "Field(552)"))]))
+    assert S.align_function(inserted, donor, 1, 3) is None
+    remapped_expr = S.ScriptIndex(_eb(MAIN, [(3, NPC[0][1].replace("Bit[9000]", "Bit[9002]"))]))
+    assert S.align_function(remapped_expr, donor, 1, 3) is None          # an expression is never a remap
+    assert S.align_function(S.ScriptIndex(FORK), donor, 1, 3) == 0       # a Field() remap still is
+
+
 # ======================================================================= digests + the N-vs-N comparison
 def _stock_run(extra=()):
     return [_e("arm"),
@@ -956,6 +970,340 @@ def test_a_prepend_stamping_a_value_stock_writes_itself_is_pre_empted():
     assert S.compare(sd, fd).pre_empted == []
 
 
+# ======================================================================= fork-report's traced axis (rung 4)
+def test_a_fields_share_is_every_category_cut_to_its_donor():
+    """The share of 552 holds each of the comparison's categories whose key names 552, over the same runs;
+    the whole comparison's totals come with it, so a clean field in a broken chain never reads clean."""
+    stock, fork = _sources()
+    dead = _w(sid=1, uid=1, tag=3, ip=_ip(DONOR, 1, 3, 14), w="Bit", byte=1125, bit=9001, old=0, new=1)
+    other = _w(fld=553, don=553, ip=5, w="Byte", byte=13, old=0, new=2)          # no script: a join failure
+    sd = [S.digest(f"stock{i}", _rows(*_stock_run([dead] if i < 2 else [])), scripts=stock) for i in range(3)]
+    fd = [S.digest(f"fork{i}", _rows(*_fork_run([other] if i == 0 else [])), scripts=fork, donor_scripts=stock)
+          for i in range(3)]
+    sh = S.field_share(552, sd, fd)
+    c = sh.comparison
+    sig = lambda keys: [(k.sid, k.tag, k.off, k.target, k.value) for k in keys]      # noqa: E731
+    assert sig(sh.stock_only) == sig(c.stock_only) == [(1, 3, 0, "Global.Bit[9000]", 1)]
+    assert sig(sh.fork_only) == [(0, 0, -8, "Global.UInt16[0]", 3115)]
+    assert sig(sh.unstable) == [(1, 3, 14, "Global.Bit[9001]", 1)]
+    assert len(sh.matched) == 3 and len(sh.writes) == 5
+    assert [(label, r.fld) for label, r, _why in sh.failures] == [("fork0", 30823), ("fork1", 30823), ("fork2", 30823)]
+    assert sh.chain["STOCK ONLY"] == 1 and "SEAMS" not in sh.chain                  # no member set: no seams
+    text = S.format_field_share(sh)
+    assert text.startswith("  Story writes, TRACED -- field 552 (stock x3 vs fork x3)\n")
+    for head in ("    matched in every run of both sides: 3 of the 5 key(s) the stock runs wrote here\n",
+                 "    STOCK ONLY (1) -- in 3/3 stock runs, 0/3 fork runs: no fork run made these stores here\n",
+                 "    FORK ONLY (1) -- in 0/3 stock runs, 3/3 fork runs", "    UNSTABLE (1) -- ",
+                 "    JOIN FAILURES (3) -- rows written in field 552\n",
+                 "    the whole comparison (every field): STOCK ONLY 1, FORK ONLY 1, UNSTABLE 1, "
+                 "NEIGHBOUR-BYTE CLOBBERS 0, PRE-EMPTED 0, JOIN FAILURES 4\n"):
+        assert head in text, head
+    assert "552 e1 Action trigger (tag 3) +0  Global.Bit[9000] = 1   SET({Global.Bit[9000]" in text
+    # 553's share: only the one fork run's orphan row wrote there -- its failure, nothing of 552's
+    other_sh = S.field_share(553, sd, fd)
+    assert other_sh.touched and other_sh.stock_only == other_sh.fork_only == other_sh.matched == []
+    assert [(label, r.fld) for label, r, _why in other_sh.failures] == [("fork0", 553)]
+    # a field no run wrote in: said so, never an empty clean-looking report
+    none = S.field_share(70, sd, fd)
+    assert not none.touched
+    assert "no traced run, on either side, wrote in field 70" in S.format_field_share(none)
+
+
+def test_a_fields_share_of_a_chain_names_its_member_its_seam_and_what_it_reached_only_across_one():
+    """F0's shape, cut per field: 552 is the member and its exit is the seam; 553 is NO member, and every
+    stock write in it the fork side made only in the REAL 553, across that seam."""
+    stock, fork = _seam_sources()
+    sd = [S.digest("stock", _rows(*_tour(False)), scripts=stock)]
+    fd = [S.digest("fork", _rows(*_tour(True)), scripts=fork, donor_scripts=stock, members=MEMBERS)]
+    member, real = S.field_share(552, sd, fd, members=MEMBERS), S.field_share(553, sd, fd, members=MEMBERS)
+    assert member.members == [30823] and real.members == []
+    assert _sig(member.matched) == [(552, 0, 0, 0, "Global.Int16[9]", 1582), (552, 1, 3, 0, "Global.Bit[9000]", 1)]
+    assert member.across_seam == [] and member.stock_only == []
+    assert _sig(real.across_seam) == [(553, 0, 0, 0, "Global.Byte[13]", 2), (553, 1, 2, 0, "Global.Bit[9002]", 1)]
+    assert real.matched == [] and real.stock_only == []
+    for sh in (member, real):                                   # the crossing leaves 552's member into 553
+        [(s, labels)] = sh.seams
+        assert (s.frm, s.donor, s.to, labels) == (30823, 552, 553, ["fork"])
+    assert member.chain == real.chain == {"STOCK ONLY": 0, "FORK ONLY": 0, "UNSTABLE": 0, "SEAMS": 1,
+                                          "REACHED ONLY ACROSS A SEAM": 2, "SEAM ONLY": 0,
+                                          "MEMBER DONOR MISMATCHES": 0, "NEIGHBOUR-BYTE CLOBBERS": 0,
+                                          "PRE-EMPTED": 0, "JOIN FAILURES": 0}
+    text = S.format_field_share(real, whole="WHOLE")
+    assert text.startswith("  Story writes, TRACED -- field 553 (stock x1 vs fork x1; the fork side is a chain of "
+                           "1 member(s), field 553 NO member of it)\n")
+    assert ("    REACHED ONLY ACROSS A SEAM (2) -- in 1/1 stock runs, written by no fork member: the fork side "
+            "reached them only in the REAL field 553\n") in text
+    assert ("  553 e1 Contact trigger (tag 2) +0  Global.Bit[9002] = 1   SET({Global.Bit[9002] const(1) B_LET "
+            "B_EXPR_END})   -- 553 reached only across a seam from member(552), fork 1/1\n") in text
+    assert "      member(552) [fork 30823] -> real 553: 1/1 fork runs; real fields seen across it: 553\n" in text
+    assert text.endswith("REACHED ONLY ACROSS A SEAM 2, SEAM ONLY 0, MEMBER DONOR MISMATCHES 0, NEIGHBOUR-BYTE "
+                         "CLOBBERS 0, PRE-EMPTED 0, JOIN FAILURES 0 -- print it whole with WHOLE\n")
+    assert "field 552 its member 30823" in S.format_field_share(member)
+
+
+def test_a_crossing_counts_each_run_once_and_names_every_field_any_run_saw_across_it():
+    """One run crossing the same seam twice is one run, not two; and the crossing names every real field ANY
+    run walked across it -- so a field only a later run reached keeps its SEAMS, in either run order."""
+    stock, fork = _seam_sources()
+    t = _tour(True)
+    member, into = t[1:3], t[3:5]
+    twice = [t[0], *member, into[0], dict(member[0], f=530), into[1], t[-1]]
+    further = [t[0], *member, into[0], _w(ip=_ip(DONOR, 0, 0, 0), fld=70, don=70, f=600), _e("off", fld=70, don=70)]
+    fd = [S.digest(label, _rows(*rows), scripts=fork, donor_scripts=stock, members=MEMBERS)
+          for label, rows in (("twice", twice), ("further", further))]
+    assert [len(d.seams) for d in fd] == [2, 1]
+    sd = [S.digest("stock", _rows(*_tour(False)), scripts=stock)]
+    c = S.compare(sd, fd, members=MEMBERS)
+    [(seam, labels)] = c.seams
+    assert (seam.frm, seam.to, seam.fields, labels) == (30823, 553, [553, 70], ["twice", "further"])
+    assert fd[0].seams[0].fields == [553]                        # the digest's own crossing is not touched
+    assert "member(552) [fork 30823] -> real 553: 2/2 fork runs" in S.report(c)
+    for order in (fd, fd[::-1]):
+        assert [s.to for s, _l in S.field_share(70, sd, order, members=MEMBERS).seams] == [553]
+
+
+def test_a_share_says_when_fork_keys_name_no_real_donor_and_carries_every_runs_notes():
+    """No ForkDonorPatch row and no --donor: the fork's keys file under its own id, which no share holds -- so
+    552's share would call every stock write STOCK ONLY with nothing to say why. It says why, and prints the
+    digest's notes (as the whole report does); a member whose rows name another donor is noted and counted."""
+    stock, fork = _sources()
+    fk = dict(fld=30823, don=30823)
+    rows = _rows(_e("arm", **fk), _w(ip=_ip(FORK, 0, 0, 8), **fk), _e("off", **fk))
+    sd = [S.digest("stock", _rows(*_stock_run()), scripts=stock)]
+    sh = S.field_share(552, sd, [S.digest("fork", rows, scripts=fork, donor_scripts=stock)])
+    assert sh.unattributed == {30823: 1} and len(sh.stock_only) == 4
+    text = S.format_field_share(sh)
+    assert ("    !! the fork runs wrote 1 key(s) under field(s) 30823, which name no real donor (no ForkDonorPatch "
+            "row, no --donor or --member): no field's share holds them") in text
+    assert "    note (fork): no stock .eb for donor 30823: field 30823's rows stay unaligned\n" in text
+    fixed = S.field_share(552, sd, [S.digest("fork", rows, scripts=fork, donor_scripts=stock, donors={30823: 552})])
+    assert fixed.unattributed == {} and "!! the fork runs wrote" not in S.format_field_share(fixed)
+    s2, f2 = _seam_sources()
+    ssd = [S.digest("stock", _rows(*_tour(False)), scripts=s2)]
+    wrong = [S.digest("fork", _rows(*_tour(True, don=553)), scripts=f2, donor_scripts=s2, members=MEMBERS)]
+    sh = S.field_share(552, ssd, wrong, members=MEMBERS)
+    assert sh.chain["MEMBER DONOR MISMATCHES"] == 1
+    assert "    note (fork): member 30823: its rows name donor 553, the member set says 552\n" in S.format_field_share(sh)
+
+
+def test_a_stock_only_write_the_fork_made_at_another_place_here_says_where():
+    """The fork's handler gained a trailing RET, so no donor function aligns: its Bit[9000] := 1 is FORK ONLY
+    at an unaligned place, and stock's is STOCK ONLY. "No fork run made these stores here" stays true of the
+    KEY, and the line names where the fork did write the value."""
+    stock = {552: S.ScriptIndex(DONOR, field_id=552)}.get
+    tail_ret = _eb(MAIN, [(3, NPC[0][1] + "\nRET()")])
+    fork = S.mod_script_source([], fallback=stock, explicit={30823: tail_ret})
+    fk = dict(fld=30823, don=552)
+    run = [_e("arm", **fk), _w(sid=1, uid=1, tag=3, ip=_ip(tail_ret, 1, 3, 0), w="Bit", byte=1125, bit=9000, old=0,
+                               new=1, **fk), _e("off", **fk)]
+    sd = [S.digest("stock", _rows(*_stock_run()), scripts=stock)]
+    sh = S.field_share(552, sd, [S.digest("fork", _rows(*run), scripts=fork, donor_scripts=stock)])
+    [line] = [ln for ln in S.format_field_share(sh).splitlines() if "Bit[9000]" in ln and "STOCK" not in ln
+              and "unaligned place" in ln]
+    assert line.endswith("-- the fork wrote this value here at an unaligned place: e1 Action trigger (tag 3) +0 "
+                         "[fork 30823 +0, no donor function aligns] (FORK ONLY)")
+
+
+def test_a_seed_store_another_member_clobbered_first_is_flagged_in_every_members_share():
+    """The round-4 seed word runs in every member; only the FIRST it runs in changes byte 297 (1 -> 0) -- in
+    every later member the byte is already 0, so its own store changes nothing and is no clobber. Each later
+    member's share still names the clobber its seed store does, where it ran first."""
+    stock = {552: S.ScriptIndex(CLOB_DONOR, field_id=552), 553: S.ScriptIndex(CLOB_DONOR, field_id=553)}.get
+    fork = S.mod_script_source([], fallback=stock, explicit={30826: CLOB_FORK, 30827: CLOB_FORK})
+    at = lambda data, text, tag=0: _ip(data, 0, tag, _rel(data, 0, tag, text))           # noqa: E731
+    word = "SET({Global.UInt16[296] const(192) B_LET B_EXPR_END})"
+    stock_rows = [_e("arm"),
+                  _w(ip=at(CLOB_DONOR, "SET({Global.SByte[296] const(65472) B_LET B_EXPR_END})"), w="SByte",
+                     byte=296, old=0, new=-64),
+                  _w(tag=1, ip=at(CLOB_DONOR, "SET({Global.UInt16[297] const(1) B_LET B_EXPR_END})", 1),
+                     w="UInt16", byte=297, old=0, new=1),
+                  _e("off")]
+    a, b = dict(fld=30826, don=552), dict(fld=30827, don=553)
+    members = {30826: 552, 30827: 553}
+    run = [_e("arm", **a), _w(ip=at(CLOB_FORK, word), w="UInt16", byte=296, old=256, new=192, **a),
+           _w(ip=at(CLOB_FORK, word), w="UInt16", byte=296, old=192, new=192, **b), _e("off", **b)]
+    sd = [S.digest("stock", _rows(*stock_rows), scripts=stock)]
+    fd = [S.digest("fork", _rows(*run), scripts=fork, donor_scripts=stock, members=members)]
+    first, later = S.field_share(552, sd, fd, members=members), S.field_share(553, sd, fd, members=members)
+    assert [cl.key.donor for cl in first.clobbers] == [552] and later.clobbers == []
+    [line] = [ln for ln in S.format_field_share(later).splitlines() if "Global.UInt16[296] = 192" in ln]
+    assert line.endswith("   !! the same seed store clobbered byte 297 (1 -> 0) in 552's member, which ran it "
+                         "first -- here the byte was already 0")
+    [own] = [ln for ln in S.format_field_share(first).splitlines() if "Global.UInt16[296] = 192" in ln
+             and "FORK" not in ln and "changes byte" not in ln]
+    assert own.endswith("   !! NEIGHBOUR-BYTE CLOBBER: byte 297 1 -> 0")
+
+
+def test_the_static_line_counts_runs_per_value_and_only_the_fields_own_script():
+    """A candidate is marked with each value its store left and in how many RUNS (a clear reads := 0, never as
+    the set the static line says); a C# write to a candidate bit is not the field's store running."""
+    stock, _fork = _sources()
+
+    def dead(new):
+        return _w(sid=1, uid=1, tag=3, ip=_ip(DONOR, 1, 3, 14), w="Bit", byte=1125, bit=9001, old=1 - new, new=new)
+    cs = _w(src="cs", sid=-1, uid=-1, lvl=-1, ip=-1, tag=-1, w="Bit", byte=1125, bit=9005, old=0, new=1)
+    runs = [_stock_run([dead(1)]), _stock_run([dead(0), cs]), _stock_run([dead(1)])]
+    sd = [S.digest(f"s{i}", _rows(*r), scripts=stock) for i, r in enumerate(runs)]
+    text = S.format_field_share(S.field_share(552, sd), static=[(9001, None), (9005, None)])
+    assert "written by this field's script on these walks: 9001 := 0 (1/3) / := 1 (2/3)\n" in text
+    assert "      not written on them: 9005  (" in text
+    assert "Global.Bit[9005] (1)" in text.split("written, and no static candidate: ")[1]
+
+
+def test_a_fork_row_with_no_donor_row_fails_its_join_under_the_donor_the_digest_keyed_it_by():
+    """An engine with no ForkDonorPatch row writes don == fld; --donor keys the fork's rows to 552, so its
+    join failures belong to 552's share too -- never lost under a fork id no report is ever run for."""
+    stock, fork = _sources()
+    fk = dict(fld=30823, don=30823)
+    rows = _rows(_e("arm", **fk), _w(ip=_ip(FORK, 0, 0, 8), **fk),
+                 _w(ip=_ip(FORK, 0, 0, 3), w="Byte", byte=40, old=0, new=1, **fk), _e("off", **fk))
+    sd = [S.digest("stock", _rows(*_stock_run()), scripts=stock)]
+    fd = [S.digest("fork", rows, scripts=fork, donor_scripts=stock, donors={30823: 552})]
+    sh = S.field_share(552, sd, fd)
+    assert [(label, r.fld, r.don) for label, r, _why in sh.failures] == [("fork", 30823, 30823)]
+    assert "    JOIN FAILURES (1) -- rows written in field 552\n" in S.format_field_share(sh)
+
+
+def test_a_chain_read_with_no_member_set_is_named_where_its_rows_would_silently_match():
+    """The same tour digested with no member set: the real 553's rows MATCH stock (the silent merge) -- so the
+    share says a fork run left its own fields into the real game and the chain went unnamed. Named, it is
+    quiet; and a fork run that never stood in a field of its own crosses nothing."""
+    stock, fork = _seam_sources()
+    sd = [S.digest("stock", _rows(*_tour(False)), scripts=stock)]
+    bare = [S.digest("fork", _rows(*_tour(True)), scripts=fork, donor_scripts=stock)]
+    sh = S.field_share(553, sd, bare)
+    assert len(sh.matched) == 2 and sh.unnamed_crossings == [("fork", 30823, 553)]
+    assert ("    !! 1 fork run(s) left their own fields into the real game (fork: 30823 -> real 553) and no member "
+            "set names the chain: their rows there MATCH stock as if the fork wrote them -- name the chain's "
+            "members (--member FORK=DONOR,...) to keep them apart\n") in S.format_field_share(sh)
+    named = [S.digest("fork", _rows(*_tour(True)), scripts=fork, donor_scripts=stock, members=MEMBERS)]
+    assert S.field_share(553, sd, named, members=MEMBERS).unnamed_crossings == []
+    stock_side = [S.digest("fork", _rows(*_tour(False)), scripts=stock)]          # real fields only
+    assert S.field_share(553, sd, stock_side).unnamed_crossings == []
+
+
+def test_a_fields_share_names_the_prepend_it_pre_empts_and_the_clobber_it_makes():
+    """PRE-EMPTED and CLOBBERS are cut to the field too: the stamp in 552's member and the stock store it
+    pre-empts are both 552's; a field with neither shows neither."""
+    stock = {552: S.ScriptIndex(DONOR, field_id=552)}.get
+    fork = S.mod_script_source([], fallback=stock, explicit={30823: LATCH_FORK})
+    fk = dict(fld=30823, don=552)
+    latch, sc = _rel(LATCH_FORK, 0, 0, LATCH.strip()), _rel(LATCH_FORK, 0, 0, PREPEND.strip())
+    fork_run = [_e("arm", **fk),
+                _w(ip=_ip(LATCH_FORK, 0, 0, latch), w="Bit", byte=1125, bit=9000, old=0, new=1, **fk),
+                _w(ip=_ip(LATCH_FORK, 0, 0, sc), w="UInt16", byte=0, old=0, new=3115, **fk),
+                _w(ip=_ip(LATCH_FORK, 0, 0, sc + 8), **fk), _e("off", **fk)]
+    sd = [S.digest(f"stock{i}", _rows(*_stock_run()), scripts=stock) for i in range(2)]
+    fd = [S.digest(f"fork{i}", _rows(*fork_run), scripts=fork, donor_scripts=stock) for i in range(2)]
+    sh = S.field_share(552, sd, fd)
+    [p] = sh.pre_empted
+    assert (p.target, p.value) == ("Global.Bit[9000]", 1)
+    assert ("    PRE-EMPTED (1) -- the fork's prepend stamps a value every stock run writes itself: the seed does "
+            "the story's work before the story does\n      Global.Bit[9000] := 1  stamped in donor(s) 552; stock "
+            "writes it at 552 e1 Action trigger (tag 3) +0 (2/2)\n") in S.format_field_share(sh)
+    assert S.field_share(553, sd, fd).pre_empted == []
+
+
+def test_a_field_alone_lists_the_stock_walks_writes_against_the_static_candidates():
+    """No fork side: the stock walk's writes in the field, each in how many runs, in the order first written --
+    and fork-report's static candidates split into written on these walks / never run (no evidence) / and
+    the traced writes no candidate lists."""
+    stock, _fork = _sources()
+    dead = _w(sid=1, uid=1, tag=3, ip=_ip(DONOR, 1, 3, 14), w="Bit", byte=1125, bit=9001, old=0, new=1)
+    sd = [S.digest(f"stock{i}", _rows(*_stock_run([dead] if i == 1 else [])), scripts=stock) for i in range(3)]
+    sh = S.field_share(552, sd)
+    assert sh.comparison is None and sh.chain == {} and sh.stock_only == [] and sh.seams == []
+    assert [(k.target, k.value, n) for k, _o, n in sh.writes] == [
+        ("Global.Int16[9]", 1582, 3), ("Global.Bit[8800]", 1, 3), ("Global.Bit[9000]", 1, 3),
+        ("Global.Byte[600]", 2, 3), ("Global.Bit[9001]", 1, 1)]
+    text = S.format_field_share(sh, static=[(8800, None), (9001, None), (9005, "somewhere")])
+    assert text.startswith("  Story writes, TRACED -- field 552 (stock x3)\n    WRITES (5) -- the stock walk's "
+                           "story writes in field 552, in the order first written; n/3 = the stock runs that "
+                           "wrote it\n      3/3  552 e0 Field startup (tag 0) +0  Global.Int16[9] = 1582")
+    assert "      1/3  552 e1 Action trigger (tag 3) +14  Global.Bit[9001] = 1" in text
+    assert ("    static candidates (the Story writes line above): 3 -- written by this field's script on these "
+            "walks: 8800 := 1, 9001 := 1 (1/3)\n"
+            "      not written on them: 9005  (these walks never ran the store -- no evidence either way)\n"
+            "    written, and no static candidate: Global.Int16[9] (1582), Global.Byte[600] (2), Global.Bit[9000] "
+            "(1)  (") in text
+    assert "whole comparison" not in text and "STOCK ONLY" not in text
+    assert "static candidates" not in S.format_field_share(sh)            # no static list given: none shown
+
+
+def test_a_cut_run_heads_a_fields_share_and_the_share_refuses_what_it_cannot_read():
+    stock, fork = _sources()
+    cut = S.digest("cut", _rows(*_stock_run()[:-1]), scripts=stock)
+    text = S.format_field_share(S.field_share(552, [cut]))
+    assert text.splitlines()[1] == ("    !! 1 run(s) INCOMPLETE -- a key such a run never reached may lie past its "
+                                    "cut, so no absence below is evidence")
+    fd = [S.digest("fork", _rows(*_fork_run()), scripts=fork, donor_scripts=stock)]
+    with pytest.raises(S.TraceError, match="needs the stock side's runs"):
+        S.field_share(552, [], fd)
+    with pytest.raises(S.TraceError, match="member set names the FORK side's chain"):
+        S.field_share(552, [cut], members=MEMBERS)
+
+
+def test_fork_report_takes_the_traces_and_refuses_a_trace_option_with_nothing_to_read(tmp_path, capsys,
+                                                                                         monkeypatch):
+    """The CLI: `--trace` (and `--fork-trace`) put the traced axis under the report, loaded exactly as
+    `story-trace` loads them; without --trace the report is today's byte for byte; a trace option with no
+    --trace, or with --explain, is refused -- never silently ignored."""
+    from ff9mapkit import forkreport as FR
+
+    monkeypatch.setattr(FR, "resolve_field_id", lambda token, game=None: int(token))
+    monkeypatch.setattr(FR, "analyze", lambda fid, game=None: FR.analyze_eb(DONOR, field_id=fid))
+    (tmp_path / "donor.eb").write_bytes(DONOR)
+    (tmp_path / "fork.eb").write_bytes(FORK)
+    for name, rows in (("s1", _stock_run()), ("f1", _fork_run())):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "story.jsonl").write_text(_text(*rows), encoding="utf-8")
+    none = ["--fork-root", str(tmp_path / "none")]
+    stock = ["--trace", str(tmp_path / "s1"), "--script", f"552={tmp_path / 'donor.eb'}"]
+    fork = ["--fork-trace", str(tmp_path / "f1"), "--fork-script", f"30823={tmp_path / 'fork.eb'}"]
+    assert cli.main(["fork-report", "552"]) == 0
+    plain = capsys.readouterr().out
+    assert "TRACED" not in plain and "Story writes  : sets 3 story flag(s): 8800, 9000, 9001" in plain
+    assert cli.main(["fork-report", "552", *stock, *fork, *none]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith(plain.rstrip("\n") + "\n\n  Story writes, TRACED -- field 552 (stock x1 vs fork x1)\n")
+    assert "    STOCK ONLY (1) -- in 1/1 stock runs, 0/1 fork runs" in out
+    assert ("-- print it whole with `ff9mapkit story-trace <the --trace runs> --fork <the --fork-trace runs>` and "
+            "the same --member/--donor/--script/--fork-script/--fork-root/--lang\n") in out
+    assert cli.main(["fork-report", "552", *stock, *none]) == 0
+    out = capsys.readouterr().out
+    assert "    WRITES (4) -- the stock walk's story writes in field 552" in out
+    assert ("static candidates (the Story writes line above): 3 -- written by this field's script on these walks: "
+            "8800 := 1, 9000 := 1\n") in out
+    assert cli.main(["fork-report", "552", *stock, *fork, "--fork-trace", str(tmp_path / "f1"), *none]) == 0
+    assert "(stock x1 vs fork x2)" in capsys.readouterr().out           # a repeated flag ACCUMULATES
+    assert cli.main(["story-trace", str(tmp_path / "s1"), "--script", f"552={tmp_path / 'donor.eb'}",
+                     "--fork", str(tmp_path / "f1"), "--fork", str(tmp_path / "f1"),
+                     "--fork-script", f"30823={tmp_path / 'fork.eb'}", *none]) == 0
+    assert "story trace: stock x1 vs fork x2" in capsys.readouterr().out
+    got = {}
+    monkeypatch.setattr(FR, "explain", lambda fid, game=None, lang="us": got.setdefault("lang", lang) and None)
+    monkeypatch.setattr(FR, "format_explain", lambda rep: "")
+    assert cli.main(["fork-report", "552", "--explain", "--lang", "fr"]) == 0 and got == {"lang": "fr"}
+    capsys.readouterr()
+    (tmp_path / "garbage.eb").write_bytes(b"garbage")
+    for argv, err in ((["fork-report", "552", *fork], "--fork-trace, --fork-script read story traces"),
+                      (["fork-report", "552", "--lang", "jp"], "--lang read story traces"),
+                      (["fork-report", "552", *stock, *none, "--donor", "30823=552"],
+                       "--donor names the FORK side -- give its runs with --fork-trace"),
+                      (["fork-report", "552", *stock, *none, "--fork-script", f"30823={tmp_path / 'fork.eb'}"],
+                       "--fork-script names the FORK side -- give its runs with --fork-trace"),
+                      (["fork-report", "552", *stock, *fork, *none, "--member", "30823=552", "--donor", "30823=553"],
+                       "--donor gives fork 30823 donor 553, --member gives it 552 -- one fork, one donor"),
+                      (["fork-report", "552", "--trace", str(tmp_path / "s1"), "--script",
+                        f"552={tmp_path / 'garbage.eb'}", *none], "fork-report: not an .eb script"),
+                      (["fork-report", "552", "--member", "30823=552"], "--member read story traces"),
+                      (["fork-report", "552", *stock, "--explain"], "--explain prints no report"),
+                      (["fork-report", "552", *stock, *none, "--member", "30823=552"],
+                       "--member names the FORK side's chain -- give its runs with --fork-trace")):
+        assert cli.main(argv) == 2, argv
+        assert err in capsys.readouterr().err, argv
+
+
 # ======================================================================= real bytes (install-gated)
 @pytest.fixture(scope="module")
 def lindblum_552():
@@ -1219,3 +1567,40 @@ def test_the_round_4_seed_word_clobbers_hub_byte_297_on_the_real_rows(dali):
                    ("Global.Bit[2079]", 1): [(356, 2, 1, 222)]}
     assert ("  Global.Bit[2064] := 1  stamped by the prepend in 1 donor(s) (351); stock writes it at 351 e16 "
             "Walk-in trigger (tag 2) +112 (1/1)\n") in S.report(c)
+
+
+def test_fork_reports_traced_axis_names_450_on_the_real_rows(dali):
+    """Rung 4 on real rows: today's chain (members 350-359, no 450) walks the real stock tour. fork-report 450's
+    traced axis says the chain has no 450 and that every stock write in it -- the ping among them -- the fork
+    side made only in the REAL 450, across member(350)'s seam; 350's own share is clean and names that seam."""
+    objs, src = dali
+    members = _members(DALI)
+    sd = S.digest("stock", S.parse_text(_text(*objs)), scripts=src)
+    fd = _chain_digest(src, members, "F0", _chain_run(objs, members, until=450))
+    real, member = S.field_share(450, [sd], [fd], members=members), S.field_share(350, [sd], [fd], members=members)
+    assert real.members == [] and real.stock_only == real.fork_only == real.matched == []
+    assert {k for k, _o, _n in real.writes} == set(real.across_seam)             # every stock key in 450
+    assert ("Global.Bit[2102]", 1) in {(k.target, k.value) for k in real.across_seam}
+    assert member.members == [30831] and member.stock_only == member.fork_only == []
+    assert [(s.frm, s.to) for s, _l in member.seams] == [(30831, 450)] == [(s.frm, s.to) for s, _l in real.seams]
+    text = S.format_field_share(real)
+    assert "field 450 NO member of it)" in text.splitlines()[0]
+    assert ("  450 e19 Walk-in trigger (tag 2) +59  Global.Bit[2102] = 1   SET({Global.Bit[2102] const(1) B_LET "
+            "B_EXPR_END})   -- 450 reached only across a seam from member(350), fork 1/1") in text
+
+
+def test_the_fields_shares_partition_the_whole_comparison_on_the_real_rows(dali):
+    """Rung 4's own invariant on real rows: cut per field, every category of the whole comparison lands in
+    exactly one field's share, and the shares together are the whole -- no key lost, none counted twice."""
+    objs, src = dali
+    members = _members(DALI)
+    sd = S.digest("stock", S.parse_text(_text(*objs)), scripts=src)
+    fd = _chain_digest(src, members, "F0", _chain_run(objs, members, until=450))
+    c = S.compare([sd], [fd], members=members)
+    fields = sorted({k.donor for k in c.counts} | {k.donor for k in c.seam_counts})
+    assert 450 in fields and len(fields) >= 5
+    for cat in ("stock_only", "fork_only", "unstable", "matched", "across_seam", "seam_only", "clobbers"):
+        whole = list(getattr(c, cat))
+        parts = [x for f in fields for x in getattr(S.field_share(f, [sd], [fd], members=members), cat)]
+        assert sorted(map(repr, parts)) == sorted(map(repr, whole)), cat
+    assert sum(len(S.field_share(f, [sd], [fd], members=members).writes) for f in fields) == len(sd.keys)
