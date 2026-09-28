@@ -14,9 +14,11 @@ a tour on it 7/7 with no facing miss. **Rung 4 ★ offline on session 3's real t
 shows the traced set difference cut to one field (351: the pre-empted latches and the byte-297 clobber; 450: no
 member, every write reached only across the seam), and the per-field shares partition the whole comparison exactly.
 **Session 4 ★★★ 18/18** (`story-rung3d`): every stock run entered 355 before 450, and R3-NULL-PRE's VOID is a PASS
-(214 stock keys before 450, all written by the members). The ladder's rungs are all done. **F5, the hub lane
-under the trace: built and frozen offline** (predictions v3 sha `d3ae4121`); its deploy and session wait on the
-owner's go.
+(214 stock keys before 450, all written by the members). The ladder's rungs are all done. **F5 ★★ THE HUB LANE
+UNDER THE TRACE, in-game 28/28** (`story-rung5`, predictions v3 sha `d3ae4121`): New Game -> the hub's journey pick
+-> 12 pure verbatim members wrote what stock Dali writes, key for key, on paired walks. MIRROR was empty and 450 ran
+as a member with no seam. The seed stamped exactly its three frozen rows, and the story advanced in member(354) on
+stock's step.
 
 Board entry #3 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It is the narrative-state arc's missing
 instrument ([`../narrative-state/PLAN.md`](../narrative-state/PLAN.md)).
@@ -447,7 +449,50 @@ were in the reader under every report:
   reports.
 - **Repeated flags:** argparse kept only the last of a repeated `--fork`.
 
-## F5 -- the hub lane under the trace (built and frozen offline; the session is pending)
+## F5 -- the hub lane under the trace (★★ in-game 28/28, `story-rung5`)
+
+### The session (2026-09-28, `story-rung5`): 28/28, no re-runs
+
+- **Deploy.** 13 ids went additively into FF9CustomMap, and all 7 static pre-flight checks passed on the live install.
+  The session's launch was the one relaunch. It took 3541 s at a steady ~60 fps. The install was left clean: no
+  arm file, and `Memoria.ini` untouched.
+- **P-HUBLEG, the hub leg's first in-game test, PASSED.** It measured Stiltzkin's r = 152, talk_r = 338 and the
+  approach (304, 127, 176), which is the geometry read offline from the hub's bytes. Up and down were blocked from
+  the spawn, as the collision model predicted, so the up axis was derived from the hub's twist prior. The design's
+  blind calibration would have refused there and cost the launch. The talk opened on the first try, and the stay
+  row stayed.
+- **The frozen six** (S F5 S F5 S F5) were **all covered**:
+  - every F5 run's pick landed in 31111 (a hub leg of about 6 s, 1 try, 1 press);
+  - its segment woke in member(352) at 2600;
+  - it replayed its partner's whole entered walk (22, 22 and 24 steps);
+  - SC advanced to 2610 in member(354) on the partner's step.
+- **Every check PASSED:**
+  - R5-STAMP: exactly the three frozen stamps, joined against the hub's bytes;
+  - R5-MIRROR: 0 FORK ONLY and 0 STOCK ONLY against a stock guard of 283 keys;
+  - R5-NOSEAM and R5-PING: 450 wrote the ping as member 31112, with no seam anywhere;
+  - R5-STATE: the wake-instant state is equal in all three pairs, bit for bit (byte 299 aside);
+  - R5-SEGMENT: 117 segment keys, equal in every pair;
+  - R5-PARTIAL: 5 walk-order keys differ between pairs and agree within each;
+  - R5-JOIN 0 failures, R5-PREEMPT empty, NC-THROW nothing thrown.
+- **The offline `--analyse`** of the archived run reproduces both reports byte for byte.
+- **A second instrument agrees.** rung 4's `fork-report <field> --trace` on the same traces, cut per field, gives
+  0 STOCK ONLY and 0 FORK ONLY in every field these walks entered. Matched keys: 359 49/50, 351 23/25, 352 63/63,
+  350 40/43, 353 12/12, 354 23/23, 355 12/12, 356 28/28, 358 13/13, 450 20/20.
+  - Each field's remainder is UNSTABLE in equal counts on both sides: the timing byte 299 and the walk-order keys.
+  - The 7 whole-comparison FORK ONLY keys are the hub's own rows, filed under 31100 (no real donor).
+  - 312 and 357 were never entered by any walk.
+
+**What it does and does not prove.** At this entry, the hub lane as shipped plays the Dali morning write-for-write
+like stock, from the pick to the story's advance, and 450 is a member. It does NOT test the seed's beat-instant
+values, as predicted: 359's own start-up and the night segment re-create them (the KNOWN-GAP; R5-STATE PASSes on the
+state the segment produces). The offline-predicted seed defects for an entry past the wake are still open and
+untested in the game: the ATE latches 2078/2086 left 0 where stock has 1, and all four party members where stock
+has Zidane alone. F5b would test them. The trace cannot see party state.
+
+**Archive:** `C:\gd\Dream-World-IX\.harness-runs\20260928-153015-story-rung5\` (traces, logs, reports, the scripts
+snapshot, `rung5_session.console.log`).
+
+### The build (offline)
 
 **What it tests.** Today's hub lane, New Game -> hub pick -> a chain of pure verbatim forks, as a third fork side
 next to stock Dali, under THE PAIRED-WALK LAW and rung 3's machinery. The owner chose the lane as shipped: entry at
@@ -482,8 +527,7 @@ member(359), no F5b.
   is FORK-STOP `segment@359`. A replay point now carries its step name (`replay@15(350.6 -> 450)`), so two different
   crossings no longer count as one reproduction.
 
-**The whole hub leg is UNVERIFIED in the game.** P-HUBLEG measures r, talk_r and the calibration before run 1, and it
-stops the session if any of them fails.
+**The hub leg was unverified in the game at the freeze.** P-HUBLEG measured it before run 1 and passed (above).
 
 **A pre-existing red, not F5's:** `rung3_dryrun.py` is 79/80, and session 3's S_vs_F0 report gains `, 355` on its
 "real fields seen across it" line. Both come from rung 4's seam listing (`356ac508`). HEAD's committed code produces

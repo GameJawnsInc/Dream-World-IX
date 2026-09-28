@@ -39,20 +39,17 @@ Rewritten at the end of the facing-gate session, and updated after rung 4 and se
    --member ...]` shows the traced set difference cut to one field (`docs/FORK_REPORT.md`). On session 3's traces
    the per-field shares partition the whole comparison exactly. A five-agent review's 16 defects are fixed,
    three of them in the reader under every report.
-4. **F5, the hub lane under the trace** (branch `claude/story-trace-f5`, this worktree; PLAN.md's F5 section).
-   Steps 0-12 are done offline. The build is in `C:\gd\_ns_playtest\f5`. `rung5_hub.py`, `rung5_dryrun.py` (55/55)
-   and the FakeGame tests are committed with the frozen predictions v3 (sha `d3ae4121`). **Next, on the owner's go
-   with FF9 closed:**
-   - master is merged in (`dffd0a22`, deploy_field's claimed microsecond backup stamps), so the batch's
-     same-second collision cannot recur; step 14's per-call stamp check still applies;
-   - steps 13-15 of the build steps: back up, deploy the 13 ids 31100-31112 additively to FF9CustomMap, and verify
-     with `rung5_hub.py --preflight`;
-   - step 16: the session, `py tools\play.py studies\story-trace\rung5_hub.py --label story-rung5 --timeout 240`
-     (about 67 min; its launch is the one relaunch);
-   - step 17: `--analyse`.
-
-   The build steps and the design live in the archive (below). The first real test of the hub leg is P-HUBLEG, run
-   before run 1: the spawn stands inside Stiltzkin's collision radius, so the leg calibrates on the hub's twist.
+4. **DONE: F5, the hub lane under the trace** (owner's go, 2026-09-28): `story-rung5` **28/28**, no re-runs
+   (PLAN.md's F5 section). The hub pick led into 12 pure verbatim members, which wrote what stock Dali writes, key
+   for key, on paired walks: MIRROR empty, 450 a member with no seam, the three frozen stamps exactly. P-HUBLEG
+   passed on its first in-game run (r 152 / talk_r 338 as read off the bytes; the twist-prior calibration).
+   `fork-report --trace` agrees field by field. Archived at
+   `C:\gd\Dream-World-IX\.harness-runs\20260928-153015-story-rung5\`. **Not tested at this entry:** the seed's
+   beat-instant values, which 359 and the segment re-create. The offline-predicted seed defects past the wake (ATE
+   latches 2078/2086, all four party members) wait for an F5b; that needs its own frozen predictions and a
+   seed-resolver fix first.
+   - F5's 13 ids stay deployed until the owner decides. The revert order is in `rung5_forks.json`: per-id scripts
+     only, 31100 first and then 31112 down to 31101, with the JournalPatch sha compared first.
 5. **Rung 3's dry-run is 79/80 on master too** (not F5's): session 2's archived reports predate `356ac508`'s seam
    listing. Re-baseline, or compare that line modulo the seam list (owner's call).
 6. **Later:**
