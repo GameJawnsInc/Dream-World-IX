@@ -74,8 +74,12 @@ Range at SC 2600 then scene-gated region 25, 32; 5 are the 353 door step's ~34u 
   steady rate is ~31 or ~60 fps per launch (the quoted 28-53 were ring averages over field loads), and the driver no
   longer holds movement per frame -- it measures the rate from the state file's write times and plans every press in
   30 Hz ticks (sized at the average, rules at the most a press can reach, sure counts in whole ticks, a run's calls in
-  pairs), the turn's calls read off its yaws where the heading allows. Not yet walked in the game: the first tour on
-  it is the in-game check. (2) The walk's finish still targets the
+  pairs), the turn's calls read off its yaws where the heading allows. In the game at ~60 fps (2026-09-28, the tick
+  clock measured 59.9, band 55.9-65.9 from mtimes): `facing_check.py` 8/8 and a tour 7/7 (holds reversing 6.6%, no
+  waits, no cleared stalls, never boxed -- as clean as the best 58 fps run). NOT YET in the game at ~31 fps, the
+  regime the old constants got 2x wrong: that launch ran at 60 (the regime varies by launch, cause unknown); a
+  launch with `[Graphics] FieldFPS = 30` (the shared install's ini -- owner's call) or the next natural ~31 one shows
+  it. (2) The walk's finish still targets the
   kit's quad: a walk can end in a 5-point region's dead middle, which the step reads LIVE (no Dali gated door has a
   standable dead middle; 8 stock gated rows elsewhere do). (3) On a pre-s90 engine, 350's door to 353 is still
   refused from the tour's goal pocket by the wall-slide bound (LIVE; the in-place turn faces it). (4) Not modelled:
