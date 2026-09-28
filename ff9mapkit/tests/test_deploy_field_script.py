@@ -516,6 +516,61 @@ def test_a_motion_deploy_checks_the_live_fork_donor_rows_before_touching_anythin
     assert "sys.exit(2)" in body and "rmtree(tmp" in body
 
 
+def _writes_into_bk(call):
+    """A call that hands a ``BK / ...`` path to anything -- i.e. writes a pre-deploy backup."""
+    return any(isinstance(a, ast.BinOp) and isinstance(a.op, ast.Div) and isinstance(a.left, ast.Name)
+               and a.left.id == "BK" for a in call.args)
+
+
+def test_backups_claim_a_unique_stamp_and_never_overwrite():
+    """THE HALF-REVERT (story-trace rung 3, six forks): STAMP was a one-second strftime, so two deploys in one
+    second shared every backup name, the later one's snapshots REPLACED the earlier's (by then holding the
+    earlier id's own FieldScene line + ForkDonorPatch row), and the earlier id's revert deleted its .eb but
+    restored its registration -- the null-.eb black screen. Pin both layers of the fix:
+      * STAMP is bound ONCE, from deploybackup.claim_stamp, which claims it by writing the DictionaryPatch
+        snapshot create-exclusive -- the unconditional first backup, under the very name the revert reads;
+      * every other write into BK goes through _backup (create-exclusive), none through shutil.copyfile, and
+        all of them come after the claim."""
+    tree = ast.parse(_SRC)
+    assert 'strftime("%Y%m%d-%H%M%S")' not in _SRC, "the one-second backup stamp is back"
+    vals = _assignments("STAMP")
+    assert len(vals) == 1, "STAMP must be bound exactly once"
+    claim = vals[0]
+    assert isinstance(claim, ast.Call) and isinstance(claim.func, ast.Attribute) and claim.func.attr == "claim_stamp"
+    assert [ast.unparse(a) for a in claim.args[:2]] == ["BK", "live.dictionary_patch"]
+    label = claim.args[2].value
+    from ff9mapkit.deploybackup import backup_name
+    from ff9mapkit.reverttmpl import build_revert_script
+    rev = build_revert_script(kit="k", backup_dir="b", stamp="S", mod_folder="M", fid=4003, name="T", fbg="F",
+                              text_block=4003, repo="r")
+    assert f'BK/f"{backup_name(label, "{STAMP}")}"' in rev, "the claimed snapshot must be the one the revert reads"
+    writes = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and _writes_into_bk(n)]
+    assert writes, "no backup writes found -- the check below would pass vacuously"
+    stray = [ast.unparse(n) for n in writes if not (isinstance(n.func, ast.Name) and n.func.id == "_backup")]
+    assert not stray, f"a backup write bypasses the create-exclusive _backup: {stray}"
+    assert claim.lineno < min(n.lineno for n in writes), "the stamp must be claimed before any other backup"
+
+
+def test_the_scripts_backup_refuses_to_overwrite_and_aborts_the_deploy(tmp_path, capsys):
+    """Run deploy_field's OWN ``_backup`` (lifted out of the script -- it deploys on import) against a tmp dir:
+    a second write to the same name must abort the deploy (exit 2), loudly, and leave the first snapshot intact."""
+    from ff9mapkit import deploybackup
+    fn = [n for n in ast.parse(_SRC).body if isinstance(n, ast.FunctionDef) and n.name == "_backup"]
+    assert len(fn) == 1, "deploy_field must define _backup at top level"
+    ns = {"_bkp": deploybackup, "sys": sys, "FID": 30832}
+    exec(compile(ast.Module(body=fn, type_ignores=[]), "deploy_field._backup", "exec"), ns)
+    src, dst = tmp_path / "ForkDonorPatch.txt", tmp_path / "ForkDonorPatch.txt.preDEPLOY.S"
+    src.write_text("30831 351\n", encoding="utf-8")
+    ns["_backup"](src, dst)
+    src.write_text("30831 351\n30832 312\n", encoding="utf-8")
+    with pytest.raises(SystemExit) as ei:
+        ns["_backup"](src, dst)
+    assert ei.value.code == 2
+    assert dst.read_text(encoding="utf-8") == "30831 351\n", "the earlier snapshot was overwritten"
+    err = capsys.readouterr().err
+    assert "refusing to overwrite" in err and "30832" in err
+
+
 def test_a_photo_deploy_is_gated_by_the_same_fork_donor_guard():
     """[photo] is novel-only too: a live ForkDonorPatch row would size its pan box from the donor. The guard's
     condition names photo as well as motion, so dropping either half is caught."""

@@ -31,6 +31,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **Refusals and errors.** `--donor`/`--fork-script` with no `--fork` are refused, and so is a `--donor` that
   contradicts a `--member`. An unreadable `--script` is a message, not a traceback.
 
+### Fixed — `tools/deploy_field.py` backups can no longer be overwritten by a same-second deploy
+- **What broke.** Every pre-deploy backup was named `<file>.preDEPLOY.<STAMP>` with a one-second stamp. When
+  a scripted batch landed two deploys in one second, the later one's backups replaced the earlier one's. By
+  then they held the earlier field's own `FieldScene` line and ForkDonorPatch row. The earlier field's revert
+  deleted its `.eb` but restored its registration, which is the null-.eb black screen. Six story-trace
+  rung-3 forks and one fight-ledger bench had such a revert.
+- **The fix.** New `ff9mapkit.deploybackup`. The stamp is now to the microsecond, and each deploy claims it by
+  writing its DictionaryPatch backup create-exclusive. A taken name gets a `-<n>` suffix. Every other backup is
+  also written create-exclusive: if its name is already taken, the deploy stops with a message instead of
+  replacing the file.
+- **Reverts written before the fix.** `tools/repair_collided_backups.py` scans `tools/scroll_out` for them.
+  `--plan` checks each one and simulates its revert against the live folder without writing anything.
+  `--repair` removes the earlier field's own lines from the shared DictionaryPatch/ForkDonorPatch backups and
+  keeps the originals as `<name>.collided-orig`. It refuses whenever the other backups cannot show exactly
+  which lines that deploy wrote.
+
 ### Fixed — `tools/build_memoria.py --no-deploy` no longer deploys the two sibling DLLs
 - **What leaked.** `--no-deploy` passed `-p:DWIXNoDeploy=true`, which s45 honored only in
   `Assembly-CSharp.csproj`. msbuild builds `Memoria.Prime` and `UnityEngine.UI` first, and each has its
