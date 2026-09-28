@@ -40,7 +40,8 @@ Rewritten at the end of the facing-gate session, and updated after rung 4 and se
    Steps 0-12 are done offline. The build is in `C:\gd\_ns_playtest\f5`. `rung5_hub.py`, `rung5_dryrun.py` (55/55)
    and the FakeGame tests are committed with the frozen predictions v3 (sha `d3ae4121`). **Next, on the owner's go
    with FF9 closed:**
-   - merge master first (`dffd0a22`, deploy_field's unique backup stamps);
+   - master is merged in (`dffd0a22`, deploy_field's claimed microsecond backup stamps), so the batch's
+     same-second collision cannot recur; step 14's per-call stamp check still applies;
    - steps 13-15 of the build steps: back up, deploy the 13 ids 31100-31112 additively to FF9CustomMap, and verify
      with `rung5_hub.py --preflight`;
    - step 16: the session, `py tools\play.py studies\story-trace\rung5_hub.py --label story-rung5 --timeout 240`
