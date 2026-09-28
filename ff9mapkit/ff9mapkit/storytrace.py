@@ -753,6 +753,7 @@ class RunDigest:
     seams: list = dfield(default_factory=list)            # [Seam] in the order the run crossed
     seam_keys: dict = dfield(default_factory=dict)        # WriteKey -> Observed, written across a seam
     stores: dict = dfield(default_factory=dict)           # (byte, width) -> {target} every store site's
+    donor_of: dict = dfield(default_factory=dict)         # {field: donor} the digest keyed by over a row's `don`
 
 
 def digest(label: str, rows, *, scripts, donor_scripts=None, donors=None, members=None) -> RunDigest:
@@ -782,7 +783,8 @@ def digest(label: str, rows, *, scripts, donor_scripts=None, donors=None, member
                         f"faulted (state.json storytrace.error), the game died, a second `storytrace 1` "
                         f"restarted it, or the file was taken before `storytrace 0` landed. Every write "
                         f"after the cut reads as absent")
-    ctx = _Ctx(scripts, donor_scripts or scripts, {**members, **(donors or {})})
+    d.donor_of = {**members, **(donors or {})}
+    ctx = _Ctx(scripts, donor_scripts or scripts, d.donor_of)
     across = _walk_seams(d, runs[0]) if members else {}
     for ep in d.epochs:
         for r in ep.residue:
@@ -1473,9 +1475,10 @@ class FieldShare:
 
     @property
     def failures(self) -> list:
-        """``[(run label, Row, why)]``: every JOIN FAILURE on a row written in the field, on either side."""
+        """``[(run label, Row, why)]``: every JOIN FAILURE on a row written in the field, on either side -- a
+        fork row by the donor its digest keyed it by (``--donor``/``--member`` over the row's own ``don``)."""
         return [(d.label, r, why) for d in self.stock + self.fork for r, why in d.failures
-                if self.field in (r.fld, r.don)]
+                if self.field in (r.fld, d.donor_of.get(r.fld, r.don))]
 
     @property
     def unnamed_crossings(self) -> list:

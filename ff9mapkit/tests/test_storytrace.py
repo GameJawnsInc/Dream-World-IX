@@ -1025,6 +1025,20 @@ def test_a_fields_share_of_a_chain_names_its_member_its_seam_and_what_it_reached
     assert "field 552 its member 30823" in S.format_field_share(member)
 
 
+def test_a_fork_row_with_no_donor_row_fails_its_join_under_the_donor_the_digest_keyed_it_by():
+    """An engine with no ForkDonorPatch row writes don == fld; --donor keys the fork's rows to 552, so its
+    join failures belong to 552's share too -- never lost under a fork id no report is ever run for."""
+    stock, fork = _sources()
+    fk = dict(fld=30823, don=30823)
+    rows = _rows(_e("arm", **fk), _w(ip=_ip(FORK, 0, 0, 8), **fk),
+                 _w(ip=_ip(FORK, 0, 0, 3), w="Byte", byte=40, old=0, new=1, **fk), _e("off", **fk))
+    sd = [S.digest("stock", _rows(*_stock_run()), scripts=stock)]
+    fd = [S.digest("fork", rows, scripts=fork, donor_scripts=stock, donors={30823: 552})]
+    sh = S.field_share(552, sd, fd)
+    assert [(label, r.fld, r.don) for label, r, _why in sh.failures] == [("fork", 30823, 30823)]
+    assert "    JOIN FAILURES (1) -- rows written in field 552\n" in S.format_field_share(sh)
+
+
 def test_a_chain_read_with_no_member_set_is_named_where_its_rows_would_silently_match():
     """The same tour digested with no member set: the real 553's rows MATCH stock (the silent merge) -- so the
     share says a fork run left its own fields into the real game and the chain went unnamed. Named, it is
