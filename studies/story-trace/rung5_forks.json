@@ -1,0 +1,135 @@
+{
+ "what": "F5's hub lane, built by tools for the story trace (studies/story-trace/rung5_hub.py): the hub T5_HUB (31100, a gen-hub BG-borrow of field 950's room, NO ForkDonorPatch row) and 12 PURE verbatim Dali members 31101-31112 (450 = 31112, a member: no seam into the real 450). Every member's .eb is remap_fields(its donor's stock .eb, the chain map) byte for byte (P-PURE).",
+ "dir": "C:\\gd\\_ns_playtest\\f5",
+ "census": "py <scratch runner of research/dominance_census.py> -> C:\\gd\\_ns_playtest\\f5\\research\\dominance_census.json (818 fields, story coverage 36.2% of 2832)",
+ "import": "py -m ff9mapkit import-chain 351 --verbatim --ids 312,350-359,450 --fresh-ids --id-base 31101 --name-prefix T5 --mod-folder FF9CustomMap --out C:\\gd\\_ns_playtest\\f5\\dali_chain",
+ "seed": "py -m ff9mapkit story-seed --chain C:\\gd\\_ns_playtest\\f5\\dali_chain --beat 2600 --hub C:\\gd\\_ns_playtest\\f5\\hub\\journeys.toml --entry 31111 --census C:\\gd\\_ns_playtest\\f5\\research\\dominance_census.json  -> set_scenario 2600, set_words [{208,0},{297,1}], party_add [garnet, steiner, vivi, zidane], no set_flags; the members left pure verbatim (no [startup])",
+ "gen_hub": "py -m ff9mapkit gen-hub C:\\gd\\_ns_playtest\\f5\\hub\\journeys.toml  (WITHOUT --extract-camera: the camera is the co-located camera_hub.bgx)",
+ "build": "py -m ff9mapkit build <toml> --out <build dir>/<id>  (offline; only advisory spawn/pitch warnings)",
+ "deploy": "only on the owner's go, FF9 closed, from the worktree: py tools/deploy_field.py <toml> --id N --name <T5 name> --mod-folder FF9CustomMap -- one id per call, >= 1.1 s apart, members 31101..31112 then the hub 31100; after each, its revert STAMP distinct and its backups free of its own lines. Never deploy-campaign / deploy-journey (they wholesale-replace FF9CustomMap).",
+ "deployed_at": null,
+ "mod_folder": "FF9CustomMap",
+ "relaunch_needed": true,
+ "relaunch_why": "13 FieldScene lines, MessageFile 31100 and 12 ForkDonorPatch rows are read at launch only",
+ "hub": {
+  "id": 31100,
+  "name": "T5_HUB",
+  "toml": "C:\\gd\\_ns_playtest\\f5\\hub\\hub.field.toml",
+  "journeys": "C:\\gd\\_ns_playtest\\f5\\hub\\journeys.toml",
+  "camera": {
+   "file": "C:\\gd\\_ns_playtest\\f5\\hub\\camera_hub.bgx",
+   "sha256": "2d6acbd6963514b41eb0103fc885a113a59af7b9d2fc57eb43324c9d955d48ab"
+  },
+  "registers": [
+   "MessageFile 31100 MES_DWIX_31100",
+   "FieldScene 31100 21 GRGR_MAP420_GR_CEN_0 T5_HUB 31100"
+  ],
+  "fork_row": null,
+  "eb_sha256": "148bda04ff91b36da2a112cee2d245284353ee56a2eb18ecc14b1b8144fb7051"
+ },
+ "chains": {
+  "F5": {
+   "name_prefix": "T5",
+   "id_range": [
+    31101,
+    31112
+   ],
+   "dir": "C:\\gd\\_ns_playtest\\f5\\dali_chain",
+   "start_field": {
+    "fork": 31111,
+    "donor": 359,
+    "name": "T5_DL_ENT",
+    "how": "the hub's pick: warp 31100 0 2540, talk to Stiltzkin, 'Dali (SC 2600)' -> Field(31111)"
+   },
+   "members": {
+    "31101": 351,
+    "31102": 312,
+    "31103": 350,
+    "31104": 352,
+    "31105": 353,
+    "31106": 354,
+    "31107": 355,
+    "31108": 356,
+    "31109": 357,
+    "31110": 358,
+    "31111": 359,
+    "31112": 450
+   },
+   "names": {
+    "31101": "T5_DL_INN",
+    "31102": "T5_DL_VIW",
+    "31103": "T5_DL_WHL",
+    "31104": "T5_VGDL_DL_INN",
+    "31105": "T5_DL_MYR",
+    "31106": "T5_DL_SHP",
+    "31107": "T5_DL_BAR",
+    "31108": "T5_DL_WMS",
+    "31109": "T5_VGDL_DL_WMS",
+    "31110": "T5_DL_FWM",
+    "31111": "T5_DL_ENT",
+    "31112": "T5_AP_FID"
+   },
+   "tomls": {
+    "31101": "C:\\gd\\_ns_playtest\\f5\\dali_chain\\T5_DL_INN\\T5_DL_INN.field.toml",
+    "31102": "C:\\gd\\_ns_playtest\\f5\\dali_chain\\T5_DL_VIW\\T5_DL_VIW.field.toml",
+    "31103": "C:\\gd\\_ns_playtest\\f5\\dali_chain\\T5_DL_WHL\\T5_DL_WHL.field.toml",
+    "31104": "C:\\gd\\_ns_playtest\\f5\\dali_chain\\T5_VGDL_DL_INN\\T5_VGDL_DL_INN.field.toml",
+    "31105": "C:\\gd\\_ns_playtest\\f5\\dali_chain\\T5_DL_MYR\\T5_DL_MYR.field.toml",
+    "31106": "C:\\gd\\_ns_playtest\\f5\\dali_chain\\T5_DL_SHP\\T5_DL_SHP.field.toml",
+    "31107": "C:\\gd\\_ns_playtest\\f5\\dali_chain\\T5_DL_BAR\\T5_DL_BAR.field.toml",
+    "31108": "C:\\gd\\_ns_playtest\\f5\\dali_chain\\T5_DL_WMS\\T5_DL_WMS.field.toml",
+    "31109": "C:\\gd\\_ns_playtest\\f5\\dali_chain\\T5_VGDL_DL_WMS\\T5_VGDL_DL_WMS.field.toml",
+    "31110": "C:\\gd\\_ns_playtest\\f5\\dali_chain\\T5_DL_FWM\\T5_DL_FWM.field.toml",
+    "31111": "C:\\gd\\_ns_playtest\\f5\\dali_chain\\T5_DL_ENT\\T5_DL_ENT.field.toml",
+    "31112": "C:\\gd\\_ns_playtest\\f5\\dali_chain\\T5_AP_FID\\T5_AP_FID.field.toml"
+   },
+   "eb_sha256": {
+    "31101": "c95643eedf7193e695bf01cdde097759723425adc368990ae2eddace6708e16f",
+    "31102": "4cd9a4b56722ec80c8032c0e9bb3852856c39f2a22be0531d813afd4e8c23a2c",
+    "31103": "0617a79d9e5c1c55782bace816599d6da0c12a5a299a282515dd3c62510a321a",
+    "31104": "22d983f47ea94e6fec711dc5883b3436b61f15246cf1ba7fd669ad3195ade785",
+    "31105": "e50a97a1b8ac7acdb3c6ab585ff6624441b82e65bddf0441438b96b67df2cfb6",
+    "31106": "48d020f3d19882084d311a6484fa8b66f682f06d27ef37ba951d8f122bb80581",
+    "31107": "a765822919b2ddbe716a86c509817612019994ffa01273bbee72ca6f5990baf0",
+    "31108": "ad48d4c11408f5f05c5d2d64d7661bd2562c5bc87a0d11f702fd805e89b32e18",
+    "31109": "67edbd4529ec48792db48bb4acc3c3ab390e65274482ba4a23f459a2901ee1c2",
+    "31110": "addc98e270fb580377dbb5b88b582c577763a07ba4eb590d8e9731f58275338b",
+    "31111": "3981c957dc08eb53a7558774e21577e29cc347e54018bfd47023e809fbe2e747",
+    "31112": "83f62c4217dcaa013d312e573d4630eaa227eea4f01d4039be72a5c60037220e"
+   },
+   "text_blocks": {
+    "47": "351, 350, 352-359 members (donor text, overwritten identically)",
+    "8": "312",
+    "53": "450 (fresh in FF9CustomMap: shadows the real airfield block with identical text)"
+   },
+   "seams": {
+    "31108": [
+     404
+    ],
+    "31112": [
+     451,
+     453
+    ],
+    "overworld": [
+     31102,
+     31103,
+     31112
+    ]
+   },
+   "seed": null
+  }
+ },
+ "journal_patch": {
+  "built_sha256": "85332e7972db3ac5fc501f41c3ef2bb761dcedc321f53484d50ecb227e663073",
+  "live_sha256_at_build": "85332e7972db3ac5fc501f41c3ef2bb761dcedc321f53484d50ecb227e663073",
+  "live_sha256_at_deploy": null,
+  "guard": "the live sha must equal the built one right before the first deploy (stop if not), and be compared again before any revert"
+ },
+ "stamps": null,
+ "verified": null,
+ "revert": {
+  "scripts_dir": "C:\\gd\\Dream-World-IX\\tools\\scroll_out",
+  "order": "per-id scripts only, 31100, then 31112 down to 31101",
+  "generic_latest": "tools\\scroll_out\\revert_deploy.py will name 31100 after the deploy: never use it"
+ }
+}

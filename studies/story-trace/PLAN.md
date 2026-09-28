@@ -14,7 +14,9 @@ a tour on it 7/7 with no facing miss. **Rung 4 ★ offline on session 3's real t
 shows the traced set difference cut to one field (351: the pre-empted latches and the byte-297 clobber; 450: no
 member, every write reached only across the seam), and the per-field shares partition the whole comparison exactly.
 **Session 4 ★★★ 18/18** (`story-rung3d`): every stock run entered 355 before 450, and R3-NULL-PRE's VOID is a PASS
-(214 stock keys before 450, all written by the members). The ladder's rungs are all done.
+(214 stock keys before 450, all written by the members). The ladder's rungs are all done. **F5, the hub lane
+under the trace: built and frozen offline** (predictions v3 sha `d3ae4121`); its deploy and session wait on the
+owner's go.
 
 Board entry #3 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It is the narrative-state arc's missing
 instrument ([`../narrative-state/PLAN.md`](../narrative-state/PLAN.md)).
@@ -444,6 +446,48 @@ were in the reader under every report:
   fields: on session 3, F0's seam now also names the real 355 that run 8 walked, the only change in the whole
   reports.
 - **Repeated flags:** argparse kept only the last of a repeated `--fork`.
+
+## F5 -- the hub lane under the trace (built and frozen offline; the session is pending)
+
+**What it tests.** Today's hub lane, New Game -> hub pick -> a chain of pure verbatim forks, as a third fork side
+next to stock Dali, under THE PAIRED-WALK LAW and rung 3's machinery. The owner chose the lane as shipped: entry at
+member(359), no F5b.
+- **The build** (fresh ids, the durable tree `C:\gd\_ns_playtest\f5`): the hub T5_HUB 31100 (gen-hub's BG-borrow of
+  950's room, no ForkDonorPatch row) and 12 pure verbatim Dali members 31101-31112, 450 among them as 31112.
+- **The hub's journey row** stamps SC 2600, words 208=0 and 297=1, and a party of four, with no flags. It then warps
+  to member(359) = 31111.
+- **The pairing.** The hub's rows are the SEED, judged only by R5-STAMP, R5-SAME and R5-STATE. Both sides are
+  compared from their first row in their own 359.
+- **The known gap.** At this entry, 359's own Main_Init re-stamps the zone, so the segment masks the seed's
+  beat-instant values; R5-STATE records this.
+- **The seed itself is predicted wrong offline for any entry past the wake.** The resolver leaves the ATE latches
+  2078/2086 at 0 where stock has 1, and adds all four party members where stock has Zidane alone.
+
+**The code** is `rung5_hub.py`: the session, the analysis, and the CLI (`--offline-check`, `--preflight`,
+`--analyse`). The one shared change is `dali_tour.segment(enter=)`; rung 3 passes no `enter` and is unchanged.
+- **`rung5_dryrun.py` is 55/55:** the base, 46 mutants and guards, 2 must-PASS cases and 5 offline pre-flight cases.
+  It builds the 13 fields itself and checks each `.eb` against its frozen sha.
+- **Tests:** 23 FakeGame tests of the segment and the hub leg in `test_harness.py`.
+- **Frozen:** `rung5_predictions_v3.json` (sha `d3ae4121`, LF, `-text`) and `rung5_forks.json` (deployed_at null).
+
+**Where the design was wrong against the bytes** (each is declared in the predictions' implementation list):
+- **The spawn is inside Stiltzkin.** The hub spawn stands 76u inside his collision radius (r 152, push-out 136 < r),
+  so every probe that faces him is undone and a blind `calibrate_axes` cannot work there. The leg calibrates on the
+  hub's own SetControlDirection twist `[255, 255]`, and P-HUB checks that twist in the bytes.
+- **The walk goes the other way.** The approach walk goes WEST, away from him, so he is turned in place before every
+  Confirm.
+- **Two clocks.** `hub_s` covers the leg up to the pick's Confirm. The new `entry_s` (60 s) covers the press to the
+  landing in 31111. So no budget stop can follow a stamp.
+- **Stop classes.** The review corrected these: a budget stop is DRIVE, and a stall at member entry after the stamps
+  is FORK-STOP `segment@359`. A replay point now carries its step name (`replay@15(350.6 -> 450)`), so two different
+  crossings no longer count as one reproduction.
+
+**The whole hub leg is UNVERIFIED in the game.** P-HUBLEG measures r, talk_r and the calibration before run 1, and it
+stops the session if any of them fails.
+
+**A pre-existing red, not F5's:** `rung3_dryrun.py` is 79/80, and session 3's S_vs_F0 report gains `, 355` on its
+"real fields seen across it" line. Both come from rung 4's seam listing (`356ac508`). HEAD's committed code produces
+the identical output. Re-baselining rung 3's archived reports is the owner's call.
 
 ## Rungs
 

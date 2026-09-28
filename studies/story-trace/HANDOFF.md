@@ -36,7 +36,22 @@ Rewritten at the end of the facing-gate session, and updated after rung 4 and se
    --member ...]` shows the traced set difference cut to one field (`docs/FORK_REPORT.md`). On session 3's traces
    the per-field shares partition the whole comparison exactly. A five-agent review's 16 defects are fixed,
    three of them in the reader under every report.
-4. **Later:**
+4. **F5, the hub lane under the trace** (branch `claude/story-trace-f5`, this worktree; PLAN.md's F5 section).
+   Steps 0-12 are done offline. The build is in `C:\gd\_ns_playtest\f5`. `rung5_hub.py`, `rung5_dryrun.py` (55/55)
+   and the FakeGame tests are committed with the frozen predictions v3 (sha `d3ae4121`). **Next, on the owner's go
+   with FF9 closed:**
+   - merge master first (`dffd0a22`, deploy_field's unique backup stamps);
+   - steps 13-15 of the build steps: back up, deploy the 13 ids 31100-31112 additively to FF9CustomMap, and verify
+     with `rung5_hub.py --preflight`;
+   - step 16: the session, `py tools\play.py studies\story-trace\rung5_hub.py --label story-rung5 --timeout 240`
+     (about 67 min; its launch is the one relaunch);
+   - step 17: `--analyse`.
+
+   The build steps and the design live in the archive (below). The first real test of the hub leg is P-HUBLEG, run
+   before run 1: the spawn stands inside Stiltzkin's collision radius, so the leg calibrates on the hub's twist.
+5. **Rung 3's dry-run is 79/80 on master too** (not F5's): session 2's archived reports predate `356ac508`'s seam
+   listing. Re-baseline, or compare that line modulo the seam list (owner's call).
+6. **Later:**
    - s88/s89/s90 go into the next engine-bundle re-cut. That is a release: outward-facing, confirm first.
    - Keep or revert the 23 fork ids (owner's call).
    - An engine tick counter (`ticks`/`rt` in state.json) at the next DLL rebuild, to replace the mtime estimate.
@@ -124,6 +139,13 @@ Range at SC 2600 then scene-gated region 25, 32; 5 are the 353 door step's ~34u 
     `wf_55559065-206` predictions v2 / the replay, `wf_e30deb95-606` the 116-miss diagnosis + the door-pin fix,
     `wf_b4d457ce-760` the facing fix (stopped, empty); earlier ids are rung 0-3 builds and reviews -- the
     `results.md` headers say which.
+  - `story-trace-archive\f5\` -- F5 (`README.txt` maps it):
+    - the settled design (`design\design.md`, `checks.json`, `build_steps.txt`, `owner_decisions.txt`; may quote
+      `.eb` disassembly, never commit);
+    - `cont\fix\freeze_fix.py`, the generator of the committed predictions v3;
+    - the gate outputs and mutant harnesses;
+    - the design, build and resume workflows (`wf_4574eab4-845`, `wf_134bf773-81f`, the latter killed mid-build,
+      and `wf_b80d9ff6-de6`).
   - `story-trace-archive\facing-session\` -- the facing-gate session (2026-09-26/27): `workflows\` (the understand
     `wf_0c8b27cc-198`, the build + five-lens review `wf_0a36f57d-e49`, engine patch s90 `wf_5c7015d9-2df`, the s90
     driver `wf_75e5a330-185`: scripts, journals, readable results) and `scratchpad\` (the census data -- game bytes
