@@ -1385,6 +1385,285 @@ def report_runs(runs, *, title: str = "", writers: bool = False) -> str:
     return "\n".join(lines) + "\n"
 
 
+# ================================================================== one field's share (fork-report, rung 4)
+@dataclass
+class FieldShare:
+    """One real field's share of traced runs -- ``fork-report``'s TRACED story-writes axis (PLAN.md rung 4).
+
+    Every key names its DONOR (a fork run's rows key through ForkDonorPatch, or the member set), so a field's
+    share of a comparison is the keys whose donor is the field: :func:`report`'s categories, cut to them, over
+    the same runs -- a key's counts are the whole comparison's. The seams are the crossings that leave the
+    field's member or pass through the real field; the join failures, the rows written in the field on either
+    side. With no fork runs (``comparison`` None) it is the stock walk alone: :attr:`writes`.
+
+    Cut to one field, the report can no longer say what the chain does ELSEWHERE, so :attr:`chain` keeps the
+    whole comparison's totals: a clean field in a broken chain never reads as a clean chain."""
+
+    field: int
+    stock: list                                           # [RunDigest] -- every stock run, whatever it walked
+    fork: list
+    comparison: Comparison | None = None
+
+    def _mine(self, keys) -> list:
+        return [k for k in keys if k.donor == self.field]
+
+    @property
+    def writes(self) -> list:
+        """``[(WriteKey, Observed, runs)]``: every key the stock runs wrote in the field, ``runs`` = in how many
+        of them, in the order first written (the first run that wrote it, then its line in that run)."""
+        first: dict = {}
+        n: Counter = Counter()
+        for i, d in enumerate(self.stock):
+            for k, o in d.keys.items():
+                if k.donor == self.field:
+                    n[k] += 1
+                    first.setdefault(k, ((i, o.at, k.sort_key()), o))
+        return [(k, first[k][1], n[k]) for k in sorted(first, key=lambda k: first[k][0])]
+
+    @property
+    def members(self) -> list:
+        """The fork ids in the member set whose donor is the field (empty: the field is no member)."""
+        c = self.comparison
+        return sorted(f for f, d in (c.members if c is not None else {}).items() if d == self.field)
+
+    @property
+    def stock_only(self) -> list:
+        return self._mine(self.comparison.stock_only) if self.comparison is not None else []
+
+    @property
+    def fork_only(self) -> list:
+        return self._mine(self.comparison.fork_only) if self.comparison is not None else []
+
+    @property
+    def unstable(self) -> list:
+        return self._mine(self.comparison.unstable) if self.comparison is not None else []
+
+    @property
+    def matched(self) -> list:
+        return self._mine(self.comparison.matched) if self.comparison is not None else []
+
+    @property
+    def across_seam(self) -> list:
+        return self._mine(self.comparison.across_seam) if self.comparison is not None else []
+
+    @property
+    def seam_only(self) -> list:
+        return self._mine(self.comparison.seam_only) if self.comparison is not None else []
+
+    @property
+    def seams(self) -> list:
+        """``[(Seam, [run label])]``: each crossing out of the field's member, or through the real field."""
+        if self.comparison is None:
+            return []
+        f = self.field
+        return [(s, ls) for s, ls in self.comparison.seams if s.donor == f or s.to == f or f in s.fields]
+
+    @property
+    def clobbers(self) -> list:
+        return [cl for cl in self.comparison.clobbers if cl.key.donor == self.field] if self.comparison else []
+
+    @property
+    def pre_empted(self) -> list:
+        """The :class:`PreEmpted` values the field's member stamps, or the field itself writes in stock."""
+        if self.comparison is None:
+            return []
+        f = self.field
+        return [p for p in self.comparison.pre_empted
+                if any(k.donor == f for k in p.stamps) or any(k.donor == f for k in p.stock)]
+
+    @property
+    def failures(self) -> list:
+        """``[(run label, Row, why)]``: every JOIN FAILURE on a row written in the field, on either side."""
+        return [(d.label, r, why) for d in self.stock + self.fork for r, why in d.failures
+                if self.field in (r.fld, r.don)]
+
+    @property
+    def unnamed_crossings(self) -> list:
+        """With a fork side and NO member set: ``[(run label, fork field, real field)]``, each fork run's first
+        step from a field of its own (a custom id) into the real game. Its rows there key exactly like stock's,
+        so with no member set they MATCH stock as if the fork wrote them -- the silent merge a member set
+        exists to stop, named instead of left to a reader who forgot ``--member``."""
+        c = self.comparison
+        if c is None or c.members:
+            return []
+        out = []
+        for d in self.fork:
+            here, own = None, False
+            for r in (r for ep in d.epochs for r in ep.writes):
+                if not real_field(r.fld):
+                    own = True
+                elif own and r.fld != here:
+                    out.append((d.label, here, r.fld))
+                    break
+                here = r.fld
+        return out
+
+    @property
+    def fork_keys(self) -> int:
+        """How many distinct keys the fork runs wrote in the field, members and seams both."""
+        return len({k for d in self.fork for keys in (d.keys, d.seam_keys) for k in keys if k.donor == self.field})
+
+    @property
+    def touched(self) -> bool:
+        """Did any run, on either side, write in the field (or cross a seam through it)?"""
+        return bool(self.writes or self.fork_keys or self.seams or self.failures)
+
+    @property
+    def chain(self) -> dict:
+        """The WHOLE comparison's category totals (every field): ``{}`` with no fork side."""
+        c = self.comparison
+        if c is None:
+            return {}
+        out = {"STOCK ONLY": len(c.stock_only), "FORK ONLY": len(c.fork_only), "UNSTABLE": len(c.unstable)}
+        if c.members:
+            out.update({"SEAMS": len(c.seams), "REACHED ONLY ACROSS A SEAM": len(c.across_seam),
+                        "SEAM ONLY": len(c.seam_only)})
+        out.update({"NEIGHBOUR-BYTE CLOBBERS": len(c.clobbers), "PRE-EMPTED": len(c.pre_empted)})
+        return out
+
+
+def field_share(field: int, stock, fork=(), *, members=None) -> FieldShare:
+    """One field's share of N stock runs (and, given them, N fork runs compared as :func:`compare` does --
+    ``members`` the fork side's ``{fork id: donor id}``, digested with the same set). Stock runs are required:
+    they are what every fork difference is measured against."""
+    stock, fork = list(stock), list(fork)
+    if not stock:
+        raise TraceError("a field's traced share needs the stock side's runs -- the fork side is measured "
+                         "against them")
+    if members and not fork:
+        raise TraceError("a member set names the FORK side's chain -- give its runs")
+    return FieldShare(int(field), stock, fork, compare(stock, fork, members=members) if fork else None)
+
+
+def _bit_index(target: str) -> int | None:
+    """``Global.Bit[2102]`` -> 2102; a byte/word variable -> None."""
+    width = target[len("Global."):target.index("[")]
+    return int(target[target.index("[") + 1:-1]) if width in BIT_WIDTHS else None
+
+
+def _static_lines(sh: FieldShare, static) -> list:
+    """Hold the stock walk's writes up against fork-report's STATIC candidates (``[(bit, region|None)]``): which
+    the walk set, which it never ran (no evidence either way -- a walk that did not trigger a store says nothing
+    about it), and what it wrote that no candidate lists (a byte/word store, a noise-side latch, or a store the
+    static pattern misses)."""
+    written: dict = {}
+    other: dict = {}
+    for k, _o, n in sh.writes:
+        bit = _bit_index(k.target)
+        if bit is not None and bit in {b for b, _r in static}:
+            written[bit] = max(written.get(bit, 0), n)
+        else:
+            other.setdefault(k.target, []).append(k.value)
+    ns = len(sh.stock)
+    cands = sorted(dict(static))
+    hit = [f"{b}" + ("" if written[b] == ns else f" ({written[b]}/{ns})") for b in cands if b in written]
+    miss = [str(b) for b in cands if b not in written]
+    out = [f"static candidates (the Story writes line above): {len(cands)} -- written on these walks: "
+           f"{', '.join(hit) or 'none'}"]
+    if miss:
+        out.append(f"  not written on them: {', '.join(miss)}  (these walks never ran the store -- no evidence "
+                   f"either way)")
+    if other:
+        shown = [f"{t} ({', '.join(map(str, sorted(set(v))))})"
+                 for t, v in sorted(other.items(), key=lambda tv: _target_order(tv[0]))]
+        out.append(f"written, and no static candidate: {', '.join(shown)}  (a byte/word store, a latch the "
+                   f"static axis drops as side state, or a store its pattern misses)")
+    return out
+
+
+def format_field_share(sh: FieldShare, *, static=None, whole: str = "") -> str:
+    """The traced axis as ``fork-report`` prints it, under its report. ``static`` = the report's Story-writes
+    candidates (``ForkReport.story_writes``): with the stock side alone, each is marked written on these walks
+    or not. ``whole`` = the command that prints the whole comparison (every field), named under the totals."""
+    ns, nf, c = len(sh.stock), len(sh.fork), sh.comparison
+    head = f"stock x{ns}" + (f" vs fork x{nf}" if c is not None else "")
+    if c is not None and c.members:
+        head += (f"; the fork side is a chain of {len(c.members)} member(s), field {sh.field} "
+                 + (f"its member {', '.join(map(str, sh.members))}" if sh.members else "NO member of it"))
+    lines = [f"  Story writes, TRACED -- field {sh.field} ({head})"]
+    lines += ["    " + ln for ln in _incomplete_banner(
+        sh.stock + sh.fork, "a key such a run never reached may lie past its cut, so no absence below is evidence")]
+    crossed = sh.unnamed_crossings
+    if crossed:
+        lines.append(f"    !! {len(crossed)} fork run(s) left their own fields into the real game ("
+                     + ", ".join(f"{label}: {a} -> real {b}" for label, a, b in crossed)
+                     + ") and no member set names the chain: their rows there MATCH stock as if the fork wrote "
+                       "them -- name the chain's members (--member FORK=DONOR,...) to keep them apart")
+    if not sh.touched:
+        lines.append(f"    no traced run, on either side, wrote in field {sh.field} -- these walks never ran its "
+                     f"scripts: nothing to show (trace a walk through it)")
+        return "\n".join(lines) + "\n"
+
+    def section(name, keys, note="", tail=lambda k: "", seen=None):
+        lines.append(f"    {name} ({len(keys)})" + (f" -- {note}" if note else ""))
+        for k in keys:
+            lines.append("    " + _key_line(k, (c.seen if seen is None else seen)[k], tail(k)))
+
+    if c is None:
+        writes = sh.writes
+        lines.append(f"    WRITES ({len(writes)}) -- the stock walk's story writes in field {sh.field}, in the order "
+                     f"first written; n/{ns} = the stock runs that wrote it")
+        for k, o, n in writes:
+            lines.append("    " + _key_line(k, o, lead=f"{n}/{ns}  "))
+        if static is not None:
+            lines += ["    " + ln for ln in _static_lines(sh, static)]
+    else:
+        clobbered: dict = {}
+        for cl in sh.clobbers:
+            clobbered.setdefault(cl.key, []).append(cl)
+        lines.append(f"    matched in every run of both sides: {len(sh.matched)} of the {len(sh.writes)} key(s) the "
+                     f"stock runs wrote here" + (" (fork MEMBERS only)" if c.members else ""))
+        section("STOCK ONLY", sh.stock_only, f"in {ns}/{ns} stock runs, 0/{nf} fork runs: the fork never wrote these "
+                                             f"here")
+        section("FORK ONLY", sh.fork_only, f"in 0/{ns} stock runs, {nf}/{nf} fork runs (a negative offset is the "
+                                           f"kit's own prepend)",
+                tail=lambda k: "".join(f"   !! NEIGHBOUR-BYTE CLOBBER: byte {cl.byte} {cl.old} -> {cl.new}"
+                                       for cl in clobbered.get(k, ())))
+        if sh.unstable:
+            section("UNSTABLE", sh.unstable, "in some but not all runs of a side: drift, not a difference",
+                    tail=lambda k: f"   stock {c.counts[k][0]}/{ns} fork {c.counts[k][1]}/{nf}")
+        if sh.seams:
+            lines.append(f"    SEAMS ({len(sh.seams)}) -- a fork run left its members into the real game from this "
+                         f"field's member, or walked the REAL {sh.field} across the crossing")
+            for s, labels in sh.seams:
+                lines.append(f"      {s.origin} -> real {s.to}: {len(labels)}/{nf} fork runs; real fields seen "
+                             f"across it: {', '.join(map(str, s.fields))}")
+        if sh.across_seam:
+            section("REACHED ONLY ACROSS A SEAM", sh.across_seam,
+                    f"in {ns}/{ns} stock runs, written by no fork member: the fork side reached them only in the "
+                    f"REAL field {sh.field}",
+                    tail=lambda k: f"   -- {_reached(c.seam_seen[k])}, fork {c.seam_counts[k]}/{nf}")
+        if sh.seam_only:
+            section("SEAM ONLY", sh.seam_only, "the real game's writes across a seam that no stock run made",
+                    tail=lambda k: f"   -- {_reached(c.seam_seen[k])}, fork {c.seam_counts[k]}/{nf}",
+                    seen=c.seam_seen)
+        if sh.clobbers:
+            lines.append(f"    NEIGHBOUR-BYTE CLOBBERS ({len(sh.clobbers)}) -- a fork store here changed a byte "
+                         f"outside the variable the stock runs write at its start")
+            for cl in sh.clobbers:
+                lines.append("    " + _key_line(cl.key, cl.seen, f"   changes byte {cl.byte}: {cl.old} -> {cl.new} "
+                                                                 f"in {cl.runs}/{nf} fork runs -- {cl.why}"))
+        if sh.pre_empted:
+            lines.append(f"    PRE-EMPTED ({len(sh.pre_empted)}) -- the fork's prepend stamps a value every stock "
+                         f"run writes itself: the seed does the story's work before the story does")
+            for p in sh.pre_empted:
+                where = ", ".join(f"{k.donor} {c.seen[k].where} ({n}/{ns})"
+                                  for k, n in sorted(p.stock.items(), key=lambda kn: kn[0].sort_key()))
+                donors = ", ".join(map(str, sorted({k.donor for k in p.stamps})))
+                lines.append(f"      {p.target} := {p.value}  stamped in donor(s) {donors}; stock writes it at "
+                             f"{where}")
+    fails = sh.failures
+    if fails:
+        lines.append(f"    JOIN FAILURES ({len(fails)}) -- rows written in field {sh.field}")
+        lines += [f"      {label} line {r.line}: field {r.fld} e{r.sid} tag {r.tag} ip {r.ip} {r.target} = {r.new} "
+                  f"-- {why}" for label, r, why in fails]
+    if c is not None:
+        totals = ", ".join(f"{name} {n}" for name, n in sh.chain.items())
+        lines.append(f"    the whole comparison (every field): {totals}"
+                     + (f" -- print it whole with {whole}" if whole else ""))
+    return "\n".join(lines) + "\n"
+
+
 # ================================================================== where the scripts come from
 def stock_script_source(game=None, *, lang: str = "us", explicit=None):
     """``field id -> ScriptIndex | None`` over the install's field event bundle (US by default: the census
