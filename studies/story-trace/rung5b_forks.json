@@ -9,8 +9,8 @@
  "gen_hub": "py -m ff9mapkit gen-hub <P>\\{hub,ctl}\\journeys.toml  (WITHOUT --extract-camera: the camera is the co-located camera_hub.bgx)",
  "build": "py -m ff9mapkit build <toml> --out <build dir>/<id>  (offline)",
  "deploy": "only on the owner's go, FF9 closed, from the worktree: py tools/deploy_field.py <P>\\hub\\hub.field.toml --id 31113 --name T5B_HUB --mod-folder FF9CustomMap, >= 1.1 s, then <P>\\ctl\\hub.field.toml --id 31114 --name T5B_CTL; after each, its revert STAMP unique and its backups free of its own lines. Never deploy-campaign / deploy-journey; never redeploy 31100-31112.",
- "deployed": false,
- "deployed_at": null,
+ "deployed": true,
+ "deployed_at": "2026-09-29 00:16:12-00:16:15 local",
  "mod_folder": "FF9CustomMap",
  "relaunch_needed": true,
  "relaunch_why": "2 FieldScene lines and 2 MessageFile lines are read at launch only (the session's own launch is the one relaunch)",
@@ -155,5 +155,26 @@
    "tests/test_storyseed.py": "790274164c327125f3eab70ecf6be8b969b62e2ad2636b065ccf29f536f9e0f0"
   },
   "kit_diff_sha256": "7896f2c0ec7827222a6821be61b41a260be4a625a7d185aa8aabd861f881e176"
+ },
+ "pre_deploy_backups": "C:\\gd\\Dream-World-IX\\backups\\{DictionaryPatch,ForkDonorPatch,JournalPatch}.txt.f5bpre.20260929-001611 (FF9CustomMap, taken right before the first deploy)",
+ "stamps": {
+  "31113": "20260929-001612-789045",
+  "31114": "20260929-001615-374776"
+ },
+ "journal_patch": {
+  "live_sha256_at_deploy": "85332e7972db3ac5fc501f41c3ef2bb761dcedc321f53484d50ecb227e663073",
+  "built_sha256": "85332e7972db3ac5fc501f41c3ef2bb761dcedc321f53484d50ecb227e663073",
+  "live_sha256_after_deploy": "85332e7972db3ac5fc501f41c3ef2bb761dcedc321f53484d50ecb227e663073",
+  "guard": "the live sha must equal the built one before the deploy, and be compared again before any revert"
+ },
+ "verified": {
+  "ids_free_before": "31113/31114 absent from the six Memoria.ini folders' DictionaryPatch (FieldScene/MessageFile), every ForkDonorPatch, the ledger and tools\\scroll_out; FF9 closed, no harness arm",
+  "per_call": "2 calls >= 1.2 s apart (31113 then 31114); each revert STAMP distinct (microsecond); each DictionaryPatch.txt.preDEPLOY.<STAMP> without its own FieldScene/MessageFile line; no ForkDonorPatch backup row",
+  "registered": "each of 31113/31114 has exactly one FieldScene and one MessageFile line across the six folders, and no ForkDonorPatch row",
+  "kept": "DictionaryPatch and ForkDonorPatch keep every pre-deploy line (0 missing vs the f5bpre backups); added exactly the 2 FieldScene + 2 MessageFile lines",
+  "journal_patch": "live sha unchanged by the deploy (85332e79...)",
+  "eb": "the deployed US EVT_T5B_HUB / EVT_T5B_CTL .eb.bytes equal the frozen shas d140317d... / 069e9d2f...",
+  "reverts": "per-id scripts C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_31114.py then revert_deploy_31113.py; the generic revert_deploy.py now names 31114 (never use it)",
+  "preflight": "py studies\\story-trace\\rung5b_hub.py --preflight: P-MANIFEST, P-DEPLOY, P-HUB (F5B), P-HUB (CTL), P-PARTYOPS, P-ENTRY, P-PURE, P-FLOOR, P-EXITS, P-STOCK, P-INI, P-PINS all PASS against the live install"
  }
 }
