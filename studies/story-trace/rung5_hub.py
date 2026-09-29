@@ -362,7 +362,7 @@ def hub_prior(g, pred: dict) -> dict:
     return movement.key_move_basis(pred["hub"]["twist"][g._key_twist_operand()])
 
 
-def hub_open(g, pred: dict, end: float, rec: dict | None = None) -> dict:
+def hub_open(g, pred: dict, end: float, rec: dict | None = None, *, after_warp=None) -> dict:
     """The hub leg up to its menu (design steps 1-6): warp into the hub at the lead-in, calibrate_axes ON THE HUB'S
     OWN TWIST (:func:`hub_prior`), Stiltzkin read off the published objects -- the talker nearest his frozen spot --
     a walk_to (strict False, slides True: his body stops the walk and slides it) to a point his body leaves free and
@@ -380,13 +380,18 @@ def hub_open(g, pred: dict, end: float, rec: dict | None = None) -> dict:
     772-793): up, down and right -- whose turns all swing his facing through east, at him -- do not move him at all,
     and a blind calibrate_axes refuses the v axis outright ("neither up nor down moved"). With the prior, a one-sided
     probe (left, away from him) that agrees with it is a measurement and the other axis is derived (Session.
-    _calibrate_clear_of). The basis is cached for the launch: every later leg walks west out of the body on it."""
+    _calibrate_clear_of). The basis is cached for the launch: every later leg walks west out of the body on it.
+
+    ``after_warp`` (F5c, rung5b_hub's traced P-AMBIENT leg): called with no argument right after the warp returns and
+    before the calibration -- its control marker. None, every F5 caller, leaves the leg exactly as it was."""
     from harness import HarnessError
     H = pred["hub"]
     hid = int(H["id"])
     rec = {"k": "hub"} if rec is None else rec
     _fid, entrance, sc = H["lead_in"]
     g.warp(hid, entrance=entrance, scenario=sc, timeout=min(60.0, _left(end)))
+    if after_warp is not None:
+        after_warp()
     _left(end)
     basis = g.calibrate_axes(prior=hub_prior(g, pred))
     _left(end)

@@ -4,7 +4,28 @@ shown to come out PROVEN / NOT PROVEN: <half> / FAILED: <check> as registered, a
 real rows and real bytes, before any F5b deploy or run. A case registered for one clause of a check names that clause
 (a ``need`` on the check's detail, ``also_need`` on another check's), never the verdict alone.
 
-    py studies/story-trace/rung5b_dryrun.py [--build DIR] [--members DIR] [--keep DIR] [--session5 DIR] [--session3 DIR]
+    py studies/story-trace/rung5b_dryrun.py --predictions FILE [--build DIR] [--members DIR] [--keep DIR]
+        [--session5 DIR] [--session3 DIR] [--pre-ambient] [--only REGEX]
+
+``--predictions`` is REQUIRED (F5c): studies/story-trace/rung5b_predictions_v1.json (session 1, the pre-fix hubs --
+reproduce it with ``--build`` on the preserved build, C:\\gd\\_ns_playtest\\f5b\\keep_v1\\hubs with ``--members
+...\\keep_v1\\members``, or with ``--pre-ambient``) or rung5b_predictions_v2.json (F5c, the fixed hubs). No default:
+the documented no-flag form never silently becomes v2. ``--pre-ambient`` builds every field through a shim that sets
+``ff9mapkit.content.ambient.restore_clear`` to identity before ``cli.main(["build", ...])`` -- the pre-fix bytes
+(tests/test_ambient.py T-AMB-5 pins that identity == the pre-fix build).
+
+VERSION 2 (F5c) ADDS, only under predictions that register them: P-HUBDIFF (each built hub is its preserved v1 build
+plus exactly the ambient tail, 7 languages; a missing v1 build is FAIL, and so is a v1 build that is not its
+SHA256SUMS or, in US, not v1's frozen sha -- even edited consistently with a v2 built on it); CARRY-CONSISTENCY (the
+carried v1 numbers re-derive on the fixed bytes and the New-Game hub rows seat at session 1's sites -- construction
+consistency, nothing about the tail firing; for a change confined to the hub's Main_Init tail its NUMBERS half is
+regression-only -- it can fail through the seating clause, the numbers do not move: the fixer's review measured the
+tail-first mutant re-deriving all 25); HUB-ROWS-SAME in the analysis, with its mutants (the olds and the count-row
+clause each have one); :meth:`World.ambient`, P-AMBIENT's trace rows derived from the built hubs' own store sites,
+carried into every constructed session as its one attempt (THE FIX line PROVEN on the base); and the 26 P-AMBIENT
+cases of the registered decision table -- the design's 19 and the 7 the review added (24 pure, over
+rung5b_hub.ambient_verdict; amb-retry and amb-record-disagrees through the analysis: THE FIX re-derives every attempt
+from its own file, never the recorded verdict).
 
 THE BYTES. The two hubs are built here, offline, from the frozen tomls the predictions name (C:\\gd\\_ns_playtest\\f5b
 \\{hub,ctl}\\hub.field.toml; ``--build DIR`` reads a build already made the same way, <DIR>/<id>/), and each US .eb is
@@ -304,15 +325,125 @@ VERDICT_LINES = {
 }
 VERDICT_WHY = {"base": "the base construction (session 5's stock runs; F5B and CTL on the built hubs' bytes)"}
 
+#: VERSION 2's cases (F5c; design F5c 2.3-2.5), registered only under predictions that carry ``hub_fix``: v1's registry
+#: -- and so v1's frozen file -- is exactly REGISTERED. The P-AMBIENT cases name the table row they must hit
+#: (:data:`AMB_OUTCOME`); all but amb-retry are PURE (rung5b_hub.ambient_verdict over constructed rows and a leg).
+REGISTERED_V2 = {
+    # -- P-AMBIENT: the decision table, every row reached (design F5c 2.4) ------------------------------------------
+    "amb-base": ("P-AMBIENT", "PASS", "the fixed rows (World.ambient on the built hubs), the leg complete"),
+    "amb-v1-hub": ("P-AMBIENT", "FAIL", "rows from the v1 hub bytes (no tail), calibrated, landed, 'control back in "
+                                        "31101 timed out' (351 keeps the 9): FAIL (b)"),
+    "amb-stall-hub": ("P-AMBIENT", "FAIL", "rows up to (a) and the rest of the prologue, hub_control False, a DIALOG in "
+                                           "31113 (a windowed tail): FAIL (b), never granted control"),
+    "amb-stall-member": ("P-AMBIENT", "FAIL", "rows [(a)] + 31101 rows without ip134, hub_control True, landed, the "
+                                              "settle timed out: FAIL (b)"),
+    "amb-wrong-site": ("P-AMBIENT", "FAIL", "the clear at ip242, not the tail's ip275: FAIL (b)"),
+    "amb-hub-stall-after-clear": ("P-AMBIENT", "FAIL", "(a) and (b), then hub_control False: FAIL hub-stalled"),
+    "amb-window-member": ("P-AMBIENT", "FAIL", "(a), (b), landed, 31101 rows without ip134 (the window in 31101): "
+                                               "FAIL (c)"),
+    "amb-ng-fire": ("P-AMBIENT", "FAIL", "a row at the CTL hub's tail ip275 on the New-Game path: FAIL (d)"),
+    "amb-stray-nine": ("P-AMBIENT", "FAIL", "a Byte[14] 2 -> 9 row in the hub: FAIL (d)"),
+    "amb-no-precondition": ("P-AMBIENT", "VOID", "31113 entered with 1 (ip131 1 -> 0), no 2 arrived: VOID "
+                                                 "no-precondition"),
+    "amb-cut-before": ("P-AMBIENT", "VOID", "no 31113 row, a collect error: VOID cut-before-precondition"),
+    "amb-cut-after-precondition": ("P-AMBIENT", "VOID", "rows [(a)], hub_control None, 'the game exited': VOID "
+                                                        "cut-after-precondition, named"),
+    "amb-drive-after-control": ("P-AMBIENT", "VOID", "hub_pick: 'the menu never took its Confirm': VOID "
+                                                     "drive-after-control"),
+    "amb-pick-no-land": ("P-AMBIENT", "VOID", "presses taken, the landing wait timed out: VOID pick-did-not-land"),
+    "amb-cut-after-landing": ("P-AMBIENT", "VOID", "landed, no 31101 row after (b): VOID cut-after-landing"),
+    "amb-other-blocker": ("P-AMBIENT", "VOID", "(a), (b), (c) hold, control never back in 31101: VOID other-blocker"),
+    "amb-arm-raised": ("P-AMBIENT", "VOID", "the arm raised (no trace file): VOID arm"),
+    "amb-before-warp": ("P-AMBIENT", "VOID", "the CTL leg raised, before the warp into 31113: VOID before-warp"),
+    "amb-retry": ("P-AMBIENT", "PASS", "attempt 1 = amb-drive-after-control, attempt 2 = amb-base, through the "
+                                       "analysis: THE FIX PROVEN, two files, both re-derived"),
+    # -- added by the F5c fixer after the review: each reaches a table branch no case above does ------------------
+    "amb-wrong-handoff": ("P-AMBIENT", "FAIL", "(a), (b), landed, and the next Byte[13] row after (b) is 31101 ip134 "
+                                               "3 -> 1 (a present but wrong next row, not a missing one): FAIL (c)"),
+    "amb-member-nine": ("P-AMBIENT", "FAIL", "a Byte[13] := 9 row in 31101 (ip101, 351's own mark) after (c): FAIL "
+                                             "(d) -- a stray 9 outside the hubs"),
+    "amb-tail-count": ("P-AMBIENT", "FAIL", "a COUNT row at the F5B hub's tail site 31113 e0 t0 ip275: FAIL (d)"),
+    "amb-no-arm-row": ("P-AMBIENT", "VOID", "the rows without their arm epoch, no arm error: VOID arm"),
+    "amb-cut-trace-fault": ("P-AMBIENT", "VOID", "rows up to (a), no (b), hub_control True, the collect's tracer "
+                                                 "fault (a cut trace): VOID cut-after-precondition, never FAIL (b)"),
+    "amb-cut-in-member": ("P-AMBIENT", "VOID", "landed, 31101 rows up to its Byte[13] store, the trace cut (a "
+                                               "collect error): VOID cut-after-landing, never FAIL (c)"),
+    "amb-record-disagrees": ("P-AMBIENT", "FAIL", "one attempt over amb-v1-hub's rows RECORDED as verdict True / "
+                                                  "outcome PASS, through the analysis: THE FIX re-derives FAILED ((b)) "
+                                                  "from the file and names the disagreement"),
+    # -- HUB-ROWS-SAME (design F5c 2.5) ----------------------------------------------------------------------------
+    "hubrows-ng-fire-f5b": ("HUB-ROWS-SAME", "FAIL", "F5B#2's hub is entered with a 9 on the New-Game path: a 9 at "
+                                                     "ip109 and its clear at ip275 (olds re-seated) -- R5-STAMP stays "
+                                                     "PASS (its prologue skip)"),
+    "hubrows-ng-fire-ctl": ("HUB-ROWS-SAME", "FAIL", "the same in CTL#3's hub"),
+    "hubrows-drop-131": ("HUB-ROWS-SAME", "FAIL", "F5B#2's ip131 Byte[13] 1 -> 0 row dropped"),
+    "hubrows-old": ("HUB-ROWS-SAME", "FAIL", "F5B#2's hub entered with Byte[13] 0: its ip131 row reads 0 -> 0, not "
+                                             "1 -> 0 (the olds are compared) -- R5-STAMP stays PASS"),
+    "hubrows-count": ("HUB-ROWS-SAME", "FAIL", "a count row at F5B#2's hub e0 t0 (its ip34 Bit[191] site, flushed "
+                                               "before the off) -- R5-STAMP stays PASS"),
+    # -- CARRY-CONSISTENCY (dry-run only; design F5c 2.5) -----------------------------------------------------------
+    "carry-consistency": ("CARRY-CONSISTENCY", "PASS", "v1's carried numbers re-derive on the fixed bytes (only the "
+                                                       "registered store-site count moves) and every base fork run's "
+                                                       "hub e0 t0 rows seat at session 1's ng_rows"),
+    "carry-tail-first": ("CARRY-CONSISTENCY", "FAIL", "hubs built with the TAIL before the prologue: its := 0 precedes "
+                                                      "off 121, the first-value seating moves"),
+    # -- P-HUBDIFF (static) ----------------------------------------------------------------------------------------
+    "pf-hubdiff": ("P-HUBDIFF", "PASS", "the built hubs are their preserved v1 builds plus exactly the tail, 7 "
+                                        "languages x 2 hubs"),
+    "pf-hubdiff-no-v1": ("P-HUBDIFF", "FAIL", "hub_fix.v1_build names a directory with no v1 build (FAIL, never "
+                                              "VOID)"),
+    "pf-hubdiff-extra-byte": ("P-HUBDIFF", "FAIL", "the F5B hub's US .eb with one more byte changed after the tail"),
+    "pf-hubdiff-v1-sha": ("P-HUBDIFF", "FAIL", "a copy of keep_v1/hubs with one v1 byte changed (the F5B hub's jp .eb) "
+                                               "and its SHA256SUMS kept, the v2 built on it: 'not its SHA256SUMS "
+                                               "value'"),
+    "pf-hubdiff-v1-resummed": ("P-HUBDIFF", "FAIL", "a copy of keep_v1/hubs with the F5B US v1 changed AND its "
+                                                    "SHA256SUMS line rewritten, the v2 built on it: the frozen US "
+                                                    "v1_eb_sha256 catches it"),
+}
+#: the P-AMBIENT table row (rung5b_hub.ambient_verdict's name) each case must hit, beside its verdict
+AMB_OUTCOME = {"amb-base": "PASS", "amb-v1-hub": "(b)", "amb-stall-hub": "(b)", "amb-stall-member": "(b)",
+               "amb-wrong-site": "(b)", "amb-hub-stall-after-clear": "hub-stalled", "amb-window-member": "(c)",
+               "amb-ng-fire": "(d)", "amb-stray-nine": "(d)", "amb-no-precondition": "no-precondition",
+               "amb-cut-before": "cut-before-precondition", "amb-cut-after-precondition": "cut-after-precondition",
+               "amb-drive-after-control": "drive-after-control", "amb-pick-no-land": "pick-did-not-land",
+               "amb-cut-after-landing": "cut-after-landing", "amb-other-blocker": "other-blocker",
+               "amb-arm-raised": "arm", "amb-before-warp": "before-warp", "amb-retry": "PASS",
+               "amb-wrong-handoff": "(c)", "amb-member-nine": "(d)", "amb-tail-count": "(d)", "amb-no-arm-row": "arm",
+               "amb-cut-trace-fault": "cut-after-precondition", "amb-cut-in-member": "cut-after-landing",
+               "amb-record-disagrees": "(b)"}
+VERDICT_LINES_V2 = {
+    "hubrows-ng-fire-f5b": ("FAILED: HUB-ROWS-SAME -- ",),
+    "hubrows-drop-131": ("FAILED: HUB-ROWS-SAME, ",),
+    "hubrows-old": ("FAILED: HUB-ROWS-SAME -- ",),
+    "hubrows-count": ("FAILED: HUB-ROWS-SAME -- ",),
+    "amb-record-disagrees": ("PROVEN: every check PASS",),      # THE FIX FAILED, the VERDICT untouched by it
+}
 
-def registered_mutants() -> dict:
-    """``{check: [[why, outcome]]}`` -- every registered case as the predictions freeze it: REGISTERED's verdicts
-    under their checks, and VERDICT_LINES under VERDICT (the line's texts joined by " ... ")."""
+
+def is_v2(pred: dict) -> bool:
+    """Predictions of version 2 (F5c): they carry ``hub_fix`` (and ``ambient``, ``hubs.*.ng_rows``)."""
+    return bool(pred.get("hub_fix"))
+
+
+def registry(pred: dict | None = None) -> dict:
+    """The registered cases a predictions file freezes: REGISTERED (v1), plus REGISTERED_V2 under v2."""
+    return {**REGISTERED, **REGISTERED_V2} if pred is not None and is_v2(pred) else dict(REGISTERED)
+
+
+def verdict_lines(pred: dict | None = None) -> dict:
+    return {**VERDICT_LINES, **VERDICT_LINES_V2} if pred is not None and is_v2(pred) else dict(VERDICT_LINES)
+
+
+def registered_mutants(pred: dict | None = None) -> dict:
+    """``{check: [[why, outcome]]}`` -- every registered case as the predictions freeze it: the registry's verdicts
+    under their checks, and the verdict lines under VERDICT (the line's texts joined by " ... "). ``pred`` None or
+    v1: exactly v1's (its frozen file's) cases; v2: v1's plus :data:`REGISTERED_V2`."""
+    reg = registry(pred)
     out: dict = {}
-    for _key, (cid, verdict, why) in REGISTERED.items():
+    for _key, (cid, verdict, why) in reg.items():
         out.setdefault(cid, []).append([why, verdict])
-    for key, texts in VERDICT_LINES.items():
-        out.setdefault("VERDICT", []).append([VERDICT_WHY.get(key) or REGISTERED[key][2], " ... ".join(texts)])
+    for key, texts in verdict_lines(pred).items():
+        out.setdefault("VERDICT", []).append([VERDICT_WHY.get(key) or reg[key][2], " ... ".join(texts)])
     return out
 
 
@@ -614,16 +745,20 @@ def parsed(rows: list) -> list:
 
 # ======================================================================== a constructed session
 def write_session(d: Path, plan: list, *, snap: dict, pred_path: Path, sha: str | None = None,
-                  session: dict | None = None) -> None:
+                  session: dict | None = None, files: dict | None = None) -> None:
     """A session dir as rung5b_hub.run leaves one: ``plan`` = ``[{side, rows, log, rec}]`` in run order (``rows`` /
     ``log`` None: no file), the session record (the predictions file and its sha256, the pre-flight lines, the legs,
-    P-PARTYREMOVE, NC-THROW -- ``session`` overriding any of them), the scripts snapshot."""
+    P-PARTYREMOVE, NC-THROW -- ``session`` overriding any of them), the scripts snapshot, and ``files`` (``{name: row
+    dicts}``: v2's P-AMBIENT attempt traces, one jsonl each; None rows: no file)."""
     pred, real_sha = M.load_predictions(pred_path)
     if d.exists():
         shutil.rmtree(d)
     (d / "scripts").mkdir(parents=True)
     for fid, data in snap.items():
         (d / "scripts" / f"{fid}.eb").write_bytes(data)
+    for name, rows in (files or {}).items():
+        if rows is not None:
+            (d / name).write_text("".join(json.dumps(o, separators=(",", ":")) + "\n" for o in rows), encoding="utf-8")
     recs = []
     for i, run in enumerate(plan, 1):
         tn, ln = R.run_names(i, run["side"])
@@ -669,6 +804,96 @@ class World:
         self.ops = ops
         self.slot = {s: party_after(NG_SLOT, ops[s]) for s in FORKS}
         self.base = {s: {p: self.rows(s, p) for p in S_OF} for s in FORKS}
+        self.v2 = is_v2(pred)
+        self.amb = self.ambient() if self.v2 else None       # the base P-AMBIENT attempt's rows (v2)
+
+    # -- P-AMBIENT (v2) -----------------------------------------------------------------------------------------
+    def ambient(self, hub_eb: dict | None = None, *, p: int = 1) -> list:
+        """P-AMBIENT's trace (ONE attempt, arm to off) as the engine writes it on ``hub_eb`` (default the built
+        hubs), every hub store site read off those bytes (H5.global_stores): the CTL leg as the base CTL run on S#p
+        wrote it -- New Game's arm and field-70 rows, 31114's prologue on New Game's state and its stamps, 31101's
+        arrival (ip134 Byte[13] 0 -> 1 ... ip1882 := 2); the REVISIT into 31113 carrying that 2 -- its prologue on
+        that state (the base F5B run's hub e0 t0 rows with the Byte[13] branch retaken: the bytes' ``:= 9`` site, (a))
+        and, where the bytes hold one, the tail's clear after the prologue's last store (b); the F5B pick's stamps;
+        then 31101's second arrival as the base F5B run wrote it -- (c) -- when Byte[13] arrives clean. Arriving with
+        the 9 (bytes with no tail), 351's prologue keeps it and its report window blocks after the prologue: no
+        Byte[13] row there, the run never closes (no ``off``). Olds chain per variable from its first-seen value."""
+        hub_eb = self.hub_eb if hub_eb is None else hub_eb
+        pred, E = self.pred, self.pred["entry"]
+        hid = {s: pred["hubs"][s]["id"] for s in FORKS}
+        spec = pred["ambient"]
+        b13, b14 = spec["slots"]
+
+        def visit(rows: list, fld: int) -> list:
+            """The first visit's w rows in ``fld`` -- tag 0, the arrival (up to its first row elsewhere or tag != 0)."""
+            i = next(k for k, o in enumerate(rows) if o["k"] in ("w", "r") and o["fld"] == fld)
+            j = next((k for k in range(i + 1, len(rows)) if rows[k]["k"] in ("w", "r")
+                      and (rows[k]["fld"] != fld or (rows[k]["k"] == "w" and rows[k]["tag"] != 0))), len(rows))
+            return [dict(o) for o in rows[i:j] if o["k"] == "w"]
+
+        ctl, f5b = self.base["CTL"][p], self.base["F5B"][p]
+        land1 = next(k for k, o in enumerate(ctl) if o["k"] in ("w", "r") and o["fld"] == E["member"])
+        lead = [dict(o) for o in ctl[:land1] if o["k"] != "c"]          # arm, field 70, 31114 prologue + stamps
+        assert lead and lead[0]["k"] == "e" and lead[0]["why"] == "arm", "the CTL run does not open with its arm"
+        arrive1 = visit(ctl, E["member"])
+        sites = [s for s in H5.global_stores(hub_eb["F5B"], field_id=hid["F5B"]) if (s["sid"], s["tag"]) == (0, 0)]
+        nine = next(s for s in sites if s["target"] == b13 and s["value"] == 9)
+        end = max(s["ip"] for s in sites if s["target"] == b14 and s["value"] == 1)   # the prologue's last store
+        tail = next((s for s in sites if s["target"] == b13 and s["value"] == 0 and s["ip"] > end), None)
+        hub = [dict(o) for o in f5b if o["k"] == "w" and o["fld"] == hid["F5B"]]
+        e0 = [o for o in hub if (o["sid"], o["tag"]) == (0, 0)]
+        stamps = [o for o in hub if (o["sid"], o["tag"]) != (0, 0)]
+        b13_row = next(o for o in e0 if RD5.target(o) == b13)
+        prologue = [dict(o, ip=nine["ip"], new=9) if o is b13_row else o for o in e0]   # (a): an arriving 2's branch
+        clear = [] if tail is None else [dict(b13_row, ip=tail["ip"], new=0)]              # (b): after the prologue
+        rows = lead + arrive1 + prologue + clear + stamps
+        state: dict = {}
+        for o in rows:
+            if o["k"] == "w":
+                state[RD5.target(o)] = o["new"]
+        arrive2 = visit(f5b, E["member"])
+        blocked = state.get(b13) == 9
+        if blocked:                       # 351 keeps an arriving 9: no Byte[13] store, the report window after the
+            last = max(k for k, o in enumerate(arrive2) if RD5.target(o) == b14)          # prologue's last store
+            arrive2 = [o for o in arrive2[:last + 1] if RD5.target(o) != b13]
+        rows = rows + arrive2
+        if not blocked:
+            off = dict(lead[0], why="off")
+            rows.append(off)
+        seen: dict = {}
+        for o in rows:                    # olds chained per variable, from each one's first-seen old
+            if o["k"] != "w":
+                continue
+            t = RD5.target(o)
+            if t in seen:
+                o["old"] = seen[t]
+            seen[t] = o["new"]
+            o["same"] = int(o["old"] == o["new"])
+        return rows
+
+    def amb_leg(self, **over) -> dict:
+        """P-AMBIENT's leg record as ``_partyremove_once(trace=...)`` leaves it: a complete leg, ``over`` replacing."""
+        leg = {"file": M.AMBIENT_FILE.format(k=1), "arm_error": None, "phase": "done", "error": None,
+               "hub_control": True, "hub_state": {"ui_state": "FieldHUD", "dialog_open": False,
+                                                  "field": self.pred["hubs"]["F5B"]["id"], "control": True},
+               "presses": 1, "landed": True, "member_control": True, "collect_error": None, "traced": 1}
+        leg.update(over)
+        return leg
+
+    def amb_attempts(self, attempts: list) -> tuple:
+        """``(session["ambient"], files)`` for P-AMBIENT attempts ``[(rows | None, leg)]``, each judged as
+        rung5b_hub.p_ambient judges it (its own file, its leg)."""
+        recs, files = [], {}
+        for k, (rows, leg) in enumerate(attempts, 1):
+            name = M.AMBIENT_FILE.format(k=k)
+            files[name] = rows
+            leg = dict(leg, file=name)
+            ok, outcome, why = M.ambient_verdict(parsed(rows or []), self.pred["ambient"], leg)
+            recs.append({"k": k, "file": name, "leg": leg, "verdict": ok, "outcome": outcome, "why": why,
+                         "rows": len(rows or [])})
+        last = recs[-1]
+        return ({"k": "ambient", "verdict": last["verdict"], "outcome": last["outcome"], "why": last["why"],
+                 "attempts": recs}, files)
 
     # -- rows ---------------------------------------------------------------------------------------------------
     def rows(self, side: str, p: int, xform=None, *, s_rows=None, **kw) -> list:
@@ -801,9 +1026,16 @@ class World:
 
     def session(self, **over) -> dict:
         """The session record's recorded parts (rung5b_hub.run's): the static pre-flight, both legs, P-PARTYREMOVE,
-        NC-THROW -- ``over`` replacing any."""
-        return {"preflight": [list(x) for x in self.preflight], "hubleg": self.hubleg(),
-                "partyremove": self.partyremove(), "nc_throw": {"ok": True, "detail": "[]"}, **over}
+        NC-THROW, and under v2 P-AMBIENT's one attempt (:meth:`ambient`, a complete leg) -- ``over`` replacing any."""
+        base = {"preflight": [list(x) for x in self.preflight], "hubleg": self.hubleg(),
+                "partyremove": self.partyremove(), "nc_throw": {"ok": True, "detail": "[]"}}
+        if self.v2:
+            base["ambient"] = self.amb_attempts([(self.amb, self.amb_leg())])[0]
+        return {**base, **over}
+
+    def files(self) -> dict:
+        """The session's extra files: v2's one P-AMBIENT attempt trace (none under v1)."""
+        return self.amb_attempts([(self.amb, self.amb_leg())])[1] if self.v2 else {}
 
 
 # ======================================================================== the numbers (re-derived)
@@ -958,6 +1190,40 @@ def check_numbers(pred: dict, got: dict) -> list:
     return rows
 
 
+#: the one check_numbers row v2 registers as moving: each hub gains the tail's two store sites (and nothing else)
+CARRY_MOVES = ("store sites: F5B / CTL",)
+
+
+def carry_consistency(v1: dict, pred: dict, nums: dict, world) -> tuple:
+    """CARRY-CONSISTENCY (v2, dry-run only; design F5c 2.5): ``(ok, detail)`` -- CONSTRUCTION consistency on the bytes
+    under test, never evidence that the tail fires in game (HUB-ROWS-SAME is that). (1) Every number check_numbers
+    holds v1's frozen file to (LAND, R, CONTROL, SUPP, the bursts, echo, step-1, stamps, party ops and slots, class
+    (iii)) re-derives from ``nums`` equal to v1's, but the registered store-site count, which must move by exactly the
+    tail's two sites per hub; (2) every base fork run's constructed hub e0 t0 rows are session 1's ``ng_rows``: the
+    first-value seating (rung5_dryrun.hub_rows) put the New-Game rows at session 1's sites. A tail seated before the
+    prologue moves (2): its ``:= 0`` precedes off 121."""
+    rows = check_numbers(v1, nums)
+    moved = [f"{name}: v1 {str(frozen)[:80]}, derived {str(derived)[:80]}" for name, frozen, derived, ok in rows
+             if not ok and name not in CARRY_MOVES]
+    want_n = {s: len(v1["hubs"][s]["static_stores"]) + 2 for s in FORKS}
+    if nums["n_stores"] != want_n:
+        moved.append(f"store sites {nums['n_stores']}, not v1's plus the tail's two {want_n}")
+    seat = []
+    for s in FORKS:
+        H = pred["hubs"][s]
+        want = [(x["ip"], x["target"], x["old"], x["new"]) for x in H["ng_rows"]]
+        for p in S_OF:
+            got = [(o["ip"], RD5.target(o), o["old"], o["new"]) for o in world.base[s][p]
+                   if o["k"] == "w" and o["fld"] == H["id"] and (o["sid"], o["tag"]) == (0, 0)]
+            if got != want:
+                seat.append(f"{s} on S#{p}: hub e0 t0 rows {[f'ip{a} {t} {o}->{n}' for a, t, o, n in got][:6]}, "
+                            f"not ng_rows")
+    bad = moved + seat
+    return not bad, "; ".join(bad[:4]) or (f"{len(rows)} v1 numbers re-derive ({len(rows) - len(CARRY_MOVES)} equal; "
+                                           f"store sites {nums['n_stores']} = v1 + 2 each); every base fork run's hub "
+                                           f"seats session 1's {len(pred['hubs']['F5B']['ng_rows'])} ng_rows")
+
+
 # ======================================================================== main
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
@@ -968,23 +1234,37 @@ def main(argv=None) -> int:
     ap.add_argument("--keep", help="write the constructed sessions and builds here (default: a temp dir, removed)")
     ap.add_argument("--session5", default=str(SESSION5), help="F5's session 5 (story-rung5) run dir; read only")
     ap.add_argument("--session3", default=str(SESSION3), help="session 3's run dir (story-rung3c); read only")
-    ap.add_argument("--predictions", default=str(M.PREDICTIONS), help="the frozen predictions (default the v1 file)")
+    ap.add_argument("--predictions", default=None,
+                    help=f"REQUIRED: the frozen predictions -- {M.PREDICTIONS_V1.name} (session 1, the pre-fix hubs) "
+                         f"or {M.PREDICTIONS.name} (F5c, the fixed hubs)")
+    ap.add_argument("--pre-ambient", action="store_true",
+                    help="build every field with ff9mapkit.content.ambient.restore_clear set to identity (the pre-fix "
+                         "bytes), through a `py -c` shim before cli.main")
     ap.add_argument("--only", help="run only the cases whose key matches this regex (the base always runs)")
     a = ap.parse_args(argv)
+    if a.predictions is None:
+        ap.error(f"--predictions is required: studies/story-trace/{M.PREDICTIONS_V1.name} (F5b session 1, the pre-fix "
+                 f"hubs: add --build <preserved keep_v1\\hubs> --members <keep_v1\\members>, or --pre-ambient) or "
+                 f"studies/story-trace/{M.PREDICTIONS.name} (F5c, the fixed hubs) -- there is no default")
     pred_path = Path(a.predictions)
     pred, _sha = M.load_predictions(pred_path)
     holes = M.missing_numbers(pred)
     if pred.get("lane") != "F5b" or holes:
         print(f"the predictions are not frozen F5b predictions: lane {pred.get('lane')}, holes {holes}")
         return 1
+    v2 = is_v2(pred)
+    REG, VL = registry(pred), verdict_lines(pred)
     root = Path(a.keep) if a.keep else Path(tempfile.mkdtemp(prefix="rung5bdry-"))
     root.mkdir(parents=True, exist_ok=True)
     stock = T.stock_script_source()
     roots: list = []                       # hermetic: the analysis reads the snapshot and stock, never the mod folders
-    man = json.loads(M.MANIFEST.read_text(encoding="utf-8"))
+    man = json.loads(M.manifest_path(pred).read_text(encoding="utf-8"))
     man5 = json.loads(M.F5_MANIFEST.read_text(encoding="utf-8"))
     bad, n_cases, seen = 0, 0, Counter()
     only = re.compile(a.only) if a.only else None
+
+    def kit(args: list, *, log: Path | None = None) -> None:
+        RD5.kit(args, log=log, pre_ambient=a.pre_ambient)
 
     def run_case(key: str) -> bool:
         return only is None or bool(only.search(key))
@@ -997,13 +1277,21 @@ def main(argv=None) -> int:
         print(line, flush=True)
 
     # -- the bytes -----------------------------------------------------------------------------------------------
-    print("== THE BYTES")
+    print("== THE BYTES" + (" (--pre-ambient: every build with the ambient clear as identity)" if a.pre_ambient else ""))
     hdir = Path(a.build) if a.build else root / "hubs"
     if not a.build:
-        M.build_hubs(hdir, pred)
+        if a.pre_ambient:
+            for s in FORKS:
+                H = pred["hubs"][s]
+                kit(["build", H["toml"], "--out", hdir / str(H["id"])], log=root / f"hub-{H['id']}.log")
+        else:
+            M.build_hubs(hdir, pred)
     ok_h, d_h, hub_bytes = built_bytes(hdir, {pred["hubs"][s]["id"]: pred["hubs"][s]["eb_sha256"] for s in FORKS})
     hub_eb = {s: hub_bytes.get(pred["hubs"][s]["id"]) for s in FORKS}
     tally("bytes", ok_h, f"  {'as registered' if ok_h else '!! BROKEN'}  the hubs {hdir}: {d_h}")
+    if not ok_h:
+        print("  " + RD5.sha_miss_cause([H5.built_eb(hdir, pred["hubs"][s]["id"]) for s in FORKS],
+                                        pre_ambient=a.pre_ambient, fixed=v2))
     s5 = Path(a.session5)
     want5 = {int(f): sha for f, sha in man5["chains"]["F5"]["eb_sha256"].items()}
     snap = {}
@@ -1017,7 +1305,7 @@ def main(argv=None) -> int:
     mdir = Path(a.members) if a.members else root / "members"
     if not a.members:
         for fid, toml in sorted(man["chains"]["F5"]["tomls"].items()):
-            RD5.kit(["build", toml, "--out", mdir / str(fid)], log=root / f"member-{fid}.log")
+            kit(["build", toml, "--out", mdir / str(fid)], log=root / f"member-{fid}.log")
     ok_mb, d_mb, built_m = built_bytes(mdir, want5)
     same = all(built_m.get(f) == snap[f] for f in want5)
     tally("bytes", ok_mb and same, f"  {'as registered' if ok_mb and same else '!! BROKEN'}  the members built from "
@@ -1042,8 +1330,8 @@ def main(argv=None) -> int:
     static = M.preflight5b(pred, [merged], stock, sides, ran=T.mod_script_source([merged]), pins=False, ini=ini_ok)
     ok_n, d_n, _st = M.p_pins()
     static.append((ok_n, "P-PINS: the resolver's seven F5b regression pins ran and PASSED", d_n))
-    frozen_order = ["P-MANIFEST", "P-DEPLOY", "P-HUB", "P-HUB", "P-PARTYOPS", "P-ENTRY", "P-PURE", "P-FLOOR", "P-EXITS",
-                    "P-STOCK", "P-INI", "P-PINS"]
+    frozen_order = ["P-MANIFEST", "P-DEPLOY", "P-HUB", "P-HUB", *(["P-HUBDIFF"] if v2 else []), "P-PARTYOPS",
+                    "P-ENTRY", "P-PURE", "P-FLOOR", "P-EXITS", "P-STOCK", "P-INI", "P-PINS"]
     names = [M.check_id(w) for _ok, w, _d in static]
     pre_cases = []
 
@@ -1057,6 +1345,58 @@ def main(argv=None) -> int:
     off = M.offline_check5b(pred, hdir, stock, pins=False)
     pf("pf-built-hubs", "P-HUB", "PASS" if all(ok for ok, _w, _d in off) else "FAIL",
        " || ".join(f"{M.check_id(w)} {WORD[ok]}" for ok, w, _d in off))
+    if v2:                                 # P-HUBDIFF: PASS on the build, FAIL with no v1 build or one more byte
+        def eb_built(side: str, lang: str):
+            return M.built_lang(hdir, pred["hubs"][side]["id"], lang)
+
+        ok_hd, d_hd = M.hubdiff_check(pred, eb_built)
+        pf("pf-hubdiff", "P-HUBDIFF", WORD[ok_hd], d_hd, [f"{2 * len(M.LANGS)} = {len(M.LANGS)} languages x 2 hubs"])
+        no_v1 = root / "no-v1-build"
+        no_v1.mkdir(exist_ok=True)
+        ok_nv, d_nv = M.hubdiff_check({**pred, "hub_fix": {**pred["hub_fix"], "v1_build": str(no_v1)}}, eb_built)
+        pf("pf-hubdiff-no-v1", "P-HUBDIFF", WORD[ok_nv], d_nv, ["no v1 build to compare with"])
+        us = bytearray(eb_built("F5B", "us") or b"")
+        if us:
+            us[-1] ^= 0x01                 # one more byte, past the tail (the file's last)
+        ok_xb, d_xb = M.hubdiff_check(pred, lambda side, lang: bytes(us) if (side, lang) == ("F5B", "us")
+                                      else eb_built(side, lang))
+        pf("pf-hubdiff-extra-byte", "P-HUBDIFF", WORD[ok_xb], d_xb, ["F5B us: v2 is not v1 plus the tail at e0 t0 +"])
+
+        # the v1 build's own guards: a keep_v1 edited CONSISTENTLY with a v2 built on it passes the diff, so only the
+        # SHA256SUMS comparison (any language) and the frozen US v1_eb_sha256 can refuse it -- one case each
+        from ff9mapkit.eb import edit as _edit
+
+        def v1_variant(name: str, lang: str, *, resum: bool) -> tuple:
+            """``(v1 dir, v2 bytes of (F5B, lang))``: a copy of hub_fix.v1_build whose F5B ``lang`` .eb has one
+            constant operand changed (a later 8-byte store's value: still parses), its SHA256SUMS line rewritten
+            when ``resum``, and the v2 that is exactly that v1 plus the tail."""
+            d = root / name
+            if d.exists():
+                shutil.rmtree(d)
+            shutil.copytree(Path(pred["hub_fix"]["v1_build"]), d)
+            hid = pred["hubs"]["F5B"]["id"]
+            p1 = next((d / str(hid)).glob(f"StreamingAssets/**/field/{lang}/*.eb.bytes"))
+            v1 = bytearray(p1.read_bytes())
+            at = max(m.start() for m in re.finditer(rb"\x7d..\x2c\x7f", bytes(v1), flags=re.S))
+            v1[at + 1] ^= 0x01                     # the store's low value byte
+            p1.write_bytes(bytes(v1))
+            if resum:
+                rel = p1.relative_to(d).as_posix()
+                lines = (d / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+                (d / "SHA256SUMS").write_text("".join((f"{hashlib.sha256(bytes(v1)).hexdigest()}  {rel}" if
+                                                       ln.endswith(f"  {rel}") else ln) + "\n" for ln in lines),
+                                              encoding="utf-8", newline="\n")
+            F = pred["hub_fix"]
+            return d, _edit.insert_in_function(bytes(v1), 0, 0, int(F["e0t0_rel"]), bytes.fromhex(F["tail_hex"]))
+
+        for key, lang, resum, need in (("pf-hubdiff-v1-sha", "jp", False, "F5B jp: the v1 .eb is not its SHA256SUMS "
+                                                                           "value"),
+                                       ("pf-hubdiff-v1-resummed", "us", True, "F5B us: the v1 .eb is ")):
+            d_v, v2_v = v1_variant(key, lang, resum=resum)
+            ok_v, det_v = M.hubdiff_check({**pred, "hub_fix": {**pred["hub_fix"], "v1_build": str(d_v)}},
+                                          lambda side, lg, _l=lang, _b=v2_v: _b if (side, lg) == ("F5B", _l)
+                                          else eb_built(side, lg))
+            pf(key, "P-HUBDIFF", WORD[ok_v], det_v, [need] + (["not v1's frozen"] if resum else []))
     empty = root / "no-census"
     empty.mkdir(exist_ok=True)
     env = {**os.environ, "FF9_STORY_CENSUS": str(empty), "FF9_F5_DIR": str(empty)}
@@ -1082,9 +1422,9 @@ def main(argv=None) -> int:
         jt = (src / "journeys.toml").read_text(encoding="utf-8")
         assert jt.count(old) == 1, f"{old!r} is not in the frozen row once"
         (d / "journeys.toml").write_text(jt.replace(old, new), encoding="utf-8")
-        RD5.kit(["gen-hub", d / "journeys.toml"], log=d / "gen-hub.log")
-        RD5.kit(["build", d / "hub.field.toml", "--out", d / "build" / str(pred["hubs"]["F5B"]["id"])],
-                log=d / "build.log")
+        kit(["gen-hub", d / "journeys.toml"], log=d / "gen-hub.log")
+        kit(["build", d / "hub.field.toml", "--out", d / "build" / str(pred["hubs"]["F5B"]["id"])],
+            log=d / "build.log")
         return H5.built_eb(d / "build", pred["hubs"]["F5B"]["id"])
 
     e2 = hub_variant("hub-entrance-2", "entrance = 6\n", "entrance = 2\n")
@@ -1104,11 +1444,11 @@ def main(argv=None) -> int:
         shutil.rmtree(seeded)
     chain_dir = Path(man["chains"]["F5"]["dir"])
     shutil.copytree(chain_dir, seeded / "chain")
-    RD5.kit(["story-seed", "--chain", seeded / "chain", "--beat", pred["beat"], "--census",
-             Path(man5["dir"]) / "research" / "dominance_census.json"], log=seeded / "story-seed.log")
+    kit(["story-seed", "--chain", seeded / "chain", "--beat", pred["beat"], "--census",
+         Path(man5["dir"]) / "research" / "dominance_census.json"], log=seeded / "story-seed.log")
     for fid, toml in sorted(man["chains"]["F5"]["tomls"].items()):
-        RD5.kit(["build", seeded / "chain" / Path(toml).relative_to(chain_dir), "--out", seeded / "build" / str(fid)],
-                log=seeded / f"build-{fid}.log")
+        kit(["build", seeded / "chain" / Path(toml).relative_to(chain_dir), "--out", seeded / "build" / str(fid)],
+            log=seeded / f"build-{fid}.log")
     ok_d, d_d = H5.pure_check(pred, lambda f: H5.built_eb(seeded / "build", f), stock)
     pf("pf-pure-seeded", "P-PURE", WORD[ok_d], d_d, ["not remap(stock"])
     # P-INI: the shared Memoria.ini with the removes inert and the autosave off
@@ -1161,20 +1501,22 @@ def main(argv=None) -> int:
     dep = next((ok, d) for ok, w, d in static_f if M.check_id(w) == "P-DEPLOY")
     pf("pf-deploy-hub-fork", "P-DEPLOY", WORD[dep[0]], dep[1], [f"ForkDonorPatch rows [('merged-hub-fork', 950)]"])
     for key, check, st, detail, need in pre_cases:
-        want = REGISTERED[key][1]
+        want = REG[key][1]
         probs = ([] if st == want else [st]) + [f"the detail does not say {s!r}" for s in need if s not in detail]
         tally(key, not probs, f"  {'as registered' if not probs else '!! WRONG'}  {check:<13} {want:<4}  "
-                              f"{REGISTERED[key][2]}" + (f" -- !! {'; '.join(probs)}" if probs else "")
+                              f"{REG[key][2]}" + (f" -- !! {'; '.join(probs)}" if probs else "")
               + f" || {detail[:200]}")
 
     # -- the BASE ---------------------------------------------------------------------------------------------------
     world = World(pred, pred_path, hub_eb, snap, s5, static)
     W = world
 
-    def case(name: str, plan_: list, *, snap_=None, sha=None, **session) -> tuple:
-        """One constructed session, analysed: ``({check: (word, detail)}, reports, judged runs)``."""
+    def case(name: str, plan_: list, *, snap_=None, sha=None, files=None, **session) -> tuple:
+        """One constructed session, analysed: ``({check: (word, detail)}, reports, judged runs)``. ``files`` (v2's
+        P-AMBIENT attempt traces) default the base's one attempt, as ``session["ambient"]`` does."""
         d = root / name
-        write_session(d, plan_, snap=snap_ or snap, pred_path=pred_path, sha=sha, session=W.session(**session))
+        write_session(d, plan_, snap=snap_ or snap, pred_path=pred_path, sha=sha, session=W.session(**session),
+                      files=W.files() if files is None else files)
         checks, reports = M.analyse5b(d, stock=stock, roots=roots)
         sess = json.loads((d / M.SESSION_FILE).read_text(encoding="utf-8"))
         runs = M.read_session5b(d, pred, stock=stock, roots=roots, session=sess)
@@ -1189,7 +1531,8 @@ def main(argv=None) -> int:
     print("\n== BASE (S = session 5's S#1/S#3/S#5 as S#1/S#4/S#7; F5B and CTL constructed from each round's S on the "
           "built hubs' real bytes, re-seated)")
     base_ok = (all(st == "PASS" for st, _d in got.values())
-               and got["VERDICT"][1].startswith(VERDICT_LINES["base"][0]))
+               and got["VERDICT"][1].startswith(VL["base"][0])
+               and (not v2 or got.get("THE FIX", ("", ""))[1].startswith("PROVEN")))
     for k, (st, detail) in got.items():
         print(f"  {st}  {k:<14} {detail[:260]}")
     by = {r["i"]: r for r in base_runs}
@@ -1217,6 +1560,155 @@ def main(argv=None) -> int:
         shown = derived if len(str(derived)) < 180 else f"{str(derived)[:170]}..."
         print(f"  {'as frozen' if ok else '!! DIFFERS'}  {name}: {shown}" + ("" if ok else f" -- frozen {frozen}"))
     print(f"  (class (iii) UInt16[251]: {nums['class_iii_251']}; the hand-back cut: {nums['hand_cut']})")
+
+    def held(key: str, st: str, detail: str, need=()) -> None:
+        """Tally one v2 case against its registration: its verdict word, and the texts its detail must carry."""
+        want = REG[key][1]
+        probs = ([] if st == want else [st]) + [f"the detail does not say {s!r}" for s in need if s not in detail]
+        tally(key, not probs, f"  {'as registered' if not probs else '!! WRONG'}  {REG[key][0]:<13} {want:<4}  "
+                              f"{REG[key][2]}" + (f" -- !! {'; '.join(probs)}" if probs else "") + f" || {detail[:220]}")
+
+    v1_eb = {}
+    if v2:
+        # -- CARRY-CONSISTENCY: v1's numbers on the fixed bytes; the tail-first mutant moves the seating ----------------
+        print("\n== CARRY-CONSISTENCY (v2: construction consistency against v1's frozen numbers)")
+        lin = (pred.get("lineage") or {}).get("v1") or {}
+        v1_path = M.HERE / lin.get("file", M.PREDICTIONS_V1.name)
+        v1_pred, v1_sha = M.load_predictions(v1_path)
+        tally("v1-file", v1_sha == lin.get("sha256"), f"  {'as registered' if v1_sha == lin.get('sha256') else '!! BROKEN'}"
+                                                      f"  the lineage's v1 file {v1_path.name}: sha {v1_sha[:12]}, "
+                                                      f"registered {str(lin.get('sha256'))[:12]}")
+        ok_cc, d_cc = carry_consistency(v1_pred, pred, nums, W)
+        if run_case("carry-consistency"):
+            held("carry-consistency", WORD[ok_cc], d_cc, ["v1 numbers re-derive"])
+        v1_build = Path(pred["hub_fix"]["v1_build"])
+        v1_eb = {s: M.built_lang(v1_build, pred["hubs"][s]["id"], "us") for s in FORKS}
+        if run_case("carry-tail-first"):
+            from ff9mapkit.eb import edit as _edit
+            tail = bytes.fromhex(pred["hub_fix"]["tail_hex"])
+            tf = {s: _edit.insert_in_function(v1_eb[s], 0, 0, 0, tail) for s in FORKS}
+            snap_tf = {**snap, **{pred["hubs"][s]["id"]: tf[s] for s in FORKS}}
+            W2 = World(pred, pred_path, tf, snap_tf, s5, static)
+            d2 = root / "carry-tail-first"
+            write_session(d2, W2.plan(), snap=snap_tf, pred_path=pred_path, session=W2.session(), files=W2.files())
+            sess2 = json.loads((d2 / M.SESSION_FILE).read_text(encoding="utf-8"))
+            runs2 = M.read_session5b(d2, pred, stock=stock, roots=roots, session=sess2)
+            ok_tf, d_tf = carry_consistency(v1_pred, pred, derive(W2, runs2, stock), W2)
+            held("carry-tail-first", WORD[ok_tf], d_tf, ["not ng_rows"])
+
+        # -- P-AMBIENT: the decision table, every row reached (pure; amb-retry runs with the mutants) ---------------------
+        print("\n== P-AMBIENT (v2: rung5b_hub.ambient_verdict over constructed rows and legs -- pure)")
+        spec = pred["ambient"]
+        A = W.amb
+        hub_f, hub_c = pred["hubs"]["F5B"]["id"], pred["hubs"]["CTL"]["id"]
+
+        def at(site: dict, lo: int = 0) -> int:
+            return next(k for k in range(lo, len(A)) if A[k]["k"] == "w" and A[k]["fld"] == site["field"]
+                        and (A[k]["sid"], A[k]["tag"], A[k]["ip"]) == (site["sid"], site["tag"], site["ip"])
+                        and RD5.target(A[k]) == site["target"]
+                        and (A[k]["old"], A[k]["new"]) == (site["old"], site["new"]))
+
+        ia = at(spec["precondition"])
+        ib = at(spec["clear"], ia)
+        ic = at(spec["handoff"], ib)                   # the SECOND arrival's: the CTL leg's own landing wrote one too
+        i_hub = next(k for k, o in enumerate(A) if o["k"] == "w" and o["fld"] == hub_f)
+        i_stamp = next(k for k in range(ib, len(A)) if A[k]["k"] == "w" and A[k]["fld"] == hub_f and A[k]["sid"] != 0)
+        i_land2 = next(k for k in range(ib, len(A)) if A[k]["k"] == "w" and A[k]["fld"] == pred["entry"]["member"])
+        i_ctl = next(k for k, o in enumerate(A) if o["k"] == "w" and o["fld"] == hub_c)
+        b13 = spec["target"]
+        leg = W.amb_leg
+        stall = {"ui_state": "FieldHUD", "dialog_open": True, "field": hub_f, "control": False}
+        no_ctl = f"HarnessError: P-AMBIENT: no control in {hub_f} within 30s after the warp ({stall})"
+        settle = (f"HarnessError: timed out after 60s waiting for control back in {pred['entry']['member']} (its "
+                  f"arrival's autosave written)")
+        not_13 = lambda rows, lo: [o for k, o in enumerate(rows)  # noqa: E731 -- the rows with no Byte[13] store
+                                   if k < lo or o["k"] != "w" or RD5.target(o) != b13]
+        no_pre = [dict(o) for k, o in enumerate(A) if k != ib and not (k < i_hub and o["k"] == "w"
+                                                                         and o["fld"] == pred["entry"]["member"]
+                                                                         and RD5.target(o) == b13 and o["new"] == 2)]
+        for o in no_pre:                   # 351 never set its 2: the hub is entered with 1 and takes ip131
+            if o["k"] == "w" and o["fld"] == hub_f and RD5.target(o) == b13 and o["ip"] == spec["precondition"]["ip"]:
+                o.update(ip=next(x["ip"] for x in pred["hubs"]["F5B"]["ng_rows"] if x["target"] == b13), old=1, new=0,
+                         same=0)
+        ctl_fire = [dict(o) for o in A]
+        j = max(k for k in range(i_ctl, ib) if A[k]["k"] == "w" and A[k]["fld"] == hub_c and A[k]["sid"] == 0) + 1
+        ctl_fire.insert(j, dict(A[ib], fld=hub_c, don=hub_c, old=9, new=0, same=0))
+        stray = [dict(o) for o in A]
+        j14 = next(k for k in range(ia, ib) if A[k]["k"] == "w" and RD5.target(A[k]) == spec["slots"][1])
+        stray[j14] = dict(A[j14], ip=190, old=2, new=9, same=0)
+        # a count row at the hub's tail site (its (b) store's site, flushed before the off as the engine flushes)
+        tail_count = dict({x: A[ib][x] for x in ("f", "p", "m", "fld", "don", "sc", "src", "sid", "tag", "ip", "byte",
+                                                  "w", "bit")}, k="c", n=1, last=0, f=A[-1]["f"], p=A[-1]["p"])
+        cases = {
+            "amb-base": (A, leg()),
+            "amb-v1-hub": (W.ambient(v1_eb), leg(member_control=False, phase="member-settle", error=settle)),
+            "amb-stall-hub": (A[:ib], leg(hub_control=False, hub_state=stall, presses=None, landed=False,
+                                          member_control=None, phase="hub-warp", error=no_ctl)),
+            "amb-stall-member": (A[:ib] + A[ib + 1:i_land2] + not_13(A[i_land2:], 0),
+                                 leg(member_control=False, phase="member-settle", error=settle)),
+            "amb-wrong-site": ([dict(o, ip=242) if k == ib else o for k, o in enumerate(A)], leg()),
+            "amb-hub-stall-after-clear": (A[:ib + 1], leg(hub_control=False, hub_state=stall, presses=None,
+                                                          landed=False, member_control=None, phase="hub-warp",
+                                                          error=no_ctl)),
+            "amb-window-member": (A[:i_land2] + not_13(A[i_land2:], 0),
+                                  leg(member_control=False, phase="member-settle", error=settle)),
+            "amb-ng-fire": (ctl_fire, leg()),
+            "amb-stray-nine": (stray, leg()),
+            "amb-no-precondition": (no_pre, leg()),
+            "amb-cut-before": (A[:i_hub], leg(hub_control=None, hub_state=None, presses=None, landed=False,
+                                              member_control=None, phase="hub-warp",
+                                              error=f"HarnessError: timed out after 60s waiting for field {hub_f} to "
+                                                    f"load", collect_error="HarnessError: storytrace: story.jsonl "
+                                                                           "holds 58 rows, the engine counted 61")),
+            "amb-cut-after-precondition": (A[:ia + 1], leg(hub_control=None, hub_state=None, presses=None,
+                                                           landed=False, member_control=None, phase="hub-warp",
+                                                           error="HarnessError: the game exited (the agent is gone)")),
+            "amb-drive-after-control": (A[:i_stamp], leg(presses=None, landed=False, member_control=None, phase="pick",
+                                                          error="HarnessError: hub leg: the menu never took its Confirm "
+                                                                "on 'Dali (SC 2600)' (2 presses)")),
+            "amb-pick-no-land": (A[:i_land2], leg(landed=False, member_control=None, phase="landing",
+                                                  error=f"HarnessError: timed out after 60s waiting for the pick to "
+                                                        f"land in {pred['entry']['member']}")),
+            "amb-cut-after-landing": (A[:i_land2], leg(collect_error="HarnessError: storytrace: story.jsonl holds 71 "
+                                                                     "rows, the engine counted 86")),
+            "amb-other-blocker": (A, leg(member_control=False, phase="member-settle", error=settle)),
+            "amb-arm-raised": (None, leg(arm_error="HarnessError: storytrace: the deployed engine publishes no "
+                                                   "`storytrace` block", phase="arm", hub_control=None, hub_state=None,
+                                         presses=None, landed=False, member_control=None,
+                                         error="HarnessError: storytrace: the deployed engine publishes no "
+                                               "`storytrace` block")),
+            "amb-before-warp": (A[:i_ctl + 3], leg(hub_control=None, hub_state=None, presses=None, landed=False,
+                                                   member_control=None, phase="ctl-leg",
+                                                   error="HarnessError: hub leg: no dialogue after 3 tries at [314, 127]")),
+            # -- the fixer's (after the review): the table branches no case above reaches ---------------------------
+            "amb-wrong-handoff": ([dict(o, old=3, same=0) if k == ic else o for k, o in enumerate(A)], leg()),
+            "amb-member-nine": (A[:ic + 1] + [dict(A[ic], ip=101, old=A[ic]["new"], new=9, same=0)] + A[ic + 1:],
+                                leg()),
+            "amb-tail-count": (A[:-1] + [tail_count] + A[-1:], leg()),
+            "amb-no-arm-row": ([o for o in A if not (o["k"] == "e" and o.get("why") == "arm")], leg()),
+            "amb-cut-trace-fault": (A[:ib], leg(collect_error="HarnessError: storytrace: the tracer FAULTED (a hook "
+                                                              "exception) -- story.jsonl stops at the fault")),
+            "amb-cut-in-member": (A[:ic], leg(collect_error="HarnessError: storytrace: 3 of the 86 rows the engine "
+                                                            "wrote never reached story.jsonl within 10s -- the trace "
+                                                            "is incomplete")),
+        }
+        assert ia < ib < i_stamp < i_land2 <= ic, (ia, ib, i_stamp, i_land2, ic)
+        assert i_land2 < ic and A[-1]["k"] == "e" and A[-1]["why"] == "off", "31101 writes nothing before (c)"
+        for key, (rows, lg) in cases.items():
+            if not run_case(key):
+                continue
+            ok_a, name_a, why_a = M.ambient_verdict(parsed(rows or []), spec, lg)
+            got_a = f"{WORD[ok_a]} {name_a}"
+            want_a = f"{REG[key][1]} {AMB_OUTCOME[key]}"
+            probs = [] if got_a == want_a else [got_a]
+            tally(key, not probs, f"  {'as registered' if not probs else '!! WRONG'}  P-AMBIENT     {want_a:<30} "
+                                  f"{REG[key][2]}" + (f" -- !! {'; '.join(probs)}" if probs else "")
+                  + f" || {why_a[:200]}")
+        amb_retry = W.amb_attempts([cases["amb-drive-after-control"], cases["amb-base"]])
+        # THE FIX must RE-DERIVE, never trust the record: amb-v1-hub's rows, the attempt recorded as a PASS
+        amb_lie = W.amb_attempts([cases["amb-v1-hub"]])
+        amb_lie[0]["attempts"][0].update(verdict=True, outcome="PASS", why="(recorded) PASS")
+        amb_lie[0].update(verdict=True, outcome="PASS", why="(recorded) PASS")
 
     # -- rows the mutants are made of ---------------------------------------------------------------------------------
     members, m_of = W.members, (lambda donor: W.cmap[donor])
@@ -1775,7 +2267,7 @@ def main(argv=None) -> int:
     lazy("one-ctl", lambda: W.plan({6: W.skipped(6, "CTL"), 9: W.skipped(9, "CTL")}),
          need=["1 covered CTL runs (want >= 2)"],
          also={"R5-RUNS": "VOID", "R5B-LAND": "VOID", "R5B-STATE": "VOID", "R5B-ECHO": "VOID", "R5B-ARRIVAL": "VOID",
-               "R5B-PARTY": "VOID"},
+               "R5B-PARTY": "VOID", **({"HUB-ROWS-SAME": "VOID"} if v2 else {})},   # v2: its coverage minimum (2 CTL)
          also_need={"R5B-LAND": ["R5B-CONTROL (b) VOID: uncalibrated"]}, rest="PASS",
          verdict=("NOT PROVEN: state, latches, party (", "-- proven: walk"))
     lazy("nowake-entrance-4", lambda: W.plan({2: entrance4(2, 1)}),
@@ -1871,6 +2363,67 @@ def main(argv=None) -> int:
     lazy("nc-throw", lambda: W.plan(), nc_throw={"ok": False, "detail": "[('NullReferenceException', 'EventEngine')]"},
          verdict=("FAILED: NC-THROW -- ",))
 
+    if v2:                                 # HUB-ROWS-SAME's mutants, and P-AMBIENT's retry through the analysis
+        amb_t, amb_pre, amb_clr = pred["ambient"]["target"], pred["ambient"]["precondition"], pred["ambient"]["clear"]
+        ng131 = next(x["ip"] for x in pred["hubs"]["F5B"]["ng_rows"] if x["target"] == amb_t)
+
+        def ng_fire(h: list) -> list:
+            """The hub entered with a 9 on the New-Game path: its Byte[13] row becomes the := 9 mark (ip109) and the
+            tail's clear (ip275) -- the olds re-seated after (1 -> 9, 9 -> 0)."""
+            out = []
+            for o in h:
+                if (o["sid"], o["tag"]) == (0, 0) and RD5.target(o) == amb_t:
+                    out += [dict(o, ip=amb_pre["ip"], new=9), dict(o, ip=amb_clr["ip"], new=0)]
+                else:
+                    out.append(o)
+            return out
+
+        def drop131(h: list) -> list:
+            return [o for o in h if not ((o["sid"], o["tag"]) == (0, 0) and RD5.target(o) == amb_t
+                                         and o["ip"] == ng131)]
+
+        lazy("hubrows-ng-fire-f5b", lambda: W.plan({2: f5b(2, 1, W.rows("F5B", 1, hub=W.hub_rows("F5B", 1, ng_fire)))}),
+             need=["F5B#2: ", f"rows at the forbidden ips [{amb_pre['ip']}, {amb_clr['ip']}]"],
+             also={"R5-STAMP": "PASS"}, verdict=VL["hubrows-ng-fire-f5b"])
+        lazy("hubrows-ng-fire-ctl", lambda: W.plan({3: ctl(3, 1, W.rows("CTL", 1, hub=W.hub_rows("CTL", 1, ng_fire)))}),
+             need=["CTL#3: ", f"rows at the forbidden ips [{amb_pre['ip']}, {amb_clr['ip']}]"],
+             also={"R5-STAMP": "PASS"})
+        lazy("hubrows-drop-131", lambda: W.plan({2: f5b(2, 1, W.rows("F5B", 1, hub=W.hub_rows("F5B", 1, drop131)))}),
+             need=["F5B#2: e0 t0 rows ["], verdict=VL["hubrows-drop-131"])
+        lazy("amb-retry", lambda: W.plan(), ambient=amb_retry[0], files=amb_retry[1], look="THE FIX",
+             need=["PROVEN -- attempt 2 of 2: ",
+                   "attempt 1 (ambient_trace_1.jsonl): NOT PROVEN (drive-after-control); attempt 2 "
+                   "(ambient_trace_2.jsonl): PROVEN"], rest="PASS")
+        lazy("amb-record-disagrees", lambda: W.plan(), ambient=amb_lie[0], files=amb_lie[1], look="THE FIX",
+             need=["FAILED ((b)) -- attempt 1 of 1: the hub kept the 9",
+                   "attempt 1 (ambient_trace_1.jsonl): FAILED ((b)) -- recorded PASS PASS, re-derived otherwise"],
+             rest="PASS")
+
+        def hub_old0(rows: list) -> list:
+            """F5B's hub entered with Byte[13] 0 (70's ambient not playing): its ip131 row reads 0 -> 0. The hub row is
+            the trace's first Byte[13] row and 31101's ip134 reads its 0 -- the olds stay consistent."""
+            out = [dict(o) for o in rows]
+            j = next(k for k, o in enumerate(out) if o["k"] == "w" and o["fld"] == pred["hubs"]["F5B"]["id"]
+                     and (o["sid"], o["tag"]) == (0, 0) and RD5.target(o) == amb_t and o["ip"] == ng131)
+            assert not any(o["k"] == "w" and RD5.target(o) == amb_t for o in out[:j]), "a Byte[13] row precedes the hub's"
+            out[j].update(old=0, same=1)
+            return out
+
+        def hub_count(rows: list) -> list:
+            """A count row at the hub's e0 t0 ip34 site (Bit[191], a prologue target), flushed before the off."""
+            out = [dict(o) for o in rows]
+            src = next(o for o in out if o["k"] == "w" and o["fld"] == pred["hubs"]["F5B"]["id"]
+                       and (o["sid"], o["tag"]) == (0, 0))
+            off = next(k for k in range(len(out) - 1, -1, -1) if out[k]["k"] == "e" and out[k]["why"] == "off")
+            c = dict({x: src[x] for x in ("m", "fld", "don", "sc", "src", "sid", "tag", "ip", "byte", "w", "bit")},
+                     k="c", f=out[off]["f"], p=out[off]["p"], n=1, last=src["new"])
+            return out[:off] + [c] + out[off:]
+
+        lazy("hubrows-old", lambda: W.plan({2: f5b(2, 1, hub_old0(W.base["F5B"][1]))}),
+             need=["F5B#2: e0 t0 rows [", f"ip{ng131} {amb_t} 0->0"], also={"R5-STAMP": "PASS"})
+        lazy("hubrows-count", lambda: W.plan({2: f5b(2, 1, hub_count(W.base["F5B"][1]))}),
+             need=["F5B#2: count rows at e0 t0 ips [34]"], also={"R5-STAMP": "PASS"})
+
     # session 3's S#7: a 23-step walk of its own, as S#4
     s3 = Path(a.session3)
     if (s3 / R.SESSION_FILE).is_file():
@@ -1905,29 +2458,30 @@ def main(argv=None) -> int:
           "checks, the stop class, the halt, the re-run plan, the verdict line)")
     for spec in mutants:
         key = spec["key"]
-        chk, want, why = REGISTERED[key]
+        chk, want, why = REG[key]
+        look = spec.get("look", chk)                # the check line that shows it (P-AMBIENT's: THE FIX line)
         if spec.get("stamp_source"):
             H5.STAMP_SOURCE = spec["stamp_source"]
         try:
-            sess_over = {k: spec[k] for k in ("hubleg", "partyremove", "nc_throw") if k in spec}
+            sess_over = {k: spec[k] for k in ("hubleg", "partyremove", "nc_throw", "ambient") if k in spec}
             got_m, _rep, runs_m = case(f"mut-{key}", spec["plan"], snap_=spec.get("snap"), sha=spec.get("sha"),
-                                       **sess_over)
+                                       files=spec.get("files"), **sess_over)
         finally:
             H5.STAMP_SOURCE = "raw"
-        st, detail = got_m.get(chk, (None, ""))
-        probs = [] if st == want else [f"{chk} {st}"]
+        st, detail = got_m.get(look, (None, ""))
+        probs = [] if st == want else [f"{look} {st}"]
         probs += [f"the detail does not say {s!r}" for s in spec.get("need", ()) if s not in detail]
         probs += [f"{c} {got_m[c][0]} (registered {v})" for c, v in spec.get("also", {}).items() if got_m[c][0] != v]
         probs += [f"{c}'s detail does not say {s!r}" for c, ss in spec.get("also_need", {}).items() for s in ss
                   if s not in got_m[c][1]]
         probs += [f"{c} {got_m[c][0]} (registered VOID)" for c in spec.get("void", ()) if got_m[c][0] != "VOID"]
         if spec.get("rest"):
-            named = {chk, "VERDICT", *spec.get("also", {}), *spec.get("void", ())}
+            named = {chk, look, "VERDICT", *spec.get("also", {}), *spec.get("void", ())}
             probs += [f"{c} {w_} (registered {spec['rest']})" for c, (w_, _d) in got_m.items()
                       if c not in named and w_ != spec["rest"]]
         vline = got_m["VERDICT"][1]
-        assert spec.get("verdict") in (None, VERDICT_LINES.get(key)), f"{key}: its verdict is not VERDICT_LINES'"
-        for n, s in enumerate(VERDICT_LINES.get(key, ())):
+        assert spec.get("verdict") in (None, VL.get(key)), f"{key}: its verdict is not VERDICT_LINES'"
+        for n, s in enumerate(VL.get(key, ())):
             if (n == 0 and not vline.startswith(s)) or (n > 0 and s not in vline):
                 probs.append(f"the verdict line {vline[:120]!r} does not {'start with' if n == 0 else 'say'} {s!r}")
         byr = {r["i"]: r for r in runs_m}
@@ -1954,7 +2508,7 @@ def main(argv=None) -> int:
         if spec.get("listed") and re.search(r"\b0 keys differ between pairs", detail):
             probs.append("R5-PARTIAL lists no key: the walks do not differ in what they wrote")
         probs += [f"{byr[i]['label']} was digested" for i in spec.get("undigested", ()) if byr[i]["digest"] is not None]
-        others = [f"{c} {w_}" for c, (w_, _d) in got_m.items() if w_ != "PASS" and c not in (chk, "VERDICT")]
+        others = [f"{c} {w_}" for c, (w_, _d) in got_m.items() if w_ != "PASS" and c not in (chk, look, "VERDICT")]
         tally(key, not probs, f"  {'caught' if not probs else '!! MISSED'}  {chk:<13} {want:<4}  {why}"
                               + (f" -- !! {'; '.join(probs)}" if probs else "") + f" || {detail[:150]}"
               + (f" || also not PASS: {', '.join(others)}" if others else "") + f" || {vline[:110]}")
@@ -1962,23 +2516,24 @@ def main(argv=None) -> int:
     # -- the registry, the frozen file and the cases run agree --------------------------------------------------------
     print("\n== THE REGISTRY")
     frozen = {(c, why, v) for c, spec in pred["checks"].items() for why, v in spec.get("mutants", [])}
-    mine = {(c, why, v) for c, lst in registered_mutants().items() for why, v in lst}
-    missing = sorted(k for k in REGISTERED if seen[k] != 1)
+    mine = {(c, why, v) for c, lst in registered_mutants(pred).items() for why, v in lst}
+    missing = sorted(k for k in REG if seen[k] != 1)
     ok_r = frozen == mine and not missing
     n_cases += 1
     bad += not ok_r and only is None
     if only is not None:
-        print(f"  (--only {a.only!r}: {len(REGISTERED) - len(missing)} of {len(REGISTERED)} cases ran -- NOT a full "
+        print(f"  (--only {a.only!r}: {len(REG) - len(missing)} of {len(REG)} cases ran -- NOT a full "
               f"dry-run)")
-    print(f"  {'as registered' if ok_r else '!! WRONG'}  {len(REGISTERED)} registered cases, the frozen file's "
+    print(f"  {'as registered' if ok_r else '!! WRONG'}  {len(REG)} registered cases, the frozen file's "
           f"checks.*.mutants the same {len(mine & frozen)}; each run once: {not missing}"
           + (f" -- only in the file {sorted(frozen - mine)[:2]}, only here {sorted(mine - frozen)[:2]}, not run once "
              f"{missing[:4]}" if not ok_r else ""))
 
     n_cases += 1
     bad += not base_ok
-    print(f"\nbase passes every check with {got['VERDICT'][1][:60]!r}: {base_ok}; cases as registered: "
-          f"{n_cases - bad}/{n_cases}")
+    print(f"\nbase passes every check with {got['VERDICT'][1][:60]!r}"
+          + (f" and THE FIX {got.get('THE FIX', ('', ''))[1].split(' -- ')[0]!r}" if v2 else "")
+          + f": {base_ok}; cases as registered: {n_cases - bad}/{n_cases}")
     if not a.keep:
         shutil.rmtree(root, ignore_errors=True)
     return 0 if base_ok and not bad else 1

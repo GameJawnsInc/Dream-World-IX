@@ -580,16 +580,86 @@ the 12-agent build are archived at `C:\gd\Dream-World-IX\.harness-runs\story-tra
   is not proof the removes act, because New Game already gives [0,255,255,255]. P-PARTYREMOVE existed to settle
   exactly that.
 
-**The cause is a gen-hub defect, not the seed.** A gen-hub hub copies 359's ambient-sound bookkeeping prologue
-(Int16[9] := -1, then Byte[13] := 9 when it is entered with Byte[13] == 2, i.e. from a field whose ambient sound
-was playing) but not 359's handler that clears the 9 again (359.ebs:105-111). P-PARTYREMOVE is the only path that
-enters a hub from a Dali field (31101 -> 31113). Every Dali field keeps an arriving 9 and reports it with that
-window (351.ebs:16-30 and 326-340). The runs themselves enter the hubs from New Game and never saw it. This is by
-the scripts' code and consistent with the observed window; the trace does not cover the untraced leg. It would also
-bite a player who revisits a hub from a field with ambient sound.
+**The cause is the kit's blank template, not the seed and not gen-hub (corrected by F5c).** Every synthesized
+Main_Init starts from the kit's blank field: stock field 1357 (EVT_LIND2_CS_LB_HNG_0) patched by
+`data/provenance/blank.<lang>.patch`, whose ops `[c 435 29][c 532 105]` skip 1357 src[464:532] -- both of its
+report/clear blocks. So the blank keeps stock's ambient-sound prologue (Int16[9] := -1, then Byte[13] := 9 when the
+field is entered with Byte[13] == 2, i.e. from a field whose ambient sound was still playing) and lost the tail that
+clears the 9 (stock's rule: 813 of 818 Main_Inits close the prologue with it, right before `set MAP159 = 1`;
+359.ebs:105-111 is one of them). That reaches EVERY synthesized build -- `new`, BG-borrow, `--editable` and
+non-verbatim `--native` imports, campaign and journey synth members, gen-hub hubs, the bundled examples -- not gen-hub
+alone; verbatim forks carry their donor's own tail. P-PARTYREMOVE is the only path that enters a hub from a Dali field
+(31101 -> 31113, the harness's debug warp, which skips stock's exit idiom `Byte[13] := 3`). Every Dali field keeps an
+arriving 9 and reports it with that window (351.ebs:16-30 and 326-340). The runs themselves enter the hubs from New
+Game and never saw it. This is by the scripts' code and consistent with the observed window; the trace did not cover
+that untraced leg (F5c's P-AMBIENT traces exactly it). A player meets it when a field entry skips the exit idiom: a
+kit warp, or the New-Game override (F-WARP, F-NG below).
 
 **Archive:** `C:\gd\Dream-World-IX\.harness-runs\20260929-001746-story-rung5b\`. The offline `--analyse` reproduces
 both reports byte for byte.
+
+### F5c: the ambient clear, and the v2 re-test (offline built; the session pending)
+
+- **The fix (kit, `claude/ambient-clear` e1317a42).** `content/ambient.py`: `build_script` restores stock's tail
+  FIRST, silently -- `if Byte[13] == 9 { Byte[13] := 0 }` and the same for Byte[14], 38 bytes, each statement 1357's
+  own encoding, no report window -- right before `set MAP159 = 1`. The blank, its patches and `blank.sha256` are
+  unchanged. `tests/test_ambient.py` (25) pins it on 9 builds.
+- **The merge gate.** `claude/ambient-clear` reaches master only after the in-game THE FIX line reads PROVEN.
+  `claude/story-trace-f5b` carries the fix through TWO merges of that branch -- 10159945 (the fix, e1317a42) and
+  e2d7757e (the review's tests and CHANGELOG wording, b90eae4a; the fix's code unchanged) -- and does not merge to
+  master while it does. To merge the resolver first, or on FAILED, revert both, NEWEST FIRST: `git revert -m 1
+  e2d7757e`, then `git revert -m 1 10159945` (the older one alone conflicts on the files the newer one edited).
+  The predictions record both (`hub_fix.merge`, `hub_fix.remerges`).
+- **v2** (`rung5b_predictions_v2.json`, frozen by F5c's freeze): session 1's whole shape re-run on the fixed hubs
+  under v1's frozen rule plus HUB-ROWS-SAME (the hubs' New-Game-path e0 t0 rows exactly session 1's; load-bearing,
+  state half). P-HUBDIFF (static): each hub is its preserved v1 build plus exactly the tail, 7 languages. P-AMBIENT
+  (in game, traced, after P-PARTYREMOVE): P-PARTYREMOVE's leg with the story trace armed -- (a) 31113 ip109 2 -> 9,
+  (b) the tail's ip275 9 -> 0, (c) 31101 ip134 0 -> 1 -- judged by a registered decision table and reported on THE
+  FIX line after the VERDICT, never an input to it. Session 1 re-analyses on v1, unchanged. Frozen sha
+  7cf2fe8cc2d63ad96b7d531ef885179e9c8e11aa8994955e8621a23717295688 (the review's re-freeze, before any v2 session
+  or deploy; the first freeze, f50ce056, never ran), with `rung5b_forks_v2.json` 7aa6ad4b (deployed false).
+- **The frozen dry-runs after the fix** (their tomls now build the fixed bytes): `rung5_dryrun.py --build
+  C:\gd\_ns_playtest\f5\keep_v3\build` (or `--pre-ambient`); `rung5b_dryrun.py --predictions
+  studies/story-trace/rung5b_predictions_v1.json --build C:\gd\_ns_playtest\f5b\keep_v1\hubs --members
+  C:\gd\_ns_playtest\f5b\keep_v1\members` (or `--pre-ambient`). `--predictions` is now required. The preserved builds
+  carry SHA256SUMS.
+- **The review, fixed before any session.** Kit (b90eae4a, tests and CHANGELOG only, re-merged): T-AMB-2 pins the
+  pass as build_script's FIRST step (no settle hold before the TAIL), T-AMB-1 iterates the literal (13, 14),
+  T-AMB-4 pins classify's stricter all(); BREAK-IT's 8 and the review's 3 mutations all red; the full suite re-run.
+  Study: the control marker's False is a LIVE measurement only -- a game that exited or a frozen channel leaves
+  `hub_control` None (`hub_unmeasured`), so a crash after (a) is VOID cut-after-precondition, never a FAILED that
+  would revert the fix; a cut trace (a collect error) never FAILs row 6 or 11 by what it lacks; the leg reports what it
+  threw (its own log mark after the arm) on THE FIX line, report-only; P-AMBIENT never raises; a tracer fault during
+  P-AMBIENT ends the session before its runs, named (the fault latches until a relaunch). The dry-run gained 11
+  registered cases (7 P-AMBIENT -- among them amb-record-disagrees: THE FIX re-derives every attempt from its file,
+  never the recorded verdict -- 2 HUB-ROWS-SAME, 2 P-HUBDIFF), and test_harness.py 5 FakeGame / unit tests plus the
+  collect-before-restore order in test (7). Declared: **CARRY-CONSISTENCY's numbers half is regression-only for a
+  change confined to the hub's Main_Init tail** -- the registered tail-first mutant re-derives all 25 carried numbers
+  (the review deleted the seating clause and the case read PASS); its registered FAIL, and so its can-fail, rests on
+  the SEATING clause (every base fork run's hub e0 t0 rows = `ng_rows`), which the frozen check text (F5c
+  checks.json, verbatim) does not name.
+
+**F-REDEPLOY (registered follow-up).** A deployed synthesized field keeps the defect until it is rebuilt and
+redeployed. The 47 live ids, by folder:
+- `FF9CustomMap`: 4010-4013, 6500, 30416, 30801, 30860-30863, 30870, 30880, 30883, 30890, 30900, 30910-30912,
+  30920-30922, 30925, 30930, 30935-30937, 30945-30949, 30955, 30956, 30960, 31100, 31113, 31114;
+- `FF9CustomMap-world`: 4600, 6601-6603;
+- `FF9CustomMap-schema`: 30820-30821;
+- `FF9CustomMap-msgs`: 30601-30603.
+
+The last two folders ARE in the live `Memoria.ini` FolderNames, at lowest priority (read while the fix was built;
+the design had them UNVERIFIED), so their ids are live defects too. Priority: 4600 and 6601-6603 first, through the
+world pack's own deploy path, then the New-Game re-wire. Each is its own owner-gated change with its own in-game
+check, and none starts before THE FIX: PROVEN (only 31113/31114 are redeployed by F5c). Read-only verifier:
+`ambient.classify` over every `<GAME>/FF9CustomMap*/StreamingAssets/**/field/us/*.eb.bytes`, catching `ValueError`.
+The 47 ids read `missing` before a redeploy and `restored` after (measured read-only, by folder: FF9CustomMap 38
+missing and 35 `stock-tail`, -world 4 missing, -schema 2, -msgs 3). Two readings are EXPECTED, never failures: every
+verbatim fork reads `stock-tail` (its donor's own tail), and the New-Game override, FF9CustomMap-world's
+`evt_alex1_ts_opening.eb.bytes` (stock field 70, one of stock's five fields with no tail -- 70 owns 643), raises
+`ValueError` ("no `set MAP159 = 1` after its `Byte[14] := 1`"); the loop lists it as a stock exception and goes on.
+The other follow-ups live in the kit CHANGELOG's Known issues: F-NG (the New-Game
+override hands off with 643 playing), F-WARP (kit warps skip the exit idiom), F-IMPORT (imports lose the donor's
+ambient; FORK_FIDELITY.md row 15); F-PROBE (a traced full-opening New Game) settles F-NG's path in game.
 
 ## Rungs
 

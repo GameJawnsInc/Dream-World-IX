@@ -8614,6 +8614,391 @@ def test_f5b_p_partyremove_voids_a_stale_r3_and_reads_after_control(game, monkey
         assert ok is True and len(rec["attempts"]) == 1, (detail, rec)
 
 
+# ---- F5c, P-AMBIENT (rung5b_hub.p_ambient, predictions v2): P-PARTYREMOVE's leg once more with the story trace armed.
+# Its revisit (the debug warp 31101 -> 31113) carries 351's Byte[13] := 2 into the hub, whose prologue marks it 9; the
+# FIXED hub's tail clears it (ip275) and 31101 then arrives clean (ip134 0 -> 1). :class:`_AmbientHubFake` writes those
+# stores as script rows on every field entry the leg makes -- the ambient slot bytes (13, 14) only -- and withholds
+# control where a report window would. The predictions are v2's skeleton (draft_predictions_v2 of the v1 skeleton).
+
+_AMB_WINDOW = "Error Env Play()\nSlot=0"
+
+
+class _AmbientHubFake(_PartyHubFake):
+    """F5b's two hubs with the ambient slot bytes modelled. New Game leaves Byte[13] 1 (field 70's ambient playing).
+    A HUB entry (31113/31114) runs the stock prologue on each slot byte -- 2 -> 9 (ip109 / ip190), else := 0 (ip131 /
+    ip212), a 9 kept -- then, ``fixed``, the kit's silent tail (a 9 -> 0 at ip275 / ip294); ``hub_window``: a windowed
+    tail instead, which on a 9 opens the report window and withholds control, never clearing. A 31101 entry (member
+    351, its rows don 351) runs 351's: an arriving 9 is kept and its report window withholds control; else Byte[13]
+    := 1 (ip134), Byte[14] := 0 (ip204), then ``sets2``: Byte[13] := 2 (ip1882, 351's Main_Init end) -- the 2 the
+    revisit carries."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.fixed, self.hub_window, self.sets2 = True, False, True
+        #: F5c review: ``grant_after`` s -- the F5B hub (31113) withholds control that long after its entry, then
+        #: grants it (a hub slower than session.warp's own wait); ``die_after_a`` -- the game exits right after the
+        #: F5B hub's prologue marks the 9 (before the tail); ``fault_after_a`` -- the tracer faults there instead,
+        #: the game playing on; ``throw_on_clear`` -- the tail's clear logs an event-engine exception
+        self.grant_after: float | None = None
+        self.die_after_a = self.fault_after_a = self.throw_on_clear = False
+        self._grant_at: float | None = None
+
+    def _step_world(self) -> None:
+        if self._grant_at is not None and time.time() >= self._grant_at:
+            self._grant_at, self.control = None, True
+        super()._step_world()
+
+    def _slot(self, byte: int, ip: int, new: int, don: int | None = None) -> None:
+        self.donor = don
+        try:
+            self.script_store(0, 0, ip, byte, "Byte", new)
+        finally:
+            self.donor = None
+
+    def _window(self) -> None:
+        self.control = False
+        self.texts, self.raw_texts = [_AMB_WINDOW], [_AMB_WINDOW]
+
+    def _ambient_entry(self) -> None:
+        fid = self.field_id
+        if fid in self.rows:                                        # a hub
+            for byte, nine, zero in ((13, 109, 131), (14, 190, 212)):
+                v = self.story_bytes[byte]
+                if v == 2:
+                    self._slot(byte, nine, 9)
+                elif v != 9:
+                    self._slot(byte, zero, 0)
+            marked = 9 in (self.story_bytes[13], self.story_bytes[14])
+            if marked and fid == _B_HUB and self.die_after_a:
+                self.returncode = 3                                  # the process is gone: its loop stops here
+                return
+            if marked and fid == _B_HUB and self.fault_after_a:
+                self.story_fault("a hook threw (modelled)")         # off, no `off` row, the error published
+            if self.hub_window and marked:
+                self._window()
+            elif self.fixed:
+                for byte, ip in ((13, 275), (14, 294)):
+                    if self.story_bytes[byte] == 9:
+                        self._slot(byte, ip, 0)
+                        if self.throw_on_clear:
+                            self.throw("NullReferenceException", ("EventEngine.DoEventCode ()",
+                                                                  "EventEngine.ProcessCode (Obj obj)"))
+            if fid == _B_HUB and self.grant_after is not None:
+                self.control, self._grant_at = False, time.time() + self.grant_after
+        elif fid == _PAST:                                          # member(351)
+            if self.story_bytes[13] == 9:
+                self._window()
+                return
+            self._slot(13, 134, 1, 351)
+            if self.story_bytes[14] != 9:
+                self._slot(14, 204, 0, 351)
+            if self.sets2:
+                self._slot(13, 1882, 2, 351)
+
+    def _execute(self, step: list[str]) -> None:
+        op = step[0].lower()
+        super()._execute(step)
+        if op == "newgame":
+            self.story_bytes[13], self.story_bytes[14] = 1, 0
+        elif op == "warp":
+            self._ambient_entry()
+
+    def _picked(self) -> None:
+        before = self.field_id
+        super()._picked()
+        if self.field_id != before:
+            self._ambient_entry()
+
+
+def _amb_world(game, **budget):
+    """``(fake, rung5b_hub, rung5_hub, pred)``: the ambient fake and v2's skeleton predictions, ``budget`` overriding
+    the leg's clocks (a test that expects a wait to run out shortens it) and ``probe_s`` the control marker's."""
+    fake, M, H, pred = _b_world(game, _AmbientHubFake)
+    pred = M.draft_predictions_v2(pred)
+    probe = budget.pop("probe_s", 1.0)
+    pred["ambient"]["probe_s"] = probe
+    pred["budget"].update(budget)
+    return fake, M, H, pred
+
+
+def _amb_rows(M, g, rec) -> list:
+    """The attempts' own trace files, read back: ``[(k, rows)]``."""
+    return [(a["k"], M.ambient_rows(g.run_dir / a["file"])[0]) for a in rec["attempts"]]
+
+
+@pytest.fixture
+def amb_fast_close(monkeypatch):
+    """The fake's open windows (351's report window, a hub's DIALOG, the pick's menu) never close on Cancel -- the
+    game's report window does not either (design F5c 1.3) -- so restore_baseline's close_ui sits out its fixed 20 s on
+    every leg that ends in one. 2 s decides the same thing (close_ui still gives up, the restore's outcome is recorded,
+    the leg's verdict is unchanged): only the wait is shortened, for the legs that end in a window."""
+    real = Session.close_ui
+    monkeypatch.setattr(Session, "close_ui", lambda self, *, attempts=6, timeout=20.0:
+                        real(self, attempts=attempts, timeout=min(timeout, 2.0)))
+
+
+def test_f5b_ambient_the_fixed_hub_passes_the_table(game, monkeypatch):
+    """P-AMBIENT on a fixed hub: the revisit enters 31113 with 351's 2 -- (a) ip109 2 -> 9 -- the tail clears it -- (b)
+    ip275 9 -> 0 -- and 31101 arrives clean -- (c) ip134 0 -> 1, don 351 -- with control back: PASS, one attempt, its
+    own file; the leg's control marker ran right after the warp (hub_control True, the hub's state recorded). Break:
+    drop the marker (the leg has no hub_control: VOID drive-after-control)."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, M, _H, pred = _amb_world(game)
+    with session(game, fake) as g:
+        ok, detail, rec = M.p_ambient(g, pred)
+        files = _amb_rows(M, g, rec)
+        st = g.state
+    assert ok is True and len(rec["attempts"]) == 1 and rec["outcome"] == "PASS", (detail, rec["attempts"])
+    leg = rec["attempts"][0]["leg"]
+    assert (leg["hub_control"], leg["presses"], leg["landed"], leg["member_control"]) == (True, 1, True, True), leg
+    assert leg["hub_state"]["field"] == _B_HUB and leg["hub_state"]["control"] and leg["phase"] == "done", leg
+    rows = [(x.fld, x.ip, x.old, x.new) for x in files[0][1] if x.k == "w" and x.target == "Global.Byte[13]"]
+    assert (_B_HUB, 109, 2, 9) in rows and (_B_HUB, 275, 9, 0) in rows and (_PAST, 134, 0, 1) in rows, rows
+    assert st.ui_state == "Title", "the title was not restored"
+
+
+def test_f5b_ambient_no_arriving_2_is_void_and_retried_into_its_own_file(game, monkeypatch):
+    """A 351 that never sets its 2 (``sets2`` off): the hub is entered with 1 and takes ip131 -- no precondition, VOID
+    "no-precondition" (its old value named), retried ONCE, each attempt its own file (ambient_trace_1/2.jsonl).
+    Break: no retry, or one file for both."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, M, _H, pred = _amb_world(game)
+    fake.sets2 = False
+    with session(game, fake) as g:
+        ok, detail, rec = M.p_ambient(g, pred)
+        files = _amb_rows(M, g, rec)
+    assert ok is None and [a["outcome"] for a in rec["attempts"]] == ["no-precondition", "no-precondition"], rec
+    assert [a["file"] for a in rec["attempts"]] == ["ambient_trace_1.jsonl", "ambient_trace_2.jsonl"], rec
+    assert all(rows for _k, rows in files), "an attempt's file is missing or empty"
+    assert "entered with Global.Byte[13] = 1" in rec["attempts"][0]["why"], rec["attempts"][0]["why"]
+
+
+def test_f5b_ambient_the_arm_raising_is_void_arm_and_the_title_restored(game, monkeypatch):
+    """An engine whose story trace cannot arm (no ``storytrace`` block): the leg records arm_error, has no file, and
+    the table's first row names it -- VOID "arm", never "before-warp" -- retried once; the title restored after each.
+    Break: drop the table's arm row (the leg's error in phase "arm" reads as before-warp)."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, M, _H, pred = _amb_world(game)
+    fake.storytrace_proto = None
+    with session(game, fake) as g:
+        ok, detail, rec = M.p_ambient(g, pred)
+        st = g.state
+    assert ok is None and [a["outcome"] for a in rec["attempts"]] == ["arm", "arm"], (detail, rec["attempts"])
+    assert all(a["leg"]["arm_error"] and a["leg"]["phase"] == "arm" for a in rec["attempts"]), rec["attempts"]
+    assert st.ui_state == "Title", "the title was not restored"
+
+
+@pytest.mark.usefixtures("amb_fast_close")
+def test_f5b_ambient_an_unfixed_hub_fails_b_and_is_not_retried(game, monkeypatch):
+    """The pre-fix hub (no tail): the revisit marks the 9 (a) and nothing clears it; 31101 arrives with it, keeps it
+    and its report window withholds control. The hub DID grant control (hub_control True): FAIL (b) "the hub kept the
+    9" -- a FAIL is evidence, never retried. Break: VOID it (its retry)."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, M, _H, pred = _amb_world(game, arrive_s=2.0)
+    fake.fixed = False
+    with session(game, fake) as g:
+        ok, detail, rec = M.p_ambient(g, pred)
+    assert ok is False and len(rec["attempts"]) == 1 and rec["outcome"] == "(b)", (detail, rec["attempts"])
+    leg = rec["attempts"][0]["leg"]
+    assert leg["hub_control"] is True and leg["member_control"] is False and leg["landed"], leg
+    assert rec["why"].startswith("the hub kept the 9: (a)"), rec["why"]
+
+
+@pytest.mark.usefixtures("amb_fast_close")
+def test_f5b_ambient_a_hub_that_withholds_control_fails_b_never_granted(game, monkeypatch):
+    """A windowed tail: the hub opens its report window on the 9 and never clears it. session.warp itself waits for
+    control, so the warp raises before hub_open's marker runs -- the traced leg measures it on that error: hub_control
+    False, the hub's DIALOG recorded -- FAIL (b) "and never granted control". Break: drop the marker on the warp's
+    error (hub_control None: VOID cut-after-precondition)."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, M, _H, pred = _amb_world(game, hub_s=12.0)
+    fake.hub_window = True
+    with session(game, fake) as g:
+        ok, detail, rec = M.p_ambient(g, pred)
+    assert ok is False and rec["outcome"] == "(b)" and "never granted control" in rec["why"], (detail, rec["attempts"])
+    leg = rec["attempts"][0]["leg"]
+    assert leg["hub_control"] is False and leg["hub_state"]["dialog_open"] and leg["phase"] == "hub-warp", leg
+    assert len(rec["attempts"]) == 1, rec["attempts"]
+
+
+@pytest.mark.usefixtures("amb_fast_close")
+def test_f5b_ambient_a_pick_that_raises_is_void_then_the_retry_passes(game, monkeypatch):
+    """The F5B pick raises after the hub granted control (its menu never took the Confirm): attempt 1 VOID
+    "drive-after-control" -- (a) and (b) are in its file -- and the retry PASSes; both files kept; THE FIX line
+    (rung5b_hub.fix_line) re-derives BOTH attempts from their own files and decides on the first non-VOID. Break: one
+    file name for both attempts (the retry overwrites the first)."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, M, H, pred = _amb_world(game)
+    real, calls = H.hub_pick, []
+
+    def pick(*a, **kw):
+        calls.append(1)
+        if len(calls) == 2:                                          # attempt 1's F5B pick (call 1 is the CTL leg's)
+            raise HarnessError("hub leg: the menu never took its Confirm on 'Dali (SC 2600)' (2 presses)")
+        return real(*a, **kw)
+    monkeypatch.setattr(H, "hub_pick", pick)
+    with session(game, fake) as g:
+        ok, detail, rec = M.p_ambient(g, pred)
+        files = dict(_amb_rows(M, g, rec))
+        fix = M.fix_line(g.run_dir, {"ambient": rec}, pred)
+    assert ok is True and [a["outcome"] for a in rec["attempts"]] == ["drive-after-control", "PASS"], rec["attempts"]
+    one = [(x.fld, x.ip) for x in files[1] if x.k == "w" and x.target == "Global.Byte[13]"]
+    assert (_B_HUB, 109) in one and (_B_HUB, 275) in one and files[2], one
+    assert fix[0] is True and fix[1].startswith("PROVEN -- attempt 2 of 2"), fix
+    assert "attempt 1 (ambient_trace_1.jsonl): NOT PROVEN (drive-after-control)" in fix[1], fix
+
+
+def test_f5b_ambient_a_restore_that_raises_still_leaves_the_file_and_the_verdict(game, monkeypatch):
+    """restore_baseline raising AFTER the leg: the trace was collected first, so the file is whole and the verdict the
+    same PASS; the restore's error is recorded, never the leg's. The ORDER is pinned: the leg's collect runs before
+    its closing restore (the fake's trace survives a restore, so the verdict alone cannot see a late collect). Break:
+    let the restore's error escape the leg (its record is lost: VOID), or collect after the restore."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, M, _H, pred = _amb_world(game)
+    with session(game, fake) as g:
+        real, n, order = g.restore_baseline, [], []
+        real_collect = g.collect_story
+
+        def restore():
+            n.append(1)
+            order.append("restore")
+            if len(n) == 2:                                          # the leg's own restore, in its finally
+                raise HarnessError("close whatever UI is open failed")
+            return real()
+
+        def collect(*a, **kw):
+            order.append("collect")
+            return real_collect(*a, **kw)
+        g.restore_baseline, g.collect_story = restore, collect
+        ok, detail, rec = M.p_ambient(g, pred)
+        files = _amb_rows(M, g, rec)
+    assert ok is True and len(rec["attempts"]) == 1, (detail, rec["attempts"])
+    assert "close whatever UI is open failed" in rec["attempts"][0]["restore"], rec["attempts"][0]
+    assert files[0][1] and files[0][1][-1].k == "e" and files[0][1][-1].why == "off", "the trace is not whole"
+    assert order == ["restore", "collect", "restore"], f"the collect is not before the leg's closing restore: {order}"
+
+
+def test_f5b_ambient_partyremove_untraced_is_unchanged(game, monkeypatch):
+    """P-PARTYREMOVE stays UNTRACED: with ``trace=None`` the leg arms nothing, records no leg and no phase, and its
+    record and verdict are v1's -- on the same fake that P-AMBIENT's traced leg PASSes on. Break: build the leg record
+    whatever ``trace`` is."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, M, _H, pred = _amb_world(game)
+    with session(game, fake) as g:
+        ok, detail, rec = M.p_partyremove(g, pred)
+    assert ok is True and len(rec["attempts"]) == 1, (detail, rec)
+    assert set(rec["attempts"][0]) == {"k", "reads", "log", "presses", "verdict", "why"}, sorted(rec["attempts"][0])
+    assert not any(s[0] == "storytrace" for s in fake.executed), [s for s in fake.executed if s[0] == "storytrace"]
+    assert not (game / "run" / "ambient_trace_1.jsonl").exists()
+
+
+# ---- F5c, after the review: the control marker measures only a LIVE game, a cut trace never FAILs by what it lacks,
+# the leg reports what it threw, P-AMBIENT never raises, and a tracer fault in it ends the session before its runs.
+
+def test_f5b_ambient_the_marker_waits_its_probe_for_a_slow_hub(game, monkeypatch):
+    """A hub that grants control AFTER session.warp's own wait gave up (its hub_s, 8 s) but within the marker's
+    probe_s: the marker, run on the warp's error, waits and MEASURES control -- hub_control True -- so the table reads
+    VOID drive-after-control (the leg still raised at the warp), never FAIL (b) / hub-stalled. Break: the marker
+    samples once instead of waiting (hub_control False: FAIL hub-stalled)."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, M, _H, pred = _amb_world(game, hub_s=8.0, probe_s=4.0)
+    fake.grant_after = 9.5
+    with session(game, fake) as g:
+        ok, detail, rec = M.p_ambient(g, pred)
+    legs = [a["leg"] for a in rec["attempts"]]
+    assert ok is None and [a["outcome"] for a in rec["attempts"]] == ["drive-after-control"] * 2, (detail, legs)
+    assert all(lg["hub_control"] is True and lg["phase"] == "hub-warp" for lg in legs), legs
+    assert all("the player to have control" in (lg["error"] or "") for lg in legs), legs
+
+
+def test_f5b_ambient_a_game_that_exits_after_a_is_unmeasured_not_stalled(game, monkeypatch):
+    """The game exits right after the F5B hub marks the 9 (a), before its tail: the warp raises "the game exited",
+    and the marker run on it measures NOTHING -- hub_control None, hub_unmeasured names the exit, and the warp's own
+    error stands as the leg's (the root cause) -- so the table reads VOID cut-after-precondition, never FAIL (b).
+    Break: record hub_control False on any failed probe (the marker's own "no control" error replaces the exit)."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, M, _H, pred = _amb_world(game, probe_s=2.0)
+    fake.die_after_a = True
+    with session(game, fake) as g:
+        ok, detail, rec = M.p_ambient(g, pred)
+        files = _amb_rows(M, g, rec)
+    one = rec["attempts"][0]
+    leg = one["leg"]
+    assert ok is None and one["outcome"] == "cut-after-precondition", (detail, rec["attempts"])
+    assert leg["hub_control"] is None and "exited" in (leg["hub_unmeasured"] or ""), leg
+    assert "exited" in leg["error"] and "no control in" not in leg["error"], leg["error"]
+    rows = [(x.fld, x.ip, x.old, x.new) for x in files[0][1] if x.k == "w" and x.target == "Global.Byte[13]"]
+    assert (_B_HUB, 109, 2, 9) in rows and not any(r[1] == 275 for r in rows), rows
+
+
+def test_f5b_ambient_a_tracer_fault_ends_the_session_before_its_runs(game, monkeypatch):
+    """The tracer faults in the F5B hub right after (a), the game playing on: attempt 1's collect raises "FAULTED" and
+    its file stops at the fault -- (a) with no later row, hub_control True -- VOID cut-after-precondition (a cut trace
+    never FAILs (b)); attempt 2's arm is refused (a fault latches until a relaunch): VOID arm. ambient_step then
+    reads the published storytrace.error and ENDS the session, named (session["stopped"], a failed check), rather
+    than start nine runs whose storytrace 1 would each be refused. Break: skip the tracer-health read (the session
+    goes on)."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, M, _H, pred = _amb_world(game)
+    fake.fault_after_a = True
+    session_rec, saves = {}, []
+    with session(game, fake) as g:
+        go_on = M.ambient_step(g, pred, session_rec, lambda: saves.append(1))
+        checks = list(g.checks)
+    am = session_rec["ambient"]
+    assert go_on is False and "faulted" in session_rec["stopped"] and am.get("tracer_fault"), session_rec
+    assert [a["outcome"] for a in am["attempts"]] == ["cut-after-precondition", "arm"], am["attempts"]
+    assert am["attempts"][0]["leg"]["hub_control"] is True and am["attempts"][0]["leg"]["collect_error"], am
+    assert any(not c["ok"] and "tracer faulted in P-AMBIENT" in c["what"] for c in checks), checks
+    assert saves, "the session record was never saved"
+
+
+def test_f5b_ambient_the_leg_reports_what_it_threw_on_the_fix_line(game, monkeypatch):
+    """The tail's clear logs an event-engine exception (the one in-game run of that branch; NC-THROW's mark comes
+    after P-AMBIENT): the leg's own log mark catches it -- ``throws`` -- and THE FIX line prints it per attempt,
+    REPORT-ONLY: the verdict stays PASS. Break: take no mark in the leg (no ``throws``, nothing on the line)."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, M, _H, pred = _amb_world(game)
+    fake.throw_on_clear = True
+    with session(game, fake) as g:
+        ok, detail, rec = M.p_ambient(g, pred)
+        fix = M.fix_line(g.run_dir, {"ambient": rec}, pred)
+    leg = rec["attempts"][0]["leg"]
+    assert ok is True and rec["outcome"] == "PASS", (detail, rec["attempts"])
+    assert leg["throws"] and leg["throws"][0][0] == "NullReferenceException", leg.get("throws")
+    assert fix[0] is True and "thrown in its leg (report-only): [['NullReferenceException'" in fix[1], fix
+
+
+def test_f5b_ambient_rows_and_p_ambient_never_raise(tmp_path, monkeypatch):
+    """P-AMBIENT runs before any run, so it must never raise: a trace file the reader cannot open (an indexer holding
+    it: PermissionError) is ``([], why)``, and a verdict that raises is VOID "read-error" -- both attempts kept.
+    Break: catch only TraceError in ambient_rows, or call ambient_verdict outside the guard."""
+    M, _H, _D = _rung5b()
+    pred = M.draft_predictions_v2(M.draft_predictions())
+    path = tmp_path / "ambient_trace_1.jsonl"
+    path.write_text('{"k":"e"}\n', encoding="utf-8")
+
+    def locked(_p):
+        raise PermissionError(13, "The process cannot access the file", str(_p))
+    monkeypatch.setattr(M.T, "read_trace", locked)
+    rows, why = M.ambient_rows(path)
+    assert rows == [] and "PermissionError" in why, why
+
+    def once(g, pred_, *, trace=None):
+        pathlib.Path(trace).write_text('{"k":"e"}\n', encoding="utf-8")
+        return {"k": "partyremove", "reads": {}, "verdict": None, "why": "-",
+                "leg": {"file": pathlib.Path(trace).name}}
+
+    def broken(*_a, **_kw):
+        raise KeyError("precondition")
+    monkeypatch.setattr(M, "_partyremove_once", once)
+    monkeypatch.setattr(M, "ambient_verdict", broken)
+    import types
+    ok, detail, rec = M.p_ambient(types.SimpleNamespace(run_dir=tmp_path), pred)
+    assert ok is None and [a["outcome"] for a in rec["attempts"]] == ["read-error", "read-error"], rec["attempts"]
+    assert "PermissionError" in rec["attempts"][0]["read_error"] and "KeyError" in rec["attempts"][0]["why"], rec
+
+
 def test_key_twist_operand_follows_memoria_ini(game):
     """Keys read TWIST arg2 (twist.y) unless [AnalogControl] makes key orientation absolute (1 or 2)."""
     fake = FakeGame(game)

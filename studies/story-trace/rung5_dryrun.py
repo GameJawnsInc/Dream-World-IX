@@ -3,7 +3,12 @@ with a VOID branch (P-FROZEN has none) -- to go VOID as the frozen predictions (
 before any F5 deploy or run, on real rows. A case registered for one clause of a check names that clause (a ``need`` on
 the check's detail, ``also_need`` on another check's), never the verdict alone.
 
-    py studies/story-trace/rung5_dryrun.py [--build DIR] [--keep DIR] [--session4 DIR] [--session3 DIR]
+    py studies/story-trace/rung5_dryrun.py [--build DIR] [--keep DIR] [--session4 DIR] [--session3 DIR] [--pre-ambient]
+
+F5c: the kit's synthesized builds now restore the ambient clear (e1317a42), so the hub 31100 no longer builds to its
+frozen 148bda04 from the tomls. Reproduce this frozen dry-run with ``--build`` on a preserved pre-fix build
+(C:\\gd\\_ns_playtest\\f5\\keep_v3\\build, with its SHA256SUMS) or with ``--pre-ambient``: every build through a
+shim that sets ``ff9mapkit.content.ambient.restore_clear`` to identity before ``cli.main`` (:data:`PRE_AMBIENT_SHIM`).
 
 THE BUILD. The 13 fields are built here, offline, from the tomls rung5_forks.json names (``ff9mapkit build <toml>
 --out <tmp>/<id>``, sub-second each; ``--build DIR`` reads a build already made the same way), and every US .eb is
@@ -70,9 +75,22 @@ EXHAUSTED = "passes exhausted (3) without the story moving on"       # Tour.run'
 
 
 # ======================================================================== the build (offline, from the durable tomls)
-def kit(args: list, *, log: Path | None = None) -> None:
-    """``py -m ff9mapkit <args>`` from the worktree's own package; its output to ``log``; raises on a non-zero exit."""
-    p = subprocess.run([sys.executable, "-m", "ff9mapkit", *map(str, args)], cwd=KIT, capture_output=True,
+#: F5c: the kit's synthesized builds restore the ambient clear (content/ambient.py, the fix e1317a42), so every
+#: frozen synthesized sha in this lane (F5's hub 31100, F5b v1's two hubs) moved. ``--pre-ambient`` builds the
+#: PRE-fix bytes: the build runs through this shim, which sets the pass to identity before the CLI (T-AMB-5 pins that
+#: identity reproduces the pre-fix build). A kit with no ambient module refuses the shim loudly (ImportError).
+PRE_AMBIENT_SHIM = ("import sys\n"
+                    "import ff9mapkit.content.ambient as _a\n"
+                    "_a.restore_clear = lambda eb: bytes(eb)\n"
+                    "from ff9mapkit.cli import main\n"
+                    "sys.exit(main(sys.argv[1:]))\n")
+
+
+def kit(args: list, *, log: Path | None = None, pre_ambient: bool = False) -> None:
+    """``py -m ff9mapkit <args>`` from the worktree's own package; its output to ``log``; raises on a non-zero exit.
+    ``pre_ambient``: through :data:`PRE_AMBIENT_SHIM` (``py -c``), the ambient clear as identity."""
+    head = [sys.executable, "-c", PRE_AMBIENT_SHIM] if pre_ambient else [sys.executable, "-m", "ff9mapkit"]
+    p = subprocess.run([*head, *map(str, args)], cwd=KIT, capture_output=True,
                        text=True, encoding="utf-8", errors="replace")
     if log is not None:
         log.write_text(p.stdout + p.stderr, encoding="utf-8")
@@ -88,10 +106,32 @@ def manifest_tomls(man: dict) -> dict:
     return out
 
 
-def build(out: Path, tomls: dict) -> None:
+def build(out: Path, tomls: dict, *, pre_ambient: bool = False) -> None:
     """Build each ``{id: toml}`` into ``out/<id>`` (a mod folder per field, as build step 8 does)."""
     for fid, toml in sorted(tomls.items()):
-        kit(["build", toml, "--out", out / str(fid)], log=out / f"{fid}.log")
+        kit(["build", toml, "--out", out / str(fid)], log=out / f"{fid}.log", pre_ambient=pre_ambient)
+
+
+def sha_miss_cause(ebs, *, pre_ambient: bool = False, fixed: bool = False) -> str:
+    """Why a frozen synthesized sha may miss (F5c), from the built US .eb bytes ``ebs`` (None: absent): each read by
+    ``ambient.classify``. A build that carries the restored tail against pre-fix predictions names the fix and the
+    two ways to the pre-fix bytes; ``--pre-ambient`` against predictions of the fixed bytes names that."""
+    try:
+        from ff9mapkit.content import ambient
+    except ImportError:
+        return "the kit has no content.ambient: the miss is not the F5c ambient tail"
+    got = []
+    for data in ebs:
+        try:
+            got.append(None if data is None else ambient.classify(data))
+        except ValueError:
+            got.append("drift")
+    if "restored" in got and not fixed:
+        return ("CAUSE: synthesized bytes changed at the F5c ambient-tail commit (e1317a42: every synthesized Main_Init "
+                "gained the 38-byte clear); pass --build <preserved dir> or --pre-ambient")
+    if pre_ambient and fixed:
+        return "CAUSE: these predictions freeze the fixed bytes (the ambient tail): drop --pre-ambient"
+    return f"the built hubs classify {got} (content.ambient): the miss is not the F5c ambient tail alone"
 
 
 def frozen_build(build_dir: Path, man: dict) -> tuple:
@@ -407,7 +447,10 @@ def main(argv=None) -> int:
     ap.add_argument("--keep", help="write the constructed sessions and builds here (default: a temp dir, removed)")
     ap.add_argument("--session4", default=str(SESSION4), help="session 4's run dir (story-rung3d); read only")
     ap.add_argument("--session3", default=str(SESSION3), help="session 3's run dir (story-rung3c); read only")
+    ap.add_argument("--pre-ambient", action="store_true",
+                    help="build with ff9mapkit.content.ambient.restore_clear as identity (the pre-fix bytes, F5c)")
     a = ap.parse_args(argv)
+    pa = a.pre_ambient
     pred, _sha = M.load_predictions()
     man = json.loads(M.MANIFEST.read_text(encoding="utf-8"))
     members = M.chain(pred)
@@ -421,12 +464,13 @@ def main(argv=None) -> int:
     print("== THE BUILD")
     bdir = Path(a.build) if a.build else root / "build"
     if not a.build:
-        build(bdir, manifest_tomls(man))
+        build(bdir, manifest_tomls(man), pre_ambient=pa)
     ok_b, detail_b, snap = frozen_build(bdir, man)
     n_cases += 1
     bad += not ok_b
     print(f"  {'as registered' if ok_b else '!! BROKEN'}  the build {bdir}: {detail_b}")
     if not ok_b:
+        print("  " + sha_miss_cause([M.built_eb(bdir, int(man["hub"]["id"]))], pre_ambient=pa))
         print("\nthe build is not the frozen one: nothing below would test the bytes the session deploys")
         return 1
     hub_sites = M.global_stores(snap[hid], field_id=hid)
@@ -1040,7 +1084,8 @@ def main(argv=None) -> int:
     assert jt.count("set_scenario = 2600") == 1
     (hub2610 / "journeys.toml").write_text(jt.replace("set_scenario = 2600", "set_scenario = 2610"), encoding="utf-8")
     kit(["gen-hub", hub2610 / "journeys.toml"], log=hub2610 / "gen-hub.log")
-    kit(["build", hub2610 / "hub.field.toml", "--out", hub2610 / "build" / str(hid)], log=hub2610 / "build.log")
+    kit(["build", hub2610 / "hub.field.toml", "--out", hub2610 / "build" / str(hid)], log=hub2610 / "build.log",
+        pre_ambient=pa)
     ok_x, d_x, _st = M.hub_bytes_check(pred, M.built_eb(hub2610 / "build", hid))
     pre.append(("P-HUB", "FAIL", "a hub built with set_scenario 2610", WORD[ok_x], d_x, ["2610"]))
     seeded = root / "seeded"
@@ -1051,7 +1096,7 @@ def main(argv=None) -> int:
          Path(man["dir"]) / "research" / "dominance_census.json"], log=seeded / "story-seed.log")
     tomls = {int(f): seeded / "chain" / Path(t).relative_to(Path(man["chains"]["F5"]["dir"]))
              for f, t in man["chains"]["F5"]["tomls"].items()}
-    build(seeded / "build", tomls)
+    build(seeded / "build", tomls, pre_ambient=pa)
     ok_s, d_s = M.pure_check(pred, lambda f: M.built_eb(seeded / "build", f), stock)
     n_bad = sum(1 for f, d in members.items() if M.built_eb(seeded / "build", f) != remap_fields(stock(d).data, cmap))
     pre.append(("P-PURE", "FAIL", "a chain seeded by story-seed WITHOUT --hub (each member a [startup] prepend)",

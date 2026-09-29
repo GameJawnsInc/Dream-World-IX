@@ -2,10 +2,19 @@
 THE HAND-OVER STATE OF THE ENTRY) played PAST the wake, against stock Dali and against today's pre-phase row entered
 at the same place, under THE PAIRED-WALK LAW.
 
-    py tools/play.py studies/story-trace/rung5b_hub.py --label story-rung5b --timeout 240   # the session
+    py tools/play.py studies/story-trace/rung5b_hub.py --label story-rung5b2 --timeout 240  # the session (v2)
     py studies/story-trace/rung5b_hub.py --analyse <run dir> [--predictions FILE]           # offline, saved traces
     py studies/story-trace/rung5b_hub.py --preflight [--predictions FILE]                   # static P-checks, live
     py studies/story-trace/rung5b_hub.py --offline-check [BUILD_DIR] [--predictions FILE]   # the same, on a build
+
+F5c, VERSION 2 (rung5b_predictions_v2.json; the session reads it, :data:`PREDICTIONS`). The kit now restores the
+ambient clear in every synthesized build (content/ambient.py), so both hubs grew by the 38-byte tail and the whole
+session re-runs on the fixed bytes under v1's frozen rule plus HUB-ROWS-SAME (the hubs' New-Game-path e0 t0 rows,
+load-bearing, state half). A session recorded under v1 (session 1) re-analyses on v1 through its own recorded path.
+v2 adds: P-HUBDIFF (static: each hub is its preserved v1 build plus exactly the tail, 7 languages); P-AMBIENT (in
+game, traced, after P-PARTYREMOVE: :func:`p_ambient` runs P-PARTYREMOVE's leg once more with the story trace armed
+-- the revisit from 351 enters 31113 with Byte[13] 2 -- and :func:`ambient_verdict` judges its rows and its leg
+record by the registered decision table); THE FIX line, printed after the VERDICT and never an input to it.
 
 A SIBLING OF rung5_hub, NEVER AN EDIT OF IT: rung5_hub (H5), rung3_trace (R) and dali_tour (D) are imported and stay
 byte-frozen (F5's 28/28 must keep re-analysing identically). They are reused two ways. (1) THE PER-HUB VIEW
@@ -82,8 +91,9 @@ import rung3_trace as R  # noqa: E402
 import rung5_hub as H5  # noqa: E402
 from dali_tour import T  # noqa: E402
 
-PREDICTIONS = HERE / "rung5b_predictions_v1.json"
-MANIFEST = HERE / "rung5b_forks.json"
+PREDICTIONS_V1 = HERE / "rung5b_predictions_v1.json"       # F5b session 1 (story-rung5b), frozen bab9e642
+PREDICTIONS = HERE / "rung5b_predictions_v2.json"          # F5c: the fixed hubs (the ambient clear) -- the session's
+MANIFEST = HERE / "rung5b_forks.json"                      # v1's; a predictions file names its own ("manifest")
 F5_MANIFEST = H5.MANIFEST                        # rung5_forks.json: the 12 members' own manifest (F5's chain)
 SESSION_FILE = "rung5b_session.json"
 SIDES = ("S", "F5B", "CTL")
@@ -99,6 +109,9 @@ PINS = ("test_pre_phase_row_leaves_the_advance_to_the_advance", "test_post_phase
         "test_real_dali_post_wake_row")
 PREFIX_STOP = "prefix replayed"                   # PrefixTour's stop: CTL's one clean stop
 WORD = {True: "PASS", False: "FAIL", None: "VOID"}
+LANGS = ("us", "uk", "jp", "gr", "fr", "it", "es")   # the seven .eb languages a build writes (P-HUBDIFF reads all)
+AMBIENT_FILE = "ambient_trace_{k}.jsonl"           # P-AMBIENT attempt k's own trace, in the run dir
+FIX_LINE = "THE FIX (in game, slot 0, hub revisit from 351)"
 
 
 # ======================================================================== the frozen predictions
@@ -115,6 +128,13 @@ def recorded_predictions(session: dict) -> Path:
         return PREDICTIONS
     p = Path(named)
     return p if p.is_file() else HERE / p.name
+
+
+def manifest_path(pred: dict) -> Path:
+    """The fork manifest a predictions file names (``manifest``; v1 names none: rung5b_forks.json) -- P-MANIFEST's
+    hub clause reads it. A bare name is read here, beside the predictions."""
+    p = Path(pred.get("manifest") or "rung5b_forks.json")
+    return p if p.is_absolute() else HERE / p
 
 
 class NotF5B(ValueError):
@@ -343,6 +363,246 @@ def draft_predictions(v3: dict | None = None) -> dict:
                                            "autosave switches stop the field-entry autosave).",
                        "keys": {s: list(k) for s, k in INI_KEYS.items()}}},
     }
+
+
+# ======================================================================== F5c: version 2 (the fixed hubs)
+#: The ambient tail, as the kit fix (e1317a42, content/ambient.TAIL) inserts it: ``if Byte[13] == 9 { Byte[13] := 0 }``
+#: then the same for Byte[14] -- 38 bytes, each statement 1357's own encoding, the JMP_IFNOT displacement 23 -> 8.
+AMBIENT_TAIL_HEX = "05d40d7d0900207f02080005d40d7d00002c7f05d40e7d0900207f02080005d40e7d00002c7f"
+_V1_EB = {"F5B": "d140317dd01bb37c9f17bf1b6e39364b4a2e6bc18b27fab1bacde2e40fab4b97",
+          "CTL": "069e9d2f21b826ab4647df30f736bbefc9f950da226873268caaae99c13e8c08"}
+#: design F5c 2.2 (the expected values; O9 measured them on the merged F5b checkout: build_v2)
+_V2_EB = {"F5B": "35813d4dc7078983995763ea9673309ea113a70aaa479be4bcf884ede45a6962",
+          "CTL": "1e235d0c68c83740a0566ea0bea83bae322d6fefbee521a14d99254a04de4b6b"}
+#: the tail's two store sites, the same in both hubs (the tail sits at Main_Init +254, e0 starts 10 bytes before it)
+_TAIL_SITES = [{"sid": 0, "tag": 0, "off": 265, "ip": 275, "target": "Global.Byte[13]", "value": 0},
+               {"sid": 0, "tag": 0, "off": 284, "ip": 294, "target": "Global.Byte[14]", "value": 0}]
+#: session 1's hub e0 t0 rows on the New-Game path, the same in all six fork traces (run2/5/8 F5B, run3/6/9 CTL)
+_NG_ROWS = [{"ip": 34, "target": "Global.Bit[191]", "old": 0, "new": 0},
+            {"ip": 61, "target": "Global.Bit[184]", "old": 0, "new": 0},
+            {"ip": 69, "target": "Global.Int16[9]", "old": 643, "new": -1},
+            {"ip": 131, "target": "Global.Byte[13]", "old": 1, "new": 0},
+            {"ip": 150, "target": "Global.Int16[11]", "old": -1, "new": -1},
+            {"ip": 212, "target": "Global.Byte[14]", "old": 0, "new": 0}]
+_FORBID_IPS = [109, 190, 275, 294]                 # the := 9 marks and the tail's clears: never on the New-Game path
+AMBIENT_PHASES = ("arm", "ctl-leg", "ctl-settle", "hub-warp", "pick", "landing", "member-settle", "done")
+#: P-AMBIENT's decision table, registered verbatim (design F5c 2.4): first match wins -- :func:`ambient_verdict`
+AMBIENT_TABLE = [
+    [1, "The arm raised, or the file has no `arm` row", "VOID \"arm\""],
+    [2, "Any Byte[13]/[14] row with new = 9 other than (a), or any row at either hub's tail ips other than (b). A "
+        "positive observation: it stands whatever else happened", "FAIL (d)"],
+    [3, "The leg raised before the warp into 31113 was issued", "VOID \"before-warp\""],
+    [4, "No (a), and a 31113 e0 t0 Byte[13] row exists (its old value is named)", "VOID \"no-precondition\""],
+    [5, "No (a), and no 31113 e0 t0 row at all", "VOID \"cut-before-precondition\""],
+    [6, "(a) present, the next Byte[13] row after it is not (b), and `hub_control` is True or False",
+     "FAIL (b) \"the hub kept the 9\" (+ \"and never granted control\" when False)"],
+    [6, "Same, but `hub_control` is None", "VOID \"cut-after-precondition\" (named, never merged with #4/#5)"],
+    [7, "(a) and (b) present, `hub_control` False", "FAIL \"hub stalled after the clear\". The tail is the only "
+        "Main_Init change, and session 1 saw this hub grant control on this very path twice"],
+    [8, "(a) and (b) present, and `hub_control` is not True or the pick's Confirm was never taken",
+     "VOID \"drive-after-control\""],
+    [9, "Presses taken, but no landing in 31101", "VOID \"pick-did-not-land\""],
+    [10, "Landed, but 31101 wrote no e0 t0 row after (b)", "VOID \"cut-after-landing\""],
+    [11, "Landed, and the next Byte[13] row after (b) is not (c)", "FAIL (c)"],
+    [12, "(c) holds but control never returns in 31101", "VOID \"other-blocker\" (ui_state and dialog recorded in the "
+         "run dir). With (c) holding, 31101 arrived clean and its tail cannot fire"],
+    [13, "Otherwise", "PASS"],
+]
+
+
+def _with_tail_sites(stores: list) -> list:
+    """v1's static store sites with the tail's two inserted in table order: after the last e0 t0 site."""
+    out = [dict(s) for s in stores]
+    at = max(i for i, s in enumerate(out) if (s["sid"], s["tag"]) == (0, 0)) + 1
+    return out[:at] + [dict(s) for s in _TAIL_SITES] + out[at:]
+
+
+def draft_predictions_v2(v1: dict | None = None) -> dict:
+    """The SKELETON of rung5b_predictions_v2.json (design F5c 2.2): ``v1`` (default the frozen v1 file) with ONLY the
+    registered keys changed -- the header (lane F5b, version 2, lineage, manifest), each hub's eb_sha256 (the fixed
+    bytes), static_stores (+ the tail's two sites), ng_rows and forbid_ips; hub_fix (P-HUBDIFF's inputs); ambient
+    (P-AMBIENT's spec and its decision table); verdict (+ HUB-ROWS-SAME, load-bearing, state half; the fix line's
+    registered consequences); the four new checks' texts; cannot_test, known_gap; the budget. Every v1 number is
+    carried as it stands: the freeze (freeze5b_v2.py) re-derives them through the dry-run and holds them to v1's
+    and to the design's constants, and writes checks.*.mutants from the dry-run's registry."""
+    if v1 is None:
+        v1, _sha = load_predictions(PREDICTIONS_V1)
+    v1_sha = hashlib.sha256(PREDICTIONS_V1.read_bytes()).hexdigest() if PREDICTIONS_V1.is_file() else None
+    p = json.loads(json.dumps(v1))
+    p["what"] = ("Story-trace F5b's registered predictions, VERSION 2 (F5c): v1's post-wake entry re-run whole on the "
+                 "FIXED hubs -- the kit's synthesized builds now restore the ambient clear (content/ambient.py), so "
+                 "T5B_HUB 31113 and T5B_CTL 31114 each carry the 38-byte tail -- under v1's frozen rule plus "
+                 "HUB-ROWS-SAME; P-AMBIENT (traced, after P-PARTYREMOVE) is reported on THE FIX line, never an input "
+                 "to the VERDICT")
+    p["version"] = 2
+    p["lineage"] = {
+        "file": PREDICTIONS_V1.name, "sha256": v1_sha,
+        "v1": {"file": PREDICTIONS_V1.name, "sha256": v1_sha,
+               "session": "20260929-001746-story-rung5b",
+               "verdict": "NOT PROVEN: party -- proven: state, latches, walk (P-PARTYREMOVE VOID twice: the 9 the "
+                          "unfixed hub left in Byte[13] opened 351's report window in 31101)"},
+        "builds": {"v1_hubs": r"C:\gd\_ns_playtest\f5b\keep_v1\hubs", "v1_members": r"C:\gd\_ns_playtest\f5b\keep_v1"
+                   r"\members", "f5_v3": r"C:\gd\_ns_playtest\f5\keep_v3\build",
+                   "sums": "each with its SHA256SUMS over every StreamingAssets/**/*.eb.bytes"},
+        "carried": ["order", "sides", "start", "entry", "start_sc", "beat", "segment_place", "wake", "members",
+                    "chain_map", "seams", "timing_site", "replay", "walk_gate", "rerun", "coverage", "stockstate",
+                    "land", "residual", "class_iii", "control", "echo", "arrival", "supp", "step1_keys", "party",
+                    "freshness", "seed_law", "hubs.*.(rig, stamps, party ops, row text, tomls)"],
+        "rederived": ["hubs.*.eb_sha256", "hubs.*.static_stores", "hubs.*.ng_rows", "hubs.*.forbid_ips", "hub_fix",
+                      "ambient", "verdict (HUB-ROWS-SAME, fix_line)", "budget.expected_minutes", "checks (P-AMBIENT, "
+                      "P-HUBDIFF, HUB-ROWS-SAME, CARRY-CONSISTENCY)", "cannot_test", "known_gap"]}
+    p["manifest"] = "rung5b_forks_v2.json"
+    for side in FORKS:
+        H = p["hubs"][side]
+        H["eb_sha256"] = _V2_EB[side]
+        H["static_stores"] = _with_tail_sites(H["static_stores"])
+        H["ng_rows"] = [dict(r) for r in _NG_ROWS]
+        H["forbid_ips"] = list(_FORBID_IPS)
+    p["hub_fix"] = {
+        "kit_commit": "e1317a42406704f5c7b1124c9d2a0ff4a18c56b6", "kit_branch": "claude/ambient-clear",
+        "tail_hex": AMBIENT_TAIL_HEX, "tail_len": len(bytes.fromhex(AMBIENT_TAIL_HEX)), "e0t0_rel": 254,
+        "v1_build": r"C:\gd\_ns_playtest\f5b\keep_v1\hubs", "v1_eb_sha256": dict(_V1_EB),
+        "rule": "P-HUBDIFF: for each hub and each of the 7 languages, eb.edit.insert_in_function(v1, 0, 0, e0t0_rel, "
+                "tail) == v2, v1 read from v1_build (<DIR>/<id>/, each .eb its SHA256SUMS value, the US one "
+                "v1_eb_sha256); a missing or sha-mismatched v1 is FAIL, never VOID"}
+    p["ambient"] = {
+        "slot": 0, "target": "Global.Byte[13]", "slots": ["Global.Byte[13]", "Global.Byte[14]"],
+        "precondition": {"field": 31113, "sid": 0, "tag": 0, "ip": 109, "target": "Global.Byte[13]", "old": 2,
+                         "new": 9},
+        "clear": {"field": 31113, "sid": 0, "tag": 0, "ip": 275, "target": "Global.Byte[13]", "old": 9, "new": 0},
+        "handoff": {"field": 31101, "donor": 351, "sid": 0, "tag": 0, "ip": 134, "target": "Global.Byte[13]",
+                    "old": 0, "new": 1},
+        "tail_ips": {"31113": [275, 294], "31114": [275, 294]},
+        "probe_s": 30, "retries": 1, "file": AMBIENT_FILE,
+        "phases": list(AMBIENT_PHASES), "warp_phase": "hub-warp",
+        "leg": ["arm_error", "phase", "error", "hub_control", "hub_state", "presses", "landed", "member_control",
+                "collect_error"],
+        "leg_report_only": ["hub_unmeasured", "throws", "traced", "file"],
+        "where": "after P-PARTYREMOVE, before NC-THROW's mark; P-PARTYREMOVE's own leg (New Game; the CTL leg lands "
+                 "31101; the revisit warps 31101 -> 31113 at SC 2540, arriving with 351's Byte[13] := 2; the F5B pick "
+                 "lands 31101), armed exactly as a run arms (New Game, 30 frames, story_mark, storytrace on), the "
+                 "trace collected BEFORE restore_baseline into the attempt's own file; one retry, on VOID only",
+        "hub_control": "the control marker: right after the warp into 31113, wait up to probe_s for field 31113 with "
+                       "control -- True, or False (raises) with ui_state, dialog_open, field and control recorded; "
+                       "the warp's own wait for control failing is measured the same way; False only when the game "
+                       "was measured LIVE without control -- a probe that gave up because the game exited, the "
+                       "channel froze or the newest state is stale or unreadable leaves None (hub_unmeasured)",
+        "decision": [list(r) for r in AMBIENT_TABLE],
+        "implementation": [
+            "row 5 is read as the complement of row 4 -- no (a) and no 31113 e0 t0 Byte[13] row: the verbatim 'no "
+            "31113 e0 t0 row at all' leaves a trace cut INSIDE the hub's prologue (rows there, none of Byte[13]) "
+            "matching no row before 13, a PASS; it is VOID cut-before-precondition",
+            "session.warp waits for control itself (wait_playable), so a hub that withholds it raises inside the warp "
+            "before hub_open's after_warp marker runs: the traced leg runs the same marker on that error (hub_control "
+            "False, the state recorded), then the error stands",
+            "the control marker's False is a LIVE measurement only: a probe that gave up because the game exited, the "
+            "channel froze (the wait's frame counter never moved) or the newest state is unreadable or older than "
+            "LIVE_WITHIN measured nothing -- hub_control stays None, hub_unmeasured names why, and the probe's own "
+            "error (at the warp's call site, the warp's) stands: row 6's VOID cut-after-precondition, never FAIL (b) "
+            "or hub-stalled for an instrument failure",
+            "a CUT trace never decides a FAIL by what it lacks: row 6 with no slot-0 row after (a) and a collect error "
+            "(the tracer faulted, rows never landed) is VOID cut-after-precondition whatever hub_control reads; row 11 "
+            "with no slot-0 row after (b) and a collect error is VOID cut-after-landing; the FAIL texts of rows 6, 7 "
+            "and 11 carry the collect error when there is one",
+            "report-only, never the table's input: the leg's throws (a log mark right after the arm; THROWS with an "
+            "event-engine frame, as NC-THROW reads them) are printed per attempt on THE FIX line; p_ambient never "
+            "raises (a read or verdict failure is VOID read-error); the session ends before its runs, named, when the "
+            "story tracer faulted during P-AMBIENT (a fault latches until a relaunch, so every run would be refused)"],
+        "line": FIX_LINE + ": PROVEN | NOT PROVEN (<void>) | FAILED (<clause>)"}
+    V = p["verdict"]
+    V["load_bearing"] = V["load_bearing"][:V["load_bearing"].index("R5-STAMP") + 1] + ["HUB-ROWS-SAME"] \
+        + V["load_bearing"][V["load_bearing"].index("R5-STAMP") + 1:]
+    V["halves"]["state"] = V["halves"]["state"] + ["HUB-ROWS-SAME"]
+    if "rule" in V:                         # the frozen v1 file's (the v1 skeleton has none: its freeze wrote it)
+        V["rule"] = V["rule"].replace("state = R5B-CONTROL (a,b), R5B-LAND, R5B-STATE",
+                                      "state = R5B-CONTROL (a,b), R5B-LAND, R5B-STATE, HUB-ROWS-SAME")
+    V["fix_line"] = {
+        "text": FIX_LINE + ": PROVEN | NOT PROVEN (<void>) | FAILED (<clause>) -- printed AFTER the VERDICT line, "
+                           "P-AMBIENT's registered table over the attempt that decided (the first non-VOID, else the "
+                           "last); never passed to verdict5b",
+        "PROVEN": "Licenses the master merge of claude/ambient-clear (step G4), with FULL-SUITE green; after it, "
+                  "F-REDEPLOY may proceed as separate owner-gated changes. The claim covers slot 0 and the revisit "
+                  "path from 351 only",
+        "NOT PROVEN": "Nothing merges: claude/ambient-clear stays off master; claude/story-trace-f5b does not merge to "
+                      "master while it contains the fix (to merge the resolver, `git revert -m 1` each fix merge "
+                      "first, newest first: hub_fix.remerges, then hub_fix.merge); no other synthesized field is "
+                      "redeployed and no release is cut. Next: re-run the v2 session unchanged",
+        "FAILED": "Everything under NOT PROVEN, and the fix's merges on claude/story-trace-f5b reverted at once, newest "
+                  "first (hub_fix.remerges, then hub_fix.merge); diagnose "
+                  "from ambient_trace_<k>.jsonl and the leg record; a corrected fix is a new commit, needing v3 "
+                  "predictions and a new session; 31113/31114 stay deployed until the owner picks a course"}
+    p["checks"] = {**p["checks"], **{k: dict(v) for k, v in _V2_CHECKS.items()}}
+    p["budget"] = {**p["budget"], "session_s": 10800,
+                   "expected_minutes": {**p["budget"]["expected_minutes"], "session": 70, "with_reruns": 134,
+                                        "cap": 180}}
+    p["cannot_test"] = list(p.get("cannot_test") or []) + [
+        "slot 1 (Byte[14]) of the ambient clear in game: no Dali field sets Byte[14] := 2 (0 sites) -- offline only "
+        "(tests/test_ambient.py)",
+        "the full-opening New Game (the harness warps out of field 70 thirty frames after New Game, so 70's own := 2 "
+        "never runs): the override's handoff with 643 playing is F-NG, by code only",
+        "audio: the tail clears the mark, never the sound -- 1483 plays on in the hub after the revisit, by code, as "
+        "in stock's own 9-case"]
+    p["known_gap"] = list(p.get("known_gap") or []) + [
+        "F-REDEPLOY: a deployed synthesized field keeps the defect until it is rebuilt and redeployed (47 live ids "
+        "by folder in the kit CHANGELOG's Known issues); only 31113/31114 are redeployed here",
+        "F-NG: the New-Game override (stock 70, only its Field() literal swapped) hands off with 643 playing and "
+        "Byte[13] := 2 -- a synthesized entry now clears the 9, the sound may play on",
+        "F-WARP: kit warps and remapped same-id handoffs skip stock's exit idiom (Byte[13] := 3); into a stock or "
+        "verbatim no-ambient field they still leave the report window",
+        "F-IMPORT: BG-borrow, --editable and non-verbatim --native imports lose the donor's ambient sound "
+        "(FORK_FIDELITY.md row 15)",
+        "F-PROBE: a traced full-opening New Game would settle F-NG's path 2 (UNVERIFIED in game)"]
+    p["frozen"] = None                      # the freeze writes when, and against what
+    p["implementation"] = []                # the freeze writes F5c's own departures (v1's stay in the v1 file)
+    return p
+
+
+#: v2's four new checks (design F5c checks.json, verbatim); their "mutants" are written by the freeze from the dry-run
+_V2_CHECKS = {
+    "P-HUBDIFF": {
+        "claim": "The v2 hubs differ from v1 by exactly the TAIL, both offline and as deployed.",
+        "pass": "fixed == insert_in_function(v1 from keep_v1/hubs, 0, 0, 254, TAIL) for 7 languages x 2 hubs, on "
+                "build_v2 (O9, O12) and on the deployed bytes (--preflight).",
+        "fail": "Any other byte differs. A missing or sha-mismatched keep_v1 is also FAIL, not VOID.",
+        "void": "None.",
+        "can_fail_because": "Master drift enters with the merge, or the deploy was built from another checkout. "
+                            "Measured true today."},
+    "CARRY-CONSISTENCY": {
+        "claim": "Construction consistency: on the fixed bytes, the dry-run seats the New-Game hub rows at the same "
+                 "sites, so every carried v1 number re-derives. It claims nothing about the tail firing in game.",
+        "pass": "v2's re-derived LAND/R/CONTROL/SUPP/echo/arrival/party numbers equal v1's. Only registered keys "
+                "differ.",
+        "fail": "Any carried number differs. Registered mutant: a TAIL placed before the prologue must FAIL.",
+        "void": "None.",
+        "can_fail_because": "rung5_dryrun.py:259's first-value seating picks a new `:= 0` site that precedes off 121."},
+    "HUB-ROWS-SAME": {
+        "claim": "In game, on the New-Game path, both fixed hubs write exactly what session 1's hubs wrote, and the "
+                 "tail never fires (load-bearing, state half).",
+        "pass": "For every covered F5B and CTL run that reached its hub, the hub's e0 t0 'w' rows equal ng_rows "
+                "exactly: ip34 Bit[191] 0->0, ip61 Bit[184] 0->0, ip69 Int16[9] 643->-1, ip131 Byte[13] 1->0, ip150 "
+                "Int16[11] -1->-1, ip212 Byte[14] 0->0. No 'c' row sits at hub e0 t0, and no row at ips "
+                "109/190/275/294.",
+        "fail": "Any mismatch. Registered mutants: hubrows-ng-fire-f5b (2->9 at 109 plus 9->0 at 275; R5-STAMP stays "
+                "PASS), hubrows-ng-fire-ctl, hubrows-drop-131.",
+        "void": "Only through the coverage minima (fewer than 3 F5B or 2 CTL covered runs).",
+        "can_fail_because": "The harness warp out of 70 comes late enough that 70's := 2 runs, the tail fires on an "
+                            "arriving 1, or the fix touched the New-Game path."},
+    "P-AMBIENT": {
+        "claim": "In game, a hub entered with its slot-0 ambient marked playing clears the 9 at the new site, and the "
+                 "next Dali field arrives clean. Not an input to verdict5b.",
+        "pass": "(a) 31113 e0t0 ip109 2->9; then (b) ip275 9->0; then (c) 31101 e0t0 ip134 0->1; (d) no other new=9 "
+                "row and no other tail-site row; control back in 31101.",
+        "fail": "By the registered table: (d) violated; (a) present with the next Byte[13] row not (b), while "
+                "hub_control is True or False; (a)+(b) with hub_control False (hub stall); or landed with 31101 rows "
+                "and the next Byte[13] row not (c). Mutants: amb-v1-hub, amb-stall-hub, amb-stall-member, "
+                "amb-wrong-site, amb-hub-stall-after-clear, amb-window-member, amb-ng-fire, amb-stray-nine.",
+        "void": "Named outcomes, retried once, each attempt kept in ambient_trace_<k>.jsonl: arm, before-warp, "
+                "no-precondition, cut-before-precondition, cut-after-precondition, drive-after-control, "
+                "pick-did-not-land, cut-after-landing, other-blocker (control lost with (c) holding).",
+        "can_fail_because": "The pass is unwired or the deploy is stale (no ip275 row, 31101 keeps the 9: observed "
+                            "twice in session 1, untraced), the TAIL is misplaced or mis-displaced, or a 9 comes from "
+                            "elsewhere."},
+}
 
 
 # ======================================================================== the drive's pieces (in game)
@@ -616,7 +876,31 @@ def _settled(g, entry: int, timeout: float) -> None:
                what=f"control back in {entry} (its arrival's autosave written)")
 
 
-def _partyremove_once(g, pred: dict) -> dict:
+def _unmeasured(g, err) -> tuple:
+    """``(why, state)`` after a control probe gave up: ``why`` None when the game was MEASURED -- alive, its newest
+    state live (``state``) -- and simply had no control; else why the probe measured nothing: the game exited, the
+    channel froze (the wait's frame counter never moved), or the newest state is unreadable or older than
+    LIVE_WITHIN (``session.wait_for``'s own liveness rule). ``g.state`` would not do: it returns whatever document a
+    dead agent left."""
+    from harness.session import LIVE_WITHIN
+    proc = getattr(g, "proc", None)
+    if proc is not None and proc.poll() is not None:
+        return f"the game exited (code {proc.poll()})", None
+    text = str(err)
+    if "frame counter never moved" in text or "published nothing at all" in text:
+        return f"the channel is frozen ({text[:120]})", None
+    try:
+        st = g.channel.state()
+    except Exception as e:                        # noqa: BLE001
+        return f"the channel is unreadable ({type(e).__name__}: {str(e)[:80]})", None
+    if st is None:
+        return "no state published", None
+    if st.age is not None and st.age > LIVE_WITHIN:
+        return f"the newest state is {st.age:.1f}s old (live within {LIVE_WITHIN}s)", st
+    return None, st
+
+
+def _partyremove_once(g, pred: dict, *, trace=None) -> dict:
     """One P-PARTYREMOVE attempt (design 4.5), untraced: ``{"reads", "verdict", "why"}`` -- verdict True PASS,
     False FAIL (the known positive calibrated and the removes inert), None VOID (uncalibrated, or the drive
     failed). New Game -> r0; the CTL hub's leg lands 31101 -> r1 (fresh vs r0, SC 2600 / e6) must read [0,2,3,1];
@@ -624,7 +908,22 @@ def _partyremove_once(g, pred: dict) -> dict:
     [0,2,3,1]; the F5B pick lands 31101 -> r3 (fresh vs r2, SC 2600 / e6) must read [0,255,255,255] -- inert
     removes read [0,2,3,1]. r1 and r3 are read only once control is back in 31101 (:func:`_settled`: never in the
     frames of the arrival's own autosave write), which also leaves hub_open a settled field to warp from. The title
-    restored after, whatever happened."""
+    restored after, whatever happened.
+
+    ``trace`` (F5c, P-AMBIENT's leg; None: the path above, unchanged): this attempt's own trace file. The leg then
+    ARMS exactly as a run arms (New Game, 30 frames, story_mark, storytrace on); records its ``phase`` as it goes
+    (predictions ambient.phases) and ``rec["leg"]`` -- arm_error, phase, error, hub_control, hub_state, presses,
+    landed, member_control, collect_error (what :func:`ambient_verdict` reads beside the rows), and, report-only,
+    hub_unmeasured and throws; passes hub_open the CONTROL MARKER (right after the warp into 31113: up to
+    ambient.probe_s for field 31113 with control -- True, or False, which raises, with ui_state / dialog_open / field
+    / control recorded; False only when the game was measured LIVE without control -- a probe that gave up because
+    the game exited or its channel froze leaves None, names why in hub_unmeasured, and re-raises its own error).
+    ``session.warp`` itself waits for control (wait_playable), so a hub that withholds it raises INSIDE the warp,
+    before the marker runs: that error is measured the same way (the marker runs on it; measured False, the marker's
+    error is raised; unmeasured, the warp's own error stands). A log mark taken right after the arm gives ``throws``:
+    every THROWS exception with an event-engine frame the leg logged (the one in-game run of the tail's clear;
+    NC-THROW's mark comes after P-AMBIENT). In ``finally`` the trace is collected BEFORE restore_baseline
+    (collect_story writes a cut run's rows before it re-raises; its error is recorded)."""
     from harness import HarnessError
     P = pred["party"]["partyremove"]
     vf, vc = hub_view(pred, "F5B"), hub_view(pred, "CTL")
@@ -633,29 +932,122 @@ def _partyremove_once(g, pred: dict) -> dict:
     arrive_s = pred["budget"]["arrive_s"]
     rec: dict = {"k": "partyremove", "reads": {}, "log": []}
     reads = rec["reads"]
+    leg = smark = tmark = None
+    if trace is not None:
+        leg = rec["leg"] = {"file": Path(trace).name, "arm_error": None, "phase": None, "error": None,
+                            "hub_control": None, "hub_state": None, "presses": None, "landed": False,
+                            "member_control": None, "collect_error": None, "traced": None, "hub_unmeasured": None,
+                            "throws": None}
+
+    def phase(name: str) -> None:
+        if leg is not None:
+            leg["phase"] = name
+
+    def marker() -> None:
+        """THE CONTROL MARKER (traced legs only): once per leg, field 31113 with control within probe_s. False only
+        when the game was MEASURED live without control: a probe that failed because the game exited, its channel
+        froze, or its newest state is stale or unreadable measured nothing -- hub_control stays None (the table's
+        VOID cut-after-precondition), the reason is recorded (``hub_unmeasured``) and the probe's own error, the
+        root cause, is re-raised."""
+        if leg is None or leg["hub_control"] is not None or leg.get("hub_unmeasured"):
+            return
+        hid = int(vf["hub"]["id"])
+        probe_s = float(pred["ambient"]["probe_s"])
+        try:
+            st = g.wait_for(lambda s: s.field_id == hid and bool(s.control), timeout=probe_s,
+                            what=f"control in {hid} after the warp (P-AMBIENT's marker)")
+            ok = True
+        except HarnessError as err:
+            why, st = _unmeasured(g, err)
+            if why is not None:
+                leg["hub_unmeasured"] = why
+                raise
+            ok = False
+        leg["hub_control"] = ok
+        leg["hub_state"] = {"ui_state": getattr(st, "ui_state", None), "dialog_open": bool(getattr(st, "dialog_open",
+                                                                                                   False)),
+                            "field": getattr(st, "field_id", None), "control": bool(getattr(st, "control", False))}
+        if not ok:
+            raise HarnessError(f"P-AMBIENT: no control in {hid} within {probe_s:.0f}s after the warp "
+                               f"({leg['hub_state']})")
+
     try:
         ok_t, why_t = g.restore_baseline()
         if not ok_t:
             raise HarnessError(f"the title could not be restored: {why_t}")
         g.newgame()
         g.wait_frames(30)
+        if leg is not None:
+            phase("arm")
+            try:
+                smark = g.story_mark()
+                g.storytrace(True)
+            except Exception as err:              # noqa: BLE001 -- the arm's own failure: VOID "arm", named
+                leg["arm_error"] = f"{type(err).__name__}: {str(err)[:200]}"
+                raise
+            tmark = g.log_mark()                  # the leg's own throw mark: NC-THROW's is taken after P-AMBIENT
         reads["r0"] = party_read(g)
+        phase("ctl-leg")
         H5.hub_leg(g, rec["log"], vc)
+        phase("ctl-settle")
         _settled(g, entry, arrive_s)
         reads["r1"] = party_read(g, reads["r0"], at_entry)
         end = time.time() + vf["budget"]["hub_s"]
         hub_rec: dict = {"k": "hub"}
-        H5.hub_open(g, vf, end, hub_rec)
+        phase("hub-warp")
+        if leg is None:
+            H5.hub_open(g, vf, end, hub_rec)
+        else:
+            try:
+                H5.hub_open(g, vf, end, hub_rec, after_warp=marker)
+            except Exception:
+                rec["log"].append(hub_rec)
+                try:                              # the warp's own wait for control gave up: measure it
+                    marker()
+                except HarnessError:
+                    if leg["hub_control"] is not False:
+                        pass                      # unmeasured (the game exited, the channel froze): the warp's stands
+                    else:
+                        raise                     # measured live without control: the marker's own error
+                raise
         rec["log"].append(hub_rec)
         _fid, e0, sc0 = vf["hub"]["lead_in"]
+        phase("pick")
         reads["r2"] = party_read(g, reads["r1"], {"sc": sc0, "entrance": e0, "field": vf["hub"]["id"]})
         rec["presses"] = H5.hub_pick(g, vf, vf["hub"]["pick"], end)
+        if leg is not None:
+            leg["presses"] = rec["presses"]
+        phase("landing")
         g.wait_for(lambda s: s.field_id == entry, timeout=vf["budget"]["entry_s"], what=f"the pick to land in {entry}")
-        _settled(g, entry, arrive_s)
+        if leg is not None:
+            leg["landed"] = True
+        phase("member-settle")
+        try:
+            _settled(g, entry, arrive_s)
+        except Exception:
+            if leg is not None:
+                leg["member_control"] = False
+            raise
+        if leg is not None:
+            leg["member_control"] = True
         reads["r3"] = party_read(g, reads["r2"], at_entry)
+        phase("done")
     except Exception as err:                      # noqa: BLE001 -- a drive failure is an uncalibrated leg: VOID, named
         rec["error"] = f"{type(err).__name__}: {str(err)[:300]}"
+        if leg is not None:
+            leg["error"] = rec["error"]
     finally:
+        if leg is not None and smark is not None:
+            try:                                  # BEFORE the restore: collect_story writes a cut run, then re-raises
+                leg["traced"] = g.collect_story(Path(trace), smark)
+            except Exception as err:              # noqa: BLE001
+                leg["collect_error"] = f"{type(err).__name__}: {str(err)[:200]}"
+        if leg is not None and tmark is not None:
+            try:                                  # the only in-game run of the tail's clear: what it threw, reported
+                leg["throws"] = [[e.name, e.where] for e in g.exceptions_since(tmark) if e.name in THROWS
+                                 and (not e.trace or any(k in fr for fr in e.trace for k in WHERE))][:8]
+            except Exception as err:              # noqa: BLE001 -- report-only: never the leg's outcome
+                leg["throws"] = [["unread", f"{type(err).__name__}: {str(err)[:120]}"]]
         try:
             ok_t, why_t = g.restore_baseline()
             if not ok_t:
@@ -702,6 +1094,245 @@ def p_partyremove(g, pred: dict) -> tuple:
     last = attempts[-1]
     out = {"k": "partyremove", "verdict": last["verdict"], "why": last["why"], "attempts": attempts}
     return last["verdict"], f"{len(attempts)} attempt(s): {last['why']}", out
+
+
+# ======================================================================== P-AMBIENT (F5c v2; traced, in game)
+def ambient_rows(path) -> tuple:
+    """``(rows, error)``: one P-AMBIENT attempt's trace file read by the kit's reader (T.read_trace -- a cut run,
+    INCOMPLETE, is read as far as it goes); ``([], why)`` when the file is absent, breaks the row contract, or cannot
+    be read at all (a scanner holding it, a decode error): never raises -- p_ambient runs before any run."""
+    p = Path(path)
+    if not p.is_file():
+        return [], f"no trace file {p.name}"
+    try:
+        return T.read_trace(p), None
+    except T.TraceError as err:
+        return [], f"{p.name} breaks the row contract ({str(err)[:160]})"
+    except Exception as err:                      # noqa: BLE001 -- OSError, UnicodeDecodeError, ...: named, never raised
+        return [], f"{p.name} could not be read ({type(err).__name__}: {str(err)[:160]})"
+
+
+def _amb_site(x, site: dict) -> bool:
+    """Is row ``x`` the registered store ``site`` (field, sid, tag, ip, target, old -> new; its donor when named)?"""
+    return (x.k == "w" and x.fld == site["field"] and (x.sid, x.tag, x.ip) == (site["sid"], site["tag"], site["ip"])
+            and x.target == site["target"] and (x.old, x.new) == (site["old"], site["new"])
+            and ("donor" not in site or x.don == site["donor"]))
+
+
+def _amb_show(x) -> str:
+    return f"{x.fld} e{x.sid} t{x.tag} ip{x.ip} {x.target} {x.old} -> {x.new}"
+
+
+def ambient_verdict(rows, spec: dict, leg: dict) -> tuple:
+    """P-AMBIENT's registered decision table (predictions ambient.decision, design F5c 2.4), pure: ``(True PASS |
+    False FAIL | None VOID, name, why)`` over ONE attempt's rows (its own file, read by :func:`ambient_rows`) and its
+    leg record (``_partyremove_once(trace=...)``'s ``leg``). (a) = ``spec["precondition"]`` (31113 e0 t0 ip109
+    Byte[13] 2 -> 9), (b) = ``spec["clear"]`` (ip275 9 -> 0), (c) = ``spec["handoff"]`` (31101/351 e0 t0 ip134
+    0 -> 1); "the next Byte[13] row" is the next ``w`` row of slot 0's byte in file order. First match wins:
+      1 VOID arm; 2 FAIL (d) -- a positive observation stands whatever else happened; 3 VOID before-warp; 4/5 VOID
+      no-precondition / cut-before-precondition; 6 FAIL (b) (hub_control True/False) or VOID cut-after-precondition
+      (None); 7 FAIL hub-stalled; 8 VOID drive-after-control; 9 VOID pick-did-not-land; 10 VOID cut-after-landing;
+      11 FAIL (c); 12 VOID other-blocker; 13 PASS.
+    Row 5 reads "no 31113 e0 t0 Byte[13] row", the complement of row 4 -- the registered "no 31113 e0 t0 row at
+    all" left rows there with no Byte[13] row (a trace cut inside the hub's prologue) unmatched, falling to PASS.
+    A CUT trace never decides a FAIL by what it lacks: row 6 with no slot-0 row after (a) and a collect error (the
+    tracer faulted, rows never landed) is VOID cut-after-precondition whatever hub_control reads; row 11 with no
+    slot-0 row after (b) and a collect error is VOID cut-after-landing. Every VOID and FAIL text carries the collect
+    error when there is one."""
+    leg = leg or {}
+    pre, clr, hand = spec["precondition"], spec["clear"], spec["handoff"]
+    slot0 = spec.get("target", pre["target"])
+    slots = set(spec.get("slots") or [pre["target"]])
+    tails = {int(f): set(ips) for f, ips in spec["tail_ips"].items()}
+    rows = list(rows or [])
+    extra = f" (collect: {leg['collect_error']})" if leg.get("collect_error") else ""
+    # 1 -- the arm
+    if leg.get("arm_error") or not any(x.k == "e" and x.why == "arm" for x in rows):
+        return None, "arm", (f"the arm raised: {leg['arm_error']}" if leg.get("arm_error")
+                             else "the attempt's file holds no `arm` row") + extra
+    # 2 -- (d): a 9 other than (a), or a tail-site row other than (b)
+    stray = [x for x in rows if x.k == "w" and x.target in slots and x.new == 9 and not _amb_site(x, pre)]
+    at_tail = [x for x in rows if x.k in ("w", "c") and x.fld in tails and (x.sid, x.tag) == (0, 0)
+               and x.ip in tails[x.fld] and not _amb_site(x, clr)]
+    if stray or at_tail:
+        return False, "(d)", ("; ".join(f"a 9 at {_amb_show(x)}" for x in stray[:2])
+                              + ("; " if stray and at_tail else "")
+                              + "; ".join(f"a {'count' if x.k == 'c' else 'store'} row at the tail site {x.fld} e0 t0 "
+                                          f"ip{x.ip} {x.target}" + ("" if x.k == "c" else f" {x.old} -> {x.new}")
+                                          for x in at_tail[:2]))
+    # 3 -- the leg raised before the warp into 31113
+    phases = list(spec.get("phases") or AMBIENT_PHASES)
+    warp_at = phases.index(spec.get("warp_phase", "hub-warp"))
+    ph = leg.get("phase")
+    if leg.get("error") and (ph is None or (ph in phases and phases.index(ph) < warp_at)):
+        return None, "before-warp", f"the leg raised in phase {ph}, before the warp into {pre['field']}: " \
+                                    f"{str(leg['error'])[:160]}" + extra
+    a = next((i for i, x in enumerate(rows) if _amb_site(x, pre)), None)
+    if a is None:
+        # 4 / 5 -- no precondition
+        hub13 = [x for x in rows if x.k == "w" and x.fld == pre["field"] and (x.sid, x.tag) == (pre["sid"], pre["tag"])
+                 and x.target == slot0]
+        if hub13:
+            return None, "no-precondition", (f"{pre['field']} was entered with {slot0} = {hub13[0].old}, not "
+                                             f"{pre['old']} ({_amb_show(hub13[0])})") + extra
+        return None, "cut-before-precondition", (f"no {pre['field']} e0 t0 {slot0} row (the trace holds "
+                                                 f"{sum(1 for x in rows if x.fld == pre['field'])} rows there)"
+                                                 + (f"; the leg: {str(leg.get('error'))[:120]}" if leg.get("error")
+                                                    else "") + extra)
+    hc = leg.get("hub_control")
+    nxt = next((i for i in range(a + 1, len(rows)) if rows[i].k == "w" and rows[i].target == slot0), None)
+    # 6 -- (a) and the next slot-0 row is not (b)
+    if nxt is None or not _amb_site(rows[nxt], clr):
+        after = "no later row" if nxt is None else _amb_show(rows[nxt])
+        if hc is None:
+            return None, "cut-after-precondition", (f"(a) at {_amb_show(rows[a])}, then {after}, and no control "
+                                                    f"marker (the leg: {str(leg.get('error'))[:120]}"
+                                                    + (f"; unmeasured: {leg['hub_unmeasured']}"
+                                                       if leg.get("hub_unmeasured") else "") + ")") + extra
+        if nxt is None and leg.get("collect_error"):
+            # the trace was CUT (its collect failed: a tracer fault, rows that never landed): "no later row" is the
+            # instrument's, never the hub's -- VOID, the same named outcome
+            return None, "cut-after-precondition", (f"(a) at {_amb_show(rows[a])}, then {after} in a cut trace "
+                                                    f"(hub_control {hc})") + extra
+        return False, "(b)", (f"the hub kept the 9" + ("" if hc else " and never granted control")
+                              + f": (a) {_amb_show(rows[a])}, then {after}, not ip{clr['ip']} {clr['old']} -> "
+                                f"{clr['new']}" + ("" if hc else f" (hub state {leg.get('hub_state')})")) + extra
+    b = nxt
+    # 7 / 8 -- after the clear
+    if hc is False:
+        return False, "hub-stalled", (f"hub stalled after the clear: (a) and (b) at ip{rows[b].ip}, then no control "
+                                      f"in {pre['field']} ({leg.get('hub_state')})") + extra
+    if hc is not True or leg.get("presses") is None:
+        return None, "drive-after-control", (f"(a) and (b) seen; control marker {hc}, presses {leg.get('presses')}: "
+                                             f"{str(leg.get('error'))[:160]}") + extra
+    # 9 -- the pick did not land
+    if not leg.get("landed"):
+        return None, "pick-did-not-land", f"{leg.get('presses')} presses, no landing in {hand['field']}: " \
+                                          f"{str(leg.get('error'))[:160]}" + extra
+    # 10 -- landed, no 31101 e0 t0 row after (b)
+    if not any(x.k == "w" and x.fld == hand["field"] and (x.sid, x.tag) == (hand["sid"], hand["tag"])
+               for x in rows[b + 1:]):
+        return None, "cut-after-landing", f"landed in {hand['field']}, but the trace holds no e0 t0 row there after " \
+                                          f"(b)" + extra
+    # 11 -- the next slot-0 row after (b) is not (c)
+    c = next((i for i in range(b + 1, len(rows)) if rows[i].k == "w" and rows[i].target == slot0), None)
+    if c is None and leg.get("collect_error"):
+        # the same cut as row 6's: 31101 rows, but the trace ends before any slot-0 row there -- the instrument's
+        return None, "cut-after-landing", (f"landed in {hand['field']}; after (b) no {slot0} row in a cut trace"
+                                           + extra)
+    if c is None or not _amb_site(rows[c], hand):
+        return False, "(c)", (f"{hand['field']} did not arrive clean: after (b) the next {slot0} row is "
+                              + ("none" if c is None else _amb_show(rows[c]))
+                              + f", not {hand['field']} e0 t0 ip{hand['ip']} {hand['old']} -> {hand['new']}") + extra
+    # 12 -- (c) holds, control never came back
+    if leg.get("member_control") is not True:
+        return None, "other-blocker", (f"(a), (b) and (c) hold, but control never returned in {hand['field']}: "
+                                       f"{str(leg.get('error'))[:160]}") + extra
+    return True, "PASS", (f"(a) {_amb_show(rows[a])}; (b) ip{rows[b].ip} {rows[b].old} -> {rows[b].new}; (c) "
+                          f"{_amb_show(rows[c])}; control back in {hand['field']}")
+
+
+def _amb_head(ok, name: str) -> str:
+    return "PROVEN" if ok is True else f"FAILED ({name})" if ok is False else f"NOT PROVEN ({name})"
+
+
+def p_ambient(g, pred: dict) -> tuple:
+    """P-AMBIENT (F5c v2; in game, traced, after P-PARTYREMOVE and before NC-THROW's mark; NEVER an input to
+    verdict5b): ``(ok, detail, record)``, ok True PASS / False FAIL / None VOID. Attempt k runs
+    ``_partyremove_once(g, pred, trace=<run dir>/ambient_trace_<k>.jsonl)`` and is judged by :func:`ambient_verdict`
+    over its own file and its leg record; ONE RETRY, for a VOID only (ambient.retries). Every attempt is kept --
+    its file and its record (``record["attempts"]``: k, file, leg, verdict, outcome, why, and P-PARTYREMOVE's reads
+    and verdict on that leg, recorded, never judged). Never raises."""
+    spec = pred["ambient"]
+    attempts = []
+    for k in range(1, 2 + int(spec.get("retries", 1))):
+        name = spec.get("file", AMBIENT_FILE).format(k=k)
+        path = Path(g.run_dir) / name
+        try:
+            rec = _partyremove_once(g, pred, trace=path)
+        except Exception as err:                  # noqa: BLE001 -- never escapes: THE FIX line reads the verdict
+            rec = {"k": "partyremove", "reads": {}, "verdict": None, "why": f"{type(err).__name__}: {str(err)[:200]}",
+                   "leg": {"file": name, "arm_error": None, "phase": None, "hub_control": None, "presses": None,
+                           "landed": False, "member_control": None, "collect_error": None,
+                           "error": f"{type(err).__name__}: {str(err)[:200]}"}}
+        leg = rec.get("leg") or {}
+        rows, read_err = [], None
+        try:                                      # never raises: a read or verdict failure is a VOID, named
+            rows, read_err = ambient_rows(path)
+            ok, outcome, why = ambient_verdict(rows, spec, leg)
+        except Exception as err:                  # noqa: BLE001
+            ok, outcome, why = None, "read-error", f"the attempt could not be judged: {type(err).__name__}: " \
+                                                   f"{str(err)[:200]}"
+        attempts.append({"k": k, "file": name, "leg": leg, "verdict": ok, "outcome": outcome, "why": why,
+                         "read_error": read_err, "rows": len(rows),
+                         "partyremove": {"verdict": rec.get("verdict"), "why": rec.get("why"),
+                                         "reads": rec.get("reads"), "presses": rec.get("presses")},
+                         "log": rec.get("log"), "restore": rec.get("restore")})
+        if ok is not None:
+            break
+    last = attempts[-1]
+    out = {"k": "ambient", "verdict": last["verdict"], "outcome": last["outcome"], "why": last["why"],
+           "attempts": attempts}
+    return last["verdict"], (f"{len(attempts)} attempt(s): {_amb_head(last['verdict'], last['outcome'])}: "
+                             f"{last['why']}"), out
+
+
+def ambient_step(g, pred: dict, session: dict, save) -> bool:
+    """P-AMBIENT as the session runs it (after P-PARTYREMOVE, before NC-THROW's mark): the leg, its record in
+    ``session["ambient"]``, its non-blocking check -- then the TRACER'S HEALTH. P-AMBIENT makes the session's first
+    ``storytrace 1``; a tracer that faulted there stays faulted until the harness re-arms (StoryTrace.Start refuses
+    while its error is set; only an arm, i.e. a launch, resets it), so every run's ``storytrace 1`` after it would be
+    refused and all nine would STOP VOID. Returns False -- the session ends here, named -- when the published
+    ``storytrace.error`` is set (or the state cannot be read); True to go on."""
+    ok_am, detail_am, am = p_ambient(g, pred)
+    session["ambient"] = am
+    save()
+    g.check(ok_am is True, "P-AMBIENT: in game, traced, the hub revisit from 351 clears the 9 at the tail and 31101 "
+                           "arrives clean (non-blocking: THE FIX line reports it, never the VERDICT)",
+            ("VOID -- " if ok_am is None else "") + detail_am)
+    try:
+        fault = (g.state.storytrace or {}).get("error")
+    except Exception as err:                      # noqa: BLE001 -- an unreadable state ends it all the same, named
+        fault = f"the tracer's state could not be read: {type(err).__name__}: {str(err)[:200]}"
+    if not fault:
+        return True
+    am["tracer_fault"] = str(fault)[:300]
+    session["stopped"] = (f"the story tracer faulted in P-AMBIENT ({str(fault)[:200]}); only a relaunch clears it, "
+                          f"so no run was started")
+    session["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    save()
+    g.check(False, "the story tracer faulted in P-AMBIENT; only a relaunch clears it -- the session ends before its "
+                   "runs (each run's storytrace 1 would be refused)", str(fault)[:300])
+    return False
+
+
+def fix_line(run_dir, session: dict, pred: dict) -> tuple | None:
+    """THE FIX line (design F5c 2.4-2.6), pure given the run dir: ``(ok, text)`` -- every P-AMBIENT attempt the
+    session recorded RE-DERIVED from its own file and its recorded leg (never the recorded verdict), the decision the
+    first non-VOID attempt's (the retry runs on a VOID only), else the last's. ``text`` starts ``PROVEN`` / ``NOT
+    PROVEN (<void>)`` / ``FAILED (<clause>)``. None when the predictions register no P-AMBIENT (v1)."""
+    spec = pred.get("ambient")
+    if not spec:
+        return None
+    amb = (session or {}).get("ambient") or {}
+    attempts = amb.get("attempts") or []
+    if not attempts:
+        return None, "NOT PROVEN (not-recorded) -- the session recorded no P-AMBIENT attempt"
+    got = []
+    for a in attempts:
+        rows, err = ambient_rows(Path(run_dir) / a["file"])
+        leg = a.get("leg") or {}
+        ok, name, why = ambient_verdict(rows, spec, leg)
+        got.append((a.get("k"), a["file"], ok, name, why, err, a.get("verdict"), a.get("outcome"), leg.get("throws")))
+    decided = next((x for x in got if x[2] is not None), got[-1])
+    k, _f, ok, name, why, _e, _rv, _ro, _t = decided
+    notes = [f"attempt {x[0]} ({x[1]}): {_amb_head(x[2], x[3])}" + (f" [{x[5]}]" if x[5] else "")
+             + (f" -- recorded {WORD[x[6]]} {x[7]}, re-derived otherwise" if (x[6], x[7]) != (x[2], x[3]) else "")
+             + (f" -- thrown in its leg (report-only): {x[8][:4]}" if x[8] else "")
+             for x in got]
+    if any(x[2] is not None for x in got[:-1]):
+        notes.append("an attempt after a non-VOID one (the retry is for a VOID only)")
+    return ok, f"{_amb_head(ok, name)} -- attempt {k} of {len(got)}: {why} || " + "; ".join(notes)
 
 
 # ======================================================================== the static pre-flight (pure, offline)
@@ -939,9 +1570,11 @@ def hub_check(view: dict, data: bytes | None, *, texts: bool = True) -> tuple:
                                                                           f"row text as frozen")
 
 
-def manifest_check(pred: dict, manifest: Path = MANIFEST, f5_manifest: Path = F5_MANIFEST) -> tuple:
-    """P-MANIFEST's hub and member-sha clauses: rung5b_forks.json lists the two hubs with the frozen ids, names and
-    eb sha256s (never F5's 31100), and any member eb sha it lists is rung5_forks.json's F5 entry."""
+def manifest_check(pred: dict, manifest: Path | None = None, f5_manifest: Path = F5_MANIFEST) -> tuple:
+    """P-MANIFEST's hub and member-sha clauses: the fork manifest (``manifest``, default the one the predictions name:
+    :func:`manifest_path` -- rung5b_forks.json for v1) lists the two hubs with the frozen ids, names and eb sha256s
+    (never F5's 31100), and any member eb sha it lists is rung5_forks.json's F5 entry."""
+    manifest = manifest_path(pred) if manifest is None else manifest
     try:
         man = json.loads(Path(manifest).read_text(encoding="utf-8"))
         f5 = json.loads(Path(f5_manifest).read_text(encoding="utf-8"))
@@ -963,12 +1596,64 @@ def manifest_check(pred: dict, manifest: Path = MANIFEST, f5_manifest: Path = F5
     return not bad, "; ".join(bad) or f"hubs {[(hubs[s]['id'], hubs[s]['name']) for s in FORKS]} as frozen"
 
 
-def preflight5b(pred: dict, roots: list, stock, sides: dict, *, manifest: Path = MANIFEST, ran=None,
+def hubdiff_check(pred: dict, eb_of) -> tuple:
+    """P-HUBDIFF (F5c v2, static): ``(ok, detail)`` -- each hub is its preserved v1 build plus EXACTLY the ambient tail:
+    for both hubs and all 7 languages, ``eb.edit.insert_in_function(v1, 0, 0, hub_fix.e0t0_rel, hub_fix.tail) ==
+    v2``. ``eb_of(side, lang)`` -> the v2 .eb bytes (None: absent). v1 is read from ``hub_fix.v1_build``
+    (``<DIR>/<id>/`` as ``ff9mapkit build --out`` writes it), each .eb held to the SHA256SUMS beside it and the US one
+    to ``hub_fix.v1_eb_sha256``: a missing or sha-mismatched v1 is FAIL, never VOID. The tail is the FROZEN hex."""
+    from ff9mapkit.eb import edit
+    F = pred["hub_fix"]
+    tail, rel, v1dir = bytes.fromhex(F["tail_hex"]), int(F["e0t0_rel"]), Path(F["v1_build"])
+    try:
+        text = (v1dir / "SHA256SUMS").read_text(encoding="utf-8")
+        sums = {p_: h for h, p_ in (ln.split("  ", 1) for ln in text.splitlines() if ln.strip())}
+    except (OSError, ValueError) as err:
+        return False, f"no v1 build to compare with: {v1dir / 'SHA256SUMS'} ({type(err).__name__})"
+    bad, n = [], 0
+    for side in FORKS:
+        hid = pred["hubs"][side]["id"]
+        for lang in LANGS:
+            hits = sorted((v1dir / str(hid)).glob(f"StreamingAssets/**/field/{lang}/*.eb.bytes"))
+            if len(hits) != 1:
+                bad.append(f"{side} {lang}: {len(hits)} v1 .eb files in {v1dir / str(hid)}")
+                continue
+            v1 = hits[0].read_bytes()
+            sha1 = hashlib.sha256(v1).hexdigest()
+            if sums.get(hits[0].relative_to(v1dir).as_posix()) != sha1:
+                bad.append(f"{side} {lang}: the v1 .eb is not its SHA256SUMS value")
+                continue
+            if lang == "us" and sha1 != F["v1_eb_sha256"][side]:
+                bad.append(f"{side} us: the v1 .eb is {sha1[:12]}, not v1's frozen {F['v1_eb_sha256'][side][:12]}")
+                continue
+            v2 = eb_of(side, lang)
+            if v2 is None:
+                bad.append(f"{side} {lang}: no v2 .eb")
+                continue
+            try:
+                want = edit.insert_in_function(v1, 0, 0, rel, tail)
+            except ValueError as err:
+                bad.append(f"{side} {lang}: the tail cannot go at e0 t0 +{rel} of v1 ({str(err)[:80]})")
+                continue
+            if bytes(v2) != want:
+                at = next((i for i, (x, y) in enumerate(zip(v2, want)) if x != y), min(len(v2), len(want)))
+                bad.append(f"{side} {lang}: v2 is not v1 plus the tail at e0 t0 +{rel} ({len(v2)} bytes vs {len(want)}, "
+                           f"first difference at {at})")
+            else:
+                n += 1
+    return not bad, "; ".join(bad[:6]) or (f"{n} = {len(LANGS)} languages x {len(FORKS)} hubs: each v2 .eb == "
+                                           f"insert_in_function(v1, 0, 0, {rel}, the {len(tail)}-byte tail); v1 from "
+                                           f"{v1dir}, each its SHA256SUMS value")
+
+
+def preflight5b(pred: dict, roots: list, stock, sides: dict, *, manifest: Path | None = None, ran=None,
                 pins: bool = True, env: dict | None = None, ini=None) -> list:
     """Every static pre-flight on the live install, in the frozen order (design 4.9; H5.preflight5, rung5_hub.py:
     289-318, over two hubs): ``[(ok, what, detail)]``. R.preflight (P-MANIFEST's members, P-DEPLOY's members,
     P-FLOOR, P-EXITS, P-STOCK) reads F5's own manifest (the chain IS F5's) through ``sides`` = H5.tours5. P-INI reads
-    ``ini`` (default the install's Memoria.ini, :func:`ini_check`)."""
+    ``ini`` (default the install's Memoria.ini, :func:`ini_check`). P-MANIFEST's hub clause reads ``manifest``
+    (default the one the predictions name). v2 (``hub_fix``) adds P-HUBDIFF on the deployed bytes, all 7 languages,
+    right after the two P-HUB lines."""
     ran = ran or T.mod_script_source(roots)
     base = {w.split(":")[0]: (ok, w, d) for ok, w, d in R.preflight(pred, roots, stock, sides, F5_MANIFEST)}
 
@@ -981,8 +1666,9 @@ def preflight5b(pred: dict, roots: list, stock, sides: dict, *, manifest: Path =
 
     ok_m, _w, d_m = base["P-MANIFEST"]
     ok_h, d_h = manifest_check(pred, manifest)
-    out = [(ok_m and ok_h, "P-MANIFEST: the frozen member set and the two hubs are the deployed ones "
-                           "(rung5_forks.json, rung5b_forks.json)", f"{d_m} || {d_h}")]
+    out = [(ok_m and ok_h, f"P-MANIFEST: the frozen member set and the two hubs are the deployed ones "
+                           f"({F5_MANIFEST.name}, {(manifest_path(pred) if manifest is None else Path(manifest)).name})",
+            f"{d_m} || {d_h}")]
     ok_d, _w, d_d = base["P-DEPLOY"]
     inst = [H5.hub_install_check(hub_view(pred, s), roots) for s in FORKS]
     out.append((ok_d and all(ok for ok, _ in inst), "P-DEPLOY: every member and both hubs registered once; the "
@@ -992,6 +1678,21 @@ def preflight5b(pred: dict, roots: list, stock, sides: dict, *, manifest: Path =
     for s in FORKS:
         ok, d = hub_check(hub_view(pred, s), hub_bytes[s])
         out.append((ok, f"P-HUB ({s}): the deployed hub is its frozen seed and nothing else", d))
+    if pred.get("hub_fix"):
+        per_lang: dict = {}
+
+        def deployed(side: str, lang: str):
+            if lang not in per_lang:
+                per_lang[lang] = ran if lang == "us" else T.mod_script_source(roots, lang=lang)
+            try:
+                idx = per_lang[lang](pred["hubs"][side]["id"])
+            except T.TraceError:
+                return None
+            return None if idx is None else idx.data
+
+        ok_x, d_x = hubdiff_check(pred, deployed)
+        out.append((ok_x, "P-HUBDIFF: each deployed hub is its v1 build plus exactly the ambient tail (7 languages)",
+                    d_x))
     ops = [partyops_check(hub_view(pred, s), hub_bytes[s]) for s in FORKS]
     out.append((all(ok for ok, _ in ops), "P-PARTYOPS: the picks' party operations are the frozen ones",
                 " || ".join(d for _ok, d in ops)))
@@ -1009,6 +1710,13 @@ def preflight5b(pred: dict, roots: list, stock, sides: dict, *, manifest: Path =
     return out
 
 
+def built_lang(build, fid: int, lang: str) -> bytes | None:
+    """The ``lang`` .eb an offline ``ff9mapkit build --out <build>/<fid>`` wrote for field ``fid`` (H5.built_eb for
+    any language), or None."""
+    hits = sorted((Path(build) / str(fid)).glob(f"StreamingAssets/**/field/{lang}/*.eb.bytes"))
+    return hits[0].read_bytes() if len(hits) == 1 else None
+
+
 def build_hubs(out: Path, pred: dict) -> Path:
     """``py -m ff9mapkit build <hub toml> --out <out>/<id>`` for both hubs (offline, sub-second each) -> ``out``."""
     for s in FORKS:
@@ -1024,8 +1732,9 @@ def build_hubs(out: Path, pred: dict) -> Path:
 def offline_check5b(pred: dict, build: Path | None = None, stock=None, *, pins: bool = True,
                     env: dict | None = None) -> list:
     """The OFFLINE pre-flight on a build (build step 10), before anything is deployed: P-HUB (per hub: bytes, sha,
-    options, row text), P-PARTYOPS, P-ENTRY and P-PINS. ``build`` = ``<dir>/<id>/`` per hub as ``ff9mapkit build
-    --out`` writes it; None builds both hubs from their frozen tomls into a temp dir first."""
+    options, row text), P-PARTYOPS, P-ENTRY and P-PINS -- and v2's P-HUBDIFF (all 7 languages of the build). ``build``
+    = ``<dir>/<id>/`` per hub as ``ff9mapkit build --out`` writes it; None builds both hubs from their frozen tomls
+    into a temp dir first."""
     stock = stock or T.stock_script_source()
     tmp = None
     if build is None:
@@ -1037,6 +1746,9 @@ def offline_check5b(pred: dict, build: Path | None = None, stock=None, *, pins: 
         for s in FORKS:
             ok, d = hub_check(hub_view(pred, s), hub_bytes[s])
             out.append((ok, f"P-HUB ({s}, offline build)", d))
+        if pred.get("hub_fix"):
+            ok_x, d_x = hubdiff_check(pred, lambda side, lang: built_lang(build, pred["hubs"][side]["id"], lang))
+            out.append((ok_x, "P-HUBDIFF (offline build)", d_x))
         ops = [partyops_check(hub_view(pred, s), hub_bytes[s]) for s in FORKS]
         out.append((all(ok for ok, _ in ops), "P-PARTYOPS (offline build)", " || ".join(d for _ok, d in ops)))
         ok_e, d_e = entry_check(pred, stock, hub_bytes)
@@ -2005,6 +2717,41 @@ def analyse5b(run_dir, *, pred_path: Path | None = None, stock=None, roots=None)
                 "the hub's own bytes, the entry next, no stamp wider than its variable",
                 "; ".join(bad[:5]) or f"runs that reached {pred['entry']['member']}: {reached}"))
 
+    # -- HUB-ROWS-SAME (v2: F5c's New-Game-path pin; load-bearing, state half) ------------------------------------
+    # R5-STAMP skips every e0 t0 row whose target is a prologue target once it joins a store (above), so a tail firing
+    # on the New-Game path (a 9 at ip109, its clear at ip275) passes it unseen: this pins the hub's e0 t0 rows exactly
+    if all("ng_rows" in pred["hubs"][s] for s in FORKS):
+        bad, seen = [], {s: 0 for s in FORKS}
+        for side in FORKS:
+            H = pred["hubs"][side]
+            want = [(x["ip"], x["target"], x["old"], x["new"]) for x in H["ng_rows"]]
+            forbid = set(H["forbid_ips"])
+            for r in cov[side]:
+                raw = r["raw"] or []
+                if not any(x.fld == H["id"] and x.k in ("w", "r") for x in raw):
+                    continue
+                seen[side] += 1
+                e0 = [x for x in raw if x.fld == H["id"] and x.k in ("w", "c") and (x.sid, x.tag) == (0, 0)]
+                got = [(x.ip, x.target, x.old, x.new) for x in e0 if x.k == "w"]
+                probs = []
+                if got != want:
+                    probs.append(f"e0 t0 rows {[f'ip{a} {t} {o}->{n}' for a, t, o, n in got][:8]}, not ng_rows")
+                if any(x.k == "c" for x in e0):
+                    probs.append(f"count rows at e0 t0 ips {sorted({x.ip for x in e0 if x.k == 'c'})}")
+                hit = sorted({x.ip for x in e0 if x.ip in forbid})
+                if hit:
+                    probs.append(f"rows at the forbidden ips {hit}")
+                if probs:
+                    bad.append(f"{r['label']}: " + "; ".join(probs))
+        enough = seen["F5B"] >= n_min and seen["CTL"] >= n_ctl
+        out.append((False if bad else True if enough else None,
+                    "HUB-ROWS-SAME: on the New-Game path each fixed hub's e0 t0 rows are session 1's exactly (ng_rows) "
+                    "-- no count row there, no row at the := 9 marks or the tail's clears",
+                    "; ".join(bad[:4]) or (f"{seen['F5B']} F5B and {seen['CTL']} CTL covered runs, each exactly the "
+                                           f"{len(pred['hubs']['F5B']['ng_rows'])} rows" if enough else
+                                           f"covered runs that reached their hub: F5B {seen['F5B']} (want >= {n_min}), "
+                                           f"CTL {seen['CTL']} (want >= {n_ctl})")))
+
     # -- R5-STOCKSTATE (H5's, unchanged) ------------------------------------------------------------------------
     p = pred["stockstate"]
     what = ("R5-STOCKSTATE: fresh stock runs reproduce the wake-instant state (a regression check on S and the "
@@ -2377,11 +3124,18 @@ def analyse5b(run_dir, *, pred_path: Path | None = None, stock=None, roots=None)
     v_ok, v_text = verdict5b(out, clauses, f5b_pairs=len(pairs["F5B"]), ctl_covered=len(pairs["CTL"]), pred=pred)
     out.append((v_ok, "VERDICT: the frozen rule (PROVEN / NOT PROVEN: <half> / FAILED: <check>)", v_text))
 
+    # -- THE FIX (v2): P-AMBIENT, re-derived from each attempt's own file; AFTER the verdict, never an input to it -----
+    fx = fix_line(run_dir, session, pred)
+    if fx is not None:
+        out.append((fx[0], f"{FIX_LINE}: P-AMBIENT's registered table, reported apart from the VERDICT", fx[1]))
+
     # -- the summary ---------------------------------------------------------------------------------------------------
     lines = [f"story trace F5b (the post-wake entry) -- session {session.get('label')} ({session.get('started')} .. "
              f"{session.get('finished', 'unfinished')}); predictions {pred_path.name} (lane {pred.get('lane')} "
              f"v{pred.get('version')})" + (f"; re-runs stopped: {session['rerun_stop']}"
                                            if session.get("rerun_stop") else ""), "", f"VERDICT: {v_text}", ""]
+    if fx is not None:
+        lines[-1:-1] = [f"{FIX_LINE}: {fx[1].split(' -- ', 1)[0]}"]
     for r in runs:
         rec = r["rec"]
         lines.append(f"  {r['label']:<7} {rec.get('t0', '?')}..{rec.get('t1', '?')}s  "
@@ -2467,7 +3221,10 @@ def run(g) -> None:
     save()
     g.check(ok_pr is True, "P-PARTYREMOVE: in game, untraced, the F5B pick's removes act on a real roster "
                            "(non-blocking: R5B-PARTY reads it)", ("VOID -- " if ok_pr is None else "") + detail_pr)
-    mark = g.log_mark()                   # NC-THROW's mark: after both P-HUBLEGs and P-PARTYREMOVE
+    if pred.get("ambient"):                # v2: P-AMBIENT, traced, after P-PARTYREMOVE and before the mark
+        if not ambient_step(g, pred, session, save):
+            return                         # the tracer faulted: nine refused runs would only spend the budget
+    mark = g.log_mark()                   # NC-THROW's mark: after both P-HUBLEGs, P-PARTYREMOVE and P-AMBIENT
     t0 = time.time()
     deadline = t0 + b["session_s"]
 
@@ -2688,7 +3445,8 @@ def main(argv=None) -> int:
                       help="P-HUB, P-PARTYOPS, P-ENTRY and P-PINS on an offline build (<BUILD_DIR>/<id>/ per hub; "
                            "none: build both hubs from their frozen tomls into a temp dir)")
     ap.add_argument("--predictions", metavar="FILE", default=None,
-                    help="read these predictions instead of the file the session recorded / the frozen v1")
+                    help="read these predictions instead of the file the session recorded (--analyse) / the frozen "
+                         "v2, rung5b_predictions_v2.json (--preflight, --offline-check)")
     a = ap.parse_args(argv)
     if a.analyse:
         try:
@@ -2699,7 +3457,7 @@ def main(argv=None) -> int:
         for name, text in reports.items():
             (Path(a.analyse) / name).write_text(text, encoding="utf-8")
         print(reports["rung5b_summary.txt"])
-        return 0 if checks[-1][0] is True else 1
+        return 0 if next(ok for ok, w, _d in checks if check_id(w) == "VERDICT") is True else 1
     path = Path(a.predictions) if a.predictions else PREDICTIONS
     if not path.is_file():
         print(f"REFUSED: no predictions file {path} (rung5b_dryrun.py freezes it; --predictions names another)",
