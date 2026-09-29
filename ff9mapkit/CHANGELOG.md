@@ -5,6 +5,57 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `story-seed --hub` can derive a journey row that enters after the beat's own advance
+- **The rule.** A journey row stamps the story state stock holds at the moment its own flow hands control
+  into the row's entry (the member field and its entrance). Without the new flags nothing changes: the row
+  is the state BEFORE the beat's advance, byte for byte as before. The advance's own writes are left to the
+  advance, which the entry path still plays.
+- **`--after-advance` (needs `--entrance N`).** For an entry behind one exit gateway of the room whose
+  script writes SC := beat. Stock ran that advance in place, handed control back, and the player walked out
+  through that exit. On top of the plain row, the row carries:
+  - `entrance = N`, the exit's own entrance;
+  - each read story bit that holds one literal value on every path through every SC := beat store (a
+    value that differs from the plain row goes into `set_flags`, a 0 included);
+  - what the exit's own walk-in writes before its `Field()`, with code that cannot run at that beat left out;
+  - `party_remove` for each member the advance removes with `if PARTYCHK(c) RemoveParty(c)`, when every
+    advance function of the beat does so. A re-add every path from the remove to the store passes cancels
+    it; a conditional re-add is assumed not taken.
+  Comments name every site, the stores that cannot run at that beat, the bits with no single value (`kept
+  at the pre-phase value 1` when the plain row still stamps them, else `not carried`), and the conditional
+  re-adds assumed not taken.
+- **The post phase's write reader** follows the engine's expression stack: an assignment writes its
+  left-hand variable only (`A := B` no longer counts B as written), `++`/`--` write their operand, and an
+  assignment inside a condition is a store of unknown value. A bit store of any nonzero value sets the bit.
+- **What `--after-advance` refuses** (exit 1, `story-seed: ...`):
+  - a missing `--entrance`, or one that is not the exit's;
+  - a beat that no member's script advances to;
+  - an entry into the advance room itself (stock hands control back there without a `Field()`);
+  - an entry that is not behind an exit of the advance room;
+  - an advance whose own run leaves the scene after the store (its scripted warp is the hand-over);
+  - a party change after the store (a remove, an add, the Party menu, `SetPartyReserve`);
+  - a `RemoveParty` on the way to the store that is not `if PARTYCHK(c) RemoveParty(c)` on every path;
+  - a store the advance's own run makes after the SC := beat store that moves the scenario counter, or a
+    word the row stamps, off its value (the same store at the beat's or the stamp's own value is noted);
+  - an exit that can re-set the scenario counter (an increment included), or a word the row stamps, at
+    that beat;
+  - an exit whose warp into the entry cannot run at that beat;
+  - removes that would leave no member in the party.
+- **`--entrance N` without `--after-advance`.** The plain row plus `entrance = N`. If that entrance IS an
+  exit of the advance room whose warp can run at the beat, it is refused (the entry lies after the
+  advance), unless `--pre-phase-control` asks for the plain row there on purpose, as a calibration control.
+  The row then says so in a comment. `--pre-phase-control` on an entrance that is not such an exit is
+  refused.
+- **`--name`** sets the menu label, escaped as a TOML string. The default label adds the phase or the
+  entrance when one is given. The plain label is unchanged.
+- **The row id** is `<chain>_<beat>`, plus `_e<N>`, `_post` or `_control` as given, from the CLI and the
+  library call alike (`storyseed.hub_row_slug`). A new row never replaces a plain row of the same chain and
+  beat. The four flags are refused without `--chain --beat --hub`.
+- **Status.** Proven offline only: the unit tests, the real Dali bytes, and a regression gate. The gate
+  shows the plain rows, the deployed F5 hub's script bytes, the single-field seeds and `seed_chain` output
+  are unchanged. The in-game proof of the post phase is PENDING: one hand-over, Dali at SC 2600 entering the
+  inn lobby (field 351) at entrance 6, awaits the F5b session. Every other hand-over the post phase changes
+  is unverified in game.
+
 ### Added — `fork-report --trace`: what a field's scripts actually wrote, and what a fork of it gets wrong
 - **The stock walk alone (`--trace RUN...`).** Under the report, every story write the recorded stock runs
   made in this field: the instruction it joined to, and in how many runs. The static Story-writes candidates
