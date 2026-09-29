@@ -22,6 +22,13 @@ B4  THE CLEAR, both slots: after a warp to the hub, poking [13] = [14] = 2 there
     tag 0) writes [13] 2 -> 9 and [14] 2 -> 9 at the prologue's ips, then [13] 9 -> 0 and [14] 9 -> 0 at the TAIL's
     ips (all four predicted from the live bytes), and the bits then read [13] == [14] == 0
 B5  no exception thrown through EventEngine/EBin/StoryTrace/HarnessAgent for the whole run
+RESULT (2026-09-29, run 20260929-180801-f-redeploy-6601, archived in the MAIN repo's .harness-runs): 5/5 PASS, 171 s.
+Natural arrival: 6601 wrote [13] 0 -> 0 (ip131) and [14] 0 -> 0 (ip212), the prologue's own none-branch, and the TAIL
+had nothing to clear. The Purser's menu read the five Sail rows, "Log the passage." and "Nothing for now."; the
+decline left him in 6601 with control. The clear path wrote [13] 2 -> 9 ip109, [14] 2 -> 9 ip190, [13] 9 -> 0 ip275,
+[14] 9 -> 0 ip294 -- all four as predicted -- and the bits read 0: slot 1's clear, first seen in game. Both hall
+frames show the room after its fade-in.
+
 The ip model is f_redeploy_4600's (calibrated on story-rung5b2's archived rows, and it held there).
 """
 from __future__ import annotations

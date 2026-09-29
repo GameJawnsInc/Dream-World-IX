@@ -39,8 +39,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   The rebuild also writes a newer `JournalPatch.txt`. Redeploy instead with `tools/ambient_splice.py <id>
   --mod-folder <folder>` (dry run; add `--apply` with the game closed). It writes the live `.eb` plus exactly
   the tail, checked instruction by instruction, and nothing else, so registrations and the New-Game override
-  stay as they are and need no re-wire. Done so far: 4600, proven in game on the real New-Game route (the
-  story trace shows its prologue marking `Byte[13]` 2 → 9 and the tail clearing it 9 → 0). A read-only
+  stay as they are and need no re-wire. Done so far, each proven in game:
+  - 4600, on the real New-Game route. The story trace shows its prologue marking `Byte[13]` 2 → 9 and the
+    tail clearing it 9 → 0.
+  - 6601, entered from the hub with both slots arriving as 2. The trace shows both marked 9 and both cleared
+    to 0. This is the first in-game proof of slot 1 (`Byte[14]`).
+  A read-only
   check: `ambient.classify` on the `field/us/*.eb.bytes` of these 47 ids reads `missing` before a redeploy and
   `restored` after. Run over a whole folder, it reads `stock-tail` for every verbatim fork, and it raises
   `ValueError` on the New-Game override in `FF9CustomMap-world` (`evt_alex1_ts_opening`, stock field 70, one
