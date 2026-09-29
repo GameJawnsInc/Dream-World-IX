@@ -8102,6 +8102,518 @@ def test_hub_leg_a_stalled_step_stops_the_leg_within_its_clocks(game, stall):
     assert log and log[-1]["k"] == "hub" and log[-1]["error"], log
 
 
+# ---- F5b, the post-wake entry (studies/story-trace/rung5b_hub.py): a hub pick lands member(351) = 31101 PAST the wake,
+# at entrance 6 -- stock's first field entry after it. Two hubs share F5's rig: T5B_HUB (31113, the fixed row: removes
+# garnet/steiner/vivi, adds zidane) and T5B_CTL (31114, today's pre-phase row: adds all four). The trace cannot see
+# the party; the sandbox FIELD-ENTRY AUTOSAVE can (40000_Common.slot), and :class:`_PartyHubFake` writes one on every
+# field entry, as the engine does before the new field's scripts run. The predictions are rung5b_hub's SKELETON
+# (draft_predictions: F5's hub rig carried, the two hubs, the party table): the machinery is on test, not the numbers.
+
+_B_HUB, _C_HUB, _PAST = 31113, 31114, 31101                   # T5B_HUB, T5B_CTL, member(351)
+_B_PLACES = {_PAST: 351, _WAKE: 352, _ENTRY: 359}
+_NG_PARTY = [0, 255, 255, 255]                                 # New Game: Zidane alone (ff9play.cs:74-78)
+
+
+def _sj_str(s: str) -> bytes:
+    """.NET BinaryWriter.Write(string): a 7-bit length prefix, then UTF-8 (tests/test_save_extra.py's port)."""
+    raw = s.encode("utf-8")
+    n, out = len(raw), bytearray()
+    while True:
+        b = n & 0x7F
+        n >>= 7
+        out.append(b | (0x80 if n else 0))
+        if not n:
+            break
+    return bytes(out) + raw
+
+
+def _sj(node) -> bytes:
+    """SimpleJSON's BINARY serialization (JSONClass/JSONArray/JSONData.Serialize) -- the Memoria extra file's format."""
+    import struct
+    if isinstance(node, dict):
+        return struct.pack("<ii", 2, len(node)) + b"".join(_sj_str(k) + _sj(v) for k, v in node.items())
+    if isinstance(node, list):
+        return struct.pack("<ii", 1, len(node)) + b"".join(_sj(v) for v in node)
+    if isinstance(node, bool):
+        return struct.pack("<i?", 6, node)
+    if isinstance(node, int):
+        return struct.pack("<ii", 4, node)
+    if isinstance(node, float):
+        return struct.pack("<id", 5, node)
+    return struct.pack("<i", 3) + _sj_str(str(node))
+
+
+class _PartyHubFake(_HubFake):
+    """F5b's two hubs on the fake, and the sandbox FIELD-ENTRY AUTOSAVE the party is read through. Both hubs are F5's
+    rig (the spawn, Stiltzkin, the menu); the row each answers is its own (``rows`` = {hub: {remove, add, entrance,
+    lands}}): the pick runs its removes -- a no-op for a non-member (EventEngine.DoEventCode.cs:2754-2767); ``inert``
+    makes every one a no-op -- then its adds into the first empty slot (a member already in skipped,
+    EventEngine.cs:875-915), stamps SC 2600 and Int16[2] := entrance, and lands. EVERY field entry -- a warp (its
+    entrance operand is Int16[2]), a landing -- writes the autosave: the party in SLOT order, gEventGlobal with SC and
+    Int16[2], the play time, its st_mtime_ns strictly after the last one's (the engine's saves are seconds apart, the
+    fake's frames are not). ``saves`` False: an engine that did not autosave. ``wake_on_landing``: the landing plays
+    the wake (its SC store traced: ``woken``). A row may also name the ``sc`` its pick stamps (default the beat), a
+    ``then`` = (field, frames) it warps on to after landing, and ``saves`` False (that pick's landing writes no
+    autosave). ``ng_party`` is the party New Game leaves. ``save_delay`` / ``control_delay``: a pick's landing
+    writes its autosave, and gives control back, that many frames AFTER the field flips -- the engine's order
+    (fldMapNo flips in the old field's shutdown, the new field's StartEvents autosaves, control comes last)."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.rows = {_B_HUB: {"remove": [2, 3, 1], "add": [0], "entrance": 6, "lands": _PAST},
+                     _C_HUB: {"remove": [], "add": [2, 3, 1, 0], "entrance": 6, "lands": _PAST}}
+        for hub in self.rows:
+            self.blockers[hub] = [self.narrator]
+        self.party = list(_NG_PARTY)
+        self.ng_party = list(_NG_PARTY)
+        self.entrance = 0
+        self.inert = False
+        self.saves = True
+        self.wake_on_landing = False
+        self.save_delay = self.control_delay = 0
+        self.play_time = 0.0
+        self._saved_ns = 0
+        self._pending: dict = {}                           # frame -> what a pick's landing does then
+
+    def _autosave(self) -> None:
+        import base64
+        import struct
+        if not self.saves:
+            return
+        geg = bytearray(2048)
+        struct.pack_into("<Hh", geg, 0, int(self.scenario or 0) & 0xFFFF, self.entrance)
+        self.play_time += 1.0
+        tree = {"95000_Setting": {"00001_time": self.play_time},
+                "20000_Event": {"gStepCount": 0, "gEventGlobal": base64.b64encode(bytes(geg)).decode("ascii"),
+                                "gAbilityUsage": [], "gScriptVector": [], "gScriptDictionary": []},
+                "40000_Common": {"players": [{"name": "Zidane", "info": {"party": 1}, "cur": {"hp": 105},
+                                              "status": 0}], "slot": list(self.party)}}
+        path = self.dir / "save" / "SavedData_ww_Memoria_Autosave.dat"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(_sj(tree))
+        self._saved_ns = max(time.time_ns(), self._saved_ns + 1_000_000)
+        os.utime(path, ns=(self._saved_ns, self._saved_ns))
+
+    def _step_world(self) -> None:
+        for at in sorted(k for k in self._pending if k <= self.frame):
+            for what in self._pending.pop(at):
+                if what == "save":
+                    self._autosave()
+                elif what == "control":
+                    self.control = True
+                else:                                      # a warp on after the landing: control stays withheld
+                    _HubFake._land(self, what)
+                    self.control = False
+                    self._autosave()
+        super()._step_world()
+
+    def _execute(self, step: list[str]) -> None:
+        op = step[0].lower()
+        if op == "newgame":
+            self.party, self.entrance, self._pending = list(self.ng_party), 0, {}
+        super()._execute(step)
+        if op == "warp":
+            if len(step) > 2 and int(step[2]) >= 0:
+                self.entrance = int(step[2])
+            if self.field_id in self.rows:
+                self.player = [float(self.spawn[0]), 0.0, float(self.spawn[1])]
+                self._face_deg = 0.0                       # the hub's TurnInstant(0): south
+            self._autosave()
+
+    def _land(self, fid: int) -> None:
+        super()._land(fid)
+        self._autosave()
+
+    def _talkable(self) -> bool:
+        n = self.narrator
+        dx, dz = n["x"] - self.player[0], n["z"] - self.player[2]
+        return (self.field_id in (_HUB, *self.rows) and self.control and self.ui_state == "FieldHUD"
+                and not self._beats and math.hypot(dx, dz) < n["talk_r"]
+                and dx * self._facing[0] + dz * self._facing[1] > 0)
+
+    def _picked(self) -> None:
+        spec = self.rows.get(self.field_id)
+        if spec is None or self.journey["options"][self.answered[-1]] != _DALI_ROW:
+            return super()._picked()
+        for c in spec["remove"]:
+            if not self.inert and c in self.party:
+                self.party[self.party.index(c)] = 255
+        for c in spec["add"]:
+            if c not in self.party and 255 in self.party:
+                self.party[self.party.index(255)] = c
+        self.scenario, self.entrance = spec.get("sc", self.beat), spec["entrance"]
+        saves = spec.get("saves", True)
+        _HubFake._land(self, spec["lands"])                # the field flips; its autosave follows below
+        if self.save_delay or self.control_delay or spec.get("then"):
+            self.control = False                           # withheld until its frame
+            later = {self.frame + max(self.control_delay, 1): ["control"]}
+            if saves:
+                later.setdefault(self.frame + self.save_delay, []).append("save")
+            if spec.get("then"):
+                later.setdefault(self.frame + spec["then"][1], []).append(spec["then"][0])
+            for at, what in later.items():
+                self._pending.setdefault(at, []).extend(what)
+        elif saves:
+            self._autosave()
+        if self.wake_on_landing:
+            self.woken = True
+
+
+def _rung5b():
+    """studies/story-trace/rung5b_hub.py, rung5_hub.py and dali_tour, loaded as the F5 tests load theirs."""
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import dali_tour
+    import rung5_hub
+    import rung5b_hub
+    return rung5b_hub, rung5_hub, dali_tour
+
+
+def _b_world(game, cls=None):
+    """``(fake, rung5b_hub, rung5_hub, pred)``: F5b's two hubs on the fake (``cls``, default :class:`_PartyHubFake`,
+    a 960 fps loop), the modules, and the predictions SKELETON -- every id a leg warps to registered."""
+    with (game / "FF9CustomMap" / "DictionaryPatch.txt").open("a", encoding="utf-8") as fh:
+        for fid, name in ((_B_HUB, "T5B_HUB"), (_C_HUB, "T5B_CTL"), (_PAST, "T5_DL_INN"), (_WAKE, "T5_VGDL_DL_INN"),
+                          (_ENTRY, "T5_DL_ENT")):
+            fh.write(f"FieldScene {fid} 21 {name} {name} {fid}\n")
+    M, H, _D = _rung5b()
+    return (cls or _PartyHubFake)(game, fps=960), M, H, M.draft_predictions()
+
+
+def test_f5b_enter_past_lands_member_351_past_the_wake(game):
+    """enter_past on the F5B hub's VIEW (its own id and row): the hub leg -- the pick removes garnet/steiner/vivi from
+    New Game's Zidane-alone party (no-ops), adds Zidane, stamps SC 2600 and Int16[2] := 6, lands 31101 -- then the
+    LANDING: control in place 351 at 2600, no wake. It logs its record after the hub's and returns it; the phases
+    run hub -> landing (the stop class reads them). Break: skip the landing wait, or log no record."""
+    fake, M, _H, pred = _b_world(game)
+    log, phases = [], []
+    with session(game, fake) as g:
+        boot(g)
+        rec = M.enter_past(g, log, M.hub_view(pred, "F5B"), place=lambda f: _B_PLACES.get(f, f),
+                           woke=lambda: fake.woken, phase=phases.append)
+        st = g.state
+    assert phases == ["hub", "landing"], phases
+    assert [x["k"] for x in log] == ["hub", "landing"] and log[-1] is rec, log
+    assert rec["ok"] and (rec["field"], rec["place"], rec["sc"], rec["control"], rec["woke"]) == (
+        _PAST, 351, 2600, True, False), rec
+    assert (st.field_id, fake.entrance, fake.party) == (_PAST, 6, _NG_PARTY), (st.field_id, fake.entrance, fake.party)
+    assert log[0]["picked"] == _DALI_ROW and fake.answered == [0], (log[0], fake.answered)
+
+
+@pytest.mark.parametrize("fault", ["wake", "31104"])
+def test_f5b_enter_past_raises_on_a_wake_or_a_31104_landing(game, fault):
+    """An entry PAST the wake that is not: the landing plays the wake (its SC store in the run's own trace) -- raised
+    as "landing: the wake ran ...", the landing record logged not ok, a text the frozen FORK-STOP "landing" pattern
+    reads; or the pick lands member(352) = 31104 -- the hub leg's own wait for 31101 times out (entry_s) and raises,
+    with no landing to judge. Break: drop the wake check (the first returns), or swallow the leg's error."""
+    fake, M, _H, pred = _b_world(game)
+    if fault == "wake":
+        fake.wake_on_landing = True
+    else:
+        fake.rows[_B_HUB]["lands"] = _WAKE
+    log = []
+    with session(game, fake) as g:
+        boot(g)
+        with pytest.raises(HarnessError) as err:
+            M.enter_past(g, log, M.hub_view(pred, "F5B"), place=lambda f: _B_PLACES.get(f, f),
+                         woke=lambda: fake.woken, entry_s=3.0)
+        st = g.state
+    if fault == "wake":
+        assert str(err.value).startswith("landing: the wake ran"), str(err.value)
+        assert log[-1]["k"] == "landing" and not log[-1]["ok"] and log[-1]["woke"], log
+        assert re.search(pred["coverage"]["fork_stop"]["landing"]["raised"][0], f"STOPPED: HarnessError: {err.value}")
+    else:
+        assert f"waiting for the pick to land in {_PAST}" in str(err.value) and st.field_id == _WAKE, str(err.value)
+        assert [x["k"] for x in log] == ["hub"], log
+
+
+def test_f5b_prefix_tour_stops_after_one_step(game, monkeypatch):
+    """CTL's walk is a PREFIX of its partner's: PrefixTour replays walk[1:2] -- one step, by the replay's own crossing
+    and rules -- and stops ("prefix replayed"), where Tour.replay would tour blind on once its walk is done
+    (dali_tour.py:725-726). Break: drop PrefixTour's run() override (the blind tour crosses on)."""
+    fake, tour, _D = _replay_world(game, monkeypatch)
+    M, _H, _D2 = _rung5b()
+
+    class Prefix(M.PrefixTour, type(tour)):
+        """PrefixTour over the three-room world's own doors and floor."""
+
+    pt = Prefix(stock=lambda fid: None, tag="test")
+    pt._gates = tour._gates
+    walk = [[_C, 0, _A], [_A, 0, _B], [_B, 0, _A]]                  # the partner's walk: the prefix is walk[1:2]
+    with session(game, fake) as g:
+        log = _replay_start(g, fake)
+        stop = pt.replay(g, log, walk[1:2], beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+        st = g.state
+    assert stop.startswith(M.PREFIX_STOP), stop
+    assert _replayed(log) == [("replay", 1, _B, _B, "replayed")], log
+    assert st.field_id == _B and [f["to"] for f in fake.fired] == [_B], fake.fired
+
+
+def test_f5b_replay_why5b_passes_a_walk_from_step_2_that_replay_why5_voids():
+    """An F5B run REPLAYS its partner's walk FROM STEP 2 -- the pick lands past step 1, the wake room's exit -- so
+    rung5_hub.replay_why5, which compares the WHOLE walk, VOIDs every one; replay_why5b compares the frozen slice
+    (walk[1:] for F5B, walk[1:2] for CTL) and passes them. An F5B log that replayed the whole walk (352.0 -> 351
+    included) is VOID, named. Break: compare the whole walk (the F5B and CTL cases VOID)."""
+    M, H, _D = _rung5b()
+    import rung3_trace as R
+    pred = M.draft_predictions()
+    fork_of = {d: f for f, d in M.chain(pred).items()}
+    walk = [[352, 0, 351], [351, 0, 350], [350, 0, 351], [351, 1, 352]]
+
+    def log_of(steps, leg, stop):
+        return {"stop": stop, "log": [{"k": "cross", "leg": leg, "from": fork_of[a] if leg == "replay" else a,
+                                       "place": a, "exit": e, "to": b, "entered": b} for a, e, b in steps]}
+
+    partner = {"i": 1, "side": "S", "why_void": [], "rec": {}, "log": log_of(walk, "tour", "SC left 2600")}
+    f5b = {"i": 2, "side": "F5B", "rec": {"partner": 1}, "log": log_of(walk[1:], "replay", "passes exhausted (3)")}
+    ctl = {"i": 3, "side": "CTL", "rec": {"partner": 1}, "log": log_of(walk[1:2], "replay", M.PREFIX_STOP)}
+    whole = {"i": 4, "side": "F5B", "rec": {"partner": 1}, "log": log_of(walk, "replay", "passes exhausted (3)")}
+    by_i = {1: partner, 2: f5b, 3: ctl, 4: whole}
+    chains = R.chain_members(pred)
+    assert H.replay_why5(f5b, by_i, pred, chains) == [
+        "its replay of S#1's walk diverged at step 1: 351.0 -> 350, not 352.0 -> 351"], "premise: v3's rule VOIDs it"
+    assert M.replay_why5b(f5b, by_i, pred, chains, 1, None) == []
+    assert M.replay_why5b(ctl, by_i, pred, chains, 1, 2) == []
+    assert M.replay_why5b(whole, by_i, pred, chains, 1, None) == [
+        "its replay of S#1's walk[1:] diverged at step 1: 352.0 -> 351, not 351.0 -> 350"]
+
+
+def test_f5b_walk_gate_skips_a_ctl_whose_partner_step_2_is_not_351_to_350():
+    """THE WALK GATES: an F5B needs its partner's walk[0] == 352.0 -> 351, a CTL walk[0:2] == [352.0 -> 351, 351.0 ->
+    350] (its clauses judge exactly that step 2) -- else the run is not driven, its record saying why. And the re-run
+    plan partners a CTL only on a QUALIFYING S: with CTL short, S#1 (step 2 is 351.1 -> 352) is passed over for the
+    oldest S that qualifies and has no covered CTL twin. Break: drop the gate from untwinned5b (the plan names S#1)."""
+    M, _H, _D = _rung5b()
+    pred = M.draft_predictions()
+    good = [[352, 0, 351], [351, 0, 350], [350, 0, 351]]
+    bad2 = [[352, 0, 351], [351, 1, 352], [352, 0, 351]]
+    assert M.walk_gate(pred, "CTL", good) is None and M.walk_gate(pred, "F5B", bad2) is None
+    assert M.walk_gate(pred, "CTL", bad2) == "skipped: partner step 2 is not 351.0 -> 350 (it is 351.1 -> 352)"
+    assert M.walk_gate(pred, "F5B", [[351, 0, 350]]) == (
+        "partner's first step is not the wake room's exit 352.0 -> 351 (it is 351.0 -> 350)")
+
+    def s(i, walk):
+        return {"i": i, "side": "S", "why_void": [], "rec": {"i": i, "side": "S"}, "stop_class": None,
+                "log": {"log": [{"k": "cross", "from": a, "exit": e, "to": b, "entered": b} for a, e, b in walk]}}
+
+    def fk(i, side, partner, why=None, skipped=None):
+        rec = {"i": i, "side": side, "partner": partner, **({"skipped": skipped} if skipped else {})}
+        return {"i": i, "side": side, "why_void": [w for w in (why, skipped) if w], "rec": rec, "log": None,
+                "stop_class": None}
+
+    runs = [s(1, bad2), fk(2, "F5B", 1), fk(3, "CTL", 1, skipped=M.walk_gate(pred, "CTL", bad2)),
+            s(4, good), fk(5, "F5B", 4), fk(6, "CTL", 4),
+            s(7, good), fk(8, "F5B", 7), fk(9, "CTL", 7, why="stopped: STOPPED: HarnessError: a drive fault")]
+    assert M.short_sides5b(runs, pred) == ["CTL"]
+    assert M.rerun_plan5b(runs, pred) == ("CTL", 7)
+
+
+def test_f5b_party_read_rejects_an_unchanged_mtime_and_a_wrong_arrival(game):
+    """THE FRESHNESS RULE on the autosave: a read is fresh only when its st_mtime_ns is AFTER the baseline read taken
+    before the transition it judges, its sha stable over two reads 10 frames apart, and SC / Int16[2] / the field
+    name the arrival. No transition since the baseline (the same file), an engine that did not autosave (the
+    previous file), or an arrival other than the one wanted: each stale, named. Break: drop the mtime clause or the
+    arrival clause."""
+    fake, M, _H, _pred = _b_world(game)
+    arrival = {"sc": 2540, "entrance": 0}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(_B_HUB, entrance=0, scenario=2540)
+        r0 = M.party_read(g)
+        same = M.party_read(g, r0, dict(arrival, field=_B_HUB))
+        g.warp(_C_HUB, entrance=0, scenario=2540)
+        fresh = M.party_read(g, r0, dict(arrival, field=_C_HUB))
+        wrong = M.party_read(g, r0, {"sc": 2600, "entrance": 6, "field": _PAST})
+        fake.saves = False
+        g.warp(_B_HUB, entrance=0, scenario=2540)
+        none = M.party_read(g, fresh, dict(arrival, field=_B_HUB))
+    assert r0["fresh"] and r0["stable"] and (r0["slot"], r0["sc"], r0["entrance"], r0["field"]) == (
+        _NG_PARTY, 2540, 0, _B_HUB), r0
+    assert not same["fresh"] and any(w.startswith("st_mtime_ns") for w in same["why"]), same
+    assert fresh["fresh"] and fresh["mtime_ns"] > r0["mtime_ns"], fresh
+    assert not wrong["fresh"] and sorted(w.split()[0] for w in wrong["why"]) == ["entrance", "field", "sc"], wrong
+    assert not none["fresh"] and any(w.startswith("st_mtime_ns") for w in none["why"]), none
+
+
+@pytest.mark.parametrize("case", ["removes act", "inert removes", "uncalibrated"])
+def test_f5b_p_partyremove_fails_on_inert_removes_and_voids_uncalibrated(game, monkeypatch, case):
+    """P-PARTYREMOVE, the known positive R5B-PARTY needs (New Game is already Zidane alone, so the F5B pick's removes
+    are no-ops there): New Game; the CTL leg lands 31101 with [0,2,3,1] (r1); the F5B hub opened from there (r2, the
+    warp keeps the party); the F5B pick lands 31101 with [0,255,255,255] (r3) -- PASS. Inert removes read [0,2,3,1]
+    at r3: FAIL, final (a calibrated FAIL is evidence: no retry). A CTL pick that adds no one leaves r1 uncalibrated:
+    VOID, after its ONE retry. The title restored either way. Break: drop the r3 comparison, the calibration clause,
+    or the retry."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, M, _H, pred = _b_world(game)
+    fake.inert = case == "inert removes"
+    if case == "uncalibrated":
+        fake.rows[_C_HUB]["add"] = [0]
+    with session(game, fake) as g:
+        ok, detail, rec = M.p_partyremove(g, pred)
+        st = g.state
+    reads = rec["attempts"][-1]["reads"]
+    assert st.ui_state == "Title", "the title was not restored"
+    if case == "removes act":
+        assert ok is True and len(rec["attempts"]) == 1, (detail, rec)
+        assert [reads[k]["slot"] for k in ("r1", "r2", "r3")] == [[0, 2, 3, 1], [0, 2, 3, 1], _NG_PARTY], reads
+        assert all(reads[k]["fresh"] for k in ("r1", "r2", "r3")), reads
+        assert (reads["r2"]["sc"], reads["r2"]["entrance"], reads["r2"]["field"]) == (2540, 0, _B_HUB), reads["r2"]
+    elif case == "inert removes":
+        assert ok is False and len(rec["attempts"]) == 1 and "r3 reads [0, 2, 3, 1]" in detail, (detail, rec)
+    else:
+        assert ok is None and len(rec["attempts"]) == 2 and "r1 reads [0, 255, 255, 255]" in detail, (detail, rec)
+
+
+@pytest.mark.parametrize("side", ["F5B", "CTL"])
+def test_f5b_hub_leg_p_hubleg5b_reads_each_hubs_arrival_autosave(game, monkeypatch, side):
+    """P-HUBLEG per hub (p_hubleg5b on the side's VIEW): the leg to the menu, the stay row stays -- and, inside the
+    leg, the hub arrival's autosave read fresh against the pre-warp read: New Game's baseline, SC 2540, Int16[2] 0,
+    the hub's own id. An engine that did not autosave on the warp leaves the leg a PASS and its autosave clause not
+    ok (the caller's one retry; twice failed only VOIDs R5B-PARTY). Break: drop the arrival read's baseline."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, M, _H, pred = _b_world(game)
+    view = M.hub_view(pred, side)
+    hid = pred["hubs"][side]["id"]
+    with session(game, fake) as g:
+        ok, detail, rec = M.p_hubleg5b(g, view)
+        fake.saves = False
+        ok2, _d2, rec2 = M.p_hubleg5b(g, view)
+    assert ok and rec["hub"] == hid and rec["picked"] == _STAY_ROW and fake.answered == [1, 1], (detail, rec)
+    sv = rec["save"]
+    assert sv["ok"] and (sv["slot"], sv["sc"], sv["entrance"], sv["field"]) == (_NG_PARTY, 2540, 0, hid), sv
+    assert ok2 and not rec2["save"]["ok"] and any(w.startswith("st_mtime_ns") for w in rec2["save"]["why"]), rec2
+
+
+@pytest.mark.parametrize("side", ["F5B", "CTL"])
+def test_f5b_hub_leg_each_hub_picks_its_own_row(game, side):
+    """THE PER-HUB VIEW: rung5_hub.hub_leg, frozen, on hub_view(pred, side) warps to THAT side's hub and picks ITS
+    row -- F5B lands 31101 with the removes' Zidane alone, CTL with the four the control adds ([0,2,3,1], the first
+    empty slots) -- both at SC 2600, Int16[2] 6. Break: a view that ignores its side (both warp to one hub)."""
+    fake, M, H, pred = _b_world(game)
+    log = []
+    with session(game, fake) as g:
+        boot(g)
+        rec = H.hub_leg(g, log, M.hub_view(pred, side))
+        st = g.state
+    want = {"F5B": _NG_PARTY, "CTL": [0, 2, 3, 1]}[side]
+    assert (st.field_id, st.scenario, fake.entrance, fake.party) == (_PAST, 2600, 6, want), fake.party
+    assert [s[1] for s in fake.executed if s[0] == "warp"] == [str(pred["hubs"][side]["id"])], fake.executed[:4]
+    assert rec["picked"] == _DALI_ROW and fake.answered == [0], rec
+
+
+@pytest.mark.parametrize("fault", ["sc 2610", "warps on"])
+def test_f5b_enter_past_raises_on_another_sc_or_another_place(game, fault):
+    """The LANDING's other clauses: the pick lands 31101 but control comes back at SC 2610 (not the beat) -- or the
+    game warps him on out of 31101 before control returns (to member(352)). Each raises "landing: ...", named, the
+    record logged not ok. Break: drop the SC clause or the place clause."""
+    fake, M, _H, pred = _b_world(game)
+    if fault == "sc 2610":
+        fake.rows[_B_HUB]["sc"] = 2610
+    else:
+        fake.rows[_B_HUB]["then"] = (_WAKE, 30)
+        fake.control_delay = 1 << 20                       # control never comes back in 31101 first
+    log = []
+    with session(game, fake) as g:
+        boot(g)
+        with pytest.raises(HarnessError) as err:
+            M.enter_past(g, log, M.hub_view(pred, "F5B"), place=lambda f: _B_PLACES.get(f, f),
+                         woke=lambda: fake.woken, arrive_s=5.0)
+    want = ("landing: control in 31101 at SC 2610, not 2600" if fault == "sc 2610"
+            else "landing: the pick left him in place 352 (field 31104), not 351 (31101)")
+    assert str(err.value).startswith(want), str(err.value)
+    assert log[-1]["k"] == "landing" and not log[-1]["ok"], log
+
+
+def test_f5b_hub_leg_p_hubleg5b_fails_the_autosave_clause_on_another_slot(game, monkeypatch):
+    """The hub-arrival read is fresh and names the arrival, but its SLOTS are not New Game's Zidane alone: the leg
+    stands, its autosave clause is not ok, named. Break: drop the slot clause."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, M, _H, pred = _b_world(game)
+    fake.ng_party = [0, 2, 3, 1]
+    with session(game, fake) as g:
+        ok, detail, rec = M.p_hubleg5b(g, M.hub_view(pred, "F5B"))
+    assert ok and rec["save"]["fresh"] and not rec["save"]["ok"], (detail, rec["save"])
+    assert "slot [0, 2, 3, 1], not [0, 255, 255, 255]" in rec["save"]["why"], rec["save"]["why"]
+
+
+def test_f5b_hubleg_retry_keeps_the_first_legs_verdict():
+    """P-HUBLEG's autosave retry (hubleg5b): the LEG's verdict is the first attempt's. A first leg that passed with
+    its autosave clause not ok runs again for that clause alone -- a retry that fails AS A LEG (a flaky menu) is the
+    clause failing, named, never the session's stop; a retry that passes replaces only the save clause; the first
+    attempt's measures stand; both attempts are recorded. A first leg that fails is final (no retry). Break: take the
+    retry's leg verdict (the flaky retry would end a session whose first leg passed)."""
+    M, _H, _D = _rung5b()
+
+    def leg(*results):
+        it = iter(results)
+        return lambda _g, _view: next(it)
+
+    first = (True, "T5B_HUB: legged", {"k": "hub", "r": 152, "save": {"ok": False, "why": ["st_mtime_ns stale"]}})
+    flaky = (False, "HarnessError: hub leg: no dialogue after 3 tries",
+             {"k": "hub", "save": {"ok": False, "why": ["the leg never reached the hub's menu"]}})
+    good = (True, "again", {"k": "hub", "r": 999, "save": {"ok": True, "slot": _NG_PARTY, "why": []}})
+    ok, detail, rec = M.hubleg5b(None, {}, leg=leg(first, flaky))
+    assert ok is True and detail.startswith("T5B_HUB: legged") and rec["r"] == 152 and rec["tries"] == 2, rec
+    assert not rec["save"]["ok"] and rec["save"]["why"][0].startswith("the retry's leg failed: HarnessError"), rec
+    assert [a["ok"] for a in rec["attempts"]] == [True, False], rec["attempts"]
+    ok, _d, rec = M.hubleg5b(None, {}, leg=leg(first, good))
+    assert ok and rec["save"]["ok"] and rec["r"] == 152 and rec["tries"] == 2, rec
+    bad = (False, "HarnessError: hub leg: budget", {"k": "hub", "save": {"ok": False, "why": []}})
+    ok, _d, rec = M.hubleg5b(None, {}, leg=leg(bad))
+    assert ok is False and rec["tries"] == 1, rec
+
+
+def test_f5b_party_read_needs_a_stable_file(game, monkeypatch):
+    """The freshness rule's SHA clause: two reads 10 frames apart must agree. A write landing between them takes one
+    more read 10 frames later (compared with the second): a file written once is then stable and fresh; a file still
+    changing is not fresh, named. Break: drop the stability clause, or the repair read."""
+    fake, M, _H, _pred = _b_world(game)
+    seen = []
+    real = M.read_autosave
+    monkeypatch.setattr(M, "read_autosave", lambda p: seen.append(1) or real(p))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(_B_HUB, entrance=0, scenario=2540)
+        base = M.party_read(g)
+        wait = g.wait_frames
+        writes = {"left": 1}
+
+        def churn(n):                                      # the autosave rewritten during a wait
+            if writes["left"]:
+                writes["left"] -= 1
+                fake._autosave()
+            return wait(n)
+        g.wait_frames = churn
+        seen.clear()
+        once = M.party_read(g, base)
+        n_once = len(seen)
+        writes["left"] = 99
+        still = M.party_read(g, base)
+    assert n_once == 3 and once["stable"] and once["fresh"], (n_once, once)
+    assert not still["stable"] and not still["fresh"] and any("sha changed" in w for w in still["why"]), still
+
+
+@pytest.mark.parametrize("case", ["stale r3", "late write"])
+def test_f5b_p_partyremove_voids_a_stale_r3_and_reads_after_control(game, monkeypatch, case):
+    """P-PARTYREMOVE's freshness and timing. An F5B pick whose landing writes no autosave leaves r3 reading r2's file
+    ([0,2,3,1], its mtime): VOID ("r3 not fresh"), never the FAIL a stale read would fake. And the engine writes a
+    landing's autosave only a few frames after the field flips (control later still): r1 and r3 are read once control
+    is back, so a late write is still read fresh -- PASS. Break: drop the freshness clause (the stale r3 FAILs), or
+    read at the flip (the late write is missed: VOID)."""
+    monkeypatch.setattr(sys.modules["harness.session"], "TITLE_SETTLE", 0)
+    fake, M, _H, pred = _b_world(game)
+    if case == "stale r3":
+        fake.rows[_B_HUB]["saves"] = False
+    else:
+        fake.save_delay, fake.control_delay = 40, 60      # frames after the flip (the fake runs 960 a second)
+    with session(game, fake) as g:
+        ok, detail, rec = M.p_partyremove(g, pred)
+    if case == "stale r3":
+        assert ok is None and len(rec["attempts"]) == 2, (detail, rec)
+        assert detail.split(": ", 1)[1].startswith("r3 not fresh"), detail
+    else:
+        assert ok is True and len(rec["attempts"]) == 1, (detail, rec)
+
+
 def test_key_twist_operand_follows_memoria_ini(game):
     """Keys read TWIST arg2 (twist.y) unless [AnalogControl] makes key orientation absolute (1 or 2)."""
     fake = FakeGame(game)
