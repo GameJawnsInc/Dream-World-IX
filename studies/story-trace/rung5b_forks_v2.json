@@ -9,8 +9,8 @@
  "gen_hub": "py -m ff9mapkit gen-hub <P>\\{hub,ctl}\\journeys.toml  (WITHOUT --extract-camera: the camera is the co-located camera_hub.bgx)",
  "build": "py -m ff9mapkit build <toml> --out <build dir>/<id>  (offline, from the F5b worktree's own package, the fix merged); the frozen v2 build is C:\\gd\\_ns_playtest\\f5b\\build_v2\\<id> (SHA256SUMS beside it)",
  "deploy": "G1, only on the owner's go #1, FF9 closed, HEAD = O13's recorded sha, the live FF9CustomMap/JournalPatch.txt 85332e79... before and after each call: back up DictionaryPatch, ForkDonorPatch and JournalPatch to backups/<file>.f5cpre.<stamp>; from the worktree root: py tools/deploy_field.py <P>\\hub\\hub.field.toml --id 31113 --name T5B_HUB --mod-folder FF9CustomMap, >= 1.1 s, then <P>\\ctl\\hub.field.toml --id 31114 --name T5B_CTL; after each, the 7 .eb shas = build_v2's, one FieldScene and one MessageFile line, .mes 8d9f392c, a unique revert STAMP. Never deploy-campaign / deploy-journey; never touch 31100-31112; never scroll_out/revert_deploy.py.",
- "deployed": false,
- "deployed_at": null,
+ "deployed": true,
+ "deployed_at": "2026-09-29 16:28:43-16:28:47 local (a redeploy in place over v1's 31113/31114)",
  "mod_folder": "FF9CustomMap",
  "relaunch_needed": true,
  "relaunch_why": "the registration is unchanged (the same 2 FieldScene and 2 MessageFile lines, already live); only the hubs' .eb bytes change -- the v2 session's own launch is the one relaunch",
@@ -206,5 +206,21 @@
    "rung5_hub.py": "793c0128f126ba605d7c8207a459c29f87556d3cc6faceb5047dfaa75c9742df",
    "rung5_dryrun.py": "7eb0d96c6853c22af6a80aca04dd5f85718081161e0bddbd565ba8617eefdacf"
   }
+ },
+ "deployed_from": "claude/story-trace-f5b @ cadc862a (O13's recorded HEAD)",
+ "pre_deploy_backups": "C:\\gd\\Dream-World-IX\\backups\\{DictionaryPatch,ForkDonorPatch,JournalPatch}.txt.f5cpre.20260929-162841 (FF9CustomMap, taken right before the first call)",
+ "stamps": {
+  "31113": "20260929-162843-097396",
+  "31114": "20260929-162847-872525"
+ },
+ "verified": {
+  "deploy_gate": "O13: both hubs rebuilt from cadc862a are byte-identical to C:/gd/_ns_playtest/f5b/build_v2 (.ff9build.json aside); file lists equal keep_v1's; the build JournalPatch 85332e79... equals the live one; the build DictionaryPatch lines equal the live ones; .mes 8d9f392c in all 7 languages",
+  "preconditions": "FF9 closed, no harness arm, HEAD cadc862a, live JournalPatch 85332e79... before the first call",
+  "eb": "7/7 live EVT_T5B_HUB / EVT_T5B_CTL .eb.bytes per hub equal build_v2 (US 35813d4d... / 1e235d0c...)",
+  "registered": "each of 31113/31114 has exactly one FieldScene and one MessageFile line; DictionaryPatch and ForkDonorPatch equal the f5cpre backups line for line (a redeploy of the same ids)",
+  "journal_patch": "live sha unchanged by both calls (85332e79...)",
+  "stamps": "each call's revert STAMP is new (microsecond), distinct from v1's and from each other",
+  "preflight": "py studies\\story-trace\\rung5b_hub.py --preflight: P-MANIFEST, P-DEPLOY, P-HUB (F5B), P-HUB (CTL), P-HUBDIFF, P-PARTYOPS, P-ENTRY, P-PURE, P-FLOOR, P-EXITS, P-STOCK, P-INI, P-PINS all PASS against the live install",
+  "reverts": "the per-id scripts C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_31114.py then revert_deploy_31113.py now restore v1's deploy; the generic revert_deploy.py names 31114 (never use it)"
  }
 }
