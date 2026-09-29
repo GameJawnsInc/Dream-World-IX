@@ -5,6 +5,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — replacing a kit-built field's `Main_Init` cut past entry 0
+- **What broke.** The blank template's entry 0 parks Main_Loop (tag 1) 65 bytes past the entry's declared end,
+  and `add_reinit` lists tag 10 after it in the table but before it in the file. `EbScript` ended each function
+  at the next-LISTED `fpos`, unclamped, so Main_Init ran 65 bytes past entry 0, and also over Main_Reinit once
+  there was one. `eb.edit.replace_function_body` cut to there. In a back-to-back layout that deleted the head of
+  the next entry. In the blank's own layout it declared entry 0 65 bytes short of the new Main_Init, and for a
+  small new body it raised a misleading 64KB-reach error instead. It also deleted Main_Reinit and pointed tag 10
+  into the new Main_Init. `insert_in_function` / `remove_in_function` accepted offsets inside the parked margin,
+  and growing tag 10 left Main_Loop behind, because `fpos` moved by table index. Exposed: `logic-edit` /
+  `logic-add` on a novel field's Main_Init, and every `disasm` of one, which decoded Main_Reinit and 65 bytes of
+  NOPs as Main_Init.
+- **The fix.** A function now ends at the next body in ADDRESS order, never past its entry's end, and a function
+  parked at or past the end is empty. `replace_function_body` moves `fpos` for the bodies after it in that same
+  order. Replacing the parked function itself (the save-point director graft) keeps its old output byte for byte.
+- **What moves.** Nothing stock: all 296096 functions of the 9753-binary corpus are listed in address order inside
+  their entries, and the model bounds plus the replace/insert/remove outputs are byte-identical on every one. The
+  bundled examples build byte-identical `.eb`s. `disasm` of a novel field now stops Main_Init at its own end.
+
 ### Fixed — `eb.edit.insert_in_function` on an entry that repeats a function tag
 - **What broke.** Stock repeats a tag in 15 entries across 14 of the 818 US field EVTs (field 2452 entry 4
   lists tag 1 twice). The insert moved the other functions' `fpos` by skipping every function with the

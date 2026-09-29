@@ -155,10 +155,10 @@ class _Enrichment:
         try:
             self.lm = _lm.build_logic_map(data, entries=mes_entries, field_names=field_names)
         except Exception as ex:      # noqa: BLE001 -- keep the per-instruction half
-            # A file whose func table LIES (the kit's blank-template lineage points an fpos past
-            # the entry end -- the same shape that makes the writer fall back to raw=) sends the
-            # whole-file scanner walking garbage. The per-instruction pass below clamps per func,
-            # so it survives: keep those comments, drop only the structural labels, and SAY SO.
+            # A whole-file scan that fails on a malformed file. (The kit's past-end fpos no longer
+            # trips it: the model ends every function at its entry's end.) The per-instruction pass
+            # below clamps per func, so it survives: keep those comments, drop only the structural
+            # labels, and SAY SO.
             self.lm = _lm.LogicMap()
             self.degraded = f"entry/routine labels unavailable ({type(ex).__name__}: {ex})"
         self.info = {e.index: e for e in self.lm.entries}

@@ -289,19 +289,40 @@ def replace_function_body(data, entry_index: int, func_tag: int, new_body: bytes
     818 shipping field EVTs repeat one (``evt_dali_v_dl_wms0`` entry 18 lists tags 13 and 14 twice) --
     so a caller walking every function of an entry (``ebsrc.assemble_against``) must address them
     positionally or it silently splices the FIRST namesake instead of the one it decoded.
+
+    The body replaced is the model's (:class:`~ff9mapkit.eb.model.Func`): up to the next body in ADDRESS
+    order and never past the entry's end, and "later" means later in that same order. On a stock table
+    that is the next-listed function. On a kit-built entry 0 it is not: the blank parks Main_Loop (tag 1)
+    65 bytes past the end, and after ``add_reinit`` the table reads tag 0, tag 1, tag 10. Bounded by the
+    next-listed ``fpos``, a Main_Init replace cut Main_Reinit and those 65 bytes, and on a back-to-back
+    layout that ate the next entry's head. By index, a tag-10 replace left the parked Main_Loop behind.
+
+    A function starting at/past its entry's end has no body here. Replacing it (the save-point director
+    graft on the blank's Main_Loop) extends the entry up to its ``fpos``, keeping the bytes that sat in
+    between as dead padding (the function before it returns first), then appends the new body.
     """
     b = bytearray(_as_bytes(data))
     slot = ENTRY_TABLE_OFF + entry_index * ENTRY_SLOT_SIZE
     off, sz = u16(b, slot), u16(b, slot + 2)
     if sz == 0:
         raise ValueError(f"entry {entry_index} is empty")
-    fc = b[ENTRY_TABLE_OFF + off + 1]
     fbase = ENTRY_TABLE_OFF + off + 2
-    f = _select_func(EbScript.from_bytes(bytes(b)), entry_index, func_tag, func_index)
-    delta = len(new_body) - f.length
-    out = bytearray(bytes(b[:f.abs_start]) + bytes(new_body) + bytes(b[f.abs_end:]))
-    for i in range(f.index + 1, fc):                      # later funcs' bodies shifted by delta (by INDEX)
-        set_u16(out, fbase + i * 4 + 2, u16(b, fbase + i * 4 + 2) + delta)
+    eb = EbScript.from_bytes(bytes(b))
+    e = eb.entry(entry_index)
+    f = _select_func(eb, entry_index, func_tag, func_index)
+    if f.abs_start < e.abs_end:
+        delta = len(new_body) - f.length
+        out = bytearray(bytes(b[:f.abs_start]) + bytes(new_body) + bytes(b[f.abs_end:]))
+    else:                                                 # parked past the end: reach it, then append
+        if f.abs_start > len(b):
+            raise ValueError(f"entry {entry_index} function tag {func_tag} starts at {f.abs_start}, "
+                             f"past the end of the file ({len(b)} bytes)")
+        pad = bytes(b[e.abs_end:f.abs_start])
+        delta = len(pad) + len(new_body)
+        out = bytearray(bytes(b[:e.abs_end]) + pad + bytes(new_body) + bytes(b[e.abs_end:]))
+    for g in e.funcs:                                     # every body AFTER this one, in address order
+        if (g.abs_start, g.index) > (f.abs_start, f.index):
+            set_u16(out, fbase + g.index * 4 + 2, g.fpos + delta)
     set_u16(out, slot + 2, sz + delta)                    # entry's declared size
     for i in range(b[3]):                                 # later entries' table offsets
         if i == entry_index:
