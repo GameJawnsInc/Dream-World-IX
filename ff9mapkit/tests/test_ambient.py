@@ -72,6 +72,13 @@ def _main(b: bytes):
     return f, b[f.abs_start:f.abs_end]
 
 
+def _stmts(b: bytes) -> list:
+    """Main_Init's decoded instructions: ``[(Main_Init-relative offset, instruction bytes)]``."""
+    eb = EbScript.from_bytes(b)
+    f = eb.entry(0).func_by_tag(0)
+    return [(i.off - f.abs_start, bytes(b[i.off:i.end])) for i in eb.instrs(f)]
+
+
 def _sha(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
@@ -156,10 +163,11 @@ def _exits(body: bytes, n: int) -> dict:
 @pytest.mark.parametrize("key", BUILDS)
 def test_amb1_every_exit_clears(built, key):
     """T-AMB-1: whatever Byte[13]/Byte[14] arrive with (0/1/2/3/9), the synthesized Main_Init leaves 0 -- all 7
-    languages. Unfixed, an arriving 2 or 9 leaves 9. (Blind to windows: the Engine no-ops them -- T-AMB-2 (iii).)"""
+    languages. Unfixed, an arriving 2 or 9 leaves 9. (Blind to windows: the Engine no-ops them -- T-AMB-2 (iii).)
+    The slots are the literal pair, never ``ambient.SLOTS``: a module that dropped one would shrink its own test."""
     for lang, b in built(key).items():
         _f, body = _main(b)
-        for n in ambient.SLOTS:
+        for n in (13, 14):
             got = _exits(body, n)
             assert got == {v: 0 for v in ARRIVALS}, f"{key} {lang} Byte[{n}]: arriving -> left {got}"
 
@@ -193,6 +201,12 @@ def test_amb2_stock_position_and_shape(built, key):
         hold = after[:3] == b"\x2d\x22\x00" and after[4:12] == MAIN_READY
         assert after.startswith(MAIN_READY) or hold, \
             f"{key} {lang}: after the TAIL comes {after[:12].hex(' ')}, not [2d 22 00 NN] + set MAP159 = 1"
+        # (ii') and no settle hold BEFORE it: the pass runs FIRST on the blank, so entry_settle's DisableMove ;
+        # Wait(NN) lands after the TAIL -- stock's order. (Wired last, the TAIL would follow the hold, and (ii)
+        # alone reads both orders as fine.)
+        pre = [raw for off, raw in _stmts(b) if end1 <= off < t]
+        held = [f"{x.hex(' ')} {y.hex(' ')}" for x, y in zip(pre, pre[1:]) if x == b"\x2d" and y[:1] == b"\x22"]
+        assert not held, f"{key} {lang}: a settle hold ({held}) runs between the prologue and the TAIL"
         # (iii) the span decodes to 0x05 / 0x02 only: no window, no wait, no yield
         a0, a1 = f.abs_start + t, f.abs_start + t + len(ambient.TAIL)
         span = list(iter_code(b, a0, a1))
@@ -277,7 +291,17 @@ def test_amb4_stock_tail_left_alone():
 
 
 def test_amb4_template_drift_raises():
-    """T-AMB-4: template drift fails loudly -- no prologue, two `:= 9` sites, or no `set MAP159 = 1` anchor."""
+    """T-AMB-4: template drift fails loudly -- no prologue, two `:= 9` sites, no `set MAP159 = 1` anchor, or a
+    stock tail on ONE slot only (``classify``'s 'stock-tail' needs both slots' second `== 9`, never any one)."""
+    stock = (FIX / "alex100-us.eb.bytes").read_bytes()
+    sf, stmts = ambient._main_init(stock)
+    tests14 = [off for off, raw in stmts if raw == ambient._eq9(14)]
+    assert len(tests14) == 2, tests14                        # the prologue's test, then stock's own tail's
+    at = sf.abs_start + tests14[1] + 4                       # its literal 9 -> 8: slot 14 keeps no stock tail
+    one_slot = stock[:at] + b"\x08" + stock[at + 1:]
+    for fn in (ambient.classify, ambient.restore_clear):
+        with pytest.raises(ValueError, match="template drift"):
+            fn(one_slot)
     blank = data.blank_field_bytes("us")
     f, body = _main(blank)
 
