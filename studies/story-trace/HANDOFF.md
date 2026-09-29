@@ -50,9 +50,29 @@ Rewritten at the end of the facing-gate session, and updated after rung 4 and se
    seed-resolver fix first.
    - F5's 13 ids stay deployed until the owner decides. The revert order is in `rung5_forks.json`: per-id scripts
      only, 31100 first and then 31112 down to 31101, with the JournalPatch sha compared first.
-5. **Rung 3's dry-run is 79/80 on master too** (not F5's): session 2's archived reports predate `356ac508`'s seam
+5. **F5b, the post-wake entry** (branch `claude/story-trace-f5b`; PLAN.md's F5b section). The kit fix is
+   `4a331cbb`; the freeze is `7b70ff0b`, predictions v1 `bab9e642`. The session `story-rung5b` read **VERDICT: NOT
+   PROVEN: party -- proven: state, latches, walk**.
+   - The party proof leg (P-PARTYREMOVE) hit a KIT-TEMPLATE defect (every synthesized field lacked stock's ambient
+     clear), not a gen-hub one: a hub entered from a field with ambient sound left Byte[13] = 9, and the next Dali
+     field showed stock's "Error Env Play()" window.
+   - **DONE: F5c** (owner's "fix, then re-test the party"): the kit's ambient clear (`claude/ambient-clear`,
+     `e1317a42` + tests `b90eae4a`; full suite green), hubs 31113/31114 redeployed with it, and the re-run
+     `story-rung5b2` read **VERDICT: PROVEN** (all four halves) and **THE FIX: PROVEN**. Archive
+     `C:\gd\Dream-World-IX\.harness-runs\20260929-163016-story-rung5b2\`.
+   - **Merges (the owner's gates):** `claude/ambient-clear` merged to master (`d98ca2a4`, THE FIX PROVEN). The
+     resolver fix merges "verified only": `--after-advance` refuses every hand-over not on
+     `storyseed.PROVEN_HANDOVERS` (today only 352@2600 -> 351/e6, story-rung5b2), with no override flag. **To prove
+     another hand-over:** a harness under `studies/story-trace/` builds its row with
+     `storyseed.unproven_candidate_row` (library only, marked `CANDIDATE`, a tripwire test limits its callers), a
+     session proves it, then a code change adds it to `PROVEN_HANDOVERS` with its evidence and a real-bytes test.
+   - Hubs 31113/31114 stay deployed. Revert only through the per-id scripts, 31114 then 31113.
+   - **Follow-ups, each owner-gated:** F-REDEPLOY (the 47 synthesized deploys, 4600 + 6601-6603 first), F-NG (the
+     New-Game override hands off with 643 playing), F-WARP, F-IMPORT, F-PROBE -- PLAN.md's F5c section and the
+     kit CHANGELOG's Known issues.
+6. **Rung 3's dry-run is 79/80 on master too** (not F5's): session 2's archived reports predate `356ac508`'s seam
    listing. Re-baseline, or compare that line modulo the seam list (owner's call).
-6. **Later:**
+7. **Later:**
    - s88/s89/s90 go into the next engine-bundle re-cut. That is a release: outward-facing, confirm first.
    - Keep or revert the 23 fork ids (owner's call). **Do not run their reverts blind -- read
      [REVERTING THE FORKS](#reverting-the-forks-six-reverts-were-half-reverts) first.** Six of them were armed with

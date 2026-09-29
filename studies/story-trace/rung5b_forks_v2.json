@@ -1,0 +1,226 @@
+{
+ "what": "F5b's two hubs, VERSION 2 (F5c): the same tomls rebuilt by the fixed kit -- every synthesized build now restores the ambient clear (content/ambient.py, the 38-byte tail at Main_Init +254) -- for the story trace's v2 session (studies/story-trace/rung5b_hub.py, rung5b_predictions_v2.json): T5B_HUB (31113, the fixed resolver's post-advance row) and T5B_CTL (31114, today's pre-phase row), gen-hub BG-borrows of field 950's room with NO ForkDonorPatch row; both pick into member(351) = 31101 through entrance 6. Only the two hubs' .eb bytes differ from v1's; the 12 members are F5's deployed chain, reused whole (no redeploy).",
+ "dir": "C:\\gd\\_ns_playtest\\f5b",
+ "census": "C:\\gd\\_ns_playtest\\f5\\research\\dominance_census.json",
+ "rows": {
+  "F5B": "py -m ff9mapkit story-seed --chain C:\\gd\\_ns_playtest\\f5b\\dali_chain --beat 2600 --hub C:\\gd\\_ns_playtest\\f5b\\hub\\journeys.toml --entry 31101 --entrance 6 --after-advance --name \"Dali (SC 2600)\" --census C:\\gd\\_ns_playtest\\f5\\research\\dominance_census.json",
+  "CTL": "py -m ff9mapkit story-seed --chain C:\\gd\\_ns_playtest\\f5b\\dali_chain --beat 2600 --hub C:\\gd\\_ns_playtest\\f5b\\ctl\\journeys.toml --entry 31101 --entrance 6 --pre-phase-control --name \"Dali (SC 2600)\" --census C:\\gd\\_ns_playtest\\f5\\research\\dominance_census.json"
+ },
+ "gen_hub": "py -m ff9mapkit gen-hub <P>\\{hub,ctl}\\journeys.toml  (WITHOUT --extract-camera: the camera is the co-located camera_hub.bgx)",
+ "build": "py -m ff9mapkit build <toml> --out <build dir>/<id>  (offline, from the F5b worktree's own package, the fix merged); the frozen v2 build is C:\\gd\\_ns_playtest\\f5b\\build_v2\\<id> (SHA256SUMS beside it)",
+ "deploy": "G1, only on the owner's go #1, FF9 closed, HEAD = O13's recorded sha, the live FF9CustomMap/JournalPatch.txt 85332e79... before and after each call: back up DictionaryPatch, ForkDonorPatch and JournalPatch to backups/<file>.f5cpre.<stamp>; from the worktree root: py tools/deploy_field.py <P>\\hub\\hub.field.toml --id 31113 --name T5B_HUB --mod-folder FF9CustomMap, >= 1.1 s, then <P>\\ctl\\hub.field.toml --id 31114 --name T5B_CTL; after each, the 7 .eb shas = build_v2's, one FieldScene and one MessageFile line, .mes 8d9f392c, a unique revert STAMP. Never deploy-campaign / deploy-journey; never touch 31100-31112; never scroll_out/revert_deploy.py.",
+ "deployed": true,
+ "deployed_at": "2026-09-29 16:28:43-16:28:47 local (a redeploy in place over v1's 31113/31114)",
+ "mod_folder": "FF9CustomMap",
+ "relaunch_needed": true,
+ "relaunch_why": "the registration is unchanged (the same 2 FieldScene and 2 MessageFile lines, already live); only the hubs' .eb bytes change -- the v2 session's own launch is the one relaunch",
+ "hubs": {
+  "F5B": {
+   "id": 31113,
+   "name": "T5B_HUB",
+   "toml": "C:\\gd\\_ns_playtest\\f5b\\hub\\hub.field.toml",
+   "journeys": "C:\\gd\\_ns_playtest\\f5b\\hub\\journeys.toml",
+   "row_id": "dali_chain_2600_e6_post",
+   "camera": {
+    "file": "C:\\gd\\_ns_playtest\\f5b\\hub\\camera_hub.bgx",
+    "sha256": "2d6acbd6963514b41eb0103fc885a113a59af7b9d2fc57eb43324c9d955d48ab"
+   },
+   "registers": [
+    "MessageFile 31113 MES_DWIX_31113",
+    "FieldScene 31113 21 GRGR_MAP420_GR_CEN_0 T5B_HUB 31113"
+   ],
+   "fork_row": null,
+   "eb_sha256": "35813d4dc7078983995763ea9673309ea113a70aaa479be4bcf884ede45a6962",
+   "eb_sha256_v1": "d140317dd01bb37c9f17bf1b6e39364b4a2e6bc18b27fab1bacde2e40fab4b97"
+  },
+  "CTL": {
+   "id": 31114,
+   "name": "T5B_CTL",
+   "toml": "C:\\gd\\_ns_playtest\\f5b\\ctl\\hub.field.toml",
+   "journeys": "C:\\gd\\_ns_playtest\\f5b\\ctl\\journeys.toml",
+   "row_id": "dali_chain_2600_e6_control",
+   "camera": {
+    "file": "C:\\gd\\_ns_playtest\\f5b\\ctl\\camera_hub.bgx",
+    "sha256": "2d6acbd6963514b41eb0103fc885a113a59af7b9d2fc57eb43324c9d955d48ab"
+   },
+   "registers": [
+    "MessageFile 31114 MES_DWIX_31114",
+    "FieldScene 31114 21 GRGR_MAP420_GR_CEN_0 T5B_CTL 31114"
+   ],
+   "fork_row": null,
+   "eb_sha256": "1e235d0c68c83740a0566ea0bea83bae322d6fefbee521a14d99254a04de4b6b",
+   "eb_sha256_v1": "069e9d2f21b826ab4647df30f736bbefc9f950da226873268caaae99c13e8c08"
+  }
+ },
+ "chains": {
+  "F5": {
+   "name_prefix": "T5",
+   "id_range": [
+    31101,
+    31112
+   ],
+   "dir": "C:\\gd\\_ns_playtest\\f5b\\dali_chain",
+   "start_field": {
+    "fork": 31111,
+    "donor": 359,
+    "name": "T5_DL_ENT",
+    "how": "the hub's pick: warp 31100 0 2540, talk to Stiltzkin, 'Dali (SC 2600)' -> Field(31111)"
+   },
+   "members": {
+    "31101": 351,
+    "31102": 312,
+    "31103": 350,
+    "31104": 352,
+    "31105": 353,
+    "31106": 354,
+    "31107": 355,
+    "31108": 356,
+    "31109": 357,
+    "31110": 358,
+    "31111": 359,
+    "31112": 450
+   },
+   "names": {
+    "31101": "T5_DL_INN",
+    "31102": "T5_DL_VIW",
+    "31103": "T5_DL_WHL",
+    "31104": "T5_VGDL_DL_INN",
+    "31105": "T5_DL_MYR",
+    "31106": "T5_DL_SHP",
+    "31107": "T5_DL_BAR",
+    "31108": "T5_DL_WMS",
+    "31109": "T5_VGDL_DL_WMS",
+    "31110": "T5_DL_FWM",
+    "31111": "T5_DL_ENT",
+    "31112": "T5_AP_FID"
+   },
+   "tomls": {
+    "31101": "C:\\gd\\_ns_playtest\\f5b\\dali_chain\\T5_DL_INN\\T5_DL_INN.field.toml",
+    "31102": "C:\\gd\\_ns_playtest\\f5b\\dali_chain\\T5_DL_VIW\\T5_DL_VIW.field.toml",
+    "31103": "C:\\gd\\_ns_playtest\\f5b\\dali_chain\\T5_DL_WHL\\T5_DL_WHL.field.toml",
+    "31104": "C:\\gd\\_ns_playtest\\f5b\\dali_chain\\T5_VGDL_DL_INN\\T5_VGDL_DL_INN.field.toml",
+    "31105": "C:\\gd\\_ns_playtest\\f5b\\dali_chain\\T5_DL_MYR\\T5_DL_MYR.field.toml",
+    "31106": "C:\\gd\\_ns_playtest\\f5b\\dali_chain\\T5_DL_SHP\\T5_DL_SHP.field.toml",
+    "31107": "C:\\gd\\_ns_playtest\\f5b\\dali_chain\\T5_DL_BAR\\T5_DL_BAR.field.toml",
+    "31108": "C:\\gd\\_ns_playtest\\f5b\\dali_chain\\T5_DL_WMS\\T5_DL_WMS.field.toml",
+    "31109": "C:\\gd\\_ns_playtest\\f5b\\dali_chain\\T5_VGDL_DL_WMS\\T5_VGDL_DL_WMS.field.toml",
+    "31110": "C:\\gd\\_ns_playtest\\f5b\\dali_chain\\T5_DL_FWM\\T5_DL_FWM.field.toml",
+    "31111": "C:\\gd\\_ns_playtest\\f5b\\dali_chain\\T5_DL_ENT\\T5_DL_ENT.field.toml",
+    "31112": "C:\\gd\\_ns_playtest\\f5b\\dali_chain\\T5_AP_FID\\T5_AP_FID.field.toml"
+   },
+   "eb_sha256": {
+    "31101": "c95643eedf7193e695bf01cdde097759723425adc368990ae2eddace6708e16f",
+    "31102": "4cd9a4b56722ec80c8032c0e9bb3852856c39f2a22be0531d813afd4e8c23a2c",
+    "31103": "0617a79d9e5c1c55782bace816599d6da0c12a5a299a282515dd3c62510a321a",
+    "31104": "22d983f47ea94e6fec711dc5883b3436b61f15246cf1ba7fd669ad3195ade785",
+    "31105": "e50a97a1b8ac7acdb3c6ab585ff6624441b82e65bddf0441438b96b67df2cfb6",
+    "31106": "48d020f3d19882084d311a6484fa8b66f682f06d27ef37ba951d8f122bb80581",
+    "31107": "a765822919b2ddbe716a86c509817612019994ffa01273bbee72ca6f5990baf0",
+    "31108": "ad48d4c11408f5f05c5d2d64d7661bd2562c5bc87a0d11f702fd805e89b32e18",
+    "31109": "67edbd4529ec48792db48bb4acc3c3ab390e65274482ba4a23f459a2901ee1c2",
+    "31110": "addc98e270fb580377dbb5b88b582c577763a07ba4eb590d8e9731f58275338b",
+    "31111": "3981c957dc08eb53a7558774e21577e29cc347e54018bfd47023e809fbe2e747",
+    "31112": "83f62c4217dcaa013d312e573d4630eaa227eea4f01d4039be72a5c60037220e"
+   },
+   "text_blocks": {
+    "47": "351, 350, 352-359 members (donor text, overwritten identically)",
+    "8": "312",
+    "53": "450 (fresh in FF9CustomMap: shadows the real airfield block with identical text)"
+   },
+   "seams": {
+    "31108": [
+     404
+    ],
+    "31112": [
+     451,
+     453
+    ],
+    "overworld": [
+     31102,
+     31103,
+     31112
+    ]
+   },
+   "seed": null,
+   "reused": "F5's deployed chain 31101-31112, reused WHOLE (no member redeploy): the tomls are the f5b copy of f5\\dali_chain (every member toml sha-identical to f5's); eb_sha256 = rung5_forks.json's"
+  }
+ },
+ "p_f5row": {
+  "gate": "OFFLINE 3 (checks.json P-F5ROW), on scratch copies, master kit vs the fix kit",
+  "f5_row": "f5\\hub\\journeys.toml cmp-identical; hub.field.toml cmp-identical; EVT_T5_HUB us eb 148bda04ff91b36da2a112cee2d245284353ee56a2eb18ecc14b1b8144fb7051 under both kits",
+  "round7": "journeys.toml (entry 30840) cmp-identical",
+  "single_seeds": "111@1152, 351@2650, 352@2650, 352@3000, 552@3115: master == fix",
+  "seed_chain": "stdout and all 12 member tomls master == fix",
+  "kit_files_sha256": {
+   "ff9mapkit/storyseed.py": "b66e7c8b59a9f63275a07779e0f387b824b36a24866f1e8783c41a668901b829",
+   "ff9mapkit/cli.py": "f27eaecc28a85fa0cd35c68f71f110cab2edfa5f760764994c6e03cd397c1c4a",
+   "tests/test_storyseed.py": "790274164c327125f3eab70ecf6be8b969b62e2ad2636b065ccf29f536f9e0f0"
+  },
+  "kit_diff_sha256": "7896f2c0ec7827222a6821be61b41a260be4a625a7d185aa8aabd861f881e176"
+ },
+ "hub_fix": {
+  "kit_commit": "e1317a42406704f5c7b1124c9d2a0ff4a18c56b6",
+  "kit_branch": "claude/ambient-clear",
+  "merge": {
+   "branch": "claude/story-trace-f5b",
+   "commit": "10159945937663499d1db922621405378862fd2f",
+   "parents": [
+    "1acb95b3b0d6319474b15737dca75bfa4f6197e5",
+    "e1317a42406704f5c7b1124c9d2a0ff4a18c56b6"
+   ]
+  },
+  "remerges": [
+   {
+    "commit": "e2d7757ea8ab3d6ef2bf443e406a4a3428cf9ab5",
+    "parents": [
+     "10159945937663499d1db922621405378862fd2f",
+     "b90eae4a86f51d625d21dfd639de4ed82fe5de9f"
+    ],
+    "files": [
+     "ff9mapkit/CHANGELOG.md",
+     "ff9mapkit/tests/test_ambient.py"
+    ],
+    "branch": "claude/story-trace-f5b"
+   }
+  ],
+  "tail_hex": "05d40d7d0900207f02080005d40d7d00002c7f05d40e7d0900207f02080005d40e7d00002c7f",
+  "e0t0_rel": 254,
+  "v1_build": "C:\\gd\\_ns_playtest\\f5b\\keep_v1\\hubs",
+  "v2_build": "C:\\gd\\_ns_playtest\\f5b\\build_v2",
+  "v2_sums_sha256": "7beadc91d65d79680c4fac5030c94bcba267be1245908ae494a463fae4033121",
+  "journal_patch_sha256": {
+   "31113": "85332e7972db3ac5fc501f41c3ef2bb761dcedc321f53484d50ecb227e663073",
+   "31114": "85332e7972db3ac5fc501f41c3ef2bb761dcedc321f53484d50ecb227e663073"
+  }
+ },
+ "lineage": {
+  "v1_manifest": "rung5b_forks.json",
+  "v1_manifest_pre_deploy": "7b70ff0b",
+  "v1_manifest_sha256": "4a2e01cc4d133af0be323cfcdbacd407bc74c160d4669e71c5945ae573a5a8d9"
+ },
+ "freeze": {
+  "script": ".harness-runs/story-trace-archive/f5c/build/dryrun/freeze5b_v2.py",
+  "study_code_sha256_lf": {
+   "rung5b_hub.py": "1581ec5662d3042035b2e94af3032f2cc24c0b4a503bc102c91b9197e1f1033a",
+   "rung5b_dryrun.py": "ae091dbe03e85f2606529671719b731f0a99f51a2302ea5968b30ac9b4671ccf",
+   "rung5_hub.py": "793c0128f126ba605d7c8207a459c29f87556d3cc6faceb5047dfaa75c9742df",
+   "rung5_dryrun.py": "7eb0d96c6853c22af6a80aca04dd5f85718081161e0bddbd565ba8617eefdacf"
+  }
+ },
+ "deployed_from": "claude/story-trace-f5b @ cadc862a (O13's recorded HEAD)",
+ "pre_deploy_backups": "C:\\gd\\Dream-World-IX\\backups\\{DictionaryPatch,ForkDonorPatch,JournalPatch}.txt.f5cpre.20260929-162841 (FF9CustomMap, taken right before the first call)",
+ "stamps": {
+  "31113": "20260929-162843-097396",
+  "31114": "20260929-162847-872525"
+ },
+ "verified": {
+  "deploy_gate": "O13: both hubs rebuilt from cadc862a are byte-identical to C:/gd/_ns_playtest/f5b/build_v2 (.ff9build.json aside); file lists equal keep_v1's; the build JournalPatch 85332e79... equals the live one; the build DictionaryPatch lines equal the live ones; .mes 8d9f392c in all 7 languages",
+  "preconditions": "FF9 closed, no harness arm, HEAD cadc862a, live JournalPatch 85332e79... before the first call",
+  "eb": "7/7 live EVT_T5B_HUB / EVT_T5B_CTL .eb.bytes per hub equal build_v2 (US 35813d4d... / 1e235d0c...)",
+  "registered": "each of 31113/31114 has exactly one FieldScene and one MessageFile line; DictionaryPatch and ForkDonorPatch equal the f5cpre backups line for line (a redeploy of the same ids)",
+  "journal_patch": "live sha unchanged by both calls (85332e79...)",
+  "stamps": "each call's revert STAMP is new (microsecond), distinct from v1's and from each other",
+  "preflight": "py studies\\story-trace\\rung5b_hub.py --preflight: P-MANIFEST, P-DEPLOY, P-HUB (F5B), P-HUB (CTL), P-HUBDIFF, P-PARTYOPS, P-ENTRY, P-PURE, P-FLOOR, P-EXITS, P-STOCK, P-INI, P-PINS all PASS against the live install",
+  "reverts": "the per-id scripts C:\\gd\\Dream-World-IX\\tools\\scroll_out\\revert_deploy_31114.py then revert_deploy_31113.py now restore v1's deploy; the generic revert_deploy.py names 31114 (never use it)"
+ }
+}
