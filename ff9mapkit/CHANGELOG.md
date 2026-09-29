@@ -33,7 +33,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   - `FF9CustomMap-schema`: 30820-30821;
   - `FF9CustomMap-msgs`: 30601-30603.
 
-  Do 4600 and 6601-6603 first, through the world pack's own deploy path, then re-wire New Game. A read-only
+  Do 4600 and 6601-6603 first. **Do not rebuild them from source**: a field deployed before later kit changes
+  rebuilds with those changes too. 4600 and 6601-6603 rebuilt +51 bytes, not +38. The extra changes are the
+  moved entry-settle hold, blob shadows, animation-block padding and, on 6602, a talk-window movement lock.
+  The rebuild also writes a newer `JournalPatch.txt`. Redeploy instead with `tools/ambient_splice.py <id>
+  --mod-folder <folder>` (dry run; add `--apply` with the game closed). It writes the live `.eb` plus exactly
+  the tail, checked instruction by instruction, and nothing else, so registrations and the New-Game override
+  stay as they are and need no re-wire. Done so far: 4600 (in-game check pending). A read-only
   check: `ambient.classify` on the `field/us/*.eb.bytes` of these 47 ids reads `missing` before a redeploy and
   `restored` after. Run over a whole folder, it reads `stock-tail` for every verbatim fork, and it raises
   `ValueError` on the New-Game override in `FF9CustomMap-world` (`evt_alex1_ts_opening`, stock field 70, one
