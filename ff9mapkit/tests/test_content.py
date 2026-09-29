@@ -31,9 +31,10 @@ def test_hut_interior_reproduced_byte_exact():
     # Reproduces the in-game-verified hut interior from the blank via npc+spawn+gateway. The result
     # embeds the (game-derived) blank, so the golden is the manifest SHA-256, not shipped bytes.
     from ff9mapkit import provision
-    from ff9mapkit.content import shadow
+    from ff9mapkit.content import ambient, shadow
     EXIT_ZONE = [(-1100, -2400), (1100, -2400), (1100, -1750), (-1100, -1750), (-1100, -1750)]
-    out = npc.inject_npc(CLEAN, 0, -700, preset="vivi", talk_text_id=500, shadow=True)   # the stock shadow
+    out = ambient.restore_clear(CLEAN)             # build_script's FIRST step: the stock ambient clear
+    out = npc.inject_npc(out, 0, -700, preset="vivi", talk_text_id=500, shadow=True)     # the stock shadow
     out = npc.set_player_spawn(out, 0, -1350)
     out = gateway.inject_gateway(out, 4000, entrance=0, slot=3, zone=EXIT_ZONE)
     out = npc.neutralize_player_audio_cruft(out)   # build_script's final player-cleanup step (kills the 912 lag)
