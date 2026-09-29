@@ -39,7 +39,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   The rebuild also writes a newer `JournalPatch.txt`. Redeploy instead with `tools/ambient_splice.py <id>
   --mod-folder <folder>` (dry run; add `--apply` with the game closed). It writes the live `.eb` plus exactly
   the tail, checked instruction by instruction, and nothing else, so registrations and the New-Game override
-  stay as they are and need no re-wire. Done so far: 4600 (in-game check pending). A read-only
+  stay as they are and need no re-wire. Done so far: 4600, proven in game on the real New-Game route (the
+  story trace shows its prologue marking `Byte[13]` 2 → 9 and the tail clearing it 9 → 0). A read-only
   check: `ambient.classify` on the `field/us/*.eb.bytes` of these 47 ids reads `missing` before a redeploy and
   `restored` after. Run over a whole folder, it reads `stock-tail` for every verbatim fork, and it raises
   `ValueError` on the New-Game override in `FF9CustomMap-world` (`evt_alex1_ts_opening`, stock field 70, one
@@ -47,8 +48,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **F-NG: the New-Game override still hands off with its ambient playing.** The override is stock field 70 with
   only its `Field()` literal swapped (`newgame.retarget`). It sets `Byte[13] := 2` and warps without stopping its
   opening ambient (643). A synthesized entry field now clears the resulting 9, but the sound may play on. The fix
-  is to stop 643 before the `Field()` the way stock does, which turns the 2-byte swap into an insertion. Derived
-  from the bytes, not yet seen in game.
+  is to stop 643 before the `Field()` the way stock does, which turns the 2-byte swap into an insertion. The
+  flag half is now seen in game: field 70 writes `Byte[13]` 1 → 2 before its `Field()`, and 4600 then marks
+  it 9. Whether the sound plays on is not yet observed.
 - **F-WARP: kit warps do not write stock's exit idiom.** Choice, event, ladder and jump warps, and remapped
   same-id handoffs, skip stock's `if Byte[13] < 9 { Byte[13] := 3 }` before `Field()`, so they can leave an
   ambient sound playing. Into a synthesized field they no longer leave a 9 behind. Into a stock or verbatim field

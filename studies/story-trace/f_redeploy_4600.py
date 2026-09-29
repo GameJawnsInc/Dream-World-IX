@@ -18,6 +18,13 @@ A3  once control returns in 4600, gEventGlobal[13] == 0 and [14] == 0, read from
 A4  the hub plays: the player walks, Stiltzkin's menu offers exactly ["The Southern Ring", "Not yet, kupo..."]
     with the cursor on row 0, and the pick lands in 6601 with control back
 A5  no exception thrown through EventEngine/EBin/StoryTrace/HarnessAgent from New Game to the 6601 landing
+RESULT (2026-09-29, run 20260929-175641-f-redeploy-4600, archived in the MAIN repo's .harness-runs): 9/9 PASS, 150 s,
+59.5 fps. The trace: field 70 ip475 Byte[13] 1 -> 2 (the New-Game override's hand-off, F-NG's flag half, first seen
+in game), 4600 e0 t0 ip109 2 -> 9 (the prologue), ip275 9 -> 0 (the TAIL, as predicted); [13]=0 [14]=0 in the hub;
+menu as registered; 6601 reached with control. The hall-arrival frame is black: it was taken 4 frames after control
+came back, and 6601's unfixed bytes enable control after their 50-tick hold and only then fade in (16 ticks). So the
+hall is proven by field and control, not seen.
+
 The ip model, calibrated on story-rung5b2's archived P-AMBIENT rows (31113 ip109/ip275, reproduced from the live 31113
 bytes before this run): a row's ip is the START of the storing instruction, relative to its ENTRY's start.
 """
