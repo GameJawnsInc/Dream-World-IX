@@ -6,7 +6,9 @@ installed ``ff9mapkit`` CLI shares it). This wrapper just supplies the repo-flav
 the MAIN repo's ``backups/`` + ``tools/scroll_out/``, never a worktree's own (see tools/repo_root.py:
 a worktree-parked backup/revert evaporates with the tree while the live install keeps the override). The field-70 opening (FMV + fade)
 is PRESERVED -> New Game plays the faithful intro, then warps into the fork. The target MUST be a registered
-field (deploy the chain first) or New Game warps to an unregistered id = black screen.
+field (deploy the chain first) or New Game warps to an unregistered id = black screen. Stock 70 hands its
+ambient 643 on playing: kept when the target owns 643 (a fork of 50), otherwise 70's own exit stop is inserted
+before the Field() (the module docstring of ff9mapkit.newgame).
 
 Usage:
     py tools/wire_newgame_from_stock.py 6000                 # New Game -> field 70 (faithful) -> Field(6000)

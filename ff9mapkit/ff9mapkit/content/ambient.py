@@ -46,10 +46,42 @@ is invalidated.
 
 from __future__ import annotations
 
-from ..eb import EbScript, edit
+from ..eb import EbScript, edit, opcodes
 from . import entry_settle as _entry_settle
 
 SLOTS = (13, 14)                    # Byte[13] = ambient slot 0, Byte[14] = slot 1
+NO_AMBIENT = 65535                  # Int16[9] := 65535 -- the field owns no slot-0 ambient
+_OWN_ID = bytes([0x05, 0xD8, 0x09, 0x7D])   # ``Int16[9] := <u16>`` ... ``2c 7f`` -- the prologue's first statement
+SNDEFFECTRES_STOP = 20864           # FF9Snd.FF9SOUND_SNDEFFECTRES_STOP: stop a resident sound, Arg1 = fade ms
+
+
+def ambient_id(data) -> int | None:
+    """The field's own slot-0 ambient id ``K`` from its Main_Init prologue's ``Int16[9] := K``, or None when
+    Main_Init has no such statement (ValueError when there is no Main_Init). Every stock US Main_Init (818 of 818)
+    sets it in the one 8-byte form ``05 d8 09 7d <K u16> 2c 7f``; 526 own a sound, 292 set :data:`NO_AMBIENT`.
+    Synthesized fields carry the blank's 65535. ``newgame`` reads it to decide the New-Game override's handoff."""
+    b = data.to_bytes() if isinstance(data, EbScript) else bytes(data)
+    _f, stmts = _main_init(b)
+    for _off, raw in stmts:
+        if len(raw) == 8 and raw[:4] == _OWN_ID and raw[6:] == b"\x2c\x7f":
+            return int.from_bytes(raw[4:6], "little")
+    return None
+
+
+def exit_stop(k: int) -> bytes:
+    """Stock's exit stop for slot-0 ambient ``k``, 28 bytes::
+
+        if Byte[13] < 9 { Byte[13] := 3 }
+        RunSoundCode1(20864, k, 0)            # FF9SOUND_SNDEFFECTRES_STOP, no fade
+
+    The exact form appears 2,669 times across the 526 stock fields that own an ambient, every time with the
+    field's OWN ``k``; exits run it right before ``Int16[2] := N; Field(N)`` (Dali inn 351, all six exits) unless
+    ``Map.Bit[162]`` marks a keep-playing handoff. Field 70's own copy is its disc-change branch (Main_Init
+    rel 812-839). The 3 is the mark every stock prologue turns into 0 (stopped), never 9."""
+    return (bytes([0x05, 0xD4, 13, 0x7D, 0x09, 0x00, 0x18, 0x7F])     # Byte[13] < 9
+            + bytes([0x02, 0x08, 0x00])                               # JMP_IFNOT over the mark
+            + bytes([0x05, 0xD4, 13, 0x7D, 0x03, 0x00, 0x2C, 0x7F])   # Byte[13] := 3
+            + opcodes.encode(0xC6, SNDEFFECTRES_STOP, k, 0))          # RunSoundCode1(20864, k, 0)
 
 
 def _eq9(n: int) -> bytes:
