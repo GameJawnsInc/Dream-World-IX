@@ -33,20 +33,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   - `FF9CustomMap-schema`: 30820-30821;
   - `FF9CustomMap-msgs`: 30601-30603.
 
-  Do 4600 and 6601-6603 first. **Do not rebuild them from source**: a field deployed before later kit changes
-  rebuilds with those changes too. 4600 and 6601-6603 rebuilt +51 bytes, not +38. The extra changes are the
-  moved entry-settle hold, blob shadows, animation-block padding and, on 6602, a talk-window movement lock.
-  The rebuild also writes a newer `JournalPatch.txt`. Redeploy instead with `tools/ambient_splice.py <id>
-  --mod-folder <folder>` (dry run; add `--apply` with the game closed). It writes the live `.eb` plus exactly
-  the tail, checked instruction by instruction, and nothing else, so registrations and the New-Game override
-  stay as they are and need no re-wire. Done so far, each proven in game:
-  - 4600, on the real New-Game route. The story trace shows its prologue marking `Byte[13]` 2 → 9 and the
-    tail clearing it 9 → 0.
-  - 6601, entered from the hub with both slots arriving as 2. The trace shows both marked 9 and both cleared
-    to 0. This is the first in-game proof of slot 1 (`Byte[14]`).
-  - 6602, entered by a debug warp (its beacon entrance is beyond the test harness) with both slots arriving
-    as 2. The trace shows both cleared, and Moglow's talk still plays as deployed.
-  A read-only
+  **Do not rebuild them from source**: a field deployed before later kit changes rebuilds with those changes
+  too. 4600 and 6601-6603 rebuilt +51 bytes, not +38. The extra changes are the moved entry-settle hold, blob
+  shadows, animation-block padding and, on 6602, a talk-window movement lock. The rebuild also writes a newer
+  `JournalPatch.txt`. Redeploy instead with `tools/ambient_splice.py <id> --mod-folder <folder>` (dry run; add
+  `--apply` with the game closed). It writes the live `.eb` plus exactly the tail, checked instruction by
+  instruction, and nothing else, so registrations and the New-Game override stay as they are and need no
+  re-wire.
+
+  Status: **`FF9CustomMap-world` is done.** All four were spliced and each was proven in game under the story
+  trace (`studies/story-trace/f_redeploy_*.py`).
+  - 4600, on the real New-Game route. Its prologue marks `Byte[13]` 2 → 9 and the tail clears it 9 → 0.
+  - 6601, 6602 and 6603, each entered with both slots arriving as 2. Each marks both 9 and clears both to 0,
+    which proves slot 1 (`Byte[14]`) in game for the first time. Each room's own NPC still plays as deployed.
+
+  31113 and 31114 were redeployed by the F5c session. **41 remain**: `FF9CustomMap` 36, `FF9CustomMap-schema`
+  2 and `FF9CustomMap-msgs` 3. A read-only
   check: `ambient.classify` on the `field/us/*.eb.bytes` of these 47 ids reads `missing` before a redeploy and
   `restored` after. Run over a whole folder, it reads `stock-tail` for every verbatim fork, and it raises
   `ValueError` on the New-Game override in `FF9CustomMap-world` (`evt_alex1_ts_opening`, stock field 70, one

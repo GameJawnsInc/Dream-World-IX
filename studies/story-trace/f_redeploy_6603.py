@@ -17,6 +17,12 @@ D4  THE CLEAR, both slots: warp to the hub, poke [13] = [14] = 2 there, warp int
     and [14] 2 -> 9 at the prologue's ips and 9 -> 0 at the TAIL's ips (predicted from the live bytes), and the bits
     then read [13] == [14] == 0
 D5  no exception thrown through EventEngine/EBin/StoryTrace/HarnessAgent for the whole run
+
+RESULT (2026-09-29, run 20260929-182225-f-redeploy-6603, archived in the MAIN repo's .harness-runs): 5/5 PASS, 36 s.
+Warp arrival: [13] 1 -> 0 (ip123), [14] 0 -> 0 (ip204). The calibration probed `up` one-sided, clear of the door, in
+agreement with the prior; walked 809u to Mogdrift, whose window read "Kupo... nothing out here but wind and gulls ..."
+and paged out with control back. The clear path wrote [13] 2 -> 9 ip101, [14] 2 -> 9 ip182, [13] 9 -> 0 ip267,
+[14] 9 -> 0 ip286, all as predicted, and the bits read 0. The frames show the landing after its fade-in.
 """
 from __future__ import annotations
 
