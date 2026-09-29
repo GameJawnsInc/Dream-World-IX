@@ -138,9 +138,11 @@ member and its entrance). There are two phases:
 - **Before the beat's advance** (the default). The room whose script writes SC := beat has not run that
   store yet, so its writes are left to it. The entry path still plays the advance. This is the row every
   earlier version produced, unchanged.
-- **After the advance** (`--after-advance --entrance N`). The entry is behind one exit gateway of the advance
-  room. Stock ran the advance in place, handed control back, and the player walked out through that exit.
-  The row also carries:
+- **After the advance** (`--after-advance --entrance N`), **for a proven hand-over only**. Today that is
+  one hand-over: Dali at SC 2600, the wake room (field 352) handing over into the inn lobby (field 351) at
+  entrance 6. Every other one is refused (see **Verified only** below). The entry is behind one exit
+  gateway of the advance room. Stock ran the advance in place, handed control back, and the player walked
+  out through that exit. The row also carries:
   - `entrance = N`;
   - each read bit that holds one literal value on every path through every SC := beat store;
   - what the exit writes on its way to `Field()`, ignoring code that cannot run at that beat;
@@ -155,7 +157,7 @@ member and its entrance). There are two phases:
 | Flag | Effect |
 |---|---|
 | `--entrance N` | adds `entrance = N`. Without `--after-advance`, an entrance that is an exit of the advance room is refused, because the entry lies after the advance. An exit whose warp into the entry cannot run at the beat hands nothing over there, so it does not count. |
-| `--after-advance` | the post-advance row. Needs `--entrance`. |
+| `--after-advance` | the post-advance row. Needs `--entrance`. Accepted only for a proven hand-over. |
 | `--pre-phase-control` | with `--entrance`: the plain row, entered through the advance room's exit on purpose, as a calibration control. The row says so in a comment. Refused when the entrance is not such an exit, or together with `--after-advance`. |
 | `--name` | the menu label. The default is the nearest milestone and SC, plus the phase or the entrance when one is given. |
 
@@ -175,16 +177,47 @@ same id by default. The four flags are refused without `--chain`, `--beat` and `
   stamped word, off its value (the same store at the beat's or the stamp's own value is kept, and noted);
 - an exit that can re-set the scenario counter (an increment included), or a stamped word, at that beat;
 - an exit whose warp into the entry cannot run at that beat;
-- removes that would leave the party empty.
+- removes that would leave the party empty;
+- any hand-over not proven in the game, however well it is modelled. This is checked last, so a hand-over
+  the model cannot take is named for that instead.
 
 A read bit that has no single literal value at the hand-over keeps the value the plain row gives it; it is
 never guessed. When the plain row sets it (1), the row still stamps 1 and the comments list it as `kept at
 the pre-phase value 1`; otherwise the row leaves it clear and the comments list it as `not carried`. Either
 way the row may differ from stock on that bit, and the comment names it.
 
-**Status:** the post phase is proven offline only. The in-game proof is PENDING for exactly one hand-over:
-Dali at SC 2600, entering field 351 at entrance 6 (the F5b session of the story-trace study). No other
-post-phase row has been checked in game.
+**Verified only.** `--after-advance` stamps a row only for a hand-over that has been proven in the game.
+Today there is one: Dali at SC 2600, from the wake room (field 352) through its exit into field 351 at
+entrance 6. The story-trace session `story-rung5b2` proved it: VERDICT PROVEN on state, latches, party and
+walk (`studies/story-trace/PLAN.md`, F5c). The model accepts other hand-overs too, in Dali (354 at SC 2610
+into 350) and across the game, but none of them has been checked in the game. Each one is refused (exit
+code 1). The message names the hand-over (advance room, beat, entry donor field, entrance), lists the proven
+ones, and says how to add one. The check runs inside the library, in the post phase every
+`storyseed.hub_journey_toml` call takes, so the CLI and every other caller of it hit it. It has no flag
+and no keyword. The one route past it is `storyseed.unproven_candidate_row`, which exists for step 1
+below: it is library only (no CLI flag), its row is marked as a candidate, and a tripwire test fails if
+anything outside the kit's tests and `studies/story-trace/` calls it.
+
+**What a proven hand-over covers.** The proof covers the hand-over: the advance room, the beat, the exit
+and its entrance, and so what that advance and that exit add to the row. The rest of the row still comes
+from the chain you pass (the plain-row half, and which read bits the post phase carries), just as a plain
+row does. The game checked the row built on the chain the evidence names; for Dali that is F5's 12-member
+chain. On a smaller chain the same hand-over is accepted, and its row can differ (a chain of only 352 and
+351 stamps no `set_words`).
+
+**Adding a proven hand-over** takes two steps:
+1. A story-trace session proves it in the game. A harness under `studies/story-trace/` builds the
+   candidate row with `storyseed.unproven_candidate_row` (the same data the proven row will stamp; its id
+   ends in `_candidate` unless you pass `slug=`, and its first comment says it is unproven) and installs it
+   with `storyseed.update_hub_journeys`. That row, entered past the advance, must land on the state a
+   traced stock walk hands over (the F5b/F5c protocol in `studies/story-trace/PLAN.md`).
+2. A code change adds it to `storyseed.PROVEN_HANDOVERS`, keyed `(advance room, beat, entry donor, entrance)`,
+   with that session's label, its PLAN.md section and the chain it proved as the evidence. The same change
+   updates the pin in `tests/test_storyseed.py` (`test_post_phase_refuses_an_unproven_handover` asserts
+   the exact list), adds a real-bytes test that the hand-over's row is the row proven in the game (like
+   `test_real_dali_only_the_proven_handover_is_accepted`), and adds it to the list on this page.
+
+`--pre-phase-control` builds a plain row and is not affected.
 
 **Locations:** a **project-root** `journeys.toml` (above campaign folders, for arcs) OR one beside a
 `campaign.toml` / in the world_hub dir (the shipped single-field/campaign journeys). The GUI reads both.

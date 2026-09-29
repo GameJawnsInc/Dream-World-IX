@@ -1,4 +1,7 @@
 """Tests for storyseed (narrative-state rung 1)."""
+import re
+from pathlib import Path
+
 import pytest
 
 from ff9mapkit import storyseed
@@ -391,6 +394,18 @@ def test_chain_ladder_is_the_write_channel():
 # gateway at entrance 6 (that exit clears 2079 and re-sets SC only under SC == 2640), 903 = behind a
 # second exit (entrance 7) that re-sets SC unconditionally and a third (entrance 8, entry 6) whose
 # warp runs only at SC == 2700, 902 = a room nothing warps to.
+# These hand-overs are INVENTED, so none is on storyseed.PROVEN_HANDOVERS: a test that wants the model's
+# row asks for the `invented_proven` fixture, which puts exactly these keys on the list for that test (the
+# gate still runs -- hub_journey_toml has no keyword that lifts it); the gate itself is pinned by the
+# *_unproven_handover tests below.
+INVENTED = ((900, 2600, 901, 6), (900, 2630, 901, 6), (910, 2600, 911, 6))
+
+
+@pytest.fixture
+def invented_proven(monkeypatch):
+    from types import MappingProxyType
+    monkeypatch.setattr(storyseed, "PROVEN_HANDOVERS", MappingProxyType(
+        {**storyseed.PROVEN_HANDOVERS, **{k: "synthetic: this test only" for k in INVENTED}}))
 
 _ADV = """
 l0:
@@ -556,7 +571,7 @@ def test_pre_phase_row_leaves_the_advance_to_the_advance(tmp_path):
     assert 'name  = "' in row and "(SC 2600)\"" in row      # the historical label, untouched
 
 
-def test_post_phase_carries_what_the_hand_over_leaves(tmp_path):
+def test_post_phase_carries_what_the_hand_over_leaves(tmp_path, invented_proven):
     chain, census, ebf = _post_zone(tmp_path)
     row = storyseed.hub_journey_toml(chain, 2600, census, ebf, entry=31001, entrance=6,
                                      after_advance=True)
@@ -625,7 +640,7 @@ def test_post_phase_refusals(tmp_path):
             _adv_row(tmp_path / f"shape{n}", **kw)
 
 
-def test_post_phase_roster_rules(tmp_path):
+def test_post_phase_roster_rules(tmp_path, invented_proven):
     chain, census, ebf = _post_zone(tmp_path)
     # two advance functions of 2630: only one removes garnet -> the hand-back still holds her
     row = storyseed.hub_journey_toml(chain, 2630, census, ebf, entry=31001, entrance=6,
@@ -726,7 +741,7 @@ def test_truth_at_beat_keeps_unknowns_unknown():
     assert tr("Global.UInt16[0] const(2640) B_EQ const(1) flex(21,1) B_ANDAND") is False
 
 
-def test_handover_reads_are_not_writes(tmp_path):
+def test_handover_reads_are_not_writes(tmp_path, invented_proven):
     # an exit that only CACHES SC into a map local does not re-set it
     assert "set_scenario = 2600" in _adv_row(
         tmp_path / "s1", exit_walk="SET({Map.Int16[5] Global.UInt16[0] B_LET B_EXPR_END})\n")
@@ -751,7 +766,7 @@ def test_handover_reads_are_not_writes(tmp_path):
     assert "entrance = 6" in _adv_row(tmp_path / "live", exit=live)
 
 
-def test_handover_tail_and_the_stamped_words(tmp_path):
+def test_handover_tail_and_the_stamped_words(tmp_path, invented_proven):
     # the row stamps set_words; a store the advance's run makes AFTER its SC := beat store moves the
     # hand-over off that stamp (refused, as the exit's clash) unless it re-writes the stamp's own value
     def post(n, after):
@@ -769,7 +784,7 @@ def test_handover_tail_and_the_stamped_words(tmp_path):
         assert any("re-writes the beat / a stamped word at its own value" in x for x in notes), notes
 
 
-def test_handover_notes_split_kept_from_not_carried(tmp_path):
+def test_handover_notes_split_kept_from_not_carried(tmp_path, invented_proven):
     # a bit the advance writes only on ANOTHER path (case 52 returns): only the value the function was
     # entered with reaches this hand-back -- the pre-phase value stands, never 'not carried'
     assert "2065" not in _adv_row(tmp_path / "entry",
@@ -785,7 +800,7 @@ def test_handover_notes_split_kept_from_not_carried(tmp_path):
     assert not any(n.startswith("# not carried") for n in notes), notes
 
 
-def test_hub_row_name_is_escaped_and_the_slug_names_the_phase(tmp_path):
+def test_hub_row_name_is_escaped_and_the_slug_names_the_phase(tmp_path, invented_proven):
     import tomllib
     chain, census, ebf = _post_zone(tmp_path)
     name = 'Dali "morning" C:\\x'
@@ -799,7 +814,7 @@ def test_hub_row_name_is_escaped_and_the_slug_names_the_phase(tmp_path):
         assert storyseed.hub_row_slug(chain, 2600, **{k: v for k, v in kw.items() if k != "entry"}) == slug
 
 
-def test_story_seed_cli_hub_row_flags(tmp_path, monkeypatch, capsys):
+def test_story_seed_cli_hub_row_flags(tmp_path, monkeypatch, capsys, invented_proven):
     import json
     from ff9mapkit import cli, extract
     chain, census, ebf = _post_zone(tmp_path)
@@ -810,6 +825,8 @@ def test_story_seed_cli_hub_row_flags(tmp_path, monkeypatch, capsys):
         def eb_for_id(self, d):
             return ebf(d).data
     monkeypatch.setattr(extract, "EventBundle", _Bundle)
+    # the CLI has no way past the proven-only gate (test_story_seed_cli_refuses_an_unproven_handover): this
+    # plumbing test's invented hand-over is on the list through the invented_proven fixture
     jt = tmp_path / "journeys.toml"
     jt.write_text('[hub]\nname = "T"\nid = 30999\n', encoding="utf-8")
     base = ["story-seed", "--chain", chain, "--beat", "2600", "--census", str(cpath)]
@@ -829,6 +846,176 @@ def test_story_seed_cli_hub_row_flags(tmp_path, monkeypatch, capsys):
                  base + ["--entrance", "6"], ["story-seed", "900", "--name", "x"]):
         assert cli.main(argv) == 1, argv
         assert "shape a hub journey row" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------- VERIFIED ONLY: the proven hand-overs
+# The owner's call: --after-advance stamps only a hand-over the game has proven (storyseed.PROVEN_HANDOVERS).
+# The model accepts more than that; every other one is refused -- by the library, so the CLI and any other
+# hub_journey_toml caller alike -- with the hand-over named, the proven list, and the way one is added. The one
+# route past it is storyseed.unproven_candidate_row (a marked candidate row for the story-trace session that
+# proves a new hand-over), and a tripwire pins who may call it.
+
+def _refusal(call) -> str:
+    with pytest.raises(ValueError) as ei:
+        call()
+    return str(ei.value)
+
+
+def test_post_phase_refuses_an_unproven_handover(tmp_path, monkeypatch):
+    from types import MappingProxyType
+    # today exactly one: Dali's wake room 352 at SC 2600 handing over into the inn lobby 351 at entrance 6.
+    # Adding one is a reviewed code change, and this pin moves with it (docs/JOURNEYS.md, 'Adding a proven
+    # hand-over'); the list is read-only, so nothing adds one at run time
+    assert set(storyseed.PROVEN_HANDOVERS) == {(352, 2600, 351, 6)}
+    assert "story-rung5b2" in storyseed.PROVEN_HANDOVERS[(352, 2600, 351, 6)]
+    with pytest.raises(TypeError):
+        storyseed.PROVEN_HANDOVERS[(900, 2600, 901, 6)] = "added at run time"
+    chain, census, ebf = _post_zone(tmp_path)
+    members = storyseed.chain_donors(chain)
+    # the invented 900 -> 901/e6 hand-over is MODELLED (test_post_phase_carries_what_the_hand_over_leaves builds
+    # its row), and by default refused -- through hub_journey_toml and through _post_advance itself
+    for call in (lambda: storyseed.hub_journey_toml(chain, 2600, census, ebf, entry=31001, entrance=6,
+                                                    after_advance=True),
+                 lambda: storyseed._post_advance(census, sorted({d for _m, d in members}), members, 31001, 6,
+                                                 2600, ebf, {2078, 2086}, {}, {}, {"garnet", "zidane"})):
+        msg = _refusal(call)
+        assert msg.startswith("--after-advance: the hand-over advance room 900 @ SC 2600 -> entry donor 901 at "
+                              "entrance 6 is modelled but NOT PROVEN in the game"), msg
+        assert ("Proven: advance room 352 @ SC 2600 -> entry donor 351 at entrance 6 (story-rung5b2, "
+                "studies/story-trace/PLAN.md") in msg
+        # how one is added, every step followable: the candidate route (no flag), the proof, the code change
+        assert "prove it in a story-trace session" in msg
+        assert "candidate row with storyseed.unproven_candidate_row" in msg and "no CLI flag" in msg
+        assert "storyseed.PROVEN_HANDOVERS in a code change" in msg
+        assert "tests/test_storyseed.py" in msg
+    # hub_journey_toml has NO keyword past the gate, whatever its name (the one route is unproven_candidate_row)
+    import inspect
+    assert list(inspect.signature(storyseed.hub_journey_toml).parameters) == [
+        "chain_dir", "beat", "census", "eb_for_donor", "entry", "slug", "name", "entrance", "after_advance",
+        "pre_phase_control"]
+    # the gate is the LAST check: a hand-over the model cannot take is named for what the model lacks
+    for kw, why in ((dict(entry=31001, entrance=5), "pass --entrance 6"),
+                    (dict(entry=31003, entrance=7), "re-sets the scenario")):
+        assert why in _refusal(lambda: storyseed.hub_journey_toml(chain, 2600, census, ebf, after_advance=True,
+                                                                   **kw))
+    # the key is the WHOLE hand-over: the proven key passes, and each of its four parts changed alone -- the
+    # advance room, the beat, the entry donor, the entrance -- is refused (the synthetic zones cannot reach a
+    # second entrance of one exit, so the entrance is pinned here, on the gate itself)
+    assert storyseed._require_proven_handover([352], 2600, 351, 6) is None
+    assert "351 at entrance 7 is modelled but NOT PROVEN" in _refusal(
+        lambda: storyseed._require_proven_handover([352], 2600, 351, 7))
+    for adv, beat, edon, ent in (([353], 2600, 351, 6), ([352], 2610, 351, 6), ([352], 2600, 350, 6)):
+        assert f"{storyseed._handover_label(adv, beat, edon, ent)} is modelled but NOT PROVEN" in _refusal(
+            lambda: storyseed._require_proven_handover(adv, beat, edon, ent))
+    # an advance spread over several rooms is never one proven key
+    assert "advance rooms [352, 353] @ SC 2600" in _refusal(
+        lambda: storyseed._require_proven_handover([352, 353], 2600, 351, 6))
+    # the gate reads the list: proven 900@2600 -> 901/e6 stamps the modelled row -- the candidate route's data,
+    # byte for byte, id aside -- while 900@2630 into the same entry stays refused
+    candidate = storyseed.unproven_candidate_row(chain, 2600, census, ebf, entry=31001, entrance=6)
+    monkeypatch.setattr(storyseed, "PROVEN_HANDOVERS", MappingProxyType(
+        {**storyseed.PROVEN_HANDOVERS, (900, 2600, 901, 6): "synthetic: this test only"}))
+    proven = storyseed.hub_journey_toml(chain, 2600, census, ebf, entry=31001, entrance=6, after_advance=True)
+    assert proven == "\n".join(l for l in candidate.split("\n") if l != storyseed.CANDIDATE_MARK).replace(
+        '"chain_2600_e6_post_candidate"', '"chain_2600_e6_post"')
+    assert "advance room 900 @ SC 2630 -> entry donor 901 at entrance 6 is modelled but NOT PROVEN" in _refusal(
+        lambda: storyseed.hub_journey_toml(chain, 2630, census, ebf, entry=31001, entrance=6,
+                                           after_advance=True))
+    # the pre-phase control is a different path: never gated
+    assert "PRE-PHASE ROW ENTERED PAST THE ADVANCE" in storyseed.hub_journey_toml(
+        chain, 2600, census, ebf, entry=31001, entrance=6, pre_phase_control=True)
+
+
+def test_unproven_candidate_row_is_the_marked_route_past_the_gate(tmp_path):
+    # the proving session's row: the modelled post-phase row for a hand-over NOT on the list, MARKED -- its first
+    # comment line and its id say it is a candidate -- and every modelling refusal still applies
+    chain, census, ebf = _post_zone(tmp_path)
+    row = storyseed.unproven_candidate_row(chain, 2600, census, ebf, entry=31001, entrance=6)
+    lines = row.split("\n")
+    assert lines[0] == "[[journey]]" and 'id    = "chain_2600_e6_post_candidate"' in lines
+    assert [l for l in lines if l.startswith("#")][0] == storyseed.CANDIDATE_MARK
+    assert "entrance = 6" in row and "{ flag = 2078, value = 1 }" in row and 'party_remove = [ "garnet" ]' in row
+    assert 'id    = "t6"' in storyseed.unproven_candidate_row(chain, 2600, census, ebf, entry=31001, entrance=6,
+                                                             slug="t6")
+    for kw, why in ((dict(entry=31001, entrance=5), "pass --entrance 6"),
+                    (dict(entry=31003, entrance=7), "re-sets the scenario"),
+                    (dict(entry=31000, entrance=6), "is the advance room 900 itself")):
+        assert why in _refusal(lambda: storyseed.unproven_candidate_row(chain, 2600, census, ebf, **kw))
+
+
+# THE CANDIDATE-ROUTE TRIPWIRE -- the call site of "the kit's tests and a story-trace proving harness only".
+# storyseed.unproven_candidate_row (threaded to the gate by its `unproven_candidate` keyword) is the one way past
+# the proven-only law, and a docstring naming its callers is a wish: this scans the repo's code for the token
+# outside storyseed.py, the kit's tests and studies/story-trace/ (the proving harness's home), and for code that
+# rebinds the proven list or the gate. Repo layout only (an installed package has no tree to scan).
+_REPO = Path(__file__).resolve().parents[2]
+_CODE_ROOTS = ("ff9mapkit/ff9mapkit", "ff9mapkit/blender", "tools", "apps", "studies", "research", "docsite")
+_CANDIDATE_CALLERS = ("ff9mapkit/ff9mapkit/storyseed.py", "ff9mapkit/tests/", "studies/story-trace/")
+_GATE_REBIND = re.compile(
+    r"\b(?:PROVEN_HANDOVERS|_require_proven_handover)\s*=(?!=)"
+    r"|setattr\([^)]*[\"'](?:PROVEN_HANDOVERS|_require_proven_handover)[\"']")
+
+
+def _candidate_route_violations(repo) -> list:
+    out = []
+    for root in _CODE_ROOTS:
+        base = repo / root
+        if not base.is_dir():
+            continue
+        for p in sorted(base.rglob("*")):
+            if p.suffix not in (".py", ".pyw") or "__pycache__" in p.parts or not p.is_file():
+                continue
+            rel = p.relative_to(repo).as_posix()
+            text = p.read_text(encoding="utf-8", errors="replace")
+            if "unproven_candidate" in text and not rel.startswith(_CANDIDATE_CALLERS):
+                out.append(f"{rel}: reaches the candidate route (storyseed.unproven_candidate_row)")
+            if rel != "ff9mapkit/ff9mapkit/storyseed.py" and _GATE_REBIND.search(text):
+                out.append(f"{rel}: rebinds storyseed.PROVEN_HANDOVERS or the gate")
+    return out
+
+
+def test_the_candidate_route_has_only_its_stated_callers(tmp_path):
+    if not (_REPO / "ff9mapkit" / "ff9mapkit" / "storyseed.py").is_file() or not (_REPO / "studies").is_dir():
+        pytest.skip("repo layout only: no source tree to scan")
+    assert _candidate_route_violations(_REPO) == []
+    # the scan can fail: a caller in tools/, a harness in another study, the CLI rebinding the list -- each named
+    # (and a story-trace harness, the one sanctioned caller, is not)
+    for rel, text in (("tools/t.py", "storyseed.unproven_candidate_row(c, 2600, cen, ebf, entry=1, entrance=6)\n"),
+                      ("studies/other/h.py", "storyseed._post_advance(*a, unproven_candidate=True)\n"),
+                      ("ff9mapkit/ff9mapkit/cli.py", "storyseed.PROVEN_HANDOVERS = {}\n"),
+                      ("apps/a.pyw", "setattr(storyseed, '_require_proven_handover', print)\n"),
+                      ("studies/story-trace/harness.py", "storyseed.unproven_candidate_row(c, 2600, cen, ebf)\n")):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text, encoding="utf-8")
+    assert sorted(v.split(":")[0] for v in _candidate_route_violations(tmp_path)) == [
+        "apps/a.pyw", "ff9mapkit/ff9mapkit/cli.py", "studies/other/h.py", "tools/t.py"]
+
+
+def test_story_seed_cli_refuses_an_unproven_handover(tmp_path, monkeypatch, capsys):
+    # the CLI has NO way past the gate: the invented hand-over the model accepts exits 1, names the gate, and
+    # leaves journeys.toml as it was
+    import json
+    from ff9mapkit import cli, extract
+    chain, census, ebf = _post_zone(tmp_path)
+    cpath = tmp_path / "census.json"
+    cpath.write_text(json.dumps(census), encoding="utf-8")
+
+    class _Bundle:
+        def eb_for_id(self, d):
+            return ebf(d).data
+    monkeypatch.setattr(extract, "EventBundle", _Bundle)
+    jt = tmp_path / "journeys.toml"
+    jt.write_text('[hub]\nname = "T"\nid = 30999\n', encoding="utf-8")
+    before = jt.read_bytes()
+    capsys.readouterr()
+    assert cli.main(["story-seed", "--chain", chain, "--beat", "2600", "--census", str(cpath), "--hub", str(jt),
+                     "--entry", "31001", "--entrance", "6", "--after-advance"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("story-seed: --after-advance: the hand-over advance room 900 @ SC 2600 -> entry "
+                          "donor 901 at entrance 6 is modelled but NOT PROVEN in the game"), err
+    assert "story-rung5b2" in err and "storyseed.PROVEN_HANDOVERS" in err
+    assert "storyseed.unproven_candidate_row" in err            # the proving session's route, named
+    assert jt.read_bytes() == before
 
 
 # The real Dali pins. They need the rung-0 dominance census (research/dominance_census.json, generated
@@ -909,3 +1096,59 @@ def test_real_dali_post_wake_row(tmp_path):
     with pytest.raises(ValueError, match="leaves the scene"):
         storyseed.hub_journey_toml(chain, 2640, census, ebf, entry=31103, entrance=10,
                                    after_advance=True)
+
+
+# sha256 of the WHOLE F5B row, data and comments (the text between its markers in the frozen
+# C:\gd\_ns_playtest\f5b\hub\journeys.toml, deployed as hub 31113 and proven in game by story-rung5b2)
+POST_ROW_FULL_SHA = "dbfa2f5e581f6d422ec5ac988ab1aa8ad8621a6bced73ea14a6f50ad3e860d63"
+
+
+def test_real_dali_only_the_proven_handover_is_accepted(tmp_path):
+    import hashlib
+    chain, census, ebf = _f5(tmp_path)
+    # the proven hand-over, with no test keyword: the row is the frozen, game-proven row byte for byte
+    row = storyseed.hub_journey_toml(chain, 2600, census, ebf, entry=31101, entrance=6, after_advance=True,
+                                     name="Dali (SC 2600)")
+    assert _data(row) == POST_ROW
+    assert hashlib.sha256(row.encode()).hexdigest() == POST_ROW_FULL_SHA
+    # the candidate route on the same hand-over builds the same data: what a proving session tests is what ships
+    assert _data(storyseed.unproven_candidate_row(chain, 2600, census, ebf, entry=31101, entrance=6,
+                                                  slug="dali_chain_2600_e6_post", name="Dali (SC 2600)")) == POST_ROW
+    # Dali's own next rung: 354 advances to 2610 in place and its exit 350/e7 is a hand-over the model
+    # ACCEPTS (its candidate row builds) -- and the game never checked it: refused, named, by default
+    assert "set_scenario = 2610" in storyseed.unproven_candidate_row(chain, 2610, census, ebf, entry=31103,
+                                                                     entrance=7)
+    msg = _refusal(lambda: storyseed.hub_journey_toml(chain, 2610, census, ebf, entry=31103, entrance=7,
+                                                      after_advance=True))
+    assert ("the hand-over advance room 354 @ SC 2610 -> entry donor 350 at entrance 7 is modelled but NOT "
+            "PROVEN in the game") in msg
+    # WHAT THE KEY PROVES is the hand-over, not the whole row (storyseed.PROVEN_HANDOVERS; docs/JOURNEYS.md):
+    # on a chain of only 352 and 351 the same hand-over is accepted, and the row's chain-derived half differs
+    # from the proven F5 row (no set_words) -- only the F5 chain's row was checked in the game
+    two = tmp_path / "two" / "chain"
+    for mid, don in ((31101, 351), (31104, 352)):
+        (two / str(mid)).mkdir(parents=True)
+        (two / str(mid) / "m.field.toml").write_text(f"id = {mid}\ndonor = {don}\n", encoding="utf-8")
+    row2 = storyseed.hub_journey_toml(str(two), 2600, census, ebf, entry=31101, entrance=6, after_advance=True)
+    assert "set_scenario = 2600" in row2 and "set_words" not in row2
+
+
+# Corpus hand-overs outside Dali that the post phase MODELS (each builds a candidate row) and the game never
+# checked: (advance room, beat, entry donor, entrance), each a two-member chain
+CORPUS_UNPROVEN = ((1450, 9410, 1451, 5), (613, 3125, 612, 39), (1550, 6300, 1551, 2), (1605, 6625, 1603, 13),
+                   (2301, 9950, 2300, 2), (2751, 11100, 2753, 1))
+
+
+def test_real_corpus_handovers_are_refused(tmp_path):
+    _dali, census, ebf = _f5(tmp_path)
+    for adv, beat, to, ent in CORPUS_UNPROVEN:
+        chain = tmp_path / f"c{adv}_{beat}" / "chain"
+        for mid, don in ((31500, adv), (31501, to)):
+            (chain / str(mid)).mkdir(parents=True)
+            (chain / str(mid) / "m.field.toml").write_text(f"id = {mid}\ndonor = {don}\n", encoding="utf-8")
+        assert f"set_scenario = {beat}" in storyseed.unproven_candidate_row(str(chain), beat, census, ebf,
+                                                                            entry=31501, entrance=ent)
+        msg = _refusal(lambda: storyseed.hub_journey_toml(str(chain), beat, census, ebf, entry=31501,
+                                                          entrance=ent, after_advance=True))
+        assert (f"the hand-over advance room {adv} @ SC {beat} -> entry donor {to} at entrance {ent} is "
+                f"modelled but NOT PROVEN in the game") in msg, msg

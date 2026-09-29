@@ -7947,7 +7947,10 @@ def build_parser() -> argparse.ArgumentParser:
                           "store ran and handed control back): the row also carries what the "
                           "advance and the exit into the entry leave -- its latches and its "
                           "removes. Needs --entrance; refused unless the entry is behind one exit "
-                          "gateway of the advance room (the room itself hands back in place)")
+                          "gateway of the advance room (the room itself hands back in place). "
+                          "VERIFIED ONLY: accepted only for a hand-over proven in the game (the "
+                          "list is storyseed.PROVEN_HANDOVERS, and a refusal prints it); every "
+                          "other one is refused, with no override")
     sse.add_argument("--pre-phase-control", action="store_true",
                      help="with --hub --entrance: build the PRE-phase row even though the entrance "
                           "is the advance room's exit (a deliberate calibration control; refused "

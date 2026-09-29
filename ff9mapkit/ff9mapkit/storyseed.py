@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field as dfield
+from types import MappingProxyType
 
 from . import flags as flagsmod
 from .eb import EbScript
@@ -601,6 +603,17 @@ def seed_chain(chain_dir: str, beat: int, census: dict, eb_for_donor) -> list[tu
 # store, ``A := B`` does not write B, an assignment inside a condition is a store of unknown value. A
 # pre-phase row whose entrance IS such an exit (its warp live at the beat) is refused too, unless the
 # author asks for it as a calibration control (``--pre-phase-control``).
+# VERIFIED ONLY (the owner's call). A hand-over this pass models is still REFUSED unless it is on
+# :data:`PROVEN_HANDOVERS` -- a hand-over the game has confirmed, not merely one the model accepts.
+# The model accepts other corpus hand-overs (613@3125, 1450@9410, 1550@6300, 1605@6625, 2301@9950,
+# 2751@11100 and Dali's own 354@2610 among them); the game checked only the ones on the list. The gate
+# sits in :func:`_post_advance`, after every modelling refusal (so an unmodellable hand-over is named
+# for what the model lacks, and a modelled one for the proof it lacks), and before any row is returned.
+# Every :func:`hub_journey_toml` call takes it -- the CLI's among them -- and neither has a flag or a
+# keyword that lifts it. The ONE route past it is :func:`unproven_candidate_row`, for the story-trace
+# session that proves a new hand-over (it needs a row to deploy): library only, its row marked as a
+# candidate, and a tripwire test (tests/test_storyseed.py) fails when anything outside the kit's tests
+# and studies/story-trace/ calls it.
 
 REMOVE_PARTY_OP = 0xDD
 _PARTY_MENU_OP = 0xB2              # Party: the party menu -- the player picks the roster
@@ -608,6 +621,59 @@ _PARTY_RESERVE_OP = 0xB4           # SetPartyReserve: who may be picked
 _PARTYADD_TOKEN = 0x6D
 _ENTRY_DEF = ("entry",)            # the value the function was entered with (unknown here)
 _KEEP = "keep"                     # an exit that leaves a bit as it came in (the hand-back stands)
+
+#: THE PROVEN HAND-OVERS -- the only ones ``--after-advance`` (:func:`hub_journey_toml`) stamps. Key:
+#: ``(advance room donor, beat, entry donor, entrance)`` -- the one room whose script writes SC := beat,
+#: and the exit the player leaves it by (the entry's donor field and the entrance that exit writes).
+#: Value: the evidence. WHAT A KEY PROVES is the HAND-OVER -- what that advance and that exit leave (the
+#: post phase's delta over the plain row). The rest of a row is still derived from the chain the caller
+#: passes: the pre-phase half, and which read bits the post phase carries (the union of the members'
+#: reads). So a row on another chain is only as proven as a plain row of that chain; the game checked
+#: the row built on the chain the evidence names. A hand-over joins this list only through (1) a
+#: story-trace session that proves it in the game -- its candidate row, built by
+#: :func:`unproven_candidate_row` and entered past the advance, lands on the state a traced stock walk
+#: hands over (the F5b/F5c protocol, studies/story-trace/PLAN.md) -- and then (2) a code change adding it
+#: here with that session's label, its PLAN.md section and the chain it proved, which also moves the pin
+#: in tests/test_storyseed.py (test_post_phase_refuses_an_unproven_handover) and adds a real-bytes test
+#: that the hand-over's row is the row proven in the game. There is no override flag, and the mapping is
+#: read-only: nothing adds to it at run time.
+PROVEN_HANDOVERS: Mapping[tuple[int, int, int, int], str] = MappingProxyType({
+    (352, 2600, 351, 6): ("story-rung5b2, studies/story-trace/PLAN.md 'F5c: the ambient clear, and the v2 "
+                          "re-test' (predictions v2 7cf2fe8c): VERDICT PROVEN, all four halves -- state, "
+                          "latches, party, walk -- Dali's wake room entering the inn lobby; the row proven "
+                          "is the one built on F5's 12-member Dali chain (studies/story-trace/"
+                          "rung5b_forks_v2.json rows.F5B)"),
+})
+
+
+def _handover_label(adv, beat: int, edon, entrance) -> str:
+    """One hand-over, as the refusal and :data:`PROVEN_HANDOVERS` name it."""
+    rooms = f"advance room {adv[0]}" if len(adv) == 1 else f"advance rooms {list(adv)}"
+    return f"{rooms} @ SC {beat} -> entry donor {edon} at entrance {entrance}"
+
+
+def _require_proven_handover(adv, beat: int, edon, entrance) -> None:
+    """THE PROVEN-ONLY LAW: raise unless the hand-over -- the advance room(s) *adv* whose stores the
+    post phase folded, *beat*, the entry donor *edon* and *entrance* -- is on
+    :data:`PROVEN_HANDOVERS`, all four parts matching. An advance spread over several rooms is never
+    one proven key. The message names the hand-over, lists the proven ones with their evidence, and
+    says how one is added -- the candidate route (:func:`unproven_candidate_row`) included, so the
+    first step can be followed without a flag."""
+    key = (adv[0], beat, edon, entrance) if len(adv) == 1 else None
+    if key in PROVEN_HANDOVERS:
+        return
+    proven = "; ".join(f"{_handover_label([a], b, e, n)} ({ev})"
+                       for (a, b, e, n), ev in sorted(PROVEN_HANDOVERS.items()))
+    raise ValueError(
+        f"--after-advance: the hand-over {_handover_label(adv, beat, edon, entrance)} is modelled "
+        f"but NOT PROVEN in the game -- only proven hand-overs are accepted. Proven: {proven}. To add "
+        f"one: (1) prove it in a story-trace session -- a harness under studies/story-trace/ builds its "
+        f"candidate row with storyseed.unproven_candidate_row (the library's one route past this "
+        f"check; there is no CLI flag), and that row, entered past the advance, must land on the state "
+        f"a traced stock walk hands over (the F5b/F5c protocol, studies/story-trace/PLAN.md); then (2) "
+        f"add it with that evidence to storyseed.PROVEN_HANDOVERS in a code change, moving the pin in "
+        f"tests/test_storyseed.py and adding a real-bytes test that its row is the one proven in the "
+        f"game")
 
 
 @dataclass
@@ -1307,9 +1373,14 @@ def _sites(xs, n: int = 3) -> str:
 
 
 def _post_advance(census, zone, members, entry, entrance, beat, eb_for_donor, read_bits,
-                  set_bits, words, party) -> tuple:
+                  set_bits, words, party, *, unproven_candidate: bool = False) -> tuple:
     """The post phase for :func:`hub_journey_toml`: validates the hand-over and returns
-    ``(new_bits, removed, notes)`` -- ``new_bits`` {bit: value} to stamp over the pre-phase row."""
+    ``(new_bits, removed, notes)`` -- ``new_bits`` {bit: value} to stamp over the pre-phase row.
+    VERIFIED ONLY: a hand-over that passes every modelling check is still refused unless it is on
+    :data:`PROVEN_HANDOVERS` (:func:`_require_proven_handover`, the last check, before anything is
+    returned). ``unproven_candidate`` skips that one check, and only :func:`unproven_candidate_row`
+    passes it -- :func:`hub_journey_toml` (so the CLI) has no way to; the tripwire test in
+    tests/test_storyseed.py fails on any other caller outside the tests and studies/story-trace/."""
     from . import eventscan
     from .content.party import CHAR_OLD_INDEX
     if entrance is None:
@@ -1419,6 +1490,11 @@ def _post_advance(census, zone, members, entry, entrance, beat, eb_for_donor, re
         raise ValueError(f"--after-advance: the advance's removes ({', '.join(removed)}) leave no "
                          f"member of the derived party {sorted(party)} -- the survivor fallback "
                          f"would re-add one, which the post phase does not model")
+    # VERIFIED ONLY: every modelling check above passed -- the model accepts this hand-over. It is
+    # stamped only when the game has proven it (PROVEN_HANDOVERS); the last check before any return
+    # (skipped for unproven_candidate_row's marked candidate row alone)
+    if not unproven_candidate:
+        _require_proven_handover(adv, beat, edon, entrance)
     # a bit with no single literal at the hand-over keeps the PRE-PHASE row's value: say which of
     # them the row still stamps (resolve() set it) and which it leaves clear
     kept = [b for b in und if set_bits.get(b) == 1]
@@ -1472,8 +1548,52 @@ def hub_journey_toml(chain_dir: str, beat: int, census: dict, eb_for_donor, *,
     THE SEED IS THE HAND-OVER STATE OF THE ENTRY: with ``after_advance`` the entry lies behind an
     exit of the beat's own advance room and the row also carries what the advance and that exit
     leave (the post phase, :func:`_post_advance`); without it the row is the pre-advance row, and an
-    ``entrance`` that IS such an exit is refused unless ``pre_phase_control`` asks for it. ``slug``
+    ``entrance`` that IS such an exit is refused unless ``pre_phase_control`` asks for it. VERIFIED
+    ONLY: an ``after_advance`` row is produced only for a hand-over on :data:`PROVEN_HANDOVERS`;
+    every other one, however well modelled, is refused. This function has no keyword that lifts the
+    check, so every caller -- the CLI's ``story-seed --after-advance`` among them -- takes it; the
+    one route past it is :func:`unproven_candidate_row`, for a story-trace proving session. ``slug``
     defaults to :func:`hub_row_slug` (the entrance and the phase in the id, as the CLI's)."""
+    return _hub_row(chain_dir, beat, census, eb_for_donor, entry=entry, slug=slug, name=name,
+                    entrance=entrance, after_advance=after_advance,
+                    pre_phase_control=pre_phase_control, unproven_candidate=False)
+
+
+#: The first comment line of a candidate row (:func:`unproven_candidate_row`) -- the row says what it is.
+CANDIDATE_MARK = ("# UNPROVEN CANDIDATE: built by storyseed.unproven_candidate_row WITHOUT the "
+                  "proven-only check (storyseed.PROVEN_HANDOVERS), for the story-trace session that "
+                  "proves this hand-over -- not a row to ship")
+
+
+def unproven_candidate_row(chain_dir: str, beat: int, census: dict, eb_for_donor, *,
+                           entry: int, entrance: int, slug: str | None = None,
+                           name: str | None = None) -> str:
+    """THE ONE ROUTE PAST THE PROVEN-ONLY LAW -- step 1 of adding a hand-over to
+    :data:`PROVEN_HANDOVERS`: the story-trace session that proves it needs a row to deploy. This is
+    the post-phase row :func:`hub_journey_toml` builds with ``after_advance`` (the entry behind the
+    advance room's exit at *entrance*; every modelling refusal still applies), built WITHOUT the
+    proven-only check. Its data lines, all but its id, are the row the hand-over stamps once it is
+    proven (so what the session proves is what will ship), and it is MARKED so it is never mistaken
+    for a proven row: its first comment line is :data:`CANDIDATE_MARK`, and its default id is the post
+    row's plus ``_candidate`` -- pass a ``slug`` to choose one, and hand that same slug to
+    :func:`update_hub_journeys` to install the row. Library only: no CLI flag reaches it (the owner's
+    call -- no override flag). Its callers are the kit's tests and a proving harness under
+    studies/story-trace/; the tripwire test in tests/test_storyseed.py fails on a caller anywhere
+    else."""
+    slug = slug or hub_row_slug(chain_dir, beat, entrance=entrance, after_advance=True) + "_candidate"
+    return _hub_row(chain_dir, beat, census, eb_for_donor, entry=entry, slug=slug, name=name,
+                    entrance=entrance, after_advance=True, pre_phase_control=False,
+                    unproven_candidate=True)
+
+
+def _hub_row(chain_dir: str, beat: int, census: dict, eb_for_donor, *, entry: int,
+             slug: str | None, name: str | None, entrance: int | None, after_advance: bool,
+             pre_phase_control: bool, unproven_candidate: bool) -> str:
+    """The row builder behind :func:`hub_journey_toml` (``unproven_candidate`` False: the proven-only
+    check runs) and :func:`unproven_candidate_row` (True: the check is skipped and the row carries
+    :data:`CANDIDATE_MARK`). Nothing else calls it -- and its required ``unproven_candidate`` keyword
+    is the token the tripwire test scans for, so a call from outside this module, the kit's tests and
+    studies/story-trace/ fails that test."""
     members = chain_donors(chain_dir)
     if not members:
         raise ValueError(f"no chain members (donor= field.tomls) under {chain_dir}")
@@ -1505,8 +1625,11 @@ def hub_journey_toml(chain_dir: str, beat: int, census: dict, eb_for_donor, *,
         if pre_phase_control:
             raise ValueError("--pre-phase-control builds a PRE-phase row; it cannot be combined "
                              "with --after-advance")
-        new_bits, removed, notes = _post_advance(census, zone, members, entry, entrance, beat,
-                                                 eb_for_donor, read_bits, set_bits, words, party)
+        new_bits, removed, notes = _post_advance(
+            census, zone, members, entry, entrance, beat, eb_for_donor, read_bits, set_bits, words,
+            party, unproven_candidate=unproven_candidate)
+        if unproven_candidate:
+            notes.insert(0, CANDIDATE_MARK)
         set_bits.update(new_bits)
         party -= set(removed)
         label = name or f"{milestone} (SC {beat}, past the advance)"

@@ -10,7 +10,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   into the row's entry (the member field and its entrance). Without the new flags nothing changes: the row
   is the state BEFORE the beat's advance, byte for byte as before. The advance's own writes are left to the
   advance, which the entry path still plays.
-- **`--after-advance` (needs `--entrance N`).** For an entry behind one exit gateway of the room whose
+- **`--after-advance` (needs `--entrance N`) — verified hand-overs only.** It stamps a row only for a
+  hand-over proven in the game, and today there is one: Dali at SC 2600, the wake room (field 352) handing
+  over through its exit into the inn lobby (field 351) at entrance 6. Every other hand-over is refused (see
+  the last refusal below). The hand-over it models: an entry behind one exit gateway of the room whose
   script writes SC := beat. Stock ran that advance in place, handed control back, and the player walked out
   through that exit. On top of the plain row, the row carries:
   - `entrance = N`, the exit's own entrance;
@@ -39,7 +42,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   - an exit that can re-set the scenario counter (an increment included), or a word the row stamps, at
     that beat;
   - an exit whose warp into the entry cannot run at that beat;
-  - removes that would leave no member in the party.
+  - removes that would leave no member in the party;
+  - **any hand-over not proven in the game**, however well it is modelled. This is checked last, so a
+    hand-over the model cannot take is named for that instead. The message names the hand-over (advance
+    room, beat, entry donor, entrance), lists the proven ones with their evidence, and says how to add one.
+    The check sits in the library, in the post phase every `storyseed.hub_journey_toml` call takes, so the
+    CLI and every other caller of it hit it; it has no flag and no keyword. The one route past it is
+    `storyseed.unproven_candidate_row` (below), and a tripwire test fails if anything outside the kit's
+    tests and `studies/story-trace/` calls it. `storyseed.PROVEN_HANDOVERS` is read-only.
+- **What a proven hand-over covers.** The hand-over: the advance room, the beat, the exit and its entrance,
+  and so what they add to the row. The rest of the row still comes from the chain passed, as a plain row
+  does; the game checked the row built on the chain the evidence names (for Dali, F5's 12-member chain).
+- **Adding a proven hand-over.** First a story-trace session proves it in the game. A harness under
+  `studies/story-trace/` builds the candidate row with `storyseed.unproven_candidate_row`: the post-phase
+  row without the proven-only check, the same data the proven row will stamp, marked by an id ending in
+  `_candidate` (unless `slug=` is given) and a first comment saying it is unproven. That row, entered past
+  the advance, must land on the state a traced stock walk hands over (the F5b/F5c protocol,
+  `studies/story-trace/PLAN.md`). Then a code change adds it to `storyseed.PROVEN_HANDOVERS`, keyed
+  `(advance room, beat, entry donor, entrance)`, with that session's label, its PLAN.md section and the
+  chain it proved. The same change updates the pin in `tests/test_storyseed.py`
+  (`test_post_phase_refuses_an_unproven_handover`) and adds a real-bytes test that the hand-over's row is
+  the row proven in the game.
 - **`--entrance N` without `--after-advance`.** The plain row plus `entrance = N`. If that entrance IS an
   exit of the advance room whose warp can run at the beat, it is refused (the entry lies after the
   advance), unless `--pre-phase-control` asks for the plain row there on purpose, as a calibration control.
@@ -48,13 +71,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **`--name`** sets the menu label, escaped as a TOML string. The default label adds the phase or the
   entrance when one is given. The plain label is unchanged.
 - **The row id** is `<chain>_<beat>`, plus `_e<N>`, `_post` or `_control` as given, from the CLI and the
-  library call alike (`storyseed.hub_row_slug`). A new row never replaces a plain row of the same chain and
-  beat. The four flags are refused without `--chain --beat --hub`.
-- **Status.** Proven offline only: the unit tests, the real Dali bytes, and a regression gate. The gate
-  shows the plain rows, the deployed F5 hub's script bytes, the single-field seeds and `seed_chain` output
-  are unchanged. The in-game proof of the post phase is PENDING: one hand-over, Dali at SC 2600 entering the
-  inn lobby (field 351) at entrance 6, awaits the F5b session. Every other hand-over the post phase changes
-  is unverified in game.
+  library call alike (`storyseed.hub_row_slug`); a candidate row adds `_candidate`. A new row never
+  replaces a plain row of the same chain and beat. The four flags are refused without `--chain --beat --hub`.
+- **Status.** Proven in the game at exactly one hand-over, Dali at SC 2600 entering the inn lobby (field 351)
+  at entrance 6: story-trace session `story-rung5b2` (`studies/story-trace/PLAN.md`, F5c) read VERDICT
+  PROVEN on all four halves (state, latches, party, walk). That is the only hand-over `--after-advance`
+  accepts. The model also accepts other corpus hand-overs (among them 613@3125, 1450@9410, 1550@6300,
+  1605@6625, 2301@9950, 2751@11100 and Dali's own 354@2610), and none of them was checked in the game, so
+  each one is refused. Offline, a regression gate shows the plain rows, the deployed F5 hub's script bytes,
+  the single-field seeds and `seed_chain` output are unchanged.
 
 ### Fixed — synthesized fields clear a stale ambient-error flag
 - **What broke.** Every stock field's `Main_Init` opens with an ambient-sound prologue per slot. A `Byte[13]`
