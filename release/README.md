@@ -34,6 +34,14 @@ ways:
 Field 4000 is the hut exterior, 4002 the interior; there's a talkable NPC and a winnable random
 encounter inside.
 
+## Known issue
+- **New Game straight into the hut.** Stock field 70 marks its opening ambient sound as still playing just
+  before it warps, and these two rooms were built before ff9mapkit restored the clear for that mark. So after a
+  New Game into 4000 the mark stays set, and the first real FF9 field you enter later may show a developer
+  error window once. A debug-menu warp out of a room whose ambient sound is playing can do the same. This is
+  derived from the scripts and has not been seen in game. The demo is frozen as released; rooms rebuilt
+  with a current ff9mapkit carry the fix.
+
 ## What's inside (for modders)
 - `DictionaryPatch.txt` — registers the two custom fields (`4000 HUT_EXT`, `4002 HUT_INT`).
 - `BattlePatch.txt` — battle music for the interior encounter (Evil Forest scene → Battle theme).

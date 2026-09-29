@@ -61,6 +61,13 @@ after EVERY opening/campaign re-deploy.** Full checklist (incl. `deploy-journey 
 the run-`--apply-links`-last rule): `references/scoping-and-newgame.md`; deep recipe:
 [[project-ff9-new-game-entry]].
 
+**Known gap F-NG (open, UNVERIFIED in game).** The override is stock 70 with only its `Field()` literal
+swapped (`newgame.retarget`), so it still sets `Byte[13] := 2` (its ambient 643 marked playing) and warps
+without stopping 643. Since the ambient-clear fix (`content/ambient.py`) a synthesized entry field clears the
+resulting 9, but the sound may play on there. The fix is to stop 643 before the `Field()` in stock's own form
+(70.ebs:157-160), which turns `newgame.retarget`'s 2-byte swap into an insertion and touches
+`tools/retarget_newgame_warp.py` and `deploy_campaign`'s re-wire. Tracked in the CHANGELOG Known issues.
+
 ## Flag scope at campaign / journey tier
 
 field-local < campaign-shared < journey-global `[[flag]]` — all the SAME `gEventGlobal` array,
