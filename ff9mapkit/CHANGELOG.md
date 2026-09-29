@@ -34,8 +34,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   - `FF9CustomMap-msgs`: 30601-30603.
 
   Do 4600 and 6601-6603 first, through the world pack's own deploy path, then re-wire New Game. A read-only
-  check: `ambient.classify` over each folder's `field/us/*.eb.bytes` reads `missing` before a redeploy and
-  `restored` after.
+  check: `ambient.classify` on the `field/us/*.eb.bytes` of these 47 ids reads `missing` before a redeploy and
+  `restored` after. Run over a whole folder, it reads `stock-tail` for every verbatim fork, and it raises
+  `ValueError` on the New-Game override in `FF9CustomMap-world` (`evt_alex1_ts_opening`, stock field 70, one
+  of the five stock fields with no tail). A loop over a folder must skip that file or catch the error.
 - **F-NG: the New-Game override still hands off with its ambient playing.** The override is stock field 70 with
   only its `Field()` literal swapped (`newgame.retarget`). It sets `Byte[13] := 2` and warps without stopping its
   opening ambient (643). A synthesized entry field now clears the resulting 9, but the sound may play on. The fix
