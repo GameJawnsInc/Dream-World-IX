@@ -21,7 +21,10 @@ as a member with no seam. The seed stamped exactly its three frozen rows, and th
 stock's step. **F5b, the post-wake entry** (`story-rung5b`, predictions v1 sha `bab9e642`): **VERDICT: NOT PROVEN:
 party -- proven: state, latches, walk.** The fixed seed entered past the wake landed on stock's hand-over state bit
 for bit, the calibration control failed exactly as registered, and the walk matched stock. The party proof leg hit
-a gen-hub defect (below) and is VOID.
+a kit-template defect (below) and is VOID. **F5c ★★ THE RE-RUN ON THE AMBIENT-FIXED HUBS** (`story-rung5b2`,
+predictions v2 sha `7cf2fe8c`): **VERDICT: PROVEN** (all four halves: state, latches, party, walk; 40 checks) and
+**THE FIX: PROVEN** (the traced hub revisit sets the 9 and the restored tail clears it). The seed resolver's
+post-advance phase is proven in the game at Dali 2600 -> 351/e6.
 
 Board entry #3 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It is the narrative-state arc's missing
 instrument ([`../narrative-state/PLAN.md`](../narrative-state/PLAN.md)).
@@ -598,7 +601,26 @@ kit warp, or the New-Game override (F-WARP, F-NG below).
 **Archive:** `C:\gd\Dream-World-IX\.harness-runs\20260929-001746-story-rung5b\`. The offline `--analyse` reproduces
 both reports byte for byte.
 
-### F5c: the ambient clear, and the v2 re-test (offline built; the session pending)
+### F5c: the ambient clear, and the v2 re-test (★★ in-game: VERDICT PROVEN, THE FIX PROVEN)
+
+**The session (2026-09-29, `story-rung5b2`): 63/63; VERDICT: PROVEN: every check PASS (40 checks), 3 covered F5B
+pairs, 3 covered CTL runs. THE FIX (in game, slot 0, hub revisit from 351): PROVEN.**
+- 3100 s, one launch, no re-runs; S 3, F5B 3, CTL 3 covered. The fixed hubs 31113/31114 were redeployed in place
+  from `cadc862a` (O13's deploy gate held; recorded in `rung5b_forks_v2.json`). The install was left clean.
+- **P-PARTYREMOVE PASSED on its first attempt:** r1 [0,2,3,1] after the CTL pick, r2 [0,2,3,1] after the warp into
+  T5B_HUB from 31101, r3 [0,255,255,255] after the F5B pick. The fix's party removes act on a real roster.
+- **P-AMBIENT PROVEN (attempt 1 of 1):** (a) 31113 e0 t0 ip109 Global.Byte[13] 2 -> 9 (the prologue still sets the
+  9 on a revisit from 351), (b) ip275 9 -> 0 (the restored tail clears it), (c) 31101 e0 t0 ip134 0 -> 1 (351 arrives
+  clean), and control came back in 31101. The window that VOIDed session 1's leg never appeared.
+- **Every check PASSED**, among them HUB-ROWS-SAME (the fixed hubs' New-Game-path rows are session 1's exactly),
+  R5B-LAND / R5B-STATE / R5B-CONTROL (state), R5B-ECHO / R5B-ARRIVAL / R5-LATCH (latches), R5B-PARTY (party, the
+  removes now proven load-bearing), R5-MIRROR / R5-PARTIAL / R5-REACH / R5-PING / R5-NOSEAM / R5-ADVANCE (walk),
+  and NC-THROW.
+- The offline `--analyse` of the archived run reproduces both reports, the VERDICT line and THE FIX line byte for
+  byte. Archive: `C:\gd\Dream-World-IX\.harness-runs\20260929-163016-story-rung5b2\` (incl. `ambient_trace_1.jsonl`).
+- **Consequences (as registered in v2's fix_line):** THE FIX: PROVEN with the full suite green licenses the master
+  merge of `claude/ambient-clear`; F-REDEPLOY may now proceed, one owner-gated change at a time. The claim covers
+  ambient slot 0 on the revisit path from 351 only; slot 1, the full-opening New Game and audio remain untested.
 
 - **The fix (kit, `claude/ambient-clear` e1317a42).** `content/ambient.py`: `build_script` restores stock's tail
   FIRST, silently -- `if Byte[13] == 9 { Byte[13] := 0 }` and the same for Byte[14], 38 bytes, each statement 1357's
@@ -650,7 +672,8 @@ redeployed. The 47 live ids, by folder:
 The last two folders ARE in the live `Memoria.ini` FolderNames, at lowest priority (read while the fix was built;
 the design had them UNVERIFIED), so their ids are live defects too. Priority: 4600 and 6601-6603 first, through the
 world pack's own deploy path, then the New-Game re-wire. Each is its own owner-gated change with its own in-game
-check, and none starts before THE FIX: PROVEN (only 31113/31114 are redeployed by F5c). Read-only verifier:
+check, and none started before THE FIX: PROVEN (only 31113/31114 were redeployed by F5c; THE FIX read PROVEN in
+`story-rung5b2`, so they may now proceed). Read-only verifier:
 `ambient.classify` over every `<GAME>/FF9CustomMap*/StreamingAssets/**/field/us/*.eb.bytes`, catching `ValueError`.
 The 47 ids read `missing` before a redeploy and `restored` after (measured read-only, by folder: FF9CustomMap 38
 missing and 35 `stock-tail`, -world 4 missing, -schema 2, -msgs 3). Two readings are EXPECTED, never failures: every
