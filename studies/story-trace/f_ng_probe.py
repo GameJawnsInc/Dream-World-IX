@@ -28,6 +28,14 @@ P5  no exception thrown through EventEngine/EBin/StoryTrace/HarnessAgent from Ne
 Not measured: the sound itself. The harness has no audio channel (SoundLib.Log is a no-op in this engine), so P2
 proves the stop op EXECUTED before the warp; that FF9SOUND_SNDEFFECTRES_STOP (FF9Snd.cs:695) silences a resident
 sound is the engine's contract, the same op stock runs at 2,669 exits. Only an ear hears it.
+
+RESULT (2026-09-29, run 20260929-183238-f-ng-probe, archived in the MAIN repo's .harness-runs): 7/7 PASS, 144 s.
+Deployed first with the owner's go (`tools/retarget_newgame_warp.py 4600`, backups preRETARGET.20260929-183228).
+Field 70 left on its own script after 123 s (the whole opening). The trace, every Byte[13]/[14] row: 70 ip475
+[13] 1 -> 2 (the play), 70 ip558 [13] 2 -> 3 (the inserted stop), 4600 ip131 [13] 3 -> 0 (the prologue), 4600
+ip212 [14] 0 -> 0. All three ips as predicted, no 9 anywhere, no TAIL clear; [13] = [14] = 0 in the hub; no
+exceptions. Against the F-REDEPLOY run on the bare swap (70 ip475 1 -> 2, then 4600 ip109 2 -> 9, ip275 9 -> 0),
+the one difference is the stop's row.
 """
 from __future__ import annotations
 

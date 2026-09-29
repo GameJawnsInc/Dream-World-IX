@@ -48,8 +48,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **What moves.** An override for a target that does not own 643 grows by 28 bytes. One for a 643 owner is
   byte-identical to before. The backups and reverts copy whole files, so they undo the insertion unchanged. A
   live override changes only when it is re-wired: `tools/retarget_newgame_warp.py <id>`, or `deploy_campaign`'s
-  own re-wire. Offline, the real override runs to `Byte[13] = 3` at its warp (2 before the fix). **Not yet
-  observed in game:** that needs F-PROBE, a traced full-opening New Game (`studies/story-trace/f_ng_probe.py`).
+  own re-wire. Offline, the real override runs to `Byte[13] = 3` at its warp (2 before the fix).
+- **Proven in game (F-PROBE, 7/7).** `studies/story-trace/f_ng_probe.py` ran a full-opening New Game into the
+  re-wired hub 4600 under the story trace. Field 70 wrote `Byte[13]` 1 → 2 at the play and 2 → 3 at the inserted
+  stop, both before 4600's first write. 4600's prologue then wrote 3 → 0. There was no 9 and nothing for the tail
+  to clear, and `[13]` and `[14]` read 0 in the hub. The harness has no audio channel, so the trace proves the
+  stop instruction ran before the warp; the silence itself is heard, not measured.
 
 ### Known issues — the ambient clear
 - **F-REDEPLOY: a deployed field changes only when it is rebuilt and redeployed.** The 47 synthesized fields
@@ -80,9 +84,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `restored` after. Run over a whole folder, it reads `stock-tail` for every verbatim fork, and it raises
   `ValueError` on the New-Game override in `FF9CustomMap-world` (`evt_alex1_ts_opening`, stock field 70, one
   of the five stock fields with no tail). A loop over a folder must skip that file or catch the error.
-- **F-NG: fixed in the kit (above), not yet on the development machine's live override or in game.** Before
-  the fix, the flag half was seen in game: field 70 wrote `Byte[13]` 1 → 2 before its `Field()`, and 4600 then
-  marked it 9. The live `FF9CustomMap-world` override (→ 4600) is still the bare swap until it is re-wired.
+- **F-NG: fixed (above), and the development machine's live override is re-wired.** The
+  `FF9CustomMap-world` override (→ 4600) carries the stop since F-PROBE. Any other override copy changes only
+  when it is re-wired.
 - **F-WARP: kit warps do not write stock's exit idiom.** Choice, event, ladder and jump warps, and remapped
   same-id handoffs, skip stock's `if Byte[13] < 9 { Byte[13] := 3 }` before `Field()`, so they can leave an
   ambient sound playing. Into a synthesized field they no longer leave a 9 behind. Into a stock or verbatim field
