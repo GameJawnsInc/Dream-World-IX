@@ -235,6 +235,92 @@ def test_insert_in_function_straddle_fix_reads_jmp_ifnot_unsigned():
     assert struct.unpack_from("<H", patched, j + 1)[0] == 0x8001   # unsigned displacement grew by len(ins)
 
 
+def _jumpy(mid: bytes = bytes([0x22, 0x00, 0x02])) -> bytes:
+    """A provenance-clean .eb whose Main_Init has every jump kind straddling ``mid`` (rel 24):
+    a forward JMP_IFNOT to RET, a 0x0B table (anchor rel 12) whose default and case 1 lie past ``mid``, and a
+    backward JMP_IF from past ``mid`` to the loop head; plus a Main_Loop after it. Offsets are computed for
+    whatever ``mid`` is, so ``_jumpy(b"")`` is independently the script that never had it."""
+    from ff9mapkit.eb.model import pack_entry
+    cond = bytes([0x05, 0xD4, 0x0D, 0x7D, 0x09, 0x00, 0x18, 0x7F])        # Byte[13] < 9
+    head = 8 + 3 + 10                                                  # cond + JMP_IFNOT + the 10-byte 0x0B
+    loop = bytes([0x22, 0x00, 0x01]) + mid + bytes([0x22, 0x00, 0x03])   # L: Wait(1); mid; Wait(3)
+    jif_end = head + len(loop) + 3
+    tail = bytes([0x05, 0xC5, 0xA2, 0x7D, 0x00, 0x00, 0x20, 0x7F])        # case 1: Map.Bit[162] == 0
+    ret = jif_end + len(tail)
+    main = (cond + b"\x02" + struct.pack("<H", ret - 11)
+            + bytes([0x0B, 0x02]) + struct.pack("<HHHH", 0, ret - 12, head - 12, jif_end - 12)
+            + loop + b"\x03" + struct.pack("<h", head - jif_end) + tail + b"\x04")
+    raw = bytearray(0x80)
+    raw[0:2] = b"EV"
+    return edit.append_entry(bytes(raw), 0, pack_entry(0, [(0, main), (1, bytes([0x22, 0, 1, 0x01, 0xFA, 0xFF]))]))
+
+
+def test_remove_in_function_re_aims_every_straddling_jump():
+    """Cutting the Wait(2) out of ``_jumpy()`` must give exactly ``_jumpy(b"")``, built independently: the
+    forward JMP_IFNOT, the table's default and case 1, the backward JMP_IF, the entry size and the Main_Loop's
+    fpos all move by 3; case 0 (before the cut) stays. And insert_in_function puts it back byte for byte."""
+    full, without = _jumpy(), _jumpy(b"")
+    assert edit.remove_in_function(full, 0, 0, 24, 3) == without
+    assert edit.insert_in_function(without, 0, 0, 24, bytes([0x22, 0x00, 0x02])) == full
+
+
+def test_remove_in_function_inverts_insert_at_every_boundary():
+    """remove(insert(x)) == x at every instruction boundary of Main_Init, prepend and append included."""
+    x = _jumpy()
+    eb = EbScript.from_bytes(x)
+    f = eb.entry(0).func_by_tag(0)
+    blk = bytes([0x22, 0x00, 0x07, 0x22, 0x00, 0x08])
+    rels = [i.off - f.abs_start for i in eb.instrs(f)] + [f.abs_end - f.abs_start]
+    for r in rels[:-1]:
+        assert edit.remove_in_function(edit.insert_in_function(x, 0, 0, r, blk), 0, 0, r, len(blk)) == x, r
+
+
+def test_remove_in_function_refuses_what_it_cannot_undo():
+    """A cut off the instruction grid, or one a surviving jump lands strictly inside, has no faithful result."""
+    x = _jumpy()
+    with pytest.raises(ValueError, match="instruction boundaries"):
+        edit.remove_in_function(x, 0, 0, 25, 3)
+    with pytest.raises(ValueError, match="inside the cut"):
+        edit.remove_in_function(x, 0, 0, 11, 13)          # the table + Wait(1): the JMP_IF lands on Wait(1)
+    with pytest.raises(ValueError, match="positive"):
+        edit.remove_in_function(x, 0, 0, 24, 0)
+
+
+def _stock_bundle():
+    try:
+        from ff9mapkit.extract import EventBundle
+        return EventBundle()
+    except Exception:
+        return None
+
+
+@pytest.mark.skipif(_stock_bundle() is None, reason="needs the FF9 install + UnityPy")
+def test_remove_in_function_inverts_insert_over_stock():
+    """On real bytes: every 20th stock US field, every function of every entry whose tags are unique, three
+    boundaries each (fixed seed) -- remove(insert(x)) == x. Entries repeating a tag are left out:
+    insert_in_function's later-fpos fix keys on the tag, so it cannot address them."""
+    import random
+    from ff9mapkit.extract import ID_TO_EVT
+    bundle, rng, n = _stock_bundle(), random.Random(20260929), 0
+    blk = bytes([0x05, 0xD4, 0x0D, 0x7D, 0x09, 0x00, 0x18, 0x7F, 0x02, 0x08, 0x00])
+    for fid in sorted(ID_TO_EVT)[::20]:
+        d = bundle.eb_for_id(fid)
+        if not d:
+            continue
+        eb = EbScript.from_bytes(d)
+        for e in eb.entries:
+            if e.empty or len({f.tag for f in e.funcs}) != len(e.funcs):
+                continue
+            for f in e.funcs:
+                rels = [i.off - f.abs_start for i in eb.instrs(f)]
+                for r in rng.sample(rels, min(3, len(rels))):
+                    got = edit.remove_in_function(edit.insert_in_function(d, e.index, f.tag, r, blk),
+                                                  e.index, f.tag, r, len(blk))
+                    assert got == d, (fid, e.index, f.tag, r)
+                    n += 1
+    assert n > 1000                                           # the sample really ran
+
+
 def test_encoders_known_bytes():
     assert opcodes.init_region(4, 0) == bytes([0x08, 4, 0])
     assert opcodes.init_object(2, 0) == bytes([0x09, 2, 0])
