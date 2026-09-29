@@ -26,3 +26,9 @@ studies/story-trace/rung3_predictions*.json -text
 # matches -- so a checkout that re-CRLFs one fails P-FROZEN with no content changed. The committed LF bytes are the
 # recorded ones (v3: d3ae4121); never line-end convert them.
 studies/story-trace/rung5_predictions*.json -text
+
+# F5b's registered predictions (F5's lineage, v1) are sha256-frozen the same way (studies/story-trace/rung5b_hub.py
+# P-FROZEN): the session records the sha of the bytes it read, and the analysis refuses a file that no longer
+# matches -- so a checkout that re-CRLFs one fails P-FROZEN with no content changed. The committed LF bytes are the
+# recorded ones (v1: bab9e642); never line-end convert them.
+studies/story-trace/rung5b_predictions*.json -text

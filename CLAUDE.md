@@ -90,7 +90,8 @@ became the owner's default test slot, their next deploy landed there instead of 
 meant, and it wiped a room that was mid-playtest. **Pass `--id` explicitly instead** (already mandated
 above). The same leak bites tests — pin the path through a seam, never read the real file. Override via
 `--mod-folder` / `$FF9_MOD_FOLDER`. `Memoria.ini [Mod] FolderNames` stacks folders in priority order —
-currently `"FF9CustomMap", "FF9CustomMap-world", "MoguriMain", "MoguriVideo"` — and each folder's own
+currently `"FF9CustomMap", "FF9CustomMap-world", "MoguriMain", "MoguriVideo", "FF9CustomMap-schema",
+"FF9CustomMap-msgs"` — and each folder's own
 DictionaryPatch/BattlePatch is read at launch. The overworld has its own `-world` folder because campaign
 wholesale-replaces kept wiping `FF9CustomMap`'s WorldMap tree.
 
@@ -311,7 +312,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Walkmesh floor sensors (`on_floor`/`same_floor`/`other_floor`) — ★★ rungs 0-1 in-game PROVEN: a floor-gated chaser holds at a lip; floor-major tris; fork id lint → `studies/walkmesh-sensor/PLAN.md`
 - Computed prop motion (sine kit) — ★★ rungs 0-1 in-game PROVEN 26/26: `[[prop]] motion` orbit/shuttle/bob/spin/swing/hold, one ORDER-LAW daemon, bob-reading lint → `studies/sine-kit/PLAN.md`
 - Photo mode (`[photo]`), the kit's first camera pan — ★★ rungs 0-1 in-game PROVEN: rung 0 owner-playtested, rung 1 the kit feature; next = owner playtest of bench 30956 → `studies/photo-mode/PLAN.md`
-- Story-write trace (s88) — ★★ rungs 0-4 DONE + F5 in-game 28/28: the hub lane's verbatim chain writes what stock Dali writes, key for key → `studies/story-trace/PLAN.md`
+- Story-write trace (s88) — ★★ rungs 0-4 + F5 + F5b/F5c PROVEN: the hub lane matches stock Dali key for key, and a seed entered past the wake lands on stock's state → `studies/story-trace/PLAN.md`
 - `.eb` source round-trip — ★★ rungs 1-4+6-7 DONE, playtest-confirmed (source-edited chest at slot 30810 gave the edited reward in-game): annotated `eb-src`/`eb-asm` + `--against` splice edits + the 9753-binary gate → `studies/eb-roundtrip/PLAN.md`
 
 **Latest release:** kit **1.0.0b19** (tag pushed, CI green, PyPI live; engine bundle rebuilt s22-s79, first full-stack replay).

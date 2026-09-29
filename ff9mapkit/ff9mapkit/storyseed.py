@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field as dfield
+from types import MappingProxyType
 
 from . import flags as flagsmod
 from .eb import EbScript
@@ -578,14 +580,1020 @@ def seed_chain(chain_dir: str, beat: int, census: dict, eb_for_donor) -> list[tu
     return out
 
 
+# ---------------------------------------------------------------- the POST-ADVANCE phase (F5b)
+# THE SEED IS THE HAND-OVER STATE OF THE ENTRY. A journey whose entry lies BEFORE the beat's own
+# advance (the SC := beat store has not run -- F5's member(359)) takes the pre-advance row above: the
+# advance's writes belong to the advance, which the entry path still plays (the strict within-beat
+# rule). A journey whose entry lies AFTER it takes what stock holds when its own flow hands control
+# into the entry: the advance ran IN PLACE and handed control back, and the player left through one
+# of the advance room's EXIT gateways into the entry. So the row also carries (a) each read bit's
+# value where every path through the store ends (the reaching literal definitions inside the advance
+# function), then (b) what that exit's own walk-in writes before its Field() (the same reaching pass,
+# with the hand-back value flowing in at its entry), and (c) the members the advance's own
+# presence-guarded RemoveParty took out of the roster. The census has no scripted flow BETWEEN
+# fields, so the phase is the author's input (``--after-advance``), and the call site REFUSES every
+# hand-over this pass does not model exactly: an entry into the advance room itself (stock hands back
+# in place -- no Field() enters it), an entry deeper than one exit, an advance whose own run leaves
+# the scene (its scripted warp IS stock's hand-over), an exit that can re-set the scenario or a
+# stamped word at this beat, an advance run that moves either after its store, an exit whose own warp
+# into the entry cannot run at this beat, a party op after the store (the Party menu and
+# SetPartyReserve included), a RemoveParty on the way to the store that is not a proven
+# presence-guarded remove, and a roster the removes would empty (the survivor fallback would re-add).
+# Every store is read off the engine's own expression stack (:func:`_set_targets`): ``SC++`` is a
+# store, ``A := B`` does not write B, an assignment inside a condition is a store of unknown value. A
+# pre-phase row whose entrance IS such an exit (its warp live at the beat) is refused too, unless the
+# author asks for it as a calibration control (``--pre-phase-control``).
+# VERIFIED ONLY (the owner's call). A hand-over this pass models is still REFUSED unless it is on
+# :data:`PROVEN_HANDOVERS` -- a hand-over the game has confirmed, not merely one the model accepts.
+# The model accepts other corpus hand-overs (613@3125, 1450@9410, 1550@6300, 1605@6625, 2301@9950,
+# 2751@11100 and Dali's own 354@2610 among them); the game checked only the ones on the list. The gate
+# sits in :func:`_post_advance`, after every modelling refusal (so an unmodellable hand-over is named
+# for what the model lacks, and a modelled one for the proof it lacks), and before any row is returned.
+# Every :func:`hub_journey_toml` call takes it -- the CLI's among them -- and neither has a flag or a
+# keyword that lifts it. The ONE route past it is :func:`unproven_candidate_row`, for the story-trace
+# session that proves a new hand-over (it needs a row to deploy): library only, its row marked as a
+# candidate, and a tripwire test (tests/test_storyseed.py) fails when anything outside the kit's tests
+# and studies/story-trace/ calls it.
+
+REMOVE_PARTY_OP = 0xDD
+_PARTY_MENU_OP = 0xB2              # Party: the party menu -- the player picks the roster
+_PARTY_RESERVE_OP = 0xB4           # SetPartyReserve: who may be picked
+_PARTYADD_TOKEN = 0x6D
+_ENTRY_DEF = ("entry",)            # the value the function was entered with (unknown here)
+_KEEP = "keep"                     # an exit that leaves a bit as it came in (the hand-back stands)
+
+#: THE PROVEN HAND-OVERS -- the only ones ``--after-advance`` (:func:`hub_journey_toml`) stamps. Key:
+#: ``(advance room donor, beat, entry donor, entrance)`` -- the one room whose script writes SC := beat,
+#: and the exit the player leaves it by (the entry's donor field and the entrance that exit writes).
+#: Value: the evidence. WHAT A KEY PROVES is the HAND-OVER -- what that advance and that exit leave (the
+#: post phase's delta over the plain row). The rest of a row is still derived from the chain the caller
+#: passes: the pre-phase half, and which read bits the post phase carries (the union of the members'
+#: reads). So a row on another chain is only as proven as a plain row of that chain; the game checked
+#: the row built on the chain the evidence names. A hand-over joins this list only through (1) a
+#: story-trace session that proves it in the game -- its candidate row, built by
+#: :func:`unproven_candidate_row` and entered past the advance, lands on the state a traced stock walk
+#: hands over (the F5b/F5c protocol, studies/story-trace/PLAN.md) -- and then (2) a code change adding it
+#: here with that session's label, its PLAN.md section and the chain it proved, which also moves the pin
+#: in tests/test_storyseed.py (test_post_phase_refuses_an_unproven_handover) and adds a real-bytes test
+#: that the hand-over's row is the row proven in the game. There is no override flag, and the mapping is
+#: read-only: nothing adds to it at run time.
+PROVEN_HANDOVERS: Mapping[tuple[int, int, int, int], str] = MappingProxyType({
+    (352, 2600, 351, 6): ("story-rung5b2, studies/story-trace/PLAN.md 'F5c: the ambient clear, and the v2 "
+                          "re-test' (predictions v2 7cf2fe8c): VERDICT PROVEN, all four halves -- state, "
+                          "latches, party, walk -- Dali's wake room entering the inn lobby; the row proven "
+                          "is the one built on F5's 12-member Dali chain (studies/story-trace/"
+                          "rung5b_forks_v2.json rows.F5B)"),
+})
+
+
+def _handover_label(adv, beat: int, edon, entrance) -> str:
+    """One hand-over, as the refusal and :data:`PROVEN_HANDOVERS` name it."""
+    rooms = f"advance room {adv[0]}" if len(adv) == 1 else f"advance rooms {list(adv)}"
+    return f"{rooms} @ SC {beat} -> entry donor {edon} at entrance {entrance}"
+
+
+def _require_proven_handover(adv, beat: int, edon, entrance) -> None:
+    """THE PROVEN-ONLY LAW: raise unless the hand-over -- the advance room(s) *adv* whose stores the
+    post phase folded, *beat*, the entry donor *edon* and *entrance* -- is on
+    :data:`PROVEN_HANDOVERS`, all four parts matching. An advance spread over several rooms is never
+    one proven key. The message names the hand-over, lists the proven ones with their evidence, and
+    says how one is added -- the candidate route (:func:`unproven_candidate_row`) included, so the
+    first step can be followed without a flag."""
+    key = (adv[0], beat, edon, entrance) if len(adv) == 1 else None
+    if key in PROVEN_HANDOVERS:
+        return
+    proven = "; ".join(f"{_handover_label([a], b, e, n)} ({ev})"
+                       for (a, b, e, n), ev in sorted(PROVEN_HANDOVERS.items()))
+    raise ValueError(
+        f"--after-advance: the hand-over {_handover_label(adv, beat, edon, entrance)} is modelled "
+        f"but NOT PROVEN in the game -- only proven hand-overs are accepted. Proven: {proven}. To add "
+        f"one: (1) prove it in a story-trace session -- a harness under studies/story-trace/ builds its "
+        f"candidate row with storyseed.unproven_candidate_row (the library's one route past this "
+        f"check; there is no CLI flag), and that row, entered past the advance, must land on the state "
+        f"a traced stock walk hands over (the F5b/F5c protocol, studies/story-trace/PLAN.md); then (2) "
+        f"add it with that evidence to storyseed.PROVEN_HANDOVERS in a code change, moving the pin in "
+        f"tests/test_storyseed.py and adding a real-bytes test that its row is the one proven in the "
+        f"game")
+
+
+@dataclass
+class AdvanceHandback:
+    """What the beat's own advance leaves when its run hands control back (the post phase).
+    ``stores`` [(field, entry, tag, rel off)]; ``bits`` {bit: (value, [why])} for read bits whose
+    hand-back value is ONE literal on every path through every store; ``undetermined`` the read
+    bits the advance writes whose value is not; ``removed`` {char: [why]} (every advance function
+    agrees); ``readds`` [(char, why)] conditional re-adds between a remove and the store, ASSUMED NOT
+    TAKEN (the survivor fallback); ``leaves`` [why] a scene-leaving op (Field, WorldMap, Battle, ...)
+    the run executes after a store; ``tail_party`` [why] a party op it executes after a store (a
+    remove, an add, the Party menu 0xB2, SetPartyReserve 0xB4); ``roster`` [why] a RemoveParty that
+    reaches a store but is not a proven presence-guarded remove; ``tail_writes`` [why] a store the run
+    executes after the SC := beat store that leaves SC off the beat or a stamped word off its stamp;
+    ``tail_agree`` [why] such stores that leave them AT the beat / stamp (kept, noted)."""
+    stores: list = dfield(default_factory=list)
+    bits: dict = dfield(default_factory=dict)
+    undetermined: list = dfield(default_factory=list)
+    removed: dict = dfield(default_factory=dict)
+    readds: list = dfield(default_factory=list)
+    leaves: list = dfield(default_factory=list)
+    tail_party: list = dfield(default_factory=list)
+    roster: list = dfield(default_factory=list)
+    tail_writes: list = dfield(default_factory=list)
+    tail_agree: list = dfield(default_factory=list)
+
+
+def advance_stores(census: dict, donors, beat: int) -> dict:
+    """``{(field, entry, tag): [abs offsets]}`` of every literal SC := *beat* store the zone's
+    donors write (census ``sc_sites`` -- the same channel :func:`chain_ladder` reads)."""
+    ds = set(donors)
+    out: dict = {}
+    for s in census.get("sc_sites", ()):
+        if s["field"] in ds and s["value"] == beat:
+            out.setdefault((s["field"], s["entry"], s["func"]), []).append(s["off"])
+    return {k: sorted(v) for k, v in sorted(out.items())}
+
+
+def _set_ops(data: bytes, ins):
+    """The OPERATOR tokens of one SET statement, in order (operands skipped -- the token walk of
+    ``eb.cfg.stmt_write_effect``)."""
+    pos, limit = ins.off + 1, ins.end
+    while pos < limit:
+        o = data[pos]
+        pos += 1
+        if o == 0xD3:
+            pos += 3
+        elif o == 0x7E:
+            pos += 4
+        elif o in (0x7D, 0x78) or o >= 0xE0:
+            pos += 2
+        elif o >= 0xC0 or o in (0x29, 0x5F, 0x79, 0x7A):
+            pos += 1
+        elif o == 0x7F:
+            return
+        else:
+            yield o
+
+
+# B_POST_PLUS / B_POST_MINUS / B_PRE_PLUS / B_PRE_MINUS: each writes its one operand
+_INCDEC = frozenset({4, 5, 6, 7})
+_B_LET = 44
+
+
+def _set_targets(data: bytes, ins):
+    """``[(source, vtype, index, literal-or-None)]`` every variable one SET statement WRITES, read
+    off the engine's own RPN stack (each operator at its TRUE arity, ``eb.exprsem.OP_SEMANTICS``):
+    an assignment operator writes its LVALUE -- the operand pushed under its right-hand side -- and
+    an inc/dec operator (``B_PRE/POST_PLUS/MINUS``) its one operand, so ``SC++`` is a store of SC. A
+    read operand is never a target (``A B B_LET`` writes A only); a multi-assign chain writes every
+    var of it (``A B C const(v) B_LET B_LET B_LET``). The literal stands only for a plain ``B_LET``
+    of a constant in the statement's TRAILING assignment chain; a compound or computed store, an
+    inc/dec, and an assignment INSIDE the expression (under ``&&`` or a comparison, which the engine
+    may skip) are None -- a definition of unknown value. Member-list stores and 0xD3 lvalues name no
+    Global var. A token the walk cannot size ends it; then a var-led statement holding a write
+    operator still names its lead var (None), so an unsized store is never invisible."""
+    from .eb.cfg import _ASSIGN_ALL
+    writes, sound = _rpn_writes(data, ins)
+    out = list(writes)
+    if not sound and any(t in _ASSIGN_ALL or t in _INCDEC for t in _set_ops(data, ins)):
+        b0 = data[ins.off + 1] if ins.off + 1 < ins.end else 0
+        if 0xC0 <= b0 and b0 != 0xD3:
+            idx = (data[ins.off + 2] | (data[ins.off + 3] << 8)) if b0 >= 0xE0 else data[ins.off + 2]
+            lead = (b0 & 3, (b0 >> 2) & 7, idx)
+            if not any((s_, v_, i_) == lead for (s_, v_, i_, _l) in out):
+                out.append((*lead, None))
+    return out
+
+
+def _rpn_writes(data: bytes, ins) -> tuple:
+    """:func:`_set_targets`' stack walk: ``([(source, vtype, index, literal-or-None)], sound)`` --
+    ``sound`` False when a token could not be sized or an operator underflowed the stack."""
+    from .eb._exprtable import EXPR_OP_NAMES
+    from .eb.cfg import _ASSIGN_ALL
+    from .eb.exprsem import OP_SEMANTICS
+    stack: list = []
+    ops: list = []
+    writes: list = []
+    pos, limit = ins.off + 1, ins.end
+    sound = True
+    while pos < limit:
+        o = data[pos]
+        pos += 1
+        if o == 0x7F:
+            break
+        if o == 0xD3:                  # flexible varfunc (u16 id + u8 argc): args popped, a value pushed
+            argc = data[pos + 2] if pos + 2 < limit else 0
+            pos += 3
+            if len(stack) < argc:
+                sound = False
+                break
+            del stack[len(stack) - argc:]
+            stack.append(None)
+        elif o == 0x7D:
+            v = data[pos] | (data[pos + 1] << 8)
+            stack.append(("c", v - 0x10000 if v >= 0x8000 else v))
+            pos += 2
+        elif o == 0x7E:
+            stack.append(("c", int.from_bytes(data[pos:pos + 4], "little")))
+            pos += 4
+        elif o >= 0xC0:
+            idx = (data[pos] | (data[pos + 1] << 8)) if o >= 0xE0 else data[pos]
+            pos += 2 if o >= 0xE0 else 1
+            stack.append(("v", o & 3, (o >> 2) & 7, idx))
+        elif o in (0x29, 0x5F, 0x79, 0x7A):
+            pos += 1
+            stack.append(None)
+        elif o == 0x78:
+            pos += 2
+            stack.append(None)
+        else:
+            name = EXPR_OP_NAMES.get(o)
+            if name is None or name not in OP_SEMANTICS or len(stack) < OP_SEMANTICS[name][0]:
+                sound = False
+                break
+            n = OP_SEMANTICS[name][0]
+            args = stack[len(stack) - n:]
+            del stack[len(stack) - n:]
+            res = None
+            if o in _INCDEC or (o in _ASSIGN_ALL and n == 2):
+                lv = args[0]
+                if lv is not None and lv[0] == "v":
+                    const = o == _B_LET and args[1] is not None and args[1][0] == "c"
+                    lit = args[1][1] if const else None
+                    writes.append((lv[1], lv[2], lv[3], lit, len(ops)))
+                if o == _B_LET and args[1] is not None and args[1][0] == "c":
+                    res = args[1]              # B_LET pushes its value: a chain passes the literal on
+            # a member-list store (B_*_LET_A / _E, arity 3) writes a party member's field (putv),
+            # never gEventGlobal: no Global lvalue
+            ops.append(o)
+            stack.append(res)
+    out = []
+    for (s_, v_, i_, lit, k) in writes:
+        trailing = all(t in _ASSIGN_ALL for t in ops[k + 1:])
+        out.append((s_, v_, i_, lit if trailing else None))
+    return out, sound
+
+
+def _bit_value_of(vtype: int, index: int, lit, bit: int):
+    """The value a literal store of this width leaves in *bit* (None: a computed value). A bit store
+    sets the bit for ANY nonzero value (EBin.cs setVarOperation: ``value == 0`` clears, else sets)."""
+    from .eb.cfg import _var_bit_range
+    lo, _hi = _var_bit_range(vtype, index)
+    if lit is None:
+        return None
+    if vtype in (0, 1):
+        return int(lit != 0)
+    return (int(lit) >> (bit - lo)) & 1
+
+
+def _bit_defs(eb: EbScript, fl, bits, dead=frozenset()) -> dict:
+    """``{bit: {block: [(off, value | None)]}}`` every store in the function that can change one of
+    *bits*: a Global bit store, and any wider Global store overlapping it (its literal decides the
+    bit; a computed or compound one is an unknown definition, None). Blocks in *dead* are skipped."""
+    from .eb.cfg import _var_bit_range
+    out: dict = {b: {} for b in bits}
+    for blk in fl.blocks:
+        if not fl._dom[blk.index] or blk.index in dead:
+            continue
+        for ins in blk.instrs:
+            if ins.op != OP_SET:
+                continue
+            here: dict = {}                    # one definition per bit per statement
+            for (src, vt, idx, lit) in _set_targets(eb.data, ins):
+                if src != 0 or vt is None or idx is None:
+                    continue
+                lo, hi = _var_bit_range(vt, idx)
+                for b in bits:
+                    if lo <= b <= hi:
+                        v = _bit_value_of(vt, idx, lit, b)
+                        here[b] = v if b not in here or here[b] == v else None
+            for b, v in here.items():
+                out[b].setdefault(blk.index, []).append((ins.off, v))
+    for d in out.values():
+        for v in d.values():
+            v.sort(key=lambda t: t[0])
+    return out
+
+
+def _heads(fl, block: int) -> set:
+    """The blocks dominating *block* (itself excluded): the edge back into one of them ends the
+    advance's run -- a dispatch loop's head waits for the next case (Dali's 352 e17 t1)."""
+    return {d for d in range(len(fl.blocks)) if d != block and fl._dom[block] >> d & 1}
+
+
+def _reaching_at(fl, defs: dict, block: int, off: int) -> set:
+    """Reaching definitions of one bit AT instruction *off* (the function entry carries
+    ``_ENTRY_DEF``): every path from the entry, loops included (a worklist fixpoint)."""
+    IN: dict = {fl.entry: {_ENTRY_DEF}}
+    OUT: dict = {}
+    work = [fl.entry]
+    while work:
+        x = work.pop()
+        ds = defs.get(x, ())
+        o = {("def",) + ds[-1]} if ds else set(IN.get(x, ()))
+        if OUT.get(x) == o:
+            continue
+        OUT[x] = o
+        for (s, _c) in fl.blocks[x].succs:
+            cur = IN.setdefault(s, set())
+            if not o <= cur or s not in OUT:
+                cur |= o
+                work.append(s)
+    ds = [d for d in defs.get(block, ()) if d[0] < off]
+    return {("def",) + ds[-1]} if ds else set(IN.get(block, ()))
+
+
+def _handback(fl, defs: dict, block: int, off: int, at: set) -> set:
+    """Reaching definitions where the run through the store at *off* ENDS: every function exit it
+    reaches, and every edge back into a block dominating the store's (:func:`_heads`) or into the
+    store's own block. ``at`` is the value set at the store."""
+    heads = _heads(fl, block)
+    IN: dict = {"V": {("at",)}}
+    OUT: dict = {}
+    hb: set = set()
+    work = ["V"]
+    while work:
+        x = work.pop()
+        b = block if x == "V" else x
+        ds = [d for d in defs.get(b, ()) if x != "V" or d[0] > off]
+        o = {("def",) + ds[-1]} if ds else set(IN.get(x, ()))
+        if OUT.get(x) == o:
+            continue
+        OUT[x] = o
+        ss = [s for (s, _c) in fl.blocks[b].succs]
+        if not ss:
+            hb |= o
+        for s in ss:
+            if s in heads or s == block:
+                hb |= o
+                continue
+            cur = IN.setdefault(s, set())
+            if not o <= cur or s not in OUT:
+                cur |= o
+                work.append(s)
+    res: set = set()
+    for d in hb:
+        res |= at if d == ("at",) else {d}
+    return res
+
+
+def _run_instrs(fl, block: int, off: int) -> list:
+    """Every instruction the run through the store at *off* can execute before it hands back: the
+    rest of the store's block, then every block :func:`_handback` walks (up to each function exit and
+    each edge back into a block dominating the store's, or into the store's own block)."""
+    heads = _heads(fl, block)
+    out = [i for i in fl.blocks[block].instrs if i.off > off]
+    seen, st = {block}, [block]
+    while st:
+        x = st.pop()
+        for (s, _c) in fl.blocks[x].succs:
+            if s in heads or s in seen:
+                continue
+            seen.add(s)
+            st.append(s)
+            out += fl.blocks[s].instrs
+    return out
+
+
+def _reach_fwd(fl, a: int, b: int) -> bool:
+    """Block *b* reachable from block *a* along FORWARD edges (a back edge -- into a block that
+    dominates its source -- would go round a loop: the next run of the loop, not this one)."""
+    seen, st = {a}, [a]
+    while st:
+        x = st.pop()
+        if x == b:
+            return True
+        for (s, _c) in fl.blocks[x].succs:
+            if s not in seen and not fl._dom[x] >> s & 1:
+                seen.add(s)
+                st.append(s)
+    return False
+
+
+def _truth_at_beat(data: bytes, ins, beat: int):
+    """Three-valued truth of one SET statement's condition when the scenario counter is *beat* and
+    every other operand is unknown: True, False, or None (unknown). Operators take their TRUE engine
+    arity (``eb.exprsem.OP_SEMANTICS``); a comparison needs both sides known; ``&&``/``&`` are false
+    when either side is, ``||``/``|`` true when either side is known nonzero; anything else, and any
+    token this walk cannot size, is unknown -- so a dead verdict is never guessed."""
+    from .eb._exprtable import EXPR_OP_NAMES
+    from .eb.exprsem import OP_SEMANTICS
+    stack: list = []
+    pos, limit = ins.off + 1, ins.end
+    while pos < limit:
+        o = data[pos]
+        pos += 1
+        if o == 0x7F:
+            break
+        if o == 0x7D:
+            v = data[pos] | (data[pos + 1] << 8)
+            stack.append(v - 0x10000 if v >= 0x8000 else v)
+            pos += 2
+        elif o == 0x7E:
+            stack.append(int.from_bytes(data[pos:pos + 4], "little"))
+            pos += 4
+        elif o == 0xD3:                # the flexible varfunc lives INSIDE the var-token space: first
+            argc = data[pos + 2]
+            pos += 3
+            if len(stack) < argc:
+                return None
+            del stack[len(stack) - argc:]
+            stack.append(None)
+        elif o >= 0xC0:
+            idx = (data[pos] | (data[pos + 1] << 8)) if o >= 0xE0 else data[pos]
+            pos += 2 if o >= 0xE0 else 1
+            src, vt = o & 3, (o >> 2) & 7
+            stack.append(beat if (src == 0 and vt in (6, 7) and idx == 0) else None)
+        elif o in (0x29, 0x5F, 0x79, 0x7A):
+            pos += 1
+            stack.append(None)
+        elif o == 0x78:
+            pos += 2
+            stack.append(None)
+        else:
+            name = EXPR_OP_NAMES.get(o)
+            if name is None or name not in OP_SEMANTICS:
+                return None
+            n = OP_SEMANTICS[name][0]
+            if len(stack) < n:
+                return None
+            args = stack[len(stack) - n:]
+            del stack[len(stack) - n:]
+            r = None
+            if n == 2 and name in ("B_EQ", "B_NE", "B_LT", "B_GT", "B_LE", "B_GE"):
+                a, b = args
+                if a is not None and b is not None:
+                    r = int({"B_EQ": a == b, "B_NE": a != b, "B_LT": a < b, "B_GT": a > b,
+                             "B_LE": a <= b, "B_GE": a >= b}[name])
+            elif n == 2 and name in ("B_ANDAND", "B_AND"):
+                if 0 in args:
+                    r = 0
+                elif name == "B_ANDAND" and all(x is not None for x in args):
+                    r = int(bool(args[0]) and bool(args[1]))
+            elif n == 2 and name in ("B_OROR", "B_OR"):
+                if any(x not in (None, 0) for x in args):
+                    r = 1
+                elif all(x == 0 for x in args):
+                    r = 0
+            elif n == 1 and name == "B_NOT" and args[0] is not None:
+                r = int(not args[0])
+            stack.append(r)
+    if len(stack) != 1 or stack[0] is None:
+        return None
+    return bool(stack[0])
+
+
+def _dead_at_beat(eb: EbScript, fl, beat: int) -> set:
+    """The blocks of *fl* that cannot run when the scenario counter is *beat*: those reachable only
+    through a ``SET(cond) JMP_IF/JMP_IFNOT`` edge whose condition :func:`_truth_at_beat` decides
+    against it (Dali's 352 exit re-sets SC only under ``SC == 2640 && ...``)."""
+    dead_edges = set()
+    for blk in fl.blocks:
+        if len(blk.instrs) < 2 or blk.instrs[-1].op not in (0x02, 0x03) or blk.instrs[-2].op != OP_SET:
+            continue
+        t = _truth_at_beat(eb.data, blk.instrs[-2], beat)
+        if t is None:
+            continue
+        jmp = blk.instrs[-1]
+        succ = [s for (s, _c) in blk.succs]
+        fall = [s for s in succ if fl.blocks[s].start == jmp.end]
+        other = [s for s in succ if fl.blocks[s].start != jmp.end]
+        if len(fall) != 1 or len(other) != 1:
+            continue                              # a jump onto the next instruction: no fork
+        true_s, false_s = (fall[0], other[0]) if jmp.op == 0x02 else (other[0], fall[0])
+        dead_edges.add((blk.index, false_s if t else true_s))
+    live, st = {fl.entry}, [fl.entry]
+    while st:
+        x = st.pop()
+        for (s, _c) in fl.blocks[x].succs:
+            if (x, s) not in dead_edges and s not in live:
+                live.add(s)
+                st.append(s)
+    return {b.index for b in fl.blocks if fl._dom[b.index] and b.index not in live}
+
+
+def _stamp_byte(words: dict, byte: int):
+    """The value the row's ``set_words`` stamp leaves in *byte* (each stamp a UInt16 at its byte), or
+    None when no stamp covers it."""
+    for b, v in words.items():
+        if byte == b:
+            return int(v) & 0xFF
+        if byte == b + 1:
+            return (int(v) >> 8) & 0xFF
+    return None
+
+
+def _at_the_stamp(vt: int, idx: int, lit, beat: int, words: dict) -> tuple:
+    """``(hit, agrees)`` for one Global store (vtype/index/literal) run after the SC := *beat* store:
+    ``hit`` the SC / stamped-word bytes it writes; ``agrees`` when it leaves every one of them at
+    the beat / the stamp (a literal that re-writes SC := beat, or a stamped byte's own value)."""
+    from .eb.cfg import _var_bit_range
+    lo, hi = _var_bit_range(vt, idx)
+    byts = set(range(lo // 8, hi // 8 + 1))
+    hit = sorted(byts & ({0, 1} | {b + k for b in words for k in (0, 1)}))
+    if not hit or lit is None:
+        return hit, False
+    for B in hit:
+        want = ((beat >> 8 * B) & 0xFF) if B in (0, 1) else _stamp_byte(words, B)
+        if vt in (0, 1):
+            ok = int(lit != 0) == (want >> (lo % 8)) & 1
+        else:
+            ok = ((int(lit) >> 8 * (B - lo // 8)) & 0xFF) == want
+        if not ok:
+            return hit, False
+    return hit, True
+
+
+def _avoids(fl, frm: int, avoid: int, targets) -> bool:
+    """Block *frm* reaches a block in *targets* along FORWARD edges without passing *avoid*."""
+    seen, st = {frm}, [frm]
+    while st:
+        x = st.pop()
+        if x in targets:
+            return True
+        for (s, _c) in fl.blocks[x].succs:
+            if s == avoid or s in seen or fl._dom[x] >> s & 1:
+                continue
+            seen.add(s)
+            st.append(s)
+    return False
+
+
+def advance_handback(census: dict, donors, beat: int, eb_for_donor, read_bits,
+                     words=None) -> AdvanceHandback:
+    """The post phase's evidence (see the section comment): for every advance function of the
+    beat in the zone, each READ bit's value at the hand-back of every store, the roster the
+    advance's own presence-guarded removes leave, and what its run does after the store that the
+    pass refuses to model (a scene exit, a party op, a store that moves SC or a stamped word --
+    *words* the row's ``set_words``). A bit is carried only when EVERY store of the beat in the zone
+    hands back the same literal, and a member leaves only when EVERY advance function removes it;
+    anything else is ``undetermined`` / kept (never guessed). A RemoveParty on the way to a store
+    that is not a proven presence-guarded remove is named in ``roster`` (refused, never guessed)."""
+    from .eblint import _LEAVE_OPS
+    words = dict(words or {})
+    rep = AdvanceHandback()
+    per_bit: dict = {}
+    why: dict = {}
+    rm: dict = {}
+    fkeys = set()
+    for (fid, ei, tag), offs in advance_stores(census, donors, beat).items():
+        fkeys.add((fid, ei, tag))
+        eb = eb_for_donor(fid)
+        fn = next((f for f in eb.entries[ei].funcs if f.tag == tag), None)
+        try:
+            if fn is None:                     # the census names a function this script lacks
+                raise CfgError(f"{fid} e{ei} has no tag {tag}")
+            fl = FuncFlow.build(eb.data, fn.abs_start, fn.abs_end)
+        except CfgError:
+            for b in read_bits:
+                per_bit.setdefault(b, []).append(None)
+            continue
+        rep.stores += [(fid, ei, tag, o - fn.abs_start) for o in offs]
+        defs = _bit_defs(eb, fl, set(read_bits))
+        in_run: set = set()
+        for off in offs:
+            blk = fl.block_at(off)
+            for ins in _run_instrs(fl, blk, off):
+                in_run.add(ins.off)
+                site = f"{fid} e{ei} t{tag} +{ins.off - fn.abs_start}"
+                if ins.op in _LEAVE_OPS:
+                    rep.leaves.append(f"{site} (op 0x{ins.op:02X})")
+                elif ins.op in (REMOVE_PARTY_OP, _PARTY_MENU_OP, _PARTY_RESERVE_OP) or (
+                        ins.op == OP_SET and _PARTYADD_TOKEN in set(_set_ops(eb.data, ins))):
+                    rep.tail_party.append(site if ins.op in (OP_SET, REMOVE_PARTY_OP)
+                                          else f"{site} (op 0x{ins.op:02X})")
+                elif ins.op == OP_SET and ins.off not in offs:      # the beat's own stores aside
+                    # the hand-over is at the beat and the row's stamped words: a store after the
+                    # SC := beat store that moves either is the exit's clash on the advance's side
+                    for (src, vt, idx, lit) in _set_targets(eb.data, ins):
+                        if src != 0 or vt is None:
+                            continue
+                        hit, agrees = _at_the_stamp(vt, idx, lit, beat, words)
+                        if hit:
+                            (rep.tail_agree if agrees else rep.tail_writes).append(
+                                f"{site} writes byte(s) {hit}"
+                                + (f" := {lit}" if lit is not None else " (not one literal)"))
+            for b, d in defs.items():
+                if not d:
+                    # this advance function never writes the bit: its store hands it back as it
+                    # came in, so no other advance function's literal may stand for it
+                    per_bit.setdefault(b, []).append(_ENTRY_DEF)
+                    continue
+                hb = _handback(fl, d, blk, off, _reaching_at(fl, d, blk, off))
+                if hb == {_ENTRY_DEF}:
+                    # only the value the function was entered with reaches this hand-back (its
+                    # writes of the bit lie on other paths): the store hands it back as it came in
+                    per_bit.setdefault(b, []).append(_ENTRY_DEF)
+                    continue
+                vals = {x[2] for x in hb if x != _ENTRY_DEF}
+                ok = _ENTRY_DEF not in hb and len(vals) == 1 and None not in vals
+                per_bit.setdefault(b, []).append(next(iter(vals)) if ok else None)
+                why.setdefault(b, []).append(
+                    f"{fid} e{ei} t{tag} +" + ",+".join(
+                        str(x[1] - fn.abs_start) for x in sorted(hb - {_ENTRY_DEF}))
+                    + f" -> store +{off - fn.abs_start}"
+                    + (" (+ the value it was entered with)" if _ENTRY_DEF in hb else ""))
+        # the roster: RemoveParty(c) as the first instruction of the TRUE arm of
+        # `if PARTYCHK(c)`, the check dominating every store, the remove reaching every store. Any
+        # other RemoveParty on the way to a store (unguarded, guarded by something else, a computed
+        # member) changes the roster in a way this pass does not model: named, and refused
+        sblocks = [fl.block_at(o) for o in offs]
+        for blk in fl.blocks:
+            if not fl._dom[blk.index]:
+                continue
+            for k, ins in enumerate(blk.instrs):
+                if ins.op != REMOVE_PARTY_OP or ins.off in in_run:
+                    continue                           # a remove after the store is tail_party's
+                site = f"{fid} e{ei} t{tag} +{ins.off - fn.abs_start}"
+                if not any(_reach_fwd(fl, blk.index, sb) and (sb != blk.index or ins.off < o)
+                           for sb, o in zip(sblocks, offs)):
+                    continue                           # never on the way to a store of this beat
+                c = int(ins.args[0]) if ins.args and not any(ins.arg_is_expr) else None
+                preds = set(blk.preds)
+                p = fl.blocks[next(iter(preds))] if len(preds) == 1 else None
+                guarded = (k == 0 and c is not None and p is not None and len(p.instrs) >= 2
+                           and p.instrs[-1].op == 0x02 and p.instrs[-1].end == blk.start
+                           and p.instrs[-2].op == OP_SET
+                           and eb.data[p.instrs[-2].off:p.instrs[-2].end]
+                           == b"\x05\x7d" + c.to_bytes(2, "little") + b"\x6b\x7f")
+                dom = guarded and all(fl._dom[sb] >> p.index & 1 for sb in sblocks)
+                reach = all(_reach_fwd(fl, blk.index, sb) for sb in sblocks)
+                if not (guarded and dom and reach):
+                    rep.roster.append(f"{site} RemoveParty({'a computed member' if c is None else c})"
+                                      + ("" if guarded else " not behind its own `if PARTYCHK`"))
+                    continue
+                rm.setdefault(c, []).append((True, site, blk.index, sblocks, fl, eb, fn,
+                                             (fid, ei, tag)))
+    for c, rows in rm.items():
+        # a member leaves only when EVERY advance function of the beat proves the remove (one that
+        # never removes it -- a second advance room -- hands back a roster that still holds it)
+        if {r[7] for r in rows} != fkeys:
+            continue
+        undone = False
+        for (_ok, site, rb, sblocks, fl, eb, fn, _k) in rows:
+            add = b"\x7d" + c.to_bytes(2, "little") + b"\x6d"
+            for blk in fl.blocks:
+                if not fl._dom[blk.index]:
+                    continue
+                for ins in blk.instrs:
+                    if ins.op != OP_SET or add not in eb.data[ins.off:ins.end]:
+                        continue
+                    # a re-add BETWEEN the remove and the store: after the remove, before a store
+                    if not (_reach_fwd(fl, rb, blk.index)
+                            and all(_reach_fwd(fl, blk.index, sb) for sb in sblocks)):
+                        continue
+                    # it cancels when every path from the remove to a store passes it -- it
+                    # dominates every store, or post-dominates the remove on the way there (the
+                    # re-add in the remove's own block, or the remove cannot reach a store without
+                    # it); otherwise it is conditional, ASSUMED NOT TAKEN (the survivor fallback)
+                    if (all(fl._dom[sb] >> blk.index & 1 for sb in sblocks) or blk.index == rb
+                            or not _avoids(fl, rb, blk.index, set(sblocks))):
+                        undone = True                  # an unconditional re-add: c is back
+                    else:
+                        rep.readds.append((c, f"{site.rsplit(' +', 1)[0]} +{ins.off - fn.abs_start}"))
+        if not undone:
+            rep.removed[c] = [r[1] for r in rows]
+    for b, vs in sorted(per_bit.items()):
+        if all(v == _ENTRY_DEF for v in vs):
+            continue                           # no advance function writes it: the pre-phase value
+        if all(v is not None and v != _ENTRY_DEF and v == vs[0] for v in vs):
+            rep.bits[b] = (vs[0], why.get(b, []))
+        else:
+            rep.undetermined.append(b)
+    return rep
+
+
+def exit_fold(eb: EbScript, g_entry: int, to: int, entrance: int, beat: int, bits,
+              stamped_bytes, *, label: str = "") -> tuple:
+    """What the advance room's EXIT writes on its way to ``Field(to)`` at *entrance* (region entry
+    *g_entry*): ``(vals, why, clash, dead)``. ``vals`` {bit: value | None | _KEEP} per bit in *bits*
+    (``_KEEP``: only the value the exit was entered with reaches the Field -- the hand-back stands;
+    None: no single literal). ``clash`` [why] for a store of SC (bytes 0-1) or of a *stamped_bytes*
+    byte that can run before that Field at this beat -- the hand-over would not be at *beat* / the
+    stamped word. ``dead`` [why] such stores that cannot run at *beat* (dropped, not guessed).
+    Blocks :func:`_dead_at_beat` proves unreachable at SC == *beat* are dropped (Dali's 352 exit
+    re-sets SC only under ``SC == 2640 && ...``). A warp that is itself dead is skipped: whether
+    any warp is left is :func:`_exit_is_live`'s question."""
+    from .eventscan import FIELD_OP, _entrance_at
+    from .eb.cfg import _var_bit_range
+    vals: dict = {}
+    why: dict = {}
+    clash: list = []
+    dead_notes: list = []
+    e = eb.entries[g_entry]
+    for fn in e.funcs:
+        entr = 0
+        for ins in eb.instrs(fn):
+            if ins.op == OP_SET:
+                v = _entrance_at(eb.data, ins.off)
+                if v is not None:
+                    entr = v
+                continue
+            if ins.op != FIELD_OP or ins.imm(0) != to or entr != entrance:
+                continue
+            try:
+                fl = FuncFlow.build(eb.data, fn.abs_start, fn.abs_end)
+            except CfgError as err:
+                clash.append(f"{label} e{g_entry} t{fn.tag} does not decode soundly ({err})")
+                continue
+            dead = _dead_at_beat(eb, fl, beat)
+            fb = fl.block_at(ins.off)
+            if fb in dead:
+                continue
+            fwd = fl._fwd_reach()
+            here = f"{label} e{g_entry} t{fn.tag}"
+            for blk in fl.blocks:
+                if not fl._dom[blk.index] or not (fwd[blk.index] >> fb & 1):
+                    continue
+                for i2 in blk.instrs:
+                    if i2.op != OP_SET or (blk.index == fb and i2.off >= ins.off):
+                        continue
+                    for (src, vt, idx, _lit) in _set_targets(eb.data, i2):
+                        if src != 0 or vt is None or idx is None:
+                            continue
+                        lo, hi = _var_bit_range(vt, idx)
+                        byts = set(range(lo // 8, hi // 8 + 1))
+                        hit = byts & ({0, 1} | set(stamped_bytes))
+                        if not hit:
+                            continue
+                        w = f"{here} +{i2.off - fn.abs_start} writes byte(s) {sorted(hit)}"
+                        if blk.index in dead:
+                            dead_notes.append(w + f" (dead at SC {beat}: every path to it tests "
+                                                  f"SC against a value {beat} fails)")
+                        else:
+                            clash.append(w)
+            defs = _bit_defs(eb, fl, set(bits), dead)
+            for b in bits:
+                R = _reaching_at(fl, defs.get(b, {}), fb, ins.off)
+                if R == {_ENTRY_DEF}:
+                    r = _KEEP
+                else:
+                    lits = {x[2] for x in R if x != _ENTRY_DEF}
+                    r = (next(iter(lits)) if _ENTRY_DEF not in R and len(lits) == 1
+                         and None not in lits else None)
+                    why.setdefault(b, []).append(
+                        f"the exit {here} +" + ",+".join(
+                            str(x[1] - fn.abs_start) for x in sorted(R - {_ENTRY_DEF}))
+                        + f" before Field({to}) +{ins.off - fn.abs_start}"
+                        + (" (+ the value it was entered with)" if _ENTRY_DEF in R else ""))
+                if b in vals and vals[b] != r:
+                    r = None                     # two Field(to) paths disagree
+                vals[b] = r
+    return vals, why, clash, dead_notes
+
+
+def _exit_is_live(eb: EbScript, g_entry: int, to: int, entrance: int, beat: int) -> bool:
+    """True when the region entry *g_entry* holds a ``Field(to)`` at *entrance* that can run when the
+    scenario counter is *beat* (the same warp reading as :func:`exit_fold`). False when every such warp
+    sits in code :func:`_dead_at_beat` rules out: at this beat the player cannot leave through this
+    exit into *to*, so it hands nothing over. An undecodable function counts as live (exit_fold
+    refuses it as a clash)."""
+    from .eventscan import FIELD_OP, _entrance_at
+    for fn in eb.entries[g_entry].funcs:
+        entr = 0
+        for ins in eb.instrs(fn):
+            if ins.op == OP_SET:
+                v = _entrance_at(eb.data, ins.off)
+                if v is not None:
+                    entr = v
+                continue
+            if ins.op != FIELD_OP or ins.imm(0) != to or entr != entrance:
+                continue
+            try:
+                fl = FuncFlow.build(eb.data, fn.abs_start, fn.abs_end)
+            except CfgError:
+                return True
+            if fl.block_at(ins.off) not in _dead_at_beat(eb, fl, beat):
+                return True
+    return False
+
+
+def _sites(xs, n: int = 3) -> str:
+    """The first *n* distinct sites of a refusal, and how many more."""
+    u = list(dict.fromkeys(xs))
+    return ", ".join(u[:n]) + (f" (+{len(u) - n} more)" if len(u) > n else "")
+
+
+def _post_advance(census, zone, members, entry, entrance, beat, eb_for_donor, read_bits,
+                  set_bits, words, party, *, unproven_candidate: bool = False) -> tuple:
+    """The post phase for :func:`hub_journey_toml`: validates the hand-over and returns
+    ``(new_bits, removed, notes)`` -- ``new_bits`` {bit: value} to stamp over the pre-phase row.
+    VERIFIED ONLY: a hand-over that passes every modelling check is still refused unless it is on
+    :data:`PROVEN_HANDOVERS` (:func:`_require_proven_handover`, the last check, before anything is
+    returned). ``unproven_candidate`` skips that one check, and only :func:`unproven_candidate_row`
+    passes it -- :func:`hub_journey_toml` (so the CLI) has no way to; the tripwire test in
+    tests/test_storyseed.py fails on any other caller outside the tests and studies/story-trace/."""
+    from . import eventscan
+    from .content.party import CHAR_OLD_INDEX
+    if entrance is None:
+        raise ValueError("--after-advance needs --entrance: the hand-over is an exit gateway, and "
+                         "the entrance it writes selects the entry's arrival")
+    hb = advance_handback(census, zone, beat, eb_for_donor, read_bits, words)
+    if not hb.stores:
+        raise ValueError(f"--after-advance: no member donor writes SC := {beat} (the zone's "
+                         f"ladder lists the beats its own scripts advance to: story-seed --chain)")
+    adv = sorted({s[0] for s in hb.stores})
+    edon = next((d for (m, d) in members if m == entry), None)
+    if edon in adv:
+        raise ValueError(f"--after-advance: entry {entry} is the advance room {edon} itself -- stock "
+                         f"hands control back IN PLACE after SC := {beat} (no Field() enters that "
+                         f"room at the hand-back); enter behind one of its exit gateways")
+    if hb.leaves:
+        raise ValueError(f"--after-advance: the advance's own run leaves the scene after SC := "
+                         f"{beat} ({_sites(hb.leaves)}) -- that scripted exit IS stock's "
+                         f"hand-over, which the post phase does not model")
+    if hb.tail_party:
+        raise ValueError(f"--after-advance: the advance changes the party after SC := {beat} "
+                         f"({_sites(hb.tail_party)}) -- the roster at the hand-back is not "
+                         f"modelled")
+    if hb.roster:
+        raise ValueError(f"--after-advance: the advance changes the roster on its way to SC := {beat} "
+                         f"({_sites(hb.roster)}) -- only `if PARTYCHK(c) RemoveParty(c)` on every "
+                         f"path to the store is modelled")
+    if hb.tail_writes:
+        raise ValueError(f"--after-advance: the advance's own run re-sets the scenario or a stamped "
+                         f"word after SC := {beat} ({_sites(hb.tail_writes)}) -- the hand-over is "
+                         f"not at this beat's stamp")
+    exits = sorted({(d, g["entry"], g["entrance"]) for d in adv
+                    for g in eventscan.scan_gateways(eb_for_donor(d).data) if g["to"] == edon})
+    if edon is None or not exits:
+        raise ValueError(f"--after-advance: entry {entry} (donor {edon}) is not behind an exit "
+                         f"gateway of the advance room {adv} -- the only hand-overs the post phase "
+                         f"models; a deeper entry needs the route's own writes")
+    gws = sorted({x[2] for x in exits})
+    if entrance not in gws:
+        raise ValueError(f"--after-advance: entry {entry} is reached by the advance room's exit "
+                         f"with entrance {gws}, not {entrance}; pass --entrance {gws[0]} (the "
+                         f"hand-over writes it)")
+    stamped = {b + k for b in words for k in (0, 1)}
+    notes = [f"# POST-ADVANCE: the entry lies after the SC := {beat} store hands back ("
+             + ", ".join(f"{f} e{e} t{t} +{o}" for (f, e, t, o) in hb.stores)
+             + f"), through the exit into {edon} at entrance {entrance}"]
+    notes += [f"# the advance's run re-writes the beat / a stamped word at its own value: {w}"
+              for w in dict.fromkeys(hb.tail_agree)]
+    finals: dict = {}
+    fwhy: dict = {b: list(w) for b, (_v, w) in hb.bits.items()}
+    by_exit: set = set()                 # bits an exit's own write decides (its sites replace the advance's)
+    dead_exits: list = []                # exits whose Field(entry) cannot run at this beat
+    live_exits = 0
+    for (d, gi, _ent) in [x for x in exits if x[2] == entrance]:
+        vals, ewhy, clash, dead = exit_fold(eb_for_donor(d), gi, edon, entrance, beat, read_bits,
+                                            stamped, label=str(d))
+        if clash:
+            raise ValueError(f"--after-advance: the exit re-sets the scenario or a stamped word "
+                             f"before Field({edon}) at SC {beat} ({'; '.join(clash)}) -- the "
+                             f"hand-over is not at this beat's stamp")
+        if not _exit_is_live(eb_for_donor(d), gi, edon, entrance, beat):
+            dead_exits.append(f"{d} e{gi}")
+            continue                     # no hand-over through this exit at this beat
+        live_exits += 1
+        notes += [f"# dead at the hand-over: {w}" for w in dead]
+        for b in read_bits:
+            r = vals.get(b, _KEEP)
+            if r == _KEEP:
+                r = (hb.bits[b][0] if b in hb.bits else
+                     None if b in hb.undetermined else "pre")
+            else:
+                if b not in by_exit:
+                    fwhy[b] = []
+                    by_exit.add(b)
+                fwhy[b].extend(ewhy.get(b, []))
+            if b in finals and finals[b] != r:
+                r = None
+            finals[b] = r
+    if not live_exits:
+        raise ValueError(f"--after-advance: the exit into {edon} at entrance {entrance} "
+                         f"({', '.join(dead_exits)}) reaches Field({edon}) only through code that "
+                         f"cannot run at SC {beat} -- no hand-over through it at this beat")
+    new_bits: dict = {}
+    und = []
+    for b, v in sorted(finals.items()):
+        if v == "pre":
+            continue
+        if v is None:
+            und.append(b)
+            continue
+        pre = set_bits.get(b, 0)
+        tail = "" if v != pre else f" (the pre-phase row already leaves it {v})"
+        notes.append(f"# bit {b} = {v} at the hand-over: {'; '.join(fwhy.get(b, []))}{tail}")
+        if v != pre:
+            new_bits[b] = v
+    removed: list[str] = []
+    for c, sites in sorted(hb.removed.items()):
+        nm = CHAR_OLD_INDEX.get(c, f"char{c}").lower()
+        removed.append(nm)
+        notes.append(f"# {nm} leaves: the advance's `if PARTYCHK({c}) RemoveParty({c})` at "
+                     f"{', '.join(sites)}")
+    for c, site in hb.readds:
+        nm = CHAR_OLD_INDEX.get(c, f"char{c}").lower()
+        if nm in removed:
+            notes.append(f"# ASSUMED NOT TAKEN: the conditional re-add of {nm} at {site}")
+    if removed and not (party - set(removed)):
+        raise ValueError(f"--after-advance: the advance's removes ({', '.join(removed)}) leave no "
+                         f"member of the derived party {sorted(party)} -- the survivor fallback "
+                         f"would re-add one, which the post phase does not model")
+    # VERIFIED ONLY: every modelling check above passed -- the model accepts this hand-over. It is
+    # stamped only when the game has proven it (PROVEN_HANDOVERS); the last check before any return
+    # (skipped for unproven_candidate_row's marked candidate row alone)
+    if not unproven_candidate:
+        _require_proven_handover(adv, beat, edon, entrance)
+    # a bit with no single literal at the hand-over keeps the PRE-PHASE row's value: say which of
+    # them the row still stamps (resolve() set it) and which it leaves clear
+    kept = [b for b in und if set_bits.get(b) == 1]
+    gone = [b for b in und if set_bits.get(b) != 1]
+    if kept:
+        notes.append(f"# kept at the pre-phase value 1 (no single literal at the hand-over): "
+                     f"bits {kept}")
+    if gone:
+        notes.append(f"# not carried (no single literal at the hand-over): bits {gone}")
+    return new_bits, removed, notes
+
+
+def _behind_advance_exit(census, zone, members, entry, entrance, beat, eb_for_donor) -> bool:
+    """True when (entry, entrance) is an exit gateway of a room that writes SC := *beat* and that
+    exit's warp can run at the beat (:func:`_exit_is_live`): the entry lies AFTER the advance,
+    whatever phase the row claims. An exit whose warp into the entry is dead at the beat hands
+    nothing over there, so it does not put the entry past the advance (the post phase refuses it
+    for the same reason)."""
+    from . import eventscan
+    adv = sorted({k[0] for k in advance_stores(census, zone, beat)})
+    edon = next((d for (m, d) in members if m == entry), None)
+    if edon is None or edon in adv:
+        return False
+    return any(g["to"] == edon and g["entrance"] == entrance
+               and _exit_is_live(eb_for_donor(d), g["entry"], edon, entrance, beat)
+               for d in adv for g in eventscan.scan_gateways(eb_for_donor(d).data))
+
+
+def hub_row_slug(chain_dir: str, beat: int, *, entrance: int | None = None,
+                 after_advance: bool = False, pre_phase_control: bool = False) -> str:
+    """A generated journey row's id: ``<chain>_<beat>``, plus what makes the row distinct -- the
+    entrance, and the phase (``_post`` / ``_control``) -- so a post-phase or control row never
+    REPLACES a frozen pre-phase row of the same chain and beat (:func:`update_hub_journeys` is
+    marker-keyed by it). A plain row keeps its historical id byte for byte."""
+    return (f"{os.path.basename(os.path.normpath(chain_dir))}_{beat}"
+            + (f"_e{int(entrance)}" if entrance is not None else "")
+            + ("_post" if after_advance else "")
+            + ("_control" if pre_phase_control else ""))
+
+
 def hub_journey_toml(chain_dir: str, beat: int, census: dict, eb_for_donor, *,
-                     entry: int, slug: str | None = None, name: str | None = None) -> str:
+                     entry: int, slug: str | None = None, name: str | None = None,
+                     entrance: int | None = None, after_advance: bool = False,
+                     pre_phase_control: bool = False) -> str:
     """A ``[[journey]]`` row for the World Hub (``gen-hub``) carrying the CHAIN'S WHOLE derived
     seed -- the hub-format answer to beat seeding (round 7): the journey PICK stamps scenario +
     flags + words + party hub-side and then warps, so the members stay pure verbatim forks and
     in-journey progression is never re-stamped at a door. The seed is the UNION over members of
     the same per-member derivations ``seed_chain`` used to emit (bit resolution is global, so
-    the union is consistent; the ATE words derive zone-wide; the party is the windowed union)."""
+    the union is consistent; the ATE words derive zone-wide; the party is the windowed union).
+    THE SEED IS THE HAND-OVER STATE OF THE ENTRY: with ``after_advance`` the entry lies behind an
+    exit of the beat's own advance room and the row also carries what the advance and that exit
+    leave (the post phase, :func:`_post_advance`); without it the row is the pre-advance row, and an
+    ``entrance`` that IS such an exit is refused unless ``pre_phase_control`` asks for it. VERIFIED
+    ONLY: an ``after_advance`` row is produced only for a hand-over on :data:`PROVEN_HANDOVERS`;
+    every other one, however well modelled, is refused. This function has no keyword that lifts the
+    check, so every caller -- the CLI's ``story-seed --after-advance`` among them -- takes it; the
+    one route past it is :func:`unproven_candidate_row`, for a story-trace proving session. ``slug``
+    defaults to :func:`hub_row_slug` (the entrance and the phase in the id, as the CLI's)."""
+    return _hub_row(chain_dir, beat, census, eb_for_donor, entry=entry, slug=slug, name=name,
+                    entrance=entrance, after_advance=after_advance,
+                    pre_phase_control=pre_phase_control, unproven_candidate=False)
+
+
+#: The first comment line of a candidate row (:func:`unproven_candidate_row`) -- the row says what it is.
+CANDIDATE_MARK = ("# UNPROVEN CANDIDATE: built by storyseed.unproven_candidate_row WITHOUT the "
+                  "proven-only check (storyseed.PROVEN_HANDOVERS), for the story-trace session that "
+                  "proves this hand-over -- not a row to ship")
+
+
+def unproven_candidate_row(chain_dir: str, beat: int, census: dict, eb_for_donor, *,
+                           entry: int, entrance: int, slug: str | None = None,
+                           name: str | None = None) -> str:
+    """THE ONE ROUTE PAST THE PROVEN-ONLY LAW -- step 1 of adding a hand-over to
+    :data:`PROVEN_HANDOVERS`: the story-trace session that proves it needs a row to deploy. This is
+    the post-phase row :func:`hub_journey_toml` builds with ``after_advance`` (the entry behind the
+    advance room's exit at *entrance*; every modelling refusal still applies), built WITHOUT the
+    proven-only check. Its data lines, all but its id, are the row the hand-over stamps once it is
+    proven (so what the session proves is what will ship), and it is MARKED so it is never mistaken
+    for a proven row: its first comment line is :data:`CANDIDATE_MARK`, and its default id is the post
+    row's plus ``_candidate`` -- pass a ``slug`` to choose one, and hand that same slug to
+    :func:`update_hub_journeys` to install the row. Library only: no CLI flag reaches it (the owner's
+    call -- no override flag). Its callers are the kit's tests and a proving harness under
+    studies/story-trace/; the tripwire test in tests/test_storyseed.py fails on a caller anywhere
+    else."""
+    slug = slug or hub_row_slug(chain_dir, beat, entrance=entrance, after_advance=True) + "_candidate"
+    return _hub_row(chain_dir, beat, census, eb_for_donor, entry=entry, slug=slug, name=name,
+                    entrance=entrance, after_advance=True, pre_phase_control=False,
+                    unproven_candidate=True)
+
+
+def _hub_row(chain_dir: str, beat: int, census: dict, eb_for_donor, *, entry: int,
+             slug: str | None, name: str | None, entrance: int | None, after_advance: bool,
+             pre_phase_control: bool, unproven_candidate: bool) -> str:
+    """The row builder behind :func:`hub_journey_toml` (``unproven_candidate`` False: the proven-only
+    check runs) and :func:`unproven_candidate_row` (True: the check is skipped and the row carries
+    :data:`CANDIDATE_MARK`). Nothing else calls it -- and its required ``unproven_candidate`` keyword
+    is the token the tripwire test scans for, so a call from outside this module, the kit's tests and
+    studies/story-trace/ fails that test."""
     members = chain_donors(chain_dir)
     if not members:
         raise ValueError(f"no chain members (donor= field.tomls) under {chain_dir}")
@@ -593,11 +1601,14 @@ def hub_journey_toml(chain_dir: str, beat: int, census: dict, eb_for_donor, *,
     set_bits: dict[int, int] = {}
     words: dict[int, int] = {}
     party: set[str] = set()
+    read_bits: set[int] = set()
     for _mid, donor in members:
         eb = eb_for_donor(donor)
         for v in resolve(eb, beat, census).verdicts:
             if v.decision == "set":
                 set_bits[v.bit] = 1
+            if v.decision != "refused":
+                read_bits.add(v.bit)
         detected = ate_word_seed(eb)
         if detected:
             vals = ate_word_values(list(detected), beat, census, zone)
@@ -607,13 +1618,51 @@ def hub_journey_toml(chain_dir: str, beat: int, census: dict, eb_for_donor, *,
                 if val is not None:
                     words[b] = words.get(b, 0) | val
         party |= set(party_seed(eb, beat=beat, census=census, donor=donor)["add"])
-    slug = slug or f"{os.path.basename(os.path.normpath(chain_dir))}_{beat}"
-    label = name or f"{flagsmod.nearest_milestone(beat)[1]} (SC {beat})"
+    removed: list[str] = []
+    notes: list[str] = []
+    milestone = flagsmod.nearest_milestone(beat)[1]
+    if after_advance:
+        if pre_phase_control:
+            raise ValueError("--pre-phase-control builds a PRE-phase row; it cannot be combined "
+                             "with --after-advance")
+        new_bits, removed, notes = _post_advance(
+            census, zone, members, entry, entrance, beat, eb_for_donor, read_bits, set_bits, words,
+            party, unproven_candidate=unproven_candidate)
+        if unproven_candidate:
+            notes.insert(0, CANDIDATE_MARK)
+        set_bits.update(new_bits)
+        party -= set(removed)
+        label = name or f"{milestone} (SC {beat}, past the advance)"
+    elif entrance is not None or pre_phase_control:
+        if entrance is None:
+            raise ValueError("--pre-phase-control needs --entrance (the advance room's exit)")
+        past = _behind_advance_exit(census, zone, members, entry, entrance, beat, eb_for_donor)
+        if past and not pre_phase_control:
+            raise ValueError(f"entry {entry} through entrance {entrance} is an exit of the room "
+                             f"that writes SC := {beat}: the entry lies AFTER the advance -- pass "
+                             f"--after-advance (or --pre-phase-control for a deliberate pre-phase "
+                             f"calibration row)")
+        if pre_phase_control and not past:
+            raise ValueError(f"--pre-phase-control: entry {entry} through entrance {entrance} is "
+                             f"not an exit of the room that writes SC := {beat} -- nothing to control")
+        if past:
+            notes.append(f"# PRE-PHASE ROW ENTERED PAST THE ADVANCE -- a calibration control: the "
+                         f"SC := {beat} advance's own writes (latches, removes) are NOT carried")
+            label = name or f"{milestone} (SC {beat}, pre-phase control)"
+        else:
+            label = name or f"{milestone} (SC {beat}, entrance {int(entrance)})"
+    else:
+        label = name or f"{milestone} (SC {beat})"
+    from .hub import _q      # the hub's own TOML escape: a quote or backslash in a --name stays a string
+    slug = slug or hub_row_slug(chain_dir, beat, entrance=entrance, after_advance=after_advance,
+                                pre_phase_control=pre_phase_control)
     L = ["[[journey]]",
-         f'id    = "{slug}"',
-         f'name  = "{label}"',
-         f"entry = {entry}",
-         f"set_scenario = {beat}"]
+         f'id    = "{_q(slug)}"',
+         f'name  = "{_q(label)}"',
+         f"entry = {entry}"]
+    if entrance is not None:
+        L.append(f"entrance = {int(entrance)}")
+    L.append(f"set_scenario = {beat}")
     if set_bits:
         rows = ", ".join("{ flag = %d, value = %d }" % (b, v) for b, v in sorted(set_bits.items()))
         L.append(f"set_flags = [ {rows} ]")
@@ -622,6 +1671,9 @@ def hub_journey_toml(chain_dir: str, beat: int, census: dict, eb_for_donor, *,
         L.append(f"set_words = [ {rows} ]")
     if party:
         L.append("party_add = [ " + ", ".join(f'"{n}"' for n in sorted(party)) + " ]")
+    if removed:
+        L.append("party_remove = [ " + ", ".join(f'"{n}"' for n in sorted(removed)) + " ]")
+    L += notes
     return "\n".join(L)
 
 

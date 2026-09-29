@@ -1,0 +1,4053 @@
+{
+ "what": "Story-trace F5b's registered predictions, VERSION 2 (F5c): v1's post-wake entry re-run whole on the FIXED hubs -- the kit's synthesized builds now restore the ambient clear (content/ambient.py), so T5B_HUB 31113 and T5B_CTL 31114 each carry the 38-byte tail -- under v1's frozen rule plus HUB-ROWS-SAME; P-AMBIENT (traced, after P-PARTYREMOVE) is reported on THE FIX line, never an input to the VERDICT",
+ "lane": "F5b",
+ "version": 2,
+ "lineage": {
+  "file": "rung5b_predictions_v1.json",
+  "sha256": "bab9e642b01c48c8097745da4cb84fd02b3fbb52491e9f96f946e421871adf89",
+  "v1": {
+   "file": "rung5b_predictions_v1.json",
+   "sha256": "bab9e642b01c48c8097745da4cb84fd02b3fbb52491e9f96f946e421871adf89",
+   "session": "20260929-001746-story-rung5b",
+   "verdict": "NOT PROVEN: party -- proven: state, latches, walk (P-PARTYREMOVE VOID twice: the 9 the unfixed hub left in Byte[13] opened 351's report window in 31101)"
+  },
+  "builds": {
+   "v1_hubs": "C:\\gd\\_ns_playtest\\f5b\\keep_v1\\hubs",
+   "v1_members": "C:\\gd\\_ns_playtest\\f5b\\keep_v1\\members",
+   "f5_v3": "C:\\gd\\_ns_playtest\\f5\\keep_v3\\build",
+   "sums": "each with its SHA256SUMS over every StreamingAssets/**/*.eb.bytes",
+   "sums_sha256": {
+    "v1_hubs": "680700baba69fb6ec0fe1e1054e7eb5c4245cdb358a227e659299666d12851e6",
+    "v1_members": "92cb0a77194c9bc3221e9da9e7960a17a24f1c72b6a3c571832f096274462acc",
+    "f5_v3": "beeae75ce5a48272a44d4588e06c8d1d7bb6060c21670179a8fbba77b7ea5f7c"
+   }
+  },
+  "carried": [
+   "order",
+   "sides",
+   "start",
+   "entry",
+   "start_sc",
+   "beat",
+   "segment_place",
+   "wake",
+   "members",
+   "chain_map",
+   "seams",
+   "timing_site",
+   "replay",
+   "walk_gate",
+   "rerun",
+   "coverage",
+   "stockstate",
+   "land",
+   "residual",
+   "class_iii",
+   "control",
+   "echo",
+   "arrival",
+   "supp",
+   "step1_keys",
+   "party",
+   "freshness",
+   "seed_law",
+   "hubs.*.(rig, stamps, party ops, row text, tomls)"
+  ],
+  "rederived": [
+   "hubs.*.eb_sha256",
+   "hubs.*.static_stores",
+   "hubs.*.ng_rows",
+   "hubs.*.forbid_ips",
+   "hub_fix",
+   "ambient",
+   "verdict (HUB-ROWS-SAME, fix_line)",
+   "budget.expected_minutes",
+   "checks (P-AMBIENT, P-HUBDIFF, HUB-ROWS-SAME, CARRY-CONSISTENCY)",
+   "cannot_test",
+   "known_gap"
+  ]
+ },
+ "order": [
+  "S",
+  "F5B",
+  "CTL",
+  "S",
+  "F5B",
+  "CTL",
+  "S",
+  "F5B",
+  "CTL"
+ ],
+ "sides": {
+  "S": "stock Dali, as F5's S, plus the autosave reads",
+  "F5B": "T5B_HUB (31113): the fixed post-advance row -> Field(31101) at entrance 6; replays walk[1:]",
+  "CTL": "T5B_CTL (31114): today's pre-phase row at the same entry; replays walk[1:2]"
+ },
+ "start": {
+  "S": 359,
+  "F5B": 31101,
+  "CTL": 31101
+ },
+ "entry": {
+  "member": 31101,
+  "donor": 351,
+  "entrance": 6
+ },
+ "start_sc": 2540,
+ "beat": 2600,
+ "segment_place": 352,
+ "wake": {
+  "name": "352's wake: SC := 2600",
+  "donor": 352,
+  "sid": 17,
+  "tag": 1,
+  "off": [
+   4385
+  ],
+  "target": "Global.UInt16[0]",
+  "value": [
+   2600
+  ]
+ },
+ "members": {
+  "F5": {
+   "31101": 351,
+   "31102": 312,
+   "31103": 350,
+   "31104": 352,
+   "31105": 353,
+   "31106": 354,
+   "31107": 355,
+   "31108": 356,
+   "31109": 357,
+   "31110": 358,
+   "31111": 359,
+   "31112": 450
+  }
+ },
+ "chain_map": {
+  "351": 31101,
+  "312": 31102,
+  "350": 31103,
+  "352": 31104,
+  "353": 31105,
+  "354": 31106,
+  "355": 31107,
+  "356": 31108,
+  "357": 31109,
+  "358": 31110,
+  "359": 31111,
+  "450": 31112
+ },
+ "seams": {
+  "31108": [
+   404
+  ],
+  "31112": [
+   451,
+   453
+  ]
+ },
+ "timing_site": {
+  "name": "359 e5 t17 +49 Byte[299]: a villager's Confirm-frame counter (input timing)",
+  "donor": 359,
+  "sid": 5,
+  "tag": 17,
+  "off": 49,
+  "target": "Global.Byte[299]",
+  "byte": 299
+ },
+ "replay": {
+  "max_breaks": 2,
+  "F5B": [
+   1,
+   null
+  ],
+  "CTL": [
+   1,
+   2
+  ]
+ },
+ "walk_gate": {
+  "F5B": [
+   [
+    352,
+    0,
+    351
+   ]
+  ],
+  "CTL": [
+   [
+    352,
+    0,
+    351
+   ],
+   [
+    351,
+    0,
+    350
+   ]
+  ]
+ },
+ "budget": {
+  "hub_s": 180,
+  "entry_s": 60,
+  "segment_s": 720,
+  "tour_s": 1080,
+  "max_passes": 3,
+  "max_crossings": 80,
+  "session_s": 10800,
+  "run_min_s": {
+   "S": 720,
+   "F5B": 600,
+   "CTL": 240
+  },
+  "expected_minutes": {
+   "S": 10,
+   "F5B": 7.7,
+   "CTL": 1.5,
+   "session": 70,
+   "with_reruns": 134,
+   "cap": 180
+  },
+  "why": "rung 3 v2's numbers; hub_s one deadline for the hub leg UP TO THE PICK'S CONFIRM, never read after it; entry_s the landing's own clock from the Confirm on (the press, its polls and the wait for 31111) -- rung 3's raw path waited 60 s for its start field -- so a slow leg cannot shorten the one wait that tells a fork's stall from a slow drive, and a budget stop can only come before a stamp. Session 4 measured S 601-615 s and F0 548-584 s; F5 = F0 + a 30-60 s hub leg; P-HUBLEG ~90 s, boot + pre-flight ~3 min.",
+  "arrive_s": 60,
+  "save_frames": 10
+ },
+ "rerun": {
+  "max": 6,
+  "halt": "R5-REACH decided (F5B only)"
+ },
+ "coverage": {
+  "min_covered": 3,
+  "min_ctl": 2,
+  "clean_stop": {
+   "S": [
+    "SC left"
+   ],
+   "F5B": [
+    "SC left",
+    "passes exhausted",
+    "budget spent"
+   ],
+   "CTL": [
+    "prefix replayed"
+   ]
+  },
+  "ran": [
+   {
+    "name": "351's lobby exit ran (e16 +313 Int16[2] := 2)",
+    "donor": 351,
+    "sid": 16,
+    "tag": 2,
+    "off": [
+     313
+    ],
+    "target": "Global.Int16[2]",
+    "value": [
+     2
+    ]
+   },
+   {
+    "name": "450's e19 exit ran (+296 Int16[2] := 25)",
+    "donor": 450,
+    "sid": 19,
+    "tag": 2,
+    "off": [
+     296
+    ],
+    "target": "Global.Int16[2]",
+    "value": [
+     25
+    ]
+   }
+  ],
+  "ran_ctl": [
+   {
+    "name": "351's lobby exit ran (e16 +313 Int16[2] := 2)",
+    "donor": 351,
+    "sid": 16,
+    "tag": 2,
+    "off": [
+     313
+    ],
+    "target": "Global.Int16[2]",
+    "value": [
+     2
+    ]
+   }
+  ],
+  "advancing": [
+   "S"
+  ],
+  "flip": {
+   "name": "the controller's flip (tag 1 +222 Bit[2079] := 1)",
+   "tag": 1,
+   "off": [
+    222
+   ],
+   "target": "Global.Bit[2079]",
+   "value": [
+    1
+   ]
+  },
+  "advanced_sc": 2610,
+  "floor": [],
+  "floor_stops": [],
+  "drive": [
+   "session budget",
+   "the gated door was never faced",
+   "no standable goal",
+   "place \\d+ has \\d+ exits",
+   "donor mismatch",
+   "the channel is frozen",
+   "saw no state at all",
+   "the game refused a step",
+   "the title could not be restored",
+   "STOPPED \\(unexpected\\)",
+   "^budget spent",
+   "the game exited",
+   "hub leg: budget"
+  ],
+  "fork_stop": {
+   "hub": {
+    "phase": "hub",
+    "point": "hub",
+    "stop": "waiting for the pick to land in \\d+ over \\d+ live samples",
+    "expect": "phase hub, the raw trace shows the three stamps, no row in 31111, and the stop is the landing's own wait timing out LIVE (entry_s; a frozen channel is DRIVE)"
+   },
+   "segment": {
+    "phase": "segment",
+    "raised": [
+     "control never returned within",
+     "asked .* again after"
+    ],
+    "expect": "phase segment, and the segment record not ok (no DRIVE pattern), or a live soft-lock or a re-asked choice raised; point segment@<the record's place, else rec.at's> -- also when the run has no row in 31111 yet but its stamps landed (the leg returned: the stall is at the entry)"
+   },
+   "replay": {
+    "stop": "^replay broke at step (\\d+) \\(([^)]*)\\): (entered \\d+|he stands in place|(bounce|miss|blocked|boxed|no route)(, (bounce|miss|blocked|boxed|no route))*$)",
+    "point": "replay@<step>(<step name>): the step number AND its name (place.exit -> entered), so one step number of two different walks is two points",
+    "expect": "a crossing entered another place, struck out REAL, or left him elsewhere"
+   },
+   "scene": {
+    "phases": [
+     "replay",
+     "tour"
+    ],
+    "raised": [
+     "control never returned within"
+    ],
+    "expect": "a live soft-lock raised in the replay or the tour; point scene@<place>@<sc>"
+   },
+   "landing": {
+    "phase": "landing",
+    "raised": [
+     "HarnessError: landing: "
+    ],
+    "point": "landing@<place>"
+   }
+  }
+ },
+ "hubs": {
+  "F5B": {
+   "spawn": [
+    404,
+    127
+   ],
+   "narrator": "Stiltzkin",
+   "narrator_pos": [
+    480,
+    127
+   ],
+   "narrator_within": 32,
+   "floor": 950,
+   "options": [
+    "Dali (SC 2600)",
+    "Stay here, kupo..."
+   ],
+   "pick": "Dali (SC 2600)",
+   "stay": "Stay here, kupo...",
+   "default": 0,
+   "twist": [
+    255,
+    255
+   ],
+   "twist_expect": "the hub's Main_Init SetControlDirection operands, read off the built bytes (P-HUB holds the deployed hub to them): the hub leg calibrates ON them -- calibrate_axes(prior=movement.key_move_basis(twist[Session._key_twist_operand()])), Session.key_prior's rule for a script the install does not have -- never blind: the spawn stands inside his body",
+   "approach": {
+    "margin": 8,
+    "reach": 24,
+    "tolerance": 15,
+    "tries": 3,
+    "turn_frames": 8,
+    "expect": "calibrate_axes on the frozen twist (a prior, never blind); d = max(r + margin, min(talk_r - margin, r + reach)); walk_to (x - d, z) -- WEST of him, from a spawn east of that point: the walk heads west, away from him (the design's 'heading east faces him' is wrong for these bytes) -- strict False, slides True; Confirm, at most `tries`, each after turn_in_place toward him (turn_frames; skipped on an engine that cannot turn in place); after a silent one, one walked tick toward him",
+    "from_bytes": {
+     "narrator_logical_size": [
+      14,
+      14,
+      22
+     ],
+     "player_logical_size": [
+      20,
+      24,
+      40
+     ],
+     "r": 152,
+     "talk_r": "308 + his speed",
+     "d": 176,
+     "approach": [
+      304,
+      127
+     ],
+     "approach_wall_u": 421,
+     "spawn_distance": 76,
+     "safe_dist": 136,
+     "expect": "NOT JUDGED (added at the gate, before any deploy): read off the built hub's SetObjectLogicalSize(size, collRad, talkRad) -- e2 Stiltzkin (14, 14, 22), e1 the moogle (20, 24, 40) -- with HarnessAgent's relations r = 4*(his collRad + the player's) and talk_r = 4*(his talkRad + the player's) + his speed + 60. So talk_r > r + margin holds, d = 176 and the approach point (304, 127) is on 950's floor (421u from a wall, a direct route from the spawn). But the SPAWN stands 76u from him, INSIDE r, and MovePC's push-out for a step that faces him (+-90 degrees) lands at safe_dist = 4*20 (the player's size) + 4*14 = 136 < r, which collides again, so the step is undone whole (FieldMapActorController.cs:772-793): up, down and right, whose turns from his spawn facing (TurnInstant 0, south) all swing through east at him, do not move him at all. Modelled on the FakeGame (test_harness: the leg from a spawn inside his body), a BLIND calibrate_axes refuses the v axis ('neither up nor down moved') -- so the leg calibrates on the hub's frozen twist, where the one-sided left probe (away from him) agrees with the prior and the other axis is derived. UNVERIFIED in game: P-HUBLEG's record measures r and talk_r, and fails before run 1 if the leg does not survive."
+    }
+   },
+   "prologue_targets": [
+    "Global.Bit[191]",
+    "Global.Bit[184]",
+    "Global.Int16[2]",
+    "Global.Int16[9]",
+    "Global.Byte[13]",
+    "Global.Int16[11]",
+    "Global.Byte[14]"
+   ],
+   "id": 31113,
+   "name": "T5B_HUB",
+   "lead_in": [
+    31113,
+    0,
+    2540
+   ],
+   "entry": 31101,
+   "entrance": 6,
+   "row_id": "dali_chain_2600_e6_post",
+   "row_text": [
+    "[[journey]]",
+    "id    = \"dali_chain_2600_e6_post\"",
+    "name  = \"Dali (SC 2600)\"",
+    "entry = 31101",
+    "entrance = 6",
+    "set_scenario = 2600",
+    "set_flags = [ { flag = 2078, value = 1 }, { flag = 2086, value = 1 } ]",
+    "set_words = [ { byte = 208, value = 0 }, { byte = 297, value = 1 } ]",
+    "party_add = [ \"zidane\" ]",
+    "party_remove = [ \"garnet\", \"steiner\", \"vivi\" ]"
+   ],
+   "static_stores": [
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 24,
+     "ip": 34,
+     "target": "Global.Bit[191]",
+     "value": 0
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 43,
+     "ip": 53,
+     "target": "Global.Int16[2]",
+     "value": 10000
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 51,
+     "ip": 61,
+     "target": "Global.Bit[184]",
+     "value": 0
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 59,
+     "ip": 69,
+     "target": "Global.Int16[9]",
+     "value": 65535
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 99,
+     "ip": 109,
+     "target": "Global.Byte[13]",
+     "value": 9
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 121,
+     "ip": 131,
+     "target": "Global.Byte[13]",
+     "value": 0
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 132,
+     "ip": 142,
+     "target": "Global.Byte[13]",
+     "value": 1
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 140,
+     "ip": 150,
+     "target": "Global.Int16[11]",
+     "value": 65535
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 180,
+     "ip": 190,
+     "target": "Global.Byte[14]",
+     "value": 9
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 202,
+     "ip": 212,
+     "target": "Global.Byte[14]",
+     "value": 0
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 213,
+     "ip": 223,
+     "target": "Global.Byte[14]",
+     "value": 1
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 265,
+     "ip": 275,
+     "target": "Global.Byte[13]",
+     "value": 0
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 284,
+     "ip": 294,
+     "target": "Global.Byte[14]",
+     "value": 0
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 23,
+     "ip": 136,
+     "target": "Global.UInt16[0]",
+     "value": 2600
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 31,
+     "ip": 144,
+     "target": "Global.Bit[2078]",
+     "value": 1
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 40,
+     "ip": 153,
+     "target": "Global.Bit[2086]",
+     "value": 1
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 49,
+     "ip": 162,
+     "target": "Global.UInt16[208]",
+     "value": 0
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 57,
+     "ip": 170,
+     "target": "Global.UInt16[297]",
+     "value": 1
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 95,
+     "ip": 208,
+     "target": "Global.Int16[2]",
+     "value": 6
+    }
+   ],
+   "stamp": [
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 23,
+     "ip": 136,
+     "target": "Global.UInt16[0]",
+     "value": 2600,
+     "old": 2540,
+     "new": 2600
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 31,
+     "ip": 144,
+     "target": "Global.Bit[2078]",
+     "value": 1,
+     "old": 0,
+     "new": 1
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 40,
+     "ip": 153,
+     "target": "Global.Bit[2086]",
+     "value": 1,
+     "old": 0,
+     "new": 1
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 49,
+     "ip": 162,
+     "target": "Global.UInt16[208]",
+     "value": 0,
+     "old": 0,
+     "new": 0
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 57,
+     "ip": 170,
+     "target": "Global.UInt16[297]",
+     "value": 1,
+     "old": 0,
+     "new": 1
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 95,
+     "ip": 208,
+     "target": "Global.Int16[2]",
+     "value": 6,
+     "old": 0,
+     "new": 6
+    }
+   ],
+   "party_ops": [
+    [
+     "remove",
+     2,
+     66
+    ],
+    [
+     "remove",
+     3,
+     69
+    ],
+    [
+     "remove",
+     1,
+     72
+    ],
+    [
+     "add",
+     0,
+     75
+    ],
+    [
+     "field",
+     31101,
+     109
+    ]
+   ],
+   "party_scan": {
+    "adds": [
+     0
+    ],
+    "removes": [
+     1,
+     2,
+     3
+    ]
+   },
+   "eb_sha256": "35813d4dc7078983995763ea9673309ea113a70aaa479be4bcf884ede45a6962",
+   "toml": "C:\\gd\\_ns_playtest\\f5b\\hub\\hub.field.toml",
+   "journeys": "C:\\gd\\_ns_playtest\\f5b\\hub\\journeys.toml",
+   "ng_rows": [
+    {
+     "ip": 34,
+     "target": "Global.Bit[191]",
+     "old": 0,
+     "new": 0
+    },
+    {
+     "ip": 61,
+     "target": "Global.Bit[184]",
+     "old": 0,
+     "new": 0
+    },
+    {
+     "ip": 69,
+     "target": "Global.Int16[9]",
+     "old": 643,
+     "new": -1
+    },
+    {
+     "ip": 131,
+     "target": "Global.Byte[13]",
+     "old": 1,
+     "new": 0
+    },
+    {
+     "ip": 150,
+     "target": "Global.Int16[11]",
+     "old": -1,
+     "new": -1
+    },
+    {
+     "ip": 212,
+     "target": "Global.Byte[14]",
+     "old": 0,
+     "new": 0
+    }
+   ],
+   "forbid_ips": [
+    109,
+    190,
+    275,
+    294
+   ]
+  },
+  "CTL": {
+   "spawn": [
+    404,
+    127
+   ],
+   "narrator": "Stiltzkin",
+   "narrator_pos": [
+    480,
+    127
+   ],
+   "narrator_within": 32,
+   "floor": 950,
+   "options": [
+    "Dali (SC 2600)",
+    "Stay here, kupo..."
+   ],
+   "pick": "Dali (SC 2600)",
+   "stay": "Stay here, kupo...",
+   "default": 0,
+   "twist": [
+    255,
+    255
+   ],
+   "twist_expect": "the hub's Main_Init SetControlDirection operands, read off the built bytes (P-HUB holds the deployed hub to them): the hub leg calibrates ON them -- calibrate_axes(prior=movement.key_move_basis(twist[Session._key_twist_operand()])), Session.key_prior's rule for a script the install does not have -- never blind: the spawn stands inside his body",
+   "approach": {
+    "margin": 8,
+    "reach": 24,
+    "tolerance": 15,
+    "tries": 3,
+    "turn_frames": 8,
+    "expect": "calibrate_axes on the frozen twist (a prior, never blind); d = max(r + margin, min(talk_r - margin, r + reach)); walk_to (x - d, z) -- WEST of him, from a spawn east of that point: the walk heads west, away from him (the design's 'heading east faces him' is wrong for these bytes) -- strict False, slides True; Confirm, at most `tries`, each after turn_in_place toward him (turn_frames; skipped on an engine that cannot turn in place); after a silent one, one walked tick toward him",
+    "from_bytes": {
+     "narrator_logical_size": [
+      14,
+      14,
+      22
+     ],
+     "player_logical_size": [
+      20,
+      24,
+      40
+     ],
+     "r": 152,
+     "talk_r": "308 + his speed",
+     "d": 176,
+     "approach": [
+      304,
+      127
+     ],
+     "approach_wall_u": 421,
+     "spawn_distance": 76,
+     "safe_dist": 136,
+     "expect": "NOT JUDGED (added at the gate, before any deploy): read off the built hub's SetObjectLogicalSize(size, collRad, talkRad) -- e2 Stiltzkin (14, 14, 22), e1 the moogle (20, 24, 40) -- with HarnessAgent's relations r = 4*(his collRad + the player's) and talk_r = 4*(his talkRad + the player's) + his speed + 60. So talk_r > r + margin holds, d = 176 and the approach point (304, 127) is on 950's floor (421u from a wall, a direct route from the spawn). But the SPAWN stands 76u from him, INSIDE r, and MovePC's push-out for a step that faces him (+-90 degrees) lands at safe_dist = 4*20 (the player's size) + 4*14 = 136 < r, which collides again, so the step is undone whole (FieldMapActorController.cs:772-793): up, down and right, whose turns from his spawn facing (TurnInstant 0, south) all swing through east at him, do not move him at all. Modelled on the FakeGame (test_harness: the leg from a spawn inside his body), a BLIND calibrate_axes refuses the v axis ('neither up nor down moved') -- so the leg calibrates on the hub's frozen twist, where the one-sided left probe (away from him) agrees with the prior and the other axis is derived. UNVERIFIED in game: P-HUBLEG's record measures r and talk_r, and fails before run 1 if the leg does not survive."
+    }
+   },
+   "prologue_targets": [
+    "Global.Bit[191]",
+    "Global.Bit[184]",
+    "Global.Int16[2]",
+    "Global.Int16[9]",
+    "Global.Byte[13]",
+    "Global.Int16[11]",
+    "Global.Byte[14]"
+   ],
+   "id": 31114,
+   "name": "T5B_CTL",
+   "lead_in": [
+    31114,
+    0,
+    2540
+   ],
+   "entry": 31101,
+   "entrance": 6,
+   "row_id": "dali_chain_2600_e6_control",
+   "row_text": [
+    "[[journey]]",
+    "id    = \"dali_chain_2600_e6_control\"",
+    "name  = \"Dali (SC 2600)\"",
+    "entry = 31101",
+    "entrance = 6",
+    "set_scenario = 2600",
+    "set_words = [ { byte = 208, value = 0 }, { byte = 297, value = 1 } ]",
+    "party_add = [ \"garnet\", \"steiner\", \"vivi\", \"zidane\" ]"
+   ],
+   "static_stores": [
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 24,
+     "ip": 34,
+     "target": "Global.Bit[191]",
+     "value": 0
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 43,
+     "ip": 53,
+     "target": "Global.Int16[2]",
+     "value": 10000
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 51,
+     "ip": 61,
+     "target": "Global.Bit[184]",
+     "value": 0
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 59,
+     "ip": 69,
+     "target": "Global.Int16[9]",
+     "value": 65535
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 99,
+     "ip": 109,
+     "target": "Global.Byte[13]",
+     "value": 9
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 121,
+     "ip": 131,
+     "target": "Global.Byte[13]",
+     "value": 0
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 132,
+     "ip": 142,
+     "target": "Global.Byte[13]",
+     "value": 1
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 140,
+     "ip": 150,
+     "target": "Global.Int16[11]",
+     "value": 65535
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 180,
+     "ip": 190,
+     "target": "Global.Byte[14]",
+     "value": 9
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 202,
+     "ip": 212,
+     "target": "Global.Byte[14]",
+     "value": 0
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 213,
+     "ip": 223,
+     "target": "Global.Byte[14]",
+     "value": 1
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 265,
+     "ip": 275,
+     "target": "Global.Byte[13]",
+     "value": 0
+    },
+    {
+     "sid": 0,
+     "tag": 0,
+     "off": 284,
+     "ip": 294,
+     "target": "Global.Byte[14]",
+     "value": 0
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 23,
+     "ip": 136,
+     "target": "Global.UInt16[0]",
+     "value": 2600
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 31,
+     "ip": 144,
+     "target": "Global.UInt16[208]",
+     "value": 0
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 39,
+     "ip": 152,
+     "target": "Global.UInt16[297]",
+     "value": 1
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 95,
+     "ip": 208,
+     "target": "Global.Int16[2]",
+     "value": 6
+    }
+   ],
+   "stamp": [
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 23,
+     "ip": 136,
+     "target": "Global.UInt16[0]",
+     "value": 2600,
+     "old": 2540,
+     "new": 2600
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 31,
+     "ip": 144,
+     "target": "Global.UInt16[208]",
+     "value": 0,
+     "old": 0,
+     "new": 0
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 39,
+     "ip": 152,
+     "target": "Global.UInt16[297]",
+     "value": 1,
+     "old": 0,
+     "new": 1
+    },
+    {
+     "sid": 2,
+     "tag": 3,
+     "off": 95,
+     "ip": 208,
+     "target": "Global.Int16[2]",
+     "value": 6,
+     "old": 0,
+     "new": 6
+    }
+   ],
+   "party_ops": [
+    [
+     "add",
+     2,
+     48
+    ],
+    [
+     "add",
+     3,
+     57
+    ],
+    [
+     "add",
+     1,
+     66
+    ],
+    [
+     "add",
+     0,
+     75
+    ],
+    [
+     "field",
+     31101,
+     109
+    ]
+   ],
+   "party_scan": {
+    "adds": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "removes": []
+   },
+   "eb_sha256": "1e235d0c68c83740a0566ea0bea83bae322d6fefbee521a14d99254a04de4b6b",
+   "toml": "C:\\gd\\_ns_playtest\\f5b\\ctl\\hub.field.toml",
+   "journeys": "C:\\gd\\_ns_playtest\\f5b\\ctl\\journeys.toml",
+   "ng_rows": [
+    {
+     "ip": 34,
+     "target": "Global.Bit[191]",
+     "old": 0,
+     "new": 0
+    },
+    {
+     "ip": 61,
+     "target": "Global.Bit[184]",
+     "old": 0,
+     "new": 0
+    },
+    {
+     "ip": 69,
+     "target": "Global.Int16[9]",
+     "old": 643,
+     "new": -1
+    },
+    {
+     "ip": 131,
+     "target": "Global.Byte[13]",
+     "old": 1,
+     "new": 0
+    },
+    {
+     "ip": 150,
+     "target": "Global.Int16[11]",
+     "old": -1,
+     "new": -1
+    },
+    {
+     "ip": 212,
+     "target": "Global.Byte[14]",
+     "old": 0,
+     "new": 0
+    }
+   ],
+   "forbid_ips": [
+    109,
+    190,
+    275,
+    294
+   ]
+  }
+ },
+ "stockstate": {
+  "stamp_bytes": {
+   "0": 40,
+   "1": 10,
+   "208": 0,
+   "209": 0,
+   "297": 1,
+   "298": 0
+  },
+  "changed_from_new_game": [
+   0,
+   1,
+   2,
+   9,
+   10,
+   13,
+   18,
+   19,
+   21,
+   61,
+   62,
+   63,
+   238,
+   239,
+   241,
+   251,
+   259,
+   260,
+   296,
+   297,
+   303
+  ],
+  "input_timing_bytes": [
+   299
+  ],
+  "zone_bytes": [
+   256,
+   257,
+   258,
+   259,
+   260,
+   261,
+   262
+  ],
+  "zone_set_bits": [
+   2078,
+   2086
+  ],
+  "saturate": 64,
+  "measured": "session 4 S#1/S#4/S#7 at their wake rows (lines 128/133/137): exactly these; byte 299 = 0/5/9; calibration 0 contradictions in 40391/39007/41275 bit checks (sessions 2/3/4)"
+ },
+ "land": {
+  "bytes": [
+   9,
+   10,
+   13,
+   18,
+   19,
+   21,
+   61,
+   62,
+   63,
+   238,
+   239,
+   241,
+   251,
+   296,
+   303
+  ],
+  "n_bits": 53,
+  "bits": {
+   "74": [
+    0,
+    1
+   ],
+   "76": [
+    0,
+    1
+   ],
+   "77": [
+    0,
+    1
+   ],
+   "81": [
+    0,
+    1
+   ],
+   "83": [
+    0,
+    1
+   ],
+   "84": [
+    0,
+    1
+   ],
+   "85": [
+    0,
+    1
+   ],
+   "86": [
+    0,
+    1
+   ],
+   "87": [
+    0,
+    1
+   ],
+   "105": [
+    1,
+    0
+   ],
+   "144": [
+    1,
+    0
+   ],
+   "152": [
+    1,
+    0
+   ],
+   "153": [
+    1,
+    0
+   ],
+   "154": [
+    1,
+    0
+   ],
+   "155": [
+    1,
+    0
+   ],
+   "168": [
+    1,
+    0
+   ],
+   "169": [
+    1,
+    0
+   ],
+   "170": [
+    1,
+    0
+   ],
+   "171": [
+    1,
+    0
+   ],
+   "488": [
+    1,
+    0
+   ],
+   "489": [
+    1,
+    0
+   ],
+   "490": [
+    1,
+    0
+   ],
+   "491": [
+    1,
+    0
+   ],
+   "492": [
+    1,
+    0
+   ],
+   "493": [
+    1,
+    0
+   ],
+   "494": [
+    1,
+    0
+   ],
+   "495": [
+    1,
+    0
+   ],
+   "496": [
+    1,
+    0
+   ],
+   "497": [
+    1,
+    0
+   ],
+   "498": [
+    1,
+    0
+   ],
+   "499": [
+    1,
+    0
+   ],
+   "500": [
+    1,
+    0
+   ],
+   "501": [
+    1,
+    0
+   ],
+   "502": [
+    1,
+    0
+   ],
+   "503": [
+    1,
+    0
+   ],
+   "504": [
+    1,
+    0
+   ],
+   "505": [
+    1,
+    0
+   ],
+   "506": [
+    1,
+    0
+   ],
+   "507": [
+    1,
+    0
+   ],
+   "508": [
+    1,
+    0
+   ],
+   "509": [
+    1,
+    0
+   ],
+   "510": [
+    1,
+    0
+   ],
+   "511": [
+    1,
+    0
+   ],
+   "1904": [
+    1,
+    0
+   ],
+   "1913": [
+    1,
+    0
+   ],
+   "1914": [
+    1,
+    0
+   ],
+   "1929": [
+    1,
+    0
+   ],
+   "1930": [
+    1,
+    0
+   ],
+   "2009": [
+    1,
+    0
+   ],
+   "2010": [
+    1,
+    0
+   ],
+   "2374": [
+    1,
+    0
+   ],
+   "2375": [
+    1,
+    0
+   ],
+   "2424": [
+    1,
+    0
+   ]
+  }
+ },
+ "residual": {
+  "values": {
+   "18": [
+    1,
+    0
+   ],
+   "19": [
+    15,
+    0
+   ],
+   "21": [
+    15,
+    0
+   ],
+   "61": [
+    255,
+    0
+   ],
+   "62": [
+    255,
+    0
+   ],
+   "63": [
+    255,
+    0
+   ],
+   "303": [
+    1,
+    0
+   ]
+  },
+  "bits": {
+   "144": [
+    1,
+    0
+   ],
+   "152": [
+    1,
+    0
+   ],
+   "153": [
+    1,
+    0
+   ],
+   "154": [
+    1,
+    0
+   ],
+   "155": [
+    1,
+    0
+   ],
+   "168": [
+    1,
+    0
+   ],
+   "169": [
+    1,
+    0
+   ],
+   "170": [
+    1,
+    0
+   ],
+   "171": [
+    1,
+    0
+   ],
+   "488": [
+    1,
+    0
+   ],
+   "489": [
+    1,
+    0
+   ],
+   "490": [
+    1,
+    0
+   ],
+   "491": [
+    1,
+    0
+   ],
+   "492": [
+    1,
+    0
+   ],
+   "493": [
+    1,
+    0
+   ],
+   "494": [
+    1,
+    0
+   ],
+   "495": [
+    1,
+    0
+   ],
+   "496": [
+    1,
+    0
+   ],
+   "497": [
+    1,
+    0
+   ],
+   "498": [
+    1,
+    0
+   ],
+   "499": [
+    1,
+    0
+   ],
+   "500": [
+    1,
+    0
+   ],
+   "501": [
+    1,
+    0
+   ],
+   "502": [
+    1,
+    0
+   ],
+   "503": [
+    1,
+    0
+   ],
+   "504": [
+    1,
+    0
+   ],
+   "505": [
+    1,
+    0
+   ],
+   "506": [
+    1,
+    0
+   ],
+   "507": [
+    1,
+    0
+   ],
+   "508": [
+    1,
+    0
+   ],
+   "509": [
+    1,
+    0
+   ],
+   "510": [
+    1,
+    0
+   ],
+   "511": [
+    1,
+    0
+   ],
+   "2424": [
+    1,
+    0
+   ]
+  },
+  "n_bits": 34
+ },
+ "class_iii": {
+  "251": {
+   "stock_at_landing": 6,
+   "F5B_at_landing": 0,
+   "after_arrival": 6,
+   "chime": "Map.Bit[152] (351.ebs:452-455): untraced"
+  }
+ },
+ "control": {
+  "handback_bits": {
+   "144": [
+    1,
+    0
+   ],
+   "152": [
+    1,
+    0
+   ],
+   "153": [
+    1,
+    0
+   ],
+   "154": [
+    1,
+    0
+   ],
+   "155": [
+    1,
+    0
+   ],
+   "168": [
+    1,
+    0
+   ],
+   "169": [
+    1,
+    0
+   ],
+   "170": [
+    1,
+    0
+   ],
+   "171": [
+    1,
+    0
+   ],
+   "488": [
+    1,
+    0
+   ],
+   "489": [
+    1,
+    0
+   ],
+   "490": [
+    1,
+    0
+   ],
+   "491": [
+    1,
+    0
+   ],
+   "492": [
+    1,
+    0
+   ],
+   "493": [
+    1,
+    0
+   ],
+   "494": [
+    1,
+    0
+   ],
+   "495": [
+    1,
+    0
+   ],
+   "496": [
+    1,
+    0
+   ],
+   "497": [
+    1,
+    0
+   ],
+   "498": [
+    1,
+    0
+   ],
+   "499": [
+    1,
+    0
+   ],
+   "500": [
+    1,
+    0
+   ],
+   "501": [
+    1,
+    0
+   ],
+   "502": [
+    1,
+    0
+   ],
+   "503": [
+    1,
+    0
+   ],
+   "504": [
+    1,
+    0
+   ],
+   "505": [
+    1,
+    0
+   ],
+   "506": [
+    1,
+    0
+   ],
+   "507": [
+    1,
+    0
+   ],
+   "508": [
+    1,
+    0
+   ],
+   "509": [
+    1,
+    0
+   ],
+   "510": [
+    1,
+    0
+   ],
+   "511": [
+    1,
+    0
+   ],
+   "2424": [
+    1,
+    0
+   ],
+   "1904": [
+    1,
+    0
+   ],
+   "1929": [
+    1,
+    0
+   ],
+   "1930": [
+    1,
+    0
+   ],
+   "2009": [
+    1,
+    0
+   ],
+   "2010": [
+    1,
+    0
+   ],
+   "2078": [
+    1,
+    0
+   ],
+   "2086": [
+    1,
+    0
+   ]
+  },
+  "n_handback": 41,
+  "land_extra_bits": {
+   "2078": [
+    1,
+    0
+   ],
+   "2086": [
+    1,
+    0
+   ]
+  },
+  "land_bits": {
+   "74": [
+    0,
+    1
+   ],
+   "76": [
+    0,
+    1
+   ],
+   "77": [
+    0,
+    1
+   ],
+   "81": [
+    0,
+    1
+   ],
+   "83": [
+    0,
+    1
+   ],
+   "84": [
+    0,
+    1
+   ],
+   "85": [
+    0,
+    1
+   ],
+   "86": [
+    0,
+    1
+   ],
+   "87": [
+    0,
+    1
+   ],
+   "105": [
+    1,
+    0
+   ],
+   "144": [
+    1,
+    0
+   ],
+   "152": [
+    1,
+    0
+   ],
+   "153": [
+    1,
+    0
+   ],
+   "154": [
+    1,
+    0
+   ],
+   "155": [
+    1,
+    0
+   ],
+   "168": [
+    1,
+    0
+   ],
+   "169": [
+    1,
+    0
+   ],
+   "170": [
+    1,
+    0
+   ],
+   "171": [
+    1,
+    0
+   ],
+   "488": [
+    1,
+    0
+   ],
+   "489": [
+    1,
+    0
+   ],
+   "490": [
+    1,
+    0
+   ],
+   "491": [
+    1,
+    0
+   ],
+   "492": [
+    1,
+    0
+   ],
+   "493": [
+    1,
+    0
+   ],
+   "494": [
+    1,
+    0
+   ],
+   "495": [
+    1,
+    0
+   ],
+   "496": [
+    1,
+    0
+   ],
+   "497": [
+    1,
+    0
+   ],
+   "498": [
+    1,
+    0
+   ],
+   "499": [
+    1,
+    0
+   ],
+   "500": [
+    1,
+    0
+   ],
+   "501": [
+    1,
+    0
+   ],
+   "502": [
+    1,
+    0
+   ],
+   "503": [
+    1,
+    0
+   ],
+   "504": [
+    1,
+    0
+   ],
+   "505": [
+    1,
+    0
+   ],
+   "506": [
+    1,
+    0
+   ],
+   "507": [
+    1,
+    0
+   ],
+   "508": [
+    1,
+    0
+   ],
+   "509": [
+    1,
+    0
+   ],
+   "510": [
+    1,
+    0
+   ],
+   "511": [
+    1,
+    0
+   ],
+   "1904": [
+    1,
+    0
+   ],
+   "1913": [
+    1,
+    0
+   ],
+   "1914": [
+    1,
+    0
+   ],
+   "1929": [
+    1,
+    0
+   ],
+   "1930": [
+    1,
+    0
+   ],
+   "2009": [
+    1,
+    0
+   ],
+   "2010": [
+    1,
+    0
+   ],
+   "2078": [
+    1,
+    0
+   ],
+   "2086": [
+    1,
+    0
+   ],
+   "2374": [
+    1,
+    0
+   ],
+   "2375": [
+    1,
+    0
+   ],
+   "2424": [
+    1,
+    0
+   ]
+  },
+  "n_land": 55,
+  "fork_only": [
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 791,
+    "target": "Global.SByte[238]",
+    "value": 0,
+    "ip": 801
+   },
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 799,
+    "target": "Global.Int16[241]",
+    "value": 0,
+    "ip": 809
+   }
+  ],
+  "stock_only": [
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 734,
+    "target": "Global.SByte[238]",
+    "value": 1,
+    "ip": 744
+   },
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 742,
+    "target": "Global.Int16[241]",
+    "value": 6,
+    "ip": 752
+   },
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 770,
+    "target": "Global.UInt16[251]",
+    "value": 6,
+    "ip": 780
+   }
+  ],
+  "step1": {
+   "absent": {
+    "donor": 351,
+    "sid": 16,
+    "tag": 2,
+    "ip": 105
+   },
+   "present": {
+    "donor": 351,
+    "sid": 16,
+    "tag": 2,
+    "ip": 146,
+    "target": "Global.Bit[2064]",
+    "old": 0,
+    "new": 1
+   }
+  },
+  "slot": [
+   0,
+   2,
+   3,
+   1
+  ]
+ },
+ "echo": [
+  {
+   "name": "351 lobby exit e16 t2 ip105: Bit[2078] 1 -> 0",
+   "donor": 351,
+   "sid": 16,
+   "tag": 2,
+   "ip": 105,
+   "off": 71,
+   "target": "Global.Bit[2078]",
+   "value": 0,
+   "old": 1,
+   "new": 0
+  },
+  {
+   "name": "450 Main_Init e0 t0 ip338: Bit[2086] 1 -> 0",
+   "donor": 450,
+   "sid": 0,
+   "tag": 0,
+   "ip": 338,
+   "off": 320,
+   "target": "Global.Bit[2086]",
+   "value": 0,
+   "old": 1,
+   "new": 0
+  }
+ ],
+ "arrival": {
+  "keys": [
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 51,
+    "target": "Global.Int16[9]",
+    "value": 1483,
+    "ip": 61
+   },
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 124,
+    "target": "Global.Byte[13]",
+    "value": 1,
+    "ip": 134
+   },
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 241,
+    "target": "Global.Int16[239]",
+    "value": 2,
+    "ip": 251
+   },
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 734,
+    "target": "Global.SByte[238]",
+    "value": 1,
+    "ip": 744
+   },
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 742,
+    "target": "Global.Int16[241]",
+    "value": 6,
+    "ip": 752
+   },
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 770,
+    "target": "Global.UInt16[251]",
+    "value": 6,
+    "ip": 780
+   },
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 1872,
+    "target": "Global.Byte[13]",
+    "value": 2,
+    "ip": 1882
+   },
+   {
+    "donor": 351,
+    "sid": 4,
+    "tag": 0,
+    "off": 12,
+    "target": "Global.SByte[296]",
+    "value": -64,
+    "ip": 22
+   },
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 132,
+    "target": "Global.Int16[11]",
+    "value": -1,
+    "ip": 142
+   },
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 194,
+    "target": "Global.Byte[14]",
+    "value": 0,
+    "ip": 204,
+    "name": "guard Byte[14] != 9 and Int16[11] < 0"
+   },
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 1377,
+    "target": "Global.Byte[8]",
+    "value": 125,
+    "ip": 1387,
+    "name": "guard SC < 2660"
+   }
+  ]
+ },
+ "supp": {
+  "proven": [
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 132,
+    "target": "Global.Int16[11]",
+    "value": -1,
+    "ip": 142
+   },
+   {
+    "donor": 352,
+    "sid": 0,
+    "tag": 0,
+    "off": 51,
+    "target": "Global.Int16[9]",
+    "value": 1483,
+    "ip": 65
+   },
+   {
+    "donor": 352,
+    "sid": 0,
+    "tag": 0,
+    "off": 132,
+    "target": "Global.Int16[11]",
+    "value": -1,
+    "ip": 146
+   }
+  ],
+  "blind": [
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 194,
+    "target": "Global.Byte[14]",
+    "value": 0,
+    "ip": 204,
+    "name": "guard Byte[14] != 9 and Int16[11] < 0"
+   },
+   {
+    "donor": 351,
+    "sid": 0,
+    "tag": 0,
+    "off": 1377,
+    "target": "Global.Byte[8]",
+    "value": 125,
+    "ip": 1387,
+    "name": "guard SC < 2660"
+   },
+   {
+    "donor": 352,
+    "sid": 0,
+    "tag": 0,
+    "off": 194,
+    "target": "Global.Byte[14]",
+    "value": 0,
+    "ip": 208,
+    "name": "guard Byte[14] != 9 and Int16[11] < 0"
+   },
+   {
+    "donor": 352,
+    "sid": 0,
+    "tag": 0,
+    "off": 646,
+    "target": "Global.Byte[8]",
+    "value": 125,
+    "ip": 660,
+    "name": "guard SC < 2660"
+   },
+   {
+    "donor": 352,
+    "sid": 2,
+    "tag": 0,
+    "off": 12,
+    "target": "Global.SByte[296]",
+    "value": -64,
+    "ip": 22,
+    "name": "guard Bit[2102] == 0"
+   }
+  ],
+  "rule": "PROVEN: S emitted it same:1 with that value before its wake row, its count row's last is that value, AND S's own post-wake window holds a row in the same function at a site the key's site dominates (FuncFlow), in that run; BLIND: the value check only, a registered MIRROR blind spot",
+  "rejected": [
+   "re-arming S's trace at the hand-back (every reader takes ONE arm run)",
+   "a count bound (352 +646's n=1 fits pre 1 + post 1 and pre 2 + post 0)"
+  ],
+  "evidence": {
+   "351|0|0|132|Global.Int16[11]|-1": [
+    13,
+    13,
+    17
+   ],
+   "351|0|0|194|Global.Byte[14]|0": [
+    0,
+    0,
+    0
+   ],
+   "351|0|0|1377|Global.Byte[8]|125": [
+    0,
+    0,
+    0
+   ],
+   "352|0|0|51|Global.Int16[9]|1483": [
+    3,
+    3,
+    3
+   ],
+   "352|0|0|132|Global.Int16[11]|-1": [
+    2,
+    2,
+    2
+   ],
+   "352|0|0|194|Global.Byte[14]|0": [
+    0,
+    0,
+    0
+   ],
+   "352|0|0|646|Global.Byte[8]|125": [
+    0,
+    0,
+    0
+   ],
+   "352|2|0|12|Global.SByte[296]|-64": [
+    0,
+    0,
+    0
+   ]
+  },
+  "evidence_rule": "per S run, the post-wake rows in the key's function at a site the key's site dominates (FuncFlow) -- rung5b_hub.supp_ok's count, re-derived by the dry-run"
+ },
+ "step1_keys": [
+  {
+   "donor": 352,
+   "sid": 14,
+   "tag": 2,
+   "off": 116,
+   "target": "Global.Bit[2103]",
+   "value": 0,
+   "ip": 150
+  },
+  {
+   "donor": 352,
+   "sid": 14,
+   "tag": 2,
+   "off": 314,
+   "target": "Global.Int16[2]",
+   "value": 6,
+   "ip": 348
+  }
+ ],
+ "party": {
+  "hubleg": [
+   0,
+   255,
+   255,
+   255
+  ],
+  "partyremove": {
+   "r1": [
+    0,
+    2,
+    3,
+    1
+   ],
+   "r2": [
+    0,
+    2,
+    3,
+    1
+   ],
+   "r3": [
+    0,
+    255,
+    255,
+    255
+   ]
+  },
+  "landing": {
+   "F5B": [
+    0,
+    255,
+    255,
+    255
+   ],
+   "CTL": [
+    0,
+    2,
+    3,
+    1
+   ]
+  },
+  "run_end": [
+   0,
+   255,
+   255,
+   255
+  ],
+  "footprint_bytes": [
+   18,
+   19,
+   21,
+   60,
+   61,
+   62,
+   63,
+   303
+  ]
+ },
+ "freshness": {
+  "frames": 10,
+  "rule": "st_mtime_ns after the baseline read taken right before the transition it judges; sha stable over two reads 10 frames apart; SC, Int16[2] and the field name the arrival (run-end reads: the trace's last field entry)"
+ },
+ "verdict": {
+  "min_f5b_pairs": 3,
+  "min_ctl": 2,
+  "load_bearing": [
+   "P-PARTYREMOVE",
+   "R5-STAMP",
+   "HUB-ROWS-SAME",
+   "R5B-NOWAKE",
+   "R5B-CONTROL",
+   "R5B-LAND",
+   "R5B-STATE",
+   "R5B-ECHO",
+   "R5B-ARRIVAL",
+   "R5B-PARTY",
+   "R5-MIRROR",
+   "R5-PARTIAL",
+   "R5-LATCH",
+   "R5-ADVANCE",
+   "R5-REACH",
+   "R5-JOIN",
+   "R5-DONOR",
+   "NC-THROW"
+  ],
+  "halves": {
+   "state": [
+    "R5B-CONTROL(a)",
+    "R5B-CONTROL(b)",
+    "R5B-LAND",
+    "R5B-STATE",
+    "HUB-ROWS-SAME"
+   ],
+   "latches": [
+    "R5B-ECHO",
+    "R5B-ARRIVAL",
+    "R5-LATCH"
+   ],
+   "party": [
+    "P-PARTYREMOVE",
+    "R5B-PARTY",
+    "R5B-CONTROL(e)"
+   ],
+   "walk": [
+    "R5-MIRROR",
+    "R5-PARTIAL",
+    "R5-REACH",
+    "R5-ADVANCE",
+    "R5-PING",
+    "R5-NOSEAM"
+   ]
+  },
+  "rule": "PROVEN iff every check PASSes and none of load_bearing is VOID, with at least min_f5b_pairs covered F5B pairs and min_ctl covered CTL runs. Any FAIL: 'FAILED: <check>[, ...]'. Otherwise 'NOT PROVEN: <half>[, ...] (<check>: <why>; ...)', the proven halves named. Halves: state = R5B-CONTROL (a,b), R5B-LAND, R5B-STATE, HUB-ROWS-SAME; latches = R5B-ECHO, R5B-ARRIVAL, R5-LATCH; party = P-PARTYREMOVE, R5B-PARTY, R5B-CONTROL (e); walk = R5-MIRROR, R5-PARTIAL, R5-REACH, R5-ADVANCE, R5-PING, R5-NOSEAM. The session reports THIS LINE as its headline, verbatim -- never a PASS count (F5's all-PASS headline cannot be used for a VOID)",
+  "fix_line": {
+   "text": "THE FIX (in game, slot 0, hub revisit from 351): PROVEN | NOT PROVEN (<void>) | FAILED (<clause>) -- printed AFTER the VERDICT line, P-AMBIENT's registered table over the attempt that decided (the first non-VOID, else the last); never passed to verdict5b",
+   "PROVEN": "Licenses the master merge of claude/ambient-clear (step G4), with FULL-SUITE green; after it, F-REDEPLOY may proceed as separate owner-gated changes. The claim covers slot 0 and the revisit path from 351 only",
+   "NOT PROVEN": "Nothing merges: claude/ambient-clear stays off master; claude/story-trace-f5b does not merge to master while it contains the fix (to merge the resolver, `git revert -m 1` each fix merge first, newest first: hub_fix.remerges, then hub_fix.merge); no other synthesized field is redeployed and no release is cut. Next: re-run the v2 session unchanged",
+   "FAILED": "Everything under NOT PROVEN, and the fix's merges on claude/story-trace-f5b reverted at once, newest first (hub_fix.remerges, then hub_fix.merge); diagnose from ambient_trace_<k>.jsonl and the leg record; a corrected fix is a new commit, needing v3 predictions and a new session; 31113/31114 stay deployed until the owner picks a course"
+  }
+ },
+ "checks": {
+  "P-CAP": {
+   "claim": "The engine advertises the story trace at proto 1.",
+   "pass": "state.storytrace is a dict with proto == 1.",
+   "fail": "Absent or another proto; the session stops before any run.",
+   "void": "None (pre-flight).",
+   "can_fail_because": "An engine bundle without s88, or with a changed tracer protocol, is loaded."
+  },
+  "P-FROZEN": {
+   "claim": "The analysis reads the predictions the session recorded before run 1.",
+   "pass": "The session's predictions_sha256 equals rung5b_predictions_v1.json's sha256.",
+   "fail": "They differ.",
+   "void": "None.",
+   "can_fail_because": "The predictions file was edited after the session recorded its sha.",
+   "mutants": [
+    [
+     "(guard) the predictions edited after the session recorded them",
+     "FAIL"
+    ]
+   ]
+  },
+  "P-MANIFEST": {
+   "claim": "The frozen member set and the two hubs are the deployed ones recorded in rung5b_forks.json.",
+   "pass": "Members 31101-31112 map to donors 351,312,350,352..359,450 with eb sha256 equal to rung5_forks.json's F5 entries, and hubs {31113 T5B_HUB d140317d...4b97, 31114 T5B_CTL 069e9d2f...8c08} are listed.",
+   "fail": "Any member or hub differs; the session stops.",
+   "void": "None (pre-flight).",
+   "can_fail_because": "A member was redeployed after F5, a hub was rebuilt with another kit or row, or F5's 31100 was listed instead.",
+   "mutants": [
+    [
+     "F5's hub (31100) listed as F5B's in the manifest",
+     "FAIL"
+    ]
+   ]
+  },
+  "P-DEPLOY": {
+   "claim": "Every member and both hubs are registered exactly once across the six Memoria.ini folders; members keep their ForkDonorPatch rows; hubs have none and no mod walkmesh.",
+   "pass": "12/12 members each have one FieldScene line and one fork row (R.preflight, rung3_trace.py:259-305); 31113 and 31114 each have one FieldScene and one MessageFile, no fork row and no walkmesh.",
+   "fail": "Any missing, duplicated or misnamed registration; the session stops.",
+   "void": "None (pre-flight).",
+   "can_fail_because": "Another session deployed over the band, a deploy was reverted, or a hub got a fork row.",
+   "mutants": [
+    [
+     "preflight5b over the offline builds merged into one mod root: every static check PASS, in the frozen order",
+     "PASS"
+    ],
+    [
+     "the merged root with a ForkDonorPatch row for 31113: the per-hub install clause",
+     "FAIL"
+    ]
+   ]
+  },
+  "P-HUB": {
+   "claim": "Each deployed hub is its frozen seed and nothing else (judged per hub).",
+   "pass": "The live US .eb global store sites equal the frozen list exactly. F5B has 17: 11 prologue stores plus e2 t3 +23 UInt16[0]:=2600, +31 Bit[2078]:=1, +40 Bit[2086]:=1, +49 UInt16[208]:=0, +57 UInt16[297]:=1, +95 Int16[2]:=6. CTL has 15: 11 plus +23, +31 UInt16[208]:=0, +39 UInt16[297]:=1, +95 Int16[2]:=6. Also eblint.warp_targets == {31101}, forkreport.scenario_gates == [], storyseed.read_set == {}, and options == ['Dali (SC 2600)', 'Stay here, kupo...'].",
+   "fail": "Any extra, missing, reordered or re-valued store, another warp target, an SC gate, a story read or another option text; the session stops.",
+   "void": "None (pre-flight).",
+   "can_fail_because": "The hubs are swapped, built from another row or label, the entrance store is missing, or 297 is stamped with another value.",
+   "mutants": [
+    [
+     "the built hubs PASS P-HUB (both), P-PARTYOPS and P-ENTRY",
+     "PASS"
+    ],
+    [
+     "(carried) the F5B hub built with set_scenario 2610",
+     "FAIL"
+    ],
+    [
+     "the F5B hub's menu option and a row data line changed in its hub.field.toml and journeys.toml (the bytes as frozen): the text clauses",
+     "FAIL"
+    ]
+   ]
+  },
+  "P-PARTYOPS": {
+   "claim": "The picks' party operations, which the trace cannot see, are the frozen ones.",
+   "pass": "F5B pick: RemoveParty(2) +66, (3) +69, (1) +72, B_PARTYADD(0) +75, all before Field(31101) +109, and scan_party_ops adds [0] removes [1,2,3]. CTL pick: B_PARTYADD 2,3,1,0 at +48/+57/+66/+75, no RemoveParty, adds [0,1,2,3] removes [].",
+   "fail": "Any other op, order or position; the session stops.",
+   "void": "None (pre-flight).",
+   "can_fail_because": "The row lost its party_remove, removes were emitted after adds, or the CTL hub was deployed as F5B.",
+   "mutants": [
+    [
+     "the CTL hub's bytes read as F5B's (P-HUB FAILs too)",
+     "FAIL"
+    ]
+   ]
+  },
+  "P-ENTRY": {
+   "claim": "The hand-over the post phase models is the one deployed and the one stock uses.",
+   "pass": "eventscan.scan_gateways(stock 352) == one exit to 351 with entrance 6. storyseed.exit_fold(stock 352, e14, 351, 6, 2600, ...) returns no clash, 2103 == 0, and the SC stores at +94/+108 dead. Each hub writes Int16[2]:=6 after all its stamps and before Field(31101). Stock 351's player setup has a case for entrance 6.",
+   "fail": "Any of these does not hold; the session stops.",
+   "void": "None (pre-flight).",
+   "can_fail_because": "A hub was built with another --entrance, a mod folder overrides 352 or 351, or a gen-hub change moved the entrance write after Field.",
+   "mutants": [
+    [
+     "the F5B hub built with entrance 2",
+     "FAIL"
+    ],
+    [
+     "the F5B hub with its Int16[2] := 6 store swapped with the UInt16[208] stamp (the entrance stored before a stamp): the order clause",
+     "FAIL"
+    ]
+   ]
+  },
+  "P-PURE": {
+   "claim": "Every reused member is a pure verbatim fork of its donor with its exits remapped (v3, unchanged).",
+   "pass": "12/12 live member .eb == content/verbatim.remap_fields(stock donor, CHAIN_MAP), and seams == {31108: [404], 31112: [451, 453]}.",
+   "fail": "Any member differs; the session stops.",
+   "void": "None (pre-flight).",
+   "can_fail_because": "A member was rebuilt with a [startup] prepend or an unremapped exit since F5.",
+   "mutants": [
+    [
+     "(carried) 31103 built with 450 left unremapped",
+     "FAIL"
+    ],
+    [
+     "(carried) a chain seeded by story-seed without --hub (a prepend)",
+     "FAIL"
+    ]
+   ]
+  },
+  "P-FLOOR": {
+   "claim": "Every member's deployed walkmesh is its donor's stock walkmesh (v3, unchanged).",
+   "pass": "12/12 byte-equal.",
+   "fail": "0 or 2+ walkmeshes, or not the donor's; the session stops.",
+   "void": "None (pre-flight).",
+   "can_fail_because": "A member was redeployed with an edited or missing walkmesh."
+  },
+  "P-EXITS": {
+   "claim": "Every member's running exits are its donor's with only the targets remapped (v3, unchanged).",
+   "pass": "No TourError for any of the 12.",
+   "fail": "Any TourError; the session stops.",
+   "void": "None (pre-flight).",
+   "can_fail_because": "A gateway changed in a member."
+  },
+  "P-STOCK": {
+   "claim": "No mod folder overrides a stock Dali script, so S is stock (v3, unchanged).",
+   "pass": "T.stock_overrides is empty for all 12 donors.",
+   "fail": "Any override; the session stops.",
+   "void": "None (pre-flight).",
+   "can_fail_because": "Another session deployed a script under a Dali donor id."
+  },
+  "P-F5ROW": {
+   "claim": "OFFLINE, before deploy: the fixed resolver leaves every pre-phase row as it was, and derives exactly the frozen F5B and CTL rows.",
+   "pass": "On copies: story-seed --entry 31111 leaves f5/hub/journeys.toml cmp-identical; gen-hub reproduces hub.field.toml; the build's US eb sha256 is 148bda04...7051; round 7's row is cmp-identical; the five single-field seeds and seed_chain's member tomls are identical before and after; the F5B and CTL data lines equal the frozen texts; the hub builds give d140317d...4b97 and 069e9d2f...8c08. Recorded in rung5b_forks.json.",
+   "fail": "Any byte differs; the plan stops (F5 would need its own regression run, or the rows are re-frozen with a reason).",
+   "void": "None (a gate).",
+   "can_fail_because": "The post pass leaks into the default path, the slug or label changes without a flag, the emission order of existing lines moves, or the chain copy is named other than dali_chain."
+  },
+  "P-PINS": {
+   "claim": "The resolver's regression pins actually RAN, in --offline-check and again in --preflight.",
+   "pass": "pytest -rA over the 7 F5b tests (5 synthetic plus test_real_f5_row_is_unchanged and test_real_dali_post_wake_row) reports each one PASSED.",
+   "fail": "Any FAILED, or any SKIPPED (a skip is not a pass); the session stops.",
+   "void": "None.",
+   "can_fail_because": "The census moved (the locator finds nothing), the install's event bundle is unreadable, or a later storyseed change moved the F5 or post-wake row.",
+   "mutants": [
+    [
+     "the census locator pointed at an empty directory: the real pins SKIP",
+     "FAIL"
+    ],
+    [
+     "the seven F5b resolver pins, each PASSED",
+     "PASS"
+    ]
+   ]
+  },
+  "P-HUBLEG": {
+   "claim": "In game, untraced, before run 1: each hub's leg reaches its menu, the stay row stays, the hub throws nothing, and the hub arrival's autosave is the New Game baseline (judged per hub).",
+   "pass": "Via p_hubleg5b on the per-hub view: options ['Dali (SC 2600)','Stay here, kupo...'] with cursor 0; the stay row keeps him in the hub with control for 60 frames; no THROWS exception. Also a hub-arrival autosave read taken INSIDE the leg (after the warp, before the stay row) is fresh (st_mtime_ns > the pre-warp read's, sha stable over two reads 10 frames apart) and reads SC 2540, Int16[2] 0, slot [0,255,255,255].",
+   "fail": "The leg, the menu, the stay row or an exception fails; the session stops. The autosave clause gets one retry of the leg; if it fails twice the session goes on, R5B-PARTY is VOID, and the frozen verdict can be at most NOT PROVEN (party).",
+   "void": "None (pre-flight).",
+   "can_fail_because": "A new hub id is not registered (no relaunch), the narrator rig changed, an engine exception occurs in the hub, or a debug warp does not autosave.",
+   "mutants": [
+    [
+     "the recorded F5B leg FAILED (the session would have stopped there): VERDICT FAILED: P-HUBLEG",
+     "FAIL"
+    ],
+    [
+     "no CTL leg recorded: P-HUBLEG VOID, the verdict NOT PROVEN",
+     "VOID"
+    ]
+   ]
+  },
+  "P-PARTYREMOVE": {
+   "claim": "In game, untraced, before run 1: the F5B pick's RemoveParty ops really remove members (the known positive the in-session party read lacks, since New Game is already Zidane alone).",
+   "pass": "Five steps. New Game, then read r0. H5.hub_leg(view(CTL)) lands in 31101, and r1 (fresh vs r0; SC 2600, Int16[2] 6) reads [0,2,3,1]. H5.hub_open(view(F5B)) warps 31101 to 31113, and r2 (fresh vs r1; SC 2540, Int16[2] 0) reads [0,2,3,1]. H5.hub_pick(F5B) lands in 31101, and r3 (fresh vs r2; SC 2600, Int16[2] 6) reads [0,255,255,255]. Then restore_baseline. One retry is allowed.",
+   "fail": "r1 and r2 as expected and r3 != [0,255,255,255] (inert removes read [0,2,3,1]); R5B-PARTY then FAILs.",
+   "void": "r1 or r2 not as expected, or a read not fresh, after the retry (the instrument is uncalibrated); R5B-PARTY is then VOID.",
+   "can_fail_because": "RemoveParty from a hub pick does not act on a real roster, the pick order puts the removes after the warp, or the autosave does not reflect the pick's party.",
+   "f5c": {
+    "claim": "The F5B pick's removes act on a real roster (v1's frozen rule, unchanged, untraced).",
+    "pass": "r1 [0,2,3,1], r2 [0,2,3,1], r3 [0,255,255,255], each read fresh.",
+    "fail": "r1 and r2 are calibrated and r3 is not [0,255,255,255].",
+    "void": "The leg did not complete, or r1/r2 are uncalibrated or stale, after one retry.",
+    "can_fail_because": "The removes are inert (for example AllCharactersAvailable >= 2). A missing or broken fix would put the window back in 31101 and VOID it again; P-AMBIENT then names why."
+   },
+   "mutants": [
+    [
+     "r3 re-reads r2's file (the F5B pick's landing wrote no autosave): not fresh -- VOID, never the FAIL its stale [0,2,3,1] would fake; R5B-PARTY VOID",
+     "VOID"
+    ]
+   ]
+  },
+  "R5-RUNS": {
+   "claim": "The session is registered and paired across three sides, and the walk gates hold.",
+   "pass": "Order [S,F5B,CTL]x3, then only the re-runs rerun_plan5b names from the runs before each. Every F5B/CTL names its round's S (a re-run names the plan's partner). Every F5B's partner walk[0] == [352,0,351]. Every CTL ran only on a partner with walk[0:2] == [[352,0,351],[351,0,350]] (otherwise recorded skipped). rec.walk == the partner's entered walk, and replay_why5b finds walk[1:] (F5B) or walk[1:2] (CTL). No covered S has two covered F5B or two covered CTL twins, and there is no re-run after THE HALT.",
+   "fail": "Any order, partner, gate, walk, twin or re-run fault, named.",
+   "void": "None.",
+   "can_fail_because": "A driver bug in the three-side planner, a walk slice other than the frozen one, or a CTL run on a non-qualifying partner.",
+   "mutants": [
+    [
+     "a re-run after THE HALT",
+     "FAIL"
+    ],
+    [
+     "the wrong order (S F5B F5B CTL S CTL ...)",
+     "FAIL"
+    ],
+    [
+     "the wrong partner (F5B#5 partners S#1)",
+     "FAIL"
+    ],
+    [
+     "two covered F5B runs on one partner (a re-run F5B on S#1)",
+     "FAIL"
+    ],
+    [
+     "an F5B log replaying the WHOLE walk (352.0 -> 351 included): F5B#2 VOID, named by replay_why5b",
+     "VOID"
+    ],
+    [
+     "CTL partnered with a walk whose step 2 is 351.1 -> 352: skipped, not run; the plan picks another S (CTL on S#7), and that re-run is recorded",
+     "PASS"
+    ],
+    [
+     "the same, but the CTL re-run is driven on S#4, whose walk fails the CTL gate",
+     "FAIL"
+    ],
+    [
+     "F5B partnered with a walk whose step 1 is not 352.0 -> 351: VOID, named, not driven; the plan names a fresh S",
+     "VOID"
+    ]
+   ]
+  },
+  "R5-DONOR": {
+   "claim": "Every row stands where it should and names the right donor.",
+   "pass": "From the start on, every F5B/CTL row stands in a member and names its donor. Every S row is a real field naming itself, with none in 311xx or 30830-30852. Raw rows before the start stand in 31113 (F5B) or 31114 (CTL) with don == fld. At least one fork run was read.",
+   "fail": "A wrong donor, a real-field row after the start, or a hub row naming another donor.",
+   "void": "No fork run read.",
+   "can_fail_because": "A ForkDonorPatch row changed, or a hub got a fork row.",
+   "mutants": [
+    [
+     "one member row with don 999 (F5B#2)",
+     "FAIL"
+    ]
+   ]
+  },
+  "R5-JOIN": {
+   "claim": "Every digested row joins a store in the bytes its side ran.",
+   "pass": "0 join failures and no digest note over every digested run; hub rows are joined only by R5-STAMP.",
+   "fail": "Any failure or note (mutant: a member row with ip off by one).",
+   "void": "No run digested.",
+   "can_fail_because": "The scripts snapshot differs from what ran, or the tracer's ip semantics changed.",
+   "max_failures": 0,
+   "mutants": [
+    [
+     "F5B#2's hub leg raised before the pick (prologue rows only): DRIVE, never digested; its re-run covered",
+     "PASS"
+    ],
+    [
+     "(guard, the VOID branch) every run skipped -- the session budget spent before run 1",
+     "VOID"
+    ],
+    [
+     "one member row's ip off by one (F5B#2)",
+     "FAIL"
+    ]
+   ]
+  },
+  "R5-REACH": {
+   "claim": "The fixed-seed fork does not stop where stock goes on.",
+   "pass": "Every non-covered F5B with a covered partner has a frozen stop class (DRIVE, or FORK-STOP hub / landing@351 / replay@<s>(<step>) / scene@<place>@<sc>), and no FORK-STOP point repeats.",
+   "fail": "Two F5B runs FORK-STOP at one point (THE HALT).",
+   "void": "No F5B run with a covered partner; an UNCLASSED stop keeps it from PASS.",
+   "can_fail_because": "The post-wake seed soft-locks the 351 arrival, an ATE state breaks a scene, or a latch changes a room's flow so a step diverges.",
+   "mutants": [
+    [
+     "all 3 F5B runs break at replay step 14 of walk[1:] (350.6 -> 450, entered 355): THE HALT",
+     "FAIL"
+    ],
+    [
+     "all 3 F5B landings soft-lock in member(351) (FORK-STOP landing@351): THE HALT",
+     "FAIL"
+    ],
+    [
+     "F5B#2 FORK-STOPs at replay step 14, its re-run on S#1 at the same point (R5-RUNS VOID, no structural fault)",
+     "FAIL"
+    ],
+    [
+     "one F5B FORK-STOP (F5B#2 at replay step 14) reproduced nowhere: its re-run on S#1 covered; VERDICT NOT PROVEN: walk",
+     "VOID"
+    ],
+    [
+     "(guard, the landing) F5B#2 and its re-run: the leg returned in 31101 and a live soft-lock stopped each before member(351) wrote a row -- FORK-STOP landing@351, never DRIVE",
+     "FAIL"
+    ],
+    [
+     "(guard, the hub leg's budget) F5B#2's own hub_s ran out after its stamps, no row in 31101: DRIVE; its re-run covered",
+     "PASS"
+    ],
+    [
+     "(guard, the hub leg's budget) the same with member(351)'s first 20 rows traced: DRIVE, never UNCLASSED",
+     "PASS"
+    ],
+    [
+     "(guard, the landing wait) F5B#2's wait for 31101 timed out though its trace has 20 rows there: DRIVE (the harness's view)",
+     "PASS"
+    ],
+    [
+     "(guard, the hub FORK-STOP's text) the stamps landed, no row in 31101, and the stop is a poll's ack: UNCLASSED",
+     "VOID"
+    ],
+    [
+     "F5B#2 stops on 'the gated door was never faced' (DRIVE), its re-run covered",
+     "PASS"
+    ],
+    [
+     "(guard, the frozen stop-class table) F5B#2 and its re-run raise a live soft-lock in the replay in member(350) at 2600: FORK-STOP scene@350@2600",
+     "FAIL"
+    ],
+    [
+     "(guard) F5B#2 stops for a reason no pattern names: UNCLASSED keeps R5-REACH from PASS",
+     "VOID"
+    ],
+    [
+     "(guard, the frozen stop-class rule) F5B#2's game died in the hub AFTER its stamps (the trace never closed): DRIVE, never FORK-STOP hub",
+     "PASS"
+    ],
+    [
+     "(guard, the replay point) F5B#2 breaks at replay step 14 of S#1's walk, F5B#5 at step 14 of session 3's S#7 walk: two points, no halt",
+     "VOID"
+    ],
+    [
+     "(guard) CTL#3 and CTL#6 FORK-STOP at landing@351: listed, never THE HALT (F5B's alone)",
+     "PASS"
+    ]
+   ]
+  },
+  "R5-PREFIX": {
+   "claim": "THE PAIRED-WALK LAW for F5B runs that did not finish.",
+   "pass": "Every digested F5B whose partner is covered has keys that are a subset of the partner's post-wake window keys, plus SUPP keys admitted by supp_ok (SUPP-PROVEN with the partner's dominance evidence; SUPP-BLIND value-checked), outside the timing site.",
+   "fail": "Any other key, named with its run.",
+   "void": "No such run.",
+   "can_fail_because": "The fork writes a key stock never writes after the wake (a wrong seed value reaching a branch).",
+   "mutants": [
+    [
+     "a truncated F5B run (a DRIVE stop, the session budget, at replay step 15) carrying one key its partner's window lacks",
+     "FAIL"
+    ],
+    [
+     "(guard, the VOID branch) every F5B hub leg raised before the pick: none reached 31101",
+     "VOID"
+    ]
+   ]
+  },
+  "R5-STAMP": {
+   "claim": "Each hub's rows are its frozen seed (judged per hub, from the RAW trace, joined against the hub snapshot).",
+   "pass": "In every run that reached 31101, the hub's rows are only e0 t0 prologue stores plus exactly the frozen stamps in order, with src eb and don = hub id. F5B: UInt16[0] 2540->2600 (+23 ip136), Bit[2078] 0->1 (+31 ip144), Bit[2086] 0->1 (+40 ip153), UInt16[208] 0->0 (+49 ip162), UInt16[297] 0->1 (+57 ip170), Int16[2] 0->6 (+95 ip208). CTL: +23, UInt16[208] (+31 ip144), UInt16[297] (+39 ip152), Int16[2] 0->6 (+95 ip208). No row writes outside its target's width.",
+   "fail": "A missing, extra, reordered or re-valued stamp, a cs/harness row in the hub, or a width clobber.",
+   "void": "No run reached 31101.",
+   "can_fail_because": "The deployed hub is not the frozen one, a stamp did not execute, or the lead-in left Int16[2] or SC at another value.",
+   "mutants": [
+    [
+     "F5B#2's stamps landed, then its first member row is in 31104, never 31101 (FORK-STOP hub)",
+     "FAIL"
+    ],
+    [
+     "R5-STAMP fed r['pre'] (from_start's FIELD list) as its rows: the base (the STAMP_SOURCE guard)",
+     "FAIL"
+    ],
+    [
+     "the F5B hub's 297 stamp dropped",
+     "FAIL"
+    ],
+    [
+     "an extra F5B hub Bit write (e2 t3 ip 180 Bit[2065] := 1)",
+     "FAIL"
+    ],
+    [
+     "the F5B hub's rows carry don 351",
+     "FAIL"
+    ],
+    [
+     "an F5B hub stamp's ip off by one (SC at 137)",
+     "FAIL"
+    ],
+    [
+     "an F5B hub UInt16[296] := 192 after its 297 stamp: the exact list AND the width clause",
+     "FAIL"
+    ]
+   ]
+  },
+  "R5-STOCKSTATE": {
+   "claim": "Regression on S and the reconstructor: fresh stock runs reproduce the wake-instant state (v3, unchanged).",
+   "pass": "Stamp bytes 0/1/208/209/297/298 read 40/10/0/0/1/0; the set changed from New Game is v3's 21 bytes; only byte 299 varies; 0 calibration contradictions.",
+   "fail": "Any difference.",
+   "void": "Fewer than 3 covered S runs.",
+   "can_fail_because": "The engine, the stock scripts or the harness lead-in changed since F5.",
+   "mutants": [
+    [
+     "stock 359 +220 UInt16[297] := 3 in every stock run",
+     "FAIL"
+    ],
+    [
+     "S#1 changes one more byte before the wake",
+     "FAIL"
+    ],
+    [
+     "S#1's 352 +2096 Bit[2078] := 1 row dropped, not re-seated: a named contradiction (R5B-LAND/STATE VOID too)",
+     "VOID"
+    ]
+   ]
+  },
+  "R5B-NOWAKE": {
+   "claim": "The fork sides entered PAST the wake: the wake never runs on them.",
+   "pass": "No F5B/CTL raw row is the wake store (352 e17 t1 SC:=2600), none stands in 31111, none stands in 31104 before the first 31101 row, and the first member row is in 31101.",
+   "fail": "Any of those rows.",
+   "void": "No fork run reached a member.",
+   "can_fail_because": "A wrong entrance (4 replays the wake), a wrong entry id, or a pick landing in 31104.",
+   "mutants": [
+    [
+     "F5B#2's pick entered member(352) at entrance 4: the wake replays",
+     "FAIL"
+    ],
+    [
+     "every fork hub leg raised before the pick: no fork run reached a member",
+     "VOID"
+    ]
+   ]
+  },
+  "R5B-LAND": {
+   "claim": "The seed lands on stock's hand-over state: at the landing instant F5B equals stock outside the registered landing set, which differs exactly as registered.",
+   "pass": "Per covered pair, the reconstructed states after the last row before each side's first entry row (S: its first post-wake 351 row; F5B: its first 31101 row) are compared per bit over the union, with New-Game fallback and byte 299 aside. They differ on exactly the frozen 53 bits in bytes {9,10,13,18,19,21,61,62,63,238,239,241,251,296,303} with the frozen values, so SC, 208/209, 297/298, Int16[2]=6 and bits 2078/2086/2103 are equal. Both sides have 0 contradictions.",
+   "fail": "Any unregistered differing bit, or a registered bit that does not differ.",
+   "void": "Fewer than 3 covered pairs, a reconstruction contradiction (named), or R5B-CONTROL clause (b) not PASS (uncalibrated).",
+   "can_fail_because": "The latch stamps did not land, the entrance store is missing, the hub leaked a byte, or stock's hand-over state moved.",
+   "mutants": [
+    [
+     "the reverse half-fixed seed: the F5B hub without its 2078/2086 stamps (the removes kept) -- 351 takes ATE(0) as CTL does, the lobby exit's ip105 and 450's ip338 do not fire, 350's mask is 8: the latch-half checks catch it",
+     "FAIL"
+    ],
+    [
+     "F5B#2's SC stamp row lost, not re-seated: bytes 0/1 were known (the field-70 residue), so the 2610 advance's old contradicts -- a reconstruction contradiction, named",
+     "VOID"
+    ],
+    [
+     "F5B#2's Bit[2078] stamp row lost, not re-seated: its first-seen old is 1 where stock's is 0 -- the New Game values disagree, named",
+     "VOID"
+    ],
+    [
+     "(guard, the uncalibrated rule) stock 359 +220 UInt16[297] := 3: R5B-LAND sees byte 297 differ, but R5B-CONTROL (b) FAILs on the same byte, so it is VOID -- an uncalibrated difference is never a FAIL",
+     "VOID"
+    ]
+   ]
+  },
+  "R5B-STATE": {
+   "claim": "After the entry's own arrival (the HAND-BACK cut) the fixed seed equals stock bit for bit outside the registered residual R, which differs exactly as registered.",
+   "pass": "Per covered pair, the states after the last row before the first post-landing row outside the entry field or with tag != 0 differ on exactly R's 34 bits (F5B 0; stock 18=1, 19=15, 21=15, 61/62/63=255, 303=1), byte 299 aside, with 0 contradictions. UInt16[251] (class iii) is equal here by construction and is not claimed.",
+   "fail": "Any other differing bit, or an R bit that does not differ.",
+   "void": "Fewer than 3 covered pairs, a contradiction, or R5B-CONTROL clause (a) not PASS (without a control that fails, this check cannot fail).",
+   "can_fail_because": "Absent or wrong bits 2078/2086 make 351 compute ATE mask 0 (238/241/251 = 0 where stock has 1/6/6); a wrong 297 changes the mask; a stamped byte 19 breaks R.",
+   "mutants": [
+    [
+     "the F5B hub also stamps UInt16[19] := 15 (R's byte 19 no longer differs)",
+     "FAIL"
+    ],
+    [
+     "F5B#8 VOID (a DRIVE stop, no re-run): 2 covered pairs",
+     "VOID"
+    ]
+   ]
+  },
+  "R5B-CONTROL": {
+   "claim": "The instrument is calibrated: today's pre-phase row (--pre-phase-control), entered at the same place, FAILS exactly as registered.",
+   "pass": "In every covered CTL run (at least 2): (a) the hand-back diff vs its partner == R plus {238, 241, 251, 259, 260} (41 bits, frozen values); (b) the landing diff == the landing set plus {259, 260} (55 bits); (c) its landing burst has FORK ONLY == {351 e0 +791 SByte[238]=0, +799 Int16[241]=0} plus the three 351 SUPP keys admitted by the same supp_ok as F5B, and STOCK ONLY == {+734, +742, +770}; (d) its step-1 crossing has no 351 e16 t2 ip105 row and has ip146 Bit[2064] 0->1; (e) its landing autosave slot is [0,2,3,1], fresh.",
+   "fail": "Any of clauses (a)-(d) does not hold; each failed clause makes its dependent R5B check VOID as uncalibrated.",
+   "void": "Fewer than 2 covered CTL runs (then every dependent R5B check is VOID), or clause (e) not PASS: the party instrument uncalibrated, so R5B-PARTY is VOID and the frozen verdict names the party half NOT PROVEN -- never a FAILED headline.",
+   "can_fail_because": "The rooms do not recompute the ATE state from the latches as read, the autosave does not reflect the pick's party, or the control hub was built with the fix.",
+   "mutants": [
+    [
+     "every other check PASS but only 1 covered CTL: VERDICT NOT PROVEN: state, latches, party (uncalibrated)",
+     "VOID"
+    ],
+    [
+     "the rooms do not recompute the ATE state from the latches as read (CTL's 351 arrival runs stock's ATE(1) burst): clauses (a) and (c) FAIL, R5B-STATE and R5B-ARRIVAL VOID",
+     "FAIL"
+    ]
+   ]
+  },
+  "R5B-ECHO": {
+   "claim": "The consumers of the fixed latches fire as in stock.",
+   "pass": "In every covered S (post-wake) and every covered F5B: 351 e16 t2 ip105 Bit[2078] old 1 -> 0 (changing) and 450 e0 t0 ip338 Bit[2086] old 1 -> 0 (changing), each a member key on F5B.",
+   "fail": "Either row missing, same-value, or with another old value on a covered F5B.",
+   "void": "Fewer than 3 covered pairs, or R5B-CONTROL clause (d) not PASS.",
+   "can_fail_because": "The stamps landed but were overwritten before the consumers ran, or never landed.",
+   "mutants": [
+    [
+     "450 e0 ip338 Bit[2086] 1 -> 0 lost from every F5B run",
+     "FAIL"
+    ],
+    [
+     "CTL's step-1 crossing has an ip105 row: R5B-CONTROL (d) FAIL",
+     "VOID"
+    ]
+   ]
+  },
+  "R5B-ARRIVAL": {
+   "claim": "The entry's arrival is stock's step-1 arrival, key for key.",
+   "pass": "Every covered F5B's landing burst (its 31101 rows up to the hand-back cut) has exactly the frozen 11 keys: stock's 8 step-1 arrival keys (351 e0 +51 Int16[9]=1483, +124 Byte[13]=1, +241 Int16[239]=2, +734 SByte[238]=1, +742 Int16[241]=6, +770 UInt16[251]=6, +1872 Byte[13]=2, e4 +12 SByte[296]=-64) plus SUPP's three 351 keys.",
+   "fail": "Any extra or missing key in the burst.",
+   "void": "Fewer than 3 covered F5B, or R5B-CONTROL clause (c) not PASS.",
+   "can_fail_because": "The mask is computed from other latch values (ATE(0) at +791/+799), or the arrival takes another entrance branch.",
+   "mutants": [
+    [
+     "every F5B landing burst also writes 351 e0 +791 SByte[238] = 0",
+     "FAIL"
+    ],
+    [
+     "CTL's landing burst lacks +791: R5B-CONTROL (c) FAIL",
+     "VOID"
+    ]
+   ]
+  },
+  "R5B-PARTY": {
+   "claim": "The party the seed leaves equals stock's post-wake party (Zidane alone), with the removes proven load-bearing.",
+   "pass": "P-PARTYREMOVE PASS. Every covered F5B's landing slot and run-end slot equal its partner S's run-end slot, all [0,255,255,255]. Every read is fresh by the frozen rule: mtime > its baseline, sha stable; landing reads name SC 2600 and Int16[2] 6; run-end reads name the SC and Int16[2] of the trace's last field entry. No row in either window touches bytes {18,19,21,60..63,303}. The reserve (players[].info.party) and HP/status are recorded, not judged.",
+   "fail": "P-PARTYREMOVE FAIL (inert removes), or a fresh F5B slot differs from its partner's.",
+   "void": "P-PARTYREMOVE VOID, no fresh read, the P-HUBLEG baseline not [0,255,255,255], a party-footprint row in a window, or R5B-CONTROL clause (e) not PASS.",
+   "can_fail_because": "RemoveParty from a pick is inert on a real roster (caught by P-PARTYREMOVE's r3), a pick adds a member back, or the fixed row's party ops differ from the frozen ones.",
+   "f5c": {
+    "claim": "The fixed row stamps Zidane-alone at the landing (v1's frozen rule).",
+    "pass": "P-PARTYREMOVE PASS; both P-HUBLEG autosaves [0,255,255,255]; at least 3 F5B pairs fresh at [0,255,255,255] at landing, F5B-end and S-end, with no footprint row; R5B-CONTROL(e) PASS.",
+    "fail": "P-PARTYREMOVE FAIL, or any read differs.",
+    "void": "P-PARTYREMOVE VOID, or an autosave not ok.",
+    "can_fail_because": "The resolver's party_remove is wrong. CTL's [0,2,3,1] shows the instrument can fail in the game."
+   },
+   "mutants": [
+    [
+     "every F5B landing read with an unchanged mtime; VERDICT NOT PROVEN: party",
+     "VOID"
+    ],
+    [
+     "P-PARTYREMOVE r3 = [0,2,3,1] (the removes inert); VERDICT FAILED",
+     "FAIL"
+    ],
+    [
+     "the party instrument never calibrates -- the CTL pick's adds do not show in the autosave: P-PARTYREMOVE r1 AND every CTL landing read [0,255,255,255] (one cause, read twice): P-PARTYREMOVE, R5B-CONTROL (e) and R5B-PARTY VOID; VERDICT NOT PROVEN: party",
+     "VOID"
+    ],
+    [
+     "every F5B landing read's sha changed between its two reads 10 frames apart (stable False): not fresh",
+     "VOID"
+    ],
+    [
+     "F5B#2's run-end read names Int16[2] 99, not the trace's last entry: that read VOID",
+     "VOID"
+    ],
+    [
+     "latches pass, party VOID (both P-HUBLEG autosave clauses failed twice): VERDICT NOT PROVEN: party",
+     "VOID"
+    ],
+    [
+     "every F5B landing and run-end slot reads [0,2,3,1], fresh",
+     "FAIL"
+    ],
+    [
+     "a party-footprint row (350 e33 Byte[303] := 0) in S#1's and F5B#2's windows",
+     "VOID"
+    ],
+    [
+     "every CTL landing slot reads [0,255,255,255]: R5B-CONTROL (e) FAIL -- the party instrument uncalibrated, so R5B-CONTROL is VOID (never FAIL) and the verdict NOT PROVEN: party",
+     "VOID"
+    ]
+   ]
+  },
+  "R5-MIRROR": {
+   "claim": "S's post-wake window versus F5B from its entry: nothing on one side only, except the frozen excusals.",
+   "pass": "FORK ONLY is a subset of SUPP, each key admitted by supp_ok. SUPP-PROVEN (351 e0 +132, 352 e0 +51, 352 e0 +132) needs S's same:1 pre-wake emission with that value, S's count row last == value, AND a post-wake S row in the same function at a site the key's site dominates, in that run. SUPP-BLIND (351 e0 +194, +1377; 352 e0 +194, +646; 352 e2 +12) needs the value check only and is listed as a blind spot. STOCK ONLY is empty, except the two 352 e14 t2 step-1 keys when the partner's walk[1:] never crosses 352.0 -> 351 (computed from the walk beforehand). ACROSS SEAM and SEAM ONLY are empty, with no clobber. Guards: at least 150 keys in every covered S window, at least 110 tour keys from donors including {350,351,354,355,356,450}, and at least 40 post-450 keys.",
+   "fail": "Any other key on one side, named, including a SUPP-PROVEN key without its dominance evidence or any SUPP key with another value.",
+   "void": "Fewer than 3 covered runs on a side, or a thin stock guard (named).",
+   "can_fail_because": "A seed value (a latch, 297, the entrance, the party-record bytes) reaches a branch on the tour and changes what a room writes.",
+   "min_keys": 150,
+   "min_tour_keys": 110,
+   "tour_donors": [
+    350,
+    351,
+    354,
+    355,
+    356,
+    450
+   ],
+   "seam_field": 450,
+   "min_post_keys": 40,
+   "post_donors": [
+    350,
+    354,
+    356,
+    450
+   ],
+   "mutants": [
+    [
+     "the same stock key dropped from every F5B run (STOCK ONLY)",
+     "FAIL"
+    ],
+    [
+     "an extra key in every F5B run (FORK ONLY, not SUPP)",
+     "FAIL"
+    ],
+    [
+     "a member word store clobbering 297 (member(351) e4 SByte[296] run as UInt16[296] := 65472)",
+     "FAIL"
+    ],
+    [
+     "a SUPP-PROVEN key (351 e0 +132) with S#1's dominated evidence rows removed",
+     "FAIL"
+    ],
+    [
+     "a SUPP-BLIND key (351 e0 +1377 Byte[8]) written with another value in every F5B run",
+     "FAIL"
+    ],
+    [
+     "STOCK's own value at the SUPP-PROVEN site moves: S#1/#4/#7 emit 351 e0 +132 Int16[11] = -2 before the wake and count it -2 after, re-seated, while every F5B writes the frozen -1: the S-side value check refuses it (and 352 +132, re-seated off same:1); CTL's (c) FAILs by the same supp_ok",
+     "FAIL"
+    ],
+    [
+     "STOCK's own value at a SUPP-BLIND site moves: S#1/#4/#7 emit 351 e0 +1377 Byte[8] = 124 before the wake and count it 124 after, re-seated, while every F5B writes the frozen 125: the blind tier's value check -- its only guard -- refuses it (and 352 +646); CTL's (c) FAILs by the same supp_ok",
+     "FAIL"
+    ],
+    [
+     "every partner's walk[1:] never crosses 352.0 -> 351 (that exit renumbered in S's logs) and no F5B runs 352 e14 t2: both stock step-1 keys EXCUSED (R5-PARTIAL PASS too)",
+     "PASS"
+    ],
+    [
+     "every F5B's fresh 352 e14 t2 +116 Bit[2103] = 0 row dropped while its walk still crosses 352.0 -> 351: STOCK ONLY, not excused",
+     "FAIL"
+    ]
+   ]
+  },
+  "R5-PARTIAL": {
+   "claim": "THE PAIRED-WALK LAW over covered pairs.",
+   "pass": "For every covered pair, F5B's keys equal the partner window's keys modulo the same excusals as R5-MIRROR, outside the timing site. Keys that differ between pairs but agree within each are listed.",
+   "fail": "Any key in one run of a pair and absent from the other, named with the pair.",
+   "void": "Fewer than 3 covered pairs.",
+   "can_fail_because": "A pair-specific divergence that the whole-set MIRROR could average away.",
+   "mutants": [
+    [
+     "a stock key dropped from F5B#5 alone",
+     "FAIL"
+    ],
+    [
+     "pairs whose walks differ between pairs (session 3's S#7 as S#4, F5B#5 and CTL#6 on it) and agree within each: listed",
+     "PASS"
+    ]
+   ]
+  },
+  "R5-PING": {
+   "claim": "The ping is written by a member.",
+   "pass": "Stock writes Bit[2102]:=1 only from 450 in every covered S, and every covered F5B writes (450, e19, t2, Bit[2102], 1) as a member key in 31112, matched.",
+   "fail": "Another stock writer, or the F5B ping missing, across a seam, unmatched or from another donor.",
+   "void": "Fewer than 3 covered runs on a side.",
+   "can_fail_because": "The tour never reaches 450 on the fork, or 450 is entered as the real field.",
+   "target": "Global.Bit[2102]",
+   "value": 1,
+   "writers": [
+    450
+   ],
+   "pattern": {
+    "name": "450 e19 walk-in: Bit[2102] := 1 (the ping)",
+    "donor": 450,
+    "sid": 19,
+    "tag": 2,
+    "off": [
+     59,
+     80
+    ],
+    "target": "Global.Bit[2102]",
+    "value": [
+     1
+    ]
+   }
+  },
+  "R5-NOSEAM": {
+   "claim": "No seam: F5B stays inside the members after its entry.",
+   "pass": "No seam key, no real-field row after the start, and 450 entered as member 31112 in every covered F5B.",
+   "fail": "Any seam crossing or real-field row.",
+   "void": "Fewer than 3 covered F5B.",
+   "can_fail_because": "A replay step crosses 356 -> 404 or 450 -> 451/453.",
+   "mutants": [
+    [
+     "F5B rows from 450 on left in the real fields (F0-style)",
+     "FAIL"
+    ]
+   ]
+  },
+  "R5-ADVANCE": {
+   "claim": "The story advances to 2610 in a member at the partner's step.",
+   "pass": "In every covered F5B, the first row at SC >= 2610 is 354 e13 t1 +1152 UInt16[0]:=2610 in 31106 (don 354), matched, on the partner's entered-walk step minus one.",
+   "fail": "A covered F5B that never advances, or advances elsewhere, later or unmatched.",
+   "void": "Fewer than 3 covered F5B.",
+   "can_fail_because": "Post-wake latch or ATE state changes the conditions of the 354 scene.",
+   "sc": 2610,
+   "pattern": {
+    "name": "354 e13 t1 +1152 UInt16[0] := 2610",
+    "donor": 354,
+    "sid": 13,
+    "tag": 1,
+    "off": [
+     1152
+    ],
+    "target": "Global.UInt16[0]",
+    "value": [
+     2610
+    ]
+   },
+   "mutants": [
+    [
+     "the 2610 row moved to member(356) in every F5B run",
+     "FAIL"
+    ],
+    [
+     "F5B#8 replays its whole slice and never advances (passes exhausted)",
+     "FAIL"
+    ]
+   ]
+  },
+  "R5-LATCH": {
+   "claim": "Each of v3's eight hub-gated stock writes is written by the members in every covered F5B.",
+   "pass": "351 lobby e16 2064:=1 and 2078:=0; 450 Main_Init 2086:=0; 450 e19 2102:=1, SByte[296]:=3|2 and 2085:=1; the flip 2079:=1 and 2075:=1. Each is written in every covered S window and matched in every covered F5B, none across a seam.",
+   "fail": "Any missing or unmatched.",
+   "void": "Fewer than 3 covered runs on a side.",
+   "can_fail_because": "The seed's latch values stop a consumer or the controller's flip (2078:=0 and 2086:=0 need the stamped 1s).",
+   "patterns": [
+    {
+     "name": "351 lobby exit e16: Bit[2064] := 1",
+     "donor": 351,
+     "sid": 16,
+     "tag": 2,
+     "off": [
+      112
+     ],
+     "target": "Global.Bit[2064]",
+     "value": [
+      1
+     ]
+    },
+    {
+     "name": "351 lobby exit e16: Bit[2078] := 0",
+     "donor": 351,
+     "sid": 16,
+     "tag": 2,
+     "off": [
+      71
+     ],
+     "target": "Global.Bit[2078]",
+     "value": [
+      0
+     ]
+    },
+    {
+     "name": "450 Main_Init: Bit[2086] := 0",
+     "donor": 450,
+     "sid": 0,
+     "tag": 0,
+     "off": [
+      320
+     ],
+     "target": "Global.Bit[2086]",
+     "value": [
+      0
+     ]
+    },
+    {
+     "name": "450 e19 walk-in: Bit[2102] := 1 (the ping)",
+     "donor": 450,
+     "sid": 19,
+     "tag": 2,
+     "off": [
+      59,
+      80
+     ],
+     "target": "Global.Bit[2102]",
+     "value": [
+      1
+     ]
+    },
+    {
+     "name": "450 e19 walk-in: SByte[296] := 3 or 2",
+     "donor": 450,
+     "sid": 19,
+     "tag": 2,
+     "off": [
+      68,
+      89
+     ],
+     "target": "Global.SByte[296]",
+     "value": [
+      3,
+      2
+     ]
+    },
+    {
+     "name": "450 e19 walk-in: Bit[2085] := 1",
+     "donor": 450,
+     "sid": 19,
+     "tag": 2,
+     "off": [
+      98
+     ],
+     "target": "Global.Bit[2085]",
+     "value": [
+      1
+     ]
+    },
+    {
+     "name": "the controller's flip, any room: Bit[2079] := 1",
+     "tag": 1,
+     "off": [
+      222
+     ],
+     "target": "Global.Bit[2079]",
+     "value": [
+      1
+     ]
+    },
+    {
+     "name": "the controller's flip, any room: Bit[2075] := 1",
+     "tag": 1,
+     "off": [
+      315
+     ],
+     "target": "Global.Bit[2075]",
+     "value": [
+      1
+     ]
+    }
+   ],
+   "mutants": [
+    [
+     "Bit[2085] := 1 (450 e19) dropped from every F5B run",
+     "FAIL"
+    ]
+   ]
+  },
+  "R5-PREEMPT": {
+   "claim": "Consistency check implied by P-PURE: no pre-empted, prepend or unaligned F5B key.",
+   "pass": "PRE-EMPTED is empty, and no key has off < 0 or aligned False.",
+   "fail": "Any such entry.",
+   "void": "Fewer than 3 covered runs on either side.",
+   "can_fail_because": "Only if P-PURE's premise is broken (reported, not independent evidence)."
+  },
+  "NC-THROW": {
+   "claim": "Nothing is thrown through the event engine, evaluator, tracer or agent from the session's mark on.",
+   "pass": "No THROWS type with those frames after the mark, which is taken after both P-HUBLEGs and P-PARTYREMOVE.",
+   "fail": "Any such exception.",
+   "void": "None.",
+   "can_fail_because": "The post-wake seed drives a script path into an engine exception (e.g. a party op on an unexpected roster).",
+   "mutants": [
+    [
+     "(guard) NC-THROW recorded a throw: VERDICT FAILED: NC-THROW",
+     "FAIL"
+    ]
+   ]
+  },
+  "VERDICT": {
+   "claim": "The session's headline is the frozen rule, not a PASS count chosen after the data.",
+   "pass": "PROVEN: every check PASS; none of {P-PARTYREMOVE, R5-STAMP, HUB-ROWS-SAME, R5B-NOWAKE, R5B-CONTROL, R5B-LAND, R5B-STATE, R5B-ECHO, R5B-ARRIVAL, R5B-PARTY, R5-MIRROR, R5-PARTIAL, R5-LATCH, R5-ADVANCE, R5-REACH, R5-JOIN, R5-DONOR, NC-THROW} VOID; at least 3 covered F5B pairs; at least 2 covered CTL runs.",
+   "fail": "FAILED: <check> when any check FAILs.",
+   "void": "NOT PROVEN: <half> (<check>: <why>) when a load-bearing check is VOID or a minimum is unmet. The halves are state (CONTROL a/b, LAND, STATE, HUB-ROWS-SAME), latches (ECHO, ARRIVAL, LATCH), party (P-PARTYREMOVE, R5B-PARTY, CONTROL e) and walk (MIRROR, PARTIAL, REACH, ADVANCE, PING, NOSEAM); the halves that are proven are named as such.",
+   "can_fail_because": "Any load-bearing check FAILs, or the dry-run's verdict mutants (latches pass / party VOID; one covered CTL) do not map to NOT PROVEN. Version 2: HUB-ROWS-SAME is load-bearing in the state half; P-AMBIENT is reported only on THE FIX line, never an input to this rule.",
+   "f5c": {
+    "claim": "F5b's frozen rule plus HUB-ROWS-SAME, applied to the fixed hubs in one session.",
+    "pass": "PROVEN: every check PASS, with at least 3 F5B pairs and at least 2 CTL runs.",
+    "fail": "FAILED: <check>.",
+    "void": "NOT PROVEN: <half> (<why>).",
+    "can_fail_because": "Any load-bearing check fails, HUB-ROWS-SAME included. P-AMBIENT is reported only on THE FIX line."
+   },
+   "mutants": [
+    [
+     "the base construction (session 5's stock runs; F5B and CTL on the built hubs' bytes)",
+     "PROVEN: every check PASS"
+    ],
+    [
+     "all 3 F5B runs break at replay step 14 of walk[1:] (350.6 -> 450, entered 355): THE HALT",
+     "FAILED: R5-REACH"
+    ],
+    [
+     "one F5B FORK-STOP (F5B#2 at replay step 14) reproduced nowhere: its re-run on S#1 covered; VERDICT NOT PROVEN: walk",
+     "NOT PROVEN: walk (R5-REACH: VOID ... -- proven: state, latches, party"
+    ],
+    [
+     "every F5B landing read with an unchanged mtime; VERDICT NOT PROVEN: party",
+     "NOT PROVEN: party ( ... -- proven: state, latches, walk"
+    ],
+    [
+     "F5B#2's run-end read names Int16[2] 99, not the trace's last entry: that read VOID",
+     "NOT PROVEN: party ( ... -- proven: state, latches, walk"
+    ],
+    [
+     "latches pass, party VOID (both P-HUBLEG autosave clauses failed twice): VERDICT NOT PROVEN: party",
+     "NOT PROVEN: party ( ... -- proven: state, latches, walk"
+    ],
+    [
+     "P-PARTYREMOVE r3 = [0,2,3,1] (the removes inert); VERDICT FAILED",
+     "FAILED: P-PARTYREMOVE, R5B-PARTY -- P-PARTYREMOVE:"
+    ],
+    [
+     "the party instrument never calibrates -- the CTL pick's adds do not show in the autosave: P-PARTYREMOVE r1 AND every CTL landing read [0,255,255,255] (one cause, read twice): P-PARTYREMOVE, R5B-CONTROL (e) and R5B-PARTY VOID; VERDICT NOT PROVEN: party",
+     "NOT PROVEN: party (P-PARTYREMOVE: VOID ... R5B-CONTROL(e): not PASS ... -- proven: state, latches, walk"
+    ],
+    [
+     "r3 re-reads r2's file (the F5B pick's landing wrote no autosave): not fresh -- VOID, never the FAIL its stale [0,2,3,1] would fake; R5B-PARTY VOID",
+     "NOT PROVEN: party (P-PARTYREMOVE: VOID ... -- proven: state, latches, walk"
+    ],
+    [
+     "every F5B landing read's sha changed between its two reads 10 frames apart (stable False): not fresh",
+     "NOT PROVEN: party ( ... -- proven: state, latches, walk"
+    ],
+    [
+     "every CTL landing slot reads [0,255,255,255]: R5B-CONTROL (e) FAIL -- the party instrument uncalibrated, so R5B-CONTROL is VOID (never FAIL) and the verdict NOT PROVEN: party",
+     "NOT PROVEN: party ( ... R5B-CONTROL(e): not PASS ... -- proven: state, latches, walk"
+    ],
+    [
+     "the recorded F5B leg FAILED (the session would have stopped there): VERDICT FAILED: P-HUBLEG",
+     "FAILED: P-HUBLEG -- "
+    ],
+    [
+     "the reverse half-fixed seed: the F5B hub without its 2078/2086 stamps (the removes kept) -- 351 takes ATE(0) as CTL does, the lobby exit's ip105 and 450's ip338 do not fire, 350's mask is 8: the latch-half checks catch it",
+     "FAILED: R5-PREFIX, R5-STAMP, R5B-LAND, R5B-STATE, R5B-ECHO, R5B-ARRIVAL, R5-MIRROR, R5-PARTIAL, R5-LATCH -- "
+    ],
+    [
+     "no CTL leg recorded: P-HUBLEG VOID, the verdict NOT PROVEN",
+     "NOT PROVEN: party, other ( ... P-HUBLEG: VOID ... -- proven: state, latches, walk"
+    ],
+    [
+     "every other check PASS but only 1 covered CTL: VERDICT NOT PROVEN: state, latches, party (uncalibrated)",
+     "NOT PROVEN: state, latches, party ( ... -- proven: walk"
+    ],
+    [
+     "the rooms do not recompute the ATE state from the latches as read (CTL's 351 arrival runs stock's ATE(1) burst): clauses (a) and (c) FAIL, R5B-STATE and R5B-ARRIVAL VOID",
+     "FAILED: R5B-CONTROL -- "
+    ],
+    [
+     "(guard, the uncalibrated rule) stock 359 +220 UInt16[297] := 3: R5B-LAND sees byte 297 differ, but R5B-CONTROL (b) FAILs on the same byte, so it is VOID -- an uncalibrated difference is never a FAIL",
+     "FAILED: R5-STOCKSTATE, R5B-CONTROL -- "
+    ],
+    [
+     "(guard) NC-THROW recorded a throw: VERDICT FAILED: NC-THROW",
+     "FAILED: NC-THROW -- "
+    ],
+    [
+     "F5B#2's hub is entered with a 9 on the New-Game path: a 9 at ip109 and its clear at ip275 (olds re-seated) -- R5-STAMP stays PASS (its prologue skip)",
+     "FAILED: HUB-ROWS-SAME -- "
+    ],
+    [
+     "F5B#2's ip131 Byte[13] 1 -> 0 row dropped",
+     "FAILED: HUB-ROWS-SAME, "
+    ],
+    [
+     "F5B#2's hub entered with Byte[13] 0: its ip131 row reads 0 -> 0, not 1 -> 0 (the olds are compared) -- R5-STAMP stays PASS",
+     "FAILED: HUB-ROWS-SAME -- "
+    ],
+    [
+     "a count row at F5B#2's hub e0 t0 (its ip34 Bit[191] site, flushed before the off) -- R5-STAMP stays PASS",
+     "FAILED: HUB-ROWS-SAME -- "
+    ],
+    [
+     "one attempt over amb-v1-hub's rows RECORDED as verdict True / outcome PASS, through the analysis: THE FIX re-derives FAILED ((b)) from the file and names the disagreement",
+     "PROVEN: every check PASS"
+    ]
+   ]
+  },
+  "P-INI": {
+   "claim": "The install's Memoria.ini leaves the removes and the field-entry autosave to the engine: the party instrument and the pick's removes can work at all.",
+   "pass": "[Hacks] AllCharactersAvailable < 2, [SaveFile] DisableAutoSave = 0 and AutoSaveOnlyAtMoogle = 0, and [Netsync] Enabled = 0 or Role = host (a key the file lacks takes the engine's default: 0, host). The values read are recorded.",
+   "fail": "Any switch otherwise, or the file unreadable; the session stops (a static check).",
+   "void": "None (pre-flight).",
+   "can_fail_because": "Another session edits the shared Memoria.ini (AllCharactersAvailable = 2 makes RemoveParty a no-op, EventEngine.DoEventCode.cs:2757; the autosave switches stop the field-entry autosave).",
+   "keys": {
+    "Hacks": [
+     "AllCharactersAvailable"
+    ],
+    "SaveFile": [
+     "DisableAutoSave",
+     "AutoSaveOnlyAtMoogle"
+    ],
+    "Netsync": [
+     "Enabled",
+     "Role"
+    ]
+   },
+   "mutants": [
+    [
+     "a Memoria.ini with AllCharactersAvailable = 2 (RemoveParty a no-op) and DisableAutoSave = 1",
+     "FAIL"
+    ]
+   ]
+  },
+  "P-HUBDIFF": {
+   "claim": "The v2 hubs differ from v1 by exactly the TAIL, both offline and as deployed.",
+   "pass": "fixed == insert_in_function(v1 from keep_v1/hubs, 0, 0, 254, TAIL) for 7 languages x 2 hubs, on build_v2 (O9, O12) and on the deployed bytes (--preflight).",
+   "fail": "Any other byte differs. A missing or sha-mismatched keep_v1 is also FAIL, not VOID.",
+   "void": "None.",
+   "can_fail_because": "Master drift enters with the merge, or the deploy was built from another checkout. Measured true today.",
+   "mutants": [
+    [
+     "the built hubs are their preserved v1 builds plus exactly the tail, 7 languages x 2 hubs",
+     "PASS"
+    ],
+    [
+     "hub_fix.v1_build names a directory with no v1 build (FAIL, never VOID)",
+     "FAIL"
+    ],
+    [
+     "the F5B hub's US .eb with one more byte changed after the tail",
+     "FAIL"
+    ],
+    [
+     "a copy of keep_v1/hubs with one v1 byte changed (the F5B hub's jp .eb) and its SHA256SUMS kept, the v2 built on it: 'not its SHA256SUMS value'",
+     "FAIL"
+    ],
+    [
+     "a copy of keep_v1/hubs with the F5B US v1 changed AND its SHA256SUMS line rewritten, the v2 built on it: the frozen US v1_eb_sha256 catches it",
+     "FAIL"
+    ]
+   ]
+  },
+  "CARRY-CONSISTENCY": {
+   "claim": "Construction consistency: on the fixed bytes, the dry-run seats the New-Game hub rows at the same sites, so every carried v1 number re-derives. It claims nothing about the tail firing in game.",
+   "pass": "v2's re-derived LAND/R/CONTROL/SUPP/echo/arrival/party numbers equal v1's. Only registered keys differ.",
+   "fail": "Any carried number differs. Registered mutant: a TAIL placed before the prologue must FAIL.",
+   "void": "None.",
+   "can_fail_because": "rung5_dryrun.py:259's first-value seating picks a new `:= 0` site that precedes off 121.",
+   "mutants": [
+    [
+     "v1's carried numbers re-derive on the fixed bytes (only the registered store-site count moves) and every base fork run's hub e0 t0 rows seat at session 1's ng_rows",
+     "PASS"
+    ],
+    [
+     "hubs built with the TAIL before the prologue: its := 0 precedes off 121, the first-value seating moves",
+     "FAIL"
+    ]
+   ]
+  },
+  "HUB-ROWS-SAME": {
+   "claim": "In game, on the New-Game path, both fixed hubs write exactly what session 1's hubs wrote, and the tail never fires (load-bearing, state half).",
+   "pass": "For every covered F5B and CTL run that reached its hub, the hub's e0 t0 'w' rows equal ng_rows exactly: ip34 Bit[191] 0->0, ip61 Bit[184] 0->0, ip69 Int16[9] 643->-1, ip131 Byte[13] 1->0, ip150 Int16[11] -1->-1, ip212 Byte[14] 0->0. No 'c' row sits at hub e0 t0, and no row at ips 109/190/275/294.",
+   "fail": "Any mismatch. Registered mutants: hubrows-ng-fire-f5b (2->9 at 109 plus 9->0 at 275; R5-STAMP stays PASS), hubrows-ng-fire-ctl, hubrows-drop-131.",
+   "void": "Only through the coverage minima (fewer than 3 F5B or 2 CTL covered runs).",
+   "can_fail_because": "The harness warp out of 70 comes late enough that 70's := 2 runs, the tail fires on an arriving 1, or the fix touched the New-Game path.",
+   "mutants": [
+    [
+     "F5B#2's hub is entered with a 9 on the New-Game path: a 9 at ip109 and its clear at ip275 (olds re-seated) -- R5-STAMP stays PASS (its prologue skip)",
+     "FAIL"
+    ],
+    [
+     "the same in CTL#3's hub",
+     "FAIL"
+    ],
+    [
+     "F5B#2's ip131 Byte[13] 1 -> 0 row dropped",
+     "FAIL"
+    ],
+    [
+     "F5B#2's hub entered with Byte[13] 0: its ip131 row reads 0 -> 0, not 1 -> 0 (the olds are compared) -- R5-STAMP stays PASS",
+     "FAIL"
+    ],
+    [
+     "a count row at F5B#2's hub e0 t0 (its ip34 Bit[191] site, flushed before the off) -- R5-STAMP stays PASS",
+     "FAIL"
+    ]
+   ]
+  },
+  "P-AMBIENT": {
+   "claim": "In game, a hub entered with its slot-0 ambient marked playing clears the 9 at the new site, and the next Dali field arrives clean. Not an input to verdict5b.",
+   "pass": "(a) 31113 e0t0 ip109 2->9; then (b) ip275 9->0; then (c) 31101 e0t0 ip134 0->1; (d) no other new=9 row and no other tail-site row; control back in 31101.",
+   "fail": "By the registered table: (d) violated; (a) present with the next Byte[13] row not (b), while hub_control is True or False; (a)+(b) with hub_control False (hub stall); or landed with 31101 rows and the next Byte[13] row not (c). Mutants: amb-v1-hub, amb-stall-hub, amb-stall-member, amb-wrong-site, amb-hub-stall-after-clear, amb-window-member, amb-ng-fire, amb-stray-nine.",
+   "void": "Named outcomes, retried once, each attempt kept in ambient_trace_<k>.jsonl: arm, before-warp, no-precondition, cut-before-precondition, cut-after-precondition, drive-after-control, pick-did-not-land, cut-after-landing, other-blocker (control lost with (c) holding).",
+   "can_fail_because": "The pass is unwired or the deploy is stale (no ip275 row, 31101 keeps the 9: observed twice in session 1, untraced), the TAIL is misplaced or mis-displaced, or a 9 comes from elsewhere.",
+   "mutants": [
+    [
+     "the fixed rows (World.ambient on the built hubs), the leg complete",
+     "PASS"
+    ],
+    [
+     "rows from the v1 hub bytes (no tail), calibrated, landed, 'control back in 31101 timed out' (351 keeps the 9): FAIL (b)",
+     "FAIL"
+    ],
+    [
+     "rows up to (a) and the rest of the prologue, hub_control False, a DIALOG in 31113 (a windowed tail): FAIL (b), never granted control",
+     "FAIL"
+    ],
+    [
+     "rows [(a)] + 31101 rows without ip134, hub_control True, landed, the settle timed out: FAIL (b)",
+     "FAIL"
+    ],
+    [
+     "the clear at ip242, not the tail's ip275: FAIL (b)",
+     "FAIL"
+    ],
+    [
+     "(a) and (b), then hub_control False: FAIL hub-stalled",
+     "FAIL"
+    ],
+    [
+     "(a), (b), landed, 31101 rows without ip134 (the window in 31101): FAIL (c)",
+     "FAIL"
+    ],
+    [
+     "a row at the CTL hub's tail ip275 on the New-Game path: FAIL (d)",
+     "FAIL"
+    ],
+    [
+     "a Byte[14] 2 -> 9 row in the hub: FAIL (d)",
+     "FAIL"
+    ],
+    [
+     "31113 entered with 1 (ip131 1 -> 0), no 2 arrived: VOID no-precondition",
+     "VOID"
+    ],
+    [
+     "no 31113 row, a collect error: VOID cut-before-precondition",
+     "VOID"
+    ],
+    [
+     "rows [(a)], hub_control None, 'the game exited': VOID cut-after-precondition, named",
+     "VOID"
+    ],
+    [
+     "hub_pick: 'the menu never took its Confirm': VOID drive-after-control",
+     "VOID"
+    ],
+    [
+     "presses taken, the landing wait timed out: VOID pick-did-not-land",
+     "VOID"
+    ],
+    [
+     "landed, no 31101 row after (b): VOID cut-after-landing",
+     "VOID"
+    ],
+    [
+     "(a), (b), (c) hold, control never back in 31101: VOID other-blocker",
+     "VOID"
+    ],
+    [
+     "the arm raised (no trace file): VOID arm",
+     "VOID"
+    ],
+    [
+     "the CTL leg raised, before the warp into 31113: VOID before-warp",
+     "VOID"
+    ],
+    [
+     "attempt 1 = amb-drive-after-control, attempt 2 = amb-base, through the analysis: THE FIX PROVEN, two files, both re-derived",
+     "PASS"
+    ],
+    [
+     "(a), (b), landed, and the next Byte[13] row after (b) is 31101 ip134 3 -> 1 (a present but wrong next row, not a missing one): FAIL (c)",
+     "FAIL"
+    ],
+    [
+     "a Byte[13] := 9 row in 31101 (ip101, 351's own mark) after (c): FAIL (d) -- a stray 9 outside the hubs",
+     "FAIL"
+    ],
+    [
+     "a COUNT row at the F5B hub's tail site 31113 e0 t0 ip275: FAIL (d)",
+     "FAIL"
+    ],
+    [
+     "the rows without their arm epoch, no arm error: VOID arm",
+     "VOID"
+    ],
+    [
+     "rows up to (a), no (b), hub_control True, the collect's tracer fault (a cut trace): VOID cut-after-precondition, never FAIL (b)",
+     "VOID"
+    ],
+    [
+     "landed, 31101 rows up to its Byte[13] store, the trace cut (a collect error): VOID cut-after-landing, never FAIL (c)",
+     "VOID"
+    ],
+    [
+     "one attempt over amb-v1-hub's rows RECORDED as verdict True / outcome PASS, through the analysis: THE FIX re-derives FAILED ((b)) from the file and names the disagreement",
+     "FAIL"
+    ]
+   ]
+  },
+  "T-AMB-1": {
+   "claim": "Every synthesized Main_Init leaves Byte[13] and Byte[14] at 0 whatever it was entered with, in all 7 languages, on 9 builds (7 examples, a gen-hub hub, a `new` scaffold).",
+   "pass": "The Engine run from the prologue's Int16[9] store to the TAIL's end exits 0 for arrivals 0/1/2/3/9, both slots, on all 9 builds x 7 languages.",
+   "fail": "Any non-zero exit. Unfixed builds read 9 for arrivals 2 and 9 (measured).",
+   "void": "None. AMB-COUNT turns a skip into a failure.",
+   "can_fail_because": "The build.py wiring is missing, the displacement or slot byte is wrong, or a later pass drops the TAIL. It cannot see a window: the Engine no-ops everything except 0x05/0x01/0x02, which is why T-AMB-2 (iii) exists."
+  },
+  "T-AMB-2": {
+   "claim": "The TAIL sits at stock's position and has stock's shape minus the window, and no path skips it.",
+   "pass": "On 9 builds x 7 languages: (i) the TAIL occurs once in e0 t0, after the prologue's Byte[14] := 1; (ii) only nothing or `2d 22 00 NN` sits between it and MAP159; (iii) its span decodes to 0x05/0x02 only; (iv) eb/cfg.py FuncFlow shows the TAIL's block dominates every block reachable from the entry that holds RET, Field or MAP159. (iii) and (iv) measured true on 10 builds.",
+   "fail": "Absent, doubled, placed after MAP159, separated by other code, a window/wait/yield op in the span, or any reachable RET/Field/MAP159 block not dominated.",
+   "void": "None.",
+   "can_fail_because": "A wrong insertion point, a pass that inserts between the TAIL and MAP159, a windowed TAIL constant, or an early exit or jump that bypasses the TAIL."
+  },
+  "T-AMB-3": {
+   "claim": "The TAIL is stock's own tail minus the window.",
+   "pass": "Each 8-byte piece occurs exactly once in the unfixed blank's Main_Init, and skip == len(clear). 1357 src[464:532] with the window blocks cut and 0x17 changed to 0x08 equals the TAIL.",
+   "fail": "Any byte differs.",
+   "void": "None on this machine: the install is present, and AMB-COUNT requires 0 skipped.",
+   "can_fail_because": "A typo in the displacement or an encoding, or window ops added to the constant."
+  },
+  "T-AMB-4": {
+   "claim": "The contract holds: idempotent, a stock tail is left alone, and template drift raises.",
+   "pass": "Applying twice equals applying once. The alex100 fixture comes back byte-identical and classifies as 'stock-tail'. A script with no prologue, or with two `:= 9` sites, raises ValueError.",
+   "fail": "The TAIL is inserted twice, a stock script is modified, or drift passes silently.",
+   "void": "None.",
+   "can_fail_because": "The classify rules are wrong."
+  },
+  "T-AMB-5": {
+   "claim": "The vivi-hut golden moves by exactly the 38-byte TAIL, to the pre-registered sha.",
+   "pass": "With the pass as identity, US sha = 2c6f18b9…. With the pass, the manifest golden equals the constant 55d9b7b8…, and new == insert_in_function(old,0,0,246,TAIL) in 7 languages.",
+   "fail": "Any other byte differs, or the golden was re-pinned to any sha other than 55d9b7b8….",
+   "void": "None.",
+   "can_fail_because": "Another change rode along, or the TAIL was placed differently."
+  },
+  "T-AMB-6": {
+   "claim": "Verbatim forks never go through the pass, and the test's patch site is live.",
+   "pass": "With ambient.restore_clear patched to raise, a `new` scaffold build raises (the positive control) and the Dali Inn verbatim build (test_verbatim.py:172-189) succeeds.",
+   "fail": "The verbatim build raises, or the positive control does not raise, which means the monkeypatch is inert.",
+   "void": "None.",
+   "can_fail_because": "The pass is wired into compose_verbatim_eb, or bound by name at import so the patch cannot reach it."
+  },
+  "AMB-COUNT": {
+   "claim": "test_ambient.py really runs, with no silent skips.",
+   "pass": "`py -m pytest tests/test_ambient.py -rs -q` reports '25 passed' and no SKIPPED, both in the ambient-clear worktree and in the gate worktree.",
+   "fail": "Any count other than 25 passed, or any skip.",
+   "void": "None.",
+   "can_fail_because": "Templates or fixtures are missing (conftest.py:96-110 turns that into a skip), the file reads the blank at module top (ignore-collect, conftest.py:85), or a parametrization is lost."
+  },
+  "BREAK-IT": {
+   "claim": "Every T-AMB test can fail.",
+   "pass": "Each of the 8 registered mutations turns its named tests red: delete the line; skip 8->7; slot 14->13; insert after MAP159; windowed TAIL; JMP to MAP159 before the TAIL; pass wired into compose_verbatim_eb; an extra byte in the hut.",
+   "fail": "Any mutation leaves its named tests green.",
+   "void": "None.",
+   "can_fail_because": "A test asserts on data it built itself instead of on the build output."
+  },
+  "FULL-SUITE": {
+   "claim": "Nothing else in the suite moves.",
+   "pass": "In the gate worktree detached at the fix commit, -n 6: 0 failed (goldens included), collected == ledger collected + 25 (10841 at 917ad44c), skipped <= 29, and AMB-COUNT holds.",
+   "fail": "Any failure (goldens included), any collected mismatch, or skipped > 29.",
+   "void": "None. Re-run only after fixing the cause.",
+   "can_fail_because": "About 200 unsimulated files may pin synthesized bytes or offsets. The build-pass model simulation moved only the 3 manifest-reading goldens (plus test_content.py:41 once the manifest line moves)."
+  },
+  "PRESERVE": {
+   "claim": "The frozen F5 and F5b-v1 dry-runs stay reproducible after the fix.",
+   "pass": "keep_v1/hubs, keep_v1/members and keep_v3/build hash to d140317d / 069e9d2f / 148bda04 and the manifest members (SHA256SUMS). rung5_dryrun gives 55/55 with --build and with --pre-ambient. rung5b_dryrun on v1 exits 0 with --build and with --pre-ambient.",
+   "fail": "A sha differs, or a dry-run result changes.",
+   "void": "None.",
+   "can_fail_because": "The preserve step ran after the fix landed, the --pre-ambient shim does not reach the module attribute, or another kit change entered."
+  },
+  "DRYRUN-V2": {
+   "claim": "v2's analysis can PASS, FAIL and VOID as registered.",
+   "pass": "The base gives VERDICT: PROVEN and THE FIX: PROVEN. Every v1 mutant and every new case comes out as registered: the 19 P-AMBIENT cases, 3 HUB-ROWS-SAME, P-HUBDIFF and CARRY-CONSISTENCY. The registry equals the frozen file. freeze5b_v2.py --check shows no difference.",
+   "fail": "Any case comes out otherwise. That is a defect of the analysis, never a reason to weaken the case.",
+   "void": "None.",
+   "can_fail_because": "ambient_verdict's precedence, the leg recording, the manifest resolution or the HUB-ROWS-SAME join is wrong."
+  },
+  "DEPLOY-GATE": {
+   "claim": "The redeploy can change nothing live except the two hubs' .eb bytes.",
+   "pass": "From the deploying checkout at its recorded HEAD: the build equals build_v2; the per-id file list equals keep_v1's; the build's JournalPatch sha == live == 85332e79…; the DictionaryPatch lines equal live lines 110-113; .mes 8d9f392c in 7 languages.",
+   "fail": "Any mismatch: STOP with nothing touched, and ask the owner.",
+   "void": "None.",
+   "can_fail_because": "The journal catalog or another sidecar changed in the merged kit (deploy_field.py:563-571 copies the build's JournalPatch whole-file), or the checkout moved."
+  },
+  "DEPLOY-GUARD": {
+   "claim": "Neither the prelude revert nor a concurrent session is rolled back or clobbered during the calls.",
+   "pass": "FF9 is closed; the live JournalPatch sha is 85332e79… before and after each call; --name is given; at least 1.1 s between the calls.",
+   "fail": "The sha differs before a call (STOP), or after one: restore from that call's preDEPLOY backup, do not run the second call, ask the owner.",
+   "void": "None.",
+   "can_fail_because": "Another session edits FF9CustomMap/JournalPatch.txt; the prelude revert copies the 00:16 backup whole-file (revert_deploy_31113.py:65)."
+  },
+  "DEPLOY-VERIFY": {
+   "claim": "The deployed hubs are the v2 bytes, and the registration is unchanged.",
+   "pass": "The 7-language .eb shas equal build_v2; exactly one FieldScene and one MessageFile line per id, byte-identical; .mes 8d9f392c; a unique STAMP; `--preflight` PASSes P-MANIFEST (rung5b_forks_v2.json), P-DEPLOY, P-HUB x2 and P-HUBDIFF.",
+   "fail": "Any mismatch.",
+   "void": "None.",
+   "can_fail_because": "The deploy ran from a checkout without the fix (deploy_field builds with the local package), --name was missing, or the id order was wrong."
+  },
+  "FIX-LINE": {
+   "claim": "THE FIX line gates every downstream action.",
+   "pass": "PROVEN: claude/ambient-clear may merge to master (with FULL-SUITE green), then F-REDEPLOY as separate owner-gated changes. The claim covers slot 0 and the revisit path only.",
+   "fail": "FAILED: revert the fix merge on claude/story-trace-f5b immediately; no master merge, no F-REDEPLOY, no release; a corrected fix needs v3 and a new session.",
+   "void": "NOT PROVEN: nothing merges or redeploys, and claude/story-trace-f5b holds or reverts the fix merge first; re-run the v2 session unchanged.",
+   "can_fail_because": "P-AMBIENT's outcome. The gate is violated if either branch reaches master before a PROVEN."
+  }
+ },
+ "frozen": "2026-09-29, after the fix merge (O9) and before the F5c redeploy of 31113/31114 (G1) or any v2 session run. Design: F5c revision 2 (after three critics), every owner default accepted (every synthesized build, the silent clear, Option B, the merge gate, release/ frozen). freeze5b_v2.py (.harness-runs/story-trace-archive/f5c/build/dryrun) derived and held every re-derived number; rung5b_dryrun.py --predictions rung5b_predictions_v2.json re-derives them and runs every registered case; the implementation's departures are named in 'implementation'. RE-FROZEN by the F5c fixer after the review, still before any v2 session or deploy: the first freeze (f50ce056) never ran; the review's fixes added 11 registered cases, the fixer's departures (implementation, ambient.implementation) and hub_fix.remerges",
+ "implementation": [
+  "kit (content/ambient.classify): 'stock-tail' needs Byte[n] == 9 twice for EACH slot (design.md's 'twice per slot', not fix_spec's any()): a stock tail on one slot only raises ValueError as template drift",
+  "kit (content/ambient): classify and restore_clear match whole instructions (eb.instrs), never inside an operand; 'restored' stays a raw `TAIL in body`; the results are identical on the 7 blanks and on alex100",
+  "tests (test_ambient.py, 25): T-AMB-2 (iv) also fails a RET, Field or MAP159 before the TAIL inside the TAIL's own block (the designer's probe excluded that block); T-AMB-3 reads 1357 in all 7 languages (the design: US src[464:532]), pins the provenance patch's src_sha256 and its [c 435 29][c 532 105] ops, derives the new displacement from the cut window's length, and requires stock's statement order in the blank",
+  "tests: the T-AMB hub is a generic gen-hub HubSpec (id 30997, one journey) with the scaffold's camera inline (pitch/distance/fov, frame {back=205, front=432}) so entry_settle = 45 stays inside [camera]; the designer's camprobe put entry_settle under [camera.frame], where the build fell back to 'auto' -- its byte-identical measurement held only because auto computed 45 (T-AMB does not depend on it)",
+  "tests: T-AMB-6 builds the Dali Inn verbatim fork without test_verbatim's [[logic_edit]] (compose_verbatim_eb runs on every verbatim build: BREAK-IT mutation 7 proves it) and asserts it classifies 'stock-tail'",
+  "BREAK-IT: 'an extra byte in the hut build' is a ride-along change in build_script (Byte[17] := 255 -> 254: only T-AMB-5 red); the windowed TAIL is made with the kit's own encoders (15 bytes), so 1357's bytes never enter the worktree; every mutation red as registered, each restored byte for byte",
+  "release/README.md carries the known-issue line (owner default 5): test_provenance_tripwire freezes only the demo's byte-class files (.md is a source suffix; no test pins the README); the demo's bytes are untouched",
+  "FULL-SUITE (O8, the gate worktree detached at e1317a42) collected and ran the two trees the nightly ledger measures (`. <gate>/docsite`): 10841 = 10816 + 25 collected, 10812 passed, 28 skipped, 1 xfailed, 0 failed; test_ambient.py 25 passed, no skip. build_steps O8's bare command collects the kit tree alone (10786), not the ledger's measure",
+  "the kit implementer's finding: the live Memoria.ini FolderNames also stacks FF9CustomMap-schema and FF9CustomMap-msgs (lowest priority), so their F-REDEPLOY ids (30820-30821, 30601-30603) are live defects too (design 1.9 said UNVERIFIED 'not live'); the CHANGELOG lists the ids by folder without a liveness claim; CLAUDE.md section 3's FolderNames line is stale (not edited here)",
+  "rung5b_hub: see ambient.implementation -- row 5 is read as the complement of row 4, and the control marker has a second call site (session.warp's own wait for control raises before hub_open's after_warp runs)",
+  "rung5b_hub: P-HUBDIFF (hubdiff_check, 7 languages) runs in --preflight and --offline-check after the two P-HUB lines, and in the dry-run (design 2.3 names the dry-run only; O12(b) and G1(h) need it in both)",
+  "rung5b_hub: THE FIX line's deciding attempt is the first non-VOID one, else the last (the retry runs on a VOID only); a non-VOID attempt followed by another is noted in the line; --analyse takes its exit code from the VERDICT line and never passes P-AMBIENT to verdict5b",
+  "rung5b_dryrun: the registry is version-aware -- REGISTERED_V2 and VERDICT_LINES_V2 register only under predictions carrying hub_fix, so v1's frozen registry stays REGISTERED (126/126 on v1, with --build keep_v1 and --pre-ambient alike); registered_mutants(pred) takes the predictions",
+  "rung5b_dryrun: under v2 the carried one-ctl mutant also expects HUB-ROWS-SAME VOID (its coverage minimum, 2 CTL); hubrows-ng-fire builds its 9 row with a re-seated old, so it reads 1 -> 9, not 2 -> 9",
+  "rung5b_dryrun: HUB-ROWS-SAME and CARRY-CONSISTENCY read v1 from lineage.v1 (sha-checked, a non-registered 'v1-file' tally) and the v1 hub bytes from hub_fix.v1_build; CARRY-CONSISTENCY also requires the store-site count to move by exactly +2 per hub (19 / 17)",
+  "rung5b_dryrun / rung5_dryrun: --predictions is required (the argparse error names both frozen files); --pre-ambient builds through a `py -c` shim (ambient.restore_clear := identity); a hub sha miss prints its cause (ambient.classify of the built bytes)",
+  "tests (test_harness.py): the 8 FakeGame cases run on a test-local _AmbientHubFake (fakegame.py unchanged); F5's hub_leg and segment tests pass unmodified; P-MANIFEST's line names the manifest it read (v1's text unchanged)",
+  "O10's study changes were not committed on claude/story-trace-f5b before this freeze (the task allowed no commit beyond the O9 merge): rung5b_forks_v2.json 'freeze' records the LF-normalized sha256 of the four study modules the freeze and the O12 dry-run ran",
+  "the freeze: the skeleton is rung5b_hub.draft_predictions_v2(v1); it held, before writing, every re-derived number to the design's constants and the O9 record -- the v2 shas in 7 languages, 1241 bytes, the tail once at e0 t0 +254, the two new store sites, the := 9 marks 109/190, tail_ips and forbid_ips, P-HUBDIFF 14/14, every non-.eb build file equal to keep_v1's, ng_rows off session 1's six fork traces, the handoff off member 31101's bytes, the base construction's carried numbers (CARRY-CONSISTENCY) and P-AMBIENT PASS, the decision table and the mutant names against design.md, the four new check texts against checks.json, the lineage shas and the preserved builds' SHA256SUMS",
+  "the freeze: checks -- v1's check texts are carried (P-PARTYREMOVE's and R5B-PARTY's rule is unchanged); VERDICT's pass / void / can_fail texts are amended for HUB-ROWS-SAME (the rule changed with it); the four new checks are F5c checks.json verbatim; F5c's restatement of VERDICT, P-PARTYREMOVE and R5B-PARTY is kept under each one's 'f5c'; F5c's offline, deploy and gate checks (T-AMB-1..6, AMB-COUNT, BREAK-IT, FULL-SUITE, PRESERVE, DRYRUN-V2, DEPLOY-GATE/GUARD/VERIFY, FIX-LINE) are registered verbatim, as v1 registered its own (P-F5ROW, P-FROZEN, P-CAP); every check's mutants are rung5b_dryrun.registered_mutants(v2)",
+  "the freeze: lineage.builds.sums_sha256 and hub_fix.v2_build / v2_sums_sha256 pin the preserved and the O9 builds by their SHA256SUMS files; hub_fix.merge names the fix merge on claude/story-trace-f5b (what FAILED's `git revert -m 1` reverts)",
+  "the freeze: rung5b_forks_v2.json is v1's pre-deploy manifest (rung5b_forks.json less its deploy record, held equal to 7b70ff0b's) with the v2 hub shas, v1's kept beside them, the fix's provenance and G1's deploy procedure; deployed false, G1(g) records the deploy",
+  "the fixer, kit (claude/ambient-clear b90eae4a, re-merged into claude/story-trace-f5b: hub_fix.remerges): tests and the CHANGELOG only -- T-AMB-2 (ii') no entry_settle hold runs between the prologue and the TAIL (pins the pass as build_script's FIRST step), T-AMB-1 iterates the literal (13, 14) not ambient.SLOTS, T-AMB-4 raises on a stock tail on ONE slot (pins classify's all()); still 25 tests; the F-REDEPLOY check scoped to the 47 ids (a whole folder reads stock-tail for verbatim forks and raises on the New-Game override). content/ambient.py and build.py are unchanged (held), so every hub byte is unchanged (build_v2, P-HUBDIFF 14/14). BREAK-IT: the design's 8 and the review's 3 mutations (late wiring, SLOTS (13,), any()) all red; FULL-SUITE re-run on b90eae4a",
+  "the fixer: on FAILED the fix's merges are reverted NEWEST FIRST -- hub_fix.remerges, then hub_fix.merge (reverting 10159945 alone conflicts on the files the re-merge edited); verdict.fix_line's NOT PROVEN / FAILED say so",
+  "the fixer, rung5b_hub (the review): the control marker's False is a LIVE measurement only (hub_unmeasured names why a probe measured nothing: the game exited, the channel froze, the state is stale or unreadable -- None, the probe's own error stands); a cut trace never FAILs row 6 or 11 by what it lacks (a collect error with no later slot-0 row is VOID); rows 6, 7 and 11's FAIL texts carry the collect error; the leg's throws (a log mark after the arm) are printed per attempt on THE FIX line, report-only; p_ambient never raises (VOID read-error); ambient_step ends the session before its runs when the tracer faulted in P-AMBIENT (named, a failed check) -- ambient.implementation has the table-facing ones",
+  "the fixer, rung5b_dryrun (the review): 11 registered cases beyond the design's -- P-AMBIENT amb-wrong-handoff, amb-member-nine, amb-tail-count, amb-no-arm-row, amb-cut-trace-fault, amb-cut-in-member (pure) and amb-record-disagrees (through the analysis: THE FIX re-derives every attempt from its own file, never the record); HUB-ROWS-SAME hubrows-old and hubrows-count (the olds and the count-row clause); P-HUBDIFF pf-hubdiff-v1-sha and pf-hubdiff-v1-resummed (the v1 build's SHA256SUMS guard and its frozen US sha, each with keep_v1 edited consistently with a v2 built on it)",
+  "the fixer, CARRY-CONSISTENCY (declared, the review): for a change confined to the hub's Main_Init tail its NUMBERS half is regression-only -- the registered tail-first mutant re-derives all 25 carried numbers; its registered FAIL comes from the SEATING clause (every base fork run's hub e0 t0 rows = ng_rows), which checks.CARRY-CONSISTENCY's frozen text (F5c checks.json, verbatim) does not name",
+  "the fixer, tests (test_harness.py, the review): test (7) pins the leg's collect BEFORE its closing restore (the fake's trace survives a restore, so the verdict alone could not see a late collect); five more -- the marker waits its probe for a hub slower than session.warp's wait (hub_control True, VOID drive-after-control), a game that exits after (a) is unmeasured (hub_control None, the exit stands: VOID), a tracer fault ends the session before its runs, the leg's throws reach THE FIX line, P-AMBIENT never raises"
+ ],
+ "seed_law": {
+  "law": "THE SEED IS THE HAND-OVER STATE OF THE ENTRY: a journey row stamps the story state stock holds at the instant its own flow hands control into the journey's entry (the member and its entrance), over the bits the zone reads -- less (i) bytes the entry path rewrites before reading them, (ii) latches of engine effects the stamp cannot perform, (iii) values read but non-literal at the hand-over (registered, never guessed)",
+  "phases": {
+   "pre": "BEFORE the beat's advance: today's row, byte for byte (the advance's writes belong to the advance) -- F5's member(359)",
+   "post": "AFTER the advance, behind ONE exit gateway of the advance room, with that exit's own entrance (story-seed --after-advance --entrance N)"
+  },
+  "classes": {
+   "a": {
+    "rule": "the advance's hand-back literals: a bit is carried only if EVERY SC := beat store hands back one literal and the function entry reaches none",
+    "dali": "2078 = 1, 2086 = 1"
+   },
+   "b": {
+    "rule": "the exit walk-in's literals up to its Field(entry), blocks dead at SC == beat dropped; a live store of SC or of a stamped word refuses",
+    "dali": "2103 = 0 (= pre-phase, noted); the SC := 2650 stores at +94/+108 dead at 2600"
+   },
+   "c": {
+    "rule": "the advance's presence-guarded removes (every advance function proves them); an unconditional re-add cancels, a conditional one is ASSUMED NOT TAKEN; any party op after the store refuses, an emptied roster refuses",
+    "dali": "garnet, steiner, vivi leave; zidane stays"
+   },
+   "d": {
+    "rule": "entrance = that exit's own entrance, or the call is refused",
+    "dali": "Int16[2] = 6"
+   },
+   "i": {
+    "rule": "rewritten before read by the entry path: not stamped",
+    "dali": "9/10, 13, 239, 296; 238/241 recomputed from the latches (351.ebs:127-161)"
+   },
+   "ii": {
+    "rule": "latches of effects the stamp cannot perform, never-read bytes: not stamped (residual R)",
+    "dali": "18, 19, 21, 61, 62, 63, 303"
+   },
+   "iii": {
+    "rule": "read on arrival, non-literal at the hand-over: not stamped, a registered divergence R5B-STATE cannot see",
+    "dali": "UInt16[251]: the new-ATE chime moves to the 351 arrival"
+   }
+  },
+  "rows": "hubs.F5B.row_text (the fixed resolver's post-advance row) and hubs.CTL.row_text (--pre-phase-control): they differ ONLY by the phase"
+ },
+ "known_gap": [
+  "route state past the first exit (350 at 2600, behind 351's exit): refused by the resolver, never modelled",
+  "writes in OTHER functions before the store: no cross-function order in the census (the trace shows none missing for Dali 2600)",
+  "residual R = {18, 19, 21, 61, 62, 63, 303}: judged exactly by R5B-STATE; world-map exits reach the entrance -1 rebuilds where SetCharacterData re-runs -- UNVERIFIED",
+  "class (iii) UInt16[251]: F5B arrives with 0, so the new-ATE chime (Map.Bit[152], 351.ebs:452-455) sounds at the 351 arrival where stock's did not; both hold 6 after the arrival; untraced",
+  "the party reserve (stock {0..3} after SetPartyReserve(15); F5B New Game's {0}): recorded, not judged -- no journey lever",
+  "the conditional survivor re-add (352 e17 t1 +2571/+3201/+3831) is ASSUMED NOT TAKEN; P-PARTYREMOVE and R5B-PARTY see its result",
+  "warping advances are refused, not modelled: 240 corpus hand-overs, Dali 2640/2650/2660/2680 among them",
+  "the exit fold is verified in game only on a same-value write (2103 0 -> 0); its value-changing case is offline only",
+  "every refusal branch is offline only; the session exercises the one accepted hand-over and the one control",
+  "the E3 docstring (storyseed.py:9-13) is not touched",
+  "the two OLD census pins (test_real_553_seed, red_case) still skip outside f5's cwd",
+  "no validate_hub duplicate-name warning",
+  "SUPP-BLIND (5 keys): a fork-only same-value store at those 5 conditional sites is excused on value only -- a registered MIRROR blind spot",
+  "the post phase outside Dali 2600 is unverified in game (E14's 10 other changed hand-overs)",
+  "kit review gap: warps or party ops reached through a RunScript* call in the advance's tail are not followed (only direct ops in the run are scanned)",
+  "kit review gap: the roster rule looks for re-adds reachable from the remove block only; an add on the check's false arm would be missed",
+  "kit review gap: a carried flag whose byte a stamped UInt16 word covers is not refused (choice.option_body writes set_words after set_flags, so the word would clobber it); measured, it bites no row today: 0 of the 6 flag-carrying post-phase hand-overs corpus-wide (Dali 352@2600: words 208/297 vs flag bytes 259/260; 613@3125 x3, 2301@9950, 2751@11100: no stamped word) -- a follow-up refusal, not an F5b change",
+  "kit: a 0xD3 (flexible varfunc) lvalue writes gScriptVector/gScriptDictionary, never gEventGlobal: not a def (stock scripts use no 0xD3)",
+  "kit: an assignment INSIDE a condition (a stock `=` for `==`) is read as a store of UNKNOWN value (storyseed._set_targets, the fixer's RPN-stack reader), so its bit is not carried where stock decides it: one live instance corpus-wide -- 2161@9050 -> 2162/e47, exit e7 t2 +8 `SC == 9050 && (Bit[3608] := 1) && ...` stores 3608 = 1 at SC 9050; the row leaves 3608 clear and lists it 'not carried' (as 2161@10010's does) where stock hands over 1. Not Dali 2600",
+  "the run-end autosave reads: the Memoria extra file names no field (party_read's `field` is the game's field at read time) and their mtime baseline is the landing / segment read, ~20 autosaves earlier -- so a dropped final-entry write would still read fresh, its slot then an earlier entry's (no party op lies on the tour path, so the slot is right in practice): only SC and Int16[2] tie the read to the trace's last entry, and their values repeat across the tour. Registered, not anchored",
+  "SUPP-BLIND is wider than the evidence needs: 351 +194 / +1377 are count-provable (351 is loaded ONCE before the wake, and that load emitted the same:1 rows, so every counted store is post-wake: the counts equal the post-wake loads in all 6 S runs of sessions 4-5), and so is 352 +646 (the night reload enters at Int16[2] = 4, which its guard excludes: its n=1 is the post-wake store). They stay BLIND (value-checked); only 352 +194 and 352 e2 +12 are untestable",
+  "the autosave freshness rule assumes NTFS st_mtime_ns advances between field transitions seconds apart: UNVERIFIED in game until P-HUBLEG and P-PARTYREMOVE run",
+  "the in-game driver rung5b_hub.run() is exercised offline as pieces (the FakeGame tests: enter_past, PrefixTour, party_read, p_hubleg5b, p_partyremove, the walk gate) and as a stub drive of its bookkeeping (the static pre-flight over the offline builds, every run failing at its first game call, the re-run loop, the analysis); its first end-to-end drive is the session itself",
+  "F-REDEPLOY: a deployed synthesized field keeps the defect until it is rebuilt and redeployed (47 live ids by folder in the kit CHANGELOG's Known issues); only 31113/31114 are redeployed here",
+  "F-NG: the New-Game override (stock 70, only its Field() literal swapped) hands off with 643 playing and Byte[13] := 2 -- a synthesized entry now clears the 9, the sound may play on",
+  "F-WARP: kit warps and remapped same-id handoffs skip stock's exit idiom (Byte[13] := 3); into a stock or verbatim no-ambient field they still leave the report window",
+  "F-IMPORT: BG-borrow, --editable and non-verbatim --native imports lose the donor's ambient sound (FORK_FIDELITY.md row 15)",
+  "F-PROBE: a traced full-opening New Game would settle F-NG's path 2 (UNVERIFIED in game)"
+ ],
+ "cannot_test": [
+  "the exit fold's value-changing case (Dali's exit write is same-value): offline only",
+  "every resolver refusal branch: offline only (tests/test_storyseed.py, the dry-run)",
+  "SUPP-BLIND beyond its value at 352 +194 and 352 e2 +12 (352 is loaded twice before the wake: a single-epoch trace cannot separate pre- from post-wake executions there); 351 +194 / +1377 and 352 +646 are count-provable but registered BLIND (known_gap)",
+  "the new-ATE chime (Map.Bit[152] is map-local, untraced)",
+  "the party reserve and character data (players[].info.party, HP/status: recorded, not judged)",
+  "slot 1 (Byte[14]) of the ambient clear in game: no Dali field sets Byte[14] := 2 (0 sites) -- offline only (tests/test_ambient.py)",
+  "the full-opening New Game (the harness warps out of field 70 thirty frames after New Game, so 70's own := 2 never runs): the override's handoff with 643 playing is F-NG, by code only",
+  "audio: the tail clears the mark, never the sound -- 1483 plays on in the hub after the revisit, by code, as in stock's own 9-case"
+ ],
+ "manifest": "rung5b_forks_v2.json",
+ "hub_fix": {
+  "kit_commit": "e1317a42406704f5c7b1124c9d2a0ff4a18c56b6",
+  "kit_branch": "claude/ambient-clear",
+  "tail_hex": "05d40d7d0900207f02080005d40d7d00002c7f05d40e7d0900207f02080005d40e7d00002c7f",
+  "tail_len": 38,
+  "e0t0_rel": 254,
+  "v1_build": "C:\\gd\\_ns_playtest\\f5b\\keep_v1\\hubs",
+  "v1_eb_sha256": {
+   "F5B": "d140317dd01bb37c9f17bf1b6e39364b4a2e6bc18b27fab1bacde2e40fab4b97",
+   "CTL": "069e9d2f21b826ab4647df30f736bbefc9f950da226873268caaae99c13e8c08"
+  },
+  "rule": "P-HUBDIFF: for each hub and each of the 7 languages, eb.edit.insert_in_function(v1, 0, 0, e0t0_rel, tail) == v2, v1 read from v1_build (<DIR>/<id>/, each .eb its SHA256SUMS value, the US one v1_eb_sha256); a missing or sha-mismatched v1 is FAIL, never VOID",
+  "merge": {
+   "branch": "claude/story-trace-f5b",
+   "commit": "10159945937663499d1db922621405378862fd2f",
+   "parents": [
+    "1acb95b3b0d6319474b15737dca75bfa4f6197e5",
+    "e1317a42406704f5c7b1124c9d2a0ff4a18c56b6"
+   ]
+  },
+  "remerges": [
+   {
+    "commit": "e2d7757ea8ab3d6ef2bf443e406a4a3428cf9ab5",
+    "parents": [
+     "10159945937663499d1db922621405378862fd2f",
+     "b90eae4a86f51d625d21dfd639de4ed82fe5de9f"
+    ],
+    "files": [
+     "ff9mapkit/CHANGELOG.md",
+     "ff9mapkit/tests/test_ambient.py"
+    ],
+    "branch": "claude/story-trace-f5b"
+   }
+  ],
+  "v2_build": "C:\\gd\\_ns_playtest\\f5b\\build_v2",
+  "v2_sums_sha256": "7beadc91d65d79680c4fac5030c94bcba267be1245908ae494a463fae4033121",
+  "v2_eb_sha256_by_lang": {
+   "F5B": {
+    "us": "35813d4dc7078983995763ea9673309ea113a70aaa479be4bcf884ede45a6962",
+    "uk": "35813d4dc7078983995763ea9673309ea113a70aaa479be4bcf884ede45a6962",
+    "jp": "fdeadc2b088d894bfd4c80e489a20b38d47886ac0e37d558d2755f44822404ff",
+    "gr": "859e1f948fb7308ee1997c4b0633d98fefaf4991c4f0d042d10e84c77fee4397",
+    "fr": "ab89cf4b1c13371f1ce4eb13673fda91a3516b98b1e9d4056a0126ad70cd92ee",
+    "it": "b2da513efd02397567ca4a4c886b144239efa75ea6cdd79f97473a1635c6d29c",
+    "es": "c947dfe6a5212b806336db95d703ce7d3d9022c1255e70263c3ffd9a30756e55"
+   },
+   "CTL": {
+    "us": "1e235d0c68c83740a0566ea0bea83bae322d6fefbee521a14d99254a04de4b6b",
+    "uk": "1e235d0c68c83740a0566ea0bea83bae322d6fefbee521a14d99254a04de4b6b",
+    "jp": "39c032f3f8a7371a6b4384a3a658c0ecca00b14eb1b5aed1f4daeed2e32093ea",
+    "gr": "28c7d2e73d078db2dde877e8cc67a6d9c0a41e992e335edff656dc263846042a",
+    "fr": "4722a3d4edd1e8489e7ed31fb5b9a80f9ab56f9416b5373df3fb90dc7ea58d13",
+    "it": "46bbd6edf791cb5989f9419b67a28d80e4dc5b0ba869acf7e00b1c2b946c1770",
+    "es": "282d60784e5ab24c831133b93941bea65b0b919f69aced4edf0757b837a38781"
+   }
+  }
+ },
+ "ambient": {
+  "slot": 0,
+  "target": "Global.Byte[13]",
+  "slots": [
+   "Global.Byte[13]",
+   "Global.Byte[14]"
+  ],
+  "precondition": {
+   "field": 31113,
+   "sid": 0,
+   "tag": 0,
+   "ip": 109,
+   "target": "Global.Byte[13]",
+   "old": 2,
+   "new": 9
+  },
+  "clear": {
+   "field": 31113,
+   "sid": 0,
+   "tag": 0,
+   "ip": 275,
+   "target": "Global.Byte[13]",
+   "old": 9,
+   "new": 0
+  },
+  "handoff": {
+   "field": 31101,
+   "donor": 351,
+   "sid": 0,
+   "tag": 0,
+   "ip": 134,
+   "target": "Global.Byte[13]",
+   "old": 0,
+   "new": 1
+  },
+  "tail_ips": {
+   "31113": [
+    275,
+    294
+   ],
+   "31114": [
+    275,
+    294
+   ]
+  },
+  "probe_s": 30,
+  "retries": 1,
+  "file": "ambient_trace_{k}.jsonl",
+  "phases": [
+   "arm",
+   "ctl-leg",
+   "ctl-settle",
+   "hub-warp",
+   "pick",
+   "landing",
+   "member-settle",
+   "done"
+  ],
+  "warp_phase": "hub-warp",
+  "leg": [
+   "arm_error",
+   "phase",
+   "error",
+   "hub_control",
+   "hub_state",
+   "presses",
+   "landed",
+   "member_control",
+   "collect_error"
+  ],
+  "leg_report_only": [
+   "hub_unmeasured",
+   "throws",
+   "traced",
+   "file"
+  ],
+  "where": "after P-PARTYREMOVE, before NC-THROW's mark; P-PARTYREMOVE's own leg (New Game; the CTL leg lands 31101; the revisit warps 31101 -> 31113 at SC 2540, arriving with 351's Byte[13] := 2; the F5B pick lands 31101), armed exactly as a run arms (New Game, 30 frames, story_mark, storytrace on), the trace collected BEFORE restore_baseline into the attempt's own file; one retry, on VOID only",
+  "hub_control": "the control marker: right after the warp into 31113, wait up to probe_s for field 31113 with control -- True, or False (raises) with ui_state, dialog_open, field and control recorded; the warp's own wait for control failing is measured the same way; False only when the game was measured LIVE without control -- a probe that gave up because the game exited, the channel froze or the newest state is stale or unreadable leaves None (hub_unmeasured)",
+  "decision": [
+   [
+    1,
+    "The arm raised, or the file has no `arm` row",
+    "VOID \"arm\""
+   ],
+   [
+    2,
+    "Any Byte[13]/[14] row with new = 9 other than (a), or any row at either hub's tail ips other than (b). A positive observation: it stands whatever else happened",
+    "FAIL (d)"
+   ],
+   [
+    3,
+    "The leg raised before the warp into 31113 was issued",
+    "VOID \"before-warp\""
+   ],
+   [
+    4,
+    "No (a), and a 31113 e0 t0 Byte[13] row exists (its old value is named)",
+    "VOID \"no-precondition\""
+   ],
+   [
+    5,
+    "No (a), and no 31113 e0 t0 row at all",
+    "VOID \"cut-before-precondition\""
+   ],
+   [
+    6,
+    "(a) present, the next Byte[13] row after it is not (b), and `hub_control` is True or False",
+    "FAIL (b) \"the hub kept the 9\" (+ \"and never granted control\" when False)"
+   ],
+   [
+    6,
+    "Same, but `hub_control` is None",
+    "VOID \"cut-after-precondition\" (named, never merged with #4/#5)"
+   ],
+   [
+    7,
+    "(a) and (b) present, `hub_control` False",
+    "FAIL \"hub stalled after the clear\". The tail is the only Main_Init change, and session 1 saw this hub grant control on this very path twice"
+   ],
+   [
+    8,
+    "(a) and (b) present, and `hub_control` is not True or the pick's Confirm was never taken",
+    "VOID \"drive-after-control\""
+   ],
+   [
+    9,
+    "Presses taken, but no landing in 31101",
+    "VOID \"pick-did-not-land\""
+   ],
+   [
+    10,
+    "Landed, but 31101 wrote no e0 t0 row after (b)",
+    "VOID \"cut-after-landing\""
+   ],
+   [
+    11,
+    "Landed, and the next Byte[13] row after (b) is not (c)",
+    "FAIL (c)"
+   ],
+   [
+    12,
+    "(c) holds but control never returns in 31101",
+    "VOID \"other-blocker\" (ui_state and dialog recorded in the run dir). With (c) holding, 31101 arrived clean and its tail cannot fire"
+   ],
+   [
+    13,
+    "Otherwise",
+    "PASS"
+   ]
+  ],
+  "implementation": [
+   "row 5 is read as the complement of row 4 -- no (a) and no 31113 e0 t0 Byte[13] row: the verbatim 'no 31113 e0 t0 row at all' leaves a trace cut INSIDE the hub's prologue (rows there, none of Byte[13]) matching no row before 13, a PASS; it is VOID cut-before-precondition",
+   "session.warp waits for control itself (wait_playable), so a hub that withholds it raises inside the warp before hub_open's after_warp marker runs: the traced leg runs the same marker on that error (hub_control False, the state recorded), then the error stands",
+   "the control marker's False is a LIVE measurement only: a probe that gave up because the game exited, the channel froze (the wait's frame counter never moved) or the newest state is unreadable or older than LIVE_WITHIN measured nothing -- hub_control stays None, hub_unmeasured names why, and the probe's own error (at the warp's call site, the warp's) stands: row 6's VOID cut-after-precondition, never FAIL (b) or hub-stalled for an instrument failure",
+   "a CUT trace never decides a FAIL by what it lacks: row 6 with no slot-0 row after (a) and a collect error (the tracer faulted, rows never landed) is VOID cut-after-precondition whatever hub_control reads; row 11 with no slot-0 row after (b) and a collect error is VOID cut-after-landing; the FAIL texts of rows 6, 7 and 11 carry the collect error when there is one",
+   "report-only, never the table's input: the leg's throws (a log mark right after the arm; THROWS with an event-engine frame, as NC-THROW reads them) are printed per attempt on THE FIX line; p_ambient never raises (a read or verdict failure is VOID read-error); the session ends before its runs, named, when the story tracer faulted during P-AMBIENT (a fault latches until a relaunch, so every run would be refused)"
+  ],
+  "line": "THE FIX (in game, slot 0, hub revisit from 351): PROVEN | NOT PROVEN (<void>) | FAILED (<clause>)"
+ }
+}

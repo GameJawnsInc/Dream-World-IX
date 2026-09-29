@@ -7,6 +7,10 @@ measured in-game. **Rung 1 ★ in-game 16/16 twice**: `[photo]`, the kit feature
 (bench 30956), re-run after three adversarial reviews' fix pass (`photo-rung1c`, every language running its own
 daemon). Next is the owner's playtest of 30956.
 
+**Kit change since (F5c, `studies/story-trace/PLAN.md`):** every synthesized field now restores stock's ambient
+clear (`content/ambient.py`, merged `d98ca2a4`). Bench 30956 still carries the old bytes; its next rebuild adds the
+38-byte tail to Main_Init (no behaviour change unless the bench is entered with an ambient sound playing).
+
 Board entry #8 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It was the runner-up when #7, the sine
 kit, was picked. Its reframe is the kit's **first camera-pan primitive**:
 

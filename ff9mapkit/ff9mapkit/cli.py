@@ -510,7 +510,13 @@ def _cmd_story_seed(args: argparse.Namespace) -> int:
     from .eb import EbScript
 
     t = args.target
+    row_flags = (args.entrance is not None or args.after_advance or args.pre_phase_control
+                 or args.name)
     if args.chain:
+        if row_flags and not (args.beat and args.hub):
+            print("story-seed: --entrance / --after-advance / --pre-phase-control / --name shape a "
+                  "hub journey row (--chain --beat --hub)", file=sys.stderr)
+            return 1
         if not args.beat:
             # no beat given: print the zone's ADVANCE LADDER (the story's own flow through
             # the zone -- the beat-selection surface; a value = the state just after that
@@ -550,11 +556,22 @@ def _cmd_story_seed(args: argparse.Namespace) -> int:
             if not os.path.isfile(args.hub):
                 print(f"story-seed: journeys.toml not found: {args.hub}", file=sys.stderr)
                 return 1
-            slug = f"{os.path.basename(os.path.normpath(args.chain))}_{beat}"
-            row = storyseed.hub_journey_toml(
-                args.chain, beat, census,
-                lambda d: EbScript.from_bytes(bundle.eb_for_id(d)),
-                entry=int(args.entry), slug=slug)
+            # the slug names what makes the row distinct, so a post-phase or entrance row never
+            # REPLACES a frozen pre-phase row of the same chain and beat (update_hub_journeys is
+            # marker-keyed by slug); a plain row keeps its historical slug byte for byte. ONE rule,
+            # the library's own default (storyseed.hub_row_slug)
+            slug = storyseed.hub_row_slug(args.chain, beat, entrance=args.entrance,
+                                          after_advance=args.after_advance,
+                                          pre_phase_control=args.pre_phase_control)
+            try:
+                row = storyseed.hub_journey_toml(
+                    args.chain, beat, census,
+                    lambda d: EbScript.from_bytes(bundle.eb_for_id(d)),
+                    entry=int(args.entry), slug=slug, name=args.name, entrance=args.entrance,
+                    after_advance=args.after_advance, pre_phase_control=args.pre_phase_control)
+            except ValueError as err:
+                print(f"story-seed: {err}", file=sys.stderr)
+                return 1
             storyseed.update_hub_journeys(args.hub, row, slug)
             stripped = storyseed.strip_chain_seeds(args.chain)
             _safe_console()
@@ -584,6 +601,10 @@ def _cmd_story_seed(args: argparse.Namespace) -> int:
         else:
             print(f"story-seed: {len(rows)} member(s) seeded @ beat {beat}")
         return 0
+    if row_flags:
+        print("story-seed: --entrance / --after-advance / --pre-phase-control / --name shape a "
+              "hub journey row (--chain --beat --hub)", file=sys.stderr)
+        return 1
     if t.isdigit():
         from .extract import EventBundle
         data = EventBundle().eb_for_id(int(t))
@@ -7917,6 +7938,25 @@ def build_parser() -> argparse.ArgumentParser:
     sse.add_argument("--entry", type=int,
                      help="with --hub: the journey's warp destination (a member field id, "
                           "e.g. the zone's entrance member)")
+    sse.add_argument("--entrance", type=int,
+                     help="with --hub: the arrival entrance the pick writes before its warp (the "
+                          "member's player setup dispatches on it; e.g. 6 = Dali's inn lobby door "
+                          "from the wake room)")
+    sse.add_argument("--after-advance", action="store_true",
+                     help="with --hub: the entry lies AFTER the beat's own advance (the SC := beat "
+                          "store ran and handed control back): the row also carries what the "
+                          "advance and the exit into the entry leave -- its latches and its "
+                          "removes. Needs --entrance; refused unless the entry is behind one exit "
+                          "gateway of the advance room (the room itself hands back in place). "
+                          "VERIFIED ONLY: accepted only for a hand-over proven in the game (the "
+                          "list is storyseed.PROVEN_HANDOVERS, and a refusal prints it); every "
+                          "other one is refused, with no override")
+    sse.add_argument("--pre-phase-control", action="store_true",
+                     help="with --hub --entrance: build the PRE-phase row even though the entrance "
+                          "is the advance room's exit (a deliberate calibration control; refused "
+                          "otherwise)")
+    sse.add_argument("--name", help="with --hub: the journey's menu label (default: the nearest "
+                                    "milestone and SC, plus the phase or entrance when given)")
     sse.add_argument("--census", help="path to dominance_census.json (default: found by walking "
                                       "up from cwd; regenerate with research/dominance_census.py)")
     sse.set_defaults(func=_cmd_story_seed)
