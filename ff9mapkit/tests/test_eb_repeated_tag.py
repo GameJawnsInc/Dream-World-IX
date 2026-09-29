@@ -6,7 +6,8 @@ used to move the OTHER functions' ``fpos`` by skipping every function carrying t
 to the first tag-1 left the second tag-1's ``fpos`` where it was: it then started INSIDE the inserted bytes
 (on 2452 the first tag 1 stayed 6 bytes long while the second grew by the insert). The primitives now move
 ``fpos`` by function INDEX and take a ``func_index`` to address a namesake past the first, sharing one
-selector with ``replace_function_body``. Synthetic bytes -- no game install needed.
+selector across ``insert_in_function`` / ``remove_in_function`` / ``replace_function_body``. Synthetic
+bytes -- no game install needed.
 """
 from __future__ import annotations
 
@@ -77,12 +78,24 @@ def test_replace_addresses_the_second_namesake_by_index():
     assert _bodies(out, 0) == _bodies(out, 2) == [(0, RET)]
 
 
-@pytest.mark.parametrize("prim", ["insert", "replace"])
+@pytest.mark.parametrize("func_index, rel_off", [(None, 0), (None, len(W1)), (2, 0), (2, len(B) - 1)],
+                         ids=["first-by-tag", "first-mid", "second-by-index", "second-mid"])
+def test_remove_inverts_insert_on_either_namesake(func_index, rel_off):
+    """remove_in_function moves ``fpos`` by index too; with the same ``func_index`` the pair is the identity."""
+    raw = _eb()
+    kw = {} if func_index is None else {"func_index": func_index}
+    grown = edit.insert_in_function(raw, 1, 1, rel_off, INS, **kw)
+    assert edit.remove_in_function(grown, 1, 1, rel_off, len(INS), **kw) == raw
+
+
+@pytest.mark.parametrize("prim", ["insert", "replace", "remove"])
 @pytest.mark.parametrize("func_index, match", [(3, "not the expected 1"), (4, "out of range"),
                                                (-1, "out of range")])
 def test_func_index_is_checked_against_the_tag(prim, func_index, match):
     with pytest.raises(ValueError, match=match):
         if prim == "insert":
             edit.insert_in_function(_eb(), 1, 1, 0, INS, func_index=func_index)
-        else:
+        elif prim == "replace":
             edit.replace_function_body(_eb(), 1, 1, RET, func_index=func_index)
+        else:
+            edit.remove_in_function(_eb(), 1, 1, 0, len(W1), func_index=func_index)

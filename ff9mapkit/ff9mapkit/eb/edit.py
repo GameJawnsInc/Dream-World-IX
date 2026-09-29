@@ -429,10 +429,12 @@ def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins:
     return bytes(out)
 
 
-def remove_in_function(data, entry_index: int, func_tag: int, rel_off: int, length: int) -> bytes:
+def remove_in_function(data, entry_index: int, func_tag: int, rel_off: int, length: int, *,
+                       func_index: int | None = None) -> bytes:
     """Remove ``length`` bytes at body offset ``rel_off`` of function ``func_tag`` -- the exact inverse of
     :func:`insert_in_function`: ``remove_in_function(insert_in_function(b, e, t, r, ins), e, t, r, len(ins))``
-    is ``b`` again, byte for byte.
+    is ``b`` again, byte for byte. ``func_index`` addresses a repeated tag's namesake past the first, as in
+    :func:`insert_in_function` -- pass the same one to both and the pair still inverts.
 
     The cut ``[rel_off, rel_off + length)`` must start and end on instruction boundaries of the function.
     Every position outside the cut keeps its instruction: a position at or after the cut's end moves back
@@ -447,9 +449,7 @@ def remove_in_function(data, entry_index: int, func_tag: int, rel_off: int, leng
     if length <= 0:
         raise ValueError(f"remove length must be positive, got {length}")
     eb = EbScript.from_bytes(b)
-    f = eb.entry(entry_index).func_by_tag(func_tag)
-    if f is None:
-        raise ValueError(f"entry {entry_index} has no function tag {func_tag}")
+    f = _select_func(eb, entry_index, func_tag, func_index)
     a = f.abs_start + rel_off
     e = a + length
     if not (f.abs_start <= a and e <= f.abs_end):

@@ -5,6 +5,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `eb.edit.insert_in_function` on an entry that repeats a function tag
+- **What broke.** Stock repeats a tag in 15 entries across 14 of the 818 US field EVTs (field 2452 entry 4
+  lists tag 1 twice). The insert moved the other functions' `fpos` by skipping every function with the
+  edited TAG, so a prepend to the first tag 1 left the second one starting inside the inserted bytes.
+- **The fix.** `fpos` now moves by function INDEX. `insert_in_function` and `remove_in_function` take
+  `func_index=` to address a namesake past the first, sharing `replace_function_body`'s selector.
+
 ### Fixed — synthesized fields clear a stale ambient-error flag
 - **What broke.** Every stock field's `Main_Init` opens with an ambient-sound prologue per slot. A `Byte[13]`
   (or `Byte[14]`) that arrives as 2, "the last field's ambient is still playing", becomes 9 in a field that owns
