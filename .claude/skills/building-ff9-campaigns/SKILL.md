@@ -61,12 +61,14 @@ after EVERY opening/campaign re-deploy.** Full checklist (incl. `deploy-journey 
 the run-`--apply-links`-last rule): `references/scoping-and-newgame.md`; deep recipe:
 [[project-ff9-new-game-entry]].
 
-**Known gap F-NG (open, UNVERIFIED in game).** The override is stock 70 with only its `Field()` literal
-swapped (`newgame.retarget`), so it still sets `Byte[13] := 2` (its ambient 643 marked playing) and warps
-without stopping 643. Since the ambient-clear fix (`content/ambient.py`) a synthesized entry field clears the
-resulting 9, but the sound may play on there. The fix is to stop 643 before the `Field()` in stock's own form
-(70.ebs:157-160), which turns `newgame.retarget`'s 2-byte swap into an insertion and touches
-`tools/retarget_newgame_warp.py` and `deploy_campaign`'s re-wire. Tracked in the CHANGELOG Known issues.
+**The override's ambient handoff (F-NG, fixed in the kit, not yet seen in game).** Stock 70 marks
+`Byte[13] := 2` and plays its ambient 643 right before `Field(50)`: a same-id handoff, since 50 owns 643. The
+override now keeps that handoff only when the TARGET's own script owns 643 (a fork of 50, e.g. 6000).
+Otherwise it inserts 70's own 28-byte exit stop before `Int16[2] := 0; Field(<id>)` (`newgame.set_handoff`).
+`retarget` inserts or removes it for the new target, so re-wiring is a byte insertion, not a 2-byte swap. A
+live override changes only when re-wired; an override not in 70's warp shape is refused ("not wired"), and the
+fix is to recreate it with `wire_newgame_from_stock.py`. In-game proof = F-PROBE
+(`studies/story-trace/f_ng_probe.py`).
 
 ## Flag scope at campaign / journey tier
 

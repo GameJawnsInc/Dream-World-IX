@@ -24,6 +24,33 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `55d9b7b8…`, by exactly the tail. The blank, its 7 patches and the manifest's `blank.sha256` are unchanged, so
   no extracted template cache needs re-extracting.
 
+### Fixed — the New-Game override stops its opening ambient before it warps (F-NG)
+- **What broke.** Right before its `Field(50)`, stock field 70 marks `Byte[13] := 2`, starts its ambient 643 and
+  sets the keep-playing flag. That is a same-id handoff, because field 50 owns 643 too. Stock only ever hands a
+  playing ambient to a field that owns the same id (1040 of 1059 keep-flag warps, by a linear scan). The override
+  swapped only the `Field()` literal. So every New-Game target was entered with 643 still playing and a 2 that its
+  prologue turns into the error mark 9. The ambient clear above hid the 9 in a synthesized target. A verbatim fork
+  of a donor with no ambient would still have shown the report window.
+- **The fix.** The override now follows stock's exit rule. The decision reads the target's own script, resolved
+  the way the engine resolves it: the FolderNames registration, the folder being wired, else the stock script.
+  - When the target owns 643 (a fork of 50, such as the faithful opening's 6000), the handoff stays stock's, and
+    only the literal changes.
+  - Otherwise, 70's own exit stop is inserted right before `Int16[2] := 0; Field(<id>)`, where every stock exit
+    puts it: `if Byte[13] < 9 { Byte[13] := 3 }; RunSoundCode1(20864, 643, 0)`. These are the 28 bytes of 70's
+    disc-change branch. The same form appears 2,669 times across all 526 stock fields that own an ambient. The
+    target then arrives with `Byte[13] = 3`, which its prologue turns into 0.
+  - `wire_from_stock` inserts the stop. `retarget` inserts it or removes it (`eb.edit.remove_in_function`, the
+    exact inverse of `insert_in_function`), so pointing New Game back at a 643 owner restores stock's handoff.
+  - An override already on its target is upgraded too.
+  - An override reshaped away from 70's warp is refused and reported as not wired, never half-wired.
+  - New helpers: `content.ambient.ambient_id` / `exit_stop` and `newgame.set_handoff` / `handoff` /
+    `target_ambient`.
+- **What moves.** An override for a target that does not own 643 grows by 28 bytes. One for a 643 owner is
+  byte-identical to before. The backups and reverts copy whole files, so they undo the insertion unchanged. A
+  live override changes only when it is re-wired: `tools/retarget_newgame_warp.py <id>`, or `deploy_campaign`'s
+  own re-wire. Offline, the real override runs to `Byte[13] = 3` at its warp (2 before the fix). **Not yet
+  observed in game:** that needs F-PROBE, a traced full-opening New Game (`studies/story-trace/f_ng_probe.py`).
+
 ### Known issues — the ambient clear
 - **F-REDEPLOY: a deployed field changes only when it is rebuilt and redeployed.** The 47 synthesized fields
   deployed on the development machine keep the defect until then:
@@ -45,12 +72,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `restored` after. Run over a whole folder, it reads `stock-tail` for every verbatim fork, and it raises
   `ValueError` on the New-Game override in `FF9CustomMap-world` (`evt_alex1_ts_opening`, stock field 70, one
   of the five stock fields with no tail). A loop over a folder must skip that file or catch the error.
-- **F-NG: the New-Game override still hands off with its ambient playing.** The override is stock field 70 with
-  only its `Field()` literal swapped (`newgame.retarget`). It sets `Byte[13] := 2` and warps without stopping its
-  opening ambient (643). A synthesized entry field now clears the resulting 9, but the sound may play on. The fix
-  is to stop 643 before the `Field()` the way stock does, which turns the 2-byte swap into an insertion. The
-  flag half is now seen in game: field 70 writes `Byte[13]` 1 → 2 before its `Field()`, and 4600 then marks
-  it 9. Whether the sound plays on is not yet observed.
+- **F-NG: fixed in the kit (above), not yet on the development machine's live override or in game.** Before
+  the fix, the flag half was seen in game: field 70 wrote `Byte[13]` 1 → 2 before its `Field()`, and 4600 then
+  marked it 9. The live `FF9CustomMap-world` override (→ 4600) is still the bare swap until it is re-wired.
 - **F-WARP: kit warps do not write stock's exit idiom.** Choice, event, ladder and jump warps, and remapped
   same-id handoffs, skip stock's `if Byte[13] < 9 { Byte[13] := 3 }` before `Field()`, so they can leave an
   ambient sound playing. Into a synthesized field they no longer leave a 9 behind. Into a stock or verbatim field

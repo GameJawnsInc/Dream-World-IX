@@ -57,9 +57,9 @@ SNDEFFECTRES_STOP = 20864           # FF9Snd.FF9SOUND_SNDEFFECTRES_STOP: stop a 
 
 def ambient_id(data) -> int | None:
     """The field's own slot-0 ambient id ``K`` from its Main_Init prologue's ``Int16[9] := K``, or None when
-    Main_Init has no such statement. Every stock US Main_Init (818 of 818) sets it in the one 8-byte form
-    ``05 d8 09 7d <K u16> 2c 7f``; 526 own a sound, 292 set :data:`NO_AMBIENT`. Synthesized fields carry the
-    blank's 65535."""
+    Main_Init has no such statement (ValueError when there is no Main_Init). Every stock US Main_Init (818 of 818)
+    sets it in the one 8-byte form ``05 d8 09 7d <K u16> 2c 7f``; 526 own a sound, 292 set :data:`NO_AMBIENT`.
+    Synthesized fields carry the blank's 65535. ``newgame`` reads it to decide the New-Game override's handoff."""
     b = data.to_bytes() if isinstance(data, EbScript) else bytes(data)
     _f, stmts = _main_init(b)
     for _off, raw in stmts:
