@@ -4,8 +4,9 @@
 from FF9's own field data:
 
   * the **blank field** (956 B/language) -- the minimal playable field every built field starts from;
-    it is a *cleaned* clone of a base game field (popups removed, movement fixed, an after-battle
-    reinit added),
+    it is a *cleaned* clone of a base game field (movement fixed, an after-battle reinit added; the
+    patch drops stock's report windows together with their clear, ``build_script`` restores the clear
+    without the window (:mod:`ff9mapkit.content.ambient`), and the blank itself is unchanged, 956 B),
   * the **exit-region template** (272 B) -- the standard field-exit entry the gateway injector patches,
   * a handful of **test fixtures** (a real field script / camera / walkmesh) used by the offline suite.
 

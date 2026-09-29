@@ -5,6 +5,52 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — synthesized fields clear a stale ambient-error flag
+- **What broke.** Every stock field's `Main_Init` opens with an ambient-sound prologue per slot. A `Byte[13]`
+  (or `Byte[14]`) that arrives as 2, "the last field's ambient is still playing", becomes 9 in a field that owns
+  no ambient. Stock then closes that with a tail that reports the 9 in a developer window and clears it. The kit's
+  blank template is stock field 1357 through a provenance patch, and that patch dropped the whole tail, window and
+  clear together. So every synthesized field kept the 9, and the next stock or verbatim field entered showed the
+  report window. In session 1 of the story-trace F5b party test it appeared in 31101 after a hub revisit and
+  twice voided the check. Verbatim forks carry their donor's own tail and were never affected.
+- **The fix.** New `ff9mapkit.content.ambient`. `build_script` now restores the tail before any other pass, at
+  stock's position just before `set MAP159 = 1`: `if Byte[13] == 9 { Byte[13] := 0 }` and the same for
+  `Byte[14]`. Each statement is stock's own encoding, and there is no window: the kit field's text block has no
+  such line, and the harness cannot close it. `classify` tells a script's tail apart (`restored`, `stock-tail`,
+  `missing`) and refuses template drift.
+- **What moves.** Every synthesized `.eb` grows by 38 bytes in entry 0. This covers `new`, BG-borrow, `--editable`
+  and non-verbatim `--native` imports, campaign and journey synth members, gen-hub hubs and the bundled examples.
+  Verbatim forks and the New-Game override are byte-identical. The vivi-hut golden moves from `2c6f18b9…` to
+  `55d9b7b8…`, by exactly the tail. The blank, its 7 patches and the manifest's `blank.sha256` are unchanged, so
+  no extracted template cache needs re-extracting.
+
+### Known issues — the ambient clear
+- **F-REDEPLOY: a deployed field changes only when it is rebuilt and redeployed.** The 47 synthesized fields
+  deployed on the development machine keep the defect until then:
+  - `FF9CustomMap`: 4010-4013, 6500, 30416, 30801, 30860-30863, 30870, 30880, 30883, 30890, 30900,
+    30910-30912, 30920-30922, 30925, 30930, 30935-30937, 30945-30949, 30955, 30956, 30960, 31100, 31113, 31114;
+  - `FF9CustomMap-world`: 4600, 6601-6603;
+  - `FF9CustomMap-schema`: 30820-30821;
+  - `FF9CustomMap-msgs`: 30601-30603.
+
+  Do 4600 and 6601-6603 first, through the world pack's own deploy path, then re-wire New Game. A read-only
+  check: `ambient.classify` on the `field/us/*.eb.bytes` of these 47 ids reads `missing` before a redeploy and
+  `restored` after. Run over a whole folder, it reads `stock-tail` for every verbatim fork, and it raises
+  `ValueError` on the New-Game override in `FF9CustomMap-world` (`evt_alex1_ts_opening`, stock field 70, one
+  of the five stock fields with no tail). A loop over a folder must skip that file or catch the error.
+- **F-NG: the New-Game override still hands off with its ambient playing.** The override is stock field 70 with
+  only its `Field()` literal swapped (`newgame.retarget`). It sets `Byte[13] := 2` and warps without stopping its
+  opening ambient (643). A synthesized entry field now clears the resulting 9, but the sound may play on. The fix
+  is to stop 643 before the `Field()` the way stock does, which turns the 2-byte swap into an insertion. Derived
+  from the bytes, not yet seen in game.
+- **F-WARP: kit warps do not write stock's exit idiom.** Choice, event, ladder and jump warps, and remapped
+  same-id handoffs, skip stock's `if Byte[13] < 9 { Byte[13] := 3 }` before `Field()`, so they can leave an
+  ambient sound playing. Into a synthesized field they no longer leave a 9 behind. Into a stock or verbatim field
+  that owns no ambient, that field's own tail still shows the report window.
+- **F-IMPORT: BG-borrow, `--editable` and non-verbatim `--native` imports lose the donor's ambient sound.** Their
+  `Main_Init` takes its ambient ids from the blank (65535, none), so the room is silent where stock plays its
+  ambient. `--verbatim` keeps it. Tracked as row 15 of `docs/FORK_FIDELITY.md`.
+
 ### Added — `fork-report --trace`: what a field's scripts actually wrote, and what a fork of it gets wrong
 - **The stock walk alone (`--trace RUN...`).** Under the report, every story write the recorded stock runs
   made in this field: the instruction it joined to, and in how many runs. The static Story-writes candidates
