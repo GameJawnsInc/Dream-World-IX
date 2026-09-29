@@ -26,7 +26,7 @@ from __future__ import annotations
 import struct
 
 from ..binutils import EB_ENTRY_SIZE_MAX, EB_FILE_BUDGET, eb_budget_used, set_u16, u16
-from .model import ENTRY_SLOT_SIZE, ENTRY_TABLE_OFF, EbScript
+from .model import ENTRY_SLOT_SIZE, ENTRY_TABLE_OFF, EbScript, Func
 
 
 def _as_bytes(data) -> bytes:
@@ -43,6 +43,26 @@ def _containing_entry(b: bytes, abs_off: int) -> tuple[int, int, int]:
         if sz > 0 and ENTRY_TABLE_OFF + off <= abs_off < ENTRY_TABLE_OFF + off + sz:
             return i, off, sz
     raise ValueError(f"no entry contains absolute offset {abs_off}")
+
+
+def _select_func(eb: EbScript, entry_index: int, func_tag: int, func_index: int | None) -> Func:
+    """Function ``func_tag`` of ``entry_index``: the FIRST so tagged, or -- ``func_index`` given -- the one
+    at that POSITION in the entry's func table, whose tag must then be ``func_tag``. A tag is NOT unique
+    inside an entry (15 of the 818 US field EVTs repeat one), so a caller that found its function by
+    walking ``entry.funcs`` must pass that ``Func.index`` or it edits the first namesake instead."""
+    e = eb.entry(entry_index)
+    if func_index is None:
+        f = e.func_by_tag(func_tag)
+        if f is None:
+            raise ValueError(f"entry {entry_index} has no function tag {func_tag}")
+        return f
+    if not 0 <= func_index < e.func_count:
+        raise ValueError(f"entry {entry_index} has {e.func_count} function(s); index {func_index} is out of range")
+    f = e.funcs[func_index]
+    if f.tag != func_tag:
+        raise ValueError(f"entry {entry_index} function #{func_index} has tag {f.tag}, "
+                         f"not the expected {func_tag}")
+    return f
 
 
 def insert_bytes(data, abs_off: int, ins: bytes) -> bytes:
@@ -275,27 +295,13 @@ def replace_function_body(data, entry_index: int, func_tag: int, new_body: bytes
     off, sz = u16(b, slot), u16(b, slot + 2)
     if sz == 0:
         raise ValueError(f"entry {entry_index} is empty")
-    es = ENTRY_TABLE_OFF + off
-    fc = b[es + 1]
-    fbase = es + 2
-    funcs = [(u16(b, fbase + i * 4), u16(b, fbase + i * 4 + 2)) for i in range(fc)]   # (tag, fpos)
-    if func_index is None:
-        idx = next((i for i, (t, _) in enumerate(funcs) if t == func_tag), None)
-    else:
-        if not 0 <= func_index < fc:
-            raise ValueError(f"entry {entry_index} has {fc} function(s); index {func_index} is out of range")
-        if funcs[func_index][0] != func_tag:
-            raise ValueError(f"entry {entry_index} function #{func_index} has tag {funcs[func_index][0]}, "
-                             f"not the expected {func_tag}")
-        idx = func_index
-    if idx is None:
-        raise ValueError(f"entry {entry_index} has no function tag {func_tag}")
-    body_start = fbase + funcs[idx][1]
-    body_end = (fbase + funcs[idx + 1][1]) if idx + 1 < fc else (es + sz)
-    delta = len(new_body) - (body_end - body_start)
-    out = bytearray(bytes(b[:body_start]) + bytes(new_body) + bytes(b[body_end:]))
-    for i in range(idx + 1, fc):                          # later funcs' bodies shifted by delta
-        set_u16(out, fbase + i * 4 + 2, funcs[i][1] + delta)
+    fc = b[ENTRY_TABLE_OFF + off + 1]
+    fbase = ENTRY_TABLE_OFF + off + 2
+    f = _select_func(EbScript.from_bytes(bytes(b)), entry_index, func_tag, func_index)
+    delta = len(new_body) - f.length
+    out = bytearray(bytes(b[:f.abs_start]) + bytes(new_body) + bytes(b[f.abs_end:]))
+    for i in range(f.index + 1, fc):                      # later funcs' bodies shifted by delta (by INDEX)
+        set_u16(out, fbase + i * 4 + 2, u16(b, fbase + i * 4 + 2) + delta)
     set_u16(out, slot + 2, sz + delta)                    # entry's declared size
     for i in range(b[3]):                                 # later entries' table offsets
         if i == entry_index:
@@ -306,7 +312,8 @@ def replace_function_body(data, entry_index: int, func_tag: int, new_body: bytes
     return bytes(out)
 
 
-def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins: bytes) -> bytes:
+def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins: bytes, *,
+                       func_index: int | None = None) -> bytes:
     """Insert ``ins`` into function ``func_tag``'s body at body offset ``rel_off`` (0 = prepend).
 
     Unlike :func:`insert_bytes` (which only fixes the entry table, so refuses this case), this ALSO fixes
@@ -323,11 +330,16 @@ def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins:
     jump table -- because the engine is uniformly IP-relative: moving the whole body wholesale keeps
     every relative offset valid (both endpoints shift together), and nothing can sit between the new
     start and a later target. This is the ``[startup]``/``activate`` path, and it now works on the ~11%
-    of fields whose Main_Init switches on the ScenarioCounter (e.g. the interactive-ATE hub field 206)."""
+    of fields whose Main_Init switches on the ScenarioCounter (e.g. the interactive-ATE hub field 206).
+
+    ``func_index`` selects the function by its POSITION in the entry's func table, exactly as in
+    :func:`replace_function_body` (``func_tag`` then an asserted expectation); without it the FIRST
+    function tagged ``func_tag`` is edited. The other functions' ``fpos`` are moved by INDEX, never by
+    tag: stock entries repeat a tag (``evt_alex5_at_center`` entry 4 lists tag 1 twice), and a by-tag skip
+    left the second namesake's ``fpos`` unmoved -- after a prepend to the first it started INSIDE the
+    inserted bytes."""
     eb = EbScript.from_bytes(data)
-    f = eb.entry(entry_index).func_by_tag(func_tag)
-    if f is None:
-        raise ValueError(f"entry {entry_index} has no function tag {func_tag}")
+    f = _select_func(eb, entry_index, func_tag, func_index)
     abs_ins = f.abs_start + rel_off
     if not (f.abs_start <= abs_ins < f.abs_end):
         raise ValueError(f"insert offset {rel_off} is outside func {func_tag} body")
@@ -411,9 +423,8 @@ def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins:
     fc = out[es + 1]
     fbase = es + 2
     for i in range(fc):
-        t = u16(out, fbase + i * 4)
         fp = u16(out, fbase + i * 4 + 2)
-        if t != func_tag and fbase + fp >= abs_ins:        # other funcs whose body shifted
+        if i != f.index and fbase + fp >= abs_ins:         # other funcs whose body shifted (by INDEX)
             set_u16(out, fbase + i * 4 + 2, fp + len(ins))
     return bytes(out)
 
