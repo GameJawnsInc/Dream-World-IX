@@ -18,7 +18,10 @@ member, every write reached only across the seam), and the per-field shares part
 UNDER THE TRACE, in-game 28/28** (`story-rung5`, predictions v3 sha `d3ae4121`): New Game -> the hub's journey pick
 -> 12 pure verbatim members wrote what stock Dali writes, key for key, on paired walks. MIRROR was empty and 450 ran
 as a member with no seam. The seed stamped exactly its three frozen rows, and the story advanced in member(354) on
-stock's step.
+stock's step. **F5b, the post-wake entry** (`story-rung5b`, predictions v1 sha `bab9e642`): **VERDICT: NOT PROVEN:
+party -- proven: state, latches, walk.** The fixed seed entered past the wake landed on stock's hand-over state bit
+for bit, the calibration control failed exactly as registered, and the walk matched stock. The party proof leg hit
+a gen-hub defect (below) and is VOID.
 
 Board entry #3 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It is the narrative-state arc's missing
 instrument ([`../narrative-state/PLAN.md`](../narrative-state/PLAN.md)).
@@ -532,6 +535,61 @@ member(359), no F5b.
 **A pre-existing red, not F5's:** `rung3_dryrun.py` is 79/80, and session 3's S_vs_F0 report gains `, 355` on its
 "real fields seen across it" line. Both come from rung 4's seam listing (`356ac508`). HEAD's committed code produces
 the identical output. Re-baselining rung 3's archived reports is the owner's call.
+
+## F5b -- the seed resolver's post-advance phase, entered past the wake (in-game: NOT PROVEN: party)
+
+**What it tests.** The kit's fix (`storyseed.py`'s post-advance phase, `4a331cbb`): a hub journey row stamps THE
+HAND-OVER STATE OF ITS ENTRY. Entered past the wake at member(351) = 31101 through entrance 6 (stock's own first
+step after the wake), the row carries the wake's latches 2078/2086 = 1, a party of Zidane alone (the wake's three
+presence-guarded removes) and the entrance. F5's pre-wake row is byte-identical. The design, its three critics and
+the 12-agent build are archived at `C:\gd\Dream-World-IX\.harness-runs\story-trace-archive\f5b\`.
+- **Sides:** [S, F5B, CTL] x 3, on F5's 12 deployed members. T5B_HUB 31113 carries the fixed row; T5B_CTL 31114
+  carries today's pre-phase row at the same entry, as a calibration control predicted to fail exactly as registered.
+  Each fork run replays its stock partner's walk from step 2 (CTL: step 2 only).
+- **Frozen verdict rule:** PROVEN / NOT PROVEN: <half> / FAILED: <check>, over four halves (state, latches, party,
+  walk). Never a PASS count.
+
+### The session (2026-09-29, `story-rung5b`): VERDICT: NOT PROVEN: party -- proven: state, latches, walk
+
+- 3440 s, one launch, no re-runs. All nine runs covered: S 3, F5B 3, CTL 3. The install was left clean.
+- **P-HUBLEG passed for both hubs.** The hub-arrival autosave, the party instrument, read fresh and New Game's
+  [0,255,255,255] both times.
+- **State (proven).**
+  - R5B-LAND: at the landing, F5B equals stock outside the registered 53-bit landing set, which differs exactly as
+    registered, in all 3 pairs.
+  - R5B-STATE: after 351's own arrival, F5B equals stock bit for bit outside the registered 34-bit residual R.
+  - R5B-CONTROL: all 5 clauses PASS over 3 covered CTL runs. Today's row at the same entry fails exactly as
+    registered, so the instrument is shown able to fail in the game.
+- **Latches (proven).**
+  - R5B-ECHO: the latch consumers fire as in stock (351 e16 t2 ip105 clears 2078; 450 clears 2086).
+  - R5B-ARRIVAL: the entry's arrival is stock's step-1 arrival, exactly the 11 keys.
+  - R5-LATCH: all 8 hub-gated writes on both sides.
+- **Walk (proven).**
+  - R5-MIRROR: 0 STOCK ONLY, and 8 FORK ONLY, all SUPP-admitted (the 5 registered blind-spot keys among them).
+  - R5-PARTIAL: equal in every pair.
+  - R5-REACH, R5-PING and R5-NOSEAM: 450 wrote the ping as a member.
+  - R5-ADVANCE: 2610 in member(354) on the partner's step minus one.
+  - R5-JOIN 0 failures; NC-THROW nothing thrown.
+- **Party (NOT PROVEN): P-PARTYREMOVE is VOID.**
+  - Its known-positive reads came out as registered: r1 [0,2,3,1] after the CTL pick, and r2 [0,2,3,1] after the
+    warp into T5B_HUB from 31101.
+  - The F5B pick then landed in 31101 on stock's leftover developer window "Error Env Play() / Slot=0" (351
+    Main_Init, WindowAsync 51), which the harness could not close. That happened twice, so R5B-PARTY is VOID.
+- **The raw party reads, recorded and not judged:** F5B landed [0,255,255,255] and ended [0,255,255,255] in all 3
+  runs, which is stock's post-wake party. CTL landed [0,2,3,1]: the old row's party defect, in the game. F5B's match
+  is not proof the removes act, because New Game already gives [0,255,255,255]. P-PARTYREMOVE existed to settle
+  exactly that.
+
+**The cause is a gen-hub defect, not the seed.** A gen-hub hub copies 359's ambient-sound bookkeeping prologue
+(Int16[9] := -1, then Byte[13] := 9 when it is entered with Byte[13] == 2, i.e. from a field whose ambient sound
+was playing) but not 359's handler that clears the 9 again (359.ebs:105-111). P-PARTYREMOVE is the only path that
+enters a hub from a Dali field (31101 -> 31113). Every Dali field keeps an arriving 9 and reports it with that
+window (351.ebs:16-30 and 326-340). The runs themselves enter the hubs from New Game and never saw it. This is by
+the scripts' code and consistent with the observed window; the trace does not cover the untraced leg. It would also
+bite a player who revisits a hub from a field with ambient sound.
+
+**Archive:** `C:\gd\Dream-World-IX\.harness-runs\20260929-001746-story-rung5b\`. The offline `--analyse` reproduces
+both reports byte for byte.
 
 ## Rungs
 

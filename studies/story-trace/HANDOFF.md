@@ -50,9 +50,19 @@ Rewritten at the end of the facing-gate session, and updated after rung 4 and se
    seed-resolver fix first.
    - F5's 13 ids stay deployed until the owner decides. The revert order is in `rung5_forks.json`: per-id scripts
      only, 31100 first and then 31112 down to 31101, with the JournalPatch sha compared first.
-5. **Rung 3's dry-run is 79/80 on master too** (not F5's): session 2's archived reports predate `356ac508`'s seam
+5. **F5b, the post-wake entry** (branch `claude/story-trace-f5b`; PLAN.md's F5b section). The kit fix is
+   `4a331cbb`; the freeze is `7b70ff0b`, predictions v1 `bab9e642`. The session `story-rung5b` read **VERDICT: NOT
+   PROVEN: party -- proven: state, latches, walk**.
+   - The party proof leg (P-PARTYREMOVE) hit a gen-hub defect: a hub entered from a field with ambient sound leaves
+     Byte[13] = 9, and the next Dali field shows stock's "Error Env Play()" window.
+   - Hubs 31113/31114 are deployed. Revert only through the per-id scripts, 31114 then 31113.
+   - **Open (owner's call):**
+     - merge the kit fix, gated to verified hand-overs (the owner chose "verified only"), now or after a party
+       re-test;
+     - fix gen-hub's ambient-sound prologue, then re-run the party leg under new frozen predictions.
+6. **Rung 3's dry-run is 79/80 on master too** (not F5's): session 2's archived reports predate `356ac508`'s seam
    listing. Re-baseline, or compare that line modulo the seam list (owner's call).
-6. **Later:**
+7. **Later:**
    - s88/s89/s90 go into the next engine-bundle re-cut. That is a release: outward-facing, confirm first.
    - Keep or revert the 23 fork ids (owner's call). **Do not run their reverts blind -- read
      [REVERTING THE FORKS](#reverting-the-forks-six-reverts-were-half-reverts) first.** Six of them were armed with
