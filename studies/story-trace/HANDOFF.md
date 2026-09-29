@@ -60,8 +60,12 @@ Rewritten at the end of the facing-gate session, and updated after rung 4 and se
      `e1317a42` + tests `b90eae4a`; full suite green), hubs 31113/31114 redeployed with it, and the re-run
      `story-rung5b2` read **VERDICT: PROVEN** (all four halves) and **THE FIX: PROVEN**. Archive
      `C:\gd\Dream-World-IX\.harness-runs\20260929-163016-story-rung5b2\`.
-   - **Merges (the owner's gates):** `claude/ambient-clear` merges to master (THE FIX PROVEN). The resolver fix merges
-     "verified only": `--after-advance` refuses every hand-over not on the proven list (Dali 2600 -> 351/e6 today).
+   - **Merges (the owner's gates):** `claude/ambient-clear` merged to master (`d98ca2a4`, THE FIX PROVEN). The
+     resolver fix merges "verified only": `--after-advance` refuses every hand-over not on
+     `storyseed.PROVEN_HANDOVERS` (today only 352@2600 -> 351/e6, story-rung5b2), with no override flag. **To prove
+     another hand-over:** a harness under `studies/story-trace/` builds its row with
+     `storyseed.unproven_candidate_row` (library only, marked `CANDIDATE`, a tripwire test limits its callers), a
+     session proves it, then a code change adds it to `PROVEN_HANDOVERS` with its evidence and a real-bytes test.
    - Hubs 31113/31114 stay deployed. Revert only through the per-id scripts, 31114 then 31113.
    - **Follow-ups, each owner-gated:** F-REDEPLOY (the 47 synthesized deploys, 4600 + 6601-6603 first), F-NG (the
      New-Game override hands off with 643 playing), F-WARP, F-IMPORT, F-PROBE -- PLAN.md's F5c section and the
