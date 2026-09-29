@@ -18,6 +18,12 @@ C4  THE CLEAR, both slots: warp to the hub, poke [13] = [14] = 2 there (after it
     Main_Init (entry 0, tag 0) writes [13] and [14] 2 -> 9 at the prologue's ips and 9 -> 0 at the TAIL's ips (all
     four predicted from the live bytes), and the bits then read [13] == [14] == 0
 C5  no exception thrown through EventEngine/EBin/StoryTrace/HarnessAgent for the whole run
+
+RESULT (2026-09-29, run 20260929-181555-f-redeploy-6602, archived in the MAIN repo's .harness-runs): 5/5 PASS, 37 s.
+Warp arrival from field 70: 6602 wrote [13] 1 -> 0 (ip123, field 70's own ambient mark taken by the prologue's
+none-branch) and [14] 0 -> 0 (ip204). Moglow's window read "Kupo! I keep the Lamplight lit -- ..." and paged out with
+control back (walked 572u). The clear path wrote [13] 2 -> 9 ip101, [14] 2 -> 9 ip182, [13] 9 -> 0 ip267, [14] 9 -> 0
+ip286, all as predicted, and the bits read 0. The frames show the tower after its fade-in.
 """
 from __future__ import annotations
 

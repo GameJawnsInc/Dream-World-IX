@@ -44,6 +44,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
     tail clearing it 9 → 0.
   - 6601, entered from the hub with both slots arriving as 2. The trace shows both marked 9 and both cleared
     to 0. This is the first in-game proof of slot 1 (`Byte[14]`).
+  - 6602, entered by a debug warp (its beacon entrance is beyond the test harness) with both slots arriving
+    as 2. The trace shows both cleared, and Moglow's talk still plays as deployed.
   A read-only
   check: `ambient.classify` on the `field/us/*.eb.bytes` of these 47 ids reads `missing` before a redeploy and
   `restored` after. Run over a whole folder, it reads `stock-tail` for every verbatim fork, and it raises
