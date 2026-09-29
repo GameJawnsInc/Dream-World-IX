@@ -61,6 +61,15 @@ after EVERY opening/campaign re-deploy.** Full checklist (incl. `deploy-journey 
 the run-`--apply-links`-last rule): `references/scoping-and-newgame.md`; deep recipe:
 [[project-ff9-new-game-entry]].
 
+**The override's ambient handoff (F-NG, fixed in the kit, not yet seen in game).** Stock 70 marks
+`Byte[13] := 2` and plays its ambient 643 right before `Field(50)`: a same-id handoff, since 50 owns 643. The
+override now keeps that handoff only when the TARGET's own script owns 643 (a fork of 50, e.g. 6000).
+Otherwise it inserts 70's own 28-byte exit stop before `Int16[2] := 0; Field(<id>)` (`newgame.set_handoff`).
+`retarget` inserts or removes it for the new target, so re-wiring is a byte insertion, not a 2-byte swap. A
+live override changes only when re-wired; an override not in 70's warp shape is refused ("not wired"), and the
+fix is to recreate it with `wire_newgame_from_stock.py`. In-game proof = F-PROBE
+(`studies/story-trace/f_ng_probe.py`).
+
 ## Flag scope at campaign / journey tier
 
 field-local < campaign-shared < journey-global `[[flag]]` — all the SAME `gEventGlobal` array,

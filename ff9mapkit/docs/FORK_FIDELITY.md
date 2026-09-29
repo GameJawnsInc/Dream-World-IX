@@ -115,6 +115,7 @@ so the graft-tagged items (#9, #11, #12) are workable too (no longer deferred). 
 | 12 | Non-Zidane player donors (~8%, Garnet/Steiner rig clip-id mismatch) | major | hard | **yes** | OPEN — clip-id remap table per donor rig, or carry the donor party-member as the fork player. **Defer** (player.py). |
 | 13 | Per-fork battle-background override (scene_id maps to BBG globally) | major | hard | no | OPEN (low priority) — only when minting a scene that reuses vanilla gameplay but a custom BBG; battle-pillar enhancement. |
 | 14 | ~~Make a forked field's render-only NPCs interactive (talk-handler graft closure)~~ | major | — | **was yes** | **CLOSED — PROVEN INFEASIBLE** — `--verbatim` is the answer; `fork-report --explain` reads the quest (see below). |
+| 15 | BG-borrow / `--editable` / non-verbatim `--native` imports lose the donor's **ambient sound** (F-IMPORT) — the synthesized `Main_Init` takes `Int16[9]`/`Int16[11]` from the blank (65535, none), so the room is silent where stock plays its ambient | minor | medium | no | OPEN — carry the donor's ambient ids and its start into the synthesized `Main_Init`; `--verbatim` keeps it today. The report/clear tail itself is restored in every synthesized build (`content/ambient.py`). |
 
 **#2 — gated story-branch doors (LANDED + in-game proven).**
 
@@ -198,6 +199,9 @@ Extraction of *which* flags a real prior field sets is now **surfaced** by `fork
 (`scan_story_writes`): run it on a *predecessor* field to read the meaningful `gEventGlobal` writes (once-events /
 worldmap unlocks, noise-filtered + region-labeled) a downstream fork should seed via `[startup]`. The author still
 *asserts* the beat — their game knowledge outranks the raw list — but the candidates are now discoverable offline.
+With a recorded walk, `fork-report <field> --trace` (story-trace rung 4, [FORK_REPORT](FORK_REPORT.md)) replaces
+the candidate list with what the field's scripts actually wrote, and with `--fork-trace` it names each write a
+fork misses, adds, pre-empts or clobbers in that field.
 
 ## The carry decision — bring-in vs drop vs impossible (fork-mode taxonomy)
 

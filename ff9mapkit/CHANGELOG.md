@@ -5,6 +5,134 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — synthesized fields clear a stale ambient-error flag
+- **What broke.** Every stock field's `Main_Init` opens with an ambient-sound prologue per slot. A `Byte[13]`
+  (or `Byte[14]`) that arrives as 2, "the last field's ambient is still playing", becomes 9 in a field that owns
+  no ambient. Stock then closes that with a tail that reports the 9 in a developer window and clears it. The kit's
+  blank template is stock field 1357 through a provenance patch, and that patch dropped the whole tail, window and
+  clear together. So every synthesized field kept the 9, and the next stock or verbatim field entered showed the
+  report window. In session 1 of the story-trace F5b party test it appeared in 31101 after a hub revisit and
+  twice voided the check. Verbatim forks carry their donor's own tail and were never affected.
+- **The fix.** New `ff9mapkit.content.ambient`. `build_script` now restores the tail before any other pass, at
+  stock's position just before `set MAP159 = 1`: `if Byte[13] == 9 { Byte[13] := 0 }` and the same for
+  `Byte[14]`. Each statement is stock's own encoding, and there is no window: the kit field's text block has no
+  such line, and the harness cannot close it. `classify` tells a script's tail apart (`restored`, `stock-tail`,
+  `missing`) and refuses template drift.
+- **What moves.** Every synthesized `.eb` grows by 38 bytes in entry 0. This covers `new`, BG-borrow, `--editable`
+  and non-verbatim `--native` imports, campaign and journey synth members, gen-hub hubs and the bundled examples.
+  Verbatim forks and the New-Game override are byte-identical. The vivi-hut golden moves from `2c6f18b9…` to
+  `55d9b7b8…`, by exactly the tail. The blank, its 7 patches and the manifest's `blank.sha256` are unchanged, so
+  no extracted template cache needs re-extracting.
+
+### Fixed — the New-Game override stops its opening ambient before it warps (F-NG)
+- **What broke.** Right before its `Field(50)`, stock field 70 marks `Byte[13] := 2`, starts its ambient 643 and
+  sets the keep-playing flag. That is a same-id handoff, because field 50 owns 643 too. Stock only ever hands a
+  playing ambient to a field that owns the same id (1040 of 1059 keep-flag warps, by a linear scan). The override
+  swapped only the `Field()` literal. So every New-Game target was entered with 643 still playing and a 2 that its
+  prologue turns into the error mark 9. The ambient clear above hid the 9 in a synthesized target. A verbatim fork
+  of a donor with no ambient would still have shown the report window.
+- **The fix.** The override now follows stock's exit rule. The decision reads the target's own script, resolved
+  the way the engine resolves it: the FolderNames registration, the folder being wired, else the stock script.
+  - When the target owns 643 (a fork of 50, such as the faithful opening's 6000), the handoff stays stock's, and
+    only the literal changes.
+  - Otherwise, 70's own exit stop is inserted right before `Int16[2] := 0; Field(<id>)`, where every stock exit
+    puts it: `if Byte[13] < 9 { Byte[13] := 3 }; RunSoundCode1(20864, 643, 0)`. These are the 28 bytes of 70's
+    disc-change branch. The same form appears 2,669 times across all 526 stock fields that own an ambient. The
+    target then arrives with `Byte[13] = 3`, which its prologue turns into 0.
+  - `wire_from_stock` inserts the stop. `retarget` inserts it or removes it (`eb.edit.remove_in_function`, the
+    exact inverse of `insert_in_function`), so pointing New Game back at a 643 owner restores stock's handoff.
+  - An override already on its target is upgraded too.
+  - An override reshaped away from 70's warp is refused and reported as not wired, never half-wired.
+  - New helpers: `content.ambient.ambient_id` / `exit_stop` and `newgame.set_handoff` / `handoff` /
+    `target_ambient`.
+- **What moves.** An override for a target that does not own 643 grows by 28 bytes. One for a 643 owner is
+  byte-identical to before. The backups and reverts copy whole files, so they undo the insertion unchanged. A
+  live override changes only when it is re-wired: `tools/retarget_newgame_warp.py <id>`, or `deploy_campaign`'s
+  own re-wire. Offline, the real override runs to `Byte[13] = 3` at its warp (2 before the fix). **Not yet
+  observed in game:** that needs F-PROBE, a traced full-opening New Game (`studies/story-trace/f_ng_probe.py`).
+
+### Known issues — the ambient clear
+- **F-REDEPLOY: a deployed field changes only when it is rebuilt and redeployed.** The 47 synthesized fields
+  deployed on the development machine keep the defect until then:
+  - `FF9CustomMap`: 4010-4013, 6500, 30416, 30801, 30860-30863, 30870, 30880, 30883, 30890, 30900,
+    30910-30912, 30920-30922, 30925, 30930, 30935-30937, 30945-30949, 30955, 30956, 30960, 31100, 31113, 31114;
+  - `FF9CustomMap-world`: 4600, 6601-6603;
+  - `FF9CustomMap-schema`: 30820-30821;
+  - `FF9CustomMap-msgs`: 30601-30603.
+
+  **Do not rebuild them from source**: a field deployed before later kit changes rebuilds with those changes
+  too. 4600 and 6601-6603 rebuilt +51 bytes, not +38. The extra changes are the moved entry-settle hold, blob
+  shadows, animation-block padding and, on 6602, a talk-window movement lock. The rebuild also writes a newer
+  `JournalPatch.txt`. Redeploy instead with `tools/ambient_splice.py <id> --mod-folder <folder>` (dry run; add
+  `--apply` with the game closed). It writes the live `.eb` plus exactly the tail, checked instruction by
+  instruction, and nothing else, so registrations and the New-Game override stay as they are and need no
+  re-wire.
+
+  Status: **`FF9CustomMap-world` is done.** All four were spliced and each was proven in game under the story
+  trace (`studies/story-trace/f_redeploy_*.py`).
+  - 4600, on the real New-Game route. Its prologue marks `Byte[13]` 2 → 9 and the tail clears it 9 → 0.
+  - 6601, 6602 and 6603, each entered with both slots arriving as 2. Each marks both 9 and clears both to 0,
+    which proves slot 1 (`Byte[14]`) in game for the first time. Each room's own NPC still plays as deployed.
+
+  31113 and 31114 were redeployed by the F5c session. **41 remain**: `FF9CustomMap` 36, `FF9CustomMap-schema`
+  2 and `FF9CustomMap-msgs` 3. A read-only
+  check: `ambient.classify` on the `field/us/*.eb.bytes` of these 47 ids reads `missing` before a redeploy and
+  `restored` after. Run over a whole folder, it reads `stock-tail` for every verbatim fork, and it raises
+  `ValueError` on the New-Game override in `FF9CustomMap-world` (`evt_alex1_ts_opening`, stock field 70, one
+  of the five stock fields with no tail). A loop over a folder must skip that file or catch the error.
+- **F-NG: fixed in the kit (above), not yet on the development machine's live override or in game.** Before
+  the fix, the flag half was seen in game: field 70 wrote `Byte[13]` 1 → 2 before its `Field()`, and 4600 then
+  marked it 9. The live `FF9CustomMap-world` override (→ 4600) is still the bare swap until it is re-wired.
+- **F-WARP: kit warps do not write stock's exit idiom.** Choice, event, ladder and jump warps, and remapped
+  same-id handoffs, skip stock's `if Byte[13] < 9 { Byte[13] := 3 }` before `Field()`, so they can leave an
+  ambient sound playing. Into a synthesized field they no longer leave a 9 behind. Into a stock or verbatim field
+  that owns no ambient, that field's own tail still shows the report window.
+- **F-IMPORT: BG-borrow, `--editable` and non-verbatim `--native` imports lose the donor's ambient sound.** Their
+  `Main_Init` takes its ambient ids from the blank (65535, none), so the room is silent where stock plays its
+  ambient. `--verbatim` keeps it. Tracked as row 15 of `docs/FORK_FIDELITY.md`.
+
+### Added — `fork-report --trace`: what a field's scripts actually wrote, and what a fork of it gets wrong
+- **The stock walk alone (`--trace RUN...`).** Under the report, every story write the recorded stock runs
+  made in this field: the instruction it joined to, and in how many runs. The static Story-writes candidates
+  are split into three groups. The first is written by the field's own script on these walks, with each value
+  and its run count. The second is never run, which is no evidence. The third is traced writes no candidate
+  lists.
+- **Against a fork (`--fork-trace RUN...`).** The story-trace set difference cut to this field: STOCK ONLY,
+  FORK ONLY, UNSTABLE, seams, REACHED ONLY ACROSS A SEAM, neighbour-byte clobbers, pre-empted seed values and
+  join failures. The whole comparison's totals follow (join failures and member donor mismatches included), so
+  a clean field in a broken chain never reads clean.
+- **Chains.** `--member FORK=DONOR,...` names a chain's members. Two cases are flagged: a fork run that walks
+  into the real game with no member set (its rows there would silently match stock), and fork rows that name no
+  real donor (no ForkDonorPatch row, no `--donor`).
+- Reads runs exactly as `story-trace` does, with the same `--donor`/`--script`/`--fork-script`/`--fork-root`/
+  `--lang`. A trace option with nothing to read is refused, and so is `--trace` with `--explain`. Without
+  `--trace` the report is unchanged. Traces need an engine with memoria-patch s88 (the dev engine), recorded by
+  the in-game test harness.
+
+### Fixed — `story-trace` reads a few cases more truthfully
+- **Alignment.** A fork function is no longer aligned to its donor when a same-shape expression was inserted
+  in it. The old check filed the fork's real store as its `[startup]` prepend, and then as PRE-EMPTED.
+- **Seams.** A crossing counts each run once, and names every real field any run walked across it.
+- **Repeated flags.** `--fork` given twice now accumulates. Before, only the last one was kept.
+- **Refusals and errors.** `--donor`/`--fork-script` with no `--fork` are refused, and so is a `--donor` that
+  contradicts a `--member`. An unreadable `--script` is a message, not a traceback.
+
+### Fixed — `tools/deploy_field.py` backups can no longer be overwritten by a same-second deploy
+- **What broke.** Every pre-deploy backup was named `<file>.preDEPLOY.<STAMP>` with a one-second stamp. When
+  a scripted batch landed two deploys in one second, the later one's backups replaced the earlier one's. By
+  then they held the earlier field's own `FieldScene` line and ForkDonorPatch row. The earlier field's revert
+  deleted its `.eb` but restored its registration, which is the null-.eb black screen. Six story-trace
+  rung-3 forks and one fight-ledger bench had such a revert.
+- **The fix.** New `ff9mapkit.deploybackup`. The stamp is now to the microsecond, and each deploy claims it by
+  writing its DictionaryPatch backup create-exclusive. A taken name gets a `-<n>` suffix. Every other backup is
+  also written create-exclusive: if its name is already taken, the deploy stops with a message instead of
+  replacing the file.
+- **Reverts written before the fix.** `tools/repair_collided_backups.py` scans `tools/scroll_out` for them.
+  `--plan` checks each one and simulates its revert against the live folder without writing anything.
+  `--repair` removes the earlier field's own lines from the shared DictionaryPatch/ForkDonorPatch backups and
+  keeps the originals as `<name>.collided-orig`. It refuses whenever the other backups cannot show exactly
+  which lines that deploy wrote.
+
 ### Fixed — `tools/build_memoria.py --no-deploy` no longer deploys the two sibling DLLs
 - **What leaked.** `--no-deploy` passed `-p:DWIXNoDeploy=true`, which s45 honored only in
   `Assembly-CSharp.csproj`. msbuild builds `Memoria.Prime` and `UnityEngine.UI` first, and each has its

@@ -24,6 +24,7 @@ from dataclasses import dataclass, field as _dc_field
 from pathlib import Path
 
 from .config import LANGS, ModLayout, fbg_name
+from .content import ambient as _ambient
 from .content import ate as _ate
 from .content import behaviortoml as _behaviortoml
 from .content import camera as _camera
@@ -7145,7 +7146,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # a choice attached to an NPC (choice.npc == npc.name) replaces that NPC's talk with a branch.
     choice_by_npc = {ch["npc"]: (c, ch) for c, ch in enumerate(project.raw.get("choice", []))
                      if "npc" in ch}
-    eb = _data.blank_field_bytes(lang)
+    # THE AMBIENT CLEAR (content.ambient), FIRST: the blank's provenance patch dropped stock's report/clear tail
+    # with its window, so an arriving Byte[13]/[14] 2 (ambient still playing) became a 9 and stayed. Restore the
+    # clear, without the window, before `set MAP159 = 1` -- every later pass anchors by pattern after it. Called
+    # through the module attribute (a test patches it there).
+    eb = _ambient.restore_clear(_data.blank_field_bytes(lang))
     # movement control-direction first (shift-free, before any appends that move bytecode)
     if control_value != -1:
         eb = _movement.set_control_direction(eb, control_value)

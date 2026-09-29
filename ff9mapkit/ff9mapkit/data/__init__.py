@@ -4,9 +4,12 @@ Contents
 --------
 blank_field/<lang>.eb.bytes
     The canonical *blank field* event script (956 bytes), one per language. This is the
-    proven minimal playable field used as the starting point for every built field: a clean
-    Main_Init (no stray popups, standard movement) plus a single player object. Content
-    injectors clone/extend it; the builder writes it (with content) per language.
+    proven minimal playable field used as the starting point for every built field: a
+    Main_Init with standard movement (the patch drops stock's report windows together with
+    their clear; ``build_script`` restores the clear without the window, see
+    :mod:`ff9mapkit.content.ambient`, and the blank itself is unchanged, 956 B) plus a single
+    player object. Content injectors clone/extend it; the builder writes it (with content)
+    per language.
 
 region_template.bin
     The 272-byte field-exit region body (a SetRegion polygon -> CalculateExitPosition /

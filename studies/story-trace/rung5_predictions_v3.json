@@ -1,0 +1,1303 @@
+{
+ "what": "Story-trace F5's registered predictions, VERSION 3 (continuing rung 3's lineage): the kit's HUB LANE -- a gen-hub field (T5_HUB, 31100) whose journey pick stamps the seed hub-side, then 12 PURE verbatim Dali members (31101-31112, 450 among them) -- against stock Dali, under THE PAIRED-WALK LAW. rung5_hub.analyse5 reads every expectation from the file the session recorded and from nowhere else; the session records this file's path and sha256 before its first run and the analysis refuses a file that no longer matches (P-FROZEN). Immutable once committed: moved ids mean a new file.",
+ "version": 3,
+ "frozen": "2026-09-28, before any F5 deploy or run. Design: the F5 design revision 2 (after two critics); the implementation's departures from it are named in \"implementation\" below and in the texts they touch.",
+ "lineage": {
+  "file": "rung3_predictions_v2.json",
+  "sha256": "d6dd541c995a296fa449ad00681bf7c419059daeed9e66b3f36b272416b362f4",
+  "carried": "the wake, the start SC, the beat, the segment place, the budget's numbers, the 'ran' and 'flip' coverage patterns, and R3-LATCH's eight hub-gated patterns, unchanged"
+ },
+ "implementation": [
+  "hub leg step 4: walk_to's tolerance is 15 (Session.HALF_STEP -- walk_to REFUSES a tolerance under half a MovePC step, 30u/2), not the design's 12, which would raise",
+  "hub leg step 5: he is turned IN PLACE toward him (turn_in_place, turn_frames) before EVERY Confirm, not only after a silent one -- walk_to's last burst can be an overshoot correction the other way (the FakeGame leg: 'hold right 13', then 'hold left 1'), leaving him facing away from the talker",
+  "hub leg step 5: 'step 8 units nearer' is one WALKED TICK toward him after a silent Confirm (the smallest step the pad makes is a 30u MovePC call; his solid body holds him at r)",
+  "hub leg steps 4-5: the approach point and the turn read Stiltzkin's PUBLISHED position (the talker nearest the frozen [480, 127], within narrator_within) -- identical to the design's literal (480 - d, 127) and +x when he stands where frozen",
+  "hub leg step 6: the options AND the cursor are read once the menu takes answers (Session._choice_ready: group Dialog.Choice, or none published) -- a window still opening reads a stale cursor",
+  "hub leg steps 8-9 and E9, TWO CLOCKS (design step 9 wrong against the stop classes): hub_s governs the leg only UP TO each of the pick's Confirms -- every call before it gets min(its default, the time left), none left raises 'hub leg: budget' BEFORE the press (the menu open and ready: no stamp can have landed) -- and is never read after it; from the press on, the landing's own clock budget.entry_s (60 s, rung 3's raw path's wait for its start field): the press and its polls are sent with min(60, entry_s), and the wait for 31111 takes entry_s whole. The design's 'wait_for(31111, remaining)' let a slow leg shorten the one wait that tells a fork's stall from a slow drive, and a budget that ran out after the stamps filed a stall as FORK-STOP 'hub' or UNCLASSED. The reserve a reviewer proposed (refuse the Confirm under ~30 s left) is subsumed: no budget stop can follow a stamp. Calls that take no timeout (calibrate_axes, walk_to, interact's own press) are bounded by their counts or one default send and checked between calls, and the warp's two waits take min(60, left) each -- so before the Confirm a stalled game can hold the leg past hub_s by at most one default send (60 s), and after it by at most entry_s plus the polls",
+  "hub leg steps 2 and 4 (design wrong against the hub's bytes): the spawn (404, 127) stands 76u from Stiltzkin, INSIDE his r of 152 (hub.approach.from_bytes), where MovePC undoes whole any step that faces him (its push-out lands at 136 < r). A BLIND calibrate_axes (design step 2, the P-HUBLEG claim) refuses the v axis there -- reproduced on the FakeGame with MovePC's collision (test_harness: the leg from a spawn inside his body) -- so hub_open calibrates on the hub's own frozen twist (hub.twist, checked by P-HUB) as the prior: the one-sided left probe agrees with it, the other axis is derived. And the walk to the approach point (x - d, z) heads WEST from the spawn, away from him -- the design's 'heading east faces him' is wrong for these bytes (the turn in place before every Confirm, below, is what faces him)",
+  "hub leg step 3: Stiltzkin is read off objects over up to 5 s of samples (min(5, the time left)), never one: the agent nulls the whole list on ANY failure of its walk ('could not say THIS sample')",
+  "hub leg step 5: the turn in place is skipped when the engine reports facing_status 'cannot' (a DLL before s90): the Confirm is then tried as he stands",
+  "hub leg step 10: the hub record is logged on ANY failure too (a HarnessError, or a drive bug re-raised unchanged), as far as the leg got, with 'error' and 't' -- the measured r, talk_r, approach and tries are the diagnosis of a leg that failed",
+  "P-HUBLEG: the log mark is taken after New Game, right before the leg's hub warp (design E7: between the hub warp and the stay-row check; the check's claim listed log_mark before New Game, which would charge New Game's own exceptions to the hub); any error the drive raises FAILs it, named, and never escapes run()",
+  "R5-PREFIX reads COVERED F5 runs too: a covered run whose story never moves on replays the whole walk, then tours blind (dali_tour.Tour.replay), so the keys that tour adds FAIL R5-PREFIX (and R5-PARTIAL, R5-MIRROR) beside R5-ADVANCE -- one fork difference, named by every check that reads it",
+  "phase: the stage the drive stopped in (lead-in, hub, segment, replay, tour, settle); the collection never overwrites it (the stop class reads it), so no 'collect' phase is recorded",
+  "stop classes: a VOID F5 run that no DRIVE or FORK-STOP pattern names is UNCLASSED -- listed, and R5-REACH cannot PASS while one stands (the design gave such a run no class)",
+  "stop classes, the hub leg (design section 5.5 incomplete): 'hub leg: budget' is a DRIVE pattern (R5-REACH's claim lists the budget as DRIVE; sound because the leg's clock is never read after the Confirm); FORK-STOP 'hub' needs the landing's own wait to have timed out LIVE ('waiting for the pick to land in 31111 over N live samples'), and a stop in phase hub after the stamps with any other text is UNCLASSED; a phase-hub stop whose trace HAS rows in 31111 is DRIVE (the leg's Field() had landed: the harness's view, not the fork's)",
+  "stop classes, the entry (design section 5.5 'the run stood in 31111, or its stamps landed' and critic F1): a run whose leg returned in 31111 (phase segment) and that stopped before member(359) wrote any row is judged by the segment class -- a live soft-lock raised there is FORK-STOP segment@<rec.at's place, 359> -- where the code before this fix called it DRIVE with a false reason ('stopped before the stamps'); with no stamp row it stays DRIVE, its reason the real one",
+  "stop classes, the replay point (design section 5.5 'replay@<s>'): the point is replay@<step>(<step name>) -- the frozen regex captures the parenthesised name (place.exit -> entered) -- so two breaks at one step number of two different walks are two points, never a reproduction",
+  "R5-STAMP clause (3) (the entry next) runs on EVERY F5 run with a hub row, reached or not (the claim, amended): the registered 'stamps, then the first member row in 31104' mutant never reaches 31111 and can FAIL only through (3), which checks.json had limited to reached runs",
+  "R5-SEGMENT's FAIL detail counts each side's keys (and the F5 side's prepend keys), so F4's registered mutant is checked by the dry-run by its numbers, not only its verdict -- REGISTERED-TEXT REFINEMENT: the design's '5 stock-only keys gated on 297, and 21 prepend keys' measures as 5 stock-only keys and 21 F5-only keys, 17 of them prepends (negative offsets), in every pair",
+  "the dry-run: every analysis check it registers is shown able to PASS, FAIL and go VOID where the check has a VOID branch (R5-DONOR, R5-JOIN, R5-PREFIX and R5-STAMP's by guard cases: every F5 run hub-raised, every run skipped); verdict-only cases name the clause they are registered for (a 'need' on the detail)",
+  "R5-MIRROR: FORK ONLY / STOCK ONLY exclude the frozen timing site, as every pairwise check does ('only the byte-299 keys differ' is registered PASS)",
+  "R5-RUNS after THE HALT: F5 is short of covered runs, so R5-RUNS is VOID with no structural fault (the design's 'PASS on structure' = not FAIL)",
+  "R5-STAMP: the width clause runs on EVERY hub store and a row that fails its join still counts in the exact list, so a stray UInt16[296] := 192 fails both clauses as registered",
+  "the dry-run builds the 13 fields itself from the tomls rung5_forks.json names (sub-second builds), so it depends on the durable build tree, not on a session scratchpad"
+ ],
+ "order": [
+  "S",
+  "F5",
+  "S",
+  "F5",
+  "S",
+  "F5"
+ ],
+ "sides": {
+  "S": "stock Dali (the install's scripts); start: New Game, then warp 359 0 2540",
+  "F5": "the hub T5_HUB (31100) + 12 pure verbatim members (31101-31112); start: New Game, then warp 31100 0 2540, talk to Stiltzkin, pick 'Dali (SC 2600)' -> Field(31111), member(359)"
+ },
+ "start": {
+  "S": 359,
+  "F5": 31111
+ },
+ "start_sc": 2540,
+ "beat": 2600,
+ "segment_place": 352,
+ "wake": {
+  "name": "352's wake: SC := 2600",
+  "donor": 352,
+  "sid": 17,
+  "tag": 1,
+  "off": [
+   4385
+  ],
+  "target": "Global.UInt16[0]",
+  "value": [
+   2600
+  ]
+ },
+ "members": {
+  "F5": {
+   "31101": 351,
+   "31102": 312,
+   "31103": 350,
+   "31104": 352,
+   "31105": 353,
+   "31106": 354,
+   "31107": 355,
+   "31108": 356,
+   "31109": 357,
+   "31110": 358,
+   "31111": 359,
+   "31112": 450
+  }
+ },
+ "chain_map": {
+  "351": 31101,
+  "312": 31102,
+  "350": 31103,
+  "352": 31104,
+  "353": 31105,
+  "354": 31106,
+  "355": 31107,
+  "356": 31108,
+  "357": 31109,
+  "358": 31110,
+  "359": 31111,
+  "450": 31112
+ },
+ "seams": {
+  "31108": [
+   404
+  ],
+  "31112": [
+   451,
+   453
+  ]
+ },
+ "timing_site": {
+  "name": "359 e5 t17 +49 Byte[299]: a villager's Confirm-frame counter (input timing)",
+  "donor": 359,
+  "sid": 5,
+  "tag": 17,
+  "off": 49,
+  "target": "Global.Byte[299]",
+  "byte": 299
+ },
+ "replay": {
+  "side": "F5",
+  "max_breaks": 2,
+  "counts": "driven non-covered F5 runs",
+  "expect": "Every F5 run REPLAYS its stock partner's entered walk (dali_tour.Tour.replay, rung 3 v2's replay rules unchanged). A round's F5 partners the round's S; a re-run F5 partners the oldest COVERED S with no covered F5 twin on which fewer than max_breaks DRIVEN, non-covered F5 runs were made -- so a fork-caused stop is retried once on the same walk (a reproduction); none -- S re-runs for a fresh walk. Each covered S is partnered by at most one covered F5. A VOID or unreadable partner: the F5 run is recorded, not driven."
+ },
+ "budget": {
+  "hub_s": 180,
+  "entry_s": 60,
+  "segment_s": 720,
+  "tour_s": 1080,
+  "max_passes": 3,
+  "max_crossings": 80,
+  "session_s": 10800,
+  "run_min_s": 720,
+  "expected_minutes": {
+   "S": 10,
+   "F5": 11,
+   "session": 67,
+   "with_reruns": 130
+  },
+  "why": "rung 3 v2's numbers; hub_s one deadline for the hub leg UP TO THE PICK'S CONFIRM, never read after it; entry_s the landing's own clock from the Confirm on (the press, its polls and the wait for 31111) -- rung 3's raw path waited 60 s for its start field -- so a slow leg cannot shorten the one wait that tells a fork's stall from a slow drive, and a budget stop can only come before a stamp. Session 4 measured S 601-615 s and F0 548-584 s; F5 = F0 + a 30-60 s hub leg; P-HUBLEG ~90 s, boot + pre-flight ~3 min."
+ },
+ "rerun": {
+  "max": 6,
+  "halt": "R5-REACH decided",
+  "why": "after the six, while a side is short of covered runs and a run fits the budget: S first while S is short; then F5 by the pairing; none after THE HALT (two F5 FORK-STOPs at one point)"
+ },
+ "coverage": {
+  "expect": "COVERED (either side): the trace closed; the run stood in its start field; the segment record is ok; the trace shows the wake; the stop is clean (S 'SC left'; F5 'SC left', 'passes exhausted' or 'budget spent'); both 'ran' patterns hold. S only: the flip and SC 2610. F5 only: its partner is covered and its replay steps are the partner's whole entered walk, or the prefix up to the crossing where SC left. F5 is NOT required to advance (R5-ADVANCE judges it).",
+  "min_covered": 3,
+  "clean_stop": {
+   "S": [
+    "SC left"
+   ],
+   "F5": [
+    "SC left",
+    "passes exhausted",
+    "budget spent"
+   ]
+  },
+  "ran": [
+   {
+    "name": "351's lobby exit ran (e16 +313 Int16[2] := 2)",
+    "donor": 351,
+    "sid": 16,
+    "tag": 2,
+    "off": [
+     313
+    ],
+    "target": "Global.Int16[2]",
+    "value": [
+     2
+    ]
+   },
+   {
+    "name": "450's e19 exit ran (+296 Int16[2] := 25)",
+    "donor": 450,
+    "sid": 19,
+    "tag": 2,
+    "off": [
+     296
+    ],
+    "target": "Global.Int16[2]",
+    "value": [
+     25
+    ]
+   }
+  ],
+  "advancing": [
+   "S"
+  ],
+  "flip": {
+   "name": "the controller's flip (tag 1 +222 Bit[2079] := 1)",
+   "tag": 1,
+   "off": [
+    222
+   ],
+   "target": "Global.Bit[2079]",
+   "value": [
+    1
+   ]
+  },
+  "advanced_sc": 2610,
+  "floor": [],
+  "floor_stops": [],
+  "stop_class": "Every VOID F5 run gets a stop class, the DRIVE patterns (\"drive\": regexes over its stop text) tested first: DRIVE -- a skip, the install moving, no trace/log, a broken trace, a trace that never closed (a game death, a tracer fault), a DRIVE pattern (the hub leg's own budget among them: it is never read after the pick's Confirm, so it can only stop a run before a stamp), a partner not covered, a hub leg that stopped before any stamp landed, or a hub leg that raised though the trace has rows in 31111 (its own Field() had landed: the harness's view of the landing, not the fork's) -- is never evidence. FORK-STOP (\"fork_stop\": the run stood in 31111 or its stamps landed, its partner covered) at a point: 'hub' (the stamps landed and the landing's own wait timed out LIVE with no row in 31111), 'segment@<place>' (at the entry itself too: the leg returned in 31111 and the run stalled before member(359) wrote a row -- the point is rec.at's place), 'replay@<step>(<step name>)', 'scene@<place>@<sc>'. UNCLASSED: VOID for a reason no pattern names (the stamps landed, 31111 never reached, and the stop is not the landing's timeout, among others).",
+  "drive": [
+   "session budget",
+   "the gated door was never faced",
+   "no standable goal",
+   "place \\d+ has \\d+ exits",
+   "donor mismatch",
+   "the channel is frozen",
+   "saw no state at all",
+   "the game refused a step",
+   "the title could not be restored",
+   "STOPPED \\(unexpected\\)",
+   "^budget spent",
+   "the game exited",
+   "hub leg: budget"
+  ],
+  "fork_stop": {
+   "hub": {
+    "phase": "hub",
+    "point": "hub",
+    "stop": "waiting for the pick to land in \\d+ over \\d+ live samples",
+    "expect": "phase hub, the raw trace shows the three stamps, no row in 31111, and the stop is the landing's own wait timing out LIVE (entry_s; a frozen channel is DRIVE)"
+   },
+   "segment": {
+    "phase": "segment",
+    "raised": [
+     "control never returned within",
+     "asked .* again after"
+    ],
+    "expect": "phase segment, and the segment record not ok (no DRIVE pattern), or a live soft-lock or a re-asked choice raised; point segment@<the record's place, else rec.at's> -- also when the run has no row in 31111 yet but its stamps landed (the leg returned: the stall is at the entry)"
+   },
+   "replay": {
+    "stop": "^replay broke at step (\\d+) \\(([^)]*)\\): (entered \\d+|he stands in place|(bounce|miss|blocked|boxed|no route)(, (bounce|miss|blocked|boxed|no route))*$)",
+    "point": "replay@<step>(<step name>): the step number AND its name (place.exit -> entered), so one step number of two different walks is two points",
+    "expect": "a crossing entered another place, struck out REAL, or left him elsewhere"
+   },
+   "scene": {
+    "phases": [
+     "replay",
+     "tour"
+    ],
+    "raised": [
+     "control never returned within"
+    ],
+    "expect": "a live soft-lock raised in the replay or the tour; point scene@<place>@<sc>"
+   }
+  },
+  "unclassed": "listed; R5-REACH cannot PASS while one stands"
+ },
+ "hub": {
+  "id": 31100,
+  "name": "T5_HUB",
+  "lead_in": [
+   31100,
+   0,
+   2540
+  ],
+  "spawn": [
+   404,
+   127
+  ],
+  "narrator": "Stiltzkin",
+  "narrator_pos": [
+   480,
+   127
+  ],
+  "narrator_within": 32,
+  "floor": 950,
+  "entry": 31111,
+  "options": [
+   "Dali (SC 2600)",
+   "Stay here, kupo..."
+  ],
+  "pick": "Dali (SC 2600)",
+  "stay": "Stay here, kupo...",
+  "default": 0,
+  "twist": [
+   255,
+   255
+  ],
+  "twist_expect": "the hub's Main_Init SetControlDirection operands, read off the built bytes (P-HUB holds the deployed hub to them): the hub leg calibrates ON them -- calibrate_axes(prior=movement.key_move_basis(twist[Session._key_twist_operand()])), Session.key_prior's rule for a script the install does not have -- never blind: the spawn stands inside his body",
+  "approach": {
+   "margin": 8,
+   "reach": 24,
+   "tolerance": 15,
+   "tries": 3,
+   "turn_frames": 8,
+   "expect": "calibrate_axes on the frozen twist (a prior, never blind); d = max(r + margin, min(talk_r - margin, r + reach)); walk_to (x - d, z) -- WEST of him, from a spawn east of that point: the walk heads west, away from him (the design's 'heading east faces him' is wrong for these bytes) -- strict False, slides True; Confirm, at most `tries`, each after turn_in_place toward him (turn_frames; skipped on an engine that cannot turn in place); after a silent one, one walked tick toward him",
+   "from_bytes": {
+    "narrator_logical_size": [
+     14,
+     14,
+     22
+    ],
+    "player_logical_size": [
+     20,
+     24,
+     40
+    ],
+    "r": 152,
+    "talk_r": "308 + his speed",
+    "d": 176,
+    "approach": [
+     304,
+     127
+    ],
+    "approach_wall_u": 421,
+    "spawn_distance": 76,
+    "safe_dist": 136,
+    "expect": "NOT JUDGED (added at the gate, before any deploy): read off the built hub's SetObjectLogicalSize(size, collRad, talkRad) -- e2 Stiltzkin (14, 14, 22), e1 the moogle (20, 24, 40) -- with HarnessAgent's relations r = 4*(his collRad + the player's) and talk_r = 4*(his talkRad + the player's) + his speed + 60. So talk_r > r + margin holds, d = 176 and the approach point (304, 127) is on 950's floor (421u from a wall, a direct route from the spawn). But the SPAWN stands 76u from him, INSIDE r, and MovePC's push-out for a step that faces him (+-90 degrees) lands at safe_dist = 4*20 (the player's size) + 4*14 = 136 < r, which collides again, so the step is undone whole (FieldMapActorController.cs:772-793): up, down and right, whose turns from his spawn facing (TurnInstant 0, south) all swing through east at him, do not move him at all. Modelled on the FakeGame (test_harness: the leg from a spawn inside his body), a BLIND calibrate_axes refuses the v axis ('neither up nor down moved') -- so the leg calibrates on the hub's frozen twist, where the one-sided left probe (away from him) agrees with the prior and the other axis is derived. UNVERIFIED in game: P-HUBLEG's record measures r and talk_r, and fails before run 1 if the leg does not survive."
+   }
+  },
+  "row": {
+   "set_scenario": 2600,
+   "set_words": [
+    [
+     208,
+     0
+    ],
+    [
+     297,
+     1
+    ]
+   ],
+   "party_add": [
+    "garnet",
+    "steiner",
+    "vivi",
+    "zidane"
+   ],
+   "set_flags": []
+  },
+  "static_stores": [
+   {
+    "sid": 0,
+    "tag": 0,
+    "off": 24,
+    "ip": 34,
+    "target": "Global.Bit[191]",
+    "value": 0
+   },
+   {
+    "sid": 0,
+    "tag": 0,
+    "off": 43,
+    "ip": 53,
+    "target": "Global.Int16[2]",
+    "value": 10000
+   },
+   {
+    "sid": 0,
+    "tag": 0,
+    "off": 51,
+    "ip": 61,
+    "target": "Global.Bit[184]",
+    "value": 0
+   },
+   {
+    "sid": 0,
+    "tag": 0,
+    "off": 59,
+    "ip": 69,
+    "target": "Global.Int16[9]",
+    "value": 65535
+   },
+   {
+    "sid": 0,
+    "tag": 0,
+    "off": 99,
+    "ip": 109,
+    "target": "Global.Byte[13]",
+    "value": 9
+   },
+   {
+    "sid": 0,
+    "tag": 0,
+    "off": 121,
+    "ip": 131,
+    "target": "Global.Byte[13]",
+    "value": 0
+   },
+   {
+    "sid": 0,
+    "tag": 0,
+    "off": 132,
+    "ip": 142,
+    "target": "Global.Byte[13]",
+    "value": 1
+   },
+   {
+    "sid": 0,
+    "tag": 0,
+    "off": 140,
+    "ip": 150,
+    "target": "Global.Int16[11]",
+    "value": 65535
+   },
+   {
+    "sid": 0,
+    "tag": 0,
+    "off": 180,
+    "ip": 190,
+    "target": "Global.Byte[14]",
+    "value": 9
+   },
+   {
+    "sid": 0,
+    "tag": 0,
+    "off": 202,
+    "ip": 212,
+    "target": "Global.Byte[14]",
+    "value": 0
+   },
+   {
+    "sid": 0,
+    "tag": 0,
+    "off": 213,
+    "ip": 223,
+    "target": "Global.Byte[14]",
+    "value": 1
+   },
+   {
+    "sid": 2,
+    "tag": 3,
+    "off": 23,
+    "ip": 136,
+    "target": "Global.UInt16[0]",
+    "value": 2600
+   },
+   {
+    "sid": 2,
+    "tag": 3,
+    "off": 31,
+    "ip": 144,
+    "target": "Global.UInt16[208]",
+    "value": 0
+   },
+   {
+    "sid": 2,
+    "tag": 3,
+    "off": 39,
+    "ip": 152,
+    "target": "Global.UInt16[297]",
+    "value": 1
+   }
+  ],
+  "stamp": [
+   {
+    "sid": 2,
+    "tag": 3,
+    "off": 23,
+    "ip": 136,
+    "target": "Global.UInt16[0]",
+    "value": 2600,
+    "old": 2540,
+    "new": 2600
+   },
+   {
+    "sid": 2,
+    "tag": 3,
+    "off": 31,
+    "ip": 144,
+    "target": "Global.UInt16[208]",
+    "value": 0,
+    "old": 0,
+    "new": 0
+   },
+   {
+    "sid": 2,
+    "tag": 3,
+    "off": 39,
+    "ip": 152,
+    "target": "Global.UInt16[297]",
+    "value": 1,
+    "old": 0,
+    "new": 1
+   }
+  ],
+  "prologue_targets": [
+   "Global.Bit[191]",
+   "Global.Bit[184]",
+   "Global.Int16[2]",
+   "Global.Int16[9]",
+   "Global.Byte[13]",
+   "Global.Int16[11]",
+   "Global.Byte[14]"
+  ],
+  "eb_sha256": "148bda04ff91b36da2a112cee2d245284353ee56a2eb18ecc14b1b8144fb7051"
+ },
+ "stockstate": {
+  "stamp_bytes": {
+   "0": 40,
+   "1": 10,
+   "208": 0,
+   "209": 0,
+   "297": 1,
+   "298": 0
+  },
+  "changed_from_new_game": [
+   0,
+   1,
+   2,
+   9,
+   10,
+   13,
+   18,
+   19,
+   21,
+   61,
+   62,
+   63,
+   238,
+   239,
+   241,
+   251,
+   259,
+   260,
+   296,
+   297,
+   303
+  ],
+  "input_timing_bytes": [
+   299
+  ],
+  "zone_bytes": [
+   256,
+   257,
+   258,
+   259,
+   260,
+   261,
+   262
+  ],
+  "zone_set_bits": [
+   2078,
+   2086
+  ],
+  "saturate": 64,
+  "measured": "session 4 S#1/S#4/S#7 at their wake rows (lines 128/133/137): exactly these; byte 299 = 0/5/9; calibration 0 contradictions in 40391/39007/41275 bit checks (sessions 2/3/4)"
+ },
+ "known_gap": {
+  "expect": "NO VERDICT AT THIS ENTRY. The seed stamped on New Game state differs from stock's beat-instant state on 18 bytes and the party. At entry 31111 the segment's own writers (359's Main_Init and tag 1, 351, 352 with the wake) re-create every one of them, so R5-STATE PASSing is the in-game proof that the gap is MASKED here; at a past-wake entry (F5b) it is PREDICTED to FAIL.",
+  "bytes": [
+   2,
+   9,
+   10,
+   13,
+   18,
+   19,
+   21,
+   61,
+   62,
+   63,
+   238,
+   239,
+   241,
+   251,
+   259,
+   260,
+   296,
+   303
+  ],
+  "classes": [
+   {
+    "bytes": [
+     2,
+     9,
+     10,
+     13,
+     239,
+     296
+    ],
+    "what": "rewritten on entry by every Main_Init or room",
+    "class": "harmless"
+   },
+   {
+    "bytes": [
+     259,
+     260
+    ],
+    "bits": [
+     2078,
+     2086
+    ],
+    "what": "read by all 10 hub-zone members; the seed refuses them as toggles (storyseed.py:187-190)",
+    "class": "predicted defect past the wake"
+   },
+   {
+    "bytes": [
+     238,
+     241,
+     251
+    ],
+    "what": "the wake's ATE-offer state",
+    "class": "predicted defect past the wake; UNVERIFIED whether rooms recompute them"
+   },
+   {
+    "bytes": [
+     61,
+     62,
+     63,
+     303
+    ],
+    "what": "the wake's party record, read by 350 e33 under Int16[2] == -1",
+    "class": "UNVERIFIED"
+   },
+   {
+    "bytes": [
+     18,
+     19,
+     21
+    ],
+    "what": "party reserve",
+    "class": "UNVERIFIED"
+   },
+   {
+    "party": "four in the seed, {Zidane} in stock after the wake's removes (352.ebs:2145/2265/2385)",
+    "class": "predicted defect past the wake: the seed is a union of adds (storyseed.py:609)"
+   }
+  ],
+  "source": "a reader's token scan, not mutation-tested: recorded, not judged"
+ },
+ "checks": {
+  "P-CAP": {
+   "claim": "The engine advertises the story trace at proto 1 (state.json storytrace).",
+   "pass": "state.storytrace is a dict with proto == 1.",
+   "fail": "It is absent or has another proto. The session stops before any run.",
+   "void": "None. A pre-flight that cannot be evaluated fails and the session does not start."
+  },
+  "P-MANIFEST": {
+   "claim": "The frozen F5 member set and hub are the deployed ones recorded in rung5_forks.json.",
+   "pass": "rung5_forks.json chains.F5.members equals v3 members.F5 (31101-31112 -> 351, 312, 350, 352..359, 450), and its hub.id equals 31100.",
+   "fail": "Any difference. The session stops.",
+   "void": "None (pre-flight)."
+  },
+  "P-DEPLOY": {
+   "claim": "Every member is registered exactly once across the six Memoria.ini folders under its manifest name, and ForkDonorPatch maps it once to its donor. This is R.preflight (rung3_trace.py:259-305) with sides {S, F5}.",
+   "pass": "12/12 members: one FieldScene line with the T5_* name, and one ForkDonorPatch row mapping the fork to its donor.",
+   "fail": "Any member missing, duplicated or misnamed, or with a missing, duplicate or wrong fork row. The session stops.",
+   "void": "None (pre-flight)."
+  },
+  "P-HUB": {
+   "claim": "The deployed hub is the frozen seed and nothing else.\n- 31100 is registered once as T5_HUB, with MessageFile 31100 once, NO ForkDonorPatch row, and no mod walkmesh in any root (it runs on field 950's floor).\n- Its live US .eb's global store sites equal the frozen 14 exactly: 11 prologue sites in e0 t0, and the three stamps in e2 t3 at +23/+31/+39 (UInt16[0]:=2600, UInt16[208]:=0, UInt16[297]:=1, in that order).\n- eblint.warp_targets(hub) == {31111}.\n- forkreport.scenario_gates(hub) == [] and storyseed.read_set(hub) == {}: no SC dispatch and no story-bit read.",
+   "pass": "Every clause holds on the live install's bytes.",
+   "fail": "A fork row for 31100; a hub walkmesh; any extra, missing or reordered store site or value; another warp target; or an SC gate or story read. The session stops. Mutant: a hub built with set_scenario 2610.",
+   "void": "None (pre-flight).",
+   "mutants": [
+    [
+     "a hub built with set_scenario 2610",
+     "FAIL"
+    ]
+   ],
+   "implementation": "one more byte clause: the hub's Main_Init SetControlDirection operands equal the frozen hub.twist -- the hub leg calibrates on them"
+  },
+  "P-PURE": {
+   "claim": "Every member is a pure verbatim fork of its donor, with every in-chain exit remapped.\n- Each member's live US .eb equals content/verbatim.remap_fields(stock .eb of its donor, CHAIN_MAP), where CHAIN_MAP maps each of the 12 donors to its member, byte for byte.\n- eblint.warp_targets(member) minus the 12 member ids equals the frozen seams: {31108: [404], 31112: [451, 453]}, and nothing for the others.\n- Verified offline: 11/11 F0 members under F0's map, 12/12 in the offline T5 build; 0/11 F4 members.",
+   "pass": "12/12 members satisfy both clauses.",
+   "fail": "Any member differs: a prepend (the round-5 layout), an unremapped Field() literal such as F0's 350 -> 450, or any other byte; or a seam set differs. The session stops. Mutants: 31103 built with 450 left unremapped; a chain seeded by story-seed without --hub.",
+   "void": "None (pre-flight).",
+   "mutants": [
+    [
+     "31103 built with 450 left unremapped",
+     "FAIL"
+    ],
+    [
+     "a chain seeded by story-seed without --hub (a prepend)",
+     "FAIL"
+    ]
+   ]
+  },
+  "P-FLOOR": {
+   "claim": "Every member's deployed walkmesh is its donor's stock walkmesh (rung3_trace.py:283-293).",
+   "pass": "12/12 byte-equal.",
+   "fail": "A member has 0 or 2+ deployed walkmeshes, or not its donor's. The session stops.",
+   "void": "None (pre-flight)."
+  },
+  "P-EXITS": {
+   "claim": "Every member's running exits are its donor's, with only the targets remapped into the F5 chain (Tour.gateways, dali_tour.py:334-350, through the F5 side's own Tour).",
+   "pass": "No TourError for any of the 12.",
+   "fail": "Any member raises TourError. The session stops.",
+   "void": "None (pre-flight)."
+  },
+  "P-STOCK": {
+   "claim": "No mod folder overrides a stock Dali script (312, 350-359, 450), so the S side is stock.",
+   "pass": "T.stock_overrides is empty for all 12 donors.",
+   "fail": "Any override. The session stops.",
+   "void": "None (pre-flight)."
+  },
+  "P-HUBLEG": {
+   "claim": "In game, untraced, before run 1, the harness drives the pick and the hub throws nothing. The steps:\n- log_mark;\n- New Game;\n- hub_leg up to the options (warp 31100 0 2540, a blind calibrate_axes, walk_to east with strict=False and slides=True, interact, at most 3 tries);\n- the choice offers exactly [\"Dali (SC 2600)\", \"Stay here, kupo...\"] with the cursor on 0;\n- selecting \"Stay here, kupo...\" with the guarded Confirm leaves him in 31100 with control and no field change for 60 frames;\n- exceptions_since(mark) holds no THROWS type with an EventEngine, EBin, StoryTrace or HarnessAgent frame;\n- the title is restored.\nIt records the measured r, talk_r and approach point.",
+   "pass": "Every step holds within hub_s (180 s).",
+   "fail": "No dialogue after 3 tries; different options or default; a warp on the stay row; a listed exception; or the budget spent. The session stops before any traced run.",
+   "void": "None (pre-flight).",
+   "implementation": "calibrate_axes on the frozen hub.twist, NOT blind (the spawn stands inside his body: a blind calibration refuses the v axis there), cached for the launch -- P-HUBLEG is the first leg, so the one that calibrates; the walk to the approach point heads WEST, not east; walk_to tolerance 15; turn_in_place toward him before every Confirm, one walked tick after a silent one; the options and the cursor read once the menu takes answers; the stay row's Confirm and polls on the landing clock (entry_s); the log mark after New Game, right before the hub warp (E7); any error the drive raises FAILs it, named. FakeGame-pinned: a stay row that warps at once or ~30 frames late, one that withholds control, and a THROWS exception with an EventEngine frame after the warp each FAIL it"
+  },
+  "P-FROZEN": {
+   "claim": "The predictions the analysis reads are the ones the session recorded before its first run.",
+   "pass": "The session's predictions_sha256 equals the file's sha256.",
+   "fail": "They differ.",
+   "void": "None.",
+   "mutants": [
+    [
+     "(guard) the predictions edited after the session recorded them",
+     "FAIL"
+    ]
+   ]
+  },
+  "R5-RUNS": {
+   "claim": "The session is registered and paired.\n- The frozen six ran in order (S F5 S F5 S F5), then only re-runs (at most 6), numbered 1..n.\n- Every trace is one traced run that keeps the row contract.\n- Every F5 run names an earlier S as its partner, and a round's F5 names its round's S.\n- The walk it was given is that partner's entered walk.\n- No covered S has two covered F5 twins.\n- Every re-run is the one rerun_plan5 names from the runs before it, judged as they were then: S first while S is short; then F5 on the oldest covered untwinned S with fewer than 2 driven non-covered F5 runs; otherwise a fresh S.\n- NO run follows once two F5 runs have FORK-STOPped at the same point (the halt).",
+   "pass": "No structural or pairing fault, and S and F5 each have at least 3 covered runs.",
+   "fail": "Any order, numbering, pairing, re-run-plan or halt fault, or a trace that breaks the contract. Mutants: wrong partner; two covered twins; a re-run after the halt.",
+   "void": "The structure holds but a side has fewer than 3 covered runs, for example after a halt. Every VOID run is listed with its stop class and point.",
+   "mutants": [
+    [
+     "wrong order",
+     "FAIL"
+    ],
+    [
+     "wrong partner",
+     "FAIL"
+    ],
+    [
+     "two covered F5 runs on one partner",
+     "FAIL"
+    ],
+    [
+     "a re-run after the halt",
+     "FAIL"
+    ],
+    [
+     "a FORK-STOP reproduced on its re-run (the halt)",
+     "VOID, no structural fault"
+    ]
+   ]
+  },
+  "R5-DONOR": {
+   "claim": "Over EVERY run read (covered or not), every row stands where it should and names the right donor.\n- From the start field on, every F5 row stands in an F5 member and names that member's donor (ForkDonorPatch, live).\n- Every S row stands in a real field and names itself, and none is in a 311xx or 30830-30852 id.\n- In the raw rows before the start: every row in 31100 names don 31100, and no row stands in a member id.\nA run that never reached 31111 is read for the raw clause only.",
+   "pass": "No wrong row, and at least one F5 run read.",
+   "fail": "A member row with another donor; an F5 row after the start outside the 12 members (a real field, the hub, an F0/F4 id); a wrong S row; or a hub row with don != 31100. Mutant: a member row with don 999.",
+   "void": "No F5 run was read.",
+   "mutants": [
+    [
+     "a member row with don 999",
+     "FAIL"
+    ],
+    [
+     "hub rows carrying don 351",
+     "FAIL"
+    ],
+    [
+     "the hub leg raised before the pick (prologue rows only, no 31111)",
+     "unchanged (the run DRIVE VOID, read for the raw clause only)"
+    ],
+    [
+     "(guard) every F5 run skipped (no trace read)",
+     "VOID"
+    ]
+   ]
+  },
+  "R5-JOIN": {
+   "claim": "Over every run DIGESTED (runs that reached their start field; from the start on), every script row joins a store in the bytes its side ran: the member's snapshotted .eb, or the install's for a real field. There are 0 failures and no digest note. The hub's rows are never digested; they are joined by R5-STAMP against the hub snapshot, so no 'no stock .eb for donor' note can arise.",
+   "pass": "0 failures, 0 notes, and at least one run digested.",
+   "fail": "Any join failure or any note. Mutant: a member-row ip off by one.",
+   "void": "No run digested.",
+   "max_failures": 0,
+   "mutants": [
+    [
+     "a member-row ip off by one",
+     "FAIL"
+    ],
+    [
+     "the hub leg raised before the pick (prologue rows only, no 31111)",
+     "unchanged, no note (the run DRIVE VOID, never digested)"
+    ],
+    [
+     "(guard) every run skipped (none digested)",
+     "VOID"
+    ]
+   ]
+  },
+  "R5-REACH": {
+   "claim": "The fork does not stop where stock goes on.\nEvery non-covered F5 run with a covered partner has a frozen stop class: DRIVE (the walker, the budget, the channel, the install; never evidence) or FORK-STOP at a point. The FORK-STOP points are:\n- 'hub': the stamps landed, 31111 was never reached;\n- 'segment@<place>': no wake, or a live soft-lock or re-asked choice in the segment;\n- 'replay@<step>': a crossing entered another place, struck out REAL, or left him elsewhere;\n- 'scene@<place>@<sc>': a live soft-lock in the replay or tour.\nIn sessions 3 and 4, 6/6 F0 replays completed with 0 breaks, every S segment and 6/6 F4 segments at SC 2600 were ok, and session 4's S walks were identical, so a fork-caused stop repeats on the same walk.",
+   "pass": "No F5 run FORK-STOPped, and at least 3 F5 runs completed the hub leg, the segment and the replay (covered).",
+   "fail": "Two or more F5 runs FORK-STOP at the same point. The session also halts its re-runs there. Mutants: all 3 F5 runs diverge at replay step 15; all 3 F5 segments stall in member(352) with no wake; a FORK-STOP reproduced on the same partner.",
+   "void": "Otherwise: a single unreproduced FORK-STOP, or FORK-STOPs at different points, or fewer than 3 F5 runs completed. Each FORK-STOP is listed with its point and stop text.",
+   "mutants": [
+    [
+     "all 3 F5 runs break at replay step 15",
+     "FAIL"
+    ],
+    [
+     "all 3 F5 segments stall in member(352) with no wake",
+     "FAIL"
+    ],
+    [
+     "a FORK-STOP reproduced on the same partner",
+     "FAIL"
+    ],
+    [
+     "one FORK-STOP, reproduced nowhere",
+     "VOID"
+    ],
+    [
+     "a 'gated door never faced' stop",
+     "unaffected (DRIVE)"
+    ],
+    [
+     "(guard) a live soft-lock in the replay, reproduced on its re-run",
+     "FAIL (FORK-STOP scene@<place>@<sc>)"
+    ],
+    [
+     "(guard) a stop no pattern names (UNCLASSED)",
+     "VOID"
+    ],
+    [
+     "(guard) a game death in the hub after the stamps (the trace never closed, no row in 31111)",
+     "unaffected (DRIVE, never FORK-STOP hub)"
+    ],
+    [
+     "(guard) a live soft-lock at the entry -- the stamps landed, the leg returned in 31111, no row there yet -- reproduced on its re-run",
+     "FAIL (FORK-STOP segment@359, the halt)"
+    ],
+    [
+     "(guard) the hub leg's own budget ran out after the stamps, no row in 31111",
+     "unaffected (DRIVE)"
+    ],
+    [
+     "(guard) the hub leg's own budget ran out after the stamps, member(359)'s rows already traced",
+     "unaffected (DRIVE, never UNCLASSED)"
+    ],
+    [
+     "(guard) the stamps landed, no row in 31111, and a stop that is not the landing's timeout",
+     "VOID (UNCLASSED)"
+    ],
+    [
+     "(guard) two replay breaks at one step NUMBER of two different walks",
+     "VOID (two points, no reproduction)"
+    ]
+   ],
+   "implementation": "UNCLASSED stops are listed and keep it from PASS; the hub leg's budget is a DRIVE pattern, never read after the Confirm; FORK-STOP 'hub' needs the landing's own live timeout; a stall at the entry before any row there is the segment class; the replay point carries the step's name"
+  },
+  "R5-PREFIX": {
+   "claim": "THE PAIRED-WALK LAW for runs that did not finish. Every F5 run that reached 31111 and was digested (covered, DRIVE or FORK-STOP), and whose partner is covered: its key set, member and seam keys alike, is a SUBSET of its partner's whole-run key set, outside the frozen timing site 359 e5 t17 +49 Byte[299]. The replay follows the partner's walk, so a prefix can only write what the partner wrote. Session 4 baseline: each F0 run's keys were its partner's 286 plus only the seam suppression artifact, which F5 cannot produce.",
+   "pass": "No extra key in any such run.",
+   "fail": "Any key that the partner never wrote, named with the run and the pair. Mutant: a truncated F5 run carrying one key its partner lacks.",
+   "void": "No such F5 run was read.",
+   "mutants": [
+    [
+     "a truncated F5 run carrying one key its partner lacks",
+     "FAIL"
+    ],
+    [
+     "(guard) every F5 run's hub leg raised before the pick (none reached 31111)",
+     "VOID"
+    ]
+   ]
+  },
+  "R5-STAMP": {
+   "claim": "The hub's rows are the frozen seed. Read from each F5 run's RAW trace (read_run5 keeps split[0]; never r['pre'], which is a field list). Every row in 31100 is joined by ScriptIndex.join against the snapshotted hub .eb (a store, verified offline at +23/+31/+39; ip+1 fails). In every F5 run that reached 31111:\n(1) the rows in 31100 are only e0 t0 stores to the prologue targets plus exactly three stamps in e2 t3, in order: UInt16[0] 2540->2600 at +23, UInt16[208] 0->0 at +31, UInt16[297] 0->1 at +39;\n(2) every row in 31100 has src eb (no cs, no harness row; session 4 had none) and don 31100;\n(3) the next placed row after the last hub row is in 31111;\n(4) the width clause: each stamp row's changed neighbour bytes (other than its start) have an empty storytrace.outside_target(stock_layout(covered S digests), start, byte). On New Game state every neighbour is unchanged, so this clause is vacuous on real data; it guards the round-4 defect class.\nIn runs that never reached 31111, the 31100 rows must still satisfy (1)-(2) up to where they stop, and (3) wherever a placed row follows the last hub row (AMENDED at the fix, before any deploy: a pick that led elsewhere -- the stamps, then a first member row in 31104 -- never reaches 31111, and only (3) can see it; the registered mutant needs it).",
+   "pass": "All of it holds, with at least 3 F5 runs that reached 31111.",
+   "fail": "A stamp missing, extra, reordered or of another value; a hub row that does not join or is outside the whitelist; don != 31100; the entry not next; or a clobber. Mutants: drop the 297 stamp; add a hub Bit write; hub rows carrying don 351; a stamp ip off by one; a hub UInt16[296]:=192 after the 297 stamp; stamps followed by a first member row in 31104; R5-STAMP fed r['pre'].",
+   "void": "Fewer than 3 F5 runs reached 31111.",
+   "mutants": [
+    [
+     "drop the 297 stamp",
+     "FAIL"
+    ],
+    [
+     "add a hub Bit write",
+     "FAIL"
+    ],
+    [
+     "hub rows carrying don 351",
+     "FAIL"
+    ],
+    [
+     "a hub stamp ip off by one",
+     "FAIL"
+    ],
+    [
+     "a hub UInt16[296] := 192 after the 297 stamp",
+     "FAIL (list + width)"
+    ],
+    [
+     "stamps landed, then the first member row in 31104",
+     "FAIL (and FORK-STOP hub)"
+    ],
+    [
+     "R5-STAMP fed r['pre'] (the field list) as rows",
+     "FAIL (the base)"
+    ],
+    [
+     "(guard) every F5 run's hub leg raised before the pick (none reached 31111)",
+     "VOID"
+    ]
+   ]
+  },
+  "R5-STOCKSTATE": {
+   "claim": "A REGRESSION CHECK ON THE STOCK SIDE AND THE RECONSTRUCTOR, not seed evidence: fresh stock runs reproduce session 4's beat-instant state. The state is rebuilt per bit from each covered S run's raw rows up to its wake row, inclusive. Bytes of a site that has emitted 64 changing rows count as uncertain (PLAN.md:74-76). It is CALIBRATED: before every w/r row of the whole run, every known bit must equal the row's own old value (sessions 2-4: 0 contradictions in 120,673 bit checks).\n(a) The stamp bytes 0/1/208/209/297/298 read 40/10/0/0/1/0.\n(b) The bytes whose value differs from New Game (the first old of each), less byte 299, are exactly the frozen 21: {0,1,2,9,10,13,18,19,21,61,62,63,238,239,241,251,259,260,296,297,303}.\n(c) Among the known bits of bytes 256-262, the set bits are exactly {2078, 2086}.\nThe seed's difference from this state is the registered KNOWN-GAP record, not a verdict.",
+   "pass": "(a), (b) and (c) hold in every covered S run.",
+   "fail": "Any stamp byte differs, the changed-byte set gains or loses a byte, or the set zone bits differ. Mutants: stock 359 +220 new = 3; an extra byte changed before the wake.",
+   "void": "Fewer than 3 covered S runs; a byte of (a) or (b) is uncertain; or the calibration finds any contradiction in a run (it is named). Mutant: dropping S#1's 352 +2096 Bit[2078]:=1 row gives VOID with the contradiction named.",
+   "mutants": [
+    [
+     "stock 359 +220 new = 3",
+     "FAIL"
+    ],
+    [
+     "an extra stock byte changed before the wake",
+     "FAIL"
+    ],
+    [
+     "drop S#1's 352 +2096 Bit[2078] := 1 row",
+     "VOID"
+    ]
+   ]
+  },
+  "R5-STATE": {
+   "claim": "The seed lands on stock's state, and the KNOWN-GAP is masked at entry 31111. This is pairwise: for every covered F5 run and its partner, the per-bit state at each run's own wake row is rebuilt from the whole raw run, the hub's rows included, by the calibrated reconstructor. The bits known on each side are equal, value for value, excluding byte 299, and no bit is known on one side only.",
+   "pass": "Equal in every covered pair.",
+   "fail": "Any bit differs, or is known on one side only: the seed leaking a byte no stock writer sets by the beat, or a stamp clobber the entry's writers do not repair. Mutants: F4's session-4 rows relabelled as F5 (238/241/251/258/259/261/297 differ; byte 909 is F4-only); a hub write to an untouched byte.",
+   "void": "Fewer than 3 covered pairs; a compared bit is uncertain; or the calibration finds a contradiction in either run of a pair.",
+   "mutants": [
+    [
+     "F4's session-4 rows relabelled as F5",
+     "FAIL"
+    ],
+    [
+     "a hub write to an untouched byte",
+     "FAIL"
+    ],
+    [
+     "drop S#1's 352 +2096 Bit[2078] := 1 row",
+     "VOID"
+    ]
+   ]
+  },
+  "R5-SAME": {
+   "claim": "The seed's only echo in the member rows. In every covered F5 run, 359 e0 t0 +220 UInt16[297]:=1 (in 31111) is emitted same:1 with old 1, and the wake 352 e17 t1 +4385 SC:=2600 (in 31104) is same:1 with old 2600. In every covered S run both are changing stores (old 0 and old 2540).",
+   "pass": "Both hold on both sides in every covered run.",
+   "fail": "Either store changes on an F5 run (the stamp did not land before 359 ran), or is same-value on an S run. Mutant: 297 changing in one F5 run.",
+   "void": "Fewer than 3 covered runs on either side.",
+   "stores": [
+    {
+     "name": "359 Main_Init +220 UInt16[297] := 1",
+     "donor": 359,
+     "sid": 0,
+     "tag": 0,
+     "off": [
+      220
+     ],
+     "target": "Global.UInt16[297]",
+     "value": [
+      1
+     ],
+     "f5_old": 1,
+     "s_old": 0
+    },
+    {
+     "name": "the wake, 352 e17 t1 +4385 SC := 2600",
+     "donor": 352,
+     "sid": 17,
+     "tag": 1,
+     "off": [
+      4385
+     ],
+     "target": "Global.UInt16[0]",
+     "value": [
+      2600
+     ],
+     "f5_old": 2600,
+     "s_old": 2540
+    }
+   ],
+   "mutants": [
+    [
+     "297 changing in one F5 run",
+     "FAIL"
+    ]
+   ]
+  },
+  "R5-SEGMENT": {
+   "claim": "The pairing premise: both sides run the same scripted segment write for write, SC 2600 against 2540 included. This is pairwise over the segment window (keys first seen at or before each run's own wake line): every covered F5 run's key set equals its partner's, outside the frozen timing site. It is not vacuous: every covered S run has at least 80 segment keys from donors including {359, 351, 352} (session 4: 117-119). Truncated runs are judged by R5-PREFIX and R5-REACH.",
+   "pass": "Equal in every covered pair, and the stock guard is met.",
+   "fail": "Any segment key present in one run of a pair and absent from the other, outside the timing site. Mutant: F4 relabelled (5 stock-only keys gated on 297, and 21 prepend keys).",
+   "void": "Fewer than 3 covered pairs, or a thin stock guard (the shortfall is named).",
+   "min_keys": 80,
+   "donors": [
+    359,
+    351,
+    352
+   ],
+   "mutants": [
+    [
+     "F4's session-4 rows relabelled as F5",
+     "FAIL (in every pair: 5 stock-only keys; 21 F5-only keys, 17 of them prepends)"
+    ]
+   ]
+  },
+  "R5-PING": {
+   "claim": "The ping, now written by a member.\n- Stock: Bit[2102]:=1 is written in every covered S run, and WRITERS names only 450.\n- F5: in every covered F5 run the key (450, e19, t2, +59 or +80, Bit[2102], 1) is a MEMBER key (row in 31112, don 450), never a seam key.\n- It is MATCHED in the S-vs-F5 comparison, and the only F5-side writer of Bit[2102]:=1 is donor 450.",
+   "pass": "All of it holds.",
+   "fail": "Stock writers other than {450: n}; or the F5 ping is missing, across a seam, unmatched, or written by another donor. Mutant: rows from 450 on left in the real fields (F0-style).",
+   "void": "Fewer than 3 covered runs on either side.",
+   "target": "Global.Bit[2102]",
+   "value": 1,
+   "writers": [
+    450
+   ],
+   "pattern": {
+    "name": "450 e19 walk-in: Bit[2102] := 1 (the ping)",
+    "donor": 450,
+    "sid": 19,
+    "tag": 2,
+    "off": [
+     59,
+     80
+    ],
+    "target": "Global.Bit[2102]",
+    "value": [
+     1
+    ]
+   },
+   "mutants": [
+    [
+     "rows from 450 on left in the real fields (F0-style)",
+     "FAIL"
+    ]
+   ]
+  },
+  "R5-NOSEAM": {
+   "claim": "No seam into 450, or anywhere. In every covered F5 run: no Seam and no seam key; no row after the start outside the 12 members; and 450 is entered as member 31112 (at least one row with fld 31112 and don 450). The comparison's ACROSS SEAM and SEAM ONLY sections are empty.",
+   "pass": "All of it holds.",
+   "fail": "Any seam (F0's member(350) -> real 450, 356 -> real 404, 450 -> 451/453); any real-field row after the start; or 450 never entered as a member.",
+   "void": "Fewer than 3 covered F5 runs.",
+   "mutants": [
+    [
+     "rows from 450 on left in the real fields (F0-style)",
+     "FAIL"
+    ]
+   ]
+  },
+  "R5-MIRROR": {
+   "claim": "S vs F5 over each whole run from its start field (the segment, the paired tour window, Garnet's scene): FORK ONLY, STOCK ONLY, ACROSS SEAM and SEAM ONLY are empty, and there is no neighbour-byte clobber among member keys. It is not vacuous, read on the stock side:\n- at least 200 keys appear in every covered S run (session 4: 286);\n- at least 110 are first written in every S tour, from donors including {350, 351, 354, 355, 356, 450} (session 4: 167);\n- at least 40 are first written at or after each S run's first row in 450, from donors including {350, 354, 356, 450} (session 4: 72).",
+   "pass": "Every category is empty, no clobber, and the guard is met.",
+   "fail": "Any FORK ONLY, STOCK ONLY, ACROSS SEAM or SEAM ONLY key, or any clobber, whatever the guard says. Mutants: an extra F5 key; a key dropped from all F5 runs; a member word store clobbering 297.",
+   "void": "Fewer than 3 covered runs on either side; or nothing failed but the stock guard is thin (the shortfall is named).",
+   "min_keys": 200,
+   "min_tour_keys": 110,
+   "tour_donors": [
+    350,
+    351,
+    354,
+    355,
+    356,
+    450
+   ],
+   "seam_field": 450,
+   "min_post_keys": 40,
+   "post_donors": [
+    350,
+    354,
+    356,
+    450
+   ],
+   "implementation": "FORK ONLY / STOCK ONLY exclude the frozen timing site",
+   "mutants": [
+    [
+     "an extra F5 key",
+     "FAIL"
+    ],
+    [
+     "a key dropped from all F5 runs",
+     "FAIL"
+    ],
+    [
+     "a member word store clobbering 297",
+     "FAIL"
+    ]
+   ]
+  },
+  "R5-PARTIAL": {
+   "claim": "THE PAIRED-WALK LAW over covered pairs. For every covered pair, the F5 key set equals its partner's, outside the frozen timing site. Session 4's baseline (S vs F0): 286 common keys and 0 pairwise differences outside the seam artifact. Keys that differ between pairs but agree within each pair are the walk's order: they are listed, not failed.",
+   "pass": "Equal in every covered pair.",
+   "fail": "Any key present in one run of a pair and absent from the other, outside the timing site, named with the pair. Mutant: a key dropped from one F5 run.",
+   "void": "Fewer than 3 covered pairs.",
+   "mutants": [
+    [
+     "a key dropped from one F5 run",
+     "FAIL"
+    ],
+    [
+     "only the byte-299 keys differ",
+     "PASS"
+    ],
+    [
+     "walks differ between pairs, agree within each",
+     "PASS, listed"
+    ]
+   ]
+  },
+  "R5-ADVANCE": {
+   "claim": "The story advances to 2610 in a member, at the partner's step. In every covered F5 run:\n- its first placed row at SC >= 2610 is 354 e13 t1 +1152 UInt16[0]:=2610 in member(354) (31106, don 354);\n- that key is MATCHED;\n- the advance falls on the same entered-walk step as its partner's (session 4: step 24, [350, 1, 354]).\nF5 coverage does not require the advance.",
+   "pass": "All of it holds in every covered F5 run.",
+   "fail": "A covered F5 run never reaches 2610 (it replayed the whole walk and toured on), or it advances in another member, at another step, or with an unmatched key. Mutants: the 2610 row moved to member(356); a 24-step replay with no advance.",
+   "void": "Fewer than 3 covered runs on either side.",
+   "sc": 2610,
+   "pattern": {
+    "name": "354 e13 t1 +1152 UInt16[0] := 2610",
+    "donor": 354,
+    "sid": 13,
+    "tag": 1,
+    "off": [
+     1152
+    ],
+    "target": "Global.UInt16[0]",
+    "value": [
+     2610
+    ]
+   },
+   "mutants": [
+    [
+     "the 2610 row moved to member(356)",
+     "FAIL"
+    ],
+    [
+     "an F5 run that replays all 24 steps and never advances",
+     "FAIL"
+    ]
+   ]
+  },
+  "R5-LATCH": {
+   "claim": "R3-LATCH inverted: the round-4 defects are absent. Each of v2's eight hub-gated stock writes, plus the wake's two latches, is written in every covered S run AND by the members in every covered F5 run: MATCHED, none across a seam. The eight are 351 lobby e16 2064:=1 and 2078:=0; 450 Main_Init 2086:=0; 450 e19 2102:=1, SByte[296]:=3|2 and 2085:=1; and the controller's flip 2079:=1 and 2075:=1. The wake's two are 352 e17 t1 +2096 2078:=1 and +2105 2086:=1. The 'no clobber' clause is a CONSISTENCY CHECK implied by P-PURE, not independent evidence; the hub's clobbers are judged by R5-STAMP's width clause.",
+   "pass": "All ten patterns are matched and there is no clobber.",
+   "fail": "Any pattern missing from a covered F5 run, or reached only across a seam, or any clobber. Mutant: 2085 dropped in F5.",
+   "void": "Fewer than 3 covered runs on either side.",
+   "patterns": [
+    {
+     "name": "351 lobby exit e16: Bit[2064] := 1",
+     "donor": 351,
+     "sid": 16,
+     "tag": 2,
+     "off": [
+      112
+     ],
+     "target": "Global.Bit[2064]",
+     "value": [
+      1
+     ]
+    },
+    {
+     "name": "351 lobby exit e16: Bit[2078] := 0",
+     "donor": 351,
+     "sid": 16,
+     "tag": 2,
+     "off": [
+      71
+     ],
+     "target": "Global.Bit[2078]",
+     "value": [
+      0
+     ]
+    },
+    {
+     "name": "450 Main_Init: Bit[2086] := 0",
+     "donor": 450,
+     "sid": 0,
+     "tag": 0,
+     "off": [
+      320
+     ],
+     "target": "Global.Bit[2086]",
+     "value": [
+      0
+     ]
+    },
+    {
+     "name": "450 e19 walk-in: Bit[2102] := 1 (the ping)",
+     "donor": 450,
+     "sid": 19,
+     "tag": 2,
+     "off": [
+      59,
+      80
+     ],
+     "target": "Global.Bit[2102]",
+     "value": [
+      1
+     ]
+    },
+    {
+     "name": "450 e19 walk-in: SByte[296] := 3 or 2",
+     "donor": 450,
+     "sid": 19,
+     "tag": 2,
+     "off": [
+      68,
+      89
+     ],
+     "target": "Global.SByte[296]",
+     "value": [
+      3,
+      2
+     ]
+    },
+    {
+     "name": "450 e19 walk-in: Bit[2085] := 1",
+     "donor": 450,
+     "sid": 19,
+     "tag": 2,
+     "off": [
+      98
+     ],
+     "target": "Global.Bit[2085]",
+     "value": [
+      1
+     ]
+    },
+    {
+     "name": "the controller's flip, any room: Bit[2079] := 1",
+     "tag": 1,
+     "off": [
+      222
+     ],
+     "target": "Global.Bit[2079]",
+     "value": [
+      1
+     ]
+    },
+    {
+     "name": "the controller's flip, any room: Bit[2075] := 1",
+     "tag": 1,
+     "off": [
+      315
+     ],
+     "target": "Global.Bit[2075]",
+     "value": [
+      1
+     ]
+    },
+    {
+     "name": "352 wake e17 t1 +2096: Bit[2078] := 1",
+     "donor": 352,
+     "sid": 17,
+     "tag": 1,
+     "off": [
+      2096
+     ],
+     "target": "Global.Bit[2078]",
+     "value": [
+      1
+     ]
+    },
+    {
+     "name": "352 wake e17 t1 +2105: Bit[2086] := 1",
+     "donor": 352,
+     "sid": 17,
+     "tag": 1,
+     "off": [
+      2105
+     ],
+     "target": "Global.Bit[2086]",
+     "value": [
+      1
+     ]
+    }
+   ],
+   "mutants": [
+    [
+     "2085 dropped in F5",
+     "FAIL"
+    ],
+    [
+     "a member word store clobbering 297",
+     "FAIL"
+    ]
+   ]
+  },
+  "R5-PREEMPT": {
+   "claim": "R3-PREEMPT inverted: PRE-EMPTED is empty, and no F5 key has off < 0 or aligned False. This is a CONSISTENCY CHECK implied by P-PURE (every member equals its donor apart from Field() operands, so no prepend or unaligned function can exist); it is reported but not counted as independent evidence.",
+   "pass": "Both hold.",
+   "fail": "Any PRE-EMPTED entry, prepend key or unaligned key. Mutant: F4 relabelled as F5.",
+   "void": "Fewer than 3 covered runs on either side.",
+   "mutants": [
+    [
+     "F4's session-4 rows relabelled as F5",
+     "FAIL"
+    ]
+   ]
+  },
+  "NC-THROW": {
+   "claim": "Nothing is thrown through the event engine, the evaluator, the tracer or the agent (EventEngine, EBin, StoryTrace, HarnessAgent) from the session's log mark on. The mark is taken after P-HUBLEG, which judges the hub's own exceptions before run 1.",
+   "pass": "None of the THROWS types was thrown with those frames.",
+   "fail": "Any such exception.",
+   "void": "None."
+  }
+ },
+ "guards": {
+  "expect": "with margin, from session 4: keys in every run 200 (286); tour keys 110 (167) from donors including {350, 351, 354, 355, 356, 450}; post-450 keys 40 (72) from donors including {350, 354, 356, 450}; segment keys 80 (117-119) from donors including {359, 351, 352}. A thin guard on the stock side is VOID, the shortfall named."
+ },
+ "cannot_test": "the seed's own beat-instant values: member(359)'s Main_Init and the segment re-write everything the stamp writes except the SC (359.ebs:51-53, 66-68, 145-202). A run entered past the wake (F5b) would test it -- the owner's decision, with its own predictions."
+}

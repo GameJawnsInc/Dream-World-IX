@@ -8,7 +8,7 @@ A few base assets the kit needs are *derived* from FF9's own field data:
 
 | asset | what it is | how it's obtained |
 |---|---|---|
-| blank field (`data/blank_field/<lang>.eb.bytes`) | the minimal playable field every built field starts from — a *cleaned* clone of a base field (popups removed, movement fixed, an after‑battle reinit added) | a base field is read from **your** install and a small **patch** (the kit's edits) is applied |
+| blank field (`data/blank_field/<lang>.eb.bytes`) | the minimal playable field every built field starts from — a *cleaned* clone of a base field (movement fixed, an after‑battle reinit added; the patch drops stock's report windows together with their clear, `build_script` restores the clear without the window, and the blank itself is unchanged, 956 B) | a base field is read from **your** install and a small **patch** (the kit's edits) is applied |
 | exit‑region template (`data/region_template.bin`) | the standard field‑exit entry the gateway injector patches | a base field's exit region is read from **your** install + a small patch |
 | test fixtures (`tests/fixtures/*`) | a real field script / camera / walkmesh used by the offline test suite | regenerated from **your** install |
 | battle-map geometry/textures (`<BBG>.fbx`, `image#.png`) | a real battle background forked into an editable FBX + PNGs by `ff9mapkit battle-import` | read from **your** install at runtime into a user‑chosen dir; gitignored, never committed (no committed battle template — you fork from your own install) |

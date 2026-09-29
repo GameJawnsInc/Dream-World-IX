@@ -1,24 +1,29 @@
-# Story-write trace -- handoff (2026-09-27)
+# Story-write trace -- handoff (2026-09-28)
 
-Rewritten at the end of the facing-gate session so the next session (possibly on another account) can pick up
-without its context. The study's own record is [`PLAN.md`](PLAN.md) (rungs 0-3, every session's result and
-diagnosis); this file is the open work and where the research lives.
+Rewritten at the end of the facing-gate session, and updated after rung 4 and session 4, so the next session
+(possibly on another account) can pick up without its context. The study's own record is [`PLAN.md`](PLAN.md)
+(rungs 0-4, every session's result and diagnosis); this file is the open work and where the research lives.
 
 ## Where things stand
 
 - **Merged to master** (branch `claude/story-trace`, worktree `C:\gd\Dream-World-IX\.claude\worktrees\story-trace-walk`)
   after the full suite: rung-3 retrodiction build, sessions 1-3, the walker fixes (boxed-by-walkers, door pin), the
   facing-gate fix and its s90 closed loop, predictions v2, PLAN/brief/memory updates.
-- **Rungs 0-3 in-game PROVEN.** Rung 3 = session 3 (`story-rung3c`, predictions v2 sha `d6dd541c`): 17/18 + one
-  VOID (R3-NULL-PRE: no stock run gave 355 before 450 -- a Dali child at its door). R3-MIRROR clean once the F0
-  side REPLAYS its stock partner's walk. Session 2 (`story-rung3b`, v1 sha `220532a8`) is the 16/18 that found the
-  order confound. Both prediction files are sha-frozen (`.gitattributes -text`); never edit them -- a change is a
-  new version registered before its session.
+- **Rungs 0-3 in-game PROVEN, rung 4 DONE (the ladder is complete).** Rung 3 = session 4 (`story-rung3d`,
+  predictions v2 sha `d6dd541c`): **18/18**. Session 3 (`story-rung3c`) was 17/18 + one VOID (R3-NULL-PRE: no
+  stock run gave 355 before 450 -- a Dali child at its door), and session 4 on the fixed walker made it a PASS.
+  R3-MIRROR is clean once the F0 side REPLAYS its stock partner's walk. Session 2 (`story-rung3b`, v1 sha
+  `220532a8`) is the 16/18 that found the order confound. Both prediction files are sha-frozen
+  (`.gitattributes -text`); never edit them -- a change is a new version registered before its session.
+  Rung 4 = `fork-report --trace` (merged `3c7fa847`).
 - **Engine:** s88 (story trace) + s89 (harness publishes field objects) + s90 (harness publishes the facing, `turn`
   in place) are in the LIVE install DLL (sha `ba9762423da8f3d7`, backups `20260926-171239`, built by the owner),
   NOT in the shipped engine bundle yet. s90 is proven in the game (`story-facing-check` 8/8, 2026-09-27).
 - **Deployed in `FF9CustomMap`:** 23 fork ids -- 30830 (rung 2's verbatim 552) and the rung-3 chains 30831-30841
   (F0) / 30842-30852 (F4), `studies/story-trace/rung3_forks.json`. Every session's pre-flight re-verifies them.
+  **Also F5's 13 ids** since 2026-09-28 15:27: the hub 31100 and the members 31101-31112 (`rung5_forks.json`:
+  stamps, the f5pre backups, verified; `--preflight` 7/7 PASS). Revert only through the per-id scripts, 31100 first
+  and then 31112 down to 31101. The generic `revert_deploy.py` now names 31100.
 
 ## Open work, in order
 
@@ -27,15 +32,83 @@ diagnosis); this file is the open work and where the research lives.
    region 113/256 off, shut 90 frames), then the closed loop turned him in place (0.0u) and crossed; and one tour on
    the fixed walker, `rung3_step1.py` 7/7 (`20260927-110443-story-facing-tour`), no facing miss. PLAN.md has the
    numbers and the honest limits (the tour's gated doors all opened DURING the walk; the render rate, below).
-2. **Optional session 4 -- the owner's go.** On the fixed walker (door pin + the closed-loop facing), for three
-   stock runs that enter 355 before 450, turning R3-NULL-PRE's VOID into a verdict. `PYTHONUNBUFFERED=1 py
-   tools/play.py studies/story-trace/rung3_trace.py --label story-rung3d --timeout 240` (v2 is the default
-   predictions file; ~1.5 h; the analysis alone, offline: `py studies/story-trace/rung3_trace.py --analyse <run
-   dir>`). Archive the run dir to the main repo's `.harness-runs` the moment it ends (the install is shared).
-3. **Later:** rung 4 (`fork-report`'s story-writes axis -- PLAN.md "Rungs"); s88/s89/s90 into the next engine-bundle
-   re-cut (a release -- outward-facing, confirm first); keep or revert the 23 fork ids (owner's call); the facing
-   gate's open items below. Unrelated arc still pending: the owner playtest of photo-mode bench 30956
-   (`studies/photo-mode/PLAN.md`).
+2. **DONE: session 4** (owner's go, 2026-09-28): `story-rung3d` **18/18**. Every stock run entered 355 before 450,
+   and R3-NULL-PRE's VOID is a PASS (214 stock keys before 450, all written by the members; 355's own 12 matched).
+   Archived at `C:\gd\Dream-World-IX\.harness-runs\20260928-011959-story-rung3d\`. Rung 3 is closed.
+3. **DONE: rung 4** (merged `3c7fa847`): `fork-report <field> --trace <stock runs> [--fork-trace <fork runs>
+   --member ...]` shows the traced set difference cut to one field (`docs/FORK_REPORT.md`). On session 3's traces
+   the per-field shares partition the whole comparison exactly. A five-agent review's 16 defects are fixed,
+   three of them in the reader under every report.
+4. **DONE: F5, the hub lane under the trace** (owner's go, 2026-09-28): `story-rung5` **28/28**, no re-runs
+   (PLAN.md's F5 section). The hub pick led into 12 pure verbatim members, which wrote what stock Dali writes, key
+   for key, on paired walks: MIRROR empty, 450 a member with no seam, the three frozen stamps exactly. P-HUBLEG
+   passed on its first in-game run (r 152 / talk_r 338 as read off the bytes; the twist-prior calibration).
+   `fork-report --trace` agrees field by field. Archived at
+   `C:\gd\Dream-World-IX\.harness-runs\20260928-153015-story-rung5\`. **Not tested at this entry:** the seed's
+   beat-instant values, which 359 and the segment re-create. The offline-predicted seed defects past the wake (ATE
+   latches 2078/2086, all four party members) wait for an F5b; that needs its own frozen predictions and a
+   seed-resolver fix first.
+   - F5's 13 ids stay deployed until the owner decides. The revert order is in `rung5_forks.json`: per-id scripts
+     only, 31100 first and then 31112 down to 31101, with the JournalPatch sha compared first.
+5. **Rung 3's dry-run is 79/80 on master too** (not F5's): session 2's archived reports predate `356ac508`'s seam
+   listing. Re-baseline, or compare that line modulo the seam list (owner's call).
+6. **Later:**
+   - s88/s89/s90 go into the next engine-bundle re-cut. That is a release: outward-facing, confirm first.
+   - Keep or revert the 23 fork ids (owner's call). **Do not run their reverts blind -- read
+     [REVERTING THE FORKS](#reverting-the-forks-six-reverts-were-half-reverts) first.** Six of them were armed with
+     a half-revert. Their backups are now repaired, and the order still matters.
+   - An engine tick counter (`ticks`/`rt` in state.json) at the next DLL rebuild, to replace the mtime estimate.
+     It matters more now: session 4's render rate flipped between ~60 and ~31 fps four times WITHIN one launch.
+   - The facing gate's open items below.
+   - Unrelated arc still pending: the owner playtest of photo-mode bench 30956 (`studies/photo-mode/PLAN.md`).
+
+## REVERTING THE FORKS (six reverts were half-reverts)
+
+The 23 forks stay deployed until the owner decides. This is what a revert does now, and how to run it safely.
+
+- **The defect (found 2026-09-28, sweep during the F5 design).** `tools/deploy_field.py` stamped its backups
+  (`backups/<file>.preDEPLOY.<STAMP>`) to the second, and the rung-3 batch deployed 22 forks in about 20 s. Six
+  pairs landed in one second: 30832/30833, 30835/30836, 30839/30840, 30842/30843, 30846/30847, 30849/30850. In
+  each pair the later deploy's backups replaced the earlier one's. By then they held the earlier fork's own
+  `FieldScene <id>` line and its `<id> <donor>` ForkDonorPatch row. The earlier fork's revert re-adds every line it
+  owns that it finds in its backup (`dictpatch.revert_dictionary_patch`, `forkdonor.revert_row`). So
+  `revert_deploy_30832.py` etc. would have deleted the `.eb` and restored the registration, which is the null-.eb
+  black screen. The later fork of each pair was never affected. The deploy is fixed (`ff9mapkit.deploybackup`: a
+  claimed microsecond stamp, create-exclusive backups), so no new pair can form.
+- **The repair (DONE 2026-09-28, no revert run).** `py tools/repair_collided_backups.py --repair 30832 30835 30839
+  30842 30846 30849` removed each earlier fork's own line and row from the SHARED DictionaryPatch/ForkDonorPatch
+  backups. Each original is kept beside it as `<name>.collided-orig`, and the diff is exactly that line and row.
+  The revert scripts themselves are unchanged. The evidence the tool checked for every id:
+  - the predecessor snapshot (the previous fork's backup, a second earlier) differs from the shared one only by
+    the predecessor's own line and this fork's own line;
+  - the ledger shows no prelude revert before the deploy (it could have re-added an older registration);
+  - the block-47 `.mes` and JournalPatch snapshots are byte-identical to the predecessor's (30842's block-47
+    snapshots are its own, since 30843 is on block 8);
+  - the partner reads only its own lines from the shared files, so its revert is unchanged.
+  
+  A read-only simulation against the live folder gives, for each id: before the repair, the revert leaves
+  `FieldScene <id>` and its donor row behind; after it, nothing.
+- **Same defect outside rung 3:** 30880 (fight-ledger bench LEDGER1) shared stamp `20260922-232635` with 30883,
+  and its backup held `MessageFile 30880` + `FieldScene 30880`. It was repaired the same way with
+  `--allow-other-deploys`, because deploy_battle's BattleScene 30871/30872 landed in the gap. It is not a
+  story-trace id, so the fight-ledger study owns whether to keep it.
+- **To revert (only on the owner's word; never launch the game for it):**
+  1. From the main repo, `py tools/repair_collided_backups.py` must print `0 defective` (exit 0). A HALF-REVERT row
+     means a backup was restored or re-collided: stop, and `--plan <id>` it.
+  2. Run the reverts ONE AT A TIME in REVERSE deploy order, 30852 down to 30830:
+     `py tools/scroll_out/revert_deploy_<id>.py`. The dialogue `.mes` and JournalPatch are restored whole from
+     snapshots, so last-in-first-out is the order in which every snapshot is the right one. Block 8 depends on it.
+     30832 wrote `field/8.mes` fresh and 30843 later wrote the identical bytes over it. 30843's revert restores its
+     snapshot (30832's bytes) and 30832's revert then deletes the file. In the other order, or when reverting 30832
+     alone, 30832's hash check cannot tell the bytes apart: it deletes the block-8 `.mes` that 30843 still ships
+     (redeploy 30843), and a later 30843 revert leaves a copy no revert owns.
+  3. The rung-3 scripts import the kit from `.claude\worktrees\story-trace-walk\ff9mapkit`. 30830's (and 30880's /
+     30883's) import it from the DELETED `sad-lewin-6cdab0` worktree and fail with ModuleNotFoundError before
+     touching anything. Run those with `PYTHONPATH=C:\gd\Dream-World-IX\ff9mapkit`, and do the same for the rung-3
+     scripts once `story-trace-walk` is gone.
+  4. Check: no `FieldScene 308[3-5]x` line in `<game>\FF9CustomMap\DictionaryPatch.txt` and no `308xx` row in its
+     `ForkDonorPatch.txt`. Both files are read at launch, so the registrations drop at the next launch.
+  - Redeploying a fork instead is safe either way: its prelude runs its (now repaired) revert first.
 
 ## THE FACING GATE (landed on the branch; the settled rule and what is still open)
 
@@ -79,7 +152,12 @@ Range at SC 2600 then scene-gated region 25, 32; 5 are the 353 door step's ~34u 
   waits, no cleared stalls, never boxed -- as clean as the best 58 fps run); and at ~30 fps, forced for one launch
   (`[Graphics] FieldFPS = 30`, `VSync = 0` -- Unity ignores the target under VSync -- the ini restored byte-exact
   after): the clock measured 30.2 / 29.8 fps, check 8/8, tour 7/7, holds reversing 5.3% (the old code at ~31 fps:
-  24.0% and 31.6%), no waits, no cleared stalls, never boxed. The fix is proven in both regimes.
+  24.0% and 31.6%), no waits, no cleared stalls, never boxed. The fix is proven in both regimes. **Correction
+  (session 4, 2026-09-28):** the rate is NOT fixed per launch. It flipped 59.0 -> 31.4 -> 59.7 -> 31.8 fps inside
+  one launch. The tick clock caught each flip and re-planned, and the session passed 18/18 across them. CPU load is
+  NOT the cause: `studies/test-harness/render_rate_probe.py` held a flat 60.0 fps with all 12 logical CPUs busy
+  (`.harness-runs\20260928-092358-render-rate-probe`). The open lead, unverified: both drops came a crossing or two
+  after a failed bounce into 353 (Mayor's House), and the rate came back after the return to the title.
   (2) The walk's finish still targets the kit's quad: a walk can end in a 5-point region's dead middle, which the step reads LIVE (no Dali gated door has a
   standable dead middle; 8 stock gated rows elsewhere do). (3) On a pre-s90 engine, 350's door to 353 is still
   refused from the tour's goal pocket by the wall-slide bound (LIVE; the in-place turn faces it). (4) Not modelled:
@@ -112,6 +190,13 @@ Range at SC 2600 then scene-gated region 25, 32; 5 are the 353 door step's ~34u 
     `wf_55559065-206` predictions v2 / the replay, `wf_e30deb95-606` the 116-miss diagnosis + the door-pin fix,
     `wf_b4d457ce-760` the facing fix (stopped, empty); earlier ids are rung 0-3 builds and reviews -- the
     `results.md` headers say which.
+  - `story-trace-archive\f5\` -- F5 (`README.txt` maps it):
+    - the settled design (`design\design.md`, `checks.json`, `build_steps.txt`, `owner_decisions.txt`; may quote
+      `.eb` disassembly, never commit);
+    - `cont\fix\freeze_fix.py`, the generator of the committed predictions v3;
+    - the gate outputs and mutant harnesses;
+    - the design, build and resume workflows (`wf_4574eab4-845`, `wf_134bf773-81f`, the latter killed mid-build,
+      and `wf_b80d9ff6-de6`).
   - `story-trace-archive\facing-session\` -- the facing-gate session (2026-09-26/27): `workflows\` (the understand
     `wf_0c8b27cc-198`, the build + five-lens review `wf_0a36f57d-e49`, engine patch s90 `wf_5c7015d9-2df`, the s90
     driver `wf_75e5a330-185`: scripts, journals, readable results) and `scratchpad\` (the census data -- game bytes

@@ -224,9 +224,10 @@ def wire_new_game_after_install(game, entry_id, mod_folder, *, backups_dir, reve
                 + f". The campaign is installed; wire New Game by hand "
                   f"(tools/wire_newgame_from_stock.py {entry_id}), or reach the chain via ~ -> Warp.")
         return None
-    out("  WARNING: field-70 override copies exist but none warps the expected target -- New Game NOT "
-        "wired (a corrupt/non-opening override?). The campaign is installed; wire New Game by hand, or "
-        "reach the chain via ~ -> Warp.")
+    out("  WARNING: field-70 override copies exist but none could be wired to the expected target -- New "
+        "Game NOT wired (a corrupt/non-opening override, or one reshaped away from stock 70's warp so its "
+        "ambient handoff cannot be set?). The campaign is installed; wire New Game by hand "
+        f"(tools/wire_newgame_from_stock.py {entry_id}), or reach the chain via ~ -> Warp.")
     return None
 
 

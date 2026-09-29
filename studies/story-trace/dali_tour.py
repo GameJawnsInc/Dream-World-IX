@@ -83,7 +83,7 @@ def settle(g, log, why: str, say=print) -> None:
 
 
 def segment(g, log, *, start: int, sc: int, beat: int, place=lambda f: f, until: int = 352,
-            timeout: float = 900, stable: float = 30.0, woke=None) -> dict:
+            timeout: float = 900, stable: float = 30.0, woke=None, enter=None) -> dict:
     """The game's own segment from a raw ``warp <start> 0 <sc>`` (warp() waits for control this segment never
     gives) until control returns AT the beat -- in place ``until`` (the 352 wake), or, if control is held at the
     beat for ``stable`` s anywhere else, there (``ok`` False: not where the story hands it back). Scenes are sat
@@ -91,9 +91,16 @@ def segment(g, log, *, start: int, sc: int, beat: int, place=lambda f: f, until:
 
     ``woke()`` -> whether the run's own trace shows the wake's store (rung 3: 352's SC := beat): with it, control
     at the beat counts only after the wake ran, on every side alike. SC alone cannot say so -- a fork whose
-    prefix stamps the beat on arrival sits at it through the whole night scene."""
-    g.send(f"warp {start} 0 {sc}")
-    g.wait_for(lambda s: s.field_id == start, timeout=60, what=f"field {start} to load")
+    prefix stamps the beat on arrival sits at it through the whole night scene.
+
+    ``enter()`` (F5, rung5_hub.hub_leg: the hub's journey pick) REPLACES the raw warp and its wait: it owns
+    reaching ``start`` -- the pick's own ``Field()`` lands there -- and raises HarnessError when it cannot. The
+    segment is the game's from there on, the same loop on every side. None (rung 3) is the raw warp, unchanged."""
+    if enter is None:
+        g.send(f"warp {start} 0 {sc}")
+        g.wait_for(lambda s: s.field_id == start, timeout=60, what=f"field {start} to load")
+    else:
+        enter()
     deadline = time.time() + timeout
     held = None
     while time.time() < deadline:
