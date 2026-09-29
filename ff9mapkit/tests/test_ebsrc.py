@@ -357,20 +357,41 @@ def test_comments_are_sanitized_to_one_line():
     assert assemble_source(src) == _rich_eb()             # ... and none of it moved a byte
 
 
-def test_lying_func_table_degrades_to_instruction_comments_only():
-    """The kit's blank-template lineage points an fpos PAST the entry end, which sends the
-    whole-file logic scanner walking garbage. That must cost only the structural labels — the
-    per-instruction pass clamps per func, so its comments survive — and the loss is announced."""
+def test_a_past_end_fpos_keeps_the_structural_labels():
+    """The kit's blank-template lineage points an fpos PAST the entry end. The model once ran the
+    function before it up to that pointer, sending the whole-file logic scanner walking garbage
+    (IndexError: every structural label lost). A function now ends at its entry's end and the
+    parked one is empty (test_eb_func_bounds), so the scan completes; the lying entry itself still
+    ships as raw=, its reason named."""
     data = bytearray(_rich_eb())
     e2 = EbScript.from_bytes(bytes(data)).entries[2]
     ft = e2.abs_start + 2 + 4                                           # func-table slot of tag 3
     data[ft + 2:ft + 4] = struct.pack("<H", 9999)                       # its fpos: past the end
     src = write_source(bytes(data))
+    assert "labels unavailable" not in src.splitlines()[0]
+    assert _comment(src, ".entry 0 type=0") == "main"
+    assert _comment(src, "InitObject(2, 0)").startswith("spawn entry 2 (npc")
+    assert "kit band" in _comment(src, "Global.Bit[8712]")
+    assert "a func range lies outside the entry" in _comment(src, ".entry 2 ")
+    assert assemble_source(src) == bytes(data)
+
+
+def test_a_logic_scan_failure_degrades_to_instruction_comments_only(monkeypatch):
+    """The inner guard: a whole-file scan that fails costs only the structural labels. The
+    per-instruction pass clamps per func, so its comments survive, and the loss is announced."""
+    from ff9mapkit import logic_map
+
+    def _boom(*a, **kw):
+        raise IndexError("scanner walked off the end")
+
+    monkeypatch.setattr(logic_map, "build_logic_map", _boom)
+    data = _rich_eb()
+    src = write_source(data)
     assert src.splitlines()[0].startswith("# entry/routine labels unavailable (IndexError")
     assert _comment(src, "InitObject(2, 0)") == "spawn entry 2"         # no entry role to add
     assert "kit band" in _comment(src, "Global.Bit[8712]")
     assert _comment(src, ".entry 0 type=0") == "" and _comment(src, ".func 0") == ""
-    assert assemble_source(src) == bytes(data)
+    assert assemble_source(src) == data
 
 
 def test_enrichment_failure_is_reported_not_swallowed(monkeypatch):

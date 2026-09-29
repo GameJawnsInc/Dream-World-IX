@@ -199,7 +199,7 @@ def test_built_scroll_field_with_a_d9_graft_keeps_the_main_loop_margin(tmp_path)
     for lang in LANGS:
         eb = ModLayout(out).eb_path(lang, "EVT_SCROLLD9.eb.bytes").read_bytes()
         e0 = EbScript.from_bytes(eb).entry(0)
-        # bounded at entry 0's END: the model runs Main_Init up to the next fpos, which is past it
+        # bounded at entry 0's END explicitly (the model now clamps Main_Init there too: test_eb_func_bounds)
         ops = [ins.op for ins in disasm.iter_code(eb, e0.func_by_tag(0).abs_start, e0.abs_end)]
         assert camera.BGCACTIVE_OP in ops and 0x09 in ops, lang          # both levers really fired
         assert _margin(eb) == BLANK_MAIN_LOOP_MARGIN, lang

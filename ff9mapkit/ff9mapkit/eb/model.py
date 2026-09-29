@@ -26,7 +26,9 @@ and the project's existing tooling:
         ... bytecode ...
       => a function's code starts at  entryStart + 2 + fpos  and runs to the next func's
          start (or the entry end). This "funcBasePos = entryStart + 2" convention is the one
-         subtlety that trips up naive parsers.
+         subtlety that trips up naive parsers. "Next" means next in ADDRESS order, never past the
+         entry's end: kit-built tables are not monotonic and can park an fpos past the end (see
+         :meth:`EbScript._parse_entry`).
 """
 
 from __future__ import annotations
@@ -73,7 +75,7 @@ class Func:
     tag: int
     fpos: int          # relative to entryStart + 2
     abs_start: int     # absolute byte offset of this function's code
-    abs_end: int       # absolute byte offset where it ends (next func / entry end)
+    abs_end: int       # where it ends: the next body in address order, clamped to the entry end (>= abs_start)
 
     @property
     def length(self) -> int:
@@ -154,10 +156,19 @@ class EbScript:
             fpos = u16(d, q + 2)
             raw_funcs.append((tag, fpos))
             q += 4
+        # A function ends where the NEXT BODY starts -- the next in (fpos, table index) order, a tie going to
+        # the later-listed one (a zero-length alias falls through into it: 1534 stock world functions) --
+        # and never past its entry's end. Every stock table is monotonic, so this is the next-listed fpos
+        # there. A kit-built one is not: the blank's Main_Loop (tag 1) is parked past the entry's end, and
+        # after add_reinit the table reads tag 0, tag 1, tag 10. Bounded by the next-LISTED fpos,
+        # Main_Init ran over Main_Reinit and 65 bytes beyond the entry, and replace_function_body deleted
+        # them. A function starting at/past the end is empty (``abs_end == abs_start``).
+        order = sorted(range(fc), key=lambda k: (raw_funcs[k][1], k))
+        nxt = {a: fbase + raw_funcs[b][1] for a, b in zip(order, order[1:])}
         funcs = []
         for fi, (tag, fpos) in enumerate(raw_funcs):
             fstart = fbase + fpos
-            fend = (fbase + raw_funcs[fi + 1][1]) if fi + 1 < fc else abs_end
+            fend = max(fstart, min(nxt.get(fi, abs_end), abs_end))
             funcs.append(Func(fi, tag, fpos, fstart, fend))
         return Entry(i, off, size, loc, flags, abs_start, abs_end, etype, fc, tuple(funcs))
 
