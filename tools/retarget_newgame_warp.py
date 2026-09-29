@@ -5,6 +5,8 @@ Thin repo shim over :func:`ff9mapkit.newgame.retarget` (the logic now lives in t
 ``ff9mapkit`` CLI shares it). RE-POINTS an override that already exists (use ``wire_newgame_from_stock.py`` to
 CREATE one from stock). Pure mod, no DLL. The target field MUST be registered first (deploy the chain/field),
 or New Game warps to an unregistered id = black screen. Mechanism: memory ``project-ff9-new-game-entry``.
+Each copy's ambient handoff is set for the new target too: 70's exit stop for 643 is inserted before the Field(),
+or removed when the target owns 643 (a fork of 50); an override reshaped away from stock 70's warp is skipped.
 
 Usage:
     py tools/retarget_newgame_warp.py 4100              # field-70 override -> Field(4100), all langs

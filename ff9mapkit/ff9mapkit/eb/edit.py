@@ -418,6 +418,95 @@ def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins:
     return bytes(out)
 
 
+def remove_in_function(data, entry_index: int, func_tag: int, rel_off: int, length: int) -> bytes:
+    """Remove ``length`` bytes at body offset ``rel_off`` of function ``func_tag`` -- the exact inverse of
+    :func:`insert_in_function`: ``remove_in_function(insert_in_function(b, e, t, r, ins), e, t, r, len(ins))``
+    is ``b`` again, byte for byte.
+
+    The cut ``[rel_off, rel_off + length)`` must start and end on instruction boundaries of the function.
+    Every position outside the cut keeps its instruction: a position at or after the cut's end moves back
+    by ``length``; the cut's end itself becomes the cut's start (so a jump that landed on the first cut
+    instruction, or on the one right after the cut, now lands on the instruction after the cut -- both of
+    :func:`insert_in_function`'s convergence cases undone). The function's own relative jumps and 0x06 /
+    0x0B / 0x0D tables are re-aimed by that mapping, jumps inside the cut go with it, the containing
+    entry shrinks, later entries move back, and every other function starting after the cut has its
+    ``fpos`` moved back. A jump or table target strictly INSIDE the cut is refused (ValueError): its
+    instruction is gone, so there is no faithful place to send it."""
+    b = _as_bytes(data)
+    if length <= 0:
+        raise ValueError(f"remove length must be positive, got {length}")
+    eb = EbScript.from_bytes(b)
+    f = eb.entry(entry_index).func_by_tag(func_tag)
+    if f is None:
+        raise ValueError(f"entry {entry_index} has no function tag {func_tag}")
+    a = f.abs_start + rel_off
+    e = a + length
+    if not (f.abs_start <= a and e <= f.abs_end):
+        raise ValueError(f"cut [{rel_off}, {rel_off + length}) is outside func {func_tag} body")
+    instrs = list(eb.instrs(f))
+    bounds = {i.off for i in instrs} | {f.abs_end}
+    if a not in bounds or e not in bounds:
+        raise ValueError(f"cut [{rel_off}, {rel_off + length}) of func {func_tag} does not sit on "
+                         f"instruction boundaries")
+
+    def moved(p: int) -> int:
+        if a < p < e:
+            raise ValueError(f"remove at {a}..{e}: a jump lands at {p}, inside the cut")
+        return p - length if p >= e else p
+
+    from .disasm import decode_switch
+    fixups = []                                             # (post-cut offset of a u16 displacement, value)
+    for j in instrs:
+        if a <= j.off < e:
+            continue                                        # removed with the cut
+        if j.op in (0x01, 0x02, 0x03) and not j.arg_is_expr[0]:
+            raw = j.imm(0)
+            disp = raw if j.op == 0x02 else (raw - 0x10000 if raw >= 0x8000 else raw)   # see insert
+            new = moved(j.end + disp) - moved(j.end)
+            if new != disp:
+                if j.op == 0x02 and not 0 <= new <= 0xFFFF:
+                    raise ValueError(f"remove at {a}: fixed jump {j.off} leaves the u16 displacement")
+                if j.op != 0x02 and not -0x8000 <= new <= 0x7FFF:
+                    raise ValueError(f"remove at {a}: fixed jump {j.off} leaves the i16 displacement")
+                fixups.append((moved(j.off) + 1, new & 0xFFFF))
+        elif j.op in (0x06, 0x0B, 0x0D):
+            if decode_switch(j) is None:
+                raise ValueError(f"func {func_tag} has a jump table (op {j.op:#x}) with non-immediate "
+                                 f"operands; mid-function remove unsupported")
+            anchor = j.off + (4 if j.op == 0x06 else (2 if j.op == 0x0D else 1))
+            n_ops = len(j.args)
+            rel_idx = ([0] + [2 + 2 * k for k in range((n_ops - 1) // 2)]) if j.op == 0x06 \
+                else list(range(1, n_ops))
+            for k in rel_idx:
+                new = moved(anchor + j.args[k]) - moved(anchor)
+                if new != j.args[k]:
+                    fixups.append((moved(j.off) + 2 + 2 * k, new))
+
+    ti, toff, tsz = _containing_entry(b, a)
+    out = bytearray(b[:a] + b[e:])
+    set_u16(out, ENTRY_TABLE_OFF + ti * ENTRY_SLOT_SIZE + 2, tsz - length)
+    for k in range(out[3]):
+        if k == ti:
+            continue
+        so = ENTRY_TABLE_OFF + k * ENTRY_SLOT_SIZE
+        if u16(out, so) > toff:
+            set_u16(out, so, u16(out, so) - length)
+    for off, val in fixups:
+        set_u16(out, off, val)
+    es = ENTRY_TABLE_OFF + toff                             # the entry's own start sits before the cut
+    fbase = es + 2
+    for k in range(out[es + 1]):
+        t = u16(out, fbase + k * 4)
+        fp = u16(out, fbase + k * 4 + 2)
+        if k == f.index:                                    # by INDEX: stock entries can repeat a tag
+            continue
+        if a < fbase + fp < e:
+            raise ValueError(f"remove at {a}..{e}: function tag {t} starts inside the cut")
+        if fbase + fp >= e:                                  # other funcs whose body moved back
+            set_u16(out, fbase + k * 4 + 2, fp - length)
+    return bytes(out)
+
+
 def nop_range(data, abs_off: int, length: int) -> bytes:
     """Overwrite ``length`` bytes at ``abs_off`` with NOP (0x00). Length-preserving.
 
