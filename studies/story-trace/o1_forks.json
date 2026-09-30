@@ -48,12 +48,14 @@
   "31218": "O1_TH_STG_3",
   "31219": "O1_TH_STG_4"
  },
- "deployed": false,
+ "deployed": true,
  "relaunch_needed": true,
  "relaunch_why": "20 new FieldScene ids and 20 ForkDonorPatch rows are read at launch only",
  "revert": {
   "scripts_dir": "C:\\gd\\Dream-World-IX\\tools\\scroll_out",
   "order": "reverse deploy order: 31219 down to 31200",
   "why_order": "members 31200-31216 share text block 2 and 31217-31219 block 187: the first deploy of a block writes it fresh (its revert deletes it), later deploys back it up (their reverts restore it), so reverts run newest first"
- }
+ },
+ "deployed_at": "2026-09-29 21:07 local",
+ "verified": "o1_opening.py --preflight on the live install (P-MANIFEST/DEPLOY/EB/FLOOR/STOCK); the New-Game override untouched (-world's, Field(4600) in all 7 languages)"
 }
