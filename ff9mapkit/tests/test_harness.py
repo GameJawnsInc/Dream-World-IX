@@ -12933,3 +12933,136 @@ def test_o2_drive_records_presses_and_watch_samples(game):
     o = watch[0]["objects"][0]
     assert set(o) == {"sid", "x", "z", "range_r", "talk_r", "dist"} and o["range_r"] == 150.0, o
     assert o["dist"] == pytest.approx(math.hypot(o["x"] - watch[0]["x"], o["z"] - watch[0]["z"]), abs=0.2), o
+
+
+# ---- O2 itself (studies/story-trace/o2_alexandria.py; research/o2_design.md section 9, PART C). The text rule is the
+# lead's ruling on the uk text mis-pick as one pure function; P-LANG pins the session's language; the freeze refuses
+# to overwrite; the draft's members are the built campaign's.
+
+def _o2_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o2_alexandria as A
+    return A
+
+
+_O2_LANGS = ("us", "uk", "fr", "gr", "it", "es", "jp")
+
+
+def _o2_stock_text():
+    """Seven distinct stock texts, one per language (the English two differing by a UK spelling, as block 33's do)."""
+    return {L: f"[{L}] block 33 -- the colour of the {L} text".encode("utf-8") for L in _O2_LANGS}
+
+
+def test_o2_text_rule_reads_every_language_equal_as_ok():
+    """The lead's ruling (research/o2_design.md 0.1, 6.1): once the kit fix lands and the build is regenerated, every
+    shipped language is byte-equal to its own stock asset and the rule reads clean -- ok, seven ok lines, no
+    KNOWN-KIT-DEFECT and no FAIL, with no code change. Break: compare against the us asset only."""
+    A = _o2_module()
+    stock = _o2_stock_text()
+    ok, lines = A.text_rule(stock, dict(stock), "us")
+    assert ok and len(lines) == 7 and all(" ok: " in ln for ln in lines), lines
+    detail = A.text_detail(lines)
+    assert detail.startswith("KNOWN-KIT-DEFECT 0, FAIL 0, 7 byte-equal of 7") and A.defect_lines(detail) == []
+
+
+def test_o2_text_rule_counts_a_foreign_copy_as_known_kit_defect():
+    """Today's build: uk ships stock US text (dialogue._lang_score aliases uk to us). Not the session language, and
+    byte-equal to ANOTHER language's stock asset: a named, counted KNOWN-KIT-DEFECT line -- the rule still reads ok
+    (no FAIL), never silently, and the CLI's line reads back from the detail. Break: count a foreign copy as ok."""
+    A = _o2_module()
+    stock = _o2_stock_text()
+    ok, lines = A.text_rule(stock, dict(stock, uk=stock["us"]), "us")
+    assert ok, lines
+    defects = [ln for ln in lines if ln.startswith("KNOWN-KIT-DEFECT")]
+    assert len(defects) == 1 and defects[0].startswith("KNOWN-KIT-DEFECT uk: ships stock us"), lines
+    assert "dialogue._lang_score aliases uk to us" in defects[0] and not [ln for ln in lines if ln.startswith("FAIL")]
+    detail = A.text_detail(lines)
+    assert detail.startswith("KNOWN-KIT-DEFECT 1, FAIL 0, 6 byte-equal of 7") and A.defect_lines(detail) == defects
+
+
+def test_o2_text_rule_fails_the_session_language():
+    """The session reads us: a us file that is not stock us is a hard FAIL, even when it is another language's
+    stock asset (the mirror of today's defect). Break: let the session language fall through to the foreign-copy
+    rule (it would read as a KNOWN-KIT-DEFECT)."""
+    A = _o2_module()
+    stock = _o2_stock_text()
+    ok, lines = A.text_rule(stock, dict(stock, us=stock["uk"]), "us")
+    assert not ok, lines
+    assert [ln for ln in lines if ln.startswith("FAIL")] == [next(ln for ln in lines if ln.startswith("FAIL us"))]
+    assert not [ln for ln in lines if ln.startswith("KNOWN-KIT-DEFECT")], lines
+
+
+def test_o2_text_rule_fails_garbage():
+    """A file that is no language's stock asset is a hard FAIL in any language -- only a byte-equal foreign copy is
+    the known defect. Break: call any foreign-language mismatch a KNOWN-KIT-DEFECT."""
+    A = _o2_module()
+    stock = _o2_stock_text()
+    ok, lines = A.text_rule(stock, dict(stock, fr=b"no language's text"), "us")
+    assert not ok and [ln for ln in lines if ln.startswith("FAIL")][0].startswith("FAIL fr: ships "), lines
+    assert "no language's stock asset" in lines[2] and not [ln for ln in lines if "KNOWN-KIT-DEFECT" in ln], lines
+
+
+def test_o2_p_lang_reads_the_last_localization_line():
+    """P-LANG (research/o2_design.md 6.2): the launch's Memoria.log names the language its text was LAST loaded in
+    ("Updating text localization [...]", FF9TextTool.cs:395) -- a launch whose language changed reads its last line
+    -- and Memoria.ini's [VoiceActing] ForceLanguage must be -1 or 0, read as the engine reads it (the last
+    assignment; outside 0..6 is -1). English(UK) last, or ForceLanguage 1, fails. Break: read the FIRST line."""
+    A = _o2_module()
+    line = "29.09.2026 21:31:56 |M| Updating text localization [{}]\n"
+    uk_then_us = line.format("English(UK)") + "... |M| other\n" + line.format("English(US)")
+    us_then_uk = line.format("English(US)") + line.format("English(UK)")
+    ini = "[VoiceActing]\n\t; ForceLanguage (default -1) -1: Use in-game setting\nEnabled = 0\nForceLanguage = {}\n"
+    ok, detail, info = A.p_lang(uk_then_us, ini.format(-1))
+    assert ok and info == {"log": "English(US)", "force": -1} and "(of 2)" in detail, (detail, info)
+    assert not A.p_lang(us_then_uk, ini.format(-1))[0]
+    assert A.p_lang(uk_then_us, ini.format(0))[0]
+    ok, detail, info = A.p_lang(uk_then_us, ini.format(1))
+    assert not ok and info["force"] == 1 and "forces another language" in detail, detail
+    assert A.p_lang(uk_then_us, ini.format(9))[2]["force"] == -1               # the engine's clamp
+    assert not A.p_lang(uk_then_us, ini.format(-1) + "[VoiceActing]\nForceLanguage = 4\n")[0]   # the LAST wins
+    assert A.p_lang(uk_then_us, None)[2]["force"] == -1                        # no ini: the default
+    assert not A.p_lang("", ini.format(-1))[0] and not A.p_lang(None, ini.format(-1))[0]
+
+
+def test_o2_freeze_refuses_an_existing_file(tmp_path):
+    """The freeze (research/o2_design.md 0.1): the draft is written ONCE -- LF, sorted keys, its sha the bytes'
+    -- and a second freeze onto the same file refuses, leaving it byte for byte; the CLI's --freeze refuses the same
+    way. The lead freezes after the stock rehearsals: the real o2_predictions_v1.json is never touched here. Break:
+    drop the existence check (the second write replaces the file)."""
+    import hashlib
+    A = _o2_module()
+    path = tmp_path / "o2_predictions_v1.json"
+    sha = A.O2.freeze(path)
+    data = path.read_bytes()
+    assert sha == hashlib.sha256(data).hexdigest() and b"\r" not in data and data.endswith(b"\n")
+    assert json.loads(data) == json.loads(json.dumps(A.draft_predictions()))
+    assert data.decode("utf-8") == json.dumps(A.draft_predictions(), indent=1, sort_keys=True) + "\n"
+    path.write_bytes(data + b" ")                          # the file as frozen, plus one byte a re-freeze would lose
+    with pytest.raises(SystemExit, match="frozen"):
+        A.O2.freeze(path)
+    seg = A.O2Segment()
+    seg.predictions = path
+    with pytest.raises(SystemExit, match="frozen"):
+        seg.main(["--freeze"])
+    assert path.read_bytes() == data + b" "
+
+
+def test_o2_draft_members_are_the_campaigns(tmp_path):
+    """The draft's members and names are read from the built chain's campaign.toml (research/o2_design.md 1.5), and
+    must be exactly {31220 + i: 100 + i for i in range(18)}; the manifest o2_forks.json carries the same members and
+    names, and is not deployed. A campaign with any other member is refused. Break: drop the assertion (the draft
+    would freeze another chain)."""
+    import tomllib
+    A = _o2_module()
+    pred = A.draft_predictions()
+    doc = tomllib.loads((A.CHAIN_DIR / "campaign.toml").read_text(encoding="utf-8"))
+    assert pred["members"] == {str(31220 + i): 100 + i for i in range(18)}, pred["members"]
+    assert pred["names"] == {str(f["id"]): f["name"] for f in doc["field"]}
+    assert pred["start"] == {"S": 100, "F": 31220} and pred["members"][str(pred["start"]["F"])] == 100
+    man = json.loads((A.MANIFEST).read_text(encoding="utf-8"))
+    assert man["members"] == pred["members"] and man["names"] == pred["names"] and man["deployed"] is False
+    bad = tmp_path / "campaign.toml"
+    text = (A.CHAIN_DIR / "campaign.toml").read_text(encoding="utf-8").replace("source = 117", "source = 61")
+    bad.write_text(text, encoding="utf-8")
+    with pytest.raises(AssertionError, match="not the design's"):
+        A.chain_from_campaign(bad)
