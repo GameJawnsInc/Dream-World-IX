@@ -2518,6 +2518,36 @@ def test_fight_closes_the_battle_tutorial_then_plays_the_fight_out(game):
         assert not fake._tutorial and len(fake.battle_commands) >= 4
 
 
+def test_fight_reads_again_when_its_step_lands_after_the_hud_stopped_asking(game):
+    """story-o1e run 1: the sample said "asking slot N", the step landed after the Masked Man's scripted end had
+    turned the HUD off, and the agent refused it -- fight() raised and the run went VOID. It is not a turn and not a
+    failure: fight() reads the state again. Any OTHER refusal still raises (the control)."""
+    from harness.channel import StepRefused
+    for text, raises in (("menus: the battle is not asking for commands yet (the intro is still running, or the "
+                          "fight is already over). Wait for turn.enabled.", False),
+                         ("battlecmd: no such command", True)):
+        fake = FakeGame(game)
+        fake.enemy_hit = 0
+        g = _fighting(game, fake)
+        try:
+            real, calls = g.act, []
+
+            def act(*a, **kw):
+                calls.append(1)
+                if len(calls) == 1:
+                    raise StepRefused(text, ["menus 0"])
+                return real(*a, **kw)
+            g.act = act
+            if raises:
+                with pytest.raises(StepRefused):
+                    g.fight(timeout=60.0, finish=False)
+            else:
+                assert g.fight(timeout=60.0, finish=False) == 1
+                assert g.last_fight["turns"] == len(calls) - 1, (g.last_fight, len(calls))
+        finally:
+            g.__exit__(None, None, None)
+
+
 def test_battle_act_closes_the_battle_tutorial_before_its_command(game):
     fake = FakeGame(game)
     fake.enemy_hit = 0

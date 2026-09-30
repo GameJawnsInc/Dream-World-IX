@@ -7203,7 +7203,17 @@ class Session:
                     self.wait_frames(10)
                     continue
                 choice = dict(choice, **picked)
-            self.act(choice["command"], slot=slot, target=choice.get("target"))
+            try:
+                self.act(choice["command"], slot=slot, target=choice.get("target"))
+            except StepRefused as err:
+                # The sample said "asking slot N" and the step landed after the HUD stopped asking: a scripted end
+                # (the Masked Man's RunBattleCode after enough damage) or the next intro. Measured, story-o1e run 1.
+                # Not a turn taken and not a failure: read the state again.
+                if "not asking for commands" not in err.error:
+                    raise
+                self._log(f"  fight: the step for slot {slot} landed after the HUD stopped asking; reading again")
+                self.wait_frames(10)
+                continue
             turns += 1
         result = self.state.battle_result
         # ⚠ RECORDED, because "it ended in victory" does not say the loop ever ran. The first live
