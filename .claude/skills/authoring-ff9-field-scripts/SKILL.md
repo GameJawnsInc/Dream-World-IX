@@ -7,7 +7,7 @@ description: Author or edit a field's `.eb` bytecode and event logic -- the engi
 
 # Authoring FF9 Field Scripts
 
-`.eb` is the shared engine substrate: novel fields, fork edits, and chocobo lanes all compile down to it. Author it in Python via the kit — never Hades Workshop (HW entry-adds corrupt the file; see brief §8). Runtime always loads the compiled `.eb` (no text→.eb path); per-language `.eb` differ ONLY in the 84-byte name field — bytecode is language-identical → byte-patch the code region at the same offset in all 7 langs. Verify every edit with `disasm` before deploy.
+`.eb` is the shared engine substrate: novel fields, fork edits, and chocobo lanes all compile down to it. Author it in Python via the kit — never Hades Workshop (HW entry-adds corrupt the file; see brief §8). Runtime always loads the compiled `.eb` (no text→.eb path); per-language `.eb` are NOT language-identical (only 238/818 stock fields match; window operands, pacing, voice ids differ; 94 differ in length — `studies/eb-roundtrip/FINDINGS.md`) → locate every edit structurally in EACH language's own file and assert its bytes there; never reuse a `us` offset. Verbatim forks ship each language its own donor `.eb`. Verify every edit with `disasm` before deploy.
 
 Wikilinks like `[[project-ff9-...]]` below are inert read-this pointers: open that file in the project memory store (`~/.claude/projects/C--gd-Dream-World-IX/memory/`).
 

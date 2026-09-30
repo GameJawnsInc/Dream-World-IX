@@ -67,7 +67,7 @@ Quoted verbatim from `project-ff9-eb-script-tooling`:
 
 ## Verify every edit
 
-Disasm-verify all entries decode clean before deploy (`ff9mapkit disasm`; historical `eb_disasm.py`). Bytecode is language-identical across the 7 per-language `.eb` — assert expected bytes per-file, then patch the same offset in each. Safe insertion into a non-last function = `edit.insert_in_function` (fixes sibling `fpos`; plain `insert_bytes` raises `ValueError` rather than leave any `fpos` -- a past-the-end one included -- stranded).
+Disasm-verify all entries decode clean before deploy (`ff9mapkit disasm`; historical `eb_disasm.py`). Bytecode is NOT language-identical across the 7 per-language `.eb` (only 238/818 stock fields match; 94 differ in length) — locate each edit structurally (entry/tag/op) in each language's own file and assert expected bytes there; never reuse an offset computed on another language. Safe insertion into a non-last function = `edit.insert_in_function` (fixes sibling `fpos`; plain `insert_bytes` raises `ValueError` rather than leave any `fpos` -- a past-the-end one included -- stranded).
 
 ## Pointers
 

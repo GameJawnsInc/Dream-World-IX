@@ -11,8 +11,8 @@ This module reproduces the AUTO (load-time, unconditional) class: it prepends ``
 -- opcode 0x9A, whose engine handler IS ``WalkMesh.BGI_triSetActive`` -- to ``Main_Init`` (entry-0 tag-0), so
 the triangles are in the right state from the first frame, exactly as the engine sets them at load. The
 ``.bgi`` stays byte-verbatim (the fix lives in the script layer). A tag-0 prepend (``rel_off == 0``) is
-shift-safe even on a jump-table donor, and ``EnablePathTriangle`` is language-identical. No toggles -> the eb
-is returned unchanged. Mirrors :mod:`ff9mapkit.content.areatitle` / :mod:`ff9mapkit.content.startup`.
+shift-safe even on a jump-table donor, and the inserted ``EnablePathTriangle`` body is language-independent, so
+it prepends to each language's own ``Main_Init`` alike. No toggles -> the eb is returned unchanged. Mirrors :mod:`ff9mapkit.content.areatitle` / :mod:`ff9mapkit.content.startup`.
 """
 from __future__ import annotations
 

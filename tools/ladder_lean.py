@@ -12,7 +12,8 @@ Fix (faithful, clean byte-wise): graft entries 2/3 into the fork at free slots +
 calls un-NOPed, remapping their entry-arg to the new slots (a same-length 1-byte patch -- no shift), and
 overwrite the player's tag-17 climb with the un-NOPed remapped version (same length, no relayout).
 
-Patches the live EVT_TRENO_RES (7 langs -- bytecode is lang-identical). Reversible. ~ (tilde) in Treno to test.
+Patches the live EVT_TRENO_RES (7 langs -- the patched climb func + pitch-ramp entries are byte-identical
+across langs, verified; the file as a whole is NOT). Reversible. ~ (tilde) in Treno to test.
 Run: py tools/ladder_lean.py
 """
 import datetime
