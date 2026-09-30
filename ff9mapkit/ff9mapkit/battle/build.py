@@ -105,48 +105,84 @@ def _ai_entries(scene_cfg: dict, mc: int):
     return [by_slot.get(s) for s in range(mc)] if by_slot else None
 
 
-def _compose_ai(eb: bytes, sc: dict, *, slot_types, ai_entries, atk_count, problems=None,
-                warnings=None) -> bytes:
-    """THE AI COMPOSITION, one owner for validate and build: ``rewrite_main_init`` (when ``monster_count`` gave
-    ``slot_types``) -> ``ai_patch`` (same-length, so its offsets stay valid) -> ``ai_function`` -> ``ai_phase`` ->
-    ``ai_insert`` (the length-changing splices). A ``[scene.ledger]`` is applied AFTER this, by the caller.
+def _compose_ai_langs(ebs: dict, sc: dict, *, slot_types, ai_entries, atk_count, problems=None,
+                      warnings=None) -> dict:
+    """THE AI COMPOSITION, one owner for validate and build, over every language at once: ``{lang: donor eb}`` ->
+    ``{lang: composed eb}``. Stages: ``rewrite_main_init`` (when ``monster_count`` gave ``slot_types``) ->
+    ``ai_patch`` -> ``ai_function`` -> ``ai_phase`` -> ``ai_insert`` (the length-changing splices). A
+    ``[scene.ledger]`` is applied AFTER this, by the caller.
 
-    ``problems`` given (validate): each stage's error is appended and that stage skipped. ``problems`` None
-    (build): the first error raises :class:`BattleBuildError`. Validate used to compose the ai_* edits on the
-    UN-rewritten Main_Init while the build shipped the rewritten one, so what it linted was not what shipped."""
+    The languages' AI bytecode is NOT identical (41 of the 562 stock scenes differ in length, in AI entries 0-3),
+    so nothing authored is an offset into another language's file. ``LANGS[0]`` (us, what ``battle-ai`` prints) is
+    the REFERENCE: an ``ai_patch`` ``at`` is a constant in its DONOR, an ``ai_insert`` locator an instruction in its
+    eb at that step, and each language -- the reference too, once ``monster_count`` has shifted it -- carries them to
+    the same constant / instruction structurally (``aipatch.correspond``), or refuses. Each stage runs on the
+    reference first; if it fails there it is reported once and skipped everywhere.
+
+    ``problems`` given (validate): each failure is appended (tagged with the language unless it is the reference)
+    and that stage skipped for that language. ``problems`` None (build): the first failure raises
+    :class:`BattleBuildError`. Validate used to compose on the UN-rewritten Main_Init, and then only on us, so an
+    edit that refused in the shipped bytes -- or in another language's -- validated clean and failed the build late."""
     from . import aiauthor as _aiauthor
     from . import aipatch as _aipatch
+
+    ref = LANGS[0] if LANGS[0] in ebs else next(iter(ebs))
+    order = [ref] + [lang for lang in ebs if lang != ref]
+    state = dict(ebs)
+    donor_ref = ebs[ref]
 
     def fail(validate_msg: str, build_msg: str) -> None:
         if problems is None:
             raise BattleBuildError(build_msg)
         problems.append(validate_msg)
 
-    if slot_types is not None:
-        try:
-            eb = _event_data.rewrite_main_init(eb, slot_types, ai_entries)
-        except ValueError as ex:
-            fail(f"[[scene]] monster_count AI-binding: {ex}",
-                 f"spawn composition needs a Main_Init re-author this donor can't support: {ex}")
-    if sc.get("ai_patch"):
-        if problems is not None:
-            problems += [f"[[scene.ai_patch]]: {p}" for p in _aipatch.validate_patches(eb, sc["ai_patch"])]
-        try:
-            eb, ai_warns = _aipatch.apply_ai_patches(eb, sc["ai_patch"])
-            if warnings is not None:
-                warnings += ai_warns
-        except _aipatch.AiPatchError as ex:          # validate: already reported by validate_patches
-            if problems is None:
-                raise BattleBuildError(str(ex))
-    for key, apply in (("ai_function", lambda b, v: _aiauthor.apply_ai_functions(b, v)),
-                       ("ai_phase", lambda b, v: _aiauthor.apply_ai_phases(b, v, atk_count=atk_count)),
-                       ("ai_insert", lambda b, v: _aiauthor.apply_ai_inserts(b, v))):
-        if sc.get(key):
+    def stage(label: str, fn, errors, build_label: str = "") -> None:
+        before = state[ref]
+        for lang in order:
+            tag = "" if lang == ref else f" ({lang})"
             try:
-                eb = apply(eb, sc[key])
-            except _aiauthor.AiAuthorError as ex:
-                fail(f"[[scene.{key}]]: {ex}", str(ex))
-    return eb
+                state[lang] = fn(lang, state[lang], before)
+            except errors as ex:
+                fail(f"{label}{tag}: {ex}", f"{build_label}{ex}" if lang == ref else f"{label}{tag}: {ex}")
+                if lang == ref:                      # a fault in what was authored -- the same everywhere
+                    return
+
+    if slot_types is not None:
+        stage("[[scene]] monster_count AI-binding",
+              lambda lang, eb, _r: _event_data.rewrite_main_init(eb, slot_types, ai_entries), ValueError,
+              "spawn composition needs a Main_Init re-author this donor can't support: ")
+    if sc.get("ai_patch"):
+        def patch(lang, eb, _r):
+            if slot_types is not None:              # the donor's Main_Init does not ship: the kit re-authored it
+                for n, p in enumerate(sc["ai_patch"]):
+                    a = _aipatch.anchor_at(donor_ref, p["at"]) if isinstance(p, dict) and \
+                        isinstance(p.get("at"), int) and not isinstance(p.get("at"), bool) else None
+                    if a is not None and (a.entry, a.tag) == (0, 0):
+                        raise _aipatch.AiPatchError(
+                            f"[[scene.ai_patch]] #{n}: offset {p['at']} is in Main_Init (entry 0 tag 0), which "
+                            f"[scene] monster_count re-authors -- the donor code it names does not ship. Bind an "
+                            f"enemy's AI with [[scene.enemy]] ai_entry instead")
+            out, warns = _aipatch.apply_ai_patches(eb, sc["ai_patch"], ref=donor_ref,
+                                                   lang=None if lang == ref else lang)
+            if warnings is not None and lang == ref:
+                warnings.extend(warns)
+            return out
+        stage("[[scene.ai_patch]]", patch, _aipatch.AiPatchError)
+    for key, apply in (("ai_function", lambda lang, b, r, v: _aiauthor.apply_ai_functions(b, v)),
+                       ("ai_phase", lambda lang, b, r, v: _aiauthor.apply_ai_phases(b, v, atk_count=atk_count)),
+                       ("ai_insert", lambda lang, b, r, v: _aiauthor.apply_ai_inserts(
+                           b, v, ref=None if lang == ref else r, lang=lang))):
+        if sc.get(key):
+            stage(f"[[scene.{key}]]", lambda lang, b, r, _a=apply, _v=sc[key]: _a(lang, b, r, _v),
+                  _aiauthor.AiAuthorError)
+    return state
+
+
+def _compose_ai(eb: bytes, sc: dict, *, slot_types, ai_entries, atk_count, problems=None,
+                warnings=None) -> bytes:
+    """:func:`_compose_ai_langs` for ONE eb, taken as the reference (a donor's us eb): what the build ships for us."""
+    return _compose_ai_langs({LANGS[0]: eb}, sc, slot_types=slot_types, ai_entries=ai_entries,
+                             atk_count=atk_count, problems=problems, warnings=warnings)[LANGS[0]]
 
 
 def _resolve_reskins(scene_cfg: dict, *, game=None):
@@ -307,10 +343,13 @@ def validate_battle(project: BattleProject) -> list[str]:
             except Exception:                        # noqa: BLE001 -- optional
                 atk = None
             composed = final = None
+            composed_all: dict = {}
             if (slot_types is not None or ai_patches or ai_funcs or ai_phases or ai_inserts or has_ledger) \
-                    and eb0.is_file():               # Phase-6b/6c: compose EXACTLY what the build ships
-                composed = final = _compose_ai(eb0.read_bytes(), sc, slot_types=slot_types, ai_entries=ai_ents,
-                                               atk_count=atk, problems=problems)
+                    and eb0.is_file():               # Phase-6b/6c: compose EXACTLY what the build ships -- in EVERY
+                donors = {lang: (sd / "eb" / f"{lang}.eb.bytes").read_bytes() for lang in LANGS}   # language
+                composed_all = _compose_ai_langs(donors, sc, slot_types=slot_types, ai_entries=ai_ents,
+                                                 atk_count=atk, problems=problems)
+                composed = final = composed_all[LANGS[0]]
             if has_ledger and composed is not None:  # the fight ledger goes LAST, on top of the composition
                 if patched16 is None:
                     try:
@@ -323,6 +362,11 @@ def validate_battle(project: BattleProject) -> list[str]:
                     problems += lerrs
                     if lp is not None:
                         final = _ledger.apply(composed, lp)
+                        for lang in LANGS[1:]:       # the build splices the us-planned ledger into every language
+                            try:
+                                _ledger.apply(composed_all[lang], lp)
+                            except _ledger.LedgerError as ex:
+                                problems.append(f"[scene.ledger] ({lang}): {ex}")
             # lint the FINAL composed bytecode -- EXACTLY what the per-lang build ships, so an ai_patch / ai_function
             # / ai_phase / ai_insert / ledger splice that puts a jump / Attack index out of range is caught.
             if final is not None and (ai_patches or ai_funcs or ai_phases or ai_inserts or has_ledger):
@@ -461,14 +505,16 @@ def build_battlemap(project: BattleProject, layout: ModLayout, *, game=None) -> 
             _atk_count = _scene_data.parse_counts(raw16)[2]
         except Exception:                                         # noqa: BLE001 -- optional, falls back to the byte cap
             _atk_count = None
+        donors = {lang: (sd / "eb" / f"{lang}.eb.bytes").read_bytes() for lang in LANGS}
+        ai_warns: list = []
+        composed = (_compose_ai_langs(donors, scene_cfg, slot_types=slot_types, ai_entries=ai_entries,
+                                      atk_count=_atk_count, warnings=ai_warns) if scene_cfg else donors)
         ledger_plan = None
         if scene_cfg and scene_cfg.get("ledger") is not None:     # the fight ledger: planned against LANGS[0]'s
             from . import ledger as _ledger                       # composition, spliced into every language below
-            donor0 = (sd / "eb" / f"{LANGS[0]}.eb.bytes").read_bytes()
-            pre0 = _compose_ai(donor0, scene_cfg, slot_types=slot_types, ai_entries=ai_entries, atk_count=_atk_count)
             try:
-                ledger_plan = _ledger.build_plan(project.base_dir, scene_cfg, raw16=raw16, eb_donor=donor0,
-                                                 eb_composed=pre0)
+                ledger_plan = _ledger.build_plan(project.base_dir, scene_cfg, raw16=raw16,
+                                                 eb_donor=donors[LANGS[0]], eb_composed=composed[LANGS[0]])
             except _ledger.LedgerError as ex:
                 raise BattleBuildError(str(ex))
             raw16 = _ledger.apply_die_atk(raw16, ledger_plan)     # ORs die_atk for dying rows (before the write)
@@ -522,13 +568,11 @@ def build_battlemap(project: BattleProject, layout: ModLayout, *, game=None) -> 
         (scene_out / f"{sid}.raw17.bytes").write_bytes(raw17)
         written += [scene_out / "dbfile0000.raw16.bytes", scene_out / f"{sid}.raw17.bytes"]
 
+        warnings += ai_warns
         for lang in LANGS:
             eb_dst = layout.battle_eb_path(lang, name)
             eb_dst.parent.mkdir(parents=True, exist_ok=True)
-            eb = (sd / "eb" / f"{lang}.eb.bytes").read_bytes()
-            if scene_cfg:
-                eb = _compose_ai(eb, scene_cfg, slot_types=slot_types, ai_entries=ai_entries,
-                                 atk_count=_atk_count, warnings=warnings if lang == LANGS[0] else None)
+            eb = composed[lang]
             if ledger_plan is not None:
                 try:
                     eb = _ledger.apply(eb, ledger_plan)

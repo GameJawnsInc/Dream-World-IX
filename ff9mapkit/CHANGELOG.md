@@ -5,6 +5,32 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a battle AI patch landed on the wrong constant in a language whose script differs
+- **What broke.** `[[scene.ai_patch]]` takes `at`, a constant's byte offset in the us donor (`battle-ai
+  --sites`), and the build wrote that same offset in every language's own battle `.eb`, on the assumption that the
+  bytecode is language-identical. It is not: 41 of the 562 stock battle scenes differ in length between languages
+  (35 jp-only, 5 in all six non-us, 1 European-only), in AI entries 0-3. In those scenes 16,004 of the 25,521
+  us-site/language pairs were refused late, at build, while validate (which composed us only) stayed green. 155
+  more, in 39 scenes, silently wrote a DIFFERENT constant that happened to hold the same value. `[[scene.ai_insert]]`
+  had the same flaw: its `at`/`before`/`after` locator resolved on each language's own bytes, so a jp function
+  with an extra instruction took the fragment at a different point, or refused late. A `monster_count` spawn edit
+  (which re-authors Main_Init, shifting every later entry) also stranded every donor-cited `at`.
+- **The fix.** `at` is now only a citation. It resolves once, on the us donor, to a structural anchor (entry,
+  function tag, instruction ordinal, constant ordinal), and each language's function is matched against the us
+  one (`aipatch.correspond`). Instructions compare modulo their literal values. The match is a common prefix plus
+  suffix, keeping only positions every such alignment agrees on, and every matched jump or switch must land
+  alike. A constant with no provable counterpart, or holding another value there, refuses that language with a
+  message naming it. `ai_insert` locators are carried the same way (`at = 0` stays a prepend everywhere).
+  Validate now composes all 7 languages, and applies a `[scene.ledger]` to each, so it reports exactly what the
+  build refuses. A donor offset now survives the `monster_count` rewrite. A patch into the Main_Init that
+  `monster_count` re-authors is refused outright.
+- **What moves.** The 521 identical scenes match one-to-one everywhere, so every existing patch there builds
+  byte-identical. Across the divergent 41, 21,181 of the 25,521 pairs now patch. Each one lands on the
+  instruction a stricter alignment (literals compared, only jump offsets masked) also picks. The 155 mispatches
+  are refused or moved to their real counterpart. 433 pairs the offset used to carry are refused as unprovable:
+  432 in `WM_9900`-`WM_9903`, whose other languages merge two us dialog blocks into one, plus one jp expression
+  that differs around its constant.
+
 ### Fixed — replacing a kit-built field's `Main_Init` cut past entry 0
 - **What broke.** The blank template's entry 0 parks Main_Loop (tag 1) 65 bytes past the entry's declared end,
   and `add_reinit` lists tag 10 after it in the table but before it in the file. `EbScript` ended each function

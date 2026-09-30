@@ -135,8 +135,9 @@ def scene_ai_sites(donor: str, game=None, lang: str = "us") -> str:
     current value, context. Read-only -- the 'find the offset to patch' companion to the disassembly."""
     from . import aipatch as _aipatch
     sites = _aipatch.constant_sites(_scene_eb(donor, game=game, lang=lang))
-    lines = [f"# patchable AI constants of scene {donor} ({len(sites)} sites)",
-             f"# cite the offset in [[scene.ai_patch]] (at = <offset>, old = <value>, new = <same-width value>)"]
+    lines = [f"# patchable AI constants of scene {donor} ({len(sites)} sites, {lang} eb)",
+             f"# cite the offset in [[scene.ai_patch]] (at = <offset>, old = <value>, new = <same-width value>)",
+             f"# offsets are into the us eb; the build re-locates each constant in every language's own eb"]
     for s in sites:
         lines.append(f"  at={s.offset:<6} {s.width}B  = {s.value:<8}  {s.where}")
     return "\n".join(lines)

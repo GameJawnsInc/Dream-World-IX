@@ -561,6 +561,22 @@ def test_build_refuses_what_validate_refuses(tmp_path):
         build_battle_mod([proj], tmp_path / "dist")
 
 
+def test_validate_catches_a_language_the_ledger_splice_refuses(tmp_path):
+    # the plan is made on us's composition and spliced into every language; jp's Goblin (entry 2) has no tag-7
+    # Reaction here, so the planned PREPEND refuses there. Validate composed only us and stayed green; the build
+    # refused jp late. It now applies the plan to every language.
+    proj = _mint(tmp_path, ROWS_TOML)
+    jp = _battle_eb([(2, 0x80)], n_ai=2)
+    for entry in (1, 2):
+        for tag in (1, 5):
+            jp = _edit.add_function(jp, entry, tag, _stmt_body(f"Instance.Byte[{tag}] const(1) B_LET") + bytes([4]))
+    (tmp_path / "scene" / "eb" / "jp.eb.bytes").write_bytes(jp)
+    probs = validate_battle(proj)
+    assert len(probs) == 1 and probs[0].startswith("[scene.ledger] (jp): entry 2 tag 7"), probs
+    with pytest.raises(BattleBuildError, match=r"\[scene.ledger\] \(jp\): entry 2 tag 7"):
+        build_battle_mod([proj], tmp_path / "dist")
+
+
 def test_a_battle_without_a_ledger_reports_none(tmp_path):
     proj = _mint(tmp_path, "")
     txt = (tmp_path / "battle.toml").read_text(encoding="utf-8").split("[scene.ledger]")[0]

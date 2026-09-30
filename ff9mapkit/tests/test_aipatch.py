@@ -8,6 +8,7 @@ import pytest
 
 from ff9mapkit.battle import aipatch
 from ff9mapkit.eb import opcodes
+from ff9mapkit.eb.model import EbScript
 
 
 def _minimal_eb(body: bytes) -> bytes:
@@ -112,3 +113,86 @@ def test_real_donor_ai_sites_and_roundtrip():
     s = sites[0]
     out, _w = aipatch.apply_ai_patches(eb, [{"at": s.offset, "old": s.value, "new": s.value}])
     assert out == eb                                     # a no-op patch on real AI is byte-identical
+
+
+# ---- per-language: a battle eb's bytecode is NOT language-identical ----------------------------------
+# 41 of the 562 stock scenes differ in LENGTH between languages (35 jp-only). A `[[scene.ai_patch]]` `at` is a
+# constant in the us donor (`battle-ai --sites`); each language locates THAT constant structurally, never the
+# offset. These fixtures are one-function ebs (entry 0 / tag 0, code at 0x8E) standing in for us and jp.
+_W7, _T0, _M0 = opcodes.wait(7), opcodes.turn_instant(0), opcodes.menu(0, 0)
+
+
+def _rows(eb):
+    return aipatch.func_rows(EbScript.from_bytes(eb), 0, 0)
+
+
+def test_a_longer_jp_eb_is_patched_at_the_counterpart_not_the_us_offset():
+    us = _minimal_eb(_W7 + _W7 + opcodes.RETURN)            # patch the SECOND Wait(7): its arg is at 0x93
+    jp = _minimal_eb(_T0 + _W7 + _W7 + opcodes.RETURN)      # a jp-only instruction first: 0x93 is jp's FIRST Wait(7)
+    at = _OFF + 5
+    assert us[at] == 7 and jp[at] == 7                      # the old offset rule wrote jp's first Wait -- same value,
+    out, _ = aipatch.apply_ai_patches(jp, [{"at": at, "old": 7, "new": 8}], ref=us, lang="jp")   # wrong constant
+    assert out[_OFF + 3 + 5] == 8                           # the counterpart: jp's second Wait
+    assert out[at] == 7 and len(out) == len(jp)             # jp's first Wait is untouched
+    assert aipatch.correspond(_rows(us), _rows(jp)) == [1, 2, 3]
+
+
+def test_the_reference_patches_itself_by_offset_exactly_as_before():
+    us = _minimal_eb(_W7 + _W7 + opcodes.RETURN)
+    a, _ = aipatch.apply_ai_patches(us, [{"at": _OFF + 5, "old": 7, "new": 8}])
+    b, _ = aipatch.apply_ai_patches(us, [{"at": _OFF + 5, "old": 7, "new": 8}], ref=bytes(us))   # equal, not identical
+    assert a == b and a[_OFF + 5] == 8 and a[_OFF + 2] == 7
+    assert aipatch.correspond(_rows(us), _rows(us)) == [0, 1, 2]
+
+
+def test_a_constant_inside_the_differing_stretch_is_refused():
+    us = _minimal_eb(opcodes.wait(3) + opcodes.wait(4) + opcodes.RETURN)
+    jp = _minimal_eb(opcodes.wait(3) + _T0 + _T0 + opcodes.RETURN)
+    assert aipatch.correspond(_rows(us), _rows(jp)) == [0, None, 3]
+    with pytest.raises(aipatch.AiPatchError, match="cannot be patched in jp's battle script.*no provable counterpart"):
+        aipatch.apply_ai_patches(jp, [{"at": _OFF + 5, "old": 4, "new": 9}], ref=us, lang="jp")
+    out, _ = aipatch.apply_ai_patches(jp, [{"at": _OFF + 2, "old": 3, "new": 9}], ref=us, lang="jp")
+    assert out[_OFF + 2] == 9                               # the matched Wait before the stretch still patches
+
+
+def test_a_counterpart_holding_another_value_is_refused():
+    us, jp = _minimal_eb(opcodes.wait(3) + opcodes.RETURN), _minimal_eb(opcodes.wait(9) + opcodes.RETURN)
+    assert aipatch.correspond(_rows(us), _rows(jp)) == [0, 1]    # the same instruction (values aside) ...
+    with pytest.raises(aipatch.AiPatchError, match="holds 9 in jp's battle script, not 3"):   # ... per-lang value
+        aipatch.apply_ai_patches(jp, [{"at": _OFF + 2, "old": 3, "new": 5}], ref=us, lang="jp")
+
+
+@pytest.mark.parametrize("us_body, jp_body, want", [
+    (_W7 + opcodes.RETURN, _W7 + _W7 + opcodes.RETURN, [None, 2]),              # jp longer: which Wait is new?
+    (_W7 + _W7 + opcodes.RETURN, _W7 + opcodes.RETURN, [None, None, 1]),         # jp SHORTER: the overlap sits on
+])                                                                               # jp's side (AC_E031's shape)
+def test_a_length_difference_inside_a_repeated_run_is_ambiguous_on_either_side(us_body, jp_body, want):
+    us, jp = _minimal_eb(us_body), _minimal_eb(jp_body)
+    assert aipatch.correspond(_rows(us), _rows(jp)) == want
+    with pytest.raises(aipatch.AiPatchError, match="no provable counterpart"):
+        aipatch.apply_ai_patches(jp, [{"at": _OFF + 2, "old": 7, "new": 8}], ref=us, lang="jp")
+
+
+def _jmp(rel: int) -> bytes:
+    return bytes([0x01]) + struct.pack("<h", rel)
+
+
+def test_a_matched_jump_that_lands_elsewhere_cuts_the_match_back():
+    # us: Wait(1); JMP -> RET; Wait(7); Turn(3); RET      jp: the same, plus a jp-only Menu the jump lands on.
+    # Prefix/suffix alone match jp's Wait(7) (same shape, same value) -- but the jumps disagree (us skips the Turn,
+    # jp does not), so the edit starts at the jump and nothing after it in the prefix is provably the same.
+    us = _minimal_eb(opcodes.wait(1) + _jmp(6) + _W7 + opcodes.turn_instant(3) + opcodes.RETURN)
+    jp = _minimal_eb(opcodes.wait(1) + _jmp(3) + _W7 + _M0 + opcodes.turn_instant(3) + opcodes.RETURN)
+    assert aipatch.correspond(_rows(us), _rows(jp)) == [0, None, None, 4, 5]
+    with pytest.raises(aipatch.AiPatchError, match="no provable counterpart"):
+        aipatch.apply_ai_patches(jp, [{"at": _OFF + 8, "old": 7, "new": 8}], ref=us, lang="jp")
+
+
+def test_an_insertion_at_a_jump_landing_keeps_the_match():
+    # the join point: jp inserts a Menu exactly where both jumps land -- us's jump reaches its (matched) Turn, jp's
+    # the inserted Menu. Both land at the edge of the same edit, so the jump and the code before it still match.
+    us = _minimal_eb(opcodes.wait(1) + _jmp(3) + _W7 + opcodes.turn_instant(3) + opcodes.RETURN)
+    jp = _minimal_eb(opcodes.wait(1) + _jmp(3) + _W7 + _M0 + opcodes.turn_instant(3) + opcodes.RETURN)
+    assert aipatch.correspond(_rows(us), _rows(jp)) == [0, 1, 2, 4, 5]
+    out, _ = aipatch.apply_ai_patches(jp, [{"at": _OFF + 8, "old": 7, "new": 8}], ref=us, lang="jp")
+    assert out[_OFF + 8] == 8

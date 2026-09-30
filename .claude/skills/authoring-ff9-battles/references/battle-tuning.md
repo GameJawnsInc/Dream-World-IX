@@ -82,6 +82,11 @@ The staged stack (all in-game proven): read → same-length patch → assemble �
   the binding trap below). `battle-ai <scene> --sites` lists patchable numeric literals.
 - **Same-length patch:** `[[scene.ai_patch]]` — `at` (from `--sites`) + a REQUIRED `old` guard + `new`
   (same width; `B_CONST4` values cap at `0x3FFFFFF` — engine-masked).
+- ⚠ **Battle AI bytecode is NOT language-identical** — 41 of 562 stock scenes differ in LENGTH (mostly jp).
+  `at` is only a CITATION into the us donor: the build locates that constant structurally in every language
+  (`aipatch.correspond`: same instruction modulo literals, prefix+suffix, jumps must land alike) and REFUSES a
+  language with no provable counterpart or another value there. Validate composes all 7 languages, so it reports
+  exactly what the build would refuse. Same for an `ai_insert` locator. Never apply an offset to another file.
 - **Author:** `[[scene.ai_function]]` (replace/add a function; body must end in a flow TERMINATOR),
   `[[scene.ai_insert]]` (fragment at a `before`/`after`/`at` locator), `[[scene.ai_phase]]`
   (`stat`/`below`/`then`/`else` — generates the relative `cur < max/N` branch before the `Attack`).

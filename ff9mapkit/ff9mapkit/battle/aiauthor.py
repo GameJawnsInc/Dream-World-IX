@@ -169,12 +169,52 @@ def _locate_insert(f, instrs, spec, n: int) -> int:
     return nxt
 
 
-def apply_ai_inserts(eb_bytes: bytes, specs) -> bytes:
+def _map_insert(ref_bytes: bytes, eb_bytes: bytes, entry: int, tag: int, spec, n: int, lang) -> tuple:
+    """``(body offset in eb_bytes, body offset in ref_bytes)`` where ``spec`` lands, its locator resolved on
+    ``ref_bytes`` (the reference language's eb at the same composition step). ``before``/``at`` name the
+    instruction the fragment goes in front of, ``after`` the one it follows; either is carried to its counterpart
+    by :func:`aipatch.correspond`, so a language whose function differs gets the fragment at the SAME instruction,
+    never at the same offset or at its own first mnemonic match. ``at = 0`` is a prepend, the function's start in
+    every language. Raises where there is no provable counterpart."""
+    from . import aipatch as _aipatch
+    _r, rf, rinstrs = _func_pretty(ref_bytes, entry, tag)
+    r_abs = _locate_insert(rf, rinstrs, spec, n)
+    eb = _check_entry(eb_bytes, entry)
+    f = eb.entries[entry].func_by_tag(tag)
+    if f is None:
+        raise AiAuthorError(f"#{n}: {lang}'s battle script has no function tag {tag} in entry {entry}")
+    if "at" in spec and r_abs == rf.abs_start:
+        return 0, 0
+    ref_rows = _aipatch.func_rows(EbScript.from_bytes(ref_bytes), entry, tag)
+    rows = _aipatch.func_rows(eb, entry, tag)
+    after = "after" in spec
+    k = next(i for i, r in enumerate(ref_rows) if r.ins.off == r_abs) - (1 if after else 0)
+    j = _aipatch.correspond(ref_rows, rows)[k]
+    if j is None:
+        how = "after" if after else "before"
+        raise AiAuthorError(f"#{n}: the insert point ({how} the {rinstrs[k][1]} at body offset "
+                            f"{ref_rows[k].ins.off - rf.abs_start}) has no provable counterpart in {lang}'s battle "
+                            f"script: entry {entry} tag {tag} differs there. Inserting at the same offset or first "
+                            f"match there would splice into different code; locate on an instruction outside the "
+                            f"differing stretch")
+    off = rows[j].ins.end if after else rows[j].ins.off
+    if off >= f.abs_end:
+        raise AiAuthorError(f"#{n}: in {lang}'s battle script the counterpart is the function's LAST instruction; "
+                            f"you cannot append after it -- splice before the terminator instead (before = ...)")
+    return off - f.abs_start, r_abs - rf.abs_start
+
+
+def apply_ai_inserts(eb_bytes: bytes, specs, *, ref: bytes | None = None, lang: str | None = None) -> bytes:
     """Apply a list of ``[[scene.ai_insert]]`` specs IN ORDER. Each splices an assembled FRAGMENT into a function:
     ``entry`` + ``tag`` (which function), a locator (``before``/``after`` = a command mnemonic, or ``at`` = a body
     offset), and ``source`` (the `cmdasm` block -- a FRAGMENT, NOT required to end in RET; it flows into the rest of
     the function). Splice = :func:`eb.edit.insert_in_function` (fpos fixup; it refuses if one of the function's own
-    jumps STRADDLES the insert point -- surfaced as a clean error). Length-changing -> run AFTER `ai_patch`."""
+    jumps STRADDLES the insert point -- surfaced as a clean error). Length-changing -> run AFTER `ai_patch`.
+
+    ``ref`` (another language's eb, ``lang`` naming this one): the locators were authored against ``ref`` -- the us
+    donor ``battle-ai`` prints -- so each resolves THERE and is carried to this eb by :func:`_map_insert`; ``ref``
+    takes every fragment too, so later specs resolve against the state they were written for. None = resolve on
+    ``eb_bytes`` itself."""
     if not isinstance(specs, list):
         raise AiAuthorError("[[scene.ai_insert]] must be a list of tables")
     eb = eb_bytes
@@ -192,10 +232,15 @@ def apply_ai_inserts(eb_bytes: bytes, specs) -> bytes:
             body = cmdasm.assemble_block(source.replace(";", "\n"))
         except cmdasm.CmdAsmError as ex:
             raise AiAuthorError(f"[[scene.ai_insert]] #{n} source did not assemble: {ex}")
-        _eb, f, instrs = _func_pretty(eb, entry, tag)
-        abs_off = _locate_insert(f, instrs, spec, n)
+        if ref is None:
+            _eb, f, instrs = _func_pretty(eb, entry, tag)
+            rel = _locate_insert(f, instrs, spec, n) - f.abs_start
+        else:
+            rel, ref_rel = _map_insert(ref, eb, entry, tag, spec, n, lang)
         try:
-            eb = _edit.insert_in_function(eb, entry, tag, abs_off - f.abs_start, body)
+            eb = _edit.insert_in_function(eb, entry, tag, rel, body)
+            if ref is not None:                           # the reference takes the fragment too, at its own point
+                ref = _edit.insert_in_function(ref, entry, tag, ref_rel, body)
         except ValueError as ex:                          # a straddling jump / bad offset from the splice primitive
             raise AiAuthorError(f"[[scene.ai_insert]] #{n}: {ex}")
     return eb
