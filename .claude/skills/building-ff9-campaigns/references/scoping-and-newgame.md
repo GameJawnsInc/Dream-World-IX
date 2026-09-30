@@ -94,8 +94,8 @@ existing override — after a wipe there is nothing to patch):
 
 > `py tools/wire_newgame_from_stock.py <entry-id>` extracts stock field 70 from p0data, repoints its terminal
 > `Field(50)`→`Field(<id>)` (`remap_fields`, plus 70's own 28-byte stop for its ambient 643 inserted before the
-> warp unless the target owns 643 -- `newgame.set_handoff`), writes the override for all 7 langs (bytecode is
-> language-identical; the FMV+fade are PRESERVED — `skip_opening_fmv.py` after for a seamless boot). Reversible
+> warp unless the target owns 643 -- `newgame.set_handoff`), writes the override for all 7 langs (stock field 70 is
+> one of the few language-identical fields -- verified; most are not; the FMV+fade are PRESERVED — `skip_opening_fmv.py` after for a seamless boot). Reversible
 > (`scroll_out/revert_newgame_from_stock.py`). ★ RECURRING: RE-RUN it after EVERY opening re-deploy (the wipe).
 
 For the shipped faithful opening (Prima Vista, field 6000) that is:

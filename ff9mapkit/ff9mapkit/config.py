@@ -30,8 +30,9 @@ except ModuleNotFoundError:  # pragma: no cover - we require 3.11 but fail soft
     tomllib = None  # type: ignore[assignment]
 
 # The seven shipped language folders. Field event scripts (.eb) and dialogue (.mes) are
-# stored per-language; in practice the bytecode is identical across all seven and only the
-# text differs, but we always write all seven so no locale loses the field.
+# stored per-language, and the bytecode is NOT identical across them (only 238/818 stock
+# fields match -- studies/eb-roundtrip/FINDINGS.md). Always write all seven so no locale
+# loses the field.
 LANGS: tuple[str, ...] = ("us", "uk", "fr", "gr", "it", "es", "jp")
 
 # The mod folder Memoria reads first (highest override priority) on this project's install.

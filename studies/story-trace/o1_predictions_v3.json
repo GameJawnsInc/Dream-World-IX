@@ -1,0 +1,173 @@
+{
+ "beats": [
+  "candle",
+  "named",
+  "battle",
+  "garnet"
+ ],
+ "budget": {
+  "run_min_s": 540,
+  "run_s": 720,
+  "session_s": 7200,
+  "settle_s": 1.0
+ },
+ "candle": {
+  "donor": 50,
+  "tolerance": 45.0,
+  "x": 180.0,
+  "z": 290.0
+ },
+ "choices": [
+  {
+   "beat": "candle",
+   "donor": 50,
+   "match": "the candle",
+   "pick": "the candle"
+  },
+  {
+   "beat": "garnet",
+   "donor": 52,
+   "match": "Garnet",
+   "pick": "Garnet"
+  },
+  {
+   "beat": null,
+   "donor": null,
+   "match": "want to skip",
+   "pick": "default"
+  }
+ ],
+ "end_field": 100,
+ "entrance": 0,
+ "ladder": [
+  {
+   "donor": 50,
+   "ip": 1804,
+   "m": 1,
+   "off": 1249,
+   "sid": 17,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.UInt16[0]",
+   "value": 1000,
+   "what": "SC 0 -> 1000, before control in 50"
+  },
+  {
+   "donor": 50,
+   "ip": 3240,
+   "m": 1,
+   "off": 2685,
+   "sid": 17,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[6]",
+   "value": 1,
+   "what": "Byte[6] |= 1, after the naming screen"
+  },
+  {
+   "donor": 50,
+   "ip": 635,
+   "m": 1,
+   "off": 536,
+   "sid": 15,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Int16[2]",
+   "value": 100,
+   "what": "FieldEntrance := 100, 50's exit to 52"
+  },
+  {
+   "donor": 52,
+   "ip": 1249,
+   "m": 1,
+   "off": 1140,
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Int16[2]",
+   "value": 102,
+   "what": "FieldEntrance := 102, 52's exit to 100"
+  }
+ ],
+ "members": {
+  "31200": 50,
+  "31201": 51,
+  "31202": 52,
+  "31203": 53,
+  "31204": 54,
+  "31205": 55,
+  "31206": 56,
+  "31207": 57,
+  "31208": 58,
+  "31209": 59,
+  "31210": 60,
+  "31211": 61,
+  "31212": 62,
+  "31213": 63,
+  "31214": 65,
+  "31215": 66,
+  "31216": 67,
+  "31217": 3008,
+  "31218": 3009,
+  "31219": 3010
+ },
+ "min_covered": 2,
+ "names": {
+  "31200": "O1_TH_CGR",
+  "31201": "O1_TSHP_TH_CGR",
+  "31202": "O1_TH_MET",
+  "31203": "O1_TSHP_TH_MET",
+  "31204": "O1_TH_UPR",
+  "31205": "O1_TH_ORC",
+  "31206": "O1_TH_EGR",
+  "31207": "O1_TSHP_TH_EGR",
+  "31208": "O1_TH_BSU",
+  "31209": "O1_TH_UST",
+  "31210": "O1_TH_CPT",
+  "31211": "O1_TH_BST",
+  "31212": "O1_TH_STG",
+  "31213": "O1_TSHP_TH_STG",
+  "31214": "O1_TH_STG_2",
+  "31215": "O1_TH_STG_A",
+  "31216": "O1_TH_STG_D",
+  "31217": "O1_TH_MET_2",
+  "31218": "O1_TH_STG_3",
+  "31219": "O1_TH_STG_4"
+ },
+ "noise": [
+  {
+   "not_m": 1,
+   "target": "Global.Byte[206]",
+   "why": "the Masked Man AI's random wait"
+  },
+  {
+   "not_m": 1,
+   "target": "Global.Byte[199]",
+   "why": "set only if a member carries status 512"
+  }
+ ],
+ "order": [
+  "S",
+  "F",
+  "S",
+  "F",
+  "S",
+  "F"
+ ],
+ "rerun": {
+  "max": 2
+ },
+ "sc_writes": 1,
+ "start": {
+  "F": 31200,
+  "S": 50
+ },
+ "stock_fields": [
+  50,
+  52,
+  100
+ ],
+ "supersedes": "v2 (681398ac): its candle rule missed the published 'ight the candle' (story-o1b VOID); v1 (49fd880f): its candle point was the region's centre, the table (story-o1 VOID)",
+ "version": 3,
+ "what": "O1: New Game -> 50 -> 52 -> Field(100), stock vs the tshp zone's verbatim fork (PLAN.md, O1)"
+}

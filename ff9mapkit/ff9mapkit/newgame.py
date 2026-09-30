@@ -3,8 +3,9 @@
 FF9's New Game is stock (``fldMapNo = 70``, ``EVT_ALEX1_TS_OPENING`` -- the theater-ship opening: BGM +
 intro FMV + fade-to-black, ending in ``Field(50)`` to Prima Vista). A mod shadows field 70's ``.eb`` so its
 terminal ``Field()`` lands on a custom entry instead -- the opening FMV + fade are PRESERVED, then New Game
-warps into the fork. Field 70's bytecode is language-identical (the per-lang files differ only in the cosmetic
-84-byte name the engine ignores), so the one remapped script is written to all 7 lang paths.
+warps into the fork. Field 70 is one of the few stock fields whose bytecode IS language-identical (census-
+verified: its per-lang files differ only in the cosmetic 84-byte name the engine ignores; most fields are NOT
+-- studies/eb-roundtrip/FINDINGS.md), so the one remapped script is written to all 7 lang paths.
 
 THE HANDOFF. Right before its ``Field(50)`` stock 70 marks ``Byte[13] := 2``, starts its own ambient 643 and
 sets the keep-playing flag ``Map.Bit[162]``: a same-id handoff, because field 50 owns 643 too. Stock hands a

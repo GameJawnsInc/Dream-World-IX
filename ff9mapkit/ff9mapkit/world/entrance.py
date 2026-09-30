@@ -11,7 +11,8 @@ gating + fade). So a working entrance is THREE things wired together, each of wh
   1. **the trigger function** -- clone WORLD00's proven Ice-Cavern entrance func (:data:`TEMPLATE_TAG` ``0x9895``,
      29 bytes), patch its single ``Byte[39]=<case>`` literal to the destination case, retag it to the new cell,
      and add it (via :func:`ff9mapkit.eb.edit.add_function`) to EVERY dispatcher whose AREA switch carries that
-     case -- deployed to all 7 language folders (the bytecode is language-identical). There are 13 dispatchers
+     case -- patched into EACH language's own dispatcher (JP's layout differs, see below; the inserted trigger
+     body is language-independent). There are 13 dispatchers
      (``EVT_WORLD_WORLD00..12``) selected by entry/story state, so an entrance authored into only one is dead in
      every other state -- this covers them all.
   2. **the event tile(s)** -- set the terrain tiles in the cell to ``event=<id>`` (+ a cosmetic ``area=<case>``
