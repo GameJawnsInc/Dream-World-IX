@@ -11395,3 +11395,53 @@ def test_o1_pick_for_reads_the_frozen_rules_by_option_text():
         O.pick_for({"options": ["Who?", "Garnet", "Garnet"], "active": [0, 1]}, 30820, pred)
     with pytest.raises(O.RouteVoid, match="no rule"):
         O.pick_for(q, 31999, pred)                    # the Garnet rule is bound to its field
+
+
+# ---- O2's shared segment machinery (studies/story-trace/segment_drive.py, segment_trace.py; research/o2_design.md
+# sections 1 and 9, PART A). O1 runs on the same machinery, so every O1 test above is part of this set's gate.
+
+def _segment_modules():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import segment_drive as SD
+    return SD
+
+
+def test_o2_pick_for_scopes_rules_by_sc_and_once():
+    """O2's rule keys (research/o2_design.md 1.4, 2.6), each optional: ``sc`` scopes a rule to the published
+    scenario (215 re-offered at SC 1150 has no rule), ``once`` refuses a second answer (V2), ``take: "default"``
+    refuses a pick that is not the game's own ready cursor (V3). A rule without them reads as O1's did, and a
+    RouteVoid raised as O1 raises one carries no class."""
+    SD = _segment_modules()
+    rules = [{"donor": 103, "sc": [1000], "match": "ticket booth", "pick": "ticket booth", "once": True,
+              "beat": "booth", "take": "default"},
+             {"donor": 105, "sc": [1151], "match": "want to", "pick": "right", "once": True, "beat": "alright",
+              "take": "default"},
+             {"donor": None, "sc": None, "match": "want to skip", "pick": "default", "once": False, "beat": None}]
+    pred = {"choices": rules}
+    # 215 as the agent publishes it: no prompt line, and the first option's first character dropped
+    booth = {"options": ["", "eek into the ticket booth", "Cancel"], "active": [0, 1], "selected": 0}
+    assert SD.pick_for(booth, 103, pred, sc=1000) == (0, rules[0])
+    with pytest.raises(SD.RouteVoid, match="no rule") as e:          # the second visit: SC 1150
+        SD.pick_for(booth, 103, pred, sc=1150)
+    assert (e.value.v, e.value.cell, e.value.by) == (None, None, None)
+    with pytest.raises(SD.RouteVoid, match="no rule"):               # a call that publishes no scenario
+        SD.pick_for(booth, 103, pred)
+    with pytest.raises(SD.RouteVoid, match="answers once") as e:
+        SD.pick_for(booth, 103, pred, sc=1000, answered={0})
+    assert (e.value.v, e.value.cell, e.value.by) == ("V2", [103, 1000], "game")
+    assert SD.pick_for(booth, 103, pred, sc=1000, answered={1})[0] == 0          # another rule's answer
+    with pytest.raises(SD.RouteVoid, match="not the game's default") as e:
+        SD.pick_for(dict(booth, selected=1), 103, pred, sc=1000)
+    assert (e.value.v, e.value.cell, e.value.by) == ("V3", [103, 1000], "game")
+    # 310: the rule matches on the SECOND line and picks the first, the cursor's
+    alright = {"options": ["", "Alright", "N-No, I don’t want to"], "active": [0, 1], "selected": 0}
+    assert SD.pick_for(alright, 105, pred, sc=1151) == (0, rules[1])
+    # an sc-free, donor-free rule: any SC, and O1's call without one
+    skip = {"options": ["Do you want to skip\nthe movie?", "Yes", "No"], "active": [0, 1], "selected": 1}
+    assert SD.pick_for(skip, 999, pred, sc=1234)[0] == "default" and SD.pick_for(skip, 999, pred)[0] == "default"
+    # O1 reads the same objects through its re-export
+    O, o1 = _o1_pred()
+    assert O.pick_for is SD.pick_for and O.RouteVoid is SD.RouteVoid
+    assert O.pick_for({"options": ["Who?", "Queen Brahne", "Princess Garnet"], "active": [0, 1]}, 30820, o1)[0] == 1
+    err = SD.RouteVoid("plain")
+    assert str(err) == "plain" and (err.v, err.cell, err.by) == (None, None, None)

@@ -48,6 +48,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(HERE))
 
 from ff9mapkit import storytrace as T                                   # noqa: E402
+from segment_drive import RouteVoid, pick_for                           # noqa: E402,F401 -- moved; re-exported
 
 #: v1 (sha 49fd880f) walked to the candle region's CENTRE, which is the table: session story-o1 run 1 stood in the
 #: region with the "?" up, pressed against the table (the owner, watching), and went VOID. v2 walks to that spot.
@@ -313,29 +314,8 @@ def _changed(before: dict, now: dict) -> str:
 
 
 # ======================================================================== the driver
-class RouteVoid(Exception):
-    """The route met something it has no rule for: the run is VOID (never a finding about the scripts)."""
-
-
-def pick_for(choice: dict, donor: int, pred: dict) -> tuple:
-    """``(absolute option index or "default", the rule)`` for a ready choice, by the frozen rule table; raises
-    RouteVoid when no rule matches. ``choice["options"]`` is ``[prompt, *shown lines]``; ``active`` the absolute
-    index of each shown line."""
-    lines = list(choice.get("options") or [])[1:]
-    active = list(choice.get("active") or range(len(lines)))
-    for rule in pred["choices"]:
-        if rule["donor"] not in (None, donor):
-            continue
-        if not any(rule["match"] in ln for ln in [choice.get("options", [""])[0], *lines]):
-            continue
-        if rule["pick"] == "default":
-            return "default", rule
-        hits = [active[i] for i, ln in enumerate(lines) if rule["pick"] in ln]
-        if len(hits) != 1:
-            raise RouteVoid(f"choice in {donor}: rule {rule['match']!r} picks {rule['pick']!r}, which is on "
-                            f"{len(hits)} lines of {lines}")
-        return hits[0], rule
-    raise RouteVoid(f"choice in {donor} with no rule: {choice.get('options')}")
+# RouteVoid and pick_for live in segment_drive (imported above, re-exported here): O1's rules and its classless
+# RouteVoid(msg) behave exactly as they did (research/o2_design.md 1.4).
 
 
 def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=None, prior_for=None,
