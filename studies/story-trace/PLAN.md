@@ -866,8 +866,29 @@ The chain was then rebuilt from the repaired sidecars (`build-all` from master `
 `C:\gd\_ns_playtest\o2\build.pre-ukfix-20260930`), and O2-TEXT reads 7 byte-equal of 7, KNOWN-KIT-DEFECT 0, with no
 code change here -- the rule's promised outcome. The uk text is no longer a precondition of the deploy.
 
-**Status: draft -- rehearsals pending, freeze pending.** Nothing is deployed, launched or frozen.
-- `o2_alexandria.py --offline-check`: 5 PASS on the draft (126 files own-language; 48 key sites; 26 regions, 17
+**Status: REHEARSED and FROZEN (v1, `o2_predictions_v1.json`, sha `081d774e`); the deploy is next, owner-gated.**
+Nothing is deployed. The stock rehearsals ran unattended through the harness, one launch a stage, 16 runs, every run
+reaching its stage's end field (archived under `C:\gd\Dream-World-IX\.harness-runs\20260930-18*-o2-rh-*`):
+
+| Stage | Runs | What it showed |
+|---|---|---|
+| R-115 | 3/3 | F1: `hold up` climbs -- the published y RISES 0 -> 2691 in 9 bursts, then holds 3 at the top before 116 |
+| R-106 | 2/2 | F3: SC 1153 arrives at the wait point (560,1991); e14 lost -> id flip 54 frames |
+| R-105 | 5/5 | F2: Jack never within his range_r 299 (min 2086); first move 4-6 frames after the grant; 305/310/314 matched |
+| R-116 | 2/2 | three triggers; naming (Byte[6]=2); Puck min 185; F8: end_run from 61 reaches the title |
+| R-115a | 2/2 | the 115 scene, choice 367, the real stage-10 grant (50,-968); run 2 held 4 bursts at the ladder's top |
+| R-FULL | 2/2 | 337 s / 358 s. Ladder 6/6, chain 12/12, writes 26/26, start-dependent 2/2, 0 forbidden, 0 join failures; the two runs key for key identical (50 unregistered keys each); F9 start residue exact; F11 end state = the draft's; Hippaul's ip254 absent both times |
+
+What the rehearsals corrected (commits `9df45bda` and the freeze commit): the FakeGame's ladder ran the wrong way
+("smaller is higher"; the climb verb is sign-blind, so its tests passed on a ladder the game does not have) and the
+draft's climb `top: -2431` could never fire -- both fixed; `stall_bursts` 3 -> 8 (R-115a run 2 held 4 bursts at the
+top: 3 would have VOIDED it); the (105, 1152) start is the measured grant (-598, 1608), not the lookout; 116's third
+step starts at (-716, 2307), where the trigger above it ends; F7 budgets from R-FULL (`run_s` 716, `run_min_s` 434,
+`session_s` 4580, `no_progress_s` 120, `exit_wait_s` 5). One surprise kept as designed: in 100, control drops once at
+(65, 3489) every run (the Rat Kid scene; the design had placed the bump near z 6200) and the step's one `interrupts`
+absorbs it.
+
+- `o2_alexandria.py --offline-check`: 5 PASS on the frozen v1 (126 files own-language; 48 key sites; 26 regions, 17
   hot-spots and all 21 gateways of the route fields registered; 14 goals, every step runnable and every crossing where
   the route's order goes next); O2-TEXT 7 byte-equal of 7 on the rebuilt chain (the uk KNOWN-KIT-DEFECT line it
   printed on the first build is gone).
@@ -883,18 +904,11 @@ code change here -- the rule's promised outcome. The uk text is no longer a prec
   judge every executor shares, and rule 2 holds each new visit to the route's order (`visits`) -- where it had read as
   the game's (a finding, not a VOID); and a wait begun short of its point is the driver's V7, never the game's V8.
 
-**Next** (the lead; the deploy is owner-gated):
-1. The stock rehearsals, [`o2_rehearse.py`](o2_rehearse.py): one launch runs R-115, R-106, R-105, R-116, R-115a and
-   R-FULL in that order, the cheapest run first (R-103 is optional); one stage runs alone with `--field N` or
-   `O2_STAGE=<stage>`. Each is read with `o2_alexandria.py --rehearsal-report <run dir>`, until the freeze checklist
-   F1-F11 (research/o2_design.md 7.3) holds. R-115 comes first because of F1: if `hold up` does not climb, O2 stops
-   there.
-2. Fold what they measured into the draft (the budget, `exit_wait_s`, the lunge, any goal moved, the control
-   grants), record the run dirs in `rehearsals`, then `--freeze` (writes `o2_predictions_v1.json`, once).
-3. A rebuild of the chain with the uk kit fix, `--offline-check` green again (O2-TEXT: 7 byte-equal); then the
-   owner-gated deploy of the 18 members with their ForkDonorPatch rows ([`o2_forks.json`](o2_forks.json)), and the
-   relaunch.
-4. `--preflight` green, then the session: `py tools/play.py studies/story-trace/o2_alexandria.py --label story-o2
+**Next** (the deploy is owner-gated):
+1. DONE: the stock rehearsals (above), the fold-in, `--freeze` (v1), and the chain rebuilt with the uk kit fix.
+2. The owner-gated deploy of the 18 members with their ForkDonorPatch rows ([`o2_forks.json`](o2_forks.json)), and
+   the relaunch.
+3. `--preflight` green, then the session: `py tools/play.py studies/story-trace/o2_alexandria.py --label story-o2
    --timeout 240`.
 
 What only the game can settle is the design's section 10: the climb, Jack's timing, the exits' map-switch latency,

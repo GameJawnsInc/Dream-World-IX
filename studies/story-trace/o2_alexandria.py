@@ -213,7 +213,8 @@ def _table() -> list:
          "watch": [{"sid": 7, "name": "Alleyway Jack", "radius": "range_r"}],
          "steps": [
             {"kind": "leave_now", "name": "leave the lookout by the south exit (e11)", "target": "105.e11",
-             "to": 106, "goal": [-667, -403], "start": [-244, 2562], "avoid": ["105.e10"], "immediate": True,
+             # start: the measured grant (7 of 7 rehearsal runs), not the lookout (-244, 2562) the design assumed
+             "to": 106, "goal": [-667, -403], "start": [-598, 1608], "avoid": ["105.e10"], "immediate": True,
              "lunge_ticks": 10, "settle": 0, "npcs": False, "attempts": 1, "interrupts": 0}]},
         {"donor": 106, "sc": 1152, "no_pages": True, "steps": [
             {"kind": "wait_sc", "name": "wait for Puck's SC 1153", "sc": 1153, "wait_s": 90, "goal": [550, 2000],
@@ -234,7 +235,8 @@ def _table() -> list:
             {"kind": "trigger", "name": "the rooftop, north to z >= 2300", "until": {"z_ge": 2300},
              "goal": [-750, 2690], "start": [-339, 244], "closed_tris": [217]},
             {"kind": "trigger", "name": "the rooftop, to Puck's corner", "until": {"x_gt": 3000, "z_gt": 10300},
-             "goal": [3410, 10700], "start": [-750, 2690], "closed_tris": [217]}]},
+             # start: the measured grant -- the step above ends at z >= 2300 and control returns there (4 runs)
+             "goal": [3410, 10700], "start": [-716, 2307], "closed_tris": [217]}]},
     ]
 
 
@@ -309,11 +311,20 @@ def draft_predictions() -> dict:
         "version": 1,
         "what": "O2: 100@1000 (warp, entrance 102) -> 101 -> 102 -> 103 -> 104 -> 103 -> 105 -> 106 -> 115 -> 116 "
                 "-> Field(61), stock vs the alxt zone's verbatim fork (PLAN.md, O2)",
-        "rehearsals": [],
+        "rehearsals": [                         # the stock rehearsals this freeze reads (research/o2_design.md 7.3)
+            "C:/gd/Dream-World-IX/.harness-runs/20260930-181634-o2-rh-115",
+            "C:/gd/Dream-World-IX/.harness-runs/20260930-182955-o2-rh-106",
+            "C:/gd/Dream-World-IX/.harness-runs/20260930-183100-o2-rh-105",
+            "C:/gd/Dream-World-IX/.harness-runs/20260930-183606-o2-rh-116",
+            "C:/gd/Dream-World-IX/.harness-runs/20260930-183952-o2-rh-R-115a",
+            "C:/gd/Dream-World-IX/.harness-runs/20260930-184253-o2-rh-R-FULL",
+        ],
         "order": ["S", "F", "S", "F", "S", "F"],
         "min_covered": 2,
         "rerun": {"max": 2},
-        "budget": {"run_s": 1800, "run_min_s": 1200, "session_s": 14400, "settle_s": 1.0, "no_progress_s": 120},
+        # F7 from R-FULL (358 s, 337 s): run_s 2x the slowest, run_min_s 1.25x the median, session_s 8x the median
+        # + 1800; no_progress_s max(120, 3x the longest stall seen, 11.7 s at 115 SC 1154)
+        "budget": {"run_s": 716, "run_min_s": 434, "session_s": 4580, "settle_s": 1.0, "no_progress_s": 120},
         "start": {"S": 100, "F": 31220},
         "entrance": 102,
         "scenario": 1000,
@@ -399,10 +410,11 @@ def draft_predictions() -> dict:
         "beats": ["booth", "ticket", "fake", "alright", "clear", "understand", "named", "climbed"],
         "steps_default": {"attempts": 2, "interrupts": 1, "timeout_s": 20, "confirm_s": 4.0, "npcs": True,
                           "overlay_ok": False, "immediate": False, "settle": None, "lunge_ticks": 0,
-                          "tolerance": 45, "min_depth": 40, "exit_wait_s": 8.0, "exit_slack": 40,
-                          # stall_bursts 6: at the top he holds 3 bursts (y 2691) before the scene moves him on
-                          # (o2-rh-115, all 3 runs at ~60 fps), so 3 would VOID a run on a normal climb
-                          "climb": {"burst_frames": 30, "max_bursts": 80, "stall_bursts": 6}},
+                          # exit_wait_s 5 (F7): max(5, 3x the slowest control-loss -> id flip seen, 54 frames ~0.9 s)
+                          "tolerance": 45, "min_depth": 40, "exit_wait_s": 5.0, "exit_slack": 40,
+                          # stall_bursts 8: at the top he holds 3-4 bursts (y 2691) before the scene moves him on
+                          # (o2-rh-115 3 runs, R-115a 2, R-FULL 2; R-115a run 2 held 4, which 3 would have VOIDED)
+                          "climb": {"burst_frames": 30, "max_bursts": 80, "stall_bursts": 8}},
     }
 
 

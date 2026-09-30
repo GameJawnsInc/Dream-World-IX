@@ -1,0 +1,2172 @@
+{
+ "beats": [
+  "booth",
+  "ticket",
+  "fake",
+  "alright",
+  "clear",
+  "understand",
+  "named",
+  "climbed"
+ ],
+ "budget": {
+  "no_progress_s": 120,
+  "run_min_s": 434,
+  "run_s": 716,
+  "session_s": 4580,
+  "settle_s": 1.0
+ },
+ "chain": [
+  {
+   "donor": 100,
+   "ip": 255,
+   "m": 1,
+   "off": 225,
+   "op": ":=",
+   "sid": 15,
+   "src": "eb",
+   "tag": 2,
+   "target": "Global.Int16[2]",
+   "value": 200,
+   "what": "FieldEntrance 200: 100's north exit"
+  },
+  {
+   "donor": 101,
+   "ip": 291,
+   "m": 1,
+   "off": 281,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[2]",
+   "value": 202,
+   "what": "FieldEntrance 202: 101's Main_Init (first visit)"
+  },
+  {
+   "donor": 101,
+   "ip": 255,
+   "m": 1,
+   "off": 225,
+   "op": ":=",
+   "sid": 16,
+   "src": "eb",
+   "tag": 2,
+   "target": "Global.Int16[2]",
+   "value": 201,
+   "what": "FieldEntrance 201: 101's west exit"
+  },
+  {
+   "donor": 102,
+   "ip": 255,
+   "m": 1,
+   "off": 225,
+   "op": ":=",
+   "sid": 8,
+   "src": "eb",
+   "tag": 2,
+   "target": "Global.Int16[2]",
+   "value": 203,
+   "what": "FieldEntrance 203: 102's north exit"
+  },
+  {
+   "donor": 103,
+   "ip": 972,
+   "m": 1,
+   "off": 257,
+   "op": ":=",
+   "sid": 30,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Int16[2]",
+   "value": 205,
+   "what": "FieldEntrance 205: 215 answered, to 104"
+  },
+  {
+   "donor": 104,
+   "ip": 558,
+   "m": 1,
+   "off": 547,
+   "op": ":=",
+   "sid": 2,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Int16[2]",
+   "value": 209,
+   "what": "FieldEntrance 209: 104 back to 103"
+  },
+  {
+   "donor": 103,
+   "ip": 261,
+   "m": 1,
+   "off": 231,
+   "op": ":=",
+   "sid": 22,
+   "src": "eb",
+   "tag": 2,
+   "target": "Global.Int16[2]",
+   "value": 205,
+   "what": "FieldEntrance 205: 103's west exit"
+  },
+  {
+   "donor": 105,
+   "ip": 227,
+   "m": 1,
+   "off": 197,
+   "op": ":=",
+   "sid": 11,
+   "src": "eb",
+   "tag": 2,
+   "target": "Global.Int16[2]",
+   "value": 111,
+   "what": "FieldEntrance 111: 105's south exit"
+  },
+  {
+   "donor": 106,
+   "ip": 222,
+   "m": 1,
+   "off": 192,
+   "op": ":=",
+   "sid": 14,
+   "src": "eb",
+   "tag": 2,
+   "target": "Global.Int16[2]",
+   "value": 211,
+   "what": "FieldEntrance 211: 106's south exit"
+  },
+  {
+   "donor": 115,
+   "ip": 249,
+   "m": 1,
+   "off": 235,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[2]",
+   "value": 213,
+   "what": "FieldEntrance 213: 115's Main_Init at SC 1153"
+  },
+  {
+   "donor": 115,
+   "ip": 1951,
+   "m": 1,
+   "off": 1733,
+   "op": ":=",
+   "sid": 1,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Int16[2]",
+   "value": 0,
+   "what": "FieldEntrance 0: 115 to 116"
+  },
+  {
+   "donor": 116,
+   "ip": 1694,
+   "m": 1,
+   "off": 1575,
+   "op": ":=",
+   "sid": 2,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Int16[2]",
+   "value": 0,
+   "what": "FieldEntrance 0: 116 to 61"
+  }
+ ],
+ "choices": [
+  {
+   "beat": "booth",
+   "donor": 103,
+   "match": "ticket booth",
+   "once": true,
+   "pick": "ticket booth",
+   "sc": [
+    1000
+   ],
+   "take": "default"
+  },
+  {
+   "beat": "ticket",
+   "donor": 104,
+   "match": "ticket",
+   "once": true,
+   "pick": "ticket",
+   "sc": [
+    1000
+   ],
+   "take": "default"
+  },
+  {
+   "beat": "fake",
+   "donor": 105,
+   "match": "fake",
+   "once": true,
+   "pick": "Yeah",
+   "sc": [
+    1150
+   ],
+   "take": "default"
+  },
+  {
+   "beat": "alright",
+   "donor": 105,
+   "match": "want to",
+   "once": true,
+   "pick": "right",
+   "sc": [
+    1151
+   ],
+   "take": "default"
+  },
+  {
+   "beat": "clear",
+   "donor": 105,
+   "match": "someone",
+   "once": true,
+   "pick": "clear",
+   "sc": [
+    1151
+   ],
+   "take": "default"
+  },
+  {
+   "beat": "understand",
+   "donor": 115,
+   "match": "Once more",
+   "once": true,
+   "pick": "understand",
+   "sc": [
+    1154
+   ],
+   "take": "default"
+  },
+  {
+   "beat": null,
+   "donor": null,
+   "match": "want to skip",
+   "once": false,
+   "pick": "default",
+   "sc": null
+  }
+ ],
+ "cut_start": true,
+ "end_field": 61,
+ "end_fields": [
+  61
+ ],
+ "end_state": {
+  "Global.Bit[3717]": 1,
+  "Global.Bit[3718]": 1,
+  "Global.Byte[472]": 4,
+  "Global.Byte[6]": 2,
+  "Global.Int16[2]": 0,
+  "Global.Int16[469]": 1042,
+  "Global.UInt16[0]": 1155,
+  "Global.UInt16[19]": 2,
+  "Global.UInt16[21]": 2
+ },
+ "entrance": 102,
+ "entrance_bytes": [
+  2,
+  3
+ ],
+ "forbidden": [
+  {
+   "cause": "contact",
+   "donor": 105,
+   "object": 7,
+   "sid": 7,
+   "tag": 2,
+   "why": "Alleyway Jack's contact ran (the mugging or the card tutorial)"
+  },
+  {
+   "cause": "contact",
+   "object": 7,
+   "target": "Global.Bit[3714]",
+   "why": "Jack's card branch (105 e7 t2 ip729)"
+  },
+  {
+   "cause": "contact",
+   "object": 7,
+   "target": "Global.Bit[3715]",
+   "why": "Jack's mugging branch (105 e7 t2 ip945)"
+  },
+  {
+   "cause": "confirm_hotspot",
+   "target": "Global.Int16[220]",
+   "why": "a hot-spot pickup: a stray Confirm"
+  },
+  {
+   "cause": "confirm_hotspot",
+   "target": "Global.Int16[222]",
+   "why": "a hot-spot pickup: a stray Confirm"
+  },
+  {
+   "cause": "confirm_hotspot",
+   "target": "Global.Int16[224]",
+   "why": "a hot-spot pickup: a stray Confirm"
+  },
+  {
+   "cause": "confirm_hotspot",
+   "target": "Global.Int16[228]",
+   "why": "a hot-spot pickup (the player's pickup function)"
+  },
+  {
+   "cause": "confirm_hotspot",
+   "target": "Global.Byte[226]",
+   "why": "a hot-spot pickup (the player's pickup function)"
+  },
+  {
+   "cause": "confirm_talk",
+   "donor": 115,
+   "object": 2,
+   "sid": 2,
+   "tag": 3,
+   "why": "Kupo's talk (Mognet/save/shop): a stray Confirm"
+  },
+  {
+   "cause": "choice",
+   "donor": 104,
+   "ip_range": [
+    646,
+    863
+   ],
+   "sid": 7,
+   "tag": 1,
+   "target": "Global.Int16[469]",
+   "why": "a 104 info option was chosen (e7 t1 ip646-863)"
+  },
+  {
+   "cause": "walk",
+   "off_route": true,
+   "why": "a write off the route: S, a place outside route + end_fields; F, a field that is neither a member whose donor is on the route nor an end field"
+  }
+ ],
+ "forbidden_sites": [
+  {
+   "donor": 105,
+   "ip": 729,
+   "m": 1,
+   "off": 175,
+   "op": ":=",
+   "sid": 7,
+   "src": "eb",
+   "tag": 2,
+   "target": "Global.Bit[3714]",
+   "value": 1,
+   "what": "Jack's card branch (105 e7 t2 ip729)"
+  },
+  {
+   "donor": 105,
+   "ip": 945,
+   "m": 1,
+   "off": 391,
+   "op": ":=",
+   "sid": 7,
+   "src": "eb",
+   "tag": 2,
+   "target": "Global.Bit[3715]",
+   "value": 1,
+   "what": "Jack's mugging branch (105 e7 t2 ip945)"
+  }
+ ],
+ "hotspots": {
+  "100": [
+   {
+    "n": 77,
+    "reach": 280,
+    "sid": 12,
+    "x": -658,
+    "z": 4843
+   },
+   {
+    "n": 77,
+    "reach": 280,
+    "sid": 13,
+    "x": -758,
+    "z": 1121
+   }
+  ],
+  "101": [
+   {
+    "n": 60,
+    "reach": 247,
+    "sid": 11,
+    "x": -540,
+    "z": -979
+   },
+   {
+    "n": 60,
+    "reach": 247,
+    "sid": 12,
+    "x": -1011,
+    "z": -2327
+   },
+   {
+    "n": 60,
+    "reach": 247,
+    "sid": 13,
+    "x": 998,
+    "z": -2356
+   },
+   {
+    "n": 40,
+    "reach": 202,
+    "sid": 14,
+    "x": 2434,
+    "z": 492
+   }
+  ],
+  "102": [
+   {
+    "n": 80,
+    "reach": 286,
+    "sid": 7,
+    "x": 1477,
+    "z": 4748
+   }
+  ],
+  "103": [
+   {
+    "n": 300,
+    "reach": 554,
+    "sid": 19,
+    "x": 2239,
+    "z": 1114
+   },
+   {
+    "n": 50,
+    "reach": 226,
+    "sid": 20,
+    "x": 600,
+    "z": -272
+   },
+   {
+    "n": 50,
+    "reach": 226,
+    "sid": 21,
+    "x": -891,
+    "z": 4413
+   }
+  ],
+  "105": [
+   {
+    "n": 60,
+    "reach": 247,
+    "sid": 9,
+    "x": -1561,
+    "z": 447
+   }
+  ],
+  "106": [
+   {
+    "n": 120,
+    "reach": 350,
+    "sid": 11,
+    "x": -155,
+    "z": 1205
+   }
+  ],
+  "115": [
+   {
+    "n": 90,
+    "reach": 303,
+    "sid": 11,
+    "x": 1800,
+    "z": -323
+   },
+   {
+    "n": 90,
+    "reach": 303,
+    "sid": 12,
+    "x": -547,
+    "z": -1739
+   }
+  ],
+  "116": [
+   {
+    "n": 40,
+    "reach": 202,
+    "sid": 17,
+    "x": -1124,
+    "z": -98
+   },
+   {
+    "n": 80,
+    "reach": 286,
+    "sid": 18,
+    "x": -291,
+    "z": 10894
+   },
+   {
+    "n": 90,
+    "reach": 303,
+    "sid": 19,
+    "x": 4200,
+    "z": 2762
+   }
+  ]
+ },
+ "ladder": [
+  {
+   "donor": 104,
+   "ip": 1046,
+   "m": 1,
+   "off": 546,
+   "op": ":=",
+   "sid": 7,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.UInt16[0]",
+   "value": 1150,
+   "what": "SC 1000 -> 1150: 104 stage 4, after 254 opens"
+  },
+  {
+   "donor": 105,
+   "ip": 511,
+   "m": 1,
+   "off": 362,
+   "op": ":=",
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.UInt16[0]",
+   "value": 1151,
+   "what": "SC -> 1151: 105 stage 4, after choice 305"
+  },
+  {
+   "donor": 105,
+   "ip": 2818,
+   "m": 1,
+   "off": 2274,
+   "op": ":=",
+   "sid": 14,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.UInt16[0]",
+   "value": 1152,
+   "what": "SC -> 1152: 105 stage 14, before control"
+  },
+  {
+   "donor": 106,
+   "ip": 312,
+   "m": 1,
+   "off": 221,
+   "op": ":=",
+   "sid": 2,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.UInt16[0]",
+   "value": 1153,
+   "what": "SC -> 1153: Puck at his stop, Vivi within 1400"
+  },
+  {
+   "donor": 115,
+   "ip": 462,
+   "m": 1,
+   "off": 244,
+   "op": ":=",
+   "sid": 1,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.UInt16[0]",
+   "value": 1154,
+   "what": "SC -> 1154: 115 stage 1, after 353"
+  },
+  {
+   "donor": 115,
+   "ip": 1683,
+   "m": 1,
+   "off": 1465,
+   "op": ":=",
+   "sid": 1,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.UInt16[0]",
+   "value": 1155,
+   "what": "SC -> 1155: 115 stage 9, after 383"
+  }
+ ],
+ "lang": "us",
+ "members": {
+  "31220": 100,
+  "31221": 101,
+  "31222": 102,
+  "31223": 103,
+  "31224": 104,
+  "31225": 105,
+  "31226": 106,
+  "31227": 107,
+  "31228": 108,
+  "31229": 109,
+  "31230": 110,
+  "31231": 111,
+  "31232": 112,
+  "31233": 113,
+  "31234": 114,
+  "31235": 115,
+  "31236": 116,
+  "31237": 117
+ },
+ "min_covered": 2,
+ "names": {
+  "31220": "O2_AT_MSA",
+  "31221": "O2_AT_MSB",
+  "31222": "O2_AT_MSC",
+  "31223": "O2_AT_CNT_N",
+  "31224": "O2_AT_CNT",
+  "31225": "O2_AT_BST",
+  "31226": "O2_AT_TSS",
+  "31227": "O2_AT_GAT",
+  "31228": "O2_AT_ITM",
+  "31229": "O2_AT_WPN",
+  "31230": "O2_AT_MGC",
+  "31231": "O2_AT_INN",
+  "31232": "O2_AT_SLN",
+  "31233": "O2_AT_HOM",
+  "31234": "O2_AT_HOM_A",
+  "31235": "O2_AT_SIN",
+  "31236": "O2_AT_ROF",
+  "31237": "O2_AT_STH"
+ },
+ "naming": [
+  {
+   "beat": "named",
+   "donor": 116,
+   "sc": 1155
+  }
+ ],
+ "noise": [
+  {
+   "donor": 103,
+   "ip": 254,
+   "m": 1,
+   "off": 51,
+   "op": ":=",
+   "sid": 18,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[472]",
+   "value": 2,
+   "why": "Hippaul's :=2 (103 e18 t1 ip254) runs only if his three legs at speed 15 (about 6600u) end before 103 unloads; 104 writes :=4 either way (e7 t1 ip955, guard < 4), so it never propagates"
+  }
+ ],
+ "order": [
+  "S",
+  "F",
+  "S",
+  "F",
+  "S",
+  "F"
+ ],
+ "recovery": 4600,
+ "regions": {
+  "100.e11": {
+   "points": [
+    [
+     300,
+     166
+    ],
+    [
+     -300,
+     166
+    ],
+    [
+     -300,
+     3555
+    ],
+    [
+     -50,
+     6333
+    ],
+    [
+     70,
+     6333
+    ]
+   ],
+   "role": "benign",
+   "why": "the street: its tag 2 writes Map.Byte[36] only (100 e11 t2 ip138); the control spot (0,850) stands inside it"
+  },
+  "100.e15": {
+   "entrance": 200,
+   "face_gate": null,
+   "points": [
+    [
+     -365,
+     7708
+    ],
+    [
+     295,
+     7708
+    ],
+    [
+     355,
+     6538
+    ],
+    [
+     -371,
+     6532
+    ]
+   ],
+   "role": "exit",
+   "to": 101
+  },
+  "100.e16": {
+   "entrance": 200,
+   "face_gate": null,
+   "points": [
+    [
+     -1019,
+     -439
+    ],
+    [
+     961,
+     -439
+    ],
+    [
+     704,
+     104
+    ],
+    [
+     -860,
+     191
+    ]
+   ],
+   "role": "exit",
+   "to": 107
+  },
+  "100.e17": {
+   "entrance": 200,
+   "face_gate": null,
+   "points": [
+    [
+     1224,
+     1225
+    ],
+    [
+     1252,
+     923
+    ],
+    [
+     777,
+     893
+    ],
+    [
+     677,
+     1074
+    ],
+    [
+     777,
+     1253
+    ]
+   ],
+   "role": "exit",
+   "to": 114
+  },
+  "101.e15": {
+   "entrance": 201,
+   "face_gate": null,
+   "points": [
+    [
+     3295,
+     -65
+    ],
+    [
+     3326,
+     -987
+    ],
+    [
+     2238,
+     -1444
+    ],
+    [
+     2872,
+     261
+    ]
+   ],
+   "role": "exit",
+   "to": 100
+  },
+  "101.e16": {
+   "entrance": 201,
+   "face_gate": null,
+   "points": [
+    [
+     -3500,
+     -600
+    ],
+    [
+     -3500,
+     -200
+    ],
+    [
+     -2621,
+     444
+    ],
+    [
+     -2254,
+     -1444
+    ]
+   ],
+   "role": "exit",
+   "to": 102
+  },
+  "101.e17": {
+   "entrance": 201,
+   "face_gate": [
+    48,
+    208
+   ],
+   "points": [
+    [
+     110,
+     233
+    ],
+    [
+     -100,
+     233
+    ],
+    [
+     -183,
+     -855
+    ],
+    [
+     206,
+     -855
+    ]
+   ],
+   "role": "exit",
+   "to": 112
+  },
+  "102.e10": {
+   "entrance": 203,
+   "face_gate": null,
+   "points": [
+    [
+     2753,
+     4854
+    ],
+    [
+     2804,
+     4832
+    ],
+    [
+     2220,
+     4436
+    ],
+    [
+     2130,
+     4617
+    ]
+   ],
+   "role": "exit",
+   "to": 108
+  },
+  "102.e8": {
+   "entrance": 203,
+   "face_gate": null,
+   "points": [
+    [
+     858,
+     6987
+    ],
+    [
+     468,
+     6987
+    ],
+    [
+     404,
+     5142
+    ],
+    [
+     1134,
+     5019
+    ]
+   ],
+   "role": "exit",
+   "to": 103
+  },
+  "102.e9": {
+   "entrance": 203,
+   "face_gate": null,
+   "points": [
+    [
+     175,
+     663
+    ],
+    [
+     2190,
+     999
+    ],
+    [
+     1607,
+     2186
+    ],
+    [
+     941,
+     2429
+    ],
+    [
+     191,
+     2361
+    ]
+   ],
+   "role": "exit",
+   "to": 101
+  },
+  "103.e22": {
+   "entrance": 205,
+   "face_gate": null,
+   "points": [
+    [
+     -4263,
+     -1798
+    ],
+    [
+     -4605,
+     -734
+    ],
+    [
+     -3611,
+     -119
+    ],
+    [
+     -3150,
+     -2777
+    ]
+   ],
+   "role": "exit",
+   "to": 105
+  },
+  "103.e23": {
+   "entrance": 205,
+   "face_gate": null,
+   "points": [
+    [
+     333,
+     -4477
+    ],
+    [
+     -555,
+     -4477
+    ],
+    [
+     -888,
+     -3430
+    ],
+    [
+     666,
+     -3411
+    ]
+   ],
+   "role": "exit",
+   "to": 102
+  },
+  "103.e24": {
+   "entrance": 205,
+   "face_gate": null,
+   "points": [
+    [
+     2537,
+     3762
+    ],
+    [
+     2792,
+     3650
+    ],
+    [
+     2440,
+     2476
+    ],
+    [
+     2160,
+     2641
+    ]
+   ],
+   "role": "exit",
+   "to": 109
+  },
+  "103.e25": {
+   "entrance": 205,
+   "face_gate": null,
+   "points": [
+    [
+     4999,
+     400
+    ],
+    [
+     4999,
+     999
+    ],
+    [
+     3848,
+     999
+    ],
+    [
+     3868,
+     400
+    ]
+   ],
+   "role": "exit",
+   "to": 110
+  },
+  "103.e26": {
+   "entrance": 205,
+   "face_gate": null,
+   "points": [
+    [
+     -3351,
+     2611
+    ],
+    [
+     -3656,
+     2216
+    ],
+    [
+     -2835,
+     1505
+    ],
+    [
+     -2480,
+     1977
+    ]
+   ],
+   "role": "exit",
+   "to": 111
+  },
+  "103.e27": {
+   "entrance": 206,
+   "face_gate": null,
+   "points": [
+    [
+     -3351,
+     2611
+    ],
+    [
+     -3656,
+     2216
+    ],
+    [
+     -2835,
+     1505
+    ],
+    [
+     -2480,
+     1977
+    ]
+   ],
+   "role": "exit",
+   "to": 111,
+   "why": "the same quad as e26"
+  },
+  "103.e28": {
+   "points": [
+    [
+     -500,
+     -111
+    ],
+    [
+     550,
+     -111
+    ],
+    [
+     250,
+     -1000
+    ],
+    [
+     -200,
+     -1000
+    ]
+   ],
+   "role": "confirm",
+   "tag3": {
+    "does": "Map.Byte[24] const(1) B_LET",
+    "ip": 95
+   },
+   "why": "the ticket booth: its tag 3 sets the stage (Map.Byte[24] := 1, ip95), whose choice 215 follows"
+  },
+  "105.e10": {
+   "entrance": 111,
+   "face_gate": null,
+   "points": [
+    [
+     1138,
+     3845
+    ],
+    [
+     1098,
+     4226
+    ],
+    [
+     -292,
+     4577
+    ],
+    [
+     264,
+     2527
+    ]
+   ],
+   "role": "exit",
+   "to": 103
+  },
+  "105.e11": {
+   "entrance": 111,
+   "face_gate": null,
+   "points": [
+    [
+     -185,
+     -770
+    ],
+    [
+     -1223,
+     -895
+    ],
+    [
+     -1327,
+     -167
+    ],
+    [
+     -220,
+     195
+    ]
+   ],
+   "role": "exit",
+   "to": 106
+  },
+  "105.e12": {
+   "live": [
+    1150,
+    1152
+   ],
+   "points": [
+    [
+     -964,
+     1677
+    ],
+    [
+     -1055,
+     2300
+    ],
+    [
+     55,
+     2000
+    ],
+    [
+     -122,
+     1203
+    ]
+   ],
+   "role": "walkin",
+   "why": "its tag 2 takes control while 1150 <= SC < 1152 (guard ip38, DisableMove ip75); dead at SC 1152, where it lies across the exit line"
+  },
+  "106.e12": {
+   "entrance": 211,
+   "face_gate": null,
+   "points": [
+    [
+     -1048,
+     4163
+    ],
+    [
+     -1048,
+     3623
+    ],
+    [
+     -262,
+     3319
+    ],
+    [
+     -364,
+     4135
+    ]
+   ],
+   "role": "exit",
+   "to": 105
+  },
+  "106.e13": {
+   "entrance": 211,
+   "face_gate": [
+    48,
+    208
+   ],
+   "points": [
+    [
+     -487,
+     156
+    ],
+    [
+     -487,
+     -84
+    ],
+    [
+     180,
+     -196
+    ],
+    [
+     180,
+     164
+    ]
+   ],
+   "role": "exit",
+   "to": 113
+  },
+  "106.e14": {
+   "entrance": 211,
+   "face_gate": null,
+   "points": [
+    [
+     -327,
+     -1240
+    ],
+    [
+     -317,
+     -1462
+    ],
+    [
+     151,
+     -1458
+    ],
+    [
+     151,
+     -1188
+    ]
+   ],
+   "role": "exit",
+   "to": 115,
+   "why": "its first edge is the west edge: ExitField's walk ends before the fade"
+  },
+  "115.e13": {
+   "entrance": 212,
+   "face_gate": null,
+   "points": [
+    [
+     -124,
+     -3597
+    ],
+    [
+     984,
+     -3546
+    ],
+    [
+     745,
+     -2881
+    ],
+    [
+     633,
+     -2741
+    ],
+    [
+     -34,
+     -2783
+    ]
+   ],
+   "role": "exit",
+   "to": 106
+  },
+  "115.e14": {
+   "entrances": [
+    213,
+    214,
+    215
+   ],
+   "points": [
+    [
+     150,
+     144
+    ],
+    [
+     -150,
+     144
+    ],
+    [
+     -150,
+     -40
+    ],
+    [
+     150,
+     -40
+    ]
+   ],
+   "role": "dormant",
+   "why": "the ladder's twin quad: InitRegion(14) only in Main_Init's default branch (e0 t0 ip406); its tag 3 calls 115 e17 t12, a card event"
+  },
+  "115.e15": {
+   "points": [
+    [
+     150,
+     144
+    ],
+    [
+     -150,
+     144
+    ],
+    [
+     -150,
+     -40
+    ],
+    [
+     150,
+     -40
+    ]
+   ],
+   "role": "confirm",
+   "tag3": {
+    "does": "Map.Byte[49] const(1) B_LET",
+    "ip": 65
+   },
+   "why": "the ladder: its tag 3 ip65, and the climb at ip125 when Map.Byte[24] == 10"
+  }
+ },
+ "rehearsals": [
+  "C:/gd/Dream-World-IX/.harness-runs/20260930-181634-o2-rh-115",
+  "C:/gd/Dream-World-IX/.harness-runs/20260930-182955-o2-rh-106",
+  "C:/gd/Dream-World-IX/.harness-runs/20260930-183100-o2-rh-105",
+  "C:/gd/Dream-World-IX/.harness-runs/20260930-183606-o2-rh-116",
+  "C:/gd/Dream-World-IX/.harness-runs/20260930-183952-o2-rh-R-115a",
+  "C:/gd/Dream-World-IX/.harness-runs/20260930-184253-o2-rh-R-FULL"
+ ],
+ "rerun": {
+  "max": 2
+ },
+ "residue_after_start": [],
+ "route": [
+  100,
+  101,
+  102,
+  103,
+  104,
+  105,
+  106,
+  115,
+  116
+ ],
+ "sc_bytes": [
+  0,
+  1
+ ],
+ "sc_order": true,
+ "scenario": 1000,
+ "seam": {
+  "donor": 116,
+  "to": 61,
+  "why": "member(116)'s Field(61) (116 e2 t1 ip1702) stays real: the end"
+ },
+ "start": {
+  "F": 31220,
+  "S": 100
+ },
+ "start_dependent": [
+  {
+   "after_o1": 1799,
+   "donor": 100,
+   "ip": 1531,
+   "m": 1,
+   "off": 848,
+   "op": "|=",
+   "prior": "newgame0",
+   "sid": 19,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.UInt16[19]",
+   "value": 2,
+   "what": "UInt16[19] |= 2 (START-DEPENDENT, 4.5)",
+   "why": "UInt16[19] |= 2 on New Game's 0; after O1 it holds 1797 (bits 1, 4, 256, 512, 1024)"
+  },
+  {
+   "after_o1": 3,
+   "donor": 116,
+   "ip": 765,
+   "m": 1,
+   "off": 646,
+   "op": "|=",
+   "prior": "newgame0",
+   "sid": 2,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[6]",
+   "value": 2,
+   "what": "Byte[6] |= 2 after Menu(1,1) (START-DEPENDENT, 4.5)",
+   "why": "Byte[6] |= 2 on New Game's 0; after O1 it holds 1 (50 e17 ip3240)"
+  }
+ ],
+ "start_first": {
+  "donor": 100,
+  "ip": 30,
+  "m": 1,
+  "off": 16,
+  "op": ":=",
+  "sid": 0,
+  "src": "eb",
+  "tag": 0,
+  "target": "Global.Bit[191]",
+  "value": 0,
+  "what": "100's Main_Init: its first store"
+ },
+ "start_residue": [
+  [
+   0,
+   0,
+   232
+  ],
+  [
+   1,
+   0,
+   3
+  ],
+  [
+   2,
+   0,
+   102
+  ]
+ ],
+ "steps_default": {
+  "attempts": 2,
+  "climb": {
+   "burst_frames": 30,
+   "max_bursts": 80,
+   "stall_bursts": 8
+  },
+  "confirm_s": 4.0,
+  "exit_slack": 40,
+  "exit_wait_s": 5.0,
+  "immediate": false,
+  "interrupts": 1,
+  "lunge_ticks": 0,
+  "min_depth": 40,
+  "npcs": true,
+  "overlay_ok": false,
+  "settle": null,
+  "timeout_s": 20,
+  "tolerance": 45
+ },
+ "stock_fields": [
+  100,
+  101,
+  102,
+  103,
+  104,
+  105,
+  106,
+  115,
+  116,
+  61
+ ],
+ "table": [
+  {
+   "donor": 100,
+   "sc": 1000,
+   "steps": [
+    {
+     "avoid": [
+      "100.e16",
+      "100.e17"
+     ],
+     "closed_floors": [
+      3
+     ],
+     "goal": [
+      0,
+      7000
+     ],
+     "interrupts": 1,
+     "kind": "cross",
+     "name": "Main Street's north exit (e15)",
+     "npcs": false,
+     "start": [
+      0,
+      850
+     ],
+     "target": "100.e15",
+     "to": 101
+    }
+   ]
+  },
+  {
+   "donor": 101,
+   "sc": 1000,
+   "steps": [
+    {
+     "avoid": [
+      "101.e15",
+      "101.e17"
+     ],
+     "goal": [
+      -2936,
+      -400
+     ],
+     "kind": "cross",
+     "name": "Main Street B's west exit (e16)",
+     "start": [
+      1939,
+      -883
+     ],
+     "target": "101.e16",
+     "to": 102
+    }
+   ]
+  },
+  {
+   "donor": 102,
+   "sc": 1000,
+   "steps": [
+    {
+     "avoid": [
+      "102.e9",
+      "102.e10"
+     ],
+     "goal": [
+      752,
+      5415
+     ],
+     "kind": "cross",
+     "name": "Main Street C's north exit (e8)",
+     "start": [
+      865,
+      2525
+     ],
+     "target": "102.e8",
+     "to": 103
+    }
+   ]
+  },
+  {
+   "donor": 103,
+   "sc": 1000,
+   "steps": [
+    {
+     "avoid": [
+      "103.e22",
+      "103.e23",
+      "103.e24",
+      "103.e25",
+      "103.e26",
+      "103.e27"
+     ],
+     "expect": "choice",
+     "goal": [
+      50,
+      -800
+     ],
+     "kind": "confirm",
+     "name": "the ticket booth (e28)",
+     "start": [
+      -75,
+      -2210
+     ],
+     "target": "103.e28"
+    }
+   ]
+  },
+  {
+   "donor": 103,
+   "sc": 1150,
+   "steps": [
+    {
+     "avoid": [
+      "103.e23",
+      "103.e24",
+      "103.e25",
+      "103.e26",
+      "103.e27"
+     ],
+     "goal": [
+      -3993,
+      -965
+     ],
+     "kind": "cross",
+     "name": "the square's west exit (e22)",
+     "start": [
+      45,
+      -950
+     ],
+     "target": "103.e22",
+     "to": 105
+    }
+   ]
+  },
+  {
+   "donor": 105,
+   "sc": 1150,
+   "steps": [
+    {
+     "avoid": [
+      "105.e10",
+      "105.e11"
+     ],
+     "closed_floors": [
+      2
+     ],
+     "goal": [
+      -500,
+      1750
+     ],
+     "kind": "trigger",
+     "name": "the alley's walk-in (e12)",
+     "start": [
+      -51,
+      2986
+     ],
+     "target": "105.e12"
+    }
+   ]
+  },
+  {
+   "donor": 105,
+   "no_pages": true,
+   "sc": 1152,
+   "steps": [
+    {
+     "attempts": 1,
+     "avoid": [
+      "105.e10"
+     ],
+     "goal": [
+      -667,
+      -403
+     ],
+     "immediate": true,
+     "interrupts": 0,
+     "kind": "leave_now",
+     "lunge_ticks": 10,
+     "name": "leave the lookout by the south exit (e11)",
+     "npcs": false,
+     "settle": 0,
+     "start": [
+      -598,
+      1608
+     ],
+     "target": "105.e11",
+     "to": 106
+    }
+   ],
+   "watch": [
+    {
+     "name": "Alleyway Jack",
+     "radius": "range_r",
+     "sid": 7
+    }
+   ]
+  },
+  {
+   "donor": 106,
+   "no_pages": true,
+   "sc": 1152,
+   "steps": [
+    {
+     "avoid": [
+      "106.e12",
+      "106.e13",
+      "106.e14"
+     ],
+     "goal": [
+      550,
+      2000
+     ],
+     "kind": "wait_sc",
+     "name": "wait for Puck's SC 1153",
+     "overlay_ok": true,
+     "sc": 1153,
+     "start": [
+      -123,
+      3494
+     ],
+     "wait_s": 90
+    }
+   ]
+  },
+  {
+   "donor": 106,
+   "no_pages": true,
+   "sc": 1153,
+   "steps": [
+    {
+     "avoid": [
+      "106.e12",
+      "106.e13"
+     ],
+     "goal": [
+      -123,
+      -1306
+     ],
+     "kind": "cross",
+     "name": "the steeple's south exit (e14)",
+     "overlay_ok": true,
+     "start": [
+      550,
+      2000
+     ],
+     "target": "106.e14",
+     "to": 115
+    }
+   ]
+  },
+  {
+   "donor": 115,
+   "sc": 1154,
+   "steps": [
+    {
+     "avoid": [
+      "115.e13"
+     ],
+     "expect": "control_lost",
+     "goal": [
+      0,
+      50
+     ],
+     "kind": "confirm",
+     "name": "the ladder (e15)",
+     "start": [
+      206,
+      -1911
+     ],
+     "target": "115.e15"
+    }
+   ]
+  },
+  {
+   "donor": 115,
+   "sc": 1155,
+   "steps": [
+    {
+     "attempts": 2,
+     "avoid": [
+      "115.e13"
+     ],
+     "beat": "climbed",
+     "expect": "control_lost",
+     "goal": [
+      0,
+      50
+     ],
+     "kind": "confirm",
+     "name": "the ladder, then the climb (e15)",
+     "start": [
+      50,
+      -968
+     ],
+     "target": "115.e15",
+     "then": "climb"
+    }
+   ]
+  },
+  {
+   "donor": 116,
+   "sc": 1155,
+   "steps": [
+    {
+     "goal": [
+      630,
+      190
+     ],
+     "kind": "trigger",
+     "name": "the rooftop, west to x <= 900",
+     "start": [
+      2718,
+      -137
+     ],
+     "until": {
+      "x_le": 900
+     }
+    },
+    {
+     "closed_tris": [
+      217
+     ],
+     "goal": [
+      -750,
+      2690
+     ],
+     "kind": "trigger",
+     "name": "the rooftop, north to z >= 2300",
+     "start": [
+      -339,
+      244
+     ],
+     "until": {
+      "z_ge": 2300
+     }
+    },
+    {
+     "closed_tris": [
+      217
+     ],
+     "goal": [
+      3410,
+      10700
+     ],
+     "kind": "trigger",
+     "name": "the rooftop, to Puck's corner",
+     "start": [
+      -716,
+      2307
+     ],
+     "until": {
+      "x_gt": 3000,
+      "z_gt": 10300
+     }
+    }
+   ]
+  }
+ ],
+ "text_block": 33,
+ "version": 1,
+ "visits": [
+  100,
+  101,
+  102,
+  103,
+  104,
+  103,
+  105,
+  106,
+  115,
+  116
+ ],
+ "what": "O2: 100@1000 (warp, entrance 102) -> 101 -> 102 -> 103 -> 104 -> 103 -> 105 -> 106 -> 115 -> 116 -> Field(61), stock vs the alxt zone's verbatim fork (PLAN.md, O2)",
+ "writes": [
+  {
+   "donor": 100,
+   "ip": 834,
+   "m": 1,
+   "off": 151,
+   "op": ":=",
+   "sid": 19,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[8]",
+   "value": 125,
+   "what": "100 Byte[8] := 125"
+  },
+  {
+   "donor": 100,
+   "ip": 981,
+   "m": 1,
+   "off": 298,
+   "op": ":=",
+   "sid": 19,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.UInt16[21]",
+   "value": 2,
+   "what": "100 UInt16[21] := 2 (party: Vivi only)"
+  },
+  {
+   "donor": 100,
+   "ip": 1066,
+   "m": 1,
+   "off": 383,
+   "op": ":=",
+   "sid": 19,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[303]",
+   "value": 0,
+   "what": "100 Byte[303] := 0"
+  },
+  {
+   "donor": 100,
+   "ip": 1100,
+   "m": 1,
+   "off": 417,
+   "op": "++",
+   "prior": "100/19/1/1066",
+   "sid": 19,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[303]",
+   "value": 1,
+   "what": "100 Byte[303]++"
+  },
+  {
+   "donor": 100,
+   "ip": 1497,
+   "m": 1,
+   "off": 814,
+   "op": ":=",
+   "sid": 19,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[4]",
+   "value": 0,
+   "what": "100 Byte[4] := 0 (ip1497)"
+  },
+  {
+   "donor": 100,
+   "ip": 1531,
+   "m": 1,
+   "off": 848,
+   "op": "|=",
+   "prior": "newgame0",
+   "sid": 19,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.UInt16[19]",
+   "value": 2,
+   "what": "UInt16[19] |= 2 (START-DEPENDENT, 4.5)"
+  },
+  {
+   "donor": 100,
+   "ip": 1562,
+   "m": 1,
+   "off": 879,
+   "op": ":=",
+   "sid": 19,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[4]",
+   "value": 0,
+   "what": "100 Byte[4] := 0 (ip1562)"
+  },
+  {
+   "donor": 100,
+   "ip": 1570,
+   "m": 1,
+   "off": 887,
+   "op": ":=",
+   "sid": 19,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[17]",
+   "value": 0,
+   "what": "100 Byte[17] := 0"
+  },
+  {
+   "donor": 100,
+   "ip": 1578,
+   "m": 1,
+   "off": 895,
+   "op": ":=",
+   "sid": 19,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[18]",
+   "value": 1,
+   "what": "100 Byte[18] := 1"
+  },
+  {
+   "donor": 100,
+   "ip": 579,
+   "m": 1,
+   "off": 143,
+   "op": ":=",
+   "sid": 1,
+   "src": "eb",
+   "tag": 18,
+   "target": "Global.Bit[3718]",
+   "value": 1,
+   "what": "100 Bit[3718] := 1 (the Rat Kid)"
+  },
+  {
+   "donor": 101,
+   "ip": 319,
+   "m": 1,
+   "off": 152,
+   "op": ":=",
+   "sid": 7,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Bit[3717]",
+   "value": 1,
+   "what": "101 Bit[3717] := 1 (the Herald)"
+  },
+  {
+   "donor": 103,
+   "ip": 367,
+   "m": 1,
+   "off": 357,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[8]",
+   "value": 125,
+   "what": "103 Byte[8] := 125 (both visits: one key)"
+  },
+  {
+   "donor": 103,
+   "ip": 218,
+   "m": 1,
+   "off": 15,
+   "op": ":=",
+   "sid": 18,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[472]",
+   "value": 1,
+   "what": "103 Byte[472] := 1 (Hippaul, first visit)"
+  },
+  {
+   "donor": 104,
+   "ip": 313,
+   "m": 1,
+   "off": 299,
+   "op": ":=",
+   "sid": 7,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[469]",
+   "value": 1042,
+   "what": "104 Int16[469] := 1042"
+  },
+  {
+   "donor": 104,
+   "ip": 333,
+   "m": 1,
+   "off": 319,
+   "op": "|=",
+   "prior": "104/7/0/313",
+   "sid": 7,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[469]",
+   "value": 1043,
+   "what": "104 Int16[469] |= 1 (SC < 1150)"
+  },
+  {
+   "donor": 104,
+   "ip": 613,
+   "m": 1,
+   "off": 113,
+   "op": "&=",
+   "prior": "104/7/0/333",
+   "sid": 7,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Int16[469]",
+   "value": 1042,
+   "what": "104 Int16[469] &= 8190 (the ticket pick)"
+  },
+  {
+   "donor": 104,
+   "ip": 955,
+   "m": 1,
+   "off": 455,
+   "op": ":=",
+   "sid": 7,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[472]",
+   "value": 4,
+   "what": "104 Byte[472] := 4 (guard < 4)"
+  },
+  {
+   "donor": 103,
+   "ip": 205,
+   "m": 1,
+   "off": 175,
+   "op": ":=",
+   "sid": 22,
+   "src": "eb",
+   "tag": 2,
+   "target": "Global.Byte[13]",
+   "value": 3,
+   "what": "103 Byte[13] := 3 (the west exit's music)"
+  },
+  {
+   "donor": 103,
+   "ip": 244,
+   "m": 1,
+   "off": 214,
+   "op": ":=",
+   "sid": 22,
+   "src": "eb",
+   "tag": 2,
+   "target": "Global.Byte[14]",
+   "value": 3,
+   "what": "103 Byte[14] := 3 (the west exit)"
+  },
+  {
+   "donor": 106,
+   "ip": 109,
+   "m": 1,
+   "off": 91,
+   "op": ":=",
+   "sid": 5,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Bit[3712]",
+   "value": 0,
+   "what": "106 Bit[3712] := 0 (Ilia's init)"
+  },
+  {
+   "donor": 106,
+   "ip": 194,
+   "m": 1,
+   "off": 164,
+   "op": ":=",
+   "sid": 14,
+   "src": "eb",
+   "tag": 2,
+   "target": "Global.Byte[13]",
+   "value": 3,
+   "what": "106 Byte[13] := 3 (the south exit)"
+  },
+  {
+   "donor": 115,
+   "ip": 467,
+   "m": 1,
+   "off": 453,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[8]",
+   "value": 125,
+   "what": "115 Byte[8] := 125"
+  },
+  {
+   "donor": 116,
+   "ip": 335,
+   "m": 1,
+   "off": 321,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[8]",
+   "value": 125,
+   "what": "116 Byte[8] := 125"
+  },
+  {
+   "donor": 116,
+   "ip": 765,
+   "m": 1,
+   "off": 646,
+   "op": "|=",
+   "prior": "newgame0",
+   "sid": 2,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[6]",
+   "value": 2,
+   "what": "Byte[6] |= 2 after Menu(1,1) (START-DEPENDENT, 4.5)"
+  },
+  {
+   "donor": 116,
+   "ip": 1469,
+   "m": 1,
+   "off": 1350,
+   "op": ":=",
+   "sid": 2,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[8]",
+   "value": 0,
+   "what": "116 Byte[8] := 0"
+  },
+  {
+   "donor": 116,
+   "ip": 1666,
+   "m": 1,
+   "off": 1547,
+   "op": ":=",
+   "sid": 2,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[13]",
+   "value": 3,
+   "what": "116 Byte[13] := 3"
+  }
+ ]
+}
