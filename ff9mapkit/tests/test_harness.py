@@ -11235,6 +11235,8 @@ def test_the_objects_that_box_him_are_judged_at_the_smallest_press_reach(game):
 def _o1_pred(**over):
     sys.path.insert(0, str(REPO / "studies" / "story-trace"))
     import o1_opening as O
+    if not (O.CHAIN_DIR / "campaign.toml").is_file():
+        pytest.skip(f"the O1 chain is not built here ({O.CHAIN_DIR}): the O1 draft reads its members from it")
     pred = O.draft_predictions()
     pred.update(start={"S": 30820, "F": 30820}, end_field=30821, members={}, names={},
                 candle={"donor": 30820, "x": 300.0, "z": 0.0})
@@ -13225,13 +13227,16 @@ def test_o2_p_lang_reads_the_last_localization_line():
     assert not A.p_lang("", ini.format(-1))[0] and not A.p_lang(None, ini.format(-1))[0]
 
 
-def test_o2_freeze_refuses_an_existing_file(tmp_path):
+def test_o2_freeze_refuses_an_existing_file(tmp_path, monkeypatch):
     """The freeze (research/o2_design.md 0.1): the draft is written ONCE -- LF, sorted keys, its sha the bytes'
     -- and a second freeze onto the same file refuses, leaving it byte for byte; the CLI's --freeze refuses the same
-    way. The lead freezes after the stock rehearsals: the real o2_predictions_v1.json is never touched here. Break:
-    drop the existence check (the second write replaces the file)."""
+    way. The lead freezes after the stock rehearsals: the real o2_predictions_v1.json is never touched here. The chain
+    the draft reads its members from is a machine-local build (C:\\gd\\_ns_playtest\\o2), so it is given here: the
+    rule is tested wherever the suite runs. Break: drop the existence check (the second write replaces the file)."""
     import hashlib
     A = _o2_module()
+    chain = ({31220 + i: 100 + i for i in range(18)}, {31220 + i: f"O2_SYNTH_{100 + i}" for i in range(18)})
+    monkeypatch.setattr(A, "chain_from_campaign", lambda *a, **k: chain)
     path = tmp_path / "o2_predictions_v1.json"
     sha = A.O2.freeze(path)
     data = path.read_bytes()
@@ -13252,9 +13257,12 @@ def test_o2_draft_members_are_the_campaigns(tmp_path):
     """The draft's members and names are read from the built chain's campaign.toml (research/o2_design.md 1.5), and
     must be exactly {31220 + i: 100 + i for i in range(18)}; the manifest o2_forks.json carries the same members and
     names, and is not deployed. A campaign with any other member is refused. Break: drop the assertion (the draft
-    would freeze another chain)."""
+    would freeze another chain). The chain is a machine-local build: where it is not, this SKIPS (and says so) --
+    never a pass."""
     import tomllib
     A = _o2_module()
+    if not (A.CHAIN_DIR / "campaign.toml").is_file():
+        pytest.skip(f"the O2 chain is not built here ({A.CHAIN_DIR}): the draft reads its members from it")
     pred = A.draft_predictions()
     doc = tomllib.loads((A.CHAIN_DIR / "campaign.toml").read_text(encoding="utf-8"))
     assert pred["members"] == {str(31220 + i): 100 + i for i in range(18)}, pred["members"]
