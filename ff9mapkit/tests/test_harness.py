@@ -11237,6 +11237,13 @@ def _o1_idle(fake):
     return not fake._beats and fake.ui_state == "FieldHUD"
 
 
+def _o1_confirmed_near(fake, x, z, reach=80.0):
+    """A Confirm was pressed with control while he stood within ``reach`` of (x, z)."""
+    if not fake.control or math.hypot(fake.player[0] - x, fake.player[2] - z) > reach:
+        return False
+    return any(s[:2] == ["press", "confirm"] for s in fake.executed[-3:])
+
+
 def test_o1_drive_plays_the_opening_segment_by_its_rules(game):
     O, pred = _o1_pred()
     fake = FakeGame(game)
@@ -11248,8 +11255,12 @@ def test_o1_drive_plays_the_opening_segment_by_its_rules(game):
         boot(g)
         g.warp(30820)
         fake.scene("Zidane\n“Sure is dark...”", "Zidane\n“Guess nobody's here yet...”")
-        g.interact = lambda **kw: (_o1_candle_scene(fake), g.state)[1]      # the candle's region, answered
+        hint = "\nPress the  button when the ? appears."
         _o1_director(fake, stop, [
+            # control, with the region's hint up the whole time (an overlay: never paged)
+            (lambda f: _o1_idle(f) and f.control, lambda f: f.say(hint)),
+            # a Confirm pressed near the candle opens its choice (the hint closes, as the script closes it)
+            (lambda f: _o1_confirmed_near(f, 300.0, 0.0), lambda f: (f.say(), _o1_candle_scene(f))),
             (lambda f: f.named == [0] and _o1_idle(f), lambda f: f.start_battle(336)),
             (lambda f: f.battle_result == 1 and f.ui_state == "FieldHUD",
              lambda f: f.scene("Baku\n“Gwahahaha!”", {"header": "Who do we kidnap?",
@@ -11269,7 +11280,25 @@ def test_o1_drive_plays_the_opening_segment_by_its_rules(game):
     assert [c["index"] for c in out["choices"]] == [0, 1], out["choices"]
     assert out["pages"][0].startswith("Zidane") and any("Who's there" in p for p in out["pages"]), out["pages"]
     assert not fake._tutorial and len(fake.battle_commands) >= 4
-    assert [x["k"] for x in log] == ["candle", "choice", "named", "battle", "choice", "end"], log
+    assert [x["k"] for x in log] == ["overlay", "candle", "choice", "named", "battle", "choice", "end"], log
+    assert log[1]["opened"] and hint not in out["pages"], (log[1], out["pages"])
+
+
+def test_route_to_walks_under_an_overlay_hint_only_when_told(game):
+    """An async hint window over free movement (Prima Vista 50's "Press the X button when the ? appears."): by
+    default route_to's wait for settled control reads it as the scene still owning him and waits out its timeout
+    (the control); ``overlay_ok=True`` walks."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        fake.say("\nPress the  button when the ? appears.")
+        published(g, lambda s: s.dialog_open and s.control)
+        with pytest.raises(HarnessError, match="control to return"):
+            g.route_to(300.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), timeout=2.0)
+        rec = g.route_to(300.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), timeout=20.0, overlay_ok=True)
+        assert rec["reached"], rec
+        assert g.state.dialog_open, "the hint is the script's to close, not the walk's"
 
 
 def test_o1_drive_voids_a_choice_it_has_no_rule_for(game):

@@ -49,7 +49,9 @@ sys.path.insert(0, str(HERE))
 
 from ff9mapkit import storytrace as T                                   # noqa: E402
 
-PREDICTIONS = HERE / "o1_predictions_v1.json"
+#: v1 (sha 49fd880f) walked to the candle region's CENTRE, which is the table: session story-o1 run 1 stood in the
+#: region with the "?" up, pressed against the table (the owner, watching), and went VOID. v2 walks to that spot.
+PREDICTIONS = HERE / "o1_predictions_v2.json"
 MANIFEST = HERE / "o1_forks.json"
 SESSION_FILE = "o1_session.json"
 CHAIN_DIR = Path(r"C:\gd\_ns_playtest\o1\fork")
@@ -76,8 +78,9 @@ def draft_predictions() -> dict:
         "donor": donor, "m": T.FIELD_MODE, "src": "eb", "sid": sid, "tag": tag, "ip": ip, "off": off,
         "target": target, "value": value, "what": what}
     return {
-        "version": 1,
+        "version": 2,
         "what": "O1: New Game -> 50 -> 52 -> Field(100), stock vs the tshp zone's verbatim fork (PLAN.md, O1)",
+        "supersedes": "v1 (49fd880f): its candle point was the region's centre, the table (session story-o1 VOID)",
         "order": ["S", "F", "S", "F", "S", "F"],
         "min_covered": 2,
         "rerun": {"max": 2},
@@ -88,7 +91,10 @@ def draft_predictions() -> dict:
         "stock_fields": [50, 52, 100],
         "members": {str(f): d for f, d in sorted(members.items())},
         "names": {str(f): n for f, n in sorted(names.items())},
-        "candle": {"donor": 50, "x": 0.0, "z": 350.0},
+        # the candle: regions e4-e7 of 50, four triangles meeting at (0, 350) -- where the table stands -- spanning
+        # x -300..300, z 120..650. This point is where session story-o1's run 1 stood with the "?" up, right of the
+        # table; a Confirm there opens "Light the candle / Cancel".
+        "candle": {"donor": 50, "x": 180.0, "z": 290.0, "tolerance": 45.0},
         # a READY choice is answered by the first rule whose `match` is a substring of any option line
         "choices": [
             {"donor": 50, "match": "Light the candle", "pick": "Light the candle", "beat": "candle"},
@@ -315,11 +321,13 @@ def pick_for(choice: dict, donor: int, pred: dict) -> tuple:
     raise RouteVoid(f"choice in {donor} with no rule: {choice.get('options')}")
 
 
-def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=None, prior_for=None) -> dict:
+def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=None, prior_for=None,
+          progress: dict | None = None) -> dict:
     """Play the segment from the start field to the end field. Returns the run's outcome:
     ``{"end": "reached" | "void", "why", "beats", "pages", "choices", "t"}``. ``floor_for(donor)`` / ``prior_for(donor)``
     give the candle walk its walkmesh and movement prior (default: the donor's stock walkmesh as the player walks it,
-    and :meth:`key_prior` of the donor -- a member's own are its donor's, P-FLOOR)."""
+    and :meth:`key_prior` of the donor -- a member's own are its donor's, P-FLOOR). ``progress`` (a dict) is filled
+    with the live beats/pages/choices, so a run that raises still says how far it got."""
     from harness import HarnessError
     from ff9mapkit import extract
     from ff9mapkit.content import pathfind
@@ -329,9 +337,13 @@ def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=Non
     beats = {"candle": False, "named": False, "battle": None, "garnet": False}
     pages: list = []
     taken: list = []
+    overlays: list = []
+    tries = {"candle": 0}
     held = {"n": 0, "at": None}
     settle_polls = max(1, int(pred["budget"]["settle_s"] / 0.05))
     t0 = time.time()
+    if progress is not None:
+        progress.update(beats=beats, pages=pages, choices=taken)
 
     def out(end: str, why: str) -> dict:
         return {"end": end, "why": why, "beats": beats, "pages": pages, "choices": taken,
@@ -383,7 +395,9 @@ def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=Non
                     beats[rule["beat"]] = True
             log.append({"k": "choice", **taken[-1]})
             continue
-        if st.dialog_open and st.text.strip():
+        if st.dialog_open and st.text.strip() and not st.control:
+            # a page the script waits on (control withheld). A window up WHILE he has control is an overlay hint
+            # (50's "Press the X button when the ? appears.", async, closed by the script): never paged.
             held["n"] = 0
             if not pages or pages[-1] != st.text:
                 pages.append(st.text)
@@ -391,6 +405,9 @@ def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=Non
             g.wait_frames(g.rate().frames_for_ticks(g.CUTSCENE_PAGE_TICKS))
             continue
         if st.control and st.player_x is not None and not st.fading:
+            if st.dialog_open and st.text.strip() and st.text not in overlays:
+                overlays.append(st.text)
+                log.append({"k": "overlay", "field": fid, "text": st.text})
             held["n"] += 1
             if held["n"] < settle_polls:
                 time.sleep(0.05)
@@ -398,13 +415,22 @@ def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=Non
             held["n"] = 0
             c = pred["candle"]
             if donor == c["donor"] and not beats["candle"]:
-                rec = g.route_to(c["x"], c["z"], walkmesh=floor_for(donor), prior=prior_for(donor), tolerance=60.0,
-                                 timeout=60.0, unstick=True, smooth=True, npcs=True)
-                box = g.interact(timeout=6.0)
-                log.append({"k": "candle", "field": fid, "reached": rec.get("reached"),
-                            "at": [g.state.player_x, g.state.player_z], "box": box is not None})
-                if box is None:
-                    raise RouteVoid(f"at the candle ({g.state.player_x}, {g.state.player_z}) Confirm opened nothing")
+                tries["candle"] += 1
+                if tries["candle"] > 2:
+                    raise RouteVoid(f"two candle attempts opened no choice (at {g.state.player_x}, {g.state.player_z})")
+                rec = g.route_to(c["x"], c["z"], walkmesh=floor_for(donor), prior=prior_for(donor),
+                                 tolerance=c.get("tolerance", 45.0), timeout=60.0, unstick=True, smooth=True, npcs=True,
+                                 overlay_ok=True)
+                # a plain Confirm: interact() refuses to press while a window is up, and the region's own hint is
+                # up exactly while he stands where the Confirm works
+                g.press("confirm", 4)
+                try:
+                    g.wait_for(lambda s: s.choice is not None, timeout=4.0, what="the candle's choice")
+                    opened = True
+                except HarnessError:
+                    opened = False
+                log.append({"k": "candle", "field": fid, "reached": rec.get("reached"), "try": tries["candle"],
+                            "at": [g.state.player_x, g.state.player_z], "opened": opened})
                 continue
             raise RouteVoid(f"control held in {fid} (donor {donor}) where the route never gives it")
         held["n"] = 0
@@ -476,6 +502,7 @@ def run(g) -> None:
             save()
             return
         log: list = []
+        progress: dict = {}
         outcome = {"end": "void", "why": "not driven"}
         smark = None
         rec["t0"] = round(time.time() - t0)
@@ -491,7 +518,8 @@ def run(g) -> None:
             g.send(f"warp {pred['start'][side]} {pred['entrance']} -1")
             g.wait_for(lambda s: s.field_id == pred["start"][side], timeout=60.0,
                        what=f"field {pred['start'][side]} to load")
-            outcome = drive(g, pred, side, log, deadline=min(deadline, time.time() + b["run_s"]))
+            outcome = drive(g, pred, side, log, deadline=min(deadline, time.time() + b["run_s"]),
+                            progress=progress)
         except RouteVoid as err:
             outcome = {"end": "void", "why": f"route: {err}"}
         except HarnessError as err:
@@ -501,6 +529,8 @@ def run(g) -> None:
             log.append({"k": "error", "traceback": traceback.format_exc()[-3000:]})
         finally:
             g.shot_prefix = ""
+            for k, v in progress.items():              # how far a run that raised got
+                outcome.setdefault(k, v)
             if smark is not None:
                 try:
                     rec["traced"] = g.collect_story(g.run_dir / trace_name, smark)

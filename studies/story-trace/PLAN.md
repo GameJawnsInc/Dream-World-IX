@@ -767,6 +767,20 @@ recorded story-state ground truth.
 
 **Owner-gated:** the 20-member deploy with its ForkDonorPatch rows and the relaunch, and the session.
 
+**Session `story-o1` (predictions v1 `49fd880f`): stopped after run 1, VOID at the candle.** The chain was deployed
+(31200-31219, live preflight 5/5) and the instrument read true: run 1's trace wrote SC 0 -> 1000 at 50 e17 t1 ip1804,
+the frozen key. The driver then failed the route twice at the candle, as the owner saw while watching:
+- v1's candle point was the region's centre (0, 350), which is where the table stands. He stood in the region with the
+  "?" up, pressed against the table.
+- `interact()` refuses to press while a window is open. The region's own async hint ("Press the X button when the ?
+  appears.") is up exactly while he stands where the Confirm works.
+
+The fix was built and re-tested offline:
+- v2 (`681398ac`) walks to (180, 290), the spot run 1 stood on with the "?" up.
+- The driver pages no window that is up while he holds control; such a window is an overlay.
+- At the candle it presses a plain Confirm and waits for the choice.
+- `route_to(overlay_ok=True)` starts a walk under such a hint (the timed "Light the candle..." after 300 frames).
+
 ## Rungs
 
 | Rung | What | Pass |

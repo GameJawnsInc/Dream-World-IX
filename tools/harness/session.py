@@ -3970,8 +3970,10 @@ class Session:
     def route_to(self, x: float, z: float, *, avoid=(), margin: float | None = None,
                  tolerance: float = 45.0, walkmesh=None, prior="stock", timeout: float = 20.0,
                  unstick: bool = False, smooth: bool = False, zone=None, npcs: bool = False, face=None,
-                 face_window=None) -> dict:
+                 face_window=None, overlay_ok: bool = False) -> dict:
         """Walk to (x, z) along a route over the field's walkmesh that keeps out of ``avoid``.
+
+        ``overlay_ok`` is :meth:`wait_control`'s: start the walk under an async hint window he can walk with.
 
         ``avoid`` is a list of polygons (world ``[x, z]`` corners -- a field's gateway zones as
         ``eventscan.scan_gateways`` decodes them); the route stays ``margin`` clear of each, except a
@@ -4189,7 +4191,7 @@ class Session:
         if fpoly is not None:
             from ff9mapkit.content import doorface
             record["face_gate"] = list(doorface.FACE_WINDOW if face_window is None else map(int, face_window))
-        self.wait_control(timeout=timeout)
+        self.wait_control(timeout=timeout, overlay_ok=overlay_ok)
         # the render rate, measured before anything is planned (a wait for it lets the room's walkers walk on, and the
         # plan below reads them after it): every probe, hold, push and facing press is judged at it, and each that
         # cannot be undone asks for it again -- raising, or pressing nothing, if it never came (:meth:`rate`)
@@ -6010,15 +6012,21 @@ class Session:
 
     # -- cutscenes ------------------------------------------------------------------------------
 
-    def wait_control(self, *, timeout: float = 60.0, settle: float | None = None) -> State:
+    def wait_control(self, *, timeout: float = 60.0, settle: float | None = None, overlay_ok: bool = False) -> State:
         """Wait until the player has control again. The end of a cutscene, expressed as a condition.
 
         ⚠ Control FLICKERS true for a moment as a field loads, before the script takes it away --
         so this requires the condition to hold, exactly as `watch_cutscene` does. The two used to
         differ, and the sibling without the settle returned the instant a cutscene began.
+
+        ``overlay_ok``: a window up WHILE he holds control counts as control -- an async hint the script shows
+        and closes itself over free movement (Prima Vista 50's "Press the X button when the ? appears.", its
+        timed "Light the candle..."), which no page-turn closes. Off by default: an open window otherwise means
+        the scene still owns him.
         """
         return self._wait_settled(
-            lambda s: s.control and s.player_x is not None and not s.fading and not s.dialog_open,
+            lambda s: (s.control and s.player_x is not None and not s.fading
+                       and (overlay_ok or not s.dialog_open)),
             timeout=timeout, what="control to return to the player", settle=settle)
 
     #: Dialog.DialogGroupButton: the button group a choice window activates in the same coroutine step that
