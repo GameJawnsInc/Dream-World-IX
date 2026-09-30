@@ -13066,3 +13066,91 @@ def test_o2_draft_members_are_the_campaigns(tmp_path):
     bad.write_text(text, encoding="utf-8")
     with pytest.raises(AssertionError, match="not the design's"):
         A.chain_from_campaign(bad)
+
+
+def test_o2_rehearse_plumbing_on_the_fake(game):
+    """C3 (research/o2_design.md 7): one rehearsal stage on a fake two-field route, chosen by ``O2_STAGE`` as a launch
+    chooses it (another stage, which would run too, does not): the capabilities (P-LANG reading the launch's own
+    Memoria.log and Memoria.ini), New Game, the raw warp at the stage's entrance and scenario, the beat-table driver
+    with the recorder on every poll -- an arrival scene (the stage's "movie"), a booth Confirm and its choice, the
+    crossing into the end field -- the trace collected, end_run to the title, and o2_rehearsal.json holding every
+    section of 7.2: control grants, steps, choices (logged and published), pages, the press/watch evidence, the NPC
+    track and its summary, the longest no-progress stretch, the movie's arrival/first page/fps, the end (its state
+    and end_run's result) and the trace summary; the rehearsal report prints them. Break: drop the recorder's grants."""
+    A = _o2_module()
+    import o2_rehearse as R
+    (game / "x64" / "Memoria.log").write_text(
+        "30.09.2026 10:00:00 |M| Updating text localization [English(US)]\n", encoding="utf-8")
+    (game / "Memoria.ini").write_text("[VoiceActing]\nForceLanguage = -1\n", encoding="utf-8")
+    stages = {"R-TEST": {"field": 30820, "entrance": 102, "sc": 1000, "end": [30810], "runs": 1, "run_s": 90,
+                         "cost_s": 5, "movie": {"donor": 30820}, "settles": "the plumbing"},
+              "R-OTHER": {"field": 30821, "entrance": 0, "sc": 1150, "end": [30810], "runs": 1, "run_s": 5,
+                          "cost_s": 1, "settles": "never run: O2_STAGE names R-TEST"}}
+    assert R.select(stages, env={"O2_STAGE": "R-TEST"}) == ["R-TEST"]
+    assert R.select(stages, env={}) == ["R-OTHER", "R-TEST"] and R.select(stages, 30821, env={}) == ["R-OTHER"]
+    assert R.select(R.STAGES, 115, env={}) == ["R-115"] and "R-103" not in R.select(R.STAGES, env={})
+    assert R.select(R.STAGES, env={})[0] == "R-115"            # F1's climb, the go/no-go, runs first
+    with pytest.raises(ValueError, match="no stage"):
+        R.select(stages, env={"O2_STAGE": "R-NONE"})
+    tracks = [{"donor": 30820, "sid": 7, "name": "Jack", "lookout": [-300, 0]}]
+    table = [{"donor": 30820, "sc": 1000, "watch": [{"sid": 7, "name": "Jack", "radius": "range_r"}],
+              "steps": [{"kind": "confirm", "name": "booth", "target": "booth", "goal": [0, 300], "expect": "choice"},
+                        _o2_cross()]}]
+    pred = _o2_pred(table, choices=[_o2_booth_rule()], beats=["booth"], end_state={"Global.UInt16[0]": 1000})
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": _O2_EXIT, "to": 30810, "arrive": (0, 0)}]}
+    fake.exit_frames = 50
+    fake.blockers = {30820: [{"x": -500.0, "z": -500.0, "r": 30.0, "range_r": 100.0, "sid": 7}]}
+    stop = threading.Event()
+
+    def arrive(f):
+        f.control = False
+        f.player = [0.0, 0.0, -400.0]
+        f.script_store(0, 0, 30, 191 >> 3, "Bit", 0, bit=191)             # the start row: 30820's Main_Init
+        time.sleep(0.8)                                                   # the movie: nothing published changes
+        f.scene("Vivi\n“...”", "Puck\n“Hey, over here!”")
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0], "a launch starts at the title"
+        g._axes[30820] = _prior()
+        _o1_director(fake, stop, [
+            (lambda f: f.field_id == 30820 and f.story_on, arrive),
+            (lambda f: _o1_confirmed_near(f, 0, 300, reach=100), lambda f: f.scene(dict(_O2_BOOTH_CHOICE)))])
+        try:
+            R.run(g, stages=stages, pred=pred, floor_for=lambda d, closed: _flat_bgi(), prior_for=lambda d: _prior(),
+                  stock=lambda fid: None, recovery=30821, tracks=tracks, env={"O2_STAGE": "R-TEST"})
+        finally:
+            stop.set()
+        title = g.state.ui_state
+    run_dir = game / "run"
+    doc = json.loads((run_dir / "o2_rehearsal.json").read_text(encoding="utf-8"))
+    assert list(doc["stages"]) == ["R-TEST"] and doc["stages_run"] == ["R-TEST"] and doc.get("finished"), doc.keys()
+    assert all(c[0] for c in doc["capabilities"]) and any(c[1].startswith("P-LANG") for c in doc["capabilities"])
+    rec = doc["stages"]["R-TEST"][0]
+    assert rec["outcome"]["end"] == "reached", rec["outcome"]
+    for section in ("grants", "steps", "choices", "published_choices", "pages", "evidence", "tracks", "track_summary",
+                    "latency", "no_progress", "mbg101", "end", "trace"):
+        assert section in rec, section
+    assert rec["grants"] and all({"t", "frame", "field", "sc", "x", "z", "y", "fps"} <= set(x) for x in rec["grants"])
+    assert [(s["kind"], s["outcome"]) for s in rec["steps"]] == [("confirm", "done"), ("cross", "done")], rec["steps"]
+    assert [(c["index"], c["selected"], c["rule"]) for c in rec["choices"]] == [(0, 0, 0)], rec["choices"]
+    assert rec["published_choices"] and rec["published_choices"][0]["options"][1:] == ["eek into the ticket booth",
+                                                                                      "Cancel"]
+    assert [p["text"] for p in rec["pages"]] == ["Vivi\n“...”", "Puck\n“Hey, over here!”"], rec["pages"]
+    assert {"press", "watch"} <= set(rec["evidence"]) and rec["evidence"]["press"] and rec["evidence"]["watch"]
+    jack = rec["track_summary"].get("30820.7") or {}
+    assert rec["tracks"].get("30820.7") and jack.get("name") == "Jack", rec["track_summary"]
+    assert (jack.get("min_dist") or 0) > 100 and "lookout_contact_frame" in jack, jack
+    assert rec["no_progress"]["longest_s"] >= 0.5 and rec["no_progress"]["where"]["field"] == 30820, rec["no_progress"]
+    mv = rec["mbg101"]
+    assert None not in (mv["arrival_frame"], mv["first_page_frame"]) and mv["first_page_frame"] > mv["arrival_frame"], mv
+    assert rec["end"]["end_state"] == {"Global.UInt16[0]": 1000}, rec["end"]
+    assert rec["end"]["end_run"]["ok"] and rec["end"]["end_run"]["title"] and title == "Title", rec["end"]
+    tr = rec["trace"]
+    assert tr["start"] is not None and [x[1:] for x in tr["residue_before"]] == [[0, 0, 232], [1, 0, 3], [2, 0, 102]]
+    assert (run_dir / rec["trace_file"]).is_file() and (run_dir / rec["log_file"]).is_file()
+    report = A.rehearsal_report(run_dir)
+    for want in ("== R-TEST: warp 30820 102 1000", "grant: field 30820", "step (30820, 1000) #0 confirm",
+                 "choice at frame", "pages: ", "evidence: ", "track 30820.7", "longest no-progress", "mbg101:",
+                 "end: state", "trace: start line"):
+        assert want in report, (want, report[:1500])

@@ -9,6 +9,7 @@ played by one beat-table driver (studies/story-trace/PLAN.md, "O2"; the design: 
     py studies/story-trace/o2_alexandria.py --freeze            # write o2_predictions_v1.json (once: the lead, after
                                                                 # the stock rehearsals)
     py studies/story-trace/o2_alexandria.py --analyse <run dir> # the analysis alone, on saved traces
+    py studies/story-trace/o2_alexandria.py --rehearsal-report <run dir>   # an o2_rehearse.py launch, stage by stage
 
 THE SIDES (o2_forks.json; built offline, NOT deployed):
   S  stock: the install's scripts. Start: 100 (Main Street), entrance 102, SC 1000.
@@ -56,6 +57,7 @@ PREDICTIONS = HERE / "o2_predictions_v1.json"
 MANIFEST = HERE / "o2_forks.json"
 SESSION_FILE = "o2_session.json"
 REPORT_FILE = "o2_report.txt"
+REHEARSAL_FILE = "o2_rehearsal.json"
 CHAIN_DIR = Path(r"C:\gd\_ns_playtest\o2\fork")
 BUILD_DIR = Path(r"C:\gd\_ns_playtest\o2\build")
 GAME = Path(r"C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX")
@@ -1503,10 +1505,15 @@ class O2Segment(ST.Segment):
     # -- the CLI ------------------------------------------------------------------------------------------------
     def add_arguments(self, ap) -> None:
         ap.add_argument("--draft", action="store_true", help="print the draft predictions as JSON")
+        ap.add_argument("--rehearsal-report", metavar="RUN_DIR",
+                        help="print an o2_rehearse.py launch's record, stage by stage and run by run")
 
     def handle(self, args) -> int | None:
         if args.draft:
             print(json.dumps(self.draft(), indent=1, sort_keys=True))
+            return 0
+        if args.rehearsal_report:
+            print(rehearsal_report(args.rehearsal_report))
             return 0
         if args.offline_check or args.preflight:
             pred, what = self.current(args.predictions)
@@ -1521,6 +1528,82 @@ class O2Segment(ST.Segment):
 
 
 O2 = O2Segment()
+
+
+# ======================================================================== the rehearsal report
+def rehearsal_report(run_dir) -> str:
+    """``--rehearsal-report``: an o2_rehearse.py launch's ``o2_rehearsal.json`` (research/o2_design.md 7.2), stage by
+    stage and run by run -- what each freeze item (7.3) is read from."""
+    run_dir = Path(run_dir)
+    doc = json.loads((run_dir / REHEARSAL_FILE).read_text(encoding="utf-8"))
+    L = [f"O2 rehearsals -- {run_dir.name}  (draft sha {str(doc.get('draft_sha256'))[:8]}; stages "
+         f"{doc.get('stages_run')})"]
+    L += [f"  {'PASS' if ok else 'FAIL'}  {what} -- {detail}" for ok, what, detail in doc.get("capabilities") or ()]
+    if doc.get("stopped"):
+        L.append(f"  STOPPED: {doc['stopped']}")
+    L.append("")
+    for name, recs in doc.get("stages", {}).items():
+        stage = (doc.get("stage_defs") or {}).get(name, {})
+        L.append(f"== {name}: warp {stage.get('field')} {stage.get('entrance')} {stage.get('sc')} -> "
+                 f"{stage.get('end')}  ({len(recs)} run(s)) -- settles: {stage.get('settles')}")
+        for rec in recs:
+            out = rec.get("outcome") or {}
+            L.append(f"  run {rec.get('n')}: {out.get('end')} -- {out.get('why')}"
+                     + (f" [{out.get('v')} {out.get('cell')} {out.get('by')}]" if out.get("v") else "")
+                     + f"; {rec.get('t1', 0) - rec.get('t0', 0):.0f}s; trace {rec.get('trace_file')}")
+            for gr in rec.get("grants") or ():
+                L.append(f"    grant: field {gr.get('field')} SC {gr.get('sc')} frame {gr.get('frame')} at "
+                         f"({gr.get('x')}, {gr.get('z')}) y {gr.get('y')} fps {gr.get('fps')}")
+            for s in rec.get("steps") or ():
+                lost = s.get("lost") or {}
+                L.append(f"    step ({s.get('donor')}, {s.get('sc')}) #{s.get('n')} {s.get('kind')} try "
+                         f"{s.get('attempt')}: {s.get('outcome')}"
+                         + (f"; lost at frame {lost.get('frame')} ({lost.get('x')}, {lost.get('z')})" if lost else "")
+                         + (f"; id flip frame {s.get('flip_frame')}" if s.get("flip_frame") is not None else "")
+                         + (f"; lunge {s['lunge']}" if s.get("lunge") else "")
+                         + (f"; climb {s['climb'].get('ended')} {s['climb'].get('bursts')} bursts ys "
+                            f"{(s['climb'].get('ys') or [])[:6]}" if s.get("climb") else "")
+                         + (f"; {s.get('why')}" if s.get("why") else ""))
+            for c in rec.get("choices") or ():
+                L.append(f"    choice at frame {c.get('frame')}: {c.get('options')} active {c.get('active')} "
+                         f"selected {c.get('selected')} count {c.get('count')} -> rule {c.get('rule')} index "
+                         f"{c.get('index')}")
+            L.append(f"    published choices: {len(rec.get('published_choices') or [])} distinct snapshot(s)")
+            pages = rec.get("pages") or []
+            L.append(f"    pages: {len(pages)} ({sum(1 for p in pages if p.get('timed'))} timed)")
+            ev = rec.get("evidence") or {}
+            L.append(f"    evidence: {len(ev.get('press') or [])} press row(s), {len(ev.get('watch') or [])} watch "
+                     f"row(s), {len(ev.get('forbidden') or [])} forbidden row(s)")
+            for key, summ in (rec.get("track_summary") or {}).items():
+                L.append(f"    track {key}: {summ}")
+            for lat in rec.get("latency") or ():
+                L.append(f"    leave-now latency: {lat}")
+            npg = rec.get("no_progress") or {}
+            L.append(f"    longest no-progress stretch: {npg.get('longest_s')}s at {npg.get('where')}")
+            if rec.get("mbg101") is not None:
+                L.append(f"    mbg101: {rec['mbg101']}")
+            end = rec.get("end") or {}
+            L.append(f"    end: state {end.get('end_state')}; end_run {end.get('end_run')}")
+            tr = rec.get("trace") or {}
+            if tr:
+                L.append(f"    trace: start line {tr.get('start')}, end line {tr.get('end')}, {tr.get('rows')} rows; "
+                         f"SC {[x['new'] for x in tr.get('sc') or ()]}; FieldEntrance "
+                         f"{[x['new'] for x in tr.get('entrance') or ()]}")
+                L.append(f"      residue before the start {tr.get('residue_before')}; after "
+                         f"{tr.get('residue_after')}; other rows before it {tr.get('pre_other')}")
+                for name2, keys in (tr.get("registered") or {}).items():
+                    absent = [k["what"] for k in keys if not k["present"]]
+                    L.append(f"      {name2}: {len(keys) - len(absent)}/{len(keys)} present"
+                             + (f"; absent: {absent[:6]}" if absent else ""))
+                L.append(f"      unregistered keys ({len(tr.get('unregistered') or [])}): "
+                         f"{(tr.get('unregistered') or [])[:12]}")
+                L.append(f"      watched: {tr.get('watched')}; masked {tr.get('masked')}; join failures "
+                         f"{len(tr.get('failures') or [])}")
+                for h in tr.get("forbidden") or ():
+                    L.append(f"      forbidden: {h['row']} {h['why']} -- "
+                             + (f"backed by {h['by']}" if h["backed"] else "unbacked"))
+        L.append("")
+    return "\n".join(L)
 
 
 # ======================================================================== the session and the CLI
