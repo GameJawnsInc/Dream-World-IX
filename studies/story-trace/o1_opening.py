@@ -53,7 +53,9 @@ from ff9mapkit import storytrace as T                                   # noqa: 
 #: region with the "?" up, pressed against the table (the owner, watching), and went VOID. v2 walks to that spot.
 #: v2 (sha 681398ac) matched the candle choice on "Light the candle": the agent publishes that first choice line as
 #: "ight the candle" (the line after [CHOO][MOVE=18,0] loses its first character) -- session story-o1b run 1 VOID.
-PREDICTIONS = HERE / "o1_predictions_v3.json"
+#: v3 (sha 05fb803e) counted the battle won only at result 1: scene 336 ends by script (RunBattleCode) and the engine
+#: reports 2, "victory-no-pose" -- session story-o1c run 1, which reached 100 with every beat. v4 counts 1 or 2.
+PREDICTIONS = HERE / "o1_predictions_v4.json"
 MANIFEST = HERE / "o1_forks.json"
 SESSION_FILE = "o1_session.json"
 CHAIN_DIR = Path(r"C:\gd\_ns_playtest\o1\fork")
@@ -80,9 +82,10 @@ def draft_predictions() -> dict:
         "donor": donor, "m": T.FIELD_MODE, "src": "eb", "sid": sid, "tag": tag, "ip": ip, "off": off,
         "target": target, "value": value, "what": what}
     return {
-        "version": 3,
+        "version": 4,
         "what": "O1: New Game -> 50 -> 52 -> Field(100), stock vs the tshp zone's verbatim fork (PLAN.md, O1)",
-        "supersedes": "v2 (681398ac): its candle rule missed the published 'ight the candle' (story-o1b VOID); "
+        "supersedes": "v3 (05fb803e): it counted only result 1 as a won battle, and scene 336 ends at 2 (story-o1c "
+                      "VOID); v2 (681398ac): its candle rule missed the published 'ight the candle' (story-o1b VOID); "
                       "v1 (49fd880f): its candle point was the region's centre, the table (story-o1 VOID)",
         "order": ["S", "F", "S", "F", "S", "F"],
         "min_covered": 2,
@@ -118,6 +121,8 @@ def draft_predictions() -> dict:
             {"not_m": T.FIELD_MODE, "target": "Global.Byte[199]", "why": "set only if a member carries status 512"},
         ],
         "beats": ["candle", "named", "battle", "garnet"],
+        # the battle beat is done at a WIN: 1 victory, 2 victory-no-pose (the scripted end, RunBattleCode)
+        "battle_won": [1, 2],
     }
 
 
@@ -608,7 +613,7 @@ def read_session(run_dir, pred: dict, *, session: dict | None = None, stock=None
         if rec.get("end") != "reached":
             why.append(f"the drive did not reach the end: {rec.get('why')}")
         beats = rec.get("beats") or {}
-        missed = [b for b in pred["beats"] if not (beats.get(b) == 1 if b == "battle" else beats.get(b))]
+        missed = [b for b in pred["beats"] if not (beats.get(b) in pred["battle_won"] if b == "battle" else beats.get(b))]
         if rec.get("end") == "reached" and missed:
             why.append(f"beats not done: {missed} (battle result {beats.get('battle')})")
         path = run_dir / rec.get("trace", "")

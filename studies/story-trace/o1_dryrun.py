@@ -177,6 +177,14 @@ def _(pred):
     return six(pred, stock={"extra": [MAIN_50]}, fork={})
 
 
+@case("won-without-the-pose", "PROVEN", **{"O1-COVER": True})
+def _(pred):
+    runs = six(pred)
+    for r in runs:                                   # scene 336's scripted end reports 2, victory-no-pose
+        r["beats"] = {"candle": True, "named": True, "battle": 2, "garnet": True}
+    return runs
+
+
 @case("F-uncovered", "VOID", **{"O1-COVER": None})
 def _(pred):
     runs = six(pred)
