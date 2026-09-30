@@ -12,8 +12,14 @@ stock bytes of 100-106, 115, 116 and 61 (every one joins but the join-failure ca
 the F side (``fld`` = member, ``don`` = donor, as the engine writes them), and EMITTED as the engine emits them: a
 same-value store once per site, a value change up to 64 times, the rest counted into a ``c`` row at the epoch's
 close (StoryTrace.cs:383-400). A run's driver log carries its visit rows and whatever evidence a case gives it (the
-``press`` / ``watch`` / ``step`` rows 4.7's backing rule reads). Nothing here touches the game or the install's mod
-folders: it reads the stock scripts only.
+``press`` / ``watch`` / ``step`` rows 4.7's backing rule reads).
+
+The OFFLINE checks get the same treatment without a session (:data:`OFFLINE_MUTANTS`): O2-KEYS, O2-REGIONS and
+O2-GOALS read PASS on the draft and FAIL -- by the clause each mutant breaks -- on every one-change copy of it; O2-TEXT
+FAILs a build missing a language, P-RECOVERY a recovery field no folder registers.
+
+Nothing here touches the game or the install's mod folders: it reads the stock scripts and, for O2-GOALS, the stock
+walkmeshes, read-only; the text and the mod folders the units read are synthetic.
 """
 from __future__ import annotations
 
@@ -454,6 +460,23 @@ def _(pred):
     return six(pred, s=lambda ev, n: ev[:-1] + [w(x) for x in AFTER_61] + [ev[-1]])      # 61's rows, then off
 
 
+@case("suppressed-new-value", "NOT PROVEN", **F({"STATE": False, "STABLE": False, "NULL": True, "LADDER": True,
+                                                  "CHAIN": True}))
+def _(pred):
+    """O2-STATE (a)'s suppressed clause: in one F run, a count row (``c``) at 100's Byte[303]++ site whose ``last``
+    is a value that site never emitted -- a counter whose changes ran past the 64 the engine emits. The emitted
+    histories are all alike; only the suppressed set tells the runs apart. (A review finding moved the counts out of the
+    history, where they sat after every write in line order; this proves the set that replaced them can fail.) It
+    cannot be isolated: a count's never-emitted key is a digest key too, so STABLE reads the same run apart."""
+    runs = six(pred)
+    rows = render(runs[1]["events"], "F", members_of(pred))
+    site = next(x for x in rows if x["k"] == "w" and (x["don"], x["sid"], x["tag"], x["ip"]) == (100, 19, 1, 1100))
+    count = {"k": "c", "f": rows[-1]["f"] - 1, "p": 0, "sc": 1155, "n": 65, "last": 66,
+             **{k: site[k] for k in ("m", "fld", "don", "src", "sid", "tag", "ip", "byte", "w", "bit")}}
+    runs[1]["rows"] = rows[:-1] + [count, rows[-1]]
+    return runs
+
+
 @case("end-state-differs", "NOT PROVEN", **F({"STATE": False}))
 def _(pred):
     runs = six(pred)
@@ -719,6 +742,148 @@ def unit_text_garbage() -> tuple:
             and not any(x.startswith("KNOWN-KIT-DEFECT") for x in lines)), A.text_detail(lines)
 
 
+def unit_state_history(pred: dict, stock, scripts: dict, tmp: Path, path: Path) -> tuple:
+    """O2-STATE (a)'s reading of a base run: Byte[8]'s history is its EMITTED writes in line order and ends with 116's
+    := 0, the value handed to 61 -- 103's second-visit := 125, a same-value repeat the engine only COUNTS (a ``c`` row
+    written at the epoch's close), is no write after it -- and that count's key is its site's emitted one, so it drops
+    out of the suppressed set too. Break: fold the count rows into the history in line order (it then ends 125)."""
+    d = make_session(tmp, path, six(pred)[:1], scripts)
+    run = A.O2.read_session(d, pred, stock=stock)[0]
+    h, s = A.O2.history(run, pred), A.O2.suppressed(run, pred)
+    counted = [x for x in run["rows"] if x.k == "c" and x.target == "Global.Byte[8]"]
+    got = [(k.donor, k.value) for k in h.get("Global.Byte[8]", [])]
+    ok = got == [(100, 125), (103, 125), (115, 125), (116, 125), (116, 0)] and len(counted) == 1 and s == {}
+    return ok, f"Byte[8] {got}; {len(counted)} count row(s); suppressed {s}"
+
+
+def _synthetic_text(tmp: Path, langs) -> tuple:
+    """``(stock, build root)``: seven distinct stock texts, and a build shipping ``langs`` of them, each its own."""
+    stock = {L: f"[{L}] block {A.TEXT_BLOCK}".encode("utf-8") for L in ("us", "uk", "fr", "gr", "it", "es", "jp")}
+    root = tmp / ("text-" + "-".join(langs))
+    for L in langs:
+        p = root / "FF9_Data" / "embeddedasset" / "text" / L / "field" / f"{A.TEXT_BLOCK}.mes"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(stock[L])
+    return stock, root
+
+
+def _registering(tmp: Path, name: str, fids) -> Path:
+    root = tmp / name
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "DictionaryPatch.txt").write_text("".join(f"FieldScene {f} 11 X_{f} X_{f} {f}\n" for f in fids),
+                                              encoding="utf-8")
+    return root
+
+
+def _memo(fn):
+    got: dict = {}
+
+    def read(key):
+        if key not in got:
+            got[key] = fn(key)
+        return got[key]
+    return read
+
+
+def _step(p: dict, donor: int, sc: int, n: int = 0) -> dict:
+    return next(c for c in p["table"] if (c["donor"], c["sc"]) == (donor, sc))["steps"][n]
+
+
+def _key(p: dict, name: str, what: str) -> dict:
+    return next(k for k in p[name] if what in k["what"])
+
+
+#: The offline checks' mutants (research/o2_design.md 6.1; the review's finding: KEYS, REGIONS, GOALS, TEXT's
+#: missing-language clause and P-RECOVERY had none). Each is ``(name, check, mutate, clause)``: the DRAFT, deep-copied,
+#: one thing changed; ``check`` must then read FAIL -- after every check has read PASS on the unchanged draft -- and its
+#: detail must hold ``clause``, the words of the clause the mutant breaks (so it cannot pass by tripping another).
+OFFLINE_MUTANTS = [
+    ("keys-ladder-value", "KEYS", lambda p: p["ladder"][0].update(value=1151), "the bytes give 1150, the key says 1151"),
+    ("keys-wrong-op", "KEYS", lambda p: _key(p, "writes", "100 Byte[8] := 125").update(op="|="),
+     "is not Global.Byte[8] |= ..."),
+    ("keys-or-value", "KEYS", lambda p: _key(p, "writes", "UInt16[19] |= 2").update(value=3),
+     "the bytes give 2, the key says 3"),
+    ("keys-and-value", "KEYS", lambda p: _key(p, "writes", "&= 8190").update(value=1043),
+     "the bytes give 1042, the key says 1043"),
+    ("keys-post-plus-value", "KEYS", lambda p: _key(p, "writes", "Byte[303]++").update(value=2),
+     "the bytes give 1, the key says 2"),
+    ("keys-prior-unknown", "KEYS", lambda p: _key(p, "writes", "Byte[303]++").update(prior="100/19/1/9999"),
+     "names no registered prior"),
+    ("keys-noise-ip", "KEYS", lambda p: p["noise"][0].update(ip=255), "noise: Hippaul's :=2"),
+    ("keys-masked-key", "KEYS", lambda p: p["writes"].append(dict(p["start_first"], what="a masked key")),
+     "lies in the story-noise mask"),
+    ("keys-forbidden-site", "KEYS", lambda p: p["forbidden_sites"][0].update(ip=730), "forbidden_sites: Jack's card"),
+    ("regions-point", "REGIONS", lambda p: p["regions"]["100.e15"]["points"][0].__setitem__(0, -366),
+     "100.e15: the bytes' first SetRegion is"),
+    ("regions-exit-to", "REGIONS", lambda p: p["regions"]["100.e15"].update(to=102), "100.e15: scan_gateways gives"),
+    ("regions-exit-entrance", "REGIONS", lambda p: p["regions"]["100.e15"].update(entrance=201),
+     "100.e15: scan_gateways gives"),
+    ("regions-exit-gate", "REGIONS", lambda p: p["regions"]["101.e17"].update(face_gate=None),
+     "101.e17: scan_gateways gives"),
+    ("regions-walkin-live", "REGIONS", lambda p: p["regions"]["105.e12"].update(live=[1150, 1153]),
+     "105.e12: its tag 2 does not open with the guard"),
+    ("regions-dormant", "REGIONS",
+     lambda p: p["regions"]["115.e15"].update(role="dormant", entrances=[213, 214, 215]), "115.e15: "),
+    ("regions-benign", "REGIONS", lambda p: p["regions"]["100.e15"].update(role="benign"),
+     "stores to gEventGlobal or warps"),
+    ("regions-confirm-tag3", "REGIONS", lambda p: p["regions"]["103.e28"]["tag3"].update(ip=96),
+     "103.e28: its tag 3 at ip96"),
+    ("regions-hotspot-dropped", "REGIONS", lambda p: p["hotspots"]["103"].pop(1),
+     "hot-spot 103 e20 (600, -272) n 50: in the bytes, not in the predictions"),
+    ("regions-hotspot-moved", "REGIONS", lambda p: p["hotspots"]["103"][1].update(x=601),
+     "hot-spot 103 e20: the bytes give"),
+    ("regions-exit-unregistered", "REGIONS", lambda p: p["regions"].pop("106.e13"),
+     "106.e13: a gateway (-> 113, entrance 211) in the bytes, not registered as an exit"),
+    ("goals-off-floor", "GOALS", lambda p: _step(p, 100, 1000).update(goal=[0, 9000]), "off the floor"),
+    ("goals-outside-target", "GOALS", lambda p: _step(p, 102, 1000).update(goal=[865, 2525]),
+     "goal depth None in 102.e8"),
+    ("goals-start-on-hotspot", "GOALS", lambda p: _step(p, 103, 1000).update(start=[600, -150]),
+     "beyond hot-spot e20's reach"),
+    ("goals-until", "GOALS", lambda p: _step(p, 116, 1155).update(until={"x_le": 500}), "fails its until"),
+    ("goals-confirm-depth", "GOALS", lambda p: _step(p, 115, 1154).update(min_depth=60), "< min_depth 60"),
+    ("goals-malformed-step", "GOALS", lambda p: _step(p, 100, 1000).pop("to"), "a cross step needs ['to']"),
+    ("goals-visit-order", "GOALS", lambda p: p.update(visits=[100, 101, 102, 103, 104, 103, 106, 105, 115, 116]),
+     "never goes next from 103"),
+]
+
+
+def unit_offline_mutants(pred: dict, stock, tmp: Path) -> list:
+    """``[(name, ok, detail)]``: O2-KEYS, O2-REGIONS and O2-GOALS read PASS on the draft, then FAIL on each of
+    :data:`OFFLINE_MUTANTS`; O2-TEXT reads PASS with all seven languages shipped and FAILS with one missing (its
+    missing-language clause: the rule itself passes on the six that are there); P-RECOVERY passes with 4600 registered
+    in a folder and FAILS with it registered in none. The text and the folders are synthetic; KEYS and REGIONS read
+    the stock scripts, GOALS the install's stock walkmeshes (read-only), both memoised."""
+    from ff9mapkit import extract
+    walkmesh = _memo(extract.stock_walkmesh)
+    checks = {"KEYS": lambda p: A.O2.keys_check(p, stock), "REGIONS": lambda p: A.O2.regions_check(p, stock),
+              "GOALS": lambda p: A.O2.goals_check(p, walkmesh=walkmesh)}
+    out = []
+    base = {cid: fn(pred) for cid, fn in checks.items()}
+    out.append(("offline-draft-passes", all(r[0] is True for r in base.values()),
+                "; ".join(f"{cid} {'PASS' if r[0] else 'FAIL: ' + r[2][:80]}" for cid, r in base.items())))
+    for name, cid, mutate, clause in OFFLINE_MUTANTS:
+        p = copy.deepcopy(pred)
+        mutate(p)
+        ok, _what, detail = checks[cid](p)
+        caught = ok is False and clause in detail
+        out.append((name, caught, f"{cid} {'FAIL' if ok is False else 'PASS (not caught)'}"
+                                  + ("" if caught or ok is not False else f" -- not by {clause!r}")
+                                  + f": {detail[:120]}"))
+    stock_text, root7 = _synthetic_text(tmp, ("us", "uk", "fr", "gr", "it", "es", "jp"))
+    ok7 = A.O2.text_check(pred, root7, stock_text=stock_text)
+    _s, root6 = _synthetic_text(tmp, ("us", "uk", "fr", "gr", "it", "es"))
+    ok6 = A.O2.text_check(pred, root6, stock_text=stock_text)
+    rule6 = A.text_rule(stock_text, A.shipped_text(root6))[0]
+    out.append(("text-missing-language", ok7[0] is True and rule6 is True and ok6[0] is False
+                and "ships no jp/field" in ok6[2], f"all 7 {ok7[0]}; 6 by the rule {rule6}, by O2-TEXT {ok6[0]}: "
+                                                   f"{ok6[2][:100]}"))
+    rec = [A.O2.preflight_extra(pred, roots)[1] for roots in ([_registering(tmp, "has4600", [30000, 4600])],
+                                                              [_registering(tmp, "no4600", [30000, 4601])])]
+    out.append(("p-recovery-unregistered", rec[0][0] is True and rec[1][0] is False,
+                f"registered: {rec[0][0]} ({rec[0][2]}); not: {rec[1][0]} ({rec[1][2]})"))
+    return out
+
+
 def unit_trace_summary(pred: dict, stock) -> tuple:
     """trace_summary (research/o2_design.md 7.2) on a base S run: the six rungs and the twelve entrances in order,
     every registered route key present (the noise and the forbidden sites absent), no unregistered key, no join
@@ -806,9 +971,14 @@ def run_cases(pred_path: Path | None = None) -> int:
                          ("span-count-row", lambda: unit_span_count_row(pred, stock)),
                          ("text-rule-defect", unit_text_defect),
                          ("text-rule-session", unit_text_session), ("text-rule-garbage", unit_text_garbage),
-                         ("trace-summary", lambda: unit_trace_summary(pred, stock))):
+                         ("trace-summary", lambda: unit_trace_summary(pred, stock)),
+                         ("state-history", lambda: unit_state_history(pred, stock, scripts, sdir, path))):
             total += 1
             ok, detail = fn()
+            fails += not ok
+            print(f"{'ok  ' if ok else 'FAIL'} {name:26} (unit) {detail[:150]}")
+        for name, ok, detail in unit_offline_mutants(pred, stock, tmp):
+            total += 1
             fails += not ok
             print(f"{'ok  ' if ok else 'FAIL'} {name:26} (unit) {detail[:150]}")
     print(f"\n{total - fails}/{total} cases as registered")

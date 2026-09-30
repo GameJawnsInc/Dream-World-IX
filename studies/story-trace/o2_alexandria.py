@@ -731,8 +731,8 @@ class O2Segment(ST.Segment):
         "STABLE": "O2-STABLE: no key outside the registered noise is written in some runs of a side and not others",
         "SEAM": "O2-SEAM: the fork side never left its members before member(116)'s Field(61)",
         "MASKED": "O2-MASKED: the story-noise regions written are the same on both sides",
-        "STATE": "O2-STATE: the state handed to 61 is the same: each target's write history, and the end state read "
-                 "live",
+        "STATE": "O2-STATE: the state handed to 61 is the same: each target's emitted write history in order (its "
+                 "suppressed stores as a set), and the end state read live",
         "JOIN": "O2-JOIN: every script row joins a store in the bytes its field ran",
         "THROW": "O2-THROW: nothing thrown through the event engine, the evaluator, the tracer or the agent",
     }
@@ -1404,36 +1404,69 @@ class O2Segment(ST.Segment):
         return not bad, self.title("MASKED"), ("; ".join(bad) + "; " if bad else "") + detail
 
     @staticmethod
-    def history(r: dict, pred: dict) -> dict:
-        """``{target: [key, ...]}``: each unmasked target's write history at the cut -- its emitted rows' keys in line
-        order, then each suppressed site's ``last`` (the count rows close the epoch), the registered noise and the
-        harness's pokes left out, the counts never read (a loop's count varies with timing)."""
+    def _state_rows(r: dict, pred: dict) -> list:
+        """``[(row, key)]``: the ``w`` and ``c`` rows O2-STATE reads, in line order -- unmasked, keyed (JOIN's are
+        not), neither the registered noise nor the harness's pokes."""
         rk = row_keys(r["digest"])
-        out: dict = {}
+        out = []
         for x in r["rows"]:
             if x.k not in ("w", "c") or x.src == "harness" or T.noise_regions(x):
                 continue
             k = key_of(rk, x)
             if k is None or is_noise(k, pred):
                 continue
-            out.setdefault(x.target, []).append(k)
+            out.append((x, k))
         return out
 
+    @classmethod
+    def history(cls, r: dict, pred: dict) -> dict:
+        """``{target: [key, ...]}``: each unmasked target's EMITTED writes at the cut (``w`` rows), their keys in line
+        order -- the order the engine wrote them in, so the last is the last value it emitted. A suppressed store (a
+        ``c`` row) is left out: the engine writes the count at the epoch's close, so its place among the writes is
+        unknown (:meth:`suppressed` reads those). The registered noise and the harness's pokes are left out too."""
+        out: dict = {}
+        for x, k in cls._state_rows(r, pred):
+            if x.k == "w":
+                out.setdefault(x.target, []).append(k)
+        return out
+
+    @classmethod
+    def suppressed(cls, r: dict, pred: dict) -> dict:
+        """``{target: [key, ...]}`` (sorted): the suppressed stores' ``last`` keys that no emitted row of the run
+        carries -- as NULL and STABLE dedupe a count into the matching ``w`` key. A same-value repeat's count carries
+        its site's emitted key and drops out, so whether a site repeats once or twice (timing) is never read; a count
+        that hid a value never emitted stays, as a set (its time is unknown). The counts themselves are never read."""
+        rows = cls._state_rows(r, pred)
+        emitted = {k for x, k in rows if x.k == "w"}
+        out: dict = {}
+        for x, k in rows:
+            if x.k == "c" and k not in emitted:
+                out.setdefault(x.target, set()).add(k)
+        return {t: sorted(v, key=T.WriteKey.sort_key) for t, v in out.items()}
+
     def state_check(self, covered: list, pred: dict) -> tuple:
-        """O2-STATE: (a) each unmasked target's write history (:meth:`history`) is identical across every covered run
-        of both sides -- the final value included, and the ORDER, which NULL's sets cannot see; (b) every covered
-        run's ``end_state``, read live on arrival in 61, is the frozen one."""
+        """O2-STATE: (a) each unmasked target's EMITTED write history (:meth:`history`) is identical across every
+        covered run of both sides -- the ORDER the writes were emitted in, which NULL's sets cannot see, and the last
+        value emitted -- and so are its suppressed stores' keys (:meth:`suppressed`, a set: a count's place in time is
+        unknown); (b) every covered run's ``end_state``, read live on arrival in 61, is the frozen one -- the values
+        actually handed to 61."""
         bad = []
-        hs = [(r, self.history(r, pred)) for r in covered]
+        hs = [(r, self.history(r, pred), self.suppressed(r, pred)) for r in covered]
         if hs:
-            r0, h0 = hs[0]
-            for r, h in hs[1:]:
+            r0, h0, s0 = hs[0]
+            for r, h, s in hs[1:]:
                 diff = sorted(t for t in set(h) | set(h0) if h.get(t) != h0.get(t))
                 if diff:
                     t = diff[0]
                     bad.append(f"(a) {r['side']}#{r['i']} vs {r0['side']}#{r0['i']}: {len(diff)} target(s) differ, "
                                f"first {t}: {[_fmt_key(k) for k in h.get(t, [])][:4]} vs "
                                f"{[_fmt_key(k) for k in h0.get(t, [])][:4]}")
+                diff = sorted(t for t in set(s) | set(s0) if s.get(t) != s0.get(t))
+                if diff:
+                    t = diff[0]
+                    bad.append(f"(a) {r['side']}#{r['i']} vs {r0['side']}#{r0['i']}: suppressed stores of "
+                               f"{len(diff)} target(s) differ, first {t}: {[_fmt_key(k) for k in s.get(t, [])][:4]} "
+                               f"vs {[_fmt_key(k) for k in s0.get(t, [])][:4]}")
         want = pred.get("end_state") or {}
         for r in covered:
             got = (r.get("outcome") or {}).get("end_state")
@@ -1443,9 +1476,11 @@ class O2Segment(ST.Segment):
                            + (f"differs at {', '.join(f'{t} {(got or {}).get(t)} (want {want.get(t)})' for t in diff[:4])}"
                               if got is not None else "was never read"))
         n = len(hs[0][1]) if hs else 0
+        ns = sum(len(v) for v in hs[0][2].values()) if hs else 0
         return (not bad, self.title("STATE"),
-                "; ".join(bad[:6]) or f"{len(covered)} runs: {n} targets' histories identical; the end state as "
-                                      f"frozen ({len(want)} variables)")
+                "; ".join(bad[:6]) or f"{len(covered)} runs: {n} targets' emitted histories identical, in order; "
+                                      f"{ns} suppressed store key(s) beyond them, identical; the end state as frozen "
+                                      f"({len(want)} variables)")
 
     # -- the report ---------------------------------------------------------------------------------------------
     def report_extra(self, run_dir: Path, session: dict, pred: dict, runs: list, checks: list) -> list:
