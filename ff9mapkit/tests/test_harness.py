@@ -12012,10 +12012,11 @@ def test_route_cross_walks_under_an_overlay_only_when_told(game):
         assert g.state.dialog_open, "the hint is the script's to close, not the walk's"
 
 
-def _ladder(fake, *, step=20.0, y=-200.0):
+def _ladder(fake, *, step=20.0, y=200.0):
     """Put him on 115's ladder as its Confirm does (e15 t3: DisableMove, then the climb loop): control off, climbing,
-    at ``y`` -- the top -2431, the bottom -101, ``step`` a field tick of Up (0: a ladder Up does not climb)."""
-    fake.ladder = {"top": -2431.0, "bottom": -101.0, "step": float(step)}
+    at ``y`` -- the published y RISES up this ladder, bottom 0 to top 2691 (measured: stock rehearsal o2-rh-115, all
+    three runs), ``step`` a field tick of Up (0: a ladder Up does not climb)."""
+    fake.ladder = {"top": 2691.0, "bottom": 0.0, "step": float(step)}
     fake.player[1] = float(y)
     fake.control = False
     fake.climbing = True
@@ -12023,7 +12024,7 @@ def _ladder(fake, *, step=20.0, y=-200.0):
 
 def test_climb_holds_up_until_the_page_and_nothing_else(game):
     """H2: on the ladder (control off: the climb runs without it) ``climb`` holds Up in bursts -- a hold and a wait in
-    one request each, and nothing else ever held or pressed (Down and Right DESCEND) -- and y falls with every burst
+    one request each, and nothing else ever held or pressed (Down and Right DESCEND) -- and y rises with every burst
     until the top, where the scene opens its page (384): ended "until". Break: hold Right as well."""
     fake = FakeGame(game)
     stop = threading.Event()
@@ -12039,10 +12040,10 @@ def test_climb_holds_up_until_the_page_and_nothing_else(game):
         finally:
             stop.set()
         steps = fake.executed[mark:]
-    assert rec["ended"] == "until" and fake.climbed and rec["y1"] < -2431, rec
+    assert rec["ended"] == "until" and fake.climbed and rec["y1"] > 2691, rec
     ys = [rec["y0"], *rec["ys"]]
-    assert all(b <= a for a, b in zip(ys, ys[1:])), ys
-    assert all(b < a for a, b in zip(ys, ys[1:]) if a > -2431), ys          # every burst below the top climbed
+    assert all(b >= a for a, b in zip(ys, ys[1:])), ys
+    assert all(b > a for a, b in zip(ys, ys[1:]) if a < 2691), ys           # every burst below the top climbed
     assert rec["frames"] == 30 * rec["bursts"] == 30 * len(rec["ys"]), rec
     pressed = [s for s in steps if s[0] in ("hold", "press", "release", "turn")]
     assert pressed and all(s == ["hold", "up", "30"] for s in pressed), steps
@@ -12060,7 +12061,7 @@ def test_climb_says_stalled_when_up_moves_nothing(game):
         _ladder(fake, step=0.0)
         published(g, lambda s: not s.control)
         rec = g.climb(until=lambda s: False, max_bursts=10)
-    assert rec["ended"] == "stalled" and rec["bursts"] == 3 and rec["ys"] == [-200.0] * 3, rec
+    assert rec["ended"] == "stalled" and rec["bursts"] == 3 and rec["ys"] == [200.0] * 3, rec
 
 
 def test_climb_says_control_when_he_slides_back(game):
@@ -12072,18 +12073,18 @@ def test_climb_says_control_when_he_slides_back(game):
 
     def slide(f):
         f.climbing, f.control = False, True
-        f.player[1] = -101.0
+        f.player[1] = 0.0
     with session(game, fake) as g:
         boot(g)
         g.warp(30820)
         _ladder(fake)
         published(g, lambda s: not s.control)
-        _o1_director(fake, stop, [(lambda f: f.player[1] < -700.0, slide)])
+        _o1_director(fake, stop, [(lambda f: f.player[1] > 700.0, slide)])
         try:
             rec = g.climb(until=lambda s: False, max_bursts=10)
         finally:
             stop.set()
-    assert rec["ended"] == "control" and rec["y1"] == -101.0 and rec["bursts"] <= 3, rec
+    assert rec["ended"] == "control" and rec["y1"] == 0.0 and rec["bursts"] <= 3, rec
 
 
 def test_climb_not_started_when_control_stays(game):
@@ -12358,7 +12359,7 @@ def test_o2_drive_climbs_after_the_ladder_confirm(game):
     step = out["steps"][0]
     assert step["outcome"] == "done" and step["climb"]["ended"] == "until" and fake.climbed, step
     ys = [step["climb"]["y0"], *step["climb"]["ys"][:-1]]          # the last read is the next field's
-    assert all(b < a for a, b in zip(ys, ys[1:])) and ys[-1] < -2000, step["climb"]
+    assert all(b > a for a, b in zip(ys, ys[1:])) and ys[-1] > 2000, step["climb"]
     assert not [s for s in fake.executed if s[0] == "hold" and s[1] in ("down", "right") and s[2] == "30"]
 
 

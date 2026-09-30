@@ -227,7 +227,7 @@ def _table() -> list:
         {"donor": 115, "sc": 1155, "steps": [
             {"kind": "confirm", "name": "the ladder, then the climb (e15)", "target": "115.e15",
              "expect": "control_lost", "then": "climb", "beat": "climbed", "goal": [0, 50], "start": [50, -968],
-             "avoid": ["115.e13"], "attempts": 2, "climb": {"top": -2431}}]},
+             "avoid": ["115.e13"], "attempts": 2}]},
         {"donor": 116, "sc": 1155, "steps": [
             {"kind": "trigger", "name": "the rooftop, west to x <= 900", "until": {"x_le": 900}, "goal": [630, 190],
              "start": [2718, -137]},
@@ -400,7 +400,9 @@ def draft_predictions() -> dict:
         "steps_default": {"attempts": 2, "interrupts": 1, "timeout_s": 20, "confirm_s": 4.0, "npcs": True,
                           "overlay_ok": False, "immediate": False, "settle": None, "lunge_ticks": 0,
                           "tolerance": 45, "min_depth": 40, "exit_wait_s": 8.0, "exit_slack": 40,
-                          "climb": {"burst_frames": 30, "max_bursts": 80, "stall_bursts": 3}},
+                          # stall_bursts 6: at the top he holds 3 bursts (y 2691) before the scene moves him on
+                          # (o2-rh-115, all 3 runs at ~60 fps), so 3 would VOID a run on a normal climb
+                          "climb": {"burst_frames": 30, "max_bursts": 80, "stall_bursts": 6}},
     }
 
 

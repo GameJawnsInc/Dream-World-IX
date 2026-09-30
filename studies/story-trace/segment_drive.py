@@ -918,11 +918,10 @@ class _Drive:
         if step.get("then") != "climb":
             return "done", out
         climb = dict(step.get("climb") or {})
-        top = climb.pop("top", None)
 
-        def until(s):
-            return ((s.dialog_open and bool(s.text.strip()) and not s.control) or s.field_id != fid
-                    or (top is not None and s.player_y is not None and s.player_y < top))
+        def until(s):                         # no y bound: the published y RISES up 115's ladder (o2-rh-115), and
+            return ((s.dialog_open and bool(s.text.strip()) and not s.control)      # the design's `y < -2431`
+                    or s.field_id != fid)                                            # could never fire
         res = g.climb("up", until=until, **climb)
         out["climb"] = res
         if res["ended"] in ("until", "field"):

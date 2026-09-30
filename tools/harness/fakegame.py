@@ -388,9 +388,11 @@ class FakeGame:
         self._arrive_face: float | None = None     # the firing region's ``arrive_face``, applied on arrival
         self._arrive_control = True                # the firing region's ``arrive_control``, applied on arrival
         #: A LADDER, where a test models one (115's climb: e15 t3 DisableMove, then the climb loop reads B_KEY(16)
-        #: every tick): ``{"top": y, "bottom": y, "step": units a field tick}`` -- y is ``player[1]``, the engine's
-        #: (smaller is higher). While `climbing` (control OFF, as the climb runs), each field tick moves him ``step``
-        #: up while Up or Left is held and down while Down or Right is (B_KEY(96) descends); past ``top`` he is
+        #: every tick): ``{"top": y, "bottom": y, "step": units a field tick}`` -- y is ``player[1]``, the ``pos[1]``
+        #: the agent publishes, and UP is the way from ``bottom`` to ``top``: on 115's real ladder it RISES as he climbs
+        #: (stock rehearsal o2-rh-115: 0 -> 2691 in 9 bursts, then held there), so the model reads the direction from
+        #: the pair rather than assuming one. While `climbing` (control OFF, as the climb runs), each field tick moves
+        #: him ``step`` up while Up or Left is held and down while Down or Right is (B_KEY(96) descends); past ``top`` he is
         #: `climbed` (control stays off: the scene at the top takes over), past ``bottom`` the climb ends with
         #: control back (the bottom's EnableMove). None: no ladder.
         self.ladder: dict | None = None
@@ -1090,14 +1092,16 @@ class FakeGame:
         if lad is None:
             self.climbing = False
             return
-        way = ((1 if self._is_held("down") or self._is_held("right") else 0)
-               - (1 if self._is_held("up") or self._is_held("left") else 0))
+        way = ((1 if self._is_held("up") or self._is_held("left") else 0)
+               - (1 if self._is_held("down") or self._is_held("right") else 0))
         if not way:
             return
-        self.player[1] += way * float(lad["step"]) * ticks
-        if self.player[1] < float(lad["top"]):
+        top, bottom = float(lad["top"]), float(lad["bottom"])
+        up = 1.0 if top > bottom else -1.0                 # the sign of a step toward the top in published y
+        self.player[1] += way * up * float(lad["step"]) * ticks
+        if (self.player[1] - top) * up > 0:
             self.climbing, self.climbed = False, True
-        elif self.player[1] > float(lad["bottom"]):
+        elif (bottom - self.player[1]) * up > 0:
             self.climbing, self.control = False, True
 
     def _player_plan(self) -> tuple:
