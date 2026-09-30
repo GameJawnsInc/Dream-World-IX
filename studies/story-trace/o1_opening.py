@@ -166,16 +166,17 @@ def _stock_lang(game=None):
 
 def build_check(pred: dict, build: Path = BUILD_DIR, stock_lang=None) -> tuple:
     """O1-BUILD: every member's built US .eb IS its donor's stock US .eb with only the in-chain ``Field()``
-    literals remapped (content.verbatim.remap_fields over the chain's donor -> fork map), and every other
-    language's file is that same US build -- what the kit ships (content/verbatim.py:65) and what the trace runs.
-    That the kit ships US bytecode where a donor's own language differs is a separate, known kit gap, not O1's
-    (the stock JP scripts of 50 and 52 differ in code; the census: studies/eb-roundtrip/FINDINGS.md)."""
+    literals remapped (content.verbatim.remap_fields over the chain's donor -> fork map) -- the bytes the trace
+    runs. Every other language's file is one of the kit's two generations, reported: its OWN donor language
+    remapped the same way (the kit since master 3d8b7f1b, "each language its own donor .eb"), or the US build
+    (the kit before it, which shipped US bytecode everywhere -- the deployed O1 chain was built so)."""
     from ff9mapkit.config import LANGS, ModLayout
     from ff9mapkit.content.verbatim import remap_fields
     stock_lang = stock_lang or _stock_lang()
     members, names = members_of(pred), {int(f): n for f, n in pred["names"].items()}
     retarget = {d: f for f, d in members.items()}
     lay, bad, n = ModLayout(build), [], 0
+    gens = {"own": 0, "us": 0}
     for fid, donor in sorted(members.items()):
         paths = {L: lay.eb_path(L, f"EVT_{names[fid]}.eb.bytes") for L in LANGS}
         src = stock_lang(donor, "us")
@@ -185,12 +186,20 @@ def build_check(pred: dict, build: Path = BUILD_DIR, stock_lang=None) -> tuple:
         us = paths["us"].read_bytes()
         if us != remap_fields(src, retarget):
             bad.append(f"{fid} ({donor}) us: not the donor with only its Field() literals remapped")
-        other = [L for L in LANGS if paths[L].read_bytes() != us]
-        if other:
-            bad.append(f"{fid}: {other} differ from its us build")
+        for L in LANGS:
+            if L == "us":
+                continue
+            got, own = paths[L].read_bytes(), stock_lang(donor, L)
+            if own is not None and got == remap_fields(own, retarget):
+                gens["own"] += 1
+            elif got == us:
+                gens["us"] += 1
+            else:
+                bad.append(f"{fid} ({donor}) {L}: neither its own donor language nor the us build, remapped")
         n += len(LANGS)
-    return (not bad, "O1-BUILD: every member's US .eb is its donor's with only in-chain Field() literals remapped, "
-                     "and each other language ships that same build", "; ".join(bad[:6]) or f"{n} files")
+    return (not bad, "O1-BUILD: every member's US .eb is its donor's with only in-chain Field() literals remapped; "
+                     "each other language is its own donor's (the kit now) or the us build (the kit before 3d8b7f1b)",
+            "; ".join(bad[:6]) or f"{n} files; other languages: {gens['own']} own-language, {gens['us']} us-build")
 
 
 def keys_check(pred: dict, stock) -> tuple:
