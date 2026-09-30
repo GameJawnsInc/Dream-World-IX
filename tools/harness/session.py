@@ -2230,6 +2230,63 @@ class Session:
             )
         return arrived
 
+    def climb(self, button: str = "up", *, until, burst_frames: int = 30, max_bursts: int = 80,
+              stall_bursts: int = 3, start_timeout: float = 5.0) -> dict:
+        """Climb the ladder a scene has put him on, by holding ``button`` (research/o2_design.md H2: 115's ladder --
+        its Confirm runs e15 t3, DisableMove, and the climb loop reads B_KEY(16) every tick) until ``until(state)``.
+
+        A CLIMB RUNS WITH CONTROL OFF. It first waits up to ``start_timeout`` for control to go (the press that
+        started it takes it); still held then, nothing is pressed and it ends ``"not-started"``. Then it holds
+        ``button`` in BURSTS -- ``hold <button> <burst_frames>`` and ``wait <burst_frames + 2>`` in one request, as
+        :meth:`walk` does -- and reads the state after each. First match ends it: ``until(st)`` -> "until"; the field
+        changed -> "field"; control back -> "control" (he slid to the bottom: its EnableMove); y moved less than 1u in
+        each of ``stall_bursts`` bursts in a row, counted from the first -> "stalled" (a ladder the button does not
+        climb); ``max_bursts`` spent -> "bursts". It never presses or holds anything but ``button``: Down and Right
+        DESCEND (B_KEY(96)).
+
+        Returns ``{"ended", "bursts", "frames", "y0", "y1", "ys"}``: the bursts and frames held, his y before the
+        first burst and after the last, and after each (``ys``)."""
+        button = _button(button)
+        st = self._require_field("climb")
+        field = st.field_id
+        out = {"ended": None, "bursts": 0, "frames": 0, "y0": st.player_y, "y1": st.player_y, "ys": []}
+        try:
+            st = self.wait_for(lambda s: not s.control or s.field_id != field, timeout=start_timeout,
+                               what="the climb to take control")
+        except HarnessError as err:
+            if "live samples" not in str(err):
+                raise                                 # a frozen or silent channel says nothing about the climb
+            out["ended"] = "not-started"
+            self._log(f"  climb: control still held {start_timeout:.0f}s after it was asked for: not started")
+            return out
+        out["y0"] = out["y1"] = last = st.player_y
+        still = 0
+        for n in range(1, max(1, int(max_bursts)) + 1):
+            self.send(f"hold {button} {int(burst_frames)}", f"wait {int(burst_frames) + 2}")
+            st = self.state
+            y = st.player_y
+            out["bursts"], out["frames"] = n, out["frames"] + int(burst_frames)
+            out["ys"].append(y)
+            out["y1"] = y
+            if until(st):
+                out["ended"] = "until"
+                return out
+            if st.field_id != field:
+                out["ended"] = "field"
+                return out
+            if st.control:
+                out["ended"] = "control"
+                return out
+            moved = abs(y - last) if None not in (y, last) else 0.0
+            still = still + 1 if moved < 1.0 else 0
+            last = y
+            if still >= stall_bursts:
+                out["ended"] = "stalled"
+                self._log(f"  climb: {still} bursts of {button} moved him nothing (y {y}): stalled")
+                return out
+        out["ended"] = "bursts"
+        return out
+
     def newgame(self, *, timeout: float = 120.0, playable: bool = False,
                 settle: float | None = None) -> State:
         """Title screen -> New Game -> in-game.
