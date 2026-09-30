@@ -5,6 +5,34 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a verbatim fork shipped the English `.eb` to all seven languages
+- **What broke.** `import --verbatim` / `import-chain --verbatim` captured only the donor's `us` event script, and
+  the build wrote it to every language. The bytecode is not language-identical: only 238 of 818 stock fields
+  match across the seven. So a Japanese, French, German, Italian or Spanish player of a verbatim fork ran the
+  English logic: its dialogue-window geometry, its text-pacing waits and its voice sound ids. Stock field 52's
+  jp `.eb` is 5112 bytes, and the fork shipped the 5124-byte us one in its place.
+- **The fix.** Import captures every language's donor in one pass over the bundle. `bin` keeps the us donor,
+  and each other language sits beside it as `X.verbatim_eb.<lang>.bin`. The files are found by name, so the
+  toml does not change. The build composes each language onto its own donor: the retarget, the field-load
+  inserts, `[music]`, `[[logic_edit]]`, `[[logic_add]]` and the additive blocks. Each pass locates its own site.
+  `--swap-player` now swaps every captured language, each on its own bytes, and `fetch-assets` never pairs a
+  fresh language file with a kept `bin`.
+- **When a language still ships the us logic, the build says so.** There are three cases:
+  - no donor was captured for that language, which is every fork imported before this change;
+  - composing onto that language's donor fails;
+  - an authored edit would land on a different instruction there.
+  The third is the new guard. An edit is located by op and old value inside its function, so where that
+  function differs, a same-valued instruction elsewhere could be patched silently. The build compares where
+  the edits landed, function shape and instruction ordinal, against us. Each case ships what every language
+  shipped before and warns with the languages named. `import` also warns when the install lacks a language.
+- **Upgrading an existing fork:** re-import it, or run `ff9mapkit fetch-assets --force` for a campaign. Until
+  then it builds exactly as before, with the warning.
+- Stock fields 50 and 52 were checked byte for byte. Each language now ships its own donor. Field 50's fr
+  differs from us only outside the code, and its jp differs in expression constants. Field 52's jp keeps its
+  own 5112-byte layout under a retarget. The non-English languages have not been playtested in game.
+- Docs: the "bytecode is language-identical" statements are corrected in `GLOSSARY.md`,
+  `CAMPAIGN_IMPORT.md`, `FORK_FIDELITY.md`, the field-script skill and the in-package docstrings.
+
 ### Fixed — replacing a kit-built field's `Main_Init` cut past entry 0
 - **What broke.** The blank template's entry 0 parks Main_Loop (tag 1) 65 bytes past the entry's declared end,
   and `add_reinit` lists tag 10 after it in the table but before it in the file. `EbScript` ended each function

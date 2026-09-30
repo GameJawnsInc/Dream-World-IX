@@ -33,7 +33,11 @@ have it *behave* as that story beat.
 > carried) **and now speaks** — it ships the donor's whole `.mes` so its index-txids resolve in the right
 > language (in-game proven on Dali Inn: renders + runs the real logic + English dialogue). The only remaining
 > item is the cosmetic entrance-fade model-streaming flicker on a debug-menu warp. (`content/verbatim.py` + the
-> `[verbatim_eb]` block.) **Both field-load levers fire in a verbatim fork** — `[startup]` (boot a beat) and
+> `[verbatim_eb]` block.) **Each language runs its own donor logic.** The bytecode is not language-identical:
+> only 238/818 stock fields match. Window geometry, text pacing and voice ids differ, and field 52's jp `.eb`
+> is 12 bytes shorter than us. So import captures every language's `.eb` beside `bin`, and the build composes
+> each onto its own layout. A fork imported before this ships the us logic to all seven, and the build warns.
+> Byte-level only: the non-English languages have not been playtested yet. **Both field-load levers fire in a verbatim fork** — `[startup]` (boot a beat) and
 > `[[on_entry]]` (a gated, once field-load beat) are armed onto the donor's real Main_Init (the shared
 > `build._apply_startup` / `_apply_on_entry`), and an `[[on_entry]]` **narration message now SHOWS too**
 > (in-game proven on a Dali-Inn verbatim fork): the authored line is appended to the donor `.mes` *above its
