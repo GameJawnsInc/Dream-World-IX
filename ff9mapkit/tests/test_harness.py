@@ -13165,7 +13165,8 @@ def test_o2_text_rule_reads_every_language_equal_as_ok():
 
 
 def test_o2_text_rule_counts_a_foreign_copy_as_known_kit_defect():
-    """Today's build: uk ships stock US text -- it predates master's per-language text pick (aa627d52). Not the
+    """A build older than master's per-language text pick (aa627d52) ships uk as stock US text (O2's first build did,
+    until its chain was rebuilt from repaired sidecars). Not the
     session language, and byte-equal to ANOTHER language's stock asset: a named, counted KNOWN-KIT-DEFECT line -- the
     rule still reads ok (no FAIL), never silently, and the CLI's line reads back from the detail. The line names the
     cause as it stands (a build to regenerate, or sidecars to repair), never a picker line or a fix still to come.

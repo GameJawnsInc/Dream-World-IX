@@ -853,23 +853,24 @@ route) VOIDs the run only when that evidence backs it; otherwise it is a finding
 - the session: O2-FROZEN, O2-COVER; O2-FORBIDDEN and O2-VOID-ASYM over every run, covered or not; then START,
   LADDER, CHAIN, RESIDUE, WRITES, NULL, STABLE, SEAM, MASKED, STATE and JOIN over the covered runs; THROW.
 
-**The uk text: a KNOWN-KIT-DEFECT, visible, not fixed here.** The build ships `uk/field/33.mes` as the stock US text.
-`dialogue._lang_score` gives us and uk one English stopword set (dialogue.py:374 on this branch), so the kit's text
-carry handed uk the us pick. O2-TEXT and P-TEXT compare each language with the asset the engine itself reads (its
+**The uk text: a KNOWN-KIT-DEFECT, now cleared by a rebuild.** The first build shipped `uk/field/33.mes` as the stock
+US text: `dialogue._lang_score` gives us and uk one English stopword set (dialogue.py:374 on this branch), so the kit's
+text carry handed uk the us pick. O2-TEXT and P-TEXT compare each language with the asset the engine itself reads (its
 ResourceManager path, `embeddedasset/text/<lang>/field/33.mes`), never with `extract_field_mes`. A mismatch in the
 session language (us) is a hard FAIL. A copy of another language's stock asset is a named, counted KNOWN-KIT-DEFECT
-line, and anything else is a FAIL. Today: 6 languages byte-equal, KNOWN-KIT-DEFECT 1 (uk ships stock us
-`4751874951`; stock uk is `8c94536b6c`), FAIL 0. The kit fix (each language picked by its resource path) is the
-lead's: it is on master since `aa627d52`, and the O2 fork's text sidecars have been repaired with
-`tools/refresh_verbatim_text.py` (`ac9a3d69`; each keeps a `.pre-refresh-20260930-104516` copy, and its us and uk now
-differ). This branch carries neither, and the build (its text written at 01:27 that day) predates both. A rebuild of
-the chain is therefore a PRECONDITION of the deploy: deployed as built, UK players would see US text in stock
-100-117. After it, O2-TEXT should read 7 byte-equal with no code change here.
+line, and anything else is a FAIL. On the first build: 6 languages byte-equal, KNOWN-KIT-DEFECT 1 (uk shipped stock us
+`4751874951`; stock uk is `8c94536b6c`), FAIL 0. The kit fix (each language picked by its resource path) is on master
+since `aa627d52`, and the O2 fork's text sidecars were repaired with `tools/refresh_verbatim_text.py` (`ac9a3d69`;
+each keeps a `.pre-refresh-20260930-104516` copy). This branch carries neither: only the sidecars matter to a build.
+The chain was then rebuilt from the repaired sidecars (`build-all` from master `ac9a3d69`; the old build is kept at
+`C:\gd\_ns_playtest\o2\build.pre-ukfix-20260930`), and O2-TEXT reads 7 byte-equal of 7, KNOWN-KIT-DEFECT 0, with no
+code change here -- the rule's promised outcome. The uk text is no longer a precondition of the deploy.
 
 **Status: draft -- rehearsals pending, freeze pending.** Nothing is deployed, launched or frozen.
 - `o2_alexandria.py --offline-check`: 5 PASS on the draft (126 files own-language; 48 key sites; 26 regions, 17
   hot-spots and all 21 gateways of the route fields registered; 14 goals, every step runnable and every crossing where
-  the route's order goes next), with the uk KNOWN-KIT-DEFECT line printed.
+  the route's order goes next); O2-TEXT 7 byte-equal of 7 on the rebuilt chain (the uk KNOWN-KIT-DEFECT line it
+  printed on the first build is gone).
 - `--preflight`: red, as expected: P-MANIFEST, P-DEPLOY, P-EB and P-FLOOR fail (nothing deployed); P-STOCK, P-TEXT
   ("no mod folder ships block 33") and P-RECOVERY pass.
 - [`o2_dryrun.py`](o2_dryrun.py): 86/86 as registered -- the design's section 8 (44 session cases, 4 unit cases),

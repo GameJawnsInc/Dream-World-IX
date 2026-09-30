@@ -2,7 +2,7 @@
  "what": "O2's fork chain: Alexandria's alxt zone, the disc-1 visit, verbatim, --ids 100-117, fresh ids 31220-31237 (PLAN.md, O2). Field 61 is no member: member(116)'s Field(61) (116 e2 t1 ip1702) is the seam, the segment's end on both sides.",
  "import": "py -m ff9mapkit import-chain 100 --verbatim --ids 100-117 --fresh-ids --id-base 31220 --name-prefix O2 --mod-folder FF9CustomMap --out C:/gd/_ns_playtest/o2/fork  (from ff9mapkit/, branch claude/story-trace-o2)",
  "build": "py -m ff9mapkit build-all C:/gd/_ns_playtest/o2/fork/campaign.toml --out C:/gd/_ns_playtest/o2/build",
- "deploy": "py tools/deploy_field.py C:/gd/_ns_playtest/o2/fork/<name>/<name>.field.toml --id <fork id> --name <name> --mod-folder FF9CustomMap, one member at a time, in id order (31220 first); owner-gated, after the lead's kit fix for the uk text and a rebuild (known_defects)",
+ "deploy": "py tools/deploy_field.py C:/gd/_ns_playtest/o2/fork/<name>/<name>.field.toml --id <fork id> --name <name> --mod-folder FF9CustomMap, one member at a time, in id order (31220 first); owner-gated, after the stock rehearsals and the freeze (the uk text defect is cleared: known_defects)",
  "mod_folder": "FF9CustomMap",
  "members": {
   "31220": 100,
@@ -49,7 +49,7 @@
  "relaunch_needed": true,
  "relaunch_why": "18 new FieldScene ids and 18 ForkDonorPatch rows are read at launch only",
  "known_defects": [
-  "uk/field/33.mes is stock us (dialogue._lang_score aliases uk to us); the lead's kit fix and a rebuild should land before the deploy: deployed as built, UK players see US text in stock 100-117"
+  "CLEARED: the first build shipped uk/field/33.mes as stock us (dialogue._lang_score aliased uk to us). Fixed on master aa627d52; the fork's sidecars repaired by tools/refresh_verbatim_text.py (ac9a3d69); the chain rebuilt from them (old build kept at C:/gd/_ns_playtest/o2/build.pre-ukfix-20260930); O2-TEXT 7 byte-equal of 7"
  ],
  "revert": {
   "scripts_dir": "C:\\gd\\Dream-World-IX\\tools\\scroll_out",
