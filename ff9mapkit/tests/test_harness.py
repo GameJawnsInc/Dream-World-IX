@@ -11445,3 +11445,200 @@ def test_o2_pick_for_scopes_rules_by_sc_and_once():
     assert O.pick_for({"options": ["Who?", "Queen Brahne", "Princess Garnet"], "active": [0, 1]}, 30820, o1)[0] == 1
     err = SD.RouteVoid("plain")
     assert str(err) == "plain" and (err.v, err.cell, err.by) == (None, None, None)
+
+
+def _segment_trace():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import segment_trace as ST
+    return ST
+
+
+#: Hippaul's :=2 (103 e18 t1 ip254), O2's one full-key noise pattern (research/o2_design.md 4.6)
+_ST_HIPPAUL = {"donor": 103, "m": 1, "src": "eb", "sid": 18, "tag": 1, "off": 51, "target": "Global.Byte[472]",
+               "value": 2, "ip": 254, "op": ":=", "why": "Hippaul's :=2 never propagates"}
+
+
+def _st_w(fld, byte, old, new, *, width="Byte", sid=0, tag=0, ip=6, don=None, bit=-1):
+    return {"k": "w", "f": 10, "p": 0, "m": 1, "fld": fld, "don": fld if don is None else don, "sc": 0, "src": "eb",
+            "sid": sid, "uid": sid, "lvl": 0, "ip": ip, "tag": tag, "add": 0, "byte": byte, "w": width, "bit": bit,
+            "old": old, "new": new, "same": int(old == new)}
+
+
+def _st_e(why, fld=70):
+    return {"k": "e", "f": 0, "p": 0, "m": 1, "fld": fld, "don": fld, "sc": 0, "why": why}
+
+
+def _st_r(fld, byte, old, new):
+    return {"k": "r", "f": 0, "p": 0, "m": 1, "fld": fld, "don": fld, "sc": 0, "byte": byte, "old": old, "new": new,
+            "why": "frame"}
+
+
+def _st_c(w, n, last):
+    """The count row the engine closes ``w``'s site with (its fld/don/m are the site's)."""
+    return {"k": "c", "f": 0, "p": 0, "sc": 0, **{k: w[k] for k in ("fld", "don", "m", "src", "sid", "tag", "ip",
+                                                                    "byte", "w", "bit")}, "n": n, "last": last}
+
+
+def _st_rows(*rows):
+    from ff9mapkit import storytrace as T
+    return T.parse_text("".join(json.dumps(r) + "\n" for r in rows))
+
+
+def test_key_matches_refuses_unknown_fields():
+    """A full-key noise pattern (research/o2_design.md 4.6) names EXACTLY the eight WriteKey fields, plus the
+    metadata ip/op/why. A typo (``offset``), a missing field, an operator (a list, a range) or a value of the wrong
+    type raises -- never a silently wider (or dead) match. It matches only the aligned key equal in all eight."""
+    import dataclasses
+    from ff9mapkit.storytrace import WriteKey
+    ST = _segment_trace()
+    k = WriteKey(103, 1, "eb", 18, 1, 51, "Global.Byte[472]", 2)
+    assert ST.key_matches(k, _ST_HIPPAUL)
+    assert ST.key_matches(k, {f: _ST_HIPPAUL[f] for f in ST.KEY_FIELDS})       # the metadata is the checks', not ours
+    assert not ST.key_matches(dataclasses.replace(k, aligned=False), _ST_HIPPAUL)
+    for field, other in (("donor", 104), ("m", 2), ("src", "cs"), ("sid", 19), ("tag", 2), ("off", 15),
+                         ("target", "Global.Byte[473]"), ("value", 3)):
+        assert not ST.key_matches(dataclasses.replace(k, **{field: other}), _ST_HIPPAUL), field
+    typo = {**{f: v for f, v in _ST_HIPPAUL.items() if f != "off"}, "offset": 51}
+    for bad, match in ((typo, r"unknown field\(s\) \['offset'\]"),
+                       ({f: v for f, v in _ST_HIPPAUL.items() if f != "value"}, r"missing \['value'\]"),
+                       ({**_ST_HIPPAUL, "ip_range": [0, 300]}, "unknown field"),
+                       ({**_ST_HIPPAUL, "value": [2, 3]}, "not a plain int"),
+                       ({**_ST_HIPPAUL, "m": True}, "not a plain int"),
+                       ({**_ST_HIPPAUL, "off": "51"}, "not a plain int")):
+        with pytest.raises(ValueError, match=match):
+            ST.key_matches(k, bad)
+
+
+def test_is_noise_keeps_o1s_legacy_form():
+    """O1's registered noise is ``{not_m, target, why}``: every key of that target whose mode is NOT ``not_m`` (scene
+    336's AI). A FIELD-mode key of the same byte is not noise -- the O1 gate's G6 mutant, as a unit. The full-key form
+    matches its one key; a pattern of neither shape raises, even when another pattern matched first."""
+    import dataclasses
+    from ff9mapkit.storytrace import WriteKey
+    ST = _segment_trace()
+    O, o1 = _o1_pred()
+    assert O.is_noise is ST.is_noise
+    battle = WriteKey(50, 2, "eb", 1, -1, 900, "Global.Byte[206]", 17)
+    assert ST.is_noise(battle, o1) and ST.is_noise(dataclasses.replace(battle, target="Global.Byte[199]"), o1)
+    assert not ST.is_noise(dataclasses.replace(battle, m=1), o1)                  # field mode: O1's noise is m != 1
+    assert not ST.is_noise(dataclasses.replace(battle, target="Global.Byte[205]"), o1)
+    both = {"noise": [*o1["noise"], _ST_HIPPAUL]}
+    hippaul = WriteKey(103, 1, "eb", 18, 1, 51, "Global.Byte[472]", 2)
+    assert ST.is_noise(battle, both) and ST.is_noise(hippaul, both)
+    assert not ST.is_noise(dataclasses.replace(hippaul, off=15), both)            # Hippaul's :=1 site is story
+    with pytest.raises(ValueError):
+        ST.is_noise(battle, {"noise": [*o1["noise"], {"target": "Global.Byte[206]", "why": "no mode rule"}]})
+
+
+def test_cut_at_start_keeps_residue_out_of_the_kept_rows():
+    """The front cut (research/o2_design.md 5.2): the run starts at its first ``w`` row in the start PLACE. The warp's
+    residue in field 70, a stray field-70 write and that write's closing count are cut into ``pre``; the epochs stay;
+    residue AFTER the start stays among the kept rows (O2-RESIDUE judges it). On the fork side the place is the
+    member's frozen donor."""
+    ST = _segment_trace()
+    w70 = _st_w(70, 13, 0, 2, sid=3, ip=40)
+    start = _st_w(100, 23, 1, 0, width="Bit", bit=191, sid=0, ip=36)
+    sc = _st_w(100, 0, 1000, 1150, width="UInt16", sid=7, tag=1, ip=1046)
+    rows = _st_rows(_st_e("arm"), _st_r(70, 0, 0, 232), _st_r(70, 1, 0, 3), _st_r(70, 2, 0, 102), w70, start, sc,
+                    _st_r(100, 5, 0, 9), _st_c(w70, 2, 2), _st_c(sc, 1, 1150), _st_e("off", 100))
+    kept, at, pre = ST.cut_at_start(rows, 100, {})
+    assert at == 6, at
+    assert [r.line for r in pre] == [2, 3, 4, 5, 9], [(r.line, r.k) for r in pre]
+    assert [r.line for r in kept] == [1, 6, 7, 8, 10, 11], [(r.line, r.k) for r in kept]
+    assert [(r.byte, r.old, r.new) for r in pre if r.k == "r"] == [(0, 0, 232), (1, 0, 3), (2, 0, 102)]
+    fork = _st_rows(*[dict(r, fld=31220) if r["fld"] == 100 else r for r in (
+        _st_e("arm"), _st_r(70, 0, 0, 232), start, sc, _st_e("off", 100))])
+    kept, at, pre = ST.cut_at_start(fork, 100, {31220: 100})
+    assert at == 3 and [r.line for r in pre] == [2] and [r.line for r in kept] == [1, 3, 4, 5]
+    assert ST.cut_at_start(fork, 100, {})[1] is None             # without the members, 31220 is no place 100
+
+
+def test_cut_at_start_needs_a_w_row_in_the_start_place():
+    """Only a ``w`` row starts the run: residue landing in the start field before any store there is ``pre``, never
+    the start (it would hide itself among the kept rows). A run with no ``w`` row in the start place is not cut at
+    all, and says so with ``at`` None -- the analysis's "never reached the start field"."""
+    ST = _segment_trace()
+    rows = _st_rows(_st_e("arm"), _st_r(70, 0, 0, 232), _st_r(100, 1, 0, 3), _st_w(70, 13, 0, 2), _st_e("off"))
+    kept, at, pre = ST.cut_at_start(rows, 100, {})
+    assert (at, pre) == (None, []) and kept == rows
+    rows = _st_rows(_st_e("arm"), _st_r(100, 1, 0, 3), _st_w(100, 23, 1, 0, width="Bit", bit=191), _st_e("off"))
+    kept, at, pre = ST.cut_at_start(rows, 100, {})
+    assert at == 3 and [(r.line, r.k) for r in pre] == [(2, "r")] and [r.line for r in kept] == [1, 3, 4]
+
+
+def test_cut_at_end_judges_frozen_places():
+    """The end cut on FROZEN places (research/o2_design.md 5.2): the run ends at its first ``w``/``r`` row whose
+    place is an end place; after it only the epochs and the closing counts of sites outside the end places stay. A
+    member whose donor is an end place ends the run as the real field does. O1's wrapper is this with no members
+    (its end field 100 is no member's donor)."""
+    ST = _segment_trace()
+    O, _o1 = _o1_pred()
+    roof = _st_w(31236, 6, 0, 2, sid=2, tag=1, ip=765)
+    real61 = _st_w(61, 23, 1, 0, width="Bit", bit=191)
+    rows = _st_rows(_st_e("arm"), roof, real61, _st_w(61, 13, 0, 3, ip=22), _st_c(roof, 1, 2), _st_c(real61, 1, 0),
+                    _st_e("off", 61))
+    kept, at = ST.cut_at_end(rows, [61], {31236: 116})
+    assert at == 3 and [r.line for r in kept] == [1, 2, 5, 7], [(r.line, r.k) for r in kept]
+    assert O.cut_at_end(rows, 61) == ST.cut_at_end(rows, [61], {})
+    member = _st_rows(_st_e("arm"), _st_w(31220, 8, 0, 125), _st_e("off", 31220))
+    assert ST.cut_at_end(member, [100], {31220: 100})[1] == 2 and ST.cut_at_end(member, [100], {})[1] is None
+
+
+def _st_eb(*entries) -> bytes:
+    """A .eb whose entries are ``[(tag, eb-src text), ...]``, assembled by the kit (as tests/test_storytrace.py)."""
+    import struct
+    from ff9mapkit.eb import cmdasm
+    from ff9mapkit.eb.model import pack_entry
+    bodies = [pack_entry(0, [(t, cmdasm.assemble_block(src)) for t, src in funcs]) for funcs in entries]
+    head = bytearray(0x80)
+    head[0:2], head[2], head[3] = b"EV", 2, len(entries)
+    table, pos = b"", len(entries) * 8
+    for body in bodies:
+        table += struct.pack("<HHBBH", pos, len(body), 0, 0, 0)
+        pos += len(body)
+    return bytes(head) + table + b"".join(bodies)
+
+
+def test_row_keys_maps_every_joined_row_to_its_digest_key():
+    """``row_keys`` (research/o2_design.md 5.3): every row the digest keyed maps, by (site, value), to the digest's
+    own JOINED key -- the donor through the frozen members, ``off`` the function offset -- keys and seam keys alike;
+    a counter site gives one key per value, a count row its suppressed ``last``. A row the digest did not key (a join
+    failure, a masked site) has no entry."""
+    from ff9mapkit import storytrace as T
+    from ff9mapkit.eb import EbScript
+    ST = _segment_trace()
+    main = ("SET({Global.UInt16[0] const(1150) B_LET B_EXPR_END})\n"          # +0
+            "SET({Global.Byte[303] B_POST_PLUS B_EXPR_END})\n"                 # +8
+            "SET({Global.Bit[191] const(0) B_LET B_EXPR_END})\n"               # +14 (masked: boot_scratch)
+            "SET({Global.Int16[2] const(200) B_LET B_EXPR_END})\nRET()")       # +22
+    donor = _st_eb([(0, main)])
+    entry = EbScript.from_bytes(donor).entries[0]
+    ip0 = entry.func_by_tag(0).abs_start - entry.abs_start                      # the engine's ip of +0
+    stock = {100: T.ScriptIndex(donor, field_id=100), 61: T.ScriptIndex(donor, field_id=61)}.get
+    fork = T.mod_script_source([], fallback=stock, explicit={31220: donor})
+
+    def run(fld):
+        ctr = [_st_w(fld, 303, v, v + 1, ip=ip0 + 8, don=100) for v in (0, 1)]
+        return _st_rows(_st_e("arm"),
+                        _st_w(fld, 0, 1000, 1150, width="UInt16", ip=ip0, don=100),           # line 2
+                        *ctr,                                                                  # 3, 4: one site
+                        _st_w(fld, 23, 1, 0, width="Bit", bit=191, ip=ip0 + 14, don=100),     # 5: masked
+                        _st_w(fld, 2, 102, 200, width="Int16", ip=ip0 + 23, don=100),         # 6: one byte off
+                        _st_w(fld, 2, 102, 200, width="Int16", ip=ip0 + 22, don=100),         # 7: the exit
+                        _st_w(61, 2, 200, 200, width="Int16", ip=ip0 + 22),                   # 8: real 61
+                        _st_c(ctr[0], 3, 5),                                                   # 9: the count
+                        _st_e("off", 61))
+    s, f = run(100), run(31220)
+    ds = T.digest("S#1", s, scripts=stock)
+    df = T.digest("F#2", f, scripts=fork, donor_scripts=stock, members={31220: 100})
+    for rows, d, n_seam in ((s, ds, 0), (f, df, 1)):
+        rk = ST.row_keys(d)
+        assert len(rk) == len(d.keys) + len(d.seam_keys) and len(d.seam_keys) == n_seam, (rk, d.seam_keys)
+        got = {r.line: ST.key_of(rk, r) for r in rows if r.k in ("w", "c")}
+        assert {line: (k.donor, k.off, k.target, k.value) for line, k in got.items() if k is not None} == {
+            2: (100, 0, "Global.UInt16[0]", 1150), 3: (100, 8, "Global.Byte[303]", 1),
+            4: (100, 8, "Global.Byte[303]", 2), 7: (100, 22, "Global.Int16[2]", 200),
+            8: (61, 22, "Global.Int16[2]", 200), 9: (100, 8, "Global.Byte[303]", 5)}
+        assert got[5] is None and got[6] is None                  # masked; one byte off a real store (a failure)
+        assert (got[8] in d.seam_keys) == bool(n_seam) and got[7] in d.keys
+        assert len(d.failures) == 1 and d.failures[0][0].line == 6

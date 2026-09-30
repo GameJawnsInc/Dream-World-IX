@@ -48,7 +48,10 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(HERE))
 
 from ff9mapkit import storytrace as T                                   # noqa: E402
+import segment_trace as ST                                              # noqa: E402
 from segment_drive import RouteVoid, pick_for                           # noqa: E402,F401 -- moved; re-exported
+from segment_trace import (RECOVERY_FIELD, SIDES, THROWS, WHERE, is_noise, members_of,  # noqa: E402,F401
+                           verdict, wkey)
 
 #: v1 (sha 49fd880f) walked to the candle region's CENTRE, which is the table: session story-o1 run 1 stood in the
 #: region with the "?" up, pressed against the table (the owner, watching), and went VOID. v2 walks to that spot.
@@ -61,18 +64,13 @@ MANIFEST = HERE / "o1_forks.json"
 SESSION_FILE = "o1_session.json"
 CHAIN_DIR = Path(r"C:\gd\_ns_playtest\o1\fork")
 BUILD_DIR = Path(r"C:\gd\_ns_playtest\o1\build")
-SIDES = ("S", "F")
-THROWS = {"NullReferenceException", "InvalidCastException", "IndexOutOfRangeException", "DivideByZeroException",
-          "ArgumentOutOfRangeException", "KeyNotFoundException"}
-WHERE = ("EventEngine", "EBin", "StoryTrace", "HarnessAgent")
+# SIDES, THROWS and WHERE live in segment_trace (imported above).
 
 
 # ======================================================================== the predictions
 def chain_from_campaign(campaign: Path = CHAIN_DIR / "campaign.toml") -> tuple:
     """``({fork id: donor}, {fork id: member name})`` of the built chain."""
-    import tomllib
-    d = tomllib.loads(Path(campaign).read_text(encoding="utf-8"))
-    return ({int(f["id"]): int(f["source"]) for f in d["field"]}, {int(f["id"]): f["name"] for f in d["field"]})
+    return ST.chain_from_campaign(campaign)
 
 
 def draft_predictions() -> dict:
@@ -141,28 +139,11 @@ def freeze(path: Path = PREDICTIONS) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def members_of(pred: dict) -> dict:
-    return {int(f): int(d) for f, d in pred["members"].items()}
-
-
-def wkey(k: dict) -> T.WriteKey:
-    return T.WriteKey(k["donor"], k["m"], k["src"], k["sid"], k["tag"], k["off"], k["target"], k["value"])
-
-
-def is_noise(k: T.WriteKey, pred: dict) -> bool:
-    return any(k.m != n["not_m"] and k.target == n["target"] for n in pred["noise"])
+# members_of, wkey and is_noise live in segment_trace (imported above); is_noise keeps O1's {not_m, target, why}.
 
 
 # ======================================================================== offline: the build and the keys
-def _stock_lang(game=None):
-    from ff9mapkit.extract import EventBundle
-    bundles: dict = {}
-
-    def get(fid: int, lang: str) -> bytes | None:
-        if lang not in bundles:
-            bundles[lang] = EventBundle(game, lang=lang)
-        return bundles[lang].eb_for_id(fid)
-    return get
+_stock_lang = ST.stock_lang
 
 
 def build_check(pred: dict, build: Path = BUILD_DIR, stock_lang=None) -> tuple:
@@ -435,9 +416,7 @@ def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=Non
     raise HarnessError(f"the run's budget ran out in field {g.state.field_id}")
 
 
-#: Where a run is taken before the soft reset back to the title: the Southern Ring hub, a field that gives control
-#: at once (the F-REDEPLOY sessions warped there after New Game).
-RECOVERY_FIELD = 4600
+# RECOVERY_FIELD (4600, the Southern Ring hub) lives in segment_trace (imported above).
 
 
 def end_run(g, log: list, *, recovery: int = RECOVERY_FIELD) -> None:
@@ -586,13 +565,9 @@ def run(g) -> None:
 
 # ======================================================================== reading a session (pure, offline)
 def cut_at_end(rows: list, end_field: int) -> tuple:
-    """``(the run up to its first write in the end field, that row's line or None)``. Kept after the cut: the epoch
-    rows (so the run still reads closed) and the epoch's closing ``c`` counts of every site OUTSIDE the end field
-    (a site is per field, so none of those was written after the cut)."""
-    at = next((r.line for r in rows if r.k in ("w", "r") and r.fld == end_field), None)
-    if at is None:
-        return rows, None
-    return [r for r in rows if r.line < at or r.k == "e" or (r.k == "c" and r.fld != end_field)], at
+    """``(the run up to its first write in the end field, that row's line or None)``: segment_trace's cut on frozen
+    places, with no members -- O1's end field 100 is no member's donor, so this is O1's field rule exactly."""
+    return ST.cut_at_end(rows, [end_field], {})
 
 
 def read_session(run_dir, pred: dict, *, session: dict | None = None, stock=None) -> list:
@@ -686,14 +661,7 @@ def judge(runs: list, pred: dict, *, frozen: tuple) -> list:
     return checks
 
 
-def verdict(checks: list) -> str:
-    fails = [w.split(":")[0] for ok, w, _d in checks if ok is False]
-    voids = [w.split(":")[0] for ok, w, _d in checks if ok is None]
-    if fails:
-        return "NOT PROVEN: " + ", ".join(fails)
-    if voids:
-        return "VOID: " + ", ".join(voids)
-    return "PROVEN"
+# verdict lives in segment_trace (imported above).
 
 
 def analyse(run_dir, *, pred_path: Path | None = None, stock=None) -> tuple:
