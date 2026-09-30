@@ -11868,3 +11868,143 @@ def test_fake_watched_bits_read_the_story_bytes(game):
         g.flag(3717)
         st = published(g, lambda s: s.flag(3717) is True)
         assert st.flag(3718) is True
+
+
+class _StampFake(FakeGame):
+    """The fake with WALL-CLOCK stamps, for the tests that time a driver against a grant: every executed step as
+    ``(time, frame, step)`` in ``stamped``, and a ``t`` on every entry of `fired`. The loop's own pace is ``fps``
+    frames a wall second (240), not the 60 fps render clock -- a bound in its frames converts at that."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.stamped: list = []
+
+    def _execute(self, step: list[str]) -> None:
+        self.stamped.append((time.time(), self.frame, list(step)))
+        super()._execute(step)
+
+    def _enter_regions(self) -> None:
+        n = len(self.fired)
+        super()._enter_regions()
+        for f in self.fired[n:]:
+            f["t"] = time.time()
+
+
+def test_route_cross_handoff_returns_at_the_control_loss(game):
+    """H1: a door whose ExitField takes control on the step into it, its field change 50 frames later (the fade), into
+    a destination that arrives with control OFF (an arrival scene). With ``handoff`` the crossing returns DURING the
+    fade: ``landed`` None, ``handoff`` True, and ``lost`` -- the first state the call read with control gone -- stands
+    inside the door, in the old field, before the field changes; nothing raises, and the field then changes into
+    the scene. The control: without ``handoff`` the same crossing waits for the destination to become playable and
+    raises "never became playable". Break: drop the handoff branch in route_to's landing (the walk waits the landing
+    out and raises)."""
+    from ff9mapkit.content import doorface, pathfind
+    door = _rect(300, -150, 600, 150)
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0), "arrive_control": False}]}
+    fake.exit_frames = 50
+    wm = _flat_bgi()
+    goal = (380, 0)                                        # 80u inside: the hold ends just past the door's edge
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -300, 0)
+        rec = g.route_cross(*goal, zone=door, smooth=True, walkmesh=wm, prior=_prior(), timeout=2.0, handoff=True)
+        fired = fake.fired[-1]
+        assert rec["landed"] is None and rec["handoff"] is True and rec["during"] == "walk", rec
+        lost = rec["lost"]
+        assert lost is not None and lost["field"] == 30820 and lost["control"] is False, rec
+        assert doorface.region_contains(lost["x"], lost["z"], door), lost
+        assert fired["frame"] <= lost["frame"] < fired["frame"] + fake.exit_frames, (fired, lost)
+        st = published(g, lambda s: s.field_id == 30821)
+        assert not st.control, "the destination keeps control: its arrival scene's to give back"
+        # the control: the same crossing, waited out, never becomes playable
+        g.warp(30820)
+        _stand(g, fake, -300, 0)
+        with pytest.raises(HarnessError, match="never became playable"):
+            g.route_cross(*goal, zone=door, smooth=True, walkmesh=wm, prior=_prior(), timeout=2.0)
+    assert pathfind.poly_gap(goal[0], goal[1], door) < 0 and len(fake.fired) == 2
+
+
+def test_route_to_handoff_returns_when_a_trigger_takes_control(game):
+    """H1: a WALK-IN trigger across the route (the fake's ``take``: its tag 2 takes control, nothing warps). With
+    ``handoff`` route_to returns as soon as the walk's step that entered it has settled -- ``during`` "walk",
+    ``landed`` None, ``handoff`` True, ``lost`` inside the trigger -- well inside its timeout; the control waits
+    the whole timeout for a landing or control that never comes (``landed`` None either way). Break: drop the
+    handoff branch (both wait the timeout)."""
+    band = _rect(-60, -600, 60, 600)
+    fake = _StampFake(game)
+    fake.regions = {30820: [{"zone": band, "take": True}]}
+    timeout = 4.0
+    got = {}
+    with session(game, fake) as g:
+        boot(g)
+        for handoff in (True, False):
+            g.warp(30820)
+            _stand(g, fake, -400, 0)
+            n = len(fake.fired)
+            rec = g.route_to(400.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), timeout=timeout, handoff=handoff)
+            back = time.time()
+            assert len(fake.fired) == n + 1 and fake.fired[n]["to"] is None, fake.fired
+            got[handoff] = (rec, back - fake.fired[n]["t"])
+    for handoff, (rec, waited) in got.items():
+        assert rec["during"] == "walk" and rec["landed"] is None and rec["handoff"] is handoff, rec
+        assert rec["lost"] is not None and -60 <= rec["lost"]["x"] <= 60, rec["lost"]
+    assert got[True][1] < timeout / 4, got[True][1]          # returned at the loss
+    assert got[False][1] >= timeout, got[False][1]           # waited the timeout out
+
+
+def test_route_to_settle_zero_walks_on_the_first_control_sample(game):
+    """H1: control granted at a known moment, the basis cached (no calibration) and the rate measured: with
+    ``settle=0`` the walk's first hold is executed within 0.2 s of the grant -- counted in the fake's own loop frames
+    (240 a second), so a loaded machine cannot fail it by being slow; the control (default settle) is not before
+    SETTLE's 1.0 s of WALL time, as SETTLE is a wall-clock hold. Break: stop passing ``settle`` to wait_control."""
+    fake = _StampFake(game)
+    got = {}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -300, 0)
+        g._axes[30820] = _prior()
+        g.rate(require=True)
+        for settle, goal in ((0.0, 300.0), (None, -300.0)):
+            fake.control = False
+            published(g, lambda s: not s.control)
+            grant: dict = {}
+
+            def director():
+                time.sleep(0.3)
+                grant["frame"], grant["t"] = fake.frame, time.time()
+                fake.control = True
+            threading.Thread(target=director, daemon=True).start()
+            mark = len(fake.stamped)
+            rec = g.route_to(goal, 0.0, walkmesh=_flat_bgi(), prior=_prior(), settle=settle, timeout=10.0)
+            assert rec["reached"] and rec["lost"] is None, rec
+            t, frame, step = next(s for s in fake.stamped[mark:] if s[2][0] == "hold")
+            got[settle] = (t - grant["t"], (frame - grant["frame"]) / fake.fps)
+    assert got[0.0][1] <= 0.2, got
+    assert got[None][0] >= g.SETTLE, got
+
+
+def test_route_cross_walks_under_an_overlay_only_when_told(game):
+    """H1: O1's overlay rule on route_cross. An async hint up WITH control (106's "Over here!", [TIME=45]): by default
+    route_cross's opening wait reads it as the scene still owning him and times out; ``overlay_ok=True`` walks
+    through the door (its fade included) and the hint stays the script's to close. Break: stop passing
+    ``overlay_ok`` on to route_to."""
+    door = _rect(300, -150, 600, 150)
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0)}]}
+    fake.exit_frames = 50
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -300, 0)
+        fake.say("Puck\n“Over here!”")
+        published(g, lambda s: s.dialog_open and s.control)
+        with pytest.raises(HarnessError, match="control to return"):
+            g.route_cross(450.0, 0.0, zone=door, smooth=True, walkmesh=_flat_bgi(), prior=_prior(), timeout=2.0)
+        assert not fake.fired
+        rec = g.route_cross(450.0, 0.0, zone=door, smooth=True, walkmesh=_flat_bgi(), prior=_prior(), timeout=20.0,
+                            overlay_ok=True)
+        assert rec["landed"] == 30821 and [f["to"] for f in fake.fired] == [30821], rec
+        assert g.state.dialog_open, "the hint is the script's to close, not the walk's"

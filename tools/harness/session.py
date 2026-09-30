@@ -322,6 +322,10 @@ class Session:
         self._press_span: tuple | None = None
         #: (time, byte size) of Unity's log, noted on the same reads -- see UNITY_NOTE_EVERY.
         self._unity_notes: collections.deque = collections.deque(maxlen=UNITY_NOTES)
+        #: The control-loss probe a routed walk arms (:meth:`route_to`, :meth:`route_cross`): ``{"live", "lost"}`` --
+        #: once ``live``, the first state ANY read of the call returns with control gone is kept in ``lost``
+        #: (:meth:`_observe`), so the record says where control went whichever wait read it. None: no walk armed one.
+        self._loss_probe: dict | None = None
         self.channel.observer = self._observe
         #: steps.jsonl -- every request with its accept/ack latency. Drops are counted, never raised.
         self._steps = StepLog()
@@ -793,6 +797,10 @@ class Session:
         drops them. Here and not at the verbs, so no way of leaving can forget to."""
         self._ring.push(st)
         self._clock.observe(st)
+        probe = self._loss_probe
+        if probe is not None and probe["live"] and probe["lost"] is None and not st.control:
+            probe["lost"] = {"frame": st.frame, "field": st.field_id, "x": st.player_x, "z": st.player_z,
+                             "control": st.control}
         inp = st.raw.get("input")
         self._dash_inh = isinstance(inp, dict) and inp.get("dash_inh") == 1
         self._note_unity_log()
@@ -2737,6 +2745,19 @@ class Session:
             return None
         return self.expect_field_change(timeout=timeout, was=origin, record=record)
 
+    def _landed(self, origin: int, timeout: float, record: dict, handoff: bool) -> int | None:
+        """A routed walk's landing after control went on ``origin``: :meth:`_await_landing`'s wait -- or, ``handoff``
+        (route_to's), none at all: the field as it stands, the new id if it has already changed (``changed_to`` too),
+        else None, and the record marked ``handoff``. The caller sits through the rest itself."""
+        if not handoff:
+            return self._await_landing(origin, timeout, record)
+        record["handoff"] = True
+        now = self.state.field_id
+        if now == origin or now <= 0:
+            return None
+        record["changed_to"] = now
+        return now
+
     def _route_chunks(self, legs, hazards, blockers=()) -> list:
         """Split each routed leg into walk_to targets ``(x, z, tolerance)`` short enough that the L of
         one-axis steering cannot reach a hazard: a chunk's corner strays at most half its length off
@@ -3970,10 +3991,24 @@ class Session:
     def route_to(self, x: float, z: float, *, avoid=(), margin: float | None = None,
                  tolerance: float = 45.0, walkmesh=None, prior="stock", timeout: float = 20.0,
                  unstick: bool = False, smooth: bool = False, zone=None, npcs: bool = False, face=None,
-                 face_window=None, overlay_ok: bool = False) -> dict:
+                 face_window=None, overlay_ok: bool = False, settle: float | None = None,
+                 handoff: bool = False) -> dict:
         """Walk to (x, z) along a route over the field's walkmesh that keeps out of ``avoid``.
 
         ``overlay_ok`` is :meth:`wait_control`'s: start the walk under an async hint window he can walk with.
+        ``settle`` is its too: how long control must hold before the walk starts (None: SETTLE; 0: walk on the first
+        sample with control -- a driver that must leave at once, research/o2_design.md H1).
+
+        ``handoff`` (opt-in; research/o2_design.md H1): when control goes away mid-walk (a step, a probe, a wait, the
+        facing step) or the field changes, return AT ONCE -- no wait for the landing, for control to come back, or for
+        the destination to become playable (:meth:`_await_landing` is not called): ``landed`` is the new id if the field
+        has already changed, else None, and ``handoff`` True. The caller judges the crossing, and sits through any
+        arrival scene, itself. Off, the landing is waited for as ever.
+
+        Always, handoff or not: ``lost`` is ``{"frame", "field", "x", "z", "control"}`` of the FIRST state any read of
+        the call returned with control gone, once control was held at its start (the loss probe, :meth:`_observe`) --
+        where he stood when a door's ExitField, a walk-in trigger or a scene took control -- or None when control never
+        went.
 
         ``avoid`` is a list of polygons (world ``[x, z]`` corners -- a field's gateway zones as
         ``eventscan.scan_gateways`` decodes them); the route stays ``margin`` clear of each, except a
@@ -4162,8 +4197,25 @@ class Session:
         engine's formula, doorface.gate_value) -- None when his yaw before the step was unknown (a chunked walk, or
         none of the walk's holds measured), as the step's own bound is then all there is. ``face_moved`` the largest
         distance a turn's ``turn_end`` says it moved him (0 in place; over ROUTE_TURN_MOVED it was judged as the press
-        it was), None when no turn ran. Each None when the step made no press or turn.
+        it was), None when no turn ran. Each None when the step made no press or turn. ``lost`` and ``handoff`` as
+        above.
         """
+        probe = {"live": False, "lost": None}          # armed once control has held (see :meth:`_route_to`)
+        outer, self._loss_probe = self._loss_probe, probe
+        try:
+            record = self._route_to(x, z, avoid=avoid, margin=margin, tolerance=tolerance, walkmesh=walkmesh,
+                                    prior=prior, timeout=timeout, unstick=unstick, smooth=smooth, zone=zone,
+                                    npcs=npcs, face=face, face_window=face_window, overlay_ok=overlay_ok,
+                                    settle=settle, handoff=handoff, probe=probe)
+        finally:
+            self._loss_probe = outer
+        record["lost"] = probe["lost"]
+        return record
+
+    def _route_to(self, x: float, z: float, *, avoid, margin, tolerance, walkmesh, prior, timeout, unstick, smooth,
+                  zone, npcs, face, face_window, overlay_ok, settle, handoff, probe) -> dict:
+        """:meth:`route_to`'s walk, every argument as it documents them; ``probe`` is the call's control-loss probe,
+        armed (``live``) the moment control has held at the start."""
         from ff9mapkit.content import pathfind
         if zone is not None and not smooth:
             raise HarnessError(
@@ -4187,11 +4239,12 @@ class Session:
                   "npc_waits": 0, "box_waits": 0, "box_cleared": 0, "boxers": [], "held_by": None, "pinned": [],
                   "changed_to": None, "face_gate": None, "faced": None, "face_err": None, "face_worst": None,
                   "face_to": None, "face_calls": None, "face_pad": None, "face_measured": None, "face_moved": None,
-                  "fps": None}
+                  "fps": None, "lost": None, "handoff": False}
         if fpoly is not None:
             from ff9mapkit.content import doorface
             record["face_gate"] = list(doorface.FACE_WINDOW if face_window is None else map(int, face_window))
-        self.wait_control(timeout=timeout, overlay_ok=overlay_ok)
+        self.wait_control(timeout=timeout, overlay_ok=overlay_ok, settle=settle)
+        probe["live"] = True                  # control held: from here, the first read without it is where it went
         # the render rate, measured before anything is planned (a wait for it lets the room's walkers walk on, and the
         # plan below reads them after it): every probe, hold, push and facing press is judged at it, and each that
         # cannot be undone asks for it again -- raising, or pressing nothing, if it never came (:meth:`rate`)
@@ -4215,7 +4268,7 @@ class Session:
             self._log(f"  route_to: {err}")
             record["during"] = "calibrate"
             self._npc_fired(watch, record, origin)
-            record["landed"] = self._await_landing(origin, timeout, record)
+            record["landed"] = self._landed(origin, timeout, record, handoff)
             record["fps"] = self.rate().as_dict()
             return record
         spread = self._heading_spread(self._axes[origin], prior) if smooth else 0.0
@@ -4232,12 +4285,13 @@ class Session:
         def land(during: str, into) -> dict:
             """Control went away ``during`` a step of the walk: the record, with where that led -- the trigger radii
             he stood within reach of named (:meth:`_npc_fired`; ``into``, the zone the walk was sent into, takes
-            control itself), the walkers' cost tallied, the landing waited for (:meth:`_await_landing`)."""
+            control itself), the walkers' cost tallied, the landing waited for (:meth:`_await_landing`) -- or, under
+            ``handoff``, not (:meth:`_landed`)."""
             record["travelled"] = round(walked[0], 1)
             record["during"] = during
             self._npc_fired(watch, record, origin, into)
             self._npc_tally(record, watch)
-            record["landed"] = self._await_landing(origin, timeout, record)
+            record["landed"] = self._landed(origin, timeout, record, handoff)
             record["fps"] = self.rate().as_dict()
             return record
 
@@ -4270,7 +4324,7 @@ class Session:
                         record["travelled"] = round(walked[0], 1)
                         record["during"] = "wait"
                         self._npc_tally(record, watch)
-                        record["landed"] = self._await_landing(origin, timeout, record)
+                        record["landed"] = self._landed(origin, timeout, record, handoff)
                         record["fps"] = self.rate().as_dict()
                         return record
                     continue
@@ -5838,7 +5892,8 @@ class Session:
     def route_cross(self, x: float, z: float, *, expect: int | None = None, avoid=(),
                     margin: float | None = None, timeout: float = 20.0, walkmesh=None,
                     prior="stock", unstick: bool = False, zone=None, smooth: bool = False,
-                    npcs: bool = False, gate=None, region=None) -> dict:
+                    npcs: bool = False, gate=None, region=None, settle: float | None = None,
+                    overlay_ok: bool = False, handoff: bool = False) -> dict:
         """:meth:`route_to` a point inside a gateway region, then wait for the crossing like :meth:`cross`.
 
         ``(x, z)`` should be INSIDE the target region and standable --
@@ -5870,6 +5925,12 @@ class Session:
         other ``face_*`` keys say what it did, and ``inside`` where that left him. The region's corners are the
         ENGINE's order, the first edge first: that edge is the one the gate takes his bearing to. A door with no gate
         is not faced: it fires for anyone standing in it, so one still shut stays shut however he turns.
+
+        ``settle``, ``overlay_ok`` and ``handoff`` go to route_to (research/o2_design.md H1): the walk may start under a
+        hint window he can walk with, and at once. With ``handoff``, a walk that ended with control held waits (at most
+        ``timeout``) only for the field to change or control to go, then returns -- never for the destination to become
+        playable, so an arrival scene is the caller's to sit through, and no "never became playable" is raised.
+        ``lost`` (route_to's) covers this call's own waits too: where control first went, walk or wait.
         """
         from ff9mapkit.content import doorface
         door = zone if region is None else region
@@ -5878,35 +5939,55 @@ class Session:
         record = self.route_to(x, z, avoid=avoid, margin=margin, tolerance=45.0, walkmesh=walkmesh,
                                prior=prior, timeout=timeout, unstick=unstick, smooth=smooth,
                                zone=zone if smooth else None, npcs=npcs, face=None if gate is None else door,
-                               face_window=None if gate is None or gate is True else gate)
+                               face_window=None if gate is None or gate is True else gate, settle=settle,
+                               overlay_ok=overlay_ok, handoff=handoff)
         origin = record["from"]
         record["inside"] = None
         pending = record["landed"] is None and record["waypoints"] is not None and record["during"] is None
-        if zone is not None and record["landed"] is None and record["during"] is None:
-            st = self.state
-            standing = st.field_id == origin and st.player_x is not None and st.control
-            record["inside"] = bool(standing and doorface.region_contains(st.player_x, st.player_z, door))
-            if pending and standing and not record["inside"]:
-                # outside the zone with control: only a trigger still settling can take him now, so
-                # the full wait applies once one visibly has (the destination may take that long to
-                # become playable), and not otherwise
+        probe = {"live": True, "lost": None}          # the walk's own probe ended with it: this call's waits
+        outer, self._loss_probe = self._loss_probe, probe
+        try:
+            if zone is not None and record["landed"] is None and record["during"] is None:
+                st = self.state
+                standing = st.field_id == origin and st.player_x is not None and st.control
+                record["inside"] = bool(standing and doorface.region_contains(st.player_x, st.player_z, door))
+                if pending and standing and not record["inside"]:
+                    # outside the zone with control: only a trigger still settling can take him now, so
+                    # the full wait applies once one visibly has (the destination may take that long to
+                    # become playable), and not otherwise
+                    try:
+                        self.wait_for(lambda s: s.field_id != origin or not s.control,
+                                      timeout=min(timeout, self.ROUTE_OUTSIDE_WAIT),
+                                      what=f"a crossing from outside the zone on field {origin}")
+                    except HarnessError as err:
+                        if "live samples" not in str(err):
+                            raise                 # a frozen or silent channel says nothing about the zone
+                        pending = False
+            if pending and handoff:
+                # handed off at the crossing: the field changing or control going is all this waits for
                 try:
-                    self.wait_for(lambda s: s.field_id != origin or not s.control,
-                                  timeout=min(timeout, self.ROUTE_OUTSIDE_WAIT),
-                                  what=f"a crossing from outside the zone on field {origin}")
+                    self.wait_for(lambda s: s.field_id != origin or not s.control, timeout=timeout,
+                                  what=f"the crossing on field {origin} to begin")
+                    record["handoff"] = True
                 except HarnessError as err:
                     if "live samples" not in str(err):
-                        raise                 # a frozen or silent channel says nothing about the zone
-                    pending = False
-        if pending:
-            try:
-                record["landed"] = self.expect_field_change(timeout=timeout, was=origin, record=record)
-            except HarnessError as err:
-                if "never became playable" in str(err):
-                    raise
+                        raise                     # a frozen or silent channel says nothing about the crossing
                 now = self.state.field_id
                 if now != origin and now > 0:
-                    record["landed"] = now
+                    record["landed"] = record["changed_to"] = now
+            elif pending:
+                try:
+                    record["landed"] = self.expect_field_change(timeout=timeout, was=origin, record=record)
+                except HarnessError as err:
+                    if "never became playable" in str(err):
+                        raise
+                    now = self.state.field_id
+                    if now != origin and now > 0:
+                        record["landed"] = now
+        finally:
+            self._loss_probe = outer
+            if record["lost"] is None:
+                record["lost"] = probe["lost"]
         if expect is not None and record["landed"] != expect:
             raise HarnessError(f"routed crossing to ({x}, {z}) on field {origin} led to field "
                                f"{record['landed']}, expected {expect} ({record})")
