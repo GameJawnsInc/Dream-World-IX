@@ -446,10 +446,24 @@ def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=Non
     raise HarnessError(f"the run's budget ran out in field {g.state.field_id}")
 
 
-def end_run(g, log: list) -> None:
-    """Back to the title after a run. Field 100 opens Vivi's naming screen, inside which the soft reset is
-    swallowed: accept it first when it is up."""
+#: Where a run is taken before the soft reset back to the title: the Southern Ring hub, a field that gives control
+#: at once (the F-REDEPLOY sessions warped there after New Game).
+RECOVERY_FIELD = 4600
+
+
+def end_run(g, log: list, *, recovery: int = RECOVERY_FIELD) -> None:
+    """Back to the title after a run. A covered run stands in field 100 as Alexandria's opening starts, and the soft
+    reset does not reach the title through it (session story-o1d: 45 s, then VOID). So the run first LEAVES by debug
+    warp -- which works mid-movie: every run's entry leaves field 70's intro that way -- to ``recovery``, and resets
+    from there; the trace is already closed. A warp that is refused (a run stopped mid-battle) falls back to the
+    ladder where it stands. A naming screen swallows the soft reset: accepted first when it is up."""
     from harness import HarnessError
+    if g.state.ui_state != "Title":
+        try:
+            g.warp(recovery)
+            log.append({"k": "recover-warp", "field": recovery})
+        except HarnessError as err:
+            log.append({"k": "recover-warp-failed", "why": str(err)[:200]})
     ok, why = g.restore_baseline()
     if not ok and g.state.ui_state == "NameSetting":
         g.accept_name()

@@ -11301,6 +11301,25 @@ def test_route_to_walks_under_an_overlay_hint_only_when_told(game):
         assert g.state.dialog_open, "the hint is the script's to close, not the walk's"
 
 
+def test_o1_end_run_leaves_the_end_field_by_warp_before_the_reset(game):
+    """Session story-o1d: the soft reset did not reach the title from field 100 (Alexandria's opening playing). The
+    control: the ladder where he stands fails; end_run warps to the recovery field first, and resets from there."""
+    O, _pred = _o1_pred()
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30821)                                         # "100": no reset reaches the title from here
+        real = g.restore_baseline
+
+        def ladder():
+            return real() if g.state.field_id == 30820 else (False, "the soft reset did not reach the title")
+        g.restore_baseline = ladder
+        assert not g.restore_baseline()[0], "premise: the ladder fails where the run ended"
+        log: list = []
+        O.end_run(g, log, recovery=30820)
+        assert log[0] == {"k": "recover-warp", "field": 30820} and g.state.ui_state == "Title", (log, g.state)
+
+
 def test_o1_drive_voids_a_choice_it_has_no_rule_for(game):
     O, pred = _o1_pred()
     fake = FakeGame(game)
