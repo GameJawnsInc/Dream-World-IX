@@ -40,9 +40,10 @@ AI_PHASE_SPEC = [
 
 # [[scene.ai_patch]] -- a SAME-LENGTH enemy-AI constant patch (aipatch.apply_ai_patches): rewrite ONE numeric
 # literal in the AI bytecode in place -- an HP threshold a phase compares, the attack index a turn selects, a
-# `Wait` count -- with no byte movement. Addressed by BYTE OFFSET (from `battle-ai --sites`, or the form's
-# "Browse sites…" picker) + an OLD-value guard so a stale offset fails LOUD instead of corrupting a byte. The
-# bytecode is language-identical, so one patch hits every language's eb.
+# `Wait` count -- with no byte movement. Cited by BYTE OFFSET in the us donor (from `battle-ai --sites`, or the
+# form's "Browse sites…" picker) + an OLD-value guard so a stale offset fails LOUD instead of corrupting a byte.
+# The bytecode is NOT language-identical, so the build locates that constant structurally in each language's own
+# eb (never at the same offset) and refuses a language where it has no counterpart.
 AI_PATCH_SPEC = [
     Field("at", "Offset", INT, "the byte offset of the AI constant — use 'Browse sites…' (or `battle-ai --sites`)"),
     Field("old", "Current value", INT, "the value the eb has there NOW — the guard (Browse sites… fills it)"),

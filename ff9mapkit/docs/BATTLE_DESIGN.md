@@ -734,8 +734,10 @@ real donor, so the view can never desync. Reads the real EF_R007 Goblin AI clean
 step). `constant_sites` locates every patchable numeric constant (command immediates + `B_CONST`/`B_CONST4` expr
 literals) with offset+width — a walk that mirrors `read_code`/`pretty_expr` byte-for-byte; `battle-ai --sites`
 prints them (224 on EF_R007). `[[scene.ai_patch]]` (in `battle.toml`) cites `at`/`old`/`new`: a same-length,
-old-value-GUARDED in-place edit (no `fpos`/entry-table fixup), applied per-language to the forked eb at build
-(bytecode is language-identical). ★ Review found + fixed: a 3-byte (Int24) immediate `KeyError`
+old-value-GUARDED in-place edit (no `fpos`/entry-table fixup), applied to each language's forked eb at build.
+⚠ *Corrected later:* the bytecode is NOT language-identical (41 of 562 scenes differ in length, mostly jp), so
+`at` is a citation into the us donor that the build re-locates structurally in every language (`aipatch.correspond`)
+and refuses where there is no counterpart; validate composes all 7 languages. ★ Review found + fixed: a 3-byte (Int24) immediate `KeyError`
 (→ generic width-N pack), a truncated-eb `IndexError` (→ clean `AiPatchError`), and the `B_CONST4` 26-bit engine
 mask (→ per-site cap); the `B_CONST` signedness path is benign (byte-faithful). 9 tests. *In-game proof is a manual step.*
 **Phase 6c-i (done, kit 0.9.67)** — the enemy-AI **expression ASSEMBLER** (`eb/exprasm.py`), the keystone of
