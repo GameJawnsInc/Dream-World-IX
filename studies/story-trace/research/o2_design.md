@@ -374,8 +374,8 @@ baseline is missing, so the gate was not run, which is not a pass.
 | G3 | Every dry-run case's `(checks, report)` is byte-equal to the baseline's: not only the verdict and each check's pass/fail (which is all `o1_dryrun.result` compares), but every detail and every report line. `o1_dryrun.run_cases(v4)` also still returns 0 (16/16 as registered). |
 | G4 | `o1_opening.offline_check(v4)` equals the baseline's `[(ok, what, detail)]`. |
 | G5 | o1d's `(checks, report)` is byte-equal to the baseline's (`VOID: O1-COVER, O1-LADDER, O1-NULL, O1-STABLE, O1-JOIN`): a real VOID path. `O1D = C:\gd\Dream-World-IX\.harness-runs\20260929-212507-story-o1d`. |
-| G6 | The O1 noise mutant: `o1_dryrun.six(v4)` with a FIELD-mode (`m` 1) Byte[206] row (a real 50 store site, `new` random) added to the F runs only reads `O1-NULL` False and `NOT PROVEN`. O1's noise covers `m != 1` only, so an `is_noise` widened to every mode would read PROVEN here. |
-| G7 | `py -m pytest tests/test_harness.py -q -p no:cacheprovider -W ignore -k "o1_ or overlay_hint or segment"`, from `ff9mapkit/`, is green with 0 skipped. This includes `test_o1_segment_run_pins_o1s_session_surface` (9, PART A). |
+| G6 | The O1 noise mutant: `o1_dryrun.six(v4)` with a FIELD-mode (`m` 1) Byte[206] row (an addition-buffer row at 50 e17, `add` 1, `tag` -1, keyed with no join; one random `new`, the same in every F run) added to the F runs only reads `O1-NULL` False, `O1-JOIN` True and `NOT PROVEN: O1-NULL`. O1's noise covers `m != 1` only, so an `is_noise` widened to every mode would read PROVEN here. (No stock store of Byte[206] exists in 50 or any O1 donor: 11.3 A0.) |
+| G7 | `py -m pytest tests/test_harness.py -q -p no:cacheprovider -W ignore -k "o1_ or overlay_hint or segment"`, from `ff9mapkit/`, is green with 0 skipped. This includes `test_o1_segment_run_pins_o1s_session_surface` (9, PART A): the gate's `REQUIRED_TESTS` names it once A3 lands, and every test the baseline collected must still run. |
 
 The archived `o1_session.json` records the O1 worktree's predictions path. G1, G2 and G5 pass the predictions path
 explicitly, with the same sha.
@@ -1720,3 +1720,12 @@ Nothing was rejected outright. Four items were adopted with a change, each for t
 - C6's mutant (it lives in the gate, not in O1's files).
 
 One part of C1 (the kit fix itself) is out of this branch by the lead's ruling.
+
+### 11.3 Implementation notes (PART A)
+Where the build found the design silent or wrong, the smallest correct thing was done, and it is recorded here.
+
+| Step | The design said | Found | Done |
+|---|---|---|---|
+| A0 | G6's mutant row is "a real 50 store site" of a field-mode Byte[206]. | No such site exists. 50's stock US `.eb` has 80 gEventGlobal store sites, none at byte 206, and neither do the 19 other donors of O1's chain (every instruction's stores walked with `storytrace.instruction_stores`). A field-mode row that joins nothing is only a JOIN failure: no key reaches O1-NULL, and the mutant would not tell a widened `is_noise` from O1's. | The row is a field-mode ADDITION-BUFFER store (`add` 1, `tag` -1, 50 e17), which `storytrace._locate` keys with no join: `WriteKey(50, 1, "eb", 17, -1, 40, "Global.Byte[206]", v)`. Proven both ways: at HEAD it reads O1-NULL False, O1-JOIN True, `NOT PROVEN: O1-NULL`; with `is_noise` widened to every mode it reads PROVEN, and G6 fails. |
+| A0 | G7 includes the A3 pinning test. | The gate is written before that test exists. | `segment_regress.REQUIRED_TESTS` names tests G7 must find passing, each added with the step that adds it; every test the baseline collected must also still run. G7 reads the outcomes from pytest's JUnit XML, by name. |
+| A0 | G0 captures once. | A baseline captured from code that already fails its own gate would freeze the failure. | `--capture` runs G1-G7's baseline-free halves first (the archive equality, the verdicts, `run_cases`, the pytest selection) and writes nothing unless all pass. Two captures under different `PYTHONHASHSEED` values were byte-identical. |
