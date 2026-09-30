@@ -815,6 +815,84 @@ The chain stays deployed (31200-31219) for the next segments.
 **Next, O2:** Alexandria, where Vivi's segment starts in field 100. That means the alxt zone joins the chain, and the
 driver gains that segment's naming screen, its walks and its talks.
 
+## O2 -- Alexandria under the trace: Vivi's segment (draft: rehearsals pending, freeze pending)
+
+**The question.** Over Alexandria's first story segment, does a verbatim fork of the alxt zone write the real game's
+story state key for key? The stock runs are also this segment's recorded ground truth. The design, with both of its
+critiques folded in, is [`research/o2_design.md`](research/o2_design.md); the route it rests on is
+[`research/o2_route.md`](research/o2_route.md) (two readers reconciled, a completeness critic's corrections applied).
+
+**The segment.** A raw warp into 100 (Main Street) at entrance 102 with the scenario at 1000, then 100 -> 101 -> 102
+-> 103 -> 104 -> 103 -> 105 -> 106 -> 115 -> 116 -> `Field(61)` (116 e2 t1 ip1702). SC climbs 1000 -> 1150 -> 1151 ->
+1152 -> 1153 -> 1154 -> 1155. The segment ends on arrival in real field 61, on both sides.
+
+**The sides.** S = stock. F = `import-chain 100 --verbatim --ids 100-117 --fresh-ids --id-base 31220 --name-prefix
+O2`: 18 members, 31220-31237, sharing text block 33 ([`o2_forks.json`](o2_forks.json)). Built offline at
+`C:\gd\_ns_playtest\o2\build`, NOT deployed. Field 61 is no member, so member(116)'s `Field(61)` stays real: the
+seam, judged in donor terms.
+
+**The entry.** Each run: New Game, the trace armed, then `warp 100 102 1000` (stock) or `warp 31220 102 1000` (fork).
+It is not a replay of O1. The warp writes FieldEntrance and the scenario before the map changes: exactly three
+residue rows in field 70 (bytes 0-2), which the front cut sets aside and O2-START requires. Only two gEventGlobal
+values depend on that start: `UInt16[19] |= 2` and `Byte[6] |= 2` write 2 and 2 here, and would write 1799 and 3 after
+O1. The report prints both under the claim's scope: gEventGlobal values only, not party data, cards or field 70's
+override state.
+
+**The driver** (`segment_drive.drive`, research/o2_design.md 2). A beat table of cells keyed by (donor place,
+published SC). Each cell is a list of steps (cross, trigger, confirm, wait_sc, leave_now), counted per field visit
+and done only on its own evidence. Six choices, every one taken at the game's own default cursor (option 0), and the
+naming screen. The climb holds Up in bursts. At the 105 lookout the exit is taken at once (a lunge, then the
+crossing), because Alleyway Jack's contact comes about 1.5-2.0 s after control. Anything the table cannot answer is
+a VOID with its class (V1-V14), attributed to the driver or the game. The driver keeps `press`, `watch`, `step` and
+`visit` rows. A forbidden write (Jack's contact, the Confirm hot-spots, Kupo, 104's info options, a write off the
+route) VOIDs the run only when that evidence backs it; otherwise it is a finding.
+
+**The checks** ([`o2_alexandria.py`](o2_alexandria.py); research/o2_design.md 5 and 6):
+- offline: O2-BUILD, O2-TEXT, O2-KEYS, O2-REGIONS, O2-GOALS;
+- preflight: P-MANIFEST, P-DEPLOY, P-EB, P-FLOOR, P-STOCK, P-TEXT, P-RECOVERY; in game P-CAP, P-OBJECTS, P-LANG;
+- the session: O2-FROZEN, O2-COVER; O2-FORBIDDEN and O2-VOID-ASYM over every run, covered or not; then START,
+  LADDER, CHAIN, RESIDUE, WRITES, NULL, STABLE, SEAM, MASKED, STATE and JOIN over the covered runs; THROW.
+
+**The uk text: a KNOWN-KIT-DEFECT, visible, not fixed here.** The build ships `uk/field/33.mes` as the stock US text.
+`dialogue._lang_score` gives us and uk one English stopword set (dialogue.py:374 on this branch), so the kit's text
+carry handed uk the us pick. O2-TEXT and P-TEXT compare each language with the asset the engine itself reads (its
+ResourceManager path, `embeddedasset/text/<lang>/field/33.mes`), never with `extract_field_mes`. A mismatch in the
+session language (us) is a hard FAIL. A copy of another language's stock asset is a named, counted KNOWN-KIT-DEFECT
+line, and anything else is a FAIL. Today: 6 languages byte-equal, KNOWN-KIT-DEFECT 1 (uk ships stock us
+`4751874951`; stock uk is `8c94536b6c`), FAIL 0. The kit fix (each language picked by its resource path) is the
+lead's: it is on master since `aa627d52`, and the O2 fork's text sidecars have been repaired with
+`tools/refresh_verbatim_text.py` (`ac9a3d69`; each keeps a `.pre-refresh-20260930-104516` copy, and its us and uk now
+differ). This branch carries neither, and the build (its text written at 01:27 that day) predates both. A rebuild of
+the chain is therefore a PRECONDITION of the deploy: deployed as built, UK players would see US text in stock
+100-117. After it, O2-TEXT should read 7 byte-equal with no code change here.
+
+**Status: draft -- rehearsals pending, freeze pending.** Nothing is deployed, launched or frozen.
+- `o2_alexandria.py --offline-check`: 5 PASS on the draft (126 files own-language; 48 key sites; 26 regions and 17
+  hot-spots; 14 goals), with the uk KNOWN-KIT-DEFECT line printed.
+- `--preflight`: red, as expected: P-MANIFEST, P-DEPLOY, P-EB and P-FLOOR fail (nothing deployed); P-STOCK, P-TEXT
+  ("no mod folder ships block 33") and P-RECOVERY pass.
+- [`o2_dryrun.py`](o2_dryrun.py): 54/54 as registered -- the design's section 8 (44 session cases, 4 unit cases),
+  plus 4 cases and 2 unit cases added where mutating a check's clause showed no case that isolated it.
+- The O1 regression gate (`segment_regress.py`): 7/7.
+
+**Next** (the lead; the deploy is owner-gated):
+1. The stock rehearsals, [`o2_rehearse.py`](o2_rehearse.py): one launch runs R-115, R-106, R-105, R-116, R-115a and
+   R-FULL in that order, the cheapest run first (R-103 is optional); one stage runs alone with `--field N` or
+   `O2_STAGE=<stage>`. Each is read with `o2_alexandria.py --rehearsal-report <run dir>`, until the freeze checklist
+   F1-F11 (research/o2_design.md 7.3) holds. R-115 comes first because of F1: if `hold up` does not climb, O2 stops
+   there.
+2. Fold what they measured into the draft (the budget, `exit_wait_s`, the lunge, any goal moved, the control
+   grants), record the run dirs in `rehearsals`, then `--freeze` (writes `o2_predictions_v1.json`, once).
+3. A rebuild of the chain with the uk kit fix, `--offline-check` green again (O2-TEXT: 7 byte-equal); then the
+   owner-gated deploy of the 18 members with their ForkDonorPatch rows ([`o2_forks.json`](o2_forks.json)), and the
+   relaunch.
+4. `--preflight` green, then the session: `py tools/play.py studies/story-trace/o2_alexandria.py --label story-o2
+   --timeout 240`.
+
+What only the game can settle is the design's section 10: the climb, Jack's timing, the exits' map-switch latency,
+mbg101's frame-rate change, Kupo near the ladder, 116's narrow walks, the facing for the two tag-3 Confirms, and 61's
+FMV under end_run's warp.
+
 ## Rungs
 
 | Rung | What | Pass |
