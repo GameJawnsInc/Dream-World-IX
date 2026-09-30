@@ -7928,6 +7928,13 @@ class Session:
         if self._steps_dropped == 1:
             self._log("!! steps.jsonl could not be written -- the step ledger for this run is incomplete")
 
+    def states_since(self, frame: int) -> list[dict]:
+        """The raw states the ring holds (every read the harness made keeps its sample: the last STATE_RING distinct
+        frames, ~10-20 s) with a frame after ``frame``, oldest first (research/o2_design.md H6). A driver that takes
+        the frame before a call reads, after it, every sample the call's own waits read -- a race lost inside a walk
+        stays on record."""
+        return self._ring.since(int(frame))
+
     def flush_states(self, tag: str) -> Path | None:
         """Write the ring (the last ~10 s of published state, ~20 at 31 fps) as ``states-<tag>.jsonl``. Never raises."""
         path = self._artifact_dir() / f"states-{_sanitize(tag)}.jsonl"

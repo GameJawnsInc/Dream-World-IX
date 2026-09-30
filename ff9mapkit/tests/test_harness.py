@@ -12189,3 +12189,27 @@ def test_lunge_refuses_without_a_basis(game):
         with pytest.raises(HarnessError, match="needs control NOW"):
             g.lunge(300.0, 0.0, walkmesh=_flat_bgi())
         assert not [s for s in fake.executed[mark:] if s[0] in ("hold", "press")]
+
+
+def test_states_since_returns_the_rings_samples_after_a_frame(game):
+    """H6: the samples the state ring kept after a frame, oldest first -- every read the harness made, a walk's own
+    included, each frame once (the ring dedupes on frame). StateRing.since is the same rule, pure. Break: ``>=``
+    (the frame itself comes back)."""
+    from harness.artifacts import StateRing
+    ring = StateRing(5)
+    for f in (3, 4, 4, 6, 9):
+        ring.push(State({"frame": f}))
+    assert [s["frame"] for s in ring.since(4)] == [6, 9] and [s["frame"] for s in ring.since(-1)] == [3, 4, 6, 9]
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        f0 = g.state.frame
+        g.walk("right", 20)
+        g.settle()
+        got = g.states_since(f0)
+        last = g._ring.frames()[-1]
+    frames = [s["frame"] for s in got]
+    assert frames and frames[0] > f0 and frames == sorted(set(frames)) and frames[-1] == last, frames
+    xs = [s["player"]["x"] for s in got]
+    assert xs[-1] > xs[0] + 100, xs                        # the walk's own samples are among them
