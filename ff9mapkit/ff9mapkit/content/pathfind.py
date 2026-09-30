@@ -724,15 +724,21 @@ class PlayerWalkmesh:
 
     An explicit wrapper, not a change to the router: an NPC is not the controlled player (its bar is 0x40),
     so the kit's build-time routing keeps the raw mesh. ``mask`` is the attributeMask to assume; ``opened``
-    triangles count as open whatever their flags (:meth:`standing_at`)."""
+    triangles count as open whatever their flags (:meth:`standing_at`).
 
-    def __init__(self, wmesh, mask: int = 0xFF, opened=()):
+    ``closed`` (opt-in) is the triangles a SCRIPT has closed since the field loaded -- ``EnablePathTriangle(n, 0)``, or
+    every triangle of a floor under ``EnablePath(floor, 0)`` -- which the bytes on disk cannot show: shut to him like
+    a door strip (no floor; their shared edges are walls), and never opened by :meth:`standing_at`, since no walk of
+    his own takes him onto one (stock 116's fallen plank, triangle 217 after its ip923; research/o2_design.md H5)."""
+
+    def __init__(self, wmesh, mask: int = 0xFF, opened=(), closed=()):
         from ..scene import bgi
         self.mesh = wmesh
         self.mask = mask
         tris = wmesh.tris
-        self.closed = frozenset(i for i, t in enumerate(tris) if i not in opened
-                                and (not t.tri_flags & 1 or (t.tri_flags >> 8) & mask & TRI_PLAYER_CLOSED))
+        self.forced = frozenset(int(i) for i in closed)
+        self.closed = frozenset(i for i, t in enumerate(tris) if i in self.forced or (
+            i not in opened and (not t.tri_flags & 1 or (t.tri_flags >> 8) & mask & TRI_PLAYER_CLOSED)))
         wv = wmesh.world_verts()
         self._floor = wmesh._tri_floor()
         walls: dict = {}
@@ -768,12 +774,14 @@ class PlayerWalkmesh:
         mask 127, a mask the router cannot see, and the strip is the way out that walk was taking. (At 255
         the engine bars only ENTERING a closed triangle -- BGI_findAccessibleTriangle judges the neighbour
         across an edge -- so a route out through the strip may still stall; it cannot be worse than the
-        raw mesh, which ignores every strip.) :func:`route_avoiding` asks for this at its start."""
-        todo = list(self.closed.intersection(self.mesh.tris_at(x, z)))
+        raw mesh, which ignores every strip.) :func:`route_avoiding` asks for this at its start. The triangles a
+        script closed (``closed``) stay shut: they are no strip, and the strip never grows through them."""
+        shut = self.closed - self.forced
+        todo = list(shut.intersection(self.mesh.tris_at(x, z)))
         strip = set(todo)
         while todo:
             for n in self.mesh.tris[todo.pop()].nbr:
-                if n in self.closed and n not in strip:
+                if n in shut and n not in strip:
                     strip.add(n)
                     todo.append(n)
-        return PlayerWalkmesh(self.mesh, self.mask, opened=strip) if strip else self
+        return PlayerWalkmesh(self.mesh, self.mask, opened=strip, closed=self.forced) if strip else self

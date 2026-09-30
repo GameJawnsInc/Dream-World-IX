@@ -239,6 +239,64 @@ def test_the_players_walkmesh_walls_off_a_triangle_closed_to_him():
     assert P.PlayerWalkmesh(wm).closed == frozenset()
 
 
+def _grid3():
+    """A room of 3 x 3 squares, 600u each (x and z -900..900), two triangles a square; returns ``(wm, squares)`` --
+    ``squares[(i, j)]`` the two triangles of column i, row j (``(1, 1)``: the centre, x and z -300..300), all flags
+    open."""
+    xs = (-900, -300, 300, 900)
+    v = [(x, 0, z) for z in xs for x in xs]
+    f, squares = [], {}
+    for j in range(3):
+        for i in range(3):
+            a, b, c, d = 4 * j + i, 4 * j + i + 1, 4 * (j + 1) + i + 1, 4 * (j + 1) + i
+            squares[(i, j)] = [len(f), len(f) + 1]
+            f += [(a, b, c), (a, c, d)]
+    return bgi.BgiWalkmesh.from_bytes(bgi.build(v, f).to_bytes()), squares
+
+
+def test_a_triangle_a_script_closed_is_walled_off_and_routed_round():
+    """H5 (research/o2_design.md 3): ``EnablePathTriangle(n, 0)`` / ``EnablePath(floor, 0)`` close triangles the bytes on
+    disk still call open (stock 116's fallen plank, 217 after ip923). Passed as ``closed``, they are no floor to him,
+    every edge they share is a wall, and route_avoiding goes ROUND them -- where the same view without them walks
+    straight across. :meth:`standing_at` keeps them shut: they are no door strip he may leave by, and the view it
+    builds for a strip he does stand in still has them. Default views are unchanged. Break: drop ``closed`` from the
+    view standing_at builds (a replan from a door strip walks over the plank)."""
+    wm, squares = _grid3()
+    middle = squares[(1, 1)]
+    start, goal = (-600, 0), (600, 0)
+
+    def in_middle(p):
+        return abs(p[0]) < 300 and abs(p[1]) < 300
+    assert P.PlayerWalkmesh(wm).closed == frozenset()                     # every flag open
+    straight = P.route_avoiding(P.PlayerWalkmesh(wm), start, goal, [])
+    assert straight and any(in_middle(p) for p in _along(start, straight)), straight   # across the middle
+    view = P.PlayerWalkmesh(wm, closed=middle)
+    assert view.closed == frozenset(middle) and view.forced == frozenset(middle)
+    assert wm.point_on_walkmesh(0, 0) is not None and view.point_on_walkmesh(0, 0) is None
+    assert view.distance_to_boundary(-400, 0) == pytest.approx(100)          # the closed square's edge is a wall
+    assert wm.distance_to_boundary(-400, 0) == pytest.approx(500)
+    for here in (start, (0, 0), (-300, 0)):                                 # beside it, in it, on its edge
+        assert view.standing_at(*here).closed >= frozenset(middle), here
+    wps = P.route_avoiding(view, start, goal, [])
+    assert wps and tuple(wps[-1]) == goal and len(wps) > 1, wps
+    _walked_on_the_floor(view, start, wps)
+    assert not any(in_middle(p) for p in _along(start, wps)), wps            # never inside the closed square
+    # DOOR STRIPS either side of it (the west and east squares' flags, stock 0xA001): standing in the west one opens
+    # it -- and neither the plank nor, through the plank, the east strip beyond it
+    wm, squares = _grid3()
+    west, east = squares[(0, 1)], squares[(2, 1)]
+    for ti in west + east:
+        wm.tris[ti].tri_flags = 0xA001
+    view = P.PlayerWalkmesh(wm, closed=middle)
+    assert view.closed == frozenset(west + middle + east)
+    here = view.standing_at(-600, 0)
+    assert here is not view and here.closed == frozenset(middle + east) and here.forced == frozenset(middle), \
+        here.closed
+    wps = P.route_avoiding(view, start, (600, 600), [])
+    assert wps and not any(in_middle(p) for p in _along(start, wps)), wps
+    _walked_on_the_floor(here, start, wps)
+
+
 def test_the_players_walkmesh_opens_the_strip_he_stands_in():
     """A script can leave him inside a strip (its walk ran at mask 127, which the router cannot see): the route
     starts there and leaves it. The exemption is the start's alone -- walking up to the strip, it is still shut."""
