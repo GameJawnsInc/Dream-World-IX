@@ -690,6 +690,131 @@ The other follow-ups live in the kit CHANGELOG's Known issues: F-NG (the New-Gam
 override hands off with 643 playing), F-WARP (kit warps skip the exit idiom), F-IMPORT (imports lose the donor's
 ambient; FORK_FIDELITY.md row 15); F-PROBE (a traced full-opening New Game) settles F-NG's path in game.
 
+## O1 -- the opening under the trace: New Game to Alexandria (design)
+
+**The question.** Over the game's first segment, does a verbatim whole-zone fork of Prima Vista write the real
+game's story state key for key? And what does the real opening write? That second answer is the recorded ground
+truth any later seed of the opening needs. O1 is the first segment of a walk through the faithful disc-1 opening
+([[project-ff9-faithful-opening]]). Each segment is a paired stock/fork session under THE PAIRED-WALK LAW, and each
+later one adds its zone to the chain.
+
+**The segment** (two read-only readers, notes in the session scratchpad `opening_research/`): New Game -> 70 -> 50
+(Cargo Room) -> 52 (Meeting Room) -> `Field(100)`. None of the three warps is gated by SC or by a flag. 50 runs on a
+map-local stage counter, and 52 leaves on its choice.
+- 50: two lines, then SC 0 -> 1000 (the segment's only SC write) before control. The player then walks to the candle
+  (a region diamond round (0, 350)), confirms, and picks "Light the candle". Cinna's line follows, then the naming
+  screen for Zidane (`Menu(1,0)`), then `Byte[6] |= 1`. After four lines comes the Masked Man battle (scene 336):
+  the party is set to 9999 HP, and the AI ends it with a victory once he has taken 188 damage. Then eight lines,
+  and `Int16[2] := 100`, `Field(52)`.
+- 52: a scene with no control. Its one question defaults to "kidnap Queen Brahne", which loops back to the question;
+  "Princess Garnet" moves on. Then FMV002, `Int16[2] := 102`, `Field(100)`.
+
+**The sides.** S = stock. F = `import-chain 50 --verbatim --whole-zone --fresh-ids --id-base 31200 --name-prefix O1`:
+the tshp zone's 20 fields (50-63, 65-67 and the disc-4 endings 3008-3010), deployed one member at a time to
+`FF9CustomMap` 31200-31219 with one relaunch. Field 100 (alxt) is not a member, so member(52)'s `Field(100)` stays
+real. That is the seam, and the segment ends there.
+
+**The entry.** Each run: New Game, trace on, then in field 70 a raw `warp` to 50 or member(50) at entrance 0. This
+is rung 3's own start. The New Game override stays the Southern Ring's (-> 4600), untouched. It skips FMV001 and
+70's two post-FMV writes (`Byte[13]` 1 -> 2, `Int16[2] := 0`, already 0), identically on both sides. F-PROBE's trace
+shows those are 70's only writes after its prologue.
+
+**The route: one driver, both sides.** It acts only on what the game shows, in this order:
+1. Field 100: stop.
+2. The naming screen: `accept_name()`, a new harness verb (Confirm twice, back to FieldHUD, keeping the default name).
+3. In battle: the tutorial screen gets Confirm; a command prompt gets Attack on the first enemy standing; a result
+   gets `leave_battle()`.
+4. A choice, by the segment's rule table on its text:
+   - "Light the candle": that option.
+   - 52's question: the option naming Garnet.
+   - "Skip movie?" (a stray Confirm during FMV002): the game's default, don't skip.
+   - Anything else: the run stops, VOID.
+5. A dialogue page: Confirm.
+6. Control in 50 before the candle: route to (0, 350) and interact. Control anywhere else: VOID.
+
+Optional pickups are never taken. Each run has a 12-minute budget.
+
+**The session.** One launch, S F S F S F. After each run it goes back to the title (rung 3's recovery ladder), saves
+the trace (`run<i>_<side>.jsonl`) and rewrites the session record. A side short of 2 covered runs re-runs, up to 2
+more each.
+
+**Coverage.** A run is covered when its trace closed whole and it reached 100 by the route with every beat done:
+candle, name, battle won, Garnet. The analysis reads covered runs only and needs at least 2 per side.
+
+**The analysis and its checks** (frozen in `o1_predictions_v1.json` before any run). Each covered run is cut at its
+first row in field 100, then goes through `storytrace.digest` (the fork side with its members) and `compare`.
+- O1-FROZEN: the predictions' sha.
+- O1-PREFLIGHT:
+  - every member is registered once, with its ForkDonorPatch row;
+  - each member's live `.eb` is the build's, and differs from its donor only in `Field()` operands remapped
+    member to member;
+  - no mod folder overrides stock 50, 52 or 100.
+- O1-COVER: at least 2 covered runs a side.
+- O1-LADDER, every covered run of both sides: SC 0 -> 1000 once, `Int16[2] := 100` in 50, `:= 102` in 52, and
+  `Byte[6] |= 1` in 50. Each is checked at the ip predicted from the bytes.
+- O1-NULL: STOCK ONLY and FORK ONLY are empty, and UNSTABLE holds only the registered battle noise (scene 336's AI:
+  `Byte[206] :=` a random value, and `Byte[199] |= 2`).
+- O1-JOIN: 0 join failures.
+- O1-THROW: no exception through EventEngine/EBin/StoryTrace/HarnessAgent.
+- Report-only: each fork run's dialogue transcript equals its stock partner's, page for page.
+
+The verdict is PROVEN, NOT PROVEN: <the keys>, or VOID.
+
+**Expected: a null.** The members are verbatim. Every `fldMapNo` gate that FORK_IDGATE_MAP lists for 50-52 is
+already wrapped, and scene 336 has no next-field op for s24 to redirect. The null is the baseline each later segment
+is read against: Alexandria, the castle, the play, the kidnapping, the crash. The stock runs are the opening's first
+recorded story-state ground truth.
+
+**Owner-gated:** the 20-member deploy with its ForkDonorPatch rows and the relaunch, and the session.
+
+**Session `story-o1` (predictions v1 `49fd880f`): stopped after run 1, VOID at the candle.** The chain was deployed
+(31200-31219, live preflight 5/5) and the instrument read true: run 1's trace wrote SC 0 -> 1000 at 50 e17 t1 ip1804,
+the frozen key. The driver then failed the route twice at the candle, as the owner saw while watching:
+- v1's candle point was the region's centre (0, 350), which is where the table stands. He stood in the region with the
+  "?" up, pressed against the table.
+- `interact()` refuses to press while a window is open. The region's own async hint ("Press the X button when the ?
+  appears.") is up exactly while he stands where the Confirm works.
+
+The fix was built and re-tested offline:
+- v2 (`681398ac`) walks to (180, 290), the spot run 1 stood on with the "?" up.
+- The driver pages no window that is up while he holds control; such a window is an overlay.
+- At the candle it presses a plain Confirm and waits for the choice.
+- `route_to(overlay_ok=True)` starts a walk under such a hint (the timed "Light the candle..." after 300 frames).
+
+**Sessions `story-o1b` to `story-o1d`: each stopped at run 1 or 2 on a new driver fault, each fixed before the next.**
+- o1b (v2 `681398ac`): the candle choice opened. It publishes as `['', 'ight the candle', 'Cancel']`, because the
+  line after `[CHOO][MOVE=18,0]` loses its first character, and v2's rule missed it. v3 (`05fb803e`) matches
+  "the candle".
+- o1c (v3): run 1 (stock) reached 100 with every beat, but the Masked Man's scripted end reports result 2,
+  victory-no-pose, and v3 counted only 1 as won. v4 (`1ac32b3a`) registers `battle_won` [1, 2]. The run read the
+  checks true on real data: the four ladder keys, 0 join failures, and the only battle rows the registered
+  `Byte[206]` noise.
+- o1d (v4): run 1 reached 100. Run 2 could not get back to the title: the soft reset does not reach it through
+  Alexandria's opening. `end_run` now warps to 4600 first, then resets.
+
+**★★ Session `story-o1e` (predictions v4 `1ac32b3a`): VERDICT: PROVEN, 7/7.** Over New Game -> 50 -> 52 ->
+`Field(100)`, the verbatim fork of Prima Vista writes the real game's story state, key for key.
+- O1-COVER: stock 2 of 3 covered, fork 3 of 3. S#1 was VOID: a `fight()` step landed after the scripted end had
+  turned the HUD off. That race is fixed since: `fight()` reads the state again on that refusal.
+- O1-LADDER: 5 runs x 4 keys. SC 0 -> 1000 once at 50 e17 t1 ip1804; `Byte[6] |= 1`; FieldEntrance 100, then 102.
+- O1-NULL: 47 keys matched in every run of both sides. The only differences were `Byte[206]` values, the AI's random
+  wait.
+- O1-STABLE: 178 unstable keys, all registered noise.
+- O1-JOIN: 596 rows, 0 failures.
+- O1-THROW: none.
+
+Each run took about 3.5 minutes.
+
+The report-only dialogue line reads the fork runs as != the stock run, at 27-29 pages against 28. The two stock runs
+differ from each other in the same place: 50's four self-closing "Whew..." windows stack, and the driver samples
+them at varying moments. Every other page matches across the five runs. So the comparison needs self-closing windows
+folded before it can read a fork difference.
+
+The chain stays deployed (31200-31219) for the next segments.
+
+**Next, O2:** Alexandria, where Vivi's segment starts in field 100. That means the alxt zone joins the chain, and the
+driver gains that segment's naming screen, its walks and its talks.
+
 ## Rungs
 
 | Rung | What | Pass |

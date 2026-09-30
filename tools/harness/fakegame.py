@@ -294,6 +294,14 @@ class FakeGame:
         #: btl_result. ⚠ 0 both DURING a battle and BEFORE any has run -- the ambiguity is the point.
         self.battle_result = 0
         self.battle_scene = -1
+        #: Scenes that open the battle TUTORIAL screen before the first command (battle.cs:100-105 opens it on
+        #: scene 336, the Masked Man): ui_state "Tutorial", no command menu, until one Confirm closes it
+        #: (TutorialUI.cs:116-125). A fight that waited for a command there would wait out its whole timeout.
+        self.tutorial_scenes: set = set()
+        self._tutorial = False
+        #: The naming screen (``Menu(1, char)``, a scene beat ``{"naming": char}``): each character named, in order.
+        self.named: list[int] = []
+        self._name_focus = False
         self.battle_units: list[dict] = []
         self.battle_bonus = {"exp": 0, "gil": 0, "ap": 0, "items": 0}
         self.battle_commands: list[list[int]] = []
@@ -1817,6 +1825,11 @@ class FakeGame:
                 self._close_battle_cursor()
 
     def _menu_step(self, button: str) -> None:
+        if self.ui_state == "Tutorial":
+            if button in ("confirm", "ok"):
+                self._tutorial = False
+                self.ui_state = "BattleHUD"
+            return
         if self._beats:
             self._scene_press(button)
             return
@@ -2009,6 +2022,9 @@ class FakeGame:
         self.battle_result = 0                    # reset at START, which is why 0 is ambiguous
         self.battle_scene = scene
         self.ui_state = "BattleHUD"
+        self._tutorial = scene in self.tutorial_scenes
+        if self._tutorial:
+            self.ui_state = "Tutorial"
         self.battle_bonus = {"exp": 0, "gil": 0, "ap": 0, "items": 0}
         # ⚠ battle_turn / ready / done are deliberately NOT cleared here. In the engine they are
         # reset by BattleHUD.InitialBattle(), which runs LATER than the battle scene goes live --
@@ -2164,7 +2180,7 @@ class FakeGame:
 
         # InitialBattle(): the opening camera ends, the HUD resets its turn bookkeeping, and only
         # THEN does the battle start asking for commands.
-        if not self.commands_enabled and self.frame >= self._intro_until:
+        if not self.commands_enabled and self.frame >= self._intro_until and not self._tutorial:
             self.battle_turn = -1
             self.battle_ready = []
             self.battle_done = []
@@ -2408,7 +2424,9 @@ class FakeGame:
         beat is a page (a str) that Confirm turns, or a CHOICE (a dict: ``options``; ``default``, the script's
         defaultChoice -- the ABSOLUTE index its cursor starts on; optionally ``header``, and ``disabled``, the
         absolute indexes the script's mask leaves out; ``typing``, frames its prompt types on once the window
-        is ready) that Confirm answers at the cursor, into :attr:`answered`.
+        is ready) that Confirm answers at the cursor, into :attr:`answered`, or the NAMING screen (a dict
+        ``{"naming": char}``: ui_state "NameSetting", no dialog; two Confirms keep the default name, into
+        :attr:`named`).
 
         A choice window as the engine publishes it (recorded at 30937 frames 900/906/936 and 30921): for
         ``opening`` frames it is up with group '' and no button and ``selected`` reads ``stale`` -- whatever
@@ -2434,6 +2452,11 @@ class FakeGame:
         if isinstance(beat, str):
             self.say(beat)
             self.choice = None
+            return
+        if "naming" in beat:
+            # NameSettingUI: no dialog, the box focused on the prefilled default name (NameSettingUI.cs:146)
+            self.texts, self.raw_texts, self.choice = [], [], None
+            self.ui_state, self._name_focus = "NameSetting", True
             return
         header = beat.get("header", "What now?")
         disabled = list(beat.get("disabled", ()))
@@ -2470,6 +2493,19 @@ class FakeGame:
             if button in ("confirm", "ok"):
                 self._beats.pop(0)
                 self._next_beat()
+            return
+        if "naming" in self._beats[0]:
+            # the first Confirm takes focus off the box, the next is OK and saves (NameSettingUI.cs:72-83, :107,
+            # :173); Cancel puts focus back on the box
+            if button in ("confirm", "ok") and self._name_focus:
+                self._name_focus = False
+            elif button in ("confirm", "ok"):
+                self.named.append(int(self._beats[0]["naming"]))
+                self.ui_state = "FieldHUD"
+                self._beats.pop(0)
+                self._next_beat()
+            elif button in ("cancel", "back", "b"):
+                self._name_focus = True
             return
         if self._beat_phase != "ready":
             return

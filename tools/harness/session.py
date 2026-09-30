@@ -3970,8 +3970,10 @@ class Session:
     def route_to(self, x: float, z: float, *, avoid=(), margin: float | None = None,
                  tolerance: float = 45.0, walkmesh=None, prior="stock", timeout: float = 20.0,
                  unstick: bool = False, smooth: bool = False, zone=None, npcs: bool = False, face=None,
-                 face_window=None) -> dict:
+                 face_window=None, overlay_ok: bool = False) -> dict:
         """Walk to (x, z) along a route over the field's walkmesh that keeps out of ``avoid``.
+
+        ``overlay_ok`` is :meth:`wait_control`'s: start the walk under an async hint window he can walk with.
 
         ``avoid`` is a list of polygons (world ``[x, z]`` corners -- a field's gateway zones as
         ``eventscan.scan_gateways`` decodes them); the route stays ``margin`` clear of each, except a
@@ -4189,7 +4191,7 @@ class Session:
         if fpoly is not None:
             from ff9mapkit.content import doorface
             record["face_gate"] = list(doorface.FACE_WINDOW if face_window is None else map(int, face_window))
-        self.wait_control(timeout=timeout)
+        self.wait_control(timeout=timeout, overlay_ok=overlay_ok)
         # the render rate, measured before anything is planned (a wait for it lets the room's walkers walk on, and the
         # plan below reads them after it): every probe, hold, push and facing press is judged at it, and each that
         # cannot be undone asks for it again -- raising, or pressing nothing, if it never came (:meth:`rate`)
@@ -6010,15 +6012,21 @@ class Session:
 
     # -- cutscenes ------------------------------------------------------------------------------
 
-    def wait_control(self, *, timeout: float = 60.0, settle: float | None = None) -> State:
+    def wait_control(self, *, timeout: float = 60.0, settle: float | None = None, overlay_ok: bool = False) -> State:
         """Wait until the player has control again. The end of a cutscene, expressed as a condition.
 
         ⚠ Control FLICKERS true for a moment as a field loads, before the script takes it away --
         so this requires the condition to hold, exactly as `watch_cutscene` does. The two used to
         differ, and the sibling without the settle returned the instant a cutscene began.
+
+        ``overlay_ok``: a window up WHILE he holds control counts as control -- an async hint the script shows
+        and closes itself over free movement (Prima Vista 50's "Press the X button when the ? appears.", its
+        timed "Light the candle..."), which no page-turn closes. Off by default: an open window otherwise means
+        the scene still owns him.
         """
         return self._wait_settled(
-            lambda s: s.control and s.player_x is not None and not s.fading and not s.dialog_open,
+            lambda s: (s.control and s.player_x is not None and not s.fading
+                       and (overlay_ok or not s.dialog_open)),
             timeout=timeout, what="control to return to the player", settle=settle)
 
     #: Dialog.DialogGroupButton: the button group a choice window activates in the same coroutine step that
@@ -6712,6 +6720,46 @@ class Session:
             self.wait_frames(14)
         return current
 
+    def accept_name(self, *, timeout: float = 30.0) -> State:
+        """Take the naming screen's DEFAULT name and return to the field. Returns the state after it closes.
+
+        A field script's ``Menu(1, char)`` opens NameSettingUI (EventService.OpenNameMenu -> ui_state
+        "NameSetting") and blocks until it closes; no dialog is open meanwhile, so :meth:`watch_cutscene` and
+        :meth:`advance` press nothing and wait out their timeout. The box opens focused on the prefilled
+        default name (NameSettingUI.cs:146): the first Confirm takes focus off it, the next is OK and saves
+        the name (:72-83, :107, :173). Cancel would refocus the box and Menu reset it, so neither is pressed.
+        Each Confirm waits up to 2 s for the screen to close before the next, so no Confirm can fall through
+        onto the page the script shows after it.
+        """
+        self.wait_for(lambda s: s.ui_state == "NameSetting", timeout=timeout, what="the naming screen")
+        for _ in range(4):
+            self.press("confirm", 4)
+            try:
+                st = self.wait_for(lambda s: s.ui_state != "NameSetting", timeout=2.0,
+                                   what="the naming screen to close")
+            except HarnessError:
+                continue
+            self._log(f"  accept_name: closed -> ui={st.ui_state}")
+            return st
+        raise HarnessError("the naming screen stayed up through 4 Confirms. The harness's Confirm may not reach "
+                           "NameSettingUI; [Hacks] DisableNameChoice=1 in Memoria.ini skips the screen instead")
+
+    def _dismiss_tutorial(self) -> bool:
+        """Close the battle TUTORIAL screen if it is up; True if it was. battle.cs:100-105 opens it on the Masked
+        Man's scene 336 before the first command, and no command menu opens while it is up, so a fight waiting
+        for one waits out its whole timeout. One Confirm closes it (TutorialUI.cs:116-125)."""
+        if self.state.ui_state != "Tutorial":
+            return False
+        for _ in range(4):
+            self.press("confirm", 4)
+            try:
+                self.wait_for(lambda s: s.ui_state != "Tutorial", timeout=2.0, what="the battle tutorial to close")
+            except HarnessError:
+                continue
+            self._log("  the battle tutorial screen: closed")
+            return True
+        raise HarnessError("the battle tutorial screen stayed up through 4 Confirms")
+
     def battle_act(self, command: str = "Attack", *, timeout: float = 30.0) -> bool:
         """Take one turn THROUGH THE HUD: pick a command by NAME, then confirm a target.
 
@@ -6725,12 +6773,22 @@ class Session:
         Ability or Item SUBMENU is refused rather than confirmed: the first cut treated "any group
         that is not the command list" as the target cursor and cheerfully confirmed a Potion. Cast
         an ability or use an item by name with :meth:`act`, or walk the submenu yourself.
+
+        A battle TUTORIAL screen up first is closed on the way (:meth:`_dismiss_tutorial`).
         """
-        try:
-            self.wait_for(lambda s: (s.battle_cursor.get("group") or "") == self.BATTLE_COMMAND_GROUP,
-                          timeout=timeout, what="the battle command menu")
-        except HarnessError:
-            return False
+        deadline = time.time() + timeout
+        while True:
+            if time.time() >= deadline:
+                return False
+            try:
+                st = self.wait_for(lambda s: ((s.battle_cursor.get("group") or "") == self.BATTLE_COMMAND_GROUP
+                                              or s.ui_state == "Tutorial"),
+                                   timeout=max(0.1, deadline - time.time()), what="the battle command menu")
+            except HarnessError:
+                return False
+            if st.ui_state != "Tutorial":
+                break
+            self._dismiss_tutorial()
         try:
             self.battle_pick(command)
         except HarnessError as err:
@@ -7093,6 +7151,8 @@ class Session:
         ⚠ It refuses the diorama outright rather than timing out inside it: under ``isDebug`` the
         engine suppresses the auto-end, so that fight can NEVER finish and every turn taken there
         proves nothing about a result.
+
+        A battle TUTORIAL screen (the Masked Man's scene 336) is closed when it shows (:meth:`_dismiss_tutorial`).
         """
         self._require_play_protocol("fight()")
         st = self.state
@@ -7115,12 +7175,16 @@ class Session:
             st = self.state
             if st.battle_epoch == epoch and (st.battle_result != 0 or not st.in_battle):
                 break
+            if st.ui_state == "Tutorial":
+                self._dismiss_tutorial()
+                continue
             if st.turn_slot < 0:
                 # Nobody is being asked: the enemies are acting, or an animation is playing. Not a
                 # failure -- wait for the next prompt or for the fight to end.
                 try:
                     self.wait_for(
-                        lambda s: s.turn_slot >= 0 or s.battle_result != 0 or not s.in_battle,
+                        lambda s: (s.turn_slot >= 0 or s.battle_result != 0 or not s.in_battle
+                                   or s.ui_state == "Tutorial"),
                         timeout=min(10.0, max(0.5, deadline - time.time())),
                         what="the next turn or an outcome")
                 except HarnessError:
@@ -7139,7 +7203,17 @@ class Session:
                     self.wait_frames(10)
                     continue
                 choice = dict(choice, **picked)
-            self.act(choice["command"], slot=slot, target=choice.get("target"))
+            try:
+                self.act(choice["command"], slot=slot, target=choice.get("target"))
+            except StepRefused as err:
+                # The sample said "asking slot N" and the step landed after the HUD stopped asking: a scripted end
+                # (the Masked Man's RunBattleCode after enough damage) or the next intro. Measured, story-o1e run 1.
+                # Not a turn taken and not a failure: read the state again.
+                if "not asking for commands" not in err.error:
+                    raise
+                self._log(f"  fight: the step for slot {slot} landed after the HUD stopped asking; reading again")
+                self.wait_frames(10)
+                continue
             turns += 1
         result = self.state.battle_result
         # ⚠ RECORDED, because "it ended in victory" does not say the loop ever ran. The first live
