@@ -781,6 +781,40 @@ The fix was built and re-tested offline:
 - At the candle it presses a plain Confirm and waits for the choice.
 - `route_to(overlay_ok=True)` starts a walk under such a hint (the timed "Light the candle..." after 300 frames).
 
+**Sessions `story-o1b` to `story-o1d`: each stopped at run 1 or 2 on a new driver fault, each fixed before the next.**
+- o1b (v2 `681398ac`): the candle choice opened. It publishes as `['', 'ight the candle', 'Cancel']`, because the
+  line after `[CHOO][MOVE=18,0]` loses its first character, and v2's rule missed it. v3 (`05fb803e`) matches
+  "the candle".
+- o1c (v3): run 1 (stock) reached 100 with every beat, but the Masked Man's scripted end reports result 2,
+  victory-no-pose, and v3 counted only 1 as won. v4 (`1ac32b3a`) registers `battle_won` [1, 2]. The run read the
+  checks true on real data: the four ladder keys, 0 join failures, and the only battle rows the registered
+  `Byte[206]` noise.
+- o1d (v4): run 1 reached 100. Run 2 could not get back to the title: the soft reset does not reach it through
+  Alexandria's opening. `end_run` now warps to 4600 first, then resets.
+
+**★★ Session `story-o1e` (predictions v4 `1ac32b3a`): VERDICT: PROVEN, 7/7.** Over New Game -> 50 -> 52 ->
+`Field(100)`, the verbatim fork of Prima Vista writes the real game's story state, key for key.
+- O1-COVER: stock 2 of 3 covered, fork 3 of 3. S#1 was VOID: a `fight()` step landed after the scripted end had
+  turned the HUD off. That race is fixed since: `fight()` reads the state again on that refusal.
+- O1-LADDER: 5 runs x 4 keys. SC 0 -> 1000 once at 50 e17 t1 ip1804; `Byte[6] |= 1`; FieldEntrance 100, then 102.
+- O1-NULL: 47 keys matched in every run of both sides. The only differences were `Byte[206]` values, the AI's random
+  wait.
+- O1-STABLE: 178 unstable keys, all registered noise.
+- O1-JOIN: 596 rows, 0 failures.
+- O1-THROW: none.
+
+Each run took about 3.5 minutes.
+
+The report-only dialogue line reads the fork runs as != the stock run, at 27-29 pages against 28. The two stock runs
+differ from each other in the same place: 50's four self-closing "Whew..." windows stack, and the driver samples
+them at varying moments. Every other page matches across the five runs. So the comparison needs self-closing windows
+folded before it can read a fork difference.
+
+The chain stays deployed (31200-31219) for the next segments.
+
+**Next, O2:** Alexandria, where Vivi's segment starts in field 100. That means the alxt zone joins the chain, and the
+driver gains that segment's naming screen, its walks and its talks.
+
 ## Rungs
 
 | Rung | What | Pass |
