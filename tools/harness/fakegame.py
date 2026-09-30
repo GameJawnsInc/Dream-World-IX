@@ -371,6 +371,11 @@ class FakeGame:
         #:   * ``"points"`` -- the ENGINE's polygon (scan_gateways' ``region``): membership by
         #:     content.doorface.region_contains (the ring of triplet triangles; a 5+-gon's middle is dead)
         #:     instead of the even-odd test on ``zone``, and the facing gate's first edge.
+        #:   * ``"take": True`` -- a WALK-IN TRIGGER, not a gateway: entering it takes control on that frame
+        #:     (its tag 2's DisableMove) and nothing warps -- logged in `fired` with ``to`` None. Control comes
+        #:     back only when the test's scene gives it back.
+        #:   * ``"arrive_control": False`` -- the destination arrives with control OFF: the arrival scene's to
+        #:     hand back (a test's director gives it), as 101's Herald and 115's Puck hold it.
         #: ⚠ An UNGATED region fires only on a frame a step (or the coast after one) lands him in it, never
         #: while he stands there -- the engine re-tests those every tick too, but the suite's fixtures that
         #: place him inside a zone depend on the step-only rule, so only a gated region gets the standing test.
@@ -381,6 +386,16 @@ class FakeGame:
         self.fired: list[dict] = []
         self._exit: tuple[int, int, tuple[float, float]] | None = None   # (due frame, dest, arrive)
         self._arrive_face: float | None = None     # the firing region's ``arrive_face``, applied on arrival
+        self._arrive_control = True                # the firing region's ``arrive_control``, applied on arrival
+        #: A LADDER, where a test models one (115's climb: e15 t3 DisableMove, then the climb loop reads B_KEY(16)
+        #: every tick): ``{"top": y, "bottom": y, "step": units a field tick}`` -- y is ``player[1]``, the engine's
+        #: (smaller is higher). While `climbing` (control OFF, as the climb runs), each field tick moves him ``step``
+        #: up while Up or Left is held and down while Down or Right is (B_KEY(96) descends); past ``top`` he is
+        #: `climbed` (control stays off: the scene at the top takes over), past ``bottom`` the climb ends with
+        #: control back (the bottom's EnableMove). None: no ladder.
+        self.ladder: dict | None = None
+        self.climbing = False
+        self.climbed = False
         #: Bodies the walkmesh does not know about -- someone standing still in the way: ``{field id:
         #: [(x, z, r) or (x, z, r, solid), ...]}``, ``r`` centre to centre (WalkMesh.Collision). A step
         #: into one that has it in FRONT of him is pushed back out to ``r`` along the line from its
@@ -912,6 +927,9 @@ class FakeGame:
             self.control = True
             self._block(3)
         elif op == "warp":
+            # ServicePendingWarp writes the entrance and the scenario straight into gEventGlobal BEFORE the map
+            # changes, so the trace's residue net sees them in the OLD field (`_warp_writes`); -1 writes nothing
+            self._warp_writes(num(1, -1), num(2, -1))
             self.field_id = num(0, -1)
             self.ui_state = "FieldHUD"
             self.control = True
@@ -919,6 +937,8 @@ class FakeGame:
             self._visit += 1                   # a new visit's actor: a turn begun before it is cut
             self._in_trigger.clear()           # a new visit: a trigger he lands in fires afresh
             self._exit = None                  # a warp outruns any exit still fading
+            self._arrive_control = True
+            self.climbing = False              # ...and any climb
             self._frozen_frames = self._frozen_ticks = 0      # ...and any freeze
             self._lock, self._coll = 0.0, 0.0
             self._block(3)
@@ -1052,6 +1072,8 @@ class FakeGame:
             if self.ui_state != "FieldHUD":
                 continue
             self._step_walkers(ticks)
+            if self.climbing and self._visit == visit:
+                self._step_ladder(ticks)        # the climb runs with control OFF: before the skip below
             if not self.control or self._visit != visit:
                 continue                        # control gone, or a warp mid-frame: no tick of it moves him there
             self._step_player()
@@ -1059,6 +1081,24 @@ class FakeGame:
                 self._fire_contacts()           # CollisionRequest: every tick he has control, moving or not
         if self._plan is None and self.ui_state == "FieldHUD" and self.control:
             self._player_plan()                 # a frame no tick ran on still reads the pad: a coast frame is spent
+
+    def _step_ladder(self, ticks: float) -> None:
+        """One field tick (or, in mean mode, the frame's share of one) of the `ladder` climb: ``step`` up a tick while
+        Up or Left is held, down while Down or Right is (both ways at once: nowhere); past ``top`` the climb is over,
+        `climbed`, with control still off; past ``bottom`` it is over with control back."""
+        lad = self.ladder
+        if lad is None:
+            self.climbing = False
+            return
+        way = ((1 if self._is_held("down") or self._is_held("right") else 0)
+               - (1 if self._is_held("up") or self._is_held("left") else 0))
+        if not way:
+            return
+        self.player[1] += way * float(lad["step"]) * ticks
+        if self.player[1] < float(lad["top"]):
+            self.climbing, self.climbed = False, True
+        elif self.player[1] > float(lad["bottom"]):
+            self.climbing, self.control = False, True
 
     def _player_plan(self) -> tuple:
         """What the controlled player does THIS FRAME, read once from the pad (IsHeld keys on the frame: every tick in
@@ -1446,6 +1486,7 @@ class FakeGame:
                 self.control = False
                 self._coast = None
                 self._exit = (self.frame + self.exit_frames, int(b["to"]), tuple(b.get("arrive", (0, 0))))
+                self._arrive_control = True
                 if self.exit_frames <= 0:
                     self._step_exit_now()
                 return
@@ -1508,7 +1549,16 @@ class FakeGame:
         if not self.control or self._exit is not None:
             return
         r = self._region_at(self.player[0], self.player[2])
-        if r is None or r.get("to") is None or not self._faces(r):
+        if r is None or not self._faces(r):
+            return
+        if r.get("take"):
+            # a walk-in trigger (see `regions`): its tag 2 takes control this tick, and nothing warps
+            self.fired.append({"frame": self.frame, "from": self.field_id, "to": None,
+                               "executed": len(self.executed)})
+            self.control = False
+            self._coast = None
+            return
+        if r.get("to") is None:
             return
         self.fired.append({"frame": self.frame, "from": self.field_id, "to": int(r["to"]),
                            "executed": len(self.executed)})
@@ -1516,6 +1566,7 @@ class FakeGame:
         self._coast = None
         self._exit = (self.frame + self.exit_frames, int(r["to"]), tuple(r["arrive"]))
         self._arrive_face = r.get("arrive_face")
+        self._arrive_control = bool(r.get("arrive_control", True))
         if self.exit_frames <= 0:
             self._step_exit_now()
 
@@ -1542,7 +1593,8 @@ class FakeGame:
             self._arrive_face = None
         self._in_trigger.clear()
         self._coast = None
-        self.control = True
+        self.control = self._arrive_control        # the firing region's ``arrive_control`` (see `regions`)
+        self._arrive_control = True
 
     # -- the in-place turn (memoria-patch s90) ------------------------------------------------------
     # Modelled as the agent's CONTRACT (the s90 DRIVER.md, and where they differ HarnessAgent.cs: BeginTurn,
@@ -1894,7 +1946,7 @@ class FakeGame:
                        "choice": self.choice},
             "menu": dict(self.menu),
             "battle": self._battle_doc(),
-            "flags": {str(b): bool(self.flags.get(b, False)) for b in self.watch},
+            "flags": {str(b): self._watched_bit(b) for b in self.watch},
             "netsync": self._netsync_doc(),
             "held": held,
         }
@@ -2308,6 +2360,32 @@ class FakeGame:
         self._story_row("w", src=src, sid=sid if script else -1, uid=sid if script else -1,
                         lvl=0 if script else -1, ip=ip if script else -1, tag=tag if script else -1,
                         add=0, byte=byte, w=width, bit=bit, old=old, new=new, same=int(old == new))
+
+    def _warp_writes(self, entrance: int, scenario: int) -> None:
+        """The debug warp's own writes (Ff9mkDebugMenu.ServicePendingWarp): ``entrance`` (when >= 0) as Int16 at byte
+        2 (FieldEntrance) and ``scenario`` (when >= 0) as UInt16 at bytes 0-1 (ScenarioCounter, also the published
+        ``scenario``), straight into gEventGlobal before the map changes -- no script and no store hook runs, so a
+        trace sees them only through its residue net: one ``r`` row (``why`` "frame") per byte that changed,
+        stamped with the field he is warping FROM (rung 1: "seen in field 70 before the load")."""
+        before = bytes(self.story_bytes[0:4])
+        if scenario >= 0:
+            v = scenario & 0xFFFF
+            self.story_bytes[0:2] = bytes((v & 0xFF, v >> 8))
+            self.scenario = scenario
+        if entrance >= 0:
+            v = entrance & 0xFFFF                      # Int16, two's complement
+            self.story_bytes[2:4] = bytes((v & 0xFF, v >> 8))
+        if not self.story_on:
+            return
+        for b in range(4):
+            if self.story_bytes[b] != before[b]:
+                self._story_row("r", byte=b, old=before[b], new=self.story_bytes[b], why="frame")
+
+    def _watched_bit(self, bit: int) -> bool:
+        """A watched bit as the agent publishes it: read from the modelled gEventGlobal (`story_bytes`), which the
+        ``flag`` verb, ``byte`` and :meth:`script_store` all write -- so a script's store shows in ``flags``."""
+        byte = bit >> 3
+        return 0 <= byte < len(self.story_bytes) and bool((self.story_bytes[byte] >> (bit & 7)) & 1)
 
     def script_store(self, sid: int, tag: int, ip: int, byte: int, width: str, new: int, *,
                      bit: int = -1) -> None:

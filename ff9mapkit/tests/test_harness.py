@@ -11799,3 +11799,72 @@ def test_o1_segment_run_pins_o1s_session_surface(game, capsys):
                  "O1-JOIN: every script row joins a store in the bytes its field ran"):
         assert what in whats, what
     assert whats[-1] == "O1-THROW: nothing thrown through the event engine, the evaluator, the tracer or the agent"
+
+
+# ---- O2's harness additions (research/o2_design.md section 3, PART B). H4: the fake's warp writes its entrance and
+# scenario (and the trace's residue of them) in the OLD field, models a ladder, walk-in triggers and an arrival that
+# keeps control, and publishes watched bits from its gEventGlobal. H1-H3 and H6 are the driver's verbs the beat-table
+# driver needs; each is opt-in, so no caller before it changes. Every test here in which a region warps sets
+# exit_frames = 50: the fade between ExitField's control loss and the map change is where the exits' race lives.
+
+def test_fake_warp_publishes_the_scenario(game):
+    """H4: ``warp <field> <entrance> <scenario>`` is the debug warp's ServicePendingWarp -- the scenario published and
+    laid into the modelled gEventGlobal (UInt16 at bytes 0-1), the entrance beside it (Int16 at bytes 2-3). A -1 (the
+    Session.warp default) writes nothing: the scenario stands. Break: drop the scenario write (the fake published SC
+    0 after ``warp 30821 102 1000``)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        assert g.state.scenario == 0 and bytes(fake.story_bytes[0:4]) == bytes(4)
+        st = g.warp(30821, entrance=102, scenario=1000)
+        assert st.scenario == 1000 and bytes(fake.story_bytes[0:4]) == bytes((0xE8, 0x03, 102, 0)), st
+        st = g.warp(30820)
+        assert st.scenario == 1000 and bytes(fake.story_bytes[0:4]) == bytes((0xE8, 0x03, 102, 0)), st
+        st = g.warp(30821, entrance=-1, scenario=1150)
+        assert st.scenario == 1150 and bytes(fake.story_bytes[0:4]) == bytes((0x7E, 0x04, 102, 0)), st
+    assert ["warp", "30821", "102", "1000"] in fake.executed and ["warp", "30820", "-1", "-1"] in fake.executed
+
+
+def test_fake_warp_writes_its_residue_in_the_old_field(game):
+    """H4 (research/o2_design.md 0.2 #13): with the trace on, ``warp 30820 102 1000`` from New Game's field 70 leaves
+    exactly three residue rows, stamped with field 70 -- byte 0: 0 -> 232, byte 1: 0 -> 3 (SC 1000 = 0x03E8), byte 2:
+    0 -> 102 -- and nothing on byte 3; the first row in the new field comes after them. A warp that changes no byte
+    (the same entrance and scenario again, or -1 -1) leaves none. Break: stamp the rows with the NEW field (they
+    would read as residue in the start place, which O2-START forbids)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        assert g.state.field_id == 70
+        g.storytrace(True)
+        g.warp(30820, entrance=102, scenario=1000)
+        g.poke(300, 7)                                     # a row in the new field, after the warp
+        g.warp(30821, entrance=102, scenario=1000)         # nothing changes: no residue
+        g.warp(30820)                                      # -1 -1: nothing written
+        rows = g.story_rows()
+        g.storytrace(False)
+    got = [(r.k, r.fld, r.byte, r.old, r.new) for r in rows if r.k in ("r", "w")]
+    assert got == [("r", 70, 0, 0, 232), ("r", 70, 1, 0, 3), ("r", 70, 2, 0, 102), ("w", 30820, 300, 0, 7)], got
+    assert all(r.why == "frame" and r.don == 70 for r in rows if r.k == "r"), rows
+
+
+def test_fake_watched_bits_read_the_story_bytes(game):
+    """H4: a watched bit is published from the modelled gEventGlobal, which a script's store, a ``byte`` poke and the
+    ``flag`` verb all write -- so the O2 driver's end-state read (research/o2_design.md 2.2, rule 1) sees what the
+    scripts wrote. Break: publish the ``flag`` verb's dict (a script's Bit[3717] := 1 then never shows)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g.watch(3717, 3718)
+        st = published(g, lambda s: s.flag(3717) is not None)
+        assert (st.flag(3717), st.flag(3718)) == (False, False)
+        fake.script_store(7, 1, 319, 3717 >> 3, "Bit", 1, bit=3717)       # the Herald's Bit[3717] := 1 (101 e7 t1)
+        st = published(g, lambda s: s.flag(3717) is True)
+        assert st.flag(3718) is False
+        g.poke(3718 >> 3, 1 << (3718 & 7))                 # one byte over both: 3718 set, 3717 cleared
+        st = published(g, lambda s: s.flag(3718) is True)
+        assert st.flag(3717) is False
+        g.flag(3717)
+        st = published(g, lambda s: s.flag(3717) is True)
+        assert st.flag(3718) is True
