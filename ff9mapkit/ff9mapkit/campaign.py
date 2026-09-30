@@ -1575,6 +1575,8 @@ def fetch_assets(plan: CampaignPlan, manifest_dir, *, game=None, force=False) ->
 
     from . import extract
     from ._fieldtext import EVENT_ID_TO_MES
+    from .config import LANGS
+    from .content import verbatim as _vb
     manifest_dir = Path(manifest_dir)
     remap = {m.real_id: m.new_id for m in plan.members if m.real_id}
     written: dict = {}
@@ -1600,12 +1602,21 @@ def fetch_assets(plan: CampaignPlan, manifest_dir, *, game=None, force=False) ->
                 extract.write_native_project(donor, td, name=m.name, field_id=m.new_id,
                                              game=game, id_remap=remap)
             files = []
+            # a verbatim member's per-language donor .eb files travel WITH its us `bin`: a KEPT bin may carry an
+            # import-time --swap-player patch the fresh extraction lacks, so pairing it with fresh siblings would
+            # ship a different player per language. Those only land when the bin itself is re-written.
+            bin_rel = f"{m.name}.verbatim_eb.bin"
+            siblings = ({_vb.lang_bin_rel(bin_rel, L) for L in LANGS if L != _vb.BASE_LANG}
+                        if plan.verbatim else set())
+            keep_bin = (mdir / bin_rel).is_file() and not force
             for src in sorted(Path(td).rglob("*")):
                 if not src.is_file() or src.name.endswith(".field.toml"):
                     continue                             # the generated toml: the authored one stays
                 rel = src.relative_to(td)
                 dest = mdir / rel
                 if dest.exists() and not force:
+                    continue
+                if keep_bin and rel.as_posix() in siblings:
                     continue
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(src, dest)

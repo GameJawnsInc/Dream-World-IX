@@ -1931,6 +1931,10 @@ def _cmd_import(args: argparse.Namespace) -> int:
             n_exits = len(ic.get("field_exits", []))
             print(f"  logic  : VERBATIM .eb -- ships the field's REAL event script whole ({n_exits} Field() exit(s); "
                   "add a [startup] block to boot a beat). The declarative blocks are not used in this mode.")
+            if ic.get("eb_langs_missing"):
+                print(f"  WARN   : no {', '.join(ic['eb_langs_missing'])} event script in the install -- "
+                      "those languages will ship the us donor's .eb (its window geometry, text pacing and "
+                      "voice ids); every other language ships its own.")
             if ic.get("battle_bgm"):
                 print(f"  bgm    : {ic['battle_bgm']} scripted battle(s) carry the donor's real battle theme "
                       "([[battle_bgm]] -> a scene-keyed Music: line; a mint would otherwise lose it)")

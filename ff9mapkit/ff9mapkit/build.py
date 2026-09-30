@@ -21,6 +21,7 @@ import shutil
 import struct
 import tomllib
 from dataclasses import dataclass, field as _dc_field
+from typing import NamedTuple
 from pathlib import Path
 
 from .config import LANGS, ModLayout, fbg_name
@@ -6280,7 +6281,8 @@ def _verbatim_on_entry_messages(project: FieldProject, langs) -> tuple[dict, dic
     the message SHOWS instead of being dropped. Returns ``(txid_by_hook, suffix_by_lang)`` -- ``({}, {})`` when
     the fork has no message hook (a state-only verbatim fork is then unchanged). The authored message is
     single-block: the SAME text for every language (like the synthesize path), appended at the same txid in
-    each language's body -- so the `.eb` (injected once, language-identical) stays valid."""
+    each language's body. The txid base is the max over EVERY language's `.mes`, so the one txid is free in all
+    seven and each language's own composed `.eb` resolves into it."""
     msg_hooks = [(k, h) for k, h in enumerate(project.raw.get("on_entry") or [])
                  if isinstance(h, dict) and h.get("message")]   # skip malformed (validate() flags it loudly)
     if not msg_hooks:
@@ -6309,7 +6311,7 @@ def _logic_add_message_plan(project: FieldProject, langs) -> tuple[dict, dict]:
     SHOWS. Returns ``(txid_by_add_idx, suffix_by_lang)`` -- ``({}, {})`` when no add shows a message. The key
     is the NORMALIZED add index (:func:`logic_add.plan_messages`), the SAME index ``apply_logic_adds``
     enumerates, so the build/Check hand it matching ids. Single-block: the same text for every language
-    (the ``.eb`` is injected once, language-identical)."""
+    (the txid is free in every language's ``.mes``, so each language's composed ``.eb`` resolves into it)."""
     from . import logic_add as _logic_add
     plan = _logic_add.plan_messages(project.logic_adds())
     if not plan:
@@ -6755,8 +6757,8 @@ def _verbatim_npc_messages(project: FieldProject, langs) -> tuple[dict, dict]:
     per-language `.mes` lines to append. The injected NPC's ``_SpeakBTN`` ``WindowSync`` resolves into the
     appended entry, so it speaks (a silent NPC shows its own "..."). Returns ``(txid_by_npc_index,
     suffix_by_lang)`` keyed by the index into ``project.raw['npc']``; ``({}, {})`` when no ``[[npc]]`` needs a
-    line. Single-block (the same text for every language, like the other appenders -- the `.eb` is injected
-    once, language-identical)."""
+    line. Single-block (the same text for every language, like the other appenders -- the txid is free in
+    every language's `.mes`, so each language's composed `.eb` resolves into it)."""
     # a dialogue-less DEFAULT-TALK NPC rides the same channel (its own silent line), appended AFTER the
     # voiced block so an existing fork's voiced txids stay byte-stable. The old fallback (txid 500)
     # landed INSIDE the donor's own `.mes` band (real donor text reaches 863) = a random donor line.
@@ -7079,7 +7081,7 @@ def _inject_verbatim_gateways(project: FieldProject, eb: bytes, *, warnings) -> 
     return eb
 
 
-def compose_verbatim_eb(project: FieldProject, *, langs=None, warnings=None):
+def compose_verbatim_eb(project: FieldProject, *, langs=None, warnings=None, lang: str = "us"):
     """The verbatim fork's ``.eb`` exactly as the ``[[logic_edit]]`` applier sees it: the donor bytes with the
     ``[verbatim_eb] retarget`` Field-remap (``verbatim.verbatim_eb``) + the field-load inserts
     (``[startup]`` / ``[party]`` / ``[field] walkmesh_tri_toggles`` / ``[[on_entry]]``) applied, but BEFORE the
@@ -7087,9 +7089,11 @@ def compose_verbatim_eb(project: FieldProject, *, langs=None, warnings=None):
     non-verbatim project. This is the SINGLE source of truth shared by :func:`build_field`,
     :func:`_validate_logic_edits`, and the Workspace edit panel, so logic-edit discovery, the GUI dry-run,
     Check, and the build all agree on one byte stream (else a ``field`` warp's ``old`` or a flag/item ``nth``
-    drifts between the donor and what the build actually edits)."""
+    drifts between the donor and what the build actually edits). ``lang`` picks which language's donor is
+    composed -- the bytecode is per-language (``content.verbatim``); Check and the edit panel read ``us``, and
+    the build composes every language it ships (:func:`_verbatim_ebs_by_lang`)."""
     from .content import verbatim as _verbatim
-    eb = _verbatim.verbatim_eb(project)
+    eb = _verbatim.verbatim_eb(project, lang)
     if eb is None:
         return None, {}
     warnings = warnings if warnings is not None else []
@@ -7109,6 +7113,288 @@ def compose_verbatim_eb(project: FieldProject, *, langs=None, warnings=None):
     # the synthesize path's add_reinit prologue) -- covers the donor's native random battles.
     eb = _field_load_inject("[deathrules] on_defeat", project.name, lambda: _apply_wipe_warp(project, eb))
     return eb, oe_suffix
+
+
+class _VerbatimComposed(NamedTuple):
+    """One language's composed verbatim ``.eb`` + the per-language text riding with it
+    (:func:`_compose_verbatim_build`)."""
+    eb: bytes
+    edits: list                  # the [[logic_edit]]s applied (incl. [chocobo]'s); their dialogue rewrites run per lang
+    menu_row_plan: list          # [[logic_add]] menu_row .mes row splices, planned from THIS language's bytes
+    suffix: dict                 # lang -> the appended .mes lines (on_entry, logic_add, npc, event, chest, ...)
+    edit_footprint: tuple = ()   # where the [[logic_edit]]/[[logic_add]]s landed (:func:`_edit_footprint`)
+
+
+def _func_or_none(script, entry: int, tag: int):
+    """``script``'s function ``(entry, tag)``, or ``None`` when the slot is out of range, empty, or lacks it."""
+    if not (0 <= entry < script.entry_count):
+        return None
+    e = script.entry(entry)
+    return None if e.empty else e.func_by_tag(tag)
+
+
+def _edit_footprint(before: bytes, after: bytes, edits) -> tuple:
+    """Where authored ``[[logic_edit]]``/``[[logic_add]]``s land, structurally: for each function they address
+    ``(entry, tag)``, its SHAPE before the edits (op + length of every instruction) and the ordinals of the
+    instructions the ``[[logic_edit]]`` pass rewrote (``before`` -> ``after``). An edit is located by op + old
+    value (+ ``nth``) inside its function, and an add by an op ordinal or a switch, so on a language whose
+    function differs either could land on a DIFFERENT instruction that happens to match -- two languages with
+    equal footprints took the same edits at the same instructions. Operand VALUES may still differ (window
+    geometry, pacing constants): that is the per-language logic the fork carries. ``()`` when nothing is
+    addressed."""
+    keys = sorted({(e["entry"], e["tag"]) for e in edits if isinstance(e, dict)
+                   and isinstance(e.get("entry"), int) and isinstance(e.get("tag"), int)})
+    if not keys:
+        return ()
+    b, a = EbScript.from_bytes(before), EbScript.from_bytes(after)
+    out = []
+    for key in keys:
+        fb, fa = _func_or_none(b, *key), _func_or_none(a, *key)
+        if fb is None or fa is None:
+            out.append((key, None))
+            continue
+        ib, ia = list(b.instrs(fb)), list(a.instrs(fa))
+        shape = tuple((i.op, i.length) for i in ib)
+        changed = tuple(k for k, (x, y) in enumerate(zip(ib, ia))
+                        if before[x.off:x.end] != after[y.off:y.end])
+        out.append((key, (shape, changed, len(ia))))
+    return tuple(out)
+
+
+def _compose_verbatim_build(project: FieldProject, langs, warnings: list, lang: str = "us"):
+    """``lang``'s whole verbatim ``.eb`` exactly as :func:`build_field` ships it -- :func:`compose_verbatim_eb`
+    (that language's donor + the retarget + the field-load inserts), then ``[music]``, ``[chocobo]`` /
+    ``[[logic_edit]]``, ``[[logic_add]]`` and the additive ``[[npc]]``/``[[prop]]``/``[[gateway]]``/``[[event]]``/
+    ``[[chest]]``/``[cutscene]`` seatings, each re-linted (a broken pass raises :class:`BuildError`). Every pass
+    self-locates on the bytes it is handed, so the same authored blocks compose onto each language's own
+    layout. The appended-text plans depend only on the project + ``langs`` (never the bytes), so every
+    language's ``.eb`` resolves into the same txids. ``None`` for a non-verbatim project."""
+    verbatim_bytes, oe_suffix = compose_verbatim_eb(project, langs=langs, warnings=warnings, lang=lang)
+    if verbatim_bytes is None:
+        return None
+    verbatim_edits = project.logic_edits()
+    la_suffix: dict = {}                                        # [[logic_add]] show_line / message lines (per lang)
+    npc_suffix: dict = {}                                       # [[npc]] talk lines added to a verbatim fork (per lang)
+    event_suffix: dict = {}                                     # [[event]] message lines added to a verbatim fork (per lang)
+    chest_suffix: dict = {}                                     # [[chest]] Received-X lines added to a verbatim fork (per lang)
+    choice_suffix: dict = {}                                    # [[npc]]-attached [[choice]] prompt/reply lines (per lang)
+    prop_suffix: dict = {}                                      # readable [[prop]] dialogue lines (per lang)
+    cutscene_suffix: dict = {}                                  # multi-actor [cutscene] conductor say lines (per lang)
+    _verbatim_npc_slots: dict = {}                              # injected NPC name -> below-band uid (for the conductor)
+    menu_row_plan: list = []                                    # [[logic_add]] menu_row .mes row splices (per lang)
+    # [music] song -- REPLACE the donor's field BGM in place (a length-preserving operand swap), so a fork can
+    # re-score its room. Unlike the synthesize path (which APPENDS a play), a verbatim fork already carries the
+    # donor's RunSoundCode(0, song) in Main_Init (+ any tag-10 resume), so we OVERWRITE it -- the new track
+    # replaces, never stacks. Runs first (pristine donor bytes); same eblint gate as the additive blocks below.
+    _msong = (project.raw.get("music") or {}).get("song")
+    if _msong is not None:
+        from . import eblint as _eblint
+        verbatim_bytes, _n_music, _old_song = _music.replace_field_music(verbatim_bytes, int(_msong))
+        if _n_music == 0 and _old_song is None:
+            raise BuildError(
+                f"[music] song in {project.name}: the donor field has no replaceable field BGM (no immediate "
+                f"RunSoundCode(0, song) -- it is silent or sets its BGM by a computed value). On a verbatim "
+                f"fork [music] REPLACES the donor's track; to ADD music to a silent room, author a synthesized "
+                f"field.")
+        _ms_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+        if _ms_errs:
+            raise BuildError(f"[music] broke the composed .eb of {project.name}: {[str(e) for e in _ms_errs]}")
+    # Phase-2 in-place value edits ([[logic_edit]]): run LAST -- the applier self-locates by entry/tag/op +
+    # the old value (re-decoding the FINAL bytes), so the field-load inserts above don't invalidate it. Each
+    # edit is length-preserving, so the composed .eb is re-validated by the Phase-3 linter; a broken edit
+    # fails the build (BuildError), never ships.
+    if project.chocobo():
+        # [chocobo] (the Hot & Cold dig prize/timer lane) resolves into expr_literal edits against the
+        # CURRENT composed stream and rides the same apply + lint gate as the author's own [[logic_edit]].
+        from .content.chocobo import ChocoboError as _ChocoErr
+        try:
+            verbatim_edits = list(verbatim_edits) + _chocobo_edits(project, verbatim_bytes)
+        except _ChocoErr as ex:
+            raise BuildError(f"[chocobo] in {project.name}: {ex}")
+    _pre_edit = verbatim_bytes                                   # for the per-language landing check (footprint)
+    if verbatim_edits:
+        from . import eblint as _eblint
+        from . import logic_edit as _logic_edit
+        try:
+            verbatim_bytes = _logic_edit.apply_logic_edits(verbatim_bytes, verbatim_edits)
+        except _logic_edit.LogicEditError as ex:     # match Check: a clean failure, not a raw traceback
+            raise BuildError(f"[[logic_edit]] in {project.name}: {ex}")
+        _le_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+        if _le_errs:
+            raise BuildError(f"[[logic_edit]] broke the composed .eb of {project.name}: "
+                             f"{[str(e) for e in _le_errs]}")
+    # Phase-4a length-changing ADDITIONS ([[logic_add]]): a guarded PREPEND of an effect into a routine,
+    # AFTER the value edits (so the edits' donor-based coordinates aren't shifted by an inserted instr).
+    # The only primitive is the always-safe rel_off=0 prepend; the composed .eb is re-linted (a broken
+    # add fails the build, never ships). Guard params (member window + the project's authored flags) match
+    # Check exactly via _logic_guard_params, so an add that passes Check builds (and vice-versa).
+    verbatim_adds = project.logic_adds()
+    edit_footprint = _edit_footprint(_pre_edit, verbatim_bytes, list(verbatim_edits) + list(verbatim_adds or []))
+    if verbatim_adds:
+        from . import eblint as _eblint
+        from . import logic_add as _logic_add
+        _gb, _gw, _rf = _logic_guard_params(project)
+        try:
+            # a show_line / message add gets a txid above the donor `.mes` + the [[on_entry]] block; its
+            # appended line ships in la_suffix below, and the inserted WindowSync resolves into it.
+            _la_txids, la_suffix = _logic_add_message_plan(project, langs)
+            # a menu_row's .mes row-label splice (leg C) -- planned from the PRE-add bytes (so its row index
+            # matches the dispatch arm) and applied to each language's donor body in the text loop below.
+            menu_row_plan = _logic_add.menu_row_text_plan(verbatim_bytes, verbatim_adds)
+            verbatim_bytes = _logic_add.apply_logic_adds(verbatim_bytes, verbatim_adds, guard_base=_gb,
+                                                        guard_window=_gw, reserved_flags=_rf,
+                                                        message_txids=_la_txids, warnings=warnings)
+        except _logic_add.LogicAddError as ex:       # match Check: a clean failure, not a raw traceback
+            raise BuildError(f"[[logic_add]] in {project.name}: {ex}")
+        _la_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+        if _la_errs:
+            raise BuildError(f"[[logic_add]] broke the composed .eb of {project.name}: "
+                             f"{[str(e) for e in _la_errs]}")
+    # [[npc]] -- add NEW self-contained NPCs to the verbatim fork. Runs LAST (after [[logic_edit]]/
+    # [[logic_add]], which locate by donor slot/entry index) so those passes see the donor's original
+    # layout; the band-aware insert then shifts the 9 character slots up one + remaps refs. Talk text
+    # rides the appended-.mes channel (above the on_entry/logic_add blocks). The composed .eb is re-linted
+    # (a broken insertion fails the build, never ships).
+    if project.raw.get("npc"):
+        from . import eblint as _eblint
+        _npc_txids, npc_suffix = _verbatim_npc_messages(project, langs)
+        _choice_txids, choice_suffix = _verbatim_choice_messages(project, langs)   # NPC [[choice]] menu text
+        verbatim_bytes, _verbatim_npc_slots = _inject_verbatim_npcs(
+            project, verbatim_bytes, _npc_txids, choice_txids=_choice_txids, warnings=warnings)
+        _npc_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+        if _npc_errs:
+            raise BuildError(f"[[npc]] broke the composed .eb of {project.name}: "
+                             f"{[str(e) for e in _npc_errs]}")
+    # [[prop]] -- add NEW static set-dressing (chest/barrel/sign models) to the verbatim fork (object
+    # entries below the band, like [[npc]] but no talk/turn). The visible half of a real chest. A prop
+    # with `dialogue` is READABLE (a tag-3 WindowSync into the appended-.mes channel).
+    if project.raw.get("prop"):
+        from . import eblint as _eblint
+        _prop_txids, prop_suffix = _verbatim_prop_messages(project, langs)
+        verbatim_bytes = _inject_verbatim_props(project, verbatim_bytes, _prop_txids, warnings=warnings)
+        _pr_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+        if _pr_errs:
+            raise BuildError(f"[[prop]] broke the composed .eb of {project.name}: "
+                             f"{[str(e) for e in _pr_errs]}")
+    # [[gateway]] -- add NEW exits/doors to the verbatim fork (same below-band seating as [[npc]]).
+    if project.raw.get("gateway"):
+        from . import eblint as _eblint
+        verbatim_bytes = _inject_verbatim_gateways(project, verbatim_bytes, warnings=warnings)
+        _gw_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+        if _gw_errs:
+            raise BuildError(f"[[gateway]] broke the composed .eb of {project.name}: "
+                             f"{[str(e) for e in _gw_errs]}")
+    # [[event]] -- add NEW chests / gil / story-flag triggers to the verbatim fork (region entries below
+    # the band; message text via the appended-.mes channel, above the npc block).
+    if project.raw.get("event"):
+        from . import eblint as _eblint
+        _ev_txids, event_suffix = _verbatim_event_messages(project, langs)
+        verbatim_bytes = _inject_verbatim_events(project, verbatim_bytes, _ev_txids, warnings=warnings)
+        _ev_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+        if _ev_errs:
+            raise BuildError(f"[[event]] broke the composed .eb of {project.name}: "
+                             f"{[str(e) for e in _ev_errs]}")
+    # [[chest]] -- add NEW openable, savable treasure chests (one object per chest: flag-gated open/closed
+    # pose Init + a press-to-open handler that animates the lid, gives item/gil, and latches a save flag).
+    if project.raw.get("chest"):
+        from . import eblint as _eblint
+        _ch_txids, chest_suffix = _verbatim_chest_messages(project, langs)
+        verbatim_bytes = _inject_chests(project, verbatim_bytes, _ch_txids,
+                                        reserve_party_band=True, warnings=warnings,
+                                        mcf=bool(project.field.get("mapconfig")))
+        _ch_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+        if _ch_errs:
+            raise BuildError(f"[[chest]] broke the composed .eb of {project.name}: "
+                             f"{[str(e) for e in _ch_errs]}")
+    # [cutscene] -- a MULTI-ACTOR conductor (one director code entry below the band) that drives the additive
+    # [[npc]] actors (by their below-band uids in _verbatim_npc_slots) + the player (250). Injected LAST so the
+    # actor uids are settled; say lines ride the appended-.mes channel (the topmost block). say/turn/anim are
+    # wired -- walk is deferred on verbatim (skipped with a warning). (project-ff9-cutscene-multiactor)
+    if _verbatim_conductor_block(project) is not None:
+        from . import eblint as _eblint
+        _cs_txids, cutscene_suffix = _verbatim_cutscene_messages(project, langs)
+        verbatim_bytes = _inject_verbatim_conductor(project, verbatim_bytes, _verbatim_npc_slots,
+                                                    _cs_txids, warnings=warnings)
+        _cs_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+        if _cs_errs:
+            raise BuildError(f"[cutscene] conductor broke the composed .eb of {project.name}: "
+                             f"{[str(e) for e in _cs_errs]}")
+    suffix = {L: (oe_suffix.get(L, "") + la_suffix.get(L, "")   # appended [[on_entry]]/[[logic_add]]
+                  + npc_suffix.get(L, "")                       # + [[npc]] talk lines
+                  + event_suffix.get(L, "")                     # + [[event]] message lines
+                  + chest_suffix.get(L, "")                     # + [[chest]] Received-X lines
+                  + choice_suffix.get(L, "")                    # + NPC [[choice]] prompt/reply lines
+                  + prop_suffix.get(L, "")                      # + readable [[prop]] dialogue lines
+                  + cutscene_suffix.get(L, ""))                 # + multi-actor [cutscene] say lines
+              for L in langs}
+    return _VerbatimComposed(verbatim_bytes, list(verbatim_edits), menu_row_plan, suffix, edit_footprint)
+
+
+def _verbatim_ebs_by_lang(project: FieldProject, langs, warnings: list) -> dict:
+    """``{lang: _VerbatimComposed}`` for every language the build ships -- ``{}`` for a non-verbatim project.
+
+    The bytecode is NOT language-identical (dialogue-window operands, text pacing and voice sound ids differ;
+    some fields even differ in length -- ``content.verbatim``), so each language composes onto its OWN donor.
+    ``us`` composes first and raises like any build step; its warnings are the build's. Another language
+    falls back to the ``us`` composition, with a warning, when (a) the fork carries no donor for it (an
+    older import, or the install lacked it), (b) composing onto its donor failed -- e.g. a ``[[logic_edit]]``
+    whose ``old`` value differs in that language -- or (c) an authored edit/add would land on a different
+    instruction than it does in ``us`` (:func:`_edit_footprint`: the function it addresses differs there, so a
+    same-valued instruction elsewhere could be patched silently). Every fallback ships what every language
+    shipped before, and the build says which languages did. A donor byte-identical to ``us`` reuses the ``us``
+    composition."""
+    from .content import verbatim as _verbatim
+    base = _compose_verbatim_build(project, langs, warnings)
+    if base is None:
+        return {}
+    us_donor = _verbatim.verbatim_eb(project)
+    by_lang: dict = {}
+    absent: list = []
+    failed: list = []
+    for lang in langs:
+        if lang == _verbatim.BASE_LANG:
+            by_lang[lang] = base
+            continue
+        if not _verbatim.has_lang_donor(project, lang):
+            absent.append(lang)
+            by_lang[lang] = base
+            continue
+        if _verbatim.verbatim_eb(project, lang) == us_donor:
+            by_lang[lang] = base
+            continue
+        lang_warnings: list = []
+        try:
+            comp = _compose_verbatim_build(project, langs, lang_warnings, lang=lang)
+        except Exception as ex:          # any pass: the fallback is exactly what this language shipped before
+            failed.append(f"{lang} ({type(ex).__name__}: {ex})")
+            by_lang[lang] = base
+            continue
+        if comp.edit_footprint != base.edit_footprint:
+            # an edit located on this language's own bytes landed somewhere else than on us's (its function
+            # differs here) -- a silent mis-patch unless refused
+            us_fp, lang_fp = dict(base.edit_footprint), dict(comp.edit_footprint)
+            where = ", ".join(f"entry {e} tag {t}" for (e, t) in sorted(set(us_fp) | set(lang_fp))
+                              if us_fp.get((e, t)) != lang_fp.get((e, t)))
+            failed.append(f"{lang} (the [[logic_edit]]/[[logic_add]] in {where} would not land on the same "
+                          f"instruction as in us: that function differs in {lang}'s donor)")
+            by_lang[lang] = base
+            continue
+        by_lang[lang] = comp
+        warnings.extend([w for w in dict.fromkeys(lang_warnings) if w not in warnings])
+    if absent:
+        bin_rel = project.raw["verbatim_eb"]["bin"]
+        warnings.append(
+            f"verbatim fork {project.name}: no {', '.join(absent)} donor .eb beside {bin_rel} -- "
+            f"{'that language ships' if len(absent) == 1 else 'those languages ship'} the us donor's logic "
+            "(its dialogue-window geometry, text pacing and voice ids; the bytecode is per-language). Re-import "
+            "the fork, or `ff9mapkit fetch-assets --force` a campaign, to carry each language's own .eb.")
+    if failed:
+        warnings.append(
+            f"verbatim fork {project.name}: composing onto the per-language donor failed for "
+            f"{'; '.join(failed)} -- shipped the us composition there instead (the edits land, but on the us "
+            "donor's logic). Check that each authored edit also matches that language's .eb (`ff9mapkit "
+            "disasm` on its donor).")
+    return by_lang
 
 
 def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
@@ -9922,163 +10208,20 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     from .content import verbatim as _verbatim                  # verbatim_mes() is read per-language below
     # Verbatim-.eb fork (docs/FORK_FIDELITY.md, the entry-0 carry): ship the donor's WHOLE event script
     # (entry-0 + all objects + all gateways, layout intact, Field() destinations remapped) instead of
-    # synthesizing one -- the field runs its real logic. None unless the project has a [verbatim_eb] block.
-    # the verbatim .eb bypasses build_script, so apply the field-load hooks HERE too -- else the documented
-    # "pair with [startup] to boot a beat" is a silent no-op (the fork would boot at scenario-zero), and
-    # [[on_entry]] beats would never fire. Both arm into the donor's Main_Init; the .eb is language-identical,
-    # so inject once before the per-language loop. An [[on_entry]] narration MESSAGE is given a text channel by
-    # APPENDING it to the donor `.mes` above the donor's txids (oe_suffix, added per-language below); its
+    # synthesizing one -- the field runs its real logic. Empty unless the project has a [verbatim_eb] block.
+    # the verbatim .eb bypasses build_script, so the field-load hooks ([startup], [[on_entry]], ...) and the
+    # additive blocks are applied by _compose_verbatim_build -- else the documented "pair with [startup] to
+    # boot a beat" is a silent no-op (the fork would boot at scenario-zero). The bytecode is PER-LANGUAGE, so
+    # each language composes onto its own donor (_verbatim_ebs_by_lang); a language with no captured donor
+    # ships the us composition and is warned. An [[on_entry]] narration MESSAGE is given a text channel by
+    # APPENDING it to the donor `.mes` above the donor's txids (the suffix, added per-language below); its
     # WindowSync resolves into that appended entry. The field-load hooks PREPEND, which is safe even on the
     # ~11% of fields whose Main_Init opens with a 0x06 scenario jump table (edit.insert_in_function moves the
     # body wholesale, IP-relative -- so e.g. a field-206 fork carries its [startup]/[[on_entry]] beats fine).
-    # This composition is shared verbatim with Check + the GUI edit panel (compose_verbatim_eb).
-    verbatim_bytes, oe_suffix = compose_verbatim_eb(project, langs=langs, warnings=warnings)
+    # The us composition is shared verbatim with Check + the GUI edit panel (compose_verbatim_eb).
+    verbatim_by_lang = _verbatim_ebs_by_lang(project, langs, warnings)
     verbatim_edits = project.logic_edits()
-    la_suffix: dict = {}                                        # [[logic_add]] show_line / message lines (per lang)
-    npc_suffix: dict = {}                                       # [[npc]] talk lines added to a verbatim fork (per lang)
-    event_suffix: dict = {}                                     # [[event]] message lines added to a verbatim fork (per lang)
-    chest_suffix: dict = {}                                     # [[chest]] Received-X lines added to a verbatim fork (per lang)
-    choice_suffix: dict = {}                                    # [[npc]]-attached [[choice]] prompt/reply lines (per lang)
-    prop_suffix: dict = {}                                      # readable [[prop]] dialogue lines (per lang)
-    cutscene_suffix: dict = {}                                  # multi-actor [cutscene] conductor say lines (per lang)
-    _verbatim_npc_slots: dict = {}                              # injected NPC name -> below-band uid (for the conductor)
-    menu_row_plan: list = []                                    # [[logic_add]] menu_row .mes row splices (per lang)
-    if verbatim_bytes is not None:
-        # [music] song -- REPLACE the donor's field BGM in place (a length-preserving operand swap), so a fork can
-        # re-score its room. Unlike the synthesize path (which APPENDS a play), a verbatim fork already carries the
-        # donor's RunSoundCode(0, song) in Main_Init (+ any tag-10 resume), so we OVERWRITE it -- the new track
-        # replaces, never stacks. Runs first (pristine donor bytes); same eblint gate as the additive blocks below.
-        _msong = (project.raw.get("music") or {}).get("song")
-        if _msong is not None:
-            from . import eblint as _eblint
-            verbatim_bytes, _n_music, _old_song = _music.replace_field_music(verbatim_bytes, int(_msong))
-            if _n_music == 0 and _old_song is None:
-                raise BuildError(
-                    f"[music] song in {project.name}: the donor field has no replaceable field BGM (no immediate "
-                    f"RunSoundCode(0, song) -- it is silent or sets its BGM by a computed value). On a verbatim "
-                    f"fork [music] REPLACES the donor's track; to ADD music to a silent room, author a synthesized "
-                    f"field.")
-            _ms_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
-            if _ms_errs:
-                raise BuildError(f"[music] broke the composed .eb of {project.name}: {[str(e) for e in _ms_errs]}")
-        # Phase-2 in-place value edits ([[logic_edit]]): run LAST -- the applier self-locates by entry/tag/op +
-        # the old value (re-decoding the FINAL bytes), so the field-load inserts above don't invalidate it. Each
-        # edit is length-preserving, so the composed .eb is re-validated by the Phase-3 linter; a broken edit
-        # fails the build (BuildError), never ships.
-        if project.chocobo():
-            # [chocobo] (the Hot & Cold dig prize/timer lane) resolves into expr_literal edits against the
-            # CURRENT composed stream and rides the same apply + lint gate as the author's own [[logic_edit]].
-            from .content.chocobo import ChocoboError as _ChocoErr
-            try:
-                verbatim_edits = list(verbatim_edits) + _chocobo_edits(project, verbatim_bytes)
-            except _ChocoErr as ex:
-                raise BuildError(f"[chocobo] in {project.name}: {ex}")
-        if verbatim_edits:
-            from . import eblint as _eblint
-            from . import logic_edit as _logic_edit
-            try:
-                verbatim_bytes = _logic_edit.apply_logic_edits(verbatim_bytes, verbatim_edits)
-            except _logic_edit.LogicEditError as ex:     # match Check: a clean failure, not a raw traceback
-                raise BuildError(f"[[logic_edit]] in {project.name}: {ex}")
-            _le_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
-            if _le_errs:
-                raise BuildError(f"[[logic_edit]] broke the composed .eb of {project.name}: "
-                                 f"{[str(e) for e in _le_errs]}")
-        # Phase-4a length-changing ADDITIONS ([[logic_add]]): a guarded PREPEND of an effect into a routine,
-        # AFTER the value edits (so the edits' donor-based coordinates aren't shifted by an inserted instr).
-        # The only primitive is the always-safe rel_off=0 prepend; the composed .eb is re-linted (a broken
-        # add fails the build, never ships). Guard params (member window + the project's authored flags) match
-        # Check exactly via _logic_guard_params, so an add that passes Check builds (and vice-versa).
-        verbatim_adds = project.logic_adds()
-        if verbatim_adds:
-            from . import eblint as _eblint
-            from . import logic_add as _logic_add
-            _gb, _gw, _rf = _logic_guard_params(project)
-            try:
-                # a show_line / message add gets a txid above the donor `.mes` + the [[on_entry]] block; its
-                # appended line ships in la_suffix below, and the inserted WindowSync resolves into it.
-                _la_txids, la_suffix = _logic_add_message_plan(project, langs)
-                # a menu_row's .mes row-label splice (leg C) -- planned from the PRE-add bytes (so its row index
-                # matches the dispatch arm) and applied to each language's donor body in the text loop below.
-                menu_row_plan = _logic_add.menu_row_text_plan(verbatim_bytes, verbatim_adds)
-                verbatim_bytes = _logic_add.apply_logic_adds(verbatim_bytes, verbatim_adds, guard_base=_gb,
-                                                            guard_window=_gw, reserved_flags=_rf,
-                                                            message_txids=_la_txids, warnings=warnings)
-            except _logic_add.LogicAddError as ex:       # match Check: a clean failure, not a raw traceback
-                raise BuildError(f"[[logic_add]] in {project.name}: {ex}")
-            _la_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
-            if _la_errs:
-                raise BuildError(f"[[logic_add]] broke the composed .eb of {project.name}: "
-                                 f"{[str(e) for e in _la_errs]}")
-        # [[npc]] -- add NEW self-contained NPCs to the verbatim fork. Runs LAST (after [[logic_edit]]/
-        # [[logic_add]], which locate by donor slot/entry index) so those passes see the donor's original
-        # layout; the band-aware insert then shifts the 9 character slots up one + remaps refs. Talk text
-        # rides the appended-.mes channel (above the on_entry/logic_add blocks). The composed .eb is re-linted
-        # (a broken insertion fails the build, never ships).
-        if project.raw.get("npc"):
-            from . import eblint as _eblint
-            _npc_txids, npc_suffix = _verbatim_npc_messages(project, langs)
-            _choice_txids, choice_suffix = _verbatim_choice_messages(project, langs)   # NPC [[choice]] menu text
-            verbatim_bytes, _verbatim_npc_slots = _inject_verbatim_npcs(
-                project, verbatim_bytes, _npc_txids, choice_txids=_choice_txids, warnings=warnings)
-            _npc_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
-            if _npc_errs:
-                raise BuildError(f"[[npc]] broke the composed .eb of {project.name}: "
-                                 f"{[str(e) for e in _npc_errs]}")
-        # [[prop]] -- add NEW static set-dressing (chest/barrel/sign models) to the verbatim fork (object
-        # entries below the band, like [[npc]] but no talk/turn). The visible half of a real chest. A prop
-        # with `dialogue` is READABLE (a tag-3 WindowSync into the appended-.mes channel).
-        if project.raw.get("prop"):
-            from . import eblint as _eblint
-            _prop_txids, prop_suffix = _verbatim_prop_messages(project, langs)
-            verbatim_bytes = _inject_verbatim_props(project, verbatim_bytes, _prop_txids, warnings=warnings)
-            _pr_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
-            if _pr_errs:
-                raise BuildError(f"[[prop]] broke the composed .eb of {project.name}: "
-                                 f"{[str(e) for e in _pr_errs]}")
-        # [[gateway]] -- add NEW exits/doors to the verbatim fork (same below-band seating as [[npc]]).
-        if project.raw.get("gateway"):
-            from . import eblint as _eblint
-            verbatim_bytes = _inject_verbatim_gateways(project, verbatim_bytes, warnings=warnings)
-            _gw_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
-            if _gw_errs:
-                raise BuildError(f"[[gateway]] broke the composed .eb of {project.name}: "
-                                 f"{[str(e) for e in _gw_errs]}")
-        # [[event]] -- add NEW chests / gil / story-flag triggers to the verbatim fork (region entries below
-        # the band; message text via the appended-.mes channel, above the npc block).
-        if project.raw.get("event"):
-            from . import eblint as _eblint
-            _ev_txids, event_suffix = _verbatim_event_messages(project, langs)
-            verbatim_bytes = _inject_verbatim_events(project, verbatim_bytes, _ev_txids, warnings=warnings)
-            _ev_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
-            if _ev_errs:
-                raise BuildError(f"[[event]] broke the composed .eb of {project.name}: "
-                                 f"{[str(e) for e in _ev_errs]}")
-        # [[chest]] -- add NEW openable, savable treasure chests (one object per chest: flag-gated open/closed
-        # pose Init + a press-to-open handler that animates the lid, gives item/gil, and latches a save flag).
-        if project.raw.get("chest"):
-            from . import eblint as _eblint
-            _ch_txids, chest_suffix = _verbatim_chest_messages(project, langs)
-            verbatim_bytes = _inject_chests(project, verbatim_bytes, _ch_txids,
-                                            reserve_party_band=True, warnings=warnings,
-                                            mcf=bool(project.field.get("mapconfig")))
-            _ch_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
-            if _ch_errs:
-                raise BuildError(f"[[chest]] broke the composed .eb of {project.name}: "
-                                 f"{[str(e) for e in _ch_errs]}")
-        # [cutscene] -- a MULTI-ACTOR conductor (one director code entry below the band) that drives the additive
-        # [[npc]] actors (by their below-band uids in _verbatim_npc_slots) + the player (250). Injected LAST so the
-        # actor uids are settled; say lines ride the appended-.mes channel (the topmost block). say/turn/anim are
-        # wired -- walk is deferred on verbatim (skipped with a warning). (project-ff9-cutscene-multiactor)
-        if _verbatim_conductor_block(project) is not None:
-            from . import eblint as _eblint
-            _cs_txids, cutscene_suffix = _verbatim_cutscene_messages(project, langs)
-            verbatim_bytes = _inject_verbatim_conductor(project, verbatim_bytes, _verbatim_npc_slots,
-                                                        _cs_txids, warnings=warnings)
-            _cs_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
-            if _cs_errs:
-                raise BuildError(f"[cutscene] conductor broke the composed .eb of {project.name}: "
-                                 f"{[str(e) for e in _cs_errs]}")
+    if verbatim_by_lang:
         # a STANDALONE [[shop]]/[[synthesis]] `zone` opener (a press-region) is synthesized in build_script,
         # which the verbatim path bypasses -- so it is NOT injected here. (An [[npc]] opens_shop IS wired, above
         # by _inject_verbatim_npcs.) The inventory/recipe CSV still ships (mod-write stage). Warn so the zone
@@ -10099,35 +10242,30 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # `field/<text_block>.mes`. base = the donor/synth body; inplace = base + in-place rewrites; suffix = the
     # appended lines (their own high txids).
     mes_parts: dict = {}
-    if verbatim_bytes is not None and project.raw.get("coop"):
+    if verbatim_by_lang and project.raw.get("coop"):
         warnings.append(f"[[coop]] on {project.name} was NOT applied -- co-op gates are synthesize-path "
                         "only for now (a verbatim fork keeps the donor's whole script). Author the gate "
                         "on a non-verbatim field, or ask for the verbatim seating rung.")
     for lang in langs:
-        if verbatim_bytes is not None:
-            eb = verbatim_bytes
+        if verbatim_by_lang:
+            comp = verbatim_by_lang[lang]
+            eb = comp.eb
             # the donor's WHOLE text (index-txids); base is shared across every member of this text_block
             base = _verbatim.verbatim_mes(project, lang) or ""
             inplace = base
-            if verbatim_edits:                                  # Phase-2 dialogue-string rewrites (per language)
+            if comp.edits:                                      # Phase-2 dialogue-string rewrites (per language)
                 from . import logic_edit as _logic_edit
-                inplace = _logic_edit.apply_logic_text_edits(inplace, verbatim_edits, lang)
-            if menu_row_plan:                                   # [[logic_add]] menu_row: splice the row label in
+                inplace = _logic_edit.apply_logic_text_edits(inplace, comp.edits, lang)
+            if comp.menu_row_plan:                              # [[logic_add]] menu_row: splice the row label in
                 from . import logic_add as _logic_add
                 # ORDER MATTERS: the menu row is spliced into the donor's index-implicit body BEFORE the
                 # [[on_entry]]/[[logic_add]] message suffixes -- those carry [TXID=] markers, which
                 # verified_mes_splice rejects. Keep the splice in `inplace`, ahead of the `suffix` append.
                 try:
-                    inplace = _logic_add.apply_menu_row_text(inplace, menu_row_plan, lang, warnings=warnings)
+                    inplace = _logic_add.apply_menu_row_text(inplace, comp.menu_row_plan, lang, warnings=warnings)
                 except _logic_add.LogicAddError as ex:          # match Check: a clean failure, not a traceback
                     raise BuildError(f"[[logic_add]] menu_row in {project.name}: {ex}")
-            suffix = (oe_suffix.get(lang, "") + la_suffix.get(lang, "")   # appended [[on_entry]]/[[logic_add]]
-                      + npc_suffix.get(lang, "")                           # + [[npc]] talk lines
-                      + event_suffix.get(lang, "")                         # + [[event]] message lines
-                      + chest_suffix.get(lang, "")                         # + [[chest]] Received-X lines
-                      + choice_suffix.get(lang, "")                        # + NPC [[choice]] prompt/reply lines
-                      + prop_suffix.get(lang, "")                          # + readable [[prop]] dialogue lines
-                      + cutscene_suffix.get(lang, ""))                     # + multi-actor [cutscene] say lines
+            suffix = comp.suffix.get(lang, "")                 # the appended [[on_entry]]/[[npc]]/... lines
         else:
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,

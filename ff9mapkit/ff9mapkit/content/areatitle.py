@@ -12,8 +12,9 @@ The gap this module fills is the OTHER case: a SYNTHESIZED field that BG-borrows
 World Hub borrows Mognet Central's room) inherits those overlays Active-by-default, with no donor ``.eb`` to
 retire them -- so the title sits there statically claiming to be that place. :func:`hide` prepends
 ``ShowTile(i, 0)`` for the title overlays to ``Main_Init`` (entry-0 tag-0) so it never shows. A tag-0
-prepend (``rel_off == 0``) is shift-safe even on jump-table donors; the injection is language-identical
-and no-ops when the field has no area title. Mirrors :mod:`ff9mapkit.content.entry_settle`.
+prepend (``rel_off == 0``) is shift-safe even on jump-table donors; the injected body is language-independent
+(it names overlays, not text), so it applies to each language's ``.eb`` as-is, and no-ops when the field has
+no area title. Mirrors :mod:`ff9mapkit.content.entry_settle`.
 """
 
 from __future__ import annotations
@@ -26,7 +27,8 @@ SHOWTILE = 0x5B          # ShowTile / BGLACTIVE: ShowTile(overlayIdx, active) --
 def hide(eb_bytes, start, end) -> bytes:
     """Prepend ``ShowTile(i, 0)`` for every overlay ``i`` in ``[start, end]`` to Main_Init (entry-0 tag-0)
     so the area-title overlays are suppressed from the first frame. Returns the input unchanged when the
-    field has no title range (``start``/``end`` is ``None``). ``.eb``-language-identical (call once)."""
+    field has no title range (``start``/``end`` is ``None``). The body is language-independent: apply it to
+    each language's ``.eb`` (``build_script`` does, per language)."""
     if start is None or end is None:
         return eb_bytes
     ovr = list(range(int(start), int(end) + 1))

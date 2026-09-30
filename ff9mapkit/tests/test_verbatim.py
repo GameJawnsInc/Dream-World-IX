@@ -746,3 +746,233 @@ def test_native_fork_carries_donor_sps_assets(tmp_path):
     fbg = next(p for p in out.rglob("FieldMaps/*") if p.is_dir() and "ICJ" in p.name)
     shipped = {p.name for p in fbg.iterdir()}
     assert "spt.tcb.bytes" in shipped and fire <= shipped
+
+
+# --- per-language donors: the event bytecode is NOT language-identical ------------------------------------------
+# Only 238 of 818 stock fields match across the 7 languages once the name block is masked (dialogue-window
+# operands, text pacing and voice ids differ; 94 fields differ in LENGTH -- studies/eb-roundtrip/FINDINGS.md), so a
+# verbatim fork ships each language its OWN donor, captured beside `bin` as <bin stem>.<lang><ext>.
+_LANGS = ("us", "uk", "fr", "gr", "it", "es", "jp")
+
+_LANGV = """
+[field]
+id = 30990
+name = "LANGV"
+area = 11
+text_block = 30990
+
+[camera]
+pitch = 45
+
+[walkmesh]
+quad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]
+
+[player]
+spawn = [0, -300]
+
+[verbatim_eb]
+bin = "LANGV.verbatim_eb.bin"
+"""
+
+
+def _zone(s):
+    return _gw.quad_zone([(0, 0), (s, 0), (s, s), (0, s)])
+
+
+def _lang_donors():
+    """``(us, fr, jp)`` donors shaped like the stock cases. fr = the us bytes with its own NAME block (field 50's
+    fr: nothing differs inside the code). jp = its own blank, the 100 exit on a different zone (same instruction
+    shape, other constants) plus a second exit to 300 -- different code AND length (field 52's jp)."""
+    us = _gw.inject_gateway(data.blank_field_bytes("us"), 100, zone=_zone(10))
+    fr = bytearray(us)
+    fr[0x04:0x0A] = b"FRENCH"
+    jp = _gw.inject_gateway(_gw.inject_gateway(data.blank_field_bytes("jp"), 100, zone=_zone(20)),
+                            300, zone=_zone(30))
+    return us, bytes(fr), jp
+
+
+def _field_site(eb_bytes, dest):
+    """``(entry, tag)`` of the function holding ``Field(dest)``."""
+    s = EbScript.from_bytes(eb_bytes)
+    return next((e.index, f.tag) for e in s.entries if not e.empty for f in e.funcs
+                for i in s.instrs(f) if i.op == 0x2B and i.imm(0) == dest)
+
+
+def _langv(tmp_path, donors, *, verbatim_extra="", extra=""):
+    from ff9mapkit import build
+    for lang, eb in donors.items():
+        (tmp_path / _vb.lang_bin_rel("LANGV.verbatim_eb.bin", lang)).write_bytes(eb)
+    p = tmp_path / "LANGV.field.toml"
+    p.write_text(_LANGV + verbatim_extra + extra, encoding="utf-8")
+    return build.FieldProject.load(p)
+
+
+def _ship(tmp_path, project, langs=_LANGS):
+    """Build ``project`` -> ``({lang: shipped .eb}, build warnings)``."""
+    from ff9mapkit import build
+    from ff9mapkit.config import ModLayout
+    out = tmp_path / "mod"
+    res = build.build_mod([project], out, mod_name="FF9CustomMap", langs=langs)
+    lay = ModLayout(out)
+    return {L: lay.eb_path(L, "EVT_LANGV.eb.bytes").read_bytes() for L in langs}, res["warnings"]
+
+
+def _lang_warnings(warns):
+    return [w for w in warns if "donor .eb beside" in w or "per-language donor failed" in w]
+
+
+def test_lang_bin_rel_puts_the_language_before_the_extension():
+    assert _vb.lang_bin_rel("X.verbatim_eb.bin", "us") == "X.verbatim_eb.bin"      # us IS `bin`
+    assert _vb.lang_bin_rel("X.verbatim_eb.bin", "jp") == "X.verbatim_eb.jp.bin"
+    assert _vb.lang_bin_rel("sub/X.bin", "fr") == "sub/X.fr.bin"
+    assert _vb.lang_bin_rel("sub.d\\X", "fr") == "sub.d\\X.fr"                       # a dotted DIR is not the ext
+    assert _vb.lang_bin_rel("noext", "jp") == "noext.jp"
+
+
+def test_verbatim_fork_ships_each_languages_own_donor(tmp_path):
+    # REGRESSION: a verbatim fork used to ship the us .eb to all 7 languages, so a jp player ran the English
+    # logic (window geometry, pacing, voice ids). Each language now composes onto its OWN donor: the retarget
+    # and the [startup] preset land on jp's own (longer, different) layout, and fr keeps its own bytes.
+    from ff9mapkit import build
+    us, fr, jp = _lang_donors()
+    project = _langv(tmp_path, {"us": us, "fr": fr, "jp": jp}, verbatim_extra="retarget = { 100 = 4100 }\n",
+                     extra="\n[startup]\nscenario = 2600\n")
+    assert _vb.verbatim_eb(project, "jp") == _vb.remap_fields(jp, {100: 4100})     # reads jp's own donor
+    shipped, warns = _ship(tmp_path, project)
+    for L, donor in (("us", us), ("fr", fr), ("jp", jp)):
+        assert shipped[L] == build.compose_verbatim_eb(project, lang=L)[0]
+        assert len(shipped[L]) > len(donor)                    # the [startup] preset reached every language
+    # jp: its OWN code -- the retarget applied to its layout, its own extra exit kept, its own length
+    assert sorted(_fields(shipped["jp"])) == [300, 4100]
+    assert sorted(_fields(shipped["us"])) == [4100]
+    assert len(shipped["jp"]) != len(shipped["us"])
+    # fr: its own donor, which differs from us only in the name block -- the code is the us code
+    assert shipped["fr"] != shipped["us"] and shipped["fr"][0x80:] == shipped["us"][0x80:]
+    # uk/gr/it/es carry no donor of their own -> the us composition, and the build SAYS so, once
+    for L in ("uk", "gr", "it", "es"):
+        assert shipped[L] == shipped["us"]
+    lw = _lang_warnings(warns)
+    assert len(lw) == 1 and "no uk, gr, it, es donor .eb beside LANGV.verbatim_eb.bin" in lw[0]
+
+
+def test_legacy_verbatim_fork_ships_us_everywhere_and_says_so(tmp_path):
+    # A fork imported before the per-language capture carries only `bin`: every language ships the us
+    # composition (unchanged behaviour) and the build names them -- unless the build ships us alone.
+    us, _fr, _jp = _lang_donors()
+    project = _langv(tmp_path, {"us": us})
+    shipped, warns = _ship(tmp_path, project)
+    assert all(shipped[L] == shipped["us"] for L in _LANGS)
+    lw = _lang_warnings(warns)
+    assert len(lw) == 1 and "no uk, fr, gr, it, es, jp donor .eb" in lw[0]
+    only_us, warns_us = _ship(tmp_path, project, langs=("us",))
+    assert only_us["us"] == shipped["us"] and _lang_warnings(warns_us) == []
+
+
+def _alex100():
+    """A real, lint-clean field .eb (field 100; Field(101) at entry 15 tag 2) -- the regenerated test fixture."""
+    from pathlib import Path
+    return (Path(__file__).parent / "fixtures" / "alex100-us.eb.bytes").read_bytes()
+
+
+_EDIT_101 = '\n[[logic_edit]]\nkind = "field"\nentry = 15\ntag = 2\nop = 43\nold = 101\nnew = 6300\n'
+
+
+def test_logic_edit_lands_on_each_languages_own_donor(tmp_path):
+    # An edit authored against us composes onto jp's own donor when the function it addresses has the same
+    # shape there: jp gets the edit AND keeps its own logic (here an extra exit to 300 the us donor lacks).
+    us = _alex100()
+    assert _field_site(us, 101) == (15, 2)
+    jp = bytearray(_gw.inject_gateway(us, 300, zone=_zone(10)))
+    jp[0x04:0x0A] = b"JAPAN."
+    shipped, warns = _ship(tmp_path, _langv(tmp_path, {"us": us, "jp": bytes(jp)}, extra=_EDIT_101))
+    assert 6300 in _fields(shipped["us"]) and 101 not in _fields(shipped["us"])
+    assert 6300 in _fields(shipped["jp"]) and 101 not in _fields(shipped["jp"])
+    assert 300 in _fields(shipped["jp"]) and 300 not in _fields(shipped["us"])   # jp's own logic survives
+    assert shipped["jp"][0x04:0x0A] == b"JAPAN."
+    assert not any("per-language donor failed" in w for w in warns)
+
+
+def test_logic_edit_that_would_land_elsewhere_falls_back_to_us(tmp_path):
+    # The guard: an edit is located by op + old value inside its function, so where that function DIFFERS in a
+    # language the same-valued instruction may be a different one. Such a language ships the us composition
+    # (the old behaviour) and the build names the language + function -- never a silent mis-patch. Covers both
+    # the refused edit (jp: `old` is gone) and the one that applies but lands elsewhere (it: one more
+    # instruction ahead of it, so the matched Field() is a different ordinal).
+    from ff9mapkit.eb import edit as _edit
+    from ff9mapkit.eb import opcodes
+    us = _alex100()
+    jp = _vb.remap_fields(us, {101: 102})
+    it = _edit.insert_in_function(us, 15, 2, 0, opcodes.wait(1))
+    shipped, warns = _ship(tmp_path, _langv(tmp_path, {"us": us, "jp": jp, "it": it}, extra=_EDIT_101))
+    assert 6300 in _fields(shipped["us"])
+    assert shipped["jp"] == shipped["us"] and shipped["it"] == shipped["us"]
+    failed = [w for w in warns if "per-language donor failed" in w]
+    assert len(failed) == 1
+    assert "jp (BuildError: [[logic_edit]]" in failed[0]
+    assert "it (the [[logic_edit]]/[[logic_add]] in entry 15 tag 2 would not land" in failed[0]
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_import_verbatim_captures_and_ships_every_languages_own_eb(tmp_path):
+    # The measured cases (Prima Vista). Stock field 52's jp .eb is 5112 bytes vs us 5124 (161 differing
+    # instructions); field 50's jp differs in expression constants and its fr only outside the code. Import
+    # captures every language's own donor and the build ships each one -- jp its own bytes, fr its own donor.
+    from ff9mapkit import build, extract
+    from ff9mapkit.config import ModLayout
+    for fid in ("52", "50"):
+        d = tmp_path / fid
+        name = f"PV{fid}"
+        meta, toml = extract.write_native_project(fid, d, name=name, field_id=30990, verbatim=True)
+        assert meta["imported_content"]["eb_langs_missing"] == []
+        donors = {L: extract.extract_event_script(fid, lang=L) for L in _LANGS}
+        assert extract.extract_event_script_all_langs(fid) == donors            # the batched read == per-lang
+        project = build.FieldProject.load(toml)
+        for L in _LANGS:
+            assert _vb.has_lang_donor(project, L) and _vb.verbatim_eb(project, L) == donors[L]
+        out = d / "mod"
+        res = build.build_mod([project], out, mod_name="FF9CustomMap")
+        assert _lang_warnings(res["warnings"]) == []
+        shipped = {L: ModLayout(out).eb_path(L, f"EVT_{name}.eb.bytes").read_bytes() for L in _LANGS}
+        for L in _LANGS:
+            assert shipped[L] == donors[L], f"field {fid} {L} ships its own donor"
+        assert shipped["jp"] != shipped["us"]
+        if fid == "52":
+            assert len(shipped["jp"]) != len(shipped["us"])     # 5112 vs 5124: jp's own layout, not us's
+        else:
+            assert shipped["fr"] != shipped["us"]               # field 50: fr is its own donor, not the us one
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_import_chain_retarget_applies_to_jp_own_layout(tmp_path):
+    # A retarget authored once (import-chain fills it) lands on jp's own donor even where jp is a different
+    # LENGTH (field 52): remap_fields self-locates per file, so jp keeps its own layout with the new dest.
+    from ff9mapkit import build, extract
+    from ff9mapkit.config import ModLayout
+    meta, toml = extract.write_native_project("52", tmp_path, name="PV52", field_id=30990, verbatim=True)
+    exits = meta["imported_content"]["field_exits"]
+    assert exits
+    project = build.FieldProject.load(toml)
+    project.raw["verbatim_eb"]["retarget"] = {exits[0]: 4100}
+    out = tmp_path / "mod"
+    build.build_mod([project], out, mod_name="FF9CustomMap")
+    jp_donor = extract.extract_event_script("52", lang="jp")
+    shipped = ModLayout(out).eb_path("jp", "EVT_PV52.eb.bytes").read_bytes()
+    assert shipped == _vb.remap_fields(jp_donor, {exits[0]: 4100})
+    assert len(shipped) == len(jp_donor) != len(extract.extract_event_script("52", lang="us"))
+    assert 4100 in _fields(shipped) and exits[0] not in _fields(shipped)
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_player_swap_patches_every_captured_language(tmp_path):
+    # --swap-player used to patch only the us `bin`; with per-language donors that would ship Steiner in us and
+    # Zidane in jp. Every captured language is swapped on its OWN bytes.
+    from ff9mapkit import extract, playerswap
+    _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV",
+                                               verbatim=True)
+    paths = {L: tmp_path / _vb.lang_bin_rel("DV.verbatim_eb.bin", L) for L in _LANGS}
+    before = {L: p.read_bytes() for L, p in paths.items()}
+    extract.apply_player_swap(toml, "steiner")
+    for L, p in paths.items():
+        want = playerswap.swap_player(before[L], "steiner",
+                                      entry=playerswap.swap_targets(EbScript.from_bytes(before[L])))
+        assert p.read_bytes() == want != before[L], f"{L} swapped on its own bytes"

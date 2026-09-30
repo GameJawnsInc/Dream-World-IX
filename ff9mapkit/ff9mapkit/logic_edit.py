@@ -18,7 +18,11 @@ in-function target -- re-wire which branch a dialogue-menu row / ATE / scenario 
 length-neutral) · ``text`` (a ``.mes`` dialogue-string rewrite, targets the per-language ``.mes``, not the
 ``.eb``). Deferred: ADDING a switch case (a new menu row / dispatch arm -- length-changing, a logic_add follow-up).
 
-The ``.eb`` bytecode is language-identical (only the 84-byte name differs), so one edit set patches all 7 langs.
+The ``.eb`` bytecode is NOT language-identical (only 238/818 stock fields match; window operands, pacing and voice
+ids differ, some fields differ in length -- studies/eb-roundtrip/FINDINGS.md). The build applies the one authored
+edit set to EACH language's own donor (every edit re-locates and re-guards per file) and ships a language the us
+composition instead where an edit refuses there or would land on a different instruction
+(``build._edit_footprint``). Never apply an offset computed on one language's file to another's.
 """
 from __future__ import annotations
 

@@ -110,8 +110,11 @@ A quick reference to the terms used across the Dream World IX / `ff9mapkit` docs
 **`.eb` (event script)**
 : A field's compiled event bytecode — the program that runs the field (NPC behavior, dialogue,
   gateways, cutscenes, encounters). The kit authors `.eb` directly in Python (no third-party editor).
-  Per-language `.eb` files differ only in an embedded name field; the bytecode itself is
-  language-identical. Format details in [`FORMAT.md`](FORMAT.md).
+  There is one `.eb` per language, and the bytecode is **not** language-identical: only about 29% of
+  stock fields (238 of 818) match across all seven once the embedded name field is set aside.
+  Dialogue-window operands, text-pacing waits and voice sound ids differ, and 94 fields differ in
+  length. A verbatim fork therefore ships each language its own donor `.eb`. Format details in
+  [`FORMAT.md`](FORMAT.md).
 
 **`.mes` (text)**
 : A field's dialogue/text block — the lines an `.eb` references by id. The kit writes a field's `.mes`

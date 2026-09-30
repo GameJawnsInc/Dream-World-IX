@@ -11,6 +11,15 @@ The declarative content blocks ([[npc]]/[[gateway]]/...) are NOT used in this mo
 there is nothing to synthesize. Pair with a `[startup]` block to boot a chosen beat. LIMITS (vs a perfect
 clone): the donor `.mes` text is a separate carry (TXIDs may not resolve until then), and a fork reached by
 debug-menu warp has no entrance fade to mask first-frame model streaming.
+
+PER-LANGUAGE bytecode. A field's event script is NOT language-identical: only 238 of 818 stock fields match
+across the 7 languages once the name block is masked -- dialogue-window operands, text-pacing waits and voice
+sound ids differ, and 94 fields differ in LENGTH (studies/eb-roundtrip/FINDINGS.md). So ``bin`` holds the
+``us`` donor and import captures every other language's own donor beside it as ``<bin stem>.<lang><ext>``
+(``X.verbatim_eb.bin`` -> ``X.verbatim_eb.jp.bin``; :func:`lang_bin_rel`). The build ships each language its
+own donor, each Field()-remapped the same way; a language with no captured donor falls back to ``us`` and the
+build says so. The siblings are found by name, so an older fork's toml needs no edit -- re-import it (or
+``fetch-assets --force`` for a campaign) to capture them.
 """
 from __future__ import annotations
 
@@ -20,6 +29,7 @@ import struct
 from ..eb import EbScript
 
 FIELD_OP = 0x2B           # Field(dest) -- the warp; dest is a 2-byte literal at instruction offset +2
+BASE_LANG = "us"          # the language ``[verbatim_eb] bin`` holds; every other language is a sibling of it
 
 
 def remap_fields(eb_bytes: bytes, retarget: dict) -> bytes:
@@ -62,16 +72,40 @@ def render_retarget(dests, id_remap=None):
     return ("# retarget = {\n" + body + "# }\n"), 0
 
 
-def verbatim_eb(project):
-    """The verbatim `.eb` to ship for ``project`` (from its ``[verbatim_eb]`` block, ``bin`` + optional
-    ``retarget``), Field-remapped -- or ``None`` if the project isn't a verbatim fork (the build then
-    synthesizes from the field.toml as usual). The same bytecode ships for every language (it is
-    language-identical; only the cosmetic name field differs, which the donor's already carries)."""
+def lang_bin_rel(bin_rel: str, lang: str) -> str:
+    """Where ``lang``'s own donor `.eb` sits beside the ``us`` ``bin``: the language goes before the extension
+    (``X.verbatim_eb.bin`` -> ``X.verbatim_eb.jp.bin``; no extension -> ``X.jp``). ``us`` is ``bin`` itself."""
+    if lang == BASE_LANG:
+        return bin_rel
+    cut = max(bin_rel.rfind("/"), bin_rel.rfind("\\")) + 1
+    head, base = bin_rel[:cut], bin_rel[cut:]
+    stem, dot, ext = base.rpartition(".")
+    return head + (f"{stem}.{lang}.{ext}" if dot and stem else f"{base}.{lang}")
+
+
+def has_lang_donor(project, lang: str) -> bool:
+    """Does this verbatim fork carry ``lang``'s OWN donor `.eb`? ``us`` always does (it is ``bin``); any other
+    language only when import captured its sibling (:func:`lang_bin_rel`). ``False`` for a non-verbatim
+    project."""
+    spec = project.raw.get("verbatim_eb")
+    if not spec or not spec.get("bin"):
+        return False
+    return lang == BASE_LANG or project.path(lang_bin_rel(spec["bin"], lang)).is_file()
+
+
+def verbatim_eb(project, lang: str = BASE_LANG):
+    """The verbatim `.eb` to ship for ``project`` in ``lang`` (from its ``[verbatim_eb]`` block, ``bin`` +
+    optional ``retarget``), Field-remapped -- or ``None`` if the project isn't a verbatim fork (the build then
+    synthesizes from the field.toml as usual). The bytecode is per-language (see the module docstring): this
+    reads ``lang``'s own captured donor, or the ``us`` ``bin`` when that language has none
+    (:func:`has_lang_donor` tells the two apart; the build warns on the fallback). The retarget is applied to
+    whichever file is read -- :func:`remap_fields` self-locates, so it is right for every language's layout."""
     spec = project.raw.get("verbatim_eb")
     if not spec or not spec.get("bin"):
         return None
     retarget = {int(k): int(v) for k, v in (spec.get("retarget") or {}).items()}
-    return remap_fields(project.path(spec["bin"]).read_bytes(), retarget)
+    rel = lang_bin_rel(spec["bin"], lang) if has_lang_donor(project, lang) else spec["bin"]
+    return remap_fields(project.path(rel).read_bytes(), retarget)
 
 
 def verbatim_mes(project, lang: str):

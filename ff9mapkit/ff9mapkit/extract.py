@@ -318,6 +318,35 @@ def extract_event_script(field: str, *, game=None, lang: str = EVT_LANG):
     return None
 
 
+def extract_event_script_all_langs(field: str, *, game=None) -> dict:
+    """``{lang: .eb bytes}`` of a real field's event script for EVERY language in ONE pass over the bundle --
+    the verbatim fork's per-language capture. The bytecode is not language-identical (see :data:`EVT_LANG`),
+    so a verbatim fork ships each language its own donor. Same never-raise contract as
+    :func:`extract_event_script`: a language whose binary is absent is simply missing from the dict, and an
+    unlocatable field gives ``{}``."""
+    from .config import LANGS
+    try:
+        evt = event_name_for(field, game)
+        if not evt:
+            return {}
+        bundle = _events_bundle(game)
+        if not bundle:
+            return {}
+        env = _load_env(_streaming_assets(game) / bundle)
+        want = {f"eventbinary/field/{lang}/{evt}.eb".lower(): lang for lang in LANGS}
+        out: dict = {}
+        for k, obj in env.container.items():
+            kl = k.lower()
+            if not kl.endswith(".eb.bytes"):
+                continue
+            for key, lang in want.items():
+                if key in kl and lang not in out:
+                    out[lang] = _raw_bytes(obj.read())
+        return {lang: out[lang] for lang in LANGS if lang in out}
+    except Exception:
+        return {}
+
+
 def extract_mapconfig(field: str, *, game=None):
     """The field's **MapConfigData** bytes (``CommonAsset/MapConfigData/<EVT_name>``), or None if absent.
 
@@ -1990,18 +2019,30 @@ def apply_player_swap(toml_path, char, *, neutralize=False):
     vb = tomllib.loads(toml_path.read_text(encoding="utf-8")).get("verbatim_eb")
     if not vb or "bin" not in vb:
         return None                              # not a verbatim fork (e.g. a logic-only stub) -> nothing to swap
-    binp = toml_path.parent / vb["bin"]
+    from .config import LANGS
+    from .content import verbatim as _vb
     from .eb import EbScript
-    original = binp.read_bytes()
-    # resolve the swap targets ONCE on the original bytes: swap_targets keys on the Init SetModel id, which
-    # swap_player MUTATES, so re-deriving on the swapped bytes drifts to a different entry on a Zidane-present
-    # multi-PC field (neutralizing the wrong actor). Pin the set and reuse it for every pass.
-    targets = playerswap.swap_targets(EbScript.from_bytes(original))
-    swapped = playerswap.swap_player(original, char, entry=targets)
-    n_gestures = playerswap.scripted_gesture_ops(swapped, entry=targets)
-    if neutralize:
-        swapped = playerswap.neutralize_gestures(swapped, char, entry=targets)
-    binp.write_bytes(swapped)
+    # every language's donor .eb the fork ships (the us `bin` + each captured sibling -- the bytecode is
+    # per-language, so each file is swapped on its OWN bytes). All are swapped before any is written, so a
+    # refusal on one language leaves every file untouched.
+    paths = [toml_path.parent / vb["bin"]] + [
+        p for p in (toml_path.parent / _vb.lang_bin_rel(vb["bin"], L) for L in LANGS if L != _vb.BASE_LANG)
+        if p.is_file()]
+    out, n_gestures = [], None
+    for binp in paths:
+        original = binp.read_bytes()
+        # resolve the swap targets ONCE on the original bytes: swap_targets keys on the Init SetModel id, which
+        # swap_player MUTATES, so re-deriving on the swapped bytes drifts to a different entry on a Zidane-present
+        # multi-PC field (neutralizing the wrong actor). Pin the set and reuse it for every pass.
+        targets = playerswap.swap_targets(EbScript.from_bytes(original))
+        swapped = playerswap.swap_player(original, char, entry=targets)
+        if n_gestures is None:                   # the us donor's count is the one the caller reports
+            n_gestures = playerswap.scripted_gesture_ops(swapped, entry=targets)
+        if neutralize:
+            swapped = playerswap.neutralize_gestures(swapped, char, entry=targets)
+        out.append((binp, swapped))
+    for binp, swapped in out:
+        binp.write_bytes(swapped)
     return n_gestures
 
 
@@ -2085,9 +2126,21 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
 
         from . import dialogue as _dlg
         from .content import verbatim as _vb
+        from .config import LANGS as _LANGS
         from .eb import EbScript
-        donor_eb = extract_event_script(field, game=game)
+        # the donor's .eb PER LANGUAGE, in one pass: the bytecode is not language-identical (dialogue-window
+        # operands, text pacing and voice ids differ; some fields differ in length), so each language ships
+        # its own. `bin` stays the us donor; every other language lands beside it (verbatim.lang_bin_rel) and
+        # a language absent from the install is reported -- the build then ships it the us donor and says so.
+        donor_by_lang = extract_event_script_all_langs(field, game=game)
+        donor_eb = donor_by_lang.get(_vb.BASE_LANG)
+        if donor_eb is None:                     # the batched read found no us binary: the single-lang reader
+            donor_eb = extract_event_script(field, game=game)
         (out / f"{name}.verbatim_eb.bin").write_bytes(donor_eb)
+        for _lang, _leb in donor_by_lang.items():
+            if _lang != _vb.BASE_LANG:
+                (out / _vb.lang_bin_rel(f"{name}.verbatim_eb.bin", _lang)).write_bytes(_leb)
+        missing_langs = [L for L in _LANGS if L != _vb.BASE_LANG and L not in donor_by_lang]
         _de = EbScript.from_bytes(donor_eb)
         dests = sorted({int(i.imm(0)) for e in _de.entries if not e.empty for f in e.funcs
                         for i in _de.instrs(f) if i.op == 0x2B and i.imm(0) is not None})
@@ -2133,7 +2186,8 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
             f"{rt_intro}{rt_text}"
             + (("\n\n" + bgm_blocks) if bgm_blocks else ""))
         meta["imported_content"] = {"verbatim_eb": True, "field_exits": dests, "text": bool(mes_by_lang),
-                                    "gateways_retargeted": n_retargeted, "battle_bgm": len(bgm_pairs)}
+                                    "gateways_retargeted": n_retargeted, "battle_bgm": len(bgm_pairs),
+                                    "eb_langs_missing": missing_langs}
     else:
         content_blocks, control_dir, content_summary = _content_for_import(
             field, game, out_dir=out, name=name, id_remap=id_remap, live_seams=live_seams,
