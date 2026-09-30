@@ -867,13 +867,20 @@ the chain is therefore a PRECONDITION of the deploy: deployed as built, UK playe
 100-117. After it, O2-TEXT should read 7 byte-equal with no code change here.
 
 **Status: draft -- rehearsals pending, freeze pending.** Nothing is deployed, launched or frozen.
-- `o2_alexandria.py --offline-check`: 5 PASS on the draft (126 files own-language; 48 key sites; 26 regions and 17
-  hot-spots; 14 goals), with the uk KNOWN-KIT-DEFECT line printed.
+- `o2_alexandria.py --offline-check`: 5 PASS on the draft (126 files own-language; 48 key sites; 26 regions, 17
+  hot-spots and all 21 gateways of the route fields registered; 14 goals, every step runnable and every crossing where
+  the route's order goes next), with the uk KNOWN-KIT-DEFECT line printed.
 - `--preflight`: red, as expected: P-MANIFEST, P-DEPLOY, P-EB and P-FLOOR fail (nothing deployed); P-STOCK, P-TEXT
   ("no mod folder ships block 33") and P-RECOVERY pass.
-- [`o2_dryrun.py`](o2_dryrun.py): 54/54 as registered -- the design's section 8 (44 session cases, 4 unit cases),
-  plus 4 cases and 2 unit cases added where mutating a check's clause showed no case that isolated it.
+- [`o2_dryrun.py`](o2_dryrun.py): 86/86 as registered -- the design's section 8 (44 session cases, 4 unit cases),
+  plus 4 cases and 2 unit cases added where mutating a check's clause showed no case that isolated it, plus the
+  review's: 27 one-change mutants of the draft that O2-KEYS, O2-REGIONS and O2-GOALS must each FAIL by the clause they
+  break, O2-TEXT's missing language, P-RECOVERY, and O2-STATE's history and suppressed stores.
 - The O1 regression gate (`segment_regress.py`): 7/7.
+- A review of PARTS A-C found eight defects; each is fixed with a test that fails on the code before it
+  (research/o2_design.md 11.6). The weightiest: a walk into the WRONG door is now the driver's V11 -- one landing
+  judge every executor shares, and rule 2 holds each new visit to the route's order (`visits`) -- where it had read as
+  the game's (a finding, not a VOID); and a wait begun short of its point is the driver's V7, never the game's V8.
 
 **Next** (the lead; the deploy is owner-gated):
 1. The stock rehearsals, [`o2_rehearse.py`](o2_rehearse.py): one launch runs R-115, R-106, R-105, R-116, R-115a and
