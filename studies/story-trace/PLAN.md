@@ -661,8 +661,14 @@ pairs, 3 covered CTL runs. THE FIX (in game, slot 0, hub revisit from 351): PROV
   the SEATING clause (every base fork run's hub e0 t0 rows = `ng_rows`), which the frozen check text (F5c
   checks.json, verbatim) does not name.
 
-**F-REDEPLOY (registered follow-up).** A deployed synthesized field keeps the defect until it is rebuilt and
-redeployed. The 47 live ids, by folder:
+**F-REDEPLOY: ★ DONE, all 47 proven in game.** The method was a splice, not a rebuild (`tools/ambient_splice.py`:
+the live `.eb` plus exactly the TAIL). 4600 was proven on the New-Game route, and 6601-6603 each by the two-slot
+clear. 31113/31114 were F5c's. The other 41 were spliced one id at a time and proven by the two-slot clear in one
+run, `f_redeploy_rest.py`: 33 passed at once. The other 8 had all four rows at the predicted ips and failed only on a
+stale bits sample; the trace's next write to [13]/[14] read old 0, and a re-run of the 8 with a fresh-sample read
+passed 11/11. Every field's clear landed at the ips predicted from its own bytes. The original registration follows.
+
+A deployed synthesized field keeps the defect until it is rebuilt and redeployed. The 47 live ids, by folder:
 - `FF9CustomMap`: 4010-4013, 6500, 30416, 30801, 30860-30863, 30870, 30880, 30883, 30890, 30900, 30910-30912,
   30920-30922, 30925, 30930, 30935-30937, 30945-30949, 30955, 30956, 30960, 31100, 31113, 31114;
 - `FF9CustomMap-world`: 4600, 6601-6603;

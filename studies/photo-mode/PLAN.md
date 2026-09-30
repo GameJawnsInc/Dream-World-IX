@@ -8,8 +8,9 @@ measured in-game. **Rung 1 ★ in-game 16/16 twice**: `[photo]`, the kit feature
 daemon). Next is the owner's playtest of 30956.
 
 **Kit change since (F5c, `studies/story-trace/PLAN.md`):** every synthesized field now restores stock's ambient
-clear (`content/ambient.py`, merged `d98ca2a4`). Bench 30956 still carries the old bytes; its next rebuild adds the
-38-byte tail to Main_Init (no behaviour change unless the bench is entered with an ambient sound playing).
+clear (`content/ambient.py`, merged `d98ca2a4`). The live bench 30956 was spliced (F-REDEPLOY): its deployed .eb is
+the old one plus exactly the 38-byte tail, proven in game (`studies/story-trace/f_redeploy_rest.py`). A rebuild
+from source would also bring every other kit change since its deploy.
 
 Board entry #8 of [`../eb-uses-board/BOARD.md`](../eb-uses-board/BOARD.md). It was the runner-up when #7, the sine
 kit, was picked. Its reframe is the kit's **first camera-pan primitive**:
