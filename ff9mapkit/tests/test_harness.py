@@ -11334,6 +11334,12 @@ def test_o1_pick_for_reads_the_frozen_rules_by_option_text():
     assert O.pick_for(q, 30820, pred)[0] == 1
     masked = {"options": ["Who?", "Princess Garnet"], "active": [1]}               # line 0 masked out
     assert O.pick_for(masked, 30820, pred)[0] == 1
+    # as the agent PUBLISHES them (story-o1b run 1): the line after [CHOO][MOVE=18,0] loses its first character
+    candle = {"options": ["", "ight the candle", "Cancel"], "active": [0, 1]}
+    assert O.pick_for(candle, 50, O.draft_predictions())[0] == 0
+    kidnap = {"options": ["\n“Okay!”\n", "hat’s when I kidnap Queen Brahne, right?",
+                          "That’s when I kidnap Princess Garnet, right?"], "active": [0, 1]}
+    assert O.pick_for(kidnap, 52, O.draft_predictions())[0] == 1
     skip = {"options": ["Do you want to skip\nthe movie?", "Yes", "No"], "active": [0, 1]}     # SkipMovieDialog, US
     assert O.pick_for(skip, 999, pred)[0] == "default"
     with pytest.raises(O.RouteVoid, match="2 lines"):

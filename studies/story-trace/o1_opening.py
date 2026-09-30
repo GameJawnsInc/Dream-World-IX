@@ -51,7 +51,9 @@ from ff9mapkit import storytrace as T                                   # noqa: 
 
 #: v1 (sha 49fd880f) walked to the candle region's CENTRE, which is the table: session story-o1 run 1 stood in the
 #: region with the "?" up, pressed against the table (the owner, watching), and went VOID. v2 walks to that spot.
-PREDICTIONS = HERE / "o1_predictions_v2.json"
+#: v2 (sha 681398ac) matched the candle choice on "Light the candle": the agent publishes that first choice line as
+#: "ight the candle" (the line after [CHOO][MOVE=18,0] loses its first character) -- session story-o1b run 1 VOID.
+PREDICTIONS = HERE / "o1_predictions_v3.json"
 MANIFEST = HERE / "o1_forks.json"
 SESSION_FILE = "o1_session.json"
 CHAIN_DIR = Path(r"C:\gd\_ns_playtest\o1\fork")
@@ -78,9 +80,10 @@ def draft_predictions() -> dict:
         "donor": donor, "m": T.FIELD_MODE, "src": "eb", "sid": sid, "tag": tag, "ip": ip, "off": off,
         "target": target, "value": value, "what": what}
     return {
-        "version": 2,
+        "version": 3,
         "what": "O1: New Game -> 50 -> 52 -> Field(100), stock vs the tshp zone's verbatim fork (PLAN.md, O1)",
-        "supersedes": "v1 (49fd880f): its candle point was the region's centre, the table (session story-o1 VOID)",
+        "supersedes": "v2 (681398ac): its candle rule missed the published 'ight the candle' (story-o1b VOID); "
+                      "v1 (49fd880f): its candle point was the region's centre, the table (story-o1 VOID)",
         "order": ["S", "F", "S", "F", "S", "F"],
         "min_covered": 2,
         "rerun": {"max": 2},
@@ -97,7 +100,7 @@ def draft_predictions() -> dict:
         "candle": {"donor": 50, "x": 180.0, "z": 290.0, "tolerance": 45.0},
         # a READY choice is answered by the first rule whose `match` is a substring of any option line
         "choices": [
-            {"donor": 50, "match": "Light the candle", "pick": "Light the candle", "beat": "candle"},
+            {"donor": 50, "match": "the candle", "pick": "the candle", "beat": "candle"},   # published: "ight the candle"
             {"donor": 52, "match": "Garnet", "pick": "Garnet", "beat": "garnet"},
             {"donor": None, "match": "want to skip", "pick": "default", "beat": None},   # the skip-movie window
         ],
