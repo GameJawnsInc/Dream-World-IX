@@ -130,9 +130,12 @@ To show "NPC says X" for a real field, the spine reads two independent stores an
 
 The field → text-zone-id map is the engine's own `eventIDToMESID` table (baked into the kit as
 `_fieldtext.EVENT_ID_TO_MES`), so `dialogue-import` reads the **right** block directly — txids are 0-based
-positions every field's text shares, so they can't identify the block alone. Among a block's per-language
-copies (resources.assets carries no language in the path) the requested language is picked by stopword
-match. `--zone-id <n>` overrides the table; the `.eb` decode is exact regardless.
+positions every field's text shares, so they can't identify the block alone. Each language's copy is then
+read by the resource path the engine itself loads it by, `EmbeddedAsset/Text/<lang>/Field/<block>.mes` (the
+ResourceManager index in `mainData`), so us and uk each get their own text. The two differ in every real
+block: Theater/Theatre, favor/favour, and more. Only when that index can't be read does the kit guess the
+language from the text itself (stopwords, then US/UK spelling). `--zone-id <n>` overrides the table; the `.eb`
+decode is exact regardless.
 
 ## Provenance
 

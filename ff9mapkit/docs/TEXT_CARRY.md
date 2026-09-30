@@ -55,11 +55,11 @@ lines — fragile; a chatty fork or a campaign member breaks it.)
 independently and ships it VERBATIM. The decisive edge case (verified): **field 357 txid 470 is EMPTY (`''`) in
 us/uk but populated in fr/gr/it/jp** (`fr = "Kab, chef du village : …"`). A us-fallback would WIPE the
 French/German text the English block legitimately lacks — so an empty/absent per-language entry is carried as `''`
-(the engine returns `String.Empty`, harmless). The per-language block SELECTION is the `want_txids`-driven
-coverage + language-score path `read_field_dialogue` already uses (a field references a contiguous txid subset, so
-the best-overlap block is its own; the function-word `_lang_score` then picks the right per-language copy among the
-zone's per-lang blocks — passing the field's referenced txids is load-bearing, as a blind block read mis-picks the
-language).
+(the engine returns `String.Empty`, harmless). The per-language block SELECTION goes through the same path
+`read_field_dialogue` uses. The block is the field's text zone. Each language's copy of it is the asset the engine
+loads by resource path, `EmbeddedAsset/Text/<lang>/Field/<block>.mes`, so us and uk each get their own text. A
+content score (`_lang_score` stopwords, then US/UK spelling) only runs when the install's ResourceManager index
+can't be read.
 
 ---
 

@@ -354,10 +354,22 @@ def _resources_assets(game=None):
     return None
 
 
-# Common function words per language -- the reliable signal for picking the requested language among the
-# per-language copies of a `<zone>.mes` (they share entry indices, so coverage can't tell them apart, and
-# resources.assets carries no language in the asset path). Raw letter counts DON'T work (German/French are
-# wordier than English and would win on length); whole-word stopword hits separate them cleanly.
+# THE ENGINE ADDRESSES A FIELD TEXT BLOCK BY RESOURCE PATH, NEVER BY CONTENT: FF9TextTool loads
+# "EmbeddedAsset/Text/<LANG>/Field/<block>.mes" through Resources.Load, and the ResourceManager's m_Container
+# (in mainData; its PPtrs resolve into resources.assets) maps that path to one TextAsset. Measured on the
+# install: every `<n>.mes` TextAsset in resources.assets is claimed by some container path (0 of 4383
+# unclaimed), and all 64 real field blocks ship all 7 languages. us and uk are DIFFERENT assets in every one
+# of them (Theater/Theatre, favor/favour, ...), which a stopword score can't tell apart: it handed both
+# English locales the SAME body in all 64 blocks (the UK copy to us in 35, the US copy to uk in 29). So the
+# path is the pick, as battle.extract._read_battle_text already does for battle text; the content scores
+# below are only the fallback for an install whose ResourceManager can't be read.
+_FIELD_MES_PATH_RE = re.compile(r"^embeddedasset/text/([a-z]+)/field/(\d+)\.mes$")
+
+# FALLBACK ONLY. Common function words per language -- the signal for picking a language among the name-
+# scanned copies of a `<zone>.mes` when there is no resource path (they share entry indices, so coverage
+# can't tell them apart). Raw letter counts DON'T work (German/French are wordier than English and would win
+# on length); whole-word stopword hits separate them cleanly. They can NOT split us from uk -- see
+# _EN_SPELLINGS for that.
 _STOPWORDS = {
     "en": ("the", "you", "and", "to", "of", "is", "it", "that", "have", "with", "this", "what", "your",
            "are", "for", "but", "was", "not", "they", "here", "there", "will", "don't", "i'm", "we"),
@@ -373,13 +385,24 @@ _STOPWORDS = {
 # kit lang code -> stopword set (uk==us==en; gr is German)
 _LANG_ALIAS = {"us": "en", "uk": "en", "gr": "de", "fr": "fr", "it": "it", "es": "es"}
 _WORD_RE = re.compile(r"[a-zàâäçéèêëîïôûùüöñ']+")
+# FALLBACK ONLY: (US, UK) spellings -- the most frequent single-word swaps measured between the us and uk copies
+# of the 64 real field blocks. The net US-minus-UK count ranks the us copy strictly above the uk copy in all 64.
+_EN_SPELLINGS = (("theater", "theatre"), ("favor", "favour"), ("favorite", "favourite"), ("armor", "armour"),
+                 ("color", "colour"), ("honorable", "honourable"), ("honor", "honour"), ("rumor", "rumour"),
+                 ("rumors", "rumours"), ("harbor", "harbour"), ("apologize", "apologise"), ("realize", "realise"),
+                 ("realized", "realised"), ("traveling", "travelling"), ("center", "centre"),
+                 ("defense", "defence"), ("civilization", "civilisation"), ("judgment", "judgement"),
+                 ("savior", "saviour"), ("mommy", "mummy"))
+_US_WORDS = frozenset(us for us, _uk in _EN_SPELLINGS)
+_UK_WORDS = frozenset(uk for _us, uk in _EN_SPELLINGS)
 
 
 def _lang_score(text: str, lang: str) -> int:
     """A 'is this block the requested language' score, to disambiguate the per-language copies of a
-    ``<zone>.mes``. ``jp`` = the CJK block; every other language is picked by how many of its common
-    function words (the/und/que/...) appear as whole words. Best-effort but reliably separates English from
-    German/French/Italian/Spanish on real field text."""
+    ``<zone>.mes`` when there is no resource path (FALLBACK -- see :func:`_text_blocks`). ``jp`` = the CJK
+    block; every other language is picked by how many of its common function words (the/und/que/...) appear
+    as whole words. Best-effort but reliably separates English from German/French/Italian/Spanish on real
+    field text; us and uk score ALIKE (see :func:`_scored_block_bodies`)."""
     cjk = sum(1 for c in text if "぀" <= c <= "鿿")
     if lang == "jp":
         return cjk
@@ -388,11 +411,101 @@ def _lang_score(text: str, lang: str) -> int:
     return hits - 3 * cjk                              # a CJK block is never a romance/germanic match
 
 
+def _us_spelling(text: str) -> int:
+    """Net US-minus-UK spelling count (FALLBACK only): above 0 reads as the us copy, below 0 as the uk one."""
+    words = _WORD_RE.findall(text.lower())
+    return sum(w in _US_WORDS for w in words) - sum(w in _UK_WORDS for w in words)
+
+
+def _scored_block_bodies(raws, block, *, warn: bool = True) -> dict:
+    """FALLBACK only (no resource paths): assign the name-scanned copies of ONE ``<block>.mes`` to languages by
+    CONTENT -> ``{lang: body}``. Each language takes its best :func:`_lang_score`; but the stopwords score the
+    us and uk copies alike (both would take the same one), so the block's two strongest DISTINCT English
+    copies (a battle ``<n>.mes`` sharing the name scores far lower) are then split by spelling
+    (:data:`_EN_SPELLINGS`). When the spelling can't split them either, the two locales share one copy -- and
+    ``warn`` says so on stderr rather than let it pass silently."""
+    from .config import LANGS
+    # the real per-language blocks, not padding stubs; each distinct copy scored ONCE for every language
+    real = list(dict.fromkeys(r for r in raws if len(r) > 1000) or dict.fromkeys(r for r in raws if r))
+    score = {r: {L: _lang_score(r, L) for L in LANGS} for r in real}
+    out: dict = {}
+    for L in LANGS:
+        best = max(real, key=lambda r: score[r][L], default=None)
+        if best:
+            out[L] = best
+    english = sorted((r for r in real if max(score[r], key=score[r].get) in ("us", "uk")),
+                     key=lambda r: score[r]["us"], reverse=True)[:2]
+    if len(english) == 2:
+        us, uk = sorted(english, key=_us_spelling, reverse=True)
+        if _us_spelling(us) > _us_spelling(uk):
+            out["us"], out["uk"] = us, uk
+        elif warn:
+            import sys
+            print(f"warning: text block {block}: the install's resource paths are unreadable and the "
+                  f"{len(english)} English copies can't be told apart by spelling -- us and uk get the SAME "
+                  f"copy, so one of them ships the other locale's text", file=sys.stderr)
+    return out
+
+
+_MES_PATH_INDEX: dict = {}   # {resources.assets path: {block: {lang: raw .mes body}}} -- read ONCE, reused
+
+
+def _mes_path_index(game=None) -> Optional[dict]:
+    """``{block: {lang: raw .mes body}}`` for every FIELD text block, keyed by the resource path the engine
+    loads it by (``embeddedasset/text/<lang>/field/<block>.mes``) -- the exact per-language asset, no guessing.
+    One mainData + resources.assets load (a fraction of :func:`_mes_index`'s full typetree scan), cached by
+    path. ``None`` -- the ONLY case the content-scored fallback runs -- when the install, UnityPy or the
+    ResourceManager can't be read; like :func:`_mes_index`, a missing install is honored on every call."""
+    from . import extract
+    ra = _resources_assets(game)
+    if ra is None:
+        return None
+    key = str(ra)
+    cached = _MES_PATH_INDEX.get(key)
+    if cached is not None:
+        return cached
+    idx: dict = {}
+    try:
+        UnityPy = extract._unitypy()
+        env = UnityPy.load(str(ra.parent / "mainData"), key)   # mainData + resources.assets so the PPtrs resolve
+        rm = next((o.read() for o in env.objects if o.type.name == "ResourceManager"), None)
+        for path, ptr in (rm.m_Container if rm is not None else ()):
+            m = _FIELD_MES_PATH_RE.match(str(path).lower())
+            if m:
+                body = extract._raw_bytes(ptr.read())
+                idx.setdefault(int(m.group(2)), {})[m.group(1)] = body.decode("utf-8", "replace") if body else ""
+    except Exception:                                  # noqa: BLE001 -- all or nothing: a partial index would
+        return None                                    # silently drop a language, so fall back whole instead
+    if not idx:
+        return None
+    _MES_PATH_INDEX[key] = idx
+    return idx
+
+
+def _text_blocks(game=None, zone_id: Optional[int] = None) -> dict:
+    """``{block: {lang: raw .mes body}}`` -- just the block ``zone_id`` (``{}`` when the install has no such
+    field block), or every field block when ``zone_id`` is None. The ONE place a language is resolved: by
+    resource path (:func:`_mes_path_index`) whenever the install's ResourceManager reads -- each language its
+    own asset, and a language a block doesn't ship is simply absent, never another language's copy. Only
+    without it, the content-scored fallback over :func:`_mes_index` (:func:`_scored_block_bodies`)."""
+    pidx = _mes_path_index(game)
+    if pidx is not None:
+        if zone_id is None:
+            return pidx
+        bodies = pidx.get(int(zone_id))
+        return {int(zone_id): bodies} if bodies else {}
+    idx = _mes_index(game)
+    zones = idx if zone_id is None else {z: idx[z] for z in (int(zone_id),) if z in idx}
+    return {z: _scored_block_bodies(raws, z, warn=zone_id is not None) for z, raws in zones.items()}
+
+
 _MES_INDEX: dict = {}    # {resources.assets path: {zone_id: [raw .mes body, ...]}} -- scanned ONCE, reused
 
 
 def _mes_index(game=None) -> dict:
-    """``{zone_id: [raw .mes body, ...]}`` from resources.assets, scanned ONCE and cached by path.
+    """``{zone_id: [raw .mes body, ...]}`` from resources.assets, scanned ONCE and cached by path. FALLBACK
+    only (:func:`_text_blocks`): it is keyed by TextAsset NAME, which carries no language (and battle text
+    shares the bare ``<n>.mes`` names), so the copies must be told apart by content.
 
     Reading every TextAsset's typetree out of resources.assets is the dominant cost of a verbatim fork's
     text carry (~half the wall time), and `import-chain` paid it afresh for every language of every member.
@@ -431,21 +544,18 @@ def _mes_index(game=None) -> dict:
 
 
 def _field_text_blocks(want_txids, lang: str, game=None, zone_id: Optional[int] = None) -> list:
-    """Sorted candidate ``.mes`` blocks for a field: ``(coverage, lang_score, raw_body, {txid: MesEntry})``,
-    best first. A field's text file is ``<zone-id>.mes`` (named by the field's text-zone id, not its map id).
-    With ``zone_id`` it reads that block (picking the requested LANGUAGE among its per-lang copies); otherwise
-    it scans every ``<n>.mes`` and keeps the block that best covers ``want_txids`` (a field references a
-    contiguous range, so the best-overlap block is its own), tie-broken by language. Reads from the cached
-    :func:`_mes_index` (one scan, reused). Returns ``[]`` -- never raises. Shared by :func:`_load_field_text`
-    (parsed map) and :func:`extract_field_mes` (raw body)."""
+    """Sorted candidate ``.mes`` blocks for a field in ``lang``: ``(coverage, lang_score, raw_body,
+    {txid: MesEntry})``, best first. A field's text file is ``<zone-id>.mes`` (named by the field's text-zone
+    id, not its map id). With ``zone_id`` it is that block's ``lang`` copy (at most one candidate); otherwise
+    every block's ``lang`` copy, ranked by how well it covers ``want_txids`` (a field references a contiguous
+    range, so the best-overlap block is its own). The LANGUAGE is resolved per block by :func:`_text_blocks`
+    (the resource path), never by this ranking. Returns ``[]`` -- never raises. Backs :func:`_load_field_text`."""
     want = set(t for t in (want_txids or []) if t is not None)
-    idx = _mes_index(game)
-    if zone_id is not None:
-        raws = idx.get(int(zone_id), [])
-    else:
-        raws = [r for rs in idx.values() for r in rs]
     cands = []                                         # (coverage, lang_score, raw, parsed)
-    for raw in raws:
+    for bodies in _text_blocks(game, zone_id).values():
+        raw = bodies.get(lang)
+        if not raw:
+            continue
         parsed = parse_mes(raw)
         cov = len(want & set(parsed)) if want else len(parsed)
         if zone_id is None and want and cov == 0:      # auto-detect: ignore blocks that share no txid at all
@@ -466,37 +576,27 @@ def extract_field_mes(field, lang: str = "us", game=None, zone_id: Optional[int]
     """The donor field's WHOLE ``.mes`` text body for ``lang`` -- to ship VERBATIM with a verbatim-`.eb` fork
     (docs/FORK_FIDELITY.md) so its index-based txids resolve into it directly (no remap, unlike `--carry-text`
     which appends to authored text). Picks the block via the engine's field-id -> text-block table
-    (``EVENT_ID_TO_MES``). Returns ``None`` -- never raises -- when the install/UnityPy can't read it."""
-    from ._fieldtext import EVENT_ID_TO_MES
-    fid = _resolve_field_id(field)
-    if zone_id is None:
-        zone_id = EVENT_ID_TO_MES.get(fid)
-    cands = _field_text_blocks(None, lang, game=game, zone_id=zone_id)
-    # all candidates are the SAME text block in different languages, so pick by LANGUAGE score -- NOT coverage
-    # (the default sort prefers the longest block, which silently handed every language the German variant).
-    real = [c for c in cands if len(c[2]) > 1000] or cands   # the real per-language blocks, not padding stubs
-    return max(real, key=lambda c: c[1])[2] if real else None
+    (``EVENT_ID_TO_MES``) and the language by that block's resource path (:func:`_text_blocks`). Returns
+    ``None`` -- never raises -- when the install/UnityPy can't read it or the block ships no ``lang`` copy."""
+    return extract_field_mes_all_langs(field, game=game, zone_id=zone_id).get(lang)
 
 
 def extract_field_mes_all_langs(field, game=None, zone_id: Optional[int] = None) -> dict:
-    """``{lang: body}`` for EVERY language in ONE scan -- the verbatim fork's text carry, batched. Equivalent
-    to :func:`extract_field_mes` per language (same block, same per-language pick) but it resolves the zone's
-    blocks once and re-scores them for each lang, instead of a fresh full resources.assets scan per language.
-    That collapses a verbatim fork's 7 text scans into 1; across an import-chain (~80 members) it's the
-    single biggest fork-speed win. Returns only the languages that resolve to a non-empty body."""
+    """``{lang: body}`` for EVERY language at once -- the verbatim fork's text carry, and the single path
+    :func:`extract_field_mes` reads through (so the two can't disagree). Each language is its OWN asset, the
+    one the engine loads by resource path (:func:`_text_blocks`): us and uk are different text in every real
+    block, and a fork that shipped one as the other overwrote that locale's dialogue. One cached index serves
+    every language of every member of an import-chain. Returns only the languages that resolve to a non-empty
+    body."""
     from ._fieldtext import EVENT_ID_TO_MES
     from .config import LANGS
     fid = _resolve_field_id(field)
     if zone_id is None:
         zone_id = EVENT_ID_TO_MES.get(fid)
-    cands = _field_text_blocks(None, "us", game=game, zone_id=zone_id)   # lang-agnostic; re-scored per lang below
-    real = [c for c in cands if len(c[2]) > 1000] or cands   # the real per-language blocks, not padding stubs
-    out: dict = {}
-    for L in LANGS:
-        best = max(real, key=lambda c: _lang_score(c[2], L), default=None)
-        if best is not None and best[2]:
-            out[L] = best[2]
-    return out
+    if zone_id is None:
+        return {}
+    bodies = _text_blocks(game, zone_id).get(int(zone_id), {})
+    return {L: bodies[L] for L in LANGS if bodies.get(L)}
 
 
 def read_field_dialogue(field, lang: str = "us", game=None, zone_id: Optional[int] = None) -> list:
