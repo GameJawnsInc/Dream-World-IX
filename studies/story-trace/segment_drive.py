@@ -6,8 +6,48 @@ O1's ``raise RouteVoid(msg)`` behave exactly as they did. What O2 adds is additi
     is attributed to (``by``: "driver" or "game"), so the session record and the analysis can read VOIDs per side;
   - a choice rule may carry ``sc`` (the published scenarios it applies at), ``once`` (a second answer is VOID V2)
     and ``take: "default"`` (the pick must be the game's own ready cursor, else VOID V3).
+
+O2's BEAT-TABLE DRIVER is here too (:func:`drive`, research/o2_design.md 2.2-2.3): O1's loop -- it acts only on what
+the game shows, first match wins -- with control held answered by a table of CELLS keyed ``(donor place, published
+SC)``, each a list of steps run in order per field VISIT, each step by its executor (cross, trigger, confirm, wait_sc,
+leave_now) and counted done only on its own evidence. Everything it cannot answer is a RouteVoid with its class (2.7).
+It keeps the evidence 4.7's backing rule reads -- a ``press`` row for every Confirm, a ``watch`` row for every sample
+in a watched cell (the ring's samples from inside a harness call included), a ``step`` row for every step, a
+``visit`` row for every field visit -- and scans the run's own trace live for forbidden writes with the two PURE
+functions the analysis shares: :func:`forbidden_hits` (4.7's patterns over raw ``w`` rows, from the run's start row
+on) and :func:`backing` (whether the run's own log holds the stray action a hit's cause names).
 """
 from __future__ import annotations
+
+import json
+import math
+import time
+
+import segment_trace as ST
+from segment_trace import place
+
+#: The step kinds of a beat-table cell (research/o2_design.md 2.3), each run by its executor in :class:`_Drive`.
+STEP_KINDS = ("cross", "trigger", "confirm", "wait_sc", "leave_now")
+#: A forbidden pattern's keys (4.7), strict: any other raises. The matchers select raw ``w`` rows (all given must
+#: hold); ``cause`` names the stray action :func:`backing` looks for; ``object`` the published sid it concerns.
+FORBID_KEYS = frozenset({"donor", "sid", "tag", "target", "ip_range", "off_route", "cause", "object", "why"})
+FORBID_MATCHERS = ("donor", "sid", "tag", "target", "ip_range", "off_route")
+CAUSES = ("contact", "confirm_hotspot", "confirm_talk", "choice", "walk")
+#: ``contact``'s backing reach beyond the object's published range_r: what Vivi (60u a tick) and Jack (15u) can close
+#: in the two field ticks between published samples (4.7).
+CONTACT_SLACK = 150.0
+#: ``confirm_hotspot``'s backing reach beyond the hot-spot's own: a moving sample's lag (4.7).
+HOTSPOT_SLACK = 64.0
+#: A press row's ``near``: a published object whose talk / range disc, this much wider, held him (2.2).
+NEAR_SLACK = 64.0
+#: Where every Confirm hot-spot writes its own position first, as store constants (0.2 #9).
+HOT_X, HOT_Z = "Global.Int16[220]", "Global.Int16[222]"
+#: trigger: a walk that ended with control held waits this long for the trigger to take it (2.3).
+TRIGGER_WAIT_S = 2.0
+#: The loop's poll (O1's).
+POLL_S = 0.05
+#: The comparisons an ``until`` predicate may use: ``{"x_le": 900}`` -- every one must hold.
+UNTIL_OPS = {"le": lambda a, b: a <= b, "lt": lambda a, b: a < b, "ge": lambda a, b: a >= b, "gt": lambda a, b: a > b}
 
 
 class RouteVoid(Exception):
@@ -58,3 +98,889 @@ def pick_for(choice: dict, donor: int, pred: dict, *, sc: int | None = None, ans
                             v="V3", cell=[donor, sc], by="game")
         return hits[0], rule
     raise RouteVoid(f"choice in {donor} with no rule: {choice.get('options')}")
+
+
+# ======================================================================== the beat table's helpers (pure)
+def cell(pred: dict, donor: int, sc: int) -> dict | None:
+    """The table's cell for ``(donor place, published SC)``, or None (2.1)."""
+    return next((c for c in pred.get("table") or () if c["donor"] == donor and c["sc"] == sc), None)
+
+
+def region(pred: dict, key: str) -> dict:
+    """A frozen region (2.5): ``{"points": [[x, z], ...] (the engine's SetRegion order), "role", ...}``."""
+    try:
+        return pred["regions"][key]
+    except KeyError:
+        raise KeyError(f"region {key!r} is not registered in the predictions") from None
+
+
+def polys(pred: dict, keys) -> list:
+    """The points of each region ``keys`` names -- a step's ``avoid`` as route_to takes it."""
+    return [region(pred, k)["points"] for k in keys or ()]
+
+
+def until_ok(expr: dict, x, z) -> bool:
+    """Whether (``x``, ``z``) satisfies an ``until`` predicate: ``{"x_le": 900}``, ``{"x_gt": 3000, "z_gt": 10300}``
+    -- every comparison (``x|z`` + ``_`` + ``le|lt|ge|gt``) must hold. An unknown key raises; a missing position is
+    False."""
+    if x is None or z is None:
+        return False
+    ok = True
+    for k, v in expr.items():
+        axis, _, op = k.partition("_")
+        if axis not in ("x", "z") or op not in UNTIL_OPS:
+            raise ValueError(f"until {expr!r}: {k!r} is not x|z + _ + le|lt|ge|gt")
+        ok = ok and UNTIL_OPS[op](float(x if axis == "x" else z), float(v))
+    return ok
+
+
+def closed_tris(pred: dict, step: dict, wmesh) -> list:
+    """The triangles a step's walk must treat as closed (H5): its ``closed_tris`` plus every triangle of each floor in
+    its ``closed_floors`` (``EnablePath(floor, 0)``), on ``wmesh`` (a PlayerWalkmesh's raw mesh, or a BgiWalkmesh)."""
+    mesh = getattr(wmesh, "mesh", wmesh)
+    out = {int(t) for t in step.get("closed_tris") or ()}
+    floors = {int(f) for f in step.get("closed_floors") or ()}
+    if floors:
+        tf = mesh._tri_floor()
+        out |= {ti for ti, t in enumerate(mesh.tris) if tf.get(ti, t.floor_ndx) in floors}
+    return sorted(out)
+
+
+def on_route(fid: int, members: dict, route, end_fields) -> bool:
+    """Whether field ``fid`` is one a run may stand in before its end (2.2, rule 2): an end field; on the S side
+    (``members`` empty) a field of ``route``; on the F side only a MEMBER whose donor is on ``route`` -- a real route
+    field reached from the chain is OFF it (the claim-integrity critique #2)."""
+    if fid in end_fields:
+        return True
+    if members:
+        return fid in members and members[fid] in route
+    return fid in route
+
+
+def step_of(pred: dict, raw: dict) -> dict:
+    """A step with ``steps_default`` under it (4.1); its ``climb`` merged the same way."""
+    base = pred.get("steps_default") or {}
+    out = {**base, **raw}
+    out["climb"] = {**(base.get("climb") or {}), **(raw.get("climb") or {})}
+    if out.get("kind") not in STEP_KINDS:
+        raise ValueError(f"step {raw!r}: kind is not one of {STEP_KINDS}")
+    if out.get("target") is not None and out.get("until") is not None:
+        raise ValueError(f"step {raw!r}: target and until are exclusive")
+    return out
+
+
+def depth_in(points, x, z) -> float | None:
+    """How deep (x, z) stands inside a region by the engine's rule: None outside it (IsInQuad,
+    content.doorface.region_contains), else the distance to its nearest edge."""
+    from ff9mapkit.content import doorface
+    from ff9mapkit.scene import routes
+    if x is None or z is None or not doorface.region_contains(x, z, points):
+        return None
+    pts = [(float(p[0]), float(p[1])) for p in points]
+    return min(routes.seg_dist_xz(x, z, pts[i], pts[(i + 1) % len(pts)]) for i in range(len(pts)))
+
+
+def hotspots_of(pred: dict, donor: int) -> list:
+    """The frozen hot-spots of a place (2.5): ``[{"sid", "x", "z", "n"[, "reach"]}]``."""
+    spots = pred.get("hotspots") or {}
+    return list(spots.get(str(donor)) or spots.get(donor) or ())
+
+
+def hotspot_reach(h: dict) -> float:
+    """A hot-spot's reach: its tag 1 fires within ``32 * sqrt(n)`` of its own position (0.2 #9), rounded down."""
+    return float(h["reach"]) if h.get("reach") is not None else float(int(32 * math.sqrt(h["n"])))
+
+
+def _s16(v) -> int:
+    return ((int(v) + 0x8000) & 0xFFFF) - 0x8000
+
+
+def sample(st) -> dict:
+    """A published state as the evidence rows keep it: ``{"frame", "control", "x", "z"}``."""
+    x, z = st.player_x, st.player_z
+    return {"frame": st.frame, "control": bool(st.control), "x": None if x is None else round(x, 1),
+            "z": None if z is None else round(z, 1)}
+
+
+def raw_sample(raw: dict) -> dict:
+    """:func:`sample` of a raw state document (the ring's)."""
+    p = raw.get("player") or {}
+    x, z = p.get("x"), p.get("z")
+    return {"frame": int(raw.get("frame", -1)), "control": bool(p.get("control", False)),
+            "x": None if x is None else round(x, 1), "z": None if z is None else round(z, 1)}
+
+
+def trim_route(r: dict | None) -> dict | None:
+    """A route_to / route_cross record as a step row keeps it (dali_tour's trimming): its scalars, the waypoint count,
+    and each object list as ``[uid, kind]`` pairs."""
+    if r is None:
+        return None
+    keep = ("from", "landed", "changed_to", "reached", "inside", "travelled", "during", "replans", "waits", "cleared",
+            "pushes", "pushed", "blocked", "frozen", "boxed", "boxed_by", "npcs", "npc_replans", "npc_waits",
+            "box_waits", "box_cleared", "held_by", "handoff", "lost", "blockers")
+    out = {k: r.get(k) for k in keep if k in r}
+    out["route"] = len(r["waypoints"]) if r.get("waypoints") is not None else None
+    for k in ("avoided", "entered", "through", "sealed", "boxers", "pinned"):
+        if r.get(k):
+            out[k] = [[o.get("uid"), o.get("kind")] for o in r[k]]
+    return out
+
+
+# ======================================================================== forbidden writes and their backing (pure)
+def _check_forbid(p: dict) -> None:
+    """A forbidden pattern is exactly 4.7's schema: its keys among FORBID_KEYS, a registered ``cause``, a ``why``, at
+    least one matcher. Anything else raises -- a typo is an error, never a pattern that matches nothing."""
+    unknown = sorted(set(p) - FORBID_KEYS)
+    if unknown:
+        raise ValueError(f"forbidden pattern {p!r}: unknown key(s) {unknown} -- the schema is {sorted(FORBID_KEYS)}")
+    if p.get("cause") not in CAUSES:
+        raise ValueError(f"forbidden pattern {p!r}: cause is not one of {CAUSES}")
+    if not p.get("why") or not any(k in p for k in FORBID_MATCHERS):
+        raise ValueError(f"forbidden pattern {p!r}: needs a why and at least one of {FORBID_MATCHERS}")
+    if "ip_range" in p and (not isinstance(p["ip_range"], (list, tuple)) or len(p["ip_range"]) != 2):
+        raise ValueError(f"forbidden pattern {p!r}: ip_range is [lo, hi]")
+
+
+def _forbid_matches(p: dict, r, where: int, members: dict, route, ends) -> bool:
+    if p.get("off_route") and on_route(r.fld, members, route, ends):
+        return False
+    if "donor" in p and where != p["donor"]:
+        return False
+    if "sid" in p and r.sid != p["sid"]:
+        return False
+    if "tag" in p and r.tag != p["tag"]:
+        return False
+    if "target" in p and r.target != p["target"]:
+        return False
+    if "ip_range" in p and not p["ip_range"][0] <= r.ip <= p["ip_range"][1]:
+        return False
+    return True
+
+
+def _hotspot_at(rows: list, i: int, where: int, members: dict, pred: dict) -> dict | None:
+    """The registered hot-spot a hit at ``rows[i]`` names: the run's own ``Int16[220]`` / ``[222]`` values there -- the
+    last of each written in the same place at or before the hit (s16) -- matched to the place's frozen hot-spots.
+    A hot-spot writes x before z, so a hit ON its x store takes the z written next in that place. None: no such pair,
+    or one that is no registered hot-spot (the hit is then unbacked)."""
+    spots = hotspots_of(pred, where)
+
+    def last(target, upto):
+        for j in range(upto, -1, -1):
+            r = rows[j]
+            if r.k == "w" and r.target == target and place(r.fld, members) == where:
+                return r.new
+        return None
+
+    def after(target, frm):
+        for j in range(frm, len(rows)):
+            r = rows[j]
+            if r.k in ("w", "r") and place(r.fld, members) != where:
+                return None
+            if r.k == "w" and r.target == target:
+                return r.new
+        return None
+    x = last(HOT_X, i)
+    for z in (last(HOT_Z, i), after(HOT_Z, i)):
+        if x is None or z is None:
+            continue
+        for h in spots:
+            if (int(h["x"]), int(h["z"])) == (_s16(x), _s16(z)):
+                return {"sid": h.get("sid"), "x": int(h["x"]), "z": int(h["z"]), "reach": hotspot_reach(h)}
+    return None
+
+
+def forbidden_hits(rows: list, pred: dict, members: dict, start_place: int, *, end_fields=None) -> list:
+    """4.7's forbidden patterns over a run's RAW rows: every ``w`` row -- masked sites, seam rows and every mode
+    included -- from the run's START ROW (its first ``w`` row whose frozen place is ``start_place``) on, so the warp's
+    residue and field 70 are never scanned. A row's place is the FROZEN one (:func:`segment_trace.place` over
+    ``members``: ``{}`` on the S side). ``rows`` should already be cut at the run's end (the live scan and the analysis
+    pass the same window). Returns one hit a matching (row, pattern): ``{"line", "f", "fld", "place", "sid", "tag",
+    "ip", "target", "new", "pattern" (its index), "cause", "object", "why"}``, and for a ``confirm_hotspot`` hit the
+    hot-spot the run's own position rows name (``hotspot``, or None). No start row: nothing is scanned."""
+    pats = list(pred.get("forbidden") or ())
+    for p in pats:
+        _check_forbid(p)
+    route = list(pred.get("route") or ())
+    ends = list(end_fields if end_fields is not None else (pred.get("end_fields") or [pred.get("end_field")]))
+    start = next((i for i, r in enumerate(rows) if r.k == "w" and place(r.fld, members) == start_place), None)
+    if start is None:
+        return []
+    out = []
+    for i in range(start, len(rows)):
+        r = rows[i]
+        if r.k != "w":
+            continue
+        where = place(r.fld, members)
+        for n, p in enumerate(pats):
+            if not _forbid_matches(p, r, where, members, route, ends):
+                continue
+            hit = {"line": r.line, "f": r.f, "fld": r.fld, "place": where, "sid": r.sid, "tag": r.tag, "ip": r.ip,
+                   "target": r.target, "new": r.new, "pattern": n, "cause": p["cause"], "object": p.get("object"),
+                   "why": p["why"]}
+            if p["cause"] == "confirm_hotspot":
+                hit["hotspot"] = _hotspot_at(rows, i, where, members, pred)
+            out.append(hit)
+    return out
+
+
+def _visit_at(log: list, frame: int, fld: int) -> int | None:
+    """The driver's visit a row of field ``fld`` at ``frame`` belongs to: the last ``visit`` row of that field at or
+    before the frame (None: the driver never saw that field by then)."""
+    got = None
+    for row in log:
+        if row.get("k") == "visit" and row.get("field") == fld and row.get("frame", 1 << 62) <= frame:
+            got = row.get("visit")
+    return got
+
+
+def backing(hit: dict, log: list, pred: dict) -> dict | None:
+    """4.7's BACKING RULE: whether the run's own driver ``log`` holds, at a frame BEFORE the hit's row frame (the trace's
+    ``f`` and a state's ``frame`` are both Time.frameCount), the stray action the hit's ``cause`` names -- then the hit
+    is the driver's walk divergence (live V12; the analysis uncovers the run), else a finding. Returns
+    ``{"cause", "what", "row"}`` (the evidence), or None (unbacked).
+
+      contact          a ``watch`` row with control held and the pattern's object within its published range_r + 150u
+      confirm_hotspot  a ``press`` row in the hit's place and visit with control held at ``pre`` or ``post``, standing
+                       within the named hot-spot's reach + 64u (the hot-spot from the run's own position rows)
+      confirm_talk     a ``press`` row with control held whose ``near`` lists the object's talk disc
+      choice           a ``choice`` row in the hit's place that took other than the game's default
+      walk             a ``step`` row whose crossing landed in the hit's field (its V11), started before the hit"""
+    f, cause = hit["f"], hit["cause"]
+    for row in log:
+        k = row.get("k")
+        if cause == "contact" and k == "watch" and row.get("control") and row.get("frame", 1 << 62) < f:
+            for o in row.get("objects") or ():
+                rr, d = o.get("range_r"), o.get("dist")
+                if o.get("sid") == hit.get("object") and rr is not None and d is not None and d <= rr + CONTACT_SLACK:
+                    return {"cause": cause, "what": f"a watch sample at frame {row['frame']} with sid {o['sid']} "
+                                                    f"{d:.0f}u away (range_r {rr:.0f})", "row": row}
+        elif cause in ("confirm_hotspot", "confirm_talk") and k == "press":
+            if cause == "confirm_hotspot":
+                hs = hit.get("hotspot")
+                if hs is None or row.get("donor") != hit["place"] or row.get("visit") != _visit_at(log, f, hit["fld"]):
+                    continue
+            for side in ("pre", "post"):
+                s = row.get(side) or {}
+                if not s.get("control") or s.get("frame", 1 << 62) >= f or s.get("x") is None:
+                    continue
+                if cause == "confirm_hotspot":
+                    d = math.hypot(s["x"] - hs["x"], s["z"] - hs["z"])
+                    if d <= hs["reach"] + HOTSPOT_SLACK:
+                        return {"cause": cause, "what": f"a Confirm at frame {s['frame']} {d:.0f}u from hot-spot e"
+                                                        f"{hs['sid']} ({hs['x']}, {hs['z']}), reach {hs['reach']:.0f}",
+                                "row": row}
+                elif any(n.get("sid") == hit.get("object") and n.get("kind") == "talk" for n in row.get("near") or ()):
+                    return {"cause": cause, "what": f"a Confirm at frame {s['frame']} inside sid {hit.get('object')}'s "
+                                                    f"talk disc", "row": row}
+        elif cause == "choice" and k == "choice" and row.get("donor") == hit["place"] \
+                and row.get("frame", 1 << 62) < f and row.get("index") not in ("default", row.get("selected")):
+            return {"cause": cause, "what": f"a choice answered {row.get('index')} over the default "
+                                            f"{row.get('selected')}", "row": row}
+        elif cause == "walk" and k == "step" and row.get("v") == "V11" and row.get("landed") == hit["fld"] \
+                and row.get("frame0", 1 << 62) < f:
+            return {"cause": cause, "what": f"step {row.get('name')!r} walked him into {row.get('landed')}",
+                    "row": row}
+    return None
+
+
+def _hit_row(hit: dict) -> dict:
+    """A hit as a log row names it: the row's fld / place / sid / tag / ip / target / new, its line and frame."""
+    return {k: hit.get(k) for k in ("line", "f", "fld", "place", "sid", "tag", "ip", "target", "new")}
+
+
+# ======================================================================== the end state
+def target_bits(target: str) -> list:
+    """The gEventGlobal bits a ``Global.<Width>[<i>]`` target spans: its bit for a Bit, else every bit of its bytes."""
+    from ff9mapkit import storytrace as T
+    width, index = target.split(".", 1)[1].rstrip("]").split("[")
+    if width in T.BIT_WIDTHS:
+        return [int(index)]
+    return [int(index) * 8 + i for i in range(8 * T.WIDTH_BYTES[width])]
+
+
+def value_of(target: str, bits: list) -> int:
+    """A target's value from its bits (:func:`target_bits`' order, least significant first), two's complement for a
+    signed width (SByte, Int16, Int24)."""
+    v = sum(1 << i for i, b in enumerate(bits) if b)
+    width = target.split(".", 1)[1].split("[")[0]
+    if width in ("SByte", "Int16", "Int24", "UInt24") and bits and bits[-1]:
+        v -= 1 << len(bits)
+    return v
+
+
+def read_end_state(g, pred: dict, timeout: float = 10.0) -> dict:
+    """The predictions' ``end_state`` variables as the game holds them now (2.2, rule 1): every bit they span watched
+    (``watch``), the next state that publishes them all read, then ``unwatch``. ``{target: value}``."""
+    want = list((pred.get("end_state") or {}).keys())
+    if not want:
+        return {}
+    spans = {t: target_bits(t) for t in want}
+    bits = sorted({b for bs in spans.values() for b in bs})
+    g.watch(*bits)
+    try:
+        st = g.wait_for(lambda s: all(s.flag(b) is not None for b in bits), timeout=timeout,
+                        what="the end state's watched bits")
+    finally:
+        g.unwatch()
+    return {t: value_of(t, [st.flag(b) for b in spans[t]]) for t in want}
+
+
+# ======================================================================== the driver
+class _Drive:
+    """One run of the beat-table driver: its counters, its evidence, its rules and its step executors. :func:`drive`
+    is the entry; research/o2_design.md 2.2 is the loop, 2.3 the executors, 2.7 the VOID classes, 4.7 the evidence."""
+
+    def __init__(self, g, pred, side, log, *, deadline, floor_for, prior_for, progress, end_fields, observe,
+                 forbid_live):
+        self.g, self.pred, self.side, self.log, self.deadline = g, pred, side, log, deadline
+        self.floor_for, self.prior_for, self.observe, self.forbid_live = floor_for, prior_for, observe, forbid_live
+        self.members = ST.members_of(pred) if side == "F" else {}
+        self.ends = list(end_fields if end_fields is not None else (pred.get("end_fields") or [pred["end_field"]]))
+        self.route = list(pred.get("route") or ())
+        self.start_place = place(pred["start"][side], self.members)
+        budget = pred["budget"]
+        self.settle_s = float(budget["settle_s"])
+        self.settle_polls = max(1, int(self.settle_s / POLL_S))
+        self.no_progress_s = float(budget.get("no_progress_s", 120))
+        self.beats = {b: False for b in pred.get("beats") or ()}
+        self.pages, self.timed, self.choices, self.steps = [], [], [], []
+        self.overlays, self.forbidden = [], []
+        self.end_state = None
+        self.answered: set = set()
+        self.done: dict = {}               # (visit, donor, sc) -> steps done
+        self.tries: dict = {}              # (visit, donor, sc, n) -> {"failed", "interrupted"}
+        self.visit, self.cur = 0, None     # the visit counter and the field it is of
+        self.fid = self.donor = self.sc = None
+        self.held = 0                      # consecutive control polls (the settle)
+        self.hold = None                   # a ready choice's (snapshot, since, frame)
+        self.pending = None                # the last press row, its post not yet read
+        self.seen: set = set()             # (line, pattern) of every forbidden hit already judged
+        self.floors: dict = {}
+        self.sig, self.since = None, time.time()
+        self.t0 = time.time()
+        if progress is not None:
+            progress.update(beats=self.beats, pages=self.pages, timed=self.timed, choices=self.choices,
+                            steps=self.steps, overlays=self.overlays, forbidden=self.forbidden)
+
+    # -- the outcome, a VOID ------------------------------------------------------------------------------------
+    def out(self, end: str, why: str) -> dict:
+        return {"end": end, "why": why, "void": None, "beats": self.beats, "pages": self.pages, "timed": self.timed,
+                "choices": self.choices, "steps": self.steps, "overlays": self.overlays, "forbidden": self.forbidden,
+                "end_state": self.end_state, "t": round(time.time() - self.t0, 1)}
+
+    def void(self, v: str, by: str, why: str):
+        return RouteVoid(why, v=v, cell=[self.donor, self.sc], by=by)
+
+    # -- evidence -------------------------------------------------------------------------------------------------
+    def near(self, st) -> list:
+        """The published objects whose talk / range disc, NEAR_SLACK wider, holds him at ``st`` (a press row's)."""
+        out = []
+        if st.player_x is None:
+            return out
+        for o in st.objects or ():
+            d = math.hypot(o["x"] - st.player_x, o["z"] - st.player_z)
+            for kind, key in (("talk", "talk_r"), ("range", "range_r")):
+                r = o.get(key)
+                if r is not None and d <= r + NEAR_SLACK:
+                    out.append({"sid": o.get("sid"), "uid": o.get("uid"), "kind": kind, "dist": round(d, 1),
+                                "radius": r})
+        return out
+
+    def press(self, why: str, st, frames: int) -> dict:
+        """Confirm, with its ``press`` row: ``pre`` the sample it was decided on, ``post`` filled from the ring's next
+        sample (:meth:`post`), ``near`` the objects in reach at ``pre``."""
+        row = {"k": "press", "why": why, "field": self.fid, "donor": self.donor, "visit": self.visit,
+               "sc": self.sc, "pre": sample(st), "post": None, "near": self.near(st)}
+        self.g.press("confirm", frames)
+        self.log.append(row)
+        self.pending = row
+        return row
+
+    def post(self) -> None:
+        """The pending press row's ``post``: the first sample any read kept after its ``pre`` (no extra read)."""
+        row, self.pending = self.pending, None
+        if row is not None and row["post"] is None:
+            nxt = next(iter(self.g.states_since(row["pre"]["frame"])), None)
+            row["post"] = raw_sample(nxt) if nxt is not None else None
+
+    def watch_row(self, raw: dict, c: dict) -> dict:
+        """A ``watch`` row of a raw state in a watched cell: him, control, and the watched sids' published bodies --
+        the field the SAMPLE was published in, and its frozen place."""
+        s = raw_sample(raw)
+        fid = int((raw.get("field") or {}).get("id", -1))
+        sids = {w["sid"] for w in c.get("watch") or ()}
+        objs = []
+        for o in raw.get("objects") or ():
+            if o.get("sid") in sids and s["x"] is not None:
+                objs.append({"sid": o["sid"], "x": round(o["x"], 1), "z": round(o["z"], 1), "range_r": o.get("range_r"),
+                             "talk_r": o.get("talk_r"),
+                             "dist": round(math.hypot(o["x"] - s["x"], o["z"] - s["z"]), 1)})
+        return {"k": "watch", **s, "field": fid, "donor": place(fid, self.members), "objects": objs}
+
+    def watch_poll(self, st, c: dict) -> None:
+        """A poll in a watched cell: its ``watch`` row, and V6 for a watched object within its radius, control held."""
+        row = self.watch_row(st.raw, c)
+        self.log.append(row)
+        if not row["control"]:
+            return
+        for w in c.get("watch") or ():
+            for o in row["objects"]:
+                if o["sid"] != w["sid"]:
+                    continue
+                radius = o.get(w["radius"]) if isinstance(w.get("radius"), str) else w.get("radius")
+                if radius is not None and o["dist"] <= radius:
+                    raise self.void("V6", "driver", f"watched {w.get('name') or w['sid']} (sid {w['sid']}) is "
+                                                    f"{o['dist']:.0f}u away with control held, within its "
+                                                    f"{w['radius']} {radius:.0f}")
+
+    def contact_before(self, frame: int, c: dict) -> bool:
+        """V5's attribution: whether the log holds, before ``frame``, a watched object in contact reach (4.7)."""
+        return any(backing({"f": frame, "cause": "contact", "object": w["sid"]}, self.log, self.pred)
+                   for w in c.get("watch") or ())
+
+    def scan(self) -> None:
+        """The live forbidden scan (2.2, rule 3): the run's own rows (after its last arm, cut at its end), 4.7's
+        patterns from its start row on. A hit the log backs is V12; an unbacked one is logged and the run goes on."""
+        rows = self.g.story_rows()
+        arm = max((i for i, r in enumerate(rows) if r.k == "e" and r.why == "arm"), default=None)
+        if arm is None:
+            return
+        kept, _end = ST.cut_at_end(rows[arm:], self.ends, self.members)
+        for hit in forbidden_hits(kept, self.pred, self.members, self.start_place, end_fields=self.ends):
+            key = (hit["line"], hit["pattern"])
+            if key in self.seen:
+                continue
+            self.seen.add(key)
+            b = backing(hit, self.log, self.pred)
+            row = {"k": "forbidden", "backed": b is not None, "row": _hit_row(hit), "pattern": hit["pattern"],
+                   "cause": hit["cause"], "why": hit["why"], "hotspot": hit.get("hotspot"),
+                   "by": None if b is None else b["what"]}
+            self.log.append(row)
+            self.forbidden.append(row)
+            if b is not None:
+                raise self.void("V12", "driver", f"a forbidden write the driver's own log backs: {hit['why']} "
+                                                 f"({hit['fld']} e{hit['sid']} t{hit['tag']} ip{hit['ip']} "
+                                                 f"{hit['target']}={hit['new']}), backed by {b['what']}")
+
+    # -- the walks ------------------------------------------------------------------------------------------------
+    def floor(self, closed=()):
+        key = (self.donor, tuple(closed))
+        if key not in self.floors:
+            self.floors[key] = self.floor_for(self.donor, list(closed))
+        return self.floors[key]
+
+    def walk_kw(self, step: dict) -> dict:
+        """What every walk of a step passes (2.3): the donor's floor as the player walks it, with the step's closed
+        triangles; its prior; the unstick / smooth / handoff walk; the step's npcs, overlay and settle."""
+        from ff9mapkit.content import pathfind
+        closed = closed_tris(self.pred, step, self.floor())
+        return dict(walkmesh=self.floor(closed), prior=self.prior_for(self.donor), unstick=True, smooth=True,
+                    margin=pathfind.KEEPOUT_MARGIN_W, timeout=float(step["timeout_s"]), npcs=bool(step["npcs"]),
+                    overlay_ok=bool(step["overlay_ok"]), settle=step["settle"], handoff=True)
+
+    def crossed(self, step: dict, rec: dict, pts) -> tuple:
+        """A crossing's verdict (2.3 ``cross``): the field changed -> done in the step's ``to``, else V11; control went
+        with the field unchanged -> at or inside the exit (``exit_slack``) its FADE, waited out here for the map
+        switch (``exit_wait_s``) -- never in the loop, so a hint left up is no page -- outside it ``interrupted``; the
+        walk ended with control held -> ``failed``."""
+        from harness import HarnessError
+        from ff9mapkit.content import pathfind
+        g, fid = self.g, self.fid
+        out = {"route": trim_route(rec), "lost": rec.get("lost"), "landed": None}
+        st = g.state
+        new = rec.get("landed")
+        if new is None and st.field_id != fid and st.field_id > 0:
+            new = st.field_id
+        if new is None and out["lost"] is None and st.field_id == fid and not st.control:
+            out["lost"] = sample(st)                 # control went after the call's last read
+        lost = out["lost"]
+        if new is None and lost is not None:
+            x, z = lost.get("x"), lost.get("z")
+            if x is not None and pathfind.poly_gap(x, z, pts) > float(step["exit_slack"]):
+                out["why"] = f"control went at ({x:.0f}, {z:.0f}), outside {step['target']}"
+                return "interrupted", out
+            wait = float(step["exit_wait_s"])
+            try:
+                flip = g.wait_for(lambda s: s.field_id != fid, timeout=wait, what=f"{step['target']}'s map switch")
+            except HarnessError as err:
+                if "live samples" not in str(err):
+                    raise                               # a frozen or silent channel says nothing about the exit
+                out["why"] = f"control went in {step['target']} and the field held {wait:.0f}s"
+                return "interrupted", out
+            out["flip_frame"] = flip.frame
+            try:
+                new = g.wait_for(lambda s: s.field_id > 0 and s.field_id != fid, timeout=wait,
+                                 what=f"the field after {step['target']}").field_id
+            except HarnessError as err:
+                if "live samples" not in str(err):
+                    raise
+                raise self.void("V14", "game", f"the field id left {fid} and was never positive again within "
+                                               f"{wait:.0f}s") from err
+        if new is not None:
+            out["landed"] = new
+            if place(new, self.members) == step["to"]:
+                return "done", out
+            out.update(v="V11", by="driver", why=f"the crossing to {step['to']} landed in {new} (place "
+                                                 f"{place(new, self.members)})")
+            return "void", out
+        out["why"] = f"the walk ended with control held and nothing crossed (inside {rec.get('inside')})"
+        return "failed", out
+
+    def x_cross(self, step: dict) -> tuple:
+        pts = region(self.pred, step["target"])["points"]
+        rec = self.g.route_cross(*step["goal"], zone=pts, region=pts, avoid=polys(self.pred, step.get("avoid")),
+                                 **self.walk_kw(step))
+        return self.crossed(step, rec, pts)
+
+    def x_leave_now(self, step: dict) -> tuple:
+        """leave_now (2.3): the lunge on the first sample -- skipped when ``lunge_ticks`` is 0 or the field has no
+        cached basis -- then the crossing at once (settle 0 unless the step says otherwise), judged as a cross."""
+        from harness import HarnessError
+        pts = region(self.pred, step["target"])["points"]
+        avoid = polys(self.pred, step.get("avoid"))
+        kw = self.walk_kw(step)
+        if kw["settle"] is None:
+            kw["settle"] = 0.0
+        lunge = None
+        if step.get("lunge_ticks") and self.fid in self.g._axes:
+            try:
+                lunge = self.g.lunge(*step["goal"], ticks=int(step["lunge_ticks"]), avoid=avoid,
+                                     walkmesh=kw["walkmesh"])
+            except HarnessError as err:
+                lunge = {"pressed": False, "error": str(err)[:200]}
+        st = self.g.state
+        if st.field_id == self.fid and st.control:
+            rec = self.g.route_cross(*step["goal"], zone=pts, region=pts, avoid=avoid, **kw)
+        else:                                            # control went before the walk: judged where it went
+            rec = {"landed": None, "lost": None if st.control else sample(st), "inside": None}
+        verdict, out = self.crossed(step, rec, pts)
+        out["lunge"] = lunge
+        return verdict, out
+
+    def x_trigger(self, step: dict) -> tuple:
+        """trigger (2.3): the walk (into the ``target`` zone, or to the goal); control gone with the evidence at the
+        loss sample -- standing in the target, or the ``until`` predicate holding -- is done, without it
+        ``interrupted``; a walk that ended with control held waits TRIGGER_WAIT_S for it to go, else ``failed``."""
+        from harness import HarnessError
+        from ff9mapkit.content import doorface
+        g, fid = self.g, self.fid
+        pts = region(self.pred, step["target"])["points"] if step.get("target") else None
+        rec = g.route_to(*step["goal"], zone=pts, avoid=polys(self.pred, step.get("avoid")),
+                         tolerance=float(step["tolerance"]), **self.walk_kw(step))
+        out = {"route": trim_route(rec), "lost": rec.get("lost"), "landed": rec.get("landed")}
+        lost = out["lost"]
+        if lost is None:
+            st = g.state
+            if st.control and st.field_id == fid:
+                try:
+                    st = g.wait_for(lambda s: not s.control or s.field_id != fid, timeout=TRIGGER_WAIT_S,
+                                    what="the trigger to take control")
+                except HarnessError as err:
+                    if "live samples" not in str(err):
+                        raise
+                    out["why"] = "the walk ended with control held and nothing took it"
+                    return "failed", out
+            lost = out["lost"] = sample(st)
+        x, z = lost.get("x"), lost.get("z")
+        ok = (x is not None and doorface.region_contains(x, z, pts)) if pts is not None else until_ok(step["until"], x, z)
+        if ok:
+            return "done", out
+        out["why"] = f"control went at ({x}, {z}) without the step's evidence"
+        return "interrupted", out
+
+    def x_confirm(self, step: dict) -> tuple:
+        """confirm (2.3): the walk to the goal WITHOUT the zone (a zone ends the walk at its edge); settled, he must
+        stand in the target by the engine's rule at depth >= ``min_depth`` or nothing is pressed (``failed``); then
+        Confirm (a ``press`` row) and the ``expect``ed answer within ``confirm_s``; with ``then: "climb"`` the climb
+        (H2): "until" done, "control" (he slid back) ``failed``, anything else V9."""
+        from harness import HarnessError
+        g, fid = self.g, self.fid
+        pts = region(self.pred, step["target"])["points"]
+        rec = g.route_to(*step["goal"], tolerance=float(step["tolerance"]), avoid=polys(self.pred, step.get("avoid")),
+                         **self.walk_kw(step))
+        out = {"route": trim_route(rec), "lost": rec.get("lost"), "landed": rec.get("landed"), "depth": None}
+        if rec.get("lost") is not None or rec.get("landed") is not None:
+            out["why"] = "control went during the walk to the Confirm"
+            return "interrupted", out
+        st = g.settle()
+        if st.field_id != fid or not st.control:
+            out["lost"] = sample(st)
+            out["why"] = "control went as he settled"
+            return "interrupted", out
+        d = depth_in(pts, st.player_x, st.player_z)
+        out["depth"] = None if d is None else round(d, 1)
+        if d is None or d < float(step["min_depth"]):
+            out["why"] = (f"settled at ({st.player_x:.0f}, {st.player_z:.0f}), "
+                          + ("outside" if d is None else f"{d:.0f}u deep in") + f" {step['target']} (min_depth "
+                          f"{step['min_depth']}): nothing pressed")
+            return "failed", out
+        row = self.press("confirm", st, 4)
+        expect = step["expect"]
+        want = (lambda s: s.choice is not None) if expect == "choice" else (lambda s: not s.control)
+        try:
+            g.wait_for(want, timeout=float(step["confirm_s"]), what=f"the Confirm's {expect}")
+        except HarnessError as err:
+            if "live samples" not in str(err):
+                raise
+            self.post()
+            out["why"] = f"the Confirm showed no {expect} within {step['confirm_s']}s"
+            return "failed", out
+        self.post()
+        out["press"] = row["pre"]["frame"]
+        if step.get("then") != "climb":
+            return "done", out
+        climb = dict(step.get("climb") or {})
+        top = climb.pop("top", None)
+
+        def until(s):
+            return ((s.dialog_open and bool(s.text.strip()) and not s.control) or s.field_id != fid
+                    or (top is not None and s.player_y is not None and s.player_y < top))
+        res = g.climb("up", until=until, **climb)
+        out["climb"] = res
+        if res["ended"] in ("until", "field"):
+            return "done", out
+        if res["ended"] == "control":
+            out["why"] = "the climb slid back: control came back at the bottom"
+            return "failed", out
+        out.update(v="V9", by="driver", why=f"the climb ended {res['ended']}: y {res['y0']} -> {res['y1']} over "
+                                            f"{res['bursts']} bursts")
+        return "void", out
+
+    def x_wait_sc(self, step: dict) -> tuple:
+        """wait_sc (2.3): the walk to the wait point, then the wait for the published SC to reach ``sc``: reached ->
+        done; control gone or the field changed first -> ``interrupted``; the wait out -> V8 (game)."""
+        from harness import HarnessError
+        g, fid, want = self.g, self.fid, int(step["sc"])
+        rec = g.route_to(*step["goal"], tolerance=float(step["tolerance"]), avoid=polys(self.pred, step.get("avoid")),
+                         **self.walk_kw(step))
+        out = {"route": trim_route(rec), "lost": rec.get("lost"), "landed": rec.get("landed")}
+        try:
+            st = g.wait_for(lambda s: s.scenario == want or not s.control or s.field_id != fid,
+                            timeout=float(step["wait_s"]), what=f"SC {want}")
+        except HarnessError as err:
+            if "live samples" not in str(err):
+                raise
+            out.update(v="V8", by="game", why=f"SC never reached {want} within {step['wait_s']}s "
+                                              f"(it reads {g.state.scenario})")
+            return "void", out
+        if st.scenario == want:
+            return "done", out
+        out["lost"] = out["lost"] or sample(st)
+        out["why"] = f"control went (or the field changed) at SC {st.scenario}, before SC {want}"
+        return "interrupted", out
+
+    # -- one step -------------------------------------------------------------------------------------------------
+    def run_step(self, c: dict, n: int, st) -> None:
+        """Run step ``n`` of cell ``c`` (rule 8): its executor, its ``step`` row, the counters (2.3) -- done moves the
+        cell on, ``failed`` spends an attempt, ``interrupted`` an interruption, either out of them VOID V7 -- and, in a
+        watched cell, the ring's samples of the call as ``watch`` rows."""
+        step = step_of(self.pred, c["steps"][n])
+        key = (self.visit, self.donor, self.sc, n)
+        tries = self.tries.setdefault(key, {"failed": 0, "interrupted": 0})
+        frame0, t0 = st.frame, time.time()
+        verdict, rec = getattr(self, "x_" + step["kind"])(step)
+        after = self.g.state
+        if c.get("watch"):
+            # every sample the call's own reads kept, while he was still in the watched cell's field: a race lost
+            # INSIDE a harness call stays on record (the ring runs on into the next field; those are not the cell's)
+            for raw in self.g.states_since(frame0):
+                if int((raw.get("field") or {}).get("id", -1)) == self.fid:
+                    self.log.append(self.watch_row(raw, c))
+        row = {"k": "step", "field": self.fid, "donor": self.donor, "sc": self.sc, "visit": self.visit, "n": n,
+               "kind": step["kind"], "name": step.get("name"), "attempt": 1 + tries["failed"] + tries["interrupted"],
+               "outcome": verdict, "t0": round(t0 - self.t0, 2), "t1": round(time.time() - self.t0, 2),
+               "frame0": frame0, "frame": after.frame, "from": sample(st), "to": sample(after),
+               "lost": rec.get("lost"), "landed": rec.get("landed"), "flip_frame": rec.get("flip_frame"),
+               "route": rec.get("route"), "lunge": rec.get("lunge"), "climb": rec.get("climb"),
+               "depth": rec.get("depth"), "v": rec.get("v"), "by": rec.get("by"), "why": rec.get("why")}
+        self.log.append(row)
+        self.steps.append(row)
+        self.since = time.time()                 # an executor is bounded by its own timeouts, not the watchdog
+        if verdict == "done":
+            self.done[(self.visit, self.donor, self.sc)] = n + 1
+            if step.get("beat"):
+                self.beats[step["beat"]] = True
+        elif verdict == "failed":
+            tries["failed"] += 1
+            if tries["failed"] >= int(step["attempts"]):
+                raise self.void("V7", "driver", f"step {step.get('name') or n} ({step['kind']}) failed "
+                                                f"{tries['failed']} of its {step['attempts']} attempts: {rec.get('why')}")
+        elif verdict == "interrupted":
+            tries["interrupted"] += 1
+            if tries["interrupted"] > int(step["interrupts"]):
+                raise self.void("V7", "driver", f"step {step.get('name') or n} ({step['kind']}) interrupted "
+                                                f"{tries['interrupted']} times, over its {step['interrupts']}: "
+                                                f"{rec.get('why')}")
+        else:
+            raise self.void(rec["v"], rec["by"], rec["why"])
+
+    # -- the loop -------------------------------------------------------------------------------------------------
+    def go(self) -> dict:
+        from harness import HarnessError
+        g, pred = self.g, self.pred
+        while time.time() < self.deadline:
+            st = g.state
+            if self.pending is not None:
+                self.post()
+            self.fid, self.sc = st.field_id, st.scenario
+            self.donor = place(self.fid, self.members)
+            if self.observe is not None:
+                self.observe(st, {"field": self.fid, "donor": self.donor, "sc": self.sc, "visit": self.visit,
+                                  "log": self.log})
+            # 1 -- the end: the end state, the last scan, done
+            if self.fid in self.ends:
+                self.end_state = read_end_state(g, pred)
+                if self.forbid_live:
+                    self.scan()
+                self.log.append({"k": "end", "field": self.fid, "frame": st.frame, "sc": self.sc,
+                                 "end_state": self.end_state, "t": round(time.time() - self.t0, 1)})
+                return self.out("reached", f"field {self.fid}")
+            # the stall watchdog: nothing published changed for no_progress_s
+            sig = (self.fid, self.sc, st.ui_state, tuple(st.texts), json.dumps(st.choice, sort_keys=True), st.control,
+                   None if st.player_x is None else round(st.player_x / 8),
+                   None if st.player_z is None else round(st.player_z / 8), (st.storytrace or {}).get("rows"))
+            if sig != self.sig:
+                self.sig, self.since = sig, time.time()
+            elif time.time() - self.since >= self.no_progress_s:
+                raise self.void("V14", "game", f"no progress for {self.no_progress_s:.0f} s in {self.fid} (place "
+                                               f"{self.donor}) at SC {self.sc}")
+            if self.fid <= 0:                        # 9 -- a load: waited out
+                self.held = 0
+                time.sleep(POLL_S)
+                continue
+            # 2 -- the route
+            if not on_route(self.fid, self.members, self.route, self.ends):
+                raise self.void("V11", "game", f"left the route: entered {self.fid} (place {self.donor})")
+            # 3 -- a new visit
+            if self.fid != self.cur:
+                self.visit, self.cur = self.visit + 1, self.fid
+                self.log.append({"k": "visit", "field": self.fid, "donor": self.donor, "visit": self.visit,
+                                 "frame": st.frame, "sc": self.sc})
+                if self.forbid_live:
+                    self.scan()
+            c = cell(pred, self.donor, self.sc)
+            if c is not None and c.get("watch"):
+                self.watch_poll(st, c)
+            # 4 -- the naming screen
+            if st.ui_state == "NameSetting":
+                self.held = 0
+                reg = next((x for x in pred.get("naming") or () if x["donor"] == self.donor and x["sc"] == self.sc),
+                           None)
+                if reg is None:
+                    raise self.void("V10", "game", f"a naming screen in {self.fid} (place {self.donor}) at SC "
+                                                   f"{self.sc}, where the route registers none")
+                g.accept_name()
+                if reg.get("beat"):
+                    self.beats[reg["beat"]] = True
+                self.log.append({"k": "named", "field": self.fid, "donor": self.donor, "sc": self.sc,
+                                 "frame": st.frame})
+                continue
+            # 5 -- a tutorial or a battle: the route registers neither
+            if st.ui_state == "Tutorial" or st.in_battle:
+                raise self.void("V10", "game", f"{'a battle' if st.in_battle else 'a tutorial'} in {self.fid} "
+                                               f"(place {self.donor}) at SC {self.sc}, where the route registers none")
+            # 6 -- a choice: O1's readiness hold, then the frozen rules
+            if st.choice is not None:
+                self.held = 0
+                if not g._choice_ready(st):
+                    time.sleep(POLL_S)
+                    continue
+                snap = json.dumps(st.choice, sort_keys=True)
+                if self.hold is None or self.hold[0] != snap:
+                    self.hold = (snap, time.time(), st.frame)
+                    time.sleep(POLL_S)
+                    continue
+                if time.time() - self.hold[1] < self.settle_s or st.frame <= self.hold[2]:
+                    time.sleep(POLL_S)
+                    continue
+                self.hold = None
+                self.answer(st)
+                continue
+            # 7 -- a page (control off)
+            if st.dialog_open and st.text.strip() and not st.control:
+                self.held = 0
+                if c is not None and c.get("no_pages"):
+                    by = "driver" if self.contact_before(st.frame, c) else "game"
+                    raise self.void("V5", by, f"a page where the route has none: {st.text[:160]!r}")
+                if not self.pages or self.pages[-1] != st.text:
+                    self.pages.append(st.text)
+                    if any("[TIME=" in t for t in st.raw_texts):
+                        self.timed.append(len(self.pages) - 1)
+                self.press("page", st, 3)
+                g.wait_frames(g.rate().frames_for_ticks(g.CUTSCENE_PAGE_TICKS))
+                continue
+            # 8 -- control held: the cell's next step
+            if st.control and st.player_x is not None and not st.fading:
+                if st.dialog_open and st.text.strip() and st.text not in self.overlays:
+                    self.overlays.append(st.text)
+                    self.log.append({"k": "overlay", "field": self.fid, "frame": st.frame, "text": st.text})
+                if c is None:
+                    raise self.void("V4", "game", f"control held in {self.fid} (place {self.donor}) at SC "
+                                                  f"{self.sc}, where the table has no entry")
+                n = self.done.get((self.visit, self.donor, self.sc), 0)
+                if n >= len(c["steps"]):
+                    raise self.void("V4", "game", f"control held in {self.fid} (place {self.donor}) at SC "
+                                                  f"{self.sc} after the cell's last step")
+                if not step_of(pred, c["steps"][n]).get("immediate"):
+                    self.held += 1
+                    if self.held < self.settle_polls:
+                        time.sleep(POLL_S)
+                        continue
+                self.held = 0
+                self.run_step(c, n, st)
+                continue
+            # 9 -- anything else (a movie, a fade, a scene between pages): wait
+            self.held = 0
+            time.sleep(POLL_S)
+        raise HarnessError(f"the run's budget ran out in field {g.state.field_id}")
+
+    def answer(self, st) -> None:
+        """Rule 6's answer: the frozen rule (pick_for; a classless RouteVoid there is V1, game), the game's own default
+        taken for a ``take: "default"`` rule (the cursor never moved) or O1's ``choose``, and its ``choice`` row. A
+        default whose Confirm did not land is asked again on a later poll, never counted answered."""
+        g = self.g
+        try:
+            index, rule = pick_for(st.choice, self.donor, self.pred, sc=self.sc, answered=self.answered)
+        except RouteVoid as err:
+            if err.v is None:
+                raise self.void("V1", "game", str(err)) from err
+            raise
+        n = next(i for i, r in enumerate(self.pred["choices"]) if r is rule)
+        if index == "default" or rule.get("take") == "default":
+            took = g._take_default_choice(st)
+            if took is None:
+                return
+        else:
+            g.choose(index)
+            took = {"index": index}
+        ch = st.choice
+        row = {"k": "choice", "field": self.fid, "donor": self.donor, "sc": self.sc, "frame": st.frame,
+               "options": ch.get("options"), "active": ch.get("active"), "selected": ch.get("selected"),
+               "count": ch.get("count"), "index": index, "rule": n, "took": took}
+        self.choices.append(row)
+        self.log.append(row)
+        self.answered.add(n)
+        if rule.get("beat"):
+            self.beats[rule["beat"]] = True
+
+
+def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=None, prior_for=None,
+          progress: dict | None = None, end_fields=None, observe=None, forbid_live: bool = True) -> dict:
+    """Play the segment by its beat table (research/o2_design.md 2.2), from wherever the run stands to an end field.
+
+    Returns ``{"end": "reached", "why", "void": None, "beats", "pages", "timed", "choices", "steps", "overlays",
+    "forbidden", "end_state", "t"}``; anything the table cannot answer raises :class:`RouteVoid` with its class,
+    cell and attribution (2.7), and the budget ``HarnessError`` (V13). ``floor_for(donor, closed)`` gives a walk its
+    floor (default: the donor's stock walkmesh as the player walks it, ``closed`` shut -- a member walks its donor's,
+    P-FLOOR), ``prior_for(donor)`` its prior (default ``g.key_prior``); ``end_fields`` overrides the predictions' (a
+    rehearsal stage); ``observe(st, ctx)`` sees every poll (the rehearsal recorder); ``forbid_live`` runs the live
+    forbidden scan (V12; it needs the story trace running). ``progress`` is filled with the live beats, pages, choices,
+    steps, overlays and forbidden rows, so a run that raises still says how far it got."""
+    if floor_for is None:
+        from ff9mapkit import extract
+        from ff9mapkit.content import pathfind
+
+        def floor_for(donor, closed):
+            return pathfind.PlayerWalkmesh(extract.stock_walkmesh(donor), closed=closed)
+    return _Drive(g, pred, side, log, deadline=deadline, floor_for=floor_for, prior_for=prior_for or g.key_prior,
+                  progress=progress, end_fields=end_fields, observe=observe, forbid_live=forbid_live).go()
