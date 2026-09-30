@@ -45,7 +45,7 @@
   "31237": "O2_AT_STH"
  },
  "text_block": 33,
- "deployed": false,
+ "deployed": true,
  "relaunch_needed": true,
  "relaunch_why": "18 new FieldScene ids and 18 ForkDonorPatch rows are read at launch only",
  "known_defects": [
@@ -56,6 +56,6 @@
   "order": "reverse deploy order: 31237 down to 31220",
   "why_order": "all 18 members share text block 33: the first deploy of the block writes it fresh (its revert deletes it), later deploys back it up (their reverts restore it), so reverts run newest first"
  },
- "deployed_at": null,
+ "deployed_at": "2026-09-30 19:27 local",
  "verified": null
 }
