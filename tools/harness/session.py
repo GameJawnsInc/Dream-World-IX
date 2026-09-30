@@ -6712,6 +6712,46 @@ class Session:
             self.wait_frames(14)
         return current
 
+    def accept_name(self, *, timeout: float = 30.0) -> State:
+        """Take the naming screen's DEFAULT name and return to the field. Returns the state after it closes.
+
+        A field script's ``Menu(1, char)`` opens NameSettingUI (EventService.OpenNameMenu -> ui_state
+        "NameSetting") and blocks until it closes; no dialog is open meanwhile, so :meth:`watch_cutscene` and
+        :meth:`advance` press nothing and wait out their timeout. The box opens focused on the prefilled
+        default name (NameSettingUI.cs:146): the first Confirm takes focus off it, the next is OK and saves
+        the name (:72-83, :107, :173). Cancel would refocus the box and Menu reset it, so neither is pressed.
+        Each Confirm waits up to 2 s for the screen to close before the next, so no Confirm can fall through
+        onto the page the script shows after it.
+        """
+        self.wait_for(lambda s: s.ui_state == "NameSetting", timeout=timeout, what="the naming screen")
+        for _ in range(4):
+            self.press("confirm", 4)
+            try:
+                st = self.wait_for(lambda s: s.ui_state != "NameSetting", timeout=2.0,
+                                   what="the naming screen to close")
+            except HarnessError:
+                continue
+            self._log(f"  accept_name: closed -> ui={st.ui_state}")
+            return st
+        raise HarnessError("the naming screen stayed up through 4 Confirms. The harness's Confirm may not reach "
+                           "NameSettingUI; [Hacks] DisableNameChoice=1 in Memoria.ini skips the screen instead")
+
+    def _dismiss_tutorial(self) -> bool:
+        """Close the battle TUTORIAL screen if it is up; True if it was. battle.cs:100-105 opens it on the Masked
+        Man's scene 336 before the first command, and no command menu opens while it is up, so a fight waiting
+        for one waits out its whole timeout. One Confirm closes it (TutorialUI.cs:116-125)."""
+        if self.state.ui_state != "Tutorial":
+            return False
+        for _ in range(4):
+            self.press("confirm", 4)
+            try:
+                self.wait_for(lambda s: s.ui_state != "Tutorial", timeout=2.0, what="the battle tutorial to close")
+            except HarnessError:
+                continue
+            self._log("  the battle tutorial screen: closed")
+            return True
+        raise HarnessError("the battle tutorial screen stayed up through 4 Confirms")
+
     def battle_act(self, command: str = "Attack", *, timeout: float = 30.0) -> bool:
         """Take one turn THROUGH THE HUD: pick a command by NAME, then confirm a target.
 
@@ -6725,12 +6765,22 @@ class Session:
         Ability or Item SUBMENU is refused rather than confirmed: the first cut treated "any group
         that is not the command list" as the target cursor and cheerfully confirmed a Potion. Cast
         an ability or use an item by name with :meth:`act`, or walk the submenu yourself.
+
+        A battle TUTORIAL screen up first is closed on the way (:meth:`_dismiss_tutorial`).
         """
-        try:
-            self.wait_for(lambda s: (s.battle_cursor.get("group") or "") == self.BATTLE_COMMAND_GROUP,
-                          timeout=timeout, what="the battle command menu")
-        except HarnessError:
-            return False
+        deadline = time.time() + timeout
+        while True:
+            if time.time() >= deadline:
+                return False
+            try:
+                st = self.wait_for(lambda s: ((s.battle_cursor.get("group") or "") == self.BATTLE_COMMAND_GROUP
+                                              or s.ui_state == "Tutorial"),
+                                   timeout=max(0.1, deadline - time.time()), what="the battle command menu")
+            except HarnessError:
+                return False
+            if st.ui_state != "Tutorial":
+                break
+            self._dismiss_tutorial()
         try:
             self.battle_pick(command)
         except HarnessError as err:
@@ -7093,6 +7143,8 @@ class Session:
         ⚠ It refuses the diorama outright rather than timing out inside it: under ``isDebug`` the
         engine suppresses the auto-end, so that fight can NEVER finish and every turn taken there
         proves nothing about a result.
+
+        A battle TUTORIAL screen (the Masked Man's scene 336) is closed when it shows (:meth:`_dismiss_tutorial`).
         """
         self._require_play_protocol("fight()")
         st = self.state
@@ -7115,12 +7167,16 @@ class Session:
             st = self.state
             if st.battle_epoch == epoch and (st.battle_result != 0 or not st.in_battle):
                 break
+            if st.ui_state == "Tutorial":
+                self._dismiss_tutorial()
+                continue
             if st.turn_slot < 0:
                 # Nobody is being asked: the enemies are acting, or an animation is playing. Not a
                 # failure -- wait for the next prompt or for the fight to end.
                 try:
                     self.wait_for(
-                        lambda s: s.turn_slot >= 0 or s.battle_result != 0 or not s.in_battle,
+                        lambda s: (s.turn_slot >= 0 or s.battle_result != 0 or not s.in_battle
+                                   or s.ui_state == "Tutorial"),
                         timeout=min(10.0, max(0.5, deadline - time.time())),
                         what="the next turn or an outcome")
                 except HarnessError:

@@ -944,6 +944,32 @@ def test_watch_cutscene_takes_the_games_default_choice_and_plays_the_scene_out(g
         assert g.state.control and not g.state.dialog_open
 
 
+def test_accept_name_keeps_the_default_name_and_no_confirm_falls_through(game):
+    """Menu(1,0): the box opens focused, so it takes two Confirms -- and none may land on the page after it."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        fake.scene({"naming": 0}, "Zidane\n“It's me, Zidane!”")
+        published(g, lambda s: s.ui_state == "NameSetting")
+        mark = len(fake.executed)
+        st = g.accept_name(timeout=10)
+        confirms = [s for s in fake.executed[mark:] if s[:2] == ["press", "confirm"]]
+        assert fake.named == [0] and st.ui_state == "FieldHUD", (fake.named, st.ui_state)
+        assert len(confirms) == 2, confirms
+        assert published(g, lambda s: s.dialog_open).texts[0].startswith("Zidane"), "the next page was turned"
+
+
+def test_accept_name_raises_when_no_naming_screen_opens(game):
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        with pytest.raises(HarnessError, match="the naming screen"):
+            g.accept_name(timeout=1.0)
+        assert fake.named == []
+
+
 def test_without_the_opt_in_the_waiter_still_stops_at_a_choice(game):
     """The control: no ``choices``, the old waiter -- it turns the page, never presses at the choice, and says so
     when it times out."""
@@ -2472,6 +2498,38 @@ def test_fight_plays_a_battle_through_to_a_result(game):
         assert len(fake.battle_commands) >= 4, "1200 HP at 260 a hit is five turns, not one"
     finally:
         g.__exit__(None, None, None)
+
+
+def test_fight_closes_the_battle_tutorial_then_plays_the_fight_out(game):
+    """Scene 336 (the Masked Man) opens the tutorial screen before the first command, and no command menu opens
+    while it is up. The control: with the screen up and nothing pressed, no turn is ever offered."""
+    fake = FakeGame(game)
+    fake.enemy_hit = 0
+    fake.tutorial_scenes = {336}
+    fake.atb_gain = 400
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.start_battle(336)
+        published(g, lambda s: s.ui_state == "Tutorial")
+        g.wait_frames(fake.battle_intro_frames + 60)
+        assert g.state.turn_slot < 0 and not fake.battle_commands, "premise: the tutorial screen withholds turns"
+        assert g.fight(timeout=60.0, finish=False) == 1
+        assert not fake._tutorial and len(fake.battle_commands) >= 4
+
+
+def test_battle_act_closes_the_battle_tutorial_before_its_command(game):
+    fake = FakeGame(game)
+    fake.enemy_hit = 0
+    fake.tutorial_scenes = {336}
+    fake.atb_gain = 400
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.start_battle(336)
+        published(g, lambda s: s.ui_state == "Tutorial")
+        assert g.battle_act("Attack", timeout=30.0)
+        assert not fake._tutorial and fake.battle_commands
 
 
 def test_fight_takes_the_loss_as_readily_as_the_win(game):
@@ -11137,3 +11195,119 @@ def test_the_objects_that_box_him_are_judged_at_the_smallest_press_reach(game):
         assert rate.speed("walk") + 152.0 + g.ROUTE_BODY_PAD < 200.0 < rate.reach(1, "walk") + 152.0 + g.ROUTE_BODY_PAD
         boxers = g._boxers(g._axes[30820], here, (1000.0, 0.0), leg, rate=rate)
     assert [d["uid"] for d in boxers] == [9], boxers
+
+
+# ---- O1 (studies/story-trace/o1_opening.py): the opening's route driver, on the fake. A director thread stages the
+# segment the way the game plays it: two pages, control, the candle choice + Cinna + the naming screen, the tutorial
+# battle, the kidnap question (default: the looping answer), then the warp out. The driver must answer only by its
+# frozen rule table, keep the default name, close the tutorial, and stop at the end field.
+
+def _o1_pred(**over):
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o1_opening as O
+    pred = O.draft_predictions()
+    pred.update(start={"S": 30820, "F": 30820}, end_field=30821, members={}, names={},
+                candle={"donor": 30820, "x": 300.0, "z": 0.0})
+    pred["budget"] = dict(pred["budget"], settle_s=0.3)
+    pred["choices"] = [dict(c, donor=30820 if c["donor"] is not None else None) for c in pred["choices"]]
+    pred.update(over)
+    return O, pred
+
+
+def _o1_director(fake, stop, phases):
+    """Run each ``(ready(fake) -> bool, act(fake))`` phase in turn, as soon as its condition holds."""
+    def loop():
+        for ready, act in phases:
+            while not stop.is_set() and not ready(fake):
+                time.sleep(0.002)
+            if stop.is_set():
+                return
+            act(fake)
+    t = threading.Thread(target=loop, daemon=True)
+    t.start()
+    return t
+
+
+def _o1_candle_scene(fake):
+    fake.scene({"header": "What shall I do?", "options": ["Light the candle", "Cancel"], "default": 0},
+               "Cinna\n“Who's there!?”", {"naming": 0}, "Zidane\n“It's me, Zidane!”")
+
+
+def _o1_idle(fake):
+    return not fake._beats and fake.ui_state == "FieldHUD"
+
+
+def test_o1_drive_plays_the_opening_segment_by_its_rules(game):
+    O, pred = _o1_pred()
+    fake = FakeGame(game)
+    fake.enemy_hit = 0
+    fake.tutorial_scenes = {336}
+    fake.atb_gain = 400
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        fake.scene("Zidane\n“Sure is dark...”", "Zidane\n“Guess nobody's here yet...”")
+        g.interact = lambda **kw: (_o1_candle_scene(fake), g.state)[1]      # the candle's region, answered
+        _o1_director(fake, stop, [
+            (lambda f: f.named == [0] and _o1_idle(f), lambda f: f.start_battle(336)),
+            (lambda f: f.battle_result == 1 and f.ui_state == "FieldHUD",
+             lambda f: f.scene("Baku\n“Gwahahaha!”", {"header": "Who do we kidnap?",
+                                                      "options": ["Queen Brahne", "Princess Garnet"], "default": 0},
+                               "Blank\n“Right.”")),
+            (lambda f: len(f.answered) == 2 and _o1_idle(f), lambda f: setattr(f, "field_id", 30821)),
+        ])
+        try:
+            log: list = []
+            out = O.drive(g, pred, "S", log, deadline=time.time() + 90,
+                          floor_for=lambda d: _flat_bgi(), prior_for=lambda d: _prior())
+        finally:
+            stop.set()
+    assert out["end"] == "reached", out
+    assert out["beats"] == {"candle": True, "named": True, "battle": 1, "garnet": True}, out["beats"]
+    assert fake.named == [0] and fake.answered == [0, 1], (fake.named, fake.answered)
+    assert [c["index"] for c in out["choices"]] == [0, 1], out["choices"]
+    assert out["pages"][0].startswith("Zidane") and any("Who's there" in p for p in out["pages"]), out["pages"]
+    assert not fake._tutorial and len(fake.battle_commands) >= 4
+    assert [x["k"] for x in log] == ["candle", "choice", "named", "battle", "choice", "end"], log
+
+
+def test_o1_drive_voids_a_choice_it_has_no_rule_for(game):
+    O, pred = _o1_pred()
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        fake.scene({"header": "Well?", "options": ["Sword", "Dagger"], "default": 1})
+        with pytest.raises(O.RouteVoid, match="no rule"):
+            O.drive(g, pred, "S", [], deadline=time.time() + 30,
+                    floor_for=lambda d: _flat_bgi(), prior_for=lambda d: _prior())
+    assert fake.answered == []
+
+
+def test_o1_drive_voids_control_where_the_route_never_gives_it(game):
+    """Control held anywhere but the start field before the candle is not the route's: VOID, never a walk."""
+    O, pred = _o1_pred(candle={"donor": 30821, "x": 300.0, "z": 0.0})
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        with pytest.raises(O.RouteVoid, match="control held in 30820"):
+            O.drive(g, pred, "S", [], deadline=time.time() + 30,
+                    floor_for=lambda d: _flat_bgi(), prior_for=lambda d: _prior())
+
+
+def test_o1_pick_for_reads_the_frozen_rules_by_option_text():
+    """52's question lists "Queen Brahne" first (the script's default, which loops): the rule picks the Garnet line by
+    its text, at its ABSOLUTE index; "Skip movie?" takes the game's default; an ambiguous rule is VOID."""
+    O, pred = _o1_pred()
+    q = {"options": ["Who?", "Queen Brahne", "Princess Garnet"], "active": [0, 1]}
+    assert O.pick_for(q, 30820, pred)[0] == 1
+    masked = {"options": ["Who?", "Princess Garnet"], "active": [1]}               # line 0 masked out
+    assert O.pick_for(masked, 30820, pred)[0] == 1
+    skip = {"options": ["Do you want to skip\nthe movie?", "Yes", "No"], "active": [0, 1]}     # SkipMovieDialog, US
+    assert O.pick_for(skip, 999, pred)[0] == "default"
+    with pytest.raises(O.RouteVoid, match="2 lines"):
+        O.pick_for({"options": ["Who?", "Garnet", "Garnet"], "active": [0, 1]}, 30820, pred)
+    with pytest.raises(O.RouteVoid, match="no rule"):
+        O.pick_for(q, 31999, pred)                    # the Garnet rule is bound to its field
