@@ -12935,6 +12935,203 @@ def test_o2_drive_records_presses_and_watch_samples(game):
     assert o["dist"] == pytest.approx(math.hypot(o["x"] - watch[0]["x"], o["z"] - watch[0]["z"]), abs=0.2), o
 
 
+# ---- the review's driver findings (research/o2_design.md 11.6): the landing judge every executor shares, rule 2's
+# order and attribution, wait_sc's walk short of its point, rule 8's settle before V4, and step_of's refusals.
+
+_O2_DOOR = _rect(-100, -150, 0, 150)                   # a registered exit ACROSS the walk east from (-300, 0)
+_O2_FAR = _rect(150, -150, 450, 150)                   # a Confirm region past it, its goal (300, 0)
+
+
+@pytest.mark.parametrize("kind", ["cross", "wait_sc", "trigger", "confirm"])
+def test_o2_drive_voids_a_walk_into_another_registered_door_as_the_drivers(game, kind):
+    """The review's finding 1 (106's gated e13 on the street to e14; 106.e12 beside the wait walk): a walk that loses
+    control in ANOTHER registered exit of the place -- not its target -- is that door's ExitField. Every executor's
+    landing judge waits its switch out (the 50-frame fade) and calls the landing V11, the DRIVER's, with ``landed`` and
+    the ``door`` on the step row -- so 4.7's ``walk`` backing holds for the rows written where it landed. Break: judge
+    such a loss ``interrupted`` (the loop then reads the landing as the game's: V11 by game, or V4)."""
+    SD = _segment_modules()
+    step = {"cross": _o2_cross(),
+            "wait_sc": {"kind": "wait_sc", "name": "wait", "goal": [200, 0], "sc": 1153, "wait_s": 5},
+            "trigger": {"kind": "trigger", "name": "east", "until": {"x_gt": 150}, "goal": [200, 0]},
+            "confirm": {"kind": "confirm", "name": "far", "target": "far", "goal": [300, 0], "expect": "choice"}}[kind]
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": _O2_DOOR, "to": 30999, "arrive": (0, 0)},
+                            {"zone": _O2_EXIT, "to": 30810, "arrive": (0, 0)}]}
+    fake.exit_frames = 50
+    pred = _o2_pred([{"donor": 30820, "sc": 1152, "steps": [step]}])
+    pred["regions"].update(door={"points": _O2_DOOR, "role": "exit"}, far={"points": _O2_FAR, "role": "confirm"})
+    log: list = []
+    with session(game, fake) as g:
+        _o2_start(g, fake, sc=1152)
+        with pytest.raises(SD.RouteVoid, match="landed in 30999") as err:
+            _o2_drive(g, pred, log=log)
+    assert (err.value.v, err.value.by, err.value.cell) == ("V11", "driver", [30820, 1152]), (kind, err.value)
+    assert [f["to"] for f in fake.fired] == [30999], fake.fired
+    row = [r for r in log if r["k"] == "step"][-1]
+    assert (row["outcome"], row["v"], row["by"], row["landed"], row["door"]) == ("void", "V11", "driver", 30999,
+                                                                                 "door"), row
+    assert row["flip_frame"] is not None and row["lost"] is not None, row
+    assert SD.backing({"f": row["frame"] + 1, "cause": "walk", "fld": 30999}, log, pred) is not None, row
+
+
+def test_o2_drive_holds_each_visit_to_the_routes_order(game):
+    """Rule 2 (the review's finding 1): every new visit must be the place the route's ORDER goes to next (``visits``,
+    default ``route``). A walk that steps into a door the table does NOT register (no landing judge can see it) ends
+    ``interrupted``; the field then changes -- to 30822, ON the route but out of its order -- with nothing pressed or
+    answered since: V11, the DRIVER's, and the interrupted step's row now carries the landing (``late``), so the
+    ``walk`` backing holds. The same order break after a page the driver turned is a scripted transition: V11, the
+    game's. Break: check membership only (30822 is on the route: the old loop read V4 there, by game)."""
+    SD = _segment_modules()
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": _O2_DOOR, "to": 30822, "arrive": (0, 0)},
+                            {"zone": _O2_EXIT, "to": 30821, "arrive": (0, 0)}]}
+    fake.exit_frames = 240                              # a slow switch: the executor has judged long before it
+    pred = _o2_pred([{"donor": 30820, "sc": 1000, "steps": [_o2_cross(to=30821)]}], route=(30820, 30821, 30822))
+    log: list = []
+    with session(game, fake) as g:
+        _o2_start(g, fake, fields=(30820, 30821, 30822))
+        with pytest.raises(SD.RouteVoid, match="out of the route's order: entered 30822") as err:
+            _o2_drive(g, pred, log=log)
+    assert (err.value.v, err.value.by, err.value.cell) == ("V11", "driver", [30820, 1000]), err.value
+    row = [r for r in log if r["k"] == "step"][-1]
+    assert row["outcome"] == "interrupted" and row["door"] is None, row
+    assert (row["v"], row["by"], row["landed"], row["late"]) == ("V11", "driver", 30822, True), row
+    assert SD.backing({"f": row["frame"] + 1, "cause": "walk", "fld": 30822}, log, pred) is not None, row
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": _O2_DOOR, "take": True}, {"zone": _O2_EXIT, "to": 30821, "arrive": (0, 0)}]}
+    fake.exit_frames = 50
+    stop = threading.Event()
+    log = []
+    with session(game, fake) as g:
+        _o2_start(g, fake, fields=(30820, 30821, 30822))
+        _o1_director(fake, stop, [(lambda f: f.fired and not f.control, lambda f: f.scene("Guard\n“Halt!”")),
+                                  (lambda f: not f._beats and f.control, lambda f: (setattr(f, "control", False),
+                                                                                    _o2_move(f, 30822)))])
+        try:
+            with pytest.raises(SD.RouteVoid, match="out of the route's order: entered 30822") as err:
+                _o2_drive(g, pred, log=log)
+        finally:
+            stop.set()
+    assert (err.value.v, err.value.by, err.value.cell) == ("V11", "game", [30822, 1000]), err.value
+    assert [r["why"] for r in log if r["k"] == "press"] == ["page"], log
+    assert all(r.get("v") is None for r in log if r["k"] == "step"), log
+
+
+def test_o2_drive_wait_sc_short_of_its_point_is_the_drivers(game):
+    """The review's finding 2 (106's wait: SC 1153 needs Vivi within 1400 of Puck's stop): a wait_sc whose walk ends
+    short of its point -- here no route at all, the point inside an avoided region -- is ``failed`` with NO wait begun,
+    and V7 (the driver's) once its attempts are spent -- never V8, the game's. A wait begun AT its point still times
+    out as V8 (game). Break: wait on the SC wherever the walk ended (V8 by game after wait_s)."""
+    SD = _segment_modules()
+    fake = FakeGame(game)
+    step = {"kind": "wait_sc", "name": "wait", "goal": [0, 300], "sc": 1153, "wait_s": 5, "avoid": ["booth"]}
+    pred = _o2_pred([{"donor": 30820, "sc": 1152, "steps": [step]}])
+    log: list = []
+    with session(game, fake) as g:
+        _o2_start(g, fake, sc=1152, at=(-500, -500))
+        with pytest.raises(SD.RouteVoid, match="failed 2 of its 2 attempts") as err:
+            _o2_drive(g, pred, log=log)
+    assert (err.value.v, err.value.by, err.value.cell) == ("V7", "driver", [30820, 1152]), err.value
+    steps = [r for r in log if r["k"] == "step"]
+    assert [s["outcome"] for s in steps] == ["failed", "failed"] and all("no wait" in s["why"] for s in steps), steps
+    fake = FakeGame(game)
+    step = {"kind": "wait_sc", "name": "wait", "goal": [-300, 300], "sc": 1153, "wait_s": 1.0}
+    pred = _o2_pred([{"donor": 30820, "sc": 1152, "steps": [step]}])
+    with session(game, fake) as g:
+        _o2_start(g, fake, sc=1152)
+        with pytest.raises(SD.RouteVoid, match="of a wait begun at the point") as err:
+            _o2_drive(g, pred)
+    assert (err.value.v, err.value.by) == ("V8", "game"), err.value
+
+
+def test_o2_drive_settles_before_calling_control_off_the_table(game):
+    """The review's finding 3 (O1's order, proven 7/7): a control sample shorter than the settle is no control -- in a
+    place with no cell (104), or in a cell whose steps are all done (after a Confirm's choice closed) -- and the run
+    goes on to the end; control that STAYS after the cell's last step is still V4 (game), once settled. Break: raise
+    either V4 on the first control poll."""
+    SD = _segment_modules()
+
+    def flicker_then_end(f):
+        time.sleep(0.3)
+        f.control = True                                # one control flicker, well under the 0.3 s settle
+        time.sleep(0.15)
+        f.control = False
+        time.sleep(0.3)
+        _o2_move(f, 30810)
+    fake = FakeGame(game)
+    pred = _o2_pred([])
+    stop = threading.Event()
+    with session(game, fake) as g:
+        _o2_start(g, fake)
+        fake.control = False
+        published(g, lambda s: not s.control)
+        _o1_director(fake, stop, [(lambda f: True, flicker_then_end)])
+        try:
+            out = _o2_drive(g, pred)
+        finally:
+            stop.set()
+    assert out["end"] == "reached", out
+    booth = [{"donor": 30820, "sc": 1000, "steps": [{"kind": "confirm", "name": "booth", "target": "booth",
+                                                     "goal": [0, 300], "expect": "choice"}]}]
+    for then, want in (("flicker", "reached"), ("stay", "V4")):
+        fake = FakeGame(game)
+        pred = _o2_pred(booth, choices=[_o2_booth_rule()], beats=["booth"])
+        stop = threading.Event()
+        after = ((lambda f: (setattr(f, "control", False), flicker_then_end(f))) if then == "flicker"
+                 else (lambda f: None))
+        with session(game, fake) as g:
+            _o2_start(g, fake, at=(0, -400))
+            _o1_director(fake, stop, [
+                (lambda f: _o1_confirmed_near(f, 0, 300, reach=100), lambda f: f.scene(dict(_O2_BOOTH_CHOICE))),
+                (lambda f: f.answered == [0] and f.control and not f._beats, after)])
+            try:
+                if want == "reached":
+                    out = _o2_drive(g, pred)
+                    assert out["end"] == "reached" and out["beats"] == {"booth": True}, (then, out)
+                else:
+                    with pytest.raises(SD.RouteVoid, match="after the cell's last step") as err:
+                        _o2_drive(g, pred)
+                    assert (err.value.v, err.value.by) == ("V4", "game"), err.value
+            finally:
+                stop.set()
+
+
+def test_o2_step_of_refuses_a_step_its_executor_cannot_run():
+    """The review's finding 8: step_of refuses (ValueError) what an executor would die on mid-run -- a trigger with
+    neither target nor until, a crossing without ``to`` or ``target``, a Confirm without ``expect`` (or one it cannot
+    wait for), a wait without ``sc``, a goal that is no point, an empty or unknown ``until``, a region nobody
+    registered -- and the driver refuses a table holding one before it walks, as it refuses a start place its visit
+    order lacks. Break: accept a trigger with neither (x_trigger then reads step["until"]: KeyError after the walk)."""
+    SD = _segment_modules()
+    pred = _o2_pred([])
+    ok = {"cross": _o2_cross(), "leave_now": _o2_cross(kind="leave_now"),
+          "trigger": {"kind": "trigger", "until": {"x_le": 0}, "goal": [0, 0]},
+          "confirm": {"kind": "confirm", "target": "booth", "goal": [0, 300], "expect": "choice"},
+          "wait_sc": {"kind": "wait_sc", "goal": [0, 0], "sc": 1153, "wait_s": 5}}
+    for s in ok.values():
+        SD.step_of(pred, s)
+    drop = lambda s, k: {x: v for x, v in s.items() if x != k}                  # noqa: E731
+    bad = [({"kind": "trigger", "goal": [0, 0]}, "needs a target or an until"),
+           (drop(ok["cross"], "to"), "needs \\['to'\\]"), (drop(ok["leave_now"], "target"), "needs \\['target'\\]"),
+           (drop(ok["confirm"], "expect"), "needs \\['expect'\\]"), (dict(ok["confirm"], expect="page"), "expect is"),
+           (drop(ok["wait_sc"], "sc"), "needs \\['sc'\\]"), (dict(ok["cross"], goal=[0]), "goal is a point"),
+           (dict(ok["trigger"], until={}), "until is a non-empty"), (dict(ok["trigger"], until={"y_le": 0}), "x\\|z"),
+           (dict(ok["cross"], target="nowhere"), "no registered region"),
+           (dict(ok["cross"], avoid=["nowhere"]), "no registered region")]
+    for s, why in bad:
+        with pytest.raises(ValueError, match=why):
+            SD.step_of(pred, s)
+
+    def drive_of(p):
+        return SD._Drive(None, p, "S", [], deadline=0, floor_for=None, prior_for=None, progress=None, end_fields=None,
+                         observe=None, forbid_live=False)
+    drive_of(_o2_pred([{"donor": 30820, "sc": 1000, "steps": [ok["trigger"]]}]))
+    with pytest.raises(ValueError, match="needs a target or an until"):
+        drive_of(_o2_pred([{"donor": 30820, "sc": 1000, "steps": [bad[0][0]]}]))
+    with pytest.raises(ValueError, match="not in the route's visit order"):
+        drive_of(_o2_pred([], visits=[30821]))
+
+
 # ---- O2 itself (studies/story-trace/o2_alexandria.py; research/o2_design.md section 9, PART C). The text rule is the
 # lead's ruling on the uk text mis-pick as one pure function; P-LANG pins the session's language; the freeze refuses
 # to overwrite; the draft's members are the built campaign's.

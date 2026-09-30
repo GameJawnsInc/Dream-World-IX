@@ -11,6 +11,11 @@ O2's BEAT-TABLE DRIVER is here too (:func:`drive`, research/o2_design.md 2.2-2.3
 the game shows, first match wins -- with control held answered by a table of CELLS keyed ``(donor place, published
 SC)``, each a list of steps run in order per field VISIT, each step by its executor (cross, trigger, confirm, wait_sc,
 leave_now) and counted done only on its own evidence. Everything it cannot answer is a RouteVoid with its class (2.7).
+A walk that takes him out of the field is judged where it happened, by one LANDING JUDGE every executor shares: a
+landing a crossing's ``to`` does not name -- or any landing of a trigger's, a Confirm's or a wait's walk -- and a loss
+of control in any registered exit of the place (whose switch is waited out) is V11, the driver's; the loop's rule 2
+holds every new visit to the route's ORDER (``visits``), and lays a field change it sees right after an unfinished walk
+to that walk.
 It keeps the evidence 4.7's backing rule reads -- a ``press`` row for every Confirm, a ``watch`` row for every sample
 in a watched cell (the ring's samples from inside a harness call included), a ``step`` row for every step, a
 ``visit`` row for every field visit -- and scans the run's own trace live for forbidden writes with the two PURE
@@ -28,6 +33,13 @@ from segment_trace import place
 
 #: The step kinds of a beat-table cell (research/o2_design.md 2.3), each run by its executor in :class:`_Drive`.
 STEP_KINDS = ("cross", "trigger", "confirm", "wait_sc", "leave_now")
+#: What each kind's executor reads that no default gives (:func:`step_of` refuses a step without it): every walk its
+#: ``goal``; a crossing its exit (``target``) and the place it leads to (``to``); a Confirm its region and the answer it
+#: waits for; a wait its scenario and how long. A trigger needs a ``target`` or an ``until`` (checked apart).
+STEP_NEEDS = {"cross": ("goal", "target", "to"), "leave_now": ("goal", "target", "to"), "trigger": ("goal",),
+              "confirm": ("goal", "target", "expect"), "wait_sc": ("goal", "sc", "wait_s")}
+#: What a confirm step's ``expect`` may name: a choice opening, or control going (2.3).
+EXPECTS = ("choice", "control_lost")
 #: A forbidden pattern's keys (4.7), strict: any other raises. The matchers select raw ``w`` rows (all given must
 #: hold); ``cause`` names the stray action :func:`backing` looks for; ``object`` the published sid it concerns.
 FORBID_KEYS = frozenset({"donor", "sid", "tag", "target", "ip_range", "off_route", "cause", "object", "why"})
@@ -157,15 +169,56 @@ def on_route(fid: int, members: dict, route, end_fields) -> bool:
     return fid in route
 
 
+def exit_regions(pred: dict, donor) -> list:
+    """The registered exits of place ``donor`` (2.5): ``[(key, points)]`` for every region of role ``exit`` whose key
+    names that place (``"<donor>.e<sid>"``) or whose ``donor`` is it. A region that names no place at all (a synthetic
+    table's) is every place's. O2-REGIONS proves the route fields' list complete (every gateway scan_gateways finds is
+    registered), which the landing judge (:meth:`_Drive.exit_at`) rests on."""
+    out = []
+    for key, r in (pred.get("regions") or {}).items():
+        if r.get("role") != "exit":
+            continue
+        head = str(key).split(".", 1)[0]
+        where = r.get("donor", int(head) if head.lstrip("-").isdigit() else None)
+        if where is None or where == donor:
+            out.append((key, r["points"]))
+    return out
+
+
 def step_of(pred: dict, raw: dict) -> dict:
-    """A step with ``steps_default`` under it (4.1); its ``climb`` merged the same way."""
+    """A step with ``steps_default`` under it (4.1); its ``climb`` merged the same way. Refuses (ValueError) a step its
+    executor could not run, so a table typo fails the offline check (O2-GOALS reads every step through here) and the
+    driver's start, never a run mid-walk: an unknown ``kind``; ``target`` with ``until``; anything :data:`STEP_NEEDS`
+    names missing; a trigger with neither ``target`` nor ``until``; an ``until`` that is empty or has a key
+    :func:`until_ok` does not know; an ``expect`` not in :data:`EXPECTS`; a ``goal`` that is no point; and a ``target``
+    or ``avoid`` key that is no registered region."""
     base = pred.get("steps_default") or {}
     out = {**base, **raw}
     out["climb"] = {**(base.get("climb") or {}), **(raw.get("climb") or {})}
-    if out.get("kind") not in STEP_KINDS:
+    kind = out.get("kind")
+    if kind not in STEP_KINDS:
         raise ValueError(f"step {raw!r}: kind is not one of {STEP_KINDS}")
     if out.get("target") is not None and out.get("until") is not None:
         raise ValueError(f"step {raw!r}: target and until are exclusive")
+    missing = [k for k in STEP_NEEDS[kind] if out.get(k) is None]
+    if missing:
+        raise ValueError(f"step {raw!r}: a {kind} step needs {missing}")
+    if kind == "trigger" and out.get("target") is None and out.get("until") is None:
+        raise ValueError(f"step {raw!r}: a trigger step needs a target or an until")
+    if out.get("until") is not None:
+        if not isinstance(out["until"], dict) or not out["until"]:
+            raise ValueError(f"step {raw!r}: until is a non-empty predicate, e.g. {{'x_le': 900}}")
+        until_ok(out["until"], 0, 0)                      # an unknown key raises
+    if kind == "confirm" and out["expect"] not in EXPECTS:
+        raise ValueError(f"step {raw!r}: expect is one of {EXPECTS}")
+    goal = out["goal"]
+    if not isinstance(goal, (list, tuple)) or len(goal) != 2 or not all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) for v in goal):
+        raise ValueError(f"step {raw!r}: goal is a point [x, z]")
+    regions = pred.get("regions") or {}
+    unknown = [k for k in [out.get("target"), *(out.get("avoid") or ())] if k is not None and k not in regions]
+    if unknown:
+        raise ValueError(f"step {raw!r}: {unknown} is no registered region")
     return out
 
 
@@ -344,7 +397,8 @@ def backing(hit: dict, log: list, pred: dict) -> dict | None:
                        within the named hot-spot's reach + 64u (the hot-spot from the run's own position rows)
       confirm_talk     a ``press`` row with control held whose ``near`` lists the object's talk disc
       choice           a ``choice`` row in the hit's place that took other than the game's default
-      walk             a ``step`` row whose crossing landed in the hit's field (its V11), started before the hit"""
+      walk             a ``step`` row whose walk landed in the hit's field (its V11: the executor's landing judge, or
+                       rule 2's on the last unfinished walk), started before the hit"""
     f, cause = hit["f"], hit["cause"]
     for row in log:
         k = row.get("k")
@@ -438,6 +492,15 @@ class _Drive:
         self.ends = list(end_fields if end_fields is not None else (pred.get("end_fields") or [pred["end_field"]]))
         self.route = list(pred.get("route") or ())
         self.start_place = place(pred["start"][side], self.members)
+        # rule 2's ORDER: the places a run visits, in turn (``visits``; default ``route``, each once), from the start
+        # place's first entry -- a rehearsal stage starts mid-route
+        self.order = list(pred.get("visits") or self.route)
+        if self.start_place not in self.order:
+            raise ValueError(f"the start place {self.start_place} is not in the route's visit order {self.order}")
+        self.at = self.order.index(self.start_place) - 1        # the place of the current visit, in self.order
+        for c in pred.get("table") or ():                   # a malformed table refuses before anything is walked
+            for raw in c["steps"]:
+                step_of(pred, raw)
         budget = pred["budget"]
         self.settle_s = float(budget["settle_s"])
         self.settle_polls = max(1, int(self.settle_s / POLL_S))
@@ -454,6 +517,7 @@ class _Drive:
         self.held = 0                      # consecutive control polls (the settle)
         self.hold = None                   # a ready choice's (snapshot, since, frame)
         self.pending = None                # the last press row, its post not yet read
+        self.walked = None                 # the last step row, while its walk ended unfinished and nothing acted since
         self.seen: set = set()             # (line, pattern) of every forbidden hit already judged
         self.floors: dict = {}
         self.sig, self.since = None, time.time()
@@ -470,6 +534,20 @@ class _Drive:
 
     def void(self, v: str, by: str, why: str):
         return RouteVoid(why, v=v, cell=[self.donor, self.sc], by=by)
+
+    def stray(self, why: str) -> RouteVoid:
+        """Rule 2's V11 (2.7), attributed: the DRIVER's when the last thing the run did was a walk that ended unfinished
+        (``interrupted`` or ``failed``) with nothing pressed, answered or named since -- a door the executor did not
+        see fire (its switch came after ``exit_wait_s``, or it is none the table registers). That step row then carries
+        the landing (``landed``, ``v``, ``by``; ``late``: judged by the loop), which is what 4.7's ``walk`` backing reads,
+        and the VOID its cell. Otherwise the GAME's: a scripted transition."""
+        row = self.walked
+        if row is None:
+            return self.void("V11", "game", why)
+        row.update(landed=self.fid, v="V11", by="driver", late=True,
+                   why=f"{row.get('why')}; then {why}, with nothing done since the walk")
+        return RouteVoid(f"{why}, after step {row.get('name') or row.get('n')!r} ({row.get('outcome')}) with nothing "
+                         f"done since", v="V11", cell=[row.get("donor"), row.get("sc")], by="driver")
 
     # -- evidence -------------------------------------------------------------------------------------------------
     def near(self, st) -> list:
@@ -578,50 +656,119 @@ class _Drive:
                     margin=pathfind.KEEPOUT_MARGIN_W, timeout=float(step["timeout_s"]), npcs=bool(step["npcs"]),
                     overlay_ok=bool(step["overlay_ok"]), settle=step["settle"], handoff=True)
 
-    def crossed(self, step: dict, rec: dict, pts) -> tuple:
-        """A crossing's verdict (2.3 ``cross``): the field changed -> done in the step's ``to``, else V11; control went
-        with the field unchanged -> at or inside the exit (``exit_slack``) its FADE, waited out here for the map
-        switch (``exit_wait_s``) -- never in the loop, so a hint left up is no page -- outside it ``interrupted``; the
-        walk ended with control held -> ``failed``."""
-        from harness import HarnessError
+    # -- the landing judge (every executor): where a walk that lost control, or left the field, took him ----------
+    def exit_at(self, x, z, slack: float) -> str | None:
+        """The registered exit of this place (:func:`exit_regions`) that (``x``, ``z``) stands in or within ``slack``
+        of -- where a door's ExitField took control: the nearest when two are that close. None: in no exit, or no
+        position."""
         from ff9mapkit.content import pathfind
+        if x is None or z is None:
+            return None
+        near = [(pathfind.poly_gap(x, z, pts), key) for key, pts in exit_regions(self.pred, self.donor)]
+        near = [(gap, key) for gap, key in near if gap <= slack]
+        return min(near)[1] if near else None
+
+    def switch(self, out: dict, where: str, wait: float) -> int | None:
+        """The map switch after control went in ``where`` (2.3): up to ``wait`` s of live frames for the published id
+        to leave this field (``out["flip_frame"]`` the frame it was seen to), then for it to be positive -- the field he
+        landed in. None: the id never left (or came back). A frozen or silent channel raises; an id that left and was
+        never positive again is V14 (game)."""
+        from harness import HarnessError
         g, fid = self.g, self.fid
-        out = {"route": trim_route(rec), "lost": rec.get("lost"), "landed": None}
         st = g.state
-        new = rec.get("landed")
-        if new is None and st.field_id != fid and st.field_id > 0:
-            new = st.field_id
-        if new is None and out["lost"] is None and st.field_id == fid and not st.control:
-            out["lost"] = sample(st)                 # control went after the call's last read
-        lost = out["lost"]
-        if new is None and lost is not None:
-            x, z = lost.get("x"), lost.get("z")
-            if x is not None and pathfind.poly_gap(x, z, pts) > float(step["exit_slack"]):
-                out["why"] = f"control went at ({x:.0f}, {z:.0f}), outside {step['target']}"
-                return "interrupted", out
-            wait = float(step["exit_wait_s"])
+        if st.field_id == fid:
             try:
-                flip = g.wait_for(lambda s: s.field_id != fid, timeout=wait, what=f"{step['target']}'s map switch")
+                st = g.wait_for(lambda s: s.field_id != fid, timeout=wait, what=f"{where}'s map switch")
             except HarnessError as err:
                 if "live samples" not in str(err):
                     raise                               # a frozen or silent channel says nothing about the exit
-                out["why"] = f"control went in {step['target']} and the field held {wait:.0f}s"
+                return None
+        out.setdefault("flip_frame", st.frame)
+        if st.field_id > 0:
+            return st.field_id
+        try:
+            return g.wait_for(lambda s: s.field_id > 0 and s.field_id != fid, timeout=wait,
+                              what=f"the field after {where}").field_id
+        except HarnessError as err:
+            if "live samples" not in str(err):
+                raise
+            raise self.void("V14", "game", f"the field id left {fid} and was never positive again within "
+                                           f"{wait:.0f}s") from err
+
+    def left_for(self, rec: dict, out: dict, where: str, wait: float) -> int | None:
+        """The field the walk (``rec``) -- or anything since -- took him to: the record's landing, else the published
+        id when it has already left this one (a load's id waited out to a positive one). None: still here."""
+        new = rec.get("landed")
+        if new == self.fid:
+            new = None
+        if new is None and self.g.state.field_id != self.fid:
+            new = self.switch(out, where, wait)
+        return new
+
+    def strayed(self, step: dict, out: dict, new: int, why: str) -> tuple:
+        """A walk that took him into ``new``, where its step leads nowhere: VOID V11, the driver's (2.7: a walk into
+        the wrong door), with ``landed`` on the step row -- what 4.7's ``walk`` backing reads -- and the registered
+        ``door`` his loss of control stood in, when one did (however late the switch was seen)."""
+        lost = out.get("lost") or {}
+        if out.get("door") is None:
+            out["door"] = self.exit_at(lost.get("x"), lost.get("z"), float(step["exit_slack"]))
+        out["landed"] = new
+        out.update(v="V11", by="driver", why=f"{why}: landed in {new} (place {place(new, self.members)})")
+        return "void", out
+
+    def door_loss(self, step: dict, out: dict, why: str) -> tuple | None:
+        """A control loss without the step's own evidence, standing in (or within ``exit_slack`` of) a registered exit
+        of this place: that door's ExitField. Its switch is waited out here (``exit_wait_s``, never in the loop: a page
+        up during the fade is no page) -- a landing is the walk's stray (V11, driver), no switch ``interrupted``. None:
+        the loss was in no exit (the caller's verdict)."""
+        lost = out.get("lost") or {}
+        door = self.exit_at(lost.get("x"), lost.get("z"), float(step["exit_slack"]))
+        if door is None:
+            return None
+        out["door"] = door
+        new = self.switch(out, door, float(step["exit_wait_s"]))
+        if new is not None:
+            return self.strayed(step, out, new, f"{why}: control went in {door}")
+        out["why"] = f"{why}: control went in {door} and the field held {float(step['exit_wait_s']):.0f}s"
+        return "interrupted", out
+
+    def crossed(self, step: dict, rec: dict, pts) -> tuple:
+        """A crossing's verdict (2.3 ``cross``; the landing judge): the field changed -- the walk's landing, or the id
+        already left (a load waited out) -> done in the step's ``to``, else V11; control went with the field unchanged
+        -> at or inside the target (``exit_slack``) its FADE, waited out here for the map switch (``exit_wait_s``) --
+        never in the loop, so a hint left up is no page -- at or inside ANOTHER registered exit of this place that
+        door's, waited out the same way (a landing through it is V11, the driver's: the wrong door), anywhere else
+        ``interrupted``; the walk ended with control held -> ``failed``."""
+        from ff9mapkit.content import pathfind
+        g, fid = self.g, self.fid
+        wait, slack = float(step["exit_wait_s"]), float(step["exit_slack"])
+        out = {"route": trim_route(rec), "lost": rec.get("lost"), "landed": None}
+        st = g.state
+        if out["lost"] is None and rec.get("landed") is None and st.field_id == fid and not st.control:
+            out["lost"] = sample(st)                 # control went after the call's last read
+        lost, door = out["lost"], step["target"]
+        if lost is not None and lost.get("x") is not None and pathfind.poly_gap(lost["x"], lost["z"], pts) > slack:
+            door = self.exit_at(lost["x"], lost["z"], slack)     # another exit of this place took him, or none did
+        if door not in (None, step["target"]):
+            out["door"] = door
+        new = self.left_for(rec, out, door or step["target"], wait)
+        if new is None and lost is not None:
+            if door is None:
+                out["why"] = (f"control went at ({lost['x']:.0f}, {lost['z']:.0f}), outside {step['target']} and "
+                              f"every other exit")
                 return "interrupted", out
-            out["flip_frame"] = flip.frame
-            try:
-                new = g.wait_for(lambda s: s.field_id > 0 and s.field_id != fid, timeout=wait,
-                                 what=f"the field after {step['target']}").field_id
-            except HarnessError as err:
-                if "live samples" not in str(err):
-                    raise
-                raise self.void("V14", "game", f"the field id left {fid} and was never positive again within "
-                                               f"{wait:.0f}s") from err
+            new = self.switch(out, door, wait)
+            if new is None:
+                out["why"] = f"control went in {door} and the field held {wait:.0f}s"
+                return "interrupted", out
         if new is not None:
             out["landed"] = new
             if place(new, self.members) == step["to"]:
                 return "done", out
             out.update(v="V11", by="driver", why=f"the crossing to {step['to']} landed in {new} (place "
-                                                 f"{place(new, self.members)})")
+                                                 f"{place(new, self.members)})"
+                                                 + ("" if door in (None, step["target"]) else
+                                                    f": control went in {door}, not {step['target']}"))
             return "void", out
         out["why"] = f"the walk ended with control held and nothing crossed (inside {rec.get('inside')})"
         return "failed", out
@@ -652,24 +799,38 @@ class _Drive:
         if st.field_id == self.fid and st.control:
             rec = self.g.route_cross(*step["goal"], zone=pts, region=pts, avoid=avoid, **kw)
         else:                                            # control went before the walk: judged where it went
-            rec = {"landed": None, "lost": None if st.control else sample(st), "inside": None}
+            rec = {"landed": None, "inside": None,
+                   "lost": sample(st) if st.field_id == self.fid and not st.control else None}
         verdict, out = self.crossed(step, rec, pts)
         out["lunge"] = lunge
         return verdict, out
 
     def x_trigger(self, step: dict) -> tuple:
         """trigger (2.3): the walk (into the ``target`` zone, or to the goal); control gone with the evidence at the
-        loss sample -- standing in the target, or the ``until`` predicate holding -- is done, without it
-        ``interrupted``; a walk that ended with control held waits TRIGGER_WAIT_S for it to go, else ``failed``."""
+        loss sample -- standing in the target, or the ``until`` predicate holding -- is done (the trigger took him:
+        what its script does next is the loop's to read). Anything else is the landing judge's: the field changed
+        during the walk or after it -> V11 (driver); control gone in a registered exit of this place -> its switch
+        waited out, V11 on a landing; otherwise ``interrupted``. A walk that ended with control held waits
+        TRIGGER_WAIT_S for it to go, else ``failed``."""
         from harness import HarnessError
         from ff9mapkit.content import doorface
         g, fid = self.g, self.fid
+        wait = float(step["exit_wait_s"])
         pts = region(self.pred, step["target"])["points"] if step.get("target") else None
         rec = g.route_to(*step["goal"], zone=pts, avoid=polys(self.pred, step.get("avoid")),
                          tolerance=float(step["tolerance"]), **self.walk_kw(step))
-        out = {"route": trim_route(rec), "lost": rec.get("lost"), "landed": rec.get("landed")}
-        lost = out["lost"]
-        if lost is None:
+        out = {"route": trim_route(rec), "lost": rec.get("lost"), "landed": None}
+
+        def evidence(s) -> bool:
+            x, z = s.get("x"), s.get("z")
+            return (x is not None and doorface.region_contains(x, z, pts)) if pts is not None \
+                else until_ok(step["until"], x, z)
+        if out["lost"] is not None and rec.get("landed") in (None, fid) and evidence(out["lost"]):
+            return "done", out
+        new = self.left_for(rec, out, "the trigger's walk", wait)
+        if new is not None:
+            return self.strayed(step, out, new, f"the trigger's walk left {fid}")
+        if out["lost"] is None:
             st = g.state
             if st.control and st.field_id == fid:
                 try:
@@ -680,32 +841,59 @@ class _Drive:
                         raise
                     out["why"] = "the walk ended with control held and nothing took it"
                     return "failed", out
-            lost = out["lost"] = sample(st)
-        x, z = lost.get("x"), lost.get("z")
-        ok = (x is not None and doorface.region_contains(x, z, pts)) if pts is not None else until_ok(step["until"], x, z)
-        if ok:
-            return "done", out
-        out["why"] = f"control went at ({x}, {z}) without the step's evidence"
+            if st.field_id != fid:
+                new = self.switch(out, "the trigger's wait", wait)
+                if new is not None:
+                    return self.strayed(step, out, new, f"the field left {fid} as the trigger was waited for")
+                st = g.state
+            out["lost"] = sample(st)
+            if evidence(out["lost"]):
+                return "done", out
+        lost = out["lost"]
+        why = f"control went at ({lost.get('x')}, {lost.get('z')}) without the step's evidence"
+        verdict = self.door_loss(step, out, why)
+        if verdict is not None:
+            return verdict
+        out["why"] = why
         return "interrupted", out
 
     def x_confirm(self, step: dict) -> tuple:
-        """confirm (2.3): the walk to the goal WITHOUT the zone (a zone ends the walk at its edge); settled, he must
-        stand in the target by the engine's rule at depth >= ``min_depth`` or nothing is pressed (``failed``); then
-        Confirm (a ``press`` row) and the ``expect``ed answer within ``confirm_s``; with ``then: "climb"`` the climb
-        (H2): "until" done, "control" (he slid back) ``failed``, anything else V9."""
+        """confirm (2.3): the walk to the goal WITHOUT the zone (a zone ends the walk at its edge), judged by the
+        landing judge -- the field changed during the walk or the settle -> V11 (driver); control gone in a registered
+        exit -> its switch waited out, V11 on a landing; else ``interrupted``. Settled, he must stand in the target by
+        the engine's rule at depth >= ``min_depth`` or nothing is pressed (``failed``); then Confirm (a ``press`` row)
+        and the ``expect``ed answer within ``confirm_s``; with ``then: "climb"`` the climb (H2): "until" done,
+        "control" (he slid back) ``failed``, anything else V9."""
         from harness import HarnessError
         g, fid = self.g, self.fid
+        wait = float(step["exit_wait_s"])
         pts = region(self.pred, step["target"])["points"]
         rec = g.route_to(*step["goal"], tolerance=float(step["tolerance"]), avoid=polys(self.pred, step.get("avoid")),
                          **self.walk_kw(step))
-        out = {"route": trim_route(rec), "lost": rec.get("lost"), "landed": rec.get("landed"), "depth": None}
-        if rec.get("lost") is not None or rec.get("landed") is not None:
-            out["why"] = "control went during the walk to the Confirm"
+        out = {"route": trim_route(rec), "lost": rec.get("lost"), "landed": None, "depth": None}
+        new = self.left_for(rec, out, "the Confirm's walk", wait)
+        if new is not None:
+            return self.strayed(step, out, new, f"the walk to the Confirm left {fid}")
+        if out["lost"] is not None:
+            why = "control went during the walk to the Confirm"
+            verdict = self.door_loss(step, out, why)
+            if verdict is not None:
+                return verdict
+            out["why"] = why
             return "interrupted", out
         st = g.settle()
-        if st.field_id != fid or not st.control:
+        if st.field_id != fid:
+            new = self.switch(out, "the Confirm's settle", wait)
+            if new is not None:
+                return self.strayed(step, out, new, f"the field left {fid} as he settled for the Confirm")
+            st = g.state
+        if not st.control:
             out["lost"] = sample(st)
-            out["why"] = "control went as he settled"
+            why = "control went as he settled"
+            verdict = self.door_loss(step, out, why)
+            if verdict is not None:
+                return verdict
+            out["why"] = why
             return "interrupted", out
         d = depth_in(pts, st.player_x, st.player_z)
         out["depth"] = None if d is None else round(d, 1)
@@ -747,26 +935,64 @@ class _Drive:
         return "void", out
 
     def x_wait_sc(self, step: dict) -> tuple:
-        """wait_sc (2.3): the walk to the wait point, then the wait for the published SC to reach ``sc``: reached ->
-        done; control gone or the field changed first -> ``interrupted``; the wait out -> V8 (game)."""
+        """wait_sc (2.3): the walk to the wait point, judged by the landing judge first -- the field changed -> V11
+        (driver); control gone in a registered exit -> its switch waited out, V11 on a landing -- then the SC: already
+        ``sc`` -> done. A walk that lost control anywhere else is ``interrupted``; one that ended SHORT of the point (not
+        ``reached``, or he stands farther than ``tolerance`` from it: blocked, boxed, no route) is ``failed`` with
+        nothing waited -- the SC the table waits for may need him there (106: within 1400 of Puck's stop), so a wait
+        from short of it is the driver's walk, not the game's. Then the wait for the published SC: reached -> done;
+        the field changed -> V11 (driver); control gone -> the landing judge, else ``interrupted``; the wait out -> V8
+        (game): only a wait begun AT the point is the game's."""
         from harness import HarnessError
         g, fid, want = self.g, self.fid, int(step["sc"])
-        rec = g.route_to(*step["goal"], tolerance=float(step["tolerance"]), avoid=polys(self.pred, step.get("avoid")),
-                         **self.walk_kw(step))
-        out = {"route": trim_route(rec), "lost": rec.get("lost"), "landed": rec.get("landed")}
+        wait, tol = float(step["exit_wait_s"]), float(step["tolerance"])
+        gx, gz = (float(v) for v in step["goal"])
+        rec = g.route_to(gx, gz, tolerance=tol, avoid=polys(self.pred, step.get("avoid")), **self.walk_kw(step))
+        out = {"route": trim_route(rec), "lost": rec.get("lost"), "landed": None}
+        new = self.left_for(rec, out, "the wait's walk", wait)
+        if new is not None:
+            return self.strayed(step, out, new, f"the walk to the wait point left {fid}")
+        if out["lost"] is not None:
+            why = f"control went during the walk to the wait point, at SC {g.state.scenario}"
+            verdict = self.door_loss(step, out, why)
+            if verdict is not None:
+                return verdict
+            if g.state.scenario == want:
+                return "done", out
+            out["why"] = why
+            return "interrupted", out
+        st = g.state
+        if st.scenario == want:
+            return "done", out
+        d = None if st.player_x is None else math.hypot(st.player_x - gx, st.player_z - gz)
+        if not rec.get("reached") or d is None or d > tol:
+            out["why"] = (f"the walk to the wait point ended " + ("where he stands unknown" if d is None
+                                                                  else f"{d:.0f}u from it")
+                          + f" (reached {rec.get('reached')}, route {out['route'].get('route')}, blocked "
+                            f"{rec.get('blocked')}, boxed {rec.get('boxed')}, frozen {rec.get('frozen')}): no wait")
+            return "failed", out
         try:
             st = g.wait_for(lambda s: s.scenario == want or not s.control or s.field_id != fid,
                             timeout=float(step["wait_s"]), what=f"SC {want}")
         except HarnessError as err:
             if "live samples" not in str(err):
                 raise
-            out.update(v="V8", by="game", why=f"SC never reached {want} within {step['wait_s']}s "
-                                              f"(it reads {g.state.scenario})")
+            out.update(v="V8", by="game", why=f"SC never reached {want} within {step['wait_s']}s of a wait begun at "
+                                              f"the point (it reads {g.state.scenario})")
             return "void", out
         if st.scenario == want:
             return "done", out
-        out["lost"] = out["lost"] or sample(st)
-        out["why"] = f"control went (or the field changed) at SC {st.scenario}, before SC {want}"
+        if st.field_id != fid:
+            new = self.switch(out, "the wait", wait)
+            if new is not None:
+                return self.strayed(step, out, new, f"the field left {fid} during the wait for SC {want}")
+            st = g.state
+        out["lost"] = sample(st)
+        why = f"control went at SC {st.scenario}, before SC {want}"
+        verdict = self.door_loss(step, out, why)
+        if verdict is not None:
+            return verdict
+        out["why"] = why
         return "interrupted", out
 
     # -- one step -------------------------------------------------------------------------------------------------
@@ -791,11 +1017,14 @@ class _Drive:
                "outcome": verdict, "t0": round(t0 - self.t0, 2), "t1": round(time.time() - self.t0, 2),
                "frame0": frame0, "frame": after.frame, "from": sample(st), "to": sample(after),
                "lost": rec.get("lost"), "landed": rec.get("landed"), "flip_frame": rec.get("flip_frame"),
-               "route": rec.get("route"), "lunge": rec.get("lunge"), "climb": rec.get("climb"),
+               "door": rec.get("door"), "route": rec.get("route"), "lunge": rec.get("lunge"), "climb": rec.get("climb"),
                "depth": rec.get("depth"), "v": rec.get("v"), "by": rec.get("by"), "why": rec.get("why")}
         self.log.append(row)
         self.steps.append(row)
         self.since = time.time()                 # an executor is bounded by its own timeouts, not the watchdog
+        # a walk that ended unfinished is what a field change seen next -- nothing pressed or answered between --
+        # is laid to (rule 2)
+        self.walked = row if verdict in ("interrupted", "failed") else None
         if verdict == "done":
             self.done[(self.visit, self.donor, self.sc)] = n + 1
             if step.get("beat"):
@@ -848,11 +1077,17 @@ class _Drive:
                 self.held = 0
                 time.sleep(POLL_S)
                 continue
-            # 2 -- the route
+            # 2 -- the route: a field on it, and (at a new visit) the place its order goes to next
             if not on_route(self.fid, self.members, self.route, self.ends):
-                raise self.void("V11", "game", f"left the route: entered {self.fid} (place {self.donor})")
+                raise self.stray(f"left the route: entered {self.fid} (place {self.donor})")
             # 3 -- a new visit
             if self.fid != self.cur:
+                want = self.order[self.at + 1] if self.at + 1 < len(self.order) else None
+                if self.donor != want:
+                    raise self.stray(f"out of the route's order: entered {self.fid} (place {self.donor}), where the "
+                                     f"route goes next to {want}")
+                self.at += 1
+                self.walked = None
                 self.visit, self.cur = self.visit + 1, self.fid
                 self.log.append({"k": "visit", "field": self.fid, "donor": self.donor, "visit": self.visit,
                                  "frame": st.frame, "sc": self.sc})
@@ -870,6 +1105,7 @@ class _Drive:
                     raise self.void("V10", "game", f"a naming screen in {self.fid} (place {self.donor}) at SC "
                                                    f"{self.sc}, where the route registers none")
                 g.accept_name()
+                self.walked = None
                 if reg.get("beat"):
                     self.beats[reg["beat"]] = True
                 self.log.append({"k": "named", "field": self.fid, "donor": self.donor, "sc": self.sc,
@@ -907,26 +1143,30 @@ class _Drive:
                     if any("[TIME=" in t for t in st.raw_texts):
                         self.timed.append(len(self.pages) - 1)
                 self.press("page", st, 3)
+                self.walked = None
                 g.wait_frames(g.rate().frames_for_ticks(g.CUTSCENE_PAGE_TICKS))
                 continue
-            # 8 -- control held: the cell's next step
+            # 8 -- control held: settled O1's way (settle_s of consecutive control polls, unless the cell's next step
+            # is ``immediate``) BEFORE either V4 -- a single control sample in a scene is not control -- then the
+            # cell's next step
             if st.control and st.player_x is not None and not st.fading:
                 if st.dialog_open and st.text.strip() and st.text not in self.overlays:
                     self.overlays.append(st.text)
                     self.log.append({"k": "overlay", "field": self.fid, "frame": st.frame, "text": st.text})
-                if c is None:
-                    raise self.void("V4", "game", f"control held in {self.fid} (place {self.donor}) at SC "
-                                                  f"{self.sc}, where the table has no entry")
                 n = self.done.get((self.visit, self.donor, self.sc), 0)
-                if n >= len(c["steps"]):
-                    raise self.void("V4", "game", f"control held in {self.fid} (place {self.donor}) at SC "
-                                                  f"{self.sc} after the cell's last step")
-                if not step_of(pred, c["steps"][n]).get("immediate"):
+                nxt = step_of(pred, c["steps"][n]) if c is not None and n < len(c["steps"]) else None
+                if nxt is None or not nxt.get("immediate"):
                     self.held += 1
                     if self.held < self.settle_polls:
                         time.sleep(POLL_S)
                         continue
                 self.held = 0
+                if c is None:
+                    raise self.void("V4", "game", f"control held in {self.fid} (place {self.donor}) at SC "
+                                                  f"{self.sc}, where the table has no entry")
+                if nxt is None:
+                    raise self.void("V4", "game", f"control held in {self.fid} (place {self.donor}) at SC "
+                                                  f"{self.sc} after the cell's last step")
                 self.run_step(c, n, st)
                 continue
             # 9 -- anything else (a movie, a fade, a scene between pages): wait
@@ -953,6 +1193,7 @@ class _Drive:
         else:
             g.choose(index)
             took = {"index": index}
+        self.walked = None
         ch = st.choice
         row = {"k": "choice", "field": self.fid, "donor": self.donor, "sc": self.sc, "frame": st.frame,
                "options": ch.get("options"), "active": ch.get("active"), "selected": ch.get("selected"),

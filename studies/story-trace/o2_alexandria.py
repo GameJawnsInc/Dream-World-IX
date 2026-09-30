@@ -321,6 +321,9 @@ def draft_predictions() -> dict:
         "end_field": 61,
         "end_fields": [61],
         "route": [100, 101, 102, 103, 104, 105, 106, 115, 116],
+        # the ORDER the route visits them in (segment_drive rule 2 holds every new visit to it; O2-GOALS every
+        # crossing's `to`): 103 twice, 104 between
+        "visits": [100, 101, 102, 103, 104, 103, 105, 106, 115, 116],
         "stock_fields": [100, 101, 102, 103, 104, 105, 106, 115, 116, 61],
         "members": {str(f): d for f, d in sorted(members.items())},
         "names": {str(f): n for f, n in sorted(names.items())},
@@ -709,9 +712,11 @@ class O2Segment(ST.Segment):
                 "session language exactly; another language's copy a named KNOWN-KIT-DEFECT)",
         "KEYS": "O2-KEYS: every registered key is a store of its variable at its ip in the donor's stock bytes, its op "
                 "in the statement, its value computed",
-        "REGIONS": "O2-REGIONS: every frozen region and hot-spot is the stock bytes' own, each role as registered",
-        "GOALS": "O2-GOALS: every step's goal stands on the floor, in its target (or past its line), clear of every "
-                 "hot-spot, with a route from its start",
+        "REGIONS": "O2-REGIONS: every frozen region and hot-spot is the stock bytes' own, each role as registered, and "
+                   "every gateway of a route field is a registered exit",
+        "GOALS": "O2-GOALS: every step is one its executor can run, its goal on the floor, in its target (or past its "
+                 "line), clear of every hot-spot, with a route from its start; every crossing leads where the route's "
+                 "order goes next",
         "FROZEN": "O2-FROZEN: the predictions are the file the session recorded, unchanged",
         "COVER": "O2-COVER: at least {min_covered} covered runs a side",
         "FORBIDDEN": "O2-FORBIDDEN: no run carries a forbidden write its own driver log does not explain",
@@ -971,9 +976,11 @@ class O2Segment(ST.Segment):
         InitRegion on Main_Init's path for the route's entrances; ``confirm``: its tag 3 holds its registered
         statement; ``benign``: no gEventGlobal store and no Field() anywhere in it, no DisableMove in its tag 2.
         Every frozen hot-spot is its tag 1's own (x, z, n, and reach = 32 sqrt n), and the census of the route
-        fields finds no hot-spot the predictions lack."""
+        fields finds no hot-spot the predictions lack -- nor any GATEWAY (scan_gateways) they do not register as an
+        exit: the driver's landing judge (segment_drive.exit_regions) reads a loss of control in a registered exit as
+        that door's, so the list must be complete."""
         from ff9mapkit.eventscan import FIELD_OP, scan_gateways
-        bad, n = [], 0
+        bad, n, ng = [], 0, 0
         gws = {}
         for key, reg in sorted(pred["regions"].items()):
             n += 1
@@ -1038,8 +1045,19 @@ class O2Segment(ST.Segment):
                                f"{got['n']}, frozen ({h['x']}, {h['z']}) n {h['n']} reach {h.get('reach')}")
             for sid in sorted(set(frozen) - set(census)):
                 bad.append(f"hot-spot {donor} e{sid}: frozen, but no such hot-spot in the bytes")
+            if idx is None:
+                continue
+            if donor not in gws:
+                gws[donor] = scan_gateways(idx.data)
+            for gw in gws[donor]:
+                ng += 1
+                key = f"{donor}.e{gw['entry']}"
+                if (pred["regions"].get(key) or {}).get("role") != "exit":
+                    bad.append(f"{key}: a gateway (-> {gw['to']}, entrance {gw['entrance']}) in the bytes, not "
+                               f"registered as an exit")
         return (not bad, self.title("REGIONS"),
-                "; ".join(bad[:6]) or f"{n} regions, {nh} hot-spots, every role as registered")
+                "; ".join(bad[:6]) or f"{n} regions, {nh} hot-spots, {ng} gateways all registered, every role as "
+                                      f"registered")
 
     # -- O2-GOALS -----------------------------------------------------------------------------------------------
     def goals_check(self, pred: dict, walkmesh=None) -> tuple:
@@ -1048,20 +1066,38 @@ class O2Segment(ST.Segment):
         inside the target (IsInQuad) at depth >= 80, a confirm's ``depth - tolerance >= min_depth``; an ``until``
         step's goal satisfies its predicate; the goal and the step's ``start`` stand farther than reach + tolerance +
         64 from every hot-spot of the field; and route_avoiding finds a route from ``start`` to the goal round the
-        step's ``avoid`` set. ``walkmesh(donor)`` is the raw mesh (default: the install's)."""
+        step's ``avoid`` set. ``walkmesh(donor)`` is the raw mesh (default: the install's).
+
+        Before any of it, every step must be one its executor can run (segment_drive.step_of: a malformed step is a
+        FAIL naming it, never a run that dies mid-walk), and the table must agree with the route's ORDER the driver's
+        rule 2 holds each visit to: ``visits`` (default ``route``) starts at the start place and lies on the route, and
+        every crossing's ``to`` is where the order goes next from its place (the last visit's next is an end field)."""
         from ff9mapkit import extract
         from ff9mapkit.content import pathfind
         from ff9mapkit.scene import cam
         walkmesh = walkmesh or extract.stock_walkmesh
         radius = float(cam.COLLISION_RADIUS_W)
         bad, lines, n, raws = [], [], 0, {}
+        order = list(pred.get("visits") or pred["route"])
+        ends = list(pred.get("end_fields") or [pred["end_field"]])
+        if not order or order[0] != pred["start"]["S"] or any(p not in pred["route"] for p in order):
+            bad.append(f"visits {order}: not a walk on the route {pred['route']} from the start place "
+                       f"{pred['start']['S']}")
+        nexts = set(zip(order, order[1:])) | {(order[-1], e) for e in ends if order}
         for c in pred["table"]:
             donor = c["donor"]
             raw = raws.setdefault(donor, walkmesh(donor))
             for i, s0 in enumerate(c["steps"]):
                 n += 1
-                s = SD.step_of(pred, s0)
                 lab = f"({donor}, {c['sc']}) #{i + 1}"
+                try:
+                    s = SD.step_of(pred, s0)
+                except ValueError as err:
+                    bad.append(f"{lab}: {err}")
+                    continue
+                if s["kind"] in ("cross", "leave_now") and (donor, s["to"]) not in nexts:
+                    bad.append(f"{lab}: its crossing leads to {s['to']}, where the route's order {order} never goes "
+                               f"next from {donor}")
                 wm = pathfind.PlayerWalkmesh(raw, closed=SD.closed_tris(pred, s, raw))
                 gx, gz = (float(v) for v in s["goal"])
                 start = s.get("start")
