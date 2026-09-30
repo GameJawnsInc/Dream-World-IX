@@ -2287,6 +2287,82 @@ class Session:
         out["ended"] = "bursts"
         return out
 
+    def lunge(self, x: float, z: float, *, ticks: int = 10, avoid=(), walkmesh=None, margin: float | None = None,
+              gait: str = "run") -> dict:
+        """ONE hold toward (x, z) on the first live sample with control: no settle, no calibration, no plan -- the
+        leave-at-once press (research/o2_design.md H3: 105's lookout, where Alleyway Jack's contact reaches him about
+        1.5-2 s after control comes).
+
+        It needs control NOW (one live sample) and a CACHED basis for the field (:meth:`calibrate_axes` ran on this
+        field earlier): without either it raises, pressing nothing. The pad is the one of the eight (:func:`_eight_way`)
+        nearest the bearing to the goal. The hold is ``Rate.frames_for_ticks(ticks)`` frames at the MEASURED rate
+        (:meth:`rate` ``require=True``: its reach is judged), clipped to the longest that keeps its whole line -- out to
+        ``Rate.reach(frames, gait)``, tail included -- on ``walkmesh`` (default: the install's for the field) at least
+        cam.COLLISION_RADIUS_W off every wall, sampled every 16u; ``margin`` (default pathfind.KEEPOUT_MARGIN_W) clear
+        of every ``avoid`` polygon (pathfind.seg_poly_gap); and short of the goal's projection on the line. A hold
+        under the frames sure of one tick presses nothing (``pressed`` False).
+
+        The hold is sent as ``hold <b> <frames>`` for each button of the pad and ``wait <frames + 2>``, in ONE request,
+        and the state read once after it. Returns ``{"pressed", "pad", "frames", "from", "to", "travelled",
+        "sample_frame", "done_frame"}``: ``sample_frame`` the frame of the control sample it acted on, ``done_frame``
+        the frame of the read after the hold -- so a caller can read the latency."""
+        import math
+        from ff9mapkit.content import pathfind
+        from ff9mapkit.scene import cam
+        st = self.state
+        if st.ui_state != "FieldHUD" or not st.control or st.player_x is None or st.fading:
+            raise HarnessError(f"lunge needs control NOW, on a field: the newest sample has none ({st!r})")
+        field = st.field_id
+        basis = self._axes.get(field)
+        if basis is None:
+            raise HarnessError(f"lunge on field {field}: no CACHED basis -- it presses at once, and a calibration is "
+                               f"a walk of its own. Calibrate on this field first (calibrate_axes, or a routed walk).")
+        margin = pathfind.KEEPOUT_MARGIN_W if margin is None else float(margin)
+        here = (float(st.player_x), float(st.player_z))
+        dx, dz = float(x) - here[0], float(z) - here[1]
+        buttons, u = max(_eight_way(basis), key=lambda p: p[1][0] * dx + p[1][1] * dz)
+        pad = "+".join(buttons)
+        ahead = u[0] * dx + u[1] * dz                     # the goal's projection on the pressed line
+        rate = self.rate(require=True)
+        floor = walkmesh if walkmesh is not None else self._stock_walkmesh(field)
+        polys = [[(float(p[0]), float(p[1])) for p in poly] for poly in avoid]
+
+        def clear(n: int) -> bool:
+            reach = rate.reach(n, gait)
+            if reach > ahead:
+                return False
+            end = (here[0] + u[0] * reach, here[1] + u[1] * reach)
+            for k in range(1, int(math.ceil(reach / 16.0)) + 1):
+                t = min(reach, 16.0 * k)
+                px, pz = here[0] + u[0] * t, here[1] + u[1] * t
+                if floor.point_on_walkmesh(px, pz) is None:
+                    return False
+                wall = floor.distance_to_boundary(px, pz)
+                if wall is None or wall < cam.COLLISION_RADIUS_W:
+                    return False
+            return all(pathfind.seg_poly_gap(here, end, poly) >= margin for poly in polys)
+
+        frames = rate.frames_for_ticks(int(ticks))
+        while frames > 0 and not clear(frames):
+            frames -= 1
+        out = {"pressed": False, "pad": pad, "frames": 0, "from": [round(here[0]), round(here[1])], "to": None,
+               "travelled": 0.0, "sample_frame": st.frame, "done_frame": None}
+        if frames < rate.frames_for_ticks(1):
+            self._log(f"  lunge: no hold of {pad} toward ({x:.0f}, {z:.0f}) from ({here[0]:.0f}, {here[1]:.0f}) "
+                      f"keeps its line clear for a whole tick: nothing pressed")
+            return out
+        steps = [f"hold {b} {frames}" for b in buttons]
+        if gait == "walk":
+            steps.insert(0, f"hold cancel {frames}")
+        self.send(*steps, f"wait {frames + 2}")
+        after = self.state
+        out.update(pressed=True, frames=frames, done_frame=after.frame)
+        if after.player_x is not None:
+            out["to"] = [round(after.player_x), round(after.player_z)]
+            if after.field_id == field:
+                out["travelled"] = round(math.hypot(after.player_x - here[0], after.player_z - here[1]), 1)
+        return out
+
     def newgame(self, *, timeout: float = 120.0, playable: bool = False,
                 settle: float | None = None) -> State:
         """Title screen -> New Game -> in-game.

@@ -12096,3 +12096,96 @@ def test_climb_not_started_when_control_stays(game):
         steps = fake.executed[mark:]
     assert rec["ended"] == "not-started" and rec["bursts"] == 0 and rec["ys"] == [], rec
     assert not steps, steps
+
+
+def test_lunge_holds_toward_the_goal_on_the_first_sample(game):
+    """H3: control comes back at a known moment on a field whose basis is cached. ``lunge`` acts on its first sample:
+    ONE state read, then ONE request carrying the pad's holds and the wait -- executed within 0.1 s of the grant
+    (counted in the fake's loop frames, 240 a second). Its pad is the eight-way one nearest the bearing (up+right
+    toward (1000, 600)), and it carries him toward the goal. Break: settle before the press."""
+    fake = _StampFake(game, walkmesh=(-2000.0, -2000.0, 2000.0, 2000.0))
+    wm = _flat_bgi(-2000, -2000, 2000, 2000)
+    reads: list = []
+    sent_after: list = []
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 0, 0)
+        g._axes[30820] = _prior()
+        g.rate(require=True)
+        fake.control = False
+        published(g, lambda s: not s.control)
+        grant: dict = {}
+
+        def director():
+            time.sleep(0.3)
+            grant["frame"] = fake.frame
+            fake.control = True
+        threading.Thread(target=director, daemon=True).start()
+        published(g, lambda s: s.control, timeout=5.0)
+        real_state, real_send = g.channel.state, g.send
+        g.channel.state = lambda *a, **kw: (reads.append(1), real_state(*a, **kw))[1]
+        g.send = lambda *steps, **kw: (sent_after.append(len(reads)), real_send(*steps, **kw))[1]
+        mark = len(fake.stamped)
+        try:
+            rec = g.lunge(1000.0, 600.0, walkmesh=wm)
+        finally:
+            g.channel.state, g.send = real_state, real_send
+        steps = fake.stamped[mark:]
+    assert rec["pressed"] and rec["pad"] == "up+right" and rec["frames"] >= 1, rec
+    assert sent_after == [1], sent_after                    # one read before the one request
+    lunge = [s for s in steps if s[2][0] in ("hold", "wait")]
+    assert [s[2][0] for s in lunge] == ["hold", "hold", "wait"] and len({s[1] for s in lunge}) == 1, lunge
+    assert {s[2][1] for s in lunge[:2]} == {"up", "right"} and lunge[2][2] == ["wait", str(rec["frames"] + 2)], lunge
+    assert (lunge[0][1] - grant["frame"]) / fake.fps <= 0.1, (lunge[0], grant)
+    to = rec["to"]
+    assert to[0] > 0 and to[1] > 0 and math.dist(to, (1000, 600)) < math.dist((0, 0), (1000, 600)), rec
+    assert rec["sample_frame"] < rec["done_frame"] and rec["travelled"] > 0, rec
+
+
+def test_lunge_stops_short_of_an_avoid_zone(game):
+    """H3: a zone 300u ahead on the line: the hold is clipped to the longest whose whole line -- to the measured
+    rate's REACH, tail included -- stays the margin clear of it, and he ends outside the margin. With nothing to
+    avoid the same lunge holds its full ticks; with the zone 40u ahead no hold sure of a tick keeps it, and nothing
+    is pressed. Break: judge the line at the average speed (the hold runs on into the margin)."""
+    from ff9mapkit.content import pathfind
+    zone = _rect(300, -200, 500, 200)
+    near = _rect(40, -200, 240, 200)
+    wm = _flat_bgi(-2000, -2000, 2000, 2000)
+    fake = FakeGame(game, walkmesh=(-2000.0, -2000.0, 2000.0, 2000.0))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, 0, 0)
+        rate = g.rate(require=True)
+        full = g.lunge(1500.0, 0.0, walkmesh=wm)
+        assert full["pressed"] and full["frames"] == rate.frames_for_ticks(10), (full, rate)
+        _stand(g, fake, 0, 0)
+        clipped = g.lunge(1500.0, 0.0, walkmesh=wm, avoid=[zone])
+        end = g.settle()
+        assert clipped["pressed"] and clipped["pad"] == "right" and 0 < clipped["frames"] < full["frames"], clipped
+        assert pathfind.poly_gap(end.player_x, end.player_z, zone) >= pathfind.KEEPOUT_MARGIN_W, (end.pos, clipped)
+        _stand(g, fake, 0, 0)
+        mark = len(fake.executed)
+        none = g.lunge(1500.0, 0.0, walkmesh=wm, avoid=[near])
+        assert not none["pressed"] and none["frames"] == 0 and fake.executed[mark:] == [], (none, fake.executed[mark:])
+
+
+def test_lunge_refuses_without_a_basis(game):
+    """H3: a lunge presses at once, and a calibration is a walk of its own: with no CACHED basis for the field it
+    raises, pressing nothing -- and so it does with control gone. Break: calibrate on a miss."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        mark = len(fake.executed)
+        with pytest.raises(HarnessError, match="no CACHED basis"):
+            g.lunge(300.0, 0.0, walkmesh=_flat_bgi())
+        assert 30820 not in g._axes and not [s for s in fake.executed[mark:] if s[0] in ("hold", "press")]
+        g._axes[30820] = _prior()
+        fake.control = False
+        published(g, lambda s: not s.control)
+        with pytest.raises(HarnessError, match="needs control NOW"):
+            g.lunge(300.0, 0.0, walkmesh=_flat_bgi())
+        assert not [s for s in fake.executed[mark:] if s[0] in ("hold", "press")]
