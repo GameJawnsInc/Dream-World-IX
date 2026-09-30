@@ -90,8 +90,8 @@ IN_112 = [(112, 0, 0, 26, "Global.Bit[191]", 0), (112, 0, 0, 53, "Global.Bit[184
           (112, 0, 0, 61, "Global.Int16[9]", 355)]
 AFTER_61 = [(61, 0, 0, 49, "Global.Bit[184]", 0), (61, 0, 0, 57, "Global.Int16[9]", -1)]
 TEXT_DEFECT = ("KNOWN-KIT-DEFECT 1, FAIL 0, 6 byte-equal of 7 languages | KNOWN-KIT-DEFECT uk: ships stock us "
-               "(4751874951; stock uk 8c94536b6c): dialogue._lang_score aliases uk to us (dialogue.py:374) -- the "
-               "lead's kit fix")
+               "(4751874951; stock uk 8c94536b6c): the build predates the per-language text pick (aa627d52): "
+               "regenerate it, or repair its sidecars with tools/refresh_verbatim_text.py")
 
 
 # ======================================================================== events and their rendering

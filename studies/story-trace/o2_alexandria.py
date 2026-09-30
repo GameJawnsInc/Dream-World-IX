@@ -435,8 +435,9 @@ def text_rule(stock: dict, shipped: dict, session_lang: str = SESSION_LANG) -> t
             lines.append(f"FAIL {L}: the session language ships {_sha10(got)}"
                          + (f" (stock {other})" if other else "") + f", not stock {L} ({_sha10(want)})")
         elif other is not None:
-            cause = (f"dialogue._lang_score aliases {L} to {other} (dialogue.py:374) -- the lead's kit fix"
-                     if {L, other} == {"us", "uk"} else "another language's stock text: the kit's language pick")
+            cause = ("the build predates the per-language text pick (aa627d52): regenerate it, or repair its sidecars "
+                     "with tools/refresh_verbatim_text.py" if {L, other} == {"us", "uk"}
+                     else "another language's stock text: the build's per-language text pick")
             lines.append(f"KNOWN-KIT-DEFECT {L}: ships stock {other} ({_sha10(got)}; stock {L} {_sha10(want)}): "
                          f"{cause}")
         else:

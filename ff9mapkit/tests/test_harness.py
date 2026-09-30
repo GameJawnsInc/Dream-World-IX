@@ -13163,16 +13163,20 @@ def test_o2_text_rule_reads_every_language_equal_as_ok():
 
 
 def test_o2_text_rule_counts_a_foreign_copy_as_known_kit_defect():
-    """Today's build: uk ships stock US text (dialogue._lang_score aliases uk to us). Not the session language, and
-    byte-equal to ANOTHER language's stock asset: a named, counted KNOWN-KIT-DEFECT line -- the rule still reads ok
-    (no FAIL), never silently, and the CLI's line reads back from the detail. Break: count a foreign copy as ok."""
+    """Today's build: uk ships stock US text -- it predates master's per-language text pick (aa627d52). Not the
+    session language, and byte-equal to ANOTHER language's stock asset: a named, counted KNOWN-KIT-DEFECT line -- the
+    rule still reads ok (no FAIL), never silently, and the CLI's line reads back from the detail. The line names the
+    cause as it stands (a build to regenerate, or sidecars to repair), never a picker line or a fix still to come.
+    Break: count a foreign copy as ok."""
     A = _o2_module()
     stock = _o2_stock_text()
     ok, lines = A.text_rule(stock, dict(stock, uk=stock["us"]), "us")
     assert ok, lines
     defects = [ln for ln in lines if ln.startswith("KNOWN-KIT-DEFECT")]
     assert len(defects) == 1 and defects[0].startswith("KNOWN-KIT-DEFECT uk: ships stock us"), lines
-    assert "dialogue._lang_score aliases uk to us" in defects[0] and not [ln for ln in lines if ln.startswith("FAIL")]
+    assert "predates the per-language text pick (aa627d52)" in defects[0], defects
+    assert "tools/refresh_verbatim_text.py" in defects[0] and "dialogue.py:" not in defects[0], defects
+    assert not [ln for ln in lines if ln.startswith("FAIL")], lines
     detail = A.text_detail(lines)
     assert detail.startswith("KNOWN-KIT-DEFECT 1, FAIL 0, 6 byte-equal of 7") and A.defect_lines(detail) == defects
 
