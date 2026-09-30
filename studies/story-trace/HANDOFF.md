@@ -67,9 +67,8 @@ Rewritten at the end of the facing-gate session, and updated after rung 4 and se
      `storyseed.unproven_candidate_row` (library only, marked `CANDIDATE`, a tripwire test limits its callers), a
      session proves it, then a code change adds it to `PROVEN_HANDOVERS` with its evidence and a real-bytes test.
    - Hubs 31113/31114 stay deployed. Revert only through the per-id scripts, 31114 then 31113.
-   - **Follow-ups, each owner-gated:** F-REDEPLOY (the 47 synthesized deploys, 4600 + 6601-6603 first), F-NG (the
-     New-Game override hands off with 643 playing), F-WARP, F-IMPORT, F-PROBE -- PLAN.md's F5c section and the
-     kit CHANGELOG's Known issues.
+   - **Follow-ups:** F-REDEPLOY ★ DONE (all 47 spliced and proven in game) and F-NG ★ PROVEN (F-PROBE). Still
+     open: F-WARP and F-IMPORT -- PLAN.md's F5c section and the kit CHANGELOG's Known issues.
 6. **Rung 3's dry-run is 79/80 on master too** (not F5's): session 2's archived reports predate `356ac508`'s seam
    listing. Re-baseline, or compare that line modulo the seam list (owner's call).
 7. **Later:**
