@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a verbatim fork shipped one English locale's field text as the other's
+- **What broke.** The kit picked each language's copy of a field text block (`<block>.mes`) by content: a
+  stopword score. That score reads the us and uk copies as the same language, so both took the SAME body in all
+  64 real blocks. us got the UK copy in 35 blocks, and uk got the US copy in 29. A verbatim fork ships that text
+  whole over the donor's block, so it overwrote one English locale's stock dialogue with the other's. This is live
+  for blocks 2, 187 and 276 in `FF9CustomMap`. The same pick fed `--carry-text`, `dialogue-import`, `fork-report
+  --explain`, `logic-map`, `eb-src` previews and the world-map marker renames.
+- **The fix.** Each language's copy is now the asset the engine itself loads by resource path,
+  `EmbeddedAsset/Text/<lang>/Field/<block>.mes`. It is read from the ResourceManager index in `mainData`, as
+  battle text already was. Every `<n>.mes` asset in `resources.assets` has such a path, and all 64 blocks ship
+  all 7 languages. A language a block does not ship is now absent, never another language's copy. The content
+  score is only a fallback for an install whose index can't be read. There, us and uk are split by US/UK
+  spelling, which separates all 64 blocks. A split that spelling can't make is reported on stderr, not passed
+  silently. `extract_field_mes` now reads through `extract_field_mes_all_langs`, so the two can't disagree.
+- **What moves.** us and uk text changes for every fork, carry and preview that read a real block. Other
+  languages are unchanged. Re-deploy a verbatim fork to replace a wrong uk (or us) file it already shipped.
+
 ### Fixed — a battle AI patch landed on the wrong constant in a language whose script differs
 - **What broke.** `[[scene.ai_patch]]` takes `at`, a constant's byte offset in the us donor (`battle-ai
   --sites`), and the build wrote that same offset in every language's own battle `.eb`, on the assumption that the

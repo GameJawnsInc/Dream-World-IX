@@ -2159,8 +2159,8 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
             "# The Field() exits below point at REAL fields (live seams back into the game). To redirect any to\n"
             "# your own fork, set its id and uncomment the table (omit a line to keep that exit a live seam):\n")
         # ship the donor's WHOLE text per language: the verbatim .eb's index-txids resolve straight into it
-        # (no remap, unlike --carry-text). ONE batched scan of all 7 langs (was 7 full resources.assets scans
-        # per member -- the dominant import-chain cost); per-lang is coarse but us is right.
+        # (no remap, unlike --carry-text). ONE cached index serves all 7 langs of every member; each language
+        # is its own asset by the engine's resource path (us and uk differ in every real block).
         mes_by_lang = _dlg.extract_field_mes_all_langs(field, game=game)
         text_line = ""
         if mes_by_lang:
