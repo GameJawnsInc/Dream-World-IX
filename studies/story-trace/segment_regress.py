@@ -60,7 +60,12 @@ BASELINE = HERE / "research" / "o1_regress_baseline.json"
 PYTEST_K = "o1_ or overlay_hint or segment"
 #: Tests G7 must find (and find passing) beyond the ones the baseline collected: each arrives with the PART A step
 #: that adds it (research/o2_design.md section 9), so a later step cannot drop it silently.
-REQUIRED_TESTS: tuple = ()
+REQUIRED_TESTS: tuple = (
+    # A3: O1Segment.run keeps O1's session surface; the shared session loop and its THROW check, on the fake
+    "test_o1_segment_run_pins_o1s_session_surface",
+    "test_segment_session_loop_on_the_fake",
+    "test_segment_throw_check_fails_on_an_engine_exception",
+)
 
 O1E_VERDICT = "PROVEN"
 O1D_VERDICT = "VOID: O1-COVER, O1-LADDER, O1-NULL, O1-STABLE, O1-JOIN"

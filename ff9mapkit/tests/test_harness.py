@@ -11642,3 +11642,160 @@ def test_row_keys_maps_every_joined_row_to_its_digest_key():
         assert got[5] is None and got[6] is None                  # masked; one byte off a real store (a failure)
         assert (got[8] in d.seam_keys) == bool(n_seam) and got[7] in d.keys
         assert len(d.failures) == 1 and d.failures[0][0].line == 6
+
+
+def _stub_segment(game, *, cue, order=("S", "F", "S", "F", "S", "F"), min_covered=2):
+    """A Segment with its install stubbed -- no mod roots, a fixed fingerprint, an all-pass preflight, no stock
+    scripts -- whose drive pokes one harness byte (so every run's trace holds a row of its own) and then reaches the
+    end, or VOIDs with a class, on ``cue(n, side)``: the session loop alone, on the fake."""
+    ST, SD = _segment_trace(), _segment_modules()
+    pred = {"version": 1, "what": "a stub segment", "order": list(order), "min_covered": min_covered,
+            "rerun": {"max": 2}, "budget": {"run_s": 60, "run_min_s": 1, "session_s": 600, "settle_s": 0.1},
+            "start": {"S": 30820, "F": 30820}, "entrance": 0, "end_field": 30821, "stock_fields": [],
+            "members": {}, "names": {}, "beats": ["reached"], "noise": []}
+    path = game / "zz_predictions.json"
+    path.write_text(json.dumps(pred, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    calls: list = []
+
+    class Stub(ST.Segment):
+        tag = "ZZ"
+        predictions = path
+        session_file, report_file = "zz_session.json", "zz_report.txt"
+        recovery = 30821
+
+        def roots(self):
+            return []
+
+        def preflight(self, pred, roots, build=None, manifest=None):
+            return [(True, "P-STUB: the stub's install", "stub")]
+
+        def fingerprint(self, roots, pred):
+            return {"stub": 1}
+
+        def stock_source(self):
+            return lambda fid: None
+
+        def drive(self, g, pred, side, log, *, deadline, progress=None):
+            n = len(calls)
+            calls.append(side)
+            g.send(f"byte 300 {n + 1}")
+            log.append({"k": "stub", "n": n})
+            if cue(n, side) == "void":
+                raise SD.RouteVoid(f"stub: no SC 1153 in run {n + 1}", v="V8", cell=[106, 1152], by="game")
+            return {"end": "reached", "why": "field 30821", "beats": {"reached": True}, "pages": ["p"],
+                    "choices": [], "t": 0.1}
+    return Stub(), pred, calls
+
+
+def test_segment_session_loop_on_the_fake(game, capsys):
+    """Segment.run (research/o2_design.md 1.2, O1's session loop) on the fake: S F S F S F; the F side VOIDs twice,
+    with a class, so it is short of min_covered and re-runs (F, once); every run's trace and log land as it ends, the
+    record carries the VOID's class, the session is marked finished, and the report and the THROW check follow."""
+    from ff9mapkit import storytrace as T
+    stub, pred, calls = _stub_segment(game, cue=lambda n, side: "void" if n in (1, 3) else "reached")
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0], "the session starts at the title, as a launch does"
+        stub.run(g)
+        checks = list(g.checks)
+    run_dir = game / "run"
+    sess = json.loads((run_dir / "zz_session.json").read_text(encoding="utf-8"))
+    recs = sess["runs"]
+    assert [(r["i"], r["side"], r["end"]) for r in recs] == [
+        (1, "S", "reached"), (2, "F", "void"), (3, "S", "reached"), (4, "F", "void"), (5, "S", "reached"),
+        (6, "F", "reached"), (7, "F", "reached")], recs
+    assert calls == ["S", "F", "S", "F", "S", "F", "F"] and recs[6].get("rerun") is True
+    assert (recs[1]["v"], recs[1]["cell"], recs[1]["by"]) == ("V8", [106, 1152], "game")
+    assert recs[1]["why"] == "route: stub: no SC 1153 in run 2" and not any("v" in r for r in recs if r["end"] != "void")
+    for r in recs:
+        rows = T.read_trace(run_dir / r["trace"])
+        assert r["traced"] == 1 and rows[0].why == "arm" and rows[-1].why == "off", (r, rows)
+        assert [(x.src, x.byte, x.new) for x in rows if x.k == "w"] == [("harness", 300, r["i"])]
+        log = json.loads((run_dir / r["log"]).read_text(encoding="utf-8"))
+        assert log["outcome"]["end"] == r["end"] and {"k": "stub", "n": r["i"] - 1} in log["log"]
+    warps = [s for s in fake.executed if s[0] == "warp"]
+    assert warps.count(["warp", "30820", "0", "-1"]) == 7 and warps.count(["warp", "30821", "-1", "-1"]) == 6
+    assert sess["finished"] and sess["predictions"] == str(game / "zz_predictions.json")
+    report = (run_dir / "zz_report.txt").read_text(encoding="utf-8")
+    assert report.startswith("ZZ -- run  (predictions v1 ") and "\nVERDICT: PROVEN\n" in report, report[:400]
+    whats = [(c["what"], c["ok"]) for c in checks]
+    assert whats[:2] == [("P-CAP: the engine advertises the story trace at proto 1", True),
+                         ("P-STUB: the stub's install", True)]
+    assert ("ZZ-COVER: at least 2 covered runs a side", True) in whats
+    assert whats[-1] == ("ZZ-THROW: nothing thrown through the event engine, the evaluator, the tracer or the agent",
+                         True)
+    out = capsys.readouterr().out
+    assert "[zz] run 2 (F) at " in out and ": void -- route: stub: no SC 1153 in run 2" in out
+    runs = stub.read_session(run_dir, pred)
+    assert runs[1]["void"] == [{"why": "the drive did not reach the end: route: stub: no SC 1153 in run 2",
+                                "class": "V8", "by": "game", "cell": [106, 1152]}] and runs[0]["void"] == []
+
+
+def test_segment_throw_check_fails_on_an_engine_exception(game):
+    """THROW never had a mutant (research/o2_design.md C14): the same session loop, with the launch's logs holding a
+    NullReferenceException thrown through EventEngine -- the THROW check FAILS and names it. One thrown elsewhere
+    (through none of EventEngine/EBin/StoryTrace/HarnessAgent) is not the segment's, and is not named."""
+    from harness.logs import LogException
+    stub, _pred, _calls = _stub_segment(game, cue=lambda n, side: "reached", order=("S", "F"), min_covered=1)
+    thrown = [LogException(log="Memoria.log", type="System.NullReferenceException", message="Object reference",
+                           trace=["EventEngine.DoEventCode (EventEngine+EventCodeReturn& ret) [0x00012] in <x>:0"]),
+              LogException(log="Memoria.log", type="System.NullReferenceException", message="elsewhere",
+                           trace=["BattleHUD.Update () [0x00000] in <x>:0"])]
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0]
+        g.exceptions_since = lambda mark=None: thrown
+        stub.run(g)
+        throw = [c for c in g.checks if c["what"].startswith("ZZ-THROW")]
+    assert len(throw) == 1 and throw[0]["ok"] is False, throw
+    assert throw[0]["detail"].count("NullReferenceException") == 1 and "EventEngine" in throw[0]["detail"], throw
+
+
+def test_o1_segment_run_pins_o1s_session_surface(game, capsys):
+    """O1Segment.run on the fake (research/o2_design.md 1.6 G7), its install stubbed as the segment tests stub it:
+    the refactored session keeps O1's surface -- it sends ``warp 50 0 -1`` and ``warp 31200 0 -1`` (v4 has no
+    scenario), writes o1_session.json and o1_report.txt, prints ``[o1] run 1 (S)``, records the v4 predictions it
+    loaded, and titles its checks with O1's exact texts."""
+    import types
+    O, _pred = _o1_pred()
+    patch = game / "FF9CustomMap" / "DictionaryPatch.txt"                 # O1's member(50), so the guard lets it warp
+    patch.write_text(patch.read_text(encoding="utf-8") + "FieldScene 31200 11 O1_TSHP_A O1_TSHP_A 31200\n",
+                     encoding="utf-8")
+    blank = _st_eb([(0, "RET()")])
+    beats = {"candle": True, "named": True, "battle": 1, "garnet": True}
+    seg = O.O1Segment()
+    seg.roots = lambda: []
+    seg.preflight = lambda pred, roots, build=None, manifest=None: [(True, "P-STUB: the stubbed install", "stub")]
+    seg.fingerprint = lambda roots, pred: {"stub": 1}
+    seg.scripts_source = lambda roots: (lambda fid: types.SimpleNamespace(data=blank))
+    seg.stock_source = lambda: (lambda fid: None)
+    seg.recovery = 30821
+    seg.drive = lambda g, pred, side, log, *, deadline, progress=None: {
+        "end": "reached", "why": "field 100", "beats": dict(beats), "pages": ["p"], "choices": [], "t": 0.1}
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0]
+        seg.run(g)
+        whats = [c["what"] for c in g.checks]
+    warps = [s for s in fake.executed if s[0] == "warp"]
+    assert warps.count(["warp", "50", "0", "-1"]) == 3 and warps.count(["warp", "31200", "0", "-1"]) == 3, warps
+    run_dir = game / "run"
+    sess = json.loads((run_dir / "o1_session.json").read_text(encoding="utf-8"))
+    _v4, sha = O.load_predictions()
+    assert sess["predictions"] == str(O.PREDICTIONS) and sess["predictions_sha256"] == sha
+    assert [(r["i"], r["side"], r["start"]) for r in sess["runs"]] == [
+        (1, "S", 50), (2, "F", 31200), (3, "S", 50), (4, "F", 31200), (5, "S", 50), (6, "F", 31200)]
+    assert (run_dir / "o1_report.txt").read_text(encoding="utf-8").startswith(f"O1 -- run  (predictions v4 {sha[:8]})")
+    assert "[o1] run 1 (S) at " in capsys.readouterr().out
+    assert whats[0] == "P-CAP: the engine advertises the story trace at proto 1"
+    for what in ("O1-FROZEN: the predictions are the file the session recorded, unchanged",
+                 "O1-COVER: at least 2 covered runs a side",
+                 "O1-LADDER: every covered run writes the four ladder keys, and SC exactly once",
+                 "O1-NULL: STOCK ONLY and FORK ONLY are empty outside the registered noise",
+                 "O1-STABLE: no key outside the registered noise is written in some runs of a side and not others",
+                 "O1-JOIN: every script row joins a store in the bytes its field ran"):
+        assert what in whats, what
+    assert whats[-1] == "O1-THROW: nothing thrown through the event engine, the evaluator, the tracer or the agent"

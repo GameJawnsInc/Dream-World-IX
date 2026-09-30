@@ -33,12 +33,9 @@ read the predictions the session recorded, and nowhere else.
 """
 from __future__ import annotations
 
-import argparse
-import hashlib
 import json
 import sys
 import time
-import traceback
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -49,7 +46,8 @@ sys.path.insert(0, str(HERE))
 
 from ff9mapkit import storytrace as T                                   # noqa: E402
 import segment_trace as ST                                              # noqa: E402
-from segment_drive import RouteVoid, pick_for                           # noqa: E402,F401 -- moved; re-exported
+# moved to the shared engine (research/o2_design.md 1.2-1.4) and re-exported here under their O1 names
+from segment_drive import RouteVoid, pick_for                           # noqa: E402,F401
 from segment_trace import (RECOVERY_FIELD, SIDES, THROWS, WHERE, is_noise, members_of,  # noqa: E402,F401
                            verdict, wkey)
 
@@ -64,7 +62,8 @@ MANIFEST = HERE / "o1_forks.json"
 SESSION_FILE = "o1_session.json"
 CHAIN_DIR = Path(r"C:\gd\_ns_playtest\o1\fork")
 BUILD_DIR = Path(r"C:\gd\_ns_playtest\o1\build")
-# SIDES, THROWS and WHERE live in segment_trace (imported above).
+REPORT_FILE = "o1_report.txt"
+_MODULE_DOC = __doc__
 
 
 # ======================================================================== the predictions
@@ -125,180 +124,7 @@ def draft_predictions() -> dict:
     }
 
 
-def load_predictions(path: Path = PREDICTIONS) -> tuple:
-    data = Path(path).read_bytes()
-    return json.loads(data), hashlib.sha256(data).hexdigest()
-
-
-def freeze(path: Path = PREDICTIONS) -> str:
-    """Write the predictions ONCE (LF, sorted keys); refuses to overwrite a frozen file."""
-    if Path(path).exists():
-        raise SystemExit(f"!! {path} exists: the predictions are frozen. A new version is a new file.")
-    text = json.dumps(draft_predictions(), indent=1, sort_keys=True) + "\n"
-    Path(path).write_bytes(text.encode("utf-8"))
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-# members_of, wkey and is_noise live in segment_trace (imported above); is_noise keeps O1's {not_m, target, why}.
-
-
-# ======================================================================== offline: the build and the keys
-_stock_lang = ST.stock_lang
-
-
-def build_check(pred: dict, build: Path = BUILD_DIR, stock_lang=None) -> tuple:
-    """O1-BUILD: every member's built US .eb IS its donor's stock US .eb with only the in-chain ``Field()``
-    literals remapped (content.verbatim.remap_fields over the chain's donor -> fork map) -- the bytes the trace
-    runs. Every other language's file is one of the kit's two generations, reported: its OWN donor language
-    remapped the same way (the kit since master 3d8b7f1b, "each language its own donor .eb"), or the US build
-    (the kit before it, which shipped US bytecode everywhere -- the deployed O1 chain was built so)."""
-    from ff9mapkit.config import LANGS, ModLayout
-    from ff9mapkit.content.verbatim import remap_fields
-    stock_lang = stock_lang or _stock_lang()
-    members, names = members_of(pred), {int(f): n for f, n in pred["names"].items()}
-    retarget = {d: f for f, d in members.items()}
-    lay, bad, n = ModLayout(build), [], 0
-    gens = {"own": 0, "us": 0}
-    for fid, donor in sorted(members.items()):
-        paths = {L: lay.eb_path(L, f"EVT_{names[fid]}.eb.bytes") for L in LANGS}
-        src = stock_lang(donor, "us")
-        if src is None or not all(p.is_file() for p in paths.values()):
-            bad.append(f"{fid}: {'no stock donor' if src is None else 'a language file missing'}")
-            continue
-        us = paths["us"].read_bytes()
-        if us != remap_fields(src, retarget):
-            bad.append(f"{fid} ({donor}) us: not the donor with only its Field() literals remapped")
-        for L in LANGS:
-            if L == "us":
-                continue
-            got, own = paths[L].read_bytes(), stock_lang(donor, L)
-            if own is not None and got == remap_fields(own, retarget):
-                gens["own"] += 1
-            elif got == us:
-                gens["us"] += 1
-            else:
-                bad.append(f"{fid} ({donor}) {L}: neither its own donor language nor the us build, remapped")
-        n += len(LANGS)
-    return (not bad, "O1-BUILD: every member's US .eb is its donor's with only in-chain Field() literals remapped; "
-                     "each other language is its own donor's (the kit now) or the us build (the kit before 3d8b7f1b)",
-            "; ".join(bad[:6]) or f"{n} files; other languages: {gens['own']} own-language, {gens['us']} us-build")
-
-
-def keys_check(pred: dict, stock) -> tuple:
-    """O1-KEYS: each ladder key's (sid, tag, ip) is a verified store of its variable in the donor's stock bytes,
-    at function offset ``off``; its value is the instruction's constant (read by hand from eb-src, recorded)."""
-    bad = []
-    for k in pred["ladder"]:
-        width, byte = k["target"].split(".", 1)[1].rstrip("]").split("[")
-        row = T.Row(k="w", f=0, p=0, m=k["m"], fld=k["donor"], don=k["donor"], sc=0, src="eb", sid=k["sid"], uid=0,
-                    lvl=0, ip=k["ip"], tag=k["tag"], add=0, byte=int(byte), width=width, bit=-1, old=0,
-                    new=k["value"], same=0)
-        idx = stock(k["donor"])
-        j = idx.join(row) if idx is not None else None
-        if j is None or j.status != "store" or j.tag != k["tag"] or j.rel != k["off"]:
-            bad.append(f"{k['what']}: {None if j is None else (j.status, j.tag, j.rel, j.reason)}")
-    return (not bad, "O1-KEYS: every ladder key is a store of its variable at its ip in the donor's stock bytes",
-            "; ".join(bad) or f"{len(pred['ladder'])} keys")
-
-
-def offline_check(pred: dict, build: Path = BUILD_DIR) -> list:
-    stock = T.stock_script_source()
-    return [build_check(pred, build), keys_check(pred, stock)]
-
-
-# ======================================================================== the live install (read-only)
-def _roots():
-    import dali_tour as D
-    return D.mod_roots()
-
-
-def preflight(pred: dict, roots: list, build: Path = BUILD_DIR, manifest: Path = MANIFEST) -> list:
-    """What must hold before the session spends an hour: ``[(ok, what, detail)]``."""
-    from ff9mapkit import extract
-    from ff9mapkit.config import LANGS, ModLayout
-    from ff9mapkit.scene.bgi import BgiWalkmesh
-    from rung3_trace import _deployed_walkmesh, _fork_donor_rows
-    out = []
-    members, names = members_of(pred), {int(f): n for f, n in pred["names"].items()}
-    try:
-        man = json.loads(Path(manifest).read_text(encoding="utf-8"))
-        got = {int(f): int(d) for f, d in man["members"].items()}
-        ok = got == members and man.get("deployed") is True
-        out.append((ok, "P-MANIFEST: the frozen members are the deployed chain's (o1_forks.json, deployed)",
-                    f"{len(members)} members" if ok else f"manifest {got}, deployed {man.get('deployed')}"))
-    except (OSError, KeyError, ValueError) as err:
-        out.append((False, "P-MANIFEST: the frozen members are the deployed chain's (o1_forks.json, deployed)",
-                    f"unreadable: {err}"))
-    regs = [(Path(r), T.mod_registrations(r)) for r in roots]
-    rows = [(Path(r), f, d) for r in roots for f, d in _fork_donor_rows(Path(r))]
-    bad = []
-    for fid, donor in sorted(members.items()):
-        hits = [(r.name, reg[fid]) for r, reg in regs if fid in reg]
-        if len(hits) != 1 or hits[0][1] != names[fid]:
-            bad.append(f"{fid}: registered {hits}, want once as {names[fid]}")
-        fdp = [d for _r, f, d in rows if f == fid]
-        if fdp != [donor]:
-            bad.append(f"{fid}: ForkDonorPatch {fdp}, want [{donor}]")
-    out.append((not bad, "P-DEPLOY: every member registered once under its name, and mapped once to its donor",
-                "; ".join(bad[:6]) or f"{len(members)} members"))
-    lay, bad = ModLayout(build), []
-    for fid in sorted(members):
-        want = {L: lay.eb_path(L, f"EVT_{names[fid]}.eb.bytes").read_bytes() for L in LANGS}
-        live = [r for r in roots if fid in T.mod_registrations(r)]
-        for L in LANGS:
-            p = ModLayout(Path(live[0])).eb_path(L, f"EVT_{names[fid]}.eb.bytes") if live else None
-            if p is None or not p.is_file() or p.read_bytes() != want[L]:
-                bad.append(f"{fid} {L}")
-    out.append((not bad, "P-EB: every member's live .eb (7 languages) is the offline-checked build's",
-                ("differs: " + ", ".join(bad[:8])) if bad else f"{len(members)} x {len(LANGS)} files"))
-    bad = []
-    for fid, donor in sorted(members.items()):
-        mine = [b for b in (_deployed_walkmesh(Path(r), fid) for r in roots) if b is not None]
-        if len(mine) != 1:
-            bad.append(f"{fid}: {len(mine)} deployed walkmeshes")
-        elif BgiWalkmesh.from_bytes(mine[0]).to_bytes() != extract.stock_walkmesh(donor).to_bytes():
-            bad.append(f"{fid}: not donor {donor}'s walkmesh")
-    out.append((not bad, "P-FLOOR: every member's deployed walkmesh is its donor's",
-                "; ".join(bad[:6]) or f"{len(members)} members"))
-    over = {f: [r.name for r in T.stock_overrides(f, roots)] for f in pred["stock_fields"]}
-    over = {f: v for f, v in over.items() if v}
-    out.append((not over, "P-STOCK: no mod folder overrides stock 50, 52 or 100", str(over) if over else "none"))
-    return out
-
-
-def fingerprint(roots: list, pred: dict) -> dict:
-    """What the runs rely on in the SHARED install, JSON-shaped (two reads compare with ==)."""
-    from rung3_trace import _deployed_walkmesh, _fork_donor_rows
-
-    def sha(b) -> str | None:
-        return hashlib.sha256(b).hexdigest() if b is not None else None
-    fresh = T.mod_script_source(roots)
-    regs = [(Path(r).name, T.mod_registrations(r)) for r in roots]
-    rows = [(Path(r).name, f, d) for r in roots for f, d in _fork_donor_rows(Path(r))]
-    out = {"folders": [Path(r).name for r in roots],
-           "stock": {str(f): [r.name for r in T.stock_overrides(f, roots)] for f in pred["stock_fields"]}}
-    for fid in sorted(members_of(pred)):
-        try:
-            idx = fresh(fid)
-            eb = sha(idx.data) if idx is not None else None
-        except T.TraceError as err:
-            eb = f"unreadable: {str(err)[:120]}"
-        out[str(fid)] = {"reg": [[n, reg[fid]] for n, reg in regs if fid in reg],
-                         "fdp": [[n, d] for n, f, d in rows if f == fid], "eb": eb,
-                         "bgi": [sha(b) for b in (_deployed_walkmesh(Path(r), fid) for r in roots) if b is not None]}
-    return out
-
-
-def _changed(before: dict, now: dict) -> str:
-    keys = [k for k in sorted(set(before) | set(now)) if before.get(k) != now.get(k)]
-    return (f"{len(keys)} changed: " + ", ".join(keys[:8])) if keys else ""
-
-
 # ======================================================================== the driver
-# RouteVoid and pick_for live in segment_drive (imported above, re-exported here): O1's rules and its classless
-# RouteVoid(msg) behave exactly as they did (research/o2_design.md 1.4).
-
-
 def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=None, prior_for=None,
           progress: dict | None = None) -> dict:
     """Play the segment from the start field to the end field. Returns the run's outcome:
@@ -416,154 +242,131 @@ def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=Non
     raise HarnessError(f"the run's budget ran out in field {g.state.field_id}")
 
 
-# RECOVERY_FIELD (4600, the Southern Ring hub) lives in segment_trace (imported above).
+# ======================================================================== O1 on the shared engine
+class O1Segment(ST.Segment):
+    """O1 on :class:`segment_trace.Segment`: its constants, its check texts exactly as the archived sessions print
+    them, its LADDER, its report-only dialogue line, and its unchanged :func:`drive`. Every other line of the session
+    and the analysis is the shared engine's (the O1 regression gate, segment_regress.py, proves it byte-identical)."""
+
+    tag = "O1"
+    doc = _MODULE_DOC
+    predictions = PREDICTIONS
+    manifest = MANIFEST
+    session_file = SESSION_FILE
+    report_file = REPORT_FILE
+    chain_dir = CHAIN_DIR
+    build_dir = BUILD_DIR
+    accept_us_build = True               # the deployed O1 chain predates the kit's own-language capture (3d8b7f1b)
+    core_ids = ("LADDER", "NULL", "STABLE", "JOIN")
+    titles = {
+        "P-CAP": "P-CAP: the engine advertises the story trace at proto 1",
+        "P-MANIFEST": "P-MANIFEST: the frozen members are the deployed chain's (o1_forks.json, deployed)",
+        "P-DEPLOY": "P-DEPLOY: every member registered once under its name, and mapped once to its donor",
+        "P-EB": "P-EB: every member's live .eb (7 languages) is the offline-checked build's",
+        "P-FLOOR": "P-FLOOR: every member's deployed walkmesh is its donor's",
+        "P-STOCK": "P-STOCK: no mod folder overrides stock 50, 52 or 100",
+        "BUILD": "O1-BUILD: every member's US .eb is its donor's with only in-chain Field() literals remapped; "
+                 "each other language is its own donor's (the kit now) or the us build (the kit before 3d8b7f1b)",
+        "KEYS": "O1-KEYS: every ladder key is a store of its variable at its ip in the donor's stock bytes",
+        "FROZEN": "O1-FROZEN: the predictions are the file the session recorded, unchanged",
+        "COVER": "O1-COVER: at least {min_covered} covered runs a side",
+        "LADDER": "O1-LADDER: every covered run writes the four ladder keys, and SC exactly once",
+        "NULL": "O1-NULL: STOCK ONLY and FORK ONLY are empty outside the registered noise",
+        "STABLE": "O1-STABLE: no key outside the registered noise is written in some runs of a side and not others",
+        "JOIN": "O1-JOIN: every script row joins a store in the bytes its field ran",
+        "THROW": "O1-THROW: nothing thrown through the event engine, the evaluator, the tracer or the agent",
+    }
+    drive = staticmethod(drive)
+
+    def draft(self) -> dict:
+        return draft_predictions()
+
+    def core_checks(self, runs: list, cov: dict, pred: dict) -> list:
+        """O1-LADDER (the four ladder keys in every covered run, and SC written exactly once), then the shared
+        NULL, STABLE and JOIN."""
+        covered = cov["S"] + cov["F"]
+        bad = []
+        for r in covered:
+            keys = set(r["digest"].keys)
+            for k in pred["ladder"]:
+                if wkey(k) not in keys:
+                    bad.append(f"{r['side']}#{r['i']} lacks {k['what']}")
+            sc = [x for x in r["rows"] if x.k == "w" and x.m == T.FIELD_MODE and x.target == "Global.UInt16[0]"]
+            if len(sc) != pred["sc_writes"]:
+                bad.append(f"{r['side']}#{r['i']} wrote SC {len(sc)} times")
+        ladder = (not bad, self.title("LADDER"),
+                  "; ".join(bad[:6]) or f"{len(covered)} runs x {len(pred['ladder'])} keys")
+        return [ladder] + super().core_checks(runs, cov, pred)
+
+    def report_extra(self, run_dir: Path, session: dict, pred: dict, runs: list, checks: list) -> list:
+        """Report-only: each covered fork run's dialogue beside the first covered stock run's."""
+        lines = []
+        logs = {r["i"]: json.loads((run_dir / r["rec"]["log"]).read_text(encoding="utf-8"))
+                for r in runs if r["covered"] and (run_dir / r["rec"].get("log", "")).is_file()}
+        s0 = next((logs[r["i"]]["outcome"]["pages"] for r in runs if r["side"] == "S" and r["i"] in logs), None)
+        for r in runs:
+            if r["side"] == "F" and r["i"] in logs and s0 is not None:
+                same = logs[r["i"]]["outcome"]["pages"] == s0
+                lines.append(f"report: F#{r['i']} dialogue {'==' if same else '!='} the first covered stock run's "
+                             f"({len(logs[r['i']]['outcome']['pages'])} vs {len(s0)} pages)")
+        return lines
+
+
+O1 = O1Segment()
+
+
+# ======================================================================== O1's public names (thin wrappers)
+def load_predictions(path: Path = PREDICTIONS) -> tuple:
+    return O1.load(path)
+
+
+def freeze(path: Path = PREDICTIONS) -> str:
+    """Write the predictions ONCE (LF, sorted keys); refuses to overwrite a frozen file."""
+    return O1.freeze(path)
+
+
+_stock_lang = ST.stock_lang
+_changed = ST._changed
+_show = ST._show
+
+
+def build_check(pred: dict, build: Path = BUILD_DIR, stock_lang=None) -> tuple:
+    return O1.build_check(pred, build, stock_lang)
+
+
+def keys_check(pred: dict, stock) -> tuple:
+    return O1.keys_check(pred, stock)
+
+
+def offline_check(pred: dict, build: Path = BUILD_DIR) -> list:
+    return O1.offline_check(pred, build)
+
+
+def _roots():
+    return O1.roots()
+
+
+def preflight(pred: dict, roots: list, build: Path = BUILD_DIR, manifest: Path = MANIFEST) -> list:
+    """What must hold before the session spends an hour: ``[(ok, what, detail)]``."""
+    return O1.preflight(pred, roots, build, manifest)
+
+
+def fingerprint(roots: list, pred: dict) -> dict:
+    """What the runs rely on in the SHARED install, JSON-shaped (two reads compare with ==)."""
+    return O1.fingerprint(roots, pred)
 
 
 def end_run(g, log: list, *, recovery: int = RECOVERY_FIELD) -> None:
-    """Back to the title after a run. A covered run stands in field 100 as Alexandria's opening starts, and the soft
-    reset does not reach the title through it (session story-o1d: 45 s, then VOID). So the run first LEAVES by debug
-    warp -- which works mid-movie: every run's entry leaves field 70's intro that way -- to ``recovery``, and resets
-    from there; the trace is already closed. A warp that is refused (a run stopped mid-battle) falls back to the
-    ladder where it stands. A naming screen swallows the soft reset: accepted first when it is up."""
-    from harness import HarnessError
-    if g.state.ui_state != "Title":
-        try:
-            g.warp(recovery)
-            log.append({"k": "recover-warp", "field": recovery})
-        except HarnessError as err:
-            log.append({"k": "recover-warp-failed", "why": str(err)[:200]})
-    ok, why = g.restore_baseline()
-    if not ok and g.state.ui_state == "NameSetting":
-        g.accept_name()
-        log.append({"k": "end-naming"})
-        ok, why = g.restore_baseline()
-    if not ok:
-        raise HarnessError(f"the title could not be restored: {why}")
+    """Back to the title after a run: warp to ``recovery`` first (a covered run stands in field 100 as Alexandria's
+    opening starts, and the soft reset does not reach the title through it: story-o1d), then the reset."""
+    return O1.end_run(g, log, recovery=recovery)
 
 
-# ======================================================================== the session
 def run(g) -> None:
-    from harness import HarnessError
-
-    cap = g.state.storytrace
-    if not g.check(isinstance(cap, dict) and cap.get("proto") == T.PROTO,
-                   "P-CAP: the engine advertises the story trace at proto 1", str(cap)):
-        return
-    pred, sha = load_predictions()
-    b = pred["budget"]
-    roots = _roots()
-    pre = preflight(pred, roots)
-    for ok, what, detail in pre:
-        g.check(ok, what, detail)
-    if not all(ok for ok, _w, _d in pre):
-        return
-    fp0 = fingerprint(roots, pred)
-    ran = T.mod_script_source(roots)
-    scripts = g.run_dir / "scripts"
-    scripts.mkdir(exist_ok=True)
-    for fid in sorted(members_of(pred)):
-        (scripts / f"{fid}.eb").write_bytes(ran(fid).data)
-    session = {"label": g.run_dir.name, "predictions": str(PREDICTIONS), "predictions_sha256": sha,
-               "predictions_version": pred["version"], "order": pred["order"], "budget": b,
-               "preflight": [[ok, what, detail] for ok, what, detail in pre],
-               "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "install": fp0, "runs": []}
-
-    def save() -> None:
-        (g.run_dir / SESSION_FILE).write_text(json.dumps(session, indent=1), encoding="utf-8")
-
-    save()
-    mark = g.log_mark()
-    t0 = time.time()
-    deadline = t0 + b["session_s"]
-
-    def one(i: int, side: str, rerun: bool = False) -> None:
-        trace_name, log_name = f"run{i}_{side}.jsonl", f"run{i}_{side}_log.json"
-        rec = {"i": i, "side": side, "start": pred["start"][side], "trace": trace_name, "log": log_name}
-        if rerun:
-            rec["rerun"] = True
-        if time.time() + b["run_min_s"] > deadline:
-            rec["skipped"] = f"session budget: under {b['run_min_s']}s left"
-        else:
-            moved = _changed(fp0, fingerprint(roots, pred))
-            if moved:
-                rec["install"] = "before the run: " + moved
-        if rec.get("skipped") or rec.get("install"):
-            session["runs"].append(rec)
-            save()
-            return
-        log: list = []
-        progress: dict = {}
-        outcome = {"end": "void", "why": "not driven"}
-        smark = None
-        rec["t0"] = round(time.time() - t0)
-        g.shot_prefix = f"run{i}-{side}"
-        try:
-            if i > 1:
-                end_run(g, log)
-            g.newgame()
-            g.wait_frames(30)
-            smark = g.story_mark()
-            g.storytrace(True)
-            g._check_field_id(pred["start"][side], "warp", True)
-            g.send(f"warp {pred['start'][side]} {pred['entrance']} -1")
-            g.wait_for(lambda s: s.field_id == pred["start"][side], timeout=60.0,
-                       what=f"field {pred['start'][side]} to load")
-            outcome = drive(g, pred, side, log, deadline=min(deadline, time.time() + b["run_s"]),
-                            progress=progress)
-        except RouteVoid as err:
-            outcome = {"end": "void", "why": f"route: {err}"}
-        except HarnessError as err:
-            outcome = {"end": "void", "why": f"STOPPED: {str(err)[:300]}"}
-        except Exception as err:                  # noqa: BLE001 -- one run's bug must not cost the others
-            outcome = {"end": "void", "why": f"STOPPED (unexpected): {type(err).__name__}: {str(err)[:300]}"}
-            log.append({"k": "error", "traceback": traceback.format_exc()[-3000:]})
-        finally:
-            g.shot_prefix = ""
-            for k, v in progress.items():              # how far a run that raised got
-                outcome.setdefault(k, v)
-            if smark is not None:
-                try:
-                    rec["traced"] = g.collect_story(g.run_dir / trace_name, smark)
-                except HarnessError as err:
-                    rec["trace_error"] = str(err)[:300]
-            rec.update(end=outcome.get("end"), why=outcome.get("why"), beats=outcome.get("beats"),
-                       t1=round(time.time() - t0))
-            moved = _changed(fp0, fingerprint(roots, pred))
-            if moved:
-                rec["install"] = "during the run: " + moved
-            (g.run_dir / log_name).write_text(json.dumps({"outcome": outcome, "log": log}, indent=1), encoding="utf-8")
-            session["runs"].append(rec)
-            save()
-            print(f"[o1] run {i} ({side}) at {rec['t1']}s: {rec['end']} -- {rec['why']}", flush=True)
-
-    for i, side in enumerate(pred["order"], 1):
-        one(i, side)
-    reruns = 0
-    while reruns < pred["rerun"]["max"]:
-        short = [s for s in SIDES if sum(1 for r in read_session(g.run_dir, pred, session=session)
-                                         if r["side"] == s and r["covered"]) < pred["min_covered"]]
-        if not short or time.time() + b["run_min_s"] > deadline:
-            break
-        reruns += 1
-        one(len(session["runs"]) + 1, short[0], rerun=True)
-    session["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-    save()
-    try:
-        g.restore_baseline()
-    except HarnessError:
-        pass
-    checks, report = analyse(g.run_dir)
-    (g.run_dir / "o1_report.txt").write_text(report, encoding="utf-8")
-    print(report[:6000], flush=True)
-    for ok, what, detail in checks:
-        g.check(ok is True, what, ("VOID -- " if ok is None else "") + detail)
-    ours = [e for e in g.exceptions_since(mark) if e.name in THROWS
-            and (not e.trace or any(k in fr for fr in e.trace for k in WHERE))]
-    g.check(not ours, "O1-THROW: nothing thrown through the event engine, the evaluator, the tracer or the agent",
-            str([(e.name, e.where) for e in ours[:5]]) if ours else "none")
+    """The session (tools/play.py's entry): O1Segment.run."""
+    return O1.run(g)
 
 
-# ======================================================================== reading a session (pure, offline)
 def cut_at_end(rows: list, end_field: int) -> tuple:
     """``(the run up to its first write in the end field, that row's line or None)``: segment_trace's cut on frozen
     places, with no members -- O1's end field 100 is no member's donor, so this is O1's field rule exactly."""
@@ -571,159 +374,23 @@ def cut_at_end(rows: list, end_field: int) -> tuple:
 
 
 def read_session(run_dir, pred: dict, *, session: dict | None = None, stock=None) -> list:
-    """Every recorded run, read: ``[{i, side, rec, rows, cut, digest, covered, why_void}]``. A run is COVERED only
-    when its drive reached the end field with every beat done, its trace closed whole, and the install held."""
-    run_dir = Path(run_dir)
-    session = session or json.loads((run_dir / SESSION_FILE).read_text(encoding="utf-8"))
-    stock = stock or T.stock_script_source()
-    members = members_of(pred)
-    saved = {f: T.ScriptIndex((run_dir / "scripts" / f"{f}.eb").read_bytes(), field_id=f, label=f"member {f}")
-             for f in members if (run_dir / "scripts" / f"{f}.eb").is_file()}
-    fork_scripts = lambda fid: saved.get(fid) or stock(fid)                          # noqa: E731
-    out = []
-    for rec in session["runs"]:
-        why = []
-        r = {"i": rec["i"], "side": rec["side"], "rec": rec, "rows": [], "cut": None, "digest": None}
-        if rec.get("skipped"):
-            why.append(f"not run: {rec['skipped']}")
-        if rec.get("install"):
-            why.append(f"install changed {rec['install']}")
-        if rec.get("end") != "reached":
-            why.append(f"the drive did not reach the end: {rec.get('why')}")
-        beats = rec.get("beats") or {}
-        missed = [b for b in pred["beats"] if not (beats.get(b) in pred["battle_won"] if b == "battle" else beats.get(b))]
-        if rec.get("end") == "reached" and missed:
-            why.append(f"beats not done: {missed} (battle result {beats.get('battle')})")
-        path = run_dir / rec.get("trace", "")
-        if not rec.get("skipped") and path.is_file():
-            try:
-                rows, cut = cut_at_end(T.read_trace(path), pred["end_field"])
-                r["rows"], r["cut"] = rows, cut
-                d = T.digest(f"{rec['side']}#{rec['i']}", rows, scripts=fork_scripts if rec["side"] == "F" else stock,
-                             donor_scripts=stock, members=members if rec["side"] == "F" else None)
-                r["digest"] = d
-                if d.incomplete:
-                    why.append(f"trace incomplete: {d.incomplete[:120]}")
-            except T.TraceError as err:
-                why.append(f"trace unreadable: {str(err)[:200]}")
-        elif not rec.get("skipped"):
-            why.append("no trace file")
-        r["why_void"], r["covered"] = why, not why
-        out.append(r)
-    return out
-
-
-def _show(keys, n: int = 6) -> str:
-    ks = sorted(keys, key=T.WriteKey.sort_key)
-    s = [f"{k.donor} m{k.m} e{k.sid} t{k.tag} {k.off:+d} {k.target}={k.value}" for k in ks[:n]]
-    return "; ".join(s) + (f" (+{len(ks) - n} more)" if len(ks) > n else "")
+    """Every recorded run, read: ``[{i, side, rec, rows, cut, digest, covered, why_void, ...}]``."""
+    return O1.read_session(run_dir, pred, session=session, stock=stock)
 
 
 def judge(runs: list, pred: dict, *, frozen: tuple) -> list:
     """The registered checks over the read runs: ``[(True | False | None, what, detail)]`` -- None = VOID."""
-    checks = [frozen]
-    cov = {s: [r for r in runs if r["side"] == s and r["covered"]] for s in SIDES}
-    enough = all(len(cov[s]) >= pred["min_covered"] for s in SIDES)
-    checks.append((enough if enough else None, f"O1-COVER: at least {pred['min_covered']} covered runs a side",
-                   ", ".join(f"{s} {len(cov[s])} of {sum(1 for r in runs if r['side'] == s)}" for s in SIDES)
-                   + "".join(f"; {r['side']}#{r['i']} VOID: {'; '.join(r['why_void'])[:160]}"
-                             for r in runs if not r["covered"])))
-    if not enough:
-        for what in ("O1-LADDER", "O1-NULL", "O1-STABLE", "O1-JOIN"):
-            checks.append((None, what, "too few covered runs"))
-        return checks
-    covered = cov["S"] + cov["F"]
-    bad = []
-    for r in covered:
-        keys = set(r["digest"].keys)
-        for k in pred["ladder"]:
-            if wkey(k) not in keys:
-                bad.append(f"{r['side']}#{r['i']} lacks {k['what']}")
-        sc = [x for x in r["rows"] if x.k == "w" and x.m == T.FIELD_MODE and x.target == "Global.UInt16[0]"]
-        if len(sc) != pred["sc_writes"]:
-            bad.append(f"{r['side']}#{r['i']} wrote SC {len(sc)} times")
-    checks.append((not bad, "O1-LADDER: every covered run writes the four ladder keys, and SC exactly once",
-                   "; ".join(bad[:6]) or f"{len(covered)} runs x {len(pred['ladder'])} keys"))
-    c = T.compare([r["digest"] for r in cov["S"]], [r["digest"] for r in cov["F"]], members=members_of(pred))
-    so = [k for k in c.stock_only if not is_noise(k, pred)]
-    fo = [k for k in c.fork_only if not is_noise(k, pred)]
-    checks.append((not so and not fo, "O1-NULL: STOCK ONLY and FORK ONLY are empty outside the registered noise",
-                   f"STOCK ONLY {len(so)}: {_show(so)} / FORK ONLY {len(fo)}: {_show(fo)}" if so or fo
-                   else f"{len(c.matched)} keys matched; noise set aside: "
-                        f"{len(c.stock_only) - len(so)} stock-only, {len(c.fork_only) - len(fo)} fork-only"))
-    un = [k for k in c.unstable if not is_noise(k, pred)]
-    checks.append((not un, "O1-STABLE: no key outside the registered noise is written in some runs of a side and "
-                           "not others", f"{len(un)}: {_show(un)}" if un else
-                   f"{len(c.unstable)} unstable, all registered noise"))
-    fails = [(r["side"], r["i"], len(r["digest"].failures)) for r in covered if r["digest"].failures]
-    checks.append((not fails, "O1-JOIN: every script row joins a store in the bytes its field ran",
-                   str(fails) if fails else f"{sum(len(r['rows']) for r in covered)} rows, 0 failures"))
-    return checks
-
-
-# verdict lives in segment_trace (imported above).
+    return O1.judge(runs, pred, frozen=frozen)
 
 
 def analyse(run_dir, *, pred_path: Path | None = None, stock=None) -> tuple:
     """``(checks, report text)`` for a session directory, against the predictions the session recorded."""
-    run_dir = Path(run_dir)
-    session = json.loads((run_dir / SESSION_FILE).read_text(encoding="utf-8"))
-    path = Path(pred_path or session["predictions"])
-    pred, sha = load_predictions(path)
-    frozen = (sha == session["predictions_sha256"],
-              "O1-FROZEN: the predictions are the file the session recorded, unchanged",
-              f"{path.name} sha {sha[:8]}" + ("" if sha == session["predictions_sha256"]
-                                               else f", recorded {session['predictions_sha256'][:8]}"))
-    runs = read_session(run_dir, pred, session=session, stock=stock)
-    checks = judge(runs, pred, frozen=frozen)
-    lines = [f"O1 -- {session['label']}  (predictions v{pred['version']} {sha[:8]})", "",
-             f"VERDICT: {verdict(checks)}", ""]
-    for ok, what, detail in checks:
-        lines.append(f"{'PASS' if ok is True else 'FAIL' if ok is False else 'VOID'}  {what}\n      {detail}")
-    lines.append("")
-    for r in runs:
-        rec = r["rec"]
-        lines.append(f"run {r['i']} {r['side']}: {'covered' if r['covered'] else 'VOID'} -- {rec.get('why')}; beats "
-                     f"{rec.get('beats')}; {len(r['rows'])} rows, cut at line {r['cut']}")
-    cov = {s: [r["digest"] for r in runs if r["side"] == s and r["covered"]] for s in SIDES}
-    if cov["S"] and cov["F"]:
-        lines += ["", T.report(T.compare(cov["S"], cov["F"], members=members_of(pred)), title="O1 stock vs fork")]
-    # report-only: each covered fork run's dialogue beside the first covered stock run's
-    logs = {r["i"]: json.loads((run_dir / r["rec"]["log"]).read_text(encoding="utf-8"))
-            for r in runs if r["covered"] and (run_dir / r["rec"].get("log", "")).is_file()}
-    s0 = next((logs[r["i"]]["outcome"]["pages"] for r in runs if r["side"] == "S" and r["i"] in logs), None)
-    for r in runs:
-        if r["side"] == "F" and r["i"] in logs and s0 is not None:
-            same = logs[r["i"]]["outcome"]["pages"] == s0
-            lines.append(f"report: F#{r['i']} dialogue {'==' if same else '!='} the first covered stock run's "
-                         f"({len(logs[r['i']]['outcome']['pages'])} vs {len(s0)} pages)")
-    return checks, "\n".join(lines) + "\n"
+    return O1.analyse(run_dir, pred_path=pred_path, stock=stock)
 
 
 # ======================================================================== CLI
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--offline-check", action="store_true")
-    ap.add_argument("--preflight", action="store_true")
-    ap.add_argument("--analyse", metavar="RUN_DIR")
-    ap.add_argument("--predictions", type=Path)
-    ap.add_argument("--freeze", action="store_true")
-    args = ap.parse_args(argv)
-    if args.freeze:
-        print("frozen:", PREDICTIONS.name, freeze())
-        return 0
-    if args.analyse:
-        checks, report = analyse(args.analyse, pred_path=args.predictions)
-        print(report)
-        return 0 if all(ok is True for ok, _w, _d in checks) else 1
-    pred, sha = load_predictions(args.predictions or PREDICTIONS)
-    checks = offline_check(pred) if args.offline_check else preflight(pred, _roots()) if args.preflight else None
-    if checks is None:
-        ap.print_help()
-        return 2
-    for ok, what, detail in checks:
-        print(f"{'PASS' if ok else 'FAIL'}  {what}\n      {detail}")
-    return 0 if all(ok for ok, _w, _d in checks) else 1
+    return O1.main(argv)
 
 
 if __name__ == "__main__":
