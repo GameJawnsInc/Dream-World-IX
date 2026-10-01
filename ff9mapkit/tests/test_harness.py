@@ -13910,3 +13910,65 @@ def test_fight_counts_its_tutorials_and_seconds(game):
     assert lf["tutorials"] == 1 and lf["seconds"] > 0 and lf["timed_out"] is False, lf
     assert (lf["result"], lf["name"]) == (1, "victory") and lf["turns"] >= 4 and lf["epoch"] > 0, lf
 
+
+def test_leave_battle_stops_where_the_field_begins_and_logs_its_presses(game):
+    """H8 (research/o3_design.md 3): ``leave_battle(stop_on_field=True)`` across H9's four-phase exit -- the fade, the
+    over frame and BattleResult, then the LOAD lagging as BattleResult with the scene gone -- presses Confirm only while
+    the battle scene is up: every recorded press was decided on a sample in the battle, none is executed after the
+    scene went (beyond the one race a press decided just before it can lose), and it stops "scene-gone" with the UI
+    still reading BattleResult. ``last_leave`` records each press's sample and where the loop ended. "Executed after"
+    is counted, not timed: the loop samples before every press, so at most the ONE press already in flight when the
+    scene goes can land after it, however slow the machine. The control: the default loop (O1's) presses on through
+    the lag. Break: drop the stop (the loop presses into the loading field)."""
+    got = {}
+    for stop in (True, False):
+        fake = _StampFake(game)
+        fake.battle_exit = {"field": 30810, "fade_frames": 30, "result_frames": 240, "load_frames": 240,
+                            "arrive_control": False}
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30821)
+            g.start_battle(105)
+            _o3_end_on_the_fake(fake, 2)
+            published(g, lambda s: s.battle_result == 2)
+            ui = g.leave_battle(stop_on_field=stop) if stop else g.leave_battle()
+            leave = g.last_leave
+        gone = next(e["frame"] for e in fake.exits if e["phase"] == "load")
+        pressed = [f for _t, f, s in fake.stamped if s[:2] == ["press", "confirm"]]
+        got[stop] = (ui, leave, gone, pressed)
+    ui, leave, gone, pressed = got[True]
+    assert leave["presses"] and all(p["in_battle"] for p in leave["presses"]), leave
+    assert all({"frame", "ui", "in_battle", "field", "result"} == set(p) for p in leave["presses"]), leave
+    assert {p["ui"] for p in leave["presses"]} <= {"BattleHUD", "BattleResult"}, leave
+    assert leave["stopped"] == "scene-gone" and ui == "BattleResult" == leave["ended"], leave
+    assert pressed and len([f for f in pressed if f >= gone]) <= 1, (pressed, gone)
+    assert len(pressed) == len(leave["presses"]), (pressed, leave)
+    ui, leave, gone, pressed = got[False]
+    assert len([p for p in leave["presses"] if not p["in_battle"]]) >= 3, leave        # the control: into the lag
+    assert len([f for f in pressed if f >= gone]) >= 3, (pressed, gone)
+    assert leave["stopped"] == "field" and ui == "FieldHUD", leave
+
+
+def test_leave_battle_records_presses_on_o1s_path(game):
+    """H8: O1's shape -- a battle that ends in its own field with FieldHUD at once (no ``battle_exit``) -- through the
+    DEFAULT loop: it presses Confirm while the battle is up, stops at the field and returns its UI state as it always
+    did, and ``last_leave`` now records every press (its sample in the battle) and the stop ("field"). Break: record
+    no press."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g.start_battle(105)
+        stop = threading.Event()
+        _o1_director(fake, stop, [(lambda f: sum(1 for s in f.executed if s[:2] == ["press", "confirm"]) >= 2,
+                                   lambda f: _o3_end_on_the_fake(f, 1))])
+        try:
+            ui = g.leave_battle()
+        finally:
+            stop.set()
+        leave = g.last_leave
+    assert ui == "FieldHUD" and leave["ended"] == "FieldHUD" and leave["field"] == 30820, leave
+    assert leave["stopped"] == "field" and len(leave["presses"]) >= 2, leave
+    assert all(p["in_battle"] and p["ui"] == "BattleHUD" and p["field"] == 30820 and p["result"] == 0
+               for p in leave["presses"]), leave
+    assert fake.battle_result == 1 and not fake.exits, "O1's shape: today's end, in its own field"

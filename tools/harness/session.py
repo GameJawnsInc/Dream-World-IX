@@ -271,6 +271,8 @@ class Session:
         #: What the last fight() actually did -- turns taken, result, the epoch it fought.
         #: None until one runs. See fight() for why the TURN COUNT is worth keeping.
         self.last_fight: dict | None = None
+        #: What the last leave_battle() pressed and where it stopped (research/o3_design.md H8). None until one runs.
+        self.last_leave: dict | None = None
         self._axes: dict[int, dict] = {}      # field id -> measured button->world basis
         self._priors: dict[int, dict | None] = {}   # field id -> PREDICTED basis (key_prior), never a measurement
         #: Unseen blockers route_to(unstick=True) walked into on the CURRENT field visit: (field id, [(x, z)]).
@@ -7459,24 +7461,40 @@ class Session:
             self.leave_battle()
         return result
 
-    def leave_battle(self, *, timeout: float = 90.0) -> str:
+    def leave_battle(self, *, timeout: float = 90.0, stop_on_field: bool = False) -> str:
         """Get past the battle-result screen and back to whatever comes after the fight.
 
         The result screen wants a confirm (sometimes several: spoils, level-ups, learned abilities),
         and a defeat goes to the Game Over menu instead, which no amount of confirming leaves. Both
         outcomes are reported rather than one of them hanging.
+
+        ``stop_on_field`` (research/o3_design.md H8): before each Confirm, a sample with the battle scene GONE (not
+        ``in_battle``, whatever ``ui_state`` still reads -- it lags as BattleResult while the next field loads) or
+        the field HUD up stops the loop: never a Confirm into a loading field, or onto its first windows. The default
+        is the loop as it always was. Either way :attr:`last_leave` records every press -- ``{"frame", "ui",
+        "in_battle", "field", "result"}`` of the sample it was decided on -- and where the loop ended: ``ended`` (the
+        UI state, which is also returned), ``field``, ``frame``, and ``stopped``: "field" (the stopping sample showed
+        the field HUD), "scene-gone" (the battle scene gone, the field not up yet) or "presses" (the Confirms ran out).
         """
+        presses: list = []
+        stopped = "presses"
         st = self.state
         for _ in range(40):
             self._assert_alive()
             st = self.state
-            if not st.in_battle and st.ui_state not in ("BattleHUD", "BattleResult"):
+            if (stop_on_field and (not st.in_battle or st.ui_state == "FieldHUD")) or (
+                    not st.in_battle and st.ui_state not in ("BattleHUD", "BattleResult")):
+                stopped = "field" if st.ui_state == "FieldHUD" else "scene-gone"
                 break
+            presses.append({"frame": st.frame, "ui": st.ui_state, "in_battle": st.in_battle, "field": st.field_id,
+                            "result": st.battle_result})
             self.press("confirm", 4)
             self.wait_frames(20)
         st = self.state
+        self.last_leave = {"presses": presses, "ended": st.ui_state, "field": st.field_id, "frame": st.frame,
+                           "stopped": stopped}
         self._log(f"  leave_battle: ui={st.ui_state} field={st.field_id} "
-                  f"result={st.battle_result_name}")
+                  f"result={st.battle_result_name} presses={len(presses)} stopped={stopped}")
         return st.ui_state
 
     def flag(self, bit: int, value: bool = True) -> None:
@@ -8028,8 +8046,9 @@ class Session:
         self._axes.clear()
         # ⚠ And the last fight's record. battle_play asserts `last_fight["turns"] >= 1`; carried
         # across the boundary, a member whose fight() raised before recording anything would be
-        # judged on the PREVIOUS member's fight and pass.
+        # judged on the PREVIOUS member's fight and pass. Its leave's record likewise.
         self.last_fight = None
+        self.last_leave = None
         # `reset_agent` is documented as the isolation primitive and was only ever reached as a
         # RECOVERY rung -- so on the happy path (the previous scenario ended tidily) held buttons,
         # a stale watch list and a changed timescale carried straight into the next member. Run it
