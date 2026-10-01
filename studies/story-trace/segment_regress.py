@@ -167,6 +167,8 @@ REQUIRED_TESTS_O3: tuple = (
     "test_o3_drive_movie_skip_retries_then_gives_up_without_a_void",
     "test_o3_drive_movie_skip_turns_a_page_that_comes_instead",
     "test_o3_drive_movie_skip_refuses_a_dialog_that_is_not_the_skip_text",
+    # the movie-skip review: a skip dialog the policy's own press opened but cannot read is answered at its default
+    "test_o3_drive_movie_skip_answers_an_unread_skip_dialog_at_its_default",
 )
 #: G14 (the review, research/o3_design.md 11.7 #12): o3_dryrun's "N/N cases as registered" must have N at least this --
 #: its sessions, "predictions-changed", its units and its offline mutants when G14 joined (92), and the movie-skip A/B's

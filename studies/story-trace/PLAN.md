@@ -1048,12 +1048,16 @@ one the way a player does. It is opt-in, per segment, and off unless the predict
   driver presses Confirm once (a `press` row, `why` "movie_skip") and answers the skip dialog YES. It answers only
   the dialog its own press opened, and only when the published choice is the skip dialog's text (`skip_answer`: the
   prompt holds "want to skip", or the box does when the prompt publishes empty; exactly two lines, Yes then No, each
-  as published or short its first character; Yes at absolute option 0). A press that opens no dialog is repeated
-  `press_every_s` later, up to `max_presses`; then the visit gives up ('movie-skip missed'). That is never a VOID:
-  the movie plays out. A page that opens instead is turned by the page rule and ends the attempts. Each such visit's
-  `movie` row records the presses, the dialog as published, the frame and seconds it was skipped at, and `saved_s`
-  against the cell's `length_s`. Without the key the driver is O3's exactly, and O1's rule still answers a stray skip
-  dialog at its default (No).
+  as published or short its first character; Yes at absolute option 0). A dialog after its press that it does not
+  read as the skip dialog is kept on the row as refused: a frozen rule that answers it answers it (a script's choice
+  that came instead stays the route's); with no rule, a dialog of the skip dialog's shape (two lines, the cursor on
+  No: the skip dialog localized, or with its prompt published empty) is answered at the game's default, No, so the
+  movie resumes; any other shape is no skip dialog and goes to the ordinary rules. A press that opens no dialog it
+  can answer is repeated `press_every_s` later, up to `max_presses`; then the visit gives up ('movie-skip missed').
+  That is never a VOID: the movie plays out. A page that opens instead is turned by the page rule and ends the attempts.
+  Each such visit's `movie` row records the presses, the dialog as published (and each refused one), the frame and
+  seconds it was skipped at, and `saved_s` against the cell's `length_s`. Without the key the driver is O3's
+  exactly, and O1's rule still answers a stray skip dialog at its default (No).
 - **The engine path.** `FieldHUD.OnKeyConfirm` (FieldHUD.cs:275-286) opens Localization `SkipMovieDialog` (US "Do you
   want to skip / the movie?", then Yes / No under `[PCHC=2,1]`: the cursor on `ETb.sChoose = 1`, No) while
   `MovieHitArea` is active (`MBG.Play` arms it for a movie of type other than 1) and the movie is not finished.

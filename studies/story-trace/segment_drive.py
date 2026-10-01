@@ -46,11 +46,13 @@ agent publishes no movie state, so the policy rests on its registration (:func:`
 and an SC, and how long into the visit its press may come) and on what is published: in a registered cell, nothing
 on screen and control off, ``after_s`` into the visit, it presses Confirm (:meth:`_Drive.movie_press`, a ``press``
 row) and answers the skip dialog YES -- only the one its own press opened, and only when the published choice IS the
-skip dialog (:func:`skip_answer`; :meth:`_Drive.movie_answer`). No dialog is pressed for again, up to ``max_presses``;
-then the visit gives up ('movie-skip missed', never a VOID: the movie plays out). Each such visit's ``movie`` row
-keeps its presses, the dialog as published, the frame and the seconds it was skipped at, and the seconds saved
-against the cell's registered ``length_s``. Without the key the loop is O3's exactly, and O1's skip rule still answers
-a stray skip dialog at its default (No).
+skip dialog (:func:`skip_answer`; :meth:`_Drive.movie_answer`). A dialog after its press that it does not read as the
+skip dialog goes to the frozen rule that answers it, or -- with none, and the skip dialog's shape (:func:`skip_shaped`:
+a localized text, an empty prompt) -- is answered at the game's default, No: the movie resumes. No dialog is pressed
+for again, up to ``max_presses``; then the visit gives up ('movie-skip missed', never a VOID: the movie plays out).
+Each such visit's ``movie`` row keeps its presses, the dialog as published, the frame and the seconds it was skipped
+at, and the seconds saved against the cell's registered ``length_s``. Without the key the loop is O3's exactly, and
+O1's skip rule still answers a stray skip dialog at its default (No).
 """
 from __future__ import annotations
 
@@ -146,11 +148,7 @@ def pick_for(choice: dict, donor: int, pred: dict, *, sc: int | None = None, ans
     lines = list(choice.get("options") or [])[1:]
     active = list(choice.get("active") or range(len(lines)))
     for n, rule in enumerate(pred["choices"]):
-        if rule["donor"] not in (None, donor):
-            continue
-        if rule.get("sc") is not None and sc not in rule["sc"]:
-            continue
-        if not any(rule["match"] in ln for ln in [choice.get("options", [""])[0], *lines]):
+        if not _rule_fits(rule, choice, donor, sc, lines):
             continue
         if rule.get("once") and n in answered:
             raise RouteVoid(f"choice in {donor} at SC {sc}: rule {rule['match']!r} answers once and was answered "
@@ -167,6 +165,24 @@ def pick_for(choice: dict, donor: int, pred: dict, *, sc: int | None = None, ans
                             v="V3", cell=[donor, sc], by="game")
         return hits[0], rule
     raise RouteVoid(f"choice in {donor} with no rule: {choice.get('options')}")
+
+
+def _rule_fits(rule: dict, choice: dict, donor, sc, lines: list) -> bool:
+    """Whether a frozen choice rule applies to a ready ``choice`` (``lines``: its shown lines): its ``donor`` (None =
+    any), its ``sc`` (None = any) and its ``match`` in the prompt or a shown line -- :func:`pick_for`'s matching, in
+    its order, which :func:`rule_for` shares."""
+    if rule["donor"] not in (None, donor):
+        return False
+    if rule.get("sc") is not None and sc not in rule["sc"]:
+        return False
+    return any(rule["match"] in ln for ln in [choice.get("options", [""])[0], *lines])
+
+
+def rule_for(choice: dict, donor: int, pred: dict, *, sc: int | None = None) -> dict | None:
+    """The first frozen choice rule that applies to a ready ``choice`` -- the one :func:`pick_for` would answer it by
+    -- or None: no rule answers it (pure; nothing is resolved, so nothing raises)."""
+    lines = list(choice.get("options") or [])[1:]
+    return next((rule for rule in pred["choices"] if _rule_fits(rule, choice, donor, sc, lines)), None)
 
 
 # ======================================================================== the beat table's helpers (pure)
@@ -495,6 +511,19 @@ def skip_answer(choice: dict | None, texts=(), policy: dict | None = None) -> in
     if len(active) != 2 or active[0] != 0:
         return None
     return 0
+
+
+def skip_shaped(choice: dict | None) -> bool:
+    """Whether a ready ``choice`` has the engine's skip dialog's SHAPE, whatever its text (pure): exactly two shown
+    lines, both enabled (``active`` [0, 1], or not published), the cursor on the second -- ``[PCHC=2,1]`` under
+    ``ETb.sChoose = 1``, which FieldHUD.OnKeyConfirm sets before it attaches the dialog (FieldHUD.cs:280). The dialog
+    in a text :func:`skip_answer` cannot read (another language, a prompt published empty) keeps it; a dialog of any
+    other shape is no skip dialog, whoever's press came before it."""
+    if not choice:
+        return False
+    lines = list(choice.get("options") or [])[1:]
+    active = choice.get("active")
+    return len(lines) == 2 and (active is None or list(active) == [0, 1]) and choice.get("selected") == 1
 
 
 def _raw_in_battle(raw: dict) -> bool:
@@ -1569,7 +1598,9 @@ class _Drive:
                 return False                             # the last press's wait for its dialog
             if len(row["presses"]) >= most:
                 self.movie_end(row, "missed", f"no skip dialog after {len(row['presses'])} press(es) "
-                                              f"{every:g} s apart")
+                                              f"{every:g} s apart"
+                               + (f" ({len(row['refused'])} dialog(s) refused as not the skip text)"
+                                  if row["refused"] else ""))
                 return False
         else:
             row = {"k": "movie", "field": self.fid, "donor": self.donor, "sc": self.sc, "visit": self.visit,
@@ -1591,9 +1622,18 @@ class _Drive:
         and only when the choice IS the skip dialog (:func:`skip_answer`: its prompt, its two lines). Its ``choice``
         row (``rule`` "movie_skip": a choice the driver took over the game's default, as 4.7's ``choice`` backing
         reads it) and the movie row's dialog (prompt, options, active, selected, count), frame, seconds into the
-        visit and ``saved_s`` (the cell's ``length_s`` less them). Anything else is the ordinary rules' (False): a
-        dialog no press of the policy opened, or one that is not the skip text (kept on the row as ``refused``) --
-        O1's rule then answers a skip dialog at its default (No), as it does with no policy at all."""
+        visit and ``saved_s`` (the cell's ``length_s`` less them).
+
+        A dialog no press of the policy opened is the ordinary rules' (False), as with no policy at all. One it
+        REFUSES (not the skip text) while its press is behind it is kept on the row as ``refused`` (once), and then:
+        a frozen rule that answers it answers it (:func:`rule_for`; False -- a script's choice that came instead is
+        the route's, its pick, ``once`` and beat included); with no rule, a dialog of the skip dialog's shape
+        (:func:`skip_shaped`: the skip dialog in a text it cannot read -- the engine localizes it, FieldHUD.cs:281 --
+        or a prompt published empty) is the policy's own press's, so the policy answers it at the game's own default
+        (No: the engine resumes the movie on any answer but 0, :428-440) -- a ``choice`` row, index "default", ``rule``
+        "movie_skip_default" -- and the attempts count on to 'movie-skip missed': never a VOID, and the frozen table is
+        never asked. A dialog of any other shape is no skip dialog: the ordinary rules' (False; V1, the game's, with no
+        rule). True when it answered (or its default's Confirm did not land: asked again on a later poll)."""
         row = self.movie_row()
         if row is None or not row["presses"]:
             return False
@@ -1603,7 +1643,18 @@ class _Drive:
         if index is None:
             if snap not in row["refused"]:
                 row["refused"].append(snap)
-            return False
+            if rule_for(ch, self.donor, self.pred, sc=self.sc) is not None or not skip_shaped(ch):
+                return False
+            took = self.g._take_default_choice(st)
+            if took is None:
+                return True                              # the Confirm did not land: the dialog is asked again
+            self.walked = None
+            crow = {"k": "choice", "field": self.fid, "donor": self.donor, "sc": self.sc, "frame": st.frame,
+                    "options": ch.get("options"), "active": ch.get("active"), "selected": ch.get("selected"),
+                    "count": ch.get("count"), "index": "default", "rule": "movie_skip_default", "took": took}
+            self.choices.append(crow)
+            self.log.append(crow)
+            return True
         self.g.choose(index)
         t = time.time() - self.visit_t0
         self.walked = None

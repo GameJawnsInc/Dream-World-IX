@@ -14861,6 +14861,38 @@ def test_o3_drive_movie_skip_refuses_a_dialog_that_is_not_the_skip_text(game):
     assert [(c["index"], c["rule"]) for c in out["choices"]] == [("default", 1), ("default", 1)], out["choices"]
 
 
+def test_o3_drive_movie_skip_answers_an_unread_skip_dialog_at_its_default(game):
+    """The policy's own press opens a dialog the skip reader refuses and NO frozen rule answers either: the skip dialog
+    in a text it cannot read -- the engine localizes it (FieldHUD.cs:281: "Voulez-vous passer / la vidéo ?", Oui / Non,
+    under the default US ``match``), or a prompt published EMPTY whose box lacks the match. The policy answers it at the
+    game's own default, No -- the engine resumes the movie on any answer but 0 (:428-440) -- keeps it on its row as
+    ``refused`` (once), and its attempts count on to 'movie-skip missed': the movie plays out, the run reaches its end,
+    never a VOID, and nothing is ever answered 0. Its ``choice`` rows: index "default", rule "movie_skip_default", the
+    cursor 1. A dialog no skip dialog can be -- THREE lines (the engine's has two: [PCHC=2,1]) -- is not the policy's to
+    answer: with no rule for it the run VOIDs V1, the game's, as with no policy at all. Break: leave every refused
+    dialog to the frozen rules (the first dialog then VOIDs V1 'game')."""
+    SD = _segment_modules()
+    pred = _o3_pred(movies=_o3_movies(cell={"after_s": 0.25}, max_presses=2))
+    fr = {"header": "Voulez-vous passer\nla vidéo ?", "options": ["Oui", "Non"]}
+    empty = {"header": "", "options": ["Yes", "No"]}
+    for dialog in (fr, empty):
+        out, log, fake = _o3_movie_run(game, pred, _o3_movie_route({"movie": 1200, "skip": dialog}, _O3_PAGE))
+        assert not isinstance(out, Exception) and out["end"] == "reached" and out["void"] is None, (dialog, out)
+        assert fake.answered == [1, 1] and (fake.movies[0]["skips"], fake.movies[0]["ended"]) == (2, "played"), \
+            (dialog, fake.answered, fake.movies)
+        row = out["movies"][0]
+        assert row["outcome"] == "missed" and len(row["presses"]) == 2 and row["dialog"] is None, row
+        assert "1 dialog(s) refused as not the skip text" in row["missed"], row["missed"]
+        assert [r["options"] for r in row["refused"]] == [[dialog["header"], *dialog["options"]]], row["refused"]
+        assert [(c["index"], c["rule"], c["selected"]) for c in out["choices"]] == \
+            [("default", "movie_skip_default", 1)] * 2, out["choices"]
+        assert out["pages"] == [_O3_PAGE], out["pages"]
+    three = dict(fr, options=["Oui", "Non", "Plus tard"])
+    err, log, fake = _o3_movie_run(game, pred, _o3_movie_route({"movie": 1200, "skip": three}, _O3_PAGE))
+    assert isinstance(err, SD.RouteVoid) and (err.v, err.by) == ("V1", "game") and "with no rule" in str(err), err
+    assert fake.answered == [] and len(_presses(log, "movie_skip")) == 1, (fake.answered, log)
+
+
 def test_o2_drive_voids_a_battle_without_a_registry(game):
     """S4 is opt-in (research/o3_design.md 1.2, 1.4): O2-shaped predictions -- no ``battles`` key, or an empty
     registry -- read a battle on screen exactly as O2's driver did: rule 5's V10 (game) with O2's message, the cell
