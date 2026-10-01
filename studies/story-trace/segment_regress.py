@@ -120,6 +120,8 @@ REQUIRED_TESTS_O2: tuple = (
     "test_o3_rehearse_plumbing_on_the_fake",
     "test_o3_rehearse_smoke_sends_no_storytrace_on_the_fake",
     "test_o3_rehearse_battle_void_stops_mid_fight_on_the_fake",
+    # the review (research/o3_design.md 11.7 #7): each run records its own fight and leave
+    "test_o3_rehearse_clears_the_last_fight_between_runs_on_the_fake",
 )
 
 # -- O3 (research/o3_design.md 1.4, 9 B4): the battle beat's driver tests, by name. No baseline: the list is the floor.

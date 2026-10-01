@@ -15161,3 +15161,50 @@ def test_o3_rehearse_battle_void_stops_mid_fight_on_the_fake(game):
     assert er["ok"] and er["title"] and title == "Title" and fake.soft_resets == resets + 1, (er, fake.soft_resets)
     assert not [s for s in fake.executed if s[0] == "warp" and s[1] == str(_O3_RECOVERY)], "end_run warped"
     assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+
+
+def test_o3_rehearse_clears_the_last_fight_between_runs_on_the_fake(game):
+    """Each traced run records ITS OWN fight() and leave_battle() (research/o3_design.md 7.2; the review, 11.7 #7):
+    the Session clears ``last_fight`` and ``last_leave`` only at a suite member's start, so ``one()`` clears them before
+    every run. Two runs of one stage on the fake: run 1 fights battle 338 from "62" (King Leo's latch, the four-phase
+    exit into "63") and reaches the end; run 2 never fights -- control comes back in "62", V4 after the settle. Run 1's
+    record holds its fight (result 2) and its leave (its presses); run 2's holds None for both, never run 1's. Break:
+    drop the clearing (run 2 records run 1's fight and leave as its own)."""
+    _P, R = _o3_module(), _o3_rehearse_module()
+    _o3_launch_files(game)
+    stages = {"R-TWO": {"field": 30821, "entrance": 0, "sc": 1155, "end": [_O3_END], "runs": 2, "run_s": 60,
+                        "cost_s": 5, "settles": "each run's own fight and leave"}}
+    fake = _o3_fake(game, exit_to=30810)
+    seen = {}
+
+    def fight(f):
+        seen["epoch"] = f.battle_epoch + 1
+        f.start_battle(338, units=_o3_units())
+    phases = [(lambda f: f.field_id == 30821 and f.story_on, lambda f: f.scene("Cinna\n“Act I!”", control=False)),
+              (lambda f: f.field_id == 30821 and _o3_idle(f), fight),
+              (lambda f: f.battle_epoch == seen.get("epoch") and f.field_id == 30810 and _o3_idle(f),
+               lambda f: f.scene("Zidane\n“Phew.”", control=False)),
+              (lambda f: f.field_id == 30810 and _o3_idle(f), lambda f: _o2_move(f, _O3_END)),
+              # run 2 (New Game and the warp again): control comes back in "62" -- no battle, V4 after the settle
+              (lambda f: f.field_id == 30821 and f.story_on and not f._beats,
+               lambda f: setattr(f, "control", True))]
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0], "a launch starts at the title"
+        _o1_director(fake, stop, phases)
+        _o3_grant_in(fake, stop)
+        try:
+            R.run(g, stages=stages, pred=_o3_rehearse_pred(), floor_for=lambda d, closed: _flat_bgi(),
+                  prior_for=lambda d: _prior(), stock=lambda fid: None, recovery=_O3_RECOVERY,
+                  env={"O3_STAGE": "R-TWO"}, census=_O3_CENSUS.__func__)
+        finally:
+            stop.set()
+    doc = json.loads((game / "run" / "o3_rehearsal.json").read_text(encoding="utf-8"))
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    first, second = doc["stages"]["R-TWO"]
+    assert first["outcome"]["end"] == "reached" and len(first["battles"]["rows"]) == 1, first["outcome"]
+    assert first["fight"]["result"] == 2 and first["leave"]["presses"], (first["fight"], first["leave"])
+    assert (second["outcome"]["end"], second["outcome"]["v"]) == ("void", "V4"), second["outcome"]
+    assert second["battles"]["rows"] == [], second["battles"]
+    assert second["fight"] is None and second["leave"] is None, (second["fight"], second["leave"])

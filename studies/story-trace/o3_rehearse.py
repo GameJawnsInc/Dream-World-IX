@@ -189,8 +189,11 @@ def _exceptions(g, mark) -> list:
 # ======================================================================== a run, a smoke, a launch
 def one(g, name: str, stage: dict, pred: dict, n: int, *, t0: float, floor_for=None, prior_for=None, stock=None,
         recovery=None) -> dict:
-    """One traced rehearsal run of ``stage`` (7.1): its record (7.2)."""
+    """One traced rehearsal run of ``stage`` (7.1): its record (7.2). ``g.last_fight`` and ``g.last_leave`` are
+    cleared first: the Session resets them only at a suite member's start, so a run that never fights would otherwise
+    record the previous run's fight and leave as its own (the review, research/o3_design.md 11.7 #7)."""
     from harness import HarnessError
+    g.last_fight = g.last_leave = None
     spred = stage_pred(pred, stage)
     log, progress, marks = [], {}, {}
     rec_obs = O2R.Recorder(g, stage, tracks=())

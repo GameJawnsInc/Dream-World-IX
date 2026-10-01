@@ -1168,7 +1168,9 @@ both asserted in its test) and `run`. The command: `py tools/play.py studies/sto
 ### 7.2 What every stage records
 O2's record (grants -- there must be none --, pages with `timed`, published choices, the `press` evidence, the longest
 no-progress stretch and where, the end state, `end_run`'s result) plus:
-- **the battle rows** of the driver log (2.3 step 6), whole, with `battle_epoch0`;
+- **the battle rows** of the driver log (2.3 step 6), whole, with `battle_epoch0`; and the run's own `g.last_fight`
+  and `g.last_leave`, cleared before each run (the Session clears them only at a suite member's start, so a run that
+  never fights would record the previous run's: the review, 11.7 #7);
 - **`end_run`'s recovery rows** (`recover-in-battle` with its ui and result, `recover-reset` / `recover-reset-failed`,
   `recover-battle-ending` ..., `recover-warp`), and how the title came back;
 - **the movie** (61): arrival frame, first page frame, fps before/during/after;
