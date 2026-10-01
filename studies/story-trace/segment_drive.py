@@ -51,7 +51,8 @@ skip dialog goes to the frozen rule that answers it, or -- with none, and the sk
 a localized text, an empty prompt) -- is answered at the game's default, No: the movie resumes. No dialog is pressed
 for again, up to ``max_presses``; then the visit gives up ('movie-skip missed', never a VOID: the movie plays out).
 Each such visit's ``movie`` row keeps its presses, the dialog as published, the frame and the seconds it was skipped
-at, and the seconds saved against the cell's registered ``length_s``. Without the key the loop is O3's exactly, and
+at, and how much of the cell's registered span was then left (``left_s``: its ``next_page_s`` less them -- at most what
+the skip saves; the saving itself is the A/B's, from its drive times). Without the key the loop is O3's exactly, and
 O1's skip rule still answers a stray skip dialog at its default (No).
 """
 from __future__ import annotations
@@ -110,9 +111,14 @@ MOVIE_NEEDS = ("policy", "cells", "press_every_s", "max_presses")
 MOVIE_POLICIES = ("skip",)
 #: A registered cell: the place and the SC its movie plays at, how far into the visit the policy may first press
 #: (the movie must be PLAYING: MBG.Play arms the hit area, and before the first frame MBG.IsFinished() refuses the
-#: dialog), the movie's registered length from the visit's start (``length_s``, optional: the seconds saved are
-#: measured against it), and the Cinematic it is.
-MOVIE_CELL_KEYS = ("donor", "sc", "after_s", "length_s", "why")
+#: dialog), when the PAGE AFTER the movie opens, in seconds from the visit's start (``next_page_s``, optional), and the
+#: Cinematic it is. ``next_page_s`` is no movie length: measured to the next page, it holds the script's tail after the
+#: movie too (61: FMV003 runs 84.8 s, MoguriVideo's copy, and 61 e2 t1's Wait/SetFieldCamera/FadeFilter/Walk/Ojigi come
+#: after it, before WindowAsync 72 -- R-FULL measured 90.1-90.3 s to that page). Every press must end before it (a
+#: press there can turn that page), and a skip answered ``t`` s into the visit can save at most ``next_page_s - t``
+#: (the row's ``left_s``): the tail runs either way. What a skip saved is the A/B's (o3_prima_vista ``--skip-ab``,
+#: from the drive times), never the row's.
+MOVIE_CELL_KEYS = ("donor", "sc", "after_s", "next_page_s", "why")
 MOVIE_CELL_NEEDS = ("donor", "sc", "after_s", "why")
 #: The skip dialog as the engine opens it (FieldHUD.OnKeyConfirm, FieldHUD.cs:275-286): Localization "SkipMovieDialog",
 #: US ``Do you want to skip\nthe movie?`` (UK ``...\nthis cutscene?``), then ``[CHOO]`` ``Yes`` / ``No`` under
@@ -402,12 +408,12 @@ def movies_of(pred: dict) -> dict | None:
     :data:`MOVIE_NEEDS`); a ``policy`` not in :data:`MOVIE_POLICIES`; ``cells`` not a non-empty list;
     ``press_every_s`` not a positive number; ``max_presses`` not an int >= 1; a ``match``, ``yes`` or ``no`` given
     and not a non-empty string; a cell that is no dict, has an unknown or a missing key, a ``donor`` that is no int, an
-    ``sc`` that is no int and not None, an ``after_s`` that is not a positive number, a ``length_s`` that is neither
-    None nor a positive number, or a ``why`` that is no non-empty string; two cells one place and SC would both
-    match; and a cell whose presses could outlast its movie -- with a ``length_s``, the last press
-    (``after_s`` + (``max_presses`` - 1) x ``press_every_s``) and its wait (``press_every_s``) must end inside it, or a
-    press after the movie's end could turn the page that follows it. A bool is never a number. Returns a copy, with
-    ``match``/``yes``/``no`` filled in from the engine's text when absent."""
+    ``sc`` that is no int and not None, an ``after_s`` that is not a positive number, a ``next_page_s`` that is
+    neither None nor a positive number, or a ``why`` that is no non-empty string; two cells one place and SC would
+    both match; and a cell whose presses could reach its next page -- with a ``next_page_s``, the last press
+    (``after_s`` + (``max_presses`` - 1) x ``press_every_s``) and its wait (``press_every_s``) must end before it, or a
+    press could turn that page. A bool is never a number. Returns a copy, with ``match``/``yes``/``no`` filled in from
+    the engine's text when absent."""
     raw = pred.get("movies")
     if raw is None:
         return None
@@ -447,23 +453,23 @@ def movies_of(pred: dict) -> dict | None:
         wrong = (["donor"] if not _is_int(c["donor"]) else []) \
             + (["sc"] if c["sc"] is not None and not _is_int(c["sc"]) else []) \
             + (["after_s"] if not _is_pos(c["after_s"]) else []) \
-            + (["length_s"] if c.get("length_s") is not None and not _is_pos(c["length_s"]) else []) \
+            + (["next_page_s"] if c.get("next_page_s") is not None and not _is_pos(c["next_page_s"]) else []) \
             + (["why"] if not _is_str(c["why"]) else [])
         if wrong:
             raise ValueError(f"movie cell {c!r}: {wrong} of the wrong type (donor an int, sc an int or None, after_s "
-                             f"and length_s positive numbers, why a non-empty string)")
+                             f"and next_page_s positive numbers, why a non-empty string)")
         sc = c["sc"]
         clash = next((v for k, v in seen.items() if k[0] == c["donor"] and None in (sc, k[1])), None) \
             or seen.get((c["donor"], sc))
         if clash is not None:
             raise ValueError(f"movie cell {c!r}: place {c['donor']} at SC {sc} is registered twice ({clash!r})")
         seen[(c["donor"], sc)] = c
-        if c.get("length_s") is not None:
+        if c.get("next_page_s") is not None:
             last = float(c["after_s"]) + (int(most) - 1) * float(every)
-            if last + float(every) > float(c["length_s"]):
+            if last + float(every) > float(c["next_page_s"]):
                 raise ValueError(f"movie cell {c!r}: its last press comes {last:g} s into the visit and is waited on "
-                                 f"{float(every):g} s more, past the movie's registered {c['length_s']:g} s -- a press "
-                                 f"after the movie's end can turn the page that follows it")
+                                 f"{float(every):g} s more, past its next page at {c['next_page_s']:g} s -- a press "
+                                 f"there can turn that page")
         out["cells"].append(dict(c))
     return out
 
@@ -1572,8 +1578,9 @@ class _Drive:
 
     def movie_press(self, st) -> bool:
         """The policy's press (rule 9's, opt-in): in a REGISTERED cell (:func:`movie_cell`: this place and SC), on the
-        field HUD with no dialog up, no choice and no control -- what FMV003 publishes for its 90 s -- at least the
-        cell's ``after_s`` into the visit, and this visit's movie neither skipped nor given up: ONE Confirm, its
+        field HUD with no dialog up, no choice and no control -- what 61 publishes from the arrival to page 72, FMV003
+        and the script's tail after it -- at least the cell's ``after_s`` into the visit, and this visit's movie
+        neither skipped nor given up: ONE Confirm, its
         ``press`` row (``why`` "movie_skip": its frame and sample), recorded on the visit's ``movie`` row (opened at the
         first press). FieldHUD's hit area takes it while the movie plays and opens the skip dialog, which rule 6
         answers (:meth:`movie_answer`). A press no dialog answers is pressed again ``press_every_s`` later, up to
@@ -1604,9 +1611,9 @@ class _Drive:
                 return False
         else:
             row = {"k": "movie", "field": self.fid, "donor": self.donor, "sc": self.sc, "visit": self.visit,
-                   "cell": n, "why": c["why"], "after_s": c["after_s"], "length_s": c.get("length_s"),
+                   "cell": n, "why": c["why"], "after_s": c["after_s"], "next_page_s": c.get("next_page_s"),
                    "presses": [], "refused": [], "dialog": None, "outcome": None, "frame": None, "t": None,
-                   "saved_s": None, "missed": None}
+                   "left_s": None, "missed": None}
             self.mv = row
             self.log.append(row)
             self.movie_rows.append(row)
@@ -1622,7 +1629,8 @@ class _Drive:
         and only when the choice IS the skip dialog (:func:`skip_answer`: its prompt, its two lines). Its ``choice``
         row (``rule`` "movie_skip": a choice the driver took over the game's default, as 4.7's ``choice`` backing
         reads it) and the movie row's dialog (prompt, options, active, selected, count), frame, seconds into the
-        visit and ``saved_s`` (the cell's ``length_s`` less them).
+        visit and ``left_s`` (the cell's ``next_page_s`` less them: the most the skip can save, since the script's
+        tail after the movie runs either way -- what it saved is the A/B's, from the drive times).
 
         A dialog no press of the policy opened is the ordinary rules' (False), as with no policy at all. One it
         REFUSES (not the skip text) while its press is behind it is kept on the row as ``refused`` (once), and then:
@@ -1663,9 +1671,9 @@ class _Drive:
                 "count": ch.get("count"), "index": index, "rule": "movie_skip", "took": {"index": index}}
         self.choices.append(crow)
         self.log.append(crow)
-        length = row.get("length_s")
+        span = row.get("next_page_s")
         row.update(dialog=snap, frame=st.frame, t=round(t, 2),
-                   saved_s=None if length is None else round(float(length) - t, 1))
+                   left_s=None if span is None else round(float(span) - t, 1))
         self.movie_end(row, "skipped")
         return True
 

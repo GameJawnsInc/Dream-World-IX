@@ -1676,7 +1676,8 @@ def rehearsal_report(run_dir) -> str:
             for m in rec.get("movies") or ():             # the movie-skip policy's rows (PLAN.md "Movie skip")
                 dlg = m.get("dialog") or {}
                 L.append(f"    movie-skip: {m.get('donor')} visit {m.get('visit')} {m.get('outcome')}"
-                         + (f" {m.get('t')} s into the visit (frame {m.get('frame')}), saved_s {m.get('saved_s')}; "
+                         + (f" {m.get('t')} s into the visit (frame {m.get('frame')}), left_s {m.get('left_s')} of "
+                            f"the next page's {m.get('next_page_s')} (the most it can save; --skip-ab measures it); "
                             f"the dialog {dlg.get('options')} active {dlg.get('active')} selected {dlg.get('selected')}"
                             if m.get("outcome") == "skipped" else f": {m.get('missed')}")
                          + f"; presses at frames {[p.get('frame') for p in m.get('presses') or ()]}"
@@ -1867,8 +1868,8 @@ def skip_ab_runs(no_skip: list, skip: list, pred: dict, *, stock, problems=()) -
             dlg = m.get("dialog") or {}
             head += (f"; movie in {m.get('donor')} visit {m.get('visit')}: {m.get('outcome')}"
                      + (f" {m.get('t')} s into the visit after {len(m.get('presses') or ())} press(es), the dialog "
-                        f"{dlg.get('options')} active {dlg.get('active')} selected {dlg.get('selected')}, saved_s "
-                        f"{m.get('saved_s')}" if m.get("outcome") == "skipped" else f" ({m.get('missed')})"))
+                        f"{dlg.get('options')} active {dlg.get('active')} selected {dlg.get('selected')}, left_s "
+                        f"{m.get('left_s')}" if m.get("outcome") == "skipped" else f" ({m.get('missed')})"))
         diffs = [] if rd is None or ref is None or run is ref[0] else ab_compare(ref[1], rd)
         lines.append(head + (" -- the reference" if ref is not None and run is ref[0] else
                              "" if rd is None or ref is None else

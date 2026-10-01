@@ -1245,9 +1245,10 @@ def unit_offline_mutants(pred: dict, stock, tmp: Path) -> list:
 def ab_run(pred: dict, events: list, side: str, n: int, *, skipped: bool = True, t: float | None = None) -> dict:
     """A STOCK rehearsal run as o3_prima_vista.skip_ab_runs reads one (PLAN.md "Movie skip (opt-in)"): the rows the
     engine would write for ``events``, its driver log -- its visits, its battle row, its end row with the frozen end
-    state -- and, on the skip side, the movie row of 61's visit: ``skipped`` 10.4 s in after one press, or (``skipped``
-    False) given up. ``side`` is "no-skip" (R-FULL) or "skip" (R-FULL-SKIP); ``t`` the drive's seconds. ``raw``
-    keeps the rows as the trace file holds them (a launch written to disk)."""
+    state -- and, on the skip side, the movie row of 61's visit (its next page registered at 90 s, R-FULL-SKIP's):
+    ``skipped`` 10.4 s in after one press, ``left_s`` 79.6, or (``skipped`` False) given up. ``side`` is "no-skip"
+    (R-FULL) or "skip" (R-FULL-SKIP); ``t`` the drive's seconds (default 230 and 140). ``raw`` keeps the rows as the
+    trace file holds them (a launch written to disk)."""
     raw = render(events, "S", {})
     log = visits(raw, {}) + [battle_log_row(raw, "S", {})]
     log.append({"k": "end", "field": P.END_FIELD, "frame": max(x["f"] for x in raw), "sc": 1155,
@@ -1258,7 +1259,7 @@ def ab_run(pred: dict, events: list, side: str, n: int, *, skipped: bool = True,
                        else "missed", "frame": 1700 if skipped else None, "t": 10.4 if skipped else None,
                        "dialog": {"options": ["Do you want to skip\nthe movie?", "Yes", "No"], "active": [0, 1],
                                   "selected": 1, "count": 2} if skipped else None,
-                       "saved_s": 79.9 if skipped else None,
+                       "next_page_s": 90.0, "left_s": 79.6 if skipped else None,
                        "missed": None if skipped else "movie-skip missed: no skip dialog after 3 press(es) 5 s apart"})
     return {"side": side, "stage": "R-FULL" if side == "no-skip" else "R-FULL-SKIP", "n": n, "raw": raw,
             "rows": T.parse_text("".join(json.dumps(x) + "\n" for x in raw)), "log": log,

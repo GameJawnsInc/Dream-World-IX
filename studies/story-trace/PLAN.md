@@ -1042,22 +1042,25 @@ a scripted end, the F side's landing time, the watchdog against FMV003, and the 
 A type-0 FMV is most of a run's wall time: FMV003 is about 90 s of O3's 223-233 s drive. `segment_drive` can skip
 one the way a player does. It is opt-in, per segment, and off unless the predictions carry it.
 
-- **What it does.** `pred["movies"] = {"policy": "skip", "cells": [{"donor", "sc", "after_s", "length_s"?, "why"}],
+- **What it does.** `pred["movies"] = {"policy": "skip", "cells": [{"donor", "sc", "after_s", "next_page_s"?, "why"}],
   "press_every_s", "max_presses"}`, checked strict before anything is driven (`movies_of`). In a registered cell (a
   place and an SC), on the field HUD with no dialog, no choice and no control, at least `after_s` into the visit, the
-  driver presses Confirm once (a `press` row, `why` "movie_skip") and answers the skip dialog YES. It answers only
-  the dialog its own press opened, and only when the published choice is the skip dialog's text (`skip_answer`: the
-  prompt holds "want to skip", or the box does when the prompt publishes empty; exactly two lines, Yes then No, each
-  as published or short its first character; Yes at absolute option 0). A dialog after its press that it does not
-  read as the skip dialog is kept on the row as refused: a frozen rule that answers it answers it (a script's choice
-  that came instead stays the route's); with no rule, a dialog of the skip dialog's shape (two lines, the cursor on
-  No: the skip dialog localized, or with its prompt published empty) is answered at the game's default, No, so the
-  movie resumes; any other shape is no skip dialog and goes to the ordinary rules. A press that opens no dialog it
-  can answer is repeated `press_every_s` later, up to `max_presses`; then the visit gives up ('movie-skip missed').
-  That is never a VOID: the movie plays out. A page that opens instead is turned by the page rule and ends the attempts.
-  Each such visit's `movie` row records the presses, the dialog as published (and each refused one), the frame and
-  seconds it was skipped at, and `saved_s` against the cell's `length_s`. Without the key the driver is O3's
-  exactly, and O1's rule still answers a stray skip dialog at its default (No).
+  driver presses Confirm once (a `press` row, `why` "movie_skip") and answers the skip dialog YES. It answers only the
+  dialog its own press opened, and only when the published choice is the skip dialog's text (`skip_answer`: the prompt
+  holds "want to skip", or the box does when the prompt publishes empty; exactly two lines, Yes then No, each as
+  published or short its first character; Yes at absolute option 0). A dialog after its press that it does not read as
+  the skip dialog is kept on the row as refused: a frozen rule that answers it answers it (a script's choice that came
+  instead stays the route's); with no rule, a dialog of the skip dialog's shape (two lines, the cursor on No: the skip
+  dialog localized, or with its prompt published empty) is answered at the game's default, No, so the movie resumes;
+  any other shape is no skip dialog and goes to the ordinary rules. A press that opens no dialog it can answer is
+  repeated `press_every_s` later, up to `max_presses`; then the visit gives up ('movie-skip missed'). That is never a
+  VOID: the movie plays out. A page that opens instead is turned by the page rule and ends the attempts. Each such
+  visit's `movie` row records the presses, the dialog as published (and each refused one), the frame and seconds it
+  was skipped at, and `left_s`: the cell's `next_page_s` less those seconds. `next_page_s` is when the page AFTER the
+  movie opens, from the visit's start -- no movie length: it holds the script's tail after the movie (61: FMV003 runs
+  84.8 s, then Wait/SetFieldCamera/FadeFilter/Walk/Ojigi before WindowAsync 72). Every press must end before it, and
+  `left_s` is the most a skip can save, never what it saved: that is the A/B's, from the drive times. Without the key
+  the driver is O3's exactly, and O1's rule still answers a stray skip dialog at its default (No).
 - **The engine path.** `FieldHUD.OnKeyConfirm` (FieldHUD.cs:275-286) opens Localization `SkipMovieDialog` (US "Do you
   want to skip / the movie?", then Yes / No under `[PCHC=2,1]`: the cursor on `ETb.sChoose = 1`, No) while
   `MovieHitArea` is active (`MBG.Play` arms it for a movie of type other than 1) and the movie is not finished.
@@ -1075,8 +1078,8 @@ one the way a player does. It is opt-in, per segment, and off unless the predict
   aside), the start rows, the SC rows, the residue, the masked regions, the landing, the end cut, the end state, the
   battle and the join failures. Until a segment's A/B reads EQUIVALENT, its movies play out.
 - **O3's A/B (the test bed).** The stock rehearsal R-FULL-SKIP (`O3_STAGE=R-FULL-SKIP`; by name only) is R-FULL with
-  FMV003 registered: `after_s` 10, `press_every_s` 5, `max_presses` 3, `length_s` 90. The no-skip side is the
-  archived R-FULL:
+  FMV003 registered: `after_s` 10, `press_every_s` 5, `max_presses` 3, `next_page_s` 90 (R-FULL measured page 72
+  at 90.1-90.3 s from the arrival). The no-skip side is the archived R-FULL:
 
   ```
   set O3_STAGE=R-FULL-SKIP & py tools/play.py studies/story-trace/o3_rehearse.py --label o3-rh-R-FULL-SKIP --timeout 240

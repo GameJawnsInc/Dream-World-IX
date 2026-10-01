@@ -92,10 +92,11 @@ STAGES = {
     "R-FULL-SKIP": {"field": 61, "entrance": 0, "sc": 1155, "end": [64], "runs": 2, "run_s": 1200, "cost_s": 270,
                     "optional": True, "by_name": True, "movie": {"donor": 61},
                     "movies": {"policy": "skip", "press_every_s": 5.0, "max_presses": 3,
-                               "cells": [{"donor": 61, "sc": 1155, "after_s": 10.0, "length_s": 90.0,
+                               "cells": [{"donor": 61, "sc": 1155, "after_s": 10.0, "next_page_s": 90.0,
                                           "why": "61 e2 t1 ip159 Cinematic(0,8,1,1) = FMV003 (type 0: the skip hit "
-                                                 "area armed); R-FULL measured 90.1-90.3 s from the arrival to page "
-                                                 "72"}]},
+                                                 "area armed); its next page is 72, which R-FULL measured 90.1-90.3 s "
+                                                 "from the arrival: the movie (84.8 s) and the script's tail after "
+                                                 "it, which a skip does not shorten"}]},
                     "settles": "the movie-skip A/B: R-FULL with 61's FMV003 skipped -- its traces against R-FULL's "
                                "(o3_prima_vista.py --skip-ab) must read EQUIVALENT before any segment registers a "
                                "movie for skipping"},

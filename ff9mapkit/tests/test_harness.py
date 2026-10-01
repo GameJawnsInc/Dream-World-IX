@@ -14627,8 +14627,9 @@ _O3_PAGE = "Narrator\n“The curtain rises.”"
 
 
 def _o3_movies(**over):
-    """A policy registering "61" at SC 1155: a press 0.5 s into the visit, again every second, three at most."""
-    cell = {"donor": 30820, "sc": 1155, "after_s": 0.5, "length_s": 25.0,
+    """A policy registering "61" at SC 1155: a press 0.5 s into the visit, again every second, three at most; its next
+    page registered 25 s into the visit."""
+    cell = {"donor": 30820, "sc": 1155, "after_s": 0.5, "next_page_s": 25.0,
             "why": "61 e2 t1 ip159 Cinematic(0,8,1,1): FMV003, on the fake"}
     cell.update(over.pop("cell", {}))
     return {"policy": "skip", "press_every_s": 1.0, "max_presses": 3, "cells": [cell], **over}
@@ -14687,10 +14688,11 @@ def test_segment_movie_skip_policy_is_strict():
     None without the key (the driver is O3's exactly); a good policy comes back a copy with the engine's US text filled
     in. ValueError on: a policy that is no dict, an unknown or a missing key, a policy other than "skip", empty cells,
     a non-positive ``press_every_s``, ``max_presses`` 0 or True (a bool is no int), an empty ``match``; a cell with an
-    unknown or missing key, a string donor, a bool SC, a non-positive ``after_s`` or ``length_s``, an empty ``why``;
-    two cells one place and SC would both match (an SC None is every SC); a cell whose last press and its wait end past
-    its registered ``length_s``. And a driver refuses a bad policy before anything is driven. Break: accept unknown
-    keys (a typo'd ``max_press`` then registers nothing)."""
+    unknown or missing key (``length_s`` among the unknown: the span is registered to the NEXT PAGE, ``next_page_s``,
+    and a name that read as the movie's own length is refused), a string donor, a bool SC, a non-positive ``after_s``
+    or ``next_page_s``, an empty ``why``; two cells one place and SC would both match (an SC None is every SC); a cell
+    whose last press and its wait end past its next page. And a driver refuses a bad policy before anything is driven.
+    Break: accept unknown keys (a typo'd ``max_press`` then registers nothing)."""
     SD = _segment_modules()
     assert SD.movies_of(_o3_pred()) is None
     pol = _o3_movies()
@@ -14698,8 +14700,10 @@ def test_segment_movie_skip_policy_is_strict():
     assert got is not pol and got["cells"] == pol["cells"] and got["cells"][0] is not pol["cells"][0]
     assert (got["match"], got["yes"], got["no"]) == ("want to skip", "Yes", "No")
     assert SD.movies_of({"movies": dict(pol, match="passer", yes="Oui", no="Non")})["yes"] == "Oui"
-    assert SD.movies_of({"movies": _o3_movies(cell={"sc": None, "length_s": None})})["cells"][0]["sc"] is None
+    assert SD.movies_of({"movies": _o3_movies(cell={"sc": None, "next_page_s": None})})["cells"][0]["sc"] is None
     cell = pol["cells"][0]
+    no_span = {k: v for k, v in cell.items() if k != "next_page_s"}
+    assert SD.movies_of({"movies": dict(pol, cells=[no_span])})["cells"] == [no_span]       # the span is optional
 
     def refused(match, policy):
         with pytest.raises(ValueError, match=match):
@@ -14715,12 +14719,14 @@ def test_segment_movie_skip_policy_is_strict():
     refused("non-empty strings", dict(pol, match=""))
     refused("a cell is a dict", dict(pol, cells=[61]))
     refused("unknown key", dict(pol, cells=[dict(cell, field=61)]))
+    refused(r"unknown key\(s\) \['length_s'\]", dict(pol, cells=[dict(no_span, length_s=25.0)]))
     refused("missing", dict(pol, cells=[{k: v for k, v in cell.items() if k != "after_s"}]))
-    for change in ({"donor": "61"}, {"sc": True}, {"after_s": 0}, {"length_s": -1}, {"why": ""}, {"after_s": False}):
+    for change in ({"donor": "61"}, {"sc": True}, {"after_s": 0}, {"next_page_s": -1}, {"why": ""},
+                   {"after_s": False}):
         refused("of the wrong type", dict(pol, cells=[dict(cell, **change)]))
     refused("registered twice", dict(pol, cells=[cell, dict(cell, after_s=2.0)]))
     refused("registered twice", dict(pol, cells=[cell, dict(cell, sc=None)]))
-    refused("past the movie's registered", dict(pol, cells=[dict(cell, after_s=22.5)]))     # 22.5 + 2 + 1 > 25
+    refused("past its next page at 25 s", dict(pol, cells=[dict(cell, after_s=22.5)]))     # 22.5 + 2 + 1 > 25
     assert SD.movies_of({"movies": dict(pol, cells=[dict(cell, after_s=21.0)])})          # 21 + 2 + 1 = 24 <= 25
     assert SD.movies_of({"movies": dict(pol, cells=[cell, dict(cell, donor=30821)])})      # another place: fine
     with pytest.raises(ValueError, match="unknown key"):
@@ -14734,8 +14740,9 @@ def test_o3_drive_movie_skip_presses_once_and_answers_yes(game):
     answers it YES -- option 0, over the game's cursor on No -- so the movie ends at once and its wait goes on: the page
     after it is turned and the run reaches the end, long before the movie's 25 s. The visit's ``movie`` row: one press,
     the dialog as published (prompt, options, active [0, 1], selected 1), the frame and the seconds it was skipped at,
-    ``saved_s`` the registered 25 s less them; its ``choice`` row (rule "movie_skip", index 0, selected 1). Break:
-    answer the dialog's default (the movie then plays out)."""
+    the next page as registered (``next_page_s`` 25) and ``left_s`` -- 25 s less those seconds, the most the skip can
+    save -- and NO ``saved_s``: what a skip saved is the A/B's to measure, from the drive times; its ``choice`` row
+    (rule "movie_skip", index 0, selected 1). Break: answer the dialog's default (the movie then plays out)."""
     pred = _o3_pred(movies=_o3_movies())
     phases = _o3_movie_route({"movie": 6000, "skip": dict(_O3_SKIP)}, _O3_PAGE)
     out, log, fake = _o3_movie_run(game, pred, phases)
@@ -14752,7 +14759,8 @@ def test_o3_drive_movie_skip_presses_once_and_answers_yes(game):
     assert 0.5 <= row["presses"][0]["t"] < row["t"] < 10.0, row
     assert row["dialog"] == {"options": ["Do you want to skip\nthe movie?", "Yes", "No"], "active": [0, 1],
                              "selected": 1, "count": 2}, row["dialog"]
-    assert row["frame"] > presses[0]["pre"]["frame"] and row["saved_s"] == round(25.0 - row["t"], 1), row
+    assert row["frame"] > presses[0]["pre"]["frame"] and row["next_page_s"] == 25.0, row
+    assert row["left_s"] == round(25.0 - row["t"], 1) and "saved_s" not in row and "length_s" not in row, row
     assert [(c["rule"], c["index"], c["selected"]) for c in out["choices"]] == [("movie_skip", 0, 1)], out["choices"]
     assert out["pages"] == [_O3_PAGE] and len(_presses(log, "page")) >= 1, out["pages"]
     assert out["t"] < 15.0, out["t"]
@@ -15707,6 +15715,8 @@ def test_o3_rehearse_movie_skip_stage_on_the_fake(game):
     stage, full = R.STAGES["R-FULL-SKIP"], R.STAGES["R-FULL"]
     warp = ("field", "entrance", "sc", "end")
     assert [stage[k] for k in warp] == [full[k] for k in warp] and "movies" not in full, stage
+    fmv = stage["movies"]["cells"][0]                 # FMV003's span: R-FULL's arrival to page 72, not the movie's
+    assert fmv["next_page_s"] == 90.0 and "page is 72" in fmv["why"] and "length_s" not in fmv, fmv
     base = _o3_rehearse_pred()
     sp = R.stage_pred(base, stage)
     pol = SD.movies_of(sp)
