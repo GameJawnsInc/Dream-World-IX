@@ -1214,7 +1214,9 @@ class _Drive:
         2. Fight: ``g.fight(timeout=min(the row's timeout_s, the run's time left), max_turns=the row's, finish=False)``
            -- the default policy, the tutorials closed inside. No result within the row's own bounds
            (``FightTimeout``) is V15, the driver's: its policy and its bounds own the fight; a bound the run's
-           deadline cut is the budget (V13).
+           deadline cut is the budget (V13). A scene that went away with no result while both bounds held
+           (``FightTimeout`` kind "gone": a soft reset, a crash to the title) is no bound at all: an instrument stop,
+           ``HarnessError`` (STOPPED, V13) with its own message, the battle row logged first (the review, 11.7 #2).
         3. Leave: ``g.leave_battle(stop_on_field=True)``, each of its Confirms a ``press`` row (``why``
            "leave_battle", ``pre`` the sample it was decided on, ``post`` None, ``near`` []).
         4. Land, in two tiers: the field up (out of the battle, FieldHUD, a positive id) within ``land_s`` of the
@@ -1266,6 +1268,10 @@ class _Drive:
             result = g.fight(timeout=bound, max_turns=int(row["max_turns"]), finish=False)
         except FightTimeout as err:
             fought()
+            if err.kind == "gone":            # the scene went with no result, no bound ran out: an instrument stop
+                why = f"battle {scene}'s scene went away with no result: {str(err)[:200]}"
+                logged("V13", "driver", why)
+                raise HarnessError(why) from err
             rec["timed_out"] = True
             if err.kind == "timeout" and bound < cap:
                 logged("V13", "driver", budget)

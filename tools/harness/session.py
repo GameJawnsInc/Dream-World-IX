@@ -7372,9 +7372,13 @@ class Session:
 
         NO RESULT within the bounds raises :class:`FightTimeout` (a HarnessError: research/o3_design.md H7), its
         ``kind`` the bound that ran out -- "turns": ``max_turns`` command prompts answered (0 raises at the FIRST
-        prompt, before any command: a fight stopped mid-battle by construction) -- or "timeout". Either way, and on a
-        result, :attr:`last_fight` records what the call did: ``turns``, ``result``, ``name``, ``epoch``, and
-        ``seconds`` (wall time from the call), ``tutorials`` (screens this call closed) and ``timed_out``.
+        prompt, before any command: a fight stopped mid-battle by construction) -- or "timeout". A battle scene that
+        GOES with no result before either bound runs out (a soft reset or a crash to the title mid-fight, an engine
+        path that leaves the result 0) raises it with ``kind`` "gone" and its own message: no bound ran out, so
+        ``timed_out`` is False and a caller that owns the bounds must not read it as one (the review, 11.7 #2).
+        Either way, and on a result, :attr:`last_fight` records what the call did: ``turns``, ``result``, ``name``,
+        ``epoch``, and ``seconds`` (wall time from the call), ``tutorials`` (screens this call closed) and
+        ``timed_out``.
         """
         self._require_play_protocol("fight()")
         t0 = time.time()
@@ -7393,6 +7397,7 @@ class Session:
         epoch = st.battle_epoch
         deadline = time.time() + timeout
         turns = tutorials = 0
+        gone = False                        # the loop broke on the scene going with no result, not on a bound
 
         def record(result: int, timed_out: bool) -> None:
             # ⚠ RECORDED, because "it ended in victory" does not say the loop ever ran. The first live
@@ -7408,6 +7413,7 @@ class Session:
             self._assert_alive()
             st = self.state
             if st.battle_epoch == epoch and (st.battle_result != 0 or not st.in_battle):
+                gone = st.battle_result == 0
                 break
             if st.ui_state == "Tutorial":
                 if self._dismiss_tutorial():
@@ -7452,6 +7458,13 @@ class Session:
                 continue
             turns += 1
         result = self.state.battle_result
+        if result == 0 and gone:
+            # the scene went with no result while time was left: no bound ran out (the review, 11.7 #2)
+            record(0, False)
+            self._log(f"fight: {turns} turn(s) -> the battle scene went away with no result")
+            raise FightTimeout(
+                f"the battle scene went away with no result after {time.time() - t0:.1f}s ({turns} turn(s) taken), "
+                f"before its {timeout:.0f}s / {max_turns} turn bounds ran out", kind="gone")
         record(result, result == 0)
         self._log(f"fight: {turns} turn(s) -> {State.BATTLE_RESULTS.get(result, result)}")
         if result == 0:

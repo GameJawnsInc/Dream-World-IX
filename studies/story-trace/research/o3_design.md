@@ -488,6 +488,10 @@ run that raises inside a battle still records them. O3-BATTLE (5.3) reads both.
      before any attack, so the run stops mid-fight in BattleHUD by construction. With `bound` cut by the run's
      deadline: `HarnessError("the run's budget ran out in battle {scene}")`, which the session records as V13 like
      any budget.
+   - `FightTimeout` kind "gone" (the review, 11.7 #2): the battle scene went away with no result while both bounds
+     held -- a soft reset or a crash to the title mid-fight, an engine path that leaves the result 0. No bound ran
+     out, so it is neither V15 nor the budget: an instrument stop, `HarnessError("battle {scene}'s scene went away
+     with no result: ...")` (STOPPED, V13), the battle row logged first (`timed_out` False).
    - Any other HarnessError propagates (V13, STOPPED), as `fight()`'s instrument failures always have.
 3. **Leave.** `g.leave_battle(stop_on_field=True)` (H8): it presses Confirm only while the battle scene is up and stops
    at the first sample with the scene gone (whatever the UI state still says) or FieldHUD. Each of its presses is logged
@@ -560,7 +564,7 @@ O2's classes keep their meaning; O3 can raise these:
 | V5 | A stop page: the "Error Env Play()" window. Nothing is pressed. | driver in the start visit (the warp's state); game after |
 | V10 | A naming screen; a tutorial outside a battle; a battle the registry does not answer (another scene, place or SC; a second battle). | game |
 | V11 | The run left the route or its visit order (rule 2/3); the battle landed somewhere other than `lands` (not the s24 case). | game (O3 has no walks) |
-| V13 | The run budget (inside a battle, or waiting for its field, too), or an unexpected exception: `STOPPED`. | driver |
+| V13 | The run budget (inside a battle, or waiting for its field, too), or an unexpected exception: `STOPPED` -- a battle scene gone with no result (`FightTimeout` "gone", 2.3 step 2) among them. | driver |
 | V14 | The watchdog; or a battle that ended with no field up within `land_cap_s` (a landing past `land_s` only records `land_late`). | game |
 | **V15** (new) | The registered battle reached no result within its `timeout_s` / `max_turns` (`FightTimeout`). | **driver**: the driver's policy and bound own the fight; a one-off miss re-runs, and a structural one (every run of a side) fails VOID-ASYM (b) |
 | **V16** (new) | On F, the registered battle landed in REAL `lands` (63), not its member: the s24 redirect did not fire. A FINDING (`rerun.stop_on`). | **game** |
@@ -580,7 +584,9 @@ Every default keeps today's behaviour; no existing caller changes.
   where they are), raised on both no-result exits instead of the plain HarnessError: the turns bound
   (session.py:7407-7411) and the timeout (:7442-7444), with the same messages. Every existing `except HarnessError`
   still catches it. `max_turns=0` is legal and raises at the first command prompt, before any `act` (the bound is
-  checked before the command, :7407): R-BATTLE-VOID's way to stop mid-fight.
+  checked before the command, :7407): R-BATTLE-VOID's way to stop mid-fight. (The review, 11.7 #2: a third kind,
+  "gone" -- the battle scene went away with no result while both bounds held -- with its own message and `timed_out`
+  False: no bound ran out.)
 - `self.last_fight` is set on BOTH exits and gains `"seconds"` (wall time from the call), `"tutorials"` (screens
   `_dismiss_tutorial` closed inside the call) and `"timed_out"` (bool). Its existing keys are unchanged.
 - Tests: `test_fight_raises_fight_timeout_without_a_result` -- a fake battle no attack can end (one enemy with a huge

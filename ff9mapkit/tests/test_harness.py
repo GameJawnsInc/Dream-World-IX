@@ -13921,6 +13921,39 @@ def test_fight_raises_fight_timeout_without_a_result(game):
         assert g.last_fight["seconds"] >= 2.0 and g.last_fight["result"] == 0, g.last_fight
 
 
+def test_fight_tells_a_vanished_battle_from_a_timeout(game):
+    """H7's third exit (the review, research/o3_design.md 11.7 #2): the battle scene GOES with no result while both
+    bounds still hold -- here the battle ends with result 0 on the fake's own thread, a second in (in the game: a soft
+    reset or a crash to the title mid-fight, an engine path that leaves the result 0). FightTimeout kind "gone", its
+    own message, ``timed_out`` False, raised at once and far inside its 60 s bound -- never "did not reach a result
+    within 60s". No command prompt is ever up (no ATB), so nothing races the end. Break: one exit for both (kind
+    "timeout", the timeout's message, ``timed_out`` True)."""
+    from harness import FightTimeout
+    fake = FakeGame(game)
+    fake.enemy_hit, fake.atb_gain = 0, 0
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30821)
+        fake.start_battle(338, units=_o3_units(10 ** 7, minions=False))
+        published(g, lambda s: s.in_battle and s.battle.get("scene") == 338)
+        start = fake.frame
+        _o1_director(fake, stop, [(lambda f: f.frame >= start + 240, lambda f: _o3_end_on_the_fake(f, 0))])
+        t0 = time.time()
+        try:
+            with pytest.raises(FightTimeout) as err:
+                g.fight(timeout=60.0, finish=False)
+        finally:
+            stop.set()
+        took = time.time() - t0
+        st = g.state
+    assert err.value.kind == "gone" and "went away with no result" in str(err.value), err.value
+    assert "did not reach a result" not in str(err.value) and took < 20.0, (err.value, took)
+    assert not st.in_battle and st.battle_result == 0, st
+    lf = g.last_fight
+    assert (lf["result"], lf["timed_out"], lf["turns"]) == (0, False, 0) and lf["seconds"] < 20.0, lf
+
+
 def test_fight_counts_its_tutorials_and_seconds(game):
     """H7: ``last_fight`` counts the battle tutorial screens the call closed -- scene 336 opens one before its first
     command: 1 -- and the wall seconds it took, and reads ``timed_out`` False on a result; its old keys (turns, result,
@@ -14285,6 +14318,32 @@ def test_o3_drive_voids_a_battle_with_no_result(game):
         if bounds.get("max_turns") == 0:
             assert b["turns"] == 0 and not [s for s in fake.executed if s[0] == "battlecmd"], fake.executed
             assert st.in_battle and st.ui_state == "BattleHUD" and st.battle_result == 0, st
+
+
+def test_o3_drive_stops_on_a_battle_gone_without_a_result(game):
+    """A registered battle whose scene GOES with no result while its bounds hold (the review, research/o3_design.md
+    11.7 #2): fight()'s FightTimeout kind "gone" -- no bound ran out -- is an instrument stop, never V15 (the driver's
+    bound, "reached no result within 60 s") nor the budget's message: the executor logs its battle row (v V13, by
+    driver, result None, timed_out False, the scene-gone why) and raises HarnessError, which the session records as
+    STOPPED (V13). The scene goes a second into the fight (the battle ends with result 0 on the fake's own thread; no
+    ATB, so no command prompt races it). Break: read every FightTimeout as a bound (V15)."""
+    SD = _segment_modules()
+    fake = _o3_fake(game)
+    fake.battle_script_end = None
+    fake.atb_gain = 0                                       # no command prompt: the fight only waits
+    started: dict = {}
+    phases = _o3_route(units=_o3_units(10 ** 7), end=False)[:3] + [
+        (lambda f: f.battle_active, lambda f: started.update(frame=f.frame)),
+        (lambda f: "frame" in started and f.frame >= started["frame"] + 240, lambda f: _o3_end_on_the_fake(f, 0))]
+    log: list = []
+    with session(game, fake) as g:
+        _o3_start(g)
+        with pytest.raises(HarnessError, match="went away with no result") as err:
+            _o3_drive(g, fake, _o3_pred(), phases=phases, log=log, budget=180.0)
+    assert not isinstance(err.value, SD.RouteVoid) and "reached no result within" not in str(err.value), err.value
+    b = [r for r in log if r["k"] == "battle"][0]
+    assert (b["v"], b["by"], b["result"], b["timed_out"], b["turns"]) == ("V13", "driver", None, False, 0), b
+    assert b["why"].startswith("battle 338's scene went away with no result"), b
 
 
 def test_o3_drive_logs_leave_battle_presses_as_press_rows(game):
