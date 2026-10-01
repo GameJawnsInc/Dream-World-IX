@@ -14737,12 +14737,20 @@ def test_o3_p_stock_battle_finds_an_override_of_338(tmp_path):
     `BattleMap/BattleScene/EVT_BATTLE_TH_E002/dbfile0000.raw16.bytes` FAILS; plus
     `EventBinary/Battle/fr/EVT_BATTLE_TH_E002.eb.bytes` FAILS; plus `Battle: 338` or `Battle: BSC_TH_E002` FAILS; plus
     `AnyEnemyByName: King Leo` FAILS (a name selector applies to every scene holding the name); plus
-    `AnyEnemyByName: Goblin` PASSES, listed. Break: drop the name selectors."""
+    `AnyEnemyByName: Goblin` PASSES, listed. And DictionaryPatch (the review, research/o3_design.md 11.7 #4): today's
+    four LEDGER `BattleScene` lines PASS, listed; plus `BattleScene 338 LEDGER_A BBG_B251` -- battle 338 rebound to
+    another scene, script and background, no file under TH_E002's name, no selector: SceneData's setter overwrites the
+    reverse entry the battle is looked up by -- FAILS (c); plus `BattleScene 30999 TH_E002 BBG_B065` (BSC_TH_E002's
+    forward entry repointed: 338's sequence, text and background follow it) FAILS (c); a `FieldScene 338 ...` line
+    PASSES (it sets only EventDB[338], which a battle never reads), and so does a `BattleScene` line whose id does not
+    parse (the engine skips it). Break: drop the name selectors; or drop the DictionaryPatch read."""
     P = _o3_module()
     res = "StreamingAssets/assets/resources"
     n = {"case": 0}
+    scenes = ("BattleScene 30871 LEDGER_A BBG_B251", "BattleScene 30872 LEDGER_B BBG_B252",
+              "BattleScene 30881 LEDGER1W BBG_B253", "BattleScene 30882 LEDGER1S BBG_B254")
 
-    def stack(paths=(), lines=()):
+    def stack(paths=(), lines=(), dict_lines=()):
         n["case"] += 1
         base = tmp_path / f"stack{n['case']}"
         custom, msgs = base / "FF9CustomMap", base / "FF9CustomMap-msgs"
@@ -14757,6 +14765,9 @@ def test_o3_p_stock_battle_finds_an_override_of_338(tmp_path):
         (custom / "BattlePatch.txt").write_text(
             "".join(f"Battle: {b}\nMusic: 0\n\n" for b in (67, 67, 336, 337, 334, 335)) + "".join(f"{x}\n" for x in lines),
             encoding="utf-8")
+        (custom / "DictionaryPatch.txt").write_bytes(("﻿FieldScene 31213 11 O1_TSHP_TH_STG O1_TSHP_TH_STG 2\r\n"
+                                                      + "".join(f"{x}\r\n" for x in (*scenes, *dict_lines))
+                                                      ).encode("utf-8"))
         msgs.mkdir(parents=True)
         (msgs / "BattlePatch.txt").write_text("Battle: 67\nMusic: 0\n", encoding="utf-8")
         return [custom, msgs]
@@ -14767,6 +14778,15 @@ def test_o3_p_stock_battle_finds_an_override_of_338(tmp_path):
     ok, detail = judge()
     assert ok and "EVT_BATTLE_LEDGER1S" in detail and "FF9CustomMap-msgs Battle: 67" in detail, detail
     assert "no name selector" in detail, detail
+    assert "BattleScene lines (none on 338 or TH_E002): FF9CustomMap 30871 LEDGER_A, 30872 LEDGER_B, 30881 LEDGER1W, " \
+           "30882 LEDGER1S" in detail, detail
+    for line, says in (("BattleScene 338 LEDGER_A BBG_B251", "rebinds battle 338 to BSC_LEDGER_A"),
+                       ("BattleScene 30999 TH_E002 BBG_B065", "repoints BSC_TH_E002 to 30999")):
+        ok, detail = judge(dict_lines=[line])
+        assert not ok and f"(c) FF9CustomMap/DictionaryPatch.txt '{line}' {says}" in detail, (line, detail)
+    for line in ("FieldScene 338 11 X X 2", "BattleScene x338 LEDGER_A BBG_B251", "BattleScene 30999 th_e002 BBG_B065"):
+        ok, detail = judge(dict_lines=[line])
+        assert ok, (line, detail)
     for paths in ([f"{res}/BattleMap/BattleScene/EVT_BATTLE_TH_E002/dbfile0000.raw16.bytes"],
                   [f"{res}/commonasset/eventengine/EventBinary/Battle/fr/EVT_BATTLE_TH_E002.eb.bytes"]):
         ok, detail = judge(paths=paths)

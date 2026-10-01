@@ -993,7 +993,8 @@ the design's section 9). Nothing is deployed, launched or frozen.
   one store at e1 t1 ip267, 24 unresolved stores all `B_SYSLIST[0]`, >= 186 damage); O3-CENSUS 61: 15, 62: 28,
   63: 15 store sites, all classified.
 - `--preflight` on the live install: 10/10 PASS (O1's chain deployed; P-DONOR 61 -> 31211, 62 -> 31212, 63 -> 31213;
-  P-SETTINGS 23 keys as frozen; P-STOCK-BATTLE: the stack overrides only the LEDGER scenes, and no selector names 338).
+  P-SETTINGS 23 keys as frozen; P-STOCK-BATTLE: the stack overrides only the LEDGER scenes, no selector names 338, and
+  its four DictionaryPatch BattleScene lines are the LEDGER scenes', none on 338 or TH_E002).
 - [`o3_dryrun.py`](o3_dryrun.py): 89/89 as registered -- section 8's cases and units with an EXACT `case()` (every
   check a case does not name must PASS), two cases added where the design's table could not hold (research/o3_design.md
   11.6).

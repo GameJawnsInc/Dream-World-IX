@@ -700,18 +700,66 @@ def battle_overrides(root) -> list:
     return sorted(out)
 
 
+#: Int32.TryParse's default NumberStyles.Integer: white space either side, one leading sign, ASCII digits.
+_INT32 = re.compile(r"[ \t\n\v\f\r]*[+-]?[0-9]+[ \t\n\v\f\r]*")
+
+
+def _int32(text: str):
+    """``text`` as Int32.TryParse reads it, or None (it does not parse, or it is out of range)."""
+    if not _INT32.fullmatch(text):
+        return None
+    v = int(text)
+    return v if -2 ** 31 <= v < 2 ** 31 else None
+
+
+def battle_scene_lines(text: str | None) -> list:
+    """``[(id, name, line)]``: every ``BattleScene`` line of one DictionaryPatch.txt as the engine reads it
+    (DataPatchers.PatchDictionaries, :255-257 and :565-575): the file's lines (File.ReadAllLines), each split on
+    single spaces; ``entry[0]`` exactly "BattleScene" with at least four entries and ``entry[1]`` an Int32
+    (Int32.TryParse) -- any other line is skipped, as the engine skips it. Such a line sets
+    ``SceneData["BSC_" + name] = id`` -- a TwoWayDictionary without duplicate values, so its setter also overwrites
+    the reverse entry ``id -> BSC_<name>`` (TwoWayDictionary.cs), the one a battle's scene is looked up by
+    (HonoluluBattleMain.cs:198: its raw17, its sequence, its text and ``EVT_BATTLE_<name>``) -- and
+    ``MapModel["BSC_" + name]``, its background."""
+    out = []
+    for line in re.split(r"\r\n|\r|\n", text or ""):
+        entry = line.split(" ")
+        if len(entry) < 4 or entry[0] != "BattleScene":
+            continue
+        sid = _int32(entry[1])
+        if sid is not None:
+            out.append((sid, entry[2], line))
+    return out
+
+
+def dictionary_battle_scenes(root) -> list:
+    """``[[id, name], ...]``: the ``BattleScene`` lines of mod folder ``root``'s DictionaryPatch.txt (none when it has
+    none), read as :func:`battle_scene_lines` reads them (UTF-8, a BOM dropped as File.ReadAllLines drops it)."""
+    try:
+        text = (Path(root) / "DictionaryPatch.txt").read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return []
+    return [[sid, nm] for sid, nm, _ln in battle_scene_lines(text)]
+
+
 def battle_stock(roots, scene_id: int, names, *, name: str | None = None) -> tuple:
     """P-STOCK-BATTLE (6.2, claim integrity #4): ``(ok, detail, info)`` -- battle ``scene_id`` is STOCK on both sides,
     over every stacked folder: (a) no file whose path names ``EVT_BATTLE_<x>`` (case-insensitive: its scene
     directory's raw16/raw17, its battle .eb in any language); (b) no BattlePatch.txt selector that reaches it
     (DataPatchers.cs:747-783): ``Battle:`` naming its id, ``BSC_<x>`` or ``<x>``, or a name selector
     (``AnyEnemyByName:`` / ``AnyAttackByName:``) naming one of its enemy or attack names (``names``, its US text: a
-    name selector applies to every scene holding the name). A name selector naming anything else passes, listed."""
+    name selector applies to every scene holding the name); (c) no DictionaryPatch.txt ``BattleScene`` line
+    (:func:`battle_scene_lines`) whose id is ``scene_id`` -- it rebinds the battle to another scene, script and
+    background, with no file under the stock name and no selector -- or whose name is ``<x>`` -- it repoints
+    ``BSC_<x>``'s forward entry, which the battle's sequence (btlseq.cs:24) and text (HonoluluBattleMain.cs:202) are
+    read by, and its background (``MapModel``). A name selector naming anything else, and every other BattleScene line,
+    passes, listed. (A ``FieldScene`` line on the id sets only ``EventDB[id]``, which a battle never reads: its script
+    is ``"EVT_BATTLE_" + name``, HonoluluBattleMain.cs:198-215.)"""
     name = name or scene_name(scene_id)
     short = name[4:] if name.upper().startswith("BSC_") else name
     needle = f"evt_battle_{short.lower()}"
     names = set(names)
-    bad, over, sels = [], {}, {}
+    bad, over, sels, bsc = [], {}, {}, {}
     for r in roots:
         r = Path(r)
         paths = battle_overrides(r)
@@ -731,14 +779,29 @@ def battle_stock(roots, scene_id: int, names, *, name: str | None = None) -> tup
                 bad.append(f"(b) {r.name}/BattlePatch.txt 'Battle: {a}' selects {name}")
             elif op in ("AnyEnemyByName", "AnyAttackByName") and a in names:
                 bad.append(f"(b) {r.name}/BattlePatch.txt '{op}: {a}' names one of {name}'s enemies or attacks")
+        try:
+            dtext = (r / "DictionaryPatch.txt").read_text(encoding="utf-8-sig", errors="replace")
+        except OSError:
+            dtext = None
+        lines = battle_scene_lines(dtext)
+        bsc[r.name] = [[sid, nm] for sid, nm, _ln in lines]
+        for sid, nm, ln in lines:
+            if sid == int(scene_id):
+                bad.append(f"(c) {r.name}/DictionaryPatch.txt '{ln.strip()}' rebinds battle {scene_id} to BSC_{nm} "
+                           f"(the reverse entry its scene is looked up by)")
+            elif nm == short:
+                bad.append(f"(c) {r.name}/DictionaryPatch.txt '{ln.strip()}' repoints BSC_{short} to {sid} (battle "
+                           f"{scene_id}'s sequence, text and background)")
     scenes = sorted({p.split("/")[-1].split(".")[0] for ps in over.values() for p in ps})
     by = "; ".join(f"{n} " + ", ".join(f"{op}: {arg}" for op, arg in s) for n, s in sels.items() if s)
     named = [f"{n} {op}: {arg}" for n, s in sels.items() for op, arg in s if op != "Battle"]
+    dict_lines = "; ".join(f"{n} " + ", ".join(f"{sid} {nm}" for sid, nm in s) for n, s in bsc.items() if s)
     detail = ("; ".join(bad[:6]) if bad else
               f"no stacked folder overrides {name} (the stack's battle-scene overrides: {', '.join(scenes) or 'none'}"
               f"); BattlePatch selectors: {by or 'none'}; "
-              + (f"name selectors (none naming {name}'s): {named}" if named else "no name selector"))
-    return not bad, detail, {"overrides": over, "selectors": sels}
+              + (f"name selectors (none naming {name}'s): {named}" if named else "no name selector")
+              + f"; DictionaryPatch BattleScene lines (none on {scene_id} or {short}): {dict_lines or 'none'}")
+    return not bad, detail, {"overrides": over, "selectors": sels, "battle_scenes": bsc}
 
 
 def p_donor(pred: dict, roots) -> tuple:
@@ -880,7 +943,8 @@ class O3Segment(A.O2Segment):
         "P-SETTINGS": "P-SETTINGS: the battle, cheat, hack and control settings are the frozen ones (Memoria.ini read "
                       "the engine's way)",
         "P-STOCK-BATTLE": "P-STOCK-BATTLE: battle 338 is stock on both sides: no stacked folder overrides its scene or "
-                          "script, and no BattlePatch selector reaches it",
+                          "script, no BattlePatch selector reaches it, and no DictionaryPatch BattleScene line rebinds "
+                          "it",
         "BUILD": "O3-BUILD: a US session's build: every member's US .eb is its donor's with only in-chain Field() "
                  "literals remapped; each other language is its own donor's or the us build (the kit before "
                  "3d8b7f1b), so the claim holds for a US session only",
@@ -1068,12 +1132,15 @@ class O3Segment(A.O2Segment):
 
     def fingerprint_extra(self, roots: list, pred: dict) -> dict:
         """6.3: O2's (field 70's override, block 2's text per folder, the game's language), then ``settings`` (the
-        engine's reading of the frozen keys), ``battle_patch`` (each folder's BattlePatch.txt sha, None when absent)
-        and ``battle_overrides`` (each folder's battle-scene override paths)."""
+        engine's reading of the frozen keys), ``battle_patch`` (each folder's BattlePatch.txt sha, None when absent),
+        ``battle_overrides`` (each folder's battle-scene override paths) and ``battle_scenes`` (each folder's
+        DictionaryPatch BattleScene lines, ``[id, name]``: a battle-scene registration deployed mid-session is
+        A-INSTALL, as a BattlePatch deploy is)."""
         out = super().fingerprint_extra(roots, pred)
         out["settings"] = install_settings(GAME, roots, pred.get("settings") or SETTINGS)
         out["battle_patch"] = {Path(r).name: _sha_file(Path(r) / "BattlePatch.txt") for r in roots}
         out["battle_overrides"] = {Path(r).name: battle_overrides(r) for r in roots}
+        out["battle_scenes"] = {Path(r).name: dictionary_battle_scenes(r) for r in roots}
         return out
 
     # -- the session --------------------------------------------------------------------------------------------

@@ -1067,10 +1067,16 @@ O3-VOID-ASYM", never VOID).
   `battle.extract._read_battle_text(338)["us"]` split with `dialogue.parse_mes`: a name selector applies to every
   scene holding the name among ALL its strings, then matches the first `TypCount` as enemies and the next as attacks,
   :770-771/:779-780 -- today King Leo, Zenero, Benero and their attacks); a name selector naming anything else passes,
-  listed. Today PASS: the stack's battle-scene overrides are FF9CustomMap's `EVT_BATTLE_LEDGER{1S,1W,_A,_B}` only,
-  and its BattlePatch selectors are `Battle:` 67 (x2), 336, 337, 334, 335 (FF9CustomMap) and 67 (FF9CustomMap-msgs),
-  no name selector anywhere -- 0.2 #17. A FAIL means battle 338 differs from stock on BOTH sides, which NULL cannot
-  see: O3's S side would no longer be the stock truth.
+  listed; (c) (the review, 11.7 #4) no DictionaryPatch.txt `BattleScene` line, read as `PatchDictionaries` reads it
+  (:255, :565-575), whose id is 338 -- `SceneData["BSC_" + name] = 338` overwrites the reverse entry the battle's
+  scene is looked up by (HonoluluBattleMain.cs:198), rebinding battle 338 to another scene, script and background with
+  no file under TH_E002's name and no selector -- or whose name is `TH_E002` (`BSC_TH_E002`'s forward entry
+  repointed: 338's sequence, text and background follow it); every other BattleScene line passes, listed. Today PASS:
+  the stack's battle-scene overrides are FF9CustomMap's `EVT_BATTLE_LEDGER{1S,1W,_A,_B}` only, its BattlePatch
+  selectors are `Battle:` 67 (x2), 336, 337, 334, 335 (FF9CustomMap) and 67 (FF9CustomMap-msgs), no name selector
+  anywhere -- 0.2 #17 -- and its BattleScene lines are FF9CustomMap's 30871/30872/30881/30882 (the LEDGER scenes). A
+  FAIL means battle 338 differs from stock on BOTH sides, which NULL cannot see: O3's S side would no longer be the
+  stock truth.
 - **In game only** (`capabilities`): P-CAP, P-OBJECTS, P-LANG (O2's), and:
   - **P-DONOR-LOG (new)**: this launch's Memoria.log (`g._log_paths()`, rewritten at launch) holds "[DataPatchers]
     Initialized" and NO line "[DataPatchers] ForkDonorPatch: donor field <61|62|63> is forked by both" -- the engine's
@@ -1093,7 +1099,8 @@ O3-VOID-ASYM", never VOID).
 The base's (members' registrations, ForkDonorPatch rows, `.eb` and walkmesh shas, stock overrides) + O2's
 (`override70`, `text2`, `lang`) + **`settings`** (`ini_settings` over 4.13's keys) + **`battle_patch`** (each stacked
 folder's BattlePatch.txt sha, None when absent) + **`battle_overrides`** (each folder's sorted battle-scene override
-names: its `EVT_BATTLE_*` scene directories and battle `.eb` files). Another session re-wiring New Game, touching
+names: its `EVT_BATTLE_*` scene directories and battle `.eb` files) + **`battle_scenes`** (each folder's DictionaryPatch
+`BattleScene` lines, `[id, name]`: the review, 11.7 #4). Another session re-wiring New Game, touching
 block 2, a language change, a settings change, or a BattlePatch or battle-scene deploy mid-session makes runs VOID
 (A-INSTALL), never skews them. (A deploy changes the files, not this launch -- P-LAUNCH is checked once, at the
 start; a mid-session file change is A-INSTALL whatever the launch read.)
@@ -1307,7 +1314,9 @@ Units (no session):
 - **p-stock-battle:** synthetic stacked folders -- today's live shape (the four LEDGER overrides; `Battle:` 67, 336,
   337, 334, 335): PASS; plus `BattleMap/BattleScene/EVT_BATTLE_TH_E002/dbfile0000.raw16.bytes`: FAIL; plus
   `EventBinary/Battle/fr/EVT_BATTLE_TH_E002.eb.bytes`: FAIL; plus `Battle: 338`, or `Battle: BSC_TH_E002`: FAIL; plus
-  `AnyEnemyByName: King Leo`: FAIL; plus `AnyEnemyByName: Goblin`: PASS, listed.
+  `AnyEnemyByName: King Leo`: FAIL; plus `AnyEnemyByName: Goblin`: PASS, listed; (the review, 11.7 #4) today's four
+  LEDGER `BattleScene` lines PASS, listed; plus `BattleScene 338 LEDGER_A BBG_B251` or `BattleScene 30999 TH_E002
+  BBG_B065`: FAIL (c); plus `FieldScene 338 11 X X 2`: PASS (the battle never reads EventDB[338]).
 - **p-settings:** a synthetic ini equal to 4.13: PASS; `Speed = 0`: FAIL naming it; a later duplicate assignment wins.
 - **scene-census:** O3-SCENE on the install: PASS; mutants each FAIL by their clause: `lands` 64, `won` [1] (WinPose
   off allows exactly [1, 2]), `won` [1, 2, 3] (a defeat counted as covered), `landing.battle.ip` 268, the noise

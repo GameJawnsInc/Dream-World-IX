@@ -957,14 +957,21 @@ def unit_p_launch(tmp: Path) -> tuple:
 _338_NAMES = ["King Leo", "Zenero", "Benero", "Taste steel!", "Poly", "Clamp Pinch", "Pyro", "Clamp Pinch", "Pyro"]
 
 
+#: FF9CustomMap's DictionaryPatch BattleScene lines as today's install holds them (the fight ledger's four scenes).
+_BATTLE_SCENES = ("BattleScene 30871 LEDGER_A BBG_B251", "BattleScene 30872 LEDGER_B BBG_B252",
+                  "BattleScene 30881 LEDGER1W BBG_B253", "BattleScene 30882 LEDGER1S BBG_B254")
+
+
 def unit_p_stock_battle(tmp: Path) -> tuple:
-    """P-STOCK-BATTLE's cases (section 8 p-stock-battle): today's live shape PASS; a scene override of TH_E002, its fr
-    .eb, `Battle: 338`, `Battle: BSC_TH_E002`, `AnyEnemyByName: King Leo` each FAIL; `AnyEnemyByName: Goblin` PASS,
-    listed."""
+    """P-STOCK-BATTLE's cases (section 8 p-stock-battle): today's live shape PASS, its four BattleScene lines listed; a
+    scene override of TH_E002, its fr .eb, `Battle: 338`, `Battle: BSC_TH_E002`, `AnyEnemyByName: King Leo` each FAIL;
+    `AnyEnemyByName: Goblin` PASS, listed; a DictionaryPatch `BattleScene 338 ...` (the battle rebound) and
+    `BattleScene 30999 TH_E002 ...` (its forward entry repointed) each FAIL (c); a `FieldScene 338 ...` PASSES (the
+    battle never reads EventDB[338]: the review, 11.7 #4)."""
     res = "StreamingAssets/assets/resources"
     n = {"k": 0}
 
-    def judge(paths=(), lines=()):
+    def judge(paths=(), lines=(), dict_lines=()):
         n["k"] += 1
         base = tmp / f"pstock{n['k']}"
         custom, msgs = base / "FF9CustomMap", base / "FF9CustomMap-msgs"
@@ -975,10 +982,15 @@ def unit_p_stock_battle(tmp: Path) -> tuple:
                 (custom / rel).write_bytes(b"x")
         (custom / "BattlePatch.txt").write_text("".join(f"Battle: {b}\nMusic: 0\n" for b in (67, 67, 336, 337, 334, 335))
                                                 + "".join(f"{x}\n" for x in lines), encoding="utf-8")
+        (custom / "DictionaryPatch.txt").write_text("".join(f"{x}\n" for x in ("FieldScene 31213 11 O1_TSHP_TH_STG "
+                                                                               "O1_TSHP_TH_STG 2",
+                                                                               *_BATTLE_SCENES, *dict_lines)),
+                                                    encoding="utf-8")
         msgs.mkdir(parents=True)
         (msgs / "BattlePatch.txt").write_text("Battle: 67\nMusic: 0\n", encoding="utf-8")
         return P.battle_stock([custom, msgs], 338, _338_NAMES)[:2]
-    got = {"today": judge()[0],
+    ok, detail = judge()
+    got = {"today": ok and "FF9CustomMap 30871 LEDGER_A, 30872 LEDGER_B, 30881 LEDGER1W, 30882 LEDGER1S" in detail,
            "scene-dir": not judge(paths=[f"{res}/BattleMap/BattleScene/EVT_BATTLE_TH_E002/dbfile0000.raw16.bytes"])[0],
            "fr-eb": not judge(paths=[f"{res}/commonasset/eventengine/eventbinary/Battle/fr/EVT_BATTLE_TH_E002.eb.bytes"])[0],
            "battle-338": not judge(lines=["Battle: 338", "MaxHP: 1"])[0],
@@ -986,7 +998,12 @@ def unit_p_stock_battle(tmp: Path) -> tuple:
            "king-leo": not judge(lines=["AnyEnemyByName: King Leo", "MaxHP: 1"])[0]}
     ok, detail = judge(lines=["AnyEnemyByName: Goblin", "MaxHP: 1"])
     got["goblin-listed"] = ok and "AnyEnemyByName: Goblin" in detail
-    return all(got.values()), str(got)
+    for case, line in (("dictionary-battlescene-338", "BattleScene 338 LEDGER_A BBG_B251"),
+                       ("dictionary-battlescene-th_e002", "BattleScene 30999 TH_E002 BBG_B065")):
+        ok, detail = judge(dict_lines=[line])
+        got[case] = (not ok) and f"(c) FF9CustomMap/DictionaryPatch.txt '{line}'" in detail
+    got["dictionary-fieldscene-338"] = judge(dict_lines=["FieldScene 338 11 X X 2"])[0]
+    return all(got.values()), str({k: v for k, v in got.items() if not v} or "all as registered")
 
 
 def unit_p_settings(tmp: Path) -> tuple:
