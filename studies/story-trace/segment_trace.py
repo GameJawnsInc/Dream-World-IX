@@ -476,7 +476,10 @@ class Segment:
         false outside FieldHUD/WorldHUD/BattleHUD/QuadMistBattle; BattleResult swallows it). So mid-fight (BattleHUD,
         result 0) the run resets at once, with no warp. In a battle's END sequence (a result set, or BattleResult)
         it waits up to :attr:`battle_end_wait_s` for the field the battle hands over, then warps and climbs the ladder
-        as any run does. Outside a battle: exactly the old path. Decided on ONE read of the state."""
+        as any run does. The end sequence includes its LOAD: the scene is gone (``in_battle`` False) while the UI still
+        reads BattleResult until the next field's HUD is up (H8's lag, H9's fourth phase) -- the warp is refused there
+        and the reset swallowed, so it is waited out too (the review, research/o3_design.md 11.7 #8). Outside a battle:
+        exactly the old path. Decided on ONE read of the state."""
         from harness import HarnessError
         recovery = self.recovery if recovery is None else recovery
         st = g.state
@@ -490,7 +493,8 @@ class Segment:
                 except HarnessError as err:
                     log.append({"k": "recover-reset-failed", "why": str(err)[:200]})
             else:
-                if st.in_battle:                    # the end sequence: a result is set, or BattleResult
+                if st.in_battle or st.ui_state == "BattleResult":   # the end sequence: a result set, or BattleResult
+                    # -- its load included, the scene gone with the UI still reading BattleResult
                     log.append({"k": "recover-battle-ending", "scene": st.battle.get("scene"), "ui": st.ui_state,
                                 "result": st.battle_result})
                     try:

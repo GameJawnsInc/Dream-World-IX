@@ -11868,7 +11868,8 @@ def test_segment_end_run_resets_from_inside_a_battle_without_a_warp():
     state the soft-reset combo fires in -- end_run resets at once: no warp (the agent refuses one there), rows
     ``recover-in-battle`` (scene, ui BattleHUD, result 0) then ``recover-reset``, then the ladder; a reset that fails
     is ``recover-reset-failed``, still the ladder. In the battle's END sequence (BattleHUD with result 2: the fade;
-    BattleResult) there is no soft reset: it waits ``battle_end_wait_s`` (120 s) for the field the battle hands
+    BattleResult; its load, the scene gone with the UI still BattleResult) there is no soft reset: it waits
+    ``battle_end_wait_s`` (120 s) for the field the battle hands
     over, then warps and climbs the ladder (``recover-battle-ending``, ``recover-battle-ended``, ``recover-warp``);
     a field that never comes is ``recover-battle-ending-failed``, then the warp is tried (refused) and the ladder
     climbed. Outside a battle: today's warp and ladder exactly. Break: reset in every battle state (the end
@@ -11899,6 +11900,14 @@ def test_segment_end_run_resets_from_inside_a_battle_without_a_warp():
         assert calls == [("wait_for", 120.0), ("warp", 4600), ("restore_baseline",)], (ui, calls)
         assert log == [{"k": "recover-battle-ending", "scene": 338, "ui": ui, "result": result},
                        {"k": "recover-battle-ended", "field": 63}, {"k": "recover-warp", "field": 4600}], (ui, log)
+    # the LOAD (the review, research/o3_design.md 11.7 #8): the scene gone, the UI still reading BattleResult -- the end
+    # sequence too, waited out (the warp is refused there and the reset swallowed)
+    load = types.SimpleNamespace(ui_state="BattleResult", in_battle=False, battle_result=1,
+                                 battle={"scene": 338, "active": False}, field_id=63)
+    calls, log = end(load)
+    assert calls == [("wait_for", 120.0), ("warp", 4600), ("restore_baseline",)], calls
+    assert log == [{"k": "recover-battle-ending", "scene": 338, "ui": "BattleResult", "result": 1},
+                   {"k": "recover-battle-ended", "field": 63}, {"k": "recover-warp", "field": 4600}], log
     calls, log = end(battle("BattleResult", 1, 63), field_comes=False)   # the field never comes
     assert calls == [("wait_for", 120.0), ("warp", 4600), ("restore_baseline",)], calls
     assert [x["k"] for x in log] == ["recover-battle-ending", "recover-battle-ending-failed", "recover-warp-failed"]
@@ -14571,6 +14580,43 @@ def test_segment_end_run_from_a_battle_on_the_fake(game):
         with pytest.raises(HarnessError, match="the title could not be restored"):
             seg.end_run(g, log)
     assert [r["k"] for r in log] == ["recover-in-battle", "recover-reset-failed"] and fake.soft_resets == 0, log
+
+
+def test_segment_end_run_waits_out_the_battle_load_on_the_fake(game):
+    """S3 in a battle exit's LOAD (H9's fourth phase; the review, research/o3_design.md 11.7 #8): the scene is gone
+    (``in_battle`` False) while the UI still reads BattleResult until the next field's HUD is up -- where a battle()
+    that stopped before FieldHUD (V14 past ``land_cap_s``, the budget inside the landing wait) leaves the run. end_run
+    takes the end sequence's path there too: it waits for the field the battle hands over (``recover-battle-ending``,
+    ui BattleResult, result 1), then ``recover-battle-ended`` and the warp to ``recovery`` (``recover-warp``), then the
+    title. Break: test ``in_battle`` alone (the load takes the outside-a-battle path: the warp refused off FieldHUD,
+    ``recover-warp-failed``, the ladder from BattleResult)."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    ST = _segment_trace()
+    seg = ST.Segment()
+    seg.recovery = 30821
+    fake = FakeGame(game)
+    fake.warp_field_only, fake.warp_arrive_control, fake.soft_reset_ui = True, False, SOFT_RESET_ENGINE_UI
+    fake.battle_exit = {"field": 30810, "fade_frames": 10, "result_frames": 10, "load_frames": 1200,
+                        "arrive_control": False}
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        _o3_raw_warp(g, 30820)
+        g.start_battle(338)
+        _o3_end_on_the_fake(fake, 2)
+        st = published(g, lambda s: s.ui_state == "BattleResult" and not s.in_battle)
+        assert st.field_id == 30810 and st.battle_result == 1, st          # premise: the load, its lag published
+        _o3_quick_ladder(g)
+        _o1_director(fake, stop, [(lambda f: f.field_id == 30821, lambda f: setattr(f, "control", True))])
+        log = []
+        try:
+            seg.end_run(g, log)
+        finally:
+            stop.set()
+        st = g.state
+    assert st.ui_state == "Title" and fake.soft_resets == 1, st
+    assert [r["k"] for r in log] == ["recover-battle-ending", "recover-battle-ended", "recover-warp"], log
+    assert (log[0]["ui"], log[0]["result"], log[1]["field"], log[2]["field"]) == ("BattleResult", 1, 30810, 30821), log
 
 
 def test_segment_session_end_leaves_a_movie_on_the_fake(game, tmp_path_factory):

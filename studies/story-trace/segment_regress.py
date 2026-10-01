@@ -99,6 +99,7 @@ REQUIRED_TESTS: tuple = (
     "test_segment_session_end_warps_first_when_asked",                          # A4: S5
     "test_segment_end_run_from_a_battle_on_the_fake",                           # B5: S3 on H9's knobs
     "test_segment_session_end_leaves_a_movie_on_the_fake",                      # B5: S5 on H9's movie beat
+    "test_segment_end_run_waits_out_the_battle_load_on_the_fake",               # the review, 11.7 #8: S3's load
 )
 
 O1E_VERDICT = "PROVEN"

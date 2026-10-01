@@ -286,7 +286,10 @@ ok, why = g.restore_baseline()        # unchanged from here
 ```
 `Segment.battle_end_wait_s = 120.0` (a class attribute: the same cap as the battle row's `land_cap_s`, 2.1). O1 and
 O2 never end a run in a battle on their covered paths; a run stopped mid-fight now takes the soft reset first, one
-stopped in a battle's end sequence waits for its field. No analysis output changes.
+stopped in a battle's end sequence waits for its field. No analysis output changes. (The review, 11.7 #8: the end
+sequence's LOAD -- the scene gone, the UI still BattleResult, where a `battle()` stopped before FieldHUD leaves the run
+-- reads `in_battle` False, so the test is `st.in_battle or st.ui_state == "BattleResult"`: the load is waited out
+too, never warped from.)
 Tests: (A3) `test_segment_end_run_resets_from_inside_a_battle_without_a_warp` -- stub session objects (a
 `SimpleNamespace` recording `warp`/`soft_reset`/`wait_for`/`restore_baseline`): in BattleHUD with result 0, no warp,
 one soft reset, then the ladder, rows `recover-in-battle` (ui BattleHUD) then `recover-reset`; in BattleResult (and
