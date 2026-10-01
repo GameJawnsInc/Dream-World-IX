@@ -1092,8 +1092,14 @@ one the way a player does. It is opt-in, per segment, and off unless the predict
   FASTEST no-skip run by at least half of what its skip left (`left_s`; R-FULL's two runs differ by 10 s, and a skip
   answered 10-11 s in leaves about 79 s). The regression gate runs the A/B whole: G13 its test, through the files
   (`-k "o3_drive or o3_skip_ab"`; it reads the install, and a skip fails the item), and G14 o3_dryrun's A/B units,
-  the launches, the pairing and the CLI's exit codes included. **Status: built and proven on the fake; the in-game
-  A/B is not yet run.** O3's frozen predictions (v1) carry no policy and stay so.
+  the launches, the pairing and the CLI's exit codes included. **Status: ★ O3's in-game A/B reads EQUIVALENT** (stock
+  R-FULL-SKIP x2, `20261001-140512-o3-rh-R-FULL-SKIP`, against R-FULL `20261001-093510-o3-rh-R-FULL`): the skip
+  dialog published exactly as predicted (`['Do you want to skip\nthe movie?', 'Yes', 'No']`, active [0, 1], selected
+  1), each run skipped FMV003 on its first press 12.1-12.2 s into 61, and every axis above matched the no-skip
+  reference (24/24 writes, 3/3 chain, 0 unregistered keys, 11 targets' histories, the end cut and the end state). The
+  runs took 162.6 s and 148.1 s against 232.9 s and 223.3 s: 65-80 s (about 30%) saved a run. So O3's FMV003 MAY be
+  skipped by a later O3 session or regression re-run; O3's frozen predictions (v1) carry no policy and stay so, and
+  every other segment's movies play out until that segment's own A/B reads EQUIVALENT.
 
 ## Rungs
 
