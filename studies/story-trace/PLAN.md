@@ -815,7 +815,7 @@ The chain stays deployed (31200-31219) for the next segments.
 **Next, O2:** Alexandria, where Vivi's segment starts in field 100. That means the alxt zone joins the chain, and the
 driver gains that segment's naming screen, its walks and its talks.
 
-## O2 -- Alexandria under the trace: Vivi's segment (draft: rehearsals pending, freeze pending)
+## O2 -- Alexandria under the trace: Vivi's segment (PROVEN: story-o2, v1 081d774e)
 
 **The question.** Over Alexandria's first story segment, does a verbatim fork of the alxt zone write the real game's
 story state key for key? The stock runs are also this segment's recorded ground truth. The design, with both of its
