@@ -15781,22 +15781,6 @@ def o3_stock():
     return src
 
 
-def _o3_ab_launch(run_dir, name, stage, runs):
-    """A rehearsal launch as o3_rehearse.py writes one: ``o3_rehearsal.json`` (its stage def, a record a run) and each
-    run's trace and driver log -- ``runs`` the A/B's run records (o3_dryrun.ab_run, its ``raw`` rows)."""
-    run_dir.mkdir(parents=True, exist_ok=True)
-    recs = []
-    for r in runs:
-        trace, log = f"rh_{name}_{r['n']}.jsonl", f"rh_{name}_{r['n']}_log.json"
-        (run_dir / trace).write_text("".join(json.dumps(x) + "\n" for x in r["raw"]), encoding="utf-8")
-        (run_dir / log).write_text(json.dumps({"outcome": r["outcome"], "log": r["log"]}), encoding="utf-8")
-        recs.append({"stage": name, "n": r["n"], "trace_file": trace, "log_file": log,
-                     "outcome": {k: r["outcome"].get(k) for k in ("end", "why", "t")}})
-    (run_dir / "o3_rehearsal.json").write_text(json.dumps({"stages_run": [name], "stage_defs": {name: stage},
-                                                           "stages": {name: recs}}), encoding="utf-8")
-    return run_dir
-
-
 def test_o3_skip_ab_on_synthetic_traces(o3_stock, tmp_path):
     """The movie-skip A/B (``o3_prima_vista.py --skip-ab``; PLAN.md "Movie skip (opt-in)") on synthetic stock runs --
     real store sites of 61-64, emitted as the engine emits them, each run its own battle noise. Two no-skip and two
@@ -15807,10 +15791,11 @@ def test_o3_skip_ab_on_synthetic_traces(o3_stock, tmp_path):
     that played its movie out, and a no-skip run that skipped one, are differences -- never a pass. So is a skip run
     whose row says skipped but whose run took 229 s against 230 (the driver's word alone: the skip did not take, and
     its trace reads as R-FULL's on every axis), and one whose skipped row has no ``left_s`` (no next page registered).
-    Through the files too: two launches written as o3_rehearse.py writes them (R-FULL; R-FULL-SKIP with its policy),
-    paired by warp and end, read EQUIVALENT and the CLI exits 0; the no-skip launch against itself holds no policy
-    stage: NOT EQUIVALENT, exit 1. Break: read each history as a set (the reordered one then reads EQUIVALENT); or
-    trust the row's "skipped" alone (the 229 s run then reads EQUIVALENT)."""
+    Through the files too (o3_dryrun.ab_launch): two launches written as o3_rehearse.py writes them (R-FULL; R-FULL-SKIP
+    with its policy), paired by warp and end, read EQUIVALENT and the CLI exits 0; the no-skip launch against itself
+    holds no policy stage: NOT EQUIVALENT, exit 1; an R-FULL-SKIP ending at 63 has no twin. G13 runs this test (the
+    movie-skip review #5). Break: read each history as a set (the reordered one then reads EQUIVALENT); trust the
+    row's "skipped" alone (the 229 s run then reads EQUIVALENT); or pair stages by policy inverted (nothing pairs)."""
     P, R = _o3_module(), _o3_rehearse_module()
     import o3_dryrun as D3
     pred, _sha = P.O3.load(P.PREDICTIONS)
@@ -15855,15 +15840,19 @@ def test_o3_skip_ab_on_synthetic_traces(o3_stock, tmp_path):
     assert not ok and len(diffs) == 1 and "skipped no movie (movie-skip missed" in diffs[0], diffs
     ok, lines, diffs = ab(a2_skip=True)
     assert not ok and diffs == ["no-skip R-FULL#2 skipped a movie: the no-skip side must play every movie out"], diffs
-    a_dir = _o3_ab_launch(tmp_path / "a", "R-FULL", R.STAGES["R-FULL"],
-                          [D3.ab_run(pred, D3.base_events(seed=n), "no-skip", n) for n in (1, 2)])
-    b_dir = _o3_ab_launch(tmp_path / "b", "R-FULL-SKIP", R.STAGES["R-FULL-SKIP"],
-                          [D3.ab_run(pred, D3.base_events(seed=n + 2), "skip", n) for n in (1, 2)])
+    a_dir = D3.ab_launch(tmp_path / "a", "R-FULL", R.STAGES["R-FULL"],          # as o3_rehearse.py writes a launch
+                         [D3.ab_run(pred, D3.base_events(seed=n), "no-skip", n) for n in (1, 2)])
+    b_dir = D3.ab_launch(tmp_path / "b", "R-FULL-SKIP", R.STAGES["R-FULL-SKIP"],
+                         [D3.ab_run(pred, D3.base_events(seed=n + 2), "skip", n) for n in (1, 2)])
     ok, text = P.skip_ab(a_dir, b_dir, pred=pred, stock=o3_stock)
     assert ok and text.splitlines()[-1].startswith("VERDICT: EQUIVALENT"), text
     assert ("skip stage R-FULL-SKIP: warp 61 0 1155 -> [64]; policy skip, cells 61@1155 after 10.0 s; paired with "
             "R-FULL") in text, text
     ok, text = P.skip_ab(a_dir, a_dir, pred=pred, stock=o3_stock)
     assert not ok and "holds no stage with a movie-skip policy" in text, text
+    lone = D3.ab_launch(tmp_path / "c", "R-FULL-SKIP", dict(R.STAGES["R-FULL-SKIP"], end=[63]),
+                        [D3.ab_run(pred, D3.base_events(seed=3), "skip", 1)])
+    ok, text = P.skip_ab(a_dir, lone, pred=pred, stock=o3_stock)       # no no-skip stage of its warp AND end
+    assert not ok and "skip stage R-FULL-SKIP has no no-skip stage of the same warp and end" in text, text
     assert P.main(["--skip-ab", str(a_dir), str(b_dir)]) == 0
     assert P.main(["--skip-ab", str(a_dir), str(a_dir)]) == 1

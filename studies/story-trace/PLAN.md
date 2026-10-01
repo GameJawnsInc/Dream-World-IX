@@ -1090,8 +1090,10 @@ one the way a player does. It is opt-in, per segment, and off unless the predict
   is a difference, never a pass -- and so is one whose row says skipped but whose run was not faster: the row is the
   driver's word that it answered the dialog (`g.choose(0)` is blind), so each skip run must reach its end ahead of the
   FASTEST no-skip run by at least half of what its skip left (`left_s`; R-FULL's two runs differ by 10 s, and a skip
-  answered 10-11 s in leaves about 79 s). **Status: built and proven on the fake; the in-game A/B is not yet run.**
-  O3's frozen predictions (v1) carry no policy and stay so.
+  answered 10-11 s in leaves about 79 s). The regression gate runs the A/B whole: G13 its test, through the files
+  (`-k "o3_drive or o3_skip_ab"`; it reads the install, and a skip fails the item), and G14 o3_dryrun's A/B units,
+  the launches, the pairing and the CLI's exit codes included. **Status: built and proven on the fake; the in-game
+  A/B is not yet run.** O3's frozen predictions (v1) carry no policy and stay so.
 
 ## Rungs
 

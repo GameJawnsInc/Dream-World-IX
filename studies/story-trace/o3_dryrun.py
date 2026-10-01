@@ -24,14 +24,18 @@ The units read the install read-only (the stock scripts and walkmeshes, battle 3
 O3-SCENE and O3-CENSUS on the install and on one-change copies of the draft, the battle row's strictness, the legacy
 build rule, and the offline mutants of O3-KEYS, O3-REGIONS and P-DONOR. The launch's readers (P-DONOR-LOG, P-LAUNCH),
 P-STOCK-BATTLE and P-SETTINGS run on synthetic logs, folders and inis. The movie-skip A/B (``--skip-ab``, PLAN.md "Movie
-skip (opt-in)") runs on synthetic stock runs: equal runs read EQUIVALENT; a key dropped, a history reordered and a skip
-run that played its movie out each read NOT EQUIVALENT.
+skip (opt-in)") runs on synthetic stock runs: equal runs read EQUIVALENT; a key dropped, a history reordered, a skip
+run that played its movie out, one whose row says skipped but whose run saved no time, and a skipped row with no
+``left_s`` each read NOT EQUIVALENT -- and the same runs written as launches go through ``skip_ab`` and the CLI, the
+pairing, the reading and the exit codes included.
 """
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import datetime as _dt
+import io
 import json
 import os
 import random
@@ -1268,6 +1272,59 @@ def ab_run(pred: dict, events: list, side: str, n: int, *, skipped: bool = True,
             "start_place": 61, "end_fields": [P.END_FIELD]}
 
 
+def ab_launch(run_dir: Path, name: str, stage: dict, runs: list) -> Path:
+    """A rehearsal launch as o3_rehearse.py writes one, for ``--skip-ab`` to read from disk: ``o3_rehearsal.json``
+    (the stage's def, and a record a run: its trace and log files, its outcome's end, why and t) and each run's trace
+    (its ``raw`` rows) and driver log (its outcome and log) -- ``runs`` :func:`ab_run`'s."""
+    run_dir.mkdir(parents=True, exist_ok=True)
+    recs = []
+    for r in runs:
+        trace, log = f"rh_{name}_{r['n']}.jsonl", f"rh_{name}_{r['n']}_log.json"
+        (run_dir / trace).write_text("".join(json.dumps(x) + "\n" for x in r["raw"]), encoding="utf-8")
+        (run_dir / log).write_text(json.dumps({"outcome": r["outcome"], "log": r["log"]}), encoding="utf-8")
+        recs.append({"stage": name, "n": r["n"], "trace_file": trace, "log_file": log,
+                     "outcome": {k: r["outcome"].get(k) for k in ("end", "why", "t")}})
+    (run_dir / P.REHEARSAL_FILE).write_text(json.dumps({"stages_run": [name], "stage_defs": {name: stage},
+                                                        "stages": {name: recs}}), encoding="utf-8")
+    return run_dir
+
+
+def unit_skip_ab_files(pred: dict, stock, tmp: Path, pred_path: Path) -> list:
+    """``[(name, ok, detail)]``: the movie-skip A/B THROUGH ITS FILES (o3_prima_vista.skip_ab and ``--skip-ab``), the
+    way the in-game A/B runs -- _ab_stages' pairing, _ab_runs' reading of each run's trace and log, the CLI's exit
+    codes -- where :func:`unit_skip_ab` reads run records alone. Launches written as o3_rehearse.py writes them, with
+    its own stage defs: R-FULL (two no-skip runs) and R-FULL-SKIP (its policy, two skip runs), paired by warp and end,
+    read EQUIVALENT; an R-FULL-SKIP whose end is 63 has no no-skip twin of its warp and end, a difference naming it;
+    the no-skip launch against itself holds no policy stage; ``--skip-ab`` exits 0 on the pair and 1 on the launch
+    against itself."""
+    import o3_rehearse as R
+    full, pol = R.STAGES["R-FULL"], R.STAGES["R-FULL-SKIP"]
+    a = ab_launch(tmp / "ab-no-skip", "R-FULL", full, [ab_run(pred, base_events(seed=n), "no-skip", n) for n in (1, 2)])
+    b = ab_launch(tmp / "ab-skip", "R-FULL-SKIP", pol, [ab_run(pred, base_events(seed=n + 2), "skip", n)
+                                                        for n in (1, 2)])
+    lone = ab_launch(tmp / "ab-skip-63", "R-FULL-SKIP", dict(pol, end=[63]),
+                     [ab_run(pred, base_events(seed=3), "skip", 1)])
+    out = []
+    ok, text = P.skip_ab(a, b, pred=pred, stock=stock)
+    last = text.splitlines()[-1]
+    out.append(("skip-ab-files-paired", ok and last.startswith("VERDICT: EQUIVALENT")
+                and "policy skip, cells 61@1155 after 10.0 s; paired with R-FULL" in text
+                and len([ln for ln in text.splitlines() if ln.startswith("took: ")]) == 2, last[:150]))
+    ok, text = P.skip_ab(a, lone, pred=pred, stock=stock)
+    want = "skip stage R-FULL-SKIP has no no-skip stage of the same warp and end"
+    out.append(("skip-ab-files-unpaired", not ok and want in text and "paired with NO no-skip stage" in text,
+                next((ln.strip() for ln in text.splitlines() if want in ln), text.splitlines()[-1])[:150]))
+    ok, text = P.skip_ab(a, a, pred=pred, stock=stock)
+    out.append(("skip-ab-files-no-policy", not ok and "ab-no-skip holds no stage with a movie-skip policy" in text,
+                text.splitlines()[-1][:150]))
+    with contextlib.redirect_stdout(io.StringIO()):
+        rcs = (P.main(["--skip-ab", str(a), str(b), "--predictions", str(pred_path)]),
+               P.main(["--skip-ab", str(a), str(a), "--predictions", str(pred_path)]))
+    out.append(("skip-ab-cli", rcs == (0, 1), f"--skip-ab exits {rcs[0]} on the pair, {rcs[1]} on the launch against "
+                                              f"itself"))
+    return out
+
+
 def _swap(ev: list, a, b) -> list:
     """``ev`` with the events of sites ``a`` and ``b`` trading places."""
     i = next(k for k, x in enumerate(ev) if _is(x, a))
@@ -1410,7 +1467,8 @@ def run_cases(pred_path: Path | None = None) -> int:
             fails += not ok
             print(f"{'ok  ' if ok else 'FAIL'} {name:30} (unit) {detail[:150]}")
         for name, ok, detail in unit_scene_census(pred) + unit_store_census(pred, stock) + \
-                unit_offline_mutants(pred, stock, tmp) + unit_skip_ab(pred, stock):
+                unit_offline_mutants(pred, stock, tmp) + unit_skip_ab(pred, stock) + \
+                unit_skip_ab_files(pred, stock, tmp, path):
             total += 1
             fails += not ok
             print(f"{'ok  ' if ok else 'FAIL'} {name:30} (unit) {detail[:150]}")
