@@ -116,6 +116,10 @@ PYTEST_K_O2 = "o2_ or rehearse"
 REQUIRED_TESTS_O2: tuple = (
     # B4: S4's no-registry proof -- O2-shaped predictions read a battle exactly as O2's driver did
     "test_o2_drive_voids_a_battle_without_a_registry",
+    # C3: O3's rehearsals on the fake (o3_rehearse.py imports o2_rehearse's Recorder and stage_pred: shared code now)
+    "test_o3_rehearse_plumbing_on_the_fake",
+    "test_o3_rehearse_smoke_sends_no_storytrace_on_the_fake",
+    "test_o3_rehearse_battle_void_stops_mid_fight_on_the_fake",
 )
 
 # -- O3 (research/o3_design.md 1.4, 9 B4): the battle beat's driver tests, by name. No baseline: the list is the floor.

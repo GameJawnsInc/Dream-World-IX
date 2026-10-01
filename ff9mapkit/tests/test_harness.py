@@ -14829,3 +14829,264 @@ def test_o3_settings_read_the_ini_the_engines_way(tmp_path):
     ini.unlink()
     ok, detail = P.p_settings(want, P.install_settings(game, [], want))
     assert not ok and "[Battle] Enabled = None (frozen '1')" in detail, detail
+
+
+# ---- O3's rehearsals (studies/story-trace/o3_rehearse.py; research/o3_design.md section 7, PART C, C3), on the fake as
+# O3's tests model the engine (H9): warps land without control and are refused off the field, the soft reset fires in
+# the engine's UI states. end_run's recovery rung is a registered field off every route whose script hands control
+# over, as 4600's does.
+
+def _o3_rehearse_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o3_rehearse as R
+    return R
+
+
+_O3_RECOVERY = 30899
+
+
+def _o3_launch_files(game):
+    """The fake install as a launch reads it: Memoria.ini stacking FF9CustomMap, the 4.13 settings and the in-game
+    language in it; the recovery field registered; every file dated an hour back; a Memoria.log whose first line dates
+    the launch NOW, the patchers' 'Initialized' and the US localization in it."""
+    P = _o3_module()
+    patch = game / "FF9CustomMap" / "DictionaryPatch.txt"
+    patch.write_text(patch.read_text(encoding="utf-8")
+                     + f"FieldScene {_O3_RECOVERY} 11 RECOVERY RECOVERY {_O3_RECOVERY}\n", encoding="utf-8")
+    (game / "Memoria.ini").write_text(_o3_ini(P.SETTINGS) + "\n[VoiceActing]\nForceLanguage = -1\n", encoding="utf-8")
+    back = time.time() - 3600
+    for p in [game / "Memoria.ini", *(game / "FF9CustomMap").iterdir()]:
+        if p.is_file():
+            os.utime(p, (back, back))
+    now = time.strftime("%d.%m.%Y %H:%M:%S")
+    (game / "x64" / "Memoria.log").write_text(
+        f"{now} |M| [WindowManager] Moving window to (2045,33)\n{now} |M| [DataPatchers] Initialized\n"
+        f"{now} |M| Updating text localization [English(US)]\n", encoding="utf-8")
+
+
+def _o3_grant_in(fake, stop, field=_O3_RECOVERY):
+    """The recovery field's script on the fake: control handed over whenever he stands there idle without it."""
+    def loop():
+        while not stop.is_set():
+            if fake.field_id == field and not fake.control and fake.ui_state == "FieldHUD" and not fake._beats:
+                fake.control = True
+            time.sleep(0.005)
+    threading.Thread(target=loop, daemon=True).start()
+
+
+def _o3_rehearse_pred(**over):
+    """_o3_pred with what O3's trace summary reads too: the legacy battle noise, landing.before (62's ip1285 on the
+    fake's places), the end state, the SC and FieldEntrance bytes."""
+    return _o3_pred(noise=[{"not_m": 1, "target": "Global.Byte[206]", "why": "King Leo's AI, on the fake"}],
+                    landing={"before": {"place": 30821, "sid": 4, "tag": 1, "ip": 1285, "target": "Global.Int16[2]",
+                                        "value": 0}},
+                    end_state={"Global.Int16[2]": 0}, sc_bytes=[0, 1], entrance_bytes=[2, 3], **over)
+
+
+#: 338's names on the fake: P-STOCK-BATTLE's census, standing in for the install's scene read.
+_O3_CENSUS = staticmethod(lambda name: {"enemies": ["King Leo", "Zenero", "Benero"], "attacks": ["Taste steel!"]})
+
+
+def test_o3_rehearse_plumbing_on_the_fake(game):
+    """C3 (research/o3_design.md 7.1-7.2): one traced stage on the fake, chosen by ``O3_STAGE`` as a launch chooses it
+    (another stage, which would run too, does not), played from "61" (a movie, then a page) through "62" (a page, then
+    battle 338: King Leo's latch, the four-phase exit into "63") to "63" (a page) and the end "64": the capabilities
+    (P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG and P-LAUNCH on the launch's own Memoria.log), the launch's readings (the
+    settings, P-SETTINGS, P-STOCK-BATTLE), New Game, the raw warp at entrance 0 and SC 1155, the beat-table driver with
+    the recorder on every poll, the trace collected, end_run to the title through the recovery warp, and
+    o3_rehearsal.json holding every section of 7.2 -- no control grant, the pages, the published choices, the press
+    evidence (the leave's presses among them), the battle rows with battle_epoch0, fight()'s and leave_battle()'s own
+    records, the longest no-progress stretch, the movie's arrival and first page, the end (its state, end_run's
+    result and its recovery rows) and O3's trace summary (the start residue, the battle-mode rows, the first field row
+    after 62's ip1285, the end cut's row). The rehearsal report prints them. The stage order a launch takes is pinned
+    too. Break: drop the battle rows from the record."""
+    P, R = _o3_module(), _o3_rehearse_module()
+    assert R.select(R.STAGES, env={}) == ["R-START", "F-SMOKE", "R-62", "R-FULL", "R-BATTLE-VOID"]
+    assert R.select(R.STAGES, 61, env={}) == ["R-START"] and R.select(R.STAGES, 62, env={}) == ["R-62"]
+    assert R.select(R.STAGES, env={"O3_STAGE": "R-SKIP"}) == ["R-SKIP"]
+    with pytest.raises(ValueError, match="no stage"):
+        R.select(R.STAGES, env={"O3_STAGE": "R-NONE"})
+    _o3_launch_files(game)
+    stages = {"R-TEST": {"field": 30820, "entrance": 0, "sc": 1155, "end": [_O3_END], "runs": 1, "run_s": 120,
+                         "cost_s": 5, "movie": {"donor": 30820}, "settles": "the plumbing"},
+              "R-OTHER": {"field": 30821, "entrance": 0, "sc": 1155, "end": [_O3_END], "runs": 1, "run_s": 5,
+                          "cost_s": 1, "settles": "never run: O3_STAGE names R-TEST"}}
+    pages = ("Narrator\n“Ladies and gentlemen!”", "Cinna\n“Act I!”", "Zidane\n“Phew.”")
+    fake = _o3_fake(game, exit_to=30810)
+    seen = {}
+
+    def bit191(f, ip):
+        f.script_store(0, 0, ip, 191 >> 3, "Bit", 0, bit=191)
+
+    def fight(f):
+        f.script_store(4, 1, 1285, 2, "Int16", 0)                       # landing.before: 62's chain row
+        seen["epoch"] = f.battle_epoch + 1
+        f.start_battle(338, units=_o3_units())
+        f.script_store(1, 1, 267, 206, "Byte", 77)                      # King Leo's AI store: a battle-mode row
+    phases = [(lambda f: f.field_id == 30820 and f.story_on,
+               lambda f: (bit191(f, 22), f.scene({"movie": 120}, pages[0], control=False))),
+              (lambda f: f.field_id == 30820 and _o3_idle(f) and f.movies and f.movies[-1]["end"] is not None,
+               lambda f: (_o2_move(f, 30821), bit191(f, 26), f.scene(pages[1], control=False))),
+              (lambda f: f.field_id == 30821 and _o3_idle(f), fight),
+              (lambda f: f.battle_epoch == seen.get("epoch") and f.field_id == 30810 and _o3_idle(f),
+               lambda f: (bit191(f, 22), f.scene(pages[2], control=False))),
+              (lambda f: f.field_id == 30810 and _o3_idle(f), lambda f: (_o2_move(f, _O3_END), bit191(f, 22)))]
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0], "a launch starts at the title"
+        _o1_director(fake, stop, phases)
+        _o3_grant_in(fake, stop)
+        try:
+            R.run(g, stages=stages, pred=_o3_rehearse_pred(), floor_for=lambda d, closed: _flat_bgi(),
+                  prior_for=lambda d: _prior(), stock=lambda fid: None, recovery=_O3_RECOVERY,
+                  env={"O3_STAGE": "R-TEST"}, census=_O3_CENSUS.__func__)
+        finally:
+            stop.set()
+        title = g.state.ui_state
+    run_dir = game / "run"
+    doc = json.loads((run_dir / "o3_rehearsal.json").read_text(encoding="utf-8"))
+    assert list(doc["stages"]) == ["R-TEST"] and doc["stages_run"] == ["R-TEST"] and doc.get("finished"), doc.keys()
+    caps = {c[1].split(":")[0]: c[0] for c in doc["capabilities"]}
+    assert caps == {"P-CAP": True, "P-OBJECTS": True, "P-LANG": True, "P-DONOR-LOG": True, "P-LAUNCH": True}, \
+        doc["capabilities"]
+    launch = doc["launch"]
+    assert launch["roots"] == ["FF9CustomMap"] and launch["settings"] == P.SETTINGS, launch
+    assert [(c[0], c[1].split(":")[0]) for c in launch["checks"]] == [(True, "P-SETTINGS"), (True, "P-STOCK-BATTLE")]
+    rec = doc["stages"]["R-TEST"][0]
+    assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == f"field {_O3_END}", rec["outcome"]
+    for section in ("grants", "choices", "published_choices", "pages", "evidence", "battles", "fight", "leave",
+                    "no_progress", "movie", "skip", "end", "trace"):
+        assert section in rec, section
+    assert rec["grants"] == [] and rec["published_choices"] == [] and rec["skip"] is None, rec["grants"]
+    assert [p["text"] for p in rec["pages"]] == list(pages), rec["pages"]
+    whys = [p["why"] for p in rec["evidence"]["press"]]
+    assert whys.count("page") >= 3 and "leave_battle" in whys, whys
+    bt = rec["battles"]
+    b = bt["rows"]
+    assert len(b) == 1 and (b[0]["scene"], b[0]["result"], b[0]["landed"], b[0]["v"]) == (338, 2, 30810, None), b
+    assert b[0]["epoch"] == bt["battle_epoch0"] + 1, bt
+    assert rec["fight"]["result"] == 2 and rec["fight"]["timed_out"] is False, rec["fight"]
+    assert rec["leave"]["presses"] and rec["leave"]["stopped"] in ("scene-gone", "field"), rec["leave"]
+    assert rec["no_progress"]["longest_s"] >= 0 and rec["no_progress"]["where"] is not None, rec["no_progress"]
+    mv = rec["movie"]
+    assert None not in (mv["arrival_frame"], mv["first_page_frame"]) and mv["first_page_frame"] > mv["arrival_frame"], mv
+    end = rec["end"]
+    assert end["end_state"] == {"Global.Int16[2]": 0}, end
+    assert end["end_run"]["ok"] and end["end_run"]["title"] and title == "Title", end["end_run"]
+    assert [x["k"] for x in end["end_run"]["how"]] == ["recover-warp"], end["end_run"]["how"]
+    tr = rec["trace"]
+    assert tr["start"] is not None and [x[1:] for x in tr["residue_before"]] == [[0, 0, 131], [1, 0, 4]], tr
+    assert tr["sc"] == [] and tr["battle"]["w"] == 1 and tr["battle"]["sites"] == ["m2 e1 t1 ip267 Global.Byte[206]"]
+    assert tr["after_before"] == "30810 e0 t0 ip22 Global.Bit[191]=0", tr["after_before"]
+    assert tr["end_row"] == f"w {_O3_END} e0 t0 ip22 Global.Bit[191]=0", tr["end_row"]
+    assert (run_dir / rec["trace_file"]).is_file() and (run_dir / rec["log_file"]).is_file()
+    report = P.rehearsal_report(run_dir)
+    for want in ("== R-TEST: warp 30820 0 1155 -> [30830]", "PASS  P-LAUNCH", "PASS  P-DONOR-LOG",
+                 "PASS  P-STOCK-BATTLE", "launch: settings", "grants: 0 (there must be none)",
+                 "battle: scene 338 epoch", "landed 30810", "movie: ", "end: state", "rows ['recover-warp']",
+                 "trace: start line", "battle-mode w rows 1", "the first field row after 62 ip1285: 30810 e0 t0 ip22",
+                 f"the end cut's row: w {_O3_END} e0 t0 ip22"):
+        assert want in report, (want, report[:2500])
+
+
+def test_o3_rehearse_smoke_sends_no_storytrace_on_the_fake(game):
+    """F-SMOKE (research/o3_design.md 7.1, F5) on the fake: three members and their stock twins, each by start_run's
+    RAW warp (New Game, ``warp <id> 0 1155``, a wait for the field on FieldHUD) -- never Session.warp(), whose wait for
+    control the fake (as 61-63) never grants: it would hang 60 s a warp in the game -- then the field's published
+    object sids, and end_run after each warp (the recovery warp, the title). No ``storytrace`` step is ever executed
+    (no fork data before the freeze). Each member's sids are compared with its twin's: two pairs equal, the third
+    (a body missing) different. Break: warp through Session.warp()."""
+    P, R = _o3_module(), _o3_rehearse_module()
+    _o3_register(game)
+    _o3_launch_files(game)
+    pairs = [[31211, 30820], [31212, 30821], [31213, 30810]]
+    stages = {"F-SMOKE": dict(R.STAGES["F-SMOKE"], pairs=pairs, smoke_s=0.3, warp_s=10.0)}
+    sids = {31211: [2, 7, 8, 14, 16], 30820: [2, 7, 8, 14, 16], 31212: [12, 12, 20, 18], 30821: [12, 12, 20, 18],
+            31213: [11, 6], 30810: [11, 6, 8]}
+    fake = _o3_fake(game)
+    fake.blockers = {fid: [{"x": 300.0 + 60 * i, "z": 300.0, "r": 30.0, "sid": s, "uid": 128 + i}
+                           for i, s in enumerate(v)] for fid, v in sids.items()}
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0]
+        real_warp = g.warp
+
+        def warp(field, *a, **k):                 # end_run's recovery rung only: the smoke itself warps raw
+            if field != _O3_RECOVERY:
+                raise AssertionError(f"Session.warp({field}) inside the smoke")
+            return real_warp(field, *a, **k)
+        g.warp = warp
+        _o3_grant_in(fake, stop)
+        try:
+            R.run(g, stages=stages, pred=_o3_rehearse_pred(), recovery=_O3_RECOVERY, env={"O3_STAGE": "F-SMOKE"},
+                  census=_O3_CENSUS.__func__)
+        finally:
+            stop.set()
+    doc = json.loads((game / "run" / "o3_rehearsal.json").read_text(encoding="utf-8"))
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    assert not [s for s in fake.executed if s[0] == "storytrace"], "a storytrace step in the smoke"
+    order = [31211, 31212, 31213, 30820, 30821, 30810]
+    recs = doc["stages"]["F-SMOKE"]
+    assert [r["field"] for r in recs] == order, recs
+    for r in recs:
+        reach = r["reached"]
+        assert (reach["field"], reach["ui"], reach["control"]) == (r["field"], "FieldHUD", False), r
+        assert r["sids"] == sorted(sids[r["field"]]) and r["objects_status"] == "listed", r
+        assert r["exceptions"] == [] and isinstance(r["log_lines"], list), r
+        assert r["end_run"]["ok"] and r["end_run"]["title"], r["end_run"]
+        assert [x["k"] for x in r["end_run"]["how"]] == ["recover-warp"], r["end_run"]
+    warps = [s for s in fake.executed if s[0] == "warp"]
+    for f in order:
+        assert ["warp", str(f), "0", "1155"] in warps and ["warp", str(f), "-1", "-1"] not in warps, (f, warps)
+    assert warps.count(["warp", str(_O3_RECOVERY), "-1", "-1"]) == len(order), warps
+    twins = doc["twins"]["F-SMOKE"]
+    assert [(t["member"], t["twin"], t["equal"]) for t in twins] == [(31211, 30820, True), (31212, 30821, True),
+                                                                     (31213, 30810, False)], twins
+    report = P.rehearsal_report(game / "run")
+    for want in ("== F-SMOKE: the load smoke", "warp 1: 31211 -> field 31211 FieldHUD", "twin 31211 vs 30820: EQUAL",
+                 "twin 31213 vs 30810: DIFFERENT"):
+        assert want in report, (want, report[:2000])
+
+
+def test_o3_rehearse_battle_void_stops_mid_fight_on_the_fake(game):
+    """R-BATTLE-VOID (research/o3_design.md 7.1, F3) on the fake: the stage's ``battle_override`` (``max_turns`` 0)
+    makes fight() raise FightTimeout at the FIRST command prompt -- V15, the driver's, 0 turns, no battlecmd executed --
+    so the run stops mid-fight in BattleHUD by construction; end_run then takes S3's soft reset from BattleHUD: the rows
+    recover-in-battle (ui BattleHUD, result 0) and recover-reset, no recover-reset-failed, and the title, with no warp.
+    F3's rows, as the launch records them. Break: leave the override off (the fight attacks, and runs out of its
+    time)."""
+    _P, R = _o3_module(), _o3_rehearse_module()
+    _o3_launch_files(game)
+    stages = {"R-BATTLE-VOID": dict(R.STAGES["R-BATTLE-VOID"], field=30821, end=[_O3_END], run_s=60)}
+    fake = _o3_fake(game, exit_to=30810)
+    fake.battle_script_end = None                 # nothing would end it: no attack is ever made
+    phases = [(lambda f: f.field_id == 30821 and f.story_on, lambda f: f.scene("Cinna\n“Act I!”", control=False)),
+              (lambda f: f.field_id == 30821 and _o3_idle(f), lambda f: f.start_battle(338, units=_o3_units()))]
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0]
+        resets = fake.soft_resets                 # the launch's own way to the title, before the stage
+        _o1_director(fake, stop, phases)
+        try:
+            R.run(g, stages=stages, pred=_o3_rehearse_pred(battles=[_o3_row(timeout_s=5)]),
+                  floor_for=lambda d, closed: _flat_bgi(), prior_for=lambda d: _prior(), stock=lambda fid: None,
+                  recovery=_O3_RECOVERY, env={"O3_STAGE": "R-BATTLE-VOID"}, census=_O3_CENSUS.__func__)
+        finally:
+            stop.set()
+        title = g.state.ui_state
+    doc = json.loads((game / "run" / "o3_rehearsal.json").read_text(encoding="utf-8"))
+    rec = doc["stages"]["R-BATTLE-VOID"][0]
+    assert (rec["outcome"]["end"], rec["outcome"]["v"], rec["outcome"]["by"]) == ("void", "V15", "driver"), rec["outcome"]
+    b = rec["battles"]["rows"]
+    assert len(b) == 1 and (b[0]["turns"], b[0]["timed_out"], b[0]["v"], b[0]["result"]) == (0, True, "V15", None), b
+    assert rec["fight"]["turns"] == 0 and rec["fight"]["timed_out"] is True, rec["fight"]
+    assert not [s for s in fake.executed if s[0] == "battlecmd"], "an attack was made"
+    er = rec["end"]["end_run"]
+    assert [x["k"] for x in er["how"]] == ["recover-in-battle", "recover-reset"], er["how"]
+    assert (er["how"][0]["ui"], er["how"][0]["result"], er["how"][0]["scene"]) == ("BattleHUD", 0, 338), er["how"]
+    assert er["ok"] and er["title"] and title == "Title" and fake.soft_resets == resets + 1, (er, fake.soft_resets)
+    assert not [s for s in fake.executed if s[0] == "warp" and s[1] == str(_O3_RECOVERY)], "end_run warped"
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
