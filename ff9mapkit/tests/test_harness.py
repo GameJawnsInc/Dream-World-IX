@@ -13258,7 +13258,9 @@ def test_o2_freeze_refuses_an_existing_file(tmp_path, monkeypatch):
 def test_o2_draft_members_are_the_campaigns(tmp_path):
     """The draft's members and names are read from the built chain's campaign.toml (research/o2_design.md 1.5), and
     must be exactly {31220 + i: 100 + i for i in range(18)}; the manifest o2_forks.json carries the same members and
-    names, and is not deployed. A campaign with any other member is refused. Break: drop the assertion (the draft
+    names, and its deploy record is whole: ``deployed_at`` is set exactly when ``deployed`` is (the chain went live
+    for session story-o2, so a pin to "not deployed" would read the lifecycle, not the members). A campaign with any
+    other member is refused. Break: drop the assertion (the draft
     would freeze another chain). The chain is a machine-local build: where it is not, this SKIPS (and says so) --
     never a pass."""
     import tomllib
@@ -13271,7 +13273,8 @@ def test_o2_draft_members_are_the_campaigns(tmp_path):
     assert pred["names"] == {str(f["id"]): f["name"] for f in doc["field"]}
     assert pred["start"] == {"S": 100, "F": 31220} and pred["members"][str(pred["start"]["F"])] == 100
     man = json.loads((A.MANIFEST).read_text(encoding="utf-8"))
-    assert man["members"] == pred["members"] and man["names"] == pred["names"] and man["deployed"] is False
+    assert man["members"] == pred["members"] and man["names"] == pred["names"]
+    assert man["deployed"] in (True, False) and (man["deployed_at"] is not None) == man["deployed"], man
     bad = tmp_path / "campaign.toml"
     text = (A.CHAIN_DIR / "campaign.toml").read_text(encoding="utf-8").replace("source = 117", "source = 61")
     bad.write_text(text, encoding="utf-8")
