@@ -1664,16 +1664,15 @@ class _Drive:
             self.log.append(crow)
             return True
         self.g.choose(index)
-        t = time.time() - self.visit_t0
-        self.walked = None
+        t = round(time.time() - self.visit_t0, 2)         # the row's t, and the t its left_s is computed from:
+        self.walked = None                                   # the row reads the same to anyone who recomputes it
         crow = {"k": "choice", "field": self.fid, "donor": self.donor, "sc": self.sc, "frame": st.frame,
                 "options": ch.get("options"), "active": ch.get("active"), "selected": ch.get("selected"),
                 "count": ch.get("count"), "index": index, "rule": "movie_skip", "took": {"index": index}}
         self.choices.append(crow)
         self.log.append(crow)
         span = row.get("next_page_s")
-        row.update(dialog=snap, frame=st.frame, t=round(t, 2),
-                   left_s=None if span is None else round(float(span) - t, 1))
+        row.update(dialog=snap, frame=st.frame, t=t, left_s=None if span is None else round(float(span) - t, 1))
         self.movie_end(row, "skipped")
         return True
 
