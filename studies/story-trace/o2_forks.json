@@ -57,5 +57,5 @@
   "why_order": "all 18 members share text block 33: the first deploy of the block writes it fresh (its revert deletes it), later deploys back it up (their reverts restore it), so reverts run newest first"
  },
  "deployed_at": "2026-09-30 19:27 local",
- "verified": null
+ "verified": "o2_alexandria.py --preflight 7/7 on the live install (P-MANIFEST/DEPLOY/EB/FLOOR/STOCK/TEXT/RECOVERY); session story-o2 (C:/gd/Dream-World-IX/.harness-runs/20260930-192740-story-o2): PROVEN, 6/6 covered"
 }

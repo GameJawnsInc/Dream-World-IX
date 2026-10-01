@@ -866,8 +866,19 @@ The chain was then rebuilt from the repaired sidecars (`build-all` from master `
 `C:\gd\_ns_playtest\o2\build.pre-ukfix-20260930`), and O2-TEXT reads 7 byte-equal of 7, KNOWN-KIT-DEFECT 0, with no
 code change here -- the rule's promised outcome. The uk text is no longer a precondition of the deploy.
 
-**Status: REHEARSED and FROZEN (v1, `o2_predictions_v1.json`, sha `081d774e`); the deploy is next, owner-gated.**
-Nothing is deployed. The stock rehearsals ran unattended through the harness, one launch a stage, 16 runs, every run
+**Status: ★★ PROVEN (session `story-o2`, v1 `081d774e`).** Alexandria's segment under the trace: the warp into 100 at
+SC 1000 -> 101 -> 102 -> 103 -> 104 -> 103 -> 105 -> 106 -> 115 -> 116 -> Field(61), and the verbatim fork chain
+(31220-31237, deployed into FF9CustomMap) writes the real game's story state key for key. S F S F S F, 6/6 covered
+(S 3 of 3, F 3 of 3), unattended, 2100 s; every check PASS: FROZEN, COVER, FORBIDDEN (0 hits), VOID-ASYM (none),
+START, LADDER (6 runs x 6), CHAIN (6 x 12), RESIDUE, WRITES (6 x 26), NULL (94 keys matched, 0 stock-only, 0
+fork-only, noise set aside 0), STABLE (0 unstable), SEAM (every fork run leaves only at member(116) -> 61), MASKED,
+STATE (19 targets' write histories identical in order, the end state as frozen), JOIN (738 rows, 0 failures), and
+THROW (none). Every run took all eight beats. Hippaul's registered noise never fired, so the noise set aside is
+empty: the verdict needs no exemption. One CENSUS GAP, the same on both sides (100 e19 +417 `Byte[303]` B_POST_PLUS,
+a store the census does not count), reported, not judged. Archive:
+`C:\gd\Dream-World-IX\.harness-runs\20260930-192740-story-o2` (o2_report.txt).
+
+The stock rehearsals that set up the freeze ran unattended through the harness, one launch a stage, 16 runs, every run
 reaching its stage's end field (archived under `C:\gd\Dream-World-IX\.harness-runs\20260930-18*-o2-rh-*`):
 
 | Stage | Runs | What it showed |
@@ -904,12 +915,10 @@ absorbs it.
   judge every executor shares, and rule 2 holds each new visit to the route's order (`visits`) -- where it had read as
   the game's (a finding, not a VOID); and a wait begun short of its point is the driver's V7, never the game's V8.
 
-**Next** (the deploy is owner-gated):
-1. DONE: the stock rehearsals (above), the fold-in, `--freeze` (v1), and the chain rebuilt with the uk kit fix.
-2. The owner-gated deploy of the 18 members with their ForkDonorPatch rows ([`o2_forks.json`](o2_forks.json)), and
-   the relaunch.
-3. `--preflight` green, then the session: `py tools/play.py studies/story-trace/o2_alexandria.py --label story-o2
-   --timeout 240`.
+**Done, in order:** the stock rehearsals (above), the fold-in, `--freeze` (v1), the chain rebuilt with the uk kit fix,
+the owner-approved deploy of the 18 members (main checkout, master `ac9a3d69`; [`o2_forks.json`](o2_forks.json)),
+`--preflight` 7/7, and the session (`py tools/play.py studies/story-trace/o2_alexandria.py --label story-o2
+--timeout 240`): PROVEN. The chain stays deployed; its reverts run newest first (`o2_forks.json` revert).
 
 What only the game can settle is the design's section 10: the climb, Jack's timing, the exits' map-switch latency,
 mbg101's frame-rate change, Kupo near the ladder, 116's narrow walks, the facing for the two tag-3 Confirms, and 61's
