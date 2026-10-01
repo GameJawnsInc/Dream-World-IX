@@ -11912,6 +11912,71 @@ def test_segment_end_run_resets_from_inside_a_battle_without_a_warp():
     assert calls == [("restore_baseline",)] and log == []
 
 
+def test_segment_session_end_warps_first_when_asked(game, tmp_path_factory):
+    """S5 (research/o3_design.md 1.2): a segment that sets ``end_session_warps`` ends its session as every run
+    between ends -- ``end_run``: the warp to ``recovery`` first, then the ladder -- and records it in
+    ``session["ended"]`` (its rows, ``ok``, ``why``), never raising. The default (O1, O2) keeps today's bare
+    ``restore_baseline()`` where the last run stopped, and writes no ``ended``. One stub session each way (S F, the
+    second on its own fake install), the session's warp and ladder calls recorded: the last two are
+    ``warp(recovery)``, ``restore_baseline`` with the flag, and ``restore_baseline`` twice without. A third session
+    whose ``end_run`` raises at the end records ``ok`` False with the error and still writes its report. Break:
+    ignore the flag (the bare ladder ends the session, and nothing is recorded)."""
+    import shutil
+    control, failing = tmp_path_factory.mktemp("control"), tmp_path_factory.mktemp("failing")
+    for root in (control, failing):
+        shutil.copytree(game, root, dirs_exist_ok=True)      # more fake installs, as untouched as the first
+
+    def one(root, warps):
+        stub, _pred, calls = _stub_segment(root, cue=lambda n, side: "reached", order=("S", "F"), min_covered=1)
+        stub.end_session_warps = warps
+        seq: list = []
+        fake = FakeGame(root)
+        with session(root, fake) as g:
+            boot(g)
+            assert g.restore_baseline()[0]
+            real_warp, real_restore = g.warp, g.restore_baseline
+
+            def warp(field, **kw):
+                seq.append(("warp", field))
+                return real_warp(field, **kw)
+
+            def restore():
+                seq.append(("restore_baseline",))
+                return real_restore()
+            g.warp, g.restore_baseline = warp, restore
+            stub.run(g)
+            at_title = g.state.ui_state == "Title"
+        assert calls == ["S", "F"]
+        return seq, json.loads((root / "run" / "zz_session.json").read_text(encoding="utf-8")), at_title
+
+    seq, sess, at_title = one(game, True)
+    # run 2's end_run (warp, ladder), then the session's own end through end_run (warp, ladder)
+    assert seq == [("warp", 30821), ("restore_baseline",), ("warp", 30821), ("restore_baseline",)], seq
+    assert sess["ended"] == {"log": [{"k": "recover-warp", "field": 30821}], "ok": True, "why": ""}, sess.get("ended")
+    assert at_title
+    seq, sess, at_title = one(control, False)
+    assert seq == [("warp", 30821), ("restore_baseline",), ("restore_baseline",)], seq
+    assert "ended" not in sess and at_title
+    # never raised: one run, no re-run, so the session's end is the only end_run -- and it fails
+    stub, _pred, calls = _stub_segment(failing, cue=lambda n, side: "reached", order=("S",), min_covered=1,
+                                       rerun={"max": 0})
+    stub.end_session_warps = True
+
+    def end_run(g, log, *, recovery=None):
+        log.append({"k": "recover-warp-failed", "why": "stub"})
+        raise HarnessError("the title could not be restored: stub")
+    stub.end_run = end_run
+    fake = FakeGame(failing)
+    with session(failing, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0]
+        stub.run(g)
+    sess = json.loads((failing / "run" / "zz_session.json").read_text(encoding="utf-8"))
+    assert calls == ["S"] and sess["ended"] == {"log": [{"k": "recover-warp-failed", "why": "stub"}], "ok": False,
+                                                "why": "the title could not be restored: stub"}, sess.get("ended")
+    assert (failing / "run" / "zz_report.txt").is_file()
+
+
 def test_o1_segment_run_pins_o1s_session_surface(game, capsys):
     """O1Segment.run on the fake (research/o2_design.md 1.6 G7), its install stubbed as the segment tests stub it:
     the refactored session keeps O1's surface -- it sends ``warp 50 0 -1`` and ``warp 31200 0 -1`` (v4 has no

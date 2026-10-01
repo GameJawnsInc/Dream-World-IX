@@ -239,6 +239,10 @@ class Segment:
     #: S3 (research/o3_design.md 1.2): how long :meth:`end_run` waits, in a battle's END sequence, for the field the
     #: battle hands over before it warps -- the same cap as a battle row's ``land_cap_s`` (2.1), never below it.
     battle_end_wait_s = 120.0
+    #: S5 (research/o3_design.md 1.2): True ends the session as every run between ends -- :meth:`end_run`, the warp
+    #: to ``recovery`` first (S3's battle rule) -- recorded in ``session["ended"]``. False (O1, O2): the bare
+    #: ``restore_baseline()`` where the last run stopped, exactly as before.
+    end_session_warps = False
     titles: dict = {}
     core_ids = ("NULL", "STABLE", "JOIN")   # the core checks, in order: each is VOID when a side is short
 
@@ -515,7 +519,9 @@ class Segment:
         ``rerun.max`` -- unless one of its runs is VOID in a FINDING class (``rerun.stop_on``): that side is held, and
         ``rerun_held`` records why. The shared install is fingerprinted around every run: a run begun on a changed
         install is skipped, one the install changed under is never read (both VOID). A RouteVoid's class (``v``,
-        ``cell``, ``by``) is copied into its run record. Then the analysis, its report, and THROW."""
+        ``cell``, ``by``) is copied into its run record. The session then leaves the game at the title: the bare
+        ladder where the last run stopped, or (``end_session_warps``) :meth:`end_run`, recorded in
+        ``session["ended"]``. Then the analysis, its report, and THROW."""
         from harness import HarnessError
         from segment_drive import RouteVoid
 
@@ -633,10 +639,19 @@ class Segment:
             one(len(session["runs"]) + 1, short[0], rerun=True)
         session["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         save()
-        try:
-            g.restore_baseline()
-        except HarnessError:
-            pass
+        if self.end_session_warps:                 # S5: the session ends through end_run, recorded, never raised
+            end_log: list = []
+            try:
+                self.end_run(g, end_log)
+                session["ended"] = {"log": end_log, "ok": True, "why": ""}
+            except HarnessError as err:
+                session["ended"] = {"log": end_log, "ok": False, "why": str(err)[:300]}
+            save()
+        else:
+            try:
+                g.restore_baseline()
+            except HarnessError:
+                pass
         checks, report = self.analyse(g.run_dir)
         (g.run_dir / self.report_file).write_text(report, encoding="utf-8")
         print(report[:6000], flush=True)
