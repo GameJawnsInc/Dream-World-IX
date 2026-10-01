@@ -94,6 +94,14 @@ SOFT_RESET_COMBO = ("l1", "l2", "r1", "r2", "start", "select")
 #: false outside these four (UIKeyTrigger.cs:94; research/o3_design.md 0.2 #9). `FakeGame.soft_reset_ui` defaults to
 #: the narrower pair every test before H9 was written against; a test that models the engine passes this.
 SOFT_RESET_ENGINE_UI = ("FieldHUD", "WorldHUD", "BattleHUD", "QuadMistBattle")
+#: H9's movie skip dialog, as the ENGINE answers it -- the dialog's text aside (a test may stage any text in its slot):
+#: FieldHUD.OnKeyConfirm puts the cursor on No (``ETb.sChoose = 1``, FieldHUD.cs:280) before it attaches the dialog,
+#: whatever the dialog says, and OnKeyConfirmAfterDialogHidden skips on choice 0 ALONE (:430-433); any other answer
+#: re-arms the hit area and the movie resumes (:434-440). Absolute indexes, never the fixture's: a skip ``default``
+#: other than the cursor is refused when the scene is built (:meth:`FakeGame.scene`), so a fixture cannot flip the
+#: sign of the skip.
+SKIP_CURSOR = 1
+SKIP_CHOICE = 0
 
 
 class FakeGame:
@@ -2647,12 +2655,14 @@ class FakeGame:
         absolute indexes the script's mask leaves out; ``typing``, frames its prompt types on once the window
         is ready) that Confirm answers at the cursor, into :attr:`answered`, or the NAMING screen (a dict
         ``{"naming": char}``: ui_state "NameSetting", no dialog; two Confirms keep the default name, into
-        :attr:`named`), or a MOVIE (H9: a dict ``{"movie": frames, "skip": {"header", "options", "default"}}``): no
+        :attr:`named`), or a MOVIE (H9: a dict ``{"movie": frames, "skip": {"header", "options"[, "default"]}}``): no
         dialog and no control for ``frames`` frames, ui FieldHUD -- and with ``skip``, a Confirm while it plays opens
-        the skip dialog (FieldHUD.cs:275-286), a choice beat with its cursor on ``default``; the default's answer
-        resumes the movie for the frames it had left, the other option ends it. While a movie plays (its dialog up
-        included) the soft-reset combo is swallowed, and a warp ends it with its scene (:attr:`movies` records
-        each).
+        the skip dialog (FieldHUD.cs:275-286), a choice beat with its cursor on No, :data:`SKIP_CURSOR` (``ETb.sChoose
+        = 1``, :280) -- a ``default`` given must be that cursor (ValueError here otherwise); answering option 0,
+        :data:`SKIP_CHOICE`, ends the movie (:430-433), any other answer resumes it for the frames it had left
+        (:434-440). With ``skip``'s opt-in ``armed_after`` (frames) the hit area takes no Confirm until the movie has
+        played that far (MBG.Play arms it; no dialog before the first frame). While a movie plays (its dialog up
+        included) the soft-reset combo is swallowed, and a warp ends it with its scene (:attr:`movies` records each).
 
         A choice window as the engine publishes it (recorded at 30937 frames 900/906/936 and 30921): for
         ``opening`` frames it is up with group '' and no button and ``selected`` reads ``stale`` -- whatever
@@ -2665,6 +2675,12 @@ class FakeGame:
 
         Each dict beat is COPIED: a movie keeps its countdown (``_left``) on its beat, and the caller's dict must not
         carry it into the next scene that stages it (a replayed movie would then play no frame at all)."""
+        for b in beats:                                  # checked before anything changes: the engine's cursor only
+            skip = b.get("skip") if isinstance(b, dict) and "movie" in b else None
+            if skip and int(skip.get("default", SKIP_CURSOR)) != SKIP_CURSOR:
+                raise ValueError(f"a movie's skip dialog opens with its cursor on No, option {SKIP_CURSOR} (ETb.sChoose "
+                                 f"= 1, FieldHUD.cs:280), and skips on option {SKIP_CHOICE} alone (:430): default "
+                                 f"{skip['default']!r} models no engine")
         self._beats = [dict(b) if isinstance(b, dict) else b for b in beats]
         self._beat_frames = (int(opening), int(closing))
         self._scene_control = bool(control)
@@ -2779,14 +2795,19 @@ class FakeGame:
                 self._name_focus = True
             return
         if "movie" in self._beats[0]:
-            # H9: a Confirm during a movie with a skip dialog opens it (FieldHUD.cs:275-286), the cursor on its default
-            # (ETb.sChoose = 1: No); the movie waits under it with the frames it has left
+            # H9: a Confirm during a movie with a skip dialog opens it (FieldHUD.cs:275-286), the cursor on No
+            # (SKIP_CURSOR: ETb.sChoose = 1, whatever the fixture's text); the movie waits under it with the frames it
+            # has left. Opt-in (``armed_after``, frames; default 0, the hit area live from the first frame): the hit
+            # area arms only that far into the movie -- MBG.Play sets it active (MBG.cs:207), and until the first frame
+            # decodes MBG.IsFinished() refuses the dialog (:597-600) -- so a Confirm before then does nothing to it
             beat = self._beats[0]
             if button in ("confirm", "ok") and beat.get("skip") and self._beat_phase == "movie":
                 skip = beat["skip"]
+                if self.movies[-1]["played"] < int(skip.get("armed_after", 0)):
+                    return
                 self.movies[-1]["skips"] += 1
                 self._beats.insert(0, {"header": skip.get("header", ""), "options": list(skip["options"]),
-                                       "default": int(skip["default"]), "_movie": beat})
+                                       "default": SKIP_CURSOR, "_movie": beat})
                 self._next_beat()
             return
         if self._beat_phase != "ready":
@@ -2796,8 +2817,10 @@ class FakeGame:
         elif button in ("confirm", "ok"):
             self.answered.append(int(self.choice["selected"]))
             movie = self._beats[0].get("_movie")
-            if movie is not None and int(self.choice["selected"]) != int(self._beats[0]["default"]):
-                movie["_left"] = 0                       # the skip taken: the movie ends under its closing dialog
+            if movie is not None and int(self.choice["selected"]) == SKIP_CHOICE:
+                # the engine's own rule, never the fixture's default: choice 0 skips (FieldHUD.cs:430-433) and the
+                # movie ends under its closing dialog; any other answer resumes it (:434-440)
+                movie["_left"] = 0
                 self._movie_over("skipped")
             self.menu = {"selected": None, "hovered": None, "label": None, "group": "", "button": None}
             self._beat_phase, self._beat_until = "closing", self.frame + self._beat_frames[1]

@@ -1037,6 +1037,70 @@ What only the game can settle is the design's section 10: FMV003 right after the
 under the trace, King Leo's latch, the soft reset from inside a battle, the published scene and result, the leave after
 a scripted end, the F side's landing time, the watchdog against FMV003, and the members' first load.
 
+### Movie skip (opt-in)
+
+A type-0 FMV is most of a run's wall time: FMV003 is about 90 s of O3's 223-233 s drive. `segment_drive` can skip
+one the way a player does. It is opt-in, per segment, and off unless the predictions carry it.
+
+- **What it does.** `pred["movies"] = {"policy": "skip", "cells": [{"donor", "sc", "after_s", "next_page_s"?, "why"}],
+  "press_every_s", "max_presses"}`, checked strict before anything is driven (`movies_of`). In a registered cell (a
+  place and an SC), on the field HUD with no dialog, no choice and no control, at least `after_s` into the visit, the
+  driver presses Confirm once (a `press` row, `why` "movie_skip") and answers the skip dialog YES. It answers only the
+  dialog its own press opened, and only when the published choice is the skip dialog's text (`skip_answer`: the prompt
+  holds "want to skip", or the box does when the prompt publishes empty; exactly two lines, Yes then No, each as
+  published or short its first character; Yes at absolute option 0). A dialog after its press that it does not read as
+  the skip dialog is kept on the row as refused: a frozen rule that answers it answers it (a script's choice that came
+  instead stays the route's); with no rule, a dialog of the skip dialog's shape (two lines, the cursor on No: the skip
+  dialog localized, or with its prompt published empty) is answered at the game's default, No, so the movie resumes;
+  any other shape is no skip dialog and goes to the ordinary rules. A press that opens no dialog it can answer is
+  repeated `press_every_s` later, up to `max_presses`; then the visit gives up ('movie-skip missed'). That is never a
+  VOID: the movie plays out. A page that opens instead is turned by the page rule and ends the attempts. Each such
+  visit's `movie` row records the presses, the dialog as published (and each refused one), the frame and seconds it
+  was skipped at, and `left_s`: the cell's `next_page_s` less those seconds. `next_page_s` is when the page AFTER the
+  movie opens, from the visit's start -- no movie length: it holds the script's tail after the movie (61: FMV003 runs
+  84.8 s, then Wait/SetFieldCamera/FadeFilter/Walk/Ojigi before WindowAsync 72). Every press must end before it, and
+  `left_s` is the most a skip can save, never what it saved: that is the A/B's, from the drive times. Without the key
+  the driver is O3's exactly, and O1's rule still answers a stray skip dialog at its default (No).
+- **The engine path.** `FieldHUD.OnKeyConfirm` (FieldHUD.cs:275-286) opens Localization `SkipMovieDialog` (US "Do you
+  want to skip / the movie?", then Yes / No under `[PCHC=2,1]`: the cursor on `ETb.sChoose = 1`, No) while
+  `MovieHitArea` is active (`MBG.Play` arms it for a movie of type other than 1) and the movie is not finished.
+  `OnKeyConfirmAfterDialogHidden` (:428) on choice 0 sets `MBG.IsSkip` and calls `fldfmv.FF9FieldFMVShutdown()`: the
+  same `ff9fieldFMVShutdown` a movie's natural end runs (its finish callback), so `fmvStatus` reaches 8 and
+  `SYSVAR[15]` (`FF9FieldFMVSync`) reads 1. Every movie wait in 61 e2 t1 (`SYSVAR[14] < 4`, `SYSVAR[14] < 1100`, the
+  end loop) also exits on `SYSVAR[15]&127 == 1`, so a skip cannot strand one; what moves is when its frame-timed
+  sound cues fire. A skip also never passes `ff9fieldFMVService`'s last-frame branch (case 6, which sets
+  `FieldMap.FF9FieldAttr` flags): field attributes, not `gEventGlobal`, and exactly what the in-game A/B must show
+  changes no story write. The agent publishes no movie state: the policy rests on its registration and on what is
+  published.
+- **The rule.** A segment may register a movie for skipping only after its OWN stock A/B reads EQUIVALENT: the same
+  stage with and without the policy, compared trace for trace. The A/B reads the registered keys present, the
+  unregistered keys, each target's write history in order and its suppressed stores (the battle's `Byte[206]` noise
+  aside), the start rows, the SC rows, the residue, the masked regions, the landing, the end cut, the end state, the
+  battle and the join failures. Until a segment's A/B reads EQUIVALENT, its movies play out.
+- **O3's A/B (the test bed).** The stock rehearsal R-FULL-SKIP (`O3_STAGE=R-FULL-SKIP`; by name only) is R-FULL with
+  FMV003 registered: `after_s` 10, `press_every_s` 5, `max_presses` 3, `next_page_s` 90 (R-FULL measured page 72 at
+  90.1-90.3 s from the arrival). The no-skip side is the archived R-FULL:
+
+  ```
+  set O3_STAGE=R-FULL-SKIP & py tools/play.py studies/story-trace/o3_rehearse.py --label o3-rh-R-FULL-SKIP --timeout 240
+  py studies/story-trace/o3_prima_vista.py --skip-ab C:\gd\Dream-World-IX\.harness-runs\20261001-093510-o3-rh-R-FULL <the R-FULL-SKIP run dir>
+  ```
+
+  It prints EQUIVALENT (exit 0) or each difference (exit 1), and the time saved per run. A skip run that did not skip
+  is a difference, never a pass -- and so is one whose row says skipped but whose run was not faster: the row is the
+  driver's word that it answered the dialog (`g.choose(0)` is blind), so each skip run must reach its end ahead of the
+  FASTEST no-skip run by at least half of what its skip left (`left_s`; R-FULL's two runs differ by 10 s, and a skip
+  answered 10-11 s in leaves about 79 s). The regression gate runs the A/B whole: G13 its test, through the files
+  (`-k "o3_drive or o3_skip_ab"`; it reads the install, and a skip fails the item), and G14 o3_dryrun's A/B units,
+  the launches, the pairing and the CLI's exit codes included. **Status: ★ O3's in-game A/B reads EQUIVALENT** (stock
+  R-FULL-SKIP x2, `20261001-140512-o3-rh-R-FULL-SKIP`, against R-FULL `20261001-093510-o3-rh-R-FULL`): the skip
+  dialog published exactly as predicted (`['Do you want to skip\nthe movie?', 'Yes', 'No']`, active [0, 1], selected
+  1), each run skipped FMV003 on its first press 12.1-12.2 s into 61, and every axis above matched the no-skip
+  reference (24/24 writes, 3/3 chain, 0 unregistered keys, 11 targets' histories, the end cut and the end state). The
+  runs took 162.6 s and 148.1 s against 232.9 s and 223.3 s: 65-80 s (about 30%) saved a run. So O3's FMV003 MAY be
+  skipped by a later O3 session or regression re-run; O3's frozen predictions (v1) carry no policy and stay so, and
+  every other segment's movies play out until that segment's own A/B reads EQUIVALENT.
+
 ## Rungs
 
 | Rung | What | Pass |

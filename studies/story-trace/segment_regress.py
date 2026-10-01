@@ -52,10 +52,12 @@ was captured at the code before the change it guards and the same file judges th
   G12 ``pytest tests/test_harness.py -k "o2_ or rehearse"`` from ``ff9mapkit/``: every test passed, 0 failed, 0
       skipped, 0 errors; every test the baseline collected still runs, and so does every name in
       :data:`REQUIRED_TESTS_O2`.
-  G13 ``pytest tests/test_harness.py -k "o3_drive"`` from ``ff9mapkit/`` (research/o3_design.md 1.4, from B4): every
-      test passed, 0 failed, 0 skipped, 0 errors, and every name in :data:`REQUIRED_TESTS_O3` among them -- the
-      battle beat's driver tests, so a later edit to ``segment_drive`` re-runs them. No baseline: the list is the
-      floor.
+  G13 ``pytest tests/test_harness.py -k "o3_drive or o3_skip_ab"`` from ``ff9mapkit/`` (research/o3_design.md 1.4,
+      from B4): every test passed, 0 failed, 0 skipped, 0 errors, and every name in :data:`REQUIRED_TESTS_O3` among
+      them -- the battle beat's driver tests and the movie-skip policy's, so a later edit to ``segment_drive``
+      re-runs them, and the movie-skip A/B's test (``--skip-ab`` through its files: the pairing, the reading, the
+      exit codes), which reads the install's stock scripts -- where it cannot, it skips, and a skip fails the item.
+      No baseline: the list is the floor.
   G14 ``o3_dryrun.run_cases`` (the review, research/o3_design.md 11.7 #12) on the frozen O3 predictions once they
       exist (``o3_predictions_v1.json``), else on the draft: it returns 0 printing "N/N cases as registered", N at least
       :data:`O3_DRYRUN_FLOOR`. O3Segment subclasses O2Segment and runs on ``segment_trace``, ``segment_drive`` and
@@ -107,6 +109,10 @@ REQUIRED_TESTS: tuple = (
     "test_segment_end_run_from_a_battle_on_the_fake",                           # B5: S3 on H9's knobs
     "test_segment_session_end_leaves_a_movie_on_the_fake",                      # B5: S5 on H9's movie beat
     "test_segment_end_run_waits_out_the_battle_load_on_the_fake",               # the review, 11.7 #8: S3's load
+    # the movie-skip policy (PLAN.md "Movie skip (opt-in)"): its pure halves, the skip dialog's reader and the
+    # policy's strictness
+    "test_segment_movie_skip_answer_reads_only_the_skip_dialog",
+    "test_segment_movie_skip_policy_is_strict",
 )
 
 O1E_VERDICT = "PROVEN"
@@ -130,10 +136,14 @@ REQUIRED_TESTS_O2: tuple = (
     "test_o3_rehearse_battle_void_stops_mid_fight_on_the_fake",
     # the review (research/o3_design.md 11.7 #7): each run records its own fight and leave
     "test_o3_rehearse_clears_the_last_fight_between_runs_on_the_fake",
+    # the movie-skip A/B's skip side (PLAN.md "Movie skip (opt-in)"): R-FULL-SKIP's overlay and its record
+    "test_o3_rehearse_movie_skip_stage_on_the_fake",
 )
 
 # -- O3 (research/o3_design.md 1.4, 9 B4): the battle beat's driver tests, by name. No baseline: the list is the floor.
-PYTEST_K_O3 = "o3_drive"
+#: G13's selection: the driver tests, and the movie-skip A/B's (the movie-skip review #5: a name REQUIRED_TESTS_O3
+#: lists must be one this selection collects, or the item can never pass).
+PYTEST_K_O3 = "o3_drive or o3_skip_ab"
 #: Tests G13 must find (and find passing): the battle beat's driver tests (B4), so a later edit to ``segment_drive``
 #: (O4's) re-runs every one of them.
 REQUIRED_TESTS_O3: tuple = (
@@ -154,11 +164,26 @@ REQUIRED_TESTS_O3: tuple = (
     "test_o3_drive_waits_for_the_end_places_first_row",                     # 11.7 #3: rule 1's end row
     "test_o3_drive_stops_on_a_battle_gone_without_a_result",                # 11.7 #2: fight()'s "gone"
     "test_o3_drive_bounds_the_leave_by_its_row",                            # 11.7 #1: the leave's bound
+    # the movie-skip policy (PLAN.md "Movie skip (opt-in)"): opt-in, so every O3 test above runs without it
+    "test_o3_drive_movie_skip_presses_once_and_answers_yes",
+    "test_o3_drive_movie_skip_is_off_without_the_policy",
+    "test_o3_drive_movie_skip_presses_only_in_a_registered_cell",
+    "test_o3_drive_movie_skip_retries_then_gives_up_without_a_void",
+    "test_o3_drive_movie_skip_turns_a_page_that_comes_instead",
+    "test_o3_drive_movie_skip_refuses_a_dialog_that_is_not_the_skip_text",
+    # the movie-skip review: a skip dialog the policy's own press opened but cannot read is answered at its default
+    "test_o3_drive_movie_skip_answers_an_unread_skip_dialog_at_its_default",
+    # the movie-skip review #5: the A/B -- skip_ab_runs' axes and evidence, and --skip-ab through its files (the
+    # pairing of _ab_stages, the reading of _ab_runs, the CLI's exit codes); it skips without the install, and G13
+    # fails a skip
+    "test_o3_skip_ab_on_synthetic_traces",
 )
 #: G14 (the review, research/o3_design.md 11.7 #12): o3_dryrun's "N/N cases as registered" must have N at least this --
-#: its sessions, "predictions-changed", its units and its offline mutants when G14 joined. A case added raises N; one
-#: dropped falls under the floor.
-O3_DRYRUN_FLOOR = 92
+#: its sessions, "predictions-changed", its units and its offline mutants when G14 joined (92), and the movie-skip A/B's
+#: units (PLAN.md "Movie skip (opt-in)"): four, then two for the evidence a skip took (a skip that saved nothing, a
+#: row with no left_s), then four through the files (o3_dryrun.unit_skip_ab_files: paired, unpaired, no policy, the
+#: CLI's exit codes). A case added raises N; one dropped falls under the floor.
+O3_DRYRUN_FLOOR = 102
 
 O2S_VERDICT = "PROVEN"
 O2S_CHECKS = 15
