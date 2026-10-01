@@ -995,12 +995,18 @@ the design's section 9). Nothing is deployed, launched or frozen.
 - `--preflight` on the live install: 10/10 PASS (O1's chain deployed; P-DONOR 61 -> 31211, 62 -> 31212, 63 -> 31213;
   P-SETTINGS 23 keys as frozen; P-STOCK-BATTLE: the stack overrides only the LEDGER scenes, no selector names 338, and
   its four DictionaryPatch BattleScene lines are the LEDGER scenes', none on 338 or TH_E002).
-- [`o3_dryrun.py`](o3_dryrun.py): 89/89 as registered -- section 8's cases and units with an EXACT `case()` (every
+- [`o3_dryrun.py`](o3_dryrun.py): 92/92 as registered -- section 8's cases and units with an EXACT `case()` (every
   check a case does not name must PASS), two cases added where the design's table could not hold (research/o3_design.md
-  11.6).
+  11.6) and three by the review (11.7: BATTLE (c) on each side, A-NOEND).
 - [`o3_rehearse.py`](o3_rehearse.py): R-START, F-SMOKE (untraced), R-62, R-FULL, R-SKIP and R-BATTLE-VOID, chosen by
   `O3_STAGE`; its plumbing is proven on the fake.
-- The regression gate (`segment_regress.py`): G1-G13, O1's and O2's outputs byte-identical.
+- The regression gate (`segment_regress.py`): G1-G14, O1's and O2's outputs byte-identical, O3's driver tests (G13)
+  and O3's dry run (G14) green.
+- A code review's twelve findings (research/o3_design.md 11.7), each fixed with a test that fails without it: a
+  reached run with no row in 64 is A-NOEND (driver), and rule 1 waits for that row (`budget.end_row_s`); P-STOCK-BATTLE
+  reads DictionaryPatch's `BattleScene` lines; `fight()` tells a vanished battle ("gone") from a timeout;
+  `leave_battle` honours its timeout; `end_run` waits out a battle exit's load; the rehearsal records each run's own
+  fight; the ini reader's `;;` is the engine's.
 
 **Next, in game (the lead):**
 1. The rehearsals, in 7.1's order: R-START first (FMV003 after the warp is the go/no-go), then F-SMOKE, R-62, R-FULL,
