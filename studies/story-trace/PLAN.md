@@ -1078,8 +1078,8 @@ one the way a player does. It is opt-in, per segment, and off unless the predict
   aside), the start rows, the SC rows, the residue, the masked regions, the landing, the end cut, the end state, the
   battle and the join failures. Until a segment's A/B reads EQUIVALENT, its movies play out.
 - **O3's A/B (the test bed).** The stock rehearsal R-FULL-SKIP (`O3_STAGE=R-FULL-SKIP`; by name only) is R-FULL with
-  FMV003 registered: `after_s` 10, `press_every_s` 5, `max_presses` 3, `next_page_s` 90 (R-FULL measured page 72
-  at 90.1-90.3 s from the arrival). The no-skip side is the archived R-FULL:
+  FMV003 registered: `after_s` 10, `press_every_s` 5, `max_presses` 3, `next_page_s` 90 (R-FULL measured page 72 at
+  90.1-90.3 s from the arrival). The no-skip side is the archived R-FULL:
 
   ```
   set O3_STAGE=R-FULL-SKIP & py tools/play.py studies/story-trace/o3_rehearse.py --label o3-rh-R-FULL-SKIP --timeout 240
@@ -1087,8 +1087,11 @@ one the way a player does. It is opt-in, per segment, and off unless the predict
   ```
 
   It prints EQUIVALENT (exit 0) or each difference (exit 1), and the time saved per run. A skip run that did not skip
-  is a difference, never a pass. **Status: built and proven on the fake; the in-game A/B is not yet run.** O3's frozen
-  predictions (v1) carry no policy and stay so.
+  is a difference, never a pass -- and so is one whose row says skipped but whose run was not faster: the row is the
+  driver's word that it answered the dialog (`g.choose(0)` is blind), so each skip run must reach its end ahead of the
+  FASTEST no-skip run by at least half of what its skip left (`left_s`; R-FULL's two runs differ by 10 s, and a skip
+  answered 10-11 s in leaves about 79 s). **Status: built and proven on the fake; the in-game A/B is not yet run.**
+  O3's frozen predictions (v1) carry no policy and stay so.
 
 ## Rungs
 

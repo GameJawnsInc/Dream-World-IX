@@ -15800,30 +15800,51 @@ def _o3_ab_launch(run_dir, name, stage, runs):
 def test_o3_skip_ab_on_synthetic_traces(o3_stock, tmp_path):
     """The movie-skip A/B (``o3_prima_vista.py --skip-ab``; PLAN.md "Movie skip (opt-in)") on synthetic stock runs --
     real store sites of 61-64, emitted as the engine emits them, each run its own battle noise. Two no-skip and two
-    skip runs of the same events read EQUIVALENT (the noise aside), the time saved per run printed; a skip run that
-    lacks 61's ``Byte[8] := 125`` (a key DROPPED) differs on writes and history; one whose two 62 ``Byte[4] := 0``
-    stores came in the other order (the same keys, a REORDERED history) on history alone; a skip run that played its
-    movie out, and a no-skip run that skipped one, are differences -- never a pass. Through the files too: two
-    launches written as o3_rehearse.py writes them (R-FULL; R-FULL-SKIP with its policy), paired by warp and end, read
-    EQUIVALENT and the CLI exits 0; the no-skip launch against itself holds no policy stage: NOT EQUIVALENT, exit 1.
-    Break: read each history as a set (the reordered one then reads EQUIVALENT)."""
+    skip runs of the same events read EQUIVALENT (the noise aside), the time saved per run printed and each skip's
+    evidence that it TOOK (90 s saved against the fastest no-skip run, 39.8 s due: half the 79.6 s its skip left); a
+    skip run that lacks 61's ``Byte[8] := 125`` (a key DROPPED) differs on writes and history; one whose two 62
+    ``Byte[4] := 0`` stores came in the other order (the same keys, a REORDERED history) on history alone; a skip run
+    that played its movie out, and a no-skip run that skipped one, are differences -- never a pass. So is a skip run
+    whose row says skipped but whose run took 229 s against 230 (the driver's word alone: the skip did not take, and
+    its trace reads as R-FULL's on every axis), and one whose skipped row has no ``left_s`` (no next page registered).
+    Through the files too: two launches written as o3_rehearse.py writes them (R-FULL; R-FULL-SKIP with its policy),
+    paired by warp and end, read EQUIVALENT and the CLI exits 0; the no-skip launch against itself holds no policy
+    stage: NOT EQUIVALENT, exit 1. Break: read each history as a set (the reordered one then reads EQUIVALENT); or
+    trust the row's "skipped" alone (the 229 s run then reads EQUIVALENT)."""
     P, R = _o3_module(), _o3_rehearse_module()
     import o3_dryrun as D3
     pred, _sha = P.O3.load(P.PREDICTIONS)
 
-    def ab(b1=None, *, skipped=True, a2_skip=False):
-        a = [D3.ab_run(pred, D3.base_events(seed=0), "no-skip", 1),
-             D3.ab_run(pred, D3.base_events(seed=1), "no-skip", 2)]
+    def ab(b1=None, *, skipped=True, a2_skip=False, t1=None, span=True, a_ts=(None, None)):
+        a = [D3.ab_run(pred, D3.base_events(seed=0), "no-skip", 1, t=a_ts[0]),
+             D3.ab_run(pred, D3.base_events(seed=1), "no-skip", 2, t=a_ts[1])]
         if a2_skip:                                  # a no-skip run carrying a skipped movie row
             a[1]["log"].insert(1, dict(D3.ab_run(pred, D3.base_events(seed=1), "skip", 2)["log"][1]))
-        b = [D3.ab_run(pred, b1 if b1 is not None else D3.base_events(seed=2), "skip", 1, skipped=skipped),
+        b = [D3.ab_run(pred, b1 if b1 is not None else D3.base_events(seed=2), "skip", 1, skipped=skipped, t=t1),
              D3.ab_run(pred, D3.base_events(seed=3), "skip", 2)]
+        if not span:                                 # a skipped row whose cell registered no next page
+            b[0]["log"][1].update(next_page_s=None, left_s=None)
         ok, lines = P.skip_ab_runs(a, b, pred, stock=o3_stock)
         at = next((i for i, x in enumerate(lines) if x.startswith("DIFFERENCES")), None)
         return ok, lines, [] if at is None else [x.strip() for x in lines[at + 1:-1]]
     ok, lines, diffs = ab()
     assert ok and lines[-1].startswith("VERDICT: EQUIVALENT") and diffs == [], lines
     assert any(ln.startswith("time: no-skip 230 s, 230 s (mean 230.0 s)") and "(saved 90.0 s)" in ln for ln in lines)
+    assert [ln for ln in lines if ln.startswith("took: ")] == [
+        f"took: skip R-FULL-SKIP#{n} saved 90.0 s against the fastest no-skip run (230 s), at least 39.8 s due (0.5 of "
+        f"the 79.6 s its skip left)" for n in (1, 2)], lines
+    ok, lines, diffs = ab(t1=229.0)                  # its row says skipped; the run took as long as the movie
+    assert not ok and lines[-1] == "VERDICT: NOT EQUIVALENT", lines
+    assert diffs == ["skip R-FULL-SKIP#1 saved 1.0 s against the fastest no-skip run (230 s), at least 39.8 s due (0.5 "
+                     "of the 79.6 s its skip left) -- its row says skipped, but it took as long as a movie played out"], \
+        diffs
+    ok, lines, diffs = ab(t1=190.0, a_ts=(200.0, 260.0))   # 40 s under the no-skip mean, 10 under the fastest
+    assert not ok and diffs == ["skip R-FULL-SKIP#1 saved 10.0 s against the fastest no-skip run (200 s), at least "
+                                "39.8 s due (0.5 of the 79.6 s its skip left) -- its row says skipped, but it took as "
+                                "long as a movie played out"], diffs
+    ok, lines, diffs = ab(span=False)
+    assert not ok and len(diffs) == 1 and diffs[0].startswith("skip R-FULL-SKIP#1 has a skipped movie row with no "
+                                                              "left_s"), diffs
     ok, lines, diffs = ab(D3.drop(D3.base_events(seed=2), D3.B8_61))
     assert not ok and lines[-1] == "VERDICT: NOT EQUIVALENT", lines
     assert [d.split(":")[0] for d in diffs] == ["skip R-FULL-SKIP#1 writes", "skip R-FULL-SKIP#1 history"], diffs

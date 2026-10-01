@@ -1728,6 +1728,17 @@ def rehearsal_report(run_dir) -> str:
 #: rows, the residue, the masked regions, the landing, the end cut, the end state, the battle and the join failures.
 AB_AXES = ("writes", "chain", "unregistered", "history", "suppressed", "start", "sc", "residue", "masked", "landing",
            "end cut", "end state", "battle", "joins")
+#: The A/B's evidence that a skip TOOK (:func:`skip_took`). A ``movie`` row reads "skipped" as soon as the driver has
+#: ANSWERED the skip dialog -- ``g.choose(0)`` is blind, and nothing in the engine confirms the movie stopped -- so a
+#: run whose Confirm did not take, or whose movie resumed, keeps that row, plays the movie out, and reads like the
+#: no-skip side on every axis: the A/B would compare R-FULL with itself. So each skip run must also have been FASTER:
+#: its drive time below the FASTEST no-skip run's by at least this share of what its skips left (each skipped row's
+#: ``left_s``: its cell's ``next_page_s`` less the seconds it was answered at -- the most it can save). Half is the
+#: midpoint between a skip that saved nothing (the movie played out: the no-skip runs' time, within their spread --
+#: R-FULL's two runs took 223.3 and 232.9 s, the battle's) and one that saved every second it left; the script's tail
+#: after the movie, which runs either way (61's: under 6 s with the movie's start, of R-FULL's 90.1-90.3 s to page 72
+#: around FMV003's 84.8 s), and that spread both stay far below it at O3's skip (about 79 s left).
+SKIP_AB_SAVED_SHARE = 0.5
 
 
 def ab_reading(rows: list, log: list, pred: dict, *, stock, start_place: int, end_fields, epoch0=None) -> dict:
@@ -1819,6 +1830,46 @@ def _ab_label(run: dict) -> str:
     return f"{run['side']} {run['stage']}#{run['n']}"
 
 
+def _num(v) -> bool:
+    """A finite number -- never a bool."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and v not in (float("inf"), float("-inf"))
+
+
+def skip_took(no_skip: list, skip: list) -> tuple:
+    """``(lines, differences)``: the GAME's evidence that each skip run's skip took (:data:`SKIP_AB_SAVED_SHARE`) --
+    the driver's ``movie`` row is only its word. A skip run with a skipped row must have reached its end faster than
+    the fastest no-skip run by at least that share of the seconds its skipped rows left (their ``left_s``); a run
+    that saved less is a difference -- its row says skipped, and it took as long as a movie played out. So is a
+    skipped row with no ``left_s`` (its cell registers no ``next_page_s``: nothing to measure the saving against), a
+    skip run with no drive time, and a no-skip side with none: the A/B cannot then tell a skip that took from a movie
+    that played out. A skip run with no skipped row is not judged here (skip_ab_runs: "skipped no movie")."""
+    lines, bad = [], []
+    ts = [t for t in ((r.get("outcome") or {}).get("t") for r in no_skip) if _num(t)]
+    fastest = min(ts) if ts else None
+    for run in skip:
+        lab = _ab_label(run)
+        rows = [x for x in run.get("log") or () if x.get("k") == "movie" and x.get("outcome") == "skipped"]
+        if not rows:
+            continue
+        left = [x.get("left_s") for x in rows]
+        t = (run.get("outcome") or {}).get("t")
+        if not all(_num(v) for v in left):
+            bad.append(f"{lab} has a skipped movie row with no left_s (its cell registers no next_page_s): the A/B "
+                       f"cannot tell a skip that took from a movie that played out")
+            continue
+        if fastest is None or not _num(t):
+            bad.append(f"{lab} " + ("has no drive time" if not _num(t) else "has no no-skip drive time to beat")
+                       + ": the A/B cannot tell a skip that took from a movie that played out")
+            continue
+        need, saved = SKIP_AB_SAVED_SHARE * sum(left), fastest - t
+        what = (f"{lab} saved {saved:.1f} s against the fastest no-skip run ({fastest:g} s), at least {need:.1f} s "
+                f"due ({SKIP_AB_SAVED_SHARE:g} of the {sum(left):.1f} s its skip left)")
+        lines.append(f"took: {what}")
+        if saved < need:
+            bad.append(f"{what} -- its row says skipped, but it took as long as a movie played out")
+    return lines, bad
+
+
 def skip_ab_runs(no_skip: list, skip: list, pred: dict, *, stock, problems=()) -> tuple:
     """The A/B over run records (pure but for ``stock``): ``(equivalent, report lines)``. A run record is ``{"side"
     ("no-skip" | "skip"), "stage", "n", "rows", "log", "outcome", "start_place", "end_fields"}``.
@@ -1826,9 +1877,10 @@ def skip_ab_runs(no_skip: list, skip: list, pred: dict, *, stock, problems=()) -
     The reference is the first no-skip run; every other run, of both sides, is read on every axis of
     :data:`AB_AXES` (:func:`ab_reading`) and compared with it (:func:`ab_compare`). EQUIVALENT needs: at least one run
     a side; every run reached its end with a trace; no no-skip run skipped a movie and every skip run skipped one
-    (a ``movie`` row ``skipped``: an A/B whose skip side played its movie out proves nothing); and no axis of any run
-    differing from the reference's -- the no-skip side's own runs included (a reference that does not hold still
-    is no reference). The time saved per run is each skip run's drive time against the no-skip runs' mean.
+    (a ``movie`` row ``skipped``: an A/B whose skip side played its movie out proves nothing) -- and was FASTER, by
+    the game's own clock (:func:`skip_took`: the row is only the driver's word that it answered the dialog); and no
+    axis of any run differing from the reference's -- the no-skip side's own runs included (a reference that does not
+    hold still is no reference). The time saved per run is each skip run's drive time against the no-skip runs' mean.
     ``problems``: differences the caller found before any run was read (a skip stage with no no-skip twin)."""
     lines, bad = [], list(problems)
     if not no_skip or not skip:
@@ -1883,13 +1935,16 @@ def skip_ab_runs(no_skip: list, skip: list, pred: dict, *, stock, problems=()) -
         lines.append(f"time: no-skip {', '.join(f'{t:g} s' for t in ts)} (mean {mean:.1f} s); skip "
                      + (", ".join(f"{lab} {t:g} s (saved {mean - t:.1f} s)" if isinstance(t, (int, float))
                                   else f"{lab} ?" for lab, t in saved) or "none"))
+    took, slow = skip_took(no_skip, skip)
+    lines += took
+    bad += slow
     if bad:
         lines.append(f"DIFFERENCES ({len(bad)}):")
         lines += [f"  {b}" for b in bad]
         lines.append("VERDICT: NOT EQUIVALENT")
     else:
-        lines.append(f"VERDICT: EQUIVALENT -- every skip run reads as the no-skip reference on every axis "
-                     f"({', '.join(AB_AXES)})")
+        lines.append(f"VERDICT: EQUIVALENT -- every skip run skipped its movie, the time it saved measured, and reads "
+                     f"as the no-skip reference on every axis ({', '.join(AB_AXES)})")
     return not bad, lines
 
 

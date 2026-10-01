@@ -1282,18 +1282,25 @@ def unit_skip_ab(pred: dict, stock) -> list:
     runs and two skip runs of the base events -- each its own battle noise -- read EQUIVALENT; a skip run that lacks
     61's ``Byte[8] := 125`` (a key dropped) is NOT EQUIVALENT on writes and history; one whose two 62 ``Byte[4] := 0``
     stores came in the other order (the same keys, a REORDERED history) on history alone; one that played its movie
-    out (its skip missed) is NOT EQUIVALENT naming it."""
-    def runs(b1=None, skipped=True):
+    out (its skip missed) is NOT EQUIVALENT naming it; so is one whose row says skipped but whose run took 229 s
+    against the no-skip side's 230 (the skip did not take: 1 s saved of the 39.8 s due), and one whose skipped row
+    carries no ``left_s`` (no next page registered: nothing to measure the saving against)."""
+    def runs(b1=None, skipped=True, t1=None, span=True):
         a = [ab_run(pred, base_events(seed=0), "no-skip", 1), ab_run(pred, base_events(seed=1), "no-skip", 2)]
-        b = [ab_run(pred, b1 if b1 is not None else base_events(seed=2), "skip", 1, skipped=skipped),
+        b = [ab_run(pred, b1 if b1 is not None else base_events(seed=2), "skip", 1, skipped=skipped, t=t1),
              ab_run(pred, base_events(seed=3), "skip", 2)]
+        if not span:
+            b[0]["log"][1].update(next_page_s=None, left_s=None)
         return P.skip_ab_runs(a, b, pred, stock=stock)
 
     def diffs(lines) -> list:
         return [ln.strip() for ln in lines if ln.startswith("  skip R-FULL-SKIP#1 ")]
     out = []
     ok, lines = runs()
-    out.append(("skip-ab-equal", ok and lines[-1].startswith("VERDICT: EQUIVALENT"), lines[-1][:150]))
+    took = [ln for ln in lines if ln.startswith("took: ")]
+    due = " saved 90.0 s against the fastest no-skip run (230 s), at least 39.8 s due"
+    out.append(("skip-ab-equal", ok and lines[-1].startswith("VERDICT: EQUIVALENT") and len(took) == 2
+                and all(due in ln for ln in took), lines[-1][:150]))
     ok, lines = runs(drop(base_events(seed=2), B8_61))
     d = diffs(lines)
     out.append(("skip-ab-key-dropped", not ok and lines[-1] == "VERDICT: NOT EQUIVALENT"
@@ -1306,6 +1313,14 @@ def unit_skip_ab(pred: dict, stock) -> list:
     ok, lines = runs(skipped=False)
     d = diffs(lines)
     out.append(("skip-ab-not-skipped", not ok and len(d) == 1 and "skipped no movie" in d[0], "; ".join(d)[:150]))
+    ok, lines = runs(t1=229.0)
+    d = diffs(lines)
+    out.append(("skip-ab-saved-nothing", not ok and len(d) == 1 and "saved 1.0 s against the fastest no-skip run "
+                "(230 s), at least 39.8 s due" in d[0] and "as long as a movie played out" in d[0], "; ".join(d)[:150]))
+    ok, lines = runs(span=False)
+    d = diffs(lines)
+    out.append(("skip-ab-no-span", not ok and len(d) == 1 and "skipped movie row with no left_s" in d[0],
+                "; ".join(d)[:150]))
     return out
 
 

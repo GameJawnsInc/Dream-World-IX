@@ -172,8 +172,9 @@ REQUIRED_TESTS_O3: tuple = (
 )
 #: G14 (the review, research/o3_design.md 11.7 #12): o3_dryrun's "N/N cases as registered" must have N at least this --
 #: its sessions, "predictions-changed", its units and its offline mutants when G14 joined (92), and the movie-skip A/B's
-#: four units (PLAN.md "Movie skip (opt-in)"). A case added raises N; one dropped falls under the floor.
-O3_DRYRUN_FLOOR = 96
+#: units (PLAN.md "Movie skip (opt-in)"): four, then two for the evidence a skip took (a skip that saved nothing, a
+#: row with no left_s). A case added raises N; one dropped falls under the floor.
+O3_DRYRUN_FLOOR = 98
 
 O2S_VERDICT = "PROVEN"
 O2S_CHECKS = 15
