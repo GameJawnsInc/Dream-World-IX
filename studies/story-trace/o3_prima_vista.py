@@ -515,8 +515,10 @@ def ini_settings(text: str | None, keys: dict | None = None) -> dict:
     """``{section: {key: raw value}}`` of one Memoria.ini read the ENGINE's way (Memoria.Prime/Ini/IniReader.cs): a
     line whose first letter, digit, ``[``, ``;`` or ``#`` is ``;`` or ``#`` is a comment; ``[name]`` opens a section
     (a trailing ``Section`` trimmed, as ReadSection does); ``key = value`` -- the key from its first letter or digit to
-    the ``=``, trimmed at its end, the value after it up to an unescaped ``;`` (``;;`` is a literal ``;``), trimmed.
-    Sections and keys are CASE-SENSITIVE (the reader's dictionaries use the default comparer), and the LAST
+    the ``=``, trimmed at its end, the value after it up to its first ``;``, trimmed. A ``;`` right after that one
+    adds a literal ``;``, and any other character then ends the value: ReadPair's escape branch has no ``continue``,
+    so the ``;`` it appends arms the escape again (IniReader.cs:169-185) -- ``a;;b`` reads ``a;``, ``a;;;;b`` reads
+    ``a;;;``. Sections and keys are CASE-SENSITIVE (the reader's dictionaries use the default comparer), and the LAST
     assignment wins. ``keys`` (``{section: [key, ...]}``, e.g. :data:`SETTINGS`) keeps only those keys -- the ones
     the file sets."""
     out = _ini_read(text)
@@ -547,14 +549,14 @@ def _ini_read(text: str | None) -> dict:
             continue
         key = line[i:eq].rstrip()
         value, k, escape = [], eq + 1, False
-        while k < n:
+        while k < n:                                # IniReader.ReadPair's loop, statement for statement
             ch = line[k]
             if escape:
                 if ch != ";":
                     break
                 value.append(";")
                 escape = False
-            elif ch == ";":
+            if ch == ";":                           # no `continue` above: the `;` just appended arms the escape again
                 escape = True
             else:
                 value.append(ch)

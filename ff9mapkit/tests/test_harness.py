@@ -14792,9 +14792,10 @@ def _o3_ini(settings, *, extra=""):
 def test_o3_settings_read_the_ini_the_engines_way(tmp_path):
     """P-SETTINGS (research/o3_design.md 6.2, 4.13; section 8's p-settings unit): Memoria.ini read the ENGINE's way
     (Memoria.Prime/Ini/IniReader.cs) -- an ini equal to 4.13 PASSES; `Speed = 0` FAILS naming it; a later duplicate
-    assignment wins (either way round); a `;` comment line and an inline `; ...` are no value; sections and keys are
+    assignment wins (either way round); a `;` comment line and an inline `; ...` are no value; `;;` adds one `;` and
+    the value ends at the next other character (ReadPair's escape falls through: `a;;b` is "a;"); sections and keys are
     case-sensitive (`speed = 0` is no Speed); a stacked folder's own Memoria.ini is read over the root's, the first
-    folder's winning. Break: let the FIRST assignment win."""
+    folder's winning. Break: let the FIRST assignment win; or skip the re-armed escape (`a;;b` reads "a;b")."""
     P = _o3_module()
     want = P.SETTINGS
     game = tmp_path / "game"
@@ -14813,7 +14814,10 @@ def test_o3_settings_read_the_ini_the_engines_way(tmp_path):
     assert judge(_o3_ini(slow, extra="\n[Battle]\nSpeed = 5\n"))[0], "the later assignment wins"
     assert judge(_o3_ini(want, extra="\n[Battle]\n; Speed = 0\n#Speed = 0\n"))[0], "a comment line is no value"
     assert judge(_o3_ini(want, extra="\n[Battle]\nSpeed = 5 ; the default is 0\n"))[0], "an inline comment"
-    assert P.ini_settings("[Lang]\nText = a;;b ; c\n") == {"Lang": {"Text": "a;b"}}, "`;;` is a literal `;`"
+    # IniReader.ReadPair's escape branch has no `continue`: the `;` it appends arms the escape again, so the value
+    # ends at the next character that is not a `;` (IniReader.cs:169-185) -- `a;;b` is "a;", never "a;b"
+    for raw, value in (("a;;b ; c", "a;"), ("a;;;;b", "a;;;"), ("a;;", "a;"), ("a;b", "a"), (";x", "")):
+        assert P.ini_settings(f"[Lang]\nText = {raw}\n") == {"Lang": {"Text": value}}, (raw, value)
     assert P.ini_settings("[Battle]\nSpeed = 5\nOther = 1\n[Graphics]\nTileSize = 64\n",
                           {"Battle": ["Speed", "SFXRework"]}) == {"Battle": {"Speed": "5"}}, "keys: only those it sets"
     assert judge(_o3_ini(want, extra="\n[Battle]\nspeed = 0\n[battle]\nSpeed = 0\n"))[0], "case-sensitive"
