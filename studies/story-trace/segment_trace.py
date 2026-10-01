@@ -236,6 +236,9 @@ class Segment:
     build_dir: Path | None = None
     accept_us_build = False                 # BUILD accepts the us-bytecode generation (O1's deployed chain) too
     recovery = RECOVERY_FIELD
+    #: S3 (research/o3_design.md 1.2): how long :meth:`end_run` waits, in a battle's END sequence, for the field the
+    #: battle hands over before it warps -- the same cap as a battle row's ``land_cap_s`` (2.1), never below it.
+    battle_end_wait_s = 120.0
     titles: dict = {}
     core_ids = ("NULL", "STABLE", "JOIN")   # the core checks, in order: each is VOID when a side is short
 
@@ -461,16 +464,42 @@ class Segment:
         """o1 end_run: back to the title after a run. A covered run stands in its end field as the next scene
         plays, and the soft reset may not reach the title through it (session story-o1d: 45 s, then VOID). So the
         run first LEAVES by debug warp -- which works mid-movie -- to ``recovery`` (the segment's), and resets from
-        there; the trace is already closed. A warp that is refused (a run stopped mid-battle) falls back to the
-        ladder where it stands. A naming screen swallows the soft reset: accepted first when it is up."""
+        there; the trace is already closed. A warp that is refused falls back to the ladder where it stands. A naming
+        screen swallows the soft reset: accepted first when it is up.
+
+        S3 (research/o3_design.md 1.2, 0.2 #9) -- a run stopped INSIDE a battle. The agent refuses a warp outside
+        FieldHUD, and the soft-reset combo fires in one battle state only: BattleHUD, mid-fight (``GetKey`` answers
+        false outside FieldHUD/WorldHUD/BattleHUD/QuadMistBattle; BattleResult swallows it). So mid-fight (BattleHUD,
+        result 0) the run resets at once, with no warp. In a battle's END sequence (a result set, or BattleResult)
+        it waits up to :attr:`battle_end_wait_s` for the field the battle hands over, then warps and climbs the ladder
+        as any run does. Outside a battle: exactly the old path. Decided on ONE read of the state."""
         from harness import HarnessError
         recovery = self.recovery if recovery is None else recovery
-        if g.state.ui_state != "Title":
-            try:
-                g.warp(recovery)
-                log.append({"k": "recover-warp", "field": recovery})
-            except HarnessError as err:
-                log.append({"k": "recover-warp-failed", "why": str(err)[:200]})
+        st = g.state
+        if st.ui_state != "Title":
+            if st.in_battle and st.ui_state == "BattleHUD" and st.battle_result == 0:   # mid-fight: the one state
+                log.append({"k": "recover-in-battle", "scene": st.battle.get("scene"), "ui": st.ui_state,
+                            "result": st.battle_result})
+                try:
+                    g.soft_reset()
+                    log.append({"k": "recover-reset"})
+                except HarnessError as err:
+                    log.append({"k": "recover-reset-failed", "why": str(err)[:200]})
+            else:
+                if st.in_battle:                    # the end sequence: a result is set, or BattleResult
+                    log.append({"k": "recover-battle-ending", "scene": st.battle.get("scene"), "ui": st.ui_state,
+                                "result": st.battle_result})
+                    try:
+                        st = g.wait_for(lambda s: not s.in_battle and s.ui_state == "FieldHUD" and s.field_id > 0,
+                                        timeout=self.battle_end_wait_s, what="the battle's end to hand over a field")
+                        log.append({"k": "recover-battle-ended", "field": st.field_id})
+                    except HarnessError as err:
+                        log.append({"k": "recover-battle-ending-failed", "why": str(err)[:200]})
+                try:
+                    g.warp(recovery)
+                    log.append({"k": "recover-warp", "field": recovery})
+                except HarnessError as err:
+                    log.append({"k": "recover-warp-failed", "why": str(err)[:200]})
         ok, why = g.restore_baseline()
         if not ok and g.state.ui_state == "NameSetting":
             g.accept_name()

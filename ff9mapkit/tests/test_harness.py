@@ -11825,6 +11825,93 @@ def test_segment_rerun_stops_on_a_finding_class(game, tmp_path_factory):
     assert "rerun_held" not in sess and [r.get("rerun") for r in sess["runs"][6:]] == [True, True], sess
 
 
+def _end_run_stub(state, *, field_comes=True, reset_fails=False):
+    """A stub session for Segment.end_run: ``state`` is what it publishes; ``warp``/``soft_reset``/``wait_for``/
+    ``restore_baseline`` record each call in ``calls``. The warp is refused outside FieldHUD or in a battle (the
+    agent's rule: research/o3_design.md 0.2 #9); ``wait_for`` hands over field 63 unless ``field_comes`` is False
+    (then it times out); the soft reset reaches the title unless ``reset_fails``."""
+    import types
+    calls: list = []
+    g = types.SimpleNamespace(state=state, calls=calls)
+
+    def warp(field, **kw):
+        calls.append(("warp", field))
+        if g.state.in_battle or g.state.ui_state != "FieldHUD":
+            raise HarnessError("warp refused (not on a field?)")
+        return g.state
+
+    def soft_reset(**kw):
+        calls.append(("soft_reset",))
+        if reset_fails:
+            raise HarnessError("the soft reset did not reach the title")
+        g.state = types.SimpleNamespace(ui_state="Title", in_battle=False, battle_result=0, battle={}, field_id=-1)
+        return g.state
+
+    def wait_for(predicate, *, timeout=20.0, what="condition"):
+        calls.append(("wait_for", timeout))
+        if not field_comes:
+            raise HarnessError(f"timed out after {timeout}s waiting for {what}")
+        g.state = types.SimpleNamespace(ui_state="FieldHUD", in_battle=False, battle_result=1, battle={}, field_id=63)
+        assert predicate(g.state)
+        return g.state
+
+    def restore_baseline():
+        calls.append(("restore_baseline",))
+        return True, "restored by: soft reset to the title"
+
+    g.warp, g.soft_reset, g.wait_for, g.restore_baseline = warp, soft_reset, wait_for, restore_baseline
+    return g
+
+
+def test_segment_end_run_resets_from_inside_a_battle_without_a_warp():
+    """S3 (research/o3_design.md 1.2): a run stopped inside a battle. Mid-fight -- BattleHUD, result 0, the one battle
+    state the soft-reset combo fires in -- end_run resets at once: no warp (the agent refuses one there), rows
+    ``recover-in-battle`` (scene, ui BattleHUD, result 0) then ``recover-reset``, then the ladder; a reset that fails
+    is ``recover-reset-failed``, still the ladder. In the battle's END sequence (BattleHUD with result 2: the fade;
+    BattleResult) there is no soft reset: it waits ``battle_end_wait_s`` (120 s) for the field the battle hands
+    over, then warps and climbs the ladder (``recover-battle-ending``, ``recover-battle-ended``, ``recover-warp``);
+    a field that never comes is ``recover-battle-ending-failed``, then the warp is tried (refused) and the ladder
+    climbed. Outside a battle: today's warp and ladder exactly. Break: reset in every battle state (the end
+    sequence then resets where the combo is swallowed)."""
+    import types
+    ST = _segment_trace()
+    seg = ST.Segment()
+    assert seg.recovery == 4600 and seg.battle_end_wait_s == 120.0
+
+    def battle(ui, result, field):
+        return types.SimpleNamespace(ui_state=ui, in_battle=True, battle_result=result,
+                                     battle={"scene": 338, "active": True}, field_id=field)
+
+    def end(state, **kw):
+        g, log = _end_run_stub(state, **kw), []
+        seg.end_run(g, log)
+        return g.calls, log
+
+    calls, log = end(battle("BattleHUD", 0, 62))                         # mid-fight
+    assert calls == [("soft_reset",), ("restore_baseline",)], calls
+    assert log == [{"k": "recover-in-battle", "scene": 338, "ui": "BattleHUD", "result": 0}, {"k": "recover-reset"}]
+    calls, log = end(battle("BattleHUD", 0, 62), reset_fails=True)
+    assert calls == [("soft_reset",), ("restore_baseline",)], calls
+    assert [x["k"] for x in log] == ["recover-in-battle", "recover-reset-failed"]
+    assert "did not reach the title" in log[1]["why"]
+    for ui, result, field in (("BattleHUD", 2, 62), ("BattleResult", 1, 63)):  # the fade; BattleResult (a flipped id)
+        calls, log = end(battle(ui, result, field))
+        assert calls == [("wait_for", 120.0), ("warp", 4600), ("restore_baseline",)], (ui, calls)
+        assert log == [{"k": "recover-battle-ending", "scene": 338, "ui": ui, "result": result},
+                       {"k": "recover-battle-ended", "field": 63}, {"k": "recover-warp", "field": 4600}], (ui, log)
+    calls, log = end(battle("BattleResult", 1, 63), field_comes=False)   # the field never comes
+    assert calls == [("wait_for", 120.0), ("warp", 4600), ("restore_baseline",)], calls
+    assert [x["k"] for x in log] == ["recover-battle-ending", "recover-battle-ending-failed", "recover-warp-failed"]
+    assert "timed out after 120.0s" in log[1]["why"] and "warp refused" in log[2]["why"]
+    field = types.SimpleNamespace(ui_state="FieldHUD", in_battle=False, battle_result=1, battle={"scene": 338},
+                                  field_id=64)                           # outside a battle: today's path
+    calls, log = end(field)
+    assert calls == [("warp", 4600), ("restore_baseline",)] and log == [{"k": "recover-warp", "field": 4600}]
+    title = types.SimpleNamespace(ui_state="Title", in_battle=False, battle_result=0, battle={}, field_id=-1)
+    calls, log = end(title)
+    assert calls == [("restore_baseline",)] and log == []
+
+
 def test_o1_segment_run_pins_o1s_session_surface(game, capsys):
     """O1Segment.run on the fake (research/o2_design.md 1.6 G7), its install stubbed as the segment tests stub it:
     the refactored session keeps O1's surface -- it sends ``warp 50 0 -1`` and ``warp 31200 0 -1`` (v4 has no
