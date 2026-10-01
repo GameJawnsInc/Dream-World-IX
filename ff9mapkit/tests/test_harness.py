@@ -13590,3 +13590,270 @@ def test_o2_rehearse_plumbing_on_the_fake(game):
                  "choice at frame", "pages: ", "evidence: ", "track 30820.7", "longest no-progress", "mbg101:",
                  "end: state", "trace: start line"):
         assert want in report, (want, report[:1500])
+
+
+# ---- O3's harness additions (research/o3_design.md section 3, PART B). H9: the FakeGame's opt-in knobs -- a scripted
+# battle end, the battle exit in the engine's four phases, a warp refused off the field, a warp that lands without
+# control, the soft reset where the engine fires it, a movie beat with its skip dialog -- each absent by default, so no
+# test before them changes. H7 and H8 are the two battle verbs the battle beat needs; S4 (B4) is the battle beat.
+
+#: King Leo's latch (BSC_TH_E002 e1 t1 [587]: his own cur.hp <= 10000 of 10186), as `battle_script_end` models it.
+_O3_LEO_END = {"unit": "King Leo", "hp_raw_le": 10000, "result": 2, "after_frames": 20}
+#: SkipMovieDialog (System.strings 0366, US), its cursor on No (ETb.sChoose = 1), as a movie beat's ``skip``.
+_O3_SKIP = {"header": "Do you want to skip\nthe movie?", "options": ["Yes", "No"], "default": 1}
+
+
+def _o3_unit(slot, uid, name, hp, *, player=False):
+    return {"slot": slot, "id": uid, "player": player, "name": name, "hp": hp, "hp_max": hp, "hp_raw": hp,
+            "hp_max_raw": hp, "mp": 0, "mp_max": 0, "atb": 0, "atb_max": 6000, "can_act": True, "alive": True,
+            "targetable": True, "level": 1, "status": "0"}
+
+
+def _o3_units(leo_hp=10186, *, minions=True):
+    """Battle 338's roster on the fake: Zidane (9999 HP: 62 sets the party's), King Leo FIRST among the enemies (the
+    default policy attacks him), and -- unless ``minions`` is False -- Zenero (32) and Benero (28)."""
+    units = [_o3_unit(0, 1, "Zidane", 9999, player=True), _o3_unit(4, 16, "King Leo", leo_hp)]
+    if minions:
+        units += [_o3_unit(5, 32, "Zenero", 32), _o3_unit(6, 64, "Benero", 28)]
+    return units
+
+
+def _o3_end_on_the_fake(fake, result):
+    """End the fake's battle with ``result`` on ITS OWN thread, at its next frame (the scripted-end slot): an end a test
+    thread runs itself can be published half-done (the scene gone with the UI still BattleHUD)."""
+    fake._script_end = (fake.frame + 1, int(result))
+
+
+class _PubFake(FakeGame):
+    """The fake with every PUBLISHED state's battle facts kept, in order: ``(frame, field, result, active, ui,
+    control)`` -- what no reader of the channel can promise to have seen whole."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.pubs: list = []
+
+    def _publish(self, force: bool = False) -> None:
+        before = self.publish_frame
+        super()._publish(force)
+        if force or self.publish_frame != before:
+            self.pubs.append((self.frame, self.field_id, self.battle_result, self.battle_active, self.ui_state,
+                              self.control))
+
+
+def test_fake_battle_script_end_ends_on_the_units_hp(game):
+    """H9 ``battle_script_end`` (research/o3_design.md 3): King Leo's latch. The first time his ``hp_raw`` is at or below
+    10000 after a command resolves, the battle ends ``after_frames`` later with result 2, whoever is standing: one
+    Attack (260) takes his 10186 to 9926, and the fight ends with him and both minions alive. The control: the same
+    battle with the latch on a unit that is not in it never ends by script, and the fight runs out of its turns.
+    Break: drop the latch after a command resolves (the fight runs out of its turns)."""
+    for unit, ends in (("King Leo", True), ("Nobody", False)):
+        fake = FakeGame(game)
+        fake.enemy_hit, fake.atb_gain = 0, 400
+        fake.battle_script_end = dict(_O3_LEO_END, unit=unit)
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30821)
+            fake.start_battle(338, units=_o3_units())
+            published(g, lambda s: s.in_battle and s.battle.get("scene") == 338)
+            if ends:
+                assert g.fight(timeout=30.0, max_turns=6, finish=False) == 2
+                leo = next(u for u in fake.battle_units if u["name"] == "King Leo")
+                assert 0 < leo["hp_raw"] <= 10000, leo
+                assert all(u["alive"] for u in fake.battle_units), "the scripted end: whoever is standing"
+                assert fake.battle_result == 2 and not fake.battle_active and fake.ui_state == "FieldHUD"
+            else:
+                with pytest.raises(HarnessError, match="took 2 turns without reaching a result"):
+                    g.fight(timeout=30.0, max_turns=2, finish=False)
+                assert fake.battle_active and fake.battle_result == 0 and len(fake.battle_commands) == 2
+
+
+def test_fake_battle_exit_runs_the_engines_four_phases(game):
+    """H9 ``battle_exit`` (research/o3_design.md 0.2 #8, 11.2 #4): a scripted end's every PUBLISHED state, in the
+    engine's order -- the FADE (the end's result 2 at the battle's own field, in the battle, BattleHUD); the OVER
+    FRAME and BattleResult (the result folded to 1 AND the exit field, together, still in the battle); the LOAD (the
+    scene gone, the UI still reading BattleResult); then FieldHUD in the exit field with control off and a new visit.
+    fight() returns 2, read in the fade; the first in-battle sample at the exit field holds result 1, and NO published
+    sample pairs the exit field with result 2. Break: flip the field at the fade (the exit field with result 2)."""
+    fake = _PubFake(game)
+    fake.enemy_hit, fake.atb_gain = 0, 400
+    fake.battle_script_end = dict(_O3_LEO_END)
+    fake.battle_exit = {"field": 30810, "fade_frames": 120, "result_frames": 60, "load_frames": 80,
+                        "arrive_control": False}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30821)
+        visit = fake._visit
+        fake.start_battle(338, units=_o3_units())
+        st = published(g, lambda s: s.in_battle and s.battle.get("scene") == 338)
+        assert g.fight(timeout=30.0, max_turns=6, finish=False) == 2 and g.last_fight["result"] == 2
+        read = g.states_since(st.frame)
+        end = g.wait_for(lambda s: s.ui_state == "FieldHUD" and not s.in_battle, timeout=20.0, what="the exit field")
+    assert end.field_id == 30810 and end.control is False and fake._visit == visit + 1, end
+    assert [e["phase"] for e in fake.exits] == ["fade", "over", "load", "field"], fake.exits
+    assert any((r.get("battle") or {}).get("result") == 2 and (r.get("field") or {}).get("id") == 30821
+               for r in read), "fight() read its 2 in the fade, at the battle's own field"
+
+    def phase(p):
+        frame, field, result, active, ui, control = p
+        if active and (field, result, ui) == (30821, 2, "BattleHUD"):
+            return "fade"
+        if active and (field, result, ui) == (30810, 1, "BattleResult"):
+            return "result"
+        if not active and (field, result, ui) == (30810, 1, "BattleResult"):
+            return "load"
+        if not active and (field, ui, control) == (30810, "FieldHUD", False):
+            return "field"
+        return f"stray {p}"
+    tags = [phase(p) for p in fake.pubs if p[0] >= fake.exits[0]["frame"]]
+    runs = [t for i, t in enumerate(tags) if i == 0 or t != tags[i - 1]]
+    assert runs == ["fade", "result", "load", "field"], runs
+    assert not [p for p in fake.pubs if p[1] == 30810 and p[2] == 2], "the exit field paired with result 2"
+
+
+def test_fake_warp_refuses_off_the_field_when_told(game):
+    """H9 ``warp_field_only`` (research/o3_design.md 0.2 #9): the agent refuses a warp outside FieldHUD ("warp refused
+    (not on a field?)") -- from inside a battle the warp raises at once, writes nothing (the scenario and entrance
+    bytes stand) and moves nothing; from the field it warps. The control: the default fake warps from inside the
+    battle (today's). Break: drop the refusal."""
+    for refuses in (True, False):
+        fake = FakeGame(game)
+        fake.warp_field_only = refuses
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30820)                                     # from the field HUD: either way
+            g.start_battle(105)
+            if refuses:
+                with pytest.raises(HarnessError, match=r"warp refused \(not on a field\?\)"):
+                    g.send("warp 30821 0 1155")
+                st = g.state
+                assert st.field_id == 30820 and st.in_battle and st.ui_state == "BattleHUD", st
+                assert bytes(fake.story_bytes[0:4]) == bytes(4), "a refused warp wrote its scenario or entrance"
+            else:
+                g.send("warp 30821 0 1155")
+                published(g, lambda s: s.field_id == 30821)
+                assert bytes(fake.story_bytes[0:4]) == bytes((0x83, 0x04, 0, 0))
+
+
+def test_fake_warp_arrives_without_control_when_told(game):
+    """H9 ``warp_arrive_control`` (research/o3_design.md 11.2 #3): False -- a warp lands with control OFF, as the
+    engine's field start leaves it in 61-63. Session.warp() there times out in its wait_playable (in the game it would
+    hang 60 s a warp: the F-SMOKE trap); start_run's own shape -- the raw warp, then a wait for the field and FieldHUD
+    -- lands. The control: the default fake hands control over and Session.warp() returns playable. Break: ignore the
+    knob (Session.warp() returns)."""
+    fake = FakeGame(game)
+    fake.warp_arrive_control = False
+    with session(game, fake) as g:
+        boot(g)
+        with pytest.raises(HarnessError, match="control at a known position"):
+            g.warp(30820, timeout=2.0)
+        g.send("warp 30821 0 1155")
+        st = g.wait_for(lambda s: s.field_id == 30821 and s.ui_state == "FieldHUD", timeout=10.0, what="the field")
+        assert st.control is False and st.scenario == 1155, st
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        assert g.warp(30820, timeout=10.0).control is True
+
+
+def test_fake_soft_reset_follows_the_engines_ui_states(game):
+    """H9 ``soft_reset_ui`` (research/o3_design.md 0.2 #9, 11.2 #1): with the ENGINE's set the combo resets from
+    BattleHUD mid-fight -- the title, the battle gone with the scene -- and is swallowed in BattleResult (a battle's
+    end sequence) and while a movie plays, its skip dialog up or not (MBG marked played); with the default set
+    (today's) it is swallowed in BattleHUD too. Break: keep the old literal pair (BattleHUD swallowed under the
+    engine's set)."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+
+    def battle(ui):
+        fake = FakeGame(game)
+        if ui is not None:
+            fake.soft_reset_ui = ui
+        return fake
+    fake = battle(SOFT_RESET_ENGINE_UI)                      # the engine's set, mid-fight: the title
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g.start_battle(105)
+        st = g.soft_reset(timeout=10.0)
+        assert st.ui_state == "Title" and not st.in_battle and fake.soft_resets == 1, st
+    fake = battle(SOFT_RESET_ENGINE_UI)                      # ...in BattleResult: swallowed
+    fake.battle_exit = {"field": 30821, "fade_frames": 5, "result_frames": 10 ** 6, "load_frames": 5}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g.start_battle(105)
+        _o3_end_on_the_fake(fake, 2)
+        published(g, lambda s: s.ui_state == "BattleResult" and s.in_battle)
+        with pytest.raises(HarnessError, match="did not reach the title"):
+            g.soft_reset(timeout=2.0)
+        assert fake.soft_resets == 0 and fake.ui_state == "BattleResult"
+    fake = battle(SOFT_RESET_ENGINE_UI)                      # ...a movie playing, then its skip dialog: swallowed
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        fake.scene({"movie": 10 ** 6, "skip": dict(_O3_SKIP)}, control=False)
+        published(g, lambda s: s.ui_state == "FieldHUD" and not s.dialog_open and not s.control)
+        with pytest.raises(HarnessError, match="did not reach the title"):
+            g.soft_reset(timeout=2.0)
+        g.press("confirm", 4)                                # a stray Confirm: the movie's skip dialog
+        published(g, lambda s: s.choice is not None)
+        with pytest.raises(HarnessError, match="did not reach the title"):
+            g.soft_reset(timeout=2.0)
+        assert fake.soft_resets == 0 and fake._movie is not None
+    fake = battle(None)                                      # today's default set, mid-fight: swallowed
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g.start_battle(105)
+        with pytest.raises(HarnessError, match="did not reach the title"):
+            g.soft_reset(timeout=2.0)
+        assert fake.soft_resets == 0 and fake.ui_state == "BattleHUD"
+
+
+def _o3_until(cond, timeout=10.0):
+    """Wait on the FAKE's own state (a condition no published key carries), polling."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if cond():
+            return
+        time.sleep(0.005)
+    raise AssertionError("the fake never reached the condition")
+
+
+def test_fake_movie_beat_holds_and_offers_the_skip_dialog(game):
+    """H9's movie beat (research/o3_design.md 2.5, H9): a scene's movie holds -- no dialog, no control, FieldHUD -- for
+    its frames; a Confirm during it opens the skip dialog (SkipMovieDialog's text, its cursor on the default, No);
+    answering the default resumes the movie for EXACTLY the frames it had left, and the page after it opens when they
+    run out; answering the other option ends it at once. Break: restart the movie after its dialog (it plays more
+    frames than it has)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        for answer in ("default", 0):
+            fake.scene("Narrator\n“Before”", {"movie": 480, "skip": dict(_O3_SKIP)}, "Narrator\n“After”",
+                       control=False)
+            published(g, lambda s: s.dialog_open and "Before" in s.text)
+            g.press("confirm", 3)                            # the page before the movie
+            st = published(g, lambda s: not s.dialog_open)
+            assert st.ui_state == "FieldHUD" and not st.control and fake._movie is not None, st
+            _o3_until(lambda: fake.movies[-1]["played"] >= 60)
+            g.press("confirm", 4)                            # a stray Confirm: the skip dialog
+            st = g.wait_for(lambda s: g._choice_ready(s) and s.choice.get("selected") == 1, timeout=5.0,
+                            what="the skip dialog, ready")
+            assert st.choice["options"] == ["Do you want to skip\nthe movie?", "Yes", "No"], st.choice
+            if answer == "default":
+                took = g._take_default_choice(st)
+                assert took is not None and took["index"] == 1, took
+            else:
+                g.choose(0)
+            g.wait_for(lambda s: s.dialog_open and "After" in s.text, timeout=20.0, what="the page after the movie")
+            mv = fake.movies[-1]
+            if answer == "default":
+                assert (mv["played"], mv["skips"], mv["ended"]) == (480, 1, "played"), mv
+                assert mv["end"] - mv["start"] > 480, mv              # the dialog's frames on top of the movie's
+            else:
+                assert mv["played"] < 480 and (mv["skips"], mv["ended"]) == (1, "skipped"), mv
+            assert fake._movie is None
+            g.press("confirm", 3)                            # the page after it
+            published(g, lambda s: not s.dialog_open)
+    assert fake.answered == [1, 0], fake.answered

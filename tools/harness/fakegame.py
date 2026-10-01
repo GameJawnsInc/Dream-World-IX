@@ -90,6 +90,10 @@ STICK_THRESHOLD = 0.10
 #: driver has to send all six in a single request -- six separate presses would never overlap, and a
 #: stand-in that accepted them sequentially would let a broken driver pass.
 SOFT_RESET_COMBO = ("l1", "l2", "r1", "r2", "start", "select")
+#: The UI states the ENGINE's soft-reset combo fires in: it is held through ``UIKeyTrigger.GetKey``, which answers
+#: false outside these four (UIKeyTrigger.cs:94; research/o3_design.md 0.2 #9). `FakeGame.soft_reset_ui` defaults to
+#: the narrower pair every test before H9 was written against; a test that models the engine passes this.
+SOFT_RESET_ENGINE_UI = ("FieldHUD", "WorldHUD", "BattleHUD", "QuadMistBattle")
 
 
 class FakeGame:
@@ -201,6 +205,13 @@ class FakeGame:
         self._typing_until = 0                     # a ready choice's prompt types on until this frame
         self.answered: list[int] = []
         self.readied: list[int] = []
+        #: H9: a scene's MOVIE beat (:meth:`scene`) while it plays -- its skip dialog up included (MBG stays marked
+        #: played until the movie ends) -- else None; and every movie as it went: ``{"frames", "start", "end",
+        #: "played" (the frames it actually ran), "skips" (skip dialogs opened), "ended" ("played" | "skipped" |
+        #: "warp")}``.
+        self._movie: dict | None = None
+        self.movies: list[dict] = []
+        self._scene_control = True                 # what the scene's end does to control (:meth:`scene`'s ``control``)
         self.menu = {"selected": None, "hovered": None, "label": None, "group": None}
         self.menu_entries: list[str] = []
         self.menu_index = 0
@@ -282,6 +293,19 @@ class FakeGame:
         #: which the driver must report honestly rather than hang on.
         self.soft_reset_enabled = True
         self.soft_resets = 0
+        #: H9 (research/o3_design.md 3): the UI states the soft-reset combo fires in -- see :meth:`_check_soft_reset`.
+        #: The default is today's pair; the engine's set is :data:`SOFT_RESET_ENGINE_UI` (BattleHUD among them,
+        #: BattleResult never). A playing movie swallows the combo whatever this says.
+        self.soft_reset_ui: tuple = ("FieldHUD", "WorldHUD")
+        #: H9: True -- ``warp`` refuses unless ui_state is "FieldHUD", as the agent does (Ff9mkDebugMenu.Warp is false
+        #: off the field HUD, and HarnessAgent throws "warp refused (not on a field?)"): nothing is written, nothing
+        #: moves. False (the default): today's fake, a warp from any state.
+        self.warp_field_only = False
+        #: H9: False -- a warp lands with control OFF. The engine zeroes control at every field start (EventEngine.cs:
+        #: 627) and a field that never grants it (61-63: research/o3_design.md 0.2 #4, #19) leaves it off; a test's
+        #: director gives it where a field would. True (the default): today's warp, control handed over on arrival --
+        #: which is how a smoke built on Session.warp() (its wait_playable needs control) passes here and hangs there.
+        self.warp_arrive_control = True
         # -- battle ----------------------------------------------------------------------------
         #: `party.battle_no`: monotonic, save-persistent, never reset. The ONE unambiguous "a battle
         #: started" edge -- modelled as such because every driver wait is anchored to it.
@@ -299,6 +323,28 @@ class FakeGame:
         #: (TutorialUI.cs:116-125). A fight that waited for a command there would wait out its whole timeout.
         self.tutorial_scenes: set = set()
         self._tutorial = False
+        #: H9 (research/o3_design.md 3), each None by default -- today's fake exactly. A SCRIPTED end, King Leo's
+        #: latch (BSC_TH_E002 e1 t1 [587] ``cur.hp <= 10000``, latched at [601]): ``{"unit": name, "hp_raw_le": n,
+        #: "result": r, "after_frames": k}`` -- the first time that unit's ``hp_raw`` is at or below ``n`` after a
+        #: command resolves, the battle ends with ``r`` ``k`` frames later, whoever is standing; it latches once a
+        #: battle. Without it, `_settle_battle` (one side gone) is the only end.
+        self.battle_script_end: dict | None = None
+        #: The ENGINE'S END ORDER (research/o3_design.md 0.2 #8): ``{"field": id, "fade_frames": a, "result_frames":
+        #: b, "load_frames": c, "arrive_control": False}``. Every end (:meth:`end_battle`) then runs four phases: (1)
+        #: the FADE, ``a`` frames -- the end's result published while the field id is still the battle's,
+        #: ``battle_active`` True, ui BattleHUD, no command asked; (2) the OVER FRAME, one frame -- a result of 2 folds
+        #: to 1 AND the field id becomes ``field``, together (HonoluluBattleMain.UpdateOverFrame), ui "BattleResult",
+        #: still active; (3) BATTLERESULT, ``b`` frames, the same (no panel); (4) the LOAD, ``c`` frames --
+        #: ``battle_active`` False, ui still "BattleResult" (the lag); then FieldHUD in ``field``, control as
+        #: ``arrive_control`` says, a new visit (a fresh load). No sample ever pairs ``field`` with a result of 2.
+        #: None: today's end -- the same field, FieldHUD at once.
+        self.battle_exit: dict | None = None
+        #: Every phase of a `battle_exit` end as it began: ``{"phase": "fade" | "over" | "load" | "field", "frame",
+        #: "field", "result", "active", "ui"}`` -- the frame the scene went is the "load" row's.
+        self.exits: list[dict] = []
+        self._bexit: tuple | None = None           # (phase, the frame it ends on, the end's result) while one runs
+        self._script_end: tuple | None = None      # (the frame it is due, its result) once the latch fired
+        self._script_latched = False
         #: The naming screen (``Menu(1, char)``, a scene beat ``{"naming": char}``): each character named, in order.
         self.named: list[int] = []
         self._name_focus = False
@@ -929,12 +975,18 @@ class FakeGame:
             self.control = True
             self._block(3)
         elif op == "warp":
+            # H9: the agent refuses a warp off the field HUD (Ff9mkDebugMenu.Warp, HarnessAgent.cs:652-656) -- before
+            # anything is written -- when `warp_field_only` models it
+            if self.warp_field_only and self.ui_state != "FieldHUD":
+                raise RuntimeError("warp refused (not on a field?)")
             # ServicePendingWarp writes the entrance and the scenario straight into gEventGlobal BEFORE the map
             # changes, so the trace's residue net sees them in the OLD field (`_warp_writes`); -1 writes nothing
             self._warp_writes(num(1, -1), num(2, -1))
             self.field_id = num(0, -1)
             self.ui_state = "FieldHUD"
-            self.control = True
+            self.control = self.warp_arrive_control     # H9: False -- control zeroed at the field start, not given
+            if self._movie is not None:
+                self._end_scene("warp")        # H9: the field load destroys MBG -- the movie and the scene it was in
             self.player = [0.0, 0.0, 0.0]
             self._visit += 1                   # a new visit's actor: a turn begun before it is cut
             self._in_trigger.clear()           # a new visit: a trigger he lands in fires afresh
@@ -1767,6 +1819,16 @@ class FakeGame:
         battle menu, un-pauses, normalises btl_seq and replaces the scene with Title -- which is why
         it is the only recovery rung that reaches a battle or a stuck menu. What matters for the
         driver is the observable end state, so that is what this models.
+
+        WHERE IT FIRES is `soft_reset_ui` (H9, research/o3_design.md 0.2 #9). The reset is held through
+        ``UIKeyTrigger.GetKey``, which answers false outside FieldHUD / WorldHUD / BattleHUD / QuadMistBattle
+        (UIKeyTrigger.cs:94) -- so in the ENGINE it fires from BattleHUD mid-fight (on the combo's second held frame:
+        the down frame's Select is the menu handler's) and NEVER from BattleResult: the battle's end sequence swallows
+        it. The default here is the narrower pair every test before H9 was written against; a test that models the
+        engine passes :data:`SOFT_RESET_ENGINE_UI`, and a reset from BattleHUD then ends the battle with the scene.
+        And while a MOVIE plays (a scene's movie beat, its skip dialog included) the combo is swallowed whatever the
+        set says: ``HandleBoosterButton``, which holds the reset, returns at once while MBG is marked played
+        (UIKeyTrigger.cs:241, MBG.cs:607-610).
         """
         if not self.soft_reset_enabled:
             return
@@ -1778,8 +1840,15 @@ class FakeGame:
         # (scenarios/soft_reset_reach.py): from a field YES, from an open MainMenu NO. A stand-in
         # more forgiving than the engine is worse than none -- it certifies a ladder that cannot
         # actually climb.
-        if self.ui_state not in ("FieldHUD", "WorldHUD"):
+        if self._movie is not None or self.ui_state not in self.soft_reset_ui:
             return
+        if self.ui_state == "BattleHUD":
+            # mid-fight, from a set that holds it: the battle goes with the scene -- nothing of it is up at the title
+            self.battle_active = False
+            self.commands_enabled = False
+            self._tutorial = False
+            self._bexit = self._script_end = None
+            self.battle_pending = []
         self.soft_resets += 1
         self.ui_state = "Title"
         self.field_id = -1
@@ -2093,6 +2162,8 @@ class FakeGame:
         self.battle_pending = []
         self.escaping = False
         self.run_counter = 0.0
+        self._bexit = self._script_end = None     # H9: no end running, and the latch not yet fired, in a new battle
+        self._script_latched = False
         # ⚠ battle_menu is deliberately NOT cleared here either, for the same reason: a driver that
         # reads the menu without checking its epoch stamp has to be catchable.
         self.battle_units = units if units is not None else [
@@ -2218,11 +2289,24 @@ class FakeGame:
                 self.battle_done.remove(slot)
             if slot in self.battle_ready:
                 self.battle_ready.remove(slot)
+        self._script_latch()
         self._settle_battle()
+
+    def _script_latch(self) -> None:
+        """`battle_script_end`'s latch (H9): ONCE a battle, the first time the named unit's ``hp_raw`` is at or below
+        ``hp_raw_le`` after a command resolves, the end is due ``after_frames`` later with ``result`` -- whoever is
+        standing then (:meth:`_step_battle` ends it)."""
+        se = self.battle_script_end
+        if se is None or self._script_latched:
+            return
+        unit = next((u for u in self.battle_units if u.get("name") == se["unit"]), None)
+        if unit is not None and int(unit["hp_raw"]) <= int(se["hp_raw_le"]):
+            self._script_latched = True
+            self._script_end = (self.frame + max(0, int(se.get("after_frames", 0))), int(se["result"]))
 
     def _settle_battle(self) -> None:
         """End the fight when one side is gone. ⚠ Never under isDebug -- the diorama cannot end."""
-        if not self.battle_active or self.battle_debug:
+        if not self.battle_active or self.battle_debug or self._bexit is not None:
             return
         if not [u for u in self.battle_units if not u["player"] and u["alive"]]:
             self.end_battle(1)
@@ -2230,8 +2314,16 @@ class FakeGame:
             self.end_battle(3)
 
     def _step_battle(self) -> None:
-        """One frame of battle: gauges fill, the HUD asks somebody, enemies act, escapes roll."""
+        """One frame of battle: gauges fill, the HUD asks somebody, enemies act, escapes roll. While a `battle_exit`
+        end runs, only its phases do (:meth:`_step_battle_exit`); a `battle_script_end` that is due ends the battle."""
+        if self._bexit is not None:
+            self._step_battle_exit()
+            return
         if not self.battle_active:
+            return
+        if self._script_end is not None and self.frame >= self._script_end[0]:
+            result, self._script_end = self._script_end[1], None
+            self.end_battle(result)                     # the scripted end: whoever is standing
             return
 
         # InitialBattle(): the opening camera ends, the HUD resets its turn bookkeeping, and only
@@ -2264,7 +2356,7 @@ class FakeGame:
             return
 
         self._resolve_commands()
-        if not self.battle_active:
+        if not self.battle_active or self._bexit is not None:      # it ended (with `battle_exit`: the fade began)
             return
         # A character who goes down mid-prompt stops being asked -- the HUD's own
         # _unconsciousStateList / RemovePlayerFromAction. Without this the turn would stay pinned
@@ -2308,17 +2400,62 @@ class FakeGame:
         return self._roll_state / float(0x7FFFFFFF)
 
     def end_battle(self, result: int = 1, *, exp: int = 120, gil: int = 88) -> None:
-        """Finish the battle. ⚠ Refuses under isDebug, exactly as the engine's auto-end does."""
-        if self.battle_debug:
+        """Finish the battle. ⚠ Refuses under isDebug, exactly as the engine's auto-end does. With `battle_exit` set
+        (H9) the end runs the engine's four phases from here -- the FADE first, the result published at the battle's
+        own field (:meth:`_step_battle_exit` runs the rest); without it, today's end: the same field, FieldHUD at
+        once. An end already running is not begun again."""
+        if self.battle_debug or self._bexit is not None:
             return
         self.battle_result = result
         self.battle_bonus = {"exp": exp, "gil": gil, "ap": 3, "items": 1}
+        if self.battle_exit is not None and self.battle_active:
+            # (1) the FADE (btl_scrp.cs:785-799: the result set, SEQ_DEFEATCLOSE_FADEOUT begun) -- fldMapNo still the
+            # battle's field, the scene still up, the HUD asking nobody
+            self._close_battle_cursor()
+            self.commands_enabled = False
+            self._bexit = ("fade", self.frame + max(0, int(self.battle_exit.get("fade_frames", 0))), result)
+            self._exit_mark("fade")
+            return
         self.battle_active = False
         self._close_battle_cursor()
         # ⚠ commands_enabled goes false at PHASE_MENU_OFF, but battle_turn does NOT get cleared --
         # the engine leaves it for InitialBattle. That is the stale value the next battle inherits.
         self.commands_enabled = False
         self.ui_state = "FieldHUD"
+
+    def _step_battle_exit(self) -> None:
+        """A `battle_exit` end, phase by phase, in the engine's order (research/o3_design.md 0.2 #8): the FADE runs
+        out; then ONE call of HonoluluBattleMain.UpdateOverFrame (:721-741) folds a result of 2 into 1 AND sets
+        ``fldMapNo`` to the exit field -- the same frame, the scene still up -- and GoToBattleResult (ui BattleResult,
+        its InitialEvent hiding every panel); then the scene goes (``battle_active`` False) while the UI still reads
+        BattleResult through the load; then FieldHUD in the exit field, a fresh visit, control as ``arrive_control``
+        says (the engine zeroes it at every field start: EventEngine.cs:627)."""
+        phase, until, result = self._bexit
+        if self.frame < until:
+            return
+        ex = self.battle_exit
+        if phase == "fade":
+            self.battle_result = 1 if result == 2 else result
+            self.field_id = int(ex["field"])
+            self.ui_state = "BattleResult"
+            self._bexit = ("result", self.frame + 1 + max(0, int(ex.get("result_frames", 0))), result)
+            self._exit_mark("over")
+        elif phase == "result":
+            self.battle_active = False
+            self._bexit = ("load", self.frame + max(0, int(ex.get("load_frames", 0))), result)
+            self._exit_mark("load")
+        else:
+            self._bexit = None
+            self.ui_state = "FieldHUD"
+            self.control = bool(ex.get("arrive_control", False))
+            self._visit += 1                       # a fresh load: a new visit's actor
+            self._in_trigger.clear()
+            self._exit_mark("field")
+
+    def _exit_mark(self, phase: str) -> None:
+        """One row of `exits`: the phase a `battle_exit` end entered, and what it publishes there."""
+        self.exits.append({"phase": phase, "frame": self.frame, "field": self.field_id, "result": self.battle_result,
+                           "active": self.battle_active, "ui": self.ui_state})
 
     # -- test conveniences ---------------------------------------------------------------------
     # -- the story-write trace (s88) -----------------------------------------------------------
@@ -2501,14 +2638,21 @@ class FakeGame:
             self.choice["active"] = list(active)
         self.menu["label"] = options[0] if options else None
 
-    def scene(self, *beats, stale: int = 0, opening: int = 6, closing: int = 6) -> None:
-        """Play a scripted scene with control withheld, beat by beat; control comes back after the last. A
+    def scene(self, *beats, stale: int = 0, opening: int = 6, closing: int = 6, control: bool = True) -> None:
+        """Play a scripted scene with control withheld, beat by beat; control comes back after the last -- unless
+        ``control`` is False: a scene in a field that never grants it (61-63, research/o3_design.md 0.2 #4), whose
+        script moves on with control still off (H9; the default is as it always was). A
         beat is a page (a str) that Confirm turns, or a CHOICE (a dict: ``options``; ``default``, the script's
         defaultChoice -- the ABSOLUTE index its cursor starts on; optionally ``header``, and ``disabled``, the
         absolute indexes the script's mask leaves out; ``typing``, frames its prompt types on once the window
         is ready) that Confirm answers at the cursor, into :attr:`answered`, or the NAMING screen (a dict
         ``{"naming": char}``: ui_state "NameSetting", no dialog; two Confirms keep the default name, into
-        :attr:`named`).
+        :attr:`named`), or a MOVIE (H9: a dict ``{"movie": frames, "skip": {"header", "options", "default"}}``): no
+        dialog and no control for ``frames`` frames, ui FieldHUD -- and with ``skip``, a Confirm while it plays opens
+        the skip dialog (FieldHUD.cs:275-286), a choice beat with its cursor on ``default``; the default's answer
+        resumes the movie for the frames it had left, the other option ends it. While a movie plays (its dialog up
+        included) the soft-reset combo is swallowed, and a warp ends it with its scene (:attr:`movies` records
+        each).
 
         A choice window as the engine publishes it (recorded at 30937 frames 900/906/936 and 30921): for
         ``opening`` frames it is up with group '' and no button and ``selected`` reads ``stale`` -- whatever
@@ -2520,6 +2664,7 @@ class FakeGame:
         finishes the text (Dialog.OnKeyConfirm's TextAnimation branch) and is not an answer."""
         self._beats = list(beats)
         self._beat_frames = (int(opening), int(closing))
+        self._scene_control = bool(control)
         self.control = False
         self._next_beat(stale)
 
@@ -2528,7 +2673,7 @@ class FakeGame:
         self._beat_phase = None
         if not self._beats:
             self.texts, self.raw_texts, self.choice = [], [], None
-            self.control = True
+            self.control = self._scene_control
             return
         beat = self._beats[0]
         if isinstance(beat, str):
@@ -2539,6 +2684,23 @@ class FakeGame:
             # NameSettingUI: no dialog, the box focused on the prefilled default name (NameSettingUI.cs:146)
             self.texts, self.raw_texts, self.choice = [], [], None
             self.ui_state, self._name_focus = "NameSetting", True
+            return
+        if "movie" in beat:
+            # H9: a movie -- MBG marked played (`_movie`) from its first frame to its last; resumed with the frames
+            # it had left (``_left``) after its skip dialog, ended here when that dialog took the skip
+            if "_left" not in beat:
+                beat["_left"] = max(0, int(beat["movie"]))
+                self._movie = beat
+                self.movies.append({"frames": beat["_left"], "start": self.frame, "end": None, "played": 0,
+                                    "skips": 0, "ended": None})
+            if beat["_left"] <= 0:
+                if self._movie is beat:
+                    self._movie_over("played")
+                self._beats.pop(0)
+                self._next_beat()
+                return
+            self.texts, self.raw_texts, self.choice = [], [], None
+            self._beat_phase = "movie"
             return
         header = beat.get("header", "What now?")
         disabled = list(beat.get("disabled", ()))
@@ -2555,8 +2717,32 @@ class FakeGame:
         button = None if index in self.choice["disabled"] else f"Choice#{index}"
         self.menu = {"selected": button, "hovered": None, "label": None, "group": "Dialog.Choice", "button": button}
 
+    def _movie_over(self, how: str) -> None:
+        """The playing movie ends (``how``: "played", "skipped" or "warp"): MBG no longer marked played."""
+        self._movie = None
+        if self.movies and self.movies[-1]["end"] is None:
+            self.movies[-1].update(end=self.frame, ended=how)
+
+    def _end_scene(self, why: str) -> None:
+        """A scene cut short (a warp's field load): its movie ended, every beat dropped, its window closed."""
+        if self._movie is not None:
+            self._movie_over(why)
+        self._beats, self._beat_phase = [], None
+        self.texts, self.raw_texts, self.choice = [], [], None
+        self.menu = {"selected": None, "hovered": None, "label": None, "group": None}
+
     def _step_scene(self) -> None:
-        """A choice window's frame-driven phases: opening -> ready, closing -> the next beat."""
+        """A choice window's frame-driven phases: opening -> ready, closing -> the next beat; and a playing movie's
+        frames (H9), the next beat when they run out."""
+        if self._beats and self._beat_phase == "movie":
+            beat = self._beats[0]
+            beat["_left"] -= 1
+            self.movies[-1]["played"] += 1
+            if beat["_left"] <= 0:
+                self._movie_over("played")
+                self._beats.pop(0)
+                self._next_beat()
+            return
         if not self._beats or self._beat_phase not in ("opening", "closing") or self.frame < self._beat_until:
             return
         if self._beat_phase == "opening":
@@ -2589,12 +2775,27 @@ class FakeGame:
             elif button in ("cancel", "back", "b"):
                 self._name_focus = True
             return
+        if "movie" in self._beats[0]:
+            # H9: a Confirm during a movie with a skip dialog opens it (FieldHUD.cs:275-286), the cursor on its default
+            # (ETb.sChoose = 1: No); the movie waits under it with the frames it has left
+            beat = self._beats[0]
+            if button in ("confirm", "ok") and beat.get("skip") and self._beat_phase == "movie":
+                skip = beat["skip"]
+                self.movies[-1]["skips"] += 1
+                self._beats.insert(0, {"header": skip.get("header", ""), "options": list(skip["options"]),
+                                       "default": int(skip["default"]), "_movie": beat})
+                self._next_beat()
+            return
         if self._beat_phase != "ready":
             return
         if button in ("confirm", "ok") and self.frame < self._typing_until:
             self._typing_until = self.frame              # the text completes; nothing is answered
         elif button in ("confirm", "ok"):
             self.answered.append(int(self.choice["selected"]))
+            movie = self._beats[0].get("_movie")
+            if movie is not None and int(self.choice["selected"]) != int(self._beats[0]["default"]):
+                movie["_left"] = 0                       # the skip taken: the movie ends under its closing dialog
+                self._movie_over("skipped")
             self.menu = {"selected": None, "hovered": None, "label": None, "group": "", "button": None}
             self._beat_phase, self._beat_until = "closing", self.frame + self._beat_frames[1]
         elif button in ("up", "down"):
