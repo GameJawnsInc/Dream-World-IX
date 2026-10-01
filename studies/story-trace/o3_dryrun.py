@@ -619,6 +619,29 @@ def _(pred):
     return runs
 
 
+@case("battle-landed-real-63-log-F", "NOT PROVEN", clauses={"BATTLE": ["(c)"]})
+def _(pred):
+    """O3-BATTLE (c) ALONE, the F side: every F run's battle row says it landed in REAL 63 (place 63) while its trace
+    stays in member(63) 31213 -- only (c) reads the log's landing; LANDING, SEAM and FORBIDDEN read the trace, which is
+    the base run's."""
+    runs = six(pred)
+    for run in runs:
+        if run["side"] == "F":
+            run["battle"] = {"landed": 63}
+    return runs
+
+
+@case("battle-landed-member-log-S", "NOT PROVEN", clauses={"BATTLE": ["(c)"]})
+def _(pred):
+    """O3-BATTLE (c) ALONE, the S side: every S run's battle row says it landed in 31213 (the F side's member, place
+    63) -- on S the landing must be 63 itself, which no members map turns into anything else."""
+    runs = six(pred)
+    for run in runs:
+        if run["side"] == "S":
+            run["battle"] = {"landed": 31213}
+    return runs
+
+
 @case("battle-beat-true-one-S", "PROVEN", report_has=("leo result True",), void={1: ["A-BEATS"]},
       covered={1: False, 3: True, 5: True})
 def _(pred):

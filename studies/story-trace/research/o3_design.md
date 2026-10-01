@@ -964,7 +964,9 @@ store (`landing.end_row`).
   Mutants: battle-scene-336 (every run's log names scene 336, the trace's rows all e1 t1 ip267: LANDING passes them,
   BATTLE alone fails), battle-two-rows (BATTLE alone), battle-epoch-skip (epoch = `battle_epoch0` + 2: BATTLE alone),
   battle-frame0-late (`frame0` after 63's ip22 row: BATTLE alone); battle-returned-to-62 and
-  battle-zero-rows-62-resumed also fail (d) (62's ip1345 is the first field row after `frame0`).
+  battle-zero-rows-62-resumed also fail (d) (62's ip1345 is the first field row after `frame0`); (c)
+  battle-landed-real-63-log-F (every F run's log names real 63) and battle-landed-member-log-S (every S run's log
+  names 31213), each BATTLE alone (the review, 11.7 #5).
 - **O3-MASKED** (inherited): the story-noise regions per side. Mutant: masked-differs (every F run without its Bit[184]
   rows).
 - **O3-STATE** (inherited): (a) each unmasked target's emitted write history, identical across every covered run of
@@ -1257,6 +1259,8 @@ registers the clause its detail must name.
 | battle-two-rows (every run's log: two `battle` rows) | NOT PROVEN (BATTLE F alone) |
 | battle-epoch-skip (every F run's log: `epoch` = `battle_epoch0` + 2) | NOT PROVEN (BATTLE F alone) |
 | battle-frame0-late (every run's log: `frame0` after 63's ip22 row) | NOT PROVEN (BATTLE F alone) |
+| battle-landed-real-63-log-F (every F run's log: `landed` 63, real; the trace stays in 31213; the review, 11.7 #5) | NOT PROVEN (BATTLE F (c) alone) |
+| battle-landed-member-log-S (every S run's log: `landed` 31213; 11.7 #5) | NOT PROVEN (BATTLE F (c) alone) |
 | battle-beat-true-one-S (one S run's beats `{"leo": True}`) | PROVEN (S 2 of 3); that run A-BEATS ("leo result True") |
 | land-late-fork (every F run's battle row: `land_late` {frames 2400, s 80}) | PROVEN; the report lists each `land_late` |
 | v15-one-S (one S run VOID V15 driver, its rows up to the battle) | PROVEN (S 2 of 3; VOID-ASYM P) |
