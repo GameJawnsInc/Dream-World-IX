@@ -14554,3 +14554,278 @@ def test_segment_session_end_leaves_a_movie_on_the_fake(game, tmp_path_factory):
     sess, at, fake = one(control, False)
     assert "ended" not in sess and at == ("FieldHUD", True), (sess.keys(), at)
     assert fake.movies[0]["end"] is None and fake.soft_resets == 1, (fake.movies, fake.soft_resets)
+
+
+# ---- O3 itself (studies/story-trace/o3_prima_vista.py; research/o3_design.md section 9, PART C). The draft's members
+# are O1's deployed chain; the freeze refuses to overwrite, and refuses a registry row battle_of refuses; the launch's
+# own readers (P-DONOR-LOG, P-LAUNCH), P-STOCK-BATTLE and P-SETTINGS, each pure, on synthetic logs, folders and inis.
+
+def _o3_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o3_prima_vista as P
+    return P
+
+
+def test_o3_draft_members_are_o1s_chain(tmp_path):
+    """The draft's members and names are O1's deployed chain, read from its campaign.toml (research/o3_design.md 1.3):
+    exactly o1_forks.json's twenty, the route members 31211 -> 61, 31212 -> 62, 31213 -> 63, the start 61 / 31211 and
+    the end real 64; o3_forks.json carries the same members and names, deployed, nothing to relaunch, and names both
+    legacy defects (the US-bytecode languages, uk's US text). A campaign with any other member -- or another name -- is
+    refused. Break: drop the assertion (the draft would register another chain). The chain is a machine-local build:
+    where it is not, this SKIPS (and says so) -- never a pass."""
+    P = _o3_module()
+    if not (P.CHAIN_DIR / "campaign.toml").is_file():
+        pytest.skip(f"O1's chain is not built here ({P.CHAIN_DIR}): the O3 draft reads its members from it")
+    pred = P.draft_predictions()
+    o1 = json.loads(P.O1_MANIFEST.read_text(encoding="utf-8"))
+    assert pred["members"] == o1["members"] and pred["names"] == o1["names"], pred["members"]
+    assert {f: pred["members"][str(f)] for f in (31211, 31212, 31213)} == {31211: 61, 31212: 62, 31213: 63}
+    assert pred["start"] == {"S": 61, "F": 31211} and pred["route"] == [61, 62, 63] and pred["end_fields"] == [64]
+    man = json.loads(P.MANIFEST.read_text(encoding="utf-8"))
+    assert man["members"] == pred["members"] and man["names"] == pred["names"], man
+    assert man["deployed"] is True and man["relaunch_needed"] is False and man["text_block"] == 2, man
+    assert man["route_members"] == {"31211": 61, "31212": 62, "31213": 63}, man
+    assert any("US bytecode" in d for d in man["known_defects"]) and any("uk/field/2.mes" in d
+                                                                          for d in man["known_defects"]), man
+    text = (P.CHAIN_DIR / "campaign.toml").read_text(encoding="utf-8")
+    for old, new in (("source = 63", "source = 64"), ('name = "O1_TH_STG"', 'name = "O1_TH_STG_X"')):
+        assert old in text, old
+        bad = tmp_path / "campaign.toml"
+        bad.write_text(text.replace(old, new, 1), encoding="utf-8")
+        with pytest.raises(AssertionError, match="not O1's twenty"):
+            P.chain_from_campaign(bad)
+
+
+def test_o3_freeze_refuses_an_existing_file(tmp_path, monkeypatch):
+    """The freeze (research/o3_design.md 0.1, 2.1): the draft is written ONCE -- LF, sorted keys, its sha the bytes' --
+    and a second freeze onto the same file refuses, leaving it byte for byte; the CLI's --freeze refuses the same way.
+    Before anything is written, every registry row passes segment_drive.battle_of: a row whose ``won`` would count a
+    defeat (3) won is refused and no file appears. The lead freezes after the rehearsals: the real
+    o3_predictions_v1.json is never touched here, and the chain the draft reads is given (a synthetic one, O1's ids),
+    so the rule is tested wherever the suite runs. Break: drop the battle_of pass (the bad row freezes)."""
+    import hashlib
+    P = _o3_module()
+    o1 = json.loads(P.O1_MANIFEST.read_text(encoding="utf-8"))
+    chain = ({int(f): int(d) for f, d in o1["members"].items()},
+             {int(f): f"O3_SYNTH_{d}" for f, d in o1["members"].items()})
+    monkeypatch.setattr(P, "chain_from_campaign", lambda *a, **k: chain)
+    path = tmp_path / "o3_predictions_v1.json"
+    sha = P.O3.freeze(path)
+    data = path.read_bytes()
+    assert sha == hashlib.sha256(data).hexdigest() and b"\r" not in data and data.endswith(b"\n")
+    assert data.decode("utf-8") == json.dumps(P.draft_predictions(), indent=1, sort_keys=True) + "\n"
+    path.write_bytes(data + b" ")                          # the file as frozen, plus one byte a re-freeze would lose
+    with pytest.raises(SystemExit, match="frozen"):
+        P.O3.freeze(path)
+    seg = P.O3Segment()
+    seg.predictions = path
+    with pytest.raises(SystemExit, match="frozen"):
+        seg.main(["--freeze"])
+    assert path.read_bytes() == data + b" "
+    good = P.draft_predictions
+    monkeypatch.setattr(P, "draft_predictions", lambda: dict(good(), battles=[dict(P.battle_row(), won=[1, 2, 3])]))
+    fresh = tmp_path / "o3_predictions_v2.json"
+    with pytest.raises(ValueError, match="won is"):
+        P.O3.freeze(fresh)
+    assert not fresh.exists(), "a refused row was frozen"
+
+
+#: The launch's Memoria.log as today's reads (2026-09-30): its first line's stamp, a collision for a donor off the
+#: route (351, one of Dali's stacked forks), the patchers' "Initialized".
+_O3_LOG_HEAD = "30.09.2026 19:27:42 |M| [WindowManager] Moving window to (2045,33) with size (1286,749) on monitor 0\n"
+_O3_LOG_351 = ("30.09.2026 19:27:44 |W| [DataPatchers] ForkDonorPatch: donor field 351 is forked by both 30831 and "
+               "30842 -> remap DISABLED (ambiguous); an event-battle/scripted-boss after-warp from either fork will "
+               "LEAK to real field 351. Deploy only one fork of donor 351 at a time.\n")
+_O3_LOG_DONE = "30.09.2026 19:27:44 |M| [DataPatchers] Initialized\n"
+
+
+def test_o3_p_donor_log_reads_the_launchs_warnings():
+    """P-DONOR-LOG (research/o3_design.md 6.2; section 8's p-donor-log unit): the engine's donor map is fixed at
+    launch and it logs a collision only as a warning (DataPatchers.cs:156-160), so the launch's own Memoria.log is
+    read -- "Initialized" (the patchers ran) and no collision line for 61, 62 or 63. Today's shape (a collision for 351,
+    off the route) PASSES; a line "donor field 63 is forked by both 31213 and 31299" FAILS naming it; a log with no
+    "Initialized" FAILS (it does not show the patchers ran); a donor 630 is not 63. Break: drop the "Initialized"
+    requirement."""
+    P = _o3_module()
+    route = (61, 62, 63)
+    ok, detail = P.p_donor_log(_O3_LOG_HEAD + _O3_LOG_351 + _O3_LOG_DONE, route)
+    assert ok and "[351]" in detail, detail
+    assert P.donor_log(_O3_LOG_HEAD + _O3_LOG_351 + _O3_LOG_DONE, route) == (True, [])
+    w63 = _O3_LOG_351.replace("351", "63").replace("30831 and 30842", "31213 and 31299")
+    ok, detail = P.p_donor_log(_O3_LOG_HEAD + _O3_LOG_351 + w63 + _O3_LOG_DONE, route)
+    assert not ok and "donor field 63 is forked by both 31213 and 31299" in detail, detail
+    assert P.donor_log(_O3_LOG_HEAD + w63 + _O3_LOG_DONE, route) == (True, [w63.strip()])
+    ok, detail = P.p_donor_log(_O3_LOG_HEAD + _O3_LOG_351, route)
+    assert not ok and "Initialized" in detail, detail
+    assert not P.p_donor_log("", route)[0] and not P.p_donor_log(None, route)[0]
+    w630 = _O3_LOG_351.replace("351", "630")
+    assert P.p_donor_log(_O3_LOG_HEAD + w630 + _O3_LOG_DONE, route)[0], "630 is no route donor"
+
+
+def _o3_touch(path, when, frac=0.0):
+    ts = when.timestamp() + frac
+    os.utime(path, (ts, ts))
+
+
+def test_o3_p_launch_fails_a_patch_file_newer_than_the_launch(tmp_path):
+    """P-LAUNCH (research/o3_design.md 6.2, claim integrity #1; section 8's p-launch unit): the launch read its patch
+    files once (DataPatchers.Initialize), so every stacked folder's DictionaryPatch/BattlePatch/TextPatch/
+    ForkDonorPatch and every Memoria.ini the engine read must be EARLIER than the launch's first Memoria.log stamp, to
+    the second. Synthetic folders under a log whose first line is 30.09.2026 19:27:42: all older -- PASS; a
+    ForkDonorPatch.txt that HOLDS `31213 63` (P-DONOR passes it) but was touched at 19:27:50 -- FAIL "relaunch" naming
+    it; a same-second mtime (19:27:42.4) -- FAIL; Memoria.ini after -- FAIL; a TextPatch.txt after -- FAIL; a stacked
+    folder's own Memoria.ini after -- FAIL; a first line with no stamp -- FAIL; a folder with no patch file -- PASS
+    (nothing to date). Break: compare with <= (the same second passes)."""
+    import datetime as dt
+    P = _o3_module()
+    log = _O3_LOG_HEAD + _O3_LOG_DONE
+    launched = P.launch_time(log)
+    assert launched == dt.datetime(2026, 9, 30, 19, 27, 42), launched
+    game = tmp_path / "game"
+    root, bare = game / "FF9CustomMap", game / "MoguriVideo"
+    root.mkdir(parents=True)
+    bare.mkdir()
+    (game / "Memoria.ini").write_text("[Battle]\nSpeed = 5\n", encoding="utf-8")
+    (root / "DictionaryPatch.txt").write_text("FieldScene 31213 11 O1_TSHP_TH_STG O1_TSHP_TH_STG 2\n", encoding="utf-8")
+    (root / "BattlePatch.txt").write_text("Battle: 67\nMusic: 0\n", encoding="utf-8")
+    fdp = root / "ForkDonorPatch.txt"
+    fdp.write_text("31211 61\n31212 62\n31213 63\n", encoding="utf-8")
+    before = dt.datetime(2026, 9, 30, 19, 27, 4)
+    for p, when in ((game / "Memoria.ini", dt.datetime(2026, 9, 24, 12, 57, 35)), (root / "DictionaryPatch.txt", before),
+                    (root / "BattlePatch.txt", dt.datetime(2026, 9, 29, 21, 6, 41)), (fdp, before)):
+        _o3_touch(p, when)
+    roots = [root, bare]
+
+    def check():
+        return P.launch_check(P.launch_files(game, roots), launched)
+    ok, detail = check()
+    assert ok and "4 file(s) older than the launch at 30.09.2026 19:27:42" in detail, detail
+    pred = {"route": [61, 62, 63], "members": {"31211": 61, "31212": 62, "31213": 63}}
+    for when, frac in ((dt.datetime(2026, 9, 30, 19, 27, 50), 0.0), (launched, 0.4)):
+        _o3_touch(fdp, when, frac)
+        assert P.p_donor(pred, roots)[0], "the row is in the file"
+        ok, detail = check()
+        assert not ok and "relaunch:" in detail and "ForkDonorPatch.txt" in detail, (when, detail)
+        assert when.strftime("%H:%M:%S") in detail, detail
+    _o3_touch(fdp, before)
+    _o3_touch(game / "Memoria.ini", dt.datetime(2026, 9, 30, 19, 30, 0))
+    ok, detail = check()
+    assert not ok and "Memoria.ini changed at 30.09.2026 19:30:00" in detail, detail
+    _o3_touch(game / "Memoria.ini", dt.datetime(2026, 9, 24, 12, 57, 35))
+    for extra in (root / "TextPatch.txt", bare / "Memoria.ini"):
+        extra.write_text("x\n", encoding="utf-8")
+        _o3_touch(extra, dt.datetime(2026, 9, 30, 19, 28, 0))
+        ok, detail = check()
+        assert not ok and extra.name in detail and "relaunch:" in detail, (extra, detail)
+        extra.unlink()
+    assert check()[0]
+    assert P.launch_time("[DataPatchers] Initialized\n") is None and P.launch_time("") is None
+    ok, detail = P.launch_check(P.launch_files(game, roots), P.launch_time("[DataPatchers] Initialized\n"))
+    assert not ok and "relaunch" in detail and "cannot be dated" in detail, detail
+    ok, detail = P.launch_check(P.launch_files(tmp_path / "nothing", [bare]), launched)
+    assert ok and detail.startswith("0 file(s)"), detail
+
+
+#: Battle 338's names as its US battle text gives them (BSC_TH_E002: three enemies, then six attacks).
+_O3_338_NAMES = ["King Leo", "Zenero", "Benero", "Taste steel!", "Poly", "Clamp Pinch", "Pyro", "Clamp Pinch", "Pyro"]
+
+
+def test_o3_p_stock_battle_finds_an_override_of_338(tmp_path):
+    """P-STOCK-BATTLE (research/o3_design.md 6.2, claim integrity #4; section 8's p-stock-battle unit): battle 338
+    must be stock on BOTH sides, over every stacked folder. Today's live shape -- FF9CustomMap's four LEDGER scene
+    overrides, its BattlePatch `Battle:` 67, 67, 336, 337, 334, 335 and FF9CustomMap-msgs's 67 -- PASSES; plus
+    `BattleMap/BattleScene/EVT_BATTLE_TH_E002/dbfile0000.raw16.bytes` FAILS; plus
+    `EventBinary/Battle/fr/EVT_BATTLE_TH_E002.eb.bytes` FAILS; plus `Battle: 338` or `Battle: BSC_TH_E002` FAILS; plus
+    `AnyEnemyByName: King Leo` FAILS (a name selector applies to every scene holding the name); plus
+    `AnyEnemyByName: Goblin` PASSES, listed. Break: drop the name selectors."""
+    P = _o3_module()
+    res = "StreamingAssets/assets/resources"
+    n = {"case": 0}
+
+    def stack(paths=(), lines=()):
+        n["case"] += 1
+        base = tmp_path / f"stack{n['case']}"
+        custom, msgs = base / "FF9CustomMap", base / "FF9CustomMap-msgs"
+        for scene in ("LEDGER1S", "LEDGER1W", "LEDGER_A", "LEDGER_B"):
+            for rel in (f"{res}/BattleMap/BattleScene/EVT_BATTLE_{scene}/dbfile0000.raw16.bytes",
+                        f"{res}/commonasset/eventengine/eventbinary/Battle/us/EVT_BATTLE_{scene}.eb.bytes"):
+                (custom / rel).parent.mkdir(parents=True, exist_ok=True)
+                (custom / rel).write_bytes(b"x")
+        for rel in paths:
+            (custom / rel).parent.mkdir(parents=True, exist_ok=True)
+            (custom / rel).write_bytes(b"x")
+        (custom / "BattlePatch.txt").write_text(
+            "".join(f"Battle: {b}\nMusic: 0\n\n" for b in (67, 67, 336, 337, 334, 335)) + "".join(f"{x}\n" for x in lines),
+            encoding="utf-8")
+        msgs.mkdir(parents=True)
+        (msgs / "BattlePatch.txt").write_text("Battle: 67\nMusic: 0\n", encoding="utf-8")
+        return [custom, msgs]
+
+    def judge(**kw):
+        ok, detail, _info = P.battle_stock(stack(**kw), 338, _O3_338_NAMES)
+        return ok, detail
+    ok, detail = judge()
+    assert ok and "EVT_BATTLE_LEDGER1S" in detail and "FF9CustomMap-msgs Battle: 67" in detail, detail
+    assert "no name selector" in detail, detail
+    for paths in ([f"{res}/BattleMap/BattleScene/EVT_BATTLE_TH_E002/dbfile0000.raw16.bytes"],
+                  [f"{res}/commonasset/eventengine/EventBinary/Battle/fr/EVT_BATTLE_TH_E002.eb.bytes"]):
+        ok, detail = judge(paths=paths)
+        assert not ok and "(a)" in detail and "EVT_BATTLE_TH_E002" in detail, detail
+    for line in ("Battle: 338", "Battle: BSC_TH_E002", "AnyEnemyByName: King Leo", "AnyAttackByName: Clamp Pinch"):
+        ok, detail = judge(lines=["", line, "MaxHP: 1"])
+        assert not ok and "(b)" in detail and line.split(": ", 1)[1] in detail, (line, detail)
+    ok, detail = judge(lines=["AnyEnemyByName: Goblin", "MaxHP: 1"])
+    assert ok and "AnyEnemyByName: Goblin" in detail, detail
+    ok, detail = judge(lines=["// AnyEnemyByName: King Leo"])       # a comment line: the engine skips it
+    assert ok, detail
+
+
+def _o3_ini(settings, *, extra=""):
+    lines = ["[Mod]", "FolderNames = \"FF9CustomMap\"", ""]
+    for sec, kv in settings.items():
+        lines += [f"[{sec}]", "\t; a comment line, as Memoria.ini's are"]
+        lines += [f"{k} = {v}" for k, v in kv.items()]
+        lines.append("")
+    return "\n".join(lines) + extra
+
+
+def test_o3_settings_read_the_ini_the_engines_way(tmp_path):
+    """P-SETTINGS (research/o3_design.md 6.2, 4.13; section 8's p-settings unit): Memoria.ini read the ENGINE's way
+    (Memoria.Prime/Ini/IniReader.cs) -- an ini equal to 4.13 PASSES; `Speed = 0` FAILS naming it; a later duplicate
+    assignment wins (either way round); a `;` comment line and an inline `; ...` are no value; sections and keys are
+    case-sensitive (`speed = 0` is no Speed); a stacked folder's own Memoria.ini is read over the root's, the first
+    folder's winning. Break: let the FIRST assignment win."""
+    P = _o3_module()
+    want = P.SETTINGS
+    game = tmp_path / "game"
+    game.mkdir()
+    ini = game / "Memoria.ini"
+
+    def judge(text, roots=()):
+        ini.write_text(text, encoding="utf-8")
+        return P.p_settings(want, P.install_settings(game, list(roots), want))
+    ok, detail = judge(_o3_ini(want))
+    assert ok and detail.startswith("23 keys as frozen") and 'DialogProgressButtons "Confirm"' in detail, detail
+    slow = {**want, "Battle": dict(want["Battle"], Speed="0")}
+    ok, detail = judge(_o3_ini(slow))
+    assert not ok and detail == "[Battle] Speed = '0' (frozen '5')", detail
+    assert not judge(_o3_ini(want, extra="\n[Battle]\nSpeed = 0\n"))[0], "the later assignment wins"
+    assert judge(_o3_ini(slow, extra="\n[Battle]\nSpeed = 5\n"))[0], "the later assignment wins"
+    assert judge(_o3_ini(want, extra="\n[Battle]\n; Speed = 0\n#Speed = 0\n"))[0], "a comment line is no value"
+    assert judge(_o3_ini(want, extra="\n[Battle]\nSpeed = 5 ; the default is 0\n"))[0], "an inline comment"
+    assert P.ini_settings("[Lang]\nText = a;;b ; c\n") == {"Lang": {"Text": "a;b"}}, "`;;` is a literal `;`"
+    assert judge(_o3_ini(want, extra="\n[Battle]\nspeed = 0\n[battle]\nSpeed = 0\n"))[0], "case-sensitive"
+    first, second = tmp_path / "FF9CustomMap", tmp_path / "MoguriMain"
+    first.mkdir()
+    second.mkdir()
+    (second / "Memoria.ini").write_text("[Battle]\nSpeed = 0\n", encoding="utf-8")
+    ok, detail = judge(_o3_ini(want), roots=[first, second])
+    assert not ok and "[Battle] Speed = '0'" in detail, detail
+    (first / "Memoria.ini").write_text("[Battle]\nSpeed = 5\n", encoding="utf-8")
+    assert judge(_o3_ini(want), roots=[first, second])[0], "the first folder's wins"
+    (second / "Memoria.ini").write_text("[Graphics]\nTileSize = 64\n", encoding="utf-8")
+    (first / "Memoria.ini").unlink()
+    assert judge(_o3_ini(want), roots=[first, second])[0], "today's MoguriMain: no key of 4.13"
+    ini.unlink()
+    ok, detail = P.p_settings(want, P.install_settings(game, [], want))
+    assert not ok and "[Battle] Enabled = None (frozen '1')" in detail, detail

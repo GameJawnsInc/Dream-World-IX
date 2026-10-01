@@ -52,3 +52,9 @@ studies/story-trace/research/o2_regress_baseline.json -text
 # session records the sha of the bytes it read, and the analysis refuses a file that no longer matches. The line is in
 # place BEFORE any freeze (the lead freezes v1 after the stock rehearsals); never line-end convert them.
 studies/story-trace/o2_predictions*.json -text
+
+# O3's registered predictions (studies/story-trace/o3_prima_vista.py O3-FROZEN) are sha256-frozen the same way: the
+# session records the sha of the bytes it read, and the analysis refuses a file that no longer matches. The line is in
+# place BEFORE any freeze (the lead freezes v1 after the stock rehearsals and the F-side load smoke); never line-end
+# convert them.
+studies/story-trace/o3_predictions*.json -text
