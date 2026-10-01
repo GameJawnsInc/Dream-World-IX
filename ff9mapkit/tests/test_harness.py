@@ -13868,6 +13868,39 @@ def test_fake_movie_beat_holds_and_offers_the_skip_dialog(game):
     assert fake.answered == [1, 0], fake.answered
 
 
+def test_fake_movie_skip_dialog_skips_on_choice_zero_only(game):
+    """The skip dialog as the ENGINE answers it, never as a fixture says (FieldHUD.cs): its cursor always starts on No
+    -- OnKeyConfirm sets ``ETb.sChoose = 1`` (:280) whatever the dialog's text -- and OnKeyConfirmAfterDialogHidden
+    skips on choice 0 ALONE (:430); any other answer re-arms the hit area and the movie resumes (:434-440). So a movie
+    whose skip names another cursor (``default`` 0: the sign of the skip flipped) is refused when the scene is built,
+    nothing staged; and with a three-line dialog in the skip slot (the driver's tests stage dialogs the reader must
+    refuse there) and no ``default`` given, the cursor opens on 1, line 2 resumes the movie for exactly the frames it
+    had left and line 0 ends it. Break: end the movie on any answer but the fixture's default (line 2 then skips)."""
+    fake = FakeGame(game)
+    three = {"header": "Do you want to skip\nthe movie?", "options": ["Yes", "No", "Later"]}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        with pytest.raises(ValueError, match=r"ETb\.sChoose = 1, FieldHUD\.cs:280"):
+            fake.scene({"movie": 480, "skip": dict(_O3_SKIP, default=0)}, "Narrator\n“After”", control=False)
+        assert not fake._beats and fake._movie is None and not fake.movies and fake.control, "the refused scene staged"
+        for line, ended in ((2, "played"), (0, "skipped")):
+            fake.scene({"movie": 480, "skip": dict(three)}, "Narrator\n“After”", control=False)
+            published(g, lambda s: s.ui_state == "FieldHUD" and not s.dialog_open and not s.control)
+            _o3_until(lambda: fake._movie is not None and fake.movies[-1]["played"] >= 60)
+            g.press("confirm", 4)                            # a stray Confirm: the skip dialog, its cursor on No
+            st = g.wait_for(lambda s: g._choice_ready(s), timeout=5.0, what="the skip dialog, ready")
+            assert st.choice["selected"] == 1 and st.choice["options"][1:] == three["options"], st.choice
+            g.choose(line)
+            g.wait_for(lambda s: s.dialog_open and "After" in s.text, timeout=20.0, what="the page after the movie")
+            mv = fake.movies[-1]
+            assert (mv["skips"], mv["ended"]) == (1, ended), (line, mv)
+            assert mv["played"] == 480 if ended == "played" else mv["played"] < 480, (line, mv)
+            g.press("confirm", 3)                            # the page after it
+            published(g, lambda s: not s.dialog_open)
+    assert fake.answered == [2, 0], fake.answered
+
+
 def test_fake_scene_copies_its_beats(game):
     """FakeGame.scene() COPIES each dict beat (the review, research/o3_design.md 11.7 #11): a movie beat keeps its
     countdown (``_left``) on the beat, so one dict staged in two scenes must play twice -- two ``movies`` rows, each its
