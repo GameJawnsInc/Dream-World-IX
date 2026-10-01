@@ -1,8 +1,9 @@
-"""THE STORY-WRITE TRACE's segment driver, shared by O1 and O2 (research/o2_design.md, sections 1.4 and 2).
+"""THE STORY-WRITE TRACE's segment driver, shared by O1, O2 and O3 (research/o2_design.md, sections 1.4 and 2;
+research/o3_design.md 1.2 S4 and 2).
 
 ``RouteVoid`` and ``pick_for`` moved here from ``o1_opening`` (which imports and re-exports both): O1's rules and
 O1's ``raise RouteVoid(msg)`` behave exactly as they did. What O2 adds is additive and optional:
-  - a RouteVoid may carry its VOID class (``v``: "V1".."V14"), its beat-table ``cell`` (``[donor, sc]``) and who it
+  - a RouteVoid may carry its VOID class (``v``: "V1".."V16"), its beat-table ``cell`` (``[donor, sc]``) and who it
     is attributed to (``by``: "driver" or "game"), so the session record and the analysis can read VOIDs per side;
   - a choice rule may carry ``sc`` (the published scenarios it applies at), ``once`` (a second answer is VOID V2)
     and ``take: "default"`` (the pick must be the game's own ready cursor, else VOID V3).
@@ -21,6 +22,21 @@ in a watched cell (the ring's samples from inside a harness call included), a ``
 ``visit`` row for every field visit -- and scans the run's own trace live for forbidden writes with the two PURE
 functions the analysis shares: :func:`forbidden_hits` (4.7's patterns over raw ``w`` rows, from the run's start row
 on) and :func:`backing` (whether the run's own log holds the stray action a hit's cause names).
+
+O3's BATTLE BEAT (S4, research/o3_design.md 2.1-2.6) is opt-in, read only when the predictions carry it. A BATTLE
+REGISTRY (``battles``: each row checked strict by :func:`battle_of`, matched by :func:`battle_row`) answers a NEW
+battle -- rule 1b, before the load, route and visit rules, so the id a battle flips at its over frame is never read
+as a leave or a visit -- through its executor (:meth:`_Drive.battle`): fight() within the row's bounds (V15 when it
+reaches no result), the leave that stops where the field begins, the landing in two tiers (late is recorded, never
+voided; V14 past the cap), and the landing judge (V16 when a fork run lands in the REAL field: the s24 redirect did
+not fire; V11 anywhere else). STOP PAGES (``stop_pages``) VOID a matching page as V5 with nothing pressed. With
+neither key the driver is O2's loop exactly.
+
+THE END ROW (opt-in, ``budget.end_row_s``; research/o3_design.md 2.2 rule 1, 11.7 #3): rule 1 fires on the first poll
+that publishes an end field, and the session closes the trace right after the drive returns -- story-o1e closed it
+1-4 frames after the field changed, its run 3 S before any row of the end field (no end cut). With the key, rule 1
+first waits, up to ``end_row_s``, for the run's first trace row in an end place (:meth:`_Drive.end_row`), and the
+``end`` row records it. Without it rule 1 is O1's and O2's exactly.
 """
 from __future__ import annotations
 
@@ -60,13 +76,24 @@ TRIGGER_WAIT_S = 2.0
 POLL_S = 0.05
 #: The comparisons an ``until`` predicate may use: ``{"x_le": 900}`` -- every one must hold.
 UNTIL_OPS = {"le": lambda a, b: a <= b, "lt": lambda a, b: a < b, "ge": lambda a, b: a >= b, "gt": lambda a, b: a > b}
+#: A battle registry row's keys (research/o3_design.md 2.1), strict: :func:`battle_of` refuses an unknown key, a
+#: missing one or a wrong type before anything is driven.
+BATTLE_KEYS = ("donor", "sc", "scene", "won", "lands", "beat", "timeout_s", "max_turns", "land_s", "land_cap_s", "why")
+#: The ``won`` sets a SCRIPTED end can report: [1, 2] with WinPose off (the end reports 2, folded to 1 at the over
+#: frame), [1] with it on. A defeat's 3 is never a win, and [2] or [] is no scripted end's.
+BATTLE_WON = ([1, 2], [1])
+#: A stop page's keys (2.1), strict: ``match`` (a substring of the page's text or of a raw_texts line) and ``why``.
+STOP_PAGE_KEYS = frozenset({"match", "why"})
+#: Rule 1's end-row wait (opt-in: ``budget.end_row_s``) reads the live trace this often: each read parses story.jsonl.
+END_ROW_POLL_S = 0.1
 
 
 class RouteVoid(Exception):
     """The route met something it has no rule for: the run is VOID (never a finding about the scripts).
 
-    ``v`` / ``cell`` / ``by`` are the VOID's class, its beat-table cell and its attribution (2.7); each is None
-    unless given, so O1's ``raise RouteVoid(msg)`` still works and its runs record no class."""
+    ``v`` / ``cell`` / ``by`` are the VOID's class ("V1".."V16": research/o2_design.md 2.7, research/o3_design.md
+    2.6), its beat-table cell and its attribution; each is None unless given, so O1's ``raise RouteVoid(msg)`` still
+    works and its runs record no class."""
 
     def __init__(self, msg: str = "", *, v: str | None = None, cell: list | None = None, by: str | None = None):
         super().__init__(msg)
@@ -220,6 +247,106 @@ def step_of(pred: dict, raw: dict) -> dict:
     if unknown:
         raise ValueError(f"step {raw!r}: {unknown} is no registered region")
     return out
+
+
+# ======================================================================== S4: the battle registry, stop pages (pure)
+def _is_int(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _is_pos(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v > 0
+
+
+def battle_of(pred: dict, raw: dict) -> dict:
+    """A battle registry row (research/o3_design.md 2.1), checked STRICT before anything is driven -- and at the
+    freeze -- as :func:`step_of` checks a step. ValueError on: an unknown key, a missing one, or a wrong type
+    (``donor``, ``scene``, ``lands`` ints; ``sc`` an int or None; ``beat`` and ``why`` non-empty strings; a bool is no
+    int); a ``won`` that is not exactly [1, 2] or [1] (``[1, 2, 3]`` would count a defeat won; ``[2]`` and ``[]`` are
+    no scripted end's); a ``beat`` that is not one of ``pred["beats"]``, or that a table step, a naming rule, a choice
+    rule, ``steps_default`` or a battle row of another slot (donor, sc, scene) also names -- only the executor sets
+    it, with the battle's int result (S1 counts nothing else); a row of the SAME slot is this registration, so an
+    override of it (R-BATTLE-VOID's ``max_turns`` 0) validates against the predictions it overrides; a
+    ``timeout_s``, ``land_s`` or ``land_cap_s`` that is not a positive number, or a
+    ``land_s`` above ``land_cap_s``; a ``max_turns`` that is not an int >= 0 (0 is R-BATTLE-VOID's: fight() stops at
+    the first prompt). Returns a copy."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"battle row {raw!r}: a row is a dict of {BATTLE_KEYS}")
+    unknown = sorted(set(raw) - set(BATTLE_KEYS))
+    missing = [k for k in BATTLE_KEYS if k not in raw]
+    if unknown or missing:
+        raise ValueError(f"battle row {raw!r}: " + "; ".join(
+            ([f"unknown key(s) {unknown}"] if unknown else []) + ([f"missing {missing}"] if missing else []))
+            + f" -- a row is exactly {', '.join(BATTLE_KEYS)}")
+    bad = [k for k in ("donor", "scene", "lands") if not _is_int(raw[k])]
+    if raw["sc"] is not None and not _is_int(raw["sc"]):
+        bad.append("sc")
+    bad += [k for k in ("beat", "why") if not isinstance(raw[k], str) or not raw[k]]
+    if bad:
+        raise ValueError(f"battle row {raw!r}: {bad} of the wrong type (donor, scene and lands ints, sc an int or "
+                         f"None, beat and why non-empty strings)")
+    won = raw["won"]
+    if not isinstance(won, (list, tuple)) or not all(_is_int(v) for v in won) or list(won) not in BATTLE_WON:
+        raise ValueError(f"battle row {raw!r}: won is {won!r} -- exactly [1, 2] (WinPose off: a scripted end reports "
+                         f"2) or [1] (on); a defeat's 3 is never won")
+    if not all(_is_pos(raw[k]) for k in ("timeout_s", "land_s", "land_cap_s")):
+        raise ValueError(f"battle row {raw!r}: timeout_s, land_s and land_cap_s are positive numbers")
+    if raw["land_s"] > raw["land_cap_s"]:
+        raise ValueError(f"battle row {raw!r}: land_s {raw['land_s']} is above land_cap_s {raw['land_cap_s']} (the "
+                         f"late mark comes before the cap)")
+    if not _is_int(raw["max_turns"]) or raw["max_turns"] < 0:
+        raise ValueError(f"battle row {raw!r}: max_turns is an int >= 0, not {raw['max_turns']!r}")
+    beat = raw["beat"]
+    if beat not in (pred.get("beats") or ()):
+        raise ValueError(f"battle row {raw!r}: beat {beat!r} is not one of the predictions' beats {pred.get('beats')}")
+    named = [f"step {s.get('name') or s.get('kind')!r} of cell ({c.get('donor')}, {c.get('sc')})"
+             for c in pred.get("table") or () for s in c.get("steps") or () if s.get("beat") == beat]
+    named += [f"naming rule ({r.get('donor')}, {r.get('sc')})" for r in pred.get("naming") or ()
+              if r.get("beat") == beat]
+    named += [f"choice rule {r.get('match')!r}" for r in pred.get("choices") or () if r.get("beat") == beat]
+    slot = (raw["donor"], raw["sc"], raw["scene"])         # a row of the same slot is this registration (an override)
+    named += [f"battle row (scene {b.get('scene')}, donor {b.get('donor')}, sc {b.get('sc')})"
+              for b in pred.get("battles") or () if isinstance(b, dict) and b.get("beat") == beat
+              and (b.get("donor"), b.get("sc"), b.get("scene")) != slot]
+    if (pred.get("steps_default") or {}).get("beat") == beat:
+        named.append("steps_default")
+    if named:
+        raise ValueError(f"battle row {raw!r}: beat {beat!r} is also named by {named} -- only the battle sets it, "
+                         f"with its int result")
+    return dict(raw)
+
+
+def battle_row(pred: dict, where, sc, scene, answered=()) -> tuple | None:
+    """The registry row a NEW battle answers to (research/o3_design.md 2.3 step 1), pure: ``(index, row)`` of the first
+    ``battles`` row whose ``scene`` is the published one, whose ``donor`` is ``where`` -- the place of the VISIT the
+    battle began in -- whose ``sc`` is None or the published SC, and whose index is not in ``answered`` (the rows this
+    run has answered). None: no row -- another scene, another place or SC, or the same row asked twice."""
+    for n, b in enumerate(pred.get("battles") or ()):
+        if n not in answered and b["scene"] == scene and b["donor"] == where and b["sc"] in (None, sc):
+            return n, b
+    return None
+
+
+def _check_stop_page(p) -> None:
+    """A stop page is exactly ``{"match", "why"}``, both non-empty strings (2.1): a typo is an error, never a page that
+    matches nothing."""
+    if not isinstance(p, dict) or set(p) != STOP_PAGE_KEYS or not all(isinstance(p[k], str) and p[k] for k in p):
+        raise ValueError(f"stop page {p!r}: exactly {sorted(STOP_PAGE_KEYS)}, each a non-empty string")
+
+
+def stop_page(pred: dict, st) -> dict | None:
+    """The first registered stop page (2.1) the published page matches -- its ``match`` a substring of the page's
+    rendered text or of any ``raw_texts`` line -- or None (always None without ``stop_pages``)."""
+    for p in pred.get("stop_pages") or ():
+        if p["match"] in st.text or any(p["match"] in t for t in st.raw_texts):
+            return p
+    return None
+
+
+def _raw_in_battle(raw: dict) -> bool:
+    """``State.in_battle`` of a raw state document (the ring's): the battle up, and not the diorama."""
+    b = raw.get("battle") or {}
+    return bool(b.get("active")) and not b.get("debug")
 
 
 def depth_in(points, x, z) -> float | None:
@@ -501,10 +628,17 @@ class _Drive:
         for c in pred.get("table") or ():                   # a malformed table refuses before anything is walked
             for raw in c["steps"]:
                 step_of(pred, raw)
+        # S4 (research/o3_design.md 2.1-2.3), OPT-IN: the battle registry and the stop pages, each checked strict
+        # before anything is driven. With neither, nothing below reads them: the loop is O2's exactly.
+        self.battles = [battle_of(pred, b) for b in pred.get("battles") or ()]
+        for p in pred.get("stop_pages") or ():
+            _check_stop_page(p)
         budget = pred["budget"]
         self.settle_s = float(budget["settle_s"])
         self.settle_polls = max(1, int(self.settle_s / POLL_S))
         self.no_progress_s = float(budget.get("no_progress_s", 120))
+        # OPT-IN (O3; research/o3_design.md 11.7 #3): rule 1 waits for the run's first trace row in an end place
+        self.end_row_s = None if budget.get("end_row_s") is None else float(budget["end_row_s"])
         self.beats = {b: False for b in pred.get("beats") or ()}
         self.pages, self.timed, self.choices, self.steps = [], [], [], []
         self.overlays, self.forbidden = [], []
@@ -522,15 +656,25 @@ class _Drive:
         self.floors: dict = {}
         self.sig, self.since = None, time.time()
         self.t0 = time.time()
+        self.battle_log: list = []         # S4: the battle rows (2.3 step 6), out()'s and progress's "battles"
+        self.battle_answered: set = set()  # S4: the registry rows this run has answered
+        self.battle_epoch0 = self.battle_seen = None
+        if self.battles:                   # only DELTAS of the epoch mean anything: the one published now is the zero
+            self.battle_epoch0 = self.battle_seen = g.state.battle_epoch
         if progress is not None:
             progress.update(beats=self.beats, pages=self.pages, timed=self.timed, choices=self.choices,
                             steps=self.steps, overlays=self.overlays, forbidden=self.forbidden)
+            if self.battles:               # a run that raises inside a battle still records them
+                progress.update(battles=self.battle_log, battle_epoch0=self.battle_epoch0)
 
     # -- the outcome, a VOID ------------------------------------------------------------------------------------
     def out(self, end: str, why: str) -> dict:
-        return {"end": end, "why": why, "void": None, "beats": self.beats, "pages": self.pages, "timed": self.timed,
-                "choices": self.choices, "steps": self.steps, "overlays": self.overlays, "forbidden": self.forbidden,
-                "end_state": self.end_state, "t": round(time.time() - self.t0, 1)}
+        o = {"end": end, "why": why, "void": None, "beats": self.beats, "pages": self.pages, "timed": self.timed,
+             "choices": self.choices, "steps": self.steps, "overlays": self.overlays, "forbidden": self.forbidden,
+             "end_state": self.end_state, "t": round(time.time() - self.t0, 1)}
+        if self.battles:                   # S4: only with a registry, so O2's outcome keeps its keys
+            o.update(battles=self.battle_log, battle_epoch0=self.battle_epoch0)
+        return o
 
     def void(self, v: str, by: str, why: str):
         return RouteVoid(why, v=v, cell=[self.donor, self.sc], by=by)
@@ -639,6 +783,23 @@ class _Drive:
                 raise self.void("V12", "driver", f"a forbidden write the driver's own log backs: {hit['why']} "
                                                  f"({hit['fld']} e{hit['sid']} t{hit['tag']} ip{hit['ip']} "
                                                  f"{hit['target']}={hit['new']}), backed by {b['what']}")
+
+    def end_row(self) -> dict:
+        """Rule 1's opt-in wait (``budget.end_row_s``; research/o3_design.md 2.2, 11.7 #3): the run's FIRST trace row
+        in an end place -- the row the analysis cuts at (:func:`segment_trace.cut_at_end` on the live trace after its
+        last arm) -- waited for, up to ``end_row_s`` and never past the run's deadline. ``{"seen", "f", "s"}``: whether
+        it came, its frame (``f``, None when it did not), the seconds waited. A row that never comes is no VOID here:
+        the analysis reads that run (A-NOEND). A trace the harness cannot read raises, as the live scan does."""
+        t0 = time.time()
+        until = min(t0 + self.end_row_s, self.deadline)
+        while True:
+            rows = self.g.story_rows()
+            arm = max((i for i, r in enumerate(rows) if r.k == "e" and r.why == "arm"), default=None)
+            line = None if arm is None else ST.cut_at_end(rows[arm:], self.ends, self.members)[1]
+            if line is not None or time.time() >= until:
+                hit = next((r for r in rows if r.line == line), None) if line is not None else None
+                return {"seen": hit is not None, "f": None if hit is None else hit.f, "s": round(time.time() - t0, 2)}
+            time.sleep(END_ROW_POLL_S)
 
     # -- the walks ------------------------------------------------------------------------------------------------
     def floor(self, closed=()):
@@ -1042,6 +1203,160 @@ class _Drive:
         else:
             raise self.void(rec["v"], rec["by"], rec["why"])
 
+    # -- the battle beat (S4, opt-in: a battle registry) ---------------------------------------------------------
+    def battle(self, st) -> None:
+        """Rule 1b's executor (research/o3_design.md 2.3): a NEW battle -- its epoch past every one this run has seen
+        -- owns the loop until its landing field is up.
+
+        1. Match: the published ``battle.scene``, the place of the VISIT it began in (never the poll's, which the
+           over frame can flip; the poll's only before any visit) and the published SC, against the registry
+           (:func:`battle_row`). No row: V10 (game). Either way the epoch is seen.
+        2. Fight: ``g.fight(timeout=min(the row's timeout_s, the run's time left), max_turns=the row's, finish=False)``
+           -- the default policy, the tutorials closed inside. No result within the row's own bounds
+           (``FightTimeout``) is V15, the driver's: its policy and its bounds own the fight; a bound the run's
+           deadline cut is the budget (V13). A scene that went away with no result while both bounds held
+           (``FightTimeout`` kind "gone": a soft reset, a crash to the title) is no bound at all: an instrument stop,
+           ``HarnessError`` (STOPPED, V13) with its own message, the battle row logged first (the review, 11.7 #2).
+        3. Leave: ``g.leave_battle(stop_on_field=True, timeout=min(the row's land_cap_s, the run's time left))``, each
+           of its Confirms a ``press`` row (``why`` "leave_battle", ``pre`` the sample it was decided on, ``post``
+           None, ``near`` []). A leave that stops on its bound ("timeout") goes on to the landing, whose own clocks
+           (and the deadline) then end the run: V14 past ``land_cap_s``, V13 past the deadline.
+        4. Land, in two tiers: the field up (out of the battle, FieldHUD, a positive id) within ``land_s`` of the
+           leave's end; else the wait goes on to ``land_cap_s`` (or the run's deadline), and a landing then is
+           ``land_late`` ``{"frames", "s"}`` -- recorded, never a VOID. No field by the cap: V14 (game); by the
+           deadline: the budget (V13).
+        5. The flip: the first sample the ring holds in the battle at another field id -- its frame and its result.
+        6. The ``battle`` row, logged and in ``out()["battles"]``; ``beats[the row's beat]`` the int result.
+        7. The landing judge: S, the landed id is ``lands``; F, a member whose donor is ``lands`` -- REAL ``lands``
+           is V16 (game: the s24 redirect did not fire, a FINDING) -- and anything else is V11 (game)."""
+        from harness import FightTimeout, HarnessError
+        g = self.g
+        epoch, scene, fid = st.battle_epoch, (st.battle or {}).get("scene"), self.fid
+        where = place(self.cur, self.members) if self.cur is not None else self.donor
+        cell = [where, self.sc]
+        self.battle_seen = epoch
+        hit = battle_row(self.pred, where, self.sc, scene, self.battle_answered)
+        if hit is None:
+            raise RouteVoid(f"an unregistered battle: scene {scene} (epoch {epoch}) in {fid} (place {where}) at SC "
+                            f"{self.sc}", v="V10", cell=cell, by="game")
+        n, row = hit
+        self.battle_answered.add(n)
+        frame0, t0 = st.frame, time.time()
+        rec = {"k": "battle", "field": fid, "donor": where, "visit": self.visit, "sc": self.sc, "scene": scene,
+               "epoch": epoch, "row": n, "beat": row["beat"], "frame0": frame0, "t0": round(t0 - self.t0, 2),
+               "result": None, "turns": None, "seconds": None, "tutorials": None, "timed_out": None, "leave": None,
+               "flip_frame": None, "flip_result": None, "landed": None, "landed_place": None, "land_frame": None,
+               "land_late": None, "t1": None, "v": None, "by": None, "why": None}
+
+        def logged(v=None, by=None, why=None) -> None:
+            rec.update(v=v, by=by, why=why, t1=round(time.time() - self.t0, 2))
+            self.log.append(rec)
+            self.battle_log.append(rec)
+            self.since = time.time()          # the executor is bounded by its row, never by the watchdog
+            self.walked = None
+
+        def fought() -> None:
+            last = g.last_fight or {}
+            rec.update(turns=last.get("turns"), seconds=last.get("seconds"), tutorials=last.get("tutorials"),
+                       timed_out=last.get("timed_out"))
+        # 2 -- the fight, bounded by the row and by the run
+        cap = float(row["timeout_s"])
+        bound = min(cap, self.deadline - time.time())
+        budget = f"the run's budget ran out in battle {scene}"
+        if bound <= 0:
+            logged("V13", "driver", budget)
+            raise HarnessError(budget)
+        try:
+            result = g.fight(timeout=bound, max_turns=int(row["max_turns"]), finish=False)
+        except FightTimeout as err:
+            fought()
+            if err.kind == "gone":            # the scene went with no result, no bound ran out: an instrument stop
+                why = f"battle {scene}'s scene went away with no result: {str(err)[:200]}"
+                logged("V13", "driver", why)
+                raise HarnessError(why) from err
+            rec["timed_out"] = True
+            if err.kind == "timeout" and bound < cap:
+                logged("V13", "driver", budget)
+                raise HarnessError(budget) from err
+            why = f"battle {scene} reached no result within {bound:.0f} s / {row['max_turns']} turns"
+            logged("V15", "driver", f"{why}: {str(err)[:200]}")
+            raise RouteVoid(why, v="V15", cell=cell, by="driver") from err
+        fought()
+        rec["result"] = result
+        # 3 -- the leave: Confirm only while the battle scene is up, each Confirm a press row; bounded by the row's
+        # land_cap_s and the run's deadline (the review, 11.7 #1: the loop's own 40 Confirms are no time bound)
+        g.leave_battle(stop_on_field=True, timeout=max(0.0, min(float(row["land_cap_s"]), self.deadline - time.time())))
+        leave = g.last_leave or {}
+        presses = list(leave.get("presses") or ())
+        for p in presses:
+            self.log.append({"k": "press", "why": "leave_battle", "field": p.get("field"),
+                             "donor": place(p.get("field"), self.members), "visit": self.visit, "sc": self.sc,
+                             "pre": dict(p), "post": None, "near": []})
+        uis: list = []
+        for p in presses:
+            if p.get("ui") not in uis:
+                uis.append(p.get("ui"))
+        rec["leave"] = {"presses": len(presses), "uis": uis, "stopped": leave.get("stopped")}
+        # 4 -- the landing, in two tiers: past land_s it is late, not lost; past land_cap_s (or the deadline) it is
+        t_end, f_end = time.time(), leave.get("frame")
+        late_at, cap_at = t_end + float(row["land_s"]), t_end + float(row["land_cap_s"])
+
+        def landed(s) -> bool:
+            return not s.in_battle and s.ui_state == "FieldHUD" and s.field_id > 0
+        land = self.land_wait(landed, min(late_at, self.deadline))
+        if land is None:
+            land = self.land_wait(landed, min(cap_at, self.deadline))
+            if land is not None:
+                rec["land_late"] = {"frames": None if f_end is None else land.frame - f_end,
+                                    "s": round(time.time() - t_end, 2)}
+        # 5 -- the flip: the first sample the ring holds in the battle at another field id
+        flip = next((r for r in g.states_since(frame0)
+                     if _raw_in_battle(r) and int((r.get("field") or {}).get("id", -1)) != fid), None)
+        if flip is not None:
+            rec.update(flip_frame=int(flip.get("frame", -1)), flip_result=(flip.get("battle") or {}).get("result"))
+        if land is None:
+            if self.deadline < cap_at:
+                why = f"the run's budget ran out waiting for battle {scene}'s field"
+                logged("V13", "driver", why)
+                raise HarnessError(why)
+            why = f"battle {scene} ended and no field came up within {float(row['land_cap_s']):g} s"
+            logged("V14", "game", why)
+            raise RouteVoid(why, v="V14", cell=cell, by="game")
+        new = land.field_id
+        rec.update(landed=new, landed_place=place(new, self.members), land_frame=land.frame)
+        # 6 -- the beat: the battle's int result (S1 counts nothing else)
+        self.beats[row["beat"]] = result
+        # 7 -- the landing judge
+        want = int(row["lands"])
+        ok = (new in self.members and self.members[new] == want) if self.members else new == want
+        if ok:
+            logged()
+            return
+        if self.members and new == want:
+            member = next((f for f, d in sorted(self.members.items()) if d == want), None)
+            v, why = "V16", (f"battle {scene} landed in real {want}, not member({want}) {member}: the s24 redirect "
+                             f"did not fire")
+        else:
+            v, why = "V11", f"battle {scene} landed in {new} (place {place(new, self.members)}), not {want}"
+        logged(v, "game", why)
+        raise RouteVoid(why, v=v, cell=cell, by="game")
+
+    def land_wait(self, landed, until: float):
+        """The battle's landing (2.3 step 4): the first state ``landed`` holds on by ``until`` (wall time), else None
+        -- with no time left, the state as it is now (``wait_for`` would misreport a zero wait). A frozen or silent
+        channel raises: it says nothing about the landing."""
+        from harness import HarnessError
+        left = until - time.time()
+        if left <= 0:
+            st = self.g.state
+            return st if landed(st) else None
+        try:
+            return self.g.wait_for(landed, timeout=left, what="the battle's field (FieldHUD, out of the battle)")
+        except HarnessError as err:
+            if "live samples" not in str(err):
+                raise
+            return None
+
     # -- the loop -------------------------------------------------------------------------------------------------
     def go(self) -> dict:
         from harness import HarnessError
@@ -1055,13 +1370,16 @@ class _Drive:
             if self.observe is not None:
                 self.observe(st, {"field": self.fid, "donor": self.donor, "sc": self.sc, "visit": self.visit,
                                   "log": self.log})
-            # 1 -- the end: the end state, the last scan, done
+            # 1 -- the end: the end state, the last scan, done -- and, opt-in, the end place's first trace row waited for
             if self.fid in self.ends:
                 self.end_state = read_end_state(g, pred)
                 if self.forbid_live:
                     self.scan()
-                self.log.append({"k": "end", "field": self.fid, "frame": st.frame, "sc": self.sc,
-                                 "end_state": self.end_state, "t": round(time.time() - self.t0, 1)})
+                row = {"k": "end", "field": self.fid, "frame": st.frame, "sc": self.sc, "end_state": self.end_state,
+                       "t": round(time.time() - self.t0, 1)}
+                if self.end_row_s is not None:
+                    row["end_row"] = self.end_row()
+                self.log.append(row)
                 return self.out("reached", f"field {self.fid}")
             # the stall watchdog: nothing published changed for no_progress_s
             sig = (self.fid, self.sc, st.ui_state, tuple(st.texts), json.dumps(st.choice, sort_keys=True), st.control,
@@ -1072,6 +1390,13 @@ class _Drive:
             elif time.time() - self.since >= self.no_progress_s:
                 raise self.void("V14", "game", f"no progress for {self.no_progress_s:.0f} s in {self.fid} (place "
                                                f"{self.donor}) at SC {self.sc}")
+            # 1b -- a NEW battle (S4, opt-in: a registry): its executor owns the loop until the landing field is up.
+            # BEFORE rules 9, 2 and 3, so the field id a battle publishes at its over frame (research/o3_design.md
+            # 0.2 #8) is never read as a load, a leave or a visit
+            if self.battles and st.in_battle and st.battle_epoch > self.battle_seen:
+                self.held = 0
+                self.battle(st)
+                continue
             if self.fid <= 0:                        # 9 -- a load: waited out
                 self.held = 0
                 time.sleep(POLL_S)
@@ -1134,6 +1459,11 @@ class _Drive:
             # 7 -- a page (control off)
             if st.dialog_open and st.text.strip() and not st.control:
                 self.held = 0
+                stop = stop_page(pred, st)
+                if stop is not None:                 # S4, opt-in: a stop page VOIDs with NOTHING pressed -- the
+                    # driver's in the run's first visit, the start place (the warp's start state); else the game's
+                    by = "driver" if self.visit == 1 and place(self.cur, self.members) == self.start_place else "game"
+                    raise self.void("V5", by, f"a stop page ({stop['why']}), nothing pressed: {st.text[:160]!r}")
                 if c is not None and c.get("no_pages"):
                     by = "driver" if self.contact_before(st.frame, c) else "game"
                     raise self.void("V5", by, f"a page where the route has none: {st.text[:160]!r}")
@@ -1209,8 +1539,10 @@ def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=Non
     """Play the segment by its beat table (research/o2_design.md 2.2), from wherever the run stands to an end field.
 
     Returns ``{"end": "reached", "why", "void": None, "beats", "pages", "timed", "choices", "steps", "overlays",
-    "forbidden", "end_state", "t"}``; anything the table cannot answer raises :class:`RouteVoid` with its class,
-    cell and attribution (2.7), and the budget ``HarnessError`` (V13). ``floor_for(donor, closed)`` gives a walk its
+    "forbidden", "end_state", "t"}`` -- and, with a battle registry (research/o3_design.md S4), ``"battles"`` (the
+    battle rows) and ``"battle_epoch0"`` (the epoch published when the drive started); anything the table cannot
+    answer raises :class:`RouteVoid` with its class, cell and attribution (2.7), and the budget ``HarnessError``
+    (V13). ``floor_for(donor, closed)`` gives a walk its
     floor (default: the donor's stock walkmesh as the player walks it, ``closed`` shut -- a member walks its donor's,
     P-FLOOR), ``prior_for(donor)`` its prior (default ``g.key_prior``); ``end_fields`` overrides the predictions' (a
     rehearsal stage); ``observe(st, ctx)`` sees every poll (the rehearsal recorder); ``forbid_live`` runs the live

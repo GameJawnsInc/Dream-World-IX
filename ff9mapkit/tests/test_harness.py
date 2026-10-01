@@ -11646,15 +11646,19 @@ def test_row_keys_maps_every_joined_row_to_its_digest_key():
         assert len(d.failures) == 1 and d.failures[0][0].line == 6
 
 
-def _stub_segment(game, *, cue, order=("S", "F", "S", "F", "S", "F"), min_covered=2):
+def _stub_segment(game, *, cue, order=("S", "F", "S", "F", "S", "F"), min_covered=2, rerun=None, beats_of=None,
+                  void=("V8", [106, 1152], "game"), **over):
     """A Segment with its install stubbed -- no mod roots, a fixed fingerprint, an all-pass preflight, no stock
     scripts -- whose drive pokes one harness byte (so every run's trace holds a row of its own) and then reaches the
-    end, or VOIDs with a class, on ``cue(n, side)``: the session loop alone, on the fake."""
+    end, or VOIDs with a class, on ``cue(n, side)``: the session loop alone, on the fake. A VOID run raises ``void``
+    (its class, cell and attribution); a reached run's outcome carries ``beats_of(n, side)`` (default
+    ``{"reached": True}``); ``rerun`` is the predictions' (default ``{"max": 2}``); ``over`` replaces other keys."""
     ST, SD = _segment_trace(), _segment_modules()
     pred = {"version": 1, "what": "a stub segment", "order": list(order), "min_covered": min_covered,
-            "rerun": {"max": 2}, "budget": {"run_s": 60, "run_min_s": 1, "session_s": 600, "settle_s": 0.1},
+            "rerun": dict(rerun or {"max": 2}), "budget": {"run_s": 60, "run_min_s": 1, "session_s": 600,
+                                                           "settle_s": 0.1},
             "start": {"S": 30820, "F": 30820}, "entrance": 0, "end_field": 30821, "stock_fields": [],
-            "members": {}, "names": {}, "beats": ["reached"], "noise": []}
+            "members": {}, "names": {}, "beats": ["reached"], "noise": [], **over}
     path = game / "zz_predictions.json"
     path.write_text(json.dumps(pred, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     calls: list = []
@@ -11683,9 +11687,11 @@ def _stub_segment(game, *, cue, order=("S", "F", "S", "F", "S", "F"), min_covere
             g.send(f"byte 300 {n + 1}")
             log.append({"k": "stub", "n": n})
             if cue(n, side) == "void":
-                raise SD.RouteVoid(f"stub: no SC 1153 in run {n + 1}", v="V8", cell=[106, 1152], by="game")
-            return {"end": "reached", "why": "field 30821", "beats": {"reached": True}, "pages": ["p"],
-                    "choices": [], "t": 0.1}
+                v, cell, by = void
+                raise SD.RouteVoid(f"stub: no SC 1153 in run {n + 1}", v=v, cell=cell, by=by)
+            return {"end": "reached", "why": "field 30821",
+                    "beats": beats_of(n, side) if beats_of else {"reached": True}, "pages": ["p"], "choices": [],
+                    "t": 0.1}
     return Stub(), pred, calls
 
 
@@ -11753,6 +11759,231 @@ def test_segment_throw_check_fails_on_an_engine_exception(game):
         throw = [c for c in g.checks if c["what"].startswith("ZZ-THROW")]
     assert len(throw) == 1 and throw[0]["ok"] is False, throw
     assert throw[0]["detail"].count("NullReferenceException") == 1 and "EventEngine" in throw[0]["detail"], throw
+
+
+def test_segment_read_session_judges_a_registered_battle_by_its_won(game):
+    """S1 (research/o3_design.md 1.2): a beat a ``battles`` row registers is done only when the run's record holds
+    an INT result in that row's ``won``. A stub session's five reached runs record ``leo`` as 2, 1, 3, None and True
+    (the session JSON keeps True a bool): against ``won`` [1, 2] the first two are covered and the other three
+    A-BEATS, each naming its result -- a defeat's 3, a None, and True, which equals 1 and is ``in [1, 2]`` but is
+    never a battle's result. The same session read with no ``battles`` row (O1's and O2's predictions) keeps today's
+    rule: every truthy beat is done, and the A-BEATS text is O1's. Break: drop the ``type(v) is int`` test (run 5
+    reads covered)."""
+    leo = [2, 1, 3, None, True]
+    row = {"donor": 62, "sc": 1155, "scene": 338, "won": [1, 2], "lands": 63, "beat": "leo", "timeout_s": 180,
+           "max_turns": 40, "land_s": 30, "land_cap_s": 120, "why": "a stub row"}
+    stub, pred, calls = _stub_segment(game, cue=lambda n, side: "reached", order=("S", "F", "S", "F", "S"),
+                                      min_covered=1, beats_of=lambda n, side: {"leo": leo[n]}, beats=["leo"],
+                                      battles=[row])
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0]
+        stub.run(g)
+    run_dir = game / "run"
+    sess = json.loads((run_dir / "zz_session.json").read_text(encoding="utf-8"))
+    assert [r["beats"] for r in sess["runs"]] == [{"leo": v} for v in leo] and sess["runs"][4]["beats"]["leo"] is True
+    assert calls == ["S", "F", "S", "F", "S"]               # each side holds its one covered run: no re-run
+    runs = stub.read_session(run_dir, pred)
+    assert [r["covered"] for r in runs] == [True, True, False, False, False], [r["void"] for r in runs]
+    assert [r["void"] for r in runs[2:]] == [
+        [{"why": f"beats not done: ['leo'] (leo result {v!r})", "class": "A-BEATS", "by": "driver"}]
+        for v in (3, None, True)]
+    legacy = {k: v for k, v in pred.items() if k != "battles"}           # O1's and O2's shape: no registry
+    runs = stub.read_session(run_dir, legacy)
+    assert [r["covered"] for r in runs] == [True, True, True, False, True]
+    assert runs[3]["void"] == [{"why": "beats not done: ['leo'] (battle result None)", "class": "A-BEATS",
+                                "by": "driver"}]
+
+
+def test_segment_rerun_stops_on_a_finding_class(game, tmp_path_factory):
+    """S2 (research/o3_design.md 1.2): ``rerun.stop_on`` names FINDING classes. A side with any run VOID in one is
+    not re-run however short it is: re-running a finding only repeats it (the s24 leak, V16), and VOID-ASYM already
+    reads it. Every F run of a stub session VOIDs with V16 (game): with ``stop_on: ["V16"]`` the session is exactly
+    S F S F S F and records ``rerun_held {"F": ["V16"]}``; the control -- the same session without ``stop_on``, O1's
+    and O2's shape -- re-runs F twice and records no ``rerun_held``. Break: drop ``s not in held`` (F re-runs)."""
+    import shutil
+    control = tmp_path_factory.mktemp("control")
+    shutil.copytree(game, control, dirs_exist_ok=True)       # a second fake install, as untouched as the first
+
+    def one(root, rerun):
+        stub, _pred, calls = _stub_segment(root, cue=lambda n, side: "void" if side == "F" else "reached",
+                                           rerun=rerun, void=("V16", [62, 1155], "game"))
+        fake = FakeGame(root)
+        with session(root, fake) as g:
+            boot(g)
+            assert g.restore_baseline()[0]
+            stub.run(g)
+        return calls, json.loads((root / "run" / "zz_session.json").read_text(encoding="utf-8"))
+
+    calls, sess = one(game, {"max": 2, "stop_on": ["V16"]})
+    assert calls == ["S", "F", "S", "F", "S", "F"], calls
+    assert sess["rerun_held"] == {"F": ["V16"]} and not any(r.get("rerun") for r in sess["runs"]), sess
+    assert [(r["v"], r["cell"], r["by"]) for r in sess["runs"] if r["side"] == "F"] == [("V16", [62, 1155], "game")] * 3
+    calls, sess = one(control, {"max": 2})
+    assert calls == ["S", "F", "S", "F", "S", "F", "F", "F"], calls
+    assert "rerun_held" not in sess and [r.get("rerun") for r in sess["runs"][6:]] == [True, True], sess
+
+
+def _end_run_stub(state, *, field_comes=True, reset_fails=False):
+    """A stub session for Segment.end_run: ``state`` is what it publishes; ``warp``/``soft_reset``/``wait_for``/
+    ``restore_baseline`` record each call in ``calls``. The warp is refused outside FieldHUD or in a battle (the
+    agent's rule: research/o3_design.md 0.2 #9); ``wait_for`` hands over field 63 unless ``field_comes`` is False
+    (then it times out); the soft reset reaches the title unless ``reset_fails``."""
+    import types
+    calls: list = []
+    g = types.SimpleNamespace(state=state, calls=calls)
+
+    def warp(field, **kw):
+        calls.append(("warp", field))
+        if g.state.in_battle or g.state.ui_state != "FieldHUD":
+            raise HarnessError("warp refused (not on a field?)")
+        return g.state
+
+    def soft_reset(**kw):
+        calls.append(("soft_reset",))
+        if reset_fails:
+            raise HarnessError("the soft reset did not reach the title")
+        g.state = types.SimpleNamespace(ui_state="Title", in_battle=False, battle_result=0, battle={}, field_id=-1)
+        return g.state
+
+    def wait_for(predicate, *, timeout=20.0, what="condition"):
+        calls.append(("wait_for", timeout))
+        if not field_comes:
+            raise HarnessError(f"timed out after {timeout}s waiting for {what}")
+        g.state = types.SimpleNamespace(ui_state="FieldHUD", in_battle=False, battle_result=1, battle={}, field_id=63)
+        assert predicate(g.state)
+        return g.state
+
+    def restore_baseline():
+        calls.append(("restore_baseline",))
+        return True, "restored by: soft reset to the title"
+
+    g.warp, g.soft_reset, g.wait_for, g.restore_baseline = warp, soft_reset, wait_for, restore_baseline
+    return g
+
+
+def test_segment_end_run_resets_from_inside_a_battle_without_a_warp():
+    """S3 (research/o3_design.md 1.2): a run stopped inside a battle. Mid-fight -- BattleHUD, result 0, the one battle
+    state the soft-reset combo fires in -- end_run resets at once: no warp (the agent refuses one there), rows
+    ``recover-in-battle`` (scene, ui BattleHUD, result 0) then ``recover-reset``, then the ladder; a reset that fails
+    is ``recover-reset-failed``, still the ladder. In the battle's END sequence (BattleHUD with result 2: the fade;
+    BattleResult; its load, the scene gone with the UI still BattleResult) there is no soft reset: it waits
+    ``battle_end_wait_s`` (120 s) for the field the battle hands
+    over, then warps and climbs the ladder (``recover-battle-ending``, ``recover-battle-ended``, ``recover-warp``);
+    a field that never comes is ``recover-battle-ending-failed``, then the warp is tried (refused) and the ladder
+    climbed. Outside a battle: today's warp and ladder exactly. Break: reset in every battle state (the end
+    sequence then resets where the combo is swallowed)."""
+    import types
+    ST = _segment_trace()
+    seg = ST.Segment()
+    assert seg.recovery == 4600 and seg.battle_end_wait_s == 120.0
+
+    def battle(ui, result, field):
+        return types.SimpleNamespace(ui_state=ui, in_battle=True, battle_result=result,
+                                     battle={"scene": 338, "active": True}, field_id=field)
+
+    def end(state, **kw):
+        g, log = _end_run_stub(state, **kw), []
+        seg.end_run(g, log)
+        return g.calls, log
+
+    calls, log = end(battle("BattleHUD", 0, 62))                         # mid-fight
+    assert calls == [("soft_reset",), ("restore_baseline",)], calls
+    assert log == [{"k": "recover-in-battle", "scene": 338, "ui": "BattleHUD", "result": 0}, {"k": "recover-reset"}]
+    calls, log = end(battle("BattleHUD", 0, 62), reset_fails=True)
+    assert calls == [("soft_reset",), ("restore_baseline",)], calls
+    assert [x["k"] for x in log] == ["recover-in-battle", "recover-reset-failed"]
+    assert "did not reach the title" in log[1]["why"]
+    for ui, result, field in (("BattleHUD", 2, 62), ("BattleResult", 1, 63)):  # the fade; BattleResult (a flipped id)
+        calls, log = end(battle(ui, result, field))
+        assert calls == [("wait_for", 120.0), ("warp", 4600), ("restore_baseline",)], (ui, calls)
+        assert log == [{"k": "recover-battle-ending", "scene": 338, "ui": ui, "result": result},
+                       {"k": "recover-battle-ended", "field": 63}, {"k": "recover-warp", "field": 4600}], (ui, log)
+    # the LOAD (the review, research/o3_design.md 11.7 #8): the scene gone, the UI still reading BattleResult -- the end
+    # sequence too, waited out (the warp is refused there and the reset swallowed)
+    load = types.SimpleNamespace(ui_state="BattleResult", in_battle=False, battle_result=1,
+                                 battle={"scene": 338, "active": False}, field_id=63)
+    calls, log = end(load)
+    assert calls == [("wait_for", 120.0), ("warp", 4600), ("restore_baseline",)], calls
+    assert log == [{"k": "recover-battle-ending", "scene": 338, "ui": "BattleResult", "result": 1},
+                   {"k": "recover-battle-ended", "field": 63}, {"k": "recover-warp", "field": 4600}], log
+    calls, log = end(battle("BattleResult", 1, 63), field_comes=False)   # the field never comes
+    assert calls == [("wait_for", 120.0), ("warp", 4600), ("restore_baseline",)], calls
+    assert [x["k"] for x in log] == ["recover-battle-ending", "recover-battle-ending-failed", "recover-warp-failed"]
+    assert "timed out after 120.0s" in log[1]["why"] and "warp refused" in log[2]["why"]
+    field = types.SimpleNamespace(ui_state="FieldHUD", in_battle=False, battle_result=1, battle={"scene": 338},
+                                  field_id=64)                           # outside a battle: today's path
+    calls, log = end(field)
+    assert calls == [("warp", 4600), ("restore_baseline",)] and log == [{"k": "recover-warp", "field": 4600}]
+    title = types.SimpleNamespace(ui_state="Title", in_battle=False, battle_result=0, battle={}, field_id=-1)
+    calls, log = end(title)
+    assert calls == [("restore_baseline",)] and log == []
+
+
+def test_segment_session_end_warps_first_when_asked(game, tmp_path_factory):
+    """S5 (research/o3_design.md 1.2): a segment that sets ``end_session_warps`` ends its session as every run
+    between ends -- ``end_run``: the warp to ``recovery`` first, then the ladder -- and records it in
+    ``session["ended"]`` (its rows, ``ok``, ``why``), never raising. The default (O1, O2) keeps today's bare
+    ``restore_baseline()`` where the last run stopped, and writes no ``ended``. One stub session each way (S F, the
+    second on its own fake install), the session's warp and ladder calls recorded: the last two are
+    ``warp(recovery)``, ``restore_baseline`` with the flag, and ``restore_baseline`` twice without. A third session
+    whose ``end_run`` raises at the end records ``ok`` False with the error and still writes its report. Break:
+    ignore the flag (the bare ladder ends the session, and nothing is recorded)."""
+    import shutil
+    control, failing = tmp_path_factory.mktemp("control"), tmp_path_factory.mktemp("failing")
+    for root in (control, failing):
+        shutil.copytree(game, root, dirs_exist_ok=True)      # more fake installs, as untouched as the first
+
+    def one(root, warps):
+        stub, _pred, calls = _stub_segment(root, cue=lambda n, side: "reached", order=("S", "F"), min_covered=1)
+        stub.end_session_warps = warps
+        seq: list = []
+        fake = FakeGame(root)
+        with session(root, fake) as g:
+            boot(g)
+            assert g.restore_baseline()[0]
+            real_warp, real_restore = g.warp, g.restore_baseline
+
+            def warp(field, **kw):
+                seq.append(("warp", field))
+                return real_warp(field, **kw)
+
+            def restore():
+                seq.append(("restore_baseline",))
+                return real_restore()
+            g.warp, g.restore_baseline = warp, restore
+            stub.run(g)
+            at_title = g.state.ui_state == "Title"
+        assert calls == ["S", "F"]
+        return seq, json.loads((root / "run" / "zz_session.json").read_text(encoding="utf-8")), at_title
+
+    seq, sess, at_title = one(game, True)
+    # run 2's end_run (warp, ladder), then the session's own end through end_run (warp, ladder)
+    assert seq == [("warp", 30821), ("restore_baseline",), ("warp", 30821), ("restore_baseline",)], seq
+    assert sess["ended"] == {"log": [{"k": "recover-warp", "field": 30821}], "ok": True, "why": ""}, sess.get("ended")
+    assert at_title
+    seq, sess, at_title = one(control, False)
+    assert seq == [("warp", 30821), ("restore_baseline",), ("restore_baseline",)], seq
+    assert "ended" not in sess and at_title
+    # never raised: one run, no re-run, so the session's end is the only end_run -- and it fails
+    stub, _pred, calls = _stub_segment(failing, cue=lambda n, side: "reached", order=("S",), min_covered=1,
+                                       rerun={"max": 0})
+    stub.end_session_warps = True
+
+    def end_run(g, log, *, recovery=None):
+        log.append({"k": "recover-warp-failed", "why": "stub"})
+        raise HarnessError("the title could not be restored: stub")
+    stub.end_run = end_run
+    fake = FakeGame(failing)
+    with session(failing, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0]
+        stub.run(g)
+    sess = json.loads((failing / "run" / "zz_session.json").read_text(encoding="utf-8"))
+    assert calls == ["S"] and sess["ended"] == {"log": [{"k": "recover-warp-failed", "why": "stub"}], "ok": False,
+                                                "why": "the title could not be restored: stub"}, sess.get("ended")
+    assert (failing / "run" / "zz_report.txt").is_file()
 
 
 def test_o1_segment_run_pins_o1s_session_surface(game, capsys):
@@ -13368,3 +13599,1783 @@ def test_o2_rehearse_plumbing_on_the_fake(game):
                  "choice at frame", "pages: ", "evidence: ", "track 30820.7", "longest no-progress", "mbg101:",
                  "end: state", "trace: start line"):
         assert want in report, (want, report[:1500])
+
+
+# ---- O3's harness additions (research/o3_design.md section 3, PART B). H9: the FakeGame's opt-in knobs -- a scripted
+# battle end, the battle exit in the engine's four phases, a warp refused off the field, a warp that lands without
+# control, the soft reset where the engine fires it, a movie beat with its skip dialog -- each absent by default, so no
+# test before them changes. H7 and H8 are the two battle verbs the battle beat needs; S4 (B4) is the battle beat.
+
+#: King Leo's latch (BSC_TH_E002 e1 t1 [587]: his own cur.hp <= 10000 of 10186), as `battle_script_end` models it.
+_O3_LEO_END = {"unit": "King Leo", "hp_raw_le": 10000, "result": 2, "after_frames": 20}
+#: SkipMovieDialog (System.strings 0366, US), its cursor on No (ETb.sChoose = 1), as a movie beat's ``skip``.
+_O3_SKIP = {"header": "Do you want to skip\nthe movie?", "options": ["Yes", "No"], "default": 1}
+
+
+def _o3_unit(slot, uid, name, hp, *, player=False):
+    return {"slot": slot, "id": uid, "player": player, "name": name, "hp": hp, "hp_max": hp, "hp_raw": hp,
+            "hp_max_raw": hp, "mp": 0, "mp_max": 0, "atb": 0, "atb_max": 6000, "can_act": True, "alive": True,
+            "targetable": True, "level": 1, "status": "0"}
+
+
+def _o3_units(leo_hp=10186, *, minions=True):
+    """Battle 338's roster on the fake: Zidane (9999 HP: 62 sets the party's), King Leo FIRST among the enemies (the
+    default policy attacks him), and -- unless ``minions`` is False -- Zenero (32) and Benero (28)."""
+    units = [_o3_unit(0, 1, "Zidane", 9999, player=True), _o3_unit(4, 16, "King Leo", leo_hp)]
+    if minions:
+        units += [_o3_unit(5, 32, "Zenero", 32), _o3_unit(6, 64, "Benero", 28)]
+    return units
+
+
+def _o3_end_on_the_fake(fake, result):
+    """End the fake's battle with ``result`` on ITS OWN thread, at its next frame (the scripted-end slot): an end a test
+    thread runs itself can be published half-done (the scene gone with the UI still BattleHUD)."""
+    fake._script_end = (fake.frame + 1, int(result))
+
+
+class _PubFake(FakeGame):
+    """The fake with every PUBLISHED state's battle facts kept, in order: ``(frame, field, result, active, ui,
+    control)`` -- what no reader of the channel can promise to have seen whole."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.pubs: list = []
+
+    def _publish(self, force: bool = False) -> None:
+        before = self.publish_frame
+        super()._publish(force)
+        if force or self.publish_frame != before:
+            self.pubs.append((self.frame, self.field_id, self.battle_result, self.battle_active, self.ui_state,
+                              self.control))
+
+
+def test_fake_battle_script_end_ends_on_the_units_hp(game):
+    """H9 ``battle_script_end`` (research/o3_design.md 3): King Leo's latch. The first time his ``hp_raw`` is at or below
+    10000 after a command resolves, the battle ends ``after_frames`` later with result 2, whoever is standing: one
+    Attack (260) takes his 10186 to 9926, and the fight ends with him and both minions alive. The control: the same
+    battle with the latch on a unit that is not in it never ends by script, and the fight runs out of its turns.
+    Break: drop the latch after a command resolves (the fight runs out of its turns)."""
+    for unit, ends in (("King Leo", True), ("Nobody", False)):
+        fake = FakeGame(game)
+        fake.enemy_hit, fake.atb_gain = 0, 400
+        fake.battle_script_end = dict(_O3_LEO_END, unit=unit)
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30821)
+            fake.start_battle(338, units=_o3_units())
+            published(g, lambda s: s.in_battle and s.battle.get("scene") == 338)
+            if ends:
+                assert g.fight(timeout=30.0, max_turns=6, finish=False) == 2
+                leo = next(u for u in fake.battle_units if u["name"] == "King Leo")
+                assert 0 < leo["hp_raw"] <= 10000, leo
+                assert all(u["alive"] for u in fake.battle_units), "the scripted end: whoever is standing"
+                assert fake.battle_result == 2 and not fake.battle_active and fake.ui_state == "FieldHUD"
+            else:
+                with pytest.raises(HarnessError, match="took 2 turns without reaching a result"):
+                    g.fight(timeout=30.0, max_turns=2, finish=False)
+                assert fake.battle_active and fake.battle_result == 0 and len(fake.battle_commands) == 2
+
+
+def test_fake_battle_exit_runs_the_engines_four_phases(game):
+    """H9 ``battle_exit`` (research/o3_design.md 0.2 #8, 11.2 #4): a scripted end's every PUBLISHED state, in the
+    engine's order -- the FADE (the end's result 2 at the battle's own field, in the battle, BattleHUD); the OVER
+    FRAME and BattleResult (the result folded to 1 AND the exit field, together, still in the battle); the LOAD (the
+    scene gone, the UI still reading BattleResult); then FieldHUD in the exit field with control off and a new visit.
+    fight() returns 2, read in the fade; the first in-battle sample at the exit field holds result 1, and NO published
+    sample pairs the exit field with result 2. Break: flip the field at the fade (the exit field with result 2)."""
+    fake = _PubFake(game)
+    fake.enemy_hit, fake.atb_gain = 0, 400
+    fake.battle_script_end = dict(_O3_LEO_END)
+    fake.battle_exit = {"field": 30810, "fade_frames": 120, "result_frames": 60, "load_frames": 80,
+                        "arrive_control": False}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30821)
+        visit = fake._visit
+        fake.start_battle(338, units=_o3_units())
+        st = published(g, lambda s: s.in_battle and s.battle.get("scene") == 338)
+        assert g.fight(timeout=30.0, max_turns=6, finish=False) == 2 and g.last_fight["result"] == 2
+        read = g.states_since(st.frame)
+        end = g.wait_for(lambda s: s.ui_state == "FieldHUD" and not s.in_battle, timeout=20.0, what="the exit field")
+    assert end.field_id == 30810 and end.control is False and fake._visit == visit + 1, end
+    assert [e["phase"] for e in fake.exits] == ["fade", "over", "load", "field"], fake.exits
+    assert any((r.get("battle") or {}).get("result") == 2 and (r.get("field") or {}).get("id") == 30821
+               for r in read), "fight() read its 2 in the fade, at the battle's own field"
+
+    def phase(p):
+        frame, field, result, active, ui, control = p
+        if active and (field, result, ui) == (30821, 2, "BattleHUD"):
+            return "fade"
+        if active and (field, result, ui) == (30810, 1, "BattleResult"):
+            return "result"
+        if not active and (field, result, ui) == (30810, 1, "BattleResult"):
+            return "load"
+        if not active and (field, ui, control) == (30810, "FieldHUD", False):
+            return "field"
+        return f"stray {p}"
+    tags = [phase(p) for p in fake.pubs if p[0] >= fake.exits[0]["frame"]]
+    runs = [t for i, t in enumerate(tags) if i == 0 or t != tags[i - 1]]
+    assert runs == ["fade", "result", "load", "field"], runs
+    assert not [p for p in fake.pubs if p[1] == 30810 and p[2] == 2], "the exit field paired with result 2"
+
+
+def test_fake_warp_refuses_off_the_field_when_told(game):
+    """H9 ``warp_field_only`` (research/o3_design.md 0.2 #9): the agent refuses a warp outside FieldHUD ("warp refused
+    (not on a field?)") -- from inside a battle the warp raises at once, writes nothing (the scenario and entrance
+    bytes stand) and moves nothing; from the field it warps. The control: the default fake warps from inside the
+    battle (today's). Break: drop the refusal."""
+    for refuses in (True, False):
+        fake = FakeGame(game)
+        fake.warp_field_only = refuses
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30820)                                     # from the field HUD: either way
+            g.start_battle(105)
+            if refuses:
+                with pytest.raises(HarnessError, match=r"warp refused \(not on a field\?\)"):
+                    g.send("warp 30821 0 1155")
+                st = g.state
+                assert st.field_id == 30820 and st.in_battle and st.ui_state == "BattleHUD", st
+                assert bytes(fake.story_bytes[0:4]) == bytes(4), "a refused warp wrote its scenario or entrance"
+            else:
+                g.send("warp 30821 0 1155")
+                published(g, lambda s: s.field_id == 30821)
+                assert bytes(fake.story_bytes[0:4]) == bytes((0x83, 0x04, 0, 0))
+
+
+def test_fake_warp_arrives_without_control_when_told(game):
+    """H9 ``warp_arrive_control`` (research/o3_design.md 11.2 #3): False -- a warp lands with control OFF, as the
+    engine's field start leaves it in 61-63. Session.warp() there times out in its wait_playable (in the game it would
+    hang 60 s a warp: the F-SMOKE trap); start_run's own shape -- the raw warp, then a wait for the field and FieldHUD
+    -- lands. The control: the default fake hands control over and Session.warp() returns playable. Break: ignore the
+    knob (Session.warp() returns)."""
+    fake = FakeGame(game)
+    fake.warp_arrive_control = False
+    with session(game, fake) as g:
+        boot(g)
+        with pytest.raises(HarnessError, match="control at a known position"):
+            g.warp(30820, timeout=2.0)
+        g.send("warp 30821 0 1155")
+        st = g.wait_for(lambda s: s.field_id == 30821 and s.ui_state == "FieldHUD", timeout=10.0, what="the field")
+        assert st.control is False and st.scenario == 1155, st
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        assert g.warp(30820, timeout=10.0).control is True
+
+
+def test_fake_soft_reset_follows_the_engines_ui_states(game):
+    """H9 ``soft_reset_ui`` (research/o3_design.md 0.2 #9, 11.2 #1): with the ENGINE's set the combo resets from
+    BattleHUD mid-fight -- the title, the battle gone with the scene -- and is swallowed in BattleResult (a battle's
+    end sequence) and while a movie plays, its skip dialog up or not (MBG marked played); with the default set
+    (today's) it is swallowed in BattleHUD too. Break: keep the old literal pair (BattleHUD swallowed under the
+    engine's set)."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+
+    def battle(ui):
+        fake = FakeGame(game)
+        if ui is not None:
+            fake.soft_reset_ui = ui
+        return fake
+    fake = battle(SOFT_RESET_ENGINE_UI)                      # the engine's set, mid-fight: the title
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g.start_battle(105)
+        st = g.soft_reset(timeout=10.0)
+        assert st.ui_state == "Title" and not st.in_battle and fake.soft_resets == 1, st
+    fake = battle(SOFT_RESET_ENGINE_UI)                      # ...in BattleResult: swallowed
+    fake.battle_exit = {"field": 30821, "fade_frames": 5, "result_frames": 10 ** 6, "load_frames": 5}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g.start_battle(105)
+        _o3_end_on_the_fake(fake, 2)
+        published(g, lambda s: s.ui_state == "BattleResult" and s.in_battle)
+        with pytest.raises(HarnessError, match="did not reach the title"):
+            g.soft_reset(timeout=2.0)
+        assert fake.soft_resets == 0 and fake.ui_state == "BattleResult"
+    fake = battle(SOFT_RESET_ENGINE_UI)                      # ...a movie playing, then its skip dialog: swallowed
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        fake.scene({"movie": 10 ** 6, "skip": dict(_O3_SKIP)}, control=False)
+        published(g, lambda s: s.ui_state == "FieldHUD" and not s.dialog_open and not s.control)
+        with pytest.raises(HarnessError, match="did not reach the title"):
+            g.soft_reset(timeout=2.0)
+        g.press("confirm", 4)                                # a stray Confirm: the movie's skip dialog
+        published(g, lambda s: s.choice is not None)
+        with pytest.raises(HarnessError, match="did not reach the title"):
+            g.soft_reset(timeout=2.0)
+        assert fake.soft_resets == 0 and fake._movie is not None
+    fake = battle(None)                                      # today's default set, mid-fight: swallowed
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g.start_battle(105)
+        with pytest.raises(HarnessError, match="did not reach the title"):
+            g.soft_reset(timeout=2.0)
+        assert fake.soft_resets == 0 and fake.ui_state == "BattleHUD"
+
+
+def _o3_until(cond, timeout=10.0):
+    """Wait on the FAKE's own state (a condition no published key carries), polling."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if cond():
+            return
+        time.sleep(0.005)
+    raise AssertionError("the fake never reached the condition")
+
+
+def test_fake_movie_beat_holds_and_offers_the_skip_dialog(game):
+    """H9's movie beat (research/o3_design.md 2.5, H9): a scene's movie holds -- no dialog, no control, FieldHUD -- for
+    its frames; a Confirm during it opens the skip dialog (SkipMovieDialog's text, its cursor on the default, No);
+    answering the default resumes the movie for EXACTLY the frames it had left, and the page after it opens when they
+    run out; answering the other option ends it at once. Break: restart the movie after its dialog (it plays more
+    frames than it has)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        for answer in ("default", 0):
+            fake.scene("Narrator\n“Before”", {"movie": 480, "skip": dict(_O3_SKIP)}, "Narrator\n“After”",
+                       control=False)
+            published(g, lambda s: s.dialog_open and "Before" in s.text)
+            g.press("confirm", 3)                            # the page before the movie
+            st = published(g, lambda s: not s.dialog_open)
+            assert st.ui_state == "FieldHUD" and not st.control and fake._movie is not None, st
+            _o3_until(lambda: fake.movies[-1]["played"] >= 60)
+            g.press("confirm", 4)                            # a stray Confirm: the skip dialog
+            st = g.wait_for(lambda s: g._choice_ready(s) and s.choice.get("selected") == 1, timeout=5.0,
+                            what="the skip dialog, ready")
+            assert st.choice["options"] == ["Do you want to skip\nthe movie?", "Yes", "No"], st.choice
+            if answer == "default":
+                took = g._take_default_choice(st)
+                assert took is not None and took["index"] == 1, took
+            else:
+                g.choose(0)
+            g.wait_for(lambda s: s.dialog_open and "After" in s.text, timeout=20.0, what="the page after the movie")
+            mv = fake.movies[-1]
+            if answer == "default":
+                assert (mv["played"], mv["skips"], mv["ended"]) == (480, 1, "played"), mv
+                assert mv["end"] - mv["start"] > 480, mv              # the dialog's frames on top of the movie's
+            else:
+                assert mv["played"] < 480 and (mv["skips"], mv["ended"]) == (1, "skipped"), mv
+            assert fake._movie is None
+            g.press("confirm", 3)                            # the page after it
+            published(g, lambda s: not s.dialog_open)
+    assert fake.answered == [1, 0], fake.answered
+
+
+def test_fake_scene_copies_its_beats(game):
+    """FakeGame.scene() COPIES each dict beat (the review, research/o3_design.md 11.7 #11): a movie beat keeps its
+    countdown (``_left``) on the beat, so one dict staged in two scenes must play twice -- two ``movies`` rows, each its
+    whole frames, each followed by its page -- and the caller's dict is left as it was given. Break: keep the caller's
+    dicts (the second scene's movie is already spent: one ``movies`` row, and its page at once)."""
+    fake = FakeGame(game)
+    movie = {"movie": 60}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        for _ in range(2):
+            fake.scene(movie, "Narrator\n“After”", control=False)
+            g.wait_for(lambda s: s.dialog_open and "After" in s.text, timeout=10.0, what="the page after the movie")
+            g.press("confirm", 3)
+            published(g, lambda s: not s.dialog_open)
+    assert [(m["frames"], m["played"], m["ended"]) for m in fake.movies] == [(60, 60, "played")] * 2, fake.movies
+    assert movie == {"movie": 60}, movie
+
+
+def test_fight_raises_fight_timeout_without_a_result(game):
+    """H7 (research/o3_design.md 3): fight()'s two no-result exits raise FightTimeout -- a HarnessError, with the
+    messages they always carried, its ``kind`` the bound that ran out -- and record ``last_fight`` either way, now with
+    ``timed_out``, ``seconds`` and ``tutorials``. A battle no attack can end (one enemy of 10^7 HP, no scripted end):
+    ``max_turns=0`` raises at the FIRST command prompt, before any command -- no battlecmd executed, the fake still in
+    BattleHUD with result 0 (R-BATTLE-VOID's way to stop mid-fight); ``max_turns=1`` raises naming the turns;
+    ``timeout=2`` naming the timeout. Break: raise the plain HarnessError on either exit."""
+    from harness import FightTimeout
+    fake = FakeGame(game)
+    fake.enemy_hit, fake.atb_gain = 0, 400
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30821)
+        fake.start_battle(338, units=_o3_units(10 ** 7, minions=False))
+        published(g, lambda s: s.in_battle and s.battle.get("scene") == 338)
+        with pytest.raises(FightTimeout, match="took 0 turns without reaching a result") as err:
+            g.fight(timeout=30.0, max_turns=0, finish=False)
+        st = g.state
+        assert err.value.kind == "turns" and isinstance(err.value, HarnessError)
+        assert not [s for s in fake.executed if s[0] == "battlecmd"] and fake.battle_commands == []
+        assert st.in_battle and st.ui_state == "BattleHUD" and st.battle_result == 0, st
+        lf = g.last_fight
+        assert (lf["turns"], lf["result"], lf["timed_out"], lf["tutorials"]) == (0, 0, True, 0), lf
+        assert lf["epoch"] == st.battle_epoch and lf["seconds"] >= 0, lf
+        with pytest.raises(FightTimeout, match="took 1 turns without reaching a result") as err:
+            g.fight(timeout=30.0, max_turns=1, finish=False)
+        assert err.value.kind == "turns" and g.last_fight["turns"] == 1 and g.last_fight["timed_out"] is True
+        assert len(fake.battle_commands) == 1
+        with pytest.raises(FightTimeout, match=r"did not reach a result within 2s \(\d+ turn\(s\) taken\)") as err:
+            g.fight(timeout=2.0, finish=False)
+        assert err.value.kind == "timeout" and g.last_fight["timed_out"] is True, g.last_fight
+        assert g.last_fight["seconds"] >= 2.0 and g.last_fight["result"] == 0, g.last_fight
+
+
+def test_fight_tells_a_vanished_battle_from_a_timeout(game):
+    """H7's third exit (the review, research/o3_design.md 11.7 #2): the battle scene GOES with no result while both
+    bounds still hold -- here the battle ends with result 0 on the fake's own thread, a second in (in the game: a soft
+    reset or a crash to the title mid-fight, an engine path that leaves the result 0). FightTimeout kind "gone", its
+    own message, ``timed_out`` False, raised at once and far inside its 60 s bound -- never "did not reach a result
+    within 60s". No command prompt is ever up (no ATB), so nothing races the end. Break: one exit for both (kind
+    "timeout", the timeout's message, ``timed_out`` True)."""
+    from harness import FightTimeout
+    fake = FakeGame(game)
+    fake.enemy_hit, fake.atb_gain = 0, 0
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30821)
+        fake.start_battle(338, units=_o3_units(10 ** 7, minions=False))
+        published(g, lambda s: s.in_battle and s.battle.get("scene") == 338)
+        start = fake.frame
+        _o1_director(fake, stop, [(lambda f: f.frame >= start + 240, lambda f: _o3_end_on_the_fake(f, 0))])
+        t0 = time.time()
+        try:
+            with pytest.raises(FightTimeout) as err:
+                g.fight(timeout=60.0, finish=False)
+        finally:
+            stop.set()
+        took = time.time() - t0
+        st = g.state
+    assert err.value.kind == "gone" and "went away with no result" in str(err.value), err.value
+    assert "did not reach a result" not in str(err.value) and took < 20.0, (err.value, took)
+    assert not st.in_battle and st.battle_result == 0, st
+    lf = g.last_fight
+    assert (lf["result"], lf["timed_out"], lf["turns"]) == (0, False, 0) and lf["seconds"] < 20.0, lf
+
+
+def test_fight_counts_its_tutorials_and_seconds(game):
+    """H7: ``last_fight`` counts the battle tutorial screens the call closed -- scene 336 opens one before its first
+    command: 1 -- and the wall seconds it took, and reads ``timed_out`` False on a result; its old keys (turns, result,
+    name, epoch) are all still there. Break: count no tutorial."""
+    fake = FakeGame(game)
+    fake.enemy_hit, fake.atb_gain = 0, 400
+    fake.tutorial_scenes = {336}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.start_battle(336)
+        published(g, lambda s: s.ui_state == "Tutorial")
+        assert g.fight(timeout=60.0, finish=False) == 1
+    lf = g.last_fight
+    assert lf["tutorials"] == 1 and lf["seconds"] > 0 and lf["timed_out"] is False, lf
+    assert (lf["result"], lf["name"]) == (1, "victory") and lf["turns"] >= 4 and lf["epoch"] > 0, lf
+
+
+def test_leave_battle_stops_where_the_field_begins_and_logs_its_presses(game):
+    """H8 (research/o3_design.md 3): ``leave_battle(stop_on_field=True)`` across H9's four-phase exit -- the fade, the
+    over frame and BattleResult, then the LOAD lagging as BattleResult with the scene gone -- presses Confirm only while
+    the battle scene is up: every recorded press was decided on a sample in the battle, none is executed after the
+    scene went (beyond the one race a press decided just before it can lose), and it stops "scene-gone" with the UI
+    still reading BattleResult. ``last_leave`` records each press's sample and where the loop ended. "Executed after"
+    is counted, not timed: the loop samples before every press, so at most the ONE press already in flight when the
+    scene goes can land after it, however slow the machine. The control: the default loop (O1's) presses on through
+    the lag. Break: drop the stop (the loop presses into the loading field)."""
+    got = {}
+    for stop in (True, False):
+        fake = _StampFake(game)
+        fake.battle_exit = {"field": 30810, "fade_frames": 30, "result_frames": 240, "load_frames": 240,
+                            "arrive_control": False}
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30821)
+            g.start_battle(105)
+            _o3_end_on_the_fake(fake, 2)
+            published(g, lambda s: s.battle_result == 2)
+            ui = g.leave_battle(stop_on_field=stop) if stop else g.leave_battle()
+            leave = g.last_leave
+        gone = next(e["frame"] for e in fake.exits if e["phase"] == "load")
+        pressed = [f for _t, f, s in fake.stamped if s[:2] == ["press", "confirm"]]
+        got[stop] = (ui, leave, gone, pressed)
+    ui, leave, gone, pressed = got[True]
+    assert leave["presses"] and all(p["in_battle"] for p in leave["presses"]), leave
+    assert all({"frame", "ui", "in_battle", "field", "result"} == set(p) for p in leave["presses"]), leave
+    assert {p["ui"] for p in leave["presses"]} <= {"BattleHUD", "BattleResult"}, leave
+    assert leave["stopped"] == "scene-gone" and ui == "BattleResult" == leave["ended"], leave
+    assert pressed and len([f for f in pressed if f >= gone]) <= 1, (pressed, gone)
+    assert len(pressed) == len(leave["presses"]), (pressed, leave)
+    ui, leave, gone, pressed = got[False]
+    assert len([p for p in leave["presses"] if not p["in_battle"]]) >= 3, leave        # the control: into the lag
+    assert len([f for f in pressed if f >= gone]) >= 3, (pressed, gone)
+    assert leave["stopped"] == "field" and ui == "FieldHUD", leave
+
+
+def test_leave_battle_stops_at_its_timeout(game):
+    """H8's ``timeout``, honoured (the review, research/o3_design.md 11.7 #1: it was never read). A battle whose
+    BattleResult never hands over (``result_frames`` 10^6): with ``timeout`` 1 the loop stops "timeout" after about a
+    second, before a Confirm, fewer than its 40 presses made; with ``timeout`` 0 it presses nothing. The control:
+    the default bound (90 s) still lets the 40 Confirms run out ("presses"), as it always did. Break: drop the bound
+    (every call presses all 40)."""
+    got = {}
+    for timeout in (1.0, 0.0, None):
+        fake = FakeGame(game)
+        fake.battle_exit = {"field": 30810, "fade_frames": 5, "result_frames": 10 ** 6, "load_frames": 5}
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30821)
+            g.start_battle(105)
+            _o3_end_on_the_fake(fake, 2)
+            published(g, lambda s: s.ui_state == "BattleResult" and s.in_battle)
+            t0 = time.time()
+            ui = g.leave_battle(stop_on_field=True) if timeout is None else \
+                g.leave_battle(stop_on_field=True, timeout=timeout)
+            got[timeout] = (ui, g.last_leave, time.time() - t0)
+    ui, leave, took = got[1.0]
+    assert leave["stopped"] == "timeout" and 0 < len(leave["presses"]) < 40 and ui == "BattleResult", leave
+    assert 1.0 <= took < 10.0, took
+    ui, leave, took = got[0.0]
+    assert leave["stopped"] == "timeout" and leave["presses"] == [] and took < 5.0, (leave, took)
+    ui, leave, took = got[None]
+    assert leave["stopped"] == "presses" and len(leave["presses"]) == 40, leave
+
+
+def test_leave_battle_records_presses_on_o1s_path(game):
+    """H8: O1's shape -- a battle that ends in its own field with FieldHUD at once (no ``battle_exit``) -- through the
+    DEFAULT loop: it presses Confirm while the battle is up, stops at the field and returns its UI state as it always
+    did, and ``last_leave`` now records every press (its sample in the battle) and the stop ("field"). Break: record
+    no press."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g.start_battle(105)
+        stop = threading.Event()
+        _o1_director(fake, stop, [(lambda f: sum(1 for s in f.executed if s[:2] == ["press", "confirm"]) >= 2,
+                                   lambda f: _o3_end_on_the_fake(f, 1))])
+        try:
+            ui = g.leave_battle()
+        finally:
+            stop.set()
+        leave = g.last_leave
+    assert ui == "FieldHUD" and leave["ended"] == "FieldHUD" and leave["field"] == 30820, leave
+    assert leave["stopped"] == "field" and len(leave["presses"]) >= 2, leave
+    assert all(p["in_battle"] and p["ui"] == "BattleHUD" and p["field"] == 30820 and p["result"] == 0
+               for p in leave["presses"]), leave
+    assert fake.battle_result == 1 and not fake.exits, "O1's shape: today's end, in its own field"
+
+
+# ---- O3's battle beat (studies/story-trace/segment_drive.py, S4; research/o3_design.md 2.1-2.6, PART B, B4), on the
+# fake's fields as O3's places: 30820 is "61", 30821 "62", 30810 "63", and 30830 "64" -- the end, no member, never
+# warped to (so not registered); the F side's members 31211-31213 are appended to the fixture's DictionaryPatch, as
+# O1's pinning test appends its member. Every test models the engine where O3 needs it: a warp lands WITHOUT control
+# and is refused off the field, the soft reset fires where the engine's does (H9), and 61-63's scenes never hand
+# control back. A director thread stages the game: 61's pages, its exit into "62", 62's pages, battle 338 (King Leo's
+# latch ends it; its exit runs the engine's four phases into "63", or wherever the test sends it), 63's pages, then
+# its Field(64).
+
+_O3_END = 30830
+_O3_FIELDS = {"S": {61: 30820, 62: 30821, 63: 30810}, "F": {61: 31211, 62: 31212, 63: 31213}}
+_O3_NAMES = {"31211": "O1_TH_BST", "31212": "O1_TH_STG", "31213": "O1_TSHP_TH_STG"}
+_O3_ERROR = "Error Env Play()  Slot=1"
+
+
+def _o3_row(**kw):
+    """2.1's registry row on the fake's places: battle 338 in "62" at SC 1155, won [1, 2], landing in "63"."""
+    return {"donor": 30821, "sc": 1155, "scene": 338, "won": [1, 2], "lands": 30810, "beat": "leo", "timeout_s": 60,
+            "max_turns": 40, "land_s": 15, "land_cap_s": 30,
+            "why": "62's Battle(0,338), on the fake: King Leo's latch ends it, its RunBattleCode(37,63) lands in 63",
+            **kw}
+
+
+def _o3_pred(**over):
+    """O3's driver keys (research/o3_design.md 2.1, 4.1) on the fake's fields: no table; the registry row; the stop
+    page; O1's skip-movie rule; route and visits 61 -> 62 -> 63; the end "64"; the members for the F side."""
+    pred = {"version": 1, "start": {"S": 30820, "F": 31211}, "entrance": 0, "scenario": 1155,
+            "end_field": _O3_END, "end_fields": [_O3_END], "route": [30820, 30821, 30810],
+            "visits": [30820, 30821, 30810], "members": {"31211": 30820, "31212": 30821, "31213": 30810},
+            "names": dict(_O3_NAMES),
+            "budget": {"run_s": 120, "run_min_s": 1, "session_s": 600, "settle_s": 0.3, "no_progress_s": 60},
+            "beats": ["leo"], "table": [], "naming": [], "forbidden": [], "end_state": {}, "regions": {},
+            "hotspots": {}, "battles": [_o3_row()],
+            "stop_pages": [{"match": "Env Play()", "why": "61-63's ambient error window 3 ('Error Env Play()  Slot=n')"}],
+            "choices": [{"donor": None, "sc": None, "match": "want to skip", "pick": "default", "once": False,
+                         "beat": None}]}
+    pred.update(over)
+    return pred
+
+
+def _o3_fake(game, *, exit_to=None, cls=FakeGame, **exit_kw):
+    """The fake as O3's tests model the engine (H9): warps land without control and are refused off the field, the
+    soft reset fires in the engine's UI states, King Leo's latch ends battle 338, and -- with ``exit_to`` -- its exit
+    runs the four phases into that field (``exit_kw`` overrides a phase's frames)."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    fake = cls(game)
+    fake.warp_arrive_control, fake.warp_field_only, fake.soft_reset_ui = False, True, SOFT_RESET_ENGINE_UI
+    fake.enemy_hit, fake.atb_gain = 0, 400
+    fake.battle_script_end = dict(_O3_LEO_END)
+    if exit_to is not None:
+        fake.battle_exit = {"field": exit_to, "fade_frames": 90, "result_frames": 90, "load_frames": 120,
+                            "arrive_control": False, **exit_kw}
+    return fake
+
+
+def _o3_register(game):
+    """The F side's members, registered as a deployed chain registers them (O1's pinning test's way)."""
+    patch = game / "FF9CustomMap" / "DictionaryPatch.txt"
+    patch.write_text(patch.read_text(encoding="utf-8")
+                     + "".join(f"FieldScene {f} 11 {n} {n} 2\n" for f, n in _O3_NAMES.items()), encoding="utf-8")
+
+
+def _o3_start(g, side="S"):
+    """start_run's own start: New Game, then the RAW warp into "61" at entrance 0, SC 1155, and a wait for the field
+    and FieldHUD -- never Session.warp(), whose wait_playable needs control 61-63 never give."""
+    boot(g)
+    start = _O3_FIELDS[side][61]
+    g._check_field_id(start, "warp", True)
+    g.send(f"warp {start} 0 1155")
+    return g.wait_for(lambda s: s.field_id == start and s.ui_state == "FieldHUD", timeout=10.0, what=f"field {start}")
+
+
+def _o3_idle(f):
+    return not f._beats and not f.texts and f.ui_state == "FieldHUD" and not f.battle_active and f._bexit is None
+
+
+def _o3_route(side="S", *, p61=("Narrator\n“Ladies and gentlemen!”",), p62=("Cinna\n“Act I!”",),
+              p63=("Zidane\n“Phew.”",), scene=338, units=None, battle_in=62, end=True):
+    """O3's game side on the fake, as ``(ready, act)`` phases: 61's pages, then its Field(62); 62's pages, then battle
+    ``scene`` (King Leo's roster) -- in "61" instead with ``battle_in`` 61; after the battle's end, 63's pages and
+    (``end``) its Field(64). Every scene keeps control off."""
+    f61, f62 = _O3_FIELDS[side][61], _O3_FIELDS[side][62]
+    seen = {}
+
+    def fight(f):
+        seen["epoch"] = f.battle_epoch + 1
+        f.start_battle(scene, units=units or _o3_units())
+    phases = [(lambda f: f.field_id == f61, lambda f: f.scene(*p61, control=False))]
+    if battle_in == 61:
+        return phases + [(lambda f: f.field_id == f61 and _o3_idle(f), fight)]
+    phases += [(lambda f: f.field_id == f61 and _o3_idle(f), lambda f: (_o2_move(f, f62), f.scene(*p62, control=False))),
+               (lambda f: f.field_id == f62 and _o3_idle(f), fight),
+               (lambda f: f.battle_epoch == seen.get("epoch") and _o3_idle(f), lambda f: f.scene(*p63, control=False))]
+    if end:
+        phases.append((lambda f: _o3_idle(f), lambda f: _o2_move(f, _O3_END)))
+    return phases
+
+
+def _o3_drive(g, fake, pred, side="S", *, phases, log=None, budget=60.0):
+    """The driver against the director's phases: ``(outcome or the RouteVoid raised, log)``."""
+    SD = _segment_modules()
+    log = [] if log is None else log
+    stop = threading.Event()
+    _o1_director(fake, stop, phases)
+    try:
+        try:
+            return SD.drive(g, pred, side, log, deadline=time.time() + budget, floor_for=lambda d, c: _flat_bgi(),
+                            prior_for=lambda d: _prior(), forbid_live=False), log
+        except SD.RouteVoid as err:
+            return err, log
+    finally:
+        stop.set()
+
+
+def test_o3_drive_fights_its_registered_battle_and_lands_fresh(game):
+    """S4 (research/o3_design.md 2.2-2.3), the S side: 61's and 62's pages, then battle 338 at "62" -- rule 1b, a NEW
+    epoch, matched on the published scene, the visit's place and SC 1155 -- fought by fight()'s default policy (King
+    Leo's latch: one Attack, result 2, read in the fade), left with leave_battle(stop_on_field), and landed FRESH in "63"
+    through the engine's four phases; then 63's pages and the end. Beats {"leo": 2}; ONE battle row: scene 338, its
+    epoch the drive's first + 1 (``battle_epoch0``), result 2, turns, the leave's presses, the flip seen on a result-1
+    sample, landed "63" (place 63), no land_late; visits 61, 62, 63, each once. Break: drop rule 1b (rule 5's V10)."""
+    fake = _o3_fake(game, exit_to=30810)
+    with session(game, fake) as g:
+        _o3_start(g)
+        out, log = _o3_drive(g, fake, _o3_pred(), phases=_o3_route())
+    assert not isinstance(out, Exception) and out["end"] == "reached" and out["why"] == f"field {_O3_END}", out
+    assert out["beats"] == {"leo": 2} and type(out["beats"]["leo"]) is int, out["beats"]
+    rows = [r for r in log if r["k"] == "battle"]
+    assert out["battles"] == rows and len(rows) == 1, rows
+    b = rows[0]
+    assert (b["scene"], b["row"], b["beat"], b["donor"], b["field"], b["sc"]) == (338, 0, "leo", 30821, 30821, 1155), b
+    assert b["epoch"] == out["battle_epoch0"] + 1 and b["result"] == 2 and b["turns"] >= 1, b
+    assert b["timed_out"] is False and b["tutorials"] == 0 and b["seconds"] > 0, b
+    assert b["leave"]["presses"] >= 1 and b["leave"]["stopped"] in ("scene-gone", "field"), b["leave"]
+    assert set(b["leave"]["uis"]) <= {"BattleHUD", "BattleResult"}, b["leave"]
+    assert b["flip_frame"] is not None and b["flip_result"] == 1 and b["flip_frame"] < b["land_frame"], b
+    assert (b["landed"], b["landed_place"], b["land_late"], b["v"]) == (30810, 30810, None, None), b
+    visits = [r for r in log if r["k"] == "visit"]
+    assert [(r["field"], r["donor"]) for r in visits] == [(30820, 30820), (30821, 30821), (30810, 30810)], visits
+    assert visits[2]["frame"] >= b["land_frame"], (visits[2], b)
+    assert out["pages"] == ["Narrator\n“Ladies and gentlemen!”", "Cinna\n“Act I!”", "Zidane\n“Phew.”"], out["pages"]
+
+
+def test_o3_drive_lands_in_the_member_on_the_fork_side(game):
+    """S4's landing judge, the F side: the same route through the members (31211 -> 31212 -> battle -> 31213); the
+    battle's exit lands in member("63") = 31213 -- the s24 redirect fired -- and the run reaches the end: landed
+    31213, its place 63; the visits are the members, their places 61, 62, 63. Break: judge the F landing by the id
+    itself (31213 is no "lands" 30810: V11)."""
+    _o3_register(game)
+    fake = _o3_fake(game, exit_to=31213)
+    with session(game, fake) as g:
+        _o3_start(g, "F")
+        out, log = _o3_drive(g, fake, _o3_pred(), "F", phases=_o3_route("F"))
+    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    b = out["battles"][0]
+    assert (b["field"], b["donor"], b["landed"], b["landed_place"], b["v"]) == (31212, 30821, 31213, 30810, None), b
+    assert out["beats"] == {"leo": 2}
+    assert [(r["field"], r["donor"]) for r in log if r["k"] == "visit"] == [
+        (31211, 30820), (31212, 30821), (31213, 30810)], log
+
+
+def test_o3_drive_reads_a_landing_in_the_real_field_as_a_finding(game):
+    """V16 (research/o3_design.md 2.3 step 7, 2.6): on the F side the battle's exit lands in REAL "63" (30810) -- the
+    s24 redirect did not fire: VOID V16, attributed to the GAME (a finding, which rerun.stop_on holds), its cell the
+    battle's [62, 1155]; the battle row carries it, and the beat its result. Break: read it as V11."""
+    _o3_register(game)
+    fake = _o3_fake(game, exit_to=30810)
+    with session(game, fake) as g:
+        _o3_start(g, "F")
+        err, log = _o3_drive(g, fake, _o3_pred(), "F", phases=_o3_route("F", end=False))
+    SD = _segment_modules()
+    assert isinstance(err, SD.RouteVoid), err
+    assert (err.v, err.by, err.cell) == ("V16", "game", [30821, 1155]), (err.v, err.by, err.cell)
+    assert "landed in real 30810, not member(30810) 31213: the s24 redirect did not fire" in str(err), err
+    b = [r for r in log if r["k"] == "battle"][0]
+    assert (b["landed"], b["v"], b["by"], b["result"]) == (30810, "V16", "game", 2), b
+    assert not [r for r in log if r["k"] == "visit" and r["field"] == 30810], "no visit to the leaked field"
+
+
+def test_o3_drive_ignores_the_id_flip_inside_the_battle(game):
+    """Rule 1b sits BEFORE rules 9, 2 and 3 (research/o3_design.md 0.2 #8, 2.2): with BattleResult held long, the
+    harness reads many samples in the battle AND at "63" with result 1 -- the over frame's flip -- and the run reads
+    none of them as a load, a leave or a visit: no V10, no V11, the visit to "63" starting only at the landing, the
+    flip on record. Break: hand the loop back after the fight (the main loop then visits 63 inside the battle and
+    VOIDs it, V10)."""
+    fake = _o3_fake(game, exit_to=30810, result_frames=400, cls=_PubFake)
+    with session(game, fake) as g:
+        _o3_start(g)
+        out, log = _o3_drive(g, fake, _o3_pred(), phases=_o3_route())
+    flipped = [p for p in fake.pubs if p[3] and (p[1], p[2]) == (30810, 1)]
+    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    b = out["battles"][0]
+    assert len(flipped) >= 50, f"premise: the flip window was published ({len(flipped)} samples)"
+    assert b["flip_result"] == 1 and b["flip_frame"] < b["land_frame"] and b["landed"] == 30810, b
+    v63 = [r for r in log if r["k"] == "visit" and r["field"] == 30810]
+    assert len(v63) == 1 and v63[0]["frame"] >= b["land_frame"], (v63, b)
+
+
+def test_o3_drive_waits_out_a_late_landing(game):
+    """The two-tier landing (research/o3_design.md 2.3 step 4, 11.2 #2): a load longer than the row's ``land_s`` but
+    under its ``land_cap_s`` is no VOID -- the run reaches the end and the battle row records ``land_late`` (the
+    landing's frames and seconds from the leave's end), so a slow fork landing can never turn one-sided. Break: VOID
+    the run at ``land_s``."""
+    fake = _o3_fake(game, exit_to=30810, load_frames=720)
+    pred = _o3_pred(battles=[_o3_row(land_s=1.0, land_cap_s=20.0)])
+    with session(game, fake) as g:
+        _o3_start(g)
+        out, log = _o3_drive(g, fake, pred, phases=_o3_route())
+    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    b = out["battles"][0]
+    late = b["land_late"]
+    assert late is not None and late["s"] >= 1.0 and late["frames"] >= 360 and b["v"] is None, b
+
+
+def test_o3_drive_voids_a_landing_past_its_cap(game):
+    """No field by ``land_cap_s``: VOID V14, the GAME's (a hang that long is a finding, as the watchdog's V14 is), its
+    cell the battle's; the battle row carries it. Break: wait on past the cap (the run's budget, V13, instead)."""
+    fake = _o3_fake(game, exit_to=30810, load_frames=10 ** 6)
+    pred = _o3_pred(battles=[_o3_row(land_s=0.5, land_cap_s=2.0)])
+    with session(game, fake) as g:
+        _o3_start(g)
+        t0 = time.time()
+        err, log = _o3_drive(g, fake, pred, phases=_o3_route(end=False), budget=30.0)
+        took = time.time() - t0
+    SD = _segment_modules()
+    assert isinstance(err, SD.RouteVoid) and (err.v, err.by, err.cell) == ("V14", "game", [30821, 1155]), err
+    assert "battle 338 ended and no field came up within 2 s" in str(err) and took < 25.0, (err, took)
+    b = [r for r in log if r["k"] == "battle"][0]
+    assert (b["v"], b["landed"], b["result"]) == ("V14", None, 2), b
+
+
+def test_o3_drive_voids_an_unregistered_battle(game):
+    """V10 for a battle the registry does not answer (research/o3_design.md 2.3 step 1), each the GAME's, its cell the
+    visit's place and SC: scene 337 at "62" (another scene); scene 338 at "61" (another place); and the same row twice
+    (a same-field battle -- its row lands in "62" -- answered, then a second battle 338 in "62"). No battle row for an
+    unanswered battle. Break: drop the answered set (the second battle is fought)."""
+    SD = _segment_modules()
+    for case in ("scene", "place", "twice"):
+        fake = _o3_fake(game, exit_to=None if case == "twice" else 30810)
+        pred = _o3_pred(battles=[_o3_row(lands=30821)]) if case == "twice" else _o3_pred()
+        log: list = []
+        if case == "scene":
+            phases = _o3_route(scene=337, end=False)
+        elif case == "place":
+            phases = _o3_route(battle_in=61)
+        else:                       # the second battle once the driver has landed the first (its row is logged)
+            phases = _o3_route(end=False)[:3] + [
+                (lambda f: any(r.get("k") == "battle" for r in log) and _o3_idle(f),
+                 lambda f: f.start_battle(338, units=_o3_units()))]
+        with session(game, fake) as g:
+            _o3_start(g)
+            err, log = _o3_drive(g, fake, pred, phases=phases, log=log)
+            epoch = fake.battle_epoch
+        assert isinstance(err, SD.RouteVoid) and (err.v, err.by) == ("V10", "game"), (case, err)
+        where = 30820 if case == "place" else 30821
+        assert err.cell == [where, 1155] and f"an unregistered battle: scene {337 if case == 'scene' else 338} " \
+                                             f"(epoch {epoch}) in {where} (place {where}) at SC 1155" in str(err), err
+        rows = [r for r in log if r["k"] == "battle"]
+        assert len(rows) == (1 if case == "twice" else 0), (case, rows)
+
+
+def test_o3_drive_voids_a_battle_with_no_result(game):
+    """V15 (research/o3_design.md 2.3 step 2, 2.6): the registered battle reaches no result within the row's own
+    bounds -- the DRIVER's (its policy and bounds own the fight). A King Leo no attack can end (10^7 HP, no scripted
+    end) with ``timeout_s`` 3: V15 after about 3 s, the battle row ``timed_out``; with ``max_turns`` 0 (R-BATTLE-VOID's
+    row): V15 at the first command prompt -- no battlecmd executed, still mid-fight in BattleHUD. Break: let fight()'s
+    FightTimeout propagate (the run is STOPPED, V13)."""
+    SD = _segment_modules()
+    for bounds, want in (({"timeout_s": 3}, "within 3 s / 40 turns"), ({"max_turns": 0}, "within 60 s / 0 turns")):
+        fake = _o3_fake(game, exit_to=30810)
+        fake.battle_script_end = None
+        pred = _o3_pred(battles=[_o3_row(**bounds)])
+        with session(game, fake) as g:
+            _o3_start(g)
+            err, log = _o3_drive(g, fake, pred, phases=_o3_route(units=_o3_units(10 ** 7), end=False), budget=180.0)
+            st = g.state
+        assert isinstance(err, SD.RouteVoid) and (err.v, err.by, err.cell) == ("V15", "driver", [30821, 1155]), err
+        assert f"battle 338 reached no result {want}" in str(err), err
+        b = [r for r in log if r["k"] == "battle"][0]
+        assert b["timed_out"] is True and b["v"] == "V15" and b["result"] is None, b
+        if bounds.get("max_turns") == 0:
+            assert b["turns"] == 0 and not [s for s in fake.executed if s[0] == "battlecmd"], fake.executed
+            assert st.in_battle and st.ui_state == "BattleHUD" and st.battle_result == 0, st
+
+
+def test_o3_drive_stops_on_a_battle_gone_without_a_result(game):
+    """A registered battle whose scene GOES with no result while its bounds hold (the review, research/o3_design.md
+    11.7 #2): fight()'s FightTimeout kind "gone" -- no bound ran out -- is an instrument stop, never V15 (the driver's
+    bound, "reached no result within 60 s") nor the budget's message: the executor logs its battle row (v V13, by
+    driver, result None, timed_out False, the scene-gone why) and raises HarnessError, which the session records as
+    STOPPED (V13). The scene goes a second into the fight (the battle ends with result 0 on the fake's own thread; no
+    ATB, so no command prompt races it). Break: read every FightTimeout as a bound (V15)."""
+    SD = _segment_modules()
+    fake = _o3_fake(game)
+    fake.battle_script_end = None
+    fake.atb_gain = 0                                       # no command prompt: the fight only waits
+    started: dict = {}
+    phases = _o3_route(units=_o3_units(10 ** 7), end=False)[:3] + [
+        (lambda f: f.battle_active, lambda f: started.update(frame=f.frame)),
+        (lambda f: "frame" in started and f.frame >= started["frame"] + 240, lambda f: _o3_end_on_the_fake(f, 0))]
+    log: list = []
+    with session(game, fake) as g:
+        _o3_start(g)
+        with pytest.raises(HarnessError, match="went away with no result") as err:
+            _o3_drive(g, fake, _o3_pred(), phases=phases, log=log, budget=180.0)
+    assert not isinstance(err.value, SD.RouteVoid) and "reached no result within" not in str(err.value), err.value
+    b = [r for r in log if r["k"] == "battle"][0]
+    assert (b["v"], b["by"], b["result"], b["timed_out"], b["turns"]) == ("V13", "driver", None, False, 0), b
+    assert b["why"].startswith("battle 338's scene went away with no result"), b
+
+
+def test_o3_drive_bounds_the_leave_by_its_row(game):
+    """The leave is bounded (the review, research/o3_design.md 11.7 #1): the executor passes leave_battle
+    ``timeout=min(the row's land_cap_s, the run's time left)``. A battle whose BattleResult never hands over
+    (``result_frames`` 10^6), ``land_cap_s`` 2: the leave stops "timeout" short of its 40 Confirms, each Confirm it made
+    a press row, and the landing's own cap then ends the run -- V14, no field within 2 s. Break: call leave_battle
+    without its bound (it presses all 40 first)."""
+    SD = _segment_modules()
+    fake = _o3_fake(game, exit_to=30810, result_frames=10 ** 6)
+    pred = _o3_pred(battles=[_o3_row(land_s=1.0, land_cap_s=2.0)])
+    with session(game, fake) as g:
+        _o3_start(g)
+        err, log = _o3_drive(g, fake, pred, phases=_o3_route(end=False), budget=120.0)
+    assert isinstance(err, SD.RouteVoid) and (err.v, err.by) == ("V14", "game"), err
+    b = [r for r in log if r["k"] == "battle"][0]
+    assert b["leave"]["stopped"] == "timeout" and 0 < b["leave"]["presses"] < 40, b["leave"]
+    assert len([r for r in log if r["k"] == "press" and r["why"] == "leave_battle"]) == b["leave"]["presses"], log
+
+
+def test_o3_drive_logs_leave_battle_presses_as_press_rows(game):
+    """The leave's Confirms are evidence (research/o3_design.md 2.3 step 3): each is a ``press`` row -- ``why``
+    "leave_battle", ``pre`` the sample it was decided on (in the battle), ``post`` None, ``near`` [] -- as many as the
+    leave pressed and the battle row counts, every one executed by the game. Break: log no press rows."""
+    fake = _o3_fake(game, exit_to=30810, cls=_StampFake)
+    with session(game, fake) as g:
+        _o3_start(g)
+        out, log = _o3_drive(g, fake, _o3_pred(), phases=_o3_route())
+        leave = g.last_leave
+    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    rows = [r for r in log if r["k"] == "press" and r["why"] == "leave_battle"]
+    assert rows and len(rows) == len(leave["presses"]) == out["battles"][0]["leave"]["presses"], (rows, leave)
+    assert [r["pre"] for r in rows] == leave["presses"], (rows, leave)
+    assert all(r["post"] is None and r["near"] == [] and r["pre"]["in_battle"] and r["visit"] == 2 for r in rows), rows
+    first, landed = min(r["pre"]["frame"] for r in rows), out["battles"][0]["land_frame"]
+    fired = [f for _t, f, s in fake.stamped if s[:2] == ["press", "confirm"] and first <= f < landed]
+    assert len(fired) == len(rows), (fired, rows)
+
+
+def test_o3_drive_stops_on_a_stop_page(game):
+    """Rule 7's stop pages (research/o3_design.md 2.2, 2.6): 61-63's error window ("Error Env Play()  Slot=n", which an
+    incoming Byte[13]/[14] of 2 or 9 opens) VOIDs the run as V5 with NOTHING pressed -- the DRIVER's in the run's first
+    visit, the start place (the warp's start state), the GAME's in a later visit (a fork's deviation). Break: page
+    the window (a Confirm closes it and the run goes on)."""
+    SD = _segment_modules()
+    for at, by, where in ((61, "driver", 30820), (62, "game", 30821)):
+        fake = _o3_fake(game, exit_to=30810, cls=_StampFake)
+        up = {}
+
+        def error_page(f, up=up):
+            up["frame"] = f.frame
+            f.scene(_O3_ERROR, control=False)
+        if at == 61:
+            phases = [(lambda f: f.field_id == 30820, error_page)]
+        else:
+            phases = [(lambda f: f.field_id == 30820, lambda f: f.scene("Narrator\n“Ladies and gentlemen!”",
+                                                                        control=False)),
+                      (lambda f: f.field_id == 30820 and _o3_idle(f), lambda f: (_o2_move(f, 30821),
+                                                                                 error_page(f)))]
+        with session(game, fake) as g:
+            _o3_start(g)
+            err, log = _o3_drive(g, fake, _o3_pred(), phases=phases)
+        assert isinstance(err, SD.RouteVoid) and (err.v, err.by, err.cell) == ("V5", by, [where, 1155]), (at, err)
+        assert "Env Play()" in str(err) and "Error Env Play()" in str(err), err
+        # a press FOR the window executes at a later frame than the one it went up in: it must be published, sampled
+        # and requested first (61's own last page press can share that frame -- the director answers it at once)
+        late = [f for _t, f, s in fake.stamped if s[:2] == ["press", "confirm"] and f > up["frame"]]
+        assert late == [], (at, late)
+
+
+def test_o3_drive_answers_a_skip_dialog_at_its_default(game):
+    """The skip-movie rule (research/o3_design.md 2.5): during 61's movie a stray Confirm (the director's: the driver
+    presses only on pages) opens the skip dialog; the rule answers it at the game's own cursor -- No -- the movie
+    resumes for exactly the frames it had left, the page after it is turned, and the run reaches the end. Break: drop
+    the rule (V1)."""
+    fake = _o3_fake(game)
+    movie = {"movie": 600, "skip": dict(_O3_SKIP)}
+    phases = [(lambda f: f.field_id == 30820, lambda f: f.scene(movie, "Narrator\n“The curtain rises.”",
+                                                                control=False)),
+              (lambda f: f._movie is not None and f.movies[-1]["played"] >= 60,
+               lambda f: f.queue.append(["press", "confirm", "4"])),
+              (lambda f: _o3_idle(f) and f.movies and f.movies[-1]["end"] is not None, lambda f: _o2_move(f, _O3_END))]
+    with session(game, fake) as g:
+        _o3_start(g)
+        out, log = _o3_drive(g, fake, _o3_pred(), phases=phases)
+    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    assert fake.answered == [1] and len(fake.movies) == 1, (fake.answered, fake.movies)
+    assert (fake.movies[0]["played"], fake.movies[0]["skips"], fake.movies[0]["ended"]) == (600, 1, "played")
+    assert [(c["index"], c["rule"], c["selected"]) for c in out["choices"]] == [("default", 0, 1)], out["choices"]
+    assert out["pages"] == ["Narrator\n“The curtain rises.”"], out["pages"]
+
+
+def test_o3_drive_watchdog_against_a_long_movie(game):
+    """The stall watchdog against a movie (research/o3_design.md 4.12, 11.1 #4): the agent publishes no movie state,
+    so a movie longer than ``no_progress_s`` is V14 (game) -- and with ``no_progress_s`` above the movie the run reaches
+    the end. The sizing rule, pinned on the fake. Break: count the movie as progress (the short budget then reaches
+    the end)."""
+    SD = _segment_modules()
+    got = {}
+    for no_progress_s in (1.0, 15.0):
+        fake = _o3_fake(game)
+        phases = [(lambda f: f.field_id == 30820, lambda f: f.scene("Narrator\n“Lights.”", {"movie": 960},
+                                                                    "Narrator\n“Curtain.”", control=False)),
+                  (lambda f: _o3_idle(f) and f.movies and f.movies[-1]["end"] is not None,
+                   lambda f: _o2_move(f, _O3_END))]
+        pred = _o3_pred()
+        pred["budget"]["no_progress_s"] = no_progress_s
+        with session(game, fake) as g:
+            _o3_start(g)
+            got[no_progress_s] = _o3_drive(g, fake, pred, phases=phases, budget=40.0)[0], dict(fake.movies[0])
+    err, mv = got[1.0]
+    assert isinstance(err, SD.RouteVoid) and (err.v, err.by, err.cell) == ("V14", "game", [30820, 1155]), err
+    assert "no progress for 1 s in 30820" in str(err) and mv["end"] is None, (err, mv)
+    out, mv = got[15.0]
+    assert not isinstance(out, Exception) and out["end"] == "reached" and mv["ended"] == "played", (out, mv)
+
+
+def test_o3_drive_waits_for_the_end_places_first_row(game):
+    """Rule 1's opt-in end row (``budget.end_row_s``; research/o3_design.md 2.2, 11.7 #3). Rule 1 fires on the first
+    poll that publishes the end field and the session closes the trace right after the drive returns: story-o1e closed
+    it 1-4 frames after the field changed, its run 3 S before any row of the end field (no end cut). The end field's
+    first store here comes 240 frames after the arrival. With ``end_row_s`` 3 the drive waits for it: the ``end`` row
+    records ``end_row`` {seen True, f its frame, s the wait}, and the row is in the trace when the drive returns. A row
+    that never comes is waited for ``end_row_s`` (0.5) and no longer: seen False, no VOID (the analysis's A-NOEND).
+    Without the key -- O1's and O2's rule 1 -- no wait and no ``end_row``: the drive returns before the store, and the
+    trace holds no row of the end field (the race, reproduced). Break: return before the row (no wait)."""
+    got = {}
+    for wait, store in ((3.0, True), (0.5, False), (None, True)):
+        fake = _o3_fake(game)
+        pred = _o3_pred()
+        if wait is not None:
+            pred["budget"]["end_row_s"] = wait
+        arrived: dict = {}
+
+        def to_end(f, arrived=arrived):
+            arrived["frame"] = f.frame
+            _o2_move(f, _O3_END)
+        phases = [(lambda f: f.field_id == 30820, lambda f: f.scene("Narrator\n“Lights.”", control=False)),
+                  (lambda f: f.field_id == 30820 and _o3_idle(f), to_end)]
+        if store:                                # 64's Main_Init: its first store, 240 frames after the arrival
+            phases.append((lambda f, arrived=arrived: f.field_id == _O3_END and f.frame >= arrived["frame"] + 240,
+                           lambda f: f.script_store(0, 0, 22, 191 >> 3, "Bit", 0, bit=191)))
+        with session(game, fake) as g:
+            _o3_start(g)
+            g.storytrace(True)
+            t0 = time.time()
+            out, log = _o3_drive(g, fake, pred, phases=phases)
+            took = time.time() - t0
+            rows = [r for r in g.story_rows() if r.k == "w" and r.fld == _O3_END]
+        assert not isinstance(out, Exception) and out["end"] == "reached", (wait, out)
+        got[(wait, store)] = ([r for r in log if r["k"] == "end"][-1], rows, took)
+    end, rows, _took = got[(3.0, True)]
+    er = end["end_row"]
+    assert er["seen"] is True and len(rows) == 1 and er["f"] == rows[0].f, (er, rows)
+    assert 0.5 <= er["s"] < 3.0, er                        # it waited for the store, and not for its bound
+    end, rows, _took = got[(0.5, False)]
+    assert end["end_row"]["seen"] is False and end["end_row"]["f"] is None and rows == [], end
+    assert 0.5 <= end["end_row"]["s"] < 2.0, end["end_row"]
+    end, rows, _took = got[(None, True)]
+    assert "end_row" not in end and rows == [], (end, rows)    # O1's and O2's rule 1: the trace closes before the row
+
+
+def test_o3_drive_battle_of_rejects_a_bad_row():
+    """The registry row, strict (research/o3_design.md 2.1, section 8's battle-row unit): 2.1's row passes (a copy);
+    ValueError on ``won`` [1, 2, 3] (a defeat counted won), [2] and []; on a beat not in ``beats``; on a beat a naming
+    rule, a table step, a choice rule or a battle row of ANOTHER slot also names; on ``max_turns`` -1 and on True (a
+    bool is no int); on ``land_s`` above ``land_cap_s``; on an unknown or a missing key; ``max_turns`` 0 passes --
+    R-BATTLE-VOID's override of the SAME slot, checked against the predictions it overrides. And a driver refuses a
+    bad row before anything is driven. Break: compare ``won`` by equality alone ([True, 2] then passes)."""
+    SD = _segment_modules()
+    pred = _o3_pred()
+    row = pred["battles"][0]
+    got = SD.battle_of(pred, row)
+    assert got == row and got is not row
+    assert SD.battle_of(pred, dict(row, max_turns=0))["max_turns"] == 0
+    other = _o3_pred(battles=[_o3_row(sc=None, won=[1])])          # any SC; WinPose on: won [1]
+    assert SD.battle_of(other, other["battles"][0])["won"] == [1]
+
+    def refused(match, **change):
+        with pytest.raises(ValueError, match=match):
+            SD.battle_of(pred, {**row, **change})
+    for won in ([1, 2, 3], [2], [], [True, 2], (1, 2.0)):
+        refused("won is", won=won)
+    refused("is not one of the predictions' beats", beat="garnet")
+    refused("max_turns is an int >= 0", max_turns=-1)
+    refused("max_turns is an int >= 0", max_turns=True)
+    refused("max_turns is an int >= 0", max_turns=2.5)
+    refused("is above land_cap_s", land_s=200)
+    refused("positive numbers", timeout_s=0)
+    refused("of the wrong type", scene="338")
+    refused("of the wrong type", sc=True)
+    with pytest.raises(ValueError, match="unknown key"):
+        SD.battle_of(pred, {**row, "lands_in": 63})
+    with pytest.raises(ValueError, match="missing"):
+        SD.battle_of(pred, {k: v for k, v in row.items() if k != "land_cap_s"})
+    for where in ("naming", "choices", "table", "battles"):
+        p = _o3_pred()
+        if where == "naming":
+            p["naming"] = [{"donor": 30821, "sc": 1155, "beat": "leo"}]
+        elif where == "choices":
+            p["choices"] = p["choices"] + [{"donor": 30821, "sc": None, "match": "x", "pick": "y", "beat": "leo"}]
+        elif where == "table":
+            p["table"] = [{"donor": 30821, "sc": 1155, "steps": [{"kind": "trigger", "goal": [0, 0], "until": {"x_le": 1},
+                                                                 "beat": "leo"}]}]
+        else:
+            p["battles"] = p["battles"] + [_o3_row(scene=339)]
+        with pytest.raises(ValueError, match="is also named by"):
+            SD.battle_of(p, p["battles"][0])
+    bad = _o3_pred(battles=[_o3_row(won=[1, 2, 3])])
+    with pytest.raises(ValueError, match="won is"):
+        SD.drive(None, bad, "S", [], deadline=time.time() + 1, floor_for=lambda d, c: None, prior_for=lambda d: None)
+
+
+def test_o2_drive_voids_a_battle_without_a_registry(game):
+    """S4 is opt-in (research/o3_design.md 1.2, 1.4): O2-shaped predictions -- no ``battles`` key, or an empty
+    registry -- read a battle on screen exactly as O2's driver did: rule 5's V10 (game) with O2's message, the cell
+    the place and SC it happened in, and nothing fought. The one test that puts a battle up under O2's shape (G12 runs
+    it). Break: run rule 1b with no registry (V10 with the registry's message)."""
+    SD = _segment_modules()
+    for registry in (None, []):
+        fake = FakeGame(game)
+        pred = _o2_pred([])
+        if registry is not None:
+            pred["battles"] = registry
+        with session(game, fake) as g:
+            _o2_start(g, fake)
+            fake.control = False
+            g.start_battle(338)
+            with pytest.raises(SD.RouteVoid) as err:
+                _o2_drive(g, pred, budget=20.0)
+        assert (err.value.v, err.value.by, err.value.cell) == ("V10", "game", [30820, 1000]), err.value
+        assert str(err.value) == "a battle in 30820 (place 30820) at SC 1000, where the route registers none", err.value
+        assert not fake.battle_commands and not [s for s in fake.executed if s[0] in ("battlecmd", "menus")]
+
+
+def _o3_raw_warp(g, field):
+    """start_run's warp shape (no wait for control): the raw step, then the field and FieldHUD."""
+    g.send(f"warp {field} -1 -1")
+    return g.wait_for(lambda s: s.field_id == field and s.ui_state == "FieldHUD", timeout=10.0, what=f"field {field}")
+
+
+def _o3_quick_ladder(g):
+    """The recovery ladder's two waiting rungs on short clocks: a combo the game swallows would otherwise cost the
+    soft reset's 45 s (and close_ui's 20 s) each time."""
+    import functools
+    g.soft_reset = functools.partial(Session.soft_reset, g, timeout=3.0)
+    g.close_ui = functools.partial(Session.close_ui, g, timeout=3.0)
+
+
+def test_segment_end_run_from_a_battle_on_the_fake(game):
+    """S3 on H9's knobs (research/o3_design.md 1.2, B5): the fake as the engine -- a warp refused off the field and
+    landing without control, the soft reset where the engine fires it. From BattleHUD mid-fight, end_run resets at
+    once: the title, NO warp executed (rows recover-in-battle, recover-reset). From the BattleResult phase of a
+    battle's four-phase exit it waits for the field the battle hands over, warps to ``recovery`` (whose script gives
+    control, as 4600's does) and climbs the ladder to the title (recover-battle-ending, recover-battle-ended,
+    recover-warp). With ``soft_reset_ui`` left at today's default, from BattleHUD the combo is swallowed and end_run
+    raises "the title could not be restored". Break: reset in every battle state (in BattleResult the title never
+    comes)."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    ST = _segment_trace()
+    seg = ST.Segment()
+    seg.recovery = 30821
+
+    def fake_for(ui, **exit_):
+        fake = FakeGame(game)
+        fake.warp_field_only, fake.warp_arrive_control = True, False
+        if ui is not None:
+            fake.soft_reset_ui = ui
+        if exit_:
+            fake.battle_exit = exit_
+        return fake
+    fake = fake_for(SOFT_RESET_ENGINE_UI)                    # mid-fight: the reset, no warp
+    with session(game, fake) as g:
+        boot(g)
+        _o3_raw_warp(g, 30820)
+        g.start_battle(338)
+        _o3_quick_ladder(g)
+        mark, log = len(fake.executed), []
+        seg.end_run(g, log)
+        st = g.state
+    assert st.ui_state == "Title" and not st.in_battle and fake.soft_resets == 1, st
+    assert log == [{"k": "recover-in-battle", "scene": 338, "ui": "BattleHUD", "result": 0}, {"k": "recover-reset"}], log
+    assert not [s for s in fake.executed[mark:] if s[0] == "warp"], fake.executed[mark:]
+    fake = fake_for(SOFT_RESET_ENGINE_UI, field=30810, fade_frames=10, result_frames=1200, load_frames=60,
+                    arrive_control=False)                    # BattleResult: the field, the warp, the ladder
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        _o3_raw_warp(g, 30820)
+        g.start_battle(338)
+        _o3_end_on_the_fake(fake, 2)
+        published(g, lambda s: s.ui_state == "BattleResult" and s.in_battle)
+        _o3_quick_ladder(g)
+        _o1_director(fake, stop, [(lambda f: f.field_id == 30821, lambda f: setattr(f, "control", True))])
+        log = []
+        try:
+            seg.end_run(g, log)
+        finally:
+            stop.set()
+        st = g.state
+    assert st.ui_state == "Title" and fake.soft_resets == 1, st
+    assert [r["k"] for r in log] == ["recover-battle-ending", "recover-battle-ended", "recover-warp"], log
+    assert (log[0]["ui"], log[0]["result"], log[1]["field"], log[2]["field"]) == ("BattleResult", 1, 30810, 30821), log
+    fake = fake_for(None)                                    # today's default set: swallowed in BattleHUD
+    with session(game, fake) as g:
+        boot(g)
+        _o3_raw_warp(g, 30820)
+        g.start_battle(338)
+        _o3_quick_ladder(g)
+        log = []
+        with pytest.raises(HarnessError, match="the title could not be restored"):
+            seg.end_run(g, log)
+    assert [r["k"] for r in log] == ["recover-in-battle", "recover-reset-failed"] and fake.soft_resets == 0, log
+
+
+def test_segment_end_run_waits_out_the_battle_load_on_the_fake(game):
+    """S3 in a battle exit's LOAD (H9's fourth phase; the review, research/o3_design.md 11.7 #8): the scene is gone
+    (``in_battle`` False) while the UI still reads BattleResult until the next field's HUD is up -- where a battle()
+    that stopped before FieldHUD (V14 past ``land_cap_s``, the budget inside the landing wait) leaves the run. end_run
+    takes the end sequence's path there too: it waits for the field the battle hands over (``recover-battle-ending``,
+    ui BattleResult, result 1), then ``recover-battle-ended`` and the warp to ``recovery`` (``recover-warp``), then the
+    title. Break: test ``in_battle`` alone (the load takes the outside-a-battle path: the warp refused off FieldHUD,
+    ``recover-warp-failed``, the ladder from BattleResult)."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    ST = _segment_trace()
+    seg = ST.Segment()
+    seg.recovery = 30821
+    fake = FakeGame(game)
+    fake.warp_field_only, fake.warp_arrive_control, fake.soft_reset_ui = True, False, SOFT_RESET_ENGINE_UI
+    fake.battle_exit = {"field": 30810, "fade_frames": 10, "result_frames": 10, "load_frames": 1200,
+                        "arrive_control": False}
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        _o3_raw_warp(g, 30820)
+        g.start_battle(338)
+        _o3_end_on_the_fake(fake, 2)
+        st = published(g, lambda s: s.ui_state == "BattleResult" and not s.in_battle)
+        assert st.field_id == 30810 and st.battle_result == 1, st          # premise: the load, its lag published
+        _o3_quick_ladder(g)
+        _o1_director(fake, stop, [(lambda f: f.field_id == 30821, lambda f: setattr(f, "control", True))])
+        log = []
+        try:
+            seg.end_run(g, log)
+        finally:
+            stop.set()
+        st = g.state
+    assert st.ui_state == "Title" and fake.soft_resets == 1, st
+    assert [r["k"] for r in log] == ["recover-battle-ending", "recover-battle-ended", "recover-warp"], log
+    assert (log[0]["ui"], log[0]["result"], log[1]["field"], log[2]["field"]) == ("BattleResult", 1, 30810, 30821), log
+
+
+def test_segment_session_end_leaves_a_movie_on_the_fake(game, tmp_path_factory):
+    """S5 on H9's movie beat (research/o3_design.md 1.2, B5): a session whose last run stops inside a movie (61's
+    FMV003, where the soft reset is dead). With ``end_session_warps`` the session ends through end_run: the warp to
+    ``recovery`` ends the movie (the field load destroys MBG), that field gives control, the ladder reaches the title,
+    and ``session["ended"]`` says so. Without it (O1's and O2's default) the bare ladder where the run stopped cannot:
+    the movie swallows the combo and the game is left in it. Break: ignore the flag."""
+    import shutil
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    control = tmp_path_factory.mktemp("control")
+    shutil.copytree(game, control, dirs_exist_ok=True)      # a second fake install, as untouched as the first
+
+    def one(root, warps):
+        stub, _pred, calls = _stub_segment(root, cue=lambda n, side: "reached", order=("S",), min_covered=1,
+                                           rerun={"max": 0})
+        stub.end_session_warps = warps
+        fake = FakeGame(root)
+        fake.warp_field_only, fake.warp_arrive_control, fake.soft_reset_ui = True, False, SOFT_RESET_ENGINE_UI
+        real = stub.drive
+
+        def drive(g, pred, side, log, *, deadline, progress=None):
+            out = real(g, pred, side, log, deadline=deadline, progress=progress)
+            fake.scene({"movie": 10 ** 6, "skip": dict(_O3_SKIP)}, control=False)       # the run stops in a movie
+            published(g, lambda s: not s.control and not s.dialog_open)
+            return out
+        stub.drive = drive
+        stop = threading.Event()
+        with session(root, fake) as g:
+            boot(g)
+            assert g.restore_baseline()[0], "the session starts at the title, as a launch does"
+            _o3_quick_ladder(g)
+            _o1_director(fake, stop, [(lambda f: f.field_id == 30821, lambda f: setattr(f, "control", True))])
+            try:
+                stub.run(g)
+            finally:
+                stop.set()
+            at = (g.state.ui_state, fake._movie is not None)
+        assert calls == ["S"]
+        return json.loads((root / "run" / "zz_session.json").read_text(encoding="utf-8")), at, fake
+
+    sess, at, fake = one(game, True)
+    assert sess["ended"] == {"log": [{"k": "recover-warp", "field": 30821}], "ok": True, "why": ""}, sess.get("ended")
+    assert at == ("Title", False) and fake.movies[0]["ended"] == "warp", (at, fake.movies)
+    sess, at, fake = one(control, False)
+    assert "ended" not in sess and at == ("FieldHUD", True), (sess.keys(), at)
+    assert fake.movies[0]["end"] is None and fake.soft_resets == 1, (fake.movies, fake.soft_resets)
+
+
+# ---- O3 itself (studies/story-trace/o3_prima_vista.py; research/o3_design.md section 9, PART C). The draft's members
+# are O1's deployed chain; the freeze refuses to overwrite, and refuses a registry row battle_of refuses; the launch's
+# own readers (P-DONOR-LOG, P-LAUNCH), P-STOCK-BATTLE and P-SETTINGS, each pure, on synthetic logs, folders and inis.
+
+def _o3_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o3_prima_vista as P
+    return P
+
+
+def test_o3_draft_members_are_o1s_chain(tmp_path):
+    """The draft's members and names are O1's deployed chain, read from its campaign.toml (research/o3_design.md 1.3):
+    exactly o1_forks.json's twenty, the route members 31211 -> 61, 31212 -> 62, 31213 -> 63, the start 61 / 31211 and
+    the end real 64; o3_forks.json carries the same members and names, deployed, nothing to relaunch, and names both
+    legacy defects (the US-bytecode languages, uk's US text). A campaign with any other member -- or another name -- is
+    refused. Break: drop the assertion (the draft would register another chain). The chain is a machine-local build:
+    where it is not, this SKIPS (and says so) -- never a pass."""
+    P = _o3_module()
+    if not (P.CHAIN_DIR / "campaign.toml").is_file():
+        pytest.skip(f"O1's chain is not built here ({P.CHAIN_DIR}): the O3 draft reads its members from it")
+    pred = P.draft_predictions()
+    o1 = json.loads(P.O1_MANIFEST.read_text(encoding="utf-8"))
+    assert pred["members"] == o1["members"] and pred["names"] == o1["names"], pred["members"]
+    assert {f: pred["members"][str(f)] for f in (31211, 31212, 31213)} == {31211: 61, 31212: 62, 31213: 63}
+    assert pred["start"] == {"S": 61, "F": 31211} and pred["route"] == [61, 62, 63] and pred["end_fields"] == [64]
+    man = json.loads(P.MANIFEST.read_text(encoding="utf-8"))
+    assert man["members"] == pred["members"] and man["names"] == pred["names"], man
+    assert man["deployed"] is True and man["relaunch_needed"] is False and man["text_block"] == 2, man
+    assert man["route_members"] == {"31211": 61, "31212": 62, "31213": 63}, man
+    assert any("US bytecode" in d for d in man["known_defects"]) and any("uk/field/2.mes" in d
+                                                                          for d in man["known_defects"]), man
+    text = (P.CHAIN_DIR / "campaign.toml").read_text(encoding="utf-8")
+    for old, new in (("source = 63", "source = 64"), ('name = "O1_TH_STG"', 'name = "O1_TH_STG_X"')):
+        assert old in text, old
+        bad = tmp_path / "campaign.toml"
+        bad.write_text(text.replace(old, new, 1), encoding="utf-8")
+        with pytest.raises(AssertionError, match="not O1's twenty"):
+            P.chain_from_campaign(bad)
+
+
+def test_o3_freeze_refuses_an_existing_file(tmp_path, monkeypatch):
+    """The freeze (research/o3_design.md 0.1, 2.1): the draft is written ONCE -- LF, sorted keys, its sha the bytes' --
+    and a second freeze onto the same file refuses, leaving it byte for byte; the CLI's --freeze refuses the same way.
+    Before anything is written, every registry row passes segment_drive.battle_of: a row whose ``won`` would count a
+    defeat (3) won is refused and no file appears. The lead freezes after the rehearsals: the real
+    o3_predictions_v1.json is never touched here, and the chain the draft reads is given (a synthetic one, O1's ids),
+    so the rule is tested wherever the suite runs. Break: drop the battle_of pass (the bad row freezes)."""
+    import hashlib
+    P = _o3_module()
+    o1 = json.loads(P.O1_MANIFEST.read_text(encoding="utf-8"))
+    chain = ({int(f): int(d) for f, d in o1["members"].items()},
+             {int(f): f"O3_SYNTH_{d}" for f, d in o1["members"].items()})
+    monkeypatch.setattr(P, "chain_from_campaign", lambda *a, **k: chain)
+    path = tmp_path / "o3_predictions_v1.json"
+    sha = P.O3.freeze(path)
+    data = path.read_bytes()
+    assert sha == hashlib.sha256(data).hexdigest() and b"\r" not in data and data.endswith(b"\n")
+    assert data.decode("utf-8") == json.dumps(P.draft_predictions(), indent=1, sort_keys=True) + "\n"
+    path.write_bytes(data + b" ")                          # the file as frozen, plus one byte a re-freeze would lose
+    with pytest.raises(SystemExit, match="frozen"):
+        P.O3.freeze(path)
+    seg = P.O3Segment()
+    seg.predictions = path
+    with pytest.raises(SystemExit, match="frozen"):
+        seg.main(["--freeze"])
+    assert path.read_bytes() == data + b" "
+    good = P.draft_predictions
+    monkeypatch.setattr(P, "draft_predictions", lambda: dict(good(), battles=[dict(P.battle_row(), won=[1, 2, 3])]))
+    fresh = tmp_path / "o3_predictions_v2.json"
+    with pytest.raises(ValueError, match="won is"):
+        P.O3.freeze(fresh)
+    assert not fresh.exists(), "a refused row was frozen"
+
+
+#: The launch's Memoria.log as today's reads (2026-09-30): its first line's stamp, a collision for a donor off the
+#: route (351, one of Dali's stacked forks), the patchers' "Initialized".
+_O3_LOG_HEAD = "30.09.2026 19:27:42 |M| [WindowManager] Moving window to (2045,33) with size (1286,749) on monitor 0\n"
+_O3_LOG_351 = ("30.09.2026 19:27:44 |W| [DataPatchers] ForkDonorPatch: donor field 351 is forked by both 30831 and "
+               "30842 -> remap DISABLED (ambiguous); an event-battle/scripted-boss after-warp from either fork will "
+               "LEAK to real field 351. Deploy only one fork of donor 351 at a time.\n")
+_O3_LOG_DONE = "30.09.2026 19:27:44 |M| [DataPatchers] Initialized\n"
+
+
+def test_o3_p_donor_log_reads_the_launchs_warnings():
+    """P-DONOR-LOG (research/o3_design.md 6.2; section 8's p-donor-log unit): the engine's donor map is fixed at
+    launch and it logs a collision only as a warning (DataPatchers.cs:156-160), so the launch's own Memoria.log is
+    read -- "Initialized" (the patchers ran) and no collision line for 61, 62 or 63. Today's shape (a collision for 351,
+    off the route) PASSES; a line "donor field 63 is forked by both 31213 and 31299" FAILS naming it; a log with no
+    "Initialized" FAILS (it does not show the patchers ran); a donor 630 is not 63. Break: drop the "Initialized"
+    requirement."""
+    P = _o3_module()
+    route = (61, 62, 63)
+    ok, detail = P.p_donor_log(_O3_LOG_HEAD + _O3_LOG_351 + _O3_LOG_DONE, route)
+    assert ok and "[351]" in detail, detail
+    assert P.donor_log(_O3_LOG_HEAD + _O3_LOG_351 + _O3_LOG_DONE, route) == (True, [])
+    w63 = _O3_LOG_351.replace("351", "63").replace("30831 and 30842", "31213 and 31299")
+    ok, detail = P.p_donor_log(_O3_LOG_HEAD + _O3_LOG_351 + w63 + _O3_LOG_DONE, route)
+    assert not ok and "donor field 63 is forked by both 31213 and 31299" in detail, detail
+    assert P.donor_log(_O3_LOG_HEAD + w63 + _O3_LOG_DONE, route) == (True, [w63.strip()])
+    ok, detail = P.p_donor_log(_O3_LOG_HEAD + _O3_LOG_351, route)
+    assert not ok and "Initialized" in detail, detail
+    assert not P.p_donor_log("", route)[0] and not P.p_donor_log(None, route)[0]
+    w630 = _O3_LOG_351.replace("351", "630")
+    assert P.p_donor_log(_O3_LOG_HEAD + w630 + _O3_LOG_DONE, route)[0], "630 is no route donor"
+
+
+def _o3_touch(path, when, frac=0.0):
+    ts = when.timestamp() + frac
+    os.utime(path, (ts, ts))
+
+
+def test_o3_p_launch_fails_a_patch_file_newer_than_the_launch(tmp_path):
+    """P-LAUNCH (research/o3_design.md 6.2, claim integrity #1; section 8's p-launch unit): the launch read its patch
+    files once (DataPatchers.Initialize), so every stacked folder's DictionaryPatch/BattlePatch/TextPatch/
+    ForkDonorPatch and every Memoria.ini the engine read must be EARLIER than the launch's first Memoria.log stamp, to
+    the second. Synthetic folders under a log whose first line is 30.09.2026 19:27:42: all older -- PASS; a
+    ForkDonorPatch.txt that HOLDS `31213 63` (P-DONOR passes it) but was touched at 19:27:50 -- FAIL "relaunch" naming
+    it; a same-second mtime (19:27:42.4) -- FAIL; Memoria.ini after -- FAIL; a TextPatch.txt after -- FAIL; a stacked
+    folder's own Memoria.ini after -- FAIL; a first line with no stamp -- FAIL; a folder with no patch file -- PASS
+    (nothing to date). Break: compare with <= (the same second passes)."""
+    import datetime as dt
+    P = _o3_module()
+    log = _O3_LOG_HEAD + _O3_LOG_DONE
+    launched = P.launch_time(log)
+    assert launched == dt.datetime(2026, 9, 30, 19, 27, 42), launched
+    game = tmp_path / "game"
+    root, bare = game / "FF9CustomMap", game / "MoguriVideo"
+    root.mkdir(parents=True)
+    bare.mkdir()
+    (game / "Memoria.ini").write_text("[Battle]\nSpeed = 5\n", encoding="utf-8")
+    (root / "DictionaryPatch.txt").write_text("FieldScene 31213 11 O1_TSHP_TH_STG O1_TSHP_TH_STG 2\n", encoding="utf-8")
+    (root / "BattlePatch.txt").write_text("Battle: 67\nMusic: 0\n", encoding="utf-8")
+    fdp = root / "ForkDonorPatch.txt"
+    fdp.write_text("31211 61\n31212 62\n31213 63\n", encoding="utf-8")
+    before = dt.datetime(2026, 9, 30, 19, 27, 4)
+    for p, when in ((game / "Memoria.ini", dt.datetime(2026, 9, 24, 12, 57, 35)), (root / "DictionaryPatch.txt", before),
+                    (root / "BattlePatch.txt", dt.datetime(2026, 9, 29, 21, 6, 41)), (fdp, before)):
+        _o3_touch(p, when)
+    roots = [root, bare]
+
+    def check():
+        return P.launch_check(P.launch_files(game, roots), launched)
+    ok, detail = check()
+    assert ok and "4 file(s) older than the launch at 30.09.2026 19:27:42" in detail, detail
+    pred = {"route": [61, 62, 63], "members": {"31211": 61, "31212": 62, "31213": 63}}
+    for when, frac in ((dt.datetime(2026, 9, 30, 19, 27, 50), 0.0), (launched, 0.4)):
+        _o3_touch(fdp, when, frac)
+        assert P.p_donor(pred, roots)[0], "the row is in the file"
+        ok, detail = check()
+        assert not ok and "relaunch:" in detail and "ForkDonorPatch.txt" in detail, (when, detail)
+        assert when.strftime("%H:%M:%S") in detail, detail
+    _o3_touch(fdp, before)
+    _o3_touch(game / "Memoria.ini", dt.datetime(2026, 9, 30, 19, 30, 0))
+    ok, detail = check()
+    assert not ok and "Memoria.ini changed at 30.09.2026 19:30:00" in detail, detail
+    _o3_touch(game / "Memoria.ini", dt.datetime(2026, 9, 24, 12, 57, 35))
+    for extra in (root / "TextPatch.txt", bare / "Memoria.ini"):
+        extra.write_text("x\n", encoding="utf-8")
+        _o3_touch(extra, dt.datetime(2026, 9, 30, 19, 28, 0))
+        ok, detail = check()
+        assert not ok and extra.name in detail and "relaunch:" in detail, (extra, detail)
+        extra.unlink()
+    assert check()[0]
+    assert P.launch_time("[DataPatchers] Initialized\n") is None and P.launch_time("") is None
+    ok, detail = P.launch_check(P.launch_files(game, roots), P.launch_time("[DataPatchers] Initialized\n"))
+    assert not ok and "relaunch" in detail and "cannot be dated" in detail, detail
+    ok, detail = P.launch_check(P.launch_files(tmp_path / "nothing", [bare]), launched)
+    assert ok and detail.startswith("0 file(s)"), detail
+
+
+#: Battle 338's names as its US battle text gives them (BSC_TH_E002: three enemies, then six attacks).
+_O3_338_NAMES = ["King Leo", "Zenero", "Benero", "Taste steel!", "Poly", "Clamp Pinch", "Pyro", "Clamp Pinch", "Pyro"]
+
+
+def test_o3_p_stock_battle_finds_an_override_of_338(tmp_path):
+    """P-STOCK-BATTLE (research/o3_design.md 6.2, claim integrity #4; section 8's p-stock-battle unit): battle 338
+    must be stock on BOTH sides, over every stacked folder. Today's live shape -- FF9CustomMap's four LEDGER scene
+    overrides, its BattlePatch `Battle:` 67, 67, 336, 337, 334, 335 and FF9CustomMap-msgs's 67 -- PASSES; plus
+    `BattleMap/BattleScene/EVT_BATTLE_TH_E002/dbfile0000.raw16.bytes` FAILS; plus
+    `EventBinary/Battle/fr/EVT_BATTLE_TH_E002.eb.bytes` FAILS; plus `Battle: 338` or `Battle: BSC_TH_E002` FAILS; plus
+    `AnyEnemyByName: King Leo` FAILS (a name selector applies to every scene holding the name); plus
+    `AnyEnemyByName: Goblin` PASSES, listed. And DictionaryPatch (the review, research/o3_design.md 11.7 #4): today's
+    four LEDGER `BattleScene` lines PASS, listed; plus `BattleScene 338 LEDGER_A BBG_B251` -- battle 338 rebound to
+    another scene, script and background, no file under TH_E002's name, no selector: SceneData's setter overwrites the
+    reverse entry the battle is looked up by -- FAILS (c); plus `BattleScene 30999 TH_E002 BBG_B065` (BSC_TH_E002's
+    forward entry repointed: 338's sequence, text and background follow it) FAILS (c); a `FieldScene 338 ...` line
+    PASSES (it sets only EventDB[338], which a battle never reads), and so does a `BattleScene` line whose id does not
+    parse (the engine skips it). Break: drop the name selectors; or drop the DictionaryPatch read."""
+    P = _o3_module()
+    res = "StreamingAssets/assets/resources"
+    n = {"case": 0}
+    scenes = ("BattleScene 30871 LEDGER_A BBG_B251", "BattleScene 30872 LEDGER_B BBG_B252",
+              "BattleScene 30881 LEDGER1W BBG_B253", "BattleScene 30882 LEDGER1S BBG_B254")
+
+    def stack(paths=(), lines=(), dict_lines=()):
+        n["case"] += 1
+        base = tmp_path / f"stack{n['case']}"
+        custom, msgs = base / "FF9CustomMap", base / "FF9CustomMap-msgs"
+        for scene in ("LEDGER1S", "LEDGER1W", "LEDGER_A", "LEDGER_B"):
+            for rel in (f"{res}/BattleMap/BattleScene/EVT_BATTLE_{scene}/dbfile0000.raw16.bytes",
+                        f"{res}/commonasset/eventengine/eventbinary/Battle/us/EVT_BATTLE_{scene}.eb.bytes"):
+                (custom / rel).parent.mkdir(parents=True, exist_ok=True)
+                (custom / rel).write_bytes(b"x")
+        for rel in paths:
+            (custom / rel).parent.mkdir(parents=True, exist_ok=True)
+            (custom / rel).write_bytes(b"x")
+        (custom / "BattlePatch.txt").write_text(
+            "".join(f"Battle: {b}\nMusic: 0\n\n" for b in (67, 67, 336, 337, 334, 335)) + "".join(f"{x}\n" for x in lines),
+            encoding="utf-8")
+        (custom / "DictionaryPatch.txt").write_bytes(("﻿FieldScene 31213 11 O1_TSHP_TH_STG O1_TSHP_TH_STG 2\r\n"
+                                                      + "".join(f"{x}\r\n" for x in (*scenes, *dict_lines))
+                                                      ).encode("utf-8"))
+        msgs.mkdir(parents=True)
+        (msgs / "BattlePatch.txt").write_text("Battle: 67\nMusic: 0\n", encoding="utf-8")
+        return [custom, msgs]
+
+    def judge(**kw):
+        ok, detail, _info = P.battle_stock(stack(**kw), 338, _O3_338_NAMES)
+        return ok, detail
+    ok, detail = judge()
+    assert ok and "EVT_BATTLE_LEDGER1S" in detail and "FF9CustomMap-msgs Battle: 67" in detail, detail
+    assert "no name selector" in detail, detail
+    assert "BattleScene lines (none on 338 or TH_E002): FF9CustomMap 30871 LEDGER_A, 30872 LEDGER_B, 30881 LEDGER1W, " \
+           "30882 LEDGER1S" in detail, detail
+    for line, says in (("BattleScene 338 LEDGER_A BBG_B251", "rebinds battle 338 to BSC_LEDGER_A"),
+                       ("BattleScene 30999 TH_E002 BBG_B065", "repoints BSC_TH_E002 to 30999")):
+        ok, detail = judge(dict_lines=[line])
+        assert not ok and f"(c) FF9CustomMap/DictionaryPatch.txt '{line}' {says}" in detail, (line, detail)
+    for line in ("FieldScene 338 11 X X 2", "BattleScene x338 LEDGER_A BBG_B251", "BattleScene 30999 th_e002 BBG_B065"):
+        ok, detail = judge(dict_lines=[line])
+        assert ok, (line, detail)
+    for paths in ([f"{res}/BattleMap/BattleScene/EVT_BATTLE_TH_E002/dbfile0000.raw16.bytes"],
+                  [f"{res}/commonasset/eventengine/EventBinary/Battle/fr/EVT_BATTLE_TH_E002.eb.bytes"]):
+        ok, detail = judge(paths=paths)
+        assert not ok and "(a)" in detail and "EVT_BATTLE_TH_E002" in detail, detail
+    for line in ("Battle: 338", "Battle: BSC_TH_E002", "AnyEnemyByName: King Leo", "AnyAttackByName: Clamp Pinch"):
+        ok, detail = judge(lines=["", line, "MaxHP: 1"])
+        assert not ok and "(b)" in detail and line.split(": ", 1)[1] in detail, (line, detail)
+    ok, detail = judge(lines=["AnyEnemyByName: Goblin", "MaxHP: 1"])
+    assert ok and "AnyEnemyByName: Goblin" in detail, detail
+    ok, detail = judge(lines=["// AnyEnemyByName: King Leo"])       # a comment line: the engine skips it
+    assert ok, detail
+
+
+def _o3_ini(settings, *, extra=""):
+    lines = ["[Mod]", "FolderNames = \"FF9CustomMap\"", ""]
+    for sec, kv in settings.items():
+        lines += [f"[{sec}]", "\t; a comment line, as Memoria.ini's are"]
+        lines += [f"{k} = {v}" for k, v in kv.items()]
+        lines.append("")
+    return "\n".join(lines) + extra
+
+
+def test_o3_settings_read_the_ini_the_engines_way(tmp_path):
+    """P-SETTINGS (research/o3_design.md 6.2, 4.13; section 8's p-settings unit): Memoria.ini read the ENGINE's way
+    (Memoria.Prime/Ini/IniReader.cs) -- an ini equal to 4.13 PASSES; `Speed = 0` FAILS naming it; a later duplicate
+    assignment wins (either way round); a `;` comment line and an inline `; ...` are no value; `;;` adds one `;` and
+    the value ends at the next other character (ReadPair's escape falls through: `a;;b` is "a;"); sections and keys are
+    case-sensitive (`speed = 0` is no Speed); a stacked folder's own Memoria.ini is read over the root's, the first
+    folder's winning. Break: let the FIRST assignment win; or skip the re-armed escape (`a;;b` reads "a;b")."""
+    P = _o3_module()
+    want = P.SETTINGS
+    game = tmp_path / "game"
+    game.mkdir()
+    ini = game / "Memoria.ini"
+
+    def judge(text, roots=()):
+        ini.write_text(text, encoding="utf-8")
+        return P.p_settings(want, P.install_settings(game, list(roots), want))
+    ok, detail = judge(_o3_ini(want))
+    assert ok and detail.startswith("23 keys as frozen") and 'DialogProgressButtons "Confirm"' in detail, detail
+    slow = {**want, "Battle": dict(want["Battle"], Speed="0")}
+    ok, detail = judge(_o3_ini(slow))
+    assert not ok and detail == "[Battle] Speed = '0' (frozen '5')", detail
+    assert not judge(_o3_ini(want, extra="\n[Battle]\nSpeed = 0\n"))[0], "the later assignment wins"
+    assert judge(_o3_ini(slow, extra="\n[Battle]\nSpeed = 5\n"))[0], "the later assignment wins"
+    assert judge(_o3_ini(want, extra="\n[Battle]\n; Speed = 0\n#Speed = 0\n"))[0], "a comment line is no value"
+    assert judge(_o3_ini(want, extra="\n[Battle]\nSpeed = 5 ; the default is 0\n"))[0], "an inline comment"
+    # IniReader.ReadPair's escape branch has no `continue`: the `;` it appends arms the escape again, so the value
+    # ends at the next character that is not a `;` (IniReader.cs:169-185) -- `a;;b` is "a;", never "a;b"
+    for raw, value in (("a;;b ; c", "a;"), ("a;;;;b", "a;;;"), ("a;;", "a;"), ("a;b", "a"), (";x", "")):
+        assert P.ini_settings(f"[Lang]\nText = {raw}\n") == {"Lang": {"Text": value}}, (raw, value)
+    assert P.ini_settings("[Battle]\nSpeed = 5\nOther = 1\n[Graphics]\nTileSize = 64\n",
+                          {"Battle": ["Speed", "SFXRework"]}) == {"Battle": {"Speed": "5"}}, "keys: only those it sets"
+    assert judge(_o3_ini(want, extra="\n[Battle]\nspeed = 0\n[battle]\nSpeed = 0\n"))[0], "case-sensitive"
+    first, second = tmp_path / "FF9CustomMap", tmp_path / "MoguriMain"
+    first.mkdir()
+    second.mkdir()
+    (second / "Memoria.ini").write_text("[Battle]\nSpeed = 0\n", encoding="utf-8")
+    ok, detail = judge(_o3_ini(want), roots=[first, second])
+    assert not ok and "[Battle] Speed = '0'" in detail, detail
+    (first / "Memoria.ini").write_text("[Battle]\nSpeed = 5\n", encoding="utf-8")
+    assert judge(_o3_ini(want), roots=[first, second])[0], "the first folder's wins"
+    (second / "Memoria.ini").write_text("[Graphics]\nTileSize = 64\n", encoding="utf-8")
+    (first / "Memoria.ini").unlink()
+    assert judge(_o3_ini(want), roots=[first, second])[0], "today's MoguriMain: no key of 4.13"
+    ini.unlink()
+    ok, detail = P.p_settings(want, P.install_settings(game, [], want))
+    assert not ok and "[Battle] Enabled = None (frozen '1')" in detail, detail
+
+
+# ---- O3's rehearsals (studies/story-trace/o3_rehearse.py; research/o3_design.md section 7, PART C, C3), on the fake as
+# O3's tests model the engine (H9): warps land without control and are refused off the field, the soft reset fires in
+# the engine's UI states. end_run's recovery rung is a registered field off every route whose script hands control
+# over, as 4600's does.
+
+def _o3_rehearse_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o3_rehearse as R
+    return R
+
+
+_O3_RECOVERY = 30899
+
+
+def _o3_launch_files(game):
+    """The fake install as a launch reads it: Memoria.ini stacking FF9CustomMap, the 4.13 settings and the in-game
+    language in it; the recovery field registered; every file dated an hour back; a Memoria.log whose first line dates
+    the launch NOW, the patchers' 'Initialized' and the US localization in it."""
+    P = _o3_module()
+    patch = game / "FF9CustomMap" / "DictionaryPatch.txt"
+    patch.write_text(patch.read_text(encoding="utf-8")
+                     + f"FieldScene {_O3_RECOVERY} 11 RECOVERY RECOVERY {_O3_RECOVERY}\n", encoding="utf-8")
+    (game / "Memoria.ini").write_text(_o3_ini(P.SETTINGS) + "\n[VoiceActing]\nForceLanguage = -1\n", encoding="utf-8")
+    back = time.time() - 3600
+    for p in [game / "Memoria.ini", *(game / "FF9CustomMap").iterdir()]:
+        if p.is_file():
+            os.utime(p, (back, back))
+    now = time.strftime("%d.%m.%Y %H:%M:%S")
+    (game / "x64" / "Memoria.log").write_text(
+        f"{now} |M| [WindowManager] Moving window to (2045,33)\n{now} |M| [DataPatchers] Initialized\n"
+        f"{now} |M| Updating text localization [English(US)]\n", encoding="utf-8")
+
+
+def _o3_grant_in(fake, stop, field=_O3_RECOVERY):
+    """The recovery field's script on the fake: control handed over whenever he stands there idle without it."""
+    def loop():
+        while not stop.is_set():
+            if fake.field_id == field and not fake.control and fake.ui_state == "FieldHUD" and not fake._beats:
+                fake.control = True
+            time.sleep(0.005)
+    threading.Thread(target=loop, daemon=True).start()
+
+
+def _o3_rehearse_pred(**over):
+    """_o3_pred with what O3's trace summary reads too: the legacy battle noise, landing.before (62's ip1285 on the
+    fake's places), the end state, the SC and FieldEntrance bytes."""
+    return _o3_pred(noise=[{"not_m": 1, "target": "Global.Byte[206]", "why": "King Leo's AI, on the fake"}],
+                    landing={"before": {"place": 30821, "sid": 4, "tag": 1, "ip": 1285, "target": "Global.Int16[2]",
+                                        "value": 0}},
+                    end_state={"Global.Int16[2]": 0}, sc_bytes=[0, 1], entrance_bytes=[2, 3], **over)
+
+
+#: 338's names on the fake: P-STOCK-BATTLE's census, standing in for the install's scene read.
+_O3_CENSUS = staticmethod(lambda name: {"enemies": ["King Leo", "Zenero", "Benero"], "attacks": ["Taste steel!"]})
+
+
+def test_o3_rehearse_plumbing_on_the_fake(game):
+    """C3 (research/o3_design.md 7.1-7.2): one traced stage on the fake, chosen by ``O3_STAGE`` as a launch chooses it
+    (another stage, which would run too, does not), played from "61" (a movie, then a page) through "62" (a page, then
+    battle 338: King Leo's latch, the four-phase exit into "63") to "63" (a page) and the end "64": the capabilities
+    (P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG and P-LAUNCH on the launch's own Memoria.log), the launch's readings (the
+    settings, P-SETTINGS, P-STOCK-BATTLE), New Game, the raw warp at entrance 0 and SC 1155, the beat-table driver with
+    the recorder on every poll, the trace collected, end_run to the title through the recovery warp, and
+    o3_rehearsal.json holding every section of 7.2 -- no control grant, the pages, the published choices, the press
+    evidence (the leave's presses among them), the battle rows with battle_epoch0, fight()'s and leave_battle()'s own
+    records, the longest no-progress stretch, the movie's arrival and first page, the end (its state, end_run's
+    result and its recovery rows) and O3's trace summary (the start residue, the battle-mode rows, the first field row
+    after 62's ip1285, the end cut's row). The rehearsal report prints them. The stage order a launch takes is pinned
+    too. Break: drop the battle rows from the record."""
+    P, R = _o3_module(), _o3_rehearse_module()
+    assert R.select(R.STAGES, env={}) == ["R-START", "F-SMOKE", "R-62", "R-FULL", "R-BATTLE-VOID"]
+    assert R.select(R.STAGES, 61, env={}) == ["R-START"] and R.select(R.STAGES, 62, env={}) == ["R-62"]
+    assert R.select(R.STAGES, env={"O3_STAGE": "R-SKIP"}) == ["R-SKIP"]
+    with pytest.raises(ValueError, match="no stage"):
+        R.select(R.STAGES, env={"O3_STAGE": "R-NONE"})
+    _o3_launch_files(game)
+    stages = {"R-TEST": {"field": 30820, "entrance": 0, "sc": 1155, "end": [_O3_END], "runs": 1, "run_s": 120,
+                         "cost_s": 5, "movie": {"donor": 30820}, "settles": "the plumbing"},
+              "R-OTHER": {"field": 30821, "entrance": 0, "sc": 1155, "end": [_O3_END], "runs": 1, "run_s": 5,
+                          "cost_s": 1, "settles": "never run: O3_STAGE names R-TEST"}}
+    pages = ("Narrator\n“Ladies and gentlemen!”", "Cinna\n“Act I!”", "Zidane\n“Phew.”")
+    fake = _o3_fake(game, exit_to=30810)
+    seen = {}
+
+    def bit191(f, ip):
+        f.script_store(0, 0, ip, 191 >> 3, "Bit", 0, bit=191)
+
+    def fight(f):
+        f.script_store(4, 1, 1285, 2, "Int16", 0)                       # landing.before: 62's chain row
+        seen["epoch"] = f.battle_epoch + 1
+        f.start_battle(338, units=_o3_units())
+        f.script_store(1, 1, 267, 206, "Byte", 77)                      # King Leo's AI store: a battle-mode row
+    phases = [(lambda f: f.field_id == 30820 and f.story_on,
+               lambda f: (bit191(f, 22), f.scene({"movie": 120}, pages[0], control=False))),
+              (lambda f: f.field_id == 30820 and _o3_idle(f) and f.movies and f.movies[-1]["end"] is not None,
+               lambda f: (_o2_move(f, 30821), bit191(f, 26), f.scene(pages[1], control=False))),
+              (lambda f: f.field_id == 30821 and _o3_idle(f), fight),
+              (lambda f: f.battle_epoch == seen.get("epoch") and f.field_id == 30810 and _o3_idle(f),
+               lambda f: (bit191(f, 22), f.scene(pages[2], control=False))),
+              (lambda f: f.field_id == 30810 and _o3_idle(f), lambda f: (_o2_move(f, _O3_END), bit191(f, 22)))]
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0], "a launch starts at the title"
+        _o1_director(fake, stop, phases)
+        _o3_grant_in(fake, stop)
+        try:
+            R.run(g, stages=stages, pred=_o3_rehearse_pred(), floor_for=lambda d, closed: _flat_bgi(),
+                  prior_for=lambda d: _prior(), stock=lambda fid: None, recovery=_O3_RECOVERY,
+                  env={"O3_STAGE": "R-TEST"}, census=_O3_CENSUS.__func__)
+        finally:
+            stop.set()
+        title = g.state.ui_state
+    run_dir = game / "run"
+    doc = json.loads((run_dir / "o3_rehearsal.json").read_text(encoding="utf-8"))
+    assert list(doc["stages"]) == ["R-TEST"] and doc["stages_run"] == ["R-TEST"] and doc.get("finished"), doc.keys()
+    caps = {c[1].split(":")[0]: c[0] for c in doc["capabilities"]}
+    assert caps == {"P-CAP": True, "P-OBJECTS": True, "P-LANG": True, "P-DONOR-LOG": True, "P-LAUNCH": True}, \
+        doc["capabilities"]
+    launch = doc["launch"]
+    assert launch["roots"] == ["FF9CustomMap"] and launch["settings"] == P.SETTINGS, launch
+    assert [(c[0], c[1].split(":")[0]) for c in launch["checks"]] == [(True, "P-SETTINGS"), (True, "P-STOCK-BATTLE")]
+    rec = doc["stages"]["R-TEST"][0]
+    assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == f"field {_O3_END}", rec["outcome"]
+    for section in ("grants", "choices", "published_choices", "pages", "evidence", "battles", "fight", "leave",
+                    "no_progress", "movie", "skip", "end", "trace"):
+        assert section in rec, section
+    assert rec["grants"] == [] and rec["published_choices"] == [] and rec["skip"] is None, rec["grants"]
+    assert [p["text"] for p in rec["pages"]] == list(pages), rec["pages"]
+    whys = [p["why"] for p in rec["evidence"]["press"]]
+    assert whys.count("page") >= 3 and "leave_battle" in whys, whys
+    bt = rec["battles"]
+    b = bt["rows"]
+    assert len(b) == 1 and (b[0]["scene"], b[0]["result"], b[0]["landed"], b[0]["v"]) == (338, 2, 30810, None), b
+    assert b[0]["epoch"] == bt["battle_epoch0"] + 1, bt
+    assert rec["fight"]["result"] == 2 and rec["fight"]["timed_out"] is False, rec["fight"]
+    assert rec["leave"]["presses"] and rec["leave"]["stopped"] in ("scene-gone", "field"), rec["leave"]
+    assert rec["no_progress"]["longest_s"] >= 0 and rec["no_progress"]["where"] is not None, rec["no_progress"]
+    mv = rec["movie"]
+    assert None not in (mv["arrival_frame"], mv["first_page_frame"]) and mv["first_page_frame"] > mv["arrival_frame"], mv
+    end = rec["end"]
+    assert end["end_state"] == {"Global.Int16[2]": 0}, end
+    assert end["end_run"]["ok"] and end["end_run"]["title"] and title == "Title", end["end_run"]
+    assert [x["k"] for x in end["end_run"]["how"]] == ["recover-warp"], end["end_run"]["how"]
+    tr = rec["trace"]
+    assert tr["start"] is not None and [x[1:] for x in tr["residue_before"]] == [[0, 0, 131], [1, 0, 4]], tr
+    assert tr["sc"] == [] and tr["battle"]["w"] == 1 and tr["battle"]["sites"] == ["m2 e1 t1 ip267 Global.Byte[206]"]
+    assert tr["after_before"] == "30810 e0 t0 ip22 Global.Bit[191]=0", tr["after_before"]
+    assert tr["end_row"] == f"w {_O3_END} e0 t0 ip22 Global.Bit[191]=0", tr["end_row"]
+    assert (run_dir / rec["trace_file"]).is_file() and (run_dir / rec["log_file"]).is_file()
+    report = P.rehearsal_report(run_dir)
+    for want in ("== R-TEST: warp 30820 0 1155 -> [30830]", "PASS  P-LAUNCH", "PASS  P-DONOR-LOG",
+                 "PASS  P-STOCK-BATTLE", "launch: settings", "grants: 0 (there must be none)",
+                 "battle: scene 338 epoch", "landed 30810", "movie: ", "end: state", "rows ['recover-warp']",
+                 "trace: start line", "battle-mode w rows 1", "the first field row after 62 ip1285: 30810 e0 t0 ip22",
+                 f"the end cut's row: w {_O3_END} e0 t0 ip22"):
+        assert want in report, (want, report[:2500])
+
+
+def test_o3_rehearse_smoke_sends_no_storytrace_on_the_fake(game):
+    """F-SMOKE (research/o3_design.md 7.1, F5) on the fake: three members and their stock twins, each by start_run's
+    RAW warp (New Game, ``warp <id> 0 1155``, a wait for the field on FieldHUD) -- never Session.warp(), whose wait for
+    control the fake (as 61-63) never grants: it would hang 60 s a warp in the game -- then the field's published
+    object sids, and end_run after each warp (the recovery warp, the title). No ``storytrace`` step is ever executed
+    (no fork data before the freeze). Each member's sids are compared with its twin's: two pairs equal, the third
+    (a body missing) different. Break: warp through Session.warp()."""
+    P, R = _o3_module(), _o3_rehearse_module()
+    _o3_register(game)
+    _o3_launch_files(game)
+    pairs = [[31211, 30820], [31212, 30821], [31213, 30810]]
+    stages = {"F-SMOKE": dict(R.STAGES["F-SMOKE"], pairs=pairs, smoke_s=0.3, warp_s=10.0)}
+    sids = {31211: [2, 7, 8, 14, 16], 30820: [2, 7, 8, 14, 16], 31212: [12, 12, 20, 18], 30821: [12, 12, 20, 18],
+            31213: [11, 6], 30810: [11, 6, 8]}
+    fake = _o3_fake(game)
+    fake.blockers = {fid: [{"x": 300.0 + 60 * i, "z": 300.0, "r": 30.0, "sid": s, "uid": 128 + i}
+                           for i, s in enumerate(v)] for fid, v in sids.items()}
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0]
+        real_warp = g.warp
+
+        def warp(field, *a, **k):                 # end_run's recovery rung only: the smoke itself warps raw
+            if field != _O3_RECOVERY:
+                raise AssertionError(f"Session.warp({field}) inside the smoke")
+            return real_warp(field, *a, **k)
+        g.warp = warp
+        _o3_grant_in(fake, stop)
+        try:
+            R.run(g, stages=stages, pred=_o3_rehearse_pred(), recovery=_O3_RECOVERY, env={"O3_STAGE": "F-SMOKE"},
+                  census=_O3_CENSUS.__func__)
+        finally:
+            stop.set()
+    doc = json.loads((game / "run" / "o3_rehearsal.json").read_text(encoding="utf-8"))
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    assert not [s for s in fake.executed if s[0] == "storytrace"], "a storytrace step in the smoke"
+    order = [31211, 31212, 31213, 30820, 30821, 30810]
+    recs = doc["stages"]["F-SMOKE"]
+    assert [r["field"] for r in recs] == order, recs
+    for r in recs:
+        reach = r["reached"]
+        assert (reach["field"], reach["ui"], reach["control"]) == (r["field"], "FieldHUD", False), r
+        assert r["sids"] == sorted(sids[r["field"]]) and r["objects_status"] == "listed", r
+        assert r["exceptions"] == [] and isinstance(r["log_lines"], list), r
+        assert r["end_run"]["ok"] and r["end_run"]["title"], r["end_run"]
+        assert [x["k"] for x in r["end_run"]["how"]] == ["recover-warp"], r["end_run"]
+    warps = [s for s in fake.executed if s[0] == "warp"]
+    for f in order:
+        assert ["warp", str(f), "0", "1155"] in warps and ["warp", str(f), "-1", "-1"] not in warps, (f, warps)
+    assert warps.count(["warp", str(_O3_RECOVERY), "-1", "-1"]) == len(order), warps
+    twins = doc["twins"]["F-SMOKE"]
+    assert [(t["member"], t["twin"], t["equal"]) for t in twins] == [(31211, 30820, True), (31212, 30821, True),
+                                                                     (31213, 30810, False)], twins
+    report = P.rehearsal_report(game / "run")
+    for want in ("== F-SMOKE: the load smoke", "warp 1: 31211 -> field 31211 FieldHUD", "twin 31211 vs 30820: EQUAL",
+                 "twin 31213 vs 30810: DIFFERENT"):
+        assert want in report, (want, report[:2000])
+
+
+def test_o3_rehearse_battle_void_stops_mid_fight_on_the_fake(game):
+    """R-BATTLE-VOID (research/o3_design.md 7.1, F3) on the fake: the stage's ``battle_override`` (``max_turns`` 0)
+    makes fight() raise FightTimeout at the FIRST command prompt -- V15, the driver's, 0 turns, no battlecmd executed --
+    so the run stops mid-fight in BattleHUD by construction; end_run then takes S3's soft reset from BattleHUD: the rows
+    recover-in-battle (ui BattleHUD, result 0) and recover-reset, no recover-reset-failed, and the title, with no warp.
+    F3's rows, as the launch records them. Break: leave the override off (the fight attacks, and runs out of its
+    time)."""
+    _P, R = _o3_module(), _o3_rehearse_module()
+    _o3_launch_files(game)
+    stages = {"R-BATTLE-VOID": dict(R.STAGES["R-BATTLE-VOID"], field=30821, end=[_O3_END], run_s=60)}
+    fake = _o3_fake(game, exit_to=30810)
+    fake.battle_script_end = None                 # nothing would end it: no attack is ever made
+    phases = [(lambda f: f.field_id == 30821 and f.story_on, lambda f: f.scene("Cinna\n“Act I!”", control=False)),
+              (lambda f: f.field_id == 30821 and _o3_idle(f), lambda f: f.start_battle(338, units=_o3_units()))]
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0]
+        resets = fake.soft_resets                 # the launch's own way to the title, before the stage
+        _o1_director(fake, stop, phases)
+        try:
+            R.run(g, stages=stages, pred=_o3_rehearse_pred(battles=[_o3_row(timeout_s=5)]),
+                  floor_for=lambda d, closed: _flat_bgi(), prior_for=lambda d: _prior(), stock=lambda fid: None,
+                  recovery=_O3_RECOVERY, env={"O3_STAGE": "R-BATTLE-VOID"}, census=_O3_CENSUS.__func__)
+        finally:
+            stop.set()
+        title = g.state.ui_state
+    doc = json.loads((game / "run" / "o3_rehearsal.json").read_text(encoding="utf-8"))
+    rec = doc["stages"]["R-BATTLE-VOID"][0]
+    assert (rec["outcome"]["end"], rec["outcome"]["v"], rec["outcome"]["by"]) == ("void", "V15", "driver"), rec["outcome"]
+    b = rec["battles"]["rows"]
+    assert len(b) == 1 and (b[0]["turns"], b[0]["timed_out"], b[0]["v"], b[0]["result"]) == (0, True, "V15", None), b
+    assert rec["fight"]["turns"] == 0 and rec["fight"]["timed_out"] is True, rec["fight"]
+    assert not [s for s in fake.executed if s[0] == "battlecmd"], "an attack was made"
+    er = rec["end"]["end_run"]
+    assert [x["k"] for x in er["how"]] == ["recover-in-battle", "recover-reset"], er["how"]
+    assert (er["how"][0]["ui"], er["how"][0]["result"], er["how"][0]["scene"]) == ("BattleHUD", 0, 338), er["how"]
+    assert er["ok"] and er["title"] and title == "Title" and fake.soft_resets == resets + 1, (er, fake.soft_resets)
+    assert not [s for s in fake.executed if s[0] == "warp" and s[1] == str(_O3_RECOVERY)], "end_run warped"
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+
+
+def test_o3_rehearse_clears_the_last_fight_between_runs_on_the_fake(game):
+    """Each traced run records ITS OWN fight() and leave_battle() (research/o3_design.md 7.2; the review, 11.7 #7):
+    the Session clears ``last_fight`` and ``last_leave`` only at a suite member's start, so ``one()`` clears them before
+    every run. Two runs of one stage on the fake: run 1 fights battle 338 from "62" (King Leo's latch, the four-phase
+    exit into "63") and reaches the end; run 2 never fights -- control comes back in "62", V4 after the settle. Run 1's
+    record holds its fight (result 2) and its leave (its presses); run 2's holds None for both, never run 1's. Break:
+    drop the clearing (run 2 records run 1's fight and leave as its own)."""
+    _P, R = _o3_module(), _o3_rehearse_module()
+    _o3_launch_files(game)
+    stages = {"R-TWO": {"field": 30821, "entrance": 0, "sc": 1155, "end": [_O3_END], "runs": 2, "run_s": 60,
+                        "cost_s": 5, "settles": "each run's own fight and leave"}}
+    fake = _o3_fake(game, exit_to=30810)
+    seen = {}
+
+    def fight(f):
+        seen["epoch"] = f.battle_epoch + 1
+        f.start_battle(338, units=_o3_units())
+    phases = [(lambda f: f.field_id == 30821 and f.story_on, lambda f: f.scene("Cinna\n“Act I!”", control=False)),
+              (lambda f: f.field_id == 30821 and _o3_idle(f), fight),
+              (lambda f: f.battle_epoch == seen.get("epoch") and f.field_id == 30810 and _o3_idle(f),
+               lambda f: f.scene("Zidane\n“Phew.”", control=False)),
+              (lambda f: f.field_id == 30810 and _o3_idle(f), lambda f: _o2_move(f, _O3_END)),
+              # run 2 (New Game and the warp again): control comes back in "62" -- no battle, V4 after the settle
+              (lambda f: f.field_id == 30821 and f.story_on and not f._beats,
+               lambda f: setattr(f, "control", True))]
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0], "a launch starts at the title"
+        _o1_director(fake, stop, phases)
+        _o3_grant_in(fake, stop)
+        try:
+            R.run(g, stages=stages, pred=_o3_rehearse_pred(), floor_for=lambda d, closed: _flat_bgi(),
+                  prior_for=lambda d: _prior(), stock=lambda fid: None, recovery=_O3_RECOVERY,
+                  env={"O3_STAGE": "R-TWO"}, census=_O3_CENSUS.__func__)
+        finally:
+            stop.set()
+    doc = json.loads((game / "run" / "o3_rehearsal.json").read_text(encoding="utf-8"))
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    first, second = doc["stages"]["R-TWO"]
+    assert first["outcome"]["end"] == "reached" and len(first["battles"]["rows"]) == 1, first["outcome"]
+    assert first["fight"]["result"] == 2 and first["leave"]["presses"], (first["fight"], first["leave"])
+    assert (second["outcome"]["end"], second["outcome"]["v"]) == ("void", "V4"), second["outcome"]
+    assert second["battles"]["rows"] == [], second["battles"]
+    assert second["fight"] is None and second["leave"] is None, (second["fight"], second["leave"])

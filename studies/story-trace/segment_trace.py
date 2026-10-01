@@ -236,6 +236,13 @@ class Segment:
     build_dir: Path | None = None
     accept_us_build = False                 # BUILD accepts the us-bytecode generation (O1's deployed chain) too
     recovery = RECOVERY_FIELD
+    #: S3 (research/o3_design.md 1.2): how long :meth:`end_run` waits, in a battle's END sequence, for the field the
+    #: battle hands over before it warps -- the same cap as a battle row's ``land_cap_s`` (2.1), never below it.
+    battle_end_wait_s = 120.0
+    #: S5 (research/o3_design.md 1.2): True ends the session as every run between ends -- :meth:`end_run`, the warp
+    #: to ``recovery`` first (S3's battle rule) -- recorded in ``session["ended"]``. False (O1, O2): the bare
+    #: ``restore_baseline()`` where the last run stopped, exactly as before.
+    end_session_warps = False
     titles: dict = {}
     core_ids = ("NULL", "STABLE", "JOIN")   # the core checks, in order: each is VOID when a side is short
 
@@ -461,16 +468,46 @@ class Segment:
         """o1 end_run: back to the title after a run. A covered run stands in its end field as the next scene
         plays, and the soft reset may not reach the title through it (session story-o1d: 45 s, then VOID). So the
         run first LEAVES by debug warp -- which works mid-movie -- to ``recovery`` (the segment's), and resets from
-        there; the trace is already closed. A warp that is refused (a run stopped mid-battle) falls back to the
-        ladder where it stands. A naming screen swallows the soft reset: accepted first when it is up."""
+        there; the trace is already closed. A warp that is refused falls back to the ladder where it stands. A naming
+        screen swallows the soft reset: accepted first when it is up.
+
+        S3 (research/o3_design.md 1.2, 0.2 #9) -- a run stopped INSIDE a battle. The agent refuses a warp outside
+        FieldHUD, and the soft-reset combo fires in one battle state only: BattleHUD, mid-fight (``GetKey`` answers
+        false outside FieldHUD/WorldHUD/BattleHUD/QuadMistBattle; BattleResult swallows it). So mid-fight (BattleHUD,
+        result 0) the run resets at once, with no warp. In a battle's END sequence (a result set, or BattleResult)
+        it waits up to :attr:`battle_end_wait_s` for the field the battle hands over, then warps and climbs the ladder
+        as any run does. The end sequence includes its LOAD: the scene is gone (``in_battle`` False) while the UI still
+        reads BattleResult until the next field's HUD is up (H8's lag, H9's fourth phase) -- the warp is refused there
+        and the reset swallowed, so it is waited out too (the review, research/o3_design.md 11.7 #8). Outside a battle:
+        exactly the old path. Decided on ONE read of the state."""
         from harness import HarnessError
         recovery = self.recovery if recovery is None else recovery
-        if g.state.ui_state != "Title":
-            try:
-                g.warp(recovery)
-                log.append({"k": "recover-warp", "field": recovery})
-            except HarnessError as err:
-                log.append({"k": "recover-warp-failed", "why": str(err)[:200]})
+        st = g.state
+        if st.ui_state != "Title":
+            if st.in_battle and st.ui_state == "BattleHUD" and st.battle_result == 0:   # mid-fight: the one state
+                log.append({"k": "recover-in-battle", "scene": st.battle.get("scene"), "ui": st.ui_state,
+                            "result": st.battle_result})
+                try:
+                    g.soft_reset()
+                    log.append({"k": "recover-reset"})
+                except HarnessError as err:
+                    log.append({"k": "recover-reset-failed", "why": str(err)[:200]})
+            else:
+                if st.in_battle or st.ui_state == "BattleResult":   # the end sequence: a result set, or BattleResult
+                    # -- its load included, the scene gone with the UI still reading BattleResult
+                    log.append({"k": "recover-battle-ending", "scene": st.battle.get("scene"), "ui": st.ui_state,
+                                "result": st.battle_result})
+                    try:
+                        st = g.wait_for(lambda s: not s.in_battle and s.ui_state == "FieldHUD" and s.field_id > 0,
+                                        timeout=self.battle_end_wait_s, what="the battle's end to hand over a field")
+                        log.append({"k": "recover-battle-ended", "field": st.field_id})
+                    except HarnessError as err:
+                        log.append({"k": "recover-battle-ending-failed", "why": str(err)[:200]})
+                try:
+                    g.warp(recovery)
+                    log.append({"k": "recover-warp", "field": recovery})
+                except HarnessError as err:
+                    log.append({"k": "recover-warp-failed", "why": str(err)[:200]})
         ok, why = g.restore_baseline()
         if not ok and g.state.ui_state == "NameSetting":
             g.accept_name()
@@ -483,9 +520,12 @@ class Segment:
         """o1 run: the whole session. P-CAP and the preflight, the install fingerprint, the members' scripts
         snapshotted, then S F S F S F (the predictions' ``order``) with each run's trace and log saved as it ends and
         the session record rewritten after every run; a side short of ``min_covered`` covered runs re-runs, at most
-        ``rerun.max``. The shared install is fingerprinted around every run: a run begun on a changed install is
-        skipped, one the install changed under is never read (both VOID). A RouteVoid's class (``v``, ``cell``,
-        ``by``) is copied into its run record. Then the analysis, its report, and THROW."""
+        ``rerun.max`` -- unless one of its runs is VOID in a FINDING class (``rerun.stop_on``): that side is held, and
+        ``rerun_held`` records why. The shared install is fingerprinted around every run: a run begun on a changed
+        install is skipped, one the install changed under is never read (both VOID). A RouteVoid's class (``v``,
+        ``cell``, ``by``) is copied into its run record. The session then leaves the game at the title: the bare
+        ladder where the last run stopped, or (``end_session_warps``) :meth:`end_run`, recorded in
+        ``session["ended"]``. Then the analysis, its report, and THROW."""
         from harness import HarnessError
         from segment_drive import RouteVoid
 
@@ -585,19 +625,37 @@ class Segment:
         for i, side in enumerate(pred["order"], 1):
             one(i, side)
         reruns = 0
+        # S2 (research/o3_design.md 1.2): a side with any run VOID in a FINDING class is not re-run however short it
+        # is -- re-running a finding only repeats it, and the analysis (VOID-ASYM) already reads it. No ``stop_on``
+        # (O1, O2): exactly the old loop, which read the session once per side per pass; this reads it once a pass.
+        stop_on = set(pred["rerun"].get("stop_on") or ())
         while reruns < pred["rerun"]["max"]:
-            short = [s for s in SIDES if sum(1 for r in self.read_session(g.run_dir, pred, session=session)
-                                             if r["side"] == s and r["covered"]) < pred["min_covered"]]
+            runs = self.read_session(g.run_dir, pred, session=session)
+            held = {s for s in SIDES if any(r["side"] == s and r["rec"].get("v") in stop_on for r in runs)}
+            short = [s for s in SIDES if s not in held
+                     and sum(1 for r in runs if r["side"] == s and r["covered"]) < pred["min_covered"]]
+            if held:
+                session["rerun_held"] = {s: sorted({r["rec"]["v"] for r in runs if r["side"] == s
+                                                    and r["rec"].get("v") in stop_on}) for s in sorted(held)}
             if not short or time.time() + b["run_min_s"] > deadline:
                 break
             reruns += 1
             one(len(session["runs"]) + 1, short[0], rerun=True)
         session["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         save()
-        try:
-            g.restore_baseline()
-        except HarnessError:
-            pass
+        if self.end_session_warps:                 # S5: the session ends through end_run, recorded, never raised
+            end_log: list = []
+            try:
+                self.end_run(g, end_log)
+                session["ended"] = {"log": end_log, "ok": True, "why": ""}
+            except HarnessError as err:
+                session["ended"] = {"log": end_log, "ok": False, "why": str(err)[:300]}
+            save()
+        else:
+            try:
+                g.restore_baseline()
+            except HarnessError:
+                pass
         checks, report = self.analyse(g.run_dir)
         (g.run_dir / self.report_file).write_text(report, encoding="utf-8")
         print(report[:6000], flush=True)
@@ -635,6 +693,16 @@ class Segment:
         saved = {f: T.ScriptIndex((run_dir / "scripts" / f"{f}.eb").read_bytes(), field_id=f, label=f"member {f}")
                  for f in members if (run_dir / "scripts" / f"{f}.eb").is_file()}
         fork_scripts = lambda fid: saved.get(fid) or stock(fid)                          # noqa: E731
+        # S1 (research/o3_design.md 1.2): a REGISTERED battle's beat is done only when it holds an int result in its
+        # row's ``won`` (a defeat's 3, a None, a True are not). O1's ``battle`` beat keeps its legacy rule (the
+        # predictions' ``battle_won``), any other beat its truthiness; predictions with no ``battles`` read as before.
+        won = {b["beat"]: list(b["won"]) for b in pred.get("battles") or ()}
+
+        def done(b: str, beats: dict):                         # truthy when the beat is done (the legacy rules' value)
+            if b in won:
+                v = beats.get(b)
+                return type(v) is int and v in won[b]          # True == 1: a bool is never a battle's result
+            return beats.get(b) in pred["battle_won"] if b == "battle" else beats.get(b)
         out = []
         for rec in session["runs"]:
             void: list = []
@@ -650,11 +718,12 @@ class Segment:
                              "class": rec.get("v") or ("V13" if stopped else "V?"), "by": rec.get("by") or "driver",
                              "cell": rec.get("cell")})
             beats = rec.get("beats") or {}
-            missed = [b for b in pred["beats"]
-                      if not (beats.get(b) in pred["battle_won"] if b == "battle" else beats.get(b))]
+            missed = [b for b in pred["beats"] if not done(b, beats)]
             if rec.get("end") == "reached" and missed:
-                void.append({"why": f"beats not done: {missed} (battle result {beats.get('battle')})",
-                             "class": "A-BEATS", "by": "driver"})
+                why = (f"beats not done: {missed} (battle result {beats.get('battle')})" if not won   # O1's, exactly
+                       else f"beats not done: {missed} (" + ", ".join(f"{b} result {beats.get(b)!r}" for b in won)
+                       + ")")
+                void.append({"why": why, "class": "A-BEATS", "by": "driver"})
             path = run_dir / rec.get("trace", "")
             if not rec.get("skipped") and path.is_file():
                 try:

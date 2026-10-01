@@ -44,8 +44,8 @@ from ff9mapkit.config import find_game_path                      # noqa: E402
 from ff9mapkit.content.doorface import STEP_PER_CALL              # noqa: E402
 
 from .artifacts import STATE_RING, StateRing, StepLog, build_env         # noqa: E402
-from .channel import (ARM_CYCLE_TIMEOUT, BUTTONS, PROTOCOL, Channel, HarnessError, State,   # noqa: E402
-                      StepRefused)
+from .channel import (ARM_CYCLE_TIMEOUT, BUTTONS, PROTOCOL, Channel, FightTimeout, HarnessError,   # noqa: E402
+                      State, StepRefused)
 from .logs import (MEMORIA_LOG, PARSERS, UNITY_LOG, UNITY_LOG_PATH,     # noqa: E402
                    LogException, frame_after, line_start_offset, read_from, split_lines)
 from .tickrate import CALLS_PER_TICK, TAIL_TICKS, Rate, TickClock, read_field_tps   # noqa: E402
@@ -271,6 +271,8 @@ class Session:
         #: What the last fight() actually did -- turns taken, result, the epoch it fought.
         #: None until one runs. See fight() for why the TURN COUNT is worth keeping.
         self.last_fight: dict | None = None
+        #: What the last leave_battle() pressed and where it stopped (research/o3_design.md H8). None until one runs.
+        self.last_leave: dict | None = None
         self._axes: dict[int, dict] = {}      # field id -> measured button->world basis
         self._priors: dict[int, dict | None] = {}   # field id -> PREDICTED basis (key_prior), never a measurement
         #: Unseen blockers route_to(unstick=True) walked into on the CURRENT field visit: (field id, [(x, z)]).
@@ -7367,8 +7369,19 @@ class Session:
         proves nothing about a result.
 
         A battle TUTORIAL screen (the Masked Man's scene 336) is closed when it shows (:meth:`_dismiss_tutorial`).
+
+        NO RESULT within the bounds raises :class:`FightTimeout` (a HarnessError: research/o3_design.md H7), its
+        ``kind`` the bound that ran out -- "turns": ``max_turns`` command prompts answered (0 raises at the FIRST
+        prompt, before any command: a fight stopped mid-battle by construction) -- or "timeout". A battle scene that
+        GOES with no result before either bound runs out (a soft reset or a crash to the title mid-fight, an engine
+        path that leaves the result 0) raises it with ``kind`` "gone" and its own message: no bound ran out, so
+        ``timed_out`` is False and a caller that owns the bounds must not read it as one (the review, 11.7 #2).
+        Either way, and on a result, :attr:`last_fight` records what the call did: ``turns``, ``result``, ``name``,
+        ``epoch``, and ``seconds`` (wall time from the call), ``tutorials`` (screens this call closed) and
+        ``timed_out``.
         """
         self._require_play_protocol("fight()")
+        t0 = time.time()
         st = self.state
         # ⚠ THE DIORAMA CHECK COMES FIRST, and that ordering is the whole point: `in_battle` is
         # already false for a diorama by design, so a debug check placed below it can never run.
@@ -7383,14 +7396,28 @@ class Session:
             raise HarnessError("fight() needs a real battle in progress; call start_battle first")
         epoch = st.battle_epoch
         deadline = time.time() + timeout
-        turns = 0
+        turns = tutorials = 0
+        gone = False                        # the loop broke on the scene going with no result, not on a bound
+
+        def record(result: int, timed_out: bool) -> None:
+            # ⚠ RECORDED, because "it ended in victory" does not say the loop ever ran. The first live
+            # run of this verb reported a clean victory having taken ZERO turns -- the single Attack
+            # issued beforehand had already killed the only enemy, so the multi-turn path was untested
+            # while the report looked complete. A scenario that means to exercise the loop asserts on
+            # this; without it there is nothing to assert on. Both no-result exits record it too (H7).
+            self.last_fight = {"turns": turns, "result": result,
+                               "name": State.BATTLE_RESULTS.get(result, str(result)),
+                               "epoch": epoch, "seconds": round(time.time() - t0, 3), "tutorials": tutorials,
+                               "timed_out": timed_out}
         while time.time() < deadline:
             self._assert_alive()
             st = self.state
             if st.battle_epoch == epoch and (st.battle_result != 0 or not st.in_battle):
+                gone = st.battle_result == 0
                 break
             if st.ui_state == "Tutorial":
-                self._dismiss_tutorial()
+                if self._dismiss_tutorial():
+                    tutorials += 1
                 continue
             if st.turn_slot < 0:
                 # Nobody is being asked: the enemies are acting, or an animation is playing. Not a
@@ -7405,10 +7432,11 @@ class Session:
                     pass
                 continue
             if turns >= max_turns:
-                raise HarnessError(
+                record(st.battle_result, True)
+                raise FightTimeout(
                     f"took {turns} turns without reaching a result. Either the party cannot hurt "
                     f"this enemy or something is healing it faster than {command!r} lands -- the "
-                    f"roster is in the last state snapshot.")
+                    f"roster is in the last state snapshot.", kind="turns")
             slot = st.turn_slot
             choice = {"command": command, "target": target}
             if policy is not None:
@@ -7430,40 +7458,64 @@ class Session:
                 continue
             turns += 1
         result = self.state.battle_result
-        # ⚠ RECORDED, because "it ended in victory" does not say the loop ever ran. The first live
-        # run of this verb reported a clean victory having taken ZERO turns -- the single Attack
-        # issued beforehand had already killed the only enemy, so the multi-turn path was untested
-        # while the report looked complete. A scenario that means to exercise the loop asserts on
-        # this; without it there is nothing to assert on.
-        self.last_fight = {"turns": turns, "result": result,
-                           "name": State.BATTLE_RESULTS.get(result, str(result)),
-                           "epoch": epoch}
+        if result == 0 and gone:
+            # the scene went with no result while time was left: no bound ran out (the review, 11.7 #2)
+            record(0, False)
+            self._log(f"fight: {turns} turn(s) -> the battle scene went away with no result")
+            raise FightTimeout(
+                f"the battle scene went away with no result after {time.time() - t0:.1f}s ({turns} turn(s) taken), "
+                f"before its {timeout:.0f}s / {max_turns} turn bounds ran out", kind="gone")
+        record(result, result == 0)
         self._log(f"fight: {turns} turn(s) -> {State.BATTLE_RESULTS.get(result, result)}")
         if result == 0:
-            raise HarnessError(
-                f"the battle did not reach a result within {timeout:.0f}s ({turns} turn(s) taken)")
+            raise FightTimeout(
+                f"the battle did not reach a result within {timeout:.0f}s ({turns} turn(s) taken)", kind="timeout")
         if finish:
             self.leave_battle()
         return result
 
-    def leave_battle(self, *, timeout: float = 90.0) -> str:
+    def leave_battle(self, *, timeout: float = 90.0, stop_on_field: bool = False) -> str:
         """Get past the battle-result screen and back to whatever comes after the fight.
 
         The result screen wants a confirm (sometimes several: spoils, level-ups, learned abilities),
         and a defeat goes to the Game Over menu instead, which no amount of confirming leaves. Both
         outcomes are reported rather than one of them hanging.
+
+        ``stop_on_field`` (research/o3_design.md H8): before each Confirm, a sample with the battle scene GONE (not
+        ``in_battle``, whatever ``ui_state`` still reads -- it lags as BattleResult while the next field loads) or
+        the field HUD up stops the loop: never a Confirm into a loading field, or onto its first windows. The default
+        is the loop as it always was. Either way :attr:`last_leave` records every press -- ``{"frame", "ui",
+        "in_battle", "field", "result"}`` of the sample it was decided on -- and where the loop ended: ``ended`` (the
+        UI state, which is also returned), ``field``, ``frame``, and ``stopped``: "field" (the stopping sample showed
+        the field HUD), "scene-gone" (the battle scene gone, the field not up yet), "presses" (the Confirms ran out) or
+        "timeout": ``timeout`` (wall seconds from the call) ran out, checked before each Confirm and after the field
+        test -- a caller with a deadline bounds the loop by it (the review, research/o3_design.md 11.7 #1; the
+        default 90 s outlasts the 40 Confirms at any normal frame rate, so a caller that passes none sees the loop as
+        it always was).
         """
+        presses: list = []
+        stopped = "presses"
+        deadline = time.time() + float(timeout)
         st = self.state
         for _ in range(40):
             self._assert_alive()
             st = self.state
-            if not st.in_battle and st.ui_state not in ("BattleHUD", "BattleResult"):
+            if (stop_on_field and (not st.in_battle or st.ui_state == "FieldHUD")) or (
+                    not st.in_battle and st.ui_state not in ("BattleHUD", "BattleResult")):
+                stopped = "field" if st.ui_state == "FieldHUD" else "scene-gone"
                 break
+            if time.time() >= deadline:
+                stopped = "timeout"
+                break
+            presses.append({"frame": st.frame, "ui": st.ui_state, "in_battle": st.in_battle, "field": st.field_id,
+                            "result": st.battle_result})
             self.press("confirm", 4)
             self.wait_frames(20)
         st = self.state
+        self.last_leave = {"presses": presses, "ended": st.ui_state, "field": st.field_id, "frame": st.frame,
+                           "stopped": stopped}
         self._log(f"  leave_battle: ui={st.ui_state} field={st.field_id} "
-                  f"result={st.battle_result_name}")
+                  f"result={st.battle_result_name} presses={len(presses)} stopped={stopped}")
         return st.ui_state
 
     def flag(self, bit: int, value: bool = True) -> None:
@@ -8015,8 +8067,9 @@ class Session:
         self._axes.clear()
         # ⚠ And the last fight's record. battle_play asserts `last_fight["turns"] >= 1`; carried
         # across the boundary, a member whose fight() raised before recording anything would be
-        # judged on the PREVIOUS member's fight and pass.
+        # judged on the PREVIOUS member's fight and pass. Its leave's record likewise.
         self.last_fight = None
+        self.last_leave = None
         # `reset_agent` is documented as the isolation primitive and was only ever reached as a
         # RECOVERY rung -- so on the happy path (the previous scenario ended tidily) held buttons,
         # a stale watch list and a changed timescale carried straight into the next member. Run it

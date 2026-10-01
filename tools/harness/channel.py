@@ -100,6 +100,21 @@ class StepRefused(HarnessError):
         self.error, self.steps = str(error), list(steps)
 
 
+class FightTimeout(HarnessError):
+    """``Session.fight`` reached NO RESULT (research/o3_design.md H7): ``kind`` "turns" -- it answered ``max_turns``
+    command prompts (0: it raised at the first one, before any command) -- or "timeout": a bound ran out, and the
+    message is the one the plain HarnessError carried before. ``kind`` "gone" -- the battle scene went away with no
+    result while both bounds still held (a soft reset or a crash to the title mid-fight, an engine path that leaves the
+    result 0): no bound ran out, so a caller that owns the bounds must not read it as one (the review, research/
+    o3_design.md 11.7 #2). Every ``except HarnessError`` still catches it. Typed because a caller that owns the fight's
+    bounds (the beat-table driver's battle beat: its V15) must tell this from an instrument failure, which stays a
+    plain HarnessError."""
+
+    def __init__(self, message: str, *, kind: str):
+        super().__init__(message)
+        self.kind = str(kind)
+
+
 def pid_alive(pid: int) -> bool:
     """Windows-safe liveness probe.
 
