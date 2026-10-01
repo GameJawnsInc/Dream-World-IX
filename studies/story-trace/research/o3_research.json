@@ -1,0 +1,731 @@
+{
+ "reconciled": {
+  "chosen_end": {
+   "field": 63,
+   "warp_to": 64,
+   "sid": 4,
+   "tag": 1,
+   "ip": 828,
+   "field_entrance": 100,
+   "sc_at_end": 1155,
+   "est_minutes": 6,
+   "why": "Candidate 1: 63 e4 t1 ip828 Field(64) (Int16[2]:=100 at ip820). The segment ends on arrival in REAL 64 (fbg_n02_alxc_map038a_ac_ast_1) on both sides, and the trace is cut at 64's first row (e0 t0 ip22). Reasons:\n(1) Run time: about 6 min, the same size as O2 (O1 3.5 min, O2 about 6). The bytes reader's candidate 3 (150 -> Field(153), SC 1190) takes about 12 min a run.\n(2) The chain is one whole zone and is already deployed. 61-63 are O1's tshp members 31211-31213, live and never traced. Their scripts are byte-identical to stock except the two retargeted Field() arguments. The end is the tshp -> alxc seam, the same pattern as O1 (52 -> real 100) and O2 (116 -> real 61). Nothing needs an import, a deploy or a relaunch.\n(3) Any longer end needs work on O1's proven chain. 31213's Field(64) is not retargeted, so it would have to be rebuilt and redeployed in place. The fallback of forking fresh copies of 61-63 in a new band is unsafe: a donor forked twice disables the s24 redirect (DataPatchers.cs:148-160), and battle 338 would then drop the fork run into REAL 63.\n(4) Only one new driver feature: the battle beat. It also puts the s24 battle-return redirect and the first in-segment FMV under the trace. The Chanbara minigame (no-press driver rule missing; its fork gate still PENDING playtest) and the 124 choice stay out.\n(5) Under O2's plain raw warp, 61-63 read no start-dependent key.\nEverything after the arrival in 64 is O4's. O4 starts with a raw warp into member(64) at entrance 100 with SC 1155, so 31213 never needs re-linking. O4's natural first end is 150 e3 t1 ip2169 Field(153) (SC 1190)."
+  },
+  "route": {
+   "segment_end_candidates": [
+    {
+     "field": 63,
+     "warp_to": 64,
+     "sid": 4,
+     "tag": 1,
+     "ip": 828,
+     "field_entrance": 100,
+     "sc_at_end": 1155,
+     "est_minutes": 6,
+     "new_zones_needed": "none: 61/62/63 are O1's deployed tshp members 31211/31212/31213; 31213 does not retarget Field(64), so real 64 is the seam on both sides",
+     "why": "CHOSEN.\n- The first Field() out of tshp: 64 is alxc by its FBG token.\n- Inside: FMV003, 10 Confirm pages and battle 338 (scripted end after at least 186 damage to King Leo).\n- No SC write, no control, no choice, no minigame. The only nondeterminism is battle 338's Byte[206] AI noise, already registered.\n- Estimate: FMV003 84.8 s, plus pages, about 10 timed/script lines and a 1-2 min battle; about 6 min, to be measured."
+    },
+    {
+     "field": 64,
+     "warp_to": 150,
+     "sid": 2,
+     "tag": 1,
+     "ip": 536,
+     "field_entrance": 325,
+     "sc_at_end": 1155,
+     "est_minutes": 10,
+     "new_zones_needed": "alxc member(64), plus 31213 rebuilt in place with retarget {64=member(64)}; never a second tshp band",
+     "why": "Adds the Chanbara minigame:\n- 50 iterations; prompts are random (SYSVAR[0]&7).\n- Byte[475]:=score at e4 t1 ip338; Bit[3815]:=1 at ip390 only on a 50-combo.\n- Deterministic only with no presses (score 0 -> 1).\n- Needs a hold-pages driver rule and SwordplayAssistance != 2.\nThen the encore choice 124, answered No. No SC change. 64 alone takes about 4 min."
+    },
+    {
+     "field": 150,
+     "warp_to": 153,
+     "sid": 3,
+     "tag": 1,
+     "ip": 2169,
+     "field_entrance": 325,
+     "sc_at_end": 1190,
+     "est_minutes": 12,
+     "new_zones_needed": "alxc members 64 and 150, plus the 31213 in-place re-link (the bytes reader's recommendation)",
+     "why": "Adds 150's no-control guardhouse scene:\n- 13 Confirm pages, plus one Confirm/Special press that closes 98 and 99.\n- The party drops to Zidane alone (UInt16[21]:=1 at ip1136).\n- SC 1155 -> 1190 at e3 t1 ip1966.\nThis is the natural FIRST end for O4, which starts at 64."
+    },
+    {
+     "field": 153,
+     "warp_to": 154,
+     "sid": 3,
+     "tag": 1,
+     "ip": 3158,
+     "field_entrance": 304,
+     "sc_at_end": 1190,
+     "est_minutes": 16,
+     "new_zones_needed": "alxc members 64, 150, 153",
+     "why": "Walking control returns in 153 at entrance 325. Also inside:\n- the choice 128 'Let her pass / Examine her face', which writes Bit[3795]:=SYSVAR[9] at e3 t1 ip1741;\n- region e28, a back door to 150 (Int16[2]:=5).\nOnly surveyed, not decoded beat by beat; the estimate is rough."
+    },
+    {
+     "field": 166,
+     "warp_to": 55,
+     "sid": 6,
+     "tag": 1,
+     "ip": 871,
+     "field_entrance": 110,
+     "sc_at_end": 1190,
+     "est_minutes": 30,
+     "new_zones_needed": "the whole alxc disc-1 cluster (64, 68, 69, 150, 151, 153-167); 55 is tshp (31205)",
+     "why": "The alxc -> tshp exit, after FMV004 (Cinematic(0,9) at 166 e6 t1 ip633). On the way:\n- Steiner's naming, Menu(1,3) at 151 e3 t1 ip603;\n- Steiner's free walk 153 -> 166 with optional knight bits.\nSurveyed from the Field() graph only. The readers estimated 26-40 min."
+    }
+   ],
+   "recommended_end": "Candidate 1: arrival in real 64 (A. Castle/Public Seats, alxc, text block 2), with FieldEntrance 100 and SC 1155. The exit is 63 e4 t1 ip828 Field(64), with Int16[2]:=100 at ip820. Estimated driver time is about 6 min a run.\n\nWhy this end and not the bytes reader's candidate 3:\n- Half the run time.\n- The chain is O1's whole-zone tshp fork, already live, and these three members have never been traced.\n- No import, deploy or relaunch is needed.\n- The seam is the zone boundary.\n- It adds exactly one driver feature, the battle beat.\n\nCandidate 3 would need two things:\n- an in-place rebuild and redeploy of O1's 31213, so that its Field(64) points at a new member(64);\n- alxc members 64 and 150.\nThe bytes reader's alternative of fresh 61-63 copies is invalid while 31200-31219 are deployed. Donor 63 would be forked twice, ForkSiblingMap[63] would become -1 (DataPatchers.cs:148-160), and battle 338's fork run would land in REAL 63.\n\nWhat O3 newly proves:\n- the s24 battle-return redirect under the trace: battle 338 bakes Field 63 (RunBattleCode(37,63)), and the fork run must land in 31213;\n- members 31211-31213;\n- FMV003 inside a segment;\n- a segment with an empty SC ladder.\n\nPlan for O4:\n- Start with a raw warp to 64 (S) or member(64) (F) at entrance 100 with SC 1155. 64's Main_Init SWITCHEX (ip236) sends entrance 100 to the default case and resets Bit[3815]/Byte[475] itself (ip416/ip425).\n- Fork the alxc disc-1 cluster in a fresh band.\n- End first at 150 -> Field(153), SC 1190.",
+   "fields_in_order": [
+    {
+     "field": 61,
+     "name": "Prima Vista/Interior (EVT_ALEX1_TS_STAGE_BK, fbg_n00_tshp_map009_th_bst_0): the play's prologue, FMV003 and the narrator",
+     "zone": "tshp (O1 member 31211)",
+     "entered_via": "Stock: O2's end, 116 e2 t1 ip1702 Field(61) with Int16[2]:=0 at ip1694. O3 session start: a raw warp in field 70, 'warp 61 0 1155' (S) or 'warp 31211 0 1155' (F). 61 never reads Int16[2]."
+    },
+    {
+     "field": 62,
+     "name": "Prima Vista/Interior (fbg_n00_tshp_map011_th_stg_0): Act I on stage, then Battle(0,338)",
+     "zone": "tshp (31212)",
+     "entered_via": "61 e1 t1 ip371 Field(62), Int16[2]:=100 at ip363 (stage 7). On the F side 31211 retargets it to 31212."
+    },
+    {
+     "field": 63,
+     "name": "Prima Vista/Interior (fbg_n00_tshp_map011c_th_stg_3): Zidane vs Blank on stage",
+     "zone": "tshp (31213)",
+     "entered_via": "NOT a Field() from 62. Battle 338's own script runs RunBattleCode(37,63) at TH_E002 entry 0 tag 0 [265]. At the battle's end fldMapNo becomes 63 (F side: ForkSiblingField(63) = 31213, HonoluluBattleMain.cs:734-738). The resume test lastmap==fldMapNo (EventEngine.cs:666) then fails, so 63 loads FRESH with Int16[2]=0, the value written at 62 e4 t1 ip1285. 62's Main_Reinit and its Field(63) at ip1353 never run."
+    },
+    {
+     "field": 64,
+     "name": "A. Castle/Public Seats (fbg_n02_alxc_map038a_ac_ast_1): END, arrival only",
+     "zone": "alxc (real on both sides; not forked)",
+     "entered_via": "63 e4 t1 ip828 Field(64), Int16[2]:=100 at ip820 (stage 110). 31213 is byte-identical to 63, so the F side also lands in real 64. Cut at 64 e0 t0 ip22."
+    }
+   ],
+   "beats": [
+    {
+     "n": 1,
+     "field": 61,
+     "kind": "other",
+     "what": "Main_Init ambient: Bit[191]:=0 ip22, Bit[184]:=0 ip49, Int16[9]:=-1 ip57, Byte[13]:=0 ip119, Int16[11]:=-1 ip138, Byte[14]:=0 ip200. InitObject 2, 7, 8, 9 (Zidane, DefinePlayerCharacter e9 t0 ip274), 14, 16. EnableMove ip440 sits behind Map.Bit[158]==1 (ip399), which nothing sets, so there is no control.",
+     "player_action": "none",
+     "required": true,
+     "gate": "incoming Byte[13]/Byte[14] must be neither 2 nor 9. Otherwise ip97/ip178 write :=9, the debug 'Error Env Play()' window 3 opens, and ip349/ip383 write :=0. O3-START: 61's first Byte[13] row must be ip119.",
+     "where": "61 e0 t0 ip22-ip200"
+    },
+    {
+     "n": 2,
+     "field": 61,
+     "kind": "fmv",
+     "what": "FMV003: Cinematic(0,8,1,1) = MBGDiscTable[1][8] = MBG_DEF('FMV003',1,0), type 0, so the skip hit-area is armed (MBG.cs:205-208). The PLAY bit comes from Cinematic(2,0,0,0) at ip237. The script resumes at movie frame >= 1100 or at the movie's end (ip324). The live file is 84.8 s.",
+     "player_action": "press nothing. If a stray Confirm raises 'Do you want to skip the movie?', take the default (No).",
+     "required": true,
+     "gate": "SYSVAR[15]&128==0 (ip135; always true)",
+     "where": "61 e2 t1 ip159 (stage 0)"
+    },
+    {
+     "n": 3,
+     "field": 61,
+     "kind": "page",
+     "what": "Narrator pages 72-78 ('Ladies and Gentlemen!' ... 'Tantalus proudly presents I Want to Be Your Canary!'). Each is WindowAsync(1,128,n) followed by WaitWindow(1). Then Byte[8]:=125 at ip752.",
+     "player_action": "Confirm x7",
+     "required": true,
+     "gate": "61 e2 t1 stage 0",
+     "where": "61 e2 t1 ip533/565, 568/584, 587/598, 601/612, 615/631, 646/661, 664/679; Byte[8] ip752"
+    },
+    {
+     "n": 4,
+     "field": 61,
+     "kind": "other",
+     "what": "Stage lines 79/80 (Blank), 81/82 (Cinna), 83/84 (Zidane, [ZDNE]), 85/86 'Aye!'. Every one is [TIME=-1] and is closed by CloseWindow after 55 or 20 frames. The conductor e1 t1 steps 2->3->4->5->6->7 on Map.Bit[231].",
+     "player_action": "none (a Confirm does nothing to an inhibited window)",
+     "required": false,
+     "gate": "stages 3-6",
+     "where": "61 e16 t1 ip160/175/201, e14 t1 ip144/159/182, e9 t1 ip387/402; conductor e1 t1 ip15"
+    },
+    {
+     "n": 5,
+     "field": 61,
+     "kind": "warp",
+     "what": "Exit: DisableMove ip239, PreloadField(5,62) ip261, fade ip303, Int16[2]:=100 ip363, Field(62) ip371",
+     "player_action": "none",
+     "required": true,
+     "gate": "stage 7 (e9 t1 ip453 also writes Byte24:=7)",
+     "where": "61 e1 t1 ip363/ip371"
+    },
+    {
+     "n": 6,
+     "field": 62,
+     "kind": "other",
+     "what": "Main_Init ambient: ip26, 53, 61, 123, 142, 204. No control (EnableMove ip437 is behind Bit158). Play lines 87-95 are all [TIME=-1] and closed by CloseWindow. 61-63 read no key at all.",
+     "player_action": "none",
+     "required": true,
+     "gate": "e4 t1 stages 0-9 on Map.Bit[231]",
+     "where": "62 e0 t0; e20 ip333, e19 ip206, e18 ip294/309, e8 ip217/232/247, e13 ip678/693"
+    },
+    {
+     "n": 7,
+     "field": 62,
+     "kind": "other",
+     "what": "The play's party:\n- UInt16[21]:=3585 ip319\n- PARTYCHK/RemoveParty/PARTYADD 0,9,10,11 (Map-var expressions)\n- Byte[303]:=0 ip603, then ++ at ip637, 659, 681 and 703 (=4)\n- PARTYCHK(5) false (ip1014) -> Byte[4]:=0 ip1034\n- Byte[4]:=0 ip1085, Byte[17]:=0 ip1093, Byte[18]:=1 ip1101\n- SetHP 9999 / SetMP 999 for every slot\n- Int16[2]:=0 ip1285",
+     "player_action": "none",
+     "required": true,
+     "gate": "stage 10 (L308)",
+     "where": "62 e4 t1 ip319-ip1285"
+    },
+    {
+     "n": 8,
+     "field": 62,
+     "kind": "battle",
+     "what": "Battle(0,338) = BSC_TH_E002, King Leo (HP 10186) plus Zenero (32) and Benero (28) against Zidane/Cinna/Marcus/Blank at 9999 HP. Scene flags 0x1839: preemptive, no EXP, no escape, WinPose false. King Leo's AI (entry 1) writes Byte[206]:=SYSVAR[0] every frame until ATB starts. It ends the battle by script once King Leo's OWN cur.hp is <= 10000: RunBattleCode(32,0), then RunBattleCode(33,1). Result 2 (victory-no-pose). No tutorial.",
+     "player_action": "fight(finish=True): attack until King Leo has taken >= 186 damage (the minions die first, harmlessly). leave_battle closes whatever follows.",
+     "required": true,
+     "gate": "stage 10",
+     "where": "62 e4 t1 ip1293; TH_E002 entry 1 tag 1 [539], [587], [638], [660]"
+    },
+    {
+     "n": 9,
+     "field": 62,
+     "kind": "warp",
+     "what": "The battle's exit is baked into its own script: TH_E002 entry 0 tag 0 [265] RunBattleCode(37,63) -> nextMapNo 63. The F side reaches ForkSiblingField(63) = 31213. 63 loads fresh, and 62 is never resumed: ip1298-ip1353, including Int16[2]:=0 ip1345 and Field(63) ip1353, are dead.",
+     "player_action": "none",
+     "required": true,
+     "gate": "battle end",
+     "where": "btl_scrp.cs:829-840; EventEngine.cs:1306-1318, 666; HonoluluBattleMain.cs:734-738"
+    },
+    {
+     "n": 10,
+     "field": 63,
+     "kind": "other",
+     "what": "Main_Init ambient after the fresh load: ip22, 49, 57, 119, 138, 200. No control (EnableMove ip453 is behind Bit158). No dispatch.",
+     "player_action": "none",
+     "required": true,
+     "gate": "none",
+     "where": "63 e0 t0"
+    },
+    {
+     "n": 11,
+     "field": 63,
+     "kind": "page",
+     "what": "Confirm pages:\n- 98 King Leo 'Thou hast not seen the last of me, Marcus!' (e6 t1 stage 2, WindowAsync ip270 + WaitWindow ip281)\n- 100 Blank 'Consider this, [Zidane]! If Prince Schneider...' (e21 t1 stage 6, ip386 + WaitWindow ip407)\n- 101 Zidane ''Tis foolishness!...' (e14 t1 stage 7, WindowSync ip893)\nSelf-closing: 96, 97 ([TIME=15]), 99 ([TIME=20]), 103 x3, 104 ([TIME=10]). Byte[8]:=125 at e14 t1 ip805 (stage 5).",
+     "player_action": "Confirm x3",
+     "required": true,
+     "gate": "e4 t1 SWITCHEX stages 0..8, 100..110",
+     "where": "63 e6 t1 ip270/281, e21 t1 ip386/407, e14 t1 ip893; Byte[8] e14 t1 ip805"
+    },
+    {
+     "n": 12,
+     "field": 63,
+     "kind": "warp",
+     "what": "Exit to alxc: DisableMove ip696, PreloadField(5,64) ip718, fade ip760, Int16[2]:=100 ip820, Field(64) ip828. Real 64 on both sides.",
+     "player_action": "none",
+     "required": true,
+     "gate": "stage 110",
+     "where": "63 e4 t1 ip820/ip828"
+    },
+    {
+     "n": 13,
+     "field": 64,
+     "kind": "other",
+     "what": "SEGMENT END: the first row in 64 (Bit[191]:=0 at e0 t0 ip22) is the cut. 64's Main_Init then rewrites the same ambient values, Bit[3815]:=0 ip416, Byte[475]:=0 ip425 and Byte[8]:=125 ip475. These equal the end state, so it is stable.",
+     "player_action": "none: read end_state, stop",
+     "required": true,
+     "gate": "arrival",
+     "where": "64 e0 t0 ip22"
+    },
+    {
+     "n": 14,
+     "field": 64,
+     "kind": "minigame",
+     "what": "O4, beyond the end. Stage 2:\n- 105/106 [INCS][TIME=-1]; e13 waits up to 250 frames or for gMesSignal>=2, then for a Confirm/Special PRESS (ip868), then shows tutorial 111 (WindowSync, Confirm).\nStage 3, the Chanbara:\n- 50 iterations, prompts 112-119 [TIME=-1];\n- Byte[52]=50 always;\n- B_KEYON per button in e3 t1.\nStage 4: 107/108, then a press (ip1404). Stage 6: score, Byte[475]:=score ip338, Bit[3815]:=1 ip390 only on a 50-combo, pages 120 and 121.",
+     "player_action": "O4: press nothing from 111's close until 120 opens; press on every other page",
+     "required": false,
+     "gate": "64 entrance 100 (SWITCHEX ip236 default)",
+     "where": "64 e13 t1 ip816-ip900, e20 t1 L319-L1433, e3 t1 ip11-ip509, e4 t1 ip208-ip390"
+    },
+    {
+     "n": 15,
+     "field": 64,
+     "kind": "choice",
+     "what": "O4, beyond the end: 124 'The audience is booing... Perform the fight scene again?' Yes/No, default 0 = Yes (which loops the fight). No -> Map.Byte[27]:=1 ip509, 128 'They shower you with N Gil!' (Confirm), AddGil. Exit: Byte[8]:=0 ip331, Int16[2]:=325 ip528, Field(150) ip536.",
+     "player_action": "O4: pick No (absolute 1)",
+     "required": false,
+     "gate": "stage 6, score < 25",
+     "where": "64 e4 t1 ip413/ip476/ip509/ip531; e2 t1 ip331/ip528/ip536"
+    },
+    {
+     "n": 16,
+     "field": 150,
+     "kind": "page",
+     "what": "O4, beyond the end. Entrance 325, no control. Byte[8]:=25 ip331. Pages 90-97, 100, 102, 103, 104, 106, plus one press that closes 98/99 (e2 t1 ip538). Stage 10:\n- UInt16[21]:=1 ip1136\n- Byte[303]:=0 ip1221, ++ ip1255\n- Byte[4]:=0 ip1652/ip1667, Byte[17]:=0 ip1675, Byte[18]:=1 ip1683\n- SC:=1190 ip1966, Byte[8]:=75 ip1974\n- Int16[2]:=325 ip2161, Field(153) ip2169",
+     "player_action": "O4: Confirm x14",
+     "required": false,
+     "gate": "Int16[2]==325 (SWITCHEX ip242)",
+     "where": "150 e3 t1 ip444-ip2169, e2 t1 ip404-ip617"
+    }
+   ],
+   "sc_ladder": [
+    {
+     "value": 1155,
+     "field": 115,
+     "sid": 1,
+     "tag": 1,
+     "ip": 1683,
+     "when": "Arrives with it (O2's last write). 61, 62 and 63 neither write nor read Global.UInt16[0] (0 stores and 0 reads in each listing), so O3's ladder is EMPTY: sc_writes 0. The warp's residue rows put it in place: byte 0 0->131, byte 1 0->4."
+    },
+    {
+     "value": 1190,
+     "field": 150,
+     "sid": 3,
+     "tag": 1,
+     "ip": 1966,
+     "when": "BEYOND THE END (O4). 150 stage 10, after UInt16[21]:=1 ip1136 and the 90-frame wait ip1881. Guard ip1884 SC>1190 is false. The debug overwrite at ip1952 (window 55, a Start press) sits behind the guard. No stock field stores a value in 1156..1189."
+    }
+   ],
+   "zone_members": "tshp (20 fields by FBG token): 50-63, 65, 66, 67, 3008, 3009, 3010.\n- The whole zone was forked and deployed by O1 as 31200-31219 (FF9CustomMap; C:\\gd\\_ns_playtest\\o1\\fork\\campaign.toml; studies/story-trace/o1_forks.json; deployed 2026-09-29 21:07).\n- O3 runs 61->31211 (retarget {62=31212}), 62->31212 (retarget {63=31213}, dead on the route) and 63->31213 (no retarget).\n- O1's route ran only 50 and 52, so these three members are traced for the first time.\n- Live ForkDonorPatch has the rows 31211 61, 31212 62 and 31213 63.\n\nalxc (95 by FBG token; the whole-zone dry run lists 94, without 1805):\n- The end field 64 stays REAL on both sides. No alxc field is forked or deployed.\n- 64, 68 and 69 use text block 2 (the play's block, shared with 61-63); 150-167 use block 3.\n- Disc-1 visit cluster for O4: 64, 68, 69, 150, 151, 153-167 (152 is evft).\n\nalxt (O2's 100-117 = 31220-31237) is not entered.\n\nLive FF9CustomMap FieldScene ids in the band are 31200-31237, with nothing in 31238-31270. That is a sample: re-read every folder's DictionaryPatch before minting O4's ids.",
+   "choices": [
+    {
+     "field": 61,
+     "raw_text": "System.strings SkipMovieDialog0366: '[STRT=110,4][PCHC=2,1][IMME][FEED=5]Do you want to skip\\n[FEED=5]the movie?\\n[CHOO][FEED=14]Yes\\n...No'. FieldHUD.cs:275-286 opens it only on a Confirm during an armed MBG and sets ETb.sChoose = 1.",
+     "pick": "the default (No). Keep O1's {None, 'want to skip', default}. It can only appear after a stray Confirm during FMV003; the driver presses only on pages, and none is up during the movie. If the prompt line publishes empty, a prompt-only match VOIDs V1, so add an option-line match after a rehearsal measures it.",
+     "default_index": 1
+    },
+    {
+     "field": 64,
+     "raw_text": "O4 ONLY. '[PCHC=2,1][IMME]The audience is booing...\\nPerform the fight scene again?\\n[CHOO][MOVE=18,0]Yes\\n[MOVE=18,0]No' (124, WindowSync(5,0,124) at 64 e4 t1 ip413; 125/126/127 ask the same question with other prompts at ip433/453/462; SYSVAR[9] at ip476)",
+     "pick": "No (absolute 1), with the rule {donor 64, match 'No', pick 'No'}. 'Yes' publishes as 'es', and the prompt may publish empty. Yes (the default) replays the whole 50-round fight.",
+     "default_index": 0
+    }
+   ],
+   "battles": "One battle in O3: 62 e4 t1 ip1293 Battle(0,338) = BSC_TH_E002 (King Leo, Zenero, Benero), preceded by Int16[2]:=0 at ip1285.\n\nScene (the install's raw16):\n- flags 0x1839: preemptive, no EXP, no escape, AfterEvent, bit 0x10 set -> WinPose false (BTL_SCENE.cs:222);\n- puts: type 1 Zenero (HP 32), type 0 King Leo (HP 10186), type 2 Benero (HP 28); AP 1;\n- no tutorial (battle.cs:100: scene 336 only).\n\nParty: Zidane, Cinna, Marcus and Blank (UInt16[21]:=3585 at ip319), all at 9999 HP and 999 MP.\n\nHow it ends (King Leo's AI, TH_E002 entry 1 tag 1):\n1. Byte[206]:=SYSVAR[0] [539] every frame until SYSVAR[30]==1.\n2. RunBattleCode(35,0) [557]; wait for SYSVAR[30]==4.\n3. Each frame: if Map.Byte[24]==0 and the count of SYSLIST[1] members with cur.hp<=10000 is non-zero [587], set Map.Byte[24]:=1. In battle code SYSLIST[1] is the running object itself (EBin.cs:178-183, EventEngine.cs:985-994), and entry 1 is King Leo, so this means King Leo has lost at least 186 HP.\n4. Wait for SYSVAR[25]==0; RunBattleCode(32,0) [638].\n5. Wait for SYSVAR[30]==1; RunBattleCode(33,1) [660]. With WinPose false this ends as result 2, victory-no-pose (btl_scrp.cs:785-797). HonoluluBattleMain.cs:732-733 later folds it to 1, so keep won [1,2]. O1 measured 2 for scene 336, which has the same flag.\n\nExit: entry 0 tag 0 [265] RunBattleCode(37,63) at battle start (SYSVAR[26]=gMode==4 is 0), so the battle lands in 63 FRESH (F side: ForkSiblingField -> 31213), never back in 62.\n\nEnemy ATB functions only Attack, and nobody can fall.\n\ngEventGlobal writes: only Byte[206], a random value and count. This is O1's registered noise (not_m FIELD_MODE). TH_E002 writes no Byte[199]. The rows carry fld 62 (S) or 31212 (F).\n\nDriver: fight(finish=True) with the default policy (attack the first standing foe), max_turns 120.\n\nLater battles, outside O3: 337 TH_E003 (58), 335 TH_E004 (67), 334 TH_E005 (60).",
+   "minigames": "None in O3: 61-63 contain no B_KEYON, B_KEY, SYSVAR[9] or SYSVAR[0] read.\n\nThe next segment's Chanbara (64, entrance 100, stage 3) is REQUIRED by the story.\n\nRounds (e20 t1):\n- 50 iterations counted by Map.Int16[34]; a prompt shows only while it is below 49.\n- Map.Byte[46]:=SYSVAR[0]&7 picks the button; WindowAsync(1,160,112..119) shows it with [TIME=-1].\n- Byte[52]:=50 frames, always. Int16[36] is never incremented, so the 30-frame branch at L634 never runs.\n- e3 t1 polls B_KEYON per button. A wrong key is a miss, and so is a timeout.\n\nScore (e4 t1):\n- (Int16[30]+Int16[32])/29 at ip208;\n- EMinigame hook at sid 4 ip 223: +30% at SwordplayAssistance 1 (live Memoria.ini:252 = 1). At 2 the hook refills the timer and a no-press fight never ends;\n- clamped to 1..100.\n\nStory writes:\n- Byte[475]:=score at ip338, only if larger (Main_Init resets it to 0 at ip425);\n- Bit[3815]:=1 at ip390, only on a 50-combo (Main_Init resets it to 0 at ip416).\n\nThe no-press policy is deterministic: score 0 -> 1, Byte[475]=1, no Bit[3815], 1 gil, choice 124.\n\nPresses still needed in that cell:\n- the Confirm/Special press for 105/106 (ip868) and 107/108 (ip1404);\n- pages 111, 120, 121 and 128;\n- choice 124: No.\nIn the default layout a Confirm also sets Cross (EventInput.cs:522-531). That is unmeasured under injected input; the no-press policy avoids it.",
+   "nondeterminism": "Inside O3:\n1. Battle 338's Byte[206]:=SYSVAR[0] (random value and count): registered noise.\n2. The battle's length depends on damage rolls until King Leo has lost 186; no story write depends on it.\n3. Start: Byte[13] at the warp. 1 was measured in all 6 O2 runs. A 2 (a warp after FMV001's tail) would add 61 ip97 :=9 and the ip349 rows and stall on the error window; the O3-START clause catches it.\n4. FMV003's skip dialog, only after a stray Confirm.\n5. leave_battle's Confirms can land on 63's first windows (96/97 are TIMED, 98 is the first page). There is no choice there and no story effect.\n6. FMV and page timing vary; no write depends on them.\nNo control, regions, ATEs, encounters, timers, naming or minigames anywhere in 61-63.\n\nBeyond the end (O4):\n- the Chanbara score (Byte[475]/Bit[3815]) under any pressing driver;\n- the encore loop if Yes is taken;\n- 153's Bit[3795] choice;\n- Steiner's optional knight bits;\n- later battles' Byte[206]/Byte[199] AI noise.",
+   "open_questions": [
+    "FMV003's on-screen length under the live MoguriVideo file (84.8 s by ffprobe) and the frame unit of SYSVAR[14] (MBG.GetFrame = movieMaterial.Frame), i.e. when 61's script resumes (frame >= 1100 or the end). This sizes no_progress_s.",
+    "The harness's published battle_result for scene 338 (2 expected; O1 measured 2 for 336), and the number of turns and seconds fight() needs to deal King Leo 186 damage.",
+    "The F side's landing after battle 338: code and memory say 31213 via s24 (proven in game for a fork in June). It has never been seen under the trace. A leak to real 63 would show as rule 2's V11 on the F side only.",
+    "Whether to redeploy O1's block-2 text before O3. The live us/2.mes and uk/2.mes are identical (stock US) and predate the per-language refresh in the fork dir. A US game and the story writes are unaffected.",
+    "The skip-movie dialog's published prompt and options. It only matters after a stray Confirm during FMV003.",
+    "Recovery from a VOID inside battle 338: end_run's warp needs FieldHUD, and a soft reset from inside a battle has never been measured.",
+    "O4: the end (150 -> Field(153) at SC 1190 suggested), the chain scope (alxc disc-1 cluster vs --ids 64,150), the hold-pages rule for the Chanbara, and whether an injected Confirm sets Cross."
+   ],
+   "other_story_writes": "O3 field rows in order (S side; F identical in donor terms), 33 rows:\n- 61 e0 t0: Bit[191]:=0 ip22, Bit[184]:=0 ip49, Int16[9]:=-1 ip57, Byte[13]:=0 ip119, Int16[11]:=-1 ip138, Byte[14]:=0 ip200. MEASURED in O2's traces: run1_S/run2_F record exactly these six rows on arrival in 61.\n- 61 e2 t1: Byte[8]:=125 ip752.\n- 61 e1 t1: Int16[2]:=100 ip363.\n- 62 e0 t0: the same six ambient keys at ip26, 53, 61, 123, 142, 204.\n- 62 e4 t1: UInt16[21]:=3585 ip319; Byte[303]:=0 ip603, ++ at ip637, 659, 681, 703; Byte[4]:=0 ip1034; Byte[4]:=0 ip1085; Byte[17]:=0 ip1093; Byte[18]:=1 ip1101; Int16[2]:=0 ip1285.\n- Battle 338 (m=2): Byte[206]:=SYSVAR[0], many rows (noise).\n- 63 e0 t0: the six ambient keys at ip22, 49, 57, 119, 138, 200.\n- 63 e14 t1: Byte[8]:=125 ip805.\n- 63 e4 t1: Int16[2]:=100 ip820.\nCut at 64 e0 t0 ip22.\n\nDead on the route (forbidden/diagnostic):\n- the error-path rows 61 ip97/178/349/383, 62 ip101/182/346/380 and ip580/614 (e0 t10), 63 ip97/178/362/396;\n- 62 e4 t1 ip1345 (the battle never returns to 62);\n- 62 ip1023 (Byte[4]:=1, PARTYCHK(5) is false);\n- Int16[2]:=10000 at 61 ip41 / 62 ip45 / 63 ip41 (behind Bit[184]==1).\n\nNot gEventGlobal: Cinematic, SetPartyReserve, RemoveParty, PARTYADD (Map.Bit[147]), SetCharacterData, SetName(9,28)/(11,30)/(10,29), SetHP/SetMP, CureStatus.\n\nEnd state at arrival in 64: SC 1155; Int16[2] 100; UInt16[21] 3585; Byte[303] 4; Byte[4] 0; Byte[17] 0; Byte[18] 1; Byte[8] 125; Byte[13] 0; Byte[14] 0; Int16[9] -1; Int16[11] -1; Bit[191] 0; Bit[184] 0; Byte[206] random (exclude).\nUntouched (0 after a raw warp): Byte[6], UInt16[19], Byte[472], Int16[469], Bit[3717], Bit[3718].\n\nO4 preview:\n- 64: Bit[3815]:=0 ip416; Byte[475]:=0 ip425; Byte[8]:=125 ip475; Byte[475]:=score e4 t1 ip338; [Bit[3815]:=1 ip390]; Byte[8]:=0 e2 t1 ip331; Int16[2]:=325 ip528.\n- 150: Byte[8]:=25 e0 t0 ip331; UInt16[21]:=1 e3 t1 ip1136; Byte[303]:=0 ip1221, ++ ip1255; Byte[4]:=0 ip1652/ip1667; Byte[17]:=0 ip1675; Byte[18]:=1 ip1683; SC:=1190 ip1966; Byte[8]:=75 ip1974; Int16[2]:=325 ip2161.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o3_research\\O3_ROUTE.md (the reconciler's own listings: reconcile\\L61.txt, L62.txt, L63.txt, L64.txt, L150.txt, L153.txt, L70.txt; reconcile\\win_route.txt; reconcile\\mes_*.json; reconcile\\scenes_336_338.txt; reconcile\\ebtool.py, windows.py, mes.py)"
+  },
+  "start": {
+   "reads": [
+    {
+     "target": "Global.Byte[13] (BGM fade state)",
+     "where": "61 e0 t0 ip65 (==9), ip79 (==2 && Int16[9]<0), ip323 (==9 after the prologue), all before 61's own write at ip119",
+     "effect": "Both start values fail both tests, so 61 writes :=0 at ip119, the row O2's traces already hold. An incoming 2 or 9 would instead write :=9 at ip97, open the blocking debug window 3 'Error Env Play()' (ip339/WaitWindow ip346) and write :=0 at ip349: a different key set and a stalled run. O3-START must require 61's first Byte[13] row at ip119.",
+     "o2_end_value": "3 (116 e2 t1 ip1666). MEASURED: O2 run1_S/run2_F record 61 ip119 old 3 -> new 0.",
+     "raw_warp_value": "1 (field 70's prologue :=1 at ip130; the FMV001 tail :=2 at 70 e0 t0 ip475 comes minutes later). MEASURED: all 6 O2 runs show old=1 at their first Byte[13] row after the warp."
+    },
+    {
+     "target": "Global.Byte[14]",
+     "where": "61 e0 t0 ip146 (==9), ip160 (==2 && Int16[11]<0), ip357 (==9)",
+     "effect": "Equal; :=0 at ip200 in both starts.",
+     "o2_end_value": "0 (MEASURED: 61 ip200 old 0)",
+     "raw_warp_value": "0"
+    },
+    {
+     "target": "Global.Bit[184]",
+     "where": "61 e0 t0 ip30",
+     "effect": "Equal; the Int16[2]:=10000 at ip41 is skipped.",
+     "o2_end_value": "0",
+     "raw_warp_value": "0"
+    },
+    {
+     "target": "Party membership (FF9.party, not gEventGlobal)",
+     "where": "62 e4 t1 ip349-ip594: PARTYCHK 0..11 -> mask XOR {0,9,10,11} -> RemoveParty ip494, PARTYADD ip528-ip594. Then B_CURHP ip745-ip838 and PARTYCHK(5) ip1014.",
+     "effect": "The RemoveParty/PARTYADD calls differ (the true run removes Vivi and adds Zidane), but both starts end as [Zidane, Cinna, Marcus, Blank], and PARTYCHK(5) is false in both, giving Byte[4]:=0 at ip1034. Every gEventGlobal write is a literal, so there is no story difference. Report party as not covered.",
+     "o2_end_value": "[Vivi,-,-,-] (O2 100 e19 t1 ip981-1030)",
+     "raw_warp_value": "[Zidane,-,-,-] (New Game)"
+    },
+    {
+     "target": "Global.UInt16[21], Global.Byte[303]",
+     "where": "SetPartyReserve at 62 e4 t1 ip327 reads UInt16[21] right after ip319 writes it. Byte[303]++ at ip637 reads after ip603 :=0.",
+     "effect": "None: each is written before it is read.",
+     "o2_end_value": "2, 1",
+     "raw_warp_value": "0, 0"
+    },
+    {
+     "target": "Global.Byte[16], Byte[17], Byte[18] (battle engine)",
+     "where": "battle.cs:38-40 (TRANCE_GAUGE_FLAG, GARNET_DEPRESS_FLAG, GARNET_SUMMON_FLAG) during battle 338",
+     "effect": "None: Byte[16] is 0 in both starts and never written on the route; 17 and 18 are written at 62 ip1093/ip1101 before the battle. The TH_E002 AI reads no gEventGlobal.",
+     "o2_end_value": "0, 0, 1",
+     "raw_warp_value": "0, 0, 0"
+    },
+    {
+     "target": "Global.UInt16[0] (SC), Global.Int16[2] (FieldEntrance)",
+     "where": "Never read in 61, 62 or 63. The first reads are after the cut: 64 e0 t0 ip232 (Int16[2], written 100 by 63 ip820) and ip526 (SC<1900).",
+     "effect": "None.",
+     "o2_end_value": "1155, 0",
+     "raw_warp_value": "1155 (residue rows: byte 0 0->131, byte 1 0->4), 0 (no row)"
+    },
+    {
+     "target": "BEYOND O3 ONLY: Global.UInt16[19] (first-join bits), Global.Byte[6] (naming flags)",
+     "where": "153 e32 t1 ip2180/ip2206; 55 e8 t1; 58 e6 t1; 67 e16 t1; 60 e3 t1; 151 e3 t1 ip610 (start reader)",
+     "effect": "START-DEPENDENT under a raw warp, but only for a segment that reaches 151/153 e32 or later (O4+). Not read in 61-64.",
+     "o2_end_value": "1799, 3",
+     "raw_warp_value": "0, 0"
+    }
+   ],
+   "start_options": "(a) RECOMMENDED: O2's raw warp, exactly.\n- New Game, then 'storytrace 1', then in field 70 (during FMV001) 'warp 61 0 1155' (S) or 'warp 31211 0 1155' (F).\n- Residue is exactly two rows: SC byte 0 0->131 and byte 1 0->4. FieldEntrance 0->0 writes no row.\n- Under (a) NO gEventGlobal key read in 61-63 is START-DEPENDENT. Byte[13] (1 vs 3) and Byte[14]/Bit[184] take the same branch, and UInt16[21]/Byte[303] are written before they are read.\n- Add one O3-START clause: the run's first rows in 61 are the six ambient rows, with Byte[13] at e0 t0 ip119. Any ip97/ip178/ip349/ip383 row voids the start.\n- Not covered: the party (normalized by 62 e4 t1 anyway), items, gil, AP and cards. Nothing on the route reads them.\n\n(b) Harness pokes (byte 19/20 = 7, byte 6 = 3): unnecessary for O3. Nothing in 61-63 reads UInt16[19] or Byte[6]. They become relevant only for a segment reaching 151 or 153 e32 (O4+).\n\n(c) The narrative-state story seed is unsuitable:\n- it needs an owner-gated hub and a New Game re-wire;\n- it adds non-stock prologue rows before 61;\n- a hub that leaves Byte[13]=2 would trip 61's error window;\n- it has no channel for UInt16[19] or Byte[6].",
+   "party_and_names": "In the real game 61 is entered with [Vivi] (UInt16[21]=2). After New Game plus the raw warp the party is [Zidane] (UInt16[21]=0).\n\n61 needs no party:\n- its cast is explicit entries: e2 Baku (5501), e9 Zidane (model 98, DefinePlayerCharacter e9 t0 ip274, no EnableMove), e14 Cinna (107), e16 Blank (5467), e7/e8 swords (243);\n- no PARTYCHK, PARTYADD or party-UID object.\n\n62 e4 t1 rebuilds the party from the live membership into [Zidane, Cinna, Marcus, Blank] in both starts. It then sets character data and the names Cinna/Blank/Marcus with SetName(9,28)/(11,30)/(10,29) (player data, not gEventGlobal). 63 uses explicit entries again (e14 Zidane).\n\nNames: 61 shows Zidane's name through [ZDNE] (83/84), as do 62's 94/95 and 63's 99/100/101. The default 'Zidane' holds in both starts (O1 kept the default). Blank, Cinna, Marcus and King Leo are literal speaker names.\n\nNo naming screen, no control, and no beat that needs a member the warp start lacks.\n\nNot determined: whether the Masked Man's result-2 end in O1 awarded gil and AP (not gEventGlobal; never read in O3).",
+   "summary": "O3 (61 -> 62 -> battle 338 -> 63 -> real 64) reads almost nothing a start can change.\n- 61 reads only Bit[184], Byte[13] and Byte[14] before writing them. Both starts take the same branch: Byte[13] is 1 after the warp and 3 at a true O2 end, and both become :=0 at ip119. The 3 case was MEASURED in O2's traces, and the warp's 1 in all 6 O2 runs.\n- 62 writes UInt16[21] and Byte[303] before reading them, and normalizes the party to [Zidane, Cinna, Marcus, Blank].\n- Battle 338 reads only Byte[16..18]: 16 is 0 in both starts, 17 and 18 are written by 62 first.\n- 63 reads nothing global.\n\nRecommendation: start (a), O2's raw warp ('warp 61 0 1155' / 'warp 31211 0 1155'), with zero START-DEPENDENT keys and one O3-START clause (61's first Byte[13] row at ip119; residue = SC bytes 0 and 1 only).\n\nThe O1/O2 accumulators UInt16[19] and Byte[6] become start-dependent only past 151/153 (O4+). Party, items, gil and AP stay not covered.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o3_research\\O3_ROUTE.md (section 'Start state'); start reader's notes: ...\\o3_research\\start_state\\START_STATE_NOTES.md; measured O2 traces: C:\\gd\\Dream-World-IX\\.harness-runs\\20260930-192740-story-o2\\run{1..6}_{S,F}.jsonl"
+  },
+  "disputes": [
+   {
+    "topic": "Segment end",
+    "bytes_reader": "Candidate 3: 150 e3 t1 ip2169 Field(153), SC 1190, ~13 min. Fork alxc 64 and 150, and either re-link 31213 or fork fresh copies of 61-63 in a new band.",
+    "data_reader": "Candidate 1: 63 e4 t1 ip828 Field(64), ~5.5 min, no new fork.",
+    "settled": "Candidate 1.\n- About 6 min a run against about 12.\n- O1's whole-zone chain is already live, and its three members have never been traced.\n- The seam is the zone boundary, like O1's and O2's.\n- No import, deploy or relaunch.\n- One new driver feature (the battle).\nCandidate 3 needs an in-place redeploy of O1's 31213 plus alxc members. Its fallback (fresh 61-63 copies) duplicates donor 63, disables the battle-return redirect, and drops the fork run into REAL 63.",
+    "ref": "63 e4 t1 ip820/ip828; C:\\gd\\_ns_playtest\\o1\\fork\\O1_TSHP_TH_STG\\O1_TSHP_TH_STG.field.toml (retarget commented out); DataPatchers.cs:148-164; HonoluluBattleMain.cs:734-738"
+   },
+   {
+    "topic": "Battle 338's result code",
+    "bytes_reader": "2, victory-no-pose, by analogy with O1's scene 336.",
+    "data_reader": "1, victory WITH pose; expect a result screen.",
+    "settled": "2.\n- Scene 338's header flags are 0x1839, and bit 0x10 is set, so WinPose is false.\n- RunBattleCode(33,1) therefore stores 2 (victory-no-pose) and goes to PHASE_CLOSE.\n- O1 measured 2 for 336, whose flags (0x835) carry the same bit.\n- Keep won [1,2]: the over-frame folds 2 into 1 later.",
+    "ref": "BTL_SCENE.cs:214-222; btl_scrp.cs:785-797; HonoluluBattleMain.cs:732-733; reconcile\\scenes_336_338.txt; .harness-runs\\20260929-213149-story-o1e\\run3_S_log.json outcome.beats.battle = 2"
+   },
+   {
+    "topic": "Battle 338's scripted-end condition",
+    "bytes_reader": "`B_SYSLIST[1] cur.hp <= 10000 B_COUNT` counts party members, so it is true at once (HP 9999).",
+    "data_reader": "King Leo's HP <= 10000, i.e. 186 damage out of 10186.",
+    "settled": "The data reader is right.\n- In battle code EBin.ad3 calls ProcessCodeExt, which sets SYSLIST[1] to the RUNNING object's own bit.\n- Entry 1 is enemy type 0's AI. The InitObject order 2,1,3 matches the put order type 1,0,2, so entry 1 is King Leo, HP 10186.\n- So the party must deal at least 186 damage to King Leo before RunBattleCode(32/33) fires. fight() has to keep attacking.",
+    "ref": "TH_E002 entry 1 tag 1 [579]-[660]; entry 0 tag 0 [256]-[262]; EBin.cs:178-183; EventEngine.cs:985-994; scene 338 type 0 HP 10186"
+   },
+   {
+    "topic": "What follows battle 338",
+    "bytes_reader": "62 re-enters through Main_Reinit e0 t10 (no stores); e4 t1 resumes with Int16[2]:=0 at ip1345 and Field(63) at ip1353.",
+    "data_reader": "Same: Main_Reinit e0 t10, then e4 t1 continues with Int16[2]:=0 at ip1345 and Field(63) at ip1353.",
+    "settled": "Neither. 63 loads fresh, and 62 is never resumed.\n- The battle's own init runs [265] RunBattleCode(37,63) when SYSVAR[26]=0.\n- btl_scrp case 37 calls SetNextMap(63), which sets FF9Battle.map.nextMapNo=63.\n- At the end, fldMapNo:=63 (fork: ForkSiblingField -> 31213).\n- EventEngine resumes a field only when lastmap==fldMapNo (62 != 63), so 63's Main_Init runs.\n- 62's e0 t10 and e4 t1 ip1298-ip1353 never run. ip1345 is not a route key, and 63 starts with Int16[2]=0 from ip1285.\n- The fork-gates reader had this right.\n- In-game proven for a fork in June 2026.",
+    "ref": "TH_E002 entry 0 tag 0 [238]-[270]; GetSysvar.cs:84-85; btl_scrp.cs:829-840; EventEngine.cs:1306-1318, 666, 763; HonoluluBattleMain.cs:117, 734-738; DataPatchers.cs:98-105; memory project-ff9-doeventcode-fork-gates.md 'the fork's suspended Field(forkId) is ABANDONED'"
+   },
+   {
+    "topic": "Battle tutorial and result screen",
+    "bytes_reader": "No tutorial is mentioned; fight() until the scripted end.",
+    "data_reader": "Confirm the tutorial or the result screens; leave_battle on the result.",
+    "settled": "No tutorial for 338: the battle.cs check is btlMapNo==336, shown once per session. Whatever screen follows the end is handled by fight(finish=True)'s leave_battle, as in O1.",
+    "ref": "battle.cs:100-104; tools/harness/session.py:7449 leave_battle"
+   },
+   {
+    "topic": "Run time of the chosen end",
+    "bytes_reader": "~7 min (FMV ~1 min, pages, ~40 s of timed lines, battle ~1 min)",
+    "data_reader": "~5.5 min (window counts)",
+    "settled": "~6 min, as an estimate.\n- The FMV003 file is 84.8 s (MoguriVideo, theora 29.97 fps).\n- 61's script resumes at movie frame >= 1100 or at the movie's end.\n- 10 Confirm pages and about 17 timed or script lines.\n- A battle of at least 186 damage.\nThe stock rehearsals must measure it before budgets are frozen.",
+    "ref": "ffprobe on <game>\\MoguriVideo\\StreamingAssets\\ma\\FMV003.bytes; 61 e2 t1 ip266/ip324"
+   },
+   {
+    "topic": "(O4) 64's SCRIPT windows 105/106 and 107/108 (and 150's 98/99)",
+    "bytes_reader": "e13 waits <=250 frames or gMesSignal>=2, then waits for the Confirm+Special RELEASE (ip868); 107 is a script line.",
+    "data_reader": "105/106 are script windows; Confirm only on tutorial 111.",
+    "settled": "Each pair needs one PRESS.\n- ip868 is JMP_IF looping while (!KEYON(Confirm) && !KEYON(Special)). KEYON is the press edge (ETb.sKeyOn), so the loop WAITS FOR a press, then closes 105 and 106.\n- The same happens at 64 e13 t1 ip1404 for 107/108 and at 150 e2 t1 ip538 for 98/99.\n- The page rule's repeated presses satisfy them. A no-press hold must not cover them.",
+    "ref": "64 e13 t1 ip844-ip891 and ip1380-ip1427; 150 e2 t1 ip514-ip561; EBin.cs:1094-1101; ETb.cs:65-70"
+   },
+   {
+    "topic": "(O4) 64's round timer",
+    "bytes_reader": "Byte[52]=50 (30 only if Int16[36]>0, which never happens)",
+    "data_reader": "50, or 30 once a streak exists",
+    "settled": "50 always. Int16[36] is only ever set to 0 (e13 t1 ip722/ip1010) or clamped to 1 when >=10 (e20 t1 L1394-L1405). Nothing increments it, so L634 never runs. The streak is Int16[40].",
+    "ref": "64 e20 t1 L615-L634, L1394-L1405"
+   },
+   {
+    "topic": "(O4) 64's encore choice rule",
+    "bytes_reader": "Match the OPTION text: 'No' -> 'No' (the prompt may publish empty; 'Yes' publishes as 'es').",
+    "data_reader": "Match 'fight scene again' (the prompt), pick 'No'.",
+    "settled": "Use {donor 64, match 'No', pick 'No'}. pick_for matches `match` against [prompt, *lines], and the O2 lesson is that the prompt may publish empty, so a prompt-only rule can VOID V1.",
+    "ref": "64 e4 t1 ip413 (text 124), SYSVAR[9] ip476; studies/story-trace/segment_drive.py:76-112"
+   },
+   {
+    "topic": "(O4) Site of SC 1190",
+    "bytes_reader": "150 e3 t1 ip1966 (the debug overwrite at ip1952 is behind the guard)",
+    "data_reader": "ip1966 (the debug overwrite at ip1952 is behind SC>1190)",
+    "settled": "ip1966 (L1708). The start-state reader's 'ip1952' is the debug overwrite: it sits behind guard ip1884 SC>1190 and a Start KEYON (ip1943), and never runs on the route.",
+    "ref": "150 e3 t1 ip1884-ip1974"
+   },
+   {
+    "topic": "(O4) 150's pages",
+    "bytes_reader": "13 CONFIRM pages; 98 and 99 are script windows (<=250 frames / gMesSignal, then close).",
+    "data_reader": "'Confirm on the Sync pages (90, 102, 106, 91 ...)'",
+    "settled": "13 Confirm pages (90, 91, 92, 93, 94, 95, 96, 97, 100, 102, 103, 104, 106), plus one Confirm/Special press that closes 98 and 99 (e2 t1 ip538). 85-89 are TIMED.",
+    "ref": "150 e3 t1 ip436-ip1072; e2 t1 ip404-ip617; reconcile\\win_route.txt"
+   },
+   {
+    "topic": "(O4) Text block of the alxc members",
+    "bytes_reader": "(not stated)",
+    "data_reader": "(not stated; the fork-gates reader said to keep each alxc member on text block 3)",
+    "settled": "64, 68 and 69 are on text block 2, the play's block shared with 61-63. 150-167 are on block 3. A verbatim fork keeps its donor's own block. mes_61.json and mes_64.json are byte-identical.",
+    "ref": "ff9mapkit._fieldtext.EVENT_ID_TO_MES; reconcile\\mes_61.json vs mes_64.json"
+   },
+   {
+    "topic": "Start option",
+    "bytes_reader": "Raw warp; set Byte[13]=3, Byte[14]=0 and UInt16[21]=2 before it.",
+    "data_reader": "Raw warp; rehearse the Byte[13]/[14] hazard.",
+    "settled": "Option (a), no pokes. The start reader recommends (b) only for a route reaching 151/153, and says (a) is exact for an end at 64. Measured Byte[13] at the warp is 1 in all 6 O2 runs, which is safe. Add the O3-START clause instead of poking.",
+    "ref": ".harness-runs\\20260930-192740-story-o2\\run{1..6}_*.jsonl first Byte[13] row old=1; 61 e0 t0 ip65-ip130"
+   },
+   {
+    "topic": "alxc zone size",
+    "bytes_reader": "95 fields by FBG token",
+    "data_reader": "94 (whole-zone dry run)",
+    "settled": "Both are right in their own frame. ID_TO_FBG has 95 alxc tokens; the import-chain dry run lists 94, omitting 1805. This does not matter for O3.",
+    "ref": "ff9mapkit.extract.ID_TO_FBG; data_route\\alxc_wholezone.txt"
+   }
+  ],
+  "unverified": [
+   "FMV003's on-screen duration and the unit of SYSVAR[14]. The file length is 84.8 s; when 61's script resumes is unmeasured.",
+   "The harness's published battle_result for scene 338 (code-read: 2), and the turns and time fight() takes to deal King Leo 186 damage.",
+   "The battle's cmd-37 landing under the trace. On S, 63 loads fresh (code-read); on F, 31213 via s24 (in-game proven for a fork in June per memory, never traced).",
+   "That no skip-movie dialog opens during FMV003, and how its prompt publishes if one does.",
+   "Per-run wall time (~6 min estimate) and the no_progress_s margin against FMV003.",
+   "Soft reset or end_run recovery from inside battle 338.",
+   "leave_battle's press count after the scripted end, and whether a late press advances 63's first windows. Code says this has no story effect.",
+   "O4 preview items, code-read only:\n- the no-press Chanbara score (1);\n- whether an injected Confirm sets Cross;\n- the KEYON-gated windows in 64 and 150;\n- how 124's options publish;\n- 150's 13+1 presses.",
+   "Beyond 153 (candidates 4 and 5): surveyed from the Field() graph only, not decoded beat by beat."
+  ],
+  "harness_gaps": {
+   "summary": "For the chosen O3 (61 -> 62 -> battle 338 -> 63 -> real 64), one gap blocks a session: the beat-table driver VOIDs on any battle (rule 5, V10). The fix is an opt-in battle registry that calls the proven fight(). Everything else is ready:\n- pages;\n- the end;\n- O2's raw-warp start, plus an O3-START clause;\n- an empty beat table, since 61-63 never grant control.\n\nNew facts the route adds:\n- The battle's exit is baked into scene 338 (RunBattleCode(37,63)). The run leaves 62 by the battle and lands in 63 fresh, and on the F side in 31213 via s24. Rule 3 handles this as a new visit. A leak to real 63 on F would be rule 2's V11 on the game and must be read as a fork finding.\n- The scripted end needs 186 damage to King Leo; fight()'s default policy does that.\n- The result is 2.\n\nRisks:\n- the skip-movie dialog's published form (FMV003 is now inside the segment);\n- the 120 s watchdog against an ~85 s movie;\n- recovery from inside a battle;\n- leave_battle's late presses.\n\nThe FakeGame needs a battle beat that exits into another field.\n\nO4-only gaps (not needed now): the Chanbara hold-pages rule plus a SwordplayAssistance preflight, revisit keying, Steiner's radius, facing gates, and NPC talks.",
+   "items": [
+    {
+     "topic": "Battle 338 under the beat-table driver",
+     "status": "gap",
+     "evidence": "studies/story-trace/segment_drive.py:1113-1117: rule 5 makes any in_battle or Tutorial state V10. tools/harness/session.py:7356-7420: fight() plays to a result. O1 used its own drive (o1_opening.py:171-174) and measured result 2 (story-o1e run3_S_log.json). segment_trace.py:654 checks a single 'battle' beat against pred['battle_won'].",
+     "smallest_fix": "Add an opt-in `battles` registry beside `naming`, for example [{donor:62, sc:1155, scene:338, won:[1,2], beat:'battle'}].\n- Rule 5 calls g.fight(finish=True) on a match and logs {k:'battle', scene, result, turns, field_after}.\n- An unregistered battle stays V10.\n- The coverage check reads the registry's won set."
+    },
+    {
+     "topic": "The battle exits into another field (scene 338 bakes Field 63)",
+     "status": "ready",
+     "evidence": "The exit chain:\n- TH_E002 entry 0 tag 0 [265] RunBattleCode(37,63);\n- btl_scrp.cs:829-840;\n- HonoluluBattleMain.cs:734-738;\n- EventEngine.cs:666: 63 loads fresh, and 62's e4 t1 ip1298-ip1353 never run.\nThe driver side:\n- segment_drive.py: rule 3 starts a new visit on any field-id change;\n- rule 2 keeps the F side on members, and 31213 is place 63.",
+     "smallest_fix": "Set route [61,62,63] and end_fields [64]; the driver code is unchanged.\n- Register 62 e4 t1 ip1345 as a forbidden diagnostic: it would mean the battle returned to 62.\n- Have O3's VOID-asymmetry check read an F-only V11 that lands in real 63 as an s24 redirect failure."
+    },
+    {
+     "topic": "The scripted end needs 186 damage to King Leo",
+     "status": "ready",
+     "evidence": "TH_E002 entry 1 tag 1 [587]: King Leo's own cur.hp <= 10000, out of HP 10186. fight() attacks the first standing foe each turn until battle_result != 0 (session.py:7387-7391), with max_turns 120. The minions have 32 and 28 HP. Party HP is 9999.",
+     "smallest_fix": "None. Record turns and seconds in the battle row; the rehearsals size run_s."
+    },
+    {
+     "topic": "Battle-AI noise",
+     "status": "ready",
+     "evidence": "TH_E002's only global store is Byte[206]:=SYSVAR[0] at [539] (random value and count). O1's legacy noise row {not_m FIELD_MODE, target Global.Byte[206]} covers it (o1_opening.py:114-117; segment_trace.py:112-122). TH_E002 writes no Byte[199].",
+     "smallest_fix": "Carry O1's Byte[206] noise row into O3's predictions."
+    },
+    {
+     "topic": "leave_battle presses after the scripted end",
+     "status": "risk",
+     "evidence": "session.py:7449 leave_battle presses Confirm until the field is up. The battle lands in 63 fresh. 63's first windows are 96/97, both TIMED, then page 98. There is no choice in 63.",
+     "smallest_fix": "None for story state. Log the press count in the battle row."
+    },
+    {
+     "topic": "FMV003 inside the segment, and the skip-movie dialog",
+     "status": "risk",
+     "evidence": "61 e2 t1 ip159 Cinematic(0,8) = FMV003, type 0 (MBG.cs:829, 205-208). FieldHUD.cs:275-286 opens the dialog only on a Confirm during the movie, with ETb.sChoose=1 (No). Its text is System.strings SkipMovieDialog0366 '...Do you want to skip\\nthe movie?\\n[CHOO]Yes...'. O1's rule {None,'want to skip',default} has never been measured. The driver presses only on pages (segment_drive.py:1134-1146), and none is up during the movie.",
+     "smallest_fix": "Run one rehearsal that presses Confirm during FMV003 and freeze the published prompt and options. Let the rule also match an option line."
+    },
+    {
+     "topic": "Stall watchdog against FMV003",
+     "status": "risk",
+     "evidence": "no_progress_s was 120 s in O2 (segment_drive.py:1066-1072). The FMV003 file is 84.8 s. 61 waits for movie frame >= 1100 or the movie's end (e2 t1 ip324). No text, row or control change happens during the movie.",
+     "smallest_fix": "Size no_progress_s from a stock rehearsal, or add the movie/fade state to the progress signature."
+    },
+    {
+     "topic": "Raw-warp start",
+     "status": "ready",
+     "evidence": "O2's start_run (segment_trace.py:441-458). Measured in all 6 O2 runs: Byte[13]=1 at the warp, and the residue is SC bytes 0/1 (plus byte 2 there). O2's run1_S/run2_F show 61's arrival rows at ip22/49/57/119/138/200.",
+     "smallest_fix": "Start with S 61 / F 31211, entrance 0, scenario 1155. O3-START: the residue is exactly bytes 0 (0->131) and 1 (0->4), and 61's first Byte[13] row is at e0 t0 ip119, never ip97 or ip349."
+    },
+    {
+     "topic": "No control anywhere in 61-63",
+     "status": "ready",
+     "evidence": "Every EnableMove is behind Map.Bit[158]==1, and nothing on the route sets it (map vars are zeroed at StartEvents):\n- 61 e0 t0 ip440\n- 62 e0 t0 ip437 and e0 t10 ip671\n- 63 e0 t0 ip453\n61-63 also have no SetRegion, InitRegion, B_KEY or B_KEYON.",
+     "smallest_fix": "An empty beat table. Any control is V4, which is the correct outcome."
+    },
+    {
+     "topic": "Recovery from a VOID inside battle 338",
+     "status": "risk",
+     "evidence": "end_run warps to 4600 (segment_trace.py:43, 460-482). warp and close_ui wait for FieldHUD (session.py:2458, 7778-7800). A soft reset has never been measured from inside a battle.",
+     "smallest_fix": "In end_run, go straight to g.soft_reset() when st.in_battle. Measure it once in a stock rehearsal."
+    },
+    {
+     "topic": "FakeGame and dry run",
+     "status": "gap",
+     "evidence": "The FakeGame has start_battle/end_battle (fakegame.py:2072, 2310). It has no battle beat inside scene() whose exit is another field, and no FMV skip dialog (harness reader).",
+     "smallest_fix": "Add opt-in scene beats {battle:338, result:2, exit:63} and {movie, skip_dialog}, so o3_dryrun exercises the registry and the exit."
+    },
+    {
+     "topic": "Budgets",
+     "status": "gap",
+     "evidence": "The estimate is about 6 min a run: FMV ~85 s, 10 pages, about 17 timed or script lines, a battle of at least 186 damage. O1 measured 3.5 min, O2 about 6 (run_s 716).",
+     "smallest_fix": "Freeze run_s and no_progress_s from the stock rehearsals."
+    },
+    {
+     "topic": "(O4 only) The Chanbara under the page rule",
+     "status": "gap",
+     "evidence": "64 e20 t1 shows 'Press X!' 112-119 as [TIME=-1] pages. Rule 7 presses Confirm on every page (segment_drive.py:1134-1146), which turns random prompts into hits or misses, so Byte[475] varies. EMinigame.cs:24-31: SwordplayAssistance 2 would never end a no-press fight; Memoria.ini:252 is 1.",
+     "smallest_fix": "Add a cell key `hold_pages` matched on raw_texts (for example 'Press [DBTN='), and a preflight that SwordplayAssistance != 2. The KEYON-gated 105/106/107/108 and pages 111/120/121/128 keep the page rule."
+    },
+    {
+     "topic": "(O4 only) Revisits, Steiner's radius, facing gates, NPC talks",
+     "status": "gap",
+     "evidence": "As the harness reader found:\n- cells keyed (donor, sc), segment_drive.py:116-118;\n- player radius size*4 vs the kit's 80;\n- x_cross passes no gate;\n- the confirm executor has no object target.",
+     "smallest_fix": "Needed only for O4 or later, per the harness reader's fixes."
+    }
+   ],
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o3_research\\O3_ROUTE.md (section 'Harness gaps for O3'); harness reader's notes: ...\\o3_research\\harness\\harness_readiness_notes.txt"
+  },
+  "fork_gates": {
+   "summary": "No engine gate on 61, 62 or 63 can change a story write.\n\nThe one trace-relevant mechanism on the route is s24's battle-return redirect. Scene 338's script bakes real 63 as the after-battle field (RunBattleCode(37,63)), and at battle end HonoluluBattleMain sends a run that entered from a fork to ForkSiblingField(63) = 31213. Its precondition holds today:\n- live ForkDonorPatch has the rows 31212 62 and 31213 63;\n- FF9CustomMap is the only folder that ships a ForkDonorPatch;\n- its only duplicated donors are Dali 312/350-359.\nThe redirect is in-game proven for a fork, not yet under the trace.\n\nThe chain is ready without a deploy. 31211 and 31212 differ from stock only in their retargeted Field() argument bytes, 31213 is byte-identical, and 31213's Field(64) is the end seam.\n\nRisks:\n- The live text block 2 predates the per-language fork refresh: us == uk == stock US. It is a global block, seen by both sides, and harmless to story writes and to a US game.\n- PSXCameraAspect.cs:47's raw RestrictedCams row [63,0,320] is visual only.\n\nO4 inherits:\n- the wrapped EMinigame score hook (keyed sid/ip; in game still PENDING);\n- the wrapped 150 autosave and 153 camera gates;\n- the rule never to deploy a second tshp band;\n- alxc text blocks 2 (64/68/69) and 3 (150-167).",
+   "items": [
+    {
+     "topic": "Battle 338's baked after-field (s24 redirect)",
+     "status": "ready",
+     "evidence": "The redirect:\n- TH_E002 entry 0 tag 0 [265] RunBattleCode(37,63);\n- btl_scrp.cs:829-840;\n- HonoluluBattleMain.cs:114 records PreBattleFieldNo;\n- HonoluluBattleMain.cs:734-738: fldMapNo = IsForkField(pre) ? ForkSiblingField(63) : 63;\n- DataPatchers.cs:93-105.\nPreconditions on the live install: ForkDonorPatch rows 31212 62 and 31213 63. In-game proven for a fork (memory project-ff9-doeventcode-fork-gates.md; project-ff9-faithful-opening.md 'user-proven got there').",
+     "smallest_fix": "None."
+    },
+    {
+     "topic": "Donor uniqueness, the redirect's precondition",
+     "status": "ready",
+     "evidence": "DataPatchers.cs:148-164: a donor forked by two ids gets -1, which means identity and a leak to real 63. Across the six FolderNames folders only FF9CustomMap ships ForkDonorPatch.txt (73 rows). Its duplicates are donors 312 and 350-359 only. Donors 61, 62 and 63 appear once.",
+     "smallest_fix": "Preflight: assert every chain donor appears exactly once across all stacked ForkDonorPatch files. O4 must never re-fork tshp while 31200-31219 are deployed."
+    },
+    {
+     "topic": "Members 31211-31213 are verbatim",
+     "status": "ready",
+     "evidence": "Stock and FF9CustomMap scripts compared with storytrace.stock_script_source and mod_script_source:\n- 31211 differs only at abs 1105-1106 (the argument of 61 e1 t1 ip371 Field(62), retarget {62=31212});\n- 31212 differs only at abs 3175-3176 (62 e4 t1 ip1353 Field(63), retarget {63=31213}, dead on the route);\n- 31213 is byte-identical to 63.",
+     "smallest_fix": "None."
+    },
+    {
+     "topic": "The end seam",
+     "status": "ready",
+     "evidence": "31213 e4 t1 ip828 Field(64) is not retargeted (O1_TSHP_TH_STG.field.toml: retarget commented out), so both sides end in real 64. Live DictionaryPatch has no FieldScene row for 64.",
+     "smallest_fix": "None."
+    },
+    {
+     "topic": "Text block 2 on the live install",
+     "status": "risk",
+     "evidence": "FF9CustomMap\\FF9_Data\\embeddedasset\\text\\{us,uk}\\field\\2.mes were written 2026-09-29 21:06 and are identical (md5 ddf99c96 = stock US block 2, 27936 B; stock UK is 27971 B). The fork dir's per-language refresh (O1_TH_BST.verbatim_mes.json, 2026-09-30 10:45) was never redeployed. Block 2 is a global block, so the S side reads it too. A US game and the story writes are unaffected, and O3 has no choice text.",
+     "smallest_fix": "Redeploy O1's refreshed block-2 text (owner-gated), or register it as a known kit defect for a P-TEXT preflight (O2's KNOWN-KIT-DEFECT rule)."
+    },
+    {
+     "topic": "Raw camera letterbox for 63 (RestrictedCams)",
+     "status": "risk",
+     "evidence": "PSXCameraAspect.cs:47 compares the raw fldMapNo with NarrowMapList.cs:108 [63,0,320], so 31213 renders cam 0 at full width. This is visual only: 63's camIdx reads (e13/e20 t1 B_SYSVAR[1]==1) only pick SetObjectFlags.",
+     "smallest_fix": "Use EffectiveFieldId at PSXCameraAspect.cs:47 (optional)."
+    },
+    {
+     "topic": "FMV003 on the fork",
+     "status": "ready",
+     "evidence": "fldfmv.cs:112 gates only field 100. 61 sets its own PLAY bit (e2 t1 ip237). MBG playback is keyed on the movie id (MBG.cs:829). The skip hit-area is armed by type on both sides.",
+     "smallest_fix": "None."
+    },
+    {
+     "topic": "Scripts that read a field-id-dependent value",
+     "status": "ready",
+     "evidence": "61-63 read only SYSVAR 1, 3, 12, 13, 14 and 15. None reads B_SYSVAR[191], the raw fldMapNo (GetSysvar.cs:102-103). No Int16[2] or SC read exists in 61-63.",
+     "smallest_fix": "None."
+    },
+    {
+     "topic": "Autosave on 63's fresh post-battle load",
+     "status": "ready",
+     "evidence": "EventEngine.cs:666-693: the fresh-load branch autosaves unless noSave, and there is no gate for 63. This is a save write, not gEventGlobal, and it goes into the harness save sandbox.",
+     "smallest_fix": "None."
+    },
+    {
+     "topic": "(O4) 64's Chanbara score hook",
+     "status": "risk",
+     "evidence": "EMinigame.cs:9-31 is wrapped (EffectiveFieldId 64) and keyed on sid 4 ip 223, so member(64) must keep entry 4's layout byte for byte. It adds +30% at SwordplayAssistance 1 and feeds Byte[475] (e4 t1 ip338) and Bit[3815] (ip390). In game it is still PENDING playtest (memory project-ff9-faithful-opening).",
+     "smallest_fix": "Make O4 verbatim only, with the no-press policy, plus a preflight that SwordplayAssistance != 2."
+    },
+    {
+     "topic": "(O4) Other gates on 64/150/153/164 and the alxc text blocks",
+     "status": "ready",
+     "evidence": "All wrapped:\n- EventHUD.cs:346-357 (64 HUD);\n- EventEngine.cs:682 (150 autosave at 1155/325);\n- DoEventCode.cs:1974 (153 camera #493);\n- DoEventCode.cs:1507 (164 pathing).\nEVENT_ID_TO_MES puts 64/68/69 on text block 2 and 150-167 on block 3.",
+     "smallest_fix": "None. Keep each member on its donor's block."
+    }
+   ],
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o3_research\\O3_ROUTE.md (section 'Fork gates and the chain'); gates reader's notes: ...\\o3_research\\gates\\notes.txt"
+  },
+  "fork_chain": "No new import, build or deploy for O3. Reuse O1's deployed whole-zone tshp chain 31200-31219 in FF9CustomMap (C:\\gd\\_ns_playtest\\o1\\fork\\campaign.toml; record studies/story-trace/o1_forks.json, deployed 2026-09-29 21:07).\n\nThe route members:\n- 31211 = 61 (O1_TH_BST, retarget {62=31212});\n- 31212 = 62 (O1_TH_STG, retarget {63=31213}). That Field(63) at ip1353 is dead on the route, because the battle's exit goes through s24's ForkSiblingField(63) = 31213 using the live ForkDonorPatch rows 31212 62 and 31213 63;\n- 31213 = 63 (O1_TSHP_TH_STG, no retarget). Its Field(64) at e4 t1 ip828 is THE SEAM AND THE END: real 64 on both sides.\n\nThe deployed scripts are stock byte for byte except Field() arguments: 31211 at abs 1105-1106, 31212 at abs 3175-3176, 31213 identical.\n\nSession start:\n- S: warp 61 0 1155.\n- F: warp 31211 0 1155.\n- route [61,62,63], end_fields [64].\n\nFor O4 (not O3):\n- Import the alxc disc-1 cluster as a FRESH band: --ids 64,68-69,150-151,153-167, or --whole-zone, which is 95 fields by FBG token and 94 in the dry run.\n- Live FieldScene ids are 31200-31237; nothing is registered in 31238-31270 today. That is a sample, so re-read every folder's DictionaryPatch before minting.\n- Keep 64/68/69 on text block 2 and 150-167 on block 3.\n- Start O4 with a raw warp into member(64) at entrance 100 and SC 1155, so O1's 31213 never needs re-linking.\n- O4's first natural end is member(150)'s Field(153), with SC 1190.\n- Never deploy a second tshp band while 31200-31219 are live: a donor forked twice disables the redirect (DataPatchers.cs:148-160), and battle 338 would then leak into real 63.",
+  "route_md_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o3_research\\O3_ROUTE.md"
+ },
+ "critique": {
+  "problems": [
+   {
+    "severity": "blocker",
+    "what": "The beat-table driver cannot play O3 until the battle registry exists (already known). The proposed fix also has two design holes. (a) The published field id flips to 63, or to 31213 on F, inside the battle's end, while the battle UI is still up. A registry keyed on (current donor, SC) can then see in_battle at donor 63 and VOID V10. (b) King Leo's scripted end fires once. If it misses, fight() burns its default 300 s and 120 turns on a battle that cannot end.",
+    "evidence": "- segment_drive.py rule 5 (~1113-1117): any in_battle is V10.\n- HonoluluBattleMain.cs:734-738 (UpdateOverFrame): fldMapNo := 63, or ForkSiblingField(63), before GoToBattleResult. HarnessAgent.cs:1537-1539 publishes the raw fldMapNo.\n- TH_E002 entry 1 tag 1: [601] latches Map.Byte[24]:=1. [579] then skips the HP test forever. [626]-[637] RET for good unless btl_phase==4.\n- btl_para.cs:348-351: IsNonDyingVanillaBoss(338) keeps King Leo alive.\n- O1's TH_E001 has the same latch ([557]-[593]) and held in every covered O1 run.",
+    "fix": "- Registry row: {donor 62, sc 1155, scene 338, won [1,2], lands 63}.\n- Match the battle on its epoch and btlMapNo==338 the first time it is seen, on both sides.\n- Let the registered call own the loop through leave_battle until FieldHUD is up.\n- Give fight() a budget-derived timeout and its own VOID class (no result) instead of 300 s / 120 turns.\n- Add FakeGame cases for: an unregistered battle, a wrong scene, and a landing in real 63 on F."
+   },
+   {
+    "severity": "major",
+    "what": "Members 31211-31213 have never been loaded in game. A load failure (atlas, scene, registration) would show up as an F-only V14 or V11 and be read as a fork finding.",
+    "evidence": "- O1e fork traces run2/4/6_F.jsonl visit only fld 31200 and 31202 (and 100).\n- No .harness-runs directory since 09-29 contains fld 31211-31213.\n- O2's rehearsals were stock only.\n- O1's preflight is static (registration, .eb bytes, .bgi).",
+    "fix": "Before the freeze, run a no-trace load smoke on F: warp 31211/31212/31213 at entrance 0, SC 1155, one at a time. Confirm each loads, its Main_Init starts, and nothing throws in Memoria.log or output_log. Do not play the battle: the 338 landing is the claim the session measures."
+   },
+   {
+    "severity": "major",
+    "what": "The NULL compare cannot see the s24 landing, and the engine's donor-to-fork map is fixed at launch. A leak into real 63 gives the same donor keys as 31213. A donor duplicated at launch time disables the redirect while ForkDonorPatch.txt can read clean afterwards.",
+    "evidence": "- Digest and compare key on place() and the members map.\n- DataPatchers.cs:116-125 reads ForkDonorPatch once per launch. DataPatchers.cs:148-160 sets -1 for a donor forked twice, with only a Memoria.log warning; the current log has such lines for 312 and 350-359 at 19:27:44.\n- The only leak signal is rule 2's game V11, which the session loop re-runs (rerun.max).\n- Battle rows come only from the pre-ATB loop TH_E002 [536]-[554] (fld 62 on S, 31212 on F). The AfterEvent re-run in gMode 4 stores nothing.",
+    "fix": "- Add an O3-LANDING / SEAM check over the F traces: every m=1 row of place 61/62/63 carries fld 31211/31212/31213; the m=2 rows carry 31212; the first m=1 row of place 63 is 31213 e0 t0 ip22; the run leaves only by 31213 e4 t1 ip828 to real 64.\n- Carry O2's VOID-ASYM, so an F-only game V11 into real 63 reads NOT PROVEN: s24, not a re-run.\n- Preflight: scan the session launch's own Memoria.log for '[DataPatchers] ForkDonorPatch: donor field 61|62|63', not only the file."
+   },
+   {
+    "severity": "minor",
+    "what": "Beat 2 and open question 1 are wrong: 61 does not resume at movie frame 1100. Page 72 opens only after FMV003 ends. The whole 84.8 s movie, plus about 5 s, sits inside the 120 s no-progress window, about 90 s by estimate.",
+    "evidence": "- 61 e2 t1 ip324 passes at frame 1100. Then ip371-ip422 loops op_22(1) while SYSVAR[15]&127 != 1, and FF9FieldFMVSync returns 1 only at fmvStatus 8 (fldfmv.cs case 3).\n- Frame 1100 times only the sound cues RunSoundCode3 at ip346/ip360.\n- Then: fade, Baku's Walk at ip480, op_22(8) at ip525, RunAnimation + WaitAnimation at ip528/ip532, and page 72 at ip533.\n- The MovieHitArea is off before any page (fldfmv.cs:202).\n- The signature (segment_drive ~1067) does not change during that stretch.",
+    "fix": "- Correct the beat: the pages come after the movie, and SYSVAR[14]'s unit does not matter to the route.\n- Measure the arrival-to-page-72 stretch in a rehearsal.\n- Set no_progress_s to at least 3x that stretch, or add the MBG playing state to the progress signature."
+   },
+   {
+    "severity": "minor",
+    "what": "The start lands straight in a type-0 FMV right after the warp interrupts another type-0 FMV. This has never been measured.",
+    "evidence": "- start_run (segment_trace.py:452-458) warps about 30 frames after newgame, during FMV001: MBG_DEF type 0, skip hit-area armed (MBG.cs:205-208, 824).\n- 61 e2 t1 ip159 starts FMV003 (type 0, MBG.cs:829) on its first frames.\n- O2's warp landed in 100's mbg101, which is type 1 with no hit area (o2_route.md:46-48).\n- O1's FMV002 came minutes after its warp.",
+    "fix": "In a stock R-START rehearsal, and in the F load smoke, record: FMV003 plays to its end, no skip dialog opens, and no stale-hit-area warning blocks it. Record the on-screen time."
+   },
+   {
+    "severity": "minor",
+    "what": "The reused chain is a legacy build. Its jp/fr/gr/it/es .eb files are US bytecode, so the shared BUILD check fails unless O3 opts in the way O1 did. For a US session, us and uk are exactly what today's kit would ship.",
+    "evidence": "- Deployed 31211-31213 in jp/fr/gr/it/es equal remap_fields(stock us), not their own donor language.\n- us and uk equal remap(own). The only diffs are abs 1105-1106 (31211) and 3175-3176 (31212); 31213 has none.\n- segment_trace.build_check (282-319) rejects this unless accept_us_build=True (o1_opening.py:259).\n- Memoria.log for the last launch reads English(US).",
+    "fix": "- Set accept_us_build=True in the O3 Segment.\n- Keep P-LANG = English(US).\n- Scope the claim to a US session.\n- No import or rebuild is needed."
+   },
+   {
+    "severity": "minor",
+    "what": "Text block 2 is a global mod override that both sides read, so the S side is stock only in languages whose copy matches stock. In uk the deployed copy is the US text. That is harmless for US, but the map should not suggest redeploying before O3.",
+    "evidence": "FF9CustomMap .../text/<L>/field/2.mes compared to the engine-path stock asset:\n- us, es, fr, gr, it and jp are byte-equal;\n- uk ships stock US (ddf99c96, 27936 B), where stock uk is a03c9a34 (27971 B).\nMembers 31200-31216 share block 2, and their reverts must run newest first (o1_forks.json revert.why_order).",
+    "fix": "- Carry O2's P-TEXT for block 2: us must be byte-equal, and uk is a KNOWN-KIT-DEFECT.\n- Do not redeploy O1's refreshed text before O3.\n- Note for O4: alxc members 64/68/69 also carry block 2, so their deploy rewrites this shared block."
+   },
+   {
+    "severity": "minor",
+    "what": "The LADDER check would be vacuous (a check that cannot fail), because O3 writes no SC. Byte[303]++ also needs O2's ++ key form.",
+    "evidence": "- 61, 62 and 63 have 0 stores and 0 reads of Global.UInt16[0].\n- 62 e4 t1 ip637/659/681/703 are B_POST_PLUS stores, the op O2 reported as a CENSUS GAP (o2_report.txt:72-73) and keyed with op '++' and prior in o2_predictions_v1.json.",
+    "fix": "Replace LADDER with:\n- 'no row over SC bytes 0-1 after the start residue';\n- the FieldEntrance CHAIN: 61 e1 t1 ip363 :=100, then 62 e4 t1 ip1285 :=0, then 63 e4 t1 ip820 :=100, with 62 e4 t1 ip1345 forbidden;\n- Byte[303] keyed :=0 at ip603, then ++ four times with priors."
+   },
+   {
+    "severity": "minor",
+    "what": "Register only O1's Byte[206] noise row. O1's Byte[199] row must not come along. Because the noise is keyed by target and mode, it would also hide a different battle's Byte[206].",
+    "evidence": "- TH_E002's only global store is Byte[206] at entry 1 tag 1 [539]. Entries 4-7 and 10 are 2-byte inits.\n- O1 also registered Byte[199] for TH_E001 (o1_opening.py:114-117).",
+    "fix": "- Noise = [{not_m 1, Global.Byte[206]}] only. A Byte[199] row is a finding.\n- The battle beat asserts scene 338 on both sides.\n- Exclude Byte[206] from STATE and the end state."
+   },
+   {
+    "severity": "minor",
+    "what": "Map wording to correct:\n- An incoming Byte[13] of 2 would not stall the run: rule 7 confirms the error window like a page, and the run continues with extra rows.\n- Beat 6's '61-63 read no key at all' is wrong.\n- 'First in-segment FMV' is wrong: O1 already played FMV002 inside its segment.",
+    "evidence": "- 61 e0 t0 ip339/ip346: WindowAsync(6,0,3) + WaitWindow, text with no TIME tag. Rule 7 is at segment_drive ~1134-1146.\n- 61, 62 and 63 read Bit[184], Byte[13], Int16[9], Byte[14] and Int16[11] in e0 t0 (ip30-ip189), and Byte[8], UInt16[21] and Byte[303] after writing them.\n- O1's route 52 played FMV002 (MoguriVideo, 65.4 s) under the skip rule (o1_opening.py:104-107). What is new is an FMV under segment_drive's watchdog.",
+    "fix": "- Make 61/62/63's error-path ips (61 ip97/178/349/383 and the 62/63 equivalents) explicit forbidden rows that VOID the start; the O3-START clause is the only guard.\n- Fix the wording."
+   },
+   {
+    "severity": "minor",
+    "what": "Battle 338 has no result screen, so leave_battle's Confirms land in the transition or on 63's first windows, and they are not logged as driver presses. The stock ground truth also runs under non-default battle settings.",
+    "evidence": "- Flags 0x1839 include AfterEvent. Mode 8 is set at HonoluluBattleMain.cs:708-711, which gives gMode 4 (EventEngine.cs:590-593).\n- BattleResultUI.InitialEvent (374-385) re-runs TH_E002. Entry 0 [238] sees SYSVAR[26]=1 and goes to TerminateBattle, with no store.\n- leave_battle (session.py:7449-7461) presses every 20 frames.\n- Memoria.ini has [Battle] Speed=5 (Simultaneous, needs SFXRework=1), [Cheats] Enabled with Attack9999, BattleAssistance and AutoBattle, and [Hacks] AllCharactersAvailable=1. These shape SYSVAR[25]/[30] at the latch.",
+    "fix": "- Stop leave_battle at the first FieldHUD sample and log its press count.\n- Add [Battle] Speed/SFXRework, the cheat flags and SwordplayAssistance to the install fingerprint.\n- State them in the report's scope."
+   },
+   {
+    "severity": "minor",
+    "what": "Two recovery paths are unmeasured: end_run from the new end field 64, and from a VOID inside battle 338.",
+    "evidence": "- end_run (segment_trace.py:460-482) does warp(4600) and then restore_baseline.\n- O2 measured this only from 61 (F8).\n- In battle the warp is refused and falls through to a soft reset, which has never been tried there.",
+    "fix": "Measure both in the stock rehearsals before freezing the budgets: R-FULL ending in 64, and one run deliberately stopped mid-battle."
+   }
+  ],
+  "go": "GO for designing the O3 driver from this map once the corrections above are folded in. Do not run a session until the battle registry, the F load smoke and the landing check exist.\n\nI re-checked the map's core claims in the bytes and the engine, and they hold:\n- The end, 63 e4 t1 ip828 Field(64) to real 64 on both sides, is a clean tshp/alxc seam. Nothing nondeterministic could be avoided by ending earlier. Ending before battle 338 would drop the s24 proof.\n- The route: battle 338 is entered at 62 e4 t1 ip1293. TH_E002 entry 0 [265] RunBattleCode(37,63) makes 63 load fresh, so 62 ip1298-1353 never run.\n- Writes and start: 33 field rows. No SC row, no control, no choice, no SYSVAR[0] read, no ATE or encounter. The only noise is Byte[206]. Under the raw warp no key is start-dependent, and the New Game party [Zidane] is rebuilt the same way.\n- The fork side: ForkDonorPatch has 61, 62 and 63 once each, and no other folder ships one. Members match stock except the Field() args, with US bytes. Walkmeshes are equal: base = Moguri = deployed.\n- Ids: none are needed for O3. 31238 and up are free in all four DictionaryPatch-bearing folders today; re-read before O4 mints.\n\nNo engine gate on 61-63 or scene 338 can change a story write; the gates I found are visual only, or keyed on scene 338 and the same on both sides.\n\nHarness gaps, in order of risk:\n1. The battle registry: blocker, with the id-flip and latch design above.\n2. An F-side load smoke: 31211-31213 have never run.\n3. An F-side landing/SEAM check plus a launch-log ForkDonorPatch preflight.\n4. A watchdog sized to the full FMV003 stretch (about 90 s).\n5. The R-START FMV-after-warp rehearsal.\n6. accept_us_build=True and P-TEXT/P-LANG for block 2.\n7. LADDER replaced by a no-SC check and the FieldEntrance CHAIN; noise limited to Byte[206].\n8. Budgets, plus recovery measured from 64 and from inside the battle.\n\nNot determined offline: FMV003's on-screen time, battle 338's turns and seconds, and the published result (1 or 2). The F landing in 31213 is in-game proven only for the June 6013/6014 fork, never under the trace.\n\nMy scripts are in o3_research/critic: text2.py, eb3.py, pstock.py, cams.py and moguri_bgi.py."
+ }
+}
