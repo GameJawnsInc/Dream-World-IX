@@ -1460,8 +1460,10 @@ once more at the end of PART B:
    movie, O1's FMV002 came minutes after its warp. If FMV003 does not play, the start needs a redesign (a two-hop
    start through a quiet field changes `start_residue` and START), so R-START runs first.
 2. **The s24 redirect under the trace** (the session's own claim). In-game proven only for the June 6013/6014 fork,
-   never traced; a leak reads NOT PROVEN through V16, FORBIDDEN and LANDING, never VOID. P-DONOR and P-DONOR-LOG keep a
-   launch-time duplicate from causing it, and P-LAUNCH a row that was missing when the launch read the files.
+   never traced; a leak reads NOT PROVEN through V16 (VOID-ASYM) and FORBIDDEN -- LANDING (a) too only if such a run
+   were ever covered: a V16 run is uncovered, and LANDING reads only covered runs -- never VOID. P-DONOR and
+   P-DONOR-LOG keep a launch-time duplicate from causing it, and P-LAUNCH a row that was missing when the launch read
+   the files.
 3. **King Leo's latch fires once** (TH_E002 e1 t1 [601]). A miss is V15 at `timeout_s`; O1's twin latch held in every
    O1 run.
 4. **The soft reset from inside a battle** (F3, S3). By the source it fires from BattleHUD on the 2nd held frame and

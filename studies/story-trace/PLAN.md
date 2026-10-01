@@ -947,7 +947,8 @@ ladder, and O3-NO-SC requires that no row touch its bytes.
 [`o3_forks.json`](o3_forks.json)): 31211 (61) -> 31212 (62) -> battle -> 31213 (63), three members never run before.
 31213's `Field(64)` is not retargeted: the seam. Nothing is imported, built or deployed for O3. Battle 338 bakes real
 63; on F the engine's redirect (`ForkSiblingField(63)` = 31213) must land the run in member(63). Real 63 there is V16,
-a finding the analysis reads as NOT PROVEN (VOID-ASYM, FORBIDDEN, LANDING), never as a VOID.
+a finding the analysis reads as NOT PROVEN (VOID-ASYM, FORBIDDEN; LANDING (a) too if such a run were ever covered),
+never as a VOID: a V16 run is uncovered, and LANDING reads only covered runs.
 
 **A US session -- two scoped facts, never silent.** O1's chain is a legacy build:
 - every member's jp/fr/gr/it/es `.eb` is US bytecode (O3-BUILD accepts the us build, as O1-BUILD did, and says "a US
