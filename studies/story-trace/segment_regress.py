@@ -97,6 +97,8 @@ REQUIRED_TESTS: tuple = (
     "test_segment_rerun_stops_on_a_finding_class",                              # A2: S2
     "test_segment_end_run_resets_from_inside_a_battle_without_a_warp",          # A3: S3
     "test_segment_session_end_warps_first_when_asked",                          # A4: S5
+    "test_segment_end_run_from_a_battle_on_the_fake",                           # B5: S3 on H9's knobs
+    "test_segment_session_end_leaves_a_movie_on_the_fake",                      # B5: S5 on H9's movie beat
 )
 
 O1E_VERDICT = "PROVEN"

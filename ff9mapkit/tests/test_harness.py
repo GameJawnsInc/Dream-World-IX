@@ -14427,3 +14427,130 @@ def test_o2_drive_voids_a_battle_without_a_registry(game):
         assert (err.value.v, err.value.by, err.value.cell) == ("V10", "game", [30820, 1000]), err.value
         assert str(err.value) == "a battle in 30820 (place 30820) at SC 1000, where the route registers none", err.value
         assert not fake.battle_commands and not [s for s in fake.executed if s[0] in ("battlecmd", "menus")]
+
+
+def _o3_raw_warp(g, field):
+    """start_run's warp shape (no wait for control): the raw step, then the field and FieldHUD."""
+    g.send(f"warp {field} -1 -1")
+    return g.wait_for(lambda s: s.field_id == field and s.ui_state == "FieldHUD", timeout=10.0, what=f"field {field}")
+
+
+def _o3_quick_ladder(g):
+    """The recovery ladder's two waiting rungs on short clocks: a combo the game swallows would otherwise cost the
+    soft reset's 45 s (and close_ui's 20 s) each time."""
+    import functools
+    g.soft_reset = functools.partial(Session.soft_reset, g, timeout=3.0)
+    g.close_ui = functools.partial(Session.close_ui, g, timeout=3.0)
+
+
+def test_segment_end_run_from_a_battle_on_the_fake(game):
+    """S3 on H9's knobs (research/o3_design.md 1.2, B5): the fake as the engine -- a warp refused off the field and
+    landing without control, the soft reset where the engine fires it. From BattleHUD mid-fight, end_run resets at
+    once: the title, NO warp executed (rows recover-in-battle, recover-reset). From the BattleResult phase of a
+    battle's four-phase exit it waits for the field the battle hands over, warps to ``recovery`` (whose script gives
+    control, as 4600's does) and climbs the ladder to the title (recover-battle-ending, recover-battle-ended,
+    recover-warp). With ``soft_reset_ui`` left at today's default, from BattleHUD the combo is swallowed and end_run
+    raises "the title could not be restored". Break: reset in every battle state (in BattleResult the title never
+    comes)."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    ST = _segment_trace()
+    seg = ST.Segment()
+    seg.recovery = 30821
+
+    def fake_for(ui, **exit_):
+        fake = FakeGame(game)
+        fake.warp_field_only, fake.warp_arrive_control = True, False
+        if ui is not None:
+            fake.soft_reset_ui = ui
+        if exit_:
+            fake.battle_exit = exit_
+        return fake
+    fake = fake_for(SOFT_RESET_ENGINE_UI)                    # mid-fight: the reset, no warp
+    with session(game, fake) as g:
+        boot(g)
+        _o3_raw_warp(g, 30820)
+        g.start_battle(338)
+        _o3_quick_ladder(g)
+        mark, log = len(fake.executed), []
+        seg.end_run(g, log)
+        st = g.state
+    assert st.ui_state == "Title" and not st.in_battle and fake.soft_resets == 1, st
+    assert log == [{"k": "recover-in-battle", "scene": 338, "ui": "BattleHUD", "result": 0}, {"k": "recover-reset"}], log
+    assert not [s for s in fake.executed[mark:] if s[0] == "warp"], fake.executed[mark:]
+    fake = fake_for(SOFT_RESET_ENGINE_UI, field=30810, fade_frames=10, result_frames=1200, load_frames=60,
+                    arrive_control=False)                    # BattleResult: the field, the warp, the ladder
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        _o3_raw_warp(g, 30820)
+        g.start_battle(338)
+        _o3_end_on_the_fake(fake, 2)
+        published(g, lambda s: s.ui_state == "BattleResult" and s.in_battle)
+        _o3_quick_ladder(g)
+        _o1_director(fake, stop, [(lambda f: f.field_id == 30821, lambda f: setattr(f, "control", True))])
+        log = []
+        try:
+            seg.end_run(g, log)
+        finally:
+            stop.set()
+        st = g.state
+    assert st.ui_state == "Title" and fake.soft_resets == 1, st
+    assert [r["k"] for r in log] == ["recover-battle-ending", "recover-battle-ended", "recover-warp"], log
+    assert (log[0]["ui"], log[0]["result"], log[1]["field"], log[2]["field"]) == ("BattleResult", 1, 30810, 30821), log
+    fake = fake_for(None)                                    # today's default set: swallowed in BattleHUD
+    with session(game, fake) as g:
+        boot(g)
+        _o3_raw_warp(g, 30820)
+        g.start_battle(338)
+        _o3_quick_ladder(g)
+        log = []
+        with pytest.raises(HarnessError, match="the title could not be restored"):
+            seg.end_run(g, log)
+    assert [r["k"] for r in log] == ["recover-in-battle", "recover-reset-failed"] and fake.soft_resets == 0, log
+
+
+def test_segment_session_end_leaves_a_movie_on_the_fake(game, tmp_path_factory):
+    """S5 on H9's movie beat (research/o3_design.md 1.2, B5): a session whose last run stops inside a movie (61's
+    FMV003, where the soft reset is dead). With ``end_session_warps`` the session ends through end_run: the warp to
+    ``recovery`` ends the movie (the field load destroys MBG), that field gives control, the ladder reaches the title,
+    and ``session["ended"]`` says so. Without it (O1's and O2's default) the bare ladder where the run stopped cannot:
+    the movie swallows the combo and the game is left in it. Break: ignore the flag."""
+    import shutil
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    control = tmp_path_factory.mktemp("control")
+    shutil.copytree(game, control, dirs_exist_ok=True)      # a second fake install, as untouched as the first
+
+    def one(root, warps):
+        stub, _pred, calls = _stub_segment(root, cue=lambda n, side: "reached", order=("S",), min_covered=1,
+                                           rerun={"max": 0})
+        stub.end_session_warps = warps
+        fake = FakeGame(root)
+        fake.warp_field_only, fake.warp_arrive_control, fake.soft_reset_ui = True, False, SOFT_RESET_ENGINE_UI
+        real = stub.drive
+
+        def drive(g, pred, side, log, *, deadline, progress=None):
+            out = real(g, pred, side, log, deadline=deadline, progress=progress)
+            fake.scene({"movie": 10 ** 6, "skip": dict(_O3_SKIP)}, control=False)       # the run stops in a movie
+            published(g, lambda s: not s.control and not s.dialog_open)
+            return out
+        stub.drive = drive
+        stop = threading.Event()
+        with session(root, fake) as g:
+            boot(g)
+            assert g.restore_baseline()[0], "the session starts at the title, as a launch does"
+            _o3_quick_ladder(g)
+            _o1_director(fake, stop, [(lambda f: f.field_id == 30821, lambda f: setattr(f, "control", True))])
+            try:
+                stub.run(g)
+            finally:
+                stop.set()
+            at = (g.state.ui_state, fake._movie is not None)
+        assert calls == ["S"]
+        return json.loads((root / "run" / "zz_session.json").read_text(encoding="utf-8")), at, fake
+
+    sess, at, fake = one(game, True)
+    assert sess["ended"] == {"log": [{"k": "recover-warp", "field": 30821}], "ok": True, "why": ""}, sess.get("ended")
+    assert at == ("Title", False) and fake.movies[0]["ended"] == "warp", (at, fake.movies)
+    sess, at, fake = one(control, False)
+    assert "ended" not in sess and at == ("FieldHUD", True), (sess.keys(), at)
+    assert fake.movies[0]["end"] is None and fake.soft_resets == 1, (fake.movies, fake.soft_resets)
