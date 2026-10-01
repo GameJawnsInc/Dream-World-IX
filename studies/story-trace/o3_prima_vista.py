@@ -151,7 +151,10 @@ def battle_row() -> dict:
     """2.1's registry row: battle 338 in 62 at SC 1155, won [1, 2], landing in 63 (F: member(63), the s24 redirect).
     Its numbers are drafts (4.10): F9 re-sizes them from the rehearsals."""
     return {"donor": 62, "sc": 1155, "scene": 338, "won": [1, 2], "lands": 63, "beat": "leo",
-            "timeout_s": 180, "max_turns": 40, "land_s": 30, "land_cap_s": 120,
+            # F9 from the rehearsals (R-62 + R-FULL, 4 battles: 28.1-41.1 s, 6-10 turns, flip -> landing 36-40
+            # frames): timeout_s max(120, 3x 41.1), max_turns max(30, 3x 10), land_s max(10, 3x ~0.7 s),
+            # land_cap_s max(120, 10x that)
+            "timeout_s": 124, "max_turns": 30, "land_s": 10, "land_cap_s": 120,
             "why": "62 e4 t1 ip1293 Battle(0,338) = BSC_TH_E002 (King Leo, 10186): ends by script once King Leo's own "
                    "cur.hp <= 10000 (>= 186 damage) -- RunBattleCode(33,1), result 2 (WinPose off), folded to 1 at the "
                    "over frame; its own RunBattleCode(37,63) lands the run in 63, fresh (F: ForkSiblingField(63) = "
@@ -214,13 +217,21 @@ def draft_predictions() -> dict:
         "version": 1,
         "what": "O3: 61@1155 (warp, entrance 0) -> 62 -> battle 338 -> 63 -> Field(64), stock vs O1's tshp chain "
                 "(members 31211-31213; PLAN.md, O3) -- a US session",
-        "rehearsals": [],                       # the rehearsal run dirs this freeze reads (research/o3_design.md 7.3)
+        "rehearsals": [                         # the rehearsal run dirs this freeze reads (research/o3_design.md 7.3)
+            "C:/gd/Dream-World-IX/.harness-runs/20261001-092419-o3-rh-start",
+            "C:/gd/Dream-World-IX/.harness-runs/20261001-092947-o3-rh-F-SMOKE",
+            "C:/gd/Dream-World-IX/.harness-runs/20261001-093132-o3-rh-R-62",
+            "C:/gd/Dream-World-IX/.harness-runs/20261001-093510-o3-rh-R-FULL",
+            "C:/gd/Dream-World-IX/.harness-runs/20261001-094318-o3-rh-R-BATTLE-VOID",
+        ],
         "order": ["S", "F", "S", "F", "S", "F"],
         "min_covered": 2,
         "rerun": {"max": 2, "stop_on": ["V16"]},
-        # drafts (4.12): F9 replaces every one from the rehearsals. end_row_s: rule 1 waits for 64's first trace row
-        # before the drive returns and the session closes the trace (segment_drive's end row; 11.7 #3)
-        "budget": {"run_s": 1200, "run_min_s": 600, "session_s": 7200, "settle_s": 1.0, "no_progress_s": 300,
+        # F9 from R-FULL (250 s, 230 s): run_s 2x the slowest, run_min_s 1.25x the median, session_s 8x the median
+        # + 1800; no_progress_s max(120, 3x the longest stall seen, FMV003's 90.3 s). end_row_s: rule 1 waits for
+        # 64's first trace row before the drive returns and the session closes the trace (segment_drive's end row;
+        # 11.7 #3) -- every rehearsal's end row was there, so the draft's 10 s stands
+        "budget": {"run_s": 500, "run_min_s": 300, "session_s": 3720, "settle_s": 1.0, "no_progress_s": 271,
                    "end_row_s": 10.0},
         "start": {"S": 61, "F": 31211},
         "entrance": 0,

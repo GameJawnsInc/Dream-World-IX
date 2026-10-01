@@ -1,0 +1,1003 @@
+{
+ "battles": [
+  {
+   "beat": "leo",
+   "donor": 62,
+   "land_cap_s": 120,
+   "land_s": 10,
+   "lands": 63,
+   "max_turns": 30,
+   "sc": 1155,
+   "scene": 338,
+   "timeout_s": 124,
+   "why": "62 e4 t1 ip1293 Battle(0,338) = BSC_TH_E002 (King Leo, 10186): ends by script once King Leo's own cur.hp <= 10000 (>= 186 damage) -- RunBattleCode(33,1), result 2 (WinPose off), folded to 1 at the over frame; its own RunBattleCode(37,63) lands the run in 63, fresh (F: ForkSiblingField(63) = 31213, s24)",
+   "won": [
+    1,
+    2
+   ]
+  }
+ ],
+ "beats": [
+  "leo"
+ ],
+ "budget": {
+  "end_row_s": 10.0,
+  "no_progress_s": 271,
+  "run_min_s": 300,
+  "run_s": 500,
+  "session_s": 3720,
+  "settle_s": 1.0
+ },
+ "chain": [
+  {
+   "donor": 61,
+   "ip": 363,
+   "m": 1,
+   "off": 352,
+   "op": ":=",
+   "sid": 1,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Int16[2]",
+   "value": 100,
+   "what": "FieldEntrance 100: 61's exit, then Field(62)"
+  },
+  {
+   "donor": 62,
+   "ip": 1285,
+   "m": 1,
+   "off": 1274,
+   "op": ":=",
+   "sid": 4,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Int16[2]",
+   "value": 0,
+   "what": "FieldEntrance 0: 62 stage 10, before Battle(0,338)"
+  },
+  {
+   "donor": 63,
+   "ip": 820,
+   "m": 1,
+   "off": 809,
+   "op": ":=",
+   "sid": 4,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Int16[2]",
+   "value": 100,
+   "what": "FieldEntrance 100: 63's exit, then Field(64)"
+  }
+ ],
+ "choices": [
+  {
+   "beat": null,
+   "donor": null,
+   "match": "want to skip",
+   "once": false,
+   "pick": "default",
+   "sc": null
+  }
+ ],
+ "cut_start": true,
+ "dead": [
+  {
+   "donor": 61,
+   "ip": 41,
+   "m": 1,
+   "off": 35,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[2]",
+   "value": 10000,
+   "what": "61 Int16[2] := 10000 (dead: Bit[184] == 1, ip30)"
+  },
+  {
+   "donor": 61,
+   "ip": 130,
+   "m": 1,
+   "off": 124,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 1,
+   "what": "61 Byte[13] := 1 (dead: Int16[9] >= 0, ip108)"
+  },
+  {
+   "donor": 61,
+   "ip": 211,
+   "m": 1,
+   "off": 205,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 1,
+   "what": "61 Byte[14] := 1 (dead: Int16[11] >= 0, ip189)"
+  },
+  {
+   "donor": 62,
+   "ip": 45,
+   "m": 1,
+   "off": 35,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[2]",
+   "value": 10000,
+   "what": "62 Int16[2] := 10000 (dead: Bit[184] == 1, ip34)"
+  },
+  {
+   "donor": 62,
+   "ip": 134,
+   "m": 1,
+   "off": 124,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 1,
+   "what": "62 Byte[13] := 1 (dead: Int16[9] >= 0, ip112)"
+  },
+  {
+   "donor": 62,
+   "ip": 215,
+   "m": 1,
+   "off": 205,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 1,
+   "what": "62 Byte[14] := 1 (dead: Int16[11] >= 0, ip193)"
+  },
+  {
+   "donor": 62,
+   "ip": 1023,
+   "m": 1,
+   "off": 1012,
+   "op": ":=",
+   "sid": 4,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[4]",
+   "value": 1,
+   "what": "62 Byte[4] := 1 (dead: PARTYCHK(5), Quina absent)"
+  },
+  {
+   "donor": 63,
+   "ip": 41,
+   "m": 1,
+   "off": 35,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[2]",
+   "value": 10000,
+   "what": "63 Int16[2] := 10000 (dead: Bit[184] == 1, ip30)"
+  },
+  {
+   "donor": 63,
+   "ip": 130,
+   "m": 1,
+   "off": 124,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 1,
+   "what": "63 Byte[13] := 1 (dead: Int16[9] >= 0, ip108)"
+  },
+  {
+   "donor": 63,
+   "ip": 211,
+   "m": 1,
+   "off": 205,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 1,
+   "what": "63 Byte[14] := 1 (dead: Int16[11] >= 0, ip189)"
+  }
+ ],
+ "end_field": 64,
+ "end_fields": [
+  64
+ ],
+ "end_state": {
+  "Global.Bit[184]": 0,
+  "Global.Bit[191]": 0,
+  "Global.Bit[3717]": 0,
+  "Global.Bit[3718]": 0,
+  "Global.Byte[13]": 0,
+  "Global.Byte[14]": 0,
+  "Global.Byte[17]": 0,
+  "Global.Byte[18]": 1,
+  "Global.Byte[303]": 4,
+  "Global.Byte[472]": 0,
+  "Global.Byte[4]": 0,
+  "Global.Byte[6]": 0,
+  "Global.Byte[8]": 125,
+  "Global.Int16[11]": -1,
+  "Global.Int16[2]": 100,
+  "Global.Int16[469]": 0,
+  "Global.Int16[9]": -1,
+  "Global.UInt16[0]": 1155,
+  "Global.UInt16[19]": 0,
+  "Global.UInt16[21]": 3585
+ },
+ "entrance": 0,
+ "entrance_bytes": [
+  2,
+  3
+ ],
+ "error_path": [
+  {
+   "donor": 61,
+   "ip": 97,
+   "m": 1,
+   "off": 91,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 9,
+   "what": "61 e0 t0 ip97: the error path (Global.Byte[13] := 9)"
+  },
+  {
+   "donor": 61,
+   "ip": 178,
+   "m": 1,
+   "off": 172,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 9,
+   "what": "61 e0 t0 ip178: the error path (Global.Byte[14] := 9)"
+  },
+  {
+   "donor": 61,
+   "ip": 349,
+   "m": 1,
+   "off": 343,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 0,
+   "what": "61 e0 t0 ip349: the error path (Global.Byte[13] := 0)"
+  },
+  {
+   "donor": 61,
+   "ip": 383,
+   "m": 1,
+   "off": 377,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 0,
+   "what": "61 e0 t0 ip383: the error path (Global.Byte[14] := 0)"
+  },
+  {
+   "donor": 62,
+   "ip": 101,
+   "m": 1,
+   "off": 91,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 9,
+   "what": "62 e0 t0 ip101: the error path (Global.Byte[13] := 9)"
+  },
+  {
+   "donor": 62,
+   "ip": 182,
+   "m": 1,
+   "off": 172,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 9,
+   "what": "62 e0 t0 ip182: the error path (Global.Byte[14] := 9)"
+  },
+  {
+   "donor": 62,
+   "ip": 346,
+   "m": 1,
+   "off": 336,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 0,
+   "what": "62 e0 t0 ip346: the error path (Global.Byte[13] := 0)"
+  },
+  {
+   "donor": 62,
+   "ip": 380,
+   "m": 1,
+   "off": 370,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 0,
+   "what": "62 e0 t0 ip380: the error path (Global.Byte[14] := 0)"
+  },
+  {
+   "donor": 62,
+   "ip": 580,
+   "m": 1,
+   "off": 52,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 10,
+   "target": "Global.Byte[13]",
+   "value": 0,
+   "what": "62 e0 t10 ip580: the error path (Global.Byte[13] := 0)"
+  },
+  {
+   "donor": 62,
+   "ip": 614,
+   "m": 1,
+   "off": 86,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 10,
+   "target": "Global.Byte[14]",
+   "value": 0,
+   "what": "62 e0 t10 ip614: the error path (Global.Byte[14] := 0)"
+  },
+  {
+   "donor": 63,
+   "ip": 97,
+   "m": 1,
+   "off": 91,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 9,
+   "what": "63 e0 t0 ip97: the error path (Global.Byte[13] := 9)"
+  },
+  {
+   "donor": 63,
+   "ip": 178,
+   "m": 1,
+   "off": 172,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 9,
+   "what": "63 e0 t0 ip178: the error path (Global.Byte[14] := 9)"
+  },
+  {
+   "donor": 63,
+   "ip": 362,
+   "m": 1,
+   "off": 356,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 0,
+   "what": "63 e0 t0 ip362: the error path (Global.Byte[13] := 0)"
+  },
+  {
+   "donor": 63,
+   "ip": 396,
+   "m": 1,
+   "off": 390,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 0,
+   "what": "63 e0 t0 ip396: the error path (Global.Byte[14] := 0)"
+  }
+ ],
+ "forbidden": [
+  {
+   "cause": "walk",
+   "off_route": true,
+   "why": "a write off the route: S, a place outside route + end_fields; F, a field that is neither a member whose donor is on the route nor an end field (real 61/62/63 on F: the s24 leak)"
+  }
+ ],
+ "forbidden_sites": [
+  {
+   "donor": 62,
+   "ip": 1345,
+   "m": 1,
+   "off": 1334,
+   "op": ":=",
+   "sid": 4,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Int16[2]",
+   "value": 0,
+   "what": "62 e4 t1 ip1345: the battle returned to 62 (never on the route)"
+  }
+ ],
+ "hotspots": {},
+ "landing": {
+  "battle": {
+   "ip": 267,
+   "m": 2,
+   "place": 62,
+   "sid": 1,
+   "tag": 1,
+   "target": "Global.Byte[206]"
+  },
+  "before": {
+   "ip": 1285,
+   "place": 62,
+   "sid": 4,
+   "tag": 1,
+   "target": "Global.Int16[2]",
+   "value": 0
+  },
+  "end": 64,
+  "end_row": {
+   "ip": 22,
+   "place": 64,
+   "sid": 0,
+   "tag": 0,
+   "target": "Global.Bit[191]",
+   "value": 0
+  },
+  "fresh": {
+   "ip": 22,
+   "place": 63,
+   "sid": 0,
+   "tag": 0,
+   "target": "Global.Bit[191]",
+   "value": 0
+  },
+  "last_place": 63,
+  "route_places": [
+   61,
+   62,
+   63
+  ]
+ },
+ "lang": "us",
+ "members": {
+  "31200": 50,
+  "31201": 51,
+  "31202": 52,
+  "31203": 53,
+  "31204": 54,
+  "31205": 55,
+  "31206": 56,
+  "31207": 57,
+  "31208": 58,
+  "31209": 59,
+  "31210": 60,
+  "31211": 61,
+  "31212": 62,
+  "31213": 63,
+  "31214": 65,
+  "31215": 66,
+  "31216": 67,
+  "31217": 3008,
+  "31218": 3009,
+  "31219": 3010
+ },
+ "min_covered": 2,
+ "names": {
+  "31200": "O1_TH_CGR",
+  "31201": "O1_TSHP_TH_CGR",
+  "31202": "O1_TH_MET",
+  "31203": "O1_TSHP_TH_MET",
+  "31204": "O1_TH_UPR",
+  "31205": "O1_TH_ORC",
+  "31206": "O1_TH_EGR",
+  "31207": "O1_TSHP_TH_EGR",
+  "31208": "O1_TH_BSU",
+  "31209": "O1_TH_UST",
+  "31210": "O1_TH_CPT",
+  "31211": "O1_TH_BST",
+  "31212": "O1_TH_STG",
+  "31213": "O1_TSHP_TH_STG",
+  "31214": "O1_TH_STG_2",
+  "31215": "O1_TH_STG_A",
+  "31216": "O1_TH_STG_D",
+  "31217": "O1_TH_MET_2",
+  "31218": "O1_TH_STG_3",
+  "31219": "O1_TH_STG_4"
+ },
+ "naming": [],
+ "noise": [
+  {
+   "not_m": 1,
+   "target": "Global.Byte[206]",
+   "why": "battle 338's AI (BSC_TH_E002 e1 t1 ip267): Byte[206] := SYSVAR[0] each frame until ATB starts (random value and count)"
+  }
+ ],
+ "order": [
+  "S",
+  "F",
+  "S",
+  "F",
+  "S",
+  "F"
+ ],
+ "recovery": 4600,
+ "regions": {},
+ "rehearsals": [
+  "C:/gd/Dream-World-IX/.harness-runs/20261001-092419-o3-rh-start",
+  "C:/gd/Dream-World-IX/.harness-runs/20261001-092947-o3-rh-F-SMOKE",
+  "C:/gd/Dream-World-IX/.harness-runs/20261001-093132-o3-rh-R-62",
+  "C:/gd/Dream-World-IX/.harness-runs/20261001-093510-o3-rh-R-FULL",
+  "C:/gd/Dream-World-IX/.harness-runs/20261001-094318-o3-rh-R-BATTLE-VOID"
+ ],
+ "rerun": {
+  "max": 2,
+  "stop_on": [
+   "V16"
+  ]
+ },
+ "residue_after_start": [],
+ "route": [
+  61,
+  62,
+  63
+ ],
+ "sc_bytes": [
+  0,
+  1
+ ],
+ "scenario": 1155,
+ "seam": {
+  "donor": 63,
+  "to": 64,
+  "why": "member(63) = 31213's Field(64) (63 e4 t1 ip828) stays real: the end, on both sides"
+ },
+ "settings": {
+  "Battle": {
+   "CustomBattleFlagsMeaning": "0",
+   "Enabled": "1",
+   "SFXRework": "1",
+   "Speed": "5"
+  },
+  "Cheats": {
+   "Attack9999": "1",
+   "AutoBattle": "1",
+   "BattleAssistance": "1",
+   "Enabled": "1",
+   "GilMax": "0",
+   "LvMax": "0",
+   "MasterSkill": "0",
+   "NoRandomEncounter": "1",
+   "SpeedFactor": "3",
+   "SpeedMode": "1",
+   "SpeedTimer": "0"
+  },
+  "Control": {
+   "BattleAutoConfirm": "1",
+   "DialogProgressButtons": "\"Confirm\"",
+   "SoftReset": "1",
+   "TurboDialog": "1"
+  },
+  "Hacks": {
+   "AllCharactersAvailable": "1",
+   "DisableNameChoice": "0",
+   "Enabled": "1",
+   "SwordplayAssistance": "1"
+  }
+ },
+ "start": {
+  "F": 31211,
+  "S": 61
+ },
+ "start_dependent": [],
+ "start_first": {
+  "donor": 61,
+  "ip": 22,
+  "m": 1,
+  "off": 16,
+  "op": ":=",
+  "sid": 0,
+  "src": "eb",
+  "tag": 0,
+  "target": "Global.Bit[191]",
+  "value": 0,
+  "what": "61's Main_Init: its first store"
+ },
+ "start_music": {
+  "donor": 61,
+  "ip": 119,
+  "m": 1,
+  "off": 113,
+  "old": 1,
+  "op": ":=",
+  "sid": 0,
+  "src": "eb",
+  "tag": 0,
+  "target": "Global.Byte[13]",
+  "value": 0,
+  "what": "61's ambient branch from the warp's Byte[13] 1 (field 70's prologue :=1 at ip130; the warp leaves FMV001 before its tail's :=2)"
+ },
+ "start_residue": [
+  [
+   0,
+   0,
+   131
+  ],
+  [
+   1,
+   0,
+   4
+  ]
+ ],
+ "stock_fields": [
+  61,
+  62,
+  63,
+  64
+ ],
+ "stop_pages": [
+  {
+   "match": "Env Play()",
+   "why": "61-63's ambient error window 3 ('Error Env Play()  Slot=n', e0 t0 WindowAsync(6,0,3) + WaitWindow): Byte[13]/[14] arrived as 2 or 9"
+  }
+ ],
+ "table": [],
+ "text_block": 2,
+ "version": 1,
+ "visits": [
+  61,
+  62,
+  63
+ ],
+ "what": "O3: 61@1155 (warp, entrance 0) -> 62 -> battle 338 -> 63 -> Field(64), stock vs O1's tshp chain (members 31211-31213; PLAN.md, O3) -- a US session",
+ "writes": [
+  {
+   "donor": 61,
+   "ip": 57,
+   "m": 1,
+   "off": 51,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[9]",
+   "value": -1,
+   "what": "61 Int16[9] := -1 (ambient)"
+  },
+  {
+   "donor": 61,
+   "ip": 119,
+   "m": 1,
+   "off": 113,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 0,
+   "what": "61 Byte[13] := 0 (ambient)"
+  },
+  {
+   "donor": 61,
+   "ip": 138,
+   "m": 1,
+   "off": 132,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[11]",
+   "value": -1,
+   "what": "61 Int16[11] := -1 (ambient)"
+  },
+  {
+   "donor": 61,
+   "ip": 200,
+   "m": 1,
+   "off": 194,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 0,
+   "what": "61 Byte[14] := 0 (ambient)"
+  },
+  {
+   "donor": 61,
+   "ip": 752,
+   "m": 1,
+   "off": 637,
+   "op": ":=",
+   "sid": 2,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[8]",
+   "value": 125,
+   "what": "61 Byte[8] := 125 (after FMV003 and pages 72-78)"
+  },
+  {
+   "donor": 62,
+   "ip": 61,
+   "m": 1,
+   "off": 51,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[9]",
+   "value": -1,
+   "what": "62 Int16[9] := -1 (ambient)"
+  },
+  {
+   "donor": 62,
+   "ip": 123,
+   "m": 1,
+   "off": 113,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 0,
+   "what": "62 Byte[13] := 0 (ambient)"
+  },
+  {
+   "donor": 62,
+   "ip": 142,
+   "m": 1,
+   "off": 132,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[11]",
+   "value": -1,
+   "what": "62 Int16[11] := -1 (ambient)"
+  },
+  {
+   "donor": 62,
+   "ip": 204,
+   "m": 1,
+   "off": 194,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 0,
+   "what": "62 Byte[14] := 0 (ambient)"
+  },
+  {
+   "donor": 62,
+   "ip": 319,
+   "m": 1,
+   "off": 308,
+   "op": ":=",
+   "sid": 4,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.UInt16[21]",
+   "value": 3585,
+   "what": "62 UInt16[21] := 3585 (the play's party: 0xE01)"
+  },
+  {
+   "donor": 62,
+   "ip": 603,
+   "m": 1,
+   "off": 592,
+   "op": ":=",
+   "sid": 4,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[303]",
+   "value": 0,
+   "what": "62 Byte[303] := 0"
+  },
+  {
+   "donor": 62,
+   "ip": 637,
+   "m": 1,
+   "off": 626,
+   "op": "++",
+   "prior": "62/4/1/603",
+   "sid": 4,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[303]",
+   "value": 1,
+   "what": "62 Byte[303]++ (1)"
+  },
+  {
+   "donor": 62,
+   "ip": 659,
+   "m": 1,
+   "off": 648,
+   "op": "++",
+   "prior": "62/4/1/637",
+   "sid": 4,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[303]",
+   "value": 2,
+   "what": "62 Byte[303]++ (2)"
+  },
+  {
+   "donor": 62,
+   "ip": 681,
+   "m": 1,
+   "off": 670,
+   "op": "++",
+   "prior": "62/4/1/659",
+   "sid": 4,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[303]",
+   "value": 3,
+   "what": "62 Byte[303]++ (3)"
+  },
+  {
+   "donor": 62,
+   "ip": 703,
+   "m": 1,
+   "off": 692,
+   "op": "++",
+   "prior": "62/4/1/681",
+   "sid": 4,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[303]",
+   "value": 4,
+   "what": "62 Byte[303]++ (4)"
+  },
+  {
+   "donor": 62,
+   "ip": 1034,
+   "m": 1,
+   "off": 1023,
+   "op": ":=",
+   "sid": 4,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[4]",
+   "value": 0,
+   "what": "62 Byte[4] := 0 (PARTYCHK(5) false: ip1023 not taken)"
+  },
+  {
+   "donor": 62,
+   "ip": 1085,
+   "m": 1,
+   "off": 1074,
+   "op": ":=",
+   "sid": 4,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[4]",
+   "value": 0,
+   "what": "62 Byte[4] := 0 (ip1085)"
+  },
+  {
+   "donor": 62,
+   "ip": 1093,
+   "m": 1,
+   "off": 1082,
+   "op": ":=",
+   "sid": 4,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[17]",
+   "value": 0,
+   "what": "62 Byte[17] := 0"
+  },
+  {
+   "donor": 62,
+   "ip": 1101,
+   "m": 1,
+   "off": 1090,
+   "op": ":=",
+   "sid": 4,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[18]",
+   "value": 1,
+   "what": "62 Byte[18] := 1"
+  },
+  {
+   "donor": 63,
+   "ip": 57,
+   "m": 1,
+   "off": 51,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[9]",
+   "value": -1,
+   "what": "63 Int16[9] := -1 (ambient)"
+  },
+  {
+   "donor": 63,
+   "ip": 119,
+   "m": 1,
+   "off": 113,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 0,
+   "what": "63 Byte[13] := 0 (ambient)"
+  },
+  {
+   "donor": 63,
+   "ip": 138,
+   "m": 1,
+   "off": 132,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[11]",
+   "value": -1,
+   "what": "63 Int16[11] := -1 (ambient)"
+  },
+  {
+   "donor": 63,
+   "ip": 200,
+   "m": 1,
+   "off": 194,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 0,
+   "what": "63 Byte[14] := 0 (ambient)"
+  },
+  {
+   "donor": 63,
+   "ip": 805,
+   "m": 1,
+   "off": 330,
+   "op": ":=",
+   "sid": 14,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[8]",
+   "value": 125,
+   "what": "63 Byte[8] := 125 (stage 5, after 99)"
+  }
+ ]
+}
