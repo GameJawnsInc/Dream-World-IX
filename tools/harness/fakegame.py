@@ -2661,8 +2661,11 @@ class FakeGame:
         holds null there), answers taken; after one, ``closing`` frames with group '' again and the choice
         still published, then the next beat. While the prompt TYPES (the window already ready: the engine sets
         the group and the default cursor in AfterShown, with the text still animating) a Confirm only
-        finishes the text (Dialog.OnKeyConfirm's TextAnimation branch) and is not an answer."""
-        self._beats = list(beats)
+        finishes the text (Dialog.OnKeyConfirm's TextAnimation branch) and is not an answer.
+
+        Each dict beat is COPIED: a movie keeps its countdown (``_left``) on its beat, and the caller's dict must not
+        carry it into the next scene that stages it (a replayed movie would then play no frame at all)."""
+        self._beats = [dict(b) if isinstance(b, dict) else b for b in beats]
         self._beat_frames = (int(opening), int(closing))
         self._scene_control = bool(control)
         self.control = False

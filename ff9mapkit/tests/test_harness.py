@@ -13859,6 +13859,25 @@ def test_fake_movie_beat_holds_and_offers_the_skip_dialog(game):
     assert fake.answered == [1, 0], fake.answered
 
 
+def test_fake_scene_copies_its_beats(game):
+    """FakeGame.scene() COPIES each dict beat (the review, research/o3_design.md 11.7 #11): a movie beat keeps its
+    countdown (``_left``) on the beat, so one dict staged in two scenes must play twice -- two ``movies`` rows, each its
+    whole frames, each followed by its page -- and the caller's dict is left as it was given. Break: keep the caller's
+    dicts (the second scene's movie is already spent: one ``movies`` row, and its page at once)."""
+    fake = FakeGame(game)
+    movie = {"movie": 60}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        for _ in range(2):
+            fake.scene(movie, "Narrator\n“After”", control=False)
+            g.wait_for(lambda s: s.dialog_open and "After" in s.text, timeout=10.0, what="the page after the movie")
+            g.press("confirm", 3)
+            published(g, lambda s: not s.dialog_open)
+    assert [(m["frames"], m["played"], m["ended"]) for m in fake.movies] == [(60, 60, "played")] * 2, fake.movies
+    assert movie == {"movie": 60}, movie
+
+
 def test_fight_raises_fight_timeout_without_a_result(game):
     """H7 (research/o3_design.md 3): fight()'s two no-result exits raise FightTimeout -- a HarnessError, with the
     messages they always carried, its ``kind`` the bound that ran out -- and record ``last_fight`` either way, now with
