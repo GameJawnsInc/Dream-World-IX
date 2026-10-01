@@ -1,10 +1,11 @@
 """THE REGRESSION GATE for the shared segment machinery: every change to ``segment_trace``, ``segment_drive``,
 ``o2_alexandria`` or the harness verbs they drive must leave every O1 output (research/o2_design.md, section 1.6)
-AND every O2 output (research/o3_design.md, section 1.4) byte-identical, and O3's battle-beat tests (G13) green.
+AND every O2 output (research/o3_design.md, section 1.4) byte-identical, and O3's battle-beat tests (G13) and O3's
+dry run (G14) green.
 
     py studies/story-trace/segment_regress.py --capture      # G0, once, BEFORE the O2 refactor: the O1 baseline
     py studies/story-trace/segment_regress.py --capture-o2   # G0', once, BEFORE any O3 code change: the O2 baseline
-    py studies/story-trace/segment_regress.py                # G1-G13; exit 0 only if every item passes
+    py studies/story-trace/segment_regress.py                # G1-G14; exit 0 only if every item passes
 
 Exit 2 means an archive or a baseline is missing: the gate was not run, which is not a pass.
 
@@ -55,6 +56,11 @@ was captured at the code before the change it guards and the same file judges th
       test passed, 0 failed, 0 skipped, 0 errors, and every name in :data:`REQUIRED_TESTS_O3` among them -- the
       battle beat's driver tests, so a later edit to ``segment_drive`` re-runs them. No baseline: the list is the
       floor.
+  G14 ``o3_dryrun.run_cases`` (the review, research/o3_design.md 11.7 #12) on the frozen O3 predictions once they
+      exist (``o3_predictions_v1.json``), else on the draft: it returns 0 printing "N/N cases as registered", N at least
+      :data:`O3_DRYRUN_FLOOR`. O3Segment subclasses O2Segment and runs on ``segment_trace``, ``segment_drive`` and
+      ``o2_alexandria``, so a later edit to any of them must keep O3's dry run green too (1.3) -- every check failing
+      on its mutant, every case EXACT. No baseline: the count is the floor (a dropped case falls under it).
 
 Nothing here touches the game or writes to the install: it reads the archives, the builds and the stock bytes.
 """
@@ -67,6 +73,7 @@ import io
 import json
 import os
 import random
+import re
 import subprocess
 import sys
 import tempfile
@@ -148,6 +155,10 @@ REQUIRED_TESTS_O3: tuple = (
     "test_o3_drive_stops_on_a_battle_gone_without_a_result",                # 11.7 #2: fight()'s "gone"
     "test_o3_drive_bounds_the_leave_by_its_row",                            # 11.7 #1: the leave's bound
 )
+#: G14 (the review, research/o3_design.md 11.7 #12): o3_dryrun's "N/N cases as registered" must have N at least this --
+#: its sessions, "predictions-changed", its units and its offline mutants when G14 joined. A case added raises N; one
+#: dropped falls under the floor.
+O3_DRYRUN_FLOOR = 92
 
 O2S_VERDICT = "PROVEN"
 O2S_CHECKS = 15
@@ -539,10 +550,52 @@ def g13(got: dict) -> tuple:
                      f"among them", "; ".join(bad) or f"{len(got['passed'])} passed")
 
 
+# ======================================================================== what the O3 code says (G14)
+def _o3() -> tuple:
+    """``(o3_prima_vista, o3_dryrun)``: imported here, never at the module's top, as the O2 items import O2's."""
+    import o3_prima_vista as P
+    import o3_dryrun as D3
+    return P, D3
+
+
+def o3_run_cases_quietly() -> tuple:
+    """``(rc, last line, which predictions)``: ``o3_dryrun.run_cases`` on the frozen O3 predictions once they exist,
+    else on the draft (its own default), its per-case lines swallowed."""
+    P, D3 = _o3()
+    path = P.PREDICTIONS if P.PREDICTIONS.is_file() else None
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = D3.run_cases(path)
+    lines = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
+    return rc, (lines[-1] if lines else ""), (f"the frozen {path.name}" if path is not None else "the draft")
+
+
+def g14() -> tuple:
+    """G14 (the review, research/o3_design.md 11.7 #12): O3's dry run, every case as registered, at least the floor."""
+    what = (f"G14: o3_dryrun.run_cases returns 0, every case as registered, at least {O3_DRYRUN_FLOOR} (the frozen "
+            f"O3 predictions once they exist, else the draft)")
+    try:
+        rc, last, which = o3_run_cases_quietly()
+    except Exception as err:                       # noqa: BLE001 -- a dry run that cannot run is a FAIL, said
+        return False, what, f"run_cases raised {type(err).__name__}: {str(err)[:300]}"
+    m = re.fullmatch(r"(\d+)/(\d+) cases as registered", last)
+    bad = []
+    if rc != 0 or m is None or m.group(1) != m.group(2):
+        bad.append(f"run_cases returned {rc}: {last!r}")
+    elif int(m.group(2)) < O3_DRYRUN_FLOOR:
+        bad.append(f"{last!r}: under the floor {O3_DRYRUN_FLOOR} -- a case or a unit was dropped")
+    return not bad, what, "; ".join(bad) or f"{last} ({which})"
+
+
 # ======================================================================== the gate
-def _missing(*, o1: bool = True, o2: bool = True) -> list:
+def _missing(*, o1: bool = True, o2: bool = True, o3: bool = False) -> list:
+    """The inputs the items read that are not here (each makes the gate "not run", exit 2). O3's dry run (G14) reads
+    the frozen O3 predictions, or -- until they exist -- the draft, which reads O1's chain build (machine-local)."""
     need = ([V4, O1E / "o1_session.json", O1E / "o1_report.txt", O1D / "o1_session.json"] if o1 else []) \
         + ([V1, O2S / "o2_session.json", O2S / "o2_report.txt"] if o2 else [])
+    if o3:
+        P, _D3 = _o3()
+        need.append(P.PREDICTIONS if P.PREDICTIONS.is_file() else P.CHAIN_DIR / "campaign.toml")
     return [str(p) for p in need if not p.is_file()]
 
 
@@ -648,6 +701,8 @@ def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2) -> int:
     _show_items(items_o2)
     items_o3 = [g13(pytest_g13())]                     # O3's battle beat (research/o3_design.md 1.4): no baseline
     _show_items(items_o3)
+    items_o3.append(g14())                             # O3's dry run (11.7 #12): no baseline, the count's floor
+    _show_items(items_o3[-1:])
     items += items_o2 + items_o3
     n = sum(1 for ok, _w, _d in items if ok)
     print(f"\n{n}/{len(items)} items PASS (baseline heads: O1 {base['head'][:8]}, O2 {base_o2['head'][:8]})")
@@ -667,7 +722,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.capture and args.capture_o2:
         ap.error("capture one baseline at a time")
-    missing = _missing(o1=not args.capture_o2, o2=not args.capture)
+    missing = _missing(o1=not args.capture_o2, o2=not args.capture, o3=not (args.capture or args.capture_o2))
     if missing:
         print("!! the gate was not run -- missing: " + ", ".join(missing))
         return 2
