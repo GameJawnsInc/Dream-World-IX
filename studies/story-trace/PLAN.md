@@ -924,6 +924,93 @@ What only the game can settle is the design's section 10: the climb, Jack's timi
 mbg101's frame-rate change, Kupo near the ladder, 116's narrow walks, the facing for the two tag-3 Confirms, and 61's
 FMV under end_run's warp.
 
+## O3 -- the play under the trace, a US session: 61 -> 62 -> battle 338 -> 63 -> real 64 (draft: rehearsals pending, freeze pending)
+
+**The question.** Over the play's Act I -- the narrator and the curtain, the fight with King Leo, and the battle's own
+return to the stage -- does the verbatim tshp chain O1 deployed write the real game's story state key for key, through
+a battle that hands the run to ANOTHER field? That hand-over is the s24 battle-return redirect, in-game proven once
+(June) and never under the trace. The stock runs are also this segment's recorded ground truth. The design, with its
+two critique rounds folded in, is [`research/o3_design.md`](research/o3_design.md); the route it rests on is
+[`research/o3_route.md`](research/o3_route.md) and [`research/o3_research.json`](research/o3_research.json).
+
+**The segment.** A raw warp into 61 (entrance 0, SC 1155), then:
+- 61: FMV003, the narrator's pages 72-78, the curtain, `Field(62)`;
+- 62: Act I, the play's party rebuilt, `Int16[2] := 0`, then `Battle(0,338)`;
+- battle 338 (King Leo, `BSC_TH_E002`): it ends by script once he has taken 186 damage (result 2: WinPose off), and
+  its own `RunBattleCode(37,63)` loads 63 FRESH -- 62 is never resumed;
+- 63: the scene on the stage, then `Field(64)` (63 e4 t1 ip828).
+
+It ends on arrival in REAL 64 on both sides, cut at 64's first row (e0 t0 ip22). SC holds 1155 throughout: there is no
+ladder, and O3-NO-SC requires that no row touch its bytes.
+
+**The sides.** S = stock. F = O1's whole-zone tshp chain as deployed (31200-31219, FF9CustomMap;
+[`o3_forks.json`](o3_forks.json)): 31211 (61) -> 31212 (62) -> battle -> 31213 (63), three members never run before.
+31213's `Field(64)` is not retargeted: the seam. Nothing is imported, built or deployed for O3. Battle 338 bakes real
+63; on F the engine's redirect (`ForkSiblingField(63)` = 31213) must land the run in member(63). Real 63 there is V16,
+a finding the analysis reads as NOT PROVEN (VOID-ASYM, FORBIDDEN, LANDING), never as a VOID.
+
+**A US session -- two scoped facts, never silent.** O1's chain is a legacy build:
+- every member's jp/fr/gr/it/es `.eb` is US bytecode (O3-BUILD accepts the us build, as O1-BUILD did, and says "a US
+  session's build" in its title);
+- text block 2's uk copy is the US text: the KNOWN-KIT-DEFECT line "uk: ships stock us (3a6f3246c2; stock uk
+  7ac9f17435)", which O3-TEXT, P-TEXT and the session report print, never a pass. Block 2 is global, so a UK game shows
+  US text in stock 61-69 too; O4's alxc deploy rewrites it.
+
+The claim is a US session's (P-LANG pins the session language). A PROVEN O3's milestone line will say so too.
+
+**The entry.** Each run: New Game, the trace armed, then `warp 61 0 1155` (stock) or `warp 31211 0 1155` (fork), O2's
+form. The warp writes the scenario's two bytes in field 70 (0 -> 131, 0 -> 4). The front cut sets them aside and
+O3-START requires them. 61 must then take its ambient branch from the warp's `Byte[13]` 1 (ip119), never the error
+path (ip97: the "Error Env Play()" window).
+
+**The driver** (`segment_drive.drive`, research/o3_design.md 2): no beat table, since 61-63 never grant control and
+control anywhere is V4. The battle beat (S4) is one registry row: 62, SC 1155, scene 338, won [1, 2], lands 63. Rule 1b
+answers it on a new battle epoch, matched on the published scene and the visit's place, and the executor:
+- fights it with `fight()` within the row's bounds (no result is V15, the driver's);
+- leaves with `leave_battle(stop_on_field)`, each press a `press` row;
+- waits for the landing in two tiers (late is recorded, never voided; V14 past the cap);
+- judges it: 63 on S, member(63) on F, V16 for real 63 on F, V11 anywhere else.
+
+61-63's error window is a stop page (V5, nothing pressed). A V16 holds its side's re-runs (S2), and the session ends
+through `end_run` (S5): a run stopped in 61 mid-FMV003, where the soft reset is dead, warps out first.
+
+**The checks** ([`o3_prima_vista.py`](o3_prima_vista.py); research/o3_design.md 5 and 6):
+- offline: O3-BUILD, O3-TEXT, O3-KEYS, O3-REGIONS, O3-SCENE (battle 338's own scene: won by its WinPose flag, its
+  next field, its one store, every unresolved store classified) and O3-CENSUS (every gEventGlobal store site of 61-63
+  classified: writes, chain, masked, start_first, error path, forbidden, dead);
+- preflight: P-MANIFEST, P-DEPLOY, P-EB, P-FLOOR, P-STOCK, P-TEXT, P-RECOVERY, P-DONOR, P-SETTINGS, P-STOCK-BATTLE;
+  in game P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG and P-LAUNCH (this launch read the files the preflight reads);
+- the session: O3-FROZEN, O3-COVER; O3-FORBIDDEN and O3-VOID-ASYM over every run, covered or not; then START, NO-SC,
+  CHAIN, RESIDUE, WRITES (EXACT: the 24 writes and the 3-key chain, the battle's `Byte[206]` noise aside), NULL,
+  STABLE, SEAM, LANDING (a)-(e), BATTLE (a)-(d), MASKED, STATE and JOIN over the covered runs; THROW.
+
+**Status: draft -- rehearsals pending, freeze pending.** Built offline on branch `claude/story-trace-o3` (PARTs A-C of
+the design's section 9). Nothing is deployed, launched or frozen.
+- `o3_prima_vista.py --offline-check`: 6 PASS on the draft. O3-BUILD 140 files (15 own-language, 105 us-build);
+  O3-TEXT KNOWN-KIT-DEFECT 1, FAIL 0, 6 byte-equal of 7, the uk line printed; O3-KEYS 53 sites; O3-REGIONS 0
+  regions, 0 hot-spots, 0 gateways; O3-SCENE 338 as designed (flags 0x1839, won exactly [1, 2], RunBattleCode(37, 63),
+  one store at e1 t1 ip267, 24 unresolved stores all `B_SYSLIST[0]`, >= 186 damage); O3-CENSUS 61: 15, 62: 28,
+  63: 15 store sites, all classified.
+- `--preflight` on the live install: 10/10 PASS (O1's chain deployed; P-DONOR 61 -> 31211, 62 -> 31212, 63 -> 31213;
+  P-SETTINGS 23 keys as frozen; P-STOCK-BATTLE: the stack overrides only the LEDGER scenes, and no selector names 338).
+- [`o3_dryrun.py`](o3_dryrun.py): 89/89 as registered -- section 8's cases and units with an EXACT `case()` (every
+  check a case does not name must PASS), two cases added where the design's table could not hold (research/o3_design.md
+  11.6).
+- [`o3_rehearse.py`](o3_rehearse.py): R-START, F-SMOKE (untraced), R-62, R-FULL, R-SKIP and R-BATTLE-VOID, chosen by
+  `O3_STAGE`; its plumbing is proven on the fake.
+- The regression gate (`segment_regress.py`): G1-G13, O1's and O2's outputs byte-identical.
+
+**Next, in game (the lead):**
+1. The rehearsals, in 7.1's order: R-START first (FMV003 after the warp is the go/no-go), then F-SMOKE, R-62, R-FULL,
+   and R-BATTLE-VOID last.
+2. The freeze checklist F1-F12 (7.3), then `--freeze` (v1).
+3. `--preflight` green, and P-LAUNCH and P-DONOR-LOG on that launch.
+4. The session: `py tools/play.py studies/story-trace/o3_prima_vista.py --label story-o3 --timeout 240`.
+
+What only the game can settle is the design's section 10: FMV003 right after the warp cut FMV001, the s24 redirect
+under the trace, King Leo's latch, the soft reset from inside a battle, the published scene and result, the leave after
+a scripted end, the F side's landing time, the watchdog against FMV003, and the members' first load.
+
 ## Rungs
 
 | Rung | What | Pass |
