@@ -140,6 +140,8 @@ REQUIRED_TESTS_O3: tuple = (
     "test_o3_drive_answers_a_skip_dialog_at_its_default",
     "test_o3_drive_watchdog_against_a_long_movie",
     "test_o3_drive_battle_of_rejects_a_bad_row",
+    # the review (research/o3_design.md 11.7): each fix to the driver, with its test
+    "test_o3_drive_waits_for_the_end_places_first_row",                     # 11.7 #3: rule 1's end row
 )
 
 O2S_VERDICT = "PROVEN"

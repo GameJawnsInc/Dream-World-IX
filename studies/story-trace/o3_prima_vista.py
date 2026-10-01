@@ -218,8 +218,10 @@ def draft_predictions() -> dict:
         "order": ["S", "F", "S", "F", "S", "F"],
         "min_covered": 2,
         "rerun": {"max": 2, "stop_on": ["V16"]},
-        # drafts (4.12): F9 replaces every one from the rehearsals
-        "budget": {"run_s": 1200, "run_min_s": 600, "session_s": 7200, "settle_s": 1.0, "no_progress_s": 300},
+        # drafts (4.12): F9 replaces every one from the rehearsals. end_row_s: rule 1 waits for 64's first trace row
+        # before the drive returns and the session closes the trace (segment_drive's end row; 11.7 #3)
+        "budget": {"run_s": 1200, "run_min_s": 600, "session_s": 7200, "settle_s": 1.0, "no_progress_s": 300,
+                   "end_row_s": 10.0},
         "start": {"S": 61, "F": 31211},
         "entrance": 0,
         "scenario": 1155,
@@ -1170,7 +1172,11 @@ class O3Segment(A.O2Segment):
     # -- reading a session ---------------------------------------------------------------------------------------
     def why_void(self, rec: dict, r: dict, pred: dict) -> list:
         """O2's reasons (A-NOSTART, A-FORBIDDEN, A-MISMATCH), then A-START (5.1): the run's rows hold a registered
-        ``error_path`` site of the START place -- the warp's incoming Byte[13]/[14] took 61's error path. Also keeps
+        ``error_path`` site of the START place -- the warp's incoming Byte[13]/[14] took 61's error path -- and
+        A-NOEND (5.1, the review's 11.7 #3): the drive reached the end and its trace reads whole, yet holds no row in
+        an end place, so there is no end cut -- the trace was collected before the end field's first store (the
+        end-collection race: story-o1e's run 3 S, covered there). Real 64 is the same field on both sides, so the
+        missing row says nothing about the fork: the run is the driver's, never O3-LANDING (e)'s finding. Also keeps
         the end cut's raw row on ``r`` (``cut_row``) for O3-LANDING (e)."""
         out = super().why_void(rec, r, pred)
         members = members_of(pred) if r["side"] == "F" else {}
@@ -1180,6 +1186,12 @@ class O3Segment(A.O2Segment):
                     and (x.sid, x.tag, x.ip, x.target) in errs), None)
         if hit is not None:
             out.append((f"the start state took {sp}'s error path: {A._row_text(hit)}", "A-START", "driver"))
+        if rec.get("end") == "reached" and r["digest"] is not None and r["cut"] is None:
+            ends = list(pred.get("end_fields") or [pred["end_field"]])
+            er = next((x.get("end_row") for x in reversed(r.get("log") or []) if x.get("k") == "end"), None)
+            waited = f" (the drive waited {er.get('s')} s for it)" if isinstance(er, dict) else ""
+            out.append((f"no row in an end place {ends}: the trace was collected before the end field's first "
+                        f"store{waited}", "A-NOEND", "driver"))
         r["cut_row"] = None
         if r.get("cut") is not None and rec.get("trace"):
             try:

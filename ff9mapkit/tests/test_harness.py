@@ -14356,6 +14356,51 @@ def test_o3_drive_watchdog_against_a_long_movie(game):
     assert not isinstance(out, Exception) and out["end"] == "reached" and mv["ended"] == "played", (out, mv)
 
 
+def test_o3_drive_waits_for_the_end_places_first_row(game):
+    """Rule 1's opt-in end row (``budget.end_row_s``; research/o3_design.md 2.2, 11.7 #3). Rule 1 fires on the first
+    poll that publishes the end field and the session closes the trace right after the drive returns: story-o1e closed
+    it 1-4 frames after the field changed, its run 3 S before any row of the end field (no end cut). The end field's
+    first store here comes 240 frames after the arrival. With ``end_row_s`` 3 the drive waits for it: the ``end`` row
+    records ``end_row`` {seen True, f its frame, s the wait}, and the row is in the trace when the drive returns. A row
+    that never comes is waited for ``end_row_s`` (0.5) and no longer: seen False, no VOID (the analysis's A-NOEND).
+    Without the key -- O1's and O2's rule 1 -- no wait and no ``end_row``: the drive returns before the store, and the
+    trace holds no row of the end field (the race, reproduced). Break: return before the row (no wait)."""
+    got = {}
+    for wait, store in ((3.0, True), (0.5, False), (None, True)):
+        fake = _o3_fake(game)
+        pred = _o3_pred()
+        if wait is not None:
+            pred["budget"]["end_row_s"] = wait
+        arrived: dict = {}
+
+        def to_end(f, arrived=arrived):
+            arrived["frame"] = f.frame
+            _o2_move(f, _O3_END)
+        phases = [(lambda f: f.field_id == 30820, lambda f: f.scene("Narrator\n“Lights.”", control=False)),
+                  (lambda f: f.field_id == 30820 and _o3_idle(f), to_end)]
+        if store:                                # 64's Main_Init: its first store, 240 frames after the arrival
+            phases.append((lambda f, arrived=arrived: f.field_id == _O3_END and f.frame >= arrived["frame"] + 240,
+                           lambda f: f.script_store(0, 0, 22, 191 >> 3, "Bit", 0, bit=191)))
+        with session(game, fake) as g:
+            _o3_start(g)
+            g.storytrace(True)
+            t0 = time.time()
+            out, log = _o3_drive(g, fake, pred, phases=phases)
+            took = time.time() - t0
+            rows = [r for r in g.story_rows() if r.k == "w" and r.fld == _O3_END]
+        assert not isinstance(out, Exception) and out["end"] == "reached", (wait, out)
+        got[(wait, store)] = ([r for r in log if r["k"] == "end"][-1], rows, took)
+    end, rows, _took = got[(3.0, True)]
+    er = end["end_row"]
+    assert er["seen"] is True and len(rows) == 1 and er["f"] == rows[0].f, (er, rows)
+    assert 0.5 <= er["s"] < 3.0, er                        # it waited for the store, and not for its bound
+    end, rows, _took = got[(0.5, False)]
+    assert end["end_row"]["seen"] is False and end["end_row"]["f"] is None and rows == [], end
+    assert 0.5 <= end["end_row"]["s"] < 2.0, end["end_row"]
+    end, rows, _took = got[(None, True)]
+    assert "end_row" not in end and rows == [], (end, rows)    # O1's and O2's rule 1: the trace closes before the row
+
+
 def test_o3_drive_battle_of_rejects_a_bad_row():
     """The registry row, strict (research/o3_design.md 2.1, section 8's battle-row unit): 2.1's row passes (a copy);
     ValueError on ``won`` [1, 2, 3] (a defeat counted won), [2] and []; on a beat not in ``beats``; on a beat a naming

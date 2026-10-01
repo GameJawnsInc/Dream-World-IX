@@ -31,6 +31,12 @@ reaches no result), the leave that stops where the field begins, the landing in 
 voided; V14 past the cap), and the landing judge (V16 when a fork run lands in the REAL field: the s24 redirect did
 not fire; V11 anywhere else). STOP PAGES (``stop_pages``) VOID a matching page as V5 with nothing pressed. With
 neither key the driver is O2's loop exactly.
+
+THE END ROW (opt-in, ``budget.end_row_s``; research/o3_design.md 2.2 rule 1, 11.7 #3): rule 1 fires on the first poll
+that publishes an end field, and the session closes the trace right after the drive returns -- story-o1e closed it
+1-4 frames after the field changed, its run 3 S before any row of the end field (no end cut). With the key, rule 1
+first waits, up to ``end_row_s``, for the run's first trace row in an end place (:meth:`_Drive.end_row`), and the
+``end`` row records it. Without it rule 1 is O1's and O2's exactly.
 """
 from __future__ import annotations
 
@@ -78,6 +84,8 @@ BATTLE_KEYS = ("donor", "sc", "scene", "won", "lands", "beat", "timeout_s", "max
 BATTLE_WON = ([1, 2], [1])
 #: A stop page's keys (2.1), strict: ``match`` (a substring of the page's text or of a raw_texts line) and ``why``.
 STOP_PAGE_KEYS = frozenset({"match", "why"})
+#: Rule 1's end-row wait (opt-in: ``budget.end_row_s``) reads the live trace this often: each read parses story.jsonl.
+END_ROW_POLL_S = 0.1
 
 
 class RouteVoid(Exception):
@@ -629,6 +637,8 @@ class _Drive:
         self.settle_s = float(budget["settle_s"])
         self.settle_polls = max(1, int(self.settle_s / POLL_S))
         self.no_progress_s = float(budget.get("no_progress_s", 120))
+        # OPT-IN (O3; research/o3_design.md 11.7 #3): rule 1 waits for the run's first trace row in an end place
+        self.end_row_s = None if budget.get("end_row_s") is None else float(budget["end_row_s"])
         self.beats = {b: False for b in pred.get("beats") or ()}
         self.pages, self.timed, self.choices, self.steps = [], [], [], []
         self.overlays, self.forbidden = [], []
@@ -773,6 +783,23 @@ class _Drive:
                 raise self.void("V12", "driver", f"a forbidden write the driver's own log backs: {hit['why']} "
                                                  f"({hit['fld']} e{hit['sid']} t{hit['tag']} ip{hit['ip']} "
                                                  f"{hit['target']}={hit['new']}), backed by {b['what']}")
+
+    def end_row(self) -> dict:
+        """Rule 1's opt-in wait (``budget.end_row_s``; research/o3_design.md 2.2, 11.7 #3): the run's FIRST trace row
+        in an end place -- the row the analysis cuts at (:func:`segment_trace.cut_at_end` on the live trace after its
+        last arm) -- waited for, up to ``end_row_s`` and never past the run's deadline. ``{"seen", "f", "s"}``: whether
+        it came, its frame (``f``, None when it did not), the seconds waited. A row that never comes is no VOID here:
+        the analysis reads that run (A-NOEND). A trace the harness cannot read raises, as the live scan does."""
+        t0 = time.time()
+        until = min(t0 + self.end_row_s, self.deadline)
+        while True:
+            rows = self.g.story_rows()
+            arm = max((i for i, r in enumerate(rows) if r.k == "e" and r.why == "arm"), default=None)
+            line = None if arm is None else ST.cut_at_end(rows[arm:], self.ends, self.members)[1]
+            if line is not None or time.time() >= until:
+                hit = next((r for r in rows if r.line == line), None) if line is not None else None
+                return {"seen": hit is not None, "f": None if hit is None else hit.f, "s": round(time.time() - t0, 2)}
+            time.sleep(END_ROW_POLL_S)
 
     # -- the walks ------------------------------------------------------------------------------------------------
     def floor(self, closed=()):
@@ -1334,13 +1361,16 @@ class _Drive:
             if self.observe is not None:
                 self.observe(st, {"field": self.fid, "donor": self.donor, "sc": self.sc, "visit": self.visit,
                                   "log": self.log})
-            # 1 -- the end: the end state, the last scan, done
+            # 1 -- the end: the end state, the last scan, done -- and, opt-in, the end place's first trace row waited for
             if self.fid in self.ends:
                 self.end_state = read_end_state(g, pred)
                 if self.forbid_live:
                     self.scan()
-                self.log.append({"k": "end", "field": self.fid, "frame": st.frame, "sc": self.sc,
-                                 "end_state": self.end_state, "t": round(time.time() - self.t0, 1)})
+                row = {"k": "end", "field": self.fid, "frame": st.frame, "sc": self.sc, "end_state": self.end_state,
+                       "t": round(time.time() - self.t0, 1)}
+                if self.end_row_s is not None:
+                    row["end_row"] = self.end_row()
+                self.log.append(row)
                 return self.out("reached", f"field {self.fid}")
             # the stall watchdog: nothing published changed for no_progress_s
             sig = (self.fid, self.sc, st.ui_state, tuple(st.texts), json.dumps(st.choice, sort_keys=True), st.control,

@@ -430,7 +430,13 @@ message -- none of the existing `test_o2_drive_*` tests puts a battle up.
 ### 2.2 The driver loop for O3 (O2's loop, rules in O2's order, with S4's two opt-in additions)
 Every poll reads `st`, `sc` and `donor = place(fid, members)` as O2's does.
 1. **End** (`fid in end_fields`, real 64 on both sides): the end state read (`read_end_state`), the last forbidden scan,
-   `reached`. Unchanged.
+   `reached`. Unchanged -- but for **the end row** (the review, 11.7 #3; opt-in: `budget.end_row_s`, O3's draft 10 s):
+   before returning, the drive waits up to `end_row_s` (never past the run's deadline) for the run's first trace row in
+   an end place -- the row the analysis cuts at, `cut_at_end` over the live trace after its last arm -- and the `end`
+   row records `end_row` {"seen", "f", "s"}. Rule 1 fires on the first poll that publishes 64, and the session closes
+   the trace right after the drive returns: story-o1e closed it 1-4 frames after the field changed, its run 3 S before
+   any row of 100 (covered, cut None). A wait that runs out is no VOID here: the analysis reads that run (A-NOEND, 5.1).
+   Without the key, rule 1 is O1's and O2's exactly.
    **The stall watchdog** runs after rule 1, unchanged (its signature cannot see a movie: 0.2 #11; `no_progress_s` is
    sized to cover FMV003, 4.12).
 - **1b (new, opt-in: `battles` non-empty) -- a NEW battle.** `st.in_battle` and `st.battle_epoch > self.battle_seen`:
@@ -643,7 +649,8 @@ verb (the agent publishes `battle.scene`); a new choice or naming verb; NPC or r
  "what": "O3: 61@1155 (warp, entrance 0) -> 62 -> battle 338 -> 63 -> Field(64), stock vs O1's tshp chain (members 31211-31213; PLAN.md, O3)",
  "rehearsals": [],
  "order": ["S","F","S","F","S","F"], "min_covered": 2, "rerun": {"max": 2, "stop_on": ["V16"]},
- "budget": {"run_s": 1200, "run_min_s": 600, "session_s": 7200, "settle_s": 1.0, "no_progress_s": 300},
+ "budget": {"run_s": 1200, "run_min_s": 600, "session_s": 7200, "settle_s": 1.0, "no_progress_s": 300,
+            "end_row_s": 10.0},
  "start": {"S": 61, "F": 31211}, "entrance": 0, "scenario": 1155, "lang": "us",
  "end_field": 64, "end_fields": [64], "route": [61, 62, 63], "visits": [61, 62, 63],
  "stock_fields": [61, 62, 63, 64],
@@ -838,7 +845,8 @@ quietly uncovered run. A covered run's battle is then re-read from its log by O3
 The estimate is about 6 minutes a run (FMV003's 84.8 s file plus the fade, 10 Confirm pages, about 17 timed or
 scripted lines, a battle of >= 186 damage, 63's scene). Drafts: `run_s` 1200, `run_min_s` 600, `session_s` 7200
 (6 runs + 2 re-runs with slack), `settle_s` 1.0, **`no_progress_s` 300** (3 x the ~90-100 s arrival-to-page-72
-stretch, which the signature cannot see move). F9 replaces all of them from the rehearsals. Recovery is `end_run`:
+stretch, which the signature cannot see move), `end_row_s` 10 (rule 1's wait for 64's first trace row, 2.2: the
+review, 11.7 #3). F9 replaces all of them from the rehearsals. Recovery is `end_run`:
 warp to 4600 first (from 64, a FieldHUD field; from 61 mid-movie, where the soft reset is dead and the warp works),
 the soft reset directly from inside a battle only mid-fight (BattleHUD, result 0), and from a battle's end sequence
 the wait for its field, then the warp (S3). The session ENDS through `end_run` too (S5), never a bare ladder. F8
@@ -866,6 +874,11 @@ beat is done only when it holds an int in its row's `won`), no or an incomplete 
 hit, A-MISMATCH), plus:
 - **A-START** (driver): the run's rows hold a registered `error_path` site of the START place (61) -- the warp's
   incoming Byte[13]/[14] took the error path. "the start state took 61's error path: <row>".
+- **A-NOEND** (driver; the review, 11.7 #3): the drive reached the end and the trace reads whole, yet it holds no row
+  in an end place, so there is no end cut -- the trace was collected before 64's first store. story-o1e's run 3 S is
+  this race (covered there, its cut None): every O1 run closed its trace 1-4 frames after the field changed. Real 64 is
+  the same field on both sides, so the missing row says nothing about the fork: the run is the driver's, never O3-LANDING
+  (e)'s finding. Rule 1 waits for that row first (`budget.end_row_s`, 2.2), so A-NOEND marks a wait that ran out.
 
 A drive VOID carries its V-class (2.6). The report lists every uncovered run's reasons per side.
 
@@ -1262,6 +1275,7 @@ registers the clause its detail must name.
 | last-place-wrong (both sides: 61 e0 t0 ip130 `Byte[13]:=1`, a `dead` site, after 63's ip820) | NOT PROVEN (LANDING F (d), WRITES F) |
 | last-place-61-repeat-both (every run: a second 61 e0 t0 ip119 `Byte[13]:=0` row after 63's ip820) | NOT PROVEN (LANDING F (d) alone) |
 | end-boundary-residue-both (every run: an `r` row in place 64 just before its ip22) | NOT PROVEN (LANDING F (e) alone: the cut lands on the `r` row) |
+| end-row-missing-one-S (one S run: its `off` row in 64, no `w` or `r` row there -- story-o1e run 3 S's race; the review, 11.7 #3) | PROVEN (S 2 of 3); that run A-NOEND, never LANDING (e) |
 | battle-scene-336 (every run's log: the battle row's scene 336; the trace's battle rows e1 t1 ip267 only) | NOT PROVEN (BATTLE F alone) |
 | battle-two-rows (every run's log: two `battle` rows) | NOT PROVEN (BATTLE F alone) |
 | battle-epoch-skip (every F run's log: `epoch` = `battle_epoch0` + 2) | NOT PROVEN (BATTLE F alone) |

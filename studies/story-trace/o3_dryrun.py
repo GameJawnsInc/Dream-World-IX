@@ -582,6 +582,18 @@ def _(pred):
     return six(pred, s=add, f=add)
 
 
+@case("end-row-missing-one-S", "PROVEN", void={1: ["A-NOEND"]}, covered={1: False, 3: True, 5: True},
+      report_has=("A-NOEND",))
+def _(pred):
+    """The end-collection race (story-o1e's run 3 S, covered there with its cut None): one S run reached 64, and its
+    trace closed before 64's first store -- an ``off`` row in 64, no ``w`` or ``r`` row there, so no end cut. The run
+    is the driver's A-NOEND (the review, research/o3_design.md 11.7 #3), never O3-LANDING (e)'s finding: S 2 of 3,
+    PROVEN on the rest."""
+    runs = six(pred)
+    runs[0]["events"] = drop(runs[0]["events"], END64)
+    return runs
+
+
 @case("battle-scene-336", "NOT PROVEN", clauses={"BATTLE": ["(a)"]})
 def _(pred):
     runs = six(pred)
