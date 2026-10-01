@@ -13972,3 +13972,458 @@ def test_leave_battle_records_presses_on_o1s_path(game):
     assert all(p["in_battle"] and p["ui"] == "BattleHUD" and p["field"] == 30820 and p["result"] == 0
                for p in leave["presses"]), leave
     assert fake.battle_result == 1 and not fake.exits, "O1's shape: today's end, in its own field"
+
+
+# ---- O3's battle beat (studies/story-trace/segment_drive.py, S4; research/o3_design.md 2.1-2.6, PART B, B4), on the
+# fake's fields as O3's places: 30820 is "61", 30821 "62", 30810 "63", and 30830 "64" -- the end, no member, never
+# warped to (so not registered); the F side's members 31211-31213 are appended to the fixture's DictionaryPatch, as
+# O1's pinning test appends its member. Every test models the engine where O3 needs it: a warp lands WITHOUT control
+# and is refused off the field, the soft reset fires where the engine's does (H9), and 61-63's scenes never hand
+# control back. A director thread stages the game: 61's pages, its exit into "62", 62's pages, battle 338 (King Leo's
+# latch ends it; its exit runs the engine's four phases into "63", or wherever the test sends it), 63's pages, then
+# its Field(64).
+
+_O3_END = 30830
+_O3_FIELDS = {"S": {61: 30820, 62: 30821, 63: 30810}, "F": {61: 31211, 62: 31212, 63: 31213}}
+_O3_NAMES = {"31211": "O1_TH_BST", "31212": "O1_TH_STG", "31213": "O1_TSHP_TH_STG"}
+_O3_ERROR = "Error Env Play()  Slot=1"
+
+
+def _o3_row(**kw):
+    """2.1's registry row on the fake's places: battle 338 in "62" at SC 1155, won [1, 2], landing in "63"."""
+    return {"donor": 30821, "sc": 1155, "scene": 338, "won": [1, 2], "lands": 30810, "beat": "leo", "timeout_s": 60,
+            "max_turns": 40, "land_s": 15, "land_cap_s": 30,
+            "why": "62's Battle(0,338), on the fake: King Leo's latch ends it, its RunBattleCode(37,63) lands in 63",
+            **kw}
+
+
+def _o3_pred(**over):
+    """O3's driver keys (research/o3_design.md 2.1, 4.1) on the fake's fields: no table; the registry row; the stop
+    page; O1's skip-movie rule; route and visits 61 -> 62 -> 63; the end "64"; the members for the F side."""
+    pred = {"version": 1, "start": {"S": 30820, "F": 31211}, "entrance": 0, "scenario": 1155,
+            "end_field": _O3_END, "end_fields": [_O3_END], "route": [30820, 30821, 30810],
+            "visits": [30820, 30821, 30810], "members": {"31211": 30820, "31212": 30821, "31213": 30810},
+            "names": dict(_O3_NAMES),
+            "budget": {"run_s": 120, "run_min_s": 1, "session_s": 600, "settle_s": 0.3, "no_progress_s": 60},
+            "beats": ["leo"], "table": [], "naming": [], "forbidden": [], "end_state": {}, "regions": {},
+            "hotspots": {}, "battles": [_o3_row()],
+            "stop_pages": [{"match": "Env Play()", "why": "61-63's ambient error window 3 ('Error Env Play()  Slot=n')"}],
+            "choices": [{"donor": None, "sc": None, "match": "want to skip", "pick": "default", "once": False,
+                         "beat": None}]}
+    pred.update(over)
+    return pred
+
+
+def _o3_fake(game, *, exit_to=None, cls=FakeGame, **exit_kw):
+    """The fake as O3's tests model the engine (H9): warps land without control and are refused off the field, the
+    soft reset fires in the engine's UI states, King Leo's latch ends battle 338, and -- with ``exit_to`` -- its exit
+    runs the four phases into that field (``exit_kw`` overrides a phase's frames)."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    fake = cls(game)
+    fake.warp_arrive_control, fake.warp_field_only, fake.soft_reset_ui = False, True, SOFT_RESET_ENGINE_UI
+    fake.enemy_hit, fake.atb_gain = 0, 400
+    fake.battle_script_end = dict(_O3_LEO_END)
+    if exit_to is not None:
+        fake.battle_exit = {"field": exit_to, "fade_frames": 90, "result_frames": 90, "load_frames": 120,
+                            "arrive_control": False, **exit_kw}
+    return fake
+
+
+def _o3_register(game):
+    """The F side's members, registered as a deployed chain registers them (O1's pinning test's way)."""
+    patch = game / "FF9CustomMap" / "DictionaryPatch.txt"
+    patch.write_text(patch.read_text(encoding="utf-8")
+                     + "".join(f"FieldScene {f} 11 {n} {n} 2\n" for f, n in _O3_NAMES.items()), encoding="utf-8")
+
+
+def _o3_start(g, side="S"):
+    """start_run's own start: New Game, then the RAW warp into "61" at entrance 0, SC 1155, and a wait for the field
+    and FieldHUD -- never Session.warp(), whose wait_playable needs control 61-63 never give."""
+    boot(g)
+    start = _O3_FIELDS[side][61]
+    g._check_field_id(start, "warp", True)
+    g.send(f"warp {start} 0 1155")
+    return g.wait_for(lambda s: s.field_id == start and s.ui_state == "FieldHUD", timeout=10.0, what=f"field {start}")
+
+
+def _o3_idle(f):
+    return not f._beats and not f.texts and f.ui_state == "FieldHUD" and not f.battle_active and f._bexit is None
+
+
+def _o3_route(side="S", *, p61=("Narrator\n“Ladies and gentlemen!”",), p62=("Cinna\n“Act I!”",),
+              p63=("Zidane\n“Phew.”",), scene=338, units=None, battle_in=62, end=True):
+    """O3's game side on the fake, as ``(ready, act)`` phases: 61's pages, then its Field(62); 62's pages, then battle
+    ``scene`` (King Leo's roster) -- in "61" instead with ``battle_in`` 61; after the battle's end, 63's pages and
+    (``end``) its Field(64). Every scene keeps control off."""
+    f61, f62 = _O3_FIELDS[side][61], _O3_FIELDS[side][62]
+    seen = {}
+
+    def fight(f):
+        seen["epoch"] = f.battle_epoch + 1
+        f.start_battle(scene, units=units or _o3_units())
+    phases = [(lambda f: f.field_id == f61, lambda f: f.scene(*p61, control=False))]
+    if battle_in == 61:
+        return phases + [(lambda f: f.field_id == f61 and _o3_idle(f), fight)]
+    phases += [(lambda f: f.field_id == f61 and _o3_idle(f), lambda f: (_o2_move(f, f62), f.scene(*p62, control=False))),
+               (lambda f: f.field_id == f62 and _o3_idle(f), fight),
+               (lambda f: f.battle_epoch == seen.get("epoch") and _o3_idle(f), lambda f: f.scene(*p63, control=False))]
+    if end:
+        phases.append((lambda f: _o3_idle(f), lambda f: _o2_move(f, _O3_END)))
+    return phases
+
+
+def _o3_drive(g, fake, pred, side="S", *, phases, log=None, budget=60.0):
+    """The driver against the director's phases: ``(outcome or the RouteVoid raised, log)``."""
+    SD = _segment_modules()
+    log = [] if log is None else log
+    stop = threading.Event()
+    _o1_director(fake, stop, phases)
+    try:
+        try:
+            return SD.drive(g, pred, side, log, deadline=time.time() + budget, floor_for=lambda d, c: _flat_bgi(),
+                            prior_for=lambda d: _prior(), forbid_live=False), log
+        except SD.RouteVoid as err:
+            return err, log
+    finally:
+        stop.set()
+
+
+def test_o3_drive_fights_its_registered_battle_and_lands_fresh(game):
+    """S4 (research/o3_design.md 2.2-2.3), the S side: 61's and 62's pages, then battle 338 at "62" -- rule 1b, a NEW
+    epoch, matched on the published scene, the visit's place and SC 1155 -- fought by fight()'s default policy (King
+    Leo's latch: one Attack, result 2, read in the fade), left with leave_battle(stop_on_field), and landed FRESH in "63"
+    through the engine's four phases; then 63's pages and the end. Beats {"leo": 2}; ONE battle row: scene 338, its
+    epoch the drive's first + 1 (``battle_epoch0``), result 2, turns, the leave's presses, the flip seen on a result-1
+    sample, landed "63" (place 63), no land_late; visits 61, 62, 63, each once. Break: drop rule 1b (rule 5's V10)."""
+    fake = _o3_fake(game, exit_to=30810)
+    with session(game, fake) as g:
+        _o3_start(g)
+        out, log = _o3_drive(g, fake, _o3_pred(), phases=_o3_route())
+    assert not isinstance(out, Exception) and out["end"] == "reached" and out["why"] == f"field {_O3_END}", out
+    assert out["beats"] == {"leo": 2} and type(out["beats"]["leo"]) is int, out["beats"]
+    rows = [r for r in log if r["k"] == "battle"]
+    assert out["battles"] == rows and len(rows) == 1, rows
+    b = rows[0]
+    assert (b["scene"], b["row"], b["beat"], b["donor"], b["field"], b["sc"]) == (338, 0, "leo", 30821, 30821, 1155), b
+    assert b["epoch"] == out["battle_epoch0"] + 1 and b["result"] == 2 and b["turns"] >= 1, b
+    assert b["timed_out"] is False and b["tutorials"] == 0 and b["seconds"] > 0, b
+    assert b["leave"]["presses"] >= 1 and b["leave"]["stopped"] in ("scene-gone", "field"), b["leave"]
+    assert set(b["leave"]["uis"]) <= {"BattleHUD", "BattleResult"}, b["leave"]
+    assert b["flip_frame"] is not None and b["flip_result"] == 1 and b["flip_frame"] < b["land_frame"], b
+    assert (b["landed"], b["landed_place"], b["land_late"], b["v"]) == (30810, 30810, None, None), b
+    visits = [r for r in log if r["k"] == "visit"]
+    assert [(r["field"], r["donor"]) for r in visits] == [(30820, 30820), (30821, 30821), (30810, 30810)], visits
+    assert visits[2]["frame"] >= b["land_frame"], (visits[2], b)
+    assert out["pages"] == ["Narrator\n“Ladies and gentlemen!”", "Cinna\n“Act I!”", "Zidane\n“Phew.”"], out["pages"]
+
+
+def test_o3_drive_lands_in_the_member_on_the_fork_side(game):
+    """S4's landing judge, the F side: the same route through the members (31211 -> 31212 -> battle -> 31213); the
+    battle's exit lands in member("63") = 31213 -- the s24 redirect fired -- and the run reaches the end: landed
+    31213, its place 63; the visits are the members, their places 61, 62, 63. Break: judge the F landing by the id
+    itself (31213 is no "lands" 30810: V11)."""
+    _o3_register(game)
+    fake = _o3_fake(game, exit_to=31213)
+    with session(game, fake) as g:
+        _o3_start(g, "F")
+        out, log = _o3_drive(g, fake, _o3_pred(), "F", phases=_o3_route("F"))
+    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    b = out["battles"][0]
+    assert (b["field"], b["donor"], b["landed"], b["landed_place"], b["v"]) == (31212, 30821, 31213, 30810, None), b
+    assert out["beats"] == {"leo": 2}
+    assert [(r["field"], r["donor"]) for r in log if r["k"] == "visit"] == [
+        (31211, 30820), (31212, 30821), (31213, 30810)], log
+
+
+def test_o3_drive_reads_a_landing_in_the_real_field_as_a_finding(game):
+    """V16 (research/o3_design.md 2.3 step 7, 2.6): on the F side the battle's exit lands in REAL "63" (30810) -- the
+    s24 redirect did not fire: VOID V16, attributed to the GAME (a finding, which rerun.stop_on holds), its cell the
+    battle's [62, 1155]; the battle row carries it, and the beat its result. Break: read it as V11."""
+    _o3_register(game)
+    fake = _o3_fake(game, exit_to=30810)
+    with session(game, fake) as g:
+        _o3_start(g, "F")
+        err, log = _o3_drive(g, fake, _o3_pred(), "F", phases=_o3_route("F", end=False))
+    SD = _segment_modules()
+    assert isinstance(err, SD.RouteVoid), err
+    assert (err.v, err.by, err.cell) == ("V16", "game", [30821, 1155]), (err.v, err.by, err.cell)
+    assert "landed in real 30810, not member(30810) 31213: the s24 redirect did not fire" in str(err), err
+    b = [r for r in log if r["k"] == "battle"][0]
+    assert (b["landed"], b["v"], b["by"], b["result"]) == (30810, "V16", "game", 2), b
+    assert not [r for r in log if r["k"] == "visit" and r["field"] == 30810], "no visit to the leaked field"
+
+
+def test_o3_drive_ignores_the_id_flip_inside_the_battle(game):
+    """Rule 1b sits BEFORE rules 9, 2 and 3 (research/o3_design.md 0.2 #8, 2.2): with BattleResult held long, the
+    harness reads many samples in the battle AND at "63" with result 1 -- the over frame's flip -- and the run reads
+    none of them as a load, a leave or a visit: no V10, no V11, the visit to "63" starting only at the landing, the
+    flip on record. Break: hand the loop back after the fight (the main loop then visits 63 inside the battle and
+    VOIDs it, V10)."""
+    fake = _o3_fake(game, exit_to=30810, result_frames=400, cls=_PubFake)
+    with session(game, fake) as g:
+        _o3_start(g)
+        out, log = _o3_drive(g, fake, _o3_pred(), phases=_o3_route())
+    flipped = [p for p in fake.pubs if p[3] and (p[1], p[2]) == (30810, 1)]
+    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    b = out["battles"][0]
+    assert len(flipped) >= 50, f"premise: the flip window was published ({len(flipped)} samples)"
+    assert b["flip_result"] == 1 and b["flip_frame"] < b["land_frame"] and b["landed"] == 30810, b
+    v63 = [r for r in log if r["k"] == "visit" and r["field"] == 30810]
+    assert len(v63) == 1 and v63[0]["frame"] >= b["land_frame"], (v63, b)
+
+
+def test_o3_drive_waits_out_a_late_landing(game):
+    """The two-tier landing (research/o3_design.md 2.3 step 4, 11.2 #2): a load longer than the row's ``land_s`` but
+    under its ``land_cap_s`` is no VOID -- the run reaches the end and the battle row records ``land_late`` (the
+    landing's frames and seconds from the leave's end), so a slow fork landing can never turn one-sided. Break: VOID
+    the run at ``land_s``."""
+    fake = _o3_fake(game, exit_to=30810, load_frames=720)
+    pred = _o3_pred(battles=[_o3_row(land_s=1.0, land_cap_s=20.0)])
+    with session(game, fake) as g:
+        _o3_start(g)
+        out, log = _o3_drive(g, fake, pred, phases=_o3_route())
+    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    b = out["battles"][0]
+    late = b["land_late"]
+    assert late is not None and late["s"] >= 1.0 and late["frames"] >= 360 and b["v"] is None, b
+
+
+def test_o3_drive_voids_a_landing_past_its_cap(game):
+    """No field by ``land_cap_s``: VOID V14, the GAME's (a hang that long is a finding, as the watchdog's V14 is), its
+    cell the battle's; the battle row carries it. Break: wait on past the cap (the run's budget, V13, instead)."""
+    fake = _o3_fake(game, exit_to=30810, load_frames=10 ** 6)
+    pred = _o3_pred(battles=[_o3_row(land_s=0.5, land_cap_s=2.0)])
+    with session(game, fake) as g:
+        _o3_start(g)
+        t0 = time.time()
+        err, log = _o3_drive(g, fake, pred, phases=_o3_route(end=False), budget=30.0)
+        took = time.time() - t0
+    SD = _segment_modules()
+    assert isinstance(err, SD.RouteVoid) and (err.v, err.by, err.cell) == ("V14", "game", [30821, 1155]), err
+    assert "battle 338 ended and no field came up within 2 s" in str(err) and took < 25.0, (err, took)
+    b = [r for r in log if r["k"] == "battle"][0]
+    assert (b["v"], b["landed"], b["result"]) == ("V14", None, 2), b
+
+
+def test_o3_drive_voids_an_unregistered_battle(game):
+    """V10 for a battle the registry does not answer (research/o3_design.md 2.3 step 1), each the GAME's, its cell the
+    visit's place and SC: scene 337 at "62" (another scene); scene 338 at "61" (another place); and the same row twice
+    (a same-field battle -- its row lands in "62" -- answered, then a second battle 338 in "62"). No battle row for an
+    unanswered battle. Break: drop the answered set (the second battle is fought)."""
+    SD = _segment_modules()
+    for case in ("scene", "place", "twice"):
+        fake = _o3_fake(game, exit_to=None if case == "twice" else 30810)
+        pred = _o3_pred(battles=[_o3_row(lands=30821)]) if case == "twice" else _o3_pred()
+        log: list = []
+        if case == "scene":
+            phases = _o3_route(scene=337, end=False)
+        elif case == "place":
+            phases = _o3_route(battle_in=61)
+        else:                       # the second battle once the driver has landed the first (its row is logged)
+            phases = _o3_route(end=False)[:3] + [
+                (lambda f: any(r.get("k") == "battle" for r in log) and _o3_idle(f),
+                 lambda f: f.start_battle(338, units=_o3_units()))]
+        with session(game, fake) as g:
+            _o3_start(g)
+            err, log = _o3_drive(g, fake, pred, phases=phases, log=log)
+            epoch = fake.battle_epoch
+        assert isinstance(err, SD.RouteVoid) and (err.v, err.by) == ("V10", "game"), (case, err)
+        where = 30820 if case == "place" else 30821
+        assert err.cell == [where, 1155] and f"an unregistered battle: scene {337 if case == 'scene' else 338} " \
+                                             f"(epoch {epoch}) in {where} (place {where}) at SC 1155" in str(err), err
+        rows = [r for r in log if r["k"] == "battle"]
+        assert len(rows) == (1 if case == "twice" else 0), (case, rows)
+
+
+def test_o3_drive_voids_a_battle_with_no_result(game):
+    """V15 (research/o3_design.md 2.3 step 2, 2.6): the registered battle reaches no result within the row's own
+    bounds -- the DRIVER's (its policy and bounds own the fight). A King Leo no attack can end (10^7 HP, no scripted
+    end) with ``timeout_s`` 3: V15 after about 3 s, the battle row ``timed_out``; with ``max_turns`` 0 (R-BATTLE-VOID's
+    row): V15 at the first command prompt -- no battlecmd executed, still mid-fight in BattleHUD. Break: let fight()'s
+    FightTimeout propagate (the run is STOPPED, V13)."""
+    SD = _segment_modules()
+    for bounds, want in (({"timeout_s": 3}, "within 3 s / 40 turns"), ({"max_turns": 0}, "within 60 s / 0 turns")):
+        fake = _o3_fake(game, exit_to=30810)
+        fake.battle_script_end = None
+        pred = _o3_pred(battles=[_o3_row(**bounds)])
+        with session(game, fake) as g:
+            _o3_start(g)
+            err, log = _o3_drive(g, fake, pred, phases=_o3_route(units=_o3_units(10 ** 7), end=False), budget=180.0)
+            st = g.state
+        assert isinstance(err, SD.RouteVoid) and (err.v, err.by, err.cell) == ("V15", "driver", [30821, 1155]), err
+        assert f"battle 338 reached no result {want}" in str(err), err
+        b = [r for r in log if r["k"] == "battle"][0]
+        assert b["timed_out"] is True and b["v"] == "V15" and b["result"] is None, b
+        if bounds.get("max_turns") == 0:
+            assert b["turns"] == 0 and not [s for s in fake.executed if s[0] == "battlecmd"], fake.executed
+            assert st.in_battle and st.ui_state == "BattleHUD" and st.battle_result == 0, st
+
+
+def test_o3_drive_logs_leave_battle_presses_as_press_rows(game):
+    """The leave's Confirms are evidence (research/o3_design.md 2.3 step 3): each is a ``press`` row -- ``why``
+    "leave_battle", ``pre`` the sample it was decided on (in the battle), ``post`` None, ``near`` [] -- as many as the
+    leave pressed and the battle row counts, every one executed by the game. Break: log no press rows."""
+    fake = _o3_fake(game, exit_to=30810, cls=_StampFake)
+    with session(game, fake) as g:
+        _o3_start(g)
+        out, log = _o3_drive(g, fake, _o3_pred(), phases=_o3_route())
+        leave = g.last_leave
+    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    rows = [r for r in log if r["k"] == "press" and r["why"] == "leave_battle"]
+    assert rows and len(rows) == len(leave["presses"]) == out["battles"][0]["leave"]["presses"], (rows, leave)
+    assert [r["pre"] for r in rows] == leave["presses"], (rows, leave)
+    assert all(r["post"] is None and r["near"] == [] and r["pre"]["in_battle"] and r["visit"] == 2 for r in rows), rows
+    first, landed = min(r["pre"]["frame"] for r in rows), out["battles"][0]["land_frame"]
+    fired = [f for _t, f, s in fake.stamped if s[:2] == ["press", "confirm"] and first <= f < landed]
+    assert len(fired) == len(rows), (fired, rows)
+
+
+def test_o3_drive_stops_on_a_stop_page(game):
+    """Rule 7's stop pages (research/o3_design.md 2.2, 2.6): 61-63's error window ("Error Env Play()  Slot=n", which an
+    incoming Byte[13]/[14] of 2 or 9 opens) VOIDs the run as V5 with NOTHING pressed -- the DRIVER's in the run's first
+    visit, the start place (the warp's start state), the GAME's in a later visit (a fork's deviation). Break: page
+    the window (a Confirm closes it and the run goes on)."""
+    SD = _segment_modules()
+    for at, by, where in ((61, "driver", 30820), (62, "game", 30821)):
+        fake = _o3_fake(game, exit_to=30810, cls=_StampFake)
+        up = {}
+
+        def error_page(f, up=up):
+            up["frame"] = f.frame
+            f.scene(_O3_ERROR, control=False)
+        if at == 61:
+            phases = [(lambda f: f.field_id == 30820, error_page)]
+        else:
+            phases = [(lambda f: f.field_id == 30820, lambda f: f.scene("Narrator\n“Ladies and gentlemen!”",
+                                                                        control=False)),
+                      (lambda f: f.field_id == 30820 and _o3_idle(f), lambda f: (_o2_move(f, 30821),
+                                                                                 error_page(f)))]
+        with session(game, fake) as g:
+            _o3_start(g)
+            err, log = _o3_drive(g, fake, _o3_pred(), phases=phases)
+        assert isinstance(err, SD.RouteVoid) and (err.v, err.by, err.cell) == ("V5", by, [where, 1155]), (at, err)
+        assert "Env Play()" in str(err) and "Error Env Play()" in str(err), err
+        # a press FOR the window executes at a later frame than the one it went up in: it must be published, sampled
+        # and requested first (61's own last page press can share that frame -- the director answers it at once)
+        late = [f for _t, f, s in fake.stamped if s[:2] == ["press", "confirm"] and f > up["frame"]]
+        assert late == [], (at, late)
+
+
+def test_o3_drive_answers_a_skip_dialog_at_its_default(game):
+    """The skip-movie rule (research/o3_design.md 2.5): during 61's movie a stray Confirm (the director's: the driver
+    presses only on pages) opens the skip dialog; the rule answers it at the game's own cursor -- No -- the movie
+    resumes for exactly the frames it had left, the page after it is turned, and the run reaches the end. Break: drop
+    the rule (V1)."""
+    fake = _o3_fake(game)
+    movie = {"movie": 600, "skip": dict(_O3_SKIP)}
+    phases = [(lambda f: f.field_id == 30820, lambda f: f.scene(movie, "Narrator\n“The curtain rises.”",
+                                                                control=False)),
+              (lambda f: f._movie is not None and f.movies[-1]["played"] >= 60,
+               lambda f: f.queue.append(["press", "confirm", "4"])),
+              (lambda f: _o3_idle(f) and f.movies and f.movies[-1]["end"] is not None, lambda f: _o2_move(f, _O3_END))]
+    with session(game, fake) as g:
+        _o3_start(g)
+        out, log = _o3_drive(g, fake, _o3_pred(), phases=phases)
+    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    assert fake.answered == [1] and len(fake.movies) == 1, (fake.answered, fake.movies)
+    assert (fake.movies[0]["played"], fake.movies[0]["skips"], fake.movies[0]["ended"]) == (600, 1, "played")
+    assert [(c["index"], c["rule"], c["selected"]) for c in out["choices"]] == [("default", 0, 1)], out["choices"]
+    assert out["pages"] == ["Narrator\n“The curtain rises.”"], out["pages"]
+
+
+def test_o3_drive_watchdog_against_a_long_movie(game):
+    """The stall watchdog against a movie (research/o3_design.md 4.12, 11.1 #4): the agent publishes no movie state,
+    so a movie longer than ``no_progress_s`` is V14 (game) -- and with ``no_progress_s`` above the movie the run reaches
+    the end. The sizing rule, pinned on the fake. Break: count the movie as progress (the short budget then reaches
+    the end)."""
+    SD = _segment_modules()
+    got = {}
+    for no_progress_s in (1.0, 15.0):
+        fake = _o3_fake(game)
+        phases = [(lambda f: f.field_id == 30820, lambda f: f.scene("Narrator\n“Lights.”", {"movie": 960},
+                                                                    "Narrator\n“Curtain.”", control=False)),
+                  (lambda f: _o3_idle(f) and f.movies and f.movies[-1]["end"] is not None,
+                   lambda f: _o2_move(f, _O3_END))]
+        pred = _o3_pred()
+        pred["budget"]["no_progress_s"] = no_progress_s
+        with session(game, fake) as g:
+            _o3_start(g)
+            got[no_progress_s] = _o3_drive(g, fake, pred, phases=phases, budget=40.0)[0], dict(fake.movies[0])
+    err, mv = got[1.0]
+    assert isinstance(err, SD.RouteVoid) and (err.v, err.by, err.cell) == ("V14", "game", [30820, 1155]), err
+    assert "no progress for 1 s in 30820" in str(err) and mv["end"] is None, (err, mv)
+    out, mv = got[15.0]
+    assert not isinstance(out, Exception) and out["end"] == "reached" and mv["ended"] == "played", (out, mv)
+
+
+def test_o3_drive_battle_of_rejects_a_bad_row():
+    """The registry row, strict (research/o3_design.md 2.1, section 8's battle-row unit): 2.1's row passes (a copy);
+    ValueError on ``won`` [1, 2, 3] (a defeat counted won), [2] and []; on a beat not in ``beats``; on a beat a naming
+    rule, a table step, a choice rule or a battle row of ANOTHER slot also names; on ``max_turns`` -1 and on True (a
+    bool is no int); on ``land_s`` above ``land_cap_s``; on an unknown or a missing key; ``max_turns`` 0 passes --
+    R-BATTLE-VOID's override of the SAME slot, checked against the predictions it overrides. And a driver refuses a
+    bad row before anything is driven. Break: compare ``won`` by equality alone ([True, 2] then passes)."""
+    SD = _segment_modules()
+    pred = _o3_pred()
+    row = pred["battles"][0]
+    got = SD.battle_of(pred, row)
+    assert got == row and got is not row
+    assert SD.battle_of(pred, dict(row, max_turns=0))["max_turns"] == 0
+    other = _o3_pred(battles=[_o3_row(sc=None, won=[1])])          # any SC; WinPose on: won [1]
+    assert SD.battle_of(other, other["battles"][0])["won"] == [1]
+
+    def refused(match, **change):
+        with pytest.raises(ValueError, match=match):
+            SD.battle_of(pred, {**row, **change})
+    for won in ([1, 2, 3], [2], [], [True, 2], (1, 2.0)):
+        refused("won is", won=won)
+    refused("is not one of the predictions' beats", beat="garnet")
+    refused("max_turns is an int >= 0", max_turns=-1)
+    refused("max_turns is an int >= 0", max_turns=True)
+    refused("max_turns is an int >= 0", max_turns=2.5)
+    refused("is above land_cap_s", land_s=200)
+    refused("positive numbers", timeout_s=0)
+    refused("of the wrong type", scene="338")
+    refused("of the wrong type", sc=True)
+    with pytest.raises(ValueError, match="unknown key"):
+        SD.battle_of(pred, {**row, "lands_in": 63})
+    with pytest.raises(ValueError, match="missing"):
+        SD.battle_of(pred, {k: v for k, v in row.items() if k != "land_cap_s"})
+    for where in ("naming", "choices", "table", "battles"):
+        p = _o3_pred()
+        if where == "naming":
+            p["naming"] = [{"donor": 30821, "sc": 1155, "beat": "leo"}]
+        elif where == "choices":
+            p["choices"] = p["choices"] + [{"donor": 30821, "sc": None, "match": "x", "pick": "y", "beat": "leo"}]
+        elif where == "table":
+            p["table"] = [{"donor": 30821, "sc": 1155, "steps": [{"kind": "trigger", "goal": [0, 0], "until": {"x_le": 1},
+                                                                 "beat": "leo"}]}]
+        else:
+            p["battles"] = p["battles"] + [_o3_row(scene=339)]
+        with pytest.raises(ValueError, match="is also named by"):
+            SD.battle_of(p, p["battles"][0])
+    bad = _o3_pred(battles=[_o3_row(won=[1, 2, 3])])
+    with pytest.raises(ValueError, match="won is"):
+        SD.drive(None, bad, "S", [], deadline=time.time() + 1, floor_for=lambda d, c: None, prior_for=lambda d: None)
+
+
+def test_o2_drive_voids_a_battle_without_a_registry(game):
+    """S4 is opt-in (research/o3_design.md 1.2, 1.4): O2-shaped predictions -- no ``battles`` key, or an empty
+    registry -- read a battle on screen exactly as O2's driver did: rule 5's V10 (game) with O2's message, the cell
+    the place and SC it happened in, and nothing fought. The one test that puts a battle up under O2's shape (G12 runs
+    it). Break: run rule 1b with no registry (V10 with the registry's message)."""
+    SD = _segment_modules()
+    for registry in (None, []):
+        fake = FakeGame(game)
+        pred = _o2_pred([])
+        if registry is not None:
+            pred["battles"] = registry
+        with session(game, fake) as g:
+            _o2_start(g, fake)
+            fake.control = False
+            g.start_battle(338)
+            with pytest.raises(SD.RouteVoid) as err:
+                _o2_drive(g, pred, budget=20.0)
+        assert (err.value.v, err.value.by, err.value.cell) == ("V10", "game", [30820, 1000]), err.value
+        assert str(err.value) == "a battle in 30820 (place 30820) at SC 1000, where the route registers none", err.value
+        assert not fake.battle_commands and not [s for s in fake.executed if s[0] in ("battlecmd", "menus")]

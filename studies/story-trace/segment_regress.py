@@ -1,10 +1,10 @@
 """THE REGRESSION GATE for the shared segment machinery: every change to ``segment_trace``, ``segment_drive``,
 ``o2_alexandria`` or the harness verbs they drive must leave every O1 output (research/o2_design.md, section 1.6)
-AND every O2 output (research/o3_design.md, section 1.4) byte-identical.
+AND every O2 output (research/o3_design.md, section 1.4) byte-identical, and O3's battle-beat tests (G13) green.
 
     py studies/story-trace/segment_regress.py --capture      # G0, once, BEFORE the O2 refactor: the O1 baseline
     py studies/story-trace/segment_regress.py --capture-o2   # G0', once, BEFORE any O3 code change: the O2 baseline
-    py studies/story-trace/segment_regress.py                # G1-G12; exit 0 only if every item passes
+    py studies/story-trace/segment_regress.py                # G1-G13; exit 0 only if every item passes
 
 Exit 2 means an archive or a baseline is missing: the gate was not run, which is not a pass.
 
@@ -51,6 +51,10 @@ was captured at the code before the change it guards and the same file judges th
   G12 ``pytest tests/test_harness.py -k "o2_ or rehearse"`` from ``ff9mapkit/``: every test passed, 0 failed, 0
       skipped, 0 errors; every test the baseline collected still runs, and so does every name in
       :data:`REQUIRED_TESTS_O2`.
+  G13 ``pytest tests/test_harness.py -k "o3_drive"`` from ``ff9mapkit/`` (research/o3_design.md 1.4, from B4): every
+      test passed, 0 failed, 0 skipped, 0 errors, and every name in :data:`REQUIRED_TESTS_O3` among them -- the
+      battle beat's driver tests, so a later edit to ``segment_drive`` re-runs them. No baseline: the list is the
+      floor.
 
 Nothing here touches the game or writes to the install: it reads the archives, the builds and the stock bytes.
 """
@@ -107,7 +111,30 @@ PYTEST_K_O2 = "o2_ or rehearse"
 #: Tests G12 must find (and find passing) beyond the ones the O2 baseline collected: each arrives with the step of
 #: research/o3_design.md section 9 that adds it (B4's renamed no-registry test, C3's rehearse tests), so a later step
 #: cannot drop it silently.
-REQUIRED_TESTS_O2: tuple = ()
+REQUIRED_TESTS_O2: tuple = (
+    # B4: S4's no-registry proof -- O2-shaped predictions read a battle exactly as O2's driver did
+    "test_o2_drive_voids_a_battle_without_a_registry",
+)
+
+# -- O3 (research/o3_design.md 1.4, 9 B4): the battle beat's driver tests, by name. No baseline: the list is the floor.
+PYTEST_K_O3 = "o3_drive"
+#: Tests G13 must find (and find passing): the battle beat's driver tests (B4), so a later edit to ``segment_drive``
+#: (O4's) re-runs every one of them.
+REQUIRED_TESTS_O3: tuple = (
+    "test_o3_drive_fights_its_registered_battle_and_lands_fresh",
+    "test_o3_drive_lands_in_the_member_on_the_fork_side",
+    "test_o3_drive_reads_a_landing_in_the_real_field_as_a_finding",
+    "test_o3_drive_ignores_the_id_flip_inside_the_battle",
+    "test_o3_drive_waits_out_a_late_landing",
+    "test_o3_drive_voids_a_landing_past_its_cap",
+    "test_o3_drive_voids_an_unregistered_battle",
+    "test_o3_drive_voids_a_battle_with_no_result",
+    "test_o3_drive_logs_leave_battle_presses_as_press_rows",
+    "test_o3_drive_stops_on_a_stop_page",
+    "test_o3_drive_answers_a_skip_dialog_at_its_default",
+    "test_o3_drive_watchdog_against_a_long_movie",
+    "test_o3_drive_battle_of_rejects_a_bad_row",
+)
 
 O2S_VERDICT = "PROVEN"
 O2S_CHECKS = 15
@@ -488,6 +515,17 @@ def g12(base: dict, got: dict) -> tuple:
                      f"REQUIRED_TESTS_O2 among them", "; ".join(bad) or f"{len(got['passed'])} passed")
 
 
+def pytest_g13() -> dict:
+    """Run G13's pytest selection (:func:`pytest_selection`)."""
+    return pytest_selection(PYTEST_K_O3)
+
+
+def g13(got: dict) -> tuple:
+    bad = _selection_bad(None, got, REQUIRED_TESTS_O3)
+    return (not bad, f'G13: pytest -k "{PYTEST_K_O3}": all passed, 0 failed, 0 skipped; every REQUIRED_TESTS_O3 '
+                     f"among them", "; ".join(bad) or f"{len(got['passed'])} passed")
+
+
 # ======================================================================== the gate
 def _missing(*, o1: bool = True, o2: bool = True) -> list:
     need = ([V4, O1E / "o1_session.json", O1E / "o1_report.txt", O1D / "o1_session.json"] if o1 else []) \
@@ -595,7 +633,9 @@ def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2) -> int:
     _show_items(items)
     items_o2 = judge_o2(base_o2, collect_o2(), pytest_g12())
     _show_items(items_o2)
-    items += items_o2
+    items_o3 = [g13(pytest_g13())]                     # O3's battle beat (research/o3_design.md 1.4): no baseline
+    _show_items(items_o3)
+    items += items_o2 + items_o3
     n = sum(1 for ok, _w, _d in items if ok)
     print(f"\n{n}/{len(items)} items PASS (baseline heads: O1 {base['head'][:8]}, O2 {base_o2['head'][:8]})")
     return 0 if n == len(items) else 1
