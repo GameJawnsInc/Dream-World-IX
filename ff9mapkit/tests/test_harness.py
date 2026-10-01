@@ -13857,3 +13857,56 @@ def test_fake_movie_beat_holds_and_offers_the_skip_dialog(game):
             g.press("confirm", 3)                            # the page after it
             published(g, lambda s: not s.dialog_open)
     assert fake.answered == [1, 0], fake.answered
+
+
+def test_fight_raises_fight_timeout_without_a_result(game):
+    """H7 (research/o3_design.md 3): fight()'s two no-result exits raise FightTimeout -- a HarnessError, with the
+    messages they always carried, its ``kind`` the bound that ran out -- and record ``last_fight`` either way, now with
+    ``timed_out``, ``seconds`` and ``tutorials``. A battle no attack can end (one enemy of 10^7 HP, no scripted end):
+    ``max_turns=0`` raises at the FIRST command prompt, before any command -- no battlecmd executed, the fake still in
+    BattleHUD with result 0 (R-BATTLE-VOID's way to stop mid-fight); ``max_turns=1`` raises naming the turns;
+    ``timeout=2`` naming the timeout. Break: raise the plain HarnessError on either exit."""
+    from harness import FightTimeout
+    fake = FakeGame(game)
+    fake.enemy_hit, fake.atb_gain = 0, 400
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30821)
+        fake.start_battle(338, units=_o3_units(10 ** 7, minions=False))
+        published(g, lambda s: s.in_battle and s.battle.get("scene") == 338)
+        with pytest.raises(FightTimeout, match="took 0 turns without reaching a result") as err:
+            g.fight(timeout=30.0, max_turns=0, finish=False)
+        st = g.state
+        assert err.value.kind == "turns" and isinstance(err.value, HarnessError)
+        assert not [s for s in fake.executed if s[0] == "battlecmd"] and fake.battle_commands == []
+        assert st.in_battle and st.ui_state == "BattleHUD" and st.battle_result == 0, st
+        lf = g.last_fight
+        assert (lf["turns"], lf["result"], lf["timed_out"], lf["tutorials"]) == (0, 0, True, 0), lf
+        assert lf["epoch"] == st.battle_epoch and lf["seconds"] >= 0, lf
+        with pytest.raises(FightTimeout, match="took 1 turns without reaching a result") as err:
+            g.fight(timeout=30.0, max_turns=1, finish=False)
+        assert err.value.kind == "turns" and g.last_fight["turns"] == 1 and g.last_fight["timed_out"] is True
+        assert len(fake.battle_commands) == 1
+        with pytest.raises(FightTimeout, match=r"did not reach a result within 2s \(\d+ turn\(s\) taken\)") as err:
+            g.fight(timeout=2.0, finish=False)
+        assert err.value.kind == "timeout" and g.last_fight["timed_out"] is True, g.last_fight
+        assert g.last_fight["seconds"] >= 2.0 and g.last_fight["result"] == 0, g.last_fight
+
+
+def test_fight_counts_its_tutorials_and_seconds(game):
+    """H7: ``last_fight`` counts the battle tutorial screens the call closed -- scene 336 opens one before its first
+    command: 1 -- and the wall seconds it took, and reads ``timed_out`` False on a result; its old keys (turns, result,
+    name, epoch) are all still there. Break: count no tutorial."""
+    fake = FakeGame(game)
+    fake.enemy_hit, fake.atb_gain = 0, 400
+    fake.tutorial_scenes = {336}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.start_battle(336)
+        published(g, lambda s: s.ui_state == "Tutorial")
+        assert g.fight(timeout=60.0, finish=False) == 1
+    lf = g.last_fight
+    assert lf["tutorials"] == 1 and lf["seconds"] > 0 and lf["timed_out"] is False, lf
+    assert (lf["result"], lf["name"]) == (1, "victory") and lf["turns"] >= 4 and lf["epoch"] > 0, lf
+

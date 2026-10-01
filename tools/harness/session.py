@@ -44,8 +44,8 @@ from ff9mapkit.config import find_game_path                      # noqa: E402
 from ff9mapkit.content.doorface import STEP_PER_CALL              # noqa: E402
 
 from .artifacts import STATE_RING, StateRing, StepLog, build_env         # noqa: E402
-from .channel import (ARM_CYCLE_TIMEOUT, BUTTONS, PROTOCOL, Channel, HarnessError, State,   # noqa: E402
-                      StepRefused)
+from .channel import (ARM_CYCLE_TIMEOUT, BUTTONS, PROTOCOL, Channel, FightTimeout, HarnessError,   # noqa: E402
+                      State, StepRefused)
 from .logs import (MEMORIA_LOG, PARSERS, UNITY_LOG, UNITY_LOG_PATH,     # noqa: E402
                    LogException, frame_after, line_start_offset, read_from, split_lines)
 from .tickrate import CALLS_PER_TICK, TAIL_TICKS, Rate, TickClock, read_field_tps   # noqa: E402
@@ -7367,8 +7367,15 @@ class Session:
         proves nothing about a result.
 
         A battle TUTORIAL screen (the Masked Man's scene 336) is closed when it shows (:meth:`_dismiss_tutorial`).
+
+        NO RESULT within the bounds raises :class:`FightTimeout` (a HarnessError: research/o3_design.md H7), its
+        ``kind`` the bound that ran out -- "turns": ``max_turns`` command prompts answered (0 raises at the FIRST
+        prompt, before any command: a fight stopped mid-battle by construction) -- or "timeout". Either way, and on a
+        result, :attr:`last_fight` records what the call did: ``turns``, ``result``, ``name``, ``epoch``, and
+        ``seconds`` (wall time from the call), ``tutorials`` (screens this call closed) and ``timed_out``.
         """
         self._require_play_protocol("fight()")
+        t0 = time.time()
         st = self.state
         # ⚠ THE DIORAMA CHECK COMES FIRST, and that ordering is the whole point: `in_battle` is
         # already false for a diorama by design, so a debug check placed below it can never run.
@@ -7383,14 +7390,26 @@ class Session:
             raise HarnessError("fight() needs a real battle in progress; call start_battle first")
         epoch = st.battle_epoch
         deadline = time.time() + timeout
-        turns = 0
+        turns = tutorials = 0
+
+        def record(result: int, timed_out: bool) -> None:
+            # ⚠ RECORDED, because "it ended in victory" does not say the loop ever ran. The first live
+            # run of this verb reported a clean victory having taken ZERO turns -- the single Attack
+            # issued beforehand had already killed the only enemy, so the multi-turn path was untested
+            # while the report looked complete. A scenario that means to exercise the loop asserts on
+            # this; without it there is nothing to assert on. Both no-result exits record it too (H7).
+            self.last_fight = {"turns": turns, "result": result,
+                               "name": State.BATTLE_RESULTS.get(result, str(result)),
+                               "epoch": epoch, "seconds": round(time.time() - t0, 3), "tutorials": tutorials,
+                               "timed_out": timed_out}
         while time.time() < deadline:
             self._assert_alive()
             st = self.state
             if st.battle_epoch == epoch and (st.battle_result != 0 or not st.in_battle):
                 break
             if st.ui_state == "Tutorial":
-                self._dismiss_tutorial()
+                if self._dismiss_tutorial():
+                    tutorials += 1
                 continue
             if st.turn_slot < 0:
                 # Nobody is being asked: the enemies are acting, or an animation is playing. Not a
@@ -7405,10 +7424,11 @@ class Session:
                     pass
                 continue
             if turns >= max_turns:
-                raise HarnessError(
+                record(st.battle_result, True)
+                raise FightTimeout(
                     f"took {turns} turns without reaching a result. Either the party cannot hurt "
                     f"this enemy or something is healing it faster than {command!r} lands -- the "
-                    f"roster is in the last state snapshot.")
+                    f"roster is in the last state snapshot.", kind="turns")
             slot = st.turn_slot
             choice = {"command": command, "target": target}
             if policy is not None:
@@ -7430,18 +7450,11 @@ class Session:
                 continue
             turns += 1
         result = self.state.battle_result
-        # ⚠ RECORDED, because "it ended in victory" does not say the loop ever ran. The first live
-        # run of this verb reported a clean victory having taken ZERO turns -- the single Attack
-        # issued beforehand had already killed the only enemy, so the multi-turn path was untested
-        # while the report looked complete. A scenario that means to exercise the loop asserts on
-        # this; without it there is nothing to assert on.
-        self.last_fight = {"turns": turns, "result": result,
-                           "name": State.BATTLE_RESULTS.get(result, str(result)),
-                           "epoch": epoch}
+        record(result, result == 0)
         self._log(f"fight: {turns} turn(s) -> {State.BATTLE_RESULTS.get(result, result)}")
         if result == 0:
-            raise HarnessError(
-                f"the battle did not reach a result within {timeout:.0f}s ({turns} turn(s) taken)")
+            raise FightTimeout(
+                f"the battle did not reach a result within {timeout:.0f}s ({turns} turn(s) taken)", kind="timeout")
         if finish:
             self.leave_battle()
         return result

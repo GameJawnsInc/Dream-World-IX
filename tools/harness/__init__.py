@@ -12,10 +12,10 @@ Two halves:
 
 Read ``ff9mapkit/docs/TEST_HARNESS.md`` for the guide; ``tools/play.py`` is the CLI entry point.
 """
-from .channel import BUTTONS, PROTOCOL, Channel, HarnessError, State
+from .channel import BUTTONS, PROTOCOL, Channel, FightTimeout, HarnessError, State
 from .logs import LogException
 from .session import Session, ff9_pids
 from .suite import Scenario, SuiteRunner, load_manifest
 
-__all__ = ["Session", "State", "Channel", "HarnessError", "BUTTONS", "PROTOCOL", "ff9_pids",
+__all__ = ["Session", "State", "Channel", "HarnessError", "FightTimeout", "BUTTONS", "PROTOCOL", "ff9_pids",
            "SuiteRunner", "Scenario", "load_manifest", "LogException"]
