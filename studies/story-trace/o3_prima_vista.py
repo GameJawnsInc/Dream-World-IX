@@ -511,13 +511,22 @@ def store_census(fields, stock, pred: dict, *, sites=None, classify=None) -> tup
 
 
 # ======================================================================== the live install (pure readers)
-def ini_settings(text: str | None) -> dict:
+def ini_settings(text: str | None, keys: dict | None = None) -> dict:
     """``{section: {key: raw value}}`` of one Memoria.ini read the ENGINE's way (Memoria.Prime/Ini/IniReader.cs): a
     line whose first letter, digit, ``[``, ``;`` or ``#`` is ``;`` or ``#`` is a comment; ``[name]`` opens a section
     (a trailing ``Section`` trimmed, as ReadSection does); ``key = value`` -- the key from its first letter or digit to
     the ``=``, trimmed at its end, the value after it up to an unescaped ``;`` (``;;`` is a literal ``;``), trimmed.
     Sections and keys are CASE-SENSITIVE (the reader's dictionaries use the default comparer), and the LAST
-    assignment wins."""
+    assignment wins. ``keys`` (``{section: [key, ...]}``, e.g. :data:`SETTINGS`) keeps only those keys -- the ones
+    the file sets."""
+    out = _ini_read(text)
+    if keys is None:
+        return out
+    return {sec: {k: v for k, v in out.get(sec, {}).items() if k in ks} for sec, ks in keys.items()}
+
+
+def _ini_read(text: str | None) -> dict:
+    """:func:`ini_settings`' reader: every section and key of one ini text, the engine's way."""
     out: dict = {}
     section = None
     for line in (text or "").splitlines():

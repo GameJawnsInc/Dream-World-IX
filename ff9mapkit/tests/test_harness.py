@@ -14814,6 +14814,8 @@ def test_o3_settings_read_the_ini_the_engines_way(tmp_path):
     assert judge(_o3_ini(want, extra="\n[Battle]\n; Speed = 0\n#Speed = 0\n"))[0], "a comment line is no value"
     assert judge(_o3_ini(want, extra="\n[Battle]\nSpeed = 5 ; the default is 0\n"))[0], "an inline comment"
     assert P.ini_settings("[Lang]\nText = a;;b ; c\n") == {"Lang": {"Text": "a;b"}}, "`;;` is a literal `;`"
+    assert P.ini_settings("[Battle]\nSpeed = 5\nOther = 1\n[Graphics]\nTileSize = 64\n",
+                          {"Battle": ["Speed", "SFXRework"]}) == {"Battle": {"Speed": "5"}}, "keys: only those it sets"
     assert judge(_o3_ini(want, extra="\n[Battle]\nspeed = 0\n[battle]\nSpeed = 0\n"))[0], "case-sensitive"
     first, second = tmp_path / "FF9CustomMap", tmp_path / "MoguriMain"
     first.mkdir()
