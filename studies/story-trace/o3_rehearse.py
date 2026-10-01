@@ -8,12 +8,18 @@ what loaded. Nothing is deployed and nothing is frozen here.
     py tools/play.py studies/story-trace/o3_rehearse.py --field 62 --label o3-rh-62 --timeout 240
     py tools/play.py studies/story-trace/o3_rehearse.py --label o3-rh --timeout 240           # the default order
     py studies/story-trace/o3_prima_vista.py --rehearsal-report <run dir>
+    set O3_STAGE=R-FULL-SKIP & py tools/play.py studies/story-trace/o3_rehearse.py --label o3-rh-R-FULL-SKIP --timeout 240
+    py studies/story-trace/o3_prima_vista.py --skip-ab <R-FULL run dir> <R-FULL-SKIP run dir>  # the movie-skip A/B
 
-WHICH STAGE: the environment variable ``O3_STAGE`` names one (R-START, F-SMOKE, R-62, R-FULL, R-SKIP,
+WHICH STAGE: the environment variable ``O3_STAGE`` names one (R-START, F-SMOKE, R-62, R-FULL, R-SKIP, R-FULL-SKIP,
 R-BATTLE-VOID); else ``--field N`` picks the one stage that warps into N and is not by-name-only (61 is R-START, 62 is
 R-62); else, in one launch: R-START (the go/no-go: FMV003 after the warp has cut FMV001), F-SMOKE, R-62, R-FULL, and
 R-BATTLE-VOID LAST -- a failure there ends the launch, since the next run would start from an unknown state. R-SKIP
-runs only by name.
+and R-FULL-SKIP run only by name.
+
+R-FULL-SKIP (PLAN.md "Movie skip (opt-in)") is R-FULL with 61's FMV003 registered for skipping: segment_drive's
+movie-skip policy, carried by the stage's own ``movies`` overlay (stage_pred), never by the predictions. Its traces
+against R-FULL's (``o3_prima_vista.py --skip-ab``) must read EQUIVALENT before any segment registers a movie.
 
 EACH TRACED RUN: New Game; the story trace armed; the raw ``warp <field> 0 1155`` (Segment.start_run); then
 segment_drive.drive on the draft with the stage's end fields, the live forbidden scan on, and o2_rehearse's Recorder
@@ -32,6 +38,7 @@ or the end state. A staged run starts mid-route: it proves driver mechanics only
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
 import sys
@@ -80,6 +87,18 @@ STAGES = {
                "optional": True, "by_name": True, "movie": {"donor": 61}, "skip_after_s": 10.0,
                "settles": "F4: one Confirm 10 s into FMV003 -- the skip dialog's published choice (prompt, options, "
                           "active, selected at readiness); the rule answers it; FMV003 continues"},
+    # the movie-skip A/B's skip side (PLAN.md "Movie skip (opt-in)"): R-FULL's warp and end, FMV003 registered for
+    # skipping by the stage's OWN prediction overlay (``movies``; stage_pred) -- the frozen predictions carry none
+    "R-FULL-SKIP": {"field": 61, "entrance": 0, "sc": 1155, "end": [64], "runs": 2, "run_s": 1200, "cost_s": 270,
+                    "optional": True, "by_name": True, "movie": {"donor": 61},
+                    "movies": {"policy": "skip", "press_every_s": 5.0, "max_presses": 3,
+                               "cells": [{"donor": 61, "sc": 1155, "after_s": 10.0, "length_s": 90.0,
+                                          "why": "61 e2 t1 ip159 Cinematic(0,8,1,1) = FMV003 (type 0: the skip hit "
+                                                 "area armed); R-FULL measured 90.1-90.3 s from the arrival to page "
+                                                 "72"}]},
+                    "settles": "the movie-skip A/B: R-FULL with 61's FMV003 skipped -- its traces against R-FULL's "
+                               "(o3_prima_vista.py --skip-ab) must read EQUIVALENT before any segment registers a "
+                               "movie for skipping"},
     "R-BATTLE-VOID": {"field": 62, "entrance": 0, "sc": 1155, "end": [64], "runs": 1, "run_s": 600, "cost_s": 90,
                       "by_name": True, "last": True, "battle_override": {"max_turns": 0},
                       "settles": "F3: fight() raises FightTimeout at the FIRST command prompt, before any attack (V15, "
@@ -111,12 +130,17 @@ def select(stages: dict, field=None, env=None) -> list:
 def stage_pred(pred: dict, stage: dict) -> dict:
     """The draft with the stage's own start (o2_rehearse.stage_pred: its field, entrance and scenario) and its
     ``battle_override`` on every registry row -- each row then checked by segment_drive.battle_of like any (R-BATTLE-
-    VOID's ``max_turns`` 0 is legal), so a bad override refuses before anything is driven."""
+    VOID's ``max_turns`` 0 is legal), so a bad override refuses before anything is driven -- and its ``movies`` (the
+    movie-skip policy, PLAN.md "Movie skip (opt-in)": R-FULL-SKIP's), a copy, checked by segment_drive.movies_of the
+    same way. The predictions given are never changed: the policy reaches a stage through this overlay alone."""
     p = O2R.stage_pred(pred, stage)
     if stage.get("battle_override"):
         p["battles"] = [dict(b, **stage["battle_override"]) for b in p.get("battles") or ()]
     for b in p.get("battles") or ():
         SD.battle_of(p, b)
+    if stage.get("movies") is not None:
+        p["movies"] = copy.deepcopy(stage["movies"])
+        SD.movies_of(p)
     return p
 
 
@@ -247,6 +271,8 @@ def one(g, name: str, stage: dict, pred: dict, n: int, *, t0: float, floor_for=N
         trace=trace,
         log_file=f"rh_{name}_{n}_log.json",
     )
+    if spred.get("movies") is not None:          # the movie-skip policy's rows (PLAN.md "Movie skip (opt-in)")
+        rec["movies"] = [x for x in log if x.get("k") == "movie"]
     end_log: list = []
     try:
         P.O3.end_run(g, end_log, recovery=recovery)

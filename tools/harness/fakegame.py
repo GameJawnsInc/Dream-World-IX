@@ -2783,8 +2783,8 @@ class FakeGame:
             # H9: a Confirm during a movie with a skip dialog opens it (FieldHUD.cs:275-286), the cursor on its default
             # (ETb.sChoose = 1: No); the movie waits under it with the frames it has left. Opt-in (``armed_after``,
             # frames; default 0, the hit area live from the first frame): the hit area arms only that far into the
-            # movie -- MBG.Play sets it active, and until the first frame decodes MBG.IsFinished() refuses the dialog
-            # (MBG.cs:216, :597-600) -- so a Confirm before then does nothing to the movie
+            # movie -- MBG.Play sets it active (MBG.cs:207), and until the first frame decodes MBG.IsFinished() refuses
+            # the dialog (:597-600) -- so a Confirm before then does nothing to the movie
             beat = self._beats[0]
             if button in ("confirm", "ok") and beat.get("skip") and self._beat_phase == "movie":
                 skip = beat["skip"]

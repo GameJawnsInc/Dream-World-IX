@@ -23,7 +23,9 @@ an unforeseen co-failure is a miss. A LANDING or BATTLE case also registers the 
 The units read the install read-only (the stock scripts and walkmeshes, battle 338's scene, O1's build is not read):
 O3-SCENE and O3-CENSUS on the install and on one-change copies of the draft, the battle row's strictness, the legacy
 build rule, and the offline mutants of O3-KEYS, O3-REGIONS and P-DONOR. The launch's readers (P-DONOR-LOG, P-LAUNCH),
-P-STOCK-BATTLE and P-SETTINGS run on synthetic logs, folders and inis.
+P-STOCK-BATTLE and P-SETTINGS run on synthetic logs, folders and inis. The movie-skip A/B (``--skip-ab``, PLAN.md "Movie
+skip (opt-in)") runs on synthetic stock runs: equal runs read EQUIVALENT; a key dropped, a history reordered and a skip
+run that played its movie out each read NOT EQUIVALENT.
 """
 from __future__ import annotations
 
@@ -1239,6 +1241,73 @@ def unit_offline_mutants(pred: dict, stock, tmp: Path) -> list:
     return out
 
 
+# ======================================================================== the movie-skip A/B on synthetic runs
+def ab_run(pred: dict, events: list, side: str, n: int, *, skipped: bool = True, t: float | None = None) -> dict:
+    """A STOCK rehearsal run as o3_prima_vista.skip_ab_runs reads one (PLAN.md "Movie skip (opt-in)"): the rows the
+    engine would write for ``events``, its driver log -- its visits, its battle row, its end row with the frozen end
+    state -- and, on the skip side, the movie row of 61's visit: ``skipped`` 10.4 s in after one press, or (``skipped``
+    False) given up. ``side`` is "no-skip" (R-FULL) or "skip" (R-FULL-SKIP); ``t`` the drive's seconds. ``raw``
+    keeps the rows as the trace file holds them (a launch written to disk)."""
+    raw = render(events, "S", {})
+    log = visits(raw, {}) + [battle_log_row(raw, "S", {})]
+    log.append({"k": "end", "field": P.END_FIELD, "frame": max(x["f"] for x in raw), "sc": 1155,
+                "end_state": dict(pred["end_state"]), "t": 200.0})
+    if side == "skip":
+        log.insert(1, {"k": "movie", "field": 61, "donor": 61, "sc": 1155, "visit": 1, "cell": 0,
+                       "presses": [{"frame": 1612, "t": 10.1}], "refused": [], "outcome": "skipped" if skipped
+                       else "missed", "frame": 1700 if skipped else None, "t": 10.4 if skipped else None,
+                       "dialog": {"options": ["Do you want to skip\nthe movie?", "Yes", "No"], "active": [0, 1],
+                                  "selected": 1, "count": 2} if skipped else None,
+                       "saved_s": 79.9 if skipped else None,
+                       "missed": None if skipped else "movie-skip missed: no skip dialog after 3 press(es) 5 s apart"})
+    return {"side": side, "stage": "R-FULL" if side == "no-skip" else "R-FULL-SKIP", "n": n, "raw": raw,
+            "rows": T.parse_text("".join(json.dumps(x) + "\n" for x in raw)), "log": log,
+            "outcome": {"end": "reached", "why": f"field {P.END_FIELD}", "battle_epoch0": EPOCH0,
+                        "t": t if t is not None else (230.0 if side == "no-skip" else 140.0)},
+            "start_place": 61, "end_fields": [P.END_FIELD]}
+
+
+def _swap(ev: list, a, b) -> list:
+    """``ev`` with the events of sites ``a`` and ``b`` trading places."""
+    i = next(k for k, x in enumerate(ev) if _is(x, a))
+    j = next(k for k, x in enumerate(ev) if _is(x, b))
+    out = list(ev)
+    out[i], out[j] = out[j], out[i]
+    return out
+
+
+def unit_skip_ab(pred: dict, stock) -> list:
+    """``[(name, ok, detail)]``: the movie-skip A/B (o3_prima_vista.skip_ab_runs) on synthetic stock runs. Two no-skip
+    runs and two skip runs of the base events -- each its own battle noise -- read EQUIVALENT; a skip run that lacks
+    61's ``Byte[8] := 125`` (a key dropped) is NOT EQUIVALENT on writes and history; one whose two 62 ``Byte[4] := 0``
+    stores came in the other order (the same keys, a REORDERED history) on history alone; one that played its movie
+    out (its skip missed) is NOT EQUIVALENT naming it."""
+    def runs(b1=None, skipped=True):
+        a = [ab_run(pred, base_events(seed=0), "no-skip", 1), ab_run(pred, base_events(seed=1), "no-skip", 2)]
+        b = [ab_run(pred, b1 if b1 is not None else base_events(seed=2), "skip", 1, skipped=skipped),
+             ab_run(pred, base_events(seed=3), "skip", 2)]
+        return P.skip_ab_runs(a, b, pred, stock=stock)
+
+    def diffs(lines) -> list:
+        return [ln.strip() for ln in lines if ln.startswith("  skip R-FULL-SKIP#1 ")]
+    out = []
+    ok, lines = runs()
+    out.append(("skip-ab-equal", ok and lines[-1].startswith("VERDICT: EQUIVALENT"), lines[-1][:150]))
+    ok, lines = runs(drop(base_events(seed=2), B8_61))
+    d = diffs(lines)
+    out.append(("skip-ab-key-dropped", not ok and lines[-1] == "VERDICT: NOT EQUIVALENT"
+                and [x.split(":")[0] for x in d] == ["skip R-FULL-SKIP#1 writes", "skip R-FULL-SKIP#1 history"]
+                and "Global.Byte[8]" in d[1], "; ".join(d)[:150]))
+    ok, lines = runs(_swap(base_events(seed=2), S62[12], S62[13]))
+    d = diffs(lines)
+    out.append(("skip-ab-history-reordered", not ok and [x.split(":")[0] for x in d] == ["skip R-FULL-SKIP#1 history"]
+                and "Global.Byte[4]" in d[0], "; ".join(d)[:150]))
+    ok, lines = runs(skipped=False)
+    d = diffs(lines)
+    out.append(("skip-ab-not-skipped", not ok and len(d) == 1 and "skipped no movie" in d[0], "; ".join(d)[:150]))
+    return out
+
+
 # ======================================================================== the run
 def _prepare(pred_path: Path | None, tmp: Path) -> Path:
     if pred_path is not None:
@@ -1325,7 +1394,7 @@ def run_cases(pred_path: Path | None = None) -> int:
             fails += not ok
             print(f"{'ok  ' if ok else 'FAIL'} {name:30} (unit) {detail[:150]}")
         for name, ok, detail in unit_scene_census(pred) + unit_store_census(pred, stock) + \
-                unit_offline_mutants(pred, stock, tmp):
+                unit_offline_mutants(pred, stock, tmp) + unit_skip_ab(pred, stock):
             total += 1
             fails += not ok
             print(f"{'ok  ' if ok else 'FAIL'} {name:30} (unit) {detail[:150]}")

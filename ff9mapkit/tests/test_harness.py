@@ -14811,8 +14811,9 @@ def test_o3_drive_movie_skip_refuses_a_dialog_that_is_not_the_skip_text(game):
     """The skip answer requires the skip dialog's TEXT: here the policy's press opens a dialog that asks something
     else ("Do you want to save / the game?", Yes / No, the cursor on No). The policy refuses it (kept on its row as
     ``refused``, once) and the ordinary rules answer it -- a registered rule for it, at its default (No); pressed
-    again ``press_every_s`` later, the same; after ``max_presses`` the visit gives up and the movie plays out. Nothing is
-    ever answered 0. Break: match the option lines alone (the dialog is then answered YES and the movie ends)."""
+    again ``press_every_s`` later, the same; after ``max_presses`` the visit gives up and the movie plays out.
+    Nothing is ever answered 0. Break: match the option lines alone (the dialog is then answered YES and the movie
+    ends)."""
     save = {"header": "Do you want to save\nthe game?", "options": ["Yes", "No"], "default": 1}
     pred = _o3_pred(movies=_o3_movies(cell={"after_s": 0.25}, max_presses=2))
     pred["choices"] = pred["choices"] + [{"donor": None, "sc": None, "match": "want to save", "pick": "default",
@@ -15620,3 +15621,153 @@ def test_o3_rehearse_clears_the_last_fight_between_runs_on_the_fake(game):
     assert (second["outcome"]["end"], second["outcome"]["v"]) == ("void", "V4"), second["outcome"]
     assert second["battles"]["rows"] == [], second["battles"]
     assert second["fight"] is None and second["leave"] is None, (second["fight"], second["leave"])
+
+
+# ---- THE MOVIE-SKIP A/B (studies/story-trace/PLAN.md "Movie skip (opt-in)"): R-FULL-SKIP, the stock rehearsal that
+# carries the policy as its own overlay, and ``o3_prima_vista.py --skip-ab``, which reads it against R-FULL.
+
+def test_o3_rehearse_movie_skip_stage_on_the_fake(game):
+    """R-FULL-SKIP (PLAN.md "Movie skip (opt-in)"): R-FULL's warp and end with 61's FMV003 registered for skipping. It
+    is picked by name only -- never by the default order or by ``--field 61`` -- and carries the policy as its OWN
+    prediction overlay, as R-BATTLE-VOID carries its battle_override: stage_pred puts ``movies`` on a copy (checked
+    strict: a bad overlay refuses before anything is driven) and leaves the predictions it was given, and the frozen
+    v1, without one. On the fake, a stage with a policy plays "61": the policy's press opens the movie's skip dialog,
+    answered YES, then the page and the end; its record holds the ``movies`` rows (skipped after one press, the dialog
+    as published), the "movie_skip" press among the evidence, the skip dialog among the published choices and its
+    ``choice`` row; the rehearsal report prints the skip. Break: drop the overlay in stage_pred (the movie plays out,
+    and the record holds no ``movies``)."""
+    P, R, SD = _o3_module(), _o3_rehearse_module(), _segment_modules()
+    assert "R-FULL-SKIP" not in R.select(R.STAGES, env={}) and R.select(R.STAGES, 61, env={}) == ["R-START"]
+    assert R.select(R.STAGES, env={"O3_STAGE": "R-FULL-SKIP"}) == ["R-FULL-SKIP"]
+    stage, full = R.STAGES["R-FULL-SKIP"], R.STAGES["R-FULL"]
+    warp = ("field", "entrance", "sc", "end")
+    assert [stage[k] for k in warp] == [full[k] for k in warp] and "movies" not in full, stage
+    base = _o3_rehearse_pred()
+    sp = R.stage_pred(base, stage)
+    pol = SD.movies_of(sp)
+    assert [(c["donor"], c["sc"]) for c in pol["cells"]] == [(61, 1155)] and pol["policy"] == "skip", pol
+    assert "movies" not in base and sp["movies"] == stage["movies"] and sp["movies"] is not stage["movies"]
+    frozen = json.loads((REPO / "studies" / "story-trace" / "o3_predictions_v1.json").read_text(encoding="utf-8"))
+    assert "movies" not in frozen
+    with pytest.raises(ValueError, match="max_presses"):
+        R.stage_pred(base, dict(stage, movies=dict(stage["movies"], max_presses=0)))
+    _o3_launch_files(game)
+    stages = {"R-SKIPTEST": {"field": 30820, "entrance": 0, "sc": 1155, "end": [_O3_END], "runs": 1, "run_s": 60,
+                             "cost_s": 5, "movie": {"donor": 30820}, "movies": _o3_movies(),
+                             "settles": "the movie-skip plumbing"}}
+    fake = _o3_fake(game)
+
+    def bit191(f):
+        f.script_store(0, 0, 22, 191 >> 3, "Bit", 0, bit=191)
+    phases = [(lambda f: f.field_id == 30820 and f.story_on,
+               lambda f: (bit191(f), f.scene({"movie": 6000, "skip": dict(_O3_SKIP)}, _O3_PAGE, control=False))),
+              (lambda f: f.field_id == 30820 and _o3_idle(f) and f.movies and f.movies[-1]["end"] is not None,
+               lambda f: (_o2_move(f, _O3_END), bit191(f)))]
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0], "a launch starts at the title"
+        _o1_director(fake, stop, phases)
+        _o3_grant_in(fake, stop)
+        try:
+            R.run(g, stages=stages, pred=_o3_rehearse_pred(), floor_for=lambda d, closed: _flat_bgi(),
+                  prior_for=lambda d: _prior(), stock=lambda fid: None, recovery=_O3_RECOVERY,
+                  env={"O3_STAGE": "R-SKIPTEST"}, census=_O3_CENSUS.__func__)
+        finally:
+            stop.set()
+    run_dir = game / "run"
+    doc = json.loads((run_dir / "o3_rehearsal.json").read_text(encoding="utf-8"))
+    rec = doc["stages"]["R-SKIPTEST"][0]
+    assert rec["outcome"]["end"] == "reached" and doc["stage_defs"]["R-SKIPTEST"]["movies"], rec["outcome"]
+    mv = rec["movies"]
+    assert len(mv) == 1 and (mv[0]["outcome"], len(mv[0]["presses"]), mv[0]["dialog"]["selected"]) == \
+        ("skipped", 1, 1), mv
+    assert [p["why"] for p in rec["evidence"]["press"]].count("movie_skip") == 1, rec["evidence"]["press"]
+    assert any((c.get("options") or [""])[0].startswith("Do you want to skip") for c in rec["published_choices"])
+    assert [(c["rule"], c["index"]) for c in rec["choices"]] == [("movie_skip", 0)], rec["choices"]
+    assert fake.answered == [0] and fake.movies[0]["ended"] == "skipped", (fake.answered, fake.movies)
+    report = P.rehearsal_report(run_dir)
+    assert "movie-skip: 30820 visit 1 skipped" in report, report[:3000]
+
+
+@pytest.fixture(scope="module")
+def o3_stock():
+    """The install's stock scripts of 61-64 (what the A/B joins its rows against), or a WARNED skip -- never a silent
+    pass (THE WORKTREE SKIP TRAP)."""
+    import warnings
+    try:
+        from ff9mapkit import storytrace
+        src = storytrace.stock_script_source()
+        assert all(src(f) is not None for f in (61, 62, 63, 64))
+    except Exception as err:                                   # noqa: BLE001 -- no install here
+        warnings.warn(f"the movie-skip A/B went UNVERIFIED against real bytes in this run: the game install is not "
+                      f"readable here ({type(err).__name__}). Run on the machine with the install.", UserWarning)
+        pytest.skip("game install unavailable")
+    return src
+
+
+def _o3_ab_launch(run_dir, name, stage, runs):
+    """A rehearsal launch as o3_rehearse.py writes one: ``o3_rehearsal.json`` (its stage def, a record a run) and each
+    run's trace and driver log -- ``runs`` the A/B's run records (o3_dryrun.ab_run, its ``raw`` rows)."""
+    run_dir.mkdir(parents=True, exist_ok=True)
+    recs = []
+    for r in runs:
+        trace, log = f"rh_{name}_{r['n']}.jsonl", f"rh_{name}_{r['n']}_log.json"
+        (run_dir / trace).write_text("".join(json.dumps(x) + "\n" for x in r["raw"]), encoding="utf-8")
+        (run_dir / log).write_text(json.dumps({"outcome": r["outcome"], "log": r["log"]}), encoding="utf-8")
+        recs.append({"stage": name, "n": r["n"], "trace_file": trace, "log_file": log,
+                     "outcome": {k: r["outcome"].get(k) for k in ("end", "why", "t")}})
+    (run_dir / "o3_rehearsal.json").write_text(json.dumps({"stages_run": [name], "stage_defs": {name: stage},
+                                                           "stages": {name: recs}}), encoding="utf-8")
+    return run_dir
+
+
+def test_o3_skip_ab_on_synthetic_traces(o3_stock, tmp_path):
+    """The movie-skip A/B (``o3_prima_vista.py --skip-ab``; PLAN.md "Movie skip (opt-in)") on synthetic stock runs --
+    real store sites of 61-64, emitted as the engine emits them, each run its own battle noise. Two no-skip and two
+    skip runs of the same events read EQUIVALENT (the noise aside), the time saved per run printed; a skip run that
+    lacks 61's ``Byte[8] := 125`` (a key DROPPED) differs on writes and history; one whose two 62 ``Byte[4] := 0``
+    stores came in the other order (the same keys, a REORDERED history) on history alone; a skip run that played its
+    movie out, and a no-skip run that skipped one, are differences -- never a pass. Through the files too: two
+    launches written as o3_rehearse.py writes them (R-FULL; R-FULL-SKIP with its policy), paired by warp and end, read
+    EQUIVALENT and the CLI exits 0; the no-skip launch against itself holds no policy stage: NOT EQUIVALENT, exit 1.
+    Break: read each history as a set (the reordered one then reads EQUIVALENT)."""
+    P, R = _o3_module(), _o3_rehearse_module()
+    import o3_dryrun as D3
+    pred, _sha = P.O3.load(P.PREDICTIONS)
+
+    def ab(b1=None, *, skipped=True, a2_skip=False):
+        a = [D3.ab_run(pred, D3.base_events(seed=0), "no-skip", 1),
+             D3.ab_run(pred, D3.base_events(seed=1), "no-skip", 2)]
+        if a2_skip:                                  # a no-skip run carrying a skipped movie row
+            a[1]["log"].insert(1, dict(D3.ab_run(pred, D3.base_events(seed=1), "skip", 2)["log"][1]))
+        b = [D3.ab_run(pred, b1 if b1 is not None else D3.base_events(seed=2), "skip", 1, skipped=skipped),
+             D3.ab_run(pred, D3.base_events(seed=3), "skip", 2)]
+        ok, lines = P.skip_ab_runs(a, b, pred, stock=o3_stock)
+        at = next((i for i, x in enumerate(lines) if x.startswith("DIFFERENCES")), None)
+        return ok, lines, [] if at is None else [x.strip() for x in lines[at + 1:-1]]
+    ok, lines, diffs = ab()
+    assert ok and lines[-1].startswith("VERDICT: EQUIVALENT") and diffs == [], lines
+    assert any(ln.startswith("time: no-skip 230 s, 230 s (mean 230.0 s)") and "(saved 90.0 s)" in ln for ln in lines)
+    ok, lines, diffs = ab(D3.drop(D3.base_events(seed=2), D3.B8_61))
+    assert not ok and lines[-1] == "VERDICT: NOT EQUIVALENT", lines
+    assert [d.split(":")[0] for d in diffs] == ["skip R-FULL-SKIP#1 writes", "skip R-FULL-SKIP#1 history"], diffs
+    assert "61 Byte[8] := 125" in diffs[0] and diffs[1].startswith("skip R-FULL-SKIP#1 history: Global.Byte[8]"), diffs
+    ok, lines, diffs = ab(D3._swap(D3.base_events(seed=2), D3.S62[12], D3.S62[13]))
+    assert not ok and len(diffs) == 1 and diffs[0].startswith("skip R-FULL-SKIP#1 history: Global.Byte[4]"), diffs
+    ok, lines, diffs = ab(skipped=False)
+    assert not ok and len(diffs) == 1 and "skipped no movie (movie-skip missed" in diffs[0], diffs
+    ok, lines, diffs = ab(a2_skip=True)
+    assert not ok and diffs == ["no-skip R-FULL#2 skipped a movie: the no-skip side must play every movie out"], diffs
+    a_dir = _o3_ab_launch(tmp_path / "a", "R-FULL", R.STAGES["R-FULL"],
+                          [D3.ab_run(pred, D3.base_events(seed=n), "no-skip", n) for n in (1, 2)])
+    b_dir = _o3_ab_launch(tmp_path / "b", "R-FULL-SKIP", R.STAGES["R-FULL-SKIP"],
+                          [D3.ab_run(pred, D3.base_events(seed=n + 2), "skip", n) for n in (1, 2)])
+    ok, text = P.skip_ab(a_dir, b_dir, pred=pred, stock=o3_stock)
+    assert ok and text.splitlines()[-1].startswith("VERDICT: EQUIVALENT"), text
+    assert ("skip stage R-FULL-SKIP: warp 61 0 1155 -> [64]; policy skip, cells 61@1155 after 10.0 s; paired with "
+            "R-FULL") in text, text
+    ok, text = P.skip_ab(a_dir, a_dir, pred=pred, stock=o3_stock)
+    assert not ok and "holds no stage with a movie-skip policy" in text, text
+    assert P.main(["--skip-ab", str(a_dir), str(b_dir)]) == 0
+    assert P.main(["--skip-ab", str(a_dir), str(a_dir)]) == 1

@@ -12,6 +12,8 @@ Field(64) -- stock Prima Vista against O1's deployed tshp chain, both sides play
                                                                  # after the rehearsals and the F-side load smoke)
     py studies/story-trace/o3_prima_vista.py --analyse <run dir> # the analysis alone, on saved traces
     py studies/story-trace/o3_prima_vista.py --rehearsal-report <run dir>   # an o3_rehearse.py launch, stage by stage
+    py studies/story-trace/o3_prima_vista.py --skip-ab <no-skip run dir> <skip run dir>   # the movie-skip A/B:
+                                                                 # R-FULL vs R-FULL-SKIP, EQUIVALENT or the differences
 
 THE SIDES (o3_forks.json; nothing is imported, built or deployed for O3):
   S  stock: the install's scripts. Start: 61 (Prima Vista/Interior), entrance 0, SC 1155.
@@ -1582,11 +1584,19 @@ class O3Segment(A.O2Segment):
         ap.add_argument("--draft", action="store_true", help="print the draft predictions as JSON")
         ap.add_argument("--rehearsal-report", metavar="RUN_DIR",
                         help="print an o3_rehearse.py launch's record, stage by stage and run by run")
+        ap.add_argument("--skip-ab", nargs=2, metavar=("NO_SKIP_DIR", "SKIP_DIR"),
+                        help="the movie-skip A/B (PLAN.md \"Movie skip (opt-in)\"): a no-skip rehearsal launch "
+                             "(R-FULL) against a skip one (R-FULL-SKIP), trace for trace; exit 0 only when EQUIVALENT")
 
     def handle(self, args) -> int | None:
         if args.rehearsal_report:
             print(rehearsal_report(args.rehearsal_report))
             return 0
+        if args.skip_ab:
+            pred = self.load(args.predictions)[0] if args.predictions else None
+            ok, text = skip_ab(*args.skip_ab, pred=pred)
+            print(text)
+            return 0 if ok else 1
         return super().handle(args)
 
 
@@ -1663,6 +1673,14 @@ def rehearsal_report(run_dir) -> str:
                          + (f"; VOID {b.get('v')} {b.get('by')}: {b.get('why')}" if b.get("v") else ""))
             if rec.get("skip"):
                 L.append(f"    skip press: {rec['skip']}")
+            for m in rec.get("movies") or ():             # the movie-skip policy's rows (PLAN.md "Movie skip")
+                dlg = m.get("dialog") or {}
+                L.append(f"    movie-skip: {m.get('donor')} visit {m.get('visit')} {m.get('outcome')}"
+                         + (f" {m.get('t')} s into the visit (frame {m.get('frame')}), saved_s {m.get('saved_s')}; "
+                            f"the dialog {dlg.get('options')} active {dlg.get('active')} selected {dlg.get('selected')}"
+                            if m.get("outcome") == "skipped" else f": {m.get('missed')}")
+                         + f"; presses at frames {[p.get('frame') for p in m.get('presses') or ()]}"
+                         + (f"; refused {[r.get('options') for r in m.get('refused')]}" if m.get("refused") else ""))
             npg = rec.get("no_progress") or {}
             L.append(f"    longest no-progress stretch: {npg.get('longest_s')}s at {npg.get('where')}")
             if rec.get("movie") is not None:
@@ -1700,6 +1718,249 @@ def rehearsal_report(run_dir) -> str:
                              + (f"backed by {h['by']}" if h["backed"] else "unbacked"))
         L.append("")
     return "\n".join(L)
+
+
+# ======================================================================== the movie-skip A/B (PLAN.md "Movie skip")
+#: The axes the A/B reads each run on (:func:`ab_reading`), in the order its report names them: what the O3 checks read
+#: of one run, frame-free -- the registered keys present, the keys outside them, each target's emitted write history
+#: and its suppressed stores (the battle's ``Byte[206]`` noise aside, as O3-STATE reads them), the start rows, the SC
+#: rows, the residue, the masked regions, the landing, the end cut, the end state, the battle and the join failures.
+AB_AXES = ("writes", "chain", "unregistered", "history", "suppressed", "start", "sc", "residue", "masked", "landing",
+           "end cut", "end state", "battle", "joins")
+
+
+def ab_reading(rows: list, log: list, pred: dict, *, stock, start_place: int, end_fields, epoch0=None) -> dict:
+    """One STOCK run (its raw trace ``rows`` and its driver ``log``), read on every axis of :data:`AB_AXES` --
+    frame-free, so two runs that wrote the same story state in the same order read the same however their frames
+    fell. The run is cut at its start row (the first write in ``start_place``) and at its first row in an end place,
+    and digested against the stock scripts, as O3's analysis cuts and digests a session's run. ``epoch0``: the
+    battle epoch the drive started at (its battles are read as epoch deltas, O3-BATTLE (b)'s)."""
+    kept, at, pre = cut_at_start(rows, start_place, {})
+    kept, end = cut_at_end(kept, end_fields, {})
+    d = T.digest("ab", kept, scripts=stock, donor_scripts=stock)
+    run = {"rows": kept, "digest": d}
+    reg: set = set()
+    out: dict = {}
+    for name in ("writes", "chain"):
+        pairs = [(k, wkey(k)) for k in pred.get(name) or ()]
+        reg |= {wk for _k, wk in pairs}
+        out[name] = [A.label(k) for k, wk in pairs if wk in d.keys]
+    out["unregistered"] = [A._fmt_key(k) for k in sorted(d.keys, key=T.WriteKey.sort_key)
+                           if k not in reg and not is_noise(k, pred)]
+    out["history"] = {t: [A._fmt_key(k) for k in ks] for t, ks in sorted(O3.history(run, pred).items())}
+    out["suppressed"] = {t: [A._fmt_key(k) for k in ks] for t, ks in sorted(O3.suppressed(run, pred).items())}
+    first = next((x for x in kept if x.line == at), None) if at is not None else None
+    sm = pred.get("start_music") or {}
+    music = next((x for x in kept if x.k == "w" and x.fld == start_place and x.target == sm.get("target")), None)
+    out["start"] = {"residue": sorted([x.byte, x.old, x.new] for x in pre if x.k == "r"),
+                    "other": [A._row_text(x) for x in pre if x.k == "w"],
+                    "first": None if first is None else A._row_text(first),
+                    "music": None if music is None else f"{A._row_text(music)} from old {music.old}"}
+    out["sc"] = [A._row_text(x) for x in A.span_rows(kept, pred.get("sc_bytes") or (0, 1))]
+    out["residue"] = sorted([x.byte, x.new] for x in kept if x.k == "r" and not T.noise_regions(x))
+    out["masked"] = sorted(d.masked)
+    b = (pred.get("landing") or {}).get("before")
+    after = None
+    if b:
+        i = next((j for j, x in enumerate(kept) if x.k == "w" and x.m == T.FIELD_MODE and x.fld == b["place"]
+                  and (x.sid, x.tag, x.ip, x.target, x.new) == (b["sid"], b["tag"], b["ip"], b["target"],
+                                                                b["value"])), None)
+        nxt = None if i is None else next((x for x in kept[i + 1:] if x.k == "w" and x.m == T.FIELD_MODE), None)
+        after = None if nxt is None else A._row_text(nxt)
+    battle_rows = [x for x in kept if x.k in ("w", "c") and x.m != T.FIELD_MODE]
+    out["landing"] = {"after_before": after,
+                      "battle_sites": sorted({f"m{x.m} e{x.sid} t{x.tag} ip{x.ip} {x.target}" for x in battle_rows})}
+    cut = next((x for x in rows if x.line == end), None) if end is not None else None
+    out["end cut"] = None if cut is None else (f"{cut.k} " + (A._row_text(cut) if cut.k == "w"
+                                                                else f"{cut.fld} byte {cut.byte} {cut.old}->{cut.new}"))
+    ends = [x for x in log if x.get("k") == "end"]
+    out["end state"] = ends[-1].get("end_state") if ends else None
+    reg_rows = list(pred.get("battles") or ())
+    out["battle"] = [{"scene": x.get("scene"), "row": x.get("row"), "beat": x.get("beat"),
+                      "won": (isinstance(x.get("row"), int) and x["row"] < len(reg_rows)
+                              and type(x.get("result")) is int and x["result"] in reg_rows[x["row"]]["won"]),
+                      "epoch": (x["epoch"] - epoch0 if type(x.get("epoch")) is int and type(epoch0) is int
+                                else None),
+                      "landed_place": x.get("landed_place"), "v": x.get("v")}
+                     for x in log if x.get("k") == "battle"]
+    out["joins"] = len(d.failures)
+    return out
+
+
+def _ab_show(v) -> str:
+    return json.dumps(v, ensure_ascii=False, sort_keys=True)[:200]
+
+
+def ab_compare(ref: dict, got: dict) -> list:
+    """``[(axis, what differs)]`` between two readings (:func:`ab_reading`), every axis of :data:`AB_AXES`: a
+    history or a suppressed set per target; anything else whole. Empty: the two read the same."""
+    out = []
+    for axis in AB_AXES:
+        a, b = ref.get(axis), got.get(axis)
+        if a == b:
+            continue
+        if axis in ("history", "suppressed"):
+            for t in sorted(set(a or {}) | set(b or {})):
+                if (a or {}).get(t) != (b or {}).get(t):
+                    out.append((axis, f"{t}: {_ab_show((b or {}).get(t))}, the reference's "
+                                      f"{_ab_show((a or {}).get(t))}"))
+        elif axis in ("writes", "chain", "unregistered"):
+            gone, extra = [k for k in a or () if k not in (b or ())], [k for k in b or () if k not in (a or ())]
+            out.append((axis, (f"lacks {gone}" if gone else "") + ("; " if gone and extra else "")
+                        + (f"has {extra} beyond the reference's" if extra else "")
+                        or f"{_ab_show(b)}, the reference's {_ab_show(a)} (the order)"))
+        else:
+            out.append((axis, f"{_ab_show(b)}, the reference's {_ab_show(a)}"))
+    return out
+
+
+def _ab_label(run: dict) -> str:
+    return f"{run['side']} {run['stage']}#{run['n']}"
+
+
+def skip_ab_runs(no_skip: list, skip: list, pred: dict, *, stock, problems=()) -> tuple:
+    """The A/B over run records (pure but for ``stock``): ``(equivalent, report lines)``. A run record is ``{"side"
+    ("no-skip" | "skip"), "stage", "n", "rows", "log", "outcome", "start_place", "end_fields"}``.
+
+    The reference is the first no-skip run; every other run, of both sides, is read on every axis of
+    :data:`AB_AXES` (:func:`ab_reading`) and compared with it (:func:`ab_compare`). EQUIVALENT needs: at least one run
+    a side; every run reached its end with a trace; no no-skip run skipped a movie and every skip run skipped one
+    (a ``movie`` row ``skipped``: an A/B whose skip side played its movie out proves nothing); and no axis of any run
+    differing from the reference's -- the no-skip side's own runs included (a reference that does not hold still
+    is no reference). The time saved per run is each skip run's drive time against the no-skip runs' mean.
+    ``problems``: differences the caller found before any run was read (a skip stage with no no-skip twin)."""
+    lines, bad = [], list(problems)
+    if not no_skip or not skip:
+        bad.append(f"{len(no_skip)} no-skip and {len(skip)} skip run(s): the A/B needs one a side at least")
+    readings = []
+    for run in no_skip + skip:
+        lab = _ab_label(run)
+        out = run.get("outcome") or {}
+        movies = [x for x in run.get("log") or () if x.get("k") == "movie"]
+        skipped = [x for x in movies if x.get("outcome") == "skipped"]
+        if out.get("end") != "reached":
+            bad.append(f"{lab} did not reach its end: {out.get('why')}")
+        if not run.get("rows"):
+            bad.append(f"{lab} has no trace")
+            readings.append((run, None, movies))
+            continue
+        if run["side"] == "no-skip" and skipped:
+            bad.append(f"{lab} skipped a movie: the no-skip side must play every movie out")
+        if run["side"] == "skip" and not skipped:
+            bad.append(f"{lab} skipped no movie (" + ("; ".join(str(x.get("missed") or x.get("outcome"))
+                                                              for x in movies) or "no movie row") + ")")
+        readings.append((run, ab_reading(run["rows"], run.get("log") or [], pred, stock=stock,
+                                         start_place=run["start_place"], end_fields=run["end_fields"],
+                                         epoch0=out.get("battle_epoch0")), movies))
+    ref = next(((r, rd) for r, rd, _m in readings if r["side"] == "no-skip" and rd is not None), None)
+    if ref is not None:
+        lines.append(f"  reference: {_ab_label(ref[0])}")
+    for run, rd, movies in readings:
+        out = run.get("outcome") or {}
+        lab = _ab_label(run)
+        head = f"  {lab}: {out.get('end')} in {out.get('t')} s"
+        if rd is not None:
+            head += (f"; {len(rd['writes'])}/{len(pred.get('writes') or ())} writes, {len(rd['chain'])}/"
+                     f"{len(pred.get('chain') or ())} chain, {len(rd['unregistered'])} unregistered, "
+                     f"{len(rd['history'])} targets; the end cut {rd['end cut']}")
+        for m in movies:
+            dlg = m.get("dialog") or {}
+            head += (f"; movie in {m.get('donor')} visit {m.get('visit')}: {m.get('outcome')}"
+                     + (f" {m.get('t')} s into the visit after {len(m.get('presses') or ())} press(es), the dialog "
+                        f"{dlg.get('options')} active {dlg.get('active')} selected {dlg.get('selected')}, saved_s "
+                        f"{m.get('saved_s')}" if m.get("outcome") == "skipped" else f" ({m.get('missed')})"))
+        diffs = [] if rd is None or ref is None or run is ref[0] else ab_compare(ref[1], rd)
+        lines.append(head + (" -- the reference" if ref is not None and run is ref[0] else
+                             "" if rd is None or ref is None else
+                             " -- the same as the reference" if not diffs else f" -- {len(diffs)} difference(s)"))
+        bad += [f"{lab} {axis}: {what}" for axis, what in diffs]
+    ts = [(r.get("outcome") or {}).get("t") for r in no_skip]
+    ts = [t for t in ts if isinstance(t, (int, float))]
+    if ts:
+        mean = sum(ts) / len(ts)
+        saved = [(f"{r['stage']}#{r['n']}", (r.get("outcome") or {}).get("t")) for r in skip]
+        lines.append(f"time: no-skip {', '.join(f'{t:g} s' for t in ts)} (mean {mean:.1f} s); skip "
+                     + (", ".join(f"{lab} {t:g} s (saved {mean - t:.1f} s)" if isinstance(t, (int, float))
+                                  else f"{lab} ?" for lab, t in saved) or "none"))
+    if bad:
+        lines.append(f"DIFFERENCES ({len(bad)}):")
+        lines += [f"  {b}" for b in bad]
+        lines.append("VERDICT: NOT EQUIVALENT")
+    else:
+        lines.append(f"VERDICT: EQUIVALENT -- every skip run reads as the no-skip reference on every axis "
+                     f"({', '.join(AB_AXES)})")
+    return not bad, lines
+
+
+def _ab_runs(run_dir: Path, side: str, stages: list) -> list:
+    """A rehearsal launch's runs of ``stages`` as :func:`skip_ab_runs` reads them: each run's trace and driver log
+    from its own files (its ``battle_epoch0`` from the log's outcome), its stage's warp place and end fields."""
+    doc = json.loads((run_dir / REHEARSAL_FILE).read_text(encoding="utf-8"))
+    out = []
+    for name in stages:
+        stage = (doc.get("stage_defs") or {}).get(name) or {}
+        for rec in (doc.get("stages") or {}).get(name) or ():
+            rows, log, outcome = [], [], dict(rec.get("outcome") or {})
+            path = run_dir / str(rec.get("trace_file") or "")
+            if rec.get("trace_file") and path.is_file():
+                rows = T.read_trace(path)
+            lp = run_dir / str(rec.get("log_file") or "")
+            if rec.get("log_file") and lp.is_file():
+                lg = json.loads(lp.read_text(encoding="utf-8"))
+                log = list(lg.get("log") or [])
+                outcome.setdefault("battle_epoch0", (lg.get("outcome") or {}).get("battle_epoch0"))
+            out.append({"side": side, "stage": name, "n": rec.get("n"), "rows": rows, "log": log,
+                        "outcome": outcome, "start_place": stage.get("field"),
+                        "end_fields": list(stage.get("end") or ())})
+    return out
+
+
+def _ab_stages(doc: dict, *, policy: bool) -> dict:
+    """``{stage name: (field, entrance, sc, end)}`` of a launch's TRACED stages (no smoke) with -- ``policy`` -- or
+    without a movie-skip policy (``movies``)."""
+    out = {}
+    for name in (doc.get("stages") or {}):
+        s = (doc.get("stage_defs") or {}).get(name) or {}
+        if s.get("pairs") or bool(s.get("movies")) is not policy:
+            continue
+        out[name] = (s.get("field"), s.get("entrance"), s.get("sc"), tuple(s.get("end") or ()))
+    return out
+
+
+def skip_ab(no_skip_dir, skip_dir, *, pred: dict | None = None, stock=None) -> tuple:
+    """``--skip-ab``: ``(equivalent, report text)`` of two o3_rehearse.py launches -- ``no_skip_dir`` (a stage with
+    no movie-skip policy, R-FULL) against ``skip_dir`` (the same warp and end with the policy on, R-FULL-SKIP) --
+    by :func:`skip_ab_runs`. Each skip stage is paired with the no-skip stage of the same field, entrance, SC and end
+    fields; a skip stage with none is a difference, and so is a skip launch with no policy stage. ``pred`` (default:
+    the frozen predictions) gives the registered keys, the noise and the battle's ``won``; ``stock`` the stock
+    scripts the rows join (default: the install's, read-only)."""
+    a_dir, b_dir = Path(no_skip_dir), Path(skip_dir)
+    if pred is None:
+        pred, _sha = O3.load(PREDICTIONS)
+    stock = stock or T.stock_script_source()
+    a_doc = json.loads((a_dir / REHEARSAL_FILE).read_text(encoding="utf-8"))
+    b_doc = json.loads((b_dir / REHEARSAL_FILE).read_text(encoding="utf-8"))
+    a_st, b_st = _ab_stages(a_doc, policy=False), _ab_stages(b_doc, policy=True)
+    lines = [f"O3 movie-skip A/B (PLAN.md \"Movie skip (opt-in)\"): no-skip {a_dir.name} vs skip {b_dir.name}; "
+             f"predictions v{pred.get('version')}"]
+    pairs, unpaired = [], []
+    for name, key in b_st.items():
+        twin = next((n for n, k in a_st.items() if k == key), None)
+        (pairs if twin is not None else unpaired).append((twin, name))
+        pol = ((b_doc.get("stage_defs") or {}).get(name) or {}).get("movies") or {}
+        lines.append(f"  skip stage {name}: warp {key[0]} {key[1]} {key[2]} -> {list(key[3])}; policy "
+                     f"{pol.get('policy')}, cells "
+                     + ", ".join(f"{c.get('donor')}@{c.get('sc')} after {c.get('after_s')} s"
+                                 for c in pol.get("cells") or ())
+                     + f"; paired with {twin or 'NO no-skip stage'}")
+    problems = [f"skip stage {n} has no no-skip stage of the same warp and end in {a_dir.name}" for _t, n in unpaired]
+    if not b_st:
+        problems.append(f"{b_dir.name} holds no stage with a movie-skip policy")
+    twins = list(dict.fromkeys(t for t, _n in pairs))
+    no_skip = [r for twin in twins for r in _ab_runs(a_dir, "no-skip", [twin])]
+    skip = [r for _t, name in pairs for r in _ab_runs(b_dir, "skip", [name])]
+    ok, body = skip_ab_runs(no_skip, skip, pred, stock=stock, problems=problems)
+    return ok, "\n".join(lines + body)
 
 
 # ======================================================================== the session and the CLI

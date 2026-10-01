@@ -134,6 +134,8 @@ REQUIRED_TESTS_O2: tuple = (
     "test_o3_rehearse_battle_void_stops_mid_fight_on_the_fake",
     # the review (research/o3_design.md 11.7 #7): each run records its own fight and leave
     "test_o3_rehearse_clears_the_last_fight_between_runs_on_the_fake",
+    # the movie-skip A/B's skip side (PLAN.md "Movie skip (opt-in)"): R-FULL-SKIP's overlay and its record
+    "test_o3_rehearse_movie_skip_stage_on_the_fake",
 )
 
 # -- O3 (research/o3_design.md 1.4, 9 B4): the battle beat's driver tests, by name. No baseline: the list is the floor.
@@ -167,9 +169,9 @@ REQUIRED_TESTS_O3: tuple = (
     "test_o3_drive_movie_skip_refuses_a_dialog_that_is_not_the_skip_text",
 )
 #: G14 (the review, research/o3_design.md 11.7 #12): o3_dryrun's "N/N cases as registered" must have N at least this --
-#: its sessions, "predictions-changed", its units and its offline mutants when G14 joined. A case added raises N; one
-#: dropped falls under the floor.
-O3_DRYRUN_FLOOR = 92
+#: its sessions, "predictions-changed", its units and its offline mutants when G14 joined (92), and the movie-skip A/B's
+#: four units (PLAN.md "Movie skip (opt-in)"). A case added raises N; one dropped falls under the floor.
+O3_DRYRUN_FLOOR = 96
 
 O2S_VERDICT = "PROVEN"
 O2S_CHECKS = 15
