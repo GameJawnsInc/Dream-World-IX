@@ -483,9 +483,10 @@ class Segment:
         """o1 run: the whole session. P-CAP and the preflight, the install fingerprint, the members' scripts
         snapshotted, then S F S F S F (the predictions' ``order``) with each run's trace and log saved as it ends and
         the session record rewritten after every run; a side short of ``min_covered`` covered runs re-runs, at most
-        ``rerun.max``. The shared install is fingerprinted around every run: a run begun on a changed install is
-        skipped, one the install changed under is never read (both VOID). A RouteVoid's class (``v``, ``cell``,
-        ``by``) is copied into its run record. Then the analysis, its report, and THROW."""
+        ``rerun.max`` -- unless one of its runs is VOID in a FINDING class (``rerun.stop_on``): that side is held, and
+        ``rerun_held`` records why. The shared install is fingerprinted around every run: a run begun on a changed
+        install is skipped, one the install changed under is never read (both VOID). A RouteVoid's class (``v``,
+        ``cell``, ``by``) is copied into its run record. Then the analysis, its report, and THROW."""
         from harness import HarnessError
         from segment_drive import RouteVoid
 
@@ -585,9 +586,18 @@ class Segment:
         for i, side in enumerate(pred["order"], 1):
             one(i, side)
         reruns = 0
+        # S2 (research/o3_design.md 1.2): a side with any run VOID in a FINDING class is not re-run however short it
+        # is -- re-running a finding only repeats it, and the analysis (VOID-ASYM) already reads it. No ``stop_on``
+        # (O1, O2): exactly the old loop, which read the session once per side per pass; this reads it once a pass.
+        stop_on = set(pred["rerun"].get("stop_on") or ())
         while reruns < pred["rerun"]["max"]:
-            short = [s for s in SIDES if sum(1 for r in self.read_session(g.run_dir, pred, session=session)
-                                             if r["side"] == s and r["covered"]) < pred["min_covered"]]
+            runs = self.read_session(g.run_dir, pred, session=session)
+            held = {s for s in SIDES if any(r["side"] == s and r["rec"].get("v") in stop_on for r in runs)}
+            short = [s for s in SIDES if s not in held
+                     and sum(1 for r in runs if r["side"] == s and r["covered"]) < pred["min_covered"]]
+            if held:
+                session["rerun_held"] = {s: sorted({r["rec"]["v"] for r in runs if r["side"] == s
+                                                    and r["rec"].get("v") in stop_on}) for s in sorted(held)}
             if not short or time.time() + b["run_min_s"] > deadline:
                 break
             reruns += 1

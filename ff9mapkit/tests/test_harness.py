@@ -11646,14 +11646,17 @@ def test_row_keys_maps_every_joined_row_to_its_digest_key():
         assert len(d.failures) == 1 and d.failures[0][0].line == 6
 
 
-def _stub_segment(game, *, cue, order=("S", "F", "S", "F", "S", "F"), min_covered=2, beats_of=None, **over):
+def _stub_segment(game, *, cue, order=("S", "F", "S", "F", "S", "F"), min_covered=2, rerun=None, beats_of=None,
+                  void=("V8", [106, 1152], "game"), **over):
     """A Segment with its install stubbed -- no mod roots, a fixed fingerprint, an all-pass preflight, no stock
     scripts -- whose drive pokes one harness byte (so every run's trace holds a row of its own) and then reaches the
-    end, or VOIDs with a class, on ``cue(n, side)``: the session loop alone, on the fake. A reached run's outcome
-    carries ``beats_of(n, side)`` (default ``{"reached": True}``); ``over`` replaces keys of the predictions."""
+    end, or VOIDs with a class, on ``cue(n, side)``: the session loop alone, on the fake. A VOID run raises ``void``
+    (its class, cell and attribution); a reached run's outcome carries ``beats_of(n, side)`` (default
+    ``{"reached": True}``); ``rerun`` is the predictions' (default ``{"max": 2}``); ``over`` replaces other keys."""
     ST, SD = _segment_trace(), _segment_modules()
     pred = {"version": 1, "what": "a stub segment", "order": list(order), "min_covered": min_covered,
-            "rerun": {"max": 2}, "budget": {"run_s": 60, "run_min_s": 1, "session_s": 600, "settle_s": 0.1},
+            "rerun": dict(rerun or {"max": 2}), "budget": {"run_s": 60, "run_min_s": 1, "session_s": 600,
+                                                           "settle_s": 0.1},
             "start": {"S": 30820, "F": 30820}, "entrance": 0, "end_field": 30821, "stock_fields": [],
             "members": {}, "names": {}, "beats": ["reached"], "noise": [], **over}
     path = game / "zz_predictions.json"
@@ -11684,7 +11687,8 @@ def _stub_segment(game, *, cue, order=("S", "F", "S", "F", "S", "F"), min_covere
             g.send(f"byte 300 {n + 1}")
             log.append({"k": "stub", "n": n})
             if cue(n, side) == "void":
-                raise SD.RouteVoid(f"stub: no SC 1153 in run {n + 1}", v="V8", cell=[106, 1152], by="game")
+                v, cell, by = void
+                raise SD.RouteVoid(f"stub: no SC 1153 in run {n + 1}", v=v, cell=cell, by=by)
             return {"end": "reached", "why": "field 30821",
                     "beats": beats_of(n, side) if beats_of else {"reached": True}, "pages": ["p"], "choices": [],
                     "t": 0.1}
@@ -11790,6 +11794,35 @@ def test_segment_read_session_judges_a_registered_battle_by_its_won(game):
     assert [r["covered"] for r in runs] == [True, True, True, False, True]
     assert runs[3]["void"] == [{"why": "beats not done: ['leo'] (battle result None)", "class": "A-BEATS",
                                 "by": "driver"}]
+
+
+def test_segment_rerun_stops_on_a_finding_class(game, tmp_path_factory):
+    """S2 (research/o3_design.md 1.2): ``rerun.stop_on`` names FINDING classes. A side with any run VOID in one is
+    not re-run however short it is: re-running a finding only repeats it (the s24 leak, V16), and VOID-ASYM already
+    reads it. Every F run of a stub session VOIDs with V16 (game): with ``stop_on: ["V16"]`` the session is exactly
+    S F S F S F and records ``rerun_held {"F": ["V16"]}``; the control -- the same session without ``stop_on``, O1's
+    and O2's shape -- re-runs F twice and records no ``rerun_held``. Break: drop ``s not in held`` (F re-runs)."""
+    import shutil
+    control = tmp_path_factory.mktemp("control")
+    shutil.copytree(game, control, dirs_exist_ok=True)       # a second fake install, as untouched as the first
+
+    def one(root, rerun):
+        stub, _pred, calls = _stub_segment(root, cue=lambda n, side: "void" if side == "F" else "reached",
+                                           rerun=rerun, void=("V16", [62, 1155], "game"))
+        fake = FakeGame(root)
+        with session(root, fake) as g:
+            boot(g)
+            assert g.restore_baseline()[0]
+            stub.run(g)
+        return calls, json.loads((root / "run" / "zz_session.json").read_text(encoding="utf-8"))
+
+    calls, sess = one(game, {"max": 2, "stop_on": ["V16"]})
+    assert calls == ["S", "F", "S", "F", "S", "F"], calls
+    assert sess["rerun_held"] == {"F": ["V16"]} and not any(r.get("rerun") for r in sess["runs"]), sess
+    assert [(r["v"], r["cell"], r["by"]) for r in sess["runs"] if r["side"] == "F"] == [("V16", [62, 1155], "game")] * 3
+    calls, sess = one(control, {"max": 2})
+    assert calls == ["S", "F", "S", "F", "S", "F", "F", "F"], calls
+    assert "rerun_held" not in sess and [r.get("rerun") for r in sess["runs"][6:]] == [True, True], sess
 
 
 def test_o1_segment_run_pins_o1s_session_surface(game, capsys):

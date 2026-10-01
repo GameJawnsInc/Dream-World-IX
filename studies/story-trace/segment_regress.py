@@ -90,6 +90,7 @@ REQUIRED_TESTS: tuple = (
     "test_segment_throw_check_fails_on_an_engine_exception",
     # research/o3_design.md section 9, PART A: the shared session changes, each with the step that adds it
     "test_segment_read_session_judges_a_registered_battle_by_its_won",          # A1: S1
+    "test_segment_rerun_stops_on_a_finding_class",                              # A2: S2
 )
 
 O1E_VERDICT = "PROVEN"
