@@ -280,6 +280,7 @@ def test_mes_index_honors_missing_install_every_call(monkeypatch):
     missing install, so the no-install text path stays empty even after a prior successful build elsewhere."""
     monkeypatch.setattr(D, "_resources_assets", lambda game=None: None)
     assert D._mes_index() == {}
+    assert D._mes_path_index() is None
     assert D._field_text_blocks(None, "us", zone_id=1073) == []
 
 
@@ -290,6 +291,108 @@ def test_extract_field_mes_all_langs_parity_and_resolves_every_language():
     all7 = D.extract_field_mes_all_langs("50")            # field 50 = the Prima Vista cargo opening
     assert all7.get("us") == D.extract_field_mes("50", "us")   # parity with the single-lang path
     assert set(all7) >= {"us", "uk", "fr", "gr", "it", "es", "jp"}   # every language resolved in one scan
+
+
+# --- each language's text block is the asset the ENGINE loads by path ---------------------------------------
+# FF9TextTool loads "EmbeddedAsset/Text/<LANG>/Field/<block>.mes"; the ResourceManager index in mainData maps that
+# path to one TextAsset. The oracle below reads that index DIRECTLY (not through the kit's resolver), so a kit
+# that picks by content is checked against what the game itself would load.
+_FIELD_PATH_RE = r"^embeddedasset/text/([a-z]+)/field/(\d+)\.mes$"
+
+
+@pytest.fixture(scope="module")
+def field_text_by_path():
+    """``{block: {lang: body}}`` straight from the install's ResourceManager index -- the engine's own truth."""
+    import re
+    import UnityPy
+    from ff9mapkit import extract as X
+    ra = D._resources_assets(None)
+    env = UnityPy.load(str(ra.parent / "mainData"), str(ra))
+    rm = next(o.read() for o in env.objects if o.type.name == "ResourceManager")
+    out: dict = {}
+    for path, ptr in rm.m_Container:
+        m = re.match(_FIELD_PATH_RE, str(path).lower())
+        if m:
+            out.setdefault(int(m.group(2)), {})[m.group(1)] = X._raw_bytes(ptr.read()).decode("utf-8", "replace")
+    return out
+
+
+def _field_of_block(block):
+    from ff9mapkit._fieldtext import EVENT_ID_TO_MES
+    return min(f for f, b in EVENT_ID_TO_MES.items() if b == block)
+
+
+@pytest.mark.skipif(not _text_ready(), reason="needs the FF9 install + UnityPy")
+def test_us_and_uk_each_get_their_own_asset(field_text_by_path):
+    """THE us/uk MIS-PICK: a stopword score reads the us and uk copies of a block as the same language, so both
+    took the SAME body and a verbatim fork shipped the US text as the UK block (live for blocks 2/187/276;
+    the O2 build's uk 33.mes). Block 33's two English assets differ in the install, so each locale must get
+    its own -- through the fork's carry, the single-language read, and the parsed map the text carry uses."""
+    from ff9mapkit.config import LANGS
+    truth = field_text_by_path[33]
+    assert truth["us"] != truth["uk"]                   # the precondition: the install's assets really differ
+    fid = _field_of_block(33)
+    got = D.extract_field_mes_all_langs(fid)
+    assert got["us"] != got["uk"]
+    assert got == {L: truth[L] for L in LANGS}          # every language is exactly the asset its path names
+    assert D.extract_field_mes(fid, "uk") == truth["uk"]
+    assert D._load_field_text([0], "uk", zone_id=33) == D.parse_mes(truth["uk"])
+
+
+@pytest.mark.skipif(not _text_ready(), reason="needs the FF9 install + UnityPy")
+def test_every_field_block_resolves_to_its_path_asset_in_every_language(field_text_by_path):
+    """Install-wide: every block the engine's field -> text table names resolves, in every language, to exactly
+    the asset at its resource path -- so no two languages share a body the install ships as two."""
+    from ff9mapkit._fieldtext import EVENT_ID_TO_MES
+    from ff9mapkit.config import LANGS
+    blocks = sorted(set(EVENT_ID_TO_MES.values()))
+    assert set(blocks) <= set(field_text_by_path)
+    wrong = [(b, L) for b in blocks for L, body in D.extract_field_mes_all_langs(_field_of_block(b)).items()
+             if body != field_text_by_path[b][L]]
+    missing = [(b, L) for b in blocks for L in LANGS if L in field_text_by_path[b]
+               and L not in D.extract_field_mes_all_langs(_field_of_block(b))]
+    assert not wrong and not missing
+
+
+@pytest.mark.skipif(not _text_ready(), reason="needs the FF9 install + UnityPy")
+def test_fallback_without_paths_still_splits_us_from_uk(field_text_by_path, monkeypatch):
+    """With no readable ResourceManager the content-scored fallback runs -- and it too must give us and uk their
+    OWN copies (by US/UK spelling), including block 8, where a battle ``8.mes`` of the same name also splits
+    us/uk and would pass for the field's English pair on spelling alone."""
+    monkeypatch.setattr(D, "_mes_path_index", lambda game=None: None)
+    for block in (2, 8, 33, 187, 276, 945):
+        got = D.extract_field_mes_all_langs(_field_of_block(block))
+        assert got["us"] == field_text_by_path[block]["us"], block
+        assert got["uk"] == field_text_by_path[block]["uk"], block
+
+
+def test_a_path_indexed_block_never_lends_one_language_to_another(monkeypatch):
+    """When the path index is readable it is the whole truth: a language the block doesn't ship is ABSENT, never
+    filled with another language's asset (a jp-only block gives us nothing, not the jp text)."""
+    monkeypatch.setattr(D, "_mes_path_index", lambda game=None: {5: {"jp": "[STRT=1,1]x[ENDN]"}})
+    assert D.extract_field_mes_all_langs("50", zone_id=5) == {"jp": "[STRT=1,1]x[ENDN]"}
+    assert D.extract_field_mes("50", "us", zone_id=5) is None
+    assert D.extract_field_mes_all_langs("50", zone_id=6) == {}
+
+
+def _en(extra: str) -> str:
+    return ("[STRT=1,1]" + "the you and to of is it that have with this what your " * 30 + extra + "[ENDN]")
+
+
+def test_fallback_splits_english_by_spelling_and_says_so_when_it_cannot(capsys):
+    """The fallback's us/uk split (no install needed): spelling decides, the other languages keep their stopword
+    pick, and two English copies that spelling can't tell apart are REPORTED rather than silently shared."""
+    us, uk = _en("color theater favor"), _en("colour theatre favour")
+    fr = "[STRT=1,1]" + "le la les je ne pas vous est une des que qui " * 40 + "[ENDN]"
+    got = D._scored_block_bodies([uk, fr, us], 99)
+    assert (got["us"], got["uk"], got["fr"]) == (us, uk, fr)
+    assert capsys.readouterr().err == ""
+    a, b = _en("alpha"), _en("beta")                    # distinct English copies, no spelling signal at all
+    got = D._scored_block_bodies([a, b], 99)
+    assert got["us"] == got["uk"]
+    assert "text block 99" in capsys.readouterr().err
+    D._scored_block_bodies([a, b], 99, warn=False)      # the all-blocks auto-detect scan stays quiet
+    assert capsys.readouterr().err == ""
 
 
 def test_dialogue_cli_reviews_a_whole_campaign(tmp_path, capsys):
