@@ -107,6 +107,10 @@ REQUIRED_TESTS: tuple = (
     "test_segment_end_run_from_a_battle_on_the_fake",                           # B5: S3 on H9's knobs
     "test_segment_session_end_leaves_a_movie_on_the_fake",                      # B5: S5 on H9's movie beat
     "test_segment_end_run_waits_out_the_battle_load_on_the_fake",               # the review, 11.7 #8: S3's load
+    # the movie-skip policy (PLAN.md "Movie skip (opt-in)"): its pure halves, the skip dialog's reader and the
+    # policy's strictness
+    "test_segment_movie_skip_answer_reads_only_the_skip_dialog",
+    "test_segment_movie_skip_policy_is_strict",
 )
 
 O1E_VERDICT = "PROVEN"
@@ -154,6 +158,13 @@ REQUIRED_TESTS_O3: tuple = (
     "test_o3_drive_waits_for_the_end_places_first_row",                     # 11.7 #3: rule 1's end row
     "test_o3_drive_stops_on_a_battle_gone_without_a_result",                # 11.7 #2: fight()'s "gone"
     "test_o3_drive_bounds_the_leave_by_its_row",                            # 11.7 #1: the leave's bound
+    # the movie-skip policy (PLAN.md "Movie skip (opt-in)"): opt-in, so every O3 test above runs without it
+    "test_o3_drive_movie_skip_presses_once_and_answers_yes",
+    "test_o3_drive_movie_skip_is_off_without_the_policy",
+    "test_o3_drive_movie_skip_presses_only_in_a_registered_cell",
+    "test_o3_drive_movie_skip_retries_then_gives_up_without_a_void",
+    "test_o3_drive_movie_skip_turns_a_page_that_comes_instead",
+    "test_o3_drive_movie_skip_refuses_a_dialog_that_is_not_the_skip_text",
 )
 #: G14 (the review, research/o3_design.md 11.7 #12): o3_dryrun's "N/N cases as registered" must have N at least this --
 #: its sessions, "predictions-changed", its units and its offline mutants when G14 joined. A case added raises N; one

@@ -37,6 +37,20 @@ that publishes an end field, and the session closes the trace right after the dr
 1-4 frames after the field changed, its run 3 S before any row of the end field (no end cut). With the key, rule 1
 first waits, up to ``end_row_s``, for the run's first trace row in an end place (:meth:`_Drive.end_row`), and the
 ``end`` row records it. Without it rule 1 is O1's and O2's exactly.
+
+THE MOVIE-SKIP POLICY (opt-in, ``movies``; PLAN.md "Movie skip (opt-in)"): a type-0 FMV is skipped the way a player
+skips it. While a movie plays, FieldHUD's hit area takes a Confirm and opens the "SkipMovieDialog" choice with its
+cursor on No (FieldHUD.cs:275-286); its option 0 sets ``MBG.IsSkip`` and runs ``fldfmv.FF9FieldFMVShutdown`` (:428),
+the same shutdown a movie's natural end runs, so the script's movie waits (``SYSVAR[15]&127 == 1``) complete. The
+agent publishes no movie state, so the policy rests on its registration (:func:`movies_of`: the cells, each a place
+and an SC, and how long into the visit its press may come) and on what is published: in a registered cell, nothing
+on screen and control off, ``after_s`` into the visit, it presses Confirm (:meth:`_Drive.movie_press`, a ``press``
+row) and answers the skip dialog YES -- only the one its own press opened, and only when the published choice IS the
+skip dialog (:func:`skip_answer`; :meth:`_Drive.movie_answer`). No dialog is pressed for again, up to ``max_presses``;
+then the visit gives up ('movie-skip missed', never a VOID: the movie plays out). Each such visit's ``movie`` row
+keeps its presses, the dialog as published, the frame and the seconds it was skipped at, and the seconds saved
+against the cell's registered ``length_s``. Without the key the loop is O3's exactly, and O1's skip rule still answers
+a stray skip dialog at its default (No).
 """
 from __future__ import annotations
 
@@ -86,6 +100,22 @@ BATTLE_WON = ([1, 2], [1])
 STOP_PAGE_KEYS = frozenset({"match", "why"})
 #: Rule 1's end-row wait (opt-in: ``budget.end_row_s``) reads the live trace this often: each read parses story.jsonl.
 END_ROW_POLL_S = 0.1
+#: THE MOVIE-SKIP POLICY (opt-in, ``pred["movies"]``), strict: :func:`movies_of` refuses an unknown key, a missing one
+#: or a wrong type before anything is driven. ``match``/``yes``/``no`` are the skip dialog's text (default: the
+#: engine's US text, below).
+MOVIE_KEYS = ("policy", "cells", "press_every_s", "max_presses", "match", "yes", "no")
+MOVIE_NEEDS = ("policy", "cells", "press_every_s", "max_presses")
+MOVIE_POLICIES = ("skip",)
+#: A registered cell: the place and the SC its movie plays at, how far into the visit the policy may first press
+#: (the movie must be PLAYING: MBG.Play arms the hit area, and before the first frame MBG.IsFinished() refuses the
+#: dialog), the movie's registered length from the visit's start (``length_s``, optional: the seconds saved are
+#: measured against it), and the Cinematic it is.
+MOVIE_CELL_KEYS = ("donor", "sc", "after_s", "length_s", "why")
+MOVIE_CELL_NEEDS = ("donor", "sc", "after_s", "why")
+#: The skip dialog as the engine opens it (FieldHUD.OnKeyConfirm, FieldHUD.cs:275-286): Localization "SkipMovieDialog",
+#: US ``Do you want to skip\nthe movie?`` (UK ``...\nthis cutscene?``), then ``[CHOO]`` ``Yes`` / ``No`` under
+#: ``[PCHC=2,1]`` -- two options, the cursor on ``ETb.sChoose = 1`` (No), Cancel 1. Its option 0 skips (:428-433).
+SKIP_MATCH, SKIP_YES, SKIP_NO = "want to skip", "Yes", "No"
 
 
 class RouteVoid(Exception):
@@ -341,6 +371,130 @@ def stop_page(pred: dict, st) -> dict | None:
         if p["match"] in st.text or any(p["match"] in t for t in st.raw_texts):
             return p
     return None
+
+
+# ======================================================================== the movie-skip policy (opt-in, pure)
+def _is_str(v) -> bool:
+    return isinstance(v, str) and bool(v)
+
+
+def movies_of(pred: dict) -> dict | None:
+    """The movie-skip policy (``pred["movies"]``), checked STRICT before anything is driven, as :func:`battle_of`
+    checks a registry row -- or None: the predictions carry no ``movies`` and the driver is O3's exactly.
+
+    ValueError on: a policy that is no dict, an unknown key or a missing one (:data:`MOVIE_KEYS`,
+    :data:`MOVIE_NEEDS`); a ``policy`` not in :data:`MOVIE_POLICIES`; ``cells`` not a non-empty list;
+    ``press_every_s`` not a positive number; ``max_presses`` not an int >= 1; a ``match``, ``yes`` or ``no`` given
+    and not a non-empty string; a cell that is no dict, has an unknown or a missing key, a ``donor`` that is no int, an
+    ``sc`` that is no int and not None, an ``after_s`` that is not a positive number, a ``length_s`` that is neither
+    None nor a positive number, or a ``why`` that is no non-empty string; two cells one place and SC would both
+    match; and a cell whose presses could outlast its movie -- with a ``length_s``, the last press
+    (``after_s`` + (``max_presses`` - 1) x ``press_every_s``) and its wait (``press_every_s``) must end inside it, or a
+    press after the movie's end could turn the page that follows it. A bool is never a number. Returns a copy, with
+    ``match``/``yes``/``no`` filled in from the engine's text when absent."""
+    raw = pred.get("movies")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError(f"movies {raw!r}: the policy is a dict of {MOVIE_KEYS}")
+    unknown = sorted(set(raw) - set(MOVIE_KEYS))
+    missing = [k for k in MOVIE_NEEDS if k not in raw]
+    if unknown or missing:
+        raise ValueError(f"movies {raw!r}: " + "; ".join(
+            ([f"unknown key(s) {unknown}"] if unknown else []) + ([f"missing {missing}"] if missing else []))
+            + f" -- the policy's keys are {MOVIE_KEYS}, of which {MOVIE_NEEDS} are needed")
+    if raw["policy"] not in MOVIE_POLICIES:
+        raise ValueError(f"movies: policy {raw['policy']!r} is not one of {MOVIE_POLICIES}")
+    cells = raw["cells"]
+    if not isinstance(cells, list) or not cells:
+        raise ValueError(f"movies: cells {cells!r} is a non-empty list of cells")
+    every, most = raw["press_every_s"], raw["max_presses"]
+    if not _is_pos(every):
+        raise ValueError(f"movies: press_every_s {every!r} is a positive number")
+    if not _is_int(most) or most < 1:
+        raise ValueError(f"movies: max_presses {most!r} is an int >= 1")
+    bad = [k for k in ("match", "yes", "no") if k in raw and not _is_str(raw[k])]
+    if bad:
+        raise ValueError(f"movies: {bad} must be non-empty strings (the skip dialog's text)")
+    out = {**raw, "cells": [], "match": raw.get("match", SKIP_MATCH), "yes": raw.get("yes", SKIP_YES),
+           "no": raw.get("no", SKIP_NO)}
+    seen: dict = {}
+    for c in cells:
+        if not isinstance(c, dict):
+            raise ValueError(f"movie cell {c!r}: a cell is a dict of {MOVIE_CELL_KEYS}")
+        unknown = sorted(set(c) - set(MOVIE_CELL_KEYS))
+        missing = [k for k in MOVIE_CELL_NEEDS if k not in c]
+        if unknown or missing:
+            raise ValueError(f"movie cell {c!r}: " + "; ".join(
+                ([f"unknown key(s) {unknown}"] if unknown else []) + ([f"missing {missing}"] if missing else []))
+                + f" -- a cell's keys are {MOVIE_CELL_KEYS}, of which {MOVIE_CELL_NEEDS} are needed")
+        wrong = (["donor"] if not _is_int(c["donor"]) else []) \
+            + (["sc"] if c["sc"] is not None and not _is_int(c["sc"]) else []) \
+            + (["after_s"] if not _is_pos(c["after_s"]) else []) \
+            + (["length_s"] if c.get("length_s") is not None and not _is_pos(c["length_s"]) else []) \
+            + (["why"] if not _is_str(c["why"]) else [])
+        if wrong:
+            raise ValueError(f"movie cell {c!r}: {wrong} of the wrong type (donor an int, sc an int or None, after_s "
+                             f"and length_s positive numbers, why a non-empty string)")
+        sc = c["sc"]
+        clash = next((v for k, v in seen.items() if k[0] == c["donor"] and None in (sc, k[1])), None) \
+            or seen.get((c["donor"], sc))
+        if clash is not None:
+            raise ValueError(f"movie cell {c!r}: place {c['donor']} at SC {sc} is registered twice ({clash!r})")
+        seen[(c["donor"], sc)] = c
+        if c.get("length_s") is not None:
+            last = float(c["after_s"]) + (int(most) - 1) * float(every)
+            if last + float(every) > float(c["length_s"]):
+                raise ValueError(f"movie cell {c!r}: its last press comes {last:g} s into the visit and is waited on "
+                                 f"{float(every):g} s more, past the movie's registered {c['length_s']:g} s -- a press "
+                                 f"after the movie's end can turn the page that follows it")
+        out["cells"].append(dict(c))
+    return out
+
+
+def movie_cell(policy: dict | None, donor, sc) -> tuple | None:
+    """``(index, cell)`` of the policy's registered cell for (``donor`` place, published ``sc``) -- a cell's ``sc``
+    None is every SC -- or None (always None without a policy)."""
+    for n, c in enumerate((policy or {}).get("cells") or ()):
+        if c["donor"] == donor and c["sc"] in (None, sc):
+            return n, c
+    return None
+
+
+def _line_is(line, word: str) -> bool:
+    """A published choice line is ``word``: as published, or short its first character -- the agent's line after
+    ``[CHOO]`` can lose it (O1's candle rule met "ight the candle"). Surrounding blanks aside; an empty line is none."""
+    s = str(line or "").strip()
+    return bool(s) and s in (word, word[1:])
+
+
+def skip_answer(choice: dict | None, texts=(), policy: dict | None = None) -> int | None:
+    """The ABSOLUTE option that answers YES when the ready ``choice`` is the engine's skip dialog -- else None (pure).
+
+    It is that dialog only when ALL of these hold (``policy``'s ``match``/``yes``/``no``, default the engine's US
+    text): the prompt (``options[0]``) holds ``match`` ("want to skip": US "the movie?" and UK "this cutscene?" alike,
+    and a prompt short its first character too) -- or, when the agent publishes the prompt EMPTY, a published dialog
+    text (``texts``) holds it; the shown lines are exactly two, ``yes`` then ``no``, each as published or short its
+    first character (:func:`_line_is`); and the yes line is ABSOLUTE option 0, the one FieldHUD skips on (``active``,
+    default the shown order). Another prompt, a third line, a reordered pair or a "Yes" at another index is None:
+    never answered as a skip."""
+    if not choice:
+        return None
+    p = policy or {}
+    match, yes, no = p.get("match", SKIP_MATCH), p.get("yes", SKIP_YES), p.get("no", SKIP_NO)
+    opts = list(choice.get("options") or [])
+    if not opts:
+        return None
+    prompt, lines = str(opts[0] or ""), opts[1:]
+    if match not in prompt:
+        if prompt.strip() or not any(match in str(t or "") for t in texts or ()):
+            return None
+    if len(lines) != 2 or not _line_is(lines[0], yes) or not _line_is(lines[1], no):
+        return None
+    active = list(choice.get("active") or range(len(lines)))
+    if len(active) != 2 or active[0] != 0:
+        return None
+    return 0
 
 
 def _raw_in_battle(raw: dict) -> bool:
@@ -633,6 +787,13 @@ class _Drive:
         self.battles = [battle_of(pred, b) for b in pred.get("battles") or ()]
         for p in pred.get("stop_pages") or ():
             _check_stop_page(p)
+        # OPT-IN (PLAN.md "Movie skip (opt-in)"): the movie-skip policy, checked strict before anything is driven.
+        # Without it (None) nothing below reads it: the loop is O3's exactly.
+        self.movies = movies_of(pred)
+        self.movie_rows: list = []         # the policy's ``movie`` rows: one a visit it pressed in
+        self.mv = None                     # the current visit's row, open until its outcome is set
+        self.mv_last = None                # the wall time of that row's last press
+        self.visit_t0 = None               # the wall time the current visit began (a cell's after_s counts from it)
         budget = pred["budget"]
         self.settle_s = float(budget["settle_s"])
         self.settle_polls = max(1, int(self.settle_s / POLL_S))
@@ -666,6 +827,8 @@ class _Drive:
                             steps=self.steps, overlays=self.overlays, forbidden=self.forbidden)
             if self.battles:               # a run that raises inside a battle still records them
                 progress.update(battles=self.battle_log, battle_epoch0=self.battle_epoch0)
+            if self.movies is not None:    # and one that raises mid-skip its movie rows
+                progress.update(movies=self.movie_rows)
 
     # -- the outcome, a VOID ------------------------------------------------------------------------------------
     def out(self, end: str, why: str) -> dict:
@@ -674,6 +837,8 @@ class _Drive:
              "end_state": self.end_state, "t": round(time.time() - self.t0, 1)}
         if self.battles:                   # S4: only with a registry, so O2's outcome keeps its keys
             o.update(battles=self.battle_log, battle_epoch0=self.battle_epoch0)
+        if self.movies is not None:        # the movie-skip policy: only with it, so O3's outcome keeps its keys
+            o["movies"] = self.movie_rows
         return o
 
     def void(self, v: str, by: str, why: str):
@@ -1357,6 +1522,110 @@ class _Drive:
                 raise
             return None
 
+    # -- the movie-skip policy (opt-in: ``movies``) ----------------------------------------------------------------
+    def movie_row(self) -> dict | None:
+        """The current visit's ``movie`` row while it is open (no outcome yet), else None."""
+        row = self.mv
+        if row is None or row["visit"] != self.visit or row["outcome"] is not None:
+            return None
+        return row
+
+    def movie_end(self, row: dict, outcome: str, why: str | None = None) -> None:
+        """A visit's skip is settled: ``skipped``, or ``missed`` with its reason ('movie-skip missed: ...')."""
+        row["outcome"] = outcome
+        if outcome == "missed":
+            row["missed"] = f"movie-skip missed: {why}"
+
+    def movie_close(self, why: str) -> None:
+        """The visit (or the run) ends with its row still open: missed, ``why``."""
+        if self.mv is not None and self.mv["outcome"] is None:
+            self.movie_end(self.mv, "missed", why)
+
+    def movie_press(self, st) -> bool:
+        """The policy's press (rule 9's, opt-in): in a REGISTERED cell (:func:`movie_cell`: this place and SC), on the
+        field HUD with no dialog up, no choice and no control -- what FMV003 publishes for its 90 s -- at least the
+        cell's ``after_s`` into the visit, and this visit's movie neither skipped nor given up: ONE Confirm, its
+        ``press`` row (``why`` "movie_skip": its frame and sample), recorded on the visit's ``movie`` row (opened at the
+        first press). FieldHUD's hit area takes it while the movie plays and opens the skip dialog, which rule 6
+        answers (:meth:`movie_answer`). A press no dialog answers is pressed again ``press_every_s`` later, up to
+        ``max_presses``; ``press_every_s`` after the last the visit gives up -- 'movie-skip missed', never a VOID: the
+        movie plays out. True when it pressed (the loop polls again at once)."""
+        if st.dialog_open or st.choice is not None or st.control or st.ui_state != "FieldHUD":
+            return False
+        hit = movie_cell(self.movies, self.donor, self.sc)
+        if hit is None or self.visit_t0 is None:
+            return False
+        n, c = hit
+        if self.mv is not None and self.mv["visit"] == self.visit and self.mv["outcome"] is not None:
+            return False                                 # this visit's movie is skipped, or given up
+        row = self.movie_row()
+        now = time.time()
+        t = now - self.visit_t0
+        if t < float(c["after_s"]):
+            return False
+        every, most = float(self.movies["press_every_s"]), int(self.movies["max_presses"])
+        if row is not None:
+            if now - self.mv_last < every:
+                return False                             # the last press's wait for its dialog
+            if len(row["presses"]) >= most:
+                self.movie_end(row, "missed", f"no skip dialog after {len(row['presses'])} press(es) "
+                                              f"{every:g} s apart")
+                return False
+        else:
+            row = {"k": "movie", "field": self.fid, "donor": self.donor, "sc": self.sc, "visit": self.visit,
+                   "cell": n, "why": c["why"], "after_s": c["after_s"], "length_s": c.get("length_s"),
+                   "presses": [], "refused": [], "dialog": None, "outcome": None, "frame": None, "t": None,
+                   "saved_s": None, "missed": None}
+            self.mv = row
+            self.log.append(row)
+            self.movie_rows.append(row)
+        p = self.press("movie_skip", st, 4)
+        row["presses"].append({"frame": p["pre"]["frame"], "t": round(t, 2)})
+        self.mv_last = now
+        self.walked = None
+        return True
+
+    def movie_answer(self, st) -> bool:
+        """Rule 6's skip answer (opt-in): the ready choice is answered YES -- ABSOLUTE option 0, FieldHUD's skip
+        (``g.choose``) -- only while this visit's ``movie`` row is open with a press of the policy's own behind it,
+        and only when the choice IS the skip dialog (:func:`skip_answer`: its prompt, its two lines). Its ``choice``
+        row (``rule`` "movie_skip": a choice the driver took over the game's default, as 4.7's ``choice`` backing
+        reads it) and the movie row's dialog (prompt, options, active, selected, count), frame, seconds into the
+        visit and ``saved_s`` (the cell's ``length_s`` less them). Anything else is the ordinary rules' (False): a
+        dialog no press of the policy opened, or one that is not the skip text (kept on the row as ``refused``) --
+        O1's rule then answers a skip dialog at its default (No), as it does with no policy at all."""
+        row = self.movie_row()
+        if row is None or not row["presses"]:
+            return False
+        ch = st.choice
+        snap = {k: ch.get(k) for k in ("options", "active", "selected", "count")}
+        index = skip_answer(ch, st.texts, self.movies)
+        if index is None:
+            if snap not in row["refused"]:
+                row["refused"].append(snap)
+            return False
+        self.g.choose(index)
+        t = time.time() - self.visit_t0
+        self.walked = None
+        crow = {"k": "choice", "field": self.fid, "donor": self.donor, "sc": self.sc, "frame": st.frame,
+                "options": ch.get("options"), "active": ch.get("active"), "selected": ch.get("selected"),
+                "count": ch.get("count"), "index": index, "rule": "movie_skip", "took": {"index": index}}
+        self.choices.append(crow)
+        self.log.append(crow)
+        length = row.get("length_s")
+        row.update(dialog=snap, frame=st.frame, t=round(t, 2),
+                   saved_s=None if length is None else round(float(length) - t, 1))
+        self.movie_end(row, "skipped")
+        return True
+
+    def movie_page(self, st) -> None:
+        """A page up while this visit's row waits on its press (rule 7, opt-in): it came INSTEAD of the skip dialog --
+        the movie is over, or was never there -- so the visit's skip is given up (missed) before the page rule turns
+        it; no press of the policy follows it."""
+        row = self.movie_row()
+        if row is not None and row["presses"]:
+            self.movie_end(row, "missed", f"a page opened instead of the skip dialog: {st.text[:80]!r}")
+
     # -- the loop -------------------------------------------------------------------------------------------------
     def go(self) -> dict:
         from harness import HarnessError
@@ -1380,6 +1649,8 @@ class _Drive:
                 if self.end_row_s is not None:
                     row["end_row"] = self.end_row()
                 self.log.append(row)
+                if self.movies is not None:
+                    self.movie_close("the run reached its end with no skip dialog")
                 return self.out("reached", f"field {self.fid}")
             # the stall watchdog: nothing published changed for no_progress_s
             sig = (self.fid, self.sc, st.ui_state, tuple(st.texts), json.dumps(st.choice, sort_keys=True), st.control,
@@ -1415,6 +1686,9 @@ class _Drive:
                 self.visit, self.cur = self.visit + 1, self.fid
                 self.log.append({"k": "visit", "field": self.fid, "donor": self.donor, "visit": self.visit,
                                  "frame": st.frame, "sc": self.sc})
+                if self.movies is not None:          # the policy's clock: a cell's after_s counts from the visit
+                    self.movie_close("the visit ended with no skip dialog")
+                    self.visit_t0 = time.time()
                 if self.forbid_live:
                     self.scan()
             c = cell(pred, self.donor, self.sc)
@@ -1454,6 +1728,8 @@ class _Drive:
                     time.sleep(POLL_S)
                     continue
                 self.hold = None
+                if self.movies is not None and self.movie_answer(st):    # opt-in: the skip dialog its press opened
+                    continue
                 self.answer(st)
                 continue
             # 7 -- a page (control off)
@@ -1471,6 +1747,8 @@ class _Drive:
                     self.pages.append(st.text)
                     if any("[TIME=" in t for t in st.raw_texts):
                         self.timed.append(len(self.pages) - 1)
+                if self.movies is not None:          # opt-in: a page that came instead of the skip dialog
+                    self.movie_page(st)
                 self.press("page", st, 3)
                 self.walked = None
                 g.wait_frames(g.rate().frames_for_ticks(g.CUTSCENE_PAGE_TICKS))
@@ -1498,8 +1776,10 @@ class _Drive:
                                                   f"{self.sc} after the cell's last step")
                 self.run_step(c, n, st)
                 continue
-            # 9 -- anything else (a movie, a fade, a scene between pages): wait
+            # 9 -- anything else (a movie, a fade, a scene between pages): wait -- or, opt-in, the movie-skip press
             self.held = 0
+            if self.movies is not None and self.movie_press(st):
+                continue
             time.sleep(POLL_S)
         raise HarnessError(f"the run's budget ran out in field {g.state.field_id}")
 
@@ -1540,7 +1820,8 @@ def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=Non
 
     Returns ``{"end": "reached", "why", "void": None, "beats", "pages", "timed", "choices", "steps", "overlays",
     "forbidden", "end_state", "t"}`` -- and, with a battle registry (research/o3_design.md S4), ``"battles"`` (the
-    battle rows) and ``"battle_epoch0"`` (the epoch published when the drive started); anything the table cannot
+    battle rows) and ``"battle_epoch0"`` (the epoch published when the drive started); with a movie-skip policy
+    (``movies``, PLAN.md "Movie skip (opt-in)"), ``"movies"`` (its ``movie`` rows); anything the table cannot
     answer raises :class:`RouteVoid` with its class, cell and attribution (2.7), and the budget ``HarnessError``
     (V13). ``floor_for(donor, closed)`` gives a walk its
     floor (default: the donor's stock walkmesh as the player walks it, ``closed`` shut -- a member walks its donor's,

@@ -2650,9 +2650,10 @@ class FakeGame:
         :attr:`named`), or a MOVIE (H9: a dict ``{"movie": frames, "skip": {"header", "options", "default"}}``): no
         dialog and no control for ``frames`` frames, ui FieldHUD -- and with ``skip``, a Confirm while it plays opens
         the skip dialog (FieldHUD.cs:275-286), a choice beat with its cursor on ``default``; the default's answer
-        resumes the movie for the frames it had left, the other option ends it. While a movie plays (its dialog up
-        included) the soft-reset combo is swallowed, and a warp ends it with its scene (:attr:`movies` records
-        each).
+        resumes the movie for the frames it had left, the other option ends it. With ``skip``'s opt-in
+        ``armed_after`` (frames) the hit area takes no Confirm until the movie has played that far (MBG.Play arms it;
+        no dialog before the first frame). While a movie plays (its dialog up included) the soft-reset combo is
+        swallowed, and a warp ends it with its scene (:attr:`movies` records each).
 
         A choice window as the engine publishes it (recorded at 30937 frames 900/906/936 and 30921): for
         ``opening`` frames it is up with group '' and no button and ``selected`` reads ``stale`` -- whatever
@@ -2780,10 +2781,15 @@ class FakeGame:
             return
         if "movie" in self._beats[0]:
             # H9: a Confirm during a movie with a skip dialog opens it (FieldHUD.cs:275-286), the cursor on its default
-            # (ETb.sChoose = 1: No); the movie waits under it with the frames it has left
+            # (ETb.sChoose = 1: No); the movie waits under it with the frames it has left. Opt-in (``armed_after``,
+            # frames; default 0, the hit area live from the first frame): the hit area arms only that far into the
+            # movie -- MBG.Play sets it active, and until the first frame decodes MBG.IsFinished() refuses the dialog
+            # (MBG.cs:216, :597-600) -- so a Confirm before then does nothing to the movie
             beat = self._beats[0]
             if button in ("confirm", "ok") and beat.get("skip") and self._beat_phase == "movie":
                 skip = beat["skip"]
+                if self.movies[-1]["played"] < int(skip.get("armed_after", 0)):
+                    return
                 self.movies[-1]["skips"] += 1
                 self._beats.insert(0, {"header": skip.get("header", ""), "options": list(skip["options"]),
                                        "default": int(skip["default"]), "_movie": beat})
