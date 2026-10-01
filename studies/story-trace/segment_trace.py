@@ -635,6 +635,16 @@ class Segment:
         saved = {f: T.ScriptIndex((run_dir / "scripts" / f"{f}.eb").read_bytes(), field_id=f, label=f"member {f}")
                  for f in members if (run_dir / "scripts" / f"{f}.eb").is_file()}
         fork_scripts = lambda fid: saved.get(fid) or stock(fid)                          # noqa: E731
+        # S1 (research/o3_design.md 1.2): a REGISTERED battle's beat is done only when it holds an int result in its
+        # row's ``won`` (a defeat's 3, a None, a True are not). O1's ``battle`` beat keeps its legacy rule (the
+        # predictions' ``battle_won``), any other beat its truthiness; predictions with no ``battles`` read as before.
+        won = {b["beat"]: list(b["won"]) for b in pred.get("battles") or ()}
+
+        def done(b: str, beats: dict):                         # truthy when the beat is done (the legacy rules' value)
+            if b in won:
+                v = beats.get(b)
+                return type(v) is int and v in won[b]          # True == 1: a bool is never a battle's result
+            return beats.get(b) in pred["battle_won"] if b == "battle" else beats.get(b)
         out = []
         for rec in session["runs"]:
             void: list = []
@@ -650,11 +660,12 @@ class Segment:
                              "class": rec.get("v") or ("V13" if stopped else "V?"), "by": rec.get("by") or "driver",
                              "cell": rec.get("cell")})
             beats = rec.get("beats") or {}
-            missed = [b for b in pred["beats"]
-                      if not (beats.get(b) in pred["battle_won"] if b == "battle" else beats.get(b))]
+            missed = [b for b in pred["beats"] if not done(b, beats)]
             if rec.get("end") == "reached" and missed:
-                void.append({"why": f"beats not done: {missed} (battle result {beats.get('battle')})",
-                             "class": "A-BEATS", "by": "driver"})
+                why = (f"beats not done: {missed} (battle result {beats.get('battle')})" if not won   # O1's, exactly
+                       else f"beats not done: {missed} (" + ", ".join(f"{b} result {beats.get(b)!r}" for b in won)
+                       + ")")
+                void.append({"why": why, "class": "A-BEATS", "by": "driver"})
             path = run_dir / rec.get("trace", "")
             if not rec.get("skipped") and path.is_file():
                 try:

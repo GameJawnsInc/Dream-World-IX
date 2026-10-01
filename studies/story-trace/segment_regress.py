@@ -88,6 +88,8 @@ REQUIRED_TESTS: tuple = (
     "test_o1_segment_run_pins_o1s_session_surface",
     "test_segment_session_loop_on_the_fake",
     "test_segment_throw_check_fails_on_an_engine_exception",
+    # research/o3_design.md section 9, PART A: the shared session changes, each with the step that adds it
+    "test_segment_read_session_judges_a_registered_battle_by_its_won",          # A1: S1
 )
 
 O1E_VERDICT = "PROVEN"

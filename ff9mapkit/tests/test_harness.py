@@ -11646,15 +11646,16 @@ def test_row_keys_maps_every_joined_row_to_its_digest_key():
         assert len(d.failures) == 1 and d.failures[0][0].line == 6
 
 
-def _stub_segment(game, *, cue, order=("S", "F", "S", "F", "S", "F"), min_covered=2):
+def _stub_segment(game, *, cue, order=("S", "F", "S", "F", "S", "F"), min_covered=2, beats_of=None, **over):
     """A Segment with its install stubbed -- no mod roots, a fixed fingerprint, an all-pass preflight, no stock
     scripts -- whose drive pokes one harness byte (so every run's trace holds a row of its own) and then reaches the
-    end, or VOIDs with a class, on ``cue(n, side)``: the session loop alone, on the fake."""
+    end, or VOIDs with a class, on ``cue(n, side)``: the session loop alone, on the fake. A reached run's outcome
+    carries ``beats_of(n, side)`` (default ``{"reached": True}``); ``over`` replaces keys of the predictions."""
     ST, SD = _segment_trace(), _segment_modules()
     pred = {"version": 1, "what": "a stub segment", "order": list(order), "min_covered": min_covered,
             "rerun": {"max": 2}, "budget": {"run_s": 60, "run_min_s": 1, "session_s": 600, "settle_s": 0.1},
             "start": {"S": 30820, "F": 30820}, "entrance": 0, "end_field": 30821, "stock_fields": [],
-            "members": {}, "names": {}, "beats": ["reached"], "noise": []}
+            "members": {}, "names": {}, "beats": ["reached"], "noise": [], **over}
     path = game / "zz_predictions.json"
     path.write_text(json.dumps(pred, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     calls: list = []
@@ -11684,8 +11685,9 @@ def _stub_segment(game, *, cue, order=("S", "F", "S", "F", "S", "F"), min_covere
             log.append({"k": "stub", "n": n})
             if cue(n, side) == "void":
                 raise SD.RouteVoid(f"stub: no SC 1153 in run {n + 1}", v="V8", cell=[106, 1152], by="game")
-            return {"end": "reached", "why": "field 30821", "beats": {"reached": True}, "pages": ["p"],
-                    "choices": [], "t": 0.1}
+            return {"end": "reached", "why": "field 30821",
+                    "beats": beats_of(n, side) if beats_of else {"reached": True}, "pages": ["p"], "choices": [],
+                    "t": 0.1}
     return Stub(), pred, calls
 
 
@@ -11753,6 +11755,41 @@ def test_segment_throw_check_fails_on_an_engine_exception(game):
         throw = [c for c in g.checks if c["what"].startswith("ZZ-THROW")]
     assert len(throw) == 1 and throw[0]["ok"] is False, throw
     assert throw[0]["detail"].count("NullReferenceException") == 1 and "EventEngine" in throw[0]["detail"], throw
+
+
+def test_segment_read_session_judges_a_registered_battle_by_its_won(game):
+    """S1 (research/o3_design.md 1.2): a beat a ``battles`` row registers is done only when the run's record holds
+    an INT result in that row's ``won``. A stub session's five reached runs record ``leo`` as 2, 1, 3, None and True
+    (the session JSON keeps True a bool): against ``won`` [1, 2] the first two are covered and the other three
+    A-BEATS, each naming its result -- a defeat's 3, a None, and True, which equals 1 and is ``in [1, 2]`` but is
+    never a battle's result. The same session read with no ``battles`` row (O1's and O2's predictions) keeps today's
+    rule: every truthy beat is done, and the A-BEATS text is O1's. Break: drop the ``type(v) is int`` test (run 5
+    reads covered)."""
+    leo = [2, 1, 3, None, True]
+    row = {"donor": 62, "sc": 1155, "scene": 338, "won": [1, 2], "lands": 63, "beat": "leo", "timeout_s": 180,
+           "max_turns": 40, "land_s": 30, "land_cap_s": 120, "why": "a stub row"}
+    stub, pred, calls = _stub_segment(game, cue=lambda n, side: "reached", order=("S", "F", "S", "F", "S"),
+                                      min_covered=1, beats_of=lambda n, side: {"leo": leo[n]}, beats=["leo"],
+                                      battles=[row])
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0]
+        stub.run(g)
+    run_dir = game / "run"
+    sess = json.loads((run_dir / "zz_session.json").read_text(encoding="utf-8"))
+    assert [r["beats"] for r in sess["runs"]] == [{"leo": v} for v in leo] and sess["runs"][4]["beats"]["leo"] is True
+    assert calls == ["S", "F", "S", "F", "S"]               # each side holds its one covered run: no re-run
+    runs = stub.read_session(run_dir, pred)
+    assert [r["covered"] for r in runs] == [True, True, False, False, False], [r["void"] for r in runs]
+    assert [r["void"] for r in runs[2:]] == [
+        [{"why": f"beats not done: ['leo'] (leo result {v!r})", "class": "A-BEATS", "by": "driver"}]
+        for v in (3, None, True)]
+    legacy = {k: v for k, v in pred.items() if k != "battles"}           # O1's and O2's shape: no registry
+    runs = stub.read_session(run_dir, legacy)
+    assert [r["covered"] for r in runs] == [True, True, True, False, True]
+    assert runs[3]["void"] == [{"why": "beats not done: ['leo'] (battle result None)", "class": "A-BEATS",
+                                "by": "driver"}]
 
 
 def test_o1_segment_run_pins_o1s_session_surface(game, capsys):
