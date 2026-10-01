@@ -5,6 +5,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `PlayerWalkmesh(closed=...)`: triangles a script has closed
+- `content.pathfind.PlayerWalkmesh` takes an opt-in `closed` set: the triangles a field script shuts after load
+  (`EnablePathTriangle(n, 0)`, or a whole floor under `EnablePath`), which the walkmesh bytes on disk cannot show.
+  They count as walls, and `standing_at` never opens them as an exit strip. Stock 116's fallen plank (triangle 217)
+  is the case that needed it. The default is empty, so existing callers route exactly as before.
+
 ### Fixed — a verbatim fork shipped one English locale's field text as the other's
 - **What broke.** The kit picked each language's copy of a field text block (`<block>.mes`) by content: a
   stopword score. That score reads the us and uk copies as the same language, so both took the SAME body in all

@@ -815,6 +815,115 @@ The chain stays deployed (31200-31219) for the next segments.
 **Next, O2:** Alexandria, where Vivi's segment starts in field 100. That means the alxt zone joins the chain, and the
 driver gains that segment's naming screen, its walks and its talks.
 
+## O2 -- Alexandria under the trace: Vivi's segment (draft: rehearsals pending, freeze pending)
+
+**The question.** Over Alexandria's first story segment, does a verbatim fork of the alxt zone write the real game's
+story state key for key? The stock runs are also this segment's recorded ground truth. The design, with both of its
+critiques folded in, is [`research/o2_design.md`](research/o2_design.md); the route it rests on is
+[`research/o2_route.md`](research/o2_route.md) (two readers reconciled, a completeness critic's corrections applied).
+
+**The segment.** A raw warp into 100 (Main Street) at entrance 102 with the scenario at 1000, then 100 -> 101 -> 102
+-> 103 -> 104 -> 103 -> 105 -> 106 -> 115 -> 116 -> `Field(61)` (116 e2 t1 ip1702). SC climbs 1000 -> 1150 -> 1151 ->
+1152 -> 1153 -> 1154 -> 1155. The segment ends on arrival in real field 61, on both sides.
+
+**The sides.** S = stock. F = `import-chain 100 --verbatim --ids 100-117 --fresh-ids --id-base 31220 --name-prefix
+O2`: 18 members, 31220-31237, sharing text block 33 ([`o2_forks.json`](o2_forks.json)). Built offline at
+`C:\gd\_ns_playtest\o2\build`, NOT deployed. Field 61 is no member, so member(116)'s `Field(61)` stays real: the
+seam, judged in donor terms.
+
+**The entry.** Each run: New Game, the trace armed, then `warp 100 102 1000` (stock) or `warp 31220 102 1000` (fork).
+It is not a replay of O1. The warp writes FieldEntrance and the scenario before the map changes: exactly three
+residue rows in field 70 (bytes 0-2), which the front cut sets aside and O2-START requires. Only two gEventGlobal
+values depend on that start: `UInt16[19] |= 2` and `Byte[6] |= 2` write 2 and 2 here, and would write 1799 and 3 after
+O1. The report prints both under the claim's scope: gEventGlobal values only, not party data, cards or field 70's
+override state.
+
+**The driver** (`segment_drive.drive`, research/o2_design.md 2). A beat table of cells keyed by (donor place,
+published SC). Each cell is a list of steps (cross, trigger, confirm, wait_sc, leave_now), counted per field visit
+and done only on its own evidence. Six choices, every one taken at the game's own default cursor (option 0), and the
+naming screen. The climb holds Up in bursts. At the 105 lookout the exit is taken at once (a lunge, then the
+crossing), because Alleyway Jack's contact comes about 1.5-2.0 s after control. Anything the table cannot answer is
+a VOID with its class (V1-V14), attributed to the driver or the game. The driver keeps `press`, `watch`, `step` and
+`visit` rows. A forbidden write (Jack's contact, the Confirm hot-spots, Kupo, 104's info options, a write off the
+route) VOIDs the run only when that evidence backs it; otherwise it is a finding.
+
+**The checks** ([`o2_alexandria.py`](o2_alexandria.py); research/o2_design.md 5 and 6):
+- offline: O2-BUILD, O2-TEXT, O2-KEYS, O2-REGIONS, O2-GOALS;
+- preflight: P-MANIFEST, P-DEPLOY, P-EB, P-FLOOR, P-STOCK, P-TEXT, P-RECOVERY; in game P-CAP, P-OBJECTS, P-LANG;
+- the session: O2-FROZEN, O2-COVER; O2-FORBIDDEN and O2-VOID-ASYM over every run, covered or not; then START,
+  LADDER, CHAIN, RESIDUE, WRITES, NULL, STABLE, SEAM, MASKED, STATE and JOIN over the covered runs; THROW.
+
+**The uk text: a KNOWN-KIT-DEFECT, now cleared by a rebuild.** The first build shipped `uk/field/33.mes` as the stock
+US text: `dialogue._lang_score` gives us and uk one English stopword set (dialogue.py:374 on this branch), so the kit's
+text carry handed uk the us pick. O2-TEXT and P-TEXT compare each language with the asset the engine itself reads (its
+ResourceManager path, `embeddedasset/text/<lang>/field/33.mes`), never with `extract_field_mes`. A mismatch in the
+session language (us) is a hard FAIL. A copy of another language's stock asset is a named, counted KNOWN-KIT-DEFECT
+line, and anything else is a FAIL. On the first build: 6 languages byte-equal, KNOWN-KIT-DEFECT 1 (uk shipped stock us
+`4751874951`; stock uk is `8c94536b6c`), FAIL 0. The kit fix (each language picked by its resource path) is on master
+since `aa627d52`, and the O2 fork's text sidecars were repaired with `tools/refresh_verbatim_text.py` (`ac9a3d69`;
+each keeps a `.pre-refresh-20260930-104516` copy). This branch carries neither: only the sidecars matter to a build.
+The chain was then rebuilt from the repaired sidecars (`build-all` from master `ac9a3d69`; the old build is kept at
+`C:\gd\_ns_playtest\o2\build.pre-ukfix-20260930`), and O2-TEXT reads 7 byte-equal of 7, KNOWN-KIT-DEFECT 0, with no
+code change here -- the rule's promised outcome. The uk text is no longer a precondition of the deploy.
+
+**Status: ★★ PROVEN (session `story-o2`, v1 `081d774e`).** Alexandria's segment under the trace: the warp into 100 at
+SC 1000 -> 101 -> 102 -> 103 -> 104 -> 103 -> 105 -> 106 -> 115 -> 116 -> Field(61), and the verbatim fork chain
+(31220-31237, deployed into FF9CustomMap) writes the real game's story state key for key. S F S F S F, 6/6 covered
+(S 3 of 3, F 3 of 3), unattended, 2100 s; every check PASS: FROZEN, COVER, FORBIDDEN (0 hits), VOID-ASYM (none),
+START, LADDER (6 runs x 6), CHAIN (6 x 12), RESIDUE, WRITES (6 x 26), NULL (94 keys matched, 0 stock-only, 0
+fork-only, noise set aside 0), STABLE (0 unstable), SEAM (every fork run leaves only at member(116) -> 61), MASKED,
+STATE (19 targets' write histories identical in order, the end state as frozen), JOIN (738 rows, 0 failures), and
+THROW (none). Every run took all eight beats. Hippaul's registered noise never fired, so the noise set aside is
+empty: the verdict needs no exemption. One CENSUS GAP, the same on both sides (100 e19 +417 `Byte[303]` B_POST_PLUS,
+a store the census does not count), reported, not judged. Archive:
+`C:\gd\Dream-World-IX\.harness-runs\20260930-192740-story-o2` (o2_report.txt).
+
+The stock rehearsals that set up the freeze ran unattended through the harness, one launch a stage, 16 runs, every run
+reaching its stage's end field (archived under `C:\gd\Dream-World-IX\.harness-runs\20260930-18*-o2-rh-*`):
+
+| Stage | Runs | What it showed |
+|---|---|---|
+| R-115 | 3/3 | F1: `hold up` climbs -- the published y RISES 0 -> 2691 in 9 bursts, then holds 3 at the top before 116 |
+| R-106 | 2/2 | F3: SC 1153 arrives at the wait point (560,1991); e14 lost -> id flip 54 frames |
+| R-105 | 5/5 | F2: Jack never within his range_r 299 (min 2086); first move 4-6 frames after the grant; 305/310/314 matched |
+| R-116 | 2/2 | three triggers; naming (Byte[6]=2); Puck min 185; F8: end_run from 61 reaches the title |
+| R-115a | 2/2 | the 115 scene, choice 367, the real stage-10 grant (50,-968); run 2 held 4 bursts at the ladder's top |
+| R-FULL | 2/2 | 337 s / 358 s. Ladder 6/6, chain 12/12, writes 26/26, start-dependent 2/2, 0 forbidden, 0 join failures; the two runs key for key identical (50 unregistered keys each); F9 start residue exact; F11 end state = the draft's; Hippaul's ip254 absent both times |
+
+What the rehearsals corrected (commits `9df45bda` and the freeze commit): the FakeGame's ladder ran the wrong way
+("smaller is higher"; the climb verb is sign-blind, so its tests passed on a ladder the game does not have) and the
+draft's climb `top: -2431` could never fire -- both fixed; `stall_bursts` 3 -> 8 (R-115a run 2 held 4 bursts at the
+top: 3 would have VOIDED it); the (105, 1152) start is the measured grant (-598, 1608), not the lookout; 116's third
+step starts at (-716, 2307), where the trigger above it ends; F7 budgets from R-FULL (`run_s` 716, `run_min_s` 434,
+`session_s` 4580, `no_progress_s` 120, `exit_wait_s` 5). One surprise kept as designed: in 100, control drops once at
+(65, 3489) every run (the Rat Kid scene; the design had placed the bump near z 6200) and the step's one `interrupts`
+absorbs it.
+
+- `o2_alexandria.py --offline-check`: 5 PASS on the frozen v1 (126 files own-language; 48 key sites; 26 regions, 17
+  hot-spots and all 21 gateways of the route fields registered; 14 goals, every step runnable and every crossing where
+  the route's order goes next); O2-TEXT 7 byte-equal of 7 on the rebuilt chain (the uk KNOWN-KIT-DEFECT line it
+  printed on the first build is gone).
+- `--preflight`: red, as expected: P-MANIFEST, P-DEPLOY, P-EB and P-FLOOR fail (nothing deployed); P-STOCK, P-TEXT
+  ("no mod folder ships block 33") and P-RECOVERY pass.
+- [`o2_dryrun.py`](o2_dryrun.py): 86/86 as registered -- the design's section 8 (44 session cases, 4 unit cases),
+  plus 4 cases and 2 unit cases added where mutating a check's clause showed no case that isolated it, plus the
+  review's: 27 one-change mutants of the draft that O2-KEYS, O2-REGIONS and O2-GOALS must each FAIL by the clause they
+  break, O2-TEXT's missing language, P-RECOVERY, and O2-STATE's history and suppressed stores.
+- The O1 regression gate (`segment_regress.py`): 7/7.
+- A review of PARTS A-C found eight defects; each is fixed with a test that fails on the code before it
+  (research/o2_design.md 11.6). The weightiest: a walk into the WRONG door is now the driver's V11 -- one landing
+  judge every executor shares, and rule 2 holds each new visit to the route's order (`visits`) -- where it had read as
+  the game's (a finding, not a VOID); and a wait begun short of its point is the driver's V7, never the game's V8.
+
+**Done, in order:** the stock rehearsals (above), the fold-in, `--freeze` (v1), the chain rebuilt with the uk kit fix,
+the owner-approved deploy of the 18 members (main checkout, master `ac9a3d69`; [`o2_forks.json`](o2_forks.json)),
+`--preflight` 7/7, and the session (`py tools/play.py studies/story-trace/o2_alexandria.py --label story-o2
+--timeout 240`): PROVEN. The chain stays deployed; its reverts run newest first (`o2_forks.json` revert).
+
+What only the game can settle is the design's section 10: the climb, Jack's timing, the exits' map-switch latency,
+mbg101's frame-rate change, Kupo near the ladder, 116's narrow walks, the facing for the two tag-3 Confirms, and 61's
+FMV under end_run's warp.
+
 ## Rungs
 
 | Rung | What | Pass |

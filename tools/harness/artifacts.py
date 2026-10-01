@@ -66,6 +66,11 @@ class StateRing:
     def frames(self) -> list[int]:
         return [int(raw.get("frame", -1)) for _, _, raw in self._buf]
 
+    def since(self, frame: int) -> list[dict]:
+        """The raw published states the ring holds with a frame AFTER ``frame``, oldest first -- every sample the reads
+        since then kept (research/o2_design.md H6: a race lost inside a harness call stays on record)."""
+        return [raw for _t, _age, raw in self._buf if int(raw.get("frame", -1)) > frame]
+
     def clear(self) -> None:
         self._buf.clear()
         self._last_frame = None

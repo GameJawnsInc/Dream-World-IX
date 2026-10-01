@@ -11235,6 +11235,8 @@ def test_the_objects_that_box_him_are_judged_at_the_smallest_press_reach(game):
 def _o1_pred(**over):
     sys.path.insert(0, str(REPO / "studies" / "story-trace"))
     import o1_opening as O
+    if not (O.CHAIN_DIR / "campaign.toml").is_file():
+        pytest.skip(f"the O1 chain is not built here ({O.CHAIN_DIR}): the O1 draft reads its members from it")
     pred = O.draft_predictions()
     pred.update(start={"S": 30820, "F": 30820}, end_field=30821, members={}, names={},
                 candle={"donor": 30820, "x": 300.0, "z": 0.0})
@@ -11395,3 +11397,1974 @@ def test_o1_pick_for_reads_the_frozen_rules_by_option_text():
         O.pick_for({"options": ["Who?", "Garnet", "Garnet"], "active": [0, 1]}, 30820, pred)
     with pytest.raises(O.RouteVoid, match="no rule"):
         O.pick_for(q, 31999, pred)                    # the Garnet rule is bound to its field
+
+
+# ---- O2's shared segment machinery (studies/story-trace/segment_drive.py, segment_trace.py; research/o2_design.md
+# sections 1 and 9, PART A). O1 runs on the same machinery, so every O1 test above is part of this set's gate.
+
+def _segment_modules():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import segment_drive as SD
+    return SD
+
+
+def test_o2_pick_for_scopes_rules_by_sc_and_once():
+    """O2's rule keys (research/o2_design.md 1.4, 2.6), each optional: ``sc`` scopes a rule to the published
+    scenario (215 re-offered at SC 1150 has no rule), ``once`` refuses a second answer (V2), ``take: "default"``
+    refuses a pick that is not the game's own ready cursor (V3). A rule without them reads as O1's did, and a
+    RouteVoid raised as O1 raises one carries no class."""
+    SD = _segment_modules()
+    rules = [{"donor": 103, "sc": [1000], "match": "ticket booth", "pick": "ticket booth", "once": True,
+              "beat": "booth", "take": "default"},
+             {"donor": 105, "sc": [1151], "match": "want to", "pick": "right", "once": True, "beat": "alright",
+              "take": "default"},
+             {"donor": None, "sc": None, "match": "want to skip", "pick": "default", "once": False, "beat": None}]
+    pred = {"choices": rules}
+    # 215 as the agent publishes it: no prompt line, and the first option's first character dropped
+    booth = {"options": ["", "eek into the ticket booth", "Cancel"], "active": [0, 1], "selected": 0}
+    assert SD.pick_for(booth, 103, pred, sc=1000) == (0, rules[0])
+    with pytest.raises(SD.RouteVoid, match="no rule") as e:          # the second visit: SC 1150
+        SD.pick_for(booth, 103, pred, sc=1150)
+    assert (e.value.v, e.value.cell, e.value.by) == (None, None, None)
+    with pytest.raises(SD.RouteVoid, match="no rule"):               # a call that publishes no scenario
+        SD.pick_for(booth, 103, pred)
+    with pytest.raises(SD.RouteVoid, match="answers once") as e:
+        SD.pick_for(booth, 103, pred, sc=1000, answered={0})
+    assert (e.value.v, e.value.cell, e.value.by) == ("V2", [103, 1000], "game")
+    assert SD.pick_for(booth, 103, pred, sc=1000, answered={1})[0] == 0          # another rule's answer
+    with pytest.raises(SD.RouteVoid, match="not the game's default") as e:
+        SD.pick_for(dict(booth, selected=1), 103, pred, sc=1000)
+    assert (e.value.v, e.value.cell, e.value.by) == ("V3", [103, 1000], "game")
+    # 310: the rule matches on the SECOND line and picks the first, the cursor's
+    alright = {"options": ["", "Alright", "N-No, I don’t want to"], "active": [0, 1], "selected": 0}
+    assert SD.pick_for(alright, 105, pred, sc=1151) == (0, rules[1])
+    # an sc-free, donor-free rule: any SC, and O1's call without one
+    skip = {"options": ["Do you want to skip\nthe movie?", "Yes", "No"], "active": [0, 1], "selected": 1}
+    assert SD.pick_for(skip, 999, pred, sc=1234)[0] == "default" and SD.pick_for(skip, 999, pred)[0] == "default"
+    # O1 reads the same objects through its re-export
+    O, o1 = _o1_pred()
+    assert O.pick_for is SD.pick_for and O.RouteVoid is SD.RouteVoid
+    assert O.pick_for({"options": ["Who?", "Queen Brahne", "Princess Garnet"], "active": [0, 1]}, 30820, o1)[0] == 1
+    err = SD.RouteVoid("plain")
+    assert str(err) == "plain" and (err.v, err.cell, err.by) == (None, None, None)
+
+
+def _segment_trace():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import segment_trace as ST
+    return ST
+
+
+#: Hippaul's :=2 (103 e18 t1 ip254), O2's one full-key noise pattern (research/o2_design.md 4.6)
+_ST_HIPPAUL = {"donor": 103, "m": 1, "src": "eb", "sid": 18, "tag": 1, "off": 51, "target": "Global.Byte[472]",
+               "value": 2, "ip": 254, "op": ":=", "why": "Hippaul's :=2 never propagates"}
+
+
+def _st_w(fld, byte, old, new, *, width="Byte", sid=0, tag=0, ip=6, don=None, bit=-1):
+    return {"k": "w", "f": 10, "p": 0, "m": 1, "fld": fld, "don": fld if don is None else don, "sc": 0, "src": "eb",
+            "sid": sid, "uid": sid, "lvl": 0, "ip": ip, "tag": tag, "add": 0, "byte": byte, "w": width, "bit": bit,
+            "old": old, "new": new, "same": int(old == new)}
+
+
+def _st_e(why, fld=70):
+    return {"k": "e", "f": 0, "p": 0, "m": 1, "fld": fld, "don": fld, "sc": 0, "why": why}
+
+
+def _st_r(fld, byte, old, new):
+    return {"k": "r", "f": 0, "p": 0, "m": 1, "fld": fld, "don": fld, "sc": 0, "byte": byte, "old": old, "new": new,
+            "why": "frame"}
+
+
+def _st_c(w, n, last):
+    """The count row the engine closes ``w``'s site with (its fld/don/m are the site's)."""
+    return {"k": "c", "f": 0, "p": 0, "sc": 0, **{k: w[k] for k in ("fld", "don", "m", "src", "sid", "tag", "ip",
+                                                                    "byte", "w", "bit")}, "n": n, "last": last}
+
+
+def _st_rows(*rows):
+    from ff9mapkit import storytrace as T
+    return T.parse_text("".join(json.dumps(r) + "\n" for r in rows))
+
+
+def test_key_matches_refuses_unknown_fields():
+    """A full-key noise pattern (research/o2_design.md 4.6) names EXACTLY the eight WriteKey fields, plus the
+    metadata ip/op/why. A typo (``offset``), a missing field, an operator (a list, a range) or a value of the wrong
+    type raises -- never a silently wider (or dead) match. It matches only the aligned key equal in all eight."""
+    import dataclasses
+    from ff9mapkit.storytrace import WriteKey
+    ST = _segment_trace()
+    k = WriteKey(103, 1, "eb", 18, 1, 51, "Global.Byte[472]", 2)
+    assert ST.key_matches(k, _ST_HIPPAUL)
+    assert ST.key_matches(k, {f: _ST_HIPPAUL[f] for f in ST.KEY_FIELDS})       # the metadata is the checks', not ours
+    assert not ST.key_matches(dataclasses.replace(k, aligned=False), _ST_HIPPAUL)
+    for field, other in (("donor", 104), ("m", 2), ("src", "cs"), ("sid", 19), ("tag", 2), ("off", 15),
+                         ("target", "Global.Byte[473]"), ("value", 3)):
+        assert not ST.key_matches(dataclasses.replace(k, **{field: other}), _ST_HIPPAUL), field
+    typo = {**{f: v for f, v in _ST_HIPPAUL.items() if f != "off"}, "offset": 51}
+    for bad, match in ((typo, r"unknown field\(s\) \['offset'\]"),
+                       ({f: v for f, v in _ST_HIPPAUL.items() if f != "value"}, r"missing \['value'\]"),
+                       ({**_ST_HIPPAUL, "ip_range": [0, 300]}, "unknown field"),
+                       ({**_ST_HIPPAUL, "value": [2, 3]}, "not a plain int"),
+                       ({**_ST_HIPPAUL, "m": True}, "not a plain int"),
+                       ({**_ST_HIPPAUL, "off": "51"}, "not a plain int")):
+        with pytest.raises(ValueError, match=match):
+            ST.key_matches(k, bad)
+
+
+def test_is_noise_keeps_o1s_legacy_form():
+    """O1's registered noise is ``{not_m, target, why}``: every key of that target whose mode is NOT ``not_m`` (scene
+    336's AI). A FIELD-mode key of the same byte is not noise -- the O1 gate's G6 mutant, as a unit. The full-key form
+    matches its one key; a pattern of neither shape raises, even when another pattern matched first."""
+    import dataclasses
+    from ff9mapkit.storytrace import WriteKey
+    ST = _segment_trace()
+    O, o1 = _o1_pred()
+    assert O.is_noise is ST.is_noise
+    battle = WriteKey(50, 2, "eb", 1, -1, 900, "Global.Byte[206]", 17)
+    assert ST.is_noise(battle, o1) and ST.is_noise(dataclasses.replace(battle, target="Global.Byte[199]"), o1)
+    assert not ST.is_noise(dataclasses.replace(battle, m=1), o1)                  # field mode: O1's noise is m != 1
+    assert not ST.is_noise(dataclasses.replace(battle, target="Global.Byte[205]"), o1)
+    both = {"noise": [*o1["noise"], _ST_HIPPAUL]}
+    hippaul = WriteKey(103, 1, "eb", 18, 1, 51, "Global.Byte[472]", 2)
+    assert ST.is_noise(battle, both) and ST.is_noise(hippaul, both)
+    assert not ST.is_noise(dataclasses.replace(hippaul, off=15), both)            # Hippaul's :=1 site is story
+    with pytest.raises(ValueError):
+        ST.is_noise(battle, {"noise": [*o1["noise"], {"target": "Global.Byte[206]", "why": "no mode rule"}]})
+
+
+def test_cut_at_start_keeps_residue_out_of_the_kept_rows():
+    """The front cut (research/o2_design.md 5.2): the run starts at its first ``w`` row in the start PLACE. The warp's
+    residue in field 70, a stray field-70 write and that write's closing count are cut into ``pre``; the epochs stay;
+    residue AFTER the start stays among the kept rows (O2-RESIDUE judges it). On the fork side the place is the
+    member's frozen donor."""
+    ST = _segment_trace()
+    w70 = _st_w(70, 13, 0, 2, sid=3, ip=40)
+    start = _st_w(100, 23, 1, 0, width="Bit", bit=191, sid=0, ip=36)
+    sc = _st_w(100, 0, 1000, 1150, width="UInt16", sid=7, tag=1, ip=1046)
+    rows = _st_rows(_st_e("arm"), _st_r(70, 0, 0, 232), _st_r(70, 1, 0, 3), _st_r(70, 2, 0, 102), w70, start, sc,
+                    _st_r(100, 5, 0, 9), _st_c(w70, 2, 2), _st_c(sc, 1, 1150), _st_e("off", 100))
+    kept, at, pre = ST.cut_at_start(rows, 100, {})
+    assert at == 6, at
+    assert [r.line for r in pre] == [2, 3, 4, 5, 9], [(r.line, r.k) for r in pre]
+    assert [r.line for r in kept] == [1, 6, 7, 8, 10, 11], [(r.line, r.k) for r in kept]
+    assert [(r.byte, r.old, r.new) for r in pre if r.k == "r"] == [(0, 0, 232), (1, 0, 3), (2, 0, 102)]
+    fork = _st_rows(*[dict(r, fld=31220) if r["fld"] == 100 else r for r in (
+        _st_e("arm"), _st_r(70, 0, 0, 232), start, sc, _st_e("off", 100))])
+    kept, at, pre = ST.cut_at_start(fork, 100, {31220: 100})
+    assert at == 3 and [r.line for r in pre] == [2] and [r.line for r in kept] == [1, 3, 4, 5]
+    assert ST.cut_at_start(fork, 100, {})[1] is None             # without the members, 31220 is no place 100
+
+
+def test_cut_at_start_needs_a_w_row_in_the_start_place():
+    """Only a ``w`` row starts the run: residue landing in the start field before any store there is ``pre``, never
+    the start (it would hide itself among the kept rows). A run with no ``w`` row in the start place is not cut at
+    all, and says so with ``at`` None -- the analysis's "never reached the start field"."""
+    ST = _segment_trace()
+    rows = _st_rows(_st_e("arm"), _st_r(70, 0, 0, 232), _st_r(100, 1, 0, 3), _st_w(70, 13, 0, 2), _st_e("off"))
+    kept, at, pre = ST.cut_at_start(rows, 100, {})
+    assert (at, pre) == (None, []) and kept == rows
+    rows = _st_rows(_st_e("arm"), _st_r(100, 1, 0, 3), _st_w(100, 23, 1, 0, width="Bit", bit=191), _st_e("off"))
+    kept, at, pre = ST.cut_at_start(rows, 100, {})
+    assert at == 3 and [(r.line, r.k) for r in pre] == [(2, "r")] and [r.line for r in kept] == [1, 3, 4]
+
+
+def test_cut_at_end_judges_frozen_places():
+    """The end cut on FROZEN places (research/o2_design.md 5.2): the run ends at its first ``w``/``r`` row whose
+    place is an end place; after it only the epochs and the closing counts of sites outside the end places stay. A
+    member whose donor is an end place ends the run as the real field does. O1's wrapper is this with no members
+    (its end field 100 is no member's donor)."""
+    ST = _segment_trace()
+    O, _o1 = _o1_pred()
+    roof = _st_w(31236, 6, 0, 2, sid=2, tag=1, ip=765)
+    real61 = _st_w(61, 23, 1, 0, width="Bit", bit=191)
+    rows = _st_rows(_st_e("arm"), roof, real61, _st_w(61, 13, 0, 3, ip=22), _st_c(roof, 1, 2), _st_c(real61, 1, 0),
+                    _st_e("off", 61))
+    kept, at = ST.cut_at_end(rows, [61], {31236: 116})
+    assert at == 3 and [r.line for r in kept] == [1, 2, 5, 7], [(r.line, r.k) for r in kept]
+    assert O.cut_at_end(rows, 61) == ST.cut_at_end(rows, [61], {})
+    member = _st_rows(_st_e("arm"), _st_w(31220, 8, 0, 125), _st_e("off", 31220))
+    assert ST.cut_at_end(member, [100], {31220: 100})[1] == 2 and ST.cut_at_end(member, [100], {})[1] is None
+
+
+def _st_eb(*entries) -> bytes:
+    """A .eb whose entries are ``[(tag, eb-src text), ...]``, assembled by the kit (as tests/test_storytrace.py)."""
+    import struct
+    from ff9mapkit.eb import cmdasm
+    from ff9mapkit.eb.model import pack_entry
+    bodies = [pack_entry(0, [(t, cmdasm.assemble_block(src)) for t, src in funcs]) for funcs in entries]
+    head = bytearray(0x80)
+    head[0:2], head[2], head[3] = b"EV", 2, len(entries)
+    table, pos = b"", len(entries) * 8
+    for body in bodies:
+        table += struct.pack("<HHBBH", pos, len(body), 0, 0, 0)
+        pos += len(body)
+    return bytes(head) + table + b"".join(bodies)
+
+
+def test_row_keys_maps_every_joined_row_to_its_digest_key():
+    """``row_keys`` (research/o2_design.md 5.3): every row the digest keyed maps, by (site, value), to the digest's
+    own JOINED key -- the donor through the frozen members, ``off`` the function offset -- keys and seam keys alike;
+    a counter site gives one key per value, a count row its suppressed ``last``. A row the digest did not key (a join
+    failure, a masked site) has no entry."""
+    from ff9mapkit import storytrace as T
+    from ff9mapkit.eb import EbScript
+    ST = _segment_trace()
+    main = ("SET({Global.UInt16[0] const(1150) B_LET B_EXPR_END})\n"          # +0
+            "SET({Global.Byte[303] B_POST_PLUS B_EXPR_END})\n"                 # +8
+            "SET({Global.Bit[191] const(0) B_LET B_EXPR_END})\n"               # +14 (masked: boot_scratch)
+            "SET({Global.Int16[2] const(200) B_LET B_EXPR_END})\nRET()")       # +22
+    donor = _st_eb([(0, main)])
+    entry = EbScript.from_bytes(donor).entries[0]
+    ip0 = entry.func_by_tag(0).abs_start - entry.abs_start                      # the engine's ip of +0
+    stock = {100: T.ScriptIndex(donor, field_id=100), 61: T.ScriptIndex(donor, field_id=61)}.get
+    fork = T.mod_script_source([], fallback=stock, explicit={31220: donor})
+
+    def run(fld):
+        ctr = [_st_w(fld, 303, v, v + 1, ip=ip0 + 8, don=100) for v in (0, 1)]
+        return _st_rows(_st_e("arm"),
+                        _st_w(fld, 0, 1000, 1150, width="UInt16", ip=ip0, don=100),           # line 2
+                        *ctr,                                                                  # 3, 4: one site
+                        _st_w(fld, 23, 1, 0, width="Bit", bit=191, ip=ip0 + 14, don=100),     # 5: masked
+                        _st_w(fld, 2, 102, 200, width="Int16", ip=ip0 + 23, don=100),         # 6: one byte off
+                        _st_w(fld, 2, 102, 200, width="Int16", ip=ip0 + 22, don=100),         # 7: the exit
+                        _st_w(61, 2, 200, 200, width="Int16", ip=ip0 + 22),                   # 8: real 61
+                        _st_c(ctr[0], 3, 5),                                                   # 9: the count
+                        _st_e("off", 61))
+    s, f = run(100), run(31220)
+    ds = T.digest("S#1", s, scripts=stock)
+    df = T.digest("F#2", f, scripts=fork, donor_scripts=stock, members={31220: 100})
+    for rows, d, n_seam in ((s, ds, 0), (f, df, 1)):
+        rk = ST.row_keys(d)
+        assert len(rk) == len(d.keys) + len(d.seam_keys) and len(d.seam_keys) == n_seam, (rk, d.seam_keys)
+        got = {r.line: ST.key_of(rk, r) for r in rows if r.k in ("w", "c")}
+        assert {line: (k.donor, k.off, k.target, k.value) for line, k in got.items() if k is not None} == {
+            2: (100, 0, "Global.UInt16[0]", 1150), 3: (100, 8, "Global.Byte[303]", 1),
+            4: (100, 8, "Global.Byte[303]", 2), 7: (100, 22, "Global.Int16[2]", 200),
+            8: (61, 22, "Global.Int16[2]", 200), 9: (100, 8, "Global.Byte[303]", 5)}
+        assert got[5] is None and got[6] is None                  # masked; one byte off a real store (a failure)
+        assert (got[8] in d.seam_keys) == bool(n_seam) and got[7] in d.keys
+        assert len(d.failures) == 1 and d.failures[0][0].line == 6
+
+
+def _stub_segment(game, *, cue, order=("S", "F", "S", "F", "S", "F"), min_covered=2):
+    """A Segment with its install stubbed -- no mod roots, a fixed fingerprint, an all-pass preflight, no stock
+    scripts -- whose drive pokes one harness byte (so every run's trace holds a row of its own) and then reaches the
+    end, or VOIDs with a class, on ``cue(n, side)``: the session loop alone, on the fake."""
+    ST, SD = _segment_trace(), _segment_modules()
+    pred = {"version": 1, "what": "a stub segment", "order": list(order), "min_covered": min_covered,
+            "rerun": {"max": 2}, "budget": {"run_s": 60, "run_min_s": 1, "session_s": 600, "settle_s": 0.1},
+            "start": {"S": 30820, "F": 30820}, "entrance": 0, "end_field": 30821, "stock_fields": [],
+            "members": {}, "names": {}, "beats": ["reached"], "noise": []}
+    path = game / "zz_predictions.json"
+    path.write_text(json.dumps(pred, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    calls: list = []
+
+    class Stub(ST.Segment):
+        tag = "ZZ"
+        predictions = path
+        session_file, report_file = "zz_session.json", "zz_report.txt"
+        recovery = 30821
+
+        def roots(self):
+            return []
+
+        def preflight(self, pred, roots, build=None, manifest=None):
+            return [(True, "P-STUB: the stub's install", "stub")]
+
+        def fingerprint(self, roots, pred):
+            return {"stub": 1}
+
+        def stock_source(self):
+            return lambda fid: None
+
+        def drive(self, g, pred, side, log, *, deadline, progress=None):
+            n = len(calls)
+            calls.append(side)
+            g.send(f"byte 300 {n + 1}")
+            log.append({"k": "stub", "n": n})
+            if cue(n, side) == "void":
+                raise SD.RouteVoid(f"stub: no SC 1153 in run {n + 1}", v="V8", cell=[106, 1152], by="game")
+            return {"end": "reached", "why": "field 30821", "beats": {"reached": True}, "pages": ["p"],
+                    "choices": [], "t": 0.1}
+    return Stub(), pred, calls
+
+
+def test_segment_session_loop_on_the_fake(game, capsys):
+    """Segment.run (research/o2_design.md 1.2, O1's session loop) on the fake: S F S F S F; the F side VOIDs twice,
+    with a class, so it is short of min_covered and re-runs (F, once); every run's trace and log land as it ends, the
+    record carries the VOID's class, the session is marked finished, and the report and the THROW check follow."""
+    from ff9mapkit import storytrace as T
+    stub, pred, calls = _stub_segment(game, cue=lambda n, side: "void" if n in (1, 3) else "reached")
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0], "the session starts at the title, as a launch does"
+        stub.run(g)
+        checks = list(g.checks)
+    run_dir = game / "run"
+    sess = json.loads((run_dir / "zz_session.json").read_text(encoding="utf-8"))
+    recs = sess["runs"]
+    assert [(r["i"], r["side"], r["end"]) for r in recs] == [
+        (1, "S", "reached"), (2, "F", "void"), (3, "S", "reached"), (4, "F", "void"), (5, "S", "reached"),
+        (6, "F", "reached"), (7, "F", "reached")], recs
+    assert calls == ["S", "F", "S", "F", "S", "F", "F"] and recs[6].get("rerun") is True
+    assert (recs[1]["v"], recs[1]["cell"], recs[1]["by"]) == ("V8", [106, 1152], "game")
+    assert recs[1]["why"] == "route: stub: no SC 1153 in run 2" and not any("v" in r for r in recs if r["end"] != "void")
+    for r in recs:
+        rows = T.read_trace(run_dir / r["trace"])
+        assert r["traced"] == 1 and rows[0].why == "arm" and rows[-1].why == "off", (r, rows)
+        assert [(x.src, x.byte, x.new) for x in rows if x.k == "w"] == [("harness", 300, r["i"])]
+        log = json.loads((run_dir / r["log"]).read_text(encoding="utf-8"))
+        assert log["outcome"]["end"] == r["end"] and {"k": "stub", "n": r["i"] - 1} in log["log"]
+    warps = [s for s in fake.executed if s[0] == "warp"]
+    assert warps.count(["warp", "30820", "0", "-1"]) == 7 and warps.count(["warp", "30821", "-1", "-1"]) == 6
+    assert sess["finished"] and sess["predictions"] == str(game / "zz_predictions.json")
+    report = (run_dir / "zz_report.txt").read_text(encoding="utf-8")
+    assert report.startswith("ZZ -- run  (predictions v1 ") and "\nVERDICT: PROVEN\n" in report, report[:400]
+    whats = [(c["what"], c["ok"]) for c in checks]
+    assert whats[:2] == [("P-CAP: the engine advertises the story trace at proto 1", True),
+                         ("P-STUB: the stub's install", True)]
+    assert ("ZZ-COVER: at least 2 covered runs a side", True) in whats
+    assert whats[-1] == ("ZZ-THROW: nothing thrown through the event engine, the evaluator, the tracer or the agent",
+                         True)
+    out = capsys.readouterr().out
+    assert "[zz] run 2 (F) at " in out and ": void -- route: stub: no SC 1153 in run 2" in out
+    runs = stub.read_session(run_dir, pred)
+    assert runs[1]["void"] == [{"why": "the drive did not reach the end: route: stub: no SC 1153 in run 2",
+                                "class": "V8", "by": "game", "cell": [106, 1152]}] and runs[0]["void"] == []
+
+
+def test_segment_throw_check_fails_on_an_engine_exception(game):
+    """THROW never had a mutant (research/o2_design.md C14): the same session loop, with the launch's logs holding a
+    NullReferenceException thrown through EventEngine -- the THROW check FAILS and names it. One thrown elsewhere
+    (through none of EventEngine/EBin/StoryTrace/HarnessAgent) is not the segment's, and is not named."""
+    from harness.logs import LogException
+    stub, _pred, _calls = _stub_segment(game, cue=lambda n, side: "reached", order=("S", "F"), min_covered=1)
+    thrown = [LogException(log="Memoria.log", type="System.NullReferenceException", message="Object reference",
+                           trace=["EventEngine.DoEventCode (EventEngine+EventCodeReturn& ret) [0x00012] in <x>:0"]),
+              LogException(log="Memoria.log", type="System.NullReferenceException", message="elsewhere",
+                           trace=["BattleHUD.Update () [0x00000] in <x>:0"])]
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0]
+        g.exceptions_since = lambda mark=None: thrown
+        stub.run(g)
+        throw = [c for c in g.checks if c["what"].startswith("ZZ-THROW")]
+    assert len(throw) == 1 and throw[0]["ok"] is False, throw
+    assert throw[0]["detail"].count("NullReferenceException") == 1 and "EventEngine" in throw[0]["detail"], throw
+
+
+def test_o1_segment_run_pins_o1s_session_surface(game, capsys):
+    """O1Segment.run on the fake (research/o2_design.md 1.6 G7), its install stubbed as the segment tests stub it:
+    the refactored session keeps O1's surface -- it sends ``warp 50 0 -1`` and ``warp 31200 0 -1`` (v4 has no
+    scenario), writes o1_session.json and o1_report.txt, prints ``[o1] run 1 (S)``, records the v4 predictions it
+    loaded, and titles its checks with O1's exact texts."""
+    import types
+    O, _pred = _o1_pred()
+    patch = game / "FF9CustomMap" / "DictionaryPatch.txt"                 # O1's member(50), so the guard lets it warp
+    patch.write_text(patch.read_text(encoding="utf-8") + "FieldScene 31200 11 O1_TSHP_A O1_TSHP_A 31200\n",
+                     encoding="utf-8")
+    blank = _st_eb([(0, "RET()")])
+    beats = {"candle": True, "named": True, "battle": 1, "garnet": True}
+    seg = O.O1Segment()
+    seg.roots = lambda: []
+    seg.preflight = lambda pred, roots, build=None, manifest=None: [(True, "P-STUB: the stubbed install", "stub")]
+    seg.fingerprint = lambda roots, pred: {"stub": 1}
+    seg.scripts_source = lambda roots: (lambda fid: types.SimpleNamespace(data=blank))
+    seg.stock_source = lambda: (lambda fid: None)
+    seg.recovery = 30821
+    seg.drive = lambda g, pred, side, log, *, deadline, progress=None: {
+        "end": "reached", "why": "field 100", "beats": dict(beats), "pages": ["p"], "choices": [], "t": 0.1}
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0]
+        seg.run(g)
+        whats = [c["what"] for c in g.checks]
+    warps = [s for s in fake.executed if s[0] == "warp"]
+    assert warps.count(["warp", "50", "0", "-1"]) == 3 and warps.count(["warp", "31200", "0", "-1"]) == 3, warps
+    run_dir = game / "run"
+    sess = json.loads((run_dir / "o1_session.json").read_text(encoding="utf-8"))
+    _v4, sha = O.load_predictions()
+    assert sess["predictions"] == str(O.PREDICTIONS) and sess["predictions_sha256"] == sha
+    assert [(r["i"], r["side"], r["start"]) for r in sess["runs"]] == [
+        (1, "S", 50), (2, "F", 31200), (3, "S", 50), (4, "F", 31200), (5, "S", 50), (6, "F", 31200)]
+    assert (run_dir / "o1_report.txt").read_text(encoding="utf-8").startswith(f"O1 -- run  (predictions v4 {sha[:8]})")
+    assert "[o1] run 1 (S) at " in capsys.readouterr().out
+    assert whats[0] == "P-CAP: the engine advertises the story trace at proto 1"
+    for what in ("O1-FROZEN: the predictions are the file the session recorded, unchanged",
+                 "O1-COVER: at least 2 covered runs a side",
+                 "O1-LADDER: every covered run writes the four ladder keys, and SC exactly once",
+                 "O1-NULL: STOCK ONLY and FORK ONLY are empty outside the registered noise",
+                 "O1-STABLE: no key outside the registered noise is written in some runs of a side and not others",
+                 "O1-JOIN: every script row joins a store in the bytes its field ran"):
+        assert what in whats, what
+    assert whats[-1] == "O1-THROW: nothing thrown through the event engine, the evaluator, the tracer or the agent"
+
+
+# ---- O2's harness additions (research/o2_design.md section 3, PART B). H4: the fake's warp writes its entrance and
+# scenario (and the trace's residue of them) in the OLD field, models a ladder, walk-in triggers and an arrival that
+# keeps control, and publishes watched bits from its gEventGlobal. H1-H3 and H6 are the driver's verbs the beat-table
+# driver needs; each is opt-in, so no caller before it changes. Every test here in which a region warps sets
+# exit_frames = 50: the fade between ExitField's control loss and the map change is where the exits' race lives.
+
+def test_fake_warp_publishes_the_scenario(game):
+    """H4: ``warp <field> <entrance> <scenario>`` is the debug warp's ServicePendingWarp -- the scenario published and
+    laid into the modelled gEventGlobal (UInt16 at bytes 0-1), the entrance beside it (Int16 at bytes 2-3). A -1 (the
+    Session.warp default) writes nothing: the scenario stands. Break: drop the scenario write (the fake published SC
+    0 after ``warp 30821 102 1000``)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        assert g.state.scenario == 0 and bytes(fake.story_bytes[0:4]) == bytes(4)
+        st = g.warp(30821, entrance=102, scenario=1000)
+        assert st.scenario == 1000 and bytes(fake.story_bytes[0:4]) == bytes((0xE8, 0x03, 102, 0)), st
+        st = g.warp(30820)
+        assert st.scenario == 1000 and bytes(fake.story_bytes[0:4]) == bytes((0xE8, 0x03, 102, 0)), st
+        st = g.warp(30821, entrance=-1, scenario=1150)
+        assert st.scenario == 1150 and bytes(fake.story_bytes[0:4]) == bytes((0x7E, 0x04, 102, 0)), st
+    assert ["warp", "30821", "102", "1000"] in fake.executed and ["warp", "30820", "-1", "-1"] in fake.executed
+
+
+def test_fake_warp_writes_its_residue_in_the_old_field(game):
+    """H4 (research/o2_design.md 0.2 #13): with the trace on, ``warp 30820 102 1000`` from New Game's field 70 leaves
+    exactly three residue rows, stamped with field 70 -- byte 0: 0 -> 232, byte 1: 0 -> 3 (SC 1000 = 0x03E8), byte 2:
+    0 -> 102 -- and nothing on byte 3; the first row in the new field comes after them. A warp that changes no byte
+    (the same entrance and scenario again, or -1 -1) leaves none. Break: stamp the rows with the NEW field (they
+    would read as residue in the start place, which O2-START forbids)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        assert g.state.field_id == 70
+        g.storytrace(True)
+        g.warp(30820, entrance=102, scenario=1000)
+        g.poke(300, 7)                                     # a row in the new field, after the warp
+        g.warp(30821, entrance=102, scenario=1000)         # nothing changes: no residue
+        g.warp(30820)                                      # -1 -1: nothing written
+        rows = g.story_rows()
+        g.storytrace(False)
+    got = [(r.k, r.fld, r.byte, r.old, r.new) for r in rows if r.k in ("r", "w")]
+    assert got == [("r", 70, 0, 0, 232), ("r", 70, 1, 0, 3), ("r", 70, 2, 0, 102), ("w", 30820, 300, 0, 7)], got
+    assert all(r.why == "frame" and r.don == 70 for r in rows if r.k == "r"), rows
+
+
+def test_fake_watched_bits_read_the_story_bytes(game):
+    """H4: a watched bit is published from the modelled gEventGlobal, which a script's store, a ``byte`` poke and the
+    ``flag`` verb all write -- so the O2 driver's end-state read (research/o2_design.md 2.2, rule 1) sees what the
+    scripts wrote. Break: publish the ``flag`` verb's dict (a script's Bit[3717] := 1 then never shows)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g.watch(3717, 3718)
+        st = published(g, lambda s: s.flag(3717) is not None)
+        assert (st.flag(3717), st.flag(3718)) == (False, False)
+        fake.script_store(7, 1, 319, 3717 >> 3, "Bit", 1, bit=3717)       # the Herald's Bit[3717] := 1 (101 e7 t1)
+        st = published(g, lambda s: s.flag(3717) is True)
+        assert st.flag(3718) is False
+        g.poke(3718 >> 3, 1 << (3718 & 7))                 # one byte over both: 3718 set, 3717 cleared
+        st = published(g, lambda s: s.flag(3718) is True)
+        assert st.flag(3717) is False
+        g.flag(3717)
+        st = published(g, lambda s: s.flag(3717) is True)
+        assert st.flag(3718) is True
+
+
+class _StampFake(FakeGame):
+    """The fake with WALL-CLOCK stamps, for the tests that time a driver against a grant: every executed step as
+    ``(time, frame, step)`` in ``stamped``, and a ``t`` on every entry of `fired`. The loop's own pace is ``fps``
+    frames a wall second (240), not the 60 fps render clock -- a bound in its frames converts at that."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.stamped: list = []
+
+    def _execute(self, step: list[str]) -> None:
+        self.stamped.append((time.time(), self.frame, list(step)))
+        super()._execute(step)
+
+    def _enter_regions(self) -> None:
+        n = len(self.fired)
+        super()._enter_regions()
+        for f in self.fired[n:]:
+            f["t"] = time.time()
+
+
+def test_route_cross_handoff_returns_at_the_control_loss(game):
+    """H1: a door whose ExitField takes control on the step into it, its field change 50 frames later (the fade), into
+    a destination that arrives with control OFF (an arrival scene). With ``handoff`` the crossing returns DURING the
+    fade: ``landed`` None, ``handoff`` True, and ``lost`` -- the first state the call read with control gone -- stands
+    inside the door, in the old field, before the field changes; nothing raises, and the field then changes into
+    the scene. The control: without ``handoff`` the same crossing waits for the destination to become playable and
+    raises "never became playable". Break: drop the handoff branch in route_to's landing (the walk waits the landing
+    out and raises)."""
+    from ff9mapkit.content import doorface, pathfind
+    door = _rect(300, -150, 600, 150)
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0), "arrive_control": False}]}
+    fake.exit_frames = 50
+    wm = _flat_bgi()
+    goal = (380, 0)                                        # 80u inside: the hold ends just past the door's edge
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -300, 0)
+        rec = g.route_cross(*goal, zone=door, smooth=True, walkmesh=wm, prior=_prior(), timeout=2.0, handoff=True)
+        fired = fake.fired[-1]
+        assert rec["landed"] is None and rec["handoff"] is True and rec["during"] == "walk", rec
+        lost = rec["lost"]
+        assert lost is not None and lost["field"] == 30820 and lost["control"] is False, rec
+        assert doorface.region_contains(lost["x"], lost["z"], door), lost
+        assert fired["frame"] <= lost["frame"] < fired["frame"] + fake.exit_frames, (fired, lost)
+        st = published(g, lambda s: s.field_id == 30821)
+        assert not st.control, "the destination keeps control: its arrival scene's to give back"
+        # the control: the same crossing, waited out, never becomes playable
+        g.warp(30820)
+        _stand(g, fake, -300, 0)
+        with pytest.raises(HarnessError, match="never became playable"):
+            g.route_cross(*goal, zone=door, smooth=True, walkmesh=wm, prior=_prior(), timeout=2.0)
+    assert pathfind.poly_gap(goal[0], goal[1], door) < 0 and len(fake.fired) == 2
+
+
+def test_route_to_handoff_returns_when_a_trigger_takes_control(game):
+    """H1: a WALK-IN trigger across the route (the fake's ``take``: its tag 2 takes control, nothing warps). With
+    ``handoff`` route_to returns as soon as the walk's step that entered it has settled -- ``during`` "walk",
+    ``landed`` None, ``handoff`` True, ``lost`` inside the trigger -- well inside its timeout; the control waits
+    the whole timeout for a landing or control that never comes (``landed`` None either way). Break: drop the
+    handoff branch (both wait the timeout)."""
+    band = _rect(-60, -600, 60, 600)
+    fake = _StampFake(game)
+    fake.regions = {30820: [{"zone": band, "take": True}]}
+    timeout = 4.0
+    got = {}
+    with session(game, fake) as g:
+        boot(g)
+        for handoff in (True, False):
+            g.warp(30820)
+            _stand(g, fake, -400, 0)
+            n = len(fake.fired)
+            rec = g.route_to(400.0, 0.0, walkmesh=_flat_bgi(), prior=_prior(), timeout=timeout, handoff=handoff)
+            back = time.time()
+            assert len(fake.fired) == n + 1 and fake.fired[n]["to"] is None, fake.fired
+            got[handoff] = (rec, back - fake.fired[n]["t"])
+    for handoff, (rec, waited) in got.items():
+        assert rec["during"] == "walk" and rec["landed"] is None and rec["handoff"] is handoff, rec
+        assert rec["lost"] is not None and -60 <= rec["lost"]["x"] <= 60, rec["lost"]
+    assert got[True][1] < timeout / 4, got[True][1]          # returned at the loss
+    assert got[False][1] >= timeout, got[False][1]           # waited the timeout out
+
+
+def test_route_to_settle_zero_walks_on_the_first_control_sample(game):
+    """H1: control granted at a known moment, the basis cached (no calibration) and the rate measured: with
+    ``settle=0`` the walk's first hold is executed within 0.2 s of the grant -- counted in the fake's own loop frames
+    (240 a second), so a loaded machine cannot fail it by being slow; the control (default settle) is not before
+    SETTLE's 1.0 s of WALL time, as SETTLE is a wall-clock hold. Break: stop passing ``settle`` to wait_control."""
+    fake = _StampFake(game)
+    got = {}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -300, 0)
+        g._axes[30820] = _prior()
+        g.rate(require=True)
+        for settle, goal in ((0.0, 300.0), (None, -300.0)):
+            fake.control = False
+            published(g, lambda s: not s.control)
+            grant: dict = {}
+
+            def director():
+                time.sleep(0.3)
+                grant["frame"], grant["t"] = fake.frame, time.time()
+                fake.control = True
+            threading.Thread(target=director, daemon=True).start()
+            mark = len(fake.stamped)
+            rec = g.route_to(goal, 0.0, walkmesh=_flat_bgi(), prior=_prior(), settle=settle, timeout=10.0)
+            assert rec["reached"] and rec["lost"] is None, rec
+            t, frame, step = next(s for s in fake.stamped[mark:] if s[2][0] == "hold")
+            got[settle] = (t - grant["t"], (frame - grant["frame"]) / fake.fps)
+    assert got[0.0][1] <= 0.2, got
+    assert got[None][0] >= g.SETTLE, got
+
+
+def test_route_cross_walks_under_an_overlay_only_when_told(game):
+    """H1: O1's overlay rule on route_cross. An async hint up WITH control (106's "Over here!", [TIME=45]): by default
+    route_cross's opening wait reads it as the scene still owning him and times out; ``overlay_ok=True`` walks
+    through the door (its fade included) and the hint stays the script's to close. Break: stop passing
+    ``overlay_ok`` on to route_to."""
+    door = _rect(300, -150, 600, 150)
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": door, "to": 30821, "arrive": (0, 0)}]}
+    fake.exit_frames = 50
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -300, 0)
+        fake.say("Puck\n“Over here!”")
+        published(g, lambda s: s.dialog_open and s.control)
+        with pytest.raises(HarnessError, match="control to return"):
+            g.route_cross(450.0, 0.0, zone=door, smooth=True, walkmesh=_flat_bgi(), prior=_prior(), timeout=2.0)
+        assert not fake.fired
+        rec = g.route_cross(450.0, 0.0, zone=door, smooth=True, walkmesh=_flat_bgi(), prior=_prior(), timeout=20.0,
+                            overlay_ok=True)
+        assert rec["landed"] == 30821 and [f["to"] for f in fake.fired] == [30821], rec
+        assert g.state.dialog_open, "the hint is the script's to close, not the walk's"
+
+
+def _ladder(fake, *, step=20.0, y=200.0):
+    """Put him on 115's ladder as its Confirm does (e15 t3: DisableMove, then the climb loop): control off, climbing,
+    at ``y`` -- the published y RISES up this ladder, bottom 0 to top 2691 (measured: stock rehearsal o2-rh-115, all
+    three runs), ``step`` a field tick of Up (0: a ladder Up does not climb)."""
+    fake.ladder = {"top": 2691.0, "bottom": 0.0, "step": float(step)}
+    fake.player[1] = float(y)
+    fake.control = False
+    fake.climbing = True
+
+
+def test_climb_holds_up_until_the_page_and_nothing_else(game):
+    """H2: on the ladder (control off: the climb runs without it) ``climb`` holds Up in bursts -- a hold and a wait in
+    one request each, and nothing else ever held or pressed (Down and Right DESCEND) -- and y rises with every burst
+    until the top, where the scene opens its page (384): ended "until". Break: hold Right as well."""
+    fake = FakeGame(game)
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _ladder(fake)
+        published(g, lambda s: not s.control)
+        _o1_director(fake, stop, [(lambda f: f.climbed, lambda f: f.say("Vivi\n“...!”"))])
+        mark = len(fake.executed)
+        try:
+            rec = g.climb(until=lambda s: s.dialog_open and not s.control)
+        finally:
+            stop.set()
+        steps = fake.executed[mark:]
+    assert rec["ended"] == "until" and fake.climbed and rec["y1"] > 2691, rec
+    ys = [rec["y0"], *rec["ys"]]
+    assert all(b >= a for a, b in zip(ys, ys[1:])), ys
+    assert all(b > a for a, b in zip(ys, ys[1:]) if a < 2691), ys           # every burst below the top climbed
+    assert rec["frames"] == 30 * rec["bursts"] == 30 * len(rec["ys"]), rec
+    pressed = [s for s in steps if s[0] in ("hold", "press", "release", "turn")]
+    assert pressed and all(s == ["hold", "up", "30"] for s in pressed), steps
+    assert [s for s in steps if s[0] == "wait"] == [["wait", "32"]] * rec["bursts"], steps
+
+
+def test_climb_says_stalled_when_up_moves_nothing(game):
+    """H2: a DEAF ladder -- Up moves y by nothing (the input path not reaching B_KEY(16), freeze item F1): three bursts
+    in a row that moved him under 1u end the climb "stalled", counted from the first burst -- never the burst
+    budget. Break: never call a climb stalled (it runs to its budget: "bursts")."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _ladder(fake, step=0.0)
+        published(g, lambda s: not s.control)
+        rec = g.climb(until=lambda s: False, max_bursts=10)
+    assert rec["ended"] == "stalled" and rec["bursts"] == 3 and rec["ys"] == [200.0] * 3, rec
+
+
+def test_climb_says_control_when_he_slides_back(game):
+    """H2: mid-climb the director drops him to the bottom -- a slide, whose EnableMove gives control back: the climb
+    ends "control" at once, at the bottom. Break: drop the control check (it holds Up on with control held -- a walk
+    across the floor, no longer a climb -- until it stalls)."""
+    fake = FakeGame(game)
+    stop = threading.Event()
+
+    def slide(f):
+        f.climbing, f.control = False, True
+        f.player[1] = 0.0
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _ladder(fake)
+        published(g, lambda s: not s.control)
+        _o1_director(fake, stop, [(lambda f: f.player[1] > 700.0, slide)])
+        try:
+            rec = g.climb(until=lambda s: False, max_bursts=10)
+        finally:
+            stop.set()
+    assert rec["ended"] == "control" and rec["y1"] == 0.0 and rec["bursts"] <= 3, rec
+
+
+def test_climb_not_started_when_control_stays(game):
+    """H2: a Confirm that started no climb leaves control held: after ``start_timeout`` the climb ends "not-started"
+    and nothing was pressed. Break: skip the wait for control to go (it holds Up with control: a walk)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        mark = len(fake.executed)
+        rec = g.climb(until=lambda s: False, start_timeout=1.0, max_bursts=10)
+        steps = fake.executed[mark:]
+    assert rec["ended"] == "not-started" and rec["bursts"] == 0 and rec["ys"] == [], rec
+    assert not steps, steps
+
+
+def test_lunge_holds_toward_the_goal_on_the_first_sample(game):
+    """H3: control comes back at a known moment on a field whose basis is cached. ``lunge`` acts on its first sample:
+    ONE state read, then ONE request carrying the pad's holds and the wait -- executed within 0.1 s of the grant
+    (counted in the fake's loop frames, 240 a second). Its pad is the eight-way one nearest the bearing (up+right
+    toward (1000, 600)), and it carries him toward the goal. Break: settle before the press."""
+    fake = _StampFake(game, walkmesh=(-2000.0, -2000.0, 2000.0, 2000.0))
+    wm = _flat_bgi(-2000, -2000, 2000, 2000)
+    reads: list = []
+    sent_after: list = []
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, 0, 0)
+        g._axes[30820] = _prior()
+        g.rate(require=True)
+        fake.control = False
+        published(g, lambda s: not s.control)
+        grant: dict = {}
+
+        def director():
+            time.sleep(0.3)
+            grant["frame"] = fake.frame
+            fake.control = True
+        threading.Thread(target=director, daemon=True).start()
+        published(g, lambda s: s.control, timeout=5.0)
+        real_state, real_send = g.channel.state, g.send
+        g.channel.state = lambda *a, **kw: (reads.append(1), real_state(*a, **kw))[1]
+        g.send = lambda *steps, **kw: (sent_after.append(len(reads)), real_send(*steps, **kw))[1]
+        mark = len(fake.stamped)
+        try:
+            rec = g.lunge(1000.0, 600.0, walkmesh=wm)
+        finally:
+            g.channel.state, g.send = real_state, real_send
+        steps = fake.stamped[mark:]
+    assert rec["pressed"] and rec["pad"] == "up+right" and rec["frames"] >= 1, rec
+    assert sent_after == [1], sent_after                    # one read before the one request
+    lunge = [s for s in steps if s[2][0] in ("hold", "wait")]
+    assert [s[2][0] for s in lunge] == ["hold", "hold", "wait"] and len({s[1] for s in lunge}) == 1, lunge
+    assert {s[2][1] for s in lunge[:2]} == {"up", "right"} and lunge[2][2] == ["wait", str(rec["frames"] + 2)], lunge
+    assert (lunge[0][1] - grant["frame"]) / fake.fps <= 0.1, (lunge[0], grant)
+    to = rec["to"]
+    assert to[0] > 0 and to[1] > 0 and math.dist(to, (1000, 600)) < math.dist((0, 0), (1000, 600)), rec
+    assert rec["sample_frame"] < rec["done_frame"] and rec["travelled"] > 0, rec
+
+
+def test_lunge_stops_short_of_an_avoid_zone(game):
+    """H3: a zone 300u ahead on the line: the hold is clipped to the longest whose whole line -- to the measured
+    rate's REACH, tail included -- stays the margin clear of it, and he ends outside the margin. With nothing to
+    avoid the same lunge holds its full ticks; with the zone 40u ahead no hold sure of a tick keeps it, and nothing
+    is pressed. Break: judge the line at the average speed (the hold runs on into the margin)."""
+    from ff9mapkit.content import pathfind
+    zone = _rect(300, -200, 500, 200)
+    near = _rect(40, -200, 240, 200)
+    wm = _flat_bgi(-2000, -2000, 2000, 2000)
+    fake = FakeGame(game, walkmesh=(-2000.0, -2000.0, 2000.0, 2000.0))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        _stand(g, fake, 0, 0)
+        rate = g.rate(require=True)
+        full = g.lunge(1500.0, 0.0, walkmesh=wm)
+        assert full["pressed"] and full["frames"] == rate.frames_for_ticks(10), (full, rate)
+        _stand(g, fake, 0, 0)
+        clipped = g.lunge(1500.0, 0.0, walkmesh=wm, avoid=[zone])
+        end = g.settle()
+        assert clipped["pressed"] and clipped["pad"] == "right" and 0 < clipped["frames"] < full["frames"], clipped
+        assert pathfind.poly_gap(end.player_x, end.player_z, zone) >= pathfind.KEEPOUT_MARGIN_W, (end.pos, clipped)
+        _stand(g, fake, 0, 0)
+        mark = len(fake.executed)
+        none = g.lunge(1500.0, 0.0, walkmesh=wm, avoid=[near])
+        assert not none["pressed"] and none["frames"] == 0 and fake.executed[mark:] == [], (none, fake.executed[mark:])
+
+
+def test_lunge_refuses_without_a_basis(game):
+    """H3: a lunge presses at once, and a calibration is a walk of its own: with no CACHED basis for the field it
+    raises, pressing nothing -- and so it does with control gone. Break: calibrate on a miss."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        mark = len(fake.executed)
+        with pytest.raises(HarnessError, match="no CACHED basis"):
+            g.lunge(300.0, 0.0, walkmesh=_flat_bgi())
+        assert 30820 not in g._axes and not [s for s in fake.executed[mark:] if s[0] in ("hold", "press")]
+        g._axes[30820] = _prior()
+        fake.control = False
+        published(g, lambda s: not s.control)
+        with pytest.raises(HarnessError, match="needs control NOW"):
+            g.lunge(300.0, 0.0, walkmesh=_flat_bgi())
+        assert not [s for s in fake.executed[mark:] if s[0] in ("hold", "press")]
+
+
+def test_states_since_returns_the_rings_samples_after_a_frame(game):
+    """H6: the samples the state ring kept after a frame, oldest first -- every read the harness made, a walk's own
+    included, each frame once (the ring dedupes on frame). StateRing.since is the same rule, pure. Break: ``>=``
+    (the frame itself comes back)."""
+    from harness.artifacts import StateRing
+    ring = StateRing(5)
+    for f in (3, 4, 4, 6, 9):
+        ring.push(State({"frame": f}))
+    assert [s["frame"] for s in ring.since(4)] == [6, 9] and [s["frame"] for s in ring.since(-1)] == [3, 4, 6, 9]
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        f0 = g.state.frame
+        g.walk("right", 20)
+        g.settle()
+        got = g.states_since(f0)
+        last = g._ring.frames()[-1]
+    frames = [s["frame"] for s in got]
+    assert frames and frames[0] > f0 and frames == sorted(set(frames)) and frames[-1] == last, frames
+    xs = [s["player"]["x"] for s in got]
+    assert xs[-1] > xs[0] + 100, xs                        # the walk's own samples are among them
+
+
+# ---- O2's beat-table driver (studies/story-trace/segment_drive.drive; research/o2_design.md 2.2-2.7, PART B, B7), on
+# the fake's three fields: 30820 and 30821 the route, 30810 the end. A director thread stages each game-side beat;
+# the driver answers only by its table. Every test in which a region warps sets exit_frames = 50.
+
+_O2_EXIT = _rect(300, -150, 600, 150)                  # 30820's (or 30821's) exit, its goal (450, 0)
+_O2_BOOTH = _rect(-200, 100, 200, 500)                 # a Confirm region, 200 deep at its centre (0, 300)
+_O2_DEFAULTS = {"attempts": 2, "interrupts": 1, "timeout_s": 20, "confirm_s": 4.0, "npcs": False, "overlay_ok": False,
+                "immediate": False, "settle": None, "lunge_ticks": 0, "tolerance": 45, "min_depth": 40,
+                "exit_wait_s": 8.0, "exit_slack": 40,
+                "climb": {"burst_frames": 30, "max_bursts": 20, "stall_bursts": 3}}
+
+
+def _o2_pred(table, *, choices=(), beats=(), start=30820, end=30810, route=(30820, 30821), **over):
+    """A synthetic beat table on the fake's fields (research/o2_design.md 4.1's shape): the S side, no members, 4.1's
+    step defaults but ``npcs`` off (the fake's rooms are empty), a 0.3 s settle."""
+    pred = {"version": 1, "start": {"S": start, "F": start}, "entrance": 102, "scenario": 1000,
+            "end_field": end, "end_fields": [end], "route": list(route), "members": {}, "names": {},
+            "budget": {"run_s": 120, "run_min_s": 1, "session_s": 600, "settle_s": 0.3, "no_progress_s": 60},
+            "beats": list(beats), "table": table, "choices": list(choices), "naming": [], "forbidden": [],
+            "end_state": {}, "hotspots": {},
+            "regions": {"exit": {"points": _O2_EXIT, "role": "exit"}, "booth": {"points": _O2_BOOTH, "role": "confirm"}},
+            "steps_default": dict(_O2_DEFAULTS)}
+    pred.update(over)
+    return pred
+
+
+def _o2_cross(**kw):
+    return {"kind": "cross", "name": "exit", "target": "exit", "goal": [450, 0], "to": 30810, **kw}
+
+
+def _o2_sc(fake, sc):
+    """The scenario counter published AND in the modelled gEventGlobal (bytes 0-1), as a script's store leaves it."""
+    fake.scenario = sc
+    fake.story_bytes[0:2] = bytes((sc & 0xFF, (sc >> 8) & 0xFF))
+
+
+def _o2_move(fake, fid, x=0.0, z=0.0):
+    """A scripted transition: the field changes under him, a new visit's actor, control as it was."""
+    fake.field_id, fake.player = fid, [float(x), 0.0, float(z)]
+    fake._visit += 1
+
+
+def _o2_start(g, fake, *, sc=1000, at=(-300, 0), fields=(30820, 30821)):
+    """New Game, then the segment's raw warp into 30820 at ``sc`` (its residue in field 70), the bases cached."""
+    boot(g)
+    g.warp(30820, entrance=102, scenario=sc)
+    _stand(g, fake, *at)
+    for f in fields:
+        g._axes[f] = _prior()
+
+
+def _o2_drive(g, pred, side="S", *, log=None, budget=90.0, **kw):
+    SD = _segment_modules()
+    log = [] if log is None else log
+    kw.setdefault("floor_for", lambda d, closed: _flat_bgi())
+    kw.setdefault("prior_for", lambda d: _prior())
+    kw.setdefault("forbid_live", False)
+    return SD.drive(g, pred, side, log, deadline=time.time() + budget, **kw)
+
+
+def _o2_booth_rule(**kw):
+    return {"donor": 30820, "sc": [1000], "match": "ticket booth", "pick": "ticket booth", "once": True,
+            "beat": "booth", "take": "default", **kw}
+
+
+_O2_BOOTH_CHOICE = {"header": "", "options": ["eek into the ticket booth", "Cancel"], "default": 0}
+
+
+def test_o2_drive_walks_its_table_to_the_end(game):
+    """The driver end to end (research/o2_design.md 2.2-2.4): a CONFIRM walks deep into the booth and presses; its
+    default-take choice (215's shape, no prompt line, the first character dropped) is answered at the game's own
+    cursor; the answer carries him into a scene field (30821, SC 1150), whose pages are turned; a WAIT_SC step walks
+    to its point and holds until a director publishes SC 1153; a CROSS walks into 30821's exit and lands in the end
+    field THROUGH its 50-frame fade; the end state is read by watched bits. Beats, choices, steps, end_state as
+    registered, and no Up or Down press ever executed (the cursor never moved)."""
+    fake = FakeGame(game)
+    fake.regions = {30821: [{"zone": _O2_EXIT, "to": 30810, "arrive": (0, 0)}]}
+    fake.exit_frames = 50
+    table = [{"donor": 30820, "sc": 1000, "steps": [{"kind": "confirm", "name": "booth", "target": "booth",
+                                                     "goal": [0, 300], "expect": "choice"}]},
+             {"donor": 30821, "sc": 1150, "steps": [{"kind": "wait_sc", "name": "wait", "goal": [-300, 0],
+                                                     "sc": 1153, "wait_s": 30}]},
+             {"donor": 30821, "sc": 1153, "steps": [_o2_cross()]}]
+    pred = _o2_pred(table, choices=[_o2_booth_rule()], beats=["booth"],
+                    end_state={"Global.UInt16[0]": 1153, "Global.Bit[3717]": 1})
+
+    def into_30821(f):
+        f.script_store(7, 1, 319, 3717 >> 3, "Bit", 1, bit=3717)
+        _o2_move(f, 30821)
+        _o2_sc(f, 1150)
+        f.scene("Herald\n“Hear ye!”", "Herald\n“Princess Garnet's birthday!”")
+    stop = threading.Event()
+    log: list = []
+    with session(game, fake) as g:
+        _o2_start(g, fake, at=(0, -400))
+        _o1_director(fake, stop, [
+            (lambda f: _o1_confirmed_near(f, 0, 300, reach=100), lambda f: f.scene(dict(_O2_BOOTH_CHOICE))),
+            (lambda f: f.answered == [0], into_30821),
+            (lambda f: f.field_id == 30821 and f.control and math.hypot(f.player[0] + 300, f.player[2]) < 60,
+             lambda f: _o2_sc(f, 1153)),
+        ])
+        try:
+            out = _o2_drive(g, pred, log=log)
+        finally:
+            stop.set()
+    assert out["end"] == "reached" and out["why"] == "field 30810", out
+    assert out["beats"] == {"booth": True} and fake.answered == [0], out["beats"]
+    assert [(c["donor"], c["sc"], c["index"], c["rule"]) for c in out["choices"]] == [(30820, 1000, 0, 0)], out["choices"]
+    assert out["choices"][0]["took"] is not None and out["choices"][0]["selected"] == 0
+    assert [(s["donor"], s["sc"], s["kind"], s["outcome"]) for s in out["steps"]] == [
+        (30820, 1000, "confirm", "done"), (30821, 1150, "wait_sc", "done"), (30821, 1153, "cross", "done")], out["steps"]
+    cross = out["steps"][2]
+    assert cross["landed"] == 30810 and cross["lost"] is not None and cross["flip_frame"] is not None, cross
+    assert out["end_state"] == {"Global.UInt16[0]": 1153, "Global.Bit[3717]": 1}, out["end_state"]
+    assert out["pages"] == ["Herald\n“Hear ye!”", "Herald\n“Princess Garnet's birthday!”"], out["pages"]
+    assert not [s for s in fake.executed if s[0] == "press" and s[1] in ("up", "down")], "the cursor was moved"
+    assert [r["k"] for r in log if r["k"] in ("visit", "end")] == ["visit", "visit", "end"], log
+
+
+def test_o2_drive_climbs_after_the_ladder_confirm(game):
+    """H2 through the driver (research/o2_design.md 2.3 ``confirm`` + ``then: "climb"``): the ladder's Confirm takes
+    control (its tag 3 puts him on the ladder), the climb holds Up to the top, where the scene moves him on (the field
+    changes): done, with the beat ``climbed`` and the climb's record on the step."""
+    fake = FakeGame(game)
+    table = [{"donor": 30820, "sc": 1155, "steps": [{"kind": "confirm", "name": "ladder", "target": "booth",
+                                                     "goal": [0, 300], "expect": "control_lost", "then": "climb",
+                                                     "beat": "climbed"}]}]
+    pred = _o2_pred(table, beats=["climbed"])
+    stop = threading.Event()
+    with session(game, fake) as g:
+        _o2_start(g, fake, sc=1155, at=(0, -300))
+        _o1_director(fake, stop, [(lambda f: _o1_confirmed_near(f, 0, 300, reach=100), _ladder),
+                                  (lambda f: f.climbed, lambda f: _o2_move(f, 30810))])
+        try:
+            out = _o2_drive(g, pred)
+        finally:
+            stop.set()
+    assert out["end"] == "reached" and out["beats"] == {"climbed": True}, out
+    step = out["steps"][0]
+    assert step["outcome"] == "done" and step["climb"]["ended"] == "until" and fake.climbed, step
+    ys = [step["climb"]["y0"], *step["climb"]["ys"][:-1]]          # the last read is the next field's
+    assert all(b > a for a, b in zip(ys, ys[1:])) and ys[-1] > 2000, step["climb"]
+    assert not [s for s in fake.executed if s[0] == "hold" and s[1] in ("down", "right") and s[2] == "30"]
+
+
+def _o2_jack(**kw):
+    """Alleyway Jack as the fake publishes him: sid 7, a contact trigger of range_r 299 (4 x (26 + 30) + 15 + 60),
+    standing far north of the lookout until he wakes (:func:`_o2_wake`)."""
+    return {"x": -300.0, "z": 590.0, "r": 56.0, "range_r": 299.0, "sid": 7, **kw}
+
+
+def _o2_wake(jack, speed=3.0):
+    """Jack wakes as control comes (105: Map.Byte[35] := 0, 13-29 ticks before EnableMove) and walks to the lookout.
+    ``speed`` is a frame of the fake's 60 fps model, whose loop runs 240 frames a WALL second: at 3 he is within his
+    range_r of the lookout ~97 frames (~0.4 s) after waking -- after an immediate leave, before the driver's settle."""
+    jack.update(path=[(jack["x"], jack["z"]), (-300.0, 0.0)], speed=float(speed), once=True)
+
+
+def _o2_leave_table(*, immediate=True, watch=True):
+    step = {"kind": "leave_now", "name": "leave", "target": "exit", "goal": [450, 0], "to": 30810,
+            "immediate": immediate, "lunge_ticks": 10, "settle": 0, "npcs": False, "attempts": 1, "interrupts": 0}
+    return [{"donor": 30820, "sc": 1152, "no_pages": True, "steps": [step],
+             "watch": [{"sid": 7, "name": "Alleyway Jack", "radius": "range_r"}] if watch else []}]
+
+
+def test_o2_drive_leaves_at_once(game):
+    """leave_now (research/o2_design.md 2.3; 105's lookout, Jack's contact about 1.5-2.0 s after control): control is
+    granted at a known frame, and an ``immediate`` step presses its first hold -- the lunge -- within 0.2 s of it
+    (counted in the fake's loop frames, 240 a second); walking Jack never reaches him (no contact, no V6), and the
+    ``watch`` rows include the ring's samples from INSIDE the step's harness calls. The same cell without
+    ``immediate`` waits the driver's settle -- at least settle_s of wall time -- before its first hold. Break: settle
+    before an immediate step."""
+    got = {}
+    for immediate in (True, False):
+        fake = _StampFake(game)
+        fake.regions = {30820: [{"zone": _O2_EXIT, "to": 30810, "arrive": (0, 0)}]}
+        fake.exit_frames = 50
+        pred = _o2_pred(_o2_leave_table(immediate=immediate, watch=immediate))
+        pred["budget"]["settle_s"] = 1.0
+        stop = threading.Event()
+        grant: dict = {}
+        log: list = []
+        with session(game, fake) as g:
+            _o2_start(g, fake, sc=1152, at=(-300, 0))
+            fake.control = False                            # the scene before the lookout's EnableMove
+            if immediate:
+                fake.blockers = {30820: [_o2_jack()]}
+            published(g, lambda s: not s.control and (not immediate or s.objects))
+
+            def give(f):
+                time.sleep(0.3)
+                grant["frame"], grant["t"] = f.frame, time.time()
+                if immediate:
+                    _o2_wake(f.blockers[30820][0])
+                f.control = True
+            _o1_director(fake, stop, [(lambda f: True, give)])
+            try:
+                out = _o2_drive(g, pred, log=log)
+            finally:
+                stop.set()
+        holds = [s for s in fake.stamped if s[2][0] == "hold" and s[1] >= grant["frame"]]
+        got[immediate] = (out, log, holds[0], grant, fake)
+    out, log, first, grant, fake = got[True]
+    assert out["end"] == "reached" and out["steps"][0]["outcome"] == "done", out
+    assert (first[1] - grant["frame"]) / fake.fps <= 0.2, (first, grant)
+    assert out["steps"][0]["lunge"]["pressed"], out["steps"][0]
+    assert not [t for t in fake.touched if t["uid"] == 128], fake.touched          # Jack never reached him
+    step = out["steps"][0]
+    inside = [r for r in log if r["k"] == "watch" and step["frame0"] < r["frame"] <= step["frame"]]
+    assert len(inside) >= 3 and all(r["objects"] and r["objects"][0]["sid"] == 7 for r in inside), inside
+    out, _log, first, grant, fake = got[False]
+    assert out["end"] == "reached" and first[0] - grant["t"] >= 1.0, (first, grant)
+
+
+def test_o2_drive_cross_waits_out_the_fade_inside_the_exit(game):
+    """THE DRIVER CRITIQUE'S BLOCKER (research/o2_design.md 11.1 D1): control goes on the step into the exit and the
+    field changes 50 frames later; meanwhile a hint is up with control OFF (106's [TIME=45], with no CloseWindow in
+    e14 t2). The cross executor waits for the map switch itself, so the loop never reads the hint as a page in the
+    ``no_pages`` cell: done, and never V5. Break: judge a loss inside the exit ``interrupted`` at once (the loop then
+    meets the hint: V5)."""
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": _O2_EXIT, "to": 30810, "arrive": (0, 0)}]}
+    fake.exit_frames = 50
+    pred = _o2_pred([{"donor": 30820, "sc": 1153, "no_pages": True, "steps": [_o2_cross()]}])
+    stop = threading.Event()
+    with session(game, fake) as g:
+        _o2_start(g, fake, sc=1153)
+        _o1_director(fake, stop, [(lambda f: f.fired, lambda f: f.say("Puck\n“Over here!”"))])
+        try:
+            out = _o2_drive(g, pred)
+        finally:
+            stop.set()
+    assert out["end"] == "reached" and [s["outcome"] for s in out["steps"]] == ["done"], out
+    assert out["steps"][0]["lost"] is not None and out["pages"] == [], out
+
+
+def test_o2_drive_cross_counts_a_loss_outside_the_exit_as_interrupted(game):
+    """The Rat Kid's bump (100, research/o2_design.md 2.4): control taken well short of the exit (outside it by more
+    than exit_slack) is ``interrupted`` -- then his page is turned, control comes back, and the same step runs again
+    and lands. And a door that answers and never fires (``to`` None) leaves the walk ending with control held: each
+    attempt ``failed``, and V7 (driver) once the attempts are spent."""
+    SD = _segment_modules()
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": _O2_EXIT, "to": 30810, "arrive": (0, 0)}]}
+    fake.exit_frames = 50
+    pred = _o2_pred([{"donor": 30820, "sc": 1000, "steps": [_o2_cross()]}])
+    stop = threading.Event()
+    with session(game, fake) as g:
+        _o2_start(g, fake)
+        _o1_director(fake, stop, [(lambda f: f.control and f.player[0] > 0, lambda f: f.scene("Rat Kid\n“Hey!”"))])
+        try:
+            out = _o2_drive(g, pred)
+        finally:
+            stop.set()
+    assert out["end"] == "reached" and out["pages"] == ["Rat Kid\n“Hey!”"], out
+    assert [s["outcome"] for s in out["steps"]] == ["interrupted", "done"], out["steps"]
+    assert out["steps"][0]["lost"]["x"] < 300 - 40, out["steps"][0]
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": _O2_EXIT, "to": None}]}
+    pred = _o2_pred([{"donor": 30820, "sc": 1000, "steps": [_o2_cross(timeout_s=2.0)]}])
+    log: list = []
+    with session(game, fake) as g:
+        _o2_start(g, fake)
+        with pytest.raises(SD.RouteVoid, match="failed 2 of its 2 attempts") as err:
+            _o2_drive(g, pred, log=log)
+    assert (err.value.v, err.value.by, err.value.cell) == ("V7", "driver", [30820, 1000])
+    assert [r["outcome"] for r in log if r["k"] == "step"] == ["failed", "failed"], log
+
+
+def test_o2_drive_cross_inside_loss_without_a_field_change_is_interrupted(game):
+    """Control taken INSIDE the exit's zone with no field change after it (a walk-in trigger inside the exit, listed
+    first, so it answers): the executor waits ``exit_wait_s`` for the map switch, then calls it ``interrupted``; the
+    second time is over the step's one interruption: V7. Under leave_now (``interrupts`` 0) the first is V7."""
+    from ff9mapkit.content import pathfind
+    SD = _segment_modules()
+    for kind, want in (("cross", ["interrupted", "interrupted"]), ("leave_now", ["interrupted"])):
+        fake = FakeGame(game)
+        fake.regions = {30820: [{"zone": _O2_EXIT, "take": True}, {"zone": _O2_EXIT, "to": 30810, "arrive": (0, 0)}]}
+        fake.exit_frames = 50
+        step = _o2_cross(kind=kind, exit_wait_s=1.0, interrupts=1 if kind == "cross" else 0)
+        pred = _o2_pred([{"donor": 30820, "sc": 1000, "steps": [step]}])
+        stop = threading.Event()
+        log: list = []
+
+        def back(f):
+            time.sleep(1.6)                                 # past exit_wait_s: the executor has judged it
+            f.player = [-300.0, 0.0, 0.0]
+            f.control = True
+        with session(game, fake) as g:
+            _o2_start(g, fake)
+            _o1_director(fake, stop, [(lambda f: len(f.fired) == 1 and not f.control, back)])
+            try:
+                with pytest.raises(SD.RouteVoid, match="interrupted") as err:
+                    _o2_drive(g, pred, log=log)
+            finally:
+                stop.set()
+        steps = [r for r in log if r["k"] == "step"]
+        assert err.value.v == "V7" and [s["outcome"] for s in steps] == want, (kind, steps)
+        assert all(pathfind.poly_gap(s["lost"]["x"], s["lost"]["z"], _O2_EXIT) < 1.0 for s in steps), steps
+        assert all(f["to"] is None for f in fake.fired), fake.fired
+
+
+def test_o2_drive_confirm_walks_deep_before_pressing(game):
+    """confirm (research/o2_design.md 2.3, the driver critique's D6): the walk goes to the deep goal WITHOUT the zone,
+    and the Confirm is pressed only once the settled sample stands in the region at ``min_depth`` or deeper -- the
+    ``press`` row's ``pre`` is that sample. A goal at the region's edge settles him too shallow: ``failed`` with
+    nothing pressed, and V7 once the attempts are spent."""
+    SD = _segment_modules()
+    fake = FakeGame(game)
+    stop = threading.Event()
+    log: list = []
+    pred = _o2_pred([{"donor": 30820, "sc": 1000, "steps": [{"kind": "confirm", "name": "booth", "target": "booth",
+                                                             "goal": [0, 300], "expect": "choice"}]}],
+                    choices=[_o2_booth_rule()], beats=["booth"])
+    with session(game, fake) as g:
+        _o2_start(g, fake, at=(0, -400))
+        _o1_director(fake, stop, [
+            (lambda f: _o1_confirmed_near(f, 0, 300, reach=100), lambda f: f.scene(dict(_O2_BOOTH_CHOICE))),
+            (lambda f: f.answered == [0], lambda f: _o2_move(f, 30810))])
+        try:
+            out = _o2_drive(g, pred, log=log)
+        finally:
+            stop.set()
+    SD_depth = SD.depth_in
+    press = next(r for r in log if r["k"] == "press" and r["why"] == "confirm")
+    assert out["end"] == "reached" and press["pre"]["control"], (out, press)
+    assert SD_depth(_O2_BOOTH, press["pre"]["x"], press["pre"]["z"]) >= 40, press
+    assert out["steps"][0]["depth"] >= 40 and press["post"] is not None, out["steps"][0]
+    fake = FakeGame(game)
+    pred = _o2_pred([{"donor": 30820, "sc": 1000, "steps": [{"kind": "confirm", "name": "edge", "target": "booth",
+                                                             "goal": [0, 100], "tolerance": 20, "expect": "choice"}]}])
+    log = []
+    with session(game, fake) as g:
+        _o2_start(g, fake, at=(0, -400))
+        with pytest.raises(SD.RouteVoid, match="failed 2 of its 2 attempts") as err:
+            _o2_drive(g, pred, log=log)
+    assert err.value.v == "V7" and not [s for s in fake.executed if s[:2] == ["press", "confirm"]], fake.executed
+    assert [(r["outcome"], r["depth"] is None or r["depth"] < 40) for r in log if r["k"] == "step"] == [
+        ("failed", True), ("failed", True)], log
+
+
+def test_o2_drive_counts_steps_per_visit(game):
+    """116's three triggers in ONE cell (research/o2_design.md 2.1: the counter is per visit): each ``until`` step is
+    done only when control goes with its predicate true at the loss sample, and the next control in the same cell
+    runs the NEXT step -- 0, 1, 2 -- all in visit 1."""
+    fake = FakeGame(game)
+    steps = [{"kind": "trigger", "name": "t1", "until": {"x_le": -300}, "goal": [-400, 0]},
+             {"kind": "trigger", "name": "t2", "until": {"z_ge": 300}, "goal": [-400, 400]},
+             {"kind": "trigger", "name": "t3", "until": {"x_gt": 300, "z_gt": 300}, "goal": [400, 400]}]
+    pred = _o2_pred([{"donor": 30820, "sc": 1155, "steps": steps}])
+    stop = threading.Event()
+
+    def take_then(nxt=None):
+        def act(f):
+            f.control = False
+            time.sleep(0.3)
+            if nxt is None:
+                f.control = True
+            else:
+                nxt(f)
+        return act
+    with session(game, fake) as g:
+        _o2_start(g, fake, sc=1155, at=(0, 0))
+        _o1_director(fake, stop, [
+            (lambda f: f.control and f.player[0] <= -300, take_then()),
+            (lambda f: f.control and f.player[2] >= 300, take_then()),
+            (lambda f: f.control and f.player[0] > 300 and f.player[2] > 300, take_then(lambda f: _o2_move(f, 30810)))])
+        try:
+            out = _o2_drive(g, pred)
+        finally:
+            stop.set()
+    assert out["end"] == "reached", out
+    assert [(s["visit"], s["n"], s["name"], s["outcome"]) for s in out["steps"]] == [
+        (1, 0, "t1", "done"), (1, 1, "t2", "done"), (1, 2, "t3", "done")], out["steps"]
+
+
+def test_o2_drive_voids_control_without_a_cell(game):
+    """Control held where the table has no cell (104 in O2, research/o2_design.md 2.4): V4, attributed to the game,
+    its cell the (place, SC) it happened in. Nothing is walked."""
+    SD = _segment_modules()
+    fake = FakeGame(game)
+    pred = _o2_pred([{"donor": 30821, "sc": 1000, "steps": [_o2_cross()]}])
+    with session(game, fake) as g:
+        _o2_start(g, fake)
+        mark = len(fake.executed)
+        with pytest.raises(SD.RouteVoid, match="where the table has no entry") as err:
+            _o2_drive(g, pred, budget=20.0)
+        assert not [s for s in fake.executed[mark:] if s[0] == "hold"]
+    assert (err.value.v, err.value.by, err.value.cell) == ("V4", "game", [30820, 1000])
+
+
+def test_o2_drive_voids_a_once_choice_asked_again(game):
+    """V2 (research/o2_design.md 2.7): a ``once`` rule asked again -- 251 after an info option -- is VOID, never
+    answered twice; and a rule scoped to SC 1000 does not answer at SC 1150 (215 re-offered on the second visit): V1,
+    game. Each after the first answer only."""
+    SD = _segment_modules()
+    rule = {"donor": 30820, "sc": [1000], "match": "ticket", "pick": "ticket", "once": True, "take": "default",
+            "beat": "ticket"}
+    ticket = {"header": "Guard\n“Well?”", "options": ["Show ticket", "Ask about the play"], "default": 0}
+    for sc, want, answered in ((1000, "V2", [0]), (1150, "V1", [])):
+        fake = FakeGame(game)
+        pred = _o2_pred([], choices=[rule], beats=["ticket"])
+        with session(game, fake) as g:
+            _o2_start(g, fake, sc=sc)
+            fake.scene(dict(ticket), dict(ticket))
+            published(g, lambda s: not s.control and s.choice is not None)
+            with pytest.raises(SD.RouteVoid) as err:
+                _o2_drive(g, pred)
+        assert (err.value.v, err.value.by, err.value.cell) == (want, "game", [30820, sc]), err.value
+        assert fake.answered == answered, (sc, fake.answered)
+
+
+def test_o2_drive_voids_when_the_default_is_not_the_pick(game):
+    """V3: a ``take: "default"`` rule whose pick is not the game's own ready cursor (the script's default rests on
+    another line): VOID -- stepping the cursor is not the route -- and the cursor is left alone (no Up/Down, nothing
+    answered)."""
+    SD = _segment_modules()
+    fake = FakeGame(game)
+    rule = {"donor": 30820, "sc": [1000], "match": "ticket", "pick": "Show ticket", "once": True, "take": "default"}
+    pred = _o2_pred([], choices=[rule])
+    with session(game, fake) as g:
+        _o2_start(g, fake)
+        fake.scene({"header": "Guard\n“Well?”", "options": ["Show ticket", "Leave"], "default": 1})
+        published(g, lambda s: not s.control and s.choice is not None)
+        with pytest.raises(SD.RouteVoid, match="not the game's default") as err:
+            _o2_drive(g, pred)
+    assert (err.value.v, err.value.by) == ("V3", "game") and fake.answered == [], (err.value, fake.answered)
+    assert not [s for s in fake.executed if s[0] == "press" and s[1] in ("up", "down", "confirm")], fake.executed
+
+
+def test_o2_drive_voids_a_page_in_a_no_pages_cell(game):
+    """V5: a page (control off) in a ``no_pages`` cell -- in 105 at SC 1152 a Confirm could be Jack's side trip -- is
+    VOID with NO Confirm pressed; attributed to the game when no watched object was in contact reach before it."""
+    SD = _segment_modules()
+    fake = FakeGame(game)
+    pred = _o2_pred(_o2_leave_table())
+    with session(game, fake) as g:
+        _o2_start(g, fake, sc=1152)
+        mark = len(fake.executed)
+        fake.scene("Alleyway Jack\n“Hey, kid!”")
+        published(g, lambda s: not s.control and s.dialog_open)
+        with pytest.raises(SD.RouteVoid, match="a page where the route has none") as err:
+            _o2_drive(g, pred)
+        steps = fake.executed[mark:]
+    assert (err.value.v, err.value.by, err.value.cell) == ("V5", "game", [30820, 1152]), err.value
+    assert not [s for s in steps if s[:2] == ["press", "confirm"]], steps
+
+
+def test_o2_drive_voids_a_watched_object_in_reach(game):
+    """V6: a watched object within its published radius while he holds control (Jack inside his range_r at the lookout):
+    VOID, attributed to the driver (a lost race), and the watch row that saw it is logged."""
+    SD = _segment_modules()
+    fake = FakeGame(game)
+    pred = _o2_pred(_o2_leave_table(immediate=False))
+    pred["table"][0]["watch"] = [{"sid": 7, "name": "Alleyway Jack", "radius": "range_r"}]
+    log: list = []
+    with session(game, fake) as g:
+        _o2_start(g, fake, sc=1152, at=(-300, 0))
+        fake.blockers = {30820: [{"x": -100.0, "z": 0.0, "r": 56.0, "range_r": 299.0, "sid": 7}]}
+        with pytest.raises(SD.RouteVoid, match="Alleyway Jack") as err:
+            _o2_drive(g, pred, log=log)
+    assert (err.value.v, err.value.by, err.value.cell) == ("V6", "driver", [30820, 1152]), err.value
+    row = [r for r in log if r["k"] == "watch"][-1]
+    assert row["control"] and row["objects"][0]["sid"] == 7 and row["objects"][0]["dist"] <= 299, row
+
+
+def test_o2_drive_voids_leaving_the_route(game):
+    """V11 three ways (research/o2_design.md 2.2 rule 2, 2.3): a cross whose exit lands -- through its fade -- in a field
+    that is not its ``to`` (the driver's walk into the wrong door: ``by`` driver); a scripted transition into a field
+    off the route (``by`` game); and, on the F side, a REAL route field reached from a member (the claim-integrity
+    critique #2: a donor test would pass it -- the chain is left)."""
+    SD = _segment_modules()
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": _O2_EXIT, "to": 30821, "arrive": (0, 0)}]}
+    fake.exit_frames = 50
+    pred = _o2_pred([{"donor": 30820, "sc": 1000, "steps": [_o2_cross()]}])
+    with session(game, fake) as g:
+        _o2_start(g, fake)
+        with pytest.raises(SD.RouteVoid, match="landed in 30821") as err:
+            _o2_drive(g, pred)
+    assert (err.value.v, err.value.by) == ("V11", "driver"), err.value
+    fake = FakeGame(game)
+    pred = _o2_pred([])
+    with session(game, fake) as g:
+        _o2_start(g, fake)
+        fake.control = False
+        _o2_move(fake, 30999)
+        published(g, lambda s: s.field_id == 30999 and not s.control)
+        with pytest.raises(SD.RouteVoid, match="left the route: entered 30999") as err:
+            _o2_drive(g, pred)
+    assert (err.value.v, err.value.by, err.value.cell) == ("V11", "game", [30999, 1000]), err.value
+    fake = FakeGame(game)
+    pred = _o2_pred([], start=30821, route=(30820,), members={"30821": 30820})
+    pred["budget"]["no_progress_s"] = 3.0
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30821, entrance=102, scenario=1000)
+        fake.control = False
+        _o2_move(fake, 30820)                               # the member's Field() went to the REAL donor
+        published(g, lambda s: s.field_id == 30820 and not s.control)
+        with pytest.raises(SD.RouteVoid, match="left the route: entered 30820 \\(place 30820\\)") as err:
+            _o2_drive(g, pred, side="F")
+    assert (err.value.v, err.value.by) == ("V11", "game"), err.value
+
+
+_O2_JACK_BITS = [{"target": "Global.Bit[3715]", "cause": "contact", "object": 7,
+                  "why": "Jack's mugging branch (105 e7 t2 ip945)"},
+                 {"off_route": True, "cause": "walk", "why": "a write off the route"}]
+_O2_HOT = [{"target": "Global.Int16[220]", "cause": "confirm_hotspot", "why": "a hot-spot pickup: a stray Confirm"},
+           {"target": "Global.Int16[222]", "cause": "confirm_hotspot", "why": "a hot-spot pickup: a stray Confirm"}]
+
+
+def _o2_traced_start(g, fake, *, sc=1000, at=(-300, 0)):
+    """New Game with the trace armed first, a store in field 70 (off the route), then the raw warp (its residue in 70)
+    and 30820's first store: the start row."""
+    boot(g)
+    g.storytrace(True)
+    fake.script_store(3, 1, 40, 13, "Byte", 2)             # field 70: before the start, never scanned
+    g.warp(30820, entrance=102, scenario=sc)
+    fake.script_store(0, 0, 30, 191 >> 3, "Bit", 0, bit=191)   # the start row: 30820's Main_Init
+    _stand(g, fake, *at)
+    g._axes[30820] = _prior()
+
+
+def test_o2_drive_live_scan_ignores_the_warp_residue(game):
+    """D2 (research/o2_design.md 11.1): H4's warp writes its three residue rows in field 70, and a store there comes
+    before them -- the live scan starts at the run's START ROW (its first ``w`` row in the start place), so neither is
+    an off-route hit and the run reaches the end with no forbidden row. In the same kind of run a BACKED forbidden
+    row after the start still VOIDs it: a watch sample puts Jack within his range_r + 150 before his contact's
+    Bit[3715] := 1 is written -- V12, driver."""
+    SD = _segment_modules()
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": _O2_EXIT, "to": 30810, "arrive": (0, 0)}]}
+    fake.exit_frames = 50
+    pred = _o2_pred([{"donor": 30820, "sc": 1000, "steps": [_o2_cross()]}], forbidden=_O2_JACK_BITS)
+    log: list = []
+    with session(game, fake) as g:
+        _o2_traced_start(g, fake)
+        out = _o2_drive(g, pred, log=log, forbid_live=True)
+        rows = g.story_rows()
+        g.storytrace(False)
+    assert out["end"] == "reached" and out["forbidden"] == [] and not [r for r in log if r["k"] == "forbidden"], out
+    assert [(r.fld, r.byte) for r in rows if r.k == "r"] == [(70, 0), (70, 1), (70, 2)], rows
+    assert any(r.k == "w" and r.fld == 70 for r in rows), "premise: a store before the start"
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": _O2_EXIT, "to": 30810, "arrive": (0, 0)}]}
+    fake.exit_frames = 50
+    pred = _o2_pred([{"donor": 30820, "sc": 1000, "steps": [_o2_cross()],
+                      "watch": [{"sid": 7, "name": "Alleyway Jack", "radius": "range_r"}]}], forbidden=_O2_JACK_BITS)
+    stop = threading.Event()
+    log = []
+    with session(game, fake) as g:
+        _o2_traced_start(g, fake)
+        fake.blockers = {30820: [{"x": -300.0, "z": 400.0, "r": 56.0, "range_r": 299.0, "sid": 7, "coll": True}]}
+        _o1_director(fake, stop, [(lambda f: f.player[0] > 0, lambda f: f.script_store(7, 2, 945, 3715 >> 3, "Bit", 1,
+                                                                                         bit=3715))])
+        try:
+            with pytest.raises(SD.RouteVoid, match="backed by a watch sample") as err:
+                _o2_drive(g, pred, log=log, forbid_live=True)
+        finally:
+            stop.set()
+            g.storytrace(False)
+    assert (err.value.v, err.value.by) == ("V12", "driver"), err.value
+    row = [r for r in log if r["k"] == "forbidden"][-1]
+    assert row["backed"] and row["row"]["target"] == "Global.Bit[3715]" and row["cause"] == "contact", row
+
+
+def _o2_hotspot_run(game, *, press: bool):
+    """A run whose 30820 visit writes a hot-spot's rows (Int16[220]/[222] := its position, 103 e20's shape) -- after
+    the driver's own Confirm near it (``press``: a confirm step into the booth), or with none (a cross past it)."""
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": _O2_EXIT, "to": 30810, "arrive": (0, 0)}]}
+    fake.exit_frames = 50
+    step = ({"kind": "confirm", "name": "booth", "target": "booth", "goal": [0, 300], "expect": "choice"} if press
+            else _o2_cross())
+    pred = _o2_pred([{"donor": 30820, "sc": 1000, "steps": [step]}], choices=[_o2_booth_rule()], forbidden=_O2_HOT,
+                    hotspots={"30820": [{"sid": 20, "x": 100, "z": 300, "n": 50}]})
+
+    def spot(f):
+        f.script_store(20, 1, 175, 220, "Int16", 100)
+        f.script_store(20, 1, 183, 222, "Int16", 300)
+        if press:
+            f.scene(dict(_O2_BOOTH_CHOICE))
+    stop = threading.Event()
+    log: list = []
+    phases = ([(lambda f: _o1_confirmed_near(f, 0, 300, reach=100), spot),
+               (lambda f: f.answered == [0], lambda f: _o2_move(f, 30810))] if press
+              else [(lambda f: f.control and f.player[0] > -100, spot)])
+    return fake, pred, stop, log, phases
+
+
+def test_o2_drive_voids_a_backed_forbidden_row(game):
+    """V12 (research/o2_design.md 4.7): the driver's own Confirm, control held, 100u from a registered hot-spot
+    (reach 226), and then that hot-spot's rows -- its position stores name it -- are a walk divergence the driver's
+    log backs: VOID, driver, the forbidden row logged with its backing."""
+    SD = _segment_modules()
+    fake, pred, stop, log, phases = _o2_hotspot_run(game, press=True)
+    with session(game, fake) as g:
+        _o2_traced_start(g, fake, at=(0, -400))
+        _o1_director(fake, stop, phases)
+        try:
+            with pytest.raises(SD.RouteVoid, match="backed by a Confirm") as err:
+                _o2_drive(g, pred, log=log, forbid_live=True)
+        finally:
+            stop.set()
+            g.storytrace(False)
+    assert (err.value.v, err.value.by) == ("V12", "driver"), err.value
+    row = next(r for r in log if r["k"] == "forbidden")
+    assert row["backed"] and row["hotspot"] == {"sid": 20, "x": 100, "z": 300, "reach": 226.0}, row
+
+
+def test_o2_drive_logs_an_unbacked_forbidden_row_and_goes_on(game):
+    """The same hot-spot rows with NO Confirm of the driver's behind them (a fork's 106 writing hot-spot keys by
+    itself): a finding, never a VOID -- a ``forbidden`` row with ``backed`` False per matching row, and the run reaches
+    the end."""
+    fake, pred, stop, log, phases = _o2_hotspot_run(game, press=False)
+    with session(game, fake) as g:
+        _o2_traced_start(g, fake)
+        _o1_director(fake, stop, phases)
+        try:
+            out = _o2_drive(g, pred, log=log, forbid_live=True)
+        finally:
+            stop.set()
+            g.storytrace(False)
+    assert out["end"] == "reached", out
+    assert [(r["backed"], r["row"]["target"]) for r in out["forbidden"]] == [
+        (False, "Global.Int16[220]"), (False, "Global.Int16[222]")], out["forbidden"]
+    assert all(r["hotspot"] is not None for r in out["forbidden"]), out["forbidden"]
+
+
+def test_o2_drive_scans_once_more_at_the_end(game):
+    """The claim-integrity critique #4: a forbidden row written AFTER the last new visit began (no later visit scans
+    it) is still found -- the end runs the scan once more before ``reached``."""
+    fake = FakeGame(game)
+    pred = _o2_pred([], forbidden=_O2_JACK_BITS)
+    stop = threading.Event()
+    log: list = []
+    with session(game, fake) as g:
+        _o2_traced_start(g, fake)
+        fake.control = False
+        published(g, lambda s: not s.control)
+        _o1_director(fake, stop, [(lambda f: True, lambda f: (time.sleep(0.5),
+                                                              f.script_store(7, 2, 945, 3715 >> 3, "Bit", 1, bit=3715),
+                                                              time.sleep(0.3), _o2_move(f, 30810)))])
+        try:
+            out = _o2_drive(g, pred, log=log, forbid_live=True)
+        finally:
+            stop.set()
+            g.storytrace(False)
+    visits = [r for r in log if r["k"] == "visit"]
+    assert out["end"] == "reached" and len(visits) == 1, (out, visits)
+    assert [(r["backed"], r["row"]["target"]) for r in out["forbidden"]] == [(False, "Global.Bit[3715]")], out
+    assert out["forbidden"][0]["row"]["f"] > visits[0]["frame"], (out["forbidden"], visits)
+
+
+def test_o2_drive_voids_when_nothing_changes(game):
+    """The stall watchdog (research/o2_design.md 2.2, the driver critique's D4): nothing published changes for
+    ``no_progress_s`` -- a field with no control and no window -- and the run is VOID V14 (game) in about that time,
+    not its whole budget. Any published change resets it: a director moving him every 0.4 s keeps it off for as long
+    as it goes on."""
+    SD = _segment_modules()
+    fake = FakeGame(game)
+    pred = _o2_pred([])
+    pred["budget"]["no_progress_s"] = 1.0
+    stop = threading.Event()
+    last: dict = {}
+
+    def nudge(f):
+        for k in range(6):
+            f.player = [f.player[0] + 16.0, 0.0, f.player[2]]
+            last["t"] = time.time()
+            time.sleep(0.4)
+    with session(game, fake) as g:
+        _o2_start(g, fake)
+        fake.control = False
+        published(g, lambda s: not s.control)
+        _o1_director(fake, stop, [(lambda f: True, nudge)])
+        t0 = time.time()
+        try:
+            with pytest.raises(SD.RouteVoid, match="no progress for 1 s in 30820") as err:
+                _o2_drive(g, pred, budget=15.0)
+        finally:
+            stop.set()
+        t1 = time.time()
+    assert (err.value.v, err.value.by, err.value.cell) == ("V14", "game", [30820, 1000]), err.value
+    assert t1 - t0 >= 2.4 and 1.0 <= t1 - last["t"] < 5.0, (t1 - t0, t1 - last["t"])
+
+
+def test_o2_drive_records_presses_and_watch_samples(game):
+    """The evidence 4.7's backing rule reads (research/o2_design.md 2.2): a ``press`` row per Confirm -- ``pre`` the
+    sample it was decided on, ``post`` the next one any read kept, ``near`` the published objects whose talk / range
+    disc (64u wider) held him -- and a ``watch`` row per poll in a watched cell, shaped ``{k, frame, control, x, z,
+    field, donor, objects: [{sid, x, z, range_r, talk_r, dist}]}`` with the watched sids only."""
+    fake = FakeGame(game)
+    pred = _o2_pred([{"donor": 30820, "sc": 1000, "steps": [_o2_cross()],
+                      "watch": [{"sid": 7, "name": "Alleyway Jack", "radius": "range_r"}]}])
+    fake.regions = {30820: [{"zone": _O2_EXIT, "to": 30810, "arrive": (0, 0)}]}
+    fake.exit_frames = 50
+    log: list = []
+    with session(game, fake) as g:
+        _o2_start(g, fake)
+        fake.blockers = {30820: [{"x": -300.0, "z": 150.0, "r": 30.0, "talk_r": 100.0, "sid": 9, "coll": False},
+                                 {"x": -300.0, "z": 550.0, "r": 56.0, "range_r": 150.0, "sid": 7}]}
+        fake.scene("Kupo\n“Kupo!”")
+        published(g, lambda s: s.dialog_open and not s.control and s.objects and len(s.objects) == 2)
+        out = _o2_drive(g, pred, log=log)
+    assert out["end"] == "reached", out
+    press = next(r for r in log if r["k"] == "press")
+    assert set(press) == {"k", "why", "field", "donor", "visit", "sc", "pre", "post", "near"}, press
+    assert press["why"] == "page" and press["visit"] == 1 and not press["pre"]["control"], press
+    assert press["post"]["frame"] > press["pre"]["frame"] and set(press["post"]) == {"frame", "control", "x", "z"}
+    assert [(n["sid"], n["kind"]) for n in press["near"]] == [(9, "talk")], press["near"]
+    watch = [r for r in log if r["k"] == "watch"]
+    assert watch and all(set(r) == {"k", "frame", "control", "x", "z", "field", "donor", "objects"} for r in watch)
+    assert all([o["sid"] for o in r["objects"]] == [7] for r in watch), watch[:3]
+    o = watch[0]["objects"][0]
+    assert set(o) == {"sid", "x", "z", "range_r", "talk_r", "dist"} and o["range_r"] == 150.0, o
+    assert o["dist"] == pytest.approx(math.hypot(o["x"] - watch[0]["x"], o["z"] - watch[0]["z"]), abs=0.2), o
+
+
+# ---- the review's driver findings (research/o2_design.md 11.6): the landing judge every executor shares, rule 2's
+# order and attribution, wait_sc's walk short of its point, rule 8's settle before V4, and step_of's refusals.
+
+_O2_DOOR = _rect(-100, -150, 0, 150)                   # a registered exit ACROSS the walk east from (-300, 0)
+_O2_FAR = _rect(150, -150, 450, 150)                   # a Confirm region past it, its goal (300, 0)
+
+
+@pytest.mark.parametrize("kind", ["cross", "wait_sc", "trigger", "confirm"])
+def test_o2_drive_voids_a_walk_into_another_registered_door_as_the_drivers(game, kind):
+    """The review's finding 1 (106's gated e13 on the street to e14; 106.e12 beside the wait walk): a walk that loses
+    control in ANOTHER registered exit of the place -- not its target -- is that door's ExitField. Every executor's
+    landing judge waits its switch out (the 50-frame fade) and calls the landing V11, the DRIVER's, with ``landed`` and
+    the ``door`` on the step row -- so 4.7's ``walk`` backing holds for the rows written where it landed. Break: judge
+    such a loss ``interrupted`` (the loop then reads the landing as the game's: V11 by game, or V4)."""
+    SD = _segment_modules()
+    step = {"cross": _o2_cross(),
+            "wait_sc": {"kind": "wait_sc", "name": "wait", "goal": [200, 0], "sc": 1153, "wait_s": 5},
+            "trigger": {"kind": "trigger", "name": "east", "until": {"x_gt": 150}, "goal": [200, 0]},
+            "confirm": {"kind": "confirm", "name": "far", "target": "far", "goal": [300, 0], "expect": "choice"}}[kind]
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": _O2_DOOR, "to": 30999, "arrive": (0, 0)},
+                            {"zone": _O2_EXIT, "to": 30810, "arrive": (0, 0)}]}
+    fake.exit_frames = 50
+    pred = _o2_pred([{"donor": 30820, "sc": 1152, "steps": [step]}])
+    pred["regions"].update(door={"points": _O2_DOOR, "role": "exit"}, far={"points": _O2_FAR, "role": "confirm"})
+    log: list = []
+    with session(game, fake) as g:
+        _o2_start(g, fake, sc=1152)
+        with pytest.raises(SD.RouteVoid, match="landed in 30999") as err:
+            _o2_drive(g, pred, log=log)
+    assert (err.value.v, err.value.by, err.value.cell) == ("V11", "driver", [30820, 1152]), (kind, err.value)
+    assert [f["to"] for f in fake.fired] == [30999], fake.fired
+    row = [r for r in log if r["k"] == "step"][-1]
+    assert (row["outcome"], row["v"], row["by"], row["landed"], row["door"]) == ("void", "V11", "driver", 30999,
+                                                                                 "door"), row
+    assert row["flip_frame"] is not None and row["lost"] is not None, row
+    assert SD.backing({"f": row["frame"] + 1, "cause": "walk", "fld": 30999}, log, pred) is not None, row
+
+
+def test_o2_drive_holds_each_visit_to_the_routes_order(game):
+    """Rule 2 (the review's finding 1): every new visit must be the place the route's ORDER goes to next (``visits``,
+    default ``route``). A walk that steps into a door the table does NOT register (no landing judge can see it) ends
+    ``interrupted``; the field then changes -- to 30822, ON the route but out of its order -- with nothing pressed or
+    answered since: V11, the DRIVER's, and the interrupted step's row now carries the landing (``late``), so the
+    ``walk`` backing holds. The same order break after a page the driver turned is a scripted transition: V11, the
+    game's. Break: check membership only (30822 is on the route: the old loop read V4 there, by game)."""
+    SD = _segment_modules()
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": _O2_DOOR, "to": 30822, "arrive": (0, 0)},
+                            {"zone": _O2_EXIT, "to": 30821, "arrive": (0, 0)}]}
+    fake.exit_frames = 240                              # a slow switch: the executor has judged long before it
+    pred = _o2_pred([{"donor": 30820, "sc": 1000, "steps": [_o2_cross(to=30821)]}], route=(30820, 30821, 30822))
+    log: list = []
+    with session(game, fake) as g:
+        _o2_start(g, fake, fields=(30820, 30821, 30822))
+        with pytest.raises(SD.RouteVoid, match="out of the route's order: entered 30822") as err:
+            _o2_drive(g, pred, log=log)
+    assert (err.value.v, err.value.by, err.value.cell) == ("V11", "driver", [30820, 1000]), err.value
+    row = [r for r in log if r["k"] == "step"][-1]
+    assert row["outcome"] == "interrupted" and row["door"] is None, row
+    assert (row["v"], row["by"], row["landed"], row["late"]) == ("V11", "driver", 30822, True), row
+    assert SD.backing({"f": row["frame"] + 1, "cause": "walk", "fld": 30822}, log, pred) is not None, row
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": _O2_DOOR, "take": True}, {"zone": _O2_EXIT, "to": 30821, "arrive": (0, 0)}]}
+    fake.exit_frames = 50
+    stop = threading.Event()
+    log = []
+    with session(game, fake) as g:
+        _o2_start(g, fake, fields=(30820, 30821, 30822))
+        _o1_director(fake, stop, [(lambda f: f.fired and not f.control, lambda f: f.scene("Guard\n“Halt!”")),
+                                  (lambda f: not f._beats and f.control, lambda f: (setattr(f, "control", False),
+                                                                                    _o2_move(f, 30822)))])
+        try:
+            with pytest.raises(SD.RouteVoid, match="out of the route's order: entered 30822") as err:
+                _o2_drive(g, pred, log=log)
+        finally:
+            stop.set()
+    assert (err.value.v, err.value.by, err.value.cell) == ("V11", "game", [30822, 1000]), err.value
+    assert [r["why"] for r in log if r["k"] == "press"] == ["page"], log
+    assert all(r.get("v") is None for r in log if r["k"] == "step"), log
+
+
+def test_o2_drive_wait_sc_short_of_its_point_is_the_drivers(game):
+    """The review's finding 2 (106's wait: SC 1153 needs Vivi within 1400 of Puck's stop): a wait_sc whose walk ends
+    short of its point -- here no route at all, the point inside an avoided region -- is ``failed`` with NO wait begun,
+    and V7 (the driver's) once its attempts are spent -- never V8, the game's. A wait begun AT its point still times
+    out as V8 (game). Break: wait on the SC wherever the walk ended (V8 by game after wait_s)."""
+    SD = _segment_modules()
+    fake = FakeGame(game)
+    step = {"kind": "wait_sc", "name": "wait", "goal": [0, 300], "sc": 1153, "wait_s": 5, "avoid": ["booth"]}
+    pred = _o2_pred([{"donor": 30820, "sc": 1152, "steps": [step]}])
+    log: list = []
+    with session(game, fake) as g:
+        _o2_start(g, fake, sc=1152, at=(-500, -500))
+        with pytest.raises(SD.RouteVoid, match="failed 2 of its 2 attempts") as err:
+            _o2_drive(g, pred, log=log)
+    assert (err.value.v, err.value.by, err.value.cell) == ("V7", "driver", [30820, 1152]), err.value
+    steps = [r for r in log if r["k"] == "step"]
+    assert [s["outcome"] for s in steps] == ["failed", "failed"] and all("no wait" in s["why"] for s in steps), steps
+    fake = FakeGame(game)
+    step = {"kind": "wait_sc", "name": "wait", "goal": [-300, 300], "sc": 1153, "wait_s": 1.0}
+    pred = _o2_pred([{"donor": 30820, "sc": 1152, "steps": [step]}])
+    with session(game, fake) as g:
+        _o2_start(g, fake, sc=1152)
+        with pytest.raises(SD.RouteVoid, match="of a wait begun at the point") as err:
+            _o2_drive(g, pred)
+    assert (err.value.v, err.value.by) == ("V8", "game"), err.value
+
+
+def test_o2_drive_settles_before_calling_control_off_the_table(game):
+    """The review's finding 3 (O1's order, proven 7/7): a control sample shorter than the settle is no control -- in a
+    place with no cell (104), or in a cell whose steps are all done (after a Confirm's choice closed) -- and the run
+    goes on to the end; control that STAYS after the cell's last step is still V4 (game), once settled. Break: raise
+    either V4 on the first control poll."""
+    SD = _segment_modules()
+
+    def flicker_then_end(f):
+        time.sleep(0.3)
+        f.control = True                                # one control flicker, well under the 0.3 s settle
+        time.sleep(0.15)
+        f.control = False
+        time.sleep(0.3)
+        _o2_move(f, 30810)
+    fake = FakeGame(game)
+    pred = _o2_pred([])
+    stop = threading.Event()
+    with session(game, fake) as g:
+        _o2_start(g, fake)
+        fake.control = False
+        published(g, lambda s: not s.control)
+        _o1_director(fake, stop, [(lambda f: True, flicker_then_end)])
+        try:
+            out = _o2_drive(g, pred)
+        finally:
+            stop.set()
+    assert out["end"] == "reached", out
+    booth = [{"donor": 30820, "sc": 1000, "steps": [{"kind": "confirm", "name": "booth", "target": "booth",
+                                                     "goal": [0, 300], "expect": "choice"}]}]
+    for then, want in (("flicker", "reached"), ("stay", "V4")):
+        fake = FakeGame(game)
+        pred = _o2_pred(booth, choices=[_o2_booth_rule()], beats=["booth"])
+        stop = threading.Event()
+        after = ((lambda f: (setattr(f, "control", False), flicker_then_end(f))) if then == "flicker"
+                 else (lambda f: None))
+        with session(game, fake) as g:
+            _o2_start(g, fake, at=(0, -400))
+            _o1_director(fake, stop, [
+                (lambda f: _o1_confirmed_near(f, 0, 300, reach=100), lambda f: f.scene(dict(_O2_BOOTH_CHOICE))),
+                (lambda f: f.answered == [0] and f.control and not f._beats, after)])
+            try:
+                if want == "reached":
+                    out = _o2_drive(g, pred)
+                    assert out["end"] == "reached" and out["beats"] == {"booth": True}, (then, out)
+                else:
+                    with pytest.raises(SD.RouteVoid, match="after the cell's last step") as err:
+                        _o2_drive(g, pred)
+                    assert (err.value.v, err.value.by) == ("V4", "game"), err.value
+            finally:
+                stop.set()
+
+
+def test_o2_step_of_refuses_a_step_its_executor_cannot_run():
+    """The review's finding 8: step_of refuses (ValueError) what an executor would die on mid-run -- a trigger with
+    neither target nor until, a crossing without ``to`` or ``target``, a Confirm without ``expect`` (or one it cannot
+    wait for), a wait without ``sc``, a goal that is no point, an empty or unknown ``until``, a region nobody
+    registered -- and the driver refuses a table holding one before it walks, as it refuses a start place its visit
+    order lacks. Break: accept a trigger with neither (x_trigger then reads step["until"]: KeyError after the walk)."""
+    SD = _segment_modules()
+    pred = _o2_pred([])
+    ok = {"cross": _o2_cross(), "leave_now": _o2_cross(kind="leave_now"),
+          "trigger": {"kind": "trigger", "until": {"x_le": 0}, "goal": [0, 0]},
+          "confirm": {"kind": "confirm", "target": "booth", "goal": [0, 300], "expect": "choice"},
+          "wait_sc": {"kind": "wait_sc", "goal": [0, 0], "sc": 1153, "wait_s": 5}}
+    for s in ok.values():
+        SD.step_of(pred, s)
+    drop = lambda s, k: {x: v for x, v in s.items() if x != k}                  # noqa: E731
+    bad = [({"kind": "trigger", "goal": [0, 0]}, "needs a target or an until"),
+           (drop(ok["cross"], "to"), "needs \\['to'\\]"), (drop(ok["leave_now"], "target"), "needs \\['target'\\]"),
+           (drop(ok["confirm"], "expect"), "needs \\['expect'\\]"), (dict(ok["confirm"], expect="page"), "expect is"),
+           (drop(ok["wait_sc"], "sc"), "needs \\['sc'\\]"), (dict(ok["cross"], goal=[0]), "goal is a point"),
+           (dict(ok["trigger"], until={}), "until is a non-empty"), (dict(ok["trigger"], until={"y_le": 0}), "x\\|z"),
+           (dict(ok["cross"], target="nowhere"), "no registered region"),
+           (dict(ok["cross"], avoid=["nowhere"]), "no registered region")]
+    for s, why in bad:
+        with pytest.raises(ValueError, match=why):
+            SD.step_of(pred, s)
+
+    def drive_of(p):
+        return SD._Drive(None, p, "S", [], deadline=0, floor_for=None, prior_for=None, progress=None, end_fields=None,
+                         observe=None, forbid_live=False)
+    drive_of(_o2_pred([{"donor": 30820, "sc": 1000, "steps": [ok["trigger"]]}]))
+    with pytest.raises(ValueError, match="needs a target or an until"):
+        drive_of(_o2_pred([{"donor": 30820, "sc": 1000, "steps": [bad[0][0]]}]))
+    with pytest.raises(ValueError, match="not in the route's visit order"):
+        drive_of(_o2_pred([], visits=[30821]))
+
+
+# ---- O2 itself (studies/story-trace/o2_alexandria.py; research/o2_design.md section 9, PART C). The text rule is the
+# lead's ruling on the uk text mis-pick as one pure function; P-LANG pins the session's language; the freeze refuses
+# to overwrite; the draft's members are the built campaign's.
+
+def _o2_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o2_alexandria as A
+    return A
+
+
+_O2_LANGS = ("us", "uk", "fr", "gr", "it", "es", "jp")
+
+
+def _o2_stock_text():
+    """Seven distinct stock texts, one per language (the English two differing by a UK spelling, as block 33's do)."""
+    return {L: f"[{L}] block 33 -- the colour of the {L} text".encode("utf-8") for L in _O2_LANGS}
+
+
+def test_o2_text_rule_reads_every_language_equal_as_ok():
+    """The lead's ruling (research/o2_design.md 0.1, 6.1): once the kit fix lands and the build is regenerated, every
+    shipped language is byte-equal to its own stock asset and the rule reads clean -- ok, seven ok lines, no
+    KNOWN-KIT-DEFECT and no FAIL, with no code change. Break: compare against the us asset only."""
+    A = _o2_module()
+    stock = _o2_stock_text()
+    ok, lines = A.text_rule(stock, dict(stock), "us")
+    assert ok and len(lines) == 7 and all(" ok: " in ln for ln in lines), lines
+    detail = A.text_detail(lines)
+    assert detail.startswith("KNOWN-KIT-DEFECT 0, FAIL 0, 7 byte-equal of 7") and A.defect_lines(detail) == []
+
+
+def test_o2_text_rule_counts_a_foreign_copy_as_known_kit_defect():
+    """A build older than master's per-language text pick (aa627d52) ships uk as stock US text (O2's first build did,
+    until its chain was rebuilt from repaired sidecars). Not the
+    session language, and byte-equal to ANOTHER language's stock asset: a named, counted KNOWN-KIT-DEFECT line -- the
+    rule still reads ok (no FAIL), never silently, and the CLI's line reads back from the detail. The line names the
+    cause as it stands (a build to regenerate, or sidecars to repair), never a picker line or a fix still to come.
+    Break: count a foreign copy as ok."""
+    A = _o2_module()
+    stock = _o2_stock_text()
+    ok, lines = A.text_rule(stock, dict(stock, uk=stock["us"]), "us")
+    assert ok, lines
+    defects = [ln for ln in lines if ln.startswith("KNOWN-KIT-DEFECT")]
+    assert len(defects) == 1 and defects[0].startswith("KNOWN-KIT-DEFECT uk: ships stock us"), lines
+    assert "predates the per-language text pick (aa627d52)" in defects[0], defects
+    assert "tools/refresh_verbatim_text.py" in defects[0] and "dialogue.py:" not in defects[0], defects
+    assert not [ln for ln in lines if ln.startswith("FAIL")], lines
+    detail = A.text_detail(lines)
+    assert detail.startswith("KNOWN-KIT-DEFECT 1, FAIL 0, 6 byte-equal of 7") and A.defect_lines(detail) == defects
+
+
+def test_o2_text_rule_fails_the_session_language():
+    """The session reads us: a us file that is not stock us is a hard FAIL, even when it is another language's
+    stock asset (the mirror of today's defect). Break: let the session language fall through to the foreign-copy
+    rule (it would read as a KNOWN-KIT-DEFECT)."""
+    A = _o2_module()
+    stock = _o2_stock_text()
+    ok, lines = A.text_rule(stock, dict(stock, us=stock["uk"]), "us")
+    assert not ok, lines
+    assert [ln for ln in lines if ln.startswith("FAIL")] == [next(ln for ln in lines if ln.startswith("FAIL us"))]
+    assert not [ln for ln in lines if ln.startswith("KNOWN-KIT-DEFECT")], lines
+
+
+def test_o2_text_rule_fails_garbage():
+    """A file that is no language's stock asset is a hard FAIL in any language -- only a byte-equal foreign copy is
+    the known defect. Break: call any foreign-language mismatch a KNOWN-KIT-DEFECT."""
+    A = _o2_module()
+    stock = _o2_stock_text()
+    ok, lines = A.text_rule(stock, dict(stock, fr=b"no language's text"), "us")
+    assert not ok and [ln for ln in lines if ln.startswith("FAIL")][0].startswith("FAIL fr: ships "), lines
+    assert "no language's stock asset" in lines[2] and not [ln for ln in lines if "KNOWN-KIT-DEFECT" in ln], lines
+
+
+def test_o2_p_lang_reads_the_last_localization_line():
+    """P-LANG (research/o2_design.md 6.2): the launch's Memoria.log names the language its text was LAST loaded in
+    ("Updating text localization [...]", FF9TextTool.cs:395) -- a launch whose language changed reads its last line
+    -- and Memoria.ini's [VoiceActing] ForceLanguage must be -1 or 0, read as the engine reads it (the last
+    assignment; outside 0..6 is -1). English(UK) last, or ForceLanguage 1, fails. Break: read the FIRST line."""
+    A = _o2_module()
+    line = "29.09.2026 21:31:56 |M| Updating text localization [{}]\n"
+    uk_then_us = line.format("English(UK)") + "... |M| other\n" + line.format("English(US)")
+    us_then_uk = line.format("English(US)") + line.format("English(UK)")
+    ini = "[VoiceActing]\n\t; ForceLanguage (default -1) -1: Use in-game setting\nEnabled = 0\nForceLanguage = {}\n"
+    ok, detail, info = A.p_lang(uk_then_us, ini.format(-1))
+    assert ok and info == {"log": "English(US)", "force": -1} and "(of 2)" in detail, (detail, info)
+    assert not A.p_lang(us_then_uk, ini.format(-1))[0]
+    assert A.p_lang(uk_then_us, ini.format(0))[0]
+    ok, detail, info = A.p_lang(uk_then_us, ini.format(1))
+    assert not ok and info["force"] == 1 and "forces another language" in detail, detail
+    assert A.p_lang(uk_then_us, ini.format(9))[2]["force"] == -1               # the engine's clamp
+    assert not A.p_lang(uk_then_us, ini.format(-1) + "[VoiceActing]\nForceLanguage = 4\n")[0]   # the LAST wins
+    assert A.p_lang(uk_then_us, None)[2]["force"] == -1                        # no ini: the default
+    assert not A.p_lang("", ini.format(-1))[0] and not A.p_lang(None, ini.format(-1))[0]
+
+
+def test_o2_freeze_refuses_an_existing_file(tmp_path, monkeypatch):
+    """The freeze (research/o2_design.md 0.1): the draft is written ONCE -- LF, sorted keys, its sha the bytes'
+    -- and a second freeze onto the same file refuses, leaving it byte for byte; the CLI's --freeze refuses the same
+    way. The lead freezes after the stock rehearsals: the real o2_predictions_v1.json is never touched here. The chain
+    the draft reads its members from is a machine-local build (C:\\gd\\_ns_playtest\\o2), so it is given here: the
+    rule is tested wherever the suite runs. Break: drop the existence check (the second write replaces the file)."""
+    import hashlib
+    A = _o2_module()
+    chain = ({31220 + i: 100 + i for i in range(18)}, {31220 + i: f"O2_SYNTH_{100 + i}" for i in range(18)})
+    monkeypatch.setattr(A, "chain_from_campaign", lambda *a, **k: chain)
+    path = tmp_path / "o2_predictions_v1.json"
+    sha = A.O2.freeze(path)
+    data = path.read_bytes()
+    assert sha == hashlib.sha256(data).hexdigest() and b"\r" not in data and data.endswith(b"\n")
+    assert json.loads(data) == json.loads(json.dumps(A.draft_predictions()))
+    assert data.decode("utf-8") == json.dumps(A.draft_predictions(), indent=1, sort_keys=True) + "\n"
+    path.write_bytes(data + b" ")                          # the file as frozen, plus one byte a re-freeze would lose
+    with pytest.raises(SystemExit, match="frozen"):
+        A.O2.freeze(path)
+    seg = A.O2Segment()
+    seg.predictions = path
+    with pytest.raises(SystemExit, match="frozen"):
+        seg.main(["--freeze"])
+    assert path.read_bytes() == data + b" "
+
+
+def test_o2_draft_members_are_the_campaigns(tmp_path):
+    """The draft's members and names are read from the built chain's campaign.toml (research/o2_design.md 1.5), and
+    must be exactly {31220 + i: 100 + i for i in range(18)}; the manifest o2_forks.json carries the same members and
+    names, and its deploy record is whole: ``deployed_at`` is set exactly when ``deployed`` is (the chain went live
+    for session story-o2, so a pin to "not deployed" would read the lifecycle, not the members). A campaign with any
+    other member is refused. Break: drop the assertion (the draft
+    would freeze another chain). The chain is a machine-local build: where it is not, this SKIPS (and says so) --
+    never a pass."""
+    import tomllib
+    A = _o2_module()
+    if not (A.CHAIN_DIR / "campaign.toml").is_file():
+        pytest.skip(f"the O2 chain is not built here ({A.CHAIN_DIR}): the draft reads its members from it")
+    pred = A.draft_predictions()
+    doc = tomllib.loads((A.CHAIN_DIR / "campaign.toml").read_text(encoding="utf-8"))
+    assert pred["members"] == {str(31220 + i): 100 + i for i in range(18)}, pred["members"]
+    assert pred["names"] == {str(f["id"]): f["name"] for f in doc["field"]}
+    assert pred["start"] == {"S": 100, "F": 31220} and pred["members"][str(pred["start"]["F"])] == 100
+    man = json.loads((A.MANIFEST).read_text(encoding="utf-8"))
+    assert man["members"] == pred["members"] and man["names"] == pred["names"]
+    assert man["deployed"] in (True, False) and (man["deployed_at"] is not None) == man["deployed"], man
+    bad = tmp_path / "campaign.toml"
+    text = (A.CHAIN_DIR / "campaign.toml").read_text(encoding="utf-8").replace("source = 117", "source = 61")
+    bad.write_text(text, encoding="utf-8")
+    with pytest.raises(AssertionError, match="not the design's"):
+        A.chain_from_campaign(bad)
+
+
+def test_o2_rehearse_plumbing_on_the_fake(game):
+    """C3 (research/o2_design.md 7): one rehearsal stage on a fake two-field route, chosen by ``O2_STAGE`` as a launch
+    chooses it (another stage, which would run too, does not): the capabilities (P-LANG reading the launch's own
+    Memoria.log and Memoria.ini), New Game, the raw warp at the stage's entrance and scenario, the beat-table driver
+    with the recorder on every poll -- an arrival scene (the stage's "movie"), a booth Confirm and its choice, the
+    crossing into the end field -- the trace collected, end_run to the title, and o2_rehearsal.json holding every
+    section of 7.2: control grants, steps, choices (logged and published), pages, the press/watch evidence, the NPC
+    track and its summary, the longest no-progress stretch, the movie's arrival/first page/fps, the end (its state
+    and end_run's result) and the trace summary; the rehearsal report prints them. Break: drop the recorder's grants."""
+    A = _o2_module()
+    import o2_rehearse as R
+    (game / "x64" / "Memoria.log").write_text(
+        "30.09.2026 10:00:00 |M| Updating text localization [English(US)]\n", encoding="utf-8")
+    (game / "Memoria.ini").write_text("[VoiceActing]\nForceLanguage = -1\n", encoding="utf-8")
+    stages = {"R-TEST": {"field": 30820, "entrance": 102, "sc": 1000, "end": [30810], "runs": 1, "run_s": 90,
+                         "cost_s": 5, "movie": {"donor": 30820}, "settles": "the plumbing"},
+              "R-OTHER": {"field": 30821, "entrance": 0, "sc": 1150, "end": [30810], "runs": 1, "run_s": 5,
+                          "cost_s": 1, "settles": "never run: O2_STAGE names R-TEST"}}
+    assert R.select(stages, env={"O2_STAGE": "R-TEST"}) == ["R-TEST"]
+    assert R.select(stages, env={}) == ["R-OTHER", "R-TEST"] and R.select(stages, 30821, env={}) == ["R-OTHER"]
+    assert R.select(R.STAGES, 115, env={}) == ["R-115"] and "R-103" not in R.select(R.STAGES, env={})
+    assert R.select(R.STAGES, env={})[0] == "R-115"            # F1's climb, the go/no-go, runs first
+    with pytest.raises(ValueError, match="no stage"):
+        R.select(stages, env={"O2_STAGE": "R-NONE"})
+    tracks = [{"donor": 30820, "sid": 7, "name": "Jack", "lookout": [-300, 0]}]
+    table = [{"donor": 30820, "sc": 1000, "watch": [{"sid": 7, "name": "Jack", "radius": "range_r"}],
+              "steps": [{"kind": "confirm", "name": "booth", "target": "booth", "goal": [0, 300], "expect": "choice"},
+                        _o2_cross()]}]
+    pred = _o2_pred(table, choices=[_o2_booth_rule()], beats=["booth"], end_state={"Global.UInt16[0]": 1000})
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": _O2_EXIT, "to": 30810, "arrive": (0, 0)}]}
+    fake.exit_frames = 50
+    fake.blockers = {30820: [{"x": -500.0, "z": -500.0, "r": 30.0, "range_r": 100.0, "sid": 7}]}
+    stop = threading.Event()
+
+    def arrive(f):
+        f.control = False
+        f.player = [0.0, 0.0, -400.0]
+        f.script_store(0, 0, 30, 191 >> 3, "Bit", 0, bit=191)             # the start row: 30820's Main_Init
+        time.sleep(0.8)                                                   # the movie: nothing published changes
+        f.scene("Vivi\n“...”", "Puck\n“Hey, over here!”")
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0], "a launch starts at the title"
+        g._axes[30820] = _prior()
+        _o1_director(fake, stop, [
+            (lambda f: f.field_id == 30820 and f.story_on, arrive),
+            (lambda f: _o1_confirmed_near(f, 0, 300, reach=100), lambda f: f.scene(dict(_O2_BOOTH_CHOICE)))])
+        try:
+            R.run(g, stages=stages, pred=pred, floor_for=lambda d, closed: _flat_bgi(), prior_for=lambda d: _prior(),
+                  stock=lambda fid: None, recovery=30821, tracks=tracks, env={"O2_STAGE": "R-TEST"})
+        finally:
+            stop.set()
+        title = g.state.ui_state
+    run_dir = game / "run"
+    doc = json.loads((run_dir / "o2_rehearsal.json").read_text(encoding="utf-8"))
+    assert list(doc["stages"]) == ["R-TEST"] and doc["stages_run"] == ["R-TEST"] and doc.get("finished"), doc.keys()
+    assert all(c[0] for c in doc["capabilities"]) and any(c[1].startswith("P-LANG") for c in doc["capabilities"])
+    rec = doc["stages"]["R-TEST"][0]
+    assert rec["outcome"]["end"] == "reached", rec["outcome"]
+    for section in ("grants", "steps", "choices", "published_choices", "pages", "evidence", "tracks", "track_summary",
+                    "latency", "no_progress", "mbg101", "end", "trace"):
+        assert section in rec, section
+    assert rec["grants"] and all({"t", "frame", "field", "sc", "x", "z", "y", "fps"} <= set(x) for x in rec["grants"])
+    assert [(s["kind"], s["outcome"]) for s in rec["steps"]] == [("confirm", "done"), ("cross", "done")], rec["steps"]
+    assert [(c["index"], c["selected"], c["rule"]) for c in rec["choices"]] == [(0, 0, 0)], rec["choices"]
+    assert rec["published_choices"] and rec["published_choices"][0]["options"][1:] == ["eek into the ticket booth",
+                                                                                      "Cancel"]
+    assert [p["text"] for p in rec["pages"]] == ["Vivi\n“...”", "Puck\n“Hey, over here!”"], rec["pages"]
+    assert {"press", "watch"} <= set(rec["evidence"]) and rec["evidence"]["press"] and rec["evidence"]["watch"]
+    jack = rec["track_summary"].get("30820.7") or {}
+    assert rec["tracks"].get("30820.7") and jack.get("name") == "Jack", rec["track_summary"]
+    assert (jack.get("min_dist") or 0) > 100 and "lookout_contact_frame" in jack, jack
+    assert rec["no_progress"]["longest_s"] >= 0.5 and rec["no_progress"]["where"]["field"] == 30820, rec["no_progress"]
+    mv = rec["mbg101"]
+    assert None not in (mv["arrival_frame"], mv["first_page_frame"]) and mv["first_page_frame"] > mv["arrival_frame"], mv
+    assert rec["end"]["end_state"] == {"Global.UInt16[0]": 1000}, rec["end"]
+    assert rec["end"]["end_run"]["ok"] and rec["end"]["end_run"]["title"] and title == "Title", rec["end"]
+    tr = rec["trace"]
+    assert tr["start"] is not None and [x[1:] for x in tr["residue_before"]] == [[0, 0, 232], [1, 0, 3], [2, 0, 102]]
+    assert (run_dir / rec["trace_file"]).is_file() and (run_dir / rec["log_file"]).is_file()
+    report = A.rehearsal_report(run_dir)
+    for want in ("== R-TEST: warp 30820 102 1000", "grant: field 30820", "step (30820, 1000) #0 confirm",
+                 "choice at frame", "pages: ", "evidence: ", "track 30820.7", "longest no-progress", "mbg101:",
+                 "end: state", "trace: start line"):
+        assert want in report, (want, report[:1500])

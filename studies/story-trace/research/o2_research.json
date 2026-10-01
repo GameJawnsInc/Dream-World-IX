@@ -1,0 +1,1204 @@
+{
+ "reconciled": {
+  "route": {
+   "segment_end": {
+    "field": 116,
+    "warp_to": 61,
+    "sid": 2,
+    "tag": 1,
+    "ip": 1702,
+    "field_entrance": 0,
+    "why_here": "116 (Rooftop) e2 t1 stage 13 (Map.Byte[24]==13, L1344): Byte[8]:=0 ip1469, DisableMove ip1542, Byte[13]:=3 ip1666, Int16[2]:=0 ip1694, Field(61) ip1702. 61 = fbg_n00_tshp_map009_th_bst_0 (EVT_ALEX1_TS_STAGE_BK, zone tshp, O1's zone). A census of every Field() in 100-106/115/116 finds all other targets inside alxt (100-117); this is the first and only story-path exit from the zone. The segment ends ON ARRIVAL in 61 with FieldEntrance 0 and SC 1155; 61's first trace row is Bit[191]:=0 at 61 e0 t0 ip22 (its Int16[2]:=10000 at ip41 is behind Bit[184]==1, never true). 61 then plays FMV003 (Cinematic(0,8,1,1) at 61 e2 t1 ip159), after the cut. No earlier story checkpoint; if the budget forces a split, 115's opening is SC-keyed (115 e0 t0 ip231-287), so 'arrive in 115 with SC 1153' is a clean second start."
+   },
+   "fields_in_order": [
+    {
+     "field": 100,
+     "name": "Alexandria/Main Street (EVT_ALEX1_AT_STREET_A)",
+     "zone": "alxt",
+     "entered_via": "O1 end: 52 e3 t1 Int16[2]:=102 ip1249, Field(100) ip1257 (or a harness warp at entrance 102 with scenario 1000); 100 e0 t0 ip243 SWITCHEX(L294, 201,231,204 -> L245): 102 takes the default L294 = the first-visit scene"
+    },
+    {
+     "field": 101,
+     "name": "Alexandria/Main Street B (EVT_ALEX1_AT_STREET_B)",
+     "zone": "alxt",
+     "entered_via": "100 e15 t2 Int16[2]:=200 ip255, Field(101) ip263; 101 e0 t0 rewrites Int16[2]:=202 ip291 (Bit[3717]==0, ip236)"
+    },
+    {
+     "field": 102,
+     "name": "Alexandria/Main Street C (EVT_ALEX1_AT_STREET_C)",
+     "zone": "alxt",
+     "entered_via": "101 e16 t2 Int16[2]:=201 ip255, Field(102) ip263"
+    },
+    {
+     "field": 103,
+     "name": "Alexandria/Square (EVT_ALEX1_AT_CENTER), first visit",
+     "zone": "alxt",
+     "entered_via": "102 e8 t2 Int16[2]:=203 ip255, Field(103) ip263"
+    },
+    {
+     "field": 104,
+     "name": "Alexandria/Ticket booth (EVT_ALEX1_AT_TICKET)",
+     "zone": "alxt",
+     "entered_via": "103 e30 t1 choice 215 option 0: Int16[2]:=205 ip972, Field(104) ip980"
+    },
+    {
+     "field": 103,
+     "name": "Alexandria/Square, second visit (entrance 209)",
+     "zone": "alxt",
+     "entered_via": "104 e2 t1 stage 8: Int16[2]:=209 ip558, Field(103) ip566"
+    },
+    {
+     "field": 105,
+     "name": "Alexandria/Alley (EVT_ALEX1_AT_BACK_STR)",
+     "zone": "alxt",
+     "entered_via": "103 e22 t2 Byte[13]:=3 ip205, Byte[14]:=3 ip244, Int16[2]:=205 ip261, Field(105) ip269"
+    },
+    {
+     "field": 106,
+     "name": "Alexandria/By the Steeple (EVT_ALEX1_AT_TSS)",
+     "zone": "alxt",
+     "entered_via": "105 e11 t2 Int16[2]:=111 ip227, Field(106) ip235"
+    },
+    {
+     "field": 115,
+     "name": "Alexandria/Steeple (EVT_ALEX1_AT_SENTOU)",
+     "zone": "alxt",
+     "entered_via": "106 e14 t2 Byte[13]:=3 ip194, Int16[2]:=211 ip222, Field(115) ip230; 115 e0 t0 rewrites Int16[2]:=213 ip249 (SC 1152|1153)"
+    },
+    {
+     "field": 116,
+     "name": "Alexandria/Rooftop (EVT_ALEX1_AT_ROOF)",
+     "zone": "alxt",
+     "entered_via": "115 e1 t1 stage 12: Int16[2]:=0 ip1951, Field(116) ip1959"
+    },
+    {
+     "field": 61,
+     "name": "Prima Vista/Interior (EVT_ALEX1_TS_STAGE_BK) - segment end, arrival only",
+     "zone": "tshp",
+     "entered_via": "116 e2 t1 Int16[2]:=0 ip1694, Field(61) ip1702"
+    }
+   ],
+   "beats": [
+    {
+     "n": 1,
+     "field": 100,
+     "kind": "fmv",
+     "what": "Arrival scene: Main_Init spawns Vivi, the girl, the kids, the ticket and (Bit[3718]==0) the Rat Kid, then seeks and plays the in-field movie background mbg101 (MBGDiscTable[1][5], type 1 MBG_WITH_DATA - not an FMV, no skip dialog). Vivi's walk-in waits for MBG frame 100",
+     "player_action": "none (wait; no skip dialog exists; the MBG blocks the soft reset while it plays)",
+     "required": true,
+     "where": "100 e0 t0 ip243 SWITCHEX default L294; ip366 Bit[3718]==0 -> InitObject(1); Cinematic(0,5,1,1) ip473; Cinematic(2,0,0,0) ip551; e19 t1 ip751 waits MBG frame 100",
+     "gate": "Int16[2]=102 (not 201/231/204)"
+    },
+    {
+     "n": 2,
+     "field": 100,
+     "kind": "other",
+     "what": "Stage 0: Byte[8]:=125, Vivi walks to (0,850). Ambient prologue: Bit[191]:=0, Bit[184]:=0, Int16[9]:=355, Byte[13]:=1, Int16[11]:=415, Byte[14]:=1, tails Byte[13]:=2, Byte[14]:=2",
+     "player_action": "none",
+     "required": true,
+     "where": "100 e19 t1 ip834, Walk ip863; e0 t0 ip30/57/65/138/146/219, tails ip785/826",
+     "gate": "Map.Byte[24]=0"
+    },
+    {
+     "n": 3,
+     "field": 100,
+     "kind": "page",
+     "what": "Girl: 'Are you alright?' (146)",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "100 e2 t1 WindowSync ip194",
+     "gate": "Map.Byte[24]=2"
+    },
+    {
+     "n": 4,
+     "field": 100,
+     "kind": "other",
+     "what": "Stage 3: party reset to Vivi alone: UInt16[21]:=2, Byte[303]:=0 then ++ (the other three ++ are behind const(0)), Byte[4]:=0, UInt16[19]|=2 (bit 1 clear), Byte[4]:=0, Byte[17]:=0, Byte[18]:=1. SetCharacterData/SetName/PARTYADD write no gEventGlobal",
+     "player_action": "none",
+     "required": true,
+     "where": "100 e19 t1 ip981, ip1066, ip1100, ip1497, ip1531 (guard ip1505), ip1562, ip1570, ip1578",
+     "gate": "Map.Byte[24]=3"
+    },
+    {
+     "n": 5,
+     "field": 100,
+     "kind": "page",
+     "what": "Girl: 'Here!  You dropped your ticket.' (147), async, closed by the girl's WaitWindow",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "100 e2 t1 WindowAsync ip351, WaitWindow(2) ip384",
+     "gate": "Map.Byte[24]=4"
+    },
+    {
+     "n": 6,
+     "field": 100,
+     "kind": "page",
+     "what": "Girl: 'Bye-bye![TIME=20]' (148), self-closing; she leaves",
+     "player_action": "none (self-closing)",
+     "required": true,
+     "where": "100 e2 t1 WindowSync ip449",
+     "gate": "Map.Byte[24]=5"
+    },
+    {
+     "n": 7,
+     "field": 100,
+     "kind": "control",
+     "what": "Stage 6: AddItem(262) key item (not gEventGlobal), EnableMove: control at (0,850)",
+     "player_action": "none",
+     "required": true,
+     "where": "100 e19 t1 AddItem ip1982, EnableMove ip2020",
+     "gate": "Map.Byte[24]=6"
+    },
+    {
+     "n": 8,
+     "field": 100,
+     "kind": "walk",
+     "what": "Walk north to exit e15. Once player z>=1600 the Rat Kid chases (MoveInstant z+83/frame, x lagging 8 frames) and bumps Vivi at distance<200, taking control mid-walk (forced: the exit is at z>=6532)",
+     "player_action": "route_to e15 (0,7000); expect loss of control on the way, resume after the bump",
+     "required": true,
+     "where": "100 e1 t1 ip112 (z gate), EnablePath(3,0) ip124, ip311 (dist<200 && Map.Byte[31]==0), Map.Byte[31]:=3 ip337, CloseWindow 0-7 ip345-366, DisableMove ip388, EnablePath(3,1) ip410, RunScriptSync(4,255,18) ip414",
+     "gate": "Global.Bit[3718]==0 (e0 t0 ip366)"
+    },
+    {
+     "n": 9,
+     "field": 100,
+     "kind": "page",
+     "what": "Bump: 'Oww![TIME=10]' (154, self-closing), 'Rat Kid / Why you-get outta my way!!!' (155); Global.Bit[3718]:=1; control returns via the player's tag 15",
+     "player_action": "Confirm on 155",
+     "required": true,
+     "where": "100 e1 t18 WindowAsync ip537 + WaitWindow ip551, WindowSync ip559, RunScript(4,19,15) ip566 (e19 t15 EnableMove ip2143), Bit[3718]:=1 ip579",
+     "gate": "triggered by beat 8"
+    },
+    {
+     "n": 10,
+     "field": 100,
+     "kind": "warp",
+     "what": "Walk into e15 (x -371..355, z 6532..7708): Map.Bit[162]/[163]:=1 (music :=3 skipped), Int16[2]:=200, Field(101)",
+     "player_action": "walk into the gateway",
+     "required": true,
+     "where": "100 e15 t2 ip38/46, Int16[2] ip255, Field(101) ip263",
+     "gate": "none"
+    },
+    {
+     "n": 11,
+     "field": 101,
+     "kind": "page",
+     "what": "First visit: Int16[2]:=202 overwrites 200; Vivi spawns at (2509,-814) (inside exit e15) without control and walks out to (1939,-883); Herald: 'Honorable nobles of Treno... Castle Alexandria is this way!' (168)",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "101 e0 t0 ip236 (Bit[3717]==0), Int16[2]:=202 ip291; e19 t0 L166 spawn; e19 t1 Walk ip691; e3 t1 WindowSync ip126",
+     "gate": "Global.Bit[3717]==0"
+    },
+    {
+     "n": 12,
+     "field": 101,
+     "kind": "control",
+     "what": "Stage 2: the nobles walk off, ReleaseCamera, Global.Bit[3717]:=1, EnableMove",
+     "player_action": "none",
+     "required": true,
+     "where": "101 e7 t1 Bit[3717]:=1 ip319, EnableMove ip358",
+     "gate": "Map.Byte[24]=2"
+    },
+    {
+     "n": 13,
+     "field": 101,
+     "kind": "warp",
+     "what": "Walk west into e16 (quad (-3500,-600)(-3500,-200)(-2621,444)(-2254,-1444)): Int16[2]:=201, Field(102) (music :=3 skipped)",
+     "player_action": "route_to about (-2900,-500)",
+     "required": true,
+     "where": "101 e16 t2 ip38/46, ip255, Field ip263",
+     "gate": "none"
+    },
+    {
+     "n": 14,
+     "field": 102,
+     "kind": "warp",
+     "what": "No scene (the cat e3 needs entrance 205). Spawn (865,2525) with control; walk north into e8 (x 404..1134, z 5019..6987): Int16[2]:=203, Field(103)",
+     "player_action": "route_to about (750,5800)",
+     "required": true,
+     "where": "102 e12 t0 L70 spawn; e0 t0 ip249 (cat gate); e8 t2 Int16[2] ip255, Field(103) ip263",
+     "gate": "none"
+    },
+    {
+     "n": 15,
+     "field": 103,
+     "kind": "other",
+     "what": "Arrival: spawn (-75,-2210) with control; Byte[8]:=125; Hippaul writes Global.Byte[472]:=1 at once and :=2 only if his 3-leg walk (speed 15) ends before 103 unloads (timing noise)",
+     "player_action": "none",
+     "required": false,
+     "where": "103 e30 t0 L222 spawn; e0 t0 ip367; e18 t1 ip218 (:=1), ip254 (:=2)",
+     "gate": "Hippaul spawn Bit[7202]==0 && SC<1152 (e0 t0 ip289); e18 t1 Byte[472] in {0,1}"
+    },
+    {
+     "n": 16,
+     "field": 103,
+     "kind": "talk",
+     "what": "Ticket booth: region e28 (quad (-500,-111)(550,-111)(250,-1000)(-200,-1000)) shows a '?' (Bubble(0)); Confirm|Special inside with control sets Map.Byte[24]=1",
+     "player_action": "route_to (45,-950) (inside e28; the game's own entrance-209 spawn), press Confirm",
+     "required": true,
+     "where": "103 e28 t2 Bubble(0) ip42; e28 t3 Map.Byte[24]:=1 ip95",
+     "gate": "usercontrol (SYSVAR[2])"
+    },
+    {
+     "n": 17,
+     "field": 103,
+     "kind": "choice",
+     "what": "Choice 215 'Peek into the ticket booth / Cancel' (no prompt). Option 0 -> bits 162/163, Int16[2]:=205, Field(104); option 1 -> control back",
+     "player_action": "choose the line containing 'ticket booth' (0, default)",
+     "required": true,
+     "where": "103 e30 t1 WindowSync ip727, SYSVAR[9] ip733, ip757/765, Int16[2]:=205 ip972, Field(104) ip980 (Cancel -> EnableMove ip1017)",
+     "gate": "Map.Byte[24]=1"
+    },
+    {
+     "n": 18,
+     "field": 104,
+     "kind": "page",
+     "what": "No control anywhere in 104. Setup Int16[469]:=1042 and |=1 (SC<1150) = 1043; Vivi walks up; Ticketmaster 'Can I help you, son?' (250)",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "104 e7 t0 ip313, ip333; e7 t1 Walk ip529; e4 t1 WindowSync ip155",
+     "gate": "Global.Int16[469]==0 (ip301); SC<1150 (ip322)"
+    },
+    {
+     "n": 19,
+     "field": 104,
+     "kind": "choice",
+     "what": "Masked menu 251 [PCHM=11,10] under EnableDialogChoices(Int16[469]=1043,0): shown absolute 0 Show ticket, 1 What's showing today?, 4 Tell me about Alexandria!, 10 Leave; default absolute 0. Option 0 -> Int16[469]&=8190. Options 1-9 rewrite Int16[469] (ip646-863) and re-ask; Leave -> stage 9, exits without SC",
+     "player_action": "choose the line containing 'ticket' (absolute 0); never step the cursor",
+     "required": true,
+     "where": "104 e7 t1 EnableDialogChoices ip546, WindowSync ip553, SYSVAR[9] ip559, Int16[469]&=8190 ip613",
+     "gate": "Map.Byte[24]=2"
+    },
+    {
+     "n": 20,
+     "field": 104,
+     "kind": "page",
+     "what": "'What's this? ... something odd about this ticket...' (252), 'Why, it's another fake! I've seen so many today.' (253)",
+     "player_action": "Confirm x2",
+     "required": true,
+     "where": "104 e4 t1 ip181, ip190",
+     "gate": "Map.Byte[24]=3"
+    },
+    {
+     "n": 21,
+     "field": 104,
+     "kind": "page",
+     "what": "Vivi 'Nooooo!' (254, async); about 20 frames later Global.Byte[472]:=4 and SC:=1150, then the stage's WaitWindow closes 254",
+     "player_action": "Confirm (closes 254)",
+     "required": true,
+     "where": "104 e7 t1 WindowAsync ip926, Byte[472]:=4 ip955 (guard ip943), SC guard ip964, SC:=1150 ip1046, WaitWindow(1) ip1103",
+     "gate": "Map.Byte[24]=4"
+    },
+    {
+     "n": 22,
+     "field": 104,
+     "kind": "page",
+     "what": "'Now, now.  Don't cry...' (255), 'Here, I'll give you these...' (256, async + WaitWindow)",
+     "player_action": "Confirm x2",
+     "required": true,
+     "where": "104 e4 t1 ip215, ip221, WaitWindow ip235",
+     "gate": "Map.Byte[24]=5 (Map.Byte[27]=0: SYSVAR[19] card count <98, ip1084)"
+    },
+    {
+     "n": 23,
+     "field": 104,
+     "kind": "page",
+     "what": "Three Tetra Master cards (AddItem 512/513/514, not gEventGlobal), each 'Received ... Card!' (70)",
+     "player_action": "Confirm x3",
+     "required": true,
+     "where": "104 e7 t1 AddItem ip1152/1196/1240, WindowSync(7,0,70) ip1179/1223/1267",
+     "gate": "Map.Byte[24]=6"
+    },
+    {
+     "n": 24,
+     "field": 104,
+     "kind": "page",
+     "what": "'Talk to Alleyway Jack to learn more about cards.  Good luck, lad!' (257)",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "104 e4 t1 ip257",
+     "gate": "Map.Byte[24]=7"
+    },
+    {
+     "n": 25,
+     "field": 104,
+     "kind": "warp",
+     "what": "Stage 8: bits 162/163 (music :=3 skipped), Int16[2]:=209, Field(103)",
+     "player_action": "none",
+     "required": true,
+     "where": "104 e2 t1 ip343/351, Int16[2] ip558, Field(103) ip566",
+     "gate": "Map.Byte[24]=8"
+    },
+    {
+     "n": 26,
+     "field": 103,
+     "kind": "warp",
+     "what": "Second visit: spawn (45,-950) INSIDE the booth region e28 (the '?' is up; a Confirm re-offers 215). Walk west into e22: Byte[13]:=3, Byte[14]:=3, Int16[2]:=205, Field(105)",
+     "player_action": "route_to about (-3900,-1350) with NO Confirm",
+     "required": true,
+     "where": "103 e30 t0 L32 spawn; e22 t2 Byte[13]:=3 ip205, Byte[14]:=3 ip244, Int16[2]:=205 ip261, Field(105) ip269",
+     "gate": "none"
+    },
+    {
+     "n": 27,
+     "field": 105,
+     "kind": "walk",
+     "what": "Spawn (-51,2986) with control. Walk into trigger e12 (quad (-964,1677)(-1055,2300)(55,2000)(-122,1203)): DisableMove, Map.Byte[30]:=1 starts the scene",
+     "player_action": "route_to about (-500,1750)",
+     "required": true,
+     "where": "105 e14 t0 L39 spawn; e12 t2 guard ip38, DisableMove ip75, Map.Byte[30]:=1 ip97",
+     "gate": "1150<=SC<1152 (e12 t2 ip38); Main_Init SC<1151 sets Byte[24]=1 (ip300-311)"
+    },
+    {
+     "n": 28,
+     "field": 105,
+     "kind": "page",
+     "what": "Dante: 'Blast it![TIME=30]' (415, self-closing), 'Hey!  You made me miss, you little klutz!' (416), 'Whew. That should do it.' (417), 'Well, it's been a long day.' (418)",
+     "player_action": "Confirm x3",
+     "required": true,
+     "where": "105 e4 t1 ip181, ip347, ip592, ip694",
+     "gate": "Map.Byte[24]=1..2"
+    },
+    {
+     "n": 29,
+     "field": 105,
+     "kind": "page",
+     "what": "Puck: 'Hey, you!  Shrimp! You're the one with the phony ticket, ain'tcha?' (304)",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "105 e3 t1 ip344",
+     "gate": "Map.Byte[24]=4"
+    },
+    {
+     "n": 30,
+     "field": 105,
+     "kind": "choice",
+     "what": "Choice 305: Y-Yeah, it's fake / N-No, it's not fake / Are you Alleyway Jack? All converge (0 -> 308; 1 -> 306+308; 2 -> 307 async + 309); then SC:=1151",
+     "player_action": "choose the line containing 'Yeah' (0, default); Confirm 308",
+     "required": true,
+     "where": "105 e3 t1 WindowSync ip350, SYSVAR[9] ip356, 308 ip372, guard ip429, SC:=1151 ip511",
+     "gate": "Map.Byte[24]=4"
+    },
+    {
+     "n": 31,
+     "field": 105,
+     "kind": "choice",
+     "what": "Choice 310 'Well, whaddya say?': Alright / N-No, I don't want to. Option 1 -> stage 7: 311 'Okay... Later!', control, and the scene parks (the offer returns only after re-entering 105 and talking to Puck)",
+     "player_action": "choose the line containing 'right' (0, default)",
+     "required": true,
+     "where": "105 e3 t1 WindowSync ip668, Map.Byte[27]:=SYSVAR[9] ip674; 'No' path ip742, EnableMove ip993, loop L869; re-ask e3 t3 ip1791",
+     "gate": "Map.Byte[24]=5"
+    },
+    {
+     "n": 32,
+     "field": 105,
+     "kind": "page",
+     "what": "'Awesome! Now for your first assignment!' (312), 'You go stand over there and see if anyone's comin'!' (313); Vivi walks to the lookout; EnablePath(2,1)",
+     "player_action": "Confirm x2",
+     "required": true,
+     "where": "105 e3 t1 ip1032, ip1038; e14 t1 Walk ip2273/ip2280; e3 t1 EnablePath(2,1) ip1113",
+     "gate": "Map.Byte[24]=6..8"
+    },
+    {
+     "n": 33,
+     "field": 105,
+     "kind": "choice",
+     "what": "Choice 314 'All clear?': Yeah, it's clear / I think someone's coming (1 -> 316 and a re-ask via stages 16/17)",
+     "player_action": "choose the line containing 'clear' (0, default)",
+     "required": true,
+     "where": "105 e3 t1 WindowSync ip1243, Map.Byte[27] ip1249",
+     "gate": "Map.Byte[24]=9"
+    },
+    {
+     "n": 34,
+     "field": 105,
+     "kind": "page",
+     "what": "'Awesome! Engage according to mission parameters!' (315); Puck walks to the ladder, climbs and leaves (stages 12-14)",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "105 e3 t1 ip1314 (stage 11, L1165); EnablePath(2,1) ip1448; L1377 leaves",
+     "gate": "Map.Byte[24]=11"
+    },
+    {
+     "n": 35,
+     "field": 105,
+     "kind": "control",
+     "what": "Stage 14: Map.Byte[35]:=0 wakes Alleyway Jack, SC:=1152, EnableMove",
+     "player_action": "none",
+     "required": true,
+     "where": "105 e14 t1 ip2720, guard ip2736, SC:=1152 ip2818, EnableMove ip2859",
+     "gate": "Map.Byte[24]=14"
+    },
+    {
+     "n": 36,
+     "field": 105,
+     "kind": "warp",
+     "what": "Leave south at once into e11: Int16[2]:=111, Field(106) (music :=3 skipped). Alleyway Jack then patrols (446,3659) -> ... -> (-780,-700), which is inside e11; touching him opens a 16-frame '!' window: Confirm/Special -> Bit[3714]:=1 + Field(112); no press -> mugged + Bit[3715]:=1",
+     "player_action": "route_to about (-700,-400) immediately; never Confirm; any Jack contact = VOID",
+     "required": true,
+     "where": "105 e11 t2 ip38/46, Int16[2]:=111 ip227, Field(106) ip235; hazard e7 t1 ip305-517, e7 t2 ip562-662, Bit[3714] ip729, Field(112) ip917, Bit[3715] ip945",
+     "gate": "none"
+    },
+    {
+     "n": 37,
+     "field": 106,
+     "kind": "walk",
+     "what": "Spawn (-123,3494) with control at SC 1152; Ilia's init writes Bit[3712]:=0. Puck on stilts walks (300,3000)->(800,2200)->(800,1800); if the player is farther than 1200 an async 'Over here![TIME=45]' shows (an overlay) and he waits until within 1400; then SC:=1153 and he walks on to (-300,-1300) inside e14 ('Don't fall behind!', 'Into the steeple!' likewise), then Map.Byte[39]:=0",
+     "player_action": "walk (overlay_ok) to about (100,1800) and wait until the published scenario reads 1153, then follow south",
+     "required": true,
+     "where": "106 e16 t0 L109 spawn, EnableMove ip406; e5 t0 Bit[3712]:=0 ip109; e2 t1 ip198, ip210, guard ip230, SC:=1153 ip312, ip362, ip436, Map.Byte[39]:=0 ip520",
+     "gate": "SC==1152 (e0 t0 ip276)"
+    },
+    {
+     "n": 38,
+     "field": 106,
+     "kind": "warp",
+     "what": "Walk into e14 (x -327..151, z -1462..-1188): Byte[13]:=3, Int16[2]:=211, Field(115)",
+     "player_action": "route_to about (-100,-1320) once SC reads 1153",
+     "required": true,
+     "where": "106 e14 t2 Byte[13]:=3 ip194, Int16[2]:=211 ip222, Field(115) ip230",
+     "gate": "none in the script (driver guard SC==1153)"
+    },
+    {
+     "n": 39,
+     "field": 115,
+     "kind": "page",
+     "what": "Main_Init Int16[2]:=213, Byte[8]:=125; Vivi walks from (266,-3431) (inside exit e13) to (206,-1911). Puck: 'Now we're gonna climb up this tower!' (352), 'It's very dangerous. You go first.' (353); SC:=1154; EnableMove",
+     "player_action": "Confirm x2",
+     "required": true,
+     "where": "115 e0 t0 ip249, ip467; e17 t0 L89 spawn; e17 t1 Walk ip816; e1 t1 ip313, ip374, guard ip380, SC:=1154 ip462, EnableMove ip500",
+     "gate": "SC in {1152,1153} (e0 t0 ip231) -> entrance 213 -> Map.Byte[24]=1"
+    },
+    {
+     "n": 40,
+     "field": 115,
+     "kind": "talk",
+     "what": "Ladder region e15 (x -150..150, z -40..144) shows '!' (Bubble(1)); Confirm inside sets Map.Byte[49]=1, the player's stage-2 wait ends and control is taken until stage 10",
+     "player_action": "route_to (0,50), press Confirm",
+     "required": true,
+     "where": "115 e15 t2 Bubble(1) ip53; e15 t3 Map.Byte[49]:=1 ip65; e17 t1 L111 DisableMove ip913",
+     "gate": "Map.Byte[24]=2"
+    },
+    {
+     "n": 41,
+     "field": 115,
+     "kind": "page",
+     "what": "Kupo falls on Vivi: 'Oww![TIME=10]' (356, self-closing); Puck 'Ahahaha! What the heck was that!?' (357, async, control OFF); Kupo 'Sorry 'bout that, kupo!' (358)",
+     "player_action": "Confirm on 357 and 358",
+     "required": true,
+     "where": "115 e17 t1 ip1017; e1 t1 WindowAsync ip574 + WaitWindow(3) ip601; e2 t1 ip479",
+     "gate": "Map.Byte[24]=3..5"
+    },
+    {
+     "n": 42,
+     "field": 115,
+     "kind": "page",
+     "what": "Puck 'That's Kupo. He's a moogle.' (359), Kupo 'Kupo!' (362), Puck 360, 361, Kupo's save tutorial 363, 364, 365, 366",
+     "player_action": "Confirm each",
+     "required": true,
+     "where": "115 e1 t1 ip737, ip815, ip821; e2 t1 ip499, ip527, ip533, ip550, ip556",
+     "gate": "Map.Byte[24]=6"
+    },
+    {
+     "n": 43,
+     "field": 115,
+     "kind": "choice",
+     "what": "Choice 367 'You understand?': I understand / Once more... (1 repeats 365-367); then 'Glad I can help, kupo!' (368)",
+     "player_action": "choose the line containing 'understand' (0, default), then Confirm",
+     "required": true,
+     "where": "115 e2 t1 WindowSync ip562, Instance.Byte[12]:=SYSVAR[9] ip568, loop ip575, 368 ip590",
+     "gate": "Map.Byte[38]=105 (e1 t1 ip862)"
+    },
+    {
+     "n": 44,
+     "field": 115,
+     "kind": "page",
+     "what": "370; Puck climbs, 371 (async); Stiltzkin scene 372 (async), 373, 374, 375, 376, 377 (async), 378, 379, 380, Vivi 381, Kupo 382; Puck 383 (async); then SC:=1155. Control is off throughout",
+     "player_action": "Confirm each (about 15 pages)",
+     "required": true,
+     "where": "115 e1 t1 ip1054, ip1480+WaitWindow ip1507, ip1564+WaitWindow ip1591, guard ip1601, SC:=1155 ip1683; e7 t1 ip144/WaitWindow ip213, ip241, ip272/ip292, ip320, ip326; e2 t1 ip628, ip638, ip674, ip705, ip758; e17 t1 ip1467",
+     "gate": "Map.Byte[24]=8..9 (Map.Byte[55] counter 1..30)"
+    },
+    {
+     "n": 45,
+     "field": 115,
+     "kind": "control",
+     "what": "Stage 10: Kupo becomes talkable (optional Mognet/save/shop - never), Global.Bit[3784] only READ, EnableMove (SC already 1155)",
+     "player_action": "none",
+     "required": true,
+     "where": "115 e17 t1 Map.Byte[38]:=1 ip1615, Bit[3784] read ip1724, EnableMove ip1841",
+     "gate": "Map.Byte[24]=10"
+    },
+    {
+     "n": 46,
+     "field": 115,
+     "kind": "minigame",
+     "what": "Ladder climb: Confirm in e15 at stage 10 runs the player's climb loop, which polls HELD keys: Up (B_KEY 16) or Left (128) climbs 20 per step, Right|Down (96) descends, one animation frame per step, band y in [-2431,-101]; leaving at the top ends it with control off (-> stage 11); reaching the bottom re-enables control (retry)",
+     "player_action": "route_to (0,50), Confirm, then HOLD Up until y<-2431 / 384 opens",
+     "required": true,
+     "where": "115 e15 t3 guard Map.Byte[24]==10 ip73, DisableMove ip103, RunScriptSync(2,250,15) ip125, EnableMove on a bottom exit ip172; e17 t15 B_KEY ip2671/ip2759/ip2847, band test ip3017, top DisableMove ip3210; e17 t1 L1102 DisableMove ip1913",
+     "gate": "Map.Byte[24]=10"
+    },
+    {
+     "n": 47,
+     "field": 115,
+     "kind": "warp",
+     "what": "Stage 12: Puck 'Alright, the play's gonna start if we don't hurry!' (384); bits 162/163; Int16[2]:=0; Field(116) (Byte[13]:=3 ip1923 skipped)",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "115 e1 t1 WindowSync ip1758, bits ip1764/1772, DisableMove ip1799, Int16[2]:=0 ip1951, Field(116) ip1959",
+     "gate": "Map.Byte[24]=12"
+    },
+    {
+     "n": 48,
+     "field": 116,
+     "kind": "page",
+     "what": "Byte[8]:=125; Puck 'Come on!  Get over here!' (387, async + WaitWindow), 'Lemme guess... You're afraid of heights, aren't you?' (388), 'It's okay!  Just pretend you're on the ground!' (389); Vivi crosses a plank",
+     "player_action": "Confirm x3",
+     "required": true,
+     "where": "116 e0 t0 ip335; e2 t1 ip219 + WaitWindow ip246, ip249, ip255",
+     "gate": "Int16[2]!=217 (e0 t0 ip239) -> Map.Byte[24]=1"
+    },
+    {
+     "n": 49,
+     "field": 116,
+     "kind": "page",
+     "what": "'Come on, already! We're runnin' outta time!' (390, async); control is enabled only after it closes",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "116 e2 t1 ip336 (WaitWindow ip363); e21 t1 WaitWindow ip617, EnableMove ip662",
+     "gate": "Map.Byte[24]=3"
+    },
+    {
+     "n": 50,
+     "field": 116,
+     "kind": "walk",
+     "what": "Walk west until player x<=900 (position test, no region)",
+     "player_action": "route_to about (800,260) (on Puck's walked line)",
+     "required": true,
+     "where": "116 e21 t1 ip742, DisableMove ip773",
+     "gate": "Map.Byte[24]=4"
+    },
+    {
+     "n": 51,
+     "field": 116,
+     "kind": "page",
+     "what": "'Not again...' (391), 'Don't worry! It won't fall!' (392, async + WaitWindow); the plank falls and Vivi jumps; 'Hahaha... I guess it fell.' (393), 'No point in worrying now, right?' (394)",
+     "player_action": "Confirm x4",
+     "required": true,
+     "where": "116 e2 t1 ip505, ip511 + WaitWindow ip538, ip552, ip558; e21 t1 jump ip877-886",
+     "gate": "Map.Byte[24]=5..7"
+    },
+    {
+     "n": 52,
+     "field": 116,
+     "kind": "walk",
+     "what": "Stage 8: EnablePathTriangle(217,0), EnableMove; walk north until player z>=2300",
+     "player_action": "route_to about (-715,2400) (on Puck's walked line)",
+     "required": true,
+     "where": "116 e21 t1 ip923, EnableMove ip958, z test ip1038, DisableMove ip1069",
+     "gate": "Map.Byte[24]=8..9"
+    },
+    {
+     "n": 53,
+     "field": 116,
+     "kind": "naming",
+     "what": "'Oh yeah, I almost forgot!' (395), 'I don't even know your name!' (396); SetName(1,87); SetCharacterData(1,0,255,5,1); Menu(1,1) = naming screen for Vivi; Global.Byte[6]|=2; 'So your name's [VIVI], huh?' (397), 'Kinda funny name...' (398), 'My name's Puck! Pleased to meetcha!' (399)",
+     "player_action": "Confirm x2, Session.accept_name, Confirm x3",
+     "required": true,
+     "where": "116 e2 t1 ip728, ip737, SetName ip743, SetCharacterData ip748, Menu(1,1) ip758, Byte[6]|=2 ip765, ip776, ip782, ip788",
+     "gate": "Map.Byte[24]=10"
+    },
+    {
+     "n": 54,
+     "field": 116,
+     "kind": "walk",
+     "what": "Stage 11: EnableMove while Puck walks ahead; walk until player x>3000 && z>10300 (e16 position test: DisableMove, Map.Byte[30]:=1)",
+     "player_action": "route_to about (3370,10500) (on Puck's walked line)",
+     "required": true,
+     "where": "116 e2 t1 EnableMove ip901; e16 t1 test ip11, DisableMove ip50, Map.Byte[30]:=1 ip72",
+     "gate": "Map.Byte[24]=11"
+    },
+    {
+     "n": 55,
+     "field": 116,
+     "kind": "page",
+     "what": "Puck: 'Whew... We finally made it!' (400), 'After this wall, we'll be inside the castle!' (401), 'C'mon, let's go!' (402)",
+     "player_action": "Confirm x3",
+     "required": true,
+     "where": "116 e2 t1 ip1307, ip1390, ip1399",
+     "gate": "Map.Byte[24]=12"
+    },
+    {
+     "n": 56,
+     "field": 116,
+     "kind": "warp",
+     "what": "Stage 13: Byte[8]:=0, DisableMove, fade, Byte[13]:=3, Int16[2]:=0, Field(61) -> Prima Vista/Interior (tshp). SEGMENT END on arrival in 61 (first row Bit[191]:=0 at 61 e0 t0 ip22); 61 then plays FMV003",
+     "player_action": "none",
+     "required": true,
+     "where": "116 e2 t1 ip1469, ip1542, ip1666, ip1694, Field(61) ip1702",
+     "gate": "Map.Byte[24]=13"
+    },
+    {
+     "n": 57,
+     "field": 100,
+     "kind": "other",
+     "what": "OPTIONAL content, never taken: Confirm hot-spots within ~281 units (100 e12/e13 Bits 7215/7214; 101 e12/e13 Bits 7187/7186; 103 e21 Bit 7205; 115 e11/e12 Bits 7204/7203; 116 e17/e18/e19 Bits 7191/7190/7189; each also writes scratch Int16[220],[222],[224],[228], Byte[226]); card NPCs (need 5 cards); jump rope (103 e8); Tom/Mittens (Byte[465]); Kupo's Mognet/save (115 e2 t3); 104 info options (Int16[469] ip646-863); side doors to 107-114, 117",
+     "player_action": "never",
+     "required": false,
+     "where": "100 e12 t1 ip11-225 (pattern); 103 e21 t1 ip225; 115 e11/e12 t1 ip225; 116 e17-e19 t1 ip225; 104 e7 t1 ip646-863",
+     "gate": "a Confirm/Special near them, or a menu cursor move"
+    }
+   ],
+   "sc_ladder": [
+    {
+     "value": 1150,
+     "field": 104,
+     "sid": 7,
+     "tag": 1,
+     "ip": 1046,
+     "when": "SC arrives as 1000 (O1: 50 e17 t1 ip1804). Stage 4, about 20 frames after Vivi's 'Nooooo!' (254, ip926) opens and before its WaitWindow (ip1103); guard SC>1150 at ip964 false (debug overwrite ip1032). abs3186"
+    },
+    {
+     "value": 1151,
+     "field": 105,
+     "sid": 3,
+     "tag": 1,
+     "ip": 511,
+     "when": "Stage 4, after choice 305 and 308/309, whatever the pick; guard ip429 (overwrite ip497). abs2279"
+    },
+    {
+     "value": 1152,
+     "field": 105,
+     "sid": 14,
+     "tag": 1,
+     "ip": 2818,
+     "when": "Stage 14, Puck gone, after Map.Byte[35]:=0 (ip2720) and before EnableMove ip2859; guard ip2736 (overwrite ip2804). abs9966"
+    },
+    {
+     "value": 1153,
+     "field": 106,
+     "sid": 2,
+     "tag": 1,
+     "ip": 312,
+     "when": "After Puck's legs to (800,2200) and (800,1800) once the player is within 1400 (or at once if within 1200: ip187/ip210); guard ip230 (overwrite ip298). A player who outruns Puck leaves with 1152 (115 accepts it). abs1516"
+    },
+    {
+     "value": 1154,
+     "field": 115,
+     "sid": 1,
+     "tag": 1,
+     "ip": 462,
+     "when": "Stage 1, after 353 'It's very dangerous. You go first.', before EnableMove ip500; guard ip380 (overwrite ip448). abs2142"
+    },
+    {
+     "value": 1155,
+     "field": 115,
+     "sid": 1,
+     "tag": 1,
+     "ip": 1683,
+     "when": "Stage 9, after the Stiltzkin scene and 383 'Hey, slave! I thought I ordered you up here!!!', before stage 10's EnableMove (e17 t1 ip1841) and the climb; guard ip1601 (overwrite ip1669). abs3363"
+    }
+   ],
+   "zone_members": "alxt, 48 fields (FBG token alxt, _fieldtable.FIELD_BY_ID; = import-chain 100 --whole-zone): 100-117 (disc-1 visit), 1850-1865, 2050-2054, 2450-2457, 3000. Route: 100, 101, 102, 103, 104, 103, 105, 106, 115, 116; side rooms 107-114, 117 off-route. Scripted Field() seams on the route a whole-zone verbatim remap must carry: 103->104 (entrance 205), 104->103 (209), 115->116 (0); exit seam 116->61 (0, tshp = O1's zone, live O1 member 31211). Off-route scripted: 105->112 (Jack, 111), 104 e7 t1 ip1519 (Leave). All 18 fields 100-117 share one US text block (block 33, 430 entries). No alxt member is deployed today (live ForkDonorPatch: 31101-31112, 31200-31219 only). The data reader's ids (100->6001 ... 61->6023) come from the undeployed C:/gd/journey-scratch/opening chain.",
+   "choices": [
+    {
+     "field": 103,
+     "raw_text": "[PCHC=2,1][WDTH=1,168,-1,2,57,-1][IMME][CHOO][MOVE=18,0]Peek into the ticket booth\\n[MOVE=18,0]Cancel",
+     "default_index": 0,
+     "pick": "option 0; rule match 'ticket booth' -> pick 'ticket booth' (no prompt line; the first option publishes as 'eek into the ticket booth')"
+    },
+    {
+     "field": 104,
+     "raw_text": "[PCHM=11,10][WDTH=2,146,-1,3,202,-1,...][IMME]Pointy-Hat Boy\\n'Uh... Umm...'\\n[CHOO][MOVE=18,0]Show ticket\\n[MOVE=18,0]What's showing today?\\n[MOVE=18,0]What kind of troupe is Tantalus?\\n[MOVE=18,0]What's 'I Want to Be Your Canary' about?\\n[MOVE=18,0]Tell me about Alexandria!\\n[MOVE=18,0]Who's Queen Brahne?\\n[MOVE=18,0]Tell me about Queen Brahne!\\n[MOVE=18,0]Who's Princess Garnet?\\n[MOVE=18,0]Tell me about Princess Garnet!\\n[MOVE=18,0]Is Princess Garnet really that pretty?\\n[MOVE=18,0]Leave  (masked by EnableDialogChoices(Int16[469]=1043): shown absolute 0, 1, 4, 10)",
+     "default_index": 0,
+     "pick": "absolute 0 'Show ticket'; rule match 'ticket' -> pick 'ticket' (it publishes as 'how ticket', the only shown line with 'ticket'); NOT 'Show ticket'. Pick it first: the info options rewrite Int16[469]"
+    },
+    {
+     "field": 105,
+     "raw_text": "[PCHC=3,2][IMME]Rat Kid\\n'I saw the guy tell you it was fake!'\\n[CHOO][MOVE=18,0]Y-Yeah, it's fake\\n[MOVE=18,0]N-No, it's not fake\\n[MOVE=18,0]Are you Alleyway Jack?",
+     "default_index": 0,
+     "pick": "option 0; rule match 'fake' -> pick 'Yeah' (all three converge; 0 is the shortest: 308 only)"
+    },
+    {
+     "field": 105,
+     "raw_text": "[PCHC=2,1][WDTH=2,138,-1][IMME]Rat Kid\\n'Well, whaddya say?'\\n[CHOO][MOVE=18,0]Alright\\n[MOVE=18,0]N-No, I don't want to",
+     "default_index": 0,
+     "pick": "option 0 'Alright'; rule match 'want to' -> pick 'right' (published 'lright')"
+    },
+    {
+     "field": 105,
+     "raw_text": "[PCHC=2,1][WDTH=1,106,-1,2,156,-1][IMME]Rat Kid\\n'All clear?'\\n[CHOO][MOVE=18,0]Yeah, it's clear\\n[MOVE=18,0]I think someone's coming",
+     "default_index": 0,
+     "pick": "option 0; rule match 'someone' -> pick 'clear' (the apostrophes are U+2019; no rule string contains one)"
+    },
+    {
+     "field": 115,
+     "raw_text": "[PCHC=2,1][IMME]Kupo\\n'You understand?'\\n[CHOO][MOVE=18,0]I understand\\n[MOVE=18,0]Once more...",
+     "default_index": 0,
+     "pick": "option 0; rule match 'Once more' -> pick 'understand' (option 1 repeats 365-367)"
+    }
+   ],
+   "nondeterminism": "(1) 103 Hippaul: Global.Byte[472]:=1 (e18 t1 ip218) always on the first visit; :=2 (ip254) only if his 3 legs at speed 15 (~6600 units) end before 103 unloads; 104 writes :=4 (e7 t1 ip955) either way - register ip254 as timing noise. (2) 106 Ilia: Bit[3712]:=0 at e5 t0 ip109 always; after Puck's Map.Byte[39]:=0 (e2 t1 ip520, Puck ends inside e14 so it can land during the exit fade) her loop takes SYSVAR[0]<128 (e5 t1 ip136): branch A writes Bit[3712]:=1 at ip165 as soon as player z<2200 (its :=0 at ip332 needs x<=-1000, off route); branch B (ip475/ip656) needs z<=-1800, unreachable before e14 - register ip165 as random noise. (3) 106 SC:=1153 (e2 t1 ip312) needs the player within 1400 of (800,1800) after Puck's legs; a driver that reaches e14 first leaves with SC 1152 (115 accepts 1152 and writes 1154 anyway) - guard on the published scenario. (4) 105 Alleyway Jack patrols with SYSVAR[0] x offsets (e7 t1 ip379/ip408) from stage 14 and stops inside e11; any contact is a divergence (Bit[3714] with Field(112), or Bit[3715] mugging). (5) 100: mbg101 and the Rat Kid chase are timing-driven, but the bump is forced before the exit and Bit[3718] is fixed. (6) 115 climb is a held-key minigame; a Down/Right hold descends, the bottom re-enables control (retry); writes unchanged. (7) NPC wander in 100/101/102/103/116 reads SYSVAR[0] but writes no global. (8) Only a stray Confirm/Special or cursor move triggers optional writes: hot-spots, NPC talks, Kupo's Mognet/save, 104 info options, and choice 215 again on 103's second visit (spawn inside e28). No battle, no ATE, no random encounter anywhere in 100-117.",
+   "open_questions": [
+    "Does a harness 'hold up' reach B_KEY(16) in game? Code path read (HarnessAgent.IsHeld -> HonoInputManager.IsInput s83 hook -> UIKeyTrigger.GetKey, FieldHUD only -> EventInput.ProcessInput sets 0x10 -> ETb.GetInputs -> EBin B_KEY 1123-1129) but never run; rehearse on stock with a warp to 115 at scenario 1155 (115 e0 t0 ip287 -> entrance 215 -> stage 10 with control, e17 t0 L197).",
+    "Do the timing/random writes land in practice: 103 e18 t1 ip254 Byte[472]:=2 and 106 e5 t1 ip165 Bit[3712]:=1?",
+    "Does the harness publish a choice's prompt line (options[0]) when the window has one? The O2 rules match option text only, so it does not matter for the route.",
+    "Are the frozen goal points walkable, especially 116 after EnablePathTriangle(217,0) (e21 t1 ip923), and does route_to replan when a runtime-disabled triangle blocks it?",
+    "How long does mbg101 play, how long does it block the soft reset, and what target FPS does MBG.Play set while it plays?",
+    "Fork side: which ids will the 48 alxt members get, and does member(116)'s Field(61) stay real 61 (like O1's seam at 100) or get linked to O1's 31211?",
+    "Which later field shows block-33 texts 403-407 (Puck/Vivi 'first time in Alexandria')? Not on this route."
+   ],
+   "other_story_writes": "Ambient prologue per field (e0 t0): Bit[191]:=0, Bit[184]:=0, Int16[9] (355 in 100-104, 275 in 105/106, 412 in 115/116), Byte[13]:=1, Int16[11] (415 in 100-104, -1 after), Byte[14]:=1 (100-104) or :=0 (105/106/115/116), tails Byte[13]:=2 (and Byte[14]:=2 in 100-104); ips in O2_ROUTE.md. 100: Byte[8]:=125 (e19 t1 ip834); UInt16[21]:=2 ip981; Byte[303]:=0 ip1066, ++ ip1100; Byte[4]:=0 ip1497; UInt16[19]|=2 ip1531; Byte[4]:=0 ip1562; Byte[17]:=0 ip1570; Byte[18]:=1 ip1578; Bit[3718]:=1 (e1 t18 ip579); Int16[2]:=200 (e15 t2 ip255). 101: Int16[2]:=202 (e0 t0 ip291); Bit[3717]:=1 (e7 t1 ip319); Int16[2]:=201 (e16 t2 ip255). 102: Int16[2]:=203 (e8 t2 ip255). 103: Byte[8]:=125 (e0 t0 ip367, both visits); Byte[472]:=1 (e18 t1 ip218) [+ :=2 ip254, timing]; Int16[2]:=205 (e30 t1 ip972). 104: Int16[469]:=1042 (e7 t0 ip313), |=1 (ip333), &=8190 (e7 t1 ip613); Byte[472]:=4 (ip955); SC:=1150 (ip1046); Int16[2]:=209 (e2 t1 ip558). 103 again: Byte[13]:=3 (e22 t2 ip205), Byte[14]:=3 (ip244), Int16[2]:=205 (ip261). 105: SC:=1151 (e3 t1 ip511), SC:=1152 (e14 t1 ip2818), Int16[2]:=111 (e11 t2 ip227). 106: Bit[3712]:=0 (e5 t0 ip109) [+ :=1 e5 t1 ip165, random]; SC:=1153 (e2 t1 ip312); Byte[13]:=3 (e14 t2 ip194); Int16[2]:=211 (ip222). 115: Int16[2]:=213 (e0 t0 ip249); Byte[8]:=125 (ip467); SC:=1154 (e1 t1 ip462), SC:=1155 (ip1683); Int16[2]:=0 (ip1951). 116: Byte[8]:=125 (e0 t0 ip335); Byte[6]|=2 (e2 t1 ip765, after Menu(1,1) ip758); Byte[8]:=0 (ip1469); Byte[13]:=3 (ip1666); Int16[2]:=0 (ip1694). Skipped exit music writes (bits 162/163 set first): 100 e15, 101 e16, 102 e8, 103 e30 t1, 104 e2 t1, 105 e11, 115 e1 t1 (ip1923). Not gEventGlobal: AddItem 262, cards 512-514, SetName/SetCharacterData (player data, DoEventCode JOIN), Menu(1,1) naming, PARTYADD (a Map-var expression). FieldEntrance chain: 102 -> 200 -> 202 -> 201 -> 203 -> 205 -> 209 -> 205 -> 111 -> 211 -> 213 -> 0 -> 0. End state: SC 1155, Int16[2] 0, UInt16[21] 2 (Vivi only), Byte[6] |= 2, Byte[472] 4, Int16[469] 1042, Bit[3717]/[3718] 1.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2774c9ef-d3fb-41a5-bd52-1511e4f51781\\scratchpad\\o2_research\\O2_ROUTE.md"
+  },
+  "disputes": [
+   {
+    "topic": "100's opening movie (Cinematic(0,5,1,1)): FMV or MBG, gate, skip dialog",
+    "bytes_reader": "mbg101 in-field movie background (MBGDiscTable[1][5]); Cinematic(2,0,0,0) plays it",
+    "data_reader": "Arrival FMV gated on SYSVAR[15]&128==0; probably FMV003 (unverified). The harness auditor also said a Confirm opens the skip dialog here",
+    "settled": "Bytes reader. FF9FieldFMVDispatch(0, 0x0105) = MBGDiscTable[1][5] = MBG_DEF('mbg101', isRGB24 0, type 1 MBG_WITH_DATA). MBG.Play arms the skip hit-area only for type != 1, so no 'skip movie' dialog in 100. SYSVAR[15] (FF9FieldFMVSync) returns 0/1/16, so &128==0 is always true: no gate. FMV003 is MBGDiscTable[1][8], played by 61 e2 t1 ip159 after the segment end",
+    "ref": "100 e0 t0 ip449, ip473, ip551; e19 t1 ip751; MBG.cs:800-850 (table), MBG.cs:205-208; MBG_DEF.cs:5; fldfmv.cs:50-90; EventEngine.GetSysvar.cs case 15"
+   },
+   {
+    "topic": "Exit music writes at 103 e22 and 106 e14",
+    "bytes_reader": "103 e22 writes Byte[13]:=3 ip205 and Byte[14]:=3 ip244; 106 e14 writes Byte[13]:=3 ip194",
+    "data_reader": "Listed only Int16[2]:=205 (ip261) and :=211 (ip222); music writes only as a generic rule",
+    "settled": "Bytes reader. Neither exit sets Map.Bit[162]/[163] (only 100e15/101e16/102e8/103e30t1/104e2t1/105e11/115e1t1 do), map vars are zeroed at every field start, and Byte[13]=2<9, so the guarded stores fire",
+    "ref": "103 e22 t2 ip183/ip194/ip205 and ip222/ip233/ip244; 106 e14 t2 ip172/ip183/ip194; EventEngine.cs:625-626"
+   },
+   {
+    "topic": "105 choice 310 option 1 'N-No, I don't want to'",
+    "bytes_reader": "Stage 7: Puck steps aside, control returns, the offer comes back only after re-entering 105",
+    "data_reader": "311 'Later!' + control; the re-ask path was not traced",
+    "settled": "Bytes reader, made precise: option 1 -> Byte[27]=1 -> stage 7; e3 t1 L590 shows 311 (ip742), gives control (ip993) and parks in an endless loop (L869); e1 waits for Bit[231] at stage 7 forever; talking to Puck then gives 317 'Outta my way!'. Only re-entering 105 (SC 1151 -> Byte[24]=15, e0 t0 ip279) and talking to Puck (e3 t3 SWITCH(15) -> Map.Byte[24]:=5 ip1791) re-asks 310. The route picks 'Alright'",
+    "ref": "105 e3 t1 ip668/ip674, ip742, ip993, L869; e1 t1 ip219 (stage 7), L230; e3 t3 ip1779-ip1802; e0 t0 ip268-ip311"
+   },
+   {
+    "topic": "105 Alleyway Jack contact without a press",
+    "bytes_reader": "No press = mugging: gil taken, Bit[3715]:=1 ip945",
+    "data_reader": "Contact + Confirm/Special within 16 frames starts a side trip: Bit[3714]:=1 (ip729), Int16[2]:=111 (ip909), Field(112), Bit[3715] (ip945)",
+    "settled": "Bytes reader (and the harness auditor): two exclusive branches. Confirm/Special inside the 16-frame window sets SByte[3]=99 -> Bit[3714]:=1 ip729, Int16[2]:=111 ip909, Field(112) ip917. No press -> player t12 'Mugged for [NUMB=0] Gil!' (318) / 'The stranger ran away.' (319) and Bit[3715]:=1 ip945. His patrol ends at (-780,-700), inside exit e11",
+    "ref": "105 e7 t2 ip562-ip662 (window loop), ip665/ip729/ip909/ip917, ip921/ip945; e7 t1 ip305-ip517 (patrol); e14 t12 ip2962/ip2971"
+   },
+   {
+    "topic": "103 booth bubble symbol",
+    "bytes_reader": "'?' bubble",
+    "data_reader": "'!'",
+    "settled": "'?': e28 t2 Bubble(0) = BubbleUI.IconType.Question. The 115 ladder uses Bubble(1) = Exclamation '!'",
+    "ref": "103 e28 t2 ip42; 115 e15 t2 ip53; BubbleUI.cs:506-513"
+   },
+   {
+    "topic": "105 stage of 315 'Engage according to mission parameters!'",
+    "bytes_reader": "gate Map.Byte[24]=10",
+    "data_reader": "placed with stage 9/10",
+    "settled": "Stage 11: e3 t1 SWITCH(3,...) maps 11 -> L1165 (315 at ip1314); stage 10 is the player's animation (e14 t1 L1912). Minor",
+    "ref": "105 e3 t1 ip153 SWITCH, ip1314; e14 t1 ip548 SWITCH, ip2456"
+   },
+   {
+    "topic": "115 climb call site",
+    "bytes_reader": "e15 tag3 ip65 RunScriptSync(2,250,15)",
+    "data_reader": "e15 tag3 (Byte[24]==10) -> RunScriptSync e17 tag15",
+    "settled": "ip65 is Map.Byte[49]:=1; the climb call RunScriptSync(2,250,15) is at e15 t3 ip125, behind Map.Byte[24]==10 (ip73) and DisableMove (ip103). Minor ip correction",
+    "ref": "115 e15 t3 ip65, ip73, ip103, ip125, ip172"
+   },
+   {
+    "topic": "O2 fork member ids",
+    "bytes_reader": "(none given)",
+    "data_reader": "100->6001 ... 116->6046, 61->6023 from C:/gd/journey-scratch/opening/campaign.toml",
+    "settled": "That chain is not deployed. The live FF9CustomMap holds the O1 chain 31200-31219 (61 -> 31211) and ForkDonorPatch rows 31101-31112 and 31200-31219 only: no alxt member exists. O2 ids are a build decision",
+    "ref": "<game>/FF9CustomMap/ForkDonorPatch.txt, DictionaryPatch.txt (read-only); studies/story-trace/o1_forks.json"
+   },
+   {
+    "topic": "Harness auditor: untimed async windows the script waits on while control is held (115 mes 357, 371)",
+    "bytes_reader": "357 async + WaitWindow at stages 3-5 (no control claim)",
+    "data_reader": "'115 stage 9 has an async nag (mes383) inside a fixed cutscene'",
+    "settled": "Refuted. 115 control is off from e17 t1 DisableMove ip913 (stage 2) until EnableMove ip1841 (stage 10); the only EnableMove in between, Kupo's code-101 path (e2 t1 ip367), is dead: no store of Map.Byte[38]=101 exists in 115. 357 (e1 ip574), 371 (ip1480) and 383 (ip1564) show with control off, so O1's 'page when control is off' rule already covers them. 116 enables control only after WaitWindow (e21 ip617 -> ip662). The only windows up WITH control on the route are 106's [TIME=45] hints",
+    "ref": "115 e17 t1 ip913, ip1841; e2 t1 ip142 SWITCHEX, ip367; e1 t1 ip574/ip601; 116 e21 t1 ip617/ip662; 106 e2 t1 ip198/ip362/ip436"
+   },
+   {
+    "topic": "Harness auditor: climb beat keyed (115, SC 1154, 2nd ladder visit)",
+    "bytes_reader": "SC:=1155 at stage 9, climb at stage 10",
+    "data_reader": "SC:=1155 before the ladder climb",
+    "settled": "Both readers are right, the auditor's key is wrong: SC:=1155 (e1 t1 ip1683) precedes stage 10's EnableMove (e17 t1 ip1841); the climb beat is keyed (115, 1155)",
+    "ref": "115 e1 t1 ip1683; e17 t1 ip1841; e15 t3 ip73"
+   },
+   {
+    "topic": "Harness auditor's beat table lacks (106, SC 1152)",
+    "bytes_reader": "Spawn with control; SC 1153 after Puck's first leg",
+    "data_reader": "SC:=1153 once the player is within 1400",
+    "settled": "Control comes on arrival (e16 t0 ip406 / e0 t0 ip467) with SC 1152; 1153 is written later (e2 t1 ip312). The table needs (106,1152) -> approach Puck, wait for 1153",
+    "ref": "106 e16 t0 ip406; e2 t1 ip187-ip312"
+   },
+   {
+    "topic": "Harness auditor's 104 rule match 'Show ticket'",
+    "bytes_reader": "match 'ow ticket' or 'ticket'",
+    "data_reader": "match 'how ticket' / 'ticket'",
+    "settled": "The auditor's rule never fires: pick_for matches `match` against the prompt and shown lines, and 'Show ticket' is the first line after [CHOO][MOVE=18,0], published as 'how ticket' (O1 lesson 1). Use match 'ticket', pick 'ticket' (absolute 0 via `active`)",
+    "ref": "o1_opening.py:320-338; s83-harness-agent.patch ~1600-1630 (ChoicePhrases, ActiveIndexes); 104 e7 t1 ip546/ip553"
+   },
+   {
+    "topic": "Gates auditor: a failed fldfmv gate would stall field 100 (VOID)",
+    "bytes_reader": "fldfmv.cs case 5 has an EffectiveFieldId==100 gate",
+    "data_reader": "(none)",
+    "settled": "By the code, the gate (fldfmv.cs:112) only lets status 5 play without the PLAY bit; 100 sets that bit itself with Cinematic(2,0,0,0) at ip551 once SYSVAR[15] reads 0 (status >=5), so a failed gate delays the MBG start rather than stalls it. Not tested in game",
+    "ref": "fldfmv.cs:50-130; 100 e0 t0 ip483-ip551; e19 t1 ip751"
+   },
+   {
+    "topic": "Harness auditor: 61 Main_Init writes Int16[2]:=10000",
+    "bytes_reader": "(not covered)",
+    "data_reader": "(not covered)",
+    "settled": "Conditional on Bit[184]==1 (61 e0 t0 ip30-ip41), never true after 116's prologue cleared Bit[184]. 61's first row is Bit[191]:=0 at e0 t0 ip22",
+    "ref": "61 e0 t0 ip22, ip30, ip41; 116 e0 t0 ip57"
+   }
+  ],
+  "unverified": [
+   "In game, whether a harness 'hold up' reaches the 115 climb loop's B_KEY(16); the code path was read, not run.",
+   "The climb's length in frames: about 117 loop iterations of 20 units, each playing one animation frame (e17 t15 ip2980-3011).",
+   "Whether Hippaul's Byte[472]:=2 (103 e18 t1 ip254) and Ilia's Bit[3712]:=1 (106 e5 t1 ip165) land in real runs.",
+   "Whether choice prompts (options[0]) publish for windows with a prompt, and that 104's PCHM menu publishes its first line as 'how ticket' (from O1 lesson 1, not observed for a masked window).",
+   "mbg101's length, how long it blocks the soft reset, and the FPS it sets while playing.",
+   "The fldfmv-gate reading: a failed gate should delay rather than stall (code only).",
+   "Walkability of the suggested goal points: (0,7000), (-2900,-500), (750,5800), (45,-950), (-3900,-1350), (-500,1750), (-700,-400), (100,1800), (-100,-1320), (0,50), (800,260), (-715,2400), (3370,10500). Each was tested inside its region with the engine's IsInQuad rule, but none against the walkmesh. (45,-950) is the game's own 103 entrance-209 spawn.",
+   "How route_to's walker avoidance treats the Rat Kid's MoveInstant chase in 100, and Alleyway Jack's patrol pace (speed 15) against the harness's walking speed in 105.",
+   "The incoming Byte[14] value at 100 from 52's exit. It is irrelevant here: 100's prologue writes Byte[14]:=1 either way (Int16[11]=415).",
+   "Which later field shows the block-33 texts 403-407."
+  ],
+  "harness_gaps": {
+   "summary": "No battle, ATE or random encounter in O2, and none of its minigames is on the story path except the 115 hold-to-climb ladder.\n\n**Already covered by existing verbs:** gateway crossing; the region-plus-Confirm pattern (the 103 booth '?' and the 115 ladder '!'); the 105 walk-in trigger; Vivi's naming screen; the masked 104 menu (via `active`); FMV/MBG waits; end_run recovery.\n\n**Real gaps:**\n1. The O1 control rule ('control anywhere else -> VOID') must become a beat table keyed on (donor, published SC, per-field counter). The auditor's table missed (106,1152), keyed the climb on 1154 instead of 1155, and listed only one of 116's three control windows.\n2. A hold-Up climb verb for 115. The code path from 'hold up' to B_KEY(16) was read but never run; it can be rehearsed on stock with a warp to 115 at scenario 1155.\n3. There is no offline rehearsal of the O2 driver.\n4. Map stage variables and the bubble state are not published.\n\n**Refuted gap:** the auditor's 'untimed async windows while control is held' does not exist on this route. 115 withholds control from ip913 to ip1841, and 116 grants control only after WaitWindow. O1's overlay rule is correct as is.\n\n**New risks the route reveals:**\n- Runtime walkmesh edits the offline planner cannot see (100 path 3, 105 path 2, 116 triangle 217).\n- The 103 second-visit spawn is inside the booth region.\n- The 106 SC-1153 distance condition.\n- 106's [TIME=45] hints need `overlay_ok`.\n- 100's movie is an MBG with no skip dialog, and it changes the target FPS.\n- 104's info options write Int16[469].\n- The choice rules must match option text: 'ticket', not 'Show ticket'.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2774c9ef-d3fb-41a5-bd52-1511e4f51781\\scratchpad\\o2_research\\O2_ROUTE.md",
+   "items": [
+    {
+     "topic": "Segment end: arrival in 61",
+     "status": "ready",
+     "evidence": "116 e2 t1 ip1702 Field(61); Field() census of 100-106/115/116 (all other targets alxt); 61 e0 t0 ip22 Bit[191]:=0 is the first row (ip41 Int16[2]:=10000 behind Bit[184]==1 at ip30); o1_opening.py:373 end_field test",
+     "smallest_fix": "end_field=61 in donor terms; cut at the first row in donor 61; stock_fields 100-106, 115, 116, 61."
+    },
+    {
+     "topic": "Start of O2 (warp into 100 at entrance 102, SC 1000)",
+     "status": "risk",
+     "evidence": "100 e0 t0 ip243 SWITCHEX: 102 is the default first-visit path. O1's member(52)=31202 targets REAL 100 (PLAN.md:714, o1_forks.json), so a continuous O1->O2 fork run lands in stock 100. The story reads SC before 104 only for Hippaul's SC<1152 spawn (103 e0 t0 ip289). A warp start differs from O1's end in UInt16[21] and Byte[6], and only Byte[6]|=2 (116 e2 t1 ip765) shows it (value 2 vs 3, the same on both sides)",
+     "smallest_fix": "Per run: New Game, trace on, raw `warp <100|member(100)> 102 1000`, wait on field_id (o1_opening.py:548-551 pattern); register Byte[6]'s written value as start-dependent."
+    },
+    {
+     "topic": "Beat table replaces 'control anywhere else -> VOID'",
+     "status": "gap",
+     "evidence": "o1_opening.py:424-452. Control windows on the route: 100 e19 t1 ip2020 (+ e19 t15 ip2143 after the bump), 101 e7 t1 ip358, 102 e0 t0 ip543, 103 e0 t0 ip551 (both visits), 105 e0 t0 ip494 and e14 t1 ip2859, 106 e16 t0 ip406, 115 e1 t1 ip500 and e17 t1 ip1841, 116 e21 t1 ip662 and ip958, e2 t1 ip901",
+     "smallest_fix": "Key on (donor, published scenario, driver counter):\n- (100,1000): cross e15, re-issuing after the bump.\n- (101,1000): e16.\n- (102,1000): e8.\n- (103,1000): booth (45,-950) + Confirm.\n- (103,1150): e22 with no Confirm.\n- (105,1150): into e12.\n- (105,1152): e11 at once.\n- (106,1152): walk to ~(100,1800) and wait for SC 1153.\n- (106,1153): e14.\n- (115,1154): ladder (0,50) + Confirm.\n- (115,1155): ladder + Confirm + climb.\n- (116,1155): #1 x<=900, #2 z>=2300, #3 x>3000 && z>10300.\n\nUnmatched control stays VOID."
+    },
+    {
+     "topic": "Gateway crossing",
+     "status": "ready",
+     "evidence": "Exits 100 e15, 101 e16, 102 e8, 103 e22, 105 e11, 106 e14 (SetRegion decodes in reconcile/regions.py); goal points tested inside with the engine's IsInQuad rule (reconcile/inquad.py); session.py route_cross; dali_tour.py _cross",
+     "smallest_fix": "Reuse dali_tour's _cross call shape with the donor walkmesh (P-FLOOR) and the other gateways as avoid zones."
+    },
+    {
+     "topic": "Region + Confirm (103 booth '?', 115 ladder '!')",
+     "status": "ready",
+     "evidence": "103 e28 t2 Bubble(0) ip42, t3 Map.Byte[24]:=1 ip95; 115 e15 t2 Bubble(1) ip53, t3 ip65/ip73/ip125. Tag 3 runs on Confirm|Special inside the region (EventCollision.cs CheckQuadInput ~58-80); O1 candle pattern o1_opening.py:433-451",
+     "smallest_fix": "Goals (45,-950) (103's own entrance-209 spawn, inside e28) and (0,50) (inside e15); a plain Confirm; then wait for the choice or the loss of control."
+    },
+    {
+     "topic": "Walk-in trigger 105 e12",
+     "status": "ready",
+     "evidence": "105 e12 t2 guard ip38, DisableMove ip75, Map.Byte[30]:=1 ip97; a region's tag 2 runs every frame the player has control inside it (EventEngine.ProcessEvents.cs:184-187 -> EventCollision.cs:300)",
+     "smallest_fix": "route_to (-500,1750) (inside e12); treat the loss of control as the beat firing."
+    },
+    {
+     "topic": "Position tests with no region (116)",
+     "status": "ready",
+     "evidence": "116 e21 t1 ip742 (x<=900), ip1038 (z>=2300); e16 t1 ip11 (x>3000 && z>10300); 116 has no SetRegion at all. Puck's walked lines: e2 t1 ip404 (-735,271), ip624 (-705,3601), ip955-ip1209 up to (3348,11138)",
+     "smallest_fix": "Frozen goals on Puck's lines: (800,260), (-715,2400), (3370,10500); an offline check that each satisfies its test; driver counter #1/#2/#3."
+    },
+    {
+     "topic": "Runtime walkmesh edits the offline planner does not see",
+     "status": "risk",
+     "evidence": "100 e1 t1 EnablePath(3,0) ip124 -> (3,1) ip410 (during the chase); 105 e0 t0 EnablePath(2,0) ip296/ip325 -> (2,1) e3 t1 ip1113/ip1448 (then never disabled on the story path); 116 e21 t1 EnablePathTriangle(217,0) ip923 right before the z>=2300 walk",
+     "smallest_fix": "Plan 116's north walk with triangle 217 masked (and 105's walks with path 2 per stage); on a stall, log the player's position and replan rather than retry the same path."
+    },
+    {
+     "topic": "Rat Kid chase in 100",
+     "status": "risk",
+     "evidence": "100 e1 t1 ip112 (z>=1600), ip206 MoveInstant chase, ip311 dist<200, ip337 Map.Byte[31]:=3 + CloseWindow 0-7 (DialogManager.cs:214 AfterHidden), ip414 -> e1 t18",
+     "smallest_fix": "Walk the 100 -> e15 leg with npcs=False; treat control loss as the bump; page 155; re-issue the cross after control returns (e19 t15 ip2143); expect Bit[3718]:=1 at e1 t18 ip579."
+    },
+    {
+     "topic": "Following Puck in 106/116, and the 106 SC-1153 guard",
+     "status": "risk",
+     "evidence": "106 e2 t1 ip187/ip210 (1200/1400 distance), SC:=1153 ip312; 327/328/329 are [TIME=45] async windows shown WITH control (ip198/ip362/ip436); 116 e2 t1 L686 Puck walks after EnableMove ip901",
+     "smallest_fix": "route_to(..., overlay_ok=True) in 106; walk to ~(100,1800) and wait until scenario==1153 before entering e14; in 116 go to the fixed goals, do not track Puck."
+    },
+    {
+     "topic": "Ladder climb (hold Up) in 115",
+     "status": "gap",
+     "evidence": "115 e15 t3 ip73/ip103/ip125 RunScriptSync(2,250,15); e17 t15 B_KEY(16) ip2671, B_KEY(96) ip2759, B_KEY(128) ip2847, band ip3017, top DisableMove ip3210; e17 t1 L1102 -> DisableMove ip1913. Input path: HarnessAgent.IsHeld -> HonoInputManager.IsInput (s83 hook) -> UIKeyTrigger.GetKey (FieldHUD only) -> EventInput.ProcessInput sets EventInput.Up 0x10 -> ETb.GetInputs -> EBin B_KEY (EBin.cs:1123-1129)",
+     "smallest_fix": "Climb beat: after the (115,1155) ladder Confirm, while field==115, no control, no dialog and -2431<=y<=-101, send `hold up 30` in bursts until 384 opens or y<-2431; never hold Down/Right. First rehearse it on stock: warp 115 at scenario 1155 (e0 t0 ip287 -> entrance 215 -> stage 10 with control)."
+    },
+    {
+     "topic": "Windows up while the player holds control",
+     "status": "ready",
+     "evidence": "The auditor's gap is refuted. 115: DisableMove e17 t1 ip913 (stage 2) until EnableMove ip1841 (stage 10); the code-101 EnableMove (e2 t1 ip367) is dead because no Map.Byte[38]=101 store exists; 357/371/383 show with control off. 116: e21 t1 WaitWindow ip617 precedes EnableMove ip662. The only windows up WITH control are 106's [TIME=45] hints",
+     "smallest_fix": "Keep O1's rule (page only with control off; a window up with control is an overlay); no '[TIME=' rule is needed."
+    },
+    {
+     "topic": "Choice rule table",
+     "status": "ready",
+     "evidence": "o1_opening.py:320-338 pick_for (match on prompt+lines, `active` -> absolute index); s83 patch ~1600-1630 publishes ChoicePhrases + ActiveIndexes; 104 EnableDialogChoices(1043) -> SetChooseParam default absolute 0 (ETb.cs:248-260); every route choice defaults to 0 (ETb.cs:100-103)",
+     "smallest_fix": "Donor-scoped rules on option text only:\n- (103, 'ticket booth' -> 'ticket booth')\n- (104, 'ticket' -> 'ticket'), not 'Show ticket'\n- (105, 'fake' -> 'Yeah')\n- (105, 'want to' -> 'right')\n- (105, 'someone' -> 'clear')\n- (115, 'Once more' -> 'understand')\n- keep (None, 'want to skip' -> default)\n\nVOID if 215 reopens at SC 1150."
+    },
+    {
+     "topic": "Second naming screen (Vivi, 116)",
+     "status": "ready",
+     "evidence": "116 e2 t1 Menu(1,1) ip758, Byte[6]|=2 ip765; o1_opening.py:376-380 accept_name is character-agnostic",
+     "smallest_fix": "Beat 'named' in 116; ladder key Byte[6]|=2 at 116 e2 t1 ip765."
+    },
+    {
+     "topic": "Movies (100 mbg101, 61 FMV003)",
+     "status": "risk",
+     "evidence": "mbg101 = MBGDiscTable[1][5] type 1: no MovieHitArea (MBG.cs:205-208), so no skip dialog; MBG.Play sets the target FPS to the movie's. FMV003 = [1][8] type 0 (skippable) at 61 e2 t1 ip159, after the cut",
+     "smallest_fix": "Passive wait in 100 (no skip rule applies); tick planning must not assume a fixed rate during mbg101; keep end_run's warp to 4600 before the reset."
+    },
+    {
+     "topic": "Alleyway Jack in 105",
+     "status": "risk",
+     "evidence": "105 e7 t1 patrol ip305-ip517, ending at (-780,-700) inside e11; e7 t2 16-frame window ip617-ip662; Bit[3714] ip729 + Field(112) ip917; Bit[3715] ip945 (mugging)",
+     "smallest_fix": "Cross e11 as soon as control returns at stage 14 (npcs=True); never Confirm; VOID if Bit 3714/3715 is written or e7's tag 2 ran."
+    },
+    {
+     "topic": "103 second-visit spawn inside the booth region",
+     "status": "risk",
+     "evidence": "103 e30 t0 L32 spawn (45,-950), inside e28 by the engine rule (reconcile/inquad.py); e28 t3 ip95 re-arms choice 215",
+     "smallest_fix": "No Confirm with control on the (103,1150) beat; VOID if 215 opens at SC 1150."
+    },
+    {
+     "topic": "104 info options",
+     "status": "ready",
+     "evidence": "104 e7 t1 ip646-ip863 rewrite Int16[469] for options 1-9 and re-ask; option 10 exits without SC (e7 L789, ip1511/ip1519)",
+     "smallest_fix": "choose(0) directly (absolute 0 = the default); never step the cursor."
+    },
+    {
+     "topic": "Recovery to the title at the end",
+     "status": "ready",
+     "evidence": "o1_opening.py:458-482 end_run (warp 4600 first, then reset); 61 opens with FMV003",
+     "smallest_fix": "Reuse end_run; re-check at preflight that 4600 is still registered."
+    },
+    {
+     "topic": "Run budget and session length",
+     "status": "risk",
+     "evidence": "O1 took ~3.5 min/run (PLAN.md story-o1e). O2 has 10 field visits, the mbg101, 5 choices, about 60 pages, the naming screen and the climb",
+     "smallest_fix": "Time one stock rehearsal and set run_s to ~1.5x; timescale 1.0; optional split at arrival in 115 (SC-keyed)."
+    },
+    {
+     "topic": "Offline rehearsal of the driver",
+     "status": "gap",
+     "evidence": "O1 needed sessions o1-o1d for driver faults (PLAN.md). 105, 106 and 115 key their scenes on SC (105 e0 t0 ip268/ip300, 106 ip276, 115 ip231-ip287), so stock warps with a scenario rehearse single beats",
+     "smallest_fix": "Rehearse per beat on stock (warp 105 SC 1150; 106 SC 1152; 115 SC 1152 and 1155), and unit-test pick_for on the real .mes lines with FakeGame.scene()."
+    },
+    {
+     "topic": "Stage and bubble invisibility",
+     "status": "gap",
+     "evidence": "Map.Byte[24] and the Bubble/EIcon state are not published by s83/s89/s90",
+     "smallest_fix": "Use region_contains/inquad offline on the published x/z plus SC and driver counters; no DLL change needed."
+    },
+    {
+     "topic": "Dialogue transcript comparison (report-only)",
+     "status": "risk",
+     "evidence": "Self-closing windows on the route: 148, 154, 356 [TIME=10/20], 415 [TIME=30], 327-329 [TIME=45] (overlays)",
+     "smallest_fix": "Fold [TIME=] windows out of the transcript before comparing (the O1 lesson)."
+    }
+   ]
+  },
+  "fork_gates": {
+   "summary": "No fork gate touching fields 100-117 or 61 can change a story write in O2.\n\nThe code-level gates on the route are all wrapped, and I spot-checked each:\n- DialogManager.cs:214 (the field-100 dialog close, keyed on Map.Byte[31]==3, set at 100 e1 t1 ip337).\n- fldfmv.cs:112. By the code, a failed gate would delay the mbg101 start, not stall it.\n- The VIB name key (s62).\n- The s30 effMapNo sites.\n- The EventCollision/EMinigame aliases.\n- The narrow-map widths.\n\nQuadCircleData has no alxt or 61 keys, so region hit shapes are the same on both sides. The live DLL (sha1 46582b24) is the audited build.\n\nWhat remains unwrapped is visual or audio only: the widescreen cap for 116 cam 1, MCF shadows, and reverb.\n\n**Preconditions:**\n- ForkDonorPatch rows for the alxt members, then a relaunch. There are none today.\n- Each member registers text block 33.\n- The S side must stay stock. Today no mod folder overrides block 33, any EVT_ALEX1_AT_* script or STAGE_BK, and DictionaryPatch has no FieldScene rows for 100-117 or 61.\n\n**Two seams to decide:**\n- **Start.** O1's member(52), 31202, targets REAL 100, so the fork side must warp into member(100).\n- **End.** member(116)'s Field(61) stays real 61 unless the import links it to O1's 31211. Either way, cut in donor terms.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2774c9ef-d3fb-41a5-bd52-1511e4f51781\\scratchpad\\o2_research\\O2_ROUTE.md",
+   "items": [
+    {
+     "topic": "Segment boundary and zone list",
+     "status": "ready",
+     "evidence": "_fieldtable.FIELD_BY_ID: 48 alxt fields; 61 = fbg_n00_tshp_map009_th_bst_0; Field() census of 100-106/115/116: only 116 e2 t1 ip1702 leaves alxt",
+     "smallest_fix": "None; cut O2 at the first trace row in donor 61."
+    },
+    {
+     "topic": "Battle with a baked next field (s24/s25)",
+     "status": "ready",
+     "evidence": "No Battle/BattleEx/SetRandomBattles in 100-117 (gates auditor census, scan2_ops.txt); none in my route listings",
+     "smallest_fix": "None for O2."
+    },
+    {
+     "topic": "100 dialog close after the Rat Kid bump",
+     "status": "ready",
+     "evidence": "DialogManager.cs:214 wraps fldMapNo with EffectiveFieldId; keyed on Map.Byte[31]==3 (100 e1 t1 ip337, then CloseWindow 0-7 ip345-ip366); no gEventGlobal write",
+     "smallest_fix": "None; the O2 fork runs are its in-game proof."
+    },
+    {
+     "topic": "100 MBG play without the PLAY bit (fldfmv status 5)",
+     "status": "ready",
+     "evidence": "fldfmv.cs:112 wrapped. The only Seek in 100 is Cinematic(0,5,1,1) ip473; the script sets the PLAY bit itself with Cinematic(2,0,0,0) ip551 after SYSVAR[15] reads 0 (ip483-ip518), so a failed gate delays the start instead of stalling",
+     "smallest_fix": "None. If a fork run's 100 opening lags, compare the MBG start frame."
+    },
+    {
+     "topic": "VIB name key (s62)",
+     "status": "ready",
+     "evidence": "VIB ops at 100 e1 t18 ip517-ip527, 115 e17 t1 ip996-ip1006, 116 e21 t1 ip833-ip843; without s62 they throw mid-frame (gates auditor, HonoluluFieldMain.cs:93-107)",
+     "smallest_fix": "None (live)."
+    },
+    {
+     "topic": "DoEventCode s30 effMapNo sites and alias gates",
+     "status": "ready",
+     "evidence": "DoEventCode.cs:670 (101), :677 (108), :1137/:1544/:3251 (112), :1204/:1321/:2076 (103), :2507 (114) use effMapNo; EventCollision.cs:358 and EMinigame.cs:110/:344 alias EffectiveFieldId (read)",
+     "smallest_fix": "None."
+    },
+    {
+     "topic": "Region hit shape (IsInQuadHotFix)",
+     "status": "ready",
+     "evidence": "EventEngineUtils.cs QuadCircleData has keys 356014, 404007, 561008, 601005, 757006, 916005, 1553006, 2151003, 2222004, 2255002, 2901007, 2950022/023, 2952022 - none for 100-117 or 61, so both sides use IsInQuad (TreadQuad.cs:24-38)",
+     "smallest_fix": "None for O2 (the raw CreateNPCID at TreadQuad.cs:45 remains a sibling gap for Dali/Lindblum)."
+    },
+    {
+     "topic": "Map-variable reset at field start",
+     "status": "ready",
+     "evidence": "EventEngine.cs:625-626 zeroes the 80 map-variable bytes on every field start on both sides, so the Map.Bit[162]/[163] music-skip bits and the stage counters start identical",
+     "smallest_fix": "None."
+    },
+    {
+     "topic": "Narrow-map widths (s23)",
+     "status": "ready",
+     "evidence": "NarrowMapList.cs:25/:43 via EffectiveFieldId (gates auditor)",
+     "smallest_fix": "None."
+    },
+    {
+     "topic": "PSXCameraAspect RestrictedCams (116 cam 1)",
+     "status": "risk",
+     "evidence": "PSXCameraAspect.cs:47 compares raw fldMapNo (gates auditor); visual only",
+     "smallest_fix": "Wrap with EffectiveFieldId in a future engine patch (needs a rebuild)."
+    },
+    {
+     "topic": "MCF shadows and per-field reverb",
+     "status": "risk",
+     "evidence": "HonoluluFieldMain.cs:108 (event name) and :184 (raw fldMapNo); visual/audio only",
+     "smallest_fix": "None for the trace."
+    },
+    {
+     "topic": "Tetra Master opponent id",
+     "status": "risk",
+     "evidence": "EMinigame.cs:322 raw CreateNPCID; runs only on a Square talk, achievement only; off route",
+     "smallest_fix": "None for O2."
+    },
+    {
+     "topic": "Preconditions: ForkDonorPatch rows + relaunch",
+     "status": "gap",
+     "evidence": "Live FF9CustomMap/ForkDonorPatch.txt has rows 31101-31112 and 31200-31219 only (read-only check); DataPatchers reads it at launch",
+     "smallest_fix": "The O2 preflight checks one row per alxt member plus a relaunch, and that digest(members=...) and every id-keyed driver rule use member ids."
+    },
+    {
+     "topic": "Text block 33 and a stock S side",
+     "status": "ready",
+     "evidence": "All 18 fields 100-117 decode the same 430-entry block. No 33.mes in any mod folder's text tree; no EVT_ALEX1_AT_* or EVT_ALEX1_TS_STAGE_BK files in FF9CustomMap, -world, MoguriMain, MoguriVideo, -schema, -msgs; no 'FieldScene 100-117/61' in DictionaryPatch (all read-only checks today)",
+     "smallest_fix": "The preflight re-checks all three (the install is shared), and each member registers block 33."
+    },
+    {
+     "topic": "Start seam (O1 chain -> O2)",
+     "status": "gap",
+     "evidence": "O1's member(52)=31202 keeps Field(100) real (PLAN.md:714, o1_forks.json), so a fork run cannot reach member(100) by continuing O1",
+     "smallest_fix": "Warp-start the fork side into member(100) at entrance 102, scenario 1000 (the stock side into 100); or rebuild 31202 retargeting 100 -> member(100) if a continuous O1+O2 run is wanted."
+    },
+    {
+     "topic": "End seam 116 -> 61",
+     "status": "ready",
+     "evidence": "116 e2 t1 ip1702 Field(61); with a separate alxt import 61 is not a member, so member(116) keeps Field(61) real (the O1 pattern at 100); if linked to O1's chain it becomes 31211 (donor 61)",
+     "smallest_fix": "Decide at build; cut at the first row in donor 61 either way."
+    },
+    {
+     "topic": "Sibling gaps outside O2",
+     "status": "risk",
+     "evidence": "TreadQuad.cs:45 raw CreateNPCID (Dali/Lindblum circle regions); DoEventCode.cs:3460 IsCaseShiftWhenTurn, FieldMap.cs:1453 FixDepthOfLayer, PSXCameraAspect.cs:47 for O1 fields (gates auditor)",
+     "smallest_fix": "One-line EffectiveFieldId wraps in a future engine patch, before the Dali/Lindblum segments."
+    }
+   ]
+  },
+  "route_md_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2774c9ef-d3fb-41a5-bd52-1511e4f51781\\scratchpad\\o2_research\\O2_ROUTE.md"
+ },
+ "critique": {
+  "problems": [
+   {
+    "severity": "major",
+    "what": "105, the exit at SC 1152: Alleyway Jack's patrol passes through the lookout spot where Vivi gets control, about 2 s after control returns. The map says Jack has ~4800 units of patrol ahead of him; in fact his second leg crosses the lookout almost at once. The O1 driver's 1 s settle plus route_to's own 1 s settle will likely leave Vivi standing there when he arrives.",
+    "evidence": "Timeline: 105 e14 t1 ip2720 wakes Jack (Map.Byte[35]:=0), then op_22(10), TimedTurn(4,16)/WaitTurn and op_22(3), then EnableMove at ip2859, about 13-29 ticks after he wakes. Vivi stands at the lookout (-244,2562) (e14 t1 Walk ip2280). Jack (e7 t0 SetWalkSpeed(15) ip259; e7 t1 ip305-517) walks (446,3659) -> (440,3700) -> (-250,2800), about 78 ticks. He then heads to (-600+SYSVAR[0], 2000), a line that passes 34-101 units from the lookout at about 85-95 ticks. EventEngine.ProcessEvents.cs:184-187 runs CollisionRequest every frame the player has control, even standing still. On contact, EventCollision.cs:298 fires e7 t2: with no press he mugs Vivi and writes Bit[3715]:=1 (ip945); with a press he writes Bit[3714]:=1 (ip729) and Field(112). The delays: o1_opening.py:428-431 (settle_s=1.0) and route_to -> wait_control with Session.SETTLE=1.0 (session.py:1060, :4194). A mugged run still reaches 61 with every beat done, so unless it is detected it becomes a false UNSTABLE or STOCK/FORK ONLY finding, not just a VOID.",
+    "fix": "Give (105, SC 1152) its own beat with no driver settle and no wait_control settle: on the first control sample, hold the calibrated direction toward (-667,-403) immediately (105's axes are already cached from the e12 walk), then route_cross e11 with npcs=False so it never waits for Jack. Vivi runs 60/tick and Jack walks 15, so once moving she escapes. Make the run VOID live if Bubble '!' or text 318/319/321 shows. In the analysis, VOID any run with a 105 e7 t2 row or a Bit[3714]/[3715] row. Rehearse on stock: warp 105 at entrance 205, scenario 1150, and play through to stage 14."
+   },
+   {
+    "severity": "major",
+    "what": "106: the wait point (100,1800) is off the walkmesh, so route_to finds no route and every run would VOID at the SC-1153 beat.",
+    "evidence": "On the stock 106 walkmesh as the player walks it (PlayerWalkmesh), (100,1800) is not on any floor; at z=1800 the walkable x range is 150..975. Puck's code: 106 e2 t1 Walk(800,2200) ip142, Walk(800,1800) ip165. The distance tests are >1200 at ip187 and >1400 at ip210, then SC:=1153 at ip312.",
+    "fix": "Use (550,2000): floor 3, 427 from the nearest wall, 320 from Puck's stop, clear of his lines. Planned routes (route_avoiding, clearance 80): spawn (-123,3494) -> (197,3046) -> (550,2000); then (550,2000) -> (838,-368) ... -> e14 at (-123,-1306), avoiding e12 and e13. Wait there until the published scenario is 1153; the 327 'Over here!' hint will always show on arrival (Puck reaches his stop in ~22 ticks), so it is an overlay, not a page."
+   },
+   {
+    "severity": "minor",
+    "what": "103: the booth goal (45,-950) is only 50 units inside the south edge of region e28. Coming from the south with tolerance 45, Vivi stops about 5 units inside, so a Confirm can miss (the O1 candle failure class).",
+    "evidence": "e28 quad (-500,-111)(550,-111)(250,-1000)(-200,-1000); depth of (45,-950) is 50. Spawn (-75,-2210) is due south. e28 t3 sets Map.Byte[24]:=1 (ip95) only while inside. Also the plaque hot-spot 103 e20 at (600,-272) fires on Confirm within ~281 and writes Int16[220]/[222]/[224] and Byte[226].",
+    "fix": "Use (50,-800): 200 deep, 292 from walls, 762 from e20. Or use route_to(zone=e28, smooth=True) so 'reached' means inside. Keep away from e28's north-east corner."
+   },
+   {
+    "severity": "minor",
+    "what": "106 Ilia: the map inverts her wait. Bit[3712]:=1 at e5 t1 ip165 does not fire 'as soon as z<2200'. She waits while z<2200, so it would need Vivi to walk back north. Neither of her branches fires on the route, so this is not noise; registering it would hide a real divergence.",
+    "evidence": "e5 t1 ip153-162: SET(player.z < 2200); JMP_IF(L31). JMP_IF is bne, which jumps when the value is non-zero (EBin.cs:1316-1326), so the loop runs while z < 2200. It is armed only after Puck's Map.Byte[39]:=0 (e2 t1 ip520), which fires when Puck reaches (-300,-1300), inside e14. Branch B (ip463-475) waits while z > -1800; z <= -1800 is walkable only at x 680..880, off the route.",
+    "fix": "Expect only Bit[3712]:=0 (e5 t0 ip109, always). Do not add a noise entry for ip165, ip475, ip332 or ip656."
+   },
+   {
+    "severity": "minor",
+    "what": "Start dependence is incomplete. Besides Byte[6], UInt16[19] |= 2 also writes a value that depends on how the run started.",
+    "evidence": "100 e19 t1 ip1531 UInt16[19] |= 2 (guard ip1505 is true either way). After a New-Game warp it writes 2; after O1 it writes 1799, because O1 set bits 1, 4, 256, 512 and 1024 (50 e13 t1 ip1115/1149/1187/1225, e17 t1). Every other byte that differs between the two starts (Byte[4], Byte[8], Byte[13], Byte[17], Byte[18], Byte[303], UInt16[21]) is overwritten by a constant before any read on the route. WriteKey.value is the new value (storytrace.py:821).",
+    "fix": "Derive the frozen values from the warp start (UInt16[19]=2, Byte[6]=2). Mark both keys as start-dependent in any O1->O2 ground-truth claim."
+   },
+   {
+    "severity": "minor",
+    "what": "The 'first character dropped' lesson only applies to choices with no prompt line. 104's menu 251 publishes 'Show ticket' intact, and so do 305, 310, 314 and 367. The rules still work, but dispute #12's reasoning is wrong (the auditor's 'Show ticket' rule would have matched).",
+    "evidence": "Dialog.cs:300-326 ChoicePhrases treats position 0 as a newline only when StartChoiceRow==0. StartChoiceRow is the count of newlines before [CHOO] (DialogBoxSymbols.cs:195). 215 has no prompt and publishes ['', 'eek into the ticket booth', 'Cancel']. 251 has 2 prompt lines, so options[0] is 'Pointy-Hat Boy\\n\u201cUh... Umm...\u201d'. 305, 310, 314 and 367 each have 2 prompt lines.",
+    "fix": "Keep the substring rules. Unit-test pick_for against both publications with FakeGame. Add a once-only guard so the 215 rule cannot fire again at SC 1150."
+   },
+   {
+    "severity": "minor",
+    "what": "Door regions with facing gates must be passed explicitly as avoid zones. Two sit beside or across the natural line: 101 e17 and 106 e13 (whose gate stays open all through 106). Entering one while facing its exit writes story keys and warps.",
+    "evidence": "101 e17 (quad x -183..206, z -855..233) -> Field(112): facing test ip81-96, then Byte[13]:=3 ip350, Byte[14]:=3 ip389, Int16[2]:=201 ip406. 106 e13 (x -487..180, z -196..164, on the walkable street at z\u22480) -> Field(113): gate Map.Byte[40]==0 (ip38), which holds because Ilia is parked until Puck's ip520. Also 100 e16/e17, 102 e9/e10, 103 e23-e27, 105 e10 and 115 e13. The kit router's planned routes miss all of them, but only when they are passed in.",
+    "fix": "For each field, pass every non-target SetRegion polygon (reconcile/regions.py) as avoid to route_to and route_cross, and pass face= only for the exit being crossed."
+   },
+   {
+    "severity": "minor",
+    "what": "106: the e14 goal (-100,-1320) is 65 units from a wall, under the 80-unit player radius, so Vivi cannot stand there.",
+    "evidence": "PlayerWalkmesh(106).distance_to_boundary(-100,-1320)=65; cam.COLLISION_RADIUS_W=80. region_goal(e14) = (-123,-1306), 84 clear and 88 deep.",
+    "fix": "Cross with route_cross using the e14 zone, or aim at (-123,-1306)."
+   },
+   {
+    "severity": "minor",
+    "what": "The rehearsal list leaves out 116, which has the narrowest walks on the route. Puck also walks the same rooftop line ahead of Vivi and stops to turn.",
+    "evidence": "116 wall gaps along the line are 74-115. Plain pathfind.route at 64-unit cells finds no path at clearance 80 for (-339,244)->(-715,2400) or (-715,2400)->(3370,10500); route_avoiding finds them only after its half-cell refinements. Puck, e2 t1 L686: SetWalkSpeed(68) with TimedTurn(...,64) pauses on the same line. The map's goals (800,260), (-715,2400) and (3370,10500) are 74, 79 and 88 from walls.",
+    "fix": "Rehearse on stock: warp 116 at entrance 0, scenario 1155 (Main_Init ip231 -> stage 1). Use npcs=True in 116 so Vivi waits behind Puck instead of pushing. Use deeper goals: (630,190), (-750,2690) and (3410,10700), which are 115, 115 and 137 clear."
+   },
+   {
+    "severity": "minor",
+    "what": "If the build links member(116)'s Field(61) to O1's 31211, both the end test and the cut miss, and 61's own writes read as FORK ONLY.",
+    "evidence": "o1_opening.py:373 compares the running field id; cut_at_end (:612) keys on r.fld. storytrace._walk_seams (:864) treats a custom non-member such as 31211 as the fork's own ground, not a seam.",
+    "fix": "Leave Field(61) real, which is the O1 pattern (keep a separate alxt import). Otherwise make drive() and cut_at_end compare donor ids (r.don == 61)."
+   },
+   {
+    "severity": "minor",
+    "what": "Every run's digest contains rows from field 70's New-Game override, which lives in the shared install and another session can re-wire it mid-session.",
+    "evidence": "O1's fingerprint (o1_opening.py:287-307) covers members and stock_fields only. Both sides warp out of the override's field 70 after its prologue writes.",
+    "fix": "Add field 70's override to the fingerprint, or cut each run at its first row in the start field (100 or member(100))."
+   },
+   {
+    "severity": "minor",
+    "what": "Deploy scope and run length. --whole-zone gives 48 members; --ids 100-117 covers every Field() target in the segment. O2 is also about 3x O1's run.",
+    "evidence": "Every Field() literal in 100-106/115/116 targets 100-117 or 61. O2 has 10 field visits, about 60 pages, 6 choices, a naming screen, the climb and mbg101, against O1's 3.5 min per run. The Main_Inits of 105/106/115/116 read no earlier O2 key: 105 reads Bit[3714] only at SC>=1152, and 106 reads only its own Bit[3712].",
+    "fix": "Build with --ids 100-117 (18 members) unless whole-zone parity with O1 is wanted. Time one stock rehearsal and set run_s. If driver faults recur, split the segment at the SC-keyed arrivals: 105 at entrance 205 with SC 1150, or 115 with SC 1152/1153."
+   },
+   {
+    "severity": "minor",
+    "what": "The map's live-install summary is out of date. It changes nothing for O2, but the preflight must re-read the install.",
+    "evidence": "FF9CustomMap/ForkDonorPatch.txt today also holds rows 30830-30852 (55 rows, dated 2026-09-29 21:06). 61 is forked once (31211). No mod folder registers FieldScene 100-117 or 61, so the S side is stock.",
+    "fix": "The preflight re-checks registrations, the fork-donor mapping, the per-member .eb, P-FLOOR and P-STOCK (100-106, 115, 116, 61) right before the relaunch."
+   }
+  ],
+  "go": "GO to build the O2 driver and predictions from this map once the fixes above are folded in; NO-GO for an in-game session until they are rehearsed.\n\n**What held up when I checked the bytes:**\n- The segment end is right: 116 e2 t1 ip1702 Field(61) is the only exit from alxt. Every Field() on the route is a literal and every other target stays in alxt.\n- All six SC ladder stores are where the map says (104 ip1046, 105 ip511 and ip2818, 106 ip312, 115 ip462 and ip1683).\n- 100's movie is mbg101 (type 1, no skip dialog).\n- Kupo's code-101 path is dead: 115 never stores 101 to Map.Byte[38].\n- There are no battles or ATEs on the route.\n- The hot-spots require control: they check SYSVAR[2]==1.\n- The fork gates are wrapped, and none can change a story write.\n\n**Two corrections would break the drive as written:**\n- Jack in 105 (fast exit plus a VOID detector, or a false finding).\n- The off-mesh wait point in 106.\n\n**Four smaller ones fix wrong readings:**\n- Ilia is not noise.\n- UInt16[19] depends on the start.\n- The choice publication mechanism is misstated.\n- The booth and e14 goal points need to move.\n\n**Before any session:**\n- Rehearse on stock: the 105 exit and the hold-Up climb in 115 especially, plus the start in 100, 106, and the 116 walks.\n- Deploy the alxt members with their ForkDonorPatch rows and text block 33, then relaunch.\n- Pass donor ids to drive() and the digest.\n\n**Still open:**\n- Whether a harness hold reaches B_KEY(16).\n- mbg101's length.\n- Jack's exact touch radius.\n- Whether 103 ip254 ever fires."
+ }
+}
