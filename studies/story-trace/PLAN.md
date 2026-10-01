@@ -924,7 +924,7 @@ What only the game can settle is the design's section 10: the climb, Jack's timi
 mbg101's frame-rate change, Kupo near the ladder, 116's narrow walks, the facing for the two tag-3 Confirms, and 61's
 FMV under end_run's warp.
 
-## O3 -- the play under the trace, a US session: 61 -> 62 -> battle 338 -> 63 -> real 64 (draft: rehearsals pending, freeze pending)
+## O3 -- the play under the trace, a US session: 61 -> 62 -> battle 338 -> 63 -> real 64 (PROVEN: story-o3, v1 1bcf11a9)
 
 **The question.** Over the play's Act I -- the narrator and the curtain, the fight with King Leo, and the battle's own
 return to the stage -- does the verbatim tshp chain O1 deployed write the real game's story state key for key, through
@@ -985,8 +985,25 @@ through `end_run` (S5): a run stopped in 61 mid-FMV003, where the soft reset is 
   CHAIN, RESIDUE, WRITES (EXACT: the 24 writes and the 3-key chain, the battle's `Byte[206]` noise aside), NULL,
   STABLE, SEAM, LANDING (a)-(e), BATTLE (a)-(d), MASKED, STATE and JOIN over the covered runs; THROW.
 
-**Status: draft -- rehearsals pending, freeze pending.** Built offline on branch `claude/story-trace-o3` (PARTs A-C of
-the design's section 9). Nothing is deployed, launched or frozen.
+**Status: ★★ PROVEN (session `story-o3`, v1 `1bcf11a9`), a US session.** The play's first act under the trace: the warp
+into 61 at SC 1155, FMV003, 62, battle 338, the battle's own `RunBattleCode(37, 63)` into a FRESH 63, `Field(64)`; O1's
+deployed tshp members 31211-31213 write the real game's story state key for key. S F S F S F, 6/6 covered (S 3 of 3,
+F 3 of 3), unattended, 1432 s, nothing deployed for it; every check PASS: FROZEN, COVER, FORBIDDEN, VOID-ASYM (none),
+START, NO-SC (SC 1155 throughout), CHAIN (6 x 3), RESIDUE, WRITES (exactly 27 keys a run), NULL (27 keys matched; the
+only stock-only/fork-only keys are battle 338's random `Byte[206]` values, the registered noise), STABLE, SEAM,
+LANDING (a)-(e) -- every fork run's battle landed in 31213, never real 63: the s24 battle-return redirect, measured
+under the trace for the first time --, BATTLE (scene 338, result 2 in all 6), MASKED, STATE (the end state as frozen,
+20 variables), JOIN (601 rows, 0 failures), THROW (none). Archive:
+`C:\gd\Dream-World-IX\.harness-runs\20261001-095552-story-o3` (o3_report.txt).
+
+The stock rehearsals before the freeze (archived `20261001-09*-o3-rh-*`; F1-F12 all met, the optional R-SKIP not run):
+R-START 2/2 (FMV003 plays after the warp, ~90 s to page 72), F-SMOKE (31211-31213 load, objects = their stock twins),
+R-62 2/2 (the battle beat; 63 fresh after 62 ip1285), R-FULL 2/2 (27 keys, the two runs identical, the end state as
+drafted), R-BATTLE-VOID (a soft reset from BattleHUD reaches the title). F9 sized the battle row (timeout_s 124,
+max_turns 30, land_s 10) and the budget (run_s 500, no_progress_s 271 for FMV003's 90 s).
+
+The offline build, as it stood before the rehearsals (branch `claude/story-trace-o3`, PARTs A-C of the design's
+section 9):
 - `o3_prima_vista.py --offline-check`: 6 PASS on the draft. O3-BUILD 140 files (15 own-language, 105 us-build);
   O3-TEXT KNOWN-KIT-DEFECT 1, FAIL 0, 6 byte-equal of 7, the uk line printed; O3-KEYS 53 sites; O3-REGIONS 0
   regions, 0 hot-spots, 0 gateways; O3-SCENE 338 as designed (flags 0x1839, won exactly [1, 2], RunBattleCode(37, 63),
@@ -1008,12 +1025,13 @@ the design's section 9). Nothing is deployed, launched or frozen.
   `leave_battle` honours its timeout; `end_run` waits out a battle exit's load; the rehearsal records each run's own
   fight; the ini reader's `;;` is the engine's.
 
-**Next, in game (the lead):**
-1. The rehearsals, in 7.1's order: R-START first (FMV003 after the warp is the go/no-go), then F-SMOKE, R-62, R-FULL,
-   and R-BATTLE-VOID last.
-2. The freeze checklist F1-F12 (7.3), then `--freeze` (v1).
-3. `--preflight` green, and P-LAUNCH and P-DONOR-LOG on that launch.
-4. The session: `py tools/play.py studies/story-trace/o3_prima_vista.py --label story-o3 --timeout 240`.
+**Done, in order:** the rehearsals in 7.1's order, the freeze checklist F1-F12, `--freeze` (v1), `--preflight` 10/10
+with P-LAUNCH and P-DONOR-LOG on the session's own launch, and the session: PROVEN.
+
+**Next, O4:** from the arrival in real 64 (A. Castle/Public Seats, alxc) by a raw warp into member(64) at entrance 100
+with SC 1155, so O1's 31213 never needs re-linking; the alxc disc-1 cluster forked in a fresh band; the first end at
+150 -> `Field(153)`, SC 1190 (research/o3_route.md, candidates 2-3). It carries the Chanbara minigame (random prompts)
+and the encore choice 124.
 
 What only the game can settle is the design's section 10: FMV003 right after the warp cut FMV001, the s24 redirect
 under the trace, King Leo's latch, the soft reset from inside a battle, the published scene and result, the leave after

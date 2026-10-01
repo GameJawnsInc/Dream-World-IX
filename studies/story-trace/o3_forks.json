@@ -63,5 +63,5 @@
   "every member's jp/fr/gr/it/es .eb is US bytecode (the kit before 3d8b7f1b): O3-BUILD accepts the us build, and the claim is a US session's (said in O3-BUILD's title, the report's scope, and the PLAN.md / CLAUDE.md milestone lines)"
  ],
  "revert": "O1's (o1_forks.json revert: 31219 down to 31200, newest first)",
- "verified": null
+ "verified": "o3_prima_vista.py --preflight 10/10 on the live install; F-SMOKE (31211-31213 load, objects = stock twins); session story-o3 (C:/gd/Dream-World-IX/.harness-runs/20261001-095552-story-o3): PROVEN, 6/6 covered"
 }
