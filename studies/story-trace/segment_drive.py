@@ -1217,8 +1217,10 @@ class _Drive:
            deadline cut is the budget (V13). A scene that went away with no result while both bounds held
            (``FightTimeout`` kind "gone": a soft reset, a crash to the title) is no bound at all: an instrument stop,
            ``HarnessError`` (STOPPED, V13) with its own message, the battle row logged first (the review, 11.7 #2).
-        3. Leave: ``g.leave_battle(stop_on_field=True)``, each of its Confirms a ``press`` row (``why``
-           "leave_battle", ``pre`` the sample it was decided on, ``post`` None, ``near`` []).
+        3. Leave: ``g.leave_battle(stop_on_field=True, timeout=min(the row's land_cap_s, the run's time left))``, each
+           of its Confirms a ``press`` row (``why`` "leave_battle", ``pre`` the sample it was decided on, ``post``
+           None, ``near`` []). A leave that stops on its bound ("timeout") goes on to the landing, whose own clocks
+           (and the deadline) then end the run: V14 past ``land_cap_s``, V13 past the deadline.
         4. Land, in two tiers: the field up (out of the battle, FieldHUD, a positive id) within ``land_s`` of the
            leave's end; else the wait goes on to ``land_cap_s`` (or the run's deadline), and a landing then is
            ``land_late`` ``{"frames", "s"}`` -- recorded, never a VOID. No field by the cap: V14 (game); by the
@@ -1281,8 +1283,9 @@ class _Drive:
             raise RouteVoid(why, v="V15", cell=cell, by="driver") from err
         fought()
         rec["result"] = result
-        # 3 -- the leave: Confirm only while the battle scene is up, each Confirm a press row
-        g.leave_battle(stop_on_field=True)
+        # 3 -- the leave: Confirm only while the battle scene is up, each Confirm a press row; bounded by the row's
+        # land_cap_s and the run's deadline (the review, 11.7 #1: the loop's own 40 Confirms are no time bound)
+        g.leave_battle(stop_on_field=True, timeout=max(0.0, min(float(row["land_cap_s"]), self.deadline - time.time())))
         leave = g.last_leave or {}
         presses = list(leave.get("presses") or ())
         for p in presses:

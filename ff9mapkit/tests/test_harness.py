@@ -14010,6 +14010,35 @@ def test_leave_battle_stops_where_the_field_begins_and_logs_its_presses(game):
     assert leave["stopped"] == "field" and ui == "FieldHUD", leave
 
 
+def test_leave_battle_stops_at_its_timeout(game):
+    """H8's ``timeout``, honoured (the review, research/o3_design.md 11.7 #1: it was never read). A battle whose
+    BattleResult never hands over (``result_frames`` 10^6): with ``timeout`` 1 the loop stops "timeout" after about a
+    second, before a Confirm, fewer than its 40 presses made; with ``timeout`` 0 it presses nothing. The control:
+    the default bound (90 s) still lets the 40 Confirms run out ("presses"), as it always did. Break: drop the bound
+    (every call presses all 40)."""
+    got = {}
+    for timeout in (1.0, 0.0, None):
+        fake = FakeGame(game)
+        fake.battle_exit = {"field": 30810, "fade_frames": 5, "result_frames": 10 ** 6, "load_frames": 5}
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30821)
+            g.start_battle(105)
+            _o3_end_on_the_fake(fake, 2)
+            published(g, lambda s: s.ui_state == "BattleResult" and s.in_battle)
+            t0 = time.time()
+            ui = g.leave_battle(stop_on_field=True) if timeout is None else \
+                g.leave_battle(stop_on_field=True, timeout=timeout)
+            got[timeout] = (ui, g.last_leave, time.time() - t0)
+    ui, leave, took = got[1.0]
+    assert leave["stopped"] == "timeout" and 0 < len(leave["presses"]) < 40 and ui == "BattleResult", leave
+    assert 1.0 <= took < 10.0, took
+    ui, leave, took = got[0.0]
+    assert leave["stopped"] == "timeout" and leave["presses"] == [] and took < 5.0, (leave, took)
+    ui, leave, took = got[None]
+    assert leave["stopped"] == "presses" and len(leave["presses"]) == 40, leave
+
+
 def test_leave_battle_records_presses_on_o1s_path(game):
     """H8: O1's shape -- a battle that ends in its own field with FieldHUD at once (no ``battle_exit``) -- through the
     DEFAULT loop: it presses Confirm while the battle is up, stops at the field and returns its UI state as it always
@@ -14344,6 +14373,24 @@ def test_o3_drive_stops_on_a_battle_gone_without_a_result(game):
     b = [r for r in log if r["k"] == "battle"][0]
     assert (b["v"], b["by"], b["result"], b["timed_out"], b["turns"]) == ("V13", "driver", None, False, 0), b
     assert b["why"].startswith("battle 338's scene went away with no result"), b
+
+
+def test_o3_drive_bounds_the_leave_by_its_row(game):
+    """The leave is bounded (the review, research/o3_design.md 11.7 #1): the executor passes leave_battle
+    ``timeout=min(the row's land_cap_s, the run's time left)``. A battle whose BattleResult never hands over
+    (``result_frames`` 10^6), ``land_cap_s`` 2: the leave stops "timeout" short of its 40 Confirms, each Confirm it made
+    a press row, and the landing's own cap then ends the run -- V14, no field within 2 s. Break: call leave_battle
+    without its bound (it presses all 40 first)."""
+    SD = _segment_modules()
+    fake = _o3_fake(game, exit_to=30810, result_frames=10 ** 6)
+    pred = _o3_pred(battles=[_o3_row(land_s=1.0, land_cap_s=2.0)])
+    with session(game, fake) as g:
+        _o3_start(g)
+        err, log = _o3_drive(g, fake, pred, phases=_o3_route(end=False), budget=120.0)
+    assert isinstance(err, SD.RouteVoid) and (err.v, err.by) == ("V14", "game"), err
+    b = [r for r in log if r["k"] == "battle"][0]
+    assert b["leave"]["stopped"] == "timeout" and 0 < b["leave"]["presses"] < 40, b["leave"]
+    assert len([r for r in log if r["k"] == "press" and r["why"] == "leave_battle"]) == b["leave"]["presses"], log
 
 
 def test_o3_drive_logs_leave_battle_presses_as_press_rows(game):

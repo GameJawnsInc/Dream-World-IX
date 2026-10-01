@@ -7487,10 +7487,15 @@ class Session:
         is the loop as it always was. Either way :attr:`last_leave` records every press -- ``{"frame", "ui",
         "in_battle", "field", "result"}`` of the sample it was decided on -- and where the loop ended: ``ended`` (the
         UI state, which is also returned), ``field``, ``frame``, and ``stopped``: "field" (the stopping sample showed
-        the field HUD), "scene-gone" (the battle scene gone, the field not up yet) or "presses" (the Confirms ran out).
+        the field HUD), "scene-gone" (the battle scene gone, the field not up yet), "presses" (the Confirms ran out) or
+        "timeout": ``timeout`` (wall seconds from the call) ran out, checked before each Confirm and after the field
+        test -- a caller with a deadline bounds the loop by it (the review, research/o3_design.md 11.7 #1; the
+        default 90 s outlasts the 40 Confirms at any normal frame rate, so a caller that passes none sees the loop as
+        it always was).
         """
         presses: list = []
         stopped = "presses"
+        deadline = time.time() + float(timeout)
         st = self.state
         for _ in range(40):
             self._assert_alive()
@@ -7498,6 +7503,9 @@ class Session:
             if (stop_on_field and (not st.in_battle or st.ui_state == "FieldHUD")) or (
                     not st.in_battle and st.ui_state not in ("BattleHUD", "BattleResult")):
                 stopped = "field" if st.ui_state == "FieldHUD" else "scene-gone"
+                break
+            if time.time() >= deadline:
+                stopped = "timeout"
                 break
             presses.append({"frame": st.frame, "ui": st.ui_state, "in_battle": st.in_battle, "field": st.field_id,
                             "result": st.battle_result})

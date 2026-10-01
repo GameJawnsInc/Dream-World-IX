@@ -495,7 +495,10 @@ run that raises inside a battle still records them. O3-BATTLE (5.3) reads both.
    - Any other HarnessError propagates (V13, STOPPED), as `fight()`'s instrument failures always have.
 3. **Leave.** `g.leave_battle(stop_on_field=True)` (H8): it presses Confirm only while the battle scene is up and stops
    at the first sample with the scene gone (whatever the UI state still says) or FieldHUD. Each of its presses is logged
-   as a `press` row (`why: "leave_battle"`, `pre` the sample it was pressed on, `post` None, `near` []).
+   as a `press` row (`why: "leave_battle"`, `pre` the sample it was pressed on, `post` None, `near` []). (The review,
+   11.7 #1: its `timeout`, which was never read, is honoured, and the executor passes `min(row["land_cap_s"],
+   deadline - now)`; a leave that stops on it -- `stopped` "timeout" -- goes on to the landing, whose clocks then end
+   the run: V14 past `land_cap_s`, V13 past the deadline.)
 4. **Land, in two tiers.** `landed = lambda s: not s.in_battle and s.ui_state == "FieldHUD" and s.field_id > 0`.
    First `g.wait_for(landed, timeout=row["land_s"])`. Past `land_s` the run is NOT voided: the wait goes on, to
    `min(row["land_cap_s"], deadline - now)`, and a landing that comes in that second tier is recorded as
@@ -599,7 +602,8 @@ Every default keeps today's behaviour; no existing caller changes.
 pressed.**
 - Always: `self.last_leave = {"presses": [{"frame", "ui", "in_battle", "field", "result"} for each press],
   "ended": ui_state, "field": field_id, "frame": frame, "stopped": "scene-gone" | "field" | "presses"}`. The return value
-  (the UI state) is unchanged.
+  (the UI state) is unchanged. (The review, 11.7 #1: `timeout` -- dead until then -- bounds the loop, checked before
+  each Confirm and after the field test: `stopped` "timeout". The default 90 s outlasts the 40 Confirms.)
 - With `stop_on_field=True`: before each press, if the sample shows the battle scene gone (`not in_battle`, whatever
   `ui_state` still reads -- it can lag as BattleResult while the field loads) or `ui_state == "FieldHUD"`, stop: never a
   Confirm into a loading field or onto its first windows (63's 96/97/98). The default (`False`) is O1's loop exactly,

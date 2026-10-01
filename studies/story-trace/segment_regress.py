@@ -146,6 +146,7 @@ REQUIRED_TESTS_O3: tuple = (
     # the review (research/o3_design.md 11.7): each fix to the driver, with its test
     "test_o3_drive_waits_for_the_end_places_first_row",                     # 11.7 #3: rule 1's end row
     "test_o3_drive_stops_on_a_battle_gone_without_a_result",                # 11.7 #2: fight()'s "gone"
+    "test_o3_drive_bounds_the_leave_by_its_row",                            # 11.7 #1: the leave's bound
 )
 
 O2S_VERDICT = "PROVEN"
