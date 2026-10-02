@@ -2520,7 +2520,8 @@ class FakeGame:
     def _story_store(self, src: str, byte: int, width: str, new: int, *, bit: int = -1,
                      sid: int = -1, tag: int = -1, ip: int = -1) -> None:
         """A store to the modelled gEventGlobal, and -- when tracing -- its `w` row. Only a script row
-        names its writer (StoryTrace.AfterStore): cs/harness rows carry -1 attribution."""
+        names its writer (StoryTrace.AfterStore): cs/harness rows carry -1 attribution. ``old`` is the variable as
+        its width reads it (the row contract): an Int16 signed, so a second store of -1 reads old -1, never 65535."""
         if width == "Bit":
             old = (self.story_bytes[byte] >> (bit & 7)) & 1
             self.story_bytes[byte] = (self.story_bytes[byte] & ~(1 << (bit & 7))) | (new << (bit & 7))
@@ -2529,6 +2530,8 @@ class FakeGame:
             self.story_bytes[byte] = new
         else:
             old = self.story_bytes[byte] | (self.story_bytes[byte + 1] << 8)
+            if width == "Int16" and old >= 0x8000:
+                old -= 0x10000
             self.story_bytes[byte:byte + 2] = bytes((new & 0xFF, (new >> 8) & 0xFF))
         if not self.story_on:
             return

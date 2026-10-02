@@ -18000,3 +18000,325 @@ def test_o4_castle_trace_summary_cuts_at_end_places(o4_stock):
     assert [k["present"] for k in stage["registered"]["ladder"]] == [False], stage["registered"]["ladder"]
     o3 = P.trace_summary(frows, pred, side="F", end_fields=[31243], stock=o4_stock)
     assert o3["end"] is None, o3["end"]
+
+
+# ---- O4's rehearsals (studies/story-trace/o4_rehearse.py; research/o4_design.md 7.1-7.4, PART C, C3), on the fake as
+# O4's drive tests model the engine (warps land without control and are refused off the field) with the soft reset in
+# the engine's UI states: H11's Chanbara visit staged on each arrival in "64" (30820; member 31240) -- its own
+# Main_Init stores first (ip416 and ip425 zero the combo flag and the best score, so a launch's second fight scores
+# again). end_run's recovery rung is O3's (30899, control handed over). The launch reads the fake's own engine DLLs,
+# pinned by the test.
+
+def _o4_rehearse_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o4_rehearse as R
+    return R
+
+
+def _o4_launch_files(game):
+    """O3's launch files with O4's settings (4.13: the control and graphics keys too) and the engine DLLs a launch
+    reads (x64 and x86, dated an hour back): ``{"x64", "x86"}``, their shas -- the engine the test pins. Register the
+    members BEFORE: a patch file changed after the log's stamp is P-LAUNCH's relaunch."""
+    C = _o4_castle_module()
+    _o3_launch_files(game)
+    (game / "Memoria.ini").write_text(_o3_ini(C.SETTINGS) + "\n[VoiceActing]\nForceLanguage = -1\n", encoding="utf-8")
+    back = time.time() - 3600
+    shas = {}
+    for arch in ("x64", "x86"):
+        p = game / arch / "FF9_Data" / "Managed" / "Assembly-CSharp.dll"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"the fake engine")
+        shas[arch] = C._sha(p.read_bytes())
+        os.utime(p, (back, back))
+    os.utime(game / "Memoria.ini", (back, back))
+    return shas
+
+
+def _o4_rehearse_pred(**over):
+    """_o4_pred with what O4's trace summary and R-GATE's reading read too: the sword sites on the fake's places, the
+    SC and FieldEntrance bytes."""
+    return _o4_pred(sword={"score": {"place": 30820, "sid": 4, "tag": 1, "ip": 338, "target": "Global.Byte[475]",
+                                     "value": 100, "old": 0},
+                           "combo": {"place": 30820, "sid": 4, "tag": 1, "ip": 390, "target": "Global.Bit[3815]",
+                                     "value": 1, "old": 0}},
+                    sc_bytes=[0, 1], entrance_bytes=[2, 3], **over)
+
+
+def _o4_arrival(start, exit_to, knobs=None):
+    """A director phase: on the run's arrival in ``start`` (the trace on, no beat yet), H11's Chanbara visit exiting
+    to ``exit_to`` (its own 64 Main_Init stores first)."""
+    def act(f):
+        f.scene({"chanbara": {"exit_to": exit_to, **(knobs or {})}}, control=False)
+    return (lambda f: f.field_id == start and f.story_on and not f._beats), act
+
+
+def _o4_launch(game, R, stages, env, phases, *, engine, pred=None, fake_setup=None, wrap=None):
+    """One rehearsal launch on a fresh fake: the director's ``phases``, control handed over in the recovery field,
+    ``R.run`` with the test's stages, the stub witness and pad reader and the pinned ``engine``. ``(the record, the
+    fake, the title reached)``."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    fake = _o4_fake(game)
+    fake.soft_reset_ui = SOFT_RESET_ENGINE_UI
+    if fake_setup is not None:
+        fake_setup(fake)
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0], "a launch starts at the title"
+        if wrap is not None:
+            wrap(g)
+        _o1_director(fake, stop, phases)
+        _o3_grant_in(fake, stop)
+        try:
+            R.run(g, stages=stages, pred=pred if pred is not None else _o4_rehearse_pred(),
+                  floor_for=lambda d, closed: _flat_bgi(), prior_for=lambda d: _prior(), stock=lambda fid: None,
+                  recovery=_O3_RECOVERY, env=env, witness=lambda: None, pads=lambda slot: None, engine=engine)
+        finally:
+            stop.set()
+        title = g.state.ui_state
+    return json.loads((game / "run" / "o4_rehearsal.json").read_text(encoding="utf-8")), fake, title
+
+
+def test_o4_rehearsal_plumbing_on_the_fake(game):
+    """C3 (research/o4_design.md 7.1-7.2): R-CHANBARA's shape on the fake, chosen by ``O4_STAGE`` as a launch chooses
+    it (another stage, which would run too, does not): the capabilities (P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG,
+    P-LAUNCH with the engine DLLs, P-PAD on a stub reader), the launch's readings (the settings, P-SETTINGS, P-OVERRIDE
+    -- the fake ships no field-70 override -- and P-ENGINE), New Game, the raw warp into "64" at entrance 100 and SC
+    1155, H11's whole visit played by the Chanbara policy to the end in "150", the trace collected, end_run to the title
+    through the recovery warp, and o4_rehearsal.json holding every section of 7.2: no control grant; the zone and the
+    49 prompt rows whole; the per-instance reading (j, evidence, the ticks to the first sample without, the pass,
+    lead_ticks); the KEYON pairs (first seen -> gone, their Confirms); each page's presses (111 from the zone's start
+    page, 122, 123, 128); 127 as published and the choice row; the score and gil pages as published; the press,
+    observed and input evidence; the end (its state, end_run's result and recovery rows); O4's trace summary (ip338 0 ->
+    100, ip390 0 -> 1, the end place "150"). The rehearsal report prints them. The stage order a launch takes is pinned
+    too. Break: drop the pairs from the record."""
+    C, R = _o4_castle_module(), _o4_rehearse_module()
+    assert R.select(R.STAGES, env={}) == ["R-CHANBARA", "R-FULL", "R-CHANBARA-VOID"]
+    assert R.select(R.STAGES, 64, env={}) == ["R-CHANBARA"]
+    assert R.select(R.STAGES, env={"O4_STAGE": "R-GATE"}) == ["R-GATE"]
+    with pytest.raises(ValueError, match="no stage"):
+        R.select(R.STAGES, env={"O4_STAGE": "R-NONE"})
+    engine = _o4_launch_files(game)
+    stages = {"R-TEST": {"field": 30820, "entrance": 100, "sc": 1155, "end": [30821], "runs": 1, "run_s": 120,
+                         "cost_s": 5, "settles": "the plumbing"},
+              "R-OTHER": {"field": 30821, "entrance": 0, "sc": 1155, "end": [30810], "runs": 1, "run_s": 5,
+                          "cost_s": 1, "settles": "never run: O4_STAGE names R-TEST"}}
+    doc, fake, title = _o4_launch(game, R, stages, {"O4_STAGE": "R-TEST"}, [_o4_arrival(30820, 30821)], engine=engine)
+    run_dir = game / "run"
+    assert list(doc["stages"]) == ["R-TEST"] and doc["stages_run"] == ["R-TEST"] and doc.get("finished"), doc.keys()
+    caps = {c[1].split(":")[0]: c[0] for c in doc["capabilities"]}
+    assert caps == {"P-CAP": True, "P-OBJECTS": True, "P-LANG": True, "P-DONOR-LOG": True, "P-LAUNCH": True,
+                    "P-PAD": True}, doc["capabilities"]
+    launch = doc["launch"]
+    assert launch["roots"] == ["FF9CustomMap"] and launch["settings"] == C.SETTINGS and launch["engine"] == engine
+    assert {c[1].split(":")[0]: c[0] for c in launch["checks"]} == {"P-SETTINGS": True, "P-OVERRIDE": False,
+                                                                     "P-ENGINE": True}, launch["checks"]
+    rec = doc["stages"]["R-TEST"][0]
+    assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == "field 30821", rec["outcome"]
+    for section in ("grants", "zone_rows", "prompt_rows", "fight", "prompts", "pairs", "page_presses", "choices",
+                    "published_choices", "pages", "transcript", "score_page", "gil_page", "evidence", "no_progress",
+                    "end", "trace"):
+        assert section in rec, section
+    assert rec["grants"] == [] and rec["beats"] == {"sword": True, "encore": True}, (rec["grants"], rec["beats"])
+    z = rec["zone_rows"]
+    assert len(z) == 1 and z[0]["judge"]["v"] is None and z[0]["instances"] == 49, z
+    assert len(rec["prompt_rows"]) == 49 and [p["n"] for p in rec["prompts"]] == list(range(1, 50))
+    assert all(p["evidence"] == "closed" and p["j_hi"] is not None and p["gone_ticks"] is not None
+               and p["lead_ticks"] is not None for p in rec["prompts"]), rec["prompts"][0]
+    assert all(p["pass_ticks"] for p in rec["prompts"][:-1]), [p["pass_ticks"] for p in rec["prompts"]]
+    fz = rec["fight"]["zone"]
+    assert fz["instances"] == 49 and fz["presses"] == 49 and fz["judge"] is None, fz
+    pairs = rec["pairs"]
+    assert len(pairs) >= 2 and any("garde" in t for t in pairs[0]["texts"]), pairs
+    assert any("finish this later" in t for t in pairs[1]["texts"]), pairs
+    assert all(p["presses"] >= 1 and p["s"] is not None and p["s"] > 0 for p in pairs[:2]), pairs
+    pages = {p["text"].split("\n")[0]: p for p in rec["page_presses"]}
+    for head in ("To follow Blank’s lead, enter the correct", "Of 100 nobles watching,", "Queen Brahne was",
+                 "They shower you with 10000 Gil!"):
+        assert head in pages and pages[head]["presses"] >= 1, (head, list(pages))
+    pol = _o4_policy(donor=30820)
+    assert rec["score_page"] == pol["score_page"] and rec["gil_page"] == pol["gil_page"], (rec["score_page"],
+                                                                                         rec["gil_page"])
+    pub = [c for c in rec["published_choices"] if "encore" in str(c.get("options"))]
+    assert pub and pub[0]["options"][1:] == ["es", "No"], rec["published_choices"]
+    assert [c["index"] for c in rec["choices"]] == [1], rec["choices"]
+    ev = rec["evidence"]
+    assert ev["observed"] == [] and ev["input"] == [] and ev["page_judge"] == [], ev
+    assert sorted(p["n"] for p in ev["press"] if p["why"] == "prompt") == list(range(1, 50))
+    end = rec["end"]
+    assert end["end_run"]["ok"] and end["end_run"]["title"] and title == "Title", end["end_run"]
+    assert [x["k"] for x in end["end_run"]["how"]] == ["recover-warp"], end["end_run"]["how"]
+    tr = rec["trace"]
+    assert [r[1:3] for r in tr["sword"]["score"]["rows"]] == [[0, 100]], tr["sword"]
+    assert [r[1:3] for r in tr["sword"]["combo"]["rows"]] == [[0, 1]], tr["sword"]
+    assert tr["end_places"] == [30821] and tr["start"] is not None, tr
+    assert (run_dir / rec["trace_file"]).is_file() and (run_dir / rec["log_file"]).is_file()
+    report = C.rehearsal_report(run_dir)
+    for want in ("== R-TEST: warp 30820 100 1155 -> [30821]", "PASS  P-LAUNCH", "PASS  P-PAD", "launch: settings",
+                 "PASS  P-ENGINE", "grants: 0 (there must be none)", "fight: 49 instances / 49 presses",
+                 "prompt 1 CROSS: j [", "pair [", "first seen -> gone", "page 'To follow", "choice at frame",
+                 "score page 'Of 100 nobles watching,\\n100 were impressed.'", "end: state", "rows ['recover-warp']",
+                 "trace: start line", "end places [30821]"):
+        assert want in report, (want, report[:3000])
+
+
+def test_o4_rehearsal_void_stage_stops_mid_fight_on_the_fake(game):
+    """R-CHANBARA-VOID (research/o4_design.md 7.1, F7) on the fake: the stage's ``chanbara_override`` (``stop_after``
+    10) merged into a COPY of the policy -- the predictions given keep none -- stops the run V17 (driver) when instance
+    11 opens: its row ``stopped``, no press after instance 10's; end_run then warps out of the fight's FieldHUD to the
+    recovery field and reaches the title: ``recover-warp``, then the title -- F7's rows, as the launch records them; the
+    launch finishes. Break: leave the override off (the fight plays to its end)."""
+    _C, R = _o4_castle_module(), _o4_rehearse_module()
+    engine = _o4_launch_files(game)
+    stages = {"R-CHANBARA-VOID": dict(R.STAGES["R-CHANBARA-VOID"], field=30820, end=[30821], run_s=60)}
+    pred = _o4_rehearse_pred()
+    before = json.dumps(pred, sort_keys=True)
+    doc, fake, title = _o4_launch(game, R, stages, {"O4_STAGE": "R-CHANBARA-VOID"}, [_o4_arrival(30820, 30821)],
+                                  engine=engine, pred=pred)
+    assert json.dumps(pred, sort_keys=True) == before, "the stage's override reached the predictions given"
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    rec = doc["stages"]["R-CHANBARA-VOID"][0]
+    assert (rec["outcome"]["end"], rec["outcome"]["v"], rec["outcome"]["by"]) == ("void", "V17", "driver"), \
+        rec["outcome"]
+    assert rec["outcome"]["why"] == "route: the rehearsal's stop after instance 10", rec["outcome"]
+    rows = rec["prompt_rows"]
+    assert len(rows) == 11 and rows[-1].get("stopped") and rows[-1]["seq"] is None, rows[-1]
+    assert sorted(p["n"] for p in rec["evidence"]["press"] if p["why"] == "prompt") == list(range(1, 11))
+    assert [r["result"] for r in fake.chanbara_log[:10]] == ["hit"] * 10, fake.chanbara_log[:10]
+    assert len(fake.chanbara_log) >= 11 and not [r for r in fake.chanbara_log[10:] if r["result"] == "hit"], \
+        fake.chanbara_log[10:12]
+    er = rec["end"]["end_run"]
+    assert er["ok"] and er["title"] and title == "Title", er
+    assert [x["k"] for x in er["how"]] == ["recover-warp"], er["how"]
+
+
+def test_o4_rehearsal_smoke_sends_no_storytrace_on_the_fake(game):
+    """F-SMOKE (research/o4_design.md 7.1, G1) on the fake: three members and their stock twins, each by a RAW warp
+    with its pair's OWN entrance and SC -- member(64) and "64" at 100 / 1155, member(150) and "150" at 325 / 1155,
+    member(153) and "153" at 325 / 1190 -- and a wait for the field on FieldHUD, never Session.warp() (whose wait for
+    control the fake, as 64, 150 and 153, never grants); then the field's published object sids, and end_run after
+    each warp (the recovery warp, the title). No ``storytrace`` step is ever executed (no fork data before the freeze).
+    Each member's sids against its twin's: two pairs equal, the third (a body missing) different; the report prints
+    each warp with its entrance and SC. Break: warp every pair at the first pair's entrance and SC."""
+    C, R = _o4_castle_module(), _o4_rehearse_module()
+    _o4_register(game)
+    patch = game / "FF9CustomMap" / "DictionaryPatch.txt"
+    patch.write_text(patch.read_text(encoding="utf-8") + "FieldScene 31245 11 O4_AC_H2F O4_AC_H2F 3\n", encoding="utf-8")
+    engine = _o4_launch_files(game)
+    pairs = [[31240, 30820, 100, 1155], [31243, 30821, 325, 1155], [31245, 30810, 325, 1190]]
+    stages = {"F-SMOKE": dict(R.STAGES["F-SMOKE"], pairs=pairs, smoke_s=0.3, warp_s=10.0)}
+    sids = {31240: [5, 6, 13, 20], 30820: [5, 6, 13, 20], 31243: [2, 3, 4, 5, 6, 9], 30821: [2, 3, 4, 5, 6, 9],
+            31245: [3, 7, 9, 11], 30810: [3, 7, 9, 11, 31]}
+
+    def setup(fake):
+        fake.blockers = {fid: [{"x": 300.0 + 60 * i, "z": 300.0, "r": 30.0, "sid": s, "uid": 128 + i}
+                               for i, s in enumerate(v)] for fid, v in sids.items()}
+
+    def wrap(g):
+        real_warp = g.warp
+
+        def warp(field, *a, **k):                 # end_run's recovery rung only: the smoke itself warps raw
+            if field != _O3_RECOVERY:
+                raise AssertionError(f"Session.warp({field}) inside the smoke")
+            return real_warp(field, *a, **k)
+        g.warp = warp
+    doc, fake, _title = _o4_launch(game, R, stages, {"O4_STAGE": "F-SMOKE"}, [], engine=engine, fake_setup=setup,
+                                   wrap=wrap)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    assert not [s for s in fake.executed if s[0] == "storytrace"], "a storytrace step in the smoke"
+    recs = doc["stages"]["F-SMOKE"]
+    order = [(31240, 100, 1155), (31243, 325, 1155), (31245, 325, 1190), (30820, 100, 1155), (30821, 325, 1155),
+             (30810, 325, 1190)]
+    assert [(r["field"], r["entrance"], r["sc"]) for r in recs] == order, recs
+    for r in recs:
+        reach = r["reached"]
+        assert (reach["field"], reach["ui"], reach["control"]) == (r["field"], "FieldHUD", False), r
+        assert r["sids"] == sorted(sids[r["field"]]) and r["objects_status"] == "listed", r
+        assert r["exceptions"] == [] and isinstance(r["log_lines"], list), r
+        assert r["end_run"]["ok"] and r["end_run"]["title"], r["end_run"]
+        assert [x["k"] for x in r["end_run"]["how"]] == ["recover-warp"], r["end_run"]
+    warps = [s for s in fake.executed if s[0] == "warp"]
+    for field, entrance, sc in order:
+        assert ["warp", str(field), str(entrance), str(sc)] in warps, (field, warps)
+    assert warps.count(["warp", str(_O3_RECOVERY), "-1", "-1"]) == len(order), warps
+    twins = doc["twins"]["F-SMOKE"]
+    assert [(t["member"], t["twin"], t["equal"]) for t in twins] == [(31240, 30820, True), (31243, 30821, True),
+                                                                     (31245, 30810, False)], twins
+    report = C.rehearsal_report(game / "run")
+    for want in ("== F-SMOKE: the load smoke", "warp 1: 31240 at 100 SC 1155 -> field 31240 FieldHUD",
+                 "warp 3: 31245 at 325 SC 1190 -> field 31245 FieldHUD", "twin 31240 vs 30820: EQUAL",
+                 "twin 31245 vs 30810: DIFFERENT"):
+        assert want in report, (want, report[:2000])
+
+
+def test_o4_rehearsal_gate_reads_the_pair_on_the_fake(game):
+    """R-GATE (research/o4_design.md 7.1, 7.4 G2) on the fake, PACED by the stage's own overlay (no raw_floor, j_cap
+    40, the pace): S into "64", then F into member(64), each ending in "150" / member(150) -- S first, each side until
+    an informative run. S and F with the +30% firing: WITNESSED. F with ``bonus_fires`` False (the wrap fails): its run
+    stops V18 at page 122 reading its raw, which Byte[475] holds too -- BROKEN, cause "bonus". F with ``miss_read`` on a
+    non-LEFT/RIGHT instance (seed 0's first, CROSS: the combo broken, page 120) and on a LEFT/RIGHT one (seed 0's
+    third, RIGHT: the slide's miss, V18 at Z3): BROKEN, cause "combo" each. S with ``sa`` 0 (no stock bonus: page 122
+    reads the raw): INVALID, and F is never run. Each run's reading carries its launch's engine and settings; the
+    verdict goes into the record, never into o4_forks.json; every summary is cut at the stage's end PLACE ("150":
+    member(150) on F); the report prints the verdict. Break: read the gate without the trace's Byte[475] (the bonus's
+    BROKEN then reads INVALID)."""
+    C, R = _o4_castle_module(), _o4_rehearse_module()
+    _o4_register(game)
+    engine = _o4_launch_files(game)
+    manifest = C.MANIFEST.read_bytes()
+    stages = {"R-GATE": dict(R.STAGES["R-GATE"], field={"S": 30820, "F": 31240}, end={"S": [30821], "F": [31243]},
+                             run_s=120)}
+
+    def launch(s_knobs=None, f_knobs=None, *, f=True):
+        phases = [_o4_arrival(30820, 30821, {"seed": 0, **(s_knobs or {})})]
+        if f:
+            phases.append(_o4_arrival(31240, 31243, {"seed": 0, **(f_knobs or {})}))
+        doc, _fake, title = _o4_launch(game, R, stages, {"O4_STAGE": "R-GATE"}, phases, engine=engine)
+        assert doc.get("finished") and "stopped" not in doc and title == "Title", doc.get("stopped")
+        recs = doc["stages"]["R-GATE"]
+        for rec in recs:
+            assert rec["gate"]["settings"] == C.SETTINGS and rec["gate"]["engine"] == engine, rec["gate"]
+            assert rec["trace"].get("end_places") == [30821], (rec["side"], rec["outcome"], rec["trace"])
+        v = doc["gate"]["R-GATE"]
+        return v, recs
+    v, recs = launch()
+    assert (v["verdict"], v["cause"], [r["side"] for r in recs]) == ("WITNESSED", None, ["S", "F"]), v
+    assert all(r["gate"]["number"] == 100 and r["gate"]["byte475"] == 100 and r["gate"]["informative"] for r in recs)
+    assert 79 <= recs[1]["gate"]["raw"][0] <= recs[1]["gate"]["raw"][1] <= 99, recs[1]["gate"]["raw"]
+    report = C.rehearsal_report(game / "run")
+    assert "R-GATE VERDICT: WITNESSED (cause none)" in report and "R-GATE reading: informative" in report, report[-1500:]
+    v, recs = launch(f_knobs={"bonus_fires": False})
+    assert (v["verdict"], v["cause"]) == ("BROKEN", "bonus"), v
+    fr = recs[1]["gate"]
+    assert recs[1]["outcome"]["v"] == "V18" and fr["number"] == fr["byte475"] < 100, (recs[1]["outcome"], fr)
+    v, recs = launch(f_knobs={"miss_read": [1]})
+    assert (v["verdict"], v["cause"]) == ("BROKEN", "combo") and recs[1]["gate"]["combo"], (v, recs[1]["gate"])
+    v, recs = launch(f_knobs={"miss_read": [3]})
+    assert (v["verdict"], v["cause"]) == ("BROKEN", "combo") and recs[1]["gate"]["judge"]["v"] == "V18", \
+        (v, recs[1]["gate"])
+    v, recs = launch(s_knobs={"sa": 0}, f=False)
+    assert v["verdict"] == "INVALID" and [r["side"] for r in recs] == ["S"], (v, [r["side"] for r in recs])
+    assert C.MANIFEST.read_bytes() == manifest, "the verdict reached o4_forks.json"
+
+
+def test_o4_fake_story_store_reads_int16_signed(game):
+    """The fake's story rows read an Int16 SIGNED, as the engine's do (the row contract): H11's Main_Init stores
+    ``Int16[9] := -1`` on every visit, so a launch's second visit (R-GATE's F run after its S run: the fake's New Game
+    keeps its story bytes) stores -1 over -1 -- old -1, a same-value row -- never old 65535, which the trace reader
+    refuses; a UInt16 still reads unsigned. Break: read every 16-bit old unsigned (R-GATE's F runs then stop on the
+    reader's refusal)."""
+    from ff9mapkit import storytrace as T
+    fake = FakeGame(game)
+    fake.dir.mkdir(parents=True, exist_ok=True)
+    (fake.dir / "arm").write_text("", encoding="utf-8")
+    fake.armed, fake.field_id = True, 30820
+    fake._story_start()
+    for value in (-1, -1):
+        fake.script_store(0, 0, 57, 9, "Int16", value)
+    for value in (65535, 1):
+        fake.script_store(1, 1, 10, 40, "UInt16", value)
+    text = (fake.dir / "story.jsonl").read_text(encoding="utf-8")
+    rows = [json.loads(ln) for ln in text.splitlines() if ln]
+    got = [(r["w"], r["old"], r["new"], r["same"]) for r in rows if r["k"] == "w"]
+    assert got == [("Int16", 0, -1, 0), ("Int16", -1, -1, 1), ("UInt16", 0, 65535, 0), ("UInt16", 65535, 1, 0)], got
+    assert [(r.k, r.old) for r in T.parse_text(text) if r.k == "w"] == [("w", 0), ("w", -1), ("w", 0), ("w", 65535)]

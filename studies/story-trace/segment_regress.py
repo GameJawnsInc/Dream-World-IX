@@ -320,6 +320,14 @@ REQUIRED_TESTS_O4: tuple = (
     # C2: O4's trace summary cut at the side's end PLACES (an F stage ending in a member is cut there), over the dry
     # run's rendered rows
     "test_o4_castle_trace_summary_cuts_at_end_places",
+    # C3: o4_rehearse.py on the fake -- R-CHANBARA's record (7.2), R-CHANBARA-VOID's stop and recovery (F7), F-SMOKE's
+    # per-pair raw warps with no trace (G1), R-GATE's sides and verdicts (7.4 G2)
+    "test_o4_rehearsal_plumbing_on_the_fake",
+    "test_o4_rehearsal_void_stage_stops_mid_fight_on_the_fake",
+    "test_o4_rehearsal_smoke_sends_no_storytrace_on_the_fake",
+    "test_o4_rehearsal_gate_reads_the_pair_on_the_fake",
+    # the fake's story rows read an Int16 signed (a launch's second visit stores Int16[9] := -1 over -1)
+    "test_o4_fake_story_store_reads_int16_signed",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

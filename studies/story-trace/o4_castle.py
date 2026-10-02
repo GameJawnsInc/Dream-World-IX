@@ -1533,10 +1533,11 @@ class O4Segment(P.O3Segment):
         return out
 
     # -- the session --------------------------------------------------------------------------------------------
-    def capabilities(self, g, *, pads=...) -> list:
+    def capabilities(self, g, *, pads=..., engine=None, live_engine=None) -> list:
         """O2's (P-CAP, P-OBJECTS, P-LANG), then P-DONOR-LOG for 64, 150 and 153, P-LAUNCH (every stacked patch file,
         Memoria.ini and -- rev. 2 -- the x64 and x86 engine DLLs older than the launch's first log stamp, the DLLs the
-        pinned engine) and P-PAD re-sampled on this launch."""
+        pinned engine) and P-PAD re-sampled on this launch. ``pads`` (P-PAD's reader), ``engine`` (the pinned DLLs'
+        shas, default :data:`ENGINE`) and ``live_engine`` (default the live DLLs') are seams for the fake."""
         import dali_tour as D
         from harness.logs import MEMORIA_LOG
         out = A.O2Segment.capabilities(self, g)
@@ -1553,7 +1554,8 @@ class O4Segment(P.O3Segment):
         except OSError:
             roots = []
         ok, detail = launch_engine_check(P.launch_files(game, roots), engine_files(game), P.launch_time(text),
-                                         engine_shas(game), ENGINE)
+                                         live_engine if live_engine is not None else engine_shas(game),
+                                         engine or ENGINE)
         out.append((ok, self.title("P-LAUNCH"), detail))
         ok, detail = p_pad(xinput_slots(pads))
         out.append((ok, self.title("P-PAD"), detail))
