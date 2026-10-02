@@ -18034,6 +18034,79 @@ def test_o4_castle_gate_verdict():
     assert not rd["informative"] and "V13" in rd["why"], rd
 
 
+def test_o4_castle_gate_reading_reads_only_a_complete_proven_play():
+    """R-GATE's INFORMATIVE rule (research/o4_design.md 7.4 G2, decision 5; the review, 11.5 #1/#2/#6), gate_reading on
+    paced rows (j ~22: raw inside [79, 99]): a complete fight, its score page read and Byte[475] in the trace, reads
+    informative. UNINFORMATIVE -- re-run, never a verdict -- each of: a fight stopped mid-way by a live stop that never
+    calls the judge (V14 the stall, V4 control, V11 or V19 the field left, a live V17 the game showed) with every
+    completed row proper and no raw; the run's own VOID V13 (an instrument stop) or V17 or V2 on a complete fight with
+    every reading present; a complete fight whose instance 1 has no prev frame (the raw unbounded); no score page read;
+    no Byte[475] row; on S a V18 of the fight (a lingered press: the stock game deviated from the paced play), at Z3 or
+    mid-fight. On F that V18 is informative, mid-fight too: the fork's answer. So gate_verdict reads UNINFORMATIVE over
+    three mid-fight S stops (never INVALID "the settings or the stock bonus"), WITNESSED from S run 1 over a V14 stop
+    then proper S and F runs, WITNESSED over an S V18 then proper runs, BROKEN with cause "combo" over a proper S run
+    and an F V18 mid-fight, and INVALID naming the input path over an S combo page on a proven play. Break: rev. 1's
+    rule (the zone entered, the judge not V17, the run not V13)."""
+    C, SD = _o4_castle_module(), _segment_modules()
+    pol = _o4_paced()
+    page = "Of 100 nobles watching,\n100 were impressed."
+    rows = _o4_rows(down=44)
+    eng = {"x64": C.ENGINE["x64"], "x86": C.ENGINE["x86"]}
+    settings = json.loads(json.dumps(C.SETTINGS))
+
+    def read(side, rows, zone, *, v=None, pages=(page,), byte475=100):
+        return C.gate_reading(side, zone=zone, prompts=rows, presses=_o4_presses(rows), pages=list(pages),
+                              page_judge=[], byte475=byte475, pol=pol, settings=settings, engine=eng, v=v)
+    good = read("S", rows, _o4_zone(rows))
+    assert good["informative"] and good["why"] == "informative" and good["number"] == 100, good
+    assert 79 <= good["raw"][0] <= good["raw"][1] <= 99, good["raw"]
+    part = rows[:20]
+    for zv, zwhy in (("V14", "no new prompt and no zone end for 5 s"), ("V4", "control held in the fight zone"),
+                     ("V11", "the field left 30820 for 30899 in the fight"),
+                     ("V19", "the fork run entered REAL 30821 in the fight"),
+                     ("V17", "a dialog the prompt rule does not claim in the fight zone: 'Blank'")):
+        zone = _o4_zone(part, end=None, v=zv, why=zwhy)
+        assert SD.chanbara_judge(zone, part, _o4_presses(part), pol)["v"] is None, "premise: the rows are proper"
+        rd = read("S", part, zone, v=zv, pages=(), byte475=None)
+        assert not rd["informative"] and zv in rd["why"] and zwhy in rd["why"], rd
+    for v in ("V13", "V17", "V2"):
+        rd = read("S", rows, _o4_zone(rows), v=v)
+        assert not rd["informative"] and v in rd["why"], rd
+    nop = list(rows)
+    nop[0] = _o4_row(1, rows[0]["dbtn"], down=44, prev_frame=None)
+    rd = read("S", nop, _o4_zone(nop))
+    assert not rd["informative"] and "has no j bounds (no prev frame)" in rd["why"], rd
+    rd = read("S", rows, _o4_zone(rows), pages=())
+    assert not rd["informative"] and "no score page" in rd["why"], rd
+    rd = read("S", rows, _o4_zone(rows), byte475=None)
+    assert not rd["informative"] and "Byte[475]" in rd["why"], rd
+    lingered = list(rows)
+    lingered[4] = dict(lingered[4], evidence="lingered")
+    v18 = SD.chanbara_judge(_o4_zone(lingered), lingered, _o4_presses(lingered), pol)
+    assert v18["v"] == "V18", v18
+    mid = lingered[:5]
+    zmid = _o4_zone(mid, end=None, v="V18", why=v18["why"])
+    for zone, rws in ((_o4_zone(lingered, v="V18", why=v18["why"]), lingered), (zmid, mid)):
+        rd = read("S", rws, zone, v="V18", pages=(), byte475=None)
+        assert not rd["informative"] and "the stock game deviated" in rd["why"], rd
+        rd = read("F", rws, zone, v="V18", pages=(), byte475=None)
+        assert rd["informative"] and rd["zone_v"] == "V18", rd
+    fgood = dict(good, side="F")
+    stop14 = read("S", part, _o4_zone(part, end=None, v="V14", why="stall"), v="V14", pages=(), byte475=None)
+    got = C.gate_verdict([stop14] * 3 + [good, fgood])
+    assert got["verdict"] == "UNINFORMATIVE" and "no informative S run in 3" in got["detail"], got
+    got = C.gate_verdict([stop14, good, fgood])
+    assert (got["verdict"], got["s_run"], got["f_run"]) == ("WITNESSED", 1, 2), got
+    got = C.gate_verdict([read("S", mid, zmid, v="V18", pages=(), byte475=None), good, fgood])
+    assert (got["verdict"], got["s_run"]) == ("WITNESSED", 1), got
+    got = C.gate_verdict([good, read("F", mid, zmid, v="V18", pages=(), byte475=None)])
+    assert (got["verdict"], got["cause"], got["f_run"]) == ("BROKEN", "combo", 1), got
+    combo = read("S", rows, _o4_zone(rows), pages=("Of the 100 nobles watching,\n100 were impressed.",
+                                                   "Queen Brahne was\nnot impressed."))
+    got = C.gate_verdict([combo, fgood])
+    assert combo["informative"] and got["verdict"] == "INVALID" and "input path" in got["detail"], got
+
+
 def test_o4_castle_trace_summary_cuts_at_end_places(o4_stock):
     """O4's trace summary (research/o4_design.md 7.2, section 8's unit; rev. 2, the claim critique #14) over the dry
     run's rendered rows (o4_dryrun.render: real store sites, the engine's emission): a base S run reads the ladder 1/1,
@@ -18119,10 +18192,10 @@ def _o4_arrival(start, exit_to, knobs=None):
     return (lambda f: f.field_id == start and f.story_on and not f._beats), act
 
 
-def _o4_launch(game, R, stages, env, phases, *, engine, pred=None, fake_setup=None, wrap=None):
+def _o4_launch(game, R, stages, env, phases, *, engine, pred=None, fake_setup=None, wrap=None, witness=None):
     """One rehearsal launch on a fresh fake: the director's ``phases``, control handed over in the recovery field,
-    ``R.run`` with the test's stages, the stub witness and pad reader and the pinned ``engine``. ``(the record, the
-    fake, the title reached)``."""
+    ``R.run`` with the test's stages, the stub witness (``witness``, default neutral) and pad reader and the pinned
+    ``engine``. ``(the record, the fake, the title reached)``."""
     from harness.fakegame import SOFT_RESET_ENGINE_UI
     fake = _o4_fake(game)
     fake.soft_reset_ui = SOFT_RESET_ENGINE_UI
@@ -18139,7 +18212,8 @@ def _o4_launch(game, R, stages, env, phases, *, engine, pred=None, fake_setup=No
         try:
             R.run(g, stages=stages, pred=pred if pred is not None else _o4_rehearse_pred(),
                   floor_for=lambda d, closed: _flat_bgi(), prior_for=lambda d: _prior(), stock=lambda fid: None,
-                  recovery=_O3_RECOVERY, env=env, witness=lambda: None, pads=lambda slot: None, engine=engine)
+                  recovery=_O3_RECOVERY, env=env, witness=witness or (lambda: None), pads=lambda slot: None,
+                  engine=engine)
         finally:
             stop.set()
         title = g.state.ui_state
@@ -18366,6 +18440,49 @@ def test_o4_rehearsal_gate_reads_the_pair_on_the_fake(game):
     v, recs = launch(s_knobs={"sa": 0}, f=False)
     assert v["verdict"] == "INVALID" and [r["side"] for r in recs] == ["S"], (v, [r["side"] for r in recs])
     assert C.MANIFEST.read_bytes() == manifest, "the verdict reached o4_forks.json"
+
+
+def test_o4_rehearsal_gate_reruns_what_cannot_witness_on_the_fake(game):
+    """R-GATE RE-RUNS what cannot witness (research/o4_design.md 7.4 G2; the review, 11.5 #1/#2/#6) on the fake, S
+    first: S run 1 loses instance 5's press (H12 ``lost``): the window lingers past its mark and the run stops V18
+    mid-fight -- the stock game deviating from the paced play, uninformative on S, never INVALID; S run 2 plays the
+    fight whole, page 122 reads 100 and the trace holds Byte[475] 100, but the input witness reports a pad after the
+    gil page: the run stops as the instrument's, and o4_rehearse records it V13 (driver) -- uninformative, for all its
+    readings; S run 3 is informative, F run 4 too: WITNESSED from runs 2 and 3 (``s_run`` 2, ``f_run`` 3). Break:
+    record no class for a HarnessError (S run 2 then stands: sides S, S, F)."""
+    _C, R = _o4_castle_module(), _o4_rehearse_module()
+    _o4_register(game)
+    engine = _o4_launch_files(game)
+    stages = {"R-GATE": dict(R.STAGES["R-GATE"], field={"S": 30820, "F": 31240}, end={"S": [30821], "F": [31243]},
+                             run_s=120)}
+    holder, seen = {}, {"gil0": None, "fired": False}
+
+    def witness():                                  # a pad, once: after the first gil page the fake pays out
+        f = holder.get("fake")
+        if f is None:
+            return None
+        if seen["gil0"] is None:
+            seen["gil0"] = f.gil
+        if not seen["fired"] and f.gil > seen["gil0"]:
+            seen["fired"] = True
+            return "XInput slot 0: buttons 0x1000"
+        return None
+    phases = [_o4_arrival(30820, 30821, {"seed": 0, "lost": [5]}), _o4_arrival(30820, 30821, {"seed": 0}),
+              _o4_arrival(30820, 30821, {"seed": 0}), _o4_arrival(31240, 31243, {"seed": 0})]
+    doc, _fake, title = _o4_launch(game, R, stages, {"O4_STAGE": "R-GATE"}, phases, engine=engine,
+                                   fake_setup=lambda f: holder.update(fake=f), witness=witness)
+    assert doc.get("finished") and "stopped" not in doc and title == "Title", doc.get("stopped")
+    recs, v = doc["stages"]["R-GATE"], doc["gate"]["R-GATE"]
+    assert [r["side"] for r in recs] == ["S", "S", "S", "F"], [(r["side"], r["outcome"]) for r in recs]
+    assert (v["verdict"], v["cause"], v["s_run"], v["f_run"]) == ("WITNESSED", None, 2, 3), v
+    r1, r2 = recs[0], recs[1]
+    assert r1["outcome"]["v"] == "V18" and r1["gate"]["zone_v"] == "V18", r1["outcome"]
+    assert r1["gate"]["why"].startswith("uninformative: the stock game deviated from the paced play"), r1["gate"]
+    assert (r2["outcome"]["v"], r2["outcome"]["by"]) == ("V13", "driver"), r2["outcome"]
+    assert r2["outcome"]["why"].startswith("STOPPED: outside input: XInput slot 0"), r2["outcome"]
+    assert r2["gate"]["why"] == "uninformative: an instrument stop (V13)", r2["gate"]
+    assert r2["gate"]["number"] == 100 and r2["gate"]["byte475"] == 100 and r2["gate"]["zone_v"] is None, r2["gate"]
+    assert all(r["gate"]["informative"] for r in recs[2:]), [r["gate"]["why"] for r in recs]
 
 
 def test_o4_fake_story_store_reads_int16_signed(game):

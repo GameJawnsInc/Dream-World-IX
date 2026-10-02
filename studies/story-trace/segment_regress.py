@@ -333,6 +333,10 @@ REQUIRED_TESTS_O4: tuple = (
     # the ring
     "test_o4_chanbara_judge_never_skips_an_unbounded_raw",
     "test_o4_drive_entered_on_a_prompt_bounds_instance_one_from_the_ring",
+    # the review #1/#2/#6: R-GATE reads a run informative only on a complete, proven, bounded play with its readings
+    # (a mid-fight stop, an instrument V13 -- recorded by o4_rehearse -- or an S fight's V18 is re-run, never INVALID)
+    "test_o4_castle_gate_reading_reads_only_a_complete_proven_play",
+    "test_o4_rehearsal_gate_reruns_what_cannot_witness_on_the_fake",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

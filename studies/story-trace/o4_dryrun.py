@@ -1341,19 +1341,46 @@ def unit_gate_verdict(pred: dict) -> tuple:
     bonus; F pages 120/121, or an informative F run whose judge reads V18 (a lingered press), BROKEN, cause combo; S
     page 93 INVALID; an out-of-band run and one with an "unobserved" instance (gate_reading on paced rows: each
     uninformative), three attempts on a side, UNINFORMATIVE; a run whose launch recorded SwordplayAssistance 2 or
-    another engine is no witness."""
+    another engine is no witness. And gate_reading's informative rule (the review, research/o4_design.md 11.5): a
+    complete in-band fight with its score page and Byte[475] informative; uninformative a fight stopped mid-way (a
+    V14 stall, a live V17) with proper rows, a V13 run whose readings are all present, a complete fight with an
+    unbounded row (no prev frame), no score page, an S fight's V18 (mid-fight or at Z3) -- an F one's informative; so
+    three mid-fight S stops read UNINFORMATIVE, never INVALID, and a stop then proper runs WITNESSED."""
     v = C.gate_verdict
     pol = _paced(pred)
     band = [dict(x, j_lo=25, j_hi=30) for x in _jrows()]
     stall = [dict(x, j_lo=21, j_hi=28) for x in _jrows()]
     stall[8] = dict(stall[8], evidence="unobserved")
+    settings, engine = json.loads(json.dumps(C.SETTINGS)), {"x64": C.ENGINE["x64"], "x86": C.ENGINE["x86"]}
 
-    def gate_read(rows):
-        return C.gate_reading("S", zone=_jzone(rows), prompts=rows, presses=_jpresses(rows), pages=[], page_judge=[],
-                              byte475=100, pol=pol, settings=json.loads(json.dumps(C.SETTINGS)),
-                              engine={"x64": C.ENGINE["x64"], "x86": C.ENGINE["x86"]})
+    def gate_read(rows, side="S", zone=None, *, pages=(), byte475=100, run_v=None):
+        return C.gate_reading(side, zone=_jzone(rows) if zone is None else zone, prompts=rows,
+                              presses=_jpresses(rows), pages=list(pages), page_judge=[], byte475=byte475, pol=pol,
+                              settings=settings, engine=engine, v=run_v)
     oob, unobs = gate_read(band), gate_read(stall)
+    page = pred["chanbara"]["score_page"]
+    proper = [dict(x, j_lo=21, j_hi=28) for x in _jrows()]
+    good = gate_read(proper, pages=(page,))
+    part = proper[:20]
+    stops = [gate_read(part, zone=_jzone(part, end=None, v=zv, why="a live stop"), run_v=zv, byte475=None)
+             for zv in ("V14", "V17")]
+    nop = list(proper)
+    nop[0] = dict(_jrow(1, proper[0]["dbtn"], prev_frame=None), j_lo=None, j_hi=None)
+    lingered = list(proper)
+    lingered[4] = dict(lingered[4], evidence="lingered")
+    mid = lingered[:5]
+    zmid = _jzone(mid, end=None, v="V18", why="instance 5 was still listed at or past its mark")
     got = {"witnessed": v([_reading("S"), _reading("F")])["verdict"] == "WITNESSED",
+           "reading-informative": good["informative"],
+           "reading-stopped": not any(x["informative"] for x in stops),
+           "reading-v13": not gate_read(proper, pages=(page,), run_v="V13")["informative"],
+           "reading-unbounded": not gate_read(nop, pages=(page,))["informative"],
+           "reading-no-page": not gate_read(proper)["informative"],
+           "reading-v18-S": not gate_read(mid, zone=zmid, run_v="V18", byte475=None)["informative"],
+           "reading-v18-F": gate_read(mid, "F", zmid, run_v="V18", byte475=None)["informative"],
+           "stops-uninformative": v(stops + stops[:1] + [good, dict(good, side="F")])["verdict"] == "UNINFORMATIVE",
+           "stop-then-witnessed": (lambda x: (x["verdict"], x["s_run"]))(v([stops[0], good, dict(good, side="F")]))
+           == ("WITNESSED", 1),
            "bonus": (lambda x: (x["verdict"], x["cause"]))(v([_reading("S"), _reading("F", number=90, byte475=90)]))
            == ("BROKEN", "bonus"),
            "combo-pages": (lambda x: (x["verdict"], x["cause"]))(v([_reading("S"), _reading("F", combo=True)]))

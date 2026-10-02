@@ -310,8 +310,10 @@ def one(g, name: str, stage: dict, pred: dict, n: int, *, side: str = "S", t0: f
     with ``timed``, the published choices, the press evidence, the longest no-progress stretch, the end state, end_run's
     rows) plus the zone and prompt rows whole, the fight's summary, the per-instance reading, the pairs, each page's
     presses, the score and gil pages as published, the observed and input rows, and the trace through O4's summary cut
-    at the stage's end PLACES on that side. ``witness`` (the outside-input witness; default the ctypes one) is a seam
-    for the fake."""
+    at the stage's end PLACES on that side. A run the instrument stopped (a HarnessError: outside input, the budget, a
+    refused press; or an unexpected exception) records the class V13 (driver), as the session's read of a STOPPED run
+    does -- R-GATE's reading needs it (the review, research/o4_design.md 11.5 #6). ``witness`` (the outside-input
+    witness; default the ctypes one) is a seam for the fake."""
     from harness import HarnessError
     spred = stage_pred(pred, stage)
     ends = stage_ends(stage, side)
@@ -328,10 +330,11 @@ def one(g, name: str, stage: dict, pred: dict, n: int, *, side: str = "S", t0: f
                            forbid_live=True, witness=witness if witness is not None else C.input_witness(g))
     except SD.RouteVoid as err:
         outcome = {"end": "void", "why": f"route: {err}", "v": err.v, "cell": err.cell, "by": err.by}
-    except HarnessError as err:
-        outcome = {"end": "void", "why": f"STOPPED: {str(err)[:300]}"}
+    except HarnessError as err:                               # the instrument's: V13, as the session reads a STOPPED
+        outcome = {"end": "void", "why": f"STOPPED: {str(err)[:300]}", "v": "V13", "by": "driver"}
     except Exception as err:                                  # noqa: BLE001 -- one run's bug must not cost the others
-        outcome = {"end": "void", "why": f"STOPPED (unexpected): {type(err).__name__}: {str(err)[:300]}"}
+        outcome = {"end": "void", "why": f"STOPPED (unexpected): {type(err).__name__}: {str(err)[:300]}", "v": "V13",
+                   "by": "driver"}
         log.append({"k": "error", "traceback": traceback.format_exc()[-3000:]})
     rows = []
     smark = marks.get("story")
@@ -446,12 +449,14 @@ def smoke(g, name: str, stage: dict, *, t0: float, recovery=None) -> tuple:
 
 
 def gate_read(rec: dict, log: list, outcome: dict, spred: dict, launch: dict) -> dict:
-    """One R-GATE run as its verdict reads it (o4_castle.gate_reading): the run's zone and prompt rows and their
-    presses, its transcript and page_judge rows, the trace's ip338 row's new value (Byte[475]), the stage's paced
-    policy, and the launch's recorded settings and engine."""
-    z, prompts, ppress, _other = C.fight_rows(log)
+    """One R-GATE run as its verdict reads it (o4_castle.gate_reading): the run's zone and prompt rows and EVERY press
+    of the visit (as Z3's judge read them: a stray press in the fight is the driver's V17), its transcript and
+    page_judge rows, the trace's ip338 row's new value (Byte[475]), the stage's paced policy, the launch's recorded
+    settings and engine, and the run's own VOID class (V13 for an instrument stop: :func:`one` records it)."""
+    z, prompts, ppress, other = C.fight_rows(log)
     rows = ((rec.get("trace") or {}).get("sword") or {}).get("score", {}).get("rows") or []
-    return C.gate_reading(rec["side"], zone=z, prompts=prompts, presses=ppress, pages=list(outcome.get("pages") or []),
+    return C.gate_reading(rec["side"], zone=z, prompts=prompts, presses=ppress + other,
+                          pages=list(outcome.get("pages") or []),
                           page_judge=[x for x in log if x.get("k") == "page_judge"],
                           byte475=rows[-1][2] if rows else None, pol=spred["chanbara"],
                           settings=launch.get("settings"), engine=launch.get("engine"),

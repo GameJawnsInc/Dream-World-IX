@@ -163,6 +163,12 @@ GATE_VERDICTS = ("WITNESSED", "BROKEN", "INVALID", "UNINFORMATIVE")
 GATE_CAUSES = ("bonus", "combo")
 #: A side's informative R-GATE run must come within this many attempts (7.4 G2).
 GATE_ATTEMPTS = 3
+#: The run VOID classes an R-GATE reading can stand beside (7.4 G2; the review, research/o4_design.md 11.5): none (the
+#: run reached its end fields) and V18 -- the reading's own evidence (the fight judge's, or the score or gil page read
+#: in two samples with another number). Any other class stopped a run whose reading is not proven -- V13 (the
+#: instrument's: outside input, the budget, a refused press, any HarnessError), V17 (the driver's), V14, V4, V11,
+#: V19 ...: that run is uninformative, re-run within R-GATE's attempts; it never reaches the verdict's INVALID.
+GATE_RUN_VOIDS = (None, "V18")
 _MODULE_DOC = __doc__
 
 
@@ -896,12 +902,19 @@ def p_gate(manifest: dict, live_engine: dict, settings: dict, *, pinned_engine: 
 
 def gate_reading(side: str, *, zone: dict | None, prompts: list, presses: list, pages: list, page_judge: list,
                  byte475, pol: dict, settings=None, engine=None, v: str | None = None) -> dict:
-    """One R-GATE run as its verdict reads it (7.4 G2), pure: ``{"side", "informative", "why", "raw", "judge",
-    "page", "number", "combo", "byte475", "settings", "engine", "v"}``. INFORMATIVE: the judge finds no V17 fault in
-    the paced play (49 proper rows, every evidence observed, ``[raw_lo, raw_hi]`` inside the band) -- a V18 there is the
-    fork's answer, never an uninformative run. ``page``: the score page as read in two samples (a ``page_judge`` row's,
-    else the first page holding "nobles watching"); ``number`` its number; ``combo``: a COMBO page (120/121) was shown;
-    ``byte475``: the trace's 64 e4 t1 ip338 row's new value."""
+    """One R-GATE run as its verdict reads it (7.4 G2; the review, 11.5), pure: ``{"side", "informative", "why", "raw",
+    "judge", "page", "number", "combo", "byte475", "zone_v", "settings", "engine", "v"}``; ``v`` is the run's own VOID
+    class (o4_rehearse records V13 for an instrument stop). INFORMATIVE only when, in this order: the fight was entered
+    (a zone row); the zone row's own verdict is none or V18 (never a V13, V14, V4, V11, V19 or live V17 stop); the
+    run's class is none or V18 (:data:`GATE_RUN_VOIDS`); the judge over the rows finds no V17 fault; then EITHER the fight
+    reads V18 (the zone's verdict or the judge's: a lingered press, a slide's miss, a prompt too many) -- on F the
+    fork's answer, BROKEN with cause "combo", mid-fight too; on S the stock game deviating from the paced play, which
+    witnesses nothing of the stock bonus: re-run it -- OR the fight is COMPLETE (its end seen) under a paced policy
+    with its raw BOUNDED and ``[raw_lo, raw_hi]`` inside ``pace.raw_band``, the score page was read, and -- but for a
+    combo page -- the trace holds Byte[475]. ``why`` names the first that fails. ``page``: the score page as read in
+    two samples (a ``page_judge`` row's, else the first page holding "nobles watching"); ``number`` its number;
+    ``combo``: a COMBO page (120/121) was shown; ``byte475``: the trace's 64 e4 t1 ip338 row's new value; ``zone_v``
+    the zone row's own verdict."""
     if zone is None:
         judge = {"v": "V17", "by": "driver", "why": "no zone row: the fight was never entered", "faults": [],
                  "raw": [None, None]}
@@ -915,12 +928,39 @@ def gate_reading(side: str, *, zone: dict | None, prompts: list, presses: list, 
         reading = next((p for p in pages or () if SD.SCORE_MARK in p), None)
     combo = any(m in p for p in list(pages or ()) + ([reading] if reading else []) for m in COMBO_MARKS)
     m = re.search(r"(\d+) were impressed", reading or "")
-    informative = zone is not None and judge["v"] != "V17" and v != "V13"
-    why = ("informative" if informative else
-           "uninformative: an instrument stop (V13)" if v == "V13" else f"uninformative: {judge['why']}")
-    return {"side": side, "informative": informative, "why": why, "raw": judge.get("raw"), "judge": judge,
-            "page": reading, "number": int(m.group(1)) if m else None, "combo": combo, "byte475": byte475,
-            "settings": settings, "engine": engine, "v": v}
+    zv = (zone or {}).get("v")
+    raw = list(judge.get("raw") or [None, None])[:2]
+    band = (pol.get("pace") or {}).get("raw_band")
+    if zone is None:
+        why = judge["why"]
+    elif zv not in (None, "V18"):
+        why = f"the zone's verdict {zv}: {zone.get('why')}"
+    elif v not in GATE_RUN_VOIDS:
+        why = "an instrument stop (V13)" if v == "V13" else f"the run VOID {v}" + (" (the driver's)" if v == "V17"
+                                                                                    else "")
+    elif judge["v"] == "V17":
+        why = judge["why"]
+    elif zv == "V18" or judge["v"] == "V18":
+        why = None if side == "F" else (f"the stock game deviated from the paced play (V18: "
+                                        f"{judge.get('why') or zone.get('why')}): it witnesses nothing of the stock "
+                                        f"bonus -- re-run")
+    elif zone.get("end") is None:
+        why = "the fight stopped before its end"
+    elif not band:
+        why = "not a paced run: no pace.raw_band to judge the raw by"
+    elif raw[0] is None or raw[1] is None:
+        why = "the raw is unbounded"
+    elif not band[0] <= raw[0] <= raw[1] <= band[1]:
+        why = f"raw [{raw[0]}, {raw[1]}] is outside the band {list(band)}"
+    elif reading is None:
+        why = "no score page was read: the run stopped before it"
+    elif byte475 is None and not combo:
+        why = "the trace holds no Byte[475] row (64 e4 t1 ip338)"
+    else:
+        why = None
+    return {"side": side, "informative": why is None, "why": "informative" if why is None else f"uninformative: {why}",
+            "raw": judge.get("raw"), "judge": judge, "page": reading, "number": int(m.group(1)) if m else None,
+            "combo": combo, "byte475": byte475, "zone_v": zv, "settings": settings, "engine": engine, "v": v}
 
 
 def gate_verdict(runs: list, *, settings: dict | None = None, engine: dict | None = None,
@@ -928,14 +968,18 @@ def gate_verdict(runs: list, *, settings: dict | None = None, engine: dict | Non
     """R-GATE's VERDICT (7.4 G2; rev. 2), pure: ``{"verdict", "cause", "s_run", "f_run", "detail", "no_witness"}`` over
     its runs' :func:`gate_reading`'s, in run order. A run whose launch recorded settings other than ``settings``
     (SwordplayAssistance 2 above all) or an engine other than ``engine`` is NO WITNESS (re-run on a corrected launch):
-    it is set aside, never counted. Of the rest, each side's first INFORMATIVE run among its first ``attempts``:
-    - none on a side: UNINFORMATIVE (STOP: re-tune the pace from the attempts' j);
+    it is set aside, never counted. Of the rest, each side's first INFORMATIVE run among its first ``attempts``
+    (:func:`gate_reading`: a run stopped by the instrument, the driver or mid-fight, or an S run whose fight the stock
+    game deviated from, is never informative -- it is re-run, and never reaches INVALID):
+    - none on a side: UNINFORMATIVE (STOP: re-tune the pace from the attempts' j, or read the attempts' whys);
     - the S run must show page 122 with 100 and Byte[475] 100 (the stock +30% lifted a raw 79-99 to 100), else
-      INVALID (STOP: the settings or the stock bonus are not what 0.2 #11 reads);
+      INVALID (STOP: the settings or the stock bonus are not what 0.2 #11 reads -- or, with a combo page on a proven
+      play, cfg.control or the input path is not what 0.2 #6 reads, F2);
     - the F run: Byte[475] 100 and page 122 with 100 -> WITNESSED ("the EMinigame +30% fires on member(64)"); a COMBO
-      page (120/121) or a V18 the judge reads -> BROKEN, cause "combo" (the fork did not credit 49 proper presses);
-      Byte[475] the raw (inside the run's raw bounds) and page 122 with that number -> BROKEN, cause "bonus" (the wrap
-      does not fire: a finding); anything else -> INVALID (the page and the store disagree: the instrument's)."""
+      page (120/121) or a V18 of the fight (the judge's or the zone's) -> BROKEN, cause "combo" (the fork did not credit
+      49 proper presses); Byte[475] the raw (inside the run's raw bounds) and page 122 with that number -> BROKEN, cause
+      "bonus" (the wrap does not fire: a finding); anything else -> INVALID (the page and the store disagree: the
+      instrument's)."""
     settings = settings if settings is not None else SETTINGS
     engine = engine if engine is not None else ENGINE
     no_witness, valid = [], []
@@ -959,7 +1003,12 @@ def gate_verdict(runs: list, *, settings: dict | None = None, engine: dict | Non
         return out
     si, sr = s
     out["s_run"] = si
-    if not (sr["number"] == 100 and sr["byte475"] == 100 and not sr["combo"]):
+    if sr["combo"]:
+        out.update(verdict="INVALID", detail=f"the S run (run {si}) shows a combo page (120/121) on a proven paced play: "
+                                             f"stock did not credit 49 proper presses -- STOP, cfg.control or the "
+                                             f"input path is not what 0.2 #6 reads (F2)")
+        return out
+    if not (sr["number"] == 100 and sr["byte475"] == 100):
         out.update(verdict="INVALID", detail=f"the S run (run {si}) shows {sr['page']!r} and Byte[475] {sr['byte475']}: "
                                              f"not 100 through the stock +30% -- STOP, the settings or the stock bonus "
                                              f"are not what 0.2 #11 reads")
@@ -971,10 +1020,10 @@ def gate_verdict(runs: list, *, settings: dict | None = None, engine: dict | Non
     fi, fr = f
     out["f_run"] = fi
     lo, hi = (fr.get("raw") or [None, None])[:2]
-    if fr["combo"] or fr["judge"].get("v") == "V18":
+    if fr["combo"] or fr["judge"].get("v") == "V18" or fr.get("zone_v") == "V18":
         out.update(verdict="BROKEN", cause="combo",
                    detail=f"the F run (run {fi}) " + ("shows a combo page (120/121)" if fr["combo"] else
-                                                      f"reads V18: {fr['judge'].get('why')}")
+                                                      f"reads V18: {fr['judge'].get('why') or 'the zone stopped V18'}")
                           + ": a combo page, not the +30% -- the fork did not credit 49 proper presses")
     elif fr["byte475"] == 100 and fr["number"] == 100:
         out.update(verdict="WITNESSED", detail=f"S run {si} and F run {fi} both show 100 from a raw in "
