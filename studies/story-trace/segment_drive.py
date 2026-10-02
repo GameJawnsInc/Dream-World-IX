@@ -64,8 +64,10 @@ O1's skip rule still answers a stray skip dialog at its default (No).
 """
 from __future__ import annotations
 
+import itertools
 import json
 import math
+import re
 import time
 
 import segment_trace as ST
@@ -800,6 +802,488 @@ def read_end_state(g, pred: dict, timeout: float = 10.0) -> dict:
     finally:
         g.unwatch()
     return {t: value_of(t, [st.flag(b) for b in spans[t]]) for t in want}
+
+
+# ======================================================================== S7: the Chanbara policy (opt-in, pure)
+#: THE BUTTON MAP (research/o4_design.md 2.4.4), the one this policy takes: each prompt's [DBTN] to the press whose
+#: Control sets the bit 64 e3 t1 polls for it (ip34-363) under cfg.control 0 (0.2 #6): LEFT 0x80, RIGHT 0x20, UP 0x10,
+#: DOWN 0x40 (the directions, set straight by ProcessInput), TRIANGLE ``menu`` (Menu | Triangle 0x1000), CROSS
+#: ``confirm`` (Confirm | Cross 0x4000), CIRCLE ``cancel`` (Cancel | Circle 0x2000), SQUARE ``special`` (Special |
+#: Square 0x8000). :func:`chanbara_of` refuses any other.
+DBTN_CONTROL = {"LEFT": "left", "RIGHT": "right", "UP": "up", "DOWN": "down", "TRIANGLE": "menu", "CROSS": "confirm",
+                "CIRCLE": "cancel", "SQUARE": "special"}
+#: Why another spelling is no map (:func:`chanbara_of` names it): HarnessAgent.ParseControl's aliases (HarnessAgent.cs:
+#: 1430-1449) -- ``circle``, ``x``, ``a`` and ``ok`` are Control.Confirm, the CROSS bit; ``start`` / ``pause`` is
+#: Start, which 64 e3 t1 ip412 reads as a LEVEL; the rest are one Control's second spelling.
+DBTN_ALIAS_WHY = {
+    "circle": "Control.Confirm -- the Cross bit 0x4000 (HarnessAgent.cs:1434), never Circle's 0x2000",
+    "x": "Control.Confirm -- the Cross bit (HarnessAgent.cs:1434)", "a": "Control.Confirm -- the Cross bit",
+    "ok": "Control.Confirm -- the Cross bit",
+    "start": "Start (Control.Pause), which 64 e3 t1 ip412 reads as a LEVEL (B_KEY(8)): held, a miss every poll",
+    "pause": "Start (Control.Pause), which 64 e3 t1 ip412 reads as a LEVEL (B_KEY(8)): held, a miss every poll",
+    "b": "Control.Cancel's second spelling (one spelling per Control: cancel)",
+    "back": "Control.Cancel's second spelling (one spelling per Control: cancel)",
+    "triangle": "Control.Menu's second spelling (one spelling per Control: menu)",
+    "y": "Control.Menu's second spelling (one spelling per Control: menu)",
+    "square": "Control.Special's second spelling (one spelling per Control: special)",
+    "north": "an alias of up (one spelling per Control)", "south": "an alias of down (one spelling per Control)",
+    "west": "an alias of left (one spelling per Control)", "east": "an alias of right (one spelling per Control)"}
+#: The policy's keys (4.10), strict: ``pace`` and ``stop_after`` optional; ``raw_floor`` the fast policy's, ``pace``
+#: the paced one's (2.4.10).
+CHANBARA_KEYS = ("policy", "donor", "sc", "buttons", "press_frames", "prompts", "j_cap", "raw_floor", "gone_ticks",
+                 "zone_start", "zone_end", "first_prompt_s", "zone_stall_s", "page_once_ticks", "quiet", "quiet_cap_s",
+                 "score_page", "gil_page", "encore_match", "poll_s", "state_every", "input_every_s", "ring_every_s",
+                 "why", "pace", "stop_after")
+CHANBARA_POLICIES = ("fast", "paced")
+PACE_KEYS = ("target_ticks", "lead_ticks", "raw_band")
+#: A prompt's life in field ticks: TimeLeft 50 (e20 t1 ip736), a hit at the j-th poll credits 50 - j (e3 t1 ip487-498).
+PROMPT_TICKS = 50
+#: The raw score's divisor (64 e4 t1 ip208: (Int16[30] + Int16[32]) / 29).
+RAW_DIVISOR = 29
+#: Every [DBTN=..] tag of a line, whatever it names.
+_DBTN_TAG = re.compile(r"\[DBTN=([^\]]*)\]")
+
+
+def _is_text(v) -> bool:
+    return isinstance(v, str) and bool(v)
+
+
+def chanbara_of(pred: dict) -> dict | None:
+    """THE CHANBARA POLICY (``pred["chanbara"]``; research/o4_design.md 2.4, 4.10), checked STRICT before anything is
+    driven, as :func:`movies_of` checks the movie-skip policy -- or None: no ``chanbara``, and nothing below reads it.
+
+    ValueError, each naming its cause, on: a policy that is no dict; an unknown key or a missing one; a ``policy`` not
+    "fast" or "paced"; under "fast" a ``pace`` or no ``raw_floor`` (an int 79-126) and a ``j_cap`` outside 1-16 (a
+    hit's gap is >= ~8 ticks, 0.2 #2); under "paced" no ``pace``, a ``raw_floor``, or a ``j_cap`` outside 1-40;
+    ``buttons`` other than EXACTLY :data:`DBTN_CONTROL` (an alias is named with its cause: ``circle`` is
+    Control.Confirm); ``donor``, ``sc``, ``prompts`` (>= 1), ``page_once_ticks`` (>= 1) not ints, ``press_frames`` not an
+    int 1-4, ``gone_ticks`` not an int 5-20, ``stop_after`` not an int 1-48; the ``_s`` keys not positive numbers,
+    ``input_every_s`` above 0.1 or ``ring_every_s`` above 5 (the ring keeps ~10 s); ``score_page``, ``gil_page``,
+    ``encore_match``, ``why`` not non-empty strings; ``zone_start`` not exactly ``{"match": text, "dbtns": 8}``;
+    ``zone_end`` or ``quiet`` not non-empty lists of non-empty strings; ``state_every`` neither None nor 1; a ``pace``
+    not exactly ``{"target_ticks" 1-50, "lead_ticks" 0 .. target - 1, "raw_band" [lo, hi] ints, 1 <= lo <= hi}``. A
+    bool is never a number. Returns a copy."""
+    raw = pred.get("chanbara")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError(f"chanbara {raw!r}: the policy is a dict of {CHANBARA_KEYS}")
+    unknown = sorted(set(raw) - set(CHANBARA_KEYS))
+    missing = [k for k in CHANBARA_KEYS if k not in ("pace", "stop_after", "raw_floor") and k not in raw]
+    if unknown or missing:
+        raise ValueError(f"chanbara: " + "; ".join(([f"unknown key(s) {unknown}"] if unknown else [])
+                                                    + ([f"missing {missing}"] if missing else []))
+                         + f" -- the policy's keys are {CHANBARA_KEYS} (pace, stop_after, raw_floor by the policy)")
+    policy = raw["policy"]
+    if policy not in CHANBARA_POLICIES:
+        raise ValueError(f"chanbara: policy {policy!r} is not one of {CHANBARA_POLICIES}")
+    if policy == "fast":
+        if "pace" in raw:
+            raise ValueError("chanbara: a pace under the fast policy -- the pace is R-GATE's (policy paced, 2.4.10)")
+        if not _is_int(raw.get("raw_floor")) or not 79 <= raw["raw_floor"] <= 126:
+            raise ValueError(f"chanbara: the fast policy's raw_floor is an int 79-126, not {raw.get('raw_floor')!r}")
+        cap = 16
+    else:
+        if "raw_floor" in raw:
+            raise ValueError("chanbara: a raw_floor under the paced policy -- its band is pace.raw_band (2.4.10)")
+        if "pace" not in raw:
+            raise ValueError("chanbara: the paced policy needs a pace (target_ticks, lead_ticks, raw_band)")
+        cap = 40
+    btn = raw["buttons"]
+    if not isinstance(btn, dict) or btn != DBTN_CONTROL:
+        why = []
+        if isinstance(btn, dict):
+            for d, name in btn.items():
+                want = DBTN_CONTROL.get(d)
+                if want is None:
+                    why.append(f"{d!r} is no prompt button")
+                elif name != want:
+                    cause = DBTN_ALIAS_WHY.get(str(name).lower())
+                    why.append(f"{d} -> {name!r}" + (f" is {cause}" if cause else f", where the map is {want!r}"))
+            why += [f"{d} is missing" for d in DBTN_CONTROL if d not in btn]
+        raise ValueError(f"chanbara: buttons must be exactly {DBTN_CONTROL}"
+                         + (f": {'; '.join(why)}" if why else f", not {btn!r}"))
+    bad = [k for k in ("donor", "sc") if not _is_int(raw[k])]
+    bad += [k for k in ("prompts", "page_once_ticks") if not _is_int(raw[k]) or raw[k] < 1]
+    if not _is_int(raw["press_frames"]) or not 1 <= raw["press_frames"] <= 4:
+        bad.append("press_frames (an int 1-4: a tap)")
+    if not _is_int(raw["gone_ticks"]) or not 5 <= raw["gone_ticks"] <= 20:
+        bad.append("gone_ticks (an int 5-20)")
+    if not _is_int(raw["j_cap"]) or not 1 <= raw["j_cap"] <= cap:
+        bad.append(f"j_cap (an int 1-{cap} under the {policy} policy)")
+    if "stop_after" in raw and (not _is_int(raw["stop_after"]) or not 1 <= raw["stop_after"] <= 48):
+        bad.append("stop_after (an int 1-48)")
+    bad += [k for k in ("first_prompt_s", "zone_stall_s", "quiet_cap_s", "poll_s", "input_every_s", "ring_every_s")
+            if not _is_pos(raw[k])]
+    if _is_pos(raw["input_every_s"]) and raw["input_every_s"] > 0.1:
+        bad.append("input_every_s (at most 0.1)")
+    if _is_pos(raw["ring_every_s"]) and raw["ring_every_s"] > 5:
+        bad.append("ring_every_s (at most 5: the ring keeps ~10 s)")
+    bad += [k for k in ("score_page", "gil_page", "encore_match", "why") if not _is_text(raw[k])]
+    zs = raw["zone_start"]
+    if not isinstance(zs, dict) or set(zs) != {"match", "dbtns"} or not _is_text(zs.get("match")) \
+            or not _is_int(zs.get("dbtns")) or zs["dbtns"] != 8:
+        bad.append("zone_start (exactly {match: text, dbtns: 8})")
+    bad += [k for k in ("zone_end", "quiet") if not isinstance(raw[k], list) or not raw[k]
+            or not all(_is_text(t) for t in raw[k])]
+    if raw["state_every"] not in (None, 1) or isinstance(raw["state_every"], bool):
+        bad.append("state_every (None or 1)")
+    if policy == "paced":
+        pace = raw["pace"]
+        ok = isinstance(pace, dict) and set(pace) == set(PACE_KEYS) and _is_int(pace.get("target_ticks")) \
+            and 1 <= pace["target_ticks"] <= PROMPT_TICKS and _is_int(pace.get("lead_ticks")) \
+            and 0 <= pace["lead_ticks"] < pace["target_ticks"]
+        band = pace.get("raw_band") if isinstance(pace, dict) else None
+        ok = ok and isinstance(band, (list, tuple)) and len(band) == 2 and all(_is_int(b) for b in band) \
+            and 1 <= band[0] <= band[1]
+        if not ok:
+            bad.append("pace (exactly {target_ticks 1-50, lead_ticks 0 .. target - 1, raw_band [lo, hi]})")
+    if bad:
+        raise ValueError(f"chanbara: {bad} of the wrong type or out of range")
+    return json.loads(json.dumps(raw))
+
+
+def prompt_dbtn(line) -> str | None:
+    """A published ``phrase_raw`` line that is a PROMPT (research/o4_design.md 2.4.1), pure: it holds EXACTLY ONE
+    ``[DBTN=X]`` with X one of :data:`DBTN_CONTROL`'s eight, and holds ``Press`` and ``[TIME=-1]`` -> X; else None.
+    Rendered ``texts`` are never read for it: the glyph renders to nothing, so all eight read "Press  !". 111 (eight
+    tags) is none, nor is 150's window 55 (two tags, no "Press")."""
+    s = str(line or "")
+    tags = _DBTN_TAG.findall(s)
+    if len(tags) != 1 or tags[0] not in DBTN_CONTROL or "Press" not in s or "[TIME=-1]" not in s:
+        return None
+    return tags[0]
+
+
+def is_zone_start(lines, pol: dict) -> bool:
+    """Whether a published ``phrase_raw`` line is the ZONE START (111): it holds ``zone_start.match`` and exactly
+    ``zone_start.dbtns`` [DBTN] tags."""
+    zs = pol["zone_start"]
+    return any(zs["match"] in str(ln or "") and len(_DBTN_TAG.findall(str(ln or ""))) == zs["dbtns"]
+               for ln in lines or ())
+
+
+def is_zone_end(texts, pol: dict) -> bool:
+    """Whether a published rendered text holds one of ``zone_end`` (107, 108)."""
+    return any(e in str(t or "") for t in texts or () for e in pol["zone_end"])
+
+
+def rate_of(d: dict):
+    """A :class:`harness.tickrate.Rate` rebuilt from a row's ``rate`` (its ``as_dict()``)."""
+    from harness.tickrate import Rate
+    return Rate(fps=float(d["fps"]), fps_lo=float(d["fps_lo"]), fps_hi=float(d["fps_hi"]),
+                tick_hz=float(d["tick_hz"]), source=d.get("source", "default"), samples=int(d.get("samples", 0)),
+                frame=int(d.get("frame", -1)), stale=bool(d.get("stale", False)))
+
+
+def j_bounds(row: dict) -> tuple:
+    """``(j_lo, j_hi)`` of a prompt row (research/o4_design.md 2.4.7), pure; ``(None, None)`` without its down, prev
+    and seen frames or its rate. j is the ticks from the arm tick S to the tick the press's edge lands on. The edge
+    lands on the first tick of the frames >= ``down_frame`` in either publication order (the input is frame-scheduled
+    and read before a frame's ticks, FPSManager.cs:77-139); S lies in the ticks of frames [``prev_frame``,
+    ``seen_frame`` - 1] (agent first) or [``prev_frame`` + 1, ``seen_frame``] (agent last). So ``j_hi =
+    ticks_most(down - prev) + 1 + ceil(excess)`` (the jitter tick TAIL_TICKS carries, and a hitch's caught-up ticks) and
+    ``j_lo = max(1, ticks_sure(down - seen - 1))`` -- both sound under either order."""
+    down, prev, seen, rate = (row.get(k) for k in ("down_frame", "prev_frame", "seen_frame", "rate"))
+    if down is None or prev is None or seen is None or not rate:
+        return None, None
+    r = rate_of(rate)
+    hi = r.ticks_most(max(0, down - prev)) + 1 + math.ceil(float(row.get("excess") or 0.0))
+    lo = max(1, r.ticks_sure(max(0, down - seen - 1)))
+    return lo, hi
+
+
+def raw_bounds(rows: list) -> tuple:
+    """``(raw_lo, raw_hi)`` over a fight's prompt rows (2.4.7), pure: n hits credit ``sum(50 - j)`` to Int16[30], the
+    phantom pass the last one's again, and ``0 + 1 + ... + n`` to Int16[32] (1225 at 49) -- each j clamped to 1..50;
+    raw_lo from every ``j_hi``, raw_hi from every ``j_lo`` (a row's recorded bounds, else :func:`j_bounds` of its
+    frames). ``(None, None)`` for no rows or a row without bounds."""
+    los, his = [], []
+    for r in rows:
+        lo, hi = (r["j_lo"], r["j_hi"]) if r.get("j_lo") is not None and r.get("j_hi") is not None else j_bounds(r)
+        if lo is None:
+            return None, None
+        los.append(min(PROMPT_TICKS, max(1, lo)))
+        his.append(min(PROMPT_TICKS, max(1, hi)))
+    if not rows:
+        return None, None
+    i32 = len(rows) * (len(rows) + 1) // 2
+
+    def raw(js):
+        return (sum(PROMPT_TICKS - j for j in js) + (PROMPT_TICKS - js[-1]) + i32) // RAW_DIVISOR
+    return raw(his), raw(los)
+
+
+def prompt_evidence(row: dict, samples: list, gone_ticks: int, *, until: int | None = None) -> dict:
+    """What the MERGED stream PROVES about one instance's press (research/o4_design.md 2.4.6), pure, over the samples
+    after its ``seen_frame`` and before ``until`` (the next instance of the same button's seen frame, if any) -- each
+    sample's ``dbtns`` the prompts it lists. ``mark = down_frame + frames_for_ticks(gone_ticks)`` at the row's rate:
+    ``"before"`` -- a sample at or before ``down_frame`` already lacks the window: it left before the press could land;
+    ``"lingered"`` -- a sample lists it at or past ``mark``: the game read no key; ``"closed"`` -- a sample lists it at
+    or after ``down_frame`` and the first sample without it after that lies at or before ``mark``: the game read A key
+    (e3 closes the window on a hit and a wrong key alike; only the slide or the score tells which); else
+    ``"unobserved"`` -- a read gap straddles the down frame or the mark. ``{"evidence", "mark", "last_listed_frame",
+    "gone_frame", "gone_kind"}``: the last sample listing the window, the first after it without ("dbtn" when that one
+    lists another prompt, else "none"); ``evidence`` None without a down frame (no accepted event) or a rate."""
+    dbtn, seen, down = row["dbtn"], row["seen_frame"], row.get("down_frame")
+    after = [s for s in samples if s["frame"] > seen and (until is None or s["frame"] < until)]
+    listing = [s["frame"] for s in after if dbtn in s["dbtns"]]
+    last = max(listing) if listing else seen
+    gone = next((s for s in after if s["frame"] > last and dbtn not in s["dbtns"]), None)
+    out = {"evidence": None, "mark": None, "last_listed_frame": last,
+           "gone_frame": None if gone is None else gone["frame"],
+           "gone_kind": None if gone is None else ("dbtn" if gone["dbtns"] else "none")}
+    if down is None or not row.get("rate"):
+        return out
+    mark = down + rate_of(row["rate"]).frames_for_ticks(gone_ticks)
+    out["mark"] = mark
+    if any(s["frame"] <= down and dbtn not in s["dbtns"] for s in after):
+        out["evidence"] = "before"
+    elif any(s["frame"] >= mark and dbtn in s["dbtns"] for s in after):
+        out["evidence"] = "lingered"
+    else:
+        at = [s["frame"] for s in after if s["frame"] >= down and dbtn in s["dbtns"]]
+        first = next((s["frame"] for s in after if at and s["frame"] > max(at) and dbtn not in s["dbtns"]), None)
+        out["evidence"] = "closed" if first is not None and first <= mark else "unobserved"
+    return out
+
+
+#: The slide a LEFT / RIGHT HIT makes both bodies take (64 e20 t1 ip918-1211, e13 t11 ip1617-1916): -300 / +300.
+LR_WANT = {"LEFT": -300.0, "RIGHT": 300.0}
+#: A slide's bracketing samples must lie this many SURE ticks after the previous instance's ``seen_frame`` (2.4.6): the
+#: earlier slide is done after its arm + 6, and a jitter tick.
+SLIDE_CLEAR_TICKS = 7
+
+
+def _slide_verdict(want: float, wants: list, dxp, dxb) -> dict:
+    """A measured slide's reading: both bodies at ``want`` (within 1 unit) -> ok; both at ``want`` less some of
+    ``wants`` (whole L/R slides left out: the game read those keys as misses) -> not ok, ``left_out`` those instances;
+    anything else -> not ok, ``left_out`` None (the samples are not what 2.4.6 needs: the instrument's)."""
+    cands = [(want, None)]
+    for k in range(1, len(wants) + 1):
+        for combo in itertools.combinations(wants, k):
+            cands.append((want - sum(w for _n, w in combo), sorted(n for n, _w in combo)))
+    for value, left in cands:
+        if abs(dxp - value) <= 1.0 and abs(dxb - value) <= 1.0:
+            return {"ok": True, "left_out": None} if left is None else {"ok": False, "left_out": left}
+    return {"ok": False, "left_out": None}
+
+
+def measure_slides(rows: list, end_sample: dict | None, prompts: int) -> dict:
+    """THE LEFT/RIGHT SLIDE WITNESS (research/o4_design.md 2.4.6), pure: ``{n: slide}`` for every LEFT / RIGHT
+    instance. A hit on prompt n slides Blank and Zidane in pass n's reaction, the one that arms prompt n + 1 at S', done
+    after S'+6 (0.3 #3); BASE is instance n+1's ``prev`` sample (``x_prev``: its state precedes S'), END instance n+2's
+    (it precedes prompt n+2's arm, where prompt n+1's own slide would begin) -- each counted only when it lies
+    :data:`SLIDE_CLEAR_TICKS` sure ticks after the previous instance's ``seen_frame``. The last two prompts slide in the
+    arms of the last and of the phantom pass, which publishes nothing (0.3 #9): with the zone end's first sample
+    (``end_sample``: ``frame``, ``x_player``, ``x_blank``) they are measured JOINTLY from the last instance's ``prev``
+    sample to it, ``want`` the sum of their L/R wants, the one result on both rows -- "unmeasured" when they are L/R
+    with opposite wants. A slide is ``{"want", "base", "end", "dx_player", "dx_blank", "ok": True | False |
+    "unmeasured", "left_out"}`` (and ``joint`` for the tail's)."""
+    by_n = {r["n"]: r for r in rows}
+    out: dict = {}
+
+    def clear(later, earlier) -> bool:
+        if later is None or earlier is None or later.get("prev_frame") is None or not later.get("rate"):
+            return False
+        return rate_of(later["rate"]).ticks_sure(max(0, later["prev_frame"] - earlier["seen_frame"])) \
+            >= SLIDE_CLEAR_TICKS
+
+    def dx(a, b, body: str):
+        if not a or not b or a.get(body) is None or b.get(body) is None:
+            return None
+        return round(float(b[body]) - float(a[body]), 1)
+    tail = {prompts - 1, prompts} if end_sample is not None and len(rows) >= prompts else set()
+    for r in rows:
+        n = r["n"]
+        if r["dbtn"] not in LR_WANT or n in tail:
+            continue
+        nxt, nxt2 = by_n.get(n + 1), by_n.get(n + 2)
+        s = {"want": LR_WANT[r["dbtn"]], "base": None if nxt is None else nxt.get("prev_frame"),
+             "end": None if nxt2 is None else nxt2.get("prev_frame"), "dx_player": None, "dx_blank": None,
+             "ok": "unmeasured", "left_out": None}
+        if clear(nxt, r) and clear(nxt2, nxt):
+            s["dx_player"] = dx(nxt.get("x_prev"), nxt2.get("x_prev"), "player")
+            s["dx_blank"] = dx(nxt.get("x_prev"), nxt2.get("x_prev"), "blank")
+            if s["dx_player"] is not None and s["dx_blank"] is not None:
+                s.update(_slide_verdict(s["want"], [(n, s["want"])], s["dx_player"], s["dx_blank"]))
+        out[n] = s
+    if tail:
+        a, b = by_n.get(prompts - 1), by_n.get(prompts)
+        wants = [(x["n"], LR_WANT[x["dbtn"]]) for x in (a, b) if x is not None and x["dbtn"] in LR_WANT]
+        if wants:
+            want = sum(w for _n, w in wants)
+            end = {"player": end_sample.get("x_player"), "blank": end_sample.get("x_blank")}
+            s = {"want": want, "base": None if b is None else b.get("prev_frame"), "end": end_sample["frame"],
+                 "dx_player": None, "dx_blank": None, "ok": "unmeasured", "left_out": None,
+                 "joint": [n for n, _w in wants]}
+            opposite = len(wants) == 2 and wants[0][1] != wants[1][1]
+            if not opposite and clear(b, a):
+                s["dx_player"] = dx(b.get("x_prev"), end, "player")
+                s["dx_blank"] = dx(b.get("x_prev"), end, "blank")
+                if s["dx_player"] is not None and s["dx_blank"] is not None:
+                    s.update(_slide_verdict(want, wants, s["dx_player"], s["dx_blank"]))
+            for n, _w in wants:
+                out[n] = s
+    return out
+
+
+def page_reading(texts: list, want: str) -> tuple:
+    """The score or gil page as two CONSECUTIVE samples read it (research/o4_design.md 2.4.12; [NUMB] is filled in when
+    the label renders, 0.3 #6), pure: ``texts`` the page's text in each consecutive merged sample listing it, in frame
+    order. The first pair of consecutive samples that read the same text decides: ``("equal", text)`` when it is
+    ``want``, ``("differs", text)`` when it is another; a text still holding a raw ``[NUMB`` tag is no reading. ``(None,
+    None)``: no pair decides yet."""
+    for a, b in zip(texts, texts[1:]):
+        if a is None or b is None or a != b or "[NUMB" in a:
+            continue
+        return ("equal" if a == want else "differs"), a
+    return None, None
+
+
+def chanbara_judge(zone: dict, prompts: list, presses: list, pol: dict, *, page: dict | None = None) -> dict:
+    """THE FIGHT'S JUDGE (research/o4_design.md 2.4.8), pure: ``{"v", "by", "why", "faults", "raw"}`` over a zone's
+    row, its ``prompt`` rows and the visit's ``press`` rows (each with its ``seq`` and, joined, its ``down_frame``).
+    V18 rests on POSITIVE evidence only -- something a merged sample SHOWED; a missing sample is the driver's
+    sampling: V17, never V18.
+
+    V17 (driver), the first fault in this order: an instance with no press; two presses; a wrong name; no ``accepted``
+    event; ``evidence`` "before"; ``evidence`` "unobserved" (the instrument: a read gap); ``j_hi > j_cap``; (fast)
+    ``raw_lo < raw_floor`` / (paced) ``[raw_lo, raw_hi]`` outside ``pace.raw_band`` ("uninformative") -- a complete
+    zone's; a non-prompt press whose down frame lies at or after the first prompt's ``prev_frame`` and before the zone's
+    end; a rate not measured; a measured slide that is neither its want nor its want with whole L/R slides left out; a
+    complete zone with fewer than ``prompts`` instances and a ``max_read_gap`` above a prompt's life (50 ticks). An
+    instance the run STOPPED at (``stopped``: opened, never to be pressed) is judged by none of them.
+    V18 (game, a finding) -- no V17 fault, and: a proper press whose evidence is "lingered"; a proper LEFT/RIGHT press
+    whose measured slide shows it left out; more instances than ``prompts``; a complete zone with fewer and its
+    ``max_read_gap`` within 50 ticks; or ``page`` (``{"kind", "want", "texts"}``: the score or gil page in consecutive
+    samples) read as another text in two samples (:func:`page_reading`).
+    None -- the play is proven the frozen play."""
+    rows = [r for r in prompts if not r.get("stopped")]
+    want_n, ended = int(pol["prompts"]), zone.get("end") is not None
+    mine: dict = {}
+    for p in presses:
+        if p.get("why") == "prompt":
+            mine.setdefault(p.get("n"), []).append(p)
+    lo, hi = raw_bounds(rows) if ended and rows and len(rows) == len(prompts) else (None, None)
+    v17: list = []
+    v17 += [f"instance {r['n']} ({r['dbtn']}) has no press: it ended before the driver pressed" for r in rows
+            if not mine.get(r["n"])]
+    v17 += [f"instance {r['n']} was pressed {len(mine[r['n']])} times" for r in rows if len(mine.get(r["n"], ())) > 1]
+    v17 += [f"instance {r['n']} ({r['dbtn']}) was pressed {r.get('button')!r}, not {pol['buttons'][r['dbtn']]!r}"
+            for r in rows if mine.get(r["n"]) and r.get("button") != pol["buttons"][r["dbtn"]]]
+    v17 += [f"instance {r['n']}'s press (seq {r.get('seq')}) has no accepted event" for r in rows
+            if mine.get(r["n"]) and r.get("accepted_frame") is None]
+    v17 += [f"instance {r['n']}'s window left before its press could land (evidence before)" for r in rows
+            if r.get("evidence") == "before"]
+    v17 += [f"instrument: a read gap of {((r.get('read_gap') or {}).get('s'))} s straddles instance {r['n']}'s mark "
+            f"(evidence unobserved)" for r in rows if r.get("evidence") == "unobserved"]
+    v17 += [f"instance {r['n']}'s j_hi {r.get('j_hi')} is over j_cap {pol['j_cap']}" for r in rows
+            if r.get("j_hi") is not None and r["j_hi"] > pol["j_cap"]]
+    if lo is not None:
+        if pol["policy"] == "fast" and lo < pol["raw_floor"]:
+            v17.append(f"raw_lo {lo} is under raw_floor {pol['raw_floor']}")
+        if pol["policy"] == "paced":
+            band = pol["pace"]["raw_band"]
+            if lo < band[0] or hi > band[1]:
+                v17.append(f"uninformative: raw [{lo}, {hi}] is outside the band {list(band)}")
+    if rows:
+        first = rows[0].get("prev_frame")
+        last = (zone.get("end") or {}).get("frame")
+        for p in presses:
+            d = p.get("down_frame")
+            if p.get("why") != "prompt" and d is not None and first is not None and d >= first \
+                    and (last is None or d < last):
+                v17.append(f"a {p.get('why')} press (seq {p.get('seq')}) went down at frame {d}, inside the fight")
+    v17 += [f"instance {r['n']}'s rate is not measured ({(r.get('rate') or {}).get('source')}"
+            f"{', stale' if (r.get('rate') or {}).get('stale') else ''})" for r in rows
+            if not r.get("rate") or r["rate"].get("source") == "default" or r["rate"].get("stale")]
+    slid: dict = {}
+    for r in rows:
+        s = r.get("slide")
+        if isinstance(s, dict) and s.get("ok") is False:
+            slid.setdefault(tuple(s.get("joint") or [r["n"]]), s)
+    v17 += [f"the slide of instance(s) {list(k)} measured {s['dx_player']} / {s['dx_blank']} (want {s['want']}): "
+            f"the instrument's samples" for k, s in slid.items() if s.get("left_out") is None]
+    gap = (zone.get("max_read_gap") or {}).get("ticks")
+    if ended and len(prompts) < want_n and gap is not None and gap > PROMPT_TICKS:
+        v17.append(f"{len(prompts)} instances, and a read gap of {gap} ticks could hide a prompt's whole life")
+    if v17:
+        return {"v": "V17", "by": "driver", "why": v17[0], "faults": v17, "raw": [lo, hi]}
+    v18: list = []
+    v18 += [f"instance {r['n']} ({r['dbtn']}) was still listed at or past its mark: the game read no key" for r in rows
+            if r.get("evidence") == "lingered"]
+    v18 += [f"the slide of instance(s) {s['left_out']} was left out (both bodies unmoved by it): the game read the "
+            f"key as a miss" for s in slid.values() if s.get("left_out")]
+    if len(prompts) > want_n:
+        v18.append(f"{len(prompts)} prompts: more than the {want_n} the bytes arm (64 e20 t1 ip710)")
+    if ended and len(prompts) < want_n and (gap is None or gap <= PROMPT_TICKS):
+        v18.append(f"{len(prompts)} prompts, fewer than {want_n}, and no read gap could hide one")
+    if page is not None:
+        verdict, text = page_reading(page.get("texts") or [], page["want"])
+        if verdict == "differs":
+            v18.append(f"the {page['kind']} page reads {text!r} in two samples, not {page['want']!r}")
+    if v18:
+        return {"v": "V18", "by": "game", "why": v18[0], "faults": v18, "raw": [lo, hi]}
+    return {"v": None, "by": None, "why": None, "faults": [], "raw": [lo, hi]}
+
+
+def _press_button(steps) -> str | None:
+    """The button a ``press`` step names (``["press confirm 4"]`` -> "confirm"), or None."""
+    for s in steps or ():
+        parts = str(s).split()
+        if len(parts) >= 2 and parts[0].lower() == "press":
+            return parts[1].lower()
+    return None
+
+
+#: The agent's Confirm spellings (HarnessAgent.ParseControl): a press of any of them is a Confirm on a choice.
+CONFIRM_NAMES = ("confirm", "ok", "x", "circle", "a")
+
+
+def stray_answer(log: list, events: list, steps: list, first_frame: int, close_frame: int | None) -> dict:
+    """THE ENCORE ATTRIBUTION (research/o4_design.md 2.4.11), pure: who made the game replay. The Confirm-bearing
+    presses of the run's log -- every ``press`` row with a ``seq`` (page, prompt and ``choose``'s), its button from the
+    row or its step (``steps``: the session's steps.jsonl rows), its down frame its ``accepted`` event's frame + 1
+    (``events``: events.jsonl) -- whose down frame lies in [``first_frame``, ``close_frame``): 127's first publication to
+    the first merged sample without it (``close_frame`` None: open) -- EXCEPT the answer's own Confirm when the last
+    sample before its down frame published the cursor on No (``selected_before`` 1). One or more (or a Confirm with no
+    accepted event, which cannot be placed): V17, the driver's -- "a Confirm of the driver's own landed on choice 127
+    ..."; none: V2, the game's -- "the game replayed though the driver confirmed No". ``{"v", "by", "why",
+    "presses"}``."""
+    accepted: dict = {}
+    for e in events or ():
+        if e.get("kind") == "accepted" and e.get("seq") is not None:
+            try:
+                accepted.setdefault(int(e["seq"]), int(e["frame"]))
+            except (TypeError, ValueError):
+                continue
+    by_seq = {int(s["seq"]): s.get("steps") for s in steps or () if s.get("seq") is not None}
+    strays = []
+    for row in log or ():
+        if row.get("k") != "press" or row.get("seq") is None:
+            continue
+        button = row.get("button") or _press_button(by_seq.get(int(row["seq"])))
+        if str(button or "").lower() not in CONFIRM_NAMES:
+            continue
+        acc = accepted.get(int(row["seq"]))
+        if acc is None:
+            strays.append({"seq": row["seq"], "why": row.get("why"), "down_frame": None})
+            continue
+        down = acc + 1
+        if down < first_frame or (close_frame is not None and down >= close_frame):
+            continue
+        if row.get("why") == "choose" and row.get("answer") and row.get("selected_before") == 1:
+            continue                                        # the answer's own Confirm, the cursor on No
+        strays.append({"seq": row["seq"], "why": row.get("why"), "down_frame": down,
+                       "selected_before": row.get("selected_before")})
+    if strays:
+        s = strays[0]
+        how = ("with the cursor on Yes" if s["why"] == "choose" and s["down_frame"] is not None else
+               "with no accepted event to place it" if s["down_frame"] is None else "before its answer")
+        return {"v": "V17", "by": "driver", "presses": strays,
+                "why": f"a Confirm of the driver's own (seq {s['seq']}, {s['why']}) landed on choice 127 {how}"}
+    return {"v": "V2", "by": "game", "presses": [], "why": "the game replayed though the driver confirmed No"}
 
 
 # ======================================================================== the driver

@@ -16665,3 +16665,354 @@ def test_fake_chanbara_faults(game):
     fake = run({"replay_on_no": True}, until=lambda f: "Zidane\n“Die, traitor!”" in _cb_opened(f))
     assert fake.answered == [1] and _cb_opened(fake)[-2:] == ["Blank\n“Is that the best thou canst do!?”",
                                                                "Zidane\n“Die, traitor!”"]
+
+
+# ---- O4's Chanbara policy, its pure half (studies/story-trace/segment_drive.py, S7; research/o4_design.md 2.4, 9 B2):
+# the policy's strict reading, the prompt recognizers, the j and raw bounds, the judge, the slides and the encore's
+# attribution -- each over synthetic rows, no fake, no session.
+
+_O4_BUTTONS = {"LEFT": "left", "RIGHT": "right", "UP": "up", "DOWN": "down", "TRIANGLE": "menu", "CROSS": "confirm",
+               "CIRCLE": "cancel", "SQUARE": "special"}
+_O4_RATE = {"fps": 59.9, "fps_lo": 59.5, "fps_hi": 60.4, "tick_hz": 30.0, "source": "mtime", "samples": 24,
+            "frame": 1000, "stale": False}
+
+
+def _o4_policy(**over):
+    """research/o4_design.md 4.10's draft policy (``over`` replaces keys; a key set to ``...`` is dropped)."""
+    pol = {"policy": "fast", "donor": 64, "sc": 1155, "buttons": dict(_O4_BUTTONS), "press_frames": 2, "prompts": 49,
+           "j_cap": 16, "raw_floor": 100, "gone_ticks": 12, "zone_start": {"match": "To follow Blank", "dbtns": 8},
+           "zone_end": ["We shall finish this later!", "Come back here!"], "first_prompt_s": 3.0,
+           "zone_stall_s": 5.0, "page_once_ticks": 10, "quiet": ["Queen Brahne was"], "quiet_cap_s": 5.0,
+           "score_page": "Of 100 nobles watching,\n100 were impressed.", "gil_page": "They shower you with 10000 Gil!",
+           "encore_match": "encore", "poll_s": 0.005, "state_every": None, "input_every_s": 0.05,
+           "ring_every_s": 2.0, "why": "64 stage 3, the sword fight: one mapped press per prompt, fast"}
+    for k, v in over.items():
+        if v is ...:
+            pol.pop(k, None)
+        else:
+            pol[k] = v
+    return pol
+
+
+def _o4_paced(**over):
+    """The paced overlay (2.4.10): no raw_floor, j_cap 40, the pace -- ``over`` on top."""
+    return _o4_policy(**{"policy": "paced", "raw_floor": ..., "j_cap": 40,
+                         "pace": {"target_ticks": 22, "lead_ticks": 2, "raw_band": [79, 99]}, **over})
+
+
+def _o4_prompt_raw(dbtn):
+    mobi = {"LEFT": 267, "RIGHT": 269, "TRIANGLE": 272, "DOWN": 270, "CROSS": 274, "UP": 268, "CIRCLE": 273,
+            "SQUARE": 271}[dbtn]
+    return f"[STRT=54,1][TAIL=UPRF][IMME]Press [DBTN={dbtn}][MOBI={mobi}] ![TIME=-1]"
+
+
+def test_o4_chanbara_of_is_strict():
+    """S7's policy is read STRICT before anything is driven (research/o4_design.md 2.4.4, 4.10, section 8's unit), as
+    ``movies_of`` reads the movie-skip policy: no key -> None; 4.10's draft and the paced overlay pass (a copy); each
+    of these raises, once: an unknown key, a missing one, ``circle`` for CIRCLE (named for what it is:
+    Control.Confirm, the Cross bit), any other map, ``j_cap`` 17 under fast, a ``raw_floor`` under paced, a ``pace``
+    under fast, ``press_frames`` 0, ``stop_after`` 49, a bool for an int, ``input_every_s`` 0.2 and ``ring_every_s``
+    8. Break: accept the ``circle`` alias."""
+    SD = _segment_modules()
+    assert SD.chanbara_of({}) is None
+    draft = _o4_policy()
+    got = SD.chanbara_of({"chanbara": draft})
+    assert got == draft and got is not draft
+    paced = _o4_paced(stop_after=10)
+    assert SD.chanbara_of({"chanbara": paced}) == paced
+    circle = dict(_O4_BUTTONS, CIRCLE="circle")
+    cases = [(_o4_policy(extra=1), "unknown key"), (_o4_policy(gone_ticks=...), "missing"),
+             (_o4_policy(buttons=circle), "Control.Confirm"),
+             (_o4_policy(buttons=dict(_O4_BUTTONS, TRIANGLE="triangle")), "Control.Menu's second spelling"),
+             (_o4_policy(buttons=dict(_O4_BUTTONS, CROSS="start")), "LEVEL"),
+             (_o4_policy(buttons=dict(_O4_BUTTONS, LEFT="west")), "an alias of left"),
+             (_o4_policy(buttons=dict(_O4_BUTTONS, UP="down")), "where the map is 'up'"),
+             (_o4_policy(j_cap=17), "j_cap"), (_o4_paced(raw_floor=100), "raw_floor under the paced"),
+             (_o4_policy(pace={"target_ticks": 22, "lead_ticks": 2, "raw_band": [79, 99]}), "a pace under the fast"),
+             (_o4_policy(press_frames=0), "press_frames"), (_o4_policy(stop_after=49), "stop_after"),
+             (_o4_policy(prompts=True), "prompts"), (_o4_policy(input_every_s=0.2), "input_every_s"),
+             (_o4_policy(ring_every_s=8), "ring_every_s"), (_o4_policy(raw_floor=78), "raw_floor"),
+             (_o4_paced(pace={"target_ticks": 22, "lead_ticks": 22, "raw_band": [79, 99]}), "pace"),
+             (_o4_policy(zone_start={"match": "To follow Blank", "dbtns": 7}), "zone_start"),
+             (_o4_policy(quiet=[]), "quiet"), (_o4_policy(state_every=2), "state_every"),
+             (_o4_policy(policy="slow"), "policy")]
+    for pol, match in cases:
+        with pytest.raises(ValueError, match=re.escape(match)):
+            SD.chanbara_of({"chanbara": pol})
+    with pytest.raises(ValueError, match="CIRCLE -> 'circle' is Control.Confirm -- the Cross bit"):
+        SD.chanbara_of({"chanbara": _o4_policy(buttons=circle)})
+
+
+def test_o4_prompt_recognizers_claim_exactly_the_prompts():
+    """S7's recognizers read ``phrase_raw`` (research/o4_design.md 2.4.1, section 8's unit): each of the eight prompt
+    forms is its button; 111 (eight [DBTN] tags) is no prompt but the zone start; 150's window 55 (two tags, no
+    "Press") is neither; a prompt without [TIME=-1] is none; the rendered "Press  !" alone is none (the glyph renders
+    to nothing, so all eight read alike); a zone-end text is read off the rendered texts. Break: read the rendered
+    text (strip the tags first)."""
+    SD = _segment_modules()
+    pol = _o4_policy()
+    for dbtn in _O4_BUTTONS:
+        assert SD.prompt_dbtn(_o4_prompt_raw(dbtn)) == dbtn, dbtn
+        assert not SD.is_zone_start([_o4_prompt_raw(dbtn)], pol)
+    from harness.fakegame import CHANBARA_MES
+    t111 = "[STRT=233,5][TAIL=DEFT]" + CHANBARA_MES[111][2]
+    assert SD.prompt_dbtn(t111) is None and SD.is_zone_start([t111], pol)
+    assert not SD.is_zone_start([t111.replace("[DBTN=SQUARE]", "")], pol)
+    w55 = "[STRT=180,3][TAIL=DEFT]Set Scenario Counter()\n[DBTN=START] OK  [DBTN=SELECT] Cancel"
+    assert SD.prompt_dbtn(w55) is None and not SD.is_zone_start([w55], pol)
+    assert SD.prompt_dbtn(_o4_prompt_raw("LEFT").replace("[TIME=-1]", "")) is None
+    assert SD.prompt_dbtn("Press  !") is None and SD.prompt_dbtn(None) is None
+    assert SD.prompt_dbtn("[IMME]Press [DBTN=LEFT][DBTN=RIGHT] ![TIME=-1]") is None
+    assert SD.prompt_dbtn("[IMME]Press [DBTN=START] ![TIME=-1]") is None
+    assert SD.is_zone_end(["Blank\n“We shall finish this later!”"], pol) and SD.is_zone_end(["Zidane\n“Come back here!”"],
+                                                                                           pol)
+    assert not SD.is_zone_end(["Press  !"], pol)
+
+
+def _o4_row(n, dbtn, *, seen=None, prev=-2, down=4, excess=0.0, rate=None, **kw):
+    """A prompt row as the executor completes it (2.4.6): ``seen`` its first frame (default 100 n), ``prev`` / ``down``
+    offsets from it, its rate, the press and its accepted event, the j bounds from those frames, evidence "closed"."""
+    SD = _segment_modules()
+    seen = 100 * n if seen is None else seen
+    row = {"k": "prompt", "n": n, "dbtn": dbtn, "button": _O4_BUTTONS[dbtn], "seq": 10 + n, "prev_frame": seen + prev,
+           "prev_kind": "none", "seen_frame": seen, "accepted_frame": seen + down - 1, "down_frame": seen + down,
+           "ack_frame": seen + down + 3, "rate": dict(rate or _O4_RATE), "excess": excess, "evidence": "closed",
+           "read_gap": {"frames": 2, "ticks": 1, "s": 0.03}, "slide": None,
+           "x_prev": {"player": 0.0, "blank": 600.0}, "x_seen": {"player": 0.0, "blank": 600.0}}
+    row.update(kw)
+    row["j_lo"], row["j_hi"] = SD.j_bounds(row)
+    return row
+
+
+def _o4_rows(n=49, **kw):
+    seq = ["CROSS", "TRIANGLE", "RIGHT", "TRIANGLE", "LEFT", "CROSS", "TRIANGLE"]
+    return [_o4_row(i, seq[(i - 1) % len(seq)], **kw) for i in range(1, n + 1)]
+
+
+def _o4_zone(rows, **kw):
+    end = rows[-1]["seen_frame"] + 60 if rows else 0
+    zone = {"k": "zone", "end": {"frame": end, "text": "Blank\n“We shall finish this later!”"},
+            "max_read_gap": {"frames": 2, "ticks": 1, "s": 0.03}}
+    zone.update(kw)
+    return zone
+
+
+def _o4_presses(rows):
+    return [{"k": "press", "why": "prompt", "n": r["n"], "seq": r["seq"], "button": r["button"],
+             "down_frame": r["down_frame"]} for r in rows]
+
+
+def test_o4_j_and_raw_bounds():
+    """S7's bounds (research/o4_design.md 2.4.7, section 8's unit). j_bounds at 60 and 31 fps from a row's frames and
+    rate -- ``j_hi = ticks_most(down - prev) + 1 + ceil(excess)``, ``j_lo = max(1, ticks_sure(down - seen - 1))`` --
+    and a hitch's excess raising j_hi; raw_bounds on uniform j reproduces the plan's table (j 1 -> 126, 5 -> 119, 10 ->
+    111, 16 -> 100, 17 -> 99, 20 -> 93, 28 -> 80, 29 -> 78), and the SA 1 display (79 -> 100, 78 -> 99). Then the
+    bounds against the TRUE j, BOTH publication orders: synthetic frame / tick schedules at 31 and 60 fps (+-5% frame
+    jitter, FPSManager's accumulator, a measured band of +-2%), each case's arm tick S placed in the frame the order
+    lets its first listing sample show it (agent first: a sample of frame f shows the ticks of frames <= f-1; agent
+    last: <= f; one sample every 2nd frame), the key down 1-8 frames after, its edge the first tick of the frames >=
+    its down frame -- the true j lies in [j_lo, j_hi] in every case. Break: count j_hi from the first listing sample
+    (``seen``) instead of the last before it (``prev``) -- at 31 fps, agent first, the true j exceeds it; or count
+    j_lo from ``prev`` -- it overstates."""
+    SD = _segment_modules()
+    from harness.tickrate import Rate, TickAccumulator
+    r60 = _o4_row(1, "LEFT", seen=1000)                    # 60 fps: prev = seen - 2, down = seen + 4
+    assert (r60["j_lo"], r60["j_hi"]) == (1, 5), (r60["j_lo"], r60["j_hi"])
+    assert SD.j_bounds(dict(r60, excess=2.3))[1] == 8
+    r31 = _o4_row(1, "LEFT", seen=1000, prev=-1, down=3,
+                  rate={"fps": 31.2, "fps_lo": 30.5, "fps_hi": 31.9, "tick_hz": 30.0, "source": "mtime"})
+    assert (r31["j_lo"], r31["j_hi"]) == (1, 5), (r31["j_lo"], r31["j_hi"])
+    assert SD.j_bounds({"prev_frame": 1, "seen_frame": 2, "down_frame": None, "rate": _O4_RATE}) == (None, None)
+    for j, raw in ((1, 126), (5, 119), (10, 111), (16, 100), (17, 99), (20, 93), (28, 80), (29, 78)):
+        assert SD.raw_bounds([{"j_lo": j, "j_hi": j}] * 49) == (raw, raw), j
+    assert SD.raw_bounds([{"j_lo": 0, "j_hi": 60}] * 49) == (1225 // 29, 126)       # each j clamped to 1..50
+    assert SD.raw_bounds(_o4_rows()) == (119, 126)                                # from the frames: [1, 5] each
+    assert SD.raw_bounds([]) == (None, None)
+    for raw, shown in ((79, 100), (78, 99)):
+        assert min(100, raw + raw // 10 * 3) == shown
+    rng = __import__("random").Random(11)
+    for fps in (31.0, 60.0):
+        acc, ticks_of, first_tick, tick_frame, t = TickAccumulator(30.0), {}, {}, {}, 0
+        for f in range(1, 4001):
+            n = acc.advance((1.0 / fps) * (1 + rng.uniform(-0.05, 0.05)))
+            first_tick[f] = t + 1 if n else None
+            for _ in range(n):
+                t += 1
+                tick_frame[t] = f
+        rate = Rate(fps=fps, fps_lo=fps * 0.98, fps_hi=fps * 1.02, tick_hz=30.0, source="rt", samples=20, frame=1)
+        for order in ("agent_first", "agent_last"):
+            for _ in range(1500):
+                s = rng.randint(200, t - 400)
+                arm, phase = tick_frame[s], rng.randrange(2)
+                pubs = [f for f in range(arm - 20, arm + 40) if f % 2 == phase]
+                seen = next(f for f in pubs if (f - 1 if order == "agent_first" else f) >= arm)
+                prev = max(f for f in pubs if f < seen)
+                down = seen + rng.randint(1, 8)
+                edge = next(first_tick[f] for f in range(down, down + 50) if first_tick.get(f))
+                row = {"prev_frame": prev, "seen_frame": seen, "down_frame": down, "excess": 0.0,
+                       "rate": rate.as_dict()}
+                lo, hi = SD.j_bounds(row)
+                assert lo <= edge - s <= hi, (fps, order, row, edge - s, lo, hi)
+
+
+def test_o4_chanbara_judge_classes():
+    """S7's judge (research/o4_design.md 2.4.8, section 8's unit), every line: proper rows -> None (raw [119, 126]);
+    one instance at j_hi 45 -> V17 (over the cap); proper rows and a score page "99 were impressed." in two samples ->
+    V18; one sample "[NUMB=0] ..." then "100 ..." -> None; ``evidence`` "lingered" on a proper press -> V18;
+    "unobserved" (a read stall) -> V17, NEVER V18; "before" -> V17; a proper L/R press whose measured slide is 0 -> V18;
+    a measured slide of -240 -> V17 (the instrument's samples); a wrong name, a double press, a missing accepted
+    event, an unmeasured rate, a page press inside the fight -> V17 each; 48 instances with a 60-tick read gap -> V17,
+    with no gap above 50 ticks -> V18; 50 instances -> V18; paced raw [80, 92] -> None, paced [76, 85] -> V17
+    "uninformative"; a fast policy with raw_floor 110 and every j_hi 12 (raw_lo 107) -> V17. Break: rate an
+    "unobserved" instance V18 (rev. 1's negative evidence)."""
+    SD = _segment_modules()
+    pol = _o4_policy()
+
+    def judge(rows=None, *, zone=None, presses=None, policy=pol, page=None):
+        rows = _o4_rows() if rows is None else rows
+        return SD.chanbara_judge(_o4_zone(rows) if zone is None else zone, rows,
+                                 _o4_presses(rows) if presses is None else presses, policy, page=page)
+
+    def with_row(i, **kw):
+        rows = _o4_rows()
+        rows[i] = dict(rows[i], **kw)
+        return rows
+    assert judge() == {"v": None, "by": None, "why": None, "faults": [], "raw": [119, 126]}
+    rows = _o4_rows()
+    rows[6] = _o4_row(7, rows[6]["dbtn"], prev=-82)
+    assert rows[6]["j_hi"] == 45 and judge(rows)["v"] == "V17" and "over j_cap 16" in judge(rows)["why"]
+    score = pol["score_page"].replace("\n100 ", "\n99 ")
+    got = judge(page={"kind": "score", "want": pol["score_page"], "texts": [score, score]})
+    assert (got["v"], got["by"]) == ("V18", "game") and "99 were impressed" in got["why"], got
+    unsub = pol["score_page"].replace("\n100 ", "\n[NUMB=0] ")
+    assert judge(page={"kind": "score", "want": pol["score_page"], "texts": [unsub, pol["score_page"]]})["v"] is None
+    assert judge(page={"kind": "gil", "want": pol["gil_page"], "texts": [pol["gil_page"]] * 2})["v"] is None
+    got = judge(with_row(4, evidence="lingered"))
+    assert (got["v"], got["by"]) == ("V18", "game") and "instance 5" in got["why"], got
+    got = judge(with_row(8, evidence="unobserved", read_gap={"frames": 30, "ticks": 15, "s": 0.5}))
+    assert (got["v"], got["by"]) == ("V17", "driver") and got["why"].startswith("instrument: a read gap of 0.5 s"), got
+    assert judge(with_row(2, evidence="before"))["v"] == "V17"
+    left = {"want": 300.0, "dx_player": 0.0, "dx_blank": 0.0, "ok": False, "left_out": [3]}
+    got = judge(with_row(2, slide=left))
+    assert (got["v"], got["by"]) == ("V18", "game") and "left out" in got["why"], got
+    odd = {"want": -300.0, "dx_player": -240.0, "dx_blank": -240.0, "ok": False, "left_out": None}
+    assert judge(with_row(4, slide=odd))["v"] == "V17"
+    assert judge(with_row(0, button="x"))["v"] == "V17" and "not 'confirm'" in judge(with_row(0, button="x"))["why"]
+    rows = _o4_rows()
+    assert judge(rows, presses=_o4_presses(rows) + _o4_presses(rows)[:1])["v"] == "V17"
+    assert "no accepted event" in judge(with_row(1, accepted_frame=None))["why"]
+    assert "not measured" in judge(with_row(3, rate=dict(_O4_RATE, source="default")))["why"]
+    rows = _o4_rows()
+    stray = {"k": "press", "why": "page", "seq": 999, "down_frame": rows[0]["prev_frame"]}
+    assert "inside the fight" in judge(rows, presses=_o4_presses(rows) + [stray])["why"]
+    early = dict(stray, down_frame=rows[0]["prev_frame"] - 1)
+    assert judge(rows, presses=_o4_presses(rows) + [early])["v"] is None
+    rows = _o4_rows(48)
+    assert judge(rows, zone=_o4_zone(rows, max_read_gap={"frames": 120, "ticks": 60, "s": 2.0}))["v"] == "V17"
+    got = judge(rows, zone=_o4_zone(rows, max_read_gap={"frames": 100, "ticks": 50, "s": 1.7}))
+    assert (got["v"], got["by"]) == ("V18", "game") and "fewer than 49" in got["why"], got
+    got = judge(_o4_rows(50))
+    assert got["v"] == "V18" and "more than the 49" in got["why"], got
+    paced = _o4_paced()
+    band = [dict(r, j_lo=21, j_hi=28) for r in _o4_rows()]
+    assert judge(band, policy=paced) == {"v": None, "by": None, "why": None, "faults": [], "raw": [80, 92]}
+    low = [dict(r, j_lo=25, j_hi=30) for r in _o4_rows()]
+    got = judge(low, policy=paced)
+    assert got["v"] == "V17" and got["why"] == "uninformative: raw [76, 85] is outside the band [79, 99]", got
+    floor = [dict(r, j_lo=1, j_hi=12) for r in _o4_rows()]
+    got = judge(floor, policy=_o4_policy(raw_floor=110))
+    assert got["v"] == "V17" and got["why"] == "raw_lo 107 is under raw_floor 110", got
+    stopped = _o4_rows(10) + [dict(_o4_row(11, "LEFT"), stopped=True, seq=None)]
+    zone = _o4_zone(stopped, end=None)
+    assert judge(stopped, zone=zone, presses=_o4_presses(stopped[:10]))["v"] is None
+
+
+def test_o4_slides_bracket_the_slide_from_the_prev_samples():
+    """S7's slide witness (research/o4_design.md 2.4.6, section 8's unit; rev. 2, the driver critique #3, the claim
+    critique #1), at ~31 fps with the agent-first publication: a synthetic L/R run -- a LEFT / RIGHT hit on prompt n
+    slides Blank -60 a tick from S_{n+1}+1 and Zidane a tick behind, prompt n+1 armed at S_{n+1} -- whose first sample
+    listing each prompt already shows a step of it. Measured between the PREV samples (instance n+1's and n+2's) every
+    L/R slide reads its want exactly; a base sample under 7 sure ticks after its predecessor's ``seen_frame`` is
+    "unmeasured"; the tail (48 LEFT, 49 LEFT) is measured jointly, -600 from instance 49's prev sample to the zone end's
+    first; (48 RIGHT, 49 LEFT) is "unmeasured"; a miss (no slide) reads 0, its instance left out. Break: measure from
+    the next instance's ``x_seen`` (rev. 1: the slides read -240)."""
+    SD = _segment_modules()
+    r31 = {"fps": 31.0, "fps_lo": 30.4, "fps_hi": 31.6, "tick_hz": 30.0, "source": "mtime", "samples": 30}
+
+    def track(dbtns, *, missed=()):
+        arm = {n: 100 + 30 * n + n % 2 for n in range(1, len(dbtns) + 2)}         # the last: the phantom pass
+        moves = []
+        for n, d in enumerate(dbtns, 1):
+            step = {"LEFT": -60.0, "RIGHT": 60.0}.get(d)
+            if step and n not in missed:
+                s = arm[n + 1]
+                moves += [(s + k, "blank", step) for k in range(1, 6)] + [(s + 1 + k, "player", step) for k in range(1, 6)]
+
+        def pos(tick):                          # the bodies after ``tick`` (a frame a tick at ~31 fps)
+            return {"player": 0.0 + sum(dx for t, b, dx in moves if b == "player" and t <= tick),
+                    "blank": 600.0 + sum(dx for t, b, dx in moves if b == "blank" and t <= tick)}
+        rows = []
+        for n, d in enumerate(dbtns, 1):
+            seen = arm[n] + 1 if (arm[n] + 1) % 2 == 0 else arm[n] + 2           # agent first, a sample every 2nd frame
+            rows.append(_o4_row(n, d, seen=seen, rate=r31, x_prev=pos(seen - 3), x_seen=pos(seen - 1)))
+        end = arm[len(dbtns) + 1] + 40
+        return rows, {"frame": end, "x_player": pos(end - 1)["player"], "x_blank": pos(end - 1)["blank"]}
+    seq = (["CROSS", "LEFT", "TRIANGLE", "RIGHT", "LEFT", "CROSS", "RIGHT", "TRIANGLE"] * 6)[:47] + ["LEFT", "LEFT"]
+    rows, end = track(seq)
+    lr = [r["n"] for r in rows if r["dbtn"] in ("LEFT", "RIGHT")]
+    seen1 = [r["x_seen"]["blank"] - rows[r["n"] - 2]["x_prev"]["blank"] for r in rows[1:]]
+    assert any(abs(dx) % 300 for dx in seen1 if dx), "premise: a first listing sample shows a step"
+    slides = SD.measure_slides(rows, end, 49)
+    assert sorted(slides) == lr
+    for n in lr[:-2]:
+        s = slides[n]
+        assert s["ok"] is True and s["dx_blank"] == s["dx_player"] == s["want"], (n, s)
+        assert (s["base"], s["end"]) == (rows[n]["prev_frame"], rows[n + 1]["prev_frame"]), (n, s)
+    tail = slides[48]
+    assert tail is slides[49] and tail["joint"] == [48, 49] and tail["want"] == -600.0 and tail["ok"] is True, tail
+    assert (tail["base"], tail["end"]) == (rows[48]["prev_frame"], end["frame"]) and tail["dx_blank"] == -600.0
+    near = [dict(r) for r in rows]
+    n = lr[0]                                                   # its base: under 7 sure ticks after n's seen frame
+    near[n] = dict(near[n], prev_frame=near[n - 1]["seen_frame"] + 3)
+    assert SD.measure_slides(near, end, 49)[n]["ok"] == "unmeasured"
+    rows2, end2 = track(seq[:47] + ["RIGHT", "LEFT"])
+    assert SD.measure_slides(rows2, end2, 49)[48]["ok"] == "unmeasured"
+    rows3, end3 = track(seq, missed={lr[1]})
+    s = SD.measure_slides(rows3, end3, 49)[lr[1]]
+    assert (s["ok"], s["left_out"], s["dx_blank"]) == (False, [lr[1]], 0.0), s
+    s = SD.measure_slides(rows3, end3, 49)[lr[2]]
+    assert s["ok"] is True, s
+
+
+def test_o4_stray_answer_attributes_by_the_down_frame():
+    """S9's encore attribution (research/o4_design.md 2.4.11, section 8's unit): over every Confirm-bearing press of the
+    visit -- page, prompt and ``choose``'s, each placed by its accepted event (down = accepted + 1) -- a page press whose
+    DOWN frame lies in [127's first frame, its close) is V17 (driver) though it was decided before 127 opened;
+    ``choose``'s Confirm with the cursor on Yes before its down frame is V17; the same with the cursor on No is the
+    answer's own, excluded: V2 (game); a prompt press long before 127 is ignored: V2; none: V2; a press landing on the
+    close frame is past it; a Confirm with no accepted event cannot be placed: V17. Break: place a press by the frame
+    it was decided on (``pre``) instead of its down frame; or leave out ``choose``'s presses."""
+    SD = _segment_modules()
+    first, close = 5000, 5040
+    events = [{"frame": f, "kind": "accepted", "seq": str(s), "steps": "1"}
+              for s, f in ((1, 100), (2, 5001), (3, 5010), (4, 5020), (6, 5039))]
+    steps = [{"kind": "step", "seq": 3, "steps": ["press down 4"]}, {"kind": "step", "seq": 4, "steps": ["press confirm 4"]}]
+    page = {"k": "press", "why": "page", "seq": 2, "button": "confirm", "pre": {"frame": 4996}}
+    prompt = {"k": "press", "why": "prompt", "seq": 1, "button": "confirm", "pre": {"frame": 98}}
+    down = {"k": "press", "why": "choose", "seq": 3, "pre": None}
+
+    def answer(sel):
+        return {"k": "press", "why": "choose", "seq": 4, "answer": True, "selected_before": sel, "pre": None}
+    got = SD.stray_answer([page], events, steps, first, close)
+    assert (got["v"], got["by"]) == ("V17", "driver") and "before its answer" in got["why"], got
+    got = SD.stray_answer([prompt, down, answer(0)], events, steps, first, close)
+    assert (got["v"], got["by"]) == ("V17", "driver") and "with the cursor on Yes" in got["why"], got
+    for log in ([prompt, down, answer(1)], [prompt], []):
+        got = SD.stray_answer(log, events, steps, first, close)
+        assert (got["v"], got["by"], got["why"]) == ("V2", "game", "the game replayed though the driver confirmed No")
+    late = {"k": "press", "why": "page", "seq": 6, "button": "ok", "pre": {"frame": 5038}}
+    assert SD.stray_answer([late], events, steps, first, close)["v"] == "V2"            # down 5040: the close frame
+    assert SD.stray_answer([late], events, steps, first, None)["v"] == "V17"            # no close yet
+    lost = {"k": "press", "why": "page", "seq": 7, "button": "confirm", "pre": {"frame": 4990}}
+    got = SD.stray_answer([lost], events, steps, first, close)
+    assert got["v"] == "V17" and "no accepted event" in got["why"], got
