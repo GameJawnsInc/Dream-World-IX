@@ -1383,15 +1383,17 @@ def g21(base: dict, pins: Path = SOURCE_PINS, *, files=None) -> tuple:
                f"{Path(pins).name})")
 
 
-def rebaseline_source(name: str, reason, *, baseline: Path = BASELINE_O3, baseline_o4: Path = BASELINE_O4,
+def rebaseline_source(name: str, reason, *, baseline: Path = BASELINE_O3, baseline_o4: Path | None = None,
                       pins: Path = SOURCE_PINS, files=None) -> int:
     """``--rebaseline-source NAME --reason TEXT``: append ONE row to the pins file -- ``name`` at its current sha, its
     ``old`` the pin in force -- after the file's own rows replay clean. ``name`` is looked up in either baseline (the
-    union of the O3 and O4 baselines' ``sources``, :func:`union_sources`; research/o5_design.md 1.4). Every refusal of
-    :func:`pin_row` (and a name pinned in both baselines) is an exit 1 with nothing written. ``files``:
+    union of the O3 and O4 baselines' ``sources``, :func:`union_sources`; research/o5_design.md 1.4): the CLI passes the
+    committed O4 baseline (``--baseline-o4``); a call that names none (``baseline_o4`` None) reads the O3 baseline's
+    ``sources`` alone, as O4's call did -- a test's temporary baseline never meets the committed O4 one. Every refusal
+    of :func:`pin_row` (and a name pinned in both baselines) is an exit 1 with nothing written. ``files``:
     :func:`source_shas`' seam."""
     base = json.loads(Path(baseline).read_bytes())
-    base4 = json.loads(Path(baseline_o4).read_bytes())
+    base4 = {} if baseline_o4 is None else json.loads(Path(baseline_o4).read_bytes())
     try:
         sources = union_sources(base.get("sources") or {}, base4.get("sources") or {})
     except ValueError as err:
