@@ -79,7 +79,7 @@
    31259
   ]
  },
- "deployed": false,
+ "deployed": true,
  "relaunch_needed": true,
  "relaunch_why": "20 FieldScene ids and 20 ForkDonorPatch rows are read at launch only (DataPatchers.cs:107-134); P-LAUNCH proves the launch read them",
  "built": {
@@ -160,7 +160,7 @@
   "order": "reverse deploy order, 31259 down to 31240, and O4's before O1's",
   "why_order": "block 3 is written fresh by 31243 (its revert deletes it) and backed up by 31244-31259 (theirs restore it); block 2 is backed up by 31240 (O1's copy, which 31240's revert restores): out of order, a revert restores the wrong copy"
  },
- "deployed_at": null,
+ "deployed_at": "2026-10-02 09:04 local",
  "gate_witness": null,
  "verified": null
 }
