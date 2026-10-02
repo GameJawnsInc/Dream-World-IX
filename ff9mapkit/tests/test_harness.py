@@ -16156,3 +16156,512 @@ def test_segment_o3_scope_lang_reads_the_recorded_p_text():
     assert lang([[True, ptext, fr]]) == ("a US session (P-LANG): the members' jp/fr/gr/it/es .eb are US bytecode "
                                          "(accept_us_build), and block 2's fr copy is another language's stock text "
                                          "(the KNOWN-KIT-DEFECT line below)")
+
+
+# ---- O4's machine beats on the fake (research/o4_design.md 3, 9 B1): H10's KEYON pair and H11's Chanbara visit,
+# stepped BY HAND -- no loop thread, no driver -- so a key goes down on exactly the frame (and the field tick) a test
+# names: ``fake._schedule(name, frames)`` before a frame runs puts the key down ON that frame, as the agent's press
+# does a frame after it accepts one. At 30 fps "quantized" every frame runs exactly one field tick (FIELD_TPS 30), so
+# a prompt's tick S + j runs on its arm frame + j; the 31 / 60 fps tests read the beat's own tick count instead.
+
+_CB_BUTTON = {"LEFT": "left", "RIGHT": "right", "UP": "up", "DOWN": "down", "TRIANGLE": "menu", "CROSS": "confirm",
+              "CIRCLE": "cancel", "SQUARE": "special"}
+
+
+def _cb_fake(game, beat, *, fps=30.0, ticks="quantized", trace=True, publish=None):
+    """A FakeGame stepped by hand: armed, on 30820 (the fight's "64") at FieldHUD with control off, its scene the one
+    machine ``beat``. ``publish`` (a list) records every publish -- state_every 1 -- as ``{"frame", "texts", "raw",
+    "choice", "group", "x", "blank", "ui", "field"}``; without it nothing is published after the first frame."""
+    fake = FakeGame(game, render_fps=fps, ticks=ticks)
+    fake.dir.mkdir(parents=True, exist_ok=True)
+    (fake.dir / "arm").write_text("", encoding="utf-8")
+    fake.armed = True
+    fake.field_id, fake.ui_state, fake.control = 30820, "FieldHUD", False
+    if trace:
+        fake._story_start()
+    if publish is None:
+        fake.state_every = 1 << 30
+    else:
+        fake.state_every = 1
+        real = fake._publish
+
+        def rec(force=False):
+            real(force)
+            if fake.publish_frame != fake.frame:
+                return
+            blank = next((b["x"] for b in fake.blockers.get(fake.field_id, ())
+                          if isinstance(b, dict) and b.get("sid") == 20), None)
+            publish.append({"frame": fake.frame, "texts": list(fake.texts), "raw": list(fake.raw_texts),
+                            "choice": json.loads(json.dumps(fake.choice)), "group": (fake.menu or {}).get("group"),
+                            "x": fake.player[0], "blank": blank, "ui": fake.ui_state, "field": fake.field_id})
+        fake._publish = rec
+    fake.scene(beat, control=False)
+    return fake
+
+
+def _cb_default_press(row):
+    return _CB_BUTTON[row["dbtn"]], 5, 1
+
+
+def _cb_play(fake, *, press=_cb_default_press, answers=(1,), until=None, limit=80000, every=7):
+    """Play a Chanbara beat by hand: each armed prompt pressed by ``press(row) -> [(name, j, frames), ...] | (name, j,
+    frames) | None`` -- the key down on the frame that runs tick arm + j (30 fps quantized: one tick a frame); a listed
+    page or KEYON pair Confirmed every ``every`` frames; a COMPLETE choice steered to ``answers[k]`` (k: the choices
+    answered so far) and Confirmed. Stops on ``until(fake)``, the beat's end or ``limit`` frames."""
+    plan, seen, asked = {}, 0, 0
+    for _ in range(limit):
+        if until is not None and until(fake):
+            return
+        m = fake._machine
+        if m is None:
+            return
+        rows = fake.chanbara_log
+        while seen < len(rows):
+            got = press(rows[seen]) if press is not None else None
+            for name, j, frames in ([got] if isinstance(got, tuple) else got or ()):
+                plan.setdefault(rows[seen]["arm_frame"] + j, []).append((name, frames))
+            seen += 1
+        keys = plan.pop(fake.frame + 1, None)
+        if keys:
+            for name, frames in keys:
+                fake._schedule(name, frames)
+        elif (fake.frame + 1) % every == 0:
+            open_ = [w for w in m.windows if not w.closing]
+            if any(w.kind in ("page", "keyon") for w in open_):
+                fake._schedule("confirm", 1)
+            ch = next((w for w in open_ if w.kind == "choice" and w.complete), None)
+            if ch is not None:
+                want = answers[min(asked, len(answers) - 1)]
+                if ch.cursor != want:
+                    fake._schedule("down" if ch.cursor < want else "up", 1)
+                else:
+                    fake._schedule("confirm", 1)
+                    asked += 1
+        fake._frame_once()
+    raise AssertionError(f"the beat ran {limit} frames without ending")
+
+
+def _cb_trace(fake):
+    """The fake's story.jsonl rows (``w`` only), as ``(sid, tag, ip, byte, old, new, frame)``."""
+    rows = [json.loads(ln) for ln in (fake.dir / "story.jsonl").read_text(encoding="utf-8").splitlines() if ln]
+    return [(r["sid"], r["tag"], r["ip"], r["byte"], r["old"], r["new"], r["f"]) for r in rows if r["k"] == "w"]
+
+
+def _cb_opened(fake, kind=None):
+    """The texts of the windows the beat opened, in order (``kind`` filters)."""
+    return [e["text"] for e in fake.machine_log if e["event"] == "open" and kind in (None, e["kind"])]
+
+
+def _cb_event(fake, event, text, nth=0):
+    """The ``nth`` machine_log row of ``event`` for the window whose text holds ``text``."""
+    return [e for e in fake.machine_log if e["event"] == event and text in e["text"]][nth]
+
+
+def _cb_until(fake, pred, limit=40000):
+    """Step ``fake`` by hand until ``pred(fake)`` -- an AssertionError after ``limit`` frames: a mutant must fail a
+    test, never hang it."""
+    for _ in range(limit):
+        if pred(fake):
+            return
+        fake._frame_once()
+    raise AssertionError(f"not reached within {limit} frames")
+
+
+def test_fake_keyon_pair_takes_only_an_edge_after_its_gate(game):
+    """H10 (research/o4_design.md 3): THE KEYON PAIR. Window a, then b ``lag_ticks`` later; a Confirm does not page
+    them ([TIME=-1]); from ``gate_ticks`` after b opened each tick reads ``keyon & (Confirm | Special)``, and the first
+    such EDGE closes both, each gone a tween later. A press before the gate is consumed by its tick and lost (both stay
+    up); a key HELD across the gate gives no edge after it (both stay up); the first press after the gate closes both,
+    Confirm or Special. Break: read the level instead of the edge (the held key then closes them at the gate)."""
+    texts = ["Blank\n“En garde!”", "Zidane\n“Expect no quarter from me!”"]
+    for name in ("confirm", "special"):
+        fake = _cb_fake(game, {"keyon_pair": {"texts": texts, "lag_ticks": 15, "gate_ticks": 40}}, trace=False)
+        m = fake._machine
+
+        def at(tick):
+            _cb_until(fake, lambda f: m.tick >= tick or f._machine is not m)
+            assert fake._machine is m and m.tick == tick, f"the beat ended at tick {m.tick}, before tick {tick}"
+        at(5)
+        fake._schedule(name, 1)                        # down on tick 6: before the gate (tick 16 + 40 = 56)
+        at(20)
+        assert [w.text for w in m.windows] == texts and not any(w.closing for w in m.windows), m.windows
+        assert [e["tick"] for e in fake.machine_log if e["event"] == "open"] == [1, 16], fake.machine_log
+        at(50)
+        fake._schedule(name, 15)                       # held on ticks 51-65: across the gate
+        at(70)
+        assert [w.text for w in m.windows] == texts and not any(w.closing for w in m.windows), (name, m.windows)
+        assert fake.texts == texts and fake._machine is m
+        fake._schedule(name, 1)                        # down on tick 71: the first edge after the gate
+        at(71)
+        assert [(e["event"], e["tick"]) for e in fake.machine_log if e["event"] != "open"] == [("close", 71)] * 2
+        _cb_until(fake, lambda f: f._machine is None, limit=200)
+        assert fake.texts == [] and not fake._beats and fake.control is False
+        closed = {e["text"]: e["rt"] for e in fake.machine_log if e["event"] == "close"}
+        gone = [e for e in fake.machine_log if e["event"] == "gone"]
+        assert len(gone) == 2 and all(0.09 <= e["rt"] - closed[e["text"]] < 0.2 for e in gone), fake.machine_log
+
+
+def test_fake_chanbara_arms_and_publishes_in_one_tick(game):
+    """H11's pass machine and its input model (research/o4_design.md 3). The arm and its window in ONE tick (the window
+    opens on the prompt's arm tick); the first poll is S+1 -- e3 runs before e20 in a tick, so a key whose edge lands
+    on the arm tick S is consumed and lost (the prompt times out); a press landing on tick S+j credits 50 - j: j 1
+    credits 49, j 5 45, j 50 none (a hit, not a timeout: e3 hits before TimeLeft's last decrement). And a one-frame tap
+    lands on exactly ONE tick at 31 and 60 fps ("quantized"): on a frame that runs no tick it is collected into the
+    next tick's input (CollectDelayedInputs), on a frame that runs three (a hitch) only the first sees its edge. Break:
+    e3 after e20 (the tap on S then hits, and is credited)."""
+    plan = {2: 1, 3: 5, 4: 50}
+
+    def press(row):
+        return None if row["n"] == 1 else (_CB_BUTTON[row["dbtn"]], plan.get(row["n"], 5), 1)
+    fake = _cb_fake(game, {"chanbara": {"exit_to": 30821, "seed": 0}})
+    m = fake._machine
+    _cb_play(fake, press=press, until=lambda f: m.t0_tick is not None and m.tick == m.t0_tick + 11)
+    fake._schedule("confirm", 1)                       # down on tick T0 + 12: the first arm's tick S (seed 0: CROSS)
+    _cb_play(fake, press=press)
+    rows = fake.chanbara_log
+    assert rows[0]["dbtn"] == "CROSS" and rows[0]["arm_tick"] == m.t0_tick + 12, rows[0]
+    opens = [e for e in fake.machine_log if e["event"] == "open" and e["kind"] == "prompt"]
+    assert len(rows) == 49 and [e["tick"] for e in opens] == [r["arm_tick"] for r in rows], (rows[:3], opens[:3])
+    assert [e["frame"] for e in opens] == [r["arm_frame"] for r in rows]
+    assert rows[0]["result"] == "timeout" and rows[0]["j"] is None, rows[0]
+    assert rows[1]["arm_tick"] == rows[0]["arm_tick"] + 50, (rows[0], rows[1])      # the timeout re-armed at S + 50
+    assert [(r["result"], r["j"]) for r in rows[1:4]] == [("hit", 1), ("hit", 5), ("hit", 50)], rows[1:4]
+    assert all((r["result"], r["j"]) == ("hit", 5) for r in rows[4:]), rows[4:]
+    v = fake.chanbara_vars                             # 48 hits after the timeout, and the phantom's credit again
+    assert v["I30"] == 49 + 45 + 0 + 45 * 45 + 45 and v["I32"] == sum(range(48)) + 48 and v["I42"] == 49, v
+    # a one-frame tap is ONE tick's edge, whatever the frame runs
+    for fps in (31.0, 60.0):
+        fake = _cb_fake(game, {"chanbara": {"exit_to": 30821, "walk_in_s": 6.0}}, fps=fps, trace=False)
+        m = fake._machine
+        edges, ran = [], {}
+        real = m.on_tick
+
+        def tick(f, real=real, m=m):
+            edges.append(m.keyon & 0x10)
+            ran[f.frame] = ran.get(f.frame, 0) + 1
+            real(f)
+        m.on_tick = tick
+        taps = 0
+        every = 3 if fps < 40 else 5                   # a tick between two taps must see the key released
+        for n in range(int(5.0 * fps)):
+            if n % every == 0:
+                fake._schedule("up", 1)
+                taps += 1
+                if n == 30:
+                    fake.hitch(0.07)                   # this tap's frame runs three ticks
+            fake._frame_once()
+        fake._frame_once()                             # a last tap's frame may run no tick: the next one reads it
+        assert sum(1 for e in edges if e) == taps, (fps, taps, sum(1 for e in edges if e))
+        assert 0 in [ran.get(f, 0) for f in range(1, fake.frame)] and max(ran.values()) >= 3, (fps, ran)
+
+
+def test_fake_chanbara_scores_a_perfect_run_exactly(game):
+    """H11's score (research/o4_design.md 3; 64 e4 t1 ip208-537): 49 hits at j 5 are I30 49 x 45 + 45 (the PHANTOM pass
+    credits the 49th again) and I32 0 + ... + 49 = 1225 -- raw 3475 // 29 = 119, the +30% 152, clamped 100; the trace's
+    ip338 Byte[475] 0 -> 100 BEFORE page 122 opens and ip390 Bit[3815] 0 -> 1 AFTER page 123 is gone; pages 122 ("Of
+    100 nobles watching,\\n100 were impressed.") and 123; choice 127 published with its cursor on Yes (0) and answered
+    No; then 128 "They shower you with 10000 Gil!", the gil, "Encore" reported once, and Field(150) into ``exit_to``
+    with ip331 and ip528 before it. Break: drop the phantom credit (I42 49: pages 120/121, no ip390)."""
+    pub: list = []
+    fake = _cb_fake(game, {"chanbara": {"exit_to": 30821}}, publish=pub)
+    _cb_play(fake)
+    v = fake.chanbara_vars
+    assert (v["I30"], v["I32"], v["I42"], v["I34"]) == (2250, 1225, 50, 50), v
+    assert (v["I48"], v["I50"]) == (100, 10000) and fake.achievements == ["Encore"] and fake.gil == 10000, v
+    assert fake.field_id == 30821 and fake._machine is None and not fake._beats and fake.texts == []
+    trace = _cb_trace(fake)
+    keys = [(sid, tag, ip, old, new) for sid, tag, ip, _b, old, new, _f in trace]
+    assert keys == [(0, 0, 22, 0, 0), (0, 0, 49, 0, 0), (0, 0, 57, 0, -1), (0, 0, 119, 0, 0), (0, 0, 138, 0, -1),
+                    (0, 0, 200, 0, 0), (0, 0, 416, 0, 0), (0, 0, 425, 0, 0), (0, 0, 475, 0, 125),
+                    (4, 1, 338, 0, 100), (4, 1, 390, 0, 1), (2, 1, 331, 125, 0), (2, 1, 528, 0, 325)], keys
+    f338, f390 = trace[9][6], trace[10][6]
+    assert f338 <= _cb_event(fake, "open", "Of 100 nobles")["frame"], f338      # ip338, then WindowSync ip375
+    assert f390 >= _cb_event(fake, "gone", "quite impressed")["frame"], f390
+    pages = [t for t in _cb_opened(fake) if t not in ("Press  !",)]
+    assert pages == ["Blank\n“En garde!”", "Zidane\n“Expect no quarter from me!”",
+                     "To follow Blank’s lead, enter the correct\ncommands from the following choices:",
+                     "Blank\n“We shall finish this later!”", "Zidane\n“Come back here!”",
+                     "Of 100 nobles watching,\n100 were impressed.", "Queen Brahne was\nquite impressed.",
+                     "They demand an encore!\nPerform the fight scene again?\nes\nNo",
+                     "They shower you with 10000 Gil!"], pages
+    ready = next(p for p in pub if p["choice"] is not None and p["group"] == "Dialog.Choice")
+    assert ready["choice"]["selected"] == 0 and ready["choice"]["options"] == [
+        "They demand an encore!\nPerform the fight scene again?", "es", "No"], ready
+    assert fake.answered == [1]
+
+
+def test_fake_chanbara_times_out_and_rearms_in_the_same_tick(game):
+    """H11 (research/o4_design.md 0.2 #1): prompt 7 left alone times out at S + 50 -- e20's WAIT ends with TimeLeft 0,
+    Byte[47] 3, CloseWindow(1), the score, and the NEXT ARM IN THE SAME TICK: prompt 8 armed at S + 50, its window
+    published beside 7's still in its close tween, and no prompt-free publication between 7's first and 8's. The combo
+    is broken: max combo below 50, pages 120/121, no ip390 row. Break: a Wait(1) between the score and the arm."""
+    pub: list = []
+    fake = _cb_fake(game, {"chanbara": {"exit_to": 30821}}, publish=pub)
+    _cb_play(fake, press=lambda r: None if r["n"] == 7 else _cb_default_press(r))
+    rows = fake.chanbara_log
+    r7, r8 = rows[6], rows[7]
+    assert r7["result"] == "timeout" and r8["arm_tick"] == r7["arm_tick"] + 50, (r7, r8)
+    seven = f"[DBTN={r7['dbtn']}]"
+    eight = f"[DBTN={r8['dbtn']}]"
+    first7 = next(p["frame"] for p in pub if p["frame"] > r7["arm_frame"] - 1 and any(seven in r for r in p["raw"]))
+    first8 = next(p for p in pub if p["frame"] > r8["arm_frame"] - 1 and any(eight in r for r in p["raw"]))
+    between = [p for p in pub if first7 <= p["frame"] < first8["frame"]]
+    assert between and all(any("[DBTN=" in r for r in p["raw"]) for p in between), between[-3:]
+    assert any(seven in r for r in first8["raw"]) and len(first8["raw"]) == 2, first8
+    assert fake.chanbara_vars["I42"] < 50
+    assert "Of the 100 nobles watching,\n" in "".join(_cb_opened(fake)) and \
+        "Queen Brahne was\nnot impressed." in _cb_opened(fake)
+    assert not [t for t in _cb_trace(fake) if t[2] == 390], _cb_trace(fake)
+
+
+def test_fake_chanbara_misses_a_circle_pressed_as_circle(game):
+    """H11's button map, the agent's way (HarnessAgent.ParseControl): ``circle`` is Control.CONFIRM -- the Cross bit
+    0x4000 -- so on a CIRCLE prompt (Byte[46] 6, polled on 0x2000) it is a MISS; ``cancel`` (Circle 0x2000) hits it;
+    ``x``, another Confirm alias, hits a CROSS prompt. Seed 0's 16th and 27th prompts are CIRCLE (the max combo is 15 by
+    the 16th; a miss keeps it). Break: map ``circle`` to Cancel."""
+    def press(r):
+        if r["dbtn"] == "CIRCLE":
+            return ("circle" if r["n"] == 16 else "cancel"), 5, 1
+        if r["dbtn"] == "CROSS" and r["n"] == 1:
+            return "x", 5, 1
+        return _cb_default_press(r)
+    fake = _cb_fake(game, {"chanbara": {"exit_to": 30821, "seed": 0}}, trace=False)
+    _cb_play(fake, press=press)
+    rows = {r["n"]: r for r in fake.chanbara_log}
+    assert (rows[1]["dbtn"], rows[1]["result"]) == ("CROSS", "hit"), rows[1]
+    assert (rows[16]["dbtn"], rows[16]["result"]) == ("CIRCLE", "miss"), rows[16]
+    assert (rows[27]["dbtn"], rows[27]["result"]) == ("CIRCLE", "hit"), rows[27]
+    assert [r["result"] for r in fake.chanbara_log].count("miss") == 1
+
+
+def test_fake_chanbara_misses_two_keys_start_and_a_held_key(game):
+    """H11's e3 (64 e3 t1 ip34-429): every check is evaluated in a tick, so two keys in one tick MISS (the wrong one
+    sets Byte[46] to its code, and the right one then fails too); Start is read as a LEVEL (B_KEY(8), ip412), so held it
+    misses the first poll; and a key HELD across an arm gives no edge after it -- the prompt times out. Seed 0's prompts
+    1-3 are CROSS, TRIANGLE, RIGHT. Break: test the right bit first and stop (two keys then hit)."""
+    def press(r):
+        if r["n"] == 1:
+            return [("confirm", 5, 1), ("left", 5, 1)]
+        return _cb_default_press(r) if r["n"] > 3 else None
+    fake = _cb_fake(game, {"chanbara": {"exit_to": 30821, "seed": 0}}, trace=False)
+    m = fake._machine
+    _cb_play(fake, press=press, until=lambda f: len(f.chanbara_log) >= 2)
+    assert fake.chanbara_log[0]["result"] == "miss" and fake.chanbara_log[0]["j"] == 5, fake.chanbara_log[0]
+    r2 = fake.chanbara_log[1]
+    fake._schedule("start", 10)                                 # Start held from the tick after prompt 2's arm
+    _cb_play(fake, press=press, until=lambda f: f.chanbara_log[1]["result"] is not None)
+    assert (r2["dbtn"], r2["result"], r2["j"]) == ("TRIANGLE", "miss", 1), r2
+    # prompt 3 (seed 0: RIGHT) arms when prompt 2's reaction ends: its key held from 2 ticks before that to 7 after
+    _cb_play(fake, press=press, until=lambda f: m.tick >= m.arm_tick + m.react - 3)
+    fake._schedule("right", 10)
+    _cb_play(fake, press=press, until=lambda f: len(f.chanbara_log) >= 3 and f.chanbara_log[2]["result"] is not None)
+    r3 = fake.chanbara_log[2]
+    assert r3["dbtn"] == "RIGHT" and r3["result"] == "timeout", r3
+    assert r3["arm_tick"] - 2 <= m.tick, r3
+
+
+def test_fake_chanbara_filters_hold_on_every_seed(game):
+    """H11's roll (64 e20 t1 ip451-707), on seeds 0-19 with every prompt hit at j 5: consecutive prompts always differ
+    (ip681); at SByte[38] -1 or 0 never LEFT, at 1 or 2 never RIGHT (ip473-551); no DOWN or UP while the max combo is
+    under 10 (ip577/603), no CIRCLE or SQUARE under 15 (they become TRIANGLE and CROSS, ip629/655); 49 prompts over 50
+    passes. Break: drop the no-repeat filter."""
+    for seed in range(20):
+        fake = _cb_fake(game, {"chanbara": {"exit_to": 30821, "seed": seed}}, trace=False)
+        _cb_play(fake, until=lambda f: f._machine.phase == "done")
+        rows = fake.chanbara_log
+        assert len(rows) == 49 and fake._machine.v["I34"] == 50, (seed, len(rows))
+        for prev, r in zip([None, *rows], rows):
+            d = r["dbtn"]
+            assert prev is None or d != prev["dbtn"], (seed, r)
+            assert not (r["sb38"] in (-1, 0) and d == "LEFT") and not (r["sb38"] in (1, 2) and d == "RIGHT"), (seed, r)
+            assert not (r["max_combo"] < 10 and d in ("DOWN", "UP")), (seed, r)
+            assert not (r["max_combo"] < 15 and d in ("CIRCLE", "SQUARE")), (seed, r)
+        assert {r["result"] for r in rows} == {"hit"}, seed
+
+
+def test_fake_chanbara_bonus_knob_and_assistance_levels(game):
+    """H11's score under the settings (EMinigame.cs:9-38): every prompt hit at j 22 is raw (28 x 50 + 1225) // 29 = 90;
+    SwordplayAssistance 1 with the hook firing: +30% -> 117, clamped 100, Byte[475] 100; ``bonus_fires`` False (a fork
+    whose EffectiveFieldId wrap fails): 90 -- Byte[475] 90, page 122 "90 were impressed." -- and no achievement; SA 0
+    with the hook: 90, "Encore" still reported (>= 75); SA 2: TimeLeft refilled every tick, so an unpressed prompt
+    never times out. Break: apply the bonus after the clamp."""
+    def j22(r):
+        return _CB_BUTTON[r["dbtn"]], 22, 1
+    got = {}
+    for name, knobs in (("sa1", {}), ("off", {"bonus_fires": False}), ("sa0", {"sa": 0})):
+        fake = _cb_fake(game, {"chanbara": {"exit_to": 30821, **knobs}})
+        _cb_play(fake, press=j22)
+        assert {r["j"] for r in fake.chanbara_log} == {22}, name
+        got[name] = (fake.chanbara_vars["I48"], fake.story_bytes[475], fake.achievements,
+                     [t for t in _cb_opened(fake, "page") if "nobles" in t])
+    assert got["sa1"] == (100, 100, ["Encore"], ["Of 100 nobles watching,\n100 were impressed."]), got["sa1"]
+    assert got["off"] == (90, 90, [], ["Of 100 nobles watching,\n90 were impressed."]), got["off"]
+    assert got["sa0"] == (90, 90, ["Encore"], ["Of 100 nobles watching,\n90 were impressed."]), got["sa0"]
+    fake = _cb_fake(game, {"chanbara": {"exit_to": 30821, "sa": 2}}, trace=False)
+    _cb_play(fake, press=None, until=lambda f: f.chanbara_log and f._machine.tick > f.chanbara_log[0]["arm_tick"] + 120)
+    m = fake._machine
+    assert len(fake.chanbara_log) == 1 and fake.chanbara_log[0]["result"] is None and m.v["b52"] > 0, m.v
+    assert [w.kind for w in m.windows] == ["prompt"] and not m.windows[0].closing
+
+
+def test_fake_chanbara_encore_yes_replays_without_111(game):
+    """H11's encore (64 e4 t1 ip462-542, e2 stages 6 -> 7 -> 8 -> 3): Yes replays the fight -- the walk back, the
+    109/110 KEYON pair (109 first: e20's Wait(3), e13's Wait(15)), NO tutorial 111, a second fight of 49 prompts, 122,
+    123 and 127 again; a second perfect run does not rewrite Byte[475] (ip327: 100 is not below 100) but stores
+    Bit[3815] again (1 -> 1); No then pays the gil once. Break: replay through stage 2 (105/106 and 111 again)."""
+    fake = _cb_fake(game, {"chanbara": {"exit_to": 30821}})
+    _cb_play(fake, answers=(0, 1))
+    opened = [t for t in _cb_opened(fake) if t != "Press  !"]
+    first127 = opened.index("They demand an encore!\nPerform the fight scene again?\nes\nNo")
+    after = opened[first127 + 1:]
+    assert after[:2] == ["Blank\n“Is that the best thou canst do!?”", "Zidane\n“Die, traitor!”"], after
+    assert not [t for t in after if "To follow Blank" in t or "En garde" in t], after
+    assert after.count("They demand an encore!\nPerform the fight scene again?\nes\nNo") == 1
+    assert [r["fight"] for r in fake.chanbara_log].count(2) == 49 and fake.answered == [0, 1]
+    assert [(ip, old, new) for _s, _t, ip, _b, old, new, _f in _cb_trace(fake) if ip in (338, 390)] == [
+        (338, 0, 100), (390, 0, 1), (390, 1, 1)], _cb_trace(fake)
+    assert fake.gil == 10000 and fake.field_id == 30821
+
+
+def test_fake_chanbara_close_tween_and_slides(game):
+    """H11's timings (research/o4_design.md 0.2 #1, 0.3 #3). A hit's window stays listed a frame plus 0.09 s after
+    its hit tick (DialogAnimator.cs:144-173), never the whole 0.15 s; and a LEFT hit on prompt n slides both bodies in
+    pass n's reaction, the one that arms prompt n + 1 at S': Blank -60 a tick from S'+1 to -300 after S'+5, Zidane a
+    tick behind (-60 after S'+2 ... -300 after S'+6), nothing at S' itself; a MISS on a LEFT prompt slides nothing.
+    Seed 0's 5th and 14th prompts are LEFT (the 14th is missed here). Break: release a closed window at once, or move
+    the whole slide in the arm tick."""
+    fake = _cb_fake(game, {"chanbara": {"exit_to": 30821, "seed": 0}}, fps=60.0, ticks="mean", trace=False)
+    _cb_play(fake, until=lambda f: len(f.chanbara_log) >= 3)
+    hits = [e for e in fake.machine_log if e["kind"] == "prompt" and e["event"] in ("close", "gone")]
+    for close, gone in zip(hits[0::2], hits[1::2]):
+        assert (close["event"], gone["event"]) == ("close", "gone"), hits
+        assert 0.09 + 1 / 60 - 1e-9 <= gone["rt"] - close["rt"] < 0.15, (close, gone)
+    fake = _cb_fake(game, {"chanbara": {"exit_to": 30821, "seed": 0}}, trace=False)
+    m = fake._machine
+    track = {}
+    real = m.on_tick
+
+    def tick(f, real=real):
+        real(f)
+        track[m.tick] = (m.blank["x"], f.player[0])
+    m.on_tick = tick
+    _cb_play(fake, press=lambda r: ("special", 5, 1) if r["n"] == 14 else _cb_default_press(r),
+             until=lambda f: len(f.chanbara_log) >= 16)
+    rows = {r["n"]: r for r in fake.chanbara_log}
+    assert (rows[5]["dbtn"], rows[5]["result"], rows[14]["dbtn"], rows[14]["result"]) == ("LEFT", "hit", "LEFT", "miss")
+    s = rows[6]["arm_tick"]
+    b0, p0 = track[s]
+    assert [track[s + k] for k in range(7)] == [(b0, p0), (b0 - 60, p0), (b0 - 120, p0 - 60), (b0 - 180, p0 - 120),
+                                                (b0 - 240, p0 - 180), (b0 - 300, p0 - 240), (b0 - 300, p0 - 300)], \
+        [track[s + k] for k in range(7)]
+    s2 = rows[15]["arm_tick"]
+    assert len({track[s2 + k] for k in range(8)}) == 1, [track[s2 + k] for k in range(8)]
+
+
+def test_fake_chanbara_page_ignores_confirm_while_opening(game):
+    """H11's pages and choice take Confirm only once COMPLETE (Dialog.cs:762-802; research/o4_design.md 0.3 #1): at
+    60 fps a Confirm going down 4 frames after page 123 opened (past ``open_frames``, inside ``open_s`` 0.105 s) is
+    dropped -- 123 stays listed -- and one 12 frames on closes it; on 127 a Confirm 4 frames in closes nothing and moves
+    nothing (its cursor still on 0, its group '' until it is ready). Break: ``open_s`` 0."""
+    fake = _cb_fake(game, {"chanbara": {"exit_to": 30821}}, fps=60.0, ticks="mean", trace=False)
+    m = fake._machine
+    _cb_play(fake, press=lambda r: (_CB_BUTTON[r["dbtn"]], 10, 2),
+             until=lambda f: any(w.text == "Queen Brahne was\nquite impressed." for w in m.windows))
+    w123 = next(w for w in m.windows if w.text == "Queen Brahne was\nquite impressed.")
+    _cb_until(fake, lambda f: f.frame >= w123.frame0 + 3)
+    fake._schedule("confirm", 2)                                # down 4 frames after it opened
+    for _ in range(6):
+        fake._frame_once()
+    assert w123 in m.windows and not w123.closing and w123.complete, w123.__dict__
+    _cb_until(fake, lambda f: f.frame >= w123.frame0 + 11)
+    fake._schedule("confirm", 2)
+    fake._frame_once()
+    assert w123.closing, w123.__dict__
+    _cb_until(fake, lambda f: any(w.kind == "choice" for w in m.windows), limit=2000)
+    ch = next(w for w in m.windows if w.kind == "choice")
+    _cb_until(fake, lambda f: f.frame >= ch.frame0 + 3)
+    fake._schedule("confirm", 2)
+    for _ in range(3):
+        fake._frame_once()
+    assert not ch.closing and ch.cursor == 0 and ch.answer is None and fake.menu.get("group") == "", (ch.__dict__,
+                                                                                                     fake.menu)
+    _cb_until(fake, lambda f: ch.complete, limit=200)
+    fake._frame_once()
+    assert fake.menu.get("group") == "Dialog.Choice" and fake.choice["selected"] == 0 and fake.answered == []
+
+
+def test_fake_chanbara_publication_order_and_true_j(game):
+    """H11's ``publish_order`` (research/o4_design.md 0.3 #2, 3): under "agent_first" -- the engine's measured order --
+    the first publication listing a prompt is the frame AFTER its arm frame (a sample shows the ticks of frames <= f-1);
+    under "agent_last" it is the arm frame itself. And ``chanbara_log`` holds each instance's arm tick, edge tick and
+    TRUE j: the edge on the first tick of the frames >= the key's down frame, j = edge - arm. At 31 fps (quantized) and
+    60 fps (mean ticks). Break: ignore the knob (agent_last always)."""
+    for fps, ticks in ((31.0, "quantized"), (60.0, "mean")):
+        for order in ("agent_first", "agent_last"):
+            pub: list = []
+            fake = _cb_fake(game, {"chanbara": {"exit_to": 30821, "publish_order": order}}, fps=fps, ticks=ticks,
+                            trace=False, publish=pub)
+            m = fake._machine
+            tick_of = {}
+            real = m.on_tick
+
+            def tick(f, real=real, m=m, tick_of=tick_of):
+                tick_of.setdefault(f.frame, m.tick)
+                real(f)
+            m.on_tick = tick
+
+            def press(r):
+                return _CB_BUTTON[r["dbtn"]], 6 + r["n"] % 4, 1
+            _cb_play(fake, press=press, until=lambda f: len(f.chanbara_log) >= 6)
+            for r in fake.chanbara_log[:5]:
+                first = next(p["frame"] for p in pub if p["frame"] >= r["arm_frame"]
+                             and any(f"[DBTN={r['dbtn']}]" in x for x in p["raw"]))
+                want = r["arm_frame"] + (1 if order == "agent_first" else 0)
+                assert first == want, (fps, order, r, first)
+                down = r["arm_frame"] + 6 + r["n"] % 4
+                edge_frame = min(f for f in tick_of if f >= down)
+                assert (r["result"], r["edge_frame"], r["edge_tick"]) == ("hit", edge_frame, tick_of[edge_frame]), \
+                    (fps, order, r, edge_frame)
+                assert r["j"] == r["edge_tick"] - r["arm_tick"] >= 1, r
+
+
+def test_fake_chanbara_faults(game):
+    """H12's fault knobs (research/o4_design.md 3), each alone, seed 0, every prompt pressed at j 5: ``lost`` {7} --
+    prompt 7 pressed, the game never reads it: it lingers to its timeout at S + 50; ``miss_read`` {3} -- the right key
+    on prompt 3 (RIGHT) scored a miss: its window closes on the key, no slide follows, the combo is broken (120/121);
+    ``score_override`` 87 -- page 122 "87 were impressed."; ``extra_prompts`` 1 -- a 50th prompt; ``menu_on_triangle``
+    -- a TRIANGLE press opens the main menu (ui "MainMenu"), the prompt left armed; ``unsubstituted_once`` -- 122's first
+    publication reads "[NUMB=0] were impressed.", its next "100 were impressed."; ``replay_on_no`` -- No replays (109 and
+    110 after the choice). Break: ignore ``lost``."""
+    def run(knobs, **kw):
+        fake = _cb_fake(game, {"chanbara": {"exit_to": 30821, "seed": 0, **knobs}}, trace=False,
+                        publish=kw.pop("publish", None))
+        _cb_play(fake, **kw)
+        return fake
+    fake = run({"lost": [7]}, until=lambda f: len(f.chanbara_log) >= 8)
+    r7 = fake.chanbara_log[6]
+    assert r7["result"] == "timeout" and fake.chanbara_log[7]["arm_tick"] == r7["arm_tick"] + 50, r7
+    assert _cb_event(fake, "close", "Press", 6)["tick"] == r7["arm_tick"] + 50
+    fake = run({"miss_read": [3]})
+    r3, r5 = fake.chanbara_log[2], fake.chanbara_log[4]
+    # a RIGHT hit's reaction (at prompt 4's arm, after its roll) would leave SByte[38] 1 for prompt 5's roll
+    assert (r3["dbtn"], r3["result"], r3["j"]) == ("RIGHT", "miss", 5) and r5["sb38"] == 0, (r3, r5)
+    assert "Queen Brahne was\nnot impressed." in _cb_opened(fake)
+    fake = run({"score_override": 87})
+    assert "Of 100 nobles watching,\n87 were impressed." in _cb_opened(fake)
+    fake = run({"extra_prompts": 1}, until=lambda f: f._machine.phase == "done")
+    assert len(fake.chanbara_log) == 50
+    fake = run({"menu_on_triangle": True}, press=lambda r: (_CB_BUTTON[r["dbtn"]], 5, 1) if r["n"] <= 2 else None,
+               until=lambda f: f.ui_state == "MainMenu" or len(f.chanbara_log) > 2)
+    assert fake.ui_state == "MainMenu" and fake.chanbara_log[1]["dbtn"] == "TRIANGLE", fake.chanbara_log
+    assert fake.chanbara_log[1]["result"] is None and fake._machine.v["b47"] == 1
+    pub: list = []
+    fake = run({"unsubstituted_once": True}, publish=pub)
+    nobles = [p["texts"] for p in pub if any("nobles" in t for t in p["texts"])]
+    assert nobles[0] == ["Of 100 nobles watching,\n[NUMB=0] were impressed."], nobles[:2]
+    assert nobles[1] == ["Of 100 nobles watching,\n100 were impressed."], nobles[:2]
+    gil = [p["texts"] for p in pub if any("shower" in t for t in p["texts"])]
+    assert gil[0] == ["They shower you with [NUMB=1] Gil!"] and gil[1] == ["They shower you with 10000 Gil!"], gil[:2]
+    fake = run({"replay_on_no": True}, until=lambda f: "Zidane\n“Die, traitor!”" in _cb_opened(f))
+    assert fake.answered == [1] and _cb_opened(fake)[-2:] == ["Blank\n“Is that the best thou canst do!?”",
+                                                               "Zidane\n“Die, traitor!”"]

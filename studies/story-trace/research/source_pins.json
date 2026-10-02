@@ -1,1 +1,9 @@
-[]
+[
+ {
+  "name": "tools/harness/fakegame.py::FakeGame._next_beat",
+  "old": "99f4571318ed8dd48d19eb900562a294b8e69a02de44838d20b3cc8de7ccdf65",
+  "new": "a2f2e645383f05451adc906f18247e76bb934085a0fc6e0e4f8ca8b495f5cc4d",
+  "reason": "O4 B1 (research/o4_design.md 3, 9 B1): one dispatch line -- a {keyon_pair} or {chanbara} scene beat starts its machine beat (_start_machine) and returns; every other beat kind is staged exactly as before (no O1-O3 test stages a machine beat)",
+  "head": "d69afab917b68e31d2b6801ca0c496b285a4deb7"
+ }
+]
