@@ -18304,6 +18304,26 @@ def _o4_arrival(start, exit_to, knobs=None):
     return (lambda f: f.field_id == start and f.story_on and not f._beats), act
 
 
+def _o4_any_arrival(arrivals):
+    """A director phase serving ANY of ``arrivals`` (``{start: (exit_to, knobs)}``): on the run's arrival in one of
+    them (the trace on, no beat yet), H11's Chanbara visit for that start -- so a re-attempt into the same field gets
+    its fight too (one phase per expected arrival, in any order)."""
+    def act(f):
+        exit_to, knobs = arrivals[f.field_id]
+        f.scene({"chanbara": {"exit_to": exit_to, **(knobs or {})}}, control=False)
+    return (lambda f: f.field_id in arrivals and f.story_on and not f._beats), act
+
+
+#: R-GATE's uninformative causes a LOADED machine alone can produce on the fake: the DRIVER's (any V17 -- a read gap
+#: straddling a mark, a prompt that ended before a starved driver pressed), the instrument's V13, a paced j pushed out
+#: of the band or left unbounded -- never the fork's answer (V18) nor the stock game's.
+_O4_GATE_LOAD_CAUSES = ("V17", "instrument", "an instrument stop (V13)", "is outside the band", "the raw is unbounded")
+
+
+def _o4_gate_load_cause(why) -> bool:
+    return isinstance(why, str) and why.startswith("uninformative:") and any(c in why for c in _O4_GATE_LOAD_CAUSES)
+
+
 def _o4_launch(game, R, stages, env, phases, *, engine, pred=None, fake_setup=None, wrap=None, witness=None):
     """One rehearsal launch on a fresh fake: the director's ``phases``, control handed over in the recovery field,
     ``R.run`` with the test's stages, the stub witness (``witness``, default neutral) and pad reader and the pinned
@@ -18557,9 +18577,14 @@ def test_o4_rehearsal_gate_reads_the_pair_on_the_fake(game):
                              run_s=120)}
 
     def launch(s_knobs=None, f_knobs=None, *, f=True):
-        phases = [_o4_arrival(30820, 30821, {"seed": 0, **(s_knobs or {})})]
+        # EVERY arrival gets its fight, so a re-attempt plays one as the game would: on a loaded machine (the nightly's
+        # -n 6) a starved fake can make an attempt uninformative by the instrument alone -- a read gap straddling a
+        # mark, or a paced j pushed out of the band -- and R-GATE then re-runs it (7.4 G2). Those runs are set aside
+        # (only for such a LOAD cause); every other record must read as the scenario says.
+        arrivals = {30820: (30821, {"seed": 0, **(s_knobs or {})})}
         if f:
-            phases.append(_o4_arrival(31240, 31243, {"seed": 0, **(f_knobs or {})}))
+            arrivals[31240] = (31243, {"seed": 0, **(f_knobs or {})})
+        phases = [_o4_any_arrival(arrivals) for _ in range(2 * int(R.STAGES["R-GATE"]["attempts"]))]
         doc, _fake, title = _o4_launch(game, R, stages, {"O4_STAGE": "R-GATE"}, phases, engine=engine)
         assert doc.get("finished") and "stopped" not in doc and title == "Title", doc.get("stopped")
         recs = doc["stages"]["R-GATE"]
@@ -18567,7 +18592,7 @@ def test_o4_rehearsal_gate_reads_the_pair_on_the_fake(game):
             assert rec["gate"]["settings"] == C.SETTINGS and rec["gate"]["engine"] == engine, rec["gate"]
             assert rec["trace"].get("end_places") == [30821], (rec["side"], rec["outcome"], rec["trace"])
         v = doc["gate"]["R-GATE"]
-        return v, recs
+        return v, [r for r in recs if r["gate"]["informative"] or not _o4_gate_load_cause(r["gate"]["why"])]
     v, recs = launch()
     assert (v["verdict"], v["cause"], [r["side"] for r in recs]) == ("WITNESSED", None, ["S", "F"]), v
     assert all(r["gate"]["number"] == 100 and r["gate"]["byte475"] == 100 and r["gate"]["informative"] for r in recs)
@@ -18586,7 +18611,7 @@ def test_o4_rehearsal_gate_reads_the_pair_on_the_fake(game):
     assert ok and "its launch record backs it" in detail, detail
     ok, detail = C.p_gate({"gate_witness": dict(w, f_run=0)}, engine, C.SETTINGS, pinned_engine=engine,
                           member64={k: m[k] for k in ("id", "name", "eb")})
-    assert not ok and "its f_run 0 is not the record's 1" in detail, detail
+    assert not ok and f"its f_run 0 is not the record's {v['f_run']}" in detail, detail
     v, recs = launch(f_knobs={"bonus_fires": False})
     assert (v["verdict"], v["cause"]) == ("BROKEN", "bonus"), v
     fr = recs[1]["gate"]
