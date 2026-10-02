@@ -18819,3 +18819,126 @@ def test_o4_fake_story_store_reads_int16_signed(game):
     got = [(r["w"], r["old"], r["new"], r["same"]) for r in rows if r["k"] == "w"]
     assert got == [("Int16", 0, -1, 0), ("Int16", -1, -1, 1), ("UInt16", 0, 65535, 0), ("UInt16", 65535, 1, 0)], got
     assert [(r.k, r.old) for r in T.parse_text(text) if r.k == "w"] == [("w", 0), ("w", -1), ("w", 0), ("w", 65535)]
+
+
+# ---- O5, PART A (research/o5_design.md section 9): the regression gate extended to O4 (G22-G25, G21 over the union of
+# the O3 and O4 baselines' pins) with O4's encore attribution pinned whole, then the shared opt-in changes S10-S13. Every
+# test here is named test_segment_*: G7's selection ("segment") collects it, so the gate re-runs it.
+
+def test_segment_stray_answer_keeps_o4s_strings():
+    """O4'S ENCORE ATTRIBUTION, AS O4 FROZE IT (research/o5_design.md 1.2 S10, 9 A0; the claim critique #14): O5 never
+    edits ``stray_answer`` -- its own attribution is the new ``guard_strays`` -- and nothing pinned its strings before
+    (``o4_dryrun.unit_stray_answer`` compares ``v`` alone, G19's tests substrings). So every outcome is asserted WHOLE --
+    ``v``, ``by``, ``presses`` and the full ``why`` -- equal to LITERALS captured from the function at the branch head
+    (a85e8305), before any O5 change: a stray page press, ``choose``'s Confirm on Yes and a Confirm with no accepted
+    event (V17, the driver's); the answer's own Confirm on No, and no press at all (V2, the game's). Break: any edit to a
+    ``why`` (a word, a seq's spelling), to a ``presses`` row's keys, or to an attribution."""
+    SD = _segment_modules()
+    first, close = 5000, 5040
+    events = [{"frame": f, "kind": "accepted", "seq": str(s), "steps": "1"}
+              for s, f in ((1, 100), (2, 5001), (3, 5010), (4, 5020))]
+    steps = [{"kind": "step", "seq": 3, "steps": ["press down 4"]}, {"kind": "step", "seq": 4, "steps": ["press confirm 4"]}]
+    page = {"k": "press", "why": "page", "seq": 2, "button": "confirm", "pre": {"frame": 4996}}
+    prompt = {"k": "press", "why": "prompt", "seq": 1, "button": "confirm", "pre": {"frame": 98}}
+    down = {"k": "press", "why": "choose", "seq": 3, "pre": None}
+    lost = {"k": "press", "why": "page", "seq": 7, "button": "confirm", "pre": {"frame": 4990}}
+
+    def answer(sel):
+        return {"k": "press", "why": "choose", "seq": 4, "answer": True, "selected_before": sel, "pre": None}
+    replayed = {"v": "V2", "by": "game", "presses": [], "why": "the game replayed though the driver confirmed No"}
+    want = {
+        "page": {"v": "V17", "by": "driver",
+                 "presses": [{"seq": 2, "why": "page", "down_frame": 5002, "selected_before": None}],
+                 "why": "a Confirm of the driver's own (seq 2, page) landed on choice 127 before its answer"},
+        "yes": {"v": "V17", "by": "driver",
+                "presses": [{"seq": 4, "why": "choose", "down_frame": 5021, "selected_before": 0}],
+                "why": "a Confirm of the driver's own (seq 4, choose) landed on choice 127 with the cursor on Yes"},
+        "lost": {"v": "V17", "by": "driver", "presses": [{"seq": 7, "why": "page", "down_frame": None}],
+                 "why": "a Confirm of the driver's own (seq 7, page) landed on choice 127 with no accepted event to "
+                        "place it"},
+        "no": replayed, "none": replayed}
+    for name, log in (("page", [page]), ("yes", [prompt, down, answer(0)]), ("lost", [lost]),
+                      ("no", [prompt, down, answer(1)]), ("none", [])):
+        got = SD.stray_answer(log, events, steps, first, close)
+        assert got == want[name], (name, got)
+
+
+def test_segment_regress_o4_pins_join_the_union(tmp_path):
+    """G21 OVER BOTH BASELINES (research/o5_design.md 1.4, 9 A0), pure, over a temporary COPY of the two pinned files:
+    the O3 baseline's pins (an O1 test, the fake's ``_control``) and the O4 baseline's (an O4 test, the fake's story
+    sink, an O4 machine-beat method) join into ONE set of pins (``union_sources``) that reads clean; an edit to the
+    pinned machine-beat method's body FAILS naming it -- and only it, which the O3 pins alone cannot see; a re-baseline
+    row for that O4-baseline name (its ``old`` the O4 pin) reads clean again. Through files too: G21 over two temporary
+    baselines (``union_base``, as the gate passes them) and a pins file, and ``--rebaseline-source`` finding the name in
+    the O4 baseline (a refusal writes nothing). A name pinned in BOTH baselines is refused at capture (``o4_pin_names``)
+    and by the union -- and so by ``--rebaseline-source``. The fake's O4 pins are FAKE_PINS_O4 and every method of the
+    four machine-beat classes (``fake_pins_o4``). Break: judge the O3 baseline's sources alone (the edit then passes),
+    or let a union keep one of two pins."""
+    R = _regress_module()
+    test_copy, fake_copy = tmp_path / "test_harness.py", tmp_path / "fakegame.py"
+    test_copy.write_bytes((REPO / R.TEST_REL).read_bytes())
+    fake_copy.write_bytes((REPO / R.FAKE_REL).read_bytes())
+    files = {R.TEST_REL: test_copy, R.FAKE_REL: fake_copy}
+    pick = R.pin_of_test("test_o1_pick_for_reads_the_frozen_rules_by_option_text")
+    control = f"{R.FAKE_REL}::_control"
+    stray = R.pin_of_test("test_o4_stray_answer_attributes_by_the_down_frame")
+    sink = f"{R.FAKE_REL}::FakeGame._story_store"
+    beat = f"{R.FAKE_REL}::_KeyonPairBeat._script"
+    o3 = R.source_shas([pick, control], files=files)
+    o4 = R.source_shas([stray, sink, beat], files=files)
+    assert all(isinstance(v, str) and len(v) == 64 for v in [*o3.values(), *o4.values()]), (o3, o4)
+    union = R.union_sources(o3, o4)
+    assert sorted(union) == sorted([pick, control, stray, sink, beat]), union
+    assert R.g21_bad(union, R.source_shas(sorted(union), files=files), []) == []
+
+    def edit(path, old, new):
+        text = path.read_text(encoding="utf-8")
+        assert text.count(old) == 1, f"premise: {old!r} occurs once in the copy"
+        path.write_text(text.replace(old, new), encoding="utf-8")
+    edit(fake_copy, '        b = self.open(fake, 0, "keyon", k["texts"][1], k["raw"][1])\n',
+         '        b = self.open(fake, 1, "keyon", k["texts"][1], k["raw"][1])\n')
+    now = R.source_shas(sorted(union), files=files)
+    bad = R.g21_bad(union, now, [])
+    assert len(bad) == 1 and bad[0].startswith(f"{beat}: changed (") and "--rebaseline-source" in bad[0], bad
+    assert R.g21_bad(o3, R.source_shas(sorted(o3), files=files), []) == [], "premise: the O3 pins alone pass the edit"
+    row = R.pin_row(union, [], beat, o4[beat], now[beat], "  the O4 beat changed on purpose ", "abc123")
+    assert row == {"name": beat, "old": o4[beat], "new": now[beat], "reason": "the O4 beat changed on purpose",
+                   "head": "abc123"}, row
+    assert R.g21_bad(union, now, [row]) == []
+    # through files: two temporary baselines and a pins file -- G21 over their union, --rebaseline-source on the O4 name
+    b3, b4 = tmp_path / "o3_regress_baseline.json", tmp_path / "o4_regress_baseline.json"
+    pins = tmp_path / "source_pins.json"
+    b3.write_text(json.dumps({"sources": o3, "sources_python": R._py()}), encoding="utf-8")
+    b4.write_text(json.dumps({"sources": o4, "sources_python": R._py()}), encoding="utf-8")
+    pins.write_text("[]\n", encoding="utf-8")
+
+    def g21():
+        return R.g21(R.union_base(json.loads(b3.read_text(encoding="utf-8")),
+                                  json.loads(b4.read_text(encoding="utf-8"))), pins, files=files)
+    ok, what, detail = g21()
+    assert ok is False and what.startswith("G21: ") and f"{beat}: changed" in detail and pick not in detail, detail
+    assert R.rebaseline_source(beat, "", baseline=b3, baseline_o4=b4, pins=pins, files=files) == 1
+    assert pins.read_text(encoding="utf-8") == "[]\n", "a refusal writes nothing"
+    assert R.rebaseline_source(beat, "the O4 beat changed on purpose", baseline=b3, baseline_o4=b4, pins=pins,
+                               files=files) == 0
+    rows = json.loads(pins.read_text(encoding="utf-8"))
+    assert [(r["name"], r["old"], r["new"]) for r in rows] == [(beat, o4[beat], now[beat])], rows
+    ok, _what, detail = g21()
+    assert ok is True and "5 sources at their pins (1 re-baseline row" in detail, detail
+    # a name pinned in both baselines: refused at capture, no union, no re-baseline
+    with pytest.raises(ValueError, match="pinned in both the O3 and the O4 baselines"):
+        R.o4_pin_names(o3, [stray, sink, pick])
+    assert R.o4_pin_names(o3, [stray, sink, sink, beat]) == [stray, sink, beat]
+    with pytest.raises(ValueError, match="pinned in both the O3 and the O4 baselines"):
+        R.union_sources(o3, {**o4, pick: o3[pick]})
+    b4.write_text(json.dumps({"sources": {**o4, pick: o3[pick]}, "sources_python": R._py()}), encoding="utf-8")
+    assert R.rebaseline_source(stray, "why", baseline=b3, baseline_o4=b4, pins=pins, files=files) == 1
+    assert len(json.loads(pins.read_text(encoding="utf-8"))) == 1, "a refusal writes nothing"
+    # the fake's O4 pins: FAKE_PINS_O4, then every method of the four machine-beat classes
+    source = fake_copy.read_text(encoding="utf-8")
+    names = R.fake_pins_o4(source)
+    assert names[:len(R.FAKE_PINS_O4)] == list(R.FAKE_PINS_O4) and len(names) == len(set(names)), names
+    methods = {q for q in R.functions_of(source) if q.split(".")[0] in R.FAKE_PIN_CLASSES_O4}
+    assert methods <= set(names) and "_KeyonPairBeat._script" in methods and "_Win.timers" in methods, methods
+    with pytest.raises(ValueError, match="no method of _Win"):
+        R.fake_pins_o4(source.replace("class _Win:", "class _Window:"))
