@@ -6,8 +6,9 @@ moved and parameterised; ``o1_opening`` keeps every public name as a thin wrappe
 (``segment_regress.py``) proves its outputs byte-identical.
 
 The module's PURE helpers come first: the predictions' small readers, the FROZEN place of a row, the strict noise
-matcher, the two cuts, the digest's row -> key map and the verdict. Each reads only its arguments (``stock_lang``
-and ``chain_from_campaign`` read the install / a campaign file when called).
+matcher, the two cuts, the ends per side (S6: each side's END FIELDS and the END PLACES its cut compares;
+research/o4_design.md 1.2), the digest's row -> key map and the verdict. Each reads only its arguments
+(``stock_lang`` and ``chain_from_campaign`` read the install / a campaign file when called).
 
 Then :class:`Segment`, O1's session and analysis as methods, each citing the O1 function it came from: the
 predictions' I/O and freeze, the offline build/keys checks, the preflight, the install fingerprint, the session loop
@@ -150,6 +151,65 @@ def cut_at_start(rows: list, start_place: int, members: dict) -> tuple:
     late = [r for r in rows if r.line >= at and r.k == "c" and r.site in gone and r.site not in kept_sites]
     cut = {id(r) for r in before} | {id(r) for r in late}
     return [r for r in rows if id(r) not in cut], at, before + late
+
+
+# ======================================================================== S6: the ends per side
+def _is_id(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def side_ends_of(pred: dict) -> dict | None:
+    """The ends PER SIDE (S6, research/o4_design.md 1.2; the critique's major #1): ``pred["side_ends"]`` -- ``{"S":
+    [ids], "F": [ids]}``, each side's END FIELDS -- checked STRICT, or None when the predictions carry none: then one
+    list (``end_fields``, else ``[end_field]``) serves both sides, exactly as before. A segment whose fork side ends IN
+    A MEMBER needs it (O4: S in real 153, F in member(153)): with one list, either every F arrival is off the route
+    or a landing in the REAL field reads as reached.
+
+    ValueError on: not a dict of exactly S and F; a side that is not a non-empty list of ints (a bool is no int), or
+    that lists an id twice; S not exactly the end fields (the stock side ends where the predictions end); an F id that
+    is neither an end field no member forks nor a member whose donor is an end field; F's places not exactly the end
+    fields. Returns a copy."""
+    raw = pred.get("side_ends")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) != set(SIDES):
+        raise ValueError(f"side_ends {raw!r}: a dict of exactly {list(SIDES)}, each side's end fields")
+    for s in SIDES:
+        ids = raw[s]
+        if not isinstance(ids, list) or not ids or not all(_is_id(f) for f in ids):
+            raise ValueError(f"side_ends {s} {ids!r}: a non-empty list of field ids (ints; a bool is no int)")
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"side_ends {s} {ids!r} lists an id twice")
+    ends = list(pred.get("end_fields") or [pred["end_field"]])
+    if set(raw["S"]) != set(ends):
+        raise ValueError(f"side_ends S {raw['S']} is not exactly the end fields {ends}: the stock side ends where the "
+                         f"predictions end")
+    members = {int(f): int(d) for f, d in (pred.get("members") or {}).items()}
+    forked = set(members.values())
+    for f in raw["F"]:
+        if not ((f in ends and f not in forked) or (f in members and members[f] in ends)):
+            raise ValueError(f"side_ends F {f} is neither an end field no member forks nor a member whose donor is an "
+                             f"end field {ends}")
+    places = sorted({place(f, members) for f in raw["F"]})
+    if set(places) != set(ends):
+        raise ValueError(f"side_ends F {raw['F']}: F's places {places} are not exactly the end fields {ends}")
+    return {s: list(raw[s]) for s in SIDES}
+
+
+def side_ends(pred: dict, side: str) -> list:
+    """One side's END FIELDS (S6): ``side_ends[side]`` when the predictions carry it (checked strict:
+    :func:`side_ends_of`), else the one list both sides share -- ``end_fields``, else ``[end_field]``, exactly as
+    before. Raw ids: what rule 1's arrival, ``segment_drive.on_route`` and the forbidden patterns compare."""
+    se = side_ends_of(pred)
+    return list(se[side]) if se is not None else list(pred.get("end_fields") or [pred["end_field"]])
+
+
+def end_places(pred: dict, side: str) -> list:
+    """One side's END PLACES (S6): the frozen place (:func:`place`, through the members on F) of each of its end
+    fields, sorted -- what every cut compares (:func:`cut_at_end`). O4's F side ends in member(153), its place [153];
+    with no end field that is a member, the end fields themselves (O1-O3: today's list exactly)."""
+    members = members_of(pred) if side == "F" else {}
+    return sorted({place(f, members) for f in side_ends(pred, side)})
 
 
 # ======================================================================== a digest's rows -> its keys
@@ -668,13 +728,14 @@ class Segment:
     # -- reading a session (pure, offline, but for the stock scripts) --------------------------------------------
     def cut(self, rows: list, pred: dict, side: str) -> tuple:
         """``(kept, start line, end line, pre)``: with ``cut_start``, :func:`cut_at_start` from the start field's
-        place; then :func:`cut_at_end` at the end places (``end_fields``, else ``[end_field]``). Places are frozen:
-        the F side's through the members, the S side's its own fields."""
+        place; then :func:`cut_at_end` at the side's END PLACES (:func:`end_places`: of ``side_ends[side]``, else of
+        ``end_fields`` / ``[end_field]``). Places are frozen: the F side's through the members, the S side's its own
+        fields -- so an F side that ends in a member (S6) is cut at that member's first row."""
         members = members_of(pred) if side == "F" else {}
         start, pre = None, []
         if pred.get("cut_start"):
             rows, start, pre = cut_at_start(rows, place(pred["start"][side], members), members)
-        kept, end = cut_at_end(rows, pred.get("end_fields") or [pred["end_field"]], members)
+        kept, end = cut_at_end(rows, end_places(pred, side), members)
         return kept, start, end, pre
 
     def why_void(self, rec: dict, r: dict, pred: dict) -> list:

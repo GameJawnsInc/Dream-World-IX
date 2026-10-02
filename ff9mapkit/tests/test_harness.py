@@ -15946,3 +15946,173 @@ def test_segment_regress_source_pins_catch_an_edit(tmp_path):
     ok, _what, detail = R.g21(json.loads(base_path.read_text(encoding="utf-8")), pins_path, files=files)
     assert ok is False and f"{pick}" not in detail and f"{door}: gone" in detail and f"{control}: changed" in detail, \
         detail
+
+
+#: S6's places on the fake (research/o4_design.md 9 A1): 30820 is "150" (the start), 30830 "153" (the end: real, never
+#: registered, never warped to); the F side's members 31243 ("150") and 31245 ("153"). 31243 is appended to the
+#: fixture's DictionaryPatch (O1's pinning test's way); 31245, like the end, is only ever moved to.
+_S6_END = 30830
+_S6_MEMBERS = {"31243": 30820, "31245": _S6_END}
+_S6_START = {"S": 30820, "F": 31243}
+
+
+def _s6_rows(*specs):
+    """Proto-1 trace rows, one per spec, 10 frames apart: ``("e", fld, why)``, ``("r", fld, byte, new)`` or ``("w",
+    fld, sid, ip)`` -- a Byte[8] store (0 -> 25) at that site."""
+    from ff9mapkit import storytrace as T
+    out = []
+    for n, (k, fld, *rest) in enumerate(specs):
+        row = {"k": k, "f": 1000 + 10 * n, "p": 0, "m": 1, "fld": fld, "don": fld, "sc": 1155}
+        if k == "e":
+            row["why"] = rest[0]
+        elif k == "r":
+            row.update(byte=rest[0], old=0, new=rest[1], why="frame")
+        else:
+            row.update(src="eb", sid=rest[0], uid=rest[0], lvl=0, ip=rest[1], tag=0, add=0, byte=8, w="Byte", bit=-1,
+                       old=0, new=25, same=0)
+        out.append(row)
+    return T.parse_text("".join(json.dumps(x) + "\n" for x in out))
+
+
+def test_segment_side_ends_split_the_cut_and_the_drive():
+    """S6, pure (research/o4_design.md 1.2, 9 A1; the critique's major #1, decision 4). ``side_ends_of`` reads O4's
+    shape -- S [153], F [member(153)] -- and refuses each malformed one: not a dict of exactly S and F (a list; S alone;
+    a third key), an empty side, a bool for an id, an id twice, S not the end fields, real 153 on F though a member
+    forks it, a member whose donor is no end field, F's places short of the end fields. ``side_ends`` keeps each side's
+    END FIELDS, ``end_places`` the frozen END PLACES: [153] on both sides. ``Segment.cut`` on F rows cuts at
+    member(153)'s first row -- by place: the raw end fields ([31245]) never cut there -- and, as frozen place 153, at a
+    real-153 row too (O4-LANDING (d) reads which; the drive's rule 2 VOIDs that run V19 first). ``forbidden_hits`` with
+    F's ends [31245] hits a real-150 row and not member(153)'s; with one list for both sides ([153]) member(153)'s row
+    is off the route. O1's, O2's and O3's frozen predictions (no ``side_ends``) read their one list on both sides, and
+    their cut is today's. Break: cut at the raw end fields (member(153)'s first row is then never cut)."""
+    ST, SD = _segment_trace(), _segment_modules()
+    pred = {"end_field": 153, "end_fields": [153], "members": {"31240": 64, "31243": 150, "31245": 153},
+            "side_ends": {"S": [153], "F": [31245]}, "start": {"S": 64, "F": 31240}, "route": [64, 150],
+            "cut_start": True, "forbidden": [{"off_route": True, "cause": "walk", "why": "a write off the route"}]}
+    assert ST.side_ends_of(pred) == {"S": [153], "F": [31245]}
+    assert (ST.side_ends(pred, "S"), ST.side_ends(pred, "F")) == ([153], [31245])
+    assert (ST.end_places(pred, "S"), ST.end_places(pred, "F")) == ([153], [153])
+    neither = "is neither an end field no member forks nor a member whose donor is an end field"
+    for bad, match in (([153], "a dict of exactly"), ({"S": [153]}, "a dict of exactly"),
+                       ({"S": [153], "F": [31245], "B": [1]}, "a dict of exactly"),
+                       ({"S": [], "F": [31245]}, "a non-empty list of field ids"),
+                       ({"S": [153], "F": [True]}, "a non-empty list of field ids"),
+                       ({"S": [153], "F": [31245, 31245]}, "lists an id twice"),
+                       ({"S": [150], "F": [31245]}, "is not exactly the end fields"),
+                       ({"S": [153], "F": [153]}, neither), ({"S": [153], "F": [31243]}, neither)):
+        with pytest.raises(ValueError, match=match):
+            ST.side_ends_of({**pred, "side_ends": bad})
+    with pytest.raises(ValueError, match="F's places .* are not exactly the end fields"):
+        ST.side_ends_of({**pred, "end_fields": [153, 154], "side_ends": {"S": [153, 154], "F": [31245]}})
+    # the cut: the warp's residue in 70, member(64)'s start, member(150), then member(153)'s first row
+    rows = _s6_rows(("e", 70, "arm"), ("r", 70, 0, 131), ("w", 31240, 0, 22), ("w", 31243, 0, 26), ("w", 31245, 0, 22),
+                    ("w", 31245, 3, 40), ("e", 31245, "off"))
+    kept, start, end, pre = ST.Segment().cut(rows, pred, "F")
+    assert (start, end) == (3, 5) and [x.line for x in pre] == [2], (start, end, pre)
+    assert [x.fld for x in kept if x.k == "w"] == [31240, 31243], kept
+    assert ST.cut_at_end(rows, ST.side_ends(pred, "F"), ST.members_of(pred))[1] is None    # the raw ids never cut
+    real = _s6_rows(("e", 70, "arm"), ("w", 31240, 0, 22), ("w", 31243, 0, 26), ("w", 153, 0, 22), ("w", 31245, 0, 22))
+    assert ST.Segment().cut(real, pred, "F")[2] == 4                 # real 153 is place 153 too: LANDING (d) reads it
+    # the forbidden scan: F's end fields [31245] -- a real-150 row is off the route, member(153)'s is the end
+    scan = _s6_rows(("e", 70, "arm"), ("w", 31240, 0, 22), ("w", 150, 0, 26), ("w", 31245, 0, 22))
+    members = ST.members_of(pred)
+    hits = SD.forbidden_hits(scan, pred, members, 64, end_fields=ST.side_ends(pred, "F"))
+    assert [(h["fld"], h["cause"]) for h in hits] == [(150, "walk")], hits
+    hits = SD.forbidden_hits(scan, pred, members, 64, end_fields=[153])             # one list for both sides
+    assert [h["fld"] for h in hits] == [150, 31245], hits
+    # O1-O3: no side_ends -- their one list on both sides, and today's cut
+    here = REPO / "studies" / "story-trace"
+    for name in ("o1_predictions_v4.json", "o2_predictions_v1.json", "o3_predictions_v1.json"):
+        p = json.loads((here / name).read_text(encoding="utf-8"))
+        ends = list(p.get("end_fields") or [p["end_field"]])
+        assert ST.side_ends_of(p) is None, name
+        for side in ("S", "F"):
+            assert ST.side_ends(p, side) == ends and ST.end_places(p, side) == sorted(set(ends)), (name, side)
+        m = ST.members_of(p)
+        trace = _s6_rows(("e", 70, "arm"), ("w", next(iter(m)), 0, 22), ("w", ends[0], 0, 22), ("w", ends[0], 0, 30))
+        assert ST.Segment().cut(trace, {**p, "cut_start": False}, "F")[2] == ST.cut_at_end(trace, ends, m)[1] == 3, name
+
+
+def _s6_pred(**over):
+    """S6's driver keys on the fake's places: no table, no battle; route and visits [30820]; the end 30830 ("153") on
+    S, member(153) 31245 on F; ``end_row_s`` 3 (rule 1 waits for the end place's first row)."""
+    pred = {"version": 1, "start": dict(_S6_START), "entrance": 325, "scenario": 1155, "end_field": _S6_END,
+            "end_fields": [_S6_END], "side_ends": {"S": [_S6_END], "F": [31245]}, "route": [30820],
+            "visits": [30820], "members": dict(_S6_MEMBERS), "names": {"31243": "O4_S6_A", "31245": "O4_S6_B"},
+            "budget": {"run_s": 60, "run_min_s": 1, "session_s": 600, "settle_s": 0.3, "no_progress_s": 60,
+                       "end_row_s": 3.0},
+            "beats": [], "table": [], "naming": [], "forbidden": [], "end_state": {}, "regions": {}, "hotspots": {},
+            "choices": []}
+    pred.update(over)
+    return pred
+
+
+def _s6_run(game, side, lands, *, pred, end_fields=None):
+    """One run on the fake: New Game, the RAW warp into the side's start (no control: 64 and 150 give none), a page,
+    then the scripted Field() into ``lands``, whose Main_Init writes its first store 240 frames after the arrival.
+    ``(the outcome or the RouteVoid, the log, the trace's w rows in ``lands``)``."""
+    patch = game / "FF9CustomMap" / "DictionaryPatch.txt"
+    if "31243" not in patch.read_text(encoding="utf-8"):
+        patch.write_text(patch.read_text(encoding="utf-8") + "FieldScene 31243 11 O4_S6_A O4_S6_A 2\n", encoding="utf-8")
+    fake = _o3_fake(game)
+    start = _S6_START[side]
+    arrived: dict = {}
+
+    def to_end(f):
+        arrived["frame"] = f.frame
+        _o2_move(f, lands)
+    phases = [(lambda f: f.field_id == start, lambda f: f.scene("Narrator\n“The fight is over.”", control=False)),
+              (lambda f: f.field_id == start and _o3_idle(f), to_end),
+              (lambda f: f.field_id == lands and f.frame >= arrived["frame"] + 240,
+               lambda f: f.script_store(0, 0, 22, 191 >> 3, "Bit", 0, bit=191))]
+    SD = _segment_modules()
+    stop = threading.Event()
+    with session(game, fake) as g:
+        boot(g)
+        g._check_field_id(start, "warp", True)
+        g.send(f"warp {start} 325 1155")
+        g.wait_for(lambda s: s.field_id == start and s.ui_state == "FieldHUD", timeout=10.0, what=f"field {start}")
+        g.storytrace(True)
+        _o1_director(fake, stop, phases)
+        log: list = []
+        try:
+            out = SD.drive(g, pred, side, log, deadline=time.time() + 30.0, floor_for=lambda d, c: _flat_bgi(),
+                           prior_for=lambda d: _prior(), end_fields=end_fields, forbid_live=False)
+        except SD.RouteVoid as err:
+            out = err
+        finally:
+            stop.set()
+        rows = [r for r in g.story_rows() if r.k == "w" and r.fld == lands]
+    return out, log, rows
+
+
+def test_segment_drive_ends_per_side_on_the_fake(game):
+    """S6 on the drive (research/o4_design.md 1.2, 9 A1; the critique's major #1), opt-in (``side_ends``). F reaches
+    member("153") 31245 -- rule 1 on the side's own END FIELDS -- and the end row names it and waits for the run's first
+    trace row in the end PLACE ("153"), which member(153)'s Main_Init writes 240 frames after the arrival: ``end_row``
+    seen, at that row's frame; the run's one visit is member("150"). S reaches real "153" the same way. On F a landing
+    in REAL "153" -- a Field() the chain did not retarget -- is V19 by the GAME, a finding, its cell the real field and
+    the published SC, with no end row; the same F landing WITHOUT ``side_ends`` (the end list given as [member(153)],
+    the driver as before) is V11 by the game, today's. Break: compare raw ids in ``end_row()`` (member(153)'s arrival
+    is then never cut: ``end_row`` unseen)."""
+    SD = _segment_modules()
+    logs = {}
+    for side, lands in (("F", 31245), ("S", _S6_END)):
+        out, log, rows = _s6_run(game, side, lands, pred=_s6_pred())
+        assert not isinstance(out, Exception) and out["end"] == "reached" and out["why"] == f"field {lands}", (side, out)
+        end = [r for r in log if r["k"] == "end"][-1]
+        assert end["field"] == lands and len(rows) == 1, (side, end, rows)
+        assert end["end_row"]["seen"] is True and end["end_row"]["f"] == rows[0].f, (side, end)
+        logs[side] = log
+    assert [(r["field"], r["donor"]) for r in logs["F"] if r["k"] == "visit"] == [(31243, 30820)], logs["F"]
+    err, log, _rows = _s6_run(game, "F", _S6_END, pred=_s6_pred())
+    assert isinstance(err, SD.RouteVoid), err
+    assert (err.v, err.by, err.cell) == ("V19", "game", [_S6_END, 1155]), (err.v, err.by, err.cell)
+    assert (f"the fork run entered REAL {_S6_END}, where member({_S6_END}) 31245 was due: a Field() the chain did not "
+            f"retarget") in str(err), err
+    assert not [r for r in log if r["k"] == "end"], log
+    pred = _s6_pred()
+    del pred["side_ends"]
+    err, _log, _rows = _s6_run(game, "F", _S6_END, pred=pred, end_fields=[31245])
+    assert isinstance(err, SD.RouteVoid), err
+    assert (err.v, err.by) == ("V11", "game") and f"left the route: entered {_S6_END}" in str(err), err

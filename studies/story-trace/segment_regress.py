@@ -153,6 +153,8 @@ REQUIRED_TESTS: tuple = (
     "test_segment_movie_skip_policy_is_strict",
     # research/o4_design.md section 9, PART A: the gate's own pins and the shared changes, each with its step
     "test_segment_regress_source_pins_catch_an_edit",                           # A0: G21's checker
+    "test_segment_side_ends_split_the_cut_and_the_drive",                       # A1: S6, pure
+    "test_segment_drive_ends_per_side_on_the_fake",                             # A1: S6 on the drive
 )
 
 O1E_VERDICT = "PROVEN"

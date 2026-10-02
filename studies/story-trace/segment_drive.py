@@ -38,6 +38,13 @@ that publishes an end field, and the session closes the trace right after the dr
 first waits, up to ``end_row_s``, for the run's first trace row in an end place (:meth:`_Drive.end_row`), and the
 ``end`` row records it. Without it rule 1 is O1's and O2's exactly.
 
+THE ENDS PER SIDE (opt-in, ``side_ends``; research/o4_design.md 1.2 S6): a segment whose fork side ends IN A MEMBER
+(O4: S in real 153, F in member(153)) gives each side its own END FIELDS (``segment_trace.side_ends``), and the drive
+keeps them apart from the END PLACES its cuts compare (``segment_trace.end_places``): rule 1 fires on the side's own
+end field, the live scan and the end row cut at the end places, and on F a REAL field the chain forks is V19 by the
+game -- a Field() the build did not retarget: a finding -- where it would be V11. Without the key both come from the
+predictions' one list, and with no end field a member (O1-O3) every list and place is today's.
+
 THE MOVIE-SKIP POLICY (opt-in, ``movies``; PLAN.md "Movie skip (opt-in)"): a type-0 FMV is skipped the way a player
 skips it. While a movie plays, FieldHUD's hit area takes a Confirm and opens the "SkipMovieDialog" choice with its
 cursor on No (FieldHUD.cs:275-286); its option 0 sets ``MBG.IsSkip`` and runs ``fldfmv.FF9FieldFMVShutdown`` (:428),
@@ -130,8 +137,8 @@ class RouteVoid(Exception):
     """The route met something it has no rule for: the run is VOID (never a finding about the scripts).
 
     ``v`` / ``cell`` / ``by`` are the VOID's class ("V1".."V16": research/o2_design.md 2.7, research/o3_design.md
-    2.6), its beat-table cell and its attribution; each is None unless given, so O1's ``raise RouteVoid(msg)`` still
-    works and its runs record no class."""
+    2.6; V19: research/o4_design.md 2.6), its beat-table cell and its attribution; each is None unless given, so O1's
+    ``raise RouteVoid(msg)`` still works and its runs record no class."""
 
     def __init__(self, msg: str = "", *, v: str | None = None, cell: list | None = None, by: str | None = None):
         super().__init__(msg)
@@ -805,7 +812,14 @@ class _Drive:
         self.g, self.pred, self.side, self.log, self.deadline = g, pred, side, log, deadline
         self.floor_for, self.prior_for, self.observe, self.forbid_live = floor_for, prior_for, observe, forbid_live
         self.members = ST.members_of(pred) if side == "F" else {}
-        self.ends = list(end_fields if end_fields is not None else (pred.get("end_fields") or [pred["end_field"]]))
+        # S6 (research/o4_design.md 1.2), OPT-IN: the ends PER SIDE (``side_ends``, checked strict before anything is
+        # driven). The END FIELDS -- raw ids: rule 1's arrival, on_route, the live scan's patterns -- and the END
+        # PLACES -- frozen: what scan() and end_row() cut at -- are kept apart. Without ``side_ends`` both come from the
+        # predictions' one list (or the ``end_fields`` given), and with no end field a member, every list and every
+        # place is today's (O1-O3).
+        self.side_ends = ST.side_ends_of(pred)
+        self.ends = list(end_fields) if end_fields is not None else ST.side_ends(pred, side)
+        self.end_places = sorted({place(f, self.members) for f in self.ends})
         self.route = list(pred.get("route") or ())
         self.start_place = place(pred["start"][side], self.members)
         # rule 2's ORDER: the places a run visits, in turn (``visits``; default ``route``, each once), from the start
@@ -961,13 +975,13 @@ class _Drive:
                    for w in c.get("watch") or ())
 
     def scan(self) -> None:
-        """The live forbidden scan (2.2, rule 3): the run's own rows (after its last arm, cut at its end), 4.7's
+        """The live forbidden scan (2.2, rule 3): the run's own rows (after its last arm, cut at its end PLACES), 4.7's
         patterns from its start row on. A hit the log backs is V12; an unbacked one is logged and the run goes on."""
         rows = self.g.story_rows()
         arm = max((i for i, r in enumerate(rows) if r.k == "e" and r.why == "arm"), default=None)
         if arm is None:
             return
-        kept, _end = ST.cut_at_end(rows[arm:], self.ends, self.members)
+        kept, _end = ST.cut_at_end(rows[arm:], self.end_places, self.members)
         for hit in forbidden_hits(kept, self.pred, self.members, self.start_place, end_fields=self.ends):
             key = (hit["line"], hit["pattern"])
             if key in self.seen:
@@ -987,15 +1001,16 @@ class _Drive:
     def end_row(self) -> dict:
         """Rule 1's opt-in wait (``budget.end_row_s``; research/o3_design.md 2.2, 11.7 #3): the run's FIRST trace row
         in an end place -- the row the analysis cuts at (:func:`segment_trace.cut_at_end` on the live trace after its
-        last arm) -- waited for, up to ``end_row_s`` and never past the run's deadline. ``{"seen", "f", "s"}``: whether
-        it came, its frame (``f``, None when it did not), the seconds waited. A row that never comes is no VOID here:
-        the analysis reads that run (A-NOEND). A trace the harness cannot read raises, as the live scan does."""
+        last arm, at the end PLACES: S6, so an F side ending in member(153) is cut at its place 153) -- waited for, up
+        to ``end_row_s`` and never past the run's deadline. ``{"seen", "f", "s"}``: whether it came, its frame (``f``,
+        None when it did not), the seconds waited. A row that never comes is no VOID here: the analysis reads that run
+        (A-NOEND). A trace the harness cannot read raises, as the live scan does."""
         t0 = time.time()
         until = min(t0 + self.end_row_s, self.deadline)
         while True:
             rows = self.g.story_rows()
             arm = max((i for i, r in enumerate(rows) if r.k == "e" and r.why == "arm"), default=None)
-            line = None if arm is None else ST.cut_at_end(rows[arm:], self.ends, self.members)[1]
+            line = None if arm is None else ST.cut_at_end(rows[arm:], self.end_places, self.members)[1]
             if line is not None or time.time() >= until:
                 hit = next((r for r in rows if r.line == line), None) if line is not None else None
                 return {"seen": hit is not None, "f": None if hit is None else hit.f, "s": round(time.time() - t0, 2)}
@@ -1730,8 +1745,15 @@ class _Drive:
                 self.held = 0
                 time.sleep(POLL_S)
                 continue
-            # 2 -- the route: a field on it, and (at a new visit) the place its order goes to next
+            # 2 -- the route: a field on it, and (at a new visit) the place its order goes to next. S6, opt-in (with
+            # ``side_ends``): on F a REAL field the chain forks is V19, the game's -- a Field() the build did not
+            # retarget, or an engine id leak: a finding; anything else off the route stays V11 (stray)
             if not on_route(self.fid, self.members, self.route, self.ends):
+                due = [f for f, d in sorted(self.members.items()) if d == self.fid] \
+                    if self.side_ends is not None and self.fid not in self.members else []
+                if due:
+                    raise self.void("V19", "game", f"the fork run entered REAL {self.fid}, where member({self.fid}) "
+                                                   f"{due[0]} was due: a Field() the chain did not retarget")
                 raise self.stray(f"left the route: entered {self.fid} (place {self.donor})")
             # 3 -- a new visit
             if self.fid != self.cur:
@@ -1883,8 +1905,9 @@ def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=Non
     answer raises :class:`RouteVoid` with its class, cell and attribution (2.7), and the budget ``HarnessError``
     (V13). ``floor_for(donor, closed)`` gives a walk its
     floor (default: the donor's stock walkmesh as the player walks it, ``closed`` shut -- a member walks its donor's,
-    P-FLOOR), ``prior_for(donor)`` its prior (default ``g.key_prior``); ``end_fields`` overrides the predictions' (a
-    rehearsal stage); ``observe(st, ctx)`` sees every poll (the rehearsal recorder); ``forbid_live`` runs the live
+    P-FLOOR), ``prior_for(donor)`` its prior (default ``g.key_prior``); ``end_fields`` overrides the side's end fields
+    (a rehearsal stage; else ``side_ends[side]``, else the predictions' one list -- S6); ``observe(st, ctx)`` sees every
+    poll (the rehearsal recorder); ``forbid_live`` runs the live
     forbidden scan (V12; it needs the story trace running). ``progress`` is filled with the live beats, pages, choices,
     steps, overlays and forbidden rows, so a run that raises still says how far it got."""
     if floor_for is None:
