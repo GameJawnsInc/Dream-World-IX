@@ -14116,6 +14116,77 @@ def test_fight_tells_a_vanished_battle_from_a_timeout(game):
     assert (lf["result"], lf["timed_out"], lf["turns"]) == (0, False, 0) and lf["seconds"] < 20.0, lf
 
 
+class _NoHudFake(FakeGame):
+    """The fake whose agent refuses every ``battlecmd`` with no battle HUD, the refusal published with a state that
+    does not explain it: the battle still up, or (``lost``) the agent's fallback battle doc -- ``{"active": false,
+    "epoch": -1}``, what AppendBattle publishes when its read throws -- which shows no battle at all, not THIS one
+    gone."""
+
+    lost = False
+
+    def _execute(self, step):
+        if step[0].lower() == "battlecmd":
+            self._doc_lost = self.lost
+            raise RuntimeError("battlecmd: no battle HUD (not in a battle?)")
+        return super()._execute(step)
+
+    def _battle_doc(self):
+        if getattr(self, "_doc_lost", False):
+            return {"active": False, "epoch": -1, "debug": False}
+        return super()._battle_doc()
+
+
+def test_fight_reads_a_command_refused_with_no_battle_hud_as_the_battle_gone(game):
+    """The command race (``test_o3_drive_voids_an_unregistered_battle`` at -n 6): fight() read "asking slot 0", the
+    battle ENDED before its command landed (King Leo's scripted end), and the agent refused the step -- no battle HUD
+    -- which escaped fight() as a StepRefused. Pinned by the fake's ``battle_end_on_command`` at the SECOND battlecmd
+    (the first, an Attack, is a turn taken): with a result (2) fight() returns it, the refused command no turn
+    (``turns`` 1, ``timed_out`` False); with none (0, the scene gone) it raises FightTimeout kind "gone" at once --
+    never "timeout", never a result. The same race a step earlier -- the end beating act()'s ``menus`` step, refused
+    the same way -- returns the result too, no second battlecmd sent. The controls: the same refusal published with
+    the battle still up, or with the agent's fallback battle doc (epoch -1: no battle shown, not this one gone),
+    raises StepRefused, as before. Break: let the refusal escape (both raise StepRefused); judge it without the
+    published state (the "up" control reads "gone"), or without its epoch (the "lost" control does); read it as a
+    timeout (0's kind "timeout"); count the refused command (``turns`` 2); match battlecmd's refusal only (the menus
+    race raises)."""
+    from harness import FightTimeout
+    from harness.channel import StepRefused
+    for case in ((2, "battlecmd"), (0, "battlecmd"), (2, "menus"), "up", "lost"):
+        result, op = case if isinstance(case, tuple) else (case, None)
+        fake = (_NoHudFake if op is None else FakeGame)(game)
+        fake.enemy_hit, fake.atb_gain = 0, 400
+        if op is None:
+            fake.lost = result == "lost"
+        else:
+            fake.battle_end_on_command = {"result": result, "nth": 2, "op": op}
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30821)
+            fake.start_battle(338, units=_o3_units(10 ** 7, minions=False))
+            published(g, lambda s: s.in_battle and s.battle.get("scene") == 338)
+            t0 = time.time()
+            if op is None:
+                with pytest.raises(StepRefused, match="no battle HUD") as err:
+                    g.fight(timeout=60.0, finish=False)
+                left = err.value.state
+                assert left is not None and left.in_battle == (result == "up"), (result, left and left.battle)
+                assert left.battle_epoch == (-1 if result == "lost" else fake.battle_epoch), left.battle
+                continue
+            if result:
+                assert g.fight(timeout=60.0, finish=False) == result
+            else:
+                with pytest.raises(FightTimeout) as err:
+                    g.fight(timeout=60.0, finish=False)
+                assert err.value.kind == "gone" and "went away with no result" in str(err.value), err.value
+            took, st = time.time() - t0, g.state
+        steps = [s[0] for s in fake.executed if s[0] in ("menus", "battlecmd")]
+        assert steps == ["menus", "battlecmd", "menus"] + (["battlecmd"] if op == "battlecmd" else []), (case, steps)
+        assert len(fake.battle_commands) == 1, fake.battle_commands
+        assert not st.in_battle and st.battle_result == result and took < 20.0, (st, took)
+        lf = g.last_fight
+        assert (lf["result"], lf["timed_out"], lf["turns"]) == (result, False, 1), lf
+
+
 def test_fight_counts_its_tutorials_and_seconds(game):
     """H7: ``last_fight`` counts the battle tutorial screens the call closed -- scene 336 opens one before its first
     command: 1 -- and the wall seconds it took, and reads ``timed_out`` False on a result; its old keys (turns, result,
@@ -14485,6 +14556,31 @@ def test_o3_drive_voids_an_unregistered_battle(game):
                                              f"(epoch {epoch}) in {where} (place {where}) at SC 1155" in str(err), err
         rows = [r for r in log if r["k"] == "battle"]
         assert len(rows) == (1 if case == "twice" else 0), (case, rows)
+
+
+def test_o3_drive_fights_through_an_end_that_beats_its_command(game):
+    """The "twice" case above with its -n 6 flake PINNED: King Leo's scripted end (result 2) lands between fight()'s
+    read of "asking slot 0" and its second command (the fake's ``battle_end_on_command``; the latch off, so nothing
+    else ends it), and the agent refuses that command -- no battle HUD. The battle is gone with its result: the driver
+    logs its row (result 2, one turn, not timed out) and goes on to V10 on the second battle 338, exactly as the
+    unraced case does. Break: let fight() pass the refusal on (a StepRefused out of the drive, the flake's traceback)."""
+    SD = _segment_modules()
+    fake = _o3_fake(game)
+    fake.battle_script_end = None
+    fake.battle_end_on_command = {"result": 2, "nth": 2}
+    log: list = []
+    phases = _o3_route(end=False)[:3] + [
+        (lambda f: any(r.get("k") == "battle" for r in log) and _o3_idle(f),
+         lambda f: f.start_battle(338, units=_o3_units()))]
+    with session(game, fake) as g:
+        _o3_start(g)
+        err, log = _o3_drive(g, fake, _o3_pred(battles=[_o3_row(lands=30821)]), phases=phases, log=log)
+    assert isinstance(err, SD.RouteVoid) and (err.v, err.by) == ("V10", "game"), err
+    assert len([s for s in fake.executed if s[0] == "battlecmd"]) == 2, fake.executed
+    rows = [r for r in log if r["k"] == "battle"]
+    assert len(rows) == 1, rows
+    b = rows[0]
+    assert (b["result"], b["turns"], b["timed_out"], b["v"], b["landed"]) == (2, 1, False, None, 30821), b
 
 
 def test_o3_drive_voids_a_battle_with_no_result(game):

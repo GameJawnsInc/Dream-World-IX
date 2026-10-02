@@ -219,6 +219,7 @@ REQUIRED_TESTS_O3: tuple = (
     "test_o3_drive_waits_for_the_end_places_first_row",                     # 11.7 #3: rule 1's end row
     "test_o3_drive_stops_on_a_battle_gone_without_a_result",                # 11.7 #2: fight()'s "gone"
     "test_o3_drive_bounds_the_leave_by_its_row",                            # 11.7 #1: the leave's bound
+    "test_o3_drive_fights_through_an_end_that_beats_its_command",           # the -n 6 command race, pinned
     # the movie-skip policy (PLAN.md "Movie skip (opt-in)"): opt-in, so every O3 test above runs without it
     "test_o3_drive_movie_skip_presses_once_and_answers_yes",
     "test_o3_drive_movie_skip_is_off_without_the_policy",

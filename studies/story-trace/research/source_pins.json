@@ -12,5 +12,12 @@
   "new": "22bfc5d496444951b9614d84cf2dc7e8088edbf6f1bd61f954745590229d710e",
   "reason": "master d46273d1 (6bb94bbc, merged into this branch at 22326cf2): the O2 once-choice V2 test asks the choice again only after the driver has taken the first answer -- back to back, the two identical windows were 12 frames apart and a starved poll answered both (V4, a load flake); the test's claim (a once-choice asked again is V2) is unchanged, its mutants caught on master",
   "head": "22326cf2735d6a6e0acbbe242db0a9d095c725b1"
+ },
+ {
+  "name": "tools/harness/fakegame.py::FakeGame._execute",
+  "old": "8d1336157efdcaa0aa21676d6e8cd47676be8a7b6832bd65359ac4ec516717c4",
+  "new": "c8ff350b322f5c5f7ed613c83b4a69ae9ea27abf3e678d634453ec82437aa311",
+  "reason": "fight() command race (ea782ca3): the battlecmd and menus branches each call _race_end(op) first -- FakeGame.battle_end_on_command, opt-in and None by default, ends the battle as the n-th such step arrives, before it runs; with the knob unset _race_end returns at once, so every step executes exactly as before (no O1-O3 test sets it); the -n 6 flake of test_o3_drive_voids_an_unregistered_battle pinned",
+  "head": "58279d92ee43bfa10d6832727fe9656563a485e4"
  }
 ]
