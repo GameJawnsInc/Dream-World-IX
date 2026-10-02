@@ -1159,7 +1159,9 @@ V19 a real donor field on F (a finding). V18 and V19 hold their side's re-runs.
 proper presses (`j_hi` <= `j_cap` 16, so raw_lo >= 100) and the trace holds ip338 0 -> 100. Whether the EMinigame +30%
 fires on member(64) is outside the claim: R-GATE, a paced play (raw 79-99), witnesses it after the deploy, and P-GATE
 carries its verdict and cause into the session -- WITNESSED; BROKEN by the bonus (the fast play is clamp-proof, the
-session runs); BROKEN by the combo, INVALID or UNINFORMATIVE (STOP) -- on the pinned engine and settings.
+session runs); BROKEN by the combo, INVALID or UNINFORMATIVE (STOP) -- on the pinned engine and settings. A run that
+cannot witness (stopped mid-fight, the instrument's V13, the stock game deviating on S) is re-run, never read as
+INVALID; and P-GATE reads the hand-filled witness back from R-GATE's own launch record, member(64)'s build included.
 
 **The checks** ([`o4_castle.py`](o4_castle.py); research/o4_design.md 5 and 6):
 - offline: O4-BUILD (every member's `.eb` per language; the fork-gate pins: member(64)'s e4 t1 score-to-store bytes
@@ -1181,8 +1183,11 @@ session runs); BROKEN by the combo, INVALID or UNINFORMATIVE (STOP) -- on the pi
 - `--preflight` on the live install: RED BY DESIGN. P-MANIFEST, P-DEPLOY, P-EB, P-FLOOR, P-DONOR and P-GATE fail (the
   alxc members are not deployed; R-GATE has not run); P-STOCK, P-TEXT (block 2: O1's named uk copy, tolerated before
   the deploy; block 3: none shipped), P-RECOVERY, P-SETTINGS, P-PAD, P-OVERRIDE and P-ENGINE pass.
-- [`o4_dryrun.py`](o4_dryrun.py): 102/102 as registered -- section 8's 63 session cases with O3's EXACT `case()`,
-  predictions-changed, and 38 units.
+- [`o4_dryrun.py`](o4_dryrun.py): 103/103 as registered -- section 8's 63 session cases and the review's one with
+  O3's EXACT `case()`, predictions-changed, and 38 units.
+- The review (research/o4_design.md 11.5): eight findings, five defects -- R-GATE's informative rule, the judge's
+  unbounded raw, P-GATE's trust in a hand-filled witness, R-GATE's literal member ids, the input witness's tasklist on
+  every poll -- each fixed, each with a test that fails without it.
 - [`o4_rehearse.py`](o4_rehearse.py): R-CHANBARA, R-FULL and R-CHANBARA-VOID; F-SMOKE and R-GATE by name; its plumbing
   proven on the fake.
 - The regression gate: G1-G21 -- O1-O3's outputs byte-identical, O4's tests (G19) and O4's dry run (G20) green.

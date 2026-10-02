@@ -491,7 +491,9 @@ The beats are `o4_research.json`'s `reconciled.route.beats`, with the critic's c
   (2.4.9). `self.since` is reset, and the main loop resumes (rule 7 pages 107/108).
 - Entered on a PROMPT instead of 111 (only if 111 closed with no press of the driver's: under S8's DBTN refusal an
   unrecognized 111 is already V17): the zone starts at Z2 with `start_page` None, and O4-SWORD (f) reads that run's
-  rows from the first prompt's `prev_frame`.
+  rows from the first prompt's `prev_frame`. No sample of the zone can give instance 1 its `prev` (the first lists
+  the prompt), so it is the ring's last sample of the visit's field BEFORE the entry not listing it (read, never
+  stepped; the review, 11.5 #3/#7) -- with none, the row has no j bounds and the judge reads it V17 (2.4.8).
 
 #### 2.4.3 The tight loop (Z1 and Z2)
 Every `poll_s` (5 ms; a read and parse is ~0.2 ms): ONE `g.state` read (it feeds the clock and the ring; it can wait
@@ -503,13 +505,16 @@ is a read of the clock). Per sample, in this order:
    XInput slots 0-3 through P-PAD's reader (a slot found disconnected is re-read at most once a second: the empty slot
    is the slow call), and the keyboard and mouse buttons (`GetAsyncKeyState` over virtual keys 0x01-0xFE) only while
    the game window has focus (`GetForegroundWindow`'s process is the game's: the keyboard needs focus,
-   HonoInputManager.cs:561; the pad does not, `AlwaysCaptureGamepad = 1`, 0.2 #5). Non-neutral: a pad button bit, a
-   trigger >= 30, a thumb axis past 3277 (P-PAD's thresholds), or any key down while focused -- F1, the booster, among
-   them (0.3 #7). The first non-neutral reading: an `input` entry on the zone row (`{"t", "frame", "what"}`), then V13
-   (instrument) "outside input during the fight: <what>", nothing more pressed. The harness's own presses are
-   injected below the OS (`HarnessAgent.IsHeld`) and never read here. Under the policy the main loop polls the same
-   witness, at the same interval between its own blocking calls, for the WHOLE run (logged as `input` rows): a human
-   Confirm on 127, or a Start that pauses 150, cannot then read as the game's V2 or V14 -- it is V13 wherever it falls.
+   HonoInputManager.cs:561; the pad does not, `AlwaysCaptureGamepad = 1`, 0.2 #5). The game's pids are resolved ONCE,
+   as the witness is made (a `tasklist` spawn takes 0.1 s and more: never on a poll), and a focus that cannot be read
+   -- no pid resolved, or the foreground read failing -- is itself a reading, never "unfocused" (the review, 11.5 #8).
+   Non-neutral: a pad button bit, a trigger >= 30, a thumb axis past 3277 (P-PAD's thresholds), or any key down while
+   focused -- F1, the booster, among them (0.3 #7). The first non-neutral reading: an `input` entry on the zone row
+   (`{"t", "frame", "what"}`), then V13 (instrument) "outside input during the fight: <what>", nothing more pressed.
+   The harness's own presses are injected below the OS (`HarnessAgent.IsHeld`) and never read here. Under the policy
+   the main loop polls the same witness, at the same interval between its own blocking calls, for the WHOLE run
+   (logged as `input` rows): a human Confirm on 127, or a Start that pauses 150, cannot then read as the game's V2 or
+   V14 -- it is V13 wherever it falls.
 1. Past the run's deadline: `HarnessError("the run's budget ran out in the fight")` (V13).
 2. **The UI** (rev. 2, the driver critique #9): `ui_state` not "FieldHUD": V13 "the fight left FieldHUD
    (<ui_state>)", nothing pressed -- a main menu opened on Triangle would hold the prompt to its timeout and read as a
@@ -663,12 +668,15 @@ Rev. 2 (the driver critique #4, the claim critique #2): V18 rests on POSITIVE ev
 sample SHOWED. A sample that is missing is the driver's sampling: V17, never V18.
 **V17 (driver)** -- the first fault in this order: an instance with no press; two presses; a wrong name; no
 `accepted` event; `evidence` "before" (the window left before the press could land: a timeout or another's press);
-`evidence` "unobserved" ("instrument: a read gap of X s straddles instance n's mark"); `j_hi > j_cap`; (fast)
-`raw_lo < raw_floor`; (paced) `[raw_lo, raw_hi]` outside `raw_band`; a non-prompt press whose down frame lies at or
-after the first prompt's `prev_frame` and before the zone end (2.4.11); a `rate` not measured (`source` "default" or
-`stale`); a measured `slide` that is neither its want nor its want with whole L/R slides left out (its samples are not
-what 2.4.6 needs: the instrument's); fewer than `prompts` instances with the zone's `max_read_gap` above the shortest
-life of an unpressed prompt (50 ticks): the driver did not read the game long enough to see one.
+`evidence` "unobserved" ("instrument: a read gap of X s straddles instance n's mark"); an instance with NO j bounds
+(no prev, seen or down frame, or no rate: its press cannot be placed against its arm -- the review, 11.5 #3/#7);
+`j_hi > j_cap`; on a complete zone a raw that is UNBOUNDED ("raw unbounded": the floor and the band are judged or
+faulted, never skipped), else (fast) `raw_lo < raw_floor`; (paced) `[raw_lo, raw_hi]` outside `raw_band`; a
+non-prompt press whose down frame lies at or after the first prompt's `prev_frame` and before the zone end (2.4.11); a
+`rate` not measured (`source` "default" or `stale`); a measured `slide` that is neither its want nor its want with
+whole L/R slides left out (its samples are not what 2.4.6 needs: the instrument's); fewer than `prompts` instances
+with the zone's `max_read_gap` above the shortest life of an unpressed prompt (50 ticks): the driver did not read the
+game long enough to see one.
 **V18 (game, a finding)** -- no V17 fault, and positive evidence: a proper press whose `evidence` is "lingered" (a
 merged sample listed its window at or past down + `gone_ticks`: the game read no key); a proper LEFT/RIGHT press whose
 measured `slide` shows it left out (both bodies unmoved by it: the game read the key as a miss); more instances than
@@ -1310,8 +1318,9 @@ LANDING (e)), so O2/O3's SEAM check is not run.
   The trace cannot say which presses made the score (the fight's variables are Map variables), so (e)/(f) re-read the
   driver's own record, as O3-BATTLE did. Mutants, each SWORD alone: sword-second-390-both (a: a second ip390 row 1 -> 1,
   a same key, an identical history on every run), sword-page-120-both (b), sword-yes-both (c), sword-gil-page-both
-  (d), sword-48-prompts-both, sword-circle-alias-both, sword-j-over-cap-both, sword-evidence-before-both,
-  sword-evidence-lingered-both, sword-evidence-unobserved-both, sword-slide-not-ok-both, sword-input-noise-both (e),
+  (d), sword-48-prompts-both, sword-circle-alias-both, sword-j-over-cap-both, sword-j-unbounded-both (the review,
+  11.5), sword-evidence-before-both, sword-evidence-lingered-both, sword-evidence-unobserved-both,
+  sword-slide-not-ok-both, sword-input-noise-both (e),
   sword-stray-press-both (f: a page press whose down frame lies between instance 1's `prev_frame` and the zone end);
   and byte475-93-every-F, bit3815-missing-F (a, with WRITES, NULL, STATE). Rev. 2 also registers two PASS cases:
   sword-slide-unmeasured-both (unmeasured slides are no fault) and sword-111-closing-press-late-both (every run's 111
@@ -1442,7 +1451,12 @@ PROVEN (a V18 or V19 reads "NOT PROVEN: O4-VOID-ASYM", never VOID).
   finding the session survives, its fast play clamp-proof). BROKEN with cause `"combo"` FAILS: the fork did not credit
   proper presses, the +30% was never witnessed, and a session would only re-find it as V18 -- diagnose it first.
   INVALID, UNINFORMATIVE or none: FAIL. Red until R-GATE ran (7.4). Its detail line carries the whole witness, so the
-  session's recorded preflight holds it (5.4).
+  session's recorded preflight holds it (5.4). The witness is hand-filled, so P-GATE reads it BACK from its run dir's
+  own launch record (the review, 11.5 #4: `gate_backing`): `o4_rehearsal.json` must be an R-GATE launch alone, whose
+  recorded verdict, cause, S run and F run are the witness's, whose launch recorded its `engine` and `settings`, and
+  whose F side ran the session's member(64) -- its id derived from the chain, its `.eb` sha256 per language the
+  offline-checked build's (P-EB pins the live files to that build): a witness typed wrong, another stage's, or one a
+  rebuild after R-GATE left behind, FAILS.
 - **In game** (`capabilities`): P-CAP, P-OBJECTS (the slides read Blank's published object), P-LANG (English(US)),
   P-DONOR-LOG (the launch's Memoria.log holds "[DataPatchers] Initialized" and no collision line for 64, 150, 153),
   P-LAUNCH (every stacked folder's four patch files and Memoria.ini, and -- rev. 2 -- the x64 and x86
@@ -1482,7 +1496,9 @@ auto-deploys) or another session's deploy mid-session makes runs VOID (A-INSTALL
 ```
 `gate_witness`, once the lead fills it (7.4 G3): `{"run_dir", "verdict": "WITNESSED" | "BROKEN" | "INVALID" |
 "UNINFORMATIVE", "cause": "bonus" | "combo" | null, "engine": {"x64", "x86"}, "settings", "s_run", "f_run", "detail"}`
--- `engine` and `settings` as R-GATE's launch recorded them (rev. 2, the claim critique #9, #10; P-GATE, 6.2).
+-- `engine` and `settings` as R-GATE's launch recorded them (rev. 2, the claim critique #9, #10; P-GATE, 6.2). P-GATE
+reads every field but `detail` back from `<run_dir>/o4_rehearsal.json`, where R-GATE's verdict also records `member`,
+the member its F side ran as the launch held it (`{"id", "name", "folder", "eb": {lang: sha256}}`; the review, 11.5 #4).
 
 ---
 
@@ -1499,8 +1515,8 @@ keys, the start or the end state; the staged runs prove mechanics and are compar
 | **R-CHANBARA** (first: the go/no-go) | stock, before the freeze | `warp 64 100 1155` | 150 | 2 | F1-F6, F12-F15: the prompts' published `phrase_raw` and `texts`; 49/49 reading 122/123/127/128 (the eight buttons and cfg.control, in game); j per prompt and the regime; each instance's evidence and the merged stream's gaps; the gap after each hit; the tweens; T0 vs the first prompt; 127's published options and `selected`; the fight's length and the pass length; the three pairs' gates; the pages' dropped first presses; `lead_ticks`; the input witness |
 | **R-FULL** (by name) | stock | `warp 64 100 1155` | 153 | 2 | F7 (end_run from 153), F8-F10: the 26 keys, the start rows, the residue, the end cut, the end state, the run time |
 | **R-CHANBARA-VOID** (by name; LAST in a launch) | stock | `warp 64 100 1155`, the policy's `stop_after` 10 | V17 | 1 | F7: a V17 mid-fight stops with nothing more pressed; `end_run` (warp 4600 from the fight's FieldHUD, the ladder) reaches the title |
-| **F-SMOKE** (by name; NO trace) | after the deploy and the relaunch | `warp 31240 100 1155`, `warp 31243 325 1155`, `warp 31245 325 1190`, and their stock twins | -- | 6 warps | G1: each member loads at its entrance and SC (field, FieldHUD), its Main_Init's published object sids equal its twin's after `smoke_s` (64@100 {5, 6, 13, 20}; 150@325 {2, 3, 5, 6, 9, 4}; 153@325 {3, 7, 31, 9, 11}; the twins give the measured sets), 0 exceptions through the story machinery, `end_run` ok; the Memoria.log warnings (a missing SPS is visual only) |
-| **R-GATE** (by name; traced) | after F-SMOKE | S `warp 64 100 1155`, F `warp 31240 100 1155`; the PACED policy (2.4.10) | 150 / member(150) | S then F, each until informative, <= 3 attempts a side | G2: the +30% witness (7.4), with its launch's `engine` and `settings` recorded |
+| **F-SMOKE** (by name; NO trace) | after the deploy and the relaunch | `warp 31240 100 1155`, `warp 31243 325 1155`, `warp 31245 325 1190` -- member(64), member(150), member(153), read from the chain (`stage_ids`; the review, 11.5 #5) -- and their stock twins | -- | 6 warps | G1: each member loads at its entrance and SC (field, FieldHUD), its Main_Init's published object sids equal its twin's after `smoke_s` (64@100 {5, 6, 13, 20}; 150@325 {2, 3, 5, 6, 9, 4}; 153@325 {3, 7, 31, 9, 11}; the twins give the measured sets), 0 exceptions through the story machinery, `end_run` ok; the Memoria.log warnings (a missing SPS is visual only) |
+| **R-GATE** (by name; traced) | after F-SMOKE | S `warp 64 100 1155`, F `warp 31240 100 1155` (member(64) from the chain, as F-SMOKE's); the PACED policy (2.4.10) | 150 / member(150) | S then F, each until informative, <= 3 attempts a side | G2: the +30% witness (7.4), with its launch's `engine` and `settings` recorded |
 
 Default order without `O4_STAGE`: R-CHANBARA, R-FULL, R-CHANBARA-VOID (last). F-SMOKE and R-GATE run only by name,
 after the deploy. Estimates a run: R-CHANBARA ~110 s, R-FULL ~200 s, R-CHANBARA-VOID ~60 s, F-SMOKE ~150 s in all,
@@ -1537,7 +1553,8 @@ longest no-progress stretch, the end state, `end_run`'s rows) plus:
 - F-SMOKE: per warp the field and UI reached and when, the published object sids against the twin's, the exceptions
   and the new Memoria.log warnings, `end_run`'s result;
 - R-GATE: per run its side, the judge (informative or not, and why), raw [lo, hi], the ip338 row's new value, the
-  score page, the ip390 row; then the verdict and its cause, with the launch's `engine` and `settings`.
+  score page, the ip390 row; then the verdict and its cause, with the launch's `engine` and `settings`, and the member
+  its F side ran as the launch held it (`member`: P-GATE's tie, 11.5 #4).
 
 `py studies/story-trace/o4_castle.py --rehearsal-report <run dir>` prints all of it, stage by stage, run by run.
 
@@ -1601,7 +1618,13 @@ existing file.
   load: STOP (a chain defect, never a finding the session should discover).
 - **G2.** R-GATE and its verdict (`gate_verdict(runs)`, pure): a run is INFORMATIVE when the judge finds no V17 fault
   in the paced play (49 proper rows, every one's evidence observed, `[raw_lo, raw_hi]` inside [79, 99]) -- a V18 there
-  is the fork's answer, not an uninformative run. The S run must show page 122 "Of 100 nobles watching,\n100
+  is the fork's answer, not an uninformative run. The review (11.5 #1/#2/#6) makes the rule exact (`gate_reading`):
+  the zone row's own verdict none or V18 and the run's class none or V18 (a mid-fight V14, V4, V11, V19 or live V17
+  stop, and the instrument's V13 -- which `o4_rehearse` records for a HarnessError -- are never informative); then
+  either the fight's V18 (F: the fork's answer, mid-fight too; S: the stock game deviating from the paced play, which
+  witnesses nothing of the stock bonus -- re-run) or a COMPLETE fight with its raw BOUNDED inside the band, the score
+  page read and, but for a combo page, Byte[475] in the trace. An uninformative run is re-run within the attempts:
+  it never reaches INVALID. The S run must show page 122 "Of 100 nobles watching,\n100
   were impressed." and Byte[475] = 100 (the stock +30% lifted a raw 79-99 to 100) -- else **INVALID**: STOP (the
   settings or the stock bonus are not what 0.2 #11 reads). The F run then reads: Byte[475] = 100 and page 122 with 100
   -> **WITNESSED** ("the EMinigame +30% fires on member(64)"); Byte[475] = the raw (inside the run's own raw bounds) and
@@ -1616,8 +1639,9 @@ existing file.
   must record `settings` equal to 4.13's and the pinned `engine`, else that run is no witness (re-run on a corrected
   launch).
 - **G3.** `gate_witness` filled in `o4_forks.json` (`{"run_dir", "verdict", "cause", "engine", "settings", "s_run",
-  "f_run", "detail"}`, 6.4); `--preflight` all green, P-GATE included (its engine is the live one); P-LAUNCH,
-  P-ENGINE and P-DONOR-LOG on the session's launch.
+  "f_run", "detail"}`, 6.4); `--preflight` all green, P-GATE included (its engine is the live one, and its run dir's
+  launch record backs every field: 6.2); P-LAUNCH, P-ENGINE and P-DONOR-LOG on the session's launch. A rebuild or
+  redeploy of member(64) after R-GATE fails P-GATE: run R-GATE again on the build the session runs.
 - **G4.** The session, unattended and hands off (no key while the game has focus, no pad -- the input witness VOIDs a
   run that sees one, V13): `py tools/play.py studies/story-trace/o4_castle.py --label story-o4 --timeout 240`.
 
@@ -1679,6 +1703,7 @@ must name).
 | sword-48-prompts-both (every run's log: 48 prompt rows) | NOT PROVEN (SWORD F (e) alone) |
 | sword-circle-alias-both (every run: a CIRCLE instance pressed `circle`) | NOT PROVEN (SWORD F (e) alone) |
 | sword-j-over-cap-both (every run: one instance's frames give `j_hi` 30) | NOT PROVEN (SWORD F (e) alone) |
+| sword-j-unbounded-both (every run: instance 1 has no prev frame -- no j bounds, the raw unbounded; the review, 11.5 #3/#7) | NOT PROVEN (SWORD F (e) alone) |
 | sword-evidence-before-both (every run: one instance's window gone at a sample before its down frame) | NOT PROVEN (SWORD F (e) alone) |
 | sword-evidence-lingered-both (every run: one proper instance listed at down + 30 frames) | NOT PROVEN (SWORD F (e) alone) |
 | sword-evidence-unobserved-both (every run: one instance's samples jump from down + 2 to down + 40 frames, neither listing it after) | NOT PROVEN (SWORD F (e) alone) |
@@ -2283,3 +2308,21 @@ makes unfailable; and 24, a fake defect the first two-fight launch reaches.
 | 23 | C3: the launch's readings and the seams | 7.2: the launch's settings and engine, P-LAUNCH, P-DONOR-LOG, P-PAD, P-OVERRIDE and P-ENGINE | The capabilities (P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG, P-LAUNCH with the engine, P-PAD) gate the launch as O3's do; P-SETTINGS, P-OVERRIDE and P-ENGINE are recorded beside them, never gating. `run` takes seams for the fake -- the input witness, P-PAD's reader, the pinned and the live engine -- and `O4Segment.capabilities` gains `engine` / `live_engine` beside `pads`, so the fake's own DLLs stand for the pinned engine. |
 | 24 | C3: the fake tests -- a fake defect a second visit reaches | "every one with `warp_arrive_control` False and `soft_reset_ui` the engine's set" | As stated. R-GATE is the first fake test with TWO fights in one launch (S, then F), and the fake's New Game keeps its story bytes: H11's own Main_Init stores (64 e0 t0, ip57 `Int16[9] := -1` among them) then store -1 over -1, and the fake read that 16-bit old UNSIGNED -- old 65535, which the trace reader refuses (the row contract), so every F run stopped. `FakeGame._story_store` (not a pinned source) now reads an Int16's old signed, as the engine does, a UInt16's unsigned; `test_o4_fake_story_store_reads_int16_signed` holds it (its mutant: every 16-bit old unsigned). H11's Main_Init also zeroes ip416/ip425 on each visit, so the second fight scores again. R-GATE's scenarios use seed 0's first prompt (CROSS) for the combo-page miss and its third (RIGHT) for the slide's miss. |
 | 25 | C4: PLAN.md | "the O4 section ... 'draft: rehearsals pending, deploy pending, freeze pending' ... 'US session' in its heading" | After O3's section and its movie-skip subsection, before "Rungs": the question, the segment, the sides and their ends, the US-session facts (the block-2 rewrite: O1's and O3's P-TEXT read 7 byte-equal of 7 after O4's deploy, O3's clause derived from its record; the ForkDonorPatch rows' global effect), the entry, the driver, the displayed 100 and R-GATE outside the claim (its causes, its engine), the checks, the status line as quoted with the offline build's numbers, and the lead's next steps. The brief's milestone line (CLAUDE.md section 10) is left as it is: nothing about O4 is proven in game. |
+
+### 11.5 The review: eight findings on the built O4 (five defects; each fixed, none disproved)
+A code review of PARTs A-C raised eight findings: four high, three medium, one low. #1, #2 and #6 are one defect --
+R-GATE's informative rule -- seen through three lenses, and #3 and #7 one -- the judge's unbounded raw. Each was
+re-checked against the code (and reproduced offline, or measured) before it was fixed; each fix has a test that fails
+without it (the mutant run is named in its commit). None was disproved; one optional part was taken (#7's prev for a
+zone entered on a prompt) and one recommendation widened (#2's "zone v None": an F fight V18 is the fork's answer,
+7.4 G2). The gate ran after the shared-code commit (44091e06: 21/21, O1-O3 byte-identical, G19 54 passed) and after
+the last code commit (901abe5f: 21/21, G19 59 passed, G20 103/103, G21 105 pins); o1-o3_dryrun read 16/16, 86/86 and
+102/102, and o4_dryrun 103/103 (102 before: one case added, the rest unit lines).
+
+| # | Finding | Re-checked | Disposition |
+|---|---|---|---|
+| 3 and 7 (medium, high) | `chanbara_judge` judged `raw_floor` (fast) and `raw_band` (paced) only when `raw_bounds` gave bounds: a COMPLETE zone with one row lacking its prev frame -- instance 1 of a zone entered on a prompt -- read v None, raw [None, None]. SWORD (e) passed a covered run whose raw was never bounded, and R-GATE could read such a run informative. | segment_drive.py: the judge's `if lo is not None`; `open_instance` takes `prev` from the zone's own samples (`self.order[:-1]`, empty at a z2 entry); `j_cap` read the recorded `j_hi` alone. Reproduced: instance 1 unbounded, the rest at j 16 -> None; the same rows with instance 1 at j 50 -> raw_lo 99, under the floor. | FIXED (44091e06): `row_bounds` (the judge's and `raw_bounds`' one reading of a row); a non-stopped row with no j bounds is V17 ("instance n (X) has no j bounds (no prev frame)"), `j_cap` reads `row_bounds`, and a complete zone's unbounded raw is V17 "raw unbounded" -- the floor and the band are judged or faulted, never skipped (2.4.8). The optional part TAKEN: a zone entered on a prompt takes instance 1's prev from the ring's samples of the visit's field before the entry (read, never stepped; 2.4.2), so the designed z2 path keeps its bounds and SWORD (f)'s window; H12's knob `tutorial` (False: no 111) stages it on the fake. Tests: `test_o4_chanbara_judge_never_skips_an_unbounded_raw` (mutant: rev. 1's skip), `test_o4_drive_entered_on_a_prompt_bounds_instance_one_from_the_ring` (mutant: no ring prev -> the run VOIDs V17 "no j bounds"); o4_dryrun's `sword-j-unbounded-both` and the judge unit (mutant: 101/103). |
+| 1, 2 and 6 (medium, high, high) | R-GATE's informative rule -- `zone is not None and judge v != V17 and v != V13` -- read as informative a fight stopped mid-way by a live stop, an S run whose fight the stock game deviated from (V18), and a complete zone whose raw was unbounded; and its V13 clause never fired, `o4_rehearse.one` recording no class for a HarnessError. `gate_verdict` then returned INVALID "the settings or the stock bonus" (a false STOP), or WITNESSED on a raw never bounded, and `gate()` stopped trying at the first such run. | o4_castle.py `gate_reading`; segment_drive's `stop(..., judge=False)` for V14, V4, V11, V19 and `observe_stop`'s V17 (no zone end, so the judge computes no raw and finds the completed rows proper); `one()`'s HarnessError outcome; `gate()`'s break. Reproduced: 20 proper rows, zone end None, v V14 / V17 / V4 / V11 -> informative, then INVALID; 49 rows with instance 1 unbounded -> informative, raw [None, None]. | FIXED (615ce148): informative only when the zone row's verdict is none or V18, the run's class none or V18 (`GATE_RUN_VOIDS`), the judge finds no V17 fault, and then EITHER the fight's V18 (F: BROKEN "combo", mid-fight too -- 7.4 G2's lingered press stops a run mid-fight; S: re-run) OR a complete paced fight with its raw bounded inside the band, the score page read and -- but for a combo page -- Byte[475] in the trace; `why` names the first that fails (7.4 G2). `one()` records V13 (driver) for a HarnessError or an unexpected exception, as the session's read of a STOPPED run does; `gate_read` gives the judge every press of the visit (Z3's reading); `gate_verdict` reads an F fight V18 by the zone's verdict too, and names cfg.control and the input path (F2) for an S combo page on a proven play. Tests: `test_o4_castle_gate_reading_reads_only_a_complete_proven_play` (mutant: rev. 1's rule), `test_o4_rehearsal_gate_reruns_what_cannot_witness_on_the_fake` (S: a lost press V18, then a V13 after the gil page, then informative -- WITNESSED from runs 2 and 3; mutant: no V13 record); the dry run's gate-verdict unit (mutant: 102/103). |
+| 4 (medium) | P-GATE trusted the hand-filled `gate_witness`: it checked that its run dir existed, the verdict string, the engine and the settings, never the run dir's own record, and pinned nothing about the member(64) build the witness ran on. A witness typed WITNESSED over a record that read UNINFORMATIVE (or an R-CHANBARA dir) passed, and a rebuild after R-GATE carried the stale verdict into the session. | `p_gate` read only `manifest["gate_witness"]` and `Path.is_dir`; `gate()` writes the verdict into the launch record alone (7.4 G3: the lead copies it). | FIXED (a589dc2e): `gate()` records, with the verdict, the member its F side ran as the launch held it (`live_member`: id, name, folder, `.eb` sha256 per language); `gate_backing` reads `<run_dir>/o4_rehearsal.json` -- R-GATE alone, its verdict, cause, S run and F run the witness's, its launch's engine and settings the witness's, its member the session's member(64) (`O4Segment.member64`: the id from the chain, the `.eb` of the build P-EB pins the live files to) -- and `p_gate` FAILS a witness its record does not back (6.2, 6.4, 7.4 G3). The `.eb` half is taken too: a rebuild of member(64) after R-GATE fails P-GATE. Tests: `test_o4_castle_p_gate_needs_its_launch_record` (ten unbacked witnesses; mutant: the dir-exists check); the R-GATE fake test reads its own record back through `p_gate`; the dry run's P-GATE row and unit. |
+| 5 (low) | R-GATE's F field and end and F-SMOKE's pairs were literal ids (31240, 31243, 31245), never checked against the chain the draft reads: a re-fork that moved a member would warp R-GATE into another donor's member and compare F-SMOKE's wrong twins. | o4_rehearse.py `STAGES`; `stage_pred` overwrote the draft's derived F start; `run()` and `gate()` never consulted `route_members`. | FIXED (29b4ad0c): the table names `member(<donor>)`; `stage_ids` resolves each against the predictions' members and checks every F-side id (R-GATE's F field and end, each F-SMOKE pair a member forking its twin), refusing by name; `run()` resolves before it touches the session and records the resolved stages (7.1). Test: `test_o4_rehearse_stage_ids_follow_the_chain` (today's chain and a reversed re-fork; four refusals; mutant: the literal table); the F-SMOKE fake test's predictions carry its third pair's member. |
+| 8 (high) | The input witness spawned `tasklist` (through `game_focused` -> the session's `ff9_pids`) on every poll, inside the fight's 5 ms loop every 50 ms, and swallowed every exception into "unfocused": a tasklist failure left the keyboard silently unwitnessed. | Measured on this host, no game running: `witness()` 99-121 ms a call. | FIXED (901abe5f): `focus_reader` resolves the game's pids ONCE, as the witness is made (before the drive); each read is `foreground_pid` (two user32 calls); no pid resolved, a probe that raised, or a foreground read that fails is a reading (V13), never "unfocused" (2.4.3 step 0). Measured after: median 0.002 ms, max 0.008 ms a poll after a one-off 12 ms first call (the user32 load). Tests: `test_o4_castle_input_witness_resolves_the_game_once` (a 0.25 s probe called once; mutant: rev. 1's per-poll probe); the dry run's input-witness unit. |
