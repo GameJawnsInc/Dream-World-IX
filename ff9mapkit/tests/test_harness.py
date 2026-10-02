@@ -17581,7 +17581,10 @@ def _o4_void(out, v, by=None):
 #: (``fps`` 240), so the 24 frames from a press's down frame to its mark (gone_ticks 12) pass in about a tenth of a
 #: second of wall time, and the window's close tween in a third of that. A fake drive test re-runs that run as R-GATE
 #: re-runs an uninformative one (research/o4_design.md 7.4 G2) -- and NEVER a late press (a j over j_cap, a paced raw
-#: out of its band, evidence "before", no press): a pace test asserts exactly those.
+#: out of its band, evidence "before", no press): a pace test asserts exactly those. The judge reads every V17 fault
+#: before any V18, so a gap in ANY judged instance voids a clean end and a V18 alike: every fake drive test that
+#: asserts either runs on :func:`_o4_run_informative`; one that asserts a V17, a V13 or a V2, or starves its reads on
+#: purpose, stays on :func:`_o4_run`.
 _O4_READ_GAP_VOIDS = (
     re.compile(r"instrument: a read gap of \S+ s straddles instance \d+'s mark \(evidence unobserved\)$"),
     re.compile(r"\d+ instances, and a read gap of \d+ ticks could hide a prompt's whole life$"),
@@ -17606,7 +17609,8 @@ def _o4_run_informative(game, *, attempts=3, **kw):
     """:func:`_o4_run` until a run is no read-gap VOID (:func:`_o4_read_gap_void`), at most ``attempts`` runs (R-GATE's
     3): ``(out, log, fake, story rows, set_aside)``, ``set_aside`` the reasons of the runs re-run. The last run is
     returned whatever it is -- a gap on every run still fails its test -- and a test asserts on the run returned exactly
-    as on a single run."""
+    as on a single run. An F side registers its members on the first run only (the folder keeps them): a re-run is the
+    same run."""
     aside: list = []
     for k in range(1, attempts + 1):
         out, log, fake, rows = _o4_run(game, **kw)
@@ -17614,6 +17618,7 @@ def _o4_run_informative(game, *, attempts=3, **kw):
         if why is None or k == attempts:
             return out, log, fake, rows, aside
         aside.append(why)
+        kw["register"] = False
 
 
 def _o4_starve_reads(n, for_frames, *, runs=None):
@@ -17656,16 +17661,17 @@ def test_o4_drive_scores_100_on_the_fake(game):
     "closed", the zone's judge None; 122 == ``score_page`` (beat ``sword``), then 123 pressed until gone and nothing
     pressed from its going until 127; 127 answered No by ``g.choose(1)``, its presses rowed with their seqs (the
     confirm's cursor on No); 128 == ``gil_page``; the trace's ip338 0 -> 100 no later than 122 and ip390 0 -> 1 after
-    123; beats sword and encore; the end reached in "150" (member(150) on F). Break: drop rule 6b (111 then reaches
-    rule 7, whose [DBTN= refusal stops the run V17 -- without it, rule 7's Confirm would miss 7 prompts of 8)."""
+    123; beats sword and encore; the end reached in "150" (member(150) on F). Each side is :func:`_o4_run_informative`'s
+    run (a read-gap VOID alone re-run). Break: drop rule 6b (111 then reaches rule 7, whose [DBTN= refusal stops the
+    run V17 -- without it, rule 7's Confirm would miss 7 prompts of 8)."""
     for side, fps, ticks in (("S", 60.0, "mean"), ("F", 31.0, "quantized")):
         _o4_scores_100(game, side, fps, ticks)
 
 
 def _o4_scores_100(game, side, fps, ticks):
     pol = _o4_policy(donor=30820)
-    out, log, fake, trace = _o4_run(game, side, fps=fps, ticks=ticks, trace=True)
-    assert not isinstance(out, Exception), out
+    out, log, fake, trace, aside = _o4_run_informative(game, side=side, fps=fps, ticks=ticks, trace=True)
+    assert not isinstance(out, Exception), (out, aside)
     assert out["end"] == "reached" and out["beats"] == {"sword": True, "encore": True}, out
     assert fake.field_id == _O4_FIELDS[side][1]
     zones, prompts = out["zones"], out["prompts"]
@@ -17742,14 +17748,15 @@ def test_o4_drive_paced_tracks_the_closing_prompt_beside_its_successor(game):
     claim critique #3): pressed at ``target_ticks`` 22 (j ~22-25) against the reactions -- the defaults (28 after a
     LEFT / RIGHT hit, 30 after the rest), and every one 25 and 21 -- a hit later than the reaction re-arms in its own
     tick, the closing prompt listed beside its successor. Exactly 49 instances, every evidence "closed", the zone's
-    judge None, raw inside [79, 99]: the run informative. Break: track instances on D without ``closing`` (the closing
-    DBTN reopens as a phantom instance: V17)."""
+    judge None, raw inside [79, 99]: the run informative. Each is :func:`_o4_run_informative`'s run (a read-gap VOID
+    alone re-run). Break: track instances on D without ``closing`` (the closing DBTN reopens as a phantom instance:
+    V17)."""
     pol = {"policy": "paced", "raw_floor": ..., "j_cap": 40, "pace": {"target_ticks": 22, "lead_ticks": 2,
                                                                      "raw_band": [79, 99]}}
     for reaction in (None, 25, 21):
         knobs = {} if reaction is None else {"reaction": {99: reaction, 0: reaction, 1: reaction, "others": reaction}}
-        out, log, fake, _t = _o4_run(game, knobs=knobs, pol=pol)
-        assert not isinstance(out, Exception), (reaction, out)
+        out, log, fake, _t, aside = _o4_run_informative(game, knobs=knobs, pol=pol)
+        assert not isinstance(out, Exception), (reaction, out, aside)
         z = out["zones"][0]
         assert z["judge"]["v"] is None and 79 <= z["raw"][0] <= z["raw"][1] <= 99, (reaction, z)
         rows = out["prompts"]
@@ -17763,12 +17770,13 @@ def test_o4_drive_entered_on_a_prompt_bounds_instance_one_from_the_ring(game):
     visit with no 111, so the main loop's first sample in the zone already lists prompt 1 and the executor starts at Z2
     (``start_page`` None, no T0). Instance 1's ``prev`` -- the last sample not listing its DBTN -- lies BEFORE the
     entry, in the ring the main loop's own reads filled: its prev frame is below its seen frame, its j bounds and the
-    zone's raw are bounded, and the paced fight is judged None inside its band, the run reaching "150". Break: take
-    instance 1's prev from the zone's own samples only (None: the judge then reads the row unbounded, V17)."""
+    zone's raw are bounded, and the paced fight is judged None inside its band, the run reaching "150" -- on
+    :func:`_o4_run_informative`'s run (a read-gap VOID alone re-run). Break: take instance 1's prev from the zone's own
+    samples only (None: the judge then reads the row unbounded, V17)."""
     pol = {"policy": "paced", "raw_floor": ..., "j_cap": 40, "pace": {"target_ticks": 22, "lead_ticks": 2,
                                                                      "raw_band": [79, 99]}}
-    out, log, fake, _t = _o4_run(game, knobs={"tutorial": False}, pol=pol)
-    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"tutorial": False}, pol=pol)
+    assert not isinstance(out, Exception) and out["end"] == "reached", (out, aside)
     z = out["zones"][0]
     assert z["start_page"] is None and z["first_prompt"]["t0_frame"] is None, z
     assert not [p for p in log if p.get("k") == "press" and any("To follow" in t for t in p.get("texts") or ())]
@@ -17890,8 +17898,9 @@ def test_o4_drive_read_stall_in_a_gap_is_v17_never_v18(game):
 def test_o4_drive_v18_on_a_lost_press(game):
     """A LOST PRESS is the game's (research/o4_design.md 2.4.3 step 10, 2.4.8): H12's ``lost`` {7} -- the agent takes
     instance 7's press and the game never reads it, so prompt 7 stays listed past its mark: V18 (game) at once, the cell
-    [64, 1155], the zone's evidence "lingered", and nothing re-pressed. Break: re-press a lingering prompt."""
-    out, log, fake, _t = _o4_run(game, knobs={"lost": [7]})
+    [64, 1155], the zone's evidence "lingered", and nothing re-pressed -- on :func:`_o4_run_informative`'s run (the stop
+    judges instances 1-7, so a gap in one of them is a read-gap VOID, re-run). Break: re-press a lingering prompt."""
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"lost": [7]})
     _o4_void(out, "V18", "game")
     assert out.cell == [30820, 1155], out.cell
     rows = {r["n"]: r for r in _o4_rows_of(log, "prompt")}
@@ -17902,9 +17911,10 @@ def test_o4_drive_v18_on_a_lost_press(game):
 def test_o4_drive_v18_on_a_miss_read(game):
     """A MISS READ is the game's (research/o4_design.md 2.4.6, 2.4.8; rev. 2): H12's ``miss_read`` on seed 0's third
     prompt (RIGHT) -- the right key, scored a miss: its window closes on the key (evidence "closed") but neither body
-    slides (its measured slide 0: left out), so the zone's judge reads V18 at Z3, before any score page. Break: ignore
-    the slides (the run then goes on to a score page that reads otherwise)."""
-    out, log, fake, _t = _o4_run(game, knobs={"miss_read": [3], "seed": 0})
+    slides (its measured slide 0: left out), so the zone's judge reads V18 at Z3, before any score page -- on
+    :func:`_o4_run_informative`'s run (a read-gap VOID alone re-run: the judge reads its V17 first). Break: ignore the
+    slides (the run then goes on to a score page that reads otherwise)."""
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"miss_read": [3], "seed": 0})
     _o4_void(out, "V18", "game")
     z = _o4_rows_of(log, "zone")[0]
     rows = {r["n"]: r for r in _o4_rows_of(log, "prompt")}
@@ -17924,20 +17934,22 @@ def test_o4_drive_v18_on_what_the_game_shows(game):
     page 122 reads "87 were impressed." in two samples: V18 with nothing pressed on it; ``extra_prompts`` 1 -- a 50th
     prompt: V18 at instance 50; ``unsubstituted_once`` -- 122 and 128 publish their raw [NUMB] first (for 48 frames
     here, ``unsubstituted_frames``, so a read of the driver's lands on it -- the premise, counted by the test's wrapped
-    ``channel.state``): no stop (no one sample is read as the page) and the run reaches its end. Break: read the page
-    from one sample; or check only the trace (no page reading)."""
+    ``channel.state``): no stop (no one sample is read as the page) and the run reaches its end. Each is
+    :func:`_o4_run_informative`'s run (a read-gap VOID alone re-run; the premise counted on the run returned). Break:
+    read the page from one sample; or check only the trace (no page reading)."""
     SD = _segment_modules()
-    out, log, fake, _t = _o4_run(game, knobs={"score_override": 87})
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"score_override": 87})
     _o4_void(out, "V18", "game")
     assert "87 were impressed" in out.args[0], out
     assert not [t for t in _o4_page_texts(log) if "nobles" in t]
-    out, log, fake, _t = _o4_run(game, knobs={"extra_prompts": 1})
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"extra_prompts": 1})
     _o4_void(out, "V18", "game")
     rows = _o4_rows_of(log, "prompt")
     assert len(rows) == 50 and rows[-1].get("stopped") and "50 prompts" in out.args[0], out
     raw = {"reads": 0}
 
     def wrap(g, fake):
+        raw["reads"] = 0                            # each run's own: the premise is the run returned's
         real = g.channel.state
 
         def state(*a, **kw):
@@ -17946,8 +17958,9 @@ def test_o4_drive_v18_on_what_the_game_shows(game):
                 raw["reads"] += 1
             return st
         g.channel.state = state
-    out, log, fake, _t = _o4_run(game, knobs={"unsubstituted_once": True, "unsubstituted_frames": 48}, wrap=wrap)
-    assert not isinstance(out, Exception) and out["end"] == "reached" and out["beats"]["sword"] is True, out
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"unsubstituted_once": True,
+                                                                 "unsubstituted_frames": 48}, wrap=wrap)
+    assert not isinstance(out, Exception) and out["end"] == "reached" and out["beats"]["sword"] is True, (out, aside)
     assert raw["reads"] >= 1, "premise: a read of the driver's saw page 122 unsubstituted"
 
 
@@ -17955,9 +17968,10 @@ def test_o4_drive_slides_at_31_fps_agent_first(game):
     """THE SLIDE WITNESS on the drive (research/o4_design.md 2.4.6; rev. 2, the driver critique #3, the claim critique
     #1): at 31 fps quantized, published agent-first -- a frame about a tick, so the first sample listing a prompt often
     shows a slide step already -- every LEFT/RIGHT slide is measured between the PREV samples: none measured and not ok,
-    at least 3 of 4 measured. Break: measure from ``x_seen`` (about half the L/R slides read -240)."""
-    out, log, fake, _t = _o4_run(game, fps=31.0, ticks="quantized", knobs={"seed": 0})
-    assert not isinstance(out, Exception), out
+    at least 3 of 4 measured; on :func:`_o4_run_informative`'s run (a read-gap VOID alone re-run). Break: measure from
+    ``x_seen`` (about half the L/R slides read -240)."""
+    out, log, fake, _t, aside = _o4_run_informative(game, fps=31.0, ticks="quantized", knobs={"seed": 0})
+    assert not isinstance(out, Exception), (out, aside)
     s = out["zones"][0]["slides"]
     assert s["not_ok"] == 0 and s["ok"] >= 3 * (s["ok"] + s["unmeasured"]) / 4 and s["ok"] >= 4, s
 
@@ -17997,10 +18011,11 @@ def test_o4_drive_presses_123_again_when_its_first_press_is_dropped(game):
     """S8 b, c on a dropped Confirm (research/o4_design.md 0.3 #1, 2.4.11; rev. 2, the driver critique #1, the claim
     critique #6): with the pages' opening long (``open_s`` 0.25 s) 123's first press lands in its opening and is
     dropped; page-once presses it again ``page_once_ticks`` later, the quiet window opens only at the first sample
-    without it, and 127 comes and is answered No -- the run reaches its end. Break: open the quiet window at the press
-    (rev. 1: the dropped press leaves 123 up in an open quiet window)."""
-    out, log, fake, _t = _o4_run(game, knobs={"open_s": 0.25})
-    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    without it, and 127 comes and is answered No -- the run reaches its end, on :func:`_o4_run_informative`'s run (a
+    read-gap VOID alone re-run). Break: open the quiet window at the press (rev. 1: the dropped press leaves 123 up in
+    an open quiet window)."""
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"open_s": 0.25})
+    assert not isinstance(out, Exception) and out["end"] == "reached", (out, aside)
     p123 = [p for p in _o4_rows_of(log, "press", why="page") if "Queen Brahne was\nquite impressed." in p["texts"]]
     assert len(p123) >= 2, p123
     q = _o4_rows_of(log, "quiet")
@@ -18180,7 +18195,8 @@ def test_o4_drive_input_witness_stops_v13(game):
 def test_o4_drive_never_blocks_on_the_rate(game):
     """THE RATE, READ NEVER WAITED FOR (research/o4_design.md 2.4.2; rev. 2, the driver critique #6): with
     ``g.rate(require=True)`` wrapped to raise, the fight runs to its end and every prompt row records ``g.rate()`` --
-    measured (the judge requires it). Break: require the rate at Z0."""
+    measured (the judge requires it); on :func:`_o4_run_informative`'s run (a read-gap VOID alone re-run). Break:
+    require the rate at Z0."""
     def wrap(g, fake):
         real = g.rate
 
@@ -18189,8 +18205,8 @@ def test_o4_drive_never_blocks_on_the_rate(game):
                 raise HarnessError("the fight must never wait for a rate")
             return real(require)
         g.rate = rate
-    out, log, fake, _t = _o4_run(game, wrap=wrap)
-    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    out, log, fake, _t, aside = _o4_run_informative(game, wrap=wrap)
+    assert not isinstance(out, Exception) and out["end"] == "reached", (out, aside)
     assert all(r["rate"] and r["rate"]["source"] != "default" for r in out["prompts"]), out["prompts"][0]
 
 
