@@ -93,11 +93,13 @@ class StepRefused(HarnessError):
     DrainQueue: the LAST refusal of the request), exactly as the state that carried the ack published it -- so a
     caller that classifies a refusal reads it HERE, from the sample the verdict was made on, never from a second read
     of state.json (which can come back None mid-rewrite on a healthy game, :meth:`Channel.state`). ``steps`` the
-    request's steps."""
+    request's steps; ``state`` that sample itself (None where a refusal is raised without one) -- what the game
+    published with the refusal, so a caller can ask whether the state explains it (Session.fight: no battle HUD
+    with the battle gone)."""
 
-    def __init__(self, error: str, steps):
+    def __init__(self, error: str, steps, *, state: "State | None" = None):
         super().__init__(f"the game refused a step: {error} (steps={list(steps)})")
-        self.error, self.steps = str(error), list(steps)
+        self.error, self.steps, self.state = str(error), list(steps), state
 
 
 class FightTimeout(HarnessError):

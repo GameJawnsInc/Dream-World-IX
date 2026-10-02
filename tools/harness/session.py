@@ -721,10 +721,10 @@ class Session:
             return
         if st.error_seq is not None:
             if st.error_seq >= seq:
-                raise StepRefused(st.error, steps)
+                raise StepRefused(st.error, steps, state=st)
             return
         if st.error != self._last_error:
-            raise StepRefused(st.error, steps)
+            raise StepRefused(st.error, steps, state=st)
 
     def _sleep_alive(self, seconds: float) -> None:
         """Sleep, but keep noticing if the game dies -- a plain sleep turns a crash into a timeout."""
@@ -7486,6 +7486,9 @@ class Session:
         GOES with no result before either bound runs out (a soft reset or a crash to the title mid-fight, an engine
         path that leaves the result 0) raises it with ``kind`` "gone" and its own message: no bound ran out, so
         ``timed_out`` is False and a caller that owns the bounds must not read it as one (the review, 11.7 #2).
+        A command the agent refuses with no battle HUD while the very sample that carried the refusal shows this
+        battle gone (its end landed between the read and the command) is no turn taken: the loop ends there as on any
+        sample showing the end -- the result returned, or "gone" with none. Shown NOT gone, the refusal raises.
         Either way, and on a result, :attr:`last_fight` records what the call did: ``turns``, ``result``, ``name``,
         ``epoch``, and ``seconds`` (wall time from the call), ``tutorials`` (screens this call closed) and
         ``timed_out``.
@@ -7558,6 +7561,18 @@ class Session:
             try:
                 self.act(choice["command"], slot=slot, target=choice.get("target"))
             except StepRefused as err:
+                # ⚠ NO BATTLE HUD, and the sample that carried the refusal shows THIS battle gone: the same race with
+                # the end landed WHOLE in between -- the scene gone, not just the HUD off (King Leo's scripted end in
+                # battle 338; test_o3_drive_voids_an_unregistered_battle at -n 6). Not a turn taken: the loop's own
+                # end, judged on that sample -- a result is returned, none raises "gone"; never a bound run out. A
+                # refusal the published state does not explain still raises.
+                left = err.state
+                if ("no battle HUD" in err.error and left is not None and left.battle_epoch == epoch
+                        and not left.in_battle):
+                    self._log(f"  fight: the step for slot {slot} was refused with no battle HUD; the battle is gone "
+                              f"(result={left.battle_result_name})")
+                    gone = left.battle_result == 0
+                    break
                 # The sample said "asking slot N" and the step landed after the HUD stopped asking: a scripted end
                 # (the Masked Man's RunBattleCode after enough damage) or the next intro. Measured, story-o1e run 1.
                 # Not a turn taken and not a failure: read the state again.

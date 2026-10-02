@@ -353,6 +353,13 @@ class FakeGame:
         self._bexit: tuple | None = None           # (phase, the frame it ends on, the end's result) while one runs
         self._script_end: tuple | None = None      # (the frame it is due, its result) once the latch fired
         self._script_latched = False
+        #: THE COMMAND RACE, pinned: ``{"result": r, "nth": n, "op": "battlecmd" | "menus"}`` -- the battle ENDS with
+        #: ``r`` (0: the scene goes with no result) as its ``n``-th (default 1) step ``op`` (default "battlecmd")
+        #: arrives, BEFORE that step runs: an end (King Leo's scripted one in battle 338) landing between a driver's
+        #: read of "asking slot N" and its command, which the step then meets as the agent does -- no battle HUD; with
+        #: `battle_exit`, the fade's "not asking". Once a battle. None (the default): no such end.
+        self.battle_end_on_command: dict | None = None
+        self._race_steps = 0                       # this battle's steps of the raced op, for `battle_end_on_command`
         #: The naming screen (``Menu(1, char)``, a scene beat ``{"naming": char}``): each character named, in order.
         self.named: list[int] = []
         self._name_focus = False
@@ -1010,11 +1017,13 @@ class FakeGame:
             self.start_battle(num(0, -1), group=num(1, -1))
             self._block(3)
         elif op == "battlecmd":
+            self._race_end(op)
             if not self.battle_active:
                 raise RuntimeError("battlecmd: no battle HUD (not in a battle?)")
             self._battle_command(num(0, 0), num(1, 0), num(2, 0), num(3, 0), num(4, 0))
             self._block(2)
         elif op == "menus":
+            self._race_end(op)
             if not self.battle_active:
                 raise RuntimeError("menus: no battle HUD (not in a battle?)")
             self._collect_menus(num(0, -1))
@@ -2172,6 +2181,7 @@ class FakeGame:
         self.run_counter = 0.0
         self._bexit = self._script_end = None     # H9: no end running, and the latch not yet fired, in a new battle
         self._script_latched = False
+        self._race_steps = 0
         # ⚠ battle_menu is deliberately NOT cleared here either, for the same reason: a driver that
         # reads the menu without checking its epoch stamp has to be catchable.
         self.battle_units = units if units is not None else [
@@ -2311,6 +2321,16 @@ class FakeGame:
         if unit is not None and int(unit["hp_raw"]) <= int(se["hp_raw_le"]):
             self._script_latched = True
             self._script_end = (self.frame + max(0, int(se.get("after_frames", 0))), int(se["result"]))
+
+    def _race_end(self, op: str) -> None:
+        """`battle_end_on_command`: as its ``n``-th step ``op`` of the battle arrives, the battle ends first, and the
+        step meets whatever that end left."""
+        race = self.battle_end_on_command
+        if race is None or not self.battle_active or op != race.get("op", "battlecmd"):
+            return
+        self._race_steps += 1
+        if self._race_steps == int(race.get("nth", 1)):
+            self.end_battle(int(race["result"]))
 
     def _settle_battle(self) -> None:
         """End the fight when one side is gone. ⚠ Never under isDebug -- the diorama cannot end."""
