@@ -1016,15 +1016,30 @@ def j_bounds(row: dict) -> tuple:
     return lo, hi
 
 
+def row_bounds(row: dict) -> tuple:
+    """``(j_lo, j_hi)`` of one prompt row as the judge and :func:`raw_bounds` read it, pure: its recorded bounds when
+    both are recorded, else :func:`j_bounds` of its frames -- ``(None, None)`` when neither gives them."""
+    if row.get("j_lo") is not None and row.get("j_hi") is not None:
+        return row["j_lo"], row["j_hi"]
+    return j_bounds(row)
+
+
+def _unbounded_why(row: dict) -> str:
+    """What a row without j bounds lacks: its prev, seen or down frame, or its rate."""
+    gone = [what for what, v in (("prev frame", row.get("prev_frame")), ("seen frame", row.get("seen_frame")),
+                                 ("down frame", row.get("down_frame")), ("rate", row.get("rate") or None)) if v is None]
+    return ", ".join(f"no {x}" for x in gone) or "no bounds"
+
+
 def raw_bounds(rows: list) -> tuple:
     """``(raw_lo, raw_hi)`` over a fight's prompt rows (2.4.7), pure: n hits credit ``sum(50 - j)`` to Int16[30], the
     phantom pass the last one's again, and ``0 + 1 + ... + n`` to Int16[32] (1225 at 49) -- each j clamped to 1..50;
-    raw_lo from every ``j_hi``, raw_hi from every ``j_lo`` (a row's recorded bounds, else :func:`j_bounds` of its
-    frames). ``(None, None)`` for no rows or a row without bounds."""
+    raw_lo from every ``j_hi``, raw_hi from every ``j_lo`` (:func:`row_bounds`: a row's recorded bounds, else
+    :func:`j_bounds` of its frames). ``(None, None)`` for no rows or a row without bounds."""
     los, his = [], []
     for r in rows:
-        lo, hi = (r["j_lo"], r["j_hi"]) if r.get("j_lo") is not None and r.get("j_hi") is not None else j_bounds(r)
-        if lo is None:
+        lo, hi = row_bounds(r)
+        if lo is None or hi is None:
             return None, None
         los.append(min(PROMPT_TICKS, max(1, lo)))
         his.append(min(PROMPT_TICKS, max(1, hi)))
@@ -1178,12 +1193,15 @@ def chanbara_judge(zone: dict, prompts: list, presses: list, pol: dict, *, page:
     sampling: V17, never V18.
 
     V17 (driver), the first fault in this order: an instance with no press; two presses; a wrong name; no ``accepted``
-    event; ``evidence`` "before"; ``evidence`` "unobserved" (the instrument: a read gap); ``j_hi > j_cap``; (fast)
-    ``raw_lo < raw_floor`` / (paced) ``[raw_lo, raw_hi]`` outside ``pace.raw_band`` ("uninformative") -- a complete
-    zone's; a non-prompt press whose down frame lies at or after the first prompt's ``prev_frame`` and before the zone's
-    end; a rate not measured; a measured slide that is neither its want nor its want with whole L/R slides left out; a
-    complete zone with fewer than ``prompts`` instances and a ``max_read_gap`` above a prompt's life (50 ticks). An
-    instance the run STOPPED at (``stopped``: opened, never to be pressed) is judged by none of them.
+    event; ``evidence`` "before"; ``evidence`` "unobserved" (the instrument: a read gap); an instance with NO j bounds
+    (:func:`row_bounds`: no prev, seen or down frame, or no rate -- its press cannot be placed against its arm, so
+    neither ``j_cap`` nor the raw can be judged on it); ``j_hi > j_cap``; on a complete zone (its end seen, no instance
+    stopped) a raw that is UNBOUNDED, else (fast) ``raw_lo < raw_floor`` / (paced) ``[raw_lo, raw_hi]`` outside
+    ``pace.raw_band`` ("uninformative") -- the floor and the band are never skipped silently; a non-prompt press whose
+    down frame lies at or after the first prompt's ``prev_frame`` and before the zone's end; a rate not measured; a
+    measured slide that is neither its want nor its want with whole L/R slides left out; a complete zone with fewer
+    than ``prompts`` instances and a ``max_read_gap`` above a prompt's life (50 ticks). An instance the run STOPPED at
+    (``stopped``: opened, never to be pressed) is judged by none of them.
     V18 (game, a finding) -- no V17 fault, and: a proper press whose evidence is "lingered"; a proper LEFT/RIGHT press
     whose measured slide shows it left out; more instances than ``prompts``; a complete zone with fewer and its
     ``max_read_gap`` within 50 ticks; or ``page`` (``{"kind", "want", "texts"}``: the score or gil page in consecutive
@@ -1191,11 +1209,13 @@ def chanbara_judge(zone: dict, prompts: list, presses: list, pol: dict, *, page:
     None -- the play is proven the frozen play."""
     rows = [r for r in prompts if not r.get("stopped")]
     want_n, ended = int(pol["prompts"]), zone.get("end") is not None
+    complete = ended and bool(rows) and len(rows) == len(prompts)
     mine: dict = {}
     for p in presses:
         if p.get("why") == "prompt":
             mine.setdefault(p.get("n"), []).append(p)
-    lo, hi = raw_bounds(rows) if ended and rows and len(rows) == len(prompts) else (None, None)
+    lo, hi = raw_bounds(rows) if complete else (None, None)
+    unbounded = [r for r in rows if None in row_bounds(r)]
     v17: list = []
     v17 += [f"instance {r['n']} ({r['dbtn']}) has no press: it ended before the driver pressed" for r in rows
             if not mine.get(r["n"])]
@@ -1208,12 +1228,18 @@ def chanbara_judge(zone: dict, prompts: list, presses: list, pol: dict, *, page:
             if r.get("evidence") == "before"]
     v17 += [f"instrument: a read gap of {((r.get('read_gap') or {}).get('s'))} s straddles instance {r['n']}'s mark "
             f"(evidence unobserved)" for r in rows if r.get("evidence") == "unobserved"]
-    v17 += [f"instance {r['n']}'s j_hi {r.get('j_hi')} is over j_cap {pol['j_cap']}" for r in rows
-            if r.get("j_hi") is not None and r["j_hi"] > pol["j_cap"]]
-    if lo is not None:
-        if pol["policy"] == "fast" and lo < pol["raw_floor"]:
+    v17 += [f"instance {r['n']} ({r['dbtn']}) has no j bounds ({_unbounded_why(r)}): its press cannot be placed "
+            f"against its arm" for r in unbounded]
+    v17 += [f"instance {r['n']}'s j_hi {row_bounds(r)[1]} is over j_cap {pol['j_cap']}" for r in rows
+            if row_bounds(r)[1] is not None and row_bounds(r)[1] > pol["j_cap"]]
+    if complete:
+        what = "raw_floor" if pol["policy"] == "fast" else "raw band"
+        if lo is None or hi is None:
+            v17.append(f"raw unbounded: the zone is complete but instance(s) {[r['n'] for r in unbounded][:6]} have "
+                       f"no j bounds, so its {what} cannot be judged")
+        elif pol["policy"] == "fast" and lo < pol["raw_floor"]:
             v17.append(f"raw_lo {lo} is under raw_floor {pol['raw_floor']}")
-        if pol["policy"] == "paced":
+        elif pol["policy"] == "paced":
             band = pol["pace"]["raw_band"]
             if lo < band[0] or hi > band[1]:
                 v17.append(f"uninformative: raw [{lo}, {hi}] is outside the band {list(band)}")
@@ -1383,9 +1409,13 @@ class _ChanbaraZone:
     Z0, the zone start: 111 pressed (a ``page`` press row with its ``seq``; 111 joins ``pages``), and again only when it
     is still listed ``page_once_ticks`` past that press's ack-read frame (a Confirm dropped in 111's opening, 0.3 #1);
     its first sample without it is the driver's T0. Z1: quiet until the first prompt -- nothing pressed, fail-closed,
-    V14 past ``first_prompt_s``. Z2, the fight, a TIGHT LOOP every ``poll_s``: ONE ``g.state`` read (it feeds the
-    clock and the ring), the ring merged (the MERGED stream, 2.4.1: the executor's reads and every harness call's,
-    deduplicated on frame, in frame order -- every frame-valued fact is read off it), and per merged sample, in order:
+    V14 past ``first_prompt_s``. A zone ENTERED ON A PROMPT (no 111: 2.4.2) starts at Z2, and instance 1's ``prev`` --
+    which no sample of the zone can give, its first lists the prompt -- is the ring's last sample of the visit's field
+    before the entry that does not list it (``before``: read, never stepped), so its j bounds, the raw and SWORD (f)'s
+    window rest on a sample, never on nothing. Z2, the fight, a TIGHT LOOP every ``poll_s``: ONE ``g.state`` read (it
+    feeds the clock and the ring), the ring merged (the MERGED stream, 2.4.1: the executor's reads and every harness
+    call's, deduplicated on frame, in frame order -- every frame-valued fact is read off it), and per merged sample, in
+    order:
     the input witness (every ``input_every_s``; outside input is V13), the run's deadline (V13), the UI (off FieldHUD:
     V13), the field (rule 2's verdict), control (held ``settle_s``: V4), a choice (V17, observed), the zone end (Z3),
     any dialog that is neither a prompt nor 111 (V17, observed -- never rule 7's Confirm), and the INSTANCE TRACKER
@@ -1411,6 +1441,7 @@ class _ChanbaraZone:
         self.d, self.g, self.pol = d, d.g, d.chanbara
         self.samples: dict = {}                    # frame -> merged sample
         self.order: list = []                      # the merged samples processed, in frame order
+        self.before: list = []                     # entered on a prompt: the ring's samples before the entry
         self.cursor = -1                           # the newest frame merged
         self.rows: list = []                       # the zone's prompt rows
         self.cur = None                            # the newest instance's row
@@ -1441,6 +1472,19 @@ class _ChanbaraZone:
             self.cursor = max(self.cursor, out[-1]["frame"])
         return out
 
+    def ring_before(self, frame: int) -> list:
+        """The ring's samples of the visit's field BEFORE ``frame``, in frame order, reduced as merged samples and never
+        stepped: where instance 1's ``prev`` comes from when the zone is entered on a prompt (2.4.2). A sample of
+        another field, or none at all, gives no ``prev`` -- and the judge reads that row unbounded (V17)."""
+        out: dict = {}
+        for t, raw in ring_since(self.g, -1):
+            f = int(raw.get("frame", -1))
+            if f < frame and f not in out:
+                s = cb_sample(raw, t)
+                if s["field"] == self.d.fid:
+                    out[f] = s
+        return [out[f] for f in sorted(out)]
+
     # -- the run
     def run(self, st) -> None:
         d, pol = self.d, self.pol
@@ -1463,6 +1507,7 @@ class _ChanbaraZone:
                 d.pages.append(text)
         else:
             self.phase = "z2"                      # entered on a prompt: 111 closed with no press of the driver's
+            self.before = self.ring_before(st.frame)
         for s in first:
             self.step(s)
         while self.phase != "z3":
@@ -1596,6 +1641,8 @@ class _ChanbaraZone:
     def open_instance(self, dbtn: str, s: dict) -> dict:
         d = self.d
         prev = next((x for x in reversed(self.order[:-1]) if dbtn not in x["dbtns"]), None)
+        if prev is None:                           # entered on a prompt: the ring's last sample before the entry
+            prev = next((x for x in reversed(self.before) if dbtn not in x["dbtns"]), None)
         n = len(self.rows) + 1
         rate = self.g.rate()
         row = {"k": "prompt", "n": n, "dbtn": dbtn, "button": None, "field": d.fid, "donor": d.donor,

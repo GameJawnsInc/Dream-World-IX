@@ -16927,6 +16927,52 @@ def test_o4_chanbara_judge_classes():
     assert judge(stopped, zone=zone, presses=_o4_presses(stopped[:10]))["v"] is None
 
 
+def test_o4_chanbara_judge_never_skips_an_unbounded_raw():
+    """THE RAW IS NEVER LEFT UNJUDGED (research/o4_design.md 2.4.7, 2.4.8; the review, 11.5): a row with no prev frame
+    -- instance 1 of a zone entered on a prompt, had nothing given its prev -- has no j bounds, so a complete zone's raw
+    is unbounded and neither the fast policy's raw_floor nor the paced band can be judged on it. Each such zone is V17
+    (the driver's: its play is not proven), never None: fast rows each pressed at j 16 (raw 100, at the floor) with
+    instance 1 unbounded; the same rows with instance 1 at j 50 had it been bounded (raw 99: under the floor, the case
+    an unjudged floor would pass); paced rows inside the band with instance 1 unbounded (R-GATE would read it
+    informative). The first fault names the row and what it lacks, and "raw unbounded" is among a complete zone's
+    faults; a zone stopped mid-fight (no end) names the row and no raw. Break: judge the floor and the band only when
+    raw_bounds gives bounds (rev. 1: the zone then reads None)."""
+    SD = _segment_modules()
+
+    def judge(rows, policy, *, zone=None):
+        return SD.chanbara_judge(_o4_zone(rows) if zone is None else zone, rows, _o4_presses(rows), policy)
+
+    def unbound(rows):
+        rows = [dict(r) for r in rows]
+        rows[0] = dict(rows[0], prev_frame=None, j_lo=None, j_hi=None)
+        rows[0]["j_lo"], rows[0]["j_hi"] = SD.j_bounds(rows[0])
+        assert (rows[0]["j_lo"], rows[0]["j_hi"]) == (None, None)
+        return rows
+    fast = _o4_policy()
+    j16 = [dict(r, j_lo=12, j_hi=16) for r in _o4_rows()]
+    assert judge(j16, fast) == {"v": None, "by": None, "why": None, "faults": [], "raw": [100, 107]}
+    slow = [dict(j16[0], j_lo=50, j_hi=50)] + j16[1:]
+    got = judge(slow, fast)
+    assert got["v"] == "V17" and "raw_lo 99 is under raw_floor 100" in got["faults"], got
+    for rows in (unbound(j16), unbound(slow)):
+        got = judge(rows, fast)
+        assert (got["v"], got["by"], got["raw"]) == ("V17", "driver", [None, None]), got
+        assert got["why"] == ("instance 1 (CROSS) has no j bounds (no prev frame): its press cannot be placed against "
+                              "its arm"), got
+        assert any(f.startswith("raw unbounded: the zone is complete but instance(s) [1]") and "raw_floor" in f
+                   for f in got["faults"]), got["faults"]
+    paced = _o4_paced()
+    band = [dict(r, j_lo=21, j_hi=28) for r in _o4_rows()]
+    assert judge(band, paced)["v"] is None
+    got = judge(unbound(band), paced)
+    assert got["v"] == "V17" and "has no j bounds" in got["why"], got
+    assert any(f.startswith("raw unbounded") and "raw band" in f for f in got["faults"]), got["faults"]
+    rows = unbound(_o4_rows(10))
+    got = judge(rows, fast, zone=_o4_zone(rows, end=None))
+    assert got["v"] == "V17" and "has no j bounds" in got["why"], got
+    assert not any(f.startswith("raw unbounded") for f in got["faults"]), got["faults"]
+
+
 def test_o4_slides_bracket_the_slide_from_the_prev_samples():
     """S7's slide witness (research/o4_design.md 2.4.6, section 8's unit; rev. 2, the driver critique #3, the claim
     critique #1), at ~31 fps with the agent-first publication: a synthetic L/R run -- a LEFT / RIGHT hit on prompt n
@@ -17226,6 +17272,27 @@ def test_o4_drive_paced_tracks_the_closing_prompt_beside_its_successor(game):
         assert len(rows) == 49 and {r["evidence"] for r in rows} == {"closed"}, \
             (reaction, [(r["n"], r["evidence"]) for r in rows])
         assert any(r["gone_kind"] == "dbtn" for r in rows), (reaction, "premise: a prompt closed beside its successor")
+
+
+def test_o4_drive_entered_on_a_prompt_bounds_instance_one_from_the_ring(game):
+    """A ZONE ENTERED ON A PROMPT (research/o4_design.md 2.4.2; the review, 11.5): H12's ``tutorial`` False stages the
+    visit with no 111, so the main loop's first sample in the zone already lists prompt 1 and the executor starts at Z2
+    (``start_page`` None, no T0). Instance 1's ``prev`` -- the last sample not listing its DBTN -- lies BEFORE the
+    entry, in the ring the main loop's own reads filled: its prev frame is below its seen frame, its j bounds and the
+    zone's raw are bounded, and the paced fight is judged None inside its band, the run reaching "150". Break: take
+    instance 1's prev from the zone's own samples only (None: the judge then reads the row unbounded, V17)."""
+    pol = {"policy": "paced", "raw_floor": ..., "j_cap": 40, "pace": {"target_ticks": 22, "lead_ticks": 2,
+                                                                     "raw_band": [79, 99]}}
+    out, log, fake, _t = _o4_run(game, knobs={"tutorial": False}, pol=pol)
+    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    z = out["zones"][0]
+    assert z["start_page"] is None and z["first_prompt"]["t0_frame"] is None, z
+    assert not [p for p in log if p.get("k") == "press" and any("To follow" in t for t in p.get("texts") or ())]
+    r1 = out["prompts"][0]
+    assert r1["prev_frame"] is not None and r1["prev_frame"] < r1["seen_frame"], r1
+    assert r1["j_lo"] is not None and r1["j_hi"] is not None and r1["prev_kind"] == "none", r1
+    assert z["judge"]["v"] is None and z["v"] is None and 79 <= z["raw"][0] <= z["raw"][1] <= 99, z
+    assert len(out["prompts"]) == 49 and {r["evidence"] for r in out["prompts"]} == {"closed"}
 
 
 def test_o4_drive_fails_closed_on_an_unclaimed_dialog(game):

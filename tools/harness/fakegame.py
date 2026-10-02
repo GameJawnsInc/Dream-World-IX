@@ -2987,7 +2987,8 @@ KEYON_PAIR_DEFAULTS = {"texts": None, "raw": None, "lag_ticks": 15, "gate_ticks"
 #: ``extra_prompts`` (passes armed past the bytes' 49), ``menu_on_triangle`` (a Triangle edge opens the main menu),
 #: ``unsubstituted_once`` (122/120 and 128 publish their raw [NUMB=n] once -- for ``unsubstituted_frames`` frames from
 #: that first publish, 1 by default: a drive test's way to make sure a read lands on it), ``replay_on_no`` (No replays
-#: too).
+#: too), ``tutorial`` (False: stage 2 shows no 111 -- T0 the tick after its Wait(5) -- so the driver enters the zone on
+#: its first prompt, research/o4_design.md 2.4.2).
 CHANBARA_DEFAULTS = {
     "seed": 0, "sa": 1, "bonus_fires": True, "walk_in_s": 1.83, "gates": {"105": 40, "107": 40, "109": 40},
     "close_s": 0.09, "close_frames": 1, "open_s": 0.105, "open_frames": 2,
@@ -2996,7 +2997,7 @@ CHANBARA_DEFAULTS = {
     "prompt_text": "Press  !", "arm_after_111": 12, "walk_off_s": 2.0, "walk_back_s": 2.0, "exit_wait_ticks": 65,
     "exit_to": None, "choice_lines": ("es", "No"), "encore": True, "slides": True,
     "lost": (), "miss_read": (), "score_override": None, "extra_prompts": 0, "menu_on_triangle": False,
-    "unsubstituted_once": False, "unsubstituted_frames": 1, "replay_on_no": False}
+    "unsubstituted_once": False, "unsubstituted_frames": 1, "replay_on_no": False, "tutorial": True}
 #: Blank's and Zidane's x where the fight begins (arbitrary: only a slide's delta is ever read). Blank is published
 #: as the field object sid 20 (64 e0 t0 ip449's InitObject(20)); Zidane is the player.
 CHANBARA_BLANK_X, CHANBARA_ZIDANE_X = 600.0, 0.0
@@ -3422,7 +3423,8 @@ class _ChanbaraBeat(_Machine):
             if first:
                 yield from self._pair(fake, 105, 106, 3, 15, k["gates"]["105"])     # stage 2
                 yield from self._ticks(5)                           # SetDialogProgression(0), Wait(5)
-                yield from self._page(fake, 111)                    # WindowSync(6, 0, 111)
+                if k["tutorial"]:                                   # H12: False -- no 111 (the zone entered on a prompt)
+                    yield from self._page(fake, 111)                # WindowSync(6, 0, 111)
                 self.t0_tick = self.tick                            # T0: the tick 111 is gone
             else:
                 yield from self._pair(fake, 109, 110, 3, 15, k["gates"]["109"])     # stage 8: no tutorial

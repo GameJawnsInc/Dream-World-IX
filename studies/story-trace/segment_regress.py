@@ -259,9 +259,9 @@ TMP = "<tmp>"
 #: G20 (research/o4_design.md 9 C2): o4_dryrun's "N/N cases as registered" must have N at least this -- its 63
 #: session cases and "predictions-changed" (section 8's table), its 18 units, and its listed units (O4-CENSUS and its 4
 #: mutants, O4-BUILD's pins on a synthetic route build and its 3 mutants, the fight pins and their 2 mutants, the draft
-#: through O4-KEYS and its 7 offline mutants) when G20 joined. A case added raises N; one dropped falls under the
-#: floor.
-O4_DRYRUN_FLOOR = 102
+#: through O4-KEYS and its 7 offline mutants) when G20 joined (102); then the review's cases (research/o4_design.md
+#: 11.5): sword-j-unbounded-both (#3/#7). A case added raises N; one dropped falls under the floor.
+O4_DRYRUN_FLOOR = 103
 #: G19 (research/o4_design.md 1.4, from B3): every ``test_o4_*``, ``test_fake_chanbara_*`` and ``test_fake_keyon_*``
 #: name, each with the step that adds it -- G19 joined the gate in the commit that added B3's tests.
 PYTEST_K_O4 = "o4_ or fake_chanbara or fake_keyon"
@@ -328,6 +328,11 @@ REQUIRED_TESTS_O4: tuple = (
     "test_o4_rehearsal_gate_reads_the_pair_on_the_fake",
     # the fake's story rows read an Int16 signed (a launch's second visit stores Int16[9] := -1 over -1)
     "test_o4_fake_story_store_reads_int16_signed",
+    # the review (research/o4_design.md 11.5) #3/#7: a row with no j bounds and a complete zone's unbounded raw are the
+    # judge's V17 (never a floor or a band skipped silently); a zone entered on a prompt takes instance 1's prev from
+    # the ring
+    "test_o4_chanbara_judge_never_skips_an_unbounded_raw",
+    "test_o4_drive_entered_on_a_prompt_bounds_instance_one_from_the_ring",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

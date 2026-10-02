@@ -715,6 +715,14 @@ def _(pred):
     return _all(six(pred), fight=_with_prompt(5, accepted_frame=seen + 54, down_frame=seen + 55))
 
 
+@case("sword-j-unbounded-both", "NOT PROVEN", clauses={"SWORD": ["(e)"]})
+def _(pred):
+    """Instance 1 with no prev frame -- a zone entered on a prompt that nothing gave a prev: its row has no j bounds and
+    the complete zone's raw is unbounded, so raw_floor cannot be judged. The judge's V17, never a SWORD pass with the
+    floor unjudged (the review, research/o4_design.md 11.5)."""
+    return _all(six(pred), fight=_with_prompt(1, prev_frame=None))
+
+
 @case("sword-evidence-before-both", "NOT PROVEN", clauses={"SWORD": ["(e)"]})
 def _(pred):
     return _all(six(pred), fight=_with_prompt(7, evidence="before"))
@@ -1192,7 +1200,8 @@ def unit_judge(pred: dict) -> tuple:
     V18; "unobserved" -> V17, never V18; "before" -> V17; a measured slide of 0 (left out) -> V18; -240 -> V17; a wrong
     name, a double press, a missing event -> V17 each; 48 instances with a 60-tick gap -> V17, with none above 50 ->
     V18; 50 instances -> V18; paced raw [80, 92] -> None, [76, 85] -> V17 "uninformative"; a fast raw_floor 110 with
-    every j_hi 12 (raw_lo 107) -> V17."""
+    every j_hi 12 (raw_lo 107) -> V17; instance 1 with no prev frame (no j bounds: the raw unbounded) -> V17 under the
+    fast policy and the paced one alike, "raw unbounded" among the faults (the review, 11.5)."""
     pol = pred["chanbara"]
 
     def jv(rows=None, *, zone=None, presses=None, policy=pol, page=None):
@@ -1210,7 +1219,17 @@ def unit_judge(pred: dict) -> tuple:
     unsub = pol["score_page"].replace("\n100 ", "\n[NUMB=0] ")
     r48 = _jrows(48)
     rows = _jrows()
+    nop = _jrows()
+    nop[0] = _jrow(1, nop[0]["dbtn"], prev_frame=None)
+    band = [dict(x, j_lo=21, j_hi=28) for x in _jrows()]
+    band[0] = dict(nop[0])
+
+    def unbounded(got):
+        return (got["v"] == "V17" and got["why"].startswith("instance 1 (CROSS) has no j bounds (no prev frame)")
+                and any(f.startswith("raw unbounded") for f in got["faults"]))
     got = {"proper": jv() == {"v": None, "by": None, "why": None, "faults": [], "raw": [119, 126]},
+           "unbounded-fast": nop[0]["j_hi"] is None and unbounded(jv(nop)),
+           "unbounded-paced": unbounded(jv(band, policy=_paced(pred))),
            "j45": rows45[6]["j_hi"] == 45 and jv(rows45)["v"] == "V17",
            "score99": jv(page={"kind": "score", "want": pol["score_page"], "texts": [score99, score99]})["v"] == "V18",
            "unsub": jv(page={"kind": "score", "want": pol["score_page"], "texts": [unsub, pol["score_page"]]})["v"]
