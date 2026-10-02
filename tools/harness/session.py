@@ -113,6 +113,19 @@ class ProbeLeftControl(HarnessError):
         self.field, self.direction = field, direction
 
 
+class ChoiceUnseen(HarnessError):
+    """:meth:`Session._take_default_choice` cannot tell whether its Confirm answered the window it was pressed on. The
+    reads after the Confirm skipped ``gap`` seconds of the game's clock (None: a clock that could not be read), room
+    for that window to close and the next to open unseen, and the window up after them reads as the one answered
+    (``was`` and ``now``, their published choice blocks). It is that window, its prompt still typing (the Confirm only
+    finished the text), or the NEXT one asking the same (the Confirm answered it). Nothing was pressed again and nothing
+    recorded. A HarnessError, so every caller that stops on one still does."""
+
+    def __init__(self, message: str, *, gap: float | None, was: dict, now: dict):
+        super().__init__(message)
+        self.gap, self.was, self.now = gap, was, now
+
+
 class Transcript(list):
     """What :meth:`Session.watch_cutscene` returns: the scene's distinct pages -- the plain list every caller
     has always read -- plus ``choices``, one record per choice the scene was waited through under
@@ -6259,6 +6272,19 @@ class Session:
     #: Confirm then only completes the text (Dialog.OnKeyConfirm's TextAnimation branch, :798-808).
     CHOICE_CONFIRM_FRAMES = 20
     CHOICE_CONFIRMS = 3
+    #: _take_default_choice: the most of the GAME'S clock (:func:`_game_seconds`: its published ``rt``, else the state
+    #: file's write time) two reads in a row may span, once the agent has taken the Confirm, for the second to show the
+    #: window the first did. Answering a window and readying the next takes longer: DialogAnimator hides it over 0.6 x
+    #: DEFAULT_ANIMATION_TIME (0.15 s) and shows the next from 0.3 to 1 x it, 0.195 s of animation in all
+    #: (DialogAnimator.cs:45-171, :213), around the script's own ticks -- 16 frames, 0.27 s, at 60 fps on 30937
+    #: (CHOOSE_TICKS); the fake's 6 + 6 frames are 0.2 s of its clock. The margin holds the race between reading the
+    #: document and statting it (a write time up to a publish late: 33 ms at 60 fps, 65 at 31). The animations count
+    #: Time.deltaTime, so the published ``timescale`` divides this, and FastForwardFactor -- published nowhere
+    #: (harness.tickrate) -- would shorten them unseen; so would a HITCH on the frame the Confirm lands (the hide's
+    #: first step counts that frame's deltaTime, spent before it). FRAMES are no measure here: a hitch packs the
+    #: close and the open into four or five, and the load that starves the harness's polls is the load that hitches
+    #: the game.
+    CHOICE_GAP_S = 0.15
     #: How many times one watch answers the SAME question (field, prompt and options, cursor) with its
     #: default before calling it a loop: a script that asks again after its own default answer.
     CHOICE_REPEATS = 3
@@ -6298,6 +6324,18 @@ class Session:
         window, answer committed, until its voice ends; the second Confirm then closes it early -- the same
         answer.)
 
+        ⚠ ANOTHER CONFIRM IS PRESSED ONLY ON READS WITH NO GAP IN THEM (:meth:`_choice_left`): every read once the
+        agent has taken the first Confirm -- the press's own acknowledgement included -- within CHOICE_GAP_S of the
+        game's clock of the read before it. Reads a gap apart leave room for this window to be answered and the
+        next to open unseen, and the next is READY: read as "the Confirm did not land", it used to get Confirm
+        again, answered at its cursor and recorded nowhere -- a question the caller's own rules never saw (a poll
+        starved on a loaded machine past the gap between two windows: 0.27 s in game, 50 ms of wall clock on the
+        suite's fake). After a gap the window
+        up is compared with the one answered (:meth:`_choice_could_be`): another window means this one is gone, so
+        its record is returned and the next is the caller's; one that reads the same may be either, and this raises
+        :class:`ChoiceUnseen` with nothing pressed. The game's take and this record stay one: nothing is recorded
+        that the game did not take, and nothing the game took goes unrecorded.
+
         Raises when the cursor rests on a DISABLED line (``disabled``, or outside ``active``): the game then
         has no default to take, and picking another option would be this harness's choice."""
         ch = dict(st.choice)
@@ -6315,44 +6353,114 @@ class Session:
                   "prompt": (ch.get("options") or [""])[0], "count": int(ch.get("count", 0)),
                   "field": st.field_id, "frame": st.frame}
         self.select(index, timeout=timeout)
-        again = self.CHOICE_CONFIRMS - 1 if st.menu_group == self.CHOICE_GROUP else 0
-        for _ in range(again):
+        last = self.state                 # the window as the Confirm finds it: the reads after it are judged from here
+        was = dict(last.choice or ch)
+        presses = self.CHOICE_CONFIRMS if st.menu_group == self.CHOICE_GROUP else 1
+        seq = None
+        for n in range(1, presses + 1):
             self.press("confirm", 4)
-            if self._choice_left(self.CHOICE_CONFIRM_FRAMES, timeout):
+            seq = self.channel.seq if seq is None else seq      # the FIRST Confirm's request: what it did is judged
+            final = n == presses
+            seen, last, gap = self._choice_left(last, seq, None if final else self.CHOICE_CONFIRM_FRAMES, timeout)
+            if seen == "left":
                 break
+            if seen == "unseen":
+                took = "a clock that could not be read" if gap is None else f"{gap:.3f} s of the game's clock"
+                if self._choice_could_be(was, index, st.field_id, last):
+                    raise ChoiceUnseen(
+                        f"the reads after the Confirm on option {index} {record['text']!r} (field {st.field_id}) "
+                        f"skipped {took} -- room for the window to be answered and the next to open unseen -- and "
+                        f"the window up after them reads as the one answered: {(last.choice or {}).get('options')} "
+                        f"(cursor {index}). It is that window, its prompt still typing (the Confirm only finished "
+                        f"the text), or the NEXT one asking the same (the Confirm answered it). Nothing was pressed "
+                        f"again and nothing recorded: a starved harness (a loaded machine) cannot tell them apart.",
+                        gap=gap, was=was, now=dict(last.choice or {}))
+                self._log(f"  watch_cutscene: the reads after the Confirm skipped {took}, and another window is up "
+                          f"now: this one was answered -- the next is the caller's")
+                break
+            if final:
+                return None               # live frames, the window still taking answers: the Confirm did not land
             self._log(f"  watch_cutscene: the choice still waits {self.CHOICE_CONFIRM_FRAMES} frames after a "
                       f"Confirm -- its prompt was still typing; Confirm again")
-        else:
-            self.press("confirm", 4)
-            try:
-                self.wait_for(lambda s: not self._choice_ready(s), timeout=timeout,
-                              what=f"the choice to take option {index}")
-            except HarnessError as err:
-                if "live samples" not in str(err):
-                    raise                 # a frozen or silent channel says nothing about the Confirm
-                return None
         self._log(f"  watch_cutscene: took the default choice {index} {record['text']!r} on field {st.field_id}")
         return record
 
-    def _choice_left(self, frames: int, timeout: float) -> bool:
-        """After a Confirm: did the choice stop taking answers (:meth:`_choice_ready`) within ``frames`` live
-        frames? False when it still took them that many frames on (or ``timeout`` passed first). Readiness
-        alone decides: while a prompt types its published options can still grow (ChoicePhrases is built from
-        the text parsed so far, :meth:`options`), and a window changing is not a window answered; the next
-        choice cannot be ready before this one has closed and the next opened, both with no group."""
-        start = None
+    def _choice_left(self, last: State, seq: int, frames: int | None, timeout: float) -> tuple:
+        """After a Confirm: did the choice stop taking answers (:meth:`_choice_ready`)? Judged on the READS from
+        ``last`` on -- the window as the first Confirm found it, or the last read an earlier watch of it judged --
+        every one the ring holds (:meth:`_reads_since`: the press's own acknowledgement and every other read made
+        inside it), oldest first, each against the read before it. ``seq`` is the FIRST Confirm's request: a read the
+        agent published before taking it shows nothing that Confirm did, so its link is not judged. Returns
+        ``(verdict, read, gap)``:
+
+        * ``"left"``: a read not taking answers -- the window is answered (``read`` that one). Readiness alone
+          decides: while a prompt types its published options can still grow (ChoicePhrases is built from the text
+          parsed so far, :meth:`options`), and a window changing is not a window answered;
+        * ``"unseen"``: two reads in a row, the second published after the agent took the Confirm, are CHOICE_GAP_S of
+          the game's clock apart or more (:meth:`_choice_near`) -- room for the window to close and the next to open,
+          both with no group, between them (``read`` the second, the window up after the gap; ``gap`` the seconds
+          between them, None when a clock could not be read);
+        * ``"waits"``: no gap, and the window still taking answers ``frames`` live frames after this watch's first
+          read -- or, ``frames`` None, when ``timeout`` ran out (``read`` the newest).
+
+        Raises HarnessError when the agent's frame counter never moved in ``timeout``: a frozen or silent channel
+        says nothing about the Confirm."""
+        first = None                      # this watch's first read: ``frames`` are counted from it
         deadline = time.time() + timeout
-        while time.time() < deadline:
+        while True:
             self._assert_alive()
-            st = self.channel.state()
-            if st is not None:
-                if not self._choice_ready(st):
-                    return True
-                start = st.frame if start is None else start
-                if st.frame >= start + frames:
-                    return False
+            now = self.channel.state()    # into the ring (the channel's observer), with every read before it
+            for nxt in self._reads_since(last.frame):
+                if not self._choice_ready(nxt):
+                    return "left", nxt, None
+                if nxt.seq >= seq and not self._choice_near(last, nxt):
+                    a, b = _game_seconds(last), _game_seconds(nxt)
+                    return "unseen", nxt, None if a is None or b is None else b - a
+                last = nxt
+            if now is not None:
+                first = now if first is None else first
+                if frames is not None and last.frame >= first.frame + frames:
+                    return "waits", last, None
+            if time.time() >= deadline:
+                break
             time.sleep(0.02)
-        return False
+        if first is None or last.frame <= first.frame:
+            raise HarnessError(
+                f"the choice was Confirmed and the agent's frame counter never moved past {last.frame} in "
+                f"{timeout:.0f}s -- the channel is frozen or silent, so this says nothing about the Confirm. "
+                f"{self.channel.classify()}")
+        return "waits", last, None
+
+    def _reads_since(self, frame: int) -> list[State]:
+        """Every read the ring holds after ``frame``, oldest first, as the State it returned -- its write time put back
+        (``read_at - age``), so :func:`_game_seconds` times it as it would have then."""
+        return [State(raw, read_at=t, mtime=None if age is None else t - age)
+                for t, age, raw in self._ring.reads_since(frame)]
+
+    def _choice_near(self, a: State, b: State) -> bool:
+        """Whether two reads in a row are near enough on the game's clock (:func:`_game_seconds`) that no window can
+        have been answered and the next readied between them: less than CHOICE_GAP_S apart, divided by the published
+        ``timescale`` where it runs the game faster (Time.timeScale scales the animations' deltaTime). A clock that
+        cannot be read is never near."""
+        ta, tb = _game_seconds(a), _game_seconds(b)
+        if ta is None or tb is None:
+            return False
+        scale = max([1.0] + [float(s.raw.get("timescale") or 1.0) for s in (a, b)])
+        return tb - ta < self.CHOICE_GAP_S / scale
+
+    @staticmethod
+    def _choice_could_be(was: dict, index: int, field: int | None, st: State) -> bool:
+        """Could the ready choice in ``st`` be the window ``was`` -- its choice block as the Confirm found it, the cursor
+        on ``index``, on ``field``? While it is up a window keeps its field, its lines (``count``, ``active``,
+        ``disabled``) and, with nothing pressed but Confirm, its cursor; and its words only GROW: the published options
+        are its text parsed so far (Dialog.ChoicePhrases), so a later read of the same window extends the earlier
+        one's. Another window fails one of those -- unless it asks the same, from the same cursor."""
+        ch = st.choice or {}
+        if st.field_id != field or ch.get("selected") != index:
+            return False
+        if any(ch.get(k) != was.get(k) for k in ("count", "active", "disabled")):
+            return False
+        return "\n".join(ch.get("options") or ()).startswith("\n".join(was.get("options") or ()))
 
     def watch_cutscene(self, *, timeout: float = 90.0, advance_boxes: bool = True,
                        settle: float = 1.0, choices: str | None = None) -> list[str]:
@@ -6376,7 +6484,9 @@ class Session:
         ``settle`` -- the same hold the "control is back" condition needs. A script whose default answer
         asks the same question again would be answered until the timeout: the same question (field, prompt
         and options, cursor) is answered CHOICE_REPEATS times, and then this raises -- that branch is not
-        the default's to take; choose() one.
+        the default's to take; choose() one. A Confirm that cannot be told to have answered its window -- reads a
+        gap apart after it, and the window then up reading the same -- raises :class:`ChoiceUnseen`
+        (:meth:`_take_default_choice`).
 
         Returns a :class:`Transcript` -- a list of the pages, as before.
         """
