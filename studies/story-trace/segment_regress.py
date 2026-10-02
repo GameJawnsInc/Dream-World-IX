@@ -345,6 +345,10 @@ REQUIRED_TESTS_O4: tuple = (
     "test_o4_castle_p_gate_needs_its_launch_record",
     # the review #8: the input witness resolves the game's pids once (no tasklist on a poll) and fails closed
     "test_o4_castle_input_witness_resolves_the_game_once",
+    # the paced band's -n 6 flake (a starved poll's read gap straddling a mark, the instrument's V17): a fake drive test
+    # re-runs only a read-gap VOID, at most 3 runs, and asserts on the run returned whole
+    "test_o4_read_gap_void_reads_the_zone_reason_alone",
+    "test_o4_drive_paced_policy_reruns_only_a_read_gap",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

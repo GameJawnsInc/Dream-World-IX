@@ -17574,6 +17574,81 @@ def _o4_void(out, v, by=None):
     assert by is None or out.by == by, (out.by, out)
 
 
+#: The fight zone's VOIDs only the INSTRUMENT's read gap gives -- the driver's V17 (segment_drive.chanbara_judge and
+#: the instance tracker): a gap straddling an instance's down frame or its mark (evidence "unobserved"), a gap that could
+#: hide a prompt's whole life, a gap that hid an instance from the tracker. On a LOADED machine (the nightly's -n 6,
+#: another session's run beside it) a starved poll alone makes one: the fake's loop runs a 60 fps game up to 4x fast
+#: (``fps`` 240), so the 24 frames from a press's down frame to its mark (gone_ticks 12) pass in about a tenth of a
+#: second of wall time, and the window's close tween in a third of that. A fake drive test re-runs that run as R-GATE
+#: re-runs an uninformative one (research/o4_design.md 7.4 G2) -- and NEVER a late press (a j over j_cap, a paced raw
+#: out of its band, evidence "before", no press): a pace test asserts exactly those.
+_O4_READ_GAP_VOIDS = (
+    re.compile(r"instrument: a read gap of \S+ s straddles instance \d+'s mark \(evidence unobserved\)$"),
+    re.compile(r"\d+ instances, and a read gap of \d+ ticks could hide a prompt's whole life$"),
+    re.compile(r"a read gap hid an instance: "))
+
+
+def _o4_read_gap_void(out, log):
+    """The run's reason when its VOID is the instrument's read gap alone (:data:`_O4_READ_GAP_VOIDS`) -- a RouteVoid V17
+    (driver) raised by the fight zone (its one ``zone`` row's ``why``) whose reason names a read gap -- else None. The
+    reason alone decides (the judge's first fault, or the tracker's live stop): its later faults may follow from the gap
+    (the next instance's j bounds widened by it), and a run set aside is never asserted on."""
+    SD = _segment_modules()
+    if not isinstance(out, SD.RouteVoid) or (out.v, out.by) != ("V17", "driver") or not out.args:
+        return None
+    why, zones = out.args[0], _o4_rows_of(log, "zone")
+    if len(zones) != 1 or zones[0].get("why") != why or not any(p.match(str(why)) for p in _O4_READ_GAP_VOIDS):
+        return None
+    return why
+
+
+def _o4_run_informative(game, *, attempts=3, **kw):
+    """:func:`_o4_run` until a run is no read-gap VOID (:func:`_o4_read_gap_void`), at most ``attempts`` runs (R-GATE's
+    3): ``(out, log, fake, story rows, set_aside)``, ``set_aside`` the reasons of the runs re-run. The last run is
+    returned whatever it is -- a gap on every run still fails its test -- and a test asserts on the run returned exactly
+    as on a single run."""
+    aside: list = []
+    for k in range(1, attempts + 1):
+        out, log, fake, rows = _o4_run(game, **kw)
+        why = _o4_read_gap_void(out, log)
+        if why is None or k == attempts:
+            return out, log, fake, rows, aside
+        aside.append(why)
+
+
+def _o4_starve_reads(n, for_frames, *, runs=None):
+    """A ``wrap`` for :func:`_o4_run` -- THE LOADED MACHINE, deterministic: after instance ``n``'s press returns, the
+    driver's next read waits, reading nothing, until the fake has run ``for_frames`` more frames (a starved poll, counted
+    in the fake's frames so that a slow machine starves it no less). The press read the channel up to its ack, past its
+    down frame, so the gap opens there, and ``for_frames`` over the 24 to the mark (gone_ticks 12 at 60 fps) make it
+    straddle instance ``n``'s mark: the read-gap V17. The driver's live check measures from that starved read (its
+    ack frame), so the run goes on to its close, where the judge finds it. ``runs`` (1-based, None: every run, ():
+    none) the runs it starves, of those it wraps -- ``wrap.runs`` counts them all."""
+    def wrap(g, fake):
+        wrap.runs += 1
+        if runs is not None and wrap.runs not in runs:
+            return
+        real_press, real_state, flag = g.press, g.channel.state, {"count": 0, "starve": False}
+
+        def press(button, frames=2):
+            out = real_press(button, frames)
+            if frames == 2:
+                flag["count"] += 1
+                flag["starve"] = flag["count"] == n
+            return out
+
+        def state(*a, **kw):
+            if flag["starve"]:
+                flag["starve"] = False
+                until, end = fake.frame + for_frames, time.time() + 10.0
+                while fake.frame < until and time.time() < end:
+                    time.sleep(0.002)
+            return real_state(*a, **kw)
+        g.press, g.channel.state = press, state
+    wrap.runs = 0
+    return wrap
+
+
 def test_o4_drive_scores_100_on_the_fake(game):
     """THE OWNER'S REQUIREMENT on the fake (research/o4_design.md 0.1 #1, 2.2-2.4; S at 60 fps mean ticks, F through
     the members at 31 fps quantized): 105/106 closed after their gate by page-once; 111 pressed until it closed; 49
@@ -17961,16 +18036,18 @@ def test_o4_drive_paced_policy_lands_in_its_band(game):
     raw lies in [79, 99]; with the +30% firing page 122 reads 100 and the run reaches its end; with ``bonus_fires``
     False (a fork whose wrap fails) page 122 reads the raw itself -- V18 at the score page, and the trace's ip338 row
     holds that raw, inside the zone's raw bounds; and with the render rate switched 60 -> 31 mid-fight (and the loop
-    with it) j stays in the band. Break: pace by ``ticks_sure`` of the frames (rev. 1: after the switch the presses
-    land about twice as late, j ~40: V17)."""
+    with it) j stays in the band. Each is :func:`_o4_run_informative`'s run: on a loaded machine a starved poll alone
+    can void a run V17 by the instrument's read gap -- re-run, as R-GATE re-runs it; nothing else is (a late press is
+    this test's failure). Break: pace by ``ticks_sure`` of the frames (rev. 1: after the switch the presses land about
+    twice as late, j ~40: V17)."""
     pol = {"policy": "paced", "raw_floor": ..., "j_cap": 40,
            "pace": {"target_ticks": 22, "lead_ticks": 2, "raw_band": [79, 99]}}
-    out, log, fake, _t = _o4_run(game, pol=pol)
-    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    out, log, fake, _t, aside = _o4_run_informative(game, pol=pol)
+    assert not isinstance(out, Exception) and out["end"] == "reached", (out, aside)
     z = out["zones"][0]
     assert z["judge"]["v"] is None and 79 <= z["raw"][0] <= z["raw"][1] <= 99, z
     assert "Of 100 nobles watching,\n100 were impressed." in out["pages"]
-    out, log, fake, trace = _o4_run(game, pol=pol, knobs={"bonus_fires": False}, trace=True)
+    out, log, fake, trace, aside = _o4_run_informative(game, pol=pol, knobs={"bonus_fires": False}, trace=True)
     _o4_void(out, "V18", "game")
     z = _o4_rows_of(log, "zone")[0]
     raw = [new for sid, tag, ip, _b, _o, new, _f in trace if (sid, tag, ip) == (4, 1, 338)]
@@ -17979,11 +18056,92 @@ def test_o4_drive_paced_policy_lands_in_its_band(game):
 
     def switch(f):
         f.render_fps, f.fps = 31.0, 124.0
-    out, log, fake, _t = _o4_run(game, pol=pol, phases=[(lambda f: len(f.chanbara_log) >= 20, switch)])
-    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    out, log, fake, _t, aside = _o4_run_informative(game, pol=pol,
+                                                    phases=[(lambda f: len(f.chanbara_log) >= 20, switch)])
+    assert not isinstance(out, Exception) and out["end"] == "reached", (out, aside)
     z = out["zones"][0]
     assert z["judge"]["v"] is None and 79 <= z["raw"][0] <= z["raw"][1] <= 99, z
     assert {r["regime"] for r in out["prompts"]} >= {"60", "31"}, {r["regime"] for r in out["prompts"]}
+
+
+def test_o4_read_gap_void_reads_the_zone_reason_alone():
+    """THE LOAD-ONLY RE-RUN's reading (:func:`_o4_read_gap_void`), pure: a V17 (driver) the fight zone raised whose
+    REASON names the instrument's read gap -- a gap straddling a mark (a later fault following it), one that could hide
+    a prompt's whole life, one that hid an instance from the tracker (an unjudged stop) -- is set aside; nothing else
+    is: a late press with a gap among the later faults, a V18 (one naming a gap too), a V17 with no attribution, a V17
+    another step raised (the zone's reason another, or no zone), the driver's observed V17, the instrument's V13, a run
+    that reached its end. Break: read every fault; or set aside any V17; or drop the zone's reason or the class."""
+    SD = _segment_modules()
+    gap = "instrument: a read gap of 0.083 s straddles instance 43's mark (evidence unobserved)"
+    late = "instance 44's j_hi 44 is over j_cap 40"
+
+    def run(why, v="V17", by="driver", *, zone_why=..., faults=None):
+        zone_why = why if zone_why is ... else zone_why
+        judge = None if faults is None else {"v": v, "by": by, "why": faults[0], "faults": faults, "raw": [80, 90]}
+        log = [{"k": "prompt", "n": 1}]
+        if zone_why is not None:
+            log.append({"k": "zone", "v": v, "by": by, "why": zone_why, "judge": judge})
+        return SD.RouteVoid(why, v=v, cell=[30820, 1155], by=by), log
+    whole = "48 instances, and a read gap of 60 ticks could hide a prompt's whole life"
+    hid = "a read gap hid an instance: ['UP', 'LEFT'] first listed together at frame 2911"
+    for why, faults in ((gap, [gap, late]), (whole, [whole]), (hid, None)):
+        assert _o4_read_gap_void(*run(why, faults=faults)) == why, why
+    before = "instance 3's window left before its press could land (evidence before)"
+    quiet = "a page in the quiet window, nothing pressed: 'Queen Brahne\\n“Encore!”'"
+    kept = {"a late press first": run(late, faults=[late, gap]),
+            "a V18 naming a gap": run(gap, "V18", "game", faults=[gap]),
+            "a V18": run("48 prompts, fewer than 49, and no read gap could hide one", "V18", "game", faults=["x"]),
+            "no attribution": run(gap, by=None, faults=[gap]),
+            "the zone's reason another": run(gap, zone_why=before, faults=[before, gap]),
+            "no zone": run(gap, zone_why=None),
+            "an observed V17": run(quiet)}
+    for what, (out, log) in kept.items():
+        assert _o4_read_gap_void(out, log) is None, what
+    assert _o4_read_gap_void(HarnessError(f"left FieldHUD (MainMenu) {gap}"), []) is None
+    assert _o4_read_gap_void({"end": "reached", "zones": []}, [{"k": "zone", "why": gap}]) is None
+
+
+def test_o4_drive_paced_policy_reruns_only_a_read_gap(game):
+    """THE LOADED MACHINE, deterministic -- test_o4_drive_paced_policy_lands_in_its_band's -n 6 flake ("instrument: a
+    read gap of 0.083 s straddles instance 43's mark (evidence unobserved)", V17 where its bonus run's V18 was due):
+    :func:`_o4_starve_reads` blinds the driver's reads 30 frames after instance 43's press in that run's FIRST attempt,
+    past its mark -- the read-gap V17, set aside -- and the next attempt reads V18 at the score page with the trace's
+    raw inside the zone's bounds, as that test asserts. Starved on EVERY attempt (instance 3; H12's ``lost`` [5] stops
+    each early, its V18 behind the gap's V17 -- a play the instrument did not prove is never a finding), the third
+    attempt's V17 is returned, two set aside: a gap never passes. A V18 (``lost`` [7]) and the driver's other V17
+    (``stop_after``) are returned at once. A loaded machine may add a natural gap to any attempt, so a set-aside is
+    read as a read gap, never counted on an unstarved run. Break: re-run every V17 (or every VOID); or drop the bound;
+    or return a set-aside run."""
+    pol = {"policy": "paced", "raw_floor": ..., "j_cap": 40,
+           "pace": {"target_ticks": 22, "lead_ticks": 2, "raw_band": [79, 99]}}
+
+    def gaps(aside):
+        return all(any(p.match(w) for p in _O4_READ_GAP_VOIDS) for w in aside)
+    starve = _o4_starve_reads(43, 30, runs={1})
+    out, log, fake, trace, aside = _o4_run_informative(game, pol=pol, knobs={"bonus_fires": False}, trace=True,
+                                                       wrap=starve)
+    assert aside and gaps(aside) and starve.runs == len(aside) + 1, (starve.runs, aside)
+    _o4_void(out, "V18", "game")
+    z = _o4_rows_of(log, "zone")[0]
+    raw = [new for sid, tag, ip, _b, _o, new, _f in trace if (sid, tag, ip) == (4, 1, 338)]
+    assert len(raw) == 1 and z["raw"][0] <= raw[0] <= z["raw"][1] and f"{raw[0]} were impressed" in out.args[0], \
+        (raw, z["raw"], out)
+    starve = _o4_starve_reads(3, 30)
+    out, log, fake, _t, aside = _o4_run_informative(game, pol=pol, knobs={"lost": [5]}, wrap=starve)
+    assert starve.runs == 3 and len(aside) == 2 and gaps(aside), (starve.runs, aside)
+    _o4_void(out, "V17", "driver")
+    rows = {r["n"]: r for r in _o4_rows_of(log, "prompt")}
+    assert _o4_read_gap_void(out, log) == out.args[0] and max(rows) == 5 and rows[5]["evidence"] == "lingered", \
+        (out, {n: r["evidence"] for n, r in rows.items()})
+    count = _o4_starve_reads(1, 0, runs=())
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"lost": [7]}, wrap=count)
+    _o4_void(out, "V18", "game")
+    assert gaps(aside) and count.runs == len(aside) + 1, (count.runs, aside)
+    count = _o4_starve_reads(1, 0, runs=())
+    out, log, fake, _t, aside = _o4_run_informative(game, pol={"stop_after": 10}, wrap=count)
+    _o4_void(out, "V17", "driver")
+    assert out.args[0] == "the rehearsal's stop after instance 10" and gaps(aside) and count.runs == len(aside) + 1, \
+        (out, count.runs, aside)
 
 
 def test_o4_drive_stops_v13_off_fieldhud(game):
