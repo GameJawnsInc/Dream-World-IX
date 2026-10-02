@@ -268,8 +268,9 @@ def draft_predictions(campaign=None) -> dict:
             "64 Bit[3815] := 0 (the 50-combo flag zeroed on every entrance-100 arrival)"),
         key(64, 0, 0, 425, 419, "Global.Byte[475]", 0, ":=", "64 Byte[475] := 0 (the best score zeroed)"),
         key(64, 0, 0, 475, 469, "Global.Byte[8]", 125, ":=", "64 Byte[8] := 125 (after the sound-sync loop)"),
-        key(64, 4, 1, 338, 316, "Global.Byte[475]", 100, ":=var",
-            "64 Byte[475] := Map.Int16[48] (THE SCORE: 0 -> 100, ip327 Byte[475] < Int16[48])"),
+        dict(key(64, 4, 1, 338, 316, "Global.Byte[475]", 100, ":=var",
+                 "64 Byte[475] := Map.Int16[48] (THE SCORE: 0 -> 100, ip327 Byte[475] < Int16[48])"),
+             rvalue="Map.Int16[48]"),
         key(64, 4, 1, 390, 368, "Global.Bit[3815]", 1, ":=", "64 Bit[3815] := 1 (THE 50-COMBO, after page 123)"),
         key(64, 2, 1, 331, 320, "Global.Byte[8]", 0, ":=", "64 Byte[8] := 0 (stage 9)")] \
         + P._ambient(150, (61, 123, 142, 204)) + [
@@ -1354,7 +1355,8 @@ class O4Segment(P.O3Segment):
         100 rests on the clamp pin and O4-SWORD (a), never computed here) and ``start_music`` as exactly one writes key
         (O3's); (b) THE FIGHT PINS (4.14): every pin's instruction text EXACTLY the stock US script's, ``prompt_mes``
         each its DBTN by :func:`segment_drive.prompt_dbtn` on block 2's US source, mes 111 a zone start, and the three
-        page sources holding their texts."""
+        page sources holding their texts. A ``:=var`` key names its ``rvalue`` (the variable its store takes), read
+        from the key, never assumed: a key without one FAILS."""
         var = [k for k in pred["writes"] if k.get("op") == ":=var"]
         filtered = {**pred, "writes": [k for k in pred["writes"] if k.get("op") != ":=var"], "start_dependent": [],
                     "noise": [], "forbidden_sites": (list(pred["forbidden_sites"]) + list(pred["error_path"])
@@ -1369,10 +1371,13 @@ class O4Segment(P.O3Segment):
                         width=width, bit=bit, old=0, new=k["value"], same=0)
             idx = stock(k["donor"])
             j = idx.join(row) if idx is not None else None
+            rv = k.get("rvalue")
             if j is None or j.status != "store" or j.tag != k["tag"] or j.rel != k["off"]:
                 bad.append(f"{A.label(k)}: {None if j is None else (j.status, j.tag, j.rel, j.reason)}")
-            elif not re.search(re.escape(k["target"]) + r" Map\.Int16\[48\] B_LET\b", j.text or ""):
-                bad.append(f"{A.label(k)}: the statement is not {k['target']} := Map.Int16[48]: {(j.text or '')[:100]!r}")
+            elif not rv:
+                bad.append(f"{A.label(k)}: a :=var key names no rvalue (the variable its store takes)")
+            elif not re.search(re.escape(k["target"]) + " " + re.escape(rv) + r" B_LET\b", j.text or ""):
+                bad.append(f"{A.label(k)}: the statement is not {k['target']} := {rv}: {(j.text or '')[:100]!r}")
         sm = pred.get("start_music")
         if sm is not None:
             same = [k for k in pred["writes"] if all(k[f] == sm[f] for f in ("donor", "m", "src", "sid", "tag", "ip",
@@ -1386,9 +1391,9 @@ class O4Segment(P.O3Segment):
         if bad:
             return False, self.title("KEYS"), "; ".join(bad)[:1200]
         return (True, self.title("KEYS"),
-                detail.replace("O2-START", "O4-START") + f"; the score's :=var key ({len(var)}: 64 e4 t1 ip338, rvalue "
-                                                         f"Map.Int16[48]) in its statement; start_music one writes key; "
-                                                         f"{fdetail}")
+                detail.replace("O2-START", "O4-START") + "; the score's :=var key ("
+                + ", ".join(f"{k['donor']} e{k['sid']} t{k['tag']} ip{k['ip']}, rvalue {k['rvalue']}" for k in var)
+                + f") in its statement; start_music one writes key; {fdetail}")
 
     def fight_pins_check(self, pred: dict, stock, *, mes=None) -> tuple:
         """O4-KEYS (b), the fight pins (4.14): ``(ok, detail)``. ``mes`` (``{mes id: source}``, block 2's US) replaces
@@ -1642,9 +1647,11 @@ class O4Segment(P.O3Segment):
               none stands in a place off ``route_places`` [64, 150] (O3's clause);
           (b) the 64 -> 150 crossing, on ``w`` rows: the run holds ``landing.exit64`` (64 e2 t1 ip528); the next
               field-mode ``w`` row after it is ``landing.enter150`` (150 e0 t0 ip26) -- 150 loaded by 64's Field(150);
-              no field-mode ``w`` row of place 64 after it;
-          (c) the last field-mode ``w`` row before the end cut is ``landing.exit150`` (150 e3 t1 ip2161), and the run's
-              ``end`` log row names the side's end field (153 on S, member(153) on F: ``side_ends``);
+              no field-mode ``w`` row of place 64 after it -- each at its place's own field (member(place) on F): the
+              crossing is the member's Field();
+          (c) the last field-mode ``w`` row before the end cut is ``landing.exit150`` (150 e3 t1 ip2161), read by
+              PLACE (which field the row ran in is (a)'s), and the run's ``end`` log row names the side's end field
+              (153 on S, member(153) on F: ``side_ends``);
           (d) THE END PER SIDE: the end cut (``cut_row``) is a raw ``w`` row that is ``landing.end_row`` (153 e0 t0
               ip22) at ``fld`` the side's end field -- a real-153 cut row on F fails here;
           (e) every F digest records no seam and no seam key (the chain is closed from member(64) to member(153))."""
@@ -1694,7 +1701,7 @@ class O4Segment(P.O3Segment):
                                f"after 150 loaded")
             fws = [x for x in ws if x.m == fm]
             last = fws[-1] if fws else None
-            if last is None or not (is_at(last, ex150, members) and last.fld == fld_of(ex150["place"])):
+            if last is None or not is_at(last, ex150, members):          # by PLACE: the row's own field is (a)'s
                 bad.append(f"{lab} (c): the last field row before the end cut is "
                            f"{A._row_text(last) if last is not None else 'none'}, not landing.exit150 "
                            f"({ex150['place']} e{ex150['sid']} t{ex150['tag']} ip{ex150['ip']})")
@@ -1731,7 +1738,9 @@ class O4Segment(P.O3Segment):
               row before the combo row;
           (b) the transcript holds ``score_page`` then 123's text in order, and no page holding a combo-page marker;
           (c) exactly one ``choice`` row whose options hold ``encore_match``, answered absolute 1 by the encore rule;
-          (d) the transcript holds ``gil_page`` exactly once, after 123's text -- its press after that choice's frame;
+          (d) the transcript holds ``gil_page`` exactly once, after that choice: the press row holding it decided on a
+              sample after the choice row's frame (the transcript has no frames; a gil page no press row holds cannot
+              be placed: fail-closed);
           (e) :func:`segment_drive.chanbara_judge` over the run's zone, prompt rows and their presses reads None, 49
               prompt rows, every evidence "closed", no measured slide not ok, the zone's ``input`` empty;
           (f) no press row other than the prompts' whose down frame lies AT OR AFTER the first prompt's ``prev_frame``
@@ -1776,13 +1785,14 @@ class O4Segment(P.O3Segment):
                            + (f", index {enc[0].get('index')} by rule {enc[0].get('rule')}" if enc else "")
                            + f", want one answered 1 (No) by rule {enc_n}")
             ngil = pages.count(pol["gil_page"])
-            igil = next((i for i, p in enumerate(pages) if p == pol["gil_page"]), None)
             gpress = [p for p in log if p.get("k") == "press" and pol["gil_page"] in (p.get("texts") or ())]
-            late = (not enc or not gpress or (gpress[0].get("pre") or {}).get("frame", -1) > enc[0].get("frame", 1 << 62))
-            if ngil != 1 or igil is None or i123 is None or igil < i123 or not late:
+            cf = enc[0].get("frame") if len(enc) == 1 else None          # (c) reads a missing or second choice
+            gf = (gpress[0].get("pre") or {}).get("frame") if gpress else None
+            late = cf is None or (gf is not None and gf > cf)
+            if ngil != 1 or not late:
                 bad.append(f"{lab} (d): the gil page {ngil} time(s) in the transcript"
-                           + ("" if late else ", pressed before the encore choice")
-                           + (", before 123" if igil is not None and i123 is not None and igil < i123 else ""))
+                           + ("" if late else ", no press row holds it" if gf is None else
+                              f", its press decided at frame {gf}, not after the encore choice's frame {cf}"))
             zone, prompts, ppress, other = fight_rows(log)
             if zone is None:
                 bad.append(f"{lab} (e): no zone row: the fight was never driven by the policy")

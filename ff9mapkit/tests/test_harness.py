@@ -17965,3 +17965,38 @@ def test_o4_castle_gate_verdict():
     rd = C.gate_reading("S", zone=zone, prompts=rows, presses=_o4_presses(rows), pages=[], byte475=None, pol=pol,
                         page_judge=[], v="V13")
     assert not rd["informative"] and "V13" in rd["why"], rd
+
+
+def test_o4_castle_trace_summary_cuts_at_end_places(o4_stock):
+    """O4's trace summary (research/o4_design.md 7.2, section 8's unit; rev. 2, the claim critique #14) over the dry
+    run's rendered rows (o4_dryrun.render: real store sites, the engine's emission): a base S run reads the ladder 1/1,
+    the chain 2/2, writes 23/23, the error path, forbidden and dead sites absent, one score and one combo row, the
+    crossing 64 ip528 -> 150 e0 t0 ip26, the end cut's row 153 e0 t0 ip22 at its end place, no unregistered key, no
+    join failure, the three start residue rows; the F run cut at member(153)'s row. An F STAGE ending in member(150)
+    (R-GATE's shape) is cut at member(150)'s first row by its end PLACES -- the ladder (150's ip1966) then lies past
+    the cut -- while O3's summary, given the same end FIELDS (rev. 1's call, O2/O3's shape), is not cut at all. Break:
+    cut at the end fields (O2/O3's shape)."""
+    C = _o4_castle_module()
+    D = __import__("o4_dryrun")
+    P = __import__("o3_prima_vista")
+    pred = C.draft_predictions(_o4c_campaign_tmp())
+    members = {int(f): d for f, d in pred["members"].items()}
+    t = C.trace_summary(D._rows(D.base_events()), pred, stock=o4_stock)
+    reg = {k: (sum(1 for x in v if x["present"]), len(v)) for k, v in t["registered"].items()}
+    assert reg == {"ladder": (1, 1), "chain": (2, 2), "writes": (23, 23), "error_path": (0, 8),
+                   "forbidden_sites": (0, 2), "dead": (0, 19)}, reg
+    assert {k: v["count"] for k, v in t["sword"].items()} == {"score": 1, "combo": 1}, t["sword"]
+    assert t["crossing"] == {"exit": "64 e2 t1 ip528 Global.Int16[2]=325", "next": "150 e0 t0 ip26 Global.Bit[191]=0"}
+    assert t["end_row"] == "w 153 e0 t0 ip22 Global.Bit[191]=0" and t["end_places"] == [153], t["end_row"]
+    assert t["unregistered"] == [] and t["failures"] == [], (t["unregistered"], t["failures"])
+    assert [x[1:] for x in t["residue_before"]] == [[0, 0, 131], [1, 0, 4], [2, 0, 100]], t["residue_before"]
+    frows = D._rows(D.base_events(), "F", members)
+    tf = C.trace_summary(frows, pred, side="F", stock=o4_stock)
+    assert tf["end_row"] == "w 31245 e0 t0 ip22 Global.Bit[191]=0" and tf["end_places"] == [153], tf["end_row"]
+    assert tf["unregistered"] == [] and tf["seam_keys"] == [], (tf["unregistered"], tf["seam_keys"])
+    stage = C.trace_summary(frows, pred, side="F", end_fields=[31243], stock=o4_stock)
+    first = next(x.line for x in frows if x.k in ("w", "r") and x.fld == 31243)
+    assert stage["end"] == first and stage["end_places"] == [150] and stage["end_row_fld"] == 31243, stage["end"]
+    assert [k["present"] for k in stage["registered"]["ladder"]] == [False], stage["registered"]["ladder"]
+    o3 = P.trace_summary(frows, pred, side="F", end_fields=[31243], stock=o4_stock)
+    assert o3["end"] is None, o3["end"]
