@@ -93,11 +93,26 @@ class StepRefused(HarnessError):
     DrainQueue: the LAST refusal of the request), exactly as the state that carried the ack published it -- so a
     caller that classifies a refusal reads it HERE, from the sample the verdict was made on, never from a second read
     of state.json (which can come back None mid-rewrite on a healthy game, :meth:`Channel.state`). ``steps`` the
-    request's steps."""
+    request's steps; ``state`` that sample itself (None where a refusal is raised without one) -- what the game
+    published with the refusal, so a caller can ask whether the state explains it (Session.fight: no battle HUD
+    with the battle gone)."""
 
-    def __init__(self, error: str, steps):
+    def __init__(self, error: str, steps, *, state: "State | None" = None):
         super().__init__(f"the game refused a step: {error} (steps={list(steps)})")
-        self.error, self.steps = str(error), list(steps)
+        self.error, self.steps, self.state = str(error), list(steps), state
+
+
+class BattleGone(HarnessError):
+    """The battle a command menu was read for ENDED -- its scene gone, its epoch unchanged -- after the ``menus`` step
+    acked and before the menu it collected was read (Session.menus: the battle doc carries ``menu`` only while the
+    battle is up, so that wait would run out its timeout on a menu that can never come), or before Session.act
+    resolved against it. Not a refusal: the step ran, and the battle it ran in is over. ``state`` the sample that showed
+    it gone, ``epoch`` the battle's. Session.fight reads it as the battle's end (the result returned, or FightTimeout
+    kind "gone"); every ``except HarnessError`` still catches it."""
+
+    def __init__(self, message: str, *, state: "State", epoch: int):
+        super().__init__(message)
+        self.state, self.epoch = state, int(epoch)
 
 
 class FightTimeout(HarnessError):

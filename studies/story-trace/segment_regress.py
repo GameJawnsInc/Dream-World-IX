@@ -248,6 +248,8 @@ REQUIRED_TESTS_O3: tuple = (
     "test_o3_drive_waits_for_the_end_places_first_row",                     # 11.7 #3: rule 1's end row
     "test_o3_drive_stops_on_a_battle_gone_without_a_result",                # 11.7 #2: fight()'s "gone"
     "test_o3_drive_bounds_the_leave_by_its_row",                            # 11.7 #1: the leave's bound
+    "test_o3_drive_fights_through_an_end_that_beats_its_command",           # the -n 6 command race, pinned
+    "test_o3_drive_fights_through_an_end_that_beats_its_menu",              # ...its menus window, pinned
     # the movie-skip policy (PLAN.md "Movie skip (opt-in)"): opt-in, so every O3 test above runs without it
     "test_o3_drive_movie_skip_presses_once_and_answers_yes",
     "test_o3_drive_movie_skip_is_off_without_the_policy",
@@ -372,6 +374,10 @@ REQUIRED_TESTS_O4: tuple = (
     "test_o4_castle_p_gate_needs_its_launch_record",
     # the review #8: the input witness resolves the game's pids once (no tasklist on a poll) and fails closed
     "test_o4_castle_input_witness_resolves_the_game_once",
+    # the paced band's -n 6 flake (a starved poll's read gap straddling a mark, the instrument's V17): a fake drive test
+    # re-runs only a read-gap VOID, at most 3 runs, and asserts on the run returned whole
+    "test_o4_read_gap_void_reads_the_zone_reason_alone",
+    "test_o4_drive_paced_policy_reruns_only_a_read_gap",
 )
 
 # -- O4 (research/o5_design.md 1.4): the frozen v1 predictions and the PROVEN story-o4 archive

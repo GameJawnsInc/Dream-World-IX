@@ -14116,6 +14116,233 @@ def test_fight_tells_a_vanished_battle_from_a_timeout(game):
     assert (lf["result"], lf["timed_out"], lf["turns"]) == (0, False, 0) and lf["seconds"] < 20.0, lf
 
 
+class _NoHudFake(FakeGame):
+    """The fake whose agent refuses every ``battlecmd`` with no battle HUD, the refusal published with a state that
+    does not explain it: the battle still up, or (``lost``) the agent's fallback battle doc -- ``{"active": false,
+    "epoch": -1}``, what AppendBattle publishes when its read throws -- which shows no battle at all, not THIS one
+    gone."""
+
+    lost = False
+
+    def _execute(self, step):
+        if step[0].lower() == "battlecmd":
+            self._doc_lost = self.lost
+            raise RuntimeError("battlecmd: no battle HUD (not in a battle?)")
+        return super()._execute(step)
+
+    def _battle_doc(self):
+        if getattr(self, "_doc_lost", False):
+            return {"active": False, "epoch": -1, "debug": False}
+        return super()._battle_doc()
+
+
+def test_fight_reads_a_command_refused_with_no_battle_hud_as_the_battle_gone(game):
+    """The command race (``test_o3_drive_voids_an_unregistered_battle`` at -n 6): fight() read "asking slot 0", the
+    battle ENDED before its command landed (King Leo's scripted end), and the agent refused the step -- no battle HUD
+    -- which escaped fight() as a StepRefused. Pinned by the fake's ``battle_end_on_command`` at the SECOND battlecmd
+    (the first, an Attack, is a turn taken): with a result (2) fight() returns it, the refused command no turn
+    (``turns`` 1, ``timed_out`` False); with none (0, the scene gone) it raises FightTimeout kind "gone" at once --
+    never "timeout", never a result. The same race a step earlier -- the end beating act()'s ``menus`` step, refused
+    the same way -- returns the result too, no second battlecmd sent. The controls: the same refusal published with
+    the battle still up, or with the agent's fallback battle doc (epoch -1: no battle shown, not this one gone),
+    raises StepRefused, as before. Break: let the refusal escape (both raise StepRefused); judge it without the
+    published state (the "up" control reads "gone"), or without its epoch (the "lost" control does); read it as a
+    timeout (0's kind "timeout"); count the refused command (``turns`` 2); match battlecmd's refusal only (the menus
+    race raises)."""
+    from harness import FightTimeout
+    from harness.channel import StepRefused
+    for case in ((2, "battlecmd"), (0, "battlecmd"), (2, "menus"), "up", "lost"):
+        result, op = case if isinstance(case, tuple) else (case, None)
+        fake = (_NoHudFake if op is None else FakeGame)(game)
+        fake.enemy_hit, fake.atb_gain = 0, 400
+        if op is None:
+            fake.lost = result == "lost"
+        else:
+            fake.battle_end_on_command = {"result": result, "nth": 2, "op": op}
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30821)
+            fake.start_battle(338, units=_o3_units(10 ** 7, minions=False))
+            published(g, lambda s: s.in_battle and s.battle.get("scene") == 338)
+            t0 = time.time()
+            if op is None:
+                with pytest.raises(StepRefused, match="no battle HUD") as err:
+                    g.fight(timeout=60.0, finish=False)
+                left = err.value.state
+                assert left is not None and left.in_battle == (result == "up"), (result, left and left.battle)
+                assert left.battle_epoch == (-1 if result == "lost" else fake.battle_epoch), left.battle
+                continue
+            if result:
+                assert g.fight(timeout=60.0, finish=False) == result
+            else:
+                with pytest.raises(FightTimeout) as err:
+                    g.fight(timeout=60.0, finish=False)
+                assert err.value.kind == "gone" and "went away with no result" in str(err.value), err.value
+            took, st = time.time() - t0, g.state
+        steps = [s[0] for s in fake.executed if s[0] in ("menus", "battlecmd")]
+        assert steps == ["menus", "battlecmd", "menus"] + (["battlecmd"] if op == "battlecmd" else []), (case, steps)
+        assert len(fake.battle_commands) == 1, fake.battle_commands
+        assert not st.in_battle and st.battle_result == result and took < 20.0, (st, took)
+        lf = g.last_fight
+        assert (lf["result"], lf["timed_out"], lf["turns"]) == (result, False, 1), lf
+
+
+def test_fight_reads_a_menu_the_battle_ended_under_as_the_battle_gone(game):
+    """The command race one step EARLIER than the test above's: act()'s ``menus`` step was acked, and the battle ENDED
+    (King Leo's scripted end in battle 338, under load) before menus() read the menu it collected -- the battle doc
+    carries ``menu`` only while the battle is up, so the wait ran out its 10 s and a plain HarnessError ("the command
+    menu for slot 0 to be published") escaped fight(). Three windows, each at the SECOND command (the first, an
+    Attack, a turn taken): "drain" -- the fake's ``battle_end_on_command`` with ``after`` 0, the end in the step's own
+    frame, so the ack sample already shows the battle gone and no sample ever carries that menu; "ack" -- the ack
+    sample CARRIES the menu (nothing has ended the battle yet), then the end lands on the fake's thread and the driver
+    reads nothing more until it is published (a starved harness); "act" -- menus() read the menu, and the end lands
+    before act() resolves against a fresh read. With a result (2) fight() returns it, the raced command no turn
+    (``turns`` 1, ``timed_out`` False, no second battlecmd sent); with none (0, the scene gone) it raises FightTimeout
+    kind "gone" -- never "timeout", never a result -- and either way inside seconds, not the menus() wait's 10. Break:
+    let menus() wait for the menu alone ("drain" and "ack" raise the plain HarnessError after 10 s); raise a plain
+    HarnessError from the stopped wait, or let fight() pass BattleGone on (every case raises); count the raced command
+    (``turns`` 2); read it as a timeout (0's kind "timeout"); drop act()'s fresh-read check ("act" names no move)."""
+    from harness import FightTimeout
+    for case in ("drain", "ack", "act"):
+        for result in (2, 0):
+            fake = FakeGame(game)
+            fake.enemy_hit, fake.atb_gain = 0, 400
+            if case == "drain":
+                fake.battle_end_on_command = {"result": result, "nth": 2, "op": "menus", "after": 0}
+            acks: list = []
+            menus_read: list = []
+            with session(game, fake) as g:
+                boot(g)
+                g.warp(30821)
+                fake.start_battle(338, units=_o3_units(10 ** 7, minions=False))
+                published(g, lambda s: s.in_battle and s.battle.get("scene") == 338)
+                epoch = fake.battle_epoch
+                real_ack, real_menus = g._await_ack, g.menus
+
+                def end_and_starve():
+                    # the end on the fake's own thread at its next frame; the driver reads nothing until it is out
+                    _o3_end_on_the_fake(fake, result)
+                    published(g, lambda s: s.battle_epoch == epoch and not s.in_battle)
+
+                def ack(seq, timeout, steps, row=None):
+                    st = real_ack(seq, timeout, steps, row=row)
+                    if steps and str(steps[0]).startswith("menus"):
+                        acks.append(st)
+                        if case == "ack" and len(acks) == 2:
+                            end_and_starve()
+                    return st
+
+                def menus(slot=None, **kw):
+                    menu = real_menus(slot, **kw)
+                    menus_read.append(menu)
+                    if case == "act" and len(menus_read) == 2:
+                        end_and_starve()
+                    return menu
+
+                g._await_ack, g.menus = ack, menus
+                t0 = time.time()
+                if result:
+                    assert g.fight(timeout=60.0, finish=False) == result, case
+                else:
+                    with pytest.raises(FightTimeout) as err:
+                        g.fight(timeout=60.0, finish=False)
+                    assert err.value.kind == "gone" and "went away with no result" in str(err.value), (case, err.value)
+                took, st = time.time() - t0, g.state
+            seen = (acks[1].in_battle, acks[1].menu_is_for(0)) if len(acks) == 2 else None
+            assert seen == ((case != "drain"),) * 2, (case, result, len(acks), seen)
+            assert len(menus_read) == (2 if case == "act" else 1), (case, result, menus_read)
+            steps = [s[0] for s in fake.executed if s[0] in ("menus", "battlecmd")]
+            assert steps == ["menus", "battlecmd", "menus"], (case, result, steps)
+            assert len(fake.battle_commands) == 1, (case, result, fake.battle_commands)
+            assert not st.in_battle and st.battle_result == result and took < 8.0, (case, result, st, took)
+            lf = g.last_fight
+            assert (lf["result"], lf["timed_out"], lf["turns"]) == (result, False, 1), (case, result, lf)
+
+
+class _MenuFake(FakeGame):
+    """The fake whose ``menus`` step publishes no menu for the slot asked, the battle still up: ``mode`` "never" --
+    nothing collected -- or "lost": collected, and from then on the agent's fallback battle doc (``{"active": false,
+    "epoch": -1}``, AppendBattle's when its read throws), which shows no battle at all, not THIS one gone."""
+
+    mode = "never"
+
+    def _collect_menus(self, slot):
+        if self.mode != "never":
+            super()._collect_menus(slot)
+        if self.mode == "lost":
+            self._doc_lost = True
+
+    def _battle_doc(self):
+        if getattr(self, "_doc_lost", False):
+            return {"active": False, "epoch": -1, "debug": False}
+        return super()._battle_doc()
+
+
+def test_menus_and_act_raise_battle_gone_only_for_this_battle_gone(game):
+    """menus() and act() OUTSIDE fight(), in the same race (``battle_end_on_command``, ``op`` "menus", ``after`` 0, at
+    the first ``menus``): each raises BattleGone at once -- a HarnessError, so every ``except HarnessError`` still
+    catches it -- carrying the sample that showed the battle gone (result 2, not in battle) and the battle's epoch, and
+    no command sent; not the 10 s timeout. The controls keep the old wait exactly: a menu that never comes with the
+    battle UP, or the agent's fallback doc (epoch -1), still runs out its timeout and raises the plain HarnessError --
+    no battle gone was shown. And fight() passes on a BattleGone whose sample is not THIS battle gone (another epoch's
+    end, or this battle still up). Break: stop menus()'s wait on any doc out of battle (the fallback raises
+    BattleGone), or on the epoch alone (the battle-up control does); drop fight()'s epoch or in-battle check (it reads
+    "gone")."""
+    from harness.channel import BattleGone
+    units = _o3_units(10 ** 7, minions=False)
+    for verb in ("menus", "act"):
+        fake = FakeGame(game)
+        fake.enemy_hit, fake.atb_gain = 0, 400
+        fake.battle_end_on_command = {"result": 2, "nth": 1, "op": "menus", "after": 0}
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30821)
+            fake.start_battle(338, units=[dict(u) for u in units])
+            published(g, lambda s: s.in_battle and s.commands_enabled)
+            t0 = time.time()
+            with pytest.raises(BattleGone) as err:
+                g.menus(0) if verb == "menus" else g.act("Attack", slot=0)
+            took = time.time() - t0
+        gone = err.value
+        assert isinstance(gone, HarnessError) and took < 5.0, (verb, took)
+        assert gone.epoch == fake.battle_epoch == gone.state.battle_epoch, (verb, gone.epoch, gone.state.battle)
+        assert not gone.state.in_battle and gone.state.battle_result == 2 and "slot 0" in str(gone), (verb, gone)
+        assert fake.battle_commands == [], (verb, fake.battle_commands)
+    for mode in ("never", "lost"):
+        fake = _MenuFake(game)
+        fake.mode = mode
+        fake.enemy_hit, fake.atb_gain = 0, 400
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30821)
+            fake.start_battle(338, units=[dict(u) for u in units])
+            published(g, lambda s: s.in_battle and s.commands_enabled)
+            with pytest.raises(HarnessError, match="to be published") as err:
+                g.menus(0, timeout=1.0)
+            assert not isinstance(err.value, BattleGone), (mode, err.value)
+            st = g.state
+            assert fake.battle_active and (st.battle_epoch, st.in_battle) == (
+                (-1, False) if mode == "lost" else (fake.battle_epoch, True)), (mode, st.battle)
+    fake = FakeGame(game)
+    fake.enemy_hit, fake.atb_gain = 0, 400
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30821)
+        fake.start_battle(338, units=[dict(u) for u in units])
+        published(g, lambda s: s.in_battle and s.commands_enabled)
+        raw = g.state.raw
+        # not THIS battle gone: another epoch's end, or this epoch's battle still up
+        for active, epoch in ((False, fake.battle_epoch + 1), (True, fake.battle_epoch)):
+            shown = State(dict(raw, battle=dict(raw["battle"], active=active, epoch=epoch)))
+
+            def act(*a, **kw):
+                raise BattleGone("not this battle gone", state=shown, epoch=shown.battle_epoch)
+            g.act = act
+            with pytest.raises(BattleGone, match="not this battle gone"):
+                g.fight(timeout=10.0, finish=False)
+        assert fake.battle_active and fake.battle_commands == [], fake.battle_commands
+
+
 def test_fight_counts_its_tutorials_and_seconds(game):
     """H7: ``last_fight`` counts the battle tutorial screens the call closed -- scene 336 opens one before its first
     command: 1 -- and the wall seconds it took, and reads ``timed_out`` False on a result; its old keys (turns, result,
@@ -14485,6 +14712,59 @@ def test_o3_drive_voids_an_unregistered_battle(game):
                                              f"(epoch {epoch}) in {where} (place {where}) at SC 1155" in str(err), err
         rows = [r for r in log if r["k"] == "battle"]
         assert len(rows) == (1 if case == "twice" else 0), (case, rows)
+
+
+def test_o3_drive_fights_through_an_end_that_beats_its_command(game):
+    """The "twice" case above with its -n 6 flake PINNED: King Leo's scripted end (result 2) lands between fight()'s
+    read of "asking slot 0" and its second command (the fake's ``battle_end_on_command``; the latch off, so nothing
+    else ends it), and the agent refuses that command -- no battle HUD. The battle is gone with its result: the driver
+    logs its row (result 2, one turn, not timed out) and goes on to V10 on the second battle 338, exactly as the
+    unraced case does. Break: let fight() pass the refusal on (a StepRefused out of the drive, the flake's traceback)."""
+    SD = _segment_modules()
+    fake = _o3_fake(game)
+    fake.battle_script_end = None
+    fake.battle_end_on_command = {"result": 2, "nth": 2}
+    log: list = []
+    phases = _o3_route(end=False)[:3] + [
+        (lambda f: any(r.get("k") == "battle" for r in log) and _o3_idle(f),
+         lambda f: f.start_battle(338, units=_o3_units()))]
+    with session(game, fake) as g:
+        _o3_start(g)
+        err, log = _o3_drive(g, fake, _o3_pred(battles=[_o3_row(lands=30821)]), phases=phases, log=log)
+    assert isinstance(err, SD.RouteVoid) and (err.v, err.by) == ("V10", "game"), err
+    assert len([s for s in fake.executed if s[0] == "battlecmd"]) == 2, fake.executed
+    rows = [r for r in log if r["k"] == "battle"]
+    assert len(rows) == 1, rows
+    b = rows[0]
+    assert (b["result"], b["turns"], b["timed_out"], b["v"], b["landed"]) == (2, 1, False, None, 30821), b
+
+
+def test_o3_drive_fights_through_an_end_that_beats_its_menu(game):
+    """The race above a step EARLIER, through the driver: King Leo's scripted end (result 2) lands between the ack of
+    the second command's ``menus`` step and the read of its menu (the fake's ``battle_end_on_command``, ``op``
+    "menus", ``after`` 0: the end in the step's own frame, so no sample carries that menu; the latch off), and
+    menus() raises BattleGone. The battle is gone with its result: the driver logs its row (result 2, one turn, not
+    timed out) and goes on to V10 on the second battle 338, exactly as the unraced case does; no second battlecmd.
+    Break: let menus() wait for the menu alone (a plain HarnessError out of the drive after its 10 s), or let fight()
+    pass BattleGone on."""
+    SD = _segment_modules()
+    fake = _o3_fake(game)
+    fake.battle_script_end = None
+    fake.battle_end_on_command = {"result": 2, "nth": 2, "op": "menus", "after": 0}
+    log: list = []
+    phases = _o3_route(end=False)[:3] + [
+        (lambda f: any(r.get("k") == "battle" for r in log) and _o3_idle(f),
+         lambda f: f.start_battle(338, units=_o3_units()))]
+    with session(game, fake) as g:
+        _o3_start(g)
+        err, log = _o3_drive(g, fake, _o3_pred(battles=[_o3_row(lands=30821)]), phases=phases, log=log)
+    assert isinstance(err, SD.RouteVoid) and (err.v, err.by) == ("V10", "game"), err
+    steps = [s[0] for s in fake.executed if s[0] in ("menus", "battlecmd")]
+    assert steps == ["menus", "battlecmd", "menus"], steps
+    rows = [r for r in log if r["k"] == "battle"]
+    assert len(rows) == 1, rows
+    b = rows[0]
+    assert (b["result"], b["turns"], b["timed_out"], b["v"], b["landed"]) == (2, 1, False, None, 30821), b
 
 
 def test_o3_drive_voids_a_battle_with_no_result(game):
@@ -17294,6 +17574,86 @@ def _o4_void(out, v, by=None):
     assert by is None or out.by == by, (out.by, out)
 
 
+#: The fight zone's VOIDs only the INSTRUMENT's read gap gives -- the driver's V17 (segment_drive.chanbara_judge and
+#: the instance tracker): a gap straddling an instance's down frame or its mark (evidence "unobserved"), a gap that could
+#: hide a prompt's whole life, a gap that hid an instance from the tracker. On a LOADED machine (the nightly's -n 6,
+#: another session's run beside it) a starved poll alone makes one: the fake's loop runs a 60 fps game up to 4x fast
+#: (``fps`` 240), so the 24 frames from a press's down frame to its mark (gone_ticks 12) pass in about a tenth of a
+#: second of wall time, and the window's close tween in a third of that. A fake drive test re-runs that run as R-GATE
+#: re-runs an uninformative one (research/o4_design.md 7.4 G2) -- and NEVER a late press (a j over j_cap, a paced raw
+#: out of its band, evidence "before", no press): a pace test asserts exactly those. The judge reads every V17 fault
+#: before any V18, so a gap in ANY judged instance voids a clean end and a V18 alike: every fake drive test that
+#: asserts either runs on :func:`_o4_run_informative`; one that asserts a V17, a V13 or a V2, or starves its reads on
+#: purpose, stays on :func:`_o4_run`.
+_O4_READ_GAP_VOIDS = (
+    re.compile(r"instrument: a read gap of \S+ s straddles instance \d+'s mark \(evidence unobserved\)$"),
+    re.compile(r"\d+ instances, and a read gap of \d+ ticks could hide a prompt's whole life$"),
+    re.compile(r"a read gap hid an instance: "))
+
+
+def _o4_read_gap_void(out, log):
+    """The run's reason when its VOID is the instrument's read gap alone (:data:`_O4_READ_GAP_VOIDS`) -- a RouteVoid V17
+    (driver) raised by the fight zone (its one ``zone`` row's ``why``) whose reason names a read gap -- else None. The
+    reason alone decides (the judge's first fault, or the tracker's live stop): its later faults may follow from the gap
+    (the next instance's j bounds widened by it), and a run set aside is never asserted on."""
+    SD = _segment_modules()
+    if not isinstance(out, SD.RouteVoid) or (out.v, out.by) != ("V17", "driver") or not out.args:
+        return None
+    why, zones = out.args[0], _o4_rows_of(log, "zone")
+    if len(zones) != 1 or zones[0].get("why") != why or not any(p.match(str(why)) for p in _O4_READ_GAP_VOIDS):
+        return None
+    return why
+
+
+def _o4_run_informative(game, *, attempts=3, **kw):
+    """:func:`_o4_run` until a run is no read-gap VOID (:func:`_o4_read_gap_void`), at most ``attempts`` runs (R-GATE's
+    3): ``(out, log, fake, story rows, set_aside)``, ``set_aside`` the reasons of the runs re-run. The last run is
+    returned whatever it is -- a gap on every run still fails its test -- and a test asserts on the run returned exactly
+    as on a single run. An F side registers its members on the first run only (the folder keeps them): a re-run is the
+    same run."""
+    aside: list = []
+    for k in range(1, attempts + 1):
+        out, log, fake, rows = _o4_run(game, **kw)
+        why = _o4_read_gap_void(out, log)
+        if why is None or k == attempts:
+            return out, log, fake, rows, aside
+        aside.append(why)
+        kw["register"] = False
+
+
+def _o4_starve_reads(n, for_frames, *, runs=None):
+    """A ``wrap`` for :func:`_o4_run` -- THE LOADED MACHINE, deterministic: after instance ``n``'s press returns, the
+    driver's next read waits, reading nothing, until the fake has run ``for_frames`` more frames (a starved poll, counted
+    in the fake's frames so that a slow machine starves it no less). The press read the channel up to its ack, past its
+    down frame, so the gap opens there, and ``for_frames`` over the 24 to the mark (gone_ticks 12 at 60 fps) make it
+    straddle instance ``n``'s mark: the read-gap V17. The driver's live check measures from that starved read (its
+    ack frame), so the run goes on to its close, where the judge finds it. ``runs`` (1-based, None: every run, ():
+    none) the runs it starves, of those it wraps -- ``wrap.runs`` counts them all."""
+    def wrap(g, fake):
+        wrap.runs += 1
+        if runs is not None and wrap.runs not in runs:
+            return
+        real_press, real_state, flag = g.press, g.channel.state, {"count": 0, "starve": False}
+
+        def press(button, frames=2):
+            out = real_press(button, frames)
+            if frames == 2:
+                flag["count"] += 1
+                flag["starve"] = flag["count"] == n
+            return out
+
+        def state(*a, **kw):
+            if flag["starve"]:
+                flag["starve"] = False
+                until, end = fake.frame + for_frames, time.time() + 10.0
+                while fake.frame < until and time.time() < end:
+                    time.sleep(0.002)
+            return real_state(*a, **kw)
+        g.press, g.channel.state = press, state
+    wrap.runs = 0
+    return wrap
+
+
 def test_o4_drive_scores_100_on_the_fake(game):
     """THE OWNER'S REQUIREMENT on the fake (research/o4_design.md 0.1 #1, 2.2-2.4; S at 60 fps mean ticks, F through
     the members at 31 fps quantized): 105/106 closed after their gate by page-once; 111 pressed until it closed; 49
@@ -17301,16 +17661,17 @@ def test_o4_drive_scores_100_on_the_fake(game):
     "closed", the zone's judge None; 122 == ``score_page`` (beat ``sword``), then 123 pressed until gone and nothing
     pressed from its going until 127; 127 answered No by ``g.choose(1)``, its presses rowed with their seqs (the
     confirm's cursor on No); 128 == ``gil_page``; the trace's ip338 0 -> 100 no later than 122 and ip390 0 -> 1 after
-    123; beats sword and encore; the end reached in "150" (member(150) on F). Break: drop rule 6b (111 then reaches
-    rule 7, whose [DBTN= refusal stops the run V17 -- without it, rule 7's Confirm would miss 7 prompts of 8)."""
+    123; beats sword and encore; the end reached in "150" (member(150) on F). Each side is :func:`_o4_run_informative`'s
+    run (a read-gap VOID alone re-run). Break: drop rule 6b (111 then reaches rule 7, whose [DBTN= refusal stops the
+    run V17 -- without it, rule 7's Confirm would miss 7 prompts of 8)."""
     for side, fps, ticks in (("S", 60.0, "mean"), ("F", 31.0, "quantized")):
         _o4_scores_100(game, side, fps, ticks)
 
 
 def _o4_scores_100(game, side, fps, ticks):
     pol = _o4_policy(donor=30820)
-    out, log, fake, trace = _o4_run(game, side, fps=fps, ticks=ticks, trace=True)
-    assert not isinstance(out, Exception), out
+    out, log, fake, trace, aside = _o4_run_informative(game, side=side, fps=fps, ticks=ticks, trace=True)
+    assert not isinstance(out, Exception), (out, aside)
     assert out["end"] == "reached" and out["beats"] == {"sword": True, "encore": True}, out
     assert fake.field_id == _O4_FIELDS[side][1]
     zones, prompts = out["zones"], out["prompts"]
@@ -17387,14 +17748,15 @@ def test_o4_drive_paced_tracks_the_closing_prompt_beside_its_successor(game):
     claim critique #3): pressed at ``target_ticks`` 22 (j ~22-25) against the reactions -- the defaults (28 after a
     LEFT / RIGHT hit, 30 after the rest), and every one 25 and 21 -- a hit later than the reaction re-arms in its own
     tick, the closing prompt listed beside its successor. Exactly 49 instances, every evidence "closed", the zone's
-    judge None, raw inside [79, 99]: the run informative. Break: track instances on D without ``closing`` (the closing
-    DBTN reopens as a phantom instance: V17)."""
+    judge None, raw inside [79, 99]: the run informative. Each is :func:`_o4_run_informative`'s run (a read-gap VOID
+    alone re-run). Break: track instances on D without ``closing`` (the closing DBTN reopens as a phantom instance:
+    V17)."""
     pol = {"policy": "paced", "raw_floor": ..., "j_cap": 40, "pace": {"target_ticks": 22, "lead_ticks": 2,
                                                                      "raw_band": [79, 99]}}
     for reaction in (None, 25, 21):
         knobs = {} if reaction is None else {"reaction": {99: reaction, 0: reaction, 1: reaction, "others": reaction}}
-        out, log, fake, _t = _o4_run(game, knobs=knobs, pol=pol)
-        assert not isinstance(out, Exception), (reaction, out)
+        out, log, fake, _t, aside = _o4_run_informative(game, knobs=knobs, pol=pol)
+        assert not isinstance(out, Exception), (reaction, out, aside)
         z = out["zones"][0]
         assert z["judge"]["v"] is None and 79 <= z["raw"][0] <= z["raw"][1] <= 99, (reaction, z)
         rows = out["prompts"]
@@ -17408,12 +17770,13 @@ def test_o4_drive_entered_on_a_prompt_bounds_instance_one_from_the_ring(game):
     visit with no 111, so the main loop's first sample in the zone already lists prompt 1 and the executor starts at Z2
     (``start_page`` None, no T0). Instance 1's ``prev`` -- the last sample not listing its DBTN -- lies BEFORE the
     entry, in the ring the main loop's own reads filled: its prev frame is below its seen frame, its j bounds and the
-    zone's raw are bounded, and the paced fight is judged None inside its band, the run reaching "150". Break: take
-    instance 1's prev from the zone's own samples only (None: the judge then reads the row unbounded, V17)."""
+    zone's raw are bounded, and the paced fight is judged None inside its band, the run reaching "150" -- on
+    :func:`_o4_run_informative`'s run (a read-gap VOID alone re-run). Break: take instance 1's prev from the zone's own
+    samples only (None: the judge then reads the row unbounded, V17)."""
     pol = {"policy": "paced", "raw_floor": ..., "j_cap": 40, "pace": {"target_ticks": 22, "lead_ticks": 2,
                                                                      "raw_band": [79, 99]}}
-    out, log, fake, _t = _o4_run(game, knobs={"tutorial": False}, pol=pol)
-    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"tutorial": False}, pol=pol)
+    assert not isinstance(out, Exception) and out["end"] == "reached", (out, aside)
     z = out["zones"][0]
     assert z["start_page"] is None and z["first_prompt"]["t0_frame"] is None, z
     assert not [p for p in log if p.get("k") == "press" and any("To follow" in t for t in p.get("texts") or ())]
@@ -17535,8 +17898,9 @@ def test_o4_drive_read_stall_in_a_gap_is_v17_never_v18(game):
 def test_o4_drive_v18_on_a_lost_press(game):
     """A LOST PRESS is the game's (research/o4_design.md 2.4.3 step 10, 2.4.8): H12's ``lost`` {7} -- the agent takes
     instance 7's press and the game never reads it, so prompt 7 stays listed past its mark: V18 (game) at once, the cell
-    [64, 1155], the zone's evidence "lingered", and nothing re-pressed. Break: re-press a lingering prompt."""
-    out, log, fake, _t = _o4_run(game, knobs={"lost": [7]})
+    [64, 1155], the zone's evidence "lingered", and nothing re-pressed -- on :func:`_o4_run_informative`'s run (the stop
+    judges instances 1-7, so a gap in one of them is a read-gap VOID, re-run). Break: re-press a lingering prompt."""
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"lost": [7]})
     _o4_void(out, "V18", "game")
     assert out.cell == [30820, 1155], out.cell
     rows = {r["n"]: r for r in _o4_rows_of(log, "prompt")}
@@ -17547,9 +17911,10 @@ def test_o4_drive_v18_on_a_lost_press(game):
 def test_o4_drive_v18_on_a_miss_read(game):
     """A MISS READ is the game's (research/o4_design.md 2.4.6, 2.4.8; rev. 2): H12's ``miss_read`` on seed 0's third
     prompt (RIGHT) -- the right key, scored a miss: its window closes on the key (evidence "closed") but neither body
-    slides (its measured slide 0: left out), so the zone's judge reads V18 at Z3, before any score page. Break: ignore
-    the slides (the run then goes on to a score page that reads otherwise)."""
-    out, log, fake, _t = _o4_run(game, knobs={"miss_read": [3], "seed": 0})
+    slides (its measured slide 0: left out), so the zone's judge reads V18 at Z3, before any score page -- on
+    :func:`_o4_run_informative`'s run (a read-gap VOID alone re-run: the judge reads its V17 first). Break: ignore the
+    slides (the run then goes on to a score page that reads otherwise)."""
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"miss_read": [3], "seed": 0})
     _o4_void(out, "V18", "game")
     z = _o4_rows_of(log, "zone")[0]
     rows = {r["n"]: r for r in _o4_rows_of(log, "prompt")}
@@ -17569,20 +17934,22 @@ def test_o4_drive_v18_on_what_the_game_shows(game):
     page 122 reads "87 were impressed." in two samples: V18 with nothing pressed on it; ``extra_prompts`` 1 -- a 50th
     prompt: V18 at instance 50; ``unsubstituted_once`` -- 122 and 128 publish their raw [NUMB] first (for 48 frames
     here, ``unsubstituted_frames``, so a read of the driver's lands on it -- the premise, counted by the test's wrapped
-    ``channel.state``): no stop (no one sample is read as the page) and the run reaches its end. Break: read the page
-    from one sample; or check only the trace (no page reading)."""
+    ``channel.state``): no stop (no one sample is read as the page) and the run reaches its end. Each is
+    :func:`_o4_run_informative`'s run (a read-gap VOID alone re-run; the premise counted on the run returned). Break:
+    read the page from one sample; or check only the trace (no page reading)."""
     SD = _segment_modules()
-    out, log, fake, _t = _o4_run(game, knobs={"score_override": 87})
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"score_override": 87})
     _o4_void(out, "V18", "game")
     assert "87 were impressed" in out.args[0], out
     assert not [t for t in _o4_page_texts(log) if "nobles" in t]
-    out, log, fake, _t = _o4_run(game, knobs={"extra_prompts": 1})
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"extra_prompts": 1})
     _o4_void(out, "V18", "game")
     rows = _o4_rows_of(log, "prompt")
     assert len(rows) == 50 and rows[-1].get("stopped") and "50 prompts" in out.args[0], out
     raw = {"reads": 0}
 
     def wrap(g, fake):
+        raw["reads"] = 0                            # each run's own: the premise is the run returned's
         real = g.channel.state
 
         def state(*a, **kw):
@@ -17591,8 +17958,9 @@ def test_o4_drive_v18_on_what_the_game_shows(game):
                 raw["reads"] += 1
             return st
         g.channel.state = state
-    out, log, fake, _t = _o4_run(game, knobs={"unsubstituted_once": True, "unsubstituted_frames": 48}, wrap=wrap)
-    assert not isinstance(out, Exception) and out["end"] == "reached" and out["beats"]["sword"] is True, out
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"unsubstituted_once": True,
+                                                                 "unsubstituted_frames": 48}, wrap=wrap)
+    assert not isinstance(out, Exception) and out["end"] == "reached" and out["beats"]["sword"] is True, (out, aside)
     assert raw["reads"] >= 1, "premise: a read of the driver's saw page 122 unsubstituted"
 
 
@@ -17600,9 +17968,10 @@ def test_o4_drive_slides_at_31_fps_agent_first(game):
     """THE SLIDE WITNESS on the drive (research/o4_design.md 2.4.6; rev. 2, the driver critique #3, the claim critique
     #1): at 31 fps quantized, published agent-first -- a frame about a tick, so the first sample listing a prompt often
     shows a slide step already -- every LEFT/RIGHT slide is measured between the PREV samples: none measured and not ok,
-    at least 3 of 4 measured. Break: measure from ``x_seen`` (about half the L/R slides read -240)."""
-    out, log, fake, _t = _o4_run(game, fps=31.0, ticks="quantized", knobs={"seed": 0})
-    assert not isinstance(out, Exception), out
+    at least 3 of 4 measured; on :func:`_o4_run_informative`'s run (a read-gap VOID alone re-run). Break: measure from
+    ``x_seen`` (about half the L/R slides read -240)."""
+    out, log, fake, _t, aside = _o4_run_informative(game, fps=31.0, ticks="quantized", knobs={"seed": 0})
+    assert not isinstance(out, Exception), (out, aside)
     s = out["zones"][0]["slides"]
     assert s["not_ok"] == 0 and s["ok"] >= 3 * (s["ok"] + s["unmeasured"]) / 4 and s["ok"] >= 4, s
 
@@ -17642,10 +18011,11 @@ def test_o4_drive_presses_123_again_when_its_first_press_is_dropped(game):
     """S8 b, c on a dropped Confirm (research/o4_design.md 0.3 #1, 2.4.11; rev. 2, the driver critique #1, the claim
     critique #6): with the pages' opening long (``open_s`` 0.25 s) 123's first press lands in its opening and is
     dropped; page-once presses it again ``page_once_ticks`` later, the quiet window opens only at the first sample
-    without it, and 127 comes and is answered No -- the run reaches its end. Break: open the quiet window at the press
-    (rev. 1: the dropped press leaves 123 up in an open quiet window)."""
-    out, log, fake, _t = _o4_run(game, knobs={"open_s": 0.25})
-    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    without it, and 127 comes and is answered No -- the run reaches its end, on :func:`_o4_run_informative`'s run (a
+    read-gap VOID alone re-run). Break: open the quiet window at the press (rev. 1: the dropped press leaves 123 up in
+    an open quiet window)."""
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"open_s": 0.25})
+    assert not isinstance(out, Exception) and out["end"] == "reached", (out, aside)
     p123 = [p for p in _o4_rows_of(log, "press", why="page") if "Queen Brahne was\nquite impressed." in p["texts"]]
     assert len(p123) >= 2, p123
     q = _o4_rows_of(log, "quiet")
@@ -17681,16 +18051,18 @@ def test_o4_drive_paced_policy_lands_in_its_band(game):
     raw lies in [79, 99]; with the +30% firing page 122 reads 100 and the run reaches its end; with ``bonus_fires``
     False (a fork whose wrap fails) page 122 reads the raw itself -- V18 at the score page, and the trace's ip338 row
     holds that raw, inside the zone's raw bounds; and with the render rate switched 60 -> 31 mid-fight (and the loop
-    with it) j stays in the band. Break: pace by ``ticks_sure`` of the frames (rev. 1: after the switch the presses
-    land about twice as late, j ~40: V17)."""
+    with it) j stays in the band. Each is :func:`_o4_run_informative`'s run: on a loaded machine a starved poll alone
+    can void a run V17 by the instrument's read gap -- re-run, as R-GATE re-runs it; nothing else is (a late press is
+    this test's failure). Break: pace by ``ticks_sure`` of the frames (rev. 1: after the switch the presses land about
+    twice as late, j ~40: V17)."""
     pol = {"policy": "paced", "raw_floor": ..., "j_cap": 40,
            "pace": {"target_ticks": 22, "lead_ticks": 2, "raw_band": [79, 99]}}
-    out, log, fake, _t = _o4_run(game, pol=pol)
-    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    out, log, fake, _t, aside = _o4_run_informative(game, pol=pol)
+    assert not isinstance(out, Exception) and out["end"] == "reached", (out, aside)
     z = out["zones"][0]
     assert z["judge"]["v"] is None and 79 <= z["raw"][0] <= z["raw"][1] <= 99, z
     assert "Of 100 nobles watching,\n100 were impressed." in out["pages"]
-    out, log, fake, trace = _o4_run(game, pol=pol, knobs={"bonus_fires": False}, trace=True)
+    out, log, fake, trace, aside = _o4_run_informative(game, pol=pol, knobs={"bonus_fires": False}, trace=True)
     _o4_void(out, "V18", "game")
     z = _o4_rows_of(log, "zone")[0]
     raw = [new for sid, tag, ip, _b, _o, new, _f in trace if (sid, tag, ip) == (4, 1, 338)]
@@ -17699,11 +18071,92 @@ def test_o4_drive_paced_policy_lands_in_its_band(game):
 
     def switch(f):
         f.render_fps, f.fps = 31.0, 124.0
-    out, log, fake, _t = _o4_run(game, pol=pol, phases=[(lambda f: len(f.chanbara_log) >= 20, switch)])
-    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    out, log, fake, _t, aside = _o4_run_informative(game, pol=pol,
+                                                    phases=[(lambda f: len(f.chanbara_log) >= 20, switch)])
+    assert not isinstance(out, Exception) and out["end"] == "reached", (out, aside)
     z = out["zones"][0]
     assert z["judge"]["v"] is None and 79 <= z["raw"][0] <= z["raw"][1] <= 99, z
     assert {r["regime"] for r in out["prompts"]} >= {"60", "31"}, {r["regime"] for r in out["prompts"]}
+
+
+def test_o4_read_gap_void_reads_the_zone_reason_alone():
+    """THE LOAD-ONLY RE-RUN's reading (:func:`_o4_read_gap_void`), pure: a V17 (driver) the fight zone raised whose
+    REASON names the instrument's read gap -- a gap straddling a mark (a later fault following it), one that could hide
+    a prompt's whole life, one that hid an instance from the tracker (an unjudged stop) -- is set aside; nothing else
+    is: a late press with a gap among the later faults, a V18 (one naming a gap too), a V17 with no attribution, a V17
+    another step raised (the zone's reason another, or no zone), the driver's observed V17, the instrument's V13, a run
+    that reached its end. Break: read every fault; or set aside any V17; or drop the zone's reason or the class."""
+    SD = _segment_modules()
+    gap = "instrument: a read gap of 0.083 s straddles instance 43's mark (evidence unobserved)"
+    late = "instance 44's j_hi 44 is over j_cap 40"
+
+    def run(why, v="V17", by="driver", *, zone_why=..., faults=None):
+        zone_why = why if zone_why is ... else zone_why
+        judge = None if faults is None else {"v": v, "by": by, "why": faults[0], "faults": faults, "raw": [80, 90]}
+        log = [{"k": "prompt", "n": 1}]
+        if zone_why is not None:
+            log.append({"k": "zone", "v": v, "by": by, "why": zone_why, "judge": judge})
+        return SD.RouteVoid(why, v=v, cell=[30820, 1155], by=by), log
+    whole = "48 instances, and a read gap of 60 ticks could hide a prompt's whole life"
+    hid = "a read gap hid an instance: ['UP', 'LEFT'] first listed together at frame 2911"
+    for why, faults in ((gap, [gap, late]), (whole, [whole]), (hid, None)):
+        assert _o4_read_gap_void(*run(why, faults=faults)) == why, why
+    before = "instance 3's window left before its press could land (evidence before)"
+    quiet = "a page in the quiet window, nothing pressed: 'Queen Brahne\\n“Encore!”'"
+    kept = {"a late press first": run(late, faults=[late, gap]),
+            "a V18 naming a gap": run(gap, "V18", "game", faults=[gap]),
+            "a V18": run("48 prompts, fewer than 49, and no read gap could hide one", "V18", "game", faults=["x"]),
+            "no attribution": run(gap, by=None, faults=[gap]),
+            "the zone's reason another": run(gap, zone_why=before, faults=[before, gap]),
+            "no zone": run(gap, zone_why=None),
+            "an observed V17": run(quiet)}
+    for what, (out, log) in kept.items():
+        assert _o4_read_gap_void(out, log) is None, what
+    assert _o4_read_gap_void(HarnessError(f"left FieldHUD (MainMenu) {gap}"), []) is None
+    assert _o4_read_gap_void({"end": "reached", "zones": []}, [{"k": "zone", "why": gap}]) is None
+
+
+def test_o4_drive_paced_policy_reruns_only_a_read_gap(game):
+    """THE LOADED MACHINE, deterministic -- test_o4_drive_paced_policy_lands_in_its_band's -n 6 flake ("instrument: a
+    read gap of 0.083 s straddles instance 43's mark (evidence unobserved)", V17 where its bonus run's V18 was due):
+    :func:`_o4_starve_reads` blinds the driver's reads 30 frames after instance 43's press in that run's FIRST attempt,
+    past its mark -- the read-gap V17, set aside -- and the next attempt reads V18 at the score page with the trace's
+    raw inside the zone's bounds, as that test asserts. Starved on EVERY attempt (instance 3; H12's ``lost`` [5] stops
+    each early, its V18 behind the gap's V17 -- a play the instrument did not prove is never a finding), the third
+    attempt's V17 is returned, two set aside: a gap never passes. A V18 (``lost`` [7]) and the driver's other V17
+    (``stop_after``) are returned at once. A loaded machine may add a natural gap to any attempt, so a set-aside is
+    read as a read gap, never counted on an unstarved run. Break: re-run every V17 (or every VOID); or drop the bound;
+    or return a set-aside run."""
+    pol = {"policy": "paced", "raw_floor": ..., "j_cap": 40,
+           "pace": {"target_ticks": 22, "lead_ticks": 2, "raw_band": [79, 99]}}
+
+    def gaps(aside):
+        return all(any(p.match(w) for p in _O4_READ_GAP_VOIDS) for w in aside)
+    starve = _o4_starve_reads(43, 30, runs={1})
+    out, log, fake, trace, aside = _o4_run_informative(game, pol=pol, knobs={"bonus_fires": False}, trace=True,
+                                                       wrap=starve)
+    assert aside and gaps(aside) and starve.runs == len(aside) + 1, (starve.runs, aside)
+    _o4_void(out, "V18", "game")
+    z = _o4_rows_of(log, "zone")[0]
+    raw = [new for sid, tag, ip, _b, _o, new, _f in trace if (sid, tag, ip) == (4, 1, 338)]
+    assert len(raw) == 1 and z["raw"][0] <= raw[0] <= z["raw"][1] and f"{raw[0]} were impressed" in out.args[0], \
+        (raw, z["raw"], out)
+    starve = _o4_starve_reads(3, 30)
+    out, log, fake, _t, aside = _o4_run_informative(game, pol=pol, knobs={"lost": [5]}, wrap=starve)
+    assert starve.runs == 3 and len(aside) == 2 and gaps(aside), (starve.runs, aside)
+    _o4_void(out, "V17", "driver")
+    rows = {r["n"]: r for r in _o4_rows_of(log, "prompt")}
+    assert _o4_read_gap_void(out, log) == out.args[0] and max(rows) == 5 and rows[5]["evidence"] == "lingered", \
+        (out, {n: r["evidence"] for n, r in rows.items()})
+    count = _o4_starve_reads(1, 0, runs=())
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"lost": [7]}, wrap=count)
+    _o4_void(out, "V18", "game")
+    assert gaps(aside) and count.runs == len(aside) + 1, (count.runs, aside)
+    count = _o4_starve_reads(1, 0, runs=())
+    out, log, fake, _t, aside = _o4_run_informative(game, pol={"stop_after": 10}, wrap=count)
+    _o4_void(out, "V17", "driver")
+    assert out.args[0] == "the rehearsal's stop after instance 10" and gaps(aside) and count.runs == len(aside) + 1, \
+        (out, count.runs, aside)
 
 
 def test_o4_drive_stops_v13_off_fieldhud(game):
@@ -17742,7 +18195,8 @@ def test_o4_drive_input_witness_stops_v13(game):
 def test_o4_drive_never_blocks_on_the_rate(game):
     """THE RATE, READ NEVER WAITED FOR (research/o4_design.md 2.4.2; rev. 2, the driver critique #6): with
     ``g.rate(require=True)`` wrapped to raise, the fight runs to its end and every prompt row records ``g.rate()`` --
-    measured (the judge requires it). Break: require the rate at Z0."""
+    measured (the judge requires it); on :func:`_o4_run_informative`'s run (a read-gap VOID alone re-run). Break:
+    require the rate at Z0."""
     def wrap(g, fake):
         real = g.rate
 
@@ -17751,8 +18205,8 @@ def test_o4_drive_never_blocks_on_the_rate(game):
                 raise HarnessError("the fight must never wait for a rate")
             return real(require)
         g.rate = rate
-    out, log, fake, _t = _o4_run(game, wrap=wrap)
-    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    out, log, fake, _t, aside = _o4_run_informative(game, wrap=wrap)
+    assert not isinstance(out, Exception) and out["end"] == "reached", (out, aside)
     assert all(r["rate"] and r["rate"]["source"] != "default" for r in out["prompts"]), out["prompts"][0]
 
 

@@ -44,8 +44,8 @@ from ff9mapkit.config import find_game_path                      # noqa: E402
 from ff9mapkit.content.doorface import STEP_PER_CALL              # noqa: E402
 
 from .artifacts import STATE_RING, StateRing, StepLog, build_env         # noqa: E402
-from .channel import (ARM_CYCLE_TIMEOUT, BUTTONS, PROTOCOL, Channel, FightTimeout, HarnessError,   # noqa: E402
-                      State, StepRefused)
+from .channel import (ARM_CYCLE_TIMEOUT, BUTTONS, PROTOCOL, BattleGone, Channel, FightTimeout,   # noqa: E402
+                      HarnessError, State, StepRefused)
 from .logs import (MEMORIA_LOG, PARSERS, UNITY_LOG, UNITY_LOG_PATH,     # noqa: E402
                    LogException, frame_after, line_start_offset, read_from, split_lines)
 from .tickrate import CALLS_PER_TICK, TAIL_TICKS, Rate, TickClock, read_field_tps   # noqa: E402
@@ -721,10 +721,10 @@ class Session:
             return
         if st.error_seq is not None:
             if st.error_seq >= seq:
-                raise StepRefused(st.error, steps)
+                raise StepRefused(st.error, steps, state=st)
             return
         if st.error != self._last_error:
-            raise StepRefused(st.error, steps)
+            raise StepRefused(st.error, steps, state=st)
 
     def _sleep_alive(self, seconds: float) -> None:
         """Sleep, but keep noticing if the game dies -- a plain sleep turns a crash into a timeout."""
@@ -7280,6 +7280,9 @@ class Session:
         mutates the game thirty times a second in order to observe it is not an instrument. The
         cost is that the answer is a snapshot, so this waits for one stamped with THIS slot and
         THIS battle rather than trusting whatever is published.
+
+        Raises :class:`BattleGone` when the battle ends -- this battle's epoch, the scene gone -- before the menu is
+        read: the step ran, and no menu can come from a battle that is over.
         """
         self._require_play_protocol("menus()")
         st = self.state
@@ -7291,9 +7294,18 @@ class Session:
                 raise HarnessError(
                     "menus() without a slot reads whoever the game is currently asking, and it is "
                     "asking nobody (turn.slot is -1). Wait for a turn first, or name a slot.")
+        epoch = st.battle_epoch
         self.send(f"menus {int(slot)}")
-        st = self.wait_for(lambda s: s.menu_is_for(int(slot)), timeout=timeout,
-                           what=f"the command menu for slot {slot} to be published")
+        # ⚠ THE BATTLE CAN END BETWEEN THE ACK AND THIS READ (King Leo's scripted end in battle 338, under load). The
+        # battle doc carries "menu" only while the battle is up, so a wait for the menu alone ran out its whole timeout
+        # on one that could never come, and a plain HarnessError escaped fight(). So it also stops on THIS battle gone
+        # -- its epoch, not in battle; never the agent's fallback doc (epoch -1: no battle shown, not this one gone).
+        st = self.wait_for(lambda s: s.menu_is_for(int(slot)) or (s.battle_epoch == epoch and not s.in_battle),
+                           timeout=timeout, what=f"the command menu for slot {slot} to be published")
+        if not st.menu_is_for(int(slot)):
+            raise BattleGone(
+                f"battle {epoch} ended (result={st.battle_result_name}) before the command menu for slot {slot} was "
+                f"read: the menus step ran, and the battle it ran in is gone", state=st, epoch=epoch)
         return st.battle_menu
 
     def wait_turn(self, *, timeout: float = 90.0) -> int:
@@ -7330,6 +7342,9 @@ class Session:
         list ("Attack", "Defend", "Steal"), the ability list ("Fire", "Cure" -- the parent command
         is inferred), and the item list ("Potion"). The names are the engine's own, resolved from
         the character's preset, trance state and equipment, so no table here can drift out of date.
+
+        Raises :class:`BattleGone` when the battle ends -- the scene gone, the menu's epoch -- after the ``menus`` step
+        and before a command is resolved (:meth:`menus`, or this method's own read after it); nothing is sent.
         """
         self._require_play_protocol("act()")
         if slot is None:
@@ -7337,6 +7352,13 @@ class Session:
         slot = int(slot)
         menu = self.menus(slot)
         st = self.state
+        epoch = int(menu.get("epoch", -2))
+        if st.battle_epoch == epoch and not st.in_battle:
+            # the same race a read later: the battle went between menus()' read and this one, which no longer carries
+            # the menu -- resolving against it would name a move "missing" from a battle that is over
+            raise BattleGone(
+                f"battle {epoch} ended (result={st.battle_result_name}) after the command menu for slot {slot} was "
+                f"read, before a command was resolved against it", state=st, epoch=epoch)
         cmd, sub, ttype, for_dead, what = self._resolve_command(st, menu, command, slot)
         tar_id, cursor, tname = self._resolve_target(st, slot, target, ttype, for_dead)
         self._log(f"  act: slot {slot} {what} -> {tname} "
@@ -7486,6 +7508,11 @@ class Session:
         GOES with no result before either bound runs out (a soft reset or a crash to the title mid-fight, an engine
         path that leaves the result 0) raises it with ``kind`` "gone" and its own message: no bound ran out, so
         ``timed_out`` is False and a caller that owns the bounds must not read it as one (the review, 11.7 #2).
+        A command the agent refuses with no battle HUD while the very sample that carried the refusal shows this
+        battle gone (its end landed between the read and the command) is no turn taken: the loop ends there as on any
+        sample showing the end -- the result returned, or "gone" with none. Shown NOT gone, the refusal raises. So is
+        a command whose menu the battle ended under (:class:`BattleGone` from act(): the ``menus`` step acked, the
+        battle gone before its menu was read or resolved against), judged by the same rules on its own sample.
         Either way, and on a result, :attr:`last_fight` records what the call did: ``turns``, ``result``, ``name``,
         ``epoch``, and ``seconds`` (wall time from the call), ``tutorials`` (screens this call closed) and
         ``timed_out``.
@@ -7558,6 +7585,18 @@ class Session:
             try:
                 self.act(choice["command"], slot=slot, target=choice.get("target"))
             except StepRefused as err:
+                # ⚠ NO BATTLE HUD, and the sample that carried the refusal shows THIS battle gone: the same race with
+                # the end landed WHOLE in between -- the scene gone, not just the HUD off (King Leo's scripted end in
+                # battle 338; test_o3_drive_voids_an_unregistered_battle at -n 6). Not a turn taken: the loop's own
+                # end, judged on that sample -- a result is returned, none raises "gone"; never a bound run out. A
+                # refusal the published state does not explain still raises.
+                left = err.state
+                if ("no battle HUD" in err.error and left is not None and left.battle_epoch == epoch
+                        and not left.in_battle):
+                    self._log(f"  fight: the step for slot {slot} was refused with no battle HUD; the battle is gone "
+                              f"(result={left.battle_result_name})")
+                    gone = left.battle_result == 0
+                    break
                 # The sample said "asking slot N" and the step landed after the HUD stopped asking: a scripted end
                 # (the Masked Man's RunBattleCode after enough damage) or the next intro. Measured, story-o1e run 1.
                 # Not a turn taken and not a failure: read the state again.
@@ -7566,6 +7605,17 @@ class Session:
                 self._log(f"  fight: the step for slot {slot} landed after the HUD stopped asking; reading again")
                 self.wait_frames(10)
                 continue
+            except BattleGone as err:
+                # ⚠ THE SAME RACE A STEP EARLIER: the menus step acked and the battle ended before its menu was read
+                # (menus(): the doc carries "menu" only while the battle is up) or resolved against (act()). No command
+                # went: no turn taken. The loop's own end, judged on the sample that showed it, as above.
+                left = err.state
+                if left.battle_epoch != epoch or left.in_battle:
+                    raise
+                self._log(f"  fight: battle {epoch} ended before slot {slot}'s command menu was used "
+                          f"(result={left.battle_result_name})")
+                gone = left.battle_result == 0
+                break
             turns += 1
         result = self.state.battle_result
         if result == 0 and gone:
