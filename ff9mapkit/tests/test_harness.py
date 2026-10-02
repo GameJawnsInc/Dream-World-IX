@@ -16116,3 +16116,43 @@ def test_segment_drive_ends_per_side_on_the_fake(game):
     err, _log, _rows = _s6_run(game, "F", _S6_END, pred=pred, end_fields=[31245])
     assert isinstance(err, SD.RouteVoid), err
     assert (err.v, err.by) == ("V11", "game") and f"left the route: entered {_S6_END}" in str(err), err
+
+
+def test_segment_o3_scope_lang_reads_the_recorded_p_text():
+    """A2 (research/o4_design.md 9, rev. 2; the claim critique #13): O3's report DERIVES its language clause from the
+    session's recorded P-TEXT rows -- never prints "block 2's uk copy is the US text" as a constant: O4's deploy
+    rewrites block 2 per language, and an O3 session after it records no defect. Through ``O3.report_extra`` on
+    synthetic O3 sessions: block 2's uk KNOWN-KIT-DEFECT line recorded (story-o3's form, and o3_dryrun's TEXT_DEFECT --
+    every dry-run session records it) -> rev. 1's SCOPE_LANG, byte for byte; no P-TEXT row recorded, or no preflight at
+    all -> SCOPE_LANG; a P-TEXT row with no defect -> "block 2's copies are each their own language's stock text";
+    another language's defect -> a clause naming it (neither of the two would be true). Break: print the defect clause
+    unconditionally (rev. 1: the clean session then reads uk-ships-us)."""
+    P = _o3_module()
+    import o3_dryrun as D3
+    pred = json.loads(P.PREDICTIONS.read_text(encoding="utf-8"))
+    ptext = P.O3.title("P-TEXT")
+    uk = ("FF9CustomMap: KNOWN-KIT-DEFECT 1, FAIL 0, 6 byte-equal of 7 languages | KNOWN-KIT-DEFECT uk: ships stock us "
+          "(3a6f3246c2; stock uk 7ac9f17435): the build predates the per-language text pick (aa627d52): regenerate it, "
+          "or repair its sidecars with tools/refresh_verbatim_text.py")
+    clean = "FF9CustomMap: KNOWN-KIT-DEFECT 0, FAIL 0, 7 byte-equal of 7 languages"
+    fr = ("FF9CustomMap: KNOWN-KIT-DEFECT 1, FAIL 0, 6 byte-equal of 7 languages | KNOWN-KIT-DEFECT fr: ships stock gr "
+          "(0123456789; stock fr 9876543210): another language's stock text: the build's per-language text pick")
+
+    def lang(preflight) -> str:
+        session = {"label": "s0"} if preflight is None else {"label": "s0", "preflight": preflight}
+        lines = P.O3.report_extra(pathlib.Path("."), session, pred, [], [])
+        got = [ln for ln in lines if ln.startswith("  language -- ")]
+        assert len(got) == 1, lines
+        return got[0][len("  language -- "):]
+    assert P.SCOPE_LANG == ("a US session (P-LANG): the members' jp/fr/gr/it/es .eb are US bytecode "
+                            "(accept_us_build), and block 2's uk copy is the US text (the KNOWN-KIT-DEFECT line below)")
+    assert lang([[True, ptext, uk]]) == P.SCOPE_LANG
+    assert lang([[True, ptext, D3.TEXT_DEFECT]]) == P.SCOPE_LANG
+    assert lang([[True, "P-CAP: the engine advertises the story trace at proto 1", "{'proto': 1}"]]) == P.SCOPE_LANG
+    assert lang(None) == P.SCOPE_LANG
+    assert lang([[True, ptext, clean]]) == ("a US session (P-LANG): the members' jp/fr/gr/it/es .eb are US bytecode "
+                                            "(accept_us_build); block 2's copies are each their own language's stock "
+                                            "text (P-TEXT)")
+    assert lang([[True, ptext, fr]]) == ("a US session (P-LANG): the members' jp/fr/gr/it/es .eb are US bytecode "
+                                         "(accept_us_build), and block 2's fr copy is another language's stock text "
+                                         "(the KNOWN-KIT-DEFECT line below)")
