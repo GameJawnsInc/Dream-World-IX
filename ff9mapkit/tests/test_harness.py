@@ -17016,3 +17016,569 @@ def test_o4_stray_answer_attributes_by_the_down_frame():
     lost = {"k": "press", "why": "page", "seq": 7, "button": "confirm", "pre": {"frame": 4990}}
     got = SD.stray_answer([lost], events, steps, first, close)
     assert got["v"] == "V17" and "no accepted event" in got["why"], got
+
+
+# ---- O4's Chanbara policy on the drive (studies/story-trace/segment_drive.py, rule 6b, S7-S9; research/o4_design.md
+# 2.2, 2.4, 9 B3), against H11 on the fake's fields: 30820 is "64", 30821 "150" (where the run ends, R-CHANBARA's
+# shape); the F side's members 31240 ("64") and 31243 ("150") are appended to the fixture's DictionaryPatch, O1's
+# pinning test's way. Every test models the engine where O4 needs it (O3's knobs: a warp lands without control and is
+# refused off the field), publishes agent-first unless it says otherwise, and keeps the fake's loop at 4x its render
+# rate (240 at 60 fps, 124 at 31): the driver's wall latency reaches the fight that much compressed, in ticks.
+
+_O4_FIELDS = {"S": (30820, 30821), "F": (31240, 31243)}
+_O4_RUNS = __import__("itertools").count(1)
+_O4_NAMES = {"31240": "O4_ALEX_STANDS", "31243": "O4_ALEX_HALL"}
+
+
+def _o4_pred(**over):
+    """O4's driver keys (research/o4_design.md 2.1, 4.1, 4.10) on the fake's fields: no table, no battle, the stop
+    pages, the encore rule and O1's skip net, route and visits "64", the end "150" per side, the policy at "64"."""
+    pred = {"version": 1, "start": {"S": 30820, "F": 31240}, "entrance": 100, "scenario": 1155,
+            "end_field": 30821, "end_fields": [30821], "side_ends": {"S": [30821], "F": [31243]},
+            "route": [30820], "visits": [30820], "members": {"31240": 30820, "31243": 30821},
+            "names": dict(_O4_NAMES),
+            "budget": {"run_s": 120, "run_min_s": 1, "session_s": 600, "settle_s": 0.3, "no_progress_s": 60},
+            "beats": ["sword", "encore"], "table": [], "naming": [], "forbidden": [], "end_state": {}, "regions": {},
+            "hotspots": {}, "battles": [],
+            "stop_pages": [{"match": "Env Play()", "why": "64's ambient error window"},
+                           {"match": "Set Scenario Counter()", "why": "150's debug window 55"}],
+            "choices": [{"donor": 30820, "sc": [1155], "match": "encore", "pick": "No", "once": True, "beat": "encore"},
+                        {"donor": None, "sc": None, "match": "want to skip", "pick": "default", "once": False,
+                         "beat": None}],
+            "chanbara": _o4_policy(donor=30820)}
+    pred.update(over)
+    return pred
+
+
+def _o4_register(game):
+    patch = game / "FF9CustomMap" / "DictionaryPatch.txt"
+    patch.write_text(patch.read_text(encoding="utf-8")
+                     + "".join(f"FieldScene {f} 11 {n} {n} 2\n" for f, n in _O4_NAMES.items()), encoding="utf-8")
+
+
+def _o4_fake(game, *, fps=60.0, ticks="mean", loop=None):
+    fake = FakeGame(game, fps=loop or 4 * fps, render_fps=fps, ticks=ticks)
+    fake.warp_arrive_control, fake.warp_field_only = False, True
+    return fake
+
+
+def _o4_run(game, side="S", *, knobs=None, pol=None, pred=None, fps=60.0, ticks="mean", sc=1155, trace=False,
+            witness=None, wrap=None, phases=(), budget=120.0, register=True):
+    """One O4 run on the fake: New Game, the raw warp into "64" (entrance 100, ``sc``), H11's Chanbara visit staged on
+    arrival (``knobs`` over ``exit_to`` "150"), and the driver with ``pred`` (default :func:`_o4_pred`, ``pol``
+    merged into its policy). ``wrap(g, fake)`` may wrap the session's calls before the drive; ``phases`` are more
+    director phases after the beat's. ``(outcome or the exception raised, log, fake, story rows)``."""
+    SD = _segment_modules()
+    if side == "F" and register:
+        _o4_register(game)
+    fake = _o4_fake(game, fps=fps, ticks=ticks)
+    start, exit_to = _O4_FIELDS[side]
+    pred = _o4_pred() if pred is None else pred
+    if pol:
+        pred["chanbara"] = {**pred["chanbara"], **pol}
+        for k in [k for k, v in pol.items() if v is ...]:
+            pred["chanbara"].pop(k)
+    log: list = []
+    stop = threading.Event()
+    beat = {"chanbara": {"exit_to": exit_to, **(knobs or {})}}
+    with Session(game_path=game, run_dir=game / f"run-o4-{next(_O4_RUNS)}", save_dir=game / "player-saves",
+                 pid_probe=lambda: [], launcher=lambda exe: fake.start(), boot_timeout=15.0, verbose=False) as g:
+        boot(g)
+        if trace:
+            g.storytrace(True)
+        g._check_field_id(start, "warp", True)
+        g.send(f"warp {start} 100 {sc}")
+        g.wait_for(lambda s: s.field_id == start and s.ui_state == "FieldHUD", timeout=10.0, what=f"field {start}")
+        if wrap is not None:
+            wrap(g, fake)
+        _o1_director(fake, stop, [(lambda f: f.field_id == start and not f._beats,
+                                   lambda f: f.scene(beat, control=False)), *phases])
+        try:
+            try:
+                out = SD.drive(g, pred, side, log, deadline=time.time() + budget, floor_for=lambda d, c: _flat_bgi(),
+                               prior_for=lambda d: _prior(), forbid_live=False, witness=witness)
+            except (SD.RouteVoid, HarnessError) as err:
+                out = err
+        finally:
+            stop.set()
+        rows = _cb_trace(fake) if trace else []
+    return out, log, fake, rows
+
+
+def _o4_rows_of(log, k, **match):
+    return [r for r in log if r.get("k") == k and all(r.get(a) == b for a, b in match.items())]
+
+
+def _o4_void(out, v, by=None):
+    """The run's VOID as raised: a RouteVoid of class ``v`` (and ``by``), or the instrument's HarnessError for V13."""
+    SD = _segment_modules()
+    if v == "V13":
+        assert isinstance(out, HarnessError) and not isinstance(out, SD.RouteVoid), out
+        return
+    assert isinstance(out, SD.RouteVoid) and out.v == v, (getattr(out, "v", None), out)
+    assert by is None or out.by == by, (out.by, out)
+
+
+def test_o4_drive_scores_100_on_the_fake(game):
+    """THE OWNER'S REQUIREMENT on the fake (research/o4_design.md 0.1 #1, 2.2-2.4; S at 60 fps mean ticks, F through
+    the members at 31 fps quantized): 105/106 closed after their gate by page-once; 111 pressed until it closed; 49
+    prompt rows, each pressed once with its mapped button, every j_hi within 16, raw_lo >= 100, every evidence
+    "closed", the zone's judge None; 122 == ``score_page`` (beat ``sword``), then 123 pressed until gone and nothing
+    pressed from its going until 127; 127 answered No by ``g.choose(1)``, its presses rowed with their seqs (the
+    confirm's cursor on No); 128 == ``gil_page``; the trace's ip338 0 -> 100 no later than 122 and ip390 0 -> 1 after
+    123; beats sword and encore; the end reached in "150" (member(150) on F). Break: drop rule 6b (111 then reaches
+    rule 7, whose [DBTN= refusal stops the run V17 -- without it, rule 7's Confirm would miss 7 prompts of 8)."""
+    for side, fps, ticks in (("S", 60.0, "mean"), ("F", 31.0, "quantized")):
+        _o4_scores_100(game, side, fps, ticks)
+
+
+def _o4_scores_100(game, side, fps, ticks):
+    pol = _o4_policy(donor=30820)
+    out, log, fake, trace = _o4_run(game, side, fps=fps, ticks=ticks, trace=True)
+    assert not isinstance(out, Exception), out
+    assert out["end"] == "reached" and out["beats"] == {"sword": True, "encore": True}, out
+    assert fake.field_id == _O4_FIELDS[side][1]
+    zones, prompts = out["zones"], out["prompts"]
+    assert len(zones) == 1 and zones[0]["judge"]["v"] is None and zones[0]["v"] is None, zones
+    z = zones[0]
+    assert z["raw"][0] >= 100 and z["instances"] == 49 and z["presses"] == 49, z
+    assert len(prompts) == 49 and [p["n"] for p in prompts] == list(range(1, 50))
+    assert all(p["button"] == pol["buttons"][p["dbtn"]] and p["evidence"] == "closed" for p in prompts), prompts
+    assert max(p["j_hi"] for p in prompts) <= 16, [p["j_hi"] for p in prompts]
+    presses = _o4_rows_of(log, "press", why="prompt")
+    assert sorted(p["n"] for p in presses) == list(range(1, 50))
+    pages = _o4_rows_of(log, "press", why="page")
+    pair = [p for p in pages if any("En garde" in t or "no quarter" in t for t in p["texts"])]
+    assert len(pair) >= 2 and any("Expect no quarter" in t for t in pair[-1]["texts"]), pair
+    assert z["start_page"]["presses"] and z["start_page"]["first_without_frame"] is not None, z["start_page"]
+    assert pol["score_page"] in out["pages"] and pol["gil_page"] in out["pages"], out["pages"]
+    q = _o4_rows_of(log, "quiet")
+    first127 = _cb_event(fake, "open", "They demand an encore!")["frame"]
+    assert len(q) == 1, q
+    inside = [p for p in log if p.get("k") == "press" and p.get("pre") and q[0]["open_frame"] <= p["pre"]["frame"]
+              < first127 + 2]
+    assert not inside, inside
+    ch = [r for r in log if r.get("k") == "choice"]
+    assert len(ch) == 1 and ch[0]["index"] == 1 and ch[0]["options"][1:] == ["es", "No"], ch
+    chooses = _o4_rows_of(log, "press", why="choose")
+    assert [c["button"] for c in chooses] == ["down", "confirm"] and chooses[1]["answer"] is True, chooses
+    assert chooses[0]["seq"] < chooses[1]["seq"] and chooses[1]["selected_before"] == 1, chooses
+    keys = {ip: (old, new, f) for sid, tag, ip, _b, old, new, f in trace if (sid, tag) == (4, 1)}
+    assert keys[338][:2] == (0, 100) and keys[390][:2] == (0, 1), keys
+    assert keys[338][2] <= _cb_event(fake, "open", "Of 100 nobles")["frame"]
+    assert keys[390][2] >= _cb_event(fake, "gone", "quite impressed")["frame"]
+
+
+def test_o4_drive_opens_one_instance_beside_a_lingering_prompt(game):
+    """The instance tracker at a timeout (research/o4_design.md 0.2 #1, 2.4.3 step 8): instance 3's press stalls --
+    the test's wrapped ``g.press`` reads the channel (every read lands in the ring) until prompt 4 is armed and 50 ms
+    more, then sends -- so prompt 3 times out and prompt 4 arms in that tick, 3 still listed in its close tween beside
+    it. The tracker opens EXACTLY instance 4 -- its ``prev`` the last sample without 4, which lists 3 (``prev_kind``
+    "dbtn"), 3 still listed at 4's first sample (into ``closing``) -- and judges the switch: 3's press had not landed
+    (the switch sample's published seq is below it), so the run stops V17 (driver); instance 3's evidence is not
+    "closed"; nothing is pressed for 4. Break: open an instance per listed DBTN (the tracker drops its ``cur``
+    exclusion)."""
+    def wrap(g, fake):
+        real, count = g.press, {"n": 0}
+
+        def read_until(pred, limit):
+            end = time.time() + limit
+            while time.time() < end and not pred():
+                g.state
+                time.sleep(0.002)
+
+        def press(button, frames=2):
+            if frames == 2:
+                count["n"] += 1
+                if count["n"] == 3:
+                    read_until(lambda: len(fake.chanbara_log) >= 4, 5.0)
+                    read_until(lambda: False, 0.05)
+            return real(button, frames)
+        g.press = press
+    out, log, fake, _t = _o4_run(game, wrap=wrap)
+    _o4_void(out, "V17", "driver")
+    rows = _o4_rows_of(log, "prompt")
+    assert [r["n"] for r in rows] == [1, 2, 3, 4], rows
+    r3, r4 = rows[2], rows[3]
+    assert r4["prev_kind"] == "dbtn" and r4.get("stopped") is True and r4["seq"] is None, r4
+    assert r3["last_listed_frame"] >= r4["seen_frame"] and r3["evidence"] != "closed", r3
+    assert fake.chanbara_log[2]["result"] == "timeout", fake.chanbara_log[:4]
+    assert [p["n"] for p in _o4_rows_of(log, "press", why="prompt")] == [1, 2, 3]
+    assert "instance 3" in out.args[0], out
+
+
+def test_o4_drive_paced_tracks_the_closing_prompt_beside_its_successor(game):
+    """THE PACED POLICY's overlap (research/o4_design.md 0.2 #2, 2.4.3 step 8; rev. 2, the driver critique #2, the
+    claim critique #3): pressed at ``target_ticks`` 22 (j ~22-25) against the reactions -- the defaults (28 after a
+    LEFT / RIGHT hit, 30 after the rest), and every one 25 and 21 -- a hit later than the reaction re-arms in its own
+    tick, the closing prompt listed beside its successor. Exactly 49 instances, every evidence "closed", the zone's
+    judge None, raw inside [79, 99]: the run informative. Break: track instances on D without ``closing`` (the closing
+    DBTN reopens as a phantom instance: V17)."""
+    pol = {"policy": "paced", "raw_floor": ..., "j_cap": 40, "pace": {"target_ticks": 22, "lead_ticks": 2,
+                                                                     "raw_band": [79, 99]}}
+    for reaction in (None, 25, 21):
+        knobs = {} if reaction is None else {"reaction": {99: reaction, 0: reaction, 1: reaction, "others": reaction}}
+        out, log, fake, _t = _o4_run(game, knobs=knobs, pol=pol)
+        assert not isinstance(out, Exception), (reaction, out)
+        z = out["zones"][0]
+        assert z["judge"]["v"] is None and 79 <= z["raw"][0] <= z["raw"][1] <= 99, (reaction, z)
+        rows = out["prompts"]
+        assert len(rows) == 49 and {r["evidence"] for r in rows} == {"closed"}, \
+            (reaction, [(r["n"], r["evidence"]) for r in rows])
+        assert any(r["gone_kind"] == "dbtn" for r in rows), (reaction, "premise: a prompt closed beside its successor")
+
+
+def test_o4_drive_fails_closed_on_an_unclaimed_dialog(game):
+    """The fight zone is FAIL-CLOSED (research/o4_design.md 2.4.3 steps 5-7; critique minor #4): prompts published in
+    a form the recognizer does not claim (no [TIME=-1]) are V17 at the first one -- an ``observed`` row, nothing
+    pressed after 111's Confirm; and a page injected among the prompts is V17 with its ``observed`` row, never rule 7's
+    Confirm. Break: let an unclaimed dialog pass (the run then waits out ``first_prompt_s``: V14)."""
+    out, log, fake, _t = _o4_run(game, knobs={"prompt_raw": "[STRT=54,1][TAIL=UPRF][IMME]Press [DBTN={dbtn}]"
+                                                            "[MOBI={mobi}] !"})
+    _o4_void(out, "V17", "driver")
+    obs = _o4_rows_of(log, "observed")
+    assert len(obs) == 1 and obs[0]["kind"] == "unclaimed_dialog" and obs[0]["cell"] == [30820, 1155], obs
+    zone = _o4_rows_of(log, "zone")[0]
+    pressed = [p for p in log if p.get("k") == "press" and p.get("seq") is not None]
+    assert pressed and {p["why"] for p in pressed} == {"page"}, pressed
+    assert zone["instances"] == 0 and zone["v"] == "V17" and zone["start_page"]["presses"], zone
+
+    def inject(f):
+        f._machine.queue_window(3, "page", "Blank\n“Hold!”", "[STRT=60,2][TAIL=LORF]Blank\n“Hold!”")
+    out, log, fake, _t = _o4_run(game, phases=[(lambda f: len(f.chanbara_log) >= 5 and f._machine is not None, inject)])
+    _o4_void(out, "V17", "driver")
+    obs = _o4_rows_of(log, "observed")
+    assert len(obs) == 1 and obs[0]["kind"] == "unclaimed_dialog" and "Blank\n“Hold!”" in obs[0]["texts"], obs
+    assert not [p for p in log if p.get("k") == "press" and any("Hold" in t for t in p.get("texts") or ())]
+
+
+def test_o4_drive_refuses_an_unrecognized_dbtn_page(game):
+    """S8 a, THE DBTN REFUSAL (research/o4_design.md 2.2 rule 7; rev. 2, the driver critique #11): 111 and the prompts
+    in a form neither recognizer claims -- here a policy whose zone start does not match 111's text, and prompts with
+    an extra tag before "Press" -- are a page in the cell holding ``[DBTN=``: V17 at 111, with nothing pressed on it
+    and an ``observed`` row. Break: let rule 7 press a ``[DBTN=`` page."""
+    knobs = {"prompt_raw": "[STRT=54,1][TAIL=UPRF][IMME][DBTN=UP]Press [DBTN={dbtn}][MOBI={mobi}] ![TIME=-1]"}
+    out, log, fake, _t = _o4_run(game, knobs=knobs, pol={"zone_start": {"match": "To follow Blank's", "dbtns": 8}})
+    _o4_void(out, "V17", "driver")
+    obs = _o4_rows_of(log, "observed")
+    assert len(obs) == 1 and obs[0]["kind"] == "unrecognized_dbtn", obs
+    assert any("To follow Blank" in t for t in obs[0]["texts"]), obs
+    assert not [p for p in log if p.get("k") == "press" and any("To follow" in t for t in p.get("texts") or ())]
+    assert not _o4_rows_of(log, "zone") and not fake.chanbara_log
+
+
+def test_o4_drive_v17_on_a_stalled_press(game):
+    """A DRIVER STALL is the driver's (research/o4_design.md 2.4.8): the test's wrapped ``g.press`` stalls BLIND before
+    instance 5's press goes out -- it watches the fake's own log, never the channel -- while the game times prompt 5
+    out and arms on: (switch) until prompt 6 is up, a new DBTN: the switch, 5's press not landed by it; (hidden) until a
+    later prompt with 5's DBTN is up: the HIDDEN switch, that DBTN listed past 5's window's longest life (a
+    successor's). The first sample after the stall -- read by the press itself before it writes its request -- stops
+    the run V17 (driver) at once: the judge's first fault instance 5's window gone before its press could land
+    (evidence "before": a successor's listing is never read as 5's window), nothing pressed after. Break: judge a stall
+    as V18; or drop the hidden switch; or read a successor's listing as the window's."""
+    for case in ("switch", "hidden"):
+        def wrap(g, fake, case=case):
+            real, count = g.press, {"n": 0}
+
+            def blind_until(up):
+                end = time.time() + 15.0
+                while time.time() < end and not up(fake.chanbara_log):
+                    time.sleep(0.002)
+                time.sleep(0.1)                     # the earlier window's close tween done, the later one still up
+
+            def press(button, frames=2):
+                if frames == 2:
+                    count["n"] += 1
+                    if count["n"] == 5 and case == "switch":
+                        blind_until(lambda cl: len(cl) >= 6)
+                    elif count["n"] == 5:
+                        blind_until(lambda cl: any(r["n"] > 5 and r["dbtn"] == cl[4]["dbtn"] and r["result"] is None
+                                                   for r in cl))
+                return real(button, frames)
+            g.press = press
+        out, log, fake, _t = _o4_run(game, wrap=wrap)
+        _o4_void(out, "V17", "driver")
+        z = _o4_rows_of(log, "zone")[0]
+        rows = _o4_rows_of(log, "prompt")
+        assert z["v"] == "V17" and z["why"].startswith("instance 5's window left before its press could land") \
+            and z["judge"]["faults"], (case, z)
+        assert [r["n"] for r in rows] == list(range(1, 7 if case == "switch" else 6)), (case, rows)
+        assert rows[4]["evidence"] == "before" and rows[4]["seq"] is not None, (case, rows[4])
+        assert max(p["n"] for p in _o4_rows_of(log, "press", why="prompt")) == 5, case
+
+
+def test_o4_drive_read_stall_in_a_gap_is_v17_never_v18(game):
+    """A READ STALL is the instrument's (research/o4_design.md 2.4.6, 2.4.8; rev. 2, the driver critique #4, the claim
+    critique #2): the channel's reads stall 0.5 s right after instance 9's press returns (the test's wrapped
+    ``channel.state``) -- inside the gap, so no sample shows instance 9's window leave in time. Its evidence is
+    "unobserved" and the run is V17 "instrument: a read gap ...", never V18: a missing sample is no evidence about the
+    game. Break: rate a missing sample as V18."""
+    def wrap(g, fake):
+        real_press, real_state, flag = g.press, g.channel.state, {"count": 0, "stall": False}
+
+        def press(button, frames=2):
+            out = real_press(button, frames)
+            if frames == 2:
+                flag["count"] += 1
+                flag["stall"] = flag["count"] == 9
+            return out
+
+        def state(*a, **kw):
+            if flag["stall"]:
+                flag["stall"] = False
+                time.sleep(0.5)
+            return real_state(*a, **kw)
+        g.press, g.channel.state = press, state
+    out, log, fake, _t = _o4_run(game, wrap=wrap)
+    _o4_void(out, "V17", "driver")
+    rows = {r["n"]: r for r in _o4_rows_of(log, "prompt")}
+    assert rows[9]["evidence"] == "unobserved", rows[9]
+    assert out.args[0].startswith("instrument: a read gap"), out
+
+
+def test_o4_drive_v18_on_a_lost_press(game):
+    """A LOST PRESS is the game's (research/o4_design.md 2.4.3 step 10, 2.4.8): H12's ``lost`` {7} -- the agent takes
+    instance 7's press and the game never reads it, so prompt 7 stays listed past its mark: V18 (game) at once, the cell
+    [64, 1155], the zone's evidence "lingered", and nothing re-pressed. Break: re-press a lingering prompt."""
+    out, log, fake, _t = _o4_run(game, knobs={"lost": [7]})
+    _o4_void(out, "V18", "game")
+    assert out.cell == [30820, 1155], out.cell
+    rows = {r["n"]: r for r in _o4_rows_of(log, "prompt")}
+    assert rows[7]["evidence"] == "lingered" and max(rows) == 7, rows.get(7)
+    assert [p["n"] for p in _o4_rows_of(log, "press", why="prompt")] == list(range(1, 8))
+
+
+def test_o4_drive_v18_on_a_miss_read(game):
+    """A MISS READ is the game's (research/o4_design.md 2.4.6, 2.4.8; rev. 2): H12's ``miss_read`` on seed 0's third
+    prompt (RIGHT) -- the right key, scored a miss: its window closes on the key (evidence "closed") but neither body
+    slides (its measured slide 0: left out), so the zone's judge reads V18 at Z3, before any score page. Break: ignore
+    the slides (the run then goes on to a score page that reads otherwise)."""
+    out, log, fake, _t = _o4_run(game, knobs={"miss_read": [3], "seed": 0})
+    _o4_void(out, "V18", "game")
+    z = _o4_rows_of(log, "zone")[0]
+    rows = {r["n"]: r for r in _o4_rows_of(log, "prompt")}
+    assert rows[3]["dbtn"] == "RIGHT" and rows[3]["evidence"] == "closed", rows[3]
+    assert rows[3]["slide"]["ok"] is False and rows[3]["slide"]["left_out"] == [3], rows[3]["slide"]
+    assert z["v"] == "V18" and "left out" in z["why"] and z["end"] is not None, z
+    assert not [p for p in _o4_page_texts(log) if "nobles" in p]
+
+
+def _o4_page_texts(log):
+    """Every window text a ``page`` press row says it pressed."""
+    return [t for p in log if p.get("k") == "press" and p.get("why") == "page" for t in p.get("texts") or ()]
+
+
+def test_o4_drive_v18_on_what_the_game_shows(game):
+    """What the GAME SHOWS after a proven play (research/o4_design.md 2.4.8, 2.4.12): H12's ``score_override`` 87 --
+    page 122 reads "87 were impressed." in two samples: V18 with nothing pressed on it; ``extra_prompts`` 1 -- a 50th
+    prompt: V18 at instance 50; ``unsubstituted_once`` -- 122 and 128 publish their raw [NUMB] first (for 48 frames
+    here, ``unsubstituted_frames``, so a read of the driver's lands on it -- the premise, counted by the test's wrapped
+    ``channel.state``): no stop (no one sample is read as the page) and the run reaches its end. Break: read the page
+    from one sample; or check only the trace (no page reading)."""
+    SD = _segment_modules()
+    out, log, fake, _t = _o4_run(game, knobs={"score_override": 87})
+    _o4_void(out, "V18", "game")
+    assert "87 were impressed" in out.args[0], out
+    assert not [t for t in _o4_page_texts(log) if "nobles" in t]
+    out, log, fake, _t = _o4_run(game, knobs={"extra_prompts": 1})
+    _o4_void(out, "V18", "game")
+    rows = _o4_rows_of(log, "prompt")
+    assert len(rows) == 50 and rows[-1].get("stopped") and "50 prompts" in out.args[0], out
+    raw = {"reads": 0}
+
+    def wrap(g, fake):
+        real = g.channel.state
+
+        def state(*a, **kw):
+            st = real(*a, **kw)
+            if st is not None and any("[NUMB=0]" in t for _p, t in SD.dialog_rows(st.raw)):
+                raw["reads"] += 1
+            return st
+        g.channel.state = state
+    out, log, fake, _t = _o4_run(game, knobs={"unsubstituted_once": True, "unsubstituted_frames": 48}, wrap=wrap)
+    assert not isinstance(out, Exception) and out["end"] == "reached" and out["beats"]["sword"] is True, out
+    assert raw["reads"] >= 1, "premise: a read of the driver's saw page 122 unsubstituted"
+
+
+def test_o4_drive_slides_at_31_fps_agent_first(game):
+    """THE SLIDE WITNESS on the drive (research/o4_design.md 2.4.6; rev. 2, the driver critique #3, the claim critique
+    #1): at 31 fps quantized, published agent-first -- a frame about a tick, so the first sample listing a prompt often
+    shows a slide step already -- every LEFT/RIGHT slide is measured between the PREV samples: none measured and not ok,
+    at least 3 of 4 measured. Break: measure from ``x_seen`` (about half the L/R slides read -240)."""
+    out, log, fake, _t = _o4_run(game, fps=31.0, ticks="quantized", knobs={"seed": 0})
+    assert not isinstance(out, Exception), out
+    s = out["zones"][0]["slides"]
+    assert s["not_ok"] == 0 and s["ok"] >= 3 * (s["ok"] + s["unmeasured"]) / 4 and s["ok"] >= 4, s
+
+
+def test_o4_drive_page_once_and_the_quiet_windows(game):
+    """S8 b and c (research/o4_design.md 2.2 rule 7, 2.4.11): the KEYON pair 105/106 (``gates`` 40) is pressed by
+    page-once -- every press at least ``page_once_ticks`` after the last unless it presses a window not pressed before
+    (106 joining 105) -- until both close; 111 is pressed until gone; and a page injected after 123 has gone, before
+    127, falls in the quiet window: V17 with an ``observed`` row, nothing pressed on it. Break: page-once off."""
+    def inject(f):
+        f._machine.queue_window(3, "page", "Queen Brahne\n“Encore!”",
+                                "[STRT=60,2][TAIL=DEFT]Queen Brahne\n“Encore!”")
+    gone = {}
+
+    def after_123(f):
+        e = [x for x in f.machine_log if x["event"] == "gone" and "quite impressed" in x["text"]]
+        if e and "tick" not in gone:
+            gone["tick"] = e[0]["tick"]
+        return f._machine is not None and "tick" in gone and f._machine.tick >= gone["tick"] + 4
+    out, log, fake, _t = _o4_run(game, knobs={"gates": {"105": 40}}, phases=[(after_123, inject)])
+    _o4_void(out, "V17", "driver")
+    obs = _o4_rows_of(log, "observed")
+    assert len(obs) == 1 and obs[0]["kind"] == "quiet_page", obs
+    pair = [p for p in _o4_rows_of(log, "press", why="page")
+            if any("garde" in t or "quarter" in t for t in p["texts"])]
+    assert len(pair) >= 3, pair
+    hold = 20                                       # page_once_ticks 10 at 60 fps: 20 frames at the least
+    for a, b in zip(pair, pair[1:]):
+        new = set(b["texts"]) - {t for p in pair[:pair.index(b)] for t in p["texts"]}
+        assert new or b["pre"]["frame"] >= a["ack_frame"] + hold - 2, (a, b)
+    z = _o4_rows_of(log, "zone")[0]
+    assert z["start_page"]["presses"] and z["start_page"]["first_without_frame"] is not None
+    assert not [p for p in log if p.get("k") == "press" and any("Encore!" in t for t in p.get("texts") or ())]
+
+
+def test_o4_drive_presses_123_again_when_its_first_press_is_dropped(game):
+    """S8 b, c on a dropped Confirm (research/o4_design.md 0.3 #1, 2.4.11; rev. 2, the driver critique #1, the claim
+    critique #6): with the pages' opening long (``open_s`` 0.25 s) 123's first press lands in its opening and is
+    dropped; page-once presses it again ``page_once_ticks`` later, the quiet window opens only at the first sample
+    without it, and 127 comes and is answered No -- the run reaches its end. Break: open the quiet window at the press
+    (rev. 1: the dropped press leaves 123 up in an open quiet window)."""
+    out, log, fake, _t = _o4_run(game, knobs={"open_s": 0.25})
+    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    p123 = [p for p in _o4_rows_of(log, "press", why="page") if "Queen Brahne was\nquite impressed." in p["texts"]]
+    assert len(p123) >= 2, p123
+    q = _o4_rows_of(log, "quiet")
+    assert len(q) == 1 and q[0]["open_frame"] > p123[-1]["pre"]["frame"], (q, p123)
+    assert [c["index"] for c in log if c.get("k") == "choice"] == [1]
+
+
+def test_o4_drive_attributes_a_stray_yes(game):
+    """S9's encore attribution on the drive (research/o4_design.md 2.4.11; rev. 2, the claim critique #8): a mutant
+    driver whose ``choose`` confirms at the cursor (Yes) makes the game replay -- the replay's first page (109) goes to
+    the attribution, which finds the driver's own Confirm with the cursor on Yes: V17 (driver), never the fight judge;
+    the game replaying on its own (H12's ``replay_on_no``) after a proper No: V2 (game) -- ``choose``'s presses rowed
+    with their seqs (down, then the confirm with the cursor on No, the answer's own). Break: V2 always; or send a
+    replay page to the fight judge."""
+    def wrap(g, fake):
+        g.choose = lambda index, **kw: g.press("confirm", 4)
+    out, log, fake, _t = _o4_run(game, wrap=wrap)
+    _o4_void(out, "V17", "driver")
+    assert "with the cursor on Yes" in out.args[0], out
+    stray = _o4_rows_of(log, "encore_stray")
+    assert len(stray) == 1 and stray[0]["v"] == "V17" and not _o4_rows_of(log, "page_judge"), stray
+    out, log, fake, _t = _o4_run(game, knobs={"replay_on_no": True})
+    _o4_void(out, "V2", "game")
+    assert out.cell == [30820, 1155] and _o4_rows_of(log, "encore_stray")[0]["v"] == "V2"
+    chooses = _o4_rows_of(log, "press", why="choose")
+    assert [(c["button"], c["answer"]) for c in chooses] == [("down", False), ("confirm", True)], chooses
+    assert chooses[0]["seq"] < chooses[1]["seq"], chooses
+    assert chooses[1]["selected_before"] == 1 and all(c["down_frame"] for c in chooses), chooses
+
+
+def test_o4_drive_paced_policy_lands_in_its_band(game):
+    """THE PACE (research/o4_design.md 2.4.10, R-GATE's): paced at ``target_ticks`` 22 the zone's judge is None and
+    raw lies in [79, 99]; with the +30% firing page 122 reads 100 and the run reaches its end; with ``bonus_fires``
+    False (a fork whose wrap fails) page 122 reads the raw itself -- V18 at the score page, and the trace's ip338 row
+    holds that raw, inside the zone's raw bounds; and with the render rate switched 60 -> 31 mid-fight (and the loop
+    with it) j stays in the band. Break: pace by ``ticks_sure`` of the frames (rev. 1: after the switch the presses
+    land about twice as late, j ~40: V17)."""
+    pol = {"policy": "paced", "raw_floor": ..., "j_cap": 40,
+           "pace": {"target_ticks": 22, "lead_ticks": 2, "raw_band": [79, 99]}}
+    out, log, fake, _t = _o4_run(game, pol=pol)
+    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    z = out["zones"][0]
+    assert z["judge"]["v"] is None and 79 <= z["raw"][0] <= z["raw"][1] <= 99, z
+    assert "Of 100 nobles watching,\n100 were impressed." in out["pages"]
+    out, log, fake, trace = _o4_run(game, pol=pol, knobs={"bonus_fires": False}, trace=True)
+    _o4_void(out, "V18", "game")
+    z = _o4_rows_of(log, "zone")[0]
+    raw = [new for sid, tag, ip, _b, _o, new, _f in trace if (sid, tag, ip) == (4, 1, 338)]
+    assert len(raw) == 1 and z["raw"][0] <= raw[0] <= z["raw"][1] and f"{raw[0]} were impressed" in out.args[0], \
+        (raw, z["raw"], out)
+
+    def switch(f):
+        f.render_fps, f.fps = 31.0, 124.0
+    out, log, fake, _t = _o4_run(game, pol=pol, phases=[(lambda f: len(f.chanbara_log) >= 20, switch)])
+    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    z = out["zones"][0]
+    assert z["judge"]["v"] is None and 79 <= z["raw"][0] <= z["raw"][1] <= 99, z
+    assert {r["regime"] for r in out["prompts"]} >= {"60", "31"}, {r["regime"] for r in out["prompts"]}
+
+
+def test_o4_drive_stops_v13_off_fieldhud(game):
+    """THE UI GUARD (research/o4_design.md 0.3 #5, 2.4.3 step 2; rev. 2, the driver critique #9): H12's
+    ``menu_on_triangle`` -- the first TRIANGLE press opens the main menu, the prompt left armed: the next sample is off
+    FieldHUD and the run stops V13 (the instrument's) at once, nothing pressed after. Break: ignore ``ui_state`` (the
+    held prompt then reads as a lost press: V18)."""
+    out, log, fake, _t = _o4_run(game, knobs={"menu_on_triangle": True})
+    _o4_void(out, "V13")
+    assert "left FieldHUD (MainMenu)" in str(out), out
+    presses = _o4_rows_of(log, "press", why="prompt")
+    assert presses[-1]["button"] == "menu" and [r["dbtn"] for r in _o4_rows_of(log, "prompt")].count("TRIANGLE") == 1
+    assert _o4_rows_of(log, "zone")[0]["v"] == "V13"
+
+
+def test_o4_drive_input_witness_stops_v13(game):
+    """THE INPUT WITNESS (research/o4_design.md 2.4.3 step 0; rev. 2, the claim critique #4): a stub witness reporting a
+    pad button once instance 20 is up stops the run V13 at once -- the zone's ``input`` entry, nothing more pressed.
+    Break: ignore the witness."""
+    seen = {}
+
+    def witness():
+        n = len(seen.get("log", ()))
+        return "XInput slot 0: buttons 0x1000 (A)" if n >= 20 else None
+
+    def wrap(g, fake):
+        seen["log"] = fake.chanbara_log
+    out, log, fake, _t = _o4_run(game, witness=witness, wrap=wrap)
+    _o4_void(out, "V13")
+    z = _o4_rows_of(log, "zone")[0]
+    assert len(z["input"]) == 1 and z["input"][0]["what"].startswith("XInput slot 0"), z["input"]
+    assert "outside input during the fight" in str(out)
+    assert max(p["n"] for p in _o4_rows_of(log, "press", why="prompt")) <= 20
+
+
+def test_o4_drive_never_blocks_on_the_rate(game):
+    """THE RATE, READ NEVER WAITED FOR (research/o4_design.md 2.4.2; rev. 2, the driver critique #6): with
+    ``g.rate(require=True)`` wrapped to raise, the fight runs to its end and every prompt row records ``g.rate()`` --
+    measured (the judge requires it). Break: require the rate at Z0."""
+    def wrap(g, fake):
+        real = g.rate
+
+        def rate(require=False):
+            if require:
+                raise HarnessError("the fight must never wait for a rate")
+            return real(require)
+        g.rate = rate
+    out, log, fake, _t = _o4_run(game, wrap=wrap)
+    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    assert all(r["rate"] and r["rate"]["source"] != "default" for r in out["prompts"]), out["prompts"][0]
+
+
+def test_o4_drive_stop_after_ends_at_instance_eleven(game):
+    """R-CHANBARA-VOID's stop (research/o4_design.md 2.4.3 step 8, 7.1): ``stop_after`` 10 -- V17 (driver) "the
+    rehearsal's stop after instance 10" when instance 11 opens, its row ``stopped``, no press after instance 10's.
+    Break: count presses instead of instances."""
+    out, log, fake, _t = _o4_run(game, pol={"stop_after": 10})
+    _o4_void(out, "V17", "driver")
+    assert out.args[0] == "the rehearsal's stop after instance 10", out
+    rows = _o4_rows_of(log, "prompt")
+    assert len(rows) == 11 and rows[-1].get("stopped") and rows[-1]["seq"] is None, rows[-1]
+    assert [p["n"] for p in _o4_rows_of(log, "press", why="prompt")] == list(range(1, 11))
+
+
+def test_o4_drive_prompt_outside_its_cell_is_v17(game):
+    """Rule 6b's CELL (research/o4_design.md 2.2 rule 6b): the visit at SC 1190 -- not the policy's 1155 -- shows 111
+    and its prompts outside the cell: V17 at 111, nothing pressed on it, an ``observed`` row (game-observed). Break:
+    drop the cell test."""
+    out, log, fake, _t = _o4_run(game, sc=1190)
+    _o4_void(out, "V17", "driver")
+    obs = _o4_rows_of(log, "observed")
+    assert len(obs) == 1 and obs[0]["kind"] == "prompt_outside_cell" and obs[0]["cell"] == [30820, 1190], obs
+    assert not _o4_rows_of(log, "zone") and not [p for p in log if p.get("k") == "press"
+                                                 and any("To follow" in t for t in p.get("texts") or ())]

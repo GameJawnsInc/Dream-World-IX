@@ -2982,7 +2982,9 @@ KEYON_PAIR_DEFAULTS = {"texts": None, "raw": None, "lag_ticks": 15, "gate_ticks"
 #: move the bodies); and H12's faults: ``lost`` (instance numbers whose presses the game never reads), ``miss_read``
 #: (instance numbers whose right key the game scores as a miss), ``score_override`` (the score the page shows),
 #: ``extra_prompts`` (passes armed past the bytes' 49), ``menu_on_triangle`` (a Triangle edge opens the main menu),
-#: ``unsubstituted_once`` (122/120 and 128 publish their raw [NUMB=n] once), ``replay_on_no`` (No replays too).
+#: ``unsubstituted_once`` (122/120 and 128 publish their raw [NUMB=n] once -- for ``unsubstituted_frames`` frames from
+#: that first publish, 1 by default: a drive test's way to make sure a read lands on it), ``replay_on_no`` (No replays
+#: too).
 CHANBARA_DEFAULTS = {
     "seed": 0, "sa": 1, "bonus_fires": True, "walk_in_s": 1.83, "gates": {"105": 40, "107": 40, "109": 40},
     "close_s": 0.09, "close_frames": 1, "open_s": 0.105, "open_frames": 2,
@@ -2991,7 +2993,7 @@ CHANBARA_DEFAULTS = {
     "prompt_text": "Press  !", "arm_after_111": 12, "walk_off_s": 2.0, "walk_back_s": 2.0, "exit_wait_ticks": 65,
     "exit_to": None, "choice_lines": ("es", "No"), "encore": True, "slides": True,
     "lost": (), "miss_read": (), "score_override": None, "extra_prompts": 0, "menu_on_triangle": False,
-    "unsubstituted_once": False, "replay_on_no": False}
+    "unsubstituted_once": False, "unsubstituted_frames": 1, "replay_on_no": False}
 #: Blank's and Zidane's x where the fight begins (arbitrary: only a slide's delta is ever read). Blank is published
 #: as the field object sid 20 (64 e0 t0 ip449's InitObject(20)); Zidane is the player.
 CHANBARA_BLANK_X, CHANBARA_ZIDANE_X = 600.0, 0.0
@@ -3059,7 +3061,7 @@ class _Win:
                 self.tween_rt = fake.rt
             if self.tween_rt is not None and fake.rt - self.tween_rt >= float(k["close_s"]) - 1e-9:
                 self.gone = True
-        if self.unsub is not None and fake.publish_frame != self.unsub_mark:
+        if self.unsub is not None and fake.publish_frame - self.unsub_mark >= int(k.get("unsubstituted_frames", 1)):
             self.unsub = None
 
 
@@ -3087,6 +3089,7 @@ class _Machine:
         self.visit0 = fake._visit
         self.done = False
         self.script = None
+        self.queued: list = []                     # windows a test's director asked for (:meth:`queue_window`)
 
     # -- the agent's keys, as the engine reads them
     def level(self, fake) -> int:
@@ -3128,6 +3131,12 @@ class _Machine:
             w.close(fake, self.k["close_frames"])
             self.log(fake, "close", w)
 
+    def queue_window(self, slot: int, kind: str, text: str, raw: str) -> None:
+        """A test's hand from ANOTHER thread (a director): a window this beat opens at its next frame -- a page the
+        script never waits on (an unclaimed dialog, a page in a quiet window). The list is the loop thread's, so the
+        director only queues; the beat's own frame opens it."""
+        self.queued.append((int(slot), str(kind), str(text), str(raw)))
+
     # -- the frame
     def frame(self, fake, slot: str) -> None:
         if self.done:
@@ -3138,6 +3147,8 @@ class _Machine:
         if slot != self.k["publish_order"] or fake.frame == self._frame_seen:
             return
         self._frame_seen = fake.frame
+        while self.queued:
+            self.open(fake, *self.queued.pop(0))
         for w in self.windows:
             was = w.gone
             w.timers(fake, self.k)

@@ -3,7 +3,7 @@ research/o3_design.md 1.2 S4 and 2).
 
 ``RouteVoid`` and ``pick_for`` moved here from ``o1_opening`` (which imports and re-exports both): O1's rules and
 O1's ``raise RouteVoid(msg)`` behave exactly as they did. What O2 adds is additive and optional:
-  - a RouteVoid may carry its VOID class (``v``: "V1".."V16"), its beat-table ``cell`` (``[donor, sc]``) and who it
+  - a RouteVoid may carry its VOID class (``v``: "V1".."V19"), its beat-table ``cell`` (``[donor, sc]``) and who it
     is attributed to (``by``: "driver" or "game"), so the session record and the analysis can read VOIDs per side;
   - a choice rule may carry ``sc`` (the published scenarios it applies at), ``once`` (a second answer is VOID V2)
     and ``take: "default"`` (the pick must be the game's own ready cursor, else VOID V3).
@@ -61,6 +61,22 @@ Each such visit's ``movie`` row keeps its presses, the dialog as published, the 
 at, and how much of the cell's registered span was then left (``left_s``: its ``next_page_s`` less them -- at most what
 the skip saves; the saving itself is the A/B's, from its drive times). Without the key the loop is O3's exactly, and
 O1's skip rule still answers a stray skip dialog at its default (No).
+
+THE CHANBARA POLICY (opt-in, ``chanbara``; research/o4_design.md 2.4, S7-S9): 64's sword fight, played by the driver to
+the owner's displayed 100/100. :func:`chanbara_of` reads the policy STRICT (the one button map, :data:`DBTN_CONTROL`:
+``circle`` is Control.Confirm, the Cross bit, and is refused). RULE 6b, before rule 7, claims a published prompt
+(:func:`prompt_dbtn`: one [DBTN], "Press", [TIME=-1] in ``phrase_raw``) or the zone start (:func:`is_zone_start`: 111)
+in the policy's cell, and its executor (:class:`_ChanbaraZone`) owns the loop until the zone's end text: 111 pressed
+page-once, a quiet wait, then a tight loop over the MERGED sample stream (its own reads and the ring's) -- the input
+witness, the UI, the field, control, the fail-closed claims (any other dialog or a choice is V17 with an ``observed``
+row), the instance tracker (a prompt closing beside its successor is never a new instance), one mapped press per
+instance (fast, or paced to a target in game ticks), the lost press -- and at its end the rows completed (each press
+placed by its accepted event, the evidence, the j and raw bounds, the slides) and :func:`chanbara_judge`: V17 (the
+driver's: its input is not proven the frozen play) or V18 (the game's: a sample SHOWED it deviate -- a finding).
+Rule 7 under the policy refuses an unrecognized [DBTN] page, presses page-once per window, keeps the quiet window after
+123, reads the score and gil pages in two consecutive samples, and sends a replay after the encore answer to
+:func:`stray_answer` (V17 or V2); ``answer`` rows ``choose``'s own presses. ``drive``'s ``witness`` -- outside input,
+polled through the whole run -- stops a run V13. Without the key the loop is O3's exactly.
 """
 from __future__ import annotations
 
@@ -139,8 +155,10 @@ class RouteVoid(Exception):
     """The route met something it has no rule for: the run is VOID (never a finding about the scripts).
 
     ``v`` / ``cell`` / ``by`` are the VOID's class ("V1".."V16": research/o2_design.md 2.7, research/o3_design.md
-    2.6; V19: research/o4_design.md 2.6), its beat-table cell and its attribution; each is None unless given, so O1's
-    ``raise RouteVoid(msg)`` still works and its runs record no class."""
+    2.6; V17, V18 and V19: research/o4_design.md 2.6 -- V17 the fight's input not proven the frozen play, the
+    driver's; V18 the game SHOWN deviating from a proven play, a finding; V19 a real donor field entered on F), its
+    beat-table cell and its attribution; each is None unless given, so O1's ``raise RouteVoid(msg)`` still works and its
+    runs record no class."""
 
     def __init__(self, msg: str = "", *, v: str | None = None, cell: list | None = None, by: str | None = None):
         super().__init__(msg)
@@ -838,6 +856,11 @@ CHANBARA_POLICIES = ("fast", "paced")
 PACE_KEYS = ("target_ticks", "lead_ticks", "raw_band")
 #: A prompt's life in field ticks: TimeLeft 50 (e20 t1 ip736), a hit at the j-th poll credits 50 - j (e3 t1 ip487-498).
 PROMPT_TICKS = 50
+#: A window is listed from its arm to its timeout at the 50th poll, then its close tween (0.09 s and a frame, ~4 ticks):
+#: a sample more than PROMPT_TICKS + this many SURE ticks after an instance's seen frame cannot list that instance's
+#: window -- its DBTN listed there is a successor's (prompts never repeat back to back, e20 ip681: a read gap hid the
+#: instance between).
+LIFE_MARGIN_TICKS = 5
 #: The raw score's divisor (64 e4 t1 ip208: (Int16[30] + Int16[32]) / 29).
 RAW_DIVISOR = 29
 #: Every [DBTN=..] tag of a line, whatever it names.
@@ -1024,12 +1047,19 @@ def prompt_evidence(row: dict, samples: list, gone_ticks: int, *, until: int | N
     (e3 closes the window on a hit and a wrong key alike; only the slide or the score tells which); else
     ``"unobserved"`` -- a read gap straddles the down frame or the mark. ``{"evidence", "mark", "last_listed_frame",
     "gone_frame", "gone_kind"}``: the last sample listing the window, the first after it without ("dbtn" when that one
-    lists another prompt, else "none"); ``evidence`` None without a down frame (no accepted event) or a rate."""
+    lists another prompt, else "none"); ``evidence`` None without a down frame (no accepted event) or a rate. A sample
+    more than PROMPT_TICKS + :data:`LIFE_MARGIN_TICKS` sure ticks after ``seen_frame`` never lists the window: its DBTN
+    there is a successor's."""
     dbtn, seen, down = row["dbtn"], row["seen_frame"], row.get("down_frame")
+    life = rate_of(row["rate"]) if row.get("rate") else None
+
+    def lists(s: dict) -> bool:
+        return dbtn in s["dbtns"] and (life is None or life.ticks_sure(max(0, s["frame"] - seen))
+                                       <= PROMPT_TICKS + LIFE_MARGIN_TICKS)
     after = [s for s in samples if s["frame"] > seen and (until is None or s["frame"] < until)]
-    listing = [s["frame"] for s in after if dbtn in s["dbtns"]]
+    listing = [s["frame"] for s in after if lists(s)]
     last = max(listing) if listing else seen
-    gone = next((s for s in after if s["frame"] > last and dbtn not in s["dbtns"]), None)
+    gone = next((s for s in after if s["frame"] > last and not lists(s)), None)
     out = {"evidence": None, "mark": None, "last_listed_frame": last,
            "gone_frame": None if gone is None else gone["frame"],
            "gone_kind": None if gone is None else ("dbtn" if gone["dbtns"] else "none")}
@@ -1037,13 +1067,13 @@ def prompt_evidence(row: dict, samples: list, gone_ticks: int, *, until: int | N
         return out
     mark = down + rate_of(row["rate"]).frames_for_ticks(gone_ticks)
     out["mark"] = mark
-    if any(s["frame"] <= down and dbtn not in s["dbtns"] for s in after):
+    if any(s["frame"] <= down and not lists(s) for s in after):
         out["evidence"] = "before"
-    elif any(s["frame"] >= mark and dbtn in s["dbtns"] for s in after):
+    elif any(s["frame"] >= mark and lists(s) for s in after):
         out["evidence"] = "lingered"
     else:
-        at = [s["frame"] for s in after if s["frame"] >= down and dbtn in s["dbtns"]]
-        first = next((s["frame"] for s in after if at and s["frame"] > max(at) and dbtn not in s["dbtns"]), None)
+        at = [s["frame"] for s in after if s["frame"] >= down and lists(s)]
+        first = next((s["frame"] for s in after if at and s["frame"] > max(at) and not lists(s)), None)
         out["evidence"] = "closed" if first is not None and first <= mark else "unobserved"
     return out
 
@@ -1286,13 +1316,523 @@ def stray_answer(log: list, events: list, steps: list, first_frame: int, close_f
     return {"v": "V2", "by": "game", "presses": [], "why": "the game replayed though the driver confirmed No"}
 
 
+# ======================================================================== S7: the fight zone's executor (opt-in)
+#: The fight's other body (research/o4_design.md 2.4.1): Blank, the published field object sid 20 (64 e0 t0 ip449's
+#: InitObject(20)); Zidane is the player.
+BLANK_SID = 20
+#: S9's page markers (research/o4_design.md 2.4.12): a page holding SCORE_MARK is a score page (120's "Of the 100
+#: nobles watching," and 122's "Of 100 nobles watching,"), one holding GIL_MARK the gil page (128) -- US text, as the
+#: frozen ``score_page`` and ``gil_page`` are.
+SCORE_MARK, GIL_MARK = "nobles watching", "They shower you with"
+
+
+def dialog_rows(raw: dict) -> list:
+    """The published dialog block of a raw state, ALIGNED: ``[(phrase_raw, text), ...]`` -- read off the raw lists,
+    never State.raw_texts / texts, which drop empty lines and so lose the alignment (research/o4_design.md 2.4.1)."""
+    d = raw.get("dialog") or {}
+    phr, txt = list(d.get("phrase_raw") or []), list(d.get("texts") or [])
+
+    def at(xs: list, i: int) -> str:
+        return "" if i >= len(xs) or xs[i] is None else str(xs[i])
+    return [(at(phr, i), at(txt, i)) for i in range(max(len(phr), len(txt)))]
+
+
+def cb_sample(raw: dict, read_at=None, mtime=None) -> dict:
+    """A MERGED-stream sample (research/o4_design.md 2.4.1): ``{"frame", "read_at", "mtime", "rt", "ui_state",
+    "control", "field", "sc", "seq", "dialogs": [(phrase_raw, text)], "dbtns" (the prompts it lists), "choice",
+    "x_player", "z_player", "x_blank"}`` -- Blank the published object sid 20."""
+    dialogs = dialog_rows(raw)
+    p = raw.get("player") or {}
+    blank = next((o.get("x") for o in raw.get("objects") or () if isinstance(o, dict) and o.get("sid") == BLANK_SID),
+                 None)
+    return {"frame": int(raw.get("frame", -1)), "read_at": read_at, "mtime": mtime, "rt": raw.get("rt"),
+            "ui_state": raw.get("ui_state"), "control": bool(p.get("control", False)),
+            "field": int((raw.get("field") or {}).get("id", -1)), "sc": int(raw.get("scenario", -1)),
+            "seq": int(raw.get("seq", -1)), "dialogs": dialogs,
+            "dbtns": [d for d in (prompt_dbtn(ph) for ph, _t in dialogs) if d],
+            "choice": (raw.get("dialog") or {}).get("choice"), "x_player": p.get("x"), "z_player": p.get("z"),
+            "x_blank": blank}
+
+
+def ring_since(g, frame: int) -> list:
+    """``[(read_at, raw)]`` of every sample the session's ring holds after ``frame``, oldest first -- every read the
+    harness made, a blocking press's own polls included (research/o4_design.md 0.3 #4); their read times from the ring
+    itself where the session keeps one, else None (:meth:`Session.states_since`)."""
+    buf = getattr(getattr(g, "_ring", None), "_buf", None)
+    if buf is not None:
+        return [(t, raw) for t, _age, raw in list(buf) if int(raw.get("frame", -1)) > frame]
+    return [(None, raw) for raw in g.states_since(frame)]
+
+
+def _game_t(s: dict | None) -> tuple:
+    """A sample's game clock: ``("rt", seconds)`` where the agent publishes one (the fake), else ``("mtime", seconds)``
+    for an own read (state.json's write time: the clock the rate is measured from), else ``(None, None)``."""
+    if s is None:
+        return None, None
+    if isinstance(s.get("rt"), (int, float)) and not isinstance(s.get("rt"), bool):
+        return "rt", float(s["rt"])
+    if isinstance(s.get("mtime"), (int, float)):
+        return "mtime", float(s["mtime"])
+    return None, None
+
+
+class _ChanbaraZone:
+    """RULE 6b's EXECUTOR (research/o4_design.md 2.4): the fight zone, from its start -- 111, the tutorial, or with no
+    111 a first prompt -- to its end text (107 / 108), owning the loop.
+
+    Z0, the zone start: 111 pressed (a ``page`` press row with its ``seq``; 111 joins ``pages``), and again only when it
+    is still listed ``page_once_ticks`` past that press's ack-read frame (a Confirm dropped in 111's opening, 0.3 #1);
+    its first sample without it is the driver's T0. Z1: quiet until the first prompt -- nothing pressed, fail-closed,
+    V14 past ``first_prompt_s``. Z2, the fight, a TIGHT LOOP every ``poll_s``: ONE ``g.state`` read (it feeds the
+    clock and the ring), the ring merged (the MERGED stream, 2.4.1: the executor's reads and every harness call's,
+    deduplicated on frame, in frame order -- every frame-valued fact is read off it), and per merged sample, in order:
+    the input witness (every ``input_every_s``; outside input is V13), the run's deadline (V13), the UI (off FieldHUD:
+    V13), the field (rule 2's verdict), control (held ``settle_s``: V4), a choice (V17, observed), the zone end (Z3),
+    any dialog that is neither a prompt nor 111 (V17, observed -- never rule 7's Confirm), and the INSTANCE TRACKER
+    (``cur`` and ``closing``: a prompt still listed in its close tween beside its successor is never a new instance,
+    0.2 #1). Then THE PRESS -- one mapped press per instance, blocking for its ack (fast: at once; paced: once its
+    elapsed game time reaches ``target_ticks - lead_ticks``); then THE LOST PRESS (a pressed window listed at or past
+    its mark, or its end unobserved: stop, the judge decides); then the stall (V14). Z3, the close: the ring merged a
+    last time, the accepted events joined (each press's down frame), each instance's evidence, j bounds, read gap and
+    slide, the zone judged (:func:`chanbara_judge`) -- a fault ends the run, else the main loop resumes on 107 / 108.
+
+    At a SWITCH -- a new prompt listed -- the new instance's row is opened first (the evidence of what the game
+    published) and then the switch is judged: the old instance's press not LANDED by the switch sample (:meth:`landed`:
+    the sample published before the agent accepted it -- the instance ended before the driver's press could reach it)
+    stops the run, the judge deciding; so does an instance past ``prompts`` (V18) and, in a rehearsal, past
+    ``stop_after`` (V17). Nothing is pressed for the instance a stop opened (its row ``stopped``). THE HIDDEN SWITCH:
+    instances are told apart by their DBTN, and prompts never repeat back to back, so the newest instance's DBTN listed
+    past its window's longest life (:meth:`expired`) is a successor's, every instance between hidden by a read gap --
+    a press that stalls before it is sent is one: the run stops, the judge deciding (:func:`prompt_evidence` never reads
+    such a listing as the window's). A stalled press is caught at the first read after the stall, which the press
+    itself makes before it writes its request."""
+
+    def __init__(self, d, st):
+        self.d, self.g, self.pol = d, d.g, d.chanbara
+        self.samples: dict = {}                    # frame -> merged sample
+        self.order: list = []                      # the merged samples processed, in frame order
+        self.cursor = -1                           # the newest frame merged
+        self.rows: list = []                       # the zone's prompt rows
+        self.cur = None                            # the newest instance's row
+        self.closing: dict = {}                    # dbtn -> row: an instance still listed beside its successor
+        self.phase = None                          # "z0" | "z1" | "z2" | "z3"
+        self.start_page = None
+        self.zs_hold = -1                          # Z0: 111's page-once hold-off, a frame
+        self.t_phase = self.t_inst = time.time()
+        self.control_since = None
+        self.witness_t = 0.0
+        self.end = None                            # the zone end's first merged sample
+        self.last_st = st
+        self.zone: dict = {}
+
+    # -- the merged stream
+    def merge(self, st=None) -> list:
+        new: dict = {}
+        for t, raw in ring_since(self.g, self.cursor):
+            f = int(raw.get("frame", -1))
+            if f not in self.samples and f not in new:
+                new[f] = cb_sample(raw, t)
+        if st is not None and st.frame > self.cursor and st.frame not in self.samples:
+            new[st.frame] = cb_sample(st.raw, st.read_at, st.mtime)
+        out = [new[f] for f in sorted(new)]
+        for s in out:
+            self.samples[s["frame"]] = s
+        if out:
+            self.cursor = max(self.cursor, out[-1]["frame"])
+        return out
+
+    # -- the run
+    def run(self, st) -> None:
+        d, pol = self.d, self.pol
+        self.zone = {"k": "zone", "field": d.fid, "donor": d.donor, "visit": d.visit, "sc": d.sc,
+                     "policy": pol["policy"], "start_page": None, "first_prompt": None, "end": None, "instances": 0,
+                     "presses": 0, "samples": 0, "max_read_gap": None, "input": [], "rate": None, "raw": [None, None],
+                     "slides": None, "judge": None, "t0": round(time.time() - d.t0, 2), "t1": None, "v": None,
+                     "by": None, "why": None}
+        d.zones.append(self.zone)
+        self.cursor = st.frame - 1
+        first = self.merge(st)
+        entry = self.samples[st.frame]
+        if is_zone_start([p for p, _t in entry["dialogs"]], pol):
+            self.phase = "z0"
+            self.start_page = {"seen_frame": entry["frame"], "presses": [], "last_with_frame": entry["frame"],
+                               "first_without_frame": None}
+            self.zone["start_page"] = self.start_page
+            text = next(t for p, t in entry["dialogs"] if is_zone_start([p], pol))
+            if text and (not d.pages or d.pages[-1] != text):
+                d.pages.append(text)
+        else:
+            self.phase = "z2"                      # entered on a prompt: 111 closed with no press of the driver's
+        for s in first:
+            self.step(s)
+        while self.phase != "z3":
+            self.witness_check()                                       # 0
+            if time.time() >= d.deadline:                              # 1
+                self.stop("V13", "driver", "the run's budget ran out in the fight", judge=False)
+            self.last_st = self.g.state
+            for s in self.merge(self.last_st):
+                self.step(s)                                           # 2-8
+                if self.phase == "z3":
+                    break
+            if self.phase == "z3":
+                break
+            self.press_due()                                           # 9
+            self.lost_check()                                          # 10
+            self.stall_check()                                         # 11
+            time.sleep(float(pol["poll_s"]))                           # 12
+        self.close_out()
+        verdict = chanbara_judge(self.zone, self.rows, self.visit_presses(), pol)
+        if verdict["v"] is not None:
+            self.finish(verdict["v"], verdict["by"], verdict["why"], verdict)
+        self.finish(None, None, None, verdict)
+        d.cb["zone_done"], d.cb["zone_end_frame"] = True, self.end["frame"]
+        if d.observe is not None:
+            d.observe(self.last_st, {"field": d.fid, "donor": d.donor, "sc": d.sc, "visit": d.visit, "log": d.log})
+
+    def step(self, s: dict) -> None:
+        """Steps 2-8 of the tight loop on one merged sample (2.4.3)."""
+        d, pol = self.d, self.pol
+        self.order.append(s)
+        if s["ui_state"] != "FieldHUD":                                # 2
+            self.stop("V13", "driver", f"the fight left FieldHUD ({s['ui_state']}), nothing pressed", judge=False)
+        if s["field"] != d.fid:                                        # 3
+            due = [f for f, dn in sorted(d.members.items()) if dn == s["field"]] \
+                if d.side_ends is not None and s["field"] not in d.members else []
+            if due:
+                self.stop("V19", "game", f"the fork run entered REAL {s['field']}, where member({s['field']}) {due[0]} "
+                                         f"was due, in the fight", judge=False)
+            self.stop("V11", "game", f"the field left {d.fid} for {s['field']} in the fight", judge=False)
+        now = s["read_at"] if s["read_at"] is not None else time.time()
+        if s["control"]:                                               # 4
+            self.control_since = now if self.control_since is None else self.control_since
+            if now - self.control_since >= d.settle_s:
+                self.stop("V4", "game", f"control held in the fight zone (frame {s['frame']})", judge=False)
+        else:
+            self.control_since = None
+        if s["choice"] is not None:                                    # 5
+            self.observe_stop("unclaimed_choice", s, f"a choice the prompt rule does not claim in the fight zone: "
+                                                     f"{(s['choice'].get('options') or [''])[0]!r}")
+        texts = [t for _p, t in s["dialogs"]]
+        if self.phase in ("z1", "z2") and is_zone_end(texts, pol):     # 6
+            self.end = s
+            self.zone["end"] = {"frame": s["frame"], "text": next(t for t in texts if is_zone_end([t], pol))}
+            self.phase = "z3"
+            return
+        zs = is_zone_start([p for p, _t in s["dialogs"]], pol)
+        others = [t or p for p, t in s["dialogs"] if (p or t) and not prompt_dbtn(p)
+                  and not (zs and is_zone_start([p], pol))]
+        if others:                                                     # 7
+            self.observe_stop("unclaimed_dialog", s, f"a dialog the prompt rule does not claim in the fight zone: "
+                                                     f"{others[0][:120]!r}")
+        if self.phase == "z0":
+            if zs:
+                self.start_page["last_with_frame"] = s["frame"]
+                if s["dbtns"]:
+                    self.observe_stop("prompt_beside_zone_start", s, "a prompt published beside 111, nothing pressed")
+                return
+            self.start_page["first_without_frame"] = s["frame"]      # the driver's T0
+            self.phase, self.t_phase = "z1", time.time()
+        if self.phase == "z1" and s["dbtns"]:
+            self.phase = "z2"
+        if self.phase == "z2":
+            self.track(s)                                              # 8
+
+    def track(self, s: dict) -> None:
+        """Step 8, the instance tracker (2.4.3; rev. 2)."""
+        dbtns = s["dbtns"]
+        for dbtn, row in list(self.closing.items()):
+            if dbtn in dbtns:
+                row["last_listed_frame"] = s["frame"]
+            else:
+                if row.get("gone_frame") is None:
+                    row["gone_frame"] = s["frame"]
+                del self.closing[dbtn]
+        cur = self.cur
+        if cur is not None:
+            if cur["dbtn"] in dbtns and self.expired(cur, s):       # THE HIDDEN SWITCH: a successor's listing
+                self.stop(None, None, f"a read gap hid an instance: {cur['dbtn']} listed at frame {s['frame']}, past "
+                                      f"instance {cur['n']}'s window's longest life, is a successor's")
+            if cur["dbtn"] in dbtns:
+                cur["last_listed_frame"] = s["frame"]
+            elif cur.get("gone_frame") is None:
+                cur["gone_frame"] = s["frame"]
+            if not dbtns:
+                cur["gap"] = True
+        fresh = [y for y in dbtns if y not in self.closing and (cur is None or y != cur["dbtn"])]
+        if not fresh:
+            return
+        if len(fresh) > 1:
+            self.stop("V17", "driver", f"a read gap hid an instance: {fresh} first listed together at frame "
+                                       f"{s['frame']}", judge=False)
+        row = self.open_instance(fresh[0], s)
+        if cur is not None and cur["dbtn"] in dbtns:
+            self.closing[cur["dbtn"]] = cur
+        self.cur = row
+        if cur is not None and not self.landed(cur, s):
+            row["stopped"] = True
+            self.stop(None, None, f"instance {cur['n']} ({cur['dbtn']}) ended before the driver's press landed: "
+                                  f"instance {row['n']} was listed at frame {s['frame']}")
+        if row["n"] > int(self.pol["prompts"]):
+            row["stopped"] = True
+            self.stop(None, None, f"instance {row['n']}: more prompts than the {self.pol['prompts']} the bytes arm")
+        if self.pol.get("stop_after") is not None and row["n"] > int(self.pol["stop_after"]):
+            row["stopped"] = True
+            self.stop("V17", "driver", f"the rehearsal's stop after instance {self.pol['stop_after']}", judge=False)
+
+    @staticmethod
+    def landed(row: dict, s: dict) -> bool:
+        """Whether the instance's press had reached the agent by sample ``s``: pressed, and ``s`` published after the
+        agent ACCEPTED the request (its ``seq`` at or past the press's). A sample before that shows a game the press
+        cannot have touched -- every read a blocking press makes before its acceptance is one (the ring keeps them)."""
+        return row.get("seq") is not None and s["seq"] >= row["seq"]
+
+    def expired(self, row: dict, s: dict) -> bool:
+        """Whether ``s`` lies past the longest life the instance's window can have: more than PROMPT_TICKS +
+        :data:`LIFE_MARGIN_TICKS` sure ticks after its seen frame (the window was armed before it)."""
+        rate = row.get("rate")
+        return bool(rate) and rate_of(rate).ticks_sure(max(0, s["frame"] - row["seen_frame"])) \
+            > PROMPT_TICKS + LIFE_MARGIN_TICKS
+
+    def open_instance(self, dbtn: str, s: dict) -> dict:
+        d = self.d
+        prev = next((x for x in reversed(self.order[:-1]) if dbtn not in x["dbtns"]), None)
+        n = len(self.rows) + 1
+        rate = self.g.rate()
+        row = {"k": "prompt", "n": n, "dbtn": dbtn, "button": None, "field": d.fid, "donor": d.donor,
+               "visit": d.visit, "sc": d.sc, "prev_frame": None if prev is None else prev["frame"],
+               "prev_kind": None if prev is None else ("dbtn" if prev["dbtns"] else "none"),
+               "seen_frame": s["frame"], "seen_t": round((s["read_at"] or time.time()) - d.t0, 3),
+               "published": {"texts": [t for _p, t in s["dialogs"]], "phrase_raw": [p for p, _t in s["dialogs"]]},
+               "x_prev": None if prev is None else {"player": prev["x_player"], "blank": prev["x_blank"]},
+               "x_seen": {"player": s["x_player"], "blank": s["x_blank"]},
+               "seq": None, "pressed_t": None, "ack_frame": None, "ack_t": None, "accepted_frame": None,
+               "down_frame": None, "last_listed_frame": s["frame"], "gone_frame": None, "gone_kind": None,
+               "evidence": None, "read_gap": None, "rate": rate.as_dict(), "excess": None, "j_lo": None, "j_hi": None,
+               "regime": str(int(round(rate.fps))), "slide": None, "v": None, "why": None}
+        self.rows.append(row)
+        d.prompts.append(row)
+        d.log.append(row)
+        self.zone["instances"] = len(self.rows)
+        if n == 1:
+            t0 = (self.start_page or {}).get("first_without_frame")
+            self.zone["first_prompt"] = {"seen_frame": s["frame"], "t0_frame": t0,
+                                         "after_t0_ticks": None if t0 is None else
+                                         [rate.ticks_sure(s["frame"] - t0), rate.ticks_most(s["frame"] - t0)]}
+        self.t_inst = time.time()
+        return row
+
+    # -- step 9, the press
+    def press_due(self) -> None:
+        from harness import HarnessError
+        pol, latest = self.pol, self.order[-1] if self.order else None
+        if latest is None:
+            return
+        if self.phase == "z0":
+            if is_zone_start([p for p, _t in latest["dialogs"]], pol) and not latest["dbtns"] \
+                    and latest["frame"] >= self.zs_hold:
+                st = self.last_st
+                row = self.d.press("page", st, 3)
+                seq = self.g.channel.seq
+                st2 = self.g.state
+                row.update(seq=seq, ack_frame=st2.frame, button="confirm",
+                           texts=[t for _p, t in latest["dialogs"] if t])
+                self.start_page["presses"].append(seq)
+                self.zs_hold = st2.frame + self.g.rate().frames_for_ticks(int(pol["page_once_ticks"]))
+            return
+        cur = self.cur
+        if self.phase != "z2" or cur is None or cur.get("seq") is not None or cur.get("stopped") \
+                or cur["dbtn"] not in latest["dbtns"] or not self.due(latest):
+            return
+        d, g = self.d, self.g
+        button = pol["buttons"][cur["dbtn"]]
+        row = {"k": "press", "why": "prompt", "n": cur["n"], "button": button, "field": d.fid, "donor": d.donor,
+               "visit": d.visit, "sc": d.sc, "pre": {"frame": latest["frame"], "control": latest["control"],
+                                                     "x": latest["x_player"], "z": latest["z_player"]},
+               "post": None, "near": [], "seq": None, "ack_frame": None}
+        t = time.time()
+        try:
+            g.press(button, int(pol["press_frames"]))
+        except HarnessError as err:
+            row["error"] = str(err)[:300]
+            d.log.append(row)
+            self.stop("V13", "driver", f"instance {cur['n']}'s press was refused or failed: {str(err)[:200]}",
+                      judge=False)
+        seq = g.channel.seq
+        st2 = g.state
+        rate = g.rate()
+        try:
+            excess = float(g._clock.excess_ticks(cur["prev_frame"], st2.frame, rate)) \
+                if cur["prev_frame"] is not None else 0.0
+        except Exception:                                  # noqa: BLE001 - a clock without the frames: no excess known
+            excess = 0.0
+        row.update(seq=seq, ack_frame=st2.frame)
+        d.log.append(row)
+        cur.update(seq=seq, button=button, pressed_t=round(t - d.t0, 3), ack_frame=st2.frame,
+                   ack_t=round(time.time() - d.t0, 3), rate=rate.as_dict(), excess=round(excess, 3),
+                   regime=str(int(round(rate.fps))))
+        self.zone["presses"] += 1
+        self.last_st = st2
+
+    def due(self, latest: dict) -> bool:
+        """Fast: at once. Paced (2.4.10): once the instance's ELAPSED GAME TIME reaches ``target_ticks - lead_ticks``
+        ticks -- the game clock's seconds x the rate's ``tick_hz`` (the clock the rate is measured from: the published
+        ``rt``, else state.json's write time), or frames x ``per_frame()`` when the two samples share no clock."""
+        if self.pol["policy"] == "fast":
+            return True
+        pace = self.pol["pace"]
+        rate = self.g.rate()
+        seen = self.samples.get(self.cur["seen_frame"])
+        (ka, ta), (kb, tb) = _game_t(seen), _game_t(latest)
+        if ka is not None and ka == kb:
+            ticks = (tb - ta) * rate.tick_hz
+        else:
+            ticks = (latest["frame"] - self.cur["seen_frame"]) * rate.per_frame()
+        return ticks >= float(pace["target_ticks"] - pace["lead_ticks"])
+
+    # -- step 10, the lost press and the unobserved end; step 11, the stall; step 0, the witness
+    def lost_check(self) -> None:
+        for row in self.rows:
+            if row.get("ack_frame") is None or row.get("_settled") or row.get("stopped"):
+                continue
+            mark = row["ack_frame"] + rate_of(row["rate"]).frames_for_ticks(int(self.pol["gone_ticks"]))
+            if row["last_listed_frame"] >= mark:
+                self.stop(None, None, f"instance {row['n']} ({row['dbtn']}) was still listed at frame "
+                                      f"{row['last_listed_frame']}, past its mark {mark}")
+            gone = row.get("gone_frame")
+            if gone is not None:
+                if gone > mark:
+                    self.stop(None, None, f"instance {row['n']}'s end is unobserved: no sample between its mark {mark} "
+                                          f"and frame {gone}")
+                row["_settled"] = True
+
+    def stall_check(self) -> None:
+        pol, now = self.pol, time.time()
+        if self.phase == "z0" and now - self.t_phase > float(pol["zone_stall_s"]):
+            self.stop("V14", "game", f"111 stayed up {float(pol['zone_stall_s']):g} s", judge=False)
+        if self.phase == "z1" and now - self.t_phase > float(pol["first_prompt_s"]):
+            self.stop("V14", "game", f"no prompt within {float(pol['first_prompt_s']):g} s of 111's close",
+                      judge=False)
+        if self.phase == "z2" and now - self.t_inst > float(pol["zone_stall_s"]):
+            self.stop("V14", "game", f"no new prompt and no zone end for {float(pol['zone_stall_s']):g} s",
+                      judge=False)
+
+    def witness_check(self) -> None:
+        w, now = self.d.witness, time.time()
+        if w is None or now - self.witness_t < float(self.pol["input_every_s"]):
+            return
+        self.witness_t = now
+        what = w()
+        if what:
+            self.zone["input"].append({"t": round(now - self.d.t0, 3), "frame": self.cursor, "what": str(what)})
+            self.stop("V13", "driver", f"outside input during the fight: {what}", judge=False)
+
+    # -- the close, the stop
+    def visit_presses(self) -> list:
+        d = self.d
+        return [r for r in d.log if r.get("k") == "press" and r.get("seq") is not None and r.get("visit") == d.visit]
+
+    def close_out(self) -> None:
+        """Z3's completion -- also a stop's (2.4.9): the ring merged a last time, every press of the visit placed by its
+        accepted event (``down_frame`` = accepted + 1, events.jsonl read once), each instance's evidence, j bounds,
+        regime and read gap, the slides, the zone's counts."""
+        g, pol = self.g, self.pol
+        self.merge(None)
+        acc: dict = {}
+        for e in g.channel.events():
+            if e.get("kind") == "accepted" and e.get("seq") is not None:
+                try:
+                    acc.setdefault(int(e["seq"]), int(e["frame"]))
+                except (TypeError, ValueError):
+                    continue
+        for p in self.visit_presses():
+            a = acc.get(int(p["seq"]))
+            p["accepted_frame"], p["down_frame"] = a, None if a is None else a + 1
+        samples = sorted(self.samples.values(), key=lambda s: s["frame"])
+        end_frame = None if self.end is None else self.end["frame"]
+        for i, r in enumerate(self.rows):
+            if r.get("seq") is not None:
+                a = acc.get(int(r["seq"]))
+                r["accepted_frame"], r["down_frame"] = a, None if a is None else a + 1
+            until = next((x["seen_frame"] for x in self.rows[i + 1:] if x["dbtn"] == r["dbtn"]), None)
+            ev = prompt_evidence(r, samples, int(pol["gone_ticks"]), until=until)
+            r.update(evidence=ev["evidence"], last_listed_frame=ev["last_listed_frame"], gone_frame=ev["gone_frame"],
+                     gone_kind=ev["gone_kind"])
+            r["j_lo"], r["j_hi"] = j_bounds(r)
+            nxt = self.rows[i + 1]["seen_frame"] if i + 1 < len(self.rows) else end_frame
+            r["read_gap"] = self.gap(samples, r["seen_frame"], nxt, r.get("rate"))
+            r.pop("_settled", None)
+        live = [r for r in self.rows if not r.get("stopped")]
+        end = None if self.end is None else {"frame": self.end["frame"], "x_player": self.end["x_player"],
+                                             "x_blank": self.end["x_blank"]}
+        slides = measure_slides(live, end, int(pol["prompts"]))
+        for r in self.rows:
+            r["slide"] = slides.get(r["n"]) if r["dbtn"] in LR_WANT else None
+        seen = {id(s): s for s in slides.values()}.values()
+        self.zone.update(samples=len(samples), instances=len(self.rows),
+                         max_read_gap=self.gap(samples, samples[0]["frame"] if samples else None, end_frame,
+                                               (self.rows[-1] if self.rows else {}).get("rate")),
+                         rate=(self.rows[-1] if self.rows else {}).get("rate"),
+                         raw=list(raw_bounds(live)) if end_frame is not None and live else [None, None],
+                         slides={"ok": sum(1 for s in seen if s["ok"] is True),
+                                 "unmeasured": sum(1 for s in seen if s["ok"] == "unmeasured"),
+                                 "not_ok": sum(1 for s in seen if s["ok"] is False)})
+
+    @staticmethod
+    def gap(samples: list, a, b, rate) -> dict | None:
+        """The longest step between consecutive merged samples from frame ``a`` to ``b`` (None: to the last): in frames,
+        in ``ticks_most`` at ``rate`` and in seconds of their read times (where both were read with one)."""
+        if a is None:
+            return None
+        span = [s for s in samples if s["frame"] >= a and (b is None or s["frame"] <= b)]
+        if len(span) < 2:
+            return {"frames": 0, "ticks": 0, "s": 0.0}
+        frames, secs = 0, 0.0
+        for x, y in zip(span, span[1:]):
+            frames = max(frames, y["frame"] - x["frame"])
+            if x["read_at"] is not None and y["read_at"] is not None:
+                secs = max(secs, y["read_at"] - x["read_at"])
+        return {"frames": frames, "ticks": None if not rate else rate_of(rate).ticks_most(frames),
+                "s": round(secs, 3)}
+
+    def observe_stop(self, kind: str, s: dict, why: str) -> None:
+        self.d.observed(kind, s)
+        self.stop("V17", "driver", why, judge=False)
+
+    def finish(self, v, by, why, verdict) -> None:
+        """The zone row completed and logged (2.4.9); a VOID raised at once -- V13 as the instrument's HarnessError,
+        anything else a RouteVoid with the zone's cell. Nothing more is pressed."""
+        from harness import HarnessError
+        d = self.d
+        self.zone.update(v=v, by=by, why=why, judge=verdict, t1=round(time.time() - d.t0, 2))
+        d.log.append(self.zone)
+        d.since, d.sig, d.walked = time.time(), None, None
+        if v is None:
+            return
+        if v == "V13":
+            raise HarnessError(why)
+        raise RouteVoid(why, v=v, cell=[d.donor, d.sc], by=by)
+
+    def stop(self, v, by, why, *, judge: bool = True) -> None:
+        """A stop in the zone: the rows completed (:meth:`close_out`), then -- with ``judge`` -- the judge decides
+        (its verdict over the live reason: a V17 fault or a V18 finding; with none, V17 with the live reason)."""
+        self.close_out()
+        verdict = None
+        if judge:
+            verdict = chanbara_judge(self.zone, self.rows, self.visit_presses(), self.pol)
+            if verdict["v"] is not None:
+                v, by, why = verdict["v"], verdict["by"], verdict["why"]
+            elif v is None:
+                v, by = "V17", "driver"
+        self.finish(v, by, why, verdict)
+
+
 # ======================================================================== the driver
 class _Drive:
     """One run of the beat-table driver: its counters, its evidence, its rules and its step executors. :func:`drive`
     is the entry; research/o2_design.md 2.2 is the loop, 2.3 the executors, 2.7 the VOID classes, 4.7 the evidence."""
 
     def __init__(self, g, pred, side, log, *, deadline, floor_for, prior_for, progress, end_fields, observe,
-                 forbid_live):
+                 forbid_live, witness=None):
         self.g, self.pred, self.side, self.log, self.deadline = g, pred, side, log, deadline
         self.floor_for, self.prior_for, self.observe, self.forbid_live = floor_for, prior_for, observe, forbid_live
         self.members = ST.members_of(pred) if side == "F" else {}
@@ -1327,6 +1867,14 @@ class _Drive:
         self.mv = None                     # the current visit's row, open until its outcome is set
         self.mv_last = None                # the wall time of that row's last press
         self.visit_t0 = None               # the wall time the current visit began (a cell's after_s counts from it)
+        # S7-S9 (research/o4_design.md 2.4), OPT-IN: THE CHANBARA POLICY, checked strict before anything is driven, and
+        # the outside-input witness it polls. Without the policy (None) nothing below reads either: the loop is O3's.
+        self.chanbara = chanbara_of(pred)
+        self.witness, self.witness_t = witness, 0.0
+        self.zones: list = []              # the policy's ``zone`` rows
+        self.prompts: list = []            # ... and its ``prompt`` rows
+        self.cb: dict = {"zone_done": False, "zone_end_frame": None, "score_read": False, "held_off": {},
+                         "quiet": None, "choice_first": {}, "encore": None, "visit_frame": -1}
         budget = pred["budget"]
         self.settle_s = float(budget["settle_s"])
         self.settle_polls = max(1, int(self.settle_s / POLL_S))
@@ -1362,6 +1910,8 @@ class _Drive:
                 progress.update(battles=self.battle_log, battle_epoch0=self.battle_epoch0)
             if self.movies is not None:    # and one that raises mid-skip its movie rows
                 progress.update(movies=self.movie_rows)
+            if self.chanbara is not None:  # and one that raises in the fight its zone and prompt rows
+                progress.update(zones=self.zones, prompts=self.prompts)
 
     # -- the outcome, a VOID ------------------------------------------------------------------------------------
     def out(self, end: str, why: str) -> dict:
@@ -1372,6 +1922,8 @@ class _Drive:
             o.update(battles=self.battle_log, battle_epoch0=self.battle_epoch0)
         if self.movies is not None:        # the movie-skip policy: only with it, so O3's outcome keeps its keys
             o["movies"] = self.movie_rows
+        if self.chanbara is not None:      # the Chanbara policy: only with it, so O1-O3's outcomes keep their keys
+            o.update(zones=self.zones, prompts=self.prompts)
         return o
 
     def void(self, v: str, by: str, why: str):
@@ -2196,6 +2748,8 @@ class _Drive:
             if self.observe is not None:
                 self.observe(st, {"field": self.fid, "donor": self.donor, "sc": self.sc, "visit": self.visit,
                                   "log": self.log})
+            if self.chanbara is not None:            # S7, opt-in: outside input anywhere in the run is V13
+                self.poll_witness(st)
             # 1 -- the end: the end state, the last scan, done -- and, opt-in, the end place's first trace row waited for
             if self.fid in self.ends:
                 self.end_state = read_end_state(g, pred)
@@ -2250,6 +2804,8 @@ class _Drive:
                 self.visit, self.cur = self.visit + 1, self.fid
                 self.log.append({"k": "visit", "field": self.fid, "donor": self.donor, "visit": self.visit,
                                  "frame": st.frame, "sc": self.sc})
+                if self.chanbara is not None:        # the policy's state is a visit's
+                    self.cb_reset(st)
                 if self.movies is not None:          # the policy's clock: a cell's after_s counts from the visit
                     self.movie_close("the visit ended with no skip dialog")
                     self.visit_t0 = time.time()
@@ -2258,6 +2814,8 @@ class _Drive:
             c = cell(pred, self.donor, self.sc)
             if c is not None and c.get("watch"):
                 self.watch_poll(st, c)
+            if self.chanbara is not None:            # S8 c, opt-in: the quiet window opens, or runs out (V14)
+                self.quiet_tick()
             # 4 -- the naming screen
             if st.ui_state == "NameSetting":
                 self.held = 0
@@ -2280,6 +2838,8 @@ class _Drive:
             # 6 -- a choice: O1's readiness hold, then the frozen rules
             if st.choice is not None:
                 self.held = 0
+                if self.chanbara is not None:        # S9, opt-in: its first frame kept; the quiet window closed
+                    self.note_choice(st)
                 if not g._choice_ready(st):
                     time.sleep(POLL_S)
                     continue
@@ -2296,6 +2856,18 @@ class _Drive:
                     continue
                 self.answer(st)
                 continue
+            # 6b -- THE FIGHT ZONE (opt-in: ``chanbara``; research/o4_design.md 2.4): a published prompt or the zone
+            # start (111) in the policy's cell -- its place, its published SC, control off -- and the executor owns the
+            # loop until the zone ends; one anywhere else is V17 with nothing pressed (game-observed). BEFORE rule 7,
+            # whose Confirm is the Cross bit: a wrong key on 7 of 8 prompts
+            if self.chanbara is not None and self.zone_line(st):
+                self.held = 0
+                if self.in_cell(st):
+                    _ChanbaraZone(self, st).run(st)
+                    continue
+                self.observed("prompt_outside_cell", st)
+                raise self.void("V17", "driver", f"a prompt outside the policy's cell (place {self.donor}, SC "
+                                                 f"{self.sc}), nothing pressed: {st.text[:120]!r}")
             # 7 -- a page (control off)
             if st.dialog_open and st.text.strip() and not st.control:
                 self.held = 0
@@ -2307,6 +2879,9 @@ class _Drive:
                 if c is not None and c.get("no_pages"):
                     by = "driver" if self.contact_before(st.frame, c) else "game"
                     raise self.void("V5", by, f"a page where the route has none: {st.text[:160]!r}")
+                if self.chanbara is not None:        # S8, S9, opt-in: page-once, the quiet window, the two-sample pages
+                    self.policy_page(st)
+                    continue
                 if not self.pages or self.pages[-1] != st.text:
                     self.pages.append(st.text)
                     if any("[TIME=" in t for t in st.raw_texts):
@@ -2357,6 +2932,8 @@ class _Drive:
         except RouteVoid as err:
             if err.v is None:
                 raise self.void("V1", "game", str(err)) from err
+            if err.v == "V2" and self.chanbara is not None and self.encore_rule(st) is not None:
+                self.encore_stray()                  # S9: a second encore -- who confirmed it, V17 or V2
             raise
         n = next(i for i, r in enumerate(self.pred["choices"]) if r is rule)
         if index == "default" or rule.get("take") == "default":
@@ -2364,8 +2941,11 @@ class _Drive:
             if took is None:
                 return
         else:
+            before = g.channel.seq
             g.choose(index)
             took = {"index": index}
+            if self.chanbara is not None:            # S9, opt-in: choose's own presses, rowed with their seqs
+                self.row_choose(before, g.channel.seq, st)
         self.walked = None
         ch = st.choice
         row = {"k": "choice", "field": self.fid, "donor": self.donor, "sc": self.sc, "frame": st.frame,
@@ -2376,24 +2956,302 @@ class _Drive:
         self.answered.add(n)
         if rule.get("beat"):
             self.beats[rule["beat"]] = True
+        if self.chanbara is not None and rule.get("match") == self.chanbara["encore_match"]:
+            key = str((ch.get("options") or [""])[0])            # S9: the encore answered -- its first page is judged
+            self.cb["encore"] = {"key": key, "first_frame": self.cb["choice_first"].get(key, st.frame),
+                                 "answered_frame": st.frame, "close_frame": None, "judged": False}
+
+    # -- S7-S9: the Chanbara policy (opt-in: ``chanbara``; research/o4_design.md 2.4) ----------------------------------
+    def cb_reset(self, st) -> None:
+        """A new visit's policy state: no zone yet, no score read, no page held off, no quiet window, no choice seen, no
+        encore answered."""
+        self.cb = {"zone_done": False, "zone_end_frame": None, "score_read": False, "held_off": {}, "quiet": None,
+                   "choice_first": {}, "encore": None, "visit_frame": st.frame}
+
+    def in_cell(self, st) -> bool:
+        """The policy's cell: its place and published SC, control off (2.4.1)."""
+        pol = self.chanbara
+        return self.donor == pol["donor"] and self.sc == pol["sc"] and not st.control
+
+    def zone_line(self, st) -> bool:
+        """A published ``phrase_raw`` line that is a prompt or the zone start (rule 6b)."""
+        lines = [p for p, _t in dialog_rows(st.raw)]
+        return any(prompt_dbtn(p) for p in lines) or is_zone_start(lines, self.chanbara)
+
+    def observed(self, kind: str, src) -> dict:
+        """An ``observed`` row (2.4.6; rev. 2, the claim critique #5): logged just before a V17 whose cause is something
+        the GAME showed -- ``{"k": "observed", "kind", "cell", "frame", "texts", "phrase_raw"}`` (and the choice, when
+        one was published). VOID-ASYM (d) reads them."""
+        if isinstance(src, dict):
+            frame, rows, choice = src["frame"], src["dialogs"], src.get("choice")
+        else:
+            frame, rows, choice = src.frame, dialog_rows(src.raw), src.choice
+        row = {"k": "observed", "kind": kind, "cell": [self.donor, self.sc], "frame": frame,
+               "texts": [t for _p, t in rows], "phrase_raw": [p for p, _t in rows]}
+        if choice is not None:
+            row["choice"] = choice
+        self.log.append(row)
+        return row
+
+    def poll_witness(self, st) -> None:
+        """The outside-input witness (2.4.3 step 0), polled between the main loop's own blocking calls, at most
+        every ``input_every_s``: a non-neutral reading is an ``input`` row, then V13 -- the instrument's, wherever it
+        falls."""
+        from harness import HarnessError
+        if self.witness is None:
+            return
+        now = time.time()
+        if now - self.witness_t < float(self.chanbara["input_every_s"]):
+            return
+        self.witness_t = now
+        what = self.witness()
+        if what:
+            self.log.append({"k": "input", "t": round(now - self.t0, 3), "frame": st.frame, "what": str(what)})
+            raise HarnessError(f"outside input: {what}")
+
+    def quiet_tick(self) -> None:
+        """S8 c, THE QUIET WINDOW (2.4.11; rev. 2): armed once a window holding a ``quiet`` marker was pressed, it OPENS
+        at the first merged sample without any such window (a first press dropped in the page's opening leaves it up,
+        and page-once presses it again); open, nothing is pressed until a choice is published, a page is V17 (rule 7),
+        and no choice within ``quiet_cap_s`` of its opening is V14 (game)."""
+        q = (self.cb or {}).get("quiet")
+        if q is None:
+            return
+        pol = self.chanbara
+        if q["open_frame"] is None:
+            for raw in self.g.states_since(q["armed_frame"]):
+                if not any(m in t for _p, t in dialog_rows(raw) for m in pol["quiet"]):
+                    q["open_frame"], q["open_t"] = int(raw.get("frame", -1)), time.time()
+                    self.log.append({"k": "quiet", "field": self.fid, "visit": self.visit,
+                                     "open_frame": q["open_frame"], "armed_frame": q["armed_frame"]})
+                    break
+        elif time.time() - q["open_t"] > float(pol["quiet_cap_s"]):
+            raise self.void("V14", "game", f"no choice within {float(pol['quiet_cap_s']):g} s of the quiet window's "
+                                           f"opening (frame {q['open_frame']})")
+
+    def note_choice(self, st) -> None:
+        """S9: a published choice closes the quiet window, and its FIRST publication in this visit is kept (the ring's
+        earliest sample of it) -- the encore attribution's window opens there."""
+        cb = self.cb
+        cb["quiet"] = None
+        key = str((st.choice.get("options") or [""])[0])
+        if key in cb["choice_first"]:
+            return
+        first = st.frame
+        for raw in self.g.states_since(cb["visit_frame"]):
+            ch = (raw.get("dialog") or {}).get("choice")
+            if ch and str((ch.get("options") or [""])[0]) == key:
+                first = int(raw.get("frame", st.frame))
+                break
+        cb["choice_first"][key] = first
+
+    def policy_page(self, st) -> None:
+        """RULE 7 UNDER THE POLICY (S8, S9; research/o4_design.md 2.2 rule 7, 2.4.11, 2.4.12), after the stop pages:
+        (S8 a) a page in the policy's cell whose ``phrase_raw`` holds ``[DBTN=`` and is not the zone start is V17,
+        nothing pressed (game-observed); (S8 c) a page while the quiet window is open is V17 (game-observed); (S9) the
+        first page after the encore answer is judged by what it is (:meth:`after_encore`), the first score page after
+        the zone is read in two consecutive samples (:meth:`score_page`) -- each waits for its reading; (S8 b)
+        PAGE-ONCE, per window: Confirm only while some listed window's own text is not held off -- a text pressed is
+        held off until ``page_once_ticks`` past that press's ack-read frame -- the press row carrying its ``seq``,
+        ``ack_frame`` and the texts it pressed; a pressed window holding a ``quiet`` marker arms the quiet window. Then
+        O1's wait."""
+        g, pol, cb = self.g, self.chanbara, self.cb
+        rows = dialog_rows(st.raw)
+        lines, texts = [p for p, _t in rows], [t for _p, t in rows]
+        cell = self.donor == pol["donor"] and self.sc == pol["sc"]
+        if cell and any("[DBTN=" in p for p in lines) and not is_zone_start(lines, pol):
+            self.observed("unrecognized_dbtn", st)
+            raise self.void("V17", "driver", f"a [DBTN= page neither recognizer claims, nothing pressed: "
+                                             f"{st.text[:120]!r}")
+        q = cb.get("quiet")
+        if q is not None and q.get("open_frame") is not None:
+            self.observed("quiet_page", st)
+            raise self.void("V17", "driver", f"a page in the quiet window, nothing pressed: {st.text[:120]!r}")
+        if cb.get("encore") is not None and not cb["encore"]["judged"]:
+            if not self.after_encore(st, rows):
+                time.sleep(POLL_S)
+                return
+        elif cell and cb["zone_done"] and not cb["score_read"] and any(SCORE_MARK in t for t in texts):
+            if not self.score_page():
+                time.sleep(POLL_S)
+                return
+        held = cb["held_off"]
+        if not any(t and st.frame >= held.get(t, -1) for t in texts):
+            time.sleep(POLL_S)                     # page-once: every listed window was pressed lately
+            return
+        if not self.pages or self.pages[-1] != st.text:
+            self.pages.append(st.text)
+            if any("[TIME=" in t for t in st.raw_texts):
+                self.timed.append(len(self.pages) - 1)
+        if self.movies is not None:
+            self.movie_page(st)
+        row = self.press("page", st, 3)
+        seq = g.channel.seq
+        st2 = g.state
+        until = st2.frame + g.rate().frames_for_ticks(int(pol["page_once_ticks"]))
+        row.update(seq=seq, ack_frame=st2.frame, button="confirm", texts=[t for t in texts if t])
+        for t in texts:
+            if t:
+                held[t] = until
+        if cb.get("quiet") is None and any(m in t for t in texts for m in pol["quiet"]):
+            cb["quiet"] = {"armed_frame": st.frame, "open_frame": None, "open_t": None}
+        self.walked = None
+        g.wait_frames(g.rate().frames_for_ticks(g.CUTSCENE_PAGE_TICKS))
+
+    def page_samples(self, match, since: int) -> list:
+        """The page's text in each consecutive merged sample after ``since`` (the ring's), in frame order: the first
+        window text ``match`` holds, or None for a sample that lists none."""
+        out = []
+        for raw in self.g.states_since(since):
+            hits = [t for _p, t in dialog_rows(raw) if match(t)]
+            out.append(hits[0] if hits else None)
+        return out
+
+    def score_page(self) -> bool:
+        """S9: the first page of the cell after the zone holding "nobles watching", read in TWO consecutive samples
+        (2.4.12; [NUMB] is filled in when it renders, 0.3 #6): ``score_page`` -- the beat ``sword`` set, True (press
+        it); another number -- the fight's judge stops the run (:meth:`page_stop`); no reading yet -- False (wait)."""
+        got = self.page_samples(lambda t: SCORE_MARK in t, self.cb["zone_end_frame"] or self.cb["visit_frame"])
+        verdict, _text = page_reading(got, self.chanbara["score_page"])
+        if verdict is None:
+            return False
+        if verdict == "differs":
+            self.page_stop("score", got)
+        self.cb["score_read"] = True
+        if "sword" in self.beats:
+            self.beats["sword"] = True
+        return True
+
+    def after_encore(self, st, rows: list) -> bool:
+        """S9: THE FIRST PAGE AFTER THE ENCORE ANSWER, judged by what it is (2.4.12; rev. 2, the claim critique #8): a
+        gil page ("They shower you with") read in two consecutive samples -- ``gil_page``: True (press it); another
+        number: the fight's judge (:meth:`page_stop`); no reading yet: False (wait); a REPLAY page -- the replay's KEYON
+        pair, 64 mes 109/110, ``[TIME=-1]`` and no ``[DBTN=`` -- goes to :meth:`encore_stray` (V17 or V2); anything else
+        is V17 (game-observed)."""
+        enc = self.cb["encore"]
+        if any(GIL_MARK in t for _p, t in rows):
+            got = self.page_samples(lambda t: GIL_MARK in t, enc["answered_frame"])
+            verdict, _text = page_reading(got, self.chanbara["gil_page"])
+            if verdict is None:
+                return False
+            if verdict == "differs":
+                self.page_stop("gil", got)
+            enc["judged"] = True
+            return True
+        if any("[TIME=-1]" in p and "[DBTN=" not in p for p, _t in rows):
+            self.encore_stray()
+        self.observed("after_encore", st)
+        raise self.void("V17", "driver", f"a page after the encore answer that is neither the gil page nor a replay, "
+                                         f"nothing pressed: {st.text[:120]!r}")
+
+    def page_stop(self, kind: str, texts: list) -> None:
+        """A score or gil page that reads another text in two samples: the fight's judge over this visit's zone and
+        prompt rows (2.4.8) -- V18 when the play is proven, V17 otherwise -- logged, nothing pressed."""
+        pol = self.chanbara
+        zone = next((z for z in reversed(self.zones) if z.get("visit") == self.visit), {})
+        prompts = [r for r in self.prompts if r.get("visit") == self.visit]
+        presses = [r for r in self.log if r.get("k") == "press" and r.get("seq") is not None
+                   and r.get("visit") == self.visit]
+        verdict = chanbara_judge(zone, prompts, presses, pol,
+                                 page={"kind": kind, "want": pol[f"{kind}_page"], "texts": texts})
+        v, by, why = verdict["v"], verdict["by"], verdict["why"]
+        if v is None:
+            v, by, why = "V17", "driver", f"the {kind} page differs and the judge read no finding"
+        self.log.append({"k": "page_judge", "kind": kind, "field": self.fid, "visit": self.visit,
+                         "texts": [t for t in texts if t][-4:], "verdict": verdict})
+        raise self.void(v, by, why)
+
+    def encore_rule(self, st) -> dict | None:
+        r = rule_for(st.choice, self.donor, self.pred, sc=self.sc)
+        return r if r is not None and r.get("match") == self.chanbara["encore_match"] else None
+
+    def steps_rows(self) -> list:
+        """The session's steps.jsonl rows (every request's literal steps by ``seq``), [] when there is none."""
+        path = getattr(self.g, "run_dir", None)
+        path = None if path is None else path / "steps.jsonl"
+        if path is None or not path.exists():
+            return []
+        out = []
+        for ln in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                out.append(json.loads(ln))
+            except ValueError:
+                continue
+        return out
+
+    def choice_close(self, enc: dict) -> int | None:
+        """The first merged sample after the encore choice's first publication that no longer lists it, or None."""
+        for raw in self.g.states_since(enc["first_frame"]):
+            ch = (raw.get("dialog") or {}).get("choice")
+            if not ch or str((ch.get("options") or [""])[0]) != enc["key"]:
+                return int(raw.get("frame", -1))
+        return None
+
+    def encore_stray(self) -> None:
+        """S9: a replay page or a second encore choice -- who confirmed it (2.4.11, :func:`stray_answer`): V17 when a
+        Confirm of the driver's own landed on 127 other than the answer's own on a cursor at No, else V2 (game). Never
+        the fight's judge. Logged, then raised with the cell."""
+        enc = self.cb["encore"]
+        if enc.get("close_frame") is None:
+            enc["close_frame"] = self.choice_close(enc)
+        log = [r for r in self.log if r.get("visit") == self.visit]
+        res = stray_answer(log, self.g.channel.events(), self.steps_rows(), enc["first_frame"], enc["close_frame"])
+        self.log.append({"k": "encore_stray", "field": self.fid, "visit": self.visit, "first_frame": enc["first_frame"],
+                         "close_frame": enc["close_frame"], **res})
+        raise RouteVoid(res["why"], v=res["v"], cell=[self.donor, self.sc], by=res["by"])
+
+    def row_choose(self, before: int, after: int, st) -> None:
+        """S9 (research/o4_design.md 0.3 #10): ``g.choose``'s own presses -- ``press down/up 4`` until the cursor sits,
+        then ``press confirm 4`` -- as ``press`` rows (``why`` "choose"), the requests between the channel's seq before
+        and after it: each from the session's steps.jsonl, its accepted frame from events.jsonl (its down frame + 1),
+        the confirm marked ``answer`` and given the cursor the last ring sample before its down frame published
+        (``selected_before``) -- what :func:`stray_answer` reads."""
+        steps = {int(r["seq"]): r for r in self.steps_rows()
+                 if r.get("seq") is not None and before < int(r["seq"]) <= after}
+        acc: dict = {}
+        for e in self.g.channel.events():
+            if e.get("kind") == "accepted" and e.get("seq") is not None:
+                try:
+                    acc.setdefault(int(e["seq"]), int(e["frame"]))
+                except (TypeError, ValueError):
+                    continue
+        presses = [(seq, _press_button(steps[seq].get("steps"))) for seq in sorted(steps)]
+        presses = [(seq, b) for seq, b in presses if b]
+        last = max((seq for seq, b in presses if b in CONFIRM_NAMES), default=None)
+        ring = self.g.states_since(st.frame - 1)
+        for seq, button in presses:
+            down = None if acc.get(seq) is None else acc[seq] + 1
+            sel = None
+            if down is not None:
+                prior = [raw for raw in ring if int(raw.get("frame", -1)) < down]
+                ch = (prior[-1].get("dialog") or {}).get("choice") if prior else None
+                sel = None if not ch else ch.get("selected")
+            self.log.append({"k": "press", "why": "choose", "button": button, "seq": seq, "field": self.fid,
+                             "donor": self.donor, "visit": self.visit, "sc": self.sc, "pre": None, "post": None,
+                             "near": [], "accepted_frame": acc.get(seq), "down_frame": down, "selected_before": sel,
+                             "answer": seq == last})
 
 
 def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=None, prior_for=None,
-          progress: dict | None = None, end_fields=None, observe=None, forbid_live: bool = True) -> dict:
+          progress: dict | None = None, end_fields=None, observe=None, forbid_live: bool = True,
+          witness=None) -> dict:
     """Play the segment by its beat table (research/o2_design.md 2.2), from wherever the run stands to an end field.
 
     Returns ``{"end": "reached", "why", "void": None, "beats", "pages", "timed", "choices", "steps", "overlays",
     "forbidden", "end_state", "t"}`` -- and, with a battle registry (research/o3_design.md S4), ``"battles"`` (the
     battle rows) and ``"battle_epoch0"`` (the epoch published when the drive started); with a movie-skip policy
-    (``movies``, PLAN.md "Movie skip (opt-in)"), ``"movies"`` (its ``movie`` rows); anything the table cannot
+    (``movies``, PLAN.md "Movie skip (opt-in)"), ``"movies"`` (its ``movie`` rows); with the Chanbara policy
+    (``chanbara``, research/o4_design.md 2.4), ``"zones"`` and ``"prompts"`` (its rows); anything the table cannot
     answer raises :class:`RouteVoid` with its class, cell and attribution (2.7), and the budget ``HarnessError``
     (V13). ``floor_for(donor, closed)`` gives a walk its
     floor (default: the donor's stock walkmesh as the player walks it, ``closed`` shut -- a member walks its donor's,
     P-FLOOR), ``prior_for(donor)`` its prior (default ``g.key_prior``); ``end_fields`` overrides the side's end fields
     (a rehearsal stage; else ``side_ends[side]``, else the predictions' one list -- S6); ``observe(st, ctx)`` sees every
     poll (the rehearsal recorder); ``forbid_live`` runs the live
-    forbidden scan (V12; it needs the story trace running). ``progress`` is filled with the live beats, pages, choices,
-    steps, overlays and forbidden rows, so a run that raises still says how far it got."""
+    forbidden scan (V12; it needs the story trace running); ``witness()`` (opt-in, read only under the Chanbara
+    policy) is the outside-input witness -- None while the pads and keys are neutral, else what it read (V13).
+    ``progress`` is filled with the live beats, pages, choices, steps, overlays and forbidden rows, so a run that raises
+    still says how far it got."""
     if floor_for is None:
         from ff9mapkit import extract
         from ff9mapkit.content import pathfind
@@ -2401,4 +3259,5 @@ def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=Non
         def floor_for(donor, closed):
             return pathfind.PlayerWalkmesh(extract.stock_walkmesh(donor), closed=closed)
     return _Drive(g, pred, side, log, deadline=deadline, floor_for=floor_for, prior_for=prior_for or g.key_prior,
-                  progress=progress, end_fields=end_fields, observe=observe, forbid_live=forbid_live).go()
+                  progress=progress, end_fields=end_fields, observe=observe, forbid_live=forbid_live,
+                  witness=witness).go()

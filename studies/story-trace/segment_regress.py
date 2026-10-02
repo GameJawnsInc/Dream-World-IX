@@ -8,7 +8,7 @@ the O1-O3 driver tests and the fake's beat and input functions at their pinned s
     py studies/story-trace/segment_regress.py --capture-o2   # G0', once, BEFORE any O3 code change: the O2 baseline
     py studies/story-trace/segment_regress.py --capture-o3   # G0'', once, BEFORE any O4 code change: the O3 baseline
     py studies/story-trace/segment_regress.py --rebaseline-source NAME --reason TEXT   # G21: re-pin ONE source
-    py studies/story-trace/segment_regress.py                # G1-G18, G21; exit 0 only if every item passes
+    py studies/story-trace/segment_regress.py                # G1-G19, G21; exit 0 only if every item passes
 
 Exit 2 means an archive or a baseline is missing: the gate was not run, which is not a pass.
 
@@ -87,6 +87,10 @@ was captured at the code before the change it guards and the same file judges th
       O3-neutral by G17's synthetic sessions alone.
   G18 ``O3.offline_check(v1)`` equals the baseline's ``[(ok, what, detail)]``: 6 checks, all PASS (it reads O1's
       build and the stock assets, read-only).
+  G19 ``pytest tests/test_harness.py -k "o4_ or fake_chanbara or fake_keyon"`` from ``ff9mapkit/``
+      (research/o4_design.md 1.4, from B3): every test passed, 0 failed, 0 skipped, 0 errors, and every name in
+      :data:`REQUIRED_TESTS_O4` among them -- O4's FakeGame machine beats (H10-H12), the Chanbara policy's pure half
+      and its executor on the fake. No baseline: the list is the floor.
   G21 THE DRIVER'S SOURCE PINS (research/o4_design.md 1.4, rev. 2): every name in the O3 baseline's ``sources`` --
       each test G7, G12 and G13 collected at the capture, and fakegame.py's existing beat and input functions,
       by its qualified name (``<file>::<qualname>``) -- still exists, and the sha256 of its
@@ -242,8 +246,52 @@ O3_OFFLINE_CHECKS = 6
 #: What every temporary root the dry-run replica makes reads as, in a reading and in the O3 baseline (G0'', G17).
 TMP = "<tmp>"
 #: G19 (research/o4_design.md 1.4, from B3): every ``test_o4_*``, ``test_fake_chanbara_*`` and ``test_fake_keyon_*``
-#: name, each with the step that adds it. Empty until B3: G19 joins the gate in the commit that adds its tests.
-REQUIRED_TESTS_O4: tuple = ()
+#: name, each with the step that adds it -- G19 joined the gate in the commit that added B3's tests.
+PYTEST_K_O4 = "o4_ or fake_chanbara or fake_keyon"
+REQUIRED_TESTS_O4: tuple = (
+    # B1: H10-H12, the fake's machine beats (the KEYON pair, the Chanbara visit, its faults)
+    "test_fake_keyon_pair_takes_only_an_edge_after_its_gate",
+    "test_fake_chanbara_arms_and_publishes_in_one_tick",
+    "test_fake_chanbara_scores_a_perfect_run_exactly",
+    "test_fake_chanbara_times_out_and_rearms_in_the_same_tick",
+    "test_fake_chanbara_misses_a_circle_pressed_as_circle",
+    "test_fake_chanbara_misses_two_keys_start_and_a_held_key",
+    "test_fake_chanbara_filters_hold_on_every_seed",
+    "test_fake_chanbara_bonus_knob_and_assistance_levels",
+    "test_fake_chanbara_encore_yes_replays_without_111",
+    "test_fake_chanbara_close_tween_and_slides",
+    "test_fake_chanbara_page_ignores_confirm_while_opening",
+    "test_fake_chanbara_publication_order_and_true_j",
+    "test_fake_chanbara_faults",
+    # B2: S7's pure half
+    "test_o4_chanbara_of_is_strict",
+    "test_o4_prompt_recognizers_claim_exactly_the_prompts",
+    "test_o4_j_and_raw_bounds",
+    "test_o4_chanbara_judge_classes",
+    "test_o4_slides_bracket_the_slide_from_the_prev_samples",
+    "test_o4_stray_answer_attributes_by_the_down_frame",
+    # B3: rule 6b's executor, S8, S9, the witness and the pace, on the fake
+    "test_o4_drive_scores_100_on_the_fake",
+    "test_o4_drive_opens_one_instance_beside_a_lingering_prompt",
+    "test_o4_drive_paced_tracks_the_closing_prompt_beside_its_successor",
+    "test_o4_drive_fails_closed_on_an_unclaimed_dialog",
+    "test_o4_drive_refuses_an_unrecognized_dbtn_page",
+    "test_o4_drive_v17_on_a_stalled_press",
+    "test_o4_drive_read_stall_in_a_gap_is_v17_never_v18",
+    "test_o4_drive_v18_on_a_lost_press",
+    "test_o4_drive_v18_on_a_miss_read",
+    "test_o4_drive_v18_on_what_the_game_shows",
+    "test_o4_drive_slides_at_31_fps_agent_first",
+    "test_o4_drive_page_once_and_the_quiet_windows",
+    "test_o4_drive_presses_123_again_when_its_first_press_is_dropped",
+    "test_o4_drive_attributes_a_stray_yes",
+    "test_o4_drive_paced_policy_lands_in_its_band",
+    "test_o4_drive_stops_v13_off_fieldhud",
+    "test_o4_drive_input_witness_stops_v13",
+    "test_o4_drive_never_blocks_on_the_rate",
+    "test_o4_drive_stop_after_ends_at_instance_eleven",
+    "test_o4_drive_prompt_outside_its_cell_is_v17",
+)
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)
 SOURCE_PINS = HERE / "research" / "source_pins.json"
@@ -644,6 +692,17 @@ def pytest_g13() -> dict:
 def g13(got: dict) -> tuple:
     bad = _selection_bad(None, got, REQUIRED_TESTS_O3)
     return (not bad, f'G13: pytest -k "{PYTEST_K_O3}": all passed, 0 failed, 0 skipped; every REQUIRED_TESTS_O3 '
+                     f"among them", "; ".join(bad) or f"{len(got['passed'])} passed")
+
+
+def pytest_g19() -> dict:
+    """Run G19's pytest selection (:func:`pytest_selection`)."""
+    return pytest_selection(PYTEST_K_O4)
+
+
+def g19(got: dict) -> tuple:
+    bad = _selection_bad(None, got, REQUIRED_TESTS_O4)
+    return (not bad, f'G19: pytest -k "{PYTEST_K_O4}": all passed, 0 failed, 0 skipped; every REQUIRED_TESTS_O4 '
                      f"among them", "; ".join(bad) or f"{len(got['passed'])} passed")
 
 
@@ -1225,9 +1284,11 @@ def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2, baseline_o3
     _show_items(items_o3[-1:])
     items_o3b = judge_o3(base_o3, collect_o3())        # O3's outputs (research/o4_design.md 1.4): G15-G18
     _show_items(items_o3b)
+    items_o4 = [g19(pytest_g19())]                     # O4's machine beats and Chanbara policy (from B3): G19
+    _show_items(items_o4)
     items_src = [g21(base_o3, pins)]                   # the driver's source pins (rev. 2): G21
     _show_items(items_src)
-    items += items_o2 + items_o3 + items_o3b + items_src
+    items += items_o2 + items_o3 + items_o3b + items_o4 + items_src
     n = sum(1 for ok, _w, _d in items if ok)
     print(f"\n{n}/{len(items)} items PASS (baseline heads: O1 {base['head'][:8]}, O2 {base_o2['head'][:8]}, O3 "
           f"{base_o3['head'][:8]})")
