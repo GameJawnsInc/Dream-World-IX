@@ -357,9 +357,14 @@ class FakeGame:
         #: ``r`` (0: the scene goes with no result) as its ``n``-th (default 1) step ``op`` (default "battlecmd")
         #: arrives, BEFORE that step runs: an end (King Leo's scripted one in battle 338) landing between a driver's
         #: read of "asking slot N" and its command, which the step then meets as the agent does -- no battle HUD; with
-        #: `battle_exit`, the fade's "not asking". Once a battle. None (the default): no such end.
+        #: `battle_exit`, the fade's "not asking". With ``"after": a`` (frames) the step RUNS instead -- a ``menus``
+        #: collects its menu and the request acks as usual -- and the end lands ``a`` frames later, after the drain (0:
+        #: the step's own frame, so no published sample ever carries that menu): the end between the ack and the
+        #: driver's read of the menu, which the battle doc carries only while the battle is up. Once a battle. None
+        #: (the default): no such end.
         self.battle_end_on_command: dict | None = None
         self._race_steps = 0                       # this battle's steps of the raced op, for `battle_end_on_command`
+        self._race_due: tuple | None = None        # (the frame it is due, its result): an `after` end, scheduled
         #: The naming screen (``Menu(1, char)``, a scene beat ``{"naming": char}``): each character named, in order.
         self.named: list[int] = []
         self._name_focus = False
@@ -2208,7 +2213,7 @@ class FakeGame:
         self.run_counter = 0.0
         self._bexit = self._script_end = None     # H9: no end running, and the latch not yet fired, in a new battle
         self._script_latched = False
-        self._race_steps = 0
+        self._race_steps, self._race_due = 0, None
         # ⚠ battle_menu is deliberately NOT cleared here either, for the same reason: a driver that
         # reads the menu without checking its epoch stamp has to be catchable.
         self.battle_units = units if units is not None else [
@@ -2351,13 +2356,17 @@ class FakeGame:
 
     def _race_end(self, op: str) -> None:
         """`battle_end_on_command`: as its ``n``-th step ``op`` of the battle arrives, the battle ends first, and the
-        step meets whatever that end left."""
+        step meets whatever that end left -- or, with ``after``, the step runs and the end is due ``after`` frames on
+        (:meth:`_step_battle` ends it, after the drain)."""
         race = self.battle_end_on_command
         if race is None or not self.battle_active or op != race.get("op", "battlecmd"):
             return
         self._race_steps += 1
         if self._race_steps == int(race.get("nth", 1)):
-            self.end_battle(int(race["result"]))
+            if race.get("after") is None:
+                self.end_battle(int(race["result"]))
+            else:
+                self._race_due = (self.frame + max(0, int(race["after"])), int(race["result"]))
 
     def _settle_battle(self) -> None:
         """End the fight when one side is gone. ⚠ Never under isDebug -- the diorama cannot end."""
@@ -2379,6 +2388,10 @@ class FakeGame:
         if self._script_end is not None and self.frame >= self._script_end[0]:
             result, self._script_end = self._script_end[1], None
             self.end_battle(result)                     # the scripted end: whoever is standing
+            return
+        if self._race_due is not None and self.frame >= self._race_due[0]:
+            result, self._race_due = self._race_due[1], None
+            self.end_battle(result)                     # `battle_end_on_command`'s `after` end
             return
 
         # InitialBattle(): the opening camera ends, the HUD resets its turn bookkeeping, and only

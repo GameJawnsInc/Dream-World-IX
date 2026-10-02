@@ -14187,6 +14187,162 @@ def test_fight_reads_a_command_refused_with_no_battle_hud_as_the_battle_gone(gam
         assert (lf["result"], lf["timed_out"], lf["turns"]) == (result, False, 1), lf
 
 
+def test_fight_reads_a_menu_the_battle_ended_under_as_the_battle_gone(game):
+    """The command race one step EARLIER than the test above's: act()'s ``menus`` step was acked, and the battle ENDED
+    (King Leo's scripted end in battle 338, under load) before menus() read the menu it collected -- the battle doc
+    carries ``menu`` only while the battle is up, so the wait ran out its 10 s and a plain HarnessError ("the command
+    menu for slot 0 to be published") escaped fight(). Three windows, each at the SECOND command (the first, an
+    Attack, a turn taken): "drain" -- the fake's ``battle_end_on_command`` with ``after`` 0, the end in the step's own
+    frame, so the ack sample already shows the battle gone and no sample ever carries that menu; "ack" -- the ack
+    sample CARRIES the menu (nothing has ended the battle yet), then the end lands on the fake's thread and the driver
+    reads nothing more until it is published (a starved harness); "act" -- menus() read the menu, and the end lands
+    before act() resolves against a fresh read. With a result (2) fight() returns it, the raced command no turn
+    (``turns`` 1, ``timed_out`` False, no second battlecmd sent); with none (0, the scene gone) it raises FightTimeout
+    kind "gone" -- never "timeout", never a result -- and either way inside seconds, not the menus() wait's 10. Break:
+    let menus() wait for the menu alone ("drain" and "ack" raise the plain HarnessError after 10 s); raise a plain
+    HarnessError from the stopped wait, or let fight() pass BattleGone on (every case raises); count the raced command
+    (``turns`` 2); read it as a timeout (0's kind "timeout"); drop act()'s fresh-read check ("act" names no move)."""
+    from harness import FightTimeout
+    for case in ("drain", "ack", "act"):
+        for result in (2, 0):
+            fake = FakeGame(game)
+            fake.enemy_hit, fake.atb_gain = 0, 400
+            if case == "drain":
+                fake.battle_end_on_command = {"result": result, "nth": 2, "op": "menus", "after": 0}
+            acks: list = []
+            menus_read: list = []
+            with session(game, fake) as g:
+                boot(g)
+                g.warp(30821)
+                fake.start_battle(338, units=_o3_units(10 ** 7, minions=False))
+                published(g, lambda s: s.in_battle and s.battle.get("scene") == 338)
+                epoch = fake.battle_epoch
+                real_ack, real_menus = g._await_ack, g.menus
+
+                def end_and_starve():
+                    # the end on the fake's own thread at its next frame; the driver reads nothing until it is out
+                    _o3_end_on_the_fake(fake, result)
+                    published(g, lambda s: s.battle_epoch == epoch and not s.in_battle)
+
+                def ack(seq, timeout, steps, row=None):
+                    st = real_ack(seq, timeout, steps, row=row)
+                    if steps and str(steps[0]).startswith("menus"):
+                        acks.append(st)
+                        if case == "ack" and len(acks) == 2:
+                            end_and_starve()
+                    return st
+
+                def menus(slot=None, **kw):
+                    menu = real_menus(slot, **kw)
+                    menus_read.append(menu)
+                    if case == "act" and len(menus_read) == 2:
+                        end_and_starve()
+                    return menu
+
+                g._await_ack, g.menus = ack, menus
+                t0 = time.time()
+                if result:
+                    assert g.fight(timeout=60.0, finish=False) == result, case
+                else:
+                    with pytest.raises(FightTimeout) as err:
+                        g.fight(timeout=60.0, finish=False)
+                    assert err.value.kind == "gone" and "went away with no result" in str(err.value), (case, err.value)
+                took, st = time.time() - t0, g.state
+            seen = (acks[1].in_battle, acks[1].menu_is_for(0)) if len(acks) == 2 else None
+            assert seen == ((case != "drain"),) * 2, (case, result, len(acks), seen)
+            assert len(menus_read) == (2 if case == "act" else 1), (case, result, menus_read)
+            steps = [s[0] for s in fake.executed if s[0] in ("menus", "battlecmd")]
+            assert steps == ["menus", "battlecmd", "menus"], (case, result, steps)
+            assert len(fake.battle_commands) == 1, (case, result, fake.battle_commands)
+            assert not st.in_battle and st.battle_result == result and took < 8.0, (case, result, st, took)
+            lf = g.last_fight
+            assert (lf["result"], lf["timed_out"], lf["turns"]) == (result, False, 1), (case, result, lf)
+
+
+class _MenuFake(FakeGame):
+    """The fake whose ``menus`` step publishes no menu for the slot asked, the battle still up: ``mode`` "never" --
+    nothing collected -- or "lost": collected, and from then on the agent's fallback battle doc (``{"active": false,
+    "epoch": -1}``, AppendBattle's when its read throws), which shows no battle at all, not THIS one gone."""
+
+    mode = "never"
+
+    def _collect_menus(self, slot):
+        if self.mode != "never":
+            super()._collect_menus(slot)
+        if self.mode == "lost":
+            self._doc_lost = True
+
+    def _battle_doc(self):
+        if getattr(self, "_doc_lost", False):
+            return {"active": False, "epoch": -1, "debug": False}
+        return super()._battle_doc()
+
+
+def test_menus_and_act_raise_battle_gone_only_for_this_battle_gone(game):
+    """menus() and act() OUTSIDE fight(), in the same race (``battle_end_on_command``, ``op`` "menus", ``after`` 0, at
+    the first ``menus``): each raises BattleGone at once -- a HarnessError, so every ``except HarnessError`` still
+    catches it -- carrying the sample that showed the battle gone (result 2, not in battle) and the battle's epoch, and
+    no command sent; not the 10 s timeout. The controls keep the old wait exactly: a menu that never comes with the
+    battle UP, or the agent's fallback doc (epoch -1), still runs out its timeout and raises the plain HarnessError --
+    no battle gone was shown. And fight() passes on a BattleGone whose sample is not THIS battle gone (another epoch's
+    end, or this battle still up). Break: stop menus()'s wait on any doc out of battle (the fallback raises
+    BattleGone), or on the epoch alone (the battle-up control does); drop fight()'s epoch or in-battle check (it reads
+    "gone")."""
+    from harness.channel import BattleGone
+    units = _o3_units(10 ** 7, minions=False)
+    for verb in ("menus", "act"):
+        fake = FakeGame(game)
+        fake.enemy_hit, fake.atb_gain = 0, 400
+        fake.battle_end_on_command = {"result": 2, "nth": 1, "op": "menus", "after": 0}
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30821)
+            fake.start_battle(338, units=[dict(u) for u in units])
+            published(g, lambda s: s.in_battle and s.commands_enabled)
+            t0 = time.time()
+            with pytest.raises(BattleGone) as err:
+                g.menus(0) if verb == "menus" else g.act("Attack", slot=0)
+            took = time.time() - t0
+        gone = err.value
+        assert isinstance(gone, HarnessError) and took < 5.0, (verb, took)
+        assert gone.epoch == fake.battle_epoch == gone.state.battle_epoch, (verb, gone.epoch, gone.state.battle)
+        assert not gone.state.in_battle and gone.state.battle_result == 2 and "slot 0" in str(gone), (verb, gone)
+        assert fake.battle_commands == [], (verb, fake.battle_commands)
+    for mode in ("never", "lost"):
+        fake = _MenuFake(game)
+        fake.mode = mode
+        fake.enemy_hit, fake.atb_gain = 0, 400
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30821)
+            fake.start_battle(338, units=[dict(u) for u in units])
+            published(g, lambda s: s.in_battle and s.commands_enabled)
+            with pytest.raises(HarnessError, match="to be published") as err:
+                g.menus(0, timeout=1.0)
+            assert not isinstance(err.value, BattleGone), (mode, err.value)
+            st = g.state
+            assert fake.battle_active and (st.battle_epoch, st.in_battle) == (
+                (-1, False) if mode == "lost" else (fake.battle_epoch, True)), (mode, st.battle)
+    fake = FakeGame(game)
+    fake.enemy_hit, fake.atb_gain = 0, 400
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30821)
+        fake.start_battle(338, units=[dict(u) for u in units])
+        published(g, lambda s: s.in_battle and s.commands_enabled)
+        raw = g.state.raw
+        # not THIS battle gone: another epoch's end, or this epoch's battle still up
+        for active, epoch in ((False, fake.battle_epoch + 1), (True, fake.battle_epoch)):
+            shown = State(dict(raw, battle=dict(raw["battle"], active=active, epoch=epoch)))
+
+            def act(*a, **kw):
+                raise BattleGone("not this battle gone", state=shown, epoch=shown.battle_epoch)
+            g.act = act
+            with pytest.raises(BattleGone, match="not this battle gone"):
+                g.fight(timeout=10.0, finish=False)
+        assert fake.battle_active and fake.battle_commands == [], fake.battle_commands
+
+
 def test_fight_counts_its_tutorials_and_seconds(game):
     """H7: ``last_fight`` counts the battle tutorial screens the call closed -- scene 336 opens one before its first
     command: 1 -- and the wall seconds it took, and reads ``timed_out`` False on a result; its old keys (turns, result,
@@ -14577,6 +14733,34 @@ def test_o3_drive_fights_through_an_end_that_beats_its_command(game):
         err, log = _o3_drive(g, fake, _o3_pred(battles=[_o3_row(lands=30821)]), phases=phases, log=log)
     assert isinstance(err, SD.RouteVoid) and (err.v, err.by) == ("V10", "game"), err
     assert len([s for s in fake.executed if s[0] == "battlecmd"]) == 2, fake.executed
+    rows = [r for r in log if r["k"] == "battle"]
+    assert len(rows) == 1, rows
+    b = rows[0]
+    assert (b["result"], b["turns"], b["timed_out"], b["v"], b["landed"]) == (2, 1, False, None, 30821), b
+
+
+def test_o3_drive_fights_through_an_end_that_beats_its_menu(game):
+    """The race above a step EARLIER, through the driver: King Leo's scripted end (result 2) lands between the ack of
+    the second command's ``menus`` step and the read of its menu (the fake's ``battle_end_on_command``, ``op``
+    "menus", ``after`` 0: the end in the step's own frame, so no sample carries that menu; the latch off), and
+    menus() raises BattleGone. The battle is gone with its result: the driver logs its row (result 2, one turn, not
+    timed out) and goes on to V10 on the second battle 338, exactly as the unraced case does; no second battlecmd.
+    Break: let menus() wait for the menu alone (a plain HarnessError out of the drive after its 10 s), or let fight()
+    pass BattleGone on."""
+    SD = _segment_modules()
+    fake = _o3_fake(game)
+    fake.battle_script_end = None
+    fake.battle_end_on_command = {"result": 2, "nth": 2, "op": "menus", "after": 0}
+    log: list = []
+    phases = _o3_route(end=False)[:3] + [
+        (lambda f: any(r.get("k") == "battle" for r in log) and _o3_idle(f),
+         lambda f: f.start_battle(338, units=_o3_units()))]
+    with session(game, fake) as g:
+        _o3_start(g)
+        err, log = _o3_drive(g, fake, _o3_pred(battles=[_o3_row(lands=30821)]), phases=phases, log=log)
+    assert isinstance(err, SD.RouteVoid) and (err.v, err.by) == ("V10", "game"), err
+    steps = [s[0] for s in fake.executed if s[0] in ("menus", "battlecmd")]
+    assert steps == ["menus", "battlecmd", "menus"], steps
     rows = [r for r in log if r["k"] == "battle"]
     assert len(rows) == 1, rows
     b = rows[0]

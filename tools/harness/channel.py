@@ -102,6 +102,19 @@ class StepRefused(HarnessError):
         self.error, self.steps, self.state = str(error), list(steps), state
 
 
+class BattleGone(HarnessError):
+    """The battle a command menu was read for ENDED -- its scene gone, its epoch unchanged -- after the ``menus`` step
+    acked and before the menu it collected was read (Session.menus: the battle doc carries ``menu`` only while the
+    battle is up, so that wait would run out its timeout on a menu that can never come), or before Session.act
+    resolved against it. Not a refusal: the step ran, and the battle it ran in is over. ``state`` the sample that showed
+    it gone, ``epoch`` the battle's. Session.fight reads it as the battle's end (the result returned, or FightTimeout
+    kind "gone"); every ``except HarnessError`` still catches it."""
+
+    def __init__(self, message: str, *, state: "State", epoch: int):
+        super().__init__(message)
+        self.state, self.epoch = state, int(epoch)
+
+
 class FightTimeout(HarnessError):
     """``Session.fight`` reached NO RESULT (research/o3_design.md H7): ``kind`` "turns" -- it answered ``max_turns``
     command prompts (0: it raised at the first one, before any command) -- or "timeout": a bound ran out, and the
