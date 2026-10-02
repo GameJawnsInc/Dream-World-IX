@@ -339,6 +339,8 @@ REQUIRED_TESTS_O4: tuple = (
     "test_o4_rehearsal_gate_reruns_what_cannot_witness_on_the_fake",
     # the review #5: R-GATE's and F-SMOKE's member ids are the chain's (member(N) resolved, every F-side id checked)
     "test_o4_rehearse_stage_ids_follow_the_chain",
+    # the review #4: P-GATE reads R-GATE's own launch record (its verdict, runs, engine, settings, member(64)'s build)
+    "test_o4_castle_p_gate_needs_its_launch_record",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

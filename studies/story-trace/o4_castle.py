@@ -855,26 +855,95 @@ def p_override(fp: dict, pinned: dict) -> tuple:
                    f"one only")
 
 
+def member_eb(root, name: str) -> dict:
+    """``{lang: sha256 | None}``: a member's .eb in every language under one mod root -- a build's or a stacked
+    folder's (``ModLayout``) -- None where absent."""
+    from ff9mapkit.config import LANGS, ModLayout
+    lay = ModLayout(Path(root))
+    return {L: _sha_file(lay.eb_path(L, f"EVT_{name}.eb.bytes")) for L in LANGS}
+
+
+def live_member(game, fid: int, name: str, *, roots=None) -> dict:
+    """``{"id", "name", "folder", "eb"}``: a member as the live install holds it -- the first stacked folder that
+    registers it (P-EB's reading) and its .eb's sha256 per language (:func:`member_eb`; None with no such folder).
+    R-GATE records it for its F side (the review, research/o4_design.md 11.5 #4): P-GATE ties the witness to it."""
+    if roots is None:
+        import dali_tour as D
+        try:
+            roots = D.mod_roots(Path(game))
+        except OSError:
+            roots = []
+    live = [r for r in roots if int(fid) in T.mod_registrations(r)]
+    return {"id": int(fid), "name": name, "folder": Path(live[0]).name if live else None,
+            "eb": member_eb(live[0], name) if live else None}
+
+
+def gate_record(run_dir) -> dict | None:
+    """R-GATE's launch record -- ``<run_dir>/o4_rehearsal.json`` -- or None when it cannot be read."""
+    try:
+        return json.loads((Path(run_dir) / REHEARSAL_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def gate_backing(w: dict, rec: dict | None, member64: dict | None) -> list:
+    """What R-GATE's own launch record does NOT back in a hand-filled ``gate_witness`` (the review,
+    research/o4_design.md 11.5 #4), pure: ``[problem]``. The record (``<run_dir>/o4_rehearsal.json``) must be an R-GATE
+    launch (``stages_run`` exactly ["R-GATE"]) whose recorded verdict -- its verdict, cause, S run and F run -- is the
+    witness's, whose launch recorded the witness's engine and settings, and whose F side ran ``member64``: the
+    session's member(64), by its id and its offline-checked build (each language's .eb sha256 -- P-EB pins the live
+    files to that build). A witness copied wrong, another stage's, or another build's is no witness."""
+    if rec is None:
+        return [f"its run dir {w.get('run_dir')!r} holds no readable {REHEARSAL_FILE}: no launch record backs it"]
+    bad = []
+    if rec.get("stages_run") != ["R-GATE"]:
+        bad.append(f"its record ran {rec.get('stages_run')}, not R-GATE alone")
+    gv = (rec.get("gate") or {}).get("R-GATE")
+    if not isinstance(gv, dict):
+        return bad + ["its record holds no R-GATE verdict"]
+    bad += [f"its {k} {w.get(k)!r} is not the record's {gv.get(k)!r}" for k in ("verdict", "cause", "s_run", "f_run")
+            if w.get(k) != gv.get(k)]
+    launch = rec.get("launch") or {}
+    if any((launch.get("engine") or {}).get(a) != (w.get("engine") or {}).get(a) for a in ("x64", "x86")):
+        bad.append(f"its engine is not the one its launch recorded "
+                   f"({str((launch.get('engine') or {}).get('x64'))[:12]})")
+    if launch.get("settings") != w.get("settings"):
+        bad.append("its settings are not the ones its launch recorded")
+    m = gv.get("member")
+    if member64 is None:
+        bad.append("the session's member(64) is unknown: the witness cannot be tied to its build")
+    elif not isinstance(m, dict):
+        bad.append("its record names no member(64) its F side ran: re-run R-GATE")
+    elif m.get("id") != member64.get("id"):
+        bad.append(f"its F side ran {m.get('id')}, the session's member(64) is {member64.get('id')}")
+    elif m.get("eb") != member64.get("eb"):
+        diff = [L for L in sorted(member64.get("eb") or {}) if (m.get("eb") or {}).get(L) != member64["eb"].get(L)]
+        bad.append(f"its F side ran another build of member(64) {m.get('id')} ({', '.join(diff) or 'its .eb'} differ "
+                   f"from the build P-EB checks): re-run R-GATE on this build")
+    return bad
+
+
 def p_gate(manifest: dict, live_engine: dict, settings: dict, *, pinned_engine: dict | None = None,
-           exists=None) -> tuple:
-    """P-GATE (6.2; decision 5; rev. 2, the claim critique #9, #10), pure but for ``exists`` (``Path.is_dir``):
-    ``(ok, detail)``. ``o4_forks.json``'s ``gate_witness`` must name a run dir that exists, a verdict, a cause, the
-    ``engine`` its launch ran and the ``settings`` it recorded; PASS only when that engine is the live DLLs' and the
-    pinned one, the settings are the frozen ones (``SwordplayAssistance`` 1 above all: at 2 stock shows 100 without
-    the +30%), and the verdict is WITNESSED -- or BROKEN with cause "bonus" (the wrap did not fire: a finding the fast
-    session survives). BROKEN with cause "combo" FAILS (the fork did not credit proper presses: diagnose it first), and
-    so do INVALID, UNINFORMATIVE and no witness. The detail carries the whole witness, so the session's recorded
-    preflight holds it (5.4): it opens with ``R-GATE <verdict> (cause <cause>)``."""
-    exists = exists or (lambda p: Path(p).is_dir())
+           member64: dict | None = None, read=None) -> tuple:
+    """P-GATE (6.2; decision 5; rev. 2, the claim critique #9, #10; the review, 11.5 #4), pure but for ``read``
+    (:func:`gate_record`, a seam): ``(ok, detail)``. ``o4_forks.json``'s ``gate_witness`` must name a run dir, a
+    verdict, a cause, the ``engine`` its launch ran and the ``settings`` it recorded -- and its run dir's own launch
+    record must BACK it (:func:`gate_backing`: R-GATE alone, its recorded verdict, cause and runs, its launch's engine
+    and settings, and its F side's member(64) the session's ``member64`` in the build P-EB checks): the witness is
+    hand-filled, the record is what ran. PASS only when, too, that engine is the live DLLs' and the pinned one, the
+    settings are the frozen ones (``SwordplayAssistance`` 1 above all: at 2 stock shows 100 without the +30%), and the
+    verdict is WITNESSED -- or BROKEN with cause "bonus" (the wrap did not fire: a finding the fast session survives).
+    BROKEN with cause "combo" FAILS (the fork did not credit proper presses: diagnose it first), and so do INVALID,
+    UNINFORMATIVE and no witness. The detail carries the whole witness, so the session's recorded preflight holds it
+    (5.4): it opens with ``R-GATE <verdict> (cause <cause>)``."""
+    read = read or gate_record
     pinned_engine = pinned_engine or ENGINE
     w = (manifest or {}).get("gate_witness")
     if not w:
         return False, "R-GATE none (cause none): no gate_witness in o4_forks.json -- R-GATE has not run (7.4 G2)"
     verdict, cause = w.get("verdict"), w.get("cause")
     head = f"R-GATE {verdict} (cause {cause or 'none'})"
-    bad = []
-    if not w.get("run_dir") or not exists(w["run_dir"]):
-        bad.append(f"its run dir {w.get('run_dir')!r} does not exist")
+    bad = gate_backing(w, read(w["run_dir"]) if w.get("run_dir") else None, member64)
     if verdict not in GATE_VERDICTS:
         bad.append(f"verdict {verdict!r} is not one of {GATE_VERDICTS}")
     eng = w.get("engine") or {}
@@ -893,10 +962,11 @@ def p_gate(manifest: dict, live_engine: dict, settings: dict, *, pinned_engine: 
     elif verdict in ("INVALID", "UNINFORMATIVE"):
         bad.append(f"{verdict}: no witness of the +30% (7.4 G2: STOP)")
     witness = json.dumps(w, sort_keys=True)
+    backed = f"; its launch record backs it (R-GATE alone; member(64) {(member64 or {}).get('id')}, this build)"
     return (not bad, head + (": " + "; ".join(bad) if bad else
                              (": the EMinigame +30% fires on member(64)" if verdict == "WITNESSED" else
                               ": the wrap did not fire on member(64) -- a finding; the fast session's raw >= 100 is "
-                              "clamp-proof"))
+                              "clamp-proof") + backed)
             + f" | witness {witness}")
 
 
@@ -1563,9 +1633,21 @@ class O4Segment(P.O3Segment):
         live = live_engine if live_engine is not None else engine_shas(GAME)
         ok, detail = p_engine(live, pred.get("engine") or ENGINE)
         out.append((ok, self.title("P-ENGINE"), detail))
-        ok, detail = p_gate(man, live, want, pinned_engine=pred.get("engine") or ENGINE)
+        ok, detail = p_gate(man, live, want, pinned_engine=pred.get("engine") or ENGINE,
+                            member64=self.member64(pred))
         out.append((ok, self.title("P-GATE"), detail))
         return out
+
+    def member64(self, pred: dict, build=None) -> dict | None:
+        """The session's member(64) as P-GATE ties R-GATE's witness to it (the review, 11.5 #4): ``{"id", "name",
+        "eb"}`` -- its id DERIVED from the chain (:func:`route_members`), its .eb's sha256 per language in the
+        offline-checked build (P-EB pins the live files to it); None when the predictions name no single member(64)."""
+        try:
+            fid = route_members(members_of(pred))[64]
+            name = pred["names"][str(fid)]
+        except (AssertionError, KeyError):
+            return None
+        return {"id": fid, "name": name, "eb": member_eb(Path(build or self.build_dir), name)}
 
     def fingerprint_extra(self, roots: list, pred: dict) -> dict:
         """6.3: O3's (field 70's override, block 2's text per folder, the language, the settings, the battle data), then
@@ -2138,8 +2220,11 @@ def rehearsal_report(run_dir) -> str:
                              + (f"backed by {h['by']}" if h["backed"] else "unbacked"))
         gv = (doc.get("gate") or {}).get(name)
         if gv:
+            m = gv.get("member") or {}
             L.append(f"  R-GATE VERDICT: {gv.get('verdict')} (cause {gv.get('cause') or 'none'}) -- {gv.get('detail')}"
-                     f"; S run {gv.get('s_run')}, F run {gv.get('f_run')}; no witness {gv.get('no_witness') or 'none'}")
+                     f"; S run {gv.get('s_run')}, F run {gv.get('f_run')}; no witness {gv.get('no_witness') or 'none'}"
+                     f"; F ran member(64) {m.get('id')} in {m.get('folder')} (us .eb "
+                     f"{str((m.get('eb') or {}).get('us'))[:12]}: P-GATE ties the witness to that build)")
         L.append("")
     return "\n".join(L)
 

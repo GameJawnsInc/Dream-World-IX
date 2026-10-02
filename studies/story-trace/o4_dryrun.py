@@ -366,20 +366,25 @@ def six(pred: dict, *, s=None, f=None) -> list:
 def preflight_rows() -> list:
     """The preflight a post-deploy session records (6.2): P-TEXT for blocks 2 and 3 (each language its own stock text:
     7 byte-equal of 7), P-ENGINE on the pinned DLLs, and P-GATE's witness (R-GATE WITNESSED on the pinned engine and
-    4.13's settings) -- each detail from its own reader."""
+    4.13's settings, backed by its launch record: R-GATE alone, member(64) 31240 in this build) -- each detail from its
+    own reader."""
     langs = ("us", "uk", "fr", "gr", "it", "es", "jp")
     text = {L: f"stock {L}".encode() for L in langs}
     eng = {"x64": C.ENGINE["x64"], "x86": C.ENGINE["x86"]}
     witness = {"run_dir": "C:/gd/Dream-World-IX/.harness-runs/20261003-000000-o4-rh-R-GATE", "verdict": "WITNESSED",
                "cause": None, "engine": dict(eng), "settings": json.loads(json.dumps(C.SETTINGS)), "s_run": 0,
                "f_run": 1, "detail": "S run 0 and F run 1 both show 100"}
+    m64 = {"id": 31240, "name": "O4_ALEX_STANDS", "eb": {L: "e" * 64 for L in langs}}
+    record = {"stages_run": ["R-GATE"], "launch": {"engine": dict(eng), "settings": witness["settings"]},
+              "gate": {"R-GATE": {**{k: witness[k] for k in ("verdict", "cause", "s_run", "f_run")},
+                                  "member": dict(m64, folder="FF9CustomMap")}}}
     rows = []
     for block, cid in ((2, "P-TEXT2"), (3, "P-TEXT3")):
         ok, detail = C.p_text(block, [("FF9CustomMap", dict(text))], text, o1_block2=None, o4_registered=True)
         rows.append([ok, C.O4.title(cid), detail])
     ok, detail = C.p_engine(dict(eng), C.ENGINE)
     rows.append([ok, C.O4.title("P-ENGINE"), detail])
-    ok, detail = C.p_gate({"gate_witness": witness}, eng, C.SETTINGS, exists=lambda p: True)
+    ok, detail = C.p_gate({"gate_witness": witness}, eng, C.SETTINGS, member64=m64, read=lambda p: record)
     rows.append([ok, C.O4.title("P-GATE"), detail])
     assert all(x[0] for x in rows), rows
     return rows
@@ -1555,9 +1560,12 @@ def unit_p_settings(tmp: Path) -> tuple:
 
 
 def unit_p_gate(tmp: Path) -> tuple:
-    """P-GATE (6.2; rev. 2): no gate_witness, UNINFORMATIVE, INVALID, a missing run dir, BROKEN with cause combo, an
-    engine other than the live DLLs', settings with SwordplayAssistance 2 FAIL each; WITNESSED, or BROKEN with cause
-    bonus, with its run dir, the live engine and 4.13's settings PASS -- the detail opening with the verdict."""
+    """P-GATE (6.2; rev. 2; the review, research/o4_design.md 11.5 #4): no gate_witness, UNINFORMATIVE, INVALID, a
+    missing run dir, BROKEN with cause combo, an engine other than the live DLLs', settings with SwordplayAssistance 2
+    FAIL each; WITNESSED, or BROKEN with cause bonus, its run dir's launch record backing it (R-GATE alone, its
+    verdict and runs, its launch's engine and settings, member(64) in this build), the live engine and 4.13's settings
+    PASS -- the detail opening with the verdict; a witness its record does not back -- the record UNINFORMATIVE, its
+    member(64) another build -- FAILS."""
     eng = {"x64": C.ENGINE["x64"], "x86": C.ENGINE["x86"]}
     run_dir = tmp / "rgate"
     run_dir.mkdir(exist_ok=True)
@@ -1565,9 +1573,16 @@ def unit_p_gate(tmp: Path) -> tuple:
             "settings": json.loads(json.dumps(C.SETTINGS)), "s_run": 0, "f_run": 1, "detail": "both 100"}
     sa2 = json.loads(json.dumps(C.SETTINGS))
     sa2["Hacks"]["SwordplayAssistance"] = "2"
+    m64 = {"id": 31240, "name": "O4_ALEX_STANDS", "eb": {L: "e" * 64 for L in ("us", "uk", "fr", "gr", "it", "es",
+                                                                              "jp")}}
 
-    def gate(**over):
-        return C.p_gate({"gate_witness": {**base, **over}}, eng, C.SETTINGS)
+    def gate(rec_over=None, **over):
+        w = {**base, **over}
+        rec = {"stages_run": ["R-GATE"], "launch": {"engine": dict(w["engine"]), "settings": w["settings"]},
+               "gate": {"R-GATE": {**{k: w[k] for k in ("verdict", "cause", "s_run", "f_run")},
+                                   "member": dict(m64, folder="FF9CustomMap"), **(rec_over or {})}}}
+        (run_dir / C.REHEARSAL_FILE).write_text(json.dumps(rec), encoding="utf-8")
+        return C.p_gate({"gate_witness": w}, eng, C.SETTINGS, member64=m64)
     ok, detail = gate()
     got = {"witnessed": ok and detail.startswith("R-GATE WITNESSED (cause none)"),
            "bonus": gate(verdict="BROKEN", cause="bonus")[0],
@@ -1575,7 +1590,9 @@ def unit_p_gate(tmp: Path) -> tuple:
            "uninformative": not gate(verdict="UNINFORMATIVE")[0], "invalid": not gate(verdict="INVALID")[0],
            "no-dir": not gate(run_dir=str(tmp / "nowhere"))[0],
            "combo": not gate(verdict="BROKEN", cause="combo")[0],
-           "engine": not gate(engine={"x64": "8" * 64, "x86": "8" * 64})[0], "sa2": not gate(settings=sa2)[0]}
+           "engine": not gate(engine={"x64": "8" * 64, "x86": "8" * 64})[0], "sa2": not gate(settings=sa2)[0],
+           "record-uninformative": not gate({"verdict": "UNINFORMATIVE"})[0],
+           "record-other-build": not gate({"member": dict(m64, eb=dict(m64["eb"], us="f" * 64))})[0]}
     return all(got.values()), str({k: v for k, v in got.items() if not v} or "all as registered")
 
 

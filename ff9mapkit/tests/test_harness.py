@@ -17846,6 +17846,21 @@ def _o4c_pad(**over):
     return {"buttons": 0, "lt": 0, "rt": 0, "lx": 0, "ly": 0, "rx": 0, "ry": 0, **over}
 
 
+_O4C_MEMBER64 = {"id": 31240, "name": "O4_SYNTH_64",
+                 "eb": {L: f"{n}" * 64 for n, L in enumerate(("us", "uk", "fr", "gr", "it", "es", "jp"))}}
+
+
+def _o4c_gate_record(w, **over):
+    """An R-GATE launch record (o4_rehearsal.json) that backs the witness ``w``: R-GATE alone, its verdict, cause and
+    runs, its launch's engine and settings, its F side's member(64) :data:`_O4C_MEMBER64` in FF9CustomMap; ``over``
+    replaces top-level keys."""
+    rec = {"stages_run": ["R-GATE"], "launch": {"engine": dict(w["engine"]), "settings": w["settings"]},
+           "gate": {"R-GATE": {"verdict": w["verdict"], "cause": w["cause"], "s_run": w["s_run"], "f_run": w["f_run"],
+                               "detail": w["detail"], "member": {**_O4C_MEMBER64, "folder": "FF9CustomMap"}}}}
+    rec.update(over)
+    return rec
+
+
 def test_o4_castle_preflight_verdicts(tmp_path):
     """The preflight's pure verdicts (research/o4_design.md 6.2, section 8's units). P-PAD over a stub XInput reader
     (25 reads, no sleep): no pad PASS; an idle pad at slot 2 PASS with the WARN line; a pressed A, a trigger at 40, a
@@ -17889,7 +17904,8 @@ def test_o4_castle_preflight_verdicts(tmp_path):
 
     def gate(**over):
         w = {**witness, **over}
-        return C.p_gate({"gate_witness": w}, eng, C.SETTINGS, exists=lambda p: p == str(tmp_path))
+        (tmp_path / C.REHEARSAL_FILE).write_text(json.dumps(_o4c_gate_record(w)), encoding="utf-8")   # it backs w
+        return C.p_gate({"gate_witness": w}, eng, C.SETTINGS, member64=_O4C_MEMBER64)
     ok, detail = gate()
     assert ok and detail.startswith("R-GATE WITNESSED (cause none)") and '"s_run": 0' in detail, detail
     assert gate(verdict="BROKEN", cause="bonus")[0]
@@ -17914,6 +17930,57 @@ def test_o4_castle_preflight_verdicts(tmp_path):
     assert not C.p_text(2, [("FF9CustomMap", other)], stock, o1_block2=o1, o4_registered=False)[0]
     assert not C.p_text(3, [("FF9CustomMap", defect)], stock, o1_block2=o1, o4_registered=False)[0]
     assert C.p_text(3, [], stock, o1_block2=o1, o4_registered=False) == (True, "no mod folder ships block 3")
+
+
+def test_o4_castle_p_gate_needs_its_launch_record(tmp_path):
+    """P-GATE READS THE RECORD, never the hand-filled witness alone (research/o4_design.md 6.2, 7.4 G3; the review,
+    11.5 #4): a WITNESSED witness its run dir's o4_rehearsal.json backs -- R-GATE alone, its verdict, cause and runs,
+    its launch's engine and settings, its F side the session's member(64) in this build -- PASSES, the detail saying
+    so. Each FAILS, naming what the record does not back: the record's verdict UNINFORMATIVE (the witness typed
+    WITNESSED); a launch that ran R-CHANBARA; another S run; another engine or SwordplayAssistance 2 in the launch;
+    another member(64) id; another build of member(64) (the us .eb differs: a rebuild after R-GATE); no member in the
+    record; the session's member(64) unknown; no record, or an unreadable one. Break: check only that the run dir
+    exists (rev. 1)."""
+    C = _o4_castle_module()
+    eng = {"x64": C.ENGINE["x64"], "x86": C.ENGINE["x86"]}
+    w = {"run_dir": str(tmp_path), "verdict": "WITNESSED", "cause": None, "engine": dict(eng),
+         "settings": json.loads(json.dumps(C.SETTINGS)), "s_run": 0, "f_run": 1, "detail": "both 100"}
+    sa2 = json.loads(json.dumps(C.SETTINGS))
+    sa2["Hacks"]["SwordplayAssistance"] = "2"
+
+    def check(rec, member64=_O4C_MEMBER64):
+        path = tmp_path / C.REHEARSAL_FILE
+        if rec is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.write_text(rec if isinstance(rec, str) else json.dumps(rec), encoding="utf-8")
+        return C.p_gate({"gate_witness": w}, eng, C.SETTINGS, member64=member64)
+    ok, detail = check(_o4c_gate_record(w))
+    assert ok and detail.startswith("R-GATE WITNESSED (cause none): the EMinigame +30% fires on member(64); its "
+                                    "launch record backs it (R-GATE alone; member(64) 31240, this build)"), detail
+
+    def gate_of(**over):
+        rec = _o4c_gate_record(w)
+        rec["gate"]["R-GATE"].update(over)
+        return rec
+    other_build = {**_O4C_MEMBER64, "eb": {**_O4C_MEMBER64["eb"], "us": "f" * 64}, "folder": "FF9CustomMap"}
+    cases = [(gate_of(verdict="UNINFORMATIVE"), "its verdict 'WITNESSED' is not the record's 'UNINFORMATIVE'"),
+             (_o4c_gate_record(w, stages_run=["R-CHANBARA"]), "its record ran ['R-CHANBARA'], not R-GATE alone"),
+             (gate_of(s_run=2), "its s_run 0 is not the record's 2"),
+             (_o4c_gate_record(w, launch={"engine": {"x64": "7" * 64, "x86": "7" * 64}, "settings": w["settings"]}),
+              "its engine is not the one its launch recorded"),
+             (_o4c_gate_record(w, launch={"engine": dict(eng), "settings": sa2}),
+              "its settings are not the ones its launch recorded"),
+             (gate_of(member={**_O4C_MEMBER64, "id": 31241}),
+              "its F side ran 31241, the session's member(64) is 31240"),
+             (gate_of(member=other_build), "another build of member(64) 31240 (us differ"),
+             (gate_of(member=None), "its record names no member(64)"),
+             (None, "holds no readable o4_rehearsal.json"), ("{not json", "holds no readable o4_rehearsal.json")]
+    for rec, want in cases:
+        ok, detail = check(rec)
+        assert not ok and want in detail, (want, detail)
+    ok, detail = check(_o4c_gate_record(w), member64=None)
+    assert not ok and "the session's member(64) is unknown" in detail, detail
 
 
 def test_o4_castle_input_witness_readers():
@@ -18433,9 +18500,10 @@ def test_o4_rehearsal_gate_reads_the_pair_on_the_fake(game):
     non-LEFT/RIGHT instance (seed 0's first, CROSS: the combo broken, page 120) and on a LEFT/RIGHT one (seed 0's
     third, RIGHT: the slide's miss, V18 at Z3): BROKEN, cause "combo" each. S with ``sa`` 0 (no stock bonus: page 122
     reads the raw): INVALID, and F is never run. Each run's reading carries its launch's engine and settings; the
-    verdict goes into the record, never into o4_forks.json; every summary is cut at the stage's end PLACE ("150":
-    member(150) on F); the report prints the verdict. Break: read the gate without the trace's Byte[475] (the bonus's
-    BROKEN then reads INVALID)."""
+    verdict goes into the record, never into o4_forks.json, with the member the F side ran as the launch held it (its
+    id, name and folder: the review, 11.5 #4) -- a witness built from that record reads PASS in P-GATE, and one
+    naming another F run FAILS; every summary is cut at the stage's end PLACE ("150": member(150) on F); the report
+    prints the verdict. Break: read the gate without the trace's Byte[475] (the bonus's BROKEN then reads INVALID)."""
     C, R = _o4_castle_module(), _o4_rehearse_module()
     _o4_register(game)
     engine = _o4_launch_files(game)
@@ -18461,6 +18529,19 @@ def test_o4_rehearsal_gate_reads_the_pair_on_the_fake(game):
     assert 79 <= recs[1]["gate"]["raw"][0] <= recs[1]["gate"]["raw"][1] <= 99, recs[1]["gate"]["raw"]
     report = C.rehearsal_report(game / "run")
     assert "R-GATE VERDICT: WITNESSED (cause none)" in report and "R-GATE reading: informative" in report, report[-1500:]
+    assert "F ran member(64) 31240 in FF9CustomMap" in report, report[-1500:]
+    m = v["member"]                             # the F side's member as the launch held it: P-GATE's tie (11.5 #4)
+    assert (m["id"], m["name"], m["folder"]) == (31240, "O4_ALEX_STANDS", "FF9CustomMap"), m
+    rec = json.loads((game / "run" / C.REHEARSAL_FILE).read_text(encoding="utf-8"))
+    w = {"run_dir": str(game / "run"), "verdict": v["verdict"], "cause": v["cause"], "s_run": v["s_run"],
+         "f_run": v["f_run"], "engine": rec["launch"]["engine"], "settings": rec["launch"]["settings"],
+         "detail": v["detail"]}
+    ok, detail = C.p_gate({"gate_witness": w}, engine, C.SETTINGS, pinned_engine=engine,
+                          member64={k: m[k] for k in ("id", "name", "eb")})
+    assert ok and "its launch record backs it" in detail, detail
+    ok, detail = C.p_gate({"gate_witness": dict(w, f_run=0)}, engine, C.SETTINGS, pinned_engine=engine,
+                          member64={k: m[k] for k in ("id", "name", "eb")})
+    assert not ok and "its f_run 0 is not the record's 1" in detail, detail
     v, recs = launch(f_knobs={"bonus_fires": False})
     assert (v["verdict"], v["cause"]) == ("BROKEN", "bonus"), v
     fr = recs[1]["gate"]

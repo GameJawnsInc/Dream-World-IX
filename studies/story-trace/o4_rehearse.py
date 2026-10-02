@@ -527,7 +527,9 @@ def gate(g, name: str, stage: dict, pred: dict, *, t0: float, launch: dict, reco
     :func:`gate_read`. F runs only when S stands: an informative S run that shows 100 through the stock +30% -- with
     none, the verdict is UNINFORMATIVE, and with another number INVALID, whatever F would show (STOP, 7.4). The verdict
     (o4_castle.gate_verdict, against 4.13's settings and the pinned ``engine``) goes into ``record["gate"][name]`` --
-    never into o4_forks.json. A run whose end_run cannot reach the title stops it."""
+    never into o4_forks.json -- with ``member``: the member the F side ran as this launch holds it
+    (o4_castle.live_member: its id, its folder, its .eb's sha256 per language), which P-GATE ties the hand-filled
+    witness to (the review, research/o4_design.md 11.5 #4). A run whose end_run cannot reach the title stops it."""
     spred = stage_pred(pred, stage)
     settings, pinned = pred.get("settings") or C.SETTINGS, engine or pred.get("engine") or C.ENGINE
     readings, k = [], 0
@@ -557,6 +559,8 @@ def gate(g, name: str, stage: dict, pred: dict, *, t0: float, launch: dict, reco
         if record.get("stopped"):
             break
     verdict = C.gate_verdict(readings, settings=settings, engine=pinned)
+    fid = stage_start(stage, "F")                        # the member the F side ran, as this launch holds it
+    verdict["member"] = C.live_member(g.game_path, fid, (spred.get("names") or {}).get(str(fid), ""))
     record.setdefault("gate", {})[name] = verdict
     save()
     print(f"[o4-rh] {name}: {verdict['verdict']} (cause {verdict['cause'] or 'none'}) -- {verdict['detail']}",
