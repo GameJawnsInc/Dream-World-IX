@@ -17582,3 +17582,30 @@ def test_o4_drive_prompt_outside_its_cell_is_v17(game):
     assert len(obs) == 1 and obs[0]["kind"] == "prompt_outside_cell" and obs[0]["cell"] == [30820, 1190], obs
     assert not _o4_rows_of(log, "zone") and not [p for p in log if p.get("k") == "press"
                                                  and any("To follow" in t for t in p.get("texts") or ())]
+
+
+# ---- O4's Chanbara policy is OPT-IN (research/o4_design.md 1.2, 9 B4): O3's driver, on O3's fake fields and O3's
+# predictions (no ``chanbara``), pages a prompt-shaped page by rule 7 exactly as before -- in REQUIRED_TESTS_O3, so
+# G13 re-runs it with O3's tests.
+
+def test_o3_drive_pages_a_prompt_without_the_chanbara_policy(game):
+    """S7 IS OPT-IN (research/o4_design.md 1.2, 9 B4): with O3-shaped predictions -- no ``chanbara`` -- a prompt-shaped
+    page ("Press [DBTN=LEFT] ![TIME=-1]", in the visit's place and SC) is pressed by rule 7 exactly as O3's driver
+    presses a page: one ``press`` row ``why`` "page" with O3's keys (no ``seq``, no ``texts``), the page in ``pages``
+    and ``timed``, no ``zone``, ``prompt`` or ``observed`` row, and an outcome without ``zones`` / ``prompts``; the run
+    then reaches its end. Break: run rule 6b without the policy."""
+    SD = _segment_modules()
+    raw = "[STRT=54,1][TAIL=UPRF][IMME]Press [DBTN=LEFT][MOBI=267] ![TIME=-1]"
+    assert SD.prompt_dbtn(raw) == "LEFT"
+    fake = _o3_fake(game)
+    phases = [(lambda f: f.field_id == 30820, lambda f: f.scene(raw, control=False)),
+              (lambda f: f.field_id == 30820 and _o3_idle(f), lambda f: _o2_move(f, _O3_END))]
+    with session(game, fake) as g:
+        _o3_start(g)
+        out, log = _o3_drive(g, fake, _o3_pred(), phases=phases)
+    assert not isinstance(out, Exception) and out["end"] == "reached" and out["why"] == f"field {_O3_END}", out
+    assert "zones" not in out and "prompts" not in out and out["pages"] == [raw] and out["timed"] == [0], out
+    presses = [r for r in log if r["k"] == "press"]
+    assert len(presses) >= 1 and {p["why"] for p in presses} == {"page"}, presses
+    assert all(set(p) == {"k", "why", "field", "donor", "visit", "sc", "pre", "post", "near"} for p in presses), presses
+    assert not [r for r in log if r["k"] in ("zone", "prompt", "observed", "quiet", "input")], log

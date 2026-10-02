@@ -68,8 +68,9 @@ was captured at the code before the change it guards and the same file judges th
       from B4): every test passed, 0 failed, 0 skipped, 0 errors, and every name in :data:`REQUIRED_TESTS_O3` among
       them -- the battle beat's driver tests and the movie-skip policy's, so a later edit to ``segment_drive``
       re-runs them, and the movie-skip A/B's test (``--skip-ab`` through its files: the pairing, the reading, the
-      exit codes), which reads the install's stock scripts -- where it cannot, it skips, and a skip fails the item.
-      No baseline: the list is the floor.
+      exit codes), which reads the install's stock scripts -- where it cannot, it skips, and a skip fails the item;
+      and O4's proof that the Chanbara policy is opt-in (research/o4_design.md 9 B4: without it a prompt-shaped page
+      is rule 7's, as O3's). No baseline: the list is the floor.
   G14 ``o3_dryrun.run_cases`` (the review, research/o3_design.md 11.7 #12) on the frozen O3 predictions once they
       exist (``o3_predictions_v1.json``), else on the draft: it returns 0 printing "N/N cases as registered", N at least
       :data:`O3_DRYRUN_FLOOR`. O3Segment subclasses O2Segment and runs on ``segment_trace``, ``segment_drive`` and
@@ -224,6 +225,9 @@ REQUIRED_TESTS_O3: tuple = (
     # pairing of _ab_stages, the reading of _ab_runs, the CLI's exit codes); it skips without the install, and G13
     # fails a skip
     "test_o3_skip_ab_on_synthetic_traces",
+    # O4's Chanbara policy is opt-in (research/o4_design.md 9 B4): O3-shaped predictions page a prompt-shaped page by
+    # rule 7, exactly as O3's driver does
+    "test_o3_drive_pages_a_prompt_without_the_chanbara_policy",
 )
 #: G14 (the review, research/o3_design.md 11.7 #12): o3_dryrun's "N/N cases as registered" must have N at least this --
 #: its sessions, "predictions-changed", its units and its offline mutants when G14 joined (92), and the movie-skip A/B's
