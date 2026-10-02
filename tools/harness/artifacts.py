@@ -71,6 +71,11 @@ class StateRing:
         since then kept (research/o2_design.md H6: a race lost inside a harness call stays on record)."""
         return [raw for _t, _age, raw in self._buf if int(raw.get("frame", -1)) > frame]
 
+    def reads_since(self, frame: int) -> list[tuple]:
+        """:meth:`since` as the ring keeps each sample, ``(read_at, age, raw)``: when it was read and how old it was
+        then, so a caller can put its write time back (``read_at - age``) and time it on the game's clock."""
+        return [(t, age, raw) for t, age, raw in self._buf if int(raw.get("frame", -1)) > frame]
+
     def clear(self) -> None:
         self._buf.clear()
         self._last_frame = None

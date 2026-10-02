@@ -31,6 +31,7 @@ sys.path.insert(0, str(REPO / "tools"))
 from harness import Channel, HarnessError, Session, State          # noqa: E402
 from harness.fakegame import FakeGame                              # noqa: E402
 from harness.logs import parse_memoria, parse_unity, split_lines   # noqa: E402
+from harness.session import ChoiceUnseen                           # noqa: E402
 from harness.suite import SuiteRunner, load_manifest               # noqa: E402
 
 
@@ -1045,6 +1046,94 @@ def test_a_choice_left_unanswered_under_the_opt_in_is_named_when_the_waiter_time
         with pytest.raises(HarnessError, match="CHOICE is still open, unanswered"):
             g.watch_cutscene(timeout=3, choices="default")
         assert fake.answered == []
+
+
+# A loaded machine starves the harness's reads past the gap between one choice window and the next (6 closing + 6
+# opening frames: 50 ms of wall clock at the fake's 240 fps, 0.2 s of its own clock), and the first read after a
+# Confirm shows the NEXT window, already ready.
+_WELL = {"header": "Guard\n“Well?”", "options": ["Show ticket", "Ask about the play"], "default": 0}
+_ELSE = {"header": "Guard\n“Anything else?”", "options": ["Nothing", "One more thing"], "default": 0}
+
+
+def _starve_after_confirm(monkeypatch, seconds=0.3):
+    """The harness thread starved right after each Confirm it sends: nothing read for ``seconds`` -- not the press's
+    own acknowledgement (Session._await_ack), not the watch after it (Session._choice_left) -- while the game runs
+    on. 0.3 s is 72 of the fake's frames, past the 12 between one window and the next."""
+    ack, left = Session._await_ack, Session._choice_left
+
+    def slow_ack(self, seq, timeout, steps, row=None):
+        if any(s.startswith("press confirm") for s in steps):
+            time.sleep(seconds)
+        return ack(self, seq, timeout, steps, row=row)
+
+    def slow_left(self, *a, **kw):
+        time.sleep(seconds)
+        return left(self, *a, **kw)
+    monkeypatch.setattr(Session, "_await_ack", slow_ack)
+    monkeypatch.setattr(Session, "_choice_left", slow_left)
+
+
+def test_a_starved_confirm_answers_its_choice_and_leaves_the_next_to_be_asked(game, monkeypatch):
+    """Two DIFFERENT choices back to back (the second's cursor on the same option), the harness starved after each
+    Confirm: the first read after the first one shows the second window ready. Read as "the Confirm did not land", it
+    got another Confirm -- the second answered at its cursor and recorded nowhere. Those reads skipped more of the
+    game's clock than a window takes to close and the next to open, and the window up reads otherwise (its words):
+    the first is answered, and its record is returned; the second is waited on and answered as its own. Break: judge
+    no gap (``_choice_near`` always true) -- one record for two answers; or read any window after a gap as the one
+    answered -- ChoiceUnseen."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _starve_after_confirm(monkeypatch)
+        fake.scene(dict(_WELL), dict(_ELSE), "Guard\n“Go on, then.”")
+        pages = g.watch_cutscene(timeout=60, choices="default")
+    assert fake.answered == [0, 0], fake.answered
+    assert [(c["prompt"], c["index"]) for c in pages.choices] == [
+        (_WELL["header"], 0), (_ELSE["header"], 0)], pages.choices
+
+
+@pytest.mark.parametrize("then", ["asked again", "still typing"])
+def test_a_starved_confirm_on_a_window_that_reads_the_same_after_it_is_named_not_pressed_again(game, monkeypatch, then):
+    """After the starved gap the window up reads as the one answered: the same question asked again back to back (the
+    Confirm answered the first), or the same window, its prompt still typing (the Confirm only finished the text). The
+    reads cannot tell the two apart, so ChoiceUnseen says so and nothing more is pressed: the first answered once, the
+    typing one not at all, no record of either. Break: read it as another window -- a record the game did not take,
+    or a second question answered."""
+    fake = FakeGame(game)
+    beats = [dict(_WELL), dict(_WELL)] if then == "asked again" else [dict(_WELL, typing=10 ** 6)]
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _starve_after_confirm(monkeypatch)
+        fake.scene(*beats, "Guard\n“Go on, then.”")
+        with pytest.raises(ChoiceUnseen, match="cannot tell them apart") as err:
+            g.watch_cutscene(timeout=60, choices="default")
+        assert err.value.gap is not None and err.value.gap >= g.CHOICE_GAP_S, err.value.gap
+    assert fake.answered == ([0] if then == "asked again" else []), fake.answered
+    confirms = [s for s in fake.executed[fake.readied[0]:] if s[:2] == ["press", "confirm"]]
+    assert len(confirms) == 1, confirms
+
+
+def test_a_stall_before_the_agent_takes_the_confirm_hides_nothing(game, monkeypatch):
+    """Only a read the agent published after taking the Confirm can show what it did. A harness starved BEFORE sending
+    it -- reads 0.3 s apart across the window as the Confirm found it -- hid nothing, and each choice is answered
+    once, as ever. Break: judge every link from the window as the Confirm found it (``seq`` ignored) -- ChoiceUnseen
+    for the first choice."""
+    fake = FakeGame(game)
+    press = Session.press
+
+    def slow_press(self, button, frames=2):
+        if button == "confirm":
+            time.sleep(0.3)
+        return press(self, button, frames)
+    monkeypatch.setattr(Session, "press", slow_press)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        fake.scene(dict(_WELL), dict(_ELSE), "Guard\n“Go on, then.”")
+        pages = g.watch_cutscene(timeout=60, choices="default")
+    assert fake.answered == [0, 0] and [c["prompt"] for c in pages.choices] == [_WELL["header"], _ELSE["header"]]
 
 
 # --------------------------------------------------------------------------- channel diagnosis
@@ -12871,6 +12960,34 @@ def test_o2_drive_voids_a_once_choice_asked_again(game):
                 stop.set()
         assert (err.value.v, err.value.by, err.value.cell) == (want, "game", [30820, sc]), err.value
         assert fake.answered == answered, (sc, fake.answered)
+
+
+def test_o2_drive_a_starved_confirm_leaves_the_next_question_to_its_own_rule(game, monkeypatch):
+    """Two different questions back to back: the first by a ``take: "default"`` rule (Session._take_default_choice),
+    the second by a rule that picks the line its cursor does NOT rest on. With the harness starved after each Confirm
+    the first read after the first one shows the second window ready, and it used to get Confirm again: answered at
+    its cursor, a question the rule table never saw, with no row. The first's row is taken and the second goes to its
+    own rule: answered [0, 0], two rows, both beats. Break: judge no gap (``_choice_near`` always true) -- answered
+    [0, 1], one row."""
+    first = {"donor": 30820, "sc": [1000], "match": "Well?", "pick": "ticket", "once": True, "take": "default",
+             "beat": "ticket"}
+    then = {"donor": 30820, "sc": [1000], "match": "Anything else", "pick": "Nothing", "once": True, "beat": "nothing"}
+    fake = FakeGame(game)
+    pred = _o2_pred([], choices=[first, then], beats=["ticket", "nothing"])
+    stop = threading.Event()
+    with session(game, fake) as g:
+        _o2_start(g, fake)
+        _starve_after_confirm(monkeypatch)
+        fake.scene(dict(_WELL), dict(_ELSE, default=1), control=False)
+        published(g, lambda s: not s.control and s.choice is not None)
+        _o1_director(fake, stop, [(lambda f: len(f.answered) == 2 and not f._beats, lambda f: _o2_move(f, 30810))])
+        try:
+            out = _o2_drive(g, pred)
+        finally:
+            stop.set()
+    assert out["end"] == "reached" and fake.answered == [0, 0], (out["end"], fake.answered)
+    assert [(c["rule"], c["index"], c["selected"]) for c in out["choices"]] == [(0, 0, 0), (1, 0, 1)], out["choices"]
+    assert out["beats"] == {"ticket": True, "nothing": True}, out["beats"]
 
 
 def test_o2_drive_voids_when_the_default_is_not_the_pick(game):
