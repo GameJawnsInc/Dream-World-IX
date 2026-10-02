@@ -161,6 +161,57 @@
   "why_order": "block 3 is written fresh by 31243 (its revert deletes it) and backed up by 31244-31259 (theirs restore it); block 2 is backed up by 31240 (O1's copy, which 31240's revert restores): out of order, a revert restores the wrong copy"
  },
  "deployed_at": "2026-10-02 09:04 local",
- "gate_witness": null,
+ "gate_witness": {
+  "run_dir": "C:/gd/Dream-World-IX/.harness-runs/20261002-090650-o4-rh-gate",
+  "verdict": "WITNESSED",
+  "cause": null,
+  "engine": {
+   "x64": "ba9762423da8f3d749a41a9988ef951d2a4fa62c296acc5aa44054439b45dcfc",
+   "x86": "ba9762423da8f3d749a41a9988ef951d2a4fa62c296acc5aa44054439b45dcfc"
+  },
+  "settings": {
+   "Battle": {
+    "Enabled": "1",
+    "SFXRework": "1",
+    "Speed": "5",
+    "CustomBattleFlagsMeaning": "0"
+   },
+   "Cheats": {
+    "Enabled": "1",
+    "AutoBattle": "1",
+    "SpeedMode": "1",
+    "SpeedFactor": "3",
+    "SpeedTimer": "0",
+    "BattleAssistance": "1",
+    "Attack9999": "1",
+    "NoRandomEncounter": "1",
+    "MasterSkill": "0",
+    "LvMax": "0",
+    "GilMax": "0"
+   },
+   "Hacks": {
+    "Enabled": "1",
+    "AllCharactersAvailable": "1",
+    "SwordplayAssistance": "1",
+    "DisableNameChoice": "0"
+   },
+   "Control": {
+    "Enabled": "1",
+    "SoftReset": "1",
+    "TurboDialog": "1",
+    "BattleAutoConfirm": "1",
+    "DialogProgressButtons": "\"Confirm\"",
+    "AlwaysCaptureGamepad": "1",
+    "SwapConfirmCancel": "0"
+   },
+   "Graphics": {
+    "Enabled": "1",
+    "FieldTPS": "30"
+   }
+  },
+  "s_run": 0,
+  "f_run": 2,
+  "detail": "S run 0 and F run 2 both show 100 from a raw in [86, 95]: the EMinigame +30% fires on member(64)"
+ },
  "verified": null
 }
