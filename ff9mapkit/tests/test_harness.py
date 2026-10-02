@@ -15856,3 +15856,93 @@ def test_o3_skip_ab_on_synthetic_traces(o3_stock, tmp_path):
     assert not ok and "skip stage R-FULL-SKIP has no no-skip stage of the same warp and end" in text, text
     assert P.main(["--skip-ab", str(a_dir), str(b_dir)]) == 0
     assert P.main(["--skip-ab", str(a_dir), str(a_dir)]) == 1
+
+
+# ---- O4, PART A (research/o4_design.md section 9): the regression gate extended to O3 (G15-G18) and its source pins
+# (G21), then the shared per-side ends (S6) and O3's language clause read from its record (A2). Every test here is
+# collected by G7's selection ("segment"), so the gate re-runs it.
+
+def _regress_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import segment_regress as R
+    return R
+
+
+def test_segment_regress_source_pins_catch_an_edit(tmp_path):
+    """G21's checker (research/o4_design.md 1.4, 9 A0; rev. 2, the claim critique #7), pure, over a temporary COPY of
+    the two pinned files. The pins taken from the copy read clean; a comment and whitespace edit inside a pinned test
+    still reads clean (the AST is pinned, never the text); an edit to that test's BODY fails naming it -- and only it;
+    a re-baseline row with its reason (old the pin in force, new the edited sha) reads clean again; the re-baseline is
+    refused for an empty reason, a name not pinned, a stale old and a source that has not changed; a hand-edited row
+    (its reason emptied) fails replayed; an edit to a pinned fake function fails naming it; a renamed pinned test fails
+    as gone. G21 itself, through a pins file and the copy, and the --rebaseline-source path (rebaseline_source) on a
+    temporary baseline: a refusal writes nothing, a re-baseline appends its one row. Break: pin the function's source
+    TEXT instead of its AST (the comment edit then fails), or compare names only (the body edit then passes)."""
+    R = _regress_module()
+    test_copy, fake_copy = tmp_path / "test_harness.py", tmp_path / "fakegame.py"
+    test_copy.write_bytes((REPO / R.TEST_REL).read_bytes())
+    fake_copy.write_bytes((REPO / R.FAKE_REL).read_bytes())
+    files = {R.TEST_REL: test_copy, R.FAKE_REL: fake_copy}
+    door = R.pin_of_test("test_o2_drive_voids_a_walk_into_another_registered_door_as_the_drivers[cross]")
+    pick = R.pin_of_test("test_o1_pick_for_reads_the_frozen_rules_by_option_text")
+    control = f"{R.FAKE_REL}::_control"
+    assert door == f"{R.TEST_REL}::test_o2_drive_voids_a_walk_into_another_registered_door_as_the_drivers", door
+    names = [door, pick, f"{R.FAKE_REL}::FakeGame._step_scene", control]
+    pins = R.source_shas(names, files=files)
+    assert all(isinstance(pins[n], str) and len(pins[n]) == 64 for n in names), pins
+    assert R.g21_bad(pins, R.source_shas(names, files=files), []) == []
+
+    def edit(path, old, new):
+        text = path.read_text(encoding="utf-8")
+        assert text.count(old) == 1, f"premise: {old!r} occurs once in the copy"
+        path.write_text(text.replace(old, new), encoding="utf-8")
+    head = "def test_o1_pick_for_reads_the_frozen_rules_by_option_text():\n"       # the def line itself, newline and all
+    edit(test_copy, head, "def test_o1_pick_for_reads_the_frozen_rules_by_option_text( ) :   # an aside\n"
+                          "    # a comment line, and a blank one: no code\n\n")
+    now = R.source_shas(names, files=files)
+    assert now == pins and R.g21_bad(pins, now, []) == [], "a comment or whitespace edit is no code edit"
+    edit(test_copy, "    assert O.pick_for(q, 30820, pred)[0] == 1\n", "    assert O.pick_for(q, 30820, pred)[0] in (1, 2)\n")
+    now = R.source_shas(names, files=files)
+    bad = R.g21_bad(pins, now, [])
+    assert len(bad) == 1 and bad[0].startswith(f"{pick}: changed (") and "--rebaseline-source" in bad[0], bad
+    row = R.pin_row(pins, [], pick, pins[pick], now[pick], "  the assertion follows a widened rule ", "abc123")
+    assert row == {"name": pick, "old": pins[pick], "new": now[pick], "reason": "the assertion follows a widened rule",
+                   "head": "abc123"}, row
+    assert R.g21_bad(pins, now, [row]) == [] and R.pins_in_force(pins, [row])[pick] == now[pick]
+    for kw, match in (({"reason": ""}, "needs its reason"), ({"reason": "   "}, "needs its reason"),
+                      ({"name": f"{R.TEST_REL}::test_nothing_by_this_name"}, "is not pinned"),
+                      ({"old": pins[pick]}, "is not the pin in force"), ({"new": now[pick]}, "nothing changed")):
+        args = {"name": pick, "old": row["new"], "new": now[pick] + "0", "reason": "why", **kw}
+        with pytest.raises(ValueError, match=match):
+            R.pin_row(pins, [row], args["name"], args["old"], args["new"], args["reason"], "abc123")
+    bad = R.g21_bad(pins, now, [dict(row, reason="")])
+    assert bad and bad[0].startswith("row 0: ") and "needs its reason" in bad[0], bad
+    edit(fake_copy, "    return DIRECTIONS.get(str(name).lower(), name)\n",
+         "    return DIRECTIONS.get(str(name).upper(), name)\n")
+    now = R.source_shas(names, files=files)
+    bad = R.g21_bad(pins, now, [row])
+    assert len(bad) == 1 and bad[0].startswith(f"{control}: changed ("), bad
+    edit(test_copy, "def test_o2_drive_voids_a_walk_into_another_registered_door_as_the_drivers(game, kind):\n",
+         "def test_o2_drive_voids_a_walk_into_another_door(game, kind):\n")
+    now = R.source_shas(names, files=files)
+    assert now[door] is None, now
+    bad = R.g21_bad(pins, now, [row])
+    assert f"{door}: gone (renamed or deleted) -- a pinned source must stay" in bad and len(bad) == 2, bad
+    # G21 itself and --rebaseline-source, through files: a temporary baseline (the pins) and pins file
+    base_path, pins_path = tmp_path / "o3_regress_baseline.json", tmp_path / "source_pins.json"
+    base_path.write_text(json.dumps({"sources": pins, "sources_python": R._py()}), encoding="utf-8")
+    pins_path.write_text("[]\n", encoding="utf-8")
+    ok, what, detail = R.g21(json.loads(base_path.read_text(encoding="utf-8")), pins_path, files=files)
+    assert ok is False and what.startswith("G21: ") and f"{pick}: changed" in detail and f"{door}: gone" in detail, \
+        detail
+    assert R.rebaseline_source(pick, "", baseline=base_path, pins=pins_path, files=files) == 1
+    assert R.rebaseline_source(door, "renamed", baseline=base_path, pins=pins_path, files=files) == 1
+    assert pins_path.read_text(encoding="utf-8") == "[]\n", "a refusal writes nothing"
+    assert R.rebaseline_source(pick, "the assertion follows a widened rule", baseline=base_path, pins=pins_path,
+                               files=files) == 0
+    rows = json.loads(pins_path.read_text(encoding="utf-8"))
+    assert [(r["name"], r["old"], r["new"]) for r in rows] == [(pick, pins[pick], now[pick])], rows
+    assert R.rebaseline_source(pick, "again", baseline=base_path, pins=pins_path, files=files) == 1   # unchanged
+    ok, _what, detail = R.g21(json.loads(base_path.read_text(encoding="utf-8")), pins_path, files=files)
+    assert ok is False and f"{pick}" not in detail and f"{door}: gone" in detail and f"{control}: changed" in detail, \
+        detail
