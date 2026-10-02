@@ -1,0 +1,1018 @@
+{
+ "reconciled": {
+  "chosen_end": {
+   "field": 150,
+   "warp_to": 153,
+   "field_entrance": 325,
+   "sid": 3,
+   "tag": 1,
+   "ip": 2169,
+   "sc_at_end": 1190,
+   "est_minutes": 3,
+   "why": "Candidate 2, both route readers' choice and the PLAN pointer's first end: arrival in 153 (A. Castle/Hallway) via 150 e3 t1 ip2169 Field(153), with Int16[2]:=325 at ip2161 and SC:=1190 at ip1966. The cut is 153 e0 t0 ip22 (Bit[191]:=0). One run holds the whole sword fight and encore choice 127 (the owner's 100/100), the zone's first SC write (1155->1190) and the party rebuild (UInt16[21], Byte[303], Byte[4]/[17]/[18]). It has no control, battle, FMV, naming, ATE or encounter: 64's EnableMove (e0 t0 ip936) needs Map.Bit[158], which only e16 t0 sets at entrances 315/322; 150's e2 t0 sets it only at entrance 5; 150's region exits RET without control (e18 t2 ip30 SYSVAR[2]). So the only new driver features are the Chanbara rule and one choice rule; pages and KEYON-closed pairs are O1-O3's proven rule 7. Estimated at about 3 min a run, less than O3's measured 4: 64 about 70 s with a fight of about 51 s, 150 about 65 s, start and end 20-30 s. That is calibrated on the measured 1.83 s of 64's stage 1 (story-o3 ring, frames 83049-83152) and O3's 231-241 s runs. A session of 6+ runs is therefore about 20 min. The only nondeterminism inside (random prompts) is closed by the 100 policy. Candidate 1 (64->150) is about 1 min shorter but writes no SC and stops before the rebuild. Candidate 3 (153->154) adds the first alxc control grant (its positions need rehearsals), region hazards 26/27/28 and choice 128, which makes it O5's start."
+  },
+  "route": {
+   "segment_end_candidates": [
+    {
+     "field": 64,
+     "warp_to": 150,
+     "field_entrance": 325,
+     "sid": 2,
+     "tag": 1,
+     "ip": 536,
+     "sc_at_end": 1155,
+     "est_minutes": 2,
+     "new_members_needed": "member(64). Its Field(150) at ip536 is retargeted to member(150) under the disc-1 fork, and stays the seam into real 150 otherwise.",
+     "why": "End of the Chanbara visit: 64 e2 t1 stage 9 (L320), Byte[8]:=0 ip331, Int16[2]:=325 ip528, Field(150) ip536. Holds the fight, choice 127, 4 pages (111, 122, 123, 128) and 2 KEYON pairs. No SC write (SC stays 1155) and it stops before 150's party rebuild. A good REHEARSAL stage (R-CHANBARA), not the segment."
+    },
+    {
+     "field": 150,
+     "warp_to": 153,
+     "field_entrance": 325,
+     "sid": 3,
+     "tag": 1,
+     "ip": 2169,
+     "sc_at_end": 1190,
+     "est_minutes": 3,
+     "new_members_needed": "member(64) and member(150) are played; member(153) is F's landing. The disc-1 --ids set forks all 20: 64, 68, 69, 150, 151, 153-167.",
+     "why": "CHOSEN. 150 stage 10 (e3 t1 L878): UInt16[21]:=1 ip1136, Byte[303]:=0 ip1221 then ++ ip1255, Byte[4]:=0 ip1652/1667, Byte[17]:=0 ip1675, Byte[18]:=1 ip1683, SC:=1190 ip1966 (guard ip1884 false), Byte[8]:=75 ip1974, Int16[2]:=325 ip2161, Field(153) ip2169. Adds 13 pages and one KEYON pair to candidate 1; no control anywhere."
+    },
+    {
+     "field": 153,
+     "warp_to": 154,
+     "field_entrance": 304,
+     "sid": 3,
+     "tag": 1,
+     "ip": 3158,
+     "sc_at_end": 1190,
+     "est_minutes": 6,
+     "new_members_needed": "+ member(153) as a played field",
+     "why": "153 at 325: pages 113-117, then the first CONTROL grant (e3 t1 EnableMove ip785). The walk up the stairs runs until the loop at ip859 (f[1] > -450) ends. Hazards: regions 26/27 (side scenes) and region 28 (the back door to 150). Also choice 128 (Bit[3795] := SYSVAR[9] at ip1741), two KEYON pairs, then Int16[2]:=304 ip3150 and Field(154) ip3158. Positions need rehearsals (lesson 6). Verified at the bytes."
+    },
+    {
+     "field": 154,
+     "warp_to": 153,
+     "field_entrance": 316,
+     "sid": 2,
+     "tag": 1,
+     "ip": 1528,
+     "sc_at_end": 1190,
+     "est_minutes": 7,
+     "new_members_needed": "+ member(154)",
+     "why": "154 at 304 is the Zorn & Thorn interlude: Int16[2]:=316 at e2 t1 ip1520, then Field(153) at ip1528. The exit is verified; the rest is a survey."
+    },
+    {
+     "field": 153,
+     "warp_to": 151,
+     "field_entrance": 110,
+     "sid": 18,
+     "tag": 1,
+     "ip": 1085,
+     "sc_at_end": 1190,
+     "est_minutes": 8,
+     "new_members_needed": "(153 revisited at entrance 316)",
+     "why": "153 at 316: Int16[2]:=110 at e18 t1 ip1077, then Field(151) at ip1085. The exit is verified; the rest is a survey."
+    },
+    {
+     "field": 151,
+     "warp_to": 153,
+     "field_entrance": 328,
+     "sid": 2,
+     "tag": 1,
+     "ip": 940,
+     "sc_at_end": 1190,
+     "est_minutes": 10.5,
+     "new_members_needed": "+ member(151)",
+     "why": "The throne room. Steiner's naming Menu(1,3) is at e3 t1 ip603, and Byte[6]|=8 at ip610 is the first START-DEPENDENT key (8 after a raw warp, 11 after a true run). Then Int16[2]:=328 at e2 t1 ip932 and Field(153) at ip940. The exits are verified; the rest is a survey."
+    },
+    {
+     "field": 166,
+     "warp_to": 55,
+     "field_entrance": 110,
+     "sid": 6,
+     "tag": 1,
+     "ip": 871,
+     "sc_at_end": 1190,
+     "est_minutes": 27,
+     "new_members_needed": "the whole disc-1 cluster",
+     "why": "The zone exit to tshp 55: Int16[2]:=110 at ip863, then Field(55) at ip871 (both verified). Between there are Steiner's two control phases, nine doors (the data reader's graph, unverified), FMV004, and UInt16[19]|=8 at 153 e32 t1 ip2206, which is START-DEPENDENT. Far past a 20-minute window."
+    }
+   ],
+   "recommended_end": "Candidate 2: arrival in 153 at FieldEntrance 325 with SC 1190, via 150 e3 t1 ip2169 Field(153). Int16[2]:=325 is at ip2161 and SC:=1190 at ip1966 (L1708); ip1952 is the debug overwrite behind ip1884 SC>1190, window 55 and a Start press, and never runs. Cut the trace at 153's first row, e0 t0 ip22 Bit[191]:=0. Fork side: the alxc disc-1 --ids set (64, 68-69, 150-151, 153-167), so member(150)'s Field(153) is retargeted. F therefore ends in member(153) against real 153 on S, judged in donor terms; real 153 on F would be a finding (an un-retargeted Field()). End fields: S [153], F [member(153)]. budget.end_row_s waits for the first end-place row, as in O3.",
+   "fields_in_order": [
+    {
+     "field": 64,
+     "name": "A. Castle/Public Seats (EVT_ALEX1_TS_SWD_BTL)",
+     "zone": "alxc (fbg_n02_alxc_map038a_ac_ast_1, text block 2)",
+     "entered_via": "Raw harness warp from field 70 after New Game and storytrace 1: warp 64 100 1155 (S) or warp <member(64)> 100 1155 (F). 64 Main_Init ip232 SET(Int16[2]), then ip236 SWITCHEX(L402, 327, 315, 322): 100 takes the default L402 (ip408)."
+    },
+    {
+     "field": 150,
+     "name": "A. Castle/Guardhouse (EVT_ALEX1_AC_GUARD)",
+     "zone": "alxc (fbg_n02_alxc_map042_ac_gdr_0, block 3)",
+     "entered_via": "64 e2 t1 ip536 Field(150) after Int16[2]:=325 at ip528. 150 Main_Init ip242 SWITCHEX(L515, 325, L248, 5, 10000): 325 goes to ip258 Map.Byte[24]:=0."
+    },
+    {
+     "field": 153,
+     "name": "A. Castle/Hallway (EVT_ALEX1_AC_H2F): THE END, cut at e0 t0 ip22",
+     "zone": "alxc (fbg_n02_alxc_map041a_ac_h2f_1, block 3)",
+     "entered_via": "150 e3 t1 ip2169 Field(153) after Int16[2]:=325 at ip2161 (S real 153, F member(153)). 153's dispatch ip255 SWITCHEX(325 -> L273) runs after the cut."
+    },
+    {
+     "field": 154,
+     "name": "A. Castle/Hallway (beyond; survey)",
+     "zone": "alxc (fbg_n02_alxc_map046_ac_fti_0)",
+     "entered_via": "153 e3 t1 ip3158 Field(154) at entrance 304 (ip3150)"
+    },
+    {
+     "field": 153,
+     "name": "A. Castle/Hallway, second visit (beyond)",
+     "zone": "alxc",
+     "entered_via": "154 e2 t1 ip1528 Field(153) at 316 (ip1520)"
+    },
+    {
+     "field": 151,
+     "name": "A. Castle/Throne (beyond; Steiner naming)",
+     "zone": "alxc (fbg_n02_alxc_map039_ac_rst_0)",
+     "entered_via": "153 e18 t1 ip1085 Field(151) at 110 (ip1077)"
+    },
+    {
+     "field": 153,
+     "name": "A. Castle/Hallway, third visit, Steiner (beyond)",
+     "zone": "alxc",
+     "entered_via": "151 e2 t1 ip940 Field(153) at 328 (ip932)"
+    },
+    {
+     "field": 166,
+     "name": "West Tower top (beyond; reached through 154, 158-160 and 162-165 per the data reader's door graph, unverified)",
+     "zone": "alxc",
+     "entered_via": "165's door at entrance 344; it leaves by e6 t1 ip871 Field(55) at 110 (ip863)"
+    }
+   ],
+   "beats": [
+    {
+     "n": 1,
+     "field": 64,
+     "kind": "warp",
+     "what": "Start: New Game, storytrace 1, then in field 70 (before 70 e0 t0 ip475, FMV001's Byte[13]:=2 tail) warp 64 100 1155 on S or warp <member(64)> 100 1155 on F. This is HarnessAgent.cs:652 -> Ff9mkDebugMenu.HarnessWarp, and it needs UIState FieldHUD. Residue in 70 is exactly 3 rows: SC byte 0 (0->131), byte 1 (0->4), and FieldEntrance byte 2 (0->100).",
+     "player_action": "none (the driver warps)",
+     "required": true,
+     "where": "70, then 64 e0 t0 ip22 (the start cut)",
+     "gate": "Byte[13]==1 at the warp, so 64 takes ip119 (never ip97 or window 3)"
+    },
+    {
+     "n": 2,
+     "field": 64,
+     "kind": "other",
+     "what": "Main_Init at entrance 100. Ambient rows ip22, 49, 57, 119, 138, 200 (Bit191/Bit184 are masked noise). Then ip408 Map.Byte[24]:=1, ip416 Bit[3815]:=0, ip425 Byte[475]:=0, InitCode 4/3, InitObject 5, 6, 13 (Zidane), 20 (Blank), and ip475 Byte[8]:=125. SC is read once (ip526 SC<1900, tile animations). There is no control: EnableMove at ip936 needs Map.Bit[158].",
+     "player_action": "none",
+     "required": true,
+     "where": "64 e0 t0 ip22-ip475",
+     "gate": "Int16[2]==100 (the SWITCHEX default)"
+    },
+    {
+     "n": 3,
+     "field": 64,
+     "kind": "walk",
+     "what": "Stage 1, the scripted walk-in: e13 t1 ip514 Walk(-435,-14425), e20 t1 ip151 Walk(35,-14425), MoveCamera e13 ip499. MEASURED: window 105 appears 1.83 s after the field's first published frame (story-o3 states-final ring, run 6: frames 83049 -> 83152).",
+     "player_action": "none",
+     "required": true,
+     "where": "64 e13/e20 t1 case 1",
+     "gate": "Map.Byte[24]==1"
+    },
+    {
+     "n": 4,
+     "field": 64,
+     "kind": "press",
+     "what": "Windows 105 'En garde!' (e20 t1 ip303, window 1) and 106 'Expect no quarter from me!' (e13 t1 ip816, window 0). Both are [INCS][TIME=-1]: Confirm cannot page them. e13 first waits while SYSVAR[8]<2 && Byte[29]>0, counting from 250 (ip825-859). It then loops each tick on !KEYON(0x20000)&&!KEYON(0x80000) (ip865-885). A press before that loop is lost. ip888/891 close both.",
+     "player_action": "Confirm, repeated (rule 7's cadence) until windows 0 and 1 close",
+     "required": true,
+     "where": "64 e13 t1 ip868",
+     "gate": "Map.Byte[24]==2"
+    },
+    {
+     "n": 5,
+     "field": 64,
+     "kind": "tutorial",
+     "what": "111, the button tutorial: WindowSync(6,0,111) at e13 t1 ip900. It is an ordinary page, [IMME], with eight [DBTN] tags. The first prompt arms 12 ticks after 111 leaves the dialog list (T0+12; first poll T0+13).",
+     "player_action": "Confirm (a page). No Confirm edge may land at T0+13 or later.",
+     "required": true,
+     "where": "64 e13 t1 ip900",
+     "gate": "Map.Byte[24]==2"
+    },
+    {
+     "n": 6,
+     "field": 64,
+     "kind": "minigame",
+     "what": "THE SWORD FIGHT, stage 3. e20 t1 L319 (ip440-ip1554) runs 50 passes on Int16[34] and arms 49 random prompts (windows 112-119). e3 t1 (ip23-509) polls the eight pad bits once per tick. e13 t1 ip1263 waits for Int16[34]>=50. See sword_fight and plan_100.",
+     "player_action": "One press of the mapped button per prompt instance: left/right/up/down/menu/confirm/cancel/special. Never 'circle', never Start, nothing else. The edge must land by poll 50 on every prompt; the target is j <= 16 ticks, typically 3-5.",
+     "required": true,
+     "where": "64 e20 t1 ip440-1554, e3 t1 ip23-509",
+     "gate": "Map.Byte[24]==3"
+    },
+    {
+     "n": 7,
+     "field": 64,
+     "kind": "press",
+     "what": "107 'We shall finish this later!' (e20 t1 ip1618, after Wait(25)) and 108 'Come back here!' (e13 t1 ip1352, after CloseWindow(6) and Wait(37)). Both are [INCS][TIME=-1]. The same INCS/250 gate (ip1361-1395), then the KEYON loop at ip1404; ip1424/1427 close both.",
+     "player_action": "Confirm, repeated until both close",
+     "required": true,
+     "where": "64 e13 t1 ip1404",
+     "gate": "Map.Byte[24]==4"
+    },
+    {
+     "n": 8,
+     "field": 64,
+     "kind": "walk",
+     "what": "Stage 5, the walk-off to x 1400: e13 t1 ip1513 and e20 t1 ip1701, with the camera at e4 t1 ip136-205. No input.",
+     "player_action": "none",
+     "required": true,
+     "where": "64 stage 5",
+     "gate": "Map.Byte[24]==5"
+    },
+    {
+     "n": 9,
+     "field": 64,
+     "kind": "page",
+     "what": "Stage 6, the score (e4 t1). ip208 computes (I30+I32)/29. The hook fires at sid 4 ip223 (+30% at SwordplayAssistance 1). The clamp is ip222-252, and ip338 writes Byte[475]:=score (100). On a perfect run the pages are 122 'Of 100 nobles watching, / 100 were impressed.' (ip375) and 123 'Queen Brahne was / quite impressed.' (ip384), followed by ip390 Bit[3815]:=1. Otherwise the pages are 120 and 121, with no Bit[3815].",
+     "player_action": "Confirm x2 (pages)",
+     "required": true,
+     "where": "64 e4 t1 ip338, ip375, ip384, ip390",
+     "gate": "Map.Byte[24]==6; Int16[42]==50 for 122/123"
+    },
+    {
+     "n": 10,
+     "field": 64,
+     "kind": "choice",
+     "what": "The encore choice, 127 'They demand an encore! / Perform the fight scene again? / Yes / No' (e4 t1 ip462; it shows for a score of 75 or more). The cursor opens on Yes (0). SYSVAR[9] is read at ip476; No sets Map.Byte[27]:=1 at ip509. Yes replays the fight.",
+     "player_action": "Pick No (absolute 1) with g.choose(1): rule {donor 64, sc [1155], match 'No', pick 'No', once}. Never take the default.",
+     "required": true,
+     "where": "64 e4 t1 ip462/ip476",
+     "gate": "Map.Byte[24]==6"
+    },
+    {
+     "n": 11,
+     "field": 64,
+     "kind": "page",
+     "what": "128 'They shower you with 10000 Gil!' (ip531, [NUMB=1] = Int16[50] = 10000 only at a score of 100), then AddGi ip537 and Bit231 ip542.",
+     "player_action": "Confirm (a page)",
+     "required": true,
+     "where": "64 e4 t1 ip531",
+     "gate": "Map.Byte[27]==1"
+    },
+    {
+     "n": 12,
+     "field": 64,
+     "kind": "warp",
+     "what": "Stage 9 exit (e2 t1 L320): ip331 Byte[8]:=0, DisableMove ip404, DisableMenu ip416, PreloadField(5,150) ip426, FadeFilter(6,64) ip468, Wait(65) ip478, ip528 Int16[2]:=325, then Field(150) ip536 (member(150) on F).",
+     "player_action": "none",
+     "required": true,
+     "where": "64 e2 t1 ip331-ip536",
+     "gate": "Map.Byte[24]==9"
+    },
+    {
+     "n": 13,
+     "field": 150,
+     "kind": "other",
+     "what": "Main_Init at 325: ip258 Byte24:=0, InitObject 2, 3, 5, 6, 9, 4, InitRegion 18, InitCode 17. Ambient rows ip26, 53, 61, 123, 142, 204, then ip331 Byte[8]:=25. There is no control: e2 t0's SWITCH(5,..) defaults at 325, and Map.Bit[158] stays 0. No autosave here (EventEngine.cs:682).",
+     "player_action": "none",
+     "required": true,
+     "where": "150 e0 t0 ip242-ip331",
+     "gate": "Int16[2]==325"
+    },
+    {
+     "n": 14,
+     "field": 150,
+     "kind": "other",
+     "what": "Stage 0 (e3 t1 ip290-425): 85-88 are [TIME=20] and 89 is [TIME=60], all self-closing, plus 130 ticks of waits and a fade-in. Rule 7's Confirm presses do nothing to them.",
+     "player_action": "none needed",
+     "required": true,
+     "where": "150 e3 t1 stage 0",
+     "gate": "Map.Byte[24]==0"
+    },
+    {
+     "n": 15,
+     "field": 150,
+     "kind": "page",
+     "what": "Pages 90 (e3 ip444 WindowSync), 91 (e2 ip404 WindowSync), 92 (e2 ip435 + WaitWindow(0) ip463), and 93-97 (e3 ip461/524/587/650/713, each followed by WaitWindow(1) at ip485/548/611/674/737). Then 98 (e3 ip794, [INCS][TIME=-1]) stays up.",
+     "player_action": "Confirm x8",
+     "required": true,
+     "where": "150 e2/e3 t1 stages 1-4",
+     "gate": "Byte24 1..4"
+    },
+    {
+     "n": 16,
+     "field": 150,
+     "kind": "press",
+     "what": "99 'Okay, I get the picture...' (e2 ip480, [INCS][TIME=-1]). The INCS/250 gate runs at ip495-529, then KEYON(Confirm|Special) at ip538; ip558/561 close windows 0 and 1 (99 and 98).",
+     "player_action": "Confirm, repeated until both close",
+     "required": true,
+     "where": "150 e2 t1 ip538",
+     "gate": "Byte24==5"
+    },
+    {
+     "n": 17,
+     "field": 150,
+     "kind": "page",
+     "what": "Pages 100 (e2 ip571 + WaitWindow ip586), 102 (e3 ip864 WindowSync, then the package toss on Map.Byte[49]), 103 (e2 ip601 + WaitWindow ip617), 104 (e3 ip1002 + WaitWindow ip1018), and 106 (e3 ip1072 WindowSync). That makes 13 pages in 150.",
+     "player_action": "Confirm x5",
+     "required": true,
+     "where": "150 e2/e3 t1 stages 5-9",
+     "gate": "Byte24 5..9"
+    },
+    {
+     "n": 18,
+     "field": 150,
+     "kind": "warp",
+     "what": "Stage 10 (e3 t1 L878). Rows: UInt16[21]:=1 ip1136; Byte[303]:=0 ip1221 then ++ ip1255; Byte[4]:=0 ip1652 and ip1667; Byte[17]:=0 ip1675; Byte[18]:=1 ip1683; SC:=1190 ip1966; Byte[8]:=75 ip1974; Int16[2]:=325 ip2161. Between them: the party rebuild to [Zidane], SetHP/MP and Wait(90). Then Field(153) at ip2169.",
+     "player_action": "none",
+     "required": true,
+     "where": "150 e3 t1 ip1136-ip2169",
+     "gate": "Byte24==10"
+    },
+    {
+     "n": 19,
+     "field": 153,
+     "kind": "other",
+     "what": "THE END: 153's first row, e0 t0 ip22 Bit[191]:=0 (S real 153, F member(153)). The cut.",
+     "player_action": "none (rule 1: the end, the end row waited for)",
+     "required": true,
+     "where": "153 e0 t0 ip22",
+     "gate": "arrival"
+    },
+    {
+     "n": 20,
+     "field": 153,
+     "kind": "control",
+     "what": "Past the end (O5). 153 at 325: pages 113-117, then control (e3 t1 EnableMove ip785). The walk up the stairs runs until the loop at ip859 (f[1] > -450) ends. Hazards: regions 26/27 (side scenes) and region 28 (the back door to 150).",
+     "player_action": "O5: walk up the stairs (path from a rehearsal)",
+     "required": false,
+     "where": "153 e3 t1 ip785-ip859",
+     "gate": "Byte24==5/6"
+    },
+    {
+     "n": 21,
+     "field": 153,
+     "kind": "choice",
+     "what": "Past the end. Choice 128 ('Hmm...' / Let her pass / Examine her face) is at e3 t1 ip1724, and Bit[3795]:=SYSVAR[9] is written at ip1741. The cursor opens on 0.",
+     "player_action": "O5: freeze one option",
+     "required": false,
+     "where": "153 e3 t1 ip1724/1741",
+     "gate": "Byte24==20"
+    }
+   ],
+   "sc_ladder": [
+    {
+     "value": 1155,
+     "field": 64,
+     "when": "The start. The warp's residue in field 70 sets SC bytes 0 (0->131) and 1 (0->4). 64 reads SC once (e0 t0 ip526 SC<1900) and never writes it, and 150 holds it through stages 0-9."
+    },
+    {
+     "value": 1190,
+     "field": 150,
+     "sid": 3,
+     "tag": 1,
+     "ip": 1966,
+     "when": "150 stage 10 (e3 t1 L1708), after UInt16[21]:=1 (ip1136), the party writes and Wait(90) (ip1881). The guard at ip1884 (SC>1190) is false; ip1952 is the debug overwrite behind it, window 55 and a Start/Select press. It comes before Byte[8]:=75 (ip1974) and Field(153) (ip2169). It is the segment's only SC write. No stock store holds a value in 1156..1189; the next step anywhere is 1400 at tshp 55."
+    }
+   ],
+   "zone_members": "Zone alxc has 95 fields by FBG token (extract.ID_TO_FBG): 64, 68, 69, 150, 151, 153-167, 932, 1200-1227, 1250, 1800-1803, 1805-1824, 1866, 2001-2009, 2400-2406, 2458, 3002, 3003, 3005. The whole-zone dry run forks 94, leaving out 1805 as 'NOT door-reachable from the seed' (data_route/importchain_alxc_whole.txt:185). The DISC-1 CLUSTER is the 20 fields 64, 68, 69, 150, 151 and 153-167. Field 152 is Evil Forest (fbg_n04_evft), not alxc. Blocks: 64/68/69 use text block 2 (shared with 50-70 and O1's tshp members) and 150-167 use block 3. The recommended route PLAYS 64 and 150 and ARRIVES in 153; the later candidates touch 153 (3 visits, by 325/316/328), 154, 151, 158-160 and 162-166. Deployed: no alxc member. The live DictionaryPatch of every stacked folder registers no FieldScene above 31237: FF9CustomMap has 31100-31114 and 31200-31237, and -world, -schema and -msgs have none at or above 31000. Only FF9CustomMap ships a ForkDonorPatch (74 lines), with no alxc donor; its duplicate donors are 312 and 350-359. No stack folder overrides the stock us scripts of 64/68/69/150/151/153/154 (storytrace.stock_overrides). FF9CustomMap ships block 2 in 7 languages, with us == uk (md5 ddf99c96ea: the known defect); block 3 has no override. Recommended O4 band: 31240-31259 for the --ids set. Re-read the registrations before minting.",
+   "choices": [
+    {
+     "field": 64,
+     "raw_text": "[PCHC=2,1][IMME]They demand an encore!\\nPerform the fight scene again?\\n[CHOO][MOVE=18,0]Yes\\n[MOVE=18,0]No  (txid 127, at e4 t1 ip462 WindowSync(5,0,127), shown for a score of 75 or more. Its siblings 124 <25 'booing', 125 <50 'did not enjoy it' and 126 <75 'seemed to like it' (ip413/433/453) have the same options. SYSVAR[9] is read at ip476.)",
+     "pick": "No (absolute 1), with rule {donor: 64, sc: [1155], match: 'No', pick: 'No', once: true}, answered by g.choose(1), which steers the published cursor (proven on 52's option 1 in O1). Never take: 'default' (that would be V3), and never the game's default. The cursor opens on YES, and Yes replays the whole fight. Expected publication (lesson 1, unmeasured): options [<prompt or ''>, 'es', 'No'], active [0,1], selected 0. If R-CHANBARA shows the No line short its first character too, freeze pick 'o', which matches only the No line in ['es','No'], ['es','o'] and ['Yes','No'].",
+     "default_index": 0
+    },
+    {
+     "field": 153,
+     "raw_text": "[PCHC=2,1][WDTH=0,0,16,-1,1,90,-1,2,117,-1][IMME][ZDNE]\\n'Hmm...'\\n[CHOO][MOVE=18,0]Let her pass\\n[MOVE=18,0]Examine her face  (txid 128, at 153 e3 t1 ip1724 WindowSync(0,128,128); Bit[3795]:=SYSVAR[9] at ip1741. PAST THE END.)",
+     "pick": "Not O4's. O5 must freeze one option, knowing the cursor opens on 0 'Let her pass' (flags 128 resets sChoose, and 153 has no EnableDialogChoices op), not on 1 as the route readers said.",
+     "default_index": 0
+    }
+   ],
+   "battles": "None. There is no Battle(), SetRandomBattles or encounter op in 64 at 100 or in 150 at 325, nor anywhere else in the disc-1 cluster per the gates reader's listings. The O4 battle registry is empty, so any battle is V10 (game), as in O1/O2. There is also no Cinematic (FMV), naming Menu or ATE on the route, so no movie policy is needed.",
+   "minigames": "THE SWORD FIGHT (Chanbara), field 64 stage 3 (Map.Byte[24]==3). It is the only minigame on the route; the decode is in sword_fight and the drive in plan_100. In short: e20 t1 L319 runs 50 passes. In each of the first 49 it rolls a prompt (Map.Byte[46]:=SYSVAR[0]&7, ip462, with filters), arms it (Byte[47]:=1 at ip721, TimeLeft Byte[52]:=50 at ip736) and opens 'Press <button> !' (windows 112-119, ip789-852). It then plays the reaction to the PREVIOUS result while the new prompt is live, and scores when the prompt resolves. e3 t1 polls the eight pad-bit KEYON edges once per tick: the right bit is a hit, any other bit or a held Start is a miss, and TimeLeft falls by one each armed tick, the hit tick included. A hit adds TimeLeft to Int16[30] and the previous streak to Int16[32]. The 50th pass shows no prompt and credits the 49th hit again, so 49/49 reaches max combo 50. The score is e4 t1 ip208 (I30+I32)/29, then the engine's +30% at sid 4 ip223 (SwordplayAssistance 1, live), then the clamp to 1..100. Writes: Byte[475]:=score at ip338, and Bit[3815]:=1 at ip390 only at max combo 50. A displayed 100 under the live setting needs I30 >= 1066, i.e. a mean response within about 28 ticks with all 49 hit. Determinism needs 49/49. The driver's plan responds in about 3-5 ticks, which gives a raw score of about 114-123 and so 100 even without the bonus.",
+   "nondeterminism": "1) The prompt sequence: Map.Byte[46]:=SYSVAR[0]&7 at 64 e20 t1 ip462, filtered and rerolled. SYSVAR[0] = UnityEngine.Random.Range(0,256) (GetSysvar.cs:13-14, Comn.cs:8-10): unseeded and unsettable. It is closed by the 100 policy: a 49/49 run at score 100 writes exactly the frozen keys (Byte[475]=100 at ip338, Bit[3815]=1 at ip390) whatever the order. Still variable, and none of it gEventGlobal: the prompt order, the reroll count (Unity's RNG stream), the Map vars (I30, I32, I48 before the clamp, I50 before the 10000 override), the reaction clips, the pass and fight lengths, and the position path SByte[38]. 2) Timing only: the type-outs of 105/106, 107/108 and 98/99 (each under 250 ticks), 150's package physics (Map.Byte[49]), the stage-10 race (e0 t1 Byte24:=17 while e3 runs on), and 150 e4 t1 ip285 (SYSVAR[0], a cosmetic turn). 3) The encore choice: a frozen rule answers No; a Yes would add a whole fight and a second ip390 row (V2 via 'once'). 4) The start: Byte[13] at the warp (1 measured in 12 O2/O3 runs; a 2 opens window 3 at ip835 and adds ip97/ip845 rows). 5) Outside gEventGlobal: the Encore achievement report on every 100 (EMinigame.cs:20, 34-38), and gil (+10000). 6) Absent: control, regions, ATEs, encounters, battles, FMV and naming. 7) Harness side: the render regime (~31 or ~60 fps, which can flip) changes the response latency, not the keys.",
+   "open_questions": [
+    "The prompts' published form. phrase_raw should be '[STRT=54,1][TAIL=UPRF][IMME]Press [DBTN=X][MOBI=n] ![TIME=-1]' (inferred from 105's measured publication), and texts 'Press  !' (inferred from O1's measured [CBTN] hint). Confirm both in R-CHANBARA.",
+    "cfg.control under the harness's launch (a saved custom pad mapping). If it is not 0, logicalToButton follows control_data_joystick (HonoInputManager.cs:983-1008), and Menu/Special/Cancel/Confirm set other physical bits. Only a 49/49 rehearsal that reads 122/123 proves the mapping.",
+    "Choice 127's published options, prompt and 'selected' (lesson 1 shape; cursor expected on 0).",
+    "The real per-prompt response j in ticks. It is modelled from archived accept times; measure it in R-CHANBARA, from first-seen frames against the accepted press frame +1.",
+    "Clip playback speed: the reaction is ~30 ticks if clips run at one frame per tick. That sets the pass (~30.5 ticks), the fight (~51 s) and the run (~3 min).",
+    "The close-tween length of a prompt window and of a page (the stray-Confirm margin after 111; prompt-instance tracking).",
+    "end_run (warp 4600, then soft reset) from inside the fight: R-CHANBARA-VOID.",
+    "The member-id order of the --ids import (member(64)=31240 expected): read the written campaign.toml.",
+    "Whether the alxc members carry their SPS (64 runs 24 RunSPSCode calls; visual only)."
+   ],
+   "other_story_writes": "On route, S side, in order (masked story noise marked [m]). 64 e0 t0: Bit[191]:=0 ip22 [m], Bit[184]:=0 ip49 [m], Int16[9]:=-1 ip57, Byte[13]:=0 ip119 (old 1 after the raw warp), Int16[11]:=-1 ip138, Byte[14]:=0 ip200, Bit[3815]:=0 ip416, Byte[475]:=0 ip425, Byte[8]:=125 ip475. 64 e4 t1: Byte[475]:=100 ip338 and Bit[3815]:=1 ip390, the SCORE-DEPENDENT pair. 64 e2 t1: Byte[8]:=0 ip331, Int16[2]:=325 ip528 (chain). 150 e0 t0: Bit[191] ip26 [m], Bit[184] ip53 [m], Int16[9] ip61, Byte[13]:=0 ip123, Int16[11] ip142, Byte[14]:=0 ip204, Byte[8]:=25 ip331. 150 e3 t1: UInt16[21]:=1 ip1136, Byte[303]:=0 ip1221, Byte[303]++ ip1255 (=1), Byte[4]:=0 ip1652, Byte[4]:=0 ip1667, Byte[17]:=0 ip1675, Byte[18]:=1 ip1683, UInt16[0] (SC):=1190 ip1966, Byte[8]:=75 ip1974, Int16[2]:=325 ip2161 (chain). Then the cut at 153 e0 t0 ip22. That is 26 compared keys a run (23 writes + 1 SC + 2 chain) beside 4 masked rows; the warp adds 3 residue rows in 70 (SC bytes 0-1, FieldEntrance byte 2). SCORE-DEPENDENT: only 64 e4 t1 ip338 (value = the clamped score, written if larger than the 0 from ip425) and ip390 (present only when max combo Int16[42]==50, i.e. all 49 shown prompts hit). Nothing in 150 depends on the score. Not gEventGlobal: gil (AddGi(Int16[50]) at 64 ip537: +10000 at 100), party ([Zidane] after 150 ip1185), SetCharacterData/HP/MP/CureStatus, the Encore achievement, every minigame Map var. Forbidden or diagnostic: 64 ip41, ip97, ip130 (dead), ip178, ip211, ip295/ip380 (entrances 327/315/322), ip845, ip879, e2 t1 ip893 (327's exit to 67), e11/e12 t2 ip193 (315/322 regions), a second ip390 or ip338 row (a replay); 150 ip45, ip101, ip134, ip182, ip215, ip497, ip609, ip1009, ip1043, e3 t1 ip1277/1299/1321 (behind const(0)), ip1641 (Byte[4]:=1, Quina present), ip1952 (SC debug), e10 t3 (moogle), e15/e16 t1, e18 t2 ip90/242/378, e19 t2 ip90/334, e23. Past the end: 153 Bit[3795] e3 t1 ip1741, Byte[8]:=0 ip2953, Int16[2]:=304 ip3150; 151 Byte[6]|=8 e3 t1 ip610 (START-DEPENDENT); 153@328 UInt16[19]|=8 e32 t1 ip2206 (START-DEPENDENT).",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o4_research\\reconcile\\notes.txt (listings L64/L150/L151/L153/L154.txt, mes_64.json, mes_150.json, ebtool.py, mes.py, windows.py in the same folder)"
+  },
+  "sword_fight": {
+   "flow": "Field 64 at entrance 100. All refs are stock US bytes; the reconciler's listing is byte-identical to every reader's.\n\nMAIN_INIT\n- e0 t0 ip236 SWITCHEX takes the default (100) branch L402.\n- ip408 sets the stage, Map.Byte[24]:=1.\n- ip416 Bit[3815]:=0 and ip425 Byte[475]:=0.\n- InitCode(4) ip434 and InitCode(3) ip437, then InitObject 5, 6, 13 (Zidane) and 20 (Blank) at ip440-449.\n- ip475 Byte[8]:=125.\n- Per-tick order: e0, e1, e2, e4, e3, e5, e6, e13, e20. New objects go to the tail of the active list (Obj.cs:31-45), and EBin.ProcessCode walks the list once a tick (EBin.cs:106-160). So the key poll (e3) runs before the prompt generator (e20).\n\nTHE CONDUCTOR\ne2 t1 ip23 SWITCH on Map.Byte[24], advanced by Bit[231] through a Byte[26]/Bit[230] handshake. e2 clears Bit[230] at ip11 every tick.\n\nSTAGES\n- Stage 1: the walk-in, measured at 1.83 s to window 105.\n- Stage 2:\n  - e20 Wait(3), then 105 at ip303.\n  - e13 zeroes the minigame vars (ip690-802) and calls SetDialogProgression(0) at ip810, then Wait(15) and 106 at ip816.\n  - The wait at ip825-859 runs while SYSVAR[8]<2 && Byte[29]>0, with Byte[29] starting at 250.\n  - Then the KEYON(Confirm|Special) loop at ip865-885, and the closes at ip888/891.\n  - Then Wait(5), the 111 page (ip900), Wait(10), and the sync.\n- Stage 3: the fight.\n  - e20 t1 L319: ip440 Byte[45]:=99, then the loop on Int16[34]<50 (ip1546).\n  - ROLL (ip451-707): Byte[46]:=SYSVAR[0]&7 at ip462, under the filters.\n  - ARM, only while Int16[34]<49 (ip710): Byte[47]:=1 ip721, Byte[44]:=prompt ip729, TimeLeft Byte[52]:=50 ip736. The :=30 at ip755 is dead.\n  - The window WindowAsync(1,160,112+prompt) opens at ip789-852, in the same tick as the arm.\n  - REACT to the previous result while the new prompt is live: RunScript(2,13,11) at ip861, then the SWITCHEX on Byte[45] at ip870.\n  - WAIT each tick while Byte[52]>0 && Byte[47]==1 (ip1376-1394).\n  - SCORE (ip1397-1541): a timeout gives Byte[47]:=3, Byte[46]:=11 and CloseWindow(1). A hit adds Int16[30]+=Byte[52] (ip1438) and Int16[32]+=Int16[40] (ip1456), then Int16[40]++ (ip1474). A miss sets Int16[40]:=0 (ip1490). Then the max combo Int16[42] (ip1498-1508), Byte[45]:=Byte[46] (ip1534) and Int16[34]++ (ip1541).\n  - The 50th pass (Int16[34]==49) is the PHANTOM: no arm, so the 49th result is credited again.\n- The poll, e3 t1 (only at stage 3, through ip15 SWITCH(3,...)):\n  - It runs once per tick, ending in Wait(1) at ip506, while Byte[47]==1.\n  - Eight KEYON checks (ip34-404): the prompt's own bit gives Byte[47]:=2; any other bit gives 3 and Byte[46]:=10 or 11.\n  - A held Start (B_KEY 8, ip412) is a miss.\n  - On 2 or 3: a sound and CloseWindow(1) (ip448-484).\n  - Then Byte[52]-- if it is >0 (ip487-498), on the hit tick too.\n- Exit: e13 t1 ip1263 waits for Int16[34]>=50, then the sync, then e2 ip194 sets Byte24:=4.\n- Stage 4:\n  - e20 Wait(25), then 107 at ip1618.\n  - e13 CloseWindow(6), Wait(37), 108 at ip1352, the same INCS/250 gate, the KEYON loop at ip1404, and the closes.\n- Stage 5: the walk-off.\n- Stage 6 (e4 t1 L186):\n  - The score at ip208, the engine bonus at ip223, the clamp at ip222-252, the gil at ip260-307.\n  - ip338 Byte[475].\n  - Pages 120/121, or 122/123 with ip390 Bit[3815]:=1.\n  - Wait(10), then the choice (124-127) at ip402-462 and SYSVAR[9] at ip476.\n  - No: ip509 Byte[27]:=1, Wait(15), page 128 at ip531, AddGi at ip537.\n  - Yes: stage 7 (walk back), then stage 8 (re-zero, 110/109, a KEYON press at ip1156, no tutorial), then stage 3 again.\n- Stage 9: ip331 Byte[8]:=0, Wait(65), ip528 Int16[2]:=325, Field(150) at ip536.\n\nDRIVER INPUTS ON A PERFECT RUN\n- Confirm repeated on 105/106.\n- 1 page (111).\n- 49 mapped prompt presses.\n- Confirm repeated on 107/108.\n- 2 pages (122, 123).\n- The choice (No).\n- 1 page (128).\n\n64's visit is about 70 s (estimate). The fight is about 51 s.",
+   "prompts": [
+    {
+     "value": 0,
+     "mes_id": 112,
+     "us_text": "[IMME]Press [DBTN=LEFT][MOBI=267] ![TIME=-1] (tail UPRF, strt 54,1). Published texts are expected as 'Press  !': the glyph renders to nothing, as measured for O1's [CBTN] hint. phrase_raw keeps the tag.",
+     "keyon_mask": "0x80 (128), EventInput.Left. A wrong press sets Byte[46]:=11.",
+     "game_button": "Control.Left (the D-pad/stick Left). Harness: press left. Set directly in ProcessInput (EventInput.cs:333-337).",
+     "ref": "e20 t1 ip789 WindowAsync(1,160,112); e3 t1 ip34 KEYON(128), ip43 ==0, hit ip54, wrong ip65/73. Banned at SByte[38] -1/0 (e20 ip473/499)."
+    },
+    {
+     "value": 1,
+     "mes_id": 113,
+     "us_text": "[IMME]Press [DBTN=RIGHT][MOBI=269] ![TIME=-1]",
+     "keyon_mask": "0x20 (32), EventInput.Right. A wrong press sets 10.",
+     "game_button": "Control.Right. Harness: press right.",
+     "ref": "e20 t1 ip798; e3 t1 ip81 KEYON(32), ip90 ==1, hit ip101, wrong ip112/120. Banned at SByte[38] 1/2 (e20 ip525/551)."
+    },
+    {
+     "value": 2,
+     "mes_id": 114,
+     "us_text": "[IMME]Press [DBTN=TRIANGLE][MOBI=272] ![TIME=-1]",
+     "keyon_mask": "0x1000 (4096), EventInput.Triangle. A wrong press sets 10.",
+     "game_button": "Control.Menu, which sets logical 0x1000000 and physical Triangle (logicalToButton[2]=2, identity). Harness: press menu (the alias 'triangle' is the same). The main menu cannot open: no control or EnableMenu here.",
+     "ref": "e20 t1 ip807; e3 t1 ip128 KEYON(4096), ip137 ==2, hit ip148, wrong ip159/167. A roll of 6 becomes 2 while the max combo is <15 (e20 ip629-647)."
+    },
+    {
+     "value": 3,
+     "mes_id": 115,
+     "us_text": "[IMME]Press [DBTN=DOWN][MOBI=270] ![TIME=-1]",
+     "keyon_mask": "0x40 (64), EventInput.Down. A wrong press sets 11.",
+     "game_button": "Control.Down. Harness: press down.",
+     "ref": "e20 t1 ip816; e3 t1 ip175 KEYON(64), ip184 ==3, hit ip195, wrong ip206/214. Banned while the max combo Int16[42] is <10 (e20 ip577)."
+    },
+    {
+     "value": 4,
+     "mes_id": 116,
+     "us_text": "[IMME]Press [DBTN=CROSS][MOBI=274] ![TIME=-1]",
+     "keyon_mask": "0x4000 (16384), EventInput.Cross. A wrong press sets 10.",
+     "game_button": "Control.Confirm, which sets logical 0x20000 and physical Cross. Harness: press confirm (aliases ok/x/a). Note that every Confirm is a Cross press, so a stray page-Confirm during the fight hits or misses here.",
+     "ref": "e20 t1 ip825; e3 t1 ip222 KEYON(16384), ip231 ==4, hit ip242, wrong ip253/261. A roll of 7 becomes 4 while the max combo is <15 (e20 ip655-673)."
+    },
+    {
+     "value": 5,
+     "mes_id": 117,
+     "us_text": "[IMME]Press [DBTN=UP][MOBI=268] ![TIME=-1]",
+     "keyon_mask": "0x10 (16), EventInput.Up. A wrong press sets 11.",
+     "game_button": "Control.Up. Harness: press up.",
+     "ref": "e20 t1 ip834; e3 t1 ip269 KEYON(16), ip278 ==5, hit ip289, wrong ip300/308. Banned while the max combo is <10 (e20 ip603)."
+    },
+    {
+     "value": 6,
+     "mes_id": 118,
+     "us_text": "[IMME]Press [DBTN=CIRCLE][MOBI=273] ![TIME=-1]",
+     "keyon_mask": "0x2000 (8192), EventInput.Circle. A wrong press sets 11.",
+     "game_button": "Control.Cancel, which sets logical 0x10000 and physical Circle. Harness: press cancel (aliases back/b). TRAP: the harness alias 'circle' is Control.Confirm (HarnessAgent.cs:1434; channel.py BUTTONS), which presses Cross and misses.",
+     "ref": "e20 t1 ip843; e3 t1 ip316 KEYON(8192), ip325 ==6, hit ip336, wrong ip347/355. Shown only once the max combo is >=15."
+    },
+    {
+     "value": 7,
+     "mes_id": 119,
+     "us_text": "[IMME]Press [DBTN=SQUARE][MOBI=271] ![TIME=-1]",
+     "keyon_mask": "0x8000 (32768, const4), EventInput.Square. A wrong press sets 11.",
+     "game_button": "Control.Special, which sets logical 0x80000 and physical Square. Harness: press special (the alias 'square' is the same).",
+     "ref": "e20 t1 ip852; e3 t1 ip363 KEYON(32768), ip374 ==7, hit ip385, wrong ip396/404. Shown only once the max combo is >=15."
+    }
+   ],
+   "timing": "UNIT\n- TimeLeft (Map.Byte[52]) is 50 at every arm (e20 t1 ip736). The :=30 at ip755 needs Int16[36]>0. Int16[36] is only ever set to 0 (e13 ip722/1010) or, if it is >=10, to 1 (e20 ip1515-1526), so that branch is dead.\n- e3 t1 decrements it once per armed tick, the hit tick included (ip487-498). The loop ends in Wait(1) (ip506), and Wait(N) stores N-1 and yields (EBin.cs:1330-1361; ProcessCode decrements per pass, EBin.cs:136-158). So it is ONE decrement per FIELD EVENT TICK, never per render frame.\n- FieldTPS is 30 (Memoria.ini:53), so a tick is 33.3 ms. FPSManager turns wall time into whole ticks (FPSManager.cs:77-111), so this holds at a ~31 or ~60 fps render.\n\nORDER WITHIN A TICK\n- e3 runs before e20, so the arm tick S has already been polled.\n- First poll: S+1. A press whose edge falls on tick S+j credits T=50-j, for j=1..50 (49 at most).\n- At S+50 a pressless prompt reaches 0. e20 times it out in the same tick (ip1397-1424) and arms the next prompt in that same tick.\n- A prompt lives 50 ticks, 1.67 s.\n\nPASS LENGTH\n- A pass lasts max(A, j). A is the reaction to the PREVIOUS result, and it plays while the new prompt is live: pass 0 is Wait(30); a LEFT/RIGHT hit is a 6-tick slide, a 7-frame clip and Wait(22), about 29 ticks; the others are 30-frame clips (anim_frames.json), with an extra tick when RunScript(2,13,11) waits for Zidane's previous tag 11.\n- With fast answers a pass is about 30.5 ticks, so the fight is about 1525 ticks, about 51 s (estimate: the clips are assumed to play at one frame per tick). With no presses it is about 2480 ticks, about 83 s.\n- After a hit the window closes on the hit tick and the next prompt opens about 25 ticks later, a visible gap. After a timeout the next prompt replaces it at once.\n\nBEFORE THE FIGHT\n- T0 is the tick e13's WindowSync wait sees 111 gone. That pass only clears the wait.\n- e13 runs Wait(10) (ip906) at T0+1 and resumes at T0+11, when the Byte[26]/Bit[230] sync completes.\n- e2 sets Byte24:=3 (ip134) at T0+12, and e20 arms the first prompt in that tick. The first poll is T0+13.\n\nAROUND THE FIGHT\n- Arrival to 105: 1.83 s (measured).\n- 105/106: type-out of at most 250 ticks plus a press.\n- 107/108: Wait(25) and Wait(37), the type-out, a press.\n- Walk-off: about 2 s.\n- Stage 6: pages and choice, about 5 s.\n- Exit fade: Wait(65).\n- The visit is about 70 s (estimate).",
+   "scoring": "PER PASS (e20 t1)\n- HIT (Byte[47]==2):\n  - Int16[30] += Byte[52], the TimeLeft left (ip1438).\n  - Int16[32] += Int16[40], the streak BEFORE this hit (ip1456).\n  - Int16[40]++ (ip1474).\n- MISS (3: a wrong bit, a held Start, or a timeout): Int16[40]:=0 (ip1490).\n- Then Int16[42] := max(Int16[42], Int16[40]) (ip1498-1508), Byte[45]:=Byte[46] (ip1534), Int16[34]++ (ip1541). Int16[34] counts passes, not hits.\n- PHANTOM: pass 49 arms nothing, so Byte[47] (2) and Byte[52] keep the 49th result. It is credited again: Int16[30] gets T_49 a second time, Int16[32] gets +49, and the streak and Int16[42] reach 50.\n\nA PERFECT RUN\n- I32 = 0+1+...+48+49 = 1225; I42 = 50.\n- I30 = sum_k (50-j_k) + (50-j_49).\n\nSTAGE 6 (e4 t1)\n- ip208: Int16[48] := (Int16[30]+Int16[32])/29, integer division.\n- The instruction at ip222 is SET(Int16[48] > 100). The fetch of its first token, at ip223, runs EMinigame.ChanbaraBonusPoints (EBin.cs:331, before s1.ip++). It checks EMinigame.cs:12 (EffectiveFieldId(fldMapNo)==64) and :14 (sid==4 && ip==223). With SwordplayAssistance>=1 it does score += score/10*3 (:18-19), reports the achievement if the score is >=75 (:20), and writes Int16[48] back (:21).\n- Clamp: >100 -> 100 (ip233); <=0 -> 1 (ip252).\n- Gil: Int16[50] = ((I30/5 + I32) + I42*2 + I40*2)/2 + 1 (ip260), set to 10000 when Int16[48]==100 (ip296-307).\n- SetTextVariable(0, score) (ip315) and SetTextVariable(1, gil) (ip321).\n- Byte[475] := Int16[48] if Byte[475] < it (ip327-338). Byte[475] was zeroed at ip425 on arrival, so the first fight always writes it.\n- Int16[42]<50 gives 120/121; ==50 gives 122/123 plus Bit[3815]:=1 (ip346-390).\n\nTHE LIVE SETTING\n- Memoria.ini [Hacks] Enabled=1 (:249), SwordplayAssistance=1 (:252).\n- score = min(100, raw + 3*floor(raw/10)). 79 gives 100; 78 gives 99.\n- A uniform j gives raw = floor((3725-50j)/29): j1 126, j5 119, j10 111, j16 100, j17 99, j20 93, j28 80, j29 78.\n- The maximum raw is 126 (I30 2450).",
+   "wrong_and_extra_presses": "WHAT KEYON IS\n- B_KEYON (EBin.cs:1094-1101) is mask & ETb.KeyOn.\n- ETb.ProcessKeyEvents (ETb.cs:50-56) sets sKeyOn = inputs & ~sKey once per tick, from EventEngine.ServiceEvents (EventEngine.cs:114-124).\n- inputs = FPSManager.DelayedInputs (ETb.cs:58-63): the OR of the level reads of every frame since the last tick (FPSManager.cs:122-136, fed by EventInput.ReadInputLight -> ProcessInput(false,false), EventInput.cs:216-347).\n- So a 1-frame tap lands on exactly one tick at 31 and 60 fps, and a held key gives one edge.\n- EventInput.ReadInput, with its Chanbara branch (ProcessInput(true,true) & ChanbaraMask, :80-140), has NO caller in the clone. The HUD changes nothing on the input path.\n\nWRONG BUTTON (any of the other seven bits in an armed tick)\n- A MISS: Byte[47]:=3, Byte[46]:=10 or 11, sound 101, CloseWindow(1). The streak goes to 0 and the prompt ends at once.\n\nTWO BUTTONS IN ONE TICK\n- Always a miss. All eight checks run, and once Byte[46] is 10 or 11 even the right bit fails its compare.\n\nSTART\n- A held Start is a miss on every polled tick (B_KEY level, ip412). It is also the pause key: never press it.\n\nBUTTONS NEVER READ\n- L1/R1/L2/R2, Select and the logical-only bits do nothing.\n\nPRESSES THAT ARE NOT POLLED (the edge is lost, harmlessly)\n- Before the arm.\n- Between prompts (Byte[47] != 1).\n- On the arm tick itself: e3 polls before e20 arms.\n\nPRESSES THAT ARE JUDGED\n- A press while the PREVIOUS prompt is still armed is judged against that prompt.\n- Consecutive prompts never repeat (e20 ip681), so pressing the last answered button again is ALWAYS a miss on the next prompt. A re-press of a lost press can land after the next arm, so it is a miss too: never re-press.\n\nHELD BUTTON\n- One edge. A key held across an arm gives no edge for the new prompt.\n\nLATE PRESS\n- At poll 50 the right button is still a hit, worth 0, and keeps the streak.\n- After the timeout it falls on the next prompt, which cannot be the same button: a miss.\n\nAFTER A REGISTERED PRESS\n- The window closes on that tick, hit or wrong.\n- [TIME=-1] sets FlagButtonInh (DialogBoxSymbols.cs:811-826), so Confirm never closes a prompt at the UI level. For the poll a Confirm is just the Cross bit.\n\nOTHER STAGES\n- Stages 2/4/8 read only logical Confirm (0x20000) or Special (0x80000) edges, and only after their INCS/250 gate.\n\nREAL INPUT\n- Real keyboard or pad input, including stick drift above the threshold (EventInput.cs:262-276), is OR-ed with the harness's. Unattended means hands off.",
+   "what_100_needs": "DEFINITIONS\n- j = the tick offset, from the arm tick S, at which the press edge registers: 1..50.\n- T = 50-j.\n- 50 credits: the 49 hits plus the phantom's repeat of T_49.\n\nTHE THREE ASSIST LEVELS\n- SwordplayAssistance 0 (PSX): raw >= 100, so I30 >= 1675. A uniform j <= 16, 0.53 s.\n- SwordplayAssistance 1 (LIVE): raw >= 79, so I30 >= 1066. A mean T >= 21.3; a uniform j <= 28, 0.93 s.\n  - Check: j=28 gives I30 1100, raw 80, 104, so 100. j=29 gives raw 78, 99.\n- SwordplayAssistance 2: any speed. TimeLeft is refilled to 50 at every sid-4 fetch (EMinigame.cs:23-30), so no prompt ever times out.\n\nALL 49 MUST BE HIT, FOR DETERMINISM\n- Only a 49-hit streak plus the phantom reaches max combo 50. That gives Bit[3815] at ip390 and pages 122/123.\n- One miss caps the max combo at 48-49: pages 120/121 and no Bit[3815] row, even when 100 still shows. At j=1, 34 hits ending in one streak can still show 100 under SA 1.\n- Each response must also land by poll 50.\n\nTHE PLAN'S TARGET AND MARGIN\n- Target: assist-independent, a mean j <= 16.\n- Expected: j about 3-5, at worst about 8-11 from the measured harness latencies. That gives raw 114-123, which displays 100 with or without the bonus.\n- Margins: about 40 ticks to the timeout per prompt, about 24 ticks of mean to SA 1's line, about 12 to SA 0's.\n- The only fatal event is a stall of 1.4 s or more on one armed prompt.",
+   "display": "PC NEVER SHOWS A RUNNING SCORE\n- The Chanbara HUD is mobile-only: FieldHUD.DisplaySpecialHUD returns when !MobilePlatform (FieldHUD.cs:115-118). EventHUD.OpenSpecialHUD still sets CurrentHUD (EventHUD.cs:240-289), but nothing is drawn.\n- During the fight the only windows are the prompts.\n- The score is shown once, in stage 6, after the bonus and the clamp. [NUMB=0] = Int16[48] (SetTextVariable 0, ip315).\n\nTHE OWNER'S 100/100\n- mes 122 (WindowSync(5,0,122), e4 t1 ip375): '[WDTH=0,96,64,0,-1][IMME]Of 100 nobles watching,\\n[NUMB=0] were impressed.', published as 'Of 100 nobles watching,\\n100 were impressed.'.\n- Then mes 123 (ip384): '[IMME]Queen Brahne was\\nquite impressed.'.\n\nA NON-PERFECT RUN\n- mes 120 (ip357): 'Of THE 100 nobles watching,\\n[NUMB=0] were impressed.'\n- Then 121 (ip366): '...not impressed.'\n- So the two cases differ by the word 'the' and by 'quite' against 'not'.\n\nAFTER THE SCORE\n- Choice 127 'They demand an encore!' (a score of 75 or more).\n- On No, page 128 (ip531): '[WDTH=0,147,64,1,-1][IMME]They shower you with [C8B040][HSHD][NUMB=1] Gil[C8C8C8][HSHD]!', published as 'They shower you with 10000 Gil!'. [NUMB=1] = Int16[50], which is 10000 only at a score of 100.\n\nThe texts are all WindowSync pages with no TIME tag: one Confirm each. ParsedText substituting [NUMB] is expected and confirmed in R-CHANBARA.",
+   "story_writes": "FIELD 64 HAS 25 gEventGlobal STORE SITES. On the route, in order, with their values on a 100 run:\n- e0 t0 ip22 Bit[191]:=0 [masked]\n- ip49 Bit[184]:=0 [masked]\n- ip57 Int16[9]:=-1\n- ip119 Byte[13]:=0 (old 1 after the raw warp)\n- ip138 Int16[11]:=-1\n- ip200 Byte[14]:=0\n- ip416 Bit[3815]:=0\n- ip425 Byte[475]:=0\n- ip475 Byte[8]:=125\n- **e4 t1 ip338 Byte[475]:=100** (0 -> 100)\n- **e4 t1 ip390 Bit[3815]:=1** (0 -> 1)\n- e2 t1 ip331 Byte[8]:=0\n- e2 t1 ip528 Int16[2]:=325\n\nThat is 13 rows, 11 of them compared. Every one is fixed in value and order on a perfect run. The fight itself stores nothing global, and the engine bonus writes only Map.Int16[48], leaving no residue row.\n\nON A LOWER SCORE\n- ip338 writes the clamped score (1-99).\n- ip390 is absent unless all 49 were hit. A 100 reached with a miss gives Byte[475]=100 and no Bit[3815] row.\n\nON A YES\n- A second fight.\n- ip338 again only if the new score beats Byte[475], which never happens after a 100.\n- ip390 again on another perfect.\n- Then the choice again.\n\nNOT gEventGlobal\n- Gil: AddGi(Int16[50]) at ip537, +10000 at a score of 100.\n- The Encore achievement.\n- EventHUD.CurrentHUD.\n- Every minigame Map var.\n\nBit[3815] is byte 476 bit 7, next to Byte[475]. Neither is masked story noise (flags.story_noise_bits covers only 184 and 191). The start reader's census finds no stock reader of Bit[3815]. Byte[475] is read only at 64 ip327 and by 151's optional Brahne talk (e3 t3 ip918/983/1048).",
+   "encore_choice": "WHICH TEXT (e4 t1 ip402-462, by the clamped score)\n- <25 -> 124 (ip413) 'The audience is booing...'\n- <50 -> 125 (ip433) 'did not enjoy it'\n- <75 -> 126 (ip453) 'seemed to like it'\n- otherwise -> 127 (ip462) '[PCHC=2,1][IMME]They demand an encore!\\nPerform the fight scene again?\\n[CHOO][MOVE=18,0]Yes\\n[MOVE=18,0]No'. A 100 always shows 127.\n\nTHE DEFAULT CURSOR IS 0 = Yes\n- [PCHC=2,1] means 2 options and a CANCEL choice of 1: DialogBoxSymbols.cs:671-678 sets DefaultChoice = ETb.sChoose and CancelChoice = PCHC's second parameter.\n- WindowSync(5,0,127) has flags 0. ETb.NewMesWin resets sChoose to sChooseInit, which is 0 (ETb.cs:100-104).\n- 64 contains no EnableDialogChoices/CHOOSEPARAM op (DoEventCode.cs:1963-1968).\n- The movie-skip dialog's cursor is on No only because FieldHUD.cs:280 sets sChoose=1 for it.\n- Cancel moves the cursor to No without confirming (Dialog.cs:810-826).\n- So a driver that takes the default loops into a replay.\n\nTHE EXIT IS No (absolute 1)\n- SYSVAR[9] (ETb.GetChoose) != 0 at ip476 -> ip509 Map.Byte[27]:=1, Wait(15), a sound, page 128 (ip531), AddGi (ip537), Bit231.\n- Then e2 goes from stage 6 to 9: the exit.\n\nWHAT Yes DOES\n- A music change (ip487-496), and no page 128 and no AddGi.\n- Stage 7: the walk back.\n- Stage 8: the vars re-zeroed, 110 'Die, traitor!' and 109 'Is that the best thou canst do!?', then a KEYON press (ip1156). No tutorial.\n- Stage 3: a full new 49-prompt fight, then stage 6 again.\n- Story effect: Byte[475] only rises; Bit[3815] is stored again on another perfect.\n\nDRIVER RULE\n- {donor 64, sc [1155], match 'No', pick 'No', once: true}, through g.choose(1).\n- Expected publication (unmeasured): ['' or the prompt, 'es', 'No'], active [0,1], selected 0.\n- If the No line also loses its first character, freeze pick 'o'.",
+   "engine_hooks": "PROVENANCE: the deployed x64/x86 Assembly-CSharp.dll (sha256 ba9762423da8f3d7...) equals C:\\gd\\FFIX\\Memoria\\Output, and no Assembly-CSharp .cs is newer. The live source IS the deployed engine. The gates reader also found every wrapped site's EffectiveFieldId call in the deployed IL.\n\n(1) EMinigame.ChanbaraBonusPoints (EMinigame.cs:9-32)\n- Called on every expression-token fetch from EBin.expr (EBin.cs:331), before s1.ip++.\n- Gate at :12, EffectiveFieldId(fldMapNo)==64: FORK-WRAPPED (s24), in the source and the deployed DLL.\n- At sid 4 ip 223 (the first token of e4 t1 ip222's 'Int16[48] > 100'): score += score/10*3 when SA>=1, the achievement when >=75, then the write-back.\n- SA>=2 refills TimeLeft (:23-30).\n- If it were unwrapped, a fork would get no bonus. Byte[475] would hold the raw score: identical (100) at raw >= 100, and 79-99 instead of 100 for a slower driver. Under SA 2 a fork would time out where stock never does.\n- At the plan's speed (raw >= 100) the clamp hides it: O4 can neither prove nor break this wrap.\n\n(2) EventHUD.CheckUIMiniGameForMobile (EventHUD.cs:342-358), called each tick from EventEngine.ProcessEvents.cs:124\n- Gate at :346, EffectiveFieldId: WRAPPED.\n- It reads Map.Byte[24] (var 6357) and Global.Int16[2] (728). At entrances other than 327/315/316 it opens Chanbara while the stage is 3 and closes it otherwise.\n- On PC, OpenSpecialHUD (:240-289) only sets CurrentHUD and calls SetPlayerControlEnable. DisplaySpecialHUD returns off mobile (FieldHUD.cs:115-118).\n- CurrentHUD gates only mouse confirms (UIKeyTrigger.cs:105; EventInput.cs:405).\n- It writes no gEventGlobal: unwrapped, it would change no story write.\n\n(3) EventInput.ReadInput's Chanbara branch (EventInput.cs:80-140)\n- The s65 wrap at :88 is inert: ReadInput has no caller. Input comes from FPSManager.DelayedInputs, fed by ReadInputLight.\n\n(4) B_KEYON/B_KEY (EBin.cs:1094-1129)\n- NetSyncField.FilterScriptButtons is a pass-through solo. ETb swaps logical Confirm/Cancel only for JP (ETb.cs:65-89).\n- The physical bits come from GetKeyMaskFromControl (EventInput.cs:476-534) through logicalToButton: the identity at cfg.control==0 and no JP layout (HonoInputManager.cs:967-981). SwapConfirmCancel=0, Memoria.ini:127.\n\n(5) TextOpCodeModifier.ReplaceChanbaraText (:37-72)\n- Keyed on FF9TextTool.FieldZoneId==2 (the text block): a fork on block 2 gets it.\n- It re-lays out only 111's diamond; prompts 112-119 are untouched.\n\n(6) EventEngine.DoEventCode.cs:665\n- 64's walk fix at SC 1600 / entrance 327, through effMapNo. Off route.\n\n(7) The Encore achievement (EMinigame.cs:34-38)\n- Inside the gate of (1). Not gEventGlobal.\n\nNo other fldMapNo==64 site exists on this route.",
+   "determinism": "FIXED ON A PERFECT RUN\nWith all 49 prompts hit and a clamped 100, the following are fixed in value and order:\n- every gEventGlobal write of 64: the 11 compared keys plus 2 masked;\n- every write of 150, which is score-independent;\n- the window sequence 105, 106, 111, 49 prompts, 107, 108, 122, 123, 127, 128;\n- the gil, +10000.\nO4's 26 keys are therefore identical across runs and sides whatever the random sequence.\n\nSTILL VARIES (none of it gEventGlobal)\n- The prompt order: SYSVAR[0] = UnityEngine.Random.Range, unseeded.\n- The number of RNG draws.\n- Map vars: I30, the pre-clamp score, and the pre-override gil.\n- SByte[38] and the camera pans.\n- Which reaction clips play.\n- Pass and fight lengths (about 51 s).\n- The 105-110 and 98/99 type-out waits.\n- Render frames and wall times.\n\nWHAT BREAKS IT\n- Any miss: no Bit[3815] row, and possibly a lower Byte[475].\n- A slow mean: Byte[475] below 100.\n- A Yes: an extra fight and rows.\nAll three come from the driver's input, so each is a VOID (V17, or V2 for a Yes), not a game difference -- unless the driver's own rows prove the frozen play (V18, a finding).\n\nSAME START\nThe raw warp's Byte[13]=1 and Byte[14]=0 pick the ambient branch (ip119/ip200) on both sides.",
+   "open_questions": [
+    "The prompts' exact published phrase_raw and texts. Inferred: phrase_raw keeps [DBTN=X] and texts drop the glyph. Confirm both in R-CHANBARA.",
+    "Whether cfg.control is 0 in the harness's launch, i.e. whether Menu/Special/Cancel set Triangle/Square/Circle. Only a 49/49 stock rehearsal reading 122/123 proves it.",
+    "The per-prompt response j in game. It is modelled from archived accept_ms; Map vars are not published, so measure it from first-seen against the accepted frame +1 in R-CHANBARA.",
+    "The reaction clips' playback speed: the pass (~30.5 ticks) and so the fight (~51 s).",
+    "The close-tween length of prompt windows and pages.",
+    "Choice 127's published options and selected.",
+    "end_run and soft reset from inside the fight (R-CHANBARA-VOID).",
+    "Whether the Encore achievement report under the harness reaches Steam (an owner-visible side effect)."
+   ],
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o4_research\\reconcile\\notes.txt (reconcile/L64.txt, mes_64.json; also O4_ROUTE.md section 'The sword fight')"
+  },
+  "plan_100": "THE 100 PLAN: the harness driver scores a displayed 100/100 (\"Of 100 nobles watching, / 100 were impressed.\") in 64's sword fight, on both sides, every run.\n\n0. SETTINGS (frozen in P-SETTINGS, never changed)\n- Memoria.ini [Hacks] Enabled=1 and SwordplayAssistance=1 (:249, :252).\n- FieldTPS=30 (:53).\n- SwapConfirmCancel=0 (:127).\n- A US session.\n- The plan aims at a raw score of 100 or more. Its 100 does not depend on the engine's +30% (EMinigame.cs:18-19). It also means O4 cannot exercise that fork wrap.\n\n1. WATCH\n- The signal is state.json dialog.phrase_raw (State.raw_texts = Dialog.Phrase, the source with its tags; HarnessAgent.cs:1650-1656). The agent publishes it every 2nd frame (_stateEvery 2, :241, :1502).\n- The rendered texts drop button glyphs (measured on O1's [CBTN] hint), so every prompt renders as \"Press  !\". Never key on texts.\n- A PROMPT is a published dialog that meets all of these:\n  - its phrase_raw holds exactly one [DBTN=(LEFT|RIGHT|UP|DOWN|CROSS|CIRCLE|TRIANGLE|SQUARE)], plus \"Press\" and \"[TIME=-1]\";\n  - it is in place 64 (donor) at SC 1155;\n  - control is off.\n- 111, with eight DBTN tags, stays a page. 150's window 55, with two, is a stop page.\n- A NEW INSTANCE is a prompt whose DBTN differs from the previous published prompt's, or one seen after a sample with no prompt. This works because consecutive prompts never repeat (64 e20 t1 ip681-691), and a timeout re-arms in the same tick.\n- Poll in a tight loop (5-10 ms sleeps; a state read is about 0.2 ms) from the first prompt until 107/108 appear.\n- Ride empty reads with Session._read_state (STATE_MISS_BUDGET 1 s).\n- Keep the forbidden scan and every wait_frames out of this loop.\n- Optional: `stateevery 1` for the fight, which halves the publish lag. The agent resets it on re-arm.\n\n2. PRESS\n- Exactly ONE `press <name> 2` per instance, blocking for its ack.\n- The map:\n\n| Prompt | Press |\n|---|---|\n| LEFT | `left` |\n| RIGHT | `right` |\n| UP | `up` |\n| DOWN | `down` |\n| TRIANGLE | `menu` |\n| CROSS | `confirm` |\n| CIRCLE | `cancel` |\n| SQUARE | `special` |\n\n- The physical bits come from EventInput.GetKeyMaskFromControl (EventInput.cs:476-534) through logicalToButton, the identity when cfg.control==0 and the layout is not JP (HonoInputManager.cs:967-981). Directions are set directly in ProcessInput.\n- NEVER `circle`: HarnessAgent.cs:1434 maps it to Control.Confirm, the Cross bit, which misses.\n- Never Start: held, it is a miss every tick (64 e3 t1 ip412).\n- Never two buttons. Nothing between instances.\n- No re-press: a lost press is a VOID. A re-press can land after the next arm, and that is a certain miss, because the next prompt is never the same button.\n- Rule 7 (the page rule) never presses while a prompt is published. The driver records prompt rows, not pages, so the transcript stays comparable across random sequences.\n\n3. BUDGET, IN FIELD TICKS (33.3 ms)\n- e3 polls before e20 in every tick (Obj.cs:31-45; EBin.cs:106-160). So a prompt armed at tick S (64 e20 t1 ip721/736) is first polled at S+1.\n- A press whose edge lands on tick S+j is credited T = 50-j. It must land by j=50. At S+50 the prompt times out (e20 t1 ip1397-1424).\n- 100 under the live SA 1 needs the 50 credits (the 49 hits plus the phantom's repeat of T_49) to sum to at least 1066. A uniform j of 28 or less does it: j=28 gives raw 80, then 104, then 100.\n- The plan's own target is assist-independent: a sum of at least 1675, a uniform j of 16 or less.\n- MEASURED LATENCY (archives; request write to agent acceptance):\n\n| Render rate | Median | p99 | Max | Presses |\n|---|---|---|---|---|\n| 60 fps | 54 ms | 78-85 ms | 100-122 ms | 2002 (story-o2, story-o3) |\n| 30 fps | 72 ms | 126-133 ms | 145-171 ms | 369 |\n\n- Add 0-2 frames of publish lag and the frame+1 press schedule. That gives j of about 3-5 typical and at most about 8-11 at the worst seen.\n- So the raw score is about 114-123, and the displayed score is 100 with or without the bonus.\n- Margins:\n  - about 40 ticks to the per-prompt timeout;\n  - about 24 ticks of mean to SA 1's line;\n  - about 12 ticks of mean to SA 0's line.\n- An empty state read of up to 200 ms costs about 6 ticks on one prompt.\n- The only fatal event is a stall of about 1.4 s or more on one armed prompt.\n\n4. AROUND THE FIGHT (all proven machinery)\n- Rule 7 handles 105/106: repeated Confirm until the script's KEYON closes them. The loop at e13 t1 ip865-885 starts only after SYSVAR[8]>=2 or 250 ticks, and earlier presses are lost.\n- Rule 7 also handles the 111 page, 107/108 (ip1404), and pages 122, 123 and 128.\n- The frozen choice rule {donor 64, sc [1155], match \"No\", pick \"No\", once: true} answers 127 with g.choose(1). The cursor opens on Yes (0); never take the default.\n- After 111 leaves the dialog list (T0), the first prompt arms at T0+12 and is first polled at T0+13.\n- No Confirm edge may land at T0+13 or later. The script and the agent read the same dialog list (MesWinActive = CheckDialogShowing, DialogManager.cs:176-182). So a rule-7 press decided while 111 is still published lands within about 3-6 ticks of T0. The analysis checks this from the press rows.\n\n5. EVIDENCE\n- One `prompt` row per instance:\n  - n (1-49), the DBTN, the button sent;\n  - the first frame and time it was published;\n  - the request seq, the accepted frame, and the down frame (accepted + 1);\n  - the first frame without it;\n  - j bounds in ticks from g.rate(), and the render regime.\n- Plus O3's page, choice and press rows.\n\n6. HOW THE SESSION PROVES THE 100: a new check, O4-SWORD, on every covered run of both sides\n- (a) Exactly one trace row 64 e4 t1 ip338 Global.Byte[475] 0 -> 100, and exactly one ip390 Global.Bit[3815] 0 -> 1 (S fld 64, F fld member(64)).\n- (b) The published pages \"Of 100 nobles watching,\\n100 were impressed.\" (mes 122, e4 t1 ip375), then \"Queen Brahne was\\nquite impressed.\" (123, ip384). No 120/121 (\"Of the 100 ...\" / \"not impressed\").\n- (c) Choice 127 (\"They demand an encore!\") answered No, once.\n- (d) Page 128 \"They shower you with 10000 Gil!\" ([NUMB=1] is 10000 only at a score of 100, ip296-307).\n- (e) 49 prompt rows, one mapped press each, every j in its bound, each window gone after its press.\n- (f) No other press between the first prompt and 107.\n- O4-WRITES, NULL and STATE then compare the 26 keys as O3 did.\n\n7. ON A MISS: a VOID of its own class, never a FAIL by itself\n- A score below 100 changes Byte[475] and/or drops Bit[3815]. It does so because the driver's INPUT changed, not because the scripts under test did. A run whose input is not the frozen play is no sample of the claim.\n- V17 (driver, new). Any of these:\n  - a prompt still published about 50 ticks after it was first seen (a timeout);\n  - an instance with no press, two presses, or a wrong name;\n  - a press outside an instance in stage 3;\n  - a score page other than 122 with 100.\n\n  The driver stops at once. end_run (warp 4600, then soft reset) recovers; R-CHANBARA-VOID proves this from 64. The run is re-run (rerun.max 2), as O3 did for V15.\n- V18 (game, new; a FINDING, in rerun.stop_on). The driver's 49 rows prove the frozen play: one mapped press per instance, every j in budget, each window gone on its own press. The game still showed 120/121 or a score below 100. VOID-ASYM reads it:\n  - on one side only, NOT PROVEN: the fork scores or reads input differently;\n  - in every run of both sides, NOT PROVEN: the instrument, e.g. a remapped pad.\n- A Yes is V2 (the `once` rule).\n\n8. CHANGES\n- Engine, agent, harness verbs: NONE. The prompt is published (phrase_raw). Presses reach B_KEYON: harness -> HonoInputManager.IsInput -> UIKeyTrigger.GetKey -> ProcessInput(false,false) -> FPSManager collect/flush -> ETb.ProcessKeyEvents -> B_KEYON. O1-O3 proved Confirm -> KEYON and held Up -> B_KEY. The trace sees both keys.\n- An agent instrument that publishes Dialog.TextId or Map.Byte[47]/[52]/Int16[42] would give per-prompt hit/miss evidence. But it needs a DLL rebuild, and that AUTO-DEPLOYS over the live install (build_memoria.py backs up; owner-gated). It is not worth it for O4.\n- Driver, opt-in pred[\"chanbara\"], checked strict like movies_of; O1-O3 stay byte-identical without it (segment_regress G1-G14):\n  - the prompt rule, before rule 7;\n  - the button map, with a test that `circle` FAILS on a CIRCLE prompt;\n  - the prompt rows;\n  - V17/V18;\n  - the 127 choice rule;\n  - an o4 checks module: O4-SWORD; P-SETTINGS with SwordplayAssistance; P-DONOR requiring `<member(64)> 64`; P-LAUNCH after the alxc deploy.\n\n9. FAKEGAME MUST MODEL\n- Field 64 at entrance 100, and member(64).\n- Stage 1, about 1.8 s.\n- 105/106: [INCS][TIME=-1], an INCS/250-tick gate, then a KEYON loop. The 111 page.\n- 50 passes and 49 prompts with every e20 filter: SByte[38]; max-combo 10 and 15; Circle -> Triangle and Square -> Cross; no repeat. Seedable.\n- The arm and the window in one tick. The reaction (about 29-31 ticks) overlapping the live prompt. First poll at S+1.\n- TimeLeft 50, decremented every armed tick including the hit tick. A timeout at poll 50 that re-arms in the same tick.\n- Per-tick KEYON edges of the harness's held buttons for the 8 bits, plus held Start and two keys in one tick.\n- The Control -> bit map, so `circle` misses.\n- Publication: texts \"Press  !\" and phrase_raw with the DBTN. Confirm does not close a prompt. A configurable close tween.\n- Exact scoring:\n  - the phantom pass, /29;\n  - the +30% at SA 1, with a knob for whether it fires on member(64);\n  - SA 2's refill;\n  - the clamp and the gil.\n- Trace rows ip338/ip390.\n- Pages 120/121 versus 122/123, with [NUMB].\n- Choice 124-127 with the cursor on 0. Yes replays (110/109 plus KEYON, no tutorial). No gives 128 plus AddGil.\n- 107/108, and the exit to 150 at 325.\n- Faults:\n  - a publish stall, or a driver stall over an armed prompt;\n  - a lost press, a double press;\n  - a key held across an arm;\n  - a stray Confirm after 111.\n\n10. REHEARSALS (stock, before the freeze)\n- R-CHANBARA (`warp 64 100 1155`, ends at Field(150), x2). It measures:\n  - the prompts' phrase_raw and texts;\n  - that a 49/49 run reads 122/123/127/128 (this proves the eight buttons and cfg.control);\n  - j per prompt, and the close tween;\n  - T0 against the first prompt;\n  - 127's options and selected;\n  - the fight's length.\n- R-CHANBARA-VOID: stop mid-fight; end_run must reach the title.\n- R-FULL (64 -> 153, x2): the 26 keys, the end state, the run time and the budgets.\n- Optional, owner's call, not in the session: R-CHANBARA-GATE. A paired S/F run at a fixed j of about 20 (raw 93). There S reaches 100 only through the +30%, so an F that shows 93 would expose the EMinigame wrap.\n\n11. HANDS OFF\n- Real input is OR-ed with the harness's. A key, a pad press or stick drift during stage 3 is a press.\n- Every perfect run also reports the Encore achievement to Steam. That is outside gEventGlobal, but the owner should know.",
+  "start": {
+   "summary": "The start is the raw warp, exactly as O2 and O3 did it: New Game, `storytrace 1`, then in field 70 `warp 64 100 1155` (S) or `warp <member(64)> 100 1155` (F).\n\nIt writes exactly 3 residue rows in 70: SC byte 0 (0->131), SC byte 1 (0->4), and FieldEntrance byte 2 (0->100). It must run before 70 e0 t0 ip475, FMV001's Byte[13]:=2 tail.\n\n64's Main_Init then takes:\n- the entrance-100 default at ip236/L402;\n- its ambient branch from Byte[13]=1, writing :=0 at ip119 (never ip97 or window 3).\n\nThe route as far as Field(153) has ZERO START-DEPENDENT gEventGlobal reads. Every read either resolves the same from a true O1->O3 run and from the raw warp, or follows the route's own write. Only the `old`/`same` of some rows differs between starts, never between sides:\n- 64 ip57 Int16[9]: old 643 vs -1;\n- 64 ip119 Byte[13]: old 1 vs 0;\n- 150 ip1136 UInt16[21]: old 0 vs 3585;\n- 150 ip1221 Byte[303];\n- 150 ip1683 Byte[18].\n\nThe first START-DEPENDENT keys are far past the end:\n- 151 e3 t1 ip610 Byte[6]|=8: 8 vs 11;\n- 153@328 e32 t1 ip2206 UInt16[19]|=8: 8 vs 1807.\n\nThe sword fight reads no start state:\n- Byte[475] and Bit[3815] are zeroed at ip425/ip416 before any read.\n- There is no party, HP, gil or item read in 64.\n- The prompts come from Unity's unseeded RNG.",
+   "reads": [
+    {
+     "target": "Global.UInt16[0] (SC)",
+     "where": "64 e0 t0 ip526 (SC<1900: tile animations); 150 e3 t1 ip1884 (SC>1190: the debug window 55 path); 153 e0 t0 ip232 (SC>1900, past the cut); EventEngine.cs:682 (150's autosave gate: SC 1155, ent 325, wrapped)",
+     "effect": "Every test resolves the same in both starts: 64's animations run, 150 takes ip1966 (not ip1952), and 150 is not autosaved on either side. Written 1190 at 150 e3 t1 ip1966.",
+     "o3_end_value": "1155",
+     "raw_warp_value": "1155 (the warp's residue: byte 0 0->131, byte 1 0->4)"
+    },
+    {
+     "target": "Global.Int16[2] (FieldEntrance)",
+     "where": "64 e0 t0 ip232/236 and ip991/995 (SWITCHEX 327/315/322, else the default); 150 e0 t0 ip238/242 (325); 150 e2 t0 ip18/22 (==5) and ip201 (!=5)",
+     "effect": "The same branches in both starts: 64's default show, and 150's 325 branch with no control. Written 325 at 64 e2 t1 ip528 and at 150 e3 t1 ip2161.",
+     "o3_end_value": "100 (63 e4 t1 ip820)",
+     "raw_warp_value": "100 (the warp writes byte 2, 0->100: the third residue row)"
+    },
+    {
+     "target": "Global.Byte[13]",
+     "where": "64 e0 t0 ip65 (==9), ip79 (==2 && Int16[9]<0), ip819 (==9 -> window 3 'Error Env Play()'); 150 the same at ip69/83/983",
+     "effect": "Both starts reach 64 ip119 :=0, then 150 ip123 :=0. A 2 at the warp, from a warp after FMV001, would take ip97 :=9 and stop on window 3. O4-START requires ip119.",
+     "o3_end_value": "0",
+     "raw_warp_value": "1 (70 e0 t0 ip130; measured in all 12 O2/O3 runs)"
+    },
+    {
+     "target": "Global.Int16[9]",
+     "where": "64 e0 t0 ip79/ip108, after its own :=-1 at ip57",
+     "effect": "Written before it is read. Only the ip57 row's `old` differs.",
+     "o3_end_value": "-1",
+     "raw_warp_value": "643 (70 e0 t0 ip57; the start reader's composition)"
+    },
+    {
+     "target": "Global.Byte[14], Global.Int16[11], Global.Bit[184]",
+     "where": "64 e0 t0 ip146/160/853 (Byte[14]), ip189 (Int16[11], after ip138), ip30 (Bit[184]==1 -> Int16[2]:=10000)",
+     "effect": "The same values and branches: Byte[14]:=0 at ip200, Bit[184]:=0 at ip49; ip41 never runs.",
+     "o3_end_value": "0 / -1 / 0",
+     "raw_warp_value": "0 / -1 / 0"
+    },
+    {
+     "target": "Global.Byte[8]",
+     "where": "Read only as a RunSoundCode argument right after each write: 64 ip483 (after ip475) and e2 t1 ip339 (after ip331); 150 ip339 (after ip331) and e3 t1 ip1982 (after ip1974)",
+     "effect": "Sound only, and written before every read. Not start-dependent.",
+     "o3_end_value": "125",
+     "raw_warp_value": "125 per the start reader's composition (not re-derived; irrelevant, since it is written first)"
+    },
+    {
+     "target": "Global.Byte[475] (best sword score)",
+     "where": "64 e4 t1 ip327 (the compare before ip338); 151 e3 t3 ip918/983/1048 (Brahne's optional reward talk, beyond the end)",
+     "effect": "Zeroed at 64 e0 t0 ip425 before any read, so the first fight always writes it. 100 on the plan.",
+     "o3_end_value": "0",
+     "raw_warp_value": "0"
+    },
+    {
+     "target": "Global.Bit[3815] (the 50-combo flag)",
+     "where": "No reader in any stock field script (the start reader's census_reads.json, checked here: r=[], w=[64 e0 t0 ip416, 64 e4 t1 ip390])",
+     "effect": "A write-only record. Not start-dependent.",
+     "o3_end_value": "0",
+     "raw_warp_value": "0"
+    },
+    {
+     "target": "Global.UInt16[21] (party reserve)",
+     "where": "150 e3 t1 ip1144 SetPartyReserve, after :=1 at ip1136",
+     "effect": "Written before it is read. Only the ip1136 row's `old` differs.",
+     "o3_end_value": "3585",
+     "raw_warp_value": "0"
+    },
+    {
+     "target": "Global.Byte[303] (party count)",
+     "where": "150 e3 t1 ip1255 (++) and ip1476 (compared with the KO bits), after :=0 at ip1221",
+     "effect": "Written before it is read. Only the ip1221 row's `same` flag differs between starts (raw warp: old 0 -> new 0, so same; true run: old 4 -> 0).",
+     "o3_end_value": "4",
+     "raw_warp_value": "0"
+    },
+    {
+     "target": "Global.Byte[4], Byte[17], Byte[18]",
+     "where": "No field reader on the route (battle.cs:38-40 reads them only in battles; there are none). Written at 150 e3 t1 ip1652/1667/1675/1683.",
+     "effect": "The same values written in both starts; only the Byte[18] row's `same` differs.",
+     "o3_end_value": "0 / 0 / 1",
+     "raw_warp_value": "0 / 0 / 0"
+    },
+    {
+     "target": "SYSVAR[0] (random)",
+     "where": "64 e20 t1 ip462 (the prompt); 150 e4 t1 ip285 (a cosmetic turn)",
+     "effect": "UnityEngine.Random.Range(0,256) (Comn.cs:8-10), unseeded. The 100 policy makes the stored keys independent of it.",
+     "o3_end_value": "n/a",
+     "raw_warp_value": "n/a"
+    },
+    {
+     "target": "Party, controlled character, gil (not gEventGlobal)",
+     "where": "64 reads no party, HP or gil. 150 e3 t1 rebuilds the party (ip1136-1212), checks B_CURHP(0) at ip1363 and PARTYCHK(5) at ip1632. 64 e4 t1 ip537 AddGi(Int16[50]).",
+     "effect": "Both starts converge at 150 to [Zidane]. PARTYCHK(5) is false and B_CURHP(0)>0 in both. Gil is never read on the route.",
+     "o3_end_value": "[Zidane, Cinna, Marcus, Blank]; gil 500 (inferred)",
+     "raw_warp_value": "[Zidane] (ff9play.cs:73-77); gil 500 (ff9play.cs:48,79); 10500 after a 100 in both"
+    },
+    {
+     "target": "Global.Byte[6] and Global.UInt16[19] (beyond the end)",
+     "where": "151 e3 t1 ip610 Byte[6]|=8 (right after Steiner's naming, Menu(1,3) ip603); 153@328 e32 t1 ip2180 (bit test) and ip2206 |=8",
+     "effect": "START-DEPENDENT values: 8 vs 11, and 8 vs 1807, with the same branch. Not on O4's route.",
+     "o3_end_value": "3 and 1799 after a true O1->O3 run (0 and 0 in O3's frozen raw-warp end state)",
+     "raw_warp_value": "0 / 0"
+    }
+   ],
+   "start_options": "(a) RECOMMENDED: the raw warp, O2/O3's proven form.\n- Each run: New Game, `storytrace 1`, then in field 70 (before 70 e0 t0 ip475) `warp 64 100 1155` (S) or `warp <member(64)> 100 1155` (F).\n- The warp goes through HarnessAgent.cs:652 to Ff9mkDebugMenu.HarnessWarp. It needs UIState FieldHUD and sets FieldEntrance, then SC, then the map.\n- Predicted residue in 70: exactly 3 rows (bytes 0, 1, 2).\n- O4-START clause:\n  - 64's first row is e0 t0 ip22;\n  - its first Byte[13] row is ip119 (old 1 -> 0);\n  - there is no row at ip97/ip845.\n- No START-DEPENDENT key up to Field(153).\n\n(b) The warp plus `byte`/`flag` pokes, to mimic a true run's Byte[6], UInt16[19] and so on. Unnecessary here: nothing on the route reads those keys. The pokes would also add harness rows the front cut must handle.\n\n(c) The narrative-state story seed (hub pick). Unsuitable, as in O3:\n- it needs an owner-gated hub deploy and a re-wire of the field-70 New Game override, which O1's gate depends on;\n- it adds non-stock rows before 64;\n- it has no proven channel for Byte[6] or UInt16[19].",
+   "party_and_names": "None of the following is gEventGlobal, so the trace does not see it. It is code-read.\n\nPARTY\n- After the raw warp: [Zidane] (ff9play.cs:73-77).\n- At a true O3 end: [Zidane, Cinna, Marcus, Blank] (62 e4 t1). 64 reads no party state.\n- 150 e3 t1 rebuilds both to [Zidane]: UInt16[21]:=1 at ip1136, SetPartyReserve, RemoveParty x12, PARTYADD 0 at ip1185. PARTYCHK(5) is false, so Byte[4]:=0 at ip1652.\n\nCONTROLLED CHARACTER\n- The DefinePlayerCharacter object: 64 e13 t0 ip279, then 150 e2 t0 ip144.\n- No control is ever granted on the route.\n\nGIL\n- 500 in both starts (ff9play.cs:48,79), inferred for a true run too.\n- AddGi(10000) at a score of 100 (64 e4 t1 ip537) makes it 10500. Never read on the route.\n\nNAMES\n- New Game defaults after the raw warp. They affect only [ZDNE]-type display text, never a story write.\n- Steiner is named at 151, past the end.\n\nITEMS\n- No HAVE_ITEM read on the route.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o4_research\\start_state\\notes.md (the start reader's composition and census), checked against the reconciler's listings in o4_research\\reconcile"
+  },
+  "disputes": [
+   {
+    "topic": "Segment end and its run time",
+    "readers": "bytes_route: candidate 2, about 6.5 min. data_route: candidate 2, about 5 min.",
+    "ref": "150 e3 t1 ip1966 (SC 1190), ip2161, ip2169; 64 e20 t1 ip721-852 versus ip861-1370; story-o3 ring frames 83049-83152; o3_session.json 231-241 s per run",
+    "settled": "Candidate 2, as both said. Their run times were too long: about 3 min a run (estimate), because a pass is about 30 ticks, not 60-80 (see the next dispute)."
+   },
+   {
+    "topic": "Fight / pass length",
+    "readers": "bytes_route: 60-80 ticks per iteration, 1.7-2.7 min. data_route: guessed 75-100 s. chanbara: about 30 ticks a pass, about 50 s.",
+    "ref": "64 e20 t1: the arm (ip721-852) comes before RunScript(2,13,11) at ip861 and the reaction SWITCHEX at ip870; wait loop ip1376-1394",
+    "settled": "The prompt is armed BEFORE the previous result's reaction plays. A pass therefore lasts max(A, j), where A is about 29-31 ticks. With fast answers that is about 30.5 ticks a pass and about 51 s for the fight. The figure is an estimate: clip playback speed is unmeasured."
+   },
+   {
+    "topic": "Encore choice 127: where the cursor opens",
+    "readers": "bytes_route and data_route: on No (absolute 1, 'the default'). chanbara and harness: on Yes (0).",
+    "ref": "DialogBoxSymbols.cs:659-704 (DefaultChoice = ETb.sChoose; PCHC's 2nd parameter = CancelChoice); ETb.cs:100-104; no CHOOSEPARAM op in 64 (DoEventCode.cs:1963-1968); FieldHUD.cs:280 (the skip dialog alone sets sChoose=1); Dialog.cs:810-826",
+    "settled": "YES (0). [PCHC=2,1]'s second parameter is the cancel choice. The flags-0 WindowSync resets sChoose to 0. The pick is still No (absolute 1) through g.choose(1); a take-default rule would replay the fight."
+   },
+   {
+    "topic": "Credit per hit: 49 or 50, and the e3/e20 tick order",
+    "readers": "harness: T = 49-d 'or 50-d depending on e3/e20 order, unverified'. data and gates: 'of 50'. chanbara: 50-j, at most 49.",
+    "ref": "Obj.cs:31-45 (tail-append); 64 Main_Init InitCode(4) ip434, InitCode(3) ip437, InitObject(13) ip446, InitObject(20) ip449; EBin.cs:106-160; e3 t1 ip487-498",
+    "settled": "e3 runs before e20 every tick, so the first poll is S+1 and T = 50-j (j=1..50). The maximum is 49 per hit; a perfect run has 50 credits with a maximum sum of 2450 and a maximum raw score of 126."
+   },
+   {
+    "topic": "Reaction needed for 100 under SwordplayAssistance 1",
+    "readers": "bytes ~28 (mean); data 28; harness ~27; gates 28.7; chanbara a mean j of 28.7",
+    "ref": "64 e4 t1 ip208; EMinigame.cs:18-19; clamp ip222-233",
+    "settled": "The 50 credits must sum to at least 1066. With a uniform j, j <= 28: j=28 gives raw 80, then 104, then 100; j=29 gives raw 78, then 99. Without the bonus the sum must reach 1675, a uniform j <= 16."
+   },
+   {
+    "topic": "The Chanbara input path (EventInput.ReadInput)",
+    "readers": "fork gates reader: ReadInput's Chanbara branch is live (ProcessInput(true,true) & ChanbaraMask; 'ETb.cs:53 computes sKeyOn as the edge of ReadInput's result'). chanbara and harness: dead code.",
+    "ref": "ETb.cs:50-63 (GetInputs = FPSManager.DelayedInputs); FPSManager.cs:124-136 (ReadInputLight); grep of the clone: EventInput.ReadInput() at EventInput.cs:80 has no caller",
+    "settled": "DEAD. Input reaches B_KEYON as the per-tick edge of level reads (ProcessInput(false,false)) whatever the HUD. The s65 wrap at :88 is inert."
+   },
+   {
+    "topic": "105/106 (and 107/108, 98/99): press once, or repeat",
+    "readers": "bytes: Confirm repeated about every 0.5 s. data: Confirm once, after the text completes.",
+    "ref": "64 e13 t1 ip825-859 / ip865-885, ip1361-1395 / ip1404; 150 e2 t1 ip495-529 / ip538; DialogBoxSymbols.cs:811-826 ([TIME=-1] blocks Confirm)",
+    "settled": "REPEAT. The KEYON loop starts only after SYSVAR[8]>=2 or 250 ticks and reads only its own tick's edge, so earlier presses are lost. Rule 7's cadence already repeats."
+   },
+   {
+    "topic": "How the driver identifies the prompt",
+    "readers": "bytes: unknown (whether the txid or ParsedText is published). harness and chanbara: phrase_raw keeps [DBTN=X]; texts read 'Press  !'.",
+    "ref": "HarnessAgent.cs:1626-1721 (texts = ParsedText, phrase_raw = Dialog.Phrase); story-o3 states-final.jsonl line 239 (64's 105 published with [STRT]/[TAIL]/[INCS][TIME=-1] while control was false); story-o1 driver.log:28 (a [CBTN] glyph rendered to nothing)",
+    "settled": "Use phrase_raw. Exactly one [DBTN=X] plus 'Press' plus [TIME=-1], in place 64. The prompt form is inferred and confirmed in R-CHANBARA. 111 (eight tags) and 150's window 55 (two) never match."
+   },
+   {
+    "topic": "The Chanbara HUD",
+    "readers": "bytes: the HUD and ChanbaraMask are active only while Byte24==3. chanbara: the HUD prefab is mobile-only.",
+    "ref": "EventHUD.cs:342-358 and :240-289; FieldHUD.cs:115-118; UIKeyTrigger.cs:105",
+    "settled": "CurrentHUD does flip on PC, but nothing is drawn and the mask path is dead. It only gates mouse confirms. No score is displayed during the fight."
+   },
+   {
+    "topic": "Delay from page 111 to the first prompt",
+    "readers": "chanbara: set up about 12 ticks after 111 closes, first poll about 13. Nobody else timed it.",
+    "ref": "EBin.cs:136-158 (the wait-254 pass only clears the wait); 64 e13 t1 ip906 Wait(10); the Byte[26]/Bit[230] sync; e2 t1 ip11 and ip134",
+    "settled": "Armed at T0+12, first poll at T0+13, where T0 is the tick e13 sees window 6 gone. The chanbara reader was right. No Confirm edge may land at T0+13 or later."
+   },
+   {
+    "topic": "Fork member set and the landing",
+    "readers": "bytes: a whole-zone fork retargets Field(153) to member(153), or 153 is kept out as the seam. data: the disc-1 --ids set at 31240-31259, F landing in member(153).",
+    "ref": "PLAN.md O3 'Next, O4'; o2_forks.json; the live DictionaryPatch (FieldScene max 31237) and ForkDonorPatch (no alxc donor)",
+    "settled": "The disc-1 --ids set (64, 68-69, 150-151, 153-167), as O2 forked alxt's. F ends in member(153) against real 153 on S, judged in donor terms. Ids from 31240, re-read before minting."
+   },
+   {
+    "topic": "Size of the alxc zone",
+    "readers": "bytes: 95. data: 94, saying 1805 has no live bundle.",
+    "ref": "extract.ID_TO_FBG '_alxc_' = 95; data_route/importchain_alxc_whole.txt:185",
+    "settled": "95 by FBG token. The whole-zone walk drops 1805 as 'NOT door-reachable from the seed', not for lacking a bundle. Irrelevant to an --ids fork."
+   },
+   {
+    "topic": "Choice 128 in 153 (past the end): the default option",
+    "readers": "bytes and data: option 1, 'Examine her face', is the default.",
+    "ref": "153 e3 t1 ip1724 WindowSync(0,128,128): flags 128 & ResetChooseMask 1 == 0; 153 has no CHOOSEPARAM op",
+    "settled": "Option 0, 'Let her pass', the same rule as 127. O5 must freeze its pick knowing this."
+   },
+   {
+    "topic": "Run times of candidates 3-7",
+    "readers": "bytes: 12 / 13.5 / 15 / 17.5 / 30 min. data: 8 / 9 / 10 / 13 / 25 min.",
+    "ref": "exits verified: 153 e3 t1 ip3150/3158, 154 e2 t1 ip1520/1528, 153 e18 t1 ip1077/1085, 151 e2 t1 ip932/940, 166 e6 t1 ip863/871",
+    "settled": "Estimates only: about 6 / 7 / 8 / 10.5 / 25-30 min. Candidate 7's door graph comes from the data reader and is unverified."
+   }
+  ],
+  "unverified": [
+   "The prompts' published phrase_raw ('[STRT=54,1][TAIL=UPRF][IMME]Press [DBTN=X][MOBI=n] ![TIME=-1]') and texts ('Press  !'). Inferred from 105's measured publication and O1's [CBTN] hint; nothing has measured the prompts themselves.",
+   "cfg.control under the harness launch (the saved pad mapping), and so the physical bits of Control.Menu, Special and Cancel. Only a 49/49 rehearsal reading 122/123 proves the Triangle/Square/Circle mapping.",
+   "Choice 127's published options, prompt and selected (lesson 1's shape: ['', 'es', 'No'] expected; selected 0 from the code).",
+   "The per-prompt response j in game. It is modelled from archived accept_ms (60 fps: median 54, max 122 ms; 30 fps: median 72, max 171 ms) plus the publish lag and the frame+1 schedule. Never measured in a Chanbara.",
+   "Clip playback speed, and so the reaction (~30 ticks), the pass (~30.5 ticks), the fight (~51 s), the 64 visit (~70 s), 150 (~65 s) and the run (~3 min). Only 64's stage 1 (1.83 s) is measured.",
+   "The close-tween length of prompt windows and pages (the stray-Confirm margin after 111 and instance tracking).",
+   "end_run (warp 4600, then soft reset) from inside the fight.",
+   "The member-id order of the --ids import (member(64)=31240, member(150)=31243, member(153)=31245 expected).",
+   "That member(64)'s EMinigame and EventHUD wraps fire under the trace. The source and deployed IL have the EffectiveFieldId call (the gates reader's reflection scan; the DLL equals Output), but it has never run on a member. The clamp masks the bonus at the plan's speed anyway.",
+   "Bit[3815]'s no-reader status. This is the start reader's census (census_reads.json, 0 errors), read but not re-run here; byte-level reads of byte 476 are not covered by a target-keyed census.",
+   "Byte[8]'s value after New Game plus the raw warp (125 per the start reader). Irrelevant: it is written before every read.",
+   "Whether the alxc members carry their SPS (visual only) and the 153/154 cam-0 letterbox (PSXCameraAspect.cs:47, raw; visual).",
+   "Several fork gates came from the gates reader and were not re-read here: FF9Snd.cs:1396, VoicePlayer.cs:486, the 153/154/155/162-164 render and SPS wraps, and the QuadCircleData keys. EMinigame.cs:12, EventHUD.cs:346, EventEngine.cs:682, NarrowMapList.cs:25/43 and PSXCameraAspect.cs:47 were re-read.",
+   "Everything past 153@325 (the candidates 3-7 bodies; the 154, 151 and 158-166 door graph) is a survey; only the exit instructions were re-decoded.",
+   "Whether the Encore achievement report under the harness reaches Steam."
+  ],
+  "harness_gaps": {
+   "items": [
+    {
+     "topic": "Rule 7 would page every prompt",
+     "status": "gap",
+     "evidence": "segment_drive.py:1793-1813 presses Confirm on any open dialog with control off, and _Drive.press hard-codes 'confirm' (:911-919). Every prompt is exactly such a window: control is off through 64, and its texts are non-empty ('Press  !'). Confirm sets the Cross bit, so 7 of the 8 prompts would get a wrong key.",
+     "smallest_fix": "An opt-in pred['chanbara'] (checked strict like movies_of) with a prompt rule BEFORE rule 7. It owns every published prompt (one exact-shape [DBTN] in phrase_raw, place 64, SC 1155) and presses its mapped Control once per instance. Rule 7 never fires on a prompt. Without the key, O1-O3 stay byte-identical (segment_regress G1-G14)."
+    },
+    {
+     "topic": "The button-name map: the 'circle' alias trap",
+     "status": "gap",
+     "evidence": "e3 t1 polls Left 0x80, Right 0x20, Triangle 0x1000, Down 0x40, Cross 0x4000, Up 0x10, Circle 0x2000 and Square 0x8000 (ip34-363). GetKeyMaskFromControl (EventInput.cs:476-534) maps Confirm to Cross, Cancel to Circle, Menu to Triangle and Special to Square under the identity logicalToButton (HonoInputManager.cs:967-981). ParseControl maps 'circle' to Control.Confirm (HarnessAgent.cs:1434), mirrored in channel.py BUTTONS.",
+     "smallest_fix": "A driver map: left, right, up, down, menu, confirm, cancel, special. Never 'circle', never 'start'. Add a FakeGame test that pressing 'circle' on a CIRCLE prompt MISSES."
+    },
+    {
+     "topic": "Prompt publication and how fast it is seen",
+     "status": "ready",
+     "evidence": "Every Dialog enters activeDialogList when the WindowAsync opens it, and the agent publishes texts (ParsedText) and phrase_raw (Dialog.Phrase) (HarnessAgent.cs:1626-1721) every 2nd frame (:241, :1502). 64's async 105 was published with its tags while control was false (story-o3 states-final.jsonl:239). A script and the agent see the same list (MesWinActive = CheckDialogShowing, DialogManager.cs:176-182).",
+     "smallest_fix": "None. Key on phrase_raw; optionally use `stateevery 1` during the fight (HarnessAgent.cs:879-881)."
+    },
+    {
+     "topic": "The button glyph vanishes from texts",
+     "status": "risk",
+     "evidence": "O1 measured '[CBTN=CROSS][MOBI=312]' rendering to nothing ('Press the  button when the ? appears.', story-o1 driver.log:28). So all eight prompts should render 'Press  !' and are distinguishable only in phrase_raw. This is inferred for [DBTN].",
+     "smallest_fix": "Match phrase_raw only. Confirm the exact published strings in R-CHANBARA."
+    },
+    {
+     "topic": "Other [DBTN] windows could be misread as prompts",
+     "status": "risk",
+     "evidence": "Tutorial 111 (64 e13 t1 ip900) carries eight [DBTN] tags. 150's debug window 55 (e3 t1 ip1915, behind SC>1190) carries [DBTN=START] and [DBTN=SELECT].",
+     "smallest_fix": "Use the exact single-DBTN prompt pattern, scoped to place 64 at SC 1155. 111 stays a page; window 55 is a stop page (V5)."
+    },
+    {
+     "topic": "No prompt instance id is published",
+     "status": "risk",
+     "evidence": "AppendDialog publishes no window id or text id (HarnessAgent.cs:1626-1705). A hit or a miss closes window 1 at once (e3 ip459/484), but the dialog stays listed through its close tween (length unmeasured). Consecutive prompts never repeat (e20 ip681), and a timeout re-arms in the same tick.",
+     "smallest_fix": "A new instance is one whose DBTN differs from the previous published prompt, or one seen after a sample with no prompt. Press once per instance and never re-press."
+    },
+    {
+     "topic": "Does a harness press reach e3 t1's B_KEYON",
+     "status": "ready",
+     "evidence": "The path: press -> Schedule (down at frame+1, HarnessAgent.cs:599-607, :1096-1103) -> HonoInputManager.IsInput -> UIKeyTrigger.GetKey (UIKeyTrigger.cs:92-106; needs FieldHUD; Cancel is blocked only while a choice is open) -> EventInput.ReadInputLight / ProcessInput(false,false) (EventInput.cs:216-347) -> FPSManager collect/flush (FPSManager.cs:77-136) -> ETb.ProcessKeyEvents (ETb.cs:50-63) -> B_KEYON (EBin.cs:1094-1101). The pad mask is set only by DisableMenu, AddControllerMask (none in 64) and the world map. ReadInput's Chanbara branch is dead. O1-O3 proved Confirm -> KEYON, and O2 proved held Up -> B_KEY.",
+     "smallest_fix": "None."
+    },
+    {
+     "topic": "The pad mapping (cfg.control) is unpublished",
+     "status": "unknown",
+     "evidence": "With cfg.control != 0, logicalToButton follows control_data_joystick (HonoInputManager.cs:983-1008), and Menu/Special/Cancel/Confirm set other physical bits. O1-O3 only ever needed logical Confirm. No Triangle, Circle or Square KEYON edge has gone through the harness in game.",
+     "smallest_fix": "Stock rehearsal R-CHANBARA: a 49/49 run must read 122/123. A wrong mapping shows as 120/121 (V18 on both sides, structural)."
+    },
+    {
+     "topic": "Tap length, held keys, presses too close together",
+     "status": "ready",
+     "evidence": "Frames that run no tick OR their level inputs into the next tick (FPSManager.cs:122-128), so a 1-frame tap is seen at both 31 and 60 fps. The edge is per tick (ETb.cs:53), so a hold gives one KEYON. e3 polls only while Byte[47]==1. A press is blocked (frames+2) until its ack, so two harness presses cannot overlap.",
+     "smallest_fix": "Use `press <name> 2` once per instance, with nothing held during the fight."
+    },
+    {
+     "topic": "Reaction latency, in ticks",
+     "status": "ready",
+     "evidence": "Archived single-press accept_ms. 60 fps (story-o2 and story-o3, n=2002): median 54 ms, p99 78-85, max 100-122. 30 fps (facing check and tour, n=369): median 72 ms, p99 126-133, max 145-171. Adding 0-2 frames of publish lag and the frame+1 schedule gives j of about 3-5 typical and about 8-11 at the worst seen. The budget is 50 hard, a mean of 28 for SA 1, and 16 for the plan's assist-independent target.",
+     "smallest_fix": "None needed. Optional during the fight: 5-10 ms polling and `stateevery 1`. Log g.rate() per prompt."
+    },
+    {
+     "topic": "In-run proof of 49/49 and a VOID class for a miss",
+     "status": "gap",
+     "evidence": "Bit[3815] is set only at max combo 50 (e4 t1 ip346-390). Byte[475] holds the score (ip338). Per-prompt results are Map vars and are not published. Only the pages 122/123 against 120/121 and the trace rows tell the outcome.",
+     "smallest_fix": "A new check O4-SWORD: trace rows ip338 (=100) and ip390 (=1), page texts 122/123/128 and choice 127, plus the 49 prompt rows. Two new VOID classes: V17 (driver: a timeout, a wrong, double or missing press, or a non-perfect page) and V18 (game, a finding in rerun.stop_on: the frozen play is proven by the rows and the perfect is still not awarded)."
+    },
+    {
+     "topic": "A driver stall during an armed prompt",
+     "status": "risk",
+     "evidence": "A response at j > 50 (1.67 s) times out (e20 ip1397-1424). Possible stalls: the press ack (~130-270 ms), _read_state riding misses (up to STATE_MISS_BUDGET 1 s, session.py:88), the forbidden scan, observe callbacks, wait_frames.",
+     "smallest_fix": "Keep the fight loop free of scans and waits, and make no wait_frames after a prompt press. A timeout is V17 with its evidence."
+    },
+    {
+     "topic": "The margin is not observable in game",
+     "status": "gap",
+     "evidence": "TimeLeft and the Byte[46]/[47] and Int16[30]/[32]/[40]/[42] Map vars are not published: `watch` covers gEventGlobal bits only (HarnessAgent.cs:840-858) and the trace only gEventGlobal.",
+     "smallest_fix": "Driver-side j bounds from the first-seen frame and the accepted frame +1. An optional agent instrument would need a DLL rebuild that auto-deploys (owner-gated); not recommended for O4."
+    },
+    {
+     "topic": "The EMinigame +30% fork gate is masked at 100",
+     "status": "risk",
+     "evidence": "EMinigame.cs:12 is wrapped. At the plan's raw score of 100 or more, the clamp (ip222-233) hides whether the bonus fired. Memory still lists the wrap as PENDING playtest.",
+     "smallest_fix": "Scope the O4 claim: the gate is not exercised. An optional R-CHANBARA-GATE at a fixed j of about 20 (raw 93) is the owner's call."
+    },
+    {
+     "topic": "KEYON-closed window pairs: 64's 105/106 and 107/108, 150's 98/99",
+     "status": "ready",
+     "evidence": "The script waits for SYSVAR[8] (gMesSignal, raised by [INCS], DialogBoxSymbols.cs:833-866) to reach 2 or for 250 ticks, then reads the KEYON(Confirm|Special) edge: 64 e13 t1 ip868 and ip1404, 150 e2 t1 ip538. [TIME=-1] blocks UI paging. Rule 7 presses Confirm each iteration (press 3, then wait CUTSCENE_PAGE_TICKS 4, session.py:6269).",
+     "smallest_fix": "None. Measure the gate length in the rehearsal (at most 8.3 s, under no_progress_s)."
+    },
+    {
+     "topic": "Pages: 64's 111, 122, 123, 128 and 150's 13 pages",
+     "status": "ready",
+     "evidence": "These are WindowSync pages or WindowAsync+WaitWindow pages with no TIME tag. Rule 7 is proven in O1-O3.",
+     "smallest_fix": "None. Prompts are recorded as prompt rows, not pages."
+    },
+    {
+     "topic": "Encore choice 127",
+     "status": "risk",
+     "evidence": "The cursor opens on Yes (DialogBoxSymbols.cs:671-678; ETb.cs:100-104), and Yes replays the fight (e4 t1 ip476). The publication is unmeasured.",
+     "smallest_fix": "Rule {donor 64, sc [1155], match 'No', pick 'No', once: true} through g.choose(1); never take: 'default'. R-CHANBARA reads the options and selected; if 'No' also loses its first character, use pick 'o'."
+    },
+    {
+     "topic": "Control, ATEs, battles, movies and naming in 64/150",
+     "status": "ready",
+     "evidence": "The opcode inventory of L64/L150 on the route has no Battle, Cinematic, ATE or naming op. There is no control: 64's EnableMove needs Map.Bit[158]; 150's e2 t0 grants control only at entrance 5; region exits return without control. An empty beat table makes any control V4.",
+     "smallest_fix": "None."
+    },
+    {
+     "topic": "Stop pages",
+     "status": "ready",
+     "evidence": "64's window 3 'Error Env Play()' (e0 t0 ip835/869); 150's window 56 'Error Env Play()' (ip999/1033); 150's window 55 'Error Set Scenario Counter()' (e3 t1 ip1915, behind SC>1190).",
+     "smallest_fix": "Register all three as stop pages (V5, nothing pressed); 'Env Play()' already matches O3's."
+    },
+    {
+     "topic": "The FakeGame has no model of the minigame",
+     "status": "gap",
+     "evidence": "fakegame.py has no KEYON-poll, async non-page window, tick countdown or scoring model (grep: no chanbara, minigame, keyon or DBTN).",
+     "smallest_fix": "A Chanbara beat, as listed in plan_100 item 9, with the faults: stalls, a lost press, a double press, a key held across an arm, a stray Confirm after 111."
+    },
+    {
+     "topic": "Recovery and end_run from inside the fight",
+     "status": "unknown",
+     "evidence": "end_run warps to 4600 and then soft-resets (O1's lesson). The warp needs FieldHUD, which holds during the fight; SceneDirector's EventHUD.Cleanup and ClearPadMask run on the scene change (SceneDirector.cs:77/131). This has never been run from 64 mid-fight.",
+     "smallest_fix": "Rehearsal R-CHANBARA-VOID (the analogue of O3's R-BATTLE-VOID), and P-RECOVERY covering 64."
+    },
+    {
+     "topic": "Start: a raw warp into member(64) at entrance 100 with SC 1155",
+     "status": "ready",
+     "evidence": "The warp verb (HarnessAgent.cs:652 -> Ff9mkDebugMenu.HarnessWarp) is O2/O3's proven form. 64 takes the default branch L402 at entrance 100. The residue is 3 rows.",
+     "smallest_fix": "None. Add the O4-START clause (ip119, no ip97/ip845)."
+    },
+    {
+     "topic": "Engine and agent version",
+     "status": "ready",
+     "evidence": "The deployed Assembly-CSharp.dll (x64/x86, sha256 ba9762423da8f3d7) equals Output, with no newer .cs. Protocol 5; s88 (trace), s89 and s90 are in.",
+     "smallest_fix": "None. O4 needs no engine patch."
+    },
+    {
+     "topic": "The render regime and real input",
+     "status": "risk",
+     "evidence": "The render rate is about 31 or 60 fps and can flip mid-launch; the budget holds in both. 64 runs 24 RunSPSCode calls (frame cost unmeasured). Real input is OR-ed with the harness's, so a key or stick drift during stage 3 is a press.",
+     "smallest_fix": "Log g.rate() per prompt. Run unattended, with nothing touching the pad or keyboard."
+    },
+    {
+     "topic": "A stray Confirm after page 111",
+     "status": "risk",
+     "evidence": "The first prompt arms at T0+12 and is first polled at T0+13 after 111 leaves the list. A rule-7 Confirm decided while 111 is still listed lands within the press latency (about 3-6 ticks), so it is harmless unless a stall of 12 ticks or more intervenes. Such a stray would be a Cross press on the first prompt.",
+     "smallest_fix": "Analysis check: no press row with its down frame between T0+13 and the first prompt's answer, other than a CROSS answer. Measure T0 in R-CHANBARA."
+    }
+   ],
+   "summary": "No engine, agent or harness-verb change is needed: the live harness can play the sword fight to 100 on both sides every run. Prompts are published in phrase_raw; presses reach e3's B_KEYON through the level-read and per-tick-edge path (ReadInput's Chanbara branch is dead); and the measured latency gives about 3-5 ticks per response against a 50-tick limit. That predicts a raw score of 114-123, so 100 shows even without the +30%. Today's DRIVER cannot do it, for four reasons: rule 7 would press Confirm on every prompt; 'circle' is a Confirm alias; nothing proves 49/49; and FakeGame has no minigame. The smallest fix is driver-only and opt-in (pred['chanbara']): a prompt rule before rule 7, the button map (CIRCLE = cancel), prompt rows, V17/V18, O4-SWORD, the choice-127 rule (the cursor opens on Yes), and a FakeGame Chanbara model. Unknown until R-CHANBARA: the prompts' exact publication, the pad mapping (cfg.control), real j, the close tween, and recovery from mid-fight.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o4_research\\reconcile\\notes.txt (the harness reader's own notes: o4_research\\harness\\harness_notes.txt)"
+  },
+  "fork_gates": {
+   "items": [
+    {
+     "topic": "Deployed DLL versus live source",
+     "status": "ready",
+     "evidence": "The deployed x64 and x86 Assembly-CSharp.dll both have sha256 ba9762423da8f3d749a4..., the same as C:\\gd\\FFIX\\Memoria\\Output\\Assembly-CSharp.dll (Sep 26 17:10). No Assembly-CSharp *.cs is newer (find -newer: 0). The gates reader's reflection-only IL scan found the EffectiveFieldId call at every wrapped site below.",
+     "smallest_fix": "none"
+    },
+    {
+     "topic": "EMinigame.ChanbaraBonusPoints +30% (64 e4 t1 sid 4 ip223)",
+     "status": "risk",
+     "evidence": "EMinigame.cs:12 is EffectiveFieldId(fldMapNo)==64 (re-read; s24), and the deployed IL carries the call. It is hooked from EBin.expr (EBin.cs:331) before s1.ip++, on the first token of ip222's 'Int16[48] > 100', after ip208's raw score and before the clamp and the Byte[475] write at ip338. A verbatim member keeps sid 4 and ip 223 (only Field() operands change). Trace-visible only when raw is 79-99: at the plan's raw of 100 or more, the clamp hides it. Memory still marks the wrap PENDING playtest.",
+     "smallest_fix": "P-DONOR requires the `<member(64)> 64` row; P-LAUNCH needs a relaunch after the deploy (ForkDonorPatch is read at launch, DataPatchers.cs:124). Scope the O4 claim (not exercised). Optional R-CHANBARA-GATE at a fixed j of about 20 (raw 93) to prove it (owner's call)."
+    },
+    {
+     "topic": "EventHUD.CheckUIMiniGameForMobile, the Chanbara HUD (64)",
+     "status": "ready",
+     "evidence": "EventHUD.cs:346 uses EffectiveFieldId (re-read; s24). It is called every tick (EventEngine.ProcessEvents.cs:124). It reads Map.Byte[24] (6357) and Global.Int16[2] (728). On PC it changes only CurrentHUD and SetPlayerControlEnable, and nothing is drawn (FieldHUD.cs:115-118). It writes no gEventGlobal.",
+     "smallest_fix": "none"
+    },
+    {
+     "topic": "EventInput Chanbara path (ReadInput, s65 :88)",
+     "status": "ready",
+     "evidence": "Dead code: EventInput.ReadInput() (:80) has no caller, and input comes from FPSManager.DelayedInputs and ReadInputLight. So the HUD and the fork id cannot change what the script reads on either side.",
+     "smallest_fix": "none"
+    },
+    {
+     "topic": "EventEngine.cs:682 autosave suppression (150, SC 1155, entrance 325)",
+     "status": "ready",
+     "evidence": "Re-read: noSave |= EffectiveFieldId(fldMapNo)==150 && SC==1155 && ent==325 (wrapped). It skips the autosave on both sides and writes no gEventGlobal; harness saves are sandboxed. Both sides autosave on arrival in 64 and 153.",
+     "smallest_fix": "none"
+    },
+    {
+     "topic": "Narrow-map widths (s23)",
+     "status": "ready",
+     "evidence": "NarrowMapList.cs:25 and :43 resolve EffectiveFieldId (re-read). Rows: 64 480 (:156), 150 366 (:180), 153 432 (:183), and RestrictedWidthScenes [150,-5,325,-5] (:81). Screen width only.",
+     "smallest_fix": "none"
+    },
+    {
+     "topic": "PSXCameraAspect.cs:47 RestrictedCams [153,0,320] (NarrowMapList.cs:110)",
+     "status": "risk",
+     "evidence": "Re-read: a raw `entry[0] == fldMapNo` in LateUpdate. On member(153) the cam-0 letterbox is lost when ActualPsxScreenWidth < 401. It is visual only, and 153 is the end; the cut is its first row.",
+     "smallest_fix": "none for the trace; wrapping it is an engine edit and the owner's call"
+    },
+    {
+     "topic": "DoEventCode effMapNo gates in alxc",
+     "status": "ready",
+     "evidence": "Per the gates reader: 153 SETCAM #493 skip (:1974), the 64 walk fix at SC 1600 / ent 327 (:665) and the 164 size fix (:1507) all go through effMapNo (s30). None is on O4's route, apart from 153 after the cut.",
+     "smallest_fix": "none"
+    },
+    {
+     "topic": "SPS assets keyed by FBG name",
+     "status": "risk",
+     "evidence": "64 runs 24 RunSPSCode calls and 150 several. SPS folders are keyed by FBG name (SPSConst.cs). A fork must carry them (memory project-ff9-sps-fork). A missing SPS is visual and writes no gEventGlobal.",
+     "smallest_fix": "An O4 preflight confirming the alxc members carry their SPS."
+    },
+    {
+     "topic": "Text blocks 2 and 3 are global",
+     "status": "risk",
+     "evidence": "64/68/69 read block 2 and 150-167 block 3 (EVENT_ID_TO_MES). Live FF9CustomMap ships block 2 in 7 languages with us == uk (md5 ddf99c96ea, the known defect), and there is no block 3 override. The deploy writes block 2 (and block 3) into FF9CustomMap: a fixed-kit build turns uk into stock uk for O1's tshp members as well (O1/O3's P-TEXT known-defect line flips), and O1's and O4's reverts touch the same files. TextOpCodeModifier keys 111's layout on FieldZoneId 2, so member(64) must stay on block 2.",
+     "smallest_fix": "Register member(64) with mes 2 and 150-167 with mes 3 (the verbatim default). Keep O3-TEXT-style byte-equal checks for blocks 2 and 3. Re-baseline the P-TEXT line after the deploy, and order the reverts newest first."
+    },
+    {
+     "topic": "Battles with a baked next field, and duplicate donors",
+     "status": "ready",
+     "evidence": "No Battle op exists in 64/150, or anywhere in the disc-1 listings per the gates reader. The live ForkDonorPatch has no alxc donor; the only duplicates are 312 and 350-359. So no ForkSiblingMap -1 ambiguity arises.",
+     "smallest_fix": "none"
+    },
+    {
+     "topic": "FMV, ATE, IsInQuad and audio gates",
+     "status": "ready",
+     "evidence": "Per the gates reader: fldfmv's only id gate is 100; EMinigame.MappingATEID has no block 2/3 branch; QuadCircleData has no alxc key. The raw FF9Snd.cs:1396 (157) and VoicePlayer.cs:486 (voice acting off) are off the route or inert.",
+     "smallest_fix": "none"
+    }
+   ],
+   "summary": "Every engine gate that can change a story write on O4's route is fork-wrapped in the live source, which is the deployed DLL (sha256 = Output; no newer .cs):\n- EMinigame.cs:12, the +30% sword bonus at 64 e4 t1 sid 4 ip 223;\n- EventHUD.cs:346, the Chanbara HUD, which writes nothing;\n- EventEngine.cs:682, 150's autosave, which is not traced.\n\nThe bonus is visible in Byte[475] only for raw scores 79-99. At the plan's speed (raw 100 or more) the clamp hides it, so O4 neither proves nor breaks that wrap.\n\nRequirements:\n- member(64)'s ForkDonorPatch row `<member(64)> 64`;\n- a relaunch after the alxc deploy.\n\nRaw gates on the route are visual only: PSXCameraAspect.cs:47 (153's letterbox, after the cut) and the SPS carry. The text risk: blocks 2 and 3 are global, and the deploy rewrites block 2, which O1's tshp members share. That flips the uk known-defect line O1/O3 print, and the two chains' reverts touch the same files.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o4_research\\gates\\GATES.md (the gates reader), re-checked in o4_research\\reconcile\\notes.txt"
+  },
+  "fork_chain": "MEMBER SET\n- The alxc disc-1 cluster, verbatim, as O2 forked alxt's 100-117.\n- Command: `py -m ff9mapkit import-chain 64 --verbatim --ids 64,68-69,150-151,153-167 --fresh-ids --id-base 31240 --name-prefix O4 --mod-folder FF9CustomMap --out <dir>`, then build-all.\n- 20 members. 152 is excluded: it is Evil Forest (fbg_n04_evft), not alxc.\n\nFREE ID BAND (read from the live install)\n- Every stacked folder's DictionaryPatch: FF9CustomMap registers FieldScene 31100-31114 and 31200-31237 at and above 31000; FF9CustomMap-world, -schema and -msgs register none at or above 31000; MoguriMain and MoguriVideo have no DictionaryPatch.\n- So 31238-32767 is free today.\n- Recommended band: 31240-31259. Re-read the registrations before minting.\n- ForkDonorPatch exists only in FF9CustomMap (74 lines). It has no alxc donor; its duplicate donors are only 312 and 350-359, so forking 64/150/153 creates no ForkSiblingMap -1.\n- No stack folder overrides the stock us scripts of 64/68/69/150/151/153/154 (storytrace.stock_overrides).\n\nEXPECTED IDS (if the import sorts ascending, as O2's did)\n- member(64) = 31240, the start warp target: `warp 31240 100 1155` on F.\n- member(150) = 31243.\n- member(153) = 31245.\n- Confirm all three against the written campaign.toml.\n\nTEXT BLOCKS\n- Each member keeps its donor's block: 64/68/69 use block 2, and 150-167 use block 3.\n- Blocks are GLOBAL. Block 2 is already shipped by O1's tshp chain, with uk == us (the known defect). The deploy rewrites it, and the O1/O3 P-TEXT line flips. Block 3 has no live override today.\n\nRETARGETS\n- member(64)'s Field(150) at ip536 goes to member(150).\n- member(150)'s Field(153) at ip2169 goes to member(153).\n- PreloadField operands stay real; this is harmless.\n\nTHE SEAM (THE END)\n- There is no seam crossing inside O4. F ends on arrival in member(153), against real 153 on S, both judged as donor 153.\n- The end fields are S [153] and F [member(153)]. The cut is 153 e0 t0 ip22.\n- A real-153 landing on F is a finding: an un-retargeted Field(). LANDING and VOID-ASYM read it.\n\nDEPLOY AND CHECKS\n- Deploy one member at a time, in id order, into FF9CustomMap, with each member's ForkDonorPatch row; the row `<member(64)> 64` is essential for EMinigame and EventHUD.\n- Relaunch once after the deploy.\n- The checks are P-DONOR and P-LAUNCH, plus O2/O3's P-MANIFEST, P-DEPLOY, P-EB and P-TEXT.\n- Owner-gated, like O2's deploy.\n\nWHY THE WHOLE CLUSTER\n- O5 (153 onward) then starts by a raw warp into member(153) at 325 with SC 1190, with no new deploy.",
+  "route_md_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o4_research\\O4_ROUTE.md"
+ },
+ "critique": {
+  "problems": [
+   {
+    "severity": "major",
+    "what": "The fork side's end is a member, member(153) = 31245, while S ends in real 153. The O1-O3 machinery the map reuses assumes one real end field shared by both sides, and plan_100's CHANGES list (section 8) leaves this out. Built as O3 was, every correct F run VOIDs. An F run that wrongly lands in REAL 153 (member(150)'s Field(153) at e3 t1 ip2169 not retargeted, which the map calls a finding) would read as reached instead.",
+    "evidence": "pred holds one end list for both sides: o3_prima_vista.py:242-243 sets \"end_field\" and \"end_fields\": [END_FIELD]. segment_drive.py:808 builds self.ends from it. Rule 1 (segment_drive.py ~1701) ends only when fid is in self.ends.\n\nWith end_fields [153], F arriving in 31245 is not in ends. Rule 2's on_route (segment_drive.py:240-248) accepts a member only if its donor is in `route` (64, 150), so it returns False and the driver raises self.stray. With no walk before it, that is V11 by \"game\" on every F run, which VOID-ASYM reads as a false NOT PROVEN.\n\nWith end_fields [153, 31245], a landing in real 153 is reached. The off-route forbidden pattern also exempts end fields on F (o3_predictions_v1.json:434), so its rows are never flagged.",
+    "fix": "Drive each side with its own end list: S [153], F [member(153)]. drive() already takes end_fields (segment_drive.py:1876-1886); pass the same per-side list to forbidden_hits(end_fields=...).\n\nAdd an O4-LANDING clause: on F, the end-cut row's fld must be member(153), and any real-153 row on F is a finding (VOID-ASYM / NOT PROVEN, like O3's V16).\n\nAdd dry-run cases for both landings. Keep the change opt-in so G1-G14 stay byte-identical.\n\nAlternative: leave 153 out of --ids, so Field(153) stays a real seam (O1-O3's proven shape), and fork 153 onward for O5."
+   },
+   {
+    "severity": "major",
+    "what": "The design leaves the one route fork gate that feeds a story write (EMinigame's +30%) untested, and calls witnessing it an optional owner's-call rehearsal. A paced driver can witness it inside the session and still show 100/100 on both sides whenever the fork is faithful.",
+    "evidence": "EMinigame.cs:12-21 gates on EffectiveFieldId==64. At s1.sid==4 && s1.ip==223 it does score += score/10*3, then writes Map.Int16[48] back.\n\n64 e4 t1 ip208 computes (I30+I32)/29. The clamp is at ip222-233, and Byte[475] is written at ip338.\n\nAt raw >= 100 the clamp hides the bonus, so a fast O4 PROVEN says nothing about the wrap; memory still marks it PENDING playtest.\n\nRe-derived: raw = floor((3725-50*mean_j)/29). Any raw from 79 to 99 shows 100 on S only through the bonus. A mean j of 17 to 28 ticks gives raw 99 to 80: F then shows 100 (pages 122/123, 10000 gil) if the wrap fires, and Byte[475] = raw at ip338 if it does not.",
+    "fix": "Make the gate witness a designed part of O4: a session policy, or at least a required paired S/F stage, not an optional rehearsal. Pace each press from the prompt's first-seen frame to a target mean j of about 22 ticks (raw about 90) on both sides, using g.rate() ticks.\n\nGate each run on its logged j's: the implied raw must be 79-99. Below 79 would show 99 or less on S; at 100 or more the clamp hides the wrap. A run outside that band is V17.\n\nKeep the fast policy as the fallback. Trade-off: the mean margin to SA1's line drops from about 24 ticks to about 6, while the per-prompt timeout margin stays at 20 ticks or more."
+   },
+   {
+    "severity": "minor",
+    "what": "V17's timeout detector, as specified, can never fire. The spec is \"a prompt still published about 50 ticks after it was first seen\".",
+    "evidence": "On a timeout, e20 runs CloseWindow(1) at ip1424. With no Wait in between, it scores, rolls and arms again, then opens the next WindowAsync(1,...) in the same tick (ip451-852).\n\nETb.NewMesWin disposes the old window 1 first (ETb.cs:92-98, DisposWindowByID(winID,true)). So a timed-out prompt is REPLACED by a different DBTN, with no prompt-free sample in between. Prompts never repeat (ip681). For the 49th prompt it simply vanishes, since the phantom pass arms nothing.\n\nAfter a hit or a wrong press, by contrast, the window closes on the press tick and about 20+ ticks with no prompt follow (the reaction).",
+    "fix": "Flag a timeout as either:\n- a DBTN change with no prompt-free sample since the previous instance; or\n- an instance whose window left before the driver's press down-frame.\n\nThe FakeGame must model the same-tick replacement and the 0.15 s close tween."
+   },
+   {
+    "severity": "minor",
+    "what": "The fight zone is not fail-closed. If the prompt rule fails to claim a prompt, rule 7 presses Confirm (= Cross) on it, and the prompt's publication shape has never been measured.",
+    "evidence": "Rule 7 (segment_drive.py ~1793-1813) presses Confirm on any listed dialog with non-empty text while control is off. Prompts render as 'Press  !', which is non-empty.\n\nThe phrase_raw form is inferred: O3's state ring (20261001-095552-story-o3 states-final.jsonl) ends at 105, then end_run. Confirm maps to the Cross bit (EventInput.cs:476-534), so it misses 7 of the 8 prompt types. The run is only caught at the score page.",
+    "fix": "From 111's close until 107/108 appears (place 64, SC 1155), any dialog the prompt rule does not claim is V17, with nothing pressed. It never falls through to rule 7."
+   },
+   {
+    "severity": "minor",
+    "what": "Stray Confirms can land in the two short gaps after a page: 111 to the first prompt, and 123 to choice 127. A stray on 127 is also mis-attributed to the game.",
+    "evidence": "Rule 7 presses again while the same page text is still listed. A closing page stays listed for its close tween (DialogAnimator.cs:213 sets 0.15 s, about 4.5 ticks; ReleaseDialogToPool at DialogManager.cs:269-274).\n\nThe gaps, verified:\n- the first prompt arms at T0+12 and is first polled at T0+13 (EBin.cs:136-158 wait semantics; e13 ip906 Wait(10); e2 ip134);\n- choice 127 opens at T0'+11 (e4 t1 ip384, then ip390, Wait(10) at ip399, then ip462).\n\nA press decided while the page is still listed lands up to about 8 ticks later: publish of 2 frames or less, accept up to 171 ms, then frame+1. That leaves only about 3-5 ticks of margin.\n\nA stray on 127 takes the default, Yes (cursor 0), and replays the fight. pick_for then raises V2 attributed by=\"game\" (segment_drive.py ~158-161), so a one-sided stray reads as a false NOT PROVEN. O4 is the first segment where a non-default pick follows a page.",
+    "fix": "In O4's cells:\n- press Confirm once per page instance: no re-press while the same text is listed within about 10 ticks of the last press's down frame;\n- hold a quiet window after 111 and after 123 until the prompt or choice is published;\n- attribute a Yes or a second 127 to the driver (V17) when its own press rows show a Confirm landing after 127's first publication and before the choice row."
+   },
+   {
+    "severity": "minor",
+    "what": "cfg.control and the tick rate are listed as unknowns, but both follow from the code on every New Game run.",
+    "evidence": "New Game resets the settings:\n- TitleUI.cs:968-977 OnNewGameButtonClick calls FF9StateSystem.ReInitStateSystem (FF9StateSystem.cs:64-66).\n- That runs SettingsState.Initial (SettingsState.cs:127-139), which sets cfg = new FF9CFG() (FF9CFG.cs:10, control = 0) and resets IsBoosterButtonActive, so fast-forward is off.\n- InitialInput then calls SetPrimaryKeys, which builds the identity logicalToButton (HonoInputManager.cs:636-640, 969-975).\n- Only loading a save restores cfg (JsonParser.cs:1465).\n\nSo Menu, Cancel and Special press Triangle, Circle and Square. FastForwardFactor is 1 (SettingsState.cs:66-74; FPSManager.cs:84,97), so TimeLeft counts 30 Hz ticks.",
+    "fix": "Record both as derived, with citations. Keep R-CHANBARA's 122/123 reading as the in-game confirmation, and never use the 'circle' alias."
+   },
+   {
+    "severity": "minor",
+    "what": "The real-input hazard is cited wrongly. The live risk is a connected gamepad, which the game reads even while its window is unfocused.",
+    "evidence": "The map cites EventInput.cs:262-276, which is VirtualAnalog, the touch stick. The live risk is Memoria.ini:126 AlwaysCaptureGamepad = 1: HonoInputManager.cs:563 reads XInput even without focus, while the keyboard path needs ApplicationIsActivated (:561). Any button or stick deflection on a connected controller is OR-ed into the harness's input and can cost a prompt.",
+    "fix": "For the session, unplug or disable controllers, or add a preflight that no XInput pad is connected. Keep the focus note for the keyboard."
+   },
+   {
+    "severity": "minor",
+    "what": "There is a partial per-prompt hit witness that needs no DLL, and the map does not use it.",
+    "evidence": "A LEFT or RIGHT hit slides Blank (published as an object, e20) and Zidane (the published player x) by -300 or +300 during the next pass's reaction:\n- e20 t1 ip918-1063 and ip1066-1211;\n- e13 t11 ip1617-1765 and ip1768-1916.\n\nThe miss reactions 10/11 (ip1337/ip1345) do not move them. Object x, y and z are published at HarnessAgent.cs:2331-2335.",
+    "fix": "Log the x delta after each LEFT or RIGHT instance. It backs V18 on about a quarter of the prompts and catches a lost press early."
+   },
+   {
+    "severity": "minor",
+    "what": "The start depends on the live field-70 New Game override, which lives in a folder another worktree owns.",
+    "evidence": "FF9CustomMap-world/.../eventbinary/field/us/evt_alex1_ts_opening.eb.bytes is 1424 B (sha256 2ce8887ea969, dated Sep 29 18:32); stock 70 is 1396 B (sha256 d6ce4b617afc). Its entry 0 runs:\n- Int16[9]:=643 at ip57;\n- Byte[13]:=1 at ip130;\n- FMV001 at ip320;\n- Byte[13]:=2 at ip475;\n- Field(4600) at ip583.\n\nO4's warp window and its Byte[13]=1 premise are proven only under this exact file.",
+    "fix": "Pin the file's sha in O4's predictions and preflight. O2/O3 already fingerprint it, but only within a session. State the warp window as after ip130 and before ip475, which also puts it before Field(4600)."
+   },
+   {
+    "severity": "minor",
+    "what": "Deploying 20 alxc donors has a global side effect on the shared install.",
+    "evidence": "DataPatchers.cs:102-105 and 146-165: ForkSiblingField will resolve 64, 68, 69, 150, 151 and 153-167 to their members. That applies to every fork-entered battle return (HonoluluBattleMain.cs:734-737) and every overworld entry (ff9.cs:9327), for any session sharing the install.\n\nNo battle on O1-O3's routes is affected: 338 returns to 63. No duplicate donors exist today, so no -1 entries appear.",
+    "fix": "Record this in o4_forks.json and in the owner-gated deploy note. Revert newest first when O4 is done."
+   },
+   {
+    "severity": "minor",
+    "what": "O4-BUILD should pin the bytes the fork gates key on.",
+    "evidence": "EMinigame keys on sid 4 / ip 223 (EMinigame.cs:14). The member .eb should differ from stock only in Field() operands:\n- member(64): e2 t1 ip536, Field(150) to 31243;\n- member(150): e3 t1 ip2169, Field(153) to 31245.\n\nEach operand keeps its length, so no ip shifts.",
+    "fix": "Assert that member(64)'s US e4 t1 bytes from ip208 to ip338 equal stock, and that the only byte diffs in members 64 and 150 are those two operands."
+   }
+  ],
+  "go": "GO: design O4 from this map, once the two majors are folded in:\n1. Per-side end handling, since F ends in member(153), not in a real field.\n2. A decision on witnessing the +30% wrap. A paced mean j of about 22 ticks still scores 100/100 on both sides.\n\nThe map's core holds; I re-derived each item below from the bytes, engine and harness code:\n\nTHE SWORD FIGHT\n- **Score formula:** 64 e4 t1 ip208, (I30+I32)/29, then the +30% at sid 4 ip 223, then the clamp at ip222-233.\n- **Phantom 50th credit:** e20 ip710 skips the arm, so the 49th result is credited again (I32 = 1225, max combo 50).\n- **100 under SwordplayAssistance 1:** needs raw >= 79, i.e. I30 >= 1066 or a uniform j of 28 or less. Memoria.ini:249/252.\n- **TimeLeft unit:** one decrement per tick, only while armed and on the hit tick too (e3 t1 ip487-498 inside the Byte[47]==1 block). Field ticks run at 30/s (FieldTPS :53), with FastForwardFactor reset to 1 on New Game.\n- **Tick order:** e3 polls before e20 in each tick (Obj.cs tail append), so the first poll is S+1 and T = 50-j.\n- **Input path:** level reads are OR-ed per tick (FPSManager.cs:122-136) and the edge is taken in ETb.cs:50-56. ReadInput's Chanbara branch is dead (its only callers are absent).\n- **Prompt visibility:** a prompt joins activeDialogList in its own arm tick (DialogManager.cs:200).\n- **Button map:** confirm/cancel/menu/special give the Cross/Circle/Triangle/Square bits. The 'circle' alias is the Confirm trap.\n- **Wrong, double or late presses:** behave as described.\n- **Latency budget:** realistic j is about 4-6 ticks typical and 11 or less worst, giving raw 114-119 or more.\n- **Encore choice:** the cursor opens on Yes (WindowSync flags 0 resets sChoose to 0).\n\nROUTE AND START\n- **No control in 64:** mapvar is cleared at field start (EventEngine.cs:625-626), so Map.Bit[158] = 0 and no EnableMove.\n- **150:** stage 10 is deterministic.\n- **End:** candidate 2 is the right end.\n\nFORK CHAIN\n- **Ids:** 31240-31259 are free in every stacked folder.\n- **Donors:** no alxc donor is in ForkDonorPatch, and no stack override touches 64/150/153.\n- **Text blocks:** block 3 is unshipped; block 2's us == uk copy (md5 ddf99c96ea = sha256 3a6f3246c2, the same file) will be rewritten by the deploy.\n- **Settings:** [Import]/[Export] are disabled, DualLanguageMode is 0 and voice acting is off.\n\nThe remaining unknowns are what R-CHANBARA must measure:\n- the prompts' published phrase_raw;\n- choice 127's published options;\n- clip speed and the fight's length;\n- real j per prompt;\n- end_run from mid-fight.\n\nTreat the minors as design notes. Above all, make the fight zone fail-closed (no rule-7 fallback) and fix the V2 attribution of a stray Yes."
+ }
+}

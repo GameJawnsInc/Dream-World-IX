@@ -1,0 +1,16 @@
+[
+ {
+  "name": "tools/harness/fakegame.py::FakeGame._next_beat",
+  "old": "99f4571318ed8dd48d19eb900562a294b8e69a02de44838d20b3cc8de7ccdf65",
+  "new": "a2f2e645383f05451adc906f18247e76bb934085a0fc6e0e4f8ca8b495f5cc4d",
+  "reason": "O4 B1 (research/o4_design.md 3, 9 B1): one dispatch line -- a {keyon_pair} or {chanbara} scene beat starts its machine beat (_start_machine) and returns; every other beat kind is staged exactly as before (no O1-O3 test stages a machine beat)",
+  "head": "d69afab917b68e31d2b6801ca0c496b285a4deb7"
+ },
+ {
+  "name": "ff9mapkit/tests/test_harness.py::test_o2_drive_voids_a_once_choice_asked_again",
+  "old": "303dbc95c66188b34df8ca89822103e3555b733a86085bf0d7c2ed8dd7d5f043",
+  "new": "22bfc5d496444951b9614d84cf2dc7e8088edbf6f1bd61f954745590229d710e",
+  "reason": "master d46273d1 (6bb94bbc, merged into this branch at 22326cf2): the O2 once-choice V2 test asks the choice again only after the driver has taken the first answer -- back to back, the two identical windows were 12 frames apart and a starved poll answered both (V4, a load flake); the test's claim (a once-choice asked again is V2) is unchanged, its mutants caught on master",
+  "head": "22326cf2735d6a6e0acbbe242db0a9d095c725b1"
+ }
+]

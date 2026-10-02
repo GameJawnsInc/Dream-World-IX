@@ -591,6 +591,25 @@ class FakeGame:
         #: Set while a stalled publish holds state.json truncated and EMPTY, so a test can read the
         #: channel inside the gap rather than hoping to land in it.
         self.stalling = threading.Event()
+        # -- H10-H12 (research/o4_design.md 3): the machine beats, opt-in -------------------------------------------
+        #: The machine beat running now -- a ``{"keyon_pair": knobs}`` or ``{"chanbara": knobs}`` scene beat
+        #: (:meth:`_start_machine`) -- else None. It reads the agent's HELD keys per frame and runs whole field ticks
+        #: (:class:`_Machine`), so a press is judged on the frame and the tick it lands on, never at execute time.
+        self._machine = None
+        #: H11: one row per prompt the Chanbara beat armed -- ``{"fight", "n", "dbtn", "value", "arm_tick", "arm_frame",
+        #: "edge_tick", "edge_frame", "j", "result", "sb38", "max_combo"}`` -- its arm tick S, the tick its key's edge
+        #: landed on and the TRUE j (the tests' oracle for the driver's j bounds); ``result`` "hit", "miss" or "timeout";
+        #: ``sb38`` and ``max_combo`` what the roll's filters read.
+        self.chanbara_log: list[dict] = []
+        #: H11: the fight's Map variables as the last score read them (``I30`` .. ``I50``, ``b47`` ...), for a test.
+        self.chanbara_vars: dict = {}
+        #: H11: what EMinigame reported to Steam: "Encore" once a score of 75 or more is read (EMinigame.cs:34-38).
+        self.achievements: list[str] = []
+        #: H11: the gil AddGi gave after page 128 (its ``[NUMB=1]``).
+        self.gil = 0
+        #: H10/H11: every window a machine beat listed, as it went -- ``{"event": "open" | "close" | "gone", "kind",
+        #: "slot", "text", "frame", "tick", "rt"}`` (``tick`` the beat's own field-tick count).
+        self.machine_log: list[dict] = []
 
     # -- lifecycle -----------------------------------------------------------------------------
     def start(self) -> "FakeGame":
@@ -791,34 +810,42 @@ class FakeGame:
 
     # -- the frame loop ------------------------------------------------------------------------
     def _run(self) -> None:
-        period = 1.0 / self.fps
         while not self._stop.is_set() and self.returncode is None:
-            if self.mode != "frozen":
-                self.frame += 1
-                self._advance_clock()
-            else:
-                self._hold_frame()
-            try:
-                self._poll_arm()
-                if self.armed:
-                    self._poll_request()
-                    self._drain()
-                    self._check_soft_reset()
-                    self._step_world()
-                    self._step_scene()
-                    self._step_battle()
-                    self._service_turn()        # s90: end, or cut, an in-place turn
-                    self._publish()
-            except OSError as err:
-                # Mirrors the agent's own try/catch. Without this a single transient sharing
-                # violation killed the publisher thread, and every later wait then timed out
-                # pointing at the wrong half of the system -- which is exactly how a harness
-                # earns a reputation for being flaky when it is actually deterministic.
-                self.error = str(err)
+            self._frame_once()
             if "mtime" in self.publish:
                 self._pace_real_time()
             else:
-                time.sleep(period)
+                time.sleep(1.0 / self.fps)          # read each frame: a test may change the loop's pace mid-run
+
+    def _frame_once(self) -> None:
+        """One frame of the loop -- what :meth:`_run` turns, and what a test that steps the fake BY HAND calls. A
+        machine beat (H10/H11) runs its frame before the publish under ``publish_order`` "agent_last" and after it under
+        "agent_first" (:meth:`_step_machine`): a sample of frame f then shows its state after the ticks of frames <= f-1
+        -- the engine's measured order, the agent's Update before HonoBehaviorSystem's (tickrate.py:67-69)."""
+        if self.mode != "frozen":
+            self.frame += 1
+            self._advance_clock()
+        else:
+            self._hold_frame()
+        try:
+            self._poll_arm()
+            if self.armed:
+                self._poll_request()
+                self._drain()
+                self._check_soft_reset()
+                self._step_world()
+                self._step_scene()
+                self._step_machine("agent_last")
+                self._step_battle()
+                self._service_turn()        # s90: end, or cut, an in-place turn
+                self._publish()
+                self._step_machine("agent_first")
+        except OSError as err:
+            # Mirrors the agent's own try/catch. Without this a single transient sharing
+            # violation killed the publisher thread, and every later wait then timed out
+            # pointing at the wrong half of the system -- which is exactly how a harness
+            # earns a reputation for being flaky when it is actually deterministic.
+            self.error = str(err)
 
     #: How far the real-time loop ("mtime" published) may fall behind the wall clock before it re-anchors rather than
     #: catch up: past this a stamp would read stale to the driver (Session's LIVE_WITHIN is 2 s).
@@ -2513,7 +2540,8 @@ class FakeGame:
     def _story_store(self, src: str, byte: int, width: str, new: int, *, bit: int = -1,
                      sid: int = -1, tag: int = -1, ip: int = -1) -> None:
         """A store to the modelled gEventGlobal, and -- when tracing -- its `w` row. Only a script row
-        names its writer (StoryTrace.AfterStore): cs/harness rows carry -1 attribution."""
+        names its writer (StoryTrace.AfterStore): cs/harness rows carry -1 attribution. ``old`` is the variable as
+        its width reads it (the row contract): an Int16 signed, so a second store of -1 reads old -1, never 65535."""
         if width == "Bit":
             old = (self.story_bytes[byte] >> (bit & 7)) & 1
             self.story_bytes[byte] = (self.story_bytes[byte] & ~(1 << (bit & 7))) | (new << (bit & 7))
@@ -2522,6 +2550,8 @@ class FakeGame:
             self.story_bytes[byte] = new
         else:
             old = self.story_bytes[byte] | (self.story_bytes[byte + 1] << 8)
+            if width == "Int16" and old >= 0x8000:
+                old -= 0x10000
             self.story_bytes[byte:byte + 2] = bytes((new & 0xFF, (new >> 8) & 0xFF))
         if not self.story_on:
             return
@@ -2719,6 +2749,9 @@ class FakeGame:
             self.say(beat)
             self.choice = None
             return
+        if "keyon_pair" in beat or "chanbara" in beat:
+            self._start_machine(beat)                # H10/H11 (research/o4_design.md 3): an opt-in machine beat
+            return
         if "naming" in beat:
             # NameSettingUI: no dialog, the box focused on the prefilled default name (NameSettingUI.cs:146)
             self.texts, self.raw_texts, self.choice = [], [], None
@@ -2850,12 +2883,749 @@ class FakeGame:
             at = max(0, min(len(active) - 1, at + (1 if button == "down" else -1)))
             self._choice_cursor(active[at])
 
+    # -- H10-H12 (research/o4_design.md 3): the machine beats ----------------------------------------------------------
+    def _start_machine(self, beat: dict) -> None:
+        """A machine beat begins (:meth:`_next_beat`'s dispatch): ``{"keyon_pair": knobs}`` (H10, :class:`_KeyonPairBeat`)
+        or ``{"chanbara": knobs}`` (H11, :class:`_ChanbaraBeat`), its knobs checked strict here. No dialog yet, control as
+        the scene left it (off); from its first frame on the machine owns the published dialog (its windows), the choice,
+        the menu group and the bodies until it ends -- its own end pops the beat and moves the scene on, a warp (any new
+        visit) cuts it with its scene (:meth:`_Machine.frame`). A press reaches it only through the HELD keys it reads per
+        frame: :meth:`_scene_press` leaves a beat in phase "machine" alone."""
+        self.texts, self.raw_texts, self.choice = [], [], None
+        self._beat_phase = "machine"
+        knobs = beat["keyon_pair"] if "keyon_pair" in beat else beat["chanbara"]
+        self._machine = (_KeyonPairBeat if "keyon_pair" in beat else _ChanbaraBeat)(self, knobs)
+
+    def _step_machine(self, slot: str) -> None:
+        """The running machine beat's frame, in the slot its ``publish_order`` names (:meth:`_frame_once`)."""
+        if self._machine is not None:
+            self._machine.frame(self, slot)
+
     def open_menu(self, entries: list[str], group: str = "MainMenu") -> None:
         self.ui_state = "MainMenu"
         self.menu_entries = list(entries)
         self.menu_index = 0
         self.menu = {"selected": "Button0", "hovered": None,
                      "label": entries[0] if entries else None, "group": group}
+
+
+# ======================================================================== H10-H12: the machine beats (O4)
+#: H10/H11 (research/o4_design.md 3): the agent's Control for every name a ``press`` / ``hold`` may carry --
+#: HarnessAgent.ParseControl (HarnessAgent.cs:1430-1449), aliases included: ``circle``, ``x``, ``a`` and ``ok`` are
+#: CONFIRM (the Cross bit, never Circle's), ``b``/``back`` Cancel, ``triangle``/``y`` Menu, ``square`` Special,
+#: ``start`` Pause. Read only by the machine beats (:meth:`_Machine.level`); :func:`_control`, every other model's,
+#: keeps the name as it was sent.
+AGENT_CONTROL = {"confirm": "confirm", "ok": "confirm", "x": "confirm", "circle": "confirm", "a": "confirm",
+                 "cancel": "cancel", "back": "cancel", "b": "cancel",
+                 "menu": "menu", "triangle": "menu", "y": "menu",
+                 "special": "special", "square": "special",
+                 "l1": "l1", "leftbumper": "l1", "r1": "r1", "rightbumper": "r1",
+                 "l2": "l2", "lefttrigger": "l2", "r2": "r2", "righttrigger": "r2",
+                 "start": "pause", "pause": "pause", "select": "select",
+                 "up": "up", "north": "up", "down": "down", "south": "down",
+                 "left": "left", "west": "left", "right": "right", "east": "right"}
+#: The bits each Control sets in the engine's input word (ETb.GetInputs = FPSManager.DelayedInputs & 0x3FFFFFF) under
+#: cfg.control 0, New Game's identity logicalToButton (research/o4_design.md 0.2 #6): GetKeyMaskFromControl
+#: (EventInput.cs:476-534) is the logical bit OR the physical button's -- Cross 0x4000, Circle 0x2000, Triangle 0x1000,
+#: Square 0x8000, L1 0x400, R1 0x800, L2 0x100, R2 0x200 -- the four directions are set straight by ProcessInput
+#: (:328-346), Pause sets Start 0x8 (:303-305) and Select 0x1.
+CONTROL_BITS = {"confirm": 0x20000 | 0x4000, "cancel": 0x10000 | 0x2000, "menu": 0x1000000 | 0x1000,
+                "special": 0x80000 | 0x8000, "l1": 0x100000 | 0x400, "r1": 0x200000 | 0x800,
+                "l2": 0x400000 | 0x100, "r2": 0x800000 | 0x200, "pause": 0x8, "select": 0x1,
+                "up": 0x10, "right": 0x20, "down": 0x40, "left": 0x80}
+#: What the KEYON pairs' loops read (64 e13 t1 ip868 / ip1404 / ip1156; 150 e2 t1 ip538): logical Confirm or Special.
+KEYON_PAIR_BITS = 0x20000 | 0x80000
+#: e3 t1's eight KEYON checks in ip order (64 e3 t1 ip34-363): ``(bit, Byte[46] value, wrong code)`` -- a pressed bit
+#: sets Byte[47] 2 when Byte[46] is its value, else Byte[47] 3 and Byte[46] its wrong code (so two keys in a tick miss).
+CHANBARA_KEYS = ((0x80, 0, 11), (0x20, 1, 10), (0x1000, 2, 10), (0x40, 3, 11), (0x4000, 4, 10), (0x10, 5, 11),
+                 (0x2000, 6, 11), (0x8000, 7, 11))
+CHANBARA_WRONG = {value: wrong for _bit, value, wrong in CHANBARA_KEYS}
+#: Byte[46] -> the prompt's button (window 112 + Byte[46], 64 e20 t1 ip789-852; block 2's mes 112-119) and its MOBI.
+CHANBARA_DBTN = ("LEFT", "RIGHT", "TRIANGLE", "DOWN", "CROSS", "UP", "CIRCLE", "SQUARE")
+CHANBARA_MOBI = (267, 269, 272, 270, 274, 268, 273, 271)
+#: 64's windows the visit shows (block 2, US -- the research's mes_64_105_128): ``mes -> (STRT, TAIL, source,
+#: rendered)``. The agent publishes the rendered text as ``texts`` (tags gone, [ZDNE] Zidane's name, ``{0}`` the
+#: [NUMB] the score fills in) and ``[STRT=..][TAIL=..]`` + the source as ``phrase_raw`` -- the form O3 measured on
+#: 105 (INFERRED for the rest; research/o4_design.md 3: R-CHANBARA's F1 replaces it). 124-127's "rendered" is the
+#: choice's prompt; its lines are the knob ``choice_lines``.
+CHANBARA_MES = {
+    105: ("70,2", "LORF", "Blank\n“En garde!”[INCS][TIME=-1]", "Blank\n“En garde!”"),
+    106: ("171,2", "UPLF", "[ZDNE]\n“Expect no quarter from me!”[INCS][TIME=-1]",
+          "Zidane\n“Expect no quarter from me!”"),
+    107: ("152,2", "LORF", "Blank\n“We shall finish this later!”[INCS][TIME=-1]", "Blank\n“We shall finish this later!”"),
+    108: ("109,2", "UPLF", "[ZDNE]\n“Come back here!”[INCS][TIME=-1]", "Zidane\n“Come back here!”"),
+    109: ("193,2", "LORF", "Blank\n“Is that the best thou canst do!?”[INCS][TIME=-1]",
+          "Blank\n“Is that the best thou canst do!?”"),
+    110: ("83,2", "UPLF", "[ZDNE]\n“Die, traitor!”[INCS][TIME=-1]", "Zidane\n“Die, traitor!”"),
+    111: ("233,5", "DEFT", "[IMME][CENT=233]To follow Blank’s lead, enter the correct\n[CENT=209]commands from the "
+                           "following choices:\n[XTAB=88][YADD=6][DBTN=UP][MOBI=268][XTAB=132][DBTN=TRIANGLE][MOBI=272]\n"
+                           "[CENT=77][DBTN=LEFT][MOBI=267][FEED=6][DBTN=RIGHT][MOBI=269][FEED=13][DBTN=SQUARE][MOBI=271]"
+                           "[FEED=6][DBTN=CIRCLE][MOBI=273]\n[XTAB=88][YSUB=6][DBTN=DOWN][MOBI=270][XTAB=132]"
+                           "[DBTN=CROSS][MOBI=274]",
+          "To follow Blank’s lead, enter the correct\ncommands from the following choices:"),
+    120: ("156,2", "DEFT", "[WDTH=0,96,64,0,-1][IMME]Of the 100 nobles watching,\n[NUMB=0] were impressed.",
+          "Of the 100 nobles watching,\n{0} were impressed."),
+    121: ("102,2", "DEFT", "[IMME]Queen Brahne was\nnot impressed.", "Queen Brahne was\nnot impressed."),
+    122: ("134,2", "DEFT", "[WDTH=0,96,64,0,-1][IMME]Of 100 nobles watching,\n[NUMB=0] were impressed.",
+          "Of 100 nobles watching,\n{0} were impressed."),
+    123: ("102,2", "DEFT", "[IMME]Queen Brahne was\nquite impressed.", "Queen Brahne was\nquite impressed."),
+    124: ("174,4", "DEFT", "[PCHC=2,1][IMME]The audience is booing...\nPerform the fight scene again?\n[CHOO]"
+                           "[MOVE=18,0]Yes\n[MOVE=18,0]No", "The audience is booing...\nPerform the fight scene again?"),
+    125: ("174,4", "DEFT", "[PCHC=2,1][IMME]The audience did not enjoy it.\nPerform the fight scene again?\n[CHOO]"
+                           "[MOVE=18,0]Yes\n[MOVE=18,0]No",
+          "The audience did not enjoy it.\nPerform the fight scene again?"),
+    126: ("175,4", "DEFT", "[PCHC=2,1][IMME]The audience seemed to like it.\nPerform the fight scene again?\n[CHOO]"
+                           "[MOVE=18,0]Yes\n[MOVE=18,0]No",
+          "The audience seemed to like it.\nPerform the fight scene again?"),
+    127: ("174,4", "DEFT", "[PCHC=2,1][IMME]They demand an encore!\nPerform the fight scene again?\n[CHOO]"
+                           "[MOVE=18,0]Yes\n[MOVE=18,0]No", "They demand an encore!\nPerform the fight scene again?"),
+    128: ("147,1", "DEFT", "[WDTH=0,147,64,1,-1][IMME]They shower you with [C8B040][HSHD][NUMB=1] Gil[C8C8C8][HSHD]!",
+          "They shower you with {0} Gil!"),
+}
+#: A machine beat's frame runs after the publish ("agent_first": a sample of frame f shows its state after the ticks
+#: of frames <= f-1, the engine's measured order, tickrate.py:67-69) or before it ("agent_last": frames <= f).
+PUBLISH_ORDERS = ("agent_first", "agent_last")
+#: H10's knobs and defaults (research/o4_design.md 3): the pair's texts (and sources), the second window ``lag_ticks``
+#: after the first (106 after e13's Wait(15), ip816), its INCS/250 gate ``gate_ticks`` after the second opened (an
+#: ESTIMATE: <= 250), every window's close tween (``close_frames`` + ``close_s``), the publication order.
+KEYON_PAIR_DEFAULTS = {"texts": None, "raw": None, "lag_ticks": 15, "gate_ticks": 40, "close_s": 0.09,
+                       "close_frames": 1, "publish_order": "agent_first"}
+#: H11's and H12's knobs and defaults (research/o4_design.md 3) -- each an engine value, or where unmeasured the
+#: research's estimate (named so): ``seed`` (the rolls: SYSVAR[0] is Unity's unseeded Random.Range(0, 256)); ``sa``
+#: (Memoria.ini SwordplayAssistance); ``bonus_fires`` (EMinigame's +30% hook fires: False models a fork whose
+#: EffectiveFieldId wrap fails); ``walk_in_s`` (measured, story-o3 run 6); ``gates`` (each KEYON pair's INCS/250 gate
+#: in ticks, by its first window's mes: ESTIMATES); the tweens (``close_s``/``close_frames``, ``open_s``/
+#: ``open_frames``); ``reaction`` (ticks from a pass's arm to its WAIT, by the previous result Byte[45]: 99 the first
+#: pass's Wait(30), 0/1 a LEFT/RIGHT hit's slide + WaitAnimation + Wait(22), the 30-frame clips -- ESTIMATES);
+#: ``reqsw_ticks`` (RunScript(2,13,11)'s wait for e13); ``publish_order``; the prompts' ``prompt_raw`` /
+#: ``prompt_text`` (INFERRED); ``arm_after_111`` (T0 + 12); ``walk_off_s``, ``walk_back_s`` (the encore's walk back,
+#: stage 7: not in section 3's list, an ESTIMATE like walk_off_s); ``exit_wait_ticks`` (stage 9's Wait(65));
+#: ``exit_to`` (REQUIRED: where Field(150) lands); ``choice_lines`` (the encore choice's published lines -- O1's
+#: lesson: the first lost); ``encore`` (False: no choice, the No branch at once); ``slides`` (the LEFT/RIGHT slides
+#: move the bodies); and H12's faults: ``lost`` (instance numbers whose presses the game never reads), ``miss_read``
+#: (instance numbers whose right key the game scores as a miss), ``score_override`` (the score the page shows),
+#: ``extra_prompts`` (passes armed past the bytes' 49), ``menu_on_triangle`` (a Triangle edge opens the main menu),
+#: ``unsubstituted_once`` (122/120 and 128 publish their raw [NUMB=n] once -- for ``unsubstituted_frames`` frames from
+#: that first publish, 1 by default: a drive test's way to make sure a read lands on it), ``replay_on_no`` (No replays
+#: too), ``tutorial`` (False: stage 2 shows no 111 -- T0 the tick after its Wait(5) -- so the driver enters the zone on
+#: its first prompt, research/o4_design.md 2.4.2).
+CHANBARA_DEFAULTS = {
+    "seed": 0, "sa": 1, "bonus_fires": True, "walk_in_s": 1.83, "gates": {"105": 40, "107": 40, "109": 40},
+    "close_s": 0.09, "close_frames": 1, "open_s": 0.105, "open_frames": 2,
+    "reaction": {99: 30, 0: 28, 1: 28, "others": 30}, "reqsw_ticks": 0, "publish_order": "agent_first",
+    "prompt_raw": "[STRT=54,1][TAIL=UPRF][IMME]Press [DBTN={dbtn}][MOBI={mobi}] ![TIME=-1]",
+    "prompt_text": "Press  !", "arm_after_111": 12, "walk_off_s": 2.0, "walk_back_s": 2.0, "exit_wait_ticks": 65,
+    "exit_to": None, "choice_lines": ("es", "No"), "encore": True, "slides": True,
+    "lost": (), "miss_read": (), "score_override": None, "extra_prompts": 0, "menu_on_triangle": False,
+    "unsubstituted_once": False, "unsubstituted_frames": 1, "replay_on_no": False, "tutorial": True}
+#: Blank's and Zidane's x where the fight begins (arbitrary: only a slide's delta is ever read). Blank is published
+#: as the field object sid 20 (64 e0 t0 ip449's InitObject(20)); Zidane is the player.
+CHANBARA_BLANK_X, CHANBARA_ZIDANE_X = 600.0, 0.0
+#: The stage handshake after the fight's last pass (the Byte[26]/Bit[230] sync, e2's stage := 4 the tick after):
+#: an ESTIMATE in ticks.
+CHANBARA_SYNC_TICKS = 3
+#: 64 e0 t0's gEventGlobal stores at entrance 100 (research/o4_design.md 4.4, 4.6): ``(ip, byte, width, value, bit)``.
+CHANBARA_MAIN_INIT = ((22, 191 >> 3, "Bit", 0, 191), (49, 184 >> 3, "Bit", 0, 184), (57, 9, "Int16", -1, -1),
+                      (119, 13, "Byte", 0, -1), (138, 11, "Int16", -1, -1), (200, 14, "Byte", 0, -1),
+                      (416, 3815 >> 3, "Bit", 0, 3815), (425, 475, "Byte", 0, -1), (475, 8, "Byte", 125, -1))
+
+
+def _machine_knobs(defaults: dict, given, what: str) -> dict:
+    """A machine beat's knobs over its defaults, STRICT: an unknown knob is a ValueError (a typo is never a default),
+    and so is a ``publish_order`` not in :data:`PUBLISH_ORDERS`."""
+    if not isinstance(given, dict):
+        raise ValueError(f"{what}: its knobs are a dict, not {given!r}")
+    unknown = sorted(set(given) - set(defaults))
+    if unknown:
+        raise ValueError(f"{what}: unknown knob(s) {unknown} -- its knobs are {sorted(defaults)}")
+    out = {**defaults, **given}
+    if out["publish_order"] not in PUBLISH_ORDERS:
+        raise ValueError(f"{what}: publish_order {out['publish_order']!r} is not one of {PUBLISH_ORDERS}")
+    return out
+
+
+class _Win:
+    """One dialog window a machine beat lists (activeDialogList's order is the beat's list's): its ``slot`` (the
+    script's window id), its ``kind`` -- "page" and "choice" take the UI's Confirm, "prompt" and "keyon" only a script's
+    read ([TIME=-1] inhibits UI paging, DialogBoxSymbols.cs:811-826) -- the agent's ``text`` (rendered) and ``raw``
+    (phrase_raw), and its life: OPENING (a page or a choice takes Confirm only once complete: the box grows from 0.3 to
+    1 at deltaTime / 0.15 and AfterShown follows a frame on, DialogAnimator.cs:43-47, :61-126 -- ``open_s`` of the
+    fake's clock, then ``open_frames``; research/o4_design.md 0.3 #1), listed, then CLOSING (one WaitForEndOfFrame,
+    then 0 -> 0.6 at deltaTime / 0.15, DialogAnimator.cs:144-173 -- ``close_frames``, then ``close_s``; 0.2 #1) until it
+    is gone from the list."""
+
+    def __init__(self, fake, slot: int, kind: str, text: str, raw: str, *, unsub: str | None = None):
+        self.slot, self.kind, self.text, self.raw = slot, kind, text, raw
+        self.frame0, self.rt0 = fake.frame, fake.rt
+        self.ready_at = None                       # the frame its opening ends on (a page's, a choice's)
+        self.complete = kind not in ("page", "choice")
+        self.closing = self.gone = False
+        self.tween_frame = self.tween_rt = None
+        self.unsub, self.unsub_mark = unsub, fake.publish_frame      # H12: the text its FIRST publish shows
+        self.header, self.lines, self.cursor, self.answer = "", [], 0, None   # a choice's
+
+    def shown(self) -> str:
+        return self.text if self.unsub is None else self.unsub
+
+    def close(self, fake, close_frames: int) -> None:
+        if not self.closing:
+            self.closing = True
+            self.tween_frame = fake.frame + int(close_frames)
+
+    def timers(self, fake, k: dict) -> None:
+        """At a frame's start: the opening's end, the close tween's end, and (H12) an unsubstituted text's first
+        publish behind it."""
+        if not self.complete:
+            if self.ready_at is None and fake.rt - self.rt0 >= float(k["open_s"]) - 1e-9:
+                self.ready_at = fake.frame + int(k["open_frames"])
+            if self.ready_at is not None and fake.frame >= self.ready_at:
+                self.complete = True
+        if self.closing and not self.gone:
+            if self.tween_rt is None and fake.frame >= self.tween_frame:
+                self.tween_rt = fake.rt
+            if self.tween_rt is not None and fake.rt - self.tween_rt >= float(k["close_s"]) - 1e-9:
+                self.gone = True
+        if self.unsub is not None and fake.publish_frame - self.unsub_mark >= int(k.get("unsubstituted_frames", 1)):
+            self.unsub = None
+
+
+class _Machine:
+    """What the machine beats share (research/o4_design.md 3, "The input model"). Per FRAME: the LEVEL -- the OR of
+    the bits of every key the agent holds this frame (its down-at-frame+1 Schedule, :meth:`FakeGame._is_held`), each
+    name mapped the AGENT's way (:data:`AGENT_CONTROL` -> :data:`CONTROL_BITS`); FPSManager's delayed inputs -- after a
+    frame that ran a field tick the accumulator is this frame's level (FlushDelayedInputs), after one that ran none it
+    ORs it in (CollectDelayedInputs), FPSManager.cs:77-139 (the release bookkeeping, which matters only for a key
+    released and pressed again between two ticks, modelled as the plain OR); and the UI's own per-frame reads (a key's
+    DOWN frame: a page's Confirm, a choice's cursor). Per whole field TICK of the frame (floor(ticks_run) crossings:
+    whole ticks in "quantized" mode, every other frame at 60 fps "mean"): the edge ETb.ProcessKeyEvents makes, ``keyon
+    = acc & ~skey; skey = acc`` (ETb.cs:50-56) -- one edge a press, none for a key held across ticks -- and the beat's
+    script. Then its windows are published. A frame runs once, in the slot its ``publish_order`` names; a warp (any new
+    visit) cuts the beat with its scene."""
+
+    def __init__(self, fake, knobs: dict):
+        self.k = knobs
+        self.windows: list = []
+        self.tick = 0
+        self.acc = self.skey = self.keyon = 0
+        self._ran = 1                              # the ticks the previous frame ran: the first frame flushes
+        self._ticks_seen = fake.ticks_run
+        self._frame_seen = fake.frame              # a frame is run once (a frozen counter repeats its number)
+        self.visit0 = fake._visit
+        self.done = False
+        self.script = None
+        self.queued: list = []                     # windows a test's director asked for (:meth:`queue_window`)
+
+    # -- the agent's keys, as the engine reads them
+    def level(self, fake) -> int:
+        bits = 0
+        for name in list(fake.held):
+            if fake._is_held(name):
+                bits |= CONTROL_BITS.get(AGENT_CONTROL.get(str(name).lower(), ""), 0)
+        return bits & 0x3FFFFFF
+
+    def downs(self, fake) -> set:
+        """The Controls whose key goes DOWN on this frame -- the agent reports Down on exactly its down frame
+        (HarnessAgent.cs:60-77): what the UI's per-frame reads take."""
+        out = set()
+        for name, at in list(fake.down_at.items()):
+            if at == fake.frame and fake._is_held(name):
+                c = AGENT_CONTROL.get(str(name).lower())
+                if c is not None:
+                    out.add(c)
+        return out
+
+    def log(self, fake, event: str, w: _Win) -> None:
+        fake.machine_log.append({"event": event, "kind": w.kind, "slot": w.slot, "text": w.text, "frame": fake.frame,
+                                 "tick": self.tick, "rt": round(fake.rt, 6)})
+
+    def open(self, fake, slot: int, kind: str, text: str, raw: str, *, unsub: str | None = None) -> _Win:
+        """A window joins the list THIS tick (ETb.NewMesWin: a window of its slot still open is closed first -- one
+        already in its tween keeps it, ``ForceClose`` being a no-op there; research/o4_design.md 0.2 #1)."""
+        for old in self.windows:
+            if old.slot == slot and not old.closing:
+                old.close(fake, self.k["close_frames"])
+                self.log(fake, "close", old)
+        w = _Win(fake, slot, kind, text, raw, unsub=unsub)
+        self.windows.append(w)
+        self.log(fake, "open", w)
+        return w
+
+    def close(self, fake, w: _Win) -> None:
+        if not w.closing:
+            w.close(fake, self.k["close_frames"])
+            self.log(fake, "close", w)
+
+    def queue_window(self, slot: int, kind: str, text: str, raw: str) -> None:
+        """A test's hand from ANOTHER thread (a director): a window this beat opens at its next frame -- a page the
+        script never waits on (an unclaimed dialog, a page in a quiet window). The list is the loop thread's, so the
+        director only queues; the beat's own frame opens it."""
+        self.queued.append((int(slot), str(kind), str(text), str(raw)))
+
+    # -- the frame
+    def frame(self, fake, slot: str) -> None:
+        if self.done:
+            return
+        if slot == "agent_last" and fake._visit != self.visit0:
+            self.cut(fake)                         # a warp or a scripted move: a new visit ends the beat
+            return
+        if slot != self.k["publish_order"] or fake.frame == self._frame_seen:
+            return
+        self._frame_seen = fake.frame
+        while self.queued:
+            self.open(fake, *self.queued.pop(0))
+        for w in self.windows:
+            was = w.gone
+            w.timers(fake, self.k)
+            if w.gone and not was:
+                self.log(fake, "gone", w)
+        self.windows = [w for w in self.windows if not w.gone]
+        self.ui(fake)
+        n = int(math.floor(fake.ticks_run + 1e-9) - math.floor(self._ticks_seen + 1e-9))
+        self._ticks_seen = fake.ticks_run
+        level = self.level(fake)
+        self.acc = level if self._ran > 0 else (self.acc | level)     # Flush / CollectDelayedInputs
+        self._ran = n
+        for _ in range(max(0, n)):
+            self.keyon = self.acc & ~self.skey                        # ETb.ProcessKeyEvents
+            self.skey = self.acc
+            self.tick += 1
+            if fake.ui_state == "FieldHUD":                           # a menu up holds the field (H12)
+                self.on_tick(fake)
+            if self.done:
+                return
+        self.publish(fake)
+
+    def ui(self, fake) -> None:
+        """The UI's per-frame reads: a Confirm going down closes a COMPLETE page (in its opening it is dropped,
+        Dialog.cs:762-797); a complete choice's cursor moves on Up / Down and a Confirm answers it at the cursor (in its
+        opening a Confirm only sets SelectChoice to its default, Dialog.cs:798-802: nothing moves, nothing closes)."""
+        downs = self.downs(fake)
+        if not downs:
+            return
+        for w in self.windows:
+            if w.closing or not w.complete:
+                continue
+            if w.kind == "page" and "confirm" in downs:
+                self.close(fake, w)
+            elif w.kind == "choice":
+                if "down" in downs:
+                    w.cursor = min(len(w.lines) - 1, w.cursor + 1)
+                if "up" in downs:
+                    w.cursor = max(0, w.cursor - 1)
+                if "confirm" in downs:
+                    w.answer = w.cursor
+                    fake.answered.append(w.cursor)
+                    self.close(fake, w)
+
+    def on_tick(self, fake) -> None:
+        try:
+            next(self.script)
+        except StopIteration:
+            if not self.done:
+                self.finish(fake)
+
+    def publish(self, fake) -> None:
+        """The beat's windows as the agent publishes them: ``texts`` / ``phrase_raw`` per listed window (a closing one
+        until its tween ends), a choice's ``choice`` and menu group ('' while it opens or closes, Dialog.Choice ready)."""
+        listed = [w for w in self.windows if not w.gone]
+        fake.texts = [w.shown() for w in listed]
+        fake.raw_texts = [w.raw for w in listed]
+        ch = next((w for w in listed if w.kind == "choice"), None)
+        if ch is None:
+            fake.choice = None
+            fake.menu = {"selected": None, "hovered": None, "label": None, "group": None}
+            return
+        fake.choice = {"selected": ch.cursor, "count": len(ch.lines), "active": list(range(len(ch.lines))),
+                       "disabled": [], "options": [ch.header, *ch.lines]}
+        ready = ch.complete and not ch.closing
+        button = f"Choice#{ch.cursor}" if ready else None
+        fake.menu = {"selected": button, "hovered": None, "label": None, "group": "Dialog.Choice" if ready else "",
+                     "button": button}
+
+    # -- the end
+    def end(self, fake) -> None:
+        """What the beat set up and must take down (a subclass's bodies)."""
+
+    def finish(self, fake) -> None:
+        """The beat's own end: popped, and the scene moves on (:meth:`FakeGame._next_beat`)."""
+        self.done = True
+        self.end(fake)
+        fake._machine = None
+        if fake._beats:
+            fake._beats.pop(0)
+        fake._next_beat()
+
+    def cut(self, fake) -> None:
+        """A warp (any new visit) cut the beat: it and its scene are gone, its windows with them."""
+        self.done = True
+        self.end(fake)
+        fake._machine = None
+        fake._beats, fake._beat_phase = [], None
+        fake.texts, fake.raw_texts, fake.choice = [], [], None
+        fake.menu = {"selected": None, "hovered": None, "label": None, "group": None}
+
+
+class _KeyonPairBeat(_Machine):
+    """H10 (research/o4_design.md 3): THE KEYON PAIR -- 64's 105/106 and 107/108, 150's 98/99, staged on their own.
+    Window a, then b ``lag_ticks`` later, both [INCS][TIME=-1] (a Confirm does not page them: ``kind`` "keyon"); from
+    ``gate_ticks`` after b opened (the INCS/250 gate, e13 ip825-859) each tick reads ``keyon & (Confirm | Special)``
+    (ip865-885) -- an edge before the gate is consumed by its tick and lost -- and the first such edge closes both
+    (ip888/891). The beat ends once both are gone (their tweens run out)."""
+
+    def __init__(self, fake, knobs):
+        k = _machine_knobs(KEYON_PAIR_DEFAULTS, knobs, "keyon_pair")
+        texts = k["texts"]
+        if not isinstance(texts, (list, tuple)) or len(texts) != 2 or not all(isinstance(t, str) for t in texts):
+            raise ValueError(f"keyon_pair: texts is the pair's two texts, not {texts!r}")
+        raw = k["raw"] if k["raw"] is not None else list(texts)
+        if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+            raise ValueError(f"keyon_pair: raw is the pair's two sources, not {raw!r}")
+        k["raw"] = list(raw)
+        super().__init__(fake, k)
+        self.script = self._script(fake)
+
+    def _script(self, fake):
+        k = self.k
+        a = self.open(fake, 1, "keyon", k["texts"][0], k["raw"][0])
+        for _ in range(int(k["lag_ticks"])):
+            yield
+        b = self.open(fake, 0, "keyon", k["texts"][1], k["raw"][1])
+        for _ in range(int(k["gate_ticks"])):
+            yield
+        while not self.keyon & KEYON_PAIR_BITS:
+            yield
+        self.close(fake, a)
+        self.close(fake, b)
+        while not (a.gone and b.gone):
+            yield
+
+
+class _ChanbaraBeat(_Machine):
+    """H11 (research/o4_design.md 3): THE CHANBARA VISIT -- 64 at entrance 100 from its arrival to Field(150), one beat
+    (the score pages depend on the fight). Main_Init's stores (trace on: ``script_store``, the engine's values); stage 1,
+    the walk-in (``walk_in_s``); stage 2, the KEYON pair 105/106 (105 three ticks into the stage, 106 at fifteen: e20's
+    Wait(3), e13's Wait(15)) and its gate; Wait(5); the tutorial 111 (a page: WindowSync, slot 6) -- T0 the tick it is
+    gone; the first arm at T0 + ``arm_after_111``; stage 3, THE FIGHT; the stage handshake; stage 4, the pair 107/108
+    (at 25 and 37: e20's Wait(25), e13's Wait(37)); stage 5, the walk-off; stage 6, the score (and on Yes stages 7, 8 --
+    the 109/110 pair, no 111 -- and 3 again); stage 9, Field(``exit_to``).
+
+    THE FIGHT, per field tick in the engine's object order -- e2, e4, e3, e13, e20 (Main_Init's InitCode(4),
+    InitCode(3), InitObject 5, 6, 13, 20 append in that order, Obj.cs:31-45; EBin.ProcessCode walks the list once a
+    tick):
+      * e4 (``sa`` >= 2): ``Byte[52] > 0 and Int16[34] < 50`` refills TimeLeft to 50 (EMinigame.cs:23-30);
+      * e3 (a prompt up, ``Byte[47] == 1``): the eight checks in ip order (:data:`CHANBARA_KEYS`) on this tick's EDGE,
+        Start held a LEVEL miss (ip412), CloseWindow(1) on a hit or a miss (ip459/484), then TimeLeft-- (the hit tick
+        decrements too: a hit at the j-th poll credits 50 - j);
+      * e13: Zidane's slide, a tick behind Blank's (0.3 #3);
+      * e20, the pass machine: ARM (the roll and its filters, ip462-707; while ``Int16[34] < 49``: Byte[47] 1, the
+        no-repeat Byte[44], TimeLeft 50 and window 112 + Byte[46] LISTED THIS TICK, ip721-852), REACT for
+        ``reaction[Byte[45]] + reqsw_ticks`` ticks (a LEFT / RIGHT hit before it: SByte[38] -/+ 1 and the slide, Blank
+        -60 a tick from S+1 to -300 after S+5, Zidane from S+2 to S+6), then the WAIT while ``TimeLeft > 0 and
+        Byte[47] == 1``, then SCORE (a timeout: Byte[47] 3, CloseWindow; a hit: I30 += TimeLeft, I32 += I40, I40 + 1; a
+        miss: I40 0; I42 the max; Byte[45] := Byte[46]; Int16[34] + 1) and the next ARM IN THE SAME TICK -- so a timeout,
+        or a hit later than the reaction, re-arms at once, the old window still in its tween beside the new (0.2 #1, #2).
+        Pass 49 arms nothing: the PHANTOM pass credits pass 48's result again (I32 1225, I42 50 on 49 hits).
+
+    The score (e4 t1 ip208-537): (I30 + I32) // 29; EMinigame's hook (``bonus_fires``: +30% at ``sa`` >= 1, then
+    "Encore" at >= 75); H12's ``score_override``; the clamp; the gil; ip338's store when Byte[475] is below it; 120/121
+    (max combo below 50) or 122, Wait(5), 123 and ip390's Bit[3815] := 1 AFTER 123; Wait(10); the choice by band (124
+    < 25, 125 < 50, 126 < 75, else 127) with its cursor on Yes (0); No: Wait(15), 128, the gil; Yes: the encore.
+    ``fake.chanbara_log`` keeps every prompt's arm tick, edge tick and true j."""
+
+    def __init__(self, fake, knobs):
+        k = _machine_knobs(CHANBARA_DEFAULTS, knobs, "chanbara")
+        if not isinstance(k["exit_to"], int) or isinstance(k["exit_to"], bool):
+            raise ValueError(f"chanbara: exit_to (the field Field(150) lands in) is required, not {k['exit_to']!r}")
+        k["gates"] = {**CHANBARA_DEFAULTS["gates"], **{str(m): int(t) for m, t in (knobs.get("gates") or {}).items()}}
+        k["reaction"] = {**CHANBARA_DEFAULTS["reaction"],
+                         **{("others" if r == "others" else int(r)): int(t)
+                            for r, t in (knobs.get("reaction") or {}).items()}}
+        k["lost"], k["miss_read"] = {int(n) for n in k["lost"]}, {int(n) for n in k["miss_read"]}
+        k["choice_lines"] = list(k["choice_lines"])
+        super().__init__(fake, k)
+        import random
+        self.rng = random.Random(k["seed"])
+        self.v = dict.fromkeys(("I30", "I32", "I34", "I36", "I40", "I42", "I48", "I50", "sb38", "sb39", "b27", "b44",
+                                "b45", "b46", "b47", "b52"), 0)
+        self.fight = 0                             # fights begun (the encore's is the second)
+        self.instance = 0                          # prompts armed in this fight (1-based)
+        self.prompt = self.row = None              # the armed prompt's window and its chanbara_log row
+        self.phase = None                          # e20's: "arm" / "react" / "wait" / "done"
+        self.arm_tick = self.react = 0
+        self.slides: list = []                     # [body, x0, dir, start tick]
+        self.t0_tick = None
+        self.field = fake.field_id
+        self.blank = {"x": CHANBARA_BLANK_X, "z": 0.0, "r": 1.0, "sid": 20, "uid": 20, "coll": False}
+        fake.blockers[self.field] = [*fake.blockers.get(self.field, ()), self.blank]
+        fake.player = [CHANBARA_ZIDANE_X, 0.0, 0.0]
+        self.script = self._script(fake)
+
+    # -- the input (H12 ``lost``) and the UI (H12 ``menu_on_triangle``)
+    def level(self, fake) -> int:
+        if self.phase in ("react", "wait") and self.v["b47"] == 1 and self.instance in self.k["lost"]:
+            return 0                               # the agent took the press; the game's input path dropped it
+        return super().level(fake)
+
+    def ui(self, fake) -> None:
+        if self.k["menu_on_triangle"] and fake.ui_state == "FieldHUD" and "menu" in self.downs(fake):
+            fake.ui_state = "MainMenu"             # IsMenuControlEnable on: the menu, the prompt left armed
+        super().ui(fake)
+
+    def on_tick(self, fake) -> None:
+        super().on_tick(fake)
+        if not self.done:
+            self._slide_tick(fake)
+
+    def end(self, fake) -> None:
+        bodies = fake.blockers.get(self.field)
+        if bodies is not None:
+            fake.blockers[self.field] = [b for b in bodies if b is not self.blank]
+
+    # -- the script's pieces
+    def _wait_s(self, fake, seconds):
+        until = fake.rt + float(seconds)
+        while fake.rt < until - 1e-9:
+            yield
+
+    def _ticks(self, n):
+        for _ in range(int(n)):
+            yield
+
+    def _open_mes(self, fake, slot: int, kind: str, mes: int, *, numb=None) -> _Win:
+        strt, tail, src, text = CHANBARA_MES[mes]
+        shown = text.format(numb) if numb is not None else text
+        unsub = None
+        if numb is not None and self.k["unsubstituted_once"]:
+            unsub = text.format(f"[NUMB={1 if mes == 128 else 0}]")
+        return self.open(fake, slot, kind, shown, f"[STRT={strt}][TAIL={tail}]{src}", unsub=unsub)
+
+    def _pair(self, fake, a: int, b: int, a_at: int, b_at: int, gate: int):
+        """A KEYON pair (H10's rule): a ``a_at`` ticks into the stage (slot 1, e20's), b at ``b_at`` (slot 0, e13's),
+        the gate ``gate`` ticks after b opened, then the first Confirm or Special EDGE closes both."""
+        yield from self._ticks(a_at)
+        wa = self._open_mes(fake, 1, "keyon", a)
+        yield from self._ticks(b_at - a_at)
+        wb = self._open_mes(fake, 0, "keyon", b)
+        yield from self._ticks(gate)
+        while not self.keyon & KEYON_PAIR_BITS:
+            yield
+        self.close(fake, wa)
+        self.close(fake, wb)
+
+    def _page(self, fake, mes: int, *, numb=None):
+        """WindowSync(5|6, 0, mes): a page the UI's Confirm closes once complete; the script resumes the tick it is
+        gone."""
+        w = self._open_mes(fake, 6 if mes == 111 else 5, "page", mes, numb=numb)
+        while not w.gone:
+            yield
+        return w
+
+    def _choice(self, fake, mes: int):
+        """WindowSync(5, 0, mes): the encore choice, its cursor on Yes -- ETb.sChoose 0 after a flags-0 WindowSync
+        (ETb.cs:100-104) -- answered by the UI; the script resumes the tick it is gone, with the answer."""
+        strt, tail, src, header = CHANBARA_MES[mes]
+        lines = list(self.k["choice_lines"])
+        w = self.open(fake, 5, "choice", "\n".join([header, *lines]), f"[STRT={strt}][TAIL={tail}]{src}")
+        w.header, w.lines, w.cursor = header, lines, 0
+        while not w.gone:
+            yield
+        return w.answer
+
+    def _script(self, fake):
+        k, v = self.k, self.v
+        for ip, byte, width, value, bit in CHANBARA_MAIN_INIT:      # 64 e0 t0 at entrance 100
+            fake.script_store(0, 0, ip, byte, width, value, bit=bit)
+        yield from self._wait_s(fake, k["walk_in_s"])               # stage 1
+        first = True
+        while True:
+            for key in v:                                           # e13 stage 2 / 8: every minigame var := 0
+                v[key] = 0
+            if first:
+                yield from self._pair(fake, 105, 106, 3, 15, k["gates"]["105"])     # stage 2
+                yield from self._ticks(5)                           # SetDialogProgression(0), Wait(5)
+                if k["tutorial"]:                                   # H12: False -- no 111 (the zone entered on a prompt)
+                    yield from self._page(fake, 111)                # WindowSync(6, 0, 111)
+                self.t0_tick = self.tick                            # T0: the tick 111 is gone
+            else:
+                yield from self._pair(fake, 109, 110, 3, 15, k["gates"]["109"])     # stage 8: no tutorial
+            yield from self._ticks(k["arm_after_111"])              # Wait(10), the sync, e2's Byte[24] := 3
+            yield from self._fight(fake)                            # stage 3
+            yield from self._ticks(CHANBARA_SYNC_TICKS)
+            yield from self._pair(fake, 107, 108, 25, 37, k["gates"]["107"])        # stage 4
+            yield from self._wait_s(fake, k["walk_off_s"])          # stage 5
+            again = yield from self._score(fake)                    # stage 6
+            if not again:
+                break
+            yield from self._wait_s(fake, k["walk_back_s"])         # stage 7: the walk back
+            first = False
+        fake.script_store(2, 1, 331, 8, "Byte", 0)                  # stage 9 (64 e2 t1 ip331)
+        yield from self._ticks(k["exit_wait_ticks"])                # Wait(65), ip478
+        fake.script_store(2, 1, 528, 2, "Int16", 325)               # ip528
+        self.windows = []
+        fake.field_id = int(k["exit_to"])                           # Field(150), ip536: a fresh visit
+        fake.player = [0.0, 0.0, 0.0]
+        fake._visit += 1
+        fake._in_trigger.clear()
+        self.finish(fake)
+
+    # -- stage 3
+    def _fight(self, fake):
+        self.fight += 1
+        self.instance = 0
+        self.v["b45"] = 99                                          # e20 stage 3's start (ip440)
+        self.phase = "arm"
+        while True:
+            self._fight_tick(fake)
+            if self.phase == "done":
+                return
+            yield
+
+    def _fight_tick(self, fake) -> None:
+        k, v = self.k, self.v
+        # e4: under SwordplayAssistance >= 2 every sid-4 token fetch refills TimeLeft (EMinigame.cs:23-30)
+        if k["sa"] >= 2 and v["b52"] > 0 and v["I34"] < 50:
+            v["b52"] = 50
+        # e3: the poll, only while a prompt is up (ip23)
+        if v["b47"] == 1:
+            for bit, value, wrong in CHANBARA_KEYS:
+                if self.keyon & bit:
+                    if v["b46"] == value:
+                        v["b47"] = 2
+                    else:
+                        v["b47"], v["b46"] = 3, wrong
+            if self.acc & 0x8:                                      # Start HELD: a level read (B_KEY(8), ip412)
+                v["b47"], v["b46"] = 3, 11
+            if v["b47"] == 2 and self.instance in k["miss_read"]:  # H12: the right key scored as a miss
+                v["b47"], v["b46"] = 3, CHANBARA_WRONG[v["b46"]]
+            if v["b47"] in (2, 3):
+                self.close(fake, self.prompt)                       # CloseWindow(1), ip459 / ip484
+                self.row.update(edge_tick=self.tick, edge_frame=fake.frame, j=self.tick - self.row["arm_tick"],
+                                result="hit" if v["b47"] == 2 else "miss")
+            if v["b52"] > 0:
+                v["b52"] -= 1
+        # e20: the pass machine
+        if self.phase == "arm":
+            self._arm(fake)
+        elif self.phase == "react" and self.tick - self.arm_tick >= self.react:
+            self.phase = "wait"
+        if self.phase == "wait" and not (v["b52"] > 0 and v["b47"] == 1):
+            if v["b47"] == 1:                                       # the timeout, ip1397-1424
+                v["b47"], v["b46"] = 3, 11
+                self.close(fake, self.prompt)
+                self.row["result"] = "timeout"
+            if v["b47"] == 2:                                       # ip1438-1474
+                v["I30"] += v["b52"]
+                v["I32"] += v["I40"]
+                v["I40"] += 1
+            if v["b47"] == 3:                                       # ip1490
+                v["I40"] = 0
+            if v["I40"] > v["I42"]:                                 # ip1498-1508
+                v["I42"] = v["I40"]
+            v["b45"] = v["b46"]                                     # ip1534
+            v["I34"] += 1                                           # ip1541
+            if v["I34"] < 50 + int(k["extra_prompts"]):             # ip1546: the next pass, IN THIS TICK
+                self._arm(fake)
+            else:
+                self.phase = "done"
+
+    def _arm(self, fake) -> None:
+        k, v = self.k, self.v
+        v["b46"] = 88                                               # the roll and its filters, ip451-707
+        while v["b46"] == 88:
+            v["b46"] = self.rng.randrange(256) & 7
+            if v["sb38"] in (-1, 0) and v["b46"] == 0:
+                v["b46"] = 88
+            if v["sb38"] in (1, 2) and v["b46"] == 1:
+                v["b46"] = 88
+            if v["I42"] < 10 and v["b46"] in (3, 5):
+                v["b46"] = 88
+            if v["I42"] < 15 and v["b46"] == 6:
+                v["b46"] = 2
+            if v["I42"] < 15 and v["b46"] == 7:
+                v["b46"] = 4
+            if v["b46"] == v["b44"]:
+                v["b46"] = 88
+        if v["I34"] < 49 + int(k["extra_prompts"]):                # ip710: passes 0..48 show their prompt
+            v["b47"], v["b44"], v["b52"] = 1, v["b46"], 50         # ip721-736
+            self.instance += 1
+            dbtn = CHANBARA_DBTN[v["b46"]]
+            self.prompt = self.open(fake, 1, "prompt", k["prompt_text"],
+                                    k["prompt_raw"].format(dbtn=dbtn, mobi=CHANBARA_MOBI[v["b46"]]))
+            self.row = {"fight": self.fight, "n": self.instance, "dbtn": dbtn, "value": v["b46"], "arm_tick": self.tick,
+                        "arm_frame": fake.frame, "edge_tick": None, "edge_frame": None, "j": None, "result": None,
+                        "sb38": v["sb38"], "max_combo": v["I42"]}       # what the roll's filters read
+            fake.chanbara_log.append(self.row)
+        prev = v["b45"]                                             # the reaction to the previous result (ip861-1370)
+        self.react = int(k["reaction"].get(prev, k["reaction"]["others"])) + int(k["reqsw_ticks"])
+        if prev in (0, 1):
+            d = -1 if prev == 0 else 1
+            v["sb38"] += d                                          # ip918 / ip1066
+            if k["slides"]:
+                self.slides.append(["blank", self.blank["x"], d, self.tick])
+                self.slides.append(["player", fake.player[0], d, self.tick + 1])
+        self.arm_tick = self.tick
+        self.phase = "react"
+
+    def _slide_tick(self, fake) -> None:
+        """Each running slide's step this tick: -/+60 a tick, k = 1..5 ticks past its start (Blank's start the arm tick,
+        Zidane's a tick later: e13 takes the request the next tick; each loop's i = 0 moves nothing, 0.3 #3)."""
+        keep = []
+        for s in self.slides:
+            body, x0, d, start = s
+            kk = self.tick - start
+            if kk >= 1:
+                x = x0 + d * 60.0 * min(kk, 5)
+                if body == "blank":
+                    self.blank["x"] = x
+                else:
+                    fake.player[0] = x
+            if kk < 5:
+                keep.append(s)
+        self.slides = keep
+
+    # -- stage 6
+    def _score(self, fake):
+        k, v = self.k, self.v
+        v["I48"] = (v["I30"] + v["I32"]) // 29                      # ip208
+        if k["bonus_fires"]:                                        # EMinigame at sid 4 ip 223 (EMinigame.cs:12-21)
+            if k["sa"] >= 1:
+                v["I48"] += v["I48"] // 10 * 3
+            if v["I48"] >= 75:
+                fake.achievements.append("Encore")                  # EMinigame.cs:34-38
+        if k["score_override"] is not None:                         # H12: a fork that scores differently
+            v["I48"] = int(k["score_override"])
+        if v["I48"] > 100:                                          # ip233
+            v["I48"] = 100
+        if v["I48"] <= 0:                                           # ip252
+            v["I48"] = 1
+        v["I50"] = ((v["I30"] // 5 + v["I32"]) + v["I42"] * 2 + v["I40"] * 2) // 2 + 1     # ip260
+        if v["I48"] == 100:                                         # ip296-307
+            v["I50"] = 10000
+        fake.chanbara_vars = dict(v)
+        if fake.story_bytes[475] < v["I48"]:                        # ip327-338
+            fake.script_store(4, 1, 338, 475, "Byte", v["I48"])
+        if v["I42"] < 50:                                           # ip346-366
+            yield from self._page(fake, 120, numb=v["I48"])
+            yield from self._ticks(5)
+            yield from self._page(fake, 121)
+        else:                                                       # ip375-390
+            yield from self._page(fake, 122, numb=v["I48"])
+            yield from self._ticks(5)
+            yield from self._page(fake, 123)
+            fake.script_store(4, 1, 390, 3815 >> 3, "Bit", 1, bit=3815)
+        yield from self._ticks(10)                                  # ip399
+        if k["encore"]:
+            mes = 124 if v["I48"] < 25 else 125 if v["I48"] < 50 else 126 if v["I48"] < 75 else 127
+            answer = yield from self._choice(fake, mes)
+        else:
+            answer = 1
+        if answer == 0 or k["replay_on_no"]:                        # ip476: Yes (or H12's replay on No)
+            return True
+        v["b27"] = 1                                                # ip509
+        yield from self._ticks(15)                                  # ip517
+        yield from self._page(fake, 128, numb=v["I50"])             # ip531
+        fake.gil += v["I50"]                                        # AddGi, ip537
+        return False
 
 
 def _control(name: str) -> str:

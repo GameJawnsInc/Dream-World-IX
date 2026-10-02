@@ -1101,6 +1101,127 @@ one the way a player does. It is opt-in, per segment, and off unless the predict
   skipped by a later O3 session or regression re-run; O3's frozen predictions (v1) carry no policy and stay so, and
   every other segment's movies play out until that segment's own A/B reads EQUIVALENT.
 
+## O4 -- the sword fight under the trace, a US session: 64 -> the fight -> 150 -> 153 (PROVEN: story-o4, v1 638e43fc)
+
+**The question.** From the arrival in A. Castle/Public Seats (64) at SC 1155, through the sword fight with Blank --
+played by the driver to the owner's displayed 100/100 --, the encore declined, 150's guardhouse and the party rebuilt,
+SC := 1190, to the arrival in 153: does the alxc disc-1 chain write the real game's story state key for key? It is the
+first segment whose writes depend on what the driver PRESSES: 49 timed prompts, whose score lands in `Byte[475]` and
+whose 50-combo in `Bit[3815]`. The design, with its two critique rounds folded in, is
+[`research/o4_design.md`](research/o4_design.md).
+
+**The segment.** A raw warp into 64 (entrance 100, SC 1155), then:
+- 64: the KEYON pair 105/106; 111, the fight's instructions; the 49 prompts (e20 t1 arms them, e3 t1 polls the eight
+  KEYON bits once a tick); the end pair 107/108; page 122 "Of 100 nobles watching, / 100 were impressed." (ip338
+  `Byte[475] := Int16[48]`, 0 -> 100); page 123, then ip390 `Bit[3815] := 1`; the encore choice 127, answered No;
+  page 128 "They shower you with 10000 Gil!"; stage 9; `Field(150)`;
+- 150: the guardhouse at entrance 325; stage 10's party rebuild; SC 1155 -> 1190 (e3 t1 ip1966); `Field(153)`.
+
+It ends on arrival in 153 -- real 153 on S, member(153) on F -- cut at its first row (e0 t0 ip22).
+
+**The sides.** S = stock. F = the alxc disc-1 chain, imported and built for O4 (`import-chain 64 --verbatim --ids
+64,68-69,150-151,153-167 --fresh-ids --id-base 31240 --name-prefix O4`; [`o4_forks.json`](o4_forks.json)): twenty
+members 31240-31259 -- member(64) 31240, member(150) 31243, member(153) 31245 -- every language its own donor's
+(today's kit). Both route `Field()`s are retargeted, so the F side ENDS in member(153): each side has its own end list
+(`side_ends`), and a landing in a REAL donor field on F is V19, a finding. Built outside the repo and the install;
+nothing deployed until the lead's owner-gated deploy, after the freeze.
+
+**A US session -- scoped facts, never silent.**
+- The keys and joins were read in the US scripts, and P-LANG pins the session language. The members' other languages
+  are their own donors' (O4-BUILD per language; O4-TEXT strict on blocks 2 and 3).
+- Text block 2 is global, and today FF9CustomMap ships O1's copy of it with uk == us (the KNOWN-KIT-DEFECT line O1's
+  and O3's P-TEXT print). O4's first deploy (31240) backs that copy up and writes block 2 per language. After it, O1's
+  and O3's P-TEXT read 7 byte-equal of 7; O3's report derives its language clause from its own recorded P-TEXT rows
+  (A2), so story-o3's archived report is unchanged.
+- The deploy's ForkDonorPatch rows make the engine resolve 64, 68, 69, 150, 151 and 153-167 to their members for EVERY
+  session sharing the install (a fork-entered battle's return, an overworld entry into those ids). No O1-O3 route
+  returns into them.
+
+**The entry.** New Game, the trace armed, then `warp 64 100 1155` (stock) or `warp 31240 100 1155` (fork) in field 70,
+O2's form: three residue rows in 70 (SC's two bytes, FieldEntrance's low byte), set aside by the front cut and required
+by O4-START. 64 takes its ambient branch from the warp's `Byte[13]` 1 (ip119), never the error window.
+
+**The driver** (`segment_drive.drive`; research/o4_design.md 2). No beat table: 64 at 100 and 150 at 325 never grant
+control, and control anywhere is V4. No battle, no movie. The CHANBARA POLICY (`pred["chanbara"]`, rule 6b's
+executor):
+- 111 pressed until it closes; then each of the 49 prompts pressed ONCE with its mapped button (LEFT, RIGHT, UP, DOWN
+  as themselves; TRIANGLE `menu`, CROSS `confirm`, CIRCLE `cancel`, SQUARE `special`), FAST -- raw >= 100 shows 100
+  with or without the +30%;
+- each instance recorded: its j bounds, its evidence (its window closed on the press), its slide (LEFT/RIGHT);
+- the score and gil pages read in two samples; the encore answered No by `g.choose(1)`; a stray Confirm on 127
+  attributed by its down frame;
+- the input witness: outside input anywhere in the run is V13.
+
+V17 is the driver's (its input not proven the frozen play), V18 the game's (a sample SHOWED it deviate: a finding),
+V19 a real donor field on F (a finding). V18 and V19 hold their side's re-runs.
+
+**The displayed 100 (the owner's requirement).** Every covered run shows "100 were impressed.": the judge proves 49
+proper presses (`j_hi` <= `j_cap`, frozen 14, so raw_lo >= 100) and the trace holds ip338 0 -> 100. Whether the EMinigame +30%
+fires on member(64) is outside the claim: R-GATE, a paced play (raw 79-99), witnesses it after the deploy, and P-GATE
+carries its verdict and cause into the session -- WITNESSED; BROKEN by the bonus (the fast play is clamp-proof, the
+session runs); BROKEN by the combo, INVALID or UNINFORMATIVE (STOP) -- on the pinned engine and settings. A run that
+cannot witness (stopped mid-fight, the instrument's V13, the stock game deviating on S) is re-run, never read as
+INVALID; and P-GATE reads the hand-filled witness back from R-GATE's own launch record, member(64)'s build included.
+
+**The checks** ([`o4_castle.py`](o4_castle.py); research/o4_design.md 5 and 6):
+- offline: O4-BUILD (every member's `.eb` per language; the fork-gate pins: member(64)'s e4 t1 score-to-store bytes
+  its donor's, the only byte diffs the six in-chain `Field()` operands), O4-KEYS (55 sites, the score's `:=var` key,
+  the 56 fight pins), O4-TEXT (blocks 2 and 3, STRICT), O4-CENSUS (every store site of 64 and 150 classified; 150's
+  inert functions proven not instanced at entrance 325);
+- preflight: P-MANIFEST, P-DEPLOY, P-EB, P-FLOOR, P-STOCK, P-TEXT (blocks 2 and 3), P-RECOVERY, P-DONOR, P-SETTINGS,
+  P-PAD, P-OVERRIDE, P-ENGINE, P-GATE; in game P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG, P-LAUNCH (with the engine DLLs)
+  and P-PAD;
+- the session: O4-FROZEN, O4-COVER; O4-FORBIDDEN and O4-VOID-ASYM (a)-(d) over every run, covered or not; then START,
+  LADDER (1155 -> 1190), CHAIN, RESIDUE, WRITES (EXACT: the 23 writes, the 2-key chain, the ladder), NULL, STABLE,
+  LANDING (a)-(e), SWORD (a)-(f), MASKED, STATE and JOIN over the covered runs; THROW.
+
+**Status: ★★ PROVEN (session `story-o4`, v1 `638e43fc`), a US session -- and 100/100 in every run.** The sword fight
+under the trace: the warp into 64 at SC 1155, the 49 prompts played by the Chanbara policy, the encore declined, 150's
+party rebuild, SC 1155 -> 1190, `Field(153)`; the alxc disc-1 chain (31240-31259, deployed for O4) writes the real
+game's story state key for key. S F S F S F, 6/6 covered (S 3 of 3, F 3 of 3), unattended, 706 s, no re-run; every
+check PASS (37/37): FROZEN, COVER, FORBIDDEN, VOID-ASYM (none), START, LADDER (the one rung, 150 e3 t1 ip1966), CHAIN,
+RESIDUE, WRITES (exactly 26 keys a run: 23 writes, the 2-key chain, the ladder), NULL (26 keys matched, 0 stock-only,
+0 fork-only, NO noise), STABLE, LANDING (every F run ended in member(153) 31245, never real 153), SWORD (every run:
+one ip338 `Byte[475]` 0 -> 100, one ip390 `Bit[3815]` 0 -> 1, pages 122 then 123, the encore answered No once, "They
+shower you with 10000 Gil!", 49 proper presses each closing its window, no stray press), MASKED, STATE (14 targets'
+histories identical, the end state as frozen), JOIN (192 rows, 0 failures), THROW (none). The report's one CENSUS GAP
+is `Byte[303]++` at 150 e3 t1 +997 (ip1255): a registered write whose `B_POST_PLUS` form the census instrument does not
+count -- written 3/3 on each side, informational only. Archive: `C:\gd\Dream-World-IX\.harness-runs\20261002-091051-story-o4`
+(o4_report.txt).
+
+**The +30% on a fork: WITNESSED (R-GATE).** The paced pair (target j 22 ticks): stock and member(64) both showed 100
+from a raw score of 86-95, so on each side the EMinigame +30% made the 100 -- the fork gate EMinigame.cs:12
+(`EffectiveFieldId == 64`) fires on member(64), its first in-game proof. One F attempt was V13 (a left mouse button
+down while the game had focus: the input witness), re-run informative. Archive `20261002-090650-o4-rh-gate`; P-GATE
+reads it back from that launch record.
+
+The rehearsals before the freeze (archived `20261002-08*-o4-rh-*`; F1-F15 met):
+
+| stage | runs | what it settled |
+|---|---|---|
+| R-CHANBARA (stock 64 -> 150) | 2/2 reached | the prompts publish `[STRT=54,1][TAIL=UPRF][IMME]Press [DBTN=*][MOBI=*] ![TIME=-1]` (rendered "Press  !"); 49/49 mapped presses, `j_hi` 5-7 ticks, raw 116-126 (100 without the +30% too); the menu/cancel/special map hit Triangle/Circle/Square; 127 published `['They demand an encore!...', 'Yes', 'No']`, selected 0; 123's first Confirm dropped in its opening every run (page-once re-pressed it) |
+| R-FULL (stock 64 -> 153) | 2/2 reached | the 26 keys, the end state as drafted; the two traces row for row identical bar frames (41 rows); 107-126 s a run, 31 fps |
+| R-CHANBARA-VOID | 1 | the forced V17 after prompt 10 pressed nothing more; `end_run` reached the title |
+| F-SMOKE (after the deploy) | 3 + 3 warps | 31240/31243/31245 load, their object sids their stock twins', 0 exceptions |
+| R-GATE (after the deploy) | S 1, F 2 | WITNESSED (above) |
+
+The freeze's numbers (F3-F14): `j_cap` 14, `gone_ticks` 10, `zone_stall_s` 3.5, `first_prompt_s` 2.0, `quiet_cap_s`
+4.2, `page_once_ticks` 10; budget `run_s` 252, `run_min_s` 150, `session_s` 2760, `no_progress_s` 60; R-GATE's pace
+`lead_ticks` 3 (regime 31). The deploy rewrote text block 2 per language: O1's uk KNOWN-KIT-DEFECT is cleared for
+the tshp chain too (P-TEXT block 2: 7 byte-equal of 7).
+
+The offline build, as it stood before the rehearsals (branch `claude/story-trace-o4`, PARTs A-C of the design's
+section 9): `--offline-check` 4 PASS (O4-BUILD 140 files with the fork-gate pins, O4-KEYS 55 sites, O4-TEXT blocks 2
+and 3 strict, O4-CENSUS); [`o4_dryrun.py`](o4_dryrun.py) 103/103; the review's eight findings (five defects) each fixed
+with a failing-first test; the regression gate G1-G21 (O1-O3 byte-identical; O4's tests G19, its dry run G20).
+
+**Next, O5:** from the arrival in member(153) (A. Castle/Hallway) by a raw warp `warp 31245 325 1190` -- the whole
+disc-1 cluster is deployed, so nothing new to build. 153 at 325 holds pages 113-117 and then the FIRST control grant
+in alxc (e3 t1 EnableMove ip785: the stair walk, positions to rehearse), side regions 26/27 and the back door 28, choice
+128 (`Bit[3795]` := SYSVAR[9], ip1741), then `Field(154)` at 304 (Zorn & Thorn), back to 153 at 316, `Field(151)` at
+110 (the throne room: Steiner's naming, and `Byte[6] |= 8` at 151 e3 t1 ip610 -- the first START-DEPENDENT key; 8
+after a raw warp, 11 after a true run). Survey only: research/o4_route.md's candidates 3-7.
+
 ## Rungs
 
 | Rung | What | Pass |
