@@ -68,3 +68,8 @@ studies/story-trace/research/o3_regress_baseline.json -text
 # G21's re-baseline rows (studies/story-trace/segment_regress.py --rebaseline-source): append-only, each row the
 # reason a pinned O1-O3 driver test or fake function changed. LF; never line-end convert them.
 studies/story-trace/research/source_pins.json -text
+
+# O4's registered predictions (studies/story-trace/o4_castle.py O4-FROZEN) are sha256-frozen the same way: the
+# session records the sha of the bytes it read, and the analysis refuses a file that no longer matches. The line is in
+# place BEFORE any freeze (the lead freezes v1 after the stock rehearsals); never line-end convert them.
+studies/story-trace/o4_predictions*.json -text

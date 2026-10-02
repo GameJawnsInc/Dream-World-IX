@@ -1,0 +1,166 @@
+{
+ "what": "O4's fork chain: the alxc disc-1 cluster, verbatim, per-language (today's kit), --ids 64,68-69,150-151,153-167, fresh ids 31240-31259 (PLAN.md, O4). The route runs member(64) -> member(150) and ENDS in member(153): both Field()s on the route are retargeted, so the chain is closed (no seam).",
+ "import": "py -m ff9mapkit import-chain 64 --verbatim --ids 64,68-69,150-151,153-167 --fresh-ids --id-base 31240 --name-prefix O4 --mod-folder FF9CustomMap --out C:/gd/_ns_playtest/o4/fork  (from ff9mapkit/, branch claude/story-trace-o4)",
+ "build": "py -m ff9mapkit build-all C:/gd/_ns_playtest/o4/fork/campaign.toml --out C:/gd/_ns_playtest/o4/build",
+ "deploy": "py tools/deploy_field.py C:/gd/_ns_playtest/o4/fork/<name>/<name>.field.toml --id <fork id> --name <name> --mod-folder FF9CustomMap, one member at a time, in id order (31240 first); owner-gated, after the stock rehearsals and the freeze; then ONE relaunch",
+ "mod_folder": "FF9CustomMap",
+ "members": {
+  "31240": 64,
+  "31241": 68,
+  "31242": 69,
+  "31243": 150,
+  "31244": 151,
+  "31245": 153,
+  "31246": 154,
+  "31247": 155,
+  "31248": 156,
+  "31249": 157,
+  "31250": 158,
+  "31251": 159,
+  "31252": 160,
+  "31253": 161,
+  "31254": 162,
+  "31255": 163,
+  "31256": 164,
+  "31257": 165,
+  "31258": 166,
+  "31259": 167
+ },
+ "names": {
+  "31240": "O4_AC_AST",
+  "31241": "O4_AC_RST",
+  "31242": "O4_AC_RST_A",
+  "31243": "O4_AC_GDR",
+  "31244": "O4_ALXC_AC_RST",
+  "31245": "O4_AC_H2F",
+  "31246": "O4_AC_FTI",
+  "31247": "O4_AC_LBR",
+  "31248": "O4_AC_PTR",
+  "31249": "O4_AC_KTN",
+  "31250": "O4_AC_FGO",
+  "31251": "O4_AC_GTO",
+  "31252": "O4_AC_LTW",
+  "31253": "O4_AC_RTW",
+  "31254": "O4_AC_LTH",
+  "31255": "O4_AC_LTI",
+  "31256": "O4_ALXC_AC_LTI",
+  "31257": "O4_AC_LTI_2",
+  "31258": "O4_AC_LTT",
+  "31259": "O4_ALXC_AC_LBR"
+ },
+ "route_members": {
+  "31240": 64,
+  "31243": 150,
+  "31245": 153
+ },
+ "text_blocks": {
+  "2": [
+   31240,
+   31241,
+   31242
+  ],
+  "3": [
+   31243,
+   31244,
+   31245,
+   31246,
+   31247,
+   31248,
+   31249,
+   31250,
+   31251,
+   31252,
+   31253,
+   31254,
+   31255,
+   31256,
+   31257,
+   31258,
+   31259
+  ]
+ },
+ "deployed": false,
+ "relaunch_needed": true,
+ "relaunch_why": "20 FieldScene ids and 20 ForkDonorPatch rows are read at launch only (DataPatchers.cs:107-134); P-LAUNCH proves the launch read them",
+ "built": {
+  "where": "C:/gd/_ns_playtest/o4/fork (the import) and C:/gd/_ns_playtest/o4/build (the build), both outside the repo and the install",
+  "branch_head": "bb713323 (claude/story-trace-o4)",
+  "eb_files": 140,
+  "measured": "O4-TEXT strict on the build: block 2 7 byte-equal of 7, block 3 7 byte-equal of 7, KNOWN-KIT-DEFECT 0, FAIL 0 (no refresh_verbatim_text.py needed: the kit carries aa627d52). O4-BUILD's diff set: per language, member(64) differs from stock 64 in exactly 6 bytes -- the operands of e2 t1 ip536 Field(150), e11 t2 ip201 Field(153), e12 t2 ip201 Field(153) (64's e2 t1 ip901 Field(67) stays real) -- and member(150) from stock 150 in exactly 6 bytes: e3 t1 ip2169, e18 t2 ip386, e19 t2 ip342 Field(153); jp's 64 is 10604 B, the six others 10624 B; every member's every language its own donor's remapped (140 files)",
+  "install_before_after": "every stacked folder's DictionaryPatch.txt / ForkDonorPatch.txt / BattlePatch.txt and its live text blocks 2 and 3, hashed before the import and after the build: equal (the import and the build wrote nothing to the install); the band 31240-31259 registered nowhere before the import",
+  "install_shas": {
+   "FF9CustomMap": {
+    "BattlePatch.txt": "da79856f6f49a084dc2304b336699c3ebbc0fd6bb7345a4705d143fddcf9b4a8",
+    "DictionaryPatch.txt": "8fbe499ab1c79fac4906746819f4bf35ae73a85696d27335ea16196c11b7d04f",
+    "ForkDonorPatch.txt": "308e281b7937da17af42107037042f9d453aee51e18be7b940bd7633361e73c6",
+    "text2": {
+     "es": "efac9514f49ef73995fa2d5ed63a34e1e794b01429cb2610a60ae7403da4e137",
+     "fr": "9817aeaa2614eab2940c46d091e24fbe4d23e3bf28ab63d9d0043a463761b09e",
+     "gr": "293ec916883d997d08515ad4ba11d2d832590914814cc486fcfe2d21363fa665",
+     "it": "56f6eacba840ce8e0fd978d183f179a27b49ddebbc4f5af0e9f89b53fa28ded8",
+     "jp": "3a8cdce3ad81b65710a613b53e399d077e2e7aa9bfa83b18c9d0ce357e929d6e",
+     "uk": "3a6f3246c2807c83d70e2760a70b1b15f51d42c98b63c5199035744b376d6db5",
+     "us": "3a6f3246c2807c83d70e2760a70b1b15f51d42c98b63c5199035744b376d6db5"
+    },
+    "text3": {}
+   },
+   "FF9CustomMap-msgs": {
+    "BattlePatch.txt": "d89ad708c499d3c55e8e8836cefba807a3f0aee85a432b57ffa286540f8f687c",
+    "DictionaryPatch.txt": "b780dc703efa64e6bda46937e91de7480e7d94b36fdc541cba560173399f2647",
+    "ForkDonorPatch.txt": null,
+    "text2": {},
+    "text3": {}
+   },
+   "FF9CustomMap-schema": {
+    "BattlePatch.txt": null,
+    "DictionaryPatch.txt": "5b37053603caccec02acd949945f00055c6e425a63cc61c9ddc410c73c9613eb",
+    "ForkDonorPatch.txt": null,
+    "text2": {},
+    "text3": {}
+   },
+   "FF9CustomMap-world": {
+    "BattlePatch.txt": null,
+    "DictionaryPatch.txt": "baa5593e5b580f776790ce08c8253fc4ced27d7895cc6900849821a4ddb1559b",
+    "ForkDonorPatch.txt": null,
+    "text2": {},
+    "text3": {}
+   },
+   "MoguriMain": {
+    "BattlePatch.txt": null,
+    "DictionaryPatch.txt": null,
+    "ForkDonorPatch.txt": null,
+    "text2": {},
+    "text3": {}
+   },
+   "MoguriVideo": {
+    "BattlePatch.txt": null,
+    "DictionaryPatch.txt": null,
+    "ForkDonorPatch.txt": null,
+    "text2": {},
+    "text3": {}
+   }
+  }
+ },
+ "text_effects": {
+  "why": "Block 2 is GLOBAL and FF9CustomMap already ships it for O1's tshp chain (31200-31219) with uk == us: the KNOWN-KIT-DEFECT line O1's and O3's P-TEXT print (uk ships stock us 3a6f3246c2; stock uk 7ac9f17435). O4's first block-2 deploy (31240) backs that copy up and writes the per-language-correct block 2, which BOTH chains then read: O1/O3's P-TEXT reads 7 byte-equal (re-baseline any doc that quotes the defect line; archived O1-O3 analyses read their recorded preflight and do not change). Block 3 has no live override: 31243's deploy writes it fresh. O3's report: rev. 1's o3_prima_vista SCOPE_LANG printed the uk clause unconditionally; A2 derives the clause from the recorded P-TEXT lines (story-o3 and every o3_dryrun session record the defect, so G15-G17 stay byte-equal) and PLAN.md says so.",
+  "o1_block2": {
+   "es": "efac9514f49ef73995fa2d5ed63a34e1e794b01429cb2610a60ae7403da4e137",
+   "fr": "9817aeaa2614eab2940c46d091e24fbe4d23e3bf28ab63d9d0043a463761b09e",
+   "gr": "293ec916883d997d08515ad4ba11d2d832590914814cc486fcfe2d21363fa665",
+   "it": "56f6eacba840ce8e0fd978d183f179a27b49ddebbc4f5af0e9f89b53fa28ded8",
+   "jp": "3a8cdce3ad81b65710a613b53e399d077e2e7aa9bfa83b18c9d0ce357e929d6e",
+   "uk": "3a6f3246c2807c83d70e2760a70b1b15f51d42c98b63c5199035744b376d6db5",
+   "us": "3a6f3246c2807c83d70e2760a70b1b15f51d42c98b63c5199035744b376d6db5"
+  }
+ },
+ "global_side_effects": "ForkDonorPatch rows for 64, 68, 69, 150, 151 and 153-167 make ForkSiblingField resolve those donors to their members (DataPatchers.cs:102-105, :137-167) for EVERY session sharing the install: a fork-entered battle's return (HonoluluBattleMain.cs:736-737) and an overworld field entry (ff9.cs:9327) into those ids land in the member. The harness field warp and a Field() op never redirect (0.2 #14). No battle on O1-O3's routes returns into them (338 returns to 63), and no duplicate donor exists (the live duplicates are 312 and 350-359): no -1 entry appears.",
+ "known_defects": [],
+ "revert": {
+  "scripts_dir": "C:\\gd\\Dream-World-IX\\tools\\scroll_out",
+  "order": "reverse deploy order, 31259 down to 31240, and O4's before O1's",
+  "why_order": "block 3 is written fresh by 31243 (its revert deletes it) and backed up by 31244-31259 (theirs restore it); block 2 is backed up by 31240 (O1's copy, which 31240's revert restores): out of order, a revert restores the wrong copy"
+ },
+ "deployed_at": null,
+ "gate_witness": null,
+ "verified": null
+}

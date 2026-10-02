@@ -295,6 +295,15 @@ REQUIRED_TESTS_O4: tuple = (
     "test_o4_drive_never_blocks_on_the_rate",
     "test_o4_drive_stop_after_ends_at_instance_eleven",
     "test_o4_drive_prompt_outside_its_cell_is_v17",
+    # C1: o4_castle itself -- the draft from campaign.toml, the freeze's refusals, the census's inert proof, the
+    # preflight's verdicts, the input witness's readers, VOID-ASYM (d), R-GATE's verdict
+    "test_o4_castle_draft_reads_the_chain_from_campaign",
+    "test_o4_castle_freeze_refuses",
+    "test_o4_castle_census_proves_inert_by_instancing",
+    "test_o4_castle_preflight_verdicts",
+    "test_o4_castle_input_witness_readers",
+    "test_o4_castle_void_asym_reads_observed_rows",
+    "test_o4_castle_gate_verdict",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

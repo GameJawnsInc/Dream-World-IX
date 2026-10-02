@@ -17609,3 +17609,359 @@ def test_o3_drive_pages_a_prompt_without_the_chanbara_policy(game):
     assert len(presses) >= 1 and {p["why"] for p in presses} == {"page"}, presses
     assert all(set(p) == {"k", "why", "field", "donor", "visit", "sc", "pre", "post", "near"} for p in presses), presses
     assert not [r for r in log if r["k"] in ("zone", "prompt", "observed", "quiet", "input")], log
+
+
+# ---- O4 itself (studies/story-trace/o4_castle.py; research/o4_design.md section 9, PART C, C1): the draft read from
+# the chain's campaign.toml, the freeze's refusals, the census's inert proof by instancing, the preflight's pure
+# verdicts, the input witness's readers, VOID-ASYM (d) and R-GATE's verdict -- each pure, on synthetic chains, items,
+# readers and runs (the census's stock half reads the install, read-only).
+
+def _o4_castle_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o4_castle as C
+    return C
+
+
+def _o4c_campaign(tmp, donors=None, ids=None, name="campaign.toml"):
+    """A synthetic campaign.toml of the alxc chain's shape: one ``[[field]]`` a donor (default the twenty), its id
+    31240 + its position (``ids`` overrides by donor), its name O4_SYNTH_<donor>."""
+    C = _o4_castle_module()
+    donors = list(C.DONORS) if donors is None else list(donors)
+    text = '[campaign]\nname = "O4_SYNTH"\nmod_folder = "FF9CustomMap"\n'
+    for i, d in enumerate(donors):
+        fid = (ids or {}).get(d, 31240 + i)
+        text += f'\n[[field]]\nname = "O4_SYNTH_{d}"\nsource = {d}\nid = {fid}\nmode = "native"\n'
+    path = tmp / name
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+@pytest.fixture(scope="module")
+def o4_stock():
+    """The install's stock scripts of 64 and 150 (what the census and the instancing proof read), or a WARNED skip --
+    never a silent pass (THE WORKTREE SKIP TRAP)."""
+    import warnings
+    try:
+        from ff9mapkit import storytrace
+        src = storytrace.stock_script_source()
+        assert all(src(f) is not None for f in (64, 150))
+    except Exception as err:                                   # noqa: BLE001 -- no install here
+        warnings.warn(f"O4's census went UNVERIFIED against real bytes in this run: the game install is not readable "
+                      f"here ({type(err).__name__}). Run on the machine with the install.", UserWarning)
+        pytest.skip("game install unavailable")
+    return src
+
+
+def test_o4_castle_draft_reads_the_chain_from_campaign(tmp_path):
+    """The draft's members and names are the built chain's campaign.toml (research/o4_design.md 1.3, 4.1): exactly the
+    twenty alxc donors, member(64) / member(150) / member(153) DERIVED (never assumed) and printed as one line; the
+    draft's start, side_ends and members follow them -- a chain whose ids run the other way moves them all. A missing
+    donor, an extra one and a donor forked twice are each refused, naming it. o4_forks.json carries the same shape:
+    its route members derived from its own members, not deployed, no gate witness. Break: drop the donor-set
+    assertion (the draft would register another chain)."""
+    C = _o4_castle_module()
+    path = _o4c_campaign(tmp_path)
+    members, names = C.chain_from_campaign(path)
+    assert members == {31240 + i: d for i, d in enumerate(C.DONORS)} and names[31240] == "O4_SYNTH_64", members
+    assert C.route_members(members) == {64: 31240, 150: 31243, 153: 31245}
+    assert C.route_members_line(members) == "member(64) 31240, member(150) 31243, member(153) 31245"
+    pred = C.draft_predictions(path)
+    assert pred["start"] == {"S": 64, "F": 31240} and pred["side_ends"] == {"S": [153], "F": [31245]}, pred["start"]
+    assert pred["members"] == {str(f): d for f, d in members.items()} and pred["names"]["31259"] == "O4_SYNTH_167"
+    assert pred["end_fields"] == [153] and pred["route"] == [64, 150] and pred["chanbara"]["policy"] == "fast"
+    rev = _o4c_campaign(tmp_path, ids={d: 31259 - i for i, d in enumerate(C.DONORS)}, name="reversed.toml")
+    pr = C.draft_predictions(rev)
+    assert pr["start"]["F"] == 31259 and pr["side_ends"]["F"] == [31254], (pr["start"], pr["side_ends"])
+    for donors, match in (([d for d in C.DONORS if d != 160], r"missing \[160\]"),
+                          (list(C.DONORS) + [61], r"extra \[61\]"),
+                          ([64 if d == 68 else d for d in C.DONORS], r"missing \[68\], extra \[64\]")):
+        with pytest.raises(AssertionError, match=match):
+            C.chain_from_campaign(_o4c_campaign(tmp_path, donors=donors, name="bad.toml"))
+    man = json.loads(C.MANIFEST.read_text(encoding="utf-8"))
+    mm = {int(f): int(d) for f, d in man["members"].items()}
+    assert sorted(mm.values()) == sorted(C.DONORS) and man["route_members"] == \
+        {str(f): d for d, f in C.route_members(mm).items()}, man["route_members"]
+    assert man["deployed"] is False and man["gate_witness"] is None and man["relaunch_needed"] is True, man
+    assert set(man["text_effects"]["o1_block2"]) == {"us", "uk", "fr", "gr", "it", "es", "jp"}
+
+
+def test_o4_castle_freeze_refuses(tmp_path):
+    """The freeze (research/o4_design.md 1.3, 7.3) writes the draft ONCE -- LF, sorted keys, its sha the bytes' -- on a
+    synthetic chain (so the rule is tested wherever the suite runs) and on the live engine (a stub reader). Before
+    anything is written it refuses, each naming its cause and writing nothing: a paced policy, a pace under fast (the
+    strict reader's refusal), a stop_after, side_ends the strict reader refuses (F ending in REAL 153, a donor its chain
+    forks), a battles row, an engine that is not the live DLLs'; and a second freeze onto the same file refuses. The
+    real o4_predictions_v1.json is never touched. Break: accept a stop_after."""
+    import copy
+    import hashlib
+    C = _o4_castle_module()
+    _o4c_campaign(tmp_path)
+    seg = C.O4Segment()
+    seg.chain_dir = tmp_path
+    live = {"x64": C.ENGINE["x64"], "x86": C.ENGINE["x86"]}
+    good = seg.draft()
+
+    def refuses(pred, match, engine=live):
+        seg.draft = lambda: copy.deepcopy(pred)
+        never = tmp_path / "never.json"
+        with pytest.raises(SystemExit, match=match):
+            seg.freeze(never, live_engine=engine)
+        assert not never.exists()
+
+    def with_policy(**over):
+        p = copy.deepcopy(good)
+        p["chanbara"].update(over)
+        for k in [k for k, v in over.items() if v is ...]:
+            p["chanbara"].pop(k)
+        return p
+    refuses(with_policy(**{**C.PACED, "raw_floor": ...}), "the policy is 'paced'")
+    refuses(with_policy(pace=dict(C.PACED["pace"])), "a pace under the fast policy")
+    refuses(with_policy(stop_after=10), "a stop_after")
+    refuses(dict(copy.deepcopy(good), side_ends={"S": [153], "F": [153]}), "neither an end field no member forks")
+    refuses(dict(copy.deepcopy(good), battles=[{"donor": 64}]), "battle row")
+    refuses(good, "is not the live DLLs'", engine={"x64": "0" * 64, "x86": "0" * 64})
+    seg.draft = lambda: copy.deepcopy(good)
+    path = tmp_path / "o4_predictions_v1.json"
+    sha = seg.freeze(path, live_engine=live)
+    data = path.read_bytes()
+    assert sha == hashlib.sha256(data).hexdigest() and b"\r" not in data and data.endswith(b"\n")
+    assert data.decode("utf-8") == json.dumps(good, indent=1, sort_keys=True) + "\n"
+    with pytest.raises(SystemExit, match="frozen"):
+        seg.freeze(path, live_engine=live)
+    assert path.read_bytes() == data
+
+
+def test_o4_castle_census_proves_inert_by_instancing(o4_stock):
+    """O4-CENSUS's inert proof (research/o4_design.md 0.2 #4, 6.1): ``instanced_at`` walks Main_Init's control flow
+    with the entrance dispatch taken to ONE case. A synthetic Main_Init: at 325 the common code before the dispatch,
+    325's case with both arms of a branch inside it, and the join after every case -- never entrance 5's case or the
+    default; entrance 5 its own case; an entrance no case names the default; a SWITCH (base, default, cases) read the
+    same; no dispatch on Int16[2] refused. On stock 150 at 325 the set is the design's {code 1, 2, 3, 5, 6, 9, 4, region
+    18, code 17}, no instancing op sits outside e0 t0, and O4-CENSUS passes -- then FAILS by name with an inert entry 3
+    (instanced at 325: the proof fails). Break: follow every target of the entrance dispatch (the proof then reads 150's
+    other entrances' objects as instanced at 325)."""
+    import copy
+    C = _o4_castle_module()
+    items = [(10, 0, "InitCode(1, 0)"), (13, 3, "SET({Global.Int16[2] B_EXPR_END})"),
+             (17, 7, "SWITCHEX(L80, 325, L20, 5, L50)"), (30, 20, "InitObject(2, 0)"),
+             (33, 23, "SET({Map.Bit[1] const(0) B_EQ B_EXPR_END})"), (41, 31, "JMP_IFNOT(L37)"),
+             (44, 34, "InitObject(7, 0)"), (47, 37, "InitRegion(18, 0)"), (50, 40, "JMP(L90)"),
+             (60, 50, "InitObject(10, 0)"), (63, 53, "JMP(L90)"), (90, 80, "InitObject(23, 0)"), (93, 83, "JMP(L90)"),
+             (100, 90, "InitCode(17, 0)"), (103, 93, "RET()")]
+    assert C.instanced_at(None, 325, items=items) == {("code", 1), ("object", 2), ("object", 7), ("region", 18),
+                                                      ("code", 17)}
+    assert C.instanced_at(None, 5, items=items) == {("code", 1), ("object", 10), ("code", 17)}
+    assert C.instanced_at(None, 999, items=items) == {("code", 1), ("object", 23), ("code", 17)}
+    sw = [(it if it[1] != 7 else (17, 7, "SWITCH(100, L80, L20, L50)")) for it in items]
+    assert C.instanced_at(None, 101, items=sw) == {("code", 1), ("object", 10), ("code", 17)}
+    with pytest.raises(ValueError, match="no entrance dispatch"):
+        C.instanced_at(None, 325, items=[it for it in items if it[1] != 3])
+    idx = o4_stock(150)
+    assert C.instanced_at(idx, 325) == {("code", 1), ("object", 2), ("object", 3), ("object", 5), ("object", 6),
+                                        ("object", 9), ("object", 4), ("region", 18), ("code", 17)}
+    assert [s for s in C.instancing_sites(idx) if (s[0], s[1]) != (0, 0)] == []
+    pred = C.draft_predictions(_o4c_campaign_tmp())
+    ok, _w, detail = C.O4.census_check(pred, o4_stock)
+    assert ok and "inert 0/239" in detail and "inert 10, 15, 16, 19, 23 not instanced at 325" in detail, detail
+    bad = copy.deepcopy(pred)
+    bad["inert"].append({"donor": 150, "sid": 3, "tags": "*", "why": "a mutant"})
+    ok, _w, detail = C.O4.census_check(bad, o4_stock)
+    assert not ok and "inert entry 3 of 150 is instanced at entrance 325" in detail, detail
+
+
+def _o4c_campaign_tmp():
+    """A synthetic chain in its own temporary directory (for a module-scoped reader)."""
+    import tempfile
+    return _o4c_campaign(pathlib.Path(tempfile.mkdtemp(prefix="o4c-")))
+
+
+def _o4c_pad(**over):
+    return {"buttons": 0, "lt": 0, "rt": 0, "lx": 0, "ly": 0, "rx": 0, "ry": 0, **over}
+
+
+def test_o4_castle_preflight_verdicts(tmp_path):
+    """The preflight's pure verdicts (research/o4_design.md 6.2, section 8's units). P-PAD over a stub XInput reader
+    (25 reads, no sleep): no pad PASS; an idle pad at slot 2 PASS with the WARN line; a pressed A, a trigger at 40, a
+    thumb at 4000 FAIL; no XInput runtime PASS. P-OVERRIDE: the pinned sha PASS; another sha, two folders, none FAIL.
+    P-ENGINE: the pinned DLLs PASS; another sha, x86 differing from x64 FAIL. P-GATE: no witness, UNINFORMATIVE,
+    INVALID, a missing run dir, BROKEN with cause combo, another engine, SwordplayAssistance 2 FAIL; WITNESSED and
+    BROKEN with cause bonus PASS, the detail opening with the verdict and carrying the witness. O4-TEXT's strict_text:
+    block 3's uk shipping stock us passes text_rule (a named defect) and FAILS strict. P-TEXT: block 2 with O1's copy
+    (its shas o1_block2) and no O4 member registered PASS, the line named; the same copy with an O4 member registered
+    FAIL; another defect copy before the deploy FAIL; block 3 with a defect FAIL; none shipped PASS. Break: tolerate
+    any block-2 defect before the deploy (drop the o1_block2 sha match)."""
+    C = _o4_castle_module()
+
+    def pad(slots, reads=25):
+        state = {"n": 0}
+
+        def reader(slot):
+            if slot == 0:
+                state["n"] += 1
+            v = slots.get(slot)
+            return v(state["n"]) if callable(v) else v
+        return C.p_pad(C.xinput_slots(reader, reads=reads, sleep=lambda s: None))
+    assert pad({}) == (True, "no XInput pad connected at slots 0-3 (25 reads 20 ms apart)")
+    ok, detail = pad({2: _o4c_pad()})
+    assert ok and detail.startswith("WARN: an XInput pad is connected at slot 2 (idle over the sample)"), detail
+    for state, what in ((lambda n: _o4c_pad(buttons=0x1000) if n == 5 else _o4c_pad(), "buttons 0x1000"),
+                        (_o4c_pad(rt=40), "trigger rt 40"), (_o4c_pad(lx=4000), "thumb lx 4000")):
+        ok, detail = pad({0: state})
+        assert not ok and what in detail, detail
+    assert C.p_pad(C.xinput_slots(None)) == (True, "no XInput runtime on this host: nothing can be connected")
+    pinned = dict(C.OVERRIDE70)
+    assert C.p_override(dict(pinned), pinned)[0]
+    for fp in ({"FF9CustomMap-world": "0" * 64}, {**pinned, "FF9CustomMap": pinned["FF9CustomMap-world"]}, {}):
+        assert not C.p_override(fp, pinned)[0], fp
+    eng = {"x64": C.ENGINE["x64"], "x86": C.ENGINE["x86"]}
+    assert C.p_engine(dict(eng), C.ENGINE)[0]
+    for live in ({"x64": "1" * 64, "x86": "1" * 64}, {**eng, "x86": "2" * 64}):
+        assert not C.p_engine(live, C.ENGINE)[0], live
+    witness = {"run_dir": str(tmp_path), "verdict": "WITNESSED", "cause": None, "engine": dict(eng),
+               "settings": json.loads(json.dumps(C.SETTINGS)), "s_run": 0, "f_run": 1, "detail": "both 100"}
+
+    def gate(**over):
+        w = {**witness, **over}
+        return C.p_gate({"gate_witness": w}, eng, C.SETTINGS, exists=lambda p: p == str(tmp_path))
+    ok, detail = gate()
+    assert ok and detail.startswith("R-GATE WITNESSED (cause none)") and '"s_run": 0' in detail, detail
+    assert gate(verdict="BROKEN", cause="bonus")[0]
+    sa2 = json.loads(json.dumps(C.SETTINGS))
+    sa2["Hacks"]["SwordplayAssistance"] = "2"
+    for over in ({"verdict": "UNINFORMATIVE"}, {"verdict": "INVALID"}, {"run_dir": str(tmp_path / "gone")},
+                 {"verdict": "BROKEN", "cause": "combo"}, {"engine": {"x64": "3" * 64, "x86": "3" * 64}},
+                 {"settings": sa2}):
+        assert not gate(**over)[0], over
+    assert not C.p_gate({"gate_witness": None}, eng, C.SETTINGS)[0]
+    A = __import__("o2_alexandria")
+    langs = ("us", "uk", "fr", "gr", "it", "es", "jp")
+    stock = {L: f"stock {L}".encode() for L in langs}
+    defect = dict(stock, uk=stock["us"])
+    ok, lines = A.text_rule(stock, defect, "us")
+    assert ok and not C.strict_text(lines)[0] and C.strict_text(A.text_rule(stock, dict(stock), "us")[1])[0]
+    o1 = {L: C._sha(b) for L, b in defect.items()}
+    ok, detail = C.p_text(2, [("FF9CustomMap", defect)], stock, o1_block2=o1, o4_registered=False)
+    assert ok and "KNOWN-KIT-DEFECT uk: ships stock us" in detail and "tolerated before O4's deploy" in detail, detail
+    assert not C.p_text(2, [("FF9CustomMap", defect)], stock, o1_block2=o1, o4_registered=True)[0]
+    other = dict(stock, fr=stock["it"])
+    assert not C.p_text(2, [("FF9CustomMap", other)], stock, o1_block2=o1, o4_registered=False)[0]
+    assert not C.p_text(3, [("FF9CustomMap", defect)], stock, o1_block2=o1, o4_registered=False)[0]
+    assert C.p_text(3, [], stock, o1_block2=o1, o4_registered=False) == (True, "no mod folder ships block 3")
+
+
+def test_o4_castle_input_witness_readers():
+    """The input witness's readers (research/o4_design.md 2.4.3 step 0, section 8's unit), each a stub: neutral pads and
+    no key read None; a pad button at slot 1, a trigger at 40, a thumb at 4000 read non-neutral (the pad); a key down
+    with the game focused reads non-neutral (the key), the same key unfocused neutral (the keyboard needs focus), F1
+    focused non-neutral (the booster); a slot found disconnected is re-read at most once a second (the clock a stub).
+    Break: read the keys whatever the focus."""
+    C = _o4_castle_module()
+    pads, keys, focus, clock, calls = {}, {"down": []}, {"on": False}, {"t": 100.0}, []
+
+    def reader(slot):
+        calls.append(slot)
+        return pads.get(slot)
+    w = C.input_witness(None, pads=reader, keys=lambda: keys["down"], focus=lambda: focus["on"],
+                        clock=lambda: clock["t"])
+    assert w() is None and calls == [0, 1, 2, 3]
+    clock["t"] = 100.5
+    assert w() is None and calls == [0, 1, 2, 3], calls
+    clock["t"] = 101.0
+    pads[1] = _o4c_pad(buttons=0x1000)
+    assert w() == "XInput slot 1: buttons 0x1000" and calls[4:] == [0, 1], calls
+    pads[1] = _o4c_pad(lt=40)
+    assert "trigger lt 40" in (w() or "")
+    pads[1] = _o4c_pad(ry=-4000)
+    assert "thumb ry -4000" in (w() or "")
+    pads[1] = _o4c_pad()
+    assert w() is None
+    keys["down"] = [0x41]
+    assert w() is None, "a key with the game unfocused is not the game's"
+    focus["on"] = True
+    assert w() == "key(s) down while the game has focus: 0x41"
+    keys["down"] = [0x70]
+    assert w() == "key(s) down while the game has focus: 0x70"
+
+
+def test_o4_castle_void_asym_reads_observed_rows():
+    """O4-VOID-ASYM (research/o4_design.md 5.3; rev. 2, the claim critique #5) on synthetic runs: one F run VOID V17
+    (the driver's) whose log holds an ``observed`` row -- an unclaimed dialog the game showed in the fight -- FAILS (d)
+    alone ((a) reads game-attributed classes only, (b) one class in every run, (c) the finding classes); the same kind
+    and cell on one run of each side PASSES (a symmetric observation is no fork deviation); one V18 on each side FAILS
+    (c) alone (a finding is never a VOID, whichever side holds it). Break: read only O2's (a)-(b) and (c)."""
+    C = _o4_castle_module()
+    pred = {"min_covered": 2, "rerun": {"max": 2, "stop_on": ["V18", "V19"]}}
+    obs = {"k": "observed", "kind": "unclaimed_dialog", "cell": [64, 1155], "frame": 900, "texts": ["Blank\n“Hold!”"],
+           "phrase_raw": ["[STRT=60,2][TAIL=LORF]Blank\n“Hold!”"]}
+
+    def run(side, i, void=None, log=()):
+        return {"side": side, "i": i, "covered": not void, "void": void or [], "log": list(log)}
+    v17 = [{"class": "V17", "cell": [64, 1155], "by": "driver", "why": "a dialog the prompt rule does not claim"}]
+    v18 = [{"class": "V18", "cell": [64, 1155], "by": "game", "why": "a lingered press"}]
+    base = [run(s, i) for i, s in enumerate("SFSFSF", 1)]
+    one = list(base)
+    one[1] = run("F", 2, v17, [obs])
+    ok, _w, detail = C.O4.void_asym_check(one, pred)
+    assert not ok and detail.startswith("(d) the game showed unclaimed_dialog at [64, 1155]") and "F#2" in detail
+    assert not any(f"({c})" in detail for c in "abc"), detail
+    both = list(one)
+    both[0] = run("S", 1, v17, [obs])
+    ok, _w, detail = C.O4.void_asym_check(both, pred)
+    assert ok and "observed S ['unclaimed_dialog[64, 1155]']" in detail, detail
+    fin = list(base)
+    fin[0], fin[1] = run("S", 1, v18), run("F", 2, v18)
+    ok, _w, detail = C.O4.void_asym_check(fin, pred)
+    assert not ok and "(c) S#1 VOID V18" in detail and "(c) F#2 VOID V18" in detail and "(a)" not in detail, detail
+
+
+def _o4c_reading(side, *, informative=True, number=100, byte475=100, combo=False, v18=False, raw=(80, 92), sa="1",
+                 engine=None):
+    C = _o4_castle_module()
+    settings = json.loads(json.dumps(C.SETTINGS))
+    settings["Hacks"]["SwordplayAssistance"] = sa
+    return {"side": side, "informative": informative, "why": "synthetic", "raw": list(raw),
+            "judge": {"v": "V18" if v18 else None, "why": "instance 9 was still listed at or past its mark"},
+            "page": f"Of 100 nobles watching,\n{number} were impressed.", "number": number, "combo": combo,
+            "byte475": byte475, "settings": settings,
+            "engine": engine or {"x64": C.ENGINE["x64"], "x86": C.ENGINE["x86"]}, "v": None}
+
+
+def test_o4_castle_gate_verdict():
+    """R-GATE's verdict (research/o4_design.md 7.4 G2, section 8's unit), with its causes: S 100 + F 100 WITNESSED; F
+    Byte[475] 90 with page "90 were impressed." (inside its raw bounds) BROKEN, cause bonus; F pages 120/121, or an
+    informative F run whose judge reads V18 (a lingered press), BROKEN, cause combo; S page 93 INVALID; three
+    uninformative attempts on a side UNINFORMATIVE; a run whose launch recorded SwordplayAssistance 2 or another engine
+    is no witness (set aside, named). And gate_reading on a paced zone's rows: 49 proper rows inside the band read
+    informative, the score page the run stopped at read in two samples (90); a V13 stop uninformative. Break: drop the
+    S run's 100 requirement (S 93 then reads WITNESSED)."""
+    C = _o4_castle_module()
+    r = _o4c_reading
+    v = C.gate_verdict([r("S"), r("F")])
+    assert (v["verdict"], v["cause"], v["s_run"], v["f_run"]) == ("WITNESSED", None, 0, 1), v
+    v = C.gate_verdict([r("S"), r("F", number=90, byte475=90)])
+    assert (v["verdict"], v["cause"]) == ("BROKEN", "bonus"), v
+    for f in (r("F", number=100, combo=True), r("F", v18=True)):
+        v = C.gate_verdict([r("S"), f])
+        assert (v["verdict"], v["cause"]) == ("BROKEN", "combo") and "not the +30%" in v["detail"], v
+    v = C.gate_verdict([r("S", number=93, byte475=93), r("F")])
+    assert v["verdict"] == "INVALID" and v["cause"] is None, v
+    v = C.gate_verdict([r("S", informative=False)] * 3 + [r("S"), r("F")])
+    assert v["verdict"] == "UNINFORMATIVE" and "no informative S run in 3" in v["detail"], v
+    v = C.gate_verdict([r("S")] + [r("F", informative=False)] * 3)
+    assert v["verdict"] == "UNINFORMATIVE" and "no informative F run" in v["detail"], v
+    for odd in (r("S", sa="2"), r("S", engine={"x64": "4" * 64, "x86": "4" * 64})):
+        v = C.gate_verdict([odd, r("F")])
+        assert v["verdict"] == "UNINFORMATIVE" and len(v["no_witness"]) == 1 and "no witness" in v["no_witness"][0], v
+    pol = _o4_paced()
+    rows = _o4_rows(down=44)
+    zone = _o4_zone(rows)
+    judge = __import__("segment_drive").chanbara_judge(zone, rows, _o4_presses(rows), pol)
+    assert judge["v"] is None and 79 <= judge["raw"][0] <= judge["raw"][1] <= 99, judge
+    texts = ["Of 100 nobles watching,\n[NUMB=0] were impressed.", "Of 100 nobles watching,\n90 were impressed.",
+             "Of 100 nobles watching,\n90 were impressed."]
+    rd = C.gate_reading("F", zone=zone, prompts=rows, presses=_o4_presses(rows), pages=[], byte475=90, pol=pol,
+                        page_judge=[{"k": "page_judge", "kind": "score", "texts": texts}])
+    assert rd["informative"] and rd["number"] == 90 and rd["byte475"] == 90 and not rd["combo"], rd
+    rd = C.gate_reading("S", zone=zone, prompts=rows, presses=_o4_presses(rows), pages=[], byte475=None, pol=pol,
+                        page_judge=[], v="V13")
+    assert not rd["informative"] and "V13" in rd["why"], rd
