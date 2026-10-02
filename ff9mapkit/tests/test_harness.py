@@ -18220,6 +18220,38 @@ def _o4_launch(game, R, stages, env, phases, *, engine, pred=None, fake_setup=No
     return json.loads((game / "run" / "o4_rehearsal.json").read_text(encoding="utf-8")), fake, title
 
 
+def test_o4_rehearse_stage_ids_follow_the_chain(tmp_path):
+    """R-GATE's and F-SMOKE's member ids come from the CHAIN, never the table (research/o4_design.md 7.1; the review,
+    11.5 #5): on the alxc chain as built R-GATE warps F into member(64) 31240 and ends it in member(150) 31243, and
+    F-SMOKE pairs 31240 / 64, 31243 / 150, 31245 / 153; on a chain whose ids run the other way (a re-fork) both follow
+    -- 31259 and [31256]; 31259, 31256, 31254 -- the S side as it was. A literal F id that is not the member forking
+    its S field (R-GATE's field, its end, an F-SMOKE pair) refuses by name, and so does a member(N) no member forks;
+    run() refuses such a table before it touches the session. Break: keep the table's literal 31240 / 31243 / 31245
+    (the re-fork's R-GATE then warps into 68's member)."""
+    C, R = _o4_castle_module(), _o4_rehearse_module()
+    pred = C.draft_predictions(_o4c_campaign(tmp_path))
+    gate = R.stage_ids(R.STAGES["R-GATE"], pred, name="R-GATE")
+    assert gate["field"] == {"S": 64, "F": 31240} and gate["end"] == {"S": [150], "F": [31243]}, gate
+    smoke = R.stage_ids(R.STAGES["F-SMOKE"], pred, name="F-SMOKE")
+    assert smoke["pairs"] == [[31240, 64, 100, 1155], [31243, 150, 325, 1155], [31245, 153, 325, 1190]], smoke
+    rev = C.draft_predictions(_o4c_campaign(tmp_path, ids={d: 31259 - i for i, d in enumerate(C.DONORS)},
+                                            name="reversed.toml"))
+    gate = R.stage_ids(R.STAGES["R-GATE"], rev, name="R-GATE")
+    assert gate["field"] == {"S": 64, "F": 31259} and gate["end"] == {"S": [150], "F": [31256]}, gate
+    assert [p[:2] for p in R.stage_ids(R.STAGES["F-SMOKE"], rev)["pairs"]] == [[31259, 64], [31256, 150],
+                                                                               [31254, 153]]
+    assert R.stage_ids(R.STAGES["R-CHANBARA"], rev) == R.STAGES["R-CHANBARA"]
+    bad = [(dict(R.STAGES["R-GATE"], field={"S": 64, "F": 31241}), r"field\[F\]: 31241 is not a member forking 64"),
+           (dict(R.STAGES["R-GATE"], end={"S": [150], "F": [31245]}), r"end\[F\]: 31245 is not a member forking 150"),
+           (dict(R.STAGES["F-SMOKE"], pairs=[[31243, 64, 100, 1155]]), r"pairs: 31243 is not a member forking 64"),
+           (dict(R.STAGES["R-GATE"], field={"S": 64, "F": "member(61)"}), r"member\(61\) is \[\] in the chain")]
+    for stage, match in bad:
+        with pytest.raises(ValueError, match=match):
+            R.stage_ids(stage, pred)
+    with pytest.raises(ValueError, match=r"R-GATE field\[F\]: 31241"):
+        R.run(object(), stages={"R-GATE": bad[0][0]}, pred=pred, env={"O4_STAGE": "R-GATE"})
+
+
 def test_o4_rehearsal_plumbing_on_the_fake(game):
     """C3 (research/o4_design.md 7.1-7.2): R-CHANBARA's shape on the fake, chosen by ``O4_STAGE`` as a launch chooses
     it (another stage, which would run too, does not): the capabilities (P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG,
@@ -18363,8 +18395,9 @@ def test_o4_rehearsal_smoke_sends_no_storytrace_on_the_fake(game):
                 raise AssertionError(f"Session.warp({field}) inside the smoke")
             return real_warp(field, *a, **k)
         g.warp = warp
+    pred = _o4_rehearse_pred(members={"31240": 30820, "31243": 30821, "31245": 30810})    # each pair's member forks
     doc, fake, _title = _o4_launch(game, R, stages, {"O4_STAGE": "F-SMOKE"}, [], engine=engine, fake_setup=setup,
-                                   wrap=wrap)
+                                   wrap=wrap, pred=pred)
     assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
     assert not [s for s in fake.executed if s[0] == "storytrace"], "a storytrace step in the smoke"
     recs = doc["stages"]["F-SMOKE"]

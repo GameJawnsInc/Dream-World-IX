@@ -337,6 +337,8 @@ REQUIRED_TESTS_O4: tuple = (
     # (a mid-fight stop, an instrument V13 -- recorded by o4_rehearse -- or an S fight's V18 is re-run, never INVALID)
     "test_o4_castle_gate_reading_reads_only_a_complete_proven_play",
     "test_o4_rehearsal_gate_reruns_what_cannot_witness_on_the_fake",
+    # the review #5: R-GATE's and F-SMOKE's member ids are the chain's (member(N) resolved, every F-side id checked)
+    "test_o4_rehearse_stage_ids_follow_the_chain",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

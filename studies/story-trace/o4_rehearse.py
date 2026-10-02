@@ -43,6 +43,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import sys
 import time
 import traceback
@@ -65,7 +66,9 @@ from segment_trace import members_of, place                            # noqa: E
 ENV = "O4_STAGE"
 #: The stages (research/o4_design.md 7.1): the warp, the end fields (per side where they differ), the runs, a run
 #: budget and a cost estimate in seconds a run (F10 replaces every number from what is measured). ``by_name``: never
-#: picked by ``--field``; ``optional``: only by name; ``last``: after every other stage of a launch.
+#: picked by ``--field``; ``optional``: only by name; ``last``: after every other stage of a launch. A member is named
+#: ``member(<donor>)``, never by its id: :func:`stage_ids` reads it from the chain the predictions carry (the review,
+#: research/o4_design.md 11.5 #5) -- 31240 / 31243 / 31245 on today's build.
 STAGES = {
     "R-CHANBARA": {"field": 64, "entrance": 100, "sc": 1155, "end": [150], "runs": 2, "run_s": 300, "cost_s": 110,
                    "settles": "F1-F6, F12-F15 (the go/no-go): the prompts' published phrase_raw and texts; 49/49 "
@@ -82,13 +85,15 @@ STAGES = {
                         "settles": "F7: a V17 mid-fight (instance 11 opens past stop_after 10) stops with nothing more "
                                    "pressed; end_run (the warp to 4600 from the fight's FieldHUD, the ladder) reaches "
                                    "the title"},
-    "F-SMOKE": {"pairs": [[31240, 64, 100, 1155], [31243, 150, 325, 1155], [31245, 153, 325, 1190]], "runs": 1,
+    "F-SMOKE": {"pairs": [["member(64)", 64, 100, 1155], ["member(150)", 150, 325, 1155],
+                          ["member(153)", 153, 325, 1190]], "runs": 1,
                 "smoke_s": 8.0, "warp_s": 60.0, "cost_s": 150, "by_name": True, "optional": True,
                 "settles": "G1: each member loads at its entrance and SC (its field, FieldHUD), its Main_Init's published "
                            "object sids equal its stock twin's after smoke_s (64@100 {5, 6, 13, 20}; 150@325 {2, 3, 5, "
                            "6, 9, 4}; 153@325 {3, 7, 31, 9, 11}); 0 exceptions through the story machinery; end_run ok; "
                            "the Memoria.log warnings"},
-    "R-GATE": {"field": {"S": 64, "F": 31240}, "entrance": 100, "sc": 1155, "end": {"S": [150], "F": [31243]},
+    "R-GATE": {"field": {"S": 64, "F": "member(64)"}, "entrance": 100, "sc": 1155,
+               "end": {"S": [150], "F": ["member(150)"]},
                "attempts": 3, "run_s": 300, "cost_s": 110, "by_name": True, "optional": True,
                "chanbara_override": {**C.PACED, "raw_floor": None},
                "settles": "G2: the EMinigame +30% on member(64) -- S then F, paced (j ~22-25, raw 79-99), each side "
@@ -127,6 +132,59 @@ def stage_ends(stage: dict, side: str) -> list:
     member(150) on F)."""
     e = stage["end"]
     return [int(x) for x in (e[side] if isinstance(e, dict) else e)]
+
+
+_MEMBER = re.compile(r"^member\((\d+)\)$")
+
+
+def member_id(x, members: dict, *, where: str) -> int:
+    """One id slot of a stage as the CHAIN gives it: ``"member(N)"`` -> the ONE member forking donor N (``members``:
+    the predictions' members, read from the chain's campaign.toml); an int as given. ValueError, naming ``where``,
+    for any other string or a donor no member -- or more than one -- forks."""
+    if isinstance(x, str):
+        m = _MEMBER.match(x)
+        if m is None:
+            raise ValueError(f"{where}: {x!r} is neither a field id nor member(<donor>)")
+        donor = int(m.group(1))
+        hits = sorted(f for f, d in members.items() if d == donor)
+        if len(hits) != 1:
+            raise ValueError(f"{where}: member({donor}) is {hits} in the chain, not exactly one member")
+        return hits[0]
+    return int(x)
+
+
+def stage_ids(stage: dict, pred: dict, *, name: str = "stage") -> dict:
+    """A stage with its ids as the CHAIN gives them (the review, research/o4_design.md 11.5 #5), a deep copy -- never
+    assumed: every ``member(N)`` slot (R-GATE's F field and F end, F-SMOKE's members) resolved against the
+    predictions' members (:func:`member_id`); then every F-side id checked against them -- R-GATE's F field a member
+    forking its S field, each F end a member forking the S end it stands for, each F-SMOKE member a member forking its
+    twin. A literal id the chain does not fork so raises ValueError before anything is driven: a re-fork that moved a
+    member never sends R-GATE or F-SMOKE into another donor's member, or into nothing."""
+    s = copy.deepcopy(stage)
+    members = members_of(pred)
+
+    def forks(fid: int, donor: int, where: str) -> None:
+        if members.get(fid) != donor:
+            raise ValueError(f"{name} {where}: {fid} is not a member forking {donor} -- the chain's member({donor}) is "
+                             f"{sorted(f for f, d in members.items() if d == donor) or 'none'}")
+    if isinstance(s.get("field"), dict):
+        s["field"] = {side: member_id(v, members, where=f"{name} field[{side}]") for side, v in s["field"].items()}
+        if "F" in s["field"]:
+            forks(s["field"]["F"], s["field"]["S"], "field[F]")
+    if isinstance(s.get("end"), dict):
+        s["end"] = {side: [member_id(v, members, where=f"{name} end[{side}]") for v in vs]
+                    for side, vs in s["end"].items()}
+        if "F" in s["end"]:
+            if len(s["end"]["F"]) != len(s["end"]["S"]):
+                raise ValueError(f"{name} end: {s['end']['F']} on F against {s['end']['S']} on S")
+            for fid, donor in zip(s["end"]["F"], s["end"]["S"]):
+                forks(fid, donor, "end[F]")
+    if s.get("pairs"):
+        s["pairs"] = [[member_id(m, members, where=f"{name} pairs"), int(t), int(e), int(sc)]
+                      for m, t, e, sc in s["pairs"]]
+        for m, t, _e, _sc in s["pairs"]:
+            forks(m, t, "pairs")
+    return s
 
 
 def stage_pred(pred: dict, stage: dict) -> dict:
@@ -508,7 +566,9 @@ def gate(g, name: str, stage: dict, pred: dict, *, t0: float, launch: dict, reco
 
 def run(g, field=None, *, stages=None, pred=None, floor_for=None, prior_for=None, stock=None, recovery=None,
         env=None, witness=None, pads=..., engine=None, live_engine=None) -> None:
-    """The rehearsal launch (tools/play.py's entry; ``field`` from ``--field``). The capabilities first (P-CAP,
+    """The rehearsal launch (tools/play.py's entry; ``field`` from ``--field``). Before anything, each selected stage
+    takes its ids from the chain (:func:`stage_ids`: ``member(N)`` resolved, every F-side id checked -- a refusal
+    raises here, the session untouched); the record keeps the resolved stages. The capabilities first (P-CAP,
     P-OBJECTS, P-LANG, P-DONOR-LOG, P-LAUNCH with the engine, P-PAD: a session's), the launch's own readings (the
     settings, P-SETTINGS, P-OVERRIDE, P-ENGINE), then each selected stage -- its runs, its smoke, or R-GATE's sides --
     the record rewritten after every run into ``o4_rehearsal.json``. A run whose end_run cannot reach the title stops
@@ -518,6 +578,7 @@ def run(g, field=None, *, stages=None, pred=None, floor_for=None, prior_for=None
     stages = STAGES if stages is None else stages
     pred = C.O4.draft() if pred is None else pred
     names = select(stages, field, env)
+    stages = {n: stage_ids(stages[n], pred, name=n) for n in names}     # the chain's ids, or a refusal, first
     t0 = time.time()
     record = {"what": "O4 rehearsals (research/o4_design.md 7): staged runs prove driver mechanics only; R-FULL's "
                       "traces alone may define predictions; F-SMOKE loads the members, untraced; R-GATE witnesses the "
