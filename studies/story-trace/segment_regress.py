@@ -1,11 +1,15 @@
 """THE REGRESSION GATE for the shared segment machinery: every change to ``segment_trace``, ``segment_drive``,
-``o2_alexandria`` or the harness verbs they drive must leave every O1 output (research/o2_design.md, section 1.6)
-AND every O2 output (research/o3_design.md, section 1.4) byte-identical, and O3's battle-beat tests (G13) and O3's
-dry run (G14) green.
+``o2_alexandria``, ``o3_prima_vista`` or the harness verbs they drive must leave every O1 output
+(research/o2_design.md, section 1.6), every O2 output (research/o3_design.md, section 1.4) AND every O3 output
+(research/o4_design.md, section 1.4) byte-identical, O3's battle-beat tests (G13) and O3's dry run (G14) green, O4's
+tests (G19) and O4's dry run (G20) green, and the O1-O3 driver tests and the fake's beat and input functions at their
+pinned sources (G21).
 
     py studies/story-trace/segment_regress.py --capture      # G0, once, BEFORE the O2 refactor: the O1 baseline
     py studies/story-trace/segment_regress.py --capture-o2   # G0', once, BEFORE any O3 code change: the O2 baseline
-    py studies/story-trace/segment_regress.py                # G1-G14; exit 0 only if every item passes
+    py studies/story-trace/segment_regress.py --capture-o3   # G0'', once, BEFORE any O4 code change: the O3 baseline
+    py studies/story-trace/segment_regress.py --rebaseline-source NAME --reason TEXT   # G21: re-pin ONE source
+    py studies/story-trace/segment_regress.py                # G1-G21; exit 0 only if every item passes
 
 Exit 2 means an archive or a baseline is missing: the gate was not run, which is not a pass.
 
@@ -37,6 +41,15 @@ was captured at the code before the change it guards and the same file judges th
       unit case's and offline mutant's ``(name, ok, detail)``; ``offline_check(v1)``; the G12 tests collected; the
       HEAD and v1's sha -> ``research/o2_regress_baseline.json`` (LF, ``-text``). It refuses to overwrite a
       baseline, and to write one unless G8-G12's baseline-free halves pass at the code it captures.
+  G0'' --capture-o3 (research/o4_design.md 1.4): the full ``(checks, report)`` of the archived PROVEN session
+      story-o3 read with ``o3_predictions_v1``; of every o3_dryrun session case (its CASES and
+      "predictions-changed"); every o3_dryrun unit's ``(name, ok, detail)`` (its units and offline mutants, the
+      movie-skip A/B's included); ``O3.offline_check(v1)``; the tests G13 collects; the HEAD and v1's sha; and
+      ``sources``, G21's pins -> ``research/o3_regress_baseline.json`` (LF, ``-text``). It refuses to overwrite a
+      baseline, and to write one unless G7, G12, G13 and G15-G18's baseline-free halves pass at the code it
+      captures. It first takes TWO readings and refuses when they differ (a temporary path, a clock or a random in an
+      output): every temporary root the replica makes reads ``<tmp>`` in both (and in the baseline), and anything
+      still differing is named, never excluded silently.
   G8  ``O2.analyse(story-o2, pred_path=v1)``: the report is the archived ``o2_report.txt`` exactly, and the
       baseline's; the checks are the baseline's; PROVEN with 15 checks, all True.
   G9  the CLI ``o2_alexandria.py --analyse story-o2 --predictions v1`` exits 0 and prints that report.
@@ -56,21 +69,58 @@ was captured at the code before the change it guards and the same file judges th
       from B4): every test passed, 0 failed, 0 skipped, 0 errors, and every name in :data:`REQUIRED_TESTS_O3` among
       them -- the battle beat's driver tests and the movie-skip policy's, so a later edit to ``segment_drive``
       re-runs them, and the movie-skip A/B's test (``--skip-ab`` through its files: the pairing, the reading, the
-      exit codes), which reads the install's stock scripts -- where it cannot, it skips, and a skip fails the item.
-      No baseline: the list is the floor.
+      exit codes), which reads the install's stock scripts -- where it cannot, it skips, and a skip fails the item;
+      and O4's proof that the Chanbara policy is opt-in (research/o4_design.md 9 B4: without it a prompt-shaped page
+      is rule 7's, as O3's). No baseline: the list is the floor.
   G14 ``o3_dryrun.run_cases`` (the review, research/o3_design.md 11.7 #12) on the frozen O3 predictions once they
       exist (``o3_predictions_v1.json``), else on the draft: it returns 0 printing "N/N cases as registered", N at least
       :data:`O3_DRYRUN_FLOOR`. O3Segment subclasses O2Segment and runs on ``segment_trace``, ``segment_drive`` and
       ``o2_alexandria``, so a later edit to any of them must keep O3's dry run green too (1.3) -- every check failing
       on its mutant, every case EXACT. No baseline: the count is the floor (a dropped case falls under it).
+  G15 ``O3.analyse(story-o3, pred_path=v1)``: the report is the archived ``o3_report.txt`` exactly, and the
+      baseline's; the checks are the baseline's; PROVEN with 17 checks, all True.
+  G16 the CLI ``o3_prima_vista.py --analyse story-o3 --predictions v1`` exits 0 and prints that report.
+  G17 every o3_dryrun session case's ``(checks, report)`` and every unit's ``(name, ok, detail)`` is the baseline's,
+      byte for byte (each temporary root read as ``<tmp>``), and ``run_cases(v1)`` still returns 0 printing "N/N
+      cases as registered" (102 at the capture), N counted from the replica: its sessions plus its units. The gate
+      replicates run_cases's loop step for step, as G10 does O2's.
+      G17 IS O3'S VOID-PATH BASELINE: the story-o3 archive holds six covered runs and no VOID, so G15/G16 never take
+      the coverage rule's VOID paths, VOID-ASYM's, A-START's or A-NOEND's. An edit to any of them is proven
+      O3-neutral by G17's synthetic sessions alone.
+  G18 ``O3.offline_check(v1)`` equals the baseline's ``[(ok, what, detail)]``: 6 checks, all PASS (it reads O1's
+      build and the stock assets, read-only).
+  G19 ``pytest tests/test_harness.py -k "o4_ or fake_chanbara or fake_keyon"`` from ``ff9mapkit/``
+      (research/o4_design.md 1.4, from B3): every test passed, 0 failed, 0 skipped, 0 errors, and every name in
+      :data:`REQUIRED_TESTS_O4` among them -- O4's FakeGame machine beats (H10-H12), the Chanbara policy's pure half
+      and its executor on the fake, o4_castle's own tests (C1, C2). No baseline: the list is the floor.
+  G20 ``o4_dryrun.run_cases`` (research/o4_design.md 9 C2) on the frozen O4 predictions once they exist
+      (``o4_predictions_v1.json``), else on the draft (which reads the O4 chain's campaign.toml): it returns 0
+      printing "N/N cases as registered", N at least :data:`O4_DRYRUN_FLOOR`. O4Segment subclasses O3Segment and
+      runs on ``segment_trace``, ``segment_drive``, ``o2_alexandria`` and ``o3_prima_vista``, so a later edit to any of
+      them must keep O4's dry run green too -- every check failing on its mutant, every case EXACT. No baseline: the
+      count is the floor (a dropped case falls under it).
+  G21 THE DRIVER'S SOURCE PINS (research/o4_design.md 1.4, rev. 2): every name in the O3 baseline's ``sources`` --
+      each test G7, G12 and G13 collected at the capture, and fakegame.py's existing beat and input functions,
+      by its qualified name (``<file>::<qualname>``) -- still exists, and the sha256 of its
+      ``ast.dump(node, include_attributes=False)`` equals the baseline's, or, when ``research/source_pins.json``
+      re-baselines it, that name's LATEST row's ``new``. A row is ``{"name", "old", "new", "reason", "head"}``,
+      appended only by ``--rebaseline-source NAME --reason TEXT``: it refuses an empty reason, a name not pinned, an
+      ``old`` that is not the pin in force, and a source that is already its pin in force (nothing changed); the
+      commit that changes the source carries its row, and the gate replays every row the same way. Comments and
+      whitespace do not count (the AST dump); any code edit does, a docstring's included, and a renamed or deleted
+      pinned test FAILS. So an O1-O3 driver test adapted to a changed rule -- which G7/G12/G13 alone would pass,
+      since they pin only names -- fails here until it is re-baselined by name with its reason.
 
-Nothing here touches the game or writes to the install: it reads the archives, the builds and the stock bytes.
+Nothing here touches the game or writes to the install: it reads the archives, the builds and the stock bytes. The
+pins file is written only by ``--rebaseline-source``, and a baseline only by its ``--capture*``.
 """
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 import copy
+import hashlib
 import io
 import json
 import os
@@ -113,6 +163,11 @@ REQUIRED_TESTS: tuple = (
     # policy's strictness
     "test_segment_movie_skip_answer_reads_only_the_skip_dialog",
     "test_segment_movie_skip_policy_is_strict",
+    # research/o4_design.md section 9, PART A: the gate's own pins and the shared changes, each with its step
+    "test_segment_regress_source_pins_catch_an_edit",                           # A0: G21's checker
+    "test_segment_side_ends_split_the_cut_and_the_drive",                       # A1: S6, pure
+    "test_segment_drive_ends_per_side_on_the_fake",                             # A1: S6 on the drive
+    "test_segment_o3_scope_lang_reads_the_recorded_p_text",                     # A2: O3's clause from its record
 )
 
 O1E_VERDICT = "PROVEN"
@@ -177,6 +232,9 @@ REQUIRED_TESTS_O3: tuple = (
     # pairing of _ab_stages, the reading of _ab_runs, the CLI's exit codes); it skips without the install, and G13
     # fails a skip
     "test_o3_skip_ab_on_synthetic_traces",
+    # O4's Chanbara policy is opt-in (research/o4_design.md 9 B4): O3-shaped predictions page a prompt-shaped page by
+    # rule 7, exactly as O3's driver does
+    "test_o3_drive_pages_a_prompt_without_the_chanbara_policy",
 )
 #: G14 (the review, research/o3_design.md 11.7 #12): o3_dryrun's "N/N cases as registered" must have N at least this --
 #: its sessions, "predictions-changed", its units and its offline mutants when G14 joined (92), and the movie-skip A/B's
@@ -188,6 +246,120 @@ O3_DRYRUN_FLOOR = 102
 O2S_VERDICT = "PROVEN"
 O2S_CHECKS = 15
 O2_OFFLINE_CHECKS = 5
+
+# -- O3 (research/o4_design.md 1.4): the frozen v1 predictions and the PROVEN story-o3 archive
+V1_O3 = HERE / "o3_predictions_v1.json"
+O3S = Path(r"C:\gd\Dream-World-IX\.harness-runs\20261001-095552-story-o3")
+BASELINE_O3 = HERE / "research" / "o3_regress_baseline.json"
+O3S_VERDICT = "PROVEN"
+O3S_CHECKS = 17
+O3_OFFLINE_CHECKS = 6
+#: What every temporary root the dry-run replica makes reads as, in a reading and in the O3 baseline (G0'', G17).
+TMP = "<tmp>"
+#: G20 (research/o4_design.md 9 C2): o4_dryrun's "N/N cases as registered" must have N at least this -- its 63
+#: session cases and "predictions-changed" (section 8's table), its 18 units, and its listed units (O4-CENSUS and its 4
+#: mutants, O4-BUILD's pins on a synthetic route build and its 3 mutants, the fight pins and their 2 mutants, the draft
+#: through O4-KEYS and its 7 offline mutants) when G20 joined (102); then the review's cases (research/o4_design.md
+#: 11.5): sword-j-unbounded-both (#3/#7). A case added raises N; one dropped falls under the floor.
+O4_DRYRUN_FLOOR = 103
+#: G19 (research/o4_design.md 1.4, from B3): every ``test_o4_*``, ``test_fake_chanbara_*`` and ``test_fake_keyon_*``
+#: name, each with the step that adds it -- G19 joined the gate in the commit that added B3's tests.
+PYTEST_K_O4 = "o4_ or fake_chanbara or fake_keyon"
+REQUIRED_TESTS_O4: tuple = (
+    # B1: H10-H12, the fake's machine beats (the KEYON pair, the Chanbara visit, its faults)
+    "test_fake_keyon_pair_takes_only_an_edge_after_its_gate",
+    "test_fake_chanbara_arms_and_publishes_in_one_tick",
+    "test_fake_chanbara_scores_a_perfect_run_exactly",
+    "test_fake_chanbara_times_out_and_rearms_in_the_same_tick",
+    "test_fake_chanbara_misses_a_circle_pressed_as_circle",
+    "test_fake_chanbara_misses_two_keys_start_and_a_held_key",
+    "test_fake_chanbara_filters_hold_on_every_seed",
+    "test_fake_chanbara_bonus_knob_and_assistance_levels",
+    "test_fake_chanbara_encore_yes_replays_without_111",
+    "test_fake_chanbara_close_tween_and_slides",
+    "test_fake_chanbara_page_ignores_confirm_while_opening",
+    "test_fake_chanbara_publication_order_and_true_j",
+    "test_fake_chanbara_faults",
+    # B2: S7's pure half
+    "test_o4_chanbara_of_is_strict",
+    "test_o4_prompt_recognizers_claim_exactly_the_prompts",
+    "test_o4_j_and_raw_bounds",
+    "test_o4_chanbara_judge_classes",
+    "test_o4_slides_bracket_the_slide_from_the_prev_samples",
+    "test_o4_stray_answer_attributes_by_the_down_frame",
+    # B3: rule 6b's executor, S8, S9, the witness and the pace, on the fake
+    "test_o4_drive_scores_100_on_the_fake",
+    "test_o4_drive_opens_one_instance_beside_a_lingering_prompt",
+    "test_o4_drive_paced_tracks_the_closing_prompt_beside_its_successor",
+    "test_o4_drive_fails_closed_on_an_unclaimed_dialog",
+    "test_o4_drive_refuses_an_unrecognized_dbtn_page",
+    "test_o4_drive_v17_on_a_stalled_press",
+    "test_o4_drive_read_stall_in_a_gap_is_v17_never_v18",
+    "test_o4_drive_v18_on_a_lost_press",
+    "test_o4_drive_v18_on_a_miss_read",
+    "test_o4_drive_v18_on_what_the_game_shows",
+    "test_o4_drive_slides_at_31_fps_agent_first",
+    "test_o4_drive_page_once_and_the_quiet_windows",
+    "test_o4_drive_presses_123_again_when_its_first_press_is_dropped",
+    "test_o4_drive_attributes_a_stray_yes",
+    "test_o4_drive_paced_policy_lands_in_its_band",
+    "test_o4_drive_stops_v13_off_fieldhud",
+    "test_o4_drive_input_witness_stops_v13",
+    "test_o4_drive_never_blocks_on_the_rate",
+    "test_o4_drive_stop_after_ends_at_instance_eleven",
+    "test_o4_drive_prompt_outside_its_cell_is_v17",
+    # C1: o4_castle itself -- the draft from campaign.toml, the freeze's refusals, the census's inert proof, the
+    # preflight's verdicts, the input witness's readers, VOID-ASYM (d), R-GATE's verdict
+    "test_o4_castle_draft_reads_the_chain_from_campaign",
+    "test_o4_castle_freeze_refuses",
+    "test_o4_castle_census_proves_inert_by_instancing",
+    "test_o4_castle_preflight_verdicts",
+    "test_o4_castle_input_witness_readers",
+    "test_o4_castle_void_asym_reads_observed_rows",
+    "test_o4_castle_gate_verdict",
+    # C2: O4's trace summary cut at the side's end PLACES (an F stage ending in a member is cut there), over the dry
+    # run's rendered rows
+    "test_o4_castle_trace_summary_cuts_at_end_places",
+    # C3: o4_rehearse.py on the fake -- R-CHANBARA's record (7.2), R-CHANBARA-VOID's stop and recovery (F7), F-SMOKE's
+    # per-pair raw warps with no trace (G1), R-GATE's sides and verdicts (7.4 G2)
+    "test_o4_rehearsal_plumbing_on_the_fake",
+    "test_o4_rehearsal_void_stage_stops_mid_fight_on_the_fake",
+    "test_o4_rehearsal_smoke_sends_no_storytrace_on_the_fake",
+    "test_o4_rehearsal_gate_reads_the_pair_on_the_fake",
+    # the fake's story rows read an Int16 signed (a launch's second visit stores Int16[9] := -1 over -1)
+    "test_o4_fake_story_store_reads_int16_signed",
+    # the review (research/o4_design.md 11.5) #3/#7: a row with no j bounds and a complete zone's unbounded raw are the
+    # judge's V17 (never a floor or a band skipped silently); a zone entered on a prompt takes instance 1's prev from
+    # the ring
+    "test_o4_chanbara_judge_never_skips_an_unbounded_raw",
+    "test_o4_drive_entered_on_a_prompt_bounds_instance_one_from_the_ring",
+    # the review #1/#2/#6: R-GATE reads a run informative only on a complete, proven, bounded play with its readings
+    # (a mid-fight stop, an instrument V13 -- recorded by o4_rehearse -- or an S fight's V18 is re-run, never INVALID)
+    "test_o4_castle_gate_reading_reads_only_a_complete_proven_play",
+    "test_o4_rehearsal_gate_reruns_what_cannot_witness_on_the_fake",
+    # the review #5: R-GATE's and F-SMOKE's member ids are the chain's (member(N) resolved, every F-side id checked)
+    "test_o4_rehearse_stage_ids_follow_the_chain",
+    # the review #4: P-GATE reads R-GATE's own launch record (its verdict, runs, engine, settings, member(64)'s build)
+    "test_o4_castle_p_gate_needs_its_launch_record",
+    # the review #8: the input witness resolves the game's pids once (no tasklist on a poll) and fails closed
+    "test_o4_castle_input_witness_resolves_the_game_once",
+)
+
+# -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)
+SOURCE_PINS = HERE / "research" / "source_pins.json"
+#: The pinned files, by the repo-relative name a pin carries (``<file>::<qualname>``, pytest's node-id form).
+TEST_REL = "ff9mapkit/tests/test_harness.py"
+FAKE_REL = "tools/harness/fakegame.py"
+PIN_FILES = {TEST_REL: ROOT / TEST_REL, FAKE_REL: ROOT / FAKE_REL}
+#: fakegame.py's existing beat and input functions (research/o4_design.md 1.4 G0''), by qualified name: the fake every
+#: O1-O3 driver test runs against, so an O4 edit that changes how it presses, publishes or stages fails G21 by name.
+FAKE_PINS = ("FakeGame._execute", "FakeGame._block", "FakeGame._schedule", "FakeGame._extend", "FakeGame._is_held",
+             "FakeGame._advance_clock", "FakeGame._hold_frame", "FakeGame._frame_steps", "FakeGame._menu_step",
+             "FakeGame._publish", "FakeGame.say", "FakeGame.offer", "FakeGame.scene", "FakeGame._next_beat",
+             "FakeGame._choice_cursor", "FakeGame._movie_over", "FakeGame._end_scene", "FakeGame._step_scene",
+             "FakeGame._scene_press", "_control")
+#: A re-baseline row of the pins file, exactly these keys.
+PIN_ROW_KEYS = ("name", "old", "new", "reason", "head")
 
 
 # ======================================================================== what the O1 code says
@@ -575,6 +747,54 @@ def g13(got: dict) -> tuple:
                      f"among them", "; ".join(bad) or f"{len(got['passed'])} passed")
 
 
+def pytest_g19() -> dict:
+    """Run G19's pytest selection (:func:`pytest_selection`)."""
+    return pytest_selection(PYTEST_K_O4)
+
+
+def g19(got: dict) -> tuple:
+    bad = _selection_bad(None, got, REQUIRED_TESTS_O4)
+    return (not bad, f'G19: pytest -k "{PYTEST_K_O4}": all passed, 0 failed, 0 skipped; every REQUIRED_TESTS_O4 '
+                     f"among them", "; ".join(bad) or f"{len(got['passed'])} passed")
+
+
+# ======================================================================== what the O4 code says (G20)
+def _o4() -> tuple:
+    """``(o4_castle, o4_dryrun)``: imported here, never at the module's top, as the O2 and O3 items import theirs."""
+    import o4_castle as C4
+    import o4_dryrun as D4
+    return C4, D4
+
+
+def o4_run_cases_quietly() -> tuple:
+    """``(rc, last line, which predictions)``: ``o4_dryrun.run_cases`` on the frozen O4 predictions once they exist,
+    else on the draft (its own default), its per-case lines swallowed."""
+    C4, D4 = _o4()
+    path = C4.PREDICTIONS if C4.PREDICTIONS.is_file() else None
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = D4.run_cases(path)
+    lines = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
+    return rc, (lines[-1] if lines else ""), (f"the frozen {path.name}" if path is not None else "the draft")
+
+
+def g20() -> tuple:
+    """G20 (research/o4_design.md 9 C2): O4's dry run, every case as registered, at least the floor."""
+    what = (f"G20: o4_dryrun.run_cases returns 0, every case as registered, at least {O4_DRYRUN_FLOOR} (the frozen "
+            f"O4 predictions once they exist, else the draft)")
+    try:
+        rc, last, which = o4_run_cases_quietly()
+    except Exception as err:                       # noqa: BLE001 -- a dry run that cannot run is a FAIL, said
+        return False, what, f"run_cases raised {type(err).__name__}: {str(err)[:300]}"
+    m = re.fullmatch(r"(\d+)/(\d+) cases as registered", last)
+    bad = []
+    if rc != 0 or m is None or m.group(1) != m.group(2):
+        bad.append(f"run_cases returned {rc}: {last!r}")
+    elif int(m.group(2)) < O4_DRYRUN_FLOOR:
+        bad.append(f"{last!r}: under the floor {O4_DRYRUN_FLOOR} -- a case or a unit was dropped")
+    return not bad, what, "; ".join(bad) or f"{last} ({which})"
+
+
 # ======================================================================== what the O3 code says (G14)
 def _o3() -> tuple:
     """``(o3_prima_vista, o3_dryrun)``: imported here, never at the module's top, as the O2 items import O2's."""
@@ -612,15 +832,363 @@ def g14() -> tuple:
     return not bad, what, "; ".join(bad) or f"{last} ({which})"
 
 
+# ======================================================================== what the O3 code says (G15-G18)
+def _tmp_forms(root) -> list:
+    """Every spelling of a temporary root an output can carry: as made and resolved, each with its backslashes as
+    written, doubled (a ``repr`` or a JSON dump of it) and as a posix path -- longest first."""
+    forms = set()
+    for p in (Path(root), Path(root).resolve()):
+        s = str(p)
+        forms |= {s, s.replace("\\", "\\\\"), p.as_posix()}
+    return sorted(forms, key=len, reverse=True)
+
+
+def untemp(obj, roots):
+    """``obj`` (strings, lists, tuples and dicts of them) with every spelling of each temporary root in ``roots``
+    replaced by :data:`TMP` -- a reading's paths, never its content: anything else that differs between two readings
+    stays and is named (G0'')."""
+    forms = [f for r in roots for f in _tmp_forms(r)]
+
+    def fix(x):
+        if isinstance(x, str):
+            for f in forms:
+                x = x.replace(f, TMP)
+            return x
+        if isinstance(x, list):
+            return [fix(v) for v in x]
+        if isinstance(x, tuple):
+            return tuple(fix(v) for v in x)
+        if isinstance(x, dict):
+            return {k: fix(v) for k, v in x.items()}
+        return x
+    return fix(obj)
+
+
+def o3_analyse_archive() -> dict:
+    P, _D3 = _o3()
+    return _pair(*P.O3.analyse(O3S, pred_path=V1_O3))
+
+
+def o3_dryrun_outputs(stock) -> tuple:
+    """``({case: (checks, report)}, [case names in run order], [[unit, ok, detail], ...])`` -- ``o3_dryrun.run_cases``'s
+    own loop over V1_O3, step for step: the same temporary layout (``pred/``, ``sessions/``), the same session
+    directories in the same order (``s0``, ``s1``, ... -- each report's title carries its label), the same units in the
+    same order on the same temporary root (state-history's session is the last one made; the offline mutants, the
+    skip A/B and its files after the named units, as run_cases evaluates them). Left out are only run_cases's verdict
+    comparisons and its extra ``read_session`` reads of a case's VOID classes: pure reads that make no directory and
+    leave nothing an output reads. Every output is returned with its temporary root read as :data:`TMP`
+    (:func:`untemp`)."""
+    from ff9mapkit.content.verbatim import remap_fields
+    P, D3 = _o3()
+    out, order, units = {}, [], []
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        pdir = tmp / "pred"
+        pdir.mkdir()
+        sdir = tmp / "sessions"
+        sdir.mkdir()
+        path = V1_O3                                      # run_cases's _prepare(V1_O3, pdir) is V1_O3 itself
+        pred, _sha = P.O3.load(path)
+        members = D3.members_of(pred)
+        retarget = {dn: f for f, dn in members.items()}
+        scripts = {fid: remap_fields(stock(dn).data, retarget) for fid, dn in members.items()}
+        for name, fn, *_want in D3.CASES:
+            d = D3.make_session(sdir, path, fn(copy.deepcopy(pred)), scripts)
+            out[name] = _pair(*P.O3.analyse(d, stock=stock))
+            order.append(name)
+        copy_path = pdir / "pred_copy.json"               # O3-FROZEN: the predictions changed after the session
+        copy_path.write_bytes(path.read_bytes())
+        d = D3.make_session(sdir, copy_path, D3.six(pred), scripts)
+        copy_path.write_bytes(path.read_bytes() + b" ")
+        out["predictions-changed"] = _pair(*P.O3.analyse(d, stock=stock))
+        order.append("predictions-changed")
+        for name, fn in (("no-sc-span", D3.unit_no_sc_span),
+                         ("trace-summary", lambda: D3.unit_trace_summary(pred, stock)),
+                         ("state-history", lambda: D3.unit_state_history(pred, stock, scripts, sdir, path)),
+                         ("p-donor-log", D3.unit_p_donor_log),
+                         ("p-launch", lambda: D3.unit_p_launch(tmp)),
+                         ("p-stock-battle", lambda: D3.unit_p_stock_battle(tmp)),
+                         ("p-settings", lambda: D3.unit_p_settings(tmp)),
+                         ("battle-row", lambda: D3.unit_battle_row(pred)),
+                         ("build-legacy", lambda: D3.unit_build_legacy(tmp))):
+            ok, detail = fn()
+            units.append([name, ok, detail])
+        for name, ok, detail in D3.unit_scene_census(pred) + D3.unit_store_census(pred, stock) + \
+                D3.unit_offline_mutants(pred, stock, tmp) + D3.unit_skip_ab(pred, stock) + \
+                D3.unit_skip_ab_files(pred, stock, tmp, path):
+            units.append([name, ok, detail])
+    return untemp(out, [tmp]), order, untemp(units, [tmp])
+
+
+def o3_offline() -> list:
+    P, _D3 = _o3()
+    pred, _sha = P.O3.load(V1_O3)
+    return [list(c) for c in P.O3.offline_check(pred)]
+
+
+def o3_run_cases_v1() -> tuple:
+    """``(rc, last line)`` of ``o3_dryrun.run_cases(V1_O3)``, its per-case lines swallowed (G17)."""
+    _P, D3 = _o3()
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = D3.run_cases(V1_O3)
+    lines = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
+    return rc, (lines[-1] if lines else "")
+
+
+def o3_cli_analyse() -> tuple:
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    p = subprocess.run([sys.executable, str(HERE / "o3_prima_vista.py"), "--analyse", str(O3S), "--predictions",
+                        str(V1_O3)], cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", env=env)
+    return p.returncode, p.stdout, p.stderr
+
+
+def _verdict_o3(pair: dict) -> str:
+    _P, D3 = _o3()
+    return D3.verdict([tuple(c) for c in pair["checks"]])
+
+
+def g15(base: dict, got: dict) -> tuple:
+    bad = []
+    archived = (O3S / "o3_report.txt").read_text(encoding="utf-8")
+    if got["report"] != archived:
+        bad.append(f"the report is not the archived o3_report.txt: {_first_diff(got['report'], archived)}")
+    if base is not None:
+        bad += _same(got, base["o3s"], "story-o3")
+    checks = got["checks"]
+    v = _verdict_o3(got)
+    if v != O3S_VERDICT or len(checks) != O3S_CHECKS or not all(c[0] is True for c in checks):
+        bad.append(f"verdict {v!r} over {len(checks)} checks, want {O3S_VERDICT} over {O3S_CHECKS}, all True")
+    return (not bad, f"G15: analyse(story-o3, v1) is the archived report exactly, PROVEN with {O3S_CHECKS} checks "
+                     f"all True", "; ".join(bad) or f"{len(got['report'].splitlines())} report lines, {v}")
+
+
+def g16(report: str) -> tuple:
+    rc, out, err = o3_cli_analyse()
+    bad = []
+    if rc != 0:
+        bad.append(f"exit {rc}: {err[-300:]}")
+    if out != report + "\n":
+        bad.append(f"stdout is not the report plus print's newline: {_first_diff(out, report + chr(10))}")
+    return (not bad, "G16: the CLI o3_prima_vista.py --analyse story-o3 --predictions v1 exits 0 and prints that "
+                     "report", "; ".join(bad) or "exit 0")
+
+
+def g17(base: dict, got: dict, order: list, units: list) -> tuple:
+    bad = []
+    if base is not None:
+        if order != base["dryrun_order"]:
+            bad.append(f"cases {order} != the baseline's {base['dryrun_order']}"[:400])
+        for name in order:
+            if name in base["dryrun"]:
+                bad += _same(got[name], base["dryrun"][name], name)
+        if units != base["units"]:
+            want = {u[0]: u for u in base["units"]}
+            diff = [u[0] for u in units if want.get(u[0]) != u] + [n for n in want if n not in {u[0] for u in units}]
+            bad.append(f"units differ from the baseline's: {diff[:6]}"
+                       + ("" if [u[0] for u in units] == [u[0] for u in base["units"]] else " (and their order)"))
+    off = [u[0] for u in units if u[1] is not True]
+    if off:
+        bad.append(f"units not as registered: {off[:6]}")
+    rc, last = o3_run_cases_v1()
+    n = len(order) + len(units)
+    if rc != 0 or last != f"{n}/{n} cases as registered":
+        bad.append(f"run_cases(v1) returned {rc}: {last!r}, want {n}/{n}")
+    return (not bad, "G17: every o3_dryrun case's (checks, report) and unit's (name, ok, detail) is the baseline's, "
+                     "byte for byte; run_cases(v1) 0", "; ".join(bad[:4]) or f"{len(order)} sessions, {len(units)} "
+                                                                             f"units; {last}")
+
+
+def g18(base: dict, got: list) -> tuple:
+    bad = [] if base is None or got == base["offline"] else [f"{got} != {base['offline']}"[:500]]
+    if len(got) != O3_OFFLINE_CHECKS or not all(c[0] is True for c in got):
+        bad.append(f"offline_check(v1) reads {[c[0] for c in got]}, want {O3_OFFLINE_CHECKS} x True")
+    return (not bad, f"G18: O3's offline_check(v1) is the baseline's [(ok, what, detail)], {O3_OFFLINE_CHECKS} PASS",
+            "; ".join(bad) or "; ".join(f"{c[1].split(':')[0]}: {c[2][:90]}" for c in got))
+
+
+# ======================================================================== the driver's source pins (G21)
+def _py() -> str:
+    """The interpreter's version, ``major.minor``: ``ast.dump`` is version-specific (a new field, a new default)."""
+    return f"{sys.version_info.major}.{sys.version_info.minor}"
+
+
+def functions_of(source: str) -> dict:
+    """``{qualified name: node}`` of a module's functions: a module-level ``name`` and a class's ``Class.name``. The
+    LAST definition of a name wins, as Python binds it (and pytest collects it)."""
+    out = {}
+    for node in ast.parse(source).body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            out[node.name] = node
+        elif isinstance(node, ast.ClassDef):
+            for sub in node.body:
+                if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    out[f"{node.name}.{sub.name}"] = sub
+    return out
+
+
+def source_shas(names, *, files=None) -> dict:
+    """``{pin: the sha256 of ast.dump(node, include_attributes=False) | None}`` for each pin ``<file>::<qualname>``
+    -- None when the file holds no such function (renamed or deleted). ``files`` maps a pin's file to the path read
+    (default :data:`PIN_FILES`; a test passes a temporary copy). Comments and whitespace are not in the AST; every
+    code edit, a docstring's included, is. A file that does not parse raises (SyntaxError)."""
+    files = PIN_FILES if files is None else files
+    by_file: dict = {}
+    for name in names:
+        rel, _sep, qual = name.partition("::")
+        by_file.setdefault(rel, []).append((name, qual))
+    out = {}
+    for rel, items in by_file.items():
+        path = files.get(rel)
+        funcs = functions_of(Path(path).read_text(encoding="utf-8")) if path is not None and Path(path).is_file() \
+            else {}
+        for name, qual in items:
+            node = funcs.get(qual)
+            out[name] = None if node is None else hashlib.sha256(
+                ast.dump(node, include_attributes=False).encode("utf-8")).hexdigest()
+    return out
+
+
+def pin_of_test(test_name: str) -> str:
+    """The pin of a collected test (a JUnit name; a parametrized one's ``[...]`` is its function's)."""
+    func = re.sub(r"\[.*\]$", "", test_name)
+    return f"{TEST_REL}::{func}"
+
+
+def pins_in_force(sources: dict, rows: list) -> dict:
+    """``{name: sha}``: the baseline's ``sources``, each name a row re-baselines at its LATEST row's ``new``."""
+    force = dict(sources)
+    for row in rows:
+        if isinstance(row, dict) and row.get("name") in force:
+            force[row["name"]] = row.get("new")
+    return force
+
+
+def pin_row(sources: dict, rows: list, name: str, old, new, reason, head) -> dict:
+    """A re-baseline row for ``name`` after ``rows`` (``--rebaseline-source``'s, and every row G21 replays):
+    ``{"name", "old", "new", "reason", "head"}``. ValueError on an empty reason (it says WHY the pinned source
+    changed), a name not pinned, an ``old`` that is not the pin in force (a stale pins file, or a row since), a
+    ``new`` that is no function (a pin cannot follow a rename), and a ``new`` that IS the pin in force (nothing
+    changed: nothing to re-baseline)."""
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError(f"{name}: a re-baseline needs its reason (--reason TEXT): why the pinned source changed")
+    if name not in sources:
+        raise ValueError(f"{name!r} is not pinned: the O3 baseline's sources hold {len(sources)} names "
+                         f"(<file>::<qualname>, e.g. {next(iter(sorted(sources)), '-')})")
+    force = pins_in_force(sources, rows)[name]
+    if old != force:
+        raise ValueError(f"{name}: old {str(old)[:12]} is not the pin in force {str(force)[:12]} (a stale pins file, "
+                         f"or another row since)")
+    if not isinstance(new, str) or not new:
+        raise ValueError(f"{name}: no such function now (renamed or deleted): a pin never follows a rename")
+    if new == force:
+        raise ValueError(f"{name}: its source is its pin in force ({force[:12]}): nothing changed, nothing to "
+                         f"re-baseline")
+    return {"name": name, "old": old, "new": new, "reason": reason.strip(), "head": str(head)}
+
+
+def pin_rows_bad(sources: dict, rows) -> list:
+    """What is wrong with the pins file, replayed in order: a list of rows, each exactly :data:`PIN_ROW_KEYS` and each
+    a row :func:`pin_row` would have appended at its place (so a hand edit -- a reason emptied, an ``old`` rewritten,
+    a row reordered -- FAILS G21 by its row)."""
+    if not isinstance(rows, list):
+        return [f"the pins file holds a {type(rows).__name__}, not a list of rows"]
+    bad = []
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict) or set(row) != set(PIN_ROW_KEYS):
+            bad.append(f"row {i}: not exactly {list(PIN_ROW_KEYS)}: {str(row)[:120]}")
+            continue
+        try:
+            pin_row(sources, rows[:i], row["name"], row["old"], row["new"], row["reason"], row["head"])
+        except ValueError as err:
+            bad.append(f"row {i}: {err}")
+    return bad
+
+
+def g21_bad(sources: dict, current: dict, rows) -> list:
+    """G21's verdict, pure: the pins file's own faults (:func:`pin_rows_bad`), then every pinned name that is gone
+    (``current`` None: renamed or deleted) or whose ``current`` sha is not its pin in force."""
+    bad = pin_rows_bad(sources, rows)
+    force = pins_in_force(sources, rows if isinstance(rows, list) else [])
+    for name in sorted(sources):
+        now = current.get(name)
+        if now is None:
+            bad.append(f"{name}: gone (renamed or deleted) -- a pinned source must stay")
+        elif now != force[name]:
+            bad.append(f"{name}: changed ({str(force[name])[:8]} -> {now[:8]}) -- re-baseline it by name with its "
+                       f"reason (--rebaseline-source NAME --reason TEXT) in the commit that changes it")
+    return bad
+
+
+def g21(base: dict, pins: Path = SOURCE_PINS, *, files=None) -> tuple:
+    what = ("G21: every pinned source -- the O1-O3 tests G7, G12 and G13 collected at the O3 capture, the fake's beat "
+            "and input functions -- is its pin in force (the O3 baseline's sha, or its latest re-baseline row's)")
+    sources = base.get("sources") or {}
+    if not sources:
+        return False, what, "the O3 baseline holds no sources: it was captured without its pins"
+    try:
+        rows = json.loads(Path(pins).read_bytes())
+    except (OSError, ValueError) as err:
+        return False, what, f"{Path(pins).name} unreadable: {err}"
+    try:
+        current = source_shas(sorted(sources), files=files)
+    except SyntaxError as err:
+        return False, what, f"a pinned file does not parse: {err}"
+    bad = g21_bad(sources, current, rows)
+    py = base.get("sources_python")
+    if bad and py is not None and py != _py():
+        bad.insert(0, f"the pins were taken under Python {py}, this is {_py()} (ast.dump is version-specific)")
+    n = len(rows) if isinstance(rows, list) else 0
+    return (not bad, what, "; ".join(bad[:6]) + (f" (+{len(bad) - 6} more)" if len(bad) > 6 else "")
+            or f"{len(sources)} sources at their pins ({n} re-baseline row{'s' if n != 1 else ''} in "
+               f"{Path(pins).name})")
+
+
+def rebaseline_source(name: str, reason, *, baseline: Path = BASELINE_O3, pins: Path = SOURCE_PINS,
+                      files=None) -> int:
+    """``--rebaseline-source NAME --reason TEXT``: append ONE row to the pins file -- ``name`` at its current sha, its
+    ``old`` the pin in force -- after the file's own rows replay clean. Every refusal of :func:`pin_row` is an exit 1
+    with nothing written. ``files``: :func:`source_shas`' seam."""
+    base = json.loads(Path(baseline).read_bytes())
+    sources = base.get("sources") or {}
+    rows = json.loads(Path(pins).read_bytes())
+    bad = pin_rows_bad(sources, rows)
+    if bad:
+        print(f"!! {Path(pins).name} does not replay clean: {'; '.join(bad[:4])} -- nothing written")
+        return 1
+    now = source_shas([name], files=files).get(name) if name in sources else None
+    try:
+        row = pin_row(sources, rows, name, pins_in_force(sources, rows).get(name), now, reason, _head())
+    except ValueError as err:
+        print(f"!! refused: {err}")
+        return 1
+    rows.append(row)
+    Path(pins).write_bytes((json.dumps(rows, indent=1) + "\n").encode("utf-8"))
+    print(f"re-baselined {name}: {row['old'][:8]} -> {row['new'][:8]} ({row['reason']}); {Path(pins).name} holds "
+          f"{len(rows)} row(s)")
+    return 0
+
+
 # ======================================================================== the gate
-def _missing(*, o1: bool = True, o2: bool = True, o3: bool = False) -> list:
+def _missing(*, o1: bool = True, o2: bool = True, o3: bool = False, o3s: bool = False, o4: bool = False,
+             files=()) -> list:
     """The inputs the items read that are not here (each makes the gate "not run", exit 2). O3's dry run (G14) reads
-    the frozen O3 predictions, or -- until they exist -- the draft, which reads O1's chain build (machine-local)."""
+    the frozen O3 predictions, or -- until they exist -- the draft, which reads O1's chain build (machine-local).
+    ``o3s``: G15-G18's -- the story-o3 archive's session and report, and the frozen v1; ``o4``: O4's dry run's (G20)
+    -- the frozen O4 predictions, or until they exist the O4 chain's campaign.toml the draft reads (machine-local);
+    ``files``: whatever else the mode reads (the O3 baseline and the pins file for the gate, the O1 and O2 baselines
+    for --capture-o3)."""
     need = ([V4, O1E / "o1_session.json", O1E / "o1_report.txt", O1D / "o1_session.json"] if o1 else []) \
         + ([V1, O2S / "o2_session.json", O2S / "o2_report.txt"] if o2 else [])
     if o3:
         P, _D3 = _o3()
         need.append(P.PREDICTIONS if P.PREDICTIONS.is_file() else P.CHAIN_DIR / "campaign.toml")
+    if o3s:
+        need += [V1_O3, O3S / "o3_session.json", O3S / "o3_report.txt"]
+    if o4:
+        C4, _D4 = _o4()
+        need.append(C4.PREDICTIONS if C4.PREDICTIONS.is_file() else C4.CHAIN_DIR / "campaign.toml")
+    need += [Path(p) for p in files]
     return [str(p) for p in need if not p.is_file()]
 
 
@@ -651,6 +1219,39 @@ def judge_o2(base: dict | None, got: dict, tests: dict) -> list:
     return [g8(base, got["o2s"]), g9(got["o2s"]["report"]), g10(base, got["dryrun"], got["dryrun_order"],
                                                                  got["units"]),
             g11(base, got["offline"]), g12(base, tests)]
+
+
+def collect_o3() -> dict:
+    """Everything the O3 code says, once: the gate's reading (and, at G0'', the O3 baseline's), every temporary root
+    read as :data:`TMP`."""
+    from ff9mapkit import storytrace as T
+    stock = T.stock_script_source()
+    dry, order, units = o3_dryrun_outputs(stock)
+    return {"o3s": o3_analyse_archive(), "dryrun": dry, "dryrun_order": order, "units": units,
+            "offline": o3_offline()}
+
+
+def judge_o3(base: dict | None, got: dict) -> list:
+    return [g15(base, got["o3s"]), g16(got["o3s"]["report"]),
+            g17(base, got["dryrun"], got["dryrun_order"], got["units"]), g18(base, got["offline"])]
+
+
+def readings_differ(a: dict, b: dict) -> list:
+    """What differs between two readings of :func:`collect_o3` (G0''), by name: a dry-run case, a unit (or the units'
+    order), or a whole item -- never excluded, never summarised away."""
+    out = []
+    for key in sorted(set(a) | set(b)):
+        x, y = a.get(key), b.get(key)
+        if key == "dryrun" and isinstance(x, dict) and isinstance(y, dict):
+            out += [f"case {n}" for n in sorted(set(x) | set(y)) if x.get(n) != y.get(n)]
+        elif key == "units" and isinstance(x, list) and isinstance(y, list):
+            ux, uy = {u[0]: u for u in x}, {u[0]: u for u in y}
+            out += [f"unit {n}" for n in sorted(set(ux) | set(uy)) if ux.get(n) != uy.get(n)]
+            if [u[0] for u in x] != [u[0] for u in y]:
+                out.append("the units' order")
+        elif x != y:
+            out.append(key)
+    return out
 
 
 def _head() -> str:
@@ -708,18 +1309,66 @@ def capture_o2(out: Path) -> int:
     return 0
 
 
+def capture_o3(out: Path, *, baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2) -> int:
+    """G0'': the O3 baseline, once, at the code BEFORE any O4 change (research/o4_design.md 1.4, 9 A0). TWO readings
+    first, compared with every temporary root read as :data:`TMP`: one that still differs is named and refused. Then
+    G7, G12 and G13 (with the O1 and O2 baselines) and G15-G18's baseline-free halves must pass; the tests those three
+    selections collect, and the fake's :data:`FAKE_PINS`, become G21's ``sources``."""
+    if out.exists():
+        raise SystemExit(f"!! {out} exists: the O3 baseline is captured once, before any O4 code change. It is never "
+                         f"overwritten.")
+    P, _D3 = _o3()
+    first = collect_o3()
+    second = collect_o3()
+    differ = readings_differ(first, second)
+    if differ:
+        print(f"!! two readings of O3's outputs differ (a temporary path, a clock or a random in an output): "
+              f"{', '.join(differ[:12])}{f' (+{len(differ) - 12} more)' if len(differ) > 12 else ''} -- no O3 "
+              f"baseline written")
+        return 1
+    tests = {"G7": pytest_g7(), "G12": pytest_g12(), "G13": pytest_g13()}
+    base1, base2 = json.loads(Path(baseline).read_bytes()), json.loads(Path(baseline_o2).read_bytes())
+    items = [g7(base1, tests["G7"]), g12(base2, tests["G12"]), g13(tests["G13"])] + judge_o3(None, first)
+    _show_items(items)
+    if not all(ok for ok, _w, _d in items):
+        print("!! the code here does not pass G7, G12, G13 and G15-G18's baseline-free halves: no O3 baseline written")
+        return 1
+    names = sorted({pin_of_test(n) for t in tests.values() for n in t["passed"]}) \
+        + [f"{FAKE_REL}::{q}" for q in FAKE_PINS]
+    sources = source_shas(names)
+    gone = [n for n, s in sources.items() if s is None]
+    if gone:
+        print(f"!! no function for {len(gone)} pin(s): {gone[:6]} -- no O3 baseline written")
+        return 1
+    _pred, sha = P.O3.load(V1_O3)
+    base = {"what": "O3's outputs at the code before any O4 change (research/o4_design.md 1.4 G0''): every (checks, "
+                    "report) and every unit's (name, ok, detail) the regression gate compares byte for byte, each "
+                    "temporary root read as <tmp>; and G21's sources, the AST sha of every pinned function",
+            "head": _head(), "predictions": V1_O3.name, "predictions_sha256": sha, "archive": str(O3S), "tmp": TMP,
+            "tests": sorted(tests["G13"]["passed"]), "sources": sources, "sources_python": _py(),
+            "sources_from": {"G7": PYTEST_K, "G12": PYTEST_K_O2, "G13": PYTEST_K_O3, "fake": list(FAKE_PINS)},
+            **first}
+    text = json.dumps(base, indent=1, sort_keys=True) + "\n"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(text.encode("utf-8"))
+    print(f"captured: {out} ({len(text)} chars, head {base['head'][:8]}; {len(sources)} sources pinned)")
+    return 0
+
+
 def _show_items(items: list) -> None:
     for ok, what, detail in items:
         print(f"{'PASS' if ok else 'FAIL'}  {what}\n      {detail}", flush=True)
 
 
-def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2) -> int:
-    absent = [p for p in (baseline, baseline_o2) if not Path(p).is_file()]
+def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2, baseline_o3: Path = BASELINE_O3,
+         pins: Path = SOURCE_PINS) -> int:
+    absent = [p for p in (baseline, baseline_o2, baseline_o3, pins) if not Path(p).is_file()]
     if absent:
         print(f"!! no baseline at {', '.join(str(p) for p in absent)}: the gate was not run (capture each first, "
               f"before the change it guards)")
         return 2
     base, base_o2 = json.loads(Path(baseline).read_bytes()), json.loads(Path(baseline_o2).read_bytes())
+    base_o3 = json.loads(Path(baseline_o3).read_bytes())
     items = judge(base, collect(), pytest_g7())
     _show_items(items)
     items_o2 = judge_o2(base_o2, collect_o2(), pytest_g12())
@@ -728,9 +1377,18 @@ def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2) -> int:
     _show_items(items_o3)
     items_o3.append(g14())                             # O3's dry run (11.7 #12): no baseline, the count's floor
     _show_items(items_o3[-1:])
-    items += items_o2 + items_o3
+    items_o3b = judge_o3(base_o3, collect_o3())        # O3's outputs (research/o4_design.md 1.4): G15-G18
+    _show_items(items_o3b)
+    items_o4 = [g19(pytest_g19())]                     # O4's machine beats and Chanbara policy (from B3): G19
+    _show_items(items_o4)
+    items_o4.append(g20())                             # O4's dry run (C2): no baseline, the count's floor
+    _show_items(items_o4[-1:])
+    items_src = [g21(base_o3, pins)]                   # the driver's source pins (rev. 2): G21
+    _show_items(items_src)
+    items += items_o2 + items_o3 + items_o3b + items_o4 + items_src
     n = sum(1 for ok, _w, _d in items if ok)
-    print(f"\n{n}/{len(items)} items PASS (baseline heads: O1 {base['head'][:8]}, O2 {base_o2['head'][:8]})")
+    print(f"\n{n}/{len(items)} items PASS (baseline heads: O1 {base['head'][:8]}, O2 {base_o2['head'][:8]}, O3 "
+          f"{base_o3['head'][:8]})")
     return 0 if n == len(items) else 1
 
 
@@ -738,24 +1396,49 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--capture", action="store_true", help="G0: write the O1 baseline (refuses an existing one)")
     ap.add_argument("--capture-o2", action="store_true", help="G0': write the O2 baseline (refuses an existing one)")
+    ap.add_argument("--capture-o3", action="store_true", help="G0'': write the O3 baseline (refuses an existing one)")
     ap.add_argument("--out", type=Path, default=None,
-                    help="where --capture / --capture-o2 writes (default: that baseline's committed path)")
+                    help="where --capture / --capture-o2 / --capture-o3 writes (default: that baseline's committed "
+                         "path)")
     ap.add_argument("--baseline", type=Path, default=BASELINE, help="the O1 baseline the gate reads (default: the "
                                                                     "committed one; another is for testing the gate)")
     ap.add_argument("--baseline-o2", type=Path, default=BASELINE_O2,
                     help="the O2 baseline the gate reads (default: the committed one; another is for testing the gate)")
+    ap.add_argument("--baseline-o3", type=Path, default=BASELINE_O3,
+                    help="the O3 baseline the gate and --rebaseline-source read (default: the committed one)")
+    ap.add_argument("--source-pins", type=Path, default=SOURCE_PINS,
+                    help="G21's re-baseline rows (default: the committed research/source_pins.json)")
+    ap.add_argument("--rebaseline-source", metavar="NAME",
+                    help="G21: append ONE re-baseline row for the pinned source NAME (<file>::<qualname>) at its "
+                         "current sha; needs --reason")
+    ap.add_argument("--reason", help="with --rebaseline-source: why the pinned source changed (never empty)")
     args = ap.parse_args(argv)
-    if args.capture and args.capture_o2:
-        ap.error("capture one baseline at a time")
-    missing = _missing(o1=not args.capture_o2, o2=not args.capture, o3=not (args.capture or args.capture_o2))
+    modes = [m for m in ("capture", "capture_o2", "capture_o3", "rebaseline_source") if getattr(args, m)]
+    if len(modes) > 1:
+        ap.error(f"one at a time, not {' and '.join(modes)}")
+    if args.reason is not None and not args.rebaseline_source:
+        ap.error("--reason goes with --rebaseline-source")
+    if args.rebaseline_source:
+        missing = _missing(o1=False, o2=False, files=(args.baseline_o3, args.source_pins))
+    elif args.capture_o3:
+        missing = _missing(o1=False, o2=False, o3s=True, files=(args.baseline, args.baseline_o2))
+    elif args.capture or args.capture_o2:
+        missing = _missing(o1=not args.capture_o2, o2=not args.capture, o3=False)
+    else:
+        missing = _missing(o1=True, o2=True, o3=True, o3s=True, o4=True, files=(args.baseline_o3, args.source_pins))
     if missing:
         print("!! the gate was not run -- missing: " + ", ".join(missing))
         return 2
+    if args.rebaseline_source:
+        return rebaseline_source(args.rebaseline_source, args.reason, baseline=args.baseline_o3,
+                                 pins=args.source_pins)
     if args.capture:
         return capture(args.out or BASELINE)
     if args.capture_o2:
         return capture_o2(args.out or BASELINE_O2)
-    return gate(args.baseline, args.baseline_o2)
+    if args.capture_o3:
+        return capture_o3(args.out or BASELINE_O3, baseline=args.baseline, baseline_o2=args.baseline_o2)
+    return gate(args.baseline, args.baseline_o2, args.baseline_o3, args.source_pins)
 
 
 if __name__ == "__main__":

@@ -58,3 +58,18 @@ studies/story-trace/o2_predictions*.json -text
 # place BEFORE any freeze (the lead freezes v1 after the stock rehearsals and the F-side load smoke); never line-end
 # convert them.
 studies/story-trace/o3_predictions*.json -text
+
+# The O3 regression gate's baseline (studies/story-trace/segment_regress.py, G0''): O3's every (checks, report) and
+# every dry-run unit's (name, ok, detail), each temporary root read as <tmp>, and G21's source pins, captured ONCE at
+# the code before any O4 change and compared byte for byte. Its committed LF bytes are the captured ones; never
+# line-end convert them.
+studies/story-trace/research/o3_regress_baseline.json -text
+
+# G21's re-baseline rows (studies/story-trace/segment_regress.py --rebaseline-source): append-only, each row the
+# reason a pinned O1-O3 driver test or fake function changed. LF; never line-end convert them.
+studies/story-trace/research/source_pins.json -text
+
+# O4's registered predictions (studies/story-trace/o4_castle.py O4-FROZEN) are sha256-frozen the same way: the
+# session records the sha of the bytes it read, and the analysis refuses a file that no longer matches. The line is in
+# place BEFORE any freeze (the lead freezes v1 after the stock rehearsals); never line-end convert them.
+studies/story-trace/o4_predictions*.json -text

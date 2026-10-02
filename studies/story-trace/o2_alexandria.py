@@ -1237,7 +1237,7 @@ class O2Segment(ST.Segment):
         log, outcome = self._run_log(rec)
         r["log"], r["outcome"] = log, outcome
         members = members_of(pred) if r["side"] == "F" else {}
-        ends = pred.get("end_fields") or [pred["end_field"]]
+        ends = ST.side_ends(pred, r["side"])               # the side's end FIELDS (S6, research/o4_design.md 1.2)
         hits = []
         if r["rows"]:
             sp = place(pred["start"][r["side"]], members)

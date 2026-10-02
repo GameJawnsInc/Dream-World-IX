@@ -19,7 +19,9 @@ THE SIDES (o3_forks.json; nothing is imported, built or deployed for O3):
   S  stock: the install's scripts. Start: 61 (Prima Vista/Interior), entrance 0, SC 1155.
   F  O1's tshp chain as deployed (31200-31219, FF9CustomMap). The route runs 31211 (61) -> 31212 (62) -> 31213 (63);
      member(63)'s Field(64) is real 64: the seam, and the segment's end on both sides. A LEGACY build: every member's
-     jp/fr/gr/it/es .eb is US bytecode and block 2's uk copy is the US text -- the claim is a US SESSION's.
+     jp/fr/gr/it/es .eb is US bytecode and block 2's uk copy is the US text -- the claim is a US SESSION's. (Block 2
+     is shared with O4's chain, whose deploy rewrites it per language: the report's language clause is read from
+     the session's own recorded P-TEXT rows, research/o4_design.md 9 A2.)
 
 THE ENTRY: New Game, the trace armed, then a raw `warp <61 | 31211> 0 1155` (O2's form): the warp writes the
 scenario's two bytes in field 70, the residue the front cut sets aside and O3-START requires.
@@ -99,6 +101,10 @@ SCOPE_START = ("under the raw warp no key on the route is start-dependent: 61 re
                "override state, and the six untouched targets' values after a real O2 (4.9)")
 SCOPE_LANG = ("a US session (P-LANG): the members' jp/fr/gr/it/es .eb are US bytecode (accept_us_build), and block "
               "2's uk copy is the US text (the KNOWN-KIT-DEFECT line below)")
+#: The language clause when the session's recorded P-TEXT rows hold no KNOWN-KIT-DEFECT line (research/o4_design.md 9
+#: A2): O4's deploy rewrites block 2 per language, so an O3 session after it records 7 byte-equal. :func:`scope_lang`.
+SCOPE_LANG_OWN = ("a US session (P-LANG): the members' jp/fr/gr/it/es .eb are US bytecode (accept_us_build); block 2's "
+                  "copies are each their own language's stock text (P-TEXT)")
 #: Memoria.log's line stamp (``dd.MM.yyyy HH:mm:ss``, local time) -- P-LAUNCH reads the first line's.
 LOG_STAMP = re.compile(r"^(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2}):(\d{2})(?!\d)")
 #: The engine's one ForkDonorPatch collision line (DataPatchers.cs:156-160) -- P-DONOR-LOG reads its absence.
@@ -116,6 +122,26 @@ def _sha_file(path: Path) -> str | None:
 
 def _rows_text(xs) -> str:
     return ", ".join(A._row_text(x) for x in xs)
+
+
+def scope_lang(session: dict) -> str:
+    """5.4's language clause, DERIVED from the session's recorded P-TEXT rows (research/o4_design.md 9 A2; the claim
+    critique #13) -- never a constant, since O4's deploy rewrites block 2 per language: rev. 1's :data:`SCOPE_LANG`
+    when they hold block 2's uk KNOWN-KIT-DEFECT line (O1's copy: "uk: ships stock us"), or when no P-TEXT row is
+    recorded; :data:`SCOPE_LANG_OWN` when P-TEXT rows are recorded with no defect line; and, for any other recorded
+    defect, a clause naming its languages (neither of the two would be true then)."""
+    details = [detail for _ok, what, detail in session.get("preflight") or () if str(what).startswith("P-TEXT")]
+    if not details:
+        return SCOPE_LANG
+    defects = [d for detail in details for d in A.defect_lines(detail)]
+    if not defects:
+        return SCOPE_LANG_OWN
+    if any(d.startswith("KNOWN-KIT-DEFECT uk: ships stock us ") for d in defects):
+        return SCOPE_LANG
+    langs = sorted({d.split(":", 1)[0].split()[-1] for d in defects})
+    return (f"a US session (P-LANG): the members' jp/fr/gr/it/es .eb are US bytecode (accept_us_build), and block 2's "
+            f"{'/'.join(langs)} cop{'y is' if len(langs) == 1 else 'ies are'} another language's stock text (the "
+            f"KNOWN-KIT-DEFECT line{'' if len(defects) == 1 else 's'} below)")
 
 
 # ======================================================================== the predictions (draft v1)
@@ -1455,15 +1481,16 @@ class O3Segment(A.O2Segment):
 
     # -- the report ---------------------------------------------------------------------------------------------
     def report_extra(self, run_dir: Path, session: dict, pred: dict, runs: list, checks: list) -> list:
-        """Report-only (5.4): the scope (start dependence, the settings recorded, a US session); the battle per run;
-        the session's end (S5); 61's movie per run; then O2's sections, copied -- the VOID reasons per side, the
-        masked counts, the forbidden hits with their backing, the P-TEXT KNOWN-KIT-DEFECT lines, the folded
-        transcripts -- and the re-runs held (S2)."""
+        """Report-only (5.4): the scope (start dependence, the settings recorded, a US session -- its language clause
+        read from the session's recorded P-TEXT rows, :func:`scope_lang`); the battle per run; the session's end (S5);
+        61's movie per run; then O2's sections, copied -- the VOID reasons per side, the masked counts, the forbidden
+        hits with their backing, the P-TEXT KNOWN-KIT-DEFECT lines, the folded transcripts -- and the re-runs held
+        (S2)."""
         L = ["", "Scope (a US session):", "  start dependence -- " + SCOPE_START]
         st = (session.get("install") or {}).get("settings")
         L.append("  settings -- " + (json.dumps(st, sort_keys=True) if st is not None
                                       else "not recorded (no install fingerprint in this session)"))
-        L.append("  language -- " + SCOPE_LANG)
+        L.append("  language -- " + scope_lang(session))
         L.append("")
         L.append("The battle, per run (scene, epoch / battle_epoch0, the result fight() read, turns, seconds, "
                  "tutorials; the leave; the flip; the landing; the trace's battle-mode rows):")

@@ -1,0 +1,1635 @@
+{
+ "battles": [],
+ "beats": [
+  "sword",
+  "encore"
+ ],
+ "budget": {
+  "end_row_s": 10.0,
+  "no_progress_s": 60,
+  "run_min_s": 150,
+  "run_s": 252,
+  "session_s": 2760,
+  "settle_s": 1.0
+ },
+ "chain": [
+  {
+   "donor": 64,
+   "ip": 528,
+   "m": 1,
+   "off": 517,
+   "op": ":=",
+   "sid": 2,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Int16[2]",
+   "value": 325,
+   "what": "FieldEntrance 325: 64 stage 9, then Field(150)"
+  },
+  {
+   "donor": 150,
+   "ip": 2161,
+   "m": 1,
+   "off": 1903,
+   "op": ":=",
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Int16[2]",
+   "value": 325,
+   "what": "FieldEntrance 325: 150 stage 10, then Field(153) (a same-value store)"
+  }
+ ],
+ "chanbara": {
+  "buttons": {
+   "CIRCLE": "cancel",
+   "CROSS": "confirm",
+   "DOWN": "down",
+   "LEFT": "left",
+   "RIGHT": "right",
+   "SQUARE": "special",
+   "TRIANGLE": "menu",
+   "UP": "up"
+  },
+  "donor": 64,
+  "encore_match": "encore",
+  "first_prompt_s": 2.0,
+  "gil_page": "They shower you with 10000 Gil!",
+  "gone_ticks": 10,
+  "input_every_s": 0.05,
+  "j_cap": 14,
+  "page_once_ticks": 10,
+  "policy": "fast",
+  "poll_s": 0.005,
+  "press_frames": 2,
+  "prompts": 49,
+  "quiet": [
+   "Queen Brahne was"
+  ],
+  "quiet_cap_s": 4.2,
+  "raw_floor": 100,
+  "ring_every_s": 2.0,
+  "sc": 1155,
+  "score_page": "Of 100 nobles watching,\n100 were impressed.",
+  "state_every": null,
+  "why": "64 stage 3, the sword fight: e20 t1 ip440-1554 arms 49 prompts over 50 passes and e3 t1 ip23-509 polls the eight KEYON bits once a tick; one mapped press per prompt, fast -- raw >= 100 shows 100 with or without the +30%",
+  "zone_end": [
+   "We shall finish this later!",
+   "Come back here!"
+  ],
+  "zone_stall_s": 3.5,
+  "zone_start": {
+   "dbtns": 8,
+   "match": "To follow Blank"
+  }
+ },
+ "choices": [
+  {
+   "beat": "encore",
+   "donor": 64,
+   "match": "encore",
+   "once": true,
+   "pick": "No",
+   "sc": [
+    1155
+   ]
+  },
+  {
+   "beat": null,
+   "donor": null,
+   "match": "want to skip",
+   "once": false,
+   "pick": "default",
+   "sc": null
+  }
+ ],
+ "cut_start": true,
+ "dead": [
+  {
+   "donor": 64,
+   "ip": 41,
+   "m": 1,
+   "off": 35,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[2]",
+   "value": 10000,
+   "what": "64 Int16[2] := 10000 (dead: Bit[184] == 1, ip30)"
+  },
+  {
+   "donor": 64,
+   "ip": 130,
+   "m": 1,
+   "off": 124,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 1,
+   "what": "64 Byte[13] := 1 (dead: Int16[9] >= 0, ip108)"
+  },
+  {
+   "donor": 64,
+   "ip": 211,
+   "m": 1,
+   "off": 205,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 1,
+   "what": "64 Byte[14] := 1 (dead: Int16[11] >= 0, ip189)"
+  },
+  {
+   "donor": 64,
+   "ip": 295,
+   "m": 1,
+   "off": 289,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[8]",
+   "value": 125,
+   "what": "64 Byte[8] := 125 (dead: entrance 327's branch)"
+  },
+  {
+   "donor": 64,
+   "ip": 380,
+   "m": 1,
+   "off": 374,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[8]",
+   "value": 125,
+   "what": "64 Byte[8] := 125 (dead: entrances 315/322's branch)"
+  },
+  {
+   "donor": 64,
+   "ip": 893,
+   "m": 1,
+   "off": 882,
+   "op": ":=",
+   "sid": 2,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Int16[2]",
+   "value": 0,
+   "what": "64 Int16[2] := 0 (dead: the 327 visit's exit to 67)"
+  },
+  {
+   "donor": 64,
+   "ip": 193,
+   "m": 1,
+   "off": 163,
+   "op": ":=",
+   "sid": 11,
+   "src": "eb",
+   "tag": 2,
+   "target": "Global.Int16[2]",
+   "value": 330,
+   "what": "64 e11 Int16[2] := 330 (dead: region 11 never runs)"
+  },
+  {
+   "donor": 64,
+   "ip": 193,
+   "m": 1,
+   "off": 163,
+   "op": ":=",
+   "sid": 12,
+   "src": "eb",
+   "tag": 2,
+   "target": "Global.Int16[2]",
+   "value": 329,
+   "what": "64 e12 Int16[2] := 329 (dead: region 12 never runs)"
+  },
+  {
+   "donor": 150,
+   "ip": 45,
+   "m": 1,
+   "off": 35,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[2]",
+   "value": 10000,
+   "what": "150 Int16[2] := 10000 (dead: Bit[184] == 1, ip34)"
+  },
+  {
+   "donor": 150,
+   "ip": 134,
+   "m": 1,
+   "off": 124,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 1,
+   "what": "150 Byte[13] := 1 (dead: Int16[9] >= 0, ip112)"
+  },
+  {
+   "donor": 150,
+   "ip": 215,
+   "m": 1,
+   "off": 205,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 1,
+   "what": "150 Byte[14] := 1 (dead: Int16[11] >= 0, ip193)"
+  },
+  {
+   "donor": 150,
+   "ip": 497,
+   "m": 1,
+   "off": 487,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[8]",
+   "value": 125,
+   "what": "150 Byte[8] := 125 (dead: another entrance's branch)"
+  },
+  {
+   "donor": 150,
+   "ip": 609,
+   "m": 1,
+   "off": 599,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[8]",
+   "value": 125,
+   "what": "150 Byte[8] := 125 (dead: the default branch)"
+  },
+  {
+   "donor": 150,
+   "ip": 1277,
+   "m": 1,
+   "off": 1019,
+   "op": "++",
+   "prior": "150/3/1/1255",
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[303]",
+   "value": 2,
+   "what": "150 Byte[303]++ (2; dead: behind const(0))"
+  },
+  {
+   "donor": 150,
+   "ip": 1299,
+   "m": 1,
+   "off": 1041,
+   "op": "++",
+   "prior": "150/3/1/1277",
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[303]",
+   "value": 3,
+   "what": "150 Byte[303]++ (3; dead: behind const(0))"
+  },
+  {
+   "donor": 150,
+   "ip": 1321,
+   "m": 1,
+   "off": 1063,
+   "op": "++",
+   "prior": "150/3/1/1299",
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[303]",
+   "value": 4,
+   "what": "150 Byte[303]++ (4; dead: behind const(0))"
+  },
+  {
+   "donor": 150,
+   "ip": 90,
+   "m": 1,
+   "off": 60,
+   "op": ":=",
+   "sid": 18,
+   "src": "eb",
+   "tag": 2,
+   "target": "Global.Byte[8]",
+   "value": 0,
+   "what": "150 e18 Byte[8] := 0 (dead: region 18 RETs without control)"
+  },
+  {
+   "donor": 150,
+   "ip": 242,
+   "m": 1,
+   "off": 212,
+   "op": ":=",
+   "sid": 18,
+   "src": "eb",
+   "tag": 2,
+   "target": "Global.Byte[8]",
+   "value": 75,
+   "what": "150 e18 Byte[8] := 75 (dead: no control)"
+  },
+  {
+   "donor": 150,
+   "ip": 378,
+   "m": 1,
+   "off": 348,
+   "op": ":=",
+   "sid": 18,
+   "src": "eb",
+   "tag": 2,
+   "target": "Global.Int16[2]",
+   "value": 5,
+   "what": "150 e18 Int16[2] := 5 (dead: no control)"
+  }
+ ],
+ "derived": {
+  "cfg_control": {
+   "value": 0,
+   "why": "0.2 #6: New Game -> SettingsState.Initial -> cfg = new FF9CFG() (control 0) -> SetPrimaryKeys: identity logicalToButton (HonoInputManager.cs:967-975); only a save load restores cfg"
+  },
+  "tick_hz": {
+   "value": 30,
+   "why": "FieldTPS 30 (Memoria.ini:53, [Graphics] Enabled 1); FastForwardFactor 1: Initial rebuilds IsBoosterButtonActive with [1] (IsFastForward, SettingsState.cs:55) false, and the factor is 1 outside a Movie scene (:66-74); mid-run only F1 or a pad sets it (0.3 #7), which the input witness catches"
+  }
+ },
+ "end_field": 153,
+ "end_fields": [
+  153
+ ],
+ "end_state": {
+  "Global.Bit[184]": 0,
+  "Global.Bit[191]": 0,
+  "Global.Bit[3717]": 0,
+  "Global.Bit[3718]": 0,
+  "Global.Bit[3815]": 1,
+  "Global.Byte[13]": 0,
+  "Global.Byte[14]": 0,
+  "Global.Byte[17]": 0,
+  "Global.Byte[18]": 1,
+  "Global.Byte[206]": 0,
+  "Global.Byte[303]": 1,
+  "Global.Byte[472]": 0,
+  "Global.Byte[475]": 100,
+  "Global.Byte[4]": 0,
+  "Global.Byte[6]": 0,
+  "Global.Byte[8]": 75,
+  "Global.Int16[11]": -1,
+  "Global.Int16[2]": 325,
+  "Global.Int16[469]": 0,
+  "Global.Int16[9]": -1,
+  "Global.UInt16[0]": 1190,
+  "Global.UInt16[19]": 0,
+  "Global.UInt16[21]": 1
+ },
+ "engine": {
+  "why": "0.3 #8: the Assembly-CSharp.dll every fork gate, EMinigame line and harness behaviour in this design was read from (= C:\\gd\\FFIX\\Memoria\\Output, Sep 26 17:10); an engine rebuild auto-deploys over the shared install",
+  "x64": "ba9762423da8f3d749a41a9988ef951d2a4fa62c296acc5aa44054439b45dcfc",
+  "x86": "ba9762423da8f3d749a41a9988ef951d2a4fa62c296acc5aa44054439b45dcfc"
+ },
+ "entrance": 100,
+ "entrance_bytes": [
+  2,
+  3
+ ],
+ "error_path": [
+  {
+   "donor": 64,
+   "ip": 97,
+   "m": 1,
+   "off": 91,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 9,
+   "what": "64 e0 t0 ip97: the error path (Global.Byte[13] := 9)"
+  },
+  {
+   "donor": 64,
+   "ip": 178,
+   "m": 1,
+   "off": 172,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 9,
+   "what": "64 e0 t0 ip178: the error path (Global.Byte[14] := 9)"
+  },
+  {
+   "donor": 64,
+   "ip": 845,
+   "m": 1,
+   "off": 839,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 0,
+   "what": "64 e0 t0 ip845: the error path (Global.Byte[13] := 0)"
+  },
+  {
+   "donor": 64,
+   "ip": 879,
+   "m": 1,
+   "off": 873,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 0,
+   "what": "64 e0 t0 ip879: the error path (Global.Byte[14] := 0)"
+  },
+  {
+   "donor": 150,
+   "ip": 101,
+   "m": 1,
+   "off": 91,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 9,
+   "what": "150 e0 t0 ip101: the error path (Global.Byte[13] := 9)"
+  },
+  {
+   "donor": 150,
+   "ip": 182,
+   "m": 1,
+   "off": 172,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 9,
+   "what": "150 e0 t0 ip182: the error path (Global.Byte[14] := 9)"
+  },
+  {
+   "donor": 150,
+   "ip": 1009,
+   "m": 1,
+   "off": 999,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 0,
+   "what": "150 e0 t0 ip1009: the error path (Global.Byte[13] := 0)"
+  },
+  {
+   "donor": 150,
+   "ip": 1043,
+   "m": 1,
+   "off": 1033,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 0,
+   "what": "150 e0 t0 ip1043: the error path (Global.Byte[14] := 0)"
+  }
+ ],
+ "fight": {
+  "build": {
+   "fields": {
+    "150": [
+     [
+      3,
+      1,
+      2169,
+      153
+     ],
+     [
+      18,
+      2,
+      386,
+      153
+     ],
+     [
+      19,
+      2,
+      342,
+      153
+     ]
+    ],
+    "64": [
+     [
+      2,
+      1,
+      536,
+      150
+     ],
+     [
+      11,
+      2,
+      201,
+      153
+     ],
+     [
+      12,
+      2,
+      201,
+      153
+     ]
+    ]
+   },
+   "score": {
+    "donor": 64,
+    "from": "SET({Map.Int16[48] Map.Int16[30] Map.Int16[32] B_PLUS const(29) B_DIV B_LET B_EXPR_END})",
+    "hook": "SET({Map.Int16[48] const(100) B_GT B_EXPR_END})",
+    "hook_ip": 222,
+    "sid": 4,
+    "tag": 1,
+    "through": "SET({Global.Byte[475] Map.Int16[48] B_LET B_EXPR_END})"
+   }
+  },
+  "page_sources": {
+   "122": "Of 100 nobles watching,",
+   "123": "quite impressed.",
+   "128": "They shower you with"
+  },
+  "pins": [
+   [
+    64,
+    20,
+    1,
+    462,
+    "SET({Map.Byte[46] B_SYSVAR[0] const(7) B_AND B_LET B_EXPR_END})"
+   ],
+   [
+    64,
+    20,
+    1,
+    681,
+    "SET({Map.Byte[46] Map.Byte[44] B_EQ B_EXPR_END})"
+   ],
+   [
+    64,
+    20,
+    1,
+    710,
+    "SET({Map.Int16[34] const(49) B_LT B_EXPR_END})"
+   ],
+   [
+    64,
+    20,
+    1,
+    721,
+    "SET({Map.Byte[47] const(1) B_LET B_EXPR_END})"
+   ],
+   [
+    64,
+    20,
+    1,
+    736,
+    "SET({Map.Byte[52] const(50) B_LET B_EXPR_END})"
+   ],
+   [
+    64,
+    20,
+    1,
+    789,
+    "WindowAsync(1, 160, 112)"
+   ],
+   [
+    64,
+    20,
+    1,
+    798,
+    "WindowAsync(1, 160, 113)"
+   ],
+   [
+    64,
+    20,
+    1,
+    807,
+    "WindowAsync(1, 160, 114)"
+   ],
+   [
+    64,
+    20,
+    1,
+    816,
+    "WindowAsync(1, 160, 115)"
+   ],
+   [
+    64,
+    20,
+    1,
+    825,
+    "WindowAsync(1, 160, 116)"
+   ],
+   [
+    64,
+    20,
+    1,
+    834,
+    "WindowAsync(1, 160, 117)"
+   ],
+   [
+    64,
+    20,
+    1,
+    843,
+    "WindowAsync(1, 160, 118)"
+   ],
+   [
+    64,
+    20,
+    1,
+    852,
+    "WindowAsync(1, 160, 119)"
+   ],
+   [
+    64,
+    20,
+    1,
+    1379,
+    "SET({Map.Byte[52] const(0) B_GT Map.Byte[47] const(1) B_EQ B_ANDAND B_EXPR_END})"
+   ],
+   [
+    64,
+    20,
+    1,
+    1438,
+    "SET({Map.Int16[30] Map.Byte[52] B_PLUS_LET B_EXPR_END})"
+   ],
+   [
+    64,
+    20,
+    1,
+    1456,
+    "SET({Map.Int16[32] Map.Int16[40] B_PLUS_LET B_EXPR_END})"
+   ],
+   [
+    64,
+    20,
+    1,
+    1546,
+    "SET({Map.Int16[34] const(50) B_LT B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    23,
+    "SET({Map.Byte[47] const(1) B_EQ B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    34,
+    "SET({const(128) B_KEYON B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    81,
+    "SET({const(32) B_KEYON B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    128,
+    "SET({const(4096) B_KEYON B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    175,
+    "SET({const(64) B_KEYON B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    222,
+    "SET({const(16384) B_KEYON B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    269,
+    "SET({const(16) B_KEYON B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    316,
+    "SET({const(8192) B_KEYON B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    363,
+    "SET({const4(32768) B_KEYON B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    43,
+    "SET({Map.Byte[46] const(0) B_EQ B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    90,
+    "SET({Map.Byte[46] const(1) B_EQ B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    137,
+    "SET({Map.Byte[46] const(2) B_EQ B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    184,
+    "SET({Map.Byte[46] const(3) B_EQ B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    231,
+    "SET({Map.Byte[46] const(4) B_EQ B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    278,
+    "SET({Map.Byte[46] const(5) B_EQ B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    325,
+    "SET({Map.Byte[46] const(6) B_EQ B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    374,
+    "SET({Map.Byte[46] const(7) B_EQ B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    412,
+    "SET({const(8) B_KEY B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    487,
+    "SET({Map.Byte[52] const(0) B_GT B_EXPR_END})"
+   ],
+   [
+    64,
+    3,
+    1,
+    498,
+    "SET({Map.Byte[52] B_POST_MINUS B_EXPR_END})"
+   ],
+   [
+    64,
+    4,
+    1,
+    208,
+    "SET({Map.Int16[48] Map.Int16[30] Map.Int16[32] B_PLUS const(29) B_DIV B_LET B_EXPR_END})"
+   ],
+   [
+    64,
+    4,
+    1,
+    222,
+    "SET({Map.Int16[48] const(100) B_GT B_EXPR_END})"
+   ],
+   [
+    64,
+    4,
+    1,
+    233,
+    "SET({Map.Int16[48] const(100) B_LET B_EXPR_END})"
+   ],
+   [
+    64,
+    4,
+    1,
+    346,
+    "SET({Map.Int16[42] const(50) B_LT B_EXPR_END})"
+   ],
+   [
+    64,
+    4,
+    1,
+    357,
+    "WindowSync(5, 0, 120)"
+   ],
+   [
+    64,
+    4,
+    1,
+    366,
+    "WindowSync(5, 0, 121)"
+   ],
+   [
+    64,
+    4,
+    1,
+    375,
+    "WindowSync(5, 0, 122)"
+   ],
+   [
+    64,
+    4,
+    1,
+    384,
+    "WindowSync(5, 0, 123)"
+   ],
+   [
+    64,
+    4,
+    1,
+    462,
+    "WindowSync(5, 0, 127)"
+   ],
+   [
+    64,
+    4,
+    1,
+    476,
+    "SET({B_SYSVAR[9] const(0) B_EQ B_EXPR_END})"
+   ],
+   [
+    64,
+    4,
+    1,
+    531,
+    "WindowSync(5, 0, 128)"
+   ],
+   [
+    64,
+    13,
+    1,
+    900,
+    "WindowSync(6, 0, 111)"
+   ],
+   [
+    64,
+    13,
+    1,
+    868,
+    "SET({const4(131072) B_KEYON B_NOT const4(524288) B_KEYON B_NOT B_ANDAND B_EXPR_END})"
+   ],
+   [
+    64,
+    13,
+    1,
+    1404,
+    "SET({const4(131072) B_KEYON B_NOT const4(524288) B_KEYON B_NOT B_ANDAND B_EXPR_END})"
+   ],
+   [
+    150,
+    2,
+    1,
+    538,
+    "SET({const4(131072) B_KEYON B_NOT const4(524288) B_KEYON B_NOT B_ANDAND B_EXPR_END})"
+   ],
+   [
+    64,
+    2,
+    1,
+    536,
+    "Field(150)"
+   ],
+   [
+    150,
+    3,
+    1,
+    2169,
+    "Field(153)"
+   ],
+   [
+    150,
+    3,
+    1,
+    1884,
+    "SET({Global.UInt16[0] const(1190) B_GT B_EXPR_END})"
+   ],
+   [
+    150,
+    3,
+    1,
+    1632,
+    "SET({const(5) B_PARTYCHK B_EXPR_END})"
+   ]
+  ],
+  "prompt_mes": {
+   "112": "LEFT",
+   "113": "RIGHT",
+   "114": "TRIANGLE",
+   "115": "DOWN",
+   "116": "CROSS",
+   "117": "UP",
+   "118": "CIRCLE",
+   "119": "SQUARE"
+  },
+  "zone_start_mes": 111
+ },
+ "forbidden": [
+  {
+   "cause": "walk",
+   "off_route": true,
+   "why": "a write off the route: S, a place outside route + end_fields; F, a field that is neither a member whose donor is on the route nor F's own end field (real 64/150 on F: an un-retargeted Field() or an engine id leak)"
+  }
+ ],
+ "forbidden_sites": [
+  {
+   "donor": 150,
+   "ip": 1641,
+   "m": 1,
+   "off": 1383,
+   "op": ":=",
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[4]",
+   "value": 1,
+   "what": "150 Byte[4] := 1 (PARTYCHK(5) true: Quina in the party)"
+  },
+  {
+   "donor": 150,
+   "ip": 1952,
+   "m": 1,
+   "off": 1694,
+   "op": ":=",
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.UInt16[0]",
+   "value": 1190,
+   "what": "150 SC := 1190 (the debug overwrite behind ip1884, window 55 and a Start press)"
+  }
+ ],
+ "hotspots": {},
+ "inert": [
+  {
+   "donor": 150,
+   "sid": 10,
+   "tags": "*",
+   "why": "not instanced at entrance 325"
+  },
+  {
+   "donor": 150,
+   "sid": 15,
+   "tags": "*",
+   "why": "not instanced at entrance 325"
+  },
+  {
+   "donor": 150,
+   "sid": 16,
+   "tags": "*",
+   "why": "not instanced at entrance 325"
+  },
+  {
+   "donor": 150,
+   "sid": 19,
+   "tags": "*",
+   "why": "not instanced at entrance 325"
+  },
+  {
+   "donor": 150,
+   "sid": 23,
+   "tags": "*",
+   "why": "not instanced at entrance 325"
+  }
+ ],
+ "ladder": [
+  {
+   "donor": 150,
+   "ip": 1966,
+   "m": 1,
+   "off": 1708,
+   "op": ":=",
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.UInt16[0]",
+   "value": 1190,
+   "what": "SC 1155 -> 1190: 150 stage 10, after the rebuild and Wait(90); the guard ip1884 SC > 1190 false"
+  }
+ ],
+ "landing": {
+  "end_row": {
+   "ip": 22,
+   "place": 153,
+   "sid": 0,
+   "tag": 0,
+   "target": "Global.Bit[191]",
+   "value": 0
+  },
+  "enter150": {
+   "ip": 26,
+   "place": 150,
+   "sid": 0,
+   "tag": 0,
+   "target": "Global.Bit[191]",
+   "value": 0
+  },
+  "exit150": {
+   "ip": 2161,
+   "place": 150,
+   "sid": 3,
+   "tag": 1,
+   "target": "Global.Int16[2]",
+   "value": 325
+  },
+  "exit64": {
+   "ip": 528,
+   "place": 64,
+   "sid": 2,
+   "tag": 1,
+   "target": "Global.Int16[2]",
+   "value": 325
+  },
+  "route_places": [
+   64,
+   150
+  ]
+ },
+ "lang": "us",
+ "members": {
+  "31240": 64,
+  "31241": 68,
+  "31242": 69,
+  "31243": 150,
+  "31244": 151,
+  "31245": 153,
+  "31246": 154,
+  "31247": 155,
+  "31248": 156,
+  "31249": 157,
+  "31250": 158,
+  "31251": 159,
+  "31252": 160,
+  "31253": 161,
+  "31254": 162,
+  "31255": 163,
+  "31256": 164,
+  "31257": 165,
+  "31258": 166,
+  "31259": 167
+ },
+ "min_covered": 2,
+ "names": {
+  "31240": "O4_AC_AST",
+  "31241": "O4_AC_RST",
+  "31242": "O4_AC_RST_A",
+  "31243": "O4_AC_GDR",
+  "31244": "O4_ALXC_AC_RST",
+  "31245": "O4_AC_H2F",
+  "31246": "O4_AC_FTI",
+  "31247": "O4_AC_LBR",
+  "31248": "O4_AC_PTR",
+  "31249": "O4_AC_KTN",
+  "31250": "O4_AC_FGO",
+  "31251": "O4_AC_GTO",
+  "31252": "O4_AC_LTW",
+  "31253": "O4_AC_RTW",
+  "31254": "O4_AC_LTH",
+  "31255": "O4_AC_LTI",
+  "31256": "O4_ALXC_AC_LTI",
+  "31257": "O4_AC_LTI_2",
+  "31258": "O4_AC_LTT",
+  "31259": "O4_ALXC_AC_LBR"
+ },
+ "naming": [],
+ "noise": [],
+ "order": [
+  "S",
+  "F",
+  "S",
+  "F",
+  "S",
+  "F"
+ ],
+ "override70": {
+  "FF9CustomMap-world": "2ce8887ea969db6b6518bd33151b1a8805af10a6c9c96a0f59b49bad9ffc9215"
+ },
+ "recovery": 4600,
+ "regions": {},
+ "rehearsals": [
+  "20261002-082739-o4-rh-chanbara",
+  "20261002-083322-o4-rh-full",
+  "20261002-083808-o4-rh-void"
+ ],
+ "rerun": {
+  "max": 2,
+  "stop_on": [
+   "V18",
+   "V19"
+  ]
+ },
+ "residue_after_start": [],
+ "route": [
+  64,
+  150
+ ],
+ "sc_bytes": [
+  0,
+  1
+ ],
+ "scenario": 1155,
+ "settings": {
+  "Battle": {
+   "CustomBattleFlagsMeaning": "0",
+   "Enabled": "1",
+   "SFXRework": "1",
+   "Speed": "5"
+  },
+  "Cheats": {
+   "Attack9999": "1",
+   "AutoBattle": "1",
+   "BattleAssistance": "1",
+   "Enabled": "1",
+   "GilMax": "0",
+   "LvMax": "0",
+   "MasterSkill": "0",
+   "NoRandomEncounter": "1",
+   "SpeedFactor": "3",
+   "SpeedMode": "1",
+   "SpeedTimer": "0"
+  },
+  "Control": {
+   "AlwaysCaptureGamepad": "1",
+   "BattleAutoConfirm": "1",
+   "DialogProgressButtons": "\"Confirm\"",
+   "Enabled": "1",
+   "SoftReset": "1",
+   "SwapConfirmCancel": "0",
+   "TurboDialog": "1"
+  },
+  "Graphics": {
+   "Enabled": "1",
+   "FieldTPS": "30"
+  },
+  "Hacks": {
+   "AllCharactersAvailable": "1",
+   "DisableNameChoice": "0",
+   "Enabled": "1",
+   "SwordplayAssistance": "1"
+  }
+ },
+ "side_ends": {
+  "F": [
+   31245
+  ],
+  "S": [
+   153
+  ]
+ },
+ "start": {
+  "F": 31240,
+  "S": 64
+ },
+ "start_dependent": [],
+ "start_first": {
+  "donor": 64,
+  "ip": 22,
+  "m": 1,
+  "off": 16,
+  "op": ":=",
+  "sid": 0,
+  "src": "eb",
+  "tag": 0,
+  "target": "Global.Bit[191]",
+  "value": 0,
+  "what": "64's Main_Init: its first store"
+ },
+ "start_music": {
+  "donor": 64,
+  "ip": 119,
+  "m": 1,
+  "off": 113,
+  "old": 1,
+  "op": ":=",
+  "sid": 0,
+  "src": "eb",
+  "tag": 0,
+  "target": "Global.Byte[13]",
+  "value": 0,
+  "what": "64's ambient branch from the warp's Byte[13] 1 (field 70's prologue :=1 at ip130; the warp leaves 70 before ip475's :=2)"
+ },
+ "start_residue": [
+  [
+   0,
+   0,
+   131
+  ],
+  [
+   1,
+   0,
+   4
+  ],
+  [
+   2,
+   0,
+   100
+  ]
+ ],
+ "stock_fields": [
+  64,
+  150,
+  153
+ ],
+ "stop_pages": [
+  {
+   "match": "Env Play()",
+   "why": "64's and 150's ambient error window ('Error Env Play()  Slot=n': 64 e0 t0 ip835/869 window 3, 150 e0 t0 ip999/1033 window 56): Byte[13]/[14] arrived as 2 or 9"
+  },
+  {
+   "match": "Set Scenario Counter()",
+   "why": "150's debug window 55 (e3 t1 ip1915, behind SC > 1190 at ip1884): waits for Start/Select"
+  }
+ ],
+ "sword": {
+  "combo": {
+   "ip": 390,
+   "old": 0,
+   "place": 64,
+   "sid": 4,
+   "tag": 1,
+   "target": "Global.Bit[3815]",
+   "value": 1
+  },
+  "combo_marks": [
+   "Of the 100 nobles watching",
+   "not impressed"
+  ],
+  "page_123": "Queen Brahne was\nquite impressed.",
+  "score": {
+   "ip": 338,
+   "old": 0,
+   "place": 64,
+   "sid": 4,
+   "tag": 1,
+   "target": "Global.Byte[475]",
+   "value": 100
+  }
+ },
+ "table": [],
+ "text_block": 2,
+ "text_blocks": [
+  2,
+  3
+ ],
+ "version": 1,
+ "visits": [
+  64,
+  150
+ ],
+ "what": "O4: 64@1155 (warp, entrance 100) -> the sword fight -> 150 -> Field(153), SC 1190; stock vs the alxc disc-1 chain (members 31240-31259; PLAN.md, O4) -- a US session",
+ "writes": [
+  {
+   "donor": 64,
+   "ip": 57,
+   "m": 1,
+   "off": 51,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[9]",
+   "value": -1,
+   "what": "64 Int16[9] := -1 (ambient)"
+  },
+  {
+   "donor": 64,
+   "ip": 119,
+   "m": 1,
+   "off": 113,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 0,
+   "what": "64 Byte[13] := 0 (ambient)"
+  },
+  {
+   "donor": 64,
+   "ip": 138,
+   "m": 1,
+   "off": 132,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[11]",
+   "value": -1,
+   "what": "64 Int16[11] := -1 (ambient)"
+  },
+  {
+   "donor": 64,
+   "ip": 200,
+   "m": 1,
+   "off": 194,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 0,
+   "what": "64 Byte[14] := 0 (ambient)"
+  },
+  {
+   "donor": 64,
+   "ip": 416,
+   "m": 1,
+   "off": 410,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Bit[3815]",
+   "value": 0,
+   "what": "64 Bit[3815] := 0 (the 50-combo flag zeroed on every entrance-100 arrival)"
+  },
+  {
+   "donor": 64,
+   "ip": 425,
+   "m": 1,
+   "off": 419,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[475]",
+   "value": 0,
+   "what": "64 Byte[475] := 0 (the best score zeroed)"
+  },
+  {
+   "donor": 64,
+   "ip": 475,
+   "m": 1,
+   "off": 469,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[8]",
+   "value": 125,
+   "what": "64 Byte[8] := 125 (after the sound-sync loop)"
+  },
+  {
+   "donor": 64,
+   "ip": 338,
+   "m": 1,
+   "off": 316,
+   "op": ":=var",
+   "rvalue": "Map.Int16[48]",
+   "sid": 4,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[475]",
+   "value": 100,
+   "what": "64 Byte[475] := Map.Int16[48] (THE SCORE: 0 -> 100, ip327 Byte[475] < Int16[48])"
+  },
+  {
+   "donor": 64,
+   "ip": 390,
+   "m": 1,
+   "off": 368,
+   "op": ":=",
+   "sid": 4,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Bit[3815]",
+   "value": 1,
+   "what": "64 Bit[3815] := 1 (THE 50-COMBO, after page 123)"
+  },
+  {
+   "donor": 64,
+   "ip": 331,
+   "m": 1,
+   "off": 320,
+   "op": ":=",
+   "sid": 2,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[8]",
+   "value": 0,
+   "what": "64 Byte[8] := 0 (stage 9)"
+  },
+  {
+   "donor": 150,
+   "ip": 61,
+   "m": 1,
+   "off": 51,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[9]",
+   "value": -1,
+   "what": "150 Int16[9] := -1 (ambient)"
+  },
+  {
+   "donor": 150,
+   "ip": 123,
+   "m": 1,
+   "off": 113,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[13]",
+   "value": 0,
+   "what": "150 Byte[13] := 0 (ambient)"
+  },
+  {
+   "donor": 150,
+   "ip": 142,
+   "m": 1,
+   "off": 132,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Int16[11]",
+   "value": -1,
+   "what": "150 Int16[11] := -1 (ambient)"
+  },
+  {
+   "donor": 150,
+   "ip": 204,
+   "m": 1,
+   "off": 194,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[14]",
+   "value": 0,
+   "what": "150 Byte[14] := 0 (ambient)"
+  },
+  {
+   "donor": 150,
+   "ip": 331,
+   "m": 1,
+   "off": 321,
+   "op": ":=",
+   "sid": 0,
+   "src": "eb",
+   "tag": 0,
+   "target": "Global.Byte[8]",
+   "value": 25,
+   "what": "150 Byte[8] := 25 (the 325 branch)"
+  },
+  {
+   "donor": 150,
+   "ip": 1136,
+   "m": 1,
+   "off": 878,
+   "op": ":=",
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.UInt16[21]",
+   "value": 1,
+   "what": "150 UInt16[21] := 1 (the party reserve: Zidane)"
+  },
+  {
+   "donor": 150,
+   "ip": 1221,
+   "m": 1,
+   "off": 963,
+   "op": ":=",
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[303]",
+   "value": 0,
+   "what": "150 Byte[303] := 0 (the party count)"
+  },
+  {
+   "donor": 150,
+   "ip": 1255,
+   "m": 1,
+   "off": 997,
+   "op": "++",
+   "prior": "150/3/1/1221",
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[303]",
+   "value": 1,
+   "what": "150 Byte[303]++ (1)"
+  },
+  {
+   "donor": 150,
+   "ip": 1652,
+   "m": 1,
+   "off": 1394,
+   "op": ":=",
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[4]",
+   "value": 0,
+   "what": "150 Byte[4] := 0 (PARTYCHK(5) false: ip1641 not taken)"
+  },
+  {
+   "donor": 150,
+   "ip": 1667,
+   "m": 1,
+   "off": 1409,
+   "op": ":=",
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[4]",
+   "value": 0,
+   "what": "150 Byte[4] := 0 (ip1667)"
+  },
+  {
+   "donor": 150,
+   "ip": 1675,
+   "m": 1,
+   "off": 1417,
+   "op": ":=",
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[17]",
+   "value": 0,
+   "what": "150 Byte[17] := 0"
+  },
+  {
+   "donor": 150,
+   "ip": 1683,
+   "m": 1,
+   "off": 1425,
+   "op": ":=",
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[18]",
+   "value": 1,
+   "what": "150 Byte[18] := 1"
+  },
+  {
+   "donor": 150,
+   "ip": 1974,
+   "m": 1,
+   "off": 1716,
+   "op": ":=",
+   "sid": 3,
+   "src": "eb",
+   "tag": 1,
+   "target": "Global.Byte[8]",
+   "value": 75,
+   "what": "150 Byte[8] := 75 (after SC := 1190)"
+  }
+ ]
+}
