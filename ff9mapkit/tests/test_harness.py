@@ -17724,8 +17724,8 @@ def test_o4_castle_draft_reads_the_chain_from_campaign(tmp_path):
     twenty alxc donors, member(64) / member(150) / member(153) DERIVED (never assumed) and printed as one line; the
     draft's start, side_ends and members follow them -- a chain whose ids run the other way moves them all. A missing
     donor, an extra one and a donor forked twice are each refused, naming it. o4_forks.json carries the same shape:
-    its route members derived from its own members, not deployed, no gate witness. Break: drop the donor-set
-    assertion (the draft would register another chain)."""
+    its route members derived from its own members, its deploy dated, a gate witness only once deployed. Break: drop
+    the donor-set assertion (the draft would register another chain)."""
     C = _o4_castle_module()
     path = _o4c_campaign(tmp_path)
     members, names = C.chain_from_campaign(path)
@@ -17748,7 +17748,11 @@ def test_o4_castle_draft_reads_the_chain_from_campaign(tmp_path):
     mm = {int(f): int(d) for f, d in man["members"].items()}
     assert sorted(mm.values()) == sorted(C.DONORS) and man["route_members"] == \
         {str(f): d for d, f in C.route_members(mm).items()}, man["route_members"]
-    assert man["deployed"] is False and man["gate_witness"] is None and man["relaunch_needed"] is True, man
+    # the record follows the deploy (O2's lesson: never pin a state the lead's deploy changes): deployed with its time,
+    # and a gate witness only on a deployed chain, naming one of R-GATE's verdicts
+    assert man["deployed"] in (True, False) and (man["deployed_at"] is not None) == man["deployed"], man
+    assert man["gate_witness"] is None or (man["deployed"] and man["gate_witness"]["verdict"] in C.GATE_VERDICTS), man
+    assert man["relaunch_needed"] is True, man
     assert set(man["text_effects"]["o1_block2"]) == {"us", "uk", "fr", "gr", "it", "es", "jp"}
 
 
