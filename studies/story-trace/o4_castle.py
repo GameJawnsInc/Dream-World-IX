@@ -119,11 +119,11 @@ DERIVED = {
                                     "it (0.3 #7), which the input witness catches"}}
 #: 4.10: the Chanbara policy's draft (F3-F5 and F12 re-size it from the rehearsals).
 POLICY = {"policy": "fast", "donor": 64, "sc": 1155, "buttons": dict(SD.DBTN_CONTROL), "press_frames": 2,
-          "prompts": 49, "j_cap": 16, "raw_floor": 100, "gone_ticks": 12,
+          "prompts": 49, "j_cap": 14, "raw_floor": 100, "gone_ticks": 10,
           "zone_start": {"match": "To follow Blank", "dbtns": 8},
           "zone_end": ["We shall finish this later!", "Come back here!"],
-          "first_prompt_s": 3.0, "zone_stall_s": 5.0, "page_once_ticks": 10,
-          "quiet": ["Queen Brahne was"], "quiet_cap_s": 5.0,
+          "first_prompt_s": 2.0, "zone_stall_s": 3.5, "page_once_ticks": 10,
+          "quiet": ["Queen Brahne was"], "quiet_cap_s": 4.2,
           "score_page": "Of 100 nobles watching,\n100 were impressed.",
           "gil_page": "They shower you with 10000 Gil!",
           "encore_match": "encore", "poll_s": 0.005, "state_every": None, "input_every_s": 0.05, "ring_every_s": 2.0,
@@ -131,7 +131,7 @@ POLICY = {"policy": "fast", "donor": 64, "sc": 1155, "buttons": dict(SD.DBTN_CON
                  "the eight KEYON bits once a tick; one mapped press per prompt, fast -- raw >= 100 shows 100 with or "
                  "without the +30%"}
 #: R-GATE's paced overlay (2.4.10): no raw_floor, j_cap 40, the pace (F14 sizes lead_ticks per regime).
-PACED = {"policy": "paced", "j_cap": 40, "pace": {"target_ticks": 22, "lead_ticks": 2, "raw_band": [79, 99]}}
+PACED = {"policy": "paced", "j_cap": 40, "pace": {"target_ticks": 22, "lead_ticks": 3, "raw_band": [79, 99]}}
 #: 123's text, the page the 50-combo writes Bit[3815] after (0.2 #3); a page holding a COMBO-page marker is 120/121's.
 PAGE_123 = "Queen Brahne was\nquite impressed."
 COMBO_MARKS = ("Of the 100 nobles watching", "not impressed")
@@ -335,12 +335,13 @@ def draft_predictions(campaign=None) -> dict:
         "version": 1,
         "what": f"O4: 64@1155 (warp, entrance 100) -> the sword fight -> 150 -> Field(153), SC 1190; stock vs the alxc "
                 f"disc-1 chain (members {min(members)}-{max(members)}; PLAN.md, O4) -- a US session",
-        "rehearsals": [],                   # the rehearsal run dirs the freeze reads (research/o4_design.md 7.3)
+        "rehearsals": ["20261002-082739-o4-rh-chanbara", "20261002-083322-o4-rh-full",   # 7.3's evidence (F1-F15)
+                       "20261002-083808-o4-rh-void"],
         "order": ["S", "F", "S", "F", "S", "F"],
         "min_covered": 2,
         "rerun": {"max": 2, "stop_on": ["V18", "V19"]},
         # F10 replaces every number from the rehearsals (4.12)
-        "budget": {"run_s": 600, "run_min_s": 300, "session_s": 3600, "settle_s": 1.0, "no_progress_s": 120,
+        "budget": {"run_s": 252, "run_min_s": 150, "session_s": 2760, "settle_s": 1.0, "no_progress_s": 60,
                    "end_row_s": 10.0},
         "start": {"S": ROUTE[0], "F": rm[ROUTE[0]]},
         "entrance": 100,
