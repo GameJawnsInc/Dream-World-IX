@@ -341,6 +341,8 @@ REQUIRED_TESTS_O4: tuple = (
     "test_o4_rehearse_stage_ids_follow_the_chain",
     # the review #4: P-GATE reads R-GATE's own launch record (its verdict, runs, engine, settings, member(64)'s build)
     "test_o4_castle_p_gate_needs_its_launch_record",
+    # the review #8: the input witness resolves the game's pids once (no tasklist on a poll) and fails closed
+    "test_o4_castle_input_witness_resolves_the_game_once",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

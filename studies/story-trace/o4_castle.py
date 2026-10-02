@@ -748,21 +748,42 @@ def keys_down() -> list:
     return [vk for vk in range(0x01, 0xFF) if user32.GetAsyncKeyState(vk) & 0x8000]
 
 
-def game_focused(g) -> bool:
-    """Whether the foreground window belongs to the game's process (the keyboard needs focus,
-    HonoInputManager.cs:561): its pid among the session's FF9.exe pids."""
+def foreground_pid() -> int:
+    """The pid of the process owning the foreground window (``GetForegroundWindow``, ``GetWindowThreadProcessId``): 0
+    when no window has the foreground. Two user32 calls -- microseconds."""
     import ctypes
     from ctypes import wintypes
-    try:
-        hwnd = ctypes.windll.user32.GetForegroundWindow()
-        pid = wintypes.DWORD()
-        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    user32 = ctypes.windll.user32
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(user32.GetForegroundWindow(), ctypes.byref(pid))
+    return int(pid.value)
+
+
+def focus_reader(g, *, probe=None, foreground=None):
+    """The input witness's FOCUS reader (2.4.3 step 0; the review, research/o4_design.md 11.5 #8): ``focused() ->
+    bool`` -- whether the foreground window belongs to the game's process (the keyboard needs focus,
+    HonoInputManager.cs:561). The game's pids are resolved ONCE, here, when the witness is made (before the drive),
+    through ``probe`` (default the session's ``_pid_probe``, else harness.session.ff9_pids: a ``tasklist`` spawn, 0.1 s
+    and more -- never on the witness's hot path, which the fight's 5 ms loop polls every 50 ms); each read is then one
+    ``foreground()`` (:func:`foreground_pid`, a seam). FAIL-CLOSED: with no pid resolved (none, or the probe raised)
+    ``focused()`` raises, and so does a ``foreground()`` that fails -- the witness reports either as a reading (V13),
+    never as "unfocused": the keyboard is never silently unwitnessed."""
+    if probe is None:
         probe = getattr(g, "_pid_probe", None)
-        if probe is None:
-            from harness.session import ff9_pids as probe
-        return int(pid.value) in set(probe() or ())
-    except Exception:                                  # noqa: BLE001 -- no window station: nothing is focused
-        return False
+    if probe is None:
+        from harness.session import ff9_pids as probe
+    foreground = foreground or foreground_pid
+    try:
+        pids = frozenset(int(p) for p in (probe() or ()))
+        why = None if pids else "the probe found no FF9.exe"
+    except Exception as err:                       # noqa: BLE001 -- reported by every read, never swallowed
+        pids, why = frozenset(), f"the probe raised {type(err).__name__}: {str(err)[:120]}"
+
+    def focused() -> bool:
+        if why is not None:
+            raise RuntimeError(f"the game's pid is unknown ({why})")
+        return int(foreground()) in pids
+    return focused
 
 
 def input_witness(g, *, pads=None, keys=None, focus=None, clock=None):
@@ -772,10 +793,12 @@ def input_witness(g, *, pads=None, keys=None, focus=None, clock=None):
     ``read(slot)``; a slot found disconnected is re-read at most once a second, ``clock`` the seam), then -- only while
     the game window has focus (``focus()``) -- every key and mouse button down (``keys()``: F1, the booster, among
     them). The harness's own presses are injected below the OS and never read here. Each reader defaults to the ctypes
-    one; ``pads`` None with no XInput runtime reads no pad."""
+    one; ``pads`` None with no XInput runtime reads no pad. The default ``focus`` is :func:`focus_reader`'s: the game's
+    pids resolved once, as the witness is made -- never a process spawned on a poll (the review, 11.5 #8) -- and a
+    focus that cannot be read is a reading, never "unfocused" (fail-closed: V13)."""
     pads = pads if pads is not None else (xinput_reader() or (lambda slot: None))
     keys = keys if keys is not None else keys_down
-    focus = focus if focus is not None else (lambda: game_focused(g))
+    focus = focus if focus is not None else focus_reader(g)
     clock = clock or time.monotonic
     empty: dict = {}
 
@@ -793,7 +816,12 @@ def input_witness(g, *, pads=None, keys=None, focus=None, clock=None):
             what = pad_nonneutral(st)
             if what:
                 return f"XInput slot {slot}: {what}"
-        if focus():
+        try:
+            focused = focus()
+        except Exception as err:                    # noqa: BLE001 -- fail-closed: an unread focus is a reading
+            return (f"the focus could not be read ({type(err).__name__}: {str(err)[:160]}): the keyboard is "
+                    f"unwitnessed")
+        if focused:
             down = list(keys() or ())
             if down:
                 return (f"key(s) down while the game has focus: "

@@ -18017,6 +18017,47 @@ def test_o4_castle_input_witness_readers():
     assert w() == "key(s) down while the game has focus: 0x70"
 
 
+def test_o4_castle_input_witness_resolves_the_game_once(monkeypatch):
+    """THE WITNESS SPAWNS NOTHING ON ITS HOT PATH (research/o4_design.md 2.4.3 step 0; the review, 11.5 #8): its
+    default focus reader resolves the game's pids ONCE, as the witness is made -- here a session probe that sleeps
+    0.25 s, as tasklist takes 0.1 s and more -- and then reads only the foreground window's pid (a stub for the
+    user32 calls): 20 polls take well under that one probe, the probe still called once; a key down reads neutral
+    while another process has the foreground, non-neutral once the game's has it. FAIL-CLOSED: a probe that finds no
+    FF9.exe or raises, and a foreground read that raises, are each a reading (V13), never a silent "unfocused". Break:
+    resolve the pids on every poll (rev. 1's game_focused: 20 x 0.25 s, the probe called 20 times)."""
+    import types
+    C = _o4_castle_module()
+    calls, fg = [], {"pid": 7}
+
+    def slow_probe():
+        calls.append(time.time())
+        time.sleep(0.25)
+        return [4040]
+    monkeypatch.setattr(C, "foreground_pid", lambda: fg["pid"])
+    g = types.SimpleNamespace(_pid_probe=slow_probe)
+    keys = {"down": [0x41]}
+    w = C.input_witness(g, pads=lambda slot: None, keys=lambda: keys["down"])
+    assert len(calls) == 1, "the pids are resolved as the witness is made"
+    t = time.time()
+    for _ in range(20):
+        assert w() is None, "another process has the foreground: a key there is not the game's"
+    assert time.time() - t < 0.1 and len(calls) == 1, (time.time() - t, len(calls))
+    fg["pid"] = 4040
+    assert w() == "key(s) down while the game has focus: 0x41" and len(calls) == 1
+    keys["down"] = []
+    assert w() is None
+    for probe, why in ((lambda: [], "the probe found no FF9.exe"),
+                       (lambda: (_ for _ in ()).throw(OSError("tasklist timed out")), "tasklist timed out")):
+        got = C.input_witness(types.SimpleNamespace(_pid_probe=probe), pads=lambda slot: None, keys=lambda: [])()
+        assert got and got.startswith("the focus could not be read") and why in got, got
+
+    def no_station():
+        raise OSError("no window station")
+    monkeypatch.setattr(C, "foreground_pid", no_station)
+    got = C.input_witness(types.SimpleNamespace(_pid_probe=lambda: [4040]), pads=lambda slot: None, keys=lambda: [])()
+    assert got and "no window station" in got and "the keyboard is unwitnessed" in got, got
+
+
 def test_o4_castle_void_asym_reads_observed_rows():
     """O4-VOID-ASYM (research/o4_design.md 5.3; rev. 2, the claim critique #5) on synthetic runs: one F run VOID V17
     (the driver's) whose log holds an ``observed`` row -- an unclaimed dialog the game showed in the fight -- FAILS (d)

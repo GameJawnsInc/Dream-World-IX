@@ -1627,7 +1627,9 @@ def unit_text_strict() -> tuple:
 def unit_input_witness() -> tuple:
     """The input witness's readers (2.4.3 step 0; rev. 2): neutral pads and no key read None; a pad button at slot 1, a
     trigger at 40, a thumb at 4000 read non-neutral; a key down with the game focused non-neutral, unfocused neutral;
-    F1 focused non-neutral; a slot found disconnected polled at most once a second."""
+    F1 focused non-neutral; a slot found disconnected polled at most once a second. The focus reader (the review,
+    research/o4_design.md 11.5 #8): the game's pids resolved once, as it is made, never per read; no pid resolved, and
+    a foreground read that raises, each raise -- the witness's reading, never "unfocused"."""
     pads, keys, focus, clock, calls = {}, {"down": []}, {"on": False}, {"t": 100.0}, []
 
     def reader(slot):
@@ -1652,6 +1654,31 @@ def unit_input_witness() -> tuple:
     got["focused"] = w_() == "key(s) down while the game has focus: 0x41"
     keys["down"] = [0x70]
     got["f1"] = w_() == "key(s) down while the game has focus: 0x70"
+    probes, fg = [], {"pid": 7}
+
+    class _G:
+        @staticmethod
+        def _pid_probe():
+            probes.append(1)
+            return [4040]
+    f = C.focus_reader(_G, foreground=lambda: fg["pid"])
+    reads = [f() for _ in range(5)]
+    fg["pid"] = 4040
+    got["focus-once"] = probes == [1] and reads == [False] * 5 and f() is True and probes == [1]
+
+    def raises(fn) -> bool:
+        try:
+            fn()
+        except Exception:                                   # noqa: BLE001 -- any raise is the reading
+            return True
+        return False
+
+    class _None:
+        _pid_probe = staticmethod(lambda: [])
+    got["focus-fail-closed"] = (raises(C.focus_reader(_None, foreground=lambda: 4040))
+                                and raises(C.focus_reader(_G, foreground=lambda: 1 / 0)))
+    w2 = C.input_witness(None, pads=lambda slot: None, keys=lambda: [], focus=C.focus_reader(_None))
+    got["witness-reads-it"] = (w2() or "").startswith("the focus could not be read")
     return all(got.values()), str({k: v for k, v in got.items() if not v} or "all as registered")
 
 
