@@ -12843,7 +12843,12 @@ def test_o2_drive_voids_control_without_a_cell(game):
 def test_o2_drive_voids_a_once_choice_asked_again(game):
     """V2 (research/o2_design.md 2.7): a ``once`` rule asked again -- 251 after an info option -- is VOID, never
     answered twice; and a rule scoped to SC 1000 does not answer at SC 1150 (215 re-offered on the second visit): V1,
-    game. Each after the first answer only."""
+    game. Each after the first answer only.
+
+    The question is asked again only once the driver has TAKEN the first answer (its ``choice`` row) and that window
+    is gone, control withheld throughout. Back to back, the two identical windows were 12 frames apart -- 50 ms at
+    the fake's 240 fps -- and a poll starved through that gap (a loaded machine) read the second as the first's
+    Confirm not landing, Confirmed again and answered it, and the scene's end handed control back: V4, not V2."""
     SD = _segment_modules()
     rule = {"donor": 30820, "sc": [1000], "match": "ticket", "pick": "ticket", "once": True, "take": "default",
             "beat": "ticket"}
@@ -12851,12 +12856,19 @@ def test_o2_drive_voids_a_once_choice_asked_again(game):
     for sc, want, answered in ((1000, "V2", [0]), (1150, "V1", [])):
         fake = FakeGame(game)
         pred = _o2_pred([], choices=[rule], beats=["ticket"])
+        stop = threading.Event()
+        log: list = []
         with session(game, fake) as g:
             _o2_start(g, fake, sc=sc)
-            fake.scene(dict(ticket), dict(ticket))
+            fake.scene(dict(ticket), control=False)
             published(g, lambda s: not s.control and s.choice is not None)
-            with pytest.raises(SD.RouteVoid) as err:
-                _o2_drive(g, pred)
+            _o1_director(fake, stop, [(lambda f, log=log: any(r["k"] == "choice" for r in log) and not f._beats,
+                                       lambda f: f.scene(dict(ticket)))])
+            try:
+                with pytest.raises(SD.RouteVoid) as err:
+                    _o2_drive(g, pred, log=log)
+            finally:
+                stop.set()
         assert (err.value.v, err.value.by, err.value.cell) == (want, "game", [30820, sc]), err.value
         assert fake.answered == answered, (sc, fake.answered)
 
