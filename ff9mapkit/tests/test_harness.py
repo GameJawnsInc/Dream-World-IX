@@ -20296,3 +20296,589 @@ def test_segment_guard_is_opt_in(game, monkeypatch):
     pages = _g_rows(log, "press", why="page")
     assert pages and not [r for r in pages if "seq" in r or "ack_frame" in r or "marker" in r], pages
     assert not [r for r in log if r.get("k") in ("guard", "guard_stray", "quiet")], log
+
+
+# ---- O5's FakeGame (research/o5_design.md 3, 9 PART B): H13 the sink's same-value suppression, H14 the scripted visit
+# (one machine beat per field visit), H15 its faults. Stepped BY HAND, as O4's machine beats are (_cb_fake): no loop
+# thread, no driver, a key down on exactly the frame a test names (``fake._schedule`` before that frame runs); at 30 fps
+# "quantized" every frame runs one field tick, so a visit beat staged at frame 0 runs its tick N on frame N.
+
+#: The fixture's fields by the place they stand for (research/o5_design.md 3.4): S 30820 "153", 30821 "154", 30810
+#: "151", 30830 "150" (the back door's); F the members O4 deployed, 31245 "153", 31246 "154", 31244 "151", 31243 "150".
+_O5_FIELDS = {"S": {"153": 30820, "154": 30821, "151": 30810, "150": 30830},
+              "F": {"153": 31245, "154": 31246, "151": 31244, "150": 31243}}
+_O5_NAMES = {"31243": "O5_HALL", "31244": "O5_SEAT", "31245": "O5_H2F", "31246": "O5_ENT"}
+_O5_MEMBERS = {31245: 30820, 31246: 30821, 31244: 30810, 31243: 30830}
+#: The floor -- a box over the stair walk's whole span -- and 153's regions (research/o5_design.md 4.15): e26's quad (side
+#: scene A, z > 1333), e27's (side scene B), e28's (the back door to 150); and the contour's floor-blind stand-in: every
+#: point west of x -1400 (the PSX y -450 contour crosses the stair at x -1722..-1403, 0.2 #22).
+_O5_BOX = (-2400.0, -2400.0, 3000.0, 3200.0)
+_O5_E26 = [[-227, 3000], [200, 3000], [212, 935], [-264, 924]]
+_O5_E27 = [[-777, -2348], [777, -2348], [777, -900], [-777, -900]]
+_O5_E28 = [[2850, 347], [2850, -13], [1739, -74], [1739, 406]]
+_O5_CONTOUR = [[-2400, -2400], [-1400, -2400], [-1400, 3200], [-2400, 3200]]
+#: 153@325's published objects as the agent publishes them (0.2 #19): Blank, e7 at (1068, 373), a body to Zidane --
+#: ``coll``, not solid, r 4 x (20 + 24), talk_r 4 x (30 + 40) + 37 + 60, no tag 2 -- and e9, e11, e31 walk-through and
+#: hidden (their sizes are never read: no disc of theirs is met).
+_O5_BODIES = [{"sid": 7, "uid": 7, "x": 1068.0, "z": 373.0, "r": 176.0, "coll": True, "solid": False, "talk_r": 377.0,
+               "shown": True},
+              {"sid": 9, "uid": 9, "x": -551.0, "z": 2104.0, "r": 176.0, "coll": False, "shown": False},
+              {"sid": 11, "uid": 11, "x": 30.0, "z": -1500.0, "r": 176.0, "coll": False, "shown": False},
+              {"sid": 31, "uid": 31, "x": 0.0, "z": 1915.0, "r": 176.0, "coll": False, "shown": False}]
+#: The windows the driver matches (research/o5_design.md 3.4; every other text a distinct placeholder): 127 holds the
+#: guard's marker, 128 asks "Let her pass" / "Examine her face" (the pick, absolute 1) under its prompt, the pick's
+#: branch page 141 holds "Let’s see" (U+2019), the other's 129 "Hold on a sec".
+_O5_127 = "153 mes 127: “Will you let me pass?”"
+_O5_HEADER = "Zidane\n“Hmm...”"
+_O5_LINES = ["Let her pass", "Examine her face"]
+_O5_PICK = "153 mes 141: “Let’s see...”"
+_O5_OTHER = "153 mes 129: “Wait.  Hold on a sec!”"
+#: The ip1741 store: ``Global.Bit[3795] := SYSVAR[9]``, the stored answer (each branch opens with it: the engine runs it
+#: in the tick 128's WindowSync returns, before e2's switch on Map.Byte[27] picks the branch).
+_O5_1741 = {"store": [3, 1, 1741, 3795 >> 3, "Bit", "answer", 3795]}
+
+
+def _fv_fake(game, *beats, field=30820, fps=30.0, ticks="quantized", trace=True, suppress=True):
+    """A FakeGame stepped BY HAND for H13-H15 (research/o5_design.md 3, 9 B1) -- _cb_fake's shape: armed, on ``field`` at
+    FieldHUD with control off, its floor :data:`_O5_BOX`, its trace on (``trace``) with the sink's suppression
+    (``suppress``), its scene the visit ``beats``; nothing published (``state_every`` huge: a test reads the fake's own
+    fields, which are what a publish would write)."""
+    fake = FakeGame(game, render_fps=fps, ticks=ticks, walkmesh=_O5_BOX)
+    fake.dir.mkdir(parents=True, exist_ok=True)
+    (fake.dir / "arm").write_text("", encoding="utf-8")
+    (fake.dir / "story.jsonl").unlink(missing_ok=True)   # a test's earlier fake wrote to the same channel
+    fake.armed = True
+    fake.field_id, fake.ui_state, fake.control = field, "FieldHUD", False
+    fake.story_suppress = suppress
+    fake.state_every = 1 << 30
+    if trace:
+        fake._story_start()
+    if beats:
+        fake.scene(*beats, control=False)
+    return fake
+
+
+def _fv_visit(steps, **knobs):
+    """A ``{"visit": knobs}`` beat of ``steps``: index 1, ``field_to`` the S side's fields by place."""
+    return {"visit": {"steps": list(steps), "index": 1, "field_to": dict(_O5_FIELDS["S"]), **knobs}}
+
+
+def _fv_rows(fake, k=None):
+    """The fake's story.jsonl rows as dicts (``k``: of that kind only)."""
+    text = (fake.dir / "story.jsonl").read_text(encoding="utf-8")
+    return [r for r in (json.loads(ln) for ln in text.splitlines() if ln.strip()) if k is None or r["k"] == k]
+
+
+def _fv_press_on(fake, frame, name="confirm"):
+    """Run the fake to ``frame`` - 1, then put ``name`` down ON ``frame`` (the agent's press: down the frame after it
+    accepts it) and run that frame."""
+    _cb_until(fake, lambda f: f.frame >= frame - 1)
+    assert fake.frame == frame - 1, (fake.frame, frame)
+    fake._schedule(name, 1)
+    fake._frame_once()
+
+
+def _fv_win(fake, text, kind=None):
+    """The running visit beat's listed window whose text holds ``text`` (and of ``kind``), or None."""
+    m = fake._machine
+    return next((w for w in (m.windows if m is not None else ()) if text in w.text and kind in (None, w.kind)), None)
+
+
+def _fv_event(fake, event, text):
+    """The machine_log rows of ``event`` for the windows whose text holds ``text``."""
+    return [e for e in fake.machine_log if e["event"] == event and text in e["text"]]
+
+
+def _fv_play(fake, *, answers=(1,), walk="left", until=None, limit=60000, every=5):
+    """Play visit beats BY HAND, as a player would: with control, ``walk`` held (the stair walk straight west); without
+    it, every ``every`` frames, a listed page, KEYON pair or timed window Confirmed, a COMPLETE choice -- past its
+    ready-lag frame -- steered to ``answers[k]`` (k the choices answered so far) and Confirmed. Stops on ``until(fake)``
+    or when no beat is left; an AssertionError after ``limit`` frames (a mutant fails a test, never hangs it)."""
+    asked = 0
+    for _ in range(limit):
+        if until is not None and until(fake):
+            return
+        m = fake._machine
+        if m is None:
+            return
+        if fake.control:
+            if walk:
+                fake._extend(walk, 4)
+        elif (fake.frame + 1) % every == 0:
+            listed = [w for w in m.windows if not w.closing]
+            ch = next((w for w in listed if w.kind == "choice" and w.complete), None)
+            if ch is not None:
+                want = answers[min(asked, len(answers) - 1)]
+                if ch.cursor != want:
+                    fake._schedule("down" if ch.cursor < want else "up", 1)
+                elif fake.frame >= ch.done_frame + 1:
+                    fake._schedule("confirm", 1)
+                    asked += 1
+            elif any(w.kind in ("page", "keyon", "timed") for w in listed):
+                fake._schedule("confirm", 1)
+        fake._frame_once()
+    raise AssertionError(f"the visit beats ran {limit} frames without ending (field {fake.field_id})")
+
+
+def test_fake_story_suppress_emits_the_first_same_value_per_site(game):
+    """H13 (research/o5_design.md 3.1; StoryTrace.cs:374-401): with ``story_suppress`` the sink EMITS a site's first
+    same-value store and its first 64 changes, and COUNTS the rest into the epoch's closing ``c`` rows. Site A: 0 -> 0
+    twice is one row (``same`` 1) and a count; a change after it is a row. Site B, ip1741's shape (the claim critique
+    #8): a change 0 -> 1, then 1 -> 1 twice -- the change AND the first same-value store are rows (``same`` 0, then 1: a
+    change does not set the same-value flag), the third store counted. Site C: 65 changes are 64 rows and one count, its
+    ``last`` the 65th value. A's (sid, tag, ip) in ANOTHER field is a NEW site: its first store a row. The file is exactly
+    the rows ``story_rows`` counts, and the kit reads it (every count folds onto an emitted site). Break: key the site
+    without ``fld`` (the other field's store is then counted), or let a change set the same-value flag (B's first 1 -> 1
+    is then counted)."""
+    from ff9mapkit import storytrace as T
+    fake = _fv_fake(game)
+    a = (0, 0, 22, 23, "Bit")
+    fake.script_store(*a, 0, bit=191)
+    fake.script_store(*a, 0, bit=191)
+    fake.script_store(*a, 1, bit=191)
+    for _ in range(3):
+        fake.script_store(3, 1, 1741, 3795 >> 3, "Bit", 1, bit=3795)
+    for v in range(1, 66):
+        fake.script_store(5, 1, 900, 600, "Byte", v)
+    fake.field_id = 30821
+    fake.script_store(*a, 1, bit=191)
+    fake._story_stop()
+    w = [(r["fld"], r["ip"], r["old"], r["new"], r["same"]) for r in _fv_rows(fake, "w")]
+    assert w[:4] == [(30820, 22, 0, 0, 1), (30820, 22, 0, 1, 0), (30820, 1741, 0, 1, 0), (30820, 1741, 1, 1, 1)], w[:4]
+    assert w[4:68] == [(30820, 900, v - 1, v, 0) for v in range(1, 65)], w[4:8]
+    assert w[68:] == [(30821, 22, 1, 1, 1)], w[64:]
+    c = [(r["fld"], r["don"], r["m"], r["src"], r["sid"], r["tag"], r["ip"], r["byte"], r["w"], r["bit"], r["n"],
+          r["last"]) for r in _fv_rows(fake, "c")]
+    assert c == [(30820, 30820, 1, "eb", 0, 0, 22, 23, "Bit", 191, 1, 0),
+                 (30820, 30820, 1, "eb", 3, 1, 1741, 474, "Bit", 3795, 1, 1),
+                 (30820, 30820, 1, "eb", 5, 1, 900, 600, "Byte", -1, 1, 65)], c
+    kinds = [r["k"] for r in _fv_rows(fake)]
+    assert kinds[0] == "e" and kinds[-4:] == ["c", "c", "c", "e"] and fake.story_suppressed == 3, kinds[-5:]
+    assert fake.story_rows == len(kinds) == 1 + 69 + 3 + 1, (fake.story_rows, len(kinds))
+    eps = T.epochs(T.parse_text((fake.dir / "story.jsonl").read_text(encoding="utf-8")))
+    assert [(s.key[0], s.key[5], len(s.rows), s.suppressed) for s in eps[0].sites.values() if s.suppressed] == [
+        (30820, 22, 2, 1), (30820, 1741, 2, 1), (30820, 900, 64, 1)], eps[0].sites
+
+
+def test_fake_story_suppress_counts_close_the_epoch(game):
+    """H13's flush through the agent's own verbs (StoryTrace.cs:149-205, :540-557): ``storytrace 0`` writes the epoch's
+    ``c`` rows BEFORE its ``off``; a second ``storytrace 1`` writes the running epoch's BEFORE its ``arm`` (Start's
+    re-arm), and the new epoch starts with no site -- a store the old epoch counted is emitted again; each ``c`` row is
+    stamped with its SITE's ``fld``/``don``/``m`` (a site opened while ``fake.donor`` named a member's donor keeps that
+    don, though its count is flushed elsewhere) and the flush's ``f``. ``storytrace(False)`` returns -- the session's
+    proof that story.jsonl holds exactly the ``rows`` published -- and the kit reads both runs, every count folded.
+    Break: no counts at the re-arm (the first epoch's count is lost)."""
+    from ff9mapkit import storytrace as T
+    fake = FakeGame(game)
+    fake.story_suppress = True
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g.storytrace(True)
+        fake.donor = 30001                      # a member field's EffectiveFieldId: its rows, its site's count carry it
+        for _ in range(2):
+            fake.script_store(0, 0, 22, 23, "Bit", 0, bit=191)
+        fake.donor = None
+        g.warp(30821)
+        for _ in range(3):
+            fake.script_store(0, 0, 49, 23, "Bit", 0, bit=184)
+        g.storytrace(True)                      # the re-arm: the running epoch's counts, then its arm
+        for _ in range(2):
+            fake.script_store(0, 0, 49, 23, "Bit", 0, bit=184)
+        st = g.storytrace(False)
+        published = st.storytrace["rows"]
+    rows = _fv_rows(fake)
+    shape = [(r["k"], r["fld"], r["don"], r.get("ip"), r.get("n"), r.get("why")) for r in rows]
+    assert shape == [("e", 30820, 30820, None, None, "arm"), ("w", 30820, 30001, 22, None, None),
+                     ("w", 30821, 30821, 49, None, None),
+                     ("c", 30820, 30001, 22, 1, None), ("c", 30821, 30821, 49, 2, None),
+                     ("e", 30821, 30821, None, None, "arm"), ("w", 30821, 30821, 49, None, None),
+                     ("c", 30821, 30821, 49, 1, None), ("e", 30821, 30821, None, None, "off")], shape
+    assert all(r["m"] == 1 for r in rows if r["k"] == "c") and published == len(rows), (published, len(rows))
+    assert rows[3]["f"] == rows[5]["f"] and rows[7]["f"] == rows[8]["f"], "a count is stamped with its flush's frame"
+    runs = T.split_runs(T.parse_text((fake.dir / "story.jsonl").read_text(encoding="utf-8")))
+    folded = [[(s.key[0], s.key[5], s.suppressed) for s in T.epochs(r)[0].sites.values()] for r in runs]
+    assert folded == [[(30820, 22, 1), (30821, 49, 2)], [(30821, 49, 1)]], folded
+
+
+def test_fake_story_suppress_is_off_by_default(game):
+    """H13 is OPT-IN (research/o5_design.md 3.1): a fake as every O1-O4 test builds it -- ``story_suppress`` False --
+    writes every store as its row, same-value or not, and no ``c`` row: today's sink, the stores of the suppression test
+    written whole. Break: default the knob on."""
+    fake = _fv_fake(game, suppress=False)
+    assert FakeGame(game).story_suppress is False
+    for _ in range(3):
+        fake.script_store(0, 0, 22, 23, "Bit", 0, bit=191)
+    for v in range(1, 66):
+        fake.script_store(5, 1, 900, 600, "Byte", v)
+    fake.field_id = 30821
+    fake.script_store(0, 0, 22, 23, "Bit", 0, bit=191)
+    fake._story_stop()
+    rows = _fv_rows(fake)
+    assert [r["k"] for r in rows] == ["e"] + ["w"] * 69 + ["e"], [r["k"] for r in rows][-4:]
+    assert [r["same"] for r in rows if r["k"] == "w"][:3] == [1, 1, 1] and fake.story_suppressed == 0
+
+
+def test_fake_visit_pages_open_type_and_close(game):
+    """H14's page (research/o5_design.md 3.2), at 30 fps (a tick a frame): listed the tick its step runs; a Confirm in
+    its OPENING (0.105 s, then 2 frames: complete on its 6th frame) is dropped -- the window up, nothing typed, its text
+    the first character; complete, its text TYPES for ``typing_s`` (0.3 s) -- a share of it published -- and a Confirm
+    then only completes the text (Dialog.cs:803-807); the next closes it; the script resumes the tick it is GONE (its
+    close tween run out): the next step's store on that frame. Break: ``open_s`` 0 (the opening's Confirm then lands on a
+    complete page and types it out)."""
+    whole = "153 mes 113"
+    fake = _fv_fake(game, _fv_visit([{"page": 113, "slot": 1, "text": whole, "typing_s": 0.3},
+                                     {"store": [3, 1, 2953, 8, "Byte", 0, -1]}]))
+    _cb_until(fake, lambda f: _fv_win(f, whole) is not None)
+    w, opened = _fv_win(fake, whole), fake.frame
+    assert fake.texts == ["1"] and fake.raw_texts == ["[STRT=0,0]" + whole], (fake.texts, fake.raw_texts)
+    _fv_press_on(fake, opened + 4)                       # in its opening: dropped
+    assert not w.complete and not w.typed and not w.closing and fake.texts == ["1"], (w.complete, w.typed, fake.texts)
+    _cb_until(fake, lambda f: w.complete)
+    assert fake.frame == opened + 6 == w.done_frame, (fake.frame, opened, w.done_frame)
+    _cb_until(fake, lambda f: f.frame >= opened + 7)
+    assert whole.startswith(fake.texts[0]) and fake.texts[0] != whole, fake.texts      # typing: a share published
+    _fv_press_on(fake, opened + 8)                       # while it types: the text completes, nothing closes
+    assert w.typed and not w.closing and fake.texts == [whole], (w.typed, w.closing, fake.texts)
+    _fv_press_on(fake, opened + 10)                      # the next: closes it
+    assert w.closing and not w.gone
+    _cb_until(fake, lambda f: w.gone)
+    gone = _fv_event(fake, "gone", whole)[0]["frame"]
+    store = [e for e in fake.visit_log if e["kind"] == "store"]
+    assert store and store[0]["frame"] == gone == fake.frame and fake.texts == [], (store, gone, fake.frame)
+    assert [(r["ip"], r["f"]) for r in _fv_rows(fake, "w")] == [(2953, gone)]
+
+
+def _fv_choice_visit(gap, **knobs):
+    """127, then choice 128 ``gap`` ticks after 127 is gone, each branch opening with the ip1741 store and its page (141
+    the pick's, 129 the other's), then an end page."""
+    def branch(page):
+        return [dict(_O5_1741), {"page": page, "text": f"153 mes {page}"}]
+    return _fv_visit([{"page": 127, "slot": 2, "text": _O5_127},
+                      {"choice": 128, "gap": gap, "header": _O5_HEADER, "lines": list(_O5_LINES),
+                       "branch": {"0": branch(129), "1": branch(141)}},
+                      {"page": 999, "text": "the end"}], **knobs)
+
+
+def test_fake_visit_choice_opens_after_its_gap_on_cursor_zero(game):
+    """H14's choice (research/o5_design.md 3.2, 0.2 #14), 128's shape -- ``[IMME]``, no type-out: listed ``gap`` ticks
+    after 127 is GONE (1 and 10); in its OPENING ``selected`` publishes its stale cursor with the group '', a Down moves
+    nothing and a Confirm closes nothing (Dialog.cs:798-801); complete, the group ``Dialog.Choice`` and the cursor on 0
+    (ETb.cs:100-103), and a Confirm in that READY-LAG frame is taken and hides nothing (:787-789); the next answers at
+    the cursor -- 0 unmoved, 1 after a Down -- the choice closes, the group stays '' after it (Dialog.cs:629), the ip1741
+    store carries the answer and the branch's first page is the answer's (129 for 0, 141 for 1). Break: open 128 beside
+    a closing 127 (its gap then counts from the close), or give 128 a type-out (the answering Confirm only types it)."""
+    for gap, answer in ((1, 0), (10, 1)):
+        fake = _fv_fake(game, _fv_choice_visit(gap))
+        _cb_until(fake, lambda f: _fv_win(f, "let me pass") is not None and _fv_win(f, "let me pass").complete)
+        _fv_press_on(fake, fake.frame + 1)
+        _cb_until(fake, lambda f: _fv_win(f, "Hmm", "choice") is not None)
+        ch, opened = _fv_win(fake, "Hmm", "choice"), fake.frame
+        gone = _fv_event(fake, "gone", "let me pass")[0]          # the frame whose tick resumed the script
+        assert _fv_event(fake, "open", "Hmm")[0]["frame"] == gone["frame"] + gap, (gap, fake.machine_log[-4:])
+        assert fake.choice["selected"] == 0 and fake.menu["group"] == "" and not ch.complete, (fake.choice, fake.menu)
+        _fv_press_on(fake, opened + 2, "down")           # its opening: nothing moves
+        _fv_press_on(fake, opened + 3)                   # ... and nothing closes
+        assert ch.cursor == 0 and not ch.closing and fake.answered == [] and fake.choice["selected"] == 0
+        _fv_press_on(fake, opened + 6)                   # complete on this frame: the ready-lag frame's Confirm
+        assert ch.done_frame == opened + 6 and not ch.closing and fake.answered == [], (ch.done_frame, opened)
+        assert fake.menu["group"] == "Dialog.Choice" and fake.choice["selected"] == 0, fake.menu
+        if answer:
+            _fv_press_on(fake, opened + 8, "down")
+            assert ch.cursor == 1 and fake.choice["selected"] == 1
+        _fv_press_on(fake, opened + 10)
+        assert ch.closing and fake.answered == [answer], (gap, fake.answered)
+        _cb_until(fake, lambda f: ch.gone)
+        assert fake.choice is None and fake.menu["group"] == "", fake.menu
+        _cb_until(fake, lambda f: f.texts)
+        assert fake.texts == [f"153 mes {129 if answer == 0 else 141}"], fake.texts
+        assert [(r["ip"], r["old"], r["new"]) for r in _fv_rows(fake, "w")] == [(1741, 0, answer)]
+
+
+def test_fake_visit_objects_as_the_agent_publishes_them(game):
+    """H14's ``bodies`` (research/o5_design.md 3.4, 0.2 #19): 153@325's objects published as the agent publishes them --
+    Blank (sid 7) at (1068, 373), ``coll`` True, ``solid`` False, r 176, talk_r 377, range_r None, shown; e9, e11, e31
+    walk-through (``coll`` False) and hidden; the player in no list. A walk into Blank's disc is pushed out to its edge
+    (a short press: no lock flip), one through e9's is not; the bodies leave with the visit. Break: publish Blank
+    walk-through (``coll`` False: no push, he walks into the disc)."""
+    fake = _fv_fake(game, _fv_visit([{"grant": [768, 373]}, {"wait": 10 ** 6}], bodies=_O5_BODIES))
+    _cb_until(fake, lambda f: f.control)
+    objs = {o["sid"]: o for o in fake._objects_doc()}
+    assert sorted(objs) == [7, 9, 11, 31], objs
+    b = objs[7]
+    assert (b["uid"], b["x"], b["z"], b["r"], b["coll"], b["solid"], b["talk_r"], b["range_r"], b["shown"]) == (
+        7, 1068.0, 373.0, 176.0, True, False, 377.0, None, True), b
+    assert all((objs[s]["coll"], objs[s]["shown"], objs[s]["range_r"]) == (False, False, None) for s in (9, 11, 31))
+    dists = []
+    for _ in range(10):                                  # east into Blank: 60u a tick, pushed out at 176
+        fake._extend("right", 2)
+        fake._frame_once()
+        dists.append(math.hypot(fake.player[0] - 1068.0, fake.player[2] - 373.0))
+    assert min(dists) >= 176.0 - 1e-6 and any(c["uid"] == 7 for c in fake.contacts), (dists, fake.contacts[-2:])
+    fake.player = [-851.0, 0.0, 2104.0]                  # 300u west of e9: walked straight through
+    for _ in range(12):
+        fake._extend("right", 2)
+        fake._frame_once()
+    assert fake.player[0] > -551.0 + 176.0 and not any(c["uid"] == 9 for c in fake.contacts), fake.player
+    fake._machine.cut(fake)
+    assert fake.blockers.get(30820) == [] and fake.donor is None
+
+
+def _fv_walk(fake, *, walk="left", limit=4000):
+    """Hold ``walk`` while he has control (at most ``limit`` frames); ``{frame: (x, z, published y)}`` of every frame."""
+    seen = {}
+    for _ in range(limit):
+        if not fake.control:
+            return seen
+        fake._extend(walk, 4)
+        fake._frame_once()
+        seen[fake.frame] = (fake.player[0], fake.player[2], fake.player[1])
+    raise AssertionError(f"he still had control after {limit} frames at {fake.player}")
+
+
+def test_fake_visit_grant_and_the_stair_contour(game):
+    """H14's grant and THE HEIGHT TEST (research/o5_design.md 3.2, 2.4), at 30 fps (a tick a frame): the grant puts him
+    at the spawn (1105, -78) with control; walked west, control goes the tick he first stands past the contour (its
+    floor-blind stand-in: x <= -1400) -- ``lost`` logged there; ``teleport_ticks`` (3) later CreateObject puts him at
+    (-1165, 856), and stage 17's climb (37u a tick) keeps him at x <= -1100 for 40 ticks and more after the loss. With
+    ``height_at`` (the real mesh's PSX y; here -500 past x -1400) the loss is the tick he first stands at y <= -450, and
+    the published y is minus the height (1 at the spawn, 500 at the loss). Break: the teleport in the loss tick."""
+    for height in (None, lambda x, z: -500.0 if x <= -1400 else -1.0):
+        stairs = {"contour": _O5_CONTOUR} if height is None else {"height_at": height}
+        fake = _fv_fake(game, _fv_visit([{"grant": [1105, -78]}, {"stairs": stairs}, {"page": 1, "text": "after"}]))
+        _cb_until(fake, lambda f: f.control)
+        assert (fake.player[0], fake.player[2]) == (1105.0, -78.0), fake.player
+        seen = _fv_walk(fake)
+        lost = [e for e in fake.visit_log if e["kind"] == "lost"]
+        first = min(f for f, (x, _z, _y) in seen.items() if x <= -1400)
+        assert len(lost) == 1 and lost[0]["frame"] == first and lost[0]["x"] <= -1400, (lost, first)
+        assert all(x > -1400 for f, (x, _z, _y) in seen.items() if f < first)
+        trail = {}
+        for _ in range(80):
+            fake._frame_once()
+            trail[fake.frame] = (fake.player[0], fake.player[2], fake.player[1])
+        tele = min(f for f, (x, z, _y) in trail.items() if (x, z) == (-1165.0, 856.0))
+        assert tele == first + 3, (tele, first)
+        west = [first, *sorted(trail)]
+        run = next((i for i, f in enumerate(west[1:], 1) if (trail[f][0] if f in trail else -1400) > -1100), len(west))
+        assert run >= 40, (run, [trail.get(f) for f in west[run - 2:run + 1]])
+        if height is not None:
+            assert seen[first - 1][2] == 1.0 and seen[first][2] == 500.0, (seen[first - 1], seen[first])
+
+
+def test_fake_visit_side_scene_and_regrant(game):
+    """H14's side scenes (research/o5_design.md 3.2; 153 e26, e27, live in stage 6): standing in e26's quad at z <= 1333
+    fires nothing (its ``z_gt``); at z > 1333 the next tick takes control and lists the scene's pages -- control stays
+    off while they are up -- then places him at the re-grant spot (1105, -78) and grants control again: stage 6 resumes,
+    and the walk west still meets the contour. Break: re-grant before the pages close."""
+    pages = [{"page": 119, "slot": 1, "text": "153 mes 119"}, {"page": 120, "slot": 1, "text": "153 mes 120"}]
+    stairs = {"scenes": [{"points": _O5_E26, "z_gt": 1333, "pages": pages}], "contour": _O5_CONTOUR}
+    fake = _fv_fake(game, _fv_visit([{"grant": [1105, -78]}, {"stairs": stairs}, {"page": 1, "text": "after"}]))
+    _cb_until(fake, lambda f: f.control)
+    fake.player[0], fake.player[2] = 0.0, 1000.0         # in the quad, z 1000: not the scene's
+    for _ in range(4):
+        fake._frame_once()
+    assert fake.control and not [e for e in fake.visit_log if e["kind"] == "scene"]
+    fake.player[0], fake.player[2] = 0.0, 2000.0
+    fake._frame_once()
+    scene = [e for e in fake.visit_log if e["kind"] == "scene"]
+    assert len(scene) == 1 and not fake.control and fake.texts == ["153 mes 119"], (scene, fake.texts)
+    for text in ("153 mes 119", "153 mes 120"):
+        w = _fv_win(fake, text)
+        _cb_until(fake, lambda f: w.complete)
+        assert not fake.control
+        _fv_press_on(fake, fake.frame + 1)
+        _cb_until(fake, lambda f: w.gone or f.control)
+        assert not fake.control or w is not None and text == "153 mes 120", "control back while a page is up"
+    _cb_until(fake, lambda f: f.control)
+    assert (fake.player[0], fake.player[2]) == (1105.0, -78.0) and fake.texts == [], (fake.player, fake.texts)
+    assert _fv_event(fake, "gone", "153 mes 120")[0]["frame"] <= fake.frame
+    _fv_walk(fake)
+    assert [e["kind"] for e in fake.visit_log if e["kind"] in ("scene", "lost")] == ["scene", "lost"]
+
+
+def test_fake_visit_back_door_stores_then_leaves(game):
+    """H14's back door (research/o5_design.md 3.2; 153 e28, live whenever he has control): his first tick in its quad
+    takes control, then its two stores in 153 (e28 t2 ip38 ``Byte[8] := 25``, ip227 ``Int16[2] := 5``), then -- its
+    ``exit_ticks`` later -- the field becomes its ``to`` ("150": 30830) and the beat finishes: the scene's next visit
+    beat runs in 30830. Break: leave first (the stores then land in 30830)."""
+    door = {"points": _O5_E28, "stores": [[28, 2, 38, 8, "Byte", 25, -1], [28, 2, 227, 2, "Int16", 5, -1]],
+            "exit_ticks": 10, "to": "150"}
+    stairs = {"back_door": door, "contour": _O5_CONTOUR}
+    fake = _fv_fake(game, _fv_visit([{"grant": [1105, -78]}, {"stairs": stairs}, {"page": 1, "text": "never"}]),
+                    _fv_visit([{"store": [0, 0, 22, 23, "Bit", 0, 191]}, {"page": 2, "text": "150 mes 2"}], index=2))
+    _cb_until(fake, lambda f: f.control)
+    fake.player[0], fake.player[2] = 2300.0, 160.0
+    fake._frame_once()
+    door_row = [e for e in fake.visit_log if e["kind"] == "back_door"]
+    assert len(door_row) == 1 and not fake.control and fake.field_id == 30820, door_row
+    _cb_until(fake, lambda f: f.field_id == 30830)
+    left = fake.frame
+    _cb_until(fake, lambda f: f.texts == ["150 mes 2"])
+    w = [(r["fld"], r["sid"], r["tag"], r["ip"], r["new"], r["f"]) for r in _fv_rows(fake, "w")]
+    assert [x[:5] for x in w] == [(30820, 28, 2, 38, 25), (30820, 28, 2, 227, 5), (30830, 0, 0, 22, 0)], w
+    assert w[0][5] == w[1][5] == door_row[0]["frame"] and left == w[1][5] + 10 and w[2][5] >= left, (w, left)
+    assert not [e for e in fake.visit_log if e["kind"] == "page" and e["index"] == 1], "the step after the stairs ran"
+
+
+def test_fake_visit_keyon_pairs_and_timed_windows(game):
+    """H14's KEYON pair and [TIME=t] window (research/o5_design.md 3.2; H10's rule): a (slot 7) the tick the step runs, b
+    (slot 1) ``lag`` (20) ticks later, both [INCS][TIME=-1] (no page Confirm takes them); an edge BEFORE the gate (40
+    ticks after b) is consumed by its tick and lost -- both stay up -- the first after it closes both on its tick; the
+    script goes on once both are gone. The [TIME=20] [NFOC] window ignores every Confirm and closes itself 20 ticks after
+    it opened, while the script, which does not wait for it, runs its Wait(30). Break: read the KEYON level (a held
+    Confirm before the gate then closes them at it), or let a Confirm page the timed window."""
+    timed_raw = "[STRT=0,0]153 mes 137[NFOC][TIME=20]"
+    fake = _fv_fake(game, _fv_visit([{"pair": [[134, 7], [135, 1]], "lag": 20, "gate": 40,
+                                      "texts": ["153 mes 134", "153 mes 135"]},
+                                     {"timed": 137, "slot": 2, "ticks": 20, "text": "153 mes 137", "raw": timed_raw},
+                                     {"wait": 30}, {"page": 1, "text": "after"}]))
+    m = fake._machine
+    _cb_until(fake, lambda f: len(m.windows) == 2)
+    opens = [(e["text"], e["tick"], e["frame"], e["slot"]) for e in fake.machine_log if e["event"] == "open"]
+    assert opens == [("153 mes 134", 1, 1, 7), ("153 mes 135", 21, 21, 1)], opens
+    assert all(r.endswith("[INCS][TIME=-1]") for r in fake.raw_texts), fake.raw_texts
+    _fv_press_on(fake, 30)                               # before the gate (tick 61): lost
+    fake._schedule("confirm", 40)                        # held across the gate: no edge after it
+    _cb_until(fake, lambda f: f.frame >= 72)
+    assert not any(w.closing for w in m.windows) and len(m.windows) == 2, fake.machine_log[-3:]
+    _fv_press_on(fake, 75)
+    assert [(e["event"], e["tick"]) for e in fake.machine_log if e["event"] == "close"] == [("close", 75)] * 2
+    _cb_until(fake, lambda f: _fv_win(f, "mes 137") is not None)
+    t, start = _fv_win(fake, "mes 137"), fake.frame
+    for k in range(1, 20, 3):                            # Confirms all through its life: inert
+        _fv_press_on(fake, start + k)
+        assert not t.closing, k
+    _cb_until(fake, lambda f: t.closing)
+    assert _fv_event(fake, "close", "mes 137")[0]["tick"] == _fv_event(fake, "open", "mes 137")[0]["tick"] + 20
+    wait = [e for e in fake.visit_log if e["kind"] == "wait"][0]
+    assert wait["tick"] == _fv_event(fake, "open", "mes 137")[0]["tick"], "the script waited for the timed window"
+    _cb_until(fake, lambda f: f.texts == ["after"])
+
+
+def test_fake_visit_faults(game):
+    """H15 (research/o5_design.md 3.3), one assertion per fault knob, each absent by default: ``store_override`` (the
+    stored value at its ip replaced: ip1741 stores 0 for an answer 1); ``grant_at`` (control after the visit's leading
+    stores, and nothing after); ``land_real`` (a ``field`` step lands in the REAL id); ``reask`` (128 asked again once
+    its answer is gone); ``stray_confirm_at_ready`` (answered at 0 the first frame it takes answers, no key down);
+    ``cursor_to`` after_frames (the cursor moved to 0 that long after the Down that moved it) and at_confirm (the
+    Confirm answers 0 though every sample before it published 1); ``confirm_deaf`` (two Confirms dropped, the third
+    answers); ``gap_ticks`` (128 opens 7 ticks after 127, not its step's 2); ``no_contour`` (the walk crosses the
+    contour, control stays); ``side_scene_at`` (the 3rd moving tick of stage 6 fires the first scene wherever he
+    stands); ``error_window`` (Byte[13] arrived 2: ip97 ``:= 9`` for ip119's store, window 56 up, nothing after)."""
+    def choice_run(**knobs):
+        fake = _fv_fake(game, _fv_choice_visit(2, **knobs))
+        _cb_until(fake, lambda f: _fv_win(f, "let me pass") is not None and _fv_win(f, "let me pass").complete)
+        _fv_press_on(fake, fake.frame + 1)
+        _cb_until(fake, lambda f: _fv_win(f, "Hmm", "choice") is not None and _fv_win(f, "Hmm", "choice").complete)
+        return fake, _fv_win(fake, "Hmm", "choice")
+
+    # store_override
+    fake, ch = choice_run(store_override={1741: 0})
+    _fv_press_on(fake, fake.frame + 2, "down")
+    _fv_press_on(fake, fake.frame + 2)
+    _cb_until(fake, lambda f: f.texts == ["153 mes 141"])
+    assert fake.answered == [1] and [(r["ip"], r["new"]) for r in _fv_rows(fake, "w")] == [(1741, 0)]
+    # grant_at
+    fake = _fv_fake(game, _fv_visit([{"store": [0, 0, 22, 23, "Bit", 0, 191]}, {"page": 1, "text": "never"}],
+                                    grant_at={1: [100, 200]}))
+    _cb_until(fake, lambda f: f.control)
+    for _ in range(20):
+        fake._frame_once()
+    assert (fake.player[0], fake.player[2]) == (100.0, 200.0) and fake.texts == [] and len(_fv_rows(fake, "w")) == 1
+    # land_real
+    fake = _fv_fake(game, _fv_visit([{"field": "154"}], land_real={"154": 30810}))
+    _cb_until(fake, lambda f: f.field_id != 30820)
+    assert fake.field_id == 30810 and fake._machine is None
+    # reask
+    fake, ch = choice_run(reask=True)
+    _fv_press_on(fake, fake.frame + 2)
+    _cb_until(fake, lambda f: ch.gone)
+    _cb_until(fake, lambda f: _fv_win(f, "Hmm", "choice") is not None)
+    assert _fv_win(fake, "Hmm", "choice") is not ch and fake.answered == [0] and fake.texts[0].startswith("Zidane")
+    # stray_confirm_at_ready
+    fake = _fv_fake(game, _fv_choice_visit(2, stray_confirm_at_ready=True))
+    _cb_until(fake, lambda f: _fv_win(f, "let me pass") is not None and _fv_win(f, "let me pass").complete)
+    _fv_press_on(fake, fake.frame + 1)
+    _cb_until(fake, lambda f: f.answered)
+    ch = _fv_win(fake, "Hmm", "choice")
+    assert fake.answered == [0] and ch.closing and fake.frame == ch.done_frame + 1 and not fake.down_at.get("confirm",
+                                                                                                           0) > ch.frame0
+    # cursor_to, after_frames
+    fake, ch = choice_run(cursor_to={"after_frames": 30, "index": 0})
+    down = fake.frame + 2
+    _fv_press_on(fake, down, "down")
+    assert ch.cursor == 1
+    _cb_until(fake, lambda f: f.frame >= down + 29)
+    assert ch.cursor == 1
+    fake._frame_once()
+    assert ch.cursor == 0 and fake.choice["selected"] == 0
+    # cursor_to, at_confirm
+    fake, ch = choice_run(cursor_to={"at_confirm": True, "index": 0})
+    _fv_press_on(fake, fake.frame + 2, "down")
+    before = fake.choice["selected"]
+    _fv_press_on(fake, fake.frame + 4)
+    assert before == 1 and fake.answered == [0], (before, fake.answered)
+    # confirm_deaf
+    fake, ch = choice_run(confirm_deaf=2)
+    for k in (2, 4):
+        _fv_press_on(fake, fake.frame + 2)
+        assert fake.answered == [] and not ch.closing, k
+    _fv_press_on(fake, fake.frame + 2)
+    assert fake.answered == [0] and ch.closing
+    # gap_ticks
+    fake, ch = choice_run(gap_ticks=7)
+    assert _fv_event(fake, "open", "Hmm")[0]["frame"] == _fv_event(fake, "gone", "let me pass")[0]["frame"] + 7
+    # no_contour
+    fake = _fv_fake(game, _fv_visit([{"grant": [1105, -78]}, {"stairs": {"contour": _O5_CONTOUR}}], no_contour=True))
+    _cb_until(fake, lambda f: f.control)
+    for _ in range(60):
+        fake._extend("left", 4)
+        fake._frame_once()
+    assert fake.control and fake.player[0] < -1500 and not [e for e in fake.visit_log if e["kind"] == "lost"]
+    # side_scene_at
+    scene = {"points": _O5_E26, "z_gt": 1333, "pages": [{"page": 119, "text": "153 mes 119"}]}
+    fake = _fv_fake(game, _fv_visit([{"grant": [1105, -78]}, {"stairs": {"scenes": [scene], "contour": _O5_CONTOUR}}],
+                                    side_scene_at=3))
+    _cb_until(fake, lambda f: f.control)
+    for _ in range(10):
+        fake._frame_once()                              # standing: no moving tick
+    assert fake.control
+    xs = []
+    while fake.control:
+        fake._extend("left", 4)
+        fake._frame_once()
+        xs.append(fake.player[0])
+    fired = [e for e in fake.visit_log if e["kind"] == "scene"]
+    assert len(xs) == 3 and len(fired) == 1 and fired[0]["x"] == xs[-1] > 900, (xs, fired)
+    # error_window
+    fake = _fv_fake(game, _fv_visit([{"store": [0, 0, 22, 23, "Bit", 0, 191]}, {"store": [0, 0, 119, 13, "Byte", 0, -1]},
+                                     {"page": 1, "text": "never"}], error_window={1: 2}))
+    _cb_until(fake, lambda f: f.texts)
+    for _ in range(20):
+        fake._frame_once()
+    assert fake.texts == ["Error Env Play()  Slot=1"] and fake.raw_texts == ["Error Env Play()  Slot=1"]
+    assert [(r["ip"], r["old"], r["new"]) for r in _fv_rows(fake, "w")] == [(22, 0, 0), (97, 2, 9)]
+
+
+def test_fake_visit_sets_the_members_donor(game):
+    """H14's ``donor`` (research/o5_design.md 3.2): on F each visit beat sets ``fake.donor`` to its member's donor
+    (DataPatchers' EffectiveFieldId), so every row a member writes carries ``don`` its donor -- 31245's 30820, 31246's
+    30821, the counts' too -- and in the donor's OWN field (a Field() that landed in the real id) ``don`` is the field:
+    no A-MISMATCH (o2_alexandria.why_void: a member whose rows name another donor). The beat's end takes it down (the
+    field's own id again). Break: leave ``fake.donor`` unset (the rows then name their own field)."""
+    to = dict(_O5_FIELDS["F"])
+    store = {"store": [0, 0, 22, 23, "Bit", 0, 191]}
+    fake = _fv_fake(game,
+                    _fv_visit([store, store, {"field": "154"}], field_to=to, donor=30820),
+                    _fv_visit([store, {"field": "151"}], index=2, field_to=to, donor=30821, land_real={"151": 30810}),
+                    _fv_visit([store, {"page": 1, "text": "end"}], index=3, field_to=to, donor=30810), field=31245)
+    _cb_until(fake, lambda f: f.texts == ["end"])
+    fake._story_stop()
+    rows = [(r["k"], r["fld"], r["don"]) for r in _fv_rows(fake) if r["k"] in ("w", "c")]
+    assert rows == [("w", 31245, 30820), ("w", 31246, 30821), ("w", 30810, 30810), ("c", 31245, 30820)], rows
+    assert all(r["don"] == _O5_MEMBERS[r["fld"]] for r in _fv_rows(fake) if r["k"] in ("w", "c") and r["fld"] in
+               _O5_MEMBERS)
+    fake._machine.cut(fake)
+    assert fake.donor is None
+

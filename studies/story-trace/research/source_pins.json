@@ -19,5 +19,40 @@
   "new": "c8ff350b322f5c5f7ed613c83b4a69ae9ea27abf3e678d634453ec82437aa311",
   "reason": "fight() command race (ea782ca3): the battlecmd and menus branches each call _race_end(op) first -- FakeGame.battle_end_on_command, opt-in and None by default, ends the battle as the n-th such step arrives, before it runs; with the knob unset _race_end returns at once, so every step executes exactly as before (no O1-O3 test sets it); the -n 6 flake of test_o3_drive_voids_an_unregistered_battle pinned",
   "head": "58279d92ee43bfa10d6832727fe9656563a485e4"
+ },
+ {
+  "name": "tools/harness/fakegame.py::FakeGame._story_store",
+  "old": "55aa9e0c7306a0b3388021873f1a1118f3ae931b222c246ff93e20d6e7ab5267",
+  "new": "2e5fd0a4dd66655d114b784a3586618be671e34f0c4fb099b911b3e673bf2f48",
+  "reason": "O5 B1 H13 (research/o5_design.md 3.1): opt-in story_suppress -- one branch before the w row asks _story_site whether the sink emits it (StoryTrace.cs:374-401); off, the default, every store is a row exactly as before",
+  "head": "b1ca35fe441da5bbad77c9f025280bddcb145117"
+ },
+ {
+  "name": "tools/harness/fakegame.py::FakeGame._story_start",
+  "old": "ff4f0ecece51876a07df1b1f7a76f3eb459bbfa64be9d5e50db5021963e3c3cc",
+  "new": "6a7b8372cb8e42b3ee19b43a3832357ee2381cbcc6cdd13b307f2bb83d290e58",
+  "reason": "O5 B1 H13: opt-in story_suppress -- a re-arm flushes the running epoch's c rows (_story_counts) before its arm, and every epoch starts with no site (StoryTrace.cs:170-176, :532); off, unchanged",
+  "head": "b1ca35fe441da5bbad77c9f025280bddcb145117"
+ },
+ {
+  "name": "tools/harness/fakegame.py::FakeGame._story_stop",
+  "old": "bfe33dd55d151a0888c73fe3b17c78d64e516945b90464160ddfa2409fc7e812",
+  "new": "538426c77a74d7dd5428bca855bfc477c71d24e0dc7317c2bd792aea016fd162",
+  "reason": "O5 B1 H13: opt-in story_suppress -- Stop flushes the epoch's c rows (_story_counts) before its off (StoryTrace.cs:198-202); off, unchanged",
+  "head": "b1ca35fe441da5bbad77c9f025280bddcb145117"
+ },
+ {
+  "name": "tools/harness/fakegame.py::FakeGame._next_beat",
+  "old": "a2f2e645383f05451adc906f18247e76bb934085a0fc6e0e4f8ca8b495f5cc4d",
+  "new": "2c873225c953f3bae1aafe00b7cb0f6d5e1c21caccbff93e5c0e0790ec6d9695",
+  "reason": "O5 B1 H14 (research/o5_design.md 3.2): the machine-beat dispatch also reads a {visit: knobs} beat; keyon_pair, chanbara and every other beat unchanged",
+  "head": "b1ca35fe441da5bbad77c9f025280bddcb145117"
+ },
+ {
+  "name": "tools/harness/fakegame.py::FakeGame._start_machine",
+  "old": "59859c62406772487fe4545b753c0266818581c361a4dab4a28665d2afd48aa6",
+  "new": "ea8c12c6da3d02a97bea90e18bdd782d5e044d5ad375815e2d51abecf8d8a6b3",
+  "reason": "O5 B1 H14: a {visit: knobs} beat starts a _VisitBeat (returns before the keyon_pair/chanbara choice, which is unchanged)",
+  "head": "b1ca35fe441da5bbad77c9f025280bddcb145117"
  }
 ]

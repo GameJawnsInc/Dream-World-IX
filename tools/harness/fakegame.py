@@ -251,6 +251,14 @@ class FakeGame:
         self.story_bytes = bytearray(2048)          # the modelled gEventGlobal the rows read old/new from
         self.scenario = 0
         self.donor = None                           # EffectiveFieldId: None = the field's own id
+        #: H13 (research/o5_design.md 3.1), OPT-IN: the sink's same-value SUPPRESSION (:meth:`_story_site`). False (the
+        #: default): every store is a row, as above. True: the engine's per-site rule -- a site's first same-value store
+        #: and its first STORY_CHANGE_ROWS changes are rows, the rest counted -- and the counts closed as ``c`` rows at
+        #: every epoch's close (:meth:`_story_counts`). `story_suppressed` counts the stores it did not emit (the
+        #: published ``suppressed`` stays 0: no reader reads it); `_story_sites` is the running epoch's site table.
+        self.story_suppress = False
+        self.story_suppressed = 0
+        self._story_sites: dict = {}
         #: The floor: one box ``(x0, z0, x1, z1)``, or a list of boxes whose UNION is walkable (a room
         #: opening into a corridor). A step that lands in none of them is clamped to the box he is in.
         #: Or a real walkmesh (anything with ``point_on_walkmesh``: a stock field's, through
@@ -615,6 +623,12 @@ class FakeGame:
         #: H10/H11: every window a machine beat listed, as it went -- ``{"event": "open" | "close" | "gone", "kind",
         #: "slot", "text", "frame", "tick", "rt"}`` (``tick`` the beat's own field-tick count).
         self.machine_log: list[dict] = []
+        #: H14 (research/o5_design.md 3.2): every step a visit beat (:class:`_VisitBeat`) started, as it started --
+        #: ``{"index", "field", "at", "kind", "tick", "frame"}``: the visit's ``index`` knob, the field it ran in, the
+        #: step's place (``"7"``; ``"12.1.0"`` inside a choice's branch "1"; ``"8.s.0"`` in a side scene), its kind, and
+        #: the beat's tick and the fake's frame it began on. With ``stairs`` rows of the height test's loss
+        #: (``kind`` "lost": where the contour took control) and of a side scene or the back door firing.
+        self.visit_log: list[dict] = []
 
     # -- lifecycle -----------------------------------------------------------------------------
     def start(self) -> "FakeGame":
@@ -2541,12 +2555,18 @@ class FakeGame:
         if self.story_error is not None:
             raise RuntimeError(f"storytrace: turned itself off earlier ({self.story_error}); re-arm the "
                                f"harness to clear it")
+        if self.story_suppress:                     # H13 (opt-in): a re-arm closes the running epoch's counts first
+            if self.story_on:                       # (Start: Sync, then Resync's EmitCounts, StoryTrace.cs:170-176),
+                self._story_counts()                # and every epoch starts with no site
+            self._story_sites.clear()
         self.story_on = True
         self._story_row("e", why="arm")
 
     def _story_stop(self) -> None:
         if not self.story_on:
             return
+        if self.story_suppress:                     # H13 (opt-in): Stop's EmitCounts, before its `off` (:198-202)
+            self._story_counts()
         self._story_row("e", why="off")
         self.story_on = False
 
@@ -2569,9 +2589,51 @@ class FakeGame:
         if not self.story_on:
             return
         script = src == "eb"
+        if self.story_suppress and not self._story_site(src, sid if script else -1, tag if script else -1,
+                                                         ip if script else -1, byte, width, bit, old, new):
+            return                                  # H13 (opt-in): the sink counted it -- no row
         self._story_row("w", src=src, sid=sid if script else -1, uid=sid if script else -1,
                         lvl=0 if script else -1, ip=ip if script else -1, tag=tag if script else -1,
                         add=0, byte=byte, w=width, bit=bit, old=old, new=new, same=int(old == new))
+
+    def _story_site(self, src: str, sid: int, tag: int, ip: int, byte: int, width: str, bit: int, old: int,
+                    new: int) -> bool:
+        """H13 (research/o5_design.md 3.1), ``story_suppress`` on: the sink's per-site rule (StoryTrace.AfterStore,
+        StoryTrace.cs:374-401) -- True when this store's ``w`` row is EMITTED. The SITE is the engine's key ``(fld, m,
+        src, sid, tag, ip, byte, w, bit)`` (StoryTrace.cs:101-110), ``fld`` the field id NOW (``fldMapNo``, :374) and
+        ``m`` the row's mode, the attribution the row's own (-1 off a script row). Per epoch a site keeps whether it
+        emitted a SAME-VALUE row -- only a same-value store sets that (:383-388), so a site whose first store was a
+        change still emits its first same-value one -- its changes emitted, at most :data:`STORY_CHANGE_ROWS`
+        (:391-394), what it counted (``n``, ``last``: :396-401) and the ``don`` its rows carry (EffectiveFieldId of its
+        field: ``fake.donor`` when the site opened). A store not emitted is counted (``story_suppressed``): no row,
+        ``story_rows`` unchanged -- the file stays exactly the rows the state block counts."""
+        mode = 3 if self.ui_state == "WorldHUD" else 2 if self.battle_active else 1
+        key = (self.field_id, mode, src, sid, tag, ip, byte, width, bit)
+        site = self._story_sites.get(key)
+        if site is None:
+            site = self._story_sites[key] = {"same": False, "changes": 0, "n": 0, "last": None,
+                                             "don": self.field_id if self.donor is None else self.donor}
+        if old == new:
+            emit, site["same"] = not site["same"], True
+        else:
+            emit = site["changes"] < STORY_CHANGE_ROWS
+            site["changes"] += int(emit)
+        if not emit:
+            site["n"] += 1
+            site["last"] = new
+            self.story_suppressed += 1
+        return emit
+
+    def _story_counts(self) -> None:
+        """H13: the running epoch's counts closed (StoryTrace.EmitCounts, StoryTrace.cs:540-557) -- one ``c`` row per site
+        that counted a store, in site-creation order (the reader never reads their order), stamped with the SITE's
+        ``fld``/``don``/``m`` and the flush's ``f``/``p``/``sc`` -- then the site table cleared, as the engine clears it
+        at every epoch (Resync, Stop: :199, :532)."""
+        for (fld, m, src, sid, tag, ip, byte, width, bit), site in self._story_sites.items():
+            if site["n"]:
+                self._story_row("c", m=m, fld=fld, don=site["don"], src=src, sid=sid, tag=tag, ip=ip, byte=byte,
+                                w=width, bit=bit, n=site["n"], last=site["last"])
+        self._story_sites.clear()
 
     def _warp_writes(self, entrance: int, scenario: int) -> None:
         """The debug warp's own writes (Ff9mkDebugMenu.ServicePendingWarp): ``entrance`` (when >= 0) as Int16 at byte
@@ -2762,8 +2824,8 @@ class FakeGame:
             self.say(beat)
             self.choice = None
             return
-        if "keyon_pair" in beat or "chanbara" in beat:
-            self._start_machine(beat)                # H10/H11 (research/o4_design.md 3): an opt-in machine beat
+        if "keyon_pair" in beat or "chanbara" in beat or "visit" in beat:
+            self._start_machine(beat)                # H10/H11/H14 (research/o4_design.md 3, o5 3.2): a machine beat
             return
         if "naming" in beat:
             # NameSettingUI: no dialog, the box focused on the prefilled default name (NameSettingUI.cs:146)
@@ -2898,14 +2960,18 @@ class FakeGame:
 
     # -- H10-H12 (research/o4_design.md 3): the machine beats ----------------------------------------------------------
     def _start_machine(self, beat: dict) -> None:
-        """A machine beat begins (:meth:`_next_beat`'s dispatch): ``{"keyon_pair": knobs}`` (H10, :class:`_KeyonPairBeat`)
-        or ``{"chanbara": knobs}`` (H11, :class:`_ChanbaraBeat`), its knobs checked strict here. No dialog yet, control as
+        """A machine beat begins (:meth:`_next_beat`'s dispatch): ``{"keyon_pair": knobs}`` (H10, :class:`_KeyonPairBeat`),
+        ``{"chanbara": knobs}`` (H11, :class:`_ChanbaraBeat`) or ``{"visit": knobs}`` (H14, :class:`_VisitBeat`;
+        research/o5_design.md 3.2), its knobs checked strict here. No dialog yet, control as
         the scene left it (off); from its first frame on the machine owns the published dialog (its windows), the choice,
         the menu group and the bodies until it ends -- its own end pops the beat and moves the scene on, a warp (any new
         visit) cuts it with its scene (:meth:`_Machine.frame`). A press reaches it only through the HELD keys it reads per
         frame: :meth:`_scene_press` leaves a beat in phase "machine" alone."""
         self.texts, self.raw_texts, self.choice = [], [], None
         self._beat_phase = "machine"
+        if "visit" in beat:
+            self._machine = _VisitBeat(self, beat["visit"])
+            return
         knobs = beat["keyon_pair"] if "keyon_pair" in beat else beat["chanbara"]
         self._machine = (_KeyonPairBeat if "keyon_pair" in beat else _ChanbaraBeat)(self, knobs)
 
@@ -3639,6 +3705,527 @@ class _ChanbaraBeat(_Machine):
         yield from self._page(fake, 128, numb=v["I50"])             # ip531
         fake.gil += v["I50"]                                        # AddGi, ip537
         return False
+
+
+# ======================================================================== H13-H15: O5's sink and visit beat
+#: H13 (research/o5_design.md 3.1): StoryTrace.ChangeRowsPerSite (StoryTrace.cs:56) -- the CHANGING stores the sink emits
+#: per site per epoch (:391-394); later ones are counted, as every same-value store after a site's first is.
+STORY_CHANGE_ROWS = 64
+#: H14 (research/o5_design.md 3.2): a visit beat's step kinds -- each step names exactly one -- and the other keys each
+#: kind may carry; anything else is a ValueError when the beat starts (:func:`_visit_steps`), never a default. ``text`` /
+#: ``raw`` (a pair's ``texts`` / ``raws``) are what the agent publishes: default ``mes N`` and ``[STRT=0,0]`` + it.
+VISIT_STEP_KEYS = {"store": (), "wait": (), "place": (), "grant": (), "field": (), "stairs": (),
+                   "page": ("slot", "typing_s", "text", "raw"), "timed": ("slot", "ticks", "text", "raw"),
+                   "pair": ("lag", "gate", "texts", "raws"),
+                   "choice": ("slot", "header", "lines", "typing_s", "gap", "stale", "branch", "raw")}
+#: H14's knobs and defaults (research/o5_design.md 3.2), each the engine's value or the design's named estimate:
+#: ``steps`` (REQUIRED: the visit's step list); ``index`` (its 1-based position in the route -- what H15's per-visit faults
+#: are keyed by); ``field_to`` (a ``field`` step's ``to`` -> the field id it lands in); ``donor`` (the visit's
+#: ``fake.donor``: on F the member's donor, DataPatchers' EffectiveFieldId; None on S -- and in the donor's own field);
+#: O4's tweens (``open_s``/``open_frames``, ``close_s``/``close_frames``); ``ready_lag_frames`` (a choice's frames between
+#: its group and ``isChoiceReady``, Dialog.cs:161-164); ``wait_scale`` (the ``wait`` steps only: a test runs 0.25);
+#: ``publish_order``; ``bodies`` (the visit's published objects, as ``fake.blockers`` dicts) -- then H15's faults
+#: (research/o5_design.md 3.3), each absent by default: see :class:`_VisitBeat`.
+VISIT_DEFAULTS = {
+    "steps": None, "index": None, "field_to": {}, "donor": None, "open_s": 0.105, "open_frames": 2, "close_s": 0.09,
+    "close_frames": 1, "ready_lag_frames": 1, "wait_scale": 1.0, "publish_order": "agent_first", "bodies": (),
+    "store_override": None, "grant_at": None, "land_real": None, "reask": False, "stray_confirm_at_ready": False,
+    "cursor_to": None, "confirm_deaf": 0, "gap_ticks": None, "no_contour": False, "side_scene_at": None,
+    "error_window": None}
+#: A ``stairs`` step's knobs and defaults (153 e3 t1 stage 6, its side scenes, its back door and stage 17;
+#: research/o5_design.md 3.2): ``scenes`` (each ``{"points", "z_gt", "pages"}``: e26 -- its quad AND z > 1333 -- and e27,
+#: live in stage 6 alone; ``pages`` page steps); ``back_door`` (``{"points", "stores", "exit_ticks", "to"}``: e28, live
+#: while he has control, any stage; ``to`` a ``field_to`` key); ``contour`` (the floor-blind stand-in for the height test:
+#: a polygon) or ``height_at`` (a callable: the real mesh's PSX y under (x, z), or None off it); ``level`` (ip859's
+#: -450); ``teleport_ticks`` (the loss to CreateObject ip1466: the stage switch, op_1C, Wait(1), the Bit[160] test -- an
+#: ESTIMATE, R-STAIRS measures); ``teleport``; ``climb`` (stage 17's scripted walk) at ``climb_speed`` (SetWalkSpeed(37),
+#: u a tick); ``regrant_at`` (a side scene's Walk(1105,-78), ip1230).
+STAIRS_DEFAULTS = {"scenes": (), "back_door": None, "contour": None, "height_at": None, "level": -450,
+                   "teleport_ticks": 3, "teleport": (-1165.0, 856.0),
+                   "climb": ((-1419.0, 602.0), (-1602.0, 298.0), (-1631.0, 10.0), (-1631.0, -140.0),
+                             (-1416.0, -378.0), (-978.0, -554.0), (-329.0, -624.0)),
+                   "climb_speed": 37.0, "regrant_at": (1105.0, -78.0)}
+#: H15's ``error_window``: the page 153 e0 t0 lists when Byte[13] arrived 2 or 9 (window 56, ip2304: O3's text), and the
+#: store its error branch makes where the ambient branch makes ip119's (153 e0 t0 ip97 ``Byte[13] := 9``; 154's is
+#: ip101 -- not modelled per field: a test of it reads the V-class, never the row).
+VISIT_ERROR_TEXT = "Error Env Play()  Slot=1"
+VISIT_ERROR_STORE = (0, 0, 97, 13, "Byte", 9, -1)
+
+
+def _visit_steps(steps, k: dict, where: str) -> None:
+    """H14's steps checked STRICT before the beat runs any (research/o5_design.md 3.2): a list of dicts, each naming
+    exactly one kind of :data:`VISIT_STEP_KEYS` and only that kind's keys; a store of its 7 values; a pair of two
+    windows; a ``field`` step's ``to`` -- and a back door's -- a ``field_to`` key; a choice's ``lines`` a non-empty list
+    of strings, its ``branch`` steps and a ``stairs`` step's side-scene ``pages`` steps themselves; a ``stairs`` step's
+    knobs :data:`STAIRS_DEFAULTS`' and -- unless H15's ``no_contour`` -- a ``contour`` or a ``height_at``."""
+    if not isinstance(steps, (list, tuple)):
+        raise ValueError(f"{where}: the steps are a list, not {steps!r}")
+    for i, step in enumerate(steps):
+        at = f"{where}[{i}]"
+        if not isinstance(step, dict):
+            raise ValueError(f"{at}: a step is a dict, not {step!r}")
+        kinds = [kd for kd in VISIT_STEP_KEYS if kd in step]
+        if len(kinds) != 1:
+            raise ValueError(f"{at}: a step names exactly one of {sorted(VISIT_STEP_KEYS)}, not {sorted(step)}")
+        kind = kinds[0]
+        extra = sorted(set(step) - {kind, *VISIT_STEP_KEYS[kind]})
+        if extra:
+            raise ValueError(f"{at}: a {kind} step has no {extra} (it takes {list(VISIT_STEP_KEYS[kind])})")
+        if kind == "store" and (not isinstance(step["store"], (list, tuple)) or len(step["store"]) != 7):
+            raise ValueError(f"{at}: a store is [sid, tag, ip, byte, width, value, bit], not {step['store']!r}")
+        if kind == "pair" and (not isinstance(step["pair"], (list, tuple)) or len(step["pair"]) != 2):
+            raise ValueError(f"{at}: a pair is [[mes, slot], [mes, slot]], not {step['pair']!r}")
+        if kind == "field" and str(step["field"]) not in k["field_to"]:
+            raise ValueError(f"{at}: field {step['field']!r} is not in field_to {sorted(k['field_to'])}")
+        if kind == "choice":
+            lines = step.get("lines")
+            if not isinstance(lines, (list, tuple)) or not lines or not all(isinstance(x, str) for x in lines):
+                raise ValueError(f"{at}: a choice's lines are a non-empty list of strings, not {lines!r}")
+            for a, sub in dict(step.get("branch") or {}).items():
+                _visit_steps(sub, k, f"{at}.branch[{a}]")
+        if kind == "stairs":
+            s = step["stairs"]
+            if not isinstance(s, dict):
+                raise ValueError(f"{at}: the stairs' knobs are a dict, not {s!r}")
+            unknown = sorted(set(s) - set(STAIRS_DEFAULTS))
+            if unknown:
+                raise ValueError(f"{at}: the stairs have no knob {unknown} (they take {sorted(STAIRS_DEFAULTS)})")
+            if s.get("contour") is None and s.get("height_at") is None and not k["no_contour"]:
+                raise ValueError(f"{at}: the stairs' height test needs a contour or a height_at")
+            for n, sc in enumerate(s.get("scenes") or ()):
+                _visit_steps(sc.get("pages") or [], k, f"{at}.scenes[{n}]")
+            bd = s.get("back_door")
+            if bd is not None and str(bd.get("to")) not in k["field_to"]:
+                raise ValueError(f"{at}: the back door's to {bd.get('to')!r} is not in field_to {sorted(k['field_to'])}")
+
+
+class _VisitBeat(_Machine):
+    """H14 (research/o5_design.md 3.2): ONE FIELD VISIT, from its arrival to its Field(), played as a STEP LIST per field
+    tick, with O4's window model unchanged (:class:`_Win`: the opening drop, the close tween; :class:`_Machine`: the
+    per-frame UI Confirm, the per-tick KEYON edge, the publication order). A scene of visit beats plays a route: each
+    ends by moving the field (a fresh visit) and finishing, so the next starts in the new field. The steps
+    (:data:`VISIT_STEP_KEYS`, checked strict by :func:`_visit_steps`):
+
+      * ``{"store": [sid, tag, ip, byte, width, value, bit]}`` -- a script store (:meth:`FakeGame.script_store`; H13
+        decides its row); ``value`` "answer" stores the last choice's answer (153 e3 t1 ip1741's ``SYSVAR[9]``);
+      * ``{"wait": ticks}`` -- the script's op_22 / walks, scaled by ``wait_scale``;
+      * ``{"place": [x, z]}`` -- a scripted move of the player, control untouched;
+      * ``{"page": mes, ...}`` -- WindowSync (or WindowAsync + WaitWindow): listed THIS tick (ETb.NewMesWin), complete
+        after its opening; with ``typing_s`` its text types on for that long of the game's clock after the opening -- a
+        Confirm then only completes it (Dialog.cs:798-808), the next closes it; the script resumes the tick it is gone;
+      * ``{"timed": mes, "ticks": t, ...}`` -- a [TIME=t] window: Confirm-inert, closing itself ``t`` ticks after it
+        opened (then its tween); the script does not wait;
+      * ``{"pair": [[mes, slot], [mes, slot]], "lag", "gate"}`` -- H10's KEYON pair (:meth:`_pair`);
+      * ``{"choice": mes, "lines", ...}`` -- ``gap`` ticks after the previous window is GONE, a WindowSync choice GATED as
+        the engine gates SelectChoice (:meth:`_choice`, :meth:`ui`, :meth:`publish`); then ``branch[str(answer)]``;
+      * ``{"grant": [x, z]}`` -- EnableMove: control, the player at (x, z);
+      * ``{"stairs": knobs}`` -- 153's stage 6, its side scenes and back door, the height test and stage 17
+        (:meth:`_stairs`, :data:`STAIRS_DEFAULTS`);
+      * ``{"field": to}`` -- Field(): the field becomes ``field_to[to]`` (a fresh visit, control off), the beat finishes.
+
+    H15's faults (research/o5_design.md 3.3), each absent by default: ``store_override`` ``{ip: value}`` (a fork that
+    stores another value at a site); ``grant_at`` ``{index: [x, z]}`` (control granted after that visit's leading stores,
+    where the bytes grant none -- then the script holds); ``land_real`` ``{to: id}`` (a ``field`` step landing in the
+    REAL id: a Field() the chain did not retarget); ``reask`` (a choice asked again once its answer is gone, ``gap`` ticks
+    later); ``stray_confirm_at_ready`` (the fake itself answers a choice the first frame it takes answers -- input no
+    witness saw); ``cursor_to`` ``{"after_frames": n, "index": i}`` (the game moves the cursor to ``i`` ``n`` frames after
+    the first Down/Up that moved it: outside input after the driver's select) or ``{"at_confirm": True, "index": i}``
+    (in the frame the answering Confirm goes down, after every published sample); ``confirm_deaf`` (a choice drops its
+    first k Confirms once it takes answers); ``gap_ticks`` (every choice's ``gap``); ``no_contour`` (the height test never
+    fires); ``side_scene_at`` (the n-th MOVING tick of a stage-6 period -- or a list, one per period: a side scene fires
+    wherever he stands, the first scene's pages: a mis-walk's stand-in); ``error_window`` ``{index: value}`` (Byte[13]
+    arrived ``value``: the leading stores take the error branch's :data:`VISIT_ERROR_STORE`, and window 56,
+    :data:`VISIT_ERROR_TEXT`, waits). ``fake.visit_log`` keeps every step's start."""
+
+    def __init__(self, fake, knobs):
+        k = _machine_knobs(VISIT_DEFAULTS, knobs, "visit")
+        if not isinstance(k["steps"], (list, tuple)) or not k["steps"]:
+            raise ValueError(f"visit: steps is a non-empty list of steps, not {k['steps']!r}")
+        k["field_to"] = {str(t): int(f) for t, f in dict(k["field_to"] or {}).items()}
+        k["land_real"] = {str(t): int(f) for t, f in dict(k["land_real"] or {}).items()}
+        k["store_override"] = {int(ip): int(v) for ip, v in dict(k["store_override"] or {}).items()}
+        k["grant_at"] = {int(n): [float(c) for c in xz] for n, xz in dict(k["grant_at"] or {}).items()}
+        k["error_window"] = {int(n): int(v) for n, v in dict(k["error_window"] or {}).items()}
+        cur = k["cursor_to"]
+        if cur is not None and not (isinstance(cur, dict) and "index" in cur
+                                    and set(cur) <= {"index", "after_frames", "at_confirm"}
+                                    and ("after_frames" in cur) != bool(cur.get("at_confirm"))):
+            raise ValueError(f"visit: cursor_to is {{'after_frames': n, 'index': i}} or {{'at_confirm': True, "
+                             f"'index': i}}, not {cur!r}")
+        side = k["side_scene_at"]
+        k["side_scene_at"] = [] if side is None else [int(side)] if isinstance(side, int) else [int(n) for n in side]
+        _visit_steps(k["steps"], k, "visit")
+        super().__init__(fake, k)
+        self.field = fake.field_id
+        donor = k["donor"]
+        fake.donor = None if donor is None or int(donor) == fake.field_id else int(donor)
+        self.bodies = [dict(b) for b in k["bodies"]]
+        if self.bodies:
+            fake.blockers[self.field] = [*fake.blockers.get(self.field, ()), *self.bodies]
+        self.answer = None                         # the last choice's answer: a store's "answer"
+        self.choice_closed = False                 # a choice of this visit closed: the group '' since (:meth:`publish`)
+        self.deaf = int(k["confirm_deaf"])         # H15: Confirms still to drop
+        self.move = None                           # H15 cursor_to: the move due, (frame, index)
+        self.moved = False                         # ...scheduled once
+        self.strayed = False                       # H15 stray_confirm_at_ready: fired once
+        self.script = self._script(fake)
+
+    # -- the UI: the engine's gating of a page's type-out and a choice's answer
+    def typing(self, fake, w) -> bool:
+        """Whether a page's or a choice's text still TYPES: complete, ``typing_s`` > 0, not yet completed by a Confirm,
+        and less than ``typing_s`` of the game's clock since its opening ended."""
+        return (not w.typed and w.typing_s > 0 and w.done_rt is not None
+                and fake.rt - w.done_rt < w.typing_s - 1e-9)
+
+    def shown(self, fake, w) -> str:
+        """A window's text as the agent publishes it: whole, but for a page or a choice that types -- its first
+        character through the opening, then a share of it as its type-out runs (the raw holds the whole source from the
+        first sample: ``phrase_raw``)."""
+        if w.kind not in ("page", "choice") or w.typing_s <= 0 or w.typed:
+            return w.text
+        if w.done_rt is None:
+            return w.text[:1]
+        frac = (fake.rt - w.done_rt) / w.typing_s
+        return w.text if frac >= 1.0 else w.text[:max(1, int(len(w.text) * frac))]
+
+    def take(self, fake, w) -> None:
+        """The choice answered at its cursor (Dialog.Hide: the group '' from this Confirm on, Dialog.cs:629)."""
+        w.answer = w.cursor
+        fake.answered.append(w.cursor)
+        self.choice_closed = True
+        self.close(fake, w)
+
+    def ui(self, fake) -> None:
+        """The UI's per-frame reads, gated as the engine gates them (research/o5_design.md 3.2): a window's opening ends
+        (``done_frame``: AfterShown; a choice's cursor then on its default 0, ETb.cs:100-103); a Confirm going down
+        closes a COMPLETE page -- or, while it types, only completes its text (Dialog.cs:803-807); on a complete choice
+        Down/Up move the cursor (OnItemSelect, CompleteAnimation, :826-835) and a Confirm answers at it -- but in its
+        first ``ready_lag_frames`` it commits SelectChoice and hides nothing (:787-789), and while its prompt types it
+        only completes the text. In a window's opening nothing is taken (a Confirm there sets SelectChoice to the
+        default and closes nothing, :798-801). H15's choice faults act here."""
+        k = self.k
+        lag = int(k["ready_lag_frames"])
+        cur = k["cursor_to"]
+        for w in self.windows:
+            if w.kind in ("page", "choice") and w.complete and w.done_frame is None:
+                w.done_frame, w.done_rt = fake.frame, fake.rt
+                if w.kind == "choice":
+                    w.cursor = 0
+        ch = next((w for w in self.windows if w.kind == "choice" and w.complete and not w.closing), None)
+        if ch is not None:
+            if self.move is not None and fake.frame >= self.move[0]:
+                ch.cursor, self.move = int(self.move[1]), None          # H15: the game moved it
+            if k["stray_confirm_at_ready"] and not self.strayed and fake.frame >= ch.done_frame + lag:
+                self.strayed = True
+                self.take(fake, ch)                                     # H15: answered by no press of the driver's
+                return
+        downs = self.downs(fake)
+        if not downs:
+            return
+        for w in self.windows:
+            if w.closing or not w.complete:
+                continue
+            if w.kind == "page" and "confirm" in downs:
+                if self.typing(fake, w):
+                    w.typed = True                                      # the type-out completed; nothing closed
+                else:
+                    self.close(fake, w)
+            elif w.kind == "choice":
+                before = w.cursor
+                if "down" in downs:
+                    w.cursor = min(len(w.lines) - 1, w.cursor + 1)
+                if "up" in downs:
+                    w.cursor = max(0, w.cursor - 1)
+                if w.cursor != before and cur is not None and "after_frames" in cur and not self.moved:
+                    self.moved = True
+                    self.move = (fake.frame + int(cur["after_frames"]), int(cur["index"]))
+                if "confirm" not in downs or fake.frame < w.done_frame + lag:
+                    continue                                            # the ready-lag frame: committed, nothing hidden
+                if self.typing(fake, w):
+                    w.typed = True
+                    continue
+                if self.deaf > 0:
+                    self.deaf -= 1                                      # H15: dropped
+                    continue
+                if cur is not None and cur.get("at_confirm"):
+                    w.cursor = int(cur["index"])                        # H15: moved in the Confirm's own frame
+                self.take(fake, w)
+
+    def publish(self, fake) -> None:
+        """The visit's windows as the agent publishes them -- :meth:`_Machine.publish`'s shape, with a typing window's
+        text as it stands (:meth:`shown`) and, once a choice of the visit has closed, the menu group '' where it reads
+        None: the engine's DisableAllGroup at the answering Confirm (Dialog.cs:629, ButtonGroupState.cs:291) leaves it ''
+        until another group activates. A choice in its opening publishes ``selected`` as its ``stale`` cursor (the
+        pooled window's last) and the group ''; complete, the group ``Dialog.Choice`` (its ready-lag frames included)."""
+        listed = [w for w in self.windows if not w.gone]
+        fake.texts = [self.shown(fake, w) for w in listed]
+        fake.raw_texts = [w.raw for w in listed]
+        ch = next((w for w in listed if w.kind == "choice"), None)
+        if ch is None:
+            fake.choice = None
+            fake.menu = {"selected": None, "hovered": None, "label": None, "group": "" if self.choice_closed else None}
+            return
+        fake.choice = {"selected": ch.cursor, "count": len(ch.lines), "active": list(range(len(ch.lines))),
+                       "disabled": [], "options": [ch.header, *ch.lines]}
+        ready = ch.complete and not ch.closing
+        button = f"Choice#{ch.cursor}" if ready else None
+        fake.menu = {"selected": button, "hovered": None, "label": None, "group": "Dialog.Choice" if ready else "",
+                     "button": button}
+
+    def on_tick(self, fake) -> None:
+        """A field tick: every [TIME=t] window due closes itself (:meth:`_timed`), then the script runs."""
+        for w in self.windows:
+            if w.kind == "timed" and not w.closing and self.tick >= w.close_tick:
+                self.close(fake, w)
+        super().on_tick(fake)
+
+    def end(self, fake) -> None:
+        """The visit's bodies are taken down with it, and its donor: the field's own id until a visit says otherwise."""
+        bodies = fake.blockers.get(self.field)
+        if bodies is not None and self.bodies:
+            fake.blockers[self.field] = [b for b in bodies if not any(b is o for o in self.bodies)]
+        fake.donor = None
+
+    # -- the script
+    def _log(self, fake, at: str, kind: str, **kv) -> None:
+        fake.visit_log.append({"index": self.k["index"], "field": fake.field_id, "at": at, "kind": kind,
+                               "tick": self.tick, "frame": fake.frame, **kv})
+
+    @staticmethod
+    def _ticks(n):
+        for _ in range(max(0, int(n))):
+            yield
+
+    def _script(self, fake):
+        """The visit: its leading stores (Main_Init's prologue), then -- H15 -- ``error_window``'s error branch (the
+        stores with the error store for ip119's, window 56, nothing after) or ``grant_at``'s control (then nothing
+        after), else every other step in turn (:meth:`_run`)."""
+        k = self.k
+        steps = list(k["steps"])
+        lead = next((i for i, s in enumerate(steps) if "store" not in s), len(steps))
+        err = k["error_window"].get(k["index"])
+        if err is not None:
+            fake.story_bytes[13] = err & 0xFF            # the value it arrived with: no store, no row
+            for i, step in enumerate(steps[:lead]):
+                self._log(fake, str(i), "store")
+                s = step["store"]
+                self._store(fake, VISIT_ERROR_STORE if (int(s[3]), str(s[4])) == (13, "Byte") else s)
+            self._log(fake, "error", "page")
+            yield from self._page(fake, {"page": 56, "slot": 1, "text": VISIT_ERROR_TEXT, "raw": VISIT_ERROR_TEXT})
+            return
+        yield from self._run(fake, steps[:lead], "")
+        grant = k["grant_at"].get(k["index"])
+        if grant is not None:
+            self._log(fake, "grant_at", "grant")
+            self._grant(fake, grant)
+            while True:
+                yield
+        yield from self._run(fake, steps[lead:], "", base=lead)
+
+    def _run(self, fake, steps, path: str, base: int = 0):
+        """Each step in turn, logged as it starts (``fake.visit_log``); a ``field`` step -- or the back door -- ends the
+        beat, and nothing after it runs."""
+        for i, step in enumerate(steps, base):
+            if self.done:
+                return
+            kind = next(kd for kd in VISIT_STEP_KEYS if kd in step)
+            at = f"{path}{i}"
+            self._log(fake, at, kind)
+            if kind == "store":
+                self._store(fake, step["store"])
+            elif kind == "wait":
+                yield from self._ticks(round(float(step["wait"]) * float(self.k["wait_scale"])))
+            elif kind == "place":
+                self._place(fake, step["place"])
+            elif kind == "grant":
+                self._grant(fake, step["grant"])
+            elif kind == "page":
+                yield from self._page(fake, step)
+            elif kind == "timed":
+                self._timed(fake, step)
+            elif kind == "pair":
+                yield from self._pair(fake, step)
+            elif kind == "choice":
+                yield from self._choice(fake, step, at)
+            elif kind == "stairs":
+                yield from self._stairs(fake, step["stairs"], at)
+            else:
+                self._field(fake, str(step["field"]))
+
+    def _store(self, fake, args) -> None:
+        """A script store (:meth:`FakeGame.script_store`): ``value`` "answer" is the last choice's answer; H15's
+        ``store_override`` replaces the value stored at an ip."""
+        sid, tag, ip, byte, width, value, bit = args
+        if value == "answer":
+            value = self.answer
+        value = self.k["store_override"].get(int(ip), value)
+        fake.script_store(int(sid), int(tag), int(ip), int(byte), str(width), int(value), bit=int(bit))
+
+    def _place(self, fake, xz) -> None:
+        """A scripted move: the player published where it puts him (no coast carries a press on from there)."""
+        fake.player[0], fake.player[2] = float(xz[0]), float(xz[1])
+        fake._coast = None
+
+    def _grant(self, fake, xz) -> None:
+        """EnableMove (153 e3 t1 ip785, after WaitWindow(1) ip752 and Map.Bit[158] := 1 ip755): control, him at (x, z)."""
+        self._place(fake, xz)
+        fake.control = True
+
+    def _open_mes(self, fake, step: dict, kind: str):
+        """The window of a page / timed step as the agent publishes it -- ``text`` (default ``mes N``) and its ``raw``
+        (default ``[STRT=0,0]`` + the text) -- with the type-out state :meth:`typing` reads."""
+        text = str(step.get("text", f"mes {step[kind]}"))
+        w = self.open(fake, int(step.get("slot", 0)), kind, text, str(step.get("raw", f"[STRT=0,0]{text}")))
+        w.typing_s, w.typed, w.done_frame, w.done_rt = float(step.get("typing_s") or 0.0), False, None, None
+        return w
+
+    def _page(self, fake, step: dict):
+        w = self._open_mes(fake, step, "page")
+        while not w.gone:
+            yield
+
+    def _timed(self, fake, step: dict) -> None:
+        """A [TIME=t] [NFOC] window (153's 137, 140): Confirm-inert -- kind "timed": the UI takes Confirm on a page and
+        a choice alone -- closing itself ``ticks`` after it opened (:meth:`on_tick`); the script goes on at once."""
+        w = self._open_mes(fake, step, "timed")
+        w.close_tick = self.tick + int(step["ticks"])
+
+    def _pair(self, fake, step: dict):
+        """H10's KEYON pair (153's 134/135 and 139/138, 154's three, 153@316's two): a, then b ``lag`` ticks later, both
+        [INCS][TIME=-1] (kind "keyon": no UI Confirm pages them); from ``gate`` ticks after b each tick reads ``keyon &
+        (Confirm | Special)`` -- an edge before the gate is consumed by its tick and lost -- and the first such EDGE
+        closes both (the KEYON check, e.g. 153 e3 t1 ip2336); the script resumes once both are gone."""
+        (ma, sa), (mb, sb) = step["pair"]
+        texts = list(step.get("texts") or (f"mes {ma}", f"mes {mb}"))
+        raws = list(step.get("raws") or [f"[STRT=0,0]{t}[INCS][TIME=-1]" for t in texts])
+        a = self.open(fake, int(sa), "keyon", texts[0], raws[0])
+        yield from self._ticks(int(step.get("lag", 15)))
+        b = self.open(fake, int(sb), "keyon", texts[1], raws[1])
+        yield from self._ticks(int(step.get("gate", 40)))
+        while not self.keyon & KEYON_PAIR_BITS:
+            yield
+        self.close(fake, a)
+        self.close(fake, b)
+        while not (a.gone and b.gone):
+            yield
+
+    def _choice(self, fake, step: dict, at: str):
+        """A WindowSync choice ``gap`` ticks after the previous window is GONE -- the script resumed the tick it went:
+        e31's WaitAnimation rest, e2's stage tick and e3's open (research/o5_design.md 0.2 #14); H15's ``gap_ticks``
+        overrides it -- its text the header and its lines, ``selected`` its ``stale`` cursor until it is complete
+        (:meth:`ui`, :meth:`publish`). The script resumes the tick it is gone, its answer kept for a store's "answer";
+        then ``branch[str(answer)]``'s steps. H15's ``reask``: once gone, the same choice is asked again, ``gap`` ticks
+        later, before the branch."""
+        k = self.k
+        gap = int(k["gap_ticks"] if k["gap_ticks"] is not None else step.get("gap", 2))
+        header, lines = str(step.get("header", "")), [str(x) for x in step["lines"]]
+        text = "\n".join([header, *lines])
+        for _ask in range(2 if k["reask"] else 1):
+            yield from self._ticks(gap)
+            w = self.open(fake, int(step.get("slot", 0)), "choice", text, str(step.get("raw", f"[STRT=0,0]{text}")))
+            w.typing_s, w.typed, w.done_frame, w.done_rt = float(step.get("typing_s") or 0.0), False, None, None
+            w.header, w.lines, w.stale = header, lines, int(step.get("stale", 0))
+            w.cursor = w.stale
+            while not w.gone:
+                yield
+            self.answer = w.answer
+        yield from self._run(fake, (step.get("branch") or {}).get(str(self.answer), ()), f"{at}.{self.answer}.")
+
+    @staticmethod
+    def _contour(s: dict, x: float, z: float) -> bool:
+        """THE HEIGHT TEST (153 e3 t1 ip859, ``obj(uid=255).f[1] > -450`` failing): his height on the real mesh at or
+        below ``level`` (PSX y: up is negative), or -- floor-blind -- his centre inside ``contour``."""
+        if s["height_at"] is not None:
+            h = s["height_at"](x, z)
+            return h is not None and h <= float(s["level"])
+        return _in_poly(x, z, s["contour"])
+
+    @staticmethod
+    def _height(fake, s: dict) -> None:
+        """With ``height_at``: the published y is minus his height there (f[1] is -pos[1], EBin.cs:1785-1793)."""
+        if s["height_at"] is not None:
+            h = s["height_at"](fake.player[0], fake.player[2])
+            if h is not None:
+                fake.player[1] = -float(h)
+
+    def _stairs(self, fake, knobs: dict, at: str):
+        """153 e3 t1 STAGE 6 and its neighbours (research/o5_design.md 3.2), per field tick while he has control: (1)
+        the regions' tag 2 tests in entry order -- each side scene (e26: its quad AND z > ``z_gt``; e27: its quad), live
+        in stage 6 alone: the first hit takes control (DisableMove ip88 / ip68), lists its pages (rule 7's), places him
+        at ``regrant_at`` (Walk(1105,-78) ip1230) and grants control again (ip1266): stage 6 again; then the back door
+        (e28, its quad, live whenever he has control): control off, its stores (e28 t2 ip38, ip227), and ``exit_ticks``
+        later its Field() -- the beat ends there; (2) THE HEIGHT TEST (:meth:`_contour`): the first tick it holds takes
+        control (ip874-915), ``teleport_ticks`` later CreateObject puts him at ``teleport`` (ip1466) and stage 17 walks
+        him along ``climb`` at ``climb_speed`` u a tick; then the next step. H15: ``no_contour`` -- the test never fires;
+        ``side_scene_at`` -- at the n-th MOVING tick of a stage-6 period (a tick he stands somewhere new: the walk's, not
+        the settle's before it) a side scene fires wherever he stands. ``fake.visit_log`` rows: "scene", "back_door",
+        "lost" (each with his x, z)."""
+        from ff9mapkit.content import doorface
+        s = {**STAIRS_DEFAULTS, **knobs}
+        fires, period, moving = self.k["side_scene_at"], 0, 0
+        last = (fake.player[0], fake.player[2])
+        while True:
+            x, z = fake.player[0], fake.player[2]
+            self._height(fake, s)
+            if fake.control:
+                if (x, z) != last:
+                    moving += 1
+                last = (x, z)
+                scene = next((sc for sc in s["scenes"] if doorface.region_contains(x, z, sc["points"])
+                              and z > float(sc.get("z_gt", float("-inf")))), None)
+                if scene is None and period < len(fires) and moving == fires[period] and s["scenes"]:
+                    scene = s["scenes"][0]
+                if scene is not None:
+                    fake.control, fake._coast = False, None
+                    self._log(fake, f"{at}.s", "scene", x=x, z=z)
+                    yield from self._run(fake, scene.get("pages") or (), f"{at}.s.")
+                    self._grant(fake, s["regrant_at"])
+                    period, moving, last = period + 1, 0, (fake.player[0], fake.player[2])
+                    yield
+                    continue
+                bd = s["back_door"]
+                if bd is not None and doorface.region_contains(x, z, bd["points"]):
+                    fake.control, fake._coast = False, None
+                    self._log(fake, f"{at}.d", "back_door", x=x, z=z)
+                    for args in bd.get("stores") or ():
+                        self._store(fake, args)
+                    yield from self._ticks(int(bd.get("exit_ticks", 0)))
+                    self._field(fake, str(bd["to"]))
+                    return
+                if not self.k["no_contour"] and self._contour(s, x, z):
+                    fake.control, fake._coast = False, None
+                    self._log(fake, f"{at}.l", "lost", x=x, z=z)
+                    yield from self._ticks(int(s["teleport_ticks"]))
+                    self._place(fake, s["teleport"])
+                    self._height(fake, s)
+                    speed = float(s["climb_speed"])
+                    for tx, tz in s["climb"]:
+                        tx, tz = float(tx), float(tz)
+                        while (fake.player[0], fake.player[2]) != (tx, tz):
+                            yield
+                            px, pz = fake.player[0], fake.player[2]
+                            d = math.hypot(tx - px, tz - pz)
+                            if d <= speed:
+                                fake.player[0], fake.player[2] = tx, tz
+                            else:
+                                fake.player[0], fake.player[2] = px + (tx - px) / d * speed, pz + (tz - pz) / d * speed
+                            self._height(fake, s)
+                    yield
+                    return
+            yield
+
+    def _field(self, fake, to: str) -> None:
+        """Field() (153 e3 t1 ip3158, 154 e2 t1 ip1528, 153 e18 t1 ip1085; e28's ip235): the field becomes ``field_to[to]``
+        -- H15's ``land_real``: the REAL id -- a fresh visit with control off (the engine zeroes it at a field's start)
+        and no window; the beat finishes, and the scene's next beat starts in the new field."""
+        fid = self.k["land_real"].get(to, self.k["field_to"][to])
+        self.windows = []
+        fake.field_id = int(fid)
+        fake.player = [0.0, 0.0, 0.0]
+        fake.control, fake._coast = False, None
+        fake._visit += 1
+        fake._in_trigger.clear()
+        self.finish(fake)
 
 
 def _control(name: str) -> str:
