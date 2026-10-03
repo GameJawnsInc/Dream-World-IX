@@ -590,9 +590,10 @@ def one(g, name: str, stage: dict, pred: dict, n: int, *, side: str = "S", t0: f
     THE GUARD (:func:`guard_record`: the race margin in ticks and seconds at the launch's rate), the KEYON pairs and the
     timed windows (:func:`windows_record`), the dialog-section catch and its rate, the launch's measured rate, and the
     trace through O5's summary cut at the stage's end PLACES. An untraced stage (F-PASS) starts by :func:`fpass_start`,
-    drives with the live forbidden scan off and records the exceptions and Memoria.log lines since the warp instead of
-    a trace. R-WALK-VOID's :class:`WalkStop` records its stop and the direction holds requested after it, before
-    end_run (there must be none). A run the instrument stopped (a HarnessError: outside input, the budget, a refused
+    drives with the live forbidden scan off (``forbid_live`` False in the record) and records the exceptions and
+    Memoria.log lines since the warp instead of a trace. R-WALK-VOID's :class:`WalkStop` records its stop, the direction
+    holds the run requested before it (the walk had begun: at least one) and after it, before end_run (there must be
+    none). A run the instrument stopped (a HarnessError: outside input, the budget, a refused
     press, the walk stop; or an unexpected exception) records the class V13 (driver). ``witness`` (the outside-input
     witness; default the ctypes one) is a seam for the fake."""
     from harness import HarnessError
@@ -604,8 +605,9 @@ def one(g, name: str, stage: dict, pred: dict, n: int, *, side: str = "S", t0: f
     log, progress, marks = [], {}, {}
     rec_obs = Recorder(g, stage, spred)
     trace_name = f"rh_{name}_{n}.jsonl" if traced else None
-    rec = {"stage": name, "n": n, "side": side, "t0": round(time.time() - t0, 1), "trace_file": trace_name,
-           "traced": traced}
+    t_run = time.time()
+    rec = {"stage": name, "n": n, "side": side, "t0": round(t_run - t0, 1), "trace_file": trace_name,
+           "traced": traced, "forbid_live": traced}
     outcome = {"end": "void", "why": "not driven"}
     mark = g.log_mark()
     tap = WalkTap(g)
@@ -680,6 +682,7 @@ def one(g, name: str, stage: dict, pred: dict, n: int, *, side: str = "S", t0: f
     if stop is not None:
         rec["walk_stop"] = (None if stop.fired is None else
                             {**stop.fired, "x_stop": stop.x_stop,
+                             "holds_before": len(_holds_between(steps, t_run, stop.fired["t"])),
                              "holds_after": len(_holds_between(steps, stop.fired["t"], t_drive))})
     end_log: list = []
     try:

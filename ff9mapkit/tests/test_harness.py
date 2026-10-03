@@ -22699,6 +22699,7 @@ def test_o5_rehearsal_walk_void_stops_mid_walk_on_the_fake(game):
     assert rec["outcome"]["why"].startswith(f"STOPPED: {want}: a hold at x"), rec["outcome"]
     ws = rec["walk_stop"]
     assert ws is not None and -1400 < ws["x"] <= 600 and ws["x_stop"] == 600 and ws["holds_after"] == 0, ws
+    assert ws["holds_before"] >= 1, ws                                           # the walk had begun
     assert any(str(s).startswith("hold ") for s in ws["steps"]), ws["steps"]
     assert (rec["beats"] or {}).get("stairs") is not True and rec["trace"].get("end") is None, (rec["beats"],
                                                                                                 rec["trace"].get("end"))
@@ -22773,6 +22774,7 @@ def test_o5_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake(game):
     assert not [s for s in fake.executed if s[0] == "storytrace"], "a storytrace step in the untraced pass"
     rec = doc["stages"]["F-PASS"][0]
     assert rec["side"] == "F" and rec["traced"] is False and rec["trace_file"] is None, rec
+    assert rec["forbid_live"] is False, rec["forbid_live"]
     assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == "field 31244", (rec["outcome"], aside)
     assert rec["outcome"]["v"] is None and rec["beats"] == {"stairs": True, "choice128": True}, rec["beats"]
     assert rec["trace"] == {} and rec["exceptions"] == [] and isinstance(rec["log_lines"], list), rec["exceptions"]

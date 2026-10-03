@@ -2117,7 +2117,8 @@ def rehearsal_report(run_dir) -> str:
             if ws is not ...:
                 L.append("    walk stop: " + ("never fired" if ws is None else
                                               f"frame {ws.get('frame')} at x {ws.get('x')} (<= {ws.get('x_stop')}), the "
-                                              f"held-back steps {ws.get('steps')}; direction holds after it "
+                                              f"held-back steps {ws.get('steps')}; direction holds before it "
+                                              f"{ws.get('holds_before')} (the walk had begun), after it "
                                               f"{ws.get('holds_after')} (there must be none)"))
             if not rec.get("traced", True):
                 L.append(f"    untraced: exceptions since the warp {rec.get('exceptions')}; Memoria.log lines "
