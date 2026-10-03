@@ -77,6 +77,15 @@ Rule 7 under the policy refuses an unrecognized [DBTN] page, presses page-once p
 123, reads the score and gil pages in two consecutive samples, and sends a replay after the encore answer to
 :func:`stray_answer` (V17 or V2); ``answer`` rows ``choose``'s own presses. ``drive``'s ``witness`` -- outside input,
 polled through the whole run -- stops a run V13. Without the key the loop is O3's exactly.
+
+THE RUN-WIDE WITNESS (opt-in, ``witness``; research/o5_design.md 1.2 S12): ``drive``'s outside-input witness polled
+through the whole run (:func:`witness_of`, checked strict), not only under the Chanbara policy -- a stored answer
+(O5's Bit[3795]) makes outside input anywhere a false-finding risk: a non-neutral reading is an ``input`` row, then V13.
+VISIT-SCOPED CELLS (opt-in, a cell's ``visit``; S13): a cell carrying ``visit`` -- the 1-based position of a visit in
+``visits`` -- answers only that visit (:func:`cell`), so control at a REVISIT of the same place at the same SC is V4
+(the game's), never the walk a first visit runs; and under such a table every VOID's and ``observed`` row's cell is
+``[place, sc, visit]`` (:meth:`_Drive.vcell`), so one class at two visits of a place is two keys for VOID-ASYM. Without
+either key the loop is O4's exactly.
 """
 from __future__ import annotations
 
@@ -219,9 +228,12 @@ def rule_for(choice: dict, donor: int, pred: dict, *, sc: int | None = None) -> 
 
 
 # ======================================================================== the beat table's helpers (pure)
-def cell(pred: dict, donor: int, sc: int) -> dict | None:
-    """The table's cell for ``(donor place, published SC)``, or None (2.1)."""
-    return next((c for c in pred.get("table") or () if c["donor"] == donor and c["sc"] == sc), None)
+def cell(pred: dict, donor: int, sc: int, visit: int | None = None) -> dict | None:
+    """The table's cell for ``(donor place, published SC)``, or None (2.1). S13 (research/o5_design.md 1.2), opt-in: a
+    cell carrying ``visit`` -- the 1-based position of a visit in ``visits`` -- matches only that visit (``visit`` given
+    and equal to it); a cell without it matches every visit, as every table before O5's."""
+    return next((c for c in pred.get("table") or ()
+                 if c["donor"] == donor and c["sc"] == sc and ("visit" not in c or c["visit"] == visit)), None)
 
 
 def region(pred: dict, key: str) -> dict:
@@ -1342,6 +1354,41 @@ def stray_answer(log: list, events: list, steps: list, first_frame: int, close_f
     return {"v": "V2", "by": "game", "presses": [], "why": "the game replayed though the driver confirmed No"}
 
 
+# ======================================================================== S12: the run-wide witness (opt-in, pure)
+#: The run-wide outside-input witness's keys (research/o5_design.md 1.2 S12, 4.10), strict: ``why`` optional.
+WITNESS_KEYS = ("input_every_s", "why")
+
+
+def witness_of(pred: dict) -> dict | None:
+    """THE RUN-WIDE OUTSIDE-INPUT WITNESS (``pred["witness"]``; research/o5_design.md 1.2 S12, decision 4), checked
+    STRICT before anything is driven -- or None: no ``witness``, and :func:`drive`'s ``witness`` is polled only under
+    the Chanbara policy (O4's). With it the driver polls that callable through the WHOLE run, every ``input_every_s``: a
+    stored answer (O5's Bit[3795]) makes outside input anywhere a false-finding risk.
+
+    ValueError, each naming its cause, on: a policy that is no dict; an unknown key; no ``input_every_s``; an
+    ``input_every_s`` that is no positive number (a bool is never a number) or is above 0.1; a ``why`` given that is no
+    non-empty string. Returns a copy."""
+    raw = pred.get("witness")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError(f"witness {raw!r}: the policy is a dict of {WITNESS_KEYS}")
+    unknown = sorted(set(raw) - set(WITNESS_KEYS))
+    missing = [] if "input_every_s" in raw else ["input_every_s"]
+    if unknown or missing:
+        raise ValueError("witness: " + "; ".join(([f"unknown key(s) {unknown}"] if unknown else [])
+                                                 + ([f"missing {missing}"] if missing else []))
+                         + f" -- the policy's keys are {WITNESS_KEYS} (why optional)")
+    every = raw["input_every_s"]
+    if not _is_pos(every):
+        raise ValueError(f"witness: input_every_s {every!r} is a positive number (seconds between polls)")
+    if every > 0.1:
+        raise ValueError(f"witness: input_every_s {every!r} is at most 0.1 (a tap lasts a few frames)")
+    if "why" in raw and not _is_text(raw["why"]):
+        raise ValueError(f"witness: why {raw['why']!r} is a non-empty string")
+    return dict(raw)
+
+
 # ======================================================================== S7: the fight zone's executor (opt-in)
 #: The fight's other body (research/o4_design.md 2.4.1): Blank, the published field object sid 20 (64 e0 t0 ip449's
 #: InitObject(20)); Zidane is the player.
@@ -1857,7 +1904,7 @@ class _ChanbaraZone:
             return
         if v == "V13":
             raise HarnessError(why)
-        raise RouteVoid(why, v=v, cell=[d.donor, d.sc], by=by)
+        raise RouteVoid(why, v=v, cell=d.vcell(d.donor, d.sc), by=by)
 
     def stop(self, v, by, why, *, judge: bool = True) -> None:
         """A stop in the zone: the rows completed (:meth:`close_out`), then -- with ``judge`` -- the judge decides
@@ -1900,8 +1947,14 @@ class _Drive:
             raise ValueError(f"the start place {self.start_place} is not in the route's visit order {self.order}")
         self.at = self.order.index(self.start_place) - 1        # the place of the current visit, in self.order
         for c in pred.get("table") or ():                   # a malformed table refuses before anything is walked
+            if "visit" in c and not (_is_int(c["visit"]) and c["visit"] >= 1):
+                raise ValueError(f"table cell ({c.get('donor')}, {c.get('sc')}): visit {c['visit']!r} is the 1-based "
+                                 f"position of a visit in visits, an int >= 1")
             for raw in c["steps"]:
                 step_of(pred, raw)
+        # S13 (research/o5_design.md 1.2), OPT-IN: a table with any VISIT-SCOPED cell (``visit``) keys every VOID and
+        # every ``observed`` row by ``[place, sc, visit]`` (:meth:`vcell`); without one, ``[place, sc]`` as ever.
+        self.visit_cells = any("visit" in c for c in pred.get("table") or ())
         # S4 (research/o3_design.md 2.1-2.3), OPT-IN: the battle registry and the stop pages, each checked strict
         # before anything is driven. With neither, nothing below reads them: the loop is O2's exactly.
         self.battles = [battle_of(pred, b) for b in pred.get("battles") or ()]
@@ -1918,6 +1971,11 @@ class _Drive:
         # the outside-input witness it polls. Without the policy (None) nothing below reads either: the loop is O3's.
         self.chanbara = chanbara_of(pred)
         self.witness, self.witness_t = witness, 0.0
+        # S12 (research/o5_design.md 1.2), OPT-IN: THE RUN-WIDE WITNESS -- the same callable polled through the whole
+        # run under ``pred["witness"]`` (checked strict), at its ``input_every_s``; under the Chanbara policy at the
+        # policy's (O4's, unchanged). With neither, nothing polls it.
+        self.witness_pol = witness_of(pred)
+        self.witness_every = (self.witness_pol or self.chanbara or {}).get("input_every_s")
         self.zones: list = []              # the policy's ``zone`` rows
         self.prompts: list = []            # ... and its ``prompt`` rows
         self.cb: dict = {"zone_done": False, "zone_end_frame": None, "score_read": False, "held_off": {},
@@ -1973,22 +2031,31 @@ class _Drive:
             o.update(zones=self.zones, prompts=self.prompts)
         return o
 
+    def vcell(self, donor, sc) -> list:
+        """A VOID's cell, and an ``observed`` row's (S13, research/o5_design.md 1.2): ``[donor, sc]`` -- and under a
+        table with any visit-scoped cell ``[donor, sc, visit]``, the visit the 1-based position in ``visits`` of the one
+        the run stands in (``self.at + 1``; before rule 3 counts a new one, the visit just left), so one class at two
+        visits of a place is two keys for VOID-ASYM."""
+        return [donor, sc, self.at + 1] if self.visit_cells else [donor, sc]
+
     def void(self, v: str, by: str, why: str):
-        return RouteVoid(why, v=v, cell=[self.donor, self.sc], by=by)
+        return RouteVoid(why, v=v, cell=self.vcell(self.donor, self.sc), by=by)
 
     def stray(self, why: str) -> RouteVoid:
         """Rule 2's V11 (2.7), attributed: the DRIVER's when the last thing the run did was a walk that ended unfinished
         (``interrupted`` or ``failed``) with nothing pressed, answered or named since -- a door the executor did not
         see fire (its switch came after ``exit_wait_s``, or it is none the table registers). That step row then carries
         the landing (``landed``, ``v``, ``by``; ``late``: judged by the loop), which is what 4.7's ``walk`` backing reads,
-        and the VOID its cell. Otherwise the GAME's: a scripted transition."""
+        and the VOID its cell -- under a visit-scoped table the walk's visit too (S13: the walked row is always the
+        current visit's, rule 3 clears it at a new one, and rule 2 judges before it counts one). Otherwise the GAME's: a
+        scripted transition."""
         row = self.walked
         if row is None:
             return self.void("V11", "game", why)
         row.update(landed=self.fid, v="V11", by="driver", late=True,
                    why=f"{row.get('why')}; then {why}, with nothing done since the walk")
         return RouteVoid(f"{why}, after step {row.get('name') or row.get('n')!r} ({row.get('outcome')}) with nothing "
-                         f"done since", v="V11", cell=[row.get("donor"), row.get("sc")], by="driver")
+                         f"done since", v="V11", cell=self.vcell(row.get("donor"), row.get("sc")), by="driver")
 
     # -- evidence -------------------------------------------------------------------------------------------------
     def near(self, st) -> list:
@@ -2795,7 +2862,7 @@ class _Drive:
             if self.observe is not None:
                 self.observe(st, {"field": self.fid, "donor": self.donor, "sc": self.sc, "visit": self.visit,
                                   "log": self.log})
-            if self.chanbara is not None:            # S7, opt-in: outside input anywhere in the run is V13
+            if self.chanbara is not None or self.witness_pol is not None:     # S7 / S12, opt-in: outside input V13
                 self.poll_witness(st)
             # 1 -- the end: the end state, the last scan, done -- and, opt-in, the end place's first trace row waited for
             if self.fid in self.ends:
@@ -2858,7 +2925,7 @@ class _Drive:
                     self.visit_t0 = time.time()
                 if self.forbid_live:
                     self.scan()
-            c = cell(pred, self.donor, self.sc)
+            c = cell(pred, self.donor, self.sc, self.at + 1)           # S13: a visit-scoped cell answers its visit
             if c is not None and c.get("watch"):
                 self.watch_poll(st, c)
             if self.chanbara is not None:            # S8 c, opt-in: the quiet window opens, or runs out (V14)
@@ -2981,6 +3048,8 @@ class _Drive:
                 raise self.void("V1", "game", str(err)) from err
             if err.v == "V2" and self.chanbara is not None and self.encore_rule(st) is not None:
                 self.encore_stray()                  # S9: a second encore -- who confirmed it, V17 or V2
+            if self.visit_cells:                     # S13: pick_for's own V2 / V3 cell gains the visit
+                err.cell = self.vcell(self.donor, self.sc)
             raise
         n = next(i for i, r in enumerate(self.pred["choices"]) if r is rule)
         if index == "default" or rule.get("take") == "default":
@@ -3028,27 +3097,28 @@ class _Drive:
     def observed(self, kind: str, src) -> dict:
         """An ``observed`` row (2.4.6; rev. 2, the claim critique #5): logged just before a V17 whose cause is something
         the GAME showed -- ``{"k": "observed", "kind", "cell", "frame", "texts", "phrase_raw"}`` (and the choice, when
-        one was published). VOID-ASYM (d) reads them."""
+        one was published). VOID-ASYM (d) reads them. Its cell is the VOID's (S13: :meth:`vcell`)."""
         if isinstance(src, dict):
             frame, rows, choice = src["frame"], src["dialogs"], src.get("choice")
         else:
             frame, rows, choice = src.frame, dialog_rows(src.raw), src.choice
-        row = {"k": "observed", "kind": kind, "cell": [self.donor, self.sc], "frame": frame,
+        row = {"k": "observed", "kind": kind, "cell": self.vcell(self.donor, self.sc), "frame": frame,
                "texts": [t for _p, t in rows], "phrase_raw": [p for p, _t in rows]}
         if choice is not None:
             row["choice"] = choice
         self.log.append(row)
         return row
 
-    def poll_witness(self, st) -> None:
+    def poll_witness(self, st, *, now_too: bool = False) -> None:
         """The outside-input witness (2.4.3 step 0), polled between the main loop's own blocking calls, at most
-        every ``input_every_s``: a non-neutral reading is an ``input`` row, then V13 -- the instrument's, wherever it
-        falls."""
+        every ``input_every_s`` -- the run-wide policy's (S12) or the Chanbara policy's -- and at once with ``now_too``
+        (S11: right after a verified answer): a non-neutral reading is an ``input`` row, then V13 -- the instrument's,
+        wherever it falls."""
         from harness import HarnessError
         if self.witness is None:
             return
         now = time.time()
-        if now - self.witness_t < float(self.chanbara["input_every_s"]):
+        if not now_too and now - self.witness_t < float(self.witness_every):
             return
         self.witness_t = now
         what = self.witness()
@@ -3245,7 +3315,7 @@ class _Drive:
         res = stray_answer(log, self.g.channel.events(), self.steps_rows(), enc["first_frame"], enc["close_frame"])
         self.log.append({"k": "encore_stray", "field": self.fid, "visit": self.visit, "first_frame": enc["first_frame"],
                          "close_frame": enc["close_frame"], **res})
-        raise RouteVoid(res["why"], v=res["v"], cell=[self.donor, self.sc], by=res["by"])
+        raise RouteVoid(res["why"], v=res["v"], cell=self.vcell(self.donor, self.sc), by=res["by"])
 
     def row_choose(self, before: int, after: int, st) -> None:
         """S9 (research/o4_design.md 0.3 #10): ``g.choose``'s own presses -- ``press down/up 4`` until the cursor sits,
@@ -3295,8 +3365,9 @@ def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=Non
     P-FLOOR), ``prior_for(donor)`` its prior (default ``g.key_prior``); ``end_fields`` overrides the side's end fields
     (a rehearsal stage; else ``side_ends[side]``, else the predictions' one list -- S6); ``observe(st, ctx)`` sees every
     poll (the rehearsal recorder); ``forbid_live`` runs the live
-    forbidden scan (V12; it needs the story trace running); ``witness()`` (opt-in, read only under the Chanbara
-    policy) is the outside-input witness -- None while the pads and keys are neutral, else what it read (V13).
+    forbidden scan (V12; it needs the story trace running); ``witness()`` (opt-in, read under the Chanbara policy or,
+    run-wide, under ``pred["witness"]``: S12) is the outside-input witness -- None while the pads and keys are
+    neutral, else what it read (V13).
     ``progress`` is filled with the live beats, pages, choices, steps, overlays and forbidden rows, so a run that raises
     still says how far it got."""
     if floor_for is None:

@@ -197,6 +197,11 @@ REQUIRED_TESTS: tuple = (
     # pins) and stray_answer's strings pinned as O4 froze them, then the shared opt-in changes, each with its step
     "test_segment_regress_o4_pins_join_the_union",                              # A0: G21 over both baselines
     "test_segment_stray_answer_keeps_o4s_strings",                              # A0: O4's attribution, every string
+    "test_segment_witness_of_is_strict",                                        # A1: S12, pure
+    "test_segment_drive_polls_the_witness_run_wide",                            # A1: S12 on the fake
+    "test_segment_cell_visit_scopes_a_cell",                                    # A1: S13, pure
+    "test_segment_drive_control_at_another_visit_is_v4",                        # A1: S13 on the fake
+    "test_segment_drive_void_cell_carries_the_visit",                           # A1: S13's VOID cell
 )
 
 O1E_VERDICT = "PROVEN"

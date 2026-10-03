@@ -19396,3 +19396,188 @@ def test_segment_regress_o4_pins_join_the_union(tmp_path):
     assert methods <= set(names) and "_KeyonPairBeat._script" in methods and "_Win.timers" in methods, methods
     with pytest.raises(ValueError, match="no method of _Win"):
         R.fake_pins_o4(source.replace("class _Win:", "class _Window:"))
+
+
+def test_segment_witness_of_is_strict():
+    """S12, pure (research/o5_design.md 1.2, 9 A1): ``witness_of`` reads ``pred["witness"]`` -- None without it, a COPY
+    with it -- and refuses each malformed one before anything is driven: no dict; an unknown key; no ``input_every_s``;
+    an ``input_every_s`` that is no positive number (0, negative, a bool, a string) or is above 0.1; a ``why`` that is no
+    non-empty string. Break: accept any dict (every refusal then passes)."""
+    SD = _segment_modules()
+    assert SD.witness_of({}) is None and SD.witness_of({"witness": None}) is None
+    pol = {"input_every_s": 0.05, "why": "the stored choice"}
+    got = SD.witness_of({"witness": pol})
+    assert got == pol and got is not pol, got
+    assert SD.witness_of({"witness": {"input_every_s": 0.1}}) == {"input_every_s": 0.1}
+    for bad, match in (([0.05], "a dict"), ({"input_every_s": 0.05, "every_s": 1}, "unknown"),
+                       ({"why": "x"}, "missing"), ({"input_every_s": 0}, "positive number"),
+                       ({"input_every_s": -0.01}, "positive number"), ({"input_every_s": True}, "positive number"),
+                       ({"input_every_s": "0.05"}, "positive number"), ({"input_every_s": 0.2}, "at most 0.1"),
+                       ({"input_every_s": 0.05, "why": ""}, "why"), ({"input_every_s": 0.05, "why": 3}, "why")):
+        with pytest.raises(ValueError, match=match):
+            SD.witness_of({"witness": bad})
+
+
+def test_segment_drive_polls_the_witness_run_wide(game):
+    """S12 on the fake (research/o5_design.md 1.2, 9 A1): with ``pred["witness"]`` and NO Chanbara policy the driver
+    polls ``drive``'s witness through the whole run -- a stub reading outside input from the start (a held pad) stops
+    the run at its first poll, a page up: an ``input`` row, then V13 (the instrument's HarnessError, never a RouteVoid),
+    nothing pressed. Without the key the same stub is never called and the run reaches its end. Break: poll only under
+    the Chanbara policy (the first half then reaches the end)."""
+    SD = _segment_modules()
+    for policy in (True, False):
+        fake = FakeGame(game)
+        pred = _o2_pred([], **({"witness": {"input_every_s": 0.05}} if policy else {}))
+        calls: list = []
+
+        def witness(calls=calls):
+            calls.append(time.time())
+            return "pad: Confirm held"
+        stop = threading.Event()
+        log: list = []
+        out = None
+        with session(game, fake) as g:
+            _o2_start(g, fake)
+            fake.scene("Blank\n“Hurry!”", "Soldier\n“Halt!”", control=False)
+            published(g, lambda s: not s.control and s.dialog_open)
+            mark = len(fake.executed)
+            _o1_director(fake, stop, [(lambda f: not f._beats and not f.texts, lambda f: _o2_move(f, 30810))])
+            try:
+                if policy:
+                    with pytest.raises(HarnessError, match="outside input: pad: Confirm held") as err:
+                        _o2_drive(g, pred, log=log, witness=witness)
+                    assert not isinstance(err.value, SD.RouteVoid), err.value
+                else:
+                    out = _o2_drive(g, pred, log=log, witness=witness)
+            finally:
+                stop.set()
+        presses = [s for s in fake.executed[mark:] if s[:2] == ["press", "confirm"]]
+        if policy:
+            rows = [r for r in log if r.get("k") == "input"]
+            assert len(rows) == 1 and rows[0]["what"] == "pad: Confirm held" and len(calls) == 1, (rows, calls)
+            assert presses == [] and not [r for r in log if r.get("k") == "press"], presses
+        else:
+            assert out["end"] == "reached" and calls == [], (out, calls)
+            assert len(presses) == 2, presses
+
+
+def test_segment_cell_visit_scopes_a_cell():
+    """S13, pure (research/o5_design.md 1.2, 0.2 #15, 9 A1): a cell carrying ``visit`` -- the 1-based position of a visit
+    in ``visits`` -- matches only that visit; a cell without it matches every visit (today's), and a call without a
+    visit finds no visit-scoped cell. The drive's start refuses a ``visit`` that is no int >= 1 (0, -1, a bool, a
+    string), and reads a table with any visit-scoped cell as visit-scoped (``visit_cells``). Break: ignore the key (the
+    revisit then finds visit 1's cell)."""
+    import types
+    SD = _segment_modules()
+    a1 = {"donor": 153, "sc": 1190, "visit": 1, "steps": []}
+    a3 = {"donor": 153, "sc": 1190, "visit": 3, "steps": []}
+    any_ = {"donor": 154, "sc": 1190, "steps": []}
+    pred = {"table": [a1, any_]}
+    assert SD.cell(pred, 153, 1190, 1) is a1 and SD.cell(pred, 153, 1190, visit=1) is a1
+    assert SD.cell(pred, 153, 1190, 3) is None and SD.cell(pred, 153, 1190, 2) is None
+    assert SD.cell(pred, 153, 1190) is None, "a visit-scoped cell answers only its visit"
+    assert SD.cell(pred, 154, 1190, 2) is any_ and SD.cell(pred, 154, 1190) is any_ and SD.cell(pred, 154, 1190, 7) is any_
+    assert SD.cell(pred, 153, 1000, 1) is None and SD.cell({"table": [a1, a3]}, 153, 1190, 3) is a3
+    g = types.SimpleNamespace(state=types.SimpleNamespace(battle_epoch=0))
+
+    def start(table):
+        p = _o2_pred(table, visits=[30820, 30821, 30820])
+        return SD._Drive(g, p, "S", [], deadline=time.time() + 5, floor_for=None, prior_for=None, progress=None,
+                         end_fields=None, observe=None, forbid_live=False)
+    step = _o2_cross()
+    assert start([{"donor": 30820, "sc": 1000, "steps": [step]}]).visit_cells is False
+    assert start([{"donor": 30820, "sc": 1000, "visit": 1, "steps": [step]}]).visit_cells is True
+    for bad in (0, -1, True, "1", 1.0, None):
+        with pytest.raises(ValueError, match="an int >= 1"):
+            start([{"donor": 30820, "sc": 1000, "visit": bad, "steps": [step]}])
+
+
+#: S13's route on the fake (research/o5_design.md 9 A1): 30820, then 30821, then 30820 again at the same SC -- O5's
+#: 153@325, 154@304, 153@316 -- ending in 30810. 30820's exit takes him to 30821 with no control (a scene there).
+_S13_VISITS = [30820, 30821, 30820]
+
+
+def _s13_run(game, table, *, grant_in=3):
+    """One S13 run on the fake: control in 30820 runs the table (a crossing into 30821, which lands with control off);
+    in 30821 a page, then the field moves him back to 30820 -- control granted there (visit 3) when ``grant_in`` is 3,
+    or in 30821 itself (visit 2) when it is 2. ``(the RouteVoid raised or the outcome, log)``."""
+    SD = _segment_modules()
+    fake = FakeGame(game)
+    fake.regions = {30820: [{"zone": _O2_EXIT, "to": 30821, "arrive": (0, 0), "arrive_control": False}]}
+    fake.exit_frames = 30
+    pred = _o2_pred(table, visits=list(_S13_VISITS))
+    stop = threading.Event()
+    log: list = []
+
+    def back(f):
+        _o2_move(f, 30820, -300, 0)
+        f.control = True
+
+    def in_b(f):
+        if grant_in == 2:
+            f.control = True
+        else:
+            f.scene("Guard\n“Back you go.”", control=False)
+    with session(game, fake) as g:
+        _o2_start(g, fake)
+        phases = [(lambda f: f.field_id == 30821, in_b)]
+        if grant_in == 3:
+            phases.append((lambda f: f.field_id == 30821 and not f._beats and not f.texts and not f.control, back))
+        _o1_director(fake, stop, phases)
+        try:
+            try:
+                out = _o2_drive(g, pred, log=log, budget=60.0)
+            except SD.RouteVoid as err:
+                out = err
+        finally:
+            stop.set()
+    return out, log
+
+
+def test_segment_drive_control_at_another_visit_is_v4(game):
+    """S13 on the fake (research/o5_design.md 1.2, 0.2 #15, 9 A1): a REVISIT of the start place at the same SC that grants
+    control is no cell's when the table scopes its cell to visit 1 -- V4, the GAME's, at the revisit (one ``step`` row,
+    visit 1's crossing). The same table without ``visit`` runs the step again at the revisit (today's): a second step
+    row, of visit 3, and the run never reads V4. Break: ignore the key (the revisit then runs the step: no V4)."""
+    SD = _segment_modules()
+    scoped = [{"donor": 30820, "sc": 1000, "visit": 1, "steps": [_o2_cross(to=30821)]}]
+    out, log = _s13_run(game, scoped)
+    assert isinstance(out, SD.RouteVoid) and (out.v, out.by) == ("V4", "game"), out
+    steps = [(r["visit"], r["donor"], r["outcome"]) for r in log if r.get("k") == "step"]
+    assert steps == [(1, 30820, "done")], steps
+    assert [r["donor"] for r in log if r.get("k") == "visit"] == _S13_VISITS, log
+    plain = [{"donor": 30820, "sc": 1000, "steps": [_o2_cross(to=30821)]}]
+    out, log = _s13_run(game, plain)
+    steps = [(r["visit"], r["donor"], r["outcome"]) for r in log if r.get("k") == "step"]
+    assert steps[:2] == [(1, 30820, "done"), (3, 30820, "done")], steps
+    assert not (isinstance(out, SD.RouteVoid) and out.v == "V4"), out
+
+
+def test_segment_drive_void_cell_carries_the_visit(game):
+    """S13's VOID cell (research/o5_design.md 1.2, the claim critique #5, 9 A1): under a table with a visit-scoped cell
+    the revisit's V4 is keyed ``[place, sc, n]``, n the revisit's position in ``visits`` (3) -- so a V4 at visit 1 and one
+    at visit 3 of one place are two keys for VOID-ASYM -- and so is every RouteVoid and ``observed`` row the run makes:
+    ``void``, ``observed`` and ``stray``'s late V11 (the walk's visit) each carry the visit the run stands in. Without a
+    visit-scoped cell every one keeps ``[place, sc]`` (O1-O4's): V4 in a field with no cell is ``[30821, 1000]``. Break:
+    key the VOID by ``[donor, sc]`` (the revisit's V4 then reads ``[30820, 1000]``)."""
+    import types
+    SD = _segment_modules()
+    scoped = [{"donor": 30820, "sc": 1000, "visit": 1, "steps": [_o2_cross(to=30821)]}]
+    out, _log = _s13_run(game, scoped)
+    assert isinstance(out, SD.RouteVoid) and out.v == "V4" and out.cell == [30820, 1000, 3], (out, out.cell)
+    out, _log = _s13_run(game, [{"donor": 30820, "sc": 1000, "steps": [_o2_cross(to=30821)]}], grant_in=2)
+    assert isinstance(out, SD.RouteVoid) and out.v == "V4" and out.cell == [30821, 1000], (out, out.cell)
+    g = types.SimpleNamespace(state=types.SimpleNamespace(battle_epoch=0))
+    for table, want in (([{"donor": 30820, "sc": 1000, "visit": 1, "steps": []}], [30820, 1000, 3]),
+                        ([{"donor": 30820, "sc": 1000, "steps": []}], [30820, 1000])):
+        log: list = []
+        d = SD._Drive(g, _o2_pred(table, visits=list(_S13_VISITS)), "S", log, deadline=time.time() + 5,
+                      floor_for=None, prior_for=None, progress=None, end_fields=None, observe=None, forbid_live=False)
+        d.donor, d.sc, d.at, d.fid, d.visit = 30820, 1000, 2, 30820, 3
+        assert d.void("V4", "game", "control").cell == want, d.void("V4", "game", "control").cell
+        row = d.observed("quiet_page", {"frame": 10, "dialogs": [("", "Soldier")], "choice": None})
+        assert row["cell"] == want and log[-1] is row, row
+        d.walked = {"k": "step", "donor": 30820, "sc": 1000, "visit": 3, "name": "exit", "outcome": "failed"}
+        d.donor = 30821                                   # the stray's field: the walk's own visit and place are keyed
+        err = d.stray("left the route: entered 30821")
+        assert (err.v, err.by, err.cell) == ("V11", "driver", want), (err.v, err.by, err.cell)
