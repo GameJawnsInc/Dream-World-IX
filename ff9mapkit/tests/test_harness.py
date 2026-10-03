@@ -23141,3 +23141,100 @@ def test_segment_regress_o5_pins_join_the_union(tmp_path):
     assert methods <= set(names) and {"_VisitBeat.shown", "_VisitBeat._stairs"} <= methods, methods
     with pytest.raises(ValueError, match="no method of _VisitBeat"):
         R.fake_pins_o5(source.replace("class _VisitBeat(_Machine):", "class _Visit(_Machine):"))
+
+
+#: A0b's golden (research/o6_design.md 9 A0b): O5's route on the hand-stepped fake, as master left the fake.
+_O5_REPLAY = REPO / "studies" / "story-trace" / "research" / "o5_fake_replay.json"
+
+
+def _o5_replay(game, side: str) -> dict:
+    """O5's route builder (:func:`_o5_route`, ``side``) played BY HAND to its end -- :func:`_fv_play`'s scripted player
+    (every page, pair and timed window Confirmed, 128 answered "Examine her face", the stair walked straight west), the
+    fake stepped frame by frame (``_frame_once``): no thread, no wall clock -- started as
+    test_fake_visit_route_plays_to_151_unattended starts it (field 70's prologue values, the trace armed with the sink's
+    suppression, the raw warp's residue, the visit beats staged in 153's field). ``{"frames": [[frame, field, ui_state,
+    control, x, z, [[slot, raw, text], ...], choice], ...], "rows": [...]}``: every frame whose compact sample changed
+    (its windows the beat's listed ones, each text as the agent would publish it) and every trace row."""
+    from harness.fakegame import _VisitBeat
+    fake = _fv_fake(game, field=70, trace=False)
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(325, 1190)                         # the raw warp's residue, seen in field 70
+    fake.field_id = _O5_FIELDS[side]["153"]
+    fake.scene(*_o5_route(side), control=False)
+    frames: list = []
+    last: list = [None]
+    step = fake._frame_once
+
+    def sample() -> list:
+        m = fake._machine
+        assert m is None or isinstance(m, _VisitBeat), m
+        wins = [] if m is None else [[w.slot, w.raw, m.shown(fake, w)] for w in m.windows if not w.gone]
+        return [fake.field_id, fake.ui_state, bool(fake.control), round(float(fake.player[0]), 6),
+                round(float(fake.player[2]), 6), wins, json.loads(json.dumps(fake.choice))]
+
+    def frame_once() -> None:
+        step()
+        s = sample()
+        if s != last[0]:
+            frames.append([fake.frame, *s])
+            last[0] = s
+    fake._frame_once = frame_once                       # the scripted player steps through this, frame by frame
+    _fv_play(fake, answers=(1,))
+    fake._story_stop()
+    assert fake._machine is None and fake.answered == [1], (fake._machine, fake.answered)
+    return {"frames": frames, "rows": _fv_rows(fake)}
+
+
+def _replay_text(doc: dict) -> str:
+    """The golden's text: JSON, one frame or row a line (a diff names it), ASCII, LF."""
+    out = ["{", f' "what": {json.dumps(doc["what"])},']
+    for n, side in enumerate(("S", "F")):
+        out.append(f' "{side}": {{')
+        for k, key in enumerate(("frames", "rows")):
+            items = doc[side][key]
+            out.append(f'  "{key}": [')
+            out += [f"   {json.dumps(x, separators=(',', ':'))}{',' if i < len(items) - 1 else ''}"
+                    for i, x in enumerate(items)]
+            out.append("  ]" + ("," if k == 0 else ""))
+        out.append(" }" + ("," if n == 0 else ""))
+    out.append("}")
+    text = "\n".join(out) + "\n"
+    assert json.loads(text) == json.loads(json.dumps(doc)), "the golden's text is the document"
+    return text
+
+
+def test_fake_door_keeps_the_hallway_route_identical(game):
+    """A0b, THE O5 REPLAY (research/o6_design.md 9 A0b; rev. 2, the claim critic's #5): G1-G31 replay RECORDED sessions
+    and cannot see a fake change, and once B1 re-baselines O5's pinned ``_VisitBeat`` methods G26 proves O5's tests
+    pass, not that the fake is unchanged. So O5's route builder -- S and F -- is played BY HAND on the fake
+    (:func:`_o5_replay`: no thread, no wall clock) and the document it builds -- every frame whose compact sample
+    changed and every trace row -- is compared with the golden ``research/o5_fake_replay.json``, captured on the fake as
+    master left it (before H16 and every later fake edit): a difference FAILS naming the first differing frame, a
+    missing golden FAILS (never a skip). With ``O6_CAPTURE_REPLAY=1`` it WRITES the golden instead -- refusing an
+    existing file, and refusing unless two captures in one process are equal. Break: any change to how the fake plays
+    O5's route (a visit beat's opening by a frame, a store, a walk step) -- the frame it first shows names it."""
+    sides = ("S", "F")
+    doc = {"what": "O5's route builder (_o5_route, S and F) played by hand on the fake (research/o6_design.md 9 A0b): "
+                   "every frame whose compact sample changed -- [frame, field, ui_state, control, x, z, [[slot, raw, "
+                   "text], ...], choice] -- and every trace row",
+           **{side: _o5_replay(game, side) for side in sides}}
+    if os.environ.get("O6_CAPTURE_REPLAY") == "1":
+        assert not _O5_REPLAY.exists(), f"{_O5_REPLAY} exists: the golden is captured once, never overwritten"
+        again = {"what": doc["what"], **{side: _o5_replay(game, side) for side in sides}}
+        assert _replay_text(again) == _replay_text(doc), "two captures in one process differ: no golden written"
+        _O5_REPLAY.write_bytes(_replay_text(doc).encode("ascii"))
+        return
+    assert _O5_REPLAY.is_file(), (f"no golden at {_O5_REPLAY}: capture it (O6_CAPTURE_REPLAY=1) on the fake as master "
+                                  f"left it, before any fake edit")
+    want = json.loads(_O5_REPLAY.read_text(encoding="utf-8"))
+    got = json.loads(_replay_text(doc))
+    for side in sides:
+        for key in ("frames", "rows"):
+            a, b = got[side][key], want[side][key]
+            i = next((n for n, (x, y) in enumerate(zip(a, b)) if x != y), None)
+            if i is not None:
+                raise AssertionError(f"{side} {key}[{i}] differs from the golden: got {a[i]!r}, want {b[i]!r}")
+            assert len(a) == len(b), (f"{side} {key}: {len(a)} entries, the golden {len(b)}; the first unmatched "
+                                      f"{(a[len(b)] if len(a) > len(b) else b[len(a)])!r}")
+    assert got == want
