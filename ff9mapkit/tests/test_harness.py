@@ -22061,7 +22061,10 @@ def test_o5_hallway_draft_reads_the_chain_from_campaign(tmp_path):
         (pred["start"], pred["side_ends"])
     assert pred["route"] == [153, 154] and pred["visits"] == [153, 154, 153] and pred["end_fields"] == [151]
     assert pred["members"] == {str(f): d for f, d in members.items()} and pred["names"]["31245"] == "O4_SYNTH_153"
-    assert (pred["entrance"], pred["scenario"], pred["rehearsals"], pred["battles"]) == (325, 1190, [], [])
+    assert (pred["entrance"], pred["scenario"], pred["battles"]) == (325, 1190, [])
+    # the lead names the rehearsals at the freeze (7.3), so never pin them empty (O2's and O4's lesson): each one is a
+    # run dir of O5's OWN stages, never another segment's
+    assert all(re.fullmatch(r"\d{8}-\d{6}-o5-rh-[a-z-]+", r) for r in pred["rehearsals"]), pred["rehearsals"]
     assert len(pred["writes"]) == 12 and len(pred["chain"]) == 3 and pred["ladder"] == [], len(pred["writes"])
     assert pred["guard"]["markers"] == ["let me pass"] and pred["guard"]["branch"] == ["Let\u2019s see",
                                                                                        "Hold on a sec"]
