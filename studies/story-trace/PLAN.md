@@ -1291,8 +1291,8 @@ A-C of the design's section 9): `--offline-check` 6 PASS on the DRAFT; `--prefli
 (O4 deployed the chain: nothing to deploy or relaunch); [`o5_dryrun.py`](o5_dryrun.py) 144/144 as registered (86
 session cases, "predictions-changed", 18 units, 39 listed units -- every check failing on its mutant); the regression
 gate G1-G27 (O1-O4 byte-identical; O5's FakeGame and driver tests G26; O5's dry run G27);
-[`o5_rehearse.py`](o5_rehearse.py) and its five fake tests. Nothing is frozen: `o5_predictions_v1.json` does not exist,
-and `--freeze` refuses until the draft names its rehearsals.
+[`o5_rehearse.py`](o5_rehearse.py) and its six tests (five launches on the fake, one on synthetic rows). Nothing is
+frozen: `o5_predictions_v1.json` does not exist, and `--freeze` refuses until the draft names its rehearsals.
 
 **Next (the lead):** the rehearsals, `py tools/play.py studies/story-trace/o5_rehearse.py --label o5-rh --timeout 240`
 (R-STAIRS, the go/no-go: the grant, the walk, the guard's race margin; R-FULL: the keys, the pattern, the end state;
