@@ -175,15 +175,19 @@ def stage_pred(pred: dict, stage: dict) -> dict:
 class Recorder(O4R.Recorder):
     """O4's recorder (O2's grants, pages, published choices and no-progress stretch; each page's texts and the frame
     it went), plus what 7.2 reads that it does not keep: the published objects at each grant (sid, uid, position,
-    ``shown``, ``coll``, ``solid``, ``r``, ``talk_r``, ``range_r``) and THE DIALOG-SECTION CATCH (0.2 #18) -- every
+    ``shown``, ``coll``, ``solid``, ``r``, ``talk_r``, ``range_r``); THE DIALOG-SECTION CATCH (0.2 #18) -- every
     sample with no dialog section while the menu group is ``Dialog.Choice``, and every sample listing a marker page
-    again after one without it -- with the samples read, so its rate can be judged."""
+    again after one without it -- with the samples read, so its rate can be judged; and the TELEPORT the driver's own
+    polls saw -- the first sample in the walk's place, control off, within :data:`TELEPORT` (the walk tap keeps only
+    route_to's own reads, which can end before the stair's cut moves him)."""
 
     def __init__(self, g, stage: dict, pred: dict):
         super().__init__(g, stage, tracks=())
         self.markers = list((pred.get("guard") or {}).get("markers") or ())
+        self.walk_place = (pred.get("walk") or {}).get("donor")
         self.catch: list = []
         self.samples_read = 0
+        self.teleport = None
         self._marker = None                 # None: no marker page seen yet; True: listed now; False: gone since
 
     def __call__(self, st, ctx: dict) -> None:
@@ -192,6 +196,11 @@ class Recorder(O4R.Recorder):
         if len(self.grants) > n:
             self.grants[-1]["objects"] = [{k: o.get(k) for k in ("sid", "uid", "x", "z", "shown", "coll", "solid", "r",
                                                                   "talk_r", "range_r")} for o in st.objects or ()]
+        tx, tz, tr = TELEPORT
+        if (self.teleport is None and not st.control and st.player_x is not None and st.player_z is not None
+                and ctx.get("donor") == self.walk_place and math.hypot(st.player_x - tx, st.player_z - tz) <= tr):
+            self.teleport = {"frame": st.frame, "field": st.field_id, "x": round(st.player_x, 1),
+                             "z": round(st.player_z, 1)}
         self.samples_read += 1
         if "dialog" not in st.raw and st.menu_group == "Dialog.Choice":
             self.catch.append({"frame": st.frame, "field": st.field_id, "kind": "no dialog section, group "
@@ -453,8 +462,12 @@ def walk_record(walks: list, log: list, pred: dict, rec_obs, *, basis=None, step
                                   and not x["control"]), None)
             tx, tz, tr = TELEPORT
             loss = (s.get("lost") or {}).get("frame")
-            tele = next((x for x in samples if loss is not None and x["frame"] > loss and x.get("x") is not None
-                         and math.hypot(x["x"] - tx, x["z"] - tz) <= tr), None)
+            tele = next(({**x, "source": "the walk's samples"} for x in samples if loss is not None
+                         and x["frame"] > loss and x.get("x") is not None and math.hypot(x["x"] - tx, x["z"] - tz) <= tr),
+                        None)
+            seen = getattr(rec_obs, "teleport", None)
+            if tele is None and seen is not None and loss is not None and seen["frame"] > loss:
+                tele = {**seen, "source": "the driver's polls"}
             att["walk"] = {"goal": walk.get("goal"), "start": walk.get("start"), "waypoints": walk.get("waypoints"),
                            "legs": n, "holds": holds, "pushes": walk.get("pushes"), "pushed": walk.get("pushed"),
                            "last_two_legs": {"holds": len(last2), "slides": sum(1 for h in last2 if h["slide"]),

@@ -22591,6 +22591,53 @@ def test_o5_rehearsal_stage_ids_follow_the_chain(tmp_path):
         R.run(object(), stages={"F-PASS": bad[1][0]}, pred=pred, env={"O5_STAGE": "F-PASS"})
 
 
+def test_o5_rehearsal_walk_record_judges_holds_and_the_teleport():
+    """7.2's walk record, pure (research/o5_design.md 7.2; the driver critique #11): one stair attempt -- a one-leg route
+    west from (1000, 0), the calibrated basis up = +z, right = +x -- its holds read from steps.jsonl and the walk's own
+    samples. A hold that moved where it pressed is neither SLIDE nor STALL (a diagonal press 45 deg off the leg
+    included: the 8-way pad's quantization, ``off_leg`` 45); a diagonal press that moved straight west (a wall slide,
+    ``off_pressed`` 45) is a SLIDE; one that moved a fifth of the walk's fastest pace is a STALL; a run button alone is
+    no hold; one during which control went is ``control_lost``, neither. The last two legs' counts; the grant and the
+    frames from the last page's going; the teleport the walk's samples missed, read from the driver's polls after the
+    loss, 7 ticks at the launch's 30 fps. Break: judge the slide against the leg's heading."""
+    from types import SimpleNamespace
+    R = _o5_rehearse_module()
+
+    def smp(f, x, z, ctl=True):
+        return {"frame": f, "field": 153, "control": ctl, "x": x, "y": 0.0, "z": z}
+    samples = [smp(100, 1000.0, 0.0), smp(110, 700.0, 0.0), smp(120, 487.9, 212.1), smp(130, 187.9, 212.1),
+               smp(140, 127.9, 212.1), smp(150, 127.9, 212.1), smp(155, 110.0, 212.1, False),
+               smp(160, 100.0, 212.1, False)]
+    walk = {"t0": 0.9, "t1": 1.7, "frame0": 100, "field": 153, "start": [1000.0, 0.0], "goal": [-1000.0, 0.0],
+            "waypoints": [[-1000.0, 0.0]], "pushes": 0, "pushed": 0, "samples": samples}
+    holds = [["hold left 10"], ["hold up 10", "hold left 10"], ["hold up 10", "hold left 10"], ["hold left 10"],
+             ["hold cancel 10"], ["hold left 10"]]
+    steps = [{"kind": "step", "t": 1.0 + 0.1 * i, "frame": 110 + 10 * i, "seq": i + 1, "steps": h + ["wait 14"]}
+             for i, h in enumerate(holds)]
+    log = [{"k": "step", "name": "the stairs", "donor": 153, "visit": 1, "field": 153, "frame0": 99, "frame": 165,
+            "outcome": "done", "attempt": 1, "lost": {"frame": 155, "x": 110.0, "z": 212.1, "control": False},
+            "door": None, "landed": None}]
+    rec_obs = SimpleNamespace(grants=[{"frame": 90, "field": 153, "x": 1000.0, "z": 0.0, "y": 0.0, "objects": []}],
+                              pages=[{"frame": 50, "text": "153 mes 117", "gone_frame": 85}],
+                              teleport={"frame": 162, "field": 153, "x": -1170.0, "z": 850.0})
+    pred = {"walk": {"name": "the stairs", "donor": 153, "visit": 1}}
+    rec = R.walk_record([walk], log, pred, rec_obs, basis={"v": (0.0, 1.0), "h": (1.0, 0.0)}, steps=steps, fps=30.0)
+    assert rec["grant"]["frame"] == 90 and rec["grant"]["from_last_page_frames"] == 5, rec["grant"]
+    w = rec["attempts"][0]["walk"]
+    hs = w["holds"]
+    assert [h["steps"][:-1] for h in hs] == [h for h in holds if h != ["hold cancel 10"]], [h["steps"] for h in hs]
+    assert [h["slide"] for h in hs] == [False, False, True, False, False], [(h["off_pressed"], h["off_leg"]) for h in hs]
+    assert [h["stall"] for h in hs] == [False, False, False, True, False], [h["moved"] for h in hs]
+    assert [h["control_lost"] for h in hs] == [False, False, False, False, True], hs
+    assert round(hs[1]["off_leg"]) == 45 and round(hs[1]["off_pressed"]) == 0, hs[1]
+    assert round(hs[2]["off_leg"]) == 0 and round(hs[2]["off_pressed"]) == 45, hs[2]
+    assert w["last_two_legs"] == {"holds": 5, "slides": 1, "stalls": 1, "pushes": 0}, w["last_two_legs"]
+    assert (w["last_control"]["frame"], w["first_without"]["frame"]) == (150, 155), (w["last_control"],
+                                                                                     w["first_without"])
+    tp = w["teleport"]
+    assert tp["source"] == "the driver's polls" and tp["frame"] == 162 and tp["ticks_after_loss"] == 7.0, tp
+
+
 def test_o5_rehearsal_plumbing_on_the_fake(game):
     """C3 (research/o5_design.md 7.1-7.2): R-STAIRS's shape on the fake, chosen by ``O5_STAGE`` as a launch chooses it
     (another stage, which would run too, does not): the capabilities (P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG over

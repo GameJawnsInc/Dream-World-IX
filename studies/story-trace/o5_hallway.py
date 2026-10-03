@@ -1993,7 +1993,7 @@ def _walk_report(wr: dict) -> list:
         lc, fw, tp = w.get("last_control"), w.get("first_without"), w.get("teleport")
         L.append(f"      last control sample {lc}; first without {fw}; teleport "
                  + (f"frame {tp.get('frame')} at ({tp.get('x')}, {tp.get('z')}), {tp.get('ticks_after_loss')} ticks "
-                    f"after the loss" if tp else "not seen") + f"; {w.get('samples')} samples")
+                    f"after the loss (from {tp.get('source')})" if tp else "not seen") + f"; {w.get('samples')} samples")
     L.append(f"    calibration: {wr.get('calibration')}")
     return L
 
