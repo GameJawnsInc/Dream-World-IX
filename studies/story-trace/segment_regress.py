@@ -208,6 +208,18 @@ REQUIRED_TESTS: tuple = (
     "test_segment_choose_landed_stops_when_the_cursor_moves",                   # A2: S11, the cursor moved
     "test_segment_choose_landed_raises_on_an_unseen_landing",                   # A2: S11, ChoiceUnseen
     "test_segment_choose_landed_is_not_fooled_by_the_dialog_catch",             # A2: S11, the agent's catch
+    "test_segment_guard_of_is_strict",                                          # A3: S10, pure
+    "test_segment_guard_presses_the_marker_page_once",                          # A3: S10 (iii)
+    "test_segment_guard_holds_off_after_any_press",                             # A3: S10 (iii) (b)
+    "test_segment_guard_quiet_window_presses_nothing_until_the_choice",         # A3: the quiet window
+    "test_segment_guard_marker_page_rearms_the_quiet_window",                   # A3: S10 (ii), re-armed
+    "test_segment_guard_page_in_the_quiet_window_is_v17_observed",              # A3: S10 (ii), observed
+    "test_segment_guard_cap_scans_first_then_is_v13",                           # A3: the quiet cap
+    "test_segment_guard_strays_from_127s_last_sample",                          # A3: guard_strays, pure
+    "test_segment_guard_choice_gone_is_v17_or_v13",                             # A3: S10 (i)
+    "test_segment_guard_reask_after_a_verified_landing_is_v2",                  # A3: choice_reask
+    "test_segment_guard_judges_the_branch_page",                                # A3: S10 (o)
+    "test_segment_guard_is_opt_in",                                             # A3: S10-S13 opt-in
 )
 
 O1E_VERDICT = "PROVEN"

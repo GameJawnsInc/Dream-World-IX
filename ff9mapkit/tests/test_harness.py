@@ -19756,3 +19756,543 @@ def test_segment_choose_landed_is_not_fooled_by_the_dialog_catch(game):
         (caught, ring)
     assert (took["landed"], took["confirms"]) == (True, 2), took
     assert len(_s11_confirms(fake, mark)) == 2, fake.executed[mark:]
+
+
+# ---- S10, THE PRE-CHOICE GUARD (research/o5_design.md 1.2, 2.5, 9 A3), on the fake: O5's 126 -> 127 -> the gap -> 128
+# -> its branch page, staged in 30820 at SC 1000 with control off, at the game's own pace (``fps`` 60). 127 holds the
+# marker "let me pass"; 128 asks "Let her pass" / "Examine her face" (the pick, absolute 1) with its cursor on 0; the
+# pick's branch page holds "Let’s see" (U+2019), the other's "Hold on a sec".
+_G_126 = "Blank\n“Hurry!”"
+_G_127 = "Zidane\n“Will you let me pass?”"
+_G_127_RAW = "[STRT=0,0]Zidane\n“Will you let me pass? Hey!”"
+_G_127_TYPED = "Zidane\n“Will you let me pass? Hey!”"
+_G_CHOICE = {"header": "Zidane\n“Hmm...”", "options": ["Let her pass", "Examine her face"], "default": 0}
+_G_PICK = "Zidane\n“Let’s see...”"
+_G_OTHER = "Zidane\n“Wait.  Hold on a sec!”"
+_G_LAST = "Zidane\n“Off we go.”"
+_G_RULE = {"donor": 30820, "sc": [1000], "match": "her face", "pick": "her face", "once": True, "beat": "pick"}
+#: The DRIVER's VOIDs a starved harness can give (research/o5_design.md 9, the load-robust rule): a run that ends in one
+#: is re-run, at most twice more -- but never for the class its test asserts (``want``), and never a game class, a V13
+#: of outside input, the other branch or a gone choice.
+_G_LOAD_VOIDS = ("the answer's landing went unseen", "did not land", "could not be placed",
+                 "the run's budget ran out", "page-once did not make", "went down in [the marker page's last sample")
+
+
+def _g_pred(**over):
+    """The guarded predictions on the fake (research/o5_design.md 2.1, 4.10): no table (control never granted), the
+    guarded rule and O1's skip net, the guard and the run-wide witness, route and visits 30820, the end 30810."""
+    pred = _o2_pred([], choices=[dict(_G_RULE), {"donor": None, "sc": None, "match": "want to skip", "pick": "default",
+                                                  "once": False, "beat": None}],
+                    beats=["pick"], route=(30820,), visits=[30820],
+                    guard={"donor": 30820, "sc": 1000, "markers": ["let me pass"], "choice": "her face",
+                           "branch": ["Let’s see", "Hold on a sec"], "page_once_ticks": 10, "quiet_cap_s": 4.0,
+                           "why": "the fake's 127 -> 128"},
+                    witness={"input_every_s": 0.05})
+    pred.update(over)
+    return pred
+
+
+def _g_idle(f):
+    return not f._beats and not f.texts and f.choice is None
+
+
+def _g_run(game, *, beats=None, branch=None, pred=None, wrap=None, phases=None, fake_kw=None, budget=60.0,
+           witness=None):
+    """One guarded run on the fake: New Game, the raw warp into 30820 at SC 1000, the scene ``beats`` (default 126, 127,
+    a 30-frame gap, 128) with control off; once 128 is answered and the scene is idle, ``branch(answered)`` (default:
+    the pick's page for 1, the other's for 0) and a last page; once those are idle the field moves him to 30810, the
+    end. ``wrap(g, fake)`` wraps the session's calls before the drive; ``phases`` replace that director. The session's
+    ring is kept whole (``state_ring`` 5000), so a test reads every sample the run read -- the guard reads only the
+    seconds round the choice. ``(outcome or the RouteVoid / HarnessError raised, log, fake, the ring's raws)``."""
+    SD = _segment_modules()
+    fake = FakeGame(game, **{"fps": 60, **(fake_kw or {})})
+    pred = _g_pred() if pred is None else pred
+    beats = [_G_126, _G_127, {"movie": 30}, dict(_G_CHOICE)] if beats is None else beats
+    branch = branch or (lambda a: _G_PICK if a == 1 else _G_OTHER)
+    log: list = []
+    stop = threading.Event()
+    with session(game, fake, state_ring=5000) as g:
+        _o2_start(g, fake)
+        if wrap is not None:
+            wrap(g, fake)
+        fake.scene(*beats, control=False)
+        published(g, lambda s: not s.control and s.dialog_open)
+        _o1_director(fake, stop, phases if phases is not None else [
+            (lambda f: f.answered and _g_idle(f), lambda f: f.scene(branch(f.answered[-1]), _G_LAST, control=False)),
+            (lambda f: f.answered and _g_idle(f), lambda f: _o2_move(f, 30810))])
+        try:
+            try:
+                out = _o2_drive(g, pred, log=log, budget=budget, witness=witness or (lambda: None))
+            except (SD.RouteVoid, HarnessError) as err:
+                out = err
+        finally:
+            stop.set()
+        ring = [raw for _t, _age, raw in g._ring._buf]
+    return out, log, fake, ring
+
+
+def _g_run_informative(game, *, attempts=3, want=None, **kw):
+    """:func:`_g_run` until a run is no VOID a starved harness gives (:data:`_G_LOAD_VOIDS`) -- one whose reason holds
+    ``want`` (the test's own assertion) is never re-run -- at most ``attempts`` runs: ``(out, log, fake, ring,
+    set_aside)``, the last run whatever it is and the reasons of the runs re-run (each a load class, by construction)."""
+    aside: list = []
+    for k in range(1, attempts + 1):
+        out, log, fake, ring = _g_run(game, **kw)
+        why = str(out) if isinstance(out, Exception) else ""
+        load = any(m in why for m in _G_LOAD_VOIDS) and not (want is not None and want in why)
+        if not load or k == attempts:
+            return out, log, fake, ring, aside
+        aside.append(why)
+
+
+def _g_rows(log, k, **match):
+    return [r for r in log if r.get("k") == k and all(r.get(a) == b for a, b in match.items())]
+
+
+def _g_lists(raw, text):
+    return any(text in (t or "") or text in (p or "") for p, t in
+               zip((raw.get("dialog") or {}).get("phrase_raw") or [], (raw.get("dialog") or {}).get("texts") or []))
+
+
+def _g_frames(g):
+    """F, the hold-off in frames: ``page_once_ticks`` (10) at the measured rate."""
+    return g.rate().frames_for_ticks(10)
+
+
+def _g_typed_127(fake):
+    """127 as the engine shows it: its RAW the whole source from its first sample (``_G_127_RAW``), its text growing as
+    it types -- the FIRST Confirm on it only finishes the type-out (Dialog.cs:803-807): the window stays up, its text
+    whole (``_G_127_TYPED``), its raw unchanged. Returns the frames of the Confirms it ate."""
+    real_say, real_press, ate = fake.say, fake._scene_press, []
+
+    def say(*pages, raw=None):
+        return real_say(*pages, raw=_G_127_RAW if pages == (_G_127,) else raw)
+
+    def press(button):
+        if button in ("confirm", "ok") and fake._beats and fake._beats[0] == _G_127 and not ate:
+            ate.append(fake.frame)
+            fake.texts = [_G_127_TYPED]
+            return
+        return real_press(button)
+    fake.say, fake._scene_press = say, press
+    return ate
+
+
+def _g_tween_127(fake, frames=18):
+    """127's CLOSE TWEEN (DialogAnimator.cs:144-173): the Confirm that closes 127 leaves it listed, inert to Confirm, for
+    ``frames`` frames before the gap -- a sample in it carries 127's raw. Returns the frames it closed at."""
+    real, closed = fake._scene_press, []
+
+    def press(button):
+        if button in ("confirm", "ok") and fake._beats and fake._beats[0] == _G_127:
+            fake._beats.pop(0)
+            fake._beats.insert(0, {"movie": frames})
+            fake._next_beat()
+            fake.texts, fake.raw_texts = [_G_127], [_G_127]
+            closed.append(fake.frame)
+            return
+        return real(button)
+    fake._scene_press = press
+    return closed
+
+
+def _g_stale_after(g, text):
+    """The driver's first read after its first press on a sample listing ``text`` -- that press's O1 wait done -- is
+    the read the press was decided on, once: a stale sample (its frame before the press's ack). ``{"served": that
+    frame, "pre": the press's decision sample, "ack": ...}``."""
+    real_state, real_wait, real_press = g.channel.state, g.wait_frames, g.press
+    mem = {"last": None, "pending": None, "armed": False, "served": None}
+
+    def state(*a, **kw):
+        if mem["armed"] and mem["served"] is None:
+            mem["served"] = mem["pending"].frame
+            return mem["pending"]
+        st = real_state(*a, **kw)
+        if st is not None:
+            mem["last"] = st
+        return st
+
+    def press(button, frames=2):
+        pre = mem["last"]
+        out = real_press(button, frames)
+        if button == "confirm" and mem["pending"] is None and pre is not None and any(text in t for t in pre.texts):
+            mem["pending"] = pre
+        return out
+
+    def wait_frames(frames):
+        out = real_wait(frames)
+        if mem["pending"] is not None and mem["served"] is None:
+            mem["armed"] = True
+        return out
+    g.channel.state, g.press, g.wait_frames = state, press, wait_frames
+    return mem
+
+
+def test_segment_guard_of_is_strict():
+    """S10, pure (research/o5_design.md 1.2, 9 A3): ``guard_of`` reads ``pred["guard"]`` -- None without it, a COPY with
+    it (``why`` optional) -- and refuses each malformed one before anything is driven: no dict; an unknown key, a
+    missing one; donor or sc no int (a bool, a string); markers empty, no list, or holding an empty string; a choice
+    that is the match of no rule, or of two; the guarded rule a default one (``pick`` "default", ``take`` "default");
+    a branch that is not two distinct non-empty strings; page_once_ticks outside 4-30 or no int; quiet_cap_s outside
+    (0, 10] or a bool; an empty why; and a chanbara policy beside it. Break: accept any dict."""
+    SD = _segment_modules()
+    base = _g_pred()
+    assert SD.guard_of({"choices": []}) is None and SD.guard_of(dict(base, guard=None)) is None
+    got = SD.guard_of(base)
+    assert got == base["guard"] and got is not base["guard"], got
+    assert SD.guard_of(dict(base, guard={k: v for k, v in base["guard"].items() if k != "why"}))["choice"] == "her face"
+
+    def g(**kw):
+        return dict(base, guard=dict(base["guard"], **kw))
+    two = [dict(_G_RULE), dict(_G_RULE, sc=[1150]), base["choices"][1]]
+    cases = [(dict(base, guard=["let me pass"]), "the guard is a dict"), (g(extra=1), "unknown key"),
+             (dict(base, guard={k: v for k, v in base["guard"].items() if k != "markers"}), "missing"),
+             (g(donor=True), "donor"), (g(sc="1000"), "sc"), (g(markers=[]), "markers"), (g(markers="let me pass"),
+                                                                                        "markers"),
+             (g(markers=["let me pass", ""]), "markers"), (g(choice="nobody's"), "match of 0 rules"),
+             (dict(base, choices=two), "match of 2 rules"),
+             (dict(base, choices=[dict(_G_RULE, pick="default")]), "non-default pick"),
+             (dict(base, choices=[dict(_G_RULE, take="default")]), "non-default pick"),
+             (g(branch=["Let’s see"]), "branch"), (g(branch=["Let’s see", "Let’s see"]), "branch"),
+             (g(branch=["Let’s see", ""]), "branch"), (g(branch="Let’s see"), "branch"),
+             (g(page_once_ticks=3), "page_once_ticks"), (g(page_once_ticks=31), "page_once_ticks"),
+             (g(page_once_ticks=10.0), "page_once_ticks"), (g(page_once_ticks=True), "page_once_ticks"),
+             (g(quiet_cap_s=0), "quiet_cap_s"), (g(quiet_cap_s=10.5), "quiet_cap_s"), (g(quiet_cap_s=True),
+                                                                                       "quiet_cap_s"),
+             (g(why=""), "why"), (dict(base, chanbara=_o4_policy(donor=30820)), "one input policy")]
+    for pred, match in cases:
+        with pytest.raises(ValueError, match=re.escape(match)):
+            SD.guard_of(pred)
+
+
+def test_segment_guard_presses_the_marker_page_once(game):
+    """S10 (iii), PAGE-ONCE (research/o5_design.md 1.2, 2.5.2, 9 A3): 127's first Confirm only finishes its type-out (the
+    window stays up, its text grown, its raw the same source) -- it is pressed again only once ``page_once_ticks`` of
+    GAME frames passed since that press's ack-read frame, never on a stale sample (the read right after the press's
+    wait returns the sample the press was decided on: its frame before the ack). The fake runs the game at HALF speed
+    (``fps`` 30 for a 60 fps game), so 10 ticks of game frames are 0.67 s of wall time. Break: press every 127 sample
+    (plain rule 7), or hold off by wall time (10 ticks of a 30 Hz clock: 0.33 s, half the game frames)."""
+    got = {}
+
+    def wrap(g, fake):
+        got["ate"] = _g_typed_127(fake)
+        got["stale"] = _g_stale_after(g, "let me pass")
+        got["F"] = _g_frames(g)
+    out, log, fake, ring, aside = _g_run_informative(game, wrap=wrap, fake_kw={"fps": 30})
+    assert not isinstance(out, Exception) and out["end"] == "reached", (out, aside)
+    marks = _g_rows(log, "press", marker=True)
+    assert len(got["ate"]) == 1 and len(marks) == 2, (got["ate"], [(m["pre"]["frame"], m["ack_frame"]) for m in marks])
+    first, second = marks
+    assert second["pre"]["frame"] >= first["ack_frame"] + got["F"], (first["ack_frame"], second["pre"]["frame"], got["F"])
+    stale = got["stale"]["served"]
+    assert stale is not None and stale < first["ack_frame"], (stale, first["ack_frame"])
+    assert not [r for r in _g_rows(log, "press") if (r.get("pre") or {}).get("frame") == stale and r is not first], \
+        "a stale 127 pressed"
+    assert [r["raws"] for r in marks] == [[_G_127_RAW], [_G_127_RAW]], marks
+    decided = [r for r in ring if int(r["frame"]) == second["pre"]["frame"]]
+    assert decided and decided[0]["dialog"]["texts"] == [_G_127_TYPED], "premise: the re-press read 127 typed out"
+
+
+def test_segment_guard_holds_off_after_any_press(game):
+    """S10 (iii) (b), 2.5.5's residual: a rule-7 press decided on a STALE 126 sample (the read after 126's own press and
+    wait) goes down on 127 and closes it -- a press page-once did not make -- and 127's CLOSE TWEEN then lists its raw,
+    which page-once never held off. No tween sample is pressed: the hold-off counts from the driver's LAST press,
+    whatever it pressed. And the judgment at the first page after the answer reads V17 (driver): the marker page was
+    closed by a press page-once did not make (``armed_frame`` None). Break: hold off on the marker's own presses only
+    (a tween sample is then pressed, arms the window, and the run covers)."""
+    SD = _segment_modules()
+    got = {}
+
+    def wrap(g, fake):
+        got["closed"] = _g_tween_127(fake)
+        got["stale"] = _g_stale_after(g, "Hurry")
+    out, log, fake, ring, aside = _g_run_informative(game, wrap=wrap, want="page-once did not make")
+    assert isinstance(out, SD.RouteVoid) and (out.v, out.by) == ("V17", "driver"), (out, aside)
+    assert "page-once did not make" in str(out), out
+    assert got["stale"]["served"] is not None and len(got["closed"]) == 1, got
+    assert not _g_rows(log, "press", marker=True), "page-once pressed 127"
+    tween = [int(r["frame"]) for r in ring if int(r["frame"]) > got["closed"][0] and _g_lists(r, "let me pass")]
+    assert tween, "premise: the driver read 127's close tween"
+    assert not [r for r in _g_rows(log, "press") if (r.get("pre") or {}).get("frame") in tween], "a tween sample was pressed"
+    guard = _g_rows(log, "guard")
+    assert len(guard) == 1 and guard[0]["armed_frame"] is None and guard[0]["verdict"] == "V17", guard
+    assert fake.answered == [1], fake.answered
+
+
+def test_segment_guard_quiet_window_presses_nothing_until_the_choice(game):
+    """S10, THE QUIET WINDOW (2.5.2): from the first ring sample after 127's closing press that lists no marker window
+    -- never the press itself -- to 128's publication (a 30-frame gap) nothing is pressed; the ``quiet`` row logs its
+    opening, 128 closes it, and the ``guard`` row judges the run "ok": armed, opened at or before 128's first sample,
+    no stray, the pick's branch. Break: open the window at the press (its ``open_frame`` then lists 127)."""
+    out, log, fake, ring, aside = _g_run_informative(game)
+    assert not isinstance(out, Exception) and out["end"] == "reached" and out["beats"] == {"pick": True}, (out, aside)
+    assert fake.answered == [1], fake.answered
+    quiet = [r for r in _g_rows(log, "quiet") if "rearm" not in r]
+    guard = _g_rows(log, "guard")
+    assert len(quiet) == 1 and len(guard) == 1, (quiet, guard)
+    q, gr = quiet[0], guard[0]
+    assert (gr["verdict"], gr["branch"], gr["strays"], gr["rearms"]) == ("ok", "pick", [], 0), gr
+    assert gr["armed_frame"] < q["open_frame"] <= gr["choice_first"], gr
+    opened = [r for r in ring if int(r["frame"]) == q["open_frame"]]
+    assert opened and not _g_lists(opened[0], "let me pass"), "the window opened on a sample listing 127"
+    assert not [r for r in ring if gr["armed_frame"] < int(r["frame"]) < q["open_frame"]
+                and not _g_lists(r, "let me pass")], "the window opened late: an earlier sample listed no 127"
+    inside = [r for r in _g_rows(log, "press") if q["open_frame"] <= (r.get("pre") or {}).get("frame", -1)
+              < gr["choice_first"]]
+    assert not inside, inside
+    closing = [r for r in _g_rows(log, "press", marker=True)]
+    assert gr["closing_seq"] == closing[-1]["seq"], (gr["closing_seq"], closing)
+
+
+def test_segment_guard_marker_page_rearms_the_quiet_window(game):
+    """S10 (ii), 0.2 #18: 127's first Confirm only finishes its type-out, and the read right after that press is the
+    agent's dialog-section catch (no window listed, the menu untouched): the window, armed by the press, OPENS on it --
+    then 127 is read again, up: the marker page re-arms the window (a ``quiet`` row, ``rearms`` 1), page-once presses it
+    past its hold-off, it closes, the window opens again after it, 128 closes it, and the run goes on to its end with no
+    ``observed`` row. Break: read every page in an open window as a quiet page (V17 there)."""
+    real = {}
+
+    def wrap(g, fake):
+        real["ate"] = _g_typed_127(fake)
+        real_obs, real_press, flag = g.channel.observer, g.press, {"n": 0, "caught": []}
+
+        def obs(st):
+            if flag["n"] > 0 and _g_lists(st.raw, "let me pass") and st.frame != g._ring._last_frame:
+                flag["n"] -= 1
+                flag["caught"].append(st.frame)
+                st.raw["dialog"] = dict(_S11_CATCH)
+            return real_obs(st)
+
+        def press(button, frames=2):
+            out = real_press(button, frames)
+            if button == "confirm" and real["ate"] and not flag["caught"] and flag["n"] == 0 and len(real["ate"]) == 1:
+                flag["n"] = 1
+            return out
+        g.channel.observer, g.press = obs, press
+        real["flag"] = flag
+    out, log, fake, ring, aside = _g_run_informative(game, wrap=wrap)
+    assert not isinstance(out, Exception) and out["end"] == "reached", (out, aside)
+    assert len(real["flag"]["caught"]) == 1, real["flag"]
+    rearms = [r for r in _g_rows(log, "quiet") if "rearm" in r]
+    opens = [r for r in _g_rows(log, "quiet") if "rearm" not in r]
+    assert len(rearms) == 1 and len(opens) == 2 and opens[0]["open_frame"] == real["flag"]["caught"][0], (rearms, opens)
+    guard = _g_rows(log, "guard")
+    assert len(guard) == 1 and (guard[0]["verdict"], guard[0]["rearms"]) == ("ok", 1), guard
+    assert not _g_rows(log, "observed") and len(_g_rows(log, "press", marker=True)) == 2, log
+
+
+def test_segment_guard_page_in_the_quiet_window_is_v17_observed(game):
+    """S10 (ii): a NON-marker page between 127's going and 128 -- a page the route does not have there -- is V17 (the
+    driver's, game-observed: an ``observed`` row ``quiet_page`` with the run's cell, which VOID-ASYM (d) reads), and
+    nothing is pressed on it. Break: press it (rule 7's)."""
+    SD = _segment_modules()
+    halt = "Soldier\n“Halt!”"
+    out, log, fake, ring, aside = _g_run_informative(game, beats=[_G_126, _G_127, {"movie": 10}, halt,
+                                                                 dict(_G_CHOICE)])
+    assert isinstance(out, SD.RouteVoid) and (out.v, out.by, out.cell) == ("V17", "driver", [30820, 1000]), out
+    obs = _g_rows(log, "observed")
+    assert len(obs) == 1 and obs[0]["kind"] == "quiet_page" and obs[0]["texts"] == [halt], obs
+    assert obs[0]["cell"] == [30820, 1000], obs
+    assert not [r for r in _g_rows(log, "press") if halt in (r.get("raws") or [])], "the quiet page was pressed"
+    assert fake.answered == [] and fake.texts == [halt], (fake.answered, fake.texts)
+
+
+def test_segment_guard_cap_scans_first_then_is_v13(game):
+    """S10, THE QUIET CAP (0.2 #17, the driver critique #1), on the engine's own clock (the fake on ``publish=("mtime",)``:
+    no ``rt``, the state file's write time, the game in real time) with ``quiet_cap_s`` 2: the window opens in the gap
+    after 127's closing press, then a 5 s READ stall (the first read 0.4 s after that press) spans 128's publication --
+    the first read after it is 5 s of the game's clock past the opening, with 128 already up: the scan closes the window
+    first, 128 is answered, the run covered, never V13 or V14. 128 withheld past the cap: V13, the driver's (the
+    instrument's), its cell the run's. Break: judge the cap before the scan (the stalled read then meets it), or
+    attribute it to the game (V14)."""
+    SD = _segment_modules()
+    stalled: dict = {}
+
+    def wrap(g, fake):
+        real_send, real_state, flag = g.channel.send, g.channel.state, {"sent": None, "done": False}
+
+        def send(steps, **kw):
+            seq = real_send(steps, **kw)
+            if flag["sent"] is None and any(s.startswith("press confirm") for s in steps) and fake.texts \
+                    and "let me pass" in fake.texts[0]:
+                flag["sent"] = time.time()
+            return seq
+
+        def state(*a, **kw):
+            if flag["sent"] is not None and not flag["done"] and time.time() - flag["sent"] >= 0.4:
+                flag["done"] = True
+                stalled["at"] = fake.frame
+                time.sleep(5.0)
+                stalled["until"] = fake.frame
+            return real_state(*a, **kw)
+        g.channel.send, g.channel.state = send, state
+    pred = _g_pred(guard=dict(_g_pred()["guard"], quiet_cap_s=2.0))
+    beats = [_G_126, _G_127, {"movie": 90}, dict(_G_CHOICE)]
+    out, log, fake, ring, aside = _g_run_informative(game, wrap=wrap, pred=pred, beats=beats,
+                                                     fake_kw={"publish": ("mtime",)})
+    assert not isinstance(out, Exception) and out["end"] == "reached", (out, aside)
+    assert stalled and stalled["until"] - stalled["at"] >= 240, stalled              # 4 s of 60 fps, at least
+    gr = _g_rows(log, "guard")[0]
+    assert gr["verdict"] == "ok" and gr["open_frame"] is not None, gr
+    assert gr["open_frame"] < stalled["at"] < gr["choice_first"] and fake.answered == [1], (gr, stalled)
+    out, log, fake, ring, aside = _g_run_informative(game, beats=[_G_126, _G_127, {"movie": 10 ** 6}], pred=pred,
+                                                     fake_kw={"publish": ("mtime",)})
+    assert isinstance(out, SD.RouteVoid) and (out.v, out.by, out.cell) == ("V13", "driver", [30820, 1000]), out
+    assert "no choice read within 2 s of the quiet window's opening" in str(out), out
+
+
+def test_segment_guard_strays_from_127s_last_sample():
+    """S10's attribution, pure (research/o5_design.md 2.5.4): ``guard_strays`` over [127's last listed sample, 128's
+    close) -- a press down between ``marker_last`` and 128's first sample counts (the window is not [first, close));
+    the closing marker press is out by ``guard_exclude`` though its down frame lies past ``marker_last`` (O4's recorded
+    shape: decided at 2229, the page read gone at its ack 2237); select's Down and BOTH Confirms of a two-Confirm answer
+    are out by their seq span; a press with no accepted event counts by its decision frame (fail-closed), one with
+    neither frame counts unplaceable; a press down at the close or before ``marker_last`` does not. Break: open the
+    window at ``choice_first``, or exclude only the press rowed ``answer``."""
+    SD = _segment_modules()
+    marker_last, choice_first, choice_close = 2229, 2244, 2300
+
+    def press(seq, why, pre=None, **kw):
+        return {"k": "press", "why": why, "seq": seq, "pre": None if pre is None else {"frame": pre}, **kw}
+    log = [press(4, "page", 2190),                               # 126: down 2201, before the window
+           press(5, "page", 2229, marker=True),                  # 127's closing press: down 2234, past marker_last
+           press(6, "page", 2236),                               # a stray: down 2240, before 128's first sample
+           press(7, "choose", None), press(8, "choose", None), press(9, "choose", None, answer=True),
+           press(10, "page", 2260),                              # no accepted event: its decision frame, in the window
+           press(11, "page", None),                              # neither frame: unplaceable, counted
+           press(12, "page", 2290),                              # down 2300: at the close, out
+           {"k": "choice", "seq": 13}]
+    events = [{"frame": f, "kind": "accepted", "seq": str(s)} for s, f in
+              ((4, 2200), (5, 2233), (6, 2239), (7, 2250), (8, 2255), (9, 2270), (12, 2299))]
+    steps = [{"seq": 7, "steps": ["press down 4"]}, {"seq": 6, "steps": ["press confirm 3"]}]
+    exclude = SD.guard_exclude([6, 9], 5)
+    assert exclude == {5, 7, 8, 9}, exclude
+    assert SD.guard_exclude(None, None) == set() and SD.guard_exclude([3, 3], None) == set()
+    got = SD.guard_strays(log, events, steps, marker_last, choice_close, exclude=exclude)
+    assert [(s["seq"], s["down_frame"], s["decision_frame"], s["placed"]) for s in got] == [
+        (6, 2240, 2236, True), (10, None, 2260, False), (11, None, None, False)], got
+    assert got[0]["why"] == "page" and got[0]["button"] == "confirm", got[0]
+    assert choice_first > 2240, "premise: the stray went down before 128's first sample"
+    later = SD.guard_strays(log, events, steps, choice_first, choice_close, exclude=exclude)
+    assert 6 not in [s["seq"] for s in later], "premise of the break: a window from 128's first sample loses it"
+    every = SD.guard_strays(log, events, steps, None, None)
+    assert [s["seq"] for s in every] == [4, 5, 6, 7, 8, 9, 10, 11, 12], every
+
+
+def test_segment_guard_choice_gone_is_v17_or_v13(game, monkeypatch):
+    """S10 (i), "choice_gone" (2.5.4): 128 published and gone with no answer of the driver's. A MUTANT driver's own
+    Confirm landing on it before its answer (rule 6 replaced by a page press) is V17 -- a press of the driver's own in
+    [127's last sample, 128's close); the fake answering 128 itself, no press of the driver's in that window, is V13 --
+    the driver's: unattributed input the witness missed (the game cannot answer one side's 128 alone) -- with NO
+    ``observed`` row, and each with its ``guard_stray`` row. Break: attribute the second to the game (game-observed)."""
+    SD = _segment_modules()
+
+    def mutant(self, st):
+        row = self.press("page", st, 3)
+        row["seq"] = self.g.channel.seq
+        self.g.wait_frames(self.g.rate().frames_for_ticks(self.g.CUTSCENE_PAGE_TICKS))
+    with monkeypatch.context() as m:
+        m.setattr(SD._Drive, "answer", mutant)
+        out, log, fake, ring, aside = _g_run_informative(game, want="went down in [")
+    assert isinstance(out, SD.RouteVoid) and (out.v, out.by) == ("V17", "driver"), out
+    assert "went down in [the marker page's last sample" in str(out) and fake.answered == [0], (out, fake.answered)
+    stray = _g_rows(log, "guard_stray")
+    assert len(stray) == 1 and stray[0]["kind"] == "choice_gone" and stray[0]["v"] == "V17", stray
+    assert [s["why"] for s in stray[0]["strays"]] == ["page"] and not _g_rows(log, "observed"), stray
+
+    def answer_it(f):
+        time.sleep(0.1)
+        f._scene_press("confirm")
+    phases = [(lambda f: f._beat_phase == "ready" and f.choice is not None, answer_it),
+              (lambda f: f.answered and _g_idle(f), lambda f: f.scene(_G_OTHER, _G_LAST, control=False))]
+    out, log, fake, ring, aside = _g_run_informative(game, phases=phases)
+    assert isinstance(out, SD.RouteVoid) and (out.v, out.by, out.cell) == ("V13", "driver", [30820, 1000]), out
+    assert "unattributed input" in str(out) and fake.answered == [0], (out, fake.answered)
+    stray = _g_rows(log, "guard_stray")
+    assert len(stray) == 1 and stray[0]["kind"] == "choice_gone" and stray[0]["strays"] == [], stray
+    assert not _g_rows(log, "observed") and not _g_rows(log, "choice"), log
+    assert len(_g_rows(log, "guard")) == 1 and _g_rows(log, "guard")[0]["verdict"] == "V13"
+
+
+def test_segment_guard_reask_after_a_verified_landing_is_v2(game):
+    """S10, "choice_reask" (2.5.4; the claim critique #6): 128 answered through a TWO-Confirm landing (the first Confirm
+    taken and nothing hidden: dropped), then asked again -- V2, the GAME's, outright: neither answer brings 128 back, and
+    no press of the driver's can; a ``guard_stray`` row kind choice_reask. Break: O4's ``encore_stray`` shape (the
+    answer's first Confirm then reads as a stray of the driver's: V17)."""
+    SD = _segment_modules()
+
+    def wrap(g, fake):
+        _s11_deaf(fake, 1)
+    phases = [(lambda f: f.answered and _g_idle(f), lambda f: f.scene(dict(_G_CHOICE), control=False))]
+    out, log, fake, ring, aside = _g_run_informative(game, wrap=wrap, phases=phases)
+    assert isinstance(out, SD.RouteVoid) and (out.v, out.by, out.cell) == ("V2", "game", [30820, 1000]), (out, aside)
+    choice = _g_rows(log, "choice")
+    assert len(choice) == 1 and choice[0]["took"]["confirms"] == 2 and fake.answered == [1], (choice, fake.answered)
+    stray = _g_rows(log, "guard_stray")
+    assert len(stray) == 1 and (stray[0]["kind"], stray[0]["v"], stray[0]["by"]) == ("choice_reask", "V2", "game"), stray
+
+
+def test_segment_guard_judges_the_branch_page(game):
+    """S10 (o), THE BRANCH WITNESS (0.2 #20; the claim critique #13): the first page after the VERIFIED answer is the
+    game's own record of the answer it took. The pick's page ("Let’s see"): "ok", the run covered. The other's ("Hold
+    on a sec") though the driver answered 1 -- outside input, or a cursor move no sample showed: V13, the driver's.
+    Neither marker: an ``observed`` row (after_answer) and V17. A run with no marker page at all (page-once never
+    pressed one): V17 at the judgment. Nothing is pressed on the judged page but in the "ok" case. Break: no branch
+    judgment (the other branch's run then covers)."""
+    SD = _segment_modules()
+    out, log, fake, ring, aside = _g_run_informative(game)
+    assert not isinstance(out, Exception) and out["end"] == "reached", (out, aside)
+    gr = _g_rows(log, "guard")
+    assert len(gr) == 1 and (gr[0]["verdict"], gr[0]["branch"]) == ("ok", "pick") and _G_PICK in out["pages"], gr
+    for page, want, branch, observed in ((_G_OTHER, "V13", "other", []), ("Zidane\n“...”", "V17", None, ["after_answer"])):
+        out, log, fake, ring, aside = _g_run_informative(game, branch=lambda a, page=page: page)
+        assert isinstance(out, SD.RouteVoid) and (out.v, out.by) == (want, "driver"), (page, out)
+        gr = _g_rows(log, "guard")
+        assert len(gr) == 1 and (gr[0]["verdict"], gr[0]["branch"]) == (want, branch), gr
+        assert [r["kind"] for r in _g_rows(log, "observed")] == observed, log
+        assert not [r for r in _g_rows(log, "press") if page in (r.get("raws") or [])], "the page was pressed"
+        assert fake.answered == [1], fake.answered
+    out, log, fake, ring, aside = _g_run_informative(game, beats=[_G_126, {"movie": 30}, dict(_G_CHOICE)],
+                                                     want="page-once did not make")
+    assert isinstance(out, SD.RouteVoid) and (out.v, out.by) == ("V17", "driver"), out
+    assert "page-once did not make" in str(out) and _g_rows(log, "guard")[0]["armed_frame"] is None, log
+
+
+def test_segment_guard_is_opt_in(game, monkeypatch):
+    """S10-S13 are OPT-IN (research/o5_design.md 1.2): the frozen O1-O4 predictions read no guard, no witness policy and
+    no visit-scoped cell -- a drive started on each has no guard state (``gd`` None) and keys its VOIDs ``[place,
+    sc]``; and an O2-shaped run on the fake (no guard) presses its pages by plain rule 7 (no ``seq``, no ``ack_frame``)
+    and answers a non-default pick by ``g.choose`` -- never ``choose_landed`` -- with no guard row. Break: run the
+    guard's rule 7 without the key (its press rows then carry seqs)."""
+    import types
+    SD = _segment_modules()
+    g0 = types.SimpleNamespace(state=types.SimpleNamespace(battle_epoch=0))
+    for name in ("o1_predictions_v4.json", "o2_predictions_v1.json", "o3_predictions_v1.json", "o4_predictions_v1.json"):
+        pred = json.loads((REPO / "studies" / "story-trace" / name).read_text(encoding="utf-8"))
+        assert SD.guard_of(pred) is None and SD.witness_of(pred) is None, name
+        if name.startswith("o1_"):
+            continue                                  # O1 drives by its own loop (o1_opening.drive): no beat table
+        d = SD._Drive(g0, pred, "S", [], deadline=time.time() + 5, floor_for=None, prior_for=None, progress=None,
+                      end_fields=None, observe=None, forbid_live=False)
+        assert (d.guard, d.gd, d.witness_pol, d.visit_cells) == (None, None, None, False), name
+        d.donor, d.sc = 1, 2
+        assert d.void("V4", "game", "x").cell == [1, 2], name
+    calls = {"choose": 0}
+    real = Session.choose
+
+    def choose(self, index, **kw):
+        calls["choose"] += 1
+        return real(self, index, **kw)
+
+    def landed(self, index, **kw):
+        raise AssertionError("choose_landed without the guard")
+    monkeypatch.setattr(Session, "choose", choose)
+    monkeypatch.setattr(Session, "choose_landed", landed)
+    pred = _g_pred()
+    del pred["guard"], pred["witness"]
+    out, log, fake, ring = _g_run(game, pred=pred)
+    assert not isinstance(out, Exception) and out["end"] == "reached", out
+    assert calls["choose"] == 1 and fake.answered == [1], (calls, fake.answered)
+    pages = _g_rows(log, "press", why="page")
+    assert pages and not [r for r in pages if "seq" in r or "ack_frame" in r or "marker" in r], pages
+    assert not [r for r in log if r.get("k") in ("guard", "guard_stray", "quiet")], log

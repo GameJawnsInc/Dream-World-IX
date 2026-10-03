@@ -86,6 +86,21 @@ VISIT-SCOPED CELLS (opt-in, a cell's ``visit``; S13): a cell carrying ``visit`` 
 (the game's), never the walk a first visit runs; and under such a table every VOID's and ``observed`` row's cell is
 ``[place, sc, visit]`` (:meth:`_Drive.vcell`), so one class at two visits of a place is two keys for VOID-ASYM. Without
 either key the loop is O4's exactly.
+
+THE PRE-CHOICE GUARD (opt-in, ``guard``; research/o5_design.md 1.2 S10, 2.5) closes the race between a marker page and
+the choice it precedes (O5's 127 -> 128: a Confirm decided on a stale or closing 127 lands on 128 at its cursor). Read
+STRICT (:func:`guard_of`), it makes rule 7 PAGE-ONCE on the marker page -- a window pressed only past its own hold-off
+AND past the hold-off of the driver's LAST press of any kind -- opens a QUIET WINDOW at the first sample after it with no
+marker window, presses nothing until the choice is published (a page there is V17, game-observed; the marker page seen
+again re-arms it; no choice within ``quiet_cap_s``, the ring scanned first, is V13), rows every press with its ``seq``,
+and JUDGES the run at the first page after the answer (:meth:`_Drive.guard_judge`): the marker page never pressed by
+page-once, or a press of the driver's own down in [the marker page's last sample, the choice's close)
+(:func:`guard_strays`), is V17; the OTHER branch's first page -- the game's own record of the answer it took -- is V13.
+The choice gone with no answer of the driver's is V17 or V13 (:meth:`_Drive.guard_stray`); asked again after its
+verified answer, V2 (game). Under the guard rule 6 answers a non-default pick through THE VERIFIED LANDING (S11:
+:meth:`Session.choose_landed`), its presses rowed, the witness polled at once, and the answer proven the driver's: not
+landed, unseen or unplaceable is V17; the cursor off the pick as its Confirm went down, V13. Without the key the loop is
+O4's exactly (O4's ``stray_answer`` untouched).
 """
 from __future__ import annotations
 
@@ -1389,6 +1404,104 @@ def witness_of(pred: dict) -> dict | None:
     return dict(raw)
 
 
+# ======================================================================== S10: the pre-choice guard (opt-in, pure)
+#: The guard's keys (research/o5_design.md 1.2 S10, 4.10), strict: ``why`` optional.
+GUARD_KEYS = ("donor", "sc", "markers", "choice", "branch", "page_once_ticks", "quiet_cap_s", "why")
+
+
+def guard_of(pred: dict) -> dict | None:
+    """THE PRE-CHOICE GUARD (``pred["guard"]``; research/o5_design.md 1.2 S10, 2.5), checked STRICT before anything is
+    driven -- or None: no ``guard``, and nothing below reads it (the loop is O4's exactly).
+
+    ValueError, each naming its cause, on: a guard that is no dict; a key not in :data:`GUARD_KEYS` or one missing
+    (``why`` optional); the predictions also carrying a ``chanbara`` policy (one input policy a segment); ``donor``,
+    ``sc`` not ints (a bool is no int); ``markers`` not a non-empty list of non-empty strings; ``branch`` not a list of
+    two distinct non-empty strings (the pick's branch page marker, then the other branch's); ``page_once_ticks`` not an
+    int 4-30; ``quiet_cap_s`` not a number in (0, 10]; a ``why`` given that is no non-empty string; ``choice`` not the
+    ``match`` of exactly one rule of ``pred["choices"]``, or that rule a default one (``pick`` "default" or ``take:
+    "default"``: the guard exists for a non-default pick). Returns a copy."""
+    raw = pred.get("guard")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError(f"guard {raw!r}: the guard is a dict of {GUARD_KEYS}")
+    unknown = sorted(set(raw) - set(GUARD_KEYS))
+    missing = [k for k in GUARD_KEYS if k != "why" and k not in raw]
+    if unknown or missing:
+        raise ValueError("guard: " + "; ".join(([f"unknown key(s) {unknown}"] if unknown else [])
+                                               + ([f"missing {missing}"] if missing else []))
+                         + f" -- the guard's keys are {GUARD_KEYS} (why optional)")
+    if pred.get("chanbara") is not None:
+        raise ValueError("guard: the predictions also carry a chanbara policy -- one input policy a segment")
+    bad = [k for k in ("donor", "sc") if not _is_int(raw[k])]
+    marks = raw["markers"]
+    if not isinstance(marks, list) or not marks or not all(_is_text(m) for m in marks):
+        bad.append("markers (a non-empty list of non-empty strings)")
+    br = raw["branch"]
+    if not isinstance(br, list) or len(br) != 2 or not all(_is_text(b) for b in br) or br[0] == br[1]:
+        bad.append("branch (two distinct non-empty strings: the pick's branch page marker, then the other's)")
+    if not _is_int(raw["page_once_ticks"]) or not 4 <= raw["page_once_ticks"] <= 30:
+        bad.append("page_once_ticks (an int 4-30)")
+    if not _is_pos(raw["quiet_cap_s"]) or raw["quiet_cap_s"] > 10:
+        bad.append("quiet_cap_s (a number in (0, 10])")
+    if "why" in raw and not _is_text(raw["why"]):
+        bad.append("why (a non-empty string)")
+    if bad:
+        raise ValueError(f"guard: {bad} of the wrong type or out of range")
+    rules = [r for r in pred.get("choices") or () if r.get("match") == raw["choice"]]
+    if len(rules) != 1:
+        raise ValueError(f"guard: choice {raw['choice']!r} is the match of {len(rules)} rules of the predictions' "
+                         f"choices, not exactly one")
+    if rules[0].get("pick") == "default" or rules[0].get("take") == "default":
+        raise ValueError(f"guard: the rule {raw['choice']!r} takes the game's default -- the guard exists for a "
+                         f"non-default pick")
+    return json.loads(json.dumps(raw))
+
+
+def guard_exclude(answer, closing_seq) -> set:
+    """The presses the guard's stray window leaves out (research/o5_design.md 1.2 S10, 2.5.4), pure: every seq of the
+    answer's span ``(before, after]`` -- select's Down and every Confirm of ``choose_landed``, not only the one rowed
+    ``answer`` -- and the marker page's CLOSING press (the last press page-once made on a marker), which goes down on
+    the marker page by construction (it is pressed only past every press's hold-off, the page up and waiting)."""
+    out = set() if not answer else set(range(int(answer[0]) + 1, int(answer[1]) + 1))
+    if closing_seq is not None:
+        out.add(int(closing_seq))
+    return out
+
+
+def guard_strays(log: list, events: list, steps: list, lo, hi, *, exclude=()) -> list:
+    """THE GUARD'S STRAY ATTRIBUTION (research/o5_design.md 1.2 S10, 2.5.4), pure: every ``press`` row of ``log`` with a
+    ``seq`` not in ``exclude`` whose DOWN frame -- its ``accepted`` event's frame + 1 (``events``: events.jsonl;
+    HarnessAgent.cs:599-607) -- or, with no accepted event to place it, its DECISION frame (``pre.frame``: fail-closed,
+    O4's SWORD (f) rule) lies in [``lo``, ``hi``) (either None: open on that side). A press with neither frame cannot be
+    placed and counts (fail-closed). ``steps`` (the session's steps.jsonl rows) name each stray's button where its row
+    does not. ``[{"seq", "why", "button", "down_frame", "decision_frame", "placed"}]``, ``placed`` True when an accepted
+    event placed it."""
+    accepted: dict = {}
+    for e in events or ():
+        if e.get("kind") == "accepted" and e.get("seq") is not None:
+            try:
+                accepted.setdefault(int(e["seq"]), int(e["frame"]))
+            except (TypeError, ValueError):
+                continue
+    by_seq = {int(s["seq"]): s.get("steps") for s in steps or () if s.get("seq") is not None}
+    skip = {int(s) for s in exclude}
+    out = []
+    for row in log or ():
+        if row.get("k") != "press" or row.get("seq") is None or int(row["seq"]) in skip:
+            continue
+        seq = int(row["seq"])
+        acc = accepted.get(seq)
+        down = None if acc is None else acc + 1
+        decision = (row.get("pre") or {}).get("frame")
+        at = down if down is not None else decision
+        if at is not None and ((lo is not None and at < lo) or (hi is not None and at >= hi)):
+            continue
+        out.append({"seq": seq, "why": row.get("why"), "button": row.get("button") or _press_button(by_seq.get(seq)),
+                    "down_frame": down, "decision_frame": decision, "placed": down is not None})
+    return out
+
+
 # ======================================================================== S7: the fight zone's executor (opt-in)
 #: The fight's other body (research/o4_design.md 2.4.1): Blank, the published field object sid 20 (64 e0 t0 ip449's
 #: InitObject(20)); Zidane is the player.
@@ -1435,6 +1548,16 @@ def ring_since(g, frame: int) -> list:
     if buf is not None:
         return [(t, raw) for t, _age, raw in list(buf) if int(raw.get("frame", -1)) > frame]
     return [(None, raw) for raw in g.states_since(frame)]
+
+
+def _ring_reads(g, frame: int) -> list:
+    """``[(raw, mtime)]`` of every sample the session's ring holds after ``frame``, oldest first, each with its write
+    time put back (``read_at - age``: Session._reads_since's rule) where the ring keeps one, else None -- what
+    :func:`_game_t` times a ring sample by when it publishes no ``rt`` (S10's quiet window)."""
+    ring = getattr(g, "_ring", None)
+    if ring is not None and hasattr(ring, "reads_since"):
+        return [(raw, None if t is None or age is None else t - age) for t, age, raw in ring.reads_since(frame)]
+    return [(raw, None) for raw in g.states_since(frame)]
 
 
 def _game_t(s: dict | None) -> tuple:
@@ -1976,6 +2099,13 @@ class _Drive:
         # policy's (O4's, unchanged). With neither, nothing polls it.
         self.witness_pol = witness_of(pred)
         self.witness_every = (self.witness_pol or self.chanbara or {}).get("input_every_s")
+        # S10-S11 (research/o5_design.md 1.2), OPT-IN: THE PRE-CHOICE GUARD, checked strict before anything is driven,
+        # and the guarded rule it answers through the VERIFIED landing; its state (``gd``) is a visit's (rule 3).
+        # Without it (None) nothing below reads either: the loop is O4's exactly.
+        self.guard = guard_of(pred)
+        self.guard_rule = None if self.guard is None else next(r for r in pred["choices"]
+                                                               if r.get("match") == self.guard["choice"])
+        self.gd = None
         self.zones: list = []              # the policy's ``zone`` rows
         self.prompts: list = []            # ... and its ``prompt`` rows
         self.cb: dict = {"zone_done": False, "zone_end_frame": None, "score_read": False, "held_off": {},
@@ -2920,6 +3050,8 @@ class _Drive:
                                  "frame": st.frame, "sc": self.sc})
                 if self.chanbara is not None:        # the policy's state is a visit's
                     self.cb_reset(st)
+                if self.guard is not None:           # S10: and so is the guard's
+                    self.guard_reset(st)
                 if self.movies is not None:          # the policy's clock: a cell's after_s counts from the visit
                     self.movie_close("the visit ended with no skip dialog")
                     self.visit_t0 = time.time()
@@ -2930,6 +3062,8 @@ class _Drive:
                 self.watch_poll(st, c)
             if self.chanbara is not None:            # S8 c, opt-in: the quiet window opens, or runs out (V14)
                 self.quiet_tick()
+            if self.guard is not None:               # S10, opt-in: the quiet window opens, a choice closes it, or V13
+                self.guard_quiet_tick(st)
             # 4 -- the naming screen
             if st.ui_state == "NameSetting":
                 self.held = 0
@@ -2954,6 +3088,8 @@ class _Drive:
                 self.held = 0
                 if self.chanbara is not None:        # S9, opt-in: its first frame kept; the quiet window closed
                     self.note_choice(st)
+                if self.guard is not None:           # S10, opt-in: the same, for the guarded choice
+                    self.guard_note_choice(st.choice, st.frame)
                 if not g._choice_ready(st):
                     time.sleep(POLL_S)
                     continue
@@ -2995,6 +3131,9 @@ class _Drive:
                     raise self.void("V5", by, f"a page where the route has none: {st.text[:160]!r}")
                 if self.chanbara is not None:        # S8, S9, opt-in: page-once, the quiet window, the two-sample pages
                     self.policy_page(st)
+                    continue
+                if self.guard is not None:           # S10, opt-in: the judgment, the gone choice, the quiet window,
+                    self.guard_page(st)              # page-once on the marker page; every press with its seq
                     continue
                 if not self.pages or self.pages[-1] != st.text:
                     self.pages.append(st.text)
@@ -3038,8 +3177,10 @@ class _Drive:
 
     def answer(self, st) -> None:
         """Rule 6's answer: the frozen rule (pick_for; a classless RouteVoid there is V1, game), the game's own default
-        taken for a ``take: "default"`` rule (the cursor never moved) or O1's ``choose``, and its ``choice`` row. A
-        default whose Confirm did not land is asked again on a later poll, never counted answered."""
+        taken for a ``take: "default"`` rule (the cursor never moved) or O1's ``choose`` -- under the guard (S11) the
+        VERIFIED landing (:meth:`answer_landed`) -- and its ``choice`` row. A default whose Confirm did not land is
+        asked again on a later poll, never counted answered. Under the guard the guarded rule asked again after its
+        verified answer is V2, the game's, outright (:meth:`guard_stray` "choice_reask")."""
         g = self.g
         try:
             index, rule = pick_for(st.choice, self.donor, self.pred, sc=self.sc, answered=self.answered)
@@ -3048,6 +3189,8 @@ class _Drive:
                 raise self.void("V1", "game", str(err)) from err
             if err.v == "V2" and self.chanbara is not None and self.encore_rule(st) is not None:
                 self.encore_stray()                  # S9: a second encore -- who confirmed it, V17 or V2
+            if err.v == "V2" and self.guard is not None and self.is_guard_choice(st.choice):
+                self.guard_stray("choice_reask", st)     # S10: V2 (game) outright, logged with the guard row
             if self.visit_cells:                     # S13: pick_for's own V2 / V3 cell gains the visit
                 err.cell = self.vcell(self.donor, self.sc)
             raise
@@ -3056,6 +3199,8 @@ class _Drive:
             took = g._take_default_choice(st)
             if took is None:
                 return
+        elif self.guard is not None:                 # S11, opt-in: the verified landing, rowed and witnessed
+            took = self.answer_landed(st, index, rule)
         else:
             before = g.channel.seq
             g.choose(index)
@@ -3347,6 +3492,313 @@ class _Drive:
                              "donor": self.donor, "visit": self.visit, "sc": self.sc, "pre": None, "post": None,
                              "near": [], "accepted_frame": acc.get(seq), "down_frame": down, "selected_before": sel,
                              "answer": seq == last})
+
+    # -- S10-S11: the pre-choice guard and the verified answer (opt-in: ``guard``; research/o5_design.md 1.2) ----------
+    def guard_reset(self, st) -> None:
+        """A new visit's guard state (rule 3): no choice seen, none answered, no quiet window, nothing held off."""
+        self.gd = {"visit_frame": st.frame, "seen_frame": st.frame, "first": None, "answered": False, "answer": None,
+                   "quiet": None, "rearms": 0, "held": {}, "last_ack": None, "judged": False, "row": None}
+
+    def has_marker(self, s) -> bool:
+        """Whether a window's raw or text holds one of the guard's markers."""
+        return any(m in str(s or "") for m in self.guard["markers"])
+
+    def lists_marker(self, raw: dict) -> bool:
+        """Whether a published sample lists a MARKER WINDOW: a marker in some window's ``phrase_raw`` or its text."""
+        return any(self.has_marker(p) or self.has_marker(t) for p, t in dialog_rows(raw))
+
+    def is_guard_choice(self, choice) -> bool:
+        """Whether a published choice is the guarded one: the frozen rule that answers it here is the guard's."""
+        return bool(choice) and rule_for(choice, self.donor, self.pred, sc=self.sc) is self.guard_rule
+
+    def guard_note_choice(self, choice, frame: int) -> None:
+        """Rule 6 under the guard (S10): a published choice closes the quiet window; the GUARDED choice's first
+        publication is kept (``gd["first"]``: the ring's earliest sample of it since the visit's first frame)."""
+        gd = self.gd
+        q = gd["quiet"]
+        if q is not None and not q["closed"]:
+            q.update(closed=True, close_frame=frame)
+        if gd["first"] is not None or not self.is_guard_choice(choice):
+            return
+        first = frame
+        for raw in self.g.states_since(gd["visit_frame"]):
+            if self.is_guard_choice((raw.get("dialog") or {}).get("choice")):
+                first = min(first, int(raw.get("frame", frame)))
+                break
+        gd["first"] = first
+
+    def guard_quiet_tick(self, st) -> None:
+        """S10, every poll (rule 3's place, where O4 runs ``quiet_tick``): THE QUIET WINDOW, then the guarded choice.
+        Armed and not open: the first ring sample after it was armed (or re-armed) listing no marker window OPENS it
+        (``open_frame``; ``open_game`` that sample's game clock). Open: FIRST the ring since the opening and the current
+        sample are scanned, and one publishing a choice closes it (rule 6 answers it on this poll) -- a stalled read
+        never meets the cap with the choice already up; only then the cap: no choice within ``quiet_cap_s`` of the game
+        clock since ``open_game`` (``rt``, else the state file's write time: on the engine a wall clock, 0.2 #17), or
+        within 10 x ``quiet_cap_s`` of wall time, is V13 -- the instrument's, never the game's. Last, the guarded choice
+        published between the driver's own polls (a blocking call's reads: the ring's) is noted as rule 6 notes the
+        one it reads -- a choice up and gone unread by rule 6 still reads as published."""
+        gd, pol = self.gd, self.guard
+        q = gd["quiet"]
+        if q is not None and not q["closed"]:
+            if q["open_frame"] is None:
+                for raw, mtime in _ring_reads(self.g, q["from"]):
+                    if not self.lists_marker(raw):
+                        q.update(open_frame=int(raw.get("frame", -1)), open_t=time.time(),
+                                 open_game=list(_game_t({"rt": raw.get("rt"), "mtime": mtime})))
+                        self.log.append({"k": "quiet", "field": self.fid, "visit": self.visit,
+                                         "armed_frame": q["armed_frame"], "open_frame": q["open_frame"],
+                                         "open_game": q["open_game"], "rearms": gd["rearms"]})
+                        break
+            if q["open_frame"] is not None:
+                for raw in [*self.g.states_since(q["open_frame"] - 1), st.raw]:
+                    ch = (raw.get("dialog") or {}).get("choice")
+                    if ch is not None:
+                        self.guard_note_choice(ch, int(raw.get("frame", st.frame)))
+                        break
+                if not q["closed"]:
+                    cap = float(pol["quiet_cap_s"])
+                    kind, now = _game_t({"rt": st.raw.get("rt"), "mtime": st.mtime})
+                    k0, t0 = q["open_game"]
+                    if (kind is not None and kind == k0 and now - t0 > cap) or time.time() - q["open_t"] > 10 * cap:
+                        raise RouteVoid(f"no choice read within {cap:g} s of the quiet window's opening (frame "
+                                        f"{q['open_frame']}): the instrument's", v="V13",
+                                        cell=self.vcell(self.donor, self.sc), by="driver")
+        if gd["first"] is None:
+            for raw in self.g.states_since(gd["seen_frame"]):
+                ch = (raw.get("dialog") or {}).get("choice")
+                if self.is_guard_choice(ch):
+                    self.guard_note_choice(ch, int(raw.get("frame", st.frame)))
+                    break
+        gd["seen_frame"] = max(gd["seen_frame"], st.frame)
+
+    def guard_page(self, st) -> None:
+        """RULE 7 UNDER THE GUARD (S10; research/o5_design.md 1.2, 2.5), after the stop pages and ``no_pages``, in order:
+        (o) THE JUDGMENT, once, at the first page after the guarded choice's VERIFIED answer (:meth:`guard_judge`):
+        anything but "ok" VOIDs the run with nothing pressed, "ok" goes on to (iv); (i) the guarded choice published and
+        gone with no answer of the driver's: :meth:`guard_stray` "choice_gone"; (ii) the quiet window OPEN -- a page
+        holding a marker is the marker page itself (a sample listing no window opened it early: the agent's
+        dialog-section catch, 0.2 #18), so the window RE-ARMS and the page goes on to (iii); any other page is V17
+        (game-observed: an ``observed`` row ``quiet_page``), nothing pressed; (iii) in the guard's cell, a page listing
+        a marker window -- PAGE-ONCE: pressed only when some marker window's ``phrase_raw`` is not held off (a pressed
+        raw is held off until its press's ack-read frame + ``page_once_ticks``) AND the sample's frame is past the
+        hold-off of the driver's LAST press of any kind (2.5.5: a press on the page before can go down on the marker
+        page and close it, and its close-tween samples carry a raw page-once never held off); its first press ARMS the
+        quiet window; (iv) any other page: O1's rule 7. Every press a row with ``seq``, ``ack_frame``, ``raws`` and
+        ``marker`` (:meth:`guard_press`)."""
+        gd, pol = self.gd, self.guard
+        rows = dialog_rows(st.raw)
+        if gd["answered"] and not gd["judged"]:
+            self.guard_judge(st, rows)                           # (o): raises unless "ok"
+            self.guard_press(st, rows, marker=False)
+            return
+        if gd["first"] is not None and not gd["answered"]:
+            self.guard_stray("choice_gone", st)                  # (i): raises
+        marked = [(p, t) for p, t in rows if self.has_marker(p) or self.has_marker(t)]
+        q = gd["quiet"]
+        if q is not None and not q["closed"] and q["open_frame"] is not None:        # (ii)
+            if not marked:
+                self.observed("quiet_page", st)
+                raise self.void("V17", "driver", f"a page in the quiet window, nothing pressed: {st.text[:120]!r}")
+            gd["rearms"] += 1
+            q.update({"open_frame": None, "open_game": None, "open_t": None, "from": st.frame})
+            self.log.append({"k": "quiet", "field": self.fid, "visit": self.visit, "rearm": gd["rearms"],
+                             "frame": st.frame, "armed_frame": q["armed_frame"]})
+        if marked and self.donor == pol["donor"] and self.sc == pol["sc"] and not st.control:  # (iii)
+            hold = self.g.rate().frames_for_ticks(int(pol["page_once_ticks"]))
+            free = [p or t for p, t in marked if st.frame >= gd["held"].get(p or t, -1)]
+            if not free or (gd["last_ack"] is not None and st.frame < gd["last_ack"] + hold):
+                time.sleep(POLL_S)                               # held off: it, or any page, was pressed lately
+                return
+            self.guard_press(st, rows, marker=True)
+            if gd["quiet"] is None:
+                gd["quiet"] = {"armed_frame": st.frame, "from": st.frame, "open_frame": None, "open_game": None,
+                               "open_t": None, "closed": False, "close_frame": None}
+            return
+        self.guard_press(st, rows, marker=False)                 # (iv)
+
+    def guard_press(self, st, rows: list, *, marker: bool) -> dict:
+        """A page press under the guard: O1's rule 7 -- the page recorded, Confirm, O1's wait -- its row carrying
+        ``seq``, ``ack_frame`` (the read right after the press returns: O4's policy_page shape), ``raws`` (the listed
+        windows' ``phrase_raw``) and ``marker``; ``gd["last_ack"]`` the latest ack frame of the visit; a MARKER press
+        holds off every window it listed, by its raw, until its ack frame + ``page_once_ticks``."""
+        g, gd = self.g, self.gd
+        if not self.pages or self.pages[-1] != st.text:
+            self.pages.append(st.text)
+            if any("[TIME=" in t for t in st.raw_texts):
+                self.timed.append(len(self.pages) - 1)
+        if self.movies is not None:
+            self.movie_page(st)
+        row = self.press("page", st, 3)
+        seq = g.channel.seq
+        st2 = g.state
+        row.update(seq=seq, ack_frame=st2.frame, button="confirm", raws=[p for p, _t in rows], marker=marker)
+        gd["last_ack"] = st2.frame if gd["last_ack"] is None else max(gd["last_ack"], st2.frame)
+        if marker:
+            until = st2.frame + g.rate().frames_for_ticks(int(self.guard["page_once_ticks"]))
+            for p, t in rows:
+                if p or t:
+                    gd["held"][p or t] = until
+        self.walked = None
+        g.wait_frames(g.rate().frames_for_ticks(g.CUTSCENE_PAGE_TICKS))
+        return row
+
+    def guard_row(self, st, rows: list) -> dict:
+        """THE ``guard`` ROW (S10), from the visit's own record: the quiet window's arming, opening and re-arms; the
+        marker page's LAST listed sample before the guarded choice's first (``marker_last``, the ring's); the choice's
+        first publication, its readiness (the first sample with the group ``Dialog.Choice``) and its CLOSE (the first
+        sample after it with no choice block while the menu group is not ``Dialog.Choice``: a sample with no choice but
+        that group is the agent's dialog-section catch, 0.2 #18); the answer's seq span and the marker page's closing
+        press; every press of the visit with a ``seq`` -- its accepted frame joined from ONE events read -- and the
+        strays in [``marker_last``, the close) (:func:`guard_strays`, :func:`guard_exclude`); the branch the page ``st``
+        holds (``rows``: its dialog rows). Its ``verdict`` is the caller's."""
+        g, gd, pol = self.g, self.gd, self.guard
+        first, q = gd["first"], gd["quiet"] or {}
+        fr = [(int(raw.get("frame", -1)), raw) for raw in g.states_since(gd["visit_frame"])]
+        marker_last = None if first is None else max((f for f, raw in fr if f < first and self.lists_marker(raw)),
+                                                     default=None)
+        choice_ready = choice_close = None
+        for f, raw in fr if first is not None else ():
+            if f < first:
+                continue
+            ch, group = (raw.get("dialog") or {}).get("choice"), (raw.get("menu") or {}).get("group")
+            if choice_ready is None and ch is not None and group == g.CHOICE_GROUP:
+                choice_ready = f
+            if f > first and ch is None and group != g.CHOICE_GROUP:
+                choice_close = f
+                break
+        events = list(g.channel.events())
+        acc: dict = {}
+        for e in events:
+            if e.get("kind") == "accepted" and e.get("seq") is not None:
+                try:
+                    acc.setdefault(int(e["seq"]), int(e["frame"]))
+                except (TypeError, ValueError):
+                    continue
+        mine = [r for r in self.log if r.get("k") == "press" and r.get("seq") is not None
+                and r.get("visit") == self.visit]
+        presses = [{"seq": int(r["seq"]), "why": r.get("why"), "marker": bool(r.get("marker")),
+                    "accepted_frame": acc.get(int(r["seq"])),
+                    "down_frame": None if acc.get(int(r["seq"])) is None else acc[int(r["seq"])] + 1,
+                    "decision_frame": (r.get("pre") or {}).get("frame"), "raws": r.get("raws")} for r in mine]
+        closing = max((p["seq"] for p in presses if p["marker"]), default=None)
+        strays = guard_strays(mine, events, self.steps_rows(), marker_last, choice_close,
+                              exclude=guard_exclude(gd["answer"], closing))
+        pick, other = pol["branch"]
+        holds = (lambda m: any(m in p or m in t for p, t in rows))
+        return {"k": "guard", "field": self.fid, "visit": self.visit, "armed_frame": q.get("armed_frame"),
+                "open_frame": q.get("open_frame"), "rearms": gd["rearms"], "marker_last": marker_last,
+                "choice_first": first, "choice_ready": choice_ready, "choice_close": choice_close,
+                "answer": gd["answer"], "closing_seq": closing, "presses": presses, "strays": strays,
+                "branch": "other" if holds(other) else "pick" if holds(pick) else None, "branch_frame": st.frame,
+                "branch_raw": [p for p, _t in rows], "verdict": None}
+
+    def guard_judge(self, st, rows: list) -> None:
+        """THE JUDGMENT (S10 (o)), once, at the first page after the guarded choice's VERIFIED answer -- its ``guard``
+        row written and judged, in order: never ARMED (the marker page closed by a press page-once did not make): V17; a
+        STRAY in [the marker page's last sample, the choice's close): V17; the page holds the OTHER branch's marker --
+        the game took the other answer (outside input, or a cursor move no sample showed): V13; it holds NEITHER: an
+        ``observed`` row (``after_answer``) and V17 (game-observed); else "ok", the branch the pick's. Every VOID the
+        driver's, nothing pressed (0.2 #20)."""
+        gd, pol = self.gd, self.guard
+        gd["judged"] = True
+        row = self.guard_row(st, rows)
+        kind = verdict = None
+        if row["armed_frame"] is None:
+            kind, verdict = "armed", ("V17", "the marker page was closed by a press page-once did not make")
+        elif row["strays"]:
+            s = row["strays"][0]
+            kind, verdict = "stray", ("V17", f"a press of the driver's own (seq {s['seq']}, {s['why']}) went down in "
+                                             f"[the marker page's last sample, the guarded choice's close) before its "
+                                             f"answer")
+        elif row["branch"] == "other":
+            kind, verdict = "other", ("V13", f"the game took the other branch (its first page holds "
+                                             f"{pol['branch'][1]!r}): the answer it took is not the pick -- outside "
+                                             f"input, or a cursor move no sample showed")
+        elif row["branch"] is None:
+            kind, verdict = "neither", ("V17", f"the first page after the answer holds neither branch's marker, "
+                                               f"nothing pressed: {st.text[:120]!r}")
+        row["verdict"] = "ok" if verdict is None else verdict[0]
+        if verdict is not None:
+            row["why"] = verdict[1]
+        gd["row"] = row
+        self.log.append(row)
+        if verdict is None:
+            return
+        if kind == "neither":
+            self.observed("after_answer", st)
+        raise RouteVoid(verdict[1], v=verdict[0], cell=self.vcell(self.donor, self.sc), by="driver")
+
+    def guard_stray(self, kind: str, st) -> None:
+        """S10's two strays, each logged (``{"k": "guard_stray", "kind", "lo", "hi", "strays", "v", "by"}``, with the
+        ``guard`` row when none was written yet) and raised: "choice_gone" -- the guarded choice left with no answer of
+        the driver's: a press of the driver's own in [the marker page's last sample, its close) is V17, none is V13
+        (the driver's: unattributed input the witness missed -- member(153)'s e3/e31 are the donor's and no dialog code
+        keys on the route's fields, so the game cannot answer one side's choice alone); "choice_reask" -- the guarded
+        rule asked again after its VERIFIED landing: V2, the GAME's, outright (neither answer brings the choice back,
+        and no press of the driver's can)."""
+        gd = self.gd
+        row = gd["row"] or self.guard_row(st, dialog_rows(st.raw))
+        strays = row["strays"]
+        if kind == "choice_reask":
+            v, by, why = "V2", "game", (f"the guarded choice was asked again after its verified answer (the rule "
+                                        f"{self.guard['choice']!r} answers once)")
+        elif strays:
+            s = strays[0]
+            v, by, why = "V17", "driver", (f"a press of the driver's own (seq {s['seq']}, {s['why']}) went down in "
+                                           f"[the marker page's last sample, the guarded choice's close) before its "
+                                           f"answer")
+        else:
+            v, by, why = "V13", "driver", ("the guarded choice left with no press of the driver's in [the marker page's "
+                                           "last sample, its close): unattributed input")
+        self.log.append({"k": "guard_stray", "kind": kind, "lo": row["marker_last"], "hi": row["choice_close"],
+                         "strays": strays, "v": v, "by": by})
+        if gd["row"] is None:
+            row.update(verdict=v, why=why)
+            gd["row"] = row
+            self.log.append(row)
+        raise RouteVoid(why, v=v, cell=self.vcell(self.donor, self.sc), by=by)
+
+    def answer_landed(self, st, index: int, rule: dict) -> dict:
+        """S11 IN THE DRIVER (research/o5_design.md 1.2, 2.5.3), under the guard: the pick answered through
+        :meth:`Session.choose_landed` -- the landing VERIFIED on the game's clock, never a blind wait -- its presses rowed
+        (:meth:`row_choose`: each a ``press`` row ``why`` "choose", the last Confirm marked ``answer`` with
+        ``selected_before``), the witness polled at once (S12), then the driver's own V-classes: the landing unseen
+        (ChoiceUnseen), the answer not landed, or its Confirm unplaceable (no accepted event, or no sample before its
+        down frame publishing the cursor): V17; the cursor read off the pick as the answer's Confirm went down: V13
+        (outside input). The guarded rule's answer is kept (``gd["answered"]``, its seq span ``gd["answer"]``), and
+        the hold-off of the last press counts from the reads after it."""
+        from harness.session import ChoiceUnseen
+        g, gd = self.g, self.gd
+        before = g.channel.seq
+        try:
+            took = g.choose_landed(index)
+        except ChoiceUnseen as err:
+            self.row_choose(before, g.channel.seq, st)
+            raise RouteVoid(f"the answer's landing went unseen: {err}", v="V17",
+                            cell=self.vcell(self.donor, self.sc), by="driver") from err
+        after = g.channel.seq
+        self.row_choose(before, after, st)
+        self.poll_witness(st, now_too=True)
+        if not took.get("landed"):
+            raise RouteVoid(f"the answer {index} did not land: {took.get('why')}", v="V17",
+                            cell=self.vcell(self.donor, self.sc), by="driver")
+        ans = [r for r in self.log if r.get("k") == "press" and r.get("why") == "choose" and r.get("answer")
+               and r.get("seq") is not None and before < int(r["seq"]) <= after]
+        sel = ans[-1].get("selected_before") if ans else None
+        if sel is None:
+            why = ("no accepted event" if not ans or ans[-1].get("down_frame") is None else
+                   "no sample before its down frame published the choice's cursor")
+            raise RouteVoid(f"the answer's Confirm could not be placed: {why}", v="V17",
+                            cell=self.vcell(self.donor, self.sc), by="driver")
+        if sel != index:
+            raise RouteVoid(f"the cursor read {sel}, not the pick, as the answer's Confirm went down: outside input",
+                            v="V13", cell=self.vcell(self.donor, self.sc), by="driver")
+        if rule is self.guard_rule:
+            gd["answered"], gd["answer"] = True, [before, after]
+        seen = [int(raw.get("frame", -1)) for raw in g.states_since(st.frame)]
+        if seen:
+            gd["last_ack"] = max(seen) if gd["last_ack"] is None else max(gd["last_ack"], max(seen))
+        return took
 
 
 def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=None, prior_for=None,
