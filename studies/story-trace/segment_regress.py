@@ -491,6 +491,8 @@ REQUIRED_TESTS_O5: tuple = (
     "test_o5_rehearsal_smoke_sends_no_storytrace_on_the_fake",
     "test_o5_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake",
     "test_o5_rehearsal_walk_record_judges_holds_and_the_teleport",
+    # the review's fixes (research/o5_design.md 11.6): the guarded choice taken under the answer is S10's gone choice
+    "test_o5_drive_choice_taken_under_the_answer_is_the_gone_choice",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

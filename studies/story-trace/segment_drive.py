@@ -96,11 +96,12 @@ again re-arms it; no choice within ``quiet_cap_s``, the ring scanned first, is V
 and JUDGES the run at the first page after the answer (:meth:`_Drive.guard_judge`): the marker page never pressed by
 page-once, or a press of the driver's own down in [the marker page's last sample, the choice's close)
 (:func:`guard_strays`), is V17; the OTHER branch's first page -- the game's own record of the answer it took -- is V13.
-The choice gone with no answer of the driver's is V17 or V13 (:meth:`_Drive.guard_stray`); asked again after its
-verified answer, V2 (game). Under the guard rule 6 answers a non-default pick through THE VERIFIED LANDING (S11:
-:meth:`Session.choose_landed`), its presses rowed, the witness polled at once, and the answer proven the driver's: not
-landed, unseen or unplaceable is V17; the cursor off the pick as its Confirm went down, V13. Without the key the loop is
-O4's exactly (O4's ``stray_answer`` untouched).
+The choice gone with no answer of the driver's is V17 or V13 (:meth:`_Drive.guard_stray`) -- read on the next page,
+or by the answer itself when the choice is taken before its first Confirm (:meth:`_Drive.answer_gone`); asked again
+after its verified answer, V2 (game). Under the guard rule 6 answers a non-default pick through THE VERIFIED LANDING
+(S11: :meth:`Session.choose_landed`), its presses rowed, the witness polled at once, and the answer proven the driver's:
+not landed, unseen or unplaceable is V17; the cursor off the pick as its Confirm went down, V13. Without the key the
+loop is O4's exactly (O4's ``stray_answer`` untouched).
 """
 from __future__ import annotations
 
@@ -3731,14 +3732,15 @@ class _Drive:
             self.observed("after_answer", st)
         raise RouteVoid(verdict[1], v=verdict[0], cell=self.vcell(self.donor, self.sc), by="driver")
 
-    def guard_stray(self, kind: str, st) -> None:
+    def guard_stray(self, kind: str, st, *, note: str | None = None) -> None:
         """S10's two strays, each logged (``{"k": "guard_stray", "kind", "lo", "hi", "strays", "v", "by"}``, with the
         ``guard`` row when none was written yet) and raised: "choice_gone" -- the guarded choice left with no answer of
         the driver's: a press of the driver's own in [the marker page's last sample, its close) is V17, none is V13
         (the driver's: unattributed input the witness missed -- member(153)'s e3/e31 are the donor's and no dialog code
         keys on the route's fields, so the game cannot answer one side's choice alone); "choice_reask" -- the guarded
         rule asked again after its VERIFIED landing: V2, the GAME's, outright (neither answer brings the choice back,
-        and no press of the driver's can)."""
+        and no press of the driver's can). ``note`` (the row's ``note``) says where the gone choice was read when it was
+        not rule 7's (i): :meth:`answer_gone`."""
         gd = self.gd
         row = gd["row"] or self.guard_row(st, dialog_rows(st.raw))
         strays = row["strays"]
@@ -3753,8 +3755,11 @@ class _Drive:
         else:
             v, by, why = "V13", "driver", ("the guarded choice left with no press of the driver's in [the marker page's "
                                            "last sample, its close): unattributed input")
-        self.log.append({"k": "guard_stray", "kind": kind, "lo": row["marker_last"], "hi": row["choice_close"],
-                         "strays": strays, "v": v, "by": by})
+        srow = {"k": "guard_stray", "kind": kind, "lo": row["marker_last"], "hi": row["choice_close"],
+                "strays": strays, "v": v, "by": by}
+        if note is not None:
+            srow["note"] = note
+        self.log.append(srow)
         if gd["row"] is None:
             row.update(verdict=v, why=why)
             gd["row"] = row
@@ -3768,8 +3773,11 @@ class _Drive:
         ``selected_before``), the witness polled at once (S12), then the driver's own V-classes: the landing unseen
         (ChoiceUnseen), the answer not landed, or its Confirm unplaceable (no accepted event, or no sample before its
         down frame publishing the cursor): V17; the cursor read off the pick as the answer's Confirm went down: V13
-        (outside input). The guarded rule's answer is kept (``gd["answered"]``, its seq span ``gd["answer"]``), and
-        the hold-off of the last press counts from the reads after it."""
+        (outside input). The guarded choice TAKEN under the answer before its first Confirm -- ``select`` meeting it
+        gone -- is S10's gone choice, not the instrument's stop (:meth:`answer_gone`). The guarded rule's answer is kept
+        (``gd["answered"]``, its seq span ``gd["answer"]``), and the hold-off of the last press counts from the reads
+        after it."""
+        from harness import HarnessError
         from harness.session import ChoiceUnseen
         g, gd = self.g, self.gd
         before = g.channel.seq
@@ -3779,6 +3787,8 @@ class _Drive:
             self.row_choose(before, g.channel.seq, st)
             raise RouteVoid(f"the answer's landing went unseen: {err}", v="V17",
                             cell=self.vcell(self.donor, self.sc), by="driver") from err
+        except HarnessError as err:
+            self.answer_gone(st, before, rule, err)          # raises: S10's gone choice, or ``err`` itself
         after = g.channel.seq
         self.row_choose(before, after, st)
         self.poll_witness(st, now_too=True)
@@ -3802,6 +3812,40 @@ class _Drive:
         if seen:
             gd["last_ack"] = max(seen) if gd["last_ack"] is None else max(gd["last_ack"], max(seen))
         return took
+
+    def answer_gone(self, st, before: int, rule: dict, err) -> None:
+        """S10 UNDER S11 (research/o5_design.md 2.5.3-2.5.4; the review's): ``choose_landed`` raised a plain HarnessError
+        on the guarded choice rule 6 had read READY -- ``select`` met it gone ("the choice dialogue closed while
+        selecting", after pressing Down into its close tween when its cursor still read off the pick), or a wait for it
+        ran out. When NO Confirm of the attempt was sent (every request in (``before``, now] read off steps.jsonl --
+        one missing proves nothing -- and none a Confirm: nothing of the driver's answer can have answered it) and a
+        read newer than rule 6's shows the choice taking no answers -- no choice block with the menu group not
+        ``Dialog.Choice`` (gone; never the agent's dialog-section catch, which keeps that group), or the guarded one
+        published with a group that is neither that nor None (its close tween: a group None reads ready,
+        ``_choice_ready``) -- someone else answered it under the driver's answer: outside input, or a press of the
+        driver's own going down on it at its cursor (2.5.5). So the attempt's presses (select's Down / Up) are rowed
+        (:meth:`row_choose`) and kept as the answer's seq span ``gd["answer"]`` -- the answer's own presses, never strays
+        (:func:`guard_exclude`; ``gd["answered"]`` stays False) -- the witness polled at once (S12), and the gone choice
+        judged as rule 7's (i) judges it: :meth:`guard_stray` "choice_gone" -- V17 for a press of the driver's own in [the
+        marker page's last sample, the choice's close), else V13 (unattributed input). Anything else -- another rule's
+        choice, a Confirm sent, a stale read, the choice still ready, the catch -- raises ``err`` itself: the
+        instrument's stop."""
+        g, gd = self.g, self.gd
+        after = g.channel.seq
+        span = {int(r["seq"]): r for r in self.steps_rows()
+                if r.get("seq") is not None and before < int(r["seq"]) <= after}
+        if (rule is not self.guard_rule or len(span) != after - before
+                or any(_press_button(r.get("steps")) in CONFIRM_NAMES for r in span.values())):
+            raise err
+        now = g.state
+        gone = ((now.choice is None and now.menu_group != g.CHOICE_GROUP)
+                or (now.menu_group not in (None, g.CHOICE_GROUP) and self.is_guard_choice(now.choice)))
+        if not gone or now.frame <= st.frame:
+            raise err
+        self.row_choose(before, after, st)
+        gd["answer"] = [before, after]
+        self.poll_witness(now, now_too=True)
+        self.guard_stray("choice_gone", now, note=f"read by the answer, before its first Confirm: {str(err)[:160]}")
 
 
 def drive(g, pred: dict, side: str, log: list, *, deadline: float, floor_for=None, prior_for=None,
