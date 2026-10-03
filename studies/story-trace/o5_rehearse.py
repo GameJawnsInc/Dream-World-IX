@@ -19,10 +19,12 @@ mid-walk, so a failure there ends the launch. F-SMOKE, F-PASS and R-RACE run onl
 
 EACH TRACED RUN: New Game; the story trace armed; the raw ``warp 153 325 1190`` (Segment.start_run); then
 segment_drive.drive on the stage's predictions with its end fields, the live forbidden scan on, the run-wide input
-witness and the recorder (O4's, plus the grant's published objects and the dialog-section catch) watching every poll,
-and the WALK TAP on the session's ``route_to`` -- each walk's untrimmed record (its waypoints) and every sample its own
-reads kept, taken the moment it returns, while the ring still holds them; the trace collected to
-``rh_<stage>_<n>.jsonl``; the record written into ``o5_rehearsal.json``; end_run, its recovery rows recorded.
+witness and the recorder (O4's, plus the grant's published objects, the dialog-section catch and the race's timeline
+off the ring) watching every poll, and the WALK TAP on the session's ``route_to`` -- each walk's untrimmed record (its
+waypoints) and every sample its own reads kept, taken the moment it returns, while the ring still holds them; the trace
+collected to ``rh_<stage>_<n>.jsonl``; the record written into ``o5_rehearsal.json``; end_run, its recovery rows
+recorded. The recorder and the guard record read 127 and 128 by the DRAFT's guard, never the stage's copy: R-RACE's
+overlay drops the guard from what the driver reads, not from what the record measures.
 
 R-WALK-VOID: the stage overlay ``walk_stop_x`` -700 lies on the stair step of the stage's COPY of the predictions (the
 freeze refuses it anywhere else), and the WALK STOP wraps ``g.send`` on the driver's own thread: the first ``hold``
@@ -183,18 +185,59 @@ class Recorder(O4R.Recorder):
     ``shown``, ``coll``, ``solid``, ``r``, ``talk_r``, ``range_r``); THE DIALOG-SECTION CATCH (0.2 #18) -- every
     sample with no choice block while the menu group is ``Dialog.Choice`` (the catch as the agent publishes it, an
     EMPTY dialog section: :data:`CATCH_KIND`), and every sample listing a marker page again after one without it --
-    with the samples read, so its rate can be judged; and the TELEPORT the driver's own
+    with the samples read, so its rate can be judged; the TELEPORT the driver's own
     polls saw -- the first sample in the walk's place, control off, within :data:`TELEPORT` (the walk tap keeps only
-    route_to's own reads, which can end before the stair's cut moves him)."""
+    route_to's own reads, which can end before the stair's cut moves him); and THE RACE'S TIMELINE off the ring
+    (:meth:`race_scan`). Its markers and the guarded choice are ``guard``'s -- the DRAFT's guard, given by the caller --
+    else the predictions'; a stage whose overlay drops the guard (R-RACE) still reads 127 and 128 by them."""
 
-    def __init__(self, g, stage: dict, pred: dict):
+    def __init__(self, g, stage: dict, pred: dict, guard: dict | None = None):
         super().__init__(g, stage, tracks=())
-        self.markers = list((pred.get("guard") or {}).get("markers") or ())
+        gdef = (pred.get("guard") if guard is None else guard) or {}
+        self.markers = list(gdef.get("markers") or ())
+        self.match = gdef.get("choice") or (pred.get("choice") or {}).get("rule")
         self.walk_place = (pred.get("walk") or {}).get("donor")
         self.catch: list = []
         self.samples_read = 0
         self.teleport = None
+        self.race = {"marker_last": None, "choice_first": None, "choice_ready": None, "samples": 0}
         self._marker = None                 # None: no marker page seen yet; True: listed now; False: gone since
+        self._scanned = None                # the ring's last frame race_scan read
+
+    def race_scan(self, st) -> None:
+        """THE RACE'S TIMELINE (7.2: 127's last listed sample -> 128's readiness), read off the RING at every poll --
+        each sample the harness read since the last scan, once, oldest first: the last sample listing a marker window
+        (a marker in a window's text or ``phrase_raw``) before the guarded choice's first publication (``marker_last``),
+        that publication (``choice_first``: a choice block whose options hold the guarded rule's match) and its first
+        READY sample (``choice_ready``: the group ``Dialog.Choice``) -- segment_drive's guard row's own definitions, read
+        at the same resolution, with or without a guard row (``samples``: the ring samples read). It stops at the first
+        readiness; no markers or no match, nothing is read."""
+        r = self.race
+        if not self.markers or not self.match or r["choice_ready"] is not None:
+            return
+        since = st.frame - 1 if self._scanned is None else self._scanned
+        try:
+            raws = self.g.states_since(since)
+        except Exception:                                      # noqa: BLE001 -- a record, never the run
+            return
+        for raw in raws:
+            f = int(raw.get("frame", -1))
+            if self._scanned is not None and f <= self._scanned:
+                continue
+            self._scanned = f
+            r["samples"] += 1
+            d = raw.get("dialog") or {}
+            ch = d.get("choice")
+            ours = bool(ch) and any(self.match in str(o) for o in ch.get("options") or ())
+            if r["choice_first"] is None:
+                if ours:
+                    r["choice_first"] = f
+                elif any(m in str(x) for x in [*(d.get("texts") or ()), *(d.get("phrase_raw") or ())]
+                         for m in self.markers):
+                    r["marker_last"] = f
+            if ours and (raw.get("menu") or {}).get("group") == "Dialog.Choice":
+                r["choice_ready"] = f
+                return
 
     def __call__(self, st, ctx: dict) -> None:
         n = len(self.grants)
@@ -217,6 +260,7 @@ class Recorder(O4R.Recorder):
             self._marker = True
         elif self._marker:
             self._marker = False
+        self.race_scan(st)
 
 
 def _raw_sample(raw: dict) -> dict:
@@ -486,15 +530,64 @@ def walk_record(walks: list, log: list, pred: dict, rec_obs, *, basis=None, step
     return out
 
 
-def guard_record(log: list, pred: dict, rec_obs, *, fps=None, tick_hz=30.0) -> dict:
-    """7.2's guard record: the marker page (127) as the recorder saw it -- first seen, gone -- and its presses (the
-    driver's ``press`` rows holding a marker: decision, accepted, down and ack frames); the guard row whole (armed,
-    the quiet window's open frame and re-arms, ``marker_last``, the choice's first/ready/close, the answer's span,
-    ``closing_seq``, ``strays``, the branch page, the verdict); 128 as published -- its first publication, the choice
-    row at readiness, and whether its options or active lines changed after it (``[IMME]``: they must not); the
-    guarded rule's choice rows and ``choose_landed``'s presses; THE RACE MARGIN, 127's last listed sample to 128's
-    readiness, in frames, ticks and seconds at the launch's rate."""
-    marks = list((pred.get("guard") or {}).get("markers") or ())
+def page_requests(log: list, steps: list, events: list) -> list:
+    """Each ``page`` press row of ``log`` with its REQUEST, in log order: ``[(row, {"seq", "accepted_frame",
+    "down_frame", "ack_frame", "joined"})]``, pure. A row with its own ``seq`` (the guard's rows) keeps it (``joined``
+    "seq"); a plain rule-7 row -- an UNGUARDED run's (R-RACE), which records only the poll it decided on -- takes the
+    first steps.jsonl request after the last one joined that presses a Confirm and was acknowledged at or after the
+    row's DECISION frame (``joined`` "order"): the driver presses right after deciding on that poll and sends nothing
+    between, so its page press is the next Confirm it sends; none found, ``seq`` None (``joined`` None). The accepted
+    frame from events.jsonl (HarnessAgent.cs:599-607; down = accepted + 1); the ack frame the row's own, else its
+    request's (steps.jsonl ``frame``)."""
+    acc: dict = {}
+    for e in events or ():
+        if e.get("kind") == "accepted" and e.get("seq") is not None:
+            try:
+                acc.setdefault(int(e["seq"]), int(e["frame"]))
+            except (TypeError, ValueError):
+                continue
+    reqs = sorted((r for r in steps or () if r.get("seq") is not None
+                   and SD._press_button(r.get("steps")) in SD.CONFIRM_NAMES), key=lambda r: int(r["seq"]))
+    ack_of = {int(r["seq"]): r.get("frame") for r in reqs}
+    out, j, last = [], 0, None
+    for row in (x for x in log or () if x.get("k") == "press" and x.get("why") == "page"):
+        seq, how = row.get("seq"), "seq"
+        if seq is None:
+            how, pre = None, (row.get("pre") or {}).get("frame")
+            while pre is not None and j < len(reqs):
+                r = reqs[j]
+                j += 1
+                if (last is None or int(r["seq"]) > last) and r.get("frame") is not None and int(r["frame"]) >= pre:
+                    seq, how = int(r["seq"]), "order"
+                    break
+        if seq is not None:
+            seq = int(seq)
+            last = seq if last is None else max(last, seq)
+        a = None if seq is None else acc.get(seq)
+        ack = row.get("ack_frame") if row.get("ack_frame") is not None else (None if seq is None else ack_of.get(seq))
+        out.append((row, {"seq": seq, "accepted_frame": a, "down_frame": None if a is None else a + 1,
+                          "ack_frame": ack, "joined": how}))
+    return out
+
+
+def guard_record(log: list, pred: dict, rec_obs, *, guard: dict | None = None, steps=(), events=(), fps=None,
+                 tick_hz=30.0) -> dict:
+    """7.2's guard record: the marker page (127) as the recorder saw it -- first seen, gone -- and its presses
+    (decision, accepted, down and ack frames: the guard row's own; with no guard row -- an unguarded stage, R-RACE -- the
+    rule-7 presses decided on a marker page's poll, each joined to its request, :func:`page_requests`); the guard row
+    whole (armed, the quiet window's open frame and re-arms, ``marker_last``, the choice's first/ready/close, the
+    answer's span, ``closing_seq``, ``strays``, the branch page, the verdict); 128 as published -- its first
+    publication, the choice row at readiness, and whether its options or active lines changed after it (``[IMME]``:
+    they must not); the guarded rule's choice rows and ``choose_landed``'s presses; THE RACE MARGIN, 127's last listed
+    sample to 128's readiness, in frames, ticks and seconds at the launch's rate -- the guard row's, else the
+    recorder's ring scan (``source`` says which; ``race`` the scan's timeline); and the BRANCH PAGE, the first page
+    after 128's first publication: the pick's marker, the other's, or neither. The markers, the guarded choice and the
+    branch markers are ``guard``'s -- the DRAFT's, given by the caller -- else ``pred``'s: a stage's copy that drops the
+    guard (R-RACE's overlay) must not blind the record of the race it exists to measure."""
+    gdef = (pred.get("guard") if guard is None else guard) or {}
+    marks = list(gdef.get("markers") or ())
+    match = gdef.get("choice") or (pred.get("choice") or {}).get("rule")
+    branch = list(gdef.get("branch") or ())
     pages = [p for p in rec_obs.pages if any(m in p["text"] for m in marks)]
     gr = [x for x in log if x.get("k") == "guard"]
     g = gr[0] if gr else None
@@ -502,30 +595,45 @@ def guard_record(log: list, pred: dict, rec_obs, *, fps=None, tick_hz=30.0) -> d
     if g is not None:                                   # the guard row's own: each press placed by its accepted event
         presses = [{**{k: p.get(k) for k in ("seq", "decision_frame", "accepted_frame", "down_frame")},
                     "ack_frame": acks.get(p.get("seq"))} for p in g.get("presses") or () if p.get("marker")]
-    else:                                               # no guard row (an unguarded stage): the log's marker presses
-        presses = [{"seq": x.get("seq"), "decision_frame": (x.get("pre") or {}).get("frame"), "accepted_frame": None,
-                    "down_frame": None, "ack_frame": x.get("ack_frame")} for x in log
-                   if x.get("k") == "press" and x.get("why") == "page"
-                   and (x.get("marker") or any(m in t for t in (x.get("raws") or ()) for m in marks))]
+    else:                                               # no guard row: the rule-7 presses decided on a marker page
+        spans = [(p["frame"], p.get("gone_frame")) for p in pages]
+
+        def on_marker(x):
+            pre = (x.get("pre") or {}).get("frame")
+            return bool(x.get("marker") or any(m in t for t in (x.get("raws") or ()) for m in marks)
+                        or (pre is not None and any(lo <= pre and (hi is None or pre < hi) for lo, hi in spans)))
+        presses = [{"seq": q["seq"], "decision_frame": (x.get("pre") or {}).get("frame"),
+                    "accepted_frame": q["accepted_frame"], "down_frame": q["down_frame"], "ack_frame": q["ack_frame"],
+                    "joined": q["joined"]} for x, q in page_requests(log, steps, events) if on_marker(x)]
     rows = C5.choice_rows(log, pred)
     ch = rows[0] if rows else None
-    rule = next((r for r in pred.get("choices") or () if r.get("match") == (pred.get("guard") or {}).get("choice")),
-                {})
-    pubs = [c for c in rec_obs.choices if any(rule.get("match", "\0") in str(o) for o in c.get("options") or ())]
+    pubs = [c for c in rec_obs.choices if match and any(match in str(o) for o in c.get("options") or ())]
     changed = None
     if ch is not None:
         later = [c for c in pubs if c["frame"] > ch["frame"]]
         changed = any((c.get("options"), c.get("active")) != (ch.get("options"), ch.get("active")) for c in later)
+    race = dict(getattr(rec_obs, "race", None) or {})
     margin = None
-    if g is not None and g.get("choice_ready") is not None and g.get("marker_last") is not None:
-        f = g["choice_ready"] - g["marker_last"]
-        margin = {"frames": f, "ticks": _ticks(f, fps, tick_hz), "s": _secs(f, fps)}
-    return {"marker_pages": [{k: p.get(k) for k in ("frame", "gone_frame", "text")} for p in pages],
+    for src, lo, hi in (("the guard row", (g or {}).get("marker_last"), (g or {}).get("choice_ready")),
+                        ("the recorder's ring scan", race.get("marker_last"), race.get("choice_ready"))):
+        if lo is not None and hi is not None:
+            f = hi - lo
+            margin = {"frames": f, "ticks": _ticks(f, fps, tick_hz), "s": _secs(f, fps), "source": src}
+            break
+    first = race.get("choice_first") if race.get("choice_first") is not None else (pubs[0]["frame"] if pubs else None)
+    after = next((p for p in rec_obs.pages if first is not None and p["frame"] > first), None)
+    branch_page = None
+    if after is not None:
+        which = ("pick" if len(branch) == 2 and branch[0] in after["text"] else
+                 "other" if len(branch) == 2 and branch[1] in after["text"] else "neither")
+        branch_page = {"which": which, "frame": after["frame"], "text": after["text"][:80]}
+    return {"markers": marks, "match": match,
+            "marker_pages": [{k: p.get(k) for k in ("frame", "gone_frame", "text")} for p in pages],
             "marker_presses": presses, "guard": g, "guard_rows": len(gr), "choice": ch, "choice_rows": len(rows),
             "published": {"first_frame": pubs[0]["frame"] if pubs else None, "snapshots": len(pubs),
                           "changed_after_ready": changed},
             "choose": [x for x in log if x.get("k") == "press" and x.get("why") == "choose"],
-            "race_margin": margin}
+            "race_margin": margin, "race": race, "branch_page": branch_page}
 
 
 def _shows(press: dict, texts, raws) -> bool:
@@ -621,7 +729,7 @@ def one(g, name: str, stage: dict, pred: dict, n: int, *, side: str = "S", t0: f
     members = members_of(spred) if side == "F" else {}
     traced = not stage.get("untraced")
     log, progress, marks = [], {}, {}
-    rec_obs = Recorder(g, stage, spred)
+    rec_obs = Recorder(g, stage, spred, guard=pred.get("guard"))      # 127 and 128 by the DRAFT's guard (R-RACE)
     trace_name = f"rh_{name}_{n}.jsonl" if traced else None
     t_run = time.time()
     rec = {"stage": name, "n": n, "side": side, "t0": round(t_run - t0, 1), "trace_file": trace_name,
@@ -671,6 +779,10 @@ def one(g, name: str, stage: dict, pred: dict, n: int, *, side: str = "S", t0: f
     except T.TraceError as err:
         trace = {"error": str(err)[:300]}
     steps = _steps_rows(g)
+    try:
+        events = list(g.channel.events())
+    except Exception:                                          # noqa: BLE001 -- a record, never the run
+        events = []
     pages = rec_obs.pages
     rec.update(
         outcome={k: outcome.get(k) for k in ("end", "why", "v", "cell", "by", "t")},
@@ -678,7 +790,8 @@ def one(g, name: str, stage: dict, pred: dict, n: int, *, side: str = "S", t0: f
         rate={"fps": fps, "tick_hz": tick_hz},
         grants=rec_obs.grants,
         walk=walk_record(tap.walks, log, spred, rec_obs, basis=basis, steps=steps, fps=fps, tick_hz=tick_hz),
-        guard=guard_record(log, spred, rec_obs, fps=fps, tick_hz=tick_hz),
+        guard=guard_record(log, spred, rec_obs, guard=pred.get("guard"), steps=steps, events=events, fps=fps,
+                           tick_hz=tick_hz),
         windows=windows_record(pages, log, fps=fps, tick_hz=tick_hz),
         catch={"samples": rec_obs.samples_read, "caught": rec_obs.catch},
         choices=[x for x in log if x.get("k") == "choice"],

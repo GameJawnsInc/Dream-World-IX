@@ -2015,7 +2015,15 @@ def _guard_report(gd: dict) -> list:
                  f"{g.get('branch')} {g.get('branch_raw')}; verdict {g.get('verdict')}")
     m = gd.get("race_margin")
     L.append("    RACE MARGIN " + (f"{m.get('frames')} frames, {m.get('ticks')} ticks, {m.get('s')} s" if m else
-                                   "not measured") + " (127's last listed sample -> 128's readiness)")
+                                   "not measured") + " (127's last listed sample -> 128's readiness"
+             + (f"; from {m.get('source')}" if m and m.get("source") else "") + ")")
+    race = gd.get("race") or {}
+    if race:
+        L.append(f"    the ring's timeline: 127 last {race.get('marker_last')}, 128 first {race.get('choice_first')} "
+                 f"ready {race.get('choice_ready')} ({race.get('samples')} ring samples read)")
+    bp = gd.get("branch_page")
+    L.append("    branch page after 128: " + (f"{bp.get('which')} at frame {bp.get('frame')} {bp.get('text')!r}" if bp
+                                               else "none seen"))
     pub = gd.get("published") or {}
     c = gd.get("choice")
     L.append(f"    128 published: first at frame {pub.get('first_frame')}, {pub.get('snapshots')} snapshot(s), options "

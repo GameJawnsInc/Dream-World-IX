@@ -22817,7 +22817,11 @@ def test_o5_rehearsal_plumbing_on_the_fake(game):
     assert gd["guard"]["verdict"] == "ok" and gd["guard"]["branch"] == "pick", gd["guard"]
     assert gd["marker_pages"] and gd["marker_presses"], (gd["marker_pages"], gd["marker_presses"])
     m = gd["race_margin"]
-    assert m["frames"] > 0 and m["ticks"] is not None and m["s"] is not None, m
+    assert m["frames"] > 0 and m["ticks"] is not None and m["s"] is not None and m["source"] == "the guard row", m
+    race = gd["race"]                                   # the recorder's ring scan reads the guard row's own timeline
+    assert (race["marker_last"], race["choice_first"], race["choice_ready"]) == (
+        gd["guard"]["marker_last"], gd["guard"]["choice_first"], gd["guard"]["choice_ready"]), (race, gd["guard"])
+    assert gd["branch_page"]["which"] == "pick", gd["branch_page"]
     assert gd["published"]["first_frame"] is not None and gd["published"]["changed_after_ready"] is False, gd["published"]
     assert gd["choice"]["index"] == 1 and gd["choice"]["took"]["landed"] is True, gd["choice"]
     assert [p["selected_before"] for p in gd["choose"] if p.get("answer")] == [1], gd["choose"]
@@ -22953,3 +22957,64 @@ def test_o5_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake(game):
     assert rec["end"]["end_run"]["ok"] and title == "Title", rec["end"]["end_run"]
     report = C5.rehearsal_report(game / "run")
     assert "UNTRACED" in report and "untraced: exceptions since the warp []" in report, report[:2500]
+
+
+def test_o5_rehearsal_race_reads_the_unguarded_race_on_the_fake(game):
+    """R-RACE (research/o5_design.md 7.1-7.2; the review's analysis-integrity finding) on the fake, its short route
+    (153's guarded stretch, then Field(151)): the stage's overlay drops the guard from its COPY of the predictions, so
+    the driver presses 126 and 127 by O1's plain rule 7 (rows with no seq) and answers 128 by O1's blind choose -- and
+    the record still reads them through the DRAFT's guard (its markers, the guarded rule's match, its branch markers):
+    127's pages (first seen, gone); the rule-7 presses decided on them, each joined to its own request (``joined``
+    "order": a ``press confirm 3``, its seq, accepted, down and ack frames); 128's first publication and snapshots; THE
+    RACE MARGIN off the recorder's ring scan (127's last listed sample -> 128's readiness, its source named) and the
+    branch page after it -- 141, the pick (the unforced run answers 1). A run whose 128 is answered at its readiness by
+    input no witness saw (``stray_confirm_at_ready``: the stray answer the stage counts) reads the OTHER branch's page
+    (129) and no choice row, 127's pages and presses all the same (128 lives a few frames there: whether a read caught
+    it is the load's, never asserted). The report prints the margin's source and the branch page. Break: read the
+    markers from the stage's copy (no marker page, no press, no publication, no margin)."""
+    C5, R = _o5_module(), _o5_rehearse_module()
+    _o5_register(game)
+    engine = _o4_launch_files(game)
+    stages = {"R-RACE": dict(R.STAGES["R-RACE"], field=30820, end=[30810], runs=1, run_s=120)}
+    pred = _o5_rehearse_pred(route=[30820], visits=[30820], beats=["choice128"])
+    doc, fake, title, aside = _o5_launch_informative(game, R, stages, {"O5_STAGE": "R-RACE"},
+                                                     lambda: _o5_rh_phases(knobs={"short": True}), engine=engine,
+                                                     pred=pred)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    rec = doc["stages"]["R-RACE"][0]
+    assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == "field 30810", (rec["outcome"], aside)
+    assert not [x for x in rec["evidence"]["press"] if x.get("why") == "page" and x.get("seq") is not None], \
+        "premise: an unguarded run's rule-7 rows carry no seq"
+    gd = rec["guard"]
+    assert gd["guard"] is None and gd["guard_rows"] == 0 and gd["markers"] == ["let me pass"], gd
+    assert gd["marker_pages"] and all("let me pass" in p["text"] for p in gd["marker_pages"]), gd["marker_pages"]
+    spans = [(p["frame"], p["gone_frame"]) for p in gd["marker_pages"]]
+    mp = gd["marker_presses"]
+    assert mp and all(p["joined"] == "order" and p["seq"] is not None and p["ack_frame"] is not None
+                      and p["down_frame"] is not None and p["down_frame"] > p["decision_frame"] for p in mp), mp
+    assert all(any(lo <= p["decision_frame"] < (hi if hi is not None else 1 << 62) for lo, hi in spans)
+               for p in mp), (mp, spans)
+    steps = {int(r["seq"]): r["steps"] for r in (json.loads(ln) for ln in (game / "run" / "steps.jsonl").read_text(
+        encoding="utf-8").splitlines() if ln.strip()) if r.get("kind") == "step" and r.get("seq") is not None}
+    assert all(steps[p["seq"]] == ["press confirm 3"] for p in mp), [steps.get(p["seq"]) for p in mp]
+    pub = gd["published"]
+    assert pub["first_frame"] is not None and pub["snapshots"] >= 1 and pub["changed_after_ready"] is False, pub
+    m, race = gd["race_margin"], gd["race"]
+    assert m is not None and m["source"] == "the recorder's ring scan" and m["frames"] > 0, m
+    assert race["marker_last"] < race["choice_first"] <= race["choice_ready"], race
+    assert m["frames"] == race["choice_ready"] - race["marker_last"], (m, race)
+    assert gd["choice"] is not None and gd["choice"]["index"] == 1, gd["choice"]
+    assert gd["branch_page"]["which"] == "pick" and "mes 141" in gd["branch_page"]["text"], gd["branch_page"]
+    report = C5.rehearsal_report(game / "run")
+    for want in ("from the recorder's ring scan", "the ring's timeline: 127 last", "branch page after 128: pick"):
+        assert want in report, (want, report[:3000])
+    doc, fake, title, aside = _o5_launch_informative(
+        game, R, stages, {"O5_STAGE": "R-RACE"},
+        lambda: _o5_rh_phases(knobs={"short": True, "stray_confirm_at_ready": True}), engine=engine, pred=pred)
+    rec = doc["stages"]["R-RACE"][0]
+    gd = rec["guard"]
+    assert rec["outcome"]["end"] == "reached" and (rec["beats"] or {}).get("choice128") is not True, (rec["outcome"],
+                                                                                                    rec["beats"])
+    assert gd["choice"] is None and fake.answered == [0], (gd["choice"], fake.answered)
+    assert gd["branch_page"]["which"] == "other" and "mes 129" in gd["branch_page"]["text"], gd["branch_page"]
+    assert gd["marker_pages"] and gd["marker_presses"], (gd["marker_pages"], gd["marker_presses"])
