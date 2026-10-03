@@ -102,7 +102,7 @@ CONTOUR_Y = -450
 REHEARSAL_OVERLAYS = frozenset({"walk_stop_x"})
 #: 4.10: the pre-choice guard and the run-wide witness (F2, F6 and F9 re-size them from the rehearsals).
 GUARD = {"donor": 153, "sc": 1190, "markers": ["let me pass"], "choice": "her face",
-         "branch": ["Let\u2019s see", "Hold on a sec"], "page_once_ticks": 10, "quiet_cap_s": 4.0,
+         "branch": ["Let\u2019s see", "Hold on a sec"], "page_once_ticks": 10, "quiet_cap_s": 2.7,
          "why": "153 e31 t1 ip663 WindowSync(2,128,127) -> ip669 WaitAnimation (RunAnimation(3387) ip648) -> ip670 "
                 "Map.Bit[231] := 1 -> e2 t1 Map.Byte[24] := 20 (the next tick) -> e3 t1 ip1724 WindowSync(0,128,128) "
                 "[IMME], ~2 ticks after 127 is gone plus the animation's rest: a Confirm decided on a stale or closing "
@@ -348,12 +348,14 @@ def draft_predictions(campaign=None) -> dict:
                 f"-> 154@304 (EVT_ALEX1_AC_ENT_2F) -> 153@316 -> Field(151) (EVT_ALEX1_AC_SEAT_R), SC 1190; stock vs "
                 f"the alxc disc-1 chain as O4 deployed it (route members {rm[151]}-{rm[154]}; PLAN.md, O5) -- a US "
                 f"session",
-        "rehearsals": [],                              # 7.3: the lead's in-game rehearsal run dirs, before the freeze
+        "rehearsals": ["20261003-090247-o5-rh-stairs", "20261003-090534-o5-rh-full",     # 7.3 (F1-F15)
+                       "20261003-090932-o5-rh-r-walk-void", "20261003-091010-o5-rh-f-smoke",
+                       "20261003-091153-o5-rh-f-pass"],
         "order": ["S", "F", "S", "F", "S", "F"],
         "min_covered": 2,
         "rerun": {"max": 2, "stop_on": ["V19"]},
         # F6 replaces every number from the rehearsals (4.12)
-        "budget": {"run_s": 600, "run_min_s": 300, "session_s": 3600, "settle_s": 1.0, "no_progress_s": 60,
+        "budget": {"run_s": 224, "run_min_s": 132, "session_s": 2644, "settle_s": 1.0, "no_progress_s": 60,
                    "end_row_s": 10.0},
         "start": {"S": ROUTE[0], "F": rm[ROUTE[0]]},
         "entrance": 325,
