@@ -3908,8 +3908,12 @@ class _VisitBeat(_Machine):
         closes a COMPLETE page -- or, while it types, only completes its text (Dialog.cs:803-807); on a complete choice
         Down/Up move the cursor (OnItemSelect, CompleteAnimation, :826-835) and a Confirm answers at it -- but in its
         first ``ready_lag_frames`` it commits SelectChoice and hides nothing (:787-789), and while its prompt types it
-        only completes the text. In a window's opening nothing is taken (a Confirm there sets SelectChoice to the
-        default and closes nothing, :798-801). H15's choice faults act here."""
+        only completes the text. The cursor WRAPS: Dialog.cs:157 links the choice buttons with
+        NGUIExtension.SetKeyNevigation (NGUIExtension.cs:17-29: the last button's onDown is the first, the first's onUp
+        the last), and UIKeyNavigation.GetDown/GetUp take an active onDown/onUp before anything else
+        (UIKeyNavigation.cs:94-95, :108-109) -- a Down on the last line lands on the first (O4's machines and the
+        generic beat clamp: theirs, pinned, untouched). In a window's opening nothing is taken (a Confirm there sets
+        SelectChoice to the default and closes nothing, :798-801). H15's choice faults act here."""
         k = self.k
         lag = int(k["ready_lag_frames"])
         cur = k["cursor_to"]
@@ -3939,10 +3943,10 @@ class _VisitBeat(_Machine):
                     self.close(fake, w)
             elif w.kind == "choice":
                 before = w.cursor
-                if "down" in downs:
-                    w.cursor = min(len(w.lines) - 1, w.cursor + 1)
+                if "down" in downs:                                     # WRAPS, as the engine's navigation does
+                    w.cursor = (w.cursor + 1) % len(w.lines)
                 if "up" in downs:
-                    w.cursor = max(0, w.cursor - 1)
+                    w.cursor = (w.cursor - 1) % len(w.lines)
                 if w.cursor != before and cur is not None and "after_frames" in cur and not self.moved:
                     self.moved = True
                     self.move = (fake.frame + int(cur["after_frames"]), int(cur["index"]))

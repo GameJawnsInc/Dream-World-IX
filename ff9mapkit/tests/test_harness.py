@@ -20595,6 +20595,38 @@ def test_fake_visit_choice_opens_after_its_gap_on_cursor_zero(game):
         assert [(r["ip"], r["old"], r["new"]) for r in _fv_rows(fake, "w")] == [(1741, 0, answer)]
 
 
+def test_fake_visit_choice_cursor_wraps(game):
+    """H14's choice cursor WRAPS as the engine's does (the review's walk-and-choice finding): Dialog.cs:157 links the
+    choice buttons with NGUIExtension.SetKeyNevigation (NGUIExtension.cs:17-29: the last line's onDown is the first,
+    the first's onUp the last) and UIKeyNavigation.GetDown/GetUp take an active onDown/onUp first (:94-95, :108-109).
+    On 128 complete (two lines, the cursor on 0): a Down lands on 1; a SECOND Down -- select()'s extra press on a read
+    that lagged its first -- wraps to 0, "Let her pass", published so; an Up from 0 wraps to 1, and another to 0; a
+    Confirm answers where it rests: the doubled Down answered 0, the ip1741 store 0 and the other branch's page (129)
+    next. Break: clamp the cursor (the doubled Down then holds 1 and 128 answers the pick)."""
+    fake = _fv_fake(game, _fv_choice_visit(1))
+    _cb_until(fake, lambda f: _fv_win(f, "let me pass") is not None and _fv_win(f, "let me pass").complete)
+    _fv_press_on(fake, fake.frame + 1)
+    _cb_until(fake, lambda f: _fv_win(f, "Hmm", "choice") is not None)
+    ch, opened = _fv_win(fake, "Hmm", "choice"), fake.frame
+    _cb_until(fake, lambda f: ch.complete)
+    assert ch.done_frame == opened + 6 and ch.cursor == 0 and fake.menu["group"] == "Dialog.Choice", (ch.done_frame,
+                                                                                                      opened)
+    seen = []
+    for k, button in enumerate(("down", "down", "up", "up")):
+        _fv_press_on(fake, opened + 8 + 2 * k, button)
+        seen.append((ch.cursor, fake.choice["selected"]))
+    assert seen == [(1, 1), (0, 0), (1, 1), (0, 0)], seen
+    _fv_press_on(fake, opened + 16, "down")             # the pick reached ...
+    _fv_press_on(fake, opened + 18, "down")             # ... and a doubled Down past it: back on 0
+    assert ch.cursor == 0 and fake.choice["selected"] == 0 and not ch.closing, (ch.cursor, fake.choice)
+    _fv_press_on(fake, opened + 20)
+    assert ch.closing and fake.answered == [0], fake.answered
+    _cb_until(fake, lambda f: ch.gone)
+    _cb_until(fake, lambda f: f.texts)
+    assert fake.texts == ["153 mes 129"], fake.texts
+    assert [(r["ip"], r["old"], r["new"]) for r in _fv_rows(fake, "w")] == [(1741, 0, 0)]
+
+
 def test_fake_visit_objects_as_the_agent_publishes_them(game):
     """H14's ``bodies`` (research/o5_design.md 3.4, 0.2 #19): 153@325's objects published as the agent publishes them --
     Blank (sid 7) at (1068, 373), ``coll`` True, ``solid`` False, r 176, talk_r 377, range_r None, shown; e9, e11, e31
