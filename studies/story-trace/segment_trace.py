@@ -34,6 +34,16 @@ sys.path.insert(0, str(HERE))
 
 from ff9mapkit import storytrace as T                                   # noqa: E402
 
+
+def say(text: str, *, flush: bool = False) -> None:
+    """``print`` a report that may quote the GAME's text, never raising on a console that cannot encode it: a cp1252
+    stdout has no U+2500, which O5's pages carry (Zidane's "wouldn't" + U+2500), and a session prints its report AFTER writing the
+    report file but BEFORE recording its checks -- a raise there would drop every check. An unencodable character is
+    printed as its backslash escape; the report file keeps the text as is."""
+    enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+    print(str(text).encode(enc, "backslashreplace").decode(enc, "replace"), flush=flush)
+
+
 SIDES = ("S", "F")
 #: THROW: the exceptions a session fails on when thrown through the engine's story machinery (``WHERE``).
 THROWS = {"NullReferenceException", "InvalidCastException", "IndexOutOfRangeException", "DivideByZeroException",
@@ -718,7 +728,7 @@ class Segment:
                 pass
         checks, report = self.analyse(g.run_dir)
         (g.run_dir / self.report_file).write_text(report, encoding="utf-8")
-        print(report[:6000], flush=True)
+        say(report[:6000], flush=True)
         for ok, what, detail in checks:
             g.check(ok is True, what, ("VOID -- " if ok is None else "") + detail)
         ours = [e for e in g.exceptions_since(mark) if e.name in THROWS
@@ -916,7 +926,7 @@ class Segment:
             return 0
         if args.analyse:
             checks, report = self.analyse(args.analyse, pred_path=args.predictions)
-            print(report)
+            say(report)
             return 0 if all(ok is True for ok, _w, _d in checks) else 1
         pred, _sha = self.load(args.predictions or self.predictions)
         checks = (self.offline_check(pred) if args.offline_check

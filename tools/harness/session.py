@@ -6860,6 +6860,91 @@ class Session:
         self.press("confirm", 4)
         self.wait_frames(self.rate().frames_for_ticks(self.CHOOSE_TICKS))
 
+    def choose_landed(self, index: int, *, timeout: float = 5.0) -> dict:
+        """Select option ``index`` of the ready choice and Confirm it until the GAME took it -- judged as
+        :meth:`_take_default_choice` judges its Confirm (the reads after it, on the game's clock: :meth:`_choice_left`),
+        never by a blind wait, with one read refused as a landing: no choice block while the menu group still reads
+        CHOICE_GROUP is the agent's dialog-section catch (HarnessAgent.cs:1699-1702), not a close -- the engine's close
+        sets the group '' at the answering Confirm (Dialog.cs:629, ButtonGroupState.cs:291) -- and the watch goes on from
+        that read. Returns ``{"index", "text", "prompt", "count", "field", "frame", "landed", "confirms", "why"}``:
+        ``landed`` True when a read after a Confirm stopped taking answers, or -- after a read gap -- another window is
+        up (this one was answered); False when the window still takes answers after CHOICE_CONFIRMS Confirms, each
+        re-pressed only while the window is ready with its cursor on ``index`` (``why`` "did not land"), or when the
+        cursor left ``index`` while it waited (``why`` "the cursor left the pick: <selected>"; nothing more pressed).
+        Raises :class:`ChoiceUnseen`, as _take_default_choice does, after a read gap whose window reads as this one
+        (:meth:`_choice_could_be`). research/o5_design.md 1.2 S11.
+
+        It is _take_default_choice's loop with three differences: the cursor is steered to ``index`` first
+        (:meth:`select`); a "waits" verdict re-presses only while the last read still publishes ``selected == index``;
+        and a "left" read with no choice block while the group still reads CHOICE_GROUP is skipped -- the watch goes on
+        from it (:meth:`_choice_left` called again; a catch on every read for ``timeout`` raises: nothing then says
+        whether the Confirm landed). A ready window that does not take a Confirm is real: one in the frame between the
+        group's activation and ``isChoiceReady`` commits SelectChoice and hides nothing (Dialog.cs:161-164, :787-789),
+        and a prompt still TYPING takes the first Confirm as "finish the text" (:803-807) -- either way the second
+        Confirm answers, where a blind :meth:`choose` read the first as the answer."""
+        st = self.wait_for(lambda s: s.choice is not None, timeout=timeout, what="a choice dialogue to be ready")
+        ch = dict(st.choice)
+        names = self.options(timeout=timeout)
+        active = ch.get("active")
+        pos = active.index(index) if active and index in active else index
+        record = {"index": index, "text": names[pos] if 0 <= pos < len(names) else None,
+                  "prompt": (ch.get("options") or [""])[0], "count": int(ch.get("count", 0)), "field": st.field_id,
+                  "frame": st.frame, "landed": False, "confirms": 0, "why": None}
+        self.select(index, timeout=timeout)
+        last = self.state                 # the window as the Confirm finds it: the reads after it are judged from here
+        was = dict(last.choice or ch)
+        presses = self.CHOICE_CONFIRMS if st.menu_group == self.CHOICE_GROUP else 1
+        seq = None
+        for n in range(1, presses + 1):
+            self.press("confirm", 4)
+            record["confirms"] = n
+            seq = self.channel.seq if seq is None else seq      # the FIRST Confirm's request: what it did is judged
+            final = n == presses
+            deadline = time.time() + timeout
+            while True:
+                seen, last, gap = self._choice_left(last, seq, None if final else self.CHOICE_CONFIRM_FRAMES, timeout)
+                if not (seen == "left" and last.choice is None and last.menu_group == self.CHOICE_GROUP):
+                    break
+                self._log(f"  choose_landed: frame {last.frame} published no dialog with the group still "
+                          f"{self.CHOICE_GROUP} (the agent's dialog-section catch): no landing -- watching on")
+                if time.time() >= deadline:
+                    raise HarnessError(
+                        f"the choice on field {st.field_id} published no dialog section, its group still "
+                        f"{self.CHOICE_GROUP}, on every read for {timeout:.0f}s after a Confirm on option {index} (the "
+                        f"agent's dialog-section catch): nothing says whether the Confirm landed")
+            if seen == "left":
+                record["landed"] = True
+                break
+            if seen == "unseen":
+                took = "a clock that could not be read" if gap is None else f"{gap:.3f} s of the game's clock"
+                if self._choice_could_be(was, index, st.field_id, last):
+                    raise ChoiceUnseen(
+                        f"the reads after the Confirm on option {index} {record['text']!r} (field {st.field_id}) "
+                        f"skipped {took} -- room for the window to be answered and the next to open unseen -- and "
+                        f"the window up after them reads as the one answered: {(last.choice or {}).get('options')} "
+                        f"(cursor {index}). It is that window, its prompt still typing (the Confirm only finished "
+                        f"the text), or the NEXT one asking the same (the Confirm answered it). Nothing was pressed "
+                        f"again and nothing recorded: a starved harness (a loaded machine) cannot tell them apart.",
+                        gap=gap, was=was, now=dict(last.choice or {}))
+                self._log(f"  choose_landed: the reads after the Confirm skipped {took}, and another window is up "
+                          f"now: this one was answered -- the next is the caller's")
+                record.update(landed=True, why="answered across a read gap: another window is up")
+                break
+            selected = (last.choice or {}).get("selected")
+            if selected != index:
+                record["why"] = f"the cursor left the pick: {selected}"
+                self._log(f"  choose_landed: the choice still waits with its cursor on {selected}, not the pick "
+                          f"{index}: nothing more pressed")
+                return record
+            if final:
+                record["why"] = "did not land"
+                return record
+            self._log(f"  choose_landed: the choice still waits {self.CHOICE_CONFIRM_FRAMES} frames after a Confirm, "
+                      f"its cursor on the pick -- Confirm again")
+        self._log(f"  choose_landed: took option {index} {record['text']!r} on field {st.field_id} "
+                  f"({record['confirms']} Confirm{'s' if record['confirms'] != 1 else ''})")
+        return record
+
     #: gEventGlobal is Byte[2048], so bits run 0 .. 16383. See [[project-ff9-story-flags]] for the
     #: SAFE allocation band (8712+) -- this is only the physical range.
     MAX_FLAG_BIT = 2048 * 8 - 1

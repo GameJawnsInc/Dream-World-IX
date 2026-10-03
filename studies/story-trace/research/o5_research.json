@@ -1,0 +1,1290 @@
+{
+ "reconciled": {
+  "chosen_end": {
+   "field": 151,
+   "warp_to": 153,
+   "field_entrance": 328,
+   "sid": 2,
+   "tag": 1,
+   "ip": 940,
+   "sc_at_end": 1190,
+   "est_minutes": 6.5,
+   "why": "Candidate 4: the arrival in 153 at entrance 328 (151 e2 t1 ip940 Field(153) after ip932 Int16[2]:=328), cut at 153's FIFTH-visit first row e0 t0 ip22 (S real 153, F member(153) 31245). ~6.5 min a run (estimate: 53 pages with pick 1, 12 KEYON pairs, 4 timed windows, 1 naming, 1 walk; ~26 s of scripted op_22 waits). Why: (1) exactly ONE control grant in the whole segment (153 e3 t1 ip785, the stair walk) -- 154@304, 153@316 and 151@110 have script-defined players (Zorn e2, Zorn e18, Brahne e3) and no Map.Bit[158], so the (153,1190) beat cell is unambiguous; (2) every interaction type inside is already proven (O2's trigger step with existing keys closed_tris/until, O1/O2's accept_name, O1/O4's choose(1), O3/O4's KEYON pairs, O2's 4.5 START-DEPENDENT shape); no battle, FMV, ATE, hot-spot; (3) nothing to build or deploy: 31244/31245/31246 are deployed and every route Field() is retargeted (verified instruction by instruction), F ends in member(153) like O4; (4) it contains the PLAN pointer's whole content (the stairs, choice 128 stored in Bit[3795], Zorn & Thorn, the throne room with Steiner's naming and Byte[6] |= 8, the first START-DEPENDENT key); (5) O6 then starts cleanly by a raw warp into 31245 at 328 with Steiner's first control at (-245,42) on the ground and every O6 field visited once. Cost: ONE small opt-in driver/cut feature, end_visit, because the run STARTS in 153 (rule 1 segment_drive.py:2801 and cut_at_end segment_trace.py:127-136 would end and cut at the start). Fallback with zero driver change: candidate 3 (first arrival in 151, ~4.7 min). Beyond the end (Steiner's 9-field walk, the spiral towers, FMV004, the 55 seam) is O6's."
+  },
+  "route": {
+   "segment_end_candidates": [
+    {
+     "field": 153,
+     "warp_to": 154,
+     "field_entrance": 304,
+     "sid": 3,
+     "tag": 1,
+     "ip": 3158,
+     "sc_at_end": 1190,
+     "est_minutes": 3,
+     "new_members_needed": "none (F lands in member(154) 31246; end check works today: first arrival in 154)",
+     "why": "153@325 only: pages 113-117, the first alxc control (e3 t1 ip785) and the stair walk (ip859 height test), choice 128 stored in Bit[3795] (ip1741; path 1 +9 pages), 2 KEYON pairs (ip2336, ip2711), timed 137/140; exit Byte8:=0 ip2953, Int16[2]:=304 ip3150."
+    },
+    {
+     "field": 154,
+     "warp_to": 153,
+     "field_entrance": 316,
+     "sid": 2,
+     "tag": 1,
+     "ip": 1528,
+     "sc_at_end": 1190,
+     "est_minutes": 3.8,
+     "new_members_needed": "none; but GAP: 153 is the start place (needs end_visit)",
+     "why": "+ 154@304 Zorn & Thorn: no control (Zorn e2 the player), 2 pages (153, 154), 3 KEYON pairs (e2 ip215, ip392, ip1265), Byte8:=125 ip279, Int16[2]:=316 ip1520."
+    },
+    {
+     "field": 153,
+     "warp_to": 151,
+     "field_entrance": 110,
+     "sid": 18,
+     "tag": 1,
+     "ip": 1085,
+     "sc_at_end": 1190,
+     "est_minutes": 4.7,
+     "new_members_needed": "none (F lands in member(151) 31244; works today: first arrival in 151) -- the zero-driver-change fallback",
+     "why": "+ 153@316: no control (Zorn e18), 12 pages, 2 KEYON pairs (e18 ip444, e20 ip883), Byte8:=0 ip890, Int16[2]:=110 ip1077."
+    },
+    {
+     "field": 151,
+     "warp_to": 153,
+     "field_entrance": 328,
+     "sid": 2,
+     "tag": 1,
+     "ip": 940,
+     "sc_at_end": 1190,
+     "est_minutes": 6.5,
+     "new_members_needed": "none (F lands in member(153) 31245); needs the opt-in end_visit (153 = the start place)",
+     "why": "CHOSEN. + the throne room 151@110: no control (Brahne e3 the player, size 1), 17 pages, 5 KEYON pairs, 2 timed (175/176), Steiner's naming Menu(1,3) e3 t1 ip603, Byte[6] |= 8 ip610 (START-DEPENDENT value 8 raw / 11 true; equal S vs F), Byte8 125 ip315 / 0 ip735, Int16[2]:=328 ip932."
+    },
+    {
+     "field": 153,
+     "warp_to": 153,
+     "field_entrance": 328,
+     "sid": 32,
+     "tag": 1,
+     "ip": 2412,
+     "sc_at_end": 1190,
+     "est_minutes": 7.2,
+     "new_members_needed": "none; a NEW end kind (control as the end) + end_visit",
+     "why": "Not a Field(): Steiner's first EnableMove after stages 40-48 (11 pages, Bit3855/3854 e32 t0 ip718/727, Byte208 x6, the party rebuild UInt16[21]:=8 ip1656, Byte303, Byte4, UInt16[19]|=8 ip2206 START-DEPENDENT, Byte17, Byte18) and e15 t0 ip32 Byte8:=125 via RunSharedScript(15) e32 t1 ip866. warp_to repeats the field: no warp."
+    },
+    {
+     "field": 153,
+     "warp_to": 154,
+     "field_entrance": 315,
+     "sid": 23,
+     "tag": 2,
+     "ip": 211,
+     "sc_at_end": 1190,
+     "est_minutes": 8,
+     "new_members_needed": "none; end_visit (154 visited at 304) and a second (153,1190) control cell",
+     "why": "+ Steiner's first walk: from (-245,42) on the GROUND north into e23 (f[1] > -100 and z > 1333), ~1600 u; Int16[2]:=315 ip203."
+    },
+    {
+     "field": 154,
+     "warp_to": 158,
+     "field_entrance": 300,
+     "sid": 8,
+     "tag": 2,
+     "ip": 363,
+     "sc_at_end": 1190,
+     "est_minutes": 9.5,
+     "new_members_needed": "none",
+     "why": "+ 154@315: from the upper gallery (-58,-3758, PSX -1741) down to the ground and into e8's GROUND branch (upstairs -> 153@301); overlapping levels, Dojebon's patrol; Int16[2]:=300 ip355."
+    },
+    {
+     "field": 159,
+     "warp_to": 160,
+     "field_entrance": 332,
+     "sid": 11,
+     "tag": 2,
+     "ip": 201,
+     "sc_at_end": 1190,
+     "est_minutes": 11,
+     "new_members_needed": "none",
+     "why": "+ 158 (Byte13 1/2/3, e2 t2 ip222 Int16[2]:=331) and 159's forced monologue (e16 t1 ip390 once x<-1600|x>1600|z<800: pages 296-300, Byte208, Bit[3796]:=1 ip672)."
+    },
+    {
+     "field": 165,
+     "warp_to": 166,
+     "field_entrance": 344,
+     "sid": 2,
+     "tag": 2,
+     "ip": 241,
+     "sc_at_end": 1190,
+     "est_minutes": 13,
+     "new_members_needed": "none",
+     "why": "+ 160, 162, 163 (plans at radius 80 not 120), the spiral towers 164 (exit needs f[1] < -12000; knight e1 t1 ip178 walks once f[1] <= -8400 then Bit[3811]:=1 ip230 -- races the exit) and 165 (exit f[1] < -15000)."
+    },
+    {
+     "field": 166,
+     "warp_to": 55,
+     "field_entrance": 110,
+     "sid": 6,
+     "tag": 1,
+     "ip": 871,
+     "sc_at_end": 1190,
+     "est_minutes": 15,
+     "new_members_needed": "none deployed new, but member(166) 31258 keeps a RAW Field(55) (0 instruction differences from stock 166): F lands in REAL 55 -- declare side_ends F [55] or rebuild member(166) with retarget 55 = 31205",
+     "why": "+ 166's scene (6 pages, Byte208, Byte8 125/0) and FMV004 (Cinematic(0,9,1,1) ip633, MBG.cs:830 type 0, 45.4 s), Int16[2]:=110 ip863."
+    },
+    {
+     "field": 55,
+     "warp_to": 55,
+     "field_entrance": 106,
+     "sid": 10,
+     "tag": 1,
+     "ip": 582,
+     "sc_at_end": 1400,
+     "est_minutes": 16,
+     "new_members_needed": "rebuild + redeploy member(166) with retarget 55 = 31205 (O1's chain)",
+     "why": "The first SC rung after 1190: 55 e10 t1 ip500 SC>1400 false -> ip582 SC:=1400 (ip568 the debug twin). warp_to repeats the field: no warp."
+    }
+   ],
+   "recommended_end": "The arrival in 153 at entrance 328: 151 e2 t1 ip940 Field(153) after ip932 Int16[2]:=328, cut at 153's FIFTH-visit first row (e0 t0 ip22 Bit[191]:=0); S real 153, F member(153) 31245 (side_ends {S:[153], F:[31245]}); SC 1190 throughout (no SC store in 151/153-167: O5's LADDER is 'no rung'). ~6.5 min a run with pick 1 ('Examine her face'), ~6 with pick 0 -- estimates. Requires one opt-in driver/cut feature, end_visit = 5 with visits [153,154,153,151,153] (rule 1, end_row, the live scan and cut_at_end count the visit). If the owner wants zero driver change: candidate 3, the first arrival in 151 at 110 (153 e18 t1 ip1085), ~4.7 min, and O6 absorbs the naming. Everything past the cut (Steiner's assembly and nine-field walk, the spiral towers, FMV004, the 55 seam) is O6's, started by a raw warp 31245 328 1190.",
+   "fields_in_order": [
+    {
+     "field": 153,
+     "name": "A. Castle/Hallway (EVT_ALEX1_AC_H2F) -- visit 1: Zidane, Blank, the hooded girl",
+     "zone": "alxc disc-1 cluster, text block 3; F member(153) 31245",
+     "entered_via": "raw warp `warp 153 325 1190` (S) / `warp 31245 325 1190` (F) from field 70 (before 70 e0 t0 ip475); Main_Init e0 t0 ip255 SWITCHEX(L1098, 325->L273, ...) -> ip279 Map.Byte[24]:=1, InitObject 3/7/31/9/11, InitRegion 26/27/28, InitCode 22"
+    },
+    {
+     "field": 154,
+     "name": "A. Castle/Hallway (EVT_ALEX1_AC_FTI, map046) -- visit 2: Zorn & Thorn",
+     "zone": "alxc, block 3; F member(154) 31246",
+     "entered_via": "153 e3 t1 ip3150 Int16[2]:=304, ip3158 Field(154) (F: Field(31246)); 154 e0 t0 ip234 SWITCH(304, L392, L232) -> L232 (Byte24:=1, InitObject 2/4, Byte8:=125 ip279)"
+    },
+    {
+     "field": 153,
+     "name": "A. Castle/Hallway -- visit 3: Zorn & Thorn argue",
+     "zone": "alxc; F 31245",
+     "entered_via": "154 e2 t1 ip1520 Int16[2]:=316, ip1528 Field(153) (F: Field(31245)); 153 ip255 -> L799 (ip805 Byte24:=100, InitObject 18/20)"
+    },
+    {
+     "field": 151,
+     "name": "A. Castle/Throne (EVT_ALEX1_AC_RST) -- visit 4: Brahne, Beatrix, Steiner's naming",
+     "zone": "alxc, block 3; F member(151) 31244",
+     "entered_via": "153 e18 t1 ip1077 Int16[2]:=110, ip1085 Field(151) (F: Field(31244)); 151 e0 t0 ip232 Int16[2]==110 -> ip243 Byte24:=1, InitObject 3/4/5/17/12, Byte8:=125 ip315"
+    },
+    {
+     "field": 153,
+     "name": "A. Castle/Hallway -- visit 5 = THE END (cut at e0 t0 ip22)",
+     "zone": "alxc; F 31245",
+     "entered_via": "151 e2 t1 ip932 Int16[2]:=328, ip940 Field(153) (F: Field(31245)); 153's 328 dispatch (L603) lies past the cut"
+    },
+    {
+     "field": 154,
+     "name": "A. Castle/Hallway (grand stair), Steiner -- O6 survey",
+     "zone": "alxc; F 31246",
+     "entered_via": "(O6) 153 e23 t2 ip203 Int16[2]:=315, ip211 Field(154); spawn (-58,-3758) PSX -1741 (upper gallery), control on arrival"
+    },
+    {
+     "field": 158,
+     "name": "A. Castle/Courtyard -- O6 survey",
+     "zone": "alxc; F 31250",
+     "entered_via": "(O6) 154 e8 t2 ip355 Int16[2]:=300, ip363 Field(158) (the ground branch)"
+    },
+    {
+     "field": 159,
+     "name": "A. Castle/Courtyard (fountain) -- O6 survey",
+     "zone": "alxc; F 31251",
+     "entered_via": "(O6) 158 e2 t2 ip222 Int16[2]:=331, ip230 Field(159)"
+    },
+    {
+     "field": 160,
+     "name": "A. Castle/Courtyard -- O6 survey",
+     "zone": "alxc; F 31252",
+     "entered_via": "(O6) 159 e11 t2 ip193 Int16[2]:=332, ip201 Field(160)"
+    },
+    {
+     "field": 162,
+     "name": "A. Castle/West Tower -- O6 survey",
+     "zone": "alxc; F 31254",
+     "entered_via": "(O6) 160 e5 t2 ip227 Int16[2]:=333, ip235 Field(162)"
+    },
+    {
+     "field": 163,
+     "name": "A. Castle/West Tower -- O6 survey",
+     "zone": "alxc; F 31255",
+     "entered_via": "(O6) 162 e3 t2 ip227 Int16[2]:=341, ip235 Field(163)"
+    },
+    {
+     "field": 164,
+     "name": "A. Castle/West Tower spiral, the knight -- O6 survey",
+     "zone": "alxc; F 31256",
+     "entered_via": "(O6) 163 e2 t2 ip227 Int16[2]:=342, ip235 Field(164)"
+    },
+    {
+     "field": 165,
+     "name": "A. Castle/West Tower spiral -- O6 survey",
+     "zone": "alxc; F 31257",
+     "entered_via": "(O6) 164 e2 t2 ip243 Int16[2]:=343, ip251 Field(165) (needs f[1] < -12000)"
+    },
+    {
+     "field": 166,
+     "name": "A. Castle/West Tower top, FMV004 -- O6 survey",
+     "zone": "alxc; F 31258 (raw Field(55))",
+     "entered_via": "(O6) 165 e2 t2 ip233 Int16[2]:=344, ip241 Field(166) (needs f[1] < -15000)"
+    },
+    {
+     "field": 55,
+     "name": "Prima Vista/Music Room -- beyond O6's likely end",
+     "zone": "tshp; F lands in REAL 55 unless member(166) is rebuilt",
+     "entered_via": "(O6) 166 e6 t1 ip863 Int16[2]:=110, ip871 Field(55)"
+    }
+   ],
+   "beats": [
+    {
+     "n": 1,
+     "field": 153,
+     "kind": "warp",
+     "what": "START: the raw warp lands in 153 (S) / 31245 (F) at 325, SC 1190 (4 residue rows in 70); Main_Init 325 branch; prologue rows ip22 (the START row), 49, 57, 119 (Byte13 old 1 -> 0), 138, 200",
+     "player_action": "none",
+     "required": true,
+     "where": "e0 t0 ip22-ip311",
+     "gate": "START contract: ip119, never ip97/window 56"
+    },
+    {
+     "n": 2,
+     "field": 153,
+     "kind": "page",
+     "what": "113 Blank 'According to recon...' (stage 1, as e3 walks to (1105,-78) ip537 and e7 to (1068,373) ip267); e7 t1 ip337 WaitWindow(1) waits on it",
+     "player_action": "Confirm (rule 7)",
+     "required": true,
+     "where": "e7 t1 ip273/ip337"
+    },
+    {
+     "n": 3,
+     "field": 153,
+     "kind": "page",
+     "what": "114 Blank '...the royal seats should be right above these stairs!' (stage 2)",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "e7 t1 ip340/ip351"
+    },
+    {
+     "n": 4,
+     "field": 153,
+     "kind": "page",
+     "what": "115 Zidane 'Got it!' (stage 3)",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "e3 t1 ip606/ip622"
+    },
+    {
+     "n": 5,
+     "field": 153,
+     "kind": "page",
+     "what": "116 Blank WindowSync 'Uh-oh! The scene where Marcus sneaks into Cornelia's chamber...' (stage 4)",
+     "player_action": "Confirm (re-press if the first is dropped)",
+     "required": true,
+     "where": "e7 t1 ip700"
+    },
+    {
+     "n": 6,
+     "field": 153,
+     "kind": "page",
+     "what": "117 Blank 'Let's get this over with before the finale, okay?' (stage 5); Blank SetObjectFlags(5) ip770 (no player collision)",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "e7 t1 ip764; closed for e3 t1 ip752 WaitWindow(1)"
+    },
+    {
+     "n": 7,
+     "field": 153,
+     "kind": "control",
+     "what": "THE FIRST alxc control grant: Map.Bit[158]:=1 ip755, EnableMove ip785 (gates Bit159 ip763, Bit156 ip774), EnableMenu ip800; Zidane at (1105,-78) by the bytes (REHEARSE); no window up",
+     "player_action": "take control (rule 8 settles, then runs the cell's step)",
+     "required": true,
+     "where": "e3 t1 ip785",
+     "gate": "page 117 closed"
+    },
+    {
+     "n": 8,
+     "field": 153,
+     "kind": "walk",
+     "what": "Stage 6, the stair walk: trigger step (cell (153,1190)): goal (-1700,300), until {x_le:-1100}, closed_tris = the 33 floor-0 upper tris, avoid e26/e27/e28; route (1105,-78) -> (-879,818) -> (-1263,754) -> (-1700,300); control taken on the first tick PSX y <= -450 (~(-1482,527)): ip874 Bit158:=0, DisableMove ip893, Bit231 ip915",
+     "player_action": "walk west and up the curved stair",
+     "required": true,
+     "where": "e3 t1 ip859 (height test every tick)",
+     "gate": "obj(255).f[1] <= -450"
+    },
+    {
+     "n": 9,
+     "field": 153,
+     "kind": "other",
+     "what": "Stage 17 scripted: op_1C(22) ip1437, CreateObject(-1165,856) ip1466 (a teleport, 2-3 ticks after the loss), scripted climb ip1479-1521 to (-329,-624) on the upper corridor; Blank to (-590,943); the hooded girl e31 walks (0,1500), (0,0)",
+     "player_action": "none",
+     "required": true,
+     "where": "e3 t1 ip1426-ip1647, e7 t1 L1139, e31 t1 L56"
+    },
+    {
+     "n": 10,
+     "field": 153,
+     "kind": "page",
+     "what": "126 '(Hmm? She sure is dressed funny...)' (stage 18)",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "e3 t1 ip1672/ip1699"
+    },
+    {
+     "n": 11,
+     "field": 153,
+     "kind": "page",
+     "what": "127 Hooded Girl WindowSync 'Umm... Would you please let me pass?' (stage 19, [SPED=2]); choice 128 opens ~2 ticks after it closes -> the opt-in QUIET WINDOW arms on marker 'let me pass'",
+     "player_action": "Confirm until it closes; then nothing until the choice is published",
+     "required": true,
+     "where": "e31 t1 ip663 (Bit231 ip670)"
+    },
+    {
+     "n": 12,
+     "field": 153,
+     "kind": "choice",
+     "what": "128 WindowSync(0,128,128) 'Hmm...' / Let her pass / Examine her face; cursor on 0; ip1741 Global.Bit[3795] := SYSVAR[9] (= 1), ip1749 Map.Byte[27] := SYSVAR[9] -> conductor ip844: 1 -> stage 31",
+     "player_action": "rule {donor 153, sc [1190], match 'her face', pick 'her face', once} -> g.choose(1)",
+     "required": true,
+     "where": "e3 t1 ip1724/ip1741 (stage 20)"
+    },
+    {
+     "n": 13,
+     "field": 153,
+     "kind": "page",
+     "what": "Path 1, stages 31-39: 141 (e3 ip3430/3456), 142 (e31 ip1201), 143 (e3 ip3508 Sync), 144 (e3 ip3525/3552), 145 (e31 ip1229), 146 (e3 ip3577/3604), 147 (e31 ip1257), 148 (e3 ip3629 Sync), 149 (e31 ip1285), 150 (e3 ip3674/3712), 130 (e3 ip3726/3753). [Path 0 would be 129, 130.]",
+     "player_action": "Confirm x11",
+     "required": true,
+     "where": "e3/e31 t1 stages 31-39"
+    },
+    {
+     "n": 14,
+     "field": 153,
+     "kind": "page",
+     "what": "131 Hooded Girl 'No, I do not know you...' (stage 23)",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "e31 t1 ip943"
+    },
+    {
+     "n": 15,
+     "field": 153,
+     "kind": "page",
+     "what": "132 'Hmm...' and 133 'Maybe you're right...' with Zidane's walks (stage 24)",
+     "player_action": "Confirm x2",
+     "required": true,
+     "where": "e3 t1 ip2064/2129, ip2146/2201"
+    },
+    {
+     "n": 16,
+     "field": 153,
+     "kind": "press",
+     "what": "KEYON pair 134 (e3 window 7) + 135 (Blank window 1), both [INCS][TIME=-1]; gate SYSVAR[8]>=2 or 250 ticks (ip2293-2327); KEYON ip2336 closes 7 and 1 (stage 25)",
+     "player_action": "rule 7: Confirm repeatedly until both close",
+     "required": true,
+     "where": "e3 t1 ip2287/ip2336, e7 t1 ip1732"
+    },
+    {
+     "n": 17,
+     "field": 153,
+     "kind": "page",
+     "what": "136 Hooded Girl 'I...' WindowSync (stage 26)",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "e31 t1 ip1036"
+    },
+    {
+     "n": 18,
+     "field": 153,
+     "kind": "page",
+     "what": "137 [NFOC] 'I must go!' [TIME=20] self-closing; she runs off; e3's VIB ops RunVibrationTrack ip2443/2448, ActivateVibration ip2453 (the s62 gate on F) (stage 27)",
+     "player_action": "none (a press is harmless)",
+     "required": true,
+     "where": "e31 t1 ip1081; e3 t1 ip2443-2453"
+    },
+    {
+     "n": 19,
+     "field": 153,
+     "kind": "press",
+     "what": "KEYON pair 139 'Get up, Blank! That was Princess Garnet!' (e3 window 0) + 138 'Who the heck was that!?' (Blank window 1) [INCS]; KEYON ip2711 (stage 28)",
+     "player_action": "rule 7: Confirm until both close",
+     "required": true,
+     "where": "e3 t1 ip2662/ip2711, e7 t1 ip1951/ip1957"
+    },
+    {
+     "n": 20,
+     "field": 153,
+     "kind": "warp",
+     "what": "Stage 30: 140 [NFOC] 'Are you serious!?' [TIME=20]; Zidane's jump and walk; ip2953 Byte[8]:=0, DisableMove ip3026, PreloadField(5,154), fade, Wait(65), ip3150 Int16[2]:=304, ip3158 Field(154) (F Field(31246))",
+     "player_action": "none",
+     "required": true,
+     "where": "e7 t1 ip2029; e3 t1 ip2804-ip3158"
+    },
+    {
+     "n": 21,
+     "field": 154,
+     "kind": "other",
+     "what": "Arrival 154@304: SWITCH ip234 -> L232; Byte[8]:=125 ip279; Zorn e2 is the defined player (e2 t0 ip109), no Map.Bit[158]: NO control",
+     "player_action": "none",
+     "required": true,
+     "where": "e0 t0 ip242-ip279"
+    },
+    {
+     "n": 22,
+     "field": 154,
+     "kind": "press",
+     "what": "KEYON pair 151 Zorn 'We are in trouble!' (window 2) + 152 Thorn (window 3) [INCS]; KEYON ip215 (stage 1)",
+     "player_action": "Confirm until both close",
+     "required": true,
+     "where": "e2 t1 ip166/ip215, e4 t1 ip151"
+    },
+    {
+     "n": 23,
+     "field": 154,
+     "kind": "page",
+     "what": "153 Zorn 'This is terrible!' WindowSync (stage 2)",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "e2 t1 ip307"
+    },
+    {
+     "n": 24,
+     "field": 154,
+     "kind": "page",
+     "what": "154 Thorn 'Our heads, Queen Brahne will have!' WindowSync (stage 3)",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "e4 t1 ip220"
+    },
+    {
+     "n": 25,
+     "field": 154,
+     "kind": "press",
+     "what": "KEYON pair 155 + 156 [INCS]; KEYON ip392 (stage 4)",
+     "player_action": "Confirm until both close",
+     "required": true,
+     "where": "e2 t1 ip343/ip392, e4 t1 ip242"
+    },
+    {
+     "n": 26,
+     "field": 154,
+     "kind": "press",
+     "what": "after the long walks: KEYON pair 157 + 158 [INCS]; KEYON ip1265 (stage 5)",
+     "player_action": "Confirm until both close",
+     "required": true,
+     "where": "e2 t1 ip1216/ip1265, e4 t1 ip366"
+    },
+    {
+     "n": 27,
+     "field": 154,
+     "kind": "warp",
+     "what": "Stage 6: DisableMove ip1396, PreloadField(5,153), ip1520 Int16[2]:=316, ip1528 Field(153) (F Field(31245))",
+     "player_action": "none",
+     "required": true,
+     "where": "e2 t1 ip1353-ip1528"
+    },
+    {
+     "n": 28,
+     "field": 153,
+     "kind": "other",
+     "what": "Arrival 153@316 (visit 3): ip805 Byte24:=100, InitObject 18/20; Zorn e18 the player (e18 t0 ip117): NO control; prologue rows again",
+     "player_action": "none",
+     "required": true,
+     "where": "e0 t0 ip22-ip816"
+    },
+    {
+     "n": 29,
+     "field": 153,
+     "kind": "page",
+     "what": "159 (e20 ip180), 160 (e18 ip243/261), 161 (e20 ip249), 162 (e18 ip279), 163 (e20 ip267/287), 164 (e18 ip312) (stages 100-105)",
+     "player_action": "Confirm x6",
+     "required": true,
+     "where": "e18/e20 t1"
+    },
+    {
+     "n": 30,
+     "field": 153,
+     "kind": "press",
+     "what": "KEYON pair 165 'We must hurry to Queen Brahne!' + 166 [INCS]; KEYON ip444 (stage 106)",
+     "player_action": "Confirm until both close",
+     "required": true,
+     "where": "e18 t1 ip395/ip444, e20 t1 ip381"
+    },
+    {
+     "n": 31,
+     "field": 153,
+     "kind": "page",
+     "what": "167 (e18 ip598), 168 (e20 ip696), 169 (e18 ip667), 170 (e20 ip718), 171 (e18 ip685/705), 172 (e20 ip751) (stages 107-112, walks between)",
+     "player_action": "Confirm x6",
+     "required": true,
+     "where": "e18/e20 t1"
+    },
+    {
+     "n": 32,
+     "field": 153,
+     "kind": "press",
+     "what": "KEYON pair 173 + 174 [INCS]; KEYON e20 ip883 (stage 113)",
+     "player_action": "Confirm until both close",
+     "required": true,
+     "where": "e18 t1 ip798, e20 t1 ip834/ip883"
+    },
+    {
+     "n": 33,
+     "field": 153,
+     "kind": "warp",
+     "what": "Stage 114: ip890 Byte[8]:=0, DisableMove ip953, PreloadField(5,151), Wait(65), ip1077 Int16[2]:=110, ip1085 Field(151) (F Field(31244))",
+     "player_action": "none",
+     "required": true,
+     "where": "e18 t1 ip863-ip1085"
+    },
+    {
+     "n": 34,
+     "field": 151,
+     "kind": "other",
+     "what": "Arrival 151@110: ip243 Byte24:=1, InitObject 3/4/5/17/12, Byte[8]:=125 ip315; Brahne e3 shown, size 1, the defined player (ip171): NO control",
+     "player_action": "none",
+     "required": true,
+     "where": "e0 t0 ip232-ip315; e3 t0 ip149-ip171"
+    },
+    {
+     "n": 35,
+     "field": 151,
+     "kind": "page",
+     "what": "175 Zorn 'Your Majesty!' and 176 Thorn [TIME=20] self-closing; 177 Pluto captain 'Her Majesty is busy!' (stage 1)",
+     "player_action": "Confirm (177)",
+     "required": true,
+     "where": "e4 t1 ip204, e5 t1 ip209, e12 t1 ip461/ip477"
+    },
+    {
+     "n": 36,
+     "field": 151,
+     "kind": "page",
+     "what": "178 Beatrix (e17 ip253), 179 Thorn (e5 ip370), 180 Zorn (e4 ip384), 181 Beatrix (e17 ip317/332) (stages 2-5)",
+     "player_action": "Confirm x4",
+     "required": true,
+     "where": "stages 2-5"
+    },
+    {
+     "n": 37,
+     "field": 151,
+     "kind": "press",
+     "what": "KEYON pair 182 + 183 [INCS]; KEYON e4 ip516 (stage 6)",
+     "player_action": "Confirm until both close",
+     "required": true,
+     "where": "e4 t1 ip467/ip516, e5 t1 ip469"
+    },
+    {
+     "n": 38,
+     "field": 151,
+     "kind": "page",
+     "what": "184 (e12 ip613), 185 (e17 ip346), 186 (e4 ip608), 187 (e5 ip538) (stages 7-10)",
+     "player_action": "Confirm x4",
+     "required": true,
+     "where": "stages 7-10"
+    },
+    {
+     "n": 39,
+     "field": 151,
+     "kind": "press",
+     "what": "KEYON pair 188 '...is in danger!' (e4) + 189 (e5 WindowSync [INCS]); KEYON e4 ip693 (stage 11)",
+     "player_action": "Confirm until both close",
+     "required": true,
+     "where": "e4 t1 ip644/ip693, e5 t1 ip560"
+    },
+    {
+     "n": 40,
+     "field": 151,
+     "kind": "page",
+     "what": "190 (e17 ip363/378, stage 12); stage 13 waits (e3 Wait(90)) and Beatrix's walk; 191 (e3 ip307/328), 192 (e17 ip752), 193 (e3 ip342/363), 194 (e17 ip769), 195 (e3 ip377/398) (stages 14-18)",
+     "player_action": "Confirm x6",
+     "required": true,
+     "where": "stages 12-18"
+    },
+    {
+     "n": 41,
+     "field": 151,
+     "kind": "press",
+     "what": "KEYON pair 196 Brahne 'General Beatrix!' + 197 Beatrix (WindowSync [INCS]); KEYON e3 ip475 (stage 19)",
+     "player_action": "Confirm until both close",
+     "required": true,
+     "where": "e3 t1 ip426/ip475, e17 t1 ip793"
+    },
+    {
+     "n": 42,
+     "field": 151,
+     "kind": "page",
+     "what": "198 Brahne 'And, Captain...uh...' (stage 20)",
+     "player_action": "Confirm",
+     "required": true,
+     "where": "e3 t1 ip576/ip590"
+    },
+    {
+     "n": 43,
+     "field": 151,
+     "kind": "naming",
+     "what": "SetCharacterData(3,0,3,5,3) ip593, Wait(5), Menu(1,3) ip603 = Steiner's naming screen (DisableNameChoice=0, Memoria.ini:256); Wait(10); ip610 Global.Byte[6] |= 8 (START-DEPENDENT value)",
+     "player_action": "rule 4: g.accept_name() (naming row {151, 1190})",
+     "required": true,
+     "where": "e3 t1 ip593-ip610"
+    },
+    {
+     "n": 44,
+     "field": 151,
+     "kind": "press",
+     "what": "KEYON pair 199 'Captain [STNR]!' (e3 window 0) + 200 Steiner (e12 WindowSync [INCS]); KEYON e3 ip742; then 201 'Go find Garnet!' WindowSync (stage 21)",
+     "player_action": "Confirm until both close, then Confirm the page",
+     "required": true,
+     "where": "e3 t1 ip693/ip742/ip771, e12 t1 ip803"
+    },
+    {
+     "n": 45,
+     "field": 151,
+     "kind": "press",
+     "what": "KEYON pair 203 Steiner 'Yes, my queen!' (e12 window 4) + 202 Beatrix (e17 WindowSync [INCS]); KEYON e12 ip935 (stage 22)",
+     "player_action": "Confirm until both close",
+     "required": true,
+     "where": "e12 t1 ip886/ip935, e17 t1 ip862"
+    },
+    {
+     "n": 46,
+     "field": 151,
+     "kind": "warp",
+     "what": "Stage 23: ip735 Byte[8]:=0, DisableMove ip808, PreloadField(5,153), Wait(65), ip932 Int16[2]:=328, ip940 Field(153) (F Field(31245))",
+     "player_action": "none",
+     "required": true,
+     "where": "e2 t1 ip735-ip940"
+    },
+    {
+     "n": 47,
+     "field": 153,
+     "kind": "other",
+     "what": "THE END: the arrival in 153@328 (visit 5): the run ends here (end_visit 5) and the trace is cut at its first row e0 t0 ip22 Bit[191]:=0; read end_state",
+     "player_action": "none",
+     "required": true,
+     "where": "153 e0 t0 ip22",
+     "gate": "the row before it is 151 e2 t1 ip932 Int16[2]:=328"
+    }
+   ],
+   "sc_ladder": [
+    {
+     "value": 1190,
+     "field": 70,
+     "when": "The start: the raw warp's residue in field 70 (byte 0: 0 -> 166, byte 1: 0 -> 4; Ff9mkDebugMenu.cs:2135). No SC store anywhere in 151 or 153-167 (census of the listings; reads only 153 e0 t0 ip232 '>1900' and 151 e0 t0 ip461 '<12000'), so SC is 1190 at the end: O5's LADDER is 'no rung'. A true run carries 1190 from 150 e3 t1 ip1966 (O4's rung)."
+    },
+    {
+     "value": 1400,
+     "field": 55,
+     "sid": 10,
+     "tag": 1,
+     "ip": 582,
+     "when": "PAST THE END (verified for O6/O7): 55 e10 t1 ip500 'SC > 1400' false on the story path -> ip582 (L474) SC:=1400; ip568 is the debug twin behind ip500 and a KEYON-8 window. Reached only after 166 e6 t1 ip871 Field(55)."
+    },
+    {
+     "value": 1410,
+     "field": 54,
+     "sid": 4,
+     "tag": 1,
+     "ip": 458,
+     "when": "Orientation only: the rung after 1400 (54 e4 t1 ip458, tshp)."
+    }
+   ],
+   "zone_members": "Every field up to the end is a deployed O4 member (alxc disc-1, 31240-31259, FF9CustomMap): 153 -> 31245 (visits 1, 3 and the end), 154 -> 31246, 151 -> 31244. ForkDonorPatch rows once each (31244 151, 31245 153, 31246 154), FF9CustomMap only; DictionaryPatch FieldScene 31243-31259 on text block 3. The deployed US .eb of each differs from its donor ONLY in Field() operands (reconcile/forkdiff.py): 31245 e3 t1 ip3158 -> 31246, e18 t1 ip1085 -> 31244 (+ e23/e24/e25/e28 doors); 31246 e2 t1 ip1528 -> 31245; 31244 e2 t1 ip940 -> 31245. 31245 keeps a raw Field(204) (e3 t1 ip3296, flashback-only, dead at SC 1190). No new fork, no deploy. The S side is stock (no mod folder ships EVT_ALEX1_AC_H2F/FTI/RST or FieldScene 151/153/154); text block 3 is global and FF9CustomMap ships it in all 7 languages (P-TEXT3 checks it). Beyond the end: 158 31250, 159 31251, 160 31252, 162 31254, 163 31255, 164 31256, 165 31257, 166 31258 (member(166) unchanged from stock: raw Field(55), O6's seam).",
+   "choices": [
+    {
+     "field": 153,
+     "raw_text": "[PCHC=2,1][WDTH=0,0,16,-1,1,90,-1,2,117,-1][IMME][ZDNE]\n“Hmm[SPED=2]...[SPED=-1]”\n[CHOO][MOVE=18,0]Let her pass\n[MOVE=18,0]Examine her face  (153 e3 t1 ip1724 WindowSync(0,128,128), stage 20)",
+     "default_index": 0,
+     "pick": "FROZEN: 'Examine her face' (absolute 1), rule {donor 153, sc [1190], match 'her face', pick 'her face', once: true, beat 'choice128'} answered by g.choose(1) (O1 52, O4 encore), never take:'default'. Both sides by the same rule (lesson 13): a non-default pick turns Bit[3795] 0 -> 1 and distinguishes a fork that stores the answer from one that stores a constant; path 1 adds 9 pages (~35 s). The cursor opens on 0 (flags 128 & 1 == 0 -> sChoose = sChooseInit = 0, ETb.cs:100-103; no choose-param op in 151/153/154). Requires the opt-in quiet window after page 127 (stray-press guard). Expected publication (unmeasured): options [<prompt or ''>, 'et her pass', 'Examine her face'], active [0,1], selected 0. Fallback with no driver change: pick 0 with take:'default' (O2's shape; a weaker, same-value claim).",
+     "stored_in": "Global.Bit[3795] := SYSVAR[9] at 153 e3 t1 ip1741 (L1333); also Map.Byte[27] := SYSVAR[9] at ip1749 (the conductor's 21-vs-31 branch, e2 t1 ip844). Readers: 153 only behind Int16[2]==3, and field 51 (start-state reader's census)."
+    }
+   ],
+   "battles": "None up to the end: no Battle, SetRandomBattles, AICON, ATE or Menu(4,0) op in 151, 153, 154 (opcode census of the listings); the battle registry stays empty, so any battle is V10.",
+   "minigames": "None. The only keyed inputs are the 12 [INCS][TIME=-1] KEYON pairs, rule 7's (Confirm repeated until both windows close; an edge before the SYSVAR[8]>=2/250-tick gate is lost): 153 e3 t1 ip2336, ip2711; 154 e2 t1 ip215, ip392, ip1265; 153@316 e18 t1 ip444, e20 t1 ip883; 151 e4 t1 ip516, ip693, e3 t1 ip475, ip742, e12 t1 ip935.",
+   "fmvs": "None up to the end (no Cinematic op in 151/153/154). Past it, O6's 166 plays FMV004: e6 t1 ip633 Cinematic(0,9,1,1) behind ip609 SYSVAR[15]&128==0, played by ip711 Cinematic(2,0,0,0); MBG.cs:830 MBG_DEF('FMV004',1,0) (type 0, skippable), 45.4 s -- the data reader's 'no movie opcode' is wrong.",
+   "naming": "Steiner's naming once, 151@110 stage 20: e3 t1 ip590 WaitWindow (page 198 closed), SetCharacterData(3,0,3,5,3) ip593, Wait(5), Menu(1,3) ip603, Wait(10), ip610 Global.Byte[6] |= 8. MENU (DoEventCode.cs:2317-2341) opens the name screen unless Hacks.DisableNameChoice; the live Memoria.ini has DisableNameChoice = 0 (line 256). The box is pre-filled with the default name, so accept_name stores 'Steiner' on both sides. Register {donor 151, sc 1190, beat 'named'} (rule 4, segment_drive.py:2867-2880); freeze DisableNameChoice = 0 in P-SETTINGS. Byte[6]'s value is START-DEPENDENT (8 after the raw warp, 11 after a true run), equal on S and F.",
+   "nondeterminism": "1. Choice 128: the pick IS the stored key (Bit[3795]); a frozen rule on both sides; a stray Confirm on 128 would store 0 (guarded by the quiet window). 2. The stair walk: where the -450 contour is met and how late the loss sample is -- no key depends on it (stage 17 teleports him). 3. Live but avoided in stage 6: side scenes e26/e27 (pages 119-123, no store, re-grant at e3 t1 ip1266), the back door e28 (Byte[8]:=25 ip38, Int16[2]:=5 ip227, Field(150)), Blank's talk (118, no store). 4. Timing only: KEYON gates (<=250 ticks), [TIME=20] windows 137/140/175/176, [SPED=2] type-outs, NPC walks, fades, 151's Wait(90). No SYSVAR[0] read in 151/153/154; no battle; no ATE. 5. Start: Byte[6] (8 vs 11), and the 'old' of 153's first prologue rows (Int16[9] 643 vs -1, Byte13 1 vs 0) and of e3 t1 ip2953 (Byte8 125 vs 75) -- identical on S and F.",
+   "open_questions": [
+    "The in-game grant position (bytes (1105,-78)) and the loss sample (expected x -1403..-1722 at published y 450-470, or the teleport/climb if late): R-STAIRS rehearsal.",
+    "Is the quiet window really needed (the 127 -> 128 stray-press race)? Not measured; recommended as an opt-in guard anyway.",
+    "Choice 128's published form (prompt, 'et her pass' / 'Examine her face', active, selected 0): inferred from O4.",
+    "Are hidden flag-14 objects (e9, e11, e31) published as objects (they would join route_to's npcs discs)?",
+    "Run time per run (~6.5 min with pick 1): estimate; freeze run_s/no_progress_s from R-FULL.",
+    "s62's VIB path on member(153) (stage 27, e3 t1 ip2443-2453): first in-game exercise is O5's first F run.",
+    "end_run from inside 151's naming screen (warp refused outside FieldHUD): R-VOID rehearsal.",
+    "How the s88 trace attributes a store made by a RunSharedScript entry (153 e15 t0 ip32 at 328): O6's question."
+   ],
+   "other_story_writes": "Per visit, in order (S; F identical in donor terms). Visit 1 153@325: e0 t0 ip22 Bit191:=0 [masked, the START row], ip49 Bit184:=0 [masked], ip57 Int16[9]:=-1 (old 643), ip119 Byte13:=0 (old 1), ip138 Int16[11]:=-1, ip200 Byte14:=0; e3 t1 ip1741 Bit3795:=1 (pick 1), ip2953 Byte8:=0 (old 125), ip3150 Int16[2]:=304. Visit 2 154@304: e0 t0 ip26/ip53 [masked], ip61 Int16[9]:=-1, ip123 Byte13:=0, ip142 Int16[11]:=-1, ip204 Byte14:=0, ip279 Byte8:=125; e2 t1 ip1520 Int16[2]:=316. Visit 3 153@316: the six prologue rows again; e18 t1 ip890 Byte8:=0, ip1077 Int16[2]:=110. Visit 4 151@110: e0 t0 ip22/49 [masked], ip57, ip119, ip138, ip200, ip315 Byte8:=125; e3 t1 ip610 Byte6|=8 (value 8, START-DEPENDENT); e2 t1 ip735 Byte8:=0, ip932 Int16[2]:=328. Visit 5: the cut (153 e0 t0 ip22). Totals: 27 store rows (23 writes + 4 chain), 23 distinct keys, 8 masked rows, no SC row. Never on the route: error paths (ip97/178 and the window-56 resets ip2314/2348 in 153, ip101/182/497/531 in 154, ip97/178/960/994 in 151); dead ip41/ip130/ip211 shapes, 153 e0 t0 ip243 (SC>1900), 153 e3 t1 ip3168/ip3288 (flashback); other entrances 153 e0 t0 ip1188/1260, 151 e0 t0 ip410, 154 e5 t3 ip675, 154 e8/e9/e10 t2, 151 e8 t2 ip38/237, 151 e3 t3 ip909 (Brahne's talk: she is the player at 110); forbidden at visit 1: 153 e28 t2 ip38 Byte8:=25, ip227 Int16[2]:=5; past the cut (328 only): 153 e23/e24/e25 t2, e32 t0 ip718/727, e32 t1 (Byte208 x6, UInt16[21], Byte303 x2 live + x3 const(0)-dead, Byte4, UInt16[19], Byte17, Byte18) and e15 t0 ip32 Byte8:=125 (run by e32 t1 ip866 RunSharedScript(15)). Shared scripts on the route (entries 4, 5, 6, 8, 10, 12, 19 in 153; 3 in 154) store nothing.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o5_research\\reconcile\\notes.txt"
+  },
+  "walks": {
+   "controls": [
+    {
+     "field": 153,
+     "entrance": 325,
+     "sc": 1190,
+     "character": "Zidane: e3, SetModel(203) GEO_MAIN_F1_ZDN, DefinePlayerCharacter e3 t0 ip176 (SWITCH(3,..) default L134 at 325); SetObjectLogicalSize(20,24,40) ip218 -> controller radius 80 (DoEventCode.cs:1498-1531, size x 4) = the planner's default clearance.",
+     "grant": "e3 t1 stage 5 (L328): TurnTowardObject(7) ip747, WaitWindow(1) ip752 (page 117 closed), Map.Bit[158]:=1 ip755, gates Map.Bit[159]==1 ip763 (Main_Init ip2356) and Map.Bit[156]==0 ip774, EnableMove ip785, SetTriangleFlagMask(255) ip786, EnableMenu ip800 (Bit144==0). Main_Init's own EnableMove (ip2405) is skipped at 325 (Bit158 0). No window is up at the grant.",
+     "spawn": "(1105,-78): the end of stage 1's Walk(1105,-78) ip537 (from CreateObject(2102,75) e3 t0 ip185, inside e28); stages 3-5 only animate/turn. Tri 66, floor 2, PSX y -1 (published ~1). From the bytes: REHEARSE (lesson 6).",
+     "goal": "A HEIGHT, not a region: stage 6 (e3 t1 L451) tests every tick ip859 obj(255).f[1] > -450 (uid 255 = gCur = e3, EventEngine.cs:946-949; f[1] = -pos[1], EBin.cs:1785-1793; the constant is signed, EBin.cs:1251-1255). Control is taken (DisableMove ip893) the first tick PSX y <= -450, published y >= 450, only reachable on the curved west stair; the -450 contour crosses tris 56/53 from (-1403,476) via (-1583,601) to (-1722,642). 2-3 ticks later stage 17 teleports him to (-1165,856) (ip1466, published y ~231) and climbs by script.",
+     "path": "PlayerWalkmesh(stock 153, closed_tris = the 33 floor-0 tris at y -1499: [0-9,11,14-21,23,24,28,32-35,38,39,41-43,45,46]); route_avoiding((1105,-78) -> (-1700,300), avoid e26/e27/e28) = (-879,818) [tri 55, PSX -114] -> (-1263,754) [tri 78, -308] -> (-1700,300) [tri 61, -591]: 3196 u, the -450 contour crossed at ~(-1482,527), 315 u into leg 3; ~2 s at ~60 u a tick. Leg gaps (e26,e27,e28): (350,885,634), (624,1711,2650), (1013,1514,3022). Plain mesh: NO route (floor 0 = 33 upper + 15 ground tris; point_on_walkmesh returns the upper tri first). closed_floors [0,1] also plans (via (1041,-14), 3202 u) but shuts 15 real ground tris. Step: {kind trigger, name 'the stairs', goal [-1700,300], until {x_le:-1100}, avoid [153.e26,153.e27,153.e28], closed_tris [the 33], npcs true, interrupts 1, beat 'stairs'}; O2's steps_default otherwise.",
+     "hazards": "e28 back door (2850,347)(2850,-13)(1739,-74)(1739,406): its tag 2 tests only SYSVAR[2] (live whenever he has control): Byte[8]:=25 ip38, Int16[2]:=5 ip227, Field(150) ip235 (F Field(31243)); 634 u east of the spawn; avoid + role exit (V11 on a landing) + forbidden (cause walk). e26 (= e23's quad, ground and z>1333 at stage 6 -> Byte24:=7) and e27 (= e25's quad, any height at stage 6 -> Byte24:=14): side scenes, pages 119-123, no global store, Walk(1105,-78) ip1230 and re-grant ip1266; avoid + role walkin + interrupts 1. Blank e7 at (1068,373), SetObjectFlags(5) ip770 (shown, NO player collision, talk on: 'Hurry!' 118, no store): never Confirmed during a walk; the route passes 396 u away. Hidden colliders e9 (-551,2104), e11 (30,-1500), e31 (0,1915, upper level): > 1400 u off the route. Calibration: route_to's _calibrate_clear_of with the avoid polygons as hazards and key_prior(153); all 15 SetControlDirection in 153 are (248,0). Camera code e22 (SETCAM #493, wrapped) is visual only. No facing gate. Evidence choice: {x_le:-1100} accepts the contour sample, the teleport and ~50 ticks of the scripted climb, and no other loss in stage 6; a y>=450 predicate would reject the teleport sample; z_ge:300 fails ~20 ticks after the loss.",
+     "refs": "L153.txt e0 t0 ip255-ip311, ip2356-ip2420; e3 t0 ip10-ip218; e3 t1 ip516-ip603, ip736-ip923, ip1426-ip1541; e7 t1 ip260-ip831; e7 t3 ip2132-ip2247; e26/e27/e28 t0/t2; reconcile/route153.out, wmprobe.py, notes.txt; EBin.cs:1251-1255, 1785-1793; EventEngine.cs:946-949; DoEventCode.cs:1498-1531, 2073."
+    },
+    {
+     "field": 153,
+     "entrance": 325,
+     "sc": 1190,
+     "character": "Zidane (e3) -- a conditional re-grant, only after a side scene",
+     "grant": "e3 t1 stage 16 (L677): SetFieldCamera(1) ip1096, Walk(1105,-78) ip1230, Map.Bit[158]:=1 ip1236, EnableMove ip1266 (same gates), EnableMenu ip1281; conductor 13->16 (ip630) / 16->6 (ip660).",
+     "spawn": "(1105,-78) from Walk ip1230 (rehearse with the first).",
+     "goal": "The same height goal (stage 6, ip859).",
+     "path": "The same trigger step re-runs (the side scene counted against interrupts 1); no gEventGlobal store in stages 7-16.",
+     "hazards": "As CONTROL 1. During the scene Zidane is walked into e28's quad (2225,80) with control off: e28's tag 2 needs SYSVAR[2], so it stays inert.",
+     "refs": "L153.txt e3 t1 ip1085-ip1337, e26 t2 ip110, e27 t2 ip90, e2 t1 stages 7-16."
+    },
+    {
+     "field": 153,
+     "entrance": 328,
+     "sc": 1190,
+     "character": "O6 SURVEY (past the cut). Steiner: e32 (SetModel 5489 GEO_MAIN_F0_STN), DefinePlayerCharacter e32 t0 ip717, SetObjectLogicalSize(30,35,50) ip520 -> radius 120.",
+     "grant": "e32 t1 stage 48: Map.Bit[158]:=1 ip2382, EnableMove ip2412, after page 222 and the party rebuild.",
+     "spawn": "SETTLED here: (-245,42) on the GROUND (tri 114, floor 3, PSX -1): stage 40 Walk(-24,-74) ip778 on the upper corridor, stage 44 walks DOWN the stair (-150,-550) -> (-1235,-558) [-1119] -> (-1595,-195) [-845] -> (-1370,804) [-316], stage 45 Walk(-575,807) ip1360 and Walk(-245,42) ip1367, TimedTurn(240) ip1392. The bytes/data readers' (-24,-74) upper-walkway position is wrong.",
+     "goal": "North door e23 (ground f[1] > -100 and z > 1333): e.g. (19,1620) tri 151 floor 5; Int16[2]:=315 ip203, Field(154) ip211. Forbidden e24 (-> 150@315), e25 (ground -> 64@315; upstairs z<-1400 -> Byte8:=0 ip222, 151@315).",
+     "path": "Straight north ~1600 u on the ground (walks reader: with the same 33-tri closure; plans at radius 80 and 120).",
+     "hazards": "Knights e16/e17 walk east to (2800,64) and remove themselves; soldiers e13/e14 (upper level) talk only. O6 must key its cells by visit or start at 328 (each O6 field is then visited once).",
+     "refs": "L153.txt e32 t0 ip22-ip717, e32 t1 ip777-ip2412; walks reader chain2.json."
+    },
+    {
+     "field": 154,
+     "entrance": 315,
+     "sc": 1190,
+     "character": "O6 SURVEY. Steiner e15 (radius 120), DefinePlayerCharacter e15 t0 ip3003.",
+     "grant": "Main_Init tail EnableMove ip588 (Map.Bit[158] set by e15 t0 ip2070).",
+     "spawn": "(-58,-3758) PSX -1741, the upper (south) gallery (e15 t0 L2028).",
+     "goal": "South door e8 on its GROUND branch (e8 t2 f[1] < -100 upstairs -> 153@301; ground -> Int16[2]:=300 ip355, Field(158) ip363).",
+     "path": "Two legs (walks reader): gallery west and down the north stairs to (0,-400) [7608 u at clearance 120], then (0,-4500) [4100 u]; needs a waypoint step kind or a height-aware planner (the gallery overlaps the hall).",
+     "hazards": "e8 upstairs branch 322 u from the spawn; e9/e10 side rooms at both levels; Dojebon (e5) patrols the gallery (talk writes Bit[3852]); soldiers e6/e7 talk only.",
+     "refs": "L154.txt e0 t0, e15 t0, e5, e8/e9/e10 t2; walks reader walk154.json."
+    },
+    {
+     "field": 158,
+     "entrance": 300,
+     "sc": 1190,
+     "character": "O6 SURVEY. Steiner e6.",
+     "grant": "Main_Init tail EnableMove ip379.",
+     "spawn": "(0,-12787) (e6 t0 L12).",
+     "goal": "e2 (south): Byte13:=3 ip194, Int16[2]:=331 ip222, Field(159) ip230.",
+     "path": "One straight leg ~3657 u.",
+     "hazards": "e1 back door 300 u north of the spawn.",
+     "refs": "L158.txt; walks reader."
+    },
+    {
+     "field": 159,
+     "entrance": 331,
+     "sc": 1190,
+     "character": "O6 SURVEY. Steiner e16.",
+     "grant": "Main_Init tail EnableMove ip665; re-grant after the forced scene at e16 t1 ip711.",
+     "spawn": "(7,3870).",
+     "goal": "e11 (west): Int16[2]:=332 ip193, Field(160) ip201.",
+     "path": "~4390 u; the forced monologue fires at e16 t1 ip390 once x<-1600|x>1600|z<800 (verified): pages 296-300, Byte208, Bit[3796]:=1 ip672; interrupts 1.",
+     "hazards": "Sleeping knight e5 (talk writes Bit[3849]); soldiers e6/e7.",
+     "refs": "L159.txt e16 t1 ip390-ip711; walks reader."
+    },
+    {
+     "field": 160,
+     "entrance": 332,
+     "sc": 1190,
+     "character": "O6 SURVEY. Steiner e9.",
+     "grant": "Main_Init tail EnableMove ip399.",
+     "spawn": "(1357,-4063).",
+     "goal": "e5: Byte13:=3 ip199, Int16[2]:=333 ip227, Field(162) ip235.",
+     "path": "~4126 u (narrowest 178).",
+     "hazards": "e4 back door 61 u east of the spawn (calibration!); knight e2 talk writes Bit[3850].",
+     "refs": "L160.txt; walks reader."
+    },
+    {
+     "field": 162,
+     "entrance": 333,
+     "sc": 1190,
+     "character": "O6 SURVEY. Steiner e7.",
+     "grant": "Main_Init tail EnableMove ip866.",
+     "spawn": "(957,-3800).",
+     "goal": "e3 (north): Int16[2]:=341 ip227, Field(163) ip235.",
+     "path": "Straight north ~4206 u.",
+     "hazards": "e2 back door 50 u south of the spawn.",
+     "refs": "L162.txt; walks reader."
+    },
+    {
+     "field": 163,
+     "entrance": 341,
+     "sc": 1190,
+     "character": "O6 SURVEY. Steiner e7 (radius 120).",
+     "grant": "Main_Init tail EnableMove ip618.",
+     "spawn": "(690,2195).",
+     "goal": "e2 (top): Int16[2]:=342 ip227, Field(164) ip235.",
+     "path": "~3587 u climbing; plans at clearance 80 but NOT 120 (narrowest 128 at (2167,4004)).",
+     "hazards": "e3 back door 73 u from the spawn; SetControlDirection(16,16).",
+     "refs": "L163.txt; walks reader."
+    },
+    {
+     "field": 164,
+     "entrance": 342,
+     "sc": 1190,
+     "character": "O6 SURVEY. Steiner e7; radius 80 here (DoEventCode.cs:1507 effMapNo==164 && sid==7 && size==30 -> 20, verified; fork-wrapped).",
+     "grant": "Main_Init tail EnableMove ip698.",
+     "spawn": "(2040,3335) PSX -5647 region (tri 145).",
+     "goal": "e2 (top): e2 t2 ip42 f[1] < -12000 (verified) -> Int16[2]:=343 ip243, Field(165) ip251.",
+     "path": "A self-overlapping spiral (~12774 u, three legs); the kit's planner finds no single 2-D route; needs a waypoint step / height-aware planner; a 130-150 u band near (1040-1260,4505-4565).",
+     "hazards": "e3 bottom door live at the spawn height (f[1] > -6000 -> 163); knight e1 t1 ip178 walks once f[1] <= -8400 (verified), Bit[3811]:=1 ip230 after 4 legs at speed 15 + RunAnimation 9920 -- races the exit (register as noise or wait for it); his talk writes Bit[3851]/[3792].",
+     "refs": "L164.txt e1 t1 ip178-ip230, e2/e3 t2; walks reader spiral_paths.txt."
+    },
+    {
+     "field": 165,
+     "entrance": 343,
+     "sc": 1190,
+     "character": "O6 SURVEY. Steiner e7 (radius 120).",
+     "grant": "Main_Init tail EnableMove ip778.",
+     "spawn": "(2055,3411) PSX -10280.",
+     "goal": "e2 (top): e2 t2 ip38 f[1] < -15000 (verified) -> Int16[2]:=344 ip233, Field(166) ip241.",
+     "path": "Spiral to a landing above the spawn (~8289 u, two legs).",
+     "hazards": "e3 bottom door (f[1] > -11000 -> 164) live at the spawn height, 134 u away. Next: 166 has no control (pages 307-313, FMV004, Field(55)).",
+     "refs": "L165.txt; walks reader."
+    }
+   ],
+   "regions": "Up to the end only 153@325 has live regions. 153 (InitRegion 26/27/28 at e0 t0 ip302-308; quads decoded from SetRegion z<<16|x): e26 = e23's quad (-227,3000)(200,3000)(212,935)(-264,924), tag 2 needs SYSVAR[2] && f[1] > -100 && f[2] > 1333 && Map.Byte[24]==6 -> DisableMove ip88, Byte24:=7 ip110 (side scene A, no global store) -- role walkin; e27 = e25's quad (-777,-2348)(777,-2348)(777,-900)(-777,-900), SYSVAR[2] && Byte24==6 -> DisableMove ip68, Byte24:=14 ip90 (side scene B, no store) -- role walkin; e28 = e24's quad (2850,347)(2850,-13)(1739,-74)(1739,406), SYSVAR[2] only -> Byte[8]:=25 ip38, ExitField ip83, Int16[2]:=5 ip227, Field(150) ip235 -- role exit (to 150, entrance 5), forbidden; e22 camera code (InitCode). e23/e24/e25 are instanced only at 328 and the default entrance (ip626-632, ip1115-1121): register them role dormant (O2's 115.e14 precedent) -- as exits they would mislabel a side-scene loss in their twin quads. 154@304: no region instanced (e8/e9/e10 only on the default branch L392: dormant). 153@316: none. 151@110: none (e8 only on the default branch L340: dormant). No hot-spot (no Int16[220]/[222] in 151/153/154), no ATE, no face gate (scan_gateways face_gate None for every gateway of 151/153/154). Shared scripts on the route store nothing.",
+   "talks": "No NPC talk is needed anywhere up to the end. Talk handlers that could fire with control (only at 153@325): Blank e7 t3 ('Hurry!' 118, WindowSync ip2195, DisableMove ip2159 / EnableMove ip2231, no store) -- a stray Confirm near him costs a page and a re-grant, never a key; the driver presses Confirm only on pages (control off), so a walk never triggers it. 154@304, 153@316, 151@110 have no control; Brahne's e3 t3 (Bit[3793], AddItem by Byte[475]) cannot fire at 110 (she is the player). Talk radii: SetObjectLogicalSize arg 3 (Blank 30, Zidane 40). Past the cut (O6): knights' talks write Bit[3849]-[3852]/[3792] -- forbidden there.",
+   "summary": "O5 (to the arrival in 153@328) has ONE control grant: 153 e3 t1 ip785 at (1105,-78) (bytes; rehearse), Zidane radius 80, after page 117. Its goal is a HEIGHT (e3 t1 ip859: PSX y <= -450, published >= 450) on the curved west stair; the existing trigger step with closed_tris (the 33 floor-0 upper tris) and until {x_le:-1100} plans and judges it with no harness change: route (1105,-78) -> (-879,818) -> (-1263,754) -> (-1700,300), 3196 u, contour crossed at ~(-1482,527); avoid e26/e27 (side scenes, walkin, no store) and e28 (the back door, exit, forbidden). A side scene re-grants at ip1266 (interrupts 1). Every other visit (154@304, 153@316, 151@110) has a script-defined player and no EnableMove (control there is V4). No facing gate, no hot-spot, no required talk. O6's walks (Steiner, from (-245,42) on the ground, then 154/158/159/160/162/163/164/165) are surveyed: they need a height-aware planner, radius 120, a waypoint step and the 164 knight race.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o5_research\\reconcile\\notes.txt"
+  },
+  "walk_plan": "THE WALK PLAN (O5 = raw warp into 153@325 -> ... -> arrival in 153@328). ONE control grant; everything else is pages, 12 KEYON pairs and one naming screen.\n\nCONTROL 1 -- 153 (S) / 31245 (F), entrance 325, SC 1190, visit 1, beat-table cell (153, 1190), its only step.\n- Who: Zidane (e3, DefinePlayerCharacter e3 t0 ip176), radius 80 (SetObjectLogicalSize(20,24,40) ip218).\n- When: e3 t1 stage 5, EnableMove ip785, right after page 117 closes (WaitWindow(1) ip752, Map.Bit[158]:=1 ip755). No window is up; Blank (e7) is shown with NO player collision (SetObjectFlags(5) ip770). Rule 8 settles (settle_s) then runs the step.\n- Spawn (bytes; REHEARSE): (1105,-78), the end of stage 1's Walk ip537. Tri 66, floor 2, published y ~1.\n- Goal: a HEIGHT. e3 t1 ip859 tests obj(255).f[1] > -450 every tick; the first tick he stands at PSX y <= -450 (published y >= 450) it takes control (DisableMove ip893). Only the curved west stair gets there; the -450 contour crosses tris 56/53 from (-1403,476) via (-1583,601) to (-1722,642). 2-3 ticks later stage 17 teleports him to (-1165,856) (published y ~231) and climbs him by script to (-329,-624).\n- Walkmesh for the plan: PlayerWalkmesh(stock 153, closed_tris = [0,1,2,3,4,5,6,7,8,9,11,14,15,16,17,18,19,20,21,23,24,28,32,33,34,35,38,39,41,42,43,45,46]) -- the 33 floor-0 tris at y -1499 (the upper corridor over the hall). Without it the planner has no route (point_on_walkmesh returns the upper tri first); closed_floors [0,1] also plans but shuts 15 real ground tris of floor 0.\n- Waypoints (frame: 153 world x,z): (1105,-78) -> (-879,818) [tri 55, PSX -114] -> (-1263,754) [tri 78, -308] -> (-1700,300) [tri 61, -591]. 3196 u; contour crossed ~(-1482,527), 315 u into the last leg; ~2 s of running.\n- Step kind: trigger. {kind: 'trigger', name: 'the stairs', goal: [-1700, 300], until: {'x_le': -1100}, avoid: ['153.e26', '153.e27', '153.e28'], closed_tris: [the 33], npcs: true, interrupts: 1, beat: 'stairs'} with O2's steps_default (attempts 2, timeout_s 20, tolerance 45, exit_slack 40, exit_wait_s 5). Evidence {x_le:-1100}: every control loss at x <= -1100 in stage 6 is the stair's; it accepts the contour sample, the teleport and ~50 ticks of the scripted climb (a late loss sample, lesson 10); a y >= 450 predicate would reject the teleport, z >= 300 fails ~20 ticks after the loss.\n- Hazards: e28 back door (x 1739..2850) live whenever he has control (SYSVAR[2] only): Byte[8]:=25, Int16[2]:=5, Field(150) -- 634 u east of the spawn; in avoid, registered role exit (V11 on a landing), forbidden (cause walk). e26 (ground, z > 1333) and e27 (x -777..777, z -2348..-900) side scenes at stage 6 -- in avoid (route gaps >= 350 u), role walkin, no story store; one is absorbed by interrupts 1 (pages 119-123 by rule 7, Walk(1105,-78) ip1230, re-grant ip1266, the step re-runs). Blank (1068,373): no player collision; his talk needs a Confirm, never pressed in a walk; 396 u off the route. Hidden colliders e9/e11/e31 > 1400 u off. Calibration: route_to's _calibrate_clear_of with these avoid polygons and key_prior(153); SetControlDirection (248,0) everywhere in 153. No facing gate (a height test; scan_gateways face_gate None). Camera switching (e22, SETCAM #493 wrapped) is visual.\n- Regions to register: 153.e28 exit (to 150, entrance 5); 153.e26 and 153.e27 walkin; 153.e23/e24/e25 dormant (their twin quads; live only at 328/default); 154.e8/e9/e10 and 151.e8 dormant.\n- After the loss: rule 7 pages 126 and 127; the opt-in quiet window (marker 'let me pass') presses nothing until choice 128 is published; rule 6 answers 'her face' with choose(1).\n- Numbers to rehearse (R-STAIRS, stock x2, then one F run after P-FLOOR): the grant position (expect (1105,-78)); the loss sample (expect x -1403..-1722, published y 450-470; or the teleport/climb if late); ticks grant -> loss and loss -> CreateObject; whether e9/e11/e31 publish as objects; wall contacts on the stair; calibration probe lengths at the spawn. Freeze settle_s, the goal and the until from them.\n\nCONTROL 1b (conditional): only after a side scene, e3 t1 stage 16 EnableMove ip1266 at (1105,-78); the same step, its interruption counted.\n\nNO OTHER CONTROL up to the end: 154@304 (Zorn e2 the player), 153@316 (Zorn e18), 151@110 (Brahne e3, size 1) never EnableMove; any control sample there is V4 (game).\n\nO6 SURVEY (past the cut; not walked in O5): 153@328 Steiner from (-245,42) on the GROUND (settled) north into e23 (z > 1333) ~1600 u; 154@315 gallery -> ground -> e8 ground branch (two legs); 158 e2; 159 e11 with the forced monologue (interrupts 1); 160 e5 (back door 61 u); 162 e3 (back door 50 u); 163 e2 (radius 120 does not plan); 164 spiral (f[1] < -12000; the knight's Bit[3811] race); 165 spiral (f[1] < -15000); 166 no control (FMV004) -> Field(55) (real 55 on F).",
+  "start": {
+   "reads": [
+    {
+     "target": "Global.UInt16[0] (SC)",
+     "where": "153 e0 t0 ip232 'SC > 1900'; 151 e0 t0 ip461 'SC < 12000'; no SC store in 151 or 153-167",
+     "effect": "153: false -> Int16[2] keeps the arrival entrance (ip243 ':=3' skipped); 151: true (the disc-1 camera). Same branch in both starts.",
+     "o4_end_value": "1190 (150 e3 t1 ip1966; O4's frozen end_state)",
+     "raw_warp_value": "1190 (Ff9mkDebugMenu.cs:2135; residue rows [0,0,166], [1,0,4])"
+    },
+    {
+     "target": "Global.Int16[2] (FieldEntrance)",
+     "where": "153 e0 t0 ip251/ip255 SWITCHEX; e3 t0 ip10/14; e3 t1 'Int16[2] != 3' gates (ip1426, ip1661, ip1688, ip1713, ip1730, ip1888, ip2942 ...); 154 e0 t0 ip230/234; 151 e0 t0 ip232, e3 t0 ip14/ip149",
+     "effect": "The 325 branch (L273); every later visit reads the chain value its predecessor wrote; every '!= 3' gate true (pages 113-117, choice 128, the exit). Same in both starts.",
+     "o4_end_value": "325 (150 e3 t1 ip2161)",
+     "raw_warp_value": "325 (Ff9mkDebugMenu.cs:2130); BOTH bytes change: residue [2,0,69], [3,0,1] -> 4 residue rows in all"
+    },
+    {
+     "target": "Global.Byte[13] / Global.Int16[9]",
+     "where": "153 e0 t0 ip57 Int16[9]:=-1 first, then ip65/ip79/ip108 -> ip119 Byte13:=0; ip2288 '==9' (the window-56 path); the same prologue in 154/151",
+     "effect": "Both starts take ip119 and skip window 56; only the rows' 'old' differs (Int16[9] 643 vs -1, Byte13 1 vs 0).",
+     "o4_end_value": "Byte[13] 0, Int16[9] -1",
+     "raw_warp_value": "Byte[13] 1 (70 e0 t0 ip130), Int16[9] 643 (70 e0 t0 ip57) -- verified"
+    },
+    {
+     "target": "Global.Byte[14] / Int16[11] / Bit[184]",
+     "where": "153 e0 t0 ip30, ip138-ip211, ip2322 (same shape in 154/151)",
+     "effect": "Equal in both starts: same branch (ip200).",
+     "o4_end_value": "0 / -1 / 0",
+     "raw_warp_value": "0 / -1 / 0 (70 e0 t0 ip200/ip138)"
+    },
+    {
+     "target": "Global.Byte[8]",
+     "where": "Only as the RunSoundCode volume operand, always right after a write: 153 e3 t1 ip2953->ip2961; 154 e0 t0 ip279->ip287; 153 e18 t1 ip890->ip898; 151 e0 t0 ip315->ip323, e2 t1 ip735->ip743",
+     "effect": "No branch; only the first row's old differs (ip2953: 125 raw vs 75 true). The audible BGM difference (field 70's track until ip2961 fades it) is untraced.",
+     "o4_end_value": "75 (150 e3 t1 ip1974)",
+     "raw_warp_value": "125 (70 e0 t0 ip249, verified)"
+    },
+    {
+     "target": "Global.Bit[3795]",
+     "where": "Written at 153 e3 t1 ip1741 before any read; reads only behind Int16[2]==3 (ip1542/1571, ip3358/3387, e7 t1 ip1608/1637, e31 t1 ip686/715/870/899) and in field 51",
+     "effect": "The driver's pick, not the start: both sides by the frozen rule (1 = 'Examine her face').",
+     "o4_end_value": "0",
+     "raw_warp_value": "0"
+    },
+    {
+     "target": "Global.Byte[6]",
+     "where": "151 e3 t1 ip610 (L426) 'Byte[6] |= 8' after Menu(1,3); no branch reader (start-state reader's census: only naming-field ORs)",
+     "effect": "START-DEPENDENT VALUE, no branch: writes 8 after the raw warp, 11 after a true run; the same on S and F. Register {donor 151, sid 3, tag 1, ip 610, off 426, m 1, src eb, op '|=', target Global.Byte[6], value 8, prior newgame0, after_o4 11}.",
+     "o4_end_value": "true run 3 (O1 50 e17 t1 ip3240 |=1, O2 116 e2 t1 ip765 |=2, both verified); O4's frozen end_state 0 (O4 itself started raw)",
+     "raw_warp_value": "0"
+    },
+    {
+     "target": "Global.Byte[475] / Bit[3793]",
+     "where": "151 e3 t3 ip897-ip1048 (Brahne's talk: AddItem 229/238/239/150 by score)",
+     "effect": "Off the route: at 110 Brahne is the player and there is no control. Forbidden/off-route.",
+     "o4_end_value": "100 (64 e4 t1 ip338)",
+     "raw_warp_value": "0"
+    },
+    {
+     "target": "Global.UInt16[19] (O6)",
+     "where": "153 e32 t1 ip2180 bit-3 test, ip2206 '|= 8' -- at 328, past the cut",
+     "effect": "Not read or written in O5. For O6: same branch in both starts; value 8 raw vs 1807 true (START-DEPENDENT there).",
+     "o4_end_value": "true 1799 (O1 + O2's |=2); O4's frozen end_state 0",
+     "raw_warp_value": "0"
+    },
+    {
+     "target": "Party, controlled character, names, gil (not gEventGlobal)",
+     "where": "No party read before 153@328's rebuild; DefinePlayerCharacter in every visit's script (e3 153@325, e2 154@304, e18 153@316, e3 151@110); NameSettingUI pre-fills the default (start-state reader: NameSettingUI.cs:137/151); gil read only by 155/167's chest helper",
+     "effect": "Equal or no effect: party [Zidane] in both starts, the script picks the controlled actor, Steiner gets 'Steiner', gil never read on the route.",
+     "o4_end_value": "[Zidane]; default names; gil >= 10500",
+     "raw_warp_value": "[Zidane] (ff9play.cs:74-78); default names; gil 500"
+    },
+    {
+     "target": "SYSVAR[0] (random)",
+     "where": "none in 151/153/154",
+     "effect": "No randomness on the route.",
+     "o4_end_value": "n/a",
+     "raw_warp_value": "n/a"
+    }
+   ],
+   "start_options": "(a) RECOMMENDED -- the raw warp, O2-O4's mechanism: New Game, `storytrace 1`, then in field 70 (before 70 e0 t0 ip475's Byte13:=2) `warp 153 325 1190` (S) / `warp 31245 325 1190` (F) (HarnessAgent.cs:652-653 -> Ff9mkDebugMenu.HarnessWarp, which sets FieldEntrance and ScenarioCounter at Ff9mkDebugMenu.cs:2130/2135; it needs UIState FieldHUD). Residue: FOUR rows [[0,0,166],[1,0,4],[2,0,69],[3,0,1]] (StoryTrace.Diff is per byte, StoryTrace.cs:512-522; 325 = 0x0145 moves FieldEntrance's high byte too) -- O5's START contract must expect 4 (O2-O4 expected 3). Front cut at 153's (member(153)'s) first w row, e0 t0 ip22; START requires ip119 (Byte13 old 1 -> 0), never ip97/window 56. Every route read resolves to the same branch from this start and from a true O1-O4 run; ONE START-DEPENDENT key up to the end: 151 e3 t1 ip610 Byte[6] |= 8 (value 8 here, 11 on a true run, the same on S and F; register it in O2's 4.5 shape). (b) Harness pokes in field 70 before the warp (`byte 6 3`; optionally `byte 475 100`, `flag 3815 1`): supported, survive field 70, traced as src harness rows; they make the 151 row write 11 -- unnecessary for an S/F claim, the owner's call if the stored VALUE must be the true game's; needs a new START contract. (c) The narrative-state story seed: unsuitable (fork-side [startup] rows only, no channel for Byte[6]).",
+   "party_and_names": "Party [Zidane] at the arrival in both starts (New Game ff9play.cs:74-78 vs 150's rebuild in a true run); nothing in 153@325, 154@304, 153@316 or 151@110 reads or changes the party (the rebuild to [Steiner] is 153@328 e32 t1 ip1656-ip1705, past the cut). Controlled characters are script-defined: Zidane e3 (153@325), Zorn e2 (154@304), Zorn e18 (153@316), Brahne e3 (151@110, shown, logical size 1) -- only Zidane ever gets control. Names: Zidane and Vivi keep their defaults in both starts; Steiner is named at 151 e3 t1 ip603 and NameSettingUI pre-fills the default, so accept_name stores 'Steiner' on both sides (not gEventGlobal). Gil 500 (raw) vs >= 10500 (true): never read on the route.",
+   "summary": "Start O5 by the raw warp into 153 (S) / member(153) 31245 (F) at entrance 325 with SC 1190, from field 70 after New Game -- O2-O4's mechanism -- expecting FOUR residue rows (bytes 0-3) and cutting at 153's first row (e0 t0 ip22), with 153's prologue on ip119. Every gEventGlobal read on the route resolves to the same branch from this start and from a true O1-O4 run. Exactly one START-DEPENDENT key lies before the end: 151 e3 t1 ip610 Byte[6] |= 8 (8 here, 11 on a true run; equal on S and F) -- register it as O2 did. The 'old' values of 153's first prologue rows and of e3 t1 ip2953 differ from a true run but are not keys. UInt16[19] |= 8 (153@328) and Byte[475]'s gift (Brahne's talk) are outside O5.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o5_research\\reconcile\\notes.txt"
+  },
+  "start_plan": "THE START PLAN. (1) Preflight on the shared install (re-run, never assumed): P-ENGINE (x64 = x86 = Output Assembly-CSharp.dll sha256 ba9762423da8f3d7..., re-hashed today; no newer .cs); P-DONOR (ForkDonorPatch 31244 151, 31245 153, 31246 154, each donor once, FF9CustomMap only); P-EB (member(151)/(153)/(154) per language = the build: today's US files differ from stock only in Field() operands); P-STOCK (no mod folder ships EVT_ALEX1_AC_H2F/FTI/RST or FieldScene 151/153/154: verified today); P-TEXT3 (block 3 in all 7 languages, strict); P-FLOOR (31245 walked on stock 153's walkmesh); P-SETTINGS (DisableNameChoice 0 -- new for O5 --, SwapConfirmCancel 0, FieldTPS 30); P-LANG US; P-RECOVERY (4600). (2) Each run: New Game, `storytrace 1`, in field 70 before 70 e0 t0 ip475: `warp 153 325 1190` (S) or `warp 31245 325 1190` (F). (3) START check: exactly 4 residue rows [[0,0,166],[1,0,4],[2,0,69],[3,0,1]]; the start row 153 (member(153)) e0 t0 ip22; the prologue on ip119 (Byte13 old 1 -> 0) and no window 56. (4) START-DEPENDENT registration: {donor 151, sid 3, tag 1, ip 610, off 426, m 1, src eb, op '|=', target Global.Byte[6], value 8, prior newgame0, after_o4 11} -- the only one before the end. (5) Predictions skeleton: start {S:153, F:31245}, entrance 325, scenario 1190, entrance_bytes [2,3], sc_bytes [0,1], route [153,154,151], visits [153,154,153,151,153], end_field 153, side_ends {S:[153], F:[31245]}, end_visit 5 (new, opt-in), ladder [] (no rung), chain [153 e3 t1 ip3150 304, 154 e2 t1 ip1520 316, 153 e18 t1 ip1077 110, 151 e2 t1 ip932 328], table [{donor 153, sc 1190, steps [the stair trigger]}], choices [{153, [1190], 'her face' -> 'her face', once}, O1's skip rule], naming [{151, 1190, 'named'}], quiet {markers ['let me pass']} (new, opt-in), battles [], stop_pages [{match 'Env Play()'}], order S F S F S F, rerun max 2 stop_on [V19]. (6) Alternative starts: harness pokes (`byte 6 3` etc.) only if the owner wants the true game's stored VALUE (new START contract); the story seed is unsuitable.",
+  "disputes": [
+   {
+    "topic": "Segment end",
+    "readers": "bytes: candidate 4 = arrival in 153@328 (recommended); data: arrival in 153@328; harness: ends in 153 (316, 328) are a GAP (the start place), 154@304 / 151@110 / 55 ready",
+    "settled": "CHOSEN arrival in 153@328 with an opt-in end_visit (5, visits [153,154,153,151,153]) for rule 1, end_row, the live scan and cut_at_end; fallback 151@110. Code: rule 1 fires on the first poll in an end field and cut_at_end cuts at the first end-place row -- both would end O5 at its start.",
+    "ref": "segment_drive.py:2801 (rule 1), :2067 (live scan), :2084-2100 (end_row); segment_trace.py:127-136 (cut_at_end); HarnessAgent.cs:1534 (only 'scenario' is published, no FieldEntrance)"
+   },
+   {
+    "topic": "The stair walk's walkmesh closure (153@325)",
+    "readers": "walks: closed_tris = 33 floor-0 tris; harness: closed_floors [0,1]",
+    "settled": "Floor 0 = 33 tris at y -1499 (exactly the walks list) + 15 ground tris at y -1; floor 1 (2 tris, flags 0xa001) is already closed to the player at mask 255. Both plan (closed_tris: (-879,818),(-1263,754),(-1700,300), 3196 u; floors [0,1]: via (1041,-14), 3202 u); closed_tris is exact, [0,1] also shuts 15 walkable ground tris. Use closed_tris.",
+    "ref": "reconcile/wmprobe.py + route153.out on extract.stock_walkmesh(153); pathfind.PlayerWalkmesh (content/pathfind.py:714-787)"
+   },
+   {
+    "topic": "The stair trigger's evidence",
+    "readers": "walks: until {x_le:-1100, z_ge:300}; harness: a y-aware until or a synthetic stair-band target (tri 65/53 centroids); data: 'until control is taken'",
+    "settled": "until {x_le: -1100}, no harness change. The loss sample can be the contour crossing (x -1403..-1722), the teleport (-1165,856; published y ~231, 2-3 ticks after DisableMove) or the scripted climb; x <= -1100 holds for ~50 ticks and for no other stage-6 loss (e26 x -264..212, e27 x -777..777, e28 x >= 1739). A y >= 450 predicate rejects the teleport sample; z >= 300 fails ~20 ticks after the loss.",
+    "ref": "153 e3 t1 ip859/ip893/ip1466-ip1521; EBin.cs:1785-1793; segment_drive.py:240-252, 2267-2317"
+   },
+   {
+    "topic": "Choice 128's pick",
+    "readers": "bytes and data: 1 ('Examine her face'); harness: prefer the default 0 so a stray press gives the same answer (+ an opt-in quiet window)",
+    "settled": "Design decision (lesson 13): pick 1, rule match/pick 'her face', once, choose(1), WITH the opt-in quiet window after page 127; 0 with take:'default' is the no-change fallback and a weaker same-value claim. Bytes facts all agree: cursor on 0, stored in Bit[3795] at ip1741 and Map.Byte[27] at ip1749, both paths rejoin at stage 23, path 1 = 11 windows vs 2.",
+    "ref": "153 e3 t1 ip1724-ip1767, e2 t1 ip844; ETb.cs:100-103, :259"
+   },
+   {
+    "topic": "Steiner's control position at 153@328 (O6)",
+    "readers": "bytes and data: about (-24,-74) on the UPPER walkway (y -1499); walks and harness: (-245,42) on the ground",
+    "settled": "(-245,42) on the GROUND (tri 114, floor 3, PSX -1): stage 40 walks to (-24,-74) (ip778) but stage 44 walks him down the stair (ip1176-1197: (-150,-550), (-1235,-558) PSX -1119, (-1595,-195) -845, (-1370,804) -316) and stage 45 to (-575,807) and (-245,42) (ip1360/ip1367) before EnableMove ip2412.",
+    "ref": "153 e32 t1 ip777-ip1397, ip2412; reconcile wmprobe heights"
+   },
+   {
+    "topic": "153 e15 t0 ip32 Byte[8]:=125 (O6)",
+    "readers": "bytes: dead or never on the route (e15 not instanced)",
+    "settled": "LIVE at 328: e32 t1 ip866 RunSharedScript(15) runs entry 15's code (Wait(45), sound, Byte8:=125 ip32, op_1C(255)) in stage 40 -- past O5's cut; how the trace attributes a shared script's store is O6's question.",
+    "ref": "L153.txt e32 t1 ip866, e15 t0 ip6-ip57; DoEventCode.cs:1414 (STARTSEQ)"
+   },
+   {
+    "topic": "166's movie (O6)",
+    "readers": "data: 'None: no movie opcode in 151, 153-167'; bytes, harness, gates: FMV004",
+    "settled": "FMV004: 166 e6 t1 ip633 Cinematic(0,9,1,1) (behind ip609 SYSVAR[15]&128==0), played by ip711 Cinematic(2,0,0,0); MBG.cs:830 MBG_DEF('FMV004',1,0), type 0 (skippable).",
+    "ref": "L166.txt e6 t1 ip609-ip711; MBG.cs:829-830"
+   },
+   {
+    "topic": "Pages 113/114",
+    "readers": "data: 'none, or turn pages if they block'; bytes: Confirm",
+    "settled": "Pages: e7 t1 stage 2 waits on both (WaitWindow(1) ip337 after 113, ip351 after 114); each needs a Confirm.",
+    "ref": "153 e7 t1 ip273, ip337, ip340, ip351"
+   },
+   {
+    "topic": "Brahne at 151@110",
+    "readers": "start-state: 'an invisible anchor (flags 7, logical size 1)'; data: 'a size-1 Brahne dummy'",
+    "settled": "SetObjectFlags(7) = show model + player + NPC collision (DoEventCode.cs:2073): Brahne is SHOWN; SetObjectLogicalSize(1,1,1) ip166; DefinePlayerCharacter ip171; no Map.Bit[158] at 110, so no control.",
+    "ref": "151 e3 t0 ip149-ip171; DoEventCode.cs:2071-2085"
+   },
+   {
+    "topic": "Beat kinds at 154@304 / 153@316 / 151@110",
+    "readers": "data: 'talk'; bytes: pages and KEYON pairs",
+    "settled": "Pages and [INCS][TIME=-1] KEYON pairs closed by the scripts' KEYON loops; nobody is talked to and there is no control.",
+    "ref": "stages154.out, stages153.out (100-114), stages151.out"
+   },
+   {
+    "topic": "Run time per candidate",
+    "readers": "bytes: 3 / 4 / 5.5 / 8 min (cands 1-4); data: 2.5 / 3.3 / 4.5 / 7",
+    "settled": "Estimates only: ~3 / 3.8 / 4.7 / 6.5 min (pick 1; ~6 with pick 0): 53 pages, 12 KEYON pairs, 4 timed, 1 naming, 1 walk, ~26 s of scripted waits, ~4 s a page (O4's 150).",
+    "ref": "reconcile/waits.py; o4_route.md run-time calibration"
+   },
+   {
+    "topic": "Steiner's radius in 164 (O6)",
+    "readers": "walks: 80 in 164; harness: 120 everywhere",
+    "settled": "120 (size 30 x 4) everywhere except 164's e7, where DoEventCode.cs:1507 (effMapNo == 164 && sid == 7 && size == 30 -> 20) makes it 80; the check is effMapNo-wrapped, so the fork gets it.",
+    "ref": "DoEventCode.cs:1498-1531; 164 e7 t0"
+   },
+   {
+    "topic": "Region roles for 153's twin quads",
+    "readers": "walks/harness: e26/e27/e28 avoid, e23/e24/e25 listed by scan_gateways",
+    "settled": "Register 153.e28 exit, 153.e26/e27 walkin, 153.e23/e24/e25 dormant (InitRegion only at 328 and the default entrance); e23 = e26's quad, e24 = e28's, e25 = e27's, so as exits they would mislabel a side-scene loss (O2's 115.e14 dormant precedent).",
+    "ref": "153 e0 t0 ip302-308, ip626-632, ip1115-1121; e23-e28 t0 SetRegion"
+   }
+  ],
+  "unverified": [
+   "The grant position (1105,-78) and the loss sample in game: bytes and walkmesh only (rehearse; lesson 6).",
+   "Choice 128's published options/active/selected: inferred from O4's encore and lesson 1.",
+   "The 127 -> 128 stray-press race (whether the quiet window is strictly needed): not measured.",
+   "Run time ~6.5 min a run (pick 1): an estimate from page counts and O4's calibration; no stock run of 153 -> 151 exists.",
+   "s62's VIB donor-name path on member(153) (stage 27, e3 t1 ip2443-2453): IL-present (gates reader) and source-present (HonoluluFieldMain.cs:93-104), never exercised in game on member(153).",
+   "Whether hidden flag-14 objects (153 e9, e11, e31) are published as objects (route_to npcs discs).",
+   "How [TIME=20] [NFOC] windows (137, 140, 175, 176) react to rule 7's Confirm (O4 measured 150's [TIME] windows inert).",
+   "end_run from inside 151's naming screen (warp refused outside FieldHUD; accept_name fallback in segment_trace.py:571-575).",
+   "NameSettingUI's default pre-fill (NameSettingUI.cs:137/151) and Bit[3795]'s reader census (153 and 51): the start-state reader's, not re-run here.",
+   "The deployed members' non-US languages: only the US .eb was diffed instruction by instruction; P-EB must check every language at session time.",
+   "Every O6 fact beyond the spot checks named (Steiner's 328 path, e15's shared script, FMV004, 159 e16 t1 ip390, 164 e1 t1 ip178/ip230, 164/165 height gates, 164's radius special case)."
+  ],
+  "harness_gaps": {
+   "items": [
+    {
+     "topic": "End in the start place (153 starts and ends O5)",
+     "status": "gap",
+     "evidence": "Rule 1 `if self.fid in self.ends` (segment_drive.py:2801) fires on the run's first poll in 153; segment_trace.cut_at_end (:127-136) cuts at the first end-place row, i.e. the start row; the live scan (segment_drive.py:2067) and end_row (:2084-2100) use the same cut. FieldEntrance is not published (only `scenario`, HarnessAgent.cs:1534), so the visit must come from the driver's own visit order.",
+     "smallest_fix": "Opt-in pred['end_visit'] (O5: 5, visits [153,154,153,151,153]): rule 1 fires only at the arrival that starts that visit (fid != cur and the next ordinal == end_visit); cut_at_end/end_row/the live scan cut at the first row of the end_visit-th place-block counted from the start row; the analysis cross-checks that the row before it is 151 e2 t1 ip932 Int16[2]:=328. FakeGame: a start place revisited and ended on. O1-O4 byte-identical without the key (G1-G21)."
+    },
+    {
+     "topic": "Stray Confirm from page 127 landing on choice 128",
+     "status": "risk",
+     "evidence": "127 (153 e31 t1 ip663 WindowSync, typed at [SPED=2]) -> Bit231 ip670 -> e3 t1 ip1724 choice 128 within ~2 ticks; rule 7 re-presses every CUTSCENE_PAGE_TICKS = 4 (segment_drive.py:2938-2940, session.py:6295); O4 measured WindowSync first-Confirm drops and guarded 123 -> 127 with a quiet window that exists only under the Chanbara policy (quiet_tick/note_choice, segment_drive.py:3059-3095). A press landing on 128 answers 0 with no choice row; with pick 1 it diverges.",
+     "smallest_fix": "Opt-in pred['quiet'] = {markers ['let me pass'], cap_s} read outside the Chanbara policy (the same quiet_tick: armed when a page holding the marker is pressed, open at the first sample without it, nothing pressed until a choice is published, no choice within cap_s -> V14). FakeGame: a page -> choice beat (H11's quiet model). Fallback: pick 0 with take:'default'."
+    },
+    {
+     "topic": "The stair walk on 153's stacked mesh",
+     "status": "ready",
+     "evidence": "Plain PlayerWalkmesh: no route (floor-0 upper tris first under XZ). With the step's closed_tris (the 33 upper tris) the route plans: (1105,-78) -> (-879,818) -> (-1263,754) -> (-1700,300), 3196 u (reconcile/route153.out). closed_tris is honoured per step today (segment_drive.py:255-264, walk_kw :2109-2116 -> floor_for(donor, closed)).",
+     "smallest_fix": "None in code: freeze the 33-tri list; an offline O5-GOALS check plans it on the donor's walkmesh."
+    },
+    {
+     "topic": "The stair trigger's evidence (a height test)",
+     "status": "ready",
+     "evidence": "153 e3 t1 ip859 takes control on PSX y <= -450; until_ok reads x/z only (segment_drive.py:240-252), and {x_le:-1100} suffices: it holds for the contour sample, the teleport (-1165,856) and ~50 ticks of the scripted climb, and for no other stage-6 loss.",
+     "smallest_fix": "None. Do not add a y predicate: published y >= 450 would reject the teleport sample (y ~231)."
+    },
+    {
+     "topic": "Region registry: twin quads and dormant gateways",
+     "status": "gap",
+     "evidence": "153's e23/e26, e24/e28, e25/e27 share quads; scan_gateways lists e23/e24/e25 (instanced only at 328 and the default entrance) and e28; exit_regions (segment_drive.py:278-291) makes every role-exit region of place 153 a candidate door for the landing judge.",
+     "smallest_fix": "Register 153.e28 exit (to 150, entrance 5), 153.e26/e27 walkin, 153.e23/e24/e25 dormant (O2's 115.e14 precedent); 154.e8/e9/e10 and 151.e8 dormant; the O5-REGIONS check accepts dormant gateways at their own entrances."
+    },
+    {
+     "topic": "Naming screen (151 Menu(1,3))",
+     "status": "ready",
+     "evidence": "151 e3 t1 ip593 SetCharacterData, ip603 Menu(1,3) (DoEventCode.cs:2317-2341; DisableNameChoice = 0 in the live Memoria.ini:256); rule 4 (segment_drive.py:2867-2880) calls accept_name (session.py:7049), proven on Zidane (O1) and Vivi (O2).",
+     "smallest_fix": "A naming row {donor 151, sc 1190, beat 'named'}; P-SETTINGS freezes DisableNameChoice = 0."
+    },
+    {
+     "topic": "Choice 128 answered by choose(1)",
+     "status": "ready",
+     "evidence": "pick_for maps 'her face' through `active` (segment_drive.py:168-200); choose(1) proven on O1's 52 and O4's encore; the cursor opens on 0 (ETb.cs:100-103).",
+     "smallest_fix": "Rule {donor 153, sc [1190], match 'her face', pick 'her face', once true}."
+    },
+    {
+     "topic": "Pages, KEYON pairs, timed windows",
+     "status": "ready",
+     "evidence": "53 pages (pick 1), 12 [INCS][TIME=-1] KEYON pairs (153 ip2336/ip2711; 154 ip215/ip392/ip1265; 153@316 ip444/ip883; 151 ip516/ip693/ip475/ip742/ip935), 4 [TIME=20] windows: all O3/O4 rule-7 shapes.",
+     "smallest_fix": "None (one plain-rule-7 FakeGame test on a keyon_pair beat, as the harness reader suggests)."
+    },
+    {
+     "topic": "Recovery (end_run) from 151's naming screen",
+     "status": "risk",
+     "evidence": "end_run warps to 4600 (needs FieldHUD); from NameSetting the warp is refused, then restore_baseline fails and accept_name + the ladder follow (segment_trace.py:566-575); never run from 151/154/153@316.",
+     "smallest_fix": "Retry the warp after accept_name before restore_baseline; an R-VOID rehearsal stopped in 151 with the naming up."
+    },
+    {
+     "topic": "Start: raw warp with 4 residue rows",
+     "status": "ready",
+     "evidence": "start_run sends `warp <start> <entrance> <scenario>` (segment_trace.py:508-522); FieldEntrance 325 = 0x0145 writes bytes 2 AND 3 (StoryTrace.cs:512-522 per-byte residue).",
+     "smallest_fix": "Analysis only: the START contract expects 4 residue rows."
+    },
+    {
+     "topic": "Calibration and facing",
+     "status": "ready",
+     "evidence": "All 15 SetControlDirection in 153 are (248,0); route_to calibrates clear of the avoid polygons with key_prior (session.py:1673-1696, :1984); per-field axes cache (31245 calibrates apart from 153). No face gate on any gateway of 151/153/154 (scan_gateways).",
+     "smallest_fix": "None."
+    },
+    {
+     "topic": "Controlled character not published",
+     "status": "ready",
+     "evidence": "state.json player = GetControlChar only (no sid/radius); the player changes Zidane -> Zorn -> Zorn -> Brahne, but only Zidane ever has control.",
+     "smallest_fix": "None for O5 (no cell at the other visits; control there is V4)."
+    },
+    {
+     "topic": "Battles, ATE, FMV, hot-spots",
+     "status": "ready",
+     "evidence": "None in 151/153/154 (opcode census; no Int16[220] hot-spot).",
+     "smallest_fix": "None: empty battle registry, no movie policy; stop page 'Env Play()'."
+    },
+    {
+     "topic": "Run budget",
+     "status": "risk",
+     "evidence": "~6.5 min a run estimated (53 pages, 12 KEYON pairs, ~26 s scripted waits); the longest static stretch (151 stage 13's Wait(90) + walks) is far below no_progress_s 60.",
+     "smallest_fix": "Freeze run_s/run_min_s/session_s from R-FULL (stock 153 -> 153@328, x2)."
+    },
+    {
+     "topic": "Preflight extensions",
+     "status": "gap",
+     "evidence": "O4's P-FLOOR/P-SETTINGS/P-TEXT checks predate O5's walk on 31245 and the naming screen.",
+     "smallest_fix": "P-FLOOR on 31245 (stock 153's walkmesh), P-SETTINGS + DisableNameChoice 0, P-TEXT3 strict, P-DONOR widened to 151/153/154."
+    },
+    {
+     "topic": "FakeGame models",
+     "status": "gap",
+     "evidence": "No start-place-revisit end, no quiet window outside chanbara, no height-triggered loss followed by a teleport (fakegame.py: one walkmesh, floor-blind standing test, y changes only on ladders).",
+     "smallest_fix": "Opt-in knobs: a visit-5 end in the start place; the quiet window outside chanbara; a trigger whose loss lands on an x threshold with a teleport 2-3 ticks later (the x-only evidence makes the floor-blind fake sufficient); 4 residue rows. All under G21's source pins with O1-O4 byte-identical."
+    }
+   ],
+   "summary": "Up to the chosen end O5 needs ONE new opt-in driver/cut feature (end_visit: the run starts and ends in 153) and ONE recommended opt-in guard (the quiet window after page 127, O4's mechanism outside the Chanbara policy). Everything else is ready with configuration: the stair walk runs on the existing trigger step with closed_tris (the 33 floor-0 upper tris) and until {x_le:-1100}; pages, the 12 KEYON pairs, the timed windows, Steiner's naming (accept_name) and choice 128 by choose(1) are proven shapes; no battle, FMV, ATE or hot-spot; no facing gate. Minor: register 153's twin quads (e23/e24/e25 dormant), extend P-FLOOR/P-SETTINGS/P-TEXT3, retry the recovery warp after a naming screen, freeze the budget from R-FULL, and model the new pieces in FakeGame. The harness reader's height-aware router, radius-120 planning, visit-keyed cells and waypoint step are O6's, not O5's.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o5_research\\reconcile\\notes.txt"
+  },
+  "fork_gates": {
+   "items": [
+    {
+     "topic": "Deployed DLL vs live source",
+     "status": "ready",
+     "evidence": "Re-hashed today: x64 and x86 Managed\\Assembly-CSharp.dll sha256 ba9762423da8f3d749a4.. = C:\\gd\\FFIX\\Memoria\\Output\\Assembly-CSharp.dll (built 2026-09-26 17:10:38); no Assembly-CSharp .cs newer than it.",
+     "smallest_fix": "none"
+    },
+    {
+     "topic": "P-DONOR and the members' bytes",
+     "status": "ready",
+     "evidence": "ForkDonorPatch (FF9CustomMap only) rows 31240-31259 = 64,68,69,150,151,153..167, each donor once; DictionaryPatch registers 31243-31259 on block 3. The deployed US member(153)/(154)/(151) differ from their donors only in Field() operands (reconcile/forkdiff.out): every route Field() retargeted; member(153)'s raw Field(204) is flashback-only.",
+     "smallest_fix": "Re-run P-DONOR and P-EB (every language) at session time; the install is shared."
+    },
+    {
+     "topic": "s62 VIB/EventAnimation donor-name key (153 stage 27)",
+     "status": "ready",
+     "evidence": "ON the route: 153 e3 t1 RunVibrationTrack ip2443/ip2448, ActivateVibration ip2453 (behind Int16[2] != 3). HonoluluFieldMain.cs:93-104 loads the donor's VIB/anim data through EffectiveFieldId; vib.cs:255/283/330 null-guard. Without it a fork's VIB op would throw and abort the frame (dropped stores: a FORK ONLY/STOCK ONLY finding, never silent).",
+     "smallest_fix": "none; its first in-game exercise on member(153) is O5's first F run."
+    },
+    {
+     "topic": "SETCAM #493 flapping-camera fix (153)",
+     "status": "ready",
+     "evidence": "DoEventCode.cs:1973-1979, wrapped by effMapNo (:25); refuses SetFieldCamera(0) while the player is at pos.x > 500 or pos.y > 240 (the stair) except SC 1190 with 305 < y < 325; it only changes the camera index (SYSVAR[1], read by 153 e1 t1 and e13/e14 t1, never stored).",
+     "smallest_fix": "none"
+    },
+    {
+     "topic": "Naming MENU (151 e3 t1 ip603)",
+     "status": "ready",
+     "evidence": "MENU 0x75 (DoEventCode.cs:2317-2341) -> EventService.StartMenu; no field-id gate; DisableNameChoice = 0 (Memoria.ini:256) on both sides; the name lives in PLAYER.Name, not gEventGlobal.",
+     "smallest_fix": "none (freeze DisableNameChoice in P-SETTINGS)"
+    },
+    {
+     "topic": "Battles, ATE, FMV, autosave",
+     "status": "ready",
+     "evidence": "No Battle/ATE/Cinematic op in 151/153/154; no autosave row for them (EventEngine.cs:682 lists 150 only, gates reader).",
+     "smallest_fix": "none"
+    },
+    {
+     "topic": "Text block 3 (global)",
+     "status": "ready",
+     "evidence": "FF9CustomMap ships FF9_Data/embeddedasset/text/<lang>/field/3.mes for all 7 languages (O4's deploy); text is driver-visible only.",
+     "smallest_fix": "Reuse O4's strict P-TEXT3 in the preflight."
+    },
+    {
+     "topic": "PSXCameraAspect letterbox (153/154 camera 0)",
+     "status": "risk",
+     "evidence": "Raw fldMapNo compare (gates reader: PSXCameraAspect.cs:45-47, IL x0): stock 153/154 cam 0 letterbox at narrow widths, the members do not. Visual only; no store.",
+     "smallest_fix": "none for the trace (expect S/F screenshot widths to differ)"
+    },
+    {
+     "topic": "SYSVAR[191] (raw field id)",
+     "status": "ready",
+     "evidence": "No SYSVAR[191] read in 151/153/154 (gates reader's census).",
+     "smallest_fix": "none"
+    },
+    {
+     "topic": "Chain seams",
+     "status": "ready",
+     "evidence": "Inside O5 every Field() lands in a member on F. Outside: member(153) Field(204) (dead at SC 1190) and member(166) 31258's raw Field(55) (0 instruction differences from stock 166) -- O6's seam.",
+     "smallest_fix": "none for O5; O6 declares side_ends F [55] or rebuilds member(166) with retarget 55 = 31205."
+    }
+   ],
+   "summary": "No engine gate on O5's route can make S and F write different story keys except through code that is wrapped in the live source and the deployed DLL (re-hashed today, = Output). The one gate on the route that touches stores is s62's VIB donor-name key (153 e3 t1 ip2443-2453, stage 27): wrapped and null-guarded, first exercised on member(153) by O5's first F run. SETCAM #493 (wrapped) only moves the camera index; the naming MENU has no field gate (DisableNameChoice 0); there is no battle, ATE, FMV or autosave row; the letterbox is visual only. P-DONOR is clean and the members are verbatim bar their retargeted Field() operands; re-run P-DONOR/P-EB/P-TEXT3 at session time.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o5_research\\gates\\GATES.md"
+  },
+  "fork_chain": "F side = the deployed O4 alxc members only (FF9CustomMap, 31240-31259); nothing new to fork, build or deploy. Start: `warp 31245 325 1190` (member(153), FieldEntrance 325, SC 1190) from field 70 after New Game. Route on F: 31245 (visit 1, entrance 325: the stairs, choice 128) -> member(153) e3 t1 ip3158 Field(31246) -> 31246 member(154) (304: Zorn & Thorn) -> member(154) e2 t1 ip1528 Field(31245) -> 31245 (316) -> member(153) e18 t1 ip1085 Field(31244) -> 31244 member(151) (110: the throne room, Steiner's naming) -> member(151) e2 t1 ip940 Field(31245) -> END on the arrival in 31245 at 328 (visit 5), cut at its first row e0 t0 ip22. All four route Field()s are retargeted (verified in the deployed US .eb: the only differences from the donors are Field() operands). S side: real 153 -> 154 -> 153 -> 151 -> 153, ending in real 153. The seam is O4's form: side_ends {S: [153], F: [31245]}, judged in donor terms (a real 151/153/154 on F is V19), plus the new opt-in end_visit 5 because the start place is also the end place. O1's tshp chain (31200-31219) is not reached. Seams outside O5: member(153)'s raw Field(204) (the disc-3 flashback, dead at SC 1190) and member(166) 31258's raw Field(55) (O6's: F would land in real 55).",
+  "route_md_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\2b528e1b-375b-4c19-8f5f-30afde944b42\\scratchpad\\o5_research\\O5_ROUTE.md"
+ },
+ "critique": {
+  "problems": [
+   {
+    "severity": "major",
+    "what": "The chosen end row does not exist in the trace. The map cuts at the fifth visit's first row, 153 e0 t0 ip22 Bit[191]:=0, and says visit 3 replays 'the six prologue rows'. The s88 sink emits only the FIRST same-value store per site per epoch and counts the rest into end-of-epoch c rows. The site key includes the field id. So: visit 3 (153@316) emits only ip57 and ip119 (each its site's first same-value store); its ip22/ip49/ip138/ip200 are suppressed. Visit 5 (153@328) suppresses all six prologue stores. The first EMITTED row of visit 5 is 153 e32 t0 ip718 Global.Bit[3855]:=1, then ip727 Bit[3854]:=1. Knock-ons: (a) a run emits 25 unmasked + 6 masked rows, not 27 + 8 (WRITES is per key, so the 23 distinct keys still hold); (b) cut_at_end drops every 153 c row, and those mix pre-cut visits 1/3 with post-cut visit 5, so 153's suppressed stores fall outside the claim; (c) FakeGame does not model suppression, so an end_visit dry run would 'prove' an ip22 end row the engine never writes.",
+    "evidence": "StoryTrace.cs:92-140 (Site key = Fld, M, Src, Sid, Tag, Ip, First, Bit, Type) and :383-401 (same -> emit = !site.SameEmitted; else suppressed, N++). PLAN.md:84-90. Raw start: visit 1 ip22/ip49/ip138/ip200 are same-value (0->0, -1->-1) and emitted once; ip57 643->-1 and ip119 1->0 are changes. Visit 3: ip57 -1->-1 and ip119 0->0 are the first same-value stores (emitted); the rest are suppressed. 328 branch: L153 e0 t0 ip609 Map.Byte[24]:=40, ip617 InitObject(32) -> e32 t0 ip717 DefinePlayerCharacter, ip718/ip727. No other global store in 153's 328 Main_Init (store census of L153). FakeGame: fakegame.py:242-246 ('Not the engine's suppression'). The c-row rule: segment_trace.py:127-136.",
+    "fix": "Freeze the end row as member(153)/153 e32 t0 ip718 Global.Bit[3855]:=1 (the row before it is 151 e2 t1 ip932). Implement end_visit as the first EMITTED w/r row of the 5th place-block, never as 'ip22'. Give the new FakeGame knob per-site same-value suppression, at least for revisit prologues, so the dry run sees what the engine writes. Recount rows (25+6). Say in the claim's scope that 153's c rows (suppressed stores) are not compared."
+   },
+   {
+    "severity": "major",
+    "what": "The proposed quiet-window opt-in does not close the 127 -> 128 race on its own. As specified it ports only quiet_tick: arm when the marker page is pressed, open at the first sample without the marker, press nothing while open. Between arming and opening, plain rule 7 still re-presses every 4 ticks while 127 is listed. That includes 127's close tween, and the re-press after a first Confirm that was dropped or only finished the [SPED=2] typing. 128 opens 1-2 ticks after 127 closes, so that press can answer 128 at its cursor (0), storing Bit[3795]=0. O4 closed this race with PAGE-ONCE plus quiet, both inside policy_page. A stray answer is not a false finding: no choice row means the 'choice128' beat is missing, an A-BEATS VOID. But it burns re-runs (max 2 per side).",
+    "evidence": "Plain rule 7: segment_drive.py:2918-2941, page every CUTSCENE_PAGE_TICKS=4 (session.py:6295). quiet_tick :3059-3077. Page-once lives only in policy_page :3125-3146 (held_off until page_once_ticks past the ack). 153 e31 t1 ip663 WindowSync(2,128,127) -> ip669 WaitAnimation -> ip670 Map.Bit[231]:=1 -> e2 t1 ip799-810 Byte24:=20 -> e3 t1 ip1713/ip1724 WindowSync(0,128,128). O4 measured the first Confirm dropped every run (PLAN.md:1202). Beat gate: segment_trace.py:781-787.",
+    "fix": "Make the opt-in carry page-once for the marker window (hold a pressed text for page_once_ticks and re-press only if still listed), the quiet window, and a close-on-published-choice (note_choice's role). Or take pick 0 with take:'default' (zero driver change; a stray press then answers the same thing). Measure the race in R-STAIRS/R-FULL before freezing."
+   },
+   {
+    "severity": "major",
+    "what": "The end choice understates candidate 4's cost; candidate 3 is the cleaner primary. Ending where the run starts (153) needs end_visit in every consumer of cut_at_end, not just rule 1. Without it the live forbidden scan cuts at the START row and scans nothing (a check that cannot fail), and the analysis keeps an empty run. On top of that come problem 1's suppressed end row, the dropped 153 c rows, an end place whose init writes globals at arrival (problem 4), and the naming-screen recovery path. Candidate 3 (arrival in 151@110) needs zero driver change. Its end row is 151 e0 t0 ip22, the first store at fld 151 in the epoch (emitted, O4's shape). It still hands O6 a clean start: a raw warp into 31244 at 110, then 151 -> 153@328 -> 154@315 -> 158 -> ... -> 166, each visited once, with start != end. O6 absorbs the naming and Byte[6] |= 8.",
+    "evidence": "Rule 1 runs before rule 3: segment_drive.py:2801. scan() cuts at end places (:2067), then forbidden_hits needs a start row (:701-703) -> []. end_row :2084-2100. Segment.cut: segment_trace.py:729-739. Each visit has >=1 emitted row, so place-block counting is implementable, but it is new code in 4-5 places plus FakeGame and the G-gate.",
+    "fix": "Adopt candidate 3, with side_ends {S:[151], F:[31244]} and visits [153,154,153,151]. Keep candidate 4 only with problem 1's suppression-aware end row, an end_visit test that fails today on each consumer (rule 1, live scan, end_row, analysis cut), and O1-O4 byte-identical."
+   },
+   {
+    "severity": "minor",
+    "what": "Part of the end state at 153@328 is written at arrival, and STATE(b) compares a LIVE read. e32 t0 ip718/ip727 set Bit[3855]/Bit[3854] := 1 inside InitObject(32), before any read. Byte[8] stays 0 only because e32 t1 stage 40 blocks at ip809 WaitWindow(4) on page 211, before ip866 RunSharedScript(15) -> e15 t0 ip32 Byte[8]:=125. That holds only while nothing presses after rule 1. Candidate 3 has its own race: 151 e0 t0 ip315 writes Byte[8]:=125 right after the arrival's BGM-load wait (ip274-294).",
+    "evidence": "read_end_state at rule 1: segment_drive.py:2801-2802, 808-822. Exact compare: o2_alexandria.py:1485-1492. L153: e32 t0 ip718/727; e32 t1 ip798 WindowAsync(4,128,211), ip809 WaitWindow(4), ip866; e15 t0 ip6 Wait(45) .. ip32. L151: e0 t0 ip274-ip315.",
+    "fix": "Never put Bit[3855]/Bit[3854] in end_state at 0 (the map's list does not today; keep it that way). Keep Byte[8]=0 for candidate 4 only with a note that the drive presses nothing in 153@328. For candidate 3, drop Byte[8] from end_state, or take end values from the trace's last pre-cut write."
+   },
+   {
+    "severity": "minor",
+    "what": "START-DEPENDENT is scoped only to Byte[6]'s value. The EMITTED row pattern is start-dependent too. Raw start: visit 1's ip57/ip119 are changes, so visit 3's are emitted as same:1. After a true O1-O4 run they are same-value at visit 1, so visit 3's are suppressed. The 'old' values also differ (643 vs -1, 1 vs 0, Byte8 125 vs 75). Keys are unaffected, but STATE(a)'s ordered histories and any row-count expectation are start-scoped.",
+    "evidence": "StoryTrace.cs:383-401. Field-70 override prologue: e0 t0 ip57 Int16[9]:=643, ip130 Byte13:=1, ip249 Byte8:=125 (decoded from the live override). O4 end_state: Int16[9] -1, Byte[13] 0.",
+    "fix": "State it in the claim's scope line next to Byte[6]. Never reuse O5's row expectations against a chained true-run trace."
+   },
+   {
+    "severity": "minor",
+    "what": "choose() is fire-and-forget, and the 'once' rule turns an answer that did not land into V2 attributed to the GAME. If that happens on one side only, VOID-ASYM(a) reads NOT PROVEN, a false finding. 128's prompt types at [SPED=2] (~0.5 s at FieldTPS 30), and a Confirm then only finishes the text. Rule 6's 1.0 s settle normally covers this, but nothing verifies it.",
+    "evidence": "segment_drive.py:186-188 (V2 by='game'), :2991-2993 (answer -> g.choose). session.py:6856-6861 (one Confirm, blind CHOOSE_TICKS) versus _take_default_choice's CHOICE_CONFIRMS/_choice_left (:6307-6386). FFIXTextModifier.cs:56-59. VOID-ASYM: o2_alexandria.py:1289-1308.",
+    "fix": "After choose(index), wait for the choice to leave readiness (reuse _choice_left), and re-press only if still ready with the cursor on the pick. Attribute a re-ask after the driver's own unlanded answer to the driver. Freeze settle_s above 128's measured typing time."
+   },
+   {
+    "severity": "minor",
+    "what": "The map's 'Forbidden (diagnostic)' list includes things the forbidden schema cannot express, and one trap. 'An ip1741 value other than the pick' and 'a second ip1741 row' cannot be patterns: there is no value or count matcher. Worse, any cause:'choice' pattern in place 153 is backed by the route's own legitimate answer (index 1, cursor default 0) and turns every run into V12.",
+    "evidence": "FORBID_KEYS/FORBID_MATCHERS: segment_drive.py:103-104. Backing for 'choice': :772-775 (index not in ('default', selected)).",
+    "fix": "Use no cause:'choice' pattern in place 153. Express the pick as WRITES-exact (key value 1 at 153 e3 t1 off 1333) and a repeat as STABLE/STATE(a)."
+   },
+   {
+    "severity": "minor",
+    "what": "The start plan's preflight drops O4's P-OVERRIDE (also P-MANIFEST, P-DEPLOY, P-PAD and the in-game P-CAP/P-OBJECTS/P-DONOR-LOG/P-LAUNCH). The raw warp starts under the LIVE New-Game override, not stock field 70: the warp window and the start state the map quotes come from it.",
+    "evidence": "Live override FF9CustomMap-world/.../field/us/evt_alex1_ts_opening.eb.bytes is 1424 B, sha256 2ce8887ea969db6b... (= o4_castle.py:103 OVERRIDE70). It differs from stock 70 (1396 B): e0 t0 ip475 Byte13:=2 after Cinematic(0,3), then ip583 Field(4600). Shared install; deploy_campaign rewires it.",
+    "fix": "Carry O4's pinned P-OVERRIDE and the rest of O4's preflight set unchanged into O5."
+   },
+   {
+    "severity": "minor",
+    "what": "The stock event names are wrong. 154 is EVT_ALEX1_AC_ENT_2F and 151 is EVT_ALEX1_AC_SEAT_R (the royal seat box where Brahne is 'watching the show', not a throne room). AC_FTI and AC_RST are the FBG scene names. P-STOCK resolves by id, so no check breaks, but any hand-written name-keyed check or donor-name reasoning (s62 loads VIB/anim by EventDB name) must use the EVT names.",
+    "evidence": "FF9DBAll.Events.cs:10 {154 EVT_ALEX1_AC_ENT_2F}, :13 {153 EVT_ALEX1_AC_H2F}, :24 {151 EVT_ALEX1_AC_SEAT_R}. EventEngineUtils.cs:72-74 (FBG names). HonoluluFieldMain.cs:93-104 (EventDB[EffectiveFieldId]). segment_trace.py:461 (id-based P-STOCK). Verified: no stacked folder ships these .eb files or FieldScene 151/153/154.",
+    "fix": "Correct the names in the route/design and in the predictions' 'what' strings."
+   },
+   {
+    "severity": "minor",
+    "what": "Bit[3795] stores the player's answer, but the outside-input witness runs only under the Chanbara policy. An outside cursor move between select() and the Confirm would store 0 while the driver logs index 1 and sets the beat: a one-sided WRITES/NULL failure, i.e. a false finding.",
+    "evidence": "poll_witness only when chanbara is set: segment_drive.py:2798-2799. 153 e3 t1 ip1741 Bit[3795]:=SYSVAR[9]. choose() never re-reads the cursor after Confirm (session.py:6856-6861).",
+    "fix": "Keep P-PAD. Enable the witness (or a post-answer cursor/SYSVAR read) for the choice window."
+   },
+   {
+    "severity": "minor",
+    "what": "s62's VIB donor-name fix is the only fork gate on the route that can change writes (153 e3 t1 ip2443/2448/2453, stage 27). It is scheduled for its first in-game exercise in the session itself. If it misfires, the VIB ops throw, abort the event frame and skip or stall e3's later stores (ip2953, ip3150). That reads as a fork finding or a V14 on F, a legitimate verdict, but it would turn the session into a debugging run.",
+    "evidence": "HonoluluFieldMain.cs:93-104 (comment: VIB throw aborts the frame, skipped story writes). Rehearsals in the map are stock-only.",
+    "fix": "Before the freeze, run one F rehearsal through 153 stage 30 (untraced or traced R-FULL on 31245)."
+   },
+   {
+    "severity": "minor",
+    "what": "Small corrections and answers to open questions. Hidden flag-14 objects ARE published: every cid-4 actor except the player, with a 'shown' flag. Blank has no contact function, so he is a body disc only and no trigger disc. e31 and e9 are 1362 u and 1327 u off the planned route, not >1400. The stair route re-plans with the harness's own call (route_avoiding, margin 56, leave_wall) from (1105,-78) ±25 u: 3169-3246 u, Blank >= 392 u away, contour crossed at x <= -1284. The only open tris at PSX <= -450 are the west stair (or reachable only through it), so x_le:-1100 is sound evidence. The step lacks O2's 'start' key, which O2-GOALS-style checks read.",
+    "evidence": "HarnessAgent.cs:2321-2361 (published objects). My scratch o5_research/critic/wm153.py (tris with y<=-450: 50,51,53,56,57,60-62,65,67,69,71,76,77 plus floor-1 48/49 at flags 0xa001) and route_check.py.",
+    "fix": "Add start:[1105,-78] to the step. Close those open questions in the design. Keep R-STAIRS for the grant position and loss latency."
+   }
+  ],
+  "go": "GO, with corrections. The map's core holds up; I re-checked it against the bytes, the engine and the harness:\n- There is one control grant (153 e3 t1 ip785). 154@304, 153@316 and 151@110 never call EnableMove: 151's e12 skips its own DefinePlayerCharacter/EnableMove at 110 (SWITCH ip149).\n- The stair's height goal and the {x_le:-1100} evidence are sound. getvobj type 1 is -pos[1] (EBin.cs:1785-1793), and the only open tris at PSX <= -450 are on the west stair.\n- Choice 128 opens on 0 ([PCHC=2,1] takes its default from ETb.sChoose, which is 0 here; DialogBoxSymbols.cs:671-679, ETb.cs:100-103).\n- The naming pre-fills 'Steiner' on both sides (NameSettingUI.cs:137-151), and Steiner's name is not stored in gEventGlobal.\n- There is no RNG, battle, FMV, ATE or hot-spot on the route, and no global store in the side scenes or shared scripts.\n- Every route Field() is retargeted in the deployed members.\n- THE PAIRED-WALK LAW is satisfied by construction: no story key depends on the walk path. The only walk-dependent store is e28's forbidden exit, which is the driver's V11; walk failures are driver-attributed, so they cannot masquerade as a fork finding.\n\nFix these before freezing anything:\n1. The end row is 153 e32 t0 ip718 Bit[3855]:=1, not ip22. The engine suppresses revisit prologue stores, and FakeGame does not model that suppression.\n2. The 127->128 guard needs page-once, not just the quiet window. Or pick 0 with take:'default'.\n3. Prefer candidate 3 (end on arrival in 151@110): zero driver change, and a clean O6 start at 151@110. Keep candidate 4 only with end_visit wired into every consumer of cut_at_end.\n4. Keep P-OVERRIDE and the rest of O4's preflight set.\n\nSettle in game:\n- the grant position and loss latency (R-STAIRS);\n- 128's published form and how often the stray-press race fires;\n- the first emitted row of the end visit, and the arrival-time end state (R-FULL);\n- one F run through 153 stage 30, which exercises s62's VIB fix on member(153);\n- end_run from the naming screen (R-VOID)."
+ }
+}

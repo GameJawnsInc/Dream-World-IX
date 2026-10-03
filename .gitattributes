@@ -73,3 +73,14 @@ studies/story-trace/research/source_pins.json -text
 # session records the sha of the bytes it read, and the analysis refuses a file that no longer matches. The line is in
 # place BEFORE any freeze (the lead freezes v1 after the stock rehearsals); never line-end convert them.
 studies/story-trace/o4_predictions*.json -text
+
+# The O4 regression gate's baseline (studies/story-trace/segment_regress.py, G0'''): O4's every (checks, report) and
+# every dry-run unit's (name, ok, detail), each temporary root read as <tmp>, and G21's O4 source pins, captured ONCE at
+# the code before any O5 change and compared byte for byte. Its committed LF bytes are the captured ones; never
+# line-end convert them.
+studies/story-trace/research/o4_regress_baseline.json -text
+
+# O5's registered predictions (studies/story-trace/o5_hallway.py O5-FROZEN) are sha256-frozen the same way: the
+# session records the sha of the bytes it read, and the analysis refuses a file that no longer matches. The line is in
+# place BEFORE any freeze (the lead freezes v1 after the stock rehearsals); never line-end convert them.
+studies/story-trace/o5_predictions*.json -text

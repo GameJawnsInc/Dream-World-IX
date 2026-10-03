@@ -1222,6 +1222,117 @@ in alxc (e3 t1 EnableMove ip785: the stair walk, positions to rehearse), side re
 110 (the throne room: Steiner's naming, and `Byte[6] |= 8` at 151 e3 t1 ip610 -- the first START-DEPENDENT key; 8
 after a raw warp, 11 after a true run). Survey only: research/o4_route.md's candidates 3-7.
 
+## O5 -- the stair walk and the stored choice under the trace, a US session: 153 -> 154 -> 153 -> 151 (PROVEN: story-o5, v1 0c991f43)
+
+**The question.** From a raw warp into A. Castle/Hallway (153, entrance 325, SC 1190) up the west stair -- the
+segment's one control grant, walked by the driver -- to choice 128 answered "Examine her face", through Zorn & Thorn
+(154 at 304) and the hallway again (153 at 316) to the arrival in the royal seat box (151): does the alxc disc-1 chain
+write the real game's story state key for key? It is the first segment whose stored value is the PLAYER'S ANSWER
+(`Bit[3795] := SYSVAR[9]`), the first with a control grant the driver walks, and the first that REVISITS a place --
+so the sink's same-value suppression, not only the stores, shapes what a run's trace holds. The design, with its three
+critique rounds folded in, is [`research/o5_design.md`](research/o5_design.md).
+
+**The segment.** A raw warp into 153 (entrance 325, SC 1190), then:
+- 153 at 325 (EVT_ALEX1_AC_H2F): Main_Init; pages 113-117; the grant at (1105, -78) (e3 t1 ip785 `EnableMove`); THE
+  STAIRS -- walked west until the stage-6 height test takes control (e3 t1 ip859: PSX y <= -450, at x <= -1100), side
+  scenes e26/e27 absorbed (one), the back door e28 avoided; 126; 127, the marker page ("let me pass"); 128 answered
+  "Examine her face" (absolute 1): ip1741 `Bit[3795]` 0 -> 1; the pick's branch page 141; stage 27's KEYON pairs and
+  its [TIME=20] windows 137/140; stage 30's ip2953 `Byte[8] := 0`, ip3150 `Int16[2] := 304`, `Field(154)`;
+- 154 at 304 (EVT_ALEX1_AC_ENT_2F): its prologue, ip279 `Byte[8] := 125`, ip1520 `Int16[2] := 316`, `Field(153)`;
+- 153 at 316: the revisit -- its first EMITTED row ip57 (ip22/ip49/ip138/ip200 suppressed: same-value stores at sites
+  that already emitted one), e18 t1 ip890 `Byte[8] := 0`, ip1077 `Int16[2] := 110`, `Field(151)`.
+
+It ends on arrival in 151 -- real 151 on S, member(151) on F -- cut at its first row (e0 t0 ip22). Steiner's naming
+and `Byte[6] |= 8` lie past the cut.
+
+**The sides.** S = stock. F = O4's alxc disc-1 chain AS DEPLOYED (31240-31259; [`o5_forks.json`](o5_forks.json)
+reuses [`o4_forks.json`](o4_forks.json)): member(153) 31245 (visits 1 and 3), member(154) 31246, member(151) 31244,
+read from O4's campaign.toml, never assumed. Nothing is imported, built or deployed for O5. Every route `Field()` is
+retargeted, so the chain is closed: a landing in a REAL donor field on F is V19, a finding. C0 measured O4's build: each
+route member differs from its donor, in every language, only in its in-chain `Field()` operands (153: 14 bytes, 154:
+14, 151: 4); O5-BUILD pins exactly that.
+
+**A US session -- scoped facts, never silent.**
+- The keys, the joins and the route's text pins (127's marker, 128's `[PCHC=2,1]` and `[IMME]` and the pick's line,
+  the branch pages 141/129, the stop page 56) were read in the US scripts and block 3's US text; P-LANG pins the
+  session language; O5-TEXT and P-TEXT read block 3 strict.
+- THE START IS THE RAW WARP'S: four residue rows in field 70 (SC 1190's two bytes, FieldEntrance 325 = 0x0145's two)
+  over field 70's prologue values (Int16[9] 643, Byte[13] 1, Int16[11] -1, Byte[8] 125). No key's VALUE depends on it;
+  the EMITTED ROW PATTERN does (after a true O1-O4 run visit 1's ip57/ip119 would be same-value and visit 3's first
+  emitted row e18 t1 ip890), so O5-PATTERN's frozen sequences, LANDING (b)'s re-entry row and STATE's ordered
+  histories are this start's and are never compared with a chained true run.
+- `Byte[8]` is read from the trace, not live: 151 e0 t0 ip315 `:= 125` races the end-state read.
+
+**The driver** (`segment_drive.drive`; research/o5_design.md 2): ONE visit-scoped cell (S13), (153, 1190, visit 1) --
+the stair step (a trigger: `until` x <= -1100, the corridor's 33 triangles closed, e26/e27/e28 avoided); control
+anywhere else (154 at 304, 153 at 316) is V4 (game) at its `[place, sc, visit]` cell. THE PRE-CHOICE GUARD (S10):
+127 pressed page-once until it closes, then a quiet window -- nothing pressed -- until 128 is up; 128 answered by the
+VERIFIED landing (S11: Down, Confirm, the cursor read before each press); the game's own branch page after it judged
+(141 the pick's; 129 is the other branch: V13); a press of the driver's down in [127's last listed sample, 128's close)
+is V17. THE RUN-WIDE INPUT WITNESS (S12): outside input anywhere in a run is V13 (the stored value is the player's
+answer). No battle, no movie, no naming.
+
+**The checks** ([`o5_hallway.py`](o5_hallway.py); research/o5_design.md 5 and 6):
+- offline: O5-BUILD (140 files, every language its own donor's; the route members' pins), O5-KEYS (36 sites; the
+  choice's `:=var` key in its statement; the 53 route pins and `route_mes`), O5-TEXT (block 3, STRICT), O5-CENSUS
+  (every store site of 153 and 154 classified; the inert functions proven not instanced at ANY entrance the route
+  enters by -- 153 at 325 AND 316 -- and the shared entry e15 run only from inert e32), O5-REGIONS (9 regions, each
+  role proven by instancing), O5-GOALS (the stair's route crosses the PSX y -450 contour on the `until`'s side, and the
+  evidence is sound ON THE CONTOUR: every edge crossing of the start's open component at x <= -1100);
+- preflight: P-MANIFEST, P-DEPLOY, P-EB, P-FLOOR, P-STOCK, P-TEXT (block 3), P-RECOVERY, P-DONOR (151/153/154),
+  P-SETTINGS, P-PAD, P-OVERRIDE, P-ENGINE; in game P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG, P-LAUNCH and P-PAD;
+- the session: O5-FROZEN, O5-COVER; O5-FORBIDDEN and O5-VOID-ASYM (a)-(d) over every run by `[place, sc, visit]`;
+  then START, NO-SC (SC holds 1190), CHAIN (325 -> 304 -> 316 -> 110), RESIDUE, WRITES (EXACT: 12 writes and the
+  3-key chain), NULL, STABLE, LANDING (a)-(e), CHOICE (a)-(d), WALK (a)-(b), PATTERN (a)-(b), MASKED, STATE and JOIN
+  over the covered runs; THROW.
+
+**Status: ★★ PROVEN (session `story-o5`, v1 `0c991f43`), a US session.** The stair walk and the stored choice under
+the trace: the warp into 153 at SC 1190, the one control grant walked up the west stair, choice 128 answered "Examine
+her face", Zorn & Thorn, the hallway again, `Field(151)`; O4's deployed alxc members 31245, 31246 and 31244 write the
+real game's story state key for key. S F S F S F, 6/6 covered (S 3 of 3, F 3 of 3), unattended, 627 s, no re-run;
+every check PASS (37/37): FROZEN, COVER, FORBIDDEN, VOID-ASYM (none), START (the four residue rows, 153's first
+Byte[13] row ip119 from 1), NO-SC (SC 1190 throughout), CHAIN (325 -> 304 -> 316 -> 110), RESIDUE, WRITES (exactly 15
+keys a run: 12 writes and the 3-key chain), NULL (15 keys matched, 0 stock-only, 0 fork-only, NO noise), STABLE,
+LANDING (every F run ended in member(151) 31244, never real 151), CHOICE (every run: one ip1741 `Bit[3795]` 0 -> 1,
+the guarded rule answered once with index 1 through a verified landing, the pick's branch page, no stray press),
+WALK (the stairs done at the contour's side in every run, no row inside a walk window: THE PAIRED-WALK LAW holds by
+construction), PATTERN (21 emitted rows and the revisit's 4 counted stores in every run, as frozen), MASKED, STATE (7
+targets' histories identical, the end state as frozen), JOIN (162 rows, 0 failures), THROW (none). Archive:
+`C:\gd\Dream-World-IX\.harness-runs\20261003-091627-story-o5` (o5_report.txt). The session ran under
+`PYTHONIOENCODING=utf-8`: its report quotes Zidane's "wouldn't" + U+2500, which a redirected cp1252 stdout cannot
+encode, and the print comes before the checks are recorded -- fixed after it by `segment_trace.say` (escapes what
+the console cannot encode; encodable reports print as before).
+
+The rehearsals before the freeze (archived `20261003-09*-o5-rh-*`; F1-F15 met):
+
+| stage | runs | what it settled |
+|---|---|---|
+| R-STAIRS (stock 153 -> 154) | 2/2 reached | the grant at (1105, -78) exactly as the bytes give it; the stair step done on its first attempt, control lost at x -1481..-1503, published y 452-457 (the PSX -450 contour), no slide, push or stall on the last legs; 127 closed by page-once, the quiet window, no stray; 128 published `['Zidane "Hmm..."', 'Let her pass', 'Examine her face']` -- full option text this time -- with the cursor on 0, answered 1 by the verified landing |
+| R-FULL (stock 153 -> 151) | 2/2 reached | 12 writes, the 3-key chain, the end cut 151 e0 t0 ip22, the end state as drafted; the revisit's pattern as modelled (ip57/ip119 emitted, ip22/ip49/ip138/ip200 four `c` rows); the two traces row for row identical bar frames (38 rows); 99-112 s a run, ~60 fps |
+| R-WALK-VOID | 1 | the walk stopped at x -714: no hold sent after it, `end_run` reached the title |
+| F-SMOKE | 3 + 3 warps | 31245@325, 31246@304, 31244@110 load, their object sids their stock twins' |
+| F-PASS (untraced) | 1 | one F run through the whole route to 31244, no throw, no V-class: stage 27's VIB ops (the s62 donor-name fix) ran on member(153) for the first time |
+
+The freeze's numbers (F6): budget `run_s` 224, `run_min_s` 132, `session_s` 2644, `no_progress_s` 60; the guard's
+`quiet_cap_s` 2.7 (3 x the slowest 127 -> 128 gap, 0.91 s), `page_once_ticks` 10 as rehearsed (127 took 2-3
+presses, never a stray); F15: no contact on the stair, so no clearance key.
+
+The offline build, as it stood before the rehearsals (branch `claude/story-trace-o5`, PARTs A-C of the design's
+section 9): `--offline-check` 6 PASS; `--preflight` 12/12 on the live install (O4 deployed the chain); the dry run
+144/144; the regression gate G1-G27 (O1-O4 byte-identical; O5's tests G26, its dry run G27); a code review's five
+findings each fixed with a failing-first test (research/o5_design.md 11.6). The build's first PART A died on a usage
+limit mid-work; its unrun edits were committed as WIP, master merged (Session.fight's command-race fix, O4's
+fake-test de-flakes), and the resumed PART A captured O4's baseline on that merged code.
+
+**Next, O6:** from the arrival in member(151) (A. Castle/Royal Seat, EVT_ALEX1_AC_SEAT_R) by a raw warp
+`warp 31244 110 1190` -- nothing new to build. 151 at 110 holds Brahne's scene, Steiner's naming `Menu(1,3)` (e3 t1
+ip603; the screen pre-fills "Steiner" and the name is not in gEventGlobal) and `Byte[6] |= 8` (e3 t1 ip610) -- the
+first START-DEPENDENT key (8 after a raw warp, 11 after a true run) --, then `Field(153)` at 328 and Steiner's
+assembly (153 e32: Bit[3855]/[3854], the party rebuild, `UInt16[19] |= 8`, another start-dependent key) and his first
+control; beyond, Steiner's nine-field walk, the spiral towers 164/165, FMV004 in 166 and its raw `Field(55)` (member(166)
+keeps it real: F lands in real 55 unless member(166) is rebuilt with 55 -> 31205). Survey: research/o5_route.md's
+candidates 4-11.
+
 ## Rungs
 
 | Rung | What | Pass |
