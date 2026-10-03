@@ -20882,3 +20882,193 @@ def test_fake_visit_sets_the_members_donor(game):
     fake._machine.cut(fake)
     assert fake.donor is None
 
+
+# ---- O5's ROUTE on the fake (research/o5_design.md 3.4, 9 B2): four visit beats from the bytes -- 153@325 (the pages,
+# the stair walk, 126, 127, choice 128 and its branches, the KEYON pairs, the timed windows, Field(154)), 154@304, 153@316
+# and the arrival in 151 -- each store at its predictions' site, so the builder's trace under ``story_suppress`` IS 4.16's
+# pattern (C1's test_o5_hallway_route_builder_matches_the_keys compares it with the draft: one source of truth).
+
+def _o5_store(sid, tag, ip, byte, width, value, bit=-1):
+    return {"store": [sid, tag, ip, byte, width, value, bit]}
+
+
+def _o5_prologue(ips):
+    """Main_Init's six ambient stores at ``ips`` (research/o5_design.md 3.4, 4.4, 4.6): Bit[191] := 0, Bit[184] := 0,
+    Int16[9] := -1, Byte[13] := 0, Int16[11] := -1, Byte[14] := 0 -- 153 e0 t0 ip22/49/57/119/138/200, 154's
+    ip26/53/61/123/142/204, 151's 153's ips."""
+    targets = ((23, "Bit", 0, 191), (23, "Bit", 0, 184), (9, "Int16", -1, -1), (13, "Byte", 0, -1),
+               (11, "Int16", -1, -1), (14, "Byte", 0, -1))
+    return [_o5_store(0, 0, ip, b, w, v, bit) for ip, (b, w, v, bit) in zip(ips, targets)]
+
+
+def _o5_page(where, mes, slot, **kw):
+    """A page step: its distinct placeholder text ``<where> mes <mes>``, its raw ``[STRT=0,0]`` + the text."""
+    text = kw.pop("text", f"{where} mes {mes}")
+    return {"page": mes, "slot": slot, "text": text, "raw": kw.pop("raw", f"[STRT=0,0]{text}"), **kw}
+
+
+def _o5_pair(where, a, b, **kw):
+    """A KEYON pair step of windows ``a`` and ``b`` (each ``(mes, slot)``), their placeholder texts."""
+    return {"pair": [list(a), list(b)], "texts": [f"{where} mes {a[0]}", f"{where} mes {b[0]}"], **kw}
+
+
+def _o5_timed(where, mes, slot, ticks=20):
+    """A [TIME=t] [NFOC] step (153's 137 and 140, 151's 175 and 176): Confirm-inert, closing itself ``ticks`` later."""
+    text = f"{where} mes {mes}"
+    return {"timed": mes, "slot": slot, "ticks": ticks, "text": text, "raw": f"[STRT=0,0]{text}[NFOC][TIME={ticks}]"}
+
+
+def _o5_field70(fake):
+    """Field 70's prologue as the raw warp leaves gEventGlobal (research/o5_design.md 0.2 #2: 70 e0 t0
+    ip57/130/138/200/249 -- the warp comes after ip130, before ip475): Int16[9] 643, Byte[13] 1, Int16[11] -1, Byte[14]
+    0, Byte[8] 125, Bit[191] and Bit[184] 0 -- what visit 1's rows read their ``old`` from (ip57 643 -> -1 and ip119
+    1 -> 0 CHANGES, so visit 3's ip57 and ip119 are emitted, ``same`` 1). Poked into the modelled array before the trace
+    is armed: no row."""
+    b = fake.story_bytes
+    b[9:11] = (643).to_bytes(2, "little")
+    b[11:13] = b"\xff\xff"
+    b[13], b[14], b[8] = 1, 0, 125
+    b[23] &= 0x7E
+
+
+def _o5_route(side="S", *, short=False, gap=2, typing126=0.3, typing127=0.5, first_char=True, height_at=None,
+              wait_scale=0.25, door_ticks=30, **faults):
+    """O5's route as visit beats (research/o5_design.md 3.4): 153@325, 154@304, 153@316 and 151@110, on ``side``'s
+    fields (:data:`_O5_FIELDS`; on F each visit's ``donor`` its place's S id), H15's ``faults`` given to every beat (the
+    per-visit ones keyed by ``index``: 1-4). 153@325's stair takes the contour's floor-blind stand-in, or ``height_at``;
+    its side scenes are e26 (z > 1333; pages 119-123) and e27, its back door e28 (its two stores, Field(150)
+    ``door_ticks`` later). 128 is [IMME] (``typing_s`` 0) with its cursor on 0, ``gap`` ticks after 127 is gone; its
+    first line "et her pass" when not ``first_char`` (O1's candle shape). ``short``: 153's guarded stretch alone -- its
+    prologue, 126, 127, 128 and its branch -- then Field(151) and 151's arrival (the guard's tests that walk no stair)."""
+    to = dict(_O5_FIELDS[side])
+    donors = {"153": 30820, "154": 30821, "151": 30810} if side == "F" else {}
+    lines = list(_O5_LINES) if first_char else ["et her pass", _O5_LINES[1]]
+    pick = [dict(_O5_1741), _o5_page("153", 141, 0, text=_O5_PICK),
+            *[_o5_page("153", m, s) for m, s in ((142, 2), (143, 0), (144, 0), (145, 2), (146, 0), (147, 2), (148, 0),
+                                                 (149, 2), (150, 0))],
+            _o5_page("153", 130, 0)]
+    other = [dict(_O5_1741), _o5_page("153", 129, 0, text=_O5_OTHER), _o5_page("153", 130, 0)]
+    guarded = [_o5_page("153", 126, 0, typing_s=typing126), _o5_page("153", 127, 2, text=_O5_127, typing_s=typing127),
+               {"choice": 128, "slot": 0, "gap": gap, "typing_s": 0, "header": _O5_HEADER, "lines": lines,
+                "branch": {"1": pick, "0": other}}]
+    stairs = {"scenes": [{"points": _O5_E26, "z_gt": 1333, "pages": [_o5_page("153", m, 1) for m in range(119, 124)]},
+                         {"points": _O5_E27, "pages": [_o5_page("153", "B", 1, text="153 side scene B")]}],
+              "back_door": {"points": _O5_E28, "stores": [[28, 2, 38, 8, "Byte", 25, -1], [28, 2, 227, 2, "Int16", 5, -1]],
+                            "exit_ticks": door_ticks, "to": "150"},
+              **({"height_at": height_at} if height_at is not None else {"contour": _O5_CONTOUR})}
+    if short:
+        visits = [("153", [*_o5_prologue((22, 49, 57, 119, 138, 200)), {"wait": 10}, *guarded, {"field": "151"}])]
+    else:
+        v1 = [*_o5_prologue((22, 49, 57, 119, 138, 200)), {"wait": 10}, {"place": [1105, -78]},
+              *[_o5_page("153", m, s) for m, s in ((113, 1), (114, 1), (115, 0), (116, 1), (117, 1))],
+              {"grant": [1105, -78]}, {"stairs": stairs}, {"wait": 10}, *guarded,
+              *[_o5_page("153", m, s) for m, s in ((131, 2), (132, 0), (133, 0))],
+              _o5_pair("153", (134, 7), (135, 1), lag=20, gate=40), _o5_page("153", 136, 2), _o5_timed("153", 137, 2),
+              {"wait": 35}, _o5_pair("153", (139, 0), (138, 1), lag=5, gate=40), _o5_timed("153", 140, 1),
+              {"wait": 40}, _o5_store(3, 1, 2953, 8, "Byte", 0), {"wait": 65}, _o5_store(3, 1, 3150, 2, "Int16", 304),
+              {"field": "154"}]
+        v2 = [*_o5_prologue((26, 53, 61, 123, 142, 204)), {"wait": 10}, _o5_store(0, 0, 279, 8, "Byte", 125),
+              {"wait": 20}, _o5_pair("154", (151, 2), (152, 3)), _o5_page("154", 153, 2), _o5_page("154", 154, 3),
+              _o5_pair("154", (155, 2), (156, 3)), {"wait": 60}, _o5_pair("154", (157, 2), (158, 3)), {"wait": 35},
+              _o5_store(2, 1, 1520, 2, "Int16", 316), {"field": "153"}]
+        v3 = [*_o5_prologue((22, 49, 57, 119, 138, 200)), {"wait": 20},
+              *[_o5_page("153", m, s) for m, s in ((159, 6), (160, 5), (161, 6), (162, 5), (163, 6), (164, 5))],
+              _o5_pair("153", (165, 5), (166, 6)), {"wait": 60},
+              *[_o5_page("153", m, s) for m, s in ((167, 5), (168, 6), (169, 5), (170, 6), (171, 5), (172, 6))],
+              _o5_pair("153", (173, 5), (174, 6)), _o5_store(18, 1, 890, 8, "Byte", 0), {"wait": 65},
+              _o5_store(18, 1, 1077, 2, "Int16", 110), {"field": "151"}]
+        visits = [("153", v1), ("154", v2), ("153", v3)]
+    v4 = [*_o5_prologue((22, 49, 57, 119, 138, 200)), {"wait": 10}, _o5_store(0, 0, 315, 8, "Byte", 125),
+          _o5_timed("151", 175, 4), _o5_timed("151", 176, 5), _o5_page("151", 177, 0)]
+    beats = []
+    for i, (where, steps) in enumerate([*visits, ("151", v4)], 1):
+        knobs = {"steps": steps, "index": i, "field_to": to, "wait_scale": wait_scale, **faults}
+        if donors:
+            knobs["donor"] = donors[where]
+        if i == 1:
+            knobs["bodies"] = [dict(b) for b in _O5_BODIES]
+        beats.append({"visit": knobs})
+    return beats
+
+
+#: 4.16's pattern on the fake's places, by IP (the fake's rows carry ips; O5-PATTERN joins function offsets on the stock
+#: bytes, C1's): each visit's emitted ``w`` rows in order, ``(place, sid, tag, ip, target, new, same)`` -- visit 3's
+#: first row ip57 -- and the epoch's four ``c`` rows of place 153, ``(place, sid, tag, ip, target, n, last)``.
+_O5_PATTERN = (
+    [[(30820, 0, 0, 22, "Global.Bit[191]", 0, 1), (30820, 0, 0, 49, "Global.Bit[184]", 0, 1),
+      (30820, 0, 0, 57, "Global.Int16[9]", -1, 0), (30820, 0, 0, 119, "Global.Byte[13]", 0, 0),
+      (30820, 0, 0, 138, "Global.Int16[11]", -1, 1), (30820, 0, 0, 200, "Global.Byte[14]", 0, 1),
+      (30820, 3, 1, 1741, "Global.Bit[3795]", 1, 0), (30820, 3, 1, 2953, "Global.Byte[8]", 0, 0),
+      (30820, 3, 1, 3150, "Global.Int16[2]", 304, 0)],
+     [(30821, 0, 0, 26, "Global.Bit[191]", 0, 1), (30821, 0, 0, 53, "Global.Bit[184]", 0, 1),
+      (30821, 0, 0, 61, "Global.Int16[9]", -1, 1), (30821, 0, 0, 123, "Global.Byte[13]", 0, 1),
+      (30821, 0, 0, 142, "Global.Int16[11]", -1, 1), (30821, 0, 0, 204, "Global.Byte[14]", 0, 1),
+      (30821, 0, 0, 279, "Global.Byte[8]", 125, 0), (30821, 2, 1, 1520, "Global.Int16[2]", 316, 0)],
+     [(30820, 0, 0, 57, "Global.Int16[9]", -1, 1), (30820, 0, 0, 119, "Global.Byte[13]", 0, 1),
+      (30820, 18, 1, 890, "Global.Byte[8]", 0, 0), (30820, 18, 1, 1077, "Global.Int16[2]", 110, 0)]],
+    [(30820, 0, 0, 22, "Global.Bit[191]", 1, 0), (30820, 0, 0, 49, "Global.Bit[184]", 1, 0),
+     (30820, 0, 0, 138, "Global.Int16[11]", 1, -1), (30820, 0, 0, 200, "Global.Byte[14]", 1, 0)])
+
+
+def _o5_pattern(rows, members=None, *, end=30810, route=(30820, 30821)):
+    """research/o5_design.md 4.16's pattern read off a run's story rows (dicts) -- O5-PATTERN's shape, by ip: the
+    field-mode ``w`` rows of the script (``src`` "eb") in the route places before the cut (the first ``w``/``r`` row in
+    the end place, by the frozen place through ``members``), split into visits (maximal runs of one place), each
+    ``(place, sid, tag, ip, target, new, same)``; the route places' ``c`` rows as a sorted multiset ``(place, sid, tag, ip,
+    target, n, last)``; and the cut row. ``(visits, counts, cut)``."""
+    members = members or {}
+
+    def place(f):
+        return members.get(f, f)
+
+    def target(r):
+        return f"Global.{r['w']}[{r['bit'] if r['w'] in ('Bit', 'SBit') else r['byte']}]"
+    cut = next((i for i, r in enumerate(rows) if r["k"] in ("w", "r") and place(r["fld"]) == end), len(rows))
+    visits = []
+    for r in rows[:cut]:
+        if r["k"] == "w" and r["m"] == 1 and r["src"] == "eb" and place(r["fld"]) in route:
+            t = (place(r["fld"]), r["sid"], r["tag"], r["ip"], target(r), r["new"], r["same"])
+            if visits and visits[-1][-1][0] == t[0]:
+                visits[-1].append(t)
+            else:
+                visits.append([t])
+    counts = sorted((place(r["fld"]), r["sid"], r["tag"], r["ip"], target(r), r["n"], r["last"]) for r in rows
+                    if r["k"] == "c" and place(r["fld"]) in route)
+    return visits, counts, (rows[cut] if cut < len(rows) else None)
+
+
+def test_fake_visit_route_plays_to_151_unattended(game):
+    """B2 (research/o5_design.md 3.4, 9 B2): the route builder's four visit beats played by a SCRIPTED PLAYER, not the
+    driver -- every page, pair and timed window Confirmed, 128 answered "Examine her face" (a Down, then Confirm), the
+    stair walked straight west -- from 153@325 (field 70's prologue values and the raw warp's four residue rows first)
+    to "151". With ``story_suppress`` the trace holds EXACTLY 4.16's pattern: every visit's emitted rows in order --
+    visit 1's ip57/ip119 changes, visit 2's eight new sites, visit 3's first emitted row 153 e0 t0 ip57 (``same`` 1)
+    with its ip22, ip49, ip138 and ip200 suppressed -- the epoch's four ``c`` rows of place 153 (n 1, their lasts), and
+    the cut at 151's first row, e0 t0 ip22 (``same`` 1: a new site); 21 ``w`` rows before it (17 unmasked, 15 distinct
+    unmasked keys), the residue rows in field 70 alone, the stair's loss west of the contour. Break: key the sink's site
+    without ``fld`` (151's ip22 is then counted at 153's site: no cut row)."""
+    fake = _fv_fake(game, field=70, trace=False)
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(325, 1190)                         # the raw warp's residue, seen in field 70
+    fake.field_id = 30820
+    fake.scene(*_o5_route("S"), control=False)
+    _fv_play(fake, answers=(1,), until=lambda f: f.field_id == 30810 and any(
+        e["index"] == 4 and e["kind"] == "timed" for e in f.visit_log))
+    fake._story_stop()
+    rows = _fv_rows(fake)
+    visits, counts, cut = _o5_pattern(rows)
+    assert visits == _O5_PATTERN[0], visits
+    assert counts == _O5_PATTERN[1], counts
+    assert cut is not None and (cut["k"], cut["fld"], cut["sid"], cut["tag"], cut["ip"], cut["w"], cut["bit"], cut["new"],
+                                cut["same"]) == ("w", 30810, 0, 0, 22, "Bit", 191, 0, 1), cut
+    before = [r for r in rows[:rows.index(cut)] if r["k"] == "w"]
+    unmasked = [r for r in before if r["bit"] not in (191, 184)]
+    keys = {(r["fld"], r["sid"], r["tag"], r["ip"], r["new"]) for r in unmasked}
+    assert (len(before), len(unmasked), len(keys)) == (21, 17, 15), (len(before), len(unmasked), len(keys))
+    residue = [(r["fld"], r["byte"], r["old"], r["new"]) for r in rows if r["k"] == "r"]
+    assert residue == [(70, 0, 0, 166), (70, 1, 0, 4), (70, 2, 0, 69), (70, 3, 0, 1)], residue
+    lost = [e for e in fake.visit_log if e["kind"] == "lost"]
+    assert len(lost) == 1 and lost[0]["x"] <= -1400 and fake.answered == [1], (lost, fake.answered)
+    assert [r["k"] for r in rows[-5:]] == ["c", "c", "c", "c", "e"], [r["k"] for r in rows[-5:]]
+
