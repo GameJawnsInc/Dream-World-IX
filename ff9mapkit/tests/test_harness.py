@@ -22378,3 +22378,51 @@ def test_o5_hallway_preflight_verdicts(tmp_path):
     fdp.write_text("31244 151\n31245 153\n", encoding="utf-8")
     _w, o, d = pre()[2]
     assert not o and "donor 154: ForkDonorPatch rows []" in d, d
+
+
+def test_o5_hallway_trace_summary_cuts_at_end_places(tmp_path, o5_stock):
+    """O5's trace summary (research/o5_design.md 7.2, section 8's unit; O4's lesson, its claim critique #14) over the
+    dry run's rendered rows (o5_dryrun.render: real store sites, the sink's suppression over the raw warp's start
+    values). A base S run reads the chain 3/3, writes 12/12, the error path, forbidden and dead sites absent; the
+    crossings 153 ip3150 -> 154 e0 t0 ip26 and 154 ip1520 -> 153 e0 t0 ip57; 4.16's pattern exactly -- each visit's
+    emitted rows, the four c rows, visit 3's first emitted row ip57 (off 51, same 1); the end cut's row 151 e0 t0 ip22
+    at its end place; no unregistered key, no join failure; the four start residue rows. The F run is cut at
+    member(151)'s row, its pattern the same, no seam. An R-STAIRS stage ending in 154 is cut at 154's first row
+    (visit 1's pattern alone, one chain key present); an F stage ending in member(154) is cut at member(154)'s first
+    row by its end PLACES -- while O3's summary, given the same end FIELDS, is not cut at all. Break: cut at the end
+    fields."""
+    C5 = _o5_module()
+    D = __import__("o5_dryrun")
+    P = __import__("o3_prima_vista")
+    pred = _o5_draft(tmp_path)
+    members = {int(f): d for f, d in pred["members"].items()}
+    rows = D._rows(D.base_events())
+    t = C5.trace_summary(rows, pred, stock=o5_stock)
+    reg = {k: (sum(1 for x in v if x["present"]), len(v)) for k, v in t["registered"].items()}
+    assert reg == {"chain": (3, 3), "writes": (12, 12), "error_path": (0, 8), "forbidden_sites": (0, 2),
+                   "dead": (0, 11)}, reg
+    assert t["crossings"] == {"exit153": {"exit": "153 e3 t1 ip3150 Global.Int16[2]=304",
+                                          "next": "154 e0 t0 ip26 Global.Bit[191]=0"},
+                              "exit154": {"exit": "154 e2 t1 ip1520 Global.Int16[2]=316",
+                                          "next": "153 e0 t0 ip57 Global.Int16[9]=-1"}}, t["crossings"]
+    assert t["pattern"]["visits"] == pred["pattern"]["visits"] and t["pattern"]["unjoined"] == 0, t["pattern"]
+    assert t["pattern"]["counts"] == pred["pattern"]["counts"], t["pattern"]["counts"]
+    assert t["visit3_first"] == [153, 0, 0, 51, "Global.Int16[9]", -1, 1], t["visit3_first"]
+    assert t["end_row"] == "w 151 e0 t0 ip22 Global.Bit[191]=0" and t["end_places"] == [151], t["end_row"]
+    assert t["unregistered"] == [] and t["failures"] == [], (t["unregistered"], t["failures"])
+    assert [x[1:] for x in t["residue_before"]] == [[0, 0, 166], [1, 0, 4], [2, 0, 69], [3, 0, 1]], t["residue_before"]
+    frows = D._rows(D.base_events(), "F", members)
+    tf = C5.trace_summary(frows, pred, side="F", stock=o5_stock)
+    assert tf["end_row"] == "w 31244 e0 t0 ip22 Global.Bit[191]=0" and tf["end_places"] == [151], tf["end_row"]
+    assert tf["unregistered"] == [] and tf["seam_keys"] == [], (tf["unregistered"], tf["seam_keys"])
+    assert tf["pattern"]["visits"] == pred["pattern"]["visits"], tf["pattern"]["visits"]
+    stairs = C5.trace_summary(rows, pred, end_fields=[154], stock=o5_stock)
+    first154 = next(x.line for x in rows if x.k in ("w", "r") and x.fld == 154)
+    assert stairs["end"] == first154 and stairs["end_places"] == [154], stairs["end"]
+    assert stairs["pattern"]["visits"] == pred["pattern"]["visits"][:1], stairs["pattern"]["visits"]
+    assert [k["present"] for k in stairs["registered"]["chain"]] == [True, False, False], stairs["registered"]["chain"]
+    stage = C5.trace_summary(frows, pred, side="F", end_fields=[31246], stock=o5_stock)
+    first = next(x.line for x in frows if x.k in ("w", "r") and x.fld == 31246)
+    assert stage["end"] == first and stage["end_places"] == [154] and stage["end_row_fld"] == 31246, stage["end"]
+    o3 = P.trace_summary(frows, pred, side="F", end_fields=[31246], stock=o5_stock)
+    assert o3["end"] is None, o3["end"]

@@ -3,15 +3,15 @@
 (research/o2_design.md, section 1.6), every O2 output (research/o3_design.md, section 1.4), every O3 output
 (research/o4_design.md, section 1.4) AND every O4 output (research/o5_design.md, section 1.4) byte-identical, O3's
 battle-beat tests (G13) and O3's dry run (G14) green, O4's tests (G19) and O4's dry run (G20) green, O5's FakeGame and
-driver tests (G26) green, and the O1-O4 driver tests and the fake's beat, input, story-trace and machine-beat functions
-at their pinned sources (G21).
+driver tests (G26) and O5's dry run (G27) green, and the O1-O4 driver tests and the fake's beat, input, story-trace and
+machine-beat functions at their pinned sources (G21).
 
     py studies/story-trace/segment_regress.py --capture      # G0, once, BEFORE the O2 refactor: the O1 baseline
     py studies/story-trace/segment_regress.py --capture-o2   # G0', once, BEFORE any O3 code change: the O2 baseline
     py studies/story-trace/segment_regress.py --capture-o3   # G0'', once, BEFORE any O4 code change: the O3 baseline
     py studies/story-trace/segment_regress.py --capture-o4   # G0''', once, BEFORE any O5 code change: the O4 baseline
     py studies/story-trace/segment_regress.py --rebaseline-source NAME --reason TEXT   # G21: re-pin ONE source
-    py studies/story-trace/segment_regress.py                # G1-G26; exit 0 only if every item passes
+    py studies/story-trace/segment_regress.py                # G1-G27; exit 0 only if every item passes
 
 Exit 2 means an archive or a baseline is missing: the gate was not run, which is not a pass.
 
@@ -142,6 +142,11 @@ was captured at the code before the change it guards and the same file judges th
       visit, H15 its faults), the route builder played unattended, and the driver's O5 tests on the fake (the stair walk,
       the guard and the verified landing, the visit-scoped cells, the real stair, which reads the install: a skip there
       fails the item). No baseline: the list is the floor.
+  G27 ``o5_dryrun.run_cases`` (research/o5_design.md 9 C2) on the frozen O5 predictions once they exist
+      (``o5_predictions_v1.json``), else on the draft (which reads O4's chain's campaign.toml): it returns 0 printing
+      "N/N cases as registered", N at least :data:`O5_DRYRUN_FLOOR`. O5Segment subclasses O4Segment and runs on every
+      shared module, so a later edit to any of them must keep O5's dry run green too -- every check failing on its
+      mutant, every case EXACT. No baseline: the count is the floor (a dropped case falls under it).
 
 Nothing here touches the game or writes to the install: it reads the archives, the builds and the stock bytes. The
 pins file is written only by ``--rebaseline-source``, and a baseline only by its ``--capture*``.
@@ -417,6 +422,12 @@ BASELINE_O4 = HERE / "research" / "o4_regress_baseline.json"
 O4S_VERDICT = "PROVEN"
 O4S_CHECKS = 16
 O4_OFFLINE_CHECKS = 4
+#: G27 (research/o5_design.md 9 C2): o5_dryrun's "N/N cases as registered" must have N at least this -- its 86 session
+#: cases and "predictions-changed" (section 8's table), its 18 units, and its listed units (O5-CENSUS and its 6 mutants,
+#: O5-REGIONS and its 5, O5-GOALS and its 6, the route pins and route_mes with their 7, O5-BUILD's route pins on a
+#: synthetic build and its 3, the draft through O5-KEYS and its 6 offline mutants) when G27 joined (144). A case added
+#: raises N; one dropped falls under the floor.
+O5_DRYRUN_FLOOR = 144
 #: G26 (research/o5_design.md 1.4, from B3): every ``test_o5_*``, ``test_fake_visit_*`` and ``test_fake_story_suppress_*``
 #: name, each with the step that adds it -- G26 joined the gate in the commit that added B3's tests.
 PYTEST_K_O5 = "o5_ or fake_visit or fake_story_suppress"
@@ -470,6 +481,8 @@ REQUIRED_TESTS_O5: tuple = (
     "test_o5_hallway_pattern_check",
     "test_o5_hallway_why_void_scopes_a_start_to_visit_1",
     "test_o5_hallway_preflight_verdicts",
+    # C2: the trace summary over the dry run's rendered rows, cut at the end PLACES (O4's lesson)
+    "test_o5_hallway_trace_summary_cuts_at_end_places",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)
@@ -940,6 +953,43 @@ def g20() -> tuple:
         bad.append(f"run_cases returned {rc}: {last!r}")
     elif int(m.group(2)) < O4_DRYRUN_FLOOR:
         bad.append(f"{last!r}: under the floor {O4_DRYRUN_FLOOR} -- a case or a unit was dropped")
+    return not bad, what, "; ".join(bad) or f"{last} ({which})"
+
+
+# ======================================================================== what the O5 code says (G27)
+def _o5() -> tuple:
+    """``(o5_hallway, o5_dryrun)``: imported here, never at the module's top, as the O2-O4 items import theirs."""
+    import o5_hallway as C5
+    import o5_dryrun as D5
+    return C5, D5
+
+
+def o5_run_cases_quietly() -> tuple:
+    """``(rc, last line, which predictions)``: ``o5_dryrun.run_cases`` on the frozen O5 predictions once they exist,
+    else on the draft (its own default), its per-case lines swallowed."""
+    C5, D5 = _o5()
+    path = C5.PREDICTIONS if C5.PREDICTIONS.is_file() else None
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = D5.run_cases(path)
+    lines = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
+    return rc, (lines[-1] if lines else ""), (f"the frozen {path.name}" if path is not None else "the draft")
+
+
+def g27() -> tuple:
+    """G27 (research/o5_design.md 9 C2): O5's dry run, every case as registered, at least the floor."""
+    what = (f"G27: o5_dryrun.run_cases returns 0, every case as registered, at least {O5_DRYRUN_FLOOR} (the frozen "
+            f"O5 predictions once they exist, else the draft)")
+    try:
+        rc, last, which = o5_run_cases_quietly()
+    except Exception as err:                       # noqa: BLE001 -- a dry run that cannot run is a FAIL, said
+        return False, what, f"run_cases raised {type(err).__name__}: {str(err)[:300]}"
+    m = re.fullmatch(r"(\d+)/(\d+) cases as registered", last)
+    bad = []
+    if rc != 0 or m is None or m.group(1) != m.group(2):
+        bad.append(f"run_cases returned {rc}: {last!r}")
+    elif int(m.group(2)) < O5_DRYRUN_FLOOR:
+        bad.append(f"{last!r}: under the floor {O5_DRYRUN_FLOOR} -- a case or a unit was dropped")
     return not bad, what, "; ".join(bad) or f"{last} ({which})"
 
 
@@ -1511,14 +1561,15 @@ def rebaseline_source(name: str, reason, *, baseline: Path = BASELINE_O3, baseli
 
 # ======================================================================== the gate
 def _missing(*, o1: bool = True, o2: bool = True, o3: bool = False, o3s: bool = False, o4: bool = False,
-             o4s: bool = False, files=()) -> list:
+             o4s: bool = False, o5: bool = False, files=()) -> list:
     """The inputs the items read that are not here (each makes the gate "not run", exit 2). O3's dry run (G14) reads
     the frozen O3 predictions, or -- until they exist -- the draft, which reads O1's chain build (machine-local).
     ``o3s``: G15-G18's -- the story-o3 archive's session and report, and the frozen v1; ``o4``: O4's dry run's (G20)
     -- the frozen O4 predictions, or until they exist the O4 chain's campaign.toml the draft reads (machine-local);
     ``o4s``: G22-G25's -- the story-o4 archive's session and report, and the frozen v1 (research/o5_design.md 1.4);
-    ``files``: whatever else the mode reads (the O3 and O4 baselines and the pins file for the gate, the O1 and O2
-    baselines for --capture-o3, the O3 baseline for --capture-o4)."""
+    ``o5``: O5's dry run's (G27) -- the frozen O5 predictions, or until they exist the campaign.toml of O4's chain the
+    draft reads (machine-local); ``files``: whatever else the mode reads (the O3 and O4 baselines and the pins file for
+    the gate, the O1 and O2 baselines for --capture-o3, the O3 baseline for --capture-o4)."""
     need = ([V4, O1E / "o1_session.json", O1E / "o1_report.txt", O1D / "o1_session.json"] if o1 else []) \
         + ([V1, O2S / "o2_session.json", O2S / "o2_report.txt"] if o2 else [])
     if o3:
@@ -1532,6 +1583,9 @@ def _missing(*, o1: bool = True, o2: bool = True, o3: bool = False, o3s: bool = 
     if o4s:
         C4, _D4 = _o4()
         need += [V1_O4, O4S / C4.SESSION_FILE, O4S / "o4_report.txt"]
+    if o5:
+        C5, _D5 = _o5()
+        need.append(C5.PREDICTIONS if C5.PREDICTIONS.is_file() else C5.CHAIN_DIR / "campaign.toml")
     need += [Path(p) for p in files]
     return [str(p) for p in need if not p.is_file()]
 
@@ -1798,6 +1852,8 @@ def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2, baseline_o3
     _show_items(items_o4b)
     items_o5 = [g26(pytest_g26())]                     # O5's FakeGame and driver tests (from B3): G26
     _show_items(items_o5)
+    items_o5.append(g27())                             # O5's dry run (C2): no baseline, the count's floor
+    _show_items(items_o5[-1:])
     try:                                               # the driver's source pins (rev. 2), over both baselines: G21
         items_src = [g21(union_base(base_o3, base_o4), pins)]
     except ValueError as err:
@@ -1849,7 +1905,7 @@ def main(argv=None) -> int:
     elif args.capture or args.capture_o2:
         missing = _missing(o1=not args.capture_o2, o2=not args.capture, o3=False)
     else:
-        missing = _missing(o1=True, o2=True, o3=True, o3s=True, o4=True, o4s=True,
+        missing = _missing(o1=True, o2=True, o3=True, o3s=True, o4=True, o4s=True, o5=True,
                            files=(args.baseline_o3, args.baseline_o4, args.source_pins))
     if missing:
         print("!! the gate was not run -- missing: " + ", ".join(missing))
