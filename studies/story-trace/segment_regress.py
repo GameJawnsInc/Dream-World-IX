@@ -483,6 +483,13 @@ REQUIRED_TESTS_O5: tuple = (
     "test_o5_hallway_preflight_verdicts",
     # C2: the trace summary over the dry run's rendered rows, cut at the end PLACES (O4's lesson)
     "test_o5_hallway_trace_summary_cuts_at_end_places",
+    # C3: o5_rehearse on the fake -- the stage table's ids from the chain, R-STAIRS's plumbing and 7.2's record (the walk
+    # tapped, the guard and its race margin), R-WALK-VOID's stop mid-walk, F-SMOKE untraced, F-PASS untraced to member(151)
+    "test_o5_rehearsal_stage_ids_follow_the_chain",
+    "test_o5_rehearsal_plumbing_on_the_fake",
+    "test_o5_rehearsal_walk_void_stops_mid_walk_on_the_fake",
+    "test_o5_rehearsal_smoke_sends_no_storytrace_on_the_fake",
+    "test_o5_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

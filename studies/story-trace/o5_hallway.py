@@ -1939,9 +1939,129 @@ O5 = O5Segment()
 
 
 # ======================================================================== the rehearsal report
+def _smoke_lines(name: str, stage: dict, recs: list, twins: list) -> list:
+    """F-SMOKE's section (O4's shape): each warp -- field, entrance, SC, what it reached, the object sids, the
+    exceptions and Memoria.log lines, end_run -- and each member's sids against its twin's."""
+    L = [f"== {name}: the load smoke, pairs {stage.get('pairs')}  ({len(recs)} warp(s)) -- settles: "
+         f"{stage.get('settles')}"]
+    for rec in recs:
+        reach = rec.get("reached") or {}
+        er = rec.get("end_run") or {}
+        L.append(f"  warp {rec.get('n')}: {rec.get('field')} at {rec.get('entrance')} SC {rec.get('sc')} -> "
+                 + (f"field {reach.get('field')} {reach.get('ui')} at frame {reach.get('frame')} after {reach.get('s')}s"
+                    f" (control {reach.get('control')})" if reach else f"NOT REACHED: {rec.get('error')}")
+                 + f"; objects {rec.get('objects_status')} sids {rec.get('sids')}; exceptions "
+                 f"{len(rec.get('exceptions') or [])}; log warnings/errors {len(rec.get('log_lines') or [])}; end_run "
+                 f"{'ok' if er.get('ok') else 'FAILED ' + str(er.get('why'))} {[x.get('k') for x in er.get('how') or ()]}")
+        for ln in (rec.get("log_lines") or [])[:4]:
+            L.append(f"    log: {ln[:160]}")
+    for t in twins or ():
+        L.append(f"  twin {t.get('member')} vs {t.get('twin')}: " + ("EQUAL" if t.get("equal") else "DIFFERENT")
+                 + f" ({t.get('member_sids')} vs {t.get('twin_sids')})")
+    return L
+
+
+def _walk_report(wr: dict) -> list:
+    """The walk record's lines (7.2; F1, F12, F15): the grant, each attempt's walk, its holds on the last two legs, the
+    loss and teleport samples, the calibration."""
+    L = []
+    gr = wr.get("grant")
+    if gr is None:
+        L.append("    walk: no grant before the stair step")
+    else:
+        objs = [(o.get("sid"), o.get("shown"), o.get("coll"), o.get("solid"), o.get("r"), o.get("talk_r"),
+                 o.get("range_r")) for o in gr.get("objects") or ()]
+        L.append(f"    grant: frame {gr.get('frame')} at ({gr.get('x')}, {gr.get('z')}) y {gr.get('y')}; "
+                 f"{gr.get('from_last_page_frames')} frames from the last page's going ({gr.get('last_page')!r}); "
+                 f"objects (sid, shown, coll, solid, r, talk_r, range_r) {objs}")
+    for a in wr.get("attempts") or ():
+        L.append(f"    stair attempt {a.get('attempt')}: {a.get('outcome')}; loss {a.get('lost')}; door "
+                 f"{a.get('door')}; landed {a.get('landed')}")
+        w = a.get("walk")
+        if w is None:
+            L.append("      no walk tapped for it")
+            continue
+        l2 = w.get("last_two_legs") or {}
+        L.append(f"      route {w.get('legs')} legs {w.get('waypoints')}; {len(w.get('holds') or [])} hold(s); last two "
+                 f"legs: {l2.get('holds')} hold(s), {l2.get('slides')} slide(s), {l2.get('stalls')} stall(s), pushes "
+                 f"{w.get('pushes')} ({w.get('pushed')})")
+        for h in w.get("holds") or ():
+            if h.get("slide") or h.get("stall"):
+                L.append(f"      {'SLIDE' if h['slide'] else ''}{'STALL' if h['stall'] else ''} seq {h.get('seq')} "
+                         f"{h.get('steps')}: leg {h.get('leg')} moved {h.get('moved')} from {h.get('from')} to "
+                         f"{h.get('to')}, off the pressed {h.get('off_pressed')} deg, off the leg {h.get('off_leg')} deg")
+        lc, fw, tp = w.get("last_control"), w.get("first_without"), w.get("teleport")
+        L.append(f"      last control sample {lc}; first without {fw}; teleport "
+                 + (f"frame {tp.get('frame')} at ({tp.get('x')}, {tp.get('z')}), {tp.get('ticks_after_loss')} ticks "
+                    f"after the loss" if tp else "not seen") + f"; {w.get('samples')} samples")
+    L.append(f"    calibration: {wr.get('calibration')}")
+    return L
+
+
+def _guard_report(gd: dict) -> list:
+    """The guard record's lines (7.2; F2, F3, F9): 127 and its presses, the guard row, 128 as published, the landing,
+    the race margin."""
+    L = [f"    127 (the marker page): {[(p.get('frame'), p.get('gone_frame')) for p in gd.get('marker_pages') or ()]} "
+         f"(first seen, gone); presses (seq, decision, accepted, down, ack) "
+         f"{[(p.get('seq'), p.get('decision_frame'), p.get('accepted_frame'), p.get('down_frame'), p.get('ack_frame')) for p in gd.get('marker_presses') or ()]}"]
+    g = gd.get("guard")
+    if g is None:
+        L.append(f"    guard: no guard row ({gd.get('guard_rows')})")
+    else:
+        L.append(f"    guard: armed {g.get('armed_frame')}, quiet window open {g.get('open_frame')}, re-arms "
+                 f"{g.get('rearms')}; 127 last {g.get('marker_last')}; 128 first {g.get('choice_first')} ready "
+                 f"{g.get('choice_ready')} close {g.get('choice_close')}; answer {g.get('answer')}, closing seq "
+                 f"{g.get('closing_seq')}; strays {[s.get('seq') for s in g.get('strays') or ()]}; branch "
+                 f"{g.get('branch')} {g.get('branch_raw')}; verdict {g.get('verdict')}")
+    m = gd.get("race_margin")
+    L.append("    RACE MARGIN " + (f"{m.get('frames')} frames, {m.get('ticks')} ticks, {m.get('s')} s" if m else
+                                   "not measured") + " (127's last listed sample -> 128's readiness)")
+    pub = gd.get("published") or {}
+    c = gd.get("choice")
+    L.append(f"    128 published: first at frame {pub.get('first_frame')}, {pub.get('snapshots')} snapshot(s), options "
+             f"changed after readiness: {pub.get('changed_after_ready')}"
+             + (f"; at readiness (frame {c.get('frame')}): {c.get('options')} active {c.get('active')} selected "
+                f"{c.get('selected')} -> index {c.get('index')}, took {c.get('took')}" if c else "; no choice row"))
+    for p in gd.get("choose") or ():
+        L.append(f"    choose press seq {p.get('seq')} {p.get('button')}: accepted {p.get('accepted_frame')} down "
+                 f"{p.get('down_frame')} selected_before {p.get('selected_before')} answer {p.get('answer')}")
+    return L
+
+
+def _trace_report(tr: dict) -> list:
+    """The trace summary's lines (7.2; F4): the cuts, the registered keys, the unregistered, the crossings, the emitted
+    rows per visit and the c rows, visit 3's first, the end cut's row, the residue, the masked counts, the failures,
+    the forbidden hits."""
+    if not tr:
+        return ["    trace: none (untraced, or no rows)"]
+    L = [f"    trace: start line {tr.get('start')}, end line {tr.get('end')} (end places {tr.get('end_places')}), "
+         f"{tr.get('rows')} rows; SC {[x['new'] for x in tr.get('sc') or ()]}; FieldEntrance "
+         f"{[x['new'] for x in tr.get('entrance') or ()]}",
+         f"      residue before the start {tr.get('residue_before')}; after {tr.get('residue_after')}; other rows "
+         f"before it {tr.get('pre_other')}"]
+    for name, keys in (tr.get("registered") or {}).items():
+        present = [k["what"] for k in keys if k["present"]]
+        L.append(f"      {name}: {len(present)}/{len(keys)} present"
+                 + (f"; present: {present[:4]}" if name in ("error_path", "forbidden_sites", "dead") and present else ""))
+    L.append(f"      unregistered keys ({len(tr.get('unregistered') or [])}): {(tr.get('unregistered') or [])[:12]}")
+    L.append(f"      crossings {tr.get('crossings')}; the end cut's row {tr.get('end_row')} (fld {tr.get('end_row_fld')})")
+    pat = tr.get("pattern") or {}
+    for i, v in enumerate(pat.get("visits") or (), 1):
+        L.append(f"      visit {i}: {len(v)} emitted row(s) {[tuple(x) for x in v]}")
+    L.append(f"      c rows {[tuple(x) for x in pat.get('counts') or ()]}; unjoined {pat.get('unjoined')}; visit 3's first "
+             f"{tr.get('visit3_first')}")
+    L.append(f"      masked {tr.get('masked')}; join failures {len(tr.get('failures') or [])}")
+    for h in tr.get("forbidden") or ():
+        L.append(f"      forbidden: {h['row']} {h['why']} -- " + (f"backed by {h['by']}" if h["backed"] else "unbacked"))
+    return L
+
+
 def rehearsal_report(run_dir) -> str:
     """``--rehearsal-report``: an o5_rehearse.py launch's ``o5_rehearsal.json`` (research/o5_design.md 7.2), stage by
-    stage and run by run -- what each freeze item (7.3) is read from."""
+    stage and run by run -- what each freeze item (7.3) is read from: the capabilities and the launch's readings
+    (F10); per run its outcome, the walk (F1, F12, F15), the guard and 128 (F2, F3, F9), the dialog-section catch
+    (F11), the KEYON pairs and the timed windows (F8), the evidence, the trace (F4), the end (F5, F7), R-WALK-VOID's
+    stop (F7) and an untraced run's exceptions (F14); F-SMOKE's warps and twins (F13)."""
     run_dir = Path(run_dir)
     doc = json.loads((run_dir / REHEARSAL_FILE).read_text(encoding="utf-8"))
     L = [f"O5 rehearsals -- {run_dir.name}  (draft sha {str(doc.get('draft_sha256'))[:8]}; stages "
@@ -1958,12 +2078,55 @@ def rehearsal_report(run_dir) -> str:
     L.append("")
     for name, recs in (doc.get("stages") or {}).items():
         stage = (doc.get("stage_defs") or {}).get(name, {})
-        L.append(f"== {name}: " + (f"the load smoke, pairs {stage.get('pairs')}" if stage.get("pairs") else
-                                   f"warp {stage.get('field')} {stage.get('entrance')} {stage.get('sc')} -> "
-                                   f"{stage.get('end')}")
-                 + f"  ({len(recs)} record(s)) -- settles: {stage.get('settles')}")
+        if stage.get("pairs"):
+            L += _smoke_lines(name, stage, recs, (doc.get("twins") or {}).get(name))
+            L.append("")
+            continue
+        L.append(f"== {name}: warp {stage.get('field')} {stage.get('entrance')} {stage.get('sc')} -> {stage.get('end')}"
+                 + (" UNTRACED" if stage.get("untraced") else "")
+                 + (f", walk_stop_x {stage.get('walk_stop_x')}" if stage.get("walk_stop_x") is not None else "")
+                 + (f", overlay {stage.get('overlay')}" if stage.get("overlay") else "")
+                 + f"  ({len(recs)} run(s)) -- settles: {stage.get('settles')}")
         for rec in recs:
-            L += [f"  {ln}" for ln in json.dumps(rec, sort_keys=True, default=str).split("\n")][:1]
+            out = rec.get("outcome") or {}
+            rate = rec.get("rate") or {}
+            L.append(f"  run {rec.get('n')} ({rec.get('side', 'S')}): {out.get('end')} -- {out.get('why')}"
+                     + (f" [{out.get('v')} {out.get('cell')} {out.get('by')}]" if out.get("v") else "")
+                     + f"; beats {rec.get('beats')}; {rec.get('t1', 0) - rec.get('t0', 0):.0f}s; "
+                     f"{rate.get('fps')} fps; trace {rec.get('trace_file')}")
+            L.append(f"    grants: {len(rec.get('grants') or [])} (the stair's alone)")
+            L += _walk_report(rec.get("walk") or {})
+            L += _guard_report(rec.get("guard") or {})
+            ct = rec.get("catch") or {}
+            L.append(f"    dialog-section catch: {len(ct.get('caught') or [])} of {ct.get('samples')} samples "
+                     f"{(ct.get('caught') or [])[:4]}")
+            win = rec.get("windows") or {}
+            for pair in win.get("pairs") or ():
+                L.append(f"    pair {pair.get('texts')}: first seen -> gone {pair.get('s')} s (second -> gone "
+                         f"{pair.get('s_after_second')} s), Confirms {pair.get('presses')}")
+            for t in win.get("timed") or ():
+                L.append(f"    timed window {t.get('text')!r:.60}: {t.get('ticks')} ticks listed, Confirms "
+                         f"{t.get('presses')}")
+            ev = rec.get("evidence") or {}
+            L.append(f"    evidence: {len(ev.get('press') or [])} press row(s), {len(ev.get('forbidden') or [])} "
+                     f"forbidden row(s), {len(ev.get('observed') or [])} observed row(s), {len(ev.get('input') or [])} "
+                     f"input row(s)")
+            npg = rec.get("no_progress") or {}
+            L.append(f"    longest no-progress stretch: {npg.get('longest_s')}s at {npg.get('where')}")
+            ws = rec.get("walk_stop", ...)
+            if ws is not ...:
+                L.append("    walk stop: " + ("never fired" if ws is None else
+                                              f"frame {ws.get('frame')} at x {ws.get('x')} (<= {ws.get('x_stop')}), the "
+                                              f"held-back steps {ws.get('steps')}; direction holds after it "
+                                              f"{ws.get('holds_after')} (there must be none)"))
+            if not rec.get("traced", True):
+                L.append(f"    untraced: exceptions since the warp {rec.get('exceptions')}; Memoria.log lines "
+                         f"{len(rec.get('log_lines') or [])}")
+            end = rec.get("end") or {}
+            er = end.get("end_run") or {}
+            L.append(f"    end: state {end.get('end_state')}; end_run " + ("ok" if er.get("ok") else f"FAILED {er.get('why')}")
+                     + f", title {er.get('title')}, rows {[x.get('k') for x in er.get('how') or ()]}")
+            L += _trace_report(rec.get("trace") or {})
         L.append("")
     return "\n".join(L)
 
