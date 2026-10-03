@@ -23038,3 +23038,106 @@ def test_o5_rehearsal_race_reads_the_unguarded_race_on_the_fake(game):
     assert gd["choice"] is None and fake.answered == [0], (gd["choice"], fake.answered)
     assert gd["branch_page"]["which"] == "other" and "mes 129" in gd["branch_page"]["text"], gd["branch_page"]
     assert gd["marker_pages"] and gd["marker_presses"], (gd["marker_pages"], gd["marker_presses"])
+
+
+# ---- O6, PART A (research/o6_design.md section 9): the regression gate extended to O5 (G28-G31, G21 over the union of
+# the O3, O4 and O5 baselines' pins), the O5 replay on the hand-stepped fake (A0b), then the shared opt-in changes --
+# S14/S14b the landing-aware trigger and its walk-out on record, H16 a region's walk-out (A1), S15 end_run's naming
+# recovery and the session stop, H16b the fields that swallow the soft reset (A2). Every ``test_segment_*`` here is
+# collected by G7's selection ("segment"), so the gate re-runs it.
+
+def test_segment_regress_o5_pins_join_the_union(tmp_path):
+    """G21 OVER THREE BASELINES (research/o6_design.md 1.4, 9 A0), pure, over a temporary COPY of the two pinned files:
+    the O3 baseline's pins (an O1 test, the fake's ``_control``), the O4 baseline's (an O4 test, the fake's story sink)
+    and the O5 baseline's (an O5 test, the fake's ``_story_site``, a ``_VisitBeat`` method) join into ONE set of pins
+    (``union_sources``) that reads clean; an edit to the pinned O5 TEST's body FAILS naming it -- and only it, which the
+    O3 and O4 pins alone cannot see; a re-baseline row for that O5-baseline name (its ``old`` the O5 pin) reads clean
+    again. Through files too: G21 over three temporary baselines (``union_base``, as the gate passes them) and a pins
+    file, and ``--rebaseline-source`` finding the name in the O5 baseline alone (``baseline_o5``; without it the name is
+    not pinned, and a refusal writes nothing). A name pinned in TWO baselines is refused at capture (``o5_pin_names``:
+    one the O3 or the O4 baseline already pins) and by the union -- and so by ``--rebaseline-source``. The fake's O5
+    pins are FAKE_PINS_O5 and every method of ``_VisitBeat`` (``fake_pins_o5``). Break: judge the O3 and O4 baselines'
+    sources alone (the edit then passes), or let a union keep one of two pins."""
+    R = _regress_module()
+    test_copy, fake_copy = tmp_path / "test_harness.py", tmp_path / "fakegame.py"
+    test_copy.write_bytes((REPO / R.TEST_REL).read_bytes())
+    fake_copy.write_bytes((REPO / R.FAKE_REL).read_bytes())
+    files = {R.TEST_REL: test_copy, R.FAKE_REL: fake_copy}
+    pick = R.pin_of_test("test_o1_pick_for_reads_the_frozen_rules_by_option_text")
+    control = f"{R.FAKE_REL}::_control"
+    stray = R.pin_of_test("test_o4_stray_answer_attributes_by_the_down_frame")
+    sink = f"{R.FAKE_REL}::FakeGame._story_store"
+    off = R.pin_of_test("test_fake_story_suppress_is_off_by_default")
+    site = f"{R.FAKE_REL}::FakeGame._story_site"
+    shown = f"{R.FAKE_REL}::_VisitBeat.shown"
+    o3 = R.source_shas([pick, control], files=files)
+    o4 = R.source_shas([stray, sink], files=files)
+    o5 = R.source_shas([off, site, shown], files=files)
+    assert all(isinstance(v, str) and len(v) == 64 for v in [*o3.values(), *o4.values(), *o5.values()]), (o3, o4, o5)
+    union = R.union_sources(o3, o4, o5)
+    assert sorted(union) == sorted([pick, control, stray, sink, off, site, shown]), union
+    assert R.g21_bad(union, R.source_shas(sorted(union), files=files), []) == []
+    assert R.union_sources(o3, o4) == {**o3, **o4}, "two baselines join as they always did"
+
+    def edit(path, old, new):
+        text = path.read_text(encoding="utf-8")
+        assert text.count(old) == 1, f"premise: {old!r} occurs once in the copy"
+        path.write_text(text.replace(old, new), encoding="utf-8")
+    edit(test_copy, "    assert FakeGame(game).story_suppress is False\n",
+         "    assert FakeGame(game).story_suppress is not True\n")
+    now = R.source_shas(sorted(union), files=files)
+    bad = R.g21_bad(union, now, [])
+    assert len(bad) == 1 and bad[0].startswith(f"{off}: changed (") and "--rebaseline-source" in bad[0], bad
+    two = R.union_sources(o3, o4)
+    assert R.g21_bad(two, R.source_shas(sorted(two), files=files), []) == [], \
+        "premise: the O3 and O4 pins alone pass the edit"
+    row = R.pin_row(union, [], off, o5[off], now[off], "  the O5 test changed on purpose ", "abc123")
+    assert row == {"name": off, "old": o5[off], "new": now[off], "reason": "the O5 test changed on purpose",
+                   "head": "abc123"}, row
+    assert R.g21_bad(union, now, [row]) == []
+    # through files: three temporary baselines and a pins file -- G21 over their union, --rebaseline-source on the O5 name
+    b3, b4, b5 = (tmp_path / f"o{n}_regress_baseline.json" for n in (3, 4, 5))
+    pins = tmp_path / "source_pins.json"
+    for path, src in ((b3, o3), (b4, o4), (b5, o5)):
+        path.write_text(json.dumps({"sources": src, "sources_python": R._py()}), encoding="utf-8")
+    pins.write_text("[]\n", encoding="utf-8")
+
+    def read(path):
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def g21():
+        return R.g21(R.union_base(read(b3), read(b4), read(b5)), pins, files=files)
+    ok, what, detail = g21()
+    assert ok is False and what.startswith("G21: ") and f"{off}: changed" in detail and pick not in detail, detail
+    assert "the O5 tests G26 collected at the O5 capture" in what, what
+    assert R.rebaseline_source(off, "", baseline=b3, baseline_o4=b4, baseline_o5=b5, pins=pins, files=files) == 1
+    assert R.rebaseline_source(off, "the O5 test changed on purpose", baseline=b3, baseline_o4=b4, pins=pins,
+                               files=files) == 1                 # the O3 and O4 baselines alone: not pinned
+    assert pins.read_text(encoding="utf-8") == "[]\n", "a refusal writes nothing"
+    assert R.rebaseline_source(off, "the O5 test changed on purpose", baseline=b3, baseline_o4=b4, baseline_o5=b5,
+                               pins=pins, files=files) == 0
+    rows = json.loads(pins.read_text(encoding="utf-8"))
+    assert [(r["name"], r["old"], r["new"]) for r in rows] == [(off, o5[off], now[off])], rows
+    ok, _what, detail = g21()
+    assert ok is True and "7 sources at their pins (1 re-baseline row" in detail, detail
+    # a name pinned in two baselines: refused at capture, no union, no re-baseline
+    with pytest.raises(ValueError, match="pinned in both the O3 and the O5 baselines"):
+        R.o5_pin_names(o3, o4, [off, site, pick])
+    with pytest.raises(ValueError, match="pinned in both the O4 and the O5 baselines"):
+        R.o5_pin_names(o3, o4, [off, sink])
+    assert R.o5_pin_names(o3, o4, [off, site, site, shown]) == [off, site, shown]
+    with pytest.raises(ValueError, match="pinned in both the O4 and the O5 baselines"):
+        R.union_sources(o3, o4, {**o5, stray: o4[stray]})
+    with pytest.raises(ValueError, match="pinned in both the O3 and the O5 baselines"):
+        R.union_sources(o3, o4, {**o5, pick: o3[pick]})
+    b5.write_text(json.dumps({"sources": {**o5, sink: o4[sink]}, "sources_python": R._py()}), encoding="utf-8")
+    assert R.rebaseline_source(off, "why", baseline=b3, baseline_o4=b4, baseline_o5=b5, pins=pins, files=files) == 1
+    assert len(json.loads(pins.read_text(encoding="utf-8"))) == 1, "a refusal writes nothing"
+    # the fake's O5 pins: FAKE_PINS_O5, then every method of _VisitBeat
+    source = fake_copy.read_text(encoding="utf-8")
+    names = R.fake_pins_o5(source)
+    assert names[:len(R.FAKE_PINS_O5)] == list(R.FAKE_PINS_O5) and len(names) == len(set(names)), names
+    methods = {q for q in R.functions_of(source) if q.split(".")[0] in R.FAKE_PIN_CLASSES_O5}
+    assert methods <= set(names) and {"_VisitBeat.shown", "_VisitBeat._stairs"} <= methods, methods
+    with pytest.raises(ValueError, match="no method of _VisitBeat"):
+        R.fake_pins_o5(source.replace("class _VisitBeat(_Machine):", "class _Visit(_Machine):"))
