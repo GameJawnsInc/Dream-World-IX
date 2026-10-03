@@ -2,15 +2,16 @@
 ``o2_alexandria``, ``o3_prima_vista``, ``o4_castle`` or the harness verbs they drive must leave every O1 output
 (research/o2_design.md, section 1.6), every O2 output (research/o3_design.md, section 1.4), every O3 output
 (research/o4_design.md, section 1.4) AND every O4 output (research/o5_design.md, section 1.4) byte-identical, O3's
-battle-beat tests (G13) and O3's dry run (G14) green, O4's tests (G19) and O4's dry run (G20) green, and the O1-O4
-driver tests and the fake's beat, input, story-trace and machine-beat functions at their pinned sources (G21).
+battle-beat tests (G13) and O3's dry run (G14) green, O4's tests (G19) and O4's dry run (G20) green, O5's FakeGame and
+driver tests (G26) green, and the O1-O4 driver tests and the fake's beat, input, story-trace and machine-beat functions
+at their pinned sources (G21).
 
     py studies/story-trace/segment_regress.py --capture      # G0, once, BEFORE the O2 refactor: the O1 baseline
     py studies/story-trace/segment_regress.py --capture-o2   # G0', once, BEFORE any O3 code change: the O2 baseline
     py studies/story-trace/segment_regress.py --capture-o3   # G0'', once, BEFORE any O4 code change: the O3 baseline
     py studies/story-trace/segment_regress.py --capture-o4   # G0''', once, BEFORE any O5 code change: the O4 baseline
     py studies/story-trace/segment_regress.py --rebaseline-source NAME --reason TEXT   # G21: re-pin ONE source
-    py studies/story-trace/segment_regress.py                # G1-G25; exit 0 only if every item passes
+    py studies/story-trace/segment_regress.py                # G1-G26; exit 0 only if every item passes
 
 Exit 2 means an archive or a baseline is missing: the gate was not run, which is not a pass.
 
@@ -135,6 +136,12 @@ was captured at the code before the change it guards and the same file judges th
       of them is proven O4-neutral by G24's synthetic sessions alone.
   G25 ``O4.offline_check(v1)`` equals the baseline's ``[(ok, what, detail)]``: 4 checks, all PASS (it reads O4's build
       and the install, read-only).
+  G26 ``pytest tests/test_harness.py -k "o5_ or fake_visit or fake_story_suppress"`` from ``ff9mapkit/``
+      (research/o5_design.md 1.4, from B3): every test passed, 0 failed, 0 skipped, 0 errors, and every name in
+      :data:`REQUIRED_TESTS_O5` among them -- O5's FakeGame (H13 the sink's same-value suppression, H14 the scripted
+      visit, H15 its faults), the route builder played unattended, and the driver's O5 tests on the fake (the stair walk,
+      the guard and the verified landing, the visit-scoped cells, the real stair, which reads the install: a skip there
+      fails the item). No baseline: the list is the floor.
 
 Nothing here touches the game or writes to the install: it reads the archives, the builds and the stock bytes. The
 pins file is written only by ``--rebaseline-source``, and a baseline only by its ``--capture*``.
@@ -411,8 +418,47 @@ O4S_VERDICT = "PROVEN"
 O4S_CHECKS = 16
 O4_OFFLINE_CHECKS = 4
 #: G26 (research/o5_design.md 1.4, from B3): every ``test_o5_*``, ``test_fake_visit_*`` and ``test_fake_story_suppress_*``
-#: name, each with the step that adds it -- empty until B3, when G26 joins the gate.
-REQUIRED_TESTS_O5: tuple = ()
+#: name, each with the step that adds it -- G26 joined the gate in the commit that added B3's tests.
+PYTEST_K_O5 = "o5_ or fake_visit or fake_story_suppress"
+REQUIRED_TESTS_O5: tuple = (
+    # B1: H13, the sink's same-value suppression (opt-in)
+    "test_fake_story_suppress_emits_the_first_same_value_per_site",
+    "test_fake_story_suppress_counts_close_the_epoch",
+    "test_fake_story_suppress_is_off_by_default",
+    # B1: H14, the scripted visit beat, and H15, its faults
+    "test_fake_visit_pages_open_type_and_close",
+    "test_fake_visit_choice_opens_after_its_gap_on_cursor_zero",
+    "test_fake_visit_objects_as_the_agent_publishes_them",
+    "test_fake_visit_grant_and_the_stair_contour",
+    "test_fake_visit_side_scene_and_regrant",
+    "test_fake_visit_back_door_stores_then_leaves",
+    "test_fake_visit_keyon_pairs_and_timed_windows",
+    "test_fake_visit_faults",
+    "test_fake_visit_sets_the_members_donor",
+    # B2: the O5 route builder, played unattended to 151 (its trace 4.16's pattern)
+    "test_fake_visit_route_plays_to_151_unattended",
+    # B3: the driver's O5 tests on the fake
+    "test_o5_drive_walks_the_stairs_and_answers_her_face_on_the_fake",
+    "test_o5_drive_guard_closes_the_stray_press_race",
+    "test_o5_drive_choose_landed_repress_when_128_drops_a_confirm",
+    "test_o5_drive_unlanded_answer_is_the_drivers_v17",
+    "test_o5_drive_outside_cursor_move_is_v13",
+    "test_o5_drive_the_branch_page_witnesses_the_answer",
+    "test_o5_drive_control_off_the_cell_is_v4",
+    "test_o5_drive_side_scene_is_one_interrupt",
+    "test_o5_drive_back_door_is_the_drivers_v11",
+    "test_o5_drive_never_reaching_the_contour_is_v7",
+    "test_o5_drive_fork_landing_in_real_151_is_v19",
+    "test_o5_drive_page_in_the_quiet_window_is_v17_observed",
+    "test_o5_drive_glitched_sample_rearms_the_quiet_window",
+    "test_o5_drive_quiet_cap_survives_a_read_stall_on_mtime",
+    "test_o5_drive_no_choice_within_the_cap_is_v13",
+    "test_o5_drive_guard_window_opens_on_128s_first_sample_at_31fps",
+    "test_o5_drive_choice_gone_unanswered_is_v13",
+    "test_o5_drive_reask_after_a_verified_landing_is_v2",
+    "test_o5_drive_stop_page_in_the_start_is_v5_driver",
+    "test_o5_drive_climbs_the_real_stair_on_the_fake",
+)
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)
 SOURCE_PINS = HERE / "research" / "source_pins.json"
@@ -834,6 +880,17 @@ def pytest_g19() -> dict:
 def g19(got: dict) -> tuple:
     bad = _selection_bad(None, got, REQUIRED_TESTS_O4)
     return (not bad, f'G19: pytest -k "{PYTEST_K_O4}": all passed, 0 failed, 0 skipped; every REQUIRED_TESTS_O4 '
+                     f"among them", "; ".join(bad) or f"{len(got['passed'])} passed")
+
+
+def pytest_g26() -> dict:
+    """Run G26's pytest selection (:func:`pytest_selection`)."""
+    return pytest_selection(PYTEST_K_O5)
+
+
+def g26(got: dict) -> tuple:
+    bad = _selection_bad(None, got, REQUIRED_TESTS_O5)
+    return (not bad, f'G26: pytest -k "{PYTEST_K_O5}": all passed, 0 failed, 0 skipped; every REQUIRED_TESTS_O5 '
                      f"among them", "; ".join(bad) or f"{len(got['passed'])} passed")
 
 
@@ -1727,12 +1784,14 @@ def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2, baseline_o3
     _show_items(items_o4[-1:])
     items_o4b = judge_o4(base_o4, collect_o4())        # O4's outputs (research/o5_design.md 1.4): G22-G25
     _show_items(items_o4b)
+    items_o5 = [g26(pytest_g26())]                     # O5's FakeGame and driver tests (from B3): G26
+    _show_items(items_o5)
     try:                                               # the driver's source pins (rev. 2), over both baselines: G21
         items_src = [g21(union_base(base_o3, base_o4), pins)]
     except ValueError as err:
         items_src = [(False, "G21: every pinned source is its pin in force", str(err))]
     _show_items(items_src)
-    items += items_o2 + items_o3 + items_o3b + items_o4 + items_o4b + items_src
+    items += items_o2 + items_o3 + items_o3b + items_o4 + items_o4b + items_o5 + items_src
     n = sum(1 for ok, _w, _d in items if ok)
     print(f"\n{n}/{len(items)} items PASS (baseline heads: O1 {base['head'][:8]}, O2 {base_o2['head'][:8]}, O3 "
           f"{base_o3['head'][:8]}, O4 {base_o4['head'][:8]})")

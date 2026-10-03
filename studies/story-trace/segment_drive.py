@@ -3575,7 +3575,10 @@ class _Drive:
         """RULE 7 UNDER THE GUARD (S10; research/o5_design.md 1.2, 2.5), after the stop pages and ``no_pages``, in order:
         (o) THE JUDGMENT, once, at the first page after the guarded choice's VERIFIED answer (:meth:`guard_judge`):
         anything but "ok" VOIDs the run with nothing pressed, "ok" goes on to (iv); (i) the guarded choice published and
-        gone with no answer of the driver's: :meth:`guard_stray` "choice_gone"; (ii) the quiet window OPEN -- a page
+        gone with no answer of the driver's -- judged on a page sample NEWER than the choice's first publication: an
+        older one (a stale read, served after a blocking call's own reads already met the choice) shows nothing of its
+        going, and goes on to (ii)-(iv), page-once's hold-off holding a stale marker page off (research/o5_design.md
+        11.5, PART B) -- :meth:`guard_stray` "choice_gone"; (ii) the quiet window OPEN -- a page
         holding a marker is the marker page itself (a sample listing no window opened it early: the agent's
         dialog-section catch, 0.2 #18), so the window RE-ARMS and the page goes on to (iii); any other page is V17
         (game-observed: an ``observed`` row ``quiet_page``), nothing pressed; (iii) in the guard's cell, a page listing
@@ -3591,7 +3594,7 @@ class _Drive:
             self.guard_judge(st, rows)                           # (o): raises unless "ok"
             self.guard_press(st, rows, marker=False)
             return
-        if gd["first"] is not None and not gd["answered"]:
+        if gd["first"] is not None and not gd["answered"] and st.frame > gd["first"]:
             self.guard_stray("choice_gone", st)                  # (i): raises
         marked = [(p, t) for p, t in rows if self.has_marker(p) or self.has_marker(t)]
         q = gd["quiet"]

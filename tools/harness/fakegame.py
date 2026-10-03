@@ -3871,6 +3871,13 @@ class _VisitBeat(_Machine):
         self.script = self._script(fake)
 
     # -- the UI: the engine's gating of a page's type-out and a choice's answer
+    def open(self, fake, slot: int, kind: str, text: str, raw: str, *, unsub: str | None = None) -> _Win:
+        """:meth:`_Machine.open`, every window given the type-out state :meth:`ui` reads -- none (``typing_s`` 0) unless
+        its step sets one -- so a window a director queues (:meth:`_Machine.queue_window`) is a plain page here too."""
+        w = super().open(fake, slot, kind, text, raw, unsub=unsub)
+        w.typing_s, w.typed, w.done_frame, w.done_rt = 0.0, False, None, None
+        return w
+
     def typing(self, fake, w) -> bool:
         """Whether a page's or a choice's text still TYPES: complete, ``typing_s`` > 0, not yet completed by a Confirm,
         and less than ``typing_s`` of the game's clock since its opening ended."""
