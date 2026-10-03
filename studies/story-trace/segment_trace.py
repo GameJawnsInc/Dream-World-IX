@@ -549,7 +549,17 @@ class Segment:
         as any run does. The end sequence includes its LOAD: the scene is gone (``in_battle`` False) while the UI still
         reads BattleResult until the next field's HUD is up (H8's lag, H9's fourth phase) -- the warp is refused there
         and the reset swallowed, so it is waited out too (the review, research/o3_design.md 11.7 #8). Outside a battle:
-        exactly the old path. Decided on ONE read of the state."""
+        exactly the old path. Decided on ONE read of the state.
+
+        S15 (research/o6_design.md 1.2; decision 4; the driver critic's #4) -- a run stopped WITH A NAMING SCREEN UP.
+        The warp is refused off the field HUD, and the ladder cannot help: ``close_ui``'s Cancels only refocus the name
+        box (each starting NameSettingUI's 0.5-s DelayFocusTextField) and the soft reset is swallowed there -- ~67 s
+        before it would reach the screen, then a reset through the running scene. So on the refused warp the screen is
+        accepted AT ONCE, before any Cancel (:meth:`end_naming`), and the warp retried -- from the field HUD a running
+        scene cannot refuse it -- and only then the ladder; a screen that opened after the warp's read is accepted after
+        the ladder, as before, and the warp retried there too. A screen ``accept_name`` cannot close ends the SESSION
+        (``session_stop``): nothing can reach the title through it. O1's and O2's routes hold a naming screen, so for
+        them this is an intended change (research/o6_design.md 11.6)."""
         from harness import HarnessError
         recovery = self.recovery if recovery is None else recovery
         st = g.state
@@ -578,13 +588,37 @@ class Segment:
                     log.append({"k": "recover-warp", "field": recovery})
                 except HarnessError as err:
                     log.append({"k": "recover-warp-failed", "why": str(err)[:200]})
+                    if g.state.ui_state == "NameSetting":   # S15: the screen FIRST -- before any Cancel or rung
+                        self.end_naming(g, log, recovery)
         ok, why = g.restore_baseline()
-        if not ok and g.state.ui_state == "NameSetting":
-            g.accept_name()
-            log.append({"k": "end-naming"})
+        if not ok and g.state.ui_state == "NameSetting":    # a screen that opened after the warp's read: today's place
+            self.end_naming(g, log, recovery)
             ok, why = g.restore_baseline()
         if not ok:
             raise HarnessError(f"the title could not be restored: {why}")
+
+    def end_naming(self, g, log: list, recovery: int) -> None:
+        """S15 (research/o6_design.md 1.2): accept the naming screen -- its default name -- then the warp to
+        ``recovery`` a running scene cannot refuse from the field HUD (``recover-warp-after-naming``; its ``-failed``
+        row, and the ladder then climbs from where the run stands). A screen ``accept_name`` cannot close is logged
+        (``end-naming-failed``) and raises a HarnessError marked ``session_stop`` -- an attribute, never a new class:
+        every handler that catches HarnessError still catches it -- which :meth:`run` turns into a clean stop of the
+        session."""
+        from harness import HarnessError
+        try:
+            g.accept_name()
+        except HarnessError as err:                         # the screen will not leave: nothing can reach the title
+            log.append({"k": "end-naming-failed", "why": str(err)[:200]})
+            stop = HarnessError(f"the naming screen stayed up through accept_name ({str(err)[:160]}): the title "
+                                f"cannot be reached -- the session stops")
+            stop.session_stop = True                        # S15's marker: run() stops the session cleanly
+            raise stop from err
+        log.append({"k": "end-naming"})
+        try:
+            g.warp(recovery)
+            log.append({"k": "recover-warp-after-naming", "field": recovery})
+        except HarnessError as err:
+            log.append({"k": "recover-warp-after-naming-failed", "why": str(err)[:200]})
 
     def run(self, g) -> None:
         """o1 run: the whole session. P-CAP and the preflight, the install fingerprint, the members' scripts
@@ -595,7 +629,14 @@ class Segment:
         install is skipped, one the install changed under is never read (both VOID). A RouteVoid's class (``v``,
         ``cell``, ``by``) is copied into its run record. The session then leaves the game at the title: the bare
         ladder where the last run stopped, or (``end_session_warps``) :meth:`end_run`, recorded in
-        ``session["ended"]``. Then the analysis, its report, and THROW."""
+        ``session["ended"]``. Then the analysis, its report, and THROW.
+
+        S15 (research/o6_design.md 1.2): a HarnessError marked ``session_stop`` (a naming screen ``accept_name``
+        cannot close, :meth:`end_naming`) STOPS THE SESSION cleanly: that run is recorded ``stopped`` (its why) and --
+        its drive never began, the marker coming from the ``end_run`` at its head -- ``skipped`` "the session stopped:
+        <why>" (else its outcome "STOPPED: the session stopped: <why>"); ``session["stopped"]`` keeps the why; no later
+        run is driven and no re-run starts. The session still ends as above, and the analysis reads what was
+        recorded."""
         from harness import HarnessError
         from segment_drive import RouteVoid
 
@@ -630,6 +671,7 @@ class Segment:
         mark = g.log_mark()
         t0 = time.time()
         deadline = t0 + b["session_s"]
+        halt: dict = {}                                    # S15: set by a run whose end_run stops the session
 
         def one(i: int, side: str, rerun: bool = False) -> None:
             trace_name, log_name = f"run{i}_{side}.jsonl", f"run{i}_{side}_log.json"
@@ -652,9 +694,11 @@ class Segment:
             marks: dict = {}
             rec["t0"] = round(time.time() - t0)
             g.shot_prefix = f"run{i}-{side}"
+            began = False                                  # S15: whether this run got past the end_run at its head
             try:
                 if i > 1:
                     self.end_run(g, log)
+                began = True
                 self.start_run(g, side, pred, marks)
                 outcome = self.drive(g, pred, side, log, deadline=min(deadline, time.time() + b["run_s"]),
                                      progress=progress)
@@ -663,7 +707,15 @@ class Segment:
                 if err.v is not None:
                     outcome.update(v=err.v, cell=err.cell, by=err.by)
             except HarnessError as err:
-                outcome = {"end": "void", "why": f"STOPPED: {str(err)[:300]}"}
+                if getattr(err, "session_stop", False):     # S15: nothing reaches the title -- the session stops here
+                    why = str(err)[:300]
+                    rec["stopped"] = halt["why"] = session["stopped"] = why
+                    if began:
+                        outcome = {"end": "void", "why": f"STOPPED: the session stopped: {why}"}
+                    else:
+                        rec["skipped"] = f"the session stopped: {why}"
+                else:
+                    outcome = {"end": "void", "why": f"STOPPED: {str(err)[:300]}"}
             except Exception as err:                  # noqa: BLE001 -- one run's bug must not cost the others
                 outcome = {"end": "void", "why": f"STOPPED (unexpected): {type(err).__name__}: {str(err)[:300]}"}
                 log.append({"k": "error", "traceback": traceback.format_exc()[-3000:]})
@@ -693,13 +745,15 @@ class Segment:
                       flush=True)
 
         for i, side in enumerate(pred["order"], 1):
+            if halt:                                       # S15: no run after the session stopped
+                break
             one(i, side)
         reruns = 0
         # S2 (research/o3_design.md 1.2): a side with any run VOID in a FINDING class is not re-run however short it
         # is -- re-running a finding only repeats it, and the analysis (VOID-ASYM) already reads it. No ``stop_on``
         # (O1, O2): exactly the old loop, which read the session once per side per pass; this reads it once a pass.
         stop_on = set(pred["rerun"].get("stop_on") or ())
-        while reruns < pred["rerun"]["max"]:
+        while not halt and reruns < pred["rerun"]["max"]:  # S15: and no re-run after it
             runs = self.read_session(g.run_dir, pred, session=session)
             held = {s for s in SIDES if any(r["side"] == s and r["rec"].get("v") in stop_on for r in runs)}
             short = [s for s in SIDES if s not in held

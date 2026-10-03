@@ -2624,8 +2624,8 @@ class _Drive:
         return "interrupted", out
 
     def walkout_record(self) -> None:
-        """S14b, THE WALK-OUT ON RECORD (research/o6_design.md 1.2; the driver critic's #5), on rule 1's first poll in an
-        end field after a DONE trigger step carrying ``to``: that step row (``self.to_row``) updated IN PLACE -- as
+        """S14b, THE WALK-OUT ON RECORD (research/o6_design.md 1.2; the driver critic's #5), on rule 1's first poll in
+        an end field after a DONE trigger step carrying ``to``: that step row (``self.to_row``) updated IN PLACE -- as
         :meth:`stray` updates a walked row -- from the ring since its loss sample: ``walkout``, ``[frame, x, z,
         control]`` of every sample still in the step's field (where ExitField's walk-out took him, and where it
         stopped); ``flip_frame``, when the executor read none (path A: route_to returned before the map switch), the

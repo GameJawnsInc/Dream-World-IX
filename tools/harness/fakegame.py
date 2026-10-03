@@ -322,6 +322,10 @@ class FakeGame:
         #: director gives it where a field would. True (the default): today's warp, control handed over on arrival --
         #: which is how a smoke built on Session.warp() (its wait_playable needs control) passes here and hangs there.
         self.warp_arrive_control = True
+        #: H16b (research/o6_design.md 3.2): fields whose running scene SWALLOWS the soft reset -- O1d's measurement (a
+        #: soft reset through Alexandria's running opening scene did not reach the title: PLAN.md O1, story-o1d),
+        #: whatever the engine's reason. Empty by default: the combo fires as :meth:`_check_soft_reset` says.
+        self.reset_blocked_fields: set = set()
         # -- battle ----------------------------------------------------------------------------
         #: `party.battle_no`: monotonic, save-persistent, never reset. The ONE unambiguous "a battle
         #: started" edge -- modelled as such because every driver wait is anchored to it.
@@ -451,11 +455,11 @@ class FakeGame:
         #:   * ``"arrive_control": False`` -- the destination arrives with control OFF: the arrival scene's to
         #:     hand back (a test's director gives it), as 101's Herald and 115's Puck hold it.
         #:   * ``"walkout"`` -- H16 (research/o6_design.md 3.1): ExitField's WALK-OUT, ``{"to": [x, z], "speed": u,
-        #:     "stop_z": z}`` (``speed`` default 60, ``stop_z`` default None): from the fire to the switch he keeps moving
-        #:     toward ``to`` at ``speed`` units a field tick -- MOVJ, at the speed of his last controlled frame
-        #:     (HonoUpdate's 60 for a run) -- control off, and stops at ``to`` or, ``stop_z`` given, once his z passes it
-        #:     (where pathing holds his centre a radius short of the floor's end). Without it he stands where the region
-        #:     took him, as ever. The switch itself waits on `exit_gate` when a test holds one.
+        #:     "stop_z": z}`` (``speed`` default 60, ``stop_z`` default None): from the fire to the switch he keeps
+        #:     moving toward ``to`` at ``speed`` units a field tick -- MOVJ, at the speed of his last controlled frame
+        #:     (HonoUpdate's 60 for a run) -- control off, and stops at ``to`` or, ``stop_z`` given, once his z passes
+        #:     it (where pathing holds his centre a radius short of the floor's end). Without it he stands where the
+        #:     region took him, as ever. The switch itself waits on `exit_gate` when a test holds one.
         #: ⚠ An UNGATED region fires only on a frame a step (or the coast after one) lands him in it, never
         #: while he stands there -- the engine re-tests those every tick too, but the suite's fixtures that
         #: place him inside a zone depend on the step-only rule, so only a gated region gets the standing test.
@@ -1960,6 +1964,8 @@ class FakeGame:
         # actually climb.
         if self._movie is not None or self.ui_state not in self.soft_reset_ui:
             return
+        if self.field_id in self.reset_blocked_fields:
+            return                              # H16b: a running scene there swallows it (O1d)
         if self.ui_state == "BattleHUD":
             # mid-fight, from a set that holds it: the battle goes with the scene -- nothing of it is up at the title
             self.battle_active = False

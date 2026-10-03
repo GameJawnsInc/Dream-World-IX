@@ -23353,10 +23353,10 @@ def test_segment_trigger_to_verdict_classes():
 
 
 def _s14_pred(step=None, *, side_ends=False, **over):
-    """S14's predictions on the fake (research/o6_design.md 2.1's shape on O2's machinery): ONE visit-scoped cell (30820,
-    SC 1000, visit 1) whose trigger walks north into the door -- ``to`` 30821, the end -- the door registered ``exit``
-    over its whole quad; route [30820], visits [30820]; ``side_ends`` gives F its members (31245 -> 30820, 31246 ->
-    30821, 31243 -> 30810) and its end member(30821) 31246."""
+    """S14's predictions on the fake (research/o6_design.md 2.1's shape on O2's machinery): ONE visit-scoped cell
+    (30820, SC 1000, visit 1) whose trigger walks north into the door -- ``to`` 30821, the end -- the door registered
+    ``exit`` over its whole quad; route [30820], visits [30820]; ``side_ends`` gives F its members (31245 -> 30820,
+    31246 -> 30821, 31243 -> 30810) and its end member(30821) 31246."""
     pred = _o2_pred([{"donor": 30820, "sc": 1000, "visit": 1, "steps": [dict(_S14_STEP if step is None else step)]}],
                     beats=["door"], end=30821, route=(30820,),
                     regions={"30820.door": {"points": _S14_QUAD, "role": "exit"}})
@@ -23450,8 +23450,8 @@ def _s14_step_row(log):
 def test_segment_trigger_to_lands_after_the_walk_returns_on_the_fake(game):
     """S14 PATH A, with S14b (research/o6_design.md 1.2, 0.2 #6): the walk-out held a little past the firing line
     (``stop_z`` 700) and the map switch GATED until the door step's row is logged (the test-held ``exit_gate``, H16):
-    route_to returns before the switch -- ``route.landed`` None -- and the step is done with ``landed`` None, its loss in
-    30820 past the evidence. Rule 1, on its first poll in 30821, puts the walk-out on that row (S14b): ``walkout`` --
+    route_to returns before the switch -- ``route.landed`` None -- and the step is done with ``landed`` None, its loss
+    in 30820 past the evidence. Rule 1, on its first poll in 30821, puts the walk-out on that row (S14b): ``walkout`` --
     every ring sample from the loss to the flip, still in 30820, his z rising to 700 and held there -- ``flip_frame``
     with ``flip_late`` True, and ``landed_frame``. Break: no S14b (``flip_frame`` stays None)."""
     out, log, _fake = _s14_drive(game, lambda: _s14_fake(game, stop_z=700), _s14_pred(), gated=True)
@@ -23497,9 +23497,9 @@ def test_segment_trigger_to_wrong_landing_is_rule_2s_on_the_fake(game):
     """S14's ``left`` (research/o6_design.md 1.2; rev. 2, the claim critic's #1): the door's evidence held -- the loss
     in 30820 past z 500 -- but its Field() lands in 30810, another place (path B: he walks out until the switch). The
     step row's outcome is ``left``, the landing under ``misroute`` (``{"fld": 30810, "place": 30810}``), ``landed`` None
-    and no ``v``: no beat, no raise -- and the loop's next poll gives rule 2's verdict for that field, V11 by the GAME at
-    ``[30810, 1000, 1]``, the visit just left. A row the run writes in 30810 is UNBACKED (``backing`` None: no V11 step
-    row landed there) -- FORBIDDEN reads it as the fork's. On F, the door landing in REAL 30810 (which member 31243
+    and no ``v``: no beat, no raise -- and the loop's next poll gives rule 2's verdict for that field, V11 by the GAME
+    at ``[30810, 1000, 1]``, the visit just left. A row the run writes in 30810 is UNBACKED (``backing`` None: no V11
+    step row landed there) -- FORBIDDEN reads it as the fork's. On F, the door landing in REAL 30810 (which member 31243
     forks): V19 by the game at the same cell -- a finding, never a re-runnable VOID. Break: the first design's
     ``strayed`` (V11 by the driver, ``landed`` set, the rows backed)."""
     SD = _segment_modules()
@@ -23575,3 +23575,213 @@ def test_segment_trigger_without_to_keeps_todays_paths_on_the_fake(game):
                         "climb", "depth", "v", "by", "why"}, sorted(row)
     assert (row["outcome"], row["landed"], row["door"]) == ("void", 30821, "30820.door"), row
     assert row["why"] == "the trigger's walk left 30820: landed in 30821 (place 30821)", row["why"]
+
+
+# ---- A2: S15 (research/o6_design.md 1.2) -- end_run accepts a naming screen on the refused warp, BEFORE any Cancel or
+# rung of the ladder, then retries the warp; a screen accept_name cannot close stops the SESSION cleanly; and H16b (3.2)
+# -- fields whose running scene swallows the soft reset. 30821 stands in for 4600 (the session tests' recovery).
+
+def test_segment_reset_blocked_fields_swallow_the_combo_on_the_fake(game):
+    """H16b (research/o6_design.md 3.2): in a field of ``reset_blocked_fields`` the soft-reset combo does nothing --
+    O1d's measurement (a soft reset through Alexandria's running opening scene did not reach the title) -- so
+    ``soft_reset`` raises with no reset counted; a warp out of it, then the combo: the title. The default set is empty.
+    Break: ignore the set (the first reset reaches the title)."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    fake = FakeGame(game)
+    assert fake.reset_blocked_fields == set()
+    fake.soft_reset_ui, fake.reset_blocked_fields = SOFT_RESET_ENGINE_UI, {30820}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        with pytest.raises(HarnessError, match="did not reach the title"):
+            g.soft_reset(timeout=2.0)
+        assert fake.soft_resets == 0 and g.state.ui_state == "FieldHUD" and g.state.field_id == 30820
+        g.warp(30821)
+        st = g.soft_reset(timeout=10.0)
+    assert st.ui_state == "Title" and fake.soft_resets == 1, (st.ui_state, fake.soft_resets)
+
+
+def _s15_fake(game, *, blocked=(30820,)):
+    """The fake as the engine stands at a naming screen: a warp refused off the field HUD (H9), the soft reset where the
+    engine fires it, and ``blocked`` the fields whose running scene swallows it (H16b)."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    fake = FakeGame(game)
+    fake.warp_field_only, fake.soft_reset_ui, fake.reset_blocked_fields = True, SOFT_RESET_ENGINE_UI, set(blocked)
+    return fake
+
+
+def _s15_screen(g, fake, *beats):
+    """The run stopped with a naming screen up: its scene staged in 30820, every page before it Confirmed, NameSetting
+    published."""
+    g.warp(30820)
+    fake.scene(*beats)
+    deadline = time.time() + 20.0
+    while time.time() < deadline:
+        st = g.state
+        if st.ui_state == "NameSetting":
+            return st
+        if st.dialog_open:
+            g.press("confirm", 3)
+            g.wait_frames(12)
+        else:
+            time.sleep(0.02)
+    raise AssertionError("the naming screen never came")
+
+
+def _s15_record(g, calls: list) -> None:
+    """``close_ui``, ``soft_reset``, ``accept_name`` and every press wrapped to RECORD their calls in order (the
+    ladder's two waiting rungs on short clocks: a swallowed combo costs 3 s, not 45)."""
+    import functools
+    close_ui = functools.partial(Session.close_ui, g, timeout=3.0)
+    soft_reset = functools.partial(Session.soft_reset, g, timeout=3.0)
+    accept_name, press = g.accept_name, g.press
+
+    def rec(name, fn):
+        def call(*a, **kw):
+            calls.append((name, *a[:1]))
+            return fn(*a, **kw)
+        return call
+    g.close_ui, g.soft_reset = rec("close_ui", close_ui), rec("soft_reset", soft_reset)
+    g.accept_name, g.press = rec("accept_name", accept_name), rec("press", press)
+
+
+def test_segment_end_run_warps_after_the_naming_screen_on_the_fake(game):
+    """S15 (research/o6_design.md 1.2; rev. 2, the driver critic's #4): a run stopped with a naming screen up in 30820
+    -- a visit beat's page, then the screen, then a visit beat whose script runs on after it -- where the warp is
+    refused (off the field HUD) and the soft reset swallowed (H16b). end_run accepts the screen AT ONCE, on the refused
+    warp, before any Cancel or rung of the ladder (a Cancel refocuses the name box), then RETRIES the warp -- from the
+    field HUD a running scene cannot refuse it -- and climbs the ladder from 30821: the log reads
+    ``recover-warp-failed``, ``end-naming``, ``recover-warp-after-naming`` (30821), and the game is at the title.
+    Neither ``close_ui`` nor ``soft_reset`` was called before ``accept_name``. Breaks: no retried warp ("the title could
+    not be restored": the ladder in 30820, its reset swallowed); the first design's order, the ladder first
+    (``close_ui`` before the screen is accepted)."""
+    ST = _segment_trace()
+    seg = ST.Segment()
+    seg.recovery = 30821
+    fake = _s15_fake(game)
+    calls: list = []
+    log: list = []
+    with session(game, fake) as g:
+        boot(g)
+        _s15_screen(g, fake, _fv_visit([{"page": 198, "slot": 0, "text": "Queen Brahne\n“And, Captain...”"}]),
+                    {"naming": 3}, _fv_visit([{"wait": 30}, {"page": 199, "slot": 0, "text": "“Captain Steiner!”"},
+                                              {"wait": 100000}]))
+        _s15_record(g, calls)
+        seg.end_run(g, log)
+        st = g.state
+    assert st.ui_state == "Title" and fake.named == [3] and fake.soft_resets == 1, (st.ui_state, fake.named)
+    assert [r["k"] for r in log] == ["recover-warp-failed", "end-naming", "recover-warp-after-naming"], log
+    assert log[2]["field"] == 30821 and "warp refused" in log[0]["why"], log
+    first = calls.index(("accept_name",))
+    assert not [c for c in calls[:first] if c[0] in ("close_ui", "soft_reset")], calls
+    assert calls[first + 1] == ("press", "confirm") and ("close_ui",) in calls[first:], calls
+
+
+def test_segment_end_run_stops_the_session_when_accept_name_fails():
+    """S15's session stop (research/o6_design.md 1.2): end_run meets a naming screen that will not leave -- the warp
+    refused, ``accept_name`` raising (its 4 Confirms) -- and logs ``end-naming-failed``, then raises a HarnessError
+    marked ``session_stop`` (an attribute: every handler that catches HarnessError still does), naming the stuck screen;
+    nothing else is tried (no ladder: it cannot reach the title through the screen). Break: raise a plain HarnessError
+    (the session would meet the same stuck game at every later run)."""
+    import types
+    ST = _segment_trace()
+    seg = ST.Segment()
+    calls: list = []
+    g = types.SimpleNamespace(state=types.SimpleNamespace(ui_state="NameSetting", in_battle=False, battle_result=0,
+                                                          battle={}, field_id=30820))
+
+    def warp(field, **kw):
+        calls.append(("warp", field))
+        raise HarnessError("warp refused (not on a field?)")
+
+    def accept_name(**kw):
+        calls.append(("accept_name",))
+        raise HarnessError("the naming screen stayed up through 4 Confirms")
+
+    def restore_baseline():
+        calls.append(("restore_baseline",))
+        return False, "stub"
+    g.warp, g.accept_name, g.restore_baseline = warp, accept_name, restore_baseline
+    log: list = []
+    with pytest.raises(HarnessError, match="the naming screen stayed up through accept_name") as err:
+        seg.end_run(g, log)
+    assert getattr(err.value, "session_stop", False) is True, err.value
+    assert "the session stops" in str(err.value) and "4 Confirms" in str(err.value), str(err.value)
+    assert [r["k"] for r in log] == ["recover-warp-failed", "end-naming-failed"], log
+    assert calls == [("warp", 4600), ("accept_name",)], calls
+
+
+def test_segment_session_stops_cleanly_on_a_stuck_naming_screen_on_the_fake(game):
+    """S15 in ``Segment.run`` (research/o6_design.md 1.2): a stub session whose run 1 leaves a naming screen up that
+    ``accept_name`` can never close. Run 2's ``end_run`` raises the ``session_stop`` marker: run 2 is recorded
+    ``stopped`` (its why) and ``skipped`` "the session stopped" -- its drive never began -- the session records
+    ``stopped``, no run 3 is driven and no re-run starts; the session still ends through end_run (``ended`` ok False:
+    the screen is still up) and the analysis is read (its report written). Break: catch the marker as a plain
+    HarnessError -- runs 2 and 3 each VOID "STOPPED", the session lost one run at a time."""
+    stub, _pred, calls = _stub_segment(game, cue=lambda n, side: "reached")
+    stub.end_session_warps = True
+    fake = FakeGame(game)
+    fake.warp_field_only = True
+    drive = stub.drive
+
+    def drive_then_name(g, pred, side, log, **kw):
+        out = drive(g, pred, side, log, **kw)
+        if len(calls) == 1:                             # run 1 ends with its naming screen up
+            fake.scene({"naming": 0})
+            published(g, lambda s: s.ui_state == "NameSetting")
+        return out
+    stub.drive = drive_then_name
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0]
+
+        def stuck(**kw):
+            raise HarnessError("the naming screen stayed up through 4 Confirms")
+        g.accept_name = stuck
+        stub.run(g)
+    run_dir = game / "run"
+    sess = json.loads((run_dir / "zz_session.json").read_text(encoding="utf-8"))
+    recs = sess["runs"]
+    assert calls == ["S"] and [(r["i"], r["side"]) for r in recs] == [(1, "S"), (2, "F")], (calls, recs)
+    assert recs[0]["end"] == "reached" and "stopped" not in recs[0], recs[0]
+    assert "the naming screen stayed up" in recs[1]["stopped"], recs[1]
+    assert recs[1]["skipped"] == f"the session stopped: {recs[1]['stopped']}", recs[1]
+    assert sess["stopped"] == recs[1]["stopped"] and not any(r.get("rerun") for r in recs), sess
+    assert sess["ended"]["ok"] is False and "the naming screen stayed up" in sess["ended"]["why"], sess["ended"]
+    assert [r["k"] for r in sess["ended"]["log"]] == ["recover-warp-failed", "end-naming-failed"], sess["ended"]
+    assert (run_dir / "zz_report.txt").is_file()
+
+
+def test_segment_end_run_naming_paths_for_the_opening_and_alexandria_on_the_fake(game):
+    """S15 IS AN INTENDED CHANGE FOR O1 AND O2 (research/o6_design.md 1.2, 11.6; rev. 2, the claim critic's #5): their
+    INHERITED, unedited ``end_run`` -- ``O1Segment``'s and ``O2Segment``'s -- each with its own route's naming screen up
+    on the fake (O1's 50 ``Menu(1, 0)``: ``{"naming": 0}``; O2's 116 ``Menu(1, 1)``: ``{"naming": 1}``), reads S15's
+    rows (``recover-warp-failed``, ``end-naming``, ``recover-warp-after-naming``) and reaches the title -- the screen
+    accepted before the ladder (today it spent ~67 s in close_ui and the swallowed reset first); with ``accept_name``
+    wrapped to fail, ``end-naming-failed`` and the ``session_stop`` marker. The change pinned by behaviour, the classes
+    untouched."""
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o1_opening as O
+    import o2_alexandria as A
+    for seg, char in ((O.O1Segment(), 0), (A.O2Segment(), 1)):
+        assert "end_run" not in type(seg).__dict__, f"{type(seg).__name__} inherits end_run"
+        for fails in (False, True):
+            fake = _s15_fake(game, blocked=())
+            log: list = []
+            with session(game, fake) as g:
+                boot(g)
+                _s15_screen(g, fake, {"naming": char})
+                _o3_quick_ladder(g)                    # a ladder that waits does so for 3 s, not 20 and 45
+                if fails:
+                    def stuck(**kw):
+                        raise HarnessError("the naming screen stayed up through 4 Confirms")
+                    g.accept_name = stuck
+                    with pytest.raises(HarnessError, match="the session stops") as err:
+                        seg.end_run(g, log, recovery=30821)
+                    assert getattr(err.value, "session_stop", False) is True
+                    assert [r["k"] for r in log] == ["recover-warp-failed", "end-naming-failed"], log
+                    continue
+                seg.end_run(g, log, recovery=30821)
+                st = g.state
+            assert st.ui_state == "Title" and fake.named == [char], (type(seg).__name__, st.ui_state, fake.named)
+            assert [r["k"] for r in log] == ["recover-warp-failed", "end-naming", "recover-warp-after-naming"], log

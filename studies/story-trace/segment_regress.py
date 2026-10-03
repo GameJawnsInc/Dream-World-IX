@@ -276,6 +276,11 @@ REQUIRED_TESTS: tuple = (
     "test_segment_trigger_to_wrong_landing_is_rule_2s_on_the_fake",             # A1: S14's left, rule 2's V11 / V19
     "test_segment_trigger_to_unseen_loss_is_v13_on_the_fake",                   # A1: S14's V13
     "test_segment_trigger_without_to_keeps_todays_paths_on_the_fake",           # A1: S14 opt-in
+    "test_segment_end_run_warps_after_the_naming_screen_on_the_fake",           # A2: S15, the screen first
+    "test_segment_end_run_stops_the_session_when_accept_name_fails",            # A2: S15's session-stop marker
+    "test_segment_session_stops_cleanly_on_a_stuck_naming_screen_on_the_fake",  # A2: S15 in Segment.run
+    "test_segment_reset_blocked_fields_swallow_the_combo_on_the_fake",          # A2: H16b
+    "test_segment_end_run_naming_paths_for_the_opening_and_alexandria_on_the_fake",  # A2: S15's intended O1/O2 change
 )
 
 O1E_VERDICT = "PROVEN"
