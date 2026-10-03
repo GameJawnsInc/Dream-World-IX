@@ -21907,3 +21907,474 @@ def test_o5_drive_climbs_the_real_stair_on_the_fake(game, dali):
     lost = [e for e in fake.visit_log if e["kind"] == "lost"]
     assert len(lost) == 1 and height(lost[0]["x"], lost[0]["z"]) <= -450, lost
     assert _segment_modules().until_ok({"x_le": -1100}, st[0]["lost"]["x"], st[0]["lost"]["z"])
+
+
+# ---- O5 itself (studies/story-trace/o5_hallway.py; research/o5_design.md section 9, PART C, C1): the draft read from
+# O4's campaign.toml, the freeze's refusals, the route builder against the draft (one source of truth), the census's
+# inert proof per entrance, the regions' roles, the stair's contour and its evidence, O5-PATTERN, A-START scoped to visit
+# 1 and the preflight's verdicts -- each pure or on synthetic chains, meshes and rows (the census, the regions and the
+# builder's pattern read the install's stock scripts, read-only: a warned skip without it, which fails G26).
+
+def _o5_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o5_hallway as C5
+    return C5
+
+
+@pytest.fixture(scope="module")
+def o5_stock():
+    """The install's stock scripts of 151, 153 and 154 (what O5-CENSUS, O5-REGIONS and O5-PATTERN's join read), or a
+    WARNED skip -- never a silent pass (THE WORKTREE SKIP TRAP)."""
+    import warnings
+    try:
+        from ff9mapkit import storytrace
+        src = storytrace.stock_script_source()
+        assert all(src(f) is not None for f in (151, 153, 154))
+    except Exception as err:                                   # noqa: BLE001 -- no install here
+        warnings.warn(f"O5's census, regions and pattern went UNVERIFIED against real bytes in this run: the game "
+                      f"install is not readable here ({type(err).__name__}). Run on the machine with the install.",
+                      UserWarning)
+        pytest.skip("game install unavailable")
+    return src
+
+
+def _o5_draft(tmp_path):
+    """The draft on a synthetic alxc chain (:func:`_o4c_campaign`: the twenty donors at 31240 + their position, so
+    member(151) 31244, member(153) 31245, member(154) 31246 as built)."""
+    return _o5_module().draft_predictions(_o4c_campaign(tmp_path))
+
+
+def test_o5_hallway_draft_reads_the_chain_from_campaign(tmp_path):
+    """The draft's members and names are O4's built chain's campaign.toml (research/o5_design.md 1.3, 4.1): its donors
+    exactly the twenty (o4_castle refuses another chain, naming the donor missing or extra), member(153), member(154)
+    and member(151) DERIVED, never assumed, and printed as one line; the draft starts F in member(153), ends S in real
+    151 and F in member(151) (``side_ends``), visits 153, 154 and 153 again, carries the guard, the witness, no
+    rehearsal and 15 keys (12 writes + 3 chain); a chain whose ids run the other way moves the F start and end with
+    it. o5_forks.json is O4's chain reused: O4's twenty members and names, its route members derived from them,
+    deployed, nothing to relaunch, block 3's members, and C0's measured sites. Break: end the F side in real 151."""
+    C5 = _o5_module()
+    members, names = C5.chain_from_campaign(_o4c_campaign(tmp_path))
+    assert C5.route_members(members) == {153: 31245, 154: 31246, 151: 31244}, C5.route_members(members)
+    assert C5.route_members_line(members) == "member(153) 31245, member(154) 31246, member(151) 31244"
+    pred = _o5_draft(tmp_path)
+    assert pred["start"] == {"S": 153, "F": 31245} and pred["side_ends"] == {"S": [151], "F": [31244]}, \
+        (pred["start"], pred["side_ends"])
+    assert pred["route"] == [153, 154] and pred["visits"] == [153, 154, 153] and pred["end_fields"] == [151]
+    assert pred["members"] == {str(f): d for f, d in members.items()} and pred["names"]["31245"] == "O4_SYNTH_153"
+    assert (pred["entrance"], pred["scenario"], pred["rehearsals"], pred["battles"]) == (325, 1190, [], [])
+    assert len(pred["writes"]) == 12 and len(pred["chain"]) == 3 and pred["ladder"] == [], len(pred["writes"])
+    assert pred["guard"]["markers"] == ["let me pass"] and pred["guard"]["branch"] == ["Let\u2019s see",
+                                                                                       "Hold on a sec"]
+    assert pred["witness"]["input_every_s"] == 0.05 and pred["table"][0]["visit"] == 1, pred["table"]
+    assert pred["start_residue"] == [[0, 0, 166], [1, 0, 4], [2, 0, 69], [3, 0, 1]], pred["start_residue"]
+    rev = C5.draft_predictions(_o4c_campaign(tmp_path, ids={d: 31259 - i for i, d in enumerate(C5.C4.DONORS)},
+                                             name="reversed.toml"))
+    assert rev["start"]["F"] == 31254 and rev["side_ends"]["F"] == [31255], (rev["start"], rev["side_ends"])
+    with pytest.raises(AssertionError, match=r"missing \[154\]"):
+        C5.chain_from_campaign(_o4c_campaign(tmp_path, donors=[d for d in C5.C4.DONORS if d != 154], name="bad.toml"))
+    man = json.loads(C5.MANIFEST.read_text(encoding="utf-8"))
+    o4 = json.loads(C5.C4.MANIFEST.read_text(encoding="utf-8"))
+    mm = {int(f): int(d) for f, d in man["members"].items()}
+    assert man["members"] == o4["members"] and man["names"] == o4["names"], "o5_forks.json is not O4's chain"
+    assert man["route_members"] == {str(f): d for d, f in C5.route_members(mm).items()}, man["route_members"]
+    assert (man["deployed"], man["relaunch_needed"], man["reuses"]) == (True, False,
+                                                                        "studies/story-trace/o4_forks.json"), man
+    assert man["text_blocks"] == {"3": o4["text_blocks"]["3"]}, man["text_blocks"]
+    for site in ("e3 t1 ip3158 (154)", "e18 t1 ip1085 (151)", "e2 t1 ip1528 (153)", "e2 t1 ip940 (153)",
+                 "e3 t1 ip3296 Field(204)"):
+        assert site in man["built"]["measured"], site
+
+
+def test_o5_hallway_freeze_refuses(tmp_path):
+    """The freeze (research/o5_design.md 1.3, 7.3) writes the draft ONCE -- LF, sorted keys, its sha the bytes' -- on a
+    synthetic chain and the live engine (a stub reader). Before anything is written it refuses, each naming its cause
+    and writing nothing: no guard, a ``guard: null`` overlay, a guard its strict reader refuses (page_once_ticks 3), no
+    witness, a table step carrying a rehearsal overlay (``walk_stop_x``), side_ends ending F in REAL 151, a battles row,
+    an empty ``rehearsals``, an engine that is not the live DLLs'; and a second freeze onto the same file refuses. The
+    real o5_predictions_v1.json is never touched. Break: accept a step's walk_stop_x."""
+    import copy
+    import hashlib
+    C5 = _o5_module()
+    _o4c_campaign(tmp_path)
+    seg = C5.O5Segment()
+    seg.chain_dir = tmp_path
+    live = {"x64": C5.ENGINE["x64"], "x86": C5.ENGINE["x86"]}
+    good = seg.draft()
+    good["rehearsals"] = ["C:/gd/Dream-World-IX/.harness-runs/20261003-000000-o5-rh-stairs"]
+
+    def refuses(pred, match, engine=live):
+        seg.draft = lambda: copy.deepcopy(pred)
+        never = tmp_path / "never.json"
+        with pytest.raises(SystemExit, match=match):
+            seg.freeze(never, live_engine=engine)
+        assert not never.exists()
+
+    def without(key):
+        p = copy.deepcopy(good)
+        p.pop(key)
+        return p
+    overlay = copy.deepcopy(good)
+    overlay["table"][0]["steps"][0]["walk_stop_x"] = -700
+    bad_guard = copy.deepcopy(good)
+    bad_guard["guard"]["page_once_ticks"] = 3
+    refuses(without("guard"), "no guard")
+    refuses(dict(copy.deepcopy(good), guard=None), "no guard")
+    refuses(bad_guard, "page_once_ticks")
+    refuses(without("witness"), "no witness")
+    refuses(overlay, r"rehearsal overlay \['walk_stop_x'\]")
+    refuses(dict(copy.deepcopy(good), side_ends={"S": [151], "F": [151]}), "neither an end field no member forks")
+    refuses(dict(copy.deepcopy(good), battles=[{"donor": 153}]), "battle row")
+    refuses(dict(copy.deepcopy(good), rehearsals=[]), "no rehearsals")
+    refuses(good, "is not the live DLLs'", engine={"x64": "0" * 64, "x86": "0" * 64})
+    seg.draft = lambda: copy.deepcopy(good)
+    path = tmp_path / "o5_predictions_v1.json"
+    sha = seg.freeze(path, live_engine=live)
+    data = path.read_bytes()
+    assert sha == hashlib.sha256(data).hexdigest() and b"\r" not in data and data.endswith(b"\n")
+    assert data.decode("utf-8") == json.dumps(good, indent=1, sort_keys=True) + "\n"
+    with pytest.raises(SystemExit, match="frozen"):
+        seg.freeze(path, live_engine=live)
+    assert path.read_bytes() == data
+
+
+def test_o5_hallway_route_builder_matches_the_keys(game, o5_stock, tmp_path):
+    """ONE SOURCE OF TRUTH (research/o5_design.md 3.4, 9 C1): the test-side route builder (:func:`_o5_route`, B2's) and
+    the draft agree. Its four visit beats played by a scripted player from field 70's prologue values and the raw warp,
+    traced with the sink's suppression (H13), read as the analysis reads a run -- the fixture's fields as their places
+    (30820 "153", 30821 "154", 30810 "151"), cut at 153's first write and at 151's first row: the residue before the
+    start is the draft's four rows; the first write is ``start_first``; the distinct unmasked keys of the route places
+    are EXACTLY the draft's 12 writes and 3 chain keys; the cut row is ``landing.end_row``; and O5-PATTERN's reading
+    (:func:`o5_hallway.pattern_of`, joined on the stock bytes) is the draft's ``pattern``, masked rows in, with no
+    difference (:func:`o5_hallway.pattern_diff`). Break: read the pattern without the masked rows."""
+    from ff9mapkit import storytrace
+    C5 = _o5_module()
+    ST = __import__("segment_trace")
+    pred = _o5_draft(tmp_path)
+    fake = _fv_fake(game, field=70, trace=False)
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(325, 1190)
+    fake.field_id = 30820
+    fake.scene(*_o5_route("S"), control=False)
+    _fv_play(fake, answers=(1,), until=lambda f: f.field_id == 30810 and any(
+        e["index"] == 4 and e["kind"] == "timed" for e in f.visit_log))
+    fake._story_stop()
+    rows = storytrace.parse_text("".join(json.dumps(r) + "\n" for r in _fv_rows(fake)))
+    places = {30820: 153, 30821: 154, 30810: 151}
+    kept, at, pre = ST.cut_at_start(rows, 153, places)
+    kept, end = ST.cut_at_end(kept, [151], places)
+    assert [[x.byte, x.old, x.new] for x in pre if x.k == "r"] == pred["start_residue"], pre
+    first = next(x for x in kept if x.k == "w")
+    sf = pred["start_first"]
+    assert (first.sid, first.tag, first.ip, first.target, first.new) == (sf["sid"], sf["tag"], sf["ip"], sf["target"],
+                                                                         sf["value"]), first
+    keys = {(places[x.fld], x.sid, x.tag, x.ip, x.target, x.new) for x in kept
+            if x.k == "w" and x.src == "eb" and not storytrace.noise_regions(x)}
+    want = {(k["donor"], k["sid"], k["tag"], k["ip"], k["target"], k["value"]) for k in pred["writes"] + pred["chain"]}
+    assert keys == want and len(want) == 15, (sorted(keys ^ want), len(want))
+    cut = next(x for x in rows if x.line == end)
+    lend = pred["landing"]["end_row"]
+    assert (places[cut.fld], cut.sid, cut.tag, cut.ip, cut.target, cut.new) == (
+        lend["place"], lend["sid"], lend["tag"], lend["ip"], lend["target"], lend["value"]), cut
+    got = C5.pattern_of(kept, pred, places, C5.stock_join(o5_stock, places))
+    assert got["unjoined"] == 0 and C5.pattern_diff(got, pred["pattern"]) == [], C5.pattern_diff(got, pred["pattern"])
+    assert got["visits"][2][0] == (153, 0, 0, 51, "Global.Int16[9]", -1, 1), got["visits"][2][0]
+
+
+def test_o5_hallway_census_proves_inert_per_entrance(o5_stock, tmp_path):
+    """O5-CENSUS's inert proof PER ENTRANCE (research/o5_design.md 0.2 #6, #10, 6.1): the route enters 153 twice, at
+    325 and at 316 -- :func:`o5_hallway.visit_entrances` reads them by VISIT ({153: [325, 316], 154: [304]}) where O4's
+    ``route_entrances`` gives 154 the entrance 110 (153's ip1077: the reason O5 has its own). On stock 153 the entrance
+    dispatch instances {code 1, 2, 22; object 3, 7, 9, 11, 31; region 26, 27, 28} at 325 and {code 1, 2; object 18, 20}
+    at 316; no instancing op lies outside e0 t0; RunSharedScript(15) runs only at e32 t1 ip866. The census passes with
+    6.1's line -- then FAILS by name: e20 registered inert (it holds no store; instanced at 316 ONLY, so a proof read
+    at the first visit's entrance alone passes it); e32 made non-inert (e15's shared proof: its one caller runs); e15's
+    shared_by naming another caller. Break: prove the inert entries at the first visit's entrance only."""
+    import copy
+    C4, C5 = _o4_castle_module(), _o5_module()
+    pred = _o5_draft(tmp_path)
+    assert C5.visit_entrances(pred) == {153: [325, 316], 154: [304]}, C5.visit_entrances(pred)
+    assert C4.route_entrances(pred) == {153: 325, 154: 110}, C4.route_entrances(pred)
+    idx = o5_stock(153)
+    assert C4.instanced_at(idx, 325) == {("code", 1), ("code", 2), ("code", 22), ("object", 3), ("object", 7),
+                                         ("object", 9), ("object", 11), ("object", 31), ("region", 26),
+                                         ("region", 27), ("region", 28)}
+    assert C4.instanced_at(idx, 316) == {("code", 1), ("code", 2), ("object", 18), ("object", 20)}
+    assert [s for s in C4.instancing_sites(idx) if (s[0], s[1]) != (0, 0)] == []
+    assert C5.shared_sites(idx)[15] == [(32, 1, 866)], C5.shared_sites(idx)
+    ok, _w, detail = C5.O5.census_check(pred, o5_stock)
+    assert ok and detail == ("153: 51, 154: 22 store sites -- all classified (writes 7/5, chain 2/1, masked 2/2 (153's "
+                             "ip22 is start_first), error_path 4/4, forbidden 2/0, dead 8/3, inert 26/7); 0 unresolved; "
+                             "inert 153 e15 (shared, run only from e32), e23, e24, e25, e32 not instanced at 325 or "
+                             "316; 154 e5, e8, e9, e10 not instanced at 304"), detail
+    for mutate, clause in (
+            (lambda p: p["inert"].append({"donor": 153, "sid": 20, "tags": "*", "why": "a mutant"}),
+             "inert entry 20 of 153 is instanced at entrance 316"),
+            (lambda p: p.__setitem__("inert", [x for x in p["inert"] if (x["donor"], x["sid"]) != (153, 32)]),
+             "153 e15: shared, run by RunSharedScript(15) at e32 t1 ip866 -- a function of no inert entry"),
+            (lambda p: next(x for x in p["inert"] if x["sid"] == 15).__setitem__("shared_by", [25]),
+             "153 e15: registered shared_by [25], but its callers are [32]")):
+        bad = copy.deepcopy(pred)
+        mutate(bad)
+        ok, _w, detail = C5.O5.census_check(bad, o5_stock)
+        assert not ok and clause in detail, (clause, detail)
+
+
+def test_o5_hallway_regions_roles(o5_stock, tmp_path):
+    """O5-REGIONS (research/o5_design.md 0.2 #7, #11, 4.15, 6.1): each role proven by instancing at the ROUTE's
+    entrances, never by O2's default-block rule (153 dispatches by SWITCHEX): the draft passes -- 9 regions (1 exit, 2
+    scene, 6 dormant), 0 hot-spots, 7 gateway entries all registered. Each mutant FAILS naming its clause: 153.e28
+    (the back door, instanced at 325) registered dormant; 153.e23 registered an exit with its own gateway's (to,
+    entrance) (instanced at 328 and the default only); 153.e26 (a side scene, no gateway) registered an exit; 154.e9
+    (a gateway) dropped; a dormant region whose entrances omit 316. Break: never read a dormant region's instancing."""
+    import copy
+    C5 = _o5_module()
+    pred = _o5_draft(tmp_path)
+    ok, _w, detail = C5.O5.regions_check(pred, o5_stock)
+    assert ok and detail == "9 regions (1 exit, 2 scene, 6 dormant), 0 hot-spots, 7 gateway entries all registered", \
+        detail
+
+    def role(key, **kw):
+        def fn(p):
+            r = p["regions"][key]
+            for k in ("to", "entrance", "face_gate", "stage", "entrances"):
+                r.pop(k, None)
+            r.update(kw)
+        return fn
+    for mutate, clause in ((role("153.e28", role="dormant", entrances=[325, 316]),
+                            "153.e28: dormant, but instanced at route entrance(s) [325]"),
+                           (role("153.e23", role="exit", to=154, entrance=315, face_gate=None),
+                            "153.e23: an exit no route entrance of 153 ([325, 316]) instances"),
+                           (role("153.e26", role="exit", to=150, entrance=5, face_gate=None),
+                            "153.e26: scan_gateways gives []"),
+                           (lambda p: p["regions"].pop("154.e9"), "154.e9: a gateway"),
+                           (lambda p: p["regions"]["153.e24"].__setitem__("entrances", [325]),
+                            "153.e24: its entrances [325] are not the route's entrances of 153 [325, 316]")):
+        bad = copy.deepcopy(pred)
+        mutate(bad)
+        ok, _w, detail = C5.O5.regions_check(bad, o5_stock)
+        assert not ok and clause in detail, (clause, detail)
+
+
+def _o5_ramp(heights):
+    """A synthetic floor for O5-GOALS: a strip z 0..600 of eleven columns at x 1200 down to -1800 (every 300 u), each
+    column at its PSX height ``heights[x]`` (0 when unnamed), two triangles a quad -- a ramp whose -450 contour lies
+    where the heights put it."""
+    from ff9mapkit.scene import bgi
+    xs = [1200 - 300 * i for i in range(11)]
+    verts = [(x, heights.get(x, 0), z) for x in xs for z in (0, 600)]
+    faces = [f for c in range(10) for f in ((2 * c, 2 * c + 1, 2 * c + 3), (2 * c, 2 * c + 3, 2 * c + 2))]
+    return bgi.BgiWalkmesh.from_bytes(bgi.build(verts, faces).to_bytes())
+
+
+def test_o5_hallway_goals_contour(tmp_path):
+    """O5-GOALS (c) and (d) on synthetic ramps (research/o5_design.md 0.2 #21-#22, 6.1; the claim critique #11): the
+    walk step from (1105, 300) to (-1700, 300), ``until`` x <= -1100, the contour PSX y -450. A ramp whose contour lies
+    at x -1350 PASSES: (c) the route first stands at y <= -450 at (-1350, 300); (d) every edge crossing at x -1350. A
+    FLAT floor FAILS (c) (the route never stands that high) and (d) (no edge crosses). A ramp falling 900 u between x
+    -900 and -1200 -- a triangle whose ONLY vertex at y <= -450 lies at x -1200, its edges crossing -450 at x -1050 --
+    FAILS (d) by that crossing, which the first design's vertex-and-centroid rule passed (every vertex and centroid at
+    y <= -450 lies at x <= -1100). A registered scene region reaching x -1300 FAILS (d) too. Break: the vertex rule."""
+    C5 = _o5_module()
+    step = {"kind": "trigger", "name": "the stairs", "goal": [-1700, 300], "until": {"x_le": -1100},
+            "avoid": ["900.e2"], "closed_tris": [], "npcs": True, "interrupts": 1, "beat": "stairs",
+            "start": [1105, 300]}
+    pred = {"table": [{"donor": 900, "sc": 1, "visit": 1, "steps": [step]}],
+            "walk": {"name": "the stairs", "donor": 900, "visit": 1, "contour_y": -450},
+            "regions": {"900.e2": {"points": [[600, 0], [900, 0], [900, 100], [600, 100]], "role": "exit", "to": 1,
+                                   "entrance": 1, "face_gate": None}},
+            "steps_default": dict(_o5_draft(tmp_path)["steps_default"])}
+    ok_ramp = _o5_ramp({-1200: -300, -1500: -600, -1800: -900})
+    bad, lines = C5.goals_extra(pred, walkmesh=lambda d: ok_ramp)
+    assert bad == [] and any(ln.startswith("(c) the contour crossed at (-135") and ", 300) (tri" in ln
+                             for ln in lines), (bad, lines)
+    assert any("(d) the evidence sound ON THE CONTOUR" in ln and "x -1350..-1350" in ln for ln in lines), lines
+    flat = _o5_ramp({})
+    bad, _lines = C5.goals_extra(pred, walkmesh=lambda d: flat)
+    assert any("(c): the route" in b and "never stands at PSX y <= -450" in b for b in bad), bad
+    assert any("(d): no edge" in b for b in bad), bad
+    cliff = _o5_ramp({-1200: -900, -1500: -900, -1800: -900})
+    bad, _lines = C5.goals_extra(pred, walkmesh=lambda d: cliff)
+    assert any("(d): the contour PSX y -450 is crossed where until" in b and "(-1050," in b for b in bad), bad
+    wide = dict(pred, regions={**pred["regions"], "900.e3": {"points": [[-1300, 400], [-800, 400], [-800, 600],
+                                                                        [-1300, 600]], "role": "scene", "stage": 6}})
+    bad, _lines = C5.goals_extra(wide, walkmesh=lambda d: ok_ramp)
+    assert any("(d): the registered scene/exit region(s) ['900.e3']" in b for b in bad), bad
+
+
+#: 4.16's ip -> function offset (research/o5_design.md 0.2 #4): what the stock join gives each pattern site.
+_O5_OFF = {(153, 0, 0, 22): 16, (153, 0, 0, 49): 43, (153, 0, 0, 57): 51, (153, 0, 0, 119): 113, (153, 0, 0, 138): 132,
+           (153, 0, 0, 200): 194, (153, 3, 1, 1741): 1333, (153, 3, 1, 2953): 2545, (153, 3, 1, 3150): 2742,
+           (154, 0, 0, 26): 16, (154, 0, 0, 53): 43, (154, 0, 0, 61): 51, (154, 0, 0, 123): 113, (154, 0, 0, 142): 132,
+           (154, 0, 0, 204): 194, (154, 0, 0, 279): 269, (154, 2, 1, 1520): 1409, (153, 18, 1, 890): 766,
+           (153, 18, 1, 1077): 953}
+
+
+def _o5_pattern_rows(fields):
+    """B2's by-ip pattern (:data:`_O5_PATTERN`) as story rows on ``fields`` ({"153": id, "154": id}): each visit's
+    emitted ``w`` rows in order, then the four ``c`` rows -- what O5-PATTERN reads (frames rising)."""
+    from ff9mapkit import storytrace
+    to = {30820: fields["153"], 30821: fields["154"]}
+    rows, f = [], 1000
+
+    def row(k, place_, sid, tag, ip, target, **kw):
+        width, index = target.split(".", 1)[1].rstrip("]").split("[")
+        bit = int(index) if width == "Bit" else -1
+        return storytrace.Row(k=k, f=f, p=0, m=1, fld=to[place_], don=to[place_], sc=1190, line=len(rows) + 1,
+                              src="eb", sid=sid, uid=sid, lvl=0, ip=ip, tag=tag, add=0,
+                              byte=int(index) >> 3 if bit >= 0 else int(index), width=width, bit=bit, **kw)
+    for visit in _O5_PATTERN[0]:
+        for place_, sid, tag, ip, target, new, same in visit:
+            f += 10
+            rows.append(row("w", place_, sid, tag, ip, target, old=new if same else new + 1, new=new, same=same))
+    for place_, sid, tag, ip, target, n, last in _O5_PATTERN[1]:
+        rows.append(row("c", place_, sid, tag, ip, target, n=n, last=last))
+    return rows
+
+
+class _O5Idx:
+    """A stock ScriptIndex's join, from :data:`_O5_OFF`: a pattern site joins at its offset, anything else fails."""
+
+    def __init__(self, fid):
+        self.fid = fid
+
+    def join(self, x):
+        import types
+        off = _O5_OFF.get((self.fid, x.sid, x.tag, x.ip))
+        return types.SimpleNamespace(status="fail" if off is None else "store", rel=-1 if off is None else off)
+
+
+def test_o5_hallway_pattern_check(tmp_path):
+    """O5-PATTERN (research/o5_design.md 4.16, 5.3; the claim critique #1, #10), on synthetic rows: 4.16's sequence --
+    each visit's emitted rows in order and the four counted stores of 153's revisit -- read through
+    :func:`o5_hallway.pattern_of` (a stub join of 4.16's offsets) is the draft's ``pattern`` on S (real 153/154) and on
+    F (members 31245/31246); O5Segment.pattern_check passes both. Then each mutant FAILS by its clause: (a) a count n
+    2 (a revisit whose prologue ran twice) and a count missing (ip138 never stored); (b) an extra same-value row (a
+    second ip890 store, emitted ``same`` 1 -- symmetric, so STATE (a) cannot see it) and the sequence one visit short.
+    Break: skip (a)."""
+    import dataclasses
+    C5 = _o5_module()
+    pred = _o5_draft(tmp_path)
+    s_rows, f_rows = _o5_pattern_rows({"153": 153, "154": 154}), _o5_pattern_rows({"153": 31245, "154": 31246})
+    members = {31245: 153, 31246: 154}
+
+    def diff(rows, m=None):
+        got = C5.pattern_of(rows, pred, m or {}, lambda x: _O5_OFF.get((x.fld if not m else m[x.fld], x.sid, x.tag,
+                                                                          x.ip)))
+        return C5.pattern_diff(got, pred["pattern"])
+    assert diff(s_rows) == [] and diff(f_rows, members) == [], (diff(s_rows), diff(f_rows, members))
+    seg = C5.O5Segment()
+    seg._stock = _O5Idx
+    assert {int(f): d for f, d in pred["members"].items() if d in (153, 154)} == members, pred["members"]
+    ok, _w, detail = seg.pattern_check([{"side": "S", "i": 1, "rows": s_rows}, {"side": "F", "i": 2, "rows": f_rows}],
+                                       pred)
+    assert ok, detail
+    n2 = [dataclasses.replace(x, n=2) if x.k == "c" and x.ip == 138 else x for x in s_rows]
+    assert any(d.startswith("(a) the c rows differ") for d in diff(n2)), diff(n2)
+    gone = [x for x in s_rows if not (x.k == "c" and x.ip == 138)]
+    assert any(d.startswith("(a) the c rows differ: missing") for d in diff(gone)), diff(gone)
+    i890 = next(i for i, x in enumerate(s_rows) if x.ip == 890)
+    again = s_rows[:i890 + 1] + [dataclasses.replace(s_rows[i890], old=0, same=1)] + s_rows[i890 + 1:]
+    assert any(d.startswith("(b) visit 3's emitted rows differ at #4") for d in diff(again)), diff(again)
+    short = s_rows[:17] + s_rows[21:]                          # visit 3's four emitted rows gone (9 + 8 kept)
+    assert [x.k for x in s_rows[17:21]] == ["w"] * 4 and s_rows[21].k == "c", [x.k for x in s_rows]
+    assert any(d.startswith("(b) 2 visit(s)") for d in diff(short)), diff(short)
+    ok, _w, detail = seg.pattern_check([{"side": "S", "i": 1, "rows": n2}], pred)
+    assert not ok and "S#1 (a)" in detail, detail
+
+
+def test_o5_hallway_why_void_scopes_a_start_to_visit_1(tmp_path):
+    """A-START SCOPED TO VISIT 1 (research/o5_design.md 1.3; the claim critique #7): O3's rule reads ANY error-path row
+    of the start place, and O5 revisits its start place. An error-path row of 153 (e0 t0 ip97 Byte[13] := 9) in visit
+    1 -- the warp's start state took the error branch -- is A-START, on S and on F (member(153)); the same row after the
+    run's first row of 154 (visit 3) is not: it is withdrawn and kept on the run for the report (a visit-3 error path
+    is the game's V5 at [153, 1190, 3], which VOID-ASYM (a) reads). Break: O3's unscoped rule."""
+    from ff9mapkit import storytrace
+    C5 = _o5_module()
+    pred = _o5_draft(tmp_path)
+
+    def rows(sites, fields):
+        out = []
+        for n, (place_, sid, tag, ip, target, value) in enumerate(sites, 1):
+            width, index = target.split(".", 1)[1].rstrip("]").split("[")
+            bit = int(index) if width == "Bit" else -1
+            out.append(storytrace.Row(k="w", f=1000 + n, p=0, m=1, fld=fields[place_], don=place_, sc=1190, line=n,
+                                      src="eb", sid=sid, uid=sid, lvl=0, ip=ip, tag=tag, add=0,
+                                      byte=int(index) >> 3 if bit >= 0 else int(index), width=width, bit=bit,
+                                      old=0 if value else 1, new=value, same=0))
+        return out
+    err = (153, 0, 0, 97, "Global.Byte[13]", 9)
+    v1 = [(153, 0, 0, 22, "Global.Bit[191]", 0), err]
+    v3 = [(153, 0, 0, 22, "Global.Bit[191]", 0), (153, 3, 1, 3150, "Global.Int16[2]", 304),
+          (154, 0, 0, 26, "Global.Bit[191]", 0), (154, 2, 1, 1520, "Global.Int16[2]", 316), err]
+
+    def why(side, sites):
+        fields = {153: 153, 154: 154} if side == "S" else {153: 31245, 154: 31246}
+        r = {"i": 1, "side": side, "rows": rows(sites, fields), "digest": None, "start": 1, "cut": None}
+        return [cls for _w, cls, _b in C5.O5Segment().why_void({"end": "void"}, r, pred)], r
+    for side in ("S", "F"):
+        classes, r = why(side, v1)
+        assert "A-START" in classes and "start_withdrawn" not in r, (side, classes)
+        classes, r = why(side, v3)
+        assert "A-START" not in classes and r["start_withdrawn"] == [
+            f"the start state took 153's error path: {31245 if side == 'F' else 153} e0 t0 ip97 Global.Byte[13]=9"], \
+            (side, classes, r.get("start_withdrawn"))
+    classes, _r = why("S", v1 + v3[1:])
+    assert "A-START" in classes, classes
+
+
+def test_o5_hallway_preflight_verdicts(tmp_path):
+    """O5's preflight extras (research/o5_design.md 6.2, 11.2 #1), on a synthetic install: exactly P-TEXT (block 3,
+    STRICT), P-RECOVERY, P-DONOR, P-SETTINGS, P-PAD, P-OVERRIDE, P-ENGINE, in that order -- no P-GATE (R-GATE's
+    witness is O4's fight alone) and no P-TEXT for block 2 (no O5 field reads it). Block 3 byte-equal to each language's
+    stock PASSES (7 of 7); its uk copy of stock us FAILS (strict: no tolerated copy, a KNOWN-KIT-DEFECT line). P-DONOR
+    reads 151, 153 AND 154: each forked once PASSES, 151 forked twice (another folder's row) FAILS naming it, and 154
+    unforked FAILS. P-OVERRIDE FAILS (the synthetic install ships no field-70 override: the pinned sha is the live
+    one's); P-ENGINE on the pinned shas, P-PAD on a stub reader and P-SETTINGS on 4.13's ini PASS. Break: P-DONOR over
+    the route alone (151 unread)."""
+    C5 = _o5_module()
+    pred = _o5_draft(tmp_path)
+    game = tmp_path / "game"
+    root = game / "FF9CustomMap"
+    root.mkdir(parents=True)
+    (game / "Memoria.ini").write_text(_o3_ini(C5.SETTINGS), encoding="utf-8")
+    (root / "DictionaryPatch.txt").write_text("FieldScene 4600 11 HUB HUB 4600\n", encoding="utf-8")
+    fdp = root / "ForkDonorPatch.txt"
+    fdp.write_text("31244 151\n31245 153\n31246 154\n", encoding="utf-8")
+    langs = ("us", "uk", "fr", "gr", "it", "es", "jp")
+    stock3 = {L: f"stock block 3 {L}".encode() for L in langs}
+
+    def ship(text):
+        for L in langs:
+            p = root / "FF9_Data" / "embeddedasset" / "text" / L / "field" / "3.mes"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(text[L])
+    ship(stock3)
+    eng = {"x64": C5.ENGINE["x64"], "x86": C5.ENGINE["x86"]}
+
+    def pre(roots=None):
+        out = C5.O5.preflight_extra(pred, roots or [root], pads=lambda slot: None, live_engine=eng, game=game,
+                                    stock_text={3: stock3})
+        return [(w.split(":")[0], ok, d) for ok, w, d in out]
+    rows = pre()
+    assert [r[0] for r in rows] == ["P-TEXT (block 3)", "P-RECOVERY", "P-DONOR", "P-SETTINGS", "P-PAD", "P-OVERRIDE",
+                                    "P-ENGINE"], rows
+    ok = {w: o for w, o, _d in rows}
+    assert ok == {"P-TEXT (block 3)": True, "P-RECOVERY": True, "P-DONOR": True, "P-SETTINGS": True, "P-PAD": True,
+                  "P-OVERRIDE": False, "P-ENGINE": True}, rows
+    det = {w: d for w, _o, d in rows}
+    assert "7 byte-equal of 7 languages" in det["P-TEXT (block 3)"], det["P-TEXT (block 3)"]
+    assert det["P-DONOR"].startswith("153 -> 31245 (FF9CustomMap), 154 -> 31246 (FF9CustomMap), 151 -> 31244 "
+                                     "(FF9CustomMap)"), det["P-DONOR"]
+    ship(dict(stock3, uk=stock3["us"]))
+    w, o, d = pre()[0]
+    assert not o and "KNOWN-KIT-DEFECT uk: ships stock us" in d and "strict" in d, d
+    ship(stock3)
+    other = game / "FF9CustomMap-world"
+    other.mkdir()
+    (other / "ForkDonorPatch.txt").write_text("31299 151\n", encoding="utf-8")
+    _w, o, d = pre([root, other])[2]
+    assert not o and "donor 151: ForkDonorPatch rows" in d and "31299" in d, d
+    fdp.write_text("31244 151\n31245 153\n", encoding="utf-8")
+    _w, o, d = pre()[2]
+    assert not o and "donor 154: ForkDonorPatch rows []" in d, d

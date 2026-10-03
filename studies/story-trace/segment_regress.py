@@ -458,6 +458,18 @@ REQUIRED_TESTS_O5: tuple = (
     "test_o5_drive_reask_after_a_verified_landing_is_v2",
     "test_o5_drive_stop_page_in_the_start_is_v5_driver",
     "test_o5_drive_climbs_the_real_stair_on_the_fake",
+    # C1: o5_hallway itself -- the draft from O4's campaign.toml and o5_forks.json, the freeze's refusals, the route
+    # builder against the draft (one source of truth), the census's inert proof per entrance, the regions' roles, the
+    # stair's contour and its evidence, O5-PATTERN, A-START scoped to visit 1, the preflight's verdicts
+    "test_o5_hallway_draft_reads_the_chain_from_campaign",
+    "test_o5_hallway_freeze_refuses",
+    "test_o5_hallway_route_builder_matches_the_keys",
+    "test_o5_hallway_census_proves_inert_per_entrance",
+    "test_o5_hallway_regions_roles",
+    "test_o5_hallway_goals_contour",
+    "test_o5_hallway_pattern_check",
+    "test_o5_hallway_why_void_scopes_a_start_to_visit_1",
+    "test_o5_hallway_preflight_verdicts",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)
