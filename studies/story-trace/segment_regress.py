@@ -202,6 +202,12 @@ REQUIRED_TESTS: tuple = (
     "test_segment_cell_visit_scopes_a_cell",                                    # A1: S13, pure
     "test_segment_drive_control_at_another_visit_is_v4",                        # A1: S13 on the fake
     "test_segment_drive_void_cell_carries_the_visit",                           # A1: S13's VOID cell
+    "test_segment_choose_landed_lands_once",                                    # A2: S11
+    "test_segment_choose_landed_repress_while_typing",                          # A2: S11, a prompt typing
+    "test_segment_choose_landed_gives_up_unlanded",                             # A2: S11, did not land
+    "test_segment_choose_landed_stops_when_the_cursor_moves",                   # A2: S11, the cursor moved
+    "test_segment_choose_landed_raises_on_an_unseen_landing",                   # A2: S11, ChoiceUnseen
+    "test_segment_choose_landed_is_not_fooled_by_the_dialog_catch",             # A2: S11, the agent's catch
 )
 
 O1E_VERDICT = "PROVEN"

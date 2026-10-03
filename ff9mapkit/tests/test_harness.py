@@ -19581,3 +19581,178 @@ def test_segment_drive_void_cell_carries_the_visit(game):
         d.donor = 30821                                   # the stray's field: the walk's own visit and place are keyed
         err = d.stray("left the route: entered 30821")
         assert (err.v, err.by, err.cell) == ("V11", "driver", want), (err.v, err.by, err.cell)
+
+
+# ---- S11, THE VERIFIED LANDING (research/o5_design.md 1.2, 9 A2): Session.choose_landed, on the fake. The pick is the
+# line the cursor does NOT open on ("Examine her face", absolute 1: 128's), so the select moves it. The fake runs the
+# game at HALF speed (``fps`` 30 for a 60 fps game: CHOICE_GAP_S is 0.3 s of wall time), so a starved poll on a loaded
+# machine does not read as an unseen landing -- but in the test of that rule, which starves its reads on purpose.
+_S11_CHOICE = {"header": "Zidane\n“Hmm...”", "options": ["Let her pass", "Examine her face"], "default": 0}
+_S11_AFTER = "Zidane\n“Let’s see...”"
+
+
+def _s11_confirms(fake, since):
+    return [s for s in fake.executed[since:] if s[:2] == ["press", "confirm"]]
+
+
+def _s11_deaf(fake, n, *, then=None):
+    """The fake's choice drops its first ``n`` Confirms while READY (taken and nothing hidden -- 128's ready-lag frame,
+    Dialog.cs:787-789 -- or simply lost); ``then(fake)`` runs at each one dropped."""
+    real, dropped = fake._scene_press, []
+
+    def press(button):
+        ready = fake._beats and isinstance(fake._beats[0], dict) and "options" in fake._beats[0] \
+            and fake._beat_phase == "ready"
+        if button in ("confirm", "ok") and ready and len(dropped) < n:
+            dropped.append(fake.frame)
+            if then is not None:
+                then(fake)
+            return
+        return real(button)
+    fake._scene_press = press
+    return dropped
+
+
+def test_segment_choose_landed_lands_once(game):
+    """S11 (research/o5_design.md 1.2): ``choose_landed(1)`` steers the cursor (one Down), Confirms once and returns
+    when a read after it stopped taking answers -- the GAME took option 1, recorded whole: index, text, prompt, count,
+    field, frame, ``landed`` True, ``confirms`` 1, ``why`` None. Break: skip the select (the Confirm then answers the
+    cursor's 0)."""
+    fake = FakeGame(game, fps=30)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        fake.scene(dict(_S11_CHOICE), _S11_AFTER, control=False)
+        published(g, lambda s: g._choice_ready(s), timeout=8.0)
+        mark = len(fake.executed)
+        took = g.choose_landed(1)
+        assert fake.answered == [1], (fake.answered, took)
+    assert took == {"index": 1, "text": "Examine her face", "prompt": _S11_CHOICE["header"], "count": 2,
+                    "field": 30820, "frame": took["frame"], "landed": True, "confirms": 1, "why": None}, took
+    assert [s[1] for s in fake.executed[mark:] if s[0] == "press"] == ["down", "confirm"], fake.executed[mark:]
+
+
+def test_segment_choose_landed_repress_while_typing(game):
+    """S11: a prompt still TYPING is ready (group and cursor set) and takes the first Confirm as "finish the text"
+    (Dialog.cs:803-807; the fake's ``typing`` 40 frames): the window still takes answers CHOICE_CONFIRM_FRAMES after it,
+    the cursor still on the pick, so it is Confirmed again -- and lands: ``confirms`` 2, answered [1] once. Break: a
+    blind wait after one Confirm (``g.choose``'s: the choice is then never answered)."""
+    fake = FakeGame(game, fps=30)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        fake.scene(dict(_S11_CHOICE, typing=40), _S11_AFTER, control=False)
+        published(g, lambda s: g._choice_ready(s), timeout=8.0)
+        mark = len(fake.executed)
+        took = g.choose_landed(1)
+        assert fake.answered == [1], (fake.answered, took)
+    assert (took["landed"], took["confirms"], took["why"], took["index"]) == (True, 2, None, 1), took
+    assert len(_s11_confirms(fake, mark)) == 2, fake.executed[mark:]
+
+
+def test_segment_choose_landed_gives_up_unlanded(game):
+    """S11: a choice that drops every Confirm (the fake's ``_scene_press`` wrapped: taken and lost) still takes answers
+    after CHOICE_CONFIRMS of them, the cursor on the pick throughout: ``landed`` False, why "did not land", ``confirms``
+    3, nothing answered -- the caller's V-class (the driver's V17), never a re-ask the game is blamed for. Break: count
+    it answered after the last Confirm."""
+    fake = FakeGame(game, fps=30)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        fake.scene(dict(_S11_CHOICE), _S11_AFTER, control=False)
+        dropped = _s11_deaf(fake, 10 ** 6)
+        published(g, lambda s: g._choice_ready(s), timeout=8.0)
+        mark = len(fake.executed)
+        took = g.choose_landed(1, timeout=1.0)
+    assert (took["landed"], took["why"], took["confirms"]) == (False, "did not land", g.CHOICE_CONFIRMS), took
+    assert fake.answered == [] and len(dropped) == g.CHOICE_CONFIRMS == len(_s11_confirms(fake, mark)), dropped
+
+
+def test_segment_choose_landed_stops_when_the_cursor_moves(game):
+    """S11: the first Confirm dropped, and the cursor moved to 0 in its wake by the game (outside input's stand-in): the
+    window still takes answers, but no longer at the pick -- ``landed`` False, why "the cursor left the pick: 0", and
+    NOTHING more is pressed (a Confirm now would answer 0). Break: re-press on any "waits" (option 0 then answered)."""
+    fake = FakeGame(game, fps=30)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        fake.scene(dict(_S11_CHOICE), _S11_AFTER, control=False)
+        _s11_deaf(fake, 1, then=lambda f: f._choice_cursor(0))
+        published(g, lambda s: g._choice_ready(s), timeout=8.0)
+        mark = len(fake.executed)
+        took = g.choose_landed(1)
+        assert fake.choice is not None and fake.choice["selected"] == 0 and fake.answered == [], fake.choice
+    assert (took["landed"], took["why"], took["confirms"]) == (False, "the cursor left the pick: 0", 1), took
+    assert len(_s11_confirms(fake, mark)) == 1, fake.executed[mark:]
+
+
+def test_segment_choose_landed_raises_on_an_unseen_landing(game, monkeypatch):
+    """S11 keeps _take_default_choice's unseen rule (O2's starved-confirm pattern, ``_starve_after_confirm``): the reads
+    after the Confirm skip more of the game's clock than a window takes to close and the next to open, and the window
+    up after them reads as this one (its prompt still typing: the Confirm only finished the text) -- ChoiceUnseen,
+    nothing pressed again, nothing answered. Break: Confirm again after the gap (the second answers it, unrecorded)."""
+    fake = FakeGame(game, fps=60)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        fake.scene(dict(_S11_CHOICE, typing=10 ** 6), _S11_AFTER, control=False)
+        published(g, lambda s: g._choice_ready(s), timeout=8.0)
+        _starve_after_confirm(monkeypatch)
+        mark = len(fake.executed)
+        with pytest.raises(ChoiceUnseen, match="cannot tell them apart") as err:
+            g.choose_landed(1)
+        assert err.value.gap is not None and err.value.gap >= g.CHOICE_GAP_S, err.value.gap
+    assert fake.answered == [] and len(_s11_confirms(fake, mark)) == 1, fake.executed[mark:]
+
+
+#: The agent's dialog-section catch (HarnessAgent.cs:1699-1702): the sample's ``dialog`` as AppendDialog's catch
+#: publishes it, the menu section (its own try) untouched.
+_S11_CATCH = {"open": False, "count": 0, "texts": [], "phrase_raw": [], "choice": None}
+
+
+def _s11_catch_after_confirm(g, *, times=1):
+    """The next ``times`` reads after a Confirm returns publish the dialog-section catch (``_S11_CATCH``) when they would
+    have carried a choice block -- injected at the channel's observer, so the ring and the read both carry it (only on
+    a frame new to the ring: a re-read of a frame the ring holds would carry it nowhere the watch reads); the menu
+    section is the read's own (``Dialog.Choice`` while the window is up). Returns the frames it caught."""
+    real_obs, real_press, left, caught = g.channel.observer, g.press, {"n": 0}, []
+
+    def obs(st):
+        if left["n"] > 0 and (st.raw.get("dialog") or {}).get("choice") is not None \
+                and st.frame != g._ring._last_frame:
+            left["n"] -= 1
+            caught.append(st.frame)
+            st.raw["dialog"] = dict(_S11_CATCH)
+        return real_obs(st)
+
+    def press(button, frames=2):
+        out = real_press(button, frames)
+        if button == "confirm" and not caught:
+            left["n"] = times
+        return out
+    g.channel.observer, g.press = obs, press
+    return caught
+
+
+def test_segment_choose_landed_is_not_fooled_by_the_dialog_catch(game):
+    """S11 (0.2 #18): the first Confirm dropped, and right after it one read is the agent's dialog-section catch -- no
+    choice block while the menu group still reads ``Dialog.Choice`` (the engine's own close sets the group '' at the
+    answering Confirm). Not a landing: the watch goes on from that read, the window still takes answers at the pick,
+    it is Confirmed again and lands -- ``confirms`` 2, answered [1]. Break: accept any read without a choice block as the
+    close (``landed`` True after one Confirm, nothing answered)."""
+    fake = FakeGame(game, fps=30)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        fake.scene(dict(_S11_CHOICE), _S11_AFTER, control=False)
+        _s11_deaf(fake, 1)
+        published(g, lambda s: g._choice_ready(s), timeout=8.0)
+        caught = _s11_catch_after_confirm(g)
+        mark = len(fake.executed)
+        took = g.choose_landed(1)
+        assert fake.answered == [1], (fake.answered, took)
+        ring = [raw for _t, _age, raw in g._ring._buf if int(raw.get("frame", -1)) in caught]
+    assert len(caught) == 1 and ring and ring[0]["dialog"] == _S11_CATCH and ring[0]["menu"]["group"] == "Dialog.Choice", \
+        (caught, ring)
+    assert (took["landed"], took["confirms"]) == (True, 2), took
+    assert len(_s11_confirms(fake, mark)) == 2, fake.executed[mark:]
