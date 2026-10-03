@@ -492,9 +492,10 @@ REQUIRED_TESTS_O5: tuple = (
     "test_o5_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake",
     "test_o5_rehearsal_walk_record_judges_holds_and_the_teleport",
     # the review's fixes (research/o5_design.md 11.6): the guarded choice taken under the answer is S10's gone choice;
-    # H14's choice cursor wraps as the engine's navigation does
+    # H14's choice cursor wraps as the engine's navigation does; the recorder counts the catch as the agent publishes it
     "test_o5_drive_choice_taken_under_the_answer_is_the_gone_choice",
     "test_fake_visit_choice_cursor_wraps",
+    "test_o5_rehearsal_recorder_counts_the_dialog_section_catch",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

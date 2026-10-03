@@ -22721,6 +22721,47 @@ def test_o5_rehearsal_walk_record_judges_holds_and_the_teleport():
     assert tp["source"] == "the driver's polls" and tp["frame"] == 162 and tp["ticks_after_loss"] == 7.0, tp
 
 
+def _o5_rh_sample(frame, dialog, group, *, field=30820):
+    """A published sample for the recorder's pure tests: control off, on ``field``, ``dialog`` the dialog section (None:
+    no dialog key at all) beside a menu section of ``group``."""
+    raw = {"frame": frame, "field": {"id": field}, "ui_state": "FieldHUD", "player": {"control": False},
+           "menu": {"selected": None, "hovered": None, "label": None, "group": group}}
+    if dialog is not None:
+        raw["dialog"] = dict(dialog)
+    return State(raw)
+
+
+def _o5_rh_page(text, choice=None):
+    """A dialog section listing one window of ``text`` (its raw ``[STRT=0,0]`` + the text), with ``choice``."""
+    return {"open": True, "count": 1, "texts": [text], "phrase_raw": ["[STRT=0,0]" + text], "choice": choice}
+
+
+def test_o5_rehearsal_recorder_counts_the_dialog_section_catch():
+    """THE DIALOG-SECTION CATCH as the agent PUBLISHES it (research/o5_design.md 7.2, F11, 0.2 #18; the review's
+    code-and-tests finding): HarnessAgent.AppendDialog's catch still writes a dialog section -- open false, no texts,
+    choice null (HarnessAgent.cs:1699-1702; ``_S11_CATCH``) -- beside the menu section it leaves alone. The recorder fed
+    127, the catch on it, 127 again, 128 ready (the group Dialog.Choice), the catch on 128, 128 again, a sample with no
+    dialog key at all on that group, 128's close tween (the group ''), the sample after it (no choice, the group '') and
+    the branch page counts, over the 10 samples read, 127 listed again after the catch on it, then the two choice-catch
+    samples as ``CATCH_KIND`` -- never 128's close or a page. Break: test for a missing dialog key alone (the catch as
+    published then counts nothing on 128)."""
+    from types import SimpleNamespace
+    R = _o5_rehearse_module()
+    rec = R.Recorder(SimpleNamespace(), {"field": 30820}, _o5_rehearse_pred())
+    choice = {"selected": 0, "count": 2, "active": [0, 1], "disabled": [], "options": [_O5_HEADER, *_O5_LINES]}
+    ask = _o5_rh_page("\n".join([_O5_HEADER, *_O5_LINES]), choice)
+    gone = {"open": False, "count": 0, "texts": [], "phrase_raw": [], "choice": None}
+    for st in (_o5_rh_sample(100, _o5_rh_page(_O5_127), None), _o5_rh_sample(102, _S11_CATCH, None),
+               _o5_rh_sample(104, _o5_rh_page(_O5_127), None), _o5_rh_sample(110, ask, "Dialog.Choice"),
+               _o5_rh_sample(112, _S11_CATCH, "Dialog.Choice"), _o5_rh_sample(114, ask, "Dialog.Choice"),
+               _o5_rh_sample(116, None, "Dialog.Choice"), _o5_rh_sample(118, ask, ""), _o5_rh_sample(120, gone, ""),
+               _o5_rh_sample(130, _o5_rh_page(_O5_PICK), "")):
+        rec(st, {"field": 30820, "donor": 30820, "sc": 1190, "visit": 1, "log": []})
+    caught = [(c["frame"], c["kind"]) for c in rec.catch]
+    assert caught == [(104, "a marker page listed again"), (112, R.CATCH_KIND), (116, R.CATCH_KIND)], caught
+    assert rec.samples_read == 10, rec.samples_read
+
+
 def test_o5_rehearsal_plumbing_on_the_fake(game):
     """C3 (research/o5_design.md 7.1-7.2): R-STAIRS's shape on the fake, chosen by ``O5_STAGE`` as a launch chooses it
     (another stage, which would run too, does not): the capabilities (P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG over

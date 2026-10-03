@@ -65,6 +65,11 @@ from ff9mapkit import storytrace as T                                  # noqa: E
 from segment_trace import members_of, place                            # noqa: E402
 
 ENV = "O5_STAGE"
+#: 7.2's dialog-section catch (0.2 #18) as the agent PUBLISHES it: HarnessAgent.AppendDialog's catch still writes a
+#: dialog section -- ``{"open": false, "count": 0, "texts": [], "phrase_raw": [], "choice": null}``,
+#: HarnessAgent.cs:1699-1702 -- beside a menu section it leaves alone, so on a choice it reads NO CHOICE BLOCK while the
+#: group still reads ``Dialog.Choice`` (Session.choose_landed's own rule). A sample with no dialog key at all reads so too.
+CATCH_KIND = "no choice block, group Dialog.Choice (the agent's dialog-section catch)"
 #: 7.2: the stair's teleport point -- the first sample at (-1165, 856) within 32 u after the loss.
 TELEPORT = (-1165.0, 856.0, 32.0)
 #: 7.2 (the driver critique #11): a hold on the walk's last two legs is a SLIDE when it moved off the direction it
@@ -176,8 +181,9 @@ class Recorder(O4R.Recorder):
     """O4's recorder (O2's grants, pages, published choices and no-progress stretch; each page's texts and the frame
     it went), plus what 7.2 reads that it does not keep: the published objects at each grant (sid, uid, position,
     ``shown``, ``coll``, ``solid``, ``r``, ``talk_r``, ``range_r``); THE DIALOG-SECTION CATCH (0.2 #18) -- every
-    sample with no dialog section while the menu group is ``Dialog.Choice``, and every sample listing a marker page
-    again after one without it -- with the samples read, so its rate can be judged; and the TELEPORT the driver's own
+    sample with no choice block while the menu group is ``Dialog.Choice`` (the catch as the agent publishes it, an
+    EMPTY dialog section: :data:`CATCH_KIND`), and every sample listing a marker page again after one without it --
+    with the samples read, so its rate can be judged; and the TELEPORT the driver's own
     polls saw -- the first sample in the walk's place, control off, within :data:`TELEPORT` (the walk tap keeps only
     route_to's own reads, which can end before the stair's cut moves him)."""
 
@@ -202,9 +208,8 @@ class Recorder(O4R.Recorder):
             self.teleport = {"frame": st.frame, "field": st.field_id, "x": round(st.player_x, 1),
                              "z": round(st.player_z, 1)}
         self.samples_read += 1
-        if "dialog" not in st.raw and st.menu_group == "Dialog.Choice":
-            self.catch.append({"frame": st.frame, "field": st.field_id, "kind": "no dialog section, group "
-                                                                                "Dialog.Choice"})
+        if st.choice is None and st.menu_group == "Dialog.Choice":     # the catch as the agent publishes it
+            self.catch.append({"frame": st.frame, "field": st.field_id, "kind": CATCH_KIND})
         listed = any(m in st.text for m in self.markers) if self.markers else False
         if listed and self._marker is False:
             self.catch.append({"frame": st.frame, "field": st.field_id, "kind": "a marker page listed again"})
