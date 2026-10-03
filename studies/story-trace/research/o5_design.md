@@ -2011,8 +2011,12 @@ B0 measured the PART's baseline: the whole `tests/test_harness.py` at `-n 6` (ma
 26 failed, 1 xfailed -- 796 collected, master 2575495e's 771 plus PART A's 25. Every failure passes ALONE, serially (the
 25 + 8 items re-run): timing flakes of six real-time fakes at once on this machine (O4 drive tests' "instrument: a read
 gap of 0.1-0.5 s", "no MEASURED render rate after 2.0s", wall-clock asserts in walk tests), none in PART A's tests -- so
-B4 runs the whole file serially, the design's own command ("alone"). B1 (5eeed41a), B2 (023a51ab), B3: one DEFECT in
-PART A's shared code found and fixed (#13); nothing else in 1.2, 3 or 9 disproved.
+B4 runs the whole file serially, the design's own command ("alone"). B1 (5eeed41a), B2 (023a51ab), B3 (2b46994d): one
+DEFECT in PART A's shared code found and fixed (#13); nothing else in 1.2, 3 or 9 disproved. B4, at 2b46994d (the whole
+file alone, serially, 60 min): 828 passed, 1 xfailed (B0's), 0 skipped, 0 failed -- B0's 795 and PART B's 33. The
+`-k "o1_ or o2_ or o3_ or o4_ or segment or fake_"` run after B3 read one O4 PREMISE flake while other sessions' jobs
+loaded the machine (`test_o4_drive_presses_123_again_when_its_first_press_is_dropped`: 123's first press landed after
+its 0.25 s opening, so nothing was dropped; 3 of 3 alone, and B4 passed it) -- O4's, reached by no PART B code.
 
 | # | Where | The design | As built, and why |
 |---|---|---|---|
