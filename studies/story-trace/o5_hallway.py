@@ -1920,7 +1920,7 @@ class O5Segment(C4.O4Segment):
         """``--rehearsal-report`` (O5's); ``--offline-check`` (with the chain's route members printed first); then
         O2's (``--draft``, ``--preflight``)."""
         if args.rehearsal_report:
-            print(rehearsal_report(args.rehearsal_report))
+            ST.say(rehearsal_report(args.rehearsal_report))
             return 0
         if args.offline_check:
             pred, what = self.current(args.predictions)

@@ -18302,6 +18302,22 @@ def o4_stock():
     return src
 
 
+def test_segment_say_survives_a_cp1252_console(monkeypatch):
+    """A session prints its report AFTER writing the file and BEFORE recording its checks: a report quoting the game's
+    text (O5's "wouldn't" + U+2500, which cp1252 cannot encode) must print on a cp1252 console, its unencodable
+    character escaped, never raise. Break: print the text as is (UnicodeEncodeError)."""
+    import io
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import segment_trace as ST
+    buf = io.BytesIO()
+    console = io.TextIOWrapper(buf, encoding="cp1252", errors="strict", newline="\n")
+    monkeypatch.setattr(sys, "stdout", console)
+    ST.say("Zidane\n“Say, you wouldn’t─”", flush=True)
+    console.flush()
+    out = buf.getvalue().decode("cp1252")
+    assert out == "Zidane\n“Say, you wouldn’t\\u2500”\n", repr(out)
+
+
 def test_o4_castle_draft_reads_the_chain_from_campaign(tmp_path):
     """The draft's members and names are the built chain's campaign.toml (research/o4_design.md 1.3, 4.1): exactly the
     twenty alxc donors, member(64) / member(150) / member(153) DERIVED (never assumed) and printed as one line; the
