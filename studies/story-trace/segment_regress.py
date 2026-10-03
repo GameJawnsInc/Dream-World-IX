@@ -268,6 +268,14 @@ REQUIRED_TESTS: tuple = (
     # research/o6_design.md section 9, PART A: the gate extended to O5 (G21 over the union of the O3, O4 and O5
     # baselines' pins), then the shared opt-in changes, each with its step
     "test_segment_regress_o5_pins_join_the_union",                              # A0: G21 over three baselines
+    "test_segment_region_walkout_keeps_him_moving_until_the_flip_on_the_fake",  # A1: H16, the walk-out and the gate
+    "test_segment_step_of_trigger_to_is_strict",                                # A1: S14, pure
+    "test_segment_trigger_to_verdict_classes",                                  # A1: S14's verdict, pure
+    "test_segment_trigger_to_lands_after_the_walk_returns_on_the_fake",         # A1: S14 path A, S14b
+    "test_segment_trigger_to_lands_before_the_walk_returns_on_the_fake",        # A1: S14 path B
+    "test_segment_trigger_to_wrong_landing_is_rule_2s_on_the_fake",             # A1: S14's left, rule 2's V11 / V19
+    "test_segment_trigger_to_unseen_loss_is_v13_on_the_fake",                   # A1: S14's V13
+    "test_segment_trigger_without_to_keeps_todays_paths_on_the_fake",           # A1: S14 opt-in
 )
 
 O1E_VERDICT = "PROVEN"

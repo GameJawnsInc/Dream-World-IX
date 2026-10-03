@@ -23238,3 +23238,340 @@ def test_fake_door_keeps_the_hallway_route_identical(game):
             assert len(a) == len(b), (f"{side} {key}: {len(a)} entries, the golden {len(b)}; the first unmatched "
                                       f"{(a[len(b)] if len(a) > len(b) else b[len(a)])!r}")
     assert got == want
+
+
+# ---- A1: H16 (research/o6_design.md 3.1) -- a region's walk-out and the test-held exit gate; S14 (1.2) -- THE
+# LANDING-AWARE TRIGGER, ``to`` on a trigger step; S14b -- its walk-out on record. The fake's fields: 30820 the walk's
+# (O6's "153"), 30821 the door's (its "154", the end), 30810 another place ("150"); on F the members 31245 / 31246 /
+# 31243. The door's tag 2 fires on its quad past z 600 (e23's past z 1333), registered over its whole quad from z 300
+# (e23's from 924), the step's evidence ``until`` z > 500 (e23's 1200).
+
+_S14_FLOOR = (-600.0, -600.0, 600.0, 1500.0)            # the fake's floor: the walk north into the door's mouth
+_S14_FIRE = _rect(-300, 600, 300, 3000)                 # where the fake's region fires: the quad AND z > 600
+_S14_QUAD = _rect(-300, 300, 300, 3000)                 # the door as registered: its whole quad
+_S14_STEP = {"kind": "trigger", "name": "the north door", "goal": [0, 900], "until": {"z_gt": 500}, "to": 30821,
+             "beat": "door"}
+_S14_MEMBERS = {"31245": 30820, "31246": 30821, "31243": 30810}
+_S14_NAMES = {"31245": "S14_H2F", "31246": "S14_ENT", "31243": "S14_HALL"}
+
+
+def _h16_fake(game, walkout=None, gate=None):
+    """H16's fake, stepped BY HAND at 30 fps (a field tick a frame): him at (0, 560) in 30820 with control, one frame of
+    Up held -- into the door's region, which fires past z 600 and lands in 30821 ``exit_frames`` (25) later -- stepped
+    to the frame it fired on."""
+    fake = _fv_fake(game, field=30820, trace=False)
+    fake.control, fake.player = True, [0.0, 0.0, 560.0]
+    region = {"zone": _S14_FIRE, "to": 30821, "arrive": (0, 0)}
+    if walkout is not None:
+        region["walkout"] = walkout
+    fake.regions = {30820: [region]}
+    fake.exit_frames, fake.exit_gate = 25, gate
+    fake._schedule("up", 1)
+    _cb_until(fake, lambda f: f.fired)
+    assert not fake.control and 600 < fake.player[2] < 700 and fake.fired[0]["to"] == 30821, (fake.player, fake.fired)
+    return fake
+
+
+def _h16_track(fake) -> list:
+    """``(frame, field, control, z)`` of every frame from the fire to the first in another field."""
+    out: list = []
+    _cb_until(fake, lambda f: out.append((f.frame, f.field_id, f.control, f.player[2])) or f.field_id != 30820,
+              limit=200)
+    return out
+
+
+def test_segment_region_walkout_keeps_him_moving_until_the_flip_on_the_fake(game):
+    """H16 (research/o6_design.md 3.1), the fake stepped by hand at 30 fps (a field tick a frame): a region with
+    ``walkout`` keeps him moving after it fires -- ExitField's MOVJ toward ``to`` at ``speed`` units a tick -- with
+    control off on every frame, and stops where his z passes ``stop_z`` (held there: a radius short of the floor's end);
+    the field changes ``exit_frames`` after the fire. Without ``stop_z`` he moves every frame until the switch. With
+    ``exit_gate`` held the switch waits past ``exit_frames``, him standing at ``stop_z``, until the event is set -- then
+    lands in one frame. Without the key his position is frozen from the fire (today's ExitField). Breaks: no walk-out
+    (he stands at the fire); ignore the gate (the switch at ``exit_frames``)."""
+    fake = _h16_fake(game, {"to": [0, 3000], "speed": 60, "stop_z": 1000})
+    fired, z0 = fake.frame, fake.player[2]
+    rows = _h16_track(fake)
+    before, after = rows[:-1], rows[-1]
+    assert before[0] == (fired, 30820, False, z0) and not any(c for _f, _fld, c, _z in before), before[:3]
+    zs = [z for _f, _fld, _c, z in before]
+    assert [b - a for a, b in zip(zs, zs[1:6])] == [pytest.approx(60)] * 5, zs[:7]           # 60 u a tick
+    assert zs[-1] == pytest.approx(1000) and max(zs) == pytest.approx(1000), zs[-4:]         # held at stop_z
+    assert after[:2] == (fired + 25, 30821) and fake.player[2] == 0.0, (after, fake.player)
+    fake = _h16_fake(game, {"to": [0, 3000], "speed": 60})                                  # no stop_z
+    zs = [z for _f, _fld, _c, z in _h16_track(fake)[:-1]]
+    assert len(zs) == 25 and all(b - a == pytest.approx(60) for a, b in zip(zs, zs[1:])), zs
+    fake = _h16_fake(game)                                                                  # no walk-out
+    z0 = fake.player[2]
+    assert {z for _f, _fld, _c, z in _h16_track(fake)[:-1]} == {z0}
+    gate = threading.Event()
+    fake = _h16_fake(game, {"to": [0, 3000], "speed": 60, "stop_z": 1000}, gate)
+    fired = fake.frame
+    _cb_until(fake, lambda f: f.frame >= fired + 60)                  # long past exit_frames: the gate holds it
+    assert (fake.field_id, fake.control) == (30820, False) and fake.player[2] == pytest.approx(1000), fake.player
+    gate.set()
+    fake._frame_once()
+    assert fake.field_id == 30821 and fake.player[2] == 0.0, (fake.field_id, fake.player)
+
+
+def test_segment_step_of_trigger_to_is_strict():
+    """S14, pure (research/o6_design.md 1.2): a trigger step's ``to`` is a place -- an int (a bool is no int) -- or
+    absent; ``step_of`` refuses a bool, a str and a float before anything is driven. A cross's ``to`` is read as it
+    always was (no new refusal), and a trigger without ``to`` is today's. Break: drop the refusal."""
+    SD = _segment_modules()
+    pred = {"regions": {"door": {"points": _S14_QUAD, "role": "exit"}}, "steps_default": dict(_O2_DEFAULTS)}
+    trig = {"kind": "trigger", "goal": [0, 900], "until": {"z_gt": 500}}
+    assert SD.step_of(pred, {**trig, "to": 154})["to"] == 154
+    assert "to" not in SD.step_of(pred, trig)
+    for bad in (True, "154", 154.0):
+        with pytest.raises(ValueError, match="a trigger's to is a place, an int"):
+            SD.step_of(pred, {**trig, "to": bad})
+    cross = {"kind": "cross", "target": "door", "goal": [0, 900], "to": "154"}
+    assert SD.step_of(pred, cross)["to"] == "154"
+
+
+def test_segment_trigger_to_verdict_classes():
+    """S14's verdict, pure (research/o6_design.md 1.2; rev. 2, the claim critic's #1): the evidence held where control
+    went IN THIS FIELD and the run has not left yet (path A) or left for ``to`` (path B) -- done, the landing returned;
+    the evidence held and the run landed in ANOTHER place -- ``left`` (rule 2's verdict for that field, never the
+    walk's); the loss read only in another field, or never read with a landing -- V13 (the instrument's: a read gap
+    across the fade, the evidence unjudgeable); an in-field loss without the evidence that lands -- V11 (the driver's,
+    the only one under ``to``); the same with no landing -- today's judge (door_loss, interrupted). Break: drop the
+    in-field rule (a loss read in the next field is judged on its x, z)."""
+    SD = _segment_modules()
+    here = {"frame": 100, "field": 30820, "x": -50.0, "z": 640.0, "control": False}
+    there = dict(here, field=30821, z=1500.0)
+    assert SD.trigger_to_verdict(here, 30820, True, None, None, 30821) == ("done", None)               # path A
+    assert SD.trigger_to_verdict(here, 30820, True, 30821, 30821, 30821) == ("done", 30821)            # path B
+    assert SD.trigger_to_verdict(dict(here, field=31245), 31245, True, 31246, 30821, 30821) == ("done", 31246)  # F
+    assert SD.trigger_to_verdict(here, 30820, True, 30810, 30810, 30821) == ("left", 30810)            # elsewhere
+    for lost, landed in ((there, 30821), (None, 30821), (None, None)):
+        v, why = SD.trigger_to_verdict(lost, 30820, True, landed, landed, 30821)
+        assert v == "v13" and "30820" in why and "read gap" in why, (lost, landed, v, why)
+    v, why = SD.trigger_to_verdict(here, 30820, False, 30810, 30810, 30821)
+    assert v == "v11" and "without the step's evidence" in why, (v, why)
+    assert SD.trigger_to_verdict(here, 30820, False, None, None, 30821) == ("judge", None)
+
+
+def _s14_pred(step=None, *, side_ends=False, **over):
+    """S14's predictions on the fake (research/o6_design.md 2.1's shape on O2's machinery): ONE visit-scoped cell (30820,
+    SC 1000, visit 1) whose trigger walks north into the door -- ``to`` 30821, the end -- the door registered ``exit``
+    over its whole quad; route [30820], visits [30820]; ``side_ends`` gives F its members (31245 -> 30820, 31246 ->
+    30821, 31243 -> 30810) and its end member(30821) 31246."""
+    pred = _o2_pred([{"donor": 30820, "sc": 1000, "visit": 1, "steps": [dict(_S14_STEP if step is None else step)]}],
+                    beats=["door"], end=30821, route=(30820,),
+                    regions={"30820.door": {"points": _S14_QUAD, "role": "exit"}})
+    pred["visits"] = [30820]
+    if side_ends:
+        pred.update(start={"S": 30820, "F": 31245}, side_ends={"S": [30821], "F": [31246]},
+                    members=dict(_S14_MEMBERS), names=dict(_S14_NAMES))
+    pred.update(over)
+    return pred
+
+
+def _s14_fake(game, *, fld=30820, to=30821, stop_z=None, walkout=True, arrive=(0, 0), exit_frames=50):
+    """The fake's door in ``fld``: its tag 2 on the quad past z 600, Field(``to``) ``exit_frames`` after the fire
+    (arriving with control OFF, as 154 hands none), and -- ``walkout`` -- ExitField's walk-out north at 60 u a tick,
+    held at ``stop_z`` (None: moving until the switch)."""
+    fake = FakeGame(game, walkmesh=_S14_FLOOR)
+    region = {"zone": _S14_FIRE, "to": to, "arrive": arrive, "arrive_control": False}
+    if walkout:
+        region["walkout"] = {"to": [0, 3000], "speed": 60, "stop_z": stop_z}
+    fake.regions = {fld: [region]}
+    fake.exit_frames = exit_frames
+    return fake
+
+
+class _S14Log(list):
+    """A drive log that sets ``gate`` once a step row is appended (research/o6_design.md 3.1, the driver critic's #3):
+    the map switch can then never precede the door step's row, whatever the harness thread's load."""
+
+    def __init__(self, gate):
+        super().__init__()
+        self.gate = gate
+
+    def append(self, row):
+        super().append(row)
+        if isinstance(row, dict) and row.get("k") == "step":
+            self.gate.set()
+
+
+def _s14_register(game):
+    """The F members registered in the fixture's own DictionaryPatch.txt (``_o5_register``'s shape)."""
+    patch = game / "FF9CustomMap" / "DictionaryPatch.txt"
+    patch.write_text(patch.read_text(encoding="utf-8")
+                     + "".join(f"FieldScene {f} 11 {n} {n} 3\n" for f, n in _S14_NAMES.items()), encoding="utf-8")
+
+
+#: The driver's VOIDs a starved harness can cause (research/o6_design.md 9's load-robust rule): a read gap across the
+#: door's fade (V13 "went unseen"), the budget, a walk timed out (V7) -- re-run, never a game class or a V11.
+_S14_LOAD = ("went unseen", "the run's budget ran out", "of its 2 attempts", "interrupted 2 times")
+
+
+def _s14_drive(game, make, pred, side="S", *, gated=False, wrap=None, spoiled=None):
+    """One S14 drive on the fake, re-run at most twice when a starved harness spoiled it: New Game, the raw warp into
+    the side's start at SC 1000, him at (0, -300), the bases cached, the driver over the fake's floor (``make()`` a
+    fresh fake each attempt; ``gated``: its ``exit_gate`` held until the step row is logged; ``wrap(g, fake)`` before
+    the drive). A run is re-run when it ends in one of :data:`_S14_LOAD`'s driver classes -- or when ``spoiled(out,
+    log)`` says the load bent it -- and only then: anything else is the verdict. ``(outcome or the void raised, log,
+    fake)``."""
+    SD = _segment_modules()
+    start = pred["start"][side]
+    for attempt in range(3):
+        fake = make()
+        gate = threading.Event() if gated else None
+        fake.exit_gate = gate
+        log = _S14Log(gate) if gated else []
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(start, entrance=102, scenario=1000)
+            _stand(g, fake, 0, -300)
+            for f in (start, 30820, 30821, 30810, 31245, 31246, 31243):
+                g._axes[f] = _prior()
+            if wrap is not None:
+                wrap(g, fake)
+            try:
+                out = SD.drive(g, pred, side, log, deadline=time.time() + 90.0,
+                               floor_for=lambda d, closed: _flat_bgi(*_S14_FLOOR), prior_for=lambda d: _prior(),
+                               forbid_live=False)
+            except (SD.RouteVoid, HarnessError) as err:
+                out = err
+        load = (getattr(out, "by", "driver") == "driver" and any(m in str(out) for m in _S14_LOAD)) \
+            if isinstance(out, Exception) else False
+        if attempt == 2 or not (load or (spoiled is not None and spoiled(out, log))):
+            return out, log, fake
+
+
+def _s14_step_row(log):
+    rows = [r for r in log if r["k"] == "step"]
+    assert len(rows) == 1, rows
+    return rows[0]
+
+
+def test_segment_trigger_to_lands_after_the_walk_returns_on_the_fake(game):
+    """S14 PATH A, with S14b (research/o6_design.md 1.2, 0.2 #6): the walk-out held a little past the firing line
+    (``stop_z`` 700) and the map switch GATED until the door step's row is logged (the test-held ``exit_gate``, H16):
+    route_to returns before the switch -- ``route.landed`` None -- and the step is done with ``landed`` None, its loss in
+    30820 past the evidence. Rule 1, on its first poll in 30821, puts the walk-out on that row (S14b): ``walkout`` --
+    every ring sample from the loss to the flip, still in 30820, his z rising to 700 and held there -- ``flip_frame``
+    with ``flip_late`` True, and ``landed_frame``. Break: no S14b (``flip_frame`` stays None)."""
+    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game, stop_z=700), _s14_pred(), gated=True)
+    assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"door": True}, out
+    row = _s14_step_row(log)
+    assert (row["outcome"], row["landed"], row["route"]["landed"], row["v"]) == ("done", None, None, None), row
+    lost = row["lost"]
+    assert lost["field"] == 30820 and lost["z"] > 500 and not lost["control"], lost
+    assert row.get("flip_frame") is not None and row.get("flip_late") is True and row.get("landed_frame") is not None, \
+        row
+    assert lost["frame"] < row["flip_frame"] <= row["landed_frame"], row
+    walk = row["walkout"]
+    assert walk and all(lost["frame"] < f < row["flip_frame"] and not c for f, _x, _z, c in walk), walk
+    zs = [z for _f, _x, z, _c in walk]
+    assert zs == sorted(zs) and zs[-1] == pytest.approx(700, abs=0.5), zs
+    assert [r["k"] for r in log if r["k"] in ("visit", "step", "end")] == ["visit", "step", "end"], log
+
+
+def test_segment_trigger_to_lands_before_the_walk_returns_on_the_fake(game):
+    """S14 PATH B (research/o6_design.md 1.2, 0.2 #6): no ``stop_z`` -- he walks out until the switch, so route_to never
+    sees him still before it and returns AFTER it: ``route.landed`` and ``changed_to`` 30821. The step is done all the
+    same (the landing is ``to``), ``landed`` 30821, its ``flip_frame`` read off the ring (``flip_late`` False); rule 1
+    still puts the walk-out on the row -- moving samples, his z rising every one. A run a starved harness pushed onto
+    path A (route_to's 3-s settle out before the switch) is re-run, never read. Break: the same table read by today's
+    ``x_trigger`` (no ``to`` dispatch): V11, "the trigger's walk left 30820" -- the case today's code fails."""
+    def on_path_a(out, log):
+        rows = [r for r in log if r["k"] == "step"]
+        return isinstance(out, dict) and len(rows) == 1 and rows[0]["route"]["landed"] is None
+    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game), _s14_pred(), spoiled=on_path_a)
+    assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"door": True}, out
+    row = _s14_step_row(log)
+    assert (row["outcome"], row["landed"], row["v"]) == ("done", 30821, None), row
+    assert row["route"]["landed"] == 30821 and row["route"]["changed_to"] == 30821, row["route"]
+    lost = row["lost"]
+    assert lost["field"] == 30820 and lost["z"] > 500, lost
+    assert row["flip_frame"] is not None and row["flip_late"] is False and lost["frame"] < row["flip_frame"], row
+    zs = [z for _f, _x, z, _c in row["walkout"]]
+    assert len(zs) >= 2 and all(b > a for a, b in zip(zs, zs[1:])), zs
+    assert row["landed_frame"] is not None and row["landed_frame"] >= row["flip_frame"], row
+
+
+def test_segment_trigger_to_wrong_landing_is_rule_2s_on_the_fake(game):
+    """S14's ``left`` (research/o6_design.md 1.2; rev. 2, the claim critic's #1): the door's evidence held -- the loss
+    in 30820 past z 500 -- but its Field() lands in 30810, another place (path B: he walks out until the switch). The
+    step row's outcome is ``left``, the landing under ``misroute`` (``{"fld": 30810, "place": 30810}``), ``landed`` None
+    and no ``v``: no beat, no raise -- and the loop's next poll gives rule 2's verdict for that field, V11 by the GAME at
+    ``[30810, 1000, 1]``, the visit just left. A row the run writes in 30810 is UNBACKED (``backing`` None: no V11 step
+    row landed there) -- FORBIDDEN reads it as the fork's. On F, the door landing in REAL 30810 (which member 31243
+    forks): V19 by the game at the same cell -- a finding, never a re-runnable VOID. Break: the first design's
+    ``strayed`` (V11 by the driver, ``landed`` set, the rows backed)."""
+    SD = _segment_modules()
+    pred = _s14_pred()
+    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game, to=30810), pred)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V11", "game", [30810, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    row = _s14_step_row(log)
+    assert (row["outcome"], row["landed"], row["v"], row["by"]) == ("left", None, None, None), row
+    assert row["misroute"] == {"fld": 30810, "place": 30810} and row["lost"]["field"] == 30820, row
+    assert "rule 2's" in row["why"] and "landed in 30810" in row["why"], row["why"]
+    assert SD.backing({"f": row["frame"] + 1, "cause": "walk", "fld": 30810}, log, pred) is None, row
+    _s14_register(game)
+    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game, fld=31245, to=30810), _s14_pred(side_ends=True), "F")
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V19", "game", [30810, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    row = _s14_step_row(log)
+    assert row["outcome"] == "left" and row["misroute"] == {"fld": 30810, "place": 30810}, row
+
+
+def test_segment_trigger_to_unseen_loss_is_v13_on_the_fake(game):
+    """S14's V13 (research/o6_design.md 1.2, 0.2 #18): the fake's publication held from the door's fire to the map
+    switch (a test-side hold of its publish: the frame loop runs on, the file keeps the last sample before the fire),
+    so the first read with control gone is in 30821 -- where he arrives at (0, 1500), a point the evidence ``z > 500``
+    would pass. The step is VOID V13 by the driver ("went unseen"), its loss read in 30821: never done, never V11 -- and
+    never re-run here (the class is the one asserted). Break: judge ``until`` on that read (it passes: done, in the
+    next field's coordinates)."""
+    SD = _segment_modules()
+
+    def hold(g, fake):
+        publish = fake._publish
+
+        def held(force=False):
+            if fake._exit is not None and not force:
+                return                                  # from the fire to the switch: nothing published
+            publish(force)
+        fake._publish = held
+
+    def budget_only(out, log):
+        return isinstance(out, Exception) and "went unseen" not in str(out) and any(
+            m in str(out) for m in _S14_LOAD)
+    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game, walkout=False, arrive=(0, 1500)), _s14_pred(),
+                                 wrap=hold, spoiled=budget_only)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V13", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    assert "went unseen" in str(out), str(out)
+    row = _s14_step_row(log)
+    assert (row["outcome"], row["v"], row["by"]) == ("void", "V13", "driver"), row
+    assert row["lost"]["field"] == 30821 and row["lost"]["z"] == pytest.approx(1500), row["lost"]
+
+
+def test_segment_trigger_without_to_keeps_todays_paths_on_the_fake(game):
+    """S14 IS OPT-IN (research/o6_design.md 1.2): the path-B door walked by a trigger step WITHOUT ``to`` -- O1-O5's
+    every trigger -- is today's ``x_trigger`` exactly: route_to's record holds the landing, so the walk "left" its
+    field: V11 by the driver, the step row today's keys and reason, its ``door`` the registered exit his loss stood in,
+    no ``misroute`` and no walk-out record. A run whose loss a starved harness read only in 30821 (its ``door`` then
+    unread) is re-run, its class V11 all the same. Break: dispatch every trigger to S14's executor."""
+    SD = _segment_modules()
+    step = {k: v for k, v in _S14_STEP.items() if k != "to"}
+
+    def read_gap(out, log):
+        rows = [r for r in log if r["k"] == "step"]
+        if rows and (rows[0]["lost"] or {}).get("field") != 30820:
+            assert (getattr(out, "v", None), getattr(out, "by", None)) == ("V11", "driver"), out
+            return True
+        return False
+    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game), _s14_pred(step), spoiled=read_gap)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V11", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    row = _s14_step_row(log)
+    assert set(row) == {"k", "field", "donor", "sc", "visit", "n", "kind", "name", "attempt", "outcome", "t0", "t1",
+                        "frame0", "frame", "from", "to", "lost", "landed", "flip_frame", "door", "route", "lunge",
+                        "climb", "depth", "v", "by", "why"}, sorted(row)
+    assert (row["outcome"], row["landed"], row["door"]) == ("void", 30821, "30820.door"), row
+    assert row["why"] == "the trigger's walk left 30820: landed in 30821 (place 30821)", row["why"]

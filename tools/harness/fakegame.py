@@ -450,6 +450,12 @@ class FakeGame:
         #:     back only when the test's scene gives it back.
         #:   * ``"arrive_control": False`` -- the destination arrives with control OFF: the arrival scene's to
         #:     hand back (a test's director gives it), as 101's Herald and 115's Puck hold it.
+        #:   * ``"walkout"`` -- H16 (research/o6_design.md 3.1): ExitField's WALK-OUT, ``{"to": [x, z], "speed": u,
+        #:     "stop_z": z}`` (``speed`` default 60, ``stop_z`` default None): from the fire to the switch he keeps moving
+        #:     toward ``to`` at ``speed`` units a field tick -- MOVJ, at the speed of his last controlled frame
+        #:     (HonoUpdate's 60 for a run) -- control off, and stops at ``to`` or, ``stop_z`` given, once his z passes it
+        #:     (where pathing holds his centre a radius short of the floor's end). Without it he stands where the region
+        #:     took him, as ever. The switch itself waits on `exit_gate` when a test holds one.
         #: ⚠ An UNGATED region fires only on a frame a step (or the coast after one) lands him in it, never
         #: while he stands there -- the engine re-tests those every tick too, but the suite's fixtures that
         #: place him inside a zone depend on the step-only rule, so only a gated region gets the standing test.
@@ -461,6 +467,12 @@ class FakeGame:
         self._exit: tuple[int, int, tuple[float, float]] | None = None   # (due frame, dest, arrive)
         self._arrive_face: float | None = None     # the firing region's ``arrive_face``, applied on arrival
         self._arrive_control = True                # the firing region's ``arrive_control``, applied on arrival
+        self._walkout: dict | None = None          # H16: the firing region's walk-out, until the switch
+        #: H16's GATE (research/o6_design.md 3.1, rev. 2): a ``threading.Event`` a TEST holds; None (the default) is
+        #: today's fake. With it, a scheduled exit's switch waits, once its ``exit_frames`` have run, until the event is
+        #: set -- he stands where the walk-out left him meanwhile -- so a test can fix which side of route_to's return
+        #: the switch falls on, whatever the harness thread's load.
+        self.exit_gate = None
         #: A LADDER, where a test models one (115's climb: e15 t3 DisableMove, then the climb loop reads B_KEY(16)
         #: every tick): ``{"top": y, "bottom": y, "step": units a field tick}`` -- y is ``player[1]``, the ``pos[1]``
         #: the agent publishes, and UP is the way from ``bottom`` to ``top``: on 115's real ladder it RISES as he climbs
@@ -1179,8 +1191,10 @@ class FakeGame:
         camera and movement is expressed in screen space, which is why `calibrate_axes` exists at
         all. A stand-in that always mapped "up" to +z would let a broken calibration pass.
         """
-        if self._exit is not None and self.frame >= self._exit[0]:
+        if self._exit is not None and self.frame >= self._exit[0] and self._exit_open():
             self._step_exit_now()
+        if self._exit is None:
+            self._walkout = None                # H16: the exit landed, or a warp outran it: no walk-out is left
         self._pos_before = list(self.player)
         self._plan, visit = None, self._visit
         for ticks in self._frame_steps():       # the frame's field ticks: one share (mean) or each whole one
@@ -1191,6 +1205,8 @@ class FakeGame:
             self._step_walkers(ticks)
             if self.climbing and self._visit == visit:
                 self._step_ladder(ticks)        # the climb runs with control OFF: before the skip below
+            if self._walkout is not None and self._visit == visit:
+                self._step_walkout(ticks)       # H16: ExitField's walk-out runs with control OFF, until the switch
             if not self.control or self._visit != visit:
                 continue                        # control gone, or a warp mid-frame: no tick of it moves him there
             self._step_player()
@@ -1218,6 +1234,43 @@ class FakeGame:
             self.climbing, self.climbed = False, True
         elif (bottom - self.player[1]) * up > 0:
             self.climbing, self.control = False, True
+
+    def _exit_open(self) -> bool:
+        """H16's gate: whether a due exit may switch the field now -- always, unless a test holds `exit_gate` unset."""
+        return self.exit_gate is None or self.exit_gate.is_set()
+
+    def _walkout_of(self, r: dict) -> dict | None:
+        """H16 (research/o6_design.md 3.1): a firing region's ``walkout``, read STRICT and armed from where he stands --
+        or None without the key (today's ExitField: he stands where it took him)."""
+        w = r.get("walkout")
+        if w is None:
+            return None
+        if not isinstance(w, dict) or "to" not in w or not set(w) <= {"to", "speed", "stop_z"}:
+            raise ValueError(f"a region's walkout is {{'to': [x, z], 'speed': u, 'stop_z': z | None}}, not {w!r}")
+        tx, tz = (float(v) for v in w["to"])
+        stop = None if w.get("stop_z") is None else float(w["stop_z"])
+        way = 1.0 if tz >= self.player[2] else -1.0        # the sign of his z along the walk-out
+        return {"to": (tx, tz), "speed": float(w.get("speed", 60.0)), "stop_z": stop, "way": way,
+                "done": stop is not None and (self.player[2] - stop) * way >= 0}
+
+    def _step_walkout(self, ticks: float) -> None:
+        """H16: one field tick (in mean mode, the frame's share of one) of ExitField's walk-out -- MOVJ toward ``to`` at
+        ``speed`` a tick (DoEventCode.cs:860-869; EventEngine.MoveToward.cs:15-30, :166), control off -- held at ``to``,
+        or where his z passes ``stop_z`` (pathing holding his centre a radius short of the floor's end:
+        research/o6_design.md 0.2 #6, an ESTIMATE the game measures)."""
+        w = self._walkout
+        if w["done"]:
+            return
+        x, z = self.player[0], self.player[2]
+        (tx, tz), step = w["to"], w["speed"] * ticks
+        d = math.hypot(tx - x, tz - z)
+        nx, nz = (tx, tz) if d <= step else (x + (tx - x) / d * step, z + (tz - z) / d * step)
+        w["done"] = d <= step
+        stop = w["stop_z"]
+        if stop is not None and (nz - stop) * w["way"] >= 0:
+            t = (stop - z) / (nz - z) if nz != z else 1.0
+            nx, nz, w["done"] = x + (nx - x) * t, stop, True
+        self.player[0], self.player[2] = nx, nz
 
     def _player_plan(self) -> tuple:
         """What the controlled player does THIS FRAME, read once from the pad (IsHeld keys on the frame: every tick in
@@ -1686,7 +1739,8 @@ class FakeGame:
         self._exit = (self.frame + self.exit_frames, int(r["to"]), tuple(r["arrive"]))
         self._arrive_face = r.get("arrive_face")
         self._arrive_control = bool(r.get("arrive_control", True))
-        if self.exit_frames <= 0:
+        self._walkout = self._walkout_of(r)        # H16 (opt-in): he walks on until the switch
+        if self.exit_frames <= 0 and self._exit_open():
             self._step_exit_now()
 
     def _retest_gated(self) -> None:
@@ -1704,6 +1758,7 @@ class FakeGame:
     def _step_exit_now(self) -> None:
         _due, dest, arrive = self._exit
         self._exit = None
+        self._walkout = None                       # H16: the field changes under the walk-out
         self.field_id = dest
         self._visit += 1
         self.player = [float(arrive[0]), 0.0, float(arrive[1])]

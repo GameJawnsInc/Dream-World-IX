@@ -102,6 +102,18 @@ after its verified answer, V2 (game). Under the guard rule 6 answers a non-defau
 (S11: :meth:`Session.choose_landed`), its presses rowed, the witness polled at once, and the answer proven the driver's:
 not landed, unseen or unplaceable is V17; the cursor off the pick as its Confirm went down, V13. Without the key the
 loop is O4's exactly (O4's ``stray_answer`` untouched).
+
+THE LANDING-AWARE TRIGGER (opt-in, a trigger step's ``to``; research/o6_design.md 1.2 S14, S14b; decision 3): a door
+whose ExitField walks him on after it takes control (O6's 153 e23: MOVJ toward a point beyond the floor's end for the
+25 ticks before its Field()) hands the run to the next field either before route_to's settle returns (path A) or after
+it (path B) -- the engine's timing, never the walk's. A trigger step carrying ``to`` (the place its door leads to) is
+run by :meth:`_Drive.x_trigger_to` and judged by :func:`trigger_to_verdict`: done when the step's evidence held at the
+loss sample read IN THE WALK'S FIELD and the run has not left yet or left for ``to``; the evidence held and a landing
+ELSEWHERE is ``left`` -- the landing kept under ``misroute``, and rule 2 judges it on the next poll as it judges any
+field change (V11 by the game, or V19 on F for a real field a member forks): the walk cannot cause it; a loss never
+read in the walk's field is V13, the instrument's. Rule 1 then puts the done step's walk-out on its row
+(:meth:`_Drive.walkout_record`): the samples from the loss to the flip, the flip's frame and the landing's, in both
+paths. Without ``to`` a trigger is O5's exactly.
 """
 from __future__ import annotations
 
@@ -323,9 +335,10 @@ def step_of(pred: dict, raw: dict) -> dict:
     """A step with ``steps_default`` under it (4.1); its ``climb`` merged the same way. Refuses (ValueError) a step its
     executor could not run, so a table typo fails the offline check (O2-GOALS reads every step through here) and the
     driver's start, never a run mid-walk: an unknown ``kind``; ``target`` with ``until``; anything :data:`STEP_NEEDS`
-    names missing; a trigger with neither ``target`` nor ``until``; an ``until`` that is empty or has a key
-    :func:`until_ok` does not know; an ``expect`` not in :data:`EXPECTS`; a ``goal`` that is no point; and a ``target``
-    or ``avoid`` key that is no registered region."""
+    names missing; a trigger with neither ``target`` nor ``until``; a trigger's ``to`` (S14, research/o6_design.md
+    1.2: the place its door leads to) that is no int; an ``until`` that is empty or has a key :func:`until_ok` does not
+    know; an ``expect`` not in :data:`EXPECTS`; a ``goal`` that is no point; and a ``target`` or ``avoid`` key that is
+    no registered region."""
     base = pred.get("steps_default") or {}
     out = {**base, **raw}
     out["climb"] = {**(base.get("climb") or {}), **(raw.get("climb") or {})}
@@ -339,6 +352,8 @@ def step_of(pred: dict, raw: dict) -> dict:
         raise ValueError(f"step {raw!r}: a {kind} step needs {missing}")
     if kind == "trigger" and out.get("target") is None and out.get("until") is None:
         raise ValueError(f"step {raw!r}: a trigger step needs a target or an until")
+    if kind == "trigger" and out.get("to") is not None and not _is_int(out["to"]):
+        raise ValueError(f"step {raw!r}: a trigger's to is a place, an int (a bool is no int)")
     if out.get("until") is not None:
         if not isinstance(out["until"], dict) or not out["until"]:
             raise ValueError(f"step {raw!r}: until is a non-empty predicate, e.g. {{'x_le': 900}}")
@@ -354,6 +369,33 @@ def step_of(pred: dict, raw: dict) -> dict:
     if unknown:
         raise ValueError(f"step {raw!r}: {unknown} is no registered region")
     return out
+
+
+def trigger_to_verdict(lost, fid: int, ok: bool, landed, to_place, to: int) -> tuple:
+    """S14's verdict, pure (research/o6_design.md 1.2; decision 3): ``lost`` the walk's loss sample (route_to's probe,
+    or the trigger wait's read) with its ``field``; ``fid`` the field the walk ran in; ``ok`` whether ``lost`` satisfies
+    the step's evidence (``until``, or standing in its ``target``); ``landed`` the landing -- route_to's own record, or
+    the switch waited out once the published id left -- None while he is still in ``fid``; ``to_place`` its frozen
+    place. Returns ("done", landed) -- the evidence held where control went IN THIS FIELD, and the run either has not
+    left yet or left for ``to`` (path A: None; path B: the next field); ("left", landed) -- the evidence held but the
+    landing is ANOTHER place: by the step's soundness proof (O6-GOALS (d') and (e)) the loss was the door's own, whose
+    only live ``Field()`` leads to ``to``, so the landing is its script's, the fork's or the engine's, never the walk's
+    -- rule 2's verdict for that field, the GAME's (rev. 2, 11.5 #1); ("v13", why) -- the loss was never read in this
+    field (``lost`` None, or ``lost["field"]`` another field: a read gap across the door's fade -- the instrument's, the
+    evidence unjudgeable); ("v11", why) -- the walk left the field from an in-field loss WITHOUT the evidence (today's
+    ``strayed``): the driver's, the ONLY driver V11 under ``to``; ("judge", None) -- an in-field loss without the
+    evidence and no landing: today's last lines decide (door_loss, interrupted)."""
+    if lost is None or lost.get("field") != fid:
+        where = "never read" if lost is None else f"read only in {lost.get('field')}"
+        return "v13", (f"the loss of control went unseen in {fid} ({where}"
+                       + ("" if landed is None else f"; the run in {landed}")
+                       + "): a read gap across the door's fade -- the instrument's, its evidence unjudgeable")
+    if ok:
+        return ("done" if landed is None or to_place == to else "left"), landed
+    if landed is not None:
+        return "v11", (f"the trigger's walk left {fid} without the step's evidence: control went at "
+                       f"({lost.get('x')}, {lost.get('z')})")
+    return "judge", None
 
 
 # ======================================================================== S4: the battle registry, stop pages (pure)
@@ -2130,6 +2172,7 @@ class _Drive:
         self.hold = None                   # a ready choice's (snapshot, since, frame)
         self.pending = None                # the last press row, its post not yet read
         self.walked = None                 # the last step row, while its walk ended unfinished and nothing acted since
+        self.to_row = None                 # S14b: the last DONE trigger step row carrying ``to``, its walk-out unread
         self.seen: set = set()             # (line, pattern) of every forbidden hit already judged
         self.floors: dict = {}
         self.sig, self.since = None, time.time()
@@ -2469,6 +2512,8 @@ class _Drive:
         during the walk or after it -> V11 (driver); control gone in a registered exit of this place -> its switch
         waited out, V11 on a landing; otherwise ``interrupted``. A walk that ended with control held waits
         TRIGGER_WAIT_S for it to go, else ``failed``."""
+        if step.get("to") is not None:                   # S14 (opt-in): the landing-aware trigger
+            return self.x_trigger_to(step)
         from harness import HarnessError
         from ff9mapkit.content import doorface
         g, fid = self.g, self.fid
@@ -2513,6 +2558,100 @@ class _Drive:
             return verdict
         out["why"] = why
         return "interrupted", out
+
+    def x_trigger_to(self, step: dict) -> tuple:
+        """S14, THE LANDING-AWARE TRIGGER (research/o6_design.md 1.2; decision 3), a trigger step carrying ``to``: the
+        walk as :meth:`x_trigger` walks it; a walk that ended with control held waits TRIGGER_WAIT_S for it to go
+        (``failed`` without), a read with control gone IN THIS FIELD its loss sample; then the landing
+        (:meth:`left_for`: route_to's own record, or the switch waited out once the published id left) and
+        :func:`trigger_to_verdict`. Done -- path A (route_to returned before the map switch: ``landed`` None) or path B
+        (after it: the next field, its ``flip_frame`` read off the ring); ``left`` -- the evidence held and the run
+        landed in another place, kept under ``misroute`` with ``landed`` None and no class: rule 2 judges the landing
+        on the next poll; V13 by the driver -- the loss never read here; V11 by the driver -- an in-field loss without
+        the evidence that lands (:meth:`strayed`); else today's landing judge (:meth:`door_loss`, ``interrupted``)."""
+        from harness import HarnessError
+        from ff9mapkit.content import doorface
+        g, fid = self.g, self.fid
+        wait = float(step["exit_wait_s"])
+        pts = region(self.pred, step["target"])["points"] if step.get("target") else None
+        rec = g.route_to(*step["goal"], zone=pts, avoid=polys(self.pred, step.get("avoid")),
+                         tolerance=float(step["tolerance"]), **self.walk_kw(step))
+        out = {"route": trim_route(rec), "lost": rec.get("lost"), "landed": None}
+        if out["lost"] is None and rec.get("landed") in (None, fid):
+            st = g.state
+            if st.control and st.field_id == fid:
+                try:
+                    st = g.wait_for(lambda s: not s.control or s.field_id != fid, timeout=TRIGGER_WAIT_S,
+                                    what="the trigger to take control")
+                except HarnessError as err:
+                    if "live samples" not in str(err):
+                        raise
+                    out["why"] = "the walk ended with control held and nothing took it"
+                    return "failed", out
+            if st.field_id == fid and not st.control:      # control gone IN THIS FIELD: the loss sample
+                out["lost"] = {**sample(st), "field": st.field_id}
+        landed = self.left_for(rec, out, "the trigger's door", wait)
+        lost = out["lost"]
+        here = lost is not None and lost.get("field") == fid
+        ok = here and ((lost.get("x") is not None and doorface.region_contains(lost["x"], lost["z"], pts))
+                       if pts is not None else until_ok(step["until"], lost.get("x"), lost.get("z")))
+        to = step.get("to")
+        to_place = None if landed is None else place(landed, self.members)
+        verdict, what = trigger_to_verdict(lost, fid, ok, landed, to_place, to)
+        if here and landed is not None and rec.get("landed") == landed:     # route_to saw the landing: its flip
+            after = ring_since(g, int(lost["frame"]))
+            out.setdefault("flip_frame", next((int(raw.get("frame", -1)) for _t, raw in after
+                                               if int((raw.get("field") or {}).get("id", -1)) != fid), None))
+        if verdict == "done":
+            out["landed"] = landed
+            return "done", out
+        if verdict == "left":
+            out["misroute"] = {"fld": landed, "place": to_place}
+            out["why"] = (f"the door's evidence held at ({lost.get('x')}, {lost.get('z')}) in {fid} and the run landed "
+                          f"in {landed} (place {to_place}), not {to}: rule 2's")
+            return "left", out
+        if verdict == "v13":
+            out["landed"] = landed
+            out.update(v="V13", by="driver", why=what)
+            return "void", out
+        if verdict == "v11":
+            return self.strayed(step, out, landed, what)
+        why = f"control went at ({lost.get('x')}, {lost.get('z')}) without the step's evidence"
+        verdict = self.door_loss(step, out, why)
+        if verdict is not None:
+            return verdict
+        out["why"] = why
+        return "interrupted", out
+
+    def walkout_record(self) -> None:
+        """S14b, THE WALK-OUT ON RECORD (research/o6_design.md 1.2; the driver critic's #5), on rule 1's first poll in an
+        end field after a DONE trigger step carrying ``to``: that step row (``self.to_row``) updated IN PLACE -- as
+        :meth:`stray` updates a walked row -- from the ring since its loss sample: ``walkout``, ``[frame, x, z,
+        control]`` of every sample still in the step's field (where ExitField's walk-out took him, and where it
+        stopped); ``flip_frame``, when the executor read none (path A: route_to returned before the map switch), the
+        first sample in another field, with ``flip_late`` True (False when the executor had one: path B, or the switch
+        waited out); and ``landed_frame``, the first sample in an end field. Both landing paths then carry the loss ->
+        flip -> landing frames."""
+        row, self.to_row = self.to_row, None
+        lost = row.get("lost") or {}
+        if lost.get("frame") is None:
+            return
+        fld, walk, flip, landed = row.get("field"), [], None, None
+        for _t, raw in ring_since(self.g, int(lost["frame"])):
+            f = int((raw.get("field") or {}).get("id", -1))
+            s = raw_sample(raw)
+            if f == fld:
+                walk.append([s["frame"], s["x"], s["z"], s["control"]])
+                continue
+            if flip is None:
+                flip = s["frame"]
+            if landed is None and f in self.ends:
+                landed = s["frame"]
+        row["walkout"] = walk
+        row["flip_late"] = row.get("flip_frame") is None
+        if row["flip_late"]:
+            row["flip_frame"] = flip
+        row["landed_frame"] = landed
 
     def x_confirm(self, step: dict) -> tuple:
         """confirm (2.3): the walk to the goal WITHOUT the zone (a zone ends the walk at its edge), judged by the
@@ -2654,8 +2793,9 @@ class _Drive:
     # -- one step -------------------------------------------------------------------------------------------------
     def run_step(self, c: dict, n: int, st) -> None:
         """Run step ``n`` of cell ``c`` (rule 8): its executor, its ``step`` row, the counters (2.3) -- done moves the
-        cell on, ``failed`` spends an attempt, ``interrupted`` an interruption, either out of them VOID V7 -- and, in a
-        watched cell, the ring's samples of the call as ``watch`` rows."""
+        cell on, ``failed`` spends an attempt, ``interrupted`` an interruption, either out of them VOID V7; S14's
+        ``left`` (opt-in, research/o6_design.md 1.2) moves nothing and raises nothing, its landing rule 2's on the next
+        poll -- and, in a watched cell, the ring's samples of the call as ``watch`` rows."""
         step = step_of(self.pred, c["steps"][n])
         key = (self.visit, self.donor, self.sc, n)
         tries = self.tries.setdefault(key, {"failed": 0, "interrupted": 0})
@@ -2675,6 +2815,8 @@ class _Drive:
                "lost": rec.get("lost"), "landed": rec.get("landed"), "flip_frame": rec.get("flip_frame"),
                "door": rec.get("door"), "route": rec.get("route"), "lunge": rec.get("lunge"), "climb": rec.get("climb"),
                "depth": rec.get("depth"), "v": rec.get("v"), "by": rec.get("by"), "why": rec.get("why")}
+        if rec.get("misroute") is not None:      # S14 (opt-in): the landing after a door's evidence held -- rule 2's
+            row["misroute"] = rec["misroute"]
         self.log.append(row)
         self.steps.append(row)
         self.since = time.time()                 # an executor is bounded by its own timeouts, not the watchdog
@@ -2685,6 +2827,10 @@ class _Drive:
             self.done[(self.visit, self.donor, self.sc)] = n + 1
             if step.get("beat"):
                 self.beats[step["beat"]] = True
+            if step["kind"] == "trigger" and step.get("to") is not None:
+                self.to_row = row                # S14b: rule 1 puts its walk-out on it
+        elif verdict == "left":                  # S14 (opt-in): no beat, no raise -- rule 2 judges the landing
+            pass
         elif verdict == "failed":
             tries["failed"] += 1
             if tries["failed"] >= int(step["attempts"]):
@@ -3000,6 +3146,8 @@ class _Drive:
                 self.end_state = read_end_state(g, pred)
                 if self.forbid_live:
                     self.scan()
+                if self.to_row is not None:          # S14b (opt-in): the done door step's walk-out, flip and landing
+                    self.walkout_record()
                 row = {"k": "end", "field": self.fid, "frame": st.frame, "sc": self.sc, "end_state": self.end_state,
                        "t": round(time.time() - self.t0, 1)}
                 if self.end_row_s is not None:
