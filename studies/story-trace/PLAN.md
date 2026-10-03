@@ -1291,7 +1291,12 @@ A-C of the design's section 9): `--offline-check` 6 PASS on the DRAFT; `--prefli
 (O4 deployed the chain: nothing to deploy or relaunch); [`o5_dryrun.py`](o5_dryrun.py) 144/144 as registered (86
 session cases, "predictions-changed", 18 units, 39 listed units -- every check failing on its mutant); the regression
 gate G1-G27 (O1-O4 byte-identical; O5's FakeGame and driver tests G26; O5's dry run G27);
-[`o5_rehearse.py`](o5_rehearse.py) and its six tests (five launches on the fake, one on synthetic rows). Nothing is
+[`o5_rehearse.py`](o5_rehearse.py) and its eight tests (five launches on the fake -- R-STAIRS's plumbing, R-WALK-VOID,
+F-SMOKE, F-PASS and R-RACE -- and three pure: the stage table's ids, the walk record and the recorder's dialog-section
+catch, on synthetic rows). A code review of the build raised five findings, each fixed with a test that fails without
+it (research/o5_design.md 11.6): the guarded choice taken under the answer is S10's gone choice, never the instrument's
+stop; the fake's choice cursor wraps as the engine's does; R-RACE's record reads 127 and 128 by the draft's guard; the
+recorder counts the dialog-section catch as the agent publishes it; and the rehearsal tests' count above. Nothing is
 frozen: `o5_predictions_v1.json` does not exist, and `--freeze` refuses until the draft names its rehearsals.
 
 **Next (the lead):** the rehearsals, `py tools/play.py studies/story-trace/o5_rehearse.py --label o5-rh --timeout 240`

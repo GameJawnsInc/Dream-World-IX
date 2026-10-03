@@ -21867,7 +21867,8 @@ def test_o5_drive_choice_taken_under_the_answer_is_the_gone_choice(game):
     """S10 UNDER S11 (research/o5_design.md 2.5.3-2.5.4; the review's walk-and-choice finding): 128 answered at its cursor
     (0) by input no witness saw AFTER rule 6 read it ready -- as the driver's answer begins: a wrapped ``select`` arms the
     machine's ``stray_confirm_at_ready`` (the fake's own frame takes it) and waits for the take, 128's close tween
-    stretched to 0.5 s of the game's clock (``close_s``, set at the take: 128's alone) -- so ``select`` reads the window
+    stretched to 1 s of the game's clock (``close_s``, set at the take: 128's alone; slack for a starved driver's first
+    read) -- so ``select`` reads the window
     closing on cursor 0, presses Down into it, and raises "the choice dialogue closed while selecting" once it is gone.
     That is S10's gone choice, never the instrument's stop: ``answer_gone`` rows select's presses as the ANSWER's own
     (the guard row's ``answer`` span: never strays) and judges it as rule 7's (i) does -- ``guard_stray("choice_gone")``,
@@ -21885,7 +21886,7 @@ def test_o5_drive_choice_taken_under_the_answer_is_the_gone_choice(game):
             if not got.get("taken"):
                 got["taken"] = True
                 m = fake._machine
-                m.k["close_s"] = 0.5                     # 128's close tween (its take's): 30 frames at the game's pace
+                m.k["close_s"] = 1.0                     # 128's close tween (its take's): 60 frames at the game's pace
                 m.k["stray_confirm_at_ready"] = True     # taken at its cursor in the fake's own next frame
                 _o5_wait(lambda: fake.answered)
             return real(index, timeout=timeout)
@@ -21902,16 +21903,16 @@ def test_o5_drive_choice_taken_under_the_answer_is_the_gone_choice(game):
         if inside:
             break
     _o5_void(out, "V13", "driver", [30820, 1190, 1], "unattributed input")
+    assert inside, ("premise: no Down of select's went down inside [127's last sample, 128's close) in 3 runs", downs, gr)
     assert got.get("taken") and fake.answered == [0], (got, fake.answered)
     stray = _g_rows(log, "guard_stray")
     assert len(stray) == 1 and (stray[0]["kind"], stray[0]["strays"], stray[0]["v"]) == ("choice_gone", [], "V13"), stray
     assert "closed while selecting" in stray[0]["note"], stray[0]
     assert len(gr) == 1 and gr[0]["verdict"] == "V13" and gr[0]["answer"] is not None and gr[0]["strays"] == [], gr
     lo, hi = gr[0]["answer"]
-    assert downs and all(lo < int(r["seq"]) <= hi for r in downs), (gr[0]["answer"], downs)
+    assert all(lo < int(r["seq"]) <= hi for r in downs), (gr[0]["answer"], downs)
     assert not [r for r in _g_rows(log, "press", why="choose") if r.get("button") != "down"], "a Confirm of the answer"
     assert not _g_rows(log, "choice") and not _g_rows(log, "observed"), log
-    assert inside, ("premise: no Down of select's went down inside [127's last sample, 128's close) in 3 runs", downs, gr)
 
 
 def test_o5_drive_reask_after_a_verified_landing_is_v2(game):
