@@ -23038,3 +23038,3352 @@ def test_o5_rehearsal_race_reads_the_unguarded_race_on_the_fake(game):
     assert gd["choice"] is None and fake.answered == [0], (gd["choice"], fake.answered)
     assert gd["branch_page"]["which"] == "other" and "mes 129" in gd["branch_page"]["text"], gd["branch_page"]
     assert gd["marker_pages"] and gd["marker_presses"], (gd["marker_pages"], gd["marker_presses"])
+
+
+# ---- O6, PART A (research/o6_design.md section 9): the regression gate extended to O5 (G28-G31, G21 over the union of
+# the O3, O4 and O5 baselines' pins), the O5 replay on the hand-stepped fake (A0b), then the shared opt-in changes --
+# S14/S14b the landing-aware trigger and its walk-out on record, H16 a region's walk-out (A1), S15 end_run's naming
+# recovery and the session stop, H16b the fields that swallow the soft reset (A2). Every ``test_segment_*`` here is
+# collected by G7's selection ("segment"), so the gate re-runs it.
+
+def test_segment_regress_o5_pins_join_the_union(tmp_path):
+    """G21 OVER THREE BASELINES (research/o6_design.md 1.4, 9 A0), pure, over a temporary COPY of the two pinned files:
+    the O3 baseline's pins (an O1 test, the fake's ``_control``), the O4 baseline's (an O4 test, the fake's story sink)
+    and the O5 baseline's (an O5 test, the fake's ``_story_site``, a ``_VisitBeat`` method) join into ONE set of pins
+    (``union_sources``) that reads clean; an edit to the pinned O5 TEST's body FAILS naming it -- and only it, which the
+    O3 and O4 pins alone cannot see; a re-baseline row for that O5-baseline name (its ``old`` the O5 pin) reads clean
+    again. Through files too: G21 over three temporary baselines (``union_base``, as the gate passes them) and a pins
+    file, and ``--rebaseline-source`` finding the name in the O5 baseline alone (``baseline_o5``; without it the name is
+    not pinned, and a refusal writes nothing). A name pinned in TWO baselines is refused at capture (``o5_pin_names``:
+    one the O3 or the O4 baseline already pins) and by the union -- and so by ``--rebaseline-source``. The fake's O5
+    pins are FAKE_PINS_O5 and every method of ``_VisitBeat`` (``fake_pins_o5``). Break: judge the O3 and O4 baselines'
+    sources alone (the edit then passes), or let a union keep one of two pins."""
+    R = _regress_module()
+    test_copy, fake_copy = tmp_path / "test_harness.py", tmp_path / "fakegame.py"
+    test_copy.write_bytes((REPO / R.TEST_REL).read_bytes())
+    fake_copy.write_bytes((REPO / R.FAKE_REL).read_bytes())
+    files = {R.TEST_REL: test_copy, R.FAKE_REL: fake_copy}
+    pick = R.pin_of_test("test_o1_pick_for_reads_the_frozen_rules_by_option_text")
+    control = f"{R.FAKE_REL}::_control"
+    stray = R.pin_of_test("test_o4_stray_answer_attributes_by_the_down_frame")
+    sink = f"{R.FAKE_REL}::FakeGame._story_store"
+    off = R.pin_of_test("test_fake_story_suppress_is_off_by_default")
+    site = f"{R.FAKE_REL}::FakeGame._story_site"
+    shown = f"{R.FAKE_REL}::_VisitBeat.shown"
+    o3 = R.source_shas([pick, control], files=files)
+    o4 = R.source_shas([stray, sink], files=files)
+    o5 = R.source_shas([off, site, shown], files=files)
+    assert all(isinstance(v, str) and len(v) == 64 for v in [*o3.values(), *o4.values(), *o5.values()]), (o3, o4, o5)
+    union = R.union_sources(o3, o4, o5)
+    assert sorted(union) == sorted([pick, control, stray, sink, off, site, shown]), union
+    assert R.g21_bad(union, R.source_shas(sorted(union), files=files), []) == []
+    assert R.union_sources(o3, o4) == {**o3, **o4}, "two baselines join as they always did"
+
+    def edit(path, old, new):
+        text = path.read_text(encoding="utf-8")
+        assert text.count(old) == 1, f"premise: {old!r} occurs once in the copy"
+        path.write_text(text.replace(old, new), encoding="utf-8")
+    edit(test_copy, "    assert FakeGame(game).story_suppress is False\n",
+         "    assert FakeGame(game).story_suppress is not True\n")
+    now = R.source_shas(sorted(union), files=files)
+    bad = R.g21_bad(union, now, [])
+    assert len(bad) == 1 and bad[0].startswith(f"{off}: changed (") and "--rebaseline-source" in bad[0], bad
+    two = R.union_sources(o3, o4)
+    assert R.g21_bad(two, R.source_shas(sorted(two), files=files), []) == [], \
+        "premise: the O3 and O4 pins alone pass the edit"
+    row = R.pin_row(union, [], off, o5[off], now[off], "  the O5 test changed on purpose ", "abc123")
+    assert row == {"name": off, "old": o5[off], "new": now[off], "reason": "the O5 test changed on purpose",
+                   "head": "abc123"}, row
+    assert R.g21_bad(union, now, [row]) == []
+    # through files: three temporary baselines and a pins file -- G21 over their union, --rebaseline-source on the O5 name
+    b3, b4, b5 = (tmp_path / f"o{n}_regress_baseline.json" for n in (3, 4, 5))
+    pins = tmp_path / "source_pins.json"
+    for path, src in ((b3, o3), (b4, o4), (b5, o5)):
+        path.write_text(json.dumps({"sources": src, "sources_python": R._py()}), encoding="utf-8")
+    pins.write_text("[]\n", encoding="utf-8")
+
+    def read(path):
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def g21():
+        return R.g21(R.union_base(read(b3), read(b4), read(b5)), pins, files=files)
+    ok, what, detail = g21()
+    assert ok is False and what.startswith("G21: ") and f"{off}: changed" in detail and pick not in detail, detail
+    assert "the O5 tests G26 collected at the O5 capture" in what, what
+    assert R.rebaseline_source(off, "", baseline=b3, baseline_o4=b4, baseline_o5=b5, pins=pins, files=files) == 1
+    assert R.rebaseline_source(off, "the O5 test changed on purpose", baseline=b3, baseline_o4=b4, pins=pins,
+                               files=files) == 1                 # the O3 and O4 baselines alone: not pinned
+    assert pins.read_text(encoding="utf-8") == "[]\n", "a refusal writes nothing"
+    assert R.rebaseline_source(off, "the O5 test changed on purpose", baseline=b3, baseline_o4=b4, baseline_o5=b5,
+                               pins=pins, files=files) == 0
+    rows = json.loads(pins.read_text(encoding="utf-8"))
+    assert [(r["name"], r["old"], r["new"]) for r in rows] == [(off, o5[off], now[off])], rows
+    ok, _what, detail = g21()
+    assert ok is True and "7 sources at their pins (1 re-baseline row" in detail, detail
+    # a name pinned in two baselines: refused at capture, no union, no re-baseline
+    with pytest.raises(ValueError, match="pinned in both the O3 and the O5 baselines"):
+        R.o5_pin_names(o3, o4, [off, site, pick])
+    with pytest.raises(ValueError, match="pinned in both the O4 and the O5 baselines"):
+        R.o5_pin_names(o3, o4, [off, sink])
+    assert R.o5_pin_names(o3, o4, [off, site, site, shown]) == [off, site, shown]
+    with pytest.raises(ValueError, match="pinned in both the O4 and the O5 baselines"):
+        R.union_sources(o3, o4, {**o5, stray: o4[stray]})
+    with pytest.raises(ValueError, match="pinned in both the O3 and the O5 baselines"):
+        R.union_sources(o3, o4, {**o5, pick: o3[pick]})
+    b5.write_text(json.dumps({"sources": {**o5, sink: o4[sink]}, "sources_python": R._py()}), encoding="utf-8")
+    assert R.rebaseline_source(off, "why", baseline=b3, baseline_o4=b4, baseline_o5=b5, pins=pins, files=files) == 1
+    assert len(json.loads(pins.read_text(encoding="utf-8"))) == 1, "a refusal writes nothing"
+    # the fake's O5 pins: FAKE_PINS_O5, then every method of _VisitBeat
+    source = fake_copy.read_text(encoding="utf-8")
+    names = R.fake_pins_o5(source)
+    assert names[:len(R.FAKE_PINS_O5)] == list(R.FAKE_PINS_O5) and len(names) == len(set(names)), names
+    methods = {q for q in R.functions_of(source) if q.split(".")[0] in R.FAKE_PIN_CLASSES_O5}
+    assert methods <= set(names) and {"_VisitBeat.shown", "_VisitBeat._stairs"} <= methods, methods
+    with pytest.raises(ValueError, match="no method of _VisitBeat"):
+        R.fake_pins_o5(source.replace("class _VisitBeat(_Machine):", "class _Visit(_Machine):"))
+
+
+#: A0b's golden (research/o6_design.md 9 A0b): O5's route on the hand-stepped fake, as master left the fake.
+_O5_REPLAY = REPO / "studies" / "story-trace" / "research" / "o5_fake_replay.json"
+
+
+def _o5_replay(game, side: str) -> dict:
+    """O5's route builder (:func:`_o5_route`, ``side``) played BY HAND to its end -- :func:`_fv_play`'s scripted player
+    (every page, pair and timed window Confirmed, 128 answered "Examine her face", the stair walked straight west), the
+    fake stepped frame by frame (``_frame_once``): no thread, no wall clock -- started as
+    test_fake_visit_route_plays_to_151_unattended starts it (field 70's prologue values, the trace armed with the sink's
+    suppression, the raw warp's residue, the visit beats staged in 153's field). ``{"frames": [[frame, field, ui_state,
+    control, x, z, [[slot, raw, text], ...], choice], ...], "rows": [...]}``: every frame whose compact sample changed
+    (its windows the beat's listed ones, each text as the agent would publish it) and every trace row."""
+    from harness.fakegame import _VisitBeat
+    fake = _fv_fake(game, field=70, trace=False)
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(325, 1190)                         # the raw warp's residue, seen in field 70
+    fake.field_id = _O5_FIELDS[side]["153"]
+    fake.scene(*_o5_route(side), control=False)
+    frames: list = []
+    last: list = [None]
+    step = fake._frame_once
+
+    def sample() -> list:
+        m = fake._machine
+        assert m is None or isinstance(m, _VisitBeat), m
+        wins = [] if m is None else [[w.slot, w.raw, m.shown(fake, w)] for w in m.windows if not w.gone]
+        return [fake.field_id, fake.ui_state, bool(fake.control), round(float(fake.player[0]), 6),
+                round(float(fake.player[2]), 6), wins, json.loads(json.dumps(fake.choice))]
+
+    def frame_once() -> None:
+        step()
+        s = sample()
+        if s != last[0]:
+            frames.append([fake.frame, *s])
+            last[0] = s
+    fake._frame_once = frame_once                       # the scripted player steps through this, frame by frame
+    _fv_play(fake, answers=(1,))
+    fake._story_stop()
+    assert fake._machine is None and fake.answered == [1], (fake._machine, fake.answered)
+    return {"frames": frames, "rows": _fv_rows(fake)}
+
+
+def _replay_text(doc: dict) -> str:
+    """The golden's text: JSON, one frame or row a line (a diff names it), ASCII, LF."""
+    out = ["{", f' "what": {json.dumps(doc["what"])},']
+    for n, side in enumerate(("S", "F")):
+        out.append(f' "{side}": {{')
+        for k, key in enumerate(("frames", "rows")):
+            items = doc[side][key]
+            out.append(f'  "{key}": [')
+            out += [f"   {json.dumps(x, separators=(',', ':'))}{',' if i < len(items) - 1 else ''}"
+                    for i, x in enumerate(items)]
+            out.append("  ]" + ("," if k == 0 else ""))
+        out.append(" }" + ("," if n == 0 else ""))
+    out.append("}")
+    text = "\n".join(out) + "\n"
+    assert json.loads(text) == json.loads(json.dumps(doc)), "the golden's text is the document"
+    return text
+
+
+def test_fake_door_keeps_the_hallway_route_identical(game):
+    """A0b, THE O5 REPLAY (research/o6_design.md 9 A0b; rev. 2, the claim critic's #5): G1-G31 replay RECORDED sessions
+    and cannot see a fake change, and once B1 re-baselines O5's pinned ``_VisitBeat`` methods G26 proves O5's tests
+    pass, not that the fake is unchanged. So O5's route builder -- S and F -- is played BY HAND on the fake
+    (:func:`_o5_replay`: no thread, no wall clock) and the document it builds -- every frame whose compact sample
+    changed and every trace row -- is compared with the golden ``research/o5_fake_replay.json``, captured on the fake as
+    master left it (before H16 and every later fake edit): a difference FAILS naming the first differing frame, a
+    missing golden FAILS (never a skip). With ``O6_CAPTURE_REPLAY=1`` it WRITES the golden instead -- refusing an
+    existing file, and refusing unless two captures in one process are equal. Break: any change to how the fake plays
+    O5's route (a visit beat's opening by a frame, a store, a walk step) -- the frame it first shows names it."""
+    sides = ("S", "F")
+    doc = {"what": "O5's route builder (_o5_route, S and F) played by hand on the fake (research/o6_design.md 9 A0b): "
+                   "every frame whose compact sample changed -- [frame, field, ui_state, control, x, z, [[slot, raw, "
+                   "text], ...], choice] -- and every trace row",
+           **{side: _o5_replay(game, side) for side in sides}}
+    if os.environ.get("O6_CAPTURE_REPLAY") == "1":
+        assert not _O5_REPLAY.exists(), f"{_O5_REPLAY} exists: the golden is captured once, never overwritten"
+        again = {"what": doc["what"], **{side: _o5_replay(game, side) for side in sides}}
+        assert _replay_text(again) == _replay_text(doc), "two captures in one process differ: no golden written"
+        _O5_REPLAY.write_bytes(_replay_text(doc).encode("ascii"))
+        return
+    assert _O5_REPLAY.is_file(), (f"no golden at {_O5_REPLAY}: capture it (O6_CAPTURE_REPLAY=1) on the fake as master "
+                                  f"left it, before any fake edit")
+    want = json.loads(_O5_REPLAY.read_text(encoding="utf-8"))
+    got = json.loads(_replay_text(doc))
+    for side in sides:
+        for key in ("frames", "rows"):
+            a, b = got[side][key], want[side][key]
+            i = next((n for n, (x, y) in enumerate(zip(a, b)) if x != y), None)
+            if i is not None:
+                raise AssertionError(f"{side} {key}[{i}] differs from the golden: got {a[i]!r}, want {b[i]!r}")
+            assert len(a) == len(b), (f"{side} {key}: {len(a)} entries, the golden {len(b)}; the first unmatched "
+                                      f"{(a[len(b)] if len(a) > len(b) else b[len(a)])!r}")
+    assert got == want
+
+
+# ---- A1: H16 (research/o6_design.md 3.1) -- a region's walk-out and the test-held exit gate; S14 (1.2) -- THE
+# LANDING-AWARE TRIGGER, ``to`` on a trigger step; S14b -- its walk-out on record. The fake's fields: 30820 the walk's
+# (O6's "153"), 30821 the door's (its "154", the end), 30810 another place ("150"); on F the members 31245 / 31246 /
+# 31243. The door's tag 2 fires on its quad past z 600 (e23's past z 1333), registered over its whole quad from z 300
+# (e23's from 924), the step's evidence ``until`` z > 500 (e23's 1200).
+
+_S14_FLOOR = (-600.0, -600.0, 600.0, 1500.0)            # the fake's floor: the walk north into the door's mouth
+_S14_FIRE = _rect(-300, 600, 300, 3000)                 # where the fake's region fires: the quad AND z > 600
+_S14_QUAD = _rect(-300, 300, 300, 3000)                 # the door as registered: its whole quad
+_S14_STEP = {"kind": "trigger", "name": "the north door", "goal": [0, 900], "until": {"z_gt": 500}, "to": 30821,
+             "beat": "door"}
+_S14_MEMBERS = {"31245": 30820, "31246": 30821, "31243": 30810}
+_S14_NAMES = {"31245": "S14_H2F", "31246": "S14_ENT", "31243": "S14_HALL"}
+
+
+def _h16_fake(game, walkout=None, gate=None):
+    """H16's fake, stepped BY HAND at 30 fps (a field tick a frame): him at (0, 560) in 30820 with control, one frame of
+    Up held -- into the door's region, which fires past z 600 and lands in 30821 ``exit_frames`` (25) later -- stepped
+    to the frame it fired on."""
+    fake = _fv_fake(game, field=30820, trace=False)
+    fake.control, fake.player = True, [0.0, 0.0, 560.0]
+    region = {"zone": _S14_FIRE, "to": 30821, "arrive": (0, 0)}
+    if walkout is not None:
+        region["walkout"] = walkout
+    fake.regions = {30820: [region]}
+    fake.exit_frames, fake.exit_gate = 25, gate
+    fake._schedule("up", 1)
+    _cb_until(fake, lambda f: f.fired)
+    assert not fake.control and 600 < fake.player[2] < 700 and fake.fired[0]["to"] == 30821, (fake.player, fake.fired)
+    return fake
+
+
+def _h16_track(fake) -> list:
+    """``(frame, field, control, z)`` of every frame from the fire to the first in another field."""
+    out: list = []
+    _cb_until(fake, lambda f: out.append((f.frame, f.field_id, f.control, f.player[2])) or f.field_id != 30820,
+              limit=200)
+    return out
+
+
+def test_segment_region_walkout_keeps_him_moving_until_the_flip_on_the_fake(game):
+    """H16 (research/o6_design.md 3.1), the fake stepped by hand at 30 fps (a field tick a frame): a region with
+    ``walkout`` keeps him moving after it fires -- ExitField's MOVJ toward ``to`` at ``speed`` units a tick -- with
+    control off on every frame, and stops where his z passes ``stop_z`` (held there: a radius short of the floor's end);
+    the field changes ``exit_frames`` after the fire. Without ``stop_z`` he moves every frame until the switch. With
+    ``exit_gate`` held the switch waits past ``exit_frames``, him standing at ``stop_z``, until the event is set -- then
+    lands in one frame. Without the key his position is frozen from the fire (today's ExitField). Breaks: no walk-out
+    (he stands at the fire); ignore the gate (the switch at ``exit_frames``)."""
+    fake = _h16_fake(game, {"to": [0, 3000], "speed": 60, "stop_z": 1000})
+    fired, z0 = fake.frame, fake.player[2]
+    rows = _h16_track(fake)
+    before, after = rows[:-1], rows[-1]
+    assert before[0] == (fired, 30820, False, z0) and not any(c for _f, _fld, c, _z in before), before[:3]
+    zs = [z for _f, _fld, _c, z in before]
+    assert [b - a for a, b in zip(zs, zs[1:6])] == [pytest.approx(60)] * 5, zs[:7]           # 60 u a tick
+    assert zs[-1] == pytest.approx(1000) and max(zs) == pytest.approx(1000), zs[-4:]         # held at stop_z
+    assert after[:2] == (fired + 25, 30821) and fake.player[2] == 0.0, (after, fake.player)
+    fake = _h16_fake(game, {"to": [0, 3000], "speed": 60})                                  # no stop_z
+    zs = [z for _f, _fld, _c, z in _h16_track(fake)[:-1]]
+    assert len(zs) == 25 and all(b - a == pytest.approx(60) for a, b in zip(zs, zs[1:])), zs
+    fake = _h16_fake(game)                                                                  # no walk-out
+    z0 = fake.player[2]
+    assert {z for _f, _fld, _c, z in _h16_track(fake)[:-1]} == {z0}
+    gate = threading.Event()
+    fake = _h16_fake(game, {"to": [0, 3000], "speed": 60, "stop_z": 1000}, gate)
+    fired = fake.frame
+    _cb_until(fake, lambda f: f.frame >= fired + 60)                  # long past exit_frames: the gate holds it
+    assert (fake.field_id, fake.control) == (30820, False) and fake.player[2] == pytest.approx(1000), fake.player
+    gate.set()
+    fake._frame_once()
+    assert fake.field_id == 30821 and fake.player[2] == 0.0, (fake.field_id, fake.player)
+
+
+def test_segment_step_of_trigger_to_is_strict():
+    """S14, pure (research/o6_design.md 1.2): a trigger step's ``to`` is a place -- an int (a bool is no int) -- or
+    absent; ``step_of`` refuses a bool, a str and a float before anything is driven. A cross's ``to`` is read as it
+    always was (no new refusal), and a trigger without ``to`` is today's. Break: drop the refusal."""
+    SD = _segment_modules()
+    pred = {"regions": {"door": {"points": _S14_QUAD, "role": "exit"}}, "steps_default": dict(_O2_DEFAULTS)}
+    trig = {"kind": "trigger", "goal": [0, 900], "until": {"z_gt": 500}}
+    assert SD.step_of(pred, {**trig, "to": 154})["to"] == 154
+    assert "to" not in SD.step_of(pred, trig)
+    for bad in (True, "154", 154.0):
+        with pytest.raises(ValueError, match="a trigger's to is a place, an int"):
+            SD.step_of(pred, {**trig, "to": bad})
+    cross = {"kind": "cross", "target": "door", "goal": [0, 900], "to": "154"}
+    assert SD.step_of(pred, cross)["to"] == "154"
+
+
+def test_segment_trigger_to_verdict_classes():
+    """S14's verdict, pure (research/o6_design.md 1.2; rev. 2, the claim critic's #1): the evidence held where control
+    went IN THIS FIELD and the run has not left yet (path A) or left for ``to`` (path B) -- done, the landing returned;
+    the evidence held and the run landed in ANOTHER place -- ``left`` (rule 2's verdict for that field, never the
+    walk's); the loss read only in another field, or never read with a landing -- V13 (the instrument's: a read gap
+    across the fade, the evidence unjudgeable); an in-field loss without the evidence that lands -- V11 (the driver's,
+    the only one under ``to``); the same with no landing -- today's judge (door_loss, interrupted). Break: drop the
+    in-field rule (a loss read in the next field is judged on its x, z)."""
+    SD = _segment_modules()
+    here = {"frame": 100, "field": 30820, "x": -50.0, "z": 640.0, "control": False}
+    there = dict(here, field=30821, z=1500.0)
+    assert SD.trigger_to_verdict(here, 30820, True, None, None, 30821) == ("done", None)               # path A
+    assert SD.trigger_to_verdict(here, 30820, True, 30821, 30821, 30821) == ("done", 30821)            # path B
+    assert SD.trigger_to_verdict(dict(here, field=31245), 31245, True, 31246, 30821, 30821) == ("done", 31246)  # F
+    assert SD.trigger_to_verdict(here, 30820, True, 30810, 30810, 30821) == ("left", 30810)            # elsewhere
+    for lost, landed in ((there, 30821), (None, 30821), (None, None)):
+        v, why = SD.trigger_to_verdict(lost, 30820, True, landed, landed, 30821)
+        assert v == "v13" and "30820" in why and "read gap" in why, (lost, landed, v, why)
+    v, why = SD.trigger_to_verdict(here, 30820, False, 30810, 30810, 30821)
+    assert v == "v11" and "without the step's evidence" in why, (v, why)
+    assert SD.trigger_to_verdict(here, 30820, False, None, None, 30821) == ("judge", None)
+
+
+def _s14_pred(step=None, *, side_ends=False, **over):
+    """S14's predictions on the fake (research/o6_design.md 2.1's shape on O2's machinery): ONE visit-scoped cell
+    (30820, SC 1000, visit 1) whose trigger walks north into the door -- ``to`` 30821, the end -- the door registered
+    ``exit`` over its whole quad; route [30820], visits [30820]; ``side_ends`` gives F its members (31245 -> 30820,
+    31246 -> 30821, 31243 -> 30810) and its end member(30821) 31246."""
+    pred = _o2_pred([{"donor": 30820, "sc": 1000, "visit": 1, "steps": [dict(_S14_STEP if step is None else step)]}],
+                    beats=["door"], end=30821, route=(30820,),
+                    regions={"30820.door": {"points": _S14_QUAD, "role": "exit"}})
+    pred["visits"] = [30820]
+    if side_ends:
+        pred.update(start={"S": 30820, "F": 31245}, side_ends={"S": [30821], "F": [31246]},
+                    members=dict(_S14_MEMBERS), names=dict(_S14_NAMES))
+    pred.update(over)
+    return pred
+
+
+def _s14_fake(game, *, fld=30820, to=30821, stop_z=None, walkout=True, arrive=(0, 0), exit_frames=50):
+    """The fake's door in ``fld``: its tag 2 on the quad past z 600, Field(``to``) ``exit_frames`` after the fire
+    (arriving with control OFF, as 154 hands none), and -- ``walkout`` -- ExitField's walk-out north at 60 u a tick,
+    held at ``stop_z`` (None: moving until the switch)."""
+    fake = FakeGame(game, walkmesh=_S14_FLOOR)
+    region = {"zone": _S14_FIRE, "to": to, "arrive": arrive, "arrive_control": False}
+    if walkout:
+        region["walkout"] = {"to": [0, 3000], "speed": 60, "stop_z": stop_z}
+    fake.regions = {fld: [region]}
+    fake.exit_frames = exit_frames
+    return fake
+
+
+class _S14Log(list):
+    """A drive log that sets ``gate`` once a step row is appended (research/o6_design.md 3.1, the driver critic's #3):
+    the map switch can then never precede the door step's row, whatever the harness thread's load."""
+
+    def __init__(self, gate):
+        super().__init__()
+        self.gate = gate
+
+    def append(self, row):
+        super().append(row)
+        if isinstance(row, dict) and row.get("k") == "step":
+            self.gate.set()
+
+
+def _s14_register(game):
+    """The F members registered in the fixture's own DictionaryPatch.txt (``_o5_register``'s shape)."""
+    patch = game / "FF9CustomMap" / "DictionaryPatch.txt"
+    patch.write_text(patch.read_text(encoding="utf-8")
+                     + "".join(f"FieldScene {f} 11 {n} {n} 3\n" for f, n in _S14_NAMES.items()), encoding="utf-8")
+
+
+#: The driver's VOIDs a starved harness can cause (research/o6_design.md 9's load-robust rule): a read gap across the
+#: door's fade (V13 "went unseen"), the budget, a walk timed out (V7) -- re-run, never a game class or a V11.
+_S14_LOAD = ("went unseen", "the run's budget ran out", "of its 2 attempts", "interrupted 2 times")
+
+
+def _s14_drive(game, make, pred, side="S", *, gated=False, wrap=None, spoiled=None):
+    """One S14 drive on the fake, re-run at most twice when a starved harness spoiled it: New Game, the raw warp into
+    the side's start at SC 1000, him at (0, -300), the bases cached, the driver over the fake's floor (``make()`` a
+    fresh fake each attempt; ``gated``: its ``exit_gate`` held until the step row is logged; ``wrap(g, fake)`` before
+    the drive). A run is re-run when it ends in one of :data:`_S14_LOAD`'s driver classes -- or when ``spoiled(out,
+    log)`` says the load bent it -- and only then: anything else is the verdict. ``(outcome or the void raised, log,
+    fake)``."""
+    SD = _segment_modules()
+    start = pred["start"][side]
+    for attempt in range(3):
+        fake = make()
+        gate = threading.Event() if gated else None
+        fake.exit_gate = gate
+        log = _S14Log(gate) if gated else []
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(start, entrance=102, scenario=1000)
+            _stand(g, fake, 0, -300)
+            for f in (start, 30820, 30821, 30810, 31245, 31246, 31243):
+                g._axes[f] = _prior()
+            if wrap is not None:
+                wrap(g, fake)
+            try:
+                out = SD.drive(g, pred, side, log, deadline=time.time() + 90.0,
+                               floor_for=lambda d, closed: _flat_bgi(*_S14_FLOOR), prior_for=lambda d: _prior(),
+                               forbid_live=False)
+            except (SD.RouteVoid, HarnessError) as err:
+                out = err
+        load = (getattr(out, "by", "driver") == "driver" and any(m in str(out) for m in _S14_LOAD)) \
+            if isinstance(out, Exception) else False
+        if attempt == 2 or not (load or (spoiled is not None and spoiled(out, log))):
+            return out, log, fake
+
+
+def _s14_step_row(log):
+    rows = [r for r in log if r["k"] == "step"]
+    assert len(rows) == 1, rows
+    return rows[0]
+
+
+def test_segment_trigger_to_lands_after_the_walk_returns_on_the_fake(game):
+    """S14 PATH A, with S14b (research/o6_design.md 1.2, 0.2 #6): the walk-out held a little past the firing line
+    (``stop_z`` 700) and the map switch GATED until the door step's row is logged (the test-held ``exit_gate``, H16):
+    route_to returns before the switch -- ``route.landed`` None -- and the step is done with ``landed`` None, its loss
+    in 30820 past the evidence. Rule 1, on its first poll in 30821, puts the walk-out on that row (S14b): ``walkout`` --
+    every ring sample from the loss to the flip, still in 30820, his z rising to 700 and held there -- ``flip_frame``
+    with ``flip_late`` True, and ``landed_frame``. Break: no S14b (``flip_frame`` stays None)."""
+    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game, stop_z=700), _s14_pred(), gated=True)
+    assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"door": True}, out
+    row = _s14_step_row(log)
+    assert (row["outcome"], row["landed"], row["route"]["landed"], row["v"]) == ("done", None, None, None), row
+    lost = row["lost"]
+    assert lost["field"] == 30820 and lost["z"] > 500 and not lost["control"], lost
+    assert row.get("flip_frame") is not None and row.get("flip_late") is True and row.get("landed_frame") is not None, \
+        row
+    assert lost["frame"] < row["flip_frame"] <= row["landed_frame"], row
+    walk = row["walkout"]
+    assert walk and all(lost["frame"] < f < row["flip_frame"] and not c for f, _x, _z, c in walk), walk
+    zs = [z for _f, _x, z, _c in walk]
+    assert zs == sorted(zs) and zs[-1] == pytest.approx(700, abs=0.5), zs
+    assert [r["k"] for r in log if r["k"] in ("visit", "step", "end")] == ["visit", "step", "end"], log
+
+
+def test_segment_trigger_to_lands_before_the_walk_returns_on_the_fake(game):
+    """S14 PATH B (research/o6_design.md 1.2, 0.2 #6): no ``stop_z`` -- he walks out until the switch, so route_to never
+    sees him still before it and returns AFTER it: ``route.landed`` and ``changed_to`` 30821. The step is done all the
+    same (the landing is ``to``), ``landed`` 30821, its ``flip_frame`` read off the ring (``flip_late`` False); rule 1
+    still puts the walk-out on the row -- moving samples, his z rising every one. A run a starved harness pushed onto
+    path A (route_to's 3-s settle out before the switch) is re-run, never read. Break: the same table read by today's
+    ``x_trigger`` (no ``to`` dispatch): V11, "the trigger's walk left 30820" -- the case today's code fails."""
+    def on_path_a(out, log):
+        rows = [r for r in log if r["k"] == "step"]
+        return isinstance(out, dict) and len(rows) == 1 and rows[0]["route"]["landed"] is None
+    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game), _s14_pred(), spoiled=on_path_a)
+    assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"door": True}, out
+    row = _s14_step_row(log)
+    assert (row["outcome"], row["landed"], row["v"]) == ("done", 30821, None), row
+    assert row["route"]["landed"] == 30821 and row["route"]["changed_to"] == 30821, row["route"]
+    lost = row["lost"]
+    assert lost["field"] == 30820 and lost["z"] > 500, lost
+    assert row["flip_frame"] is not None and row["flip_late"] is False and lost["frame"] < row["flip_frame"], row
+    zs = [z for _f, _x, z, _c in row["walkout"]]
+    assert len(zs) >= 2 and all(b > a for a, b in zip(zs, zs[1:])), zs
+    assert row["landed_frame"] is not None and row["landed_frame"] >= row["flip_frame"], row
+
+
+def test_segment_trigger_to_wrong_landing_is_rule_2s_on_the_fake(game):
+    """S14's ``left`` (research/o6_design.md 1.2; rev. 2, the claim critic's #1): the door's evidence held -- the loss
+    in 30820 past z 500 -- but its Field() lands in 30810, another place (path B: he walks out until the switch). The
+    step row's outcome is ``left``, the landing under ``misroute`` (``{"fld": 30810, "place": 30810}``), ``landed`` None
+    and no ``v``: no beat, no raise -- and the loop's next poll gives rule 2's verdict for that field, V11 by the GAME
+    at ``[30810, 1000, 1]``, the visit just left. A row the run writes in 30810 is UNBACKED (``backing`` None: no V11
+    step row landed there) -- FORBIDDEN reads it as the fork's. On F, the door landing in REAL 30810 (which member 31243
+    forks): V19 by the game at the same cell -- a finding, never a re-runnable VOID. A run a starved harness bent onto
+    path A (route_to's 3-s settle out before the switch: the step done before the landing exists, rule 2 judging the
+    landing after it) is re-run, its class asserted -- the same V11 / V19 by the game at the same cell (the review,
+    research/o6_design.md 11.7 #4: PART A #10's rule, as the path-B sibling and B3's twin read it). Break: the first
+    design's ``strayed`` (V11 by the driver, ``landed`` set, the rows backed)."""
+    SD = _segment_modules()
+    pred = _s14_pred()
+
+    def bent_onto_path_a(v):
+        def spoiled(out, log):
+            rows = [r for r in log if r["k"] == "step"]
+            if len(rows) == 1 and rows[0]["outcome"] == "done" and (rows[0]["route"] or {}).get("landed") is None:
+                assert isinstance(out, SD.RouteVoid), out
+                assert (out.v, out.by, out.cell) == (v, "game", [30810, 1000, 1]), (out.v, out.by, out.cell, str(out))
+                return True
+            return False
+        return spoiled
+    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game, to=30810), pred, spoiled=bent_onto_path_a("V11"))
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V11", "game", [30810, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    row = _s14_step_row(log)
+    assert (row["outcome"], row["landed"], row["v"], row["by"]) == ("left", None, None, None), row
+    assert row["misroute"] == {"fld": 30810, "place": 30810} and row["lost"]["field"] == 30820, row
+    assert "rule 2's" in row["why"] and "landed in 30810" in row["why"], row["why"]
+    assert SD.backing({"f": row["frame"] + 1, "cause": "walk", "fld": 30810}, log, pred) is None, row
+    _s14_register(game)
+    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game, fld=31245, to=30810), _s14_pred(side_ends=True), "F",
+                                 spoiled=bent_onto_path_a("V19"))
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V19", "game", [30810, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    row = _s14_step_row(log)
+    assert row["outcome"] == "left" and row["misroute"] == {"fld": 30810, "place": 30810}, row
+
+
+def test_segment_trigger_to_unseen_loss_is_v13_on_the_fake(game):
+    """S14's V13 (research/o6_design.md 1.2, 0.2 #18): the fake's publication held from the door's fire to the map
+    switch (a test-side hold of its publish: the frame loop runs on, the file keeps the last sample before the fire),
+    so the first read with control gone is in 30821 -- where he arrives at (0, 1500), a point the evidence ``z > 500``
+    would pass. The step is VOID V13 by the driver ("went unseen"), its loss read in 30821: never done, never V11 -- and
+    never re-run here (the class is the one asserted). Break: judge ``until`` on that read (it passes: done, in the
+    next field's coordinates)."""
+    SD = _segment_modules()
+
+    def hold(g, fake):
+        publish = fake._publish
+
+        def held(force=False):
+            if fake._exit is not None and not force:
+                return                                  # from the fire to the switch: nothing published
+            publish(force)
+        fake._publish = held
+
+    def budget_only(out, log):
+        return isinstance(out, Exception) and "went unseen" not in str(out) and any(
+            m in str(out) for m in _S14_LOAD)
+    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game, walkout=False, arrive=(0, 1500)), _s14_pred(),
+                                 wrap=hold, spoiled=budget_only)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V13", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    assert "went unseen" in str(out), str(out)
+    row = _s14_step_row(log)
+    assert (row["outcome"], row["v"], row["by"]) == ("void", "V13", "driver"), row
+    assert row["lost"]["field"] == 30821 and row["lost"]["z"] == pytest.approx(1500), row["lost"]
+
+
+def test_segment_trigger_without_to_keeps_todays_paths_on_the_fake(game):
+    """S14 IS OPT-IN (research/o6_design.md 1.2): the path-B door walked by a trigger step WITHOUT ``to`` -- O1-O5's
+    every trigger -- is today's ``x_trigger`` exactly: route_to's record holds the landing, so the walk "left" its
+    field: V11 by the driver, the step row today's keys and reason, its ``door`` the registered exit his loss stood in,
+    no ``misroute`` and no walk-out record. A run whose loss a starved harness read only in 30821 (its ``door`` then
+    unread) is re-run, its class V11 all the same; and so is one the load bent onto path A (route_to's 3-s settle out
+    before the switch: today's x_trigger then reads an in-field loss with the evidence and no landing -- done -- and the
+    run reaches its end), its outcome asserted ``reached`` (the review, research/o6_design.md 11.7 #5: no class rule can
+    catch a run that ends reached). Break: dispatch every trigger to S14's executor."""
+    SD = _segment_modules()
+    step = {k: v for k, v in _S14_STEP.items() if k != "to"}
+
+    def spoiled(out, log):
+        rows = [r for r in log if r["k"] == "step"]
+        if rows and (rows[0]["lost"] or {}).get("field") != 30820:              # a read gap across the fade
+            assert (getattr(out, "v", None), getattr(out, "by", None)) == ("V11", "driver"), out
+            return True
+        if len(rows) == 1 and rows[0]["outcome"] == "done" and (rows[0]["route"] or {}).get("landed") is None:
+            assert isinstance(out, dict) and out["end"] == "reached", out       # path A: today's done, then the end
+            return True
+        return False
+    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game), _s14_pred(step), spoiled=spoiled)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V11", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    row = _s14_step_row(log)
+    assert set(row) == {"k", "field", "donor", "sc", "visit", "n", "kind", "name", "attempt", "outcome", "t0", "t1",
+                        "frame0", "frame", "from", "to", "lost", "landed", "flip_frame", "door", "route", "lunge",
+                        "climb", "depth", "v", "by", "why"}, sorted(row)
+    assert (row["outcome"], row["landed"], row["door"]) == ("void", 30821, "30820.door"), row
+    assert row["why"] == "the trigger's walk left 30820: landed in 30821 (place 30821)", row["why"]
+
+
+def test_segment_trigger_to_records_its_landing_at_a_new_visit_on_the_fake(game):
+    """S14b at a NEW VISIT (the review, research/o6_design.md 11.7 #7): a done ``to`` door whose Field() lands in a
+    field that is NO end -- 30810, the route's next place (route and visits [30820, 30810], the end 30821) -- has its
+    walk-out, flip and landing put on its row by rule 3's first poll there: ``landed_frame`` the first sample in 30810,
+    at or before that visit's row; ``walkout`` its samples still in 30820, his z rising to the stop (700); ``flip_frame``
+    past them (``flip_late``: path A, the switch gated until the step row is logged). The run then moves on (a scripted
+    move to 30821 once the 30810 visit is logged) and ends there. Break: rule 1 alone records the row (``landed_frame``
+    then 30821's first sample, after 30810's visit -- by then the ring may not even hold the loss)."""
+    SD = _segment_modules()
+    pred = _s14_pred(dict(_S14_STEP, to=30810), route=[30820, 30810], visits=[30820, 30810])
+    for attempt in range(3):
+        fake = _s14_fake(game, to=30810, stop_z=700)
+        gate, stop = threading.Event(), threading.Event()
+        fake.exit_gate = gate
+        log = _S14Log(gate)
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30820, entrance=102, scenario=1000)
+            _stand(g, fake, 0, -300)
+            for f in (30820, 30810, 30821):
+                g._axes[f] = _prior()
+            _o1_director(fake, stop, [(lambda f: any(r.get("k") == "visit" and r.get("field") == 30810
+                                                     for r in list(log)),
+                                       lambda f: _o2_move(f, 30821))])
+            try:
+                out = SD.drive(g, pred, "S", log, deadline=time.time() + 90.0,
+                               floor_for=lambda d, closed: _flat_bgi(*_S14_FLOOR), prior_for=lambda d: _prior(),
+                               forbid_live=False)
+            except (SD.RouteVoid, HarnessError) as err:
+                out = err
+            finally:
+                stop.set()
+            ring = [raw for _t, _age, raw in g._ring._buf]
+        load = isinstance(out, Exception) and getattr(out, "by", "driver") == "driver" and any(
+            m in str(out) for m in _S14_LOAD)
+        if attempt == 2 or not load:
+            break
+    assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"door": True}, out
+    row = _s14_step_row(log)
+    assert (row["outcome"], row["landed"], row["route"]["landed"]) == ("done", None, None), row
+    visits = [r for r in log if r["k"] == "visit"]
+    assert [v["field"] for v in visits] == [30820, 30810], visits
+    lost = row["lost"]
+    assert row["flip_late"] is True and lost["frame"] < row["flip_frame"] <= row["landed_frame"] <= visits[1]["frame"], \
+        (row, visits[1])
+    fields = {int(r["frame"]): int((r.get("field") or {}).get("id", -1)) for r in ring}
+    assert fields.get(row["landed_frame"]) == 30810, (row["landed_frame"], fields.get(row["landed_frame"]))
+    zs = [z for _f, _x, z, _c in row["walkout"]]
+    assert zs and zs == sorted(zs) and zs[-1] == pytest.approx(700, abs=0.5), zs
+    assert [r["k"] for r in log if r["k"] in ("visit", "step", "end")] == ["visit", "step", "visit", "end"], log
+
+
+def test_segment_trigger_to_records_an_unread_walkout_before_a_second_door():
+    """S14b's handle (the review, research/o6_design.md 11.7 #7), on a stub drive (``_Drive`` without ``__init__``, its
+    executor stubbed): a second DONE ``to`` door in the same visit -- no visit between, so the first door's Field()
+    never landed -- first puts the first row's walk-out on it (its samples since its loss, all still in 30820; its flip
+    and its landing unread: ``flip_frame`` / ``landed_frame`` None) before the second row takes the handle, never a
+    silent overwrite. Break: overwrite ``to_row``."""
+    import types
+    SD = _segment_modules()
+    step = dict(_S14_STEP)
+    pred = _s14_pred(step)
+    raws = [{"frame": f, "field": {"id": 30820}, "player": {"x": 0.0, "z": 600.0 + f, "control": False}}
+            for f in range(100, 106)]
+    st = types.SimpleNamespace(frame=99, control=True, player_x=0.0, player_z=0.0)
+    g = types.SimpleNamespace(state=st, states_since=lambda frame: [r for r in raws if r["frame"] > frame])
+    d = SD._Drive.__new__(SD._Drive)
+    d.g, d.pred, d.log, d.steps, d.tries, d.done, d.beats = g, pred, [], [], {}, {}, {"door": False}
+    d.visit, d.donor, d.sc, d.fid, d.t0, d.since, d.walked, d.to_row = 1, 30820, 1000, 30820, time.time(), 0.0, None, None
+    losses = iter([{"frame": 100, "field": 30820, "x": 0.0, "z": 700.0, "control": False},
+                   {"frame": 103, "field": 30820, "x": 0.0, "z": 703.0, "control": False}])
+    d.x_trigger = lambda s: ("done", {"route": {"landed": None}, "lost": next(losses), "landed": None})
+    cell = {"donor": 30820, "sc": 1000, "visit": 1, "steps": [step, step]}
+    d.run_step(cell, 0, st)
+    first = d.to_row
+    assert first is d.log[0] and "walkout" not in first, first
+    d.run_step(cell, 1, st)
+    assert d.to_row is d.log[1] and d.to_row is not first, d.to_row
+    assert "walkout" in first, f"the first door's row was dropped unread: {first}"
+    assert first["walkout"] == [[f, 0.0, 600.0 + f, False] for f in range(101, 106)], first["walkout"]
+    assert (first["flip_frame"], first["flip_late"], first["landed_frame"]) == (None, True, None), first
+
+
+# ---- A2: S15 (research/o6_design.md 1.2) -- end_run accepts a naming screen on the refused warp, BEFORE any Cancel or
+# rung of the ladder, then retries the warp; a screen accept_name cannot close stops the SESSION cleanly; and H16b (3.2)
+# -- fields whose running scene swallows the soft reset. 30821 stands in for 4600 (the session tests' recovery).
+
+def test_segment_reset_blocked_fields_swallow_the_combo_on_the_fake(game):
+    """H16b (research/o6_design.md 3.2): in a field of ``reset_blocked_fields`` the soft-reset combo does nothing --
+    O1d's measurement (a soft reset through Alexandria's running opening scene did not reach the title) -- so
+    ``soft_reset`` raises with no reset counted; a warp out of it, then the combo: the title. The default set is empty.
+    Break: ignore the set (the first reset reaches the title)."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    fake = FakeGame(game)
+    assert fake.reset_blocked_fields == set()
+    fake.soft_reset_ui, fake.reset_blocked_fields = SOFT_RESET_ENGINE_UI, {30820}
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        with pytest.raises(HarnessError, match="did not reach the title"):
+            g.soft_reset(timeout=2.0)
+        assert fake.soft_resets == 0 and g.state.ui_state == "FieldHUD" and g.state.field_id == 30820
+        g.warp(30821)
+        st = g.soft_reset(timeout=10.0)
+    assert st.ui_state == "Title" and fake.soft_resets == 1, (st.ui_state, fake.soft_resets)
+
+
+def _s15_fake(game, *, blocked=(30820,)):
+    """The fake as the engine stands at a naming screen: a warp refused off the field HUD (H9), the soft reset where the
+    engine fires it, and ``blocked`` the fields whose running scene swallows it (H16b)."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    fake = FakeGame(game)
+    fake.warp_field_only, fake.soft_reset_ui, fake.reset_blocked_fields = True, SOFT_RESET_ENGINE_UI, set(blocked)
+    return fake
+
+
+def _s15_screen(g, fake, *beats):
+    """The run stopped with a naming screen up: its scene staged in 30820, every page before it Confirmed, NameSetting
+    published."""
+    g.warp(30820)
+    fake.scene(*beats)
+    deadline = time.time() + 20.0
+    while time.time() < deadline:
+        st = g.state
+        if st.ui_state == "NameSetting":
+            return st
+        if st.dialog_open:
+            g.press("confirm", 3)
+            g.wait_frames(12)
+        else:
+            time.sleep(0.02)
+    raise AssertionError("the naming screen never came")
+
+
+def _s15_record(g, calls: list) -> None:
+    """``close_ui``, ``soft_reset``, ``accept_name`` and every press wrapped to RECORD their calls in order (the
+    ladder's two waiting rungs on short clocks: a swallowed combo costs 3 s, not 45)."""
+    import functools
+    close_ui = functools.partial(Session.close_ui, g, timeout=3.0)
+    soft_reset = functools.partial(Session.soft_reset, g, timeout=3.0)
+    accept_name, press = g.accept_name, g.press
+
+    def rec(name, fn):
+        def call(*a, **kw):
+            calls.append((name, *a[:1]))
+            return fn(*a, **kw)
+        return call
+    g.close_ui, g.soft_reset = rec("close_ui", close_ui), rec("soft_reset", soft_reset)
+    g.accept_name, g.press = rec("accept_name", accept_name), rec("press", press)
+
+
+def test_segment_end_run_warps_after_the_naming_screen_on_the_fake(game):
+    """S15 (research/o6_design.md 1.2; rev. 2, the driver critic's #4): a run stopped with a naming screen up in 30820
+    -- a visit beat's page, then the screen, then a visit beat whose script runs on after it -- where the warp is
+    refused (off the field HUD) and the soft reset swallowed (H16b). end_run accepts the screen AT ONCE, on the refused
+    warp, before any Cancel or rung of the ladder (a Cancel refocuses the name box), then RETRIES the warp -- from the
+    field HUD a running scene cannot refuse it -- and climbs the ladder from 30821: the log reads
+    ``recover-warp-failed``, ``end-naming``, ``recover-warp-after-naming`` (30821), and the game is at the title.
+    Neither ``close_ui`` nor ``soft_reset`` was called before ``accept_name``. Breaks: no retried warp ("the title could
+    not be restored": the ladder in 30820, its reset swallowed); the first design's order, the ladder first
+    (``close_ui`` before the screen is accepted)."""
+    ST = _segment_trace()
+    seg = ST.Segment()
+    seg.recovery = 30821
+    fake = _s15_fake(game)
+    calls: list = []
+    log: list = []
+    with session(game, fake) as g:
+        boot(g)
+        _s15_screen(g, fake, _fv_visit([{"page": 198, "slot": 0, "text": "Queen Brahne\n“And, Captain...”"}]),
+                    {"naming": 3}, _fv_visit([{"wait": 30}, {"page": 199, "slot": 0, "text": "“Captain Steiner!”"},
+                                              {"wait": 100000}]))
+        _s15_record(g, calls)
+        seg.end_run(g, log)
+        st = g.state
+    assert st.ui_state == "Title" and fake.named == [3] and fake.soft_resets == 1, (st.ui_state, fake.named)
+    assert [r["k"] for r in log] == ["recover-warp-failed", "end-naming", "recover-warp-after-naming"], log
+    assert log[2]["field"] == 30821 and "warp refused" in log[0]["why"], log
+    first = calls.index(("accept_name",))
+    assert not [c for c in calls[:first] if c[0] in ("close_ui", "soft_reset")], calls
+    assert calls[first + 1] == ("press", "confirm") and ("close_ui",) in calls[first:], calls
+
+
+def test_segment_end_run_stops_the_session_when_accept_name_fails():
+    """S15's session stop (research/o6_design.md 1.2): end_run meets a naming screen that will not leave -- the warp
+    refused, ``accept_name`` raising (its 4 Confirms) -- and logs ``end-naming-failed``, then raises a HarnessError
+    marked ``session_stop`` (an attribute: every handler that catches HarnessError still does), naming the stuck screen;
+    nothing else is tried (no ladder: it cannot reach the title through the screen). Break: raise a plain HarnessError
+    (the session would meet the same stuck game at every later run)."""
+    import types
+    ST = _segment_trace()
+    seg = ST.Segment()
+    calls: list = []
+    g = types.SimpleNamespace(state=types.SimpleNamespace(ui_state="NameSetting", in_battle=False, battle_result=0,
+                                                          battle={}, field_id=30820))
+
+    def warp(field, **kw):
+        calls.append(("warp", field))
+        raise HarnessError("warp refused (not on a field?)")
+
+    def accept_name(**kw):
+        calls.append(("accept_name",))
+        raise HarnessError("the naming screen stayed up through 4 Confirms")
+
+    def restore_baseline():
+        calls.append(("restore_baseline",))
+        return False, "stub"
+    g.warp, g.accept_name, g.restore_baseline = warp, accept_name, restore_baseline
+    log: list = []
+    with pytest.raises(HarnessError, match="the naming screen stayed up through accept_name") as err:
+        seg.end_run(g, log)
+    assert getattr(err.value, "session_stop", False) is True, err.value
+    assert "the session stops" in str(err.value) and "4 Confirms" in str(err.value), str(err.value)
+    assert [r["k"] for r in log] == ["recover-warp-failed", "end-naming-failed"], log
+    assert calls == [("warp", 4600), ("accept_name",)], calls
+
+
+def test_segment_session_stops_cleanly_on_a_stuck_naming_screen_on_the_fake(game):
+    """S15 in ``Segment.run`` (research/o6_design.md 1.2): a stub session whose run 1 leaves a naming screen up that
+    ``accept_name`` can never close. Run 2's ``end_run`` raises the ``session_stop`` marker: run 2 is recorded
+    ``stopped`` (its why) and ``skipped`` "the session stopped" -- its drive never began -- the session records
+    ``stopped``, no run 3 is driven and no re-run starts; the session still ends through end_run (``ended`` ok False:
+    the screen is still up) and the analysis is read (its report written). Break: catch the marker as a plain
+    HarnessError -- runs 2 and 3 each VOID "STOPPED", the session lost one run at a time."""
+    stub, _pred, calls = _stub_segment(game, cue=lambda n, side: "reached")
+    stub.end_session_warps = True
+    fake = FakeGame(game)
+    fake.warp_field_only = True
+    drive = stub.drive
+
+    def drive_then_name(g, pred, side, log, **kw):
+        out = drive(g, pred, side, log, **kw)
+        if len(calls) == 1:                             # run 1 ends with its naming screen up
+            fake.scene({"naming": 0})
+            published(g, lambda s: s.ui_state == "NameSetting")
+        return out
+    stub.drive = drive_then_name
+    with session(game, fake) as g:
+        boot(g)
+        assert g.restore_baseline()[0]
+
+        def stuck(**kw):
+            raise HarnessError("the naming screen stayed up through 4 Confirms")
+        g.accept_name = stuck
+        stub.run(g)
+    run_dir = game / "run"
+    sess = json.loads((run_dir / "zz_session.json").read_text(encoding="utf-8"))
+    recs = sess["runs"]
+    assert calls == ["S"] and [(r["i"], r["side"]) for r in recs] == [(1, "S"), (2, "F")], (calls, recs)
+    assert recs[0]["end"] == "reached" and "stopped" not in recs[0], recs[0]
+    assert "the naming screen stayed up" in recs[1]["stopped"], recs[1]
+    assert recs[1]["skipped"] == f"the session stopped: {recs[1]['stopped']}", recs[1]
+    assert sess["stopped"] == recs[1]["stopped"] and not any(r.get("rerun") for r in recs), sess
+    assert sess["ended"]["ok"] is False and "the naming screen stayed up" in sess["ended"]["why"], sess["ended"]
+    assert [r["k"] for r in sess["ended"]["log"]] == ["recover-warp-failed", "end-naming-failed"], sess["ended"]
+    assert (run_dir / "zz_report.txt").is_file()
+
+
+def test_segment_end_run_naming_paths_for_the_opening_and_alexandria_on_the_fake(game):
+    """S15 IS AN INTENDED CHANGE FOR O1 AND O2 (research/o6_design.md 1.2, 11.6; rev. 2, the claim critic's #5): their
+    INHERITED, unedited ``end_run`` -- ``O1Segment``'s and ``O2Segment``'s -- each with its own route's naming screen up
+    on the fake (O1's 50 ``Menu(1, 0)``: ``{"naming": 0}``; O2's 116 ``Menu(1, 1)``: ``{"naming": 1}``), reads S15's
+    rows (``recover-warp-failed``, ``end-naming``, ``recover-warp-after-naming``) and reaches the title -- the screen
+    accepted before the ladder (today it spent ~67 s in close_ui and the swallowed reset first); with ``accept_name``
+    wrapped to fail, ``end-naming-failed`` and the ``session_stop`` marker. The change pinned by behaviour, the classes
+    untouched."""
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o1_opening as O
+    import o2_alexandria as A
+    for seg, char in ((O.O1Segment(), 0), (A.O2Segment(), 1)):
+        assert "end_run" not in type(seg).__dict__, f"{type(seg).__name__} inherits end_run"
+        for fails in (False, True):
+            fake = _s15_fake(game, blocked=())
+            log: list = []
+            with session(game, fake) as g:
+                boot(g)
+                _s15_screen(g, fake, {"naming": char})
+                _o3_quick_ladder(g)                    # a ladder that waits does so for 3 s, not 20 and 45
+                if fails:
+                    def stuck(**kw):
+                        raise HarnessError("the naming screen stayed up through 4 Confirms")
+                    g.accept_name = stuck
+                    with pytest.raises(HarnessError, match="the session stops") as err:
+                        seg.end_run(g, log, recovery=30821)
+                    assert getattr(err.value, "session_stop", False) is True
+                    assert [r["k"] for r in log] == ["recover-warp-failed", "end-naming-failed"], log
+                    continue
+                seg.end_run(g, log, recovery=30821)
+                st = g.state
+            assert st.ui_state == "Title" and fake.named == [char], (type(seg).__name__, st.ui_state, fake.named)
+            assert [r["k"] for r in log] == ["recover-warp-failed", "end-naming", "recover-warp-after-naming"], log
+
+
+# ---- O6's FAKEGAME (research/o6_design.md 3.3-3.5, 9 B1): H17 -- the naming screen INSIDE a visit and the name on the
+# page; H18 -- the door step: the regions' tag 2, ExitField's walk-out, the door's stores and its Field(); H19 -- O6's
+# faults. The fake stepped BY HAND at 30 fps quantized (a field tick a frame), as O5's B1 tests step it.
+
+#: O6's fixture fields by the place they stand for (research/o6_design.md 3.6): S 30810 "151", 30820 "153", 30821
+#: "154", 30830 "150" (e24's landing), 30831 "64" (e25's); F the members O4 deployed, 31244 "151", 31245 "153", 31246
+#: "154", 31243 "150", 31240 "64".
+_O6_FIELDS = {"S": {"151": 30810, "153": 30820, "154": 30821, "150": 30830, "64": 30831},
+              "F": {"151": 31244, "153": 31245, "154": 31246, "150": 31243, "64": 31240}}
+_O6_NAMES = {"31240": "O6_AST", "31243": "O6_HALL", "31244": "O6_SEAT", "31245": "O6_H2F", "31246": "O6_ENT"}
+_O6_MEMBERS = {31244: 30810, 31245: 30820, 31246: 30821, 31243: 30830, 31240: 30831}
+#: 153's live exits at 328 (research/o6_design.md 4.17): e23 the north door -- its quad, firing only past z 1333 -- e24
+#: (to 150) and e25 (to 64, on the ground).
+_O6_E23 = [[-227, 3000], [200, 3000], [212, 935], [-264, 924]]
+_O6_E24 = [[2850, 347], [2850, -13], [1739, -74], [1739, 406]]
+_O6_E25 = [[-777, -2348], [777, -2348], [777, -900], [-777, -900]]
+#: The windows the driver or a check matches (research/o6_design.md 3.6, 4.11, 4.16; block 3, US): 198 holds the
+#: naming's marker "And, Captain"; 199 and 200 render [STNR] -- the page witness's frozen windows. Each is ``(text,
+#: raw)``: the text the agent publishes, [STNR] left for H17 to render, and the raw (phrase_raw) keeping every tag.
+_O6_198 = ("Queen Brahne\n“And, Captain...uh...”",
+           "[STRT=0,0]Queen Brahne\n“And, Captain[SPED=2]...[SPED=-1]uh[SPED=2]...[SPED=-1]”")
+_O6_199 = ("Queen Brahne\n“Captain [STNR]!”",
+           "[STRT=0,0][WDTH=0,65,19,-1]Queen Brahne\n“Captain [STNR]!”[INCS][TIME=-1]")
+_O6_200 = ("[STNR]\n“Yes, Your Majesty!”", "[STRT=0,0][STNR]\n“Yes, Your Majesty!”[INCS][TIME=-1]")
+
+
+def _o6_doors(*, stop_z=2065):
+    """The north door step's doors in entry order (research/o6_design.md 3.4, 3.6): e23 -- its quad past z 1333 (e23 t2
+    ip38), ip203's store (Int16[2] := 315), its 25-tick fade (ip153), Field(154), ExitField's walk-out toward (-31,
+    3000) (MJPOS's projection onto its first edge) held at ``stop_z`` (2065: a radius short of the floor's end, an
+    ESTIMATE; None: moving until the switch) -- then e24 (ip183, Field(150)) and e25 (ip195, Field(64)), no walk-out."""
+    return [{"name": "e23", "points": _O6_E23, "z_gt": 1333, "stores": [[23, 2, 203, 2, "Int16", 315, -1]], "ticks": 25,
+             "to": "154", "walkout": {"to": [-31, 3000], "stop_z": stop_z}},
+            {"name": "e24", "points": _O6_E24, "stores": [[24, 2, 183, 2, "Int16", 315, -1]], "ticks": 25, "to": "150"},
+            {"name": "e25", "points": _O6_E25, "stores": [[25, 2, 195, 2, "Int16", 315, -1]], "ticks": 25, "to": "64"}]
+
+
+def _o6_visit(steps, **knobs):
+    """A ``{"visit": knobs}`` beat of ``steps`` on O6's S fields (:data:`_O6_FIELDS`), index 1."""
+    return _fv_visit(steps, **{"field_to": dict(_O6_FIELDS["S"]), **knobs})
+
+
+def _o6_fires(fake):
+    """The door fires the visit beat logged (H18's ``fire`` rows)."""
+    return [e for e in fake.visit_log if e["kind"] == "fire"]
+
+
+def test_fake_naming_screen_takes_two_confirms(game):
+    """H17 (research/o6_design.md 3.3; NameSettingUI.cs:72-83, :146, :173): a visit's naming step -- Menu(1, 3) --
+    publishes ui "NameSetting" and lists no window; the box opens focused, so the first Confirm only takes the focus off
+    it and the second is OK: ``named`` [3], the default saved (``names`` {3: "Steiner"}), the field HUD back -- and the
+    script resumes in that frame's tick (the next step's store runs on it). A Cancel between puts the focus back on the
+    box, so it takes two more. Break: close on the first Confirm."""
+    fake = _fv_fake(game, _o6_visit([{"naming": 3, "name": "Steiner"}, {"store": [3, 1, 610, 6, "Byte", 8, -1]}]))
+    _cb_until(fake, lambda f: f.ui_state == "NameSetting")
+    opened = fake.frame
+    assert fake.texts == [] and fake.choice is None and fake.named == [], (fake.texts, fake.choice, fake.named)
+    _fv_press_on(fake, opened + 3)                       # Confirm 1: the focus off the box
+    assert fake.ui_state == "NameSetting" and fake.named == [], (fake.ui_state, fake.named)
+    _fv_press_on(fake, opened + 6, "cancel")             # Cancel: the focus back on the box
+    _fv_press_on(fake, opened + 9)                       # ...so this Confirm only takes it off again
+    assert fake.ui_state == "NameSetting" and fake.named == [] and not _fv_rows(fake, "w"), fake.visit_log
+    _fv_press_on(fake, opened + 12)                      # OK
+    assert (fake.ui_state, fake.named, fake.names) == ("FieldHUD", [3], {3: "Steiner"}), (fake.ui_state, fake.named)
+    stores = [e for e in fake.visit_log if e["kind"] == "store"]
+    assert [e["frame"] for e in stores] == [opened + 12], (stores, opened)
+    assert [(r["ip"], r["new"]) for r in _fv_rows(fake, "w")] == [(610, 8)], _fv_rows(fake, "w")
+
+
+def test_fake_naming_holds_the_script(game):
+    """H17 (research/o6_design.md 3.3): while the naming screen is up the visit's script stands still -- a menu up holds
+    the field (:meth:`_Machine.frame` runs the tick's script only on FieldHUD), the engine's Menu blocking the event
+    code: 200 frames with the screen up run no later step (no visit_log row past the naming, no trace row); after the
+    OK the script runs on -- its wait, then its store. Without a ``name`` the OK saves none (``names`` stays empty: a
+    [STNR] page renders the default). Break: tick the script while the screen is up."""
+    fake = _fv_fake(game, _o6_visit([{"naming": 3}, {"wait": 2}, {"store": [3, 1, 610, 6, "Byte", 8, -1]}]))
+    _cb_until(fake, lambda f: f.ui_state == "NameSetting")
+    opened = fake.frame
+    _cb_until(fake, lambda f: f.frame >= opened + 200)
+    assert [e["kind"] for e in fake.visit_log] == ["naming"] and not _fv_rows(fake, "w"), fake.visit_log
+    _fv_press_on(fake, opened + 201)
+    _fv_press_on(fake, opened + 204)
+    assert (fake.ui_state, fake.named, fake.names) == ("FieldHUD", [3], {}), (fake.ui_state, fake.named, fake.names)
+    _cb_until(fake, lambda f: _fv_rows(f, "w"), limit=20)
+    assert [(e["kind"], e["frame"]) for e in fake.visit_log] == [("naming", opened), ("wait", opened + 204),
+                                                                 ("store", opened + 206)], fake.visit_log
+
+
+def test_fake_naming_renders_the_name_on_later_pages(game):
+    """H17's name on the page (research/o6_design.md 3.3; DialogBoxSymbols.cs:67-68): a window opened after the naming
+    has [STNR] in its TEXT rendered as the name the OK saved -- "Steiner", the default -- its raw (phrase_raw) keeping
+    the tag; with ``name_typed`` "Rusty" (a typed name's stand-in) it renders "Rusty". ``unparsed_frames`` {199: 3}: 199
+    publishes its RAW text, tags included, for its first 3 frames (the TextParser's ParsedText = InitialText before
+    Parse), then the name; 200, opened with it and with no entry, is parsed from its first frame. Break: substitute the
+    name in the raw too."""
+    def staged(**knobs):
+        fake = _fv_fake(game, _o6_visit([{"naming": 3, "name": "Steiner"},
+                                         {"pair": [[199, 0], [200, 4]], "lag": 0, "texts": [_O6_199[0], _O6_200[0]],
+                                          "raws": [_O6_199[1], _O6_200[1]]}, {"wait": 100000}], **knobs))
+        _cb_until(fake, lambda f: f.ui_state == "NameSetting")
+        _fv_press_on(fake, fake.frame + 2)
+        _fv_press_on(fake, fake.frame + 2)
+        assert fake.ui_state == "FieldHUD", fake.ui_state
+        _cb_until(fake, lambda f: len(f.raw_texts) == 2, limit=200)
+        return fake
+    fake = staged()
+    assert fake.texts == ["Queen Brahne\n“Captain Steiner!”", "Steiner\n“Yes, Your Majesty!”"], fake.texts
+    assert fake.raw_texts == [_O6_199[1], _O6_200[1]] and fake.names == {3: "Steiner"}, fake.raw_texts
+    fake = staged(name_typed="Rusty")
+    assert fake.texts == ["Queen Brahne\n“Captain Rusty!”", "Rusty\n“Yes, Your Majesty!”"], fake.texts
+    assert fake.raw_texts == [_O6_199[1], _O6_200[1]] and fake.names == {3: "Rusty"}, (fake.raw_texts, fake.names)
+    fake = staged(unparsed_frames={199: 3})
+    seen = []
+    for _ in range(5):
+        seen.append(list(fake.texts))
+        fake._frame_once()
+    parsed = ["Queen Brahne\n“Captain Steiner!”", "Steiner\n“Yes, Your Majesty!”"]
+    assert seen == [[_O6_199[1], parsed[1]]] * 3 + [parsed] * 2, seen
+
+
+def test_fake_naming_deaf_screen_defeats_accept_name(game):
+    """H17's ``naming_deaf`` (research/o6_design.md 3.3, 3.5): the screen drops its first k Confirms. With 9 every one
+    of accept_name's 4 Confirms is dropped and it raises ("stayed up through 4 Confirms") -- the stuck screen S15 and
+    R-NAMING-VOID's stop rest on -- the screen still up, nothing named; with 1, its first Confirm is dropped and the
+    next two close it. Break: count a dropped Confirm (the screen then closes)."""
+    for deaf, closes in ((9, False), (1, True)):
+        fake = FakeGame(game)
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30820)
+            fake.scene(_o6_visit([{"naming": 3, "name": "Steiner"}, {"wait": 100000}], naming_deaf=deaf),
+                       control=False)
+            published(g, lambda s: s.ui_state == "NameSetting")
+            if closes:
+                st = g.accept_name()
+                assert st.ui_state == "FieldHUD" and fake.named == [3], (st.ui_state, fake.named)
+                continue
+            with pytest.raises(HarnessError, match="stayed up through 4 Confirms"):
+                g.accept_name()
+            assert fake.ui_state == "NameSetting" and fake.named == [], (fake.ui_state, fake.named)
+
+
+def test_fake_naming_new_game_restores_the_default_name(game):
+    """H17 across runs (the review, research/o6_design.md 11.7 #2; FF9Play_New, ff9play.cs:131-144): New Game rebuilds
+    every player with its CharacterDefaultName, so a name one run saved never reaches the next. Two runs on ONE fake, as
+    a session's S F S F are: run 1 types "Rusty" at the screen (``name_typed``) -- 199 and 200 render it -- then the
+    soft reset, New Game, and run 2's naming step WITHOUT a ``name`` (its OK saves none): the pages render the
+    pre-filled default, "Steiner", and ``names`` is empty. Break: the newgame op keeps ``fake.names`` (run 2 then renders
+    "Captain Rusty!", which S16's page witness VOIDs as typed input)."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    fake = FakeGame(game)
+    fake.soft_reset_ui = SOFT_RESET_ENGINE_UI
+    pair = {"pair": [[199, 0], [200, 4]], "lag": 0, "texts": [_O6_199[0], _O6_200[0]], "raws": [_O6_199[1], _O6_200[1]]}
+    seen = []
+    with session(game, fake) as g:
+        for typed in ("Rusty", None):
+            if typed is None:                                 # run 2: the soft reset to the title, then New Game
+                st = g.soft_reset(timeout=10.0)
+                assert st.ui_state == "Title", st.ui_state
+            boot(g)
+            g.warp(30820)
+            knobs = {} if typed is None else {"name_typed": typed}
+            fake.scene(_o6_visit([{"naming": 3}, dict(pair), {"wait": 100000}], **knobs), control=False)
+            published(g, lambda s: s.ui_state == "NameSetting")
+            g.accept_name()
+            st = published(g, lambda s: len(s.texts) == 2)
+            seen.append((list(st.texts), dict(fake.names)))
+    assert seen[0] == (["Queen Brahne\n“Captain Rusty!”", "Rusty\n“Yes, Your Majesty!”"], {3: "Rusty"}), seen[0]
+    assert seen[1] == (["Queen Brahne\n“Captain Steiner!”", "Steiner\n“Yes, Your Majesty!”"], {}), seen[1]
+
+
+def test_fake_door_fires_only_past_its_line(game):
+    """H18 (research/o6_design.md 3.4): the door step runs the regions' tag 2 every field tick he has control -- e23's
+    quad AND z > 1333 (153 e23 t2 ip38's f[2] term). Standing inside the quad at z 1000 (its non-firing band) fires
+    nothing, tick after tick, control kept; at z 1340 the next tick fires: control off (ExitField), one visit_log
+    ``fire`` row (e23, where he stood). Break: drop ``z_gt`` (the quad alone then fires at z 1000)."""
+    fake = _fv_fake(game, _o6_visit([{"grant": [0, 1000]}, {"door": {"doors": _o6_doors()}}]))
+    _cb_until(fake, lambda f: f.control)
+    at = fake.frame
+    _cb_until(fake, lambda f: f.frame >= at + 30)
+    assert fake.control and not _o6_fires(fake), (fake.control, _o6_fires(fake))
+    fake.player[2] = 1340.0
+    fake._frame_once()
+    fires = _o6_fires(fake)
+    assert not fake.control and [(e["name"], e["x"], e["z"]) for e in fires] == [("e23", 0.0, 1340.0)], fires
+
+
+def _o6_door_fake(game, *, stop_z=1700, gate=None, **knobs):
+    """The door step on the hand-stepped fake: control at (-31, 1300) -- straight under the walk-out's point, so it
+    runs due north -- then e23 fires on the tick he is moved to z 1340 (stepped to that frame); ``gate`` the fake's
+    exit gate."""
+    fake = _fv_fake(game, _o6_visit([{"grant": [-31, 1300]}, {"door": {"doors": _o6_doors(stop_z=stop_z)}}], **knobs))
+    fake.exit_gate = gate
+    _cb_until(fake, lambda f: f.control)
+    fake.player[2] = 1340.0
+    fake._frame_once()
+    assert not fake.control and [e["name"] for e in _o6_fires(fake)] == ["e23"], _o6_fires(fake)
+    return fake
+
+
+def _o6_door_track(fake, limit=200):
+    """``(frame, field, z, w rows)`` of every frame from the fire to the first in another field."""
+    out: list = []
+    _cb_until(fake, lambda f: out.append((f.frame, f.field_id, f.player[2], len(_fv_rows(f, "w"))))
+              or f.field_id != 30820, limit=limit)
+    return out
+
+
+def test_fake_door_walkout_then_stores_then_field(game):
+    """H18 (research/o6_design.md 3.4, 0.2 #6): after e23 fires, ExitField's walk-out moves him north ``speed`` (60) u a
+    tick toward (-31, 3000), control off, and holds him where his z passes ``stop_z``; 25 ticks after the fire (ip153's
+    op_22(25)) ip203's store and the Field() land in the SAME tick -- the trace row Int16[2] := 315 written in 30820,
+    the field "154" (30821). With ``exit_gate`` held, the store and the Field wait past the 25 ticks, him standing at
+    ``stop_z``, and land in the tick it is set. Break: the store at the fire (its row before the walk-out)."""
+    fake = _o6_door_fake(game)
+    fired = fake.frame
+    track = _o6_door_track(fake)
+    assert [z for _f, _fld, z, _n in track[:-1]] == [1340.0 + 60.0 * min(i, 6) for i in range(25)], track
+    assert all(fld == 30820 and n == 0 for _f, fld, _z, n in track[:-1]), track
+    assert track[-1][:2] == (fired + 25, 30821) and track[-1][3] == 1 and not fake.control, track[-1]
+    row = _fv_rows(fake, "w")[0]
+    assert (row["fld"], row["sid"], row["tag"], row["ip"], row["w"], row["new"]) == (30820, 23, 2, 203, "Int16", 315)
+    gate = threading.Event()
+    fake = _o6_door_fake(game, gate=gate)
+    fired = fake.frame
+    _cb_until(fake, lambda f: f.frame >= fired + 60)
+    assert (fake.field_id, fake.player[2], _fv_rows(fake, "w")) == (30820, 1700.0, []), (fake.field_id, fake.player)
+    gate.set()
+    fake._frame_once()
+    assert fake.field_id == 30821 and len(_fv_rows(fake, "w")) == 1, (fake.field_id, _fv_rows(fake, "w"))
+
+
+def test_fake_door_walks_out_until_the_flip_without_stop(game):
+    """H18 without ``stop_z`` (research/o6_design.md 3.4): the walk-out runs every tick from the fire to the Field() 25
+    ticks later -- 60 u a tick toward (-31, 3000), never held (1340 + 24 x 60 stays short of 3000) -- so he is moving
+    on every frame until the field changes (S14's path B). Break: no walk-out (he stands at the fire)."""
+    fake = _o6_door_fake(game, stop_z=None)
+    fired = fake.frame
+    track = _o6_door_track(fake)
+    zs = [z for _f, _fld, z, _n in track[:-1]]
+    assert zs == [1340.0 + 60.0 * i for i in range(25)], zs
+    assert track[-1][:2] == (fired + 25, 30821), track[-1]
+
+
+def test_fake_door_entry_order_and_misroute(game):
+    """H18's ENTRY ORDER and H19's ``door_misroute`` (research/o6_design.md 3.4, 3.5): standing where two doors' quads
+    overlap, the one listed first -- the lower entry: the engine runs region objects by entry -- fires, alone; and
+    ``door_misroute`` {"e23": "150"} sends e23's Field() to field_to "150" (30830), its own store unchanged -- a
+    misrouted fork operand's stand-in (S14's ``left``). Break: test the doors last-first (the later entry fires)."""
+    doors = _o6_doors(stop_z=1700)
+    wide = {"name": "e24", "points": [[-600, 1000], [600, 1000], [600, 2000], [-600, 2000]],
+            "stores": [[24, 2, 183, 2, "Int16", 315, -1]], "ticks": 25, "to": "150"}
+    fake = _fv_fake(game, _o6_visit([{"grant": [-31, 900]}, {"door": {"doors": [doors[0], wide]}}],
+                                    door_misroute={"e23": "150"}))       # granted south of both quads
+    _cb_until(fake, lambda f: f.control)
+    fake.player[2] = 1340.0
+    fake._frame_once()
+    assert [e["name"] for e in _o6_fires(fake)] == ["e23"], _o6_fires(fake)
+    _cb_until(fake, lambda f: f.field_id != 30820, limit=200)
+    assert fake.field_id == 30830, fake.field_id
+    assert [(r["sid"], r["ip"], r["new"]) for r in _fv_rows(fake, "w")] == [(23, 203, 315)], _fv_rows(fake, "w")
+
+
+# ---- O6's ROUTE on the fake (research/o6_design.md 3.6, 9 B2): three visit beats from the bytes -- 151@110 (its pages,
+# the KEYON pairs and timed windows, 198 and Steiner's naming, the [STNR] pages, Field(153)), 153@328 (the assembly, the
+# shared script's e15 row, the rebuild, the grant and the north door) and the arrival in 154@315 -- each store at its
+# predictions' site, so the builder's trace under ``story_suppress`` IS 4.18's pattern (C1's
+# test_o6_steiner_route_builder_matches_the_keys compares it with the draft: one source of truth).
+
+def _o6_timed(where, mes, slot, ticks=20):
+    """A [TIME=t] window WITHOUT [NFOC] (151's 175 and 176, research/o6_design.md 2.4): the fake's timed kind -- it
+    closes itself ``ticks`` later and the script does not wait on it (a Confirm may close the real one early: timing
+    only)."""
+    text = f"{where} mes {mes}"
+    return {"timed": mes, "slot": slot, "ticks": ticks, "text": text, "raw": f"[STRT=0,0]{text}[TIME={ticks}]"}
+
+
+def _o6_stnr(where, mes, slot, **kw):
+    """A page whose source holds [STNR] (block 3's 203, 211-214, 217-219, 221, 222): a placeholder line under the tag --
+    no rule or check reads its words -- which H17 renders as the saved name; its raw keeps the tag."""
+    text = f"[STNR]\n“{where} mes {mes}”"
+    return {"page": mes, "slot": slot, "text": text, "raw": f"[STRT=0,0]{text}", **kw}
+
+
+def _o6_route(side="S", *, e15_late=False, walkout_stop=2065, short=False, wait_scale=0.25, lag199=6, **faults):
+    """O6's route as visit beats (research/o6_design.md 3.6): 151@110, 153@328 and the arrival in 154@315 on ``side``'s
+    fields (:data:`_O6_FIELDS`; on F each visit's ``donor`` its place's S id), O6's and H15's ``faults`` given to every
+    beat (the per-visit ones keyed by ``index``: 1-3). 151: the prologue, its timed windows, pages and five KEYON pairs,
+    198 (typing), Steiner's naming, ip610, the pair 199 / 200 -- 200 ``lag199`` ticks after 199 (the bytes' ~6) -- and
+    203, ip735, ip932, Field(153). 153: the prologue, Steiner's t0 (ip718, ip727), the pages (211-214, 217-219, 221, 222
+    holding [STNR]), the shared script's ip32 (``e15_late``: after ip1006, "the order flipped"), the stair walks, the
+    rebuild, the grant at (-245, 42) and the north door (e23 -- its walk-out held at ``walkout_stop`` -- e24, e25). 154:
+    its prologue, then the end. ``short``: 153@328 alone from its prologue to the door (the walk's tests that need no
+    151), then 154."""
+    to = dict(_O6_FIELDS[side])
+    donors = {"151": 30810, "153": 30820, "154": 30821} if side == "F" else {}
+    pair199 = {"pair": [[199, 0], [200, 4]], "lag": lag199, "texts": [_O6_199[0], _O6_200[0]],
+               "raws": [_O6_199[1], _O6_200[1]]}
+    pair203 = {"pair": [[203, 4], [202, 1]], "texts": ["[STNR]\n“151 mes 203”", "151 mes 202"],
+               "raws": ["[STRT=0,0][STNR]\n“151 mes 203”[INCS][TIME=-1]", "[STRT=0,0]151 mes 202[INCS][TIME=-1]"]}
+    v151 = [*_o5_prologue((22, 49, 57, 119, 138, 200)), {"wait": 10}, _o5_store(0, 0, 315, 8, "Byte", 125),
+            _o6_timed("151", 175, 2), {"wait": 15}, _o6_timed("151", 176, 3), {"wait": 50}, _o5_page("151", 177, 4),
+            *[_o5_page("151", m, s) for m, s in ((178, 1), (179, 3), (180, 2), (181, 1))],
+            _o5_pair("151", (182, 2), (183, 3), lag=2, gate=40),
+            *[_o5_page("151", m, s) for m, s in ((184, 4), (185, 1), (186, 2), (187, 3))],
+            _o5_pair("151", (188, 2), (189, 3)), _o5_page("151", 190, 1), {"wait": 90},
+            _o5_page("151", 191, 0), _o5_page("151", 192, 1), _o5_page("151", 193, 0, typing_s=0.3),
+            _o5_page("151", 194, 1), _o5_page("151", 195, 0, typing_s=0.3), _o5_pair("151", (196, 0), (197, 1)),
+            _o5_page("151", 198, 0, text=_O6_198[0], raw=_O6_198[1], typing_s=0.5), {"wait": 5},
+            {"naming": 3, "name": "Steiner"}, {"wait": 10}, _o5_store(3, 1, 610, 6, "Byte", 8), {"wait": 10},
+            pair199, _o5_page("151", 201, 0), pair203, _o5_store(2, 1, 735, 8, "Byte", 0), {"wait": 65},
+            _o5_store(2, 1, 932, 2, "Int16", 328), {"field": "153"}]
+    e15 = _o5_store(15, 0, 32, 8, "Byte", 125)                  # the shared script's Seq row (e32 t1 ip866 runs it)
+    door = {"door": {"doors": _o6_doors(stop_z=walkout_stop)}}
+    if short:
+        v153 = [*_o5_prologue((22, 49, 57, 119, 138, 200)), {"wait": 10}, {"grant": [-245, 42]}, door]
+    else:
+        stair = [s for xz in ((-150, -550), (-1235, -558), (-1595, -195), (-1370, 804), (-575, 807), (-245, 42))
+                 for s in ({"wait": 10}, {"place": list(xz)})]
+        v153 = [*_o5_prologue((22, 49, 57, 119, 138, 200)), {"wait": 10},
+                _o5_store(32, 0, 718, 3855 >> 3, "Bit", 1, 3855), _o5_store(32, 0, 727, 3854 >> 3, "Bit", 1, 3854),
+                {"place": [-24, -2078]}, {"wait": 20}, _o6_stnr("153", 211, 4), {"wait": 20}, _o6_stnr("153", 212, 4),
+                {"wait": 15}, *([] if e15_late else [e15]), {"wait": 25},
+                _o6_stnr("153", 213, 4), _o6_stnr("153", 214, 4), _o5_page("153", 215, 5), _o5_page("153", 216, 6),
+                _o5_store(32, 1, 971, 208, "Byte", 0), _o5_store(32, 1, 1006, 208, "Byte", 1),
+                *([e15] if e15_late else []), _o6_stnr("153", 217, 4),
+                _o5_store(32, 1, 1041, 208, "Byte", 0), _o5_store(32, 1, 1076, 208, "Byte", 1), _o6_stnr("153", 218, 4),
+                *stair, {"wait": 70}, _o6_stnr("153", 219, 4), _o6_stnr("153", 221, 4),
+                _o5_store(32, 1, 1597, 208, "Byte", 0), _o5_store(32, 1, 1632, 208, "Byte", 1), _o6_stnr("153", 222, 4),
+                _o5_store(32, 1, 1656, 21, "UInt16", 8), _o5_store(32, 1, 1741, 303, "Byte", 0),
+                _o5_store(32, 1, 1775, 303, "Byte", 1), _o5_store(32, 1, 2172, 4, "Byte", 0),
+                _o5_store(32, 1, 2206, 19, "UInt16", 8), _o5_store(32, 1, 2232, 4, "Byte", 0),
+                _o5_store(32, 1, 2240, 17, "Byte", 0), _o5_store(32, 1, 2248, 18, "Byte", 1),
+                {"grant": [-245, 42]}, door]
+    v154 = [*_o5_prologue((26, 53, 61, 123, 142, 204)), {"wait": 100000}]
+    visits = ([] if short else [("151", 1, v151)]) + [("153", 2, v153), ("154", 3, v154)]
+    beats = []
+    for where, index, steps in visits:
+        knobs = {"steps": steps, "index": index, "field_to": to, "wait_scale": wait_scale, **faults}
+        if donors:
+            knobs["donor"] = donors[where]
+        beats.append({"visit": knobs})
+    return beats
+
+
+def _o6_register(game):
+    """30830 ("150"), 30831 ("64") and the F members registered in the fixture's own DictionaryPatch.txt
+    (``_o5_register``'s shape; the ``game`` fixture itself is not edited)."""
+    patch = game / "FF9CustomMap" / "DictionaryPatch.txt"
+    patch.write_text(patch.read_text(encoding="utf-8") + "FieldScene 30830 11 HALL HALL 30830\n"
+                     + "FieldScene 30831 11 AST AST 30831\n"
+                     + "".join(f"FieldScene {f} 11 {n} {n} 3\n" for f, n in _O6_NAMES.items()), encoding="utf-8")
+
+
+#: 4.18's pattern on the fake's places, by IP (the fake's rows carry ips; O6-PATTERN joins function offsets on the stock
+#: bytes, C1's): each visit's emitted ``w`` rows in order, ``(place, sid, tag, ip, target, new, same)``, the floating
+#: row out -- 151@110's ten, then 153@328's 23 -- and the floating row: 153 e15 t0 ip32, after e32 t0 ip727 and before
+#: e32 t1 ip1656 (the bytes' window), its place among the rows between not compared.
+_O6_PATTERN = (
+    [(30810, 0, 0, 22, "Global.Bit[191]", 0, 1), (30810, 0, 0, 49, "Global.Bit[184]", 0, 1),
+     (30810, 0, 0, 57, "Global.Int16[9]", -1, 0), (30810, 0, 0, 119, "Global.Byte[13]", 0, 0),
+     (30810, 0, 0, 138, "Global.Int16[11]", -1, 1), (30810, 0, 0, 200, "Global.Byte[14]", 0, 1),
+     (30810, 0, 0, 315, "Global.Byte[8]", 125, 1), (30810, 3, 1, 610, "Global.Byte[6]", 8, 0),
+     (30810, 2, 1, 735, "Global.Byte[8]", 0, 0), (30810, 2, 1, 932, "Global.Int16[2]", 328, 0)],
+    [(30820, 0, 0, 22, "Global.Bit[191]", 0, 1), (30820, 0, 0, 49, "Global.Bit[184]", 0, 1),
+     (30820, 0, 0, 57, "Global.Int16[9]", -1, 1), (30820, 0, 0, 119, "Global.Byte[13]", 0, 1),
+     (30820, 0, 0, 138, "Global.Int16[11]", -1, 1), (30820, 0, 0, 200, "Global.Byte[14]", 0, 1),
+     (30820, 32, 0, 718, "Global.Bit[3855]", 1, 0), (30820, 32, 0, 727, "Global.Bit[3854]", 1, 0),
+     (30820, 32, 1, 971, "Global.Byte[208]", 0, 1), (30820, 32, 1, 1006, "Global.Byte[208]", 1, 0),
+     (30820, 32, 1, 1041, "Global.Byte[208]", 0, 0), (30820, 32, 1, 1076, "Global.Byte[208]", 1, 0),
+     (30820, 32, 1, 1597, "Global.Byte[208]", 0, 0), (30820, 32, 1, 1632, "Global.Byte[208]", 1, 0),
+     (30820, 32, 1, 1656, "Global.UInt16[21]", 8, 0), (30820, 32, 1, 1741, "Global.Byte[303]", 0, 1),
+     (30820, 32, 1, 1775, "Global.Byte[303]", 1, 0), (30820, 32, 1, 2172, "Global.Byte[4]", 0, 1),
+     (30820, 32, 1, 2206, "Global.UInt16[19]", 8, 0), (30820, 32, 1, 2232, "Global.Byte[4]", 0, 1),
+     (30820, 32, 1, 2240, "Global.Byte[17]", 0, 1), (30820, 32, 1, 2248, "Global.Byte[18]", 1, 0),
+     (30820, 23, 2, 203, "Global.Int16[2]", 315, 0)])
+_O6_E15 = (30820, 15, 0, 32, "Global.Byte[8]", 125, 0)
+
+
+def _o6_pattern(rows, members=None):
+    """4.18's pattern read off a run's story rows by ip (:func:`_o5_pattern` with O6's end 30821 and route 30810,
+    30820): ``(visits with the floating row out, where it floated -- (visit, index among that visit's rows) or None,
+    how many floating rows, counts, cut)``."""
+    visits, counts, cut = _o5_pattern(rows, members, end=30821, route=(30810, 30820))
+    at = [(v, i) for v, vis in enumerate(visits) for i, t in enumerate(vis) if t == _O6_E15]
+    out = [[t for t in vis if t != _O6_E15] for vis in visits]
+    return out, (at[0] if at else None), len(at), counts, cut
+
+
+def _o6_window_ok(visits_with, at) -> bool:
+    """The floating row inside the bytes' window: in 153@328's visit, after e32 t0 ip727's row and before e32 t1
+    ip1656's (research/o6_design.md 4.18)."""
+    if at is None or at[0] != 1:
+        return False
+    ips = [t[3] for t in visits_with[1]]
+    return ips.index(727) < at[1] < ips.index(1656)
+
+
+def _o6_play(fake, *, walk="up", until=None, limit=80000, every=5):
+    """:func:`_fv_play`'s scripted player for O6's route (research/o6_design.md 9 B2): with control, ``walk`` held; the
+    naming screen up, a Confirm every ``every`` frames (the first takes the focus off the box, the next is OK); else
+    every ``every`` frames a listed page, KEYON pair or timed window Confirmed. Stops on ``until(fake)`` or when no beat
+    is left; an AssertionError after ``limit`` frames (a mutant fails a test, never hangs it)."""
+    for _ in range(limit):
+        if until is not None and until(fake):
+            return
+        m = fake._machine
+        if m is None:
+            return
+        if fake.control:
+            if walk:
+                fake._extend(walk, 4)
+        elif (fake.frame + 1) % every == 0:
+            listed = [w for w in m.windows if not w.closing]
+            if fake.ui_state == "NameSetting" or any(w.kind in ("page", "keyon", "timed") for w in listed):
+                fake._schedule("confirm", 1)
+        fake._frame_once()
+    raise AssertionError(f"the visit beats ran {limit} frames without ending (field {fake.field_id})")
+
+
+def test_fake_door_route_plays_to_154_unattended(game):
+    """B2 (research/o6_design.md 3.6, 9 B2): the route builder's three visit beats played by a SCRIPTED PLAYER, not the
+    driver -- every page, pair and timed window Confirmed, the naming's two Confirms, Up held from the grant until
+    control goes -- from 151@110 (field 70's prologue values and the raw warp's THREE residue rows first) to 154.
+    Steiner is named once (``named`` [3]) and every [STNR] page opens rendering "Steiner", none its tag. e23 fires past
+    its line, inside its quad. With ``story_suppress`` the trace holds EXACTLY 4.18's pattern by ip: 151's ten rows and
+    153's 23 in order, the floating e15 row once, inside the bytes' window (after ip727, before ip1656) -- 10 + 24 -- no
+    ``c`` row, and the cut at 154's first row, e0 t0 ip26 (``same`` 1: a new site). Break: a builder whose e23 fires on
+    its whole quad (the fire then at its south edge, z < 1333)."""
+    from ff9mapkit.content import doorface
+    fake = _fv_fake(game, field=70, trace=False)
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(110, 1190)                         # the raw warp's residue, seen in field 70
+    fake.field_id = 30810
+    fake.scene(*_o6_route("S"), control=False)
+    _o6_play(fake, until=lambda f: f.field_id == 30821 and any(e["index"] == 3 and e["kind"] == "wait"
+                                                                for e in f.visit_log))
+    fake._story_stop()
+    assert fake.named == [3] and fake.names == {3: "Steiner"}, (fake.named, fake.names)
+    opens = [e["text"] for e in fake.machine_log if e["event"] == "open"]
+    stnr = [t for t in opens if "Steiner" in t]
+    assert len(stnr) == 12 and not [t for t in opens if "[STNR]" in t], (len(stnr), opens)    # 3 in 151, 9 in 153
+    fires = [e for e in fake.visit_log if e["kind"] == "fire"]
+    assert len(fires) == 1 and fires[0]["name"] == "e23" and fires[0]["z"] > 1333, fires
+    assert doorface.region_contains(fires[0]["x"], fires[0]["z"], _O6_E23), fires
+    rows = _fv_rows(fake)
+    visits, at, n, counts, cut = _o6_pattern(rows)
+    assert visits == [_O6_PATTERN[0], _O6_PATTERN[1]] and n == 1, (visits, n)
+    with_float = _o5_pattern(rows, end=30821, route=(30810, 30820))[0]
+    assert _o6_window_ok(with_float, at) and (len(with_float[0]), len(with_float[1])) == (10, 24), (at, with_float)
+    assert counts == [] and not [r for r in rows if r["k"] == "c"], counts
+    assert cut is not None and (cut["k"], cut["fld"], cut["sid"], cut["tag"], cut["ip"], cut["w"], cut["bit"],
+                                cut["new"], cut["same"]) == ("w", 30821, 0, 0, 26, "Bit", 191, 0, 1), cut
+    residue = [(r["fld"], r["byte"], r["old"], r["new"]) for r in rows if r["k"] == "r"]
+    assert residue == [(70, 0, 0, 166), (70, 1, 0, 4), (70, 2, 0, 110)], residue
+
+
+# ---- B3, S16 (research/o6_design.md 1.2): THE NAME ON THE PAGE -- naming_of read strict, rule 4's ``before``, the page
+# witness that JUDGES -- pure, and on small fake scenes driven by segment_drive.drive.
+
+#: O6's frozen windows on the fixture (research/o6_design.md 4.11): 199's line 1 and 200's line 0 as the default name
+#: renders them -- computed from block 3's source, [STNR] the default, every tag gone.
+_O6_WINDOWS = [{"mes": 199, "raw_holds": "“Captain [STNR]!”", "line": 1, "text": "“Captain Steiner!”"},
+               {"mes": 200, "raw_holds": "[STNR]\n“Yes, Your Majesty!”", "line": 0, "text": "Steiner"}]
+
+
+def _o6_naming(donor=30810, sc=1190):
+    """O6's naming registration with its page witness (research/o6_design.md 2.1, 4.11), on the fixture's 151."""
+    return {"donor": donor, "sc": sc, "beat": "named",
+            "on_page": {"tag": "[STNR]", "beat": "name_on_page", "windows": json.loads(json.dumps(_O6_WINDOWS)),
+                        "why": "the fixture's 199 and 200 (research/o6_design.md 4.11)"}}
+
+
+def _o6_frozen_parsed(raw):
+    """The frozen windows a raw sample lists PARSED (research/o6_design.md 1.2 S16), by mes: its raw holds an entry's
+    ``raw_holds`` and its text no [STNR] -- what the page witness's row must list for that sample."""
+    out = []
+    for ph, tx in _segment_modules().dialog_rows(raw):
+        w = next((w for w in _O6_WINDOWS if w["raw_holds"] in ph), None)
+        if w is not None and "[STNR]" not in tx:
+            out.append(w["mes"])
+    return out
+
+
+def _o6_lists_unparsed(raw, mes):
+    """Whether a raw sample lists frozen window ``mes`` UNPARSED (its tag left in the text)."""
+    w = next(w for w in _O6_WINDOWS if w["mes"] == mes)
+    return any(w["raw_holds"] in ph and "[STNR]" in tx for ph, tx in _segment_modules().dialog_rows(raw))
+
+
+def _o6_page_exact(row, ring, field):
+    """The page witness's row is the ring's FIRST sample in ``field`` listing a parsed frozen window, and lists EXACTLY
+    that sample's parsed frozen windows (199 first: it opens before 200), each line its frozen text."""
+    first = next(raw for raw in ring if int((raw.get("field") or {}).get("id", -1)) == field and _o6_frozen_parsed(raw))
+    assert row["frame"] == int(first["frame"]), (row["frame"], first["frame"])
+    assert [w["mes"] for w in row["windows"]] == _o6_frozen_parsed(first), (row["windows"], first["dialog"])
+    assert all(w["ok"] and w["line"] == w["want"] for w in row["windows"]), row["windows"]
+
+
+def test_segment_naming_of_is_strict():
+    """S16, pure (research/o6_design.md 1.2): ``naming_of`` reads the registrations STRICT before anything is driven --
+    none is ``[]``; O2's ``{"donor", "sc", "beat"}`` passes unchanged, and so does O6's with ``on_page`` (its ``why``
+    optional). Each fault is refused, by name: no list; a registration that is no dict, an unknown key, ``donor`` or
+    ``sc`` no int (a bool), ``beat`` empty, ``why`` no str; ``on_page`` no dict, a missing or an unknown key, ``tag`` no
+    text tag, its ``beat`` empty, ``windows`` empty; a window with a missing or an extra key, ``mes`` no int,
+    ``raw_holds`` without the tag, ``line`` negative, ``text`` holding the tag or a ``[``. Break: drop the text's ``[``
+    refusal."""
+    SD = _segment_modules()
+    assert SD.naming_of({}) == [] and SD.naming_of({"naming": []}) == []
+    o2 = {"donor": 116, "sc": 1155, "beat": "named"}
+    assert SD.naming_of({"naming": [o2]}) == [o2]
+    o6 = _o6_naming()
+    assert SD.naming_of({"naming": [o6]}) == [o6]
+    o6.pop("beat")
+    o6["on_page"].pop("why")
+    assert SD.naming_of({"naming": [o6]}) == [o6]
+
+    def page(**kw):
+        p = _o6_naming()["on_page"]
+        p.update(kw)
+        return [{**o2, "on_page": p}]
+
+    def win(drop=None, **kw):
+        w = {**_O6_WINDOWS[0], **kw}
+        w.pop(drop, None)
+        return page(windows=[w])
+    refused = [({"naming": {"donor": 1}}, "a list of registrations"), ({"naming": ["named"]}, "a registration is a"),
+               ({"naming": [{**o2, "pick": 1}]}, "no key ['pick']"), ({"naming": [{"sc": 1155}]}, "donor is an int"),
+               ({"naming": [{**o2, "donor": True}]}, "donor is an int"), ({"naming": [{**o2, "sc": "1"}]}, "sc is an int"),
+               ({"naming": [{**o2, "beat": ""}]}, "beat is a non-empty str or None"),
+               ({"naming": [{**o2, "why": 3}]}, "why is a str"),
+               ({"naming": [{**o2, "on_page": []}]}, "the page witness is a dict"),
+               ({"naming": [{**o2, "on_page": {"tag": "[STNR]", "beat": "b"}}]}, "exactly keys"),
+               ({"naming": page(extra=1)}, "exactly keys"), ({"naming": page(tag="STNR")}, "tag is a text tag"),
+               ({"naming": page(beat="")}, "beat is a non-empty str"),
+               ({"naming": page(windows=[])}, "windows is a non-empty list"),
+               ({"naming": win(drop="line")}, "exactly keys"), ({"naming": win(extra=1)}, "exactly keys"),
+               ({"naming": win(mes=True)}, "mes is an int"), ({"naming": win(raw_holds="Steiner")}, "raw_holds is"),
+               ({"naming": win(line=-1)}, "line is the rendered text's line"),
+               ({"naming": win(text="“Captain [STNR]!”")}, "text is the line"),
+               ({"naming": win(text="[SPED=2]“Captain Steiner!”")}, "text is the line")]
+    for pred, msg in refused:
+        with pytest.raises(ValueError, match=re.escape(msg)):
+            SD.naming_of(pred)
+
+
+def test_segment_naming_of_reads_every_frozen_predictions():
+    """S16, pure (research/o6_design.md 1.2; rev. 2, the claim critic's #5): every frozen predictions file of the study --
+    globbed at run time, never a pinned list, so a freeze adds a file this reads, never one it expects -- passes
+    ``naming_of``: O2's ``{"donor", "sc", "beat"}`` read unchanged, O3-O5's ``[]``, O1's and the rungs' none. Break:
+    require ``why`` on a registration (O2's frozen one then fails)."""
+    SD = _segment_modules()
+    files = sorted((REPO / "studies" / "story-trace").glob("*predictions*.json"))
+    read = {p.name: SD.naming_of(json.loads(p.read_text(encoding="utf-8"))) for p in files}
+    assert read.get("o2_predictions_v1.json") == [{"beat": "named", "donor": 116, "sc": 1155}], read
+    assert all(read.get(f"o{n}_predictions_v1.json") == [] for n in (3, 4, 5)), read
+    assert all(read.get(f"o1_predictions_v{n}.json") == [] for n in (1, 2, 3, 4)), read
+
+
+_O6_RUNS = __import__("itertools").count(1)
+
+
+def _s16_pred(naming, beats=("named", "name_on_page")):
+    """A one-visit route for S16's scenes on the fake: 30810 at SC 1190 ("151"), its naming ``naming``, the end 30821."""
+    return {"version": 1, "start": {"S": 30810}, "entrance": 110, "scenario": 1190, "end_field": 30821,
+            "end_fields": [30821], "route": [30810], "visits": [30810],
+            "budget": {"run_s": 60, "run_min_s": 1, "session_s": 300, "settle_s": 0.3, "no_progress_s": 30},
+            "beats": list(beats), "naming": naming, "battles": [], "hotspots": {}, "table": [], "forbidden": [],
+            "end_state": {}, "regions": {}, "steps_default": json.loads(json.dumps(_O5_DEFAULTS)), "stop_pages": [],
+            "choices": [{"donor": None, "sc": None, "match": "want to skip", "pick": "default", "once": False,
+                         "beat": None}]}
+
+
+def _s16_steps(*, lag=6):
+    """S16's scene in 30810: 198 (its marker, typing), the naming screen, ip610, the KEYON pair 199 / 200 -- 200 ``lag``
+    ticks after 199 (the bytes' ~6) -- 201, then Field() to 30821."""
+    return [_o5_page("151", 198, 0, text=_O6_198[0], raw=_O6_198[1], typing_s=0.5), {"wait": 5},
+            {"naming": 3, "name": "Steiner"}, {"wait": 10}, _o5_store(3, 1, 610, 6, "Byte", 8), {"wait": 10},
+            {"pair": [[199, 0], [200, 4]], "lag": lag, "texts": [_O6_199[0], _O6_200[0]],
+             "raws": [_O6_199[1], _O6_200[1]]}, _o5_page("151", 201, 0), {"field": "154"}]
+
+
+def _s16_run(game, naming, *, lag=6, knobs=None, state_ring=5000, scene=None):
+    """S16's scene driven on the fake (its loop at the render rate: the pair's ~6 ticks are 200 ms): New Game, the raw
+    warp into 30810 at SC 1190, the scene staged on arrival, segment_drive.drive with :func:`_s16_pred`. ``(outcome or
+    the void raised, log, fake, the ring's raws)``."""
+    SD = _segment_modules()
+    fake = FakeGame(game, fps=60.0, render_fps=60.0, walkmesh=_O5_BOX)
+    fake.warp_arrive_control, fake.warp_field_only = False, True
+    log: list = []
+    stop = threading.Event()
+    beat = scene or _o6_visit(_s16_steps(lag=lag), wait_scale=0.25, **(knobs or {}))
+    with Session(game_path=game, run_dir=game / f"run-s16-{next(_O6_RUNS)}", save_dir=game / "player-saves",
+                 pid_probe=lambda: [], launcher=lambda exe: fake.start(), boot_timeout=15.0, verbose=False,
+                 state_ring=state_ring) as g:
+        boot(g)
+        g.send("warp 30810 110 1190")
+        g.wait_for(lambda s: s.field_id == 30810 and s.ui_state == "FieldHUD", timeout=10.0, what="field 30810")
+        _o1_director(fake, stop, [(lambda f: f.field_id == 30810 and not f._beats,
+                                   lambda f: f.scene(beat, control=False))])
+        try:
+            try:
+                out = SD.drive(g, _s16_pred(naming), "S", log, deadline=time.time() + 60.0,
+                               floor_for=lambda d, c: _flat_bgi(-2400, -2400, 3000, 3200),
+                               prior_for=lambda d: _prior(), forbid_live=False)
+            except (SD.RouteVoid, HarnessError) as err:
+                out = err
+        finally:
+            stop.set()
+        ring = [raw for _t, _age, raw in g._ring._buf]
+    return out, log, fake, ring
+
+
+def test_segment_naming_on_page_rows_on_the_fake(game):
+    """S16 on the fake (research/o6_design.md 1.2, 0.2 #8): a page holding "And, Captain" (198), the naming screen, a
+    KEYON pair of two [STNR] windows -- 200 ~6 ticks after 199, the bytes' lag. Rule 4 writes the ``named`` row with its
+    ``before`` -- 198's raw: the last sample listing a window before the screen -- and arms the page witness: ONE
+    ``name_on_page`` row, on the ring's first sample listing a PARSED frozen window and listing exactly those windows
+    (199 alone when the sample predates 200), "Steiner" rendered, ``verdict`` "ok", the beat True. ``unparsed_frames``
+    {199: 90} (200 60 ticks later): the ring read 199 unparsed first, and the row's frame is the first PARSED sample's.
+    The pair opened together with ``unparsed_frames`` {200: 90}: the row lists 199 only. ``name_typed`` "Rusty": the
+    row's ``verdict`` "V13" and the run VOID V13 by the driver. An O2-shaped registration (no ``on_page``) on the same
+    fake: the ``named`` row has exactly today's keys and no ``name_on_page`` row is written. A small ring (60 samples):
+    ``before`` still holds 198 -- read before accept_name's Confirms, whose reads would push it out. Each unparsed case
+    is re-run (at most twice) when the ring caught nothing it tests -- no unparsed 199 before the row; the row's own
+    sample not listing 200 unparsed -- a starved poll tests nothing and is re-run, never a verdict (the review,
+    research/o6_design.md 11.7 #6: the sibling drive test's rule), then asserted hard. Breaks: take the first sample
+    listing the tag whatever its text; list every window of the sample holding the tag; record without judging (a
+    typed name covered); read ``before`` after the Confirms."""
+    SD = _segment_modules()
+
+    def unparsed(lag, mes, caught):
+        """S16's scene with ``mes`` unparsed for 90 frames (1.5 s at the render rate): ``(out, log, ring, page rows)``
+        of the first run whose ring ``caught(ring, row)`` what the case tests -- at most three runs."""
+        for attempt in range(3):
+            out, log, _fake, ring = _s16_run(game, [_o6_naming()], lag=lag, knobs={"unparsed_frames": {mes: 90}})
+            page = _g_rows(log, "name_on_page")
+            starved = isinstance(out, dict) and len(page) == 1 and not caught(ring, page[0])
+            if not starved or attempt == 2:
+                return out, log, ring, page
+
+    def raw199_before(ring, row):
+        return any(_o6_lists_unparsed(r, 199) and int(r["frame"]) < row["frame"] for r in ring)
+
+    def own_200_unparsed(ring, row):
+        return any(int(r["frame"]) == row["frame"] and _o6_lists_unparsed(r, 200) for r in ring)
+    out, log, fake, ring = _s16_run(game, [_o6_naming()])
+    assert isinstance(out, dict) and out["end"] == "reached", out
+    assert out["beats"] == {"named": True, "name_on_page": True}, out["beats"]
+    named, page = _g_rows(log, "named"), _g_rows(log, "name_on_page")
+    assert len(named) == 1 and set(named[0]) == {"k", "field", "donor", "sc", "frame", "before"}, named
+    assert _O6_198[1] in named[0]["before"]["raws"] and named[0]["before"]["frame"] < named[0]["frame"], named
+    assert len(page) == 1 and page[0]["verdict"] == "ok" and page[0]["frame"] > named[0]["frame"], page
+    assert (page[0]["field"], page[0]["tag"]) == (30810, "[STNR]"), page[0]
+    _o6_page_exact(page[0], ring, 30810)
+    assert page[0]["windows"][0]["text"] == "Queen Brahne\n“Captain Steiner!”", page[0]["windows"]
+    # 199 read unparsed first: the row stands on the first PARSED sample
+    out, log, ring, page = unparsed(60, 199, raw199_before)
+    assert isinstance(out, dict) and out["beats"]["name_on_page"] is True, out
+    _o6_page_exact(page[0], ring, 30810)
+    assert page[0]["windows"][0]["mes"] == 199, page[0]["windows"]
+    raw199 = [int(r["frame"]) for r in ring if _o6_lists_unparsed(r, 199)]
+    assert raw199 and max(raw199) < page[0]["frame"], (raw199, page[0]["frame"])     # 1.5 s unparsed: read
+    # the pair together, 200 unparsed: the row lists 199 alone
+    out, log, ring, page = unparsed(0, 200, own_200_unparsed)
+    assert isinstance(out, dict) and out["beats"]["name_on_page"] is True, out
+    _o6_page_exact(page[0], ring, 30810)
+    first = next(r for r in ring if int(r["frame"]) == page[0]["frame"])
+    assert _o6_lists_unparsed(first, 200), first.get("dialog")         # its sibling still unparsed there...
+    assert [w["mes"] for w in page[0]["windows"]] == [199], page[0]["windows"]      # ...so never listed
+    # a typed name: judged, VOID V13 by the driver
+    out, log, fake, ring = _s16_run(game, [_o6_naming()], knobs={"name_typed": "Rusty"})
+    assert isinstance(out, SD.RouteVoid) and (out.v, out.by) == ("V13", "driver"), out
+    assert "the name on the page is not the default" in str(out) and "Rusty" in str(out), str(out)
+    page = _g_rows(log, "name_on_page")
+    assert len(page) == 1 and page[0]["verdict"] == "V13", page
+    assert page[0]["windows"][0]["line"] == "“Captain Rusty!”" and not page[0]["windows"][0]["ok"], page[0]
+    # an O2-shaped registration: today's rule 4 exactly
+    out, log, fake, ring = _s16_run(game, [{"donor": 30810, "sc": 1190, "beat": "named"}])
+    assert isinstance(out, dict) and out["beats"] == {"named": True, "name_on_page": False}, out
+    named = _g_rows(log, "named")
+    assert len(named) == 1 and set(named[0]) == {"k", "field", "donor", "sc", "frame"}, named
+    assert not _g_rows(log, "name_on_page"), _g_rows(log, "name_on_page")
+    # a small ring: before is read before the Confirms
+    out, log, fake, ring = _s16_run(game, [_o6_naming()], state_ring=60)
+    assert isinstance(out, dict) and out["beats"]["name_on_page"] is True, out
+    before = _g_rows(log, "named")[0]["before"]
+    assert before is not None and _O6_198[1] in before["raws"], before
+
+
+def test_segment_alexandria_naming_keeps_its_rows_on_the_fake(game):
+    """S16 IS OPT-IN (research/o6_design.md 1.2; rev. 2, the claim critic's #5): O2's FROZEN registration, read from
+    ``o2_predictions_v1.json``, through ``naming_of`` and rule 4 on the fake's ``{"naming": 1}`` scene in 116 at SC 1155
+    -- the ``named`` row's keys exactly ``k``, ``field``, ``donor``, ``sc``, ``frame`` (today's: no ``before``), no
+    ``name_on_page`` row and no page witness, the beat ``named`` True. Break: write ``before`` whatever the
+    registration."""
+    SD = _segment_modules()
+    naming = json.loads((REPO / "studies" / "story-trace" / "o2_predictions_v1.json").read_text(encoding="utf-8"))["naming"]
+    assert naming == [{"beat": "named", "donor": 116, "sc": 1155}], naming
+    pred = dict(_s16_pred(naming, beats=("named",)), start={"S": 116}, entrance=5, scenario=1155, route=[116],
+                visits=[116])
+    fake = FakeGame(game, fps=240.0, render_fps=60.0, walkmesh=_O5_BOX)
+    fake.warp_arrive_control, fake.warp_field_only = False, True
+    log: list = []
+    stop = threading.Event()
+    with Session(game_path=game, run_dir=game / "run-s16-o2", save_dir=game / "player-saves", pid_probe=lambda: [],
+                 launcher=lambda exe: fake.start(), boot_timeout=15.0, verbose=False) as g:
+        boot(g)
+        g.send("warp 116 5 1155")
+        g.wait_for(lambda s: s.field_id == 116 and s.ui_state == "FieldHUD", timeout=10.0, what="field 116")
+        _o1_director(fake, stop, [(lambda f: f.field_id == 116 and not f._beats,
+                                   lambda f: f.scene({"naming": 1}, control=False)),
+                                  (lambda f: f.named == [1], lambda f: _o2_move(f, 30821))])
+        try:
+            out = SD.drive(g, pred, "S", log, deadline=time.time() + 60.0,
+                           floor_for=lambda d, c: _flat_bgi(-2400, -2400, 3000, 3200), prior_for=lambda d: _prior(),
+                           forbid_live=False)
+        finally:
+            stop.set()
+    assert out["end"] == "reached" and out["beats"] == {"named": True}, out
+    named = _g_rows(log, "named")
+    assert len(named) == 1 and set(named[0]) == {"k", "field", "donor", "sc", "frame"}, named
+    assert (named[0]["donor"], named[0]["sc"], named[0]["field"]) == (116, 1155, 116), named[0]
+    assert not _g_rows(log, "name_on_page") and fake.named == [1], (log, fake.named)
+
+
+# ---- B3, O6's DRIVER on the fake (research/o6_design.md 2, 9 B3): the route builder's visit beats played by
+# segment_drive.drive with O6's predictions on the fixture's fields (:func:`_o6_pred`): S at 60 fps mean ticks, F through
+# the members at 31 fps quantized where named; the scripted waits at a quarter (``wait_scale`` 0.25), the fake's loop at
+# 4x its render rate, the session keeping every sample (``state_ring`` 5000). A run that ends in a DRIVER class a starved
+# harness can cause is re-run, at most twice (:func:`_o6_run_informative`), never for the class its test asserts, never
+# a game class; every race a test's assertion depends on is fixed by a deterministic stall or the test-held exit gate.
+
+#: The north door step on the fixture (research/o6_design.md 2.5): to the goal past e23's line, the evidence z > 1200,
+#: the landing 154 (30821), e24 and e25 avoided, the corridor's 33 tris closed, no NPC planned round.
+_O6_STEP = {"kind": "trigger", "name": "the north door", "goal": [19, 1620], "until": {"z_gt": 1200}, "to": 30821,
+            "avoid": ["30820.e24", "30820.e25"], "closed_tris": list(_O5_CLOSED), "npcs": False,
+            "beat": "steiner_door", "start": [-245, 42]}
+#: 153's registered exits at 328 on the fixture (research/o6_design.md 4.17).
+_O6_REGIONS = {"30820.e23": {"points": _O6_E23, "role": "exit", "to": 30821, "entrance": 315, "face_gate": None},
+               "30820.e24": {"points": _O6_E24, "role": "exit", "to": 30830, "entrance": 315, "face_gate": None},
+               "30820.e25": {"points": _O6_E25, "role": "exit", "to": 30831, "entrance": 315, "face_gate": None}}
+#: research/o6_design.md 4.10: nineteen targets the route leaves, twelve untouched since New Game; Byte[8] read live.
+_O6_END_STATE = {"Global.UInt16[0]": 1190, "Global.Int16[2]": 315, "Global.Byte[6]": 8, "Global.Byte[8]": 125,
+                 "Global.Bit[3855]": 1, "Global.Bit[3854]": 1, "Global.Byte[208]": 1, "Global.UInt16[21]": 8,
+                 "Global.Byte[303]": 1, "Global.Byte[4]": 0, "Global.UInt16[19]": 8, "Global.Byte[17]": 0,
+                 "Global.Byte[18]": 1, "Global.Byte[13]": 0, "Global.Byte[14]": 0, "Global.Int16[9]": -1,
+                 "Global.Int16[11]": -1, "Global.Bit[191]": 0, "Global.Bit[184]": 0, "Global.Bit[3795]": 0,
+                 "Global.Bit[3793]": 0, "Global.Byte[475]": 0, "Global.Bit[3815]": 0, "Global.Bit[3717]": 0,
+                 "Global.Bit[3718]": 0, "Global.Int16[469]": 0, "Global.Byte[472]": 0, "Global.Byte[206]": 0,
+                 "Global.Bit[3796]": 0, "Global.Bit[3811]": 0, "Global.Bit[3852]": 0}
+#: The driver's classes a starved harness can give (research/o6_design.md 9, the load-robust rule): a run ending in one
+#: is re-run, at most twice -- never for the class its test asserts (``want``), never a game class, a V11 or the page
+#: witness's V13.
+_O6_LOAD_VOIDS = ("went unseen", "the run's budget ran out", "of its 2 attempts", "stayed up through 4 Confirms")
+
+
+def _o6_pred(*, short=False, **over):
+    """O6's driver keys (research/o6_design.md 2.1, 4.1, 4.10, 4.11) on the fixture's fields: the visit-scoped cell
+    (30820, 1190, visit 2) and its north door step, the naming registration with its page witness, the run-wide
+    witness, the stop page and O1's skip net, route and visits [30810, 30820], the end 30821 per side ({S: [30821], F:
+    [31246]}), the members, e23/e24/e25 the exits, the end-row wait. ``short``: the run starts in 153 at 328 (the
+    walk's tests: no 151) -- the cell still visit 2 (the start place's index in the visits), the beat the door's."""
+    pred = {"version": 1, "start": {"S": 30810, "F": 31244}, "entrance": 110, "scenario": 1190,
+            "end_field": 30821, "end_fields": [30821], "side_ends": {"S": [30821], "F": [31246]},
+            "route": [30810, 30820], "visits": [30810, 30820],
+            "members": {str(f): d for f, d in _O6_MEMBERS.items()}, "names": dict(_O6_NAMES),
+            "budget": {"run_s": 180, "run_min_s": 1, "session_s": 900, "settle_s": 0.3, "no_progress_s": 60,
+                       "end_row_s": 10.0},
+            "beats": ["named", "name_on_page", "steiner_door"], "naming": [_o6_naming()], "battles": [],
+            "hotspots": {}, "table": [{"donor": 30820, "sc": 1190, "visit": 2, "steps": [dict(_O6_STEP)]}],
+            "forbidden": [{"off_route": True, "cause": "walk",
+                           "why": "a write off the route (150 or 64 after a walk into e24 / e25, backed by its V11 step "
+                                  "row)"}],
+            "end_state": dict(_O6_END_STATE), "regions": json.loads(json.dumps(_O6_REGIONS)),
+            "steps_default": json.loads(json.dumps(_O5_DEFAULTS)),
+            "stop_pages": [{"match": "Env Play()", "why": "151's and 153's ambient error window 56"}],
+            "choices": [{"donor": None, "sc": None, "match": "want to skip", "pick": "default", "once": False,
+                         "beat": None}],
+            "witness": {"input_every_s": 0.05, "why": "the naming screen keeps what a keyboard types"}}
+    if short:
+        pred.update(start={"S": 30820, "F": 31245}, entrance=328, beats=["steiner_door"])
+    pred.update(over)
+    return pred
+
+
+def _o6_run(game, side="S", *, short=False, route=None, knobs=None, pred=None, fps=60.0, ticks="mean", trace=True,
+            witness=None, wrap=None, budget=150.0, register=True, fake_setup=None, floor=None, prior=None,
+            gated=False, inside=None):
+    """One O6 run on the fake: New Game, field 70's prologue values (:func:`_o5_field70`), the trace armed with the
+    sink's suppression, the raw warp ``warp <151's id> 110 1190`` (``short``: ``warp <153's id> 328 1190``), the visit
+    beats staged on arrival (``route``, default :func:`_o6_route` of ``side`` with ``knobs``), 153's basis cached, and
+    the driver with ``pred`` (default :func:`_o6_pred`) -- its floor O5's box (``floor``: another ``floor_for``), its
+    prior ``prior``. ``fake_setup(fake)`` adjusts the fake before it starts; ``wrap(g, fake)`` the session's calls before
+    the drive; ``gated``: the fake's exit gate held until the drive logs a step row (path A, deterministic);
+    ``inside(g, fake, out, log)`` runs in the session after the drive (its value returned). ``(outcome or the
+    RouteVoid / HarnessError raised, log, fake, story rows, the ring's raws, inside's value)``."""
+    SD = _segment_modules()
+    if register:
+        _o6_register(game)
+    fake = FakeGame(game, fps=4 * fps, render_fps=fps, ticks=ticks, walkmesh=_O5_BOX)
+    fake.warp_arrive_control, fake.warp_field_only = False, True
+    fake.story_suppress = True
+    gate = threading.Event() if gated else None
+    fake.exit_gate = gate
+    if fake_setup is not None:
+        fake_setup(fake)
+    start, walk = _O6_FIELDS[side]["153" if short else "151"], _O6_FIELDS[side]["153"]
+    pred = _o6_pred(short=short) if pred is None else pred
+    beats = _o6_route(side, short=short, **(knobs or {})) if route is None else route
+    basis = prior or _prior()
+    log = _S14Log(gate) if gated else []
+    stop = threading.Event()
+    after = None
+    with Session(game_path=game, run_dir=game / f"run-o6-{next(_O6_RUNS)}", save_dir=game / "player-saves",
+                 pid_probe=lambda: [], launcher=lambda exe: fake.start(), boot_timeout=15.0, verbose=False,
+                 state_ring=5000) as g:
+        boot(g)
+        _o5_field70(fake)
+        if trace:
+            g.storytrace(True)
+        g._check_field_id(start, "warp", True)
+        g.send(f"warp {start} {328 if short else 110} 1190")
+        g.wait_for(lambda s: s.field_id == start and s.ui_state == "FieldHUD", timeout=10.0, what=f"field {start}")
+        g._axes[walk] = basis
+        if wrap is not None:
+            wrap(g, fake)
+        _o1_director(fake, stop, [(lambda f: f.field_id == start and not f._beats,
+                                   lambda f: f.scene(*beats, control=False))])
+        try:
+            try:
+                out = SD.drive(g, pred, side, log, deadline=time.time() + budget,
+                               floor_for=floor or (lambda d, c: _flat_bgi(-2400, -2400, 3000, 3200)),
+                               prior_for=lambda d: basis, forbid_live=trace, witness=witness or (lambda: None))
+            except (SD.RouteVoid, HarnessError) as err:
+                out = err
+        finally:
+            stop.set()
+        if inside is not None:
+            after = inside(g, fake, out, log)
+        ring = [raw for _t, _age, raw in g._ring._buf]
+        rows = []
+        if trace:
+            try:
+                g.storytrace(False)
+            except HarnessError:
+                pass
+            rows = _fv_rows(fake)
+    return out, log, fake, rows, ring, after
+
+
+def _o6_run_informative(game, *, attempts=3, want=None, spoiled=None, **kw):
+    """:func:`_o6_run` until a run is no DRIVER class a starved harness gives (:data:`_O6_LOAD_VOIDS`) -- a run whose
+    reason holds ``want`` (the test's own assertion) is never re-run, nor a game class -- and ``spoiled(out, log)``
+    (the test's own: a run the load bent onto the path it does not test, its class asserted there) is not true; at
+    most ``attempts`` runs. ``(out, log, fake, rows, ring, inside's value, the reasons of the runs set aside)``. A re-run
+    registers nothing again (the fixture's folder keeps the members)."""
+    aside: list = []
+    for k in range(1, attempts + 1):
+        out, log, fake, rows, ring, after = _o6_run(game, **kw)
+        why = str(out) if isinstance(out, Exception) else ""
+        driver = isinstance(out, Exception) and getattr(out, "by", None) in (None, "driver")
+        load = driver and any(m in why for m in _O6_LOAD_VOIDS) and not (want is not None and want in why)
+        bent = spoiled is not None and spoiled(out, log)
+        if not (load or bent) or k == attempts:
+            return out, log, fake, rows, ring, after, aside
+        aside.append(why or "spoiled: the load bent the run onto the other path")
+        kw["register"] = False
+
+
+def _o6_covered(out, aside=(), beats=("named", "name_on_page", "steiner_door")):
+    """A run that reached its end, every beat set (the drive's own outcome; the analysis's COVER is C1's)."""
+    assert not isinstance(out, Exception), (out, aside)
+    assert out["end"] == "reached" and out["beats"] == {b: True for b in beats}, out
+
+
+def _o6_door_row(log):
+    rows = _g_rows(log, "step", name="the north door")
+    assert len(rows) == 1, rows
+    return rows[0]
+
+
+def test_o6_drive_names_steiner_and_walks_to_the_north_door_on_the_fake(game):
+    """THE SEGMENT on the fake (research/o6_design.md 2.2-2.6, 9 B3), S at 60 fps mean ticks and F through the members
+    at 31 fps quantized: the driver plays 151@110's pages, KEYON pairs and timed windows, NAMES STEINER (rule 4:
+    ``named`` in 151's field with ``before`` holding 198's raw) and the page witness's row (the first sample listing a
+    parsed frozen window, exactly its windows, "Steiner" rendered, ``verdict`` "ok"); then 153@328's assembly (no
+    control) to the grant, and walks THE NORTH DOOR (the cell (30820, 1190, visit 2)): the step ``done``, its loss read
+    in 153's field past z 1200, its flip and landing frame on its row at rule 1 (S14b; its walk-out samples are the
+    gated path-A test's, where settle's reads guarantee them). The arrival in 154
+    (31246 on F): beats ``named``, ``name_on_page`` and ``steiner_door``, the end row seen, the end state 4.10's, no
+    forbidden row live, every [STNR] page rendered "Steiner". The trace, under ``story_suppress``, holds 4.18's pattern
+    by ip -- the e15 row once, inside the bytes' window -- with no ``c`` row, cut at 154's ip26 in the side's own end
+    field, every member row naming its donor (no A-MISMATCH). No landing path is asserted (the next two tests take
+    each). Break: drop S16's arming (the run uncovered: ``name_on_page`` False)."""
+    for side, fps, ticks in (("S", 60.0, "mean"), ("F", 31.0, "quantized")):
+        out, log, fake, rows, ring, _a, aside = _o6_run_informative(game, side=side, fps=fps, ticks=ticks,
+                                                                     register=side == "S")
+        _o6_covered(out, aside)
+        f151, f153, f154 = (_O6_FIELDS[side][p] for p in ("151", "153", "154"))
+        named = _g_rows(log, "named")
+        assert len(named) == 1 and named[0]["field"] == f151, named
+        assert _O6_198[1] in named[0]["before"]["raws"], named[0]
+        page = _g_rows(log, "name_on_page")
+        assert len(page) == 1 and (page[0]["field"], page[0]["verdict"]) == (f151, "ok"), page
+        _o6_page_exact(page[0], ring, f151)
+        assert page[0]["windows"][0]["mes"] == 199 and page[0]["frame"] > named[0]["frame"], page[0]
+        st = _o6_door_row(log)
+        assert st["outcome"] == "done" and st["lost"]["field"] == f153 and st["lost"]["z"] > 1200, st
+        assert st["landed"] in (None, f154) and st["landed_frame"] is not None, st      # either path (S14)
+        assert st["flip_frame"] is not None and st["lost"]["frame"] < st["flip_frame"] <= st["landed_frame"], st
+        assert out["end_state"] == _O6_END_STATE and not _g_rows(log, "forbidden"), (out["end_state"], log)
+        end = _g_rows(log, "end")
+        assert len(end) == 1 and end[0]["field"] == f154 and end[0]["end_row"]["seen"], end
+        opens = [e["text"] for e in fake.machine_log if e["event"] == "open"]
+        assert len([t for t in opens if "Steiner" in t]) == 12 and not [t for t in opens if "[STNR]" in t], opens
+        members = _O6_MEMBERS if side == "F" else None
+        visits, at, n, counts, cut = _o6_pattern(rows, members)
+        assert visits == list(_O6_PATTERN) and n == 1 and counts == [], (visits, n, counts)
+        assert _o6_window_ok(_o5_pattern(rows, members, end=30821, route=(30810, 30820))[0], at), at
+        assert cut is not None and (cut["fld"], cut["sid"], cut["tag"], cut["ip"]) == (f154, 0, 0, 26), cut
+        assert all(r["don"] == _O6_MEMBERS.get(r["fld"], r["fld"]) for r in rows if r["k"] == "w"), rows
+
+
+def test_o6_drive_takes_the_landing_before_the_walk_returns(game):
+    """S14 PATH B on O6's door (research/o6_design.md 1.2, 0.2 #6): no ``stop_z`` -- the walk-out runs until the switch,
+    so route_to never sees him still before it and returns AFTER it: the step is done all the same (its landing is
+    ``to``, 154), ``landed`` and ``route.landed`` 30821, ``route.changed_to`` set, ``flip_frame`` read off the ring
+    (``flip_late`` False). A run a starved harness pushed onto path A is re-run, its class asserted (done, path A).
+    Break: today's ``x_trigger`` (no ``to`` dispatch): V11 by the driver, "the trigger's walk left 30820"."""
+    def on_path_a(out, log):
+        rows = _g_rows(log, "step", name="the north door")
+        if isinstance(out, dict) and len(rows) == 1 and rows[0]["route"]["landed"] is None:
+            assert rows[0]["outcome"] == "done", rows[0]
+            return True
+        return False
+    out, log, fake, rows, ring, _a, aside = _o6_run_informative(game, short=True, knobs={"walkout_stop": None},
+                                                                 spoiled=on_path_a)
+    _o6_covered(out, aside, beats=("steiner_door",))
+    st = _o6_door_row(log)
+    assert (st["outcome"], st["landed"], st["v"]) == ("done", 30821, None), st
+    assert st["route"]["landed"] == 30821 and st["route"]["changed_to"] == 30821, st["route"]
+    assert st["flip_frame"] is not None and st["flip_late"] is False and st["lost"]["frame"] < st["flip_frame"], st
+
+
+def test_o6_drive_takes_the_landing_after_the_walk_returns(game):
+    """S14 PATH A on O6's door, with S14b (research/o6_design.md 1.2, 0.2 #6; rev. 2, the driver critic's #3): the
+    walk-out held at z 1400 and the fake's exit gate released by the log hook when the door's step row is appended --
+    the switch cannot come before the step row, whatever the harness thread's load. route_to returns before the switch:
+    ``route.landed`` None, the step done with ``landed`` None; rule 1 puts S14b's record on the row -- ``walkout`` (his
+    z rising to 1400 and held there, control off), ``flip_frame`` with ``flip_late`` True, ``landed_frame``. Break: no
+    S14b (``flip_frame`` stays None)."""
+    out, log, fake, rows, ring, _a, aside = _o6_run_informative(game, short=True, knobs={"walkout_stop": 1400},
+                                                                 gated=True)
+    _o6_covered(out, aside, beats=("steiner_door",))
+    st = _o6_door_row(log)
+    assert (st["outcome"], st["landed"], st["route"]["landed"], st["v"]) == ("done", None, None, None), st
+    assert st["flip_frame"] is not None and st["flip_late"] is True and st["landed_frame"] is not None, st
+    assert st["lost"]["frame"] < st["flip_frame"] <= st["landed_frame"], st
+    zs = [z for _f, _x, z, c in st["walkout"]]
+    assert zs and zs == sorted(zs) and zs[-1] == pytest.approx(1400, abs=0.5), zs
+    assert not any(c for _f, _x, _z, c in st["walkout"]), st["walkout"]
+
+
+def test_o6_drive_wrong_door_is_the_drivers_v11(game):
+    """THE LANDING JUDGE on O6's door (research/o6_design.md 2.5, 2.7): a mutant table walking south into e25 -- the
+    walk's loss WITHOUT the evidence (z far short of 1200) in a registered exit of 153 -- is the DRIVER's V11 at [30820,
+    1190, 2]: the step row's ``door`` 30820.e25, its ``landed`` 30831 ("64", e25's Field()), the switch waited out; a
+    row the run then writes in 30831 is BACKED by that step row (the analysis uncovers it, never a finding). Break:
+    e25 registered ``dormant`` (no door named: the landing rule 2's)."""
+    SD = _segment_modules()
+    step = dict(_O6_STEP, goal=[0, -1500], avoid=[])
+    pred = _o6_pred(short=True, table=[{"donor": 30820, "sc": 1190, "visit": 2, "steps": [step]}])
+    out, log, fake, rows, ring, _a, aside = _o6_run_informative(game, short=True, pred=pred)
+    _o5_void(out, "V11", "driver", [30820, 1190, 2], "30831")
+    st = _o6_door_row(log)
+    assert (st["door"], st["landed"], st["v"], st["by"]) == ("30820.e25", 30831, "V11", "driver"), st
+    # the switch waited out by the landing judge ("void"), or -- a fake starved past exit_wait_s -- laid to the
+    # unfinished walk by rule 2 ("interrupted", late): the driver's V11 for the same walk either way
+    assert st["outcome"] == "void" or (st["outcome"], st.get("late")) == ("interrupted", True), st
+    assert st["lost"]["field"] == 30820 and st["lost"]["z"] < 0, st["lost"]
+    assert SD.backing({"f": st["frame"] + 1, "cause": "walk", "fld": 30831}, log, pred) is not None, st
+
+
+def _o6_bent_onto_path_a(out, log):
+    """A misrouted door's run the load bent onto path A (route_to's settle out before the switch): its door step done,
+    and the landing judged by rule 2 after it -- set aside, its class asserted (the same V-class, no ``misroute``)."""
+    rows = _g_rows(log, "step", name="the north door")
+    if len(rows) == 1 and rows[0]["outcome"] == "done":
+        assert isinstance(out, Exception) and getattr(out, "by", None) == "game", out
+        return True
+    return False
+
+
+def test_o6_drive_misrouted_door_is_rule_2s(game):
+    """S14's ``left`` on O6's door (research/o6_design.md 1.2; rev. 2, the claim critic's #1): ``door_misroute``
+    {"e23": "150"} -- the evidence held (the loss in 30820 past z 1200), then e23's Field() lands in 30830. The step
+    row's outcome is ``left``, ``misroute`` {fld 30830, place 30830}, ``landed`` None and no class; the run VOID V11 by
+    the GAME at rule 2's cell [30830, 1190, 2], and a row the run writes in 30830 is UNBACKED (no V11 step row landed
+    there: FORBIDDEN reads it as the fork's). Path B (no ``stop_z``); a run the load bent onto path A is re-run, its
+    class asserted. Break: the first design's ``strayed`` (V11 by the driver, ``landed`` set, the rows backed)."""
+    SD = _segment_modules()
+    pred = _o6_pred(short=True)
+    out, log, fake, rows, ring, _a, aside = _o6_run_informative(
+        game, short=True, pred=pred, knobs={"walkout_stop": None, "door_misroute": {"e23": "150"}},
+        spoiled=_o6_bent_onto_path_a)
+    _o5_void(out, "V11", "game", [30830, 1190, 2])
+    st = _o6_door_row(log)
+    assert (st["outcome"], st["landed"], st["v"], st["by"]) == ("left", None, None, None), st
+    assert st["misroute"] == {"fld": 30830, "place": 30830} and st["lost"]["field"] == 30820, st
+    assert "rule 2's" in st["why"] and st["lost"]["z"] > 1200, st
+    assert SD.backing({"f": st["frame"] + 1, "cause": "walk", "fld": 30830}, log, pred) is None, st
+
+
+def test_o6_drive_misrouted_door_to_a_real_field_is_v19(game):
+    """S14's ``left`` on F (research/o6_design.md 1.2; rev. 2, the claim critic's #1): ``door_misroute`` {"e23": "150"}
+    with ``land_real`` {"150": 30830} -- e23's Field() lands in REAL 30830, which member 31243 forks: V19 by the game
+    at [30830, 1190, 2], a stop_on finding (never a re-runnable VOID); the step row ``left``. Path B; a run the load
+    bent onto path A is re-run, its class asserted. Break: the first design's V11 by the driver."""
+    out, log, fake, rows, ring, _a, aside = _o6_run_informative(
+        game, side="F", short=True, knobs={"walkout_stop": None, "door_misroute": {"e23": "150"},
+                                           "land_real": {"150": 30830}}, spoiled=_o6_bent_onto_path_a)
+    _o5_void(out, "V19", "game", [30830, 1190, 2], "REAL 30830")
+    st = _o6_door_row(log)
+    assert st["outcome"] == "left" and st["misroute"] == {"fld": 30830, "place": 30830}, st
+
+
+def test_o6_drive_loss_unseen_is_v13(game):
+    """S14's V13 on O6's door (research/o6_design.md 1.2, 0.2 #18): the fake's publication held from e23's fire to the
+    map switch (a test-side hold: the frame loop runs on, the file keeps the last sample before the fire), so the first
+    read with control gone is in 30821 -- a read gap across the 25-tick fade. The step is VOID V13 by the driver ("went
+    unseen") at [30820, 1190, 2], its loss read in 30821: never done, never V11 -- and never re-run (the class it
+    asserts). Break: judge ``until`` on that read."""
+    def hold(g, fake):
+        publish = fake._publish
+
+        def held(force=False):
+            if fake.field_id == 30820 and any(e["kind"] == "fire" for e in fake.visit_log) and not force:
+                return                              # from the fire to the switch: nothing published
+            publish(force)
+        fake._publish = held
+
+    def budget_only(out, log):
+        return isinstance(out, Exception) and "went unseen" not in str(out) and "budget ran out" in str(out)
+    out, log, fake, rows, ring, _a, aside = _o6_run_informative(game, short=True, wrap=hold, want="went unseen",
+                                                                 spoiled=budget_only)
+    _o5_void(out, "V13", "driver", [30820, 1190, 2], "went unseen")
+    st = _o6_door_row(log)
+    assert (st["outcome"], st["v"], st["by"]) == ("void", "V13", "driver") and st["lost"]["field"] == 30821, st
+
+
+def test_o6_drive_fork_landing_in_real_154_is_v19(game):
+    """S6's V19 on O6's end (research/o6_design.md 2.2 rule 2, 2.7): F with ``land_real`` {"154": 30821} -- e23's
+    Field() lands in REAL 30821, where member(154) 31246 was due: the door step passes (its landing is place 154), and
+    rule 2 gives V19 by the game at [30821, 1190, 2] -- a finding, never the walk's. Break: key the VOID [donor, sc]."""
+    out, log, fake, rows, ring, _a, aside = _o6_run_informative(game, side="F", short=True,
+                                                                 knobs={"land_real": {"154": 30821}})
+    _o5_void(out, "V19", "game", [30821, 1190, 2], "REAL 30821")
+
+
+def test_o6_drive_typed_name_is_the_drivers_v13(game):
+    """THE PAGE WITNESS JUDGES (research/o6_design.md 1.2 S16; rev. 2, the claim critic's #2): ``name_typed`` "Rusty" --
+    a name typed into the box during accept_name's blocking call, which the run-wide witness does not see. 199 renders
+    "Captain Rusty!": the ``name_on_page`` row's ``verdict`` "V13", its 199 line "“Captain Rusty!”", and the run VOID
+    V13 by the driver at [30810, 1190, 1] ("input at the naming screen" -- or, the message says too, a patched default
+    name, which P-NAME refuses before the session: the review, research/o6_design.md 11.7 #1); never re-run (the class
+    it asserts). Break: the first design's S16 (record, never judge): the run covered."""
+    out, log, fake, rows, ring, _a, aside = _o6_run_informative(game, knobs={"name_typed": "Rusty"},
+                                                                 want="the name on the page is not the default")
+    _o5_void(out, "V13", "driver", [30810, 1190, 1], "input at the naming screen")
+    assert "or a patched default name (a stacked DictionaryPatch.txt CharacterDefaultName line, or [Import] Text" \
+           in str(out), str(out)
+    page = _g_rows(log, "name_on_page")
+    assert len(page) == 1 and page[0]["verdict"] == "V13", page
+    assert page[0]["windows"][0]["mes"] == 199 and page[0]["windows"][0]["line"] == "“Captain Rusty!”", page[0]
+    assert fake.names == {3: "Rusty"}, fake.names
+
+
+def test_o6_drive_unparsed_page_is_skipped(game):
+    """THE PAGE WITNESS'S GUARD (research/o6_design.md 1.2 S16, 0.2 #8): a window published UNPARSED -- its raw text,
+    the tag in it, a state the engine is not expected to publish -- is never listed, never judged. ``unparsed_frames``
+    {199: 90} with 200 60 ticks later: the ring reads 199 unparsed, and the row stands on the first PARSED sample,
+    listing 199, ``verdict`` "ok". The pair opened together (``lag199`` 0) and ``unparsed_frames`` {200: 90}: the row
+    lists 199 only while 200 is unparsed. A run whose ring read no unparsed sample (a starved poll) tests nothing and
+    is re-run. Break: list every window holding the tag (the unparsed sibling then fails the judgment)."""
+    def missed(mes):
+        def spoiled(out, log):
+            page = _g_rows(log, "name_on_page")
+            return isinstance(out, dict) and len(page) == 1 and not any(
+                _o6_lists_unparsed(raw, mes) for raw in seen[0] if int(raw["frame"]) <= page[0]["frame"])
+        return spoiled
+    seen = [[]]
+
+    def keep(g, fake, out, log):
+        seen[0] = [raw for _t, _age, raw in g._ring._buf]
+    for knobs, mes in (({"lag199": 60, "unparsed_frames": {199: 90}}, 199),
+                       ({"lag199": 0, "unparsed_frames": {200: 90}}, 200)):
+        out, log, fake, rows, ring, _a, aside = _o6_run_informative(game, knobs=knobs, inside=keep,
+                                                                     spoiled=missed(mes), register=mes == 199)
+        _o6_covered(out, aside)
+        page = _g_rows(log, "name_on_page")
+        assert len(page) == 1 and page[0]["verdict"] == "ok", page
+        _o6_page_exact(page[0], ring, 30810)                  # exactly its sample's PARSED frozen windows
+        assert page[0]["windows"][0]["mes"] == 199, page[0]["windows"]
+        first = next(r for r in ring if int(r["frame"]) == page[0]["frame"])
+        if _o6_lists_unparsed(first, 200):                    # its sibling still unparsed there: never listed
+            assert [w["mes"] for w in page[0]["windows"]] == [199], page[0]["windows"]
+
+
+def _o6_quick_ladder_setup(fake):
+    """The engine's soft reset where it fires (SOFT_RESET_ENGINE_UI) and 151's running scene swallowing it (H16b)."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    fake.soft_reset_ui, fake.reset_blocked_fields = SOFT_RESET_ENGINE_UI, {30810}
+
+
+def test_o6_drive_stuck_naming_screen_stops_the_run(game):
+    """THE STUCK SCREEN (research/o6_design.md 1.2 S15, 3.3): ``naming_deaf`` 9 -- the screen drops every Confirm of
+    rule 4's accept_name, which raises: the run STOPPED (a HarnessError, no RouteVoid) with the screen up. Then
+    end_run: the warp refused off the field HUD, its own accept_name raising too -- ``end-naming-failed`` and the
+    session-stop marker (S15), the screen still up. Break: a plain HarnessError from end_run (no marker)."""
+    SD, ST = _segment_modules(), _segment_trace()
+
+    def inside(g, fake, out, log):
+        _o3_quick_ladder(g)
+        elog: list = []
+        try:
+            ST.Segment().end_run(g, elog, recovery=30821)
+        except HarnessError as err:
+            return elog, err, fake.ui_state
+        return elog, None, fake.ui_state
+    out, log, fake, rows, ring, after, aside = _o6_run_informative(
+        game, knobs={"naming_deaf": 9}, want="stayed up through 4 Confirms", inside=inside,
+        fake_setup=_o6_quick_ladder_setup)
+    assert isinstance(out, HarnessError) and not isinstance(out, SD.RouteVoid), out
+    assert "stayed up through 4 Confirms" in str(out) and not _g_rows(log, "named"), (str(out), log)
+    elog, err, ui = after
+    assert [r["k"] for r in elog] == ["recover-warp-failed", "end-naming-failed"], elog
+    assert err is not None and getattr(err, "session_stop", False) is True and ui == "NameSetting", (err, ui)
+
+
+def test_o6_drive_naming_recovery_reaches_the_title_on_the_fake(game):
+    """S15 ON O6's ROUTE (research/o6_design.md 1.2 S15, 2.8; rev. 2, the driver critic's #4): the run stopped with the
+    naming screen up in 151 (rule 4's accept_name wrapped to raise once -- R-NAMING-VOID's stop), 151's running scene
+    swallowing the soft reset (H16b). end_run: ``recover-warp-failed`` (off the field HUD), ``end-naming`` (the screen
+    accepted AT ONCE, before any Cancel or rung of the ladder), ``recover-warp-after-naming`` (30821, the session tests'
+    stand-in for 4600), then the title; ``close_ui`` and ``soft_reset`` never called before accept_name. Breaks: drop
+    S15's retried warp ("the title could not be restored"); the first design's order (the ladder first)."""
+    ST = _segment_trace()
+
+    def wrap(g, fake):
+        real, calls = g.accept_name, [0]
+
+        def once(**kw):
+            calls[0] += 1
+            if calls[0] == 1:
+                raise HarnessError("the rehearsal's stop at the naming screen")
+            return real(**kw)
+        g.accept_name = once
+
+    def inside(g, fake, out, log):
+        calls: list = []
+        _s15_record(g, calls)
+        stop = threading.Event()                  # 30821 stands in for 4600, which grants control on arrival
+        _o1_director(fake, stop, [(lambda f: f.field_id == 30821, lambda f: setattr(f, "control", True))])
+        elog: list = []
+        try:
+            ST.Segment().end_run(g, elog, recovery=30821)
+        finally:
+            stop.set()
+        return elog, calls, g.state.ui_state
+    out, log, fake, rows, ring, after, aside = _o6_run_informative(
+        game, wrap=wrap, want="the rehearsal's stop", inside=inside, fake_setup=_o6_quick_ladder_setup)
+    assert isinstance(out, HarnessError) and "the rehearsal's stop at the naming screen" in str(out), out
+    elog, calls, ui = after
+    assert [r["k"] for r in elog] == ["recover-warp-failed", "end-naming", "recover-warp-after-naming"], elog
+    assert elog[2]["field"] == 30821 and ui == "Title" and fake.named == [3], (elog, ui, fake.named)
+    first = calls.index(("accept_name",))
+    assert not [c for c in calls[:first] if c[0] in ("close_ui", "soft_reset")], calls
+
+
+def test_o6_drive_control_in_151_is_v4(game):
+    """V4 BY THE GAME in 151 (research/o6_design.md 2.4, 2.7): ``grant_at`` {1: [0, 0]} -- control granted after 151's
+    leading stores, where the bytes grant none (Brahne is the defined player, Map.Bit[158] never set at 110): rule 8
+    settles and finds no cell for (30810, 1190) at visit 1 -- V4 by the game at [30810, 1190, 1], the visit in the cell
+    (S13). Break: key the VOID [donor, sc]."""
+    out, log, fake, rows, ring, _a, aside = _o6_run_informative(game, knobs={"grant_at": {1: [0, 0]}})
+    _o5_void(out, "V4", "game", [30810, 1190, 1], "control held in 30810")
+
+
+def test_o6_drive_stop_page_in_the_start_is_v5_driver(game):
+    """THE STOP PAGE (research/o6_design.md 2.1, 2.7 V5): Byte[13] arrived 2 at visit 1 (``error_window`` {1: 2}: the
+    warp's start state) -- 151's prologue takes its error branch and lists window 56 "Error Env Play()" -- V5 by the
+    DRIVER (the run's first visit, its start place) at [30810, 1190, 1], nothing pressed; the same at 153@328
+    (``error_window`` {2: 2}) is the GAME's V5 at [30820, 1190, 2]. Break: attribute every stop page to the driver."""
+    out, log, fake, rows, ring, _a, aside = _o6_run_informative(game, knobs={"error_window": {1: 2}})
+    _o5_void(out, "V5", "driver", [30810, 1190, 1], "Env Play()")
+    assert not _g_rows(log, "press"), _g_rows(log, "press")
+    out, log, fake, rows, ring, _a, aside = _o6_run_informative(game, knobs={"error_window": {2: 2}}, register=False)
+    _o5_void(out, "V5", "game", [30820, 1190, 2], "Env Play()")
+    assert [r["visit"] for r in _g_rows(log, "visit")] == [1, 2], _g_rows(log, "visit")
+
+
+def test_o6_drive_unregistered_naming_is_v10(game):
+    """V10 BY THE GAME (research/o6_design.md 2.1, 2.7): a naming screen in 153@328, where the route registers none
+    (the registration is 151's): rule 4 VOIDs it V10 by the game at [30820, 1190, 2], nothing accepted. Break: accept any
+    naming screen (the run then goes on)."""
+    route = _o6_route("S", short=True)
+    steps = route[0]["visit"]["steps"]
+    assert "grant" in steps[7], steps[7]
+    route[0]["visit"]["steps"] = [*steps[:7], {"naming": 3, "name": "Steiner"}, *steps[7:]]
+    out, log, fake, rows, ring, _a, aside = _o6_run_informative(game, short=True, route=route)
+    _o5_void(out, "V10", "game", [30820, 1190, 2], "a naming screen in 30820")
+    assert fake.named == [] and fake.ui_state == "NameSetting", (fake.named, fake.ui_state)
+
+
+def test_o6_drive_e15_late_is_covered(game):
+    """THE FLOATING ROW IS THE ANALYSIS'S (research/o6_design.md 0.2 #11, 4.18; decision 6): ``e15_late`` -- the shared
+    script's 153 e15 t0 ip32 row after e32 t1 ip971 and ip1006, "the order flipped" -- changes nothing the driver reads:
+    the run is covered, and the row still lies inside the bytes' window, now after ip1006 (C1's O6-PATTERN judges the
+    order). Break: the builder's ``e15_late`` ignored (the row then precedes ip971)."""
+    out, log, fake, rows, ring, _a, aside = _o6_run_informative(game, knobs={"e15_late": True})
+    _o6_covered(out, aside)
+    visits, at, n, counts, cut = _o6_pattern(rows)
+    assert visits == list(_O6_PATTERN) and n == 1, (visits, n)
+    with_float = _o5_pattern(rows, end=30821, route=(30810, 30820))[0]
+    ips = [t[3] for t in with_float[1]]
+    assert _o6_window_ok(with_float, at) and ips.index(1006) < at[1], (at, ips)
+
+
+def test_o6_drive_walks_the_real_hall_on_the_fake(game, dali):
+    """THE REAL HALL (research/o6_design.md 0.2 #7, #12, 2.5; rev. 2, the driver critic's #1): the fake's floor stock
+    153's player walkmesh with the 33 upper tris closed, his centre kept 120u off its walls (Steiner's radius:
+    SetObjectLogicalSize(30, ...) x 4), 153's own key twist; the driver's floor the same mesh, its prior 153's. From the
+    grant (-245, 42) the step is ``done``, its loss past z 1333 INSIDE e23's quad, and THE CORNER is recorded: a wrapped
+    ``g.send`` logs each walk hold's start (where he stood, the buttons), and some hold ends at least 20u east of where
+    its pressed line put it -- the fake's push off the corridor mouth's west wall. No x band: hold sizes follow the
+    fake's measured rate. Reads the install (the ``dali`` fixture's warned skip without it: a skip fails G32)."""
+    from ff9mapkit import extract, eventscan, storytrace
+    from ff9mapkit.content import doorface, movement, pathfind
+    pw = pathfind.PlayerWalkmesh(extract.stock_walkmesh(153), closed=_O5_CLOSED)
+    twist = eventscan.scan_control_twist(storytrace.stock_script_source()(153).data)
+    prior = movement.key_move_basis(None if twist is None else twist[1])
+    holds: list = []
+
+    def setup(fake):
+        fake.walkmesh, fake.clearance = pw, 120.0
+        fake.twist = math.degrees(math.atan2(-prior["v"][0], prior["v"][1]))
+
+    def wrap(g, fake):
+        send = g.send
+        holds.clear()                                      # a re-run's holds only
+
+        def logged(*steps, **kw):
+            held = [s.split()[1] for s in steps if isinstance(s, str) and s.startswith("hold ")
+                    and not s.startswith("hold cancel")]
+            if held and fake.field_id == 30820 and fake.control:
+                holds.append({"buttons": held, "at": (fake.player[0], fake.player[2])})
+            return send(*steps, **kw)
+        g.send = logged
+    out, log, fake, rows, ring, _a, aside = _o6_run_informative(
+        game, short=True, fake_setup=setup, wrap=wrap, prior=prior,
+        floor=lambda d, c: pathfind.PlayerWalkmesh(extract.stock_walkmesh(153), closed=c))
+    _o6_covered(out, aside, beats=("steiner_door",))
+    st = _o6_door_row(log)
+    lost = st["lost"]
+    assert st["outcome"] == "done" and lost["field"] == 30820 and lost["z"] > 1333, st
+    assert doorface.region_contains(lost["x"], lost["z"], _O6_E23), lost
+    unit = {"up": prior["v"], "down": (-prior["v"][0], -prior["v"][1]), "right": prior["h"],
+            "left": (-prior["h"][0], -prior["h"][1])}
+    ends = [h["at"] for h in holds[1:]] + [(lost["x"], lost["z"])]
+    east = []
+    for h, (x1, z1) in zip(holds, ends):
+        ux = sum(unit[b][0] for b in h["buttons"])
+        uz = sum(unit[b][1] for b in h["buttons"])
+        n = math.hypot(ux, uz)
+        dx, dz = x1 - h["at"][0], z1 - h["at"][1]
+        along = (dx * ux + dz * uz) / n
+        east.append(dx - along * ux / n)
+    assert holds and max(east) >= 20.0, (holds, east)
+
+
+# ---- O6 itself (studies/story-trace/o6_steiner.py; research/o6_design.md section 9, PART C, C1-C2): the draft read
+# from O4's campaign.toml, the freeze's refusals, the route builder against the draft (one source of truth),
+# instanced_at6's compare dispatch, the census's live and inert proofs, the regions' roles, the door's goals, O6-PATTERN's
+# floating row, O6-NAMING and O6-START-DEPENDENT, A-START and A-NAMING, the preflight's verdicts and the trace summary --
+# each pure or on synthetic chains, meshes and rows (the census, the regions, the goals' (e), the builder's pattern and
+# the trace summary read the install's stock scripts, read-only: a warned skip without it, which fails G32).
+
+def _o6_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o6_steiner as O
+    return O
+
+
+@pytest.fixture(scope="module")
+def o6_stock():
+    """The install's stock scripts of 151, 153 and 154 (what O6-CENSUS, O6-REGIONS, O6-GOALS (e) and O6-PATTERN's join
+    read), or a WARNED skip -- never a silent pass (THE WORKTREE SKIP TRAP)."""
+    import warnings
+    try:
+        from ff9mapkit import storytrace
+        src = storytrace.stock_script_source()
+        assert all(src(f) is not None for f in (151, 153, 154))
+    except Exception as err:                                   # noqa: BLE001 -- no install here
+        warnings.warn(f"O6's census, regions, goals and pattern went UNVERIFIED against real bytes in this run: the game "
+                      f"install is not readable here ({type(err).__name__}). Run on the machine with the install.",
+                      UserWarning)
+        pytest.skip("game install unavailable")
+    return src
+
+
+def _o6_draft(tmp_path):
+    """The draft on a synthetic alxc chain (:func:`_o4c_campaign`: the twenty donors at 31240 + their position, so
+    member(151) 31244, member(153) 31245, member(154) 31246 as built)."""
+    return _o6_module().draft_predictions(_o4c_campaign(tmp_path))
+
+
+def _o6_frozen_like(pred):
+    """The draft with the freeze-time values a freeze needs (the claim critic's #9): R-DOOR's measured e15 position inside
+    the bytes' window, a named rehearsal -- what the lead's freeze writes, never pinned by a test."""
+    import copy
+    O = _o6_module()
+    good = copy.deepcopy(pred)
+    win = O.float_window(good["pattern"])[0]
+    good["pattern"]["floating"][0]["measured"] = {"index": [win[0], win[1]], "frames_to_971": [300, 280]}
+    good["rehearsals"] = ["C:/gd/Dream-World-IX/.harness-runs/20261005-000000-o6-rh-door"]
+    return good
+
+
+def _o6_rehearsal_dir(name):
+    """Whether ``name`` -- a bare run-dir name or a full path, either slash -- is an O6 rehearsal launch's run dir:
+    ``<yyyymmdd>-<hhmmss>-o6-rh``, optionally ``-<suffix>`` (any letters, digits, ``-`` or ``_``, any case). Never
+    another segment's (``o5-rh-...``) and never a session's (``story-o6``)."""
+    base = re.split(r"[\\/]", str(name))[-1]
+    return re.fullmatch(r"\d{8}-\d{6}-o6-rh(?:[-_][A-Za-z0-9_-]+)?", base, flags=re.IGNORECASE) is not None
+
+
+def test_o6_steiner_draft_reads_the_chain_from_campaign(tmp_path):
+    """The draft's members and names are O4's built chain's campaign.toml (research/o6_design.md 1.3, 4.1): its donors
+    exactly the twenty, member(151), member(153) and member(154) DERIVED, never assumed, and printed as one line; the
+    draft starts F in member(151), ends S in real 154 and F in member(154) (``side_ends``), visits 151 then 153, carries
+    the naming registration with its page witness (two frozen windows), the witness, the north door's visit-scoped cell
+    (its ``to`` 154, its evidence z > 1200, no typed slack), the THREE residue rows, 30 keys (28 writes + 2 chain), the two
+    start-dependent keys with ``after`` (its run the class's AFTER_RUN, its source named) and the e15 row floating; a
+    chain whose ids run the other way moves the F start and end with it. The rehearsals are read from the draft (the lead
+    names them at the freeze), never pinned. o6_forks.json is O4's chain reused: O4's twenty members and names, its route
+    members derived, deployed, nothing to relaunch, block 3's members, C0's measured sites. Break: end the F side in real
+    154."""
+    O = _o6_module()
+    members, names = O.chain_from_campaign(_o4c_campaign(tmp_path))
+    assert O.route_members(members) == {151: 31244, 153: 31245, 154: 31246}, O.route_members(members)
+    assert O.route_members_line(members) == "member(151) 31244, member(153) 31245, member(154) 31246"
+    pred = _o6_draft(tmp_path)
+    assert pred["start"] == {"S": 151, "F": 31244} and pred["side_ends"] == {"S": [154], "F": [31246]}, \
+        (pred["start"], pred["side_ends"])
+    assert pred["route"] == [151, 153] and pred["visits"] == [151, 153] and pred["end_fields"] == [154]
+    assert pred["members"] == {str(f): d for f, d in members.items()} and pred["names"]["31244"] == "O4_SYNTH_151"
+    assert (pred["entrance"], pred["scenario"], pred["battles"]) == (110, 1190, [])
+    # the lead names the rehearsals at the freeze (7.3), so never pin them empty (O2's, O4's and O5's lesson), nor pin
+    # their FORM (the review, research/o6_design.md 11.7 #3): the lead's documented launch `--label o6-rh` names its dir
+    # `<stamp>-o6-rh` (R-DOOR x2 and the void stages in one launch), a later one may carry any suffix and case (O2's
+    # `o2-rh-R-115a`, O3's `o3-rh-F-SMOKE`), O2 and O3 froze full paths -- each one is a run dir of O6's OWN stages,
+    # never another segment's
+    assert all(_o6_rehearsal_dir(r) for r in pred["rehearsals"]), pred["rehearsals"]
+    for name in ("20261005-101010-o6-rh", "20261005-101010-o6-rh-door2", "20261005-101010-o6-rh-R-DOOR",
+                 "C:/gd/Dream-World-IX/.harness-runs/20261005-000000-o6-rh-door",
+                 "C:\\gd\\Dream-World-IX\\.harness-runs\\20261005-101010-o6-rh"):
+        assert _o6_rehearsal_dir(name), name
+    for name in ("20261003-090247-o5-rh-stairs", "20261005-101010-o6-rhx", "o6-rh", "20261005-101010-story-o6", ""):
+        assert not _o6_rehearsal_dir(name), name
+    assert all(_o6_rehearsal_dir(r) for r in _o6_frozen_like(pred)["rehearsals"])
+    assert len(pred["writes"]) == 28 and len(pred["chain"]) == 2 and pred["ladder"] == [], len(pred["writes"])
+    assert pred["start_residue"] == [[0, 0, 166], [1, 0, 4], [2, 0, 110]], pred["start_residue"]
+    reg = pred["naming"]
+    assert len(reg) == 1 and (reg[0]["donor"], reg[0]["sc"], reg[0]["beat"]) == (151, 1190, "named"), reg
+    assert [w["mes"] for w in reg[0]["on_page"]["windows"]] == [199, 200] and reg[0]["on_page"]["tag"] == "[STNR]"
+    assert pred["witness"]["input_every_s"] == 0.05 and pred["table"][0]["visit"] == 2, pred["table"]
+    step = pred["table"][0]["steps"][0]
+    assert (step["kind"], step["to"], step["until"], step["npcs"]) == ("trigger", 154, {"z_gt": 1200}, False), step
+    assert "stale_slack" not in pred["walk"] and pred["walk"]["door"] == "153.e23", pred["walk"]
+    assert [k["after"]["run"] for k in pred["start_dependent"]] == [O.O6Segment.AFTER_RUN] * 2
+    assert all(k["after"].get("source") for k in pred["start_dependent"]), pred["start_dependent"]
+    assert [fl["tuple"] for fl in pred["pattern"]["floating"]] == [[153, 15, 0, 26, "Global.Byte[8]", 125, 0]]
+    rev = O.draft_predictions(_o4c_campaign(tmp_path, ids={d: 31259 - i for i, d in enumerate(O.C4.DONORS)},
+                                            name="reversed.toml"))
+    m = {d: f for f, d in ((int(f), d) for f, d in rev["members"].items())}
+    assert rev["start"]["F"] == m[151] != 31244 and rev["side_ends"]["F"] == [m[154]], (rev["start"], rev["side_ends"])
+    with pytest.raises(AssertionError, match=r"missing \[151\]"):
+        O.chain_from_campaign(_o4c_campaign(tmp_path, donors=[d for d in O.C4.DONORS if d != 151], name="bad.toml"))
+    man = json.loads(O.MANIFEST.read_text(encoding="utf-8"))
+    o4 = json.loads(O.C4.MANIFEST.read_text(encoding="utf-8"))
+    mm = {int(f): int(d) for f, d in man["members"].items()}
+    assert man["members"] == o4["members"] and man["names"] == o4["names"], "o6_forks.json is not O4's chain"
+    assert man["route_members"] == {str(f): d for d, f in O.route_members(mm).items()}, man["route_members"]
+    assert (man["deployed"], man["relaunch_needed"], man["reuses"]) == (True, False,
+                                                                        "studies/story-trace/o4_forks.json"), man
+    assert man["text_blocks"] == {"3": o4["text_blocks"]["3"]}, man["text_blocks"]
+    for site in ("e2 t1 ip940 (153)", "e23 t2 ip211 (154)", "e3 t1 ip3158 (154)", "e2 t1 ip1528 (153)",
+                 "e3 t1 ip3296 Field(204)"):
+        assert site in man["built"]["measured"], site
+
+
+def test_o6_steiner_freeze_refuses(tmp_path):
+    """The freeze (research/o6_design.md 1.3, 7.3) writes the draft ONCE -- LF, sorted keys, its sha the bytes' -- on a
+    synthetic chain, the live engine (a stub reader) and the freeze-time values the lead writes (:func:`_o6_frozen_like`).
+    Before anything is written it refuses, each naming its cause and writing nothing: no witness; a naming registration
+    without ``on_page``, one without ``windows``; a table step carrying a rehearsal overlay (``walk_stop_z``,
+    ``walk_stop_hold``); a ``walk`` carrying a typed ``stale_slack``; side_ends ending F in REAL 154; a battles row; a
+    start-dependent key without ``after``, one whose ``after`` has no ``source``; the floating row's ``measured`` null and
+    measured outside the bytes' window; an empty ``rehearsals``; an engine that is not the live DLLs'; and a second
+    freeze onto the same file refuses. The real o6_predictions_v1.json is never touched. Break: accept a step's
+    walk_stop_z."""
+    import copy
+    import hashlib
+    O = _o6_module()
+    _o4c_campaign(tmp_path)
+    seg = O.O6Segment()
+    seg.chain_dir = tmp_path
+    live = {"x64": O.ENGINE["x64"], "x86": O.ENGINE["x86"]}
+    good = _o6_frozen_like(seg.draft())
+
+    def refuses(pred, match, engine=live):
+        seg.draft = lambda: copy.deepcopy(pred)
+        never = tmp_path / "never.json"
+        with pytest.raises(SystemExit, match=match):
+            seg.freeze(never, live_engine=engine)
+        assert not never.exists()
+
+    def edited(fn):
+        p = copy.deepcopy(good)
+        fn(p)
+        return p
+    refuses(edited(lambda p: p.pop("witness")), "no witness")
+    refuses(edited(lambda p: p["naming"][0].pop("on_page")), "carries no on_page windows")
+    refuses(edited(lambda p: p["naming"][0]["on_page"].__setitem__("windows", [])), "windows is a non-empty list")
+    refuses(edited(lambda p: p["table"][0]["steps"][0].__setitem__("walk_stop_z", 500)),
+            r"rehearsal overlay \['walk_stop_z'\]")
+    refuses(edited(lambda p: p["table"][0]["steps"][0].__setitem__("walk_stop_hold", True)),
+            r"rehearsal overlay \['walk_stop_hold'\]")
+    refuses(edited(lambda p: p["walk"].__setitem__("stale_slack", 160)), "typed stale_slack")
+    refuses(dict(copy.deepcopy(good), side_ends={"S": [154], "F": [154]}), "neither an end field no member forks")
+    refuses(dict(copy.deepcopy(good), battles=[{"donor": 153}]), "battle row")
+    refuses(edited(lambda p: p["start_dependent"][0].pop("after")), "carries no after")
+    refuses(edited(lambda p: p["start_dependent"][1]["after"].pop("source")), "after carries no source")
+    refuses(edited(lambda p: p["pattern"]["floating"][0].__setitem__("measured", None)), "measured is null")
+    refuses(edited(lambda p: p["pattern"]["floating"][0].__setitem__("measured", {"index": [7]})),
+            r"measured index \[7\] outside its window")
+    refuses(edited(lambda p: p["pattern"]["floating"][0].__setitem__("measured", {"index": [16]})),
+            r"measured index \[16\] outside its window")
+    refuses(dict(copy.deepcopy(good), rehearsals=[]), "no rehearsals")
+    refuses(good, "is not the live DLLs'", engine={"x64": "0" * 64, "x86": "0" * 64})
+    seg.draft = lambda: copy.deepcopy(good)
+    path = tmp_path / "o6_predictions_v1.json"
+    sha = seg.freeze(path, live_engine=live)
+    data = path.read_bytes()
+    assert sha == hashlib.sha256(data).hexdigest() and b"\r" not in data and data.endswith(b"\n")
+    assert data.decode("utf-8") == json.dumps(good, indent=1, sort_keys=True) + "\n"
+    with pytest.raises(SystemExit, match="frozen"):
+        seg.freeze(path, live_engine=live)
+    assert path.read_bytes() == data
+
+
+def test_o6_steiner_route_builder_matches_the_keys(game, o6_stock, tmp_path):
+    """ONE SOURCE OF TRUTH (research/o6_design.md 3.6, 9 C1): the test-side route builder (:func:`_o6_route`, B2's) and
+    the draft agree. Its three visit beats played by the scripted player (:func:`_o6_play`) from field 70's prologue
+    values and the raw warp, traced with the sink's suppression (H13), read as the analysis reads a run -- the fixture's
+    fields as their places (30810 "151", 30820 "153", 30821 "154"), cut at 151's first write and at 154's first row: the
+    residue before the start is the draft's THREE rows; the first write is ``start_first``; the distinct unmasked keys of
+    the route places are EXACTLY the draft's 28 writes and 2 chain keys, and its masked rows the four prologue rows; the
+    cut row is ``landing.end_row``; O6-PATTERN's reading (:func:`o6_steiner.pattern_of6`, joined on the stock bytes) is
+    the draft's ``pattern`` with no difference (:func:`o6_steiner.pattern_diff6`: the e15 row once, inside the bytes'
+    window); and the builder's [STNR] windows 199 and 200 hold the registration's ``raw_holds`` and render its computed
+    lines. Break: compare the visits with the floating row left in (O5's pattern_diff)."""
+    from ff9mapkit import storytrace
+    O = _o6_module()
+    ST = __import__("segment_trace")
+    pred = _o6_draft(tmp_path)
+    fake = _fv_fake(game, field=70, trace=False)
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(110, 1190)
+    fake.field_id = 30810
+    fake.scene(*_o6_route("S"), control=False)
+    _o6_play(fake, until=lambda f: f.field_id == 30821 and any(e["index"] == 3 and e["kind"] == "wait"
+                                                                for e in f.visit_log))
+    fake._story_stop()
+    rows = storytrace.parse_text("".join(json.dumps(r) + "\n" for r in _fv_rows(fake)))
+    places = {30810: 151, 30820: 153, 30821: 154}
+    kept, at, pre = ST.cut_at_start(rows, 151, places)
+    kept, end = ST.cut_at_end(kept, [154], places)
+    assert [[x.byte, x.old, x.new] for x in pre if x.k == "r"] == pred["start_residue"], pre
+    first = next(x for x in kept if x.k == "w")
+    sf = pred["start_first"]
+    assert (first.sid, first.tag, first.ip, first.target, first.new) == (sf["sid"], sf["tag"], sf["ip"], sf["target"],
+                                                                         sf["value"]), first
+    keys = {(places[x.fld], x.sid, x.tag, x.ip, x.target, x.new) for x in kept
+            if x.k == "w" and x.src == "eb" and not storytrace.noise_regions(x)}
+    want = {(k["donor"], k["sid"], k["tag"], k["ip"], k["target"], k["value"]) for k in pred["writes"] + pred["chain"]}
+    assert keys == want and len(want) == 30, (sorted(keys ^ want), len(want))
+    masked = sorted((places[x.fld], x.sid, x.tag, x.ip, x.target) for x in kept
+                    if x.k == "w" and x.src == "eb" and storytrace.noise_regions(x))
+    assert masked == [(151, 0, 0, 22, "Global.Bit[191]"), (151, 0, 0, 49, "Global.Bit[184]"),
+                      (153, 0, 0, 22, "Global.Bit[191]"), (153, 0, 0, 49, "Global.Bit[184]")], masked
+    cut = next(x for x in rows if x.line == end)
+    lend = pred["landing"]["end_row"]
+    assert (places[cut.fld], cut.sid, cut.tag, cut.ip, cut.target, cut.new) == (
+        lend["place"], lend["sid"], lend["tag"], lend["ip"], lend["target"], lend["value"]), cut
+    got = O.pattern_of6(kept, pred, places, O.C5.stock_join(o6_stock, places))
+    assert got["unjoined"] == 0 and got["counts"] == [] and O.pattern_diff6(got, pred["pattern"]) == [], \
+        O.pattern_diff6(got, pred["pattern"])
+    assert [len(v) for v in got["visits"]] == [10, 24], [len(v) for v in got["visits"]]
+    opens = [e["text"] for e in fake.machine_log if e["event"] == "open"]
+    for w in pred["naming"][0]["on_page"]["windows"]:
+        src = _O6_199 if w["mes"] == 199 else _O6_200
+        assert w["raw_holds"] in src[1], (w, src)
+        text = next(t for t in opens if t == src[0].replace("[STNR]", "Steiner"))
+        assert text.split("\n")[w["line"]] == w["text"], (text, w)
+
+
+def test_o6_steiner_instanced_at_reads_the_compare_dispatch(o6_stock):
+    """instanced_at6 (research/o6_design.md 0.2 #2, 1.3): 151's entrance dispatch is a COMPARE -- ``SET({Global.Int16[2]
+    const(110) B_EQ B_EXPR_END})``, ``JMP_IFNOT(L340)`` -- which O4's walker refuses (no SWITCH). At 110 the compare holds
+    and the jump falls through: {object 3, 4, 5, 12, 17; code 1, 2}; at any other entrance (327) it jumps to L340:
+    {object 3, 6, 7, 12; region 8; code 1, 2}. 153's SWITCHEX at 328 reads O4's walker's set exactly. On synthetic items
+    the JMP_IF form jumps on equality, and a Main_Init with neither form raises. Break: follow the compare's jump both
+    ways (151 at 110 then instances 6, 7 and region 8 too)."""
+    O = _o6_module()
+    C4 = _o4_castle_module()
+    i151, i153 = o6_stock(151), o6_stock(153)
+    assert O.instanced_at6(i151, 110) == {("object", 3), ("object", 4), ("object", 5), ("object", 12), ("object", 17),
+                                          ("code", 1), ("code", 2)}, sorted(O.instanced_at6(i151, 110))
+    assert O.instanced_at6(i151, 327) == {("object", 3), ("object", 6), ("object", 7), ("object", 12), ("region", 8),
+                                          ("code", 1), ("code", 2)}, sorted(O.instanced_at6(i151, 327))
+    with pytest.raises(ValueError, match="no SWITCH"):
+        C4.instanced_at(i151, 110)
+    assert O.instanced_at6(i153, 328) == C4.instanced_at(i153, 328)
+    items = [(0, 0, "InitCode(1, 0)"), (3, 3, "SET({Global.Int16[2] const(7) B_EQ B_EXPR_END})"), (11, 11, "JMP_IF(L20)"),
+             (14, 14, "InitObject(5, 0)"), (17, 17, "RET()"), (20, 20, "InitObject(6, 0)"), (23, 23, "RET()")]
+    assert O.instanced_at6(None, 7, items=items) == {("code", 1), ("object", 6)}
+    assert O.instanced_at6(None, 8, items=items) == {("code", 1), ("object", 5)}
+    with pytest.raises(ValueError, match="no entrance dispatch"):
+        O.instanced_at6(None, 7, items=[(0, 0, "InitCode(1, 0)"), (3, 3, "RET()")])
+
+
+def test_o6_steiner_census_proves_live_and_inert(o6_stock, tmp_path):
+    """O6-CENSUS (research/o6_design.md 0.2 #3, 6.1; the critic's #3) on the real bytes PASSES with 6.1's line -- 151's
+    inert e8 proven at 110 by its compare dispatch, 153's e3, e18, e28 at 328, e15 LIVE (its one caller e32 t1 ip866,
+    e32 instanced at 328) and 153's other shared entries storeless and unrun. Then FAILS by name: O5's registration of e15
+    replayed at 328 (``inert``, ``shared_by`` [32], its key out of the writes) -- "registered inert, run by
+    RunSharedScript(15) at e32 t1 ip866 -- e32 instanced at 328"; 151 e3 registered inert (Brahne, instanced at 110);
+    the live entry's callers naming e3. Break: drop the inert entry's caller check."""
+    import copy
+    O = _o6_module()
+    pred = _o6_draft(tmp_path)
+    ok, _w, detail = O.O6.census_check(pred, o6_stock)
+    assert ok and detail == (
+        "151: 21, 153: 51 store sites -- all classified (writes 7/21, chain 1/1, masked 2/2 (151's ip22 is start_first), "
+        "error_path 4/4, forbidden 0/4, dead 5/10, inert 2/9); 0 unresolved; inert 151 e8 not instanced at 110, 153 e3, "
+        "e18, e28 not instanced at 328; LIVE shared 153 e15 (run by e32 t1 ip866, e32 instanced at 328); 153's other "
+        "shared entries 4, 5, 6, 8, 10, 12, 19 hold no store, their callers in e3/e7/e9/e11/e18 (not instanced at "
+        "328)"), detail
+
+    def o5_e15(p):
+        p["live_shared"] = []
+        p["writes"] = [k for k in p["writes"] if (k["donor"], k["sid"]) != (153, 15)]
+        p["inert"].append({"donor": 153, "sid": 15, "tags": "*", "shared_by": [32], "why": "O5's registration"})
+    for mutate, clause in (
+            (o5_e15, "153 e15: registered inert, run by RunSharedScript(15) at e32 t1 ip866 -- e32 instanced at 328"),
+            (lambda p: p["inert"].append({"donor": 151, "sid": 3, "tags": "*", "why": "a mutant"}),
+             "inert entry 3 of 151 is instanced at entrance 110"),
+            (lambda p: p["live_shared"][0].__setitem__("callers", [[3, 1, 1021]]),
+             "153 e15: live_shared callers [[3, 1, 1021]], but RunSharedScript(15) runs at [[32, 1, 866]]")):
+        bad = copy.deepcopy(pred)
+        mutate(bad)
+        ok, _w, detail = O.O6.census_check(bad, o6_stock)
+        assert not ok and clause in detail, (clause, detail)
+
+
+def test_o6_steiner_regions_roles(o6_stock, tmp_path):
+    """O6-REGIONS (research/o6_design.md 4.17, 6.1): each role proven by instancing at the ROUTE's entrances through
+    instanced_at6 (151 dispatches by an Int16[2] compare): the draft passes -- 7 regions (3 exit, 4 dormant), 0
+    hot-spots, 5 gateway entries all registered. Each mutant FAILS naming its clause: 153.e23 (the north door, instanced
+    at 328) registered dormant; 151.e8 registered an exit (instanced on the default branch only); 153.e25 dropped (a
+    gateway); a dormant region whose entrances omit 328. Break: O4's walker for the instancing (151 then reads no
+    dispatch)."""
+    import copy
+    O = _o6_module()
+    pred = _o6_draft(tmp_path)
+    ok, _w, detail = O.O6.regions_check(pred, o6_stock)
+    assert ok and detail == "7 regions (3 exit, 4 dormant), 0 hot-spots, 5 gateway entries all registered", detail
+
+    def role(key, **kw):
+        def fn(p):
+            r = p["regions"][key]
+            for k in ("to", "entrance", "face_gate", "stage", "entrances"):
+                r.pop(k, None)
+            r.update(kw)
+        return fn
+    for mutate, clause in ((role("153.e23", role="dormant", entrances=[328]),
+                            "153.e23: dormant, but instanced at route entrance(s) [328]"),
+                           (role("151.e8", role="exit", to=153, entrance=327, face_gate=None),
+                            "151.e8: an exit no route entrance of 151 ([110]) instances"),
+                           (lambda p: p["regions"].pop("153.e25"), "153.e25: a gateway"),
+                           (lambda p: p["regions"]["153.e26"].__setitem__("entrances", []),
+                            "153.e26: its entrances [] are not the route's entrances of 153 [328]")):
+        bad = copy.deepcopy(pred)
+        mutate(bad)
+        ok, _w, detail = O.O6.regions_check(bad, o6_stock)
+        assert not ok and clause in detail, (clause, detail)
+
+
+def _o6_corridor(*, ramp_y=None):
+    """A synthetic floor for O6-GOALS: a strip x -600..600 from z -200 to 2200 in rows 200 u apart, two triangles a quad,
+    on the ground (PSX y -1) -- with ``ramp_y`` its last row (z 2200) at that height (an upstairs tri past z 1200)."""
+    from ff9mapkit.scene import bgi
+    zs = [-200 + 200 * i for i in range(13)]
+    verts = [(x, (ramp_y if (ramp_y is not None and z == zs[-1]) else -1), z) for z in zs for x in (-600, 600)]
+    faces = [f for r in range(12) for f in ((2 * r, 2 * r + 1, 2 * r + 3), (2 * r, 2 * r + 3, 2 * r + 2))]
+    return bgi.BgiWalkmesh.from_bytes(bgi.build(verts, faces).to_bytes())
+
+
+def test_o6_steiner_goals_door(o6_stock, tmp_path):
+    """O6-GOALS (c'), (c''), (d') and (e) (research/o6_design.md 6.1; the critic's #2; the claim critic's #8) on a
+    synthetic ground corridor under the draft's north door step (its closed tris none: the stock 33 are 153's), the door's
+    test read off its pinned text (ground > -100, z > 1333), (e) on the stock 153: the draft PASSES -- (c') the route
+    first past z 1333 inside 153.e23 on ground, (c'') 133 u admitted (<= 180, derived: 3 ticks x 60 u), (d') e24 and e25
+    outside and avoided, every tri past z 1200 ground, (e) e23 t2 ip211 alone. Then each FAILS by its clause: the start
+    off the floor ((c')); until z_gt 900 ((c''): 433 u, over the derived 180); a typed ``walk.stale_slack`` 500 with it
+    ((c''): refused by name -- a typed slack let the 900 pass under the first design); e25 out of ``avoid`` ((d')); an
+    upstairs row past z 1200 ((d')); ``to`` 150 ((e)). Break: read a typed stale_slack when the walk carries one."""
+    import copy
+    O = _o6_module()
+    pred = _o6_draft(tmp_path)
+    pred["table"][0]["steps"][0]["closed_tris"] = []
+    flat = _o6_corridor()
+    bad, lines = O.goals_extra6(pred, walkmesh=lambda d: flat, stock=o6_stock)
+    assert bad == [], bad
+    text = "; ".join(lines)
+    for want in ("(c') the start (-245, 42) on open ground tri", "inside 153.e23",
+                 "(c'') the door's test (ground > -100, z > 1333) and until z_gt 1200: 133 u of its non-firing band "
+                 "admitted (<= 180: 3 ticks x 60 u, derived)", "(d') 153.e24, 153.e25 wholly outside the until and "
+                                                              "avoided", "all ground",
+                 "(e) to 154: 153's live Field(154) at 328 is e23 t2 ip211 alone"):
+        assert want in text, (want, text)
+
+    def step(**kw):
+        def fn(p):
+            p["table"][0]["steps"][0].update(kw)
+        return fn
+
+    def fails(mutate, clause, mesh=flat):
+        p = copy.deepcopy(pred)
+        mutate(p)
+        bad, _lines = O.goals_extra6(p, walkmesh=lambda d: mesh, stock=o6_stock)
+        assert any(clause in b for b in bad), (clause, bad)
+    fails(step(start=[-2000, 42]), "(c'): the start (-2000.0, 42.0) stands on no open tri")
+    fails(step(until={"z_gt": 900}), "(c''): until z_gt 900 admits 433 u of the door's non-firing band")
+    fails(lambda p: (step(until={"z_gt": 900})(p), p["walk"].__setitem__("stale_slack", 500)),
+          "(c''): the walk carries a typed stale_slack 500")
+    fails(step(avoid=["153.e24"]), "(d'): the registered exit(s) ['153.e25'] are not in the step's avoid")
+    fails(lambda p: None, "(d'): open tri(s)", mesh=_o6_corridor(ramp_y=-500))
+    fails(step(to=150), "(e): its to 150 is not where the route's order goes next from 153 ([154])")
+    p = copy.deepcopy(pred)
+    step(until={"z_gt": 900})(p)
+    p["walk"]["stale_slack"] = 500
+    bad, _lines = O.goals_extra6(p, walkmesh=lambda d: flat, stock=o6_stock)
+    assert any("until z_gt 900 admits 433 u" in b for b in bad), bad      # the typed slack never widens the band
+
+
+def _o6_pattern_rows(pred, fields, *, e15_at=None, twice=False, drop_e15=False):
+    """The draft's ``pattern`` as story rows on ``fields`` ({151: id, 153: id}), each tuple's function offset as its
+    ``ip`` (a stub join reads it back): each visit's emitted ``w`` rows in order, the floating e15 row at its frozen slot
+    (after ip727) or after the tuple of ``e15_at`` (an offset; 0: before ip727's)."""
+    from ff9mapkit import storytrace
+    O = _o6_module()
+    fl = pred["pattern"]["floating"][0]
+    v1, v2 = [list(t) for t in pred["pattern"]["visits"][0]], [list(t) for t in pred["pattern"]["visits"][1]]
+    at = next(i for i, t in enumerate(v2) if t == fl["after"]) + 1
+    if e15_at is not None:
+        at = 0 if e15_at == 0 else next(i for i, t in enumerate(v2) if t[3] == e15_at) + 1
+    if not drop_e15:
+        v2 = v2[:at] + [list(fl["tuple"])] * (2 if twice else 1) + v2[at:]
+    rows, f = [], 1000
+    for place_, sid, tag, off, target, new, same in v1 + v2:
+        f += 10
+        width, index = target.split(".", 1)[1].rstrip("]").split("[")
+        bit = int(index) if width == "Bit" else -1
+        rows.append(storytrace.Row(k="w", f=f, p=0, m=1, fld=fields[place_], don=place_, sc=1190, line=len(rows) + 1,
+                                   src="eb", sid=sid, uid=sid, lvl=0, ip=off, tag=tag, add=0,
+                                   byte=int(index) >> 3 if bit >= 0 else int(index), width=width, bit=bit,
+                                   old=new if same else new + 1, new=new, same=same))
+    return rows, O
+
+
+def test_o6_steiner_pattern_floats_the_e15_row(tmp_path):
+    """O6-PATTERN's FLOATING ROW (research/o6_design.md 4.18, 5.3; critique #5; the claim critic's #6), on synthetic rows
+    of the draft's pattern (a stub join: the row's ip is its offset): the e15 row at its frozen slot PASSES, on S and on
+    F; anywhere inside the bytes' window -- after ip971, after ip1632 -- PASSES (its place among the rows between is not
+    compared); before ip727 and after ip1656 FAIL "(b) the floating row ... outside its window"; twice and missing FAIL
+    (b) "exactly once"; a changed ``measured`` never changes a result (report-only); float_window gives slots 8-14.
+    O6Segment.pattern_check reads it the same way. Break: drop the window rule (any place in the visit passes)."""
+    import copy
+    pred = _o6_draft(tmp_path)
+    s_fields, f_fields = {151: 151, 153: 153}, {151: 31244, 153: 31245}
+    members = {31244: 151, 31245: 153}
+
+    def diff(rows, m=None, pat=None):
+        O = _o6_module()
+        got = O.pattern_of6(rows, pred, m or {}, lambda x: x.ip)
+        return O.pattern_diff6(got, pat or pred["pattern"])
+    rows, O = _o6_pattern_rows(pred, s_fields)
+    assert diff(rows) == [] and diff(_o6_pattern_rows(pred, f_fields)[0], members) == [], diff(rows)
+    assert O.float_window(pred["pattern"]) == [(8, 14)], O.float_window(pred["pattern"])
+    for off in (234, 895):                                     # after ip971, after ip1632: inside the window
+        assert diff(_o6_pattern_rows(pred, s_fields, e15_at=off)[0]) == [], off
+    for kw, clause in (({"e15_at": 0}, "outside its window"), ({"e15_at": 919}, "outside its window"),
+                       ({"twice": True}, "2 time(s), want exactly once"),
+                       ({"drop_e15": True}, "0 time(s), want exactly once")):
+        d = diff(_o6_pattern_rows(pred, s_fields, **kw)[0])
+        assert any(x.startswith("(b) the floating row") and clause in x for x in d), (kw, d)
+    p = copy.deepcopy(pred["pattern"])
+    p["floating"][0]["measured"] = {"index": [99], "frames_to_971": [1]}
+    assert diff(rows, pat=p) == [] and diff(_o6_pattern_rows(pred, s_fields, e15_at=919)[0], pat=p), "measured is read"
+    seg = O.O6Segment()
+
+    class Idx:
+        def join(self, x):
+            import types
+            return types.SimpleNamespace(status="store", rel=x.ip)
+    seg._stock = lambda fid: Idx()
+    ok, _w, detail = seg.pattern_check([{"side": "S", "i": 1, "rows": rows}], pred)
+    assert ok, detail
+    ok, _w, detail = seg.pattern_check([{"side": "S", "i": 1, "rows": _o6_pattern_rows(pred, s_fields,
+                                                                                         e15_at=919)[0]}], pred)
+    assert not ok and "S#1 (b) the floating row" in detail, detail
+
+
+def _o6_naming_run(pred, edit=None, side="S"):
+    """A run for O6-NAMING / O6-START-DEPENDENT, pure: the dry run's base rows and standard log (o6_dryrun), its log
+    edited by ``edit(log, ctx)``."""
+    D = __import__("o6_dryrun")
+    ST = __import__("segment_trace")
+    m = {int(f): d for f, d in pred["members"].items()} if side == "F" else {}
+    rows = D._rows(D.base_events(), side, {int(f): d for f, d in pred["members"].items()})
+    kept, _at, pre = ST.cut_at_start(rows, 151, m)
+    log, ctx = D.standard_log(pred, side, D.render(D.base_events(), side, {int(f): d for f, d in
+                                                                          pred["members"].items()}))
+    if edit is not None:
+        edit(log, ctx)
+    return {"side": side, "i": 1, "rows": kept, "log": log, "pre": pre}
+
+
+def test_o6_steiner_naming_check(tmp_path):
+    """O6-NAMING (research/o6_design.md 5.3; decision 4; the claim critic's #2 -- the driver ENFORCES, this re-checks),
+    pure, over the dry run's base run: PASS on S and F. Then each clause FAILS by name: (a) two named rows, none, the named
+    row after ip610's row, the named row in real 151 on F; (b) the page row's verdict V13, two page rows, the row in 153,
+    its frame before the named row's, a window no frozen entry names (203), an UNPARSED window (its tag in the text), a
+    line that differs (199 rendering "Rusty") -- and a FORGED row whose own ``line`` claims the default while its text
+    renders another name: the line is re-read from the text. Break: trust the row's own ``line``."""
+    O = _o6_module()
+    D = __import__("o6_dryrun")
+    pred = _o6_draft(tmp_path)
+    seg = O.O6Segment()
+
+    def judge(edit=None, side="S"):
+        return seg.naming_check([_o6_naming_run(pred, edit, side)], pred)
+    assert judge()[0] and judge(side="F")[0], (judge()[2], judge(side="F")[2])
+    unparsed = dict(D.page_window(199), text="Queen Brahne\n\u201cCaptain [STNR]!\u201d")
+    forged = dict(D.page_window(199, "Rusty"), line="\u201cCaptain Steiner!\u201d", ok=True)
+    for edit, side, clause in (
+            (lambda lg, c: lg.append(dict(c["named"])), "S", "(a): 2 named row(s)"),
+            (lambda lg, c: lg.remove(c["named"]), "S", "(a): 0 named row(s)"),
+            (lambda lg, c: c["named"].update(frame=3150), "S", "is not before ip610's row"),
+            (lambda lg, c: c["named"].update(field=151), "F", "the named row in 151 (place 151), not 31244"),
+            (lambda lg, c: c["page"].update(verdict="V13"), "S", "its verdict 'V13'"),
+            (lambda lg, c: lg.append(dict(c["page"])), "S", "(b): 2 name_on_page row(s)"),
+            (lambda lg, c: c["page"].update(field=153), "S", "not the naming's field 151"),
+            (lambda lg, c: c["page"].update(frame=2000), "S", "is not after the named row's"),
+            (lambda lg, c: c["page"].update(windows=[D.page_window(203)]), "S", "window 203: no frozen window names it"),
+            (lambda lg, c: c["page"].update(windows=[unparsed]), "S", "unparsed (its text holds [STNR])"),
+            (lambda lg, c: c["page"].update(windows=[D.page_window(199, "Rusty")]), "S", "renders"),
+            (lambda lg, c: c["page"].update(windows=[forged]), "S", "line 1 renders '\u201cCaptain Rusty!\u201d'")):
+        ok, _w, detail = judge(edit, side)
+        assert ok is False and clause in detail, (clause, detail)
+
+
+def test_o6_steiner_start_dependent_check(tmp_path):
+    """O6-START-DEPENDENT (research/o6_design.md 4.5, 5.3; decision 5; the claim critic's #3, #4), pure, over the dry run's
+    rows: equal on both keys PASSES; and the report line is RENDERED from the predictions -- "after the O1-O5 routes as
+    driven it would write 11 (from 3, ...)", an ``after.run`` "O1-O6" renders "O1-O6", never "after O1". Each deviation
+    classified PER RUN on the fields: old 0 / new 9 a FINDING; an earlier row on byte 6 EXPLAINS old 1 (named); old 1 /
+    new 9 on F alone START DRIFT on F, never a finding and no continuation; 3 -> 11 START DRIFT with "the O1-O5
+    continuation" ((old, new) = after's); no ip610 row and two the count. Break: drop the EXPLAINED class (an earlier row
+    then reads as START DRIFT)."""
+    import copy
+    O = _o6_module()
+    D = __import__("o6_dryrun")
+    ST = __import__("segment_trace")
+    pred = _o6_draft(tmp_path)
+    seg = O.O6Segment()
+    members = {int(f): d for f, d in pred["members"].items()}
+
+    def check(events, side="S"):
+        m = members if side == "F" else {}
+        rows = D._rows(events, side, members)
+        kept, _at, pre = ST.cut_at_start(rows, 151, m)
+        ok, _w, detail = seg.start_dependent_check([{"side": side, "i": 1, "rows": kept, "pre": pre, "log": []}], pred)
+        return ok, detail
+    assert check(D.base_events())[0] and check(D.base_events(), "F")[0]
+    k = pred["start_dependent"][0]
+    line = O.start_dependent_line(k, {"S": [8], "F": [8]}, [0])
+    assert "after the O1-O5 routes as driven it would write 11 (from 3, " in line and "after O1 " not in line, line
+    o16 = copy.deepcopy(k)
+    o16["after"]["run"] = "O1-O6"
+    assert "after the O1-O6 routes as driven it would write 11" in O.start_dependent_line(o16, {}, []), o16
+    assert "after the O1-O5 routes as driven" in O.scope_start(pred) and "after O1 " not in O.scope_start(pred)
+    ok, detail = check(D._sd_edit(D.base_events(), D.B6_610, old=0, value=9))
+    assert not ok and "FINDING" in detail and "the store itself wrote another value" in detail, detail
+    earlier = D.before(D.base_events(), D.B6_610, D.w((151, 2, 1, 735, "Global.Byte[6]", 1)))
+    ok, detail = check(earlier)
+    assert not ok and "EXPLAINED" in detail and "explained by line" in detail and "DRIFT" not in detail, detail
+    ok, detail = check(D._sd_edit(D.base_events(), D.B6_610, old=1, value=9), "F")
+    assert not ok and "START DRIFT on F" in detail and "FINDING" not in detail and "continuation" not in detail, detail
+    ok, detail = check(D._sd_edit(D.base_events(), D.B6_610, old=3, value=11))
+    assert not ok and "START DRIFT on S" in detail and "the O1-O5 continuation" in detail, detail
+    ok, detail = check(D.drop_nth(D.base_events(), D.B6_610))
+    assert not ok and "0 rows at the site" in detail, detail
+    ok, detail = check(D.after(D.base_events(), D.B6_610, D.w(D.B6_610)))
+    assert not ok and "2 rows at the site" in detail, detail
+
+
+def test_o6_steiner_why_void_reads_151s_error_path_as_the_start(tmp_path):
+    """A-START and A-NAMING (research/o6_design.md 5.1): an error-path row of 151 (e0 t0 ip97 Byte[13] := 9) -- the warp's
+    start state took the error branch -- is A-START on S and on F (151 is visited once: never withdrawn); the same shape
+    in 153 (its own ip97) is no start state's: no A-START. A ``named`` row whose ``before`` holds no raw with 198's
+    marker "And, Captain" (or no ``before`` sample at all) is A-NAMING -- V13, by the driver; with the marker, none; an
+    O2-shaped named row (no ``before`` key) none. Break: read any ``before`` as the marker's."""
+    from ff9mapkit import storytrace
+    O = _o6_module()
+    pred = _o6_draft(tmp_path)
+
+    def rows(sites, fields):
+        out = []
+        for n, (place_, sid, tag, ip, target, value) in enumerate(sites, 1):
+            width, index = target.split(".", 1)[1].rstrip("]").split("[")
+            bit = int(index) if width == "Bit" else -1
+            out.append(storytrace.Row(k="w", f=1000 + n, p=0, m=1, fld=fields[place_], don=place_, sc=1190, line=n,
+                                      src="eb", sid=sid, uid=sid, lvl=0, ip=ip, tag=tag, add=0,
+                                      byte=int(index) >> 3 if bit >= 0 else int(index), width=width, bit=bit,
+                                      old=0 if value else 1, new=value, same=0))
+        return out
+
+    def why(side, sites, log=()):
+        fields = {151: 151, 153: 153} if side == "S" else {151: 31244, 153: 31245}
+        seg = O.O6Segment()
+        seg._run_log = lambda rec: (list(log), {})
+        r = {"i": 1, "side": side, "rows": rows(sites, fields), "digest": None, "start": 1, "cut": None}
+        return [(cls, by) for _w, cls, by in seg.why_void({"end": "void"}, r, pred)]
+    err151 = [(151, 0, 0, 22, "Global.Bit[191]", 0), (151, 0, 0, 97, "Global.Byte[13]", 9)]
+    err153 = [(151, 0, 0, 22, "Global.Bit[191]", 0), (151, 2, 1, 932, "Global.Int16[2]", 328),
+              (153, 0, 0, 22, "Global.Bit[191]", 0), (153, 0, 0, 97, "Global.Byte[13]", 9)]
+    for side in ("S", "F"):
+        assert ("A-START", "driver") in why(side, err151), (side, why(side, err151))
+        assert not [c for c, _b in why(side, err153) if c == "A-START"], (side, why(side, err153))
+    ok_row = {"k": "named", "field": 151, "donor": 151, "sc": 1190, "frame": 3000,
+              "before": {"frame": 2990, "raws": ["[STRT=0,0]Queen Brahne\n\u201cAnd, Captain...\u201d"]}}
+    base = err151[:1]
+    assert why("S", base, [ok_row]) == [], why("S", base, [ok_row])
+    for before in ({"frame": 2990, "raws": ["[STRT=0,0]151 mes 197"]}, None):
+        got = why("S", base, [dict(ok_row, before=before)])
+        assert got == [("V13", "driver")], (before, got)
+    o2_row = {k: v for k, v in ok_row.items() if k != "before"}
+    assert why("S", base, [o2_row]) == [], why("S", base, [o2_row])
+
+
+def test_o6_steiner_preflight_verdicts(tmp_path):
+    """O6's preflight extras (research/o6_design.md 6.2; O5's, inherited, and the review's P-NAME after P-SETTINGS:
+    11.7 #1), on a synthetic install: exactly P-TEXT (block 3, STRICT), P-RECOVERY, P-DONOR, P-SETTINGS, P-NAME, P-PAD,
+    P-OVERRIDE, P-ENGINE, in that order. P-DONOR reads 151, 153 AND 154 (the route and the end field) in that order:
+    each forked once PASSES; 154 unforked FAILS. Block 3's uk copy of stock us FAILS (strict). P-SETTINGS on 4.15's ini
+    PASSES and with ``DisableNameChoice`` 1 FAILS naming it (decision 4's pin: the naming screen would be skipped).
+    Break: P-DONOR over the route alone (154 unread)."""
+    O = _o6_module()
+    pred = _o6_draft(tmp_path)
+    game = tmp_path / "game"
+    root = game / "FF9CustomMap"
+    root.mkdir(parents=True)
+    (game / "Memoria.ini").write_text(_o3_ini(O.SETTINGS), encoding="utf-8")
+    (root / "DictionaryPatch.txt").write_text("FieldScene 4600 11 HUB HUB 4600\n", encoding="utf-8")
+    fdp = root / "ForkDonorPatch.txt"
+    fdp.write_text("31244 151\n31245 153\n31246 154\n", encoding="utf-8")
+    langs = ("us", "uk", "fr", "gr", "it", "es", "jp")
+    stock3 = {L: f"stock block 3 {L}".encode() for L in langs}
+
+    def ship(text):
+        for L in langs:
+            p = root / "FF9_Data" / "embeddedasset" / "text" / L / "field" / "3.mes"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(text[L])
+    ship(stock3)
+    eng = {"x64": O.ENGINE["x64"], "x86": O.ENGINE["x86"]}
+
+    def pre(roots=None):
+        out = O.O6.preflight_extra(pred, roots or [root], pads=lambda slot: None, live_engine=eng, game=game,
+                                   stock_text={3: stock3})
+        return [(w.split(":")[0], ok, d) for ok, w, d in out]
+    rows = pre()
+    assert [r[0] for r in rows] == ["P-TEXT (block 3)", "P-RECOVERY", "P-DONOR", "P-SETTINGS", "P-NAME", "P-PAD",
+                                    "P-OVERRIDE", "P-ENGINE"], rows
+    ok = {w: o for w, o, _d in rows}
+    assert ok == {"P-TEXT (block 3)": True, "P-RECOVERY": True, "P-DONOR": True, "P-SETTINGS": True, "P-NAME": True,
+                  "P-PAD": True, "P-OVERRIDE": False, "P-ENGINE": True}, rows
+    det = {w: d for w, _o, d in rows}
+    assert det["P-DONOR"].startswith("151 -> 31244 (FF9CustomMap), 153 -> 31245 (FF9CustomMap), 154 -> 31246 "
+                                     "(FF9CustomMap)"), det["P-DONOR"]
+    assert "DisableNameChoice 0" in det["P-SETTINGS"], det["P-SETTINGS"]
+    assert det["P-NAME"].startswith("character 3's default name is the engine's 'Steiner' in US"), det["P-NAME"]
+    ship(dict(stock3, uk=stock3["us"]))
+    _w, o, d = pre()[0]
+    assert not o and "KNOWN-KIT-DEFECT uk: ships stock us" in d and "strict" in d, d
+    ship(stock3)
+    fdp.write_text("31244 151\n31245 153\n", encoding="utf-8")
+    _w, o, d = pre()[2]
+    assert not o and "donor 154: ForkDonorPatch rows []" in d, d
+    fdp.write_text("31244 151\n31245 153\n31246 154\n", encoding="utf-8")
+    nc = json.loads(json.dumps(O.SETTINGS))
+    nc["Hacks"]["DisableNameChoice"] = "1"
+    (game / "Memoria.ini").write_text(_o3_ini(nc), encoding="utf-8")
+    _w, o, d = pre()[3]
+    assert not o and "[Hacks] DisableNameChoice = '1'" in d, d
+
+
+def test_o6_steiner_p_name_reads_the_default_names_sources(tmp_path):
+    """P-NAME (the review, research/o6_design.md 11.7 #1): the default name the screen pre-fills and New Game gives
+    Steiner -- which the page witness's frozen lines render -- is pinned at its two sources, read the engine's way.
+    (a) DictionaryPatch.txt's ``CharacterDefaultName`` lines as PatchDictionaries splits them (single spaces, an Int32
+    id, the language, the name re-joined; CRLF and a BOM read as File.ReadAllLines does; a double space or a non-int id
+    skipped): ``CharacterDefaultName 3 US Adelbert`` in ANY stacked folder FAILS, through O6's preflight too (the session
+    then refuses before a run), naming the folder and the line; the default itself, another language's and another
+    character's PASS, listed. (b) [Import]: Enabled 1 AND Text 1 -- in the root's Memoria.ini, or a stacked folder's
+    Enabled 1 over the root's Text 1 -- FAILS; the live install's shape (Enabled 0, Text 1), Enabled 1 with Text 0 and
+    the section unset PASS; an unparsed value FAILS (never guessed). Break: read only the first stacked folder's
+    DictionaryPatch.txt (the patch in the second one then passes)."""
+    O = _o6_module()
+    assert O.character_default_name_lines(
+        "CharacterDefaultName 3 US Adelbert\r\nCharacterDefaultName 12 US Ruby Rose\rCharacterDefaultName x US Bad\n"
+        "CharacterDefaultName  3 US Gap\nCharacterDefaultName 3 US\nFieldScene 4600 11 HUB HUB 4600\n") == [
+        (3, "US", "Adelbert", "CharacterDefaultName 3 US Adelbert"),
+        (12, "US", "Ruby Rose", "CharacterDefaultName 12 US Ruby Rose")]
+    game = tmp_path / "game"
+    roots = [game / "FF9CustomMap", game / "FF9CustomMap-world"]
+    for r in roots:
+        r.mkdir(parents=True)
+    today = "[Import]\nEnabled = 0\nPath = %StreamingAssets%\nText = 1\n"
+
+    def check(second="FieldScene 31244 11 X X 3\r\n", first="", ini=today, mod_ini=None):
+        (game / "Memoria.ini").write_text(ini, encoding="utf-8")
+        (roots[0] / "DictionaryPatch.txt").write_text("FieldScene 4600 11 HUB HUB 4600\n" + first, encoding="utf-8")
+        (roots[1] / "DictionaryPatch.txt").write_text("﻿" + second, encoding="utf-8")     # a BOM, as some ship
+        mi = roots[1] / "Memoria.ini"
+        if mod_ini is None:
+            mi.unlink(missing_ok=True)
+        else:
+            mi.write_text(mod_ini, encoding="utf-8")
+        return O.p_name(game, roots, char=3, lang="US", default="Steiner")
+    ok, d = check()
+    assert ok and d == ("character 3's default name is the engine's 'Steiner' in US: [Import] Enabled 0, Text 1 (the "
+                        "importer off); no stacked DictionaryPatch.txt patches it (CharacterDefaultName lines: none)"), d
+    ok, d = check(second="CharacterDefaultName 3 US Adelbert\r\n")          # the second folder's FIRST line, after a BOM
+    assert not ok and d.startswith("(b) FF9CustomMap-world/DictionaryPatch.txt 'CharacterDefaultName 3 US Adelbert' "
+                                   "patches character 3's default name to 'Adelbert' in US"), d
+    ok, d = check(first="CharacterDefaultName 3 US Steiner\nCharacterDefaultName 3 UK Adelbert\nCharacterDefaultName 12 "
+                        "US Ruby\n")
+    assert ok and "FF9CustomMap 3 US 'Steiner'; FF9CustomMap 3 UK 'Adelbert'; FF9CustomMap 12 US 'Ruby'" in d, d
+    for ini, mod_ini in (("[Import]\nEnabled = 1\nText = 1\n", None), (today, "[Import]\nEnabled = 1\n")):
+        ok, d = check(ini=ini, mod_ini=mod_ini)
+        assert not ok and d.startswith("(a) [Import] Enabled 1 and Text 1: the text importer runs"), (ini, mod_ini, d)
+    for ini in ("[Import]\nEnabled = 1\nText = 0\n", "[Battle]\nSpeed = 5\n"):
+        ok, d = check(ini=ini)
+        assert ok, (ini, d)
+    ok, d = check(ini="[Import]\nEnabled = yes\nText = 1\n")
+    assert not ok and "(a) [Import] Enabled = 'yes' is not the engine's 0 or 1" in d, d
+    # through O6's preflight: the session refuses before any run
+    pred = _o6_draft(tmp_path)
+    check(second="CharacterDefaultName 3 US Adelbert\n", ini=_o3_ini(O.SETTINGS))
+    rows = O.O6.preflight_extra(pred, roots, pads=lambda slot: None, live_engine={"x64": O.ENGINE["x64"],
+                                                                                    "x86": O.ENGINE["x86"]},
+                                game=game, stock_text={3: {}})
+    got = {w.split(":")[0]: (o, d) for o, w, d in rows}
+    assert got["P-NAME"][0] is False and "'CharacterDefaultName 3 US Adelbert'" in got["P-NAME"][1], got["P-NAME"]
+
+
+def test_o6_steiner_trace_summary_cuts_at_end_places(tmp_path, o6_stock):
+    """O6's trace summary (research/o6_design.md 7.2, section 8's unit; O4's lesson, its claim critique #14) over the dry
+    run's rendered rows (o6_dryrun.render: real store sites, the sink over the raw warp's start values). A base S run reads
+    the chain 2/2, writes 28/28, the error path, forbidden and dead sites absent; the crossings 151 ip932 -> 153 e0 t0
+    ip22 and 153 ip203 -> the cut 154 e0 t0 ip26; the e15 row (index 8 of visit 2, inside its window 8-14, 300 frames to
+    ip971's row, sid 15 tag 0 ip 32 add 0); the start-dependent rows ok; 4.18's pattern exactly (10 + 24 rows, no c row);
+    the end cut's row 154 e0 t0 ip26 at its end place; no unregistered key, no join failure; the three start residue
+    rows. The F run is cut at member(154)'s row, its crossing into the cut 31246's row, no seam -- while O3's summary,
+    given the same end FIELDS, is not cut at all. Break: cut the crossings at the raw end fields (the F cut then lost)."""
+    O = _o6_module()
+    D = __import__("o6_dryrun")
+    P = __import__("o3_prima_vista")
+    pred = _o6_draft(tmp_path)
+    members = {int(f): d for f, d in pred["members"].items()}
+    rows = D._rows(D.base_events())
+    t = O.trace_summary(rows, pred, stock=o6_stock)
+    reg = {k: (sum(1 for x in v if x["present"]), len(v)) for k, v in t["registered"].items()}
+    assert reg == {"chain": (2, 2), "writes": (28, 28), "error_path": (0, 8), "forbidden_sites": (0, 4),
+                   "dead": (0, 15)}, reg
+    assert t["crossings"] == {"exit151": {"exit": "151 e2 t1 ip932 Global.Int16[2]=328",
+                                          "next": "153 e0 t0 ip22 Global.Bit[191]=0", "cut": None},
+                              "exit153": {"exit": "153 e23 t2 ip203 Global.Int16[2]=315", "next": None,
+                                          "cut": "154 e0 t0 ip26 Global.Bit[191]=0"}}, t["crossings"]
+    e15 = t["e15"]
+    assert (e15["index"], e15["window"], e15["inside"], e15["frames_to_971"]) == (8, [8, 14], True, 300), e15
+    assert (e15["sid"], e15["tag"], e15["ip"], e15["add"]) == (15, 0, 32, 0), e15
+    assert [x["class"] for x in t["start_dependent"]] == ["ok", "ok"], t["start_dependent"]
+    assert [len(v) for v in t["pattern"]["visits"]] == [10, 24] and t["pattern"]["counts"] == [], t["pattern"]
+    assert t["end_row"] == "w 154 e0 t0 ip26 Global.Bit[191]=0" and t["end_places"] == [154], t["end_row"]
+    assert t["unregistered"] == [] and t["failures"] == [], (t["unregistered"], t["failures"])
+    assert [x[1:] for x in t["residue_before"]] == [[0, 0, 166], [1, 0, 4], [2, 0, 110]], t["residue_before"]
+    frows = D._rows(D.base_events(), "F", members)
+    tf = O.trace_summary(frows, pred, side="F", end_fields=[31246], stock=o6_stock)
+    first = next(x.line for x in frows if x.k in ("w", "r") and x.fld == 31246)
+    assert tf["end"] == first and tf["end_places"] == [154] and tf["end_row_fld"] == 31246, tf["end"]
+    assert tf["crossings"]["exit153"]["cut"] == "31246 e0 t0 ip26 Global.Bit[191]=0", tf["crossings"]
+    assert tf["unregistered"] == [] and tf["seam_keys"] == [], (tf["unregistered"], tf["seam_keys"])
+    assert P.trace_summary(frows, pred, side="F", end_fields=[31246], stock=o6_stock)["end"] is None
+
+
+# ---- O6's REHEARSALS on the fake (studies/story-trace/o6_rehearse.py; research/o6_design.md 7.1-7.2, 9 C3): a launch
+# on a fresh fake in O5's shape -- the warps landing without control, the sink's suppression, the engine's soft reset
+# where it fires, the recovery field granting control -- the route builder's visit beats staged on each arrival in the
+# stage's start field ("151", or "153" for the walk's stages), each New Game zeroed and given field 70's prologue; the
+# launch reads the fake's own engine DLLs, pinned by the test. Every test is test_o6_rehearsal_*: G32's "o6_", never
+# G12's "rehearse".
+
+def _o6_rehearse_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o6_rehearse as R
+    return R
+
+
+def _o6_rehearse_pred(**over):
+    """:func:`_o6_pred` with what O6's records read too (research/o6_design.md 7.2), on the fixture's places: the walk
+    (its name, place, visit and door), the naming's marker and store (``name``), the door's pinned test (one route pin:
+    e23 t2's z > 1333), the crossings' sites, 4.18's pattern by ip with the floating e15 row and its window, the two
+    start-dependent keys (New Game's 0 -> 8), the SC and FieldEntrance bytes."""
+    pattern = {"visits": [[list(t) for t in v] for v in _O6_PATTERN], "counts": [],
+               "floating": [{"visit": 2, "tuple": list(_O6_E15), "after": list(_O6_PATTERN[1][7]),
+                             "before": list(_O6_PATTERN[1][14]), "measured": None}]}
+
+    def key(donor, sid, ip, target, old, value):
+        return {"donor": donor, "m": 1, "src": "eb", "sid": sid, "tag": 1, "ip": ip, "target": target, "value": 8,
+                "op": "|=", "prior": "newgame0",
+                "after": {"run": "O1-O5", "old": old, "value": value, "source": "the fixture's"}}
+    return _o6_pred(walk={"name": "the north door", "donor": 30820, "visit": 2, "door": "30820.e23"},
+                    name={"place": 30810, "char": 3, "default": "Steiner",
+                          "before": {"mes": 198, "marker": "And, Captain"},
+                          "store": {"place": 30810, "sid": 3, "tag": 1, "ip": 610, "target": "Global.Byte[6]"}},
+                    route_pins=[[30820, 23, 2, 38, "SET({obj(uid=250).f[2] const(1333) B_GT B_EXPR_END})"]],
+                    landing={"route_places": [30810, 30820],
+                             "exit151": {"place": 30810, "sid": 2, "tag": 1, "ip": 932, "target": "Global.Int16[2]",
+                                         "value": 328},
+                             "exit153": {"place": 30820, "sid": 23, "tag": 2, "ip": 203, "target": "Global.Int16[2]",
+                                         "value": 315}},
+                    pattern=pattern,
+                    start_dependent=[key(30810, 3, 610, "Global.Byte[6]", 3, 11),
+                                     key(30820, 32, 2206, "Global.UInt16[19]", 1799, 1807)],
+                    sc_bytes=[0, 1], entrance_bytes=[2, 3], **over)
+
+
+def _o6_rh_phases(runs=1, *, side="S", short=False, knobs=None):
+    """The director's phases for ``runs`` runs of a launch: each New Game (field 70 on the field HUD) zeroed and given
+    field 70's prologue (:func:`_o5_newgame`); each arrival in the stage's start field (``side``'s "151", or "153"
+    when ``short``) staged with a fresh copy of the route's visit beats (:func:`_o6_route`)."""
+    start = _O6_FIELDS[side]["153" if short else "151"]
+    out = []
+    for _ in range(runs):
+        out += [(lambda f: f.field_id == 70 and f.ui_state == "FieldHUD", _o5_newgame),
+                (lambda f: f.field_id == start and not f._beats,
+                 lambda f: f.scene(*_o6_route(side, short=short, **(knobs or {})), control=False))]
+    return out
+
+
+def _o6_launch(game, R, stages, env, phases, *, engine, pred=None, fake_setup=None, wrap=None, witness=None,
+               fps=60.0, axes=True, floor_for=None, prior=None):
+    """One O6 rehearsal launch on a fresh fake (:func:`_o5_launch`'s shape): the director's ``phases``, control handed
+    over in the recovery field, the axes pinned for every field (:class:`_O5Axes`; ``axes`` False: none cached, so
+    route_to calibrates first), ``R.run`` with the test's stages, its floor (``floor_for``, default O5's box) and prior
+    (``prior``, default the fake's own basis), the stub witness and pad reader and the pinned ``engine``. ``(the
+    record, the fake, the title reached)``."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    fake = FakeGame(game, fps=4 * fps, render_fps=fps, ticks="mean", walkmesh=_O5_BOX)
+    fake.warp_arrive_control, fake.warp_field_only = False, True
+    fake.story_suppress = True
+    fake.soft_reset_ui = SOFT_RESET_ENGINE_UI
+    if fake_setup is not None:
+        fake_setup(fake)
+    basis = prior or _prior()
+    stop = threading.Event()
+    with session(game, fake, state_ring=5000) as g:
+        boot(g)
+        assert g.restore_baseline()[0], "a launch starts at the title"
+        if axes:
+            g._axes = _O5Axes(basis)
+        if wrap is not None:
+            wrap(g)
+        _o1_director(fake, stop, phases)
+        _o3_grant_in(fake, stop)
+        try:
+            R.run(g, stages=stages, pred=pred if pred is not None else _o6_rehearse_pred(),
+                  floor_for=floor_for or (lambda d, c: _flat_bgi(-2400, -2400, 3000, 3200)),
+                  prior_for=lambda d: basis, stock=lambda fid: None, recovery=_O3_RECOVERY, env=env,
+                  witness=witness or (lambda: None), pads=lambda slot: None, engine=engine)
+        finally:
+            stop.set()
+        title = g.state.ui_state
+    return json.loads((game / "run" / "o6_rehearsal.json").read_text(encoding="utf-8")), fake, title
+
+
+def _o6_launch_informative(game, R, stages, env, phases, *, attempts=3, want=None, **kw):
+    """:func:`_o6_launch` until no run of the launch ended in a driver class a starved harness gives
+    (:data:`_O6_LOAD_VOIDS`; one whose reason holds ``want`` -- the test's own assertion -- is never re-run), at most
+    ``attempts`` launches, each on fresh phases (``phases()``): ``(record, fake, title, the reasons set aside)``."""
+    aside: list = []
+    for k in range(1, attempts + 1):
+        doc, fake, title = _o6_launch(game, R, stages, env, phases(), **kw)
+        whys = [str((r.get("outcome") or {}).get("why") or "") for recs in (doc.get("stages") or {}).values()
+                for r in recs if isinstance(r, dict) and r.get("outcome")]
+        load = [w for w in whys if any(m in w for m in _O6_LOAD_VOIDS) and not (want is not None and want in w)]
+        if not load or k == attempts:
+            return doc, fake, title, aside
+        aside += load
+
+
+def _o6_real_hall():
+    """B3's REAL HALL (:func:`test_o6_drive_walks_the_real_hall_on_the_fake`): ``(setup, floor_for, prior)`` -- the
+    fake's floor stock 153's player walkmesh with the 33 upper tris closed and his centre kept 120u off its walls,
+    153's own key twist; the driver's floor the same mesh; its prior 153's."""
+    import math
+    from ff9mapkit import extract, eventscan, storytrace
+    from ff9mapkit.content import movement, pathfind
+    pw = pathfind.PlayerWalkmesh(extract.stock_walkmesh(153), closed=_O5_CLOSED)
+    twist = eventscan.scan_control_twist(storytrace.stock_script_source()(153).data)
+    prior = movement.key_move_basis(None if twist is None else twist[1])
+
+    def setup(fake):
+        fake.walkmesh, fake.clearance = pw, 120.0
+        fake.twist = math.degrees(math.atan2(-prior["v"][0], prior["v"][1]))
+    return setup, (lambda d, c: pathfind.PlayerWalkmesh(extract.stock_walkmesh(153), closed=c)), prior
+
+
+def test_o6_rehearsal_stage_ids_follow_the_chain(tmp_path):
+    """The stage table's ids come from the CHAIN (research/o6_design.md 7.1; O4's review 11.5 #5): on the alxc chain as
+    built F-SMOKE pairs member(151) 31244 / 151 at 110, member(153) 31245 / 153 at 328, member(154) 31246 / 154 at 315,
+    all SC 1190, and F-PASS warps F into member(151) 31244 and ends it in member(154) 31246; on a chain whose ids run
+    the other way both follow. The launch's order: R-DOOR, R-NAMING-VOID, R-WALK-VOID last; ``--field 151`` picks R-DOOR
+    (153 picks none: R-WALK-VOID is by name); ``O6_STAGE`` names one. The stage's predictions are a COPY: R-WALK-VOID
+    starts in 153 at 328 with ``walk_stop_z`` 500 on the copy's north door step alone (the freeze refuses it there);
+    ``O6_WALK_STOP`` sets F15's z or its fallback ``walk_stop_hold`` (never both; a stage without a stop is untouched,
+    a bad value refuses); R-NAMING-VOID's ``naming_stop`` is the stage's, never the predictions'; F-PASS waits for no end
+    row. A literal F id that is not the member forking its twin refuses by name, and run() refuses such a table before
+    it touches the session. Break: name F-SMOKE's members by their ids (a re-fork's smoke then warps into another
+    donor's member)."""
+    O, R = _o6_module(), _o6_rehearse_module()
+    O4R = __import__("o4_rehearse")
+    assert R.select(R.STAGES, env={}) == ["R-DOOR", "R-NAMING-VOID", "R-WALK-VOID"]
+    assert R.select(R.STAGES, 151, env={}) == ["R-DOOR"]
+    for name in ("R-NAMING-VOID", "R-WALK-VOID", "F-SMOKE", "F-PASS"):
+        assert R.select(R.STAGES, env={"O6_STAGE": name}) == [name]
+    with pytest.raises(ValueError, match="no stage"):
+        R.select(R.STAGES, env={"O6_STAGE": "R-NONE"})
+    with pytest.raises(ValueError, match=r"--field 153 picks \[\]"):
+        R.select(R.STAGES, 153, env={})
+    pred = _o6_draft(tmp_path)
+    smoke = O4R.stage_ids(R.STAGES["F-SMOKE"], pred, name="F-SMOKE")
+    assert smoke["pairs"] == [[31244, 151, 110, 1190], [31245, 153, 328, 1190], [31246, 154, 315, 1190]], smoke
+    fpass = O4R.stage_ids(R.STAGES["F-PASS"], pred, name="F-PASS")
+    assert fpass["field"] == {"S": 151, "F": 31244} and fpass["end"] == {"S": [154], "F": [31246]}, fpass
+    sp = R.stage_pred(pred, fpass)
+    assert sp["start"]["F"] == 31244 and sp["budget"]["end_row_s"] is None and R.stage_sides(fpass) == ["F"], sp["start"]
+    rev = O.draft_predictions(_o4c_campaign(tmp_path, ids={d: 31259 - i for i, d in enumerate(O.C4.DONORS)},
+                                            name="reversed.toml"))
+    m = {d: f for f, d in ((int(f), d) for f, d in rev["members"].items())}
+    assert [p[:2] for p in O4R.stage_ids(R.STAGES["F-SMOKE"], rev)["pairs"]] == [[m[151], 151], [m[153], 153],
+                                                                                 [m[154], 154]]
+    assert O4R.stage_ids(R.STAGES["F-PASS"], rev)["field"]["F"] == m[151] != 31244
+    void = R.stage_pred(pred, R.STAGES["R-WALK-VOID"])
+    assert (void["start"], void["entrance"], void["scenario"]) == ({"S": 153, "F": 153}, 328, 1190), void["start"]
+    assert [(s.get("walk_stop_z"), s.get("walk_stop_hold")) for c in void["table"] for s in c["steps"]] == [(500.0, None)]
+    assert [s.get("walk_stop_z") for c in pred["table"] for s in c["steps"]] == [None], "the overlay reached the draft"
+    hold = R.with_walk_stop(R.STAGES["R-WALK-VOID"], {"O6_WALK_STOP": "hold"})
+    assert hold.get("walk_stop_hold") is True and "walk_stop_z" not in hold, hold
+    assert [(s.get("walk_stop_z"), s.get("walk_stop_hold")) for c in R.stage_pred(pred, hold)["table"]
+            for s in c["steps"]] == [(None, True)]
+    assert R.with_walk_stop(R.STAGES["R-WALK-VOID"], {"O6_WALK_STOP": "890"})["walk_stop_z"] == 890.0
+    assert R.with_walk_stop(R.STAGES["R-DOOR"], {"O6_WALK_STOP": "hold"}) == R.STAGES["R-DOOR"]
+    assert R.STAGES["R-WALK-VOID"]["walk_stop_z"] == 500 and "walk_stop_hold" not in R.STAGES["R-WALK-VOID"]
+    with pytest.raises(ValueError, match="O6_WALK_STOP='soon'"):
+        R.with_walk_stop(R.STAGES["R-WALK-VOID"], {"O6_WALK_STOP": "soon"})
+    with pytest.raises(ValueError, match="one way"):
+        R.stage_pred(pred, dict(R.STAGES["R-WALK-VOID"], walk_stop_hold=True))
+    nv = R.stage_pred(pred, R.STAGES["R-NAMING-VOID"])
+    assert R.STAGES["R-NAMING-VOID"]["naming_stop"] is True and "naming_stop" not in json.dumps(nv), nv.keys()
+    bad = [(dict(R.STAGES["F-SMOKE"], pairs=[[31246, 151, 110, 1190]]), r"pairs: 31246 is not a member forking 151"),
+           (dict(R.STAGES["F-PASS"], field={"S": 151, "F": 31245}), r"field\[F\]: 31245 is not a member forking 151")]
+    for stage, match in bad:
+        with pytest.raises(ValueError, match=match):
+            O4R.stage_ids(stage, pred)
+    with pytest.raises(ValueError, match=r"F-PASS field\[F\]: 31245"):
+        R.run(object(), stages={"F-PASS": bad[1][0]}, pred=pred, env={"O6_STAGE": "F-PASS"})
+
+
+def test_o6_rehearsal_plumbing_on_the_fake(game):
+    """C3 (research/o6_design.md 7.1-7.2): R-DOOR's shape on the fake, chosen by ``O6_STAGE`` as a launch chooses it
+    (another stage, which would run too, does not): the capabilities (P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG over
+    151/153/154, P-LAUNCH with the engine DLLs, P-PAD on a stub reader), the launch's readings (the settings,
+    P-SETTINGS, P-OVERRIDE -- the fake ships no field-70 override -- and P-ENGINE), New Game, the raw warp into "151" at
+    110 / 1190, the route builder's three visits played by the driver to the end in "154", the trace collected, end_run
+    to the title through the recovery warp, and o6_rehearsal.json holding 7.2's sections: THE NAMING (198's last sample,
+    then the screen's first, closed by accept_name's two Confirms -- each down frame between them and the close -- the
+    named row with 198 in its before, the page row "ok" on 199, every [STNR] window read parsed and none unparsed, 199
+    rendering "Captain Steiner!", 199 -> 200 a positive lag, ip610's row frame after the screen and before 199); THE
+    WALK (the grant at (-245, 42), the north door done on attempt 1, the walk tapped -- its walk holds every one sent
+    with the basis cached and no probe, hold 1's end and THE CORNER, the band's walk holds and hold 2's start -- THE
+    LANDING PATH with S14b's frames loss -> flip -> landing); the pairs and the timed windows; O6's trace summary cut at
+    "154" (151's crossing into 153's first row, 153's into the cut, the e15 row's attribution, its window and its gap
+    to ip971, both start-dependent keys ok); end_run's rows and seconds. The rehearsal report prints them. Break: drop
+    the recorder's naming scan."""
+    O, R = _o6_module(), _o6_rehearse_module()
+    _o6_register(game)
+    engine = _o4_launch_files(game)
+    stages = {"R-TEST": dict(R.STAGES["R-DOOR"], field=30810, end=[30821], runs=1, run_s=150),
+              "R-OTHER": {"field": 30820, "entrance": 328, "sc": 1190, "end": [30821], "runs": 1, "run_s": 5,
+                          "cost_s": 1, "settles": "never run: O6_STAGE names R-TEST"}}
+    doc, fake, title, aside = _o6_launch_informative(game, R, stages, {"O6_STAGE": "R-TEST"}, _o6_rh_phases,
+                                                     engine=engine)
+    run_dir = game / "run"
+    assert list(doc["stages"]) == ["R-TEST"] and doc["stages_run"] == ["R-TEST"] and doc.get("finished"), doc.keys()
+    caps = {c[1].split(":")[0]: c[0] for c in doc["capabilities"]}
+    assert caps == {"P-CAP": True, "P-OBJECTS": True, "P-LANG": True, "P-DONOR-LOG": True, "P-LAUNCH": True,
+                    "P-PAD": True}, doc["capabilities"]
+    launch = doc["launch"]
+    assert launch["settings"] == O.SETTINGS and launch["engine"] == engine, launch
+    assert {c[1].split(":")[0]: c[0] for c in launch["checks"]} == {"P-SETTINGS": True, "P-OVERRIDE": False,
+                                                                     "P-ENGINE": True}, launch["checks"]
+    rec = doc["stages"]["R-TEST"][0]
+    assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == "field 30821", (rec["outcome"], aside)
+    assert rec["beats"] == {"named": True, "name_on_page": True, "steiner_door": True}, rec["beats"]
+    nm = rec["naming"]
+    sf = nm["screen_first"]
+    assert sf is not None and sf["field"] == 30810 and nm["last_198"]["frame"] < sf["frame"] < nm["close_frame"], nm
+    acc = [c for c in nm["confirms"] if c["why"] == "accept_name"]
+    assert len(acc) == 2 and all(nm["last_198"]["frame"] < c["down_frame"] <= nm["close_frame"] for c in acc), nm
+    assert nm["named"]["field"] == 30810 and _O6_198[1] in nm["named"]["before"]["raws"], nm["named"]
+    assert nm["page"]["verdict"] == "ok" and nm["page"]["windows"][0]["mes"] == 199, nm["page"]
+    by = {w["mes"]: w for w in nm["stnr"] if w["mes"] is not None}
+    assert set(by) == {199, 200} and all(w["unparsed"] == 0 and w["samples"] > 0 for w in nm["stnr"]), nm["stnr"]
+    assert by[199]["lines"] == ["Queen Brahne\n“Captain Steiner!”"], by[199]
+    assert len(nm["stnr"]) >= 6 and all("[STNR]" not in t for w in nm["stnr"] for t in w["lines"]), nm["stnr"]
+    assert nm["lag_199_200"] > 0 and sf["frame"] < nm["f610"] < by[199]["first"], (nm["lag_199_200"], nm["f610"])
+    walk = rec["walk"]
+    gr = walk["grant"]
+    assert gr is not None and abs(gr["x"] + 245) < 2 and abs(gr["z"] - 42) < 2, gr
+    att = walk["attempts"][0]
+    assert (att["attempt"], att["outcome"], att["path"]) in ((1, "done", "A"), (1, "done", "B")), att
+    fr = att["frames"]
+    assert fr["loss_to_flip"] > 0 and fr["flip_to_landed"] >= 0 and att["landed_frame"] is not None, att
+    w = att["walk"]
+    assert w["walk_holds"] and w["probes"] == 0 and "teleport" not in w, w
+    zs = [h["z"] for h in w["walk_holds"]]
+    assert w["hold1_end"] is not None and w["corner"]["hold1"] is not None, (w["hold1_end"], w["corner"])
+    assert (w["in_band"]["lo"], w["in_band"]["hi"]) == (500.0, 1333), w["in_band"]
+    assert [h[2] for h in w["in_band"]["holds"]] == [z for z in zs if 500 <= z < 1333], (w["in_band"], zs)
+    assert w["hold2"] is not None and w["hold2"]["z"] == zs[1] and w["hold1_end"] == [w["hold2"]["x"], zs[1]], w
+    assert walk["calibration"] is not None and set(walk["calibration"]) == {"v", "h"}, walk["calibration"]
+    win = rec["windows"]
+    assert win["pairs"] and any("mes 175" in t["text"] for t in win["timed"]), (win["pairs"], win["timed"])
+    end = rec["end"]
+    assert end["end_run"]["ok"] and end["end_run"]["title"] and title == "Title", end["end_run"]
+    assert [x["k"] for x in end["end_run"]["how"]] == ["recover-warp"] and end["end_run"]["s"] >= 0, end["end_run"]
+    tr = rec["trace"]
+    assert tr["end_places"] == [30821] and tr["start"] is not None, tr
+    cx = tr["crossings"]
+    assert cx["exit151"]["exit"].startswith("30810 e2 t1 ip932") and cx["exit151"]["next"].startswith(
+        "30820 e0 t0 ip22"), cx
+    assert cx["exit153"]["exit"].startswith("30820 e23 t2 ip203") and cx["exit153"]["next"] is None, cx
+    assert cx["exit153"]["cut"].startswith("30821 e0 t0 ip26"), cx
+    e15 = tr["e15"]
+    assert (e15["sid"], e15["tag"], e15["ip"], e15["add"], e15["window"]) == (15, 0, 32, 0, [8, 14]), e15
+    assert e15["frames_to_971"] > 0, e15
+    assert [x["class"] for x in tr["start_dependent"]] == ["ok", "ok"], tr["start_dependent"]
+    assert tr["end_row"].startswith("w 30821 e0 t0 ip26"), tr["end_row"]
+    assert (run_dir / rec["trace_file"]).is_file() and (run_dir / rec["log_file"]).is_file()
+    report = O.rehearsal_report(run_dir)
+    for want in ("== R-TEST: warp 30810 110 1190 -> [30821]", "PASS  P-LAUNCH", "PASS  P-PAD", "launch: settings",
+                 "PASS  P-ENGINE", "naming: the screen's first sample", "name_on_page row: frame",
+                 "[STNR] window mes 199", "199 -> 200:", "grant: frame", "door attempt 1: done", "LANDING PATH",
+                 "walk holds sent in [walk_stop_z, 1333)", "calibration: {", "e15 row {", "start-dependent rows",
+                 "end places [30821]", "rows ['recover-warp']"):
+        assert want in report, (want, report[:3000])
+
+
+def test_o6_rehearsal_naming_void_stops_at_the_screen_on_the_fake(game):
+    """R-NAMING-VOID (research/o6_design.md 7.1, F7) on the fake: the stage's ``naming_stop`` -- the NAMING STOP wraps the
+    session's accept_name, so rule 4's FIRST call raises "the rehearsal's stop at the naming screen" with the screen up
+    in "151", before any Confirm (none of accept_name's in the record, nothing named during the drive), the run V13
+    (driver), the session's own accept_name restored at once; 151's running scene swallows the soft reset (H16b).
+    end_run (S15): ``recover-warp-failed`` (off the field HUD), ``end-naming`` (the screen accepted at once -- no
+    ``close_ui`` and no ``soft_reset`` before the one accept_name the session made), ``recover-warp-after-naming`` (the
+    recovery field), then the title; the stop recorded (its frame, the NameSetting UI, 151's field) with its seconds to
+    the title; the launch finishes; the report prints the stop. Break: no restore -- end_run's own accept_name then
+    raises too (``end-naming-failed``, the session stops)."""
+    O, R = _o6_module(), _o6_rehearse_module()
+    _o6_register(game)
+    engine = _o4_launch_files(game)
+    stages = {"R-NAMING-VOID": dict(R.STAGES["R-NAMING-VOID"], field=30810, end=[30821], run_s=120)}
+    calls: list = []
+
+    def setup(fake):
+        fake.reset_blocked_fields = {30810}
+
+    def wrap(g):
+        calls.clear()                                      # a re-launch's calls only
+        _s15_record(g, calls)
+    doc, fake, title, aside = _o6_launch_informative(game, R, stages, {"O6_STAGE": "R-NAMING-VOID"}, _o6_rh_phases,
+                                                     engine=engine, fake_setup=setup, wrap=wrap, want=R.NAMING_STOP)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    rec = doc["stages"]["R-NAMING-VOID"][0]
+    assert (rec["outcome"]["end"], rec["outcome"]["v"], rec["outcome"]["by"]) == ("void", "V13", "driver"), \
+        (rec["outcome"], aside)
+    assert rec["outcome"]["why"].startswith(f"STOPPED: {R.NAMING_STOP}"), rec["outcome"]
+    ns = rec["naming_stop"]
+    assert ns is not None and (ns["ui"], ns["field"]) == ("NameSetting", 30810) and ns["recovery_s"] >= 0, ns
+    nm = rec["naming"]
+    assert nm["screen_first"]["field"] == 30810 and nm["named"] is None, nm
+    assert not [c for c in nm["confirms"] if c["why"] == "accept_name"], nm["confirms"]
+    er = rec["end"]["end_run"]
+    assert er["ok"] and er["title"] and title == "Title", er
+    assert [x["k"] for x in er["how"]] == ["recover-warp-failed", "end-naming", "recover-warp-after-naming"], er["how"]
+    assert calls.count(("accept_name",)) == 1 and fake.named == [3], (calls, fake.named)
+    first = calls.index(("accept_name",))
+    assert not [c for c in calls[:first] if c[0] in ("close_ui", "soft_reset")], calls
+    report = O.rehearsal_report(game / "run")
+    assert ", naming_stop" in report and "naming stop: frame" in report and "NameSetting" in report, report[:2500]
+
+
+def test_o6_rehearsal_walk_void_stops_mid_walk_on_the_fake(game, dali):
+    """R-WALK-VOID's z stop (research/o6_design.md 7.1, F7, F15; 0.2 #7) on THE REAL HALL (B3's: the fake's floor stock
+    153's player walkmesh with the 33 upper tris closed, his centre kept 120u off its walls, 153's own key twist): the
+    stage's ``walk_stop_z`` 500 laid on the north door step of a COPY of the predictions (the predictions given keep
+    none), the run warped into "153" at 328. From the grant (-245, 42) the walk needs more than one hold, so the stop
+    lands MID-WALK: the first direction hold sent at a published z at or past 500 raises "the rehearsal's stop
+    mid-walk" before it is sent -- short of the door's line, control held, the basis cached -- the run V13 (driver);
+    the walk had begun (a walk hold before the stop), no direction hold after it, the door never reached; end_run warps
+    out of 153's FieldHUD to the recovery field and reaches the title (``recover-warp``); the launch finishes; the report
+    prints the stop. Reads the install (the ``dali`` fixture's warned skip without it: a skip fails G32). Break: drop the
+    z test (the stop then fires on the first walk hold, at the grant)."""
+    O, R = _o6_module(), _o6_rehearse_module()
+    _o6_register(game)
+    engine = _o4_launch_files(game)
+    setup, floor_for, prior = _o6_real_hall()
+    stages = {"R-WALK-VOID": dict(R.STAGES["R-WALK-VOID"], field=30820, end=[30821], run_s=90)}
+    pred = _o6_rehearse_pred(short=True)
+    before = json.dumps(pred, sort_keys=True)
+    want = R.WALK_STOP
+    doc, fake, title, aside = _o6_launch_informative(game, R, stages, {"O6_STAGE": "R-WALK-VOID"},
+                                                     lambda: _o6_rh_phases(short=True), engine=engine, pred=pred,
+                                                     want=want, fake_setup=setup, floor_for=floor_for, prior=prior)
+    assert json.dumps(pred, sort_keys=True) == before, "the stage's overlay reached the predictions given"
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    rec = doc["stages"]["R-WALK-VOID"][0]
+    assert (rec["outcome"]["end"], rec["outcome"]["v"], rec["outcome"]["by"]) == ("void", "V13", "driver"), \
+        (rec["outcome"], aside)
+    assert rec["outcome"]["why"].startswith(f"STOPPED: {want}: a hold at ("), rec["outcome"]
+    ws = rec["walk_stop"]
+    assert ws is not None and ws["by"] == "walk_stop_z 500" and ws["cached"] is True, ws
+    assert 500 <= ws["z"] < 1333 and ws["holds_after"] == 0 and ws["holds_before"] >= 1, ws
+    assert any(R._direction_hold(s) for s in ws["steps"]), ws["steps"]
+    assert (rec["beats"] or {}).get("steiner_door") is not True and rec["trace"].get("end") is None, rec["beats"]
+    er = rec["end"]["end_run"]
+    assert er["ok"] and er["title"] and title == "Title", er
+    assert [x["k"] for x in er["how"]] == ["recover-warp"], er["how"]
+    report = O.rehearsal_report(game / "run")
+    assert "walk_stop_z 500" in report and "walk stop: frame" in report and "(there must be none)" in report, \
+        report[:2500]
+
+
+def test_o6_rehearsal_walk_void_falls_back_to_the_first_walk_hold(game):
+    """F15's FALLBACK (research/o6_design.md 7.1, 7.3 F15): ``O6_WALK_STOP=hold`` lays ``walk_stop_hold`` (the z dropped)
+    on the north door step of the COPY; the run warped into "153" at 328 on the box floor with NO basis cached, so
+    route_to calibrates there first -- its probes direction holds sent before the basis is cached -- then walks. The
+    stop raises before the FIRST direction hold sent once 153's basis is cached: after every probe, never on one (the
+    probes went: holds before it; the stop's own hold cached), the run V13 (driver), no direction hold after it, the
+    door never reached; end_run reaches the title; the report names the stop. Break: drop the cache test (the stop then
+    fires on the first calibration probe)."""
+    O, R = _o6_module(), _o6_rehearse_module()
+    _o6_register(game)
+    engine = _o4_launch_files(game)
+    stage = R.with_walk_stop(dict(R.STAGES["R-WALK-VOID"], field=30820, end=[30821], run_s=90), {"O6_WALK_STOP": "hold"})
+    assert stage.get("walk_stop_hold") is True and "walk_stop_z" not in stage, stage
+    want = R.WALK_STOP
+    doc, fake, title, aside = _o6_launch_informative(game, R, {"R-WALK-VOID": stage}, {"O6_STAGE": "R-WALK-VOID"},
+                                                     lambda: _o6_rh_phases(short=True), engine=engine,
+                                                     pred=_o6_rehearse_pred(short=True), want=want, axes=False)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    rec = doc["stages"]["R-WALK-VOID"][0]
+    assert (rec["outcome"]["end"], rec["outcome"]["v"], rec["outcome"]["by"]) == ("void", "V13", "driver"), \
+        (rec["outcome"], aside)
+    assert rec["outcome"]["why"].startswith(f"STOPPED: {want}: a hold at ("), rec["outcome"]
+    ws = rec["walk_stop"]
+    assert ws is not None and ws["by"] == "walk_stop_hold" and ws["cached"] is True, ws
+    assert ws["holds_before"] >= 1 and ws["holds_after"] == 0, ws                # the probes went first, uncached
+    assert (rec["beats"] or {}).get("steiner_door") is not True and rec["trace"].get("end") is None, rec["beats"]
+    er = rec["end"]["end_run"]
+    assert er["ok"] and er["title"] and title == "Title", er
+    report = O.rehearsal_report(game / "run")
+    assert ", walk_stop_hold" in report and "by walk_stop_hold" in report, report[:2500]
+
+
+def test_o6_rehearsal_smoke_sends_no_storytrace_on_the_fake(game):
+    """F-SMOKE (research/o6_design.md 7.1, F13) on the fake, its pairs O6's table's -- member(151) and "151" at 110,
+    member(153) and "153" at 328, member(154) and "154" at 315, all SC 1190 -- each member read from the chain the
+    predictions carry (31244 / 31245 / 31246), each warp a RAW one with its pair's OWN entrance and SC and a wait for
+    the field on FieldHUD (o4_rehearse.smoke: never Session.warp()), then the field's published object sids and
+    end_run after each warp (the recovery warp, the title). No ``storytrace`` step is ever executed (no fork data
+    before the freeze). Each member's sids against its twin's: two pairs equal, the third (a body missing) different;
+    the report prints each warp with its entrance and SC. Break: warp member(154) at 328 (153's entrance)."""
+    O, R = _o6_module(), _o6_rehearse_module()
+    _o6_register(game)
+    engine = _o4_launch_files(game)
+    twin = {151: 30810, 153: 30820, 154: 30821}
+    pairs = [[f"member({twin[t]})", twin[t], e, sc] for _m, t, e, sc in R.STAGES["F-SMOKE"]["pairs"]]
+    stages = {"F-SMOKE": dict(R.STAGES["F-SMOKE"], pairs=pairs, smoke_s=0.3, warp_s=10.0)}
+    sids = {31244: [4, 5, 12, 17], 30810: [4, 5, 12, 17], 31245: [13, 14, 16], 30820: [13, 14, 16, 17],
+            31246: [5, 6, 7], 30821: [5, 6, 7]}
+
+    def setup(fake):
+        fake.blockers = {fid: [{"x": 300.0 + 60 * i, "z": 300.0, "r": 30.0, "sid": s, "uid": 128 + i}
+                               for i, s in enumerate(v)] for fid, v in sids.items()}
+    doc, fake, _title = _o6_launch(game, R, stages, {"O6_STAGE": "F-SMOKE"}, [], engine=engine, fake_setup=setup)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    assert not [s for s in fake.executed if s[0] == "storytrace"], "a storytrace step in the smoke"
+    recs = doc["stages"]["F-SMOKE"]
+    order = [(31244, 110, 1190), (31245, 328, 1190), (31246, 315, 1190), (30810, 110, 1190), (30820, 328, 1190),
+             (30821, 315, 1190)]
+    assert [(r["field"], r["entrance"], r["sc"]) for r in recs] == order, recs
+    for r in recs:
+        reach = r["reached"]
+        assert (reach["field"], reach["ui"], reach["control"]) == (r["field"], "FieldHUD", False), r
+        assert r["sids"] == sorted(sids[r["field"]]) and r["exceptions"] == [], r
+        assert r["end_run"]["ok"] and r["end_run"]["title"], r["end_run"]
+    warps = [s for s in fake.executed if s[0] == "warp"]
+    for field, entrance, sc in order:
+        assert ["warp", str(field), str(entrance), str(sc)] in warps, (field, warps)
+    twins = doc["twins"]["F-SMOKE"]
+    assert [(t["member"], t["twin"], t["equal"]) for t in twins] == [(31244, 30810, True), (31245, 30820, False),
+                                                                     (31246, 30821, True)], twins
+    report = O.rehearsal_report(game / "run")
+    for want in ("== F-SMOKE: the load smoke", "warp 2: 31245 at 328 SC 1190 -> field 31245 FieldHUD",
+                 "warp 3: 31246 at 315 SC 1190 -> field 31246 FieldHUD", "twin 31244 vs 30810: EQUAL",
+                 "twin 31245 vs 30820: DIFFERENT"):
+        assert want in report, (want, report[:2000])
+
+
+def test_o6_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake(game):
+    """F-PASS (research/o6_design.md 7.1, F14) on the fake: ONE F run, UNTRACED -- New Game, ``wait_frames(30)``, the
+    raw warp into member(151) (31244, read from the chain) at 110 / 1190, never the ``storytrace`` verb -- driven
+    through the whole route (151@110 with the naming and the page witness, 153@328 with the north door) to member(154)
+    31246 with the live forbidden scan off and no end-row wait: reached, beats ``named``, ``name_on_page`` and
+    ``steiner_door``, no V-class; the record holds no trace, the exceptions since the warp (none) and the Memoria.log
+    lines; end_run reaches the title. The report marks it UNTRACED. Break: start it as a traced run does
+    (Segment.start_run: the storytrace verb is sent)."""
+    O, R = _o6_module(), _o6_rehearse_module()
+    _o6_register(game)
+    engine = _o4_launch_files(game)
+    stages = {"F-PASS": dict(R.STAGES["F-PASS"], field={"S": 30810, "F": "member(30810)"},
+                             end={"S": [30821], "F": ["member(30821)"]}, run_s=150)}
+    doc, fake, title, aside = _o6_launch_informative(game, R, stages, {"O6_STAGE": "F-PASS"},
+                                                     lambda: _o6_rh_phases(side="F"), engine=engine)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    assert not [s for s in fake.executed if s[0] == "storytrace"], "a storytrace step in the untraced pass"
+    rec = doc["stages"]["F-PASS"][0]
+    assert rec["side"] == "F" and rec["traced"] is False and rec["trace_file"] is None, rec
+    assert rec["forbid_live"] is False, rec["forbid_live"]
+    assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == "field 31246", (rec["outcome"], aside)
+    assert rec["outcome"]["v"] is None, rec["outcome"]
+    assert rec["beats"] == {"named": True, "name_on_page": True, "steiner_door": True}, rec["beats"]
+    assert rec["trace"] == {} and rec["exceptions"] == [] and isinstance(rec["log_lines"], list), rec["exceptions"]
+    assert rec["naming"]["page"]["verdict"] == "ok" and rec["naming"]["f610"] is None, rec["naming"]
+    assert rec["end"]["end_run"]["ok"] and title == "Title", rec["end"]["end_run"]
+    report = O.rehearsal_report(game / "run")
+    assert "UNTRACED" in report and "untraced: exceptions since the warp []" in report, report[:2500]

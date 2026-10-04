@@ -1333,6 +1333,159 @@ control; beyond, Steiner's nine-field walk, the spiral towers 164/165, FMV004 in
 keeps it real: F lands in real 55 unless member(166) is rebuilt with 55 -> 31205). Survey: research/o5_route.md's
 candidates 4-11.
 
+## O6 -- Steiner's naming and his first door under the trace, a US session: 151 -> 153 -> 154 (PROVEN: story-o6, v1 6ec3aea8)
+
+**The question.** From a raw warp into A. Castle/Royal Seat (151, entrance 110, SC 1190) -- Brahne's scene, Steiner's
+naming, `Field(153)` at 328 -- through the Knights of Pluto's assembly in the hallway and Steiner's first control,
+walked by the driver north to the e23 door, to the arrival in 154 at 315: does the alxc disc-1 chain write the real
+game's story state key for key? It is the first segment with a NAMING whose result the trace cannot see
+(`PLAYER.Name` is save data, not gEventGlobal), witnessed instead on the page that renders it; the first shared-script
+row since O1e (153 e15 t0 ip32, a Seq entry 32 starts); the first START-DEPENDENT values since O2; and the first walk
+whose evidence is a DOOR that hands the run to the next field. The design, with its two critique rounds folded in, is
+[`research/o6_design.md`](research/o6_design.md).
+
+**The segment.** New Game, the trace armed, then in field 70 (after 70 e0 t0 ip130, before ip475) a raw
+`warp 151 110 1190` (S) / `warp 31244 110 1190` (F):
+- 151 at 110 (visit 1; EVT_ALEX1_AC_SEAT_R; Brahne the defined player, no control): 17 pages, five KEYON pairs, the
+  [TIME=20] windows 175/176, page 198 ("And, Captain..."), STEINER'S NAMING (`Menu(1,3)` e3 t1 ip603: rule 4 and
+  `accept_name`, the pre-filled "Steiner" accepted, never typed), ip610 `Byte[6] |= 8`, 199 and 200 rendering [STNR],
+  ip735 `Byte[8] := 0`, ip932 `Int16[2] := 328`, `Field(153)`;
+- 153 at 328 (visit 2; EVT_ALEX1_AC_H2F): 11 pages, the shared script e15 (`Byte[8] := 125`, run by e32 t1 ip866),
+  `Bit[3855]`/`Bit[3854]`, the party rebuild (`UInt16[21] := 8`, SetPartyReserve, RemoveParty, PARTYADD(3)),
+  `UInt16[19] |= 8`, STEINER'S FIRST CONTROL (e32 t1 ip2412) at (-245, 42), and ONE walk north on the ground to the e23
+  door, which fires only past z 1333 (e23 t2 ip38): ip203 `Int16[2] := 315`, `Field(154)`.
+
+It ends on arrival in 154 -- real 154 on S, member(154) 31246 on F -- cut at its first row, e0 t0 ip26 (emitted: a new
+site). SC 1190 throughout; no battle, movie, choice or ATE.
+
+**The sides.** S = stock. F = O4's alxc disc-1 chain AS DEPLOYED (31240-31259; [`o6_forks.json`](o6_forks.json) reuses
+[`o4_forks.json`](o4_forks.json)): member(151) 31244, member(153) 31245, member(154) 31246, read from O4's
+campaign.toml, never assumed; `side_ends` {S: [154], F: [31246]}. Nothing is imported, built or deployed for O6. Every
+route `Field()` is retargeted, so a landing in a REAL donor field on F is V19, a finding. C0 measured O4's build: each
+route member differs from its donor, in every language, only in its in-chain `Field()` operands (151: 4 bytes, 153:
+14, 154: 14); O6-BUILD pins exactly that.
+
+**A US session -- scoped facts, never silent.**
+- The keys, the joins and the route's text pins (198's marker, 199's and 200's [STNR] sources, the stop page 56) were
+  read in the US scripts and block 3's US text; P-LANG pins the session language; O6-TEXT and P-TEXT read block 3
+  strict.
+- THE START IS THE RAW WARP'S: three residue rows in field 70 (SC 1190's two bytes, FieldEntrance 110's one) over field
+  70's prologue values. Two key VALUES depend on it (the start-dependent keys below), and so does the emitted row
+  pattern; every such claim is this start's and is never compared with a chained true run.
+
+**The naming and the name on the page.** The name is no gEventGlobal store, so its only witness is the first parsed
+page that renders [STNR] after the screen. Rule 4 (the registration 151 at SC 1190, beat `named`) accepts the default
+and arms THE PAGE WITNESS (S16): the `named` row carries `before` -- the ring's last listed sample before the screen,
+198's raw ("And, Captain") -- and the first sample in 151 listing a PARSED frozen window (199's second line
+"“Captain Steiner!”", 200's first "Steiner") writes one `name_on_page` row and JUDGES it: another name is the driver's
+V13 (input at the naming screen: accept_name's blocking call, which the run-wide witness does not see), re-run; an
+instrument miss -- no 198 in `before` (A-NAMING), no parsed window read -- leaves the run uncovered, never a failed
+check. O6-NAMING re-reads each line from the row's own text. P-SETTINGS pins `DisableNameChoice` 0, and P-NAME the
+default's two sources (no stacked DictionaryPatch.txt `CharacterDefaultName` line for Steiner in US, `[Import] Text`
+off: a patched default would render on every run's page). A run stopped with
+the screen up is recovered by S15: end_run accepts the screen BEFORE the ladder (`recover-warp-failed`, `end-naming`,
+`recover-warp-after-naming`), and stops the session cleanly if accept_name cannot close it.
+
+**The start-dependent keys and their scope.** Two keys, the same on S and F: 151 e3 t1 ip610 `Byte[6] |= 8` and 153
+e32 t1 ip2206 `UInt16[19] |= 8` -- 8 each here, from New Game's 0. After the O1-O5 routes AS DRIVEN they would write 11
+(from 3) and 1807 (from 1799): `after.old` is READ from the story-o1e and story-o2 S traces (`after.source` says so),
+`after.value` computed from it, `after.run` the class's AFTER_RUN ("O1-O5"; O7's subclass overrides it). O6-KEYS
+checks every number; O6-START-DEPENDENT classifies each run's deviation -- FINDING (the prior in, another value out),
+EXPLAINED (an earlier row of the run touched the bytes: named), START DRIFT on that side (nothing earlier explains it:
+the instrument's start, never the fork's; "the O1-O5 continuation" when it is exactly 3 -> 11 or 1799 -> 1807). The
+report renders the span from `after.run`, never "after O1".
+
+**The e15 row and its float.** The shared script's row (153 e15 t0 ip32, `Byte[8] := 125`) is a Seq started by e32 t1
+ip866, so its place among e32 t1's rows is not fixed by the bytes. 4.18's pattern takes it OUT of visit 2's sequence
+and floats it: O6-PATTERN requires it EXACTLY ONCE inside the bytes' window -- after e32 t0 ip727, before e32 t1 ip1656
+(the rebuild) -- then compares the visits without it. R-DOOR's measured position (its index, its frames to ip971) is
+written into `measured` at the freeze, REPORT-ONLY: the freeze refuses it null or outside the window, and no check
+reads it (the dry run proves it: every case passes as drafted and as if frozen, the same count).
+
+**The door walk and S14.** ONE visit-scoped cell (S13), (153, 1190, visit 2): the north door, a trigger with `until`
+z > 1200 and the opt-in `to` 154 (S14), the corridor's 33 triangles closed, e24 and e25 avoided, npcs off. The planned
+line (one leg, (-245, 42) -> (19, 1620)) first passes z 1333 on open ground inside e23 (O6-GOALS (c')); the PRESSED
+path is two holds, the first into the corridor mouth's west corner, the second sent inside e23's quad in its
+non-firing band (R-DOOR records both). The evidence's slack is DERIVED (3 stale ticks x 60 u a tick = 180 u; e23's
+non-firing band past z 1200 is 133 u), never typed; e24 and e25 lie wholly outside it (d'), and 153's only live
+`Field(154)` at 328 is e23's (e). S14: the step is DONE when the loss was read in 153 with the evidence and the landing
+is none (path A: route_to returned before the map switch) or place 154 (path B: after it); a landing elsewhere after
+the evidence held is `left` -- rule 2's verdict, the game's, never the walk's; a loss never read in 153 is the driver's
+V13. S14b puts the walk-out's samples, the flip and the landing frame on the step row in both paths. THE PAIRED-WALK
+LAW holds by construction: nothing stores between ip2412 and the loss.
+
+**The checks** ([`o6_steiner.py`](o6_steiner.py); research/o6_design.md 5 and 6):
+- offline: O6-BUILD (140 files, every language its own donor's; the route members' pins), O6-KEYS (60 keys over 58
+  sites, the after values computed, the 74 route pins and `route_mes`, the on-page lines computed), O6-TEXT (block 3,
+  STRICT), O6-CENSUS (every store site of 151 and 153 classified; 151's inert e8 proven by its Int16[2] compare
+  dispatch, 153's e3/e18/e28 not instanced at 328; e15 LIVE, its caller e32 instanced), O6-REGIONS (7 regions, each
+  role proven), O6-GOALS ((c') (c'') (d') (e) above);
+- preflight: P-MANIFEST, P-DEPLOY, P-EB, P-FLOOR, P-STOCK, P-TEXT (block 3), P-RECOVERY, P-DONOR (151/153/154),
+  P-SETTINGS (`DisableNameChoice` 0), P-NAME (the default name's sources), P-PAD, P-OVERRIDE, P-ENGINE; in game P-CAP,
+  P-OBJECTS, P-LANG, P-DONOR-LOG, P-LAUNCH and P-PAD;
+- the session: O6-FROZEN, O6-COVER; O6-FORBIDDEN and O6-VOID-ASYM (a)-(d) over every run by `[place, sc, visit]`; then
+  START, NO-SC (SC holds 1190), CHAIN (110 -> 328 -> 315), RESIDUE, WRITES (EXACT: 28 writes and the 2-key chain),
+  NULL, STABLE, LANDING (a)-(e), NAMING (a)-(b), WALK (a)-(b), PATTERN (a)-(b) with the floating row, START-DEPENDENT,
+  MASKED, STATE and JOIN over the covered runs; THROW.
+
+**Status: ★★ PROVEN (session `story-o6`, v1 `6ec3aea8`), a US session.** Steiner's naming and his first door under the
+trace: the warp into the royal seat box at SC 1190, Brahne's scene, Steiner named (the pre-filled default accepted),
+`Byte[6] |= 8`, the Knights of Pluto's assembly in 153 at 328, the party rebuilt, `UInt16[19] |= 8`, Steiner's first
+control and his walk north through the e23 door, `Field(154)`; O4's deployed alxc members 31244, 31245 and 31246 write
+the real game's story state key for key. S F S F S F, 6/6 covered (S 3 of 3, F 3 of 3), unattended, 544 s, no re-run;
+every check PASS (39/39): FROZEN, COVER, FORBIDDEN, VOID-ASYM (none), START (the three residue rows, 151's first
+Byte[13] row ip119 from 1), NO-SC (SC 1190 throughout), CHAIN (110 -> 328 -> 315), RESIDUE, WRITES (exactly 30 keys a
+run: 28 writes and the 2-key chain), NULL (30 keys matched, 0 stock-only, 0 fork-only, NO noise), STABLE, LANDING
+(every F run ended in member(154) 31246, never real 154), NAMING (named once in 151 before ip610's store; the first
+[STNR] page after it read "Captain Steiner!" on both sides), WALK (the door step done in every run, nothing written
+inside the walk: THE PAIRED-WALK LAW), PATTERN (each visit's emitted rows in order, e15's floating row inside its
+window), START-DEPENDENT (151 ip610 `Byte[6]` 0 -> 8 and 153 ip2206 `UInt16[19]` 0 -> 8 on both sides -- a true O1-O5 run
+would write 11 and 1807), MASKED, STATE (16 targets' histories identical, the end state as frozen), JOIN (216 rows, 0
+failures), THROW (none). Archive: `C:\gd\Dream-World-IX\.harness-runs\20261004-110827-story-o6` (o6_report.txt).
+
+The rehearsals before the freeze (archived `20261004-1*-o6-rh-*`; F1-F15 met):
+
+| stage | runs | what it settled |
+|---|---|---|
+| R-DOOR (stock 151 -> 154) | 2/2 reached | the naming: `accept_name` kept the default in 2-3 Confirms, the first [STNR] page "Captain Steiner!"; both start-dependent values 8; the grant at (-245, 42) exactly as the bytes give it; the door walk done on its first attempt (hold 1 up the corridor mouth to (-212, 920) with no slide or stall, the door fired at z ~1345), both runs by LANDING PATH A (the walk-out stopped at z 2064, the flip ~53 frames after the loss); 28 writes + the 2-key chain, the e15 row at index 8 of visit 2 inside its window, the end state as drafted; the two traces row for row identical bar frames (45 rows); 89-99 s a run, ~60 fps |
+| R-NAMING-VOID | 1 | stopped with the naming screen up: S15's recovery (the warp refused, the screen accepted, the warp retried) reached the title in 6.4 s |
+| R-WALK-VOID | 1 | the z stop (500) fired on hold 2 at z 919.6, mid-walk; `end_run` reached the title |
+| F-SMOKE | 3 + 3 warps | 31244@110, 31245@328, 31246@315 load, their object sids their stock twins' |
+| F-PASS (untraced) | 1 | one F run through the whole route to 31246, the name on the page, landing path A, no throw |
+
+The freeze's numbers (F6): `run_s` 198, `run_min_s` 126 (1.25 x the median 94 s + the longest recovery 7.7 s),
+`session_s` 2552, `no_progress_s` 60; the floating e15 row's measured index [8, 8]. o6_dryrun's as-if-frozen unit had
+pinned the UNFILLED draft (refused); it now expects the draft refused only while it names no rehearsals -- 164/164 on
+the unfilled draft, the filled draft and as if frozen.
+
+The offline build, as it stood before the rehearsals (branch `claude/story-trace-o6`, PARTs A-C of the design's
+section 9): `--offline-check` 6 PASS; `--preflight` 13/13 on the live install (nothing to deploy); the dry run 164/164;
+the regression gate G1-G33 (O1-O5 byte-identical; O6's tests G32, its dry run G33); a code review's eight findings each
+fixed (research/o6_design.md 11.7: P-NAME, the fake's New Game name reset, S14b's landing at a new visit, four
+load-robust or freeze-proof tests, a docstring).
+
+**Next, O7:** 154@315 -> 158 -> 159 -> 160 -> 162 -> 163 -> 164 -> 165 -> 166 -> FMV004 -> `Field(55)`, started by a
+raw `warp 31246 315 1190` (S: `warp 154 315 1190`), Steiner's control on arrival (154 e0 t0 ip588, Main_Init's tail).
+That start is NOT clean. A raw warp lacks what O6 leaves behind -- the party rebuild ([Steiner]: SetPartyReserve(8),
+RemoveParty 0-11, PARTYADD(3); a raw New Game party is [Zidane]), `Bit[3855]`/`Bit[3854]` 1, `UInt16[21]` 8, `UInt16[19]
+|= 8` and `Byte[6] |= 8` (bit 3), `Byte[208]` 1, `Byte[303]` 1, `Byte[18]` 1, `Byte[8]` 125 -- and these are READ past
+O6's end: `Bit[3855]`/`[3854]` by 164 e1 t3 (the knights' count, ip326), the party and `UInt16[19]` by 55 e8 t1 (ip633
+SetPartyReserve, the PARTYCHK loop at ip666, and the start-dependent BRANCH at ip1354: on a raw start ip1380 writes
+`UInt16[19] |= 1`, a true run skips it). O7's start analysis begins from these (pokes, an O6 prefix, or a claim scoped to
+the branch), never from 'clean'. O7 also needs, each opt-in and FakeGame-tested, O1-O6 kept byte-identical: a WAYPOINT
+step kind (154's balcony -> the west flight -> the ground: two legs with complementary closures, the engine's
+neighbour links -- `wm154.out`; 164/165's self-overlapping spirals); a per-step CLEARANCE threaded into `route_to`
+(164's narrow turn plans only at <= 64; `route_to` takes none: session.py:4139-4143); a HEIGHT evidence (164 e2 fires at
+`f[1] < -12000`, 165 e2 at `f[1] < -15000`: S14's `to` judges their landings, but `until` reads only x and z -- it needs a
+y axis); the 164 KNIGHT HOLD (e1 t1 ip230 `Bit[3811] := 1` races the exit after four walks at speed 15 and an animation: a
+hold at a waypoint and an order check); a MOVIE decision (FMV004, `MBG_DEF("FMV004", 1, 0)`: type 0, skippable, 45.41 s
+live, no page after it -- a skip policy needs a defined span, else rule 9 plays it out); and the 55 SEAM decision
+(member(166) 31258 keeps a raw `Field(55)`: F lands in REAL 55 unless 31258 is rebuilt with 55 -> 31205, owner-gated).
+Settled for O7 by the O6 research: every walked field's grant is its Main_Init tail (154 ip588, 158 ip379, 159 ip665,
+160 ip399, 162 ip866, 163 ip618, 164 ip698, 165 ip778); the live door stores `Byte[13] := 3` are 158 e2 ip194 and 165 e2
+ip205 only; 159's forced monologue (e16 t1 ip390, pages 296-300, `Bit[3796] := 1` ip672) re-grants in place
+(`interrupts` 1).
+
 ## Rungs
 
 | Rung | What | Pass |

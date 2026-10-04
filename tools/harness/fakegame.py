@@ -322,6 +322,10 @@ class FakeGame:
         #: director gives it where a field would. True (the default): today's warp, control handed over on arrival --
         #: which is how a smoke built on Session.warp() (its wait_playable needs control) passes here and hangs there.
         self.warp_arrive_control = True
+        #: H16b (research/o6_design.md 3.2): fields whose running scene SWALLOWS the soft reset -- O1d's measurement (a
+        #: soft reset through Alexandria's running opening scene did not reach the title: PLAN.md O1, story-o1d),
+        #: whatever the engine's reason. Empty by default: the combo fires as :meth:`_check_soft_reset` says.
+        self.reset_blocked_fields: set = set()
         # -- battle ----------------------------------------------------------------------------
         #: `party.battle_no`: monotonic, save-persistent, never reset. The ONE unambiguous "a battle
         #: started" edge -- modelled as such because every driver wait is anchored to it.
@@ -375,6 +379,9 @@ class FakeGame:
         self._race_due: tuple | None = None        # (the frame it is due, its result): an `after` end, scheduled
         #: The naming screen (``Menu(1, char)``, a scene beat ``{"naming": char}``): each character named, in order.
         self.named: list[int] = []
+        #: H17 (research/o6_design.md 3.3): the name a visit's naming screen SAVED, by character -- what PLAYER.Name
+        #: holds after its OK; empty until one is saved, so a page's [STNR] renders the pre-filled default.
+        self.names: dict[int, str] = {}
         self._name_focus = False
         self.battle_units: list[dict] = []
         self.battle_bonus = {"exp": 0, "gil": 0, "ap": 0, "items": 0}
@@ -450,6 +457,12 @@ class FakeGame:
         #:     back only when the test's scene gives it back.
         #:   * ``"arrive_control": False`` -- the destination arrives with control OFF: the arrival scene's to
         #:     hand back (a test's director gives it), as 101's Herald and 115's Puck hold it.
+        #:   * ``"walkout"`` -- H16 (research/o6_design.md 3.1): ExitField's WALK-OUT, ``{"to": [x, z], "speed": u,
+        #:     "stop_z": z}`` (``speed`` default 60, ``stop_z`` default None): from the fire to the switch he keeps
+        #:     moving toward ``to`` at ``speed`` units a field tick -- MOVJ, at the speed of his last controlled frame
+        #:     (HonoUpdate's 60 for a run) -- control off, and stops at ``to`` or, ``stop_z`` given, once his z passes
+        #:     it (where pathing holds his centre a radius short of the floor's end). Without it he stands where the
+        #:     region took him, as ever. The switch itself waits on `exit_gate` when a test holds one.
         #: ⚠ An UNGATED region fires only on a frame a step (or the coast after one) lands him in it, never
         #: while he stands there -- the engine re-tests those every tick too, but the suite's fixtures that
         #: place him inside a zone depend on the step-only rule, so only a gated region gets the standing test.
@@ -461,6 +474,12 @@ class FakeGame:
         self._exit: tuple[int, int, tuple[float, float]] | None = None   # (due frame, dest, arrive)
         self._arrive_face: float | None = None     # the firing region's ``arrive_face``, applied on arrival
         self._arrive_control = True                # the firing region's ``arrive_control``, applied on arrival
+        self._walkout: dict | None = None          # H16: the firing region's walk-out, until the switch
+        #: H16's GATE (research/o6_design.md 3.1, rev. 2): a ``threading.Event`` a TEST holds; None (the default) is
+        #: today's fake. With it, a scheduled exit's switch waits, once its ``exit_frames`` have run, until the event is
+        #: set -- he stands where the walk-out left him meanwhile -- so a test can fix which side of route_to's return
+        #: the switch falls on, whatever the harness thread's load.
+        self.exit_gate = None
         #: A LADDER, where a test models one (115's climb: e15 t3 DisableMove, then the climb loop reads B_KEY(16)
         #: every tick): ``{"top": y, "bottom": y, "step": units a field tick}`` -- y is ``player[1]``, the ``pos[1]``
         #: the agent publishes, and UP is the way from ``bottom`` to ``top``: on 115's real ladder it RISES as he climbs
@@ -1034,6 +1053,9 @@ class FakeGame:
             self.ui_state = "FieldHUD"
             self.field_id = 70
             self.control = True
+            # H17: New Game rebuilds every player with its CharacterDefaultName (FF9Play_New, ff9play.cs:131-144): a
+            # name an earlier run saved never reaches this one's [STNR] pages (the review, research/o6_design.md 11.7 #2)
+            self.names = {}
             self._block(3)
         elif op == "warp":
             # H9: the agent refuses a warp off the field HUD (Ff9mkDebugMenu.Warp, HarnessAgent.cs:652-656) -- before
@@ -1179,8 +1201,10 @@ class FakeGame:
         camera and movement is expressed in screen space, which is why `calibrate_axes` exists at
         all. A stand-in that always mapped "up" to +z would let a broken calibration pass.
         """
-        if self._exit is not None and self.frame >= self._exit[0]:
+        if self._exit is not None and self.frame >= self._exit[0] and self._exit_open():
             self._step_exit_now()
+        if self._exit is None:
+            self._walkout = None                # H16: the exit landed, or a warp outran it: no walk-out is left
         self._pos_before = list(self.player)
         self._plan, visit = None, self._visit
         for ticks in self._frame_steps():       # the frame's field ticks: one share (mean) or each whole one
@@ -1191,6 +1215,8 @@ class FakeGame:
             self._step_walkers(ticks)
             if self.climbing and self._visit == visit:
                 self._step_ladder(ticks)        # the climb runs with control OFF: before the skip below
+            if self._walkout is not None and self._visit == visit:
+                self._step_walkout(ticks)       # H16: ExitField's walk-out runs with control OFF, until the switch
             if not self.control or self._visit != visit:
                 continue                        # control gone, or a warp mid-frame: no tick of it moves him there
             self._step_player()
@@ -1218,6 +1244,43 @@ class FakeGame:
             self.climbing, self.climbed = False, True
         elif (bottom - self.player[1]) * up > 0:
             self.climbing, self.control = False, True
+
+    def _exit_open(self) -> bool:
+        """H16's gate: whether a due exit may switch the field now -- always, unless a test holds `exit_gate` unset."""
+        return self.exit_gate is None or self.exit_gate.is_set()
+
+    def _walkout_of(self, r: dict) -> dict | None:
+        """H16 (research/o6_design.md 3.1): a firing region's ``walkout``, read STRICT and armed from where he stands --
+        or None without the key (today's ExitField: he stands where it took him)."""
+        w = r.get("walkout")
+        if w is None:
+            return None
+        if not isinstance(w, dict) or "to" not in w or not set(w) <= {"to", "speed", "stop_z"}:
+            raise ValueError(f"a region's walkout is {{'to': [x, z], 'speed': u, 'stop_z': z | None}}, not {w!r}")
+        tx, tz = (float(v) for v in w["to"])
+        stop = None if w.get("stop_z") is None else float(w["stop_z"])
+        way = 1.0 if tz >= self.player[2] else -1.0        # the sign of his z along the walk-out
+        return {"to": (tx, tz), "speed": float(w.get("speed", 60.0)), "stop_z": stop, "way": way,
+                "done": stop is not None and (self.player[2] - stop) * way >= 0}
+
+    def _step_walkout(self, ticks: float) -> None:
+        """H16: one field tick (in mean mode, the frame's share of one) of ExitField's walk-out -- MOVJ toward ``to`` at
+        ``speed`` a tick (DoEventCode.cs:860-869; EventEngine.MoveToward.cs:15-30, :166), control off -- held at ``to``,
+        or where his z passes ``stop_z`` (pathing holding his centre a radius short of the floor's end:
+        research/o6_design.md 0.2 #6, an ESTIMATE the game measures)."""
+        w = self._walkout
+        if w["done"]:
+            return
+        x, z = self.player[0], self.player[2]
+        (tx, tz), step = w["to"], w["speed"] * ticks
+        d = math.hypot(tx - x, tz - z)
+        nx, nz = (tx, tz) if d <= step else (x + (tx - x) / d * step, z + (tz - z) / d * step)
+        w["done"] = d <= step
+        stop = w["stop_z"]
+        if stop is not None and (nz - stop) * w["way"] >= 0:
+            t = (stop - z) / (nz - z) if nz != z else 1.0
+            nx, nz, w["done"] = x + (nx - x) * t, stop, True
+        self.player[0], self.player[2] = nx, nz
 
     def _player_plan(self) -> tuple:
         """What the controlled player does THIS FRAME, read once from the pad (IsHeld keys on the frame: every tick in
@@ -1686,7 +1749,8 @@ class FakeGame:
         self._exit = (self.frame + self.exit_frames, int(r["to"]), tuple(r["arrive"]))
         self._arrive_face = r.get("arrive_face")
         self._arrive_control = bool(r.get("arrive_control", True))
-        if self.exit_frames <= 0:
+        self._walkout = self._walkout_of(r)        # H16 (opt-in): he walks on until the switch
+        if self.exit_frames <= 0 and self._exit_open():
             self._step_exit_now()
 
     def _retest_gated(self) -> None:
@@ -1704,6 +1768,7 @@ class FakeGame:
     def _step_exit_now(self) -> None:
         _due, dest, arrive = self._exit
         self._exit = None
+        self._walkout = None                       # H16: the field changes under the walk-out
         self.field_id = dest
         self._visit += 1
         self.player = [float(arrive[0]), 0.0, float(arrive[1])]
@@ -1905,6 +1970,8 @@ class FakeGame:
         # actually climb.
         if self._movie is not None or self.ui_state not in self.soft_reset_ui:
             return
+        if self.field_id in self.reset_blocked_fields:
+            return                              # H16b: a running scene there swallows it (O1d)
         if self.ui_state == "BattleHUD":
             # mid-fight, from a set that holds it: the battle goes with the scene -- nothing of it is up at the title
             self.battle_active = False
@@ -3717,7 +3784,10 @@ STORY_CHANGE_ROWS = 64
 VISIT_STEP_KEYS = {"store": (), "wait": (), "place": (), "grant": (), "field": (), "stairs": (),
                    "page": ("slot", "typing_s", "text", "raw"), "timed": ("slot", "ticks", "text", "raw"),
                    "pair": ("lag", "gate", "texts", "raws"),
-                   "choice": ("slot", "header", "lines", "typing_s", "gap", "stale", "branch", "raw")}
+                   "choice": ("slot", "header", "lines", "typing_s", "gap", "stale", "branch", "raw"),
+                   # H17, H18 (research/o6_design.md 3.3, 3.4): Menu(1, char)'s naming screen -- ``name`` the default it
+                   # pre-fills -- and the regions' tag 2 with ExitField's walk-out (its knobs :data:`DOOR_DEFAULTS`)
+                   "naming": ("name",), "door": ()}
 #: H14's knobs and defaults (research/o5_design.md 3.2), each the engine's value or the design's named estimate:
 #: ``steps`` (REQUIRED: the visit's step list); ``index`` (its 1-based position in the route -- what H15's per-visit faults
 #: are keyed by); ``field_to`` (a ``field`` step's ``to`` -> the field id it lands in); ``donor`` (the visit's
@@ -3725,13 +3795,31 @@ VISIT_STEP_KEYS = {"store": (), "wait": (), "place": (), "grant": (), "field": (
 #: O4's tweens (``open_s``/``open_frames``, ``close_s``/``close_frames``); ``ready_lag_frames`` (a choice's frames between
 #: its group and ``isChoiceReady``, Dialog.cs:161-164); ``wait_scale`` (the ``wait`` steps only: a test runs 0.25);
 #: ``publish_order``; ``bodies`` (the visit's published objects, as ``fake.blockers`` dicts) -- then H15's faults
-#: (research/o5_design.md 3.3), each absent by default: see :class:`_VisitBeat`.
+#: (research/o5_design.md 3.3), each absent by default: see :class:`_VisitBeat` -- and O6's (research/o6_design.md 3.3,
+#: 3.5), each absent by default too: ``name_typed`` (the name a naming screen's OK saves: a typed name's stand-in),
+#: ``naming_deaf`` (the screen drops its first k Confirms), ``unparsed_frames`` (``{mes: k}``: that window publishes its
+#: raw text, tags included, for its first k frames) and ``door_misroute`` (``{door name: field_to key}``: that door's
+#: Field() lands there).
 VISIT_DEFAULTS = {
     "steps": None, "index": None, "field_to": {}, "donor": None, "open_s": 0.105, "open_frames": 2, "close_s": 0.09,
     "close_frames": 1, "ready_lag_frames": 1, "wait_scale": 1.0, "publish_order": "agent_first", "bodies": (),
     "store_override": None, "grant_at": None, "land_real": None, "reask": False, "stray_confirm_at_ready": False,
     "cursor_to": None, "confirm_deaf": 0, "gap_ticks": None, "no_contour": False, "side_scene_at": None,
-    "error_window": None}
+    "error_window": None, "name_typed": None, "naming_deaf": 0, "unparsed_frames": None, "door_misroute": None}
+#: H17 (research/o6_design.md 3.3): the text tag a page renders as Steiner's name -- [STNR], a constant replace tag
+#: (FFIXTextTag.cs:390) resolved to PLAYER.Name of CharacterId 3 (DialogBoxSymbols.cs:67-68) -- and the default
+#: NameSettingUI pre-fills (CharacterDefaultName), rendered until a naming screen's OK saves another (``fake.names``).
+STNR_TAG, STNR_CHAR, STNR_NAME = "[STNR]", 3, "Steiner"
+#: H18 (research/o6_design.md 3.4): a ``door`` step's knobs and defaults -- ``doors``, the regions' tag 2 in ENTRY order
+#: (each a dict of :data:`DOOR_KEYS`), and ``speed``, the walk-out's u a field tick (MOVJ at his last controlled frame's
+#: speed: HonoUpdate's 60 for a run, FieldMapActorController.cs:210-211). A door holds every :data:`DOOR_NEEDS` --
+#: ``name``, ``points`` (IsInQuad's polygon), ``stores`` (its tag 2's stores before its Field(), each a store's 7
+#: values), ``ticks`` (its fade's op_22 wait: e23's 25), ``to`` (a ``field_to`` key) -- and optionally ``z_gt`` (its z
+#: term: e23 t2 ip38's f[2] > 1333) and ``walkout`` (``{"to": [x, z], "stop_z": z | None}``: ExitField's walk toward
+#: MJPOS's point).
+DOOR_DEFAULTS = {"doors": (), "speed": 60.0}
+DOOR_KEYS = ("name", "points", "z_gt", "stores", "ticks", "to", "walkout")
+DOOR_NEEDS = ("name", "points", "stores", "ticks", "to")
 #: A ``stairs`` step's knobs and defaults (153 e3 t1 stage 6, its side scenes, its back door and stage 17;
 #: research/o5_design.md 3.2): ``scenes`` (each ``{"points", "z_gt", "pages"}``: e26 -- its quad AND z > 1333 -- and e27,
 #: live in stage 6 alone; ``pages`` page steps); ``back_door`` (``{"points", "stores", "exit_ticks", "to"}``: e28, live
@@ -3757,7 +3845,9 @@ def _visit_steps(steps, k: dict, where: str) -> None:
     exactly one kind of :data:`VISIT_STEP_KEYS` and only that kind's keys; a store of its 7 values; a pair of two
     windows; a ``field`` step's ``to`` -- and a back door's -- a ``field_to`` key; a choice's ``lines`` a non-empty list
     of strings, its ``branch`` steps and a ``stairs`` step's side-scene ``pages`` steps themselves; a ``stairs`` step's
-    knobs :data:`STAIRS_DEFAULTS`' and -- unless H15's ``no_contour`` -- a ``contour`` or a ``height_at``."""
+    knobs :data:`STAIRS_DEFAULTS`' and -- unless H15's ``no_contour`` -- a ``contour`` or a ``height_at``; H17's
+    ``naming`` a character id (an int >= 0) and its ``name`` a non-empty str; H18's ``door`` read by
+    :func:`_door_knobs` (research/o6_design.md 3.3, 3.4)."""
     if not isinstance(steps, (list, tuple)):
         raise ValueError(f"{where}: the steps are a list, not {steps!r}")
     for i, step in enumerate(steps):
@@ -3797,6 +3887,58 @@ def _visit_steps(steps, k: dict, where: str) -> None:
             bd = s.get("back_door")
             if bd is not None and str(bd.get("to")) not in k["field_to"]:
                 raise ValueError(f"{at}: the back door's to {bd.get('to')!r} is not in field_to {sorted(k['field_to'])}")
+        if kind == "naming":
+            char = step["naming"]
+            if not isinstance(char, int) or isinstance(char, bool) or char < 0:
+                raise ValueError(f"{at}: a naming step names a character id, an int >= 0, not {char!r}")
+            if "name" in step and (not isinstance(step["name"], str) or not step["name"]):
+                raise ValueError(f"{at}: a naming step's name is the default it pre-fills, a non-empty str, not "
+                                 f"{step['name']!r}")
+        if kind == "door":
+            _door_knobs(step["door"], k, at)
+
+
+def _door_knobs(d, k: dict, at: str) -> None:
+    """H18's ``door`` step checked STRICT (research/o6_design.md 3.4): its knobs :data:`DOOR_DEFAULTS`' -- ``speed`` a
+    positive number, ``doors`` a non-empty list in entry order -- and each door a dict holding every
+    :data:`DOOR_NEEDS` and nothing outside :data:`DOOR_KEYS`: ``points`` a polygon of three points or more, each
+    store its 7 values, ``ticks`` an int >= 0, ``to`` a ``field_to`` key, ``z_gt`` a number, ``walkout`` ``{"to":
+    [x, z], "stop_z": z | None}``. A ValueError names the first fault."""
+    if not isinstance(d, dict):
+        raise ValueError(f"{at}: the door's knobs are a dict, not {d!r}")
+    unknown = sorted(set(d) - set(DOOR_DEFAULTS))
+    if unknown:
+        raise ValueError(f"{at}: the door has no knob {unknown} (it takes {sorted(DOOR_DEFAULTS)})")
+    speed = d.get("speed", DOOR_DEFAULTS["speed"])
+    if not isinstance(speed, (int, float)) or isinstance(speed, bool) or not speed > 0:
+        raise ValueError(f"{at}: the door's walk-out speed is a positive number of u a tick, not {speed!r}")
+    doors = d.get("doors")
+    if not isinstance(doors, (list, tuple)) or not doors:
+        raise ValueError(f"{at}: a door step's doors are a non-empty list, in entry order, not {doors!r}")
+    for n, door in enumerate(doors):
+        w = f"{at}.doors[{n}]"
+        if not isinstance(door, dict):
+            raise ValueError(f"{w}: a door is a dict, not {door!r}")
+        if [x for x in DOOR_NEEDS if x not in door] or set(door) - set(DOOR_KEYS):
+            raise ValueError(f"{w}: a door holds {list(DOOR_NEEDS)} and optionally z_gt and walkout, not "
+                             f"{sorted(door)}")
+        if not isinstance(door["points"], (list, tuple)) or len(door["points"]) < 3:
+            raise ValueError(f"{w}: a door's points are a polygon, [[x, z], ...] of three or more, not "
+                             f"{door['points']!r}")
+        for s in door["stores"]:
+            if not isinstance(s, (list, tuple)) or len(s) != 7:
+                raise ValueError(f"{w}: a store is [sid, tag, ip, byte, width, value, bit], not {s!r}")
+        if not isinstance(door["ticks"], int) or isinstance(door["ticks"], bool) or door["ticks"] < 0:
+            raise ValueError(f"{w}: a door's ticks are an int >= 0 (its fade's wait), not {door['ticks']!r}")
+        if str(door["to"]) not in k["field_to"]:
+            raise ValueError(f"{w}: the door's to {door['to']!r} is not in field_to {sorted(k['field_to'])}")
+        z_gt = door.get("z_gt")
+        if z_gt is not None and (not isinstance(z_gt, (int, float)) or isinstance(z_gt, bool)):
+            raise ValueError(f"{w}: a door's z_gt is a number, not {z_gt!r}")
+        wo = door.get("walkout")
+        if wo is not None and (not isinstance(wo, dict) or "to" not in wo or set(wo) - {"to", "stop_z"}
+                               or not isinstance(wo["to"], (list, tuple)) or len(wo["to"]) != 2):
+            raise ValueError(f"{w}: a door's walkout is {{'to': [x, z], 'stop_z': z | None}}, not {wo!r}")
 
 
 class _VisitBeat(_Machine):
@@ -3821,7 +3963,14 @@ class _VisitBeat(_Machine):
       * ``{"grant": [x, z]}`` -- EnableMove: control, the player at (x, z);
       * ``{"stairs": knobs}`` -- 153's stage 6, its side scenes and back door, the height test and stage 17
         (:meth:`_stairs`, :data:`STAIRS_DEFAULTS`);
+      * ``{"naming": char, "name": default}`` -- H17 (research/o6_design.md 3.3): Menu(1, char), the naming screen over
+        the field -- ui "NameSetting", no window -- which holds the script until its OK (:meth:`_naming`, :meth:`ui`);
+      * ``{"door": knobs}`` -- H18 (research/o6_design.md 3.4): the regions' tag 2 while he has control, ExitField's
+        walk-out, the door's stores and its Field() (:meth:`_door`, :data:`DOOR_DEFAULTS`);
       * ``{"field": to}`` -- Field(): the field becomes ``field_to[to]`` (a fresh visit, control off), the beat finishes.
+
+    H17's NAME ON THE PAGE: every window's text has [STNR] rendered as the name the naming screen saved
+    (``fake.names``), the default until one is saved (:meth:`open`); its raw keeps the tag, as phrase_raw does.
 
     H15's faults (research/o5_design.md 3.3), each absent by default: ``store_override`` ``{ip: value}`` (a fork that
     stores another value at a site); ``grant_at`` ``{index: [x, z]}`` (control granted after that visit's leading stores,
@@ -3835,7 +3984,15 @@ class _VisitBeat(_Machine):
     fires); ``side_scene_at`` (the n-th MOVING tick of a stage-6 period -- or a list, one per period: a side scene fires
     wherever he stands, the first scene's pages: a mis-walk's stand-in); ``error_window`` ``{index: value}`` (Byte[13]
     arrived ``value``: the leading stores take the error branch's :data:`VISIT_ERROR_STORE`, and window 56,
-    :data:`VISIT_ERROR_TEXT`, waits). ``fake.visit_log`` keeps every step's start."""
+    :data:`VISIT_ERROR_TEXT`, waits). ``fake.visit_log`` keeps every step's start.
+
+    O6's faults (H17, H19: research/o6_design.md 3.3, 3.5), each absent by default: ``name_typed`` (the name the naming
+    screen's OK saves -- outside input typed into the box: the page witness's V13); ``naming_deaf`` (the screen drops
+    its first k Confirms -- 4 or more and accept_name raises: the stuck screen); ``unparsed_frames`` ``{mes: k}`` (that
+    window publishes its RAW text, tags included, for its first k frames: the TextParser's ``ParsedText =
+    InitialText`` before Parse, TextParser.cs:54-60 -- a state the engine is not expected to publish, kept to test the
+    page witness's guard); ``door_misroute`` ``{door name: field_to key}`` (that door's Field() lands there: a
+    misrouted fork operand's stand-in)."""
 
     def __init__(self, fake, knobs):
         k = _machine_knobs(VISIT_DEFAULTS, knobs, "visit")
@@ -3846,6 +4003,16 @@ class _VisitBeat(_Machine):
         k["store_override"] = {int(ip): int(v) for ip, v in dict(k["store_override"] or {}).items()}
         k["grant_at"] = {int(n): [float(c) for c in xz] for n, xz in dict(k["grant_at"] or {}).items()}
         k["error_window"] = {int(n): int(v) for n, v in dict(k["error_window"] or {}).items()}
+        k["unparsed_frames"] = {int(m): int(n) for m, n in dict(k["unparsed_frames"] or {}).items()}
+        k["door_misroute"] = {str(d): str(t) for d, t in dict(k["door_misroute"] or {}).items()}
+        astray = sorted(t for t in k["door_misroute"].values() if t not in k["field_to"])
+        if astray:
+            raise ValueError(f"visit: door_misroute sends a door to {astray}, not in field_to {sorted(k['field_to'])}")
+        typed, deaf = k["name_typed"], k["naming_deaf"]
+        if typed is not None and (not isinstance(typed, str) or not typed):
+            raise ValueError(f"visit: name_typed is the name the OK saves, a non-empty str, or None, not {typed!r}")
+        if not isinstance(deaf, int) or isinstance(deaf, bool) or deaf < 0:
+            raise ValueError(f"visit: naming_deaf is the Confirms the naming screen drops, an int >= 0, not {deaf!r}")
         cur = k["cursor_to"]
         if cur is not None and not (isinstance(cur, dict) and "index" in cur
                                     and set(cur) <= {"index", "after_frames", "at_confirm"}
@@ -3868,14 +4035,23 @@ class _VisitBeat(_Machine):
         self.move = None                           # H15 cursor_to: the move due, (frame, index)
         self.moved = False                         # ...scheduled once
         self.strayed = False                       # H15 stray_confirm_at_ready: fired once
+        self.naming = None                         # H17: the naming screen while it is up (:meth:`_naming`)
         self.script = self._script(fake)
 
     # -- the UI: the engine's gating of a page's type-out and a choice's answer
-    def open(self, fake, slot: int, kind: str, text: str, raw: str, *, unsub: str | None = None) -> _Win:
+    def open(self, fake, slot: int, kind: str, text: str, raw: str, *, unsub: str | None = None,
+             mes=None) -> _Win:
         """:meth:`_Machine.open`, every window given the type-out state :meth:`ui` reads -- none (``typing_s`` 0) unless
-        its step sets one -- so a window a director queues (:meth:`_Machine.queue_window`) is a plain page here too."""
+        its step sets one -- so a window a director queues (:meth:`_Machine.queue_window`) is a plain page here too.
+        H17 (research/o6_design.md 3.3): its TEXT has [STNR] rendered as the name the naming screen saved -- the
+        default until one is (``fake.names``; DialogBoxSymbols.cs:67-68), resolved as the window's parser first runs --
+        its raw keeping the tag; and ``mes`` (the step's) keyed in ``unparsed_frames``: its raw text published for its
+        first k frames (:meth:`shown`)."""
+        text = text.replace(STNR_TAG, fake.names.get(STNR_CHAR, STNR_NAME))
         w = super().open(fake, slot, kind, text, raw, unsub=unsub)
         w.typing_s, w.typed, w.done_frame, w.done_rt = 0.0, False, None, None
+        n = self.k["unparsed_frames"].get(mes)
+        w.mes, w.unparsed_until = mes, (fake.frame + int(n) if n else None)
         return w
 
     def typing(self, fake, w) -> bool:
@@ -3887,7 +4063,10 @@ class _VisitBeat(_Machine):
     def shown(self, fake, w) -> str:
         """A window's text as the agent publishes it: whole, but for a page or a choice that types -- its first
         character through the opening, then a share of it as its type-out runs (the raw holds the whole source from the
-        first sample: ``phrase_raw``)."""
+        first sample: ``phrase_raw``). H17: an UNPARSED window (``unparsed_frames``) publishes its raw text, tags
+        included, until its k frames are out (research/o6_design.md 3.3)."""
+        if w.unparsed_until is not None and fake.frame < w.unparsed_until:
+            return w.raw
         if w.kind not in ("page", "choice") or w.typing_s <= 0 or w.typed:
             return w.text
         if w.done_rt is None:
@@ -3913,7 +4092,8 @@ class _VisitBeat(_Machine):
         the last), and UIKeyNavigation.GetDown/GetUp take an active onDown/onUp before anything else
         (UIKeyNavigation.cs:94-95, :108-109) -- a Down on the last line lands on the first (O4's machines and the
         generic beat clamp: theirs, pinned, untouched). In a window's opening nothing is taken (a Confirm there sets
-        SelectChoice to the default and closes nothing, :798-801). H15's choice faults act here."""
+        SelectChoice to the default and closes nothing, :798-801). H15's choice faults act here. H17: while the naming
+        screen is up, its keys are the screen's (:meth:`_naming_keys`) and no window takes one."""
         k = self.k
         lag = int(k["ready_lag_frames"])
         cur = k["cursor_to"]
@@ -3931,6 +4111,9 @@ class _VisitBeat(_Machine):
                 self.take(fake, ch)                                     # H15: answered by no press of the driver's
                 return
         downs = self.downs(fake)
+        if self.naming is not None:                                     # H17: the naming screen takes the keys
+            self._naming_keys(fake, downs)
+            return
         if not downs:
             return
         for w in self.windows:
@@ -4034,8 +4217,8 @@ class _VisitBeat(_Machine):
         yield from self._run(fake, steps[lead:], "", base=lead)
 
     def _run(self, fake, steps, path: str, base: int = 0):
-        """Each step in turn, logged as it starts (``fake.visit_log``); a ``field`` step -- or the back door -- ends the
-        beat, and nothing after it runs."""
+        """Each step in turn, logged as it starts (``fake.visit_log``); a ``field`` step -- or the back door, or H18's
+        door -- ends the beat, and nothing after it runs."""
         for i, step in enumerate(steps, base):
             if self.done:
                 return
@@ -4060,6 +4243,10 @@ class _VisitBeat(_Machine):
                 yield from self._choice(fake, step, at)
             elif kind == "stairs":
                 yield from self._stairs(fake, step["stairs"], at)
+            elif kind == "naming":
+                yield from self._naming(fake, step)
+            elif kind == "door":
+                yield from self._door(fake, step["door"], at)
             else:
                 self._field(fake, str(step["field"]))
 
@@ -4084,9 +4271,11 @@ class _VisitBeat(_Machine):
 
     def _open_mes(self, fake, step: dict, kind: str):
         """The window of a page / timed step as the agent publishes it -- ``text`` (default ``mes N``) and its ``raw``
-        (default ``[STRT=0,0]`` + the text) -- with the type-out state :meth:`typing` reads."""
+        (default ``[STRT=0,0]`` + the text) -- with the type-out state :meth:`typing` reads; its mes (the step's) is
+        what H17's ``unparsed_frames`` keys."""
         text = str(step.get("text", f"mes {step[kind]}"))
-        w = self.open(fake, int(step.get("slot", 0)), kind, text, str(step.get("raw", f"[STRT=0,0]{text}")))
+        w = self.open(fake, int(step.get("slot", 0)), kind, text, str(step.get("raw", f"[STRT=0,0]{text}")),
+                      mes=step[kind])
         w.typing_s, w.typed, w.done_frame, w.done_rt = float(step.get("typing_s") or 0.0), False, None, None
         return w
 
@@ -4105,13 +4294,14 @@ class _VisitBeat(_Machine):
         """H10's KEYON pair (153's 134/135 and 139/138, 154's three, 153@316's two): a, then b ``lag`` ticks later, both
         [INCS][TIME=-1] (kind "keyon": no UI Confirm pages them); from ``gate`` ticks after b each tick reads ``keyon &
         (Confirm | Special)`` -- an edge before the gate is consumed by its tick and lost -- and the first such EDGE
-        closes both (the KEYON check, e.g. 153 e3 t1 ip2336); the script resumes once both are gone."""
+        closes both (the KEYON check, e.g. 153 e3 t1 ip2336); the script resumes once both are gone. Each window's mes
+        is what H17's ``unparsed_frames`` keys."""
         (ma, sa), (mb, sb) = step["pair"]
         texts = list(step.get("texts") or (f"mes {ma}", f"mes {mb}"))
         raws = list(step.get("raws") or [f"[STRT=0,0]{t}[INCS][TIME=-1]" for t in texts])
-        a = self.open(fake, int(sa), "keyon", texts[0], raws[0])
+        a = self.open(fake, int(sa), "keyon", texts[0], raws[0], mes=ma)
         yield from self._ticks(int(step.get("lag", 15)))
-        b = self.open(fake, int(sb), "keyon", texts[1], raws[1])
+        b = self.open(fake, int(sb), "keyon", texts[1], raws[1], mes=mb)
         yield from self._ticks(int(step.get("gate", 40)))
         while not self.keyon & KEYON_PAIR_BITS:
             yield
@@ -4224,6 +4414,99 @@ class _VisitBeat(_Machine):
                     yield
                     return
             yield
+
+    def _naming(self, fake, step: dict):
+        """H17 (research/o6_design.md 3.3): Menu(1, char) -- EventService.StartMenu opens NameSettingUI over the field
+        (DoEventCode.cs:2317-2341): ui "NameSetting", no window listed, the box focused on the pre-filled default
+        (CharacterDefaultName, NameSettingUI.cs:137-151; the step's ``name``). The script stands still while it is up --
+        :meth:`_Machine.frame` runs a tick's script only on FieldHUD ("a menu up holds the field"), the engine's Menu
+        blocking the event code -- and :meth:`ui` takes the screen's keys (:meth:`_naming_keys`); the script resumes the
+        tick the screen closes."""
+        fake.ui_state = "NameSetting"
+        self.naming = {"char": int(step["naming"]), "name": step.get("name"), "focus": True,
+                       "deaf": int(self.k["naming_deaf"])}
+        yield
+        self.naming = None
+
+    def _naming_keys(self, fake, downs: set) -> None:
+        """H17: NameSettingUI's keys (NameSettingUI.cs:72-83, :107, :173), as the scene beat's naming rule reads them: a
+        Confirm going down while the box is focused takes the focus off it; the next is OK -- the name saved
+        (``name_typed``, else the pre-filled default) into ``fake.named`` / ``fake.names``, the field HUD back (the
+        script resumes in this frame's tick); a Cancel puts the focus back on the box. ``naming_deaf``: the screen drops
+        its first k Confirms."""
+        n = self.naming
+        if "confirm" in downs:
+            if n["deaf"] > 0:
+                n["deaf"] -= 1                                          # H17: dropped
+            elif n["focus"]:
+                n["focus"] = False
+            else:
+                typed = self.k["name_typed"]
+                name = typed if typed is not None else n["name"]
+                fake.named.append(n["char"])
+                if name is not None:
+                    fake.names[n["char"]] = name
+                fake.ui_state = "FieldHUD"
+                self.naming = None
+        elif "cancel" in downs:
+            n["focus"] = True
+
+    def _door(self, fake, knobs: dict, at: str):
+        """H18 (research/o6_design.md 3.4): THE REGIONS' TAG 2, every field tick he has control, in ENTRY order (the
+        engine runs region objects by entry: e23, e24, e25) -- each door's polygon (doorface.region_contains: IsInQuad)
+        and, with ``z_gt``, his z past it (153 e23 t2 ip38's f[2] > 1333; its f[1] > -100 ground half is the
+        floor-blind fake's ground). The first hit FIRES: control off (ExitField ip59) and a visit_log row "fire" (the
+        door's name, where he stood); then ``ticks`` ticks (e23: 25 -- ip153's op_22(25); ip95's op_22(1) is skipped) of
+        ExitField's WALK-OUT -- with ``walkout``, toward its ``to`` at ``speed`` u a tick (MOVJ at his last controlled
+        frame's speed, DoEventCode.cs:860-869, EventEngine.MoveToward.cs:15-30), held at ``to`` or where his z passes
+        ``stop_z`` (pathing's hold a radius short of the floor's end: 0.2 #6); without it he stands -- then, the exit
+        gate set or absent (``fake.exit_gate``, H16: he stands meanwhile), the door's ``stores`` and its Field() in the
+        same tick (ip203, then ip211). H19's ``door_misroute`` sends that Field() to another ``field_to`` key, and
+        ``land_real`` applies to it (:meth:`_field`)."""
+        from ff9mapkit.content import doorface
+        s = {**DOOR_DEFAULTS, **knobs}
+        while True:
+            if fake.control:
+                x, z = fake.player[0], fake.player[2]
+                door = next((d for d in s["doors"] if doorface.region_contains(x, z, d["points"])
+                             and (d.get("z_gt") is None or z > float(d["z_gt"]))), None)
+                if door is not None:
+                    break
+            yield
+        fake.control, fake._coast = False, None
+        self._log(fake, f"{at}.{door['name']}", "fire", name=door["name"], x=x, z=z)
+        wo = door.get("walkout")
+        walk = None
+        if wo is not None:
+            tx, tz = (float(v) for v in wo["to"])
+            stop = None if wo.get("stop_z") is None else float(wo["stop_z"])
+            way = 1.0 if tz >= z else -1.0
+            walk = {"to": (tx, tz), "stop_z": stop, "way": way, "done": stop is not None and (z - stop) * way >= 0}
+        for _ in range(int(door["ticks"])):
+            yield
+            if walk is not None:
+                self._walk_out(fake, walk, float(s["speed"]))
+        while not fake._exit_open():
+            yield
+        for args in door["stores"]:
+            self._store(fake, args)
+        self._field(fake, self.k["door_misroute"].get(str(door["name"]), str(door["to"])))
+
+    @staticmethod
+    def _walk_out(fake, w: dict, step: float) -> None:
+        """H18's walk-out, one field tick: ``step`` u toward ``to``, held there or where his z passes ``stop_z``."""
+        if w["done"]:
+            return
+        x, z = fake.player[0], fake.player[2]
+        tx, tz = w["to"]
+        d = math.hypot(tx - x, tz - z)
+        nx, nz = (tx, tz) if d <= step else (x + (tx - x) / d * step, z + (tz - z) / d * step)
+        w["done"] = d <= step
+        stop = w["stop_z"]
+        if stop is not None and (nz - stop) * w["way"] >= 0:
+            t = (stop - z) / (nz - z) if nz != z else 1.0
+            nx, nz, w["done"] = x + (nx - x) * t, stop, True
+        fake.player[0], fake.player[2] = nx, nz
 
     def _field(self, fake, to: str) -> None:
         """Field() (153 e3 t1 ip3158, 154 e2 t1 ip1528, 153 e18 t1 ip1085; e28's ip235): the field becomes ``field_to[to]``
