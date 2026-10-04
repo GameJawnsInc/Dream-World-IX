@@ -2498,3 +2498,50 @@ run. No archived run log in `.harness-runs` holds an `end-naming` row (story-o1 
 and the gates replay records without re-running `end_run` (G1-G31), so the change is invisible to them; A2's
 `test_segment_end_run_naming_paths_for_the_opening_and_alexandria_on_the_fake` pins the new behaviour. The implementer
 confirms it here in A2's entry.
+
+#### PART A, as built: where the design was silent or wrong (each the smallest correct thing)
+A0 first: the gate at the branch head (2f7247ce: c954f986 plus the O6 research and design commits, research files
+only) read 27/27 PASS (34 min) -- nothing to triage. The branch point's whole-file count: master's own record is the
+nightly at 2575495e (before the O5 merge), `tests/test_harness.py` 771 collected, 770 passed + 1 xfailed
+(`_CREEP_BAND`); c954f986 collects 850. The gate extended (6e74884b), the O5 baseline was captured there -- two
+readings identical, G26 (54 passed), G27 (144/144), G28-G31 PASS, 7 m 48 s, 82 sources (G26's 54 tests, FAKE_PINS_O5's
+3 and `_VisitBeat`'s 25 methods), 2102602 bytes -- and committed (00e499ef) before any other code change. A0b's golden
+(d6d31ea9) was captured on the unedited fake: 42248 bytes; per side 188 sample changes over 1054 frames (the stair
+walk's 42 control frames, choice 128, the four visits) and 38 trace rows. The gate then read 31/31 (G21 over three
+baselines: 296 sources, 8 re-baseline rows) after A0 (37 min) and again after A1 (8541f1f3; G7 59 passed; 41 min).
+After A2 (78f04f02) it read 30/31 (48 min): G26 failed ONE test, `test_o5_drive_climbs_the_real_stair_on_the_fake` --
+the step "done" and its evidence (`x_le` -1100) held, but the loss sample read at x -1243.5 against the test's own
+bound of -1284. On 153's mesh the y -450 contour runs diagonally (its first crossing walking -x, by the test's own
+height function: x -1242 at z -300, -1315 at z -250, -1360 at z -200), so x <= -1284 holds only where the walk meets it
+at z >= about -271, and this run met it near z -299: the starved walk's LINE bent, not the loss rule. A TIMING FLAKE by
+9's rule, named in the as-built commit: alone it passed three times running (12-14 s each), and G26's whole selection
+passed on its re-run (54 passed, 0 failed, 0 skipped; 5 min 53 s). PART A's lines on its path are inert there (it
+drives `SD.drive` through `_o5_run`: no trigger step carries `to`, no region a walk-out, no test a gate, and never
+`end_run` or `run`; A2's one fake line it meets is the unread `reset_blocked_fields`). The test is O5's and pinned, so
+PART A leaves it as it is. The REQUIRED-GREEN `-k "segment"` run at 78f04f02 read one more while another project's batch
+job loaded the machine: `test_segment_drive_ends_per_side_on_the_fake` (O4's S6) found no trace row in its end field --
+the store is its test-side director's, 240 frames after the arrival, and the director stops when the drive returns --
+alone 3 of 3 (10 s each), and the selection's re-run 59 passed; O4's, its PART A lines inert as above. The gate's
+re-run at 78f04f02 then read 31/31 (38 min; G7 64 passed, G26 54, G30 87 sessions and 57 units, G21 296 sources). No
+G21 re-baseline row in PART A: H16, `exit_gate` and H16b touch no pinned function, and A0b's replay reads identical
+after each step. PART A adds 15 tests (A0's one, A0b's replay, A1's eight, A2's five): 865 collected.
+The confirmation the design asks for (11.6, "Known before building"): S15 changes O1's and O2's inherited `end_run` and
+`run` exactly as stated there -- A2's commit message names it -- and
+`test_segment_end_run_naming_paths_for_the_opening_and_alexandria_on_the_fake` pins it on the unedited classes (its
+mutant, today's `end_run`, fails it: no `recover-warp-after-naming` row).
+
+| # | Where | The design | As built, and why |
+|---|---|---|---|
+| 1 | A0, `union_sources` | "`union_sources(*sources)`: a name in two refused". | Over the O3, O4 and O5 baselines, in that order; for two the refusal keeps O5's words byte for byte ("pinned in both the O3 and the O4 baselines"), so O4's pinned test reads as before; with three each pair that shares a name is named. |
+| 2 | A0, `_missing()`'s `o6` | "from C2 the frozen O6 predictions or O4's `campaign.toml` (`o6`)". | The flag exists from A0 (A0's list names it) and no mode passes it until G33 joins at C2; it reads `o6_predictions_v1.json`, else O4's chain `campaign.toml`, by path -- never importing `o6_steiner`, which C1 writes. |
+| 3 | A0, the O5 pins | "the tests G26 collects". | `test_segment_regress_o5_pins_join_the_union` holds "o5_", so G26 collects it and the O5 baseline pins it with O5's tests (as the O4 baseline pinned O5's A0 test): an edit to it now needs its re-baseline row. |
+| 4 | A1, S14b's handle | "on "done" for a step carrying `to`, `self.to_row = row`". | A TRIGGER step carrying `to`: a cross's `to` is required (STEP_NEEDS) and every O2-O5 cross carries one, so the letter would have written a walk-out record onto their rows at rule 1 -- O1-O5 no longer unchanged in behaviour. |
+| 5 | A1, `trigger_to_verdict` | "("v13", why) -- the loss was never read in this field (``lost`` None with a landing, ...)". | ``lost`` None is V13 with or without a landing: the executor settles "still here, control held" (the wait; ``failed``) before the verdict, so ``lost`` None with no landing arises only when the published id left and came back (the switch saw no landing) -- the instrument's, never a judgement on a missing sample. |
+| 6 | A1, the flip frame | "on a landing from `rec.landed` the FLIP FRAME read off the ring". | Only for a loss read in this field: a loss first read in the next field (V13) leaves no in-field sample to read the flip after. |
+| 7 | A1, S14b's `flip_late` | "`flip_frame` when None (... `flip_late` True)". | Written in both paths: True when rule 1 filled the flip (path A), False when the executor had one (path B, or the switch waited out) -- a row always says which. |
+| 8 | A1, the V13 test's stall | "the fake's publication stalled from the fire to the switch -- `fake.stall_publish`". | A test-side hold of the fake's publish while its exit is pending: `stall_publish` blocks the frame LOOP for its stall (the game hung inside the write), so no switch can come inside it and the read after it is the fire's own sample (control gone in the walk's field) -- it cannot make the first read without control land in the next field. |
+| 9 | A1, the wrong-landing test | "the region's own `to` is another place: the step row's outcome "left"". | Run on path B (no `stop_z`). On path A the step is "done" before the landing exists and rule 2 judges the landing after it -- the same V11 (game), but no `misroute` row to assert. |
+| 10 | A1, the load-robust rule | "re-runs its run (at most 2 more) when ... a DRIVER class a starved harness can cause". | Also, in the path-B and the no-`to` tests, a run the load bent onto the other path (route_to's 3-s settle out before the switch; a loss first read in the next field), each discarded attempt's class asserted: those runs end "done" or in the asserted V11, so no class rule could catch them. Path A is gated, as designed. |
+| 11 | A1, H16's knob and gate | `"walkout": {"to", "speed", "stop_z"}`; "`fake.exit_gate`". | `to` required, `speed` default 60 (HonoUpdate's run), `stop_z` default None; any other key refused when the region fires (strict, as every fake knob). The gate holds every exit that comes due in `_step_world` (a region's or a contact trigger's scheduled one) and a region's immediate one (`exit_frames` 0); a contact trigger's immediate switch is not gated -- no O6 test holds one there. Without a gate, today's fake. |
+| 12 | A2, S15's skipped run | "`skipped` "the session stopped: <why>" when its drive never began". | The run's outcome stays the loop's "not driven"; `read_session` (shared, unedited) reads the record as today's skipped run -- A-SKIPPED and the drive's end not reached, both the driver's. O6's "no VOID class" reading (5.1) is its own analysis's (PART C). |
+| 13 | A2, the O1/O2 test | "each with its own route's screen up on the fake". | `recovery=30821` passed to the inherited `end_run` (4600 is no fixture field), and the ladder's waiting rungs on 3-s clocks (`_o3_quick_ladder`), so today's-order mutant reads in seconds; the correct path never waits in them. |
