@@ -1934,7 +1934,10 @@ class O6Segment(C5.O5Segment):
     # -- reading a session ---------------------------------------------------------------------------------------
     def read_session(self, run_dir, pred: dict, *, session: dict | None = None, stock=None) -> list:
         """The shared reading (O5's: the stock scripts kept), with each A-NAMING reason given its cell -- ``[151, 1190,
-        1]``, the naming's place, SC and visit (5.1) -- and each run's ``stopped`` reason (S15) on the run."""
+        1]``, the naming's place, SC and visit (5.1). Nothing else is added: a run's S15 ``stopped`` reason stays where
+        the session wrote it -- on the run's record (``r["rec"]["stopped"]``; a run never driven also reads A-SKIPPED,
+        "not run: the session stopped: ...") and in ``session["stopped"]``, which :meth:`report_extra` reports (the
+        review, research/o6_design.md 11.7 #8: this docstring had promised a copy on the run that no code made)."""
         runs = super().read_session(run_dir, pred, session=session, stock=stock)
         cell = self.naming_cell(pred)
         for r in runs:
