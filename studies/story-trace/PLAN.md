@@ -1333,7 +1333,7 @@ control; beyond, Steiner's nine-field walk, the spiral towers 164/165, FMV004 in
 keeps it real: F lands in real 55 unless member(166) is rebuilt with 55 -> 31205). Survey: research/o5_route.md's
 candidates 4-11.
 
-## O6 -- Steiner's naming and his first door under the trace, a US session: 151 -> 153 -> 154 (draft: rehearsals pending, freeze pending)
+## O6 -- Steiner's naming and his first door under the trace, a US session: 151 -> 153 -> 154 (PROVEN: story-o6, v1 6ec3aea8)
 
 **The question.** From a raw warp into A. Castle/Royal Seat (151, entrance 110, SC 1190) -- Brahne's scene, Steiner's
 naming, `Field(153)` at 328 -- through the Knights of Pluto's assembly in the hallway and Steiner's first control,
@@ -1428,17 +1428,41 @@ LAW holds by construction: nothing stores between ip2412 and the loss.
   NULL, STABLE, LANDING (a)-(e), NAMING (a)-(b), WALK (a)-(b), PATTERN (a)-(b) with the floating row, START-DEPENDENT,
   MASKED, STATE and JOIN over the covered runs; THROW.
 
-**Status: draft: rehearsals pending, freeze pending.** The offline build (branch `claude/story-trace-o6`, PARTs A-C of
-the design's section 9): `--offline-check` 6 PASS on the draft; `--preflight` 13/13 on the live install (nothing to
-deploy: O4's chain is live); the dry run 164/164 as drafted and 164/164 as if frozen; the regression gate G1-G33 (O1-O5
-byte-identical; O6's tests G32, its dry run G33); a code review's eight findings each fixed, with a test that fails
-without the fix where one is practical (research/o6_design.md 11.7: P-NAME, the fake's New Game name reset, S14b's
-landing at a new visit, four load-robust or freeze-proof tests, a docstring). The lead's sequence
-(research/o6_design.md 7): `--preflight`; the rehearsals -- `py tools/play.py studies/story-trace/o6_rehearse.py
---label o6-rh --timeout 240` runs R-DOOR (x2, the only stage whose traces define predictions), R-NAMING-VOID and
-R-WALK-VOID (`O6_WALK_STOP` sets F15's z or its fallback `hold`); F-SMOKE and F-PASS by `O6_STAGE`;
-`py studies/story-trace/o6_steiner.py --rehearsal-report <run dir>` prints each -- the freeze checklist F1-F15,
-`--freeze` (v1), then the session: `py tools/play.py studies/story-trace/o6_steiner.py --label story-o6 --timeout 240`.
+**Status: ★★ PROVEN (session `story-o6`, v1 `6ec3aea8`), a US session.** Steiner's naming and his first door under the
+trace: the warp into the royal seat box at SC 1190, Brahne's scene, Steiner named (the pre-filled default accepted),
+`Byte[6] |= 8`, the Knights of Pluto's assembly in 153 at 328, the party rebuilt, `UInt16[19] |= 8`, Steiner's first
+control and his walk north through the e23 door, `Field(154)`; O4's deployed alxc members 31244, 31245 and 31246 write
+the real game's story state key for key. S F S F S F, 6/6 covered (S 3 of 3, F 3 of 3), unattended, 544 s, no re-run;
+every check PASS (39/39): FROZEN, COVER, FORBIDDEN, VOID-ASYM (none), START (the three residue rows, 151's first
+Byte[13] row ip119 from 1), NO-SC (SC 1190 throughout), CHAIN (110 -> 328 -> 315), RESIDUE, WRITES (exactly 30 keys a
+run: 28 writes and the 2-key chain), NULL (30 keys matched, 0 stock-only, 0 fork-only, NO noise), STABLE, LANDING
+(every F run ended in member(154) 31246, never real 154), NAMING (named once in 151 before ip610's store; the first
+[STNR] page after it read "Captain Steiner!" on both sides), WALK (the door step done in every run, nothing written
+inside the walk: THE PAIRED-WALK LAW), PATTERN (each visit's emitted rows in order, e15's floating row inside its
+window), START-DEPENDENT (151 ip610 `Byte[6]` 0 -> 8 and 153 ip2206 `UInt16[19]` 0 -> 8 on both sides -- a true O1-O5 run
+would write 11 and 1807), MASKED, STATE (16 targets' histories identical, the end state as frozen), JOIN (216 rows, 0
+failures), THROW (none). Archive: `C:\gd\Dream-World-IX\.harness-runs\20261004-110827-story-o6` (o6_report.txt).
+
+The rehearsals before the freeze (archived `20261004-1*-o6-rh-*`; F1-F15 met):
+
+| stage | runs | what it settled |
+|---|---|---|
+| R-DOOR (stock 151 -> 154) | 2/2 reached | the naming: `accept_name` kept the default in 2-3 Confirms, the first [STNR] page "Captain Steiner!"; both start-dependent values 8; the grant at (-245, 42) exactly as the bytes give it; the door walk done on its first attempt (hold 1 up the corridor mouth to (-212, 920) with no slide or stall, the door fired at z ~1345), both runs by LANDING PATH A (the walk-out stopped at z 2064, the flip ~53 frames after the loss); 28 writes + the 2-key chain, the e15 row at index 8 of visit 2 inside its window, the end state as drafted; the two traces row for row identical bar frames (45 rows); 89-99 s a run, ~60 fps |
+| R-NAMING-VOID | 1 | stopped with the naming screen up: S15's recovery (the warp refused, the screen accepted, the warp retried) reached the title in 6.4 s |
+| R-WALK-VOID | 1 | the z stop (500) fired on hold 2 at z 919.6, mid-walk; `end_run` reached the title |
+| F-SMOKE | 3 + 3 warps | 31244@110, 31245@328, 31246@315 load, their object sids their stock twins' |
+| F-PASS (untraced) | 1 | one F run through the whole route to 31246, the name on the page, landing path A, no throw |
+
+The freeze's numbers (F6): `run_s` 198, `run_min_s` 126 (1.25 x the median 94 s + the longest recovery 7.7 s),
+`session_s` 2552, `no_progress_s` 60; the floating e15 row's measured index [8, 8]. o6_dryrun's as-if-frozen unit had
+pinned the UNFILLED draft (refused); it now expects the draft refused only while it names no rehearsals -- 164/164 on
+the unfilled draft, the filled draft and as if frozen.
+
+The offline build, as it stood before the rehearsals (branch `claude/story-trace-o6`, PARTs A-C of the design's
+section 9): `--offline-check` 6 PASS; `--preflight` 13/13 on the live install (nothing to deploy); the dry run 164/164;
+the regression gate G1-G33 (O1-O5 byte-identical; O6's tests G32, its dry run G33); a code review's eight findings each
+fixed (research/o6_design.md 11.7: P-NAME, the fake's New Game name reset, S14b's landing at a new visit, four
+load-robust or freeze-proof tests, a docstring).
 
 **Next, O7:** 154@315 -> 158 -> 159 -> 160 -> 162 -> 163 -> 164 -> 165 -> 166 -> FMV004 -> `Field(55)`, started by a
 raw `warp 31246 315 1190` (S: `warp 154 315 1190`), Steiner's control on arrival (154 e0 t0 ip588, Main_Init's tail).
