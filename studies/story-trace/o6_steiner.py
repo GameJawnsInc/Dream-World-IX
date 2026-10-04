@@ -1333,8 +1333,8 @@ def trace_summary(rows: list, pred: dict, *, side: str = "S", start_place: int |
         t = list(fl["tuple"])
         hit = next((x for x in kept if x.k == "w" and x.m == T.FIELD_MODE and place(x.fld, members) == t[0]
                     and (x.sid, x.tag, x.target, x.new) == (t[1], t[2], t[4], t[5])), None)
-        r971 = next((x for x in kept if x.k == "w" and place(x.fld, members) == 153 and (x.sid, x.tag, x.ip) == (32, 1,
-                                                                                                                  971)),
+        r971 = next((x for x in kept if x.k == "w" and place(x.fld, members) == t[0] and (x.sid, x.tag, x.ip) == (32, 1,
+                                                                                                                   971)),
                     None)
         idx = next((i for i, x in enumerate(visits[v]) if x == t), None) if v < len(visits) else None
         win = float_window(pred.get("pattern") or {})[0]

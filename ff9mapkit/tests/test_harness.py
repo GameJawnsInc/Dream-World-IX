@@ -25689,3 +25689,469 @@ def test_o6_steiner_trace_summary_cuts_at_end_places(tmp_path, o6_stock):
     assert tf["crossings"]["exit153"]["cut"] == "31246 e0 t0 ip26 Global.Bit[191]=0", tf["crossings"]
     assert tf["unregistered"] == [] and tf["seam_keys"] == [], (tf["unregistered"], tf["seam_keys"])
     assert P.trace_summary(frows, pred, side="F", end_fields=[31246], stock=o6_stock)["end"] is None
+
+
+# ---- O6's REHEARSALS on the fake (studies/story-trace/o6_rehearse.py; research/o6_design.md 7.1-7.2, 9 C3): a launch
+# on a fresh fake in O5's shape -- the warps landing without control, the sink's suppression, the engine's soft reset
+# where it fires, the recovery field granting control -- the route builder's visit beats staged on each arrival in the
+# stage's start field ("151", or "153" for the walk's stages), each New Game zeroed and given field 70's prologue; the
+# launch reads the fake's own engine DLLs, pinned by the test. Every test is test_o6_rehearsal_*: G32's "o6_", never
+# G12's "rehearse".
+
+def _o6_rehearse_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o6_rehearse as R
+    return R
+
+
+def _o6_rehearse_pred(**over):
+    """:func:`_o6_pred` with what O6's records read too (research/o6_design.md 7.2), on the fixture's places: the walk
+    (its name, place, visit and door), the naming's marker and store (``name``), the door's pinned test (one route pin:
+    e23 t2's z > 1333), the crossings' sites, 4.18's pattern by ip with the floating e15 row and its window, the two
+    start-dependent keys (New Game's 0 -> 8), the SC and FieldEntrance bytes."""
+    pattern = {"visits": [[list(t) for t in v] for v in _O6_PATTERN], "counts": [],
+               "floating": [{"visit": 2, "tuple": list(_O6_E15), "after": list(_O6_PATTERN[1][7]),
+                             "before": list(_O6_PATTERN[1][14]), "measured": None}]}
+
+    def key(donor, sid, ip, target, old, value):
+        return {"donor": donor, "m": 1, "src": "eb", "sid": sid, "tag": 1, "ip": ip, "target": target, "value": 8,
+                "op": "|=", "prior": "newgame0",
+                "after": {"run": "O1-O5", "old": old, "value": value, "source": "the fixture's"}}
+    return _o6_pred(walk={"name": "the north door", "donor": 30820, "visit": 2, "door": "30820.e23"},
+                    name={"place": 30810, "char": 3, "default": "Steiner",
+                          "before": {"mes": 198, "marker": "And, Captain"},
+                          "store": {"place": 30810, "sid": 3, "tag": 1, "ip": 610, "target": "Global.Byte[6]"}},
+                    route_pins=[[30820, 23, 2, 38, "SET({obj(uid=250).f[2] const(1333) B_GT B_EXPR_END})"]],
+                    landing={"route_places": [30810, 30820],
+                             "exit151": {"place": 30810, "sid": 2, "tag": 1, "ip": 932, "target": "Global.Int16[2]",
+                                         "value": 328},
+                             "exit153": {"place": 30820, "sid": 23, "tag": 2, "ip": 203, "target": "Global.Int16[2]",
+                                         "value": 315}},
+                    pattern=pattern,
+                    start_dependent=[key(30810, 3, 610, "Global.Byte[6]", 3, 11),
+                                     key(30820, 32, 2206, "Global.UInt16[19]", 1799, 1807)],
+                    sc_bytes=[0, 1], entrance_bytes=[2, 3], **over)
+
+
+def _o6_rh_phases(runs=1, *, side="S", short=False, knobs=None):
+    """The director's phases for ``runs`` runs of a launch: each New Game (field 70 on the field HUD) zeroed and given
+    field 70's prologue (:func:`_o5_newgame`); each arrival in the stage's start field (``side``'s "151", or "153"
+    when ``short``) staged with a fresh copy of the route's visit beats (:func:`_o6_route`)."""
+    start = _O6_FIELDS[side]["153" if short else "151"]
+    out = []
+    for _ in range(runs):
+        out += [(lambda f: f.field_id == 70 and f.ui_state == "FieldHUD", _o5_newgame),
+                (lambda f: f.field_id == start and not f._beats,
+                 lambda f: f.scene(*_o6_route(side, short=short, **(knobs or {})), control=False))]
+    return out
+
+
+def _o6_launch(game, R, stages, env, phases, *, engine, pred=None, fake_setup=None, wrap=None, witness=None,
+               fps=60.0, axes=True, floor_for=None, prior=None):
+    """One O6 rehearsal launch on a fresh fake (:func:`_o5_launch`'s shape): the director's ``phases``, control handed
+    over in the recovery field, the axes pinned for every field (:class:`_O5Axes`; ``axes`` False: none cached, so
+    route_to calibrates first), ``R.run`` with the test's stages, its floor (``floor_for``, default O5's box) and prior
+    (``prior``, default the fake's own basis), the stub witness and pad reader and the pinned ``engine``. ``(the
+    record, the fake, the title reached)``."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    fake = FakeGame(game, fps=4 * fps, render_fps=fps, ticks="mean", walkmesh=_O5_BOX)
+    fake.warp_arrive_control, fake.warp_field_only = False, True
+    fake.story_suppress = True
+    fake.soft_reset_ui = SOFT_RESET_ENGINE_UI
+    if fake_setup is not None:
+        fake_setup(fake)
+    basis = prior or _prior()
+    stop = threading.Event()
+    with session(game, fake, state_ring=5000) as g:
+        boot(g)
+        assert g.restore_baseline()[0], "a launch starts at the title"
+        if axes:
+            g._axes = _O5Axes(basis)
+        if wrap is not None:
+            wrap(g)
+        _o1_director(fake, stop, phases)
+        _o3_grant_in(fake, stop)
+        try:
+            R.run(g, stages=stages, pred=pred if pred is not None else _o6_rehearse_pred(),
+                  floor_for=floor_for or (lambda d, c: _flat_bgi(-2400, -2400, 3000, 3200)),
+                  prior_for=lambda d: basis, stock=lambda fid: None, recovery=_O3_RECOVERY, env=env,
+                  witness=witness or (lambda: None), pads=lambda slot: None, engine=engine)
+        finally:
+            stop.set()
+        title = g.state.ui_state
+    return json.loads((game / "run" / "o6_rehearsal.json").read_text(encoding="utf-8")), fake, title
+
+
+def _o6_launch_informative(game, R, stages, env, phases, *, attempts=3, want=None, **kw):
+    """:func:`_o6_launch` until no run of the launch ended in a driver class a starved harness gives
+    (:data:`_O6_LOAD_VOIDS`; one whose reason holds ``want`` -- the test's own assertion -- is never re-run), at most
+    ``attempts`` launches, each on fresh phases (``phases()``): ``(record, fake, title, the reasons set aside)``."""
+    aside: list = []
+    for k in range(1, attempts + 1):
+        doc, fake, title = _o6_launch(game, R, stages, env, phases(), **kw)
+        whys = [str((r.get("outcome") or {}).get("why") or "") for recs in (doc.get("stages") or {}).values()
+                for r in recs if isinstance(r, dict) and r.get("outcome")]
+        load = [w for w in whys if any(m in w for m in _O6_LOAD_VOIDS) and not (want is not None and want in w)]
+        if not load or k == attempts:
+            return doc, fake, title, aside
+        aside += load
+
+
+def _o6_real_hall():
+    """B3's REAL HALL (:func:`test_o6_drive_walks_the_real_hall_on_the_fake`): ``(setup, floor_for, prior)`` -- the
+    fake's floor stock 153's player walkmesh with the 33 upper tris closed and his centre kept 120u off its walls,
+    153's own key twist; the driver's floor the same mesh; its prior 153's."""
+    import math
+    from ff9mapkit import extract, eventscan, storytrace
+    from ff9mapkit.content import movement, pathfind
+    pw = pathfind.PlayerWalkmesh(extract.stock_walkmesh(153), closed=_O5_CLOSED)
+    twist = eventscan.scan_control_twist(storytrace.stock_script_source()(153).data)
+    prior = movement.key_move_basis(None if twist is None else twist[1])
+
+    def setup(fake):
+        fake.walkmesh, fake.clearance = pw, 120.0
+        fake.twist = math.degrees(math.atan2(-prior["v"][0], prior["v"][1]))
+    return setup, (lambda d, c: pathfind.PlayerWalkmesh(extract.stock_walkmesh(153), closed=c)), prior
+
+
+def test_o6_rehearsal_stage_ids_follow_the_chain(tmp_path):
+    """The stage table's ids come from the CHAIN (research/o6_design.md 7.1; O4's review 11.5 #5): on the alxc chain as
+    built F-SMOKE pairs member(151) 31244 / 151 at 110, member(153) 31245 / 153 at 328, member(154) 31246 / 154 at 315,
+    all SC 1190, and F-PASS warps F into member(151) 31244 and ends it in member(154) 31246; on a chain whose ids run
+    the other way both follow. The launch's order: R-DOOR, R-NAMING-VOID, R-WALK-VOID last; ``--field 151`` picks R-DOOR
+    (153 picks none: R-WALK-VOID is by name); ``O6_STAGE`` names one. The stage's predictions are a COPY: R-WALK-VOID
+    starts in 153 at 328 with ``walk_stop_z`` 500 on the copy's north door step alone (the freeze refuses it there);
+    ``O6_WALK_STOP`` sets F15's z or its fallback ``walk_stop_hold`` (never both; a stage without a stop is untouched,
+    a bad value refuses); R-NAMING-VOID's ``naming_stop`` is the stage's, never the predictions'; F-PASS waits for no end
+    row. A literal F id that is not the member forking its twin refuses by name, and run() refuses such a table before
+    it touches the session. Break: name F-SMOKE's members by their ids (a re-fork's smoke then warps into another
+    donor's member)."""
+    O, R = _o6_module(), _o6_rehearse_module()
+    O4R = __import__("o4_rehearse")
+    assert R.select(R.STAGES, env={}) == ["R-DOOR", "R-NAMING-VOID", "R-WALK-VOID"]
+    assert R.select(R.STAGES, 151, env={}) == ["R-DOOR"]
+    for name in ("R-NAMING-VOID", "R-WALK-VOID", "F-SMOKE", "F-PASS"):
+        assert R.select(R.STAGES, env={"O6_STAGE": name}) == [name]
+    with pytest.raises(ValueError, match="no stage"):
+        R.select(R.STAGES, env={"O6_STAGE": "R-NONE"})
+    with pytest.raises(ValueError, match=r"--field 153 picks \[\]"):
+        R.select(R.STAGES, 153, env={})
+    pred = _o6_draft(tmp_path)
+    smoke = O4R.stage_ids(R.STAGES["F-SMOKE"], pred, name="F-SMOKE")
+    assert smoke["pairs"] == [[31244, 151, 110, 1190], [31245, 153, 328, 1190], [31246, 154, 315, 1190]], smoke
+    fpass = O4R.stage_ids(R.STAGES["F-PASS"], pred, name="F-PASS")
+    assert fpass["field"] == {"S": 151, "F": 31244} and fpass["end"] == {"S": [154], "F": [31246]}, fpass
+    sp = R.stage_pred(pred, fpass)
+    assert sp["start"]["F"] == 31244 and sp["budget"]["end_row_s"] is None and R.stage_sides(fpass) == ["F"], sp["start"]
+    rev = O.draft_predictions(_o4c_campaign(tmp_path, ids={d: 31259 - i for i, d in enumerate(O.C4.DONORS)},
+                                            name="reversed.toml"))
+    m = {d: f for f, d in ((int(f), d) for f, d in rev["members"].items())}
+    assert [p[:2] for p in O4R.stage_ids(R.STAGES["F-SMOKE"], rev)["pairs"]] == [[m[151], 151], [m[153], 153],
+                                                                                 [m[154], 154]]
+    assert O4R.stage_ids(R.STAGES["F-PASS"], rev)["field"]["F"] == m[151] != 31244
+    void = R.stage_pred(pred, R.STAGES["R-WALK-VOID"])
+    assert (void["start"], void["entrance"], void["scenario"]) == ({"S": 153, "F": 153}, 328, 1190), void["start"]
+    assert [(s.get("walk_stop_z"), s.get("walk_stop_hold")) for c in void["table"] for s in c["steps"]] == [(500.0, None)]
+    assert [s.get("walk_stop_z") for c in pred["table"] for s in c["steps"]] == [None], "the overlay reached the draft"
+    hold = R.with_walk_stop(R.STAGES["R-WALK-VOID"], {"O6_WALK_STOP": "hold"})
+    assert hold.get("walk_stop_hold") is True and "walk_stop_z" not in hold, hold
+    assert [(s.get("walk_stop_z"), s.get("walk_stop_hold")) for c in R.stage_pred(pred, hold)["table"]
+            for s in c["steps"]] == [(None, True)]
+    assert R.with_walk_stop(R.STAGES["R-WALK-VOID"], {"O6_WALK_STOP": "890"})["walk_stop_z"] == 890.0
+    assert R.with_walk_stop(R.STAGES["R-DOOR"], {"O6_WALK_STOP": "hold"}) == R.STAGES["R-DOOR"]
+    assert R.STAGES["R-WALK-VOID"]["walk_stop_z"] == 500 and "walk_stop_hold" not in R.STAGES["R-WALK-VOID"]
+    with pytest.raises(ValueError, match="O6_WALK_STOP='soon'"):
+        R.with_walk_stop(R.STAGES["R-WALK-VOID"], {"O6_WALK_STOP": "soon"})
+    with pytest.raises(ValueError, match="one way"):
+        R.stage_pred(pred, dict(R.STAGES["R-WALK-VOID"], walk_stop_hold=True))
+    nv = R.stage_pred(pred, R.STAGES["R-NAMING-VOID"])
+    assert R.STAGES["R-NAMING-VOID"]["naming_stop"] is True and "naming_stop" not in json.dumps(nv), nv.keys()
+    bad = [(dict(R.STAGES["F-SMOKE"], pairs=[[31246, 151, 110, 1190]]), r"pairs: 31246 is not a member forking 151"),
+           (dict(R.STAGES["F-PASS"], field={"S": 151, "F": 31245}), r"field\[F\]: 31245 is not a member forking 151")]
+    for stage, match in bad:
+        with pytest.raises(ValueError, match=match):
+            O4R.stage_ids(stage, pred)
+    with pytest.raises(ValueError, match=r"F-PASS field\[F\]: 31245"):
+        R.run(object(), stages={"F-PASS": bad[1][0]}, pred=pred, env={"O6_STAGE": "F-PASS"})
+
+
+def test_o6_rehearsal_plumbing_on_the_fake(game):
+    """C3 (research/o6_design.md 7.1-7.2): R-DOOR's shape on the fake, chosen by ``O6_STAGE`` as a launch chooses it
+    (another stage, which would run too, does not): the capabilities (P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG over
+    151/153/154, P-LAUNCH with the engine DLLs, P-PAD on a stub reader), the launch's readings (the settings,
+    P-SETTINGS, P-OVERRIDE -- the fake ships no field-70 override -- and P-ENGINE), New Game, the raw warp into "151" at
+    110 / 1190, the route builder's three visits played by the driver to the end in "154", the trace collected, end_run
+    to the title through the recovery warp, and o6_rehearsal.json holding 7.2's sections: THE NAMING (198's last sample,
+    then the screen's first, closed by accept_name's two Confirms -- each down frame between them and the close -- the
+    named row with 198 in its before, the page row "ok" on 199, every [STNR] window read parsed and none unparsed, 199
+    rendering "Captain Steiner!", 199 -> 200 a positive lag, ip610's row frame after the screen and before 199); THE
+    WALK (the grant at (-245, 42), the north door done on attempt 1, the walk tapped -- its walk holds every one sent
+    with the basis cached and no probe, hold 1's end and THE CORNER, the band's walk holds and hold 2's start -- THE
+    LANDING PATH with S14b's frames loss -> flip -> landing); the pairs and the timed windows; O6's trace summary cut at
+    "154" (151's crossing into 153's first row, 153's into the cut, the e15 row's attribution, its window and its gap
+    to ip971, both start-dependent keys ok); end_run's rows and seconds. The rehearsal report prints them. Break: drop
+    the recorder's naming scan."""
+    O, R = _o6_module(), _o6_rehearse_module()
+    _o6_register(game)
+    engine = _o4_launch_files(game)
+    stages = {"R-TEST": dict(R.STAGES["R-DOOR"], field=30810, end=[30821], runs=1, run_s=150),
+              "R-OTHER": {"field": 30820, "entrance": 328, "sc": 1190, "end": [30821], "runs": 1, "run_s": 5,
+                          "cost_s": 1, "settles": "never run: O6_STAGE names R-TEST"}}
+    doc, fake, title, aside = _o6_launch_informative(game, R, stages, {"O6_STAGE": "R-TEST"}, _o6_rh_phases,
+                                                     engine=engine)
+    run_dir = game / "run"
+    assert list(doc["stages"]) == ["R-TEST"] and doc["stages_run"] == ["R-TEST"] and doc.get("finished"), doc.keys()
+    caps = {c[1].split(":")[0]: c[0] for c in doc["capabilities"]}
+    assert caps == {"P-CAP": True, "P-OBJECTS": True, "P-LANG": True, "P-DONOR-LOG": True, "P-LAUNCH": True,
+                    "P-PAD": True}, doc["capabilities"]
+    launch = doc["launch"]
+    assert launch["settings"] == O.SETTINGS and launch["engine"] == engine, launch
+    assert {c[1].split(":")[0]: c[0] for c in launch["checks"]} == {"P-SETTINGS": True, "P-OVERRIDE": False,
+                                                                     "P-ENGINE": True}, launch["checks"]
+    rec = doc["stages"]["R-TEST"][0]
+    assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == "field 30821", (rec["outcome"], aside)
+    assert rec["beats"] == {"named": True, "name_on_page": True, "steiner_door": True}, rec["beats"]
+    nm = rec["naming"]
+    sf = nm["screen_first"]
+    assert sf is not None and sf["field"] == 30810 and nm["last_198"]["frame"] < sf["frame"] < nm["close_frame"], nm
+    acc = [c for c in nm["confirms"] if c["why"] == "accept_name"]
+    assert len(acc) == 2 and all(nm["last_198"]["frame"] < c["down_frame"] <= nm["close_frame"] for c in acc), nm
+    assert nm["named"]["field"] == 30810 and _O6_198[1] in nm["named"]["before"]["raws"], nm["named"]
+    assert nm["page"]["verdict"] == "ok" and nm["page"]["windows"][0]["mes"] == 199, nm["page"]
+    by = {w["mes"]: w for w in nm["stnr"] if w["mes"] is not None}
+    assert set(by) == {199, 200} and all(w["unparsed"] == 0 and w["samples"] > 0 for w in nm["stnr"]), nm["stnr"]
+    assert by[199]["lines"] == ["Queen Brahne\n“Captain Steiner!”"], by[199]
+    assert len(nm["stnr"]) >= 6 and all("[STNR]" not in t for w in nm["stnr"] for t in w["lines"]), nm["stnr"]
+    assert nm["lag_199_200"] > 0 and sf["frame"] < nm["f610"] < by[199]["first"], (nm["lag_199_200"], nm["f610"])
+    walk = rec["walk"]
+    gr = walk["grant"]
+    assert gr is not None and abs(gr["x"] + 245) < 2 and abs(gr["z"] - 42) < 2, gr
+    att = walk["attempts"][0]
+    assert (att["attempt"], att["outcome"], att["path"]) in ((1, "done", "A"), (1, "done", "B")), att
+    fr = att["frames"]
+    assert fr["loss_to_flip"] > 0 and fr["flip_to_landed"] >= 0 and att["landed_frame"] is not None, att
+    w = att["walk"]
+    assert w["walk_holds"] and w["probes"] == 0 and "teleport" not in w, w
+    zs = [h["z"] for h in w["walk_holds"]]
+    assert w["hold1_end"] is not None and w["corner"]["hold1"] is not None, (w["hold1_end"], w["corner"])
+    assert (w["in_band"]["lo"], w["in_band"]["hi"]) == (500.0, 1333), w["in_band"]
+    assert [h[2] for h in w["in_band"]["holds"]] == [z for z in zs if 500 <= z < 1333], (w["in_band"], zs)
+    assert w["hold2"] is not None and w["hold2"]["z"] == zs[1] and w["hold1_end"] == [w["hold2"]["x"], zs[1]], w
+    assert walk["calibration"] is not None and set(walk["calibration"]) == {"v", "h"}, walk["calibration"]
+    win = rec["windows"]
+    assert win["pairs"] and any("mes 175" in t["text"] for t in win["timed"]), (win["pairs"], win["timed"])
+    end = rec["end"]
+    assert end["end_run"]["ok"] and end["end_run"]["title"] and title == "Title", end["end_run"]
+    assert [x["k"] for x in end["end_run"]["how"]] == ["recover-warp"] and end["end_run"]["s"] >= 0, end["end_run"]
+    tr = rec["trace"]
+    assert tr["end_places"] == [30821] and tr["start"] is not None, tr
+    cx = tr["crossings"]
+    assert cx["exit151"]["exit"].startswith("30810 e2 t1 ip932") and cx["exit151"]["next"].startswith(
+        "30820 e0 t0 ip22"), cx
+    assert cx["exit153"]["exit"].startswith("30820 e23 t2 ip203") and cx["exit153"]["next"] is None, cx
+    assert cx["exit153"]["cut"].startswith("30821 e0 t0 ip26"), cx
+    e15 = tr["e15"]
+    assert (e15["sid"], e15["tag"], e15["ip"], e15["add"], e15["window"]) == (15, 0, 32, 0, [8, 14]), e15
+    assert e15["frames_to_971"] > 0, e15
+    assert [x["class"] for x in tr["start_dependent"]] == ["ok", "ok"], tr["start_dependent"]
+    assert tr["end_row"].startswith("w 30821 e0 t0 ip26"), tr["end_row"]
+    assert (run_dir / rec["trace_file"]).is_file() and (run_dir / rec["log_file"]).is_file()
+    report = O.rehearsal_report(run_dir)
+    for want in ("== R-TEST: warp 30810 110 1190 -> [30821]", "PASS  P-LAUNCH", "PASS  P-PAD", "launch: settings",
+                 "PASS  P-ENGINE", "naming: the screen's first sample", "name_on_page row: frame",
+                 "[STNR] window mes 199", "199 -> 200:", "grant: frame", "door attempt 1: done", "LANDING PATH",
+                 "walk holds sent in [walk_stop_z, 1333)", "calibration: {", "e15 row {", "start-dependent rows",
+                 "end places [30821]", "rows ['recover-warp']"):
+        assert want in report, (want, report[:3000])
+
+
+def test_o6_rehearsal_naming_void_stops_at_the_screen_on_the_fake(game):
+    """R-NAMING-VOID (research/o6_design.md 7.1, F7) on the fake: the stage's ``naming_stop`` -- the NAMING STOP wraps the
+    session's accept_name, so rule 4's FIRST call raises "the rehearsal's stop at the naming screen" with the screen up
+    in "151", before any Confirm (none of accept_name's in the record, nothing named during the drive), the run V13
+    (driver), the session's own accept_name restored at once; 151's running scene swallows the soft reset (H16b).
+    end_run (S15): ``recover-warp-failed`` (off the field HUD), ``end-naming`` (the screen accepted at once -- no
+    ``close_ui`` and no ``soft_reset`` before the one accept_name the session made), ``recover-warp-after-naming`` (the
+    recovery field), then the title; the stop recorded (its frame, the NameSetting UI, 151's field) with its seconds to
+    the title; the launch finishes; the report prints the stop. Break: no restore -- end_run's own accept_name then
+    raises too (``end-naming-failed``, the session stops)."""
+    O, R = _o6_module(), _o6_rehearse_module()
+    _o6_register(game)
+    engine = _o4_launch_files(game)
+    stages = {"R-NAMING-VOID": dict(R.STAGES["R-NAMING-VOID"], field=30810, end=[30821], run_s=120)}
+    calls: list = []
+
+    def setup(fake):
+        fake.reset_blocked_fields = {30810}
+
+    def wrap(g):
+        calls.clear()                                      # a re-launch's calls only
+        _s15_record(g, calls)
+    doc, fake, title, aside = _o6_launch_informative(game, R, stages, {"O6_STAGE": "R-NAMING-VOID"}, _o6_rh_phases,
+                                                     engine=engine, fake_setup=setup, wrap=wrap, want=R.NAMING_STOP)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    rec = doc["stages"]["R-NAMING-VOID"][0]
+    assert (rec["outcome"]["end"], rec["outcome"]["v"], rec["outcome"]["by"]) == ("void", "V13", "driver"), \
+        (rec["outcome"], aside)
+    assert rec["outcome"]["why"].startswith(f"STOPPED: {R.NAMING_STOP}"), rec["outcome"]
+    ns = rec["naming_stop"]
+    assert ns is not None and (ns["ui"], ns["field"]) == ("NameSetting", 30810) and ns["recovery_s"] >= 0, ns
+    nm = rec["naming"]
+    assert nm["screen_first"]["field"] == 30810 and nm["named"] is None, nm
+    assert not [c for c in nm["confirms"] if c["why"] == "accept_name"], nm["confirms"]
+    er = rec["end"]["end_run"]
+    assert er["ok"] and er["title"] and title == "Title", er
+    assert [x["k"] for x in er["how"]] == ["recover-warp-failed", "end-naming", "recover-warp-after-naming"], er["how"]
+    assert calls.count(("accept_name",)) == 1 and fake.named == [3], (calls, fake.named)
+    first = calls.index(("accept_name",))
+    assert not [c for c in calls[:first] if c[0] in ("close_ui", "soft_reset")], calls
+    report = O.rehearsal_report(game / "run")
+    assert ", naming_stop" in report and "naming stop: frame" in report and "NameSetting" in report, report[:2500]
+
+
+def test_o6_rehearsal_walk_void_stops_mid_walk_on_the_fake(game, dali):
+    """R-WALK-VOID's z stop (research/o6_design.md 7.1, F7, F15; 0.2 #7) on THE REAL HALL (B3's: the fake's floor stock
+    153's player walkmesh with the 33 upper tris closed, his centre kept 120u off its walls, 153's own key twist): the
+    stage's ``walk_stop_z`` 500 laid on the north door step of a COPY of the predictions (the predictions given keep
+    none), the run warped into "153" at 328. From the grant (-245, 42) the walk needs more than one hold, so the stop
+    lands MID-WALK: the first direction hold sent at a published z at or past 500 raises "the rehearsal's stop
+    mid-walk" before it is sent -- short of the door's line, control held, the basis cached -- the run V13 (driver);
+    the walk had begun (a walk hold before the stop), no direction hold after it, the door never reached; end_run warps
+    out of 153's FieldHUD to the recovery field and reaches the title (``recover-warp``); the launch finishes; the report
+    prints the stop. Reads the install (the ``dali`` fixture's warned skip without it: a skip fails G32). Break: drop the
+    z test (the stop then fires on the first walk hold, at the grant)."""
+    O, R = _o6_module(), _o6_rehearse_module()
+    _o6_register(game)
+    engine = _o4_launch_files(game)
+    setup, floor_for, prior = _o6_real_hall()
+    stages = {"R-WALK-VOID": dict(R.STAGES["R-WALK-VOID"], field=30820, end=[30821], run_s=90)}
+    pred = _o6_rehearse_pred(short=True)
+    before = json.dumps(pred, sort_keys=True)
+    want = R.WALK_STOP
+    doc, fake, title, aside = _o6_launch_informative(game, R, stages, {"O6_STAGE": "R-WALK-VOID"},
+                                                     lambda: _o6_rh_phases(short=True), engine=engine, pred=pred,
+                                                     want=want, fake_setup=setup, floor_for=floor_for, prior=prior)
+    assert json.dumps(pred, sort_keys=True) == before, "the stage's overlay reached the predictions given"
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    rec = doc["stages"]["R-WALK-VOID"][0]
+    assert (rec["outcome"]["end"], rec["outcome"]["v"], rec["outcome"]["by"]) == ("void", "V13", "driver"), \
+        (rec["outcome"], aside)
+    assert rec["outcome"]["why"].startswith(f"STOPPED: {want}: a hold at ("), rec["outcome"]
+    ws = rec["walk_stop"]
+    assert ws is not None and ws["by"] == "walk_stop_z 500" and ws["cached"] is True, ws
+    assert 500 <= ws["z"] < 1333 and ws["holds_after"] == 0 and ws["holds_before"] >= 1, ws
+    assert any(R._direction_hold(s) for s in ws["steps"]), ws["steps"]
+    assert (rec["beats"] or {}).get("steiner_door") is not True and rec["trace"].get("end") is None, rec["beats"]
+    er = rec["end"]["end_run"]
+    assert er["ok"] and er["title"] and title == "Title", er
+    assert [x["k"] for x in er["how"]] == ["recover-warp"], er["how"]
+    report = O.rehearsal_report(game / "run")
+    assert "walk_stop_z 500" in report and "walk stop: frame" in report and "(there must be none)" in report, \
+        report[:2500]
+
+
+def test_o6_rehearsal_walk_void_falls_back_to_the_first_walk_hold(game):
+    """F15's FALLBACK (research/o6_design.md 7.1, 7.3 F15): ``O6_WALK_STOP=hold`` lays ``walk_stop_hold`` (the z dropped)
+    on the north door step of the COPY; the run warped into "153" at 328 on the box floor with NO basis cached, so
+    route_to calibrates there first -- its probes direction holds sent before the basis is cached -- then walks. The
+    stop raises before the FIRST direction hold sent once 153's basis is cached: after every probe, never on one (the
+    probes went: holds before it; the stop's own hold cached), the run V13 (driver), no direction hold after it, the
+    door never reached; end_run reaches the title; the report names the stop. Break: drop the cache test (the stop then
+    fires on the first calibration probe)."""
+    O, R = _o6_module(), _o6_rehearse_module()
+    _o6_register(game)
+    engine = _o4_launch_files(game)
+    stage = R.with_walk_stop(dict(R.STAGES["R-WALK-VOID"], field=30820, end=[30821], run_s=90), {"O6_WALK_STOP": "hold"})
+    assert stage.get("walk_stop_hold") is True and "walk_stop_z" not in stage, stage
+    want = R.WALK_STOP
+    doc, fake, title, aside = _o6_launch_informative(game, R, {"R-WALK-VOID": stage}, {"O6_STAGE": "R-WALK-VOID"},
+                                                     lambda: _o6_rh_phases(short=True), engine=engine,
+                                                     pred=_o6_rehearse_pred(short=True), want=want, axes=False)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    rec = doc["stages"]["R-WALK-VOID"][0]
+    assert (rec["outcome"]["end"], rec["outcome"]["v"], rec["outcome"]["by"]) == ("void", "V13", "driver"), \
+        (rec["outcome"], aside)
+    assert rec["outcome"]["why"].startswith(f"STOPPED: {want}: a hold at ("), rec["outcome"]
+    ws = rec["walk_stop"]
+    assert ws is not None and ws["by"] == "walk_stop_hold" and ws["cached"] is True, ws
+    assert ws["holds_before"] >= 1 and ws["holds_after"] == 0, ws                # the probes went first, uncached
+    assert (rec["beats"] or {}).get("steiner_door") is not True and rec["trace"].get("end") is None, rec["beats"]
+    er = rec["end"]["end_run"]
+    assert er["ok"] and er["title"] and title == "Title", er
+    report = O.rehearsal_report(game / "run")
+    assert ", walk_stop_hold" in report and "by walk_stop_hold" in report, report[:2500]
+
+
+def test_o6_rehearsal_smoke_sends_no_storytrace_on_the_fake(game):
+    """F-SMOKE (research/o6_design.md 7.1, F13) on the fake, its pairs O6's table's -- member(151) and "151" at 110,
+    member(153) and "153" at 328, member(154) and "154" at 315, all SC 1190 -- each member read from the chain the
+    predictions carry (31244 / 31245 / 31246), each warp a RAW one with its pair's OWN entrance and SC and a wait for
+    the field on FieldHUD (o4_rehearse.smoke: never Session.warp()), then the field's published object sids and
+    end_run after each warp (the recovery warp, the title). No ``storytrace`` step is ever executed (no fork data
+    before the freeze). Each member's sids against its twin's: two pairs equal, the third (a body missing) different;
+    the report prints each warp with its entrance and SC. Break: warp member(154) at 328 (153's entrance)."""
+    O, R = _o6_module(), _o6_rehearse_module()
+    _o6_register(game)
+    engine = _o4_launch_files(game)
+    twin = {151: 30810, 153: 30820, 154: 30821}
+    pairs = [[f"member({twin[t]})", twin[t], e, sc] for _m, t, e, sc in R.STAGES["F-SMOKE"]["pairs"]]
+    stages = {"F-SMOKE": dict(R.STAGES["F-SMOKE"], pairs=pairs, smoke_s=0.3, warp_s=10.0)}
+    sids = {31244: [4, 5, 12, 17], 30810: [4, 5, 12, 17], 31245: [13, 14, 16], 30820: [13, 14, 16, 17],
+            31246: [5, 6, 7], 30821: [5, 6, 7]}
+
+    def setup(fake):
+        fake.blockers = {fid: [{"x": 300.0 + 60 * i, "z": 300.0, "r": 30.0, "sid": s, "uid": 128 + i}
+                               for i, s in enumerate(v)] for fid, v in sids.items()}
+    doc, fake, _title = _o6_launch(game, R, stages, {"O6_STAGE": "F-SMOKE"}, [], engine=engine, fake_setup=setup)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    assert not [s for s in fake.executed if s[0] == "storytrace"], "a storytrace step in the smoke"
+    recs = doc["stages"]["F-SMOKE"]
+    order = [(31244, 110, 1190), (31245, 328, 1190), (31246, 315, 1190), (30810, 110, 1190), (30820, 328, 1190),
+             (30821, 315, 1190)]
+    assert [(r["field"], r["entrance"], r["sc"]) for r in recs] == order, recs
+    for r in recs:
+        reach = r["reached"]
+        assert (reach["field"], reach["ui"], reach["control"]) == (r["field"], "FieldHUD", False), r
+        assert r["sids"] == sorted(sids[r["field"]]) and r["exceptions"] == [], r
+        assert r["end_run"]["ok"] and r["end_run"]["title"], r["end_run"]
+    warps = [s for s in fake.executed if s[0] == "warp"]
+    for field, entrance, sc in order:
+        assert ["warp", str(field), str(entrance), str(sc)] in warps, (field, warps)
+    twins = doc["twins"]["F-SMOKE"]
+    assert [(t["member"], t["twin"], t["equal"]) for t in twins] == [(31244, 30810, True), (31245, 30820, False),
+                                                                     (31246, 30821, True)], twins
+    report = O.rehearsal_report(game / "run")
+    for want in ("== F-SMOKE: the load smoke", "warp 2: 31245 at 328 SC 1190 -> field 31245 FieldHUD",
+                 "warp 3: 31246 at 315 SC 1190 -> field 31246 FieldHUD", "twin 31244 vs 30810: EQUAL",
+                 "twin 31245 vs 30820: DIFFERENT"):
+        assert want in report, (want, report[:2000])
+
+
+def test_o6_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake(game):
+    """F-PASS (research/o6_design.md 7.1, F14) on the fake: ONE F run, UNTRACED -- New Game, ``wait_frames(30)``, the
+    raw warp into member(151) (31244, read from the chain) at 110 / 1190, never the ``storytrace`` verb -- driven
+    through the whole route (151@110 with the naming and the page witness, 153@328 with the north door) to member(154)
+    31246 with the live forbidden scan off and no end-row wait: reached, beats ``named``, ``name_on_page`` and
+    ``steiner_door``, no V-class; the record holds no trace, the exceptions since the warp (none) and the Memoria.log
+    lines; end_run reaches the title. The report marks it UNTRACED. Break: start it as a traced run does
+    (Segment.start_run: the storytrace verb is sent)."""
+    O, R = _o6_module(), _o6_rehearse_module()
+    _o6_register(game)
+    engine = _o4_launch_files(game)
+    stages = {"F-PASS": dict(R.STAGES["F-PASS"], field={"S": 30810, "F": "member(30810)"},
+                             end={"S": [30821], "F": ["member(30821)"]}, run_s=150)}
+    doc, fake, title, aside = _o6_launch_informative(game, R, stages, {"O6_STAGE": "F-PASS"},
+                                                     lambda: _o6_rh_phases(side="F"), engine=engine)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    assert not [s for s in fake.executed if s[0] == "storytrace"], "a storytrace step in the untraced pass"
+    rec = doc["stages"]["F-PASS"][0]
+    assert rec["side"] == "F" and rec["traced"] is False and rec["trace_file"] is None, rec
+    assert rec["forbid_live"] is False, rec["forbid_live"]
+    assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == "field 31246", (rec["outcome"], aside)
+    assert rec["outcome"]["v"] is None, rec["outcome"]
+    assert rec["beats"] == {"named": True, "name_on_page": True, "steiner_door": True}, rec["beats"]
+    assert rec["trace"] == {} and rec["exceptions"] == [] and isinstance(rec["log_lines"], list), rec["exceptions"]
+    assert rec["naming"]["page"]["verdict"] == "ok" and rec["naming"]["f610"] is None, rec["naming"]
+    assert rec["end"]["end_run"]["ok"] and title == "Title", rec["end"]["end_run"]
+    report = O.rehearsal_report(game / "run")
+    assert "UNTRACED" in report and "untraced: exceptions since the warp []" in report, report[:2500]

@@ -617,6 +617,15 @@ REQUIRED_TESTS_O6: tuple = (
     "test_o6_steiner_preflight_verdicts",
     # C2: the trace summary over the dry run's rendered rows, cut at the end PLACES (O4's lesson)
     "test_o6_steiner_trace_summary_cuts_at_end_places",
+    # C3: o6_rehearse -- the stage ids from the chain, R-DOOR's record, the naming stop and S15's recovery, the walk
+    # stop mid-walk on the real hall and its fallback after the calibration, the untraced smoke and F pass
+    "test_o6_rehearsal_stage_ids_follow_the_chain",
+    "test_o6_rehearsal_plumbing_on_the_fake",
+    "test_o6_rehearsal_naming_void_stops_at_the_screen_on_the_fake",
+    "test_o6_rehearsal_walk_void_stops_mid_walk_on_the_fake",
+    "test_o6_rehearsal_walk_void_falls_back_to_the_first_walk_hold",
+    "test_o6_rehearsal_smoke_sends_no_storytrace_on_the_fake",
+    "test_o6_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake",
 )
 #: G33 (research/o6_design.md 9 C2): o6_dryrun's "N/N cases as registered" must have N at least this, on the draft (or
 #: the frozen file) AND on as_if_frozen(draft) -- its 92 session cases and "predictions-changed" (section 8's table), its
