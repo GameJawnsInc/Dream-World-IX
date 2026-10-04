@@ -12710,6 +12710,7 @@ def test_o2_drive_leaves_at_once(game):
     ``watch`` rows include the ring's samples from INSIDE the step's harness calls. The same cell without
     ``immediate`` waits the driver's settle -- at least settle_s of wall time -- before its first hold. Break: settle
     before an immediate step."""
+    _segment_modules()      # import the driver BEFORE the grant clock: a cold first import (~0.2 s) is not driver latency
     got = {}
     for immediate in (True, False):
         fake = _StampFake(game)
@@ -17980,18 +17981,23 @@ def test_o4_drive_page_once_and_the_quiet_windows(game):
     """S8 b and c (research/o4_design.md 2.2 rule 7, 2.4.11): the KEYON pair 105/106 (``gates`` 40) is pressed by
     page-once -- every press at least ``page_once_ticks`` after the last unless it presses a window not pressed before
     (106 joining 105) -- until both close; 111 is pressed until gone; and a page injected after 123 has gone, before
-    127, falls in the quiet window: V17 with an ``observed`` row, nothing pressed on it. Break: page-once off."""
+    127, falls in the quiet window: V17 with an ``observed`` row, nothing pressed on it. The run is
+    :func:`_o4_run_informative`'s: a read-gap V17 (a starved poll on a loaded machine, no ``observed`` row) is the
+    instrument's, re-run as R-GATE re-runs it -- it flaked this test serially on master. Break: page-once off."""
     def inject(f):
         f._machine.queue_window(3, "page", "Queen Brahne\n“Encore!”",
                                 "[STRT=60,2][TAIL=DEFT]Queen Brahne\n“Encore!”")
     gone = {}
 
     def after_123(f):
+        if gone.get("fake") is not f:               # a re-run's fake starts the watch afresh
+            gone.clear()
+            gone["fake"] = f
         e = [x for x in f.machine_log if x["event"] == "gone" and "quite impressed" in x["text"]]
         if e and "tick" not in gone:
             gone["tick"] = e[0]["tick"]
         return f._machine is not None and "tick" in gone and f._machine.tick >= gone["tick"] + 4
-    out, log, fake, _t = _o4_run(game, knobs={"gates": {"105": 40}}, phases=[(after_123, inject)])
+    out, log, fake, _t, aside = _o4_run_informative(game, knobs={"gates": {"105": 40}}, phases=[(after_123, inject)])
     _o4_void(out, "V17", "driver")
     obs = _o4_rows_of(log, "observed")
     assert len(obs) == 1 and obs[0]["kind"] == "quiet_page", obs
