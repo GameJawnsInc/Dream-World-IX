@@ -24402,10 +24402,29 @@ def test_segment_naming_on_page_rows_on_the_fake(game):
     The pair opened together with ``unparsed_frames`` {200: 90}: the row lists 199 only. ``name_typed`` "Rusty": the
     row's ``verdict`` "V13" and the run VOID V13 by the driver. An O2-shaped registration (no ``on_page``) on the same
     fake: the ``named`` row has exactly today's keys and no ``name_on_page`` row is written. A small ring (60 samples):
-    ``before`` still holds 198 -- read before accept_name's Confirms, whose reads would push it out. Breaks: take the
-    first sample listing the tag whatever its text; list every window of the sample holding the tag; record without
-    judging (a typed name covered); read ``before`` after the Confirms."""
+    ``before`` still holds 198 -- read before accept_name's Confirms, whose reads would push it out. Each unparsed case
+    is re-run (at most twice) when the ring caught nothing it tests -- no unparsed 199 before the row; the row's own
+    sample not listing 200 unparsed -- a starved poll tests nothing and is re-run, never a verdict (the review,
+    research/o6_design.md 11.7 #6: the sibling drive test's rule), then asserted hard. Breaks: take the first sample
+    listing the tag whatever its text; list every window of the sample holding the tag; record without judging (a
+    typed name covered); read ``before`` after the Confirms."""
     SD = _segment_modules()
+
+    def unparsed(lag, mes, caught):
+        """S16's scene with ``mes`` unparsed for 90 frames (1.5 s at the render rate): ``(out, log, ring, page rows)``
+        of the first run whose ring ``caught(ring, row)`` what the case tests -- at most three runs."""
+        for attempt in range(3):
+            out, log, _fake, ring = _s16_run(game, [_o6_naming()], lag=lag, knobs={"unparsed_frames": {mes: 90}})
+            page = _g_rows(log, "name_on_page")
+            starved = isinstance(out, dict) and len(page) == 1 and not caught(ring, page[0])
+            if not starved or attempt == 2:
+                return out, log, ring, page
+
+    def raw199_before(ring, row):
+        return any(_o6_lists_unparsed(r, 199) and int(r["frame"]) < row["frame"] for r in ring)
+
+    def own_200_unparsed(ring, row):
+        return any(int(r["frame"]) == row["frame"] and _o6_lists_unparsed(r, 200) for r in ring)
     out, log, fake, ring = _s16_run(game, [_o6_naming()])
     assert isinstance(out, dict) and out["end"] == "reached", out
     assert out["beats"] == {"named": True, "name_on_page": True}, out["beats"]
@@ -24417,21 +24436,19 @@ def test_segment_naming_on_page_rows_on_the_fake(game):
     _o6_page_exact(page[0], ring, 30810)
     assert page[0]["windows"][0]["text"] == "Queen Brahne\n“Captain Steiner!”", page[0]["windows"]
     # 199 read unparsed first: the row stands on the first PARSED sample
-    out, log, fake, ring = _s16_run(game, [_o6_naming()], lag=60, knobs={"unparsed_frames": {199: 90}})
+    out, log, ring, page = unparsed(60, 199, raw199_before)
     assert isinstance(out, dict) and out["beats"]["name_on_page"] is True, out
-    page = _g_rows(log, "name_on_page")
     _o6_page_exact(page[0], ring, 30810)
     assert page[0]["windows"][0]["mes"] == 199, page[0]["windows"]
     raw199 = [int(r["frame"]) for r in ring if _o6_lists_unparsed(r, 199)]
     assert raw199 and max(raw199) < page[0]["frame"], (raw199, page[0]["frame"])     # 1.5 s unparsed: read
     # the pair together, 200 unparsed: the row lists 199 alone
-    out, log, fake, ring = _s16_run(game, [_o6_naming()], lag=0, knobs={"unparsed_frames": {200: 90}})
+    out, log, ring, page = unparsed(0, 200, own_200_unparsed)
     assert isinstance(out, dict) and out["beats"]["name_on_page"] is True, out
-    page = _g_rows(log, "name_on_page")
     _o6_page_exact(page[0], ring, 30810)
     first = next(r for r in ring if int(r["frame"]) == page[0]["frame"])
-    if _o6_lists_unparsed(first, 200):
-        assert [w["mes"] for w in page[0]["windows"]] == [199], page[0]["windows"]
+    assert _o6_lists_unparsed(first, 200), first.get("dialog")         # its sibling still unparsed there...
+    assert [w["mes"] for w in page[0]["windows"]] == [199], page[0]["windows"]      # ...so never listed
     # a typed name: judged, VOID V13 by the driver
     out, log, fake, ring = _s16_run(game, [_o6_naming()], knobs={"name_typed": "Rusty"})
     assert isinstance(out, SD.RouteVoid) and (out.v, out.by) == ("V13", "driver"), out
