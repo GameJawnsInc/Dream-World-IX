@@ -1687,7 +1687,11 @@ def unit_as_if_frozen(draft: dict) -> tuple:
     every = all(p["budget"][k] != pred["budget"][k] for k in pred["budget"] if pred["budget"][k])
     probs = O.O6.freeze_problems(p, live_engine=dict(pred["engine"]))
     got = {"changed": changed == ["budget", "pattern", "rehearsals"], "pattern": pat_ok, "every-budget": every,
-           "freezable": probs == [], "draft-not": bool(O.O6.freeze_problems(pred, live_engine=dict(pred["engine"])))}
+           "freezable": probs == [],
+           # the draft as the lead leaves it: refused while it names no rehearsals (the build's state), freezable
+           # once the lead has filled it from R-DOOR (never pin the unfilled state: O2, O4 and O5's lesson)
+           "draft-not": bool(O.O6.freeze_problems(pred, live_engine=dict(pred["engine"])))
+           == (not pred.get("rehearsals"))}
     return all(got.values()), str({k: v for k, v in got.items() if not v} or f"all as registered: {changed}") \
         + ("" if not probs else f" {probs[:2]}")
 

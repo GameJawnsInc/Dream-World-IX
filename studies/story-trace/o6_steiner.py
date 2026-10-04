@@ -300,7 +300,9 @@ def _pattern() -> dict:
                            [153, 23, 2, 173, "Global.Int16[2]", 315, 0]]
     floating = [{"visit": 2, "tuple": [153, 15, 0, 26, "Global.Byte[8]", 125, 0],
                  "after": [153, 32, 0, 709, "Global.Bit[3854]", 1, 0],
-                 "before": [153, 32, 1, 919, "Global.UInt16[21]", 8, 0], "measured": None,
+                 "before": [153, 32, 1, 919, "Global.UInt16[21]", 8, 0],
+                 "measured": {"index": [8, 8], "frames_to_971": [513, 527],
+                              "source": "R-DOOR 20261004-105322-o6-rh-door, runs 1 and 2"},
                  "why": "153 e15 t0 ip32, the Seq e32 t1 ip866 starts: op_22(45) and a sound sync before it, against at "
                         "least 40 ticks of waits and five pages before ip971 -- in order unless the sync stalls (0.2 "
                         "#11); the window is the bytes': it cannot precede ip866, which follows e32 t0's ip727, and "
@@ -431,12 +433,14 @@ def draft_predictions(campaign=None) -> dict:
                 f"(EVT_ALEX1_AC_H2F; the Knights of Pluto) -> Steiner's first control, the walk to the north door -> "
                 f"Field(154) at 315 (EVT_ALEX1_AC_ENT_2F), SC 1190; stock vs the alxc disc-1 chain as O4 deployed it "
                 f"(route members {rm[151]}-{rm[154]}; PLAN.md, O6) -- a US session",
-        "rehearsals": [],                                       # 7.3: the lead names R-DOOR's runs at the freeze
+        "rehearsals": ["20261004-105322-o6-rh-door", "20261004-105703-o6-rh-r-naming-void",   # 7.3 (F1-F15)
+                       "20261004-105808-o6-rh-r-walk-void", "20261004-105905-o6-rh-f-smoke",
+                       "20261004-110050-o6-rh-f-pass"],
         "order": ["S", "F", "S", "F", "S", "F"],
         "min_covered": 2,
         "rerun": {"max": 2, "stop_on": ["V19"]},
         # F6 replaces every number from R-DOOR (4.14)
-        "budget": {"run_s": 600, "run_min_s": 300, "session_s": 3600, "settle_s": 1.0, "no_progress_s": 60,
+        "budget": {"run_s": 198, "run_min_s": 126, "session_s": 2552, "settle_s": 1.0, "no_progress_s": 60,
                    "end_row_s": 10.0},
         "start": {"S": ROUTE[0], "F": rm[ROUTE[0]]},
         "entrance": 110,
