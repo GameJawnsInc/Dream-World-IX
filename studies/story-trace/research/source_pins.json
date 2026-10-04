@@ -54,5 +54,61 @@
   "new": "ea8c12c6da3d02a97bea90e18bdd782d5e044d5ad375815e2d51abecf8d8a6b3",
   "reason": "O5 B1 H14: a {visit: knobs} beat starts a _VisitBeat (returns before the keyon_pair/chanbara choice, which is unchanged)",
   "head": "b1ca35fe441da5bbad77c9f025280bddcb145117"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_visit_steps",
+  "old": "2e244a619de566c0cb4b604e17dfbe8658991f61fcc314d6bd57a298764c4a5a",
+  "new": "2b05869dfffd07ad5d2cf44c5da7eef39904c43771967ea732145ab12da3265d",
+  "reason": "O6 B1 H17/H18 (research/o6_design.md 3.3, 3.4): the two new step kinds checked strict -- a naming step's character (an int >= 0) and its name (a non-empty str), a door step read by the new _door_knobs; every O5 step kind is checked exactly as before. A0b's O5 replay (test_fake_door_keeps_the_hallway_route_identical) reads identical and G26's 54 pass on it",
+  "head": "181dba2302272a7f1f8e3f44777c629f5ad68011"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_VisitBeat.__init__",
+  "old": "3f34c1583b23c08da641b6fecd4db678246939b2d7033a729b6301dfc7fc93a8",
+  "new": "c2b70b47c54aa08f1a03e6b22df8fc1bcfcd222b0fb4c4a5b7b2dce74b97e2e5",
+  "reason": "O6 B1 H17/H19 (research/o6_design.md 3.3, 3.5): O6's knobs read strict -- unparsed_frames {mes: k}, door_misroute {door: field_to key} (its targets in field_to), name_typed, naming_deaf -- and the naming screen's state (None until a naming step); with every O6 knob at its default an O5 beat starts exactly as before. A0b's O5 replay (test_fake_door_keeps_the_hallway_route_identical) reads identical and G26's 54 pass on it",
+  "head": "181dba2302272a7f1f8e3f44777c629f5ad68011"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_VisitBeat.open",
+  "old": "474d8421b352496f4fac0adf8ecf40a44b102ad8929c80c25e3333243ef42289",
+  "new": "de7db6e1065f00be8ce358e641c39f8cd9bf99d70d3c963104452fd3a6104b81",
+  "reason": "O6 B1 H17 (research/o6_design.md 3.3): [STNR] in a window's text rendered as fake.names' saved name (the default until one is saved; the raw keeps the tag), and the step's mes kept for unparsed_frames (unparsed_until); no O5 text holds [STNR] and no O5 beat sets the knob, so every O5 window opens exactly as before. A0b's O5 replay (test_fake_door_keeps_the_hallway_route_identical) reads identical and G26's 54 pass on it",
+  "head": "181dba2302272a7f1f8e3f44777c629f5ad68011"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_VisitBeat.shown",
+  "old": "b2c41a4450f7cde91f463da763d90202cfd9689b198a59b5633c8e343f0930d3",
+  "new": "d0bf78035cd035ff4f1ac99aa9818bc3a82f2c97b5718ee434b1ae0fbf5df7b9",
+  "reason": "O6 B1 H17 (research/o6_design.md 3.3): an unparsed window (unparsed_frames) publishes its raw text until its k frames are out -- one guard before the type-out rule; no O5 window is unparsed, so every O5 text is shown exactly as before. A0b's O5 replay (test_fake_door_keeps_the_hallway_route_identical) reads identical and G26's 54 pass on it",
+  "head": "181dba2302272a7f1f8e3f44777c629f5ad68011"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_VisitBeat.ui",
+  "old": "b494dee377a693bd999cc2e7bff4953c10e2dd9673b9f6152d34ade699b48712",
+  "new": "29743e183549b7030704341a68e245b62d92fc3773f0ad08645ebfa485aff025",
+  "reason": "O6 B1 H17 (research/o6_design.md 3.3): while a visit's naming screen is up its keys are the screen's (_naming_keys: Confirm 1 the focus off the box, Confirm 2 OK, Cancel the focus back) -- one branch after the downs are read; no O5 visit opens the screen, so every O5 key is read exactly as before. A0b's O5 replay (test_fake_door_keeps_the_hallway_route_identical) reads identical and G26's 54 pass on it",
+  "head": "181dba2302272a7f1f8e3f44777c629f5ad68011"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_VisitBeat._run",
+  "old": "84bd5d1f4a234d2399ced140663dc5e154b42996c0713b445c20d9cc703ed9a2",
+  "new": "d3a44af6e19adbd6dabe443289cf12e1cba9980f5faf0ea76d907b5298999f53",
+  "reason": "O6 B1 H17/H18 (research/o6_design.md 3.3, 3.4): the naming and door steps dispatched (_naming, _door) before the field step's else; every O5 step kind runs exactly as before. A0b's O5 replay (test_fake_door_keeps_the_hallway_route_identical) reads identical and G26's 54 pass on it",
+  "head": "181dba2302272a7f1f8e3f44777c629f5ad68011"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_VisitBeat._open_mes",
+  "old": "94361105f0e3ebd6c6542e24cf6c4bd7aabe0c37d504a5ce91431dff3d5c45d2",
+  "new": "7a2e1fa1aa9583c4258995c3884734773000eddd62522d7c0cc6bec79efe6d80",
+  "reason": "O6 B1 H17 (research/o6_design.md 3.3): the page / timed step's mes passed to open, which keys unparsed_frames by it; the window opens exactly as before. A0b's O5 replay (test_fake_door_keeps_the_hallway_route_identical) reads identical and G26's 54 pass on it",
+  "head": "181dba2302272a7f1f8e3f44777c629f5ad68011"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_VisitBeat._pair",
+  "old": "7709041b6391c4e9335abdb142a6e97723eff05f70a7de87f6c79dd9a48d9e7c",
+  "new": "fb17e90789a2250f9fd1780b8584573ce6b5079afa442692966defbb93f4a549",
+  "reason": "O6 B1 H17 (research/o6_design.md 3.3): each KEYON window's mes passed to open, which keys unparsed_frames by it; the pair plays exactly as before. A0b's O5 replay (test_fake_door_keeps_the_hallway_route_identical) reads identical and G26's 54 pass on it",
+  "head": "181dba2302272a7f1f8e3f44777c629f5ad68011"
  }
 ]

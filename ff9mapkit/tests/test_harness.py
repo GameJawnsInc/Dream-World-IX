@@ -23785,3 +23785,237 @@ def test_segment_end_run_naming_paths_for_the_opening_and_alexandria_on_the_fake
                 st = g.state
             assert st.ui_state == "Title" and fake.named == [char], (type(seg).__name__, st.ui_state, fake.named)
             assert [r["k"] for r in log] == ["recover-warp-failed", "end-naming", "recover-warp-after-naming"], log
+
+
+# ---- O6's FAKEGAME (research/o6_design.md 3.3-3.5, 9 B1): H17 -- the naming screen INSIDE a visit and the name on the
+# page; H18 -- the door step: the regions' tag 2, ExitField's walk-out, the door's stores and its Field(); H19 -- O6's
+# faults. The fake stepped BY HAND at 30 fps quantized (a field tick a frame), as O5's B1 tests step it.
+
+#: O6's fixture fields by the place they stand for (research/o6_design.md 3.6): S 30810 "151", 30820 "153", 30821
+#: "154", 30830 "150" (e24's landing), 30831 "64" (e25's); F the members O4 deployed, 31244 "151", 31245 "153", 31246
+#: "154", 31243 "150", 31240 "64".
+_O6_FIELDS = {"S": {"151": 30810, "153": 30820, "154": 30821, "150": 30830, "64": 30831},
+              "F": {"151": 31244, "153": 31245, "154": 31246, "150": 31243, "64": 31240}}
+_O6_NAMES = {"31240": "O6_AST", "31243": "O6_HALL", "31244": "O6_SEAT", "31245": "O6_H2F", "31246": "O6_ENT"}
+_O6_MEMBERS = {31244: 30810, 31245: 30820, 31246: 30821, 31243: 30830, 31240: 30831}
+#: 153's live exits at 328 (research/o6_design.md 4.17): e23 the north door -- its quad, firing only past z 1333 -- e24
+#: (to 150) and e25 (to 64, on the ground).
+_O6_E23 = [[-227, 3000], [200, 3000], [212, 935], [-264, 924]]
+_O6_E24 = [[2850, 347], [2850, -13], [1739, -74], [1739, 406]]
+_O6_E25 = [[-777, -2348], [777, -2348], [777, -900], [-777, -900]]
+#: The windows the driver or a check matches (research/o6_design.md 3.6, 4.11, 4.16; block 3, US): 198 holds the
+#: naming's marker "And, Captain"; 199 and 200 render [STNR] -- the page witness's frozen windows. Each is ``(text,
+#: raw)``: the text the agent publishes, [STNR] left for H17 to render, and the raw (phrase_raw) keeping every tag.
+_O6_198 = ("Queen Brahne\n“And, Captain...uh...”",
+           "[STRT=0,0]Queen Brahne\n“And, Captain[SPED=2]...[SPED=-1]uh[SPED=2]...[SPED=-1]”")
+_O6_199 = ("Queen Brahne\n“Captain [STNR]!”",
+           "[STRT=0,0][WDTH=0,65,19,-1]Queen Brahne\n“Captain [STNR]!”[INCS][TIME=-1]")
+_O6_200 = ("[STNR]\n“Yes, Your Majesty!”", "[STRT=0,0][STNR]\n“Yes, Your Majesty!”[INCS][TIME=-1]")
+
+
+def _o6_doors(*, stop_z=2065):
+    """The north door step's doors in entry order (research/o6_design.md 3.4, 3.6): e23 -- its quad past z 1333 (e23 t2
+    ip38), ip203's store (Int16[2] := 315), its 25-tick fade (ip153), Field(154), ExitField's walk-out toward (-31,
+    3000) (MJPOS's projection onto its first edge) held at ``stop_z`` (2065: a radius short of the floor's end, an
+    ESTIMATE; None: moving until the switch) -- then e24 (ip183, Field(150)) and e25 (ip195, Field(64)), no walk-out."""
+    return [{"name": "e23", "points": _O6_E23, "z_gt": 1333, "stores": [[23, 2, 203, 2, "Int16", 315, -1]], "ticks": 25,
+             "to": "154", "walkout": {"to": [-31, 3000], "stop_z": stop_z}},
+            {"name": "e24", "points": _O6_E24, "stores": [[24, 2, 183, 2, "Int16", 315, -1]], "ticks": 25, "to": "150"},
+            {"name": "e25", "points": _O6_E25, "stores": [[25, 2, 195, 2, "Int16", 315, -1]], "ticks": 25, "to": "64"}]
+
+
+def _o6_visit(steps, **knobs):
+    """A ``{"visit": knobs}`` beat of ``steps`` on O6's S fields (:data:`_O6_FIELDS`), index 1."""
+    return _fv_visit(steps, **{"field_to": dict(_O6_FIELDS["S"]), **knobs})
+
+
+def _o6_fires(fake):
+    """The door fires the visit beat logged (H18's ``fire`` rows)."""
+    return [e for e in fake.visit_log if e["kind"] == "fire"]
+
+
+def test_fake_naming_screen_takes_two_confirms(game):
+    """H17 (research/o6_design.md 3.3; NameSettingUI.cs:72-83, :146, :173): a visit's naming step -- Menu(1, 3) --
+    publishes ui "NameSetting" and lists no window; the box opens focused, so the first Confirm only takes the focus off
+    it and the second is OK: ``named`` [3], the default saved (``names`` {3: "Steiner"}), the field HUD back -- and the
+    script resumes in that frame's tick (the next step's store runs on it). A Cancel between puts the focus back on the
+    box, so it takes two more. Break: close on the first Confirm."""
+    fake = _fv_fake(game, _o6_visit([{"naming": 3, "name": "Steiner"}, {"store": [3, 1, 610, 6, "Byte", 8, -1]}]))
+    _cb_until(fake, lambda f: f.ui_state == "NameSetting")
+    opened = fake.frame
+    assert fake.texts == [] and fake.choice is None and fake.named == [], (fake.texts, fake.choice, fake.named)
+    _fv_press_on(fake, opened + 3)                       # Confirm 1: the focus off the box
+    assert fake.ui_state == "NameSetting" and fake.named == [], (fake.ui_state, fake.named)
+    _fv_press_on(fake, opened + 6, "cancel")             # Cancel: the focus back on the box
+    _fv_press_on(fake, opened + 9)                       # ...so this Confirm only takes it off again
+    assert fake.ui_state == "NameSetting" and fake.named == [] and not _fv_rows(fake, "w"), fake.visit_log
+    _fv_press_on(fake, opened + 12)                      # OK
+    assert (fake.ui_state, fake.named, fake.names) == ("FieldHUD", [3], {3: "Steiner"}), (fake.ui_state, fake.named)
+    stores = [e for e in fake.visit_log if e["kind"] == "store"]
+    assert [e["frame"] for e in stores] == [opened + 12], (stores, opened)
+    assert [(r["ip"], r["new"]) for r in _fv_rows(fake, "w")] == [(610, 8)], _fv_rows(fake, "w")
+
+
+def test_fake_naming_holds_the_script(game):
+    """H17 (research/o6_design.md 3.3): while the naming screen is up the visit's script stands still -- a menu up holds
+    the field (:meth:`_Machine.frame` runs the tick's script only on FieldHUD), the engine's Menu blocking the event
+    code: 200 frames with the screen up run no later step (no visit_log row past the naming, no trace row); after the
+    OK the script runs on -- its wait, then its store. Without a ``name`` the OK saves none (``names`` stays empty: a
+    [STNR] page renders the default). Break: tick the script while the screen is up."""
+    fake = _fv_fake(game, _o6_visit([{"naming": 3}, {"wait": 2}, {"store": [3, 1, 610, 6, "Byte", 8, -1]}]))
+    _cb_until(fake, lambda f: f.ui_state == "NameSetting")
+    opened = fake.frame
+    _cb_until(fake, lambda f: f.frame >= opened + 200)
+    assert [e["kind"] for e in fake.visit_log] == ["naming"] and not _fv_rows(fake, "w"), fake.visit_log
+    _fv_press_on(fake, opened + 201)
+    _fv_press_on(fake, opened + 204)
+    assert (fake.ui_state, fake.named, fake.names) == ("FieldHUD", [3], {}), (fake.ui_state, fake.named, fake.names)
+    _cb_until(fake, lambda f: _fv_rows(f, "w"), limit=20)
+    assert [(e["kind"], e["frame"]) for e in fake.visit_log] == [("naming", opened), ("wait", opened + 204),
+                                                                 ("store", opened + 206)], fake.visit_log
+
+
+def test_fake_naming_renders_the_name_on_later_pages(game):
+    """H17's name on the page (research/o6_design.md 3.3; DialogBoxSymbols.cs:67-68): a window opened after the naming
+    has [STNR] in its TEXT rendered as the name the OK saved -- "Steiner", the default -- its raw (phrase_raw) keeping
+    the tag; with ``name_typed`` "Rusty" (a typed name's stand-in) it renders "Rusty". ``unparsed_frames`` {199: 3}: 199
+    publishes its RAW text, tags included, for its first 3 frames (the TextParser's ParsedText = InitialText before
+    Parse), then the name; 200, opened with it and with no entry, is parsed from its first frame. Break: substitute the
+    name in the raw too."""
+    def staged(**knobs):
+        fake = _fv_fake(game, _o6_visit([{"naming": 3, "name": "Steiner"},
+                                         {"pair": [[199, 0], [200, 4]], "lag": 0, "texts": [_O6_199[0], _O6_200[0]],
+                                          "raws": [_O6_199[1], _O6_200[1]]}, {"wait": 100000}], **knobs))
+        _cb_until(fake, lambda f: f.ui_state == "NameSetting")
+        _fv_press_on(fake, fake.frame + 2)
+        _fv_press_on(fake, fake.frame + 2)
+        assert fake.ui_state == "FieldHUD", fake.ui_state
+        _cb_until(fake, lambda f: len(f.raw_texts) == 2, limit=200)
+        return fake
+    fake = staged()
+    assert fake.texts == ["Queen Brahne\n“Captain Steiner!”", "Steiner\n“Yes, Your Majesty!”"], fake.texts
+    assert fake.raw_texts == [_O6_199[1], _O6_200[1]] and fake.names == {3: "Steiner"}, fake.raw_texts
+    fake = staged(name_typed="Rusty")
+    assert fake.texts == ["Queen Brahne\n“Captain Rusty!”", "Rusty\n“Yes, Your Majesty!”"], fake.texts
+    assert fake.raw_texts == [_O6_199[1], _O6_200[1]] and fake.names == {3: "Rusty"}, (fake.raw_texts, fake.names)
+    fake = staged(unparsed_frames={199: 3})
+    seen = []
+    for _ in range(5):
+        seen.append(list(fake.texts))
+        fake._frame_once()
+    parsed = ["Queen Brahne\n“Captain Steiner!”", "Steiner\n“Yes, Your Majesty!”"]
+    assert seen == [[_O6_199[1], parsed[1]]] * 3 + [parsed] * 2, seen
+
+
+def test_fake_naming_deaf_screen_defeats_accept_name(game):
+    """H17's ``naming_deaf`` (research/o6_design.md 3.3, 3.5): the screen drops its first k Confirms. With 9 every one
+    of accept_name's 4 Confirms is dropped and it raises ("stayed up through 4 Confirms") -- the stuck screen S15 and
+    R-NAMING-VOID's stop rest on -- the screen still up, nothing named; with 1, its first Confirm is dropped and the
+    next two close it. Break: count a dropped Confirm (the screen then closes)."""
+    for deaf, closes in ((9, False), (1, True)):
+        fake = FakeGame(game)
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30820)
+            fake.scene(_o6_visit([{"naming": 3, "name": "Steiner"}, {"wait": 100000}], naming_deaf=deaf),
+                       control=False)
+            published(g, lambda s: s.ui_state == "NameSetting")
+            if closes:
+                st = g.accept_name()
+                assert st.ui_state == "FieldHUD" and fake.named == [3], (st.ui_state, fake.named)
+                continue
+            with pytest.raises(HarnessError, match="stayed up through 4 Confirms"):
+                g.accept_name()
+            assert fake.ui_state == "NameSetting" and fake.named == [], (fake.ui_state, fake.named)
+
+
+def test_fake_door_fires_only_past_its_line(game):
+    """H18 (research/o6_design.md 3.4): the door step runs the regions' tag 2 every field tick he has control -- e23's
+    quad AND z > 1333 (153 e23 t2 ip38's f[2] term). Standing inside the quad at z 1000 (its non-firing band) fires
+    nothing, tick after tick, control kept; at z 1340 the next tick fires: control off (ExitField), one visit_log
+    ``fire`` row (e23, where he stood). Break: drop ``z_gt`` (the quad alone then fires at z 1000)."""
+    fake = _fv_fake(game, _o6_visit([{"grant": [0, 1000]}, {"door": {"doors": _o6_doors()}}]))
+    _cb_until(fake, lambda f: f.control)
+    at = fake.frame
+    _cb_until(fake, lambda f: f.frame >= at + 30)
+    assert fake.control and not _o6_fires(fake), (fake.control, _o6_fires(fake))
+    fake.player[2] = 1340.0
+    fake._frame_once()
+    fires = _o6_fires(fake)
+    assert not fake.control and [(e["name"], e["x"], e["z"]) for e in fires] == [("e23", 0.0, 1340.0)], fires
+
+
+def _o6_door_fake(game, *, stop_z=1700, gate=None, **knobs):
+    """The door step on the hand-stepped fake: control at (-31, 1300) -- straight under the walk-out's point, so it
+    runs due north -- then e23 fires on the tick he is moved to z 1340 (stepped to that frame); ``gate`` the fake's
+    exit gate."""
+    fake = _fv_fake(game, _o6_visit([{"grant": [-31, 1300]}, {"door": {"doors": _o6_doors(stop_z=stop_z)}}], **knobs))
+    fake.exit_gate = gate
+    _cb_until(fake, lambda f: f.control)
+    fake.player[2] = 1340.0
+    fake._frame_once()
+    assert not fake.control and [e["name"] for e in _o6_fires(fake)] == ["e23"], _o6_fires(fake)
+    return fake
+
+
+def _o6_door_track(fake, limit=200):
+    """``(frame, field, z, w rows)`` of every frame from the fire to the first in another field."""
+    out: list = []
+    _cb_until(fake, lambda f: out.append((f.frame, f.field_id, f.player[2], len(_fv_rows(f, "w"))))
+              or f.field_id != 30820, limit=limit)
+    return out
+
+
+def test_fake_door_walkout_then_stores_then_field(game):
+    """H18 (research/o6_design.md 3.4, 0.2 #6): after e23 fires, ExitField's walk-out moves him north ``speed`` (60) u a
+    tick toward (-31, 3000), control off, and holds him where his z passes ``stop_z``; 25 ticks after the fire (ip153's
+    op_22(25)) ip203's store and the Field() land in the SAME tick -- the trace row Int16[2] := 315 written in 30820,
+    the field "154" (30821). With ``exit_gate`` held, the store and the Field wait past the 25 ticks, him standing at
+    ``stop_z``, and land in the tick it is set. Break: the store at the fire (its row before the walk-out)."""
+    fake = _o6_door_fake(game)
+    fired = fake.frame
+    track = _o6_door_track(fake)
+    assert [z for _f, _fld, z, _n in track[:-1]] == [1340.0 + 60.0 * min(i, 6) for i in range(25)], track
+    assert all(fld == 30820 and n == 0 for _f, fld, _z, n in track[:-1]), track
+    assert track[-1][:2] == (fired + 25, 30821) and track[-1][3] == 1 and not fake.control, track[-1]
+    row = _fv_rows(fake, "w")[0]
+    assert (row["fld"], row["sid"], row["tag"], row["ip"], row["w"], row["new"]) == (30820, 23, 2, 203, "Int16", 315)
+    gate = threading.Event()
+    fake = _o6_door_fake(game, gate=gate)
+    fired = fake.frame
+    _cb_until(fake, lambda f: f.frame >= fired + 60)
+    assert (fake.field_id, fake.player[2], _fv_rows(fake, "w")) == (30820, 1700.0, []), (fake.field_id, fake.player)
+    gate.set()
+    fake._frame_once()
+    assert fake.field_id == 30821 and len(_fv_rows(fake, "w")) == 1, (fake.field_id, _fv_rows(fake, "w"))
+
+
+def test_fake_door_walks_out_until_the_flip_without_stop(game):
+    """H18 without ``stop_z`` (research/o6_design.md 3.4): the walk-out runs every tick from the fire to the Field() 25
+    ticks later -- 60 u a tick toward (-31, 3000), never held (1340 + 24 x 60 stays short of 3000) -- so he is moving
+    on every frame until the field changes (S14's path B). Break: no walk-out (he stands at the fire)."""
+    fake = _o6_door_fake(game, stop_z=None)
+    fired = fake.frame
+    track = _o6_door_track(fake)
+    zs = [z for _f, _fld, z, _n in track[:-1]]
+    assert zs == [1340.0 + 60.0 * i for i in range(25)], zs
+    assert track[-1][:2] == (fired + 25, 30821), track[-1]
+
+
+def test_fake_door_entry_order_and_misroute(game):
+    """H18's ENTRY ORDER and H19's ``door_misroute`` (research/o6_design.md 3.4, 3.5): standing where two doors' quads
+    overlap, the one listed first -- the lower entry: the engine runs region objects by entry -- fires, alone; and
+    ``door_misroute`` {"e23": "150"} sends e23's Field() to field_to "150" (30830), its own store unchanged -- a
+    misrouted fork operand's stand-in (S14's ``left``). Break: test the doors last-first (the later entry fires)."""
+    doors = _o6_doors(stop_z=1700)
+    wide = {"name": "e24", "points": [[-600, 1000], [600, 1000], [600, 2000], [-600, 2000]],
+            "stores": [[24, 2, 183, 2, "Int16", 315, -1]], "ticks": 25, "to": "150"}
+    fake = _fv_fake(game, _o6_visit([{"grant": [-31, 900]}, {"door": {"doors": [doors[0], wide]}}],
+                                    door_misroute={"e23": "150"}))       # granted south of both quads
+    _cb_until(fake, lambda f: f.control)
+    fake.player[2] = 1340.0
+    fake._frame_once()
+    assert [e["name"] for e in _o6_fires(fake)] == ["e23"], _o6_fires(fake)
+    _cb_until(fake, lambda f: f.field_id != 30820, limit=200)
+    assert fake.field_id == 30830, fake.field_id
+    assert [(r["sid"], r["ip"], r["new"]) for r in _fv_rows(fake, "w")] == [(23, 203, 315)], _fv_rows(fake, "w")
