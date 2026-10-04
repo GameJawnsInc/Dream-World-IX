@@ -1053,6 +1053,9 @@ class FakeGame:
             self.ui_state = "FieldHUD"
             self.field_id = 70
             self.control = True
+            # H17: New Game rebuilds every player with its CharacterDefaultName (FF9Play_New, ff9play.cs:131-144): a
+            # name an earlier run saved never reaches this one's [STNR] pages (the review, research/o6_design.md 11.7 #2)
+            self.names = {}
             self._block(3)
         elif op == "warp":
             # H9: the agent refuses a warp off the field HUD (Ff9mkDebugMenu.Warp, HarnessAgent.cs:652-656) -- before

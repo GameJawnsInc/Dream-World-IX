@@ -23949,6 +23949,35 @@ def test_fake_naming_deaf_screen_defeats_accept_name(game):
             assert fake.ui_state == "NameSetting" and fake.named == [], (fake.ui_state, fake.named)
 
 
+def test_fake_naming_new_game_restores_the_default_name(game):
+    """H17 across runs (the review, research/o6_design.md 11.7 #2; FF9Play_New, ff9play.cs:131-144): New Game rebuilds
+    every player with its CharacterDefaultName, so a name one run saved never reaches the next. Two runs on ONE fake, as
+    a session's S F S F are: run 1 types "Rusty" at the screen (``name_typed``) -- 199 and 200 render it -- then the
+    soft reset, New Game, and run 2's naming step WITHOUT a ``name`` (its OK saves none): the pages render the
+    pre-filled default, "Steiner", and ``names`` is empty. Break: the newgame op keeps ``fake.names`` (run 2 then renders
+    "Captain Rusty!", which S16's page witness VOIDs as typed input)."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    fake = FakeGame(game)
+    fake.soft_reset_ui = SOFT_RESET_ENGINE_UI
+    pair = {"pair": [[199, 0], [200, 4]], "lag": 0, "texts": [_O6_199[0], _O6_200[0]], "raws": [_O6_199[1], _O6_200[1]]}
+    seen = []
+    with session(game, fake) as g:
+        for typed in ("Rusty", None):
+            if typed is None:                                 # run 2: the soft reset to the title, then New Game
+                st = g.soft_reset(timeout=10.0)
+                assert st.ui_state == "Title", st.ui_state
+            boot(g)
+            g.warp(30820)
+            knobs = {} if typed is None else {"name_typed": typed}
+            fake.scene(_o6_visit([{"naming": 3}, dict(pair), {"wait": 100000}], **knobs), control=False)
+            published(g, lambda s: s.ui_state == "NameSetting")
+            g.accept_name()
+            st = published(g, lambda s: len(s.texts) == 2)
+            seen.append((list(st.texts), dict(fake.names)))
+    assert seen[0] == (["Queen Brahne\n“Captain Rusty!”", "Rusty\n“Yes, Your Majesty!”"], {3: "Rusty"}), seen[0]
+    assert seen[1] == (["Queen Brahne\n“Captain Steiner!”", "Steiner\n“Yes, Your Majesty!”"], {}), seen[1]
+
+
 def test_fake_door_fires_only_past_its_line(game):
     """H18 (research/o6_design.md 3.4): the door step runs the regions' tag 2 every field tick he has control -- e23's
     quad AND z > 1333 (153 e23 t2 ip38's f[2] term). Standing inside the quad at z 1000 (its non-firing band) fires

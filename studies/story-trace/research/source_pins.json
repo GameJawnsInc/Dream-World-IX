@@ -110,5 +110,12 @@
   "new": "fb17e90789a2250f9fd1780b8584573ce6b5079afa442692966defbb93f4a549",
   "reason": "O6 B1 H17 (research/o6_design.md 3.3): each KEYON window's mes passed to open, which keys unparsed_frames by it; the pair plays exactly as before. A0b's O5 replay (test_fake_door_keeps_the_hallway_route_identical) reads identical and G26's 54 pass on it",
   "head": "181dba2302272a7f1f8e3f44777c629f5ad68011"
+ },
+ {
+  "name": "tools/harness/fakegame.py::FakeGame._execute",
+  "old": "c8ff350b322f5c5f7ed613c83b4a69ae9ea27abf3e678d634453ec82437aa311",
+  "new": "353f02bc0dda7e0524a742c8a3449fca3594d7b2bd1ef40d4e83e2a00b2381d2",
+  "reason": "O6 review #2 (research/o6_design.md 11.7 #2): the newgame op clears fake.names -- New Game rebuilds every player with its CharacterDefaultName (FF9Play_New, ff9play.cs:131-144), so a name one run saved never reaches the next run's [STNR] pages; every other op unchanged",
+  "head": "9a8f65d6bf3f3ee3c4a1753d16de65c95832fb0b"
  }
 ]

@@ -626,6 +626,8 @@ REQUIRED_TESTS_O6: tuple = (
     "test_o6_rehearsal_walk_void_falls_back_to_the_first_walk_hold",
     "test_o6_rehearsal_smoke_sends_no_storytrace_on_the_fake",
     "test_o6_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake",
+    # the review's fixes (research/o6_design.md 11.7): New Game restores the default name on the fake (#2)
+    "test_fake_naming_new_game_restores_the_default_name",
 )
 #: G33 (research/o6_design.md 9 C2): o6_dryrun's "N/N cases as registered" must have N at least this, on the draft (or
 #: the frozen file) AND on as_if_frozen(draft) -- its 92 session cases and "predictions-changed" (section 8's table), its
