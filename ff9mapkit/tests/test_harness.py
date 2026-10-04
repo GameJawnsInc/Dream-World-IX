@@ -25068,6 +25068,14 @@ def _o6_frozen_like(pred):
     return good
 
 
+def _o6_rehearsal_dir(name):
+    """Whether ``name`` -- a bare run-dir name or a full path, either slash -- is an O6 rehearsal launch's run dir:
+    ``<yyyymmdd>-<hhmmss>-o6-rh``, optionally ``-<suffix>`` (any letters, digits, ``-`` or ``_``, any case). Never
+    another segment's (``o5-rh-...``) and never a session's (``story-o6``)."""
+    base = re.split(r"[\\/]", str(name))[-1]
+    return re.fullmatch(r"\d{8}-\d{6}-o6-rh(?:[-_][A-Za-z0-9_-]+)?", base, flags=re.IGNORECASE) is not None
+
+
 def test_o6_steiner_draft_reads_the_chain_from_campaign(tmp_path):
     """The draft's members and names are O4's built chain's campaign.toml (research/o6_design.md 1.3, 4.1): its donors
     exactly the twenty, member(151), member(153) and member(154) DERIVED, never assumed, and printed as one line; the
@@ -25089,9 +25097,19 @@ def test_o6_steiner_draft_reads_the_chain_from_campaign(tmp_path):
     assert pred["route"] == [151, 153] and pred["visits"] == [151, 153] and pred["end_fields"] == [154]
     assert pred["members"] == {str(f): d for f, d in members.items()} and pred["names"]["31244"] == "O4_SYNTH_151"
     assert (pred["entrance"], pred["scenario"], pred["battles"]) == (110, 1190, [])
-    # the lead names the rehearsals at the freeze (7.3), so never pin them empty (O2's, O4's and O5's lesson): each one
-    # is a run dir of O6's OWN stages, never another segment's
-    assert all(re.fullmatch(r"\d{8}-\d{6}-o6-rh-[a-z-]+", r) for r in pred["rehearsals"]), pred["rehearsals"]
+    # the lead names the rehearsals at the freeze (7.3), so never pin them empty (O2's, O4's and O5's lesson), nor pin
+    # their FORM (the review, research/o6_design.md 11.7 #3): the lead's documented launch `--label o6-rh` names its dir
+    # `<stamp>-o6-rh` (R-DOOR x2 and the void stages in one launch), a later one may carry any suffix and case (O2's
+    # `o2-rh-R-115a`, O3's `o3-rh-F-SMOKE`), O2 and O3 froze full paths -- each one is a run dir of O6's OWN stages,
+    # never another segment's
+    assert all(_o6_rehearsal_dir(r) for r in pred["rehearsals"]), pred["rehearsals"]
+    for name in ("20261005-101010-o6-rh", "20261005-101010-o6-rh-door2", "20261005-101010-o6-rh-R-DOOR",
+                 "C:/gd/Dream-World-IX/.harness-runs/20261005-000000-o6-rh-door",
+                 "C:\\gd\\Dream-World-IX\\.harness-runs\\20261005-101010-o6-rh"):
+        assert _o6_rehearsal_dir(name), name
+    for name in ("20261003-090247-o5-rh-stairs", "20261005-101010-o6-rhx", "o6-rh", "20261005-101010-story-o6", ""):
+        assert not _o6_rehearsal_dir(name), name
+    assert all(_o6_rehearsal_dir(r) for r in _o6_frozen_like(pred)["rehearsals"])
     assert len(pred["writes"]) == 28 and len(pred["chain"]) == 2 and pred["ladder"] == [], len(pred["writes"])
     assert pred["start_residue"] == [[0, 0, 166], [1, 0, 4], [2, 0, 110]], pred["start_residue"]
     reg = pred["naming"]
