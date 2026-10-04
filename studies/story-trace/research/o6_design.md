@@ -2545,3 +2545,48 @@ mutant, today's `end_run`, fails it: no `recover-warp-after-naming` row).
 | 11 | A1, H16's knob and gate | `"walkout": {"to", "speed", "stop_z"}`; "`fake.exit_gate`". | `to` required, `speed` default 60 (HonoUpdate's run), `stop_z` default None; any other key refused when the region fires (strict, as every fake knob). The gate holds every exit that comes due in `_step_world` (a region's or a contact trigger's scheduled one) and a region's immediate one (`exit_frames` 0); a contact trigger's immediate switch is not gated -- no O6 test holds one there. Without a gate, today's fake. |
 | 12 | A2, S15's skipped run | "`skipped` "the session stopped: <why>" when its drive never began". | The run's outcome stays the loop's "not driven"; `read_session` (shared, unedited) reads the record as today's skipped run -- A-SKIPPED and the drive's end not reached, both the driver's. O6's "no VOID class" reading (5.1) is its own analysis's (PART C). |
 | 13 | A2, the O1/O2 test | "each with its own route's screen up on the fake". | `recovery=30821` passed to the inherited `end_run` (4600 is no fixture field), and the ladder's waiting rungs on 3-s clocks (`_o3_quick_ladder`), so today's-order mutant reads in seconds; the correct path never waits in them. |
+
+#### PART B, as built: where the design was silent or wrong (each the smallest correct thing)
+B0, at 181dba23 before any PART B change: the whole `tests/test_harness.py` alone, serially -- 864 passed, 1 xfailed
+(`_CREEP_BAND`'s 60.0-210), 0 skipped, 0 failed: 865 collected, A0's branch-point 850 plus PART A's 15 (62 min). Nothing
+to explain. B1 (e6b2a1e4): the gate 31/31 (36 min) with eight re-baseline rows (16 in all). B2 (d3ecd444): the gate's
+first run read 30/31 -- G19 failed ONE test, O4's `test_o4_drive_paced_tracks_the_closing_prompt_beside_its_successor`
+(one of its three paced fights ended in an exception its `_o4_run_informative` does not re-run), on a path no PART B
+code touches (the Chanbara machine beat, `segment_drive` and `segment_trace` untouched by B1 and B2; B2 test-side only),
+green in B0 and in B1's gate an hour before; alone 3 of 3 (73 s each) -- a TIMING FLAKE by 9's rule, named in B2's
+commit; the gate's re-run on that state read 31/31. B3 (5551bf0e): the gate 32/32 (39 min 53 s; G7 68 passed, S16's
+four among them; G32 27 passed, every `REQUIRED_TESTS_O6` name; G21 296 sources, 16 rows: B3 touches no pinned source).
+After B1-B3, `-k "o1_ or o2_ or o3_ or o4_ or o5_ or segment or fake_"`: 294 passed, 0 failed, 0 skipped (32 min). B4's
+first run (at 5551bf0e, alone, serially, 73 min) read 892 passed, 1 xfailed, 0 skipped, 2 FAILED -- O4's
+`test_o4_drive_scores_100_on_the_fake` and
+`test_o4_drive_paced_tracks_the_closing_prompt_beside_its_successor`, each VOID in all three of its
+`_o4_run_informative` attempts by the instrument's own load class, "a read gap of 0.11-0.18 s straddles instance N's
+mark" (the harness not reading for over a tenth of a second mid-fight, at about 02:07); no PART B code on their path
+(their predictions register no naming, so S16 never arms; the Chanbara beat and executor untouched); each passed alone 3
+of 3 (49-50 s and 72-82 s) -- TIMING FLAKES by 9's rule, named here; everything else as B0 (no test lost, B0's xfail,
+all 30 new tests passed). B4: the whole file re-run alone, serially, at 5551bf0e (67 min) -- 894 passed, 1 xfailed
+(B0's), 0 skipped, 0 failed: B0's 864 and PART B's 30, no test lost, no status changed. PART B adds 30 tests (B1's
+eight, B2's one, B3's four S16 and seventeen O6 drive tests): 895 collected. A suggestion for the lead: O4's two
+paced/scoring drive tests meet the harness's read-gap VOID whenever the machine stalls the driver's reads mid-fight; the
+nightly's -n 6 may meet them.
+
+| # | Where | The design | As built, and why |
+|---|---|---|---|
+| 1 | B1, the re-baselined pins | "The O5 pins this edits (`_visit_steps`, `_VisitBeat.__init__`, `_VisitBeat.ui`, `_VisitBeat.open`, `_VisitBeat._run`)". | Eight, not five: also `_VisitBeat.shown` (an unparsed window publishes its raw, and the publish reads `shown`), `_VisitBeat._open_mes` and `_VisitBeat._pair` (they pass the step's mes to `open`, which keys `unparsed_frames` by it -- `open` alone never knows it). Each re-baselined by name with its reason in B1's commit; A0b's replay identical and G26's 54 passing on the edited fake. |
+| 2 | B1, the door's fire row | "a `visit_log` row "door" (name, x, z)". | Kind `fire`: `_run` already logs every step's start, the door step's as kind `door`, so a fire of the same kind would make two `door` rows of one fire. |
+| 3 | B1, a naming step without `name` | (silent) | The OK saves no name (`fake.names` unchanged, `fake.named` gets the character): a [STNR] page then renders the pre-filled default, "Steiner". |
+| 4 | B1, the door's walk-out | "for `ticks` ticks ... the walk-out". | The visit beat's own: a step per WHOLE field tick of its script (MOVJ runs in ProcessEvents beside the door's own script), held through the exit gate ("he stands where the walk-out left him meanwhile"); H16's region walk-out stays the world's (a frame's share of a tick, while a FakeGame exit is pending), untouched. |
+| 5 | B2, the [STNR] pages | "199 / 200 / 203 / 211-214 / 217-219 / 221 / 222 carry block 3's [STNR] sources as raws". | 198, 199 and 200 (and window 56) carry block 3's sources -- what a driver rule or a check matches; the other [STNR] pages are placeholders under the tag (`[STNR]` + a distinct line): no rule or check reads their words and the fake renders the tag the same. The same coverage with less game text in the repo. |
+| 6 | B2, the scripted player | "a SCRIPTED PLAYER ... the naming's two Confirms". | `_o6_play`, O6's own: O5's `_fv_play` presses nothing on a naming screen (no window is listed there); O5's helper untouched. |
+| 7 | B2, the builder's knobs | `_o6_route(side, *, e15_late, walkout_stop, short, wait_scale, **faults)`. | Plus `lag199` (default 6, the bytes'): the unparsed-window tests need the pair opened together, or 60 ticks apart (#11). |
+| 8 | B3, `naming_of` | "each exactly keys of NAMING_KEYS -- `donor` and `sc` ints ..., `beat` a non-empty str or None, `why` a str". | `donor` and `sc` required; `beat`, `why` and `on_page` optional -- O2's frozen registration carries no `why`. |
+| 9 | B3, `before` | "the ring's latest sample before the naming screen's first sample that listed a window". | The screen's first sample read as the start of the run of `NameSetting` samples ending at rule 4's poll; `before` the latest sample before it that lists any window. |
+| 10 | B3, the witness at a new visit | "a new visit disarms it -- no row, its beat stays False ... (the ring held no parsed frozen window while 151 lasted)". | Rule 3 first takes a LAST scan of the field the run leaves -- a poll gap across the visit's end must not lose a 199 the ring did hold -- then disarms; a row found there is judged as any other. |
+| 11 | B3, `unparsed_frames` in the tests | "`unparsed_frames` {first: 2}" / "{second: 3}" / "{199: 2}" / "{200: 3}". | 90 frames, 200 opening 60 ticks after 199 (or with it): two frames are ~8 ms at the fake's 4x loop, under the driver's 30-50 ms reads, so the knob would test nothing (and with 199 unparsed past 200's opening the first parsed frozen window is 200's). A run whose ring read no unparsed sample tests nothing and is re-run (the drive test's `spoiled`); the segment test runs its scene at the render rate, 1.5 s unparsed. |
+| 12 | B3, "199 alone" | "the `name_on_page` row (199 alone, ...)". | Asserted exactly per sample: the row stands on the ring's first sample listing a parsed frozen window and lists exactly that sample's parsed frozen windows -- 199 alone whenever 200 is unopened or unparsed there. Never a timing claim: a starved read lands after 200 opens and lists both, both right. |
+| 13 | B3, `short` | "`short`: 153@328 alone from the grant". | The short run starts in 153 at 328 and keeps the cell at visit 2 (the start place's index in `visits`, as R-WALK-VOID's stage does), so every VOID cell reads `[..., 2]` as on the full route. |
+| 14 | B3, the misroute tests | (the path unstated) | Path B (`walkout_stop` None), as A1's wrong-landing test (PART A #9): on path A the step is done before the landing exists and has no `misroute`; a run the load bent onto path A is re-run, its class asserted (the game's). |
+| 15 | B3, `test_o6_drive_e15_late_is_covered` | no break named. | Break: the builder's `e15_late` ignored (the row then precedes ip971) -- no driver code reads the order, which is the claim. |
+| 16 | B3, the wrong-door test | "V11 driver, the step row's `door` 153.e25 and `landed` "64"". | Also accepted: the step "interrupted" with rule 2's late V11 on the same row -- a fake starved past `exit_wait_s` (5 s) -- the driver's V11 for the same walk, its `door` and `landed` the same. |
+| 17 | B3, the main drive test | "its `walkout` filled at rule 1 (S14b)". | Its `flip_frame` and `landed_frame` asserted in either path; the walk-out's samples are the gated path-A test's, where `settle()`'s reads guarantee them (on path B a fully starved harness may read nothing between the loss and the flip). |
+| 18 | B3, the naming recovery test | "`end_run`'s rows ... the title". | A director gives control in 30821 on arrival (4600's grant; the O6 runs keep `warp_arrive_control` False): without it `end_run`'s retried warp waits 60 s for control and logs `recover-warp-after-naming-failed`. |
