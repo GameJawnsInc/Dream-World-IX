@@ -599,6 +599,19 @@ REQUIRED_TESTS_O6: tuple = (
     "test_o6_drive_unregistered_naming_is_v10",
     "test_o6_drive_e15_late_is_covered",
     "test_o6_drive_walks_the_real_hall_on_the_fake",
+    # C1: o6_steiner -- the draft from O4's campaign.toml, the freeze's refusals, the route builder against the draft,
+    # instanced_at6's compare dispatch, the census's live and inert proofs, the regions, the door's goals, the floating
+    # e15 row, A-START and A-NAMING, the preflight's verdicts
+    "test_o6_steiner_draft_reads_the_chain_from_campaign",
+    "test_o6_steiner_freeze_refuses",
+    "test_o6_steiner_route_builder_matches_the_keys",
+    "test_o6_steiner_instanced_at_reads_the_compare_dispatch",
+    "test_o6_steiner_census_proves_live_and_inert",
+    "test_o6_steiner_regions_roles",
+    "test_o6_steiner_goals_door",
+    "test_o6_steiner_pattern_floats_the_e15_row",
+    "test_o6_steiner_why_void_reads_151s_error_path_as_the_start",
+    "test_o6_steiner_preflight_verdicts",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

@@ -25018,3 +25018,547 @@ def test_o6_drive_walks_the_real_hall_on_the_fake(game, dali):
         along = (dx * ux + dz * uz) / n
         east.append(dx - along * ux / n)
     assert holds and max(east) >= 20.0, (holds, east)
+
+
+# ---- O6 itself (studies/story-trace/o6_steiner.py; research/o6_design.md section 9, PART C, C1-C2): the draft read
+# from O4's campaign.toml, the freeze's refusals, the route builder against the draft (one source of truth),
+# instanced_at6's compare dispatch, the census's live and inert proofs, the regions' roles, the door's goals, O6-PATTERN's
+# floating row, O6-NAMING and O6-START-DEPENDENT, A-START and A-NAMING, the preflight's verdicts and the trace summary --
+# each pure or on synthetic chains, meshes and rows (the census, the regions, the goals' (e), the builder's pattern and
+# the trace summary read the install's stock scripts, read-only: a warned skip without it, which fails G32).
+
+def _o6_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o6_steiner as O
+    return O
+
+
+@pytest.fixture(scope="module")
+def o6_stock():
+    """The install's stock scripts of 151, 153 and 154 (what O6-CENSUS, O6-REGIONS, O6-GOALS (e) and O6-PATTERN's join
+    read), or a WARNED skip -- never a silent pass (THE WORKTREE SKIP TRAP)."""
+    import warnings
+    try:
+        from ff9mapkit import storytrace
+        src = storytrace.stock_script_source()
+        assert all(src(f) is not None for f in (151, 153, 154))
+    except Exception as err:                                   # noqa: BLE001 -- no install here
+        warnings.warn(f"O6's census, regions, goals and pattern went UNVERIFIED against real bytes in this run: the game "
+                      f"install is not readable here ({type(err).__name__}). Run on the machine with the install.",
+                      UserWarning)
+        pytest.skip("game install unavailable")
+    return src
+
+
+def _o6_draft(tmp_path):
+    """The draft on a synthetic alxc chain (:func:`_o4c_campaign`: the twenty donors at 31240 + their position, so
+    member(151) 31244, member(153) 31245, member(154) 31246 as built)."""
+    return _o6_module().draft_predictions(_o4c_campaign(tmp_path))
+
+
+def _o6_frozen_like(pred):
+    """The draft with the freeze-time values a freeze needs (the claim critic's #9): R-DOOR's measured e15 position inside
+    the bytes' window, a named rehearsal -- what the lead's freeze writes, never pinned by a test."""
+    import copy
+    O = _o6_module()
+    good = copy.deepcopy(pred)
+    win = O.float_window(good["pattern"])[0]
+    good["pattern"]["floating"][0]["measured"] = {"index": [win[0], win[1]], "frames_to_971": [300, 280]}
+    good["rehearsals"] = ["C:/gd/Dream-World-IX/.harness-runs/20261005-000000-o6-rh-door"]
+    return good
+
+
+def test_o6_steiner_draft_reads_the_chain_from_campaign(tmp_path):
+    """The draft's members and names are O4's built chain's campaign.toml (research/o6_design.md 1.3, 4.1): its donors
+    exactly the twenty, member(151), member(153) and member(154) DERIVED, never assumed, and printed as one line; the
+    draft starts F in member(151), ends S in real 154 and F in member(154) (``side_ends``), visits 151 then 153, carries
+    the naming registration with its page witness (two frozen windows), the witness, the north door's visit-scoped cell
+    (its ``to`` 154, its evidence z > 1200, no typed slack), the THREE residue rows, 30 keys (28 writes + 2 chain), the two
+    start-dependent keys with ``after`` (its run the class's AFTER_RUN, its source named) and the e15 row floating; a
+    chain whose ids run the other way moves the F start and end with it. The rehearsals are read from the draft (the lead
+    names them at the freeze), never pinned. o6_forks.json is O4's chain reused: O4's twenty members and names, its route
+    members derived, deployed, nothing to relaunch, block 3's members, C0's measured sites. Break: end the F side in real
+    154."""
+    O = _o6_module()
+    members, names = O.chain_from_campaign(_o4c_campaign(tmp_path))
+    assert O.route_members(members) == {151: 31244, 153: 31245, 154: 31246}, O.route_members(members)
+    assert O.route_members_line(members) == "member(151) 31244, member(153) 31245, member(154) 31246"
+    pred = _o6_draft(tmp_path)
+    assert pred["start"] == {"S": 151, "F": 31244} and pred["side_ends"] == {"S": [154], "F": [31246]}, \
+        (pred["start"], pred["side_ends"])
+    assert pred["route"] == [151, 153] and pred["visits"] == [151, 153] and pred["end_fields"] == [154]
+    assert pred["members"] == {str(f): d for f, d in members.items()} and pred["names"]["31244"] == "O4_SYNTH_151"
+    assert (pred["entrance"], pred["scenario"], pred["battles"]) == (110, 1190, [])
+    # the lead names the rehearsals at the freeze (7.3), so never pin them empty (O2's, O4's and O5's lesson): each one
+    # is a run dir of O6's OWN stages, never another segment's
+    assert all(re.fullmatch(r"\d{8}-\d{6}-o6-rh-[a-z-]+", r) for r in pred["rehearsals"]), pred["rehearsals"]
+    assert len(pred["writes"]) == 28 and len(pred["chain"]) == 2 and pred["ladder"] == [], len(pred["writes"])
+    assert pred["start_residue"] == [[0, 0, 166], [1, 0, 4], [2, 0, 110]], pred["start_residue"]
+    reg = pred["naming"]
+    assert len(reg) == 1 and (reg[0]["donor"], reg[0]["sc"], reg[0]["beat"]) == (151, 1190, "named"), reg
+    assert [w["mes"] for w in reg[0]["on_page"]["windows"]] == [199, 200] and reg[0]["on_page"]["tag"] == "[STNR]"
+    assert pred["witness"]["input_every_s"] == 0.05 and pred["table"][0]["visit"] == 2, pred["table"]
+    step = pred["table"][0]["steps"][0]
+    assert (step["kind"], step["to"], step["until"], step["npcs"]) == ("trigger", 154, {"z_gt": 1200}, False), step
+    assert "stale_slack" not in pred["walk"] and pred["walk"]["door"] == "153.e23", pred["walk"]
+    assert [k["after"]["run"] for k in pred["start_dependent"]] == [O.O6Segment.AFTER_RUN] * 2
+    assert all(k["after"].get("source") for k in pred["start_dependent"]), pred["start_dependent"]
+    assert [fl["tuple"] for fl in pred["pattern"]["floating"]] == [[153, 15, 0, 26, "Global.Byte[8]", 125, 0]]
+    rev = O.draft_predictions(_o4c_campaign(tmp_path, ids={d: 31259 - i for i, d in enumerate(O.C4.DONORS)},
+                                            name="reversed.toml"))
+    m = {d: f for f, d in ((int(f), d) for f, d in rev["members"].items())}
+    assert rev["start"]["F"] == m[151] != 31244 and rev["side_ends"]["F"] == [m[154]], (rev["start"], rev["side_ends"])
+    with pytest.raises(AssertionError, match=r"missing \[151\]"):
+        O.chain_from_campaign(_o4c_campaign(tmp_path, donors=[d for d in O.C4.DONORS if d != 151], name="bad.toml"))
+    man = json.loads(O.MANIFEST.read_text(encoding="utf-8"))
+    o4 = json.loads(O.C4.MANIFEST.read_text(encoding="utf-8"))
+    mm = {int(f): int(d) for f, d in man["members"].items()}
+    assert man["members"] == o4["members"] and man["names"] == o4["names"], "o6_forks.json is not O4's chain"
+    assert man["route_members"] == {str(f): d for d, f in O.route_members(mm).items()}, man["route_members"]
+    assert (man["deployed"], man["relaunch_needed"], man["reuses"]) == (True, False,
+                                                                        "studies/story-trace/o4_forks.json"), man
+    assert man["text_blocks"] == {"3": o4["text_blocks"]["3"]}, man["text_blocks"]
+    for site in ("e2 t1 ip940 (153)", "e23 t2 ip211 (154)", "e3 t1 ip3158 (154)", "e2 t1 ip1528 (153)",
+                 "e3 t1 ip3296 Field(204)"):
+        assert site in man["built"]["measured"], site
+
+
+def test_o6_steiner_freeze_refuses(tmp_path):
+    """The freeze (research/o6_design.md 1.3, 7.3) writes the draft ONCE -- LF, sorted keys, its sha the bytes' -- on a
+    synthetic chain, the live engine (a stub reader) and the freeze-time values the lead writes (:func:`_o6_frozen_like`).
+    Before anything is written it refuses, each naming its cause and writing nothing: no witness; a naming registration
+    without ``on_page``, one without ``windows``; a table step carrying a rehearsal overlay (``walk_stop_z``,
+    ``walk_stop_hold``); a ``walk`` carrying a typed ``stale_slack``; side_ends ending F in REAL 154; a battles row; a
+    start-dependent key without ``after``, one whose ``after`` has no ``source``; the floating row's ``measured`` null and
+    measured outside the bytes' window; an empty ``rehearsals``; an engine that is not the live DLLs'; and a second
+    freeze onto the same file refuses. The real o6_predictions_v1.json is never touched. Break: accept a step's
+    walk_stop_z."""
+    import copy
+    import hashlib
+    O = _o6_module()
+    _o4c_campaign(tmp_path)
+    seg = O.O6Segment()
+    seg.chain_dir = tmp_path
+    live = {"x64": O.ENGINE["x64"], "x86": O.ENGINE["x86"]}
+    good = _o6_frozen_like(seg.draft())
+
+    def refuses(pred, match, engine=live):
+        seg.draft = lambda: copy.deepcopy(pred)
+        never = tmp_path / "never.json"
+        with pytest.raises(SystemExit, match=match):
+            seg.freeze(never, live_engine=engine)
+        assert not never.exists()
+
+    def edited(fn):
+        p = copy.deepcopy(good)
+        fn(p)
+        return p
+    refuses(edited(lambda p: p.pop("witness")), "no witness")
+    refuses(edited(lambda p: p["naming"][0].pop("on_page")), "carries no on_page windows")
+    refuses(edited(lambda p: p["naming"][0]["on_page"].__setitem__("windows", [])), "windows is a non-empty list")
+    refuses(edited(lambda p: p["table"][0]["steps"][0].__setitem__("walk_stop_z", 500)),
+            r"rehearsal overlay \['walk_stop_z'\]")
+    refuses(edited(lambda p: p["table"][0]["steps"][0].__setitem__("walk_stop_hold", True)),
+            r"rehearsal overlay \['walk_stop_hold'\]")
+    refuses(edited(lambda p: p["walk"].__setitem__("stale_slack", 160)), "typed stale_slack")
+    refuses(dict(copy.deepcopy(good), side_ends={"S": [154], "F": [154]}), "neither an end field no member forks")
+    refuses(dict(copy.deepcopy(good), battles=[{"donor": 153}]), "battle row")
+    refuses(edited(lambda p: p["start_dependent"][0].pop("after")), "carries no after")
+    refuses(edited(lambda p: p["start_dependent"][1]["after"].pop("source")), "after carries no source")
+    refuses(edited(lambda p: p["pattern"]["floating"][0].__setitem__("measured", None)), "measured is null")
+    refuses(edited(lambda p: p["pattern"]["floating"][0].__setitem__("measured", {"index": [7]})),
+            r"measured index \[7\] outside its window")
+    refuses(edited(lambda p: p["pattern"]["floating"][0].__setitem__("measured", {"index": [16]})),
+            r"measured index \[16\] outside its window")
+    refuses(dict(copy.deepcopy(good), rehearsals=[]), "no rehearsals")
+    refuses(good, "is not the live DLLs'", engine={"x64": "0" * 64, "x86": "0" * 64})
+    seg.draft = lambda: copy.deepcopy(good)
+    path = tmp_path / "o6_predictions_v1.json"
+    sha = seg.freeze(path, live_engine=live)
+    data = path.read_bytes()
+    assert sha == hashlib.sha256(data).hexdigest() and b"\r" not in data and data.endswith(b"\n")
+    assert data.decode("utf-8") == json.dumps(good, indent=1, sort_keys=True) + "\n"
+    with pytest.raises(SystemExit, match="frozen"):
+        seg.freeze(path, live_engine=live)
+    assert path.read_bytes() == data
+
+
+def test_o6_steiner_route_builder_matches_the_keys(game, o6_stock, tmp_path):
+    """ONE SOURCE OF TRUTH (research/o6_design.md 3.6, 9 C1): the test-side route builder (:func:`_o6_route`, B2's) and
+    the draft agree. Its three visit beats played by the scripted player (:func:`_o6_play`) from field 70's prologue
+    values and the raw warp, traced with the sink's suppression (H13), read as the analysis reads a run -- the fixture's
+    fields as their places (30810 "151", 30820 "153", 30821 "154"), cut at 151's first write and at 154's first row: the
+    residue before the start is the draft's THREE rows; the first write is ``start_first``; the distinct unmasked keys of
+    the route places are EXACTLY the draft's 28 writes and 2 chain keys, and its masked rows the four prologue rows; the
+    cut row is ``landing.end_row``; O6-PATTERN's reading (:func:`o6_steiner.pattern_of6`, joined on the stock bytes) is
+    the draft's ``pattern`` with no difference (:func:`o6_steiner.pattern_diff6`: the e15 row once, inside the bytes'
+    window); and the builder's [STNR] windows 199 and 200 hold the registration's ``raw_holds`` and render its computed
+    lines. Break: compare the visits with the floating row left in (O5's pattern_diff)."""
+    from ff9mapkit import storytrace
+    O = _o6_module()
+    ST = __import__("segment_trace")
+    pred = _o6_draft(tmp_path)
+    fake = _fv_fake(game, field=70, trace=False)
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(110, 1190)
+    fake.field_id = 30810
+    fake.scene(*_o6_route("S"), control=False)
+    _o6_play(fake, until=lambda f: f.field_id == 30821 and any(e["index"] == 3 and e["kind"] == "wait"
+                                                                for e in f.visit_log))
+    fake._story_stop()
+    rows = storytrace.parse_text("".join(json.dumps(r) + "\n" for r in _fv_rows(fake)))
+    places = {30810: 151, 30820: 153, 30821: 154}
+    kept, at, pre = ST.cut_at_start(rows, 151, places)
+    kept, end = ST.cut_at_end(kept, [154], places)
+    assert [[x.byte, x.old, x.new] for x in pre if x.k == "r"] == pred["start_residue"], pre
+    first = next(x for x in kept if x.k == "w")
+    sf = pred["start_first"]
+    assert (first.sid, first.tag, first.ip, first.target, first.new) == (sf["sid"], sf["tag"], sf["ip"], sf["target"],
+                                                                         sf["value"]), first
+    keys = {(places[x.fld], x.sid, x.tag, x.ip, x.target, x.new) for x in kept
+            if x.k == "w" and x.src == "eb" and not storytrace.noise_regions(x)}
+    want = {(k["donor"], k["sid"], k["tag"], k["ip"], k["target"], k["value"]) for k in pred["writes"] + pred["chain"]}
+    assert keys == want and len(want) == 30, (sorted(keys ^ want), len(want))
+    masked = sorted((places[x.fld], x.sid, x.tag, x.ip, x.target) for x in kept
+                    if x.k == "w" and x.src == "eb" and storytrace.noise_regions(x))
+    assert masked == [(151, 0, 0, 22, "Global.Bit[191]"), (151, 0, 0, 49, "Global.Bit[184]"),
+                      (153, 0, 0, 22, "Global.Bit[191]"), (153, 0, 0, 49, "Global.Bit[184]")], masked
+    cut = next(x for x in rows if x.line == end)
+    lend = pred["landing"]["end_row"]
+    assert (places[cut.fld], cut.sid, cut.tag, cut.ip, cut.target, cut.new) == (
+        lend["place"], lend["sid"], lend["tag"], lend["ip"], lend["target"], lend["value"]), cut
+    got = O.pattern_of6(kept, pred, places, O.C5.stock_join(o6_stock, places))
+    assert got["unjoined"] == 0 and got["counts"] == [] and O.pattern_diff6(got, pred["pattern"]) == [], \
+        O.pattern_diff6(got, pred["pattern"])
+    assert [len(v) for v in got["visits"]] == [10, 24], [len(v) for v in got["visits"]]
+    opens = [e["text"] for e in fake.machine_log if e["event"] == "open"]
+    for w in pred["naming"][0]["on_page"]["windows"]:
+        src = _O6_199 if w["mes"] == 199 else _O6_200
+        assert w["raw_holds"] in src[1], (w, src)
+        text = next(t for t in opens if t == src[0].replace("[STNR]", "Steiner"))
+        assert text.split("\n")[w["line"]] == w["text"], (text, w)
+
+
+def test_o6_steiner_instanced_at_reads_the_compare_dispatch(o6_stock):
+    """instanced_at6 (research/o6_design.md 0.2 #2, 1.3): 151's entrance dispatch is a COMPARE -- ``SET({Global.Int16[2]
+    const(110) B_EQ B_EXPR_END})``, ``JMP_IFNOT(L340)`` -- which O4's walker refuses (no SWITCH). At 110 the compare holds
+    and the jump falls through: {object 3, 4, 5, 12, 17; code 1, 2}; at any other entrance (327) it jumps to L340:
+    {object 3, 6, 7, 12; region 8; code 1, 2}. 153's SWITCHEX at 328 reads O4's walker's set exactly. On synthetic items
+    the JMP_IF form jumps on equality, and a Main_Init with neither form raises. Break: follow the compare's jump both
+    ways (151 at 110 then instances 6, 7 and region 8 too)."""
+    O = _o6_module()
+    C4 = _o4_castle_module()
+    i151, i153 = o6_stock(151), o6_stock(153)
+    assert O.instanced_at6(i151, 110) == {("object", 3), ("object", 4), ("object", 5), ("object", 12), ("object", 17),
+                                          ("code", 1), ("code", 2)}, sorted(O.instanced_at6(i151, 110))
+    assert O.instanced_at6(i151, 327) == {("object", 3), ("object", 6), ("object", 7), ("object", 12), ("region", 8),
+                                          ("code", 1), ("code", 2)}, sorted(O.instanced_at6(i151, 327))
+    with pytest.raises(ValueError, match="no SWITCH"):
+        C4.instanced_at(i151, 110)
+    assert O.instanced_at6(i153, 328) == C4.instanced_at(i153, 328)
+    items = [(0, 0, "InitCode(1, 0)"), (3, 3, "SET({Global.Int16[2] const(7) B_EQ B_EXPR_END})"), (11, 11, "JMP_IF(L20)"),
+             (14, 14, "InitObject(5, 0)"), (17, 17, "RET()"), (20, 20, "InitObject(6, 0)"), (23, 23, "RET()")]
+    assert O.instanced_at6(None, 7, items=items) == {("code", 1), ("object", 6)}
+    assert O.instanced_at6(None, 8, items=items) == {("code", 1), ("object", 5)}
+    with pytest.raises(ValueError, match="no entrance dispatch"):
+        O.instanced_at6(None, 7, items=[(0, 0, "InitCode(1, 0)"), (3, 3, "RET()")])
+
+
+def test_o6_steiner_census_proves_live_and_inert(o6_stock, tmp_path):
+    """O6-CENSUS (research/o6_design.md 0.2 #3, 6.1; the critic's #3) on the real bytes PASSES with 6.1's line -- 151's
+    inert e8 proven at 110 by its compare dispatch, 153's e3, e18, e28 at 328, e15 LIVE (its one caller e32 t1 ip866,
+    e32 instanced at 328) and 153's other shared entries storeless and unrun. Then FAILS by name: O5's registration of e15
+    replayed at 328 (``inert``, ``shared_by`` [32], its key out of the writes) -- "registered inert, run by
+    RunSharedScript(15) at e32 t1 ip866 -- e32 instanced at 328"; 151 e3 registered inert (Brahne, instanced at 110);
+    the live entry's callers naming e3. Break: drop the inert entry's caller check."""
+    import copy
+    O = _o6_module()
+    pred = _o6_draft(tmp_path)
+    ok, _w, detail = O.O6.census_check(pred, o6_stock)
+    assert ok and detail == (
+        "151: 21, 153: 51 store sites -- all classified (writes 7/21, chain 1/1, masked 2/2 (151's ip22 is start_first), "
+        "error_path 4/4, forbidden 0/4, dead 5/10, inert 2/9); 0 unresolved; inert 151 e8 not instanced at 110, 153 e3, "
+        "e18, e28 not instanced at 328; LIVE shared 153 e15 (run by e32 t1 ip866, e32 instanced at 328); 153's other "
+        "shared entries 4, 5, 6, 8, 10, 12, 19 hold no store, their callers in e3/e7/e9/e11/e18 (not instanced at "
+        "328)"), detail
+
+    def o5_e15(p):
+        p["live_shared"] = []
+        p["writes"] = [k for k in p["writes"] if (k["donor"], k["sid"]) != (153, 15)]
+        p["inert"].append({"donor": 153, "sid": 15, "tags": "*", "shared_by": [32], "why": "O5's registration"})
+    for mutate, clause in (
+            (o5_e15, "153 e15: registered inert, run by RunSharedScript(15) at e32 t1 ip866 -- e32 instanced at 328"),
+            (lambda p: p["inert"].append({"donor": 151, "sid": 3, "tags": "*", "why": "a mutant"}),
+             "inert entry 3 of 151 is instanced at entrance 110"),
+            (lambda p: p["live_shared"][0].__setitem__("callers", [[3, 1, 1021]]),
+             "153 e15: live_shared callers [[3, 1, 1021]], but RunSharedScript(15) runs at [[32, 1, 866]]")):
+        bad = copy.deepcopy(pred)
+        mutate(bad)
+        ok, _w, detail = O.O6.census_check(bad, o6_stock)
+        assert not ok and clause in detail, (clause, detail)
+
+
+def test_o6_steiner_regions_roles(o6_stock, tmp_path):
+    """O6-REGIONS (research/o6_design.md 4.17, 6.1): each role proven by instancing at the ROUTE's entrances through
+    instanced_at6 (151 dispatches by an Int16[2] compare): the draft passes -- 7 regions (3 exit, 4 dormant), 0
+    hot-spots, 5 gateway entries all registered. Each mutant FAILS naming its clause: 153.e23 (the north door, instanced
+    at 328) registered dormant; 151.e8 registered an exit (instanced on the default branch only); 153.e25 dropped (a
+    gateway); a dormant region whose entrances omit 328. Break: O4's walker for the instancing (151 then reads no
+    dispatch)."""
+    import copy
+    O = _o6_module()
+    pred = _o6_draft(tmp_path)
+    ok, _w, detail = O.O6.regions_check(pred, o6_stock)
+    assert ok and detail == "7 regions (3 exit, 4 dormant), 0 hot-spots, 5 gateway entries all registered", detail
+
+    def role(key, **kw):
+        def fn(p):
+            r = p["regions"][key]
+            for k in ("to", "entrance", "face_gate", "stage", "entrances"):
+                r.pop(k, None)
+            r.update(kw)
+        return fn
+    for mutate, clause in ((role("153.e23", role="dormant", entrances=[328]),
+                            "153.e23: dormant, but instanced at route entrance(s) [328]"),
+                           (role("151.e8", role="exit", to=153, entrance=327, face_gate=None),
+                            "151.e8: an exit no route entrance of 151 ([110]) instances"),
+                           (lambda p: p["regions"].pop("153.e25"), "153.e25: a gateway"),
+                           (lambda p: p["regions"]["153.e26"].__setitem__("entrances", []),
+                            "153.e26: its entrances [] are not the route's entrances of 153 [328]")):
+        bad = copy.deepcopy(pred)
+        mutate(bad)
+        ok, _w, detail = O.O6.regions_check(bad, o6_stock)
+        assert not ok and clause in detail, (clause, detail)
+
+
+def _o6_corridor(*, ramp_y=None):
+    """A synthetic floor for O6-GOALS: a strip x -600..600 from z -200 to 2200 in rows 200 u apart, two triangles a quad,
+    on the ground (PSX y -1) -- with ``ramp_y`` its last row (z 2200) at that height (an upstairs tri past z 1200)."""
+    from ff9mapkit.scene import bgi
+    zs = [-200 + 200 * i for i in range(13)]
+    verts = [(x, (ramp_y if (ramp_y is not None and z == zs[-1]) else -1), z) for z in zs for x in (-600, 600)]
+    faces = [f for r in range(12) for f in ((2 * r, 2 * r + 1, 2 * r + 3), (2 * r, 2 * r + 3, 2 * r + 2))]
+    return bgi.BgiWalkmesh.from_bytes(bgi.build(verts, faces).to_bytes())
+
+
+def test_o6_steiner_goals_door(o6_stock, tmp_path):
+    """O6-GOALS (c'), (c''), (d') and (e) (research/o6_design.md 6.1; the critic's #2; the claim critic's #8) on a
+    synthetic ground corridor under the draft's north door step (its closed tris none: the stock 33 are 153's), the door's
+    test read off its pinned text (ground > -100, z > 1333), (e) on the stock 153: the draft PASSES -- (c') the route
+    first past z 1333 inside 153.e23 on ground, (c'') 133 u admitted (<= 180, derived: 3 ticks x 60 u), (d') e24 and e25
+    outside and avoided, every tri past z 1200 ground, (e) e23 t2 ip211 alone. Then each FAILS by its clause: the start
+    off the floor ((c')); until z_gt 900 ((c''): 433 u, over the derived 180); a typed ``walk.stale_slack`` 500 with it
+    ((c''): refused by name -- a typed slack let the 900 pass under the first design); e25 out of ``avoid`` ((d')); an
+    upstairs row past z 1200 ((d')); ``to`` 150 ((e)). Break: read a typed stale_slack when the walk carries one."""
+    import copy
+    O = _o6_module()
+    pred = _o6_draft(tmp_path)
+    pred["table"][0]["steps"][0]["closed_tris"] = []
+    flat = _o6_corridor()
+    bad, lines = O.goals_extra6(pred, walkmesh=lambda d: flat, stock=o6_stock)
+    assert bad == [], bad
+    text = "; ".join(lines)
+    for want in ("(c') the start (-245, 42) on open ground tri", "inside 153.e23",
+                 "(c'') the door's test (ground > -100, z > 1333) and until z_gt 1200: 133 u of its non-firing band "
+                 "admitted (<= 180: 3 ticks x 60 u, derived)", "(d') 153.e24, 153.e25 wholly outside the until and "
+                                                              "avoided", "all ground",
+                 "(e) to 154: 153's live Field(154) at 328 is e23 t2 ip211 alone"):
+        assert want in text, (want, text)
+
+    def step(**kw):
+        def fn(p):
+            p["table"][0]["steps"][0].update(kw)
+        return fn
+
+    def fails(mutate, clause, mesh=flat):
+        p = copy.deepcopy(pred)
+        mutate(p)
+        bad, _lines = O.goals_extra6(p, walkmesh=lambda d: mesh, stock=o6_stock)
+        assert any(clause in b for b in bad), (clause, bad)
+    fails(step(start=[-2000, 42]), "(c'): the start (-2000.0, 42.0) stands on no open tri")
+    fails(step(until={"z_gt": 900}), "(c''): until z_gt 900 admits 433 u of the door's non-firing band")
+    fails(lambda p: (step(until={"z_gt": 900})(p), p["walk"].__setitem__("stale_slack", 500)),
+          "(c''): the walk carries a typed stale_slack 500")
+    fails(step(avoid=["153.e24"]), "(d'): the registered exit(s) ['153.e25'] are not in the step's avoid")
+    fails(lambda p: None, "(d'): open tri(s)", mesh=_o6_corridor(ramp_y=-500))
+    fails(step(to=150), "(e): its to 150 is not where the route's order goes next from 153 ([154])")
+    p = copy.deepcopy(pred)
+    step(until={"z_gt": 900})(p)
+    p["walk"]["stale_slack"] = 500
+    bad, _lines = O.goals_extra6(p, walkmesh=lambda d: flat, stock=o6_stock)
+    assert any("until z_gt 900 admits 433 u" in b for b in bad), bad      # the typed slack never widens the band
+
+
+def _o6_pattern_rows(pred, fields, *, e15_at=None, twice=False, drop_e15=False):
+    """The draft's ``pattern`` as story rows on ``fields`` ({151: id, 153: id}), each tuple's function offset as its
+    ``ip`` (a stub join reads it back): each visit's emitted ``w`` rows in order, the floating e15 row at its frozen slot
+    (after ip727) or after the tuple of ``e15_at`` (an offset; 0: before ip727's)."""
+    from ff9mapkit import storytrace
+    O = _o6_module()
+    fl = pred["pattern"]["floating"][0]
+    v1, v2 = [list(t) for t in pred["pattern"]["visits"][0]], [list(t) for t in pred["pattern"]["visits"][1]]
+    at = next(i for i, t in enumerate(v2) if t == fl["after"]) + 1
+    if e15_at is not None:
+        at = 0 if e15_at == 0 else next(i for i, t in enumerate(v2) if t[3] == e15_at) + 1
+    if not drop_e15:
+        v2 = v2[:at] + [list(fl["tuple"])] * (2 if twice else 1) + v2[at:]
+    rows, f = [], 1000
+    for place_, sid, tag, off, target, new, same in v1 + v2:
+        f += 10
+        width, index = target.split(".", 1)[1].rstrip("]").split("[")
+        bit = int(index) if width == "Bit" else -1
+        rows.append(storytrace.Row(k="w", f=f, p=0, m=1, fld=fields[place_], don=place_, sc=1190, line=len(rows) + 1,
+                                   src="eb", sid=sid, uid=sid, lvl=0, ip=off, tag=tag, add=0,
+                                   byte=int(index) >> 3 if bit >= 0 else int(index), width=width, bit=bit,
+                                   old=new if same else new + 1, new=new, same=same))
+    return rows, O
+
+
+def test_o6_steiner_pattern_floats_the_e15_row(tmp_path):
+    """O6-PATTERN's FLOATING ROW (research/o6_design.md 4.18, 5.3; critique #5; the claim critic's #6), on synthetic rows
+    of the draft's pattern (a stub join: the row's ip is its offset): the e15 row at its frozen slot PASSES, on S and on
+    F; anywhere inside the bytes' window -- after ip971, after ip1632 -- PASSES (its place among the rows between is not
+    compared); before ip727 and after ip1656 FAIL "(b) the floating row ... outside its window"; twice and missing FAIL
+    (b) "exactly once"; a changed ``measured`` never changes a result (report-only); float_window gives slots 8-14.
+    O6Segment.pattern_check reads it the same way. Break: drop the window rule (any place in the visit passes)."""
+    import copy
+    pred = _o6_draft(tmp_path)
+    s_fields, f_fields = {151: 151, 153: 153}, {151: 31244, 153: 31245}
+    members = {31244: 151, 31245: 153}
+
+    def diff(rows, m=None, pat=None):
+        O = _o6_module()
+        got = O.pattern_of6(rows, pred, m or {}, lambda x: x.ip)
+        return O.pattern_diff6(got, pat or pred["pattern"])
+    rows, O = _o6_pattern_rows(pred, s_fields)
+    assert diff(rows) == [] and diff(_o6_pattern_rows(pred, f_fields)[0], members) == [], diff(rows)
+    assert O.float_window(pred["pattern"]) == [(8, 14)], O.float_window(pred["pattern"])
+    for off in (234, 895):                                     # after ip971, after ip1632: inside the window
+        assert diff(_o6_pattern_rows(pred, s_fields, e15_at=off)[0]) == [], off
+    for kw, clause in (({"e15_at": 0}, "outside its window"), ({"e15_at": 919}, "outside its window"),
+                       ({"twice": True}, "2 time(s), want exactly once"),
+                       ({"drop_e15": True}, "0 time(s), want exactly once")):
+        d = diff(_o6_pattern_rows(pred, s_fields, **kw)[0])
+        assert any(x.startswith("(b) the floating row") and clause in x for x in d), (kw, d)
+    p = copy.deepcopy(pred["pattern"])
+    p["floating"][0]["measured"] = {"index": [99], "frames_to_971": [1]}
+    assert diff(rows, pat=p) == [] and diff(_o6_pattern_rows(pred, s_fields, e15_at=919)[0], pat=p), "measured is read"
+    seg = O.O6Segment()
+
+    class Idx:
+        def join(self, x):
+            import types
+            return types.SimpleNamespace(status="store", rel=x.ip)
+    seg._stock = lambda fid: Idx()
+    ok, _w, detail = seg.pattern_check([{"side": "S", "i": 1, "rows": rows}], pred)
+    assert ok, detail
+    ok, _w, detail = seg.pattern_check([{"side": "S", "i": 1, "rows": _o6_pattern_rows(pred, s_fields,
+                                                                                         e15_at=919)[0]}], pred)
+    assert not ok and "S#1 (b) the floating row" in detail, detail
+
+
+
+
+
+
+
+
+def test_o6_steiner_why_void_reads_151s_error_path_as_the_start(tmp_path):
+    """A-START and A-NAMING (research/o6_design.md 5.1): an error-path row of 151 (e0 t0 ip97 Byte[13] := 9) -- the warp's
+    start state took the error branch -- is A-START on S and on F (151 is visited once: never withdrawn); the same shape
+    in 153 (its own ip97) is no start state's: no A-START. A ``named`` row whose ``before`` holds no raw with 198's
+    marker "And, Captain" (or no ``before`` sample at all) is A-NAMING -- V13, by the driver; with the marker, none; an
+    O2-shaped named row (no ``before`` key) none. Break: read any ``before`` as the marker's."""
+    from ff9mapkit import storytrace
+    O = _o6_module()
+    pred = _o6_draft(tmp_path)
+
+    def rows(sites, fields):
+        out = []
+        for n, (place_, sid, tag, ip, target, value) in enumerate(sites, 1):
+            width, index = target.split(".", 1)[1].rstrip("]").split("[")
+            bit = int(index) if width == "Bit" else -1
+            out.append(storytrace.Row(k="w", f=1000 + n, p=0, m=1, fld=fields[place_], don=place_, sc=1190, line=n,
+                                      src="eb", sid=sid, uid=sid, lvl=0, ip=ip, tag=tag, add=0,
+                                      byte=int(index) >> 3 if bit >= 0 else int(index), width=width, bit=bit,
+                                      old=0 if value else 1, new=value, same=0))
+        return out
+
+    def why(side, sites, log=()):
+        fields = {151: 151, 153: 153} if side == "S" else {151: 31244, 153: 31245}
+        seg = O.O6Segment()
+        seg._run_log = lambda rec: (list(log), {})
+        r = {"i": 1, "side": side, "rows": rows(sites, fields), "digest": None, "start": 1, "cut": None}
+        return [(cls, by) for _w, cls, by in seg.why_void({"end": "void"}, r, pred)]
+    err151 = [(151, 0, 0, 22, "Global.Bit[191]", 0), (151, 0, 0, 97, "Global.Byte[13]", 9)]
+    err153 = [(151, 0, 0, 22, "Global.Bit[191]", 0), (151, 2, 1, 932, "Global.Int16[2]", 328),
+              (153, 0, 0, 22, "Global.Bit[191]", 0), (153, 0, 0, 97, "Global.Byte[13]", 9)]
+    for side in ("S", "F"):
+        assert ("A-START", "driver") in why(side, err151), (side, why(side, err151))
+        assert not [c for c, _b in why(side, err153) if c == "A-START"], (side, why(side, err153))
+    ok_row = {"k": "named", "field": 151, "donor": 151, "sc": 1190, "frame": 3000,
+              "before": {"frame": 2990, "raws": ["[STRT=0,0]Queen Brahne\n\u201cAnd, Captain...\u201d"]}}
+    base = err151[:1]
+    assert why("S", base, [ok_row]) == [], why("S", base, [ok_row])
+    for before in ({"frame": 2990, "raws": ["[STRT=0,0]151 mes 197"]}, None):
+        got = why("S", base, [dict(ok_row, before=before)])
+        assert got == [("V13", "driver")], (before, got)
+    o2_row = {k: v for k, v in ok_row.items() if k != "before"}
+    assert why("S", base, [o2_row]) == [], why("S", base, [o2_row])
+
+
+def test_o6_steiner_preflight_verdicts(tmp_path):
+    """O6's preflight extras (research/o6_design.md 6.2; O5's, inherited), on a synthetic install: exactly P-TEXT (block
+    3, STRICT), P-RECOVERY, P-DONOR, P-SETTINGS, P-PAD, P-OVERRIDE, P-ENGINE, in that order. P-DONOR reads 151, 153 AND
+    154 (the route and the end field) in that order: each forked once PASSES; 154 unforked FAILS. Block 3's uk copy of
+    stock us FAILS (strict). P-SETTINGS on 4.15's ini PASSES and with ``DisableNameChoice`` 1 FAILS naming it (decision
+    4's pin: the naming screen would be skipped). Break: P-DONOR over the route alone (154 unread)."""
+    O = _o6_module()
+    pred = _o6_draft(tmp_path)
+    game = tmp_path / "game"
+    root = game / "FF9CustomMap"
+    root.mkdir(parents=True)
+    (game / "Memoria.ini").write_text(_o3_ini(O.SETTINGS), encoding="utf-8")
+    (root / "DictionaryPatch.txt").write_text("FieldScene 4600 11 HUB HUB 4600\n", encoding="utf-8")
+    fdp = root / "ForkDonorPatch.txt"
+    fdp.write_text("31244 151\n31245 153\n31246 154\n", encoding="utf-8")
+    langs = ("us", "uk", "fr", "gr", "it", "es", "jp")
+    stock3 = {L: f"stock block 3 {L}".encode() for L in langs}
+
+    def ship(text):
+        for L in langs:
+            p = root / "FF9_Data" / "embeddedasset" / "text" / L / "field" / "3.mes"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(text[L])
+    ship(stock3)
+    eng = {"x64": O.ENGINE["x64"], "x86": O.ENGINE["x86"]}
+
+    def pre(roots=None):
+        out = O.O6.preflight_extra(pred, roots or [root], pads=lambda slot: None, live_engine=eng, game=game,
+                                   stock_text={3: stock3})
+        return [(w.split(":")[0], ok, d) for ok, w, d in out]
+    rows = pre()
+    assert [r[0] for r in rows] == ["P-TEXT (block 3)", "P-RECOVERY", "P-DONOR", "P-SETTINGS", "P-PAD", "P-OVERRIDE",
+                                    "P-ENGINE"], rows
+    ok = {w: o for w, o, _d in rows}
+    assert ok == {"P-TEXT (block 3)": True, "P-RECOVERY": True, "P-DONOR": True, "P-SETTINGS": True, "P-PAD": True,
+                  "P-OVERRIDE": False, "P-ENGINE": True}, rows
+    det = {w: d for w, _o, d in rows}
+    assert det["P-DONOR"].startswith("151 -> 31244 (FF9CustomMap), 153 -> 31245 (FF9CustomMap), 154 -> 31246 "
+                                     "(FF9CustomMap)"), det["P-DONOR"]
+    assert "DisableNameChoice 0" in det["P-SETTINGS"], det["P-SETTINGS"]
+    ship(dict(stock3, uk=stock3["us"]))
+    _w, o, d = pre()[0]
+    assert not o and "KNOWN-KIT-DEFECT uk: ships stock us" in d and "strict" in d, d
+    ship(stock3)
+    fdp.write_text("31244 151\n31245 153\n", encoding="utf-8")
+    _w, o, d = pre()[2]
+    assert not o and "donor 154: ForkDonorPatch rows []" in d, d
+    fdp.write_text("31244 151\n31245 153\n31246 154\n", encoding="utf-8")
+    nc = json.loads(json.dumps(O.SETTINGS))
+    nc["Hacks"]["DisableNameChoice"] = "1"
+    (game / "Memoria.ini").write_text(_o3_ini(nc), encoding="utf-8")
+    _w, o, d = pre()[3]
+    assert not o and "[Hacks] DisableNameChoice = '1'" in d, d
+
