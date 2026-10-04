@@ -3,9 +3,9 @@
 output (research/o2_design.md, section 1.6), every O2 output (research/o3_design.md, section 1.4), every O3 output
 (research/o4_design.md, section 1.4), every O4 output (research/o5_design.md, section 1.4) AND every O5 output
 (research/o6_design.md, section 1.4) byte-identical, O3's battle-beat tests (G13) and O3's dry run (G14) green, O4's
-tests (G19) and O4's dry run (G20) green, O5's FakeGame and driver tests (G26) and O5's dry run (G27) green, and the
-O1-O5 driver tests and the fake's beat, input, story-trace, machine-beat and visit-beat functions at their pinned
-sources (G21).
+tests (G19) and O4's dry run (G20) green, O5's FakeGame and driver tests (G26) and O5's dry run (G27) green, O6's
+FakeGame and driver tests (G32) green, and the O1-O5 driver tests and the fake's beat, input, story-trace, machine-beat
+and visit-beat functions at their pinned sources (G21).
 
     py studies/story-trace/segment_regress.py --capture      # G0, once, BEFORE the O2 refactor: the O1 baseline
     py studies/story-trace/segment_regress.py --capture-o2   # G0', once, BEFORE any O3 code change: the O2 baseline
@@ -13,7 +13,7 @@ sources (G21).
     py studies/story-trace/segment_regress.py --capture-o4   # G0''', once, BEFORE any O5 code change: the O4 baseline
     py studies/story-trace/segment_regress.py --capture-o5   # G0'''', once, BEFORE any O6 code change: the O5 baseline
     py studies/story-trace/segment_regress.py --rebaseline-source NAME --reason TEXT   # G21: re-pin ONE source
-    py studies/story-trace/segment_regress.py                # G1-G31; exit 0 only if every item passes
+    py studies/story-trace/segment_regress.py                # G1-G32; exit 0 only if every item passes
 
 Exit 2 means an archive or a baseline is missing: the gate was not run, which is not a pass.
 
@@ -172,9 +172,12 @@ was captured at the code before the change it guards and the same file judges th
       or the stair walk's landing judge. An edit to any of them is proven O5-neutral by G30's synthetic sessions alone.
   G31 ``O5.offline_check(v1)`` equals the baseline's ``[(ok, what, detail)]``: 6 checks, all PASS (it reads O4's build
       and the install, read-only).
-  G32 (from research/o6_design.md 9 B3; not in the gate before it) ``pytest tests/test_harness.py -k "o6_ or
-      fake_naming or fake_door"`` from ``ff9mapkit/``: every test passed, 0 failed, 0 skipped, 0 errors, and every name in
-      :data:`REQUIRED_TESTS_O6` among them. No baseline: the list is the floor.
+  G32 (research/o6_design.md 1.4, from 9 B3) ``pytest tests/test_harness.py -k "o6_ or fake_naming or fake_door"``
+      from ``ff9mapkit/``: every test passed, 0 failed, 0 skipped, 0 errors, and every name in :data:`REQUIRED_TESTS_O6`
+      among them -- O6's FakeGame (H17 the naming screen in a visit and the name on the page, H18 the north door's tag 2
+      and walk-out, H19 O6's faults), A0b's O5 replay on the hand-stepped fake, the route builder played unattended, and
+      the driver's O6 tests on the fake (the naming and its page witness, both landing paths, the misroutes, the real
+      hall, which reads the install: a skip there fails the item). No baseline: the list is the floor.
   G33 (from research/o6_design.md 9 C2; not in the gate before it) ``o6_dryrun.run_cases`` on the frozen O6 predictions
       once they exist, else the draft, AND on ``o6_dryrun.as_if_frozen(draft)`` -- the draft with every freeze-time value
       changed as the lead's freeze changes it: each returns 0 printing "N/N cases as registered", N at least
@@ -281,6 +284,11 @@ REQUIRED_TESTS: tuple = (
     "test_segment_session_stops_cleanly_on_a_stuck_naming_screen_on_the_fake",  # A2: S15 in Segment.run
     "test_segment_reset_blocked_fields_swallow_the_combo_on_the_fake",          # A2: H16b
     "test_segment_end_run_naming_paths_for_the_opening_and_alexandria_on_the_fake",  # A2: S15's intended O1/O2 change
+    # research/o6_design.md section 9, PART B: S16, the name on the page (B3)
+    "test_segment_naming_of_is_strict",                                         # B3: S16, pure
+    "test_segment_naming_on_page_rows_on_the_fake",                             # B3: S16's rows and its judgment
+    "test_segment_naming_of_reads_every_frozen_predictions",                    # B3: every frozen registration
+    "test_segment_alexandria_naming_keeps_its_rows_on_the_fake",                # B3: S16 opt-in, O2's rule 4 kept
 )
 
 O1E_VERDICT = "PROVEN"
@@ -557,9 +565,41 @@ O5S_VERDICT = "PROVEN"
 O5S_CHECKS = 18
 O5_OFFLINE_CHECKS = 6
 #: G32 (research/o6_design.md 1.4, from B3): every ``test_o6_*``, ``test_fake_naming_*`` and ``test_fake_door_*`` name,
-#: each with the step that adds it -- empty until B3, when G32 joins the gate.
+#: each with the step that adds it -- G32 joined the gate in the commit that added B3's tests.
 PYTEST_K_O6 = "o6_ or fake_naming or fake_door"
-REQUIRED_TESTS_O6: tuple = ()
+REQUIRED_TESTS_O6: tuple = (
+    # A0b: O5's route replayed by hand on the fake against its golden, captured before any O6 fake edit
+    "test_fake_door_keeps_the_hallway_route_identical",
+    # B1: H17, the naming screen inside a visit and the name on the page; H18, the north door step; H19, O6's faults
+    "test_fake_naming_screen_takes_two_confirms",
+    "test_fake_naming_holds_the_script",
+    "test_fake_naming_renders_the_name_on_later_pages",
+    "test_fake_naming_deaf_screen_defeats_accept_name",
+    "test_fake_door_fires_only_past_its_line",
+    "test_fake_door_walkout_then_stores_then_field",
+    "test_fake_door_walks_out_until_the_flip_without_stop",
+    "test_fake_door_entry_order_and_misroute",
+    # B2: the O6 route builder, played unattended to 154 (its trace 4.18's pattern)
+    "test_fake_door_route_plays_to_154_unattended",
+    # B3: the driver's O6 tests on the fake
+    "test_o6_drive_names_steiner_and_walks_to_the_north_door_on_the_fake",
+    "test_o6_drive_takes_the_landing_before_the_walk_returns",
+    "test_o6_drive_takes_the_landing_after_the_walk_returns",
+    "test_o6_drive_wrong_door_is_the_drivers_v11",
+    "test_o6_drive_misrouted_door_is_rule_2s",
+    "test_o6_drive_misrouted_door_to_a_real_field_is_v19",
+    "test_o6_drive_loss_unseen_is_v13",
+    "test_o6_drive_fork_landing_in_real_154_is_v19",
+    "test_o6_drive_typed_name_is_the_drivers_v13",
+    "test_o6_drive_unparsed_page_is_skipped",
+    "test_o6_drive_stuck_naming_screen_stops_the_run",
+    "test_o6_drive_naming_recovery_reaches_the_title_on_the_fake",
+    "test_o6_drive_control_in_151_is_v4",
+    "test_o6_drive_stop_page_in_the_start_is_v5_driver",
+    "test_o6_drive_unregistered_naming_is_v10",
+    "test_o6_drive_e15_late_is_covered",
+    "test_o6_drive_walks_the_real_hall_on_the_fake",
+)
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)
 SOURCE_PINS = HERE / "research" / "source_pins.json"
@@ -1001,6 +1041,17 @@ def pytest_g26() -> dict:
 def g26(got: dict) -> tuple:
     bad = _selection_bad(None, got, REQUIRED_TESTS_O5)
     return (not bad, f'G26: pytest -k "{PYTEST_K_O5}": all passed, 0 failed, 0 skipped; every REQUIRED_TESTS_O5 '
+                     f"among them", "; ".join(bad) or f"{len(got['passed'])} passed")
+
+
+def pytest_g32() -> dict:
+    """Run G32's pytest selection (:func:`pytest_selection`)."""
+    return pytest_selection(PYTEST_K_O6)
+
+
+def g32(got: dict) -> tuple:
+    bad = _selection_bad(None, got, REQUIRED_TESTS_O6)
+    return (not bad, f'G32: pytest -k "{PYTEST_K_O6}": all passed, 0 failed, 0 skipped; every REQUIRED_TESTS_O6 '
                      f"among them", "; ".join(bad) or f"{len(got['passed'])} passed")
 
 
@@ -2201,12 +2252,14 @@ def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2, baseline_o3
     _show_items(items_o5[-1:])
     items_o5b = judge_o5(base_o5, collect_o5())        # O5's outputs (research/o6_design.md 1.4): G28-G31
     _show_items(items_o5b)
+    items_o6 = [g32(pytest_g32())]                     # O6's FakeGame and driver tests (from B3): G32
+    _show_items(items_o6)
     try:                                               # the driver's source pins (rev. 2), over three baselines: G21
         items_src = [g21(union_base(base_o3, base_o4, base_o5), pins)]
     except ValueError as err:
         items_src = [(False, "G21: every pinned source is its pin in force", str(err))]
     _show_items(items_src)
-    items += items_o2 + items_o3 + items_o3b + items_o4 + items_o4b + items_o5 + items_o5b + items_src
+    items += items_o2 + items_o3 + items_o3b + items_o4 + items_o4b + items_o5 + items_o5b + items_o6 + items_src
     n = sum(1 for ok, _w, _d in items if ok)
     print(f"\n{n}/{len(items)} items PASS (baseline heads: O1 {base['head'][:8]}, O2 {base_o2['head'][:8]}, O3 "
           f"{base_o3['head'][:8]}, O4 {base_o4['head'][:8]}, O5 {base_o5['head'][:8]})")

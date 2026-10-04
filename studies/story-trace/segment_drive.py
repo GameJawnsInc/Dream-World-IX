@@ -114,6 +114,18 @@ field change (V11 by the game, or V19 on F for a real field a member forks): the
 read in the walk's field is V13, the instrument's. Rule 1 then puts the done step's walk-out on its row
 (:meth:`_Drive.walkout_record`): the samples from the loss to the flip, the flip's frame and the landing's, in both
 paths. Without ``to`` a trigger is O5's exactly.
+
+THE NAME ON THE PAGE (opt-in, a naming registration's ``on_page``; research/o6_design.md 1.2 S16; decision 4): the name
+a naming screen saves is PLAYER.Name, no gEventGlobal store, so the trace never sees it -- the page that renders it does
+([STNR] on O6's 199 and 200). The registrations are read STRICT before anything is driven (:func:`naming_of`). Under one
+carrying ``on_page``, rule 4 keeps the ring's last sample that listed a window before the screen (the ``named`` row's
+``before``: what came before the naming, read before accept_name's Confirms), and arms THE PAGE WITNESS: every poll
+after rule 3 it scans the ring for the first sample in the naming's field listing a PARSED window a frozen entry names
+(:meth:`_Drive.page_witness`) and JUDGES its lines against the frozen ones -- equal, a ``name_on_page`` row (``verdict``
+"ok") and its beat; another name, the row (``verdict`` "V13") and the run VOID V13 by the driver: input at the naming
+screen, inside accept_name's blocking call, where the run-wide witness does not look. A new visit takes a last scan and
+disarms it -- nothing found, the beat stays False: the run uncovered, never failed. Without ``on_page`` rule 4 is O5's
+exactly.
 """
 from __future__ import annotations
 
@@ -396,6 +408,87 @@ def trigger_to_verdict(lost, fid: int, ok: bool, landed, to_place, to: int) -> t
         return "v11", (f"the trigger's walk left {fid} without the step's evidence: control went at "
                        f"({lost.get('x')}, {lost.get('z')})")
     return "judge", None
+
+
+# ======================================================================== S16: the name on the page (pure)
+#: A naming registration's keys (research/o6_design.md 1.2 S16): ``donor`` and ``sc`` (ints, required: the place and the
+#: published SC the screen may open at), ``beat`` (a non-empty str or None: set when it is accepted), ``why`` (a str)
+#: and, opt-in, ``on_page`` (the page witness, :data:`ON_PAGE_KEYS`). O2's ``{"donor", "sc", "beat"}`` is one.
+NAMING_KEYS = ("donor", "sc", "beat", "on_page", "why")
+#: The page witness's keys: ``tag`` (the text tag a page renders the name with, ``"[STNR]"``), ``beat`` (set by an "ok"
+#: row), ``windows`` (the frozen entries, each exactly :data:`WINDOW_KEYS`) and ``why`` (optional).
+ON_PAGE_KEYS = ("tag", "beat", "windows", "why")
+#: A frozen window's keys: ``mes``; ``raw_holds`` (what its raw holds: the source line, the tag in it); ``line`` (the
+#: line of its rendered text the name lands on); ``text`` (that line as the default name renders it: no tag, no "[").
+WINDOW_KEYS = ("mes", "raw_holds", "line", "text")
+#: A text tag as the registration names one: ``[STNR]``.
+_NAME_TAG = re.compile(r"\[[A-Z0-9]+\]")
+
+
+def naming_of(pred: dict) -> list:
+    """``pred["naming"]`` checked STRICT before anything is driven (research/o6_design.md 1.2 S16): a list of
+    registrations (none: ``[]``), each a dict of :data:`NAMING_KEYS` -- ``donor`` and ``sc`` ints (a bool is no int),
+    ``beat`` a non-empty str or None, ``why`` a str -- and, opt-in, ``on_page``: exactly keys of :data:`ON_PAGE_KEYS`
+    (``why`` optional) -- ``tag`` a text tag (``"[STNR]"``), ``beat`` a non-empty str, ``windows`` a non-empty list,
+    each exactly :data:`WINDOW_KEYS` -- ``mes`` an int, ``raw_holds`` a non-empty str holding ``tag``, ``line`` an int
+    >= 0, ``text`` a non-empty str holding no ``tag`` and no ``[``. ValueError naming the first fault. O2's ``{"donor",
+    "sc", "beat"}`` passes unchanged. Returns the registrations."""
+    regs = pred.get("naming")
+    if regs is None:
+        return []
+    if not isinstance(regs, list):
+        raise ValueError(f"naming: a list of registrations, not {regs!r}")
+    for i, r in enumerate(regs):
+        at = f"naming[{i}]"
+        if not isinstance(r, dict):
+            raise ValueError(f"{at}: a registration is a dict, not {r!r}")
+        unknown = sorted(set(r) - set(NAMING_KEYS))
+        if unknown:
+            raise ValueError(f"{at}: no key {unknown} (a registration takes {list(NAMING_KEYS)})")
+        for k in ("donor", "sc"):
+            if not _is_int(r.get(k)):
+                raise ValueError(f"{at}: {k} is an int (a bool is no int), not {r.get(k)!r}")
+        if r.get("beat") is not None and not (isinstance(r["beat"], str) and r["beat"]):
+            raise ValueError(f"{at}: beat is a non-empty str or None, not {r['beat']!r}")
+        if "why" in r and not isinstance(r["why"], str):
+            raise ValueError(f"{at}: why is a str, not {r['why']!r}")
+        if "on_page" in r:
+            _on_page_of(r["on_page"], f"{at}.on_page")
+    return regs
+
+
+def _on_page_of(page, at: str) -> None:
+    """A registration's ``on_page`` checked STRICT (:func:`naming_of`)."""
+    if not isinstance(page, dict):
+        raise ValueError(f"{at}: the page witness is a dict, not {page!r}")
+    bad = sorted(set(page) - set(ON_PAGE_KEYS)) + sorted(k for k in ON_PAGE_KEYS if k != "why" and k not in page)
+    if bad:
+        raise ValueError(f"{at}: exactly keys of {list(ON_PAGE_KEYS)} (why optional), not {sorted(page)}")
+    tag = page["tag"]
+    if not (isinstance(tag, str) and _NAME_TAG.fullmatch(tag)):
+        raise ValueError(f"{at}: tag is a text tag such as '[STNR]', not {tag!r}")
+    if not (isinstance(page["beat"], str) and page["beat"]):
+        raise ValueError(f"{at}: beat is a non-empty str, not {page['beat']!r}")
+    if "why" in page and not isinstance(page["why"], str):
+        raise ValueError(f"{at}: why is a str, not {page['why']!r}")
+    wins = page["windows"]
+    if not isinstance(wins, list) or not wins:
+        raise ValueError(f"{at}: windows is a non-empty list of frozen windows, not {wins!r}")
+    for n, w in enumerate(wins):
+        where = f"{at}.windows[{n}]"
+        if not isinstance(w, dict) or set(w) != set(WINDOW_KEYS):
+            got = sorted(w) if isinstance(w, dict) else w
+            raise ValueError(f"{where}: exactly keys {list(WINDOW_KEYS)}, not {got!r}")
+        if not _is_int(w["mes"]):
+            raise ValueError(f"{where}: mes is an int, not {w['mes']!r}")
+        if not (isinstance(w["raw_holds"], str) and w["raw_holds"] and tag in w["raw_holds"]):
+            raise ValueError(f"{where}: raw_holds is the source the raw holds, the tag {tag} in it, not "
+                             f"{w['raw_holds']!r}")
+        if not (_is_int(w["line"]) and w["line"] >= 0):
+            raise ValueError(f"{where}: line is the rendered text's line index, an int >= 0, not {w['line']!r}")
+        if not (isinstance(w["text"], str) and w["text"] and tag not in w["text"] and "[" not in w["text"]):
+            raise ValueError(f"{where}: text is the line as the default name renders it -- non-empty, no tag, no '[' "
+                             f"-- not {w['text']!r}")
 
 
 # ======================================================================== S4: the battle registry, stop pages (pure)
@@ -2121,6 +2214,10 @@ class _Drive:
         # S13 (research/o5_design.md 1.2), OPT-IN: a table with any VISIT-SCOPED cell (``visit``) keys every VOID and
         # every ``observed`` row by ``[place, sc, visit]`` (:meth:`vcell`); without one, ``[place, sc]`` as ever.
         self.visit_cells = any("visit" in c for c in pred.get("table") or ())
+        # S16 (research/o6_design.md 1.2): the naming registrations, checked strict before anything is driven; the page
+        # witness (``pw``) armed by rule 4 under one carrying ``on_page`` -- without one, rule 4 is O5's exactly
+        self.naming = naming_of(pred)
+        self.pw = None
         # S4 (research/o3_design.md 2.1-2.3), OPT-IN: the battle registry and the stop pages, each checked strict
         # before anything is driven. With neither, nothing below reads them: the loop is O2's exactly.
         self.battles = [battle_of(pred, b) for b in pred.get("battles") or ()]
@@ -2339,6 +2436,76 @@ class _Drive:
                 hit = next((r for r in rows if r.line == line), None) if line is not None else None
                 return {"seen": hit is not None, "f": None if hit is None else hit.f, "s": round(time.time() - t0, 2)}
             time.sleep(END_ROW_POLL_S)
+
+    # -- S16: the name on the page (research/o6_design.md 1.2) ------------------------------------------------------
+    def last_listed(self, frame: int) -> dict | None:
+        """The ``named`` row's ``before``: the ring's latest sample that listed a window before the naming screen's
+        first sample -- the run of ``NameSetting`` samples ending at ``frame`` -- as ``{"frame", "raws"}`` (its
+        phrase_raw column), or None. Read on rule 4's poll, BEFORE accept_name's Confirms: the ring is a bounded window
+        of reads, and the screen's own reads push the page before it out (the analysis's A-NAMING reads it)."""
+        samples = [raw for _t, raw in ring_since(self.g, -1) if int(raw.get("frame", -1)) <= frame]
+        i = len(samples)
+        while i > 0 and samples[i - 1].get("ui_state") == "NameSetting":
+            i -= 1
+        for raw in reversed(samples[:i]):
+            rows = dialog_rows(raw)
+            if any(ph or tx for ph, tx in rows):
+                return {"frame": int(raw.get("frame", -1)), "raws": [ph for ph, _tx in rows]}
+        return None
+
+    def page_windows(self, raw: dict) -> list:
+        """The frozen windows a sample lists PARSED: each dialog row whose raw holds an entry's ``raw_holds`` and whose
+        text holds no tag -- ``{"mes", "raw", "text", "line", "want", "ok"}``, ``line`` its rendered text's line the
+        entry names and ``ok`` whether it is the entry's ``text`` exactly. An unparsed window (its tag left in the text)
+        and a window no entry names are never listed."""
+        pw, out = self.pw, []
+        for ph, tx in dialog_rows(raw):
+            if pw["tag"] in tx:
+                continue
+            w = next((w for w in pw["windows"] if w["raw_holds"] in ph), None)
+            if w is None:
+                continue
+            lines = tx.split("\n")
+            line = lines[w["line"]] if w["line"] < len(lines) else ""
+            out.append({"mes": w["mes"], "raw": ph, "text": tx, "line": line, "want": w["text"],
+                        "ok": line == w["text"]})
+        return out
+
+    def page_witness(self, *, final: bool = False) -> None:
+        """THE PAGE WITNESS (S16, research/o6_design.md 1.2; 0.2 #8), armed after a registered naming with ``on_page``:
+        the ring since its last scan, for the first sample IN THE NAMING'S FIELD listing a PARSED window a frozen entry
+        names (:meth:`page_windows`). On it ONE ``name_on_page`` row -- ``{"field", "donor", "visit", "frame", "tag",
+        "windows", "verdict"}``, exactly the windows that sample lists -- and the witness disarmed: every line its
+        entry's text, ``verdict`` "ok" and the entry's beat set; any other name, ``verdict`` "V13" and the run VOID V13
+        by the driver at the naming's cell -- input at the naming screen (accept_name's blocking call, which the
+        run-wide witness does not see), the driver's to re-run. ``final`` (a new visit): the last scan of the field it
+        leaves, then disarmed whatever it found -- no such sample, no row: the beat stays False, the run uncovered."""
+        pw = self.pw
+        hit = None
+        for _t, raw in ring_since(self.g, pw["scanned"]):
+            pw["scanned"] = max(pw["scanned"], int(raw.get("frame", -1)))
+            if int((raw.get("field") or {}).get("id", -1)) != pw["field"]:
+                continue
+            wins = self.page_windows(raw)
+            if wins:
+                hit = (int(raw.get("frame", -1)), wins)
+                break
+        if hit is None:
+            if final:
+                self.pw = None
+            return
+        frame, wins = hit
+        verdict = "ok" if all(w["ok"] for w in wins) else "V13"
+        self.log.append({"k": "name_on_page", "field": pw["field"], "donor": pw["donor"], "visit": pw["visit"],
+                         "frame": frame, "tag": pw["tag"], "windows": wins, "verdict": verdict})
+        self.pw = None
+        if verdict == "ok":
+            self.beats[pw["beat"]] = True
+            return
+        bad = next(w for w in wins if not w["ok"])
+        raise RouteVoid(f"the name on the page is not the default: mes {bad['mes']} renders {bad['line']!r}, "
+                        f"registered {bad['want']!r} -- input at the naming screen (accept_name's blocking call, which "
+                        f"the run-wide witness does not see)", v="V13", cell=pw["cell"], by="driver")
 
     # -- the walks ------------------------------------------------------------------------------------------------
     def floor(self, closed=()):
@@ -3192,6 +3359,8 @@ class _Drive:
                 if self.donor != want:
                     raise self.stray(f"out of the route's order: entered {self.fid} (place {self.donor}), where the "
                                      f"route goes next to {want}")
+                if self.pw is not None:              # S16: a new visit -- the armed field's last scan, then disarmed
+                    self.page_witness(final=True)
                 self.at += 1
                 self.walked = None
                 self.visit, self.cur = self.visit + 1, self.fid
@@ -3213,20 +3382,29 @@ class _Drive:
                 self.quiet_tick()
             if self.guard is not None:               # S10, opt-in: the quiet window opens, a choice closes it, or V13
                 self.guard_quiet_tick(st)
+            # 3b -- THE PAGE WITNESS (S16, opt-in: armed by rule 4 under a registration's ``on_page``)
+            if self.pw is not None:
+                self.page_witness()
             # 4 -- the naming screen
             if st.ui_state == "NameSetting":
                 self.held = 0
-                reg = next((x for x in pred.get("naming") or () if x["donor"] == self.donor and x["sc"] == self.sc),
-                           None)
+                reg = next((x for x in self.naming if x["donor"] == self.donor and x["sc"] == self.sc), None)
                 if reg is None:
                     raise self.void("V10", "game", f"a naming screen in {self.fid} (place {self.donor}) at SC "
                                                    f"{self.sc}, where the route registers none")
+                page = reg.get("on_page")
+                before = None if page is None else self.last_listed(st.frame)    # S16: read before the Confirms
                 g.accept_name()
                 self.walked = None
                 if reg.get("beat"):
                     self.beats[reg["beat"]] = True
-                self.log.append({"k": "named", "field": self.fid, "donor": self.donor, "sc": self.sc,
-                                 "frame": st.frame})
+                row = {"k": "named", "field": self.fid, "donor": self.donor, "sc": self.sc, "frame": st.frame}
+                if page is not None:                 # S16: what came before the screen, and the page witness armed
+                    row["before"] = before
+                    self.pw = {"tag": page["tag"], "beat": page["beat"], "windows": page["windows"],
+                               "frame": st.frame, "field": self.fid, "donor": self.donor, "visit": self.visit,
+                               "cell": self.vcell(self.donor, self.sc), "scanned": st.frame}
+                self.log.append(row)
                 continue
             # 5 -- a tutorial or a battle: the route registers neither
             if st.ui_state == "Tutorial" or st.in_battle:
