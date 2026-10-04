@@ -17584,8 +17584,10 @@ def _o4_void(out, v, by=None):
 #: re-runs an uninformative one (research/o4_design.md 7.4 G2) -- and NEVER a late press (a j over j_cap, a paced raw
 #: out of its band, evidence "before", no press): a pace test asserts exactly those. The judge reads every V17 fault
 #: before any V18, so a gap in ANY judged instance voids a clean end and a V18 alike: every fake drive test that
-#: asserts either runs on :func:`_o4_run_informative`; one that asserts a V17, a V13 or a V2, or starves its reads on
-#: purpose, stays on :func:`_o4_run`.
+#: asserts either runs on :func:`_o4_run_informative`. One that asserts a READ-GAP V17, a V13 or a V2, or starves its
+#: reads on purpose, stays on :func:`_o4_run`. A test whose V17 can never match a read gap (a reason none of these
+#: patterns matches, pinned by its own row -- the quiet page's ``observed``) may run on :func:`_o4_run_informative`:
+#: test_o4_drive_page_once_and_the_quiet_windows does, since a read gap flaked it serially on master.
 _O4_READ_GAP_VOIDS = (
     re.compile(r"instrument: a read gap of \S+ s straddles instance \d+'s mark \(evidence unobserved\)$"),
     re.compile(r"\d+ instances, and a read gap of \d+ ticks could hide a prompt's whole life$"),
@@ -26393,3 +26395,313 @@ def test_o6_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake(game):
     assert rec["end"]["end_run"]["ok"] and title == "Title", rec["end"]["end_run"]
     report = O.rehearsal_report(game / "run")
     assert "UNTRACED" in report and "untraced: exceptions since the warp []" in report, report[:2500]
+
+
+# ---- THE SPEED PASS (PLAN.md "Build testing"): the regression gate's items selectable (--only / --segment, a PARTIAL run
+# is never the gate), its six pytest selections ONE -n run split per item by pytest's own -k, a whole-file receipt
+# reused (--pytest-junit) only for the HEAD and working tree it ran, and THE FLAKE PROTOCOL. Every test here is
+# collected by G7's selection ("segment"), so the gate re-runs it.
+
+def _harness_tests_module():
+    _regress_module()
+    import harness_tests as HT
+    return HT
+
+
+def test_segment_regress_items_are_g1_to_g33_once():
+    """The gate's registry: ITEM_ORDER holds G1-G33 each once, printed as always (G21 last); every segment's items are
+    in it and no item is two segments' (G21 is no segment's); the pytest items are G7, G12, G13, G19, G26 and G32 with
+    the selections the gate has always run; select_items reads nothing as every item, ``--only`` and ``--segment`` as
+    the union of their items, and refuses an id or a segment there is none of. Break: drop an item from ITEM_ORDER
+    (a full run would then pass without it), or file one under two segments."""
+    R = _regress_module()
+    assert sorted(R.ITEM_ORDER, key=lambda i: int(i[1:])) == [f"G{n}" for n in range(1, 34)], R.ITEM_ORDER
+    assert len(set(R.ITEM_ORDER)) == 33 and R.ITEM_ORDER[-1] == "G21"
+    seg = [i for ids in R.SEGMENT_ITEMS.values() for i in ids]
+    assert len(seg) == len(set(seg)) and set(seg) | {"G21"} == set(R.ITEM_ORDER), seg
+    assert R.PYTEST_ITEMS == {"G7": R.PYTEST_K, "G12": R.PYTEST_K_O2, "G13": R.PYTEST_K_O3, "G19": R.PYTEST_K_O4,
+                              "G26": R.PYTEST_K_O5, "G32": R.PYTEST_K_O6}
+    assert R.select_items() == set(R.ITEM_ORDER)
+    assert R.select_items(["G26", "G27"]) == {"G26", "G27"}
+    assert R.select_items((), ["O6"]) == {"G32", "G33"}
+    assert R.select_items(["G21"], ["O6"]) == {"G21", "G32", "G33"}
+    for only, segs in ((["G34"], ()), ((), ["O7"]), (["g7"], ())):
+        with pytest.raises(ValueError):
+            R.select_items(only, segs)
+
+
+def test_segment_regress_split_keeps_each_items_semantics():
+    """One union run judged per item (split_selection) as each selection was judged run alone: another item's failure
+    is not this item's (rc 0); a failure, an error, a skip and an xfail stay what _selection_bad fails; a member with
+    no junit row is "not run"; a failure the flake protocol settled (passed alone 3/3) counts passed and is NAMED in
+    ``flakes``; an interrupted run's exit reaches every item. Break: judge every item by the union's rc, or drop the
+    not-run check (a test the union never ran would then read as absent, not failed)."""
+    R = _regress_module()
+    res = {"a": "passed", "b": "failed", "c": "skipped", "d": "xfailed", "e": "error", "f": "failed"}
+    got = R.split_selection(["a"], res, rc=1, tail="")
+    assert got["rc"] == 0 and got["passed"] == ["a"] and not R._selection_bad(None, got, ["a"]), got
+    got = R.split_selection(["a", "b"], res, rc=1, tail="")
+    assert got["rc"] == 1 and got["failed"] == ["b"] and R._selection_bad(None, got, ()), got
+    for name, kind in (("c", "skipped"), ("d", "skipped"), ("e", "errors")):
+        got = R.split_selection(["a", name], res, rc=1, tail="")
+        assert got[kind] == [name] and R._selection_bad(None, got, ()), (name, got)
+    got = R.split_selection(["a", "zz"], res, rc=0, tail="")
+    assert got["errors"] == ["not run: zz"] and got["rc"] == 1, got
+    assert any("zz" in b for b in R._selection_bad(None, got, ["zz"])), got
+    got = R.split_selection(["a", "f"], res, rc=1, tail="", flakes={"f"})
+    assert got["passed"] == ["a", "f"] and got["flakes"] == ["f"] and got["rc"] == 0, got
+    assert not R._selection_bad(None, got, ["a", "f"]), got
+    got = R.split_selection(["a"], res, rc=2, tail="interrupted")
+    assert got["rc"] == 2 and R._selection_bad(None, got, ()), got
+
+
+def test_segment_regress_pytest_items_run_one_union_and_settle(tmp_path, monkeypatch):
+    """pytest_items: ONE run of the union of the items' -k selections at -n (never one run each), each item's members
+    from pytest's own --collect-only -k, the run's failures settled by THE FLAKE PROTOCOL -- a flake passes its item
+    and is named, a failure fails only its own item; given a receipt, NO pytest run at all: the receipt's junit judges
+    each item, its recorded flakes honoured, a failure it records failing. Break: run each selection on its own, or
+    settle nothing (a load flake then fails the gate)."""
+    R, HT = _regress_module(), _harness_tests_module()
+    members = {R.PYTEST_K_O5: ["t5a", "t5b"], R.PYTEST_K_O6: ["t6a"]}
+    runs, settled = [], []
+
+    def fake_run(*, k=None, n=None, junit=None, env=None):
+        runs.append((k, n))
+        return {"rc": 1, "results": {"t5a": "passed", "t5b": "failed", "t6a": "failed"}, "tail": "", "n": n}
+
+    def fake_settle(names, *, env=None, runner=None):
+        settled.append(sorted(names))
+        return {"flakes": [{"name": "t5b", "alone": "3/3"}], "failures": [{"name": "t6a", "alone": "0/3"}],
+                "unsettled": False}
+    monkeypatch.setattr(HT, "collect", lambda k, env=None: members[k])
+    monkeypatch.setattr(HT, "run", fake_run)
+    monkeypatch.setattr(HT, "settle", fake_settle)
+    got = R.pytest_items(["G26", "G32"], n=8)
+    assert runs == [(f"({R.PYTEST_K_O5}) or ({R.PYTEST_K_O6})", 8)], runs
+    assert settled == [["t5b", "t6a"]], settled
+    assert got["G26"]["passed"] == ["t5a", "t5b"] and got["G26"]["flakes"] == ["t5b"] and got["G26"]["rc"] == 0
+    assert got["G32"]["failed"] == ["t6a"] and got["G32"]["rc"] == 1, got["G32"]
+    assert R._with_flakes((True, "G26: x", "2 passed"), got["G26"])[2].endswith("passed alone 3/3): ['t5b']")
+    junit = tmp_path / "whole.xml"
+    junit.write_text('<testsuites><testsuite name="pytest"><testcase classname="tests.test_harness" name="t5a"/>'
+                     '<testcase classname="tests.test_harness" name="t5b"><failure message="x"/></testcase>'
+                     '<testcase classname="tests.test_harness" name="t6a"><failure message="y"/></testcase>'
+                     '</testsuite></testsuites>', encoding="utf-8")
+
+    def no_run(**kw):
+        raise AssertionError("a receipt was given: no pytest run")
+    monkeypatch.setattr(HT, "run", no_run)
+    got = R.pytest_items(["G26", "G32"], receipt={"junit": str(junit), "rc": 1,
+                                                  "flakes": [{"name": "t5b", "alone": "3/3"}]})
+    assert got["G26"]["flakes"] == ["t5b"] and got["G26"]["rc"] == 0, got["G26"]
+    assert got["G32"]["failed"] == ["t6a"] and "receipt" in got["G32"]["tail"], got["G32"]
+
+
+def test_segment_regress_partial_run_is_not_the_gate(tmp_path, capsys, monkeypatch):
+    """A PARTIAL run (--only / --segment) is never the gate: every selected item passing exits 3 and says NOT THE GATE,
+    never the full run's "N/N items PASS" line; one failing exits 1; an unknown id, or a gate option beside a capture,
+    is a usage error; a receipt that is not for HEAD and this tree makes the gate "not run" (exit 2). G21 is stubbed
+    for the passing run (the real pins are ast shas of one Python version) and the archives' check for the receipt's
+    (machine-local). Break: exit 0 on a partial pass (an agent's fix-loop run would then read as the gate)."""
+    R = _regress_module()
+    real_g21 = R.g21
+    monkeypatch.setattr(R, "g21", lambda base, pins=None, **kw: (True, "G21: stubbed", "stub"))
+    assert R.gate(only={"G21"}) == 3
+    out = capsys.readouterr().out
+    assert "PARTIAL: 1/1 selected items PASS (32 of 33 not run) -- NOT THE GATE" in out, out[-600:]
+    assert "items PASS (baseline heads" not in out and "PASS  G21" in out, out[-600:]
+    monkeypatch.setattr(R, "g21", real_g21)                 # an unreadable pins file fails before any sha is read
+    bad = tmp_path / "pins.json"
+    bad.write_text("not json", encoding="utf-8")
+    assert R.gate(pins=bad, only={"G21"}) == 1
+    assert "PARTIAL: 0/1 selected items PASS" in capsys.readouterr().out
+    for argv in (["--only", "G99"], ["--segment", "O9"], ["--capture", "--only", "G1"],
+                 ["--capture-o5", "--pytest-junit", str(bad)]):
+        with pytest.raises(SystemExit) as e:
+            R.main(argv)
+        assert e.value.code == 2, argv
+    stale = tmp_path / "receipt.json"
+    stale.write_text(json.dumps({"kind": "whole", "test_file": "tests/test_harness.py", "head": "0" * 40,
+                                 "tree": "0" * 40, "tree_after": "0" * 40, "python": "0", "junit": str(bad)}),
+                     encoding="utf-8")
+    capsys.readouterr()
+    monkeypatch.setattr(R, "_missing", lambda **kw: [])
+    assert R.main(["--pytest-junit", str(stale), "--only", "G21"]) == 2
+    assert "not evidence for the code here" in capsys.readouterr().out
+
+
+def test_segment_harness_tests_settle_names_flakes_and_failures():
+    """THE FLAKE PROTOCOL (harness_tests.settle): each failed test re-run alone up to 3 times, stopping at its first
+    failure -- 3/3 a FLAKE, anything less a FAILURE with how far it got; more than MAX_SETTLE failures are a breakage:
+    none re-run, all failures, ``unsettled``. Break: accept 1/3 (a test that fails alone would read as load), or re-run
+    a breakage test by test."""
+    HT = _harness_tests_module()
+    seq = {"x": [True, True, True], "y": [True, False], "z": [False]}
+    calls = {}
+
+    def runner(name):
+        calls[name] = calls.get(name, 0) + 1
+        return seq[name][calls[name] - 1]
+    got = HT.settle(["z", "x", "y", "x"], runner=runner)
+    assert got["flakes"] == [{"name": "x", "alone": "3/3"}], got
+    assert got["failures"] == [{"name": "y", "alone": "1/3"}, {"name": "z", "alone": "0/3"}], got
+    assert calls == {"x": 3, "y": 2, "z": 1} and got["unsettled"] is False, calls
+
+    def never(name):
+        raise AssertionError("a breakage is not re-run")
+    many = [f"t{i}" for i in range(HT.MAX_SETTLE + 1)]
+    got = HT.settle(many, runner=never)
+    assert got["unsettled"] and not got["flakes"] and len(got["failures"]) == HT.MAX_SETTLE + 1, got
+
+
+def test_segment_harness_tests_receipt_binds_head_tree_and_python(tmp_path):
+    """A receipt is evidence only for the code it ran (harness_tests.receipt_problems): another HEAD, another working
+    tree, a tree that changed during the run, another Python, a run that was not the whole file, a run that did not
+    finish, or a junit gone or overwritten since (its sha256) -- each named. read_junit reads each testcase by name: pass, failure, error (outranking a failure), skip, and xfail
+    apart from a skip. Break: check HEAD only (an uncommitted edit after the run would then reuse its junit)."""
+    HT = _harness_tests_module()
+    junit = tmp_path / "whole.xml"
+    junit.write_text('<testsuites><testsuite name="pytest">'
+                     '<testcase name="p"/><testcase name="f"><failure message="x"/></testcase>'
+                     '<testcase name="e"><failure message="x"/><error message="y"/></testcase>'
+                     '<testcase name="s"><skipped type="pytest.skip" message="no install"/></testcase>'
+                     '<testcase name="x"><skipped type="pytest.xfail" message="known"/></testcase>'
+                     '</testsuite></testsuites>', encoding="utf-8")
+    assert HT.read_junit(junit) == {"p": "passed", "f": "failed", "e": "error", "s": "skipped", "x": "xfailed"}
+    good = {"kind": "whole", "test_file": HT.TEST_FILE, "head": "h" * 40, "tree": "t" * 40, "tree_after": "t" * 40,
+            "python": "3.14.4", "rc": 1, "junit": str(junit), "junit_sha256": HT._sha256(junit)}
+    now = dict(now_head="h" * 40, now_tree="t" * 40, python="3.14.4")
+    assert HT.receipt_problems(good, **now) == []
+    for change, word in ((dict(head="g" * 40), "is not HEAD"), (dict(tree="u" * 40), "an edit since the run"),
+                         (dict(tree_after="u" * 40), "changed during the run"), (dict(python="3.13.1"), "python"),
+                         (dict(kind="k"), "not a whole-file run"), (dict(rc=4), "did not finish"),
+                         (dict(junit=str(tmp_path / "gone.xml")), "is not there"),
+                         (dict(junit_sha256="0" * 64), "a later run overwrote it")):
+        bad = HT.receipt_problems(dict(good, **change), **now)
+        assert any(word in b for b in bad), (change, bad)
+
+
+def test_segment_harness_tests_tree_id_tracks_untracked_not_ignored(tmp_path):
+    """harness_tests.tree_id is the tree ``git add -A`` would write, through a COPY of the index: on a clean checkout
+    it is HEAD's tree; an ignored file leaves it; an untracked file and an edit to a tracked one change it; the real
+    index is never touched (the untracked file is still untracked, nothing staged). Break: hash HEAD only, or stage
+    into the real index."""
+    import subprocess
+    HT = _harness_tests_module()
+
+    def git(*a):
+        return subprocess.run(["git", *a], cwd=str(tmp_path), capture_output=True, text=True, check=True).stdout.strip()
+    git("init", "-q")
+    git("config", "user.email", "t@example.invalid")
+    git("config", "user.name", "t")
+    git("config", "core.autocrlf", "false")
+    (tmp_path / "a.txt").write_text("a\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text("ign/\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "one")
+    t0 = HT.tree_id(tmp_path)
+    assert t0 == git("rev-parse", "HEAD^{tree}")
+    (tmp_path / "ign").mkdir()
+    (tmp_path / "ign" / "x.txt").write_text("x\n", encoding="utf-8")
+    assert HT.tree_id(tmp_path) == t0
+    (tmp_path / "b.txt").write_text("b\n", encoding="utf-8")
+    t1 = HT.tree_id(tmp_path)
+    assert t1 != t0
+    (tmp_path / "a.txt").write_text("a2\n", encoding="utf-8")
+    assert HT.tree_id(tmp_path) not in (t0, t1)
+    assert git("diff", "--cached", "--name-only") == "" and "?? b.txt" in git("status", "--porcelain")
+
+
+def test_segment_harness_tests_a_run_never_reads_an_earlier_junit(tmp_path, monkeypatch, capsys):
+    """A run never reads a junit an earlier run left (the review: a reused --out): run() clears its junit path before
+    pytest starts, so a run that writes none -- a usage error, a conftest that cannot import, a killed child -- has
+    NO results and an ``error``; whole() then clears the earlier receipt too and exits 2 "not run", writing none.
+    Break: keep the old whole.xml (its results would be judged as this run's)."""
+    HT = _harness_tests_module()
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "whole.xml").write_text('<testsuites><testsuite name="pytest"><testcase name="t"/></testsuite>'
+                                   '</testsuites>', encoding="utf-8")
+    (out / "receipt.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(HT, "_call", lambda argv, *, cwd, env=None: (4, "", "ERROR: usage"))
+    got = HT.run(junit=out / "whole.xml", n=0)
+    assert got["results"] == {} and got["error"] == "no JUnit XML written" and got["rc"] == 4, got
+    assert not (out / "whole.xml").exists()
+    (out / "whole.xml").write_text("<testsuites/>", encoding="utf-8")
+    monkeypatch.setattr(HT, "head", lambda root=None: "h" * 40)
+    monkeypatch.setattr(HT, "tree_id", lambda root=None: "t" * 40)
+    assert HT.whole(out, n=0) == 2
+    assert not (out / "receipt.json").exists() and not (out / "whole.xml").exists()
+    assert "not run" in capsys.readouterr().out
+
+
+def test_segment_harness_tests_alone_a_skip_or_an_xfail_is_not_a_pass(tmp_path):
+    """THE FLAKE PROTOCOL's alone run (harness_tests._run_alone) passes a test only on its junit row: pytest exits 0
+    for a test that skips or xfails alone, and a failed test re-run into a skip (an install another session holds)
+    must stay a FAILURE, never a 3/3 flake. Real pytest runs on a scratch file. Break: return the exit code == 0."""
+    HT = _harness_tests_module()
+    (tmp_path / "test_alone.py").write_text(
+        "import pytest\n\n"
+        "def test_ok():\n    assert True\n\n"
+        "def test_skip():\n    pytest.skip('no install')\n\n"
+        "@pytest.mark.xfail(strict=False)\n"
+        "def test_xf():\n    assert False\n\n"
+        "def test_bad():\n    assert False\n", encoding="utf-8")
+    got = {nm: HT._run_alone(nm, test_file="test_alone.py", cwd=tmp_path)
+           for nm in ("test_ok", "test_skip", "test_xf", "test_bad", "test_gone")}
+    assert got == {"test_ok": True, "test_skip": False, "test_xf": False, "test_bad": False, "test_gone": False}, got
+
+
+def test_segment_harness_tests_stop_all_ends_a_running_child(tmp_path):
+    """harness_tests.stop_all ends a child that is running (and refuses new ones until reset_stop): the gate's pytest
+    half cannot be interrupted on its thread, so a gate whose in-process half raised kills it rather than wait for, or
+    orphan, a run nobody reads. Break: stop_all only sets the flag (the child then runs its full minute)."""
+    import sys as _sys
+    HT = _harness_tests_module()
+    HT.reset_stop()
+    done = {}
+
+    def child():
+        done["rc"] = HT._call([_sys.executable, "-c", "import time; time.sleep(60)"], cwd=tmp_path)[0]
+    th = threading.Thread(target=child, daemon=True)
+    try:
+        th.start()
+        t0 = time.time()
+        while not HT._LIVE and time.time() - t0 < 20:
+            time.sleep(0.05)
+        assert HT._LIVE, "the child never registered"
+        HT.stop_all()
+        th.join(20)
+        assert not th.is_alive() and done.get("rc") not in (None, 0), done
+        with pytest.raises(RuntimeError):
+            HT._call([_sys.executable, "-c", "pass"], cwd=tmp_path)
+    finally:
+        HT.reset_stop()
+    assert HT._call([_sys.executable, "-c", "pass"], cwd=tmp_path)[0] == 0
+
+
+def test_segment_regress_gate_stops_its_pytest_half_when_the_rest_raises(monkeypatch):
+    """A gate whose in-process half raises stops its pytest half (harness_tests.stop_all) before the error reaches the
+    caller -- never a silent wait for the union run and its alone re-runs, never an orphaned -n run loading the next
+    one. Break: drop the stop (the stubbed pytest half then holds the gate for its full wait)."""
+    R, HT = _regress_module(), _harness_tests_module()
+    released, stopped = threading.Event(), []
+
+    def slow_items(ids, **kw):
+        released.wait(30)
+        return {i: {"rc": 0, "passed": [], "failed": [], "skipped": [], "errors": [], "flakes": [], "tail": ""}
+                for i in ids}
+
+    def stop():
+        stopped.append(time.time())
+        released.set()
+
+    def broken():
+        raise RuntimeError("an in-process item broke")
+    monkeypatch.setattr(R, "pytest_items", slow_items)
+    monkeypatch.setattr(R, "collect", broken)
+    monkeypatch.setattr(HT, "stop_all", stop)
+    t0 = time.time()
+    with pytest.raises(RuntimeError, match="an in-process item broke"):
+        R.gate(only={"G1", "G7"})
+    assert stopped and stopped[0] - t0 < 20, stopped

@@ -1486,6 +1486,74 @@ Settled for O7 by the O6 research: every walked field's grant is its Main_Init t
 ip205 only; 159's forced monologue (e16 t1 ip390, pages 296-300, `Bit[3796] := 1` ip672) re-grants in place
 (`interrupts` 1).
 
+## Build testing (every segment's build, from O7) -- overrides any design's section 9 where it differs
+
+**Why (measured 2026-10-04 over the O3-O6 build workflows):** O6's request-to-merge was 24.8 h. Of that, the build
+workflow was 21.4 h, and about 13 h of the build was agents waiting on tests. The causes:
+- **Every run was serial.** `tests/test_harness.py` takes 66 min whole, serial. It is sleep-bound: FakeGame's real-time
+  loop. At `-n 8` it took 14.4 min, 918 passed.
+- **The regression gate re-ran in full.** It took 41 min, 88% of that its six pytest selections run one after another,
+  and agents re-ran it whole about 11 times a build, after every fix.
+- **Green commits were re-baselined.** Each PART re-ran a baseline on a commit already green, and the gate re-ran
+  subsets its own whole run covers.
+- **One flake meant re-running everything.**
+
+Model time was flat at about 8 h a build since O4.
+
+O5's B0 had 26 timing flakes at `-n 6`, each passing alone. That is why the designs said "alone, serially". The rules
+below keep parallel runs and handle a flake by re-running only the test that failed.
+
+**The tools:**
+- `studies/story-trace/harness_tests.py whole --out <scratch>` runs the whole file at `-n 8` (`FF9_TEST_WORKERS`,
+  `-n`) with `--dist worksteal`. Then THE FLAKE PROTOCOL: each failed test is re-run alone, serially, up to 3 times,
+  and passes only on its junit row (a skip or an xfail alone is no pass). 3/3 is a FLAKE, named in the output and in
+  the receipt. Anything less is a FAILURE. More than 10 failures are a breakage and none is re-run.
+  - It writes `<scratch>/receipt.json`, bound to HEAD, the working tree (`tree_id`: untracked files count, ignored ones
+    do not), the Python, a finished run (pytest's exit 0 or 1) and the junit's sha256.
+  - A run clears its junit and the old receipt first, so an earlier run's files are never read as its own.
+  - Exit 0 means green: no failure but flakes, no skip. `harness_tests.py check <receipt>` says whether a receipt is
+    for HEAD and this tree.
+- `segment_regress.py` runs its six pytest items as ONE `-n` run of their union, on a thread beside the in-process
+  items, each item's slice taken by pytest's own `--collect-only -k`. Its failures go through the same flake protocol.
+  If the in-process half raises, the pytest half is killed, never waited on or orphaned.
+  - `--only G26,G27` / `--segment O5` is a PARTIAL run: exit 3 on a pass, NOT THE GATE.
+  - `--pytest-junit <scratch>/receipt.json` judges the pytest items from a whole-file receipt instead of running
+    pytest. It is refused, exit 2, unless the receipt is for this HEAD and tree.
+  - `--list` prints the items.
+
+**The rules.** Paste them into every build prompt, implementer, fixer and gate alike. They override a design's section 9.
+- **TEST TIERS.**
+  - Inner loop: only the `-k` selections you touched, `-n 4` past 10 tests. Mid-PART regression checks are
+    `segment_regress.py --only <items your change can move>`.
+  - At the END of each PART, once: `harness_tests.py whole --out <scratch>/<part>`, then
+    `segment_regress.py --pytest-junit <scratch>/<part>/receipt.json`. That is the PART's REQUIRED-GREEN evidence,
+    with the dry runs the design lists.
+  - Never re-run a `-k` selection a whole-file run at the same HEAD and tree contains.
+- **GREEN RECEIPT.** Return the receipt's path, and the gate's summary line, in the stage's result.
+  - A stage whose HEAD and tree match the previous stage's receipt (`harness_tests.py check <receipt>` exits 0) does
+    NOT re-baseline: that receipt IS its baseline.
+  - PART A starts from master's merge gate and the nightly ledger (`.test-gate/latest.json`), not a new baseline.
+- **FLAKES.** On a failure, the tools re-run only the failed tests alone. Never re-run a whole file or the whole gate
+  for a flake. Name every flake in the commit message.
+  - A test that fails alone is a real failure. Fix it, or name it as a pre-existing defect with its alone-run evidence.
+  - A test that is load- or order-sensitive is a test defect. Fix the test, as `test_o2_drive_leaves_at_once` and
+    `test_o4_drive_page_once_and_the_quiet_windows` were fixed.
+- **FIXER.** The affected `-k` and `--only` items, plus the segment's dry run. Then one `whole` + `--pytest-junit` at
+  its end.
+- **GATE.** Check the fixer's receipt (`check`, exit 0), then re-execute independently: one `harness_tests.py whole`
+  and one `segment_regress.py --pytest-junit` on its receipt, plus the dry runs and CLI checks. Report the actual
+  output. A PARTIAL run is never the gate.
+- **WAITS.** Poll as little as possible: each poll re-sends the agent's whole context, and O6's implement:B paid 70
+  polling turns at about 905k tokens.
+  - A partial gate run or a `-k` selection under about 8 minutes is ONE foreground call (`timeout` 600000).
+  - A whole-file run or a full gate can take longer under load (17 min and 11 min measured), so run it in the
+    background and wait in loops of at most 9.5 minutes each.
+
+**Measured at the change** (master `9c11d6c8` plus this pass): `segment_regress.py --segment O6` took 2m21s, 2/2 PASS,
+exit 3. The full gate read 33/33 PASS in 11m09s, down from 41 min. The whole file read 925 passed, 1 xfailed, 0 failed
+in 17m01s at `-n 8`, down from 66 min. Both ran with the machine at ~99% CPU from other sessions' batch jobs. A code
+review of the pass confirmed eleven findings, and each was fixed with a test that fails without the fix.
+
 ## Rungs
 
 | Rung | What | Pass |
