@@ -2478,8 +2478,11 @@ class _Drive:
         "windows", "verdict"}``, exactly the windows that sample lists -- and the witness disarmed: every line its
         entry's text, ``verdict`` "ok" and the entry's beat set; any other name, ``verdict`` "V13" and the run VOID V13
         by the driver at the naming's cell -- input at the naming screen (accept_name's blocking call, which the
-        run-wide witness does not see), the driver's to re-run. ``final`` (a new visit): the last scan of the field it
-        leaves, then disarmed whatever it found -- no such sample, no row: the beat stays False, the run uncovered."""
+        run-wide witness does not see), the driver's to re-run -- or a patched default name, which the message names
+        too (a stacked DictionaryPatch.txt CharacterDefaultName line, or [Import] Text: the screen pre-fills it on every
+        run, so every run VOIDs alike; O6's preflight P-NAME refuses either before the session -- the review,
+        research/o6_design.md 11.7 #1). ``final`` (a new visit): the last scan of the field it leaves, then disarmed
+        whatever it found -- no such sample, no row: the beat stays False, the run uncovered."""
         pw = self.pw
         hit = None
         for _t, raw in ring_since(self.g, pw["scanned"]):
@@ -2505,7 +2508,9 @@ class _Drive:
         bad = next(w for w in wins if not w["ok"])
         raise RouteVoid(f"the name on the page is not the default: mes {bad['mes']} renders {bad['line']!r}, "
                         f"registered {bad['want']!r} -- input at the naming screen (accept_name's blocking call, which "
-                        f"the run-wide witness does not see)", v="V13", cell=pw["cell"], by="driver")
+                        f"the run-wide witness does not see), or a patched default name (a stacked DictionaryPatch.txt "
+                        f"CharacterDefaultName line, or [Import] Text: the preflight's P-NAME refuses either)",
+                        v="V13", cell=pw["cell"], by="driver")
 
     # -- the walks ------------------------------------------------------------------------------------------------
     def floor(self, closed=()):

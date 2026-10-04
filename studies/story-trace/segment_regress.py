@@ -630,15 +630,18 @@ REQUIRED_TESTS_O6: tuple = (
     "test_o6_rehearsal_walk_void_falls_back_to_the_first_walk_hold",
     "test_o6_rehearsal_smoke_sends_no_storytrace_on_the_fake",
     "test_o6_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake",
-    # the review's fixes (research/o6_design.md 11.7): New Game restores the default name on the fake (#2)
+    # the review's fixes (research/o6_design.md 11.7): New Game restores the default name on the fake (#2); P-NAME pins
+    # the default name's two sources, a stacked CharacterDefaultName line and [Import] Text (#1)
     "test_fake_naming_new_game_restores_the_default_name",
+    "test_o6_steiner_p_name_reads_the_default_names_sources",
 )
 #: G33 (research/o6_design.md 9 C2): o6_dryrun's "N/N cases as registered" must have N at least this, on the draft (or
 #: the frozen file) AND on as_if_frozen(draft) -- its 92 session cases and "predictions-changed" (section 8's table), its
 #: 22 units, and its listed units (O6-CENSUS and its 7 mutants, O6-REGIONS and its 6, O6-GOALS and its 8, the route pins
 #: and route_mes with their 8, O6-BUILD's route pins on a synthetic build and its 3, the draft through O6-KEYS and its 10
-#: offline mutants) when G33 joined (163). A case added raises N; one dropped falls under the floor.
-O6_DRYRUN_FLOOR = 163
+#: offline mutants) when G33 joined (163); then the review's unit (research/o6_design.md 11.7 #1): p-name. A case added
+#: raises N; one dropped falls under the floor.
+O6_DRYRUN_FLOOR = 164
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)
 SOURCE_PINS = HERE / "research" / "source_pins.json"

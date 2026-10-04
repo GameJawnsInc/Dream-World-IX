@@ -130,11 +130,12 @@ SCOPE_NAME = (
     "renders on the first parsed [STNR] page after the screen (199's 'Captain Steiner!', 200's speaker line when listed) "
     "against the default, on both sides, and VOIDed any run whose page showed another (V13: input at the naming screen, "
     "which accept_name's blocking call keeps from the run-wide witness); O6-NAMING (b) re-checks every covered run's "
-    "row. The screen itself has no field key (Menu(1,3), EventService.StartMenu; the default is CharacterDefaultName), "
-    "so S and F open the same one: a non-default name is input or the engine, never the fork. What remains: a name typed "
-    "on either side makes that run VOID (re-run); typed on every run of a side it is VOID-ASYM (b), on every run of both "
-    "sides the session reads VOID -- never PROVEN, and never a fork finding. A page the instrument never caught parsed "
-    "leaves its run uncovered")
+    "row. The screen itself has no field key (Menu(1,3), EventService.StartMenu; the default is CharacterDefaultName, "
+    "whose sources P-NAME read before the session: no stacked DictionaryPatch.txt line patches it in US, [Import] Text "
+    "off), so S and F open the same one: a non-default name is input or the engine, never the fork. What remains: a "
+    "name typed on either side makes that run VOID (re-run); typed on every run of a side it is VOID-ASYM (b), on every "
+    "run of both sides the session reads VOID -- never PROVEN, and never a fork finding. A page the instrument never "
+    "caught parsed leaves its run uncovered")
 SCOPE_END_STATE = ("read live on arrival in 154: 154@315 stores only same-value prologue keys (ip279 is the 304 "
                    "branch's), so Byte[8] is read live too")
 #: A-NAMING's reason (5.1): the named row's ``before`` without 198's marker -- the instrument's miss, never a failure.
@@ -1350,17 +1351,79 @@ def trace_summary(rows: list, pred: dict, *, side: str = "S", start_place: int |
     return out
 
 
+# ======================================================================== P-NAME: the default name's sources (read-only)
+def character_default_name_lines(text) -> list:
+    """``[(id, lang, name, line)]``: every ``CharacterDefaultName`` line of one DictionaryPatch.txt as the engine reads
+    it (DataPatchers.PatchDictionaries, DataPatchers.cs:249-257 and :584-603): the file's lines (File.ReadAllLines),
+    each split on single spaces; ``entry[0]`` exactly "CharacterDefaultName" with at least four entries and ``entry[1]``
+    an Int32 (Int32.TryParse) -- its language ``entry[2]`` (DefaultNamesByLang's key, which CharacterDefaultNames reads
+    at Localization.CurrentSymbol), its name the rest re-joined by single spaces. Any other line is skipped, as the
+    engine skips it."""
+    out = []
+    for line in re.split(r"\r\n|\r|\n", text or ""):
+        entry = line.split(" ")
+        if len(entry) < 4 or entry[0] != "CharacterDefaultName":
+            continue
+        cid = P._int32(entry[1])
+        if cid is not None:
+            out.append((cid, entry[2], " ".join(entry[3:]), line))
+    return out
+
+
+def p_name(game, roots, *, char: int = 3, lang: str = "US", default: str = "Steiner") -> tuple:
+    """P-NAME (the review, research/o6_design.md 11.7 #1): ``(ok, detail)`` -- the name New Game gives character
+    ``char`` and the naming screen pre-fills (ff9play.cs:141, NameSettingUI.cs:151: FF9TextTool.CharacterDefaultName)
+    is the engine's built-in ``default``, the one the page witness's frozen lines render (``ON_PAGE_WINDOWS``). The
+    stack can patch it two ways, each read the engine's way:
+      (a) the TEXT IMPORTER: [Import] Enabled 1 AND Text 1 in the merged Memoria.ini -- the root's, then each stacked
+          folder's over it, the first folder's winning (P-SETTINGS' reading, o3_prima_vista.install_settings) --
+          runs it (Configuration.Import.Text = Enabled && Text), character names among what it imports, over any
+          DictionaryPatch line (DataPatchers.cs:587-588): FAILS, the import path unread; a raw value that is not the
+          engine's 0 or 1 FAILS too (IniValue.ParseValue keeps an earlier value: never guessed). Unset reads 0 (the
+          section's defaults);
+      (b) a ``CharacterDefaultName <char> <lang> <name>`` line in a stacked folder's DictionaryPatch.txt
+          (:func:`character_default_name_lines`; every mod folder's is applied, DataPatchers.Initialize) in the
+          session's language ``lang`` whose name is not ``default``: FAILS naming the folder and the line. A line naming
+          ``default`` itself, another character's or another language's passes, listed.
+    A patched default would make every run's 199 render the patched name: the page witness VOIDs each as V13 -- never
+    covered, the cause read as typed input. P-NAME refuses it before the session; P-LAUNCH then proves the launch read
+    these very files (each older than the launch)."""
+    imp = P.install_settings(game, roots, {"Import": ["Enabled", "Text"]})["Import"]
+    raw = {k: imp.get(k) for k in ("Enabled", "Text")}
+    bad = [f"(a) [Import] {k} = {v!r} is not the engine's 0 or 1 (it keeps an earlier value): unread"
+           for k, v in raw.items() if v is not None and v not in ("0", "1")]
+    if raw["Enabled"] == "1" and raw["Text"] == "1":
+        bad.append("(a) [Import] Enabled 1 and Text 1: the text importer runs -- character names among it, over any "
+                   "DictionaryPatch line -- from a path P-NAME does not read")
+    lines = []
+    for r in roots:
+        try:
+            text = (Path(r) / "DictionaryPatch.txt").read_text(encoding="utf-8-sig", errors="replace")
+        except OSError:
+            continue
+        for cid, lg, nm, ln in character_default_name_lines(text):
+            lines.append(f"{Path(r).name} {cid} {lg} {nm!r}")
+            if cid == int(char) and lg == lang and nm != default:
+                bad.append(f"(b) {Path(r).name}/DictionaryPatch.txt '{ln.strip()}' patches character {char}'s default "
+                           f"name to {nm!r} in {lang}: the screen pre-fills it, and every [STNR] page renders it")
+    if bad:
+        return False, "; ".join(bad[:4])
+    return True, (f"character {char}'s default name is the engine's {default!r} in {lang}: [Import] Enabled "
+                  f"{raw['Enabled'] or '0 (unset)'}, Text {raw['Text'] or '0 (unset)'} (the importer off); no stacked "
+                  f"DictionaryPatch.txt patches it (CharacterDefaultName lines: {'; '.join(lines) or 'none'})")
+
+
 # ======================================================================== O6 on the shared engine
 class O6Segment(C5.O5Segment):
     """O6 on O5's segment (research/o6_design.md 1.3): its constants and check texts, the draft predictions, the offline
     checks (O6-BUILD with the route members' pins, O6-KEYS with the start-dependent keys' after values, the route pins
     and route_mes, O6-TEXT strict on block 3, O6-CENSUS with 151's compare dispatch and e15 LIVE at 328, O6-REGIONS,
-    O6-GOALS with the door's evidence), the preflight extras (O5's) and in-game capabilities (O5's over 151/153/154), the
-    drive with its input witness (O4's), A-START (151 is visited once) and A-NAMING, the all-run checks (FORBIDDEN,
-    VOID-ASYM (a)-(d) over [place, sc, visit] cells), the core checks (START, NO-SC, CHAIN, RESIDUE, WRITES exact, NULL,
-    STABLE, LANDING (a)-(e), NAMING (a)-(b), WALK (a)-(b), PATTERN (a)-(b) with the floating e15 row, START-DEPENDENT,
-    MASKED, STATE, JOIN) and O6's report. The session loop, the cuts, the digest, the comparison and the verdict are the
-    shared engine's."""
+    O6-GOALS with the door's evidence), the preflight extras (O5's, with P-NAME after P-SETTINGS) and in-game
+    capabilities (O5's over 151/153/154), the drive with its input witness (O4's), A-START (151 is visited once) and
+    A-NAMING, the all-run checks (FORBIDDEN, VOID-ASYM (a)-(d) over [place, sc, visit] cells), the core checks (START,
+    NO-SC, CHAIN, RESIDUE, WRITES exact, NULL, STABLE, LANDING (a)-(e), NAMING (a)-(b), WALK (a)-(b), PATTERN (a)-(b)
+    with the floating e15 row, START-DEPENDENT, MASKED, STATE, JOIN) and O6's report. The session loop, the cuts, the
+    digest, the comparison and the verdict are the shared engine's."""
 
     tag = "O6"
     doc = _MODULE_DOC
@@ -1402,6 +1465,9 @@ class O6Segment(C5.O5Segment):
                    "member's",
         "P-SETTINGS": "P-SETTINGS: the battle, cheat, hack (DisableNameChoice 0), control and graphics settings are the "
                       "frozen ones (O4's; Memoria.ini read the engine's way)",
+        "P-NAME": "P-NAME: Steiner's default name is the engine's 'Steiner' -- no stacked DictionaryPatch.txt "
+                  "CharacterDefaultName line patches it in US, and [Import] Text is off (the name the screen pre-fills "
+                  "and the page witness's frozen lines render)",
         "P-PAD": "P-PAD: no XInput pad reads non-neutral (AlwaysCaptureGamepad = 1 reads a pad even unfocused)",
         "P-OVERRIDE": "P-OVERRIDE: field 70's New-Game override is the pinned one, shipped by one folder",
         "P-ENGINE": "P-ENGINE: the live x64 and x86 Assembly-CSharp.dll are the pinned engine",
@@ -1819,6 +1885,23 @@ class O6Segment(C5.O5Segment):
         if not ok or bad:
             return False, self.title("GOALS"), "; ".join(([detail] if not ok else []) + bad)[:1400]
         return True, self.title("GOALS"), detail + "; " + "; ".join(lines)
+
+    # -- the live install (read-only) ---------------------------------------------------------------------------
+    def preflight_extra(self, pred: dict, roots: list, *, manifest=None, pads=..., live_engine=None, game=None,
+                        stock_text=None) -> list:
+        """O5's extras -- P-TEXT (block 3, STRICT), P-RECOVERY, P-DONOR (151, 153 and 154), P-SETTINGS, P-PAD,
+        P-OVERRIDE, P-ENGINE -- with :func:`p_name` right after P-SETTINGS (the review, research/o6_design.md 11.7 #1):
+        P-SETTINGS pins the screen (``DisableNameChoice`` 0), P-NAME the name it pre-fills, for the predictions'
+        ``name`` (its ``char`` and ``default``) in the session's language. The seams are O5's; ``game`` is also the
+        install whose Memoria.ini P-NAME reads."""
+        out = super().preflight_extra(pred, roots, manifest=manifest, pads=pads, live_engine=live_engine, game=game,
+                                      stock_text=stock_text)
+        nm = pred.get("name") or {}
+        ok, detail = p_name(Path(game) if game is not None else GAME, roots, char=int(nm.get("char", 3)),
+                            lang=str(pred.get("lang", SESSION_LANG)).upper(), default=str(nm.get("default", "Steiner")))
+        at = next((i + 1 for i, (_ok, w, _d) in enumerate(out) if w == self.title("P-SETTINGS")), len(out))
+        out.insert(at, (ok, self.title("P-NAME"), detail))
+        return out
 
     # -- the session --------------------------------------------------------------------------------------------
     def capabilities(self, g, *, pads=..., engine=None, live_engine=None) -> list:

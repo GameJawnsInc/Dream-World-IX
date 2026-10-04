@@ -24955,11 +24955,14 @@ def test_o6_drive_typed_name_is_the_drivers_v13(game):
     """THE PAGE WITNESS JUDGES (research/o6_design.md 1.2 S16; rev. 2, the claim critic's #2): ``name_typed`` "Rusty" --
     a name typed into the box during accept_name's blocking call, which the run-wide witness does not see. 199 renders
     "Captain Rusty!": the ``name_on_page`` row's ``verdict`` "V13", its 199 line "“Captain Rusty!”", and the run VOID
-    V13 by the driver at [30810, 1190, 1] ("input at the naming screen"); never re-run (the class it asserts). Break:
-    the first design's S16 (record, never judge): the run covered."""
+    V13 by the driver at [30810, 1190, 1] ("input at the naming screen" -- or, the message says too, a patched default
+    name, which P-NAME refuses before the session: the review, research/o6_design.md 11.7 #1); never re-run (the class
+    it asserts). Break: the first design's S16 (record, never judge): the run covered."""
     out, log, fake, rows, ring, _a, aside = _o6_run_informative(game, knobs={"name_typed": "Rusty"},
                                                                  want="the name on the page is not the default")
     _o5_void(out, "V13", "driver", [30810, 1190, 1], "input at the naming screen")
+    assert "or a patched default name (a stacked DictionaryPatch.txt CharacterDefaultName line, or [Import] Text" \
+           in str(out), str(out)
     page = _g_rows(log, "name_on_page")
     assert len(page) == 1 and page[0]["verdict"] == "V13", page
     assert page[0]["windows"][0]["mes"] == 199 and page[0]["windows"][0]["line"] == "“Captain Rusty!”", page[0]
@@ -25764,11 +25767,12 @@ def test_o6_steiner_why_void_reads_151s_error_path_as_the_start(tmp_path):
 
 
 def test_o6_steiner_preflight_verdicts(tmp_path):
-    """O6's preflight extras (research/o6_design.md 6.2; O5's, inherited), on a synthetic install: exactly P-TEXT (block
-    3, STRICT), P-RECOVERY, P-DONOR, P-SETTINGS, P-PAD, P-OVERRIDE, P-ENGINE, in that order. P-DONOR reads 151, 153 AND
-    154 (the route and the end field) in that order: each forked once PASSES; 154 unforked FAILS. Block 3's uk copy of
-    stock us FAILS (strict). P-SETTINGS on 4.15's ini PASSES and with ``DisableNameChoice`` 1 FAILS naming it (decision
-    4's pin: the naming screen would be skipped). Break: P-DONOR over the route alone (154 unread)."""
+    """O6's preflight extras (research/o6_design.md 6.2; O5's, inherited, and the review's P-NAME after P-SETTINGS:
+    11.7 #1), on a synthetic install: exactly P-TEXT (block 3, STRICT), P-RECOVERY, P-DONOR, P-SETTINGS, P-NAME, P-PAD,
+    P-OVERRIDE, P-ENGINE, in that order. P-DONOR reads 151, 153 AND 154 (the route and the end field) in that order:
+    each forked once PASSES; 154 unforked FAILS. Block 3's uk copy of stock us FAILS (strict). P-SETTINGS on 4.15's ini
+    PASSES and with ``DisableNameChoice`` 1 FAILS naming it (decision 4's pin: the naming screen would be skipped).
+    Break: P-DONOR over the route alone (154 unread)."""
     O = _o6_module()
     pred = _o6_draft(tmp_path)
     game = tmp_path / "game"
@@ -25794,15 +25798,16 @@ def test_o6_steiner_preflight_verdicts(tmp_path):
                                    stock_text={3: stock3})
         return [(w.split(":")[0], ok, d) for ok, w, d in out]
     rows = pre()
-    assert [r[0] for r in rows] == ["P-TEXT (block 3)", "P-RECOVERY", "P-DONOR", "P-SETTINGS", "P-PAD", "P-OVERRIDE",
-                                    "P-ENGINE"], rows
+    assert [r[0] for r in rows] == ["P-TEXT (block 3)", "P-RECOVERY", "P-DONOR", "P-SETTINGS", "P-NAME", "P-PAD",
+                                    "P-OVERRIDE", "P-ENGINE"], rows
     ok = {w: o for w, o, _d in rows}
-    assert ok == {"P-TEXT (block 3)": True, "P-RECOVERY": True, "P-DONOR": True, "P-SETTINGS": True, "P-PAD": True,
-                  "P-OVERRIDE": False, "P-ENGINE": True}, rows
+    assert ok == {"P-TEXT (block 3)": True, "P-RECOVERY": True, "P-DONOR": True, "P-SETTINGS": True, "P-NAME": True,
+                  "P-PAD": True, "P-OVERRIDE": False, "P-ENGINE": True}, rows
     det = {w: d for w, _o, d in rows}
     assert det["P-DONOR"].startswith("151 -> 31244 (FF9CustomMap), 153 -> 31245 (FF9CustomMap), 154 -> 31246 "
                                      "(FF9CustomMap)"), det["P-DONOR"]
     assert "DisableNameChoice 0" in det["P-SETTINGS"], det["P-SETTINGS"]
+    assert det["P-NAME"].startswith("character 3's default name is the engine's 'Steiner' in US"), det["P-NAME"]
     ship(dict(stock3, uk=stock3["us"]))
     _w, o, d = pre()[0]
     assert not o and "KNOWN-KIT-DEFECT uk: ships stock us" in d and "strict" in d, d
@@ -25816,6 +25821,66 @@ def test_o6_steiner_preflight_verdicts(tmp_path):
     (game / "Memoria.ini").write_text(_o3_ini(nc), encoding="utf-8")
     _w, o, d = pre()[3]
     assert not o and "[Hacks] DisableNameChoice = '1'" in d, d
+
+
+def test_o6_steiner_p_name_reads_the_default_names_sources(tmp_path):
+    """P-NAME (the review, research/o6_design.md 11.7 #1): the default name the screen pre-fills and New Game gives
+    Steiner -- which the page witness's frozen lines render -- is pinned at its two sources, read the engine's way.
+    (a) DictionaryPatch.txt's ``CharacterDefaultName`` lines as PatchDictionaries splits them (single spaces, an Int32
+    id, the language, the name re-joined; CRLF and a BOM read as File.ReadAllLines does; a double space or a non-int id
+    skipped): ``CharacterDefaultName 3 US Adelbert`` in ANY stacked folder FAILS, through O6's preflight too (the session
+    then refuses before a run), naming the folder and the line; the default itself, another language's and another
+    character's PASS, listed. (b) [Import]: Enabled 1 AND Text 1 -- in the root's Memoria.ini, or a stacked folder's
+    Enabled 1 over the root's Text 1 -- FAILS; the live install's shape (Enabled 0, Text 1), Enabled 1 with Text 0 and
+    the section unset PASS; an unparsed value FAILS (never guessed). Break: read only the first stacked folder's
+    DictionaryPatch.txt (the patch in the second one then passes)."""
+    O = _o6_module()
+    assert O.character_default_name_lines(
+        "CharacterDefaultName 3 US Adelbert\r\nCharacterDefaultName 12 US Ruby Rose\rCharacterDefaultName x US Bad\n"
+        "CharacterDefaultName  3 US Gap\nCharacterDefaultName 3 US\nFieldScene 4600 11 HUB HUB 4600\n") == [
+        (3, "US", "Adelbert", "CharacterDefaultName 3 US Adelbert"),
+        (12, "US", "Ruby Rose", "CharacterDefaultName 12 US Ruby Rose")]
+    game = tmp_path / "game"
+    roots = [game / "FF9CustomMap", game / "FF9CustomMap-world"]
+    for r in roots:
+        r.mkdir(parents=True)
+    today = "[Import]\nEnabled = 0\nPath = %StreamingAssets%\nText = 1\n"
+
+    def check(second="FieldScene 31244 11 X X 3\r\n", first="", ini=today, mod_ini=None):
+        (game / "Memoria.ini").write_text(ini, encoding="utf-8")
+        (roots[0] / "DictionaryPatch.txt").write_text("FieldScene 4600 11 HUB HUB 4600\n" + first, encoding="utf-8")
+        (roots[1] / "DictionaryPatch.txt").write_text("﻿" + second, encoding="utf-8")     # a BOM, as some ship
+        mi = roots[1] / "Memoria.ini"
+        if mod_ini is None:
+            mi.unlink(missing_ok=True)
+        else:
+            mi.write_text(mod_ini, encoding="utf-8")
+        return O.p_name(game, roots, char=3, lang="US", default="Steiner")
+    ok, d = check()
+    assert ok and d == ("character 3's default name is the engine's 'Steiner' in US: [Import] Enabled 0, Text 1 (the "
+                        "importer off); no stacked DictionaryPatch.txt patches it (CharacterDefaultName lines: none)"), d
+    ok, d = check(second="CharacterDefaultName 3 US Adelbert\r\n")          # the second folder's FIRST line, after a BOM
+    assert not ok and d.startswith("(b) FF9CustomMap-world/DictionaryPatch.txt 'CharacterDefaultName 3 US Adelbert' "
+                                   "patches character 3's default name to 'Adelbert' in US"), d
+    ok, d = check(first="CharacterDefaultName 3 US Steiner\nCharacterDefaultName 3 UK Adelbert\nCharacterDefaultName 12 "
+                        "US Ruby\n")
+    assert ok and "FF9CustomMap 3 US 'Steiner'; FF9CustomMap 3 UK 'Adelbert'; FF9CustomMap 12 US 'Ruby'" in d, d
+    for ini, mod_ini in (("[Import]\nEnabled = 1\nText = 1\n", None), (today, "[Import]\nEnabled = 1\n")):
+        ok, d = check(ini=ini, mod_ini=mod_ini)
+        assert not ok and d.startswith("(a) [Import] Enabled 1 and Text 1: the text importer runs"), (ini, mod_ini, d)
+    for ini in ("[Import]\nEnabled = 1\nText = 0\n", "[Battle]\nSpeed = 5\n"):
+        ok, d = check(ini=ini)
+        assert ok, (ini, d)
+    ok, d = check(ini="[Import]\nEnabled = yes\nText = 1\n")
+    assert not ok and "(a) [Import] Enabled = 'yes' is not the engine's 0 or 1" in d, d
+    # through O6's preflight: the session refuses before any run
+    pred = _o6_draft(tmp_path)
+    check(second="CharacterDefaultName 3 US Adelbert\n", ini=_o3_ini(O.SETTINGS))
+    rows = O.O6.preflight_extra(pred, roots, pads=lambda slot: None, live_engine={"x64": O.ENGINE["x64"],
+                                                                                    "x86": O.ENGINE["x86"]},
+                                game=game, stock_text={3: {}})
+    got = {w.split(":")[0]: (o, d) for o, w, d in rows}
+    assert got["P-NAME"][0] is False and "'CharacterDefaultName 3 US Adelbert'" in got["P-NAME"][1], got["P-NAME"]
 
 
 def test_o6_steiner_trace_summary_cuts_at_end_places(tmp_path, o6_stock):

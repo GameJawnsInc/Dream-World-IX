@@ -32,7 +32,7 @@ S16's strict readers and S14's pure verdict, instanced_at6, the sink as the rend
 O6-PATTERN's floating reading, the trace summary on end places, the state history, O6-NAMING and O6-START-DEPENDENT pure,
 LANDING (e) alone, A-START and A-NAMING, as_if_frozen, door_test, O6-CENSUS, O6-REGIONS, O6-GOALS and the route pins with
 their mutants, O6-BUILD's pins on a synthetic build, O6-KEYS's offline mutants, and the launch's and the preflight's
-readers (O4's and O5's units on O6's pinned values).
+readers (O4's and O5's units on O6's pinned values; P-NAME's own, the review's: research/o6_design.md 11.7 #1).
 """
 from __future__ import annotations
 
@@ -1772,6 +1772,42 @@ def unit_p_settings(tmp: Path) -> tuple:
     return ok4 and nc, f"O4's {ok4} ({det4[:60]}); DisableNameChoice 1 FAILS {nc}"
 
 
+def unit_p_name(tmp: Path) -> tuple:
+    """P-NAME (the review, research/o6_design.md 11.7 #1) on a synthetic install (the live one's shape: [Import]
+    Enabled 0, Text 1): no CharacterDefaultName line PASS; ``CharacterDefaultName 3 US Adelbert`` in a stacked folder
+    FAILS naming the folder and the line; the default itself, another language's and another character's lines PASS,
+    listed; [Import] Enabled 1 and Text 1 FAILS -- in the root's Memoria.ini, or a stacked folder's Enabled 1 over the
+    root's Text 1; Enabled 1 with Text 0 PASSES; an unparsed Enabled FAILS (never guessed)."""
+    game = tmp / "pname6"
+    root = game / "FF9CustomMap"
+    root.mkdir(parents=True)
+    today = "[Import]\nEnabled = 0\nPath = %StreamingAssets%\nText = 1\n"
+
+    def check(lines: str = "", ini: str = today, mod_ini: str | None = None) -> tuple:
+        (game / "Memoria.ini").write_text(ini, encoding="utf-8")
+        (root / "DictionaryPatch.txt").write_text("FieldScene 4600 11 HUB HUB 4600\n" + lines, encoding="utf-8")
+        mi = root / "Memoria.ini"
+        if mod_ini is None:
+            mi.unlink(missing_ok=True)
+        else:
+            mi.write_text(mod_ini, encoding="utf-8")
+        return O.p_name(game, [root], char=3, lang="US", default="Steiner")
+    got = {"today": check()[0]}
+    ok, d = check("CharacterDefaultName 3 US Adelbert\n")
+    got["patched"] = (not ok) and "FF9CustomMap/DictionaryPatch.txt 'CharacterDefaultName 3 US Adelbert'" in d
+    ok, d = check("CharacterDefaultName 3 US Steiner\nCharacterDefaultName 3 UK Adelbert\nCharacterDefaultName 12 US "
+                  "Ruby Rose\n")
+    got["listed"] = ok and "3 US 'Steiner'" in d and "3 UK 'Adelbert'" in d and "12 US 'Ruby Rose'" in d
+    ok, d = check(ini="[Import]\nEnabled = 1\nText = 1\n")
+    got["import-root"] = (not ok) and "[Import] Enabled 1 and Text 1" in d
+    ok, d = check(mod_ini="[Import]\nEnabled = 1\n")
+    got["import-stacked"] = (not ok) and "[Import] Enabled 1 and Text 1" in d
+    got["import-no-text"] = check(ini="[Import]\nEnabled = 1\nText = 0\n")[0]
+    ok, d = check(ini="[Import]\nEnabled = yes\nText = 1\n")
+    got["unparsed"] = (not ok) and "[Import] Enabled = 'yes'" in d
+    return all(got.values()), str({k: v for k, v in got.items() if not v} or "all as registered")
+
+
 def units(pred: dict, stock, scripts: dict, sdir: Path, path: Path, tmp: Path) -> list:
     """Every single unit, in order: ``[(name, fn)]``, each ``fn()`` -> ``(ok, detail)``."""
     return [("step-of-to", lambda: unit_step_of_to(pred)),
@@ -1791,6 +1827,7 @@ def units(pred: dict, stock, scripts: dict, sdir: Path, path: Path, tmp: Path) -
             ("p-donor-log", unit_p_donor_log),
             ("p-launch", lambda: unit_p_launch(tmp)),
             ("p-settings", lambda: unit_p_settings(tmp)),
+            ("p-name", lambda: unit_p_name(tmp)),
             ("p-pad", D4.unit_p_pad),
             ("p-override", D4.unit_p_override),
             ("p-engine", D4.unit_p_engine),
