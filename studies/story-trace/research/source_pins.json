@@ -117,5 +117,19 @@
   "new": "353f02bc0dda7e0524a742c8a3449fca3594d7b2bd1ef40d4e83e2a00b2381d2",
   "reason": "O6 review #2 (research/o6_design.md 11.7 #2): the newgame op clears fake.names -- New Game rebuilds every player with its CharacterDefaultName (FF9Play_New, ff9play.cs:131-144), so a name one run saved never reaches the next run's [STNR] pages; every other op unchanged",
   "head": "9a8f65d6bf3f3ee3c4a1753d16de65c95832fb0b"
+ },
+ {
+  "name": "ff9mapkit/tests/test_harness.py::test_o2_drive_leaves_at_once",
+  "old": "d69cfe427e9c45309c37f0719e3a6fefdcc5c1b6e457ef65c6bce4af9501a1da",
+  "new": "d33604dff2c7f6b640731ab356446e85bc77573a3866fb8b57ce05862718f2b5",
+  "reason": "a cold first import of segment_drive (~0.21 s) fell inside the 0.2 s lunge window: the test failed whenever it ran first in its process (alone, a -k re-run, an xdist worker); it now imports the driver before the grant clock -- the assertion is unchanged",
+  "head": "9c11d6c8495e543fda7c83e0493fa4e81128364c"
+ },
+ {
+  "name": "ff9mapkit/tests/test_harness.py::test_o4_drive_page_once_and_the_quiet_windows",
+  "old": "94e1cd9f8f5ddc1914c2231ceb72f8bf3c240de1119e1a67944f4ab94ae133a5",
+  "new": "8b1b24b664012c8f57cc03040d3706498759e4e1e58bec3929e11d353a395348",
+  "reason": "a read-gap V17 (a starved poll under load, no observed row) flaked it serially on master; it now runs through _o4_run_informative as the other O4 drive tests do, its phase watch reset per run -- the assertions are unchanged",
+  "head": "9c11d6c8495e543fda7c83e0493fa4e81128364c"
  }
 ]

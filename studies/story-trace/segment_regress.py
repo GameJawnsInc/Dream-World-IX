@@ -14,8 +14,23 @@ and visit-beat functions at their pinned sources (G21).
     py studies/story-trace/segment_regress.py --capture-o5   # G0'''', once, BEFORE any O6 code change: the O5 baseline
     py studies/story-trace/segment_regress.py --rebaseline-source NAME --reason TEXT   # G21: re-pin ONE source
     py studies/story-trace/segment_regress.py                # G1-G33; exit 0 only if every item passes
+    py studies/story-trace/segment_regress.py --only G26,G27 # a PARTIAL run (also --segment O5): exit 3 on a pass
+    py studies/story-trace/segment_regress.py --pytest-junit DIR/receipt.json   # pytest items from a whole-file run
+    py studies/story-trace/segment_regress.py --list         # the items, their segments and kinds
 
-Exit 2 means an archive or a baseline is missing: the gate was not run, which is not a pass.
+Exit 2 means an archive or a baseline is missing, or a ``--pytest-junit`` receipt is not for this HEAD and working
+tree: the gate was not run, which is not a pass. A PARTIAL run (``--only`` / ``--segment``) is NEVER the gate: it
+exits 3 when every selected item passes (1 when one fails) and prints NOT THE GATE -- a fix loop's run; the gate is a
+full run, exit 0.
+
+THE SPEED PASS (PLAN.md "Build testing"): the six pytest items (G7, G12, G13, G19, G26, G32) are ONE run of the union
+of their ``-k`` selections at xdist's ``-n`` (``harness_tests.workers``: 8, ``FF9_TEST_WORKERS``, ``-n``), on a thread
+while the in-process items run, each item's slice taken by pytest's own ``--collect-only -k`` and judged as before
+(``_selection_bad``, REQUIRED_TESTS, zero skips); its failures go through THE FLAKE PROTOCOL
+(``harness_tests.settle``: re-run alone 3x, 3/3 a flake -- named in the item's detail and the summary, never hidden).
+``--pytest-junit`` judges them instead from ``harness_tests.py whole``'s receipt, bound to HEAD and the working tree.
+A full run took 41 min serial; this way 11m09s, measured with the machine at ~99% CPU from other sessions
+(2026-10-04) -- so give a full run more than one 10-minute foreground call.
 
 The O1 items import only the O1 modules (``o1_opening``, ``o1_dryrun``), the O2 items only the O2 modules
 (``o2_alexandria``, ``o2_dryrun``, imported inside their functions), each through its public names, so each baseline
@@ -203,7 +218,9 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -212,6 +229,7 @@ sys.path.insert(0, str(HERE))
 
 import o1_opening as O                                                     # noqa: E402
 import o1_dryrun as D                                                      # noqa: E402
+import harness_tests as HT                                                 # noqa: E402 -- the -n runner, no segment
 
 V4 = HERE / "o1_predictions_v4.json"
 O1E = Path(r"C:\gd\Dream-World-IX\.harness-runs\20260929-213149-story-o1e")
@@ -294,6 +312,21 @@ REQUIRED_TESTS: tuple = (
     # its new visit, and a second door's row never drops an unread one
     "test_segment_trigger_to_records_its_landing_at_a_new_visit_on_the_fake",
     "test_segment_trigger_to_records_an_unread_walkout_before_a_second_door",
+    # the speed pass (PLAN.md "Build testing"): the items selectable, a partial run never the gate, ONE -n run split
+    # per item, a receipt reused only for its HEAD and tree, THE FLAKE PROTOCOL
+    "test_segment_regress_items_are_g1_to_g33_once",
+    "test_segment_regress_split_keeps_each_items_semantics",
+    "test_segment_regress_pytest_items_run_one_union_and_settle",
+    "test_segment_regress_partial_run_is_not_the_gate",
+    "test_segment_harness_tests_settle_names_flakes_and_failures",
+    "test_segment_harness_tests_receipt_binds_head_tree_and_python",
+    "test_segment_harness_tests_tree_id_tracks_untracked_not_ignored",
+    # the speed pass's review (eleven findings, each fixed): a run never reads an earlier junit, a skip or an xfail alone
+    # is no pass, a receipt bound to its junit's sha256 and a finished run, a raising gate stops its pytest half
+    "test_segment_harness_tests_a_run_never_reads_an_earlier_junit",
+    "test_segment_harness_tests_alone_a_skip_or_an_xfail_is_not_a_pass",
+    "test_segment_harness_tests_stop_all_ends_a_running_child",
+    "test_segment_regress_gate_stops_its_pytest_half_when_the_rest_raises",
 )
 
 O1E_VERDICT = "PROVEN"
@@ -750,37 +783,88 @@ def cli_analyse() -> tuple:
     return p.returncode, p.stdout, p.stderr
 
 
+#: THE ITEMS, in the order the gate prints them -- the order G1-G33 have always been printed in (G21 last).
+ITEM_ORDER: tuple = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G12", "G13", "G14", "G15",
+                     "G16", "G17", "G18", "G19", "G20", "G22", "G23", "G24", "G25", "G26", "G27", "G28", "G29", "G30",
+                     "G31", "G32", "G33", "G21")
+#: Each segment's items (``--segment``). G21 is no segment's: the driver's pins over the O3-O5 baselines (``--only``).
+SEGMENT_ITEMS: dict = {"O1": ("G1", "G2", "G3", "G4", "G5", "G6", "G7"), "O2": ("G8", "G9", "G10", "G11", "G12"),
+                       "O3": ("G13", "G14", "G15", "G16", "G17", "G18"),
+                       "O4": ("G19", "G20", "G22", "G23", "G24", "G25"),
+                       "O5": ("G26", "G27", "G28", "G29", "G30", "G31"), "O6": ("G32", "G33")}
+#: The pytest items and their ``-k`` selections: ONE run of their union judges all six (:func:`pytest_items`).
+PYTEST_ITEMS: dict = {"G7": PYTEST_K, "G12": PYTEST_K_O2, "G13": PYTEST_K_O3, "G19": PYTEST_K_O4, "G26": PYTEST_K_O5,
+                      "G32": PYTEST_K_O6}
+
+
 def pytest_g7() -> dict:
     """Run G7's pytest selection (:func:`pytest_selection`)."""
     return pytest_selection(PYTEST_K)
 
 
-def pytest_selection(k: str) -> dict:
-    """Run one ``-k`` selection of tests/test_harness.py; ``{"rc", "passed": [...], "failed": [...], "skipped":
-    [...], "errors": [...]}`` read from its JUnit XML (the names, not a summary line)."""
-    with tempfile.TemporaryDirectory() as tmp:
-        xml = Path(tmp) / "g7.xml"
-        p = subprocess.run([sys.executable, "-m", "pytest", "tests/test_harness.py", "-q", "-p", "no:cacheprovider",
-                            "-W", "ignore", "-k", k, f"--junitxml={xml}"],
-                           cwd=str(ROOT / "ff9mapkit"), capture_output=True, text=True, encoding="utf-8",
-                           errors="replace")
-        out = {"rc": p.returncode, "passed": [], "failed": [], "skipped": [], "errors": [],
-               "tail": (p.stdout + p.stderr)[-1500:]}
-        if not xml.is_file():
-            out["errors"].append("no JUnit XML written")
-            return out
-        for tc in ET.parse(xml).getroot().iter("testcase"):
-            name = tc.get("name")
-            kinds = {child.tag for child in tc}
-            if "error" in kinds:
-                out["errors"].append(name)
-            elif "failure" in kinds:
-                out["failed"].append(name)
-            elif "skipped" in kinds:
-                out["skipped"].append(name)
-            else:
-                out["passed"].append(name)
+def pytest_selection(k: str, *, n: int | None = None) -> dict:
+    """Run one ``-k`` selection of tests/test_harness.py at xdist's ``-n`` (:func:`harness_tests.workers`: 8, or
+    ``FF9_TEST_WORKERS``; 0 serial); ``{"rc", "passed": [...], "failed": [...], "skipped": [...], "errors": [...],
+    "flakes": []}`` read from its JUnit XML (the names, not a summary line). The captures run this: one run, judged as
+    it ran -- no flake is settled for a baseline."""
+    got = HT.run(k=k, n=n)
+    if "error" in got:
+        return {"rc": got["rc"], "passed": [], "failed": [], "skipped": [], "errors": [got["error"]], "flakes": [],
+                "tail": got["tail"]}
+    return split_selection(list(got["results"]), got["results"], rc=got["rc"], tail=got["tail"])
+
+
+def split_selection(members, results: dict, *, rc: int, tail: str, flakes=()) -> dict:
+    """One item's ``{"rc", "passed", "failed", "skipped", "errors", "flakes", "tail"}`` from a run's ``results`` ({name:
+    status}, :func:`harness_tests.read_junit`) over the tests its ``-k`` collects (``members``): a member with no row is
+    an error ("not run"); a skip or an xfail is a skip (:func:`_selection_bad` fails either); a failure or error in
+    ``flakes`` -- settled by THE FLAKE PROTOCOL, passed alone 3/3 -- counts passed and is named in ``flakes``. ``rc``:
+    1 for a failure or error in THIS slice (another item's failure is not this item's), the run's own exit when it is
+    neither 0 nor 1 (interrupted, an internal or usage error), else 0."""
+    flaky = set(flakes)
+    out = {"rc": 0, "passed": [], "failed": [], "skipped": [], "errors": [], "flakes": [], "tail": tail}
+    for name in members:
+        st = results.get(name)
+        if st is None:
+            out["errors"].append(f"not run: {name}")
+        elif st in ("failed", "error") and name in flaky:
+            out["passed"].append(name)
+            out["flakes"].append(name)
+        elif st == "error":
+            out["errors"].append(name)
+        elif st == "failed":
+            out["failed"].append(name)
+        elif st in ("skipped", "xfailed"):
+            out["skipped"].append(name)
+        else:
+            out["passed"].append(name)
+    out["rc"] = 1 if out["failed"] or out["errors"] else (rc if rc not in (0, 1) else 0)
     return out
+
+
+def pytest_items(ids, *, receipt: dict | None = None, n: int | None = None, env=None) -> dict:
+    """``{item id: selection}`` for the pytest items ``ids`` (:data:`PYTEST_ITEMS`) from ONE run: the union of their
+    ``-k`` selections at ``-n`` (:func:`harness_tests.run`), its failures settled by THE FLAKE PROTOCOL
+    (:func:`harness_tests.settle`) -- or, given a ``receipt`` (:func:`harness_tests.load_receipt`, already checked
+    against HEAD and the working tree), that whole-file run's junit and its settled flakes, no pytest run at all. Each
+    item's members are pytest's own ``--collect-only -k`` (:func:`harness_tests.collect`), so a selection means here
+    exactly what it meant run alone. Prints nothing: the gate runs this on a thread."""
+    ks = {i: PYTEST_ITEMS[i] for i in ids}
+    union = " or ".join(f"({k})" for k in ks.values())
+    with ThreadPoolExecutor(len(ks) + 1) as ex:
+        run = None if receipt is not None else ex.submit(HT.run, k=union, n=n, env=env)
+        members = {i: ex.submit(HT.collect, k, env=env) for i, k in ks.items()}
+        members = {i: f.result() for i, f in members.items()}
+        got = run.result() if run is not None else None
+    if receipt is not None:
+        results, rc = HT.read_junit(Path(receipt["junit"])), receipt["rc"]       # 0 or 1: receipt_problems
+        tail = f"(judged from the receipt's whole-file run, {receipt['junit']})"
+        flakes = {f["name"] for f in receipt.get("flakes") or ()}
+    else:
+        results, rc, tail = got["results"], got["rc"], got["tail"]
+        settled = HT.settle([nm for nm, st in results.items() if st in ("failed", "error")], env=env)
+        flakes = {f["name"] for f in settled["flakes"]}
+    return {i: split_selection(members[i], results, rc=rc, tail=tail, flakes=flakes) for i in ks}
 
 
 def _verdict(pair: dict) -> str:
@@ -2023,9 +2107,14 @@ def collect() -> dict:
             "noise_mutant": noise_mutant(stock), "offline": offline()}
 
 
-def judge(base: dict | None, got: dict, tests: dict) -> list:
+def judge_o1(base: dict | None, got: dict) -> list:
+    """G1-G6: O1's in-process items."""
     return [g1(base, got["o1e"]), g2(got["o1e"]["report"]), g3(base, got["dryrun"], got["dryrun_order"]),
-            g4(base, got["offline"]), g5(base, got["o1d"]), g6(base, got["noise_mutant"]), g7(base, tests)]
+            g4(base, got["offline"]), g5(base, got["o1d"]), g6(base, got["noise_mutant"])]
+
+
+def judge(base: dict | None, got: dict, tests: dict) -> list:
+    return judge_o1(base, got) + [g7(base, tests)]
 
 
 def collect_o2() -> dict:
@@ -2037,10 +2126,15 @@ def collect_o2() -> dict:
             "offline": o2_offline()}
 
 
-def judge_o2(base: dict | None, got: dict, tests: dict) -> list:
+def judge_o2_core(base: dict | None, got: dict) -> list:
+    """G8-G11: O2's in-process items."""
     return [g8(base, got["o2s"]), g9(got["o2s"]["report"]), g10(base, got["dryrun"], got["dryrun_order"],
                                                                  got["units"]),
-            g11(base, got["offline"]), g12(base, tests)]
+            g11(base, got["offline"])]
+
+
+def judge_o2(base: dict | None, got: dict, tests: dict) -> list:
+    return judge_o2_core(base, got) + [g12(base, tests)]
 
 
 def collect_o3() -> dict:
@@ -2315,53 +2409,116 @@ def _show_items(items: list) -> None:
         print(f"{'PASS' if ok else 'FAIL'}  {what}\n      {detail}", flush=True)
 
 
+def _item_id(item: tuple) -> str:
+    return item[1].split(":", 1)[0]
+
+
+def _with_flakes(item: tuple, got: dict) -> tuple:
+    """A pytest item's verdict with its settled flakes named in its detail -- never hidden."""
+    if not got.get("flakes"):
+        return item
+    ok, what, detail = item
+    return ok, what, f"{detail}; FLAKES (failed at -n, passed alone 3/3): {got['flakes']}"
+
+
+def select_items(only=(), segments=()) -> set:
+    """The ids a run judges: every item (``set(ITEM_ORDER)``) when neither is given, else ``only`` and the items of
+    ``segments``. Raises ValueError naming an id or a segment there is none of."""
+    if not only and not segments:
+        return set(ITEM_ORDER)
+    bad = [i for i in only if i not in ITEM_ORDER] + [s for s in segments if s not in SEGMENT_ITEMS]
+    if bad:
+        raise ValueError(f"no item or segment {', '.join(bad)} (items: G1-G33; segments: {', '.join(SEGMENT_ITEMS)})")
+    return set(only) | {i for s in segments for i in SEGMENT_ITEMS[s]}
+
+
 def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2, baseline_o3: Path = BASELINE_O3,
-         pins: Path = SOURCE_PINS, baseline_o4: Path = BASELINE_O4, baseline_o5: Path = BASELINE_O5) -> int:
+         pins: Path = SOURCE_PINS, baseline_o4: Path = BASELINE_O4, baseline_o5: Path = BASELINE_O5, *,
+         only=None, receipt: dict | None = None, n: int | None = None) -> int:
+    """The gate: every item of ``only`` (default all, :func:`select_items`), printed in :data:`ITEM_ORDER`. The pytest
+    items are ONE run of their union on a thread (:func:`pytest_items`; a ``receipt`` instead judges them from a
+    whole-file run already done at this HEAD and tree) while the in-process items run here. A run of every item ends
+    ``N/N items PASS`` and exits 0 only if each passes; a PARTIAL run (``only``) is never the gate: it exits 3 when
+    every selected item passes, 1 when one fails, and says NOT THE GATE."""
     absent = [p for p in (baseline, baseline_o2, baseline_o3, baseline_o4, baseline_o5, pins) if not Path(p).is_file()]
     if absent:
         print(f"!! no baseline at {', '.join(str(p) for p in absent)}: the gate was not run (capture each first, "
               f"before the change it guards)")
         return 2
+    sel = set(ITEM_ORDER) if only is None else set(only)
     base, base_o2 = json.loads(Path(baseline).read_bytes()), json.loads(Path(baseline_o2).read_bytes())
     base_o3 = json.loads(Path(baseline_o3).read_bytes())
     base_o4 = json.loads(Path(baseline_o4).read_bytes())
     base_o5 = json.loads(Path(baseline_o5).read_bytes())
-    items = judge(base, collect(), pytest_g7())
+    py_ids = [i for i in ITEM_ORDER if i in sel and i in PYTEST_ITEMS]
+    HT.reset_stop()
+    ex = ThreadPoolExecutor(1)
+    tests_f = ex.submit(pytest_items, py_ids, receipt=receipt, n=n, env=dict(os.environ)) if py_ids else None
+    got: dict = {}
+    t0 = time.time()
+
+    def take(items: list, label: str) -> None:
+        for item in items:
+            if _item_id(item) in sel:
+                got[_item_id(item)] = item
+        print(f".. {label} read ({time.time() - t0:.0f} s)", flush=True)
+
+    def want(*ids) -> bool:
+        return any(i in sel for i in ids)
+
+    try:
+        if want(*SEGMENT_ITEMS["O1"][:6]):
+            take(judge_o1(base, collect()), "O1's outputs (G1-G6)")
+        if want(*SEGMENT_ITEMS["O2"][:4]):
+            take(judge_o2_core(base_o2, collect_o2()), "O2's outputs (G8-G11)")
+        if want("G14"):
+            take([g14()], "O3's dry run (G14)")                  # no baseline, the count's floor (11.7 #12)
+        if want("G15", "G16", "G17", "G18"):
+            take(judge_o3(base_o3, collect_o3()), "O3's outputs (G15-G18)")
+        if want("G20"):
+            take([g20()], "O4's dry run (G20)")                  # no baseline, the count's floor (C2)
+        if want("G22", "G23", "G24", "G25"):
+            take(judge_o4(base_o4, collect_o4()), "O4's outputs (G22-G25)")
+        if want("G27"):
+            take([g27()], "O5's dry run (G27)")
+        if want("G28", "G29", "G30", "G31"):
+            take(judge_o5(base_o5, collect_o5()), "O5's outputs (G28-G31)")
+        if want("G33"):
+            take([g33()], "O6's dry run and as if frozen (G33)")
+        if want("G21"):                                          # the driver's source pins over three baselines
+            try:
+                take([g21(union_base(base_o3, base_o4, base_o5), pins)], "the source pins (G21)")
+            except ValueError as err:
+                take([(False, "G21: every pinned source is its pin in force", str(err))], "the source pins (G21)")
+        if tests_f is not None:
+            try:
+                tests = tests_f.result()
+            except Exception as err:                         # noqa: BLE001 -- a run that cannot run fails each item
+                tests = {i: {"rc": -1, "passed": [], "failed": [], "skipped": [], "flakes": [], "tail": "",
+                             "errors": [f"the pytest run raised {type(err).__name__}: {str(err)[:400]}"]}
+                         for i in py_ids}
+            judges = {"G7": lambda t: g7(base, t), "G12": lambda t: g12(base_o2, t), "G13": g13, "G19": g19,
+                      "G26": g26, "G32": g32}
+            take([_with_flakes(judges[i](tests[i]), tests[i]) for i in py_ids],
+                 f"the pytest items ({', '.join(py_ids)}), one run")
+    except BaseException:
+        HT.stop_all()                                    # the pytest half ends with it: never waited on, never orphaned
+        raise
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
+    items = [got[i] for i in ITEM_ORDER if i in sel]
     _show_items(items)
-    items_o2 = judge_o2(base_o2, collect_o2(), pytest_g12())
-    _show_items(items_o2)
-    items_o3 = [g13(pytest_g13())]                     # O3's battle beat (research/o3_design.md 1.4): no baseline
-    _show_items(items_o3)
-    items_o3.append(g14())                             # O3's dry run (11.7 #12): no baseline, the count's floor
-    _show_items(items_o3[-1:])
-    items_o3b = judge_o3(base_o3, collect_o3())        # O3's outputs (research/o4_design.md 1.4): G15-G18
-    _show_items(items_o3b)
-    items_o4 = [g19(pytest_g19())]                     # O4's machine beats and Chanbara policy (from B3): G19
-    _show_items(items_o4)
-    items_o4.append(g20())                             # O4's dry run (C2): no baseline, the count's floor
-    _show_items(items_o4[-1:])
-    items_o4b = judge_o4(base_o4, collect_o4())        # O4's outputs (research/o5_design.md 1.4): G22-G25
-    _show_items(items_o4b)
-    items_o5 = [g26(pytest_g26())]                     # O5's FakeGame and driver tests (from B3): G26
-    _show_items(items_o5)
-    items_o5.append(g27())                             # O5's dry run (C2): no baseline, the count's floor
-    _show_items(items_o5[-1:])
-    items_o5b = judge_o5(base_o5, collect_o5())        # O5's outputs (research/o6_design.md 1.4): G28-G31
-    _show_items(items_o5b)
-    items_o6 = [g32(pytest_g32())]                     # O6's FakeGame, driver and analysis tests (from B3): G32
-    _show_items(items_o6)
-    items_o6.append(g33())                             # O6's dry run (C2), and as if frozen: no baseline, the floor
-    _show_items(items_o6[-1:])
-    try:                                               # the driver's source pins (rev. 2), over three baselines: G21
-        items_src = [g21(union_base(base_o3, base_o4, base_o5), pins)]
-    except ValueError as err:
-        items_src = [(False, "G21: every pinned source is its pin in force", str(err))]
-    _show_items(items_src)
-    items += items_o2 + items_o3 + items_o3b + items_o4 + items_o4b + items_o5 + items_o5b + items_o6 + items_src
-    n = sum(1 for ok, _w, _d in items if ok)
-    print(f"\n{n}/{len(items)} items PASS (baseline heads: O1 {base['head'][:8]}, O2 {base_o2['head'][:8]}, O3 "
+    k = sum(1 for ok, _w, _d in items if ok)
+    flaky = sorted({f for i in py_ids for f in (tests[i].get("flakes") or ())}) if py_ids else []
+    if flaky:
+        print(f"\nflakes, each passed alone 3/3 (name them in the commit): {', '.join(flaky)}")
+    if sel != set(ITEM_ORDER):
+        print(f"\nPARTIAL: {k}/{len(items)} selected items PASS ({len(ITEM_ORDER) - len(items)} of {len(ITEM_ORDER)} "
+              f"not run) -- NOT THE GATE")
+        return 3 if k == len(items) else 1
+    print(f"\n{k}/{len(items)} items PASS (baseline heads: O1 {base['head'][:8]}, O2 {base_o2['head'][:8]}, O3 "
           f"{base_o3['head'][:8]}, O4 {base_o4['head'][:8]}, O5 {base_o5['head'][:8]})")
-    return 0 if n == len(items) else 1
+    return 0 if k == len(items) else 1
 
 
 def main(argv=None) -> int:
@@ -2391,13 +2548,40 @@ def main(argv=None) -> int:
                     help="G21: append ONE re-baseline row for the pinned source NAME (<file>::<qualname>) at its "
                          "current sha -- a name the O3, the O4 or the O5 baseline pins; needs --reason")
     ap.add_argument("--reason", help="with --rebaseline-source: why the pinned source changed (never empty)")
+    ap.add_argument("--only", metavar="IDS", default="",
+                    help="comma-separated items (G1-G33): a PARTIAL run -- exit 3 when every one passes, never 0: it "
+                         "is NOT THE GATE")
+    ap.add_argument("--segment", metavar="SEGS", default="",
+                    help="comma-separated segments (O1-O6): their items, a PARTIAL run as --only (G21 is no segment's)")
+    ap.add_argument("--list", action="store_true", help="print the items, their segments and kinds; run nothing")
+    ap.add_argument("--pytest-junit", metavar="RECEIPT", type=Path, default=None,
+                    help="judge the pytest items from harness_tests.py's whole-file receipt (refused unless it is for "
+                         "HEAD and this working tree) instead of running pytest")
+    ap.add_argument("-n", type=int, default=None, metavar="N",
+                    help="xdist workers for the gate's pytest run (default FF9_TEST_WORKERS or 8; 0 = serial)")
     args = ap.parse_args(argv)
+    if args.list:
+        seg_of = {i: s for s, ids in SEGMENT_ITEMS.items() for i in ids}
+        for i in ITEM_ORDER:
+            kind = (f'pytest -k "{PYTEST_ITEMS[i]}"' if i in PYTEST_ITEMS else
+                    "the source pins" if i == "G21" else "in-process")
+            print(f"{i:4} {seg_of.get(i, '--'):3} {kind}")
+        return 0
+    try:
+        only = select_items([x.strip() for x in args.only.split(",") if x.strip()],
+                            [x.strip().upper() for x in args.segment.split(",") if x.strip()])
+    except ValueError as err:
+        ap.error(str(err))
     modes = [m for m in ("capture", "capture_o2", "capture_o3", "capture_o4", "capture_o5", "rebaseline_source")
              if getattr(args, m)]
     if len(modes) > 1:
         ap.error(f"one at a time, not {' and '.join(modes)}")
     if args.reason is not None and not args.rebaseline_source:
         ap.error("--reason goes with --rebaseline-source")
+    gate_opts = [o for o, on in (("--only", args.only), ("--segment", args.segment),
+                                 ("--pytest-junit", args.pytest_junit), ("-n", args.n is not None)) if on]
+    if modes and gate_opts:
+        ap.error(f"{', '.join(gate_opts)} go with the gate, not --{modes[0].replace('_', '-')}")
     if args.rebaseline_source:
         missing = _missing(o1=False, o2=False,
                            files=(args.baseline_o3, args.baseline_o4, args.baseline_o5, args.source_pins))
@@ -2428,8 +2612,14 @@ def main(argv=None) -> int:
         return capture_o4(args.out or BASELINE_O4, baseline_o3=args.baseline_o3)
     if args.capture_o5:
         return capture_o5(args.out or BASELINE_O5, baseline_o3=args.baseline_o3, baseline_o4=args.baseline_o4)
+    receipt = None
+    if args.pytest_junit is not None:
+        receipt, bad = HT.load_receipt(args.pytest_junit)
+        if bad:
+            print("!! the gate was not run -- the receipt is not evidence for the code here: " + "; ".join(bad))
+            return 2
     return gate(args.baseline, args.baseline_o2, args.baseline_o3, args.source_pins, args.baseline_o4,
-                args.baseline_o5)
+                args.baseline_o5, only=None if only == set(ITEM_ORDER) else only, receipt=receipt, n=args.n)
 
 
 if __name__ == "__main__":
