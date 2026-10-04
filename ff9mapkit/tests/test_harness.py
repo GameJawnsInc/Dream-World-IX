@@ -23500,11 +23500,24 @@ def test_segment_trigger_to_wrong_landing_is_rule_2s_on_the_fake(game):
     and no ``v``: no beat, no raise -- and the loop's next poll gives rule 2's verdict for that field, V11 by the GAME
     at ``[30810, 1000, 1]``, the visit just left. A row the run writes in 30810 is UNBACKED (``backing`` None: no V11
     step row landed there) -- FORBIDDEN reads it as the fork's. On F, the door landing in REAL 30810 (which member 31243
-    forks): V19 by the game at the same cell -- a finding, never a re-runnable VOID. Break: the first design's
-    ``strayed`` (V11 by the driver, ``landed`` set, the rows backed)."""
+    forks): V19 by the game at the same cell -- a finding, never a re-runnable VOID. A run a starved harness bent onto
+    path A (route_to's 3-s settle out before the switch: the step done before the landing exists, rule 2 judging the
+    landing after it) is re-run, its class asserted -- the same V11 / V19 by the game at the same cell (the review,
+    research/o6_design.md 11.7 #4: PART A #10's rule, as the path-B sibling and B3's twin read it). Break: the first
+    design's ``strayed`` (V11 by the driver, ``landed`` set, the rows backed)."""
     SD = _segment_modules()
     pred = _s14_pred()
-    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game, to=30810), pred)
+
+    def bent_onto_path_a(v):
+        def spoiled(out, log):
+            rows = [r for r in log if r["k"] == "step"]
+            if len(rows) == 1 and rows[0]["outcome"] == "done" and (rows[0]["route"] or {}).get("landed") is None:
+                assert isinstance(out, SD.RouteVoid), out
+                assert (out.v, out.by, out.cell) == (v, "game", [30810, 1000, 1]), (out.v, out.by, out.cell, str(out))
+                return True
+            return False
+        return spoiled
+    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game, to=30810), pred, spoiled=bent_onto_path_a("V11"))
     assert isinstance(out, SD.RouteVoid), out
     assert (out.v, out.by, out.cell) == ("V11", "game", [30810, 1000, 1]), (out.v, out.by, out.cell, str(out))
     row = _s14_step_row(log)
@@ -23513,7 +23526,8 @@ def test_segment_trigger_to_wrong_landing_is_rule_2s_on_the_fake(game):
     assert "rule 2's" in row["why"] and "landed in 30810" in row["why"], row["why"]
     assert SD.backing({"f": row["frame"] + 1, "cause": "walk", "fld": 30810}, log, pred) is None, row
     _s14_register(game)
-    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game, fld=31245, to=30810), _s14_pred(side_ends=True), "F")
+    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game, fld=31245, to=30810), _s14_pred(side_ends=True), "F",
+                                 spoiled=bent_onto_path_a("V19"))
     assert isinstance(out, SD.RouteVoid), out
     assert (out.v, out.by, out.cell) == ("V19", "game", [30810, 1000, 1]), (out.v, out.by, out.cell, str(out))
     row = _s14_step_row(log)
@@ -23556,17 +23570,23 @@ def test_segment_trigger_without_to_keeps_todays_paths_on_the_fake(game):
     every trigger -- is today's ``x_trigger`` exactly: route_to's record holds the landing, so the walk "left" its
     field: V11 by the driver, the step row today's keys and reason, its ``door`` the registered exit his loss stood in,
     no ``misroute`` and no walk-out record. A run whose loss a starved harness read only in 30821 (its ``door`` then
-    unread) is re-run, its class V11 all the same. Break: dispatch every trigger to S14's executor."""
+    unread) is re-run, its class V11 all the same; and so is one the load bent onto path A (route_to's 3-s settle out
+    before the switch: today's x_trigger then reads an in-field loss with the evidence and no landing -- done -- and the
+    run reaches its end), its outcome asserted ``reached`` (the review, research/o6_design.md 11.7 #5: no class rule can
+    catch a run that ends reached). Break: dispatch every trigger to S14's executor."""
     SD = _segment_modules()
     step = {k: v for k, v in _S14_STEP.items() if k != "to"}
 
-    def read_gap(out, log):
+    def spoiled(out, log):
         rows = [r for r in log if r["k"] == "step"]
-        if rows and (rows[0]["lost"] or {}).get("field") != 30820:
+        if rows and (rows[0]["lost"] or {}).get("field") != 30820:              # a read gap across the fade
             assert (getattr(out, "v", None), getattr(out, "by", None)) == ("V11", "driver"), out
             return True
+        if len(rows) == 1 and rows[0]["outcome"] == "done" and (rows[0]["route"] or {}).get("landed") is None:
+            assert isinstance(out, dict) and out["end"] == "reached", out       # path A: today's done, then the end
+            return True
         return False
-    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game), _s14_pred(step), spoiled=read_gap)
+    out, log, _fake = _s14_drive(game, lambda: _s14_fake(game), _s14_pred(step), spoiled=spoiled)
     assert isinstance(out, SD.RouteVoid), out
     assert (out.v, out.by, out.cell) == ("V11", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
     row = _s14_step_row(log)
