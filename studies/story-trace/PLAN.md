@@ -1380,7 +1380,9 @@ and arms THE PAGE WITNESS (S16): the `named` row carries `before` -- the ring's 
 "“Captain Steiner!”", 200's first "Steiner") writes one `name_on_page` row and JUDGES it: another name is the driver's
 V13 (input at the naming screen: accept_name's blocking call, which the run-wide witness does not see), re-run; an
 instrument miss -- no 198 in `before` (A-NAMING), no parsed window read -- leaves the run uncovered, never a failed
-check. O6-NAMING re-reads each line from the row's own text. P-SETTINGS pins `DisableNameChoice` 0. A run stopped with
+check. O6-NAMING re-reads each line from the row's own text. P-SETTINGS pins `DisableNameChoice` 0, and P-NAME the
+default's two sources (no stacked DictionaryPatch.txt `CharacterDefaultName` line for Steiner in US, `[Import] Text`
+off: a patched default would render on every run's page). A run stopped with
 the screen up is recovered by S15: end_run accepts the screen BEFORE the ladder (`recover-warp-failed`, `end-naming`,
 `recover-warp-after-naming`), and stops the session cleanly if accept_name cannot close it.
 
@@ -1419,22 +1421,24 @@ LAW holds by construction: nothing stores between ip2412 and the loss.
   dispatch, 153's e3/e18/e28 not instanced at 328; e15 LIVE, its caller e32 instanced), O6-REGIONS (7 regions, each
   role proven), O6-GOALS ((c') (c'') (d') (e) above);
 - preflight: P-MANIFEST, P-DEPLOY, P-EB, P-FLOOR, P-STOCK, P-TEXT (block 3), P-RECOVERY, P-DONOR (151/153/154),
-  P-SETTINGS (`DisableNameChoice` 0), P-PAD, P-OVERRIDE, P-ENGINE; in game P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG,
-  P-LAUNCH and P-PAD;
+  P-SETTINGS (`DisableNameChoice` 0), P-NAME (the default name's sources), P-PAD, P-OVERRIDE, P-ENGINE; in game P-CAP,
+  P-OBJECTS, P-LANG, P-DONOR-LOG, P-LAUNCH and P-PAD;
 - the session: O6-FROZEN, O6-COVER; O6-FORBIDDEN and O6-VOID-ASYM (a)-(d) over every run by `[place, sc, visit]`; then
   START, NO-SC (SC holds 1190), CHAIN (110 -> 328 -> 315), RESIDUE, WRITES (EXACT: 28 writes and the 2-key chain),
   NULL, STABLE, LANDING (a)-(e), NAMING (a)-(b), WALK (a)-(b), PATTERN (a)-(b) with the floating row, START-DEPENDENT,
   MASKED, STATE and JOIN over the covered runs; THROW.
 
 **Status: draft: rehearsals pending, freeze pending.** The offline build (branch `claude/story-trace-o6`, PARTs A-C of
-the design's section 9): `--offline-check` 6 PASS on the draft; `--preflight` 12/12 on the live install (nothing to
-deploy: O4's chain is live); the dry run 163/163 as drafted and 163/163 as if frozen; the regression gate G1-G33 (O1-O5
-byte-identical; O6's tests G32, its dry run G33). The lead's sequence (research/o6_design.md 7): `--preflight`; the
-rehearsals -- `py tools/play.py studies/story-trace/o6_rehearse.py --label o6-rh --timeout 240` runs R-DOOR (x2, the
-only stage whose traces define predictions), R-NAMING-VOID and R-WALK-VOID (`O6_WALK_STOP` sets F15's z or its
-fallback `hold`); F-SMOKE and F-PASS by `O6_STAGE`; `py studies/story-trace/o6_steiner.py --rehearsal-report <run
-dir>` prints each -- the freeze checklist F1-F15, `--freeze` (v1), then the session:
-`py tools/play.py studies/story-trace/o6_steiner.py --label story-o6 --timeout 240`.
+the design's section 9): `--offline-check` 6 PASS on the draft; `--preflight` 13/13 on the live install (nothing to
+deploy: O4's chain is live); the dry run 164/164 as drafted and 164/164 as if frozen; the regression gate G1-G33 (O1-O5
+byte-identical; O6's tests G32, its dry run G33); a code review's eight findings each fixed, with a test that fails
+without the fix where one is practical (research/o6_design.md 11.7: P-NAME, the fake's New Game name reset, S14b's
+landing at a new visit, four load-robust or freeze-proof tests, a docstring). The lead's sequence
+(research/o6_design.md 7): `--preflight`; the rehearsals -- `py tools/play.py studies/story-trace/o6_rehearse.py
+--label o6-rh --timeout 240` runs R-DOOR (x2, the only stage whose traces define predictions), R-NAMING-VOID and
+R-WALK-VOID (`O6_WALK_STOP` sets F15's z or its fallback `hold`); F-SMOKE and F-PASS by `O6_STAGE`;
+`py studies/story-trace/o6_steiner.py --rehearsal-report <run dir>` prints each -- the freeze checklist F1-F15,
+`--freeze` (v1), then the session: `py tools/play.py studies/story-trace/o6_steiner.py --label story-o6 --timeout 240`.
 
 **Next, O7:** 154@315 -> 158 -> 159 -> 160 -> 162 -> 163 -> 164 -> 165 -> 166 -> FMV004 -> `Field(55)`, started by a
 raw `warp 31246 315 1190` (S: `warp 154 315 1190`), Steiner's control on arrival (154 e0 t0 ip588, Main_Init's tail).
