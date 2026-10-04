@@ -24019,3 +24019,198 @@ def test_fake_door_entry_order_and_misroute(game):
     _cb_until(fake, lambda f: f.field_id != 30820, limit=200)
     assert fake.field_id == 30830, fake.field_id
     assert [(r["sid"], r["ip"], r["new"]) for r in _fv_rows(fake, "w")] == [(23, 203, 315)], _fv_rows(fake, "w")
+
+
+# ---- O6's ROUTE on the fake (research/o6_design.md 3.6, 9 B2): three visit beats from the bytes -- 151@110 (its pages,
+# the KEYON pairs and timed windows, 198 and Steiner's naming, the [STNR] pages, Field(153)), 153@328 (the assembly, the
+# shared script's e15 row, the rebuild, the grant and the north door) and the arrival in 154@315 -- each store at its
+# predictions' site, so the builder's trace under ``story_suppress`` IS 4.18's pattern (C1's
+# test_o6_steiner_route_builder_matches_the_keys compares it with the draft: one source of truth).
+
+def _o6_timed(where, mes, slot, ticks=20):
+    """A [TIME=t] window WITHOUT [NFOC] (151's 175 and 176, research/o6_design.md 2.4): the fake's timed kind -- it
+    closes itself ``ticks`` later and the script does not wait on it (a Confirm may close the real one early: timing
+    only)."""
+    text = f"{where} mes {mes}"
+    return {"timed": mes, "slot": slot, "ticks": ticks, "text": text, "raw": f"[STRT=0,0]{text}[TIME={ticks}]"}
+
+
+def _o6_stnr(where, mes, slot, **kw):
+    """A page whose source holds [STNR] (block 3's 203, 211-214, 217-219, 221, 222): a placeholder line under the tag --
+    no rule or check reads its words -- which H17 renders as the saved name; its raw keeps the tag."""
+    text = f"[STNR]\n“{where} mes {mes}”"
+    return {"page": mes, "slot": slot, "text": text, "raw": f"[STRT=0,0]{text}", **kw}
+
+
+def _o6_route(side="S", *, e15_late=False, walkout_stop=2065, short=False, wait_scale=0.25, lag199=6, **faults):
+    """O6's route as visit beats (research/o6_design.md 3.6): 151@110, 153@328 and the arrival in 154@315 on ``side``'s
+    fields (:data:`_O6_FIELDS`; on F each visit's ``donor`` its place's S id), O6's and H15's ``faults`` given to every
+    beat (the per-visit ones keyed by ``index``: 1-3). 151: the prologue, its timed windows, pages and five KEYON pairs,
+    198 (typing), Steiner's naming, ip610, the pair 199 / 200 -- 200 ``lag199`` ticks after 199 (the bytes' ~6) -- and
+    203, ip735, ip932, Field(153). 153: the prologue, Steiner's t0 (ip718, ip727), the pages (211-214, 217-219, 221, 222
+    holding [STNR]), the shared script's ip32 (``e15_late``: after ip1006, "the order flipped"), the stair walks, the
+    rebuild, the grant at (-245, 42) and the north door (e23 -- its walk-out held at ``walkout_stop`` -- e24, e25). 154:
+    its prologue, then the end. ``short``: 153@328 alone from its prologue to the door (the walk's tests that need no
+    151), then 154."""
+    to = dict(_O6_FIELDS[side])
+    donors = {"151": 30810, "153": 30820, "154": 30821} if side == "F" else {}
+    pair199 = {"pair": [[199, 0], [200, 4]], "lag": lag199, "texts": [_O6_199[0], _O6_200[0]],
+               "raws": [_O6_199[1], _O6_200[1]]}
+    pair203 = {"pair": [[203, 4], [202, 1]], "texts": ["[STNR]\n“151 mes 203”", "151 mes 202"],
+               "raws": ["[STRT=0,0][STNR]\n“151 mes 203”[INCS][TIME=-1]", "[STRT=0,0]151 mes 202[INCS][TIME=-1]"]}
+    v151 = [*_o5_prologue((22, 49, 57, 119, 138, 200)), {"wait": 10}, _o5_store(0, 0, 315, 8, "Byte", 125),
+            _o6_timed("151", 175, 2), {"wait": 15}, _o6_timed("151", 176, 3), {"wait": 50}, _o5_page("151", 177, 4),
+            *[_o5_page("151", m, s) for m, s in ((178, 1), (179, 3), (180, 2), (181, 1))],
+            _o5_pair("151", (182, 2), (183, 3), lag=2, gate=40),
+            *[_o5_page("151", m, s) for m, s in ((184, 4), (185, 1), (186, 2), (187, 3))],
+            _o5_pair("151", (188, 2), (189, 3)), _o5_page("151", 190, 1), {"wait": 90},
+            _o5_page("151", 191, 0), _o5_page("151", 192, 1), _o5_page("151", 193, 0, typing_s=0.3),
+            _o5_page("151", 194, 1), _o5_page("151", 195, 0, typing_s=0.3), _o5_pair("151", (196, 0), (197, 1)),
+            _o5_page("151", 198, 0, text=_O6_198[0], raw=_O6_198[1], typing_s=0.5), {"wait": 5},
+            {"naming": 3, "name": "Steiner"}, {"wait": 10}, _o5_store(3, 1, 610, 6, "Byte", 8), {"wait": 10},
+            pair199, _o5_page("151", 201, 0), pair203, _o5_store(2, 1, 735, 8, "Byte", 0), {"wait": 65},
+            _o5_store(2, 1, 932, 2, "Int16", 328), {"field": "153"}]
+    e15 = _o5_store(15, 0, 32, 8, "Byte", 125)                  # the shared script's Seq row (e32 t1 ip866 runs it)
+    door = {"door": {"doors": _o6_doors(stop_z=walkout_stop)}}
+    if short:
+        v153 = [*_o5_prologue((22, 49, 57, 119, 138, 200)), {"wait": 10}, {"grant": [-245, 42]}, door]
+    else:
+        stair = [s for xz in ((-150, -550), (-1235, -558), (-1595, -195), (-1370, 804), (-575, 807), (-245, 42))
+                 for s in ({"wait": 10}, {"place": list(xz)})]
+        v153 = [*_o5_prologue((22, 49, 57, 119, 138, 200)), {"wait": 10},
+                _o5_store(32, 0, 718, 3855 >> 3, "Bit", 1, 3855), _o5_store(32, 0, 727, 3854 >> 3, "Bit", 1, 3854),
+                {"place": [-24, -2078]}, {"wait": 20}, _o6_stnr("153", 211, 4), {"wait": 20}, _o6_stnr("153", 212, 4),
+                {"wait": 15}, *([] if e15_late else [e15]), {"wait": 25},
+                _o6_stnr("153", 213, 4), _o6_stnr("153", 214, 4), _o5_page("153", 215, 5), _o5_page("153", 216, 6),
+                _o5_store(32, 1, 971, 208, "Byte", 0), _o5_store(32, 1, 1006, 208, "Byte", 1),
+                *([e15] if e15_late else []), _o6_stnr("153", 217, 4),
+                _o5_store(32, 1, 1041, 208, "Byte", 0), _o5_store(32, 1, 1076, 208, "Byte", 1), _o6_stnr("153", 218, 4),
+                *stair, {"wait": 70}, _o6_stnr("153", 219, 4), _o6_stnr("153", 221, 4),
+                _o5_store(32, 1, 1597, 208, "Byte", 0), _o5_store(32, 1, 1632, 208, "Byte", 1), _o6_stnr("153", 222, 4),
+                _o5_store(32, 1, 1656, 21, "UInt16", 8), _o5_store(32, 1, 1741, 303, "Byte", 0),
+                _o5_store(32, 1, 1775, 303, "Byte", 1), _o5_store(32, 1, 2172, 4, "Byte", 0),
+                _o5_store(32, 1, 2206, 19, "UInt16", 8), _o5_store(32, 1, 2232, 4, "Byte", 0),
+                _o5_store(32, 1, 2240, 17, "Byte", 0), _o5_store(32, 1, 2248, 18, "Byte", 1),
+                {"grant": [-245, 42]}, door]
+    v154 = [*_o5_prologue((26, 53, 61, 123, 142, 204)), {"wait": 100000}]
+    visits = ([] if short else [("151", 1, v151)]) + [("153", 2, v153), ("154", 3, v154)]
+    beats = []
+    for where, index, steps in visits:
+        knobs = {"steps": steps, "index": index, "field_to": to, "wait_scale": wait_scale, **faults}
+        if donors:
+            knobs["donor"] = donors[where]
+        beats.append({"visit": knobs})
+    return beats
+
+
+def _o6_register(game):
+    """30830 ("150"), 30831 ("64") and the F members registered in the fixture's own DictionaryPatch.txt
+    (``_o5_register``'s shape; the ``game`` fixture itself is not edited)."""
+    patch = game / "FF9CustomMap" / "DictionaryPatch.txt"
+    patch.write_text(patch.read_text(encoding="utf-8") + "FieldScene 30830 11 HALL HALL 30830\n"
+                     + "FieldScene 30831 11 AST AST 30831\n"
+                     + "".join(f"FieldScene {f} 11 {n} {n} 3\n" for f, n in _O6_NAMES.items()), encoding="utf-8")
+
+
+#: 4.18's pattern on the fake's places, by IP (the fake's rows carry ips; O6-PATTERN joins function offsets on the stock
+#: bytes, C1's): each visit's emitted ``w`` rows in order, ``(place, sid, tag, ip, target, new, same)``, the floating
+#: row out -- 151@110's ten, then 153@328's 23 -- and the floating row: 153 e15 t0 ip32, after e32 t0 ip727 and before
+#: e32 t1 ip1656 (the bytes' window), its place among the rows between not compared.
+_O6_PATTERN = (
+    [(30810, 0, 0, 22, "Global.Bit[191]", 0, 1), (30810, 0, 0, 49, "Global.Bit[184]", 0, 1),
+     (30810, 0, 0, 57, "Global.Int16[9]", -1, 0), (30810, 0, 0, 119, "Global.Byte[13]", 0, 0),
+     (30810, 0, 0, 138, "Global.Int16[11]", -1, 1), (30810, 0, 0, 200, "Global.Byte[14]", 0, 1),
+     (30810, 0, 0, 315, "Global.Byte[8]", 125, 1), (30810, 3, 1, 610, "Global.Byte[6]", 8, 0),
+     (30810, 2, 1, 735, "Global.Byte[8]", 0, 0), (30810, 2, 1, 932, "Global.Int16[2]", 328, 0)],
+    [(30820, 0, 0, 22, "Global.Bit[191]", 0, 1), (30820, 0, 0, 49, "Global.Bit[184]", 0, 1),
+     (30820, 0, 0, 57, "Global.Int16[9]", -1, 1), (30820, 0, 0, 119, "Global.Byte[13]", 0, 1),
+     (30820, 0, 0, 138, "Global.Int16[11]", -1, 1), (30820, 0, 0, 200, "Global.Byte[14]", 0, 1),
+     (30820, 32, 0, 718, "Global.Bit[3855]", 1, 0), (30820, 32, 0, 727, "Global.Bit[3854]", 1, 0),
+     (30820, 32, 1, 971, "Global.Byte[208]", 0, 1), (30820, 32, 1, 1006, "Global.Byte[208]", 1, 0),
+     (30820, 32, 1, 1041, "Global.Byte[208]", 0, 0), (30820, 32, 1, 1076, "Global.Byte[208]", 1, 0),
+     (30820, 32, 1, 1597, "Global.Byte[208]", 0, 0), (30820, 32, 1, 1632, "Global.Byte[208]", 1, 0),
+     (30820, 32, 1, 1656, "Global.UInt16[21]", 8, 0), (30820, 32, 1, 1741, "Global.Byte[303]", 0, 1),
+     (30820, 32, 1, 1775, "Global.Byte[303]", 1, 0), (30820, 32, 1, 2172, "Global.Byte[4]", 0, 1),
+     (30820, 32, 1, 2206, "Global.UInt16[19]", 8, 0), (30820, 32, 1, 2232, "Global.Byte[4]", 0, 1),
+     (30820, 32, 1, 2240, "Global.Byte[17]", 0, 1), (30820, 32, 1, 2248, "Global.Byte[18]", 1, 0),
+     (30820, 23, 2, 203, "Global.Int16[2]", 315, 0)])
+_O6_E15 = (30820, 15, 0, 32, "Global.Byte[8]", 125, 0)
+
+
+def _o6_pattern(rows, members=None):
+    """4.18's pattern read off a run's story rows by ip (:func:`_o5_pattern` with O6's end 30821 and route 30810,
+    30820): ``(visits with the floating row out, where it floated -- (visit, index among that visit's rows) or None,
+    how many floating rows, counts, cut)``."""
+    visits, counts, cut = _o5_pattern(rows, members, end=30821, route=(30810, 30820))
+    at = [(v, i) for v, vis in enumerate(visits) for i, t in enumerate(vis) if t == _O6_E15]
+    out = [[t for t in vis if t != _O6_E15] for vis in visits]
+    return out, (at[0] if at else None), len(at), counts, cut
+
+
+def _o6_window_ok(visits_with, at) -> bool:
+    """The floating row inside the bytes' window: in 153@328's visit, after e32 t0 ip727's row and before e32 t1
+    ip1656's (research/o6_design.md 4.18)."""
+    if at is None or at[0] != 1:
+        return False
+    ips = [t[3] for t in visits_with[1]]
+    return ips.index(727) < at[1] < ips.index(1656)
+
+
+def _o6_play(fake, *, walk="up", until=None, limit=80000, every=5):
+    """:func:`_fv_play`'s scripted player for O6's route (research/o6_design.md 9 B2): with control, ``walk`` held; the
+    naming screen up, a Confirm every ``every`` frames (the first takes the focus off the box, the next is OK); else
+    every ``every`` frames a listed page, KEYON pair or timed window Confirmed. Stops on ``until(fake)`` or when no beat
+    is left; an AssertionError after ``limit`` frames (a mutant fails a test, never hangs it)."""
+    for _ in range(limit):
+        if until is not None and until(fake):
+            return
+        m = fake._machine
+        if m is None:
+            return
+        if fake.control:
+            if walk:
+                fake._extend(walk, 4)
+        elif (fake.frame + 1) % every == 0:
+            listed = [w for w in m.windows if not w.closing]
+            if fake.ui_state == "NameSetting" or any(w.kind in ("page", "keyon", "timed") for w in listed):
+                fake._schedule("confirm", 1)
+        fake._frame_once()
+    raise AssertionError(f"the visit beats ran {limit} frames without ending (field {fake.field_id})")
+
+
+def test_fake_door_route_plays_to_154_unattended(game):
+    """B2 (research/o6_design.md 3.6, 9 B2): the route builder's three visit beats played by a SCRIPTED PLAYER, not the
+    driver -- every page, pair and timed window Confirmed, the naming's two Confirms, Up held from the grant until
+    control goes -- from 151@110 (field 70's prologue values and the raw warp's THREE residue rows first) to 154.
+    Steiner is named once (``named`` [3]) and every [STNR] page opens rendering "Steiner", none its tag. e23 fires past
+    its line, inside its quad. With ``story_suppress`` the trace holds EXACTLY 4.18's pattern by ip: 151's ten rows and
+    153's 23 in order, the floating e15 row once, inside the bytes' window (after ip727, before ip1656) -- 10 + 24 -- no
+    ``c`` row, and the cut at 154's first row, e0 t0 ip26 (``same`` 1: a new site). Break: a builder whose e23 fires on
+    its whole quad (the fire then at its south edge, z < 1333)."""
+    from ff9mapkit.content import doorface
+    fake = _fv_fake(game, field=70, trace=False)
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(110, 1190)                         # the raw warp's residue, seen in field 70
+    fake.field_id = 30810
+    fake.scene(*_o6_route("S"), control=False)
+    _o6_play(fake, until=lambda f: f.field_id == 30821 and any(e["index"] == 3 and e["kind"] == "wait"
+                                                                for e in f.visit_log))
+    fake._story_stop()
+    assert fake.named == [3] and fake.names == {3: "Steiner"}, (fake.named, fake.names)
+    opens = [e["text"] for e in fake.machine_log if e["event"] == "open"]
+    stnr = [t for t in opens if "Steiner" in t]
+    assert len(stnr) == 12 and not [t for t in opens if "[STNR]" in t], (len(stnr), opens)    # 3 in 151, 9 in 153
+    fires = [e for e in fake.visit_log if e["kind"] == "fire"]
+    assert len(fires) == 1 and fires[0]["name"] == "e23" and fires[0]["z"] > 1333, fires
+    assert doorface.region_contains(fires[0]["x"], fires[0]["z"], _O6_E23), fires
+    rows = _fv_rows(fake)
+    visits, at, n, counts, cut = _o6_pattern(rows)
+    assert visits == [_O6_PATTERN[0], _O6_PATTERN[1]] and n == 1, (visits, n)
+    with_float = _o5_pattern(rows, end=30821, route=(30810, 30820))[0]
+    assert _o6_window_ok(with_float, at) and (len(with_float[0]), len(with_float[1])) == (10, 24), (at, with_float)
+    assert counts == [] and not [r for r in rows if r["k"] == "c"], counts
+    assert cut is not None and (cut["k"], cut["fld"], cut["sid"], cut["tag"], cut["ip"], cut["w"], cut["bit"],
+                                cut["new"], cut["same"]) == ("w", 30821, 0, 0, 26, "Bit", 191, 0, 1), cut
+    residue = [(r["fld"], r["byte"], r["old"], r["new"]) for r in rows if r["k"] == "r"]
+    assert residue == [(70, 0, 0, 166), (70, 1, 0, 4), (70, 2, 0, 110)], residue
