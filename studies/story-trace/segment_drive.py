@@ -2790,15 +2790,19 @@ class _Drive:
         out["why"] = why
         return "interrupted", out
 
-    def walkout_record(self) -> None:
-        """S14b, THE WALK-OUT ON RECORD (research/o6_design.md 1.2; the driver critic's #5), on rule 1's first poll in
-        an end field after a DONE trigger step carrying ``to``: that step row (``self.to_row``) updated IN PLACE -- as
-        :meth:`stray` updates a walked row -- from the ring since its loss sample: ``walkout``, ``[frame, x, z,
-        control]`` of every sample still in the step's field (where ExitField's walk-out took him, and where it
-        stopped); ``flip_frame``, when the executor read none (path A: route_to returned before the map switch), the
-        first sample in another field, with ``flip_late`` True (False when the executor had one: path B, or the switch
-        waited out); and ``landed_frame``, the first sample in an end field. Both landing paths then carry the loss ->
-        flip -> landing frames."""
+    def walkout_record(self, lands) -> None:
+        """S14b, THE WALK-OUT ON RECORD (research/o6_design.md 1.2; the driver critic's #5), on the loop's first poll in
+        the field a DONE trigger step carrying ``to`` landed in -- rule 1's in an end field, rule 3's at the new visit
+        when that field is no end (the review, research/o6_design.md 11.7 #7: a door that leads to no end must not keep
+        its row to the run's end, where the ring no longer holds its loss and the end's first sample would be read as
+        its landing): that step row (``self.to_row``) updated IN PLACE -- as :meth:`stray` updates a walked row -- from
+        the ring since its loss sample: ``walkout``, ``[frame, x, z, control]`` of every sample still in the step's
+        field (where ExitField's walk-out took him, and where it stopped); ``flip_frame``, when the executor read none
+        (path A: route_to returned before the map switch), the first sample in another field, with ``flip_late`` True
+        (False when the executor had one: path B, or the switch waited out); and ``landed_frame``, the first sample in a
+        field of ``lands`` (rule 1's: the end fields; rule 3's: the new visit's field; none: an earlier door's row no
+        visit has read, recorded before a later door's row takes the handle -- its landing unread, None). Both landing
+        paths then carry the loss -> flip -> landing frames."""
         row, self.to_row = self.to_row, None
         lost = row.get("lost") or {}
         if lost.get("frame") is None:
@@ -2812,7 +2816,7 @@ class _Drive:
                 continue
             if flip is None:
                 flip = s["frame"]
-            if landed is None and f in self.ends:
+            if landed is None and f in lands:
                 landed = s["frame"]
         row["walkout"] = walk
         row["flip_late"] = row.get("flip_frame") is None
@@ -2995,7 +2999,9 @@ class _Drive:
             if step.get("beat"):
                 self.beats[step["beat"]] = True
             if step["kind"] == "trigger" and step.get("to") is not None:
-                self.to_row = row                # S14b: rule 1 puts its walk-out on it
+                if self.to_row is not None:      # S14b: an earlier door's row no visit has read (the review, 11.7 #7):
+                    self.walkout_record(())      # its walk-out recorded, its landing unread -- never overwritten
+                self.to_row = row                # S14b: rule 1 (an end) or rule 3 (a new visit) puts its walk-out on it
         elif verdict == "left":                  # S14 (opt-in): no beat, no raise -- rule 2 judges the landing
             pass
         elif verdict == "failed":
@@ -3314,7 +3320,7 @@ class _Drive:
                 if self.forbid_live:
                     self.scan()
                 if self.to_row is not None:          # S14b (opt-in): the done door step's walk-out, flip and landing
-                    self.walkout_record()
+                    self.walkout_record(self.ends)
                 row = {"k": "end", "field": self.fid, "frame": st.frame, "sc": self.sc, "end_state": self.end_state,
                        "t": round(time.time() - self.t0, 1)}
                 if self.end_row_s is not None:
@@ -3361,6 +3367,8 @@ class _Drive:
                                      f"route goes next to {want}")
                 if self.pw is not None:              # S16: a new visit -- the armed field's last scan, then disarmed
                     self.page_witness(final=True)
+                if self.to_row is not None:          # S14b (opt-in): a done door's landing in a field that is no end
+                    self.walkout_record({self.fid})  # (the review, research/o6_design.md 11.7 #7)
                 self.at += 1
                 self.walked = None
                 self.visit, self.cur = self.visit + 1, self.fid

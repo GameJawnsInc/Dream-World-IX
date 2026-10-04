@@ -290,6 +290,10 @@ REQUIRED_TESTS: tuple = (
     "test_segment_naming_on_page_rows_on_the_fake",                             # B3: S16's rows and its judgment
     "test_segment_naming_of_reads_every_frozen_predictions",                    # B3: every frozen registration
     "test_segment_alexandria_naming_keeps_its_rows_on_the_fake",                # B3: S16 opt-in, O2's rule 4 kept
+    # the review's fixes (research/o6_design.md 11.7 #7): S14b's handle -- a door that lands in no end is recorded at
+    # its new visit, and a second door's row never drops an unread one
+    "test_segment_trigger_to_records_its_landing_at_a_new_visit_on_the_fake",
+    "test_segment_trigger_to_records_an_unread_walkout_before_a_second_door",
 )
 
 O1E_VERDICT = "PROVEN"

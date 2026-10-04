@@ -23597,6 +23597,89 @@ def test_segment_trigger_without_to_keeps_todays_paths_on_the_fake(game):
     assert row["why"] == "the trigger's walk left 30820: landed in 30821 (place 30821)", row["why"]
 
 
+def test_segment_trigger_to_records_its_landing_at_a_new_visit_on_the_fake(game):
+    """S14b at a NEW VISIT (the review, research/o6_design.md 11.7 #7): a done ``to`` door whose Field() lands in a
+    field that is NO end -- 30810, the route's next place (route and visits [30820, 30810], the end 30821) -- has its
+    walk-out, flip and landing put on its row by rule 3's first poll there: ``landed_frame`` the first sample in 30810,
+    at or before that visit's row; ``walkout`` its samples still in 30820, his z rising to the stop (700); ``flip_frame``
+    past them (``flip_late``: path A, the switch gated until the step row is logged). The run then moves on (a scripted
+    move to 30821 once the 30810 visit is logged) and ends there. Break: rule 1 alone records the row (``landed_frame``
+    then 30821's first sample, after 30810's visit -- by then the ring may not even hold the loss)."""
+    SD = _segment_modules()
+    pred = _s14_pred(dict(_S14_STEP, to=30810), route=[30820, 30810], visits=[30820, 30810])
+    for attempt in range(3):
+        fake = _s14_fake(game, to=30810, stop_z=700)
+        gate, stop = threading.Event(), threading.Event()
+        fake.exit_gate = gate
+        log = _S14Log(gate)
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30820, entrance=102, scenario=1000)
+            _stand(g, fake, 0, -300)
+            for f in (30820, 30810, 30821):
+                g._axes[f] = _prior()
+            _o1_director(fake, stop, [(lambda f: any(r.get("k") == "visit" and r.get("field") == 30810
+                                                     for r in list(log)),
+                                       lambda f: _o2_move(f, 30821))])
+            try:
+                out = SD.drive(g, pred, "S", log, deadline=time.time() + 90.0,
+                               floor_for=lambda d, closed: _flat_bgi(*_S14_FLOOR), prior_for=lambda d: _prior(),
+                               forbid_live=False)
+            except (SD.RouteVoid, HarnessError) as err:
+                out = err
+            finally:
+                stop.set()
+            ring = [raw for _t, _age, raw in g._ring._buf]
+        load = isinstance(out, Exception) and getattr(out, "by", "driver") == "driver" and any(
+            m in str(out) for m in _S14_LOAD)
+        if attempt == 2 or not load:
+            break
+    assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"door": True}, out
+    row = _s14_step_row(log)
+    assert (row["outcome"], row["landed"], row["route"]["landed"]) == ("done", None, None), row
+    visits = [r for r in log if r["k"] == "visit"]
+    assert [v["field"] for v in visits] == [30820, 30810], visits
+    lost = row["lost"]
+    assert row["flip_late"] is True and lost["frame"] < row["flip_frame"] <= row["landed_frame"] <= visits[1]["frame"], \
+        (row, visits[1])
+    fields = {int(r["frame"]): int((r.get("field") or {}).get("id", -1)) for r in ring}
+    assert fields.get(row["landed_frame"]) == 30810, (row["landed_frame"], fields.get(row["landed_frame"]))
+    zs = [z for _f, _x, z, _c in row["walkout"]]
+    assert zs and zs == sorted(zs) and zs[-1] == pytest.approx(700, abs=0.5), zs
+    assert [r["k"] for r in log if r["k"] in ("visit", "step", "end")] == ["visit", "step", "visit", "end"], log
+
+
+def test_segment_trigger_to_records_an_unread_walkout_before_a_second_door():
+    """S14b's handle (the review, research/o6_design.md 11.7 #7), on a stub drive (``_Drive`` without ``__init__``, its
+    executor stubbed): a second DONE ``to`` door in the same visit -- no visit between, so the first door's Field()
+    never landed -- first puts the first row's walk-out on it (its samples since its loss, all still in 30820; its flip
+    and its landing unread: ``flip_frame`` / ``landed_frame`` None) before the second row takes the handle, never a
+    silent overwrite. Break: overwrite ``to_row``."""
+    import types
+    SD = _segment_modules()
+    step = dict(_S14_STEP)
+    pred = _s14_pred(step)
+    raws = [{"frame": f, "field": {"id": 30820}, "player": {"x": 0.0, "z": 600.0 + f, "control": False}}
+            for f in range(100, 106)]
+    st = types.SimpleNamespace(frame=99, control=True, player_x=0.0, player_z=0.0)
+    g = types.SimpleNamespace(state=st, states_since=lambda frame: [r for r in raws if r["frame"] > frame])
+    d = SD._Drive.__new__(SD._Drive)
+    d.g, d.pred, d.log, d.steps, d.tries, d.done, d.beats = g, pred, [], [], {}, {}, {"door": False}
+    d.visit, d.donor, d.sc, d.fid, d.t0, d.since, d.walked, d.to_row = 1, 30820, 1000, 30820, time.time(), 0.0, None, None
+    losses = iter([{"frame": 100, "field": 30820, "x": 0.0, "z": 700.0, "control": False},
+                   {"frame": 103, "field": 30820, "x": 0.0, "z": 703.0, "control": False}])
+    d.x_trigger = lambda s: ("done", {"route": {"landed": None}, "lost": next(losses), "landed": None})
+    cell = {"donor": 30820, "sc": 1000, "visit": 1, "steps": [step, step]}
+    d.run_step(cell, 0, st)
+    first = d.to_row
+    assert first is d.log[0] and "walkout" not in first, first
+    d.run_step(cell, 1, st)
+    assert d.to_row is d.log[1] and d.to_row is not first, d.to_row
+    assert "walkout" in first, f"the first door's row was dropped unread: {first}"
+    assert first["walkout"] == [[f, 0.0, 600.0 + f, False] for f in range(101, 106)], first["walkout"]
+    assert (first["flip_frame"], first["flip_late"], first["landed_frame"]) == (None, True, None), first
+
+
 # ---- A2: S15 (research/o6_design.md 1.2) -- end_run accepts a naming screen on the refused warp, BEFORE any Cancel or
 # rung of the ladder, then retries the warp; a screen accept_name cannot close stops the SESSION cleanly; and H16b (3.2)
 # -- fields whose running scene swallows the soft reset. 30821 stands in for 4600 (the session tests' recovery).
