@@ -131,5 +131,12 @@
   "new": "8b1b24b664012c8f57cc03040d3706498759e4e1e58bec3929e11d353a395348",
   "reason": "a read-gap V17 (a starved poll under load, no observed row) flaked it serially on master; it now runs through _o4_run_informative as the other O4 drive tests do, its phase watch reset per run -- the assertions are unchanged",
   "head": "9c11d6c8495e543fda7c83e0493fa4e81128364c"
+ },
+ {
+  "name": "ff9mapkit/tests/test_harness.py::test_o4_drive_read_stall_in_a_gap_is_v17_never_v18",
+  "old": "f41a936572cd78e5c36d0c6a47f1a43ee82da981bf9d3e4e8119d681bb642e34",
+  "new": "df76b2869b2cb2f81cde5a7a4786c49c5e90259442c223098e9242493954c365",
+  "reason": "a 0.5 s wall-clock read stall after instance 9's press returned flaked at -n 8 under load: the press's own late ack read saw the window close (evidence closed); it now starves the reads from the press's acceptance past its mark, counted in the fake's frames (_o4_starve_reads), and re-runs only a read-gap VOID raised before the starve fired -- the assertions are unchanged, plus the starve's premise",
+  "head": "b75274b0b4ec51e54bfae1f7519a70676b72040a"
  }
 ]

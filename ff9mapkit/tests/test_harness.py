@@ -17587,7 +17587,9 @@ def _o4_void(out, v, by=None):
 #: asserts either runs on :func:`_o4_run_informative`. One that asserts a READ-GAP V17, a V13 or a V2, or starves its
 #: reads on purpose, stays on :func:`_o4_run`. A test whose V17 can never match a read gap (a reason none of these
 #: patterns matches, pinned by its own row -- the quiet page's ``observed``) may run on :func:`_o4_run_informative`:
-#: test_o4_drive_page_once_and_the_quiet_windows does, since a read gap flaked it serially on master.
+#: test_o4_drive_page_once_and_the_quiet_windows does, since a read gap flaked it serially on master. One that starves
+#: its reads to assert the read-gap V17 re-runs only a read-gap VOID raised BEFORE its starve fired (a run that never
+#: reached the starved press, :func:`_o4_starve_reads`'s ``fired``): test_o4_drive_read_stall_in_a_gap_is_v17_never_v18.
 _O4_READ_GAP_VOIDS = (
     re.compile(r"instrument: a read gap of \S+ s straddles instance \d+'s mark \(evidence unobserved\)$"),
     re.compile(r"\d+ instances, and a read gap of \d+ ticks could hide a prompt's whole life$"),
@@ -17625,35 +17627,48 @@ def _o4_run_informative(game, *, attempts=3, **kw):
 
 
 def _o4_starve_reads(n, for_frames, *, runs=None):
-    """A ``wrap`` for :func:`_o4_run` -- THE LOADED MACHINE, deterministic: after instance ``n``'s press returns, the
-    driver's next read waits, reading nothing, until the fake has run ``for_frames`` more frames (a starved poll, counted
-    in the fake's frames so that a slow machine starves it no less). The press read the channel up to its ack, past its
-    down frame, so the gap opens there, and ``for_frames`` over the 24 to the mark (gone_ticks 12 at 60 fps) make it
-    straddle instance ``n``'s mark: the read-gap V17. The driver's live check measures from that starved read (its
-    ack frame), so the run goes on to its close, where the judge finds it. ``runs`` (1-based, None: every run, ():
-    none) the runs it starves, of those it wraps -- ``wrap.runs`` counts them all."""
+    """A ``wrap`` for :func:`_o4_run` -- THE LOADED MACHINE, deterministic: once instance ``n``'s press request is
+    written, the driver's next read -- the press's own first wait for its ack -- waits, reading nothing, until the fake
+    has ACCEPTED that request and run ``for_frames`` more frames (a starved poll, counted in the fake's frames so that a
+    slow machine starves it no less). The gap opens at the acceptance, before the down frame, so no read lands between
+    the down frame and the mark -- not even the press's own: on a loaded machine its ack read can land after the
+    window's close tween (evidence "closed"), which a gap opened after the press returns no longer hides. ``for_frames`` over 27 --
+    the 25 from the acceptance to the mark (down = accepted + 1, gone_ticks 12 at 60 fps on the game clock) and the 2
+    a read's sample can lag the fake's frame (state.json every 2nd frame) -- make it straddle instance ``n``'s mark:
+    the read-gap V17. The driver's live check measures from its ack frame, read after the gap, so the run goes on to
+    its close, where the judge finds it. ``runs`` (1-based, None: every run, (): none) the runs it starves, of
+    those it wraps -- ``wrap.runs`` counts them all, ``wrap.fired`` the runs whose press it starved."""
     def wrap(g, fake):
         wrap.runs += 1
         if runs is not None and wrap.runs not in runs:
             return
-        real_press, real_state, flag = g.press, g.channel.state, {"count": 0, "starve": False}
+        real_press, real_send, real_state = g.press, g.channel.send, g.channel.state
+        flag = {"count": 0, "arm": False, "seq": None}
 
         def press(button, frames=2):
-            out = real_press(button, frames)
             if frames == 2:
                 flag["count"] += 1
-                flag["starve"] = flag["count"] == n
-            return out
+                flag["arm"] = flag["count"] == n
+            return real_press(button, frames)
+
+        def send(steps, **kw):
+            seq = real_send(steps, **kw)
+            if flag["arm"]:                             # the press's own request, just written
+                flag["arm"], flag["seq"] = False, seq
+                wrap.fired.append(wrap.runs)
+            return seq
 
         def state(*a, **kw):
-            if flag["starve"]:
-                flag["starve"] = False
-                until, end = fake.frame + for_frames, time.time() + 10.0
+            if flag["seq"] is not None:
+                seq, flag["seq"], end = flag["seq"], None, time.time() + 10.0
+                while fake.seq < seq and time.time() < end:
+                    time.sleep(0.002)
+                until = fake.frame + for_frames
                 while fake.frame < until and time.time() < end:
                     time.sleep(0.002)
             return real_state(*a, **kw)
-        g.press, g.channel.state = press, state
-    wrap.runs = 0
+        g.press, g.channel.send, g.channel.state = press, send, state
+    wrap.runs, wrap.fired = 0, []
     return wrap
 
 
@@ -17871,27 +17886,20 @@ def test_o4_drive_v17_on_a_stalled_press(game):
 
 def test_o4_drive_read_stall_in_a_gap_is_v17_never_v18(game):
     """A READ STALL is the instrument's (research/o4_design.md 2.4.6, 2.4.8; rev. 2, the driver critique #4, the claim
-    critique #2): the channel's reads stall 0.5 s right after instance 9's press returns (the test's wrapped
-    ``channel.state``) -- inside the gap, so no sample shows instance 9's window leave in time. Its evidence is
-    "unobserved" and the run is V17 "instrument: a read gap ...", never V18: a missing sample is no evidence about the
-    game. Break: rate a missing sample as V18."""
-    def wrap(g, fake):
-        real_press, real_state, flag = g.press, g.channel.state, {"count": 0, "stall": False}
-
-        def press(button, frames=2):
-            out = real_press(button, frames)
-            if frames == 2:
-                flag["count"] += 1
-                flag["stall"] = flag["count"] == 9
-            return out
-
-        def state(*a, **kw):
-            if flag["stall"]:
-                flag["stall"] = False
-                time.sleep(0.5)
-            return real_state(*a, **kw)
-        g.press, g.channel.state = press, state
-    out, log, fake, _t = _o4_run(game, wrap=wrap)
+    critique #2): the channel's reads starve from instance 9's press request until the fake has accepted it and run 30
+    frames more (:func:`_o4_starve_reads`, counted in the fake's frames -- a 0.5 s wall-clock stall after the press
+    returned flaked at -n 8 on a loaded machine: the press's own late ack read saw the window close, evidence "closed")
+    -- inside the gap, so no sample shows instance 9's window leave in time. Its evidence is "unobserved" and the run is
+    V17 "instrument: a read gap ...", never V18: a missing sample is no evidence about the game. A run a read gap voided
+    BEFORE the starve fired (a starved poll under load, instance 9 never pressed) proves nothing here and is re-run, at
+    most R-GATE's 3 runs; a run the starve fired in is asserted on whatever it is. Break: rate a missing sample as
+    V18."""
+    starve = _o4_starve_reads(9, 30)
+    for _attempt in range(3):
+        out, log, fake, _t = _o4_run(game, wrap=starve)
+        if starve.runs in starve.fired or _o4_read_gap_void(out, log) is None:
+            break
+    assert starve.runs in starve.fired, ("premise: instance 9's press starved", starve.runs, out)
     _o4_void(out, "V17", "driver")
     rows = {r["n"]: r for r in _o4_rows_of(log, "prompt")}
     assert rows[9]["evidence"] == "unobserved", rows[9]
