@@ -4,7 +4,7 @@ output (research/o2_design.md, section 1.6), every O2 output (research/o3_design
 (research/o4_design.md, section 1.4), every O4 output (research/o5_design.md, section 1.4) AND every O5 output
 (research/o6_design.md, section 1.4) byte-identical, O3's battle-beat tests (G13) and O3's dry run (G14) green, O4's
 tests (G19) and O4's dry run (G20) green, O5's FakeGame and driver tests (G26) and O5's dry run (G27) green, O6's
-FakeGame and driver tests (G32) green, and the O1-O5 driver tests and the fake's beat, input, story-trace, machine-beat
+FakeGame, driver and analysis tests (G32) and O6's dry run (G33) green, and the O1-O5 driver tests and the fake's beat, input, story-trace, machine-beat
 and visit-beat functions at their pinned sources (G21).
 
     py studies/story-trace/segment_regress.py --capture      # G0, once, BEFORE the O2 refactor: the O1 baseline
@@ -13,7 +13,7 @@ and visit-beat functions at their pinned sources (G21).
     py studies/story-trace/segment_regress.py --capture-o4   # G0''', once, BEFORE any O5 code change: the O4 baseline
     py studies/story-trace/segment_regress.py --capture-o5   # G0'''', once, BEFORE any O6 code change: the O5 baseline
     py studies/story-trace/segment_regress.py --rebaseline-source NAME --reason TEXT   # G21: re-pin ONE source
-    py studies/story-trace/segment_regress.py                # G1-G32; exit 0 only if every item passes
+    py studies/story-trace/segment_regress.py                # G1-G33; exit 0 only if every item passes
 
 Exit 2 means an archive or a baseline is missing: the gate was not run, which is not a pass.
 
@@ -178,10 +178,11 @@ was captured at the code before the change it guards and the same file judges th
       and walk-out, H19 O6's faults), A0b's O5 replay on the hand-stepped fake, the route builder played unattended, and
       the driver's O6 tests on the fake (the naming and its page witness, both landing paths, the misroutes, the real
       hall, which reads the install: a skip there fails the item). No baseline: the list is the floor.
-  G33 (from research/o6_design.md 9 C2; not in the gate before it) ``o6_dryrun.run_cases`` on the frozen O6 predictions
-      once they exist, else the draft, AND on ``o6_dryrun.as_if_frozen(draft)`` -- the draft with every freeze-time value
-      changed as the lead's freeze changes it: each returns 0 printing "N/N cases as registered", N at least
-      ``O6_DRYRUN_FLOOR``.
+  G33 (research/o6_design.md 1.4, from 9 C2) ``o6_dryrun.run_cases`` on the frozen O6 predictions once they exist,
+      else the draft, AND on ``o6_dryrun.as_if_frozen(draft)`` -- the draft with every freeze-time value changed as the
+      lead's freeze changes it (the floating row's ``measured``, every budget, ``rehearsals``: the claim critic's #9):
+      each returns 0 printing "N/N cases as registered", the same N, at least :data:`O6_DRYRUN_FLOOR`. No baseline: the
+      count is the floor.
 
 Nothing here touches the game or writes to the install: it reads the archives, the builds and the stock bytes. The
 pins file is written only by ``--rebaseline-source``, and a baseline only by its ``--capture*``.
@@ -601,7 +602,7 @@ REQUIRED_TESTS_O6: tuple = (
     "test_o6_drive_walks_the_real_hall_on_the_fake",
     # C1: o6_steiner -- the draft from O4's campaign.toml, the freeze's refusals, the route builder against the draft,
     # instanced_at6's compare dispatch, the census's live and inert proofs, the regions, the door's goals, the floating
-    # e15 row, A-START and A-NAMING, the preflight's verdicts
+    # e15 row, O6-NAMING, O6-START-DEPENDENT, A-START and A-NAMING, the preflight's verdicts
     "test_o6_steiner_draft_reads_the_chain_from_campaign",
     "test_o6_steiner_freeze_refuses",
     "test_o6_steiner_route_builder_matches_the_keys",
@@ -610,9 +611,19 @@ REQUIRED_TESTS_O6: tuple = (
     "test_o6_steiner_regions_roles",
     "test_o6_steiner_goals_door",
     "test_o6_steiner_pattern_floats_the_e15_row",
+    "test_o6_steiner_naming_check",
+    "test_o6_steiner_start_dependent_check",
     "test_o6_steiner_why_void_reads_151s_error_path_as_the_start",
     "test_o6_steiner_preflight_verdicts",
+    # C2: the trace summary over the dry run's rendered rows, cut at the end PLACES (O4's lesson)
+    "test_o6_steiner_trace_summary_cuts_at_end_places",
 )
+#: G33 (research/o6_design.md 9 C2): o6_dryrun's "N/N cases as registered" must have N at least this, on the draft (or
+#: the frozen file) AND on as_if_frozen(draft) -- its 92 session cases and "predictions-changed" (section 8's table), its
+#: 22 units, and its listed units (O6-CENSUS and its 7 mutants, O6-REGIONS and its 6, O6-GOALS and its 8, the route pins
+#: and route_mes with their 8, O6-BUILD's route pins on a synthetic build and its 3, the draft through O6-KEYS and its 10
+#: offline mutants) when G33 joined (163). A case added raises N; one dropped falls under the floor.
+O6_DRYRUN_FLOOR = 163
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)
 SOURCE_PINS = HERE / "research" / "source_pins.json"
@@ -1140,6 +1151,60 @@ def g27() -> tuple:
     elif int(m.group(2)) < O5_DRYRUN_FLOOR:
         bad.append(f"{last!r}: under the floor {O5_DRYRUN_FLOOR} -- a case or a unit was dropped")
     return not bad, what, "; ".join(bad) or f"{last} ({which})"
+
+
+# ======================================================================== what the O6 code says (G33)
+def _o6() -> tuple:
+    """``(o6_steiner, o6_dryrun)``: imported here, never at the module's top, as the O2-O5 items import theirs."""
+    import o6_steiner as O
+    import o6_dryrun as D6
+    return O, D6
+
+
+def o6_run_cases_quietly(*, as_if: bool = False) -> tuple:
+    """``(rc, last line, which predictions)``: ``o6_dryrun.run_cases`` on the frozen O6 predictions once they exist, else
+    on the draft (its own default) -- or, ``as_if``, on ``o6_dryrun.as_if_frozen(draft)`` written to a temporary file --
+    its per-case lines swallowed."""
+    O, D6 = _o6()
+    buf = io.StringIO()
+    if as_if:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "o6_predictions_as_if_frozen.json"
+            path.write_bytes((json.dumps(D6.as_if_frozen(O.draft_predictions()), indent=1, sort_keys=True)
+                              + "\n").encode("utf-8"))
+            with contextlib.redirect_stdout(buf):
+                rc = D6.run_cases(path)
+        which = "as_if_frozen(the draft)"
+    else:
+        path = O.PREDICTIONS if O.PREDICTIONS.is_file() else None
+        with contextlib.redirect_stdout(buf):
+            rc = D6.run_cases(path)
+        which = f"the frozen {path.name}" if path is not None else "the draft"
+    lines = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
+    return rc, (lines[-1] if lines else ""), which
+
+
+def g33() -> tuple:
+    """G33 (research/o6_design.md 1.4, 9 C2): O6's dry run, every case as registered, at least the floor -- on the frozen
+    predictions (else the draft) AND on as_if_frozen(draft), the same N."""
+    what = (f"G33: o6_dryrun.run_cases returns 0, every case as registered, at least {O6_DRYRUN_FLOOR}, on the frozen O6 "
+            f"predictions once they exist (else the draft) and on as_if_frozen(the draft), the same N")
+    bad, seen = [], []
+    for as_if in (False, True):
+        try:
+            rc, last, which = o6_run_cases_quietly(as_if=as_if)
+        except Exception as err:                   # noqa: BLE001 -- a dry run that cannot run is a FAIL, said
+            bad.append(f"run_cases{' (as if frozen)' if as_if else ''} raised {type(err).__name__}: {str(err)[:300]}")
+            continue
+        m = re.fullmatch(r"(\d+)/(\d+) cases as registered", last)
+        if rc != 0 or m is None or m.group(1) != m.group(2):
+            bad.append(f"run_cases on {which} returned {rc}: {last!r}")
+        elif int(m.group(2)) < O6_DRYRUN_FLOOR:
+            bad.append(f"{last!r} on {which}: under the floor {O6_DRYRUN_FLOOR} -- a case or a unit was dropped")
+        seen.append((last, which))
+    if len(seen) == 2 and seen[0][0] != seen[1][0]:
+        bad.append(f"the two readings differ: {seen[0][0]!r} on {seen[0][1]}, {seen[1][0]!r} on {seen[1][1]}")
+    return not bad, what, "; ".join(bad) or "; ".join(f"{last} ({which})" for last, which in seen)
 
 
 # ======================================================================== what the O3 code says (G14)
@@ -2265,8 +2330,10 @@ def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2, baseline_o3
     _show_items(items_o5[-1:])
     items_o5b = judge_o5(base_o5, collect_o5())        # O5's outputs (research/o6_design.md 1.4): G28-G31
     _show_items(items_o5b)
-    items_o6 = [g32(pytest_g32())]                     # O6's FakeGame and driver tests (from B3): G32
+    items_o6 = [g32(pytest_g32())]                     # O6's FakeGame, driver and analysis tests (from B3): G32
     _show_items(items_o6)
+    items_o6.append(g33())                             # O6's dry run (C2), and as if frozen: no baseline, the floor
+    _show_items(items_o6[-1:])
     try:                                               # the driver's source pins (rev. 2), over three baselines: G21
         items_src = [g21(union_base(base_o3, base_o4, base_o5), pins)]
     except ValueError as err:
@@ -2325,7 +2392,7 @@ def main(argv=None) -> int:
     elif args.capture or args.capture_o2:
         missing = _missing(o1=not args.capture_o2, o2=not args.capture, o3=False)
     else:
-        missing = _missing(o1=True, o2=True, o3=True, o3s=True, o4=True, o4s=True, o5=True, o5s=True,
+        missing = _missing(o1=True, o2=True, o3=True, o3s=True, o4=True, o4s=True, o5=True, o5s=True, o6=True,
                            files=(args.baseline_o3, args.baseline_o4, args.baseline_o5, args.source_pins))
     if missing:
         print("!! the gate was not run -- missing: " + ", ".join(missing))

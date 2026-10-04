@@ -25458,10 +25458,98 @@ def test_o6_steiner_pattern_floats_the_e15_row(tmp_path):
     assert not ok and "S#1 (b) the floating row" in detail, detail
 
 
+def _o6_naming_run(pred, edit=None, side="S"):
+    """A run for O6-NAMING / O6-START-DEPENDENT, pure: the dry run's base rows and standard log (o6_dryrun), its log
+    edited by ``edit(log, ctx)``."""
+    D = __import__("o6_dryrun")
+    ST = __import__("segment_trace")
+    m = {int(f): d for f, d in pred["members"].items()} if side == "F" else {}
+    rows = D._rows(D.base_events(), side, {int(f): d for f, d in pred["members"].items()})
+    kept, _at, pre = ST.cut_at_start(rows, 151, m)
+    log, ctx = D.standard_log(pred, side, D.render(D.base_events(), side, {int(f): d for f, d in
+                                                                          pred["members"].items()}))
+    if edit is not None:
+        edit(log, ctx)
+    return {"side": side, "i": 1, "rows": kept, "log": log, "pre": pre}
 
 
+def test_o6_steiner_naming_check(tmp_path):
+    """O6-NAMING (research/o6_design.md 5.3; decision 4; the claim critic's #2 -- the driver ENFORCES, this re-checks),
+    pure, over the dry run's base run: PASS on S and F. Then each clause FAILS by name: (a) two named rows, none, the named
+    row after ip610's row, the named row in real 151 on F; (b) the page row's verdict V13, two page rows, the row in 153,
+    its frame before the named row's, a window no frozen entry names (203), an UNPARSED window (its tag in the text), a
+    line that differs (199 rendering "Rusty") -- and a FORGED row whose own ``line`` claims the default while its text
+    renders another name: the line is re-read from the text. Break: trust the row's own ``line``."""
+    O = _o6_module()
+    D = __import__("o6_dryrun")
+    pred = _o6_draft(tmp_path)
+    seg = O.O6Segment()
+
+    def judge(edit=None, side="S"):
+        return seg.naming_check([_o6_naming_run(pred, edit, side)], pred)
+    assert judge()[0] and judge(side="F")[0], (judge()[2], judge(side="F")[2])
+    unparsed = dict(D.page_window(199), text="Queen Brahne\n\u201cCaptain [STNR]!\u201d")
+    forged = dict(D.page_window(199, "Rusty"), line="\u201cCaptain Steiner!\u201d", ok=True)
+    for edit, side, clause in (
+            (lambda lg, c: lg.append(dict(c["named"])), "S", "(a): 2 named row(s)"),
+            (lambda lg, c: lg.remove(c["named"]), "S", "(a): 0 named row(s)"),
+            (lambda lg, c: c["named"].update(frame=3150), "S", "is not before ip610's row"),
+            (lambda lg, c: c["named"].update(field=151), "F", "the named row in 151 (place 151), not 31244"),
+            (lambda lg, c: c["page"].update(verdict="V13"), "S", "its verdict 'V13'"),
+            (lambda lg, c: lg.append(dict(c["page"])), "S", "(b): 2 name_on_page row(s)"),
+            (lambda lg, c: c["page"].update(field=153), "S", "not the naming's field 151"),
+            (lambda lg, c: c["page"].update(frame=2000), "S", "is not after the named row's"),
+            (lambda lg, c: c["page"].update(windows=[D.page_window(203)]), "S", "window 203: no frozen window names it"),
+            (lambda lg, c: c["page"].update(windows=[unparsed]), "S", "unparsed (its text holds [STNR])"),
+            (lambda lg, c: c["page"].update(windows=[D.page_window(199, "Rusty")]), "S", "renders"),
+            (lambda lg, c: c["page"].update(windows=[forged]), "S", "line 1 renders '\u201cCaptain Rusty!\u201d'")):
+        ok, _w, detail = judge(edit, side)
+        assert ok is False and clause in detail, (clause, detail)
 
 
+def test_o6_steiner_start_dependent_check(tmp_path):
+    """O6-START-DEPENDENT (research/o6_design.md 4.5, 5.3; decision 5; the claim critic's #3, #4), pure, over the dry run's
+    rows: equal on both keys PASSES; and the report line is RENDERED from the predictions -- "after the O1-O5 routes as
+    driven it would write 11 (from 3, ...)", an ``after.run`` "O1-O6" renders "O1-O6", never "after O1". Each deviation
+    classified PER RUN on the fields: old 0 / new 9 a FINDING; an earlier row on byte 6 EXPLAINS old 1 (named); old 1 /
+    new 9 on F alone START DRIFT on F, never a finding and no continuation; 3 -> 11 START DRIFT with "the O1-O5
+    continuation" ((old, new) = after's); no ip610 row and two the count. Break: drop the EXPLAINED class (an earlier row
+    then reads as START DRIFT)."""
+    import copy
+    O = _o6_module()
+    D = __import__("o6_dryrun")
+    ST = __import__("segment_trace")
+    pred = _o6_draft(tmp_path)
+    seg = O.O6Segment()
+    members = {int(f): d for f, d in pred["members"].items()}
+
+    def check(events, side="S"):
+        m = members if side == "F" else {}
+        rows = D._rows(events, side, members)
+        kept, _at, pre = ST.cut_at_start(rows, 151, m)
+        ok, _w, detail = seg.start_dependent_check([{"side": side, "i": 1, "rows": kept, "pre": pre, "log": []}], pred)
+        return ok, detail
+    assert check(D.base_events())[0] and check(D.base_events(), "F")[0]
+    k = pred["start_dependent"][0]
+    line = O.start_dependent_line(k, {"S": [8], "F": [8]}, [0])
+    assert "after the O1-O5 routes as driven it would write 11 (from 3, " in line and "after O1 " not in line, line
+    o16 = copy.deepcopy(k)
+    o16["after"]["run"] = "O1-O6"
+    assert "after the O1-O6 routes as driven it would write 11" in O.start_dependent_line(o16, {}, []), o16
+    assert "after the O1-O5 routes as driven" in O.scope_start(pred) and "after O1 " not in O.scope_start(pred)
+    ok, detail = check(D._sd_edit(D.base_events(), D.B6_610, old=0, value=9))
+    assert not ok and "FINDING" in detail and "the store itself wrote another value" in detail, detail
+    earlier = D.before(D.base_events(), D.B6_610, D.w((151, 2, 1, 735, "Global.Byte[6]", 1)))
+    ok, detail = check(earlier)
+    assert not ok and "EXPLAINED" in detail and "explained by line" in detail and "DRIFT" not in detail, detail
+    ok, detail = check(D._sd_edit(D.base_events(), D.B6_610, old=1, value=9), "F")
+    assert not ok and "START DRIFT on F" in detail and "FINDING" not in detail and "continuation" not in detail, detail
+    ok, detail = check(D._sd_edit(D.base_events(), D.B6_610, old=3, value=11))
+    assert not ok and "START DRIFT on S" in detail and "the O1-O5 continuation" in detail, detail
+    ok, detail = check(D.drop_nth(D.base_events(), D.B6_610))
+    assert not ok and "0 rows at the site" in detail, detail
+    ok, detail = check(D.after(D.base_events(), D.B6_610, D.w(D.B6_610)))
+    assert not ok and "2 rows at the site" in detail, detail
 
 
 def test_o6_steiner_why_void_reads_151s_error_path_as_the_start(tmp_path):
@@ -25562,3 +25650,42 @@ def test_o6_steiner_preflight_verdicts(tmp_path):
     _w, o, d = pre()[3]
     assert not o and "[Hacks] DisableNameChoice = '1'" in d, d
 
+
+def test_o6_steiner_trace_summary_cuts_at_end_places(tmp_path, o6_stock):
+    """O6's trace summary (research/o6_design.md 7.2, section 8's unit; O4's lesson, its claim critique #14) over the dry
+    run's rendered rows (o6_dryrun.render: real store sites, the sink over the raw warp's start values). A base S run reads
+    the chain 2/2, writes 28/28, the error path, forbidden and dead sites absent; the crossings 151 ip932 -> 153 e0 t0
+    ip22 and 153 ip203 -> the cut 154 e0 t0 ip26; the e15 row (index 8 of visit 2, inside its window 8-14, 300 frames to
+    ip971's row, sid 15 tag 0 ip 32 add 0); the start-dependent rows ok; 4.18's pattern exactly (10 + 24 rows, no c row);
+    the end cut's row 154 e0 t0 ip26 at its end place; no unregistered key, no join failure; the three start residue
+    rows. The F run is cut at member(154)'s row, its crossing into the cut 31246's row, no seam -- while O3's summary,
+    given the same end FIELDS, is not cut at all. Break: cut the crossings at the raw end fields (the F cut then lost)."""
+    O = _o6_module()
+    D = __import__("o6_dryrun")
+    P = __import__("o3_prima_vista")
+    pred = _o6_draft(tmp_path)
+    members = {int(f): d for f, d in pred["members"].items()}
+    rows = D._rows(D.base_events())
+    t = O.trace_summary(rows, pred, stock=o6_stock)
+    reg = {k: (sum(1 for x in v if x["present"]), len(v)) for k, v in t["registered"].items()}
+    assert reg == {"chain": (2, 2), "writes": (28, 28), "error_path": (0, 8), "forbidden_sites": (0, 4),
+                   "dead": (0, 15)}, reg
+    assert t["crossings"] == {"exit151": {"exit": "151 e2 t1 ip932 Global.Int16[2]=328",
+                                          "next": "153 e0 t0 ip22 Global.Bit[191]=0", "cut": None},
+                              "exit153": {"exit": "153 e23 t2 ip203 Global.Int16[2]=315", "next": None,
+                                          "cut": "154 e0 t0 ip26 Global.Bit[191]=0"}}, t["crossings"]
+    e15 = t["e15"]
+    assert (e15["index"], e15["window"], e15["inside"], e15["frames_to_971"]) == (8, [8, 14], True, 300), e15
+    assert (e15["sid"], e15["tag"], e15["ip"], e15["add"]) == (15, 0, 32, 0), e15
+    assert [x["class"] for x in t["start_dependent"]] == ["ok", "ok"], t["start_dependent"]
+    assert [len(v) for v in t["pattern"]["visits"]] == [10, 24] and t["pattern"]["counts"] == [], t["pattern"]
+    assert t["end_row"] == "w 154 e0 t0 ip26 Global.Bit[191]=0" and t["end_places"] == [154], t["end_row"]
+    assert t["unregistered"] == [] and t["failures"] == [], (t["unregistered"], t["failures"])
+    assert [x[1:] for x in t["residue_before"]] == [[0, 0, 166], [1, 0, 4], [2, 0, 110]], t["residue_before"]
+    frows = D._rows(D.base_events(), "F", members)
+    tf = O.trace_summary(frows, pred, side="F", end_fields=[31246], stock=o6_stock)
+    first = next(x.line for x in frows if x.k in ("w", "r") and x.fld == 31246)
+    assert tf["end"] == first and tf["end_places"] == [154] and tf["end_row_fld"] == 31246, tf["end"]
+    assert tf["crossings"]["exit153"]["cut"] == "31246 e0 t0 ip26 Global.Bit[191]=0", tf["crossings"]
+    assert tf["unregistered"] == [] and tf["seam_keys"] == [], (tf["unregistered"], tf["seam_keys"])
+    assert P.trace_summary(frows, pred, side="F", end_fields=[31246], stock=o6_stock)["end"] is None
