@@ -113,3 +113,8 @@ studies/story-trace/research/o6_regress_baseline.json -text
 # sample changed and every trace row -- captured ONCE before any O7 fake edit and compared exactly. LF; never line-end
 # convert it.
 studies/story-trace/research/o6_fake_replay.json -text
+
+# O7's registered predictions (studies/story-trace/o7_castle_walk.py O7-FROZEN) are sha256-frozen the same way: the
+# session records the sha of the bytes it read, and the analysis refuses a file that no longer matches. The line is in
+# place BEFORE any freeze (the lead freezes v1 after the stock rehearsals); never line-end convert them.
+studies/story-trace/o7_predictions*.json -text

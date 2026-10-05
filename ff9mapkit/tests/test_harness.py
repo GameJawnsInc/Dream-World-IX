@@ -28827,3 +28827,813 @@ def test_o7_drive_walk_into_a_door_is_the_drivers_v11(game):
     assert (row["kind"], row["outcome"], row["landed"], row["v"], row["by"]) == ("walk", "void", 30841, "V11",
                                                                                  "driver"), row
     assert row["door"] == "30840.e8", row
+
+
+# ---- PART C, C1: O7 itself (studies/story-trace/o7_castle_walk.py; research/o7_design.md 9 PART C): the draft read from
+# O4's campaign.toml, the freeze's refusals, the route builder against the draft (one source of truth), instanced_at7
+# with no dispatch and the flag gate, the census, the regions with the hazard's role, the goals (g1)-(g5) and (h1)-(h4),
+# the closure lists from their definitions, the bytes' readers, O7-WALK, -LANDING and -STATE pure, the fallback end, the
+# static watch, the carried values and the olds derived, the per-run reseed, A-START's start read and the preflight's
+# verdicts -- each pure or on synthetic chains, rows and installs (the census, the regions, the goals, the closures, the
+# keys and the builder's pattern read the install's stock scripts and walkmeshes, read-only: a warned skip without it,
+# which fails G38). Every name is test_o7_castle_*: G38's "o7_".
+
+def _o7_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o7_castle_walk as O
+    return O
+
+
+def _o7_dryrun():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o7_dryrun as D
+    return D
+
+
+@pytest.fixture(scope="module")
+def o7_stock():
+    """The install's stock scripts (154, 158, 159, 160, 162, 163, 164 read first) and its walkmeshes, or a WARNED skip --
+    never a silent pass (THE WORKTREE SKIP TRAP)."""
+    import warnings
+    try:
+        from ff9mapkit import extract, storytrace
+        src = storytrace.stock_script_source()
+        assert all(src(f) is not None for f in (154, 158, 159, 160, 162, 163, 164))
+        extract.stock_walkmesh(154)
+    except Exception as err:                                   # noqa: BLE001 -- no install here
+        warnings.warn(f"O7's census, regions, goals, keys and pattern went UNVERIFIED against real bytes in this run: "
+                      f"the game install is not readable here ({type(err).__name__}). Run on the machine with the "
+                      f"install.", UserWarning)
+        pytest.skip("game install unavailable")
+    return src
+
+
+def _o7_draft(tmp_path, **kw):
+    """The draft on a synthetic alxc chain (:func:`_o4c_campaign`: the twenty donors at 31240 + their position, so
+    member(154) 31246 ... member(164) 31256 as built)."""
+    return _o7_module().draft_predictions(_o4c_campaign(tmp_path), **kw)
+
+
+def _o7_frozen_like(pred):
+    """The draft with the freeze-time values the lead's freeze writes (7.3): the rehearsal run dirs and the render rates
+    they met -- never pinned by a test."""
+    import copy
+    good = copy.deepcopy(pred)
+    good["rehearsals"] = ["C:/gd/Dream-World-IX/.harness-runs/20261006-000000-o7-rh"]
+    good["rehearsal_fps"] = [31.0, 60.0]
+    return good
+
+
+def _o7_rehearsal_dir(name):
+    """Whether ``name`` -- a bare run-dir name or a full path, either slash -- is an O7 rehearsal launch's run dir:
+    ``<yyyymmdd>-<hhmmss>-o7-rh``, optionally ``-<suffix>``. Never another segment's and never a session's."""
+    base = re.split(r"[\\/]", str(name))[-1]
+    return re.fullmatch(r"\d{8}-\d{6}-o7-rh(?:[-_][A-Za-z0-9_-]+)?", base, flags=re.IGNORECASE) is not None
+
+
+def test_o7_castle_draft_reads_the_chain_from_campaign(tmp_path):
+    """The draft's members and names are O4's built chain's campaign.toml (research/o7_design.md 1.3, 4.1): its donors
+    exactly the twenty, the seven route members DERIVED, never assumed, and printed as one line; the draft starts F in
+    member(154), ends S in real 164 and F in member(164) (``side_ends``), visits the six places, carries 33 writes and 6
+    chain keys, the FOUR residue rows, six visit-scoped cells with seven steps -- each with its clearance (163's 110),
+    154 #0 and 163 #0 with attempts 3, 154 #0 the hazard avoided on the prior basis -- the interruption's test read off
+    its pin, the start read, the end state without Byte[13] and without a carried target, Byte[13] from the trace; a chain
+    whose ids run the other way moves the F start and end with it. The rehearsals are read from the draft (the lead names
+    them at the freeze), never pinned. o7_forks.json is O4's chain reused: O4's twenty members and names, its route
+    members derived, deployed, nothing to relaunch, block 3's members, C0's measured sites. Break: end the F side in real
+    164."""
+    O = _o7_module()
+    members, names = O.chain_from_campaign(_o4c_campaign(tmp_path))
+    assert O.route_members(members) == {154: 31246, 158: 31250, 159: 31251, 160: 31252, 162: 31254, 163: 31255,
+                                        164: 31256}, O.route_members(members)
+    assert O.route_members_line(members) == ("member(154) 31246, member(158) 31250, member(159) 31251, member(160) "
+                                             "31252, member(162) 31254, member(163) 31255, member(164) 31256")
+    pred = _o7_draft(tmp_path)
+    assert pred["start"] == {"S": 154, "F": 31246} and pred["side_ends"] == {"S": [164], "F": [31256]}, \
+        (pred["start"], pred["side_ends"])
+    assert pred["route"] == pred["visits"] == [154, 158, 159, 160, 162, 163] and pred["end_fields"] == [164]
+    assert pred["members"] == {str(f): d for f, d in members.items()} and pred["names"]["31246"] == "O4_SYNTH_154"
+    assert (pred["entrance"], pred["scenario"], pred["battles"], pred["naming"], pred["start_dependent"]) == (
+        315, 1190, [], [], [])
+    # the lead names the rehearsals at the freeze (7.3): never pin them empty, nor pin their form beyond O7's own dirs
+    assert all(_o7_rehearsal_dir(r) for r in pred["rehearsals"]), pred["rehearsals"]
+    for name in ("20261006-101010-o7-rh", "20261006-101010-o7-rh-stair", "20261006-101010-o7-rh-R-WALK154",
+                 "C:/gd/Dream-World-IX/.harness-runs/20261006-000000-o7-rh",
+                 "C:\\gd\\Dream-World-IX\\.harness-runs\\20261006-101010-o7-rh"):
+        assert _o7_rehearsal_dir(name), name
+    for name in ("20261004-090247-o6-rh-door", "20261006-101010-o7-rhx", "o7-rh", "20261006-101010-story-o7", ""):
+        assert not _o7_rehearsal_dir(name), name
+    assert all(_o7_rehearsal_dir(r) for r in _o7_frozen_like(pred)["rehearsals"])
+    assert len(pred["writes"]) == 33 and len(pred["chain"]) == 6 and pred["ladder"] == [], len(pred["writes"])
+    assert pred["start_residue"] == [[0, 0, 166], [1, 0, 4], [2, 0, 59], [3, 0, 1]], pred["start_residue"]
+    steps = [s for c in pred["table"] for s in c["steps"]]
+    assert [c["visit"] for c in pred["table"]] == [1, 2, 3, 4, 5, 6] and len(steps) == 7, pred["table"]
+    assert [s["clearance"] for s in steps] == [120, 120, 120, 120, 120, 120, 110], steps
+    walk = steps[0]
+    assert (walk["kind"], walk["basis"], walk["attempts"], steps[-1]["attempts"]) == ("walk", "prior", 3, 3), walk
+    assert "154.hazard.dojebon" in walk["avoid"] and pred["regions"]["154.hazard.dojebon"]["role"] == "hazard"
+    assert pred["interruptions"][0]["test"] == O.monologue_test(O.pin_text(pred, [159, 16, 1, 390])) is not None
+    assert [(x["site"], x["old"]) for x in pred["start_reads"]] == [([159, 0, 0, 290], 125)], pred["start_reads"]
+    assert "Global.Byte[13]" not in pred["end_state"] and pred["end_state_trace"]["Global.Byte[13]"]["value"] == 2
+    assert not set(pred["carried"]["values"]) & set(pred["end_state"]) and len(pred["carried"]["values"]) == 14
+    rev = O.draft_predictions(_o4c_campaign(tmp_path, ids={d: 31259 - i for i, d in enumerate(O.C4.DONORS)},
+                                            name="reversed.toml"))
+    m = {d: f for f, d in ((int(f), d) for f, d in rev["members"].items())}
+    assert rev["start"]["F"] == m[154] != 31246 and rev["side_ends"]["F"] == [m[164]], (rev["start"], rev["side_ends"])
+    with pytest.raises(AssertionError, match=r"missing \[159\]"):
+        O.chain_from_campaign(_o4c_campaign(tmp_path, donors=[d for d in O.C4.DONORS if d != 159], name="bad.toml"))
+    man = json.loads(O.MANIFEST.read_text(encoding="utf-8"))
+    o4 = json.loads(O.C4.MANIFEST.read_text(encoding="utf-8"))
+    mm = {int(f): int(d) for f, d in man["members"].items()}
+    assert man["members"] == o4["members"] and man["names"] == o4["names"], "o7_forks.json is not O4's chain"
+    assert man["route_members"] == {str(f): d for d, f in O.route_members(mm).items()}, man["route_members"]
+    assert (man["deployed"], man["relaunch_needed"], man["reuses"]) == (True, False,
+                                                                        "studies/story-trace/o4_forks.json"), man
+    assert man["text_blocks"] == {"3": o4["text_blocks"]["3"]}, man["text_blocks"]
+    for site in ("e2 t1 ip1528 (153)", "e11 t2 ip201 (160)", "e5 t2 ip235 (162)", "e2 t2 ip235 (164)",
+                 "e3 t2 ip251 (163)", "20 sites, 40 bytes, 49 member files"):
+        assert site in man["built"]["measured"], site
+
+
+def test_o7_castle_freeze_refuses(tmp_path):
+    """The freeze (research/o7_design.md 1.3, 7.3) writes the draft ONCE -- LF, sorted keys, its sha the bytes' -- on a
+    synthetic chain, the live engine (a stub reader) and the freeze-time values the lead writes (:func:`_o7_frozen_like`).
+    Before anything is written it refuses, each naming its cause and writing nothing: no witness; a table step carrying
+    a rehearsal overlay (``hold_stop``, ``page_stop``) or a typed ``stale_slack``; a step without ``clearance``; 154 #0
+    without the hazard in its ``avoid``, or without ``basis`` "prior"; side_ends ending F in REAL 164; a battles, a
+    naming and a start-dependent row; ``pattern.floating`` not empty; Byte[13] in ``end_state``; a carried target in
+    ``end_state``; ``carried`` not the derivation (Bit[3815] dropped); no ``start_reads``; an interruption test that is
+    not its pin's reading; no ``rehearsals``; no ``rehearsal_fps``; an engine that is not the live DLLs'; and a second
+    freeze onto the same file refuses. The real o7_predictions_v1.json is never touched. Break: accept a step's
+    hold_stop."""
+    import copy
+    import hashlib
+    O = _o7_module()
+    _o4c_campaign(tmp_path)
+    seg = O.O7Segment()
+    seg.chain_dir = tmp_path
+    live = {"x64": O.ENGINE["x64"], "x86": O.ENGINE["x86"]}
+    good = _o7_frozen_like(seg.draft())
+
+    def refuses(pred, match, engine=live):
+        seg.draft = lambda: copy.deepcopy(pred)
+        never = tmp_path / "never.json"
+        with pytest.raises(SystemExit, match=match):
+            seg.freeze(never, live_engine=engine)
+        assert not never.exists()
+
+    def edited(fn):
+        p = copy.deepcopy(good)
+        fn(p)
+        return p
+    refuses(edited(lambda p: p.pop("witness")), "no witness")
+    refuses(edited(lambda p: p["table"][0]["steps"][0].__setitem__("hold_stop", {"holds": 3})),
+            r"rehearsal overlay \['hold_stop'\]")
+    refuses(edited(lambda p: p["table"][2]["steps"][0].__setitem__("page_stop", {"place": 159})),
+            r"rehearsal overlay \['page_stop'\]")
+    refuses(edited(lambda p: p["table"][0]["steps"][0].__setitem__("stale_slack", 160)), "typed stale_slack")
+    refuses(edited(lambda p: p["table"][1]["steps"][0].pop("clearance")), "carries no clearance")
+    refuses(edited(lambda p: p["table"][0]["steps"][0]["avoid"].remove("154.hazard.dojebon")),
+            r"step 0 does not avoid 154\.hazard\.dojebon")
+    refuses(edited(lambda p: p["table"][0]["steps"][0].pop("basis")), "carries no basis 'prior'")
+    refuses(dict(copy.deepcopy(good), side_ends={"S": [164], "F": [164]}), "neither an end field no member forks")
+    refuses(dict(copy.deepcopy(good), battles=[{"donor": 154}]), "battles row")
+    refuses(dict(copy.deepcopy(good), naming=[{"donor": 154, "sc": 1190, "beat": None}]), "naming row")
+    refuses(dict(copy.deepcopy(good), start_dependent=[{"donor": 154}]), "start_dependent row")
+    refuses(edited(lambda p: p["pattern"].__setitem__("floating", [{"visit": 1}])), "pattern.floating is not empty")
+    refuses(edited(lambda p: p["end_state"].__setitem__("Global.Byte[13]", 2)), r"Global\.Byte\[13\] in end_state")
+    refuses(edited(lambda p: p["end_state"].__setitem__("Global.Bit[3795]", 0)),
+            r"carried target\(s\) \['Global\.Bit\[3795\]'\] in end_state")
+    refuses(edited(lambda p: p["carried"]["values"].pop("Global.Bit[3815]")), "carried differs from the derivation")
+    refuses(dict(copy.deepcopy(good), start_reads=[]), "no start_reads")
+    refuses(edited(lambda p: p["interruptions"][0]["test"]["any_of"].__setitem__("x_lt", -1700)),
+            "is not monologue_test's reading")
+    refuses(dict(copy.deepcopy(good), rehearsals=[]), "no rehearsals")
+    refuses(dict(copy.deepcopy(good), rehearsal_fps=[]), "no rehearsal_fps")
+    refuses(good, "is not the live DLLs'", engine={"x64": "0" * 64, "x86": "0" * 64})
+    seg.draft = lambda: copy.deepcopy(good)
+    path = tmp_path / "o7_predictions_v1.json"
+    sha = seg.freeze(path, live_engine=live)
+    data = path.read_bytes()
+    assert sha == hashlib.sha256(data).hexdigest() and b"\r" not in data and data.endswith(b"\n")
+    assert data.decode("utf-8") == json.dumps(good, indent=1, sort_keys=True) + "\n"
+    with pytest.raises(SystemExit, match="frozen"):
+        seg.freeze(path, live_engine=live)
+    assert path.read_bytes() == data
+
+
+def test_o7_castle_route_builder_matches_the_keys(game, o7_stock, tmp_path):
+    """ONE SOURCE OF TRUTH (research/o7_design.md 3.6, 9 C1): the test-side route builder (:func:`_o7_route`, B3's) and
+    the draft agree. Its seven visit beats played by the scripted player from field 70's prologue values and the raw
+    warp, traced with the sink's suppression (H13), read as the analysis reads a run -- the fixture's fields as their
+    places, cut at 154's first write and at 164's first row: the residue before the start is the draft's FOUR rows; the
+    first write is ``start_first``; the distinct unmasked keys of the route places are EXACTLY the draft's 33 writes and
+    6 chain keys, its masked rows the twelve prologue rows; the cut row is ``landing.end_row``; and O7-PATTERN's reading
+    (joined on the stock bytes) is the draft's ``pattern`` with no difference (7 + 9 + 11 + 8 + 8 + 8). Break: 158's
+    ip445 key at value 3 in the draft's writes (the keys then differ)."""
+    from ff9mapkit import storytrace
+    O = _o7_module()
+    ST = __import__("segment_trace")
+    pred = _o7_draft(tmp_path)
+    fake = _fv_fake(game, field=70, trace=False)
+    fake.walkmesh = _O7_BOX
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(315, 1190)
+    fake.field_id = 30840
+    fake.scene(*_o7_route("S"), control=False)
+    goals = {_O7_FIELDS["S"][p]: [g for _s, g in walks] for p, walks in _O7_WALKS.items()}
+    for _ in range(40):
+        fid = fake.field_id
+        if fid == 30846:
+            break
+        goal = goals[fid][0]
+        _o7_play(fake, toward=goal, until=lambda f: f.field_id != fid or (
+            len(goals[fid]) > 1 and math.hypot(goal[0] - f.player[0], goal[1] - f.player[2]) <= 30))
+        if fake.field_id == fid:
+            goals[fid].pop(0)
+    _cb_until(fake, lambda f: any(e["index"] == 7 and e["kind"] == "wait" for e in f.visit_log), limit=400)
+    fake._story_stop()
+    rows = storytrace.parse_text("".join(json.dumps(r) + "\n" for r in _fv_rows(fake)))
+    places = {f: int(p) for p, f in _O7_FIELDS["S"].items()}
+    kept, _at, pre = ST.cut_at_start(rows, 154, places)
+    kept, end = ST.cut_at_end(kept, [164], places)
+    assert [[x.byte, x.old, x.new] for x in pre if x.k == "r"] == pred["start_residue"], pre
+    first = next(x for x in kept if x.k == "w")
+    sf = pred["start_first"]
+    assert (first.sid, first.tag, first.ip, first.target, first.new) == (sf["sid"], sf["tag"], sf["ip"], sf["target"],
+                                                                         sf["value"]), first
+    keys = {(places[x.fld], x.sid, x.tag, x.ip, x.target, x.new) for x in kept
+            if x.k == "w" and x.src == "eb" and not storytrace.noise_regions(x)}
+    want = {(k["donor"], k["sid"], k["tag"], k["ip"], k["target"], k["value"]) for k in pred["writes"] + pred["chain"]}
+    assert keys == want and len(want) == 39, (sorted(keys ^ want), len(want))
+    masked = [(places[x.fld], x.ip, x.target) for x in kept if x.k == "w" and x.src == "eb"
+              and storytrace.noise_regions(x)]
+    assert len(masked) == 12 and {t for _p, _ip, t in masked} == {"Global.Bit[191]", "Global.Bit[184]"}, masked
+    cut = next(x for x in rows if x.line == end)
+    lend = pred["landing"]["end_row"]
+    assert (places[cut.fld], cut.sid, cut.tag, cut.ip, cut.target, cut.new) == (
+        lend["place"], lend["sid"], lend["tag"], lend["ip"], lend["target"], lend["value"]), cut
+    got = O.C5.pattern_of(kept, pred, places, O.C5.stock_join(o7_stock, places))
+    assert got["unjoined"] == 0 and got["counts"] == [] and O.C6.pattern_diff6(got, pred["pattern"]) == [], \
+        O.C6.pattern_diff6(got, pred["pattern"])
+    assert [len(v) for v in got["visits"]] == [7, 9, 11, 8, 8, 8], [len(v) for v in got["visits"]]
+
+
+def test_o7_castle_instanced_at_reads_no_dispatch_and_flag_gates(o7_stock):
+    """instanced_at7 (research/o7_design.md 0.2 #3, 1.3): 154 dispatches on its entrance (``SWITCH(304, L392, L232)``):
+    at 315 {object 5, 6, 7, 15; region 8, 9, 10; code 1, 11} -- instanced_at6's reading, e2 (the 304 branch) not. 158,
+    159, 160, 162 and 163 hold NO entrance dispatch -- O4's walker and instanced_at6 raise on 159 -- so every Init their
+    Main_Init can reach counts: 159's every e0 t0 instancing site, and 160's InitObject(2) behind ``Bit[3799] == 0``. On
+    synthetic items a JMP_IFNOT is followed both ways. Break: follow only a conditional jump's label (not its
+    fall-through)."""
+    O = _o7_module()
+    C4 = _o4_castle_module()
+    C6 = _o6_module()
+    i154, i159, i160 = o7_stock(154), o7_stock(159), o7_stock(160)
+    want154 = {("object", 5), ("object", 6), ("object", 7), ("object", 15), ("region", 8), ("region", 9),
+               ("region", 10), ("code", 1), ("code", 11)}
+    assert O.instanced_at7(i154, 315) == want154 == C6.instanced_at6(i154, 315), sorted(O.instanced_at7(i154, 315))
+    every = {(s[3], s[4]) for s in C4.instancing_sites(i159) if (s[0], s[1]) == (0, 0)}
+    assert every and O.instanced_at7(i159, 331) == every, (sorted(every), sorted(O.instanced_at7(i159, 331)))
+    assert ("object", 2) in O.instanced_at7(i160, 332), sorted(O.instanced_at7(i160, 332))
+    with pytest.raises(ValueError, match="no SWITCH"):
+        C4.instanced_at(i159, 331)
+    with pytest.raises(ValueError, match="no entrance dispatch"):
+        C6.instanced_at6(i159, 331)
+    assert O.has_dispatch(i154) and not any(O.has_dispatch(o7_stock(f)) for f in (158, 159, 160, 162, 163))
+    items = [(0, 0, "InitCode(1, 0)"), (3, 3, "SET({Global.Bit[3799] const(0) B_EQ B_EXPR_END})"),
+             (11, 11, "JMP_IFNOT(L20)"), (14, 14, "InitObject(2, 0)"), (17, 17, "JMP(L23)"),
+             (20, 20, "InitObject(3, 0)"), (23, 23, "RET()")]
+    assert O.instanced_at7(None, 7, items=items) == {("code", 1), ("object", 2), ("object", 3)}
+    assert O.instanced_entries(i154, 315) == {0, 1, 5, 6, 7, 8, 9, 10, 11, 15}
+
+
+def test_o7_castle_census_classifies_every_site(o7_stock, tmp_path):
+    """O7-CENSUS (research/o7_design.md 0.2 #2, 6.1) on the real bytes PASSES with 6.1's line -- each field's total and
+    per-class counts as the census found them (154 22, 158 18, 159 22, 160 24, 162 18, 163 18), 154 e2 inert at 315, the
+    five fields with no dispatch named, 160's flag-gated InitObject(2) instanced, no shared script on the route. Then
+    FAILS by name: 160 e2 registered inert (Weimar, instanced by the flag-gated Init); 159 ip672 out of the writes; 154
+    e2 registered NOT inert (its ip1520 in no list). Break: instanced_at7 reading no Init where Main_Init holds no
+    dispatch."""
+    import copy
+    O = _o7_module()
+    D = _o7_dryrun()
+    pred = _o7_draft(tmp_path)
+    ok, _w, detail = O.O7.census_check(pred, o7_stock)
+    assert ok and detail == D.CENSUS_LINE, detail
+    for mutate, clause in (
+            (lambda p: p["inert"].append({"donor": 160, "sid": 2, "tags": "*", "why": "a mutant"}),
+             "inert entry 2 of 160 is instanced at entrance 332"),
+            (lambda p: p.__setitem__("writes", [k for k in p["writes"] if (k["donor"], k["ip"]) != (159, 672)]),
+             "159 e16 t1 ip672 Global.Bit[3796]: in no list"),
+            (lambda p: p.__setitem__("inert", []), "154 e2 t1 ip1520 Global.Int16[2]: in no list")):
+        bad = copy.deepcopy(pred)
+        mutate(bad)
+        ok, _w, detail = O.O7.census_check(bad, o7_stock)
+        assert not ok and clause in detail, (clause, detail)
+
+
+def test_o7_castle_regions_roles_branches_and_hazard(o7_stock, tmp_path):
+    """O7-REGIONS (research/o7_design.md 4.15, 6.1): the draft PASSES -- 15 regions (14 exit, 154's three with their
+    balcony branches read off their pinned ip38; 1 hazard guarding 154 e5's pinned wait, in (154, 1190, 1) step 0's
+    avoid), 0 hot-spots, 17 gateway rows all registered. Each mutant FAILS naming its clause: 154.e8 without its balcony
+    branch; the hazard under an ``e<sid>`` key; the hazard with role exit; the hazard out of step 0's avoid; 159.e11
+    missing; 160.e5's points shifted. Break: accept a hazard under any key."""
+    import copy
+    O = _o7_module()
+    D = _o7_dryrun()
+    pred = _o7_draft(tmp_path)
+    ok, _w, detail = O.O7.regions_check(pred, o7_stock)
+    assert ok and detail == D.REGIONS_LINE, detail
+
+    def rekey(p):
+        p["regions"]["154.e99"] = p["regions"].pop("154.hazard.dojebon")
+
+    def out_of_avoid(p):
+        p["table"][0]["steps"][0]["avoid"].remove("154.hazard.dojebon")
+
+    def shift(p):
+        p["regions"]["160.e5"]["points"][0][0] += 10
+    for mutate, clause in ((lambda p: p["regions"]["154.e8"].pop("branches"), "154.e8: scan_gateways gives"),
+                           (rekey, "154.e99: a hazard's key is <donor>.hazard.<name>"),
+                           (lambda p: p["regions"]["154.hazard.dojebon"].__setitem__("role", "exit"),
+                            "154.hazard.dojebon: an exit's key is <donor>.e<sid>"),
+                           (out_of_avoid, "154.hazard.dojebon: not in the avoid of (154, 1190, 1) step 0"),
+                           (lambda p: p["regions"].pop("159.e11"), "159.e11: a gateway"),
+                           (shift, "160.e5: the bytes' first SetRegion is")):
+        bad = copy.deepcopy(pred)
+        mutate(bad)
+        ok, _w, detail = O.O7.regions_check(bad, o7_stock)
+        assert not ok and clause in detail, (clause, detail)
+
+
+def test_o7_castle_goals(o7_stock, tmp_path):
+    """O7-GOALS (research/o7_design.md 6.1; rev. 2, claim review #5) on the stock meshes: the draft PASSES -- every step
+    planned at its clearance, (g1) 163 none at 120 and its 110 the plan, (g3) the walk's goal disc single-level ground
+    inside step 1's floor, (g4) 18 open tris of step 1's floor touch 154.e8, all ground, (g5) 159's test fails at its
+    start and holds at e11's 4 vertices, (h1) the route above PSX -500 within 3420 of Dojebon, (h2) basis prior, (h3) the
+    hazard avoided, (h4) the release zone covered but 3 residual points (gap 70 <= 86). Each mutant FAILS by its clause:
+    163 at 120 (no route); 160 at 110 ((g1)); 158 without e1 ((g2)); 154 #0's goal on the balcony ((g3)); 154 #1 without
+    closures ((g4)); 159's test x_lt -3600 ((g5)); its goal east past the circle ((h1)); no basis ((h2)); no hazard
+    ((h3)); the hazard 50 u east and its north edge 300 u south ((h4)). Break: (h4)'s tolerance read as KEEPOUT_MARGIN_W
+    + 60 (the 50 u shift's gap 104 then passes)."""
+    import copy
+    O = _o7_module()
+    D = _o7_dryrun()
+    pred = _o7_draft(tmp_path)
+    cache: dict = {}
+    bad, lines = O.goals_base7(pred, cache=cache)
+    xbad, xlines = O.goals_extra7(pred, cache=cache)
+    assert bad == [] and xbad == [], (bad, xbad)
+    text = "; ".join(lines + xlines)
+    for want in D.goals_lines(pred):
+        assert want in text, (want, text)
+
+    def step(c, n, **kw):
+        def fn(p):
+            s = p["table"][c]["steps"][n]
+            for k, v in kw.items():
+                if v is ...:
+                    s.pop(k, None)
+                else:
+                    s[k] = v
+        return fn
+
+    def hazard(fn):
+        def mutate(p):
+            for pt in p["regions"]["154.hazard.dojebon"]["points"]:
+                fn(pt)
+        return mutate
+
+    def fails(mutate, clause):
+        p = copy.deepcopy(pred)
+        mutate(p)
+        b, _l = O.goals_base7(p, cache=cache)
+        x, _l2 = O.goals_extra7(p, cache=cache)
+        assert any(clause in s for s in b + x), (clause, b + x)
+    fails(step(5, 0, clearance=120), "(163, 1190, 6) #0: no route from")
+    fails(step(3, 0, clearance=110), "(160, 1190, 4) #0 (g1): clearance 110 under the engine radius 120, yet a route")
+    fails(step(1, 0, avoid=[]), "(158, 1190, 2) #0 (g2): the registered exit(s) ['158.e1'] not in its avoid")
+    fails(step(0, 0, goal=[0, -3700]), "(154, 1190, 1) #0 (g3)")
+    fails(step(0, 1, closed_tris=[]), "(154, 1190, 1) #1 (g4): 9 of the 27 open tris touching 154.e8")
+    fails(lambda p: p["interruptions"][0]["test"]["any_of"].__setitem__("x_lt", -3600), "(159, 1190, 3) #0 (g5)")
+    fails(step(0, 0, goal=[90, -4000]), "(154, 1190, 1) #0 (h1)")
+    fails(step(0, 0, basis=...), "(154, 1190, 1) #0 (h2)")
+    fails(lambda p: p["table"][0]["steps"][0]["avoid"].remove("154.hazard.dojebon"), "(154, 1190, 1) #0 (h3)")
+    fails(hazard(lambda pt: pt.__setitem__(0, pt[0] + 50)), "(154, 1190, 1) #0 (h4)")
+    fails(hazard(lambda pt: pt.__setitem__(1, -3250 if pt[1] == -2950 else pt[1])), "(154, 1190, 1) #0 (h4)")
+
+
+def test_o7_castle_closures154_follow_their_definitions(o7_stock, tmp_path):
+    """154's two closure lists (research/o7_design.md 1.3, 2.4) DERIVED from their definitions on stock 154's open
+    triangles -- step 0: every ground triangle (centroid PSX y > -150) overlapping a non-ground one in XZ (each shrunk 2%
+    toward its centroid: a shared edge is no overlap), plus every non-ground one east of x 450 and north of z -3250;
+    step 1: every non-ground triangle -- are the typed CLOSURES154 (119 and 134), the draft's two steps' ``closed_tris``,
+    and B's test-side derivation, from the raw mesh and from a PlayerWalkmesh alike. Break: drop the 2% shrink (shared
+    edges then count)."""
+    from ff9mapkit import extract
+    from ff9mapkit.content import pathfind
+    O = _o7_module()
+    raw = extract.stock_walkmesh(154)
+    a, b = O.closures154(raw)
+    assert (list(a), list(b)) == (list(O.CLOSURES154[0]), list(O.CLOSURES154[1])) and (len(a), len(b)) == (119, 134)
+    assert O.closures154(pathfind.PlayerWalkmesh(raw)) == (a, b)
+    assert tuple(map(list, _o7_closures154(pathfind.PlayerWalkmesh(raw)))) == (list(a), list(b))
+    pred = _o7_draft(tmp_path)
+    assert [s["closed_tris"] for s in pred["table"][0]["steps"]] == [list(a), list(b)]
+
+
+def test_o7_castle_monologue_test_reads_the_pinned_text(tmp_path):
+    """The bytes' readers (research/o7_design.md 0.2 #8, #10, #11, 4.10): monologue_test reads 159 e16 t1 ip390's pinned
+    text as {any_of x_lt -1600, x_gt 1600, z_lt 800; unless_bit 3796} (2-byte constants signed: 63936 is -1600) -- the
+    draft's ``interruptions`` test exactly; a mutated constant changes it (63900: -1636); another shape reads None.
+    test_holds widens each bound by its slack. dojebon_test reads 154 e5 t1 ip263 as (3600, Map.Byte[30] == 1);
+    height_test e8 t2 ip38 as y_gt 100; the release height -500 (e11 t1 ip128) and Dojebon's placement (-2700, -1700)
+    (e5 t0 ip14/22) off their pins. Break: read the constants unsigned."""
+    O = _o7_module()
+    pred = _o7_draft(tmp_path)
+    text = O.pin_text(pred, [159, 16, 1, 390])
+    t = O.monologue_test(text)
+    assert t == {"any_of": {"x_lt": -1600, "x_gt": 1600, "z_lt": 800}, "unless_bit": 3796}, t
+    assert pred["interruptions"][0]["test"] == t
+    assert O.monologue_test(text.replace("63936", "63900"))["any_of"]["x_lt"] == -1636
+    assert O.monologue_test(text.replace("B_ANDAND", "B_OROR")) is None and O.monologue_test(None) is None
+    assert O.test_holds(t, -1601, 1572) and not O.test_holds(t, 7, 3870) and not O.test_holds(t, None, 0)
+    assert O.test_holds(t, -1500, 1572, 180.0) and not O.test_holds(t, -1400, 1572, 180.0)
+    assert O.dojebon_test(O.pin_text(pred, [154, 5, 1, 263])) == {"within": 3600, "latch": "Map.Byte[30] == 1"}
+    assert O.dojebon_test(O.pin_text(pred, [154, 11, 1, 33])) is None
+    assert O.height_test(O.pin_text(pred, [154, 8, 2, 38])) == {"y_gt": 100}
+    assert O.release_height(pred["route_pins"], 154) == -500.0
+    assert O.placement_of(pred["route_pins"], 154, 5) == (-2700.0, -1700.0)
+
+
+def test_o7_castle_walk_check(tmp_path):
+    """O7-WALK (research/o7_design.md 5.3; THE PAIRED-WALK LAW), pure, over the dry run's base run: PASSES on S and on F.
+    Each clause FAILS by name -- (a) 154's walk missing, short, without control; 158's cross landed elsewhere; three
+    failed rows; (b) 159's interruption missing, two, inside the box, in a door; on F its loss read at 159 (real), not
+    31251; (c) a row in 154's gap between its two steps (one window per VISIT, both steps), a row mid-walk (a walk row
+    ends at its ``frame``), 158 ip445 inside 158's window, ip672 past the gap, an UNREGISTERED row in the gap; (d) no
+    check, a 30-degree check, a "cached" first row. A door's own tag-2 row inside its visit's window PASSES. Break: exempt
+    every row in the gap (not the registered interruption's alone)."""
+    O = _o7_module()
+    D = _o7_dryrun()
+    pred = _o7_draft(tmp_path)
+    seg = O.O7Segment()
+
+    def walk(side="S", events=None, log_edit=None):
+        ok, _w, det = seg.walk_check([D._base_run(pred, side, events=events, log_edit=log_edit)], pred)
+        return ok, det
+    assert walk()[0] is True and walk("F")[0] is True, (walk()[1], walk("F")[1])
+    E = D._edit_log
+
+    def three_failed(lg, c):
+        st = c["steps"][(160, 0, 1)]
+        i = lg.index(st)
+        miss = [dict(st, outcome="failed", attempt=k + 1, frame0=D.F_X0[160] - 100 + 20 * k,
+                     frame=D.F_X0[160] - 90 + 20 * k, lost=None, landed=None) for k in range(3)]
+        return lg[:i] + miss + lg[i:]
+    for name, side, ev, fn, clause in (
+            ("walk missing", "S", None, lambda lg, c: [x for x in lg if x is not c["steps"][(154, 0, 1)]], "(a)"),
+            ("walk short", "S", None, E(lambda c: c["steps"][(154, 0, 1)]["to"].update(z=-800.0)), "from the goal"),
+            ("no control", "S", None, E(lambda c: c["steps"][(154, 0, 1)]["to"].update(control=False)),
+             "without control"),
+            ("landed", "S", None, E(lambda c: c["steps"][(158, 0, 1)].update(landed=155)), "landed 155"),
+            ("three failed", "S", None, three_failed, "3 failed row(s), over its 1"),
+            ("no interrupt", "S", None, lambda lg, c: [x for x in lg if x is not c["steps"][(159, 0, 1)]],
+             "(b) the forced monologue: 0 interrupted row(s)"),
+            ("inside box", "S", None, E(lambda c: c["steps"][(159, 0, 1)]["lost"].update(x=7.0, z=3870.0)),
+             "outside the test"),
+            ("in a door", "S", None, E(lambda c: c["steps"][(159, 0, 1)].update(door="159.e10")),
+             "an interrupted row in a door"),
+            ("real 159 on F", "F", None, E(lambda c: c["steps"][(159, 0, 1)]["lost"].update(field=159)),
+             "its loss read in 159, not 31251"),
+            ("154 gap", "S", D.edit_nth(D.base_events(), D.I204_154, 0, lambda x: D.with_opt(x, f=D.F_W1 + 50)), None,
+             "inside visit 1's window"),
+            ("mid-walk", "S", D.edit_nth(D.base_events(), D.I204_154, 0, lambda x: D.with_opt(x, f=D.F_W0 + 500)),
+             None, "inside visit 1's window"),
+            ("158 ip445", "S", D.edit_nth(D.base_events(), D.B13_158, 0, lambda x: D.with_opt(x, f=D.F_X0[158] + 20)),
+             None, "inside visit 2's window"),
+            ("past the gap", "S", D.edit_nth(D.base_events(), D.M672, 0, lambda x: D.with_opt(x, f=D.F_X0[159] + 20)),
+             None, "outside its gap"),
+            ("unregistered in gap", "S", D.edit_nth(D.base_events(), D.B8_159, 0,
+                                                    lambda x: D.with_opt(x, f=D.F_INT_LOST + 20)), None,
+             "inside visit 3's window"),
+            ("no check", "S", None, E(lambda c: c["steps"][(160, 0, 1)]["route"].pop("basis_check")),
+             "0 step rows carry basis_check"),
+            ("30 deg", "S", None, E(lambda c: c["steps"][(160, 0, 1)]["route"]["basis_check"].update(angle=30.0)),
+             "30.0 deg off the prior"),
+            ("cached", "S", None, E(lambda c: c["steps"][(162, 0, 1)]["route"].update(basis="cached")),
+             "basis 'cached'")):
+        ok, det = walk(side, ev, fn)
+        assert ok is False and clause in det, (name, clause, det)
+    door = D.edit_nth(D.base_events(), D.E2_158, 0, lambda x: D.with_opt(x, f=D.F_LOST[158] - 10))
+    assert walk(events=door)[0] is True, walk(events=door)[1]
+
+
+def test_o7_castle_landing_check_crossings(tmp_path):
+    """O7-LANDING (research/o7_design.md 5.3) over the five crossings and the end, pure, on the dry run's base run:
+    PASSES on S and F. Each clause FAILS by name: (a) 158's rows at REAL 158 on F; (b) 160's chain row dropped (the
+    fourth crossing), a harness row after 158's exit; (c) a harness row after 163's exit, the end row naming real 164 on
+    F; (d) the cut row in real 164 on F; (e) alone -- a covered F run whose digest carries one seam and nothing else.
+    Break: judge only the first crossing (160's then passes)."""
+    from types import SimpleNamespace
+    O = _o7_module()
+    D = _o7_dryrun()
+    pred = _o7_draft(tmp_path)
+    seg = O.O7Segment()
+
+    def land(side="S", events=None, end_field=None, seams=()):
+        r_ = D._base_run(pred, side, events=events)
+        r_["log"].append({"k": "end", "field": end_field or (164 if side == "S" else 31256)})
+        r_["digest"] = SimpleNamespace(seams=list(seams), seam_keys={})
+        ok, _w, det = seg.landing_check({"S": [r_] if side == "S" else [], "F": [r_] if side == "F" else []}, pred)
+        return ok, det
+    assert land()[0] is True and land("F")[0] is True, (land()[1], land("F")[1])
+    harness = D.w((158, -1, -1, -1, "Global.Byte[300]", 9), src="harness")
+    harness163 = D.w((163, -1, -1, -1, "Global.Byte[300]", 9), src="harness")
+    for name, side, ev, end_f, clause in (
+            ("a", "F", D.edit(D.base_events(), lambda x: x[0] == "w" and x[1] == 158,
+                              lambda x: D.with_opt(x, fld=158)), None, "(a)"),
+            ("b chain", "S", D.drop_nth(D.base_events(), D.CH160), None, "(b): no 160 e5 t2 ip227"),
+            ("b harness", "S", D.after(D.base_events(), D.CH158, harness), None, "(b): the next field row after 158"),
+            ("c harness", "S", D.after(D.base_events(), D.CH163, harness163), None, "(c): the last field row"),
+            ("c end row", "F", None, 164, "(c): the run's end row names field 164"),
+            ("d", "F", D.edit(D.base_events(), lambda x: D._is(x, D.END164), lambda x: D.with_opt(x, fld=164, don=164)),
+             None, "(d)")):
+        ok, det = land(side, ev, end_f)
+        assert ok is False and clause in det, (name, clause, det)
+    seam = SimpleNamespace(origin="31255 -> 165", to=165, frm=31255, fields=[31255, 165])
+    ok, det = land("F", seams=[seam])
+    assert ok is False and "(e)" in det and not any(f"({c})" in det for c in "abcd"), det
+
+
+def _o7_session_runs(tmp_path, o7_stock, pred, runs):
+    """``runs`` (the dry run's run dicts) as a session the analysis reads: the draft written beside it, the members'
+    scripts remapped from the stock, read through O7Segment.read_session."""
+    from ff9mapkit.content.verbatim import remap_fields
+    O = _o7_module()
+    D = _o7_dryrun()
+    path = tmp_path / "o7_pred.json"
+    path.write_bytes((json.dumps(pred, indent=1, sort_keys=True) + "\n").encode("utf-8"))
+    members = {int(f): d for f, d in pred["members"].items()}
+    retarget = {d: f for f, d in members.items()}
+    scripts = {f: remap_fields(o7_stock(d).data, retarget) for f, d in members.items()}
+    sdir = tmp_path / "sessions"
+    sdir.mkdir(exist_ok=True)
+    return O.O7.read_session(D.make_session(sdir, path, runs, scripts), pred, stock=o7_stock)
+
+
+def test_o7_castle_state_reads_byte13_from_the_trace(o7_stock, tmp_path):
+    """O7-STATE (c) (research/o7_design.md 4.9, 5.3; claim review #9): Byte[13] -- which 164's prologue rewrites at once
+    -- is read off the TRACE, its last pre-cut row the registered 163 e0 t0 ip684 = 2, matched by PLACE at the side's
+    own field: on S at real 163, on F at member(163) 31255 -- PASS; the same F rows renumbered to real 163 FAIL (c); a
+    C# write of byte 13 after ip684 FAILS (c); the live ``end_state`` carries no Byte[13] (never compared). Break: match
+    the site by its raw field id (163) on both sides (the F run at 31255 then fails)."""
+    O = _o7_module()
+    D = _o7_dryrun()
+    pred = _o7_draft(tmp_path)
+    assert "Global.Byte[13]" not in pred["end_state"]
+    real = lambda ev, n: D.edit(ev, lambda x: D._is(x, D.B13_163), lambda x: D.with_opt(x, fld=163, don=163))  # noqa
+    late = lambda ev, n: D.after(ev, D.B13_163, D.r(163, 13, 2, 1))      # noqa: E731
+    runs = D.six(pred)[:2] + D.six(pred, f=real)[1:2] + D.six(pred, f=late)[1:2]
+    rs = _o7_session_runs(tmp_path, o7_stock, pred, runs)
+
+    def c(r_):
+        ok, _w, det = O.O7.state_check([r_], pred)
+        return ok, det
+    assert c(rs[0])[0] is True and c(rs[1])[0] is True, (c(rs[0])[1], c(rs[1])[1])
+    for r_, clause in ((rs[2], "at fld 163"), (rs[3], "r 31255 byte 13 2->1")):
+        ok, det = c(r_)
+        assert ok is False and "(c)" in det and clause in det, (clause, det)
+
+
+def test_o7_castle_fallback_end_is_one_line(tmp_path):
+    """THE ONE SWITCH (research/o7_design.md 4.17): ``end`` 163 drafts the fallback -- route and visits [154, 158, 159,
+    160, 162], end_fields [163], side_ends {S: [163], F: [31255]}, the end row 163 e0 t0 ip22, every list (the chain, the
+    writes, the error path, forbidden and dead sites, the regions, the table, the pattern, the landing's crossings, the
+    route donors) filtered to the route's places, the end state recomputed (Int16[2] 341; Byte[13] from 162 ip932) --
+    and the module's own draft is END_FIELD's (164). Break: draft the regions over the whole castle (163's stay)."""
+    O = _o7_module()
+    pred = _o7_draft(tmp_path, end=163)
+    assert pred["route"] == pred["visits"] == [154, 158, 159, 160, 162] and pred["end_fields"] == [163]
+    assert pred["side_ends"] == {"S": [163], "F": [31255]} and pred["start"] == {"S": 154, "F": 31246}
+    lend = pred["landing"]["end_row"]
+    assert (lend["place"], lend["sid"], lend["tag"], lend["ip"]) == (163, 0, 0, 22), lend
+    assert [(c["from"], c["to"]) for c in pred["landing"]["crossings"]] == [(154, 158), (158, 159), (159, 160),
+                                                                         (160, 162)]
+    assert (pred["landing"]["last"]["place"], pred["landing"]["last"]["sid"]) == (162, 3)
+    for name in ("writes", "chain", "error_path", "forbidden_sites", "dead"):
+        assert all(k["donor"] in pred["route"] for k in pred[name]), name
+    assert len(pred["chain"]) == 5 and len(pred["table"]) == 5 and len(pred["pattern"]["visits"]) == 5
+    assert all(k.split(".")[0] != "163" for k in pred["regions"]) and len(pred["regions"]) == 13, sorted(pred["regions"])
+    assert sorted({p[0] for p in pred["route_pins"]}) == [70, 154, 158, 159, 160, 162, 163]
+    assert sorted(int(d) for d in pred["route_build"]["fields"]) == [154, 158, 159, 160, 162, 163]
+    assert pred["end_state"]["Global.Int16[2]"] == 341 and "Global.Byte[13]" not in pred["end_state"]
+    assert pred["end_state_trace"]["Global.Byte[13]"]["site"] == {"place": 162, "sid": 0, "tag": 0, "ip": 932}
+    assert O.END_FIELD == 164 and O.route_of(O.END_FIELD) == O.ROUTE == (154, 158, 159, 160, 162, 163)
+    assert O.ROUTE_DONORS == (154, 158, 159, 160, 162, 163, 164)
+
+
+def test_o7_castle_static_watch_reads_the_patrol_once_per_visit(tmp_path):
+    """4.11's static watch (decision 4(d); claim review #6), the drive's ``observe`` hook, keyed by PLACE: a fake Dojebon
+    (sid 5) published at his placement -- one ``seen`` row per visit (his first reading), none while he stays within
+    ``tol``; released, ONE ``moved`` row however far he walks; on F member(154) 31246 reads as 154; a visit with sid 5
+    unpublished (or the objects unknown) writes no row, and the report reads that visit UNOBSERVED, never static; a
+    second visit its own ``seen``. Break: a row per sample."""
+    O = _o7_module()
+    pred = _o7_draft(tmp_path)
+
+    class St:
+        def __init__(self, frame, objects):
+            self.frame, self.objects = frame, objects
+    log: list = []
+    obs = O.static_watch(pred, log)
+    for f, x in ((10, -2700.0), (11, -2690.0), (12, -2600.0), (13, -2500.0), (14, -2400.0)):
+        obs(St(f, [{"sid": 5, "x": x, "z": -1700.0}, {"sid": 6, "x": 0.0, "z": 0.0}]), {"field": 31246, "donor": 154})
+    obs(St(15, [{"sid": 5, "x": 0.0, "z": 0.0}]), {"field": 31250, "donor": 158})
+    obs(St(16, None), {"field": 31246, "donor": 154})
+    obs(St(17, [{"sid": 5, "x": -2700.0, "z": -1700.0}]), {"field": 31246, "donor": 154})
+    assert [(x["what"], x["visit"], x["frame"], x["donor"], x["field"]) for x in log] == [
+        ("seen", 1, 10, 154, 31246), ("moved", 1, 12, 154, 31246), ("seen", 2, 17, 154, 31246)], log
+    assert log[1]["from"] == [-2700.0, -1700.0] and log[1]["dist"] == 100.0, log[1]
+    blind: list = []
+    O.static_watch(pred, blind)(St(1, []), {"field": 154, "donor": 154})
+    assert blind == []
+    run = {"side": "S", "i": 1, "log": [{"k": "visit", "donor": 154, "visit": 1, "field": 154}] + blind, "rec": {}}
+    lines = O.O7Segment._static_lines(run, pred)
+    assert len(lines) == 1 and "UNOBSERVED" in lines[0] and "static" not in lines[0].split("UNOBSERVED")[1], lines
+    run["log"] = [{"k": "visit", "donor": 154, "visit": 1, "field": 31246}] + log[:2]
+    assert "seen at frame 10" in O.O7Segment._static_lines(run, pred)[0] and "MOVED at frame 12" in \
+        O.O7Segment._static_lines(run, pred)[0]
+
+
+def test_o7_castle_keys_derive_the_carried_and_the_olds(o7_stock, tmp_path):
+    """O7-KEYS (research/o7_design.md 4.5, 6.1; rev. 2, claim reviews #1, #3, #7) on the real bytes PASSES, its carried
+    values DERIVED over the repo's six frozen files -- the fourteen, no segment disagreeing with its own end_state, equal
+    to the draft's typed ones -- the start-scoped olds read off O6's frozen pattern (153's Int16[9] -1, Byte[13] 0,
+    Byte[208] 1), the start read 159 ip290 (old 125). Each mutant FAILS O7-KEYS by name: carried without Bit[3815];
+    Bit[3795] in end_state; O6's 153 Int16[9] tuple 385 (the derived old against the typed -1); a start read off the
+    writes. A floating tuple on a target refuses its old. Break: compose a newgame0 ``|=`` by setting it (Byte[6] then
+    reads 8)."""
+    import copy
+    O = _o7_module()
+    pred = _o7_draft(tmp_path)
+    derived, problems = O.carried_from_segments(O.prior_segments(), writes=O.o7_targets(pred))
+    assert problems == [] and derived == pred["carried"]["values"] and len(derived) == 14, (problems, derived)
+    assert derived["Global.Byte[6]"] == [0, 11] and derived["Global.UInt16[19]"] == [0, 1807], derived
+    olds = O.olds_from_pattern(O.o6_frozen(), ["Global.Int16[9]", "Global.Byte[13]", "Global.Byte[208]"])
+    assert olds == {"Global.Int16[9]": -1, "Global.Byte[13]": 0, "Global.Byte[208]": 1}, olds
+    assert [x["after"]["old"] for x in pred["start_scoped"]] == [-1, 0, 1]
+    with pytest.raises(ValueError, match="floating"):
+        O.olds_from_pattern({"pattern": {"visits": [], "floating": [{"tuple": [153, 15, 0, 26, "Global.Byte[8]",
+                                                                             125, 0]}]}}, ["Global.Byte[8]"])
+    ok, _w, detail = O.O7.keys_check(pred, o7_stock)
+    assert ok, detail
+    o6 = copy.deepcopy(O.o6_frozen())
+    for v in o6["pattern"]["visits"]:
+        for t in v:
+            if t[0] == 153 and t[4] == "Global.Int16[9]":
+                t[5] = 385
+    for mutate, kw, clause in (
+            (lambda p: p["carried"]["values"].pop("Global.Bit[3815]"), {}, "missing ['Global.Bit[3815]']"),
+            (lambda p: p["end_state"].__setitem__("Global.Bit[3795]", 0), {},
+             "carried: ['Global.Bit[3795]'] in end_state"),
+            (lambda p: None, {"o6": o6}, "after.old -1, O6's frozen pattern's last tuple on Global.Int16[9] gives 385"),
+            (lambda p: p["start_reads"][0].update(site=[159, 0, 0, 291]), {}, "no writes key of Global.Byte[8]")):
+        bad = copy.deepcopy(pred)
+        mutate(bad)
+        ok, _w, detail = O.O7.keys_check(bad, o7_stock, **kw)
+        assert not ok and clause in detail, (clause, detail)
+
+
+def test_o7_castle_start_run_forgets_every_seeded_basis(game):
+    """S19's per-run forget (research/o7_design.md 0.2 #20; rev. 2): a session whose ``_axes`` and S19 state hold 154,
+    158, 159, 160, 162, 163 and their members (each seeded: pending, an angle) -- O7.start_run (its reseed, then New
+    Game, the trace armed, the raw warp on the fake) leaves NONE of the seeded fields, S or F (154, 158, 160, 162, 163,
+    31246, 31250, 31252, 31254, 31255), and keeps 159's and 31251's calibrated bases. Break: no reseed."""
+    O = _o7_module()
+    _o7_register(game)
+    pred = _o7_draft(game)
+    pred["start"] = {"S": 30840, "F": 31246}
+    fake = FakeGame(game)
+    fake.warp_arrive_control, fake.warp_field_only = False, True
+    every = (154, 158, 159, 160, 162, 163, 31246, 31250, 31251, 31252, 31254, 31255)
+    with session(game, fake) as g:
+        boot(g)
+        for f in every:
+            g._axes[f] = {"v": (0.0, 1.0), "h": (1.0, 0.0)}
+            g._seeded.add(f)
+            g._prior_pending.add(f)
+            g._prior_angle[f] = 1.0
+        g._seeded.discard(159)
+        g._seeded.discard(31251)
+        g._prior_pending.difference_update({159, 31251})
+        g._prior_angle.pop(159)
+        g._prior_angle.pop(31251)
+        g.soft_reset()                                   # back at the title: start_run's New Game from there
+        O.O7.start_run(g, "S", pred, {})
+        assert g.state.field_id == 30840
+        seeded = set(O.seeded_fields(pred))
+        assert seeded == {154, 158, 160, 162, 163, 31246, 31250, 31252, 31254, 31255}, sorted(seeded)
+        assert not (seeded & set(g._axes)) and not (seeded & g._seeded) and not (seeded & g._prior_pending) \
+            and not (seeded & set(g._prior_angle)), (sorted(g._axes), sorted(g._seeded))
+        assert {159, 31251} <= set(g._axes), sorted(g._axes)
+
+
+def test_o7_castle_why_void_reads_the_start_byte8(tmp_path):
+    """A-START's START READ (research/o7_design.md 4.5, 5.1; rev. 2, claim review #7): a run whose 159 e0 t0 ip290 --
+    the route's first store of Byte[8] -- reads old 0 (the warp left field 70 before its ip249) is A-START by the driver,
+    on S and on F (31251); old 125 none; old 0 EXPLAINED by an earlier row of the run on byte 8 (a store the analysis
+    judges on a covered run) none. And 154's error path (ip101) is A-START, 158's (ip97) none. Break: drop the start
+    read's rule."""
+    from ff9mapkit import storytrace
+    O = _o7_module()
+    pred = _o7_draft(tmp_path)
+
+    def row(n, place_, sid, tag, ip, target, value, old, fields, k="w"):
+        width, index = target.split(".", 1)[1].rstrip("]").split("[")
+        bit = int(index) if width == "Bit" else -1
+        return storytrace.Row(k=k, f=1000 + n, p=0, m=1, fld=fields[place_], don=place_, sc=1190, line=n, src="eb",
+                              sid=sid, uid=sid, lvl=0, ip=ip, tag=tag, add=0,
+                              byte=int(index) >> 3 if bit >= 0 else int(index), width=width, bit=bit, old=old,
+                              new=value, same=int(old == value))
+
+    def why(side, old290, *, earlier=False, err=None):
+        fields = ({154: 154, 158: 158, 159: 159} if side == "S" else {154: 31246, 158: 31250, 159: 31251})
+        rows = [row(1, 154, 0, 0, 26, "Global.Bit[191]", 0, 0, fields)]
+        if err is not None:
+            rows.append(row(2, err[0], 0, 0, err[1], "Global.Byte[13]", 9, 2, fields))
+        if earlier:
+            rows.append(row(3, 158, 0, 0, 445, "Global.Byte[8]", 0, 125, fields))
+        rows.append(row(4, 159, 0, 0, 290, "Global.Byte[8]", 125, old290, fields))
+        seg = O.O7Segment()
+        seg._run_log = lambda rec: ([], {})
+        r_ = {"i": 1, "side": side, "rows": rows, "digest": None, "start": 1, "cut": None}
+        return [(cls, by) for _w, cls, by in seg.why_void({"end": "void"}, r_, pred)]
+    for side in ("S", "F"):
+        assert ("A-START", "driver") in why(side, 0), (side, why(side, 0))
+        assert why(side, 125) == [], (side, why(side, 125))
+        assert why(side, 0, earlier=True) == [], (side, why(side, 0, earlier=True))
+    assert ("A-START", "driver") in why("S", 125, err=(154, 101))
+    assert why("F", 125, err=(158, 97)) == []
+
+
+def test_o7_castle_preflight_verdicts(tmp_path):
+    """O7's preflight extras (research/o7_design.md 6.2: O6's set without P-NAME, decision 7), on a synthetic install:
+    exactly P-TEXT (block 3, STRICT), P-RECOVERY, P-DONOR, P-SETTINGS, P-PAD, P-OVERRIDE, P-ENGINE, in that order.
+    P-DONOR reads the SEVEN donors -- the route and the end, 154 to 164 -- each forked once PASSES; 164 unforked FAILS.
+    Block 3's uk copy of stock us FAILS (strict). P-SETTINGS on 4.13's 31 keys PASSES; [AnalogControl]
+    UseAbsoluteOrientation 1 FAILS (keys would read operand 0: another basis); [Control] PSXMovementMethod 0 FAILS (the
+    slope-scaled run). Break: P-DONOR over the route alone (164 unread)."""
+    O = _o7_module()
+    pred = _o7_draft(tmp_path)
+    game = tmp_path / "game"
+    root = game / "FF9CustomMap"
+    root.mkdir(parents=True)
+    (game / "Memoria.ini").write_text(_o3_ini(O.SETTINGS), encoding="utf-8")
+    (root / "DictionaryPatch.txt").write_text("FieldScene 4600 11 HUB HUB 4600\n", encoding="utf-8")
+    fdp = root / "ForkDonorPatch.txt"
+    rows7 = "31246 154\n31250 158\n31251 159\n31252 160\n31254 162\n31255 163\n"
+    fdp.write_text(rows7 + "31256 164\n", encoding="utf-8")
+    langs = ("us", "uk", "fr", "gr", "it", "es", "jp")
+    stock3 = {L: f"stock block 3 {L}".encode() for L in langs}
+
+    def ship(text):
+        for L in langs:
+            p = root / "FF9_Data" / "embeddedasset" / "text" / L / "field" / "3.mes"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(text[L])
+    ship(stock3)
+    eng = {"x64": O.ENGINE["x64"], "x86": O.ENGINE["x86"]}
+
+    def pre():
+        out = O.O7.preflight_extra(pred, [root], pads=lambda slot: None, live_engine=eng, game=game,
+                                   stock_text={3: stock3})
+        return [(w.split(":")[0], ok, d) for ok, w, d in out]
+    rows = pre()
+    assert [r[0] for r in rows] == ["P-TEXT (block 3)", "P-RECOVERY", "P-DONOR", "P-SETTINGS", "P-PAD", "P-OVERRIDE",
+                                    "P-ENGINE"], rows
+    ok = {w: o for w, o, _d in rows}
+    assert ok == {"P-TEXT (block 3)": True, "P-RECOVERY": True, "P-DONOR": True, "P-SETTINGS": True, "P-PAD": True,
+                  "P-OVERRIDE": False, "P-ENGINE": True}, rows
+    det = {w: d for w, _o, d in rows}
+    assert det["P-DONOR"].startswith("154 -> 31246 (FF9CustomMap), 158 -> 31250 (FF9CustomMap), 159 -> 31251 "
+                                     "(FF9CustomMap), 160 -> 31252 (FF9CustomMap), 162 -> 31254 (FF9CustomMap), 163 -> "
+                                     "31255 (FF9CustomMap), 164 -> 31256 (FF9CustomMap)"), det["P-DONOR"]
+    assert "31 keys as frozen" in det["P-SETTINGS"] and "UseAbsoluteOrientation 3" in det["P-SETTINGS"], \
+        det["P-SETTINGS"]
+    ship(dict(stock3, uk=stock3["us"]))
+    _w, o, d = pre()[0]
+    assert not o and "KNOWN-KIT-DEFECT uk: ships stock us" in d and "strict" in d, d
+    ship(stock3)
+    fdp.write_text(rows7, encoding="utf-8")
+    _w, o, d = pre()[2]
+    assert not o and "donor 164: ForkDonorPatch rows []" in d, d
+    fdp.write_text(rows7 + "31256 164\n", encoding="utf-8")
+    for sec, key, value in (("AnalogControl", "UseAbsoluteOrientation", "1"), ("Control", "PSXMovementMethod", "0")):
+        s = json.loads(json.dumps(O.SETTINGS))
+        s[sec][key] = value
+        (game / "Memoria.ini").write_text(_o3_ini(s), encoding="utf-8")
+        _w, o, d = pre()[3]
+        assert not o and f"[{sec}] {key} = '{value}'" in d, (key, d)

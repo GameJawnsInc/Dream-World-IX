@@ -774,6 +774,28 @@ REQUIRED_TESTS_O7: tuple = (
     "test_o7_drive_wrong_door_e9_is_the_drivers_v11",
     "test_o7_drive_stop_page_in_154_is_v5_driver",
     "test_o7_drive_walk_into_a_door_is_the_drivers_v11",
+    # C1: O7 itself -- the draft and its chain, the freeze's refusals, the route builder against the keys, instanced_at7,
+    # the census, the regions with the hazard's role, the goals, the closures, the bytes' readers, O7-WALK / -LANDING /
+    # -STATE pure, the fallback end, the static watch, the carried values and the olds, the per-run reseed, the start
+    # read's A-START and the preflight's verdicts
+    "test_o7_castle_draft_reads_the_chain_from_campaign",
+    "test_o7_castle_freeze_refuses",
+    "test_o7_castle_route_builder_matches_the_keys",
+    "test_o7_castle_instanced_at_reads_no_dispatch_and_flag_gates",
+    "test_o7_castle_census_classifies_every_site",
+    "test_o7_castle_regions_roles_branches_and_hazard",
+    "test_o7_castle_goals",
+    "test_o7_castle_closures154_follow_their_definitions",
+    "test_o7_castle_monologue_test_reads_the_pinned_text",
+    "test_o7_castle_walk_check",
+    "test_o7_castle_landing_check_crossings",
+    "test_o7_castle_state_reads_byte13_from_the_trace",
+    "test_o7_castle_fallback_end_is_one_line",
+    "test_o7_castle_static_watch_reads_the_patrol_once_per_visit",
+    "test_o7_castle_keys_derive_the_carried_and_the_olds",
+    "test_o7_castle_start_run_forgets_every_seeded_basis",
+    "test_o7_castle_why_void_reads_the_start_byte8",
+    "test_o7_castle_preflight_verdicts",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)
