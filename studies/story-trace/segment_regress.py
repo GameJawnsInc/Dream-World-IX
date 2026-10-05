@@ -371,6 +371,9 @@ REQUIRED_TESTS: tuple = (
     "test_segment_walk_interrupted_outside_a_door_on_the_fake",                 # A1: S17 interrupted, the re-run
     "test_segment_walk_loss_in_a_door_is_its_landing_on_the_fake",              # A1: S17's landing judge, door_loss
     "test_segment_walk_leaving_the_field_is_the_drivers_v11_on_the_fake",       # A1: S17's stray, V11 and backing
+    "test_segment_route_clearance_plans_the_corridor_only_below_its_width",     # A2: S18 on both planner paths
+    "test_segment_route_clearance_absent_keeps_todays_plan",                    # A2: S18 opt-in, today's plan
+    "test_segment_route_clearance_plans_the_stair_at_110_not_120",              # A2: S18 on stock 163's stair
 )
 
 O1E_VERDICT = "PROVEN"

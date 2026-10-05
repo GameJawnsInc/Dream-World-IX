@@ -4140,8 +4140,14 @@ class Session:
                  tolerance: float = 45.0, walkmesh=None, prior="stock", timeout: float = 20.0,
                  unstick: bool = False, smooth: bool = False, zone=None, npcs: bool = False, face=None,
                  face_window=None, overlay_ok: bool = False, settle: float | None = None,
-                 handoff: bool = False) -> dict:
+                 handoff: bool = False, clearance: float | None = None) -> dict:
         """Walk to (x, z) along a route over the field's walkmesh that keeps out of ``avoid``.
+
+        ``clearance`` (opt-in; S18, research/o7_design.md 1.2): the wall clearance every PLAN of the call keeps -- the
+        three planner calls (the plain route_avoiding, :meth:`_plan_round`'s two, :meth:`_plan_npcs`' through it) and
+        nothing else: the zone's finish, the holds and the engine's push-out keep COLLISION_RADIUS_W. None (the default)
+        is route_avoiding's own, cam.COLLISION_RADIUS_W: today's plan exactly. A corridor narrower than twice it has no
+        plan (``waypoints`` None, nothing pressed). The record holds ``clearance`` only when it was given.
 
         ``overlay_ok`` is :meth:`wait_control`'s: start the walk under an async hint window he can walk with.
         ``settle`` is its too: how long control must hold before the walk starts (None: SETTLE; 0: walk on the first
@@ -4354,14 +4360,14 @@ class Session:
             record = self._route_to(x, z, avoid=avoid, margin=margin, tolerance=tolerance, walkmesh=walkmesh,
                                     prior=prior, timeout=timeout, unstick=unstick, smooth=smooth, zone=zone,
                                     npcs=npcs, face=face, face_window=face_window, overlay_ok=overlay_ok,
-                                    settle=settle, handoff=handoff, probe=probe)
+                                    settle=settle, handoff=handoff, probe=probe, clearance=clearance)
         finally:
             self._loss_probe = outer
         record["lost"] = probe["lost"]
         return record
 
     def _route_to(self, x: float, z: float, *, avoid, margin, tolerance, walkmesh, prior, timeout, unstick, smooth,
-                  zone, npcs, face, face_window, overlay_ok, settle, handoff, probe) -> dict:
+                  zone, npcs, face, face_window, overlay_ok, settle, handoff, probe, clearance=None) -> dict:
         """:meth:`route_to`'s walk, every argument as it documents them; ``probe`` is the call's control-loss probe,
         armed (``live``) the moment control has held at the start."""
         from ff9mapkit.content import pathfind
@@ -4388,6 +4394,8 @@ class Session:
                   "changed_to": None, "face_gate": None, "faced": None, "face_err": None, "face_worst": None,
                   "face_to": None, "face_calls": None, "face_pad": None, "face_measured": None, "face_moved": None,
                   "fps": None, "lost": None, "handoff": False}
+        if clearance is not None:                      # S18 (opt-in): the plans' wall clearance, on record when given
+            record["clearance"] = float(clearance)
         if fpoly is not None:
             from ff9mapkit.content import doorface
             record["face_gate"] = list(doorface.FACE_WINDOW if face_window is None else map(int, face_window))
@@ -4448,10 +4456,12 @@ class Session:
             here = (st.player_x, st.player_z)
             sealing = []
             if watch is not None:
-                wps, sealing = self._plan_npcs(wmesh, st, (x, z), polys, margin, known, fresh, watch, record)
+                wps, sealing = self._plan_npcs(wmesh, st, (x, z), polys, margin, known, fresh, watch, record,
+                                               clearance=clearance)
             else:
-                wps = (self._plan_round(wmesh, here, (x, z), polys, margin, known, fresh) if unstick
-                       else pathfind.route_avoiding(wmesh, here, (x, z), polys, margin, leave_wall=True))
+                wps = (self._plan_round(wmesh, here, (x, z), polys, margin, known, fresh, clearance=clearance)
+                       if unstick else pathfind.route_avoiding(wmesh, here, (x, z), polys, margin, leave_wall=True,
+                                                               clearance=clearance))
             if wps is None:
                 stalled = False
                 self._log(f"  route_to: no route on field {origin} from ({here[0]:.0f}, {here[1]:.0f}) "
@@ -4877,13 +4887,15 @@ class Session:
             self._blocker_at.pop(body, None)
         return known
 
-    def _plan_round(self, wmesh, here, goal, polys, margin, known: list, fresh: list, discs=(), memo=None):
+    def _plan_round(self, wmesh, here, goal, polys, margin, known: list, fresh: list, discs=(), memo=None,
+                    clearance=None):
         """:func:`~ff9mapkit.content.pathfind.route_avoiding` round the visit's unseen blockers ``known``
         (updated in place; ``fresh`` = the ones this call placed), still clear of every ``polys`` zone -- and
         of ``discs``, ``(x, z, r)`` obstacles each kept its own ``r`` clear (route_to(npcs=True)'s published
         objects, :meth:`_plan_npcs`), which this never drops. ``memo`` is route_avoiding's: one per start, shared
         by every plan a caller makes from there. Planned from where he stands, so ``leave_wall``: a start nearer
-        a wall than the controller radius gets out of that band first (:meth:`route_to`).
+        a wall than the controller radius gets out of that band first (:meth:`route_to`). ``clearance`` (S18,
+        route_to's; None = route_avoiding's own) is the wall clearance both plans keep.
 
         A blocker he STANDS INSIDE is not there any more -- he could not stand in a body -- and is
         dropped. When the OLDER ones seal the way they may have walked off, so the plan is made again
@@ -4897,11 +4909,11 @@ class Session:
             if b in fresh:
                 fresh.remove(b)
         wps = pathfind.route_avoiding(wmesh, here, goal, polys, margin, obstacles=list(known) + list(discs),
-                                      memo=memo, leave_wall=True)
+                                      memo=memo, leave_wall=True, clearance=clearance)
         older = [b for b in known if b not in fresh]
         if wps is None and older:
             wps = pathfind.route_avoiding(wmesh, here, goal, polys, margin, obstacles=list(fresh) + list(discs),
-                                          memo=memo, leave_wall=True)
+                                          memo=memo, leave_wall=True, clearance=clearance)
             if wps is not None:
                 self._log(f"  route_to: {len(older)} remembered blocker(s) sealed the way; planned without them")
                 for b in older:
@@ -5135,10 +5147,12 @@ class Session:
             d["inside"] = dist < d["R"]
         return out
 
-    def _plan_npcs(self, wmesh, st, goal, polys, margin, known: list, fresh: list, watch: dict, record: dict):
-        """route_to(npcs=True)'s plan from where ``st`` stands him: :meth:`_plan_round` (walls, the ``polys`` zones,
-        the unseen blockers) round the published objects (:meth:`_npc_discs` of the last list read -- ``st``'s own
-        when it has one), giving up only as much as it must, in this order:
+    def _plan_npcs(self, wmesh, st, goal, polys, margin, known: list, fresh: list, watch: dict, record: dict,
+                   clearance=None):
+        """route_to(npcs=True)'s plan from where ``st`` stands him: :meth:`_plan_round` (walls -- kept ``clearance``
+        off, S18's, None its default -- the ``polys`` zones, the unseen blockers) round the published objects
+        (:meth:`_npc_discs` of the last list read -- ``st``'s own when it has one), giving up only as much as it must,
+        in this order:
           0. THE SOLIDS ALONE, each at its tight radius ``T``. A SOLID body is never given up, and every plan below
              keeps a superset of these, so when they leave no route nothing does: ``(None, sealing)`` at once, the
              solids the route round the walls and zones alone passes within ``r`` of (all of them if it passes
@@ -5186,7 +5200,7 @@ class Session:
 
         def plan(kept, key="T"):
             wps = self._plan_round(wmesh, here, goal, polys, margin, known, fresh,
-                                   discs=[(d["x"], d["z"], d[key]) for d in kept], memo=memo)
+                                   discs=[(d["x"], d["z"], d[key]) for d in kept], memo=memo, clearance=clearance)
             return None if wps is None or any(enters(line(wps), d, min(d["R"], d[key])) for d in kept) else wps
 
         solids = [d for d in every if d["kind"] == "body" and d["solid"]]
@@ -6041,7 +6055,7 @@ class Session:
                     margin: float | None = None, timeout: float = 20.0, walkmesh=None,
                     prior="stock", unstick: bool = False, zone=None, smooth: bool = False,
                     npcs: bool = False, gate=None, region=None, settle: float | None = None,
-                    overlay_ok: bool = False, handoff: bool = False) -> dict:
+                    overlay_ok: bool = False, handoff: bool = False, clearance: float | None = None) -> dict:
         """:meth:`route_to` a point inside a gateway region, then wait for the crossing like :meth:`cross`.
 
         ``(x, z)`` should be INSIDE the target region and standable --
@@ -6079,6 +6093,8 @@ class Session:
         ``timeout``) only for the field to change or control to go, then returns -- never for the destination to become
         playable, so an arrival scene is the caller's to sit through, and no "never became playable" is raised.
         ``lost`` (route_to's) covers this call's own waits too: where control first went, walk or wait.
+
+        ``clearance`` (opt-in, S18) goes to route_to: the wall clearance its plans keep (None: route_avoiding's own).
         """
         from ff9mapkit.content import doorface
         door = zone if region is None else region
@@ -6088,7 +6104,7 @@ class Session:
                                prior=prior, timeout=timeout, unstick=unstick, smooth=smooth,
                                zone=zone if smooth else None, npcs=npcs, face=None if gate is None else door,
                                face_window=None if gate is None or gate is True else gate, settle=settle,
-                               overlay_ok=overlay_ok, handoff=handoff)
+                               overlay_ok=overlay_ok, handoff=handoff, clearance=clearance)
         origin = record["from"]
         record["inside"] = None
         pending = record["landed"] is None and record["waypoints"] is not None and record["during"] is None

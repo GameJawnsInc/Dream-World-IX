@@ -27195,3 +27195,104 @@ def test_segment_walk_leaving_the_field_is_the_drivers_v11_on_the_fake(game):
         ("void", 30821, 30821), walk
     back = SD.backing({"f": walk[0]["frame"] + 1, "cause": "walk", "fld": 30821}, log, pred)
     assert back is not None and back["row"] is walk[0], back
+
+
+# ---- A2: S18 (research/o7_design.md 1.2) -- A PER-STEP CLEARANCE threaded into route_to's planner (the plain
+# route_avoiding, _plan_round's two calls, _plan_npcs' through it) and nothing else; None is route_avoiding's own
+# (cam.COLLISION_RADIUS_W, 80): today's plan exactly.
+
+_S18_CORRIDOR = (-100.0, -2000.0, 100.0, 2000.0)      # 200u wide: two 100s -- under two 120s, over two 90s
+
+
+def _holds(sent) -> list:
+    """The requests of ``sent`` (:func:`_counting`) that press a direction."""
+    return [s for s in sent if any(x.startswith("hold ") and not x.startswith("hold cancel") for x in s)]
+
+
+def test_segment_route_clearance_plans_the_corridor_only_below_its_width(game):
+    """S18 on the fake (research/o7_design.md 1.2): route_to over a 200-u corridor (``_flat_bgi(-100, -2000, 100,
+    2000)``), on BOTH planner paths -- the plain route_avoiding, and ``unstick``'s, which plans through ``_plan_round``:
+    ``clearance`` 90 plans the straight line and walks it (the record's ``clearance`` 90.0); 120 -- over half the
+    corridor's width -- has no plan: ``waypoints`` None, nothing pressed, not reached (the record's ``clearance``
+    120.0); no ``clearance`` plans as today (route_avoiding's 80) and the record holds no ``clearance`` key. Break: drop
+    the key in ``_plan_round`` (the ``unstick`` call at 120 then plans anyway)."""
+    fake = FakeGame(game, walkmesh=_S18_CORRIDOR)
+    floor = _flat_bgi(*_S18_CORRIDOR)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()                            # a cached basis: nothing calibrates, nothing probes
+        sent = _counting(g)
+        for unstick in (False, True):
+            for clearance in (90.0, 120.0, None):
+                _stand(g, fake, 0, -500)
+                sent.clear()
+                kw = {} if clearance is None else {"clearance": clearance}
+                rec = g.route_to(0.0, 500.0, walkmesh=floor, prior=_prior(), unstick=unstick, smooth=True, **kw)
+                what = {"unstick": unstick, "clearance": clearance}
+                if clearance == 120.0:
+                    assert rec["waypoints"] is None and not rec["reached"] and _holds(sent) == [], (what, rec, sent)
+                else:
+                    assert rec["waypoints"] == [[0, 500]] and rec["reached"] and _holds(sent), (what, rec)
+                if clearance is None:
+                    assert "clearance" not in rec, (what, rec)
+                else:
+                    assert rec["clearance"] == clearance, (what, rec)
+
+
+def test_segment_route_clearance_absent_keeps_todays_plan(game):
+    """S18 IS OPT-IN (research/o7_design.md 1.2): route_to with NO ``clearance`` plans exactly what today's call
+    plans -- its ``waypoints`` equal ``pathfind.route_avoiding(floor, start, goal, avoid, KEEPOUT_MARGIN_W,
+    leave_wall=True)`` called directly from where he stands -- on the 200-u corridor (a straight line) and in a room
+    round a door band (a plan with corners), plain and ``unstick``; and the record holds no ``clearance`` key.
+    Behavioural, never a patched ``pathfind`` (a module-global patch is process-wide). Break: a default of 120 inside
+    route_to (the corridor then has no plan)."""
+    from ff9mapkit.content import pathfind
+    door = _rect(-100, -300, 100, 300)
+    room = (-600.0, -600.0, 600.0, 600.0)
+    for walls, start, goal, avoid in ((_S18_CORRIDOR, (0, -500), (0.0, 500.0), []),
+                                      (room, (-450, 0), (450.0, 0.0), [door])):
+        fake = FakeGame(game, walkmesh=walls)
+        floor = _flat_bgi(*walls)
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30820)
+            g._axes[30820] = _prior()
+            for unstick in (False, True):
+                _stand(g, fake, *start)
+                st = g.state
+                today = pathfind.route_avoiding(floor, (st.player_x, st.player_z), goal, avoid,
+                                                pathfind.KEEPOUT_MARGIN_W, leave_wall=True)
+                assert today is not None, "premise: today's call plans"
+                rec = g.route_to(*goal, avoid=avoid, walkmesh=floor, prior=_prior(), unstick=unstick, smooth=True)
+                assert rec["waypoints"] == [list(w) for w in today] and rec["reached"], (walls, unstick, rec, today)
+                assert "clearance" not in rec, rec
+                if avoid:
+                    assert len(today) > 1, today
+
+
+def test_segment_route_clearance_plans_the_stair_at_110_not_120(game, dali):
+    """S18 on stock 163's stair (research/o7_design.md 0.2 #5, 1.2): route_to over 163's player walkmesh from the
+    grant (690, 2195) to the stair top (997, 4957), round 163.e3 (the back door, 73u from the spawn), on the fake with
+    no wall model (its floor a box over the stair): at ``clearance`` 110 it plans -- at least 6 waypoints -- and walks;
+    at 120 (the engine radius) there is no plan, nothing pressed. Reads the install (the ``dali`` fixture's warned skip
+    without it: a skip fails G7). Break: route_to not handing its clearance to the planner (120 then plans at 80)."""
+    wm, _script = dali
+    stair = wm(163)
+    e3 = [[1210, 1307], [437, 1254], [377, 2244], [1238, 1892]]
+    fake = FakeGame(game, walkmesh=(0.0, 0.0, 3000.0, 6000.0))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        g._axes[30820] = _prior()
+        sent = _counting(g)
+        _stand(g, fake, 690, 2195)
+        rec = g.route_to(997.0, 4957.0, avoid=[e3], walkmesh=stair, prior=_prior(), unstick=True, smooth=True,
+                         clearance=110.0)
+        assert rec["waypoints"] is not None and len(rec["waypoints"]) >= 6 and _holds(sent), rec
+        assert rec["clearance"] == 110.0 and rec["landed"] is None, rec
+        _stand(g, fake, 690, 2195)
+        sent.clear()
+        rec = g.route_to(997.0, 4957.0, avoid=[e3], walkmesh=stair, prior=_prior(), unstick=True, smooth=True,
+                         clearance=120.0)
+        assert rec["waypoints"] is None and not rec["reached"] and _holds(sent) == [], (rec, sent)
