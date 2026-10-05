@@ -26418,25 +26418,26 @@ def _harness_tests_module():
 
 def test_segment_regress_registry_holds_every_item_once():
     """The gate's registry (research/o7_design.md 1.4: renamed from ``..._items_are_g1_to_g33_once`` -- the name says
-    what it pins, not a range, so each extension edits its body): ITEM_ORDER holds G1-G37 each once, printed as always
-    (O6's G34-G37 after G33, G21 last); every segment's items are in it and no item is two segments' (G21 is no
-    segment's); the pytest items are G7, G12, G13, G19, G26 and G32 with the selections the gate has always run;
-    select_items reads nothing as every item, ``--only`` and ``--segment`` as the union of their items -- O6's six, G32
-    to G37 -- and refuses an id or a segment there is none of (G40, O8 and a lower-case id: refused through every later
-    extension too). Break: drop an item from ITEM_ORDER (a full run would then pass without it), or file one under two
-    segments."""
+    what it pins, not a range, so each extension edits its body): ITEM_ORDER holds G1-G38 each once, printed as always
+    (O6's G34-G37 after G33, then O7's G38 -- 9 B4 -- G21 last); every segment's items are in it and no item is two
+    segments' (G21 is no segment's); the pytest items are G7, G12, G13, G19, G26, G32 and G38 with the selections the gate
+    has always run; select_items reads nothing as every item, ``--only`` and ``--segment`` as the union of their items --
+    O6's six, G32 to G37; O7's G38 -- and refuses an id or a segment there is none of (G40, O8 and a lower-case id:
+    refused through every later extension too). Break: drop an item from ITEM_ORDER (a full run would then pass without
+    it), or file one under two segments."""
     R = _regress_module()
-    assert sorted(R.ITEM_ORDER, key=lambda i: int(i[1:])) == [f"G{n}" for n in range(1, 38)], R.ITEM_ORDER
-    assert len(set(R.ITEM_ORDER)) == 37 and R.ITEM_ORDER[-1] == "G21"
-    assert R.ITEM_ORDER[-5:-1] == ("G34", "G35", "G36", "G37"), R.ITEM_ORDER
+    assert sorted(R.ITEM_ORDER, key=lambda i: int(i[1:])) == [f"G{n}" for n in range(1, 39)], R.ITEM_ORDER
+    assert len(set(R.ITEM_ORDER)) == 38 and R.ITEM_ORDER[-1] == "G21"
+    assert R.ITEM_ORDER[-6:-1] == ("G34", "G35", "G36", "G37", "G38"), R.ITEM_ORDER
     seg = [i for ids in R.SEGMENT_ITEMS.values() for i in ids]
     assert len(seg) == len(set(seg)) and set(seg) | {"G21"} == set(R.ITEM_ORDER), seg
     assert R.PYTEST_ITEMS == {"G7": R.PYTEST_K, "G12": R.PYTEST_K_O2, "G13": R.PYTEST_K_O3, "G19": R.PYTEST_K_O4,
-                              "G26": R.PYTEST_K_O5, "G32": R.PYTEST_K_O6}
+                              "G26": R.PYTEST_K_O5, "G32": R.PYTEST_K_O6, "G38": R.PYTEST_K_O7}
     assert R.select_items() == set(R.ITEM_ORDER)
     assert R.select_items(["G26", "G27"]) == {"G26", "G27"}
     assert R.select_items((), ["O6"]) == {"G32", "G33", "G34", "G35", "G36", "G37"}
     assert R.select_items(["G21"], ["O6"]) == {"G21", "G32", "G33", "G34", "G35", "G36", "G37"}
+    assert R.select_items((), ["O7"]) == {"G38"}
     for only, segs in ((["G40"], ()), ((), ["O8"]), (["g7"], ())):
         with pytest.raises(ValueError):
             R.select_items(only, segs)
@@ -28300,3 +28301,529 @@ def test_fake_level_route_plays_to_164_unattended(game):
                                 cut["new"], cut["same"]) == ("w", 30846, 0, 0, 22, "Bit", 191, 0, 1), cut
     residue = [(r["fld"], r["byte"], r["old"], r["new"]) for r in rows if r["k"] == "r"]
     assert residue == [(70, 0, 0, 166), (70, 1, 0, 4), (70, 2, 0, 59), (70, 3, 0, 1)], residue
+
+
+# ---- B4, O7's DRIVER on the fake (research/o7_design.md 2, 9 B4): the route builder's visit beats played by
+# segment_drive.drive with O7's predictions on the fixture's fields (:func:`_o7_pred`): S at 60 fps mean ticks, F through
+# the members at 31 fps quantized where named; the scripted waits at a quarter (``wait_scale`` 0.25), the fake's loop at
+# 4x its render rate, the session keeping every sample (``state_ring`` 5000), no field's basis pre-seeded (S19's seeded
+# fields seed themselves; 159 calibrates). A run that ends in a DRIVER class a starved harness can cause is re-run, at
+# most twice (:func:`_o7_run_informative`), its class asserted on the run set aside -- never for the class its test
+# asserts, never a game class, a V11, a V19 or the prior basis's V13; every race a test's assertion depends on is fixed
+# by a deterministic stall or a call count, never by time.
+
+_O7_RUNS = __import__("itertools").count(1)
+#: O6's step defaults exactly (research/o7_design.md 4.15): attempts 2, interrupts 1, npcs on.
+_O7_DEFAULTS = json.loads(json.dumps(_O5_DEFAULTS))
+#: Each route place's entrance (the FieldEntrance its arrival reads): the warp's 315 into 154, then each door's store.
+_O7_ENTRANCES = {"154": 315, "158": 300, "159": 331, "160": 332, "162": 333, "163": 341, "164": 342}
+#: Each route place's beats (research/o7_design.md 4.11): its steps'.
+_O7_BEATS = {"154": ["w154_ground", "x154_e8"], "158": ["x158_e2"], "159": ["x159_e11"], "160": ["x160_e5"],
+             "162": ["x162_e3"], "163": ["x163_e2"]}
+#: The route's regions on the fixture (research/o7_design.md 4.15): every exit, and Dojebon's hazard (role "hazard": an
+#: ``avoid`` key, never an exit -- the landing judge reads role "exit" alone).
+_O7_REGIONS = {
+    "30840.e8": {"points": _O7_E8, "role": "exit", "to": 30841, "entrance": 300, "face_gate": None},
+    "30840.e9": {"points": _O7_E9, "role": "exit", "to": 30851, "entrance": 300, "face_gate": None},
+    "30840.e10": {"points": _O7_E10, "role": "exit", "to": 30853, "entrance": 300, "face_gate": None},
+    "30840.hazard.dojebon": {"points": _O7_HAZARD, "role": "hazard"},
+    "30841.e1": {"points": _O7_158E1, "role": "exit", "to": 30840, "entrance": 331, "face_gate": None},
+    "30841.e2": {"points": _O7_158E2, "role": "exit", "to": 30842, "entrance": 331, "face_gate": None},
+    "30842.e10": {"points": _O7_159E10, "role": "exit", "to": 30841, "entrance": 332, "face_gate": None},
+    "30842.e11": {"points": _O7_159E11, "role": "exit", "to": 30843, "entrance": 332, "face_gate": None},
+    "30842.e12": {"points": _O7_159E12, "role": "exit", "to": 30854, "entrance": 332, "face_gate": None},
+    "30843.e4": {"points": _O7_160E4, "role": "exit", "to": 30842, "entrance": 333, "face_gate": None},
+    "30843.e5": {"points": _O7_160E5, "role": "exit", "to": 30844, "entrance": 333, "face_gate": None},
+    "30844.e2": {"points": _O7_162E2, "role": "exit", "to": 30843, "entrance": 341, "face_gate": None},
+    "30844.e3": {"points": _O7_162E3, "role": "exit", "to": 30845, "entrance": 341, "face_gate": None},
+    "30845.e2": {"points": _O7_163E2, "role": "exit", "to": 30846, "entrance": 342, "face_gate": None},
+    "30845.e3": {"points": _O7_163E3, "role": "exit", "to": 30844, "entrance": 342, "face_gate": None}}
+#: research/o7_design.md 4.9: the end state read live on arrival in 164, WITHOUT Byte[13] (164's prologue races it):
+#: ten targets the route leaves, ten untouched since New Game.
+_O7_END_STATE = {"Global.UInt16[0]": 1190, "Global.Int16[2]": 342, "Global.Byte[8]": 125, "Global.Int16[9]": 385,
+                 "Global.Int16[11]": -1, "Global.Byte[14]": 0, "Global.Bit[191]": 0, "Global.Bit[184]": 0,
+                 "Global.Byte[208]": 1, "Global.Bit[3796]": 1, "Global.Bit[3811]": 0, "Global.Bit[3798]": 0,
+                 "Global.Bit[3799]": 0, "Global.Bit[3849]": 0, "Global.Bit[3850]": 0, "Global.Bit[3851]": 0,
+                 "Global.Bit[3852]": 0, "Global.Bit[3792]": 0, "Global.Bit[7211]": 0, "Global.Int16[224]": 0}
+#: The driver's classes a starved harness can give (research/o7_design.md 9, the load-robust rule): the budget, a walk
+#: failed out of its attempts (a stalled or timed-out walk), a loss read across a fade. Never the class a test asserts.
+_O7_LOAD_VOIDS = ("went unseen", "the run's budget ran out", "of its 2 attempts", "of its 3 attempts")
+
+
+def _o7_cells(closures=None) -> dict:
+    """The six visit-scoped cells (research/o7_design.md 2.4) on the fixture's ids, by place: 154's walk to the ground
+    (clearance 120, the hazard avoided, the prior basis, attempts 3) and its cross of e8; one cross each in 158, 159 (its
+    one interruption: the monologue; calibrated), 160, 162 and 163 (clearance 110, attempts 3) -- every one but 159's on
+    the prior basis. ``closures`` (154's two lists, :func:`_o7_closures154`) the frozen step pair's ``closed_tris``."""
+    walk = {"kind": "walk", "name": "154: the balcony, the west flight, to the ground", "goal": [0, -600],
+            "start": [-58, -3758], "avoid": ["30840.e8", "30840.e9", "30840.e10", "30840.hazard.dojebon"],
+            "clearance": 120, "basis": "prior", "attempts": 3, "beat": "w154_ground"}
+    cross154 = {"kind": "cross", "name": "154: the south door, ground branch", "goal": [0, -4500], "target": "30840.e8",
+                "to": 30841, "start": [0, -600], "avoid": ["30840.e9", "30840.e10"], "clearance": 120,
+                "beat": "x154_e8"}
+    if closures is not None:
+        walk["closed_tris"], cross154["closed_tris"] = list(closures[0]), list(closures[1])
+
+    def cross(place, visit, name, goal, target, to, start, avoid, **kw):
+        step = {"kind": "cross", "name": name, "goal": list(goal), "target": target, "to": to, "start": list(start),
+                "avoid": list(avoid), "clearance": 120, **kw}
+        return {"donor": _O7_FIELDS["S"][place], "sc": 1190, "visit": visit, "steps": [step]}
+    return {"154": {"donor": 30840, "sc": 1190, "visit": 1, "steps": [walk, cross154]},
+            "158": cross("158", 2, "158: the south door", (-17, -16444), "30841.e2", 30842, (0, -12787), ["30841.e1"],
+                         basis="prior", beat="x158_e2"),
+            "159": cross("159", 3, "159: the west door (the forced monologue on the way)", (-2910, -300), "30842.e11",
+                         30843, (7, 3870), ["30842.e10", "30842.e12"], interrupts=1, beat="x159_e11"),
+            "160": cross("160", 4, "160: the stair door", (-313, -813), "30843.e5", 30844, (1357, -4063), ["30843.e4"],
+                         basis="prior", beat="x160_e5"),
+            "162": cross("162", 5, "162: the north door", (1001, 406), "30844.e3", 30845, (957, -3800), ["30844.e2"],
+                         basis="prior", beat="x162_e3"),
+            "163": cross("163", 6, "163: the stair top", (997, 4957), "30845.e2", 30846, (690, 2195), ["30845.e3"],
+                         basis="prior", attempts=3, beat="x163_e2", clearance=110)}
+
+
+def _o7_pred(*, short=None, closures=None, **over):
+    """O7's driver keys (research/o7_design.md 2.1, 4.1, 4.9, 4.15) on the fixture's fields: the six visit-scoped cells
+    (:func:`_o7_cells`), the run-wide witness, the stop page and O1's skip net, route and visits the six places, the end
+    164 per side ({S: [30846], F: [31256]}), the members, the regions, the end-row wait, the end state 4.9's. ``short``
+    (a place): the run starts there -- its cell keeps its visit number (the start place's index in ``visits``) -- and
+    ends on the next place's arrival, its beats the cell's, no end state."""
+    s, f = _O7_FIELDS["S"], _O7_FIELDS["F"]
+    cells = _o7_cells(closures)
+    pred = {"version": 1, "start": {"S": s["154"], "F": f["154"]}, "entrance": 315, "scenario": 1190,
+            "end_field": s["164"], "end_fields": [s["164"]], "side_ends": {"S": [s["164"]], "F": [f["164"]]},
+            "route": list(_O7_PLACES), "visits": list(_O7_PLACES),
+            "members": {str(k): v for k, v in _O7_MEMBERS.items()}, "names": dict(_O7_NAMES),
+            "budget": {"run_s": 180, "run_min_s": 1, "session_s": 900, "settle_s": 0.3, "no_progress_s": 60,
+                       "end_row_s": 10.0},
+            "beats": [b for p in _O7_ROUTE for b in _O7_BEATS[p]], "naming": [], "battles": [], "hotspots": {},
+            "table": [cells[p] for p in _O7_ROUTE],
+            "forbidden": [{"off_route": True, "cause": "walk",
+                           "why": "a write off the route (153, 155, 156, 161 or 167 after a wrong door, backed by its V11 "
+                                  "step row)"}],
+            "end_state": dict(_O7_END_STATE), "regions": json.loads(json.dumps(_O7_REGIONS)),
+            "steps_default": json.loads(json.dumps(_O7_DEFAULTS)),
+            "stop_pages": [{"match": "Env Play()", "why": "the route fields' ambient error window 56"}],
+            "choices": [{"donor": None, "sc": None, "match": "want to skip", "pick": "default", "once": False,
+                         "beat": None}],
+            "witness": {"input_every_s": 0.05, "why": "a walk is the driver's own input"}}
+    if short is not None:
+        nxt = [*_O7_ROUTE, "164"][_O7_ROUTE.index(short) + 1]
+        pred.update(start={"S": s[short], "F": f[short]}, entrance=_O7_ENTRANCES[short], end_field=s[nxt],
+                    end_fields=[s[nxt]], side_ends={"S": [s[nxt]], "F": [f[nxt]]}, beats=list(_O7_BEATS[short]),
+                    table=[cells[short]], end_state={})
+    pred.update(over)
+    return pred
+
+
+def _o7_run(game, side="S", *, short=None, route=None, knobs=None, pred=None, fps=60.0, ticks="mean", trace=True,
+            wrap=None, budget=180.0, register=True, fake_setup=None, floor=None, prior=None, prior_for=None,
+            inside=None, cached=()):
+    """One O7 run on the fake: New Game, field 70's prologue values (:func:`_o5_field70`), the trace armed with the
+    sink's suppression, the raw warp ``warp <154's id> 315 1190`` (``short``: into that place at its entrance), the
+    visit beats staged on arrival (``route``, default :func:`_o7_route` of ``side`` with ``knobs``), the bases of
+    ``cached`` (field ids) cached -- none by default -- and the driver with ``pred`` (default :func:`_o7_pred`), its floor
+    the box (``floor``: another ``floor_for``), its prior ``prior`` (``prior_for``: per donor). ``fake_setup(fake)``
+    adjusts the fake before it starts; ``wrap(g, fake)`` the session's calls before the drive; ``inside(g, fake, out,
+    log)`` runs in the session after it (its value returned). ``(outcome or the RouteVoid / HarnessError raised, log,
+    fake, story rows, the ring's raws, inside's value)``."""
+    SD = _segment_modules()
+    if register:
+        _o7_register(game)
+    fake = FakeGame(game, fps=4 * fps, render_fps=fps, ticks=ticks, walkmesh=_O7_BOX)
+    fake.warp_arrive_control, fake.warp_field_only = False, True
+    fake.story_suppress = True
+    if fake_setup is not None:
+        fake_setup(fake)
+    place = short or "154"
+    start = _O7_FIELDS[side][place]
+    pred = _o7_pred(short=short) if pred is None else pred
+    beats = _o7_route(side, short=short, **(knobs or {})) if route is None else route
+    basis = prior or _prior()
+    log: list = []
+    stop = threading.Event()
+    after = None
+    with Session(game_path=game, run_dir=game / f"run-o7-{next(_O7_RUNS)}", save_dir=game / "player-saves",
+                 pid_probe=lambda: [], launcher=lambda exe: fake.start(), boot_timeout=15.0, verbose=False,
+                 state_ring=5000) as g:
+        boot(g)
+        _o5_field70(fake)
+        if trace:
+            g.storytrace(True)
+        g._check_field_id(start, "warp", True)
+        g.send(f"warp {start} {_O7_ENTRANCES[place]} 1190")
+        g.wait_for(lambda s: s.field_id == start and s.ui_state == "FieldHUD", timeout=10.0, what=f"field {start}")
+        for fid in cached:
+            g._axes[fid] = dict(basis)
+        if wrap is not None:
+            wrap(g, fake)
+        _o1_director(fake, stop, [(lambda f: f.field_id == start and not f._beats,
+                                   lambda f: f.scene(*beats, control=False))])
+        try:
+            try:
+                out = SD.drive(g, pred, side, log, deadline=time.time() + budget,
+                               floor_for=floor or (lambda d, c: _flat_bgi(*_O7_BOX)),
+                               prior_for=prior_for or (lambda d: basis), forbid_live=trace, witness=lambda: None)
+            except (SD.RouteVoid, HarnessError) as err:
+                out = err
+        finally:
+            stop.set()
+        if inside is not None:
+            after = inside(g, fake, out, log)
+        ring = [raw for _t, _age, raw in g._ring._buf]
+        rows = []
+        if trace:
+            try:
+                g.storytrace(False)
+            except HarnessError:
+                pass
+            rows = _fv_rows(fake)
+    return out, log, fake, rows, ring, after
+
+
+def _o7_run_informative(game, *, attempts=3, want=None, spoiled=None, **kw):
+    """:func:`_o7_run` until a run is no DRIVER class a starved harness gives (:data:`_O7_LOAD_VOIDS`) -- a run whose
+    reason holds ``want`` (the test's own assertion) is never re-run, nor a game class -- and ``spoiled(out, log)`` (the
+    test's own: a run the load bent onto a path it does not test, its class asserted there) is not true; at most
+    ``attempts`` runs. ``(out, log, fake, rows, ring, inside's value, the reasons of the runs set aside)``. A re-run
+    registers nothing again (the fixture's folder keeps the members)."""
+    aside: list = []
+    for k in range(1, attempts + 1):
+        out, log, fake, rows, ring, after = _o7_run(game, **kw)
+        why = str(out) if isinstance(out, Exception) else ""
+        driver = isinstance(out, Exception) and getattr(out, "by", None) in (None, "driver")
+        load = driver and any(m in why for m in _O7_LOAD_VOIDS) and not (want is not None and want in why)
+        bent = spoiled is not None and spoiled(out, log)
+        if not (load or bent) or k == attempts:
+            return out, log, fake, rows, ring, after, aside
+        aside.append(why or "spoiled: the load bent the run onto the other path")
+        kw["register"] = False
+
+
+def _o7_covered(out, aside=(), beats=None):
+    """A run that reached its end, every beat set (the drive's own outcome; the analysis's COVER is C1's)."""
+    assert not isinstance(out, Exception), (out, aside)
+    want = beats if beats is not None else [b for p in _O7_ROUTE for b in _O7_BEATS[p]]
+    assert out["end"] == "reached" and out["beats"] == {b: True for b in want}, out
+
+
+def _o7_steps(log, field=None):
+    """The drive's step rows, in order (``field``: of that field's walks alone)."""
+    return [r for r in log if r.get("k") == "step" and (field is None or r["field"] == field)]
+
+
+def _o7_stock(fid):
+    """``(stock PlayerWalkmesh, its key prior, the fake's twist for it)`` of real field ``fid`` (research/o7_design.md
+    0.2 #6: keys read twist.y, operand 1)."""
+    from ff9mapkit import eventscan, extract, storytrace
+    from ff9mapkit.content import movement, pathfind
+    twist = eventscan.scan_control_twist(storytrace.stock_script_source()(fid).data)
+    prior = movement.key_move_basis(None if twist is None else twist[1])
+    return (pathfind.PlayerWalkmesh(extract.stock_walkmesh(fid)), prior,
+            math.degrees(math.atan2(-prior["v"][0], prior["v"][1])))
+
+
+def test_o7_drive_walks_the_castle_to_164_on_the_fake(game):
+    """THE SEGMENT on the fake (research/o7_design.md 2.2-2.6, 9 B4), S at 60 fps mean ticks and F through the members
+    at 31 fps quantized, on the floor-blind box: the driver walks 154's balcony walk to the ground (S17, its seeded
+    basis judged: S19) and crosses e8, then 158's e2, 159's e11 -- INTERRUPTED once by the forced monologue (its five
+    pages Confirmed by rule 7, its three rows written in the gap between the two attempts, the re-run from where he
+    stood) -- 160's e5, 162's e3 and 163's e2 (at clearance 110), to the arrival in 164 (31256 on F): all seven beats,
+    the end row 164 e0 t0 ip22 seen, the end state 4.9's, no forbidden row live. The trace, under ``story_suppress``,
+    holds 4.16's pattern by ip -- 51 rows, no ``c`` row -- cut at 164's ip22 in the side's own end field, every member
+    row naming its donor. Break: the monologue scene without ``unless_bit`` (it then fires again and again: the step
+    never crosses)."""
+    for side, fps, ticks in (("S", 60.0, "mean"), ("F", 31.0, "quantized")):
+        out, log, fake, rows, ring, _a, aside = _o7_run_informative(game, side=side, fps=fps, ticks=ticks,
+                                                                     register=side == "S")
+        _o7_covered(out, aside)
+        f = _O7_FIELDS[side]
+        steps = _o7_steps(log)
+        assert [(r["field"], r["kind"], r["outcome"]) for r in steps if r["outcome"] != "failed"] == [
+            (f["154"], "walk", "done"), (f["154"], "cross", "done"), (f["158"], "cross", "done"),
+            (f["159"], "cross", "interrupted"), (f["159"], "cross", "done"), (f["160"], "cross", "done"),
+            (f["162"], "cross", "done"), (f["163"], "cross", "done")], [(r["field"], r["outcome"]) for r in steps]
+        lost, redo = [r for r in steps if r["field"] == f["159"]][-2:]
+        mono = [r for r in rows if r["k"] == "w" and r["sid"] == 16 and r["ip"] in (613, 648, 672)]
+        assert [r["ip"] for r in mono] == [613, 648, 672], mono
+        assert lost["lost"]["frame"] < mono[0]["f"] and mono[-1]["f"] < redo["frame0"], (lost, mono, redo)
+        assert lost["lost"]["x"] < -1600 and lost["attempt"] < redo["attempt"], (lost, redo)
+        assert out["end_state"] == _O7_END_STATE and not _g_rows(log, "forbidden"), (out["end_state"], log)
+        end = _g_rows(log, "end")
+        assert len(end) == 1 and end[0]["field"] == f["164"] and end[0]["end_row"]["seen"], end
+        members = _O7_MEMBERS if side == "F" else None
+        visits, counts, cut = _o7_pattern(rows, members)
+        assert visits == [list(v) for v in _O7_PATTERN] and counts == [], (visits, counts)
+        assert cut is not None and (cut["fld"], cut["sid"], cut["tag"], cut["ip"]) == (f["164"], 0, 0, 22), cut
+        assert all(r["don"] == _O7_MEMBERS.get(r["fld"], r["fld"]) for r in rows if r["k"] == "w"), rows
+
+
+def test_o7_drive_walks_the_real_balcony_to_the_ground_on_the_fake(game, dali):
+    """154's REAL BALCONY (research/o7_design.md 0.2 #5-#7, #11, #17, 2.4): the fake's floor stock 154's LEVELS (H20;
+    Steiner granted on the balcony at the bytes' -1741), his centre kept 120 off his level's walls, 154's own key twist;
+    the driver's floor the same mesh with each step's closures, the FROZEN step pair (the walk at clearance 120 with the
+    hazard avoided, its basis the PRIOR, then the cross of e8 on the ground; the two closure lists from their
+    definitions, :func:`_o7_closures154`). Both steps are done: the walk's end on the GROUND (y < 100) within its
+    tolerance of (0, -600), its route record seeded ("prior") and judged (``basis_check``); the cross lands in 158. No
+    calibration probe is pressed (``_probe_axis`` never called), and Dojebon (H23) never leaves his placement -- the
+    walk keeps within his circle, and on the ground his latch holds him. Reads the install (the ``dali`` fixture's
+    warned skip without it: a skip fails G38). Break: the walker's hold dropped (released, he walks his patrol)."""
+    from harness.fakegame import Levels
+    _wm, _script = dali
+    pw, prior, twist = _o7_stock(154)
+    closures = _o7_closures154(pw)
+    dojebon: set = set()
+    probes: list = []
+
+    def setup(fake):
+        fake.levels, fake.clearance, fake.twist = {30840: Levels(pw)}, _O7_RADIUS, twist
+        step = fake._step_walkers
+
+        def watched(ticks):
+            step(ticks)
+            dojebon.update((b["x"], b["z"]) for _i, b in fake._bodies() if b.get("sid") == 5 and b.get("path"))
+        fake._step_walkers = watched
+
+    def wrap(g, fake):
+        probes.extend(_s19_probes(g))
+
+    def floor(d, c):
+        from ff9mapkit.content import pathfind
+        return pathfind.PlayerWalkmesh(pw.mesh, closed=c) if d == 30840 else _flat_bgi(*_O7_BOX)
+    out, log, fake, rows, ring, _a, aside = _o7_run_informative(
+        game, short="154", route=_o7_route("S", short="154", levels154=True),
+        pred=_o7_pred(short="154", closures=closures), fake_setup=setup, wrap=wrap, floor=floor, prior=prior)
+    _o7_covered(out, aside, beats=_O7_BEATS["154"])
+    walk, cross = _o7_steps(log, 30840)[-2:]
+    assert (walk["kind"], walk["outcome"], cross["kind"], cross["outcome"]) == ("walk", "done", "cross", "done"), \
+        _o7_steps(log)
+    end = next(raw for raw in ring if int(raw["frame"]) == walk["to"]["frame"])
+    assert end["player"]["y"] < 100 and math.hypot(walk["to"]["x"], walk["to"]["z"] + 600) <= 45, (end["player"], walk)
+    assert walk["route"]["basis"] == "prior" and walk["route"]["basis_check"]["angle"] < 16.3, walk["route"]
+    assert cross["landed"] in (None, 30841) and fake.field_id == 30841, (cross, fake.field_id)
+    assert probes == [] and dojebon == {(-2700.0, -1700.0)}, (probes, dojebon)
+
+
+def test_o7_drive_balcony_cross_lands_in_153_is_the_drivers_v11(game, dali):
+    """THE HEIGHT BRANCH IN THE DRIVER (research/o7_design.md 0.2 #7-#8, 2.7): stock 154's levels and a MUTANT table --
+    one cross of e8 straight from the balcony spawn, with no closures (the planner floor-blind, the fake keeping him on
+    the balcony). He reaches e8's polygon ON THE BALCONY, so its balcony branch fires (y > 100: ip195 Int16[2] := 301,
+    Field(153)): the crossing lands in 153's fixture id 30850, not 158 -- VOID V11 by the DRIVER at [30840, 1190, 1],
+    the step row's ``landed`` 30850. Reads the install. Break: e8 as ONE door, its ground branch, no height terms (the
+    floor-blind fake's door, O6's: it fires on the balcony too, and the step is done)."""
+    from harness.fakegame import Levels
+    _wm, _script = dali
+    pw, prior, twist = _o7_stock(154)
+
+    def setup(fake):
+        fake.levels, fake.clearance, fake.twist = {30840: Levels(pw)}, _O7_RADIUS, twist
+    step = {"kind": "cross", "name": "154: e8 from the balcony", "goal": [0, -4500], "target": "30840.e8", "to": 30841,
+            "start": [-58, -3758], "avoid": ["30840.e9", "30840.e10"], "clearance": 120, "basis": "prior"}
+    pred = _o7_pred(short="154", table=[{"donor": 30840, "sc": 1190, "visit": 1, "steps": [step]}],
+                    beats=[])
+
+    def floor(d, c):
+        from ff9mapkit.content import pathfind
+        return pathfind.PlayerWalkmesh(pw.mesh, closed=c) if d == 30840 else _flat_bgi(*_O7_BOX)
+    out, log, fake, rows, ring, _a, aside = _o7_run_informative(
+        game, short="154", route=_o7_route("S", short="154", levels154=True), pred=pred, fake_setup=setup,
+        floor=floor, prior=prior)
+    _o5_void(out, "V11", "driver", [30840, 1190, 1], "30850")
+    row = _o7_steps(log, 30840)[-1]
+    assert (row["outcome"], row["landed"], row["v"], row["by"]) == ("void", 30850, "V11", "driver"), row
+    fires = [e["name"] for e in fake.visit_log if e["kind"] == "fire"]
+    assert fires == ["e8.balcony"], fires
+    assert [(r["sid"], r["ip"], r["new"]) for r in rows if r["k"] == "w" and r["fld"] == 30840][-1] == (8, 195, 301)
+
+
+def test_o7_drive_squeezes_the_real_stair_on_the_fake(game, dali):
+    """163's STAIR FOOT (research/o7_design.md 0.2 #5, #12, 2.4; H21): stock 163's levels with ``squeeze_slack`` 8, the
+    fake's clearance Steiner's radius 120, 163's own key twist (23.9 degrees), the cell's step at clearance 110 on the
+    prior basis: the walk plans the stair at 110, the fake squeezes him through the 116.7 pinch, and the step is done --
+    the landing 164 (30846). Reads the install. Break: the step at clearance 120 ("no route" at the engine radius:
+    failed in all three attempts, V7 by the driver)."""
+    from harness.fakegame import Levels
+    _wm, _script = dali
+    pw, prior, twist = _o7_stock(163)
+
+    def setup(fake):
+        fake.levels, fake.clearance, fake.twist = {30845: Levels(pw, squeeze_slack=8.0)}, _O7_RADIUS, twist
+
+    def floor(d, c):
+        from ff9mapkit.content import pathfind
+        return pathfind.PlayerWalkmesh(pw.mesh, closed=c) if d == 30845 else _flat_bgi(*_O7_BOX)
+    out, log, fake, rows, ring, _a, aside = _o7_run_informative(game, short="163", fake_setup=setup, floor=floor,
+                                                                 prior=prior)
+    _o7_covered(out, aside, beats=_O7_BEATS["163"])
+    row = _o7_steps(log, 30845)[-1]
+    assert (row["outcome"], row["clearance"], row["basis"]) == ("done", 110, "prior"), row
+    assert row["landed"] in (None, 30846) and fake.field_id == 30846, (row, fake.field_id)
+
+
+def test_o7_drive_stair_snags_twice_then_squeezes_on_the_fake(game, dali):
+    """163's SNAGS (research/o7_design.md 0.2 #17, 2.4; rev. 2, the driver review's #6): the same cell (``attempts`` 3)
+    on stock 163's levels, and a test-side wrapper on ``g.route_to`` that holds ``squeeze_slack`` at 0 for 163's first
+    TWO calls -- the fake then snags at the 116.7 pinch as an engine that snags would (the waits, a push, a blocker, no
+    route) -- and restores 8 for the third: two ``failed`` rows, each short of the stair top, then ``done``, the landing
+    164. Deterministic: the snags are by call count, never by time. Break: ``attempts`` 2 (V7 by the driver at [30845,
+    1190, 6])."""
+    from harness.fakegame import Levels
+    _wm, _script = dali
+    pw, prior, twist = _o7_stock(163)
+
+    def setup(fake):
+        fake.levels, fake.clearance, fake.twist = {30845: Levels(pw, squeeze_slack=8.0)}, _O7_RADIUS, twist
+
+    def wrap(g, fake):
+        real, calls = g.route_to, [0]
+
+        def snag(x, z, **kw):
+            calls[0] += 1
+            fake.levels[30845].squeeze_slack = 0.0 if calls[0] <= 2 else 8.0
+            return real(x, z, **kw)
+        g.route_to = snag
+
+    def floor(d, c):
+        from ff9mapkit.content import pathfind
+        return pathfind.PlayerWalkmesh(pw.mesh, closed=c) if d == 30845 else _flat_bgi(*_O7_BOX)
+    out, log, fake, rows, ring, _a, aside = _o7_run_informative(game, short="163", fake_setup=setup, wrap=wrap,
+                                                                 floor=floor, prior=prior)
+    _o7_covered(out, aside, beats=_O7_BEATS["163"])
+    rows163 = _o7_steps(log, 30845)
+    assert [(r["outcome"], r["attempt"]) for r in rows163] == [("failed", 1), ("failed", 2), ("done", 3)], rows163
+    assert all(r["to"]["z"] < 4200 for r in rows163[:2]), [r["to"] for r in rows163]
+    assert fake.field_id == 30846, fake.field_id
+
+
+def _o7_bit(fake, bit) -> int:
+    """A gEventGlobal bit of the fake's modelled array."""
+    return (fake.story_bytes[bit >> 3] >> (bit & 7)) & 1
+
+
+def test_o7_drive_second_monologue_is_v7(game):
+    """A SECOND MONOLOGUE (research/o7_design.md 2.5, 2.7): the step's one registered interruption spent, the
+    monologue RE-ARMED while the step's re-run walks -- a test-side wrapper on ``g.send`` clears Bit[3796] in the modelled
+    array as the re-run's first hold goes out (deterministic: after the first monologue's ip672, before any press of the
+    re-run) -- fires again during the walk: a second ``interrupted`` row, over the step's ``interrupts`` 1 -- VOID V7 by
+    the DRIVER at [30842, 1190, 3], the e11 crossing never made. And H15's ``store_override`` {672: 0} -- a fork storing
+    0 at ip672 -- re-arms it AT ONCE after its re-grant, as the bytes' own loop does (e16 t1 runs ip390 again a tick
+    after ip711): control comes back a tick at a time, rule 8's settle never holds, the step is never re-run and never
+    crosses -- the monologue comes round again and again until the run's budget STOPS it (a HarnessError, no V7: the
+    design's 2.7 reads a second monologue as V7 only when it interrupts the re-run). Break: the driver's interruption
+    bound dropped (the second interruption then re-runs the step, which crosses e11)."""
+    SD = _segment_modules()
+    rearmed = []
+
+    def wrap(g, fake):
+        send = g.send
+
+        def rearm(*steps, **kw):
+            held = [s for s in steps if isinstance(s, str) and s.startswith("hold ") and not s.startswith("hold cancel")]
+            if held and not rearmed and fake.field_id == 30842 and len(_o7_scenes(fake)) == 1 and _o7_bit(fake, 3796):
+                fake.story_bytes[3796 >> 3] &= ~(1 << (3796 & 7)) & 0xFF        # the guard re-armed: a fork's stand-in
+                rearmed.append(fake.frame)
+            return send(*steps, **kw)
+        g.send = rearm
+    out, log, fake, rows, ring, _a, aside = _o7_run_informative(game, short="159", wrap=wrap,
+                                                                 want="interrupted 2 times")
+    _o5_void(out, "V7", "driver", [30842, 1190, 3], "interrupted 2 times")
+    steps = _o7_steps(log, 30842)
+    assert [(r["outcome"], r["attempt"]) for r in steps] == [("interrupted", 1), ("interrupted", 2)], steps
+    assert len(rearmed) == 1 and len(_o7_scenes(fake)) == 2 and fake.field_id == 30842, (rearmed, _o7_scenes(fake))
+    assert not [r for r in rows if r["k"] == "w" and r["ip"] == 193], rows
+    out, log, fake, rows, ring, _a = _o7_run(game, short="159", knobs={"store_override": {672: 0}},
+                                             budget=20.0, register=False)
+    assert isinstance(out, HarnessError) and not isinstance(out, SD.RouteVoid), out
+    assert [r["outcome"] for r in _o7_steps(log, 30842)] == ["interrupted"], _o7_steps(log)
+    assert len(_o7_scenes(fake)) >= 2 and not _o7_bit(fake, 3796) and fake.field_id == 30842, _o7_scenes(fake)
+    assert not [r for r in rows if r["k"] == "w" and r["ip"] == 193], rows
+
+
+def test_o7_drive_prior_basis_is_the_drivers_v13(game):
+    """S19 ON O7's ROUTE (research/o7_design.md 1.2, 2.4, 2.7): 158's cell seeds its basis from the PRIOR (no probe);
+    given a prior rotated 30 degrees off the fake's own, the walk's first evidence hold disagrees with it -- VOID V13 by
+    the DRIVER at [30841, 1190, 2], the step row's ``v`` V13 and its ``prior_basis`` the marker (~30 degrees). A
+    rotated prior is deterministic: never re-run. Break: the prior basis's marker read as a plain error (the run then
+    STOPS with no class)."""
+    SD = _segment_modules()
+    wrong = _yawed(30.0)
+    out, log, fake, rows, ring, _a, aside = _o7_run_informative(
+        game, short="158", prior_for=lambda d: wrong if d == 30841 else _prior(), want="prior basis")
+    _o5_void(out, "V13", "driver", [30841, 1190, 2], "the prior basis disagreed with the first move")
+    row = _o7_steps(log, 30841)[-1]
+    assert (row["outcome"], row["v"], row["by"], row["basis"]) == ("void", "V13", "driver", "prior"), row
+    assert 25.0 < row["prior_basis"]["angle"] < 35.0 and row["prior_basis"]["field"] == 30841, row["prior_basis"]
+    assert isinstance(out, SD.RouteVoid), out
+
+
+def test_o7_drive_fork_landing_in_real_158_is_v19(game):
+    """S6's V19 ON O7's ROUTE (research/o7_design.md 2.2 rule 2, 2.7): F with ``land_real`` {"158": 30841} -- 154's e8
+    ground door's Field() lands in REAL 30841, where member(158) 31250 was due: the cross passes (its landing is place
+    158), and rule 2 gives V19 by the GAME at [30841, 1190, 1] -- before rule 3 counts the visit: a finding, never the
+    walk's. Break: key the VOID [donor, sc] (no visit)."""
+    out, log, fake, rows, ring, _a, aside = _o7_run_informative(game, side="F", short="154",
+                                                                 knobs={"land_real": {"158": 30841}})
+    _o5_void(out, "V19", "game", [30841, 1190, 1], "REAL 30841")
+    steps = _o7_steps(log, 31246)
+    assert [(r["kind"], r["outcome"]) for r in steps][-2:] == [("walk", "done"), ("cross", "done")], steps
+
+
+def _o7_late(out, log) -> bool:
+    """A V11 a starved harness bent: its loss read only after the switch, in the field it landed in, so no door of
+    154 is named -- set aside and re-run, its class asserted (the driver's V11 still)."""
+    SD = _segment_modules()
+    rows = _o7_steps(log, 30840)
+    if rows and rows[-1].get("v") == "V11" and rows[-1].get("door") is None:
+        assert isinstance(out, SD.RouteVoid) and (out.v, out.by) == ("V11", "driver"), out
+        return True
+    return False
+
+
+def test_o7_drive_wrong_door_e9_is_the_drivers_v11(game):
+    """THE LANDING JUDGE ON 154's GROUND (research/o7_design.md 2.7; 4.15): a mutant table crossing from the grant
+    straight into e9 on the floor-blind box (the ground branch's side, y 0) -- its ground door fires (ip355, Field(155))
+    -- is the DRIVER's V11 at [30840, 1190, 1]: the step row's ``door`` 30840.e9, its ``landed`` 30851 (155's fixture
+    id); a row the run then writes in 30851 is BACKED by that step row. A run a starved harness bent (the loss read only
+    in 30851, its door unnamed) is re-run, its class asserted. Break: e9 registered ``dormant`` (no door named)."""
+    SD = _segment_modules()
+    step = {"kind": "cross", "name": "154: into e9", "goal": [-2800, -2000], "target": "30840.e8", "to": 30841,
+            "start": [-58, -3758], "avoid": ["30840.e10"], "clearance": 120}
+    pred = _o7_pred(short="154", table=[{"donor": 30840, "sc": 1190, "visit": 1, "steps": [step]}], beats=[])
+
+    out, log, fake, rows, ring, _a, aside = _o7_run_informative(game, short="154", pred=pred, spoiled=_o7_late)
+    _o5_void(out, "V11", "driver", [30840, 1190, 1], "30851")
+    row = _o7_steps(log, 30840)[-1]
+    assert (row["door"], row["landed"], row["v"], row["by"]) == ("30840.e9", 30851, "V11", "driver"), row
+    assert row["lost"]["field"] == 30840 and row["lost"]["x"] < -1800, row["lost"]
+    assert SD.backing({"f": row["frame"] + 1, "cause": "walk", "fld": 30851}, log, pred) is not None, row
+
+
+def test_o7_drive_stop_page_in_154_is_v5_driver(game):
+    """THE STOP PAGE (research/o7_design.md 2.1, 2.7 V5): Byte[13] arrived 2 at visit 1 (``error_window`` {1: 2}: the
+    warp's start state) -- 154's prologue takes its error branch and lists window 56 "Error Env Play()" -- V5 by the
+    DRIVER (the run's first visit, its start place) at [30840, 1190, 1], nothing pressed; the same in 158 (``error_window``
+    {2: 2}, after 154's walk and cross) is the GAME's V5 at [30841, 1190, 2]. Break: attribute every stop page to the
+    driver."""
+    out, log, fake, rows, ring, _a, aside = _o7_run_informative(game, knobs={"error_window": {1: 2}})
+    _o5_void(out, "V5", "driver", [30840, 1190, 1], "Env Play()")
+    assert not _g_rows(log, "press") and not _o7_steps(log), (_g_rows(log, "press"), _o7_steps(log))
+    out, log, fake, rows, ring, _a, aside = _o7_run_informative(game, knobs={"error_window": {2: 2}}, register=False)
+    _o5_void(out, "V5", "game", [30841, 1190, 2], "Env Play()")
+    assert [r["visit"] for r in _g_rows(log, "visit")] == [1, 2], _g_rows(log, "visit")
+
+
+def test_o7_drive_walk_into_a_door_is_the_drivers_v11(game):
+    """S17's LANDING JUDGE ON O7's WALK (research/o7_design.md 1.2, 2.7): 154's walk step with e8 dropped from its
+    ``avoid`` and its goal past e8's edge, on the box (the ground branch): the walk's loss stands in e8, its switch is
+    waited out and it lands in 158 -- VOID V11 by the DRIVER at [30840, 1190, 1], "the walk left 30840", the row's
+    ``door`` 30840.e8 and ``landed`` 30841. A run a starved harness bent (the loss read only in 158, its door unnamed)
+    is re-run, its class asserted. Break: the walk's landing read as done (the walk then "arrives" in 158)."""
+    step = {"kind": "walk", "name": "154: past e8", "goal": [0, -5300], "start": [-58, -3758],
+            "avoid": ["30840.e9", "30840.e10", "30840.hazard.dojebon"], "clearance": 120, "basis": "prior",
+            "attempts": 3}
+    pred = _o7_pred(short="154", table=[{"donor": 30840, "sc": 1190, "visit": 1, "steps": [step]}], beats=[])
+    out, log, fake, rows, ring, _a, aside = _o7_run_informative(game, short="154", pred=pred, spoiled=_o7_late)
+    _o5_void(out, "V11", "driver", [30840, 1190, 1], "the walk left 30840")
+    row = _o7_steps(log, 30840)[-1]
+    assert (row["kind"], row["outcome"], row["landed"], row["v"], row["by"]) == ("walk", "void", 30841, "V11",
+                                                                                 "driver"), row
+    assert row["door"] == "30840.e8", row
