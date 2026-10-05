@@ -27539,3 +27539,309 @@ def test_segment_prior_basis_absent_calibrates_as_today_on_the_fake(game):
         assert set(rec) == _ROUTE_KEYS, sorted(set(rec) ^ _ROUTE_KEYS)
         assert 30820 in g._axes and not (g._seeded or g._prior_pending or g._prior_angle), \
             (g._seeded, g._prior_pending, g._prior_angle)
+
+
+# ---- B1: H20 (research/o7_design.md 3.1) -- THE LEVELS of a stacked walkmesh: stock 154's balcony 1711 over its ground,
+# its floor indices mixing both heights (0.2 #7). The fake keeps him on ONE level -- the open triangle under him within
+# LEVEL_STEP_DY of his height -- walls him in by his level's walls alone (within LEVEL_BAND of his height) and publishes
+# his height in ``player[1]``; a scripted placement sets it. H21 (3.2) -- THE SQUEEZE through 163's stair foot, a pinch
+# 3.3u a side under his radius. Stepped BY HAND (no thread, no wall clock); the real meshes through the ``dali`` fixture
+# (its warned skip without the install fails G38).
+
+#: Steiner's controller radius, SetObjectLogicalSize(30, 35, 50)'s size x 4 (DoEventCode.cs:1531; research/o7_design.md
+#: 1.3 ENGINE_RADIUS): the fake's clearance on O7's route, the wall push-out's radius.
+_O7_RADIUS = 120.0
+#: 154's regions at 315 (research/o7_design.md 4.15): its three exits (each two doors, by his height) and Dojebon's
+#: hazard.
+_O7_E8 = [[2222, -5555], [-2222, -5555], [-2222, -4080], [2222, -4080]]
+_O7_E9 = [[-3777, -999], [-3777, -3111], [-1888, -3111], [-1888, -999]]
+_O7_E10 = [[3777, -999], [3777, -3111], [1888, -3111], [1888, -999]]
+_O7_HAZARD = [[150, -4080], [2222, -4080], [2222, -2950], [150, -2950]]
+#: Steiner's grant on 154's balcony (Main_Init ip588), and the bytes' MoveInstantXZY y operand there (e15 t0 ip2827's
+#: Map.Int16[2], the SWITCHEX default's -1741): PSX y, up negative.
+_O7_GRANT154 = (-58, -3758)
+_O7_BALCONY_Y = -1741
+
+
+def _o7_closures154(pw) -> tuple:
+    """154's two closure lists from their definitions (research/o7_design.md 1.3 ``closures154``) on ``pw``'s open
+    triangles: step 0 -- every GROUND triangle (centroid PSX y > -150) whose XZ overlaps a non-ground one (each shrunk 2%
+    toward its centroid, so a shared edge is no overlap), plus every non-ground one with centroid x > 450 and z > -3250;
+    step 1 -- every non-ground triangle. ``(step0, step1)``, sorted: 119 and 134 on stock 154."""
+    mesh = getattr(pw, "mesh", pw)
+    closed = getattr(pw, "closed", frozenset())
+    wv, tris = mesh.world_verts(), mesh.tris
+    live = [i for i in range(len(tris)) if i not in closed]
+    cent = {i: tuple(sum(wv[k][d] for k in tris[i].vtx) / 3 for d in range(3)) for i in live}
+    ground = [i for i in live if cent[i][1] > -150]
+    upper = [i for i in live if cent[i][1] <= -150]
+    shrunk = {i: [(cent[i][0] + (wv[k][0] - cent[i][0]) * 0.98, cent[i][2] + (wv[k][2] - cent[i][2]) * 0.98)
+                  for k in tris[i].vtx] for i in live}
+
+    def overlap(p, q) -> bool:                       # two triangles in XZ: no separating edge normal
+        for poly in (p, q):
+            for a in range(3):
+                b = (a + 1) % 3
+                nx, nz = poly[a][1] - poly[b][1], poly[b][0] - poly[a][0]
+                pa, qa = [nx * x + nz * z for x, z in p], [nx * x + nz * z for x, z in q]
+                if max(pa) <= min(qa) or max(qa) <= min(pa):
+                    return False
+        return True
+    step0 = sorted({t for t in ground if any(overlap(shrunk[t], shrunk[u]) for u in upper)}
+                   | {u for u in upper if cent[u][0] > 450 and cent[u][2] > -3250})
+    return step0, sorted(upper)
+
+
+def _o7_plan154(pw, closed, start, goal, avoid, clearance=_O7_RADIUS):
+    """route_to's own plan (research/o7_design.md 0.2 #5) over ``pw``'s mesh with ``closed`` shut: route_avoiding from
+    ``start`` to ``goal`` round ``avoid``, KEEPOUT_MARGIN_W, leave_wall, at ``clearance``."""
+    from ff9mapkit.content import pathfind
+    floor = pathfind.PlayerWalkmesh(getattr(pw, "mesh", pw), closed=closed)
+    return pathfind.route_avoiding(floor, tuple(map(float, start)), tuple(map(float, goal)), avoid,
+                                   pathfind.KEEPOUT_MARGIN_W, leave_wall=True, clearance=clearance)
+
+
+def _lv_fake(game, fid, lv, *, steps=None, clearance=_O7_RADIUS):
+    """A FakeGame stepped BY HAND (:func:`_fv_fake`: 60 fps, mean ticks, no trace) on field ``fid`` with the level ``lv``
+    and Steiner's radius -- with the visit ``steps`` staged (control the script's), or control at once."""
+    fake = _fv_fake(game, *([_fv_visit(steps)] if steps else []), field=fid, fps=60.0, ticks="mean", trace=False)
+    fake.levels, fake.clearance = ({} if lv is None else {fid: lv}), clearance
+    if not steps:
+        fake.control = True
+    return fake
+
+
+def _lv_press(fake, x, z, *, tol=20.0, limit=4000, still=30) -> list:
+    """Hold Up with the fake's twist turned toward (x, z) every frame -- a press straight at it -- until he stands
+    within ``tol`` of it, or has not moved for ``still`` frames running: every frame's ``(frame, x, y, z)``."""
+    track, idle = [], 0
+    for _ in range(limit):
+        if math.hypot(x - fake.player[0], z - fake.player[2]) <= tol or idle >= still:
+            break
+        fake.twist = math.degrees(math.atan2(-(x - fake.player[0]), z - fake.player[2]))
+        before = (fake.player[0], fake.player[2])
+        fake._extend("up", 2)
+        fake._frame_once()
+        track.append((fake.frame, fake.player[0], fake.player[1], fake.player[2]))
+        idle = idle + 1 if math.hypot(fake.player[0] - before[0], fake.player[2] - before[1]) < 0.5 else 0
+    return track
+
+
+def _lv_steepest(lv) -> tuple:
+    """The steepest change of height a 60-u step makes on any open triangle of ``lv``, and that triangle:
+    ``(dy, tri)`` -- 60 x the plane's |grad h|."""
+    best = (0.0, None)
+    for ti in sorted(lv.open):
+        a, b, c = (lv._wv[k] for k in lv.mesh.tris[ti].vtx)
+        ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+        vx, vy, vz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+        nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+        if abs(ny) > 1e-9 and 60.0 * math.hypot(nx / ny, nz / ny) > best[0]:
+            best = (60.0 * math.hypot(nx / ny, nz / ny), ti)
+    return best
+
+
+def _lv_stacked_gap(lv) -> float:
+    """The least vertical gap between two open triangles of ``lv`` that OVERLAP in XZ (not coplanar neighbours): their
+    height difference at the corners of the overlap -- each's corners inside the other, and the edges' crossings; linear
+    over the overlap, it is least at one -- or infinity when none overlap."""
+    tris = lv.mesh.tris
+    pts3 = {ti: [lv._wv[k] for k in tris[ti].vtx] for ti in lv.open}
+
+    def inside(p, t) -> bool:
+        s = [(p[0] - t[(i + 1) % 3][0]) * (t[i][2] - t[(i + 1) % 3][2])
+             - (t[i][0] - t[(i + 1) % 3][0]) * (p[2] - t[(i + 1) % 3][2]) for i in range(3)]
+        return not (min(s) < -1e-6 and max(s) > 1e-6)
+
+    def cross(p, q, r, s):
+        d = (q[0] - p[0]) * (s[2] - r[2]) - (q[2] - p[2]) * (s[0] - r[0])
+        if abs(d) < 1e-9:
+            return None
+        u = ((r[0] - p[0]) * (s[2] - r[2]) - (r[2] - p[2]) * (s[0] - r[0])) / d
+        v = ((r[0] - p[0]) * (q[2] - p[2]) - (r[2] - p[2]) * (q[0] - p[0])) / d
+        return (p[0] + u * (q[0] - p[0]), 0.0, p[2] + u * (q[2] - p[2])) if 0 < u < 1 and 0 < v < 1 else None
+    least = math.inf
+    order = sorted(lv.open)
+    for n, ta in enumerate(order):
+        a = pts3[ta]
+        for tb in order[n + 1:]:
+            b = pts3[tb]
+            if max(p[0] for p in b) <= min(p[0] for p in a) or min(p[0] for p in b) >= max(p[0] for p in a) \
+                    or max(p[2] for p in b) <= min(p[2] for p in a) or min(p[2] for p in b) >= max(p[2] for p in a):
+                continue
+            corners = [p for p in a if inside(p, b)] + [p for p in b if inside(p, a)]
+            corners += [x for i in range(3) for j in range(3)
+                        if (x := cross(a[i], a[(i + 1) % 3], b[j], b[(j + 1) % 3])) is not None]
+            if len({(round(p[0], 3), round(p[2], 3)) for p in corners}) < 3:
+                continue                                 # a shared edge or a corner: no overlap of any area
+            gaps = [abs(lv.height(ta, p[0], p[2]) - lv.height(tb, p[0], p[2])) for p in corners]
+            if max(gaps) >= 1.0:                         # coplanar neighbours touching are one surface
+                least = min(least, min(gaps))
+    return least
+
+
+def _lv_pinch_bgi(half=200.0, pinch=100.0):
+    """A flat corridor along z, half-width ``half``, PINCHED to half-width ``pinch`` between z 0 and 200 (narrowing over
+    z -100..0, widening over 200..300) -- its best clearance in the pinch ``pinch`` -- as a BgiWalkmesh strip in world
+    coords (orgPos 0)."""
+    from ff9mapkit.scene import bgi
+    rows = [(-1000.0, half), (-100.0, half), (0.0, pinch), (200.0, pinch), (300.0, half), (1000.0, half)]
+    corners = [c for z, w in rows for c in ((-w, 0, z), (w, 0, z))]
+    faces = [f for i in range(len(rows) - 1) for f in ((2 * i + 2, 2 * i + 3, 2 * i + 1), (2 * i + 2, 2 * i + 1, 2 * i))]
+    return bgi.BgiWalkmesh.from_bytes(bgi.build(corners, faces).to_bytes())
+
+
+def test_fake_level_meshes_hold_the_levels_premises(dali):
+    """H20's PREMISES on the real meshes (research/o7_design.md 3.1; rev. 2, the driver review's #7): on stock 154 and
+    163 every pair of open neighbours shares its edge's heights (a walk crosses an edge at one height); the steepest
+    change of height a 60-u step makes on an open triangle -- MEASURED and printed (79.1 on 154, tri 205 on the west
+    flight; 63.0 on 163, tri 134, at the design) -- lies under LEVEL_STEP_DY; and 154's stacked open triangles lie
+    further apart than LEVEL_STEP_DY and than 2 x LEVEL_BAND -- MEASURED and printed: 1298 (a stair over the ground; the
+    balcony lies 1711 over it). So nearest-within-a-step is the engine's edge walk, and a wall within the band is his
+    level's. Reads the install. Break: LEVEL_STEP_DY under the measured slope (a step down the flight then finds no
+    triangle of his)."""
+    from harness.fakegame import LEVEL_BAND, LEVEL_STEP_DY, Levels
+    from ff9mapkit.scene import bgi
+    wm, _script = dali
+    seen = {}
+    for fid in (154, 163):
+        lv = Levels(wm(fid))
+        assert lv.open, fid
+        tris = lv.mesh.tris
+        for ti in sorted(lv.open):
+            for k, (i, j) in enumerate(bgi.SLOT_PAIRS):
+                n = tris[ti].nbr[k]
+                if 0 <= n < len(tris) and n in lv.open:
+                    for v in (lv._wv[tris[ti].vtx[i]], lv._wv[tris[ti].vtx[j]]):
+                        assert abs(lv.height(n, v[0], v[2]) - v[1]) <= 1.0, (fid, ti, n, v)
+        steep, tri = _lv_steepest(lv)
+        gap = _lv_stacked_gap(lv)
+        seen[fid] = (round(steep, 1), tri, gap if gap == math.inf else round(gap, 1))
+        print(f"stock {fid}: the steepest 60-u step changes his height by {steep:.1f} (tri {tri}); the least gap "
+              f"between stacked open triangles {gap:.1f}")
+        assert steep < LEVEL_STEP_DY, (fid, steep, tri, LEVEL_STEP_DY)
+        assert gap > LEVEL_STEP_DY and gap > 2 * LEVEL_BAND, (fid, gap, LEVEL_STEP_DY, LEVEL_BAND)
+    assert seen[154][2] != math.inf and seen[163][2] == math.inf, seen      # 154 stacks its levels; 163 does not
+
+
+def test_fake_level_places_steiner_on_the_balcony(game, dali):
+    """H20's PLACEMENT (research/o7_design.md 3.1): 154's grant with the bytes' height -- ``[-58, -3758, -1741]``, the
+    MoveInstantXZY y operand -- stands him on the BALCONY: y 1716 (tri 250, the open triangle under him nearest -1741),
+    never the ground's 5 (tri 132, the first triangle under him); a step from there keeps him on it. A grant of four
+    numbers is refused before the visit runs (_visit_steps), and a level walked without ``fake.clearance`` raises (the
+    controller's radius is its walls' rule). Break: place_height taking the first triangle under him (the ground)."""
+    from harness.fakegame import Levels
+    wm, _script = dali
+    lv = Levels(wm(154))
+    assert [lv.tri_nearest(*_O7_GRANT154, h) for h in (-5, _O7_BALCONY_Y)] == [132, 250], "premise: two levels here"
+    fake = _lv_fake(game, 30821, lv, steps=[{"grant": [*_O7_GRANT154, _O7_BALCONY_Y]}, {"wait": 100000}])
+    _cb_until(fake, lambda f: f.control, limit=200)
+    assert (fake.player[0], fake.player[2]) == (-58.0, -3758.0) and fake.player[1] == pytest.approx(1716.0), fake.player
+    track = _lv_press(fake, -300.0, -3700.0)
+    assert track and all(y == pytest.approx(1716.0) for _f, _x, y, _z in track), track[:5]
+    with pytest.raises(ValueError, match=re.escape("a grant is [x, z], or [x, z, h]")):
+        _lv_fake(game, 30821, lv, steps=[{"grant": [*_O7_GRANT154, _O7_BALCONY_Y, 0]}])
+    fake = _lv_fake(game, 30821, lv, clearance=None)
+    fake.place_height(*_O7_GRANT154, _O7_BALCONY_Y)
+    fake.player[0], fake.player[2] = map(float, _O7_GRANT154)
+    with pytest.raises(ValueError, match="a level is walked at the controller's radius"):
+        _lv_press(fake, -300.0, -3700.0)
+
+
+def test_fake_level_never_drops_off_the_balcony_edge(game, dali):
+    """H20's STEP BOUND (research/o7_design.md 3.1): placed on 154's balcony 5u inside its north edge (over the
+    courtyard, 1711 below) -- nearer it than one step -- and pressed north off it, he never leaves the balcony: its edge
+    is no floor of his (no triangle of his level lies past it within LEVEL_STEP_DY), his y 1716 on every frame, never
+    the ground's 5, and the push off the edge's wall takes him back to the radius line. Break: the nearest triangle under
+    him WITHOUT the step bound (his first step then lands on the ground below: he drops to y 5)."""
+    from harness.fakegame import Levels
+    wm, _script = dali
+    lv = Levels(wm(154))
+    x, z = -300.0, -3085.0
+    assert lv.tri_under(x, z, -1716) is not None and lv.wall_gap(x, z, -1716) < 10, "premise: just inside the edge"
+    past = lv.tri_nearest(x, z + 200, -1716)
+    assert past is not None and lv.height(past, x, z + 200) > -100, "premise: past the edge, only the ground below"
+    fake = _lv_fake(game, 30821, lv)
+    fake.player = [x, 0.0, z]
+    fake.place_height(x, z, -1716)
+    track = _lv_press(fake, x, z + 600, still=20)
+    ys = [y for _f, _x, y, _z in track]
+    assert ys and all(y == pytest.approx(1716.0) for y in ys), sorted(set(round(y) for y in ys))
+    assert lv.tri_under(fake.player[0], fake.player[2], -1716) is not None, fake.player
+    assert lv.wall_gap(fake.player[0], fake.player[2], -1716) >= _O7_RADIUS - 0.5, fake.player
+
+
+def test_fake_level_walks_the_west_flight_down_to_the_ground(game, dali):
+    """H20 ALONG 154's WALK (research/o7_design.md 3.1, 0.2 #5, #17): step 0's plan at clearance 120 -- route_to's own
+    route_avoiding over stock 154 with its 119 closures (:func:`_o7_closures154`, from their definitions), round e8, e9,
+    e10 and Dojebon's hazard -- pressed waypoint by waypoint from the balcony grant: west along the balcony, down the
+    west flight, along the stair top and down the central flight. His y falls from 1716 to the ground's ~5, never by as
+    much as LEVEL_STEP_DY in a frame, and he reaches (0, -600) on the ground. Break: walls of every level (no band) --
+    the courtyard's walls under the west arm then close the arm's mouth to him: he never leaves the balcony."""
+    from harness.fakegame import LEVEL_STEP_DY, Levels
+    wm, _script = dali
+    pw = wm(154)
+    step0, step1 = _o7_closures154(pw)
+    assert (len(step0), len(step1)) == (119, 134), (len(step0), len(step1))
+    wps = _o7_plan154(pw, step0, _O7_GRANT154, (0, -600), [_O7_E8, _O7_E9, _O7_E10, _O7_HAZARD])
+    assert wps is not None and len(wps) >= 6, wps
+    lv = Levels(pw)
+    fake = _lv_fake(game, 30821, lv)
+    fake.player = [float(_O7_GRANT154[0]), 0.0, float(_O7_GRANT154[1])]
+    fake.place_height(*_O7_GRANT154, _O7_BALCONY_Y)
+    track = []
+    for wx, wz in wps:
+        track += _lv_press(fake, wx, wz)
+    ys = [1716.0] + [y for _f, _x, y, _z in track]
+    steps = [abs(b - a) for a, b in zip(ys, ys[1:])]
+    print(f"154's walk: {len(track)} frames, y {max(ys):.0f} -> {ys[-1]:.0f}, the largest change a frame "
+          f"{max(steps):.1f}")
+    assert max(ys) == pytest.approx(1716.0) and ys[-1] < 100 and max(steps) < LEVEL_STEP_DY, (ys[-1], max(steps))
+    assert math.hypot(fake.player[0], fake.player[2] + 600) <= 45, fake.player
+
+
+def test_fake_level_place_height_without_levels_sets_y(game):
+    """H20's PLACEMENT WITHOUT LEVELS (research/o7_design.md 3.1): on a box floor -- no level entry -- a grant
+    ``[x, z, -1741]`` publishes y 1741 (minus the bytes' operand), and a later ``[x, z]`` place leaves y as it was;
+    place_height on its own does the same. Break: place_height without a level leaving y untouched."""
+    fake = _lv_fake(game, 30821, None, steps=[{"grant": [100, 200, -1741]}, {"wait": 2}, {"place": [300, 400]},
+                                              {"wait": 100000}])
+    _cb_until(fake, lambda f: f.control, limit=200)
+    assert fake.player == [100.0, pytest.approx(1741.0), 200.0], fake.player
+    _cb_until(fake, lambda f: f.player[0] == 300.0, limit=200)
+    assert fake.player == [300.0, pytest.approx(1741.0), 400.0], fake.player
+    fake.place_height(300.0, 400.0, 25.0)
+    assert fake.player[1] == pytest.approx(-25.0), fake.player
+
+
+def test_fake_level_squeeze_passes_the_stair_foot(game, dali):
+    """H21, THE SQUEEZE (research/o7_design.md 3.2, 0.2 #12): stock 163, the fake's clearance Steiner's radius 120. A
+    press up the stair foot from (2098, 3731) toward (2098, 4115) STOPS at the pinch's mouth without ``squeeze_slack``
+    (the never-closer rule: his gap there 120) -- and passes it with ``squeeze_slack`` 8: the 233-u pinch, its best
+    clearance 116.7, is within the bound, so he is kept on its midline and walks through to the top of the foot. A flat
+    corridor pinched to a best clearance of 100 -- narrower than 120 - 8 -- stops him WITH the squeeze, at its mouth.
+    Break: the midline point taken without the bound (the 100 pinch then passes)."""
+    from harness.fakegame import Levels
+    wm, _script = dali
+    pw = wm(163)
+    for slack, through in ((None, False), (8.0, True)):
+        lv = Levels(pw, squeeze_slack=slack)
+        fake = _lv_fake(game, 30821, lv)
+        h = lv.height(lv.tri_nearest(2098, 3731, 0), 2098, 3731)
+        fake.player = [2098.0, 0.0, 3731.0]
+        fake.place_height(2098.0, 3731.0, h)
+        track = _lv_press(fake, 2098.0, 4115.0, still=20)
+        z_end = fake.player[2]
+        print(f"163's foot, squeeze_slack {slack}: ended at ({fake.player[0]:.0f}, {z_end:.0f}), its gap "
+              f"{lv.wall_gap(fake.player[0], z_end, -fake.player[1]):.1f}")
+        if through:
+            assert z_end >= 4090, (slack, fake.player)
+        else:
+            assert 3780 <= z_end <= 3880, (slack, fake.player)              # the mouth: under 120 from z ~3840
+            assert lv.wall_gap(fake.player[0], z_end, -fake.player[1]) >= _O7_RADIUS - 0.5, fake.player
+    lv = Levels(_lv_pinch_bgi(pinch=100.0), squeeze_slack=8.0)
+    fake = _lv_fake(game, 30821, lv)
+    fake.player = [0.0, 0.0, -600.0]
+    _lv_press(fake, 0.0, 600.0, still=20)
+    assert -120 <= fake.player[2] < 0, fake.player                          # held where the pinch narrows past 112
+    assert lv.wall_gap(fake.player[0], fake.player[2], 0.0) >= 100.0 + 8.0, fake.player

@@ -138,5 +138,19 @@
   "new": "df76b2869b2cb2f81cde5a7a4786c49c5e90259442c223098e9242493954c365",
   "reason": "a 0.5 s wall-clock read stall after instance 9's press returned flaked at -n 8 under load: the press's own late ack read saw the window close (evidence closed); it now starves the reads from the press's acceptance past its mark, counted in the fake's frames (_o4_starve_reads), and re-runs only a read-gap VOID raised before the starve fired -- the assertions are unchanged, plus the starve's premise",
   "head": "b75274b0b4ec51e54bfae1f7519a70676b72040a"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_visit_steps",
+  "old": "2b05869dfffd07ad5d2cf44c5da7eef39904c43771967ea732145ab12da3265d",
+  "new": "062b5f23a643d44e25e0ad8586bced60aa8c8d2d23bea7e3bba0afb4f695eef4",
+  "reason": "O7 B1 (research/o7_design.md 3.1, H20): a place or grant step is refused unless it is [x, z] or [x, z, h] (h the scripted placement's PSX height); every O5 and O6 route's two-number steps pass as before -- both replays (O5's hallway, O6's Steiner route) read identical",
+  "head": "2150d6f04e35cc7cb803853e1619942a9067ca44"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_VisitBeat._place",
+  "old": "27454e904265fdec381b34b36d160dab75617099538b5710a3b7d889b97399e3",
+  "new": "5e074949ea90e308d0f5dfb1ecf7403e5c1f7fba9c57a93f222da7fddc5a6c8a",
+  "reason": "O7 B1 (research/o7_design.md 3.1, H20): [x, z, h] places his height too (FakeGame.place_height: the open triangle under him nearest h on a field with levels, else -h); [x, z] is the place as before -- both replays (O5's hallway, O6's Steiner route) read identical",
+  "head": "2150d6f04e35cc7cb803853e1619942a9067ca44"
  }
 ]

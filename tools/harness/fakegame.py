@@ -103,6 +103,150 @@ SOFT_RESET_ENGINE_UI = ("FieldHUD", "WorldHUD", "BattleHUD", "QuadMistBattle")
 SKIP_CURSOR = 1
 SKIP_CHOICE = 0
 
+# ======================================================================== H20-H21: O7's levels and squeeze
+#: H20 (research/o7_design.md 3.1): how far from his height an open triangle under him may lie and still be HIS. The
+#: engine keeps the actor on its active triangle and crosses only a shared edge to a neighbour; nearest-within-this is
+#: that graph wherever stacked levels lie further apart than it and a step changes his height by less. A 60-u tick step
+#: on stock 154's steepest open triangle (tri 205, the west flight, 52.8 deg) changes his height by 79.1, on 163's
+#: (tri 134) by 63.0; 154's stacked open triangles lie at least 1298 apart (a stair over the ground; the balcony 1711
+#: over it) -- test_fake_level_meshes_hold_the_levels_premises measures each.
+LEVEL_STEP_DY = 200.0
+#: H20: the engine's own "same level" pairing band (WalkMesh.cs:922), the stand-in for "his own surface": a wall is his
+#: when its height at the point nearest him lies within this of his. Sound while stacked levels lie more than twice it
+#: apart.
+LEVEL_BAND = 400.0
+#: H21 (research/o7_design.md 3.2): how far under the controller's radius a side a PINCH may be and still let him
+#: through -- an ESTIMATE over 163's measured 3.3-u overlap (0.2 #12) that R-STAIR measures (F5); a NO-GO there is the
+#: fallback end, never a wider slack.
+SQUEEZE_SLACK_W = 8.0
+#: H21: the spacing of the search across a pinch for its widest point.
+SQUEEZE_SAMPLE_W = 2.0
+
+
+class Levels:
+    """H20 (research/o7_design.md 3.1): a STACKED walkmesh as the engine walks one actor on it -- stock 154's balcony
+    1711 over its ground, its floor indices mixing both heights (0.2 #7), which the kit's floor-blind
+    ``point_on_walkmesh`` and ``distance_to_boundary`` cannot tell apart. Over a kit walkmesh: a ``PlayerWalkmesh``
+    (its open triangles) or a ``BgiWalkmesh`` (every triangle), its world verts in PSX y (up negative).
+
+      * :meth:`tri_under` -- among the open triangles containing (x, z), the one whose height there is NEAREST his and
+        within ``step_dy`` of it, else None: the actor stays on its active triangle and crosses only a shared edge
+        (the walkmesh traversal), which this is wherever stacked levels lie more than ``step_dy`` apart and a step
+        changes his height by less; :meth:`tri_nearest` -- the same without the bound (a placement, GetTriIdxAtPos,
+        FieldMapActorController.cs:1279-1306);
+      * :meth:`height` -- the interpolated PSX height on a triangle;
+      * :meth:`wall_gap` -- the XZ distance to the nearest WALL of his level: an edge of an open triangle with no open
+        neighbour (PlayerWalkmesh's rule, per triangle -- not per floor index), kept when its height at its point
+        nearest him lies within ``band`` of his; None off his level;
+      * :meth:`squeeze` -- H21 (3.2), with ``squeeze_slack`` set: a PINCH's midline.
+
+    The fake walks him on it through ``fake.levels`` (:meth:`FakeGame._move_to`)."""
+
+    def __init__(self, wmesh, *, step_dy: float = LEVEL_STEP_DY, band: float = LEVEL_BAND,
+                 squeeze_slack: float | None = None):
+        from ff9mapkit.scene import bgi
+        mesh = getattr(wmesh, "mesh", wmesh)                 # a PlayerWalkmesh's raw mesh, or a BgiWalkmesh
+        closed = frozenset(getattr(wmesh, "closed", ()) or ())
+        for name, v in (("step_dy", step_dy), ("band", band)):
+            if not isinstance(v, (int, float)) or isinstance(v, bool) or not v > 0:
+                raise ValueError(f"Levels: {name} is a positive number of world units, not {v!r}")
+        if squeeze_slack is not None and (not isinstance(squeeze_slack, (int, float))
+                                          or isinstance(squeeze_slack, bool) or squeeze_slack < 0):
+            raise ValueError(f"Levels: squeeze_slack is None or a number of world units >= 0, not {squeeze_slack!r}")
+        self.mesh = mesh
+        self.step_dy, self.band = float(step_dy), float(band)
+        self.squeeze_slack = None if squeeze_slack is None else float(squeeze_slack)
+        self._wv = mesh.world_verts()
+        tris = mesh.tris
+        self.open = frozenset(i for i in range(len(tris)) if i not in closed)
+        walls = []
+        for ti in sorted(self.open):
+            t = tris[ti]
+            for k, (i, j) in enumerate(bgi.SLOT_PAIRS):
+                n = t.nbr[k]
+                if 0 <= n < len(tris) and n in self.open:
+                    continue                                 # an open neighbour across this edge: not a wall
+                a, b = self._wv[t.vtx[i]], self._wv[t.vtx[j]]
+                dx, dy, dz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+                walls.append((a[0], a[1], a[2], dx, dy, dz, dx * dx + dz * dz))
+        self._walls = walls
+
+    def height(self, ti: int, x: float, z: float) -> float:
+        """The PSX height (up negative) of triangle ``ti``'s plane at (x, z), barycentric over its world verts."""
+        a, b, c = (self._wv[k] for k in self.mesh.tris[ti].vtx)
+        den = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
+        if den == 0:
+            return float(a[1])
+        wa = ((b[2] - c[2]) * (x - c[0]) + (c[0] - b[0]) * (z - c[2])) / den
+        wb = ((c[2] - a[2]) * (x - c[0]) + (a[0] - c[0]) * (z - c[2])) / den
+        return wa * a[1] + wb * b[1] + (1.0 - wa - wb) * c[1]
+
+    def tri_nearest(self, x: float, z: float, h: float) -> int | None:
+        """The open triangle containing (x, z) whose height there is nearest ``h`` (ties: the lower id), else None."""
+        best = None
+        for ti in self.mesh.tris_at(x, z):
+            if ti not in self.open:
+                continue
+            d = abs(self.height(ti, x, z) - h)
+            if best is None or d < best[0]:
+                best = (d, ti)
+        return None if best is None else best[1]
+
+    def tri_under(self, x: float, z: float, h: float) -> int | None:
+        """His triangle at (x, z): :meth:`tri_nearest` when within ``step_dy`` of ``h``, else None (no triangle of his
+        level there -- the edge of a balcony, over the ground below it)."""
+        ti = self.tri_nearest(x, z, h)
+        return ti if ti is not None and abs(self.height(ti, x, z) - h) <= self.step_dy else None
+
+    def wall_gap(self, x: float, z: float, h: float) -> float | None:
+        """The XZ distance from (x, z) to the nearest wall of HIS level (a wall whose height at its point nearest him
+        lies within ``band`` of ``h``); None when no triangle of his level is under him (:meth:`tri_under`); infinity
+        when no wall of his level stands anywhere."""
+        if self.tri_under(x, z, h) is None:
+            return None
+        best = math.inf
+        for ax, ay, az, dx, dy, dz, l2 in self._walls:
+            t = 0.0 if l2 == 0 else ((x - ax) * dx + (z - az) * dz) / l2
+            t = 0.0 if t < 0.0 else 1.0 if t > 1.0 else t
+            if abs(ay + t * dy - h) > self.band:
+                continue                                     # another level's wall
+            d = math.hypot(x - (ax + t * dx), z - (az + t * dz))
+            if d < best:
+                best = d
+        return best
+
+    def squeeze(self, x: float, z: float, ux: float, uz: float, h: float, clearance: float):
+        """H21 (research/o7_design.md 3.2): where a step ending at (x, z) along (ux, uz) is placed in a PINCH -- the
+        point of the LARGEST wall gap on the segment across the step through its end, ``clearance`` either side, each
+        side only as far as his level's floor runs (the corridor's midline, where the engine's opposing pushes average
+        out: RadiusValid pushes each wall's force out to the controller's radius, ServiceForces averages several x
+        1.05, FieldMapActorController.cs:1060-1254) -- ``(px, pz)``, kept when that gap is at least ``clearance -
+        squeeze_slack``. None -- the caller's rule as ever -- without ``squeeze_slack``, off his level, for no step, where
+        a point across stands at the full ``clearance`` (no pinch: a press into a wall), or where the pinch is narrower
+        than that bound (he stops: the radius cannot fit)."""
+        if self.squeeze_slack is None or self.tri_under(x, z, h) is None:
+            return None
+        n = math.hypot(ux, uz)
+        if n < 1e-9:
+            return None
+        px, pz = -uz / n, ux / n                             # across the step
+        best = None
+        for side in (1.0, -1.0):
+            t = 0.0
+            while t <= clearance + 1e-9:
+                qx, qz = x + side * t * px, z + side * t * pz
+                g = self.wall_gap(qx, qz, h)
+                if g is None:
+                    break                                    # off his level: no further this side
+                if g >= clearance:
+                    return None                              # room at the full radius across: no pinch here
+                if best is None or g > best[0]:
+                    best = (g, qx, qz)
+                t += SQUEEZE_SAMPLE_W
+        if best is None or best[0] < clearance - self.squeeze_slack:
+            return None
+        return best[1], best[2]
+
 
 class FakeGame:
     """Runs the agent's side of the protocol in a background thread at a simulated frame rate.
@@ -272,6 +416,13 @@ class FakeGame:
         #: in the game. Placed nearer a wall than that (a scene's own spot), his first moving frame pushes him
         #: straight out onto the line, as the engine's does (:meth:`_pushed_out`).
         self.clearance: float | None = None
+        #: H20 (research/o7_design.md 3.1), OPT-IN: a STACKED walkmesh's levels, by field id -- ``{field id:
+        #: Levels}``. Empty (the default): today's fake. On a field with an entry, :meth:`_move_to` keeps him on ONE
+        #: level of it (the open triangle under him within a step of his height), walls him in by his own level's walls
+        #: alone, and publishes his height in ``player[1]`` (the agent's ``pos[1]``: f[1] = -pos[1]); a scripted
+        #: placement sets it (:meth:`place_height`). `clearance` is required there (ValueError otherwise), and a level's
+        #: ``squeeze_slack`` turns on H21's pinch rule.
+        self.levels: dict = {}
         #: Frames the character keeps moving after the direction is released. Measured on bench 30801,
         #: a hold covers what it commanded give or take ONE frame at 60 fps (`hold down 1` moves 60
         #: units at run speed, `hold down 31` moves 900) -- which the smooth 60 fps model (half a tick
@@ -1462,7 +1613,15 @@ class FakeGame:
         while sLockTimer is not negative -- pushed out of a body it enters that is in front of him (see
         `blockers`), refused (False, he stays put) when the push-out lands in another. Then the lock's
         count for the frame (CheckCollFallback). Only a body that collides is met: ``coll``, and within
-        400 of him in y (WalkMesh.Collision's pair rule and its |dy| band)."""
+        400 of him in y (WalkMesh.Collision's pair rule and its |dy| band).
+
+        H20 (research/o7_design.md 3.1), OPT-IN: on a field with an entry in `levels` the floor is HIS LEVEL of a
+        stacked walkmesh -- the clearance rule below, its walls his level's (:meth:`Levels.wall_gap`) and its floor the
+        open triangle under him within a step of his height (:meth:`Levels.tri_under`, his height ``-player[1]``) --
+        and his height is published after the step (``player[1]``, minus the height there); `clearance` is required.
+        H21 (3.2): with the level's ``squeeze_slack``, a PINCH -- a corridor with no point across it at `clearance` --
+        is passed down to ``clearance - squeeze_slack`` (:meth:`Levels.squeeze`), where the engine's opposing pushes
+        average out at its midline."""
         ox, oz = self.player[0], self.player[2]
         if (x, z) != (ox, oz):
             m = ((x - ox) ** 2 + (z - oz) ** 2) ** 0.5
@@ -1489,18 +1648,33 @@ class FakeGame:
                 pushed = True
             break                                   # WalkMesh.Collision answers with ONE body
         on = getattr(self.walkmesh, "point_on_walkmesh", None)
-        if on is not None and self.clearance is not None:
+        lv = self.levels.get(self.field_id)         # H20 (opt-in): his level of a stacked walkmesh
+        h = None
+        if lv is not None and self.clearance is None:
+            raise ValueError(f"fake.levels[{self.field_id}]: a level is walked at the controller's radius -- set "
+                             f"fake.clearance (Steiner's: 120)")
+        if lv is not None or (on is not None and self.clearance is not None):
             # his centre kept `clearance` off every wall -- pushed out onto that line where he stands closer (placed
             # there), or, where no push lands him on it, never closer still: the step stops on that line, and its
             # rest slides on along the wall
-            def wall(px, pz):
-                d = self.walkmesh.distance_to_boundary(int(round(px)), int(round(pz)))
-                return -1.0 if d is None or on(int(round(px)), int(round(pz))) is None else d
+            if lv is not None:
+                h = -float(self.player[1])          # his height (PSX y, up negative): f[1] = -pos[1]
+
+                def wall(px, pz):
+                    d = lv.wall_gap(px, pz, h)
+                    return -1.0 if d is None else d
+            else:
+                def wall(px, pz):
+                    d = self.walkmesh.distance_to_boundary(int(round(px)), int(round(pz)))
+                    return -1.0 if d is None or on(int(round(px)), int(round(pz))) is None else d
+            squeeze = lv is not None and lv.squeeze_slack is not None     # H21 (opt-in)
+            squeezed = False
             least = max(0.0, min(self.clearance, wall(ox, oz)))     # off the mesh (an arrival): onto it
 
             def floor(px, pz):
                 return wall(px, pz) >= least
             if not floor(x, z):
+                ex, ez = x, z                       # H21: the step's own end
                 lo, hi = 0.0, 1.0
                 for _ in range(16):
                     mid = (lo + hi) / 2
@@ -1511,21 +1685,37 @@ class FakeGame:
                 import math
                 rx, rz = x - bx, z - bz
                 x, z = bx, bz
+                slid = False
                 for deg in (15, 30, 45, 60, 75):
                     c = math.cos(math.radians(deg))
                     for s in (math.sin(math.radians(deg)), -math.sin(math.radians(deg))):
                         px, pz = bx + (rx * c - rz * s) * c, bz + (rx * s + rz * c) * c
                         if floor(px, pz):
                             x, z = px, pz
+                            slid = True
                             break
                     else:
                         continue
                     break
-            if 0.0 <= wall(ox, oz) < self.clearance and 0.0 <= wall(x, z) < self.clearance:
-                # placed nearer a wall than his radius (a scene's own spot): where the step ends -- kept on the floor
-                # above, as the engine's triangle walk keeps it -- is pushed straight out onto the radius line, as the
-                # engine pushes it on his first moving frame
-                x, z = self._pushed_out(x, z, wall) or (x, z)
+                if squeeze and not slid:
+                    # H21: neither the never-closer rule nor a slide stands -- in a PINCH (no point across the step's
+                    # end at full clearance) the opposing pushes average out at its midline: placed there when the
+                    # pinch is no narrower than clearance - squeeze_slack a side; else he stops, as ever
+                    got = lv.squeeze(ex, ez, ex - ox, ez - oz, h, self.clearance)
+                    if got is not None:
+                        x, z = got
+                        squeezed = True
+            if not squeezed and 0.0 <= wall(ox, oz) < self.clearance and 0.0 <= wall(x, z) < self.clearance:
+                got = lv.squeeze(x, z, x - ox, z - oz, h, self.clearance) if squeeze else None
+                if got is not None:
+                    # H21: inside a pinch his place is its midline, where the pushes balance -- never pushed back out
+                    # of it along the corridor to a spot at full clearance
+                    x, z = got
+                else:
+                    # placed nearer a wall than his radius (a scene's own spot): where the step ends -- kept on the
+                    # floor above, as the engine's triangle walk keeps it -- is pushed straight out onto the radius
+                    # line, as the engine pushes it on his first moving frame
+                    x, z = self._pushed_out(x, z, wall) or (x, z)
         elif on is not None:
             # a real walkmesh: his centre must stand on it -- a step off keeps whichever one axis of it
             # still does (a crude slide along the edge), or he stays put
@@ -1542,8 +1732,22 @@ class FakeGame:
             self._lock_fallback(calls)
             return False
         self.player[0], self.player[2] = x, z
+        if lv is not None:                          # H20: his height where the step left him, on his level
+            ti = lv.tri_under(x, z, h)
+            if ti is not None:
+                self.player[1] = -lv.height(ti, x, z)
         self._lock_fallback(calls)
         return True
+
+    def place_height(self, x: float, z: float, h: float) -> None:
+        """H20 (research/o7_design.md 3.1): a scripted placement's HEIGHT -- ``h`` the PSX y operand of the bytes'
+        MoveInstantXZY (up negative; 154 e15 t0 ip2827's ``Map.Int16[2]``, -1741). With a level entry for this field
+        ``player[1]`` is minus the height of the open triangle under (x, z) nearest ``h`` -- no step bound: a placement
+        lands on the nearest-height triangle (GetTriIdxAtPos, FieldMapActorController.cs:1279-1306) -- else (no entry,
+        or no open triangle under (x, z)) minus ``h``. His x and z are the caller's."""
+        lv = self.levels.get(self.field_id)
+        ti = None if lv is None else lv.tri_nearest(x, z, h)
+        self.player[1] = -float(h) if ti is None else -lv.height(ti, x, z)
 
     def _pushed_out(self, x: float, z: float, wall):
         """Where the engine's push off the walls puts a centre standing nearer one than his radius: straight away from
@@ -3847,7 +4051,8 @@ def _visit_steps(steps, k: dict, where: str) -> None:
     of strings, its ``branch`` steps and a ``stairs`` step's side-scene ``pages`` steps themselves; a ``stairs`` step's
     knobs :data:`STAIRS_DEFAULTS`' and -- unless H15's ``no_contour`` -- a ``contour`` or a ``height_at``; H17's
     ``naming`` a character id (an int >= 0) and its ``name`` a non-empty str; H18's ``door`` read by
-    :func:`_door_knobs` (research/o6_design.md 3.3, 3.4)."""
+    :func:`_door_knobs` (research/o6_design.md 3.3, 3.4); H20's ``place`` and ``grant`` two numbers ``[x, z]`` or three,
+    ``[x, z, h]`` (research/o7_design.md 3.1)."""
     if not isinstance(steps, (list, tuple)):
         raise ValueError(f"{where}: the steps are a list, not {steps!r}")
     for i, step in enumerate(steps):
@@ -3861,6 +4066,10 @@ def _visit_steps(steps, k: dict, where: str) -> None:
         extra = sorted(set(step) - {kind, *VISIT_STEP_KEYS[kind]})
         if extra:
             raise ValueError(f"{at}: a {kind} step has no {extra} (it takes {list(VISIT_STEP_KEYS[kind])})")
+        xz = step.get(kind) if kind in ("place", "grant") else None
+        if kind in ("place", "grant") and not (isinstance(xz, (list, tuple)) and len(xz) in (2, 3) and all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) for v in xz)):
+            raise ValueError(f"{at}: a {kind} is [x, z], or [x, z, h] with h the PSX y it places him at, not {xz!r}")
         if kind == "store" and (not isinstance(step["store"], (list, tuple)) or len(step["store"]) != 7):
             raise ValueError(f"{at}: a store is [sid, tag, ip, byte, width, value, bit], not {step['store']!r}")
         if kind == "pair" and (not isinstance(step["pair"], (list, tuple)) or len(step["pair"]) != 2):
@@ -4260,8 +4469,12 @@ class _VisitBeat(_Machine):
         fake.script_store(int(sid), int(tag), int(ip), int(byte), str(width), int(value), bit=int(bit))
 
     def _place(self, fake, xz) -> None:
-        """A scripted move: the player published where it puts him (no coast carries a press on from there)."""
+        """A scripted move: the player published where it puts him (no coast carries a press on from there). H20
+        (research/o7_design.md 3.1): ``[x, z, h]`` -- ``h`` the PSX y operand of the bytes' MoveInstantXZY -- places his
+        height too (:meth:`FakeGame.place_height`); ``[x, z]`` leaves it as it was."""
         fake.player[0], fake.player[2] = float(xz[0]), float(xz[1])
+        if len(xz) == 3:
+            fake.place_height(float(xz[0]), float(xz[1]), float(xz[2]))
         fake._coast = None
 
     def _grant(self, fake, xz) -> None:

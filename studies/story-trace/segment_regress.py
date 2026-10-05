@@ -744,6 +744,14 @@ PYTEST_K_O7 = "o7_ or fake_level or fake_monologue or fake_patrol"
 REQUIRED_TESTS_O7: tuple = (
     # A0b: O6's route replayed by hand on the fake against its golden, captured before any O7 fake edit
     "test_fake_level_keeps_the_steiner_route_identical",
+    # B1: H20, the levels of a stacked walkmesh (154's balcony over its ground) and the placement's height; H21, the
+    # squeeze through 163's stair foot
+    "test_fake_level_meshes_hold_the_levels_premises",
+    "test_fake_level_places_steiner_on_the_balcony",
+    "test_fake_level_never_drops_off_the_balcony_edge",
+    "test_fake_level_walks_the_west_flight_down_to_the_ground",
+    "test_fake_level_place_height_without_levels_sets_y",
+    "test_fake_level_squeeze_passes_the_stair_foot",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)
