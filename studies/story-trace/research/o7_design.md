@@ -2083,7 +2083,9 @@ step. G38 joined the gate at B4 (25 tests: PART B's 24 and A0b's replay); every 
     unnamed: `_o7_late`), its class asserted on the run set aside -- O6's wrong-door precedent.
 
 #### PART C, as built: where the design was silent or wrong (each the smallest correct thing)
-C1 (5ec2d64a), C2 (7826c047), C3 (a4e5eeb8) and C4 (this text, PLAN.md's O7 section) on PART B's receipt (10a46257, green):
+C1 (5ec2d64a), C2 (7826c047), C3 (a4e5eeb8; the record's THE WALKS -- every routed step's holds -- THE LEVELS over
+every hold in the walk's place and the calibration record completed in the commit after C4) and C4 (this text,
+PLAN.md's O7 section) on PART B's receipt (10a46257, green):
 no re-baseline. C0 read O4's build (20 in-chain `Field()` sites, 40 bytes, 49 member files) into `o7_forks.json`
 `built.measured`. G38 holds PART B's 25 tests and PART C's 28 (C1's 18, C2's one, C3's nine); G39 the dry run (167/167
 on the draft and as if frozen). Every PART C test failed on its mutant (named in its docstring and its commit).

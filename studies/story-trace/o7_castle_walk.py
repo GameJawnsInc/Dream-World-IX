@@ -3117,9 +3117,9 @@ def _warp_text(stage: dict) -> str:
 def rehearsal_report(run_dir, *, walkmesh=None) -> str:
     """``--rehearsal-report``: an o7_rehearse.py launch's ``o7_rehearsal.json`` (research/o7_design.md 7.2), stage by
     stage and run by run -- what each freeze item (7.3) is read from: the capabilities and the launch's readings (F10);
-    per run its warp, outcome and render rate (F14), the grants with their published y (F1), THE LEVELS, the bases and
-    every ``basis_check`` (F2, F4), the step rows, THE DESCENT and THE LADDER's rungs with the holds they followed (F2,
-    F5), THE SQUEEZE in THE FOOT WINDOW -- the narrowest wall gap a foot hold passed MEASURED HERE on the stock mesh,
+    per run its warp, outcome and render rate (F14), the grants with their published y (F1), THE LEVELS, the bases,
+    every ``basis_check`` and the calibration (F2, F4), the step rows and THE WALKS' holds (F4), THE DESCENT and THE
+    LADDER's rungs with the holds they followed (F2, F5), THE SQUEEZE in THE FOOT WINDOW -- the narrowest wall gap a foot hold passed MEASURED HERE on the stock mesh,
     level-aware (:func:`foot_gap`) -- and F5's verdict for the run, Dojebon (seen / moved / UNOBSERVED: F2), the
     monologue (F3), the evidence (F11), the trace summary (F6, F7), the stops (F9) and an untraced run's exceptions
     (F13); F-SMOKE's warps and twins (F12). ``walkmesh`` (a place -> its walkmesh; default the install's stock player
@@ -3168,6 +3168,8 @@ def rehearsal_report(run_dir, *, walkmesh=None) -> str:
                          f"{b.get('attempt')}: {b.get('basis')}"
                          + (f", basis_check {b.get('check')}" if b.get("check") else "")
                          + (f", prior_basis {b.get('prior_basis')}" if b.get("prior_basis") else ""))
+            if rec.get("calibration"):
+                L.append(f"    calibration (each walked field's basis at the drive's end): {rec.get('calibration')}")
             for s in rec.get("steps") or ():
                 L.append(f"    step ({s.get('donor')}, visit {s.get('visit')}) #{s.get('n')} {s.get('kind')} attempt "
                          f"{s.get('attempt')} {s.get('outcome')}: to {s.get('to')}, loss {s.get('lost')}, landed "
@@ -3175,6 +3177,13 @@ def rehearsal_report(run_dir, *, walkmesh=None) -> str:
                          f"{((s.get('route') or {}).get('fps') or {}).get('fps')}"
                          + (f", door {s.get('door')}" if s.get("door") else "")
                          + (f" -- {s.get('why')}" if s.get("why") else ""))
+            for w in rec.get("walks") or ():
+                hs = w.get("holds") or []
+                L.append(f"    walk ({w.get('donor')}, visit {w.get('visit')}) #{w.get('n')} attempt {w.get('attempt')} "
+                         f"{w.get('outcome')}: {len(hs)} hold(s), {sum(1 for h in hs if h.get('slide'))} slide(s), "
+                         f"{sum(1 for h in hs if h.get('stall'))} stall(s), {len(w.get('waypoints') or [])} "
+                         f"waypoint(s); the first hold {hs[0].get('from') if hs else None} -> "
+                         f"{hs[0].get('to') if hs else None}")
             for h in (rec.get("descent") or {}).get("holds") or ():
                 L.append(f"    descent hold frame {h.get('frame')}: {h.get('from')} -> {h.get('to')} predicted reach "
                          f"{h.get('reach')} travelled {h.get('moved')} off the leg {h.get('off_leg')} slide "

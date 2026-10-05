@@ -29900,14 +29900,15 @@ def test_o7_rehearsal_plumbing_on_the_fake(game):
     the driver to the arrival in "164", the trace collected, end_run to the title through the recovery warp. Its record
     holds EVERY 7.2 section: the warp; the render rate (the launch's ~60 fps, every route record's); the grants with
     their published y; THE BASES -- every seeded place's first move "prior" with its own basis_check, 159
-    "calibrated"; the step rows (154's walk and cross, 158, 159 interrupted then done, 160, 162, 163); THE LEVELS; THE
-    DESCENT (154 #0's holds: reach, travel, y at both ends); THE LADDER (a list); THE SQUEEZE in THE FOOT WINDOW's place
-    ("163": F5 GO); DOJEBON (seen at his placement, no moved row, every poll there); THE MONOLOGUE (one interrupted row
-    past x -1600, its five pages each first and gone, their Confirms with down frames, the three rows by frame, the
-    re-grant in place, the re-run done); the hold tap's holds; the evidence (no input, no forbidden row); the
-    no-progress stretch; the end state 4.9's and end_run's rows; O7's trace summary cut at "164" (the six crossings, the
-    interruption's rows, Byte[13]'s last pre-cut row "163" ip684, the start read 125). The rehearsal report prints them.
-    Break: the monologue's record dropped."""
+    "calibrated"; the calibration record (every walked field's basis); the step rows (154's walk and cross, 158, 159
+    interrupted then done, 160, 162, 163) and THE WALKS (each routed row's holds); THE LEVELS (every grant's and loss's y, and every hold's in "154": the walk's
+    and the cross's); THE DESCENT (154 #0's holds: reach, travel, y at both ends); THE LADDER (a list); THE SQUEEZE in
+    THE FOOT WINDOW's place ("163": F5 GO); DOJEBON (seen at his placement, no moved row, every poll there); THE
+    MONOLOGUE (one interrupted row past x -1600, its five pages each first and gone, their Confirms with down frames,
+    the three rows by frame, the re-grant in place, the re-run done); the hold tap's holds; the evidence (no input, no
+    forbidden row); the no-progress stretch; the end state 4.9's and end_run's rows; O7's trace summary cut at "164"
+    (the six crossings, the interruption's rows, Byte[13]'s last pre-cut row "163" ip684, the start read 125). The
+    rehearsal report prints them. Break: the monologue's record dropped."""
     O, R = _o7_module(), _o7_rehearse_module()
     _o7_register(game)
     engine = _o7_launch_files(game)
@@ -29945,11 +29946,18 @@ def test_o7_rehearsal_plumbing_on_the_fake(game):
     assert done == [(s["154"], "walk", "done"), (s["154"], "cross", "done"), (s["158"], "cross", "done"),
                     (s["159"], "cross", "interrupted"), (s["159"], "cross", "done"), (s["160"], "cross", "done"),
                     (s["162"], "cross", "done"), (s["163"], "cross", "done")], done
-    lv = rec["levels"]
-    assert len(lv["grants"]) == len(rec["grants"]) and lv["losses"] and lv["walk_holds"], lv
     desc = rec["descent"]["holds"]
     assert desc and all(h["field"] == s["154"] and h["n"] == 0 for h in desc), desc
     assert all(h["reach"] is not None and h["y0"] is not None and h["y1"] is not None for h in desc), desc
+    lv = rec["levels"]
+    assert len(lv["grants"]) == len(rec["grants"]) and lv["losses"], lv
+    assert {h[0] for h in lv["walk_holds"]} == {s["154"]} and len(lv["walk_holds"]) > len(desc), lv["walk_holds"]
+    assert set(rec["calibration"]) == {str(s[p]) for p in _O7_ROUTE} and all(
+        set(b) == {"v", "h"} for b in rec["calibration"].values()), rec["calibration"]
+    routed = [r for r in rec["steps"] if r["route"]]
+    assert [(w["field"], w["n"], w["attempt"]) for w in rec["walks"]] == [(r["field"], r["n"], r["attempt"])
+                                                                         for r in routed], rec["walks"]
+    assert all(w["holds"] and w["samples"] for w in rec["walks"] if w["outcome"] == "done"), rec["walks"]
     assert isinstance(rec["ladder"], list), rec["ladder"]
     sq = rec["squeeze"]
     assert sq["place"] == s["163"] and sq["holds"] and sq["f5"] == "GO", sq
@@ -29987,6 +29995,7 @@ def test_o7_rehearsal_plumbing_on_the_fake(game):
     for want in (f"== R-TEST: warp {s['154']} 315 1190 -> [{s['164']}]", "PASS  P-LAUNCH", "PASS  P-PAD",
                  "launch: settings", "PASS  P-ENGINE", "render rate ", "levels: grants y",
                  f"basis {s['154']} ({s['154']}, visit 1) #0 attempt 1: prior, basis_check", ": calibrated",
+                 "calibration (each walked field's basis at the drive's end)", f"walk ({s['163']}, visit 6) #0 attempt",
                  "descent hold frame", f"squeeze in {s['163']}", "F5 GO", "Dojebon: seen", "moved none",
                  f"monologue in {s['159']}", "Confirms (seq, decided, accepted, down)", "re-grant {",
                  f"crossing from {s['154']}", f"start read {s['159']} e0 t0 ip290", "rows ['recover-warp']"):

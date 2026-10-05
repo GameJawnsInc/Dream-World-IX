@@ -609,9 +609,42 @@ def descent_record(walks: list, log: list, steps: list, axes: dict, *, fps=None,
     return {"holds": out}
 
 
-def levels_record(grants: list, log: list, walks: list, descent: dict) -> dict:
+#: A walk hold as THE WALKS keep it (o5_rehearse.hold_rows's row less its request).
+HOLD_KEYS = ("ack_frame", "frames", "from", "to", "moved", "leg", "off_leg", "off_pressed", "slide", "stall",
+             "control_lost")
+
+
+def walks_record(walks: list, log: list, steps: list, axes: dict) -> list:
+    """THE WALKS (7.2: O6's walk tap record, every step's; F4), pure: per routed step row, its route call (the walk
+    tap's, joined by field and frames) -- the start, the goal and the planned waypoints, every hold
+    (o5_rehearse.hold_rows: where it began and ended, its travel, the leg it pressed on, the slide off that leg and off
+    the pressed direction, the stall; :data:`HOLD_KEYS`), how many samples its reads kept, the last control sample and
+    the first without -- tied to the row's place, visit, step, attempt and outcome."""
+    out = []
+    for r in (x for x in log or () if x.get("k") == "step" and x.get("route")):
+        w = O6R._walk_of(walks, r)
+        if w is None:
+            continue
+        hr = O5R.hold_rows(w, list(steps), axes.get(w["field"]))
+        samples = w.get("samples") or []
+        last_c = first_without = None
+        for x in samples:
+            if x["control"]:
+                last_c = x
+            elif last_c is not None:
+                first_without = x
+                break
+        out.append({**{k: r.get(k) for k in ("field", "donor", "visit", "n", "attempt", "outcome")},
+                    "start": w.get("start"), "goal": w.get("goal"), "waypoints": w.get("waypoints"),
+                    "holds": [{k: h.get(k) for k in HOLD_KEYS} for h in hr], "samples": len(samples),
+                    "last_control": last_c, "first_without": first_without})
+    return out
+
+
+def levels_record(grants: list, log: list, walks: list, steps: list, axes: dict) -> dict:
     """THE LEVELS (7.2), pure: the published y at each grant (``[field, frame, y]``), at each step row's loss (its
-    frame's sample in the walks', else the last before it) and at every walk hold's start and end (THE DESCENT's:
+    frame's sample in the walks', else the last before it) and at the start and end of EVERY walk hold in a field of
+    the walk's place (154 / 31246: its ``walk``-kind steps' -- the walk's holds and the cross's after it;
     ``[field, frame, y0, y1]``)."""
     losses = []
     for r in log or ():
@@ -619,9 +652,17 @@ def levels_record(grants: list, log: list, walks: list, descent: dict) -> dict:
         if lost and lost.get("frame") is not None:
             fld = lost.get("field", r.get("field"))
             losses.append([fld, lost["frame"], _y_at(walks, fld, lost["frame"])])
+    rows = [r for r in log or () if r.get("k") == "step"]
+    places = {r.get("donor") for r in rows if r.get("kind") == "walk"}
+    fields = {r.get("field") for r in rows if r.get("donor") in places}
+    holds = []
+    for w in walks:
+        if w["field"] not in fields:
+            continue
+        hr = O5R.hold_rows(w, list(steps), axes.get(w["field"]))
+        holds += [[w["field"], h["ack_frame"], y0, y1] for h, (y0, y1) in zip(hr, _hold_ys(w, hr))]
     return {"grants": [[g.get("field"), g.get("frame"), _r(g.get("y"))] for g in grants or ()],
-            "losses": losses,
-            "walk_holds": [[h["field"], h["frame"], h["y0"], h["y1"]] for h in descent.get("holds") or ()]}
+            "losses": losses, "walk_holds": holds}
 
 
 def ladder_record(walks: list, log: list, foot: dict, members: dict) -> list:
@@ -776,7 +817,9 @@ def one(g, name: str, stage: dict, pred: dict, n: int, *, side: str = "S", t0: f
     """One rehearsal run ``n`` of ``stage`` on ``side`` (7.1; R-WALK-VOID's run its own warp and stop:
     :func:`stage_run`): its record (7.2) -- the outcome, the beats, the warp, THE RENDER RATE (``g.rate().as_dict()``
     and every route record's ``fps``), the grants (sample, objects, y), THE BASES and every step row (:func:`step_records`),
-    THE LEVELS, THE DESCENT, THE LADDER, THE SQUEEZE with F5's verdict, DOJEBON, THE MONOLOGUE, the pages and the
+    the calibration record (each walked field's basis at the drive's end: seeded or calibrated), the hold tap's holds,
+    THE WALKS (every routed step's holds), THE LEVELS, THE DESCENT, THE LADDER, THE SQUEEZE with F5's verdict, DOJEBON,
+    THE MONOLOGUE, the pages and the
     transcript, the press, forbidden, observed and input evidence, the longest no-progress stretch, the end state (live;
     the trace's Byte[13] in its summary), end_run's rows and seconds, and the trace through O7's summary cut at the
     stage's end PLACES (the crossings, the interruption's rows, the raced Byte[13], the start reads). An untraced stage
@@ -871,8 +914,11 @@ def one(g, name: str, stage: dict, pred: dict, n: int, *, side: str = "S", t0: f
                    for s in step_rows if s.get("route")],
         grants=rec_obs.grants,
         bases=bases,
+        calibration={str(f): None if b is None else {k: [round(float(v), 4) for v in b[k]] for k in ("v", "h") if k in b}
+                     for f, b in axes.items()},
         steps=step_rows,
-        levels=levels_record(rec_obs.grants, log, tap.walks, descent),
+        walks=walks_record(tap.walks, log, steps, axes),
+        levels=levels_record(rec_obs.grants, log, tap.walks, steps, axes),
         descent=descent,
         ladder=ladder,
         squeeze=squeeze_record(tap.walks, log, ladder, steps, axes, foot, members),
