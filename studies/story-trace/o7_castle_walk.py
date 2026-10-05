@@ -977,6 +977,17 @@ def closures154(mesh) -> tuple:
     return step0, sorted(upper)
 
 
+def _convex(poly) -> bool:
+    """Whether ``poly`` (``[(x, z)]``, 3 points or more) is convex: every turn the same way (collinear points allowed)."""
+    n, turns = len(poly), set()
+    for a in range(n):
+        (ax, az), (bx, bz), (cx, cz) = poly[a], poly[(a + 1) % n], poly[(a + 2) % n]
+        v = (bx - ax) * (cz - bz) - (bz - az) * (cx - bx)
+        if v:
+            turns.add(v > 0)
+    return n >= 3 and len(turns) <= 1
+
+
 def _convex_overlap(p, q, *, touch: bool = False) -> bool:
     """Whether two convex polygons ``p`` and ``q`` (``[(x, z)]``) overlap in XZ: no edge normal of either separates
     them. ``touch``: a shared edge or corner counts as overlap too."""
@@ -1575,8 +1586,10 @@ def goals_extra7(pred: dict, walkmesh=None, *, cache: dict | None = None) -> tup
       (g1) THE CLEARANCE: every step carries ``clearance``; one below ENGINE_RADIUS only where the plan at the radius
            fails (163: none at 120, a route at 110);
       (g2) THE EXITS: every OTHER registered exit of the place is in the step's ``avoid``; for a cross, each lies wholly
-           outside its target (no vertex inside it); the cross's goal stands inside its target (IsInQuad) on an open tri
-           of the step's floor, and so does the planned route's first sample inside the target;
+           outside its target -- the two convex polygons' interiors disjoint (:func:`_convex_overlap`, a shared edge or
+           corner no overlap): crossing edges and either one inside the other fail, not only a vertex inside; the
+           cross's goal stands inside its target (IsInQuad) on an open tri of the step's floor, and so does the planned
+           route's first sample inside the target;
       (g3) THE WALK'S ARRIVAL: every point within ``tolerance`` of a walk's goal stands on open triangles of one level
            only, all ground (PSX y > the next step's door's ground bound, read off its pinned height test), and on an
            open triangle of the NEXT step's floor;
@@ -1644,9 +1657,14 @@ def goals_extra7(pred: dict, walkmesh=None, *, cache: dict | None = None) -> tup
                 tpts = SD.region(pred, s["target"])["points"]
                 tring = [(float(a), float(b)) for a, b in tpts]
                 for k in others:
-                    inside = [p for p in regs[k]["points"] if pathfind._in_poly(float(p[0]), float(p[1]), tring)]
-                    if inside:
-                        bad.append(f"{lab} (g2): {k}'s vertices {inside} lie inside its target {s['target']}")
+                    ring = [(float(a), float(b)) for a, b in regs[k]["points"]]
+                    if not (_convex(ring) and _convex(tring)):
+                        bad.append(f"{lab} (g2): {k} or its target {s['target']} is not a convex polygon: wholly "
+                                   f"outside is judged by separating edges, exact for convex regions alone")
+                    elif _convex_overlap(ring, tring, touch=False):
+                        inside = [p for p in regs[k]["points"] if pathfind._in_poly(float(p[0]), float(p[1]), tring)]
+                        bad.append(f"{lab} (g2): {k} overlaps its target {s['target']} (no edge of either separates "
+                                   f"them; its vertices inside the target {inside})")
                 gx, gz = (float(v) for v in s["goal"])
                 if not doorface.region_contains(gx, gz, tpts) or wm.point_on_walkmesh(gx, gz) is None:
                     bad.append(f"{lab} (g2): the goal ({gx:.0f}, {gz:.0f}) is not inside {s['target']} on an open tri "

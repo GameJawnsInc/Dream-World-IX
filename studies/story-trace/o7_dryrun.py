@@ -2111,6 +2111,14 @@ def unit_regions(pred: dict, stock) -> list:
         ("regions-160-e5-points", shift, "160.e5: the bytes' first SetRegion is")])
 
 
+#: (g2)'s overlap mutants (the review's finding): 163.e3 re-registered as a 30-u band whose long edges cross 163.e2
+#: ([[721, 4803], [866, 5202], [1432, 5013], [1300, 4705]]) from z 4400 to 5500 -- no vertex of either inside the other
+#: -- and as a box holding all of e2 -- none of ITS vertices inside e2: a test of the other exit's vertices alone (the
+#: old (g2)) passes both.
+GOALS_E3_CROSSING = [[1050, 4400], [1080, 4400], [1080, 5500], [1050, 5500]]
+GOALS_E3_HOLDING = [[600, 4600], [1500, 4600], [1500, 5300], [600, 5300]]
+
+
 def goals_lines(pred: dict) -> tuple:
     """6.1's O7-GOALS lines, as substrings of the detail: those no step's ``start`` moves (the goals' walls and depths,
     (g1), (g3), (g4), (h2)-(h4): the bytes', pinned) and those it does RENDERED from the predictions given ((g5)'s start;
@@ -2133,10 +2141,12 @@ def goals_lines(pred: dict) -> tuple:
 
 def unit_goals(pred: dict, stock) -> list:
     """O7-GOALS on the install PASSES with 6.1's lines; each mutant FAILS by its clause: 163 at clearance 120 (no route at
-    120); 160 at 110 ((g1): a route exists at 120); 158 without e1 in ``avoid`` ((g2)); 154 #0's goal (0, -3700) on the
-    balcony ((g3)); 154 #1 without its closures ((g4): balcony tris inside e8); 159's ``test`` x_lt -3600 ((g5): e11
-    outside it); 154 #0 without ``basis`` ((h2)); without the hazard ((h3)); its goal pulling the route east past the
-    circle on the balcony ((h1)); the hazard shifted 50 u east ((h4): gap 104 > 86); its north edge 300 u south ((h4))."""
+    120); 160 at 110 ((g1): a route exists at 120); 158 without e1 in ``avoid`` ((g2)); 163.e3 re-registered as a band
+    whose long edges cross 163.e2, and as a box holding it -- neither with a vertex inside e2 ((g2): the overlap, the
+    review's finding); 154 #0's goal (0, -3700) on the balcony ((g3)); 154 #1 without its closures
+    ((g4): balcony tris inside e8); 159's ``test`` x_lt -3600 ((g5): e11 outside it); 154 #0 without ``basis`` ((h2));
+    without the hazard ((h3)); its goal pulling the route east past the circle on the balcony ((h1)); the hazard shifted
+    50 u east ((h4): gap 104 > 86); its north edge 300 u south ((h4))."""
     def step(c, n, **kw):
         def fn(p):
             s = p["table"][c]["steps"][n]
@@ -2159,11 +2169,18 @@ def unit_goals(pred: dict, stock) -> list:
         for pt in p["regions"]["154.hazard.dojebon"]["points"]:
             if pt[1] == -2950:
                 pt[1] = -3250
+
+    def e3(points):
+        def fn(p):
+            p["regions"]["163.e3"]["points"] = [list(pt) for pt in points]
+        return fn
     return _check_mutants("goals", lambda p: O.O7.goals_check(p, stock=stock), pred,
                           lambda d: all(x in d for x in goals_lines(pred)), [
         ("goals-163-at-120", step(5, 0, clearance=120), "(163, 1190, 6) #0: no route from"),
         ("goals-160-at-110", step(3, 0, clearance=110), "(160, 1190, 4) #0 (g1): clearance 110 under the engine radius"),
         ("goals-158-e1", step(1, 0, avoid=[]), "(158, 1190, 2) #0 (g2): the registered exit(s) ['158.e1']"),
+        ("goals-163-e3-crossing", e3(GOALS_E3_CROSSING), "(163, 1190, 6) #0 (g2): 163.e3 overlaps its target 163.e2"),
+        ("goals-163-e3-holding", e3(GOALS_E3_HOLDING), "(163, 1190, 6) #0 (g2): 163.e3 overlaps its target 163.e2"),
         ("goals-154-balcony-goal", step(0, 0, goal=[0, -3700]), "(154, 1190, 1) #0 (g3)"),
         ("goals-154-no-closures", step(0, 1, closed_tris=[]), "(154, 1190, 1) #1 (g4)"),
         ("goals-159-test", lambda p: p["interruptions"][0]["test"]["any_of"].__setitem__("x_lt", -3600),

@@ -29208,10 +29208,13 @@ def test_o7_castle_goals(o7_stock, tmp_path):
     inside step 1's floor, (g4) 18 open tris of step 1's floor touch 154.e8, all ground, (g5) 159's test fails at its
     start and holds at e11's 4 vertices, (h1) the route above PSX -500 within 3420 of Dojebon, (h2) basis prior, (h3) the
     hazard avoided, (h4) the release zone covered but 3 residual points (gap 70 <= 86). Each mutant FAILS by its clause:
-    163 at 120 (no route); 160 at 110 ((g1)); 158 without e1 ((g2)); 154 #0's goal on the balcony ((g3)); 154 #1 without
-    closures ((g4)); 159's test x_lt -3600 ((g5)); its goal east past the circle ((h1)); no basis ((h2)); no hazard
-    ((h3)); the hazard 50 u east and its north edge 300 u south ((h4)). Break: (h4)'s tolerance read as KEEPOUT_MARGIN_W
-    + 60 (the 50 u shift's gap 104 then passes)."""
+    163 at 120 (no route); 160 at 110 ((g1)); 158 without e1 ((g2)); 163.e3 a band whose edges cross 163.e2 (no vertex
+    of either inside the other) and a box holding it (none of its vertices inside e2) -- ((g2): the overlap, the review's
+    finding); 154 #0's goal on the balcony ((g3));
+    154 #1 without closures ((g4)); 159's test x_lt -3600 ((g5)); its goal east past the circle ((h1)); no basis ((h2));
+    no hazard ((h3)); the hazard 50 u east and its north edge 300 u south ((h4)). Break: (h4)'s tolerance read as
+    KEEPOUT_MARGIN_W + 60 (the 50 u shift's gap 104 then passes); (g2) read off the other exit's vertices alone (the band
+    and the box then pass)."""
     import copy
     O = _o7_module()
     D = _o7_dryrun()
@@ -29249,6 +29252,17 @@ def test_o7_castle_goals(o7_stock, tmp_path):
     fails(step(5, 0, clearance=120), "(163, 1190, 6) #0: no route from")
     fails(step(3, 0, clearance=110), "(160, 1190, 4) #0 (g1): clearance 110 under the engine radius 120, yet a route")
     fails(step(1, 0, avoid=[]), "(158, 1190, 2) #0 (g2): the registered exit(s) ['158.e1'] not in its avoid")
+    from ff9mapkit.content import pathfind
+    e2 = [tuple(map(float, p)) for p in pred["regions"]["163.e2"]["points"]]
+    for e3, holds_e2 in ((D.GOALS_E3_CROSSING, False), (D.GOALS_E3_HOLDING, True)):
+        ring = [tuple(map(float, p)) for p in e3]
+        # the premise: no vertex of the mutant inside the target (all a vertex-only test reads), and the target's own
+        # vertices inside the mutant only for the box that holds it -- the band's edges cross e2's
+        assert not any(pathfind._in_poly(x, z, e2) for x, z in ring), (e3, e2)
+        assert all(pathfind._in_poly(x, z, ring) for x, z in e2) is holds_e2, (e3, e2)
+        assert any(pathfind._in_poly(x, z, ring) for x, z in e2) is holds_e2, (e3, e2)
+        fails(lambda p, e3=e3: p["regions"]["163.e3"].__setitem__("points", [list(x) for x in e3]),
+              "(163, 1190, 6) #0 (g2): 163.e3 overlaps its target 163.e2")
     fails(step(0, 0, goal=[0, -3700]), "(154, 1190, 1) #0 (g3)")
     fails(step(0, 1, closed_tris=[]), "(154, 1190, 1) #1 (g4): 9 of the 27 open tris touching 154.e8")
     fails(lambda p: p["interruptions"][0]["test"]["any_of"].__setitem__("x_lt", -3600), "(159, 1190, 3) #0 (g5)")
