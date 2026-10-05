@@ -33780,3 +33780,807 @@ def test_o8_tower_trace_summary_cuts_at_end_places(o8_stock, tmp_path):
     assert [(s_["frm"], s_["to"], s_["fields"]) for s_ in tf["seams"]] == [(31258, 55, [55])], tf["seams"]
     assert tf["crossings"][-1]["exit"].startswith("31258 e6 t1 ip863"), tf["crossings"]
     assert P.trace_summary(frows, pred, side="F", end_fields=[31205], stock=o8_stock)["end"] is None
+
+
+# ---- PART C, C3: O8's REHEARSALS on the fake (studies/story-trace/o8_rehearse.py; research/o8_design.md 7.1-7.2, 9 C3):
+# a launch on a fresh fake in O7's shape -- the warps landing without control (``warp_arrive_control`` False), the
+# sink's suppression, the engine's soft reset where it fires (``soft_reset_ui``), the recovery field granting control
+# -- the route builder's visit beats staged on each arrival in a run's start field, each New Game zeroed and given field
+# 70's prologue; 164's and 165's planes over the box, or their STOCK levels where a test reads the install; the launch
+# reads the fake's own engine DLLs (pinned by the test) and a Memoria.ini holding O8's settings (4.13: [Graphics] VSync
+# "1" among them), and NO field's basis is pinned: every run seeds 164 and 165 (S19, forgotten at each run's start).
+# Every stop, poke and stall a test stages is keyed on a call, a trace row or a frame count -- a movie stop's
+# ``after_s`` (the design's 15 s, scaled) counts from the poll that SAW the ip502 row. Every test is
+# test_o8_rehearsal_*: G44's "o8_".
+
+def _o8_rehearse_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o8_rehearse as R
+    return R
+
+
+def _o8_launch_files(game):
+    """:func:`_o4_launch_files` (the engine DLLs pinned, the launch's Memoria.log, every file dated back an hour) with
+    Memoria.ini holding O8's settings (4.13: [Graphics] VSync "1" among them), dated back too. Register the fields
+    BEFORE: a patch file changed after the log's stamp is P-LAUNCH's relaunch."""
+    O = _o8_module()
+    engine = _o4_launch_files(game)
+    ini = game / "Memoria.ini"
+    ini.write_text(_o3_ini(O.SETTINGS8) + "\n[VoiceActing]\nForceLanguage = -1\n", encoding="utf-8")
+    back = time.time() - 3600
+    os.utime(ini, (back, back))
+    return engine
+
+
+def _o8_rehearse_pred(**over):
+    """:func:`_o8_pred` with what O8's records read too (research/o8_design.md 7.2), on the fixture's places: THE
+    KNIGHT's seat (``seat_watch``: "164"'s sid 1, its store ip230), FMV004 (``movie``: "166" e6 t1 ip502 -> ip863, a
+    clock row every 10 frames), THE SEAM ("166" -> REAL 55, its exit ip863), the chain (each door's FieldEntrance store,
+    then ip863), the crossings and the end row (``landing``), the raced pair read off the trace (``end_state_trace``),
+    both start reads with their races, O8's settings (4.13), the SC and FieldEntrance bytes."""
+    O = _o8_module()
+    s = _O8_FIELDS["S"]
+    m, i16, b191 = s["166"], "Global.Int16[2]", "Global.Bit[191]"
+
+    def site(p, sid, tag, ip, target, value):
+        return {"place": s[p], "sid": sid, "tag": tag, "ip": ip, "target": target, "value": value}
+    hops = (("164", "165", 2, 2, 243, 343), ("165", "166", 2, 2, 233, 344))
+    landing = {"route_places": list(_O8_PLACES),
+               "crossings": [{"from": s[a], "exit": site(a, sid, tag, ip, i16, v), "to": s[b],
+                              "enter": site(b, 0, 0, 22, b191, 0)} for a, b, sid, tag, ip, v in hops],
+               "last": site("166", 6, 1, 863, i16, 110),
+               "end_row": {"place": 55, "sid": 0, "tag": 0, "ip": 22, "target": b191, "value": 0}}
+    chain = [O._key(s[p], sid, tag, ip, off, i16, v, ":=", f"FieldEntrance {v}: the fixture's {p}")
+             for p, sid, tag, ip, off, v in (("164", 2, 2, 243, 209, 343), ("165", 2, 2, 233, 203, 344),
+                                              ("166", 6, 1, 863, 589, 110))]
+    movie = dict(O.MOVIE, donor=m, cinematic=[m, 6, 1, 633], play=[m, 6, 1, 711], clock_every=10,
+                 **{"from": [m, 6, 1, 502], "to": [m, 6, 1, 863]})
+    raced = {"Global.Int16[2]": {"value": 110, "site": {"place": m, "sid": 6, "tag": 1, "ip": 863}},
+             "Global.Byte[8]": {"value": 0, "site": {"place": m, "sid": 6, "tag": 1, "ip": 502}}}
+    reads = [{"site": [m, 0, 0, 255], "target": "Global.Byte[8]", "old": 125, "race": [70, 0, 0, 249],
+              "race_value": 125, "edge": "before", "why": "the fixture's 166 ip255"},
+             {"site": [s["164"], 0, 0, 130], "target": "Global.Byte[13]", "old": 1, "race": [70, 0, 0, 475],
+              "race_value": 2, "edge": "after", "why": "the fixture's 164 ip130"}]
+    return _o8_pred(seat_watch=dict(O.SEAT, donor=s["164"], site=[s["164"], 1, 1, 230]), movie=movie,
+                    seam=dict(O.SEAM, donor=m, exit=[m, 6, 1, 863], field=[m, 6, 1, 871]), chain=chain,
+                    landing=landing, end_state_trace=raced, start_reads=reads,
+                    settings=json.loads(json.dumps(O.SETTINGS8)), sc_bytes=[0, 1], entrance_bytes=[2, 3], **over)
+
+
+def _o8_rh(side="S", short=None, edit=None, **knobs):
+    """One run's ``(start field, beats)`` for :func:`_o8_rh_phases`: the route of ``side`` from ``short`` (default the
+    whole route from "164"), each copy passed through ``edit(beats)`` when given."""
+    def beats():
+        b = _o8_route(side, short=short, **knobs)
+        return edit(b) if edit is not None else b
+    return (_O8_FIELDS[side][short or "164"], beats)
+
+
+def _o8_rh_phases(*runs):
+    """The director's phases for a launch's runs, each ``(start field, beats)`` (:func:`_o8_rh`): each New Game (field 70
+    on the field HUD) zeroed and given field 70's prologue (:func:`_o5_newgame`), each arrival in the run's start field
+    staged with a fresh copy of its beats."""
+    out = []
+    for start, beats in runs:
+        out += [(lambda f: f.field_id == 70 and f.ui_state == "FieldHUD", _o5_newgame),
+                (lambda f, s=start: f.field_id == s and not f._beats, lambda f, b=beats: f.scene(*b(), control=False))]
+    return out
+
+
+def _o8_launch(game, R, stages, env, phases, *, engine, pred=None, fake_setup=None, wrap=None, witness=None,
+               fps=60.0, ticks="mean", floor_for=None, prior=None, prior_for=None, pinch=None, clock=None,
+               planes=None):
+    """One O8 rehearsal launch on a fresh fake (:func:`_o7_launch`'s shape on O8's box): the director's ``phases``,
+    control handed over in the recovery field, 164's and 165's planes over the box (``planes``: another map, ``{}`` for
+    none -- stock levels set his height themselves), NO basis pinned (each run seeds its own: S19), ``wrap(g, fake)``
+    the test's own calls on the session, ``R.run`` with the test's stages, its floor (``floor_for``, default the box)
+    and prior (``prior_for``, else ``prior``, default the fake's own basis), THE PINCH WINDOW ``pinch``, the clock
+    ``clock``, the stub witness and pad reader and the pinned ``engine``. ``(the record, the fake, the title
+    reached)``."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    fake = FakeGame(game, fps=4 * fps, render_fps=fps, ticks=ticks, walkmesh=_O8_BOX)
+    fake.warp_arrive_control, fake.warp_field_only = False, True
+    fake.story_suppress = True
+    fake.soft_reset_ui = SOFT_RESET_ENGINE_UI
+    _o8_plane(fake, _O8_BOX_PLANES if planes is None else planes)
+    if fake_setup is not None:
+        fake_setup(fake)
+    basis = prior or _prior()
+    stop = threading.Event()
+    with session(game, fake, state_ring=5000) as g:
+        boot(g)
+        assert g.restore_baseline()[0], "a launch starts at the title"
+        if wrap is not None:
+            wrap(g, fake)
+        _o1_director(fake, stop, phases)
+        _o3_grant_in(fake, stop)
+        try:
+            R.run(g, stages=stages, pred=pred if pred is not None else _o8_rehearse_pred(),
+                  floor_for=floor_for or (lambda d, c: _flat_bgi(*_O8_BOX)),
+                  prior_for=prior_for or (lambda d: basis), stock=lambda fid: None, recovery=_O3_RECOVERY, env=env,
+                  witness=witness or (lambda: None), pads=lambda slot: None, engine=engine, pinch=pinch, clock=clock)
+        finally:
+            stop.set()
+        title = g.state.ui_state
+    return json.loads((game / "run" / "o8_rehearsal.json").read_text(encoding="utf-8")), fake, title
+
+
+def _o8_launch_informative(game, R, stages, env, phases, *, attempts=3, want=None, spoiled=None, **kw):
+    """:func:`_o8_launch` until no run of the launch ended in a driver class a starved harness gives
+    (:data:`_O8_LOAD_VOIDS`; one whose reason holds ``want`` -- the test's own assertion -- is never re-run) and
+    ``spoiled(doc)`` (the test's own: a launch the load bent onto a path it does not test) is not true, at most
+    ``attempts`` launches, each on fresh phases (``phases()``): ``(record, fake, title, the reasons set aside)``."""
+    aside: list = []
+    for k in range(1, attempts + 1):
+        doc, fake, title = _o8_launch(game, R, stages, env, phases(), **kw)
+        whys = [str((r.get("outcome") or {}).get("why") or "") for recs in (doc.get("stages") or {}).values()
+                for r in recs if isinstance(r, dict) and r.get("outcome")]
+        load = [w for w in whys if any(m in w for m in _O8_LOAD_VOIDS) and not (want is not None and want in w)]
+        bent = spoiled is not None and spoiled(doc)
+        if not (load or bent) or k == attempts:
+            return doc, fake, title, aside
+        aside += load or ["spoiled: the load bent the launch onto a path the test does not test"]
+
+
+def _o8_in(win, x, z, y=None) -> bool:
+    """Whether (x, z) -- and y, when given -- stands in a pinch window ``win`` (both ends included)."""
+    ok = win["x"][0] <= x <= win["x"][1] and win["z"][0] <= z <= win["z"][1]
+    return ok and (y is None or win["y"][0] <= y <= win["y"][1])
+
+
+#: A test-side PINCH WINDOW on the box (research/o8_design.md 7.2): round P1 at its level (published y ~8960 on 164's
+#: plane) -- on the box 164 #0's last hold ends there and 164 #1's ONE hold west starts there (a hold's ``from`` is
+#: where the previous hold's ack left him, its ``to`` its own ack's sample).
+_O8_BOX_PINCH = {"place": 30860, "x": [1200.0, 1450.0], "z": [2150.0, 2350.0], "y": [8800.0, 9200.0]}
+
+
+def test_o8_rehearsal_plumbing_on_the_fake(game):
+    """C3 (research/o8_design.md 7.1-7.2): R-FULL's shape on the fake, chosen by ``O8_STAGE`` as a launch chooses it
+    (another stage, which would run too, does not): the capabilities (P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG over 164,
+    165, 166 and 55, P-LAUNCH with the engine DLLs, P-PAD on a stub reader), the launch's readings (O8's settings --
+    [Graphics] VSync "1" among them -- P-SETTINGS on them, P-OVERRIDE, the fake shipping no field-70 override, and
+    P-ENGINE), then ONE run: the reseed, New Game, the raw warp into "164" at 342 / 1190, the route builder's three
+    visits played by the driver -- FMV004 400 frames -- to the arrival in REAL 55, the trace collected, end_run to the
+    title through the recovery warp. Its record holds EVERY 7.2 section: the warp; the render rate (~60 fps, every
+    route record's); the grants with their published y (4780 in "164", 10280 in "165"); THE BASES (each walk "prior"
+    with its own basis_check, each trigger "cached"); the calibration record; the step rows -- each walk's ``at_y`` and
+    164 #0's ``wait_flag`` kept -- and THE WALKS; THE LEVELS; THE LADDER (a list); THE KNIGHT (T0 off the RING at y >=
+    8400, ip230 after it and inside THE EXEMPT SPAN, the wait read, the seat and start1 rows at his seat, his polls);
+    THE PINCH in a test-side window round P1 (every hold starting or ending in it flagged, with its samples; F5 GO; the
+    report's gap level-aware on the floor given -- the flat box under the plane's y: unmeasured, never a number made
+    up); the dead-level crossing of 164.e2's east ear under y
+    12000; the movie (313 pressed before the ip502 row, the
+    span CLOCKED -- its rate the fake's own frames over state.json's write times: the fake's loop runs at 4x its render
+    rate, so never the published ~60 -- and its seconds the span's frames at it, no press, choice or skip dialog in it,
+    166's Byte[13] old by ip119, no late edge); the
+    crossing (ip863, then 55's ip22); the hold tap's holds; the evidence (no input, no forbidden row); the no-progress
+    stretch; 4.9's end state and end_run's rows; O8's trace summary cut at REAL 55 (the three crossings, the knight's
+    ip230 before the chain row ip243 by line, the movie's two rows, the raced pair's last pre-cut rows "166" ip863 = 110
+    and ip502 = 0, both start reads' olds 125 and 1, the cut row 55 e0 t0 ip22). The rehearsal report prints them.
+    Break: the knight's record dropped."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s = _O8_FIELDS["S"]
+    stages = {"R-TEST": dict(R.STAGES["R-FULL"], field=s["164"], end=[55], runs=1, run_s=150),
+              "R-OTHER": {"field": s["166"], "entrance": 344, "sc": 1190, "end": [55], "runs": 1, "run_s": 5,
+                          "cost_s": 1, "settles": "never run: O8_STAGE names R-TEST"}}
+    doc, fake, title, aside = _o8_launch_informative(game, R, stages, {"O8_STAGE": "R-TEST"},
+                                                     lambda: _o8_rh_phases(_o8_rh(movie_frames=400)), engine=engine,
+                                                     pinch=_O8_BOX_PINCH)
+    run_dir = game / "run"
+    assert list(doc["stages"]) == ["R-TEST"] and doc["stages_run"] == ["R-TEST"] and doc.get("finished"), doc.keys()
+    assert doc["pinch"] == _O8_BOX_PINCH, doc["pinch"]
+    caps = {c[1].split(":")[0]: c[0] for c in doc["capabilities"]}
+    assert caps == {"P-CAP": True, "P-OBJECTS": True, "P-LANG": True, "P-DONOR-LOG": True, "P-LAUNCH": True,
+                    "P-PAD": True}, doc["capabilities"]
+    launch = doc["launch"]
+    assert launch["settings"] == O.SETTINGS8 and launch["settings"]["Graphics"]["VSync"] == "1", launch["settings"]
+    assert launch["engine"] == engine, launch
+    assert {c[1].split(":")[0]: c[0] for c in launch["checks"]} == {"P-SETTINGS": True, "P-OVERRIDE": False,
+                                                                     "P-ENGINE": True}, launch["checks"]
+    rec = doc["stages"]["R-TEST"][0]
+    assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == "field 55", (rec["outcome"], aside)
+    assert rec["counted"] is True and "rerun_of" not in rec, rec.get("counted")
+    assert rec["beats"] == {b: True for p in _O8_ROUTE for b in _O8_BEATS[p]}, rec["beats"]
+    assert rec["warp"] == {"field": s["164"], "entrance": 342, "sc": 1190} and rec["end_fields"] == [55], rec["warp"]
+    assert 54.0 < rec["rate"]["fps"] < 66.0 and rec["rate"]["tick_hz"] == 30.0, rec["rate"]
+    rates = [r[3]["fps"] for r in rec["route_fps"] if r[3]]
+    assert rates and all(54.0 < f < 66.0 for f in rates), rec["route_fps"]
+    gy = {gr["field"]: gr["y"] for gr in rec["grants"]}
+    assert set(gy) == {s["164"], s["165"]} and round(gy[s["164"]]) == 4780 and round(gy[s["165"]]) == 10280, gy
+    assert all(gr["objects"] is not None for gr in rec["grants"]), rec["grants"]
+    for p in ("164", "165"):
+        walk, trig = _o7_first(rec, s[p], 0), _o7_first(rec, s[p], 1)
+        assert walk["basis"] == "prior" and walk["check"] is not None and walk["check"]["angle"] < 16.3, rec["bases"]
+        assert trig["basis"] == "cached", rec["bases"]
+    assert set(rec["calibration"]) == {str(s["164"]), str(s["165"])} and all(
+        set(b) == {"v", "h"} for b in rec["calibration"].values()), rec["calibration"]
+    done = [(r["field"], r["kind"], r["n"], r["outcome"]) for r in rec["steps"] if r["outcome"] != "failed"]
+    assert done == [(s["164"], "walk", 0, "done"), (s["164"], "trigger", 1, "done"), (s["165"], "walk", 0, "done"),
+                    (s["165"], "trigger", 1, "done")], done
+    w164 = [r for r in rec["steps"] if r["field"] == s["164"] and r["n"] == 0][-1]
+    assert 8800 <= w164["at_y"]["y"] <= 9150 and w164["wait_flag"]["read"] is True, w164        # S20, S21 kept
+    assert 11100 <= [r for r in rec["steps"] if r["field"] == s["165"] and r["n"] == 0][-1]["at_y"]["y"] <= 11450
+    routed = [r for r in rec["steps"] if r["route"]]
+    assert [(w["field"], w["n"], w["attempt"]) for w in rec["walks"]] == [(r["field"], r["n"], r["attempt"])
+                                                                         for r in routed], rec["walks"]
+    assert all(w["holds"] and w["samples"] for w in rec["walks"] if w["outcome"] == "done"), rec["walks"]
+    lv = rec["levels"]
+    assert len(lv["grants"]) == 2 and len(lv["losses"]) == 2 and all(y > 12000 for _f, _fr, y in lv["losses"]), lv
+    assert {h[0] for h in lv["walk_holds"]} == {s["164"], s["165"]}, lv["walk_holds"]
+    assert isinstance(rec["ladder"], list) and not any(x["pinch"] for x in rec["ladder"]), rec["ladder"]
+    kn = rec["knight"]
+    assert kn["t0"] is not None and kn["t0"]["field"] == s["164"] and kn["t0"]["y"] >= 8400, kn["t0"]
+    lo, hi = kn["span"]
+    assert kn["ip230"] is not None and kn["t0"]["frame"] < kn["ip230"]["f"] and lo <= kn["ip230"]["f"] < hi, kn
+    assert kn["wait"]["read"] is True and kn["wait"]["last"] == 1 and kn["wait"]["frame0"] < kn["wait"]["frame"], kn
+    for row in (kn["seat"], kn["start1"]):
+        assert row is not None and (round(row["x"]), round(row["z"])) == (-586, 3884), (kn["seat"], kn["start1"])
+    assert kn["polls"] and tuple(kn["polls"][-1][1:]) == (-586.0, 3884.0) and kn["errors"] == [], kn["polls"][-3:]
+    pn = rec["pinch"]
+    assert pn["place"] == s["164"] and pn["window"] == {k: _O8_BOX_PINCH[k] for k in ("x", "z", "y")}, pn["window"]
+    assert pn["holds"] and pn["f5"] == "GO" and pn["stalls"] == [] and pn["rungs"] == [], (pn["f5"], pn["stalls"])
+    assert pn["pinch_holds"] and all(h["samples"] for h in pn["pinch_holds"]), pn["pinch_holds"]
+    for h in pn["pinch_holds"]:
+        a, b = h["from"], h["to"]
+        assert _o8_in(_O8_BOX_PINCH, a[0], a[1], h["y0"]) or _o8_in(_O8_BOX_PINCH, b[0], b[1], h["y1"]), h
+    assert not [h for h in pn["holds"] if not h["pinch"] and (_o8_in(_O8_BOX_PINCH, *h["from"], h["y0"])
+                                                              or _o8_in(_O8_BOX_PINCH, *h["to"], h["y1"]))], pn
+    dl = rec["dead_level"]
+    assert [d["key"] for d in dl][:1] == [f"{s['164']}.e2"] and all(d["y"] < 12000 for d in dl
+                                                                    if d["key"] == f"{s['164']}.e2"), dl
+    mv = rec["movie"]
+    sp = mv["span"]
+    assert sp["f502"] is not None and sp["f863"] is not None and sp["f502"] < sp["f863"], sp
+    assert sp["clocks"] >= 2 and sp["fps"] is not None and sp["fps"] > 0, sp      # CLOCKED: the fake's own frame rate
+    assert sp["s"] == round((sp["f863"] - sp["f502"]) / sp["fps"], 2), sp
+    assert mv["p313"] is not None and mv["p313"] < sp["f502"], (mv["p313"], sp)
+    assert (mv["presses"], mv["choices"], mv["skips"], mv["late_v5"], mv["poke"]) == (0, 0, 0, False, None), mv
+    assert mv["ui"] == ["FieldHUD"] and mv["byte13_old"]["ip"] == 119, mv
+    cx = rec["crossing"]
+    assert cx["ip863"] == sp["f863"] and cx["ip22"] is not None and cx["ip22"] >= cx["ip863"], cx
+    assert not [b for b in cx["between"] if b.startswith(("w ", "r "))], cx["between"]
+    assert rec["holds"] and all(h["cached"] for h in rec["holds"]), rec["holds"][:3]
+    ev = rec["evidence"]
+    assert ev["input"] == [] and ev["forbidden"] == [] and ev["press"], ev.keys()
+    assert rec["no_progress"]["longest_s"] >= 0, rec["no_progress"]
+    end = rec["end"]
+    assert end["end_state"] == _O8_END_STATE, end["end_state"]
+    assert end["end_run"]["ok"] and end["end_run"]["title"] and title == "Title", end["end_run"]
+    assert [x["k"] for x in end["end_run"]["how"]] == ["recover-warp"] and end["end_run"]["s"] >= 0, end["end_run"]
+    tr = rec["trace"]
+    assert tr["end_places"] == [55] and tr["start"] is not None, tr
+    assert [(c["exit"] or "").split(" Global")[0] for c in tr["crossings"]] == [
+        f"{s['164']} e2 t2 ip243", f"{s['165']} e2 t2 ip233", f"{s['166']} e6 t1 ip863"], tr["crossings"]
+    assert tr["knight"]["ip230"]["line"] < tr["knight"]["chain"]["line"], tr["knight"]
+    assert (tr["movie"]["ip502"]["f"], tr["movie"]["ip863"]["f"]) == (sp["f502"], sp["f863"]), tr["movie"]
+    assert tr["raced"]["Global.Int16[2]"]["row"].startswith(f"{s['166']} e6 t1 ip863"), tr["raced"]
+    assert tr["raced"]["Global.Byte[8]"]["row"].startswith(f"{s['166']} e6 t1 ip502"), tr["raced"]
+    assert sorted((x["old"], x["want"]) for x in tr["start_reads"]) == [(1, 1), (125, 125)], tr["start_reads"]
+    assert tr["cut_row"]["fld"] == 55 and "e0 t0 ip22" in tr["cut_row"]["text"], tr["cut_row"]
+    assert (run_dir / rec["trace_file"]).is_file() and (run_dir / rec["log_file"]).is_file()
+    report = O.rehearsal_report8(run_dir, walkmesh=lambda p: _flat_bgi(*_O8_BOX))
+    for want in (f"== R-TEST: warp {s['164']} 342 1190 -> [55]", "PASS  P-LAUNCH", "PASS  P-PAD", "launch: settings",
+                 "PASS  P-ENGINE", "render rate ", "levels: grants y",
+                 f"basis {s['164']} ({s['164']}, visit 1) #0 attempt 1: prior, basis_check",
+                 "calibration (each walked field's basis at the drive's end)", "at_y {", "'read': True",
+                 "THE KNIGHT: T0 {", f"THE PINCH in {s['164']}", "F5 GO", f"dead-level crossing: {s['164']}.e2 entered",
+                 "the movie: 313 pressed at", "the crossing: 166 ip863 at frame", "the knight's ip230 {",
+                 "the movie's rows: ip502 {", "rows ['recover-warp']"):
+        assert want in report, (want, report[:4000])
+    # measured here, LEVEL-AWARE, on the floor given: the box lies flat at 0 under the plane's published y
+    assert "the narrowest wall gap a pinch hold passed unmeasured (no sample on a level)" in report, report[:4000]
+
+
+def test_o8_rehearsal_stage_ids_follow_the_chain(tmp_path):
+    """The stage table's ids come from the CHAIN (research/o8_design.md 7.1; O4's review 11.5 #5): on the alxc chain as
+    built F-SMOKE pairs member(164) 31256 / 164 at 342, member(165) 31257 / 165 at 343 and member(166) 31258 / 166 at
+    344, all SC 1190; F-PASS warps F into member(164) 31256 and ends it in REAL 55 -- no member: 55 is the end on both
+    sides -- with no end-row wait; on a chain whose ids run the other way both follow. The launch's order: R-FULL,
+    R-SPIRAL, R-FMV, then R-VOID LAST; ``--field 166`` picks R-FMV, ``--field 164`` names two and refuses, ``--field
+    165`` none (R-SPIRAL165 is by name); ``O8_STAGE`` names any one. R-VOID's three runs (``each``): run 1 into 164 at
+    342 ending at 165 with ``flag_stop`` on the COPY's 164 #0 alone, run 2 the same with ``pinch_stop`` on 164 #1 alone,
+    run 3 into 166 at 344 ending at 55 with ``movie_stop`` {"after_s": 15} left on the stage (166 has no cell: no step
+    carries it); R-FMV's run 3 carries ``movie_poke`` {"after_s": 10} the same way, and R-FMV re-runs a late edge twice
+    at most -- the draft untouched. A run stops one way; a stop on a place with no cell, an unknown key, a
+    ``movie_stop`` with no seconds or negative ones, the stage laid whole or an ``each`` that is not one a run refuse by
+    name. A literal F id that is not the member forking its twin refuses by name, and run() refuses such a table -- or a
+    bad stop -- before it touches the session; so does a launch whose clock (a test-side one) reads inside THE NIGHTLY
+    WINDOW, 03:45-04:45 local, both ends included. Break: name F-SMOKE's members by their ids (a re-fork's smoke then
+    warps into another donor's member)."""
+    import datetime
+    from harness import HarnessError
+    O, R = _o8_module(), _o8_rehearse_module()
+    O4R = __import__("o4_rehearse")
+    assert R.select(R.STAGES, env={}) == ["R-FULL", "R-SPIRAL", "R-FMV", "R-VOID"]
+    assert R.select(R.STAGES, 166, env={}) == ["R-FMV"]
+    with pytest.raises(ValueError, match=r"--field 164 picks \['R-FULL', 'R-SPIRAL'\]"):
+        R.select(R.STAGES, 164, env={})
+    with pytest.raises(ValueError, match=r"--field 165 picks \[\]"):
+        R.select(R.STAGES, 165, env={})
+    for name in R.STAGES:
+        assert R.select(R.STAGES, env={"O8_STAGE": name}) == [name]
+    with pytest.raises(ValueError, match="no stage"):
+        R.select(R.STAGES, env={"O8_STAGE": "R-NONE"})
+    pred = _o8_draft(tmp_path)
+    smoke = O4R.stage_ids(R.STAGES["F-SMOKE"], pred, name="F-SMOKE")
+    assert smoke["pairs"] == [[31256, 164, 342, 1190], [31257, 165, 343, 1190], [31258, 166, 344, 1190]], smoke
+    fpass = O4R.stage_ids(R.STAGES["F-PASS"], pred, name="F-PASS")
+    assert fpass["field"] == {"S": 164, "F": 31256} and O4R.stage_ends(fpass, "F") == [55], fpass
+    sp = R.stage_pred(pred, fpass)
+    assert sp["start"]["F"] == 31256 and sp["budget"]["end_row_s"] is None and R.stage_sides(fpass) == ["F"], sp["start"]
+    rev = O.draft_predictions(_o4c_campaign(tmp_path, ids={d: 31259 - i for i, d in enumerate(O.C4.DONORS)},
+                                            name="reversed.toml"))
+    m = {d: f for f, d in ((int(f), d) for f, d in rev["members"].items())}
+    assert [p[:2] for p in O4R.stage_ids(R.STAGES["F-SMOKE"], rev)["pairs"]] == [[m[d], d] for d in (164, 165, 166)]
+    assert O4R.stage_ids(R.STAGES["F-PASS"], rev)["field"]["F"] == m[164] != 31256
+    full, fmv = R.stage_pred(pred, R.STAGES["R-FULL"]), R.stage_pred(pred, R.stage_run(R.STAGES["R-FMV"], 1))
+    assert (full["start"], full["entrance"], full["scenario"]) == ({"S": 164, "F": 164}, 342, 1190), full["start"]
+    assert (fmv["start"]["S"], fmv["entrance"], fmv["scenario"]) == (166, 344, 1190), fmv["start"]
+    void = R.STAGES["R-VOID"]
+    one, two, three = (R.stage_run(void, k) for k in (1, 2, 3))
+    assert (one["field"], one["entrance"], one["end"], one["flag_stop"], "each" in one) == (
+        164, 342, [165], {"place": 164}, False), one
+    assert (two["field"], two["end"], two["pinch_stop"]) == (164, [165], {"place": 164, "n": 1}), two
+    assert (three["field"], three["entrance"], three["end"], three["movie_stop"]) == (
+        166, 344, [55], {"place": 166, "after_s": 15.0}), three
+    poke = R.stage_run(R.STAGES["R-FMV"], 3)
+    assert poke[R.POKE] == {"place": 166, "after_s": 10.0} and R.STAGES["R-FMV"]["reruns"] == 2, poke
+
+    def marks(p):
+        return [(c["donor"], i, k, s[k]) for c in p["table"] for i, s in enumerate(c["steps"])
+                for k in sorted(O.REHEARSAL_OVERLAYS8) if k in s]
+    assert marks(R.stage_pred(pred, one)) == [(164, 0, "flag_stop", True)]
+    assert marks(R.stage_pred(pred, two)) == [(164, 1, "pinch_stop", True)]
+    assert marks(R.stage_pred(pred, three)) == [] and marks(R.stage_pred(pred, poke)) == []
+    assert marks(pred) == [] and marks(full) == [], "the stop reached the draft"
+    for stage, match in ((dict(one, pinch_stop={"place": 164}), "one way"),
+                         (dict(one, flag_stop={"place": 163}), "place 163"),
+                         (dict(one, flag_stop={"place": 164, "holds": 3}), "no key"),
+                         (dict(three, movie_stop={"place": 166}), "after_s is a number"),
+                         (dict(three, movie_stop={"place": 166, "after_s": -1}), "after_s is a number"),
+                         (void, "run by run")):
+        with pytest.raises(ValueError, match=match):
+            R.stage_pred(pred, stage)
+    with pytest.raises(ValueError, match="one entry a run"):
+        R.stage_run(dict(void, runs=2), 1)
+    bad = [(dict(R.STAGES["F-SMOKE"], pairs=[[31257, 164, 342, 1190]]), r"pairs: 31257 is not a member forking 164"),
+           (dict(R.STAGES["F-PASS"], field={"S": 164, "F": 31257}), r"field\[F\]: 31257 is not a member forking 164")]
+    for stage, match in bad:
+        with pytest.raises(ValueError, match=match):
+            O4R.stage_ids(stage, pred)
+    with pytest.raises(ValueError, match=r"F-PASS field\[F\]: 31257"):
+        R.run(object(), stages={"F-PASS": bad[1][0]}, pred=pred, env={"O8_STAGE": "F-PASS"})
+    worse = dict(void, each=[dict(void["each"][0], flag_stop={"place": 164, "z": 500}), *void["each"][1:]])
+    with pytest.raises(ValueError, match="no key"):
+        R.run(object(), stages={"R-VOID": worse}, pred=pred, env={"O8_STAGE": "R-VOID"})
+    at = datetime.datetime
+    for hh, mm, inside in ((3, 44, False), (3, 45, True), (4, 0, True), (4, 45, True), (4, 46, False)):
+        assert R.in_nightly(at(2026, 10, 6, hh, mm)) is inside, (hh, mm)
+    with pytest.raises(HarnessError, match=r"STOPPED: R-FULL would start at 04:00 local, inside THE NIGHTLY WINDOW "
+                                           r"03:45-04:45"):
+        R.run(object(), stages={"R-FULL": R.STAGES["R-FULL"]}, pred=pred, env={"O8_STAGE": "R-FULL"},
+              clock=lambda: at(2026, 10, 6, 4, 0))
+
+
+def _o8_void_stage(R, k, **over):
+    """R-VOID's run ``k`` alone, on the fixture: ``each`` of one entry -- the stage's own with ``over`` laid on it."""
+    void = R.STAGES["R-VOID"]
+    return dict(void, runs=1, run_s=150, each=[dict(void["each"][k - 1], **over)])
+
+
+def test_o8_rehearsal_void_stops_on_the_wait_on_the_fake(game):
+    """R-VOID's run 1 (research/o8_design.md 7.1, F9) on the fake: ``flag_stop`` {"place": "164"} laid on 164 #0 of the
+    run's COPY (the predictions given keep none), the run warped into "164" at 342. 164 #0 walks to P1 at its level and
+    begins THE KNIGHT WAIT: S21 watches Bit[3811] (``watch 3811``) and calls ``g.wait_for`` -- whose FIRST call opening
+    "the flag wait" in 164 raises the stop's FIXED message "the rehearsal's stop mid-wait (flag_stop)" (never a wrapped
+    call's error text: S21 swallows one holding "live samples" as its own timeout), the session's wait_for restored at
+    once. The run is V13 by the DRIVER -- never S21's V8 by the game --; S21's ``finally`` sent ``unwatch``; no
+    direction hold and no Confirm after the raise; the sends after it are EXACTLY F9's list: ``unwatch``,
+    collect_story's ``storytrace 0``, then end_run's recovery warp FIRST and its ladder; end_run reaches the title
+    (``recover-warp``); the launch finishes; the report prints the stop. Break: a stop message holding a wrapped wait's
+    "live samples" text (S21 swallows it: the wait goes on, the bit reads and the run reaches 165)."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s = _O8_FIELDS["S"]
+    stage = _o8_void_stage(R, 1, field=s["164"], end=[s["165"]], flag_stop={"place": s["164"]})
+    pred = _o8_rehearse_pred()
+    before = json.dumps(pred, sort_keys=True)
+    doc, fake, title, aside = _o8_launch_informative(game, R, {"R-VOID": stage}, {"O8_STAGE": "R-VOID"},
+                                                     lambda: _o8_rh_phases(_o8_rh(short="164")), engine=engine,
+                                                     pred=pred, want=R.FLAG_STOP)
+    assert json.dumps(pred, sort_keys=True) == before, "the run's stop reached the predictions given"
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    rec = doc["stages"]["R-VOID"][0]
+    assert (rec["outcome"]["end"], rec["outcome"]["v"], rec["outcome"]["by"]) == ("void", "V13", "driver"), \
+        (rec["outcome"], aside)
+    assert rec["outcome"]["why"] == f"STOPPED: {R.FLAG_STOP}", rec["outcome"]
+    fs = rec["flag_stop"]
+    assert fs is not None and fs["field"] == s["164"] and fs["what"] == "the flag wait: Bit[3811] == 1", fs
+    assert fs["holds_after"] == 0 and fs["presses_after"] == 0, fs
+    sa = fs["sends_after"]
+    assert sa[:2] == ["unwatch", "storytrace 0"] and sa[2].startswith(f"warp {_O3_RECOVERY} "), sa
+    assert not [x for x in sa if R.O6R._direction_hold(x) or x.startswith("press confirm")], sa
+    watched = [i for i, x in enumerate(fake.executed) if x[:1] == ["watch"]]
+    assert watched and ["unwatch"] in fake.executed[watched[-1]:], fake.executed[-20:]
+    assert not [r for r in rec["steps"] if r["outcome"] == "done"], rec["steps"]
+    er = rec["end"]["end_run"]
+    assert er["ok"] and er["title"] and title == "Title", er
+    assert [x["k"] for x in er["how"]] == ["recover-warp"], er["how"]
+    report = O.rehearsal_report8(game / "run")
+    for want in (f"run 1: warp {s['164']} 342 1190 -> [{s['165']}], flag_stop", "flag_stop: frame",
+                 "after it 0 hold(s) and 0 press(es) (there must be none)", "the sends after it ['unwatch', "):
+        assert want in report, (want, report[:3000])
+
+
+def test_o8_rehearsal_void_stops_mid_movie_on_the_fake(game):
+    """R-VOID's run 3 (research/o8_design.md 7.1, F9; the driver review's #7) on the fake: ``movie_stop`` {"place":
+    "166", "after_s": 1.5} (the design's 15 s, scaled to the fake's 2400-frame FMV004) left on the stage, the run warped
+    into "166" at 344. The recorder reads the LIVE trace at most once a second in 166 and keys the stop on the poll that
+    first SAW the 166 e6 t1 ip502 row: on the first quiet poll (control off, FieldHUD, no window, no choice) at least
+    after_s past it it raises "the rehearsal's stop mid-movie (movie_stop)" -- its frame after the ip502 row's in the
+    trace (the stop's own ``f502`` that row's), inside the movie beat (between the fake's movie start and end), never in
+    the 309 -> 311 quiet stretch; the run V13 by the driver; no hold and no Confirm after it; the sends after it
+    collect_story's ``storytrace 0`` and end_run's recovery warp and ladder (no ``unwatch``); the warp FIRST, from
+    FieldHUD with the movie playing (it ends the movie: ``ended`` "warp"), then the title. Break: the stop keyed on 166's
+    first live row, not the ip502 row (it then fires in a quiet stretch before the movie: no ip502 row before it)."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s = _O8_FIELDS["S"]
+    stage = _o8_void_stage(R, 3, field=s["166"], end=[55], movie_stop={"place": s["166"], "after_s": 1.5})
+    doc, fake, title, aside = _o8_launch_informative(game, R, {"R-VOID": stage}, {"O8_STAGE": "R-VOID"},
+                                                     lambda: _o8_rh_phases(_o8_rh(short="166", movie_frames=2400)),
+                                                     engine=engine, want=R.MOVIE_STOP)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    rec = doc["stages"]["R-VOID"][0]
+    assert (rec["outcome"]["end"], rec["outcome"]["v"], rec["outcome"]["by"]) == ("void", "V13", "driver"), \
+        (rec["outcome"], aside)
+    assert rec["outcome"]["why"] == f"STOPPED: {R.MOVIE_STOP}", rec["outcome"]
+    ms = rec["movie_stop"]
+    f502 = rec["trace"]["movie"]["ip502"]["f"]
+    assert ms is not None and ms["field"] == s["166"] and ms["f502"] == f502 < ms["frame"], (ms, f502)
+    assert ms["after_s"] >= 1.5 and ms["holds_after"] == 0 and ms["presses_after"] == 0, ms
+    mv = fake.movies
+    assert len(mv) == 1 and mv[0]["start"] < ms["frame"] and mv[0]["ended"] == "warp", (mv, ms)
+    assert rec["trace"]["movie"]["ip863"] is None, rec["trace"]["movie"]
+    sa = ms["sends_after"]
+    assert sa[0] == "storytrace 0" and sa[1].startswith(f"warp {_O3_RECOVERY} ") and "unwatch" not in sa, sa
+    assert not [x for x in sa if R.O6R._direction_hold(x) or x.startswith("press confirm")], sa
+    er = rec["end"]["end_run"]
+    assert er["ok"] and er["title"] and title == "Title", er
+    assert [x["k"] for x in er["how"]] == ["recover-warp"], er["how"]
+    report = O.rehearsal_report8(game / "run")
+    for want in ("movie_stop: frame", f"the ip502 row's frame {f502}", "the sends after it ['storytrace 0', "):
+        assert want in report, (want, report[:3000])
+
+
+def test_o8_rehearsal_pokes_the_movie_once_and_the_net_answers_no_on_the_fake(game):
+    """R-FMV's run 3 (research/o8_design.md 7.1, F3; the driver review's #1; 0.2 #23) on the fake: ``movie_poke``
+    {"place": "166", "after_s": 1.0} (the design's 10 s, scaled) on the stage, the run warped into "166" at 344, FMV004
+    2400 frames. On the first quiet poll at least after_s past the poll that SAW the ip502 row the recorder presses ONE
+    Confirm -- a ``press`` row, why "movie_poke", after the ip502 row's frame -- and nothing else: the fake opens the
+    skip dialog (its cursor on No, the movie waiting under it); the drive's net answers it at its default, No (one
+    ``choice`` row of rule 0 inside the span; one ``skip_seen`` row); the movie RESUMES and plays out (2400 of 2400, one
+    dialog, ended "played"); ip863, then REAL 55: REACHED. The record's poke section holds the press's frame and seconds,
+    the dialog, the net's choice and the frame the movie resumed at, no second dialog; the report prints it. Break: a
+    poke on every quiet poll past after_s, not once (a second skip dialog)."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s = _O8_FIELDS["S"]
+    fmv = R.STAGES["R-FMV"]
+    stage = dict(fmv, field=s["166"], end=[55], runs=1, run_s=150,
+                 each=[dict(fmv["each"][2], **{R.POKE: {"place": s["166"], "after_s": 1.0}})])
+    doc, fake, title, aside = _o8_launch_informative(game, R, {"R-FMV": stage}, {"O8_STAGE": "R-FMV"},
+                                                     lambda: _o8_rh_phases(_o8_rh(short="166", movie_frames=2400)),
+                                                     engine=engine)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    recs = doc["stages"]["R-FMV"]
+    assert len(recs) == 1, [r["outcome"] for r in recs]
+    rec = recs[0]
+    assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == "field 55", (rec["outcome"], aside)
+    log = json.loads((game / "run" / rec["log_file"]).read_text(encoding="utf-8"))["log"]
+    pokes = [x for x in log if x.get("k") == "press" and x.get("why") == R.POKE]
+    f502, f863 = rec["trace"]["movie"]["ip502"]["f"], rec["trace"]["movie"]["ip863"]["f"]
+    assert len(pokes) == 1 and f502 < pokes[0]["pre"]["frame"] < f863, (pokes, f502, f863)
+    seen = [x for x in log if x.get("k") == "skip_seen"]
+    ch = [x for x in log if x.get("k") == "choice"]
+    assert len(seen) == 1 and [(c["rule"], c["index"], c["selected"]) for c in ch] == [(0, "default", 1)], (seen, ch)
+    assert pokes[0]["pre"]["frame"] <= seen[0]["frame"] <= ch[0]["frame"] < f863, (pokes, seen, ch)
+    mv = fake.movies
+    assert fake.answered == [1] and len(mv) == 1, (fake.answered, mv)
+    assert (mv[0]["played"], mv[0]["frames"], mv[0]["skips"], mv[0]["ended"]) == (2400, 2400, 1, "played"), mv
+    pk = rec["movie"]["poke"]
+    assert pk is not None and pk["frame"] == pokes[0]["pre"]["frame"] and pk["after_s"] >= 1.0, pk
+    assert pk["dialog"] is not None and pk["dialog"]["frame"] == seen[0]["frame"] and pk["second"] is False, pk
+    assert [c["rule"] for c in pk["choices"]] == [0] and pk["resumed"] is not None and pk["resumed"] > ch[0]["frame"], pk
+    report = O.rehearsal_report8(game / "run")
+    assert "the poke: pressed at frame" in report and "second dialog False" in report, report[:3000]
+
+
+def test_o8_rehearsal_fmv_reruns_a_late_edge_v5_on_the_fake(game):
+    """THE LATE EDGE (research/o8_design.md 7.1 R-FMV, F3; the driver review's #9) on the fake: R-FMV with ONE run and its
+    re-runs (``reruns`` 2), the launch's first arrival in "166" given ``error_window`` {3: 9} -- Byte[13] arrived 9 (a
+    warp after field 70's ip475): its error store ``Byte[13] := 9`` at ip97 where ip119's would be, window 56 up -- so
+    the run is V5 by the DRIVER (the run's first visit) and its movie record a LATE-EDGE V5 (166's Byte[13] old by
+    ip97); the stage RE-RUNS it at once (``rerun_of`` 1, into its own files ``rh_R-FMV_1r1``: the V5's trace kept), and
+    the re-run reaches 55 (166's Byte[13] by ip119). The first record is ``counted`` False, the re-run's True: F3 reads
+    the re-run alone; the report heads the stage with the run's warp (the stage's: its entry lays none), marks the
+    first SET ASIDE and counts one run. Break: the V5 counted (``counted`` True on it)."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s = _O8_FIELDS["S"]
+    stage = dict(R.STAGES["R-FMV"], field=s["166"], end=[55], runs=1, run_s=150, each=[{}])
+    doc, fake, title, aside = _o8_launch_informative(
+        game, R, {"R-FMV": stage}, {"O8_STAGE": "R-FMV"},
+        lambda: _o8_rh_phases(_o8_rh(short="166", error_window={3: 9}), _o8_rh(short="166")), engine=engine,
+        want="Env Play()")
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    late, again = doc["stages"]["R-FMV"]
+    assert (late["outcome"]["end"], late["outcome"]["v"], late["outcome"]["by"]) == ("void", "V5", "driver"), \
+        (late["outcome"], aside)
+    assert late["movie"]["late_v5"] is True and late["movie"]["byte13_old"]["ip"] == 97, late["movie"]
+    assert late["counted"] is False and "rerun_of" not in late and late["trace_file"] == "rh_R-FMV_1.jsonl", late
+    assert again["rerun_of"] == 1 and again["counted"] is True and again["trace_file"] == "rh_R-FMV_1r1.jsonl", again
+    assert again["outcome"]["end"] == "reached" and again["movie"]["late_v5"] is False, again["outcome"]
+    assert again["movie"]["byte13_old"]["ip"] == 119, again["movie"]
+    run_dir = game / "run"
+    assert all((run_dir / f).is_file() for f in ("rh_R-FMV_1.jsonl", "rh_R-FMV_1r1.jsonl", "rh_R-FMV_1_log.json",
+                                                 "rh_R-FMV_1r1_log.json"))
+    report = O.rehearsal_report8(run_dir)
+    for want in (f"== R-FMV: run 1: warp {s['166']} 344 1190 -> [55]", "SET ASIDE: a late-edge V5, re-run, never counted",
+                 "(RE-RUN: a late-edge V5)",
+                 "counted (F3 and every freeze item): 1 run record(s) -- runs [1]; set aside (a late-edge V5, re-run): "
+                 "runs [1]"):
+        assert want in report, (want, report[:3000])
+
+
+def test_o8_rehearsal_smoke_sends_no_storytrace_on_the_fake(game):
+    """F-SMOKE (research/o8_design.md 7.1, F12) on the fake, its pairs O8's table's on the fixture's places --
+    member("164") and "164" at 342, member("165") and "165" at 343, member("166") and "166" at 344, all SC 1190 -- each
+    member read from the chain the predictions carry (31256, 31257, 31258), each warp a RAW one with its pair's OWN
+    entrance and SC and a wait for the field on FieldHUD (o4_rehearse.smoke: never Session.warp()), then the field's
+    published object sids and end_run after each warp (the recovery warp, the title). No ``storytrace`` step is ever
+    executed (no fork data before the freeze). Each member's sids against its twin's: two pairs equal, the third (a
+    body extra) different; the report prints each warp with its entrance and SC. Break: warp member(166) at 343 (165's
+    entrance)."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s, f = _O8_FIELDS["S"], _O8_FIELDS["F"]
+    route = ("164", "165", "166")
+    pairs = [[f"member({s[p]})", s[p], e, sc] for p, (_m, _t, e, sc) in zip(route, R.STAGES["F-SMOKE"]["pairs"])]
+    stages = {"F-SMOKE": dict(R.STAGES["F-SMOKE"], pairs=pairs, smoke_s=0.3, warp_s=10.0)}
+    sids = {**{s[p]: [1, 4] for p in route}, **{f[p]: [1, 4] for p in route}, f["166"]: [1, 4, 9]}
+
+    def setup(fake):
+        fake.blockers = {fid: [{"x": 300.0 + 60 * i, "z": 300.0, "r": 30.0, "sid": v, "uid": 128 + i}
+                               for i, v in enumerate(vs)] for fid, vs in sids.items()}
+    doc, fake, _title = _o8_launch(game, R, stages, {"O8_STAGE": "F-SMOKE"}, [], engine=engine, fake_setup=setup)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    assert not [x for x in fake.executed if x[0] == "storytrace"], "a storytrace step in the smoke"
+    recs = doc["stages"]["F-SMOKE"]
+    entrances = [342, 343, 344]
+    order = [(f[p], e, 1190) for p, e in zip(route, entrances)] + [(s[p], e, 1190) for p, e in zip(route, entrances)]
+    assert [(r["field"], r["entrance"], r["sc"]) for r in recs] == order, recs
+    for r in recs:
+        reach = r["reached"]
+        assert (reach["field"], reach["ui"], reach["control"]) == (r["field"], "FieldHUD", False), r
+        assert r["sids"] == sorted(sids[r["field"]]) and r["exceptions"] == [], r
+        assert r["end_run"]["ok"] and r["end_run"]["title"], r["end_run"]
+    warps = [x for x in fake.executed if x[0] == "warp"]
+    for field, entrance, sc in order:
+        assert ["warp", str(field), str(entrance), str(sc)] in warps, (field, warps)
+    twins = doc["twins"]["F-SMOKE"]
+    assert [(t["member"], t["twin"], t["equal"]) for t in twins] == [(f[p], s[p], p != "166") for p in route], twins
+    report = O.rehearsal_report8(game / "run")
+    for want in ("== F-SMOKE: the load smoke", f"warp 2: {f['165']} at 343 SC 1190 -> field {f['165']} FieldHUD",
+                 f"warp 3: {f['166']} at 344 SC 1190 -> field {f['166']} FieldHUD",
+                 f"twin {f['164']} vs {s['164']}: EQUAL", f"twin {f['166']} vs {s['166']}: DIFFERENT"):
+        assert want in report, (want, report[:2500])
+
+
+def test_o8_rehearsal_fpass_runs_untraced_to_real_55_on_the_fake(game):
+    """F-PASS (research/o8_design.md 7.1, F13) on the fake: ONE F run, UNTRACED -- O8.reseed FIRST (the session holding a
+    stale basis for both members a run seeds, 31256 and 31257: each forgotten), New Game, ``wait_frames(30)``, the raw
+    warp into member("164") (31256, read from the chain) at 342 / 1190, never the ``storytrace`` verb -- driven through
+    the whole route (31256's walk, THE KNIGHT WAIT and its trigger, 31257's two steps, 31258's six pages and FMV004
+    played out) to REAL 55 through 31258's raw Field(55): reached, every beat, no V-class (never V19: 55 is F's end
+    too), the live forbidden scan off and no end-row wait; 31256's and 31257's walks SEEDED afresh ("prior", judged)
+    though the session held their bases; the record holds no trace, the exceptions since the warp (none) and the
+    Memoria.log lines; end_run reaches the title. The report marks it UNTRACED. Break: F-PASS started without the
+    reseed (the stale basis then reads "cached", unjudged)."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s, f = _O8_FIELDS["S"], _O8_FIELDS["F"]
+    stages = {"F-PASS": dict(R.STAGES["F-PASS"], field={"S": s["164"], "F": f"member({s['164']})"}, end=[55],
+                             run_s=150)}
+
+    def wrap(g, fake):
+        for fid in (f["164"], f["165"]):
+            g._axes[fid] = dict(_prior())
+    doc, fake, title, aside = _o8_launch_informative(game, R, stages, {"O8_STAGE": "F-PASS"},
+                                                     lambda: _o8_rh_phases(_o8_rh(side="F")), engine=engine, wrap=wrap,
+                                                     fps=31.0, ticks="quantized")
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    assert not [x for x in fake.executed if x[0] == "storytrace"], "a storytrace step in the untraced pass"
+    rec = doc["stages"]["F-PASS"][0]
+    assert rec["side"] == "F" and rec["traced"] is False and rec["trace_file"] is None, rec
+    assert rec["forbid_live"] is False and rec["warp"] == {"field": f["164"], "entrance": 342, "sc": 1190}, rec["warp"]
+    assert rec["end_fields"] == [55], rec["end_fields"]
+    assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == "field 55", (rec["outcome"], aside)
+    assert rec["outcome"]["v"] is None, rec["outcome"]
+    assert rec["beats"] == {b: True for p in _O8_ROUTE for b in _O8_BEATS[p]}, rec["beats"]
+    for fid in (f["164"], f["165"]):
+        walk = _o7_first(rec, fid, 0)
+        assert walk["basis"] == "prior" and walk["check"] is not None and walk["check"]["angle"] < 16.3, rec["bases"]
+    log = json.loads((game / "run" / rec["log_file"]).read_text(encoding="utf-8"))["log"]
+    end = [x for x in log if x.get("k") == "end"]
+    assert len(end) == 1 and end[0]["field"] == 55 and "end_row" not in end[0], end
+    t165 = [r for r in rec["steps"] if r["field"] == f["165"] and r["n"] == 1 and r["outcome"] == "done"]
+    assert t165 and t165[-1]["landed"] in (None, f["166"]), rec["steps"]
+    assert len(fake.movies) == 1 and fake.movies[0]["ended"] == "played", fake.movies
+    assert rec["trace"] == {} and rec["exceptions"] == [] and isinstance(rec["log_lines"], list), rec["exceptions"]
+    assert rec["end"]["end_run"]["ok"] and title == "Title", rec["end"]["end_run"]
+    report = O.rehearsal_report8(game / "run")
+    assert "UNTRACED" in report and "untraced: exceptions since the warp []" in report, report[:2500]
+
+
+def _o8_stock_launch(game, R, stages, env, runs, *, wm, fids=(164,), slack164=12.0, wrap=None, **kw):
+    """An O8 rehearsal launch on STOCK spirals (:func:`_o8_launch_informative` with :func:`_o8_real_setup`'s levels for
+    ``fids``, :func:`_o8_real_floor`'s floor, each field's own prior and key twist, no plane): the steps' band closures
+    (:func:`_o8_closures` over ``wm``) in the predictions, THE PINCH WINDOW the design's (``_O8_PINCH`` on "164"), the
+    runs' phases from ``runs()`` (fresh each launch). ``((record, fake, title, the reasons set aside), the window, the
+    stocks)``."""
+    stocks = _o8_stocks(*fids)
+    priors = {fid: p for fid, (_pw, p, _t) in stocks.items()}
+    win = {"place": _O8_FIELDS["S"]["164"], **{k: list(v) for k, v in _O8_PINCH.items()}}
+    pred = kw.pop("pred", None) or _o8_rehearse_pred(closures=_o8_closures(wm))
+    return _o8_launch_informative(game, R, stages, env, lambda: _o8_rh_phases(*runs()), pred=pred,
+                                  fake_setup=_o8_real_setup(stocks, slack164=slack164),
+                                  floor_for=_o8_real_floor(stocks), prior_for=lambda d: priors.get(d, _prior()),
+                                  planes={}, pinch=win, wrap=wrap, **kw), win, stocks
+
+
+def test_o8_rehearsal_void_stops_in_the_pinch_window_on_the_fake(game, dali):
+    """R-VOID's run 2 (research/o8_design.md 7.1, F9) on the fake, on STOCK 164 (H20's levels at radius 80,
+    ``squeeze_slack`` 12, its key twist; the steps' band closures; the prior basis; the grant on loop 1 by the bytes'
+    height): ``pinch_stop`` {"place": "164", "n": 1} on 164 #1 of the run's COPY, the run warped into "164" at 342, THE
+    PINCH WINDOW the design's (x 900-1310, z 4460-4600, published y 10400-11100). 164 #0 climbs the first spiral --
+    passing UNDER the window's XZ on loop 1 (y ~5600-5900): its holds there never fire it -- to P1 and the knight's
+    wait; 164 #1 climbs the second, and the FIRST direction hold sent while his published x, z AND y lie in the window
+    raises "the rehearsal's stop in the pinch (pinch_stop)" BEFORE it is sent, the session's send restored at once:
+    the run V13 by the driver; no hold and no Confirm after it; the sends after it collect_story's ``storytrace 0`` and
+    end_run's recovery warp and ladder (no ``unwatch``: no wait was running); the title. Reads the install (a warned
+    skip fails G44). Break: the stop's hold sent before the raise (holds_after 1)."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    wm, _script = dali
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s = _O8_FIELDS["S"]
+    stage = _o8_void_stage(R, 2, field=s["164"], end=[s["165"]], pinch_stop={"place": s["164"], "n": 1})
+    (doc, fake, title, aside), win, _st = _o8_stock_launch(game, R, {"R-VOID": stage}, {"O8_STAGE": "R-VOID"},
+                                                           lambda: [_o8_rh(short="164", levels=True)], wm=wm,
+                                                           engine=engine, want=R.PINCH_STOP)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    rec = doc["stages"]["R-VOID"][0]
+    assert (rec["outcome"]["end"], rec["outcome"]["v"], rec["outcome"]["by"]) == ("void", "V13", "driver"), \
+        (rec["outcome"], aside)
+    assert rec["outcome"]["why"] == f"STOPPED: {R.PINCH_STOP}", rec["outcome"]
+    ps = rec["pinch_stop"]
+    assert ps is not None and ps["field"] == s["164"] and ps["control"] is True, ps
+    assert _o8_in(win, ps["x"], ps["z"], ps["y"]), (ps, win)
+    assert any(R.O6R._direction_hold(x) for x in ps["steps"]), ps["steps"]
+    assert ps["holds_after"] == 0 and ps["presses_after"] == 0, ps
+    sa = ps["sends_after"]
+    assert sa[0] == "storytrace 0" and sa[1].startswith(f"warp {_O3_RECOVERY} ") and "unwatch" not in sa, sa
+    assert not [x for x in sa if R.O6R._direction_hold(x) or x.startswith("press confirm")], sa
+    steps = rec["steps"]
+    assert [(r["n"], r["outcome"]) for r in steps if r["outcome"] == "done"] == [(0, "done")], steps
+    lo = [h for h in rec["holds"] if h["field"] == s["164"] and h["frame"] < steps[0]["frame"]]
+    under = [h for h in lo if _o8_in(win, h["x"], h["z"]) and not _o8_in(win, h["x"], h["z"], h["y"])]
+    assert under and all(h["y"] < win["y"][0] - 4000 for h in under), lo                  # loop 1, the same XZ
+    sent = [h for h in rec["holds"] if h["field"] == s["164"] and h["frame"] >= steps[0]["frame"]]
+    assert sent and not [h for h in sent if _o8_in(win, h["x"], h["z"], h["y"])], sent    # none sent in the window
+    er = rec["end"]["end_run"]
+    assert er["ok"] and er["title"] and title == "Title", er
+    assert [x["k"] for x in er["how"]] == ["recover-warp"], er["how"]
+    report = O.rehearsal_report8(game / "run")
+    for want in (f"run 1: warp {s['164']} 342 1190 -> [{s['165']}], pinch_stop", "pinch_stop: frame",
+                 "after it 0 hold(s) and 0 press(es) (there must be none)", "the sends after it ['storytrace 0', "):
+        assert want in report, (want, report[:3000])
+
+
+def test_o8_rehearsal_records_the_knight_the_pinch_and_the_movie_on_the_fake(game, dali):
+    """THE KNIGHT, THE PINCH and THE MOVIE as a run records them (research/o8_design.md 7.2, F2, F3, F5) on the fake: an
+    R-FULL-shaped stage on STOCK 164 and 165 (H20's levels, 164 at radius 80 with ``squeeze_slack`` 12, each field's
+    key twist and prior; the steps' band closures) through 166 -- FMV004 400 frames -- to REAL 55, THE PINCH WINDOW the
+    design's. A test-side wrapper holds 164's ``squeeze_slack`` at 8 for 164 #1's FIRST route call (by call count, never
+    by time): that attempt STALLS at the pinch's mouth inside the window and the ladder climbs there; the next, at 12,
+    passes: 164 #1 failed then done. THE PINCH records every hold starting or ending in the window with its samples,
+    every ladder rung after one flagged ``pinch``, EACH STALL CLASSIFIED by the rung right after it (rejected,
+    blocker-sealed or slid -- here the refused step: sealed by the blocker the ladder placed and froze on, rejected
+    after it, never slid) and F5 NO-GO (a rung followed a pinch hold); the report MEASURES the narrowest wall gap a
+    pinch hold passed on stock 164, level-aware: under the radius 80, never under what the squeeze lets him pass (80 -
+    12; 68.6 measured, the pinch's half-width). THE KNIGHT: T0 the first RING sample in "164" at published y >= 8400
+    (on loop 2, during 164 #0's walk:
+    after the step's frame0, before its end), ip230 after T0 and inside THE EXEMPT SPAN, the wait read (the bit
+    published, last 1, its seconds on both clocks), the seat and start1 rows at (-586, 3884), his polls -- moving, then
+    seated. THE MOVIE: the 313 press before the ip502 row, the span clocked, no press, choice or skip dialog, 166's
+    Byte[13] old by ip119. Reads the install (a warned skip fails G44). Break: a stall classified without the rung
+    after it (every stall "rejected": the blocker the ladder placed and froze on never read)."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    wm, _script = dali
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s = _O8_FIELDS["S"]
+    stages = {"R-FULL": dict(R.STAGES["R-FULL"], field=s["164"], end=[55], runs=1, run_s=240)}
+
+    def wrap(g, fake):
+        real, calls = g.route_to, [0]
+
+        def route_to(*a, **kw):
+            if g.state.field_id == s["164"] and kw.get("clearance") == 64:
+                calls[0] += 1
+                fake.levels[s["164"]].squeeze_slack = 8.0 if calls[0] == 1 else 12.0
+            return real(*a, **kw)
+        g.route_to = route_to
+
+    def bent(doc):
+        """The load bent the launch: 164 #1 not failed exactly once before its done row (a starved walk failed the
+        second attempt too) -- its class asserted: a driver's, never a game's."""
+        rec = (doc.get("stages") or {}).get("R-FULL", [{}])[0]
+        rows = [(r["n"], r["outcome"]) for r in rec.get("steps") or () if r.get("field") == s["164"] and r["n"] == 1]
+        if rows != [(1, "failed"), (1, "done")]:
+            assert (rec.get("outcome") or {}).get("by") in (None, "driver"), rec.get("outcome")
+            return True
+        return False
+    (doc, fake, title, aside), win, stocks = _o8_stock_launch(
+        game, R, stages, {"O8_STAGE": "R-FULL"}, lambda: [_o8_rh(levels=True, movie_frames=400)], wm=wm,
+        fids=(164, 165), wrap=wrap, engine=engine, spoiled=bent)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    rec = doc["stages"]["R-FULL"][0]
+    assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == "field 55", (rec["outcome"], aside)
+    t164 = [r for r in rec["steps"] if r["field"] == s["164"] and r["n"] == 1]
+    assert [r["outcome"] for r in t164] == ["failed", "done"], t164
+    pn = rec["pinch"]
+    assert pn["place"] == s["164"] and pn["pinch_holds"] and pn["stalls"], (pn["pinch_holds"], pn["stalls"])
+    for h in pn["pinch_holds"]:
+        assert h["samples"] and (_o8_in(win, *h["from"], h["y0"]) or _o8_in(win, *h["to"], h["y1"])), h
+    pinch_rungs = [x for x in rec["ladder"] if x["pinch"]]
+    assert pinch_rungs and pinch_rungs[0]["step"]["n"] == 1 and pinch_rungs[0]["step"]["attempt"] == 1, rec["ladder"]
+    sealing = [x for x in pinch_rungs if "blocker" in x["rungs"] and {"boxed", "frozen"} & set(x["rungs"])]
+    assert sealing, pinch_rungs                                     # the ladder placed a blocker there and froze
+    for x in pn["stalls"]:                                          # the rung right after it decides; none: its own move
+        assert _o8_in(win, x["x"], x["z"]) and x["why"].startswith("moved "), x
+        nxt = [r for r in pn["rungs"] if r["frame"] is not None and r["frame"] >= x["frame"]][:1]
+        sealed = bool(nxt and "blocker" in nxt[0]["rungs"] and {"boxed", "frozen"} & set(nxt[0]["rungs"]))
+        assert x["class"] == ("blocker-sealed" if sealed else "slid" if "slide True" in x["why"] else "rejected"), x
+    assert "blocker-sealed" in {x["class"] for x in pn["stalls"]}, pn["stalls"]
+    assert pn["f5"].startswith("NO-GO: a ladder rung") and "THE PINCH WINDOW" in pn["f5"], pn["f5"]
+    kn = rec["knight"]
+    w0 = [r for r in rec["steps"] if r["field"] == s["164"] and r["n"] == 0][-1]
+    assert kn["t0"]["field"] == s["164"] and kn["t0"]["y"] >= 8400 and w0["frame0"] < kn["t0"]["frame"] < w0["frame"], \
+        (kn["t0"], w0["frame0"], w0["frame"])
+    lo, hi = kn["span"]
+    assert kn["t0"]["frame"] < kn["ip230"]["f"] and lo <= kn["ip230"]["f"] < hi, (kn["t0"], kn["ip230"], kn["span"])
+    wt = kn["wait"]
+    assert wt["read"] is True and wt["last"] == 1 and wt["published"] >= 1 and wt["s"] >= 0 and wt["game_s"] >= 0, wt
+    for row in (kn["seat"], kn["start1"]):
+        assert row is not None and (round(row["x"]), round(row["z"])) == (-586, 3884), (kn["seat"], kn["start1"])
+    spots = [tuple(p[1:]) for p in kn["polls"]]
+    assert len(set(spots)) > 1 and spots[-1] == (-586.0, 3884.0), spots
+    mv = rec["movie"]
+    assert mv["span"]["fps"] is not None and mv["p313"] < mv["span"]["f502"], mv
+    assert (mv["presses"], mv["choices"], mv["skips"], mv["byte13_old"]["ip"]) == (0, 0, 0, 119), mv
+    report = O.rehearsal_report8(game / "run", walkmesh=lambda p: stocks[p][0] if p in stocks else None)
+    gaps = [float(m) for m in re.findall(r"the narrowest wall gap a pinch hold passed (\d+(?:\.\d+)?)", report)]
+    assert len(gaps) == 1 and 80.0 - 12.0 - 0.5 <= gaps[0] < _O8_RADIUS164, (gaps, report[:5000])  # 68.6 measured
+    for want in ("F5 NO-GO: a ladder rung", "-- IN THE PINCH WINDOW", "stall at frame", "THE KNIGHT: T0 {",
+                 "the movie: 313 pressed at"):
+        assert want in report, (want, report[:5000])

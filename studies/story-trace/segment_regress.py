@@ -955,6 +955,19 @@ REQUIRED_TESTS_O8: tuple = (
     "test_o8_tower_build_pins_hold_member_166_byte_identical_with_its_raw_field55",
     # C2: the trace summary over the dry run's rows (its cases, units and the story-o3 fixture are G45's)
     "test_o8_tower_trace_summary_cuts_at_end_places",
+    # C3: the rehearsals on the fake -- the chain's ids and the nightly window, every 7.2 section, the three stops
+    # (the wait, the pinch, mid-movie), the poke and the net's No, the late edge's re-run, THE KNIGHT / PINCH / MOVIE
+    # records, the untraced smoke and pass
+    "test_o8_rehearsal_stage_ids_follow_the_chain",
+    "test_o8_rehearsal_plumbing_on_the_fake",
+    "test_o8_rehearsal_void_stops_on_the_wait_on_the_fake",
+    "test_o8_rehearsal_void_stops_in_the_pinch_window_on_the_fake",
+    "test_o8_rehearsal_void_stops_mid_movie_on_the_fake",
+    "test_o8_rehearsal_pokes_the_movie_once_and_the_net_answers_no_on_the_fake",
+    "test_o8_rehearsal_fmv_reruns_a_late_edge_v5_on_the_fake",
+    "test_o8_rehearsal_records_the_knight_the_pinch_and_the_movie_on_the_fake",
+    "test_o8_rehearsal_smoke_sends_no_storytrace_on_the_fake",
+    "test_o8_rehearsal_fpass_runs_untraced_to_real_55_on_the_fake",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

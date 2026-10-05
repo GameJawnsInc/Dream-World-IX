@@ -3632,11 +3632,13 @@ def _stop_lines8(rec: dict) -> list:
 
 
 def _warp_text8(stage: dict) -> str:
-    """A stage's warp as the report heads it: one, or -- a stage with ``each`` -- each run's with its stop."""
+    """A stage's warp as the report heads it: one, or -- a stage with ``each`` -- each run's with its stop, a run's own
+    warp and end where its entry lays them (R-VOID's), else the stage's (R-FMV's entries lay only the poke)."""
     each = stage.get("each")
     if not each:
         return f"warp {stage.get('field')} {stage.get('entrance')} {stage.get('sc')} -> {stage.get('end')}"
-    return "; ".join(f"run {k}: warp {e.get('field')} {e.get('entrance')} {stage.get('sc')} -> {e.get('end')}"
+    return "; ".join(f"run {k}: warp {e.get('field', stage.get('field'))} {e.get('entrance', stage.get('entrance'))} "
+                     f"{stage.get('sc')} -> {e.get('end', stage.get('end'))}"
                      + "".join(f", {key} {e[key]}" for key in sorted(REHEARSAL_OVERLAYS8) if e.get(key))
                      for k, e in enumerate(each, 1))
 
@@ -3681,6 +3683,7 @@ def rehearsal_report8(run_dir, *, walkmesh=None) -> str:
                      f"{w.get('sc')}: {out.get('end')} -- {out.get('why')}"
                      + (f" [{out.get('v')} {out.get('cell')} {out.get('by')}]" if out.get("v") else "")
                      + (" (RE-RUN: a late-edge V5)" if rec.get("rerun_of") else "")
+                     + ("" if rec.get("counted", True) else " -- SET ASIDE: a late-edge V5, re-run, never counted")
                      + f"; beats {rec.get('beats')}; {rec.get('t1', 0) - rec.get('t0', 0):.0f}s; render rate "
                      f"{rate.get('fps')} fps ({rate.get('tick_hz')} Hz ticks, {rate.get('source')}); trace "
                      f"{rec.get('trace_file')}")
@@ -3743,6 +3746,11 @@ def rehearsal_report8(run_dir, *, walkmesh=None) -> str:
                      + f", title {er.get('title')}, rows {[x.get('k') for x in er.get('how') or ()]}"
                      + (f", {er.get('s')} s" if er.get("s") is not None else ""))
             L += _trace_report8(rec.get("trace") or {})
+        aside = [r for r in recs if r.get("counted") is False]
+        if aside:
+            L.append(f"  counted (F3 and every freeze item): {len(recs) - len(aside)} run record(s) -- runs "
+                     f"{[r.get('n') for r in recs if r.get('counted', True)]}; set aside (a late-edge V5, re-run): runs "
+                     f"{[r.get('n') for r in aside]}")
         L.append("")
     return "\n".join(L)
 
