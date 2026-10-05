@@ -26416,24 +26416,28 @@ def _harness_tests_module():
     return HT
 
 
-def test_segment_regress_items_are_g1_to_g33_once():
-    """The gate's registry: ITEM_ORDER holds G1-G33 each once, printed as always (G21 last); every segment's items are
-    in it and no item is two segments' (G21 is no segment's); the pytest items are G7, G12, G13, G19, G26 and G32 with
-    the selections the gate has always run; select_items reads nothing as every item, ``--only`` and ``--segment`` as
-    the union of their items, and refuses an id or a segment there is none of. Break: drop an item from ITEM_ORDER
-    (a full run would then pass without it), or file one under two segments."""
+def test_segment_regress_registry_holds_every_item_once():
+    """The gate's registry (research/o7_design.md 1.4: renamed from ``..._items_are_g1_to_g33_once`` -- the name says
+    what it pins, not a range, so each extension edits its body): ITEM_ORDER holds G1-G37 each once, printed as always
+    (O6's G34-G37 after G33, G21 last); every segment's items are in it and no item is two segments' (G21 is no
+    segment's); the pytest items are G7, G12, G13, G19, G26 and G32 with the selections the gate has always run;
+    select_items reads nothing as every item, ``--only`` and ``--segment`` as the union of their items -- O6's six, G32
+    to G37 -- and refuses an id or a segment there is none of (G40, O8 and a lower-case id: refused through every later
+    extension too). Break: drop an item from ITEM_ORDER (a full run would then pass without it), or file one under two
+    segments."""
     R = _regress_module()
-    assert sorted(R.ITEM_ORDER, key=lambda i: int(i[1:])) == [f"G{n}" for n in range(1, 34)], R.ITEM_ORDER
-    assert len(set(R.ITEM_ORDER)) == 33 and R.ITEM_ORDER[-1] == "G21"
+    assert sorted(R.ITEM_ORDER, key=lambda i: int(i[1:])) == [f"G{n}" for n in range(1, 38)], R.ITEM_ORDER
+    assert len(set(R.ITEM_ORDER)) == 37 and R.ITEM_ORDER[-1] == "G21"
+    assert R.ITEM_ORDER[-5:-1] == ("G34", "G35", "G36", "G37"), R.ITEM_ORDER
     seg = [i for ids in R.SEGMENT_ITEMS.values() for i in ids]
     assert len(seg) == len(set(seg)) and set(seg) | {"G21"} == set(R.ITEM_ORDER), seg
     assert R.PYTEST_ITEMS == {"G7": R.PYTEST_K, "G12": R.PYTEST_K_O2, "G13": R.PYTEST_K_O3, "G19": R.PYTEST_K_O4,
                               "G26": R.PYTEST_K_O5, "G32": R.PYTEST_K_O6}
     assert R.select_items() == set(R.ITEM_ORDER)
     assert R.select_items(["G26", "G27"]) == {"G26", "G27"}
-    assert R.select_items((), ["O6"]) == {"G32", "G33"}
-    assert R.select_items(["G21"], ["O6"]) == {"G21", "G32", "G33"}
-    for only, segs in ((["G34"], ()), ((), ["O7"]), (["g7"], ())):
+    assert R.select_items((), ["O6"]) == {"G32", "G33", "G34", "G35", "G36", "G37"}
+    assert R.select_items(["G21"], ["O6"]) == {"G21", "G32", "G33", "G34", "G35", "G36", "G37"}
+    for only, segs in ((["G40"], ()), ((), ["O8"]), (["g7"], ())):
         with pytest.raises(ValueError):
             R.select_items(only, segs)
 
@@ -26516,7 +26520,8 @@ def test_segment_regress_partial_run_is_not_the_gate(tmp_path, capsys, monkeypat
     monkeypatch.setattr(R, "g21", lambda base, pins=None, **kw: (True, "G21: stubbed", "stub"))
     assert R.gate(only={"G21"}) == 3
     out = capsys.readouterr().out
-    assert "PARTIAL: 1/1 selected items PASS (32 of 33 not run) -- NOT THE GATE" in out, out[-600:]
+    n = len(R.ITEM_ORDER)                                  # the registry's own count: every extension keeps this test
+    assert f"PARTIAL: 1/1 selected items PASS ({n - 1} of {n} not run) -- NOT THE GATE" in out, out[-600:]
     assert "items PASS (baseline heads" not in out and "PASS  G21" in out, out[-600:]
     monkeypatch.setattr(R, "g21", real_g21)                 # an unreadable pins file fails before any sha is read
     bad = tmp_path / "pins.json"
@@ -26713,3 +26718,114 @@ def test_segment_regress_gate_stops_its_pytest_half_when_the_rest_raises(monkeyp
     with pytest.raises(RuntimeError, match="an in-process item broke"):
         R.gate(only={"G1", "G7"})
     assert stopped and stopped[0] - t0 < 20, stopped
+
+
+# ---- O7, PART A (research/o7_design.md section 9): the regression gate extended to O6 (G34-G37, G21 over the union of
+# the O3, O4, O5 and O6 baselines' pins), the O6 replay on the hand-stepped fake (A0b), then the shared opt-in changes --
+# S17 the walk step kind (A1), S18 a per-step clearance threaded into route_to's planner (A2), S19 the exact prior basis
+# and its first-move check (A3). Every ``test_segment_*`` here is collected by G7's selection ("segment"), so the gate
+# re-runs it.
+
+def test_segment_regress_o6_pins_join_the_union(tmp_path):
+    """G21 OVER FOUR BASELINES (research/o7_design.md 1.4, 9 A0), pure, over a temporary COPY of the two pinned files:
+    the O3 baseline's pins (an O1 test, the fake's ``_control``), the O4 baseline's (an O4 test, the fake's story sink),
+    the O5 baseline's (an O5 test, the fake's ``_story_site``) and the O6 baseline's (an O6 test, the fake's
+    ``_door_knobs``, the ``_VisitBeat._walk_out`` O6 added) join into ONE set of pins (``union_sources``) that reads
+    clean, and three baselines still join as they always did; an edit to the pinned O6 TEST's body FAILS naming it --
+    and only it, which the O3-O5 pins alone cannot see; a re-baseline row for that O6-baseline name (its ``old`` the O6
+    pin) reads clean again. Through files too: G21 over four temporary baselines (``union_base``, as the gate passes
+    them) and a pins file, and ``--rebaseline-source`` finding the name in the O6 baseline alone (``baseline_o6``;
+    without it the name is not pinned, and a refusal writes nothing). A name pinned in TWO baselines is refused at
+    capture (``o6_pin_names``: one the O3, the O4 or the O5 baseline already pins) and by the union -- and so by
+    ``--rebaseline-source``. The fake's O6 pins are FAKE_PINS_O6, each a function fakegame.py defines
+    (``fake_pins_o6``: a renamed one raises). Break: judge the O3-O5 baselines' sources alone (the edit then passes),
+    or let a union keep one of two pins."""
+    R = _regress_module()
+    test_copy, fake_copy = tmp_path / "test_harness.py", tmp_path / "fakegame.py"
+    test_copy.write_bytes((REPO / R.TEST_REL).read_bytes())
+    fake_copy.write_bytes((REPO / R.FAKE_REL).read_bytes())
+    files = {R.TEST_REL: test_copy, R.FAKE_REL: fake_copy}
+    pick = R.pin_of_test("test_o1_pick_for_reads_the_frozen_rules_by_option_text")
+    control = f"{R.FAKE_REL}::_control"
+    stray = R.pin_of_test("test_o4_stray_answer_attributes_by_the_down_frame")
+    sink = f"{R.FAKE_REL}::FakeGame._story_store"
+    off = R.pin_of_test("test_fake_story_suppress_is_off_by_default")
+    site = f"{R.FAKE_REL}::FakeGame._story_site"
+    restores = R.pin_of_test("test_fake_naming_new_game_restores_the_default_name")
+    knobs = f"{R.FAKE_REL}::_door_knobs"
+    walk_out = f"{R.FAKE_REL}::_VisitBeat._walk_out"
+    o3 = R.source_shas([pick, control], files=files)
+    o4 = R.source_shas([stray, sink], files=files)
+    o5 = R.source_shas([off, site], files=files)
+    o6 = R.source_shas([restores, knobs, walk_out], files=files)
+    shas = [*o3.values(), *o4.values(), *o5.values(), *o6.values()]
+    assert all(isinstance(v, str) and len(v) == 64 for v in shas), (o3, o4, o5, o6)
+    union = R.union_sources(o3, o4, o5, o6)
+    assert sorted(union) == sorted([pick, control, stray, sink, off, site, restores, knobs, walk_out]), union
+    assert R.g21_bad(union, R.source_shas(sorted(union), files=files), []) == []
+    assert R.union_sources(o3, o4, o5) == {**o3, **o4, **o5}, "three baselines join as they always did"
+    with pytest.raises(ValueError, match="joins at most the O3, O4, O5, O6 baselines, not 5"):
+        R.union_sources(o3, o4, o5, o6, {})
+
+    def edit(path, old, new):
+        text = path.read_text(encoding="utf-8")
+        assert text.count(old) == 1, f"premise: {old!r} occurs once in the copy"
+        path.write_text(text.replace(old, new), encoding="utf-8")
+    edit(test_copy, '        for typed in ("Rusty", None):\n', '        for typed in ("Rusty", "Steiner"):\n')
+    now = R.source_shas(sorted(union), files=files)
+    bad = R.g21_bad(union, now, [])
+    assert len(bad) == 1 and bad[0].startswith(f"{restores}: changed (") and "--rebaseline-source" in bad[0], bad
+    three = R.union_sources(o3, o4, o5)
+    assert R.g21_bad(three, R.source_shas(sorted(three), files=files), []) == [], \
+        "premise: the O3-O5 pins alone pass the edit"
+    row = R.pin_row(union, [], restores, o6[restores], now[restores], "  the O6 test changed on purpose ", "abc123")
+    assert row == {"name": restores, "old": o6[restores], "new": now[restores],
+                   "reason": "the O6 test changed on purpose", "head": "abc123"}, row
+    assert R.g21_bad(union, now, [row]) == []
+    # through files: four temporary baselines and a pins file -- G21 over their union, --rebaseline-source on the O6
+    # name
+    b3, b4, b5, b6 = (tmp_path / f"o{n}_regress_baseline.json" for n in (3, 4, 5, 6))
+    pins = tmp_path / "source_pins.json"
+    for path, src in ((b3, o3), (b4, o4), (b5, o5), (b6, o6)):
+        path.write_text(json.dumps({"sources": src, "sources_python": R._py()}), encoding="utf-8")
+    pins.write_text("[]\n", encoding="utf-8")
+
+    def read(path):
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def g21():
+        return R.g21(R.union_base(read(b3), read(b4), read(b5), read(b6)), pins, files=files)
+    ok, what, detail = g21()
+    assert ok is False and what.startswith("G21: ") and f"{restores}: changed" in detail and pick not in detail, detail
+    assert "the O6 tests G32 collected at the O6 capture" in what, what
+    assert R.rebaseline_source(restores, "", baseline=b3, baseline_o4=b4, baseline_o5=b5, baseline_o6=b6, pins=pins,
+                               files=files) == 1
+    assert R.rebaseline_source(restores, "the O6 test changed on purpose", baseline=b3, baseline_o4=b4,
+                               baseline_o5=b5, pins=pins, files=files) == 1      # the O3-O5 baselines alone: not pinned
+    assert pins.read_text(encoding="utf-8") == "[]\n", "a refusal writes nothing"
+    assert R.rebaseline_source(restores, "the O6 test changed on purpose", baseline=b3, baseline_o4=b4,
+                               baseline_o5=b5, baseline_o6=b6, pins=pins, files=files) == 0
+    rows = json.loads(pins.read_text(encoding="utf-8"))
+    assert [(r["name"], r["old"], r["new"]) for r in rows] == [(restores, o6[restores], now[restores])], rows
+    ok, _what, detail = g21()
+    assert ok is True and "9 sources at their pins (1 re-baseline row" in detail, detail
+    # a name pinned in two baselines: refused at capture, no union, no re-baseline
+    for other, label in ((pick, "O3"), (sink, "O4"), (site, "O5")):
+        with pytest.raises(ValueError, match=f"pinned in both the {label} and the O6 baselines"):
+            R.o6_pin_names(o3, o4, o5, [restores, knobs, other])
+    assert R.o6_pin_names(o3, o4, o5, [restores, knobs, knobs, walk_out]) == [restores, knobs, walk_out]
+    with pytest.raises(ValueError, match="pinned in both the O5 and the O6 baselines"):
+        R.union_sources(o3, o4, o5, {**o6, off: o5[off]})
+    with pytest.raises(ValueError, match="pinned in both the O3 and the O6 baselines"):
+        R.union_sources(o3, o4, o5, {**o6, pick: o3[pick]})
+    b6.write_text(json.dumps({"sources": {**o6, sink: o4[sink]}, "sources_python": R._py()}), encoding="utf-8")
+    assert R.rebaseline_source(restores, "why", baseline=b3, baseline_o4=b4, baseline_o5=b5, baseline_o6=b6, pins=pins,
+                               files=files) == 1
+    assert len(json.loads(pins.read_text(encoding="utf-8"))) == 1, "a refusal writes nothing"
+    # the fake's O6 pins: FAKE_PINS_O6 exactly, each a function fakegame.py defines
+    source = fake_copy.read_text(encoding="utf-8")
+    assert R.fake_pins_o6(source) == list(R.FAKE_PINS_O6) and len(set(R.FAKE_PINS_O6)) == 12, R.FAKE_PINS_O6
+    assert {"_door_knobs", "_VisitBeat._door", "FakeGame._step_walkout"} <= set(R.FAKE_PINS_O6)
+    assert source.count("    def _walk_out(") == 1, "premise: one _walk_out definition"
+    with pytest.raises(ValueError, match=re.escape("no function ['_VisitBeat._walk_out']")):
+        R.fake_pins_o6(source.replace("    def _walk_out(", "    def _walkout("))
