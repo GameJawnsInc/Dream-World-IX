@@ -921,6 +921,29 @@ REQUIRED_TESTS_O8: tuple = (
     "test_o8_drive_movie_skip_dialog_with_an_empty_prompt_answered_at_no_on_the_fake",
     "test_o8_drive_dead_level_door_holds_no_fire_on_the_fake",
     "test_o8_drive_unstick_false_through_the_pinch_on_the_fake",
+    # C1: O8 itself -- the draft from the chain, the step vocabulary and its round trip, the freeze, the route builder
+    # against the draft, the census's reach proof, the gates through their jumps, the goals by height, the keys'
+    # derivations, the raced set, the walk / order / knight / landing / seam / movie checks, the knight watch under the
+    # drive, why_void, the reseed, the preflight and O8-BUILD's raw exit
+    "test_o8_tower_draft_reads_the_chain_from_campaign",
+    "test_o8_tower_draft_steps_round_trip_through_step_of",
+    "test_o8_tower_known_step_keys_refuse_an_unknown_key",
+    "test_o8_tower_freeze_refuses",
+    "test_o8_tower_route_builder_matches_the_keys",
+    "test_o8_tower_census_classifies_every_site",
+    "test_o8_tower_regions_gates_read_off_the_pins",
+    "test_o8_tower_goals_are_height_aware",
+    "test_o8_tower_keys_derive_the_carried_scoped_and_reads",
+    "test_o8_tower_end_race_derives_int16_2_and_byte_8",
+    "test_o8_tower_walk_check",
+    "test_o8_tower_order_and_knight_checks",
+    "test_o8_tower_landing_and_seam_checks",
+    "test_o8_tower_movie_check",
+    "test_o8_tower_knight_watch_reads_the_seat_by_place",
+    "test_o8_tower_why_void_reads_the_start_the_movie_and_the_knight",
+    "test_o8_tower_start_run_forgets_every_seeded_basis",
+    "test_o8_tower_preflight_verdicts",
+    "test_o8_tower_build_pins_hold_member_166_byte_identical_with_its_raw_field55",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

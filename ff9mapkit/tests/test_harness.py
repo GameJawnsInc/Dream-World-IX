@@ -32882,3 +32882,846 @@ def test_o8_drive_unstick_false_through_the_pinch_on_the_fake(game, dali):
     assert [(r["outcome"], r["attempt"]) for r in trig] == [("failed", 1), ("done", 2)], trig
     assert trig[0]["unstick"] is False and trig[0]["route"]["blockers"] == [] and 1 not in blockers, (trig[0], blockers)
     assert trig[1]["lost"]["y"] > 12000 and trig[1]["landed"] in (None, 30861), trig[1]
+
+
+# ---- PART C, C1: O8 itself (studies/story-trace/o8_west_tower.py; research/o8_design.md 9 PART C): the draft read from
+# O4's campaign.toml, the step vocabulary and its round trip, the freeze's refusals, the route builder against the draft
+# (one source of truth: its stores, its pattern, its knight's release, the band closures, THE EXEMPT SPAN), the census
+# with its reach proof, the regions' gates read through their jumps, the goals height-aware, the keys' derivations, THE
+# RACED SET, O8-WALK, -ORDER, -KNIGHT, -LANDING, -SEAM and -MOVIE pure, the knight watch under the drive, why_void's
+# start reads, movie and knight, the per-run reseed, the preflight's verdicts and O8-BUILD's raw exit -- each pure or on
+# synthetic chains, rows and installs (the census, the regions, the goals, the keys, the raced set and the builder's
+# pattern read the install's stock scripts and walkmeshes, read-only: a warned skip without it, which fails G44). Every
+# name is test_o8_tower_*: G44's "o8_".
+
+def _o8_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o8_west_tower as O
+    return O
+
+
+def _o8_dryrun():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o8_dryrun as D
+    return D
+
+
+@pytest.fixture(scope="module")
+def o8_stock():
+    """The install's stock scripts (164, 165, 166, 55, 70 and 64 read first) and its walkmeshes, or a WARNED skip --
+    never a silent pass (THE WORKTREE SKIP TRAP)."""
+    import warnings
+    try:
+        from ff9mapkit import extract, storytrace
+        src = storytrace.stock_script_source()
+        assert all(src(f) is not None for f in (164, 165, 166, 55, 70, 64))
+        extract.stock_walkmesh(164)
+    except Exception as err:                                   # noqa: BLE001 -- no install here
+        warnings.warn(f"O8's census, regions, goals, keys, raced set and pattern went UNVERIFIED against real bytes in "
+                      f"this run: the game install is not readable here ({type(err).__name__}). Run on the machine with "
+                      f"the install.", UserWarning)
+        pytest.skip("game install unavailable")
+    return src
+
+
+def _o8_draft(tmp_path, **kw):
+    """The draft on a synthetic alxc chain (:func:`_o4c_campaign`: the twenty donors at 31240 + their position, so
+    member(164) 31256, member(165) 31257, member(166) 31258 as built)."""
+    return _o8_module().draft_predictions(_o4c_campaign(tmp_path), **kw)
+
+
+def _o8_frozen_like(pred):
+    """The draft with the freeze-time values the lead's freeze writes (7.3): the rehearsal run dirs, the render rates
+    they met and the measurements F2-F8 put into ``rehearsed`` -- never pinned by a test."""
+    import copy
+    good = copy.deepcopy(pred)
+    good["rehearsals"] = ["C:/gd/Dream-World-IX/.harness-runs/20261006-000000-o8-rh"]
+    good["rehearsal_fps"] = [31.0, 60.0]
+    good["rehearsed"] = {"stretch_s": 60.0, "wait_s": 4.0, "steps_s": {"164 #0": 70.0}, "movie_span_s": 45.4,
+                         "narrowest_pinch": 70.0}
+    return good
+
+
+def _o8_rehearsal_dir(name):
+    """Whether ``name`` -- a bare run-dir name or a full path, either slash -- is an O8 rehearsal launch's run dir:
+    ``<yyyymmdd>-<hhmmss>-o8-rh``, optionally ``-<suffix>``. Never another segment's and never a session's."""
+    base = re.split(r"[\\/]", str(name))[-1]
+    return re.fullmatch(r"\d{8}-\d{6}-o8-rh(?:[-_][A-Za-z0-9_-]+)?", base, flags=re.IGNORECASE) is not None
+
+
+def test_o8_tower_draft_reads_the_chain_from_campaign(tmp_path):
+    """The draft's members and names are O4's built chain's campaign.toml (research/o8_design.md 1.3, 4.1): its donors
+    exactly the twenty, the three route members DERIVED -- member(164) 31256, member(165) 31257, member(166) 31258 --
+    never 31205 (O1's member(55)); the draft starts F in member(164), ends REAL 55 on both sides (``side_ends`` {S: [55],
+    F: [55]}), visits the three places, carries 20 writes and 3 chain keys, the FOUR residue rows (342 = 0x0156), two
+    visit-scoped cells of two steps each with their clearances (80, 64, 120, 120), the knight's seat, the movie and the
+    seam registered, the end state without the raced pair or a carried target. The rehearsals are read from the draft
+    (the lead names them at the freeze), never pinned. o8_forks.json is O4's chain reused: O4's twenty members and
+    names, its route members derived, the declared seam 31258 -> 55, 31205 outside, deployed, nothing to relaunch, C0's
+    measured diffs. Break: the F side ending in member(166) (no seam)."""
+    O = _o8_module()
+    members, names = O.chain_from_campaign(_o4c_campaign(tmp_path))
+    assert O.route_members8(members) == {164: 31256, 165: 31257, 166: 31258}, O.route_members8(members)
+    assert O.route_members_line(members) == "member(164) 31256, member(165) 31257, member(166) 31258"
+    pred = _o8_draft(tmp_path)
+    assert pred["start"] == {"S": 164, "F": 31256} and pred["side_ends"] == {"S": [55], "F": [55]}, \
+        (pred["start"], pred["side_ends"])
+    assert pred["route"] == pred["visits"] == [164, 165, 166] and pred["end_fields"] == [55]
+    assert 31205 not in {int(f) for f in pred["members"]} and len(pred["members"]) == 20
+    assert pred["members"] == {str(f): d for f, d in members.items()} and pred["names"]["31256"] == "O4_SYNTH_164"
+    assert (pred["entrance"], pred["scenario"], pred["battles"], pred["naming"], pred["start_dependent"]) == (
+        342, 1190, [], [], [])
+    # the lead names the rehearsals at the freeze (7.3): never pin them empty, nor pin their form beyond O8's own dirs
+    assert all(_o8_rehearsal_dir(r) for r in pred["rehearsals"]), pred["rehearsals"]
+    for name in ("20261006-101010-o8-rh", "20261006-101010-o8-rh-fmv", "C:\\gd\\x\\20261006-101010-o8-rh-R-VOID"):
+        assert _o8_rehearsal_dir(name), name
+    for name in ("20261005-101010-o7-rh", "20261006-101010-o8-rhx", "20261006-101010-story-o8", ""):
+        assert not _o8_rehearsal_dir(name), name
+    assert all(_o8_rehearsal_dir(r) for r in _o8_frozen_like(pred)["rehearsals"])
+    assert len(pred["writes"]) == 20 and len(pred["chain"]) == 3 and pred["ladder"] == [], len(pred["writes"])
+    assert pred["start_residue"] == [[0, 0, 166], [1, 0, 4], [2, 0, 86], [3, 0, 1]], pred["start_residue"]
+    steps = [s for c in pred["table"] for s in c["steps"]]
+    assert [c["visit"] for c in pred["table"]] == [1, 2] and [s["clearance"] for s in steps] == [80, 64, 120, 120]
+    assert pred["seat_watch"]["seat"] == [-586, 3884] and pred["movie"]["name"] == "FMV004" and "movies" not in pred
+    assert pred["seam"]["to"] == 55 and pred["seam"]["fields"] == [55], pred["seam"]
+    assert not {"Global.Int16[2]", "Global.Byte[8]"} & set(pred["end_state"]), pred["end_state"]
+    assert set(pred["end_state_trace"]) == {"Global.Int16[2]", "Global.Byte[8]"}, pred["end_state_trace"]
+    assert not set(pred["carried"]["values"]) & set(pred["end_state"]) and len(pred["carried"]["values"]) == 15
+    man = json.loads(O.MANIFEST.read_text(encoding="utf-8"))
+    o4 = json.loads(O.C4.MANIFEST.read_text(encoding="utf-8"))
+    mm = {int(f): int(d) for f, d in man["members"].items()}
+    assert man["members"] == o4["members"] and man["names"] == o4["names"], "o8_forks.json is not O4's chain"
+    assert man["route_members"] == {str(f): d for d, f in O.route_members8(mm).items()}, man["route_members"]
+    assert (man["seam"]["from"], man["seam"]["donor"], man["seam"]["to"]) == (O.route_members8(mm)[166], 166, 55)
+    assert man["outside"]["31205"] == 55 and "31205" not in man["members"], man["outside"]
+    assert (man["deployed"], man["relaunch_needed"], man["reuses"]) == (True, False,
+                                                                        "studies/story-trace/o4_forks.json"), man
+    for site in ("e2 t2 ip251 (165)", "e3 t2 ip251 (163)", "e2 t2 ip241 (166)", "e3 t2 ip251 (164)",
+                 "166 BYTE FOR BYTE", "e6 t1 ip871 Field(55) RAW", "21 member files"):
+        assert site in man["built"]["measured"], site
+
+
+def test_o8_tower_draft_steps_round_trip_through_step_of(tmp_path):
+    """Critique #5's unit (research/o8_design.md 9 C1): every step of the draft AND of ``as_if_frozen(draft)`` goes
+    through segment_drive.step_of EXACTLY -- ``step_of(pred, raw) == {**steps_default, **raw}`` with the climb dict
+    merged, every S20/S21/S23 key kept as typed, nothing added or dropped -- so the round trip the lead's freeze writes
+    reads back the steps the offline check proved. Break: a step_of that adds a key (the walk's ``target`` None)."""
+    SD = _segment_modules()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    for p in (pred, D.as_if_frozen(pred)):
+        dflt = p["steps_default"]
+        for c in p["table"]:
+            for raw in c["steps"]:
+                want = {**dflt, **raw}
+                if "climb" in raw:
+                    want["climb"] = {**dflt["climb"], **raw["climb"]}
+                got = SD.step_of(p, raw)
+                assert got == want, (raw.get("name"), sorted(set(got) ^ set(want)),
+                                     {k: (got.get(k), want.get(k)) for k in want if got.get(k) != want.get(k)})
+    walk = pred["table"][0]["steps"][0]
+    assert SD.step_of(pred, walk)["wait_flag"] == walk["wait_flag"] and SD.step_of(pred, walk)["at_y"] == walk["at_y"]
+
+
+def test_o8_tower_known_step_keys_refuse_an_unknown_key(o8_stock, tmp_path):
+    """THE STEP VOCABULARY (research/o8_design.md 0.2 #17): :data:`KNOWN_STEP_KEYS8` holds every key a frozen table
+    through O7 or a ``steps_default`` carries (frozen_through(7): rungs and O1-O7) plus S20, S21 and S23's; a step key
+    outside it -- "hold", a mistyped "at_Y" -- FAILS O8-GOALS (g0) by name and the freeze refuses it (segment_drive.step_of
+    passes an unknown key silently: a table that drives without it is a check that cannot fail). Break: a vocabulary
+    missing "basis" (O7's frozen table's key then reads unknown)."""
+    import copy
+    O = _o8_module()
+    D = _o8_dryrun()
+    vocab = set()
+    for f in D.frozen_through(7):
+        p = json.loads(f.read_text(encoding="utf-8"))
+        vocab |= set(p.get("steps_default") or {})
+        for c in p.get("table") or ():
+            for s in c.get("steps") or ():
+                vocab |= set(s)
+    assert vocab and vocab <= set(O.KNOWN_STEP_KEYS8), sorted(vocab - set(O.KNOWN_STEP_KEYS8))
+    assert {"at_y", "wait_flag", "unstick", "basis", "clearance"} <= set(O.KNOWN_STEP_KEYS8)
+    pred = _o8_draft(tmp_path)
+    for key in ("hold", "at_Y"):
+        bad = copy.deepcopy(pred)
+        bad["table"][0]["steps"][0][key] = 1
+        ok, _w, detail = O.O8.goals_check(bad, stock=o8_stock)
+        assert not ok and f"(164, 1190, 1) #0 (g0): unknown step key(s) ['{key}']" in detail, detail[:300]
+        probs = O.O8.freeze_problems(_o8_frozen_like(bad), live_engine=dict(O.ENGINE), prior=O.prior_segments8(),
+                                     o7=O.o7_frozen())
+        assert any(f"carries an unknown key ['{key}']" in p_ for p_ in probs), probs
+
+
+def test_o8_tower_freeze_refuses(o8_stock, tmp_path):
+    """The freeze (research/o8_design.md 1.3, 7.3) writes the draft ONCE -- LF, sorted keys, its sha the bytes' -- on a
+    synthetic chain, the live engine (a stub reader) and the freeze-time values the lead writes
+    (:func:`_o8_frozen_like`). Before anything is written it refuses, each naming its cause and writing nothing: no
+    witness; a rehearsal overlay on a table step (``flag_stop``, ``movie_poke``); a typed ``stale_slack``; a step without
+    ``clearance``; ``choices`` not the net's two rows; 164 #0 without its wait, ``npcs`` false or e3 avoided; 164 #1 at
+    80; side_ends not {S: [55], F: [55]}; an O1 id among the members; an ``inert`` row; a ``movies`` key; a raced target
+    in ``end_state``; ``end_state_trace`` not the raced set; a carried target in ``end_state``; ``carried`` not the
+    derivation; ``start_scoped`` not the derivation; a start read without its race; no ``seat_watch``; ``rehearsed``
+    without ``narrowest_pinch``; ``no_progress_s`` under twice the stretch; the wait's timeout under 3 x the longest
+    wait; the shortest movie span under file_s - slack_s; VSync not "1"; no rehearsals; another engine; and a second
+    freeze onto the same file. The real o8_predictions_v1.json is never touched. Break: accept a step's movie_poke."""
+    import copy
+    import hashlib
+    O = _o8_module()
+    _o4c_campaign(tmp_path)
+    seg = O.O8Segment()
+    seg.chain_dir = tmp_path
+    live = {"x64": O.ENGINE["x64"], "x86": O.ENGINE["x86"]}
+    good = _o8_frozen_like(seg.draft())
+    assert seg.freeze_problems(good, live_engine=live) == [], seg.freeze_problems(good, live_engine=live)
+
+    def refuses(pred, match, engine=live):
+        seg.draft = lambda: copy.deepcopy(pred)
+        never = tmp_path / "never.json"
+        with pytest.raises(SystemExit, match=match):
+            seg.freeze(never, live_engine=engine)
+        assert not never.exists()
+
+    def edited(fn):
+        p = copy.deepcopy(good)
+        fn(p)
+        return p
+    s0 = lambda p: p["table"][0]["steps"][0]                            # noqa: E731
+    s1 = lambda p: p["table"][0]["steps"][1]                            # noqa: E731
+    refuses(edited(lambda p: p.pop("witness")), "no witness")
+    refuses(edited(lambda p: s0(p).__setitem__("flag_stop", True)), r"rehearsal overlay \['flag_stop'\]")
+    refuses(edited(lambda p: p["table"][1]["steps"][0].__setitem__("movie_poke", {"after_s": 10})),
+            r"rehearsal overlay \['movie_poke'\]")
+    refuses(edited(lambda p: s0(p).__setitem__("stale_slack", 160)), "typed stale_slack")
+    refuses(edited(lambda p: p["table"][1]["steps"][1].pop("clearance")), "carries no clearance")
+    refuses(edited(lambda p: p["choices"].pop()), "are not exactly the skip net's two rows")
+    refuses(edited(lambda p: s0(p).pop("wait_flag")), "164 #0 must carry at_y, wait_flag")
+    refuses(edited(lambda p: s0(p).__setitem__("npcs", True)), "164 #0 must carry")
+    refuses(edited(lambda p: s0(p).__setitem__("avoid", [])), "164 #0 must carry")
+    refuses(edited(lambda p: s1(p).__setitem__("clearance", 80)), "164 #1 must carry an until with a y_gt term")
+    refuses(dict(copy.deepcopy(good), side_ends={"S": [55], "F": [31258]}), "is not exactly")
+    refuses(edited(lambda p: p["members"].__setitem__("31205", 55)), r"O1 id\(s\) \[31205\]")
+    refuses(dict(copy.deepcopy(good), inert=[{"donor": 164, "sid": 9}]), "inert row")
+    refuses(dict(copy.deepcopy(good), movies=[{"name": "FMV004"}]), "a movies key")
+    refuses(edited(lambda p: p["end_state"].__setitem__("Global.Byte[8]", 125)), r"raced target\(s\)")
+    refuses(edited(lambda p: p["end_state_trace"].pop("Global.Byte[8]")), "end_state_trace's targets")
+    refuses(edited(lambda p: p["end_state"].__setitem__("Global.Bit[3796]", 0)),
+            r"carried target\(s\) \['Global\.Bit\[3796\]'\] in end_state")
+    refuses(edited(lambda p: p["carried"]["values"].pop("Global.Bit[3815]")), "carried differs from the derivation")
+    refuses(edited(lambda p: p["start_scoped"].pop(2)),
+            r"start_scoped differs from the derivation: missing \[\(166, 6, 1, 345\)\], extra \[\]")
+    refuses(edited(lambda p: p["start_reads"][0].pop("race")), "carries no race, race_value and edge")
+    refuses(edited(lambda p: p.pop("seat_watch")), "no seat_watch")
+    refuses(edited(lambda p: p["rehearsed"].pop("narrowest_pinch")), r"rehearsed lacks \['narrowest_pinch'\]")
+    refuses(edited(lambda p: p["budget"].__setitem__("no_progress_s", 100)), "no_progress_s 100 under 2 x")
+    refuses(edited(lambda p: p["rehearsed"].__setitem__("wait_s", 9.0)), r"timeout_s 15\.0 under max\(15, 3 x")
+    refuses(edited(lambda p: p["rehearsed"].__setitem__("movie_span_s", 39.0)), "the shortest movie span 39.0 s")
+    refuses(edited(lambda p: p["settings"]["Graphics"].__setitem__("VSync", "0")), "VSync '1'")
+    refuses(dict(copy.deepcopy(good), rehearsals=[]), "no rehearsals")
+    refuses(good, "is not the live DLLs'", engine={"x64": "0" * 64, "x86": "0" * 64})
+    seg.draft = lambda: copy.deepcopy(good)
+    path = tmp_path / "o8_predictions_v1.json"
+    sha = seg.freeze(path, live_engine=live)
+    data = path.read_bytes()
+    assert sha == hashlib.sha256(data).hexdigest() and b"\r" not in data and data.endswith(b"\n")
+    assert data.decode("utf-8") == json.dumps(good, indent=1, sort_keys=True) + "\n"
+    with pytest.raises(SystemExit, match="frozen"):
+        seg.freeze(path, live_engine=live)
+    assert path.read_bytes() == data
+
+
+def test_o8_tower_route_builder_matches_the_keys(game, o8_stock, tmp_path):
+    """ONE SOURCE OF TRUTH (research/o8_design.md 3.6, 9 C1 and PART B's handoff): the test-side route builder
+    (:func:`_o8_route`, B3's) and the draft agree. Its visit beats played by the scripted player from field 70's prologue
+    values and the raw warp, traced with the sink's suppression, read as the analysis reads a run -- the fixture's fields
+    as their places, cut at 164's first write and at REAL 55's first row: the residue before the start is the draft's
+    FOUR rows; the first write is ``start_first``; the distinct unmasked keys of the route places are EXACTLY the draft's
+    20 writes and 3 chain keys, its masked rows the six prologue rows; the cut row is ``landing.end_row``; O8-PATTERN's
+    reading (joined on the stock bytes) is the draft's ``pattern`` (9 + 9 + 11) and the test-side ``_O8_PATTERN`` its by-ip
+    image. And the builder's knight: his ``start`` is :func:`height_gate` over the pinned ip178 and ip187 -- {y_ge: 8400},
+    the seat watch's release; his path and seat the pins'. The test-side band closures (``_o8_band_closures``) are
+    :func:`band_closures` on stock 164 and 165 (93 / 99 / 64 / 16) and THE SPAN (``_o8_span``) is :func:`exempt_span`.
+    Break: 165's ip844 key at value 3 in the draft's writes (the keys then differ)."""
+    from ff9mapkit import extract, storytrace
+    from ff9mapkit.content import pathfind
+    O = _o8_module()
+    ST = __import__("segment_trace")
+    pred = _o8_draft(tmp_path)
+    fake = _o8_box_fake(game)
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(342, 1190)
+    fake.field_id = 30860
+    fake.scene(*_o8_route("S"), control=False)
+    _o8_play(fake, until=lambda f: f.control, limit=400)
+    _o8_play(fake, toward=(2350, 2800), until=_o8_near((2350, 2800)))
+    _o8_play(fake, toward=_O8_P1["164"], until=_o8_near(_O8_P1["164"]))
+    _o8_play(fake, until=lambda f: bool(_o8_ip230(f)), limit=2000)
+    _o8_play(fake, toward=_O8_GOAL1["164"], until=lambda f: f.field_id != 30860)
+    _o8_play(fake, until=lambda f: f.control, limit=400)
+    _o8_play(fake, toward=_O8_P1["165"], until=_o8_near(_O8_P1["165"]))
+    _o8_play(fake, toward=_O8_GOAL1["165"], until=lambda f: f.field_id != 30861)
+    _o8_play(fake, until=lambda f: f.field_id == 55 and any(e["index"] == 4 and e["kind"] == "wait"
+                                                            for e in f.visit_log))
+    fake._story_stop()
+    rows = storytrace.parse_text("".join(json.dumps(r) + "\n" for r in _fv_rows(fake)))
+    places = {f: int(p) for p, f in _O8_FIELDS["S"].items() if p in ("164", "165", "166")}
+    kept, _at, pre = ST.cut_at_start(rows, 164, places)
+    kept, end = ST.cut_at_end(kept, [55], places)
+    assert [[x.byte, x.old, x.new] for x in pre if x.k == "r"] == pred["start_residue"], pre
+    first = next(x for x in kept if x.k == "w")
+    sf = pred["start_first"]
+    assert (first.sid, first.tag, first.ip, first.target, first.new) == (sf["sid"], sf["tag"], sf["ip"], sf["target"],
+                                                                         sf["value"]), first
+    keys = {(places[x.fld], x.sid, x.tag, x.ip, x.target, x.new) for x in kept
+            if x.k == "w" and x.src == "eb" and not storytrace.noise_regions(x)}
+    want = {(k["donor"], k["sid"], k["tag"], k["ip"], k["target"], k["value"]) for k in pred["writes"] + pred["chain"]}
+    assert keys == want and len(want) == 23, (sorted(keys ^ want), len(want))
+    masked = [(places[x.fld], x.ip, x.target) for x in kept if x.k == "w" and x.src == "eb"
+              and storytrace.noise_regions(x)]
+    assert len(masked) == 6 and {t for _p, _ip, t in masked} == {"Global.Bit[191]", "Global.Bit[184]"}, masked
+    cut = next(x for x in rows if x.line == end)
+    lend = pred["landing"]["end_row"]
+    assert (cut.fld, cut.sid, cut.tag, cut.ip, cut.target, cut.new) == (
+        lend["place"], lend["sid"], lend["tag"], lend["ip"], lend["target"], lend["value"]), cut
+    got = O.C5.pattern_of(kept, pred, places, O.C5.stock_join(o8_stock, places))
+    assert got["unjoined"] == 0 and got["counts"] == [] and O.C6.pattern_diff6(got, pred["pattern"]) == [], \
+        O.C6.pattern_diff6(got, pred["pattern"])
+    off = {(k["donor"], k["sid"], k["tag"], k["ip"]): k["off"] for k in pred["writes"] + pred["chain"]}
+    off.update({(p, 0, 0, ip): ip - 6 for p in (164, 165, 166) for ip in (22, 49)})
+    by_ip = [[(places[f], s, t, off[(places[f], s, t, ip)], tg, v, same) for f, s, t, ip, tg, v, same in visit]
+             for visit in _O8_PATTERN]
+    assert by_ip == [[tuple(x) for x in v] for v in pred["pattern"]["visits"]], by_ip
+    assert _o8_knight()["start"] == O.knight_release(pred) == pred["seat_watch"]["release"] == {"y_ge": 8400}
+    start, pts, walk_u, seat = O.knight_walk(pred)
+    assert [list(start)] + [list(p) for p in pts] == [[float(a), float(b)] for a, b in _O8_KNIGHT_PATH], pts
+    assert seat == _O8_KNIGHT_SEAT and abs(walk_u - pred["seat_watch"]["walk_u"]) < 0.05, (seat, walk_u)
+    for (p, n), band in O.BANDS8.items():
+        pw = pathfind.PlayerWalkmesh(extract.stock_walkmesh(p))
+        assert O.band_closures(pw, *band) == _o8_band_closures(pw, *_O8_BANDS[(str(p), n)]) == list(
+            O.CLOSURES8[(p, n)]), (p, n)
+    log = [{"k": "step", "field": 30860, "donor": 164, "n": 0, "frame0": 100, "outcome": "failed"},
+           {"k": "step", "field": 30860, "donor": 164, "n": 0, "frame0": 160, "outcome": "done"},
+           {"k": "step", "field": 30860, "donor": 164, "n": 1, "frame0": 300, "outcome": "done"}]
+    assert O.exempt_span(log, 164) == _o8_span(log, 30860) == (100, 300)
+
+
+def test_o8_tower_census_classifies_every_site(o8_stock, tmp_path):
+    """O8-CENSUS (research/o8_design.md 0.2 #4, 6.1) on the real bytes PASSES with its derived counts -- 164 25, 165 18,
+    166 18; error 3 / 3 / 4, dead 7 / 5 / 3 (as built: the talk's ip690 is dead, behind ip641's const(1)) -- every
+    error-path guard and every forbidden site reachable from some arrival value (reach8), no entrance dispatch, 166 e2
+    shared from e6 t1 ip489 and storeless, 166 e1 idle. Then FAILS by name: 164 e3 t2 ip215 moved to ``forbidden_sites``
+    (dead: its own ip54 set Map.Bit[162] 1 before ip193 tests it 0); 166 e6 t1 ip502 out of the writes; 164 e1 t3 ip308
+    out of ``forbidden_sites``; 164 e0 t0 ip97 moved back to ``error_path`` (unreachable: ip57's 385 -- the claim
+    review's #9: class membership alone could not tell an error path from a dead site); 166 e2 holding a global store.
+    Break: no reach proof (ip97 then passes as an error path)."""
+    import copy
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    ok, _w, detail = O.O8.census_check(pred, o8_stock)
+    assert ok and detail == D.CENSUS_LINE, detail
+    for name, (want, got, _d) in zip(("census-164-e3-215-forbidden", "census-166-502", "census-164-308",
+                                      "census-164-97-error", "census-166-e2-store"),
+                                     [(n, ok_, d) for n, ok_, d in D.unit_store_census(pred, o8_stock)][1:]):
+        assert want == name and got is True, (want, name, got, _d)
+    bad = copy.deepcopy(pred)
+    bad["error_path"] = list(bad["error_path"]) + [k for k in bad["dead"] if (k["donor"], k["ip"]) == (164, 97)]
+    bad["dead"] = [k for k in bad["dead"] if (k["donor"], k["ip"]) != (164, 97)]
+    ok, _w, detail = O.O8.census_check(bad, o8_stock)
+    assert not ok and "164 e0 t0 ip97" in detail and "no arrival value reaches" in detail, detail[:300]
+
+
+def test_o8_tower_regions_gates_read_off_the_pins(o8_stock, tmp_path):
+    """O8-REGIONS (c) and O8-KEYS (f): THE HEIGHTS read through their jumps (research/o8_design.md 0.2 #24; the claim
+    review's #7). The four doors' gates off their pinned tag-2 tests AND consuming JMP_IFNOTs -- 164.e2 y > 12000, 164.e3
+    y < 6000, 165.e2 y > 15000, 165.e3 y < 11000 -- and REGIONS PASSES on the draft; a mutated constant moves its gate
+    (53536 -> 53000: y > 12536) and REGIONS (c) FAILS; a door's JMP_IFNOT as JMP_IF inverts its gate (164.e2: y <= 12000)
+    and REGIONS (c) FAILS; the knight's ip187 JMP_IF as JMP_IFNOT makes his release y < 8400 and KEYS (f) FAILS; a B_LE
+    text reads None and is refused. Break: a gate read off the test alone (the flipped jump then passes)."""
+    import copy
+    O = _o8_module()
+    pred = _o8_draft(tmp_path)
+    gates = {}
+    for key in ("164.e2", "164.e3", "165.e2", "165.e3"):
+        d, e_ = int(key.split(".")[0]), int(key.split(".e")[1])
+        _t, tt, _j, jt = O.door_gate_pins(pred, d, e_)
+        gates[key] = O.height_gate(tt, jt)
+        assert pred["regions"][key]["gate"] == gates[key], key
+    assert gates == {"164.e2": {"y_gt": 12000}, "164.e3": {"y_lt": 6000}, "165.e2": {"y_gt": 15000},
+                     "165.e3": {"y_lt": 11000}}, gates
+    assert O.O8.regions_check(pred, o8_stock)[0] is True
+    assert O.knight_release(pred) == {"y_ge": 8400}
+
+    def pin(p, site, old, new):
+        x = next(q for q in p["route_pins"] if q[:4] == site)
+        x[4] = x[4].replace(old, new)
+    moved = copy.deepcopy(pred)
+    pin(moved, [164, 2, 2, 42], "const(53536)", "const(53000)")
+    _t, tt, _j, jt = O.door_gate_pins(moved, 164, 2)
+    assert O.height_gate(tt, jt) == {"y_gt": 12536}
+    ok, _w, detail = O.O8.regions_check(moved, o8_stock)
+    assert not ok and "164.e2 (c): its gate {'y_gt': 12000}" in detail, detail
+    flipped = copy.deepcopy(pred)
+    pin(flipped, [164, 2, 2, 51], "JMP_IFNOT(L221)", "JMP_IF(L221)")
+    _t, tt, _j, jt = O.door_gate_pins(flipped, 164, 2)
+    assert O.height_gate(tt, jt) == {"y_le": 12000}
+    ok, _w, detail = O.O8.regions_check(flipped, o8_stock)
+    assert not ok and "164.e2 (c)" in detail, detail
+    knight = copy.deepcopy(pred)
+    pin(knight, [164, 1, 1, 187], "JMP_IF(L15)", "JMP_IFNOT(L15)")
+    assert O.knight_release(knight) == {"y_lt": 8400}
+    ok, _w, detail = O.O8.keys_check(knight, o8_stock)
+    assert not ok and "(f) the knight's release read off ip178 + ip187 is {'y_lt': 8400}" in detail, detail[:400]
+    assert O.height_gate("SET({obj(uid=250).f[1] const(57136) B_LE B_EXPR_END})", "JMP_IF(L15)") is None
+    assert O.height_gate(tt, "JMP(L221)") is None and O.height_gate(None, None) is None
+
+
+def test_o8_tower_goals_are_height_aware(o8_stock, tmp_path):
+    """O8-GOALS (research/o8_design.md 6.1; decision 4(c), critique #6): on the draft every (g0)-(g7') line reads (the
+    pinned walls and heights, e2 firing at y 13008 and 15169, P1's disc on tri 53's level with 3961 and 13893 the other
+    levels, the wait point 335.2 / 293.5 u from the exits, the release under at_y's 8800, the pinch inside its window),
+    and each clause FAILS on its mutant: a step key "hold"; 164 #0's closures from another band; 164 #1 at 80 (no
+    route); 165 #0 at 110 (a route exists at 120); 165 #0 without 165.e3 avoided; 164 #0's at_y [13000, 14500]; 164 #1's
+    until y > 14000 (the door fires first); the wait's exit_slack 300; at_y [8000, 9150] (under the release); the
+    window's y band [5000, 6000]. No start-dependent number is pinned. Break: until_ok called without the y (the
+    XZ-only proof RAISES on a y term)."""
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    got = D.unit_goals(pred, o8_stock)
+    assert [n for n, _ok, _d in got] == ["goals", "goals-hold-key", "goals-164-0-band", "goals-164-1-at-80",
+                                         "goals-165-0-at-110", "goals-165-0-no-e3", "goals-164-0-at-y",
+                                         "goals-164-1-until", "goals-wait-slack", "goals-release", "goals-window-y"]
+    bad = [(n, d) for n, ok, d in got if not ok]
+    assert not bad, bad
+
+
+def test_o8_tower_keys_derive_the_carried_scoped_and_reads(o8_stock, tmp_path):
+    """O8-KEYS (b)-(d) (research/o8_design.md 4.5, 6.1) over the repo's seven frozen files: THE CARRIED VALUES are
+    carried8's fifteen -- Bit[3796] among them (1 after O7) -- none in end_state, none read or stored by a function the
+    route RUNS: the scan narrowed by talk_reach (164 e1 t3, e7 t11, e7 t12 set aside) -- without the narrowing the
+    knight's talk reads Bit[3854] / Bit[3855] at e1 t3 ip326 and (d) FAILS; THE START-SCOPED OLDS exactly 164 ip57, 164
+    ip130 and 166 e6 t1 ip345; THE START READS 166 ip255 (race 70 ip249 := 125, before) and 164 ip130 (race 70 ip475 :=
+    2, after). KEYS PASSES with its line; each offline mutant FAILS by name. Break: the carried scan over instanced_texts
+    (the talk read as the route's)."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    segs = O.prior_segments8()
+    derived, problems = O.carried8(pred, segs)
+    assert len(segs) == 7 and problems == [] and derived == pred["carried"]["values"] and len(derived) == 15
+    assert derived["Global.Bit[3796]"] == [0, 1] and not set(derived) & set(pred["end_state"])
+    olds, sprob = O.scoped_derivation8(pred, O.o7_frozen(), segs)
+    assert sprob == [] and sorted(s for s, (_t, a, b) in olds.items() if a != b) == [
+        (164, 0, 0, 57), (164, 0, 0, 130), (166, 6, 1, 345)]
+    assert [(x["site"], x["race"], x["race_value"], x["edge"]) for x in pred["start_reads"]] == [
+        ([166, 0, 0, 255], [70, 0, 0, 249], 125, "before"), ([164, 0, 0, 130], [70, 0, 0, 475], 2, "after")]
+    ok, _w, detail = O.O8.keys_check(pred, o8_stock)
+    assert ok and "15 carried values derived from 7 frozen segments" in detail \
+        and "(164 e1 t3, e7 t11, e7 t12 set aside: the knight's talk)" in detail, detail[:400]
+    wide = {164: O.C7.instanced_texts(o8_stock(164), 342)}
+    ok, _w, detail = O.O8.keys_check(pred, o8_stock, scans=wide)
+    assert not ok and "164 e1 t3 ip326 Global.Bit[3854]" in detail, detail[:400]
+    bad = [(n, d) for n, ok_, d in D.unit_offline_mutants(pred, o8_stock) if not ok_]
+    assert not bad, bad
+
+
+def test_o8_tower_end_race_derives_int16_2_and_byte_8(o8_stock, tmp_path):
+    """THE RACED SET (research/o8_design.md 4.9; 0.2 #5, #26): end_race8 walks stock 55's e0 t0 from the arrival's values
+    (the pattern's last values over the raw start, SC 1190) through ip387's yield ON to its RET (ip565) -- {Int16[2] 110
+    -> 106, Byte[8] 0 -> 125}, end_state_trace's keys; a synthetic post-yield store behind a test true on the arrival
+    counts (the tail is walked); KEYS (g)'s other-function proof: stock 55's e10 t1 ip568 / ip582 (UInt16[0] := 1400)
+    unreachable at Map.Byte[24] 1 (the walk's own), reachable at 3; a synthetic 55 storing UInt16[0] in case 1 FAILS
+    KEYS by name; and stock 64 from story-o3's arrival values (O3's frozen end state over the raw start): {}. Break: the
+    walk stopped at the first long yield (the raced pair still found, the synthetic tail then missed)."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    r = O.end_race8(o8_stock(55), O.arrival_values8(pred))
+    assert r["raced"] == {"Global.Int16[2]": [110, 106], "Global.Byte[8]": [0, 125]} and (r["yield"], r["ret"]) == (
+        387, 565), r
+    assert set(r["raced"]) == set(pred["end_state_trace"]) and r["map"].get("Map.Byte[24]") == 1, r["map"]
+    ok, detail = D.unit_end_race(pred, o8_stock)
+    assert ok, detail
+    for ip in (568, 582):
+        assert not O.reach8(o8_stock(55), 10, 1, ip, {"Map.Byte[24]": 1}) and O.reach8(o8_stock(55), 10, 1, ip,
+                                                                                         {"Map.Byte[24]": 3})
+    ok, _w, detail = O.O8.keys_check(pred, o8_stock, items55=lambda s, t: D.SYNTH55_E10 if (s, t) == (10, 1) else None,
+                                     sites55=D.SYNTH55_SITES)
+    assert not ok and "(g) 55 e10 t1 ip20 stores the end_state target Global.UInt16[0] and is reachable" in detail
+    assert D.o3_raced(o8_stock, D.o3_frozen())["raced"] == {}
+
+
+def _o8_pure_run(pred, side="S", events=None, log_edit=None, *, digest=None):
+    """A covered run of the dry run's base events (o8_dryrun.render / standard_log: pure), cut at 164 and at REAL 55,
+    with -- when ``digest`` (the stock script source: a member reads its donor's) -- its digest, its seams and its
+    seam keys joined on the stock bytes."""
+    from ff9mapkit import storytrace
+    D = _o8_dryrun()
+    ST = __import__("segment_trace")
+    members = {int(f): d for f, d in pred["members"].items()}
+    m = members if side == "F" else {}
+    ev = events if events is not None else D.base_events()
+    rows = D._rows(ev, side, members)
+    kept, _at, pre = ST.cut_at_start(rows, 164, m)
+    kept, end = ST.cut_at_end(kept, [55], m)
+    log, ctx = D.standard_log(pred, side, D.render(ev, side, members))
+    if log_edit is not None:
+        log = log_edit(log, ctx) or log
+    d = (storytrace.digest(f"{side}#1", kept, scripts=lambda f: digest(members.get(f, f)), donor_scripts=digest,
+                           members=m or None) if digest is not None else None)
+    return {"side": side, "i": 1 if side == "S" else 2, "rows": kept, "log": log, "pre": pre, "cut": end,
+            "cut_row": next((x for x in rows if x.line == end), None), "digest": d}
+
+
+def test_o8_tower_walk_check(tmp_path):
+    """O8-WALK, pure (research/o8_design.md 5.3; THE PAIRED-WALK LAW), every clause on the dry run's base rows and log:
+    the base PASSES on S and F, path B too; (a) a short walk, an arrival off its level (at_y.y 13893), the wait unread,
+    a loss under its until (y 11500), a loss with NO height -- "no height", never until_ok's raise --, a landing
+    elsewhere, path A with no ``landed_frame``, a loss in e3 -- each FAILS by its clause; (b) THE DOORS read from ``to``,
+    their tag-2 SITES exempt by site after the trigger's FIRST frame0 -- a door row before it FAILS, a late-read loss
+    after the door row PASSES -- and ip230 exempt only inside THE EXEMPT SPAN; (c) no first-move check, a 30-degree
+    one, a "cached" first row FAIL. Break: (b) bounded by the read loss frame (the late-loss run then FAILS)."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+
+    def walk(side="S", events=None, log_edit=None):
+        ok, _w, det = O.O8.walk_check([_o8_pure_run(pred, side, events, log_edit)], pred)
+        return ok, det
+    assert walk()[0] is True and walk("F")[0] is True and walk(log_edit=D._path_b)[0] is True, walk()[1]
+    for edit, clause in ((D._step(164, 0, to={"x": 1142.0}), "from the goal"),
+                         (D._step(164, 0, at_y={"y": 13893.0}), "not the goal's level"),
+                         (D._step(164, 0, wait_flag={"read": False}), "wait_flag"),
+                         (D._step(164, 1, lost={"y": 11500.0}), "does not satisfy its until"),
+                         (D._step(164, 1, lost={"y": ...}), "has no height"),
+                         (D._landed_164, "landed"),
+                         (D._step(164, 1, landed_frame=None), "no landed_frame"),
+                         (D._step(164, 1, lost={"x": 1700.0, "z": 3000.0}), "beyond exit_slack"),
+                         (D._step(164, 0, route={"basis_check": ...}), "(c)"),
+                         (D._step(164, 0, route={"basis_check": {"angle": 30.0}}), "(c)"),
+                         (D._step(165, 0, route={"basis": "cached"}), "not 'prior'")):
+        ok, det = walk(log_edit=edit)
+        assert ok is False and clause in det, (clause, det[:300])
+    ev = D.base_events()
+    for events, clause in ((D.edit_nth(ev, D.CH164, 0, lambda x: D.with_opt(x, f=2800)), "(b)"),
+                           (D._moved_knight(3500)(ev, 0), "(b)")):
+        ok, det = walk(events=events)
+        assert ok is False and clause in det, det[:300]
+    assert walk(log_edit=D._step(164, 1, lost={"frame": D.F_LOST[164] + 40}))[0] is True
+    assert walk(events=D._moved_knight(2000)(ev, 0))[0] is True
+    ws = {w_["donor"]: w_ for w_ in O.visit_windows8(_o8_pure_run(pred)["log"], pred)}
+    assert ws[164]["doors"] == [{"key": "164.e2", "sites": [(2, 2, 215), (2, 2, 243)], "after": D.F_X0[164]}], ws[164]
+
+
+def test_o8_tower_order_and_knight_checks(tmp_path):
+    """O8-ORDER and O8-KNIGHT, pure (research/o8_design.md 5.3; decision 6, critiques #1 and #9): the base PASSES on S
+    and on F (31256 read as place 164); ORDER (a) no ip230 / two / at REAL 164 on F, (b) after ip243, (c) outside THE
+    EXEMPT SPAN -- each FAILS by its clause, and ip230 inside a FAILED first attempt PASSES; KNIGHT (a) no seat row / a
+    reading at REAL 164 on F, (b) a start1 reading 286 u off the seat -- each FAILS, and KNIGHT judges readings only (the
+    row's ``from`` and its writing poll never read). Break: ORDER (c) over the done row's window."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    ev = D.base_events()
+
+    def order(side="S", events=None, log_edit=None):
+        ok, _w, det = O.O8.order_check([_o8_pure_run(pred, side, events, log_edit)], pred)
+        return ok, det
+
+    def knight(side="S", log_edit=None):
+        ok, _w, det = O.O8.knight_check([_o8_pure_run(pred, side, None, log_edit)], pred)
+        return ok, det
+    assert order()[0] and order("F")[0] and knight()[0] and knight("F")[0], (order()[1], knight("F")[1])
+    for side, events, clause in (("S", D.drop_nth(ev, D.KN230), "(a)"), ("S", D.after(ev, D.KN230, D.w(D.KN230)), "(a)"),
+                                 ("F", D.edit(ev, lambda x: D._is(x, D.KN230), lambda x: D.with_opt(x, fld=164,
+                                                                                                    don=164)), "(a)"),
+                                 ("S", D.move(ev, D.KN230, after_site=D.CH164), "(b)"),
+                                 ("S", D._moved_knight(3500)(ev, 0), "(c)")):
+        ok, det = order(side, events)
+        assert ok is False and clause in det, (clause, det[:300])
+    assert order(events=D._moved_knight(1900)(ev, 0), log_edit=D._failed_first(164, 0))[0] is True
+    for side, edit, clause in (("S", D._no_knight("seat"), "(a): no seat row"),
+                               ("F", D._knight("seat", field=164), "(a)"),
+                               ("S", D._knight("start1", z=3600.0), "(b)")):
+        ok, det = knight(side, edit)
+        assert ok is False and clause in det, (clause, det[:300])
+    assert knight(log_edit=D._knight("seat", **{"from": "a poll in 165"}))[0] is True
+
+
+def test_o8_tower_landing_and_seam_checks(o8_stock, tmp_path):
+    """O8-LANDING and O8-SEAM, pure but for the stock scripts the digest joins its seam keys on (research/o8_design.md
+    5.3; decision 8, critique #3): LANDING is O7's (a)-(d) over
+    seam-free COPIES -- the base F run with its ONE seam PASSES and its digest keeps the seam (the run dict untouched);
+    (b) a dropped chain row, (c) a harness row after ip863, (d) the cut at ip49 FAIL. SEAM: the base F run PASSES (one
+    seam, 31258 -> 55 [55], its exit 31258 e6 t1 ip863 344 -> 110, the cut row REAL 55 ip22); S PASSES saying (f) -- no
+    members, never counted; (a) ZERO seams FAILS (never vacuous), two FAIL; (b) the exit row ip502; (c) a seam key; (d)
+    the cut row's don 31205; (e) a residue row before the cut -- each FAILS by its clause. Break: zero seams read as a
+    pass."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    ev = D.base_events()
+
+    def run(side="S", events=None):
+        r_ = _o8_pure_run(pred, side, events, digest=o8_stock)
+        r_["log"].append({"k": "end", "field": 55})
+        return r_
+    rf = run("F")
+    seams0 = list(rf["digest"].seams)
+    assert len(seams0) == 1 and (seams0[0].frm, seams0[0].to, list(seams0[0].fields)) == (31258, 55, [55]), seams0
+    ok, _w, det = O.O8.landing_check({"S": [run()], "F": [rf]}, pred)
+    assert ok and "(e): O8-SEAM's" in det and list(rf["digest"].seams) == seams0, det
+    for events, clause in ((D.drop_nth(ev, D.CH165), "(b)"),
+                           (D.after(ev, D.CH166, D.w((166, -1, -1, -1, "Global.Byte[300]", 9), src="harness")), "(c)"),
+                           (D.drop_nth(ev, D.END55), "(d)")):
+        ok, _w, det = O.O8.landing_check({"S": [run("S", events)], "F": []}, pred)
+        assert ok is False and clause in det, (clause, det[:300])
+
+    def seam(side="F", events=None):
+        r_ = run(side, events)
+        ok, _w, det = O.O8.seam_check({"S": [r_] if side == "S" else [], "F": [r_] if side == "F" else []}, None, pred)
+        return ok, det
+    ok, det = seam()
+    assert ok and "(b) its exit 31258 e6 t1 ip863 Global.Int16[2] 344 -> 110" in det, det
+    ok, det = seam("S")
+    assert ok and "(f) S: no members, so no seam can arise (not counted)" in det, det
+    for events, clause in ((D._off_at(31258)(ev, 0), "(a) no seam"),
+                           (D.before(ev, D.I22_166, ("e", "swap", 164, {"fld": 164})), "(a) 2 seams"),
+                           (D.drop_nth(ev, D.CH166), "(b)"),
+                           (D.after(ev, D.CH166, D.w(D.S163[2], fld=163, don=163)), "(c)"),
+                           (D.edit(ev, lambda x: D._is(x, D.END55), lambda x: D.with_opt(x, don=31205)), "(d)"),
+                           (D.after(ev, D.CH166, D.r(166, 300, 0, 5)), "(e)")):
+        ok, det = seam("F", events)
+        assert ok is False and clause in det, (clause, det[:300])
+
+
+def test_o8_tower_movie_check(tmp_path):
+    """O8-MOVIE, pure (research/o8_design.md 5.3; decision 7, critique #4) over covered runs: the base PASSES (1411 frames
+    at its clocked 31 fps: 45.5 s); at 60 fps 2730 frames PASS; two clock rows without a write time PASS; a page press
+    AT f502 is outside the half-open span; (a) a press in the span, a skip-shaped choice, a choice of ANOTHER shape (a
+    script's choice where stock has none, answered by the net's default) FAIL; (b) a span of 30 s at its rate FAILS; (c)
+    a skip_seen row FAILS. Break: the rate read across the whole visit (the short span then passes)."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+
+    def movie(events=None, log_edit=None):
+        ok, _w, det = O.O8.movie_check([_o8_pure_run(pred, "S", events, log_edit)], pred)
+        return ok, det
+    ok, det = movie()
+    assert ok and "1411 frames at 31.0 fps = 45.52 s" in det, det
+    sixty = D._reanchor((D.F_863, D.F_502 + 2730), (D.F_END, D.F_502 + 2740))(D.base_events(), 0)
+    ok, det = movie(sixty, D._clocked(60.0, D.F_502 + 2740))
+    assert ok and "2730 frames at 60.0 fps = 45.5 s" in det, det
+    assert movie(log_edit=D._mtime_none)[0] and movie(log_edit=D._press_at_502)[0]
+    for edit, clause in ((D._movie_rows(D._stray(why="page")), "(a): a press"),
+                         (D._movie_rows(D._choice_row(8500, D.SKIP_TEXT)), "the skip dialog's"),
+                         (D._movie_rows(D._choice_row(8500, D.SCRIPT_CHOICE, rule=1)), "of another shape"),
+                         (D._movie_rows({"k": "skip_seen", "frame": 8500}), "(c)")):
+        ok, det = movie(log_edit=edit)
+        assert ok is False and clause in det, (clause, det[:300])
+    short = D.edit(D.base_events(), lambda x: D._is(x, D.CH166), lambda x: D.with_opt(x, f=D.F_502 + 930))
+    ok, det = movie(short)
+    assert ok is False and "(b)" in det and "under file_s - slack_s" in det, det
+
+
+class _O8Log(list):
+    """A driver log the session's ``g`` is pinned on (:func:`_o8_run`'s ``log`` factory sets it before the drive): the
+    knight watch reads the session's ring through it."""
+    g = None
+
+
+def _o8_watch_pred(**over):
+    """:func:`_o8_pred` with THE KNIGHT'S SEAT registered on the fixture's 164 (30860) -- the draft's ``seat_watch``,
+    its place the fixture's."""
+    O = _o8_module()
+    sw = dict(O.SEAT, donor=30860, site=[30860, 1, 1, 230])
+    return _o8_pred(seat_watch=sw, **over)
+
+
+def _o8_watched(game, side="S", *, pred=None, **kw):
+    """One O8 run on the fake with O8's observe hook (:func:`o8_west_tower.o8_observe`): ``(out, log, aside)``."""
+    O = _o8_module()
+    pred = pred or _o8_watch_pred()
+    out, log, _fake, _rows, _ring, _a, aside = _o8_run_informative(
+        game, side=side, pred=pred, log=lambda fake: _O8Log(),
+        observe=lambda p, lg: O.o8_observe(lg.g, p, lg), **kw)
+    return out, log, aside
+
+
+def test_o8_tower_knight_watch_reads_the_seat_by_place(game):
+    """THE KNIGHT'S SEAT READINGS under the drive (research/o8_design.md 1.3; decision 6, critique #9; the reviews' A2,
+    B8): the knight on the fake (H25) walks to his seat while Steiner waits at P1, and O8's observe hook writes ONE
+    ``seat`` row -- his reading in the RING sample of the wait's read frame -- and ONE ``start1`` row -- the reading of
+    step 1's frame0 -- each at (-586, 3884), each row's field and place the READING's: 30860 / 30860 on S, 31256 read as
+    30860 on F. PATH B (164 #1's route_to returning only once the field has left 31256, the step-1 row appended after
+    the switch -- 3.7's wrapper) still writes start1, its field the reading's 31256. His sid unpublished (the knight under
+    another sid): no knight row -- the run the analysis's A-KNIGHT (knight_rows reads none). Break: rows gated on the
+    poll's place (path B's start1 then never written)."""
+    O = _o8_module()
+    for side, fps, ticks in (("S", 60.0, "mean"), ("F", 31.0, "quantized")):
+        out, log, aside = _o8_watched(game, side, fps=fps, ticks=ticks, register=side == "S")
+        _o8_covered(out, aside)
+        kn = [x for x in log if x.get("k") == "knight"]
+        f164 = _O8_FIELDS[side]["164"]
+        assert [(x["what"], x["field"], x["donor"], x["sid"], round(x["x"]), round(x["z"])) for x in kn] == [
+            ("seat", f164, 30860, 1, -586, 3884), ("start1", f164, 30860, 1, -586, 3884)], kn
+        assert not [x for x in log if x.get("k") == "observe_error"], log
+        s1 = next(x for x in log if x.get("k") == "step" and x.get("n") == 1 and x["field"] == f164)
+        assert kn[1]["frame"] == s1["frame0"] and kn[0]["from"] == "ring", (kn, s1["frame0"])
+
+    def late(g, fake):                       # PATH B: 164 #1's route_to returns only after the switch (3.7)
+        real = g.route_to
+
+        def route_to(*a, **k):
+            rec = real(*a, **k)
+            if k.get("clearance") == 64 and g.state.field_id == 31256:
+                g.wait_for(lambda s: s.field_id not in (31256, -1), timeout=30.0, what="the switch")
+                rec = dict(rec, landed=g.state.field_id)
+            return rec
+        g.route_to = route_to
+    out, log, aside = _o8_watched(game, "F", fps=31.0, ticks="quantized", register=False, wrap=late)
+    _o8_covered(out, aside)
+    kn = [x for x in log if x.get("k") == "knight"]
+    assert [(x["what"], x["field"], x["donor"]) for x in kn] == [("seat", 31256, 30860), ("start1", 31256, 30860)], kn
+    s1 = next(x for x in log if x.get("k") == "step" and x.get("n") == 1 and x["field"] == 31256
+              and x["outcome"] == "done")
+    assert s1["landed"] == 31257 and log.index(kn[1]) > log.index(s1), (s1["landed"], kn)
+    pred = _o8_watch_pred()
+    pred["seat_watch"]["sid"] = 7                     # the hook watches a sid the fake never publishes
+    out, log, aside = _o8_watched(game, "S", pred=pred, register=False)
+    _o8_covered(out, aside)
+    kr = O.knight_rows(log, pred)
+    assert kr["seat"] is None and kr["start1"] is None and not [x for x in log if x.get("k") == "knight"], kr
+
+
+def test_o8_tower_why_void_reads_the_start_the_movie_and_the_knight(o8_stock, tmp_path):
+    """A-START's START READS with their EXPLICIT races, A-MOVIE and A-KNIGHT (research/o8_design.md 4.5, 5.1; critique
+    #2; the reviews' A1, B3), on a session's own reading (the dry run's sessions): 166 ip255 reading old 0 is A-START
+    naming 70's ip249, 164 ip130 reading old 2 naming ip475 (O7's race_site would name ip130); 70 ip249 / ip475 among the
+    PRE rows A-START (the raced row's branch); every reason led by START_READ; 125 / 1 none; an earlier row of the run on
+    the target none; a press, a dialog answered, a dialog with no press behind it and an unclocked span in (f502, f863]
+    A-MOVIE, each led by MOVIE_SPAN; a non-skip-shaped choice none; no seat row A-KNIGHT led by KNIGHT_UNREAD; the race
+    neutralised (its value off the pin) leaves the raced row to START (a). _void_ids sets aside START_READ and MOVIE_SPAN,
+    never KNIGHT_UNREAD. Break: O7's race_site (164 ip130's race read as 70 ip130)."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    path = tmp_path / "o8_draft.json"
+    path.write_bytes((json.dumps(pred, indent=1, sort_keys=True) + "\n").encode("utf-8"))
+    sdir = tmp_path / "sessions"
+    sdir.mkdir()
+    ok, detail = D.unit_why_void(pred, o8_stock, D.fork_scripts(pred, o8_stock), sdir, path)
+    assert ok, detail
+    ok, detail = D.unit_void_ids()
+    assert ok, detail
+    assert O.race_site8(pred, pred["start_reads"][1]) == (70, 0, 0, 475) != O.C7.race_site(pred, pred["start_reads"][1])
+
+
+def test_o8_tower_start_run_forgets_every_seeded_basis(game):
+    """S19's per-run forget (research/o8_design.md 7.1; O7's reseed): a session whose ``_axes`` and S19 state hold 164,
+    165, 166, their members and 159 (each seeded: pending, an angle) -- O8.start_run (its reseed, then New Game, the
+    trace armed, the raw warp on the fake) leaves NONE of the seeded fields, S or F (164, 165, 31256, 31257) and keeps
+    every other (166, 31258, 159: no walk seeds them). Break: no reseed."""
+    O = _o8_module()
+    _o8_register(game)
+    pred = _o8_draft(game)
+    pred["start"] = {"S": 30860, "F": 31256}
+    fake = FakeGame(game)
+    fake.warp_arrive_control, fake.warp_field_only = False, True
+    every = (164, 165, 166, 159, 31256, 31257, 31258)
+    with session(game, fake) as g:
+        boot(g)
+        for f in every:
+            g._axes[f] = {"v": (0.0, 1.0), "h": (1.0, 0.0)}
+            g._seeded.add(f)
+            g._prior_pending.add(f)
+            g._prior_angle[f] = 1.0
+        g.soft_reset()
+        O.O8.start_run(g, "S", pred, {})
+        assert g.state.field_id == 30860
+        seeded = set(O.C7.seeded_fields(pred))
+        assert seeded == {164, 165, 31256, 31257}, sorted(seeded)
+        assert not (seeded & set(g._axes)) and not (seeded & g._seeded) and not (seeded & g._prior_pending) \
+            and not (seeded & set(g._prior_angle)), (sorted(g._axes), sorted(g._seeded))
+        assert {166, 159, 31258} <= set(g._axes), sorted(g._axes)
+
+
+def test_o8_tower_preflight_verdicts(tmp_path):
+    """O8's preflight extras (research/o8_design.md 6.2), on a synthetic install: exactly P-TEXT (block 3, STRICT),
+    P-RECOVERY, P-DONOR, P-SETTINGS, P-PAD, P-OVERRIDE, P-ENGINE, in that order. P-DONOR reads the ROUTE donors -- 164,
+    165, 166, each forked once: PASS -- and names O1's ``31205 55`` row OUTSIDE the set (55 is the end, real on both
+    sides); over the route AND the end (O5-O7's call) that row FAILS it. P-DONOR-LOG reads [164, 165, 166, 55]. Block 3's
+    uk copy of stock us FAILS (strict). P-SETTINGS on 4.13's 32 keys PASSES; [Graphics] VSync "0" FAILS; VSync missing
+    FAILS. Break: P-DONOR over route + end_fields (the 31205 row then fails a clean install)."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    P = __import__("o3_prima_vista")
+    pred = _o8_draft(tmp_path)
+    game = tmp_path / "game"
+    root = game / "FF9CustomMap"
+    root.mkdir(parents=True)
+    (game / "Memoria.ini").write_text(_o3_ini(O.SETTINGS8), encoding="utf-8")
+    (root / "DictionaryPatch.txt").write_text("FieldScene 4600 11 HUB HUB 4600\n", encoding="utf-8")
+    fdp = root / "ForkDonorPatch.txt"
+    fdp.write_text("31205 55\n31256 164\n31257 165\n31258 166\n", encoding="utf-8")
+    langs = ("us", "uk", "fr", "gr", "it", "es", "jp")
+    stock3 = {L: f"stock block 3 {L}".encode() for L in langs}
+
+    def ship(text):
+        for L in langs:
+            p = root / "FF9_Data" / "embeddedasset" / "text" / L / "field" / "3.mes"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(text[L])
+    ship(stock3)
+    eng = {"x64": O.ENGINE["x64"], "x86": O.ENGINE["x86"]}
+
+    def pre():
+        out = O.O8.preflight_extra(pred, [root], pads=lambda slot: None, live_engine=eng, game=game,
+                                   stock_text={3: stock3})
+        return [(w.split(":")[0], ok, d) for ok, w, d in out]
+    rows = pre()
+    assert [r[0] for r in rows] == ["P-TEXT (block 3)", "P-RECOVERY", "P-DONOR", "P-SETTINGS", "P-PAD", "P-OVERRIDE",
+                                    "P-ENGINE"], rows
+    ok = {w: o for w, o, _d in rows}
+    assert ok == {"P-TEXT (block 3)": True, "P-RECOVERY": True, "P-DONOR": True, "P-SETTINGS": True, "P-PAD": True,
+                  "P-OVERRIDE": False, "P-ENGINE": True}, rows
+    det = {w: d for w, _o, d in rows}
+    assert det["P-DONOR"].startswith("164 -> 31256 (FF9CustomMap), 165 -> 31257 (FF9CustomMap), 166 -> 31258 "
+                                     "(FF9CustomMap)") and "outside the set: FF9CustomMap line 1 `31205 55`" in \
+        det["P-DONOR"], det["P-DONOR"]
+    assert "32 keys as frozen" in det["P-SETTINGS"] and "VSync 1" in det["P-SETTINGS"], det["P-SETTINGS"]
+    okx, _dx = P.p_donor({**pred, "route": list(O.ROUTE_DONORS) + [55]}, [root])
+    assert okx is False
+    assert P.p_donor_log(D._LOG_HEAD + D._LOG_DONE, O.LOG_DONORS)[0] and list(O.LOG_DONORS) == [164, 165, 166, 55]
+    ship(dict(stock3, uk=stock3["us"]))
+    _w, o, d = pre()[0]
+    assert not o and "KNOWN-KIT-DEFECT uk: ships stock us" in d and "strict" in d, d
+    ship(stock3)
+    for mutate, clause in ((lambda s: s["Graphics"].__setitem__("VSync", "0"), "[Graphics] VSync = '0'"),
+                           (lambda s: s["Graphics"].pop("VSync"), "VSync")):
+        s = json.loads(json.dumps(O.SETTINGS8))
+        mutate(s)
+        (game / "Memoria.ini").write_text(_o3_ini(s), encoding="utf-8")
+        _w, o, d = pre()[3]
+        assert not o and clause in d, (clause, d)
+
+
+def test_o8_tower_build_pins_hold_member_166_byte_identical_with_its_raw_field55(o8_stock, tmp_path):
+    """O8-BUILD's route pins and THE RAW EXIT (research/o8_design.md 6.1): on synthetic builds through a ``stock_lang``
+    seam the clean build PASSES -- 21 member files, 31256 and 31257 differing from 164 and 165 only in their 4 in-chain
+    Field() operands, 31258 166 byte for byte with e6 t1 ip871 Field(55) raw in every language -- and each mutant FAILS
+    by its clause: 31258 with one byte changed (jp); its Field(55) remapped to 31205 (us); 31256 differing outside its
+    operands (uk). O4's own build PASSES O8-BUILD (read-only; a warned skip without it). Break: the raw exit's literal
+    unread (31258's Field(31205) then passes)."""
+    import warnings
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    bad = [(n, d) for n, ok, d in D.unit_build_pins(pred, tmp_path) if not ok]
+    assert not bad, bad
+    if not O.BUILD_DIR.is_dir() or not (O.CHAIN_DIR / "campaign.toml").is_file():
+        warnings.warn("O4's build is not here: O8-BUILD went UNVERIFIED on the real build", UserWarning)
+        pytest.skip("O4's build unavailable")
+    ok, _w, detail = O.O8.build_check(O.O8.draft())                 # the real chain's members and names
+    assert ok and "31258 is 166 byte for byte with e6 t1 ip871 Field(55) raw (7 member files)" in detail, detail
