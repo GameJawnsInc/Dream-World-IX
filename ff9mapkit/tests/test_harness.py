@@ -26418,17 +26418,17 @@ def _harness_tests_module():
 
 def test_segment_regress_registry_holds_every_item_once():
     """The gate's registry (research/o7_design.md 1.4: renamed from ``..._items_are_g1_to_g33_once`` -- the name says
-    what it pins, not a range, so each extension edits its body): ITEM_ORDER holds G1-G38 each once, printed as always
-    (O6's G34-G37 after G33, then O7's G38 -- 9 B4 -- G21 last); every segment's items are in it and no item is two
-    segments' (G21 is no segment's); the pytest items are G7, G12, G13, G19, G26, G32 and G38 with the selections the gate
-    has always run; select_items reads nothing as every item, ``--only`` and ``--segment`` as the union of their items --
-    O6's six, G32 to G37; O7's G38 -- and refuses an id or a segment there is none of (G40, O8 and a lower-case id:
-    refused through every later extension too). Break: drop an item from ITEM_ORDER (a full run would then pass without
-    it), or file one under two segments."""
+    what it pins, not a range, so each extension edits its body): ITEM_ORDER holds G1-G39 each once, printed as always
+    (O6's G34-G37 after G33, then O7's G38 -- 9 B4 -- and G39 -- 9 C2 -- G21 last); every segment's items are in it and
+    no item is two segments' (G21 is no segment's); the pytest items are G7, G12, G13, G19, G26, G32 and G38 with the
+    selections the gate has always run; select_items reads nothing as every item, ``--only`` and ``--segment`` as the
+    union of their items -- O6's six, G32 to G37; O7's G38 and G39 -- and refuses an id or a segment there is none of
+    (G40, O8 and a lower-case id: refused through every later extension too). Break: drop an item from ITEM_ORDER (a full
+    run would then pass without it), or file one under two segments."""
     R = _regress_module()
-    assert sorted(R.ITEM_ORDER, key=lambda i: int(i[1:])) == [f"G{n}" for n in range(1, 39)], R.ITEM_ORDER
-    assert len(set(R.ITEM_ORDER)) == 38 and R.ITEM_ORDER[-1] == "G21"
-    assert R.ITEM_ORDER[-6:-1] == ("G34", "G35", "G36", "G37", "G38"), R.ITEM_ORDER
+    assert sorted(R.ITEM_ORDER, key=lambda i: int(i[1:])) == [f"G{n}" for n in range(1, 40)], R.ITEM_ORDER
+    assert len(set(R.ITEM_ORDER)) == 39 and R.ITEM_ORDER[-1] == "G21"
+    assert R.ITEM_ORDER[-7:-1] == ("G34", "G35", "G36", "G37", "G38", "G39"), R.ITEM_ORDER
     seg = [i for ids in R.SEGMENT_ITEMS.values() for i in ids]
     assert len(seg) == len(set(seg)) and set(seg) | {"G21"} == set(R.ITEM_ORDER), seg
     assert R.PYTEST_ITEMS == {"G7": R.PYTEST_K, "G12": R.PYTEST_K_O2, "G13": R.PYTEST_K_O3, "G19": R.PYTEST_K_O4,
@@ -26437,7 +26437,7 @@ def test_segment_regress_registry_holds_every_item_once():
     assert R.select_items(["G26", "G27"]) == {"G26", "G27"}
     assert R.select_items((), ["O6"]) == {"G32", "G33", "G34", "G35", "G36", "G37"}
     assert R.select_items(["G21"], ["O6"]) == {"G21", "G32", "G33", "G34", "G35", "G36", "G37"}
-    assert R.select_items((), ["O7"]) == {"G38"}
+    assert R.select_items((), ["O7"]) == {"G38", "G39"}
     for only, segs in ((["G40"], ()), ((), ["O8"]), (["g7"], ())):
         with pytest.raises(ValueError):
             R.select_items(only, segs)
@@ -29637,3 +29637,47 @@ def test_o7_castle_preflight_verdicts(tmp_path):
         (game / "Memoria.ini").write_text(_o3_ini(s), encoding="utf-8")
         _w, o, d = pre()[3]
         assert not o and f"[{sec}] {key} = '{value}'" in d, (key, d)
+
+
+# ---- PART C, C2: the dry run's trace summary (research/o7_design.md 7.2, section 8's unit; O4's lesson, its claim
+# critique #14), and the dry run's cases and units through G39.
+
+def test_o7_castle_trace_summary_cuts_at_end_places(o7_stock, tmp_path):
+    """O7's trace summary (research/o7_design.md 7.2) over the dry run's rendered rows (o7_dryrun.render: real store
+    sites, the sink over the raw warp's start values). A base S run reads the chain 6/6, writes 33/33, the error path,
+    forbidden and dead sites absent; the six crossings -- each place's chain row to the next place's e0 t0 ip22, 163
+    ip227 into the cut 164 e0 t0 ip22; the monologue's three rows in order; Byte[13]'s last pre-cut row 163 ip684 = 2;
+    159 ip290's old 125; 4.16's pattern exactly (51 rows, no c row); the end cut's row at its end place; no unregistered
+    key, no join failure; the FOUR start residue rows. The F run is cut at member(164)'s row by its end PLACES, its last
+    crossing into 31256's row -- while O3's summary, given the same end FIELDS, is not cut at all. Break: cut at the
+    raw end fields (the F cut then lost)."""
+    O = _o7_module()
+    D = _o7_dryrun()
+    P = __import__("o3_prima_vista")
+    pred = _o7_draft(tmp_path)
+    members = {int(f): d for f, d in pred["members"].items()}
+    t = O.trace_summary(D._rows(D.base_events()), pred, stock=o7_stock)
+    reg = {k: (sum(1 for x in v if x["present"]), len(v)) for k, v in t["registered"].items()}
+    assert reg == {"chain": (6, 6), "writes": (33, 33), "error_path": (0, 24), "forbidden_sites": (0, 22),
+                   "dead": (0, 24)}, reg
+    assert [(c["exit"], c["next"] or c["cut"]) for c in t["crossings"]] == [
+        ("154 e8 t2 ip355 Global.Int16[2]=300", "158 e0 t0 ip22 Global.Bit[191]=0"),
+        ("158 e2 t2 ip222 Global.Int16[2]=331", "159 e0 t0 ip22 Global.Bit[191]=0"),
+        ("159 e11 t2 ip193 Global.Int16[2]=332", "160 e0 t0 ip22 Global.Bit[191]=0"),
+        ("160 e5 t2 ip227 Global.Int16[2]=333", "162 e0 t0 ip22 Global.Bit[191]=0"),
+        ("162 e3 t2 ip227 Global.Int16[2]=341", "163 e0 t0 ip22 Global.Bit[191]=0"),
+        ("163 e2 t2 ip227 Global.Int16[2]=342", "164 e0 t0 ip22 Global.Bit[191]=0")], t["crossings"]
+    assert [x["site"] for x in t["interruption_rows"]] == ["159 e16 t1 ip613", "159 e16 t1 ip648", "159 e16 t1 ip672"]
+    assert t["raced"]["Global.Byte[13]"]["row"] == "163 e0 t0 ip684 Global.Byte[13]=2", t["raced"]
+    assert [(x["old"], x["new"]) for x in t["start_reads"]] == [(125, 125)], t["start_reads"]
+    assert [len(v) for v in t["pattern"]["visits"]] == [7, 9, 11, 8, 8, 8] and t["pattern"]["counts"] == []
+    assert t["end_row"] == "w 164 e0 t0 ip22 Global.Bit[191]=0" and t["end_places"] == [164], t["end_row"]
+    assert t["unregistered"] == [] and t["failures"] == [], (t["unregistered"], t["failures"])
+    assert [x[1:] for x in t["residue_before"]] == [[0, 0, 166], [1, 0, 4], [2, 0, 59], [3, 0, 1]], t["residue_before"]
+    frows = D._rows(D.base_events(), "F", members)
+    tf = O.trace_summary(frows, pred, side="F", end_fields=[31256], stock=o7_stock)
+    first = next(x.line for x in frows if x.k in ("w", "r") and x.fld == 31256)
+    assert tf["end"] == first and tf["end_places"] == [164] and tf["end_row_fld"] == 31256, tf["end"]
+    assert tf["crossings"][-1]["cut"] == "31256 e0 t0 ip22 Global.Bit[191]=0", tf["crossings"]
+    assert tf["unregistered"] == [] and tf["seam_keys"] == [], (tf["unregistered"], tf["seam_keys"])
+    assert P.trace_summary(frows, pred, side="F", end_fields=[31256], stock=o7_stock)["end"] is None
