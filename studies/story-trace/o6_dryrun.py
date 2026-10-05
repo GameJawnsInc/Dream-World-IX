@@ -1362,10 +1362,23 @@ def unit_trigger_to_verdict() -> tuple:
     return all(got.values()), str({k: v for k, v in got.items() if not v} or "all as registered")
 
 
+def frozen_through(n: int) -> list:
+    """The study's predictions files a segment-6 dry run reads: every rung's and O1-O6's, globbed (never a pinned
+    list) but CLOSED at its own segment -- a later segment's freeze adds a file this never reads, so the dry run's
+    output, which the regression gate compares byte for byte, cannot move with it (2026-10-05: O7's freeze moved O6's
+    'naming-of' count, 20 -> 21, and failed G36). The pytest tests still read every frozen file."""
+    out = []
+    for f in sorted(HERE.glob("*predictions*.json")):
+        head = f.name.split("_", 1)[0]
+        if not (head[:1] == "o" and head[1:].isdigit()) or int(head[1:]) <= n:
+            out.append(f)
+    return out
+
+
 def unit_naming_of(pred: dict) -> tuple:
     """S16's strict reader (segment_drive.naming_of): the draft's registration passes; O2's passes; a window with a
     missing key, a ``text`` holding the tag, ``raw_holds`` without it and an ``on_page`` with an unknown key each
-    refused; every frozen predictions file of the study passes (globbed, never pinned)."""
+    refused; every frozen predictions file of the study through O6 passes (:func:`frozen_through`)."""
     regs = pred["naming"]
     got = {"draft": SD.naming_of(pred) == regs,
            "o2": SD.naming_of({"naming": [{"donor": 116, "sc": 1155, "beat": "named"}]}) is not None}
@@ -1383,7 +1396,7 @@ def unit_naming_of(pred: dict) -> tuple:
     p = copy.deepcopy(pred)
     p["naming"][0]["on_page"]["extra"] = 1
     got["page-key"] = _raises(lambda: SD.naming_of(p), "exactly keys")
-    for f in sorted(HERE.glob("*predictions*.json")):
+    for f in frozen_through(6):
         try:
             SD.naming_of(json.loads(f.read_text(encoding="utf-8")))
             got[f.name] = True

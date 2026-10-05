@@ -1421,10 +1421,23 @@ def _raises(fn, match: str) -> bool:
     return False
 
 
+def frozen_through(n: int) -> list:
+    """The study's predictions files a segment-7 dry run reads: every rung's and O1-O7's, globbed (never a pinned
+    list) but CLOSED at its own segment -- a later segment's freeze adds a file this never reads, so the dry run's
+    output, which the regression gate compares byte for byte, cannot move with it (2026-10-05: O7's freeze moved O6's
+    'naming-of' count, 20 -> 21, and failed G36). The pytest tests still read every frozen file."""
+    out = []
+    for f in sorted(HERE.glob("*predictions*.json")):
+        head = f.name.split("_", 1)[0]
+        if not (head[:1] == "o" and head[1:].isdigit()) or int(head[1:]) <= n:
+            out.append(f)
+    return out
+
+
 def unit_step_of_walk(pred: dict) -> tuple:
     """S17's refusals (segment_drive.step_of): the draft's walk step passes; a walk carrying ``target``, ``until``,
     ``to`` or ``expect`` refused; a ``clearance`` of 0, of True and of "120" refused; a ``basis`` "cached" refused; every
-    frozen predictions file of the study (O1-O6's tables) passes unchanged (globbed, never pinned)."""
+    frozen predictions file of the study through O7 (:func:`frozen_through`) passes unchanged."""
     s = pred["table"][0]["steps"][0]
     got = {"draft": SD.step_of(pred, s)["kind"] == "walk"}
     for key, v in (("target", "154.e8"), ("until", {"z_gt": 0}), ("to", 158), ("expect", "choice")):
@@ -1432,7 +1445,7 @@ def unit_step_of_walk(pred: dict) -> tuple:
     for name, v in (("zero", 0), ("bool", True), ("str", "120")):
         got[f"clearance-{name}"] = _raises(lambda v=v: SD.step_of(pred, dict(s, clearance=v)), "clearance is a positive")
     got["basis-cached"] = _raises(lambda: SD.step_of(pred, dict(s, basis="cached")), "basis is one of")
-    for f in sorted(HERE.glob("*predictions*.json")):
+    for f in frozen_through(7):
         p = json.loads(f.read_text(encoding="utf-8"))
         try:
             ok = all(SD.step_of(p, st) is not None for c in p.get("table") or () for st in c["steps"])

@@ -362,6 +362,8 @@ REQUIRED_TESTS: tuple = (
     "test_segment_harness_tests_alone_a_skip_or_an_xfail_is_not_a_pass",
     "test_segment_harness_tests_stop_all_ends_a_running_child",
     "test_segment_regress_gate_stops_its_pytest_half_when_the_rest_raises",
+    # a frozen segment's dry run reads predictions only through its own segment (O7's freeze moved O6's count)
+    "test_segment_dryrun_globs_close_at_their_segment",
     # research/o7_design.md section 9, PART A: the gate extended to O6 (G21 over the union of the O3, O4, O5 and O6
     # baselines' pins), then the shared opt-in changes, each with its step
     "test_segment_regress_o6_pins_join_the_union",                              # A0: G21 over four baselines

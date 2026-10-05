@@ -30568,3 +30568,22 @@ def test_o7_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake(game):
     assert rec["end"]["end_run"]["ok"] and title == "Title", rec["end"]["end_run"]
     report = O.rehearsal_report(game / "run")
     assert "UNTRACED" in report and "untraced: exceptions since the warp []" in report, report[:2500]
+
+
+def test_segment_dryrun_globs_close_at_their_segment():
+    """A frozen segment's dry run reads the study's predictions files only through its OWN segment (o6_dryrun and
+    o7_dryrun ``frozen_through``): every rung's and O1-O<n>'s, never a later segment's -- so a later freeze cannot move
+    the dry run's output, which the regression gate compares byte for byte (O7's freeze moved O6's 'naming-of' unit,
+    20 -> 21 checks, and failed G36). Break: glob every file (O6's then reads O7's)."""
+    _regress_module()
+    import o6_dryrun as D6
+    import o7_dryrun as D7
+    here = REPO / "studies" / "story-trace"
+    every = sorted(f.name for f in here.glob("*predictions*.json"))
+    six, seven = [f.name for f in D6.frozen_through(6)], [f.name for f in D7.frozen_through(7)]
+    assert "o6_predictions_v1.json" in six and not [n for n in six if n.startswith(("o7_", "o8_", "o9_"))], six
+    assert any(n.startswith("rung") for n in six) and set(six) <= set(seven) <= set(every), (six, seven)
+    later = [n for n in every if n[:1] == "o" and n.split("_", 1)[0][1:].isdigit() and int(n.split("_", 1)[0][1:]) > 7]
+    assert not set(later) & set(seven), seven
+    if (here / "o7_predictions_v1.json").is_file():
+        assert "o7_predictions_v1.json" in seven and "o7_predictions_v1.json" not in six
