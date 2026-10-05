@@ -1486,7 +1486,7 @@ Settled for O7 by the O6 research: every walked field's grant is its Main_Init t
 ip205 only; 159's forced monologue (e16 t1 ip390, pages 296-300, `Bit[3796] := 1` ip672) re-grants in place
 (`interrupts` 1).
 
-## O7 -- Steiner's walk through the castle under the trace, a US session: 154 -> 158 -> 159 -> 160 -> 162 -> 163 -> 164 (draft: rehearsals pending, freeze pending)
+## O7 -- Steiner's walk through the castle under the trace, a US session: 154 -> 158 -> 159 -> 160 -> 162 -> 163 -> 164 (PROVEN: story-o7, v1 2d646aaf)
 
 **The question.** From a raw warp onto the castle hallway's balcony (154, entrance 315, SC 1190) -- down the west flight
 to the ground and out through the south door, then through 158, 159 (the guardhouse court, where Steiner's forced
@@ -1600,16 +1600,41 @@ matched by place (31255 on F); the live read is recorded and never compared.
   PATTERN (each visit's emitted rows exactly, no `c` row), MASKED, STATE (a)-(c) (the histories, the live end state,
   `Byte[13]` from the trace) and JOIN over the covered runs; THROW.
 
-**Status: draft: rehearsals pending, freeze pending.** The offline build is done (branch `claude/story-trace-o7`, PARTs
-A-C of the design's section 9): `--offline-check` 6 PASS on the draft, `--preflight` all green (12; nothing to deploy),
-the dry run (`o7_dryrun.py`) 174/174 on the draft and as if frozen, the regression gate G1-G39 with G21 (O1-O6
-byte-identical; O7's tests G38, its dry run G39). A code review's seven findings are fixed, each with a test or a
-dry-run mutant that fails without it (research/o7_design.md 11.4, "The review"). `o7_rehearse.py` holds the stages --
-R-FULL (the go/no-go and the predictions), R-WALK154, R-STAIR (F5's go/no-go at the stair foot), R-WALK-VOID (a stop
-mid-walk and a stop mid-monologue, then the recoveries), F-SMOKE and F-PASS by name -- and `--rehearsal-report` prints
-what each freeze item (research/o7_design.md 7.3, F1-F14) is read from. Then the lead's sequence: `--preflight`, the
-rehearsals, the freeze checklist, `--freeze` (v1), the session (`py tools/play.py studies/story-trace/o7_castle_walk.py
---label story-o7 --timeout 240`).
+**Status: ★★ PROVEN (session `story-o7`, v1 `2d646aaf`), a US session.** Steiner's walk through the castle under the
+trace: the raw warp onto 154's balcony at SC 1190, the walk down the west flight to the ground and through e8, then 158,
+159 (the forced monologue taking control once, its five pages, the re-grant in place, the re-run through e11), 160, 162
+and 163's stair foot to the arrival in 164; O4's deployed alxc members 31246, 31250, 31251, 31252, 31254, 31255 and
+31256 write the real game's story state key for key. S F S F S F, 6/6 covered (S 3 of 3, F 3 of 3), unattended, 547 s,
+no re-run; every check PASS (36/36): FROZEN, COVER, FORBIDDEN, VOID-ASYM (none), START (the four residue rows, 154's
+first row ip26, its first Byte[13] row ip123 from the warp's 1), NO-SC (SC 1190 throughout), CHAIN (315 -> 300 -> 331 ->
+332 -> 333 -> 341 -> 342), RESIDUE, WRITES (exactly 39 keys a run: 33 writes and the 6-key chain), NULL (39 keys
+matched, 0 stock-only, 0 fork-only, NO noise), STABLE, LANDING (every F run ended in member(164) 31256, never a real
+route field), WALK (THE PAIRED-WALK LAW over the seven steps: each done once with its evidence, 159's one interruption
+at its test, no row inside a walk but its door's and the monologue's three in their gap, every seeded field's first move
+within acos(PRIOR_AGREE)), PATTERN (each visit's emitted rows in order, no `c` row), MASKED, STATE (the state handed to
+164 the same; Byte[13] from 163 ip684 = 2), JOIN. Archive: `C:\gd\Dream-World-IX\.harness-runs\20261005-060311-story-o7`
+(o7_report.txt). The first segment built under "Build testing": the build workflow took 10.8 h (O6's 21.4 h).
+
+The rehearsals before the freeze (archived `20261005-05*-o7-rh-*`; F1-F14 met):
+
+| stage | runs | what it settled |
+|---|---|---|
+| R-FULL (stock 154 -> 164) | 2/2 reached | every grant at the bytes' spawn (154's on the balcony at y 1716; 158 (0, -12787); 159 (7, 3870); 160 (1357, -4063); 162 (957, -3800); 163 (690, 2195)); THE PRIOR BASIS 0.0 deg off on every seeded field's first move (154, 158, 160, 162, 163; 159 calibrated, 2 regions clear); 154's walk 37-41 holds down the west flight (y 1716 -> 5), the arrival within 10 u of (0, -600), one zero-travel stall absorbed; 159's monologue: the loss at (-1636, 1374) / (-1610, 1810), pages 296-300 each pressed, the three rows ip613/ip648/ip672, the re-grant 0.0 u from the loss, the re-run through e11; 163's foot at clearance 110: no ladder rung, the narrowest gap 113.9-115.5 u (F5 GO); Dojebon static at (-2700, -1700) on every poll; 33/33 writes, 6/6 chain, 0 unregistered, the two runs row for row identical bar frames; 101 s and 86 s, ~31.4 fps |
+| R-WALK154 | 2/2 reached 158 | the balcony descent alone; the prior basis 0.0 deg; Dojebon static (41 readings a run, no `moved` row) |
+| R-STAIR | 2/2 reached 164 | F5 GO again: no rung after a foot hold, the narrowest gap 115.1 / 115.5 u |
+| R-WALK-VOID | 2 | the stop before 154 #0's 4th walk hold (at (-1146, -3477), on the balcony) and the stop on 159's first page press: each V13 (the driver's), `end_run` to the title in 4.4-4.5 s |
+| F-SMOKE | 7 + 7 warps | 31246@315, 31250@300, 31251@331, 31252@332, 31254@333, 31255@341, 31256@342 load, their object sids EQUAL to their twins' |
+| F-PASS (untraced) | 1 | one F run through the whole route to 31256, every beat, the prior basis 0.0 deg in every member, Dojebon static, no exception |
+
+The freeze's numbers (F8): `run_s` 202 (2 x the slowest R-FULL), `run_min_s` 122 (1.25 x the median 93.5 s + the longest
+recovery 4.5 s), `session_s` 2548, `no_progress_s` 60 (the longest stretch 1.1 s); `rehearsal_fps` [31.0]: every
+rehearsal and the session ran at ~31.3-31.6 fps, so 60 fps is UNEXERCISED -- the game picks its rate (F14). R-STAIR's GO
+keeps the end at 164; the fallback (`END_FIELD = 163`) was not taken.
+
+The offline build, as it stood before the rehearsals (branch `claude/story-trace-o7`, PARTs A-C of the design's section
+9): `--offline-check` 6 PASS; `--preflight` 12/12 on the live install (nothing to deploy); the dry run 174/174 on the
+draft, as if frozen and on the frozen v1; the regression gate G1-G39 with G21 (O1-O6 byte-identical; O7's tests G38, its
+dry run G39); a code review's seven findings each fixed (research/o7_design.md 11.4).
 
 **Next, O8:** a raw `warp 164 342 1190` (S) / `warp 31256 342 1190` (F) in field 70 (after 70 e0 t0 ip130, before
 ip475): four residue rows (342 = 0x0156: byte 2 0 -> 86, byte 3 0 -> 1); START row 164 e0 t0 ip22, START requires 164
@@ -1641,8 +1666,7 @@ static span, ~100 s). Owner options: (1) this 2-way split (O8 = 164 -> real 55),
 split -- O8 = 164 -> the arrival in 166 (walk machinery only), O9 = a raw warp into 166 at 344 -> FMV004 -> real 55 (the
 movie and the seam only; 166's K -1 takes ip119 from the window's `Byte[13]` 1; no grant there); (3) FMV004 skipped
 after O8's own stock A/B (a non-page span key) -- not recommended; (4) 31258 rebuilt with 55 -> 31205 (owner-gated;
-breaks O4-O6's P-EB pins) -- not recommended. If O7 took the fallback end (R-STAIR NO-GO), O8 starts with a raw warp
-into 163 at 341 and walks 163 first.
+breaks O4-O6's P-EB pins) -- not recommended. O7 ended at 164 (R-STAIR GO), so O8 starts there.
 
 ## Build testing (every segment's build, from O7) -- overrides any design's section 9 where it differs
 
