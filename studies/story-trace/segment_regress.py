@@ -725,6 +725,8 @@ O6_OFFLINE_CHECKS = 6
 #: until then the list is read by nothing.
 PYTEST_K_O7 = "o7_ or fake_level or fake_monologue or fake_patrol"
 REQUIRED_TESTS_O7: tuple = (
+    # A0b: O6's route replayed by hand on the fake against its golden, captured before any O7 fake edit
+    "test_fake_level_keeps_the_steiner_route_identical",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

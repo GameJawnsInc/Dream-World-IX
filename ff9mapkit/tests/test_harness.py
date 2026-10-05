@@ -26829,3 +26829,90 @@ def test_segment_regress_o6_pins_join_the_union(tmp_path):
     assert source.count("    def _walk_out(") == 1, "premise: one _walk_out definition"
     with pytest.raises(ValueError, match=re.escape("no function ['_VisitBeat._walk_out']")):
         R.fake_pins_o6(source.replace("    def _walk_out(", "    def _walkout("))
+
+
+#: A0b's golden (research/o7_design.md 3.7, 9 A0b): O6's route on the hand-stepped fake, as the branch point left the fake
+#: (before H20 and every later fake edit).
+_O6_REPLAY = REPO / "studies" / "story-trace" / "research" / "o6_fake_replay.json"
+
+
+def _o6_replay(game, side: str) -> dict:
+    """O6's route builder (:func:`_o6_route`, ``side``) played BY HAND to the arrival in 154 -- :func:`_o6_play`'s
+    scripted player (every page, KEYON pair and timed window Confirmed, the naming's two Confirms, Up held from the grant
+    until control goes), the fake stepped frame by frame (``_frame_once``): no thread, no wall clock -- started as
+    test_fake_door_route_plays_to_154_unattended starts it (field 70's prologue values, the trace armed with the sink's
+    suppression, the raw warp's three residue rows, the visit beats staged in 151's field) and played until 154's visit
+    waits. ``{"frames": [[frame, field, ui_state, control, x, y, z, [[slot, raw, text], ...], choice], ...], "rows":
+    [...]}``: every frame whose compact sample changed -- y included, which H20 must leave untouched; the windows the
+    beat's listed ones, each text as the agent would publish it -- and every trace row."""
+    from harness.fakegame import _VisitBeat
+    fields = _O6_FIELDS[side]
+    fake = _fv_fake(game, field=70, trace=False)
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(110, 1190)                         # the raw warp's residue, seen in field 70
+    fake.field_id = fields["151"]
+    fake.scene(*_o6_route(side), control=False)
+    frames: list = []
+    last: list = [None]
+    step = fake._frame_once
+
+    def sample() -> list:
+        m = fake._machine
+        assert m is None or isinstance(m, _VisitBeat), m
+        wins = [] if m is None else [[w.slot, w.raw, m.shown(fake, w)] for w in m.windows if not w.gone]
+        return [fake.field_id, fake.ui_state, bool(fake.control), round(float(fake.player[0]), 6),
+                round(float(fake.player[1]), 6), round(float(fake.player[2]), 6), wins,
+                json.loads(json.dumps(fake.choice))]
+
+    def frame_once() -> None:
+        step()
+        s = sample()
+        if s != last[0]:
+            frames.append([fake.frame, *s])
+            last[0] = s
+    fake._frame_once = frame_once                       # the scripted player steps through this, frame by frame
+    end = fields["154"]
+    _o6_play(fake, until=lambda f: f.field_id == end and any(e["index"] == 3 and e["kind"] == "wait"
+                                                             for e in f.visit_log))
+    fake._story_stop()
+    assert fake.named == [3] and fake.field_id == end, (fake.named, fake.field_id)
+    return {"frames": frames, "rows": _fv_rows(fake)}
+
+
+def test_fake_level_keeps_the_steiner_route_identical(game):
+    """A0b, THE O6 REPLAY (research/o7_design.md 3.7, 9 A0b): G1-G37 replay RECORDED sessions and cannot see a fake
+    change, and once B1 and B2 re-baseline O5's and O6's pinned fake functions G26 and G32 prove their tests pass, not
+    that the fake is unchanged. So O6's route builder -- S and F -- is played BY HAND on the fake (:func:`_o6_replay`: no
+    thread, no wall clock) and the document it builds -- every frame whose compact sample changed, his y included, and
+    every trace row -- is compared with the golden ``research/o6_fake_replay.json``, captured on the fake as the branch
+    point left it (before H20 and every later fake edit): a difference FAILS naming the first differing frame, a
+    missing golden FAILS (never a skip). With ``O7_CAPTURE_REPLAY=1`` it WRITES the golden instead -- refusing an
+    existing file, and refusing unless two captures in one process are equal. O5's replay
+    (test_fake_door_keeps_the_hallway_route_identical) runs beside it unchanged. Break: any change to how the fake plays
+    O6's route (a page's opening by a frame, the naming, a store, the door's walk-out, his height) -- the frame it first
+    shows names it."""
+    sides = ("S", "F")
+    doc = {"what": "O6's route builder (_o6_route, S and F) played by hand on the fake (research/o7_design.md 9 A0b): "
+                   "every frame whose compact sample changed -- [frame, field, ui_state, control, x, y, z, [[slot, raw, "
+                   "text], ...], choice] -- and every trace row",
+           **{side: _o6_replay(game, side) for side in sides}}
+    if os.environ.get("O7_CAPTURE_REPLAY") == "1":
+        assert not _O6_REPLAY.exists(), f"{_O6_REPLAY} exists: the golden is captured once, never overwritten"
+        again = {"what": doc["what"], **{side: _o6_replay(game, side) for side in sides}}
+        assert _replay_text(again) == _replay_text(doc), "two captures in one process differ: no golden written"
+        _O6_REPLAY.write_bytes(_replay_text(doc).encode("ascii"))
+        return
+    assert _O6_REPLAY.is_file(), (f"no golden at {_O6_REPLAY}: capture it (O7_CAPTURE_REPLAY=1) on the fake as the "
+                                  f"branch point left it, before any fake edit")
+    want = json.loads(_O6_REPLAY.read_text(encoding="utf-8"))
+    got = json.loads(_replay_text(doc))
+    for side in sides:
+        for key in ("frames", "rows"):
+            a, b = got[side][key], want[side][key]
+            i = next((n for n, (x, y) in enumerate(zip(a, b)) if x != y), None)
+            if i is not None:
+                raise AssertionError(f"{side} {key}[{i}] differs from the golden: got {a[i]!r}, want {b[i]!r}")
+            assert len(a) == len(b), (f"{side} {key}: {len(a)} entries, the golden {len(b)}; the first unmatched "
+                                      f"{(a[len(b)] if len(a) > len(b) else b[len(a)])!r}")
+    assert got == want

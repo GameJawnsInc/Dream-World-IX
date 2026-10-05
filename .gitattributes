@@ -107,3 +107,9 @@ studies/story-trace/o6_predictions*.json -text
 # the code before any O7 change and compared byte for byte. Its committed LF bytes are the captured ones; never
 # line-end convert them.
 studies/story-trace/research/o6_regress_baseline.json -text
+
+# The O6 replay's golden (ff9mapkit/tests/test_harness.py test_fake_level_keeps_the_steiner_route_identical,
+# research/o7_design.md 9 A0b): O6's route played by hand on the fake as the branch point left it -- every frame whose
+# sample changed and every trace row -- captured ONCE before any O7 fake edit and compared exactly. LF; never line-end
+# convert it.
+studies/story-trace/research/o6_fake_replay.json -text
