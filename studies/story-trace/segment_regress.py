@@ -752,6 +752,13 @@ REQUIRED_TESTS_O7: tuple = (
     "test_fake_level_walks_the_west_flight_down_to_the_ground",
     "test_fake_level_place_height_without_levels_sets_y",
     "test_fake_level_squeeze_passes_the_stair_foot",
+    # B2: H22, the door's height terms and a door step's scene (159's forced monologue); H23, the held walker (Dojebon)
+    "test_fake_level_door_branches_by_height",
+    "test_fake_monologue_fires_once_outside_the_box",
+    "test_fake_monologue_store_override_fires_it_again",
+    "test_fake_monologue_regrants_in_place",
+    "test_fake_patrol_holds_within_its_circle_and_its_latch",
+    "test_fake_patrol_released_walks_its_path",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

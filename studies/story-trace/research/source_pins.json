@@ -152,5 +152,19 @@
   "new": "5e074949ea90e308d0f5dfb1ecf7403e5c1f7fba9c57a93f222da7fddc5a6c8a",
   "reason": "O7 B1 (research/o7_design.md 3.1, H20): [x, z, h] places his height too (FakeGame.place_height: the open triangle under him nearest h on a field with levels, else -h); [x, z] is the place as before -- both replays (O5's hallway, O6's Steiner route) read identical",
   "head": "2150d6f04e35cc7cb803853e1619942a9067ca44"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_door_knobs",
+  "old": "0323c7a7e2116f11bb21d73a26136b6bbda031b5c7590b6f1f1d113041002836",
+  "new": "4d02977d0928fcc7253feef5b414a86dbe544c9ddeb3648309bcaea1f5495bb3",
+  "reason": "O7 B2 (research/o7_design.md 3.3, H22): a door's height terms y_gt and y_le (numbers) beside z_gt, and the door step's scenes (each {name, any_of, unless_bit, steps, regrant}, its steps pages, stores and waits) checked strict; O6's door steps carry neither and read as before -- O6's fake and driver door tests (G32) and both replays pass",
+  "head": "12a12112c5fcca4f0fa4d5da805eabd30840ada1"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_VisitBeat._door",
+  "old": "72e920d3cae8b144af569174d47fb881643984b005601cd838137d89bbf95302",
+  "new": "8b1d49cccd7e40f1bd760919c3627dc255a937daceebc115cfa51aa5a7b45821",
+  "reason": "O7 B2 (research/o7_design.md 3.3, H22): a door fires only within its y_gt / y_le height terms (154's e8, e9, e10: the balcony branch and the ground branch of one polygon), and the step's armed scenes are tested after the doors each tick he has control (159's forced monologue: control off, its steps, the re-grant in place); a door step with neither is O6's exactly -- O6's door tests (G32) and both replays pass",
+  "head": "12a12112c5fcca4f0fa4d5da805eabd30840ada1"
  }
 ]

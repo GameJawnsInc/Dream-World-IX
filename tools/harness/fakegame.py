@@ -1818,10 +1818,31 @@ class FakeGame:
     def _step_walkers(self, ticks: float) -> None:
         """Every walker (a body with a ``path``) one tick along it (or, in mean mode, the frame's share of one:
         ``ticks``) -- ``speed / WALKER_FRAME_TICKS`` units a tick, MoveToward's step a tick -- unless that step would
-        bring it within ``r`` of the player, where it waits, still moving (MoveToward.cs:187-189)."""
+        bring it within ``r`` of the player, where it waits, still moving (MoveToward.cs:187-189).
+
+        H23 (research/o7_design.md 3.4), opt-in: a walker's ``hold`` -- ``{"within": r, "latch_below": y1,
+        "unlatch_above": y2, "at": [k, ...]}`` -- keeps it standing at a path index in ``at`` (its placement is index
+        0) while his XZ distance is under ``within`` OR its latch is set (154 e5 t1 ip263 / ip486: ``B_DISTANCEA < 3600
+        || Map.Byte[30] == 1``). The latch sets the first tick his published y is under ``latch_below`` (e11 t1 ip14 /
+        ip33: ``f[1] > -600``) and then clears once it is over ``unlatch_above`` (ip128 / ip147: ``f[1] < -500``) --
+        each tick, in that order; it starts clear (e15 t0 ip2116 ``Map.Byte[30] := 2``). Held, it stands -- its script
+        waits in ip263's loop, no walk runs: ``objects`` publishes it ``moving`` False. Elsewhere on its path it walks
+        without a wait (e5 t1 ip316-ip474)."""
         for _i, b in self._bodies():
             if not self._walking(b):
                 continue
+            hold = b.get("hold")
+            if hold is not None:                           # H23: the latch, then the hold at its stops
+                y = self.player[1]
+                if not b.get("_latch") and y < float(hold["latch_below"]):
+                    b["_latch"] = True
+                if b.get("_latch") and y > float(hold["unlatch_above"]):
+                    b["_latch"] = False
+                b["_held"] = b.setdefault("_at", 0) in hold["at"] and bool(
+                    b.get("_latch") or math.hypot(b["x"] - self.player[0], b["z"] - self.player[2])
+                    < float(hold["within"]))
+                if b["_held"]:
+                    continue                               # held at its stop: its script waits, no walk runs
             path = b["path"]
             k = b.setdefault("_k", 1 if len(path) > 1 else 0)
             tx, tz = path[k]
@@ -1834,6 +1855,8 @@ class FakeGame:
             if near < b["r"] and near < ((b["x"] - px) ** 2 + (b["z"] - pz) ** 2) ** 0.5:
                 continue                                   # held by him
             b["x"], b["z"] = nx, nz
+            if hold is not None:
+                b["_at"] = k if step >= dist else None     # H23: the stop it stands at, None between two
             if step < dist:
                 continue
             if len(path) < 2 or (b.get("once") and k == len(path) - 1):
@@ -1890,7 +1913,7 @@ class FakeGame:
                         "r": float(b["r"]), "solid": coll and bool(b.get("solid")), "coll": coll,
                         "range_r": float(rr) if rr is not None and coll else None,
                         "talk_r": float(tr) if tr is not None else None,
-                        "shown": shown, "moving": self._walking(b),
+                        "shown": shown, "moving": self._walking(b) and not b.get("_held"),    # H23: a held walker stands
                         "flags": (1 if shown else 0) | (0 if coll else 14) | (16 if b.get("solid") else 0)})
         return out
 
@@ -4020,10 +4043,20 @@ STNR_TAG, STNR_CHAR, STNR_NAME = "[STNR]", 3, "Steiner"
 #: ``name``, ``points`` (IsInQuad's polygon), ``stores`` (its tag 2's stores before its Field(), each a store's 7
 #: values), ``ticks`` (its fade's op_22 wait: e23's 25), ``to`` (a ``field_to`` key) -- and optionally ``z_gt`` (its z
 #: term: e23 t2 ip38's f[2] > 1333) and ``walkout`` (``{"to": [x, z], "stop_z": z | None}``: ExitField's walk toward
-#: MJPOS's point).
-DOOR_DEFAULTS = {"doors": (), "speed": 60.0}
-DOOR_KEYS = ("name", "points", "z_gt", "stores", "ticks", "to", "walkout")
+#: MJPOS's point). H22 (research/o7_design.md 3.3): a door's HEIGHT terms ``y_gt`` / ``y_le`` -- his published y past it /
+#: at or under it (154 e8 t2 ip38's ``f[1] < -100``: the balcony branch y > 100, the ground branch y <= 100) -- and the
+#: step's ``scenes`` (:data:`SCENE_KEYS`): an object's one-shot scene, tested after the doors each tick he has control.
+DOOR_DEFAULTS = {"doors": (), "speed": 60.0, "scenes": ()}
+DOOR_KEYS = ("name", "points", "z_gt", "y_gt", "y_le", "stores", "ticks", "to", "walkout")
 DOOR_NEEDS = ("name", "points", "stores", "ticks", "to")
+#: H22 (research/o7_design.md 3.3): a door step's SCENE -- ``name``; ``any_of`` (a dict of ``x_lt`` / ``x_gt`` / ``z_lt``
+#: / ``z_gt``: ANY holding fires -- 159 e16 t1 ip390's B_OROR); ``unless_bit`` (the gEventGlobal bit whose 1 disarms it,
+#: read from the modelled array -- ip390's ``Bit[3796] == 0``; None: never disarmed); ``steps`` (its pages, stores and
+#: waits, :data:`SCENE_STEP_KINDS`); ``regrant`` ("in_place", the only form: ip711 EnableMove with no Walk).
+SCENE_KEYS = ("name", "any_of", "unless_bit", "steps", "regrant")
+SCENE_NEEDS = ("name", "any_of", "steps")
+SCENE_TESTS = ("x_lt", "x_gt", "z_lt", "z_gt")
+SCENE_STEP_KINDS = ("page", "store", "wait")
 #: A ``stairs`` step's knobs and defaults (153 e3 t1 stage 6, its side scenes, its back door and stage 17;
 #: research/o5_design.md 3.2): ``scenes`` (each ``{"points", "z_gt", "pages"}``: e26 -- its quad AND z > 1333 -- and e27,
 #: live in stage 6 alone; ``pages`` page steps); ``back_door`` (``{"points", "stores", "exit_ticks", "to"}``: e28, live
@@ -4112,7 +4145,11 @@ def _door_knobs(d, k: dict, at: str) -> None:
     positive number, ``doors`` a non-empty list in entry order -- and each door a dict holding every
     :data:`DOOR_NEEDS` and nothing outside :data:`DOOR_KEYS`: ``points`` a polygon of three points or more, each
     store its 7 values, ``ticks`` an int >= 0, ``to`` a ``field_to`` key, ``z_gt`` a number, ``walkout`` ``{"to":
-    [x, z], "stop_z": z | None}``. A ValueError names the first fault."""
+    [x, z], "stop_z": z | None}``. H22 (research/o7_design.md 3.3): a door's ``y_gt`` and ``y_le`` numbers; the step's
+    ``scenes`` a list, each a dict holding every :data:`SCENE_NEEDS` and nothing outside :data:`SCENE_KEYS` -- ``name`` a
+    non-empty str, ``any_of`` a non-empty dict of :data:`SCENE_TESTS` to numbers, ``unless_bit`` None or an int >= 0,
+    ``steps`` visit steps (:func:`_visit_steps`) of :data:`SCENE_STEP_KINDS` alone, ``regrant`` "in_place". A ValueError
+    names the first fault."""
     if not isinstance(d, dict):
         raise ValueError(f"{at}: the door's knobs are a dict, not {d!r}")
     unknown = sorted(set(d) - set(DOOR_DEFAULTS))
@@ -4129,7 +4166,7 @@ def _door_knobs(d, k: dict, at: str) -> None:
         if not isinstance(door, dict):
             raise ValueError(f"{w}: a door is a dict, not {door!r}")
         if [x for x in DOOR_NEEDS if x not in door] or set(door) - set(DOOR_KEYS):
-            raise ValueError(f"{w}: a door holds {list(DOOR_NEEDS)} and optionally z_gt and walkout, not "
+            raise ValueError(f"{w}: a door holds {list(DOOR_NEEDS)} and optionally z_gt, y_gt, y_le and walkout, not "
                              f"{sorted(door)}")
         if not isinstance(door["points"], (list, tuple)) or len(door["points"]) < 3:
             raise ValueError(f"{w}: a door's points are a polygon, [[x, z], ...] of three or more, not "
@@ -4141,13 +4178,39 @@ def _door_knobs(d, k: dict, at: str) -> None:
             raise ValueError(f"{w}: a door's ticks are an int >= 0 (its fade's wait), not {door['ticks']!r}")
         if str(door["to"]) not in k["field_to"]:
             raise ValueError(f"{w}: the door's to {door['to']!r} is not in field_to {sorted(k['field_to'])}")
-        z_gt = door.get("z_gt")
-        if z_gt is not None and (not isinstance(z_gt, (int, float)) or isinstance(z_gt, bool)):
-            raise ValueError(f"{w}: a door's z_gt is a number, not {z_gt!r}")
+        for term in ("z_gt", "y_gt", "y_le"):                     # H22: the height terms beside the z term
+            v = door.get(term)
+            if v is not None and (not isinstance(v, (int, float)) or isinstance(v, bool)):
+                raise ValueError(f"{w}: a door's {term} is a number, not {v!r}")
         wo = door.get("walkout")
         if wo is not None and (not isinstance(wo, dict) or "to" not in wo or set(wo) - {"to", "stop_z"}
                                or not isinstance(wo["to"], (list, tuple)) or len(wo["to"]) != 2):
             raise ValueError(f"{w}: a door's walkout is {{'to': [x, z], 'stop_z': z | None}}, not {wo!r}")
+    scenes = d.get("scenes", DOOR_DEFAULTS["scenes"])
+    if not isinstance(scenes, (list, tuple)):
+        raise ValueError(f"{at}: a door step's scenes are a list, not {scenes!r}")
+    for n, sc in enumerate(scenes):                               # H22: an object's one-shot scene
+        w = f"{at}.scenes[{n}]"
+        if not isinstance(sc, dict) or [x for x in SCENE_NEEDS if x not in sc] or set(sc) - set(SCENE_KEYS):
+            raise ValueError(f"{w}: a scene holds {list(SCENE_NEEDS)} and optionally unless_bit and regrant, not "
+                             f"{sorted(sc) if isinstance(sc, dict) else sc!r}")
+        if not isinstance(sc["name"], str) or not sc["name"]:
+            raise ValueError(f"{w}: a scene's name is a non-empty str, not {sc['name']!r}")
+        tests = sc["any_of"]
+        if not isinstance(tests, dict) or not tests or set(tests) - set(SCENE_TESTS) or not all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) for v in tests.values()):
+            raise ValueError(f"{w}: a scene's any_of is a non-empty dict of {list(SCENE_TESTS)} to numbers, not "
+                             f"{tests!r}")
+        bit = sc.get("unless_bit")
+        if bit is not None and (not isinstance(bit, int) or isinstance(bit, bool) or bit < 0):
+            raise ValueError(f"{w}: a scene's unless_bit is None or a gEventGlobal bit, an int >= 0, not {bit!r}")
+        if sc.get("regrant", "in_place") != "in_place":
+            raise ValueError(f"{w}: a scene's regrant is 'in_place' (EnableMove where he stands, no Walk), not "
+                             f"{sc['regrant']!r}")
+        _visit_steps(sc["steps"], k, f"{w}.steps")
+        odd = [s for s in sc["steps"] if not any(kd in s for kd in SCENE_STEP_KINDS)]
+        if odd:
+            raise ValueError(f"{w}: a scene's steps are pages, stores and waits ({list(SCENE_STEP_KINDS)}), not {odd!r}")
 
 
 class _VisitBeat(_Machine):
@@ -4675,16 +4738,37 @@ class _VisitBeat(_Machine):
         ``stop_z`` (pathing's hold a radius short of the floor's end: 0.2 #6); without it he stands -- then, the exit
         gate set or absent (``fake.exit_gate``, H16: he stands meanwhile), the door's ``stores`` and its Field() in the
         same tick (ip203, then ip211). H19's ``door_misroute`` sends that Field() to another ``field_to`` key, and
-        ``land_real`` applies to it (:meth:`_field`)."""
+        ``land_real`` applies to it (:meth:`_field`).
+
+        H22 (research/o7_design.md 3.3): a door's HEIGHT terms -- ``y_gt`` / ``y_le``, his published y past it / at or
+        under it (154 e8 t2 ip38's ``f[1] < -100``: one polygon, two doors in entry order, the balcony's and the
+        ground's) -- beside ``z_gt``; and the step's SCENES, tested after the doors each tick he has control (159's
+        regions e10-e12 precede Steiner's e16, and the engine runs objects by entry): an ARMED scene -- its ``unless_bit``
+        clear in the modelled gEventGlobal -- whose ``any_of`` holds (any one: ip390's B_OROR) FIRES: control off (ip445
+        DisableMove), a visit_log row "scene" (its name, where he stood), its steps -- pages, stores, waits -- then
+        control back where he stands (``regrant`` "in_place": ip711 EnableMove, no Walk), and the doors' loop goes on. A
+        scene whose own steps store its ``unless_bit`` (ip672) cannot fire again."""
         from ff9mapkit.content import doorface
         s = {**DOOR_DEFAULTS, **knobs}
         while True:
             if fake.control:
-                x, z = fake.player[0], fake.player[2]
+                x, z, y = fake.player[0], fake.player[2], fake.player[1]
                 door = next((d for d in s["doors"] if doorface.region_contains(x, z, d["points"])
-                             and (d.get("z_gt") is None or z > float(d["z_gt"]))), None)
+                             and (d.get("z_gt") is None or z > float(d["z_gt"]))
+                             and (d.get("y_gt") is None or y > float(d["y_gt"]))
+                             and (d.get("y_le") is None or y <= float(d["y_le"]))), None)
                 if door is not None:
                     break
+                scene = next((sc for sc in s["scenes"] if self._scene_fires(fake, sc, x, z)), None)
+                if scene is not None:                            # H22: an object's scene takes control here
+                    fake.control, fake._coast = False, None
+                    self._log(fake, f"{at}.s", "scene", name=scene["name"], x=x, z=z)
+                    yield from self._run(fake, scene["steps"], f"{at}.s.")
+                    if self.done:
+                        return
+                    fake.control, fake._coast = True, None      # ip711 EnableMove: where he stands, no Walk
+                    yield
+                    continue
             yield
         fake.control, fake._coast = False, None
         self._log(fake, f"{at}.{door['name']}", "fire", name=door["name"], x=x, z=z)
@@ -4704,6 +4788,17 @@ class _VisitBeat(_Machine):
         for args in door["stores"]:
             self._store(fake, args)
         self._field(fake, self.k["door_misroute"].get(str(door["name"]), str(door["to"])))
+
+    @staticmethod
+    def _scene_fires(fake, sc: dict, x: float, z: float) -> bool:
+        """H22 (research/o7_design.md 3.3): whether a door step's scene fires with him standing at (x, z) -- ARMED (no
+        ``unless_bit``, or that gEventGlobal bit clear in the modelled array: ip390's ``Bit[3796] == 0``) and ANY of its
+        ``any_of`` tests holding (ip390's B_OROR: x < -1600 || x > 1600 || z < 800)."""
+        bit = sc.get("unless_bit")
+        if bit is not None and (fake.story_bytes[bit >> 3] >> (bit & 7)) & 1:
+            return False
+        tests = {"x_lt": lambda v: x < v, "x_gt": lambda v: x > v, "z_lt": lambda v: z < v, "z_gt": lambda v: z > v}
+        return any(tests[key](float(v)) for key, v in sc["any_of"].items())
 
     @staticmethod
     def _walk_out(fake, w: dict, step: float) -> None:

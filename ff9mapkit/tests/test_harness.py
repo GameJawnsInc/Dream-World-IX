@@ -27845,3 +27845,279 @@ def test_fake_level_squeeze_passes_the_stair_foot(game, dali):
     _lv_press(fake, 0.0, 600.0, still=20)
     assert -120 <= fake.player[2] < 0, fake.player                          # held where the pinch narrows past 112
     assert lv.wall_gap(fake.player[0], fake.player[2], 0.0) >= 100.0 + 8.0, fake.player
+
+
+# ---- B2: H22 (research/o7_design.md 3.3) -- THE DOOR'S HEIGHT TERMS (154's e8, e9 and e10: one polygon, two doors -- the
+# balcony branch past y 100, the ground branch at or under it) and A DOOR STEP'S SCENE (159's forced monologue: e16 t1
+# ip390's test, guarded by the bytes' own Bit[3796], its five pages and three stores, the in-place re-grant); H23 (3.4)
+# -- THE HELD WALKER (154's Dojebon, held at his stops while Steiner is within 3600 or the camera's latch is set). Stepped
+# BY HAND at 30 fps quantized (a field tick a frame), as O6's B1 tests step the fake.
+
+#: O7's fixture fields by the place they stand for (research/o7_design.md 3.6): S 30840-30846 the route's 154, 158, 159,
+#: 160, 162, 163 and 164, 30850-30854 the wrong doors' 153, 155, 156, 167 and 161; F O4's members.
+_O7_FIELDS = {"S": {"154": 30840, "158": 30841, "159": 30842, "160": 30843, "162": 30844, "163": 30845, "164": 30846,
+                    "153": 30850, "155": 30851, "156": 30852, "161": 30854, "167": 30853},
+              "F": {"154": 31246, "158": 31250, "159": 31251, "160": 31252, "162": 31254, "163": 31255, "164": 31256,
+                    "153": 31245, "155": 31247, "156": 31248, "161": 31253, "167": 31259}}
+_O7_NAMES = {"31245": "O7_H2F", "31246": "O7_ENT", "31247": "O7_155", "31248": "O7_156", "31250": "O7_158",
+             "31251": "O7_159", "31252": "O7_160", "31253": "O7_161", "31254": "O7_162", "31255": "O7_163",
+             "31256": "O7_164", "31259": "O7_167"}
+_O7_MEMBERS = {_O7_FIELDS["F"][p]: _O7_FIELDS["S"][p] for p in _O7_FIELDS["S"]}
+#: The floor-blind fixture's floor, a box over every walk of the route (research/o7_design.md 3.6).
+_O7_BOX = (-3800.0, -18000.0, 3800.0, 7000.0)
+#: The route fields' exits (research/o7_design.md 4.15): each the first SetRegion of its entry, in the engine's order.
+_O7_158E1 = [[-612, -8797], [588, -8797], [618, -12487], [-642, -12487]]
+_O7_158E2 = [[480, -17752], [-450, -17752], [-1061, -15641], [1009, -15641]]
+_O7_159E10 = [[1120, 6590], [-1130, 6590], [-1160, 4910], [1150, 4910]]
+_O7_159E11 = [[-3498, 955], [-3498, -888], [-2208, -888], [-2569, 1039]]
+_O7_159E12 = [[3410, 901], [3403, -631], [2254, -623], [2550, 941]]
+_O7_160E4 = [[3018, -4012], [3018, -4792], [1459, -4463], [1371, -3599]]
+_O7_160E5 = [[-561, -127], [-111, -127], [-49, -1065], [-589, -1065]]
+_O7_162E2 = [[575, -5321], [1385, -5321], [1415, -3850], [-205, -3850]]
+_O7_162E3 = [[755, 3730], [1265, 3730], [1265, 130], [725, 130]]
+_O7_163E2 = [[721, 4803], [866, 5202], [1432, 5013], [1300, 4705]]
+_O7_163E3 = [[1210, 1307], [437, 1254], [377, 2244], [1238, 1892]]
+
+
+def _o7_mjpos(points, at) -> list:
+    """ExitField's walk-out target, MJPOS's point (CalculateExitPosition, DoEventCode.cs:2247-2275): ``at`` -- his
+    crossing point -- projected onto the region's FIRST edge, q0 -> q1, clamped to it."""
+    (ax, az), (bx, bz) = points[0], points[1]
+    dx, dz = bx - ax, bz - az
+    t = max(0.0, min(1.0, ((at[0] - ax) * dx + (at[1] - az) * dz) / float(dx * dx + dz * dz)))
+    return [round(ax + t * dx, 1), round(az + t * dz, 1)]
+
+
+def _o7_crossing(points, start, goal) -> tuple:
+    """The planned crossing: where the straight line from ``start`` to ``goal`` first stands in the region (IsInQuad:
+    content.doorface.region_contains), sampled every 10u -- the goal when it never does."""
+    from ff9mapkit.content import doorface
+    n = max(1, int(math.dist(start, goal) // 10))
+    for i in range(n + 1):
+        x, z = start[0] + (goal[0] - start[0]) * i / n, start[1] + (goal[1] - start[1]) * i / n
+        if doorface.region_contains(x, z, points):
+            return (x, z)
+    return tuple(goal)
+
+
+def _o7_door(name, points, stores, to, *, via=None, **terms):
+    """One door of a door step (H18; H22's height ``terms``): its tag 2's stores before its Field(), 25 ticks of fade
+    (op_22(25)), ``to`` a field_to key, and ExitField's walk-out toward MJPOS's point for the crossing ``via`` (the
+    planned one: ``(start, goal)``) or, for a door the route never takes, for the region's centroid."""
+    at = (_o7_crossing(points, *via) if via is not None
+          else (sum(p[0] for p in points) / len(points), sum(p[1] for p in points) / len(points)))
+    return {"name": name, "points": [list(p) for p in points], "stores": [list(s) for s in stores], "ticks": 25,
+            "to": to, "walkout": {"to": _o7_mjpos(points, at), "stop_z": None}, **terms}
+
+
+def _o7_doors154(*, via=((0, -600), (0, -4500))):
+    """154's doors at 315 in ENTRY order (research/o7_design.md 3.3, 4.6, 4.15): e8, e9 and e10, each TWO doors with one
+    polygon -- the balcony branch (tag 2 ip38's ``f[1] < -100``: y > 100; ip195 Int16[2] := 301 / 302 / 303) and the
+    ground branch (y <= 100; ip355 := 300) -- e8's ground branch Field(158) the route's (crossed on step 1's ``via``)."""
+    def pair(e, pts, high, high_to, low_to, way=None):
+        return [_o7_door(f"e{e}.balcony", pts, [[e, 2, 195, 2, "Int16", high, -1]], high_to, y_gt=100),
+                _o7_door(f"e{e}.ground", pts, [[e, 2, 355, 2, "Int16", 300, -1]], low_to, via=way, y_le=100)]
+    return [*pair(8, _O7_E8, 301, "153", "158", via), *pair(9, _O7_E9, 302, "156", "155"),
+            *pair(10, _O7_E10, 303, "156", "167")]
+
+
+#: 159's forced monologue (research/o7_design.md 2.5, 3.3, 0.2 #10): e16 t1 ip390 fires the first tick he stands outside
+#: |x| <= 1600 && z >= 800 while Bit[3796] is 0; pages 296-300 (slot 4); ip613 Byte[208] := 0 and ip648 ++ while 300 is
+#: up (ip602 WindowAsync: written just before it opens), ip672 Bit[3796] := 1 after it; ip711 re-grants in place.
+_O7_MONOLOGUE = {"name": "the forced monologue", "any_of": {"x_lt": -1600, "x_gt": 1600, "z_lt": 800},
+                 "unless_bit": 3796, "regrant": "in_place",
+                 "steps": [*[_o5_page("159", m, 4) for m in (296, 297, 298, 299)],
+                           _o5_store(16, 1, 613, 208, "Byte", 0), _o5_store(16, 1, 648, 208, "Byte", 1),
+                           _o5_page("159", 300, 4), _o5_store(16, 1, 672, 3796 >> 3, "Bit", 1, 3796)]}
+
+
+def _o7_doors159(*, via=((7, 3870), (-2910, -300))):
+    """159's doors at 331 in entry order (research/o7_design.md 4.6, 4.15): e10 (back to 158), e11 (the route's, to 160:
+    crossed on its step's ``via``) and e12 (to 161), each ip193 Int16[2] := 332."""
+    return [_o7_door("e10", _O7_159E10, [[10, 2, 193, 2, "Int16", 332, -1]], "158"),
+            _o7_door("e11", _O7_159E11, [[11, 2, 193, 2, "Int16", 332, -1]], "160", via=via),
+            _o7_door("e12", _O7_159E12, [[12, 2, 193, 2, "Int16", 332, -1]], "161")]
+
+
+def _o7_visit(steps, **knobs):
+    """A ``{"visit": knobs}`` beat of ``steps`` on O7's S fields (:data:`_O7_FIELDS`), index 1."""
+    return _fv_visit(steps, **{"field_to": dict(_O7_FIELDS["S"]), **knobs})
+
+
+def _o7_box_fake(game, *beats, field):
+    """:func:`_fv_fake` (30 fps quantized, the trace on with the sink's suppression) on O7's box floor."""
+    fake = _fv_fake(game, *beats, field=field)
+    fake.walkmesh = _O7_BOX
+    return fake
+
+
+def _o7_monologue_fake(game, **knobs):
+    """159's visit stepped by hand: the grant at (7, 3870), then the door step -- e10, e11, e12 and the monologue."""
+    return _o7_box_fake(game, _o7_visit([{"grant": [7, 3870]},
+                                         {"door": {"doors": _o7_doors159(), "scenes": [dict(_O7_MONOLOGUE)]}}],
+                                        **knobs), field=30842)
+
+
+def _o7_play(fake, *, toward=None, walk="left", until=None, limit=20000, every=5) -> list:
+    """A scripted player on the hand-stepped fake: with control, a press -- ``toward`` (x, z): Up with the twist turned
+    at it; else ``walk`` held -- and without it, every ``every`` frames, a listed page Confirmed. Each frame's
+    ``(frame, control, x, z)``; stops on ``until(fake)`` or when no beat is left; an AssertionError past ``limit``."""
+    track = []
+    for _ in range(limit):
+        if until is not None and until(fake):
+            return track
+        m = fake._machine
+        if m is None:
+            return track
+        if fake.control:
+            if toward is not None:
+                fake.twist = math.degrees(math.atan2(-(toward[0] - fake.player[0]), toward[1] - fake.player[2]))
+                fake._extend("up", 2)
+            elif walk:
+                fake._extend(walk, 2)
+        elif (fake.frame + 1) % every == 0 and any(w.kind == "page" for w in m.windows if not w.closing):
+            fake._schedule("confirm", 1)
+        fake._frame_once()
+        track.append((fake.frame, fake.control, fake.player[0], fake.player[2]))
+    raise AssertionError(f"the visit ran {limit} frames without ending (field {fake.field_id})")
+
+
+def _o7_scenes(fake) -> list:
+    """The scene rows the visit beat logged (H22)."""
+    return [e for e in fake.visit_log if e["kind"] == "scene"]
+
+
+def _o7_after(track, scene) -> list:
+    """The frames of ``track`` from ``scene``'s fire to the first with control back, both included."""
+    out = []
+    for t in track:
+        if t[0] >= scene["frame"]:
+            out.append(t)
+            if t[1]:
+                break
+    return out
+
+
+#: Dojebon (154 e5; research/o7_design.md 3.4): placed at (-2700, -1700) on the balcony (e5 t0 ip14/22/38: PSX y -1716),
+#: his patrol e5 t1's Walk operands in order from his placement (its SWITCH's index 3) to its far stop (index 13), at
+#: SetWalkSpeed(58) -- 58 u a tick, 29 a 60-fps frame in the fake's units -- held at both stops while Steiner stands within
+#: 3600 or the latch is set (H23); r and talk_r 4 x SetObjectLogicalSize(20, 20, 30)'s first operand.
+_O7_DOJEBON_PATH = [[-2700, -1700], [-1600, -1700], [-1600, 120], [-1300, 565], [-527, 777], [0, 777], [527, 777],
+                    [1300, 565], [1600, 120], [1600, -1700], [2700, -1700]]
+
+
+def _o7_dojebon(**over) -> dict:
+    """Dojebon's body (:data:`_O7_DOJEBON_PATH`), its ``hold`` H23's: within 3600, the latch below y 600 and clear
+    above 500 (e11 t1 ip14 / ip128), at his two stops."""
+    return {"sid": 5, "uid": 5, "x": -2700.0, "z": -1700.0, "y": 1716.0, "r": 80.0, "talk_r": 80.0, "coll": True,
+            "solid": False, "shown": True, "path": [list(p) for p in _O7_DOJEBON_PATH], "speed": 29.0,
+            "hold": {"within": 3600.0, "latch_below": 600.0, "unlatch_above": 500.0,
+                     "at": [0, len(_O7_DOJEBON_PATH) - 1]}, **over}
+
+
+def test_fake_level_door_branches_by_height(game):
+    """H22's HEIGHT TERMS (research/o7_design.md 3.3, 0.2 #8): 154's e8 is two doors with one polygon, in entry order --
+    the balcony branch (y > 100: tag 2 ip38's f[1] < -100) and the ground branch (y <= 100). Granted inside e8's polygon
+    at y 1716 the BALCONY door fires -- its row "e8.balcony", its store ip195 Int16[2] := 301, the landing "153"
+    (30850); at y 5 the GROUND door -- ip355 := 300, "158" (30841) -- though the balcony door is listed first. Break:
+    drop the y terms (the first door then fires at both heights)."""
+    for h, name, ip, value, to in ((-1716, "e8.balcony", 195, 301, 30850), (-5, "e8.ground", 355, 300, 30841)):
+        fake = _o7_box_fake(game, _o7_visit([{"grant": [0, -4500, h]}, {"door": {"doors": _o7_doors154()}}]),
+                            field=30840)
+        _cb_until(fake, lambda f: f.field_id != 30840, limit=400)
+        fires = [e for e in fake.visit_log if e["kind"] == "fire"]
+        assert [e["name"] for e in fires] == [name] and fake.field_id == to, (h, fires, fake.field_id)
+        rows = [(r["sid"], r["ip"], r["new"]) for r in _fv_rows(fake, "w")]
+        assert rows == [(8, ip, value)], (h, rows)
+
+
+def test_fake_monologue_fires_once_outside_the_box(game):
+    """H22's SCENE (research/o7_design.md 3.3, 2.5): from 159's grant (7, 3870) pressing west, the monologue fires the
+    first tick he stands at x < -1600 (one tick's run past it) -- control off, one visit_log "scene" row -- and lists
+    pages 296-300 in turn, writing ip613 (Byte[208] := 0) and ip648 (:= 1) as 300 opens and ip672 (Bit[3796] := 1)
+    once it is gone; control comes back where he stood. Pressing on, toward e11, it never fires again -- the bytes' own
+    bit disarms it -- and e11 takes him to "160". Break: no ``unless_bit`` (it then fires on every tick outside the
+    box)."""
+    fake = _o7_monologue_fake(game)
+    _o7_play(fake, until=lambda f: bool(_o7_scenes(f)) and f.control)
+    scenes = _o7_scenes(fake)
+    assert len(scenes) == 1 and -1660 < scenes[0]["x"] < -1600 and scenes[0]["z"] == 3870, scenes
+    opens = [(e["text"], e["frame"]) for e in fake.machine_log if e["event"] == "open"]
+    assert [t for t, _f in opens] == [f"159 mes {m}" for m in (296, 297, 298, 299, 300)], opens
+    gone299 = next(e["frame"] for e in fake.machine_log if e["event"] == "gone" and e["text"] == "159 mes 299")
+    gone300 = next(e["frame"] for e in fake.machine_log if e["event"] == "gone" and e["text"] == "159 mes 300")
+    rows = [(r["ip"], r["new"], r["f"]) for r in _fv_rows(fake, "w")]
+    assert [(ip, v) for ip, v, _f in rows] == [(613, 0), (648, 1), (672, 1)], rows
+    assert gone299 <= rows[0][2] == rows[1][2] <= opens[-1][1] and rows[2][2] >= gone300, (rows, opens, gone300)
+    assert (fake.player[0], fake.player[2]) == (scenes[0]["x"], scenes[0]["z"]), (fake.player, scenes)
+    _o7_play(fake, toward=(-2910, -300), until=lambda f: f.field_id != 30842)
+    assert len(_o7_scenes(fake)) == 1 and fake.field_id == 30843, (_o7_scenes(fake), fake.field_id)
+    assert [e["name"] for e in fake.visit_log if e["kind"] == "fire"] == ["e11"], fake.visit_log
+    assert [(r["ip"], r["new"]) for r in _fv_rows(fake, "w")][-1] == (193, 332)
+
+
+def test_fake_monologue_store_override_fires_it_again(game):
+    """H22's scene is armed by the BYTES' bit, not a one-shot flag (research/o7_design.md 3.3, 11.2 #4): H15's
+    ``store_override`` {672: 0} -- a fork storing 0 at ip672 -- leaves Bit[3796] 0, so the monologue fires again AT
+    ONCE after its re-grant (the next tick he has control, still outside the box: e16 t1's loop runs ip390 again a tick
+    after ip711), its pages listed again. Break: the scene disarmed after its first fire (a director's one-shot) -- the
+    second fire never comes."""
+    fake = _o7_monologue_fake(game, store_override={672: 0})
+    track = _o7_play(fake, until=lambda f: len(_o7_scenes(f)) >= 2, limit=4000)
+    first, second = _o7_scenes(fake)[:2]
+    regrant = _o7_after(track, first)[-1]
+    assert regrant[1] and second["frame"] == regrant[0] + 1, (first, second, regrant)
+    assert not (fake.story_bytes[3796 >> 3] >> (3796 & 7)) & 1, "Bit[3796] stays 0"
+    assert [e["text"] for e in fake.machine_log if e["event"] == "open"].count("159 mes 296") == 2
+
+
+def test_fake_monologue_regrants_in_place(game):
+    """H22's RE-GRANT IN PLACE (research/o7_design.md 3.3; 159 e16 t1 ip711 EnableMove, no Walk): from the fire to the
+    re-grant he stands where the scene took him -- every frame's sample the fire's (x, z), his y untouched -- and the
+    first sample with control back is the fire's. Break: a re-grant elsewhere (100u east of the fire)."""
+    fake = _o7_monologue_fake(game)
+    track = _o7_play(fake, until=lambda f: bool(_o7_scenes(f)) and f.control)
+    scene = _o7_scenes(fake)[0]
+    after = _o7_after(track, scene)
+    assert after and all((x, z) == (scene["x"], scene["z"]) for _fr, _ctl, x, z in after), after[:3]
+    assert after[-1][1] and not any(ctl for _fr, ctl, _x, _z in after[:-1]), after
+    assert fake.player[1] == 0.0, fake.player
+
+
+def test_fake_patrol_holds_within_its_circle_and_its_latch(game):
+    """H23's HOLD (research/o7_design.md 3.4; 154 e5 t1 ip263: B_DISTANCEA < 3600 || Map.Byte[30] == 1): Dojebon at his
+    placement stays put -- published ``moving`` False -- while Steiner stands within 3600 of him on the balcony (y
+    1716: the grant, 3349 away); with Steiner 3860 away but low (y 5 < 600: the camera code's latch, e11 t1 ip14) he
+    stays put too; climbing back over y 500 clears the latch (ip128), and then he walks. Break: no latch (released by
+    the distance alone, he walks off at 3860)."""
+    fake = _o7_box_fake(game, field=30840)
+    fake.control = True
+    fake.blockers = {30840: [_o7_dojebon()]}
+    doj = fake.blockers[30840][0]
+
+    def stand(x, y, z, frames=120):
+        fake.player = [float(x), float(y), float(z)]
+        for _ in range(frames):
+            fake._frame_once()
+        return (doj["x"], doj["z"])
+    assert stand(-58, 1716, -3758) == (-2700.0, -1700.0)                     # within 3600
+    assert fake._objects_doc()[0]["moving"] is False, fake._objects_doc()
+    assert stand(1000, 5, -600) == (-2700.0, -1700.0) and doj["_latch"]        # 3860 away, low: latched
+    assert stand(1000, 1716, -600, frames=2) != (-2700.0, -1700.0), doj         # back up: the latch clears, he walks
+    assert doj["_latch"] is False and fake._objects_doc()[0]["moving"] is True, doj
+
+
+def test_fake_patrol_released_walks_its_path(game):
+    """H23 RELEASED (research/o7_design.md 3.4; e5 t1 ip316-ip474): Steiner on the balcony 3700 from Dojebon's placement
+    (y 1716, the latch clear) -- out of his circle -- and Dojebon walks his path: the west arm first, to (-1600, -1700),
+    then on up it toward (-1600, 120) WITHOUT a wait there (no stop of his), though Steiner stands within 3600 of it.
+    Break: a hold at every index of the path (he then waits at (-1600, -1700))."""
+    fake = _o7_box_fake(game, field=30840)
+    fake.control = True
+    fake.player = [1000.0, 1716.0, -1700.0]                                  # 3700 from (-2700, -1700)
+    fake.blockers = {30840: [_o7_dojebon()]}
+    doj = fake.blockers[30840][0]
+    _cb_until(fake, lambda f: (doj["x"], doj["z"]) == (-1600.0, -1700.0), limit=200)
+    for _ in range(10):
+        fake._frame_once()
+    assert doj["x"] == -1600.0 and doj["z"] > -1700.0 + 300, (doj["x"], doj["z"])     # on up the west arm
