@@ -1532,7 +1532,9 @@ front cut at 154 e0 t0 ip26, and 154's ambient branch from the warp's `Byte[13]`
 - THE START-SCOPED OLDS: three sites differ in `old` / `same` only, each a writes key at the same value -- 154 ip61
   `Int16[9]` (643 here, -1 after O1-O6), 154 ip123 `Byte[13]` (1 here, 0) and 159 e16 t1 ip613 `Byte[208]` (0 here, 1);
   each `after.old` is READ off O6's FROZEN pattern (the last pre-cut tuple on the target), never an end state read after
-  the site's own field ran, and the emitted pattern is this start's.
+  the site's own field ran, and the emitted pattern is this start's. THE SET IS DERIVED (`scoped_derivation`, the
+  review's fix): of the route's 33 writes keys, walked in route order from the raw start and from O6's last values,
+  exactly these three read another old; O7-KEYS (c) and the freeze refuse a missing entry and one whose olds agree.
 - THE START READ: 159 e0 t0 ip290, the route's first `Byte[8]` store, must read old 125 -- field 70's ip249 lies inside
   the warp window, so a warp before it leaves 0. Another old, with nothing earlier in the run touching the byte, is
   A-START: the start's problem, the run uncovered, never a failed PATTERN or STATE (VOID-ASYM (b) sets it aside).

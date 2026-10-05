@@ -1151,6 +1151,68 @@ def olds_from_pattern(pred6: dict, targets) -> dict:
     return {t: (None if tup is None else tup[5]) for t, tup in last_tuples(pred6, targets).items()}
 
 
+def last_values(pred6: dict, targets) -> tuple:
+    """``({target: the value a true O1-O6 run leaves on it by O6's FROZEN pattern -- the new of its LAST tuple, None when
+    the pattern never writes it}, problems)``: :func:`last_tuples`' rule, but a FLOATING tuple read by its VALUE. Its
+    place among its visit's rows floats, so it stands last on its target when its visit is the last holding one, and
+    its value counts when every tuple on the target in that visit agrees with it -- O6's one floating tuple, 153 e15 t0
+    ip26 Byte[8] := 125, is the only Byte[8] tuple of visit 2 (the last: 151's ip724 := 0 is in visit 1). Two values in
+    that last visit leave the value unfixed: a problem, and None."""
+    pat = pred6.get("pattern") or {}
+    visits = pat.get("visits") or []
+    floats: dict = {}
+    for fl in pat.get("floating") or ():
+        floats.setdefault(fl["tuple"][4], []).append((int(fl["visit"]), list(fl["tuple"])))
+    out, bad = {}, []
+    for t in targets:
+        tups = [(vi, list(tup)) for vi, v in enumerate(visits, 1) for tup in v if tup[4] == t] + floats.get(t, [])
+        if not tups:
+            out[t] = None
+            continue
+        if t not in floats:
+            out[t] = tups[-1][1][5]
+            continue
+        last = max(vi for vi, _tup in tups)
+        vals = sorted({tup[5] for vi, tup in tups if vi == last})
+        if len(vals) != 1:
+            bad.append(f"{t}: a floating tuple in O6's pattern's visit {last} beside another value there ({vals}): "
+                       f"the last value is not fixed")
+            out[t] = None
+        else:
+            out[t] = vals[0]
+    return out, bad
+
+
+def scoped_derivation(pred: dict, pred6: dict, segs) -> tuple:
+    """THE START-SCOPED OLDS, DERIVED (4.5; the O7 review's finding -- the list was typed, and only its entries were
+    checked, so a dropped one passed): ``({site: (target, raw old, true old)} for every writes key on the route,
+    problems)``. The route's writes and chain keys are walked in route order (each place's writes, then its chain key),
+    each key's ``old`` taken from the RAW START (:data:`START_VALUES`, every other target 0) and from A TRUE O1-O6 RUN
+    (:func:`last_values` off O6's FROZEN pattern; for a target the pattern never writes, the value
+    :func:`carried_from_segments` composes over the frozen O1-O6 keys ``segs``; else the raw start's), each carried on
+    through the route's own earlier keys (their value, the same from either start). A site whose two olds differ is
+    START-SCOPED: its ``old`` and ``same`` are the start's, never the fork's -- exactly the set ``start_scoped`` must
+    hold. ``problems``: a last value O6's pattern leaves unfixed."""
+    writes, chain = list(pred.get("writes") or ()), list(pred.get("chain") or ())
+    targets = sorted({k["target"] for k in writes + chain})
+    lasts, bad = last_values(pred6, targets)
+    composed, _problems = carried_from_segments(segs, writes=())     # its refusals are O7-KEYS (e)'s to report
+    raw = {t: int(START_VALUES.get(t, 0)) for t in targets}
+    true = {t: (int(lasts[t]) if lasts.get(t) is not None else int(composed[t][1]) if t in composed else raw[t])
+            for t in targets}
+    keyed = {id(k) for k in writes}
+    out = {}
+    for p in pred["route"]:
+        for k in writes + chain:
+            if k["donor"] != p:
+                continue
+            t = k["target"]
+            if id(k) in keyed:
+                out[(k["donor"], k["sid"], k["tag"], k["ip"])] = (t, raw[t], true[t])
+            raw[t] = true[t] = int(k["value"])
+    return out, bad
+
+
 # ======================================================================== (h4): the release zone and its residual
 def release_zone(mesh, closures, placement, within: float, *, above: float = -500.0, step: int = 16) -> list:
     """(h4)'s RELEASE ZONE (rev. 2, claim review #5): every point of a ``step``-u grid (multiples of ``step``) on the
@@ -1941,7 +2003,8 @@ class O7Segment(C6.O6Segment):
                  "differ from their donors in exactly their in-chain Field() operands",
         "KEYS": "O7-KEYS: every registered key -- chain, writes, error path, forbidden and dead sites, start_first -- is "
                 "a store of its variable at its ip in the donor's stock bytes, its op in the statement, its value "
-                "computed; the start-scoped olds read off O6's frozen pattern, the start read, THE CARRIED VALUES "
+                "computed; THE START-SCOPED OLDS, their set derived (every writes key whose old differs between the "
+                "raw start and O1-O6) and each read off O6's frozen pattern, the start read, THE CARRIED VALUES "
                 "derived from O1-O6's frozen keys, the route pins and their scans, the monologue's and Dojebon's tests "
                 "read off their pins",
         "TEXT": "O7-TEXT: the build's text block 3 is each language's stock asset, read by its resource path -- STRICT: "
@@ -1992,16 +2055,17 @@ class O7Segment(C6.O6Segment):
     def draft(self) -> dict:
         return draft_predictions(Path(self.chain_dir) / "campaign.toml", end=END_FIELD)
 
-    def freeze_problems(self, pred: dict, *, live_engine=None, path=None, prior=None) -> list:
+    def freeze_problems(self, pred: dict, *, live_engine=None, path=None, prior=None, o6=None) -> list:
         """7.3's refusals, pure but for the live engine read (``live_engine``, default the live DLLs') and the frozen
-        O1-O6 files (``prior``, a seam): ``[problem]`` -- no ``witness``; a table step carrying a rehearsal overlay
-        (``hold_stop``, ``page_stop``) or a typed ``stale_slack``; a step without ``clearance``; a hazard's guarded step
-        (154 #0) without the hazard in its ``avoid`` or without ``basis`` "prior"; ``side_ends`` failing
+        O1-O6 files (``prior`` and ``o6``, seams): ``[problem]`` -- no ``witness``; a table step carrying a rehearsal
+        overlay (``hold_stop``, ``page_stop``) or a typed ``stale_slack``; a step without ``clearance``; a hazard's guarded
+        step (154 #0) without the hazard in its ``avoid`` or without ``basis`` "prior"; ``side_ends`` failing
         :func:`segment_trace.side_ends_of`; a non-empty ``battles``, ``naming``, ``start_dependent`` or
         ``pattern.floating``; Byte[13] (:data:`RACED`) in ``end_state``; a carried target in ``end_state``, or a
-        ``carried`` that differs from :func:`carried_from_segments`; no ``start_reads``; an ``interruptions`` test that is
-        not :func:`monologue_test`'s reading of its pinned text; an empty ``rehearsals`` or ``rehearsal_fps``; an
-        ``engine`` that is not the live DLLs'; an existing file at ``path``."""
+        ``carried`` that differs from :func:`carried_from_segments`; a ``start_scoped`` whose sites are not
+        :func:`scoped_derivation`'s (the review's finding: a dropped or an extra entry); no ``start_reads``; an
+        ``interruptions`` test that is not :func:`monologue_test`'s reading of its pinned text; an empty ``rehearsals``
+        or ``rehearsal_fps``; an ``engine`` that is not the live DLLs'; an existing file at ``path``."""
         bad = []
         try:
             if SD.witness_of(pred) is None:
@@ -2056,6 +2120,18 @@ class O7Segment(C6.O6Segment):
                            f"{_dict_diff(car, derived)}")
         except (OSError, ValueError, KeyError) as err:
             bad.append(f"the carried derivation could not run: {err}")
+        try:
+            olds, sprob = scoped_derivation(pred, o6 if o6 is not None else o6_frozen(),
+                                            prior if prior is not None else prior_segments())
+            need = {s for s, (_t, a, b) in olds.items() if a != b}
+            claimed = {tuple(x["site"]) for x in pred.get("start_scoped") or ()}
+            if sprob:
+                bad.append("the start-scoped derivation refuses: " + "; ".join(sprob[:3]))
+            elif claimed != need:
+                bad.append(f"start_scoped differs from the derivation (every writes key whose old differs between the "
+                           f"raw start and O1-O6): missing {sorted(need - claimed)}, extra {sorted(claimed - need)}")
+        except (OSError, ValueError, KeyError) as err:
+            bad.append(f"the start-scoped derivation could not run: {err}")
         if not pred.get("start_reads"):
             bad.append("no start_reads: 159 ip290's old is the start's Byte[8] (4.5)")
         for x in pred.get("interruptions") or ():
@@ -2109,8 +2185,10 @@ class O7Segment(C6.O6Segment):
         """O7-KEYS (6.1): (a) O2's machinery on a filtered copy -- the chain, the writes, ``error_path`` +
         ``forbidden_sites`` + ``dead``, ``start_first``; no ladder, noise or start-dependent key -- every key a store of
         its variable at its ip, its op in the statement, a compound value computed from its prior; (b) ``start_music``
-        exactly one writes key; (c) each START-SCOPED old -- a writes key at its site, ``here`` [the start's value, the
-        key's], ``after.run`` the class's :attr:`AFTER_RUN`, ``after.source`` present, ``after.old`` what
+        exactly one writes key; (c) THE START-SCOPED OLDS -- the SET derived (:func:`scoped_derivation` over O6's frozen
+        pattern and the frozen O1-O6 keys): every writes key whose old differs between the raw start and a true O1-O6
+        run holds an entry, and no entry's olds agree; then each entry -- a writes key at its site, ``here`` [the start's
+        old, the key's value], ``after.run`` the class's :attr:`AFTER_RUN`, ``after.source`` present, ``after.old`` what
         :func:`olds_from_pattern` reads off O6's frozen pattern (``o6``, a seam) and ``after.value`` computed from it;
         (d) each START READ -- a writes key at its site of its target, its ``old`` the start's value, and no store of the
         target before it on the route; (e) THE CARRIED VALUES -- :func:`carried_from_segments` over the frozen O1-O6
@@ -2142,6 +2220,27 @@ class O7Segment(C6.O6Segment):
         except (OSError, ValueError) as err:
             pred6, tups = None, {}
             bad.append(f"the start-scoped olds: O6's frozen pattern unreadable: {err}")
+        # (c) THE SET, DERIVED (the O7 review's finding): every writes key on the route whose old differs between the raw
+        # start and a true O1-O6 run (:func:`scoped_derivation`) holds an entry, and every entry is such a key
+        olds, need = {}, {}
+        if pred6 is not None:
+            try:
+                olds, sprob = scoped_derivation(pred, pred6, prior if prior is not None else prior_segments())
+            except (OSError, ValueError, KeyError) as err:
+                olds, sprob = {}, [f"unreadable: {err}"]
+            bad += [f"the start-scoped olds' derivation: {p}" for p in sprob]
+            need = {s: v for s, v in olds.items() if v[1] != v[2]}
+            claimed = {tuple(x["site"]) for x in scoped}
+            for s, (t, a, b) in sorted(need.items()):
+                if s not in claimed:
+                    bad.append(f"start-scoped {s[0]} e{s[1]} t{s[2]} ip{s[3]} {t}: its old differs -- {a} at the raw "
+                               f"start, {b} after O1-O6 -- and no start_scoped entry claims it (the set is derived, "
+                               f"never typed)")
+            for s in sorted(claimed):
+                if s in olds and s not in need:
+                    t, a, _b = olds[s]
+                    bad.append(f"start-scoped {s[0]} e{s[1]} t{s[2]} ip{s[3]} {t}: its olds agree -- {a} at the raw "
+                               f"start and after O1-O6 -- so it is not start-scoped")
         for x in scoped:
             site, t, here, after = tuple(x["site"]), x["target"], x.get("here") or [], x.get("after") or {}
             lab = f"start-scoped {site[0]} e{site[1]} t{site[2]} ip{site[3]} {t}"
@@ -2149,8 +2248,9 @@ class O7Segment(C6.O6Segment):
             if k is None or k["target"] != t:
                 bad.append(f"{lab}: no writes key at its site")
                 continue
-            if list(here) != [START_VALUES.get(t, 0), k["value"]]:
-                bad.append(f"{lab}: here {here}, the start gives [{START_VALUES.get(t, 0)}, {k['value']}]")
+            start_old = olds[site][1] if site in olds else START_VALUES.get(t, 0)
+            if list(here) != [start_old, k["value"]]:
+                bad.append(f"{lab}: here {here}, the start gives [{start_old}, {k['value']}]")
             if after.get("run") != self.AFTER_RUN:
                 bad.append(f"{lab}: after.run {after.get('run')!r} is not the class's AFTER_RUN {self.AFTER_RUN!r}")
             if not after.get("source"):
@@ -2261,8 +2361,10 @@ class O7Segment(C6.O6Segment):
                 f"computed from their priors (" + ", ".join(f"{k['donor']} e{k['sid']} t{k['tag']} ip{k['ip']} "
                                                           f"{k['op']} after {k.get('prior')}" for k in comp)
                 + f"), none masked but start_first; start_music one writes key ({sm['donor']} ip{sm['ip']} from "
-                  f"{sm.get('old')}); {len(scoped)} start-scoped olds, each a writes key, after.run "
-                  f"{self.AFTER_RUN} (AFTER_RUN), after.old from O6's frozen pattern ({', '.join(olds_txt)}); "
+                  f"{sm.get('old')}); {len(scoped)} start-scoped olds -- exactly the {len(need)} of the route's "
+                  f"{len(olds)} writes keys whose old differs between the raw start and O1-O6 (derived) -- each a "
+                  f"writes key, after.run {self.AFTER_RUN} (AFTER_RUN), after.old from O6's frozen pattern "
+                  f"({', '.join(olds_txt)}); "
                   f"{len(reads_txt)} start read(s) ({'; '.join(reads_txt)}, no earlier store on the route); "
                   f"{len(derived)} carried values derived from {len(segs)} frozen segments (no end-state "
                   f"disagreement), equal to the typed ones, none in end_state, none stored or read on the route; "

@@ -2315,6 +2315,13 @@ def _contradicting() -> list:
     return segs
 
 
+#: An extra start-scoped entry, every per-entry clause of O7-KEYS (c) satisfied -- a writes key at its site, ``here`` its
+#: derived old from the start, ``after`` O6's -- but its two olds AGREE: 158's ambient Int16[9] := 385 reads -1 from
+#: either start (154 ip61 set it), so only the derived SET refuses it.
+SCOPED_EXTRA = {"site": [158, 0, 0, 57], "target": "Global.Int16[9]", "here": [-1, 385],
+                "after": {"run": "O1-O6", "old": -1, "value": 385, "source": "a mutant: its olds agree"}}
+
+
 #: O7-KEYS's offline mutants (section 8): the DRAFT, deep-copied, one thing changed (or one seam given); the check
 #: must then read FAIL -- after it has read PASS on the unchanged draft -- and its detail hold the clause. Each entry:
 #: ``(name, mutate(p), clause, keys_check keywords | None)``.
@@ -2328,6 +2335,12 @@ OFFLINE_MUTANTS = [
      None),
     ("keys-after-run", lambda p: p["start_scoped"][0]["after"].update(run="O1-O5"),
      "after.run 'O1-O5' is not the class's AFTER_RUN 'O1-O6'", None),
+    # the review's finding: the set is DERIVED -- a dropped entry (159 ip613, its old 0 here and 1 after O1-O6) and an
+    # extra one whose olds agree (158 ip57 Int16[9]: -1 from either start, 154 ip61 having set it) each fail
+    ("keys-scoped-dropped", lambda p: p["start_scoped"].pop(2),
+     "start-scoped 159 e16 t1 ip613 Global.Byte[208]: its old differs -- 0 at the raw start, 1 after O1-O6", None),
+    ("keys-scoped-extra", lambda p: p["start_scoped"].append(copy.deepcopy(SCOPED_EXTRA)),
+     "start-scoped 158 e0 t0 ip57 Global.Int16[9]: its olds agree -- -1 at the raw start and after O1-O6", None),
     ("keys-prior-removed", lambda p: _key(p, "writes", 159, 648).pop("prior"), "names no registered prior", None),
     ("keys-o6-pattern-385", lambda p: None, "after.old -1, O6's frozen pattern's last tuple on Global.Int16[9] gives 385",
      "o6-385"),

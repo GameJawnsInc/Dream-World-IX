@@ -28996,10 +28996,10 @@ def test_o7_castle_freeze_refuses(tmp_path):
     a rehearsal overlay (``hold_stop``, ``page_stop``) or a typed ``stale_slack``; a step without ``clearance``; 154 #0
     without the hazard in its ``avoid``, or without ``basis`` "prior"; side_ends ending F in REAL 164; a battles, a
     naming and a start-dependent row; ``pattern.floating`` not empty; Byte[13] in ``end_state``; a carried target in
-    ``end_state``; ``carried`` not the derivation (Bit[3815] dropped); no ``start_reads``; an interruption test that is
-    not its pin's reading; no ``rehearsals``; no ``rehearsal_fps``; an engine that is not the live DLLs'; and a second
-    freeze onto the same file refuses. The real o7_predictions_v1.json is never touched. Break: accept a step's
-    hold_stop."""
+    ``end_state``; ``carried`` not the derivation (Bit[3815] dropped); ``start_scoped`` not the derivation (159 ip613's
+    entry dropped: the review's finding); no ``start_reads``; an interruption test that is not its pin's reading; no
+    ``rehearsals``; no ``rehearsal_fps``; an engine that is not the live DLLs'; and a second freeze onto the same file
+    refuses. The real o7_predictions_v1.json is never touched. Break: accept a step's hold_stop."""
     import copy
     import hashlib
     O = _o7_module()
@@ -29039,6 +29039,8 @@ def test_o7_castle_freeze_refuses(tmp_path):
     refuses(edited(lambda p: p["end_state"].__setitem__("Global.Bit[3795]", 0)),
             r"carried target\(s\) \['Global\.Bit\[3795\]'\] in end_state")
     refuses(edited(lambda p: p["carried"]["values"].pop("Global.Bit[3815]")), "carried differs from the derivation")
+    refuses(edited(lambda p: p["start_scoped"].pop(2)),
+            r"start_scoped differs from the derivation .*missing \[\(159, 16, 1, 613\)\], extra \[\]")
     refuses(dict(copy.deepcopy(good), start_reads=[]), "no start_reads")
     refuses(edited(lambda p: p["interruptions"][0]["test"]["any_of"].__setitem__("x_lt", -1700)),
             "is not monologue_test's reading")
@@ -29520,12 +29522,16 @@ def test_o7_castle_keys_derive_the_carried_and_the_olds(o7_stock, tmp_path):
     """O7-KEYS (research/o7_design.md 4.5, 6.1; rev. 2, claim reviews #1, #3, #7) on the real bytes PASSES, its carried
     values DERIVED over the repo's six frozen files -- the fourteen, no segment disagreeing with its own end_state, equal
     to the draft's typed ones -- the start-scoped olds read off O6's frozen pattern (153's Int16[9] -1, Byte[13] 0,
-    Byte[208] 1), the start read 159 ip290 (old 125). Each mutant FAILS O7-KEYS by name: carried without Bit[3815];
+    Byte[208] 1), THE SET DERIVED (the review's finding): of the route's 33 writes keys exactly 154 ip61, 154 ip123 and
+    159 ip613 read another old from the raw start than after O1-O6 (O6's one floating tuple, Byte[8]'s, read by its
+    value: 125), the start read 159 ip290 (old 125). Each mutant FAILS O7-KEYS by name: carried without Bit[3815];
     Bit[3795] in end_state; O6's 153 Int16[9] tuple 385 (the derived old against the typed -1); a start read off the
-    writes. A floating tuple on a target refuses its old. Break: compose a newgame0 ``|=`` by setting it (Byte[6] then
-    reads 8)."""
+    writes; 159 ip613's entry dropped; an extra entry whose olds agree (158 ip57). A floating tuple on a target refuses
+    its old. Break: compose a newgame0 ``|=`` by setting it (Byte[6] then reads 8); check only the listed entries (the
+    dropped one then passes)."""
     import copy
     O = _o7_module()
+    D = _o7_dryrun()
     pred = _o7_draft(tmp_path)
     derived, problems = O.carried_from_segments(O.prior_segments(), writes=O.o7_targets(pred))
     assert problems == [] and derived == pred["carried"]["values"] and len(derived) == 14, (problems, derived)
@@ -29533,6 +29539,14 @@ def test_o7_castle_keys_derive_the_carried_and_the_olds(o7_stock, tmp_path):
     olds = O.olds_from_pattern(O.o6_frozen(), ["Global.Int16[9]", "Global.Byte[13]", "Global.Byte[208]"])
     assert olds == {"Global.Int16[9]": -1, "Global.Byte[13]": 0, "Global.Byte[208]": 1}, olds
     assert [x["after"]["old"] for x in pred["start_scoped"]] == [-1, 0, 1]
+    every, sprob = O.scoped_derivation(pred, O.o6_frozen(), O.prior_segments())
+    assert sprob == [] and len(every) == 33 and every[(159, 0, 0, 290)] == ("Global.Byte[8]", 125, 125), (sprob, every)
+    assert {s: (a, b) for s, (_t, a, b) in every.items() if a != b} == {
+        (154, 0, 0, 61): (643, -1), (154, 0, 0, 123): (1, 0), (159, 16, 1, 613): (0, 1)}, every
+    assert [tuple(x["site"]) for x in pred["start_scoped"]] == [(154, 0, 0, 61), (154, 0, 0, 123), (159, 16, 1, 613)]
+    two = {"pattern": {"visits": [[[151, 0, 0, 1, "Global.Byte[8]", 0, 0]]],
+                       "floating": [{"visit": 1, "tuple": [151, 2, 0, 9, "Global.Byte[8]", 125, 0]}]}}
+    assert O.last_values(two, ["Global.Byte[8]"])[0] == {"Global.Byte[8]": None}, "two values in the last visit"
     with pytest.raises(ValueError, match="floating"):
         O.olds_from_pattern({"pattern": {"visits": [], "floating": [{"tuple": [153, 15, 0, 26, "Global.Byte[8]",
                                                                              125, 0]}]}}, ["Global.Byte[8]"])
@@ -29548,7 +29562,11 @@ def test_o7_castle_keys_derive_the_carried_and_the_olds(o7_stock, tmp_path):
             (lambda p: p["end_state"].__setitem__("Global.Bit[3795]", 0), {},
              "carried: ['Global.Bit[3795]'] in end_state"),
             (lambda p: None, {"o6": o6}, "after.old -1, O6's frozen pattern's last tuple on Global.Int16[9] gives 385"),
-            (lambda p: p["start_reads"][0].update(site=[159, 0, 0, 291]), {}, "no writes key of Global.Byte[8]")):
+            (lambda p: p["start_reads"][0].update(site=[159, 0, 0, 291]), {}, "no writes key of Global.Byte[8]"),
+            (lambda p: p["start_scoped"].pop(2), {},
+             "start-scoped 159 e16 t1 ip613 Global.Byte[208]: its old differs -- 0 at the raw start, 1 after O1-O6"),
+            (lambda p: p["start_scoped"].append(copy.deepcopy(D.SCOPED_EXTRA)), {},
+             "start-scoped 158 e0 t0 ip57 Global.Int16[9]: its olds agree")):
         bad = copy.deepcopy(pred)
         mutate(bad)
         ok, _w, detail = O.O7.keys_check(bad, o7_stock, **kw)
