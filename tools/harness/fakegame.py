@@ -4009,12 +4009,15 @@ STORY_CHANGE_ROWS = 64
 #: kind may carry; anything else is a ValueError when the beat starts (:func:`_visit_steps`), never a default. ``text`` /
 #: ``raw`` (a pair's ``texts`` / ``raws``) are what the agent publishes: default ``mes N`` and ``[STRT=0,0]`` + it.
 VISIT_STEP_KEYS = {"store": (), "wait": (), "place": (), "grant": (), "field": (), "stairs": (),
-                   "page": ("slot", "typing_s", "text", "raw"), "timed": ("slot", "ticks", "text", "raw"),
+                   "page": ("slot", "typing_s", "text", "raw", "async"), "timed": ("slot", "ticks", "text", "raw"),
                    "pair": ("lag", "gate", "texts", "raws"),
                    "choice": ("slot", "header", "lines", "typing_s", "gap", "stale", "branch", "raw"),
                    # H17, H18 (research/o6_design.md 3.3, 3.4): Menu(1, char)'s naming screen -- ``name`` the default it
                    # pre-fills -- and the regions' tag 2 with ExitField's walk-out (its knobs :data:`DOOR_DEFAULTS`)
-                   "naming": ("name",), "door": ()}
+                   "naming": ("name",), "door": (),
+                   # H24 (the O7 review's finding, 159 e16 t1's own order): a page's ``async`` -- WindowAsync: the
+                   # script runs on while it is up -- and WaitWindow(slot), the hold until that slot's window is gone
+                   "wait_window": ()}
 #: H14's knobs and defaults (research/o5_design.md 3.2), each the engine's value or the design's named estimate:
 #: ``steps`` (REQUIRED: the visit's step list); ``index`` (its 1-based position in the route -- what H15's per-visit faults
 #: are keyed by); ``field_to`` (a ``field`` step's ``to`` -> the field id it lands in); ``donor`` (the visit's
@@ -4052,11 +4055,12 @@ DOOR_NEEDS = ("name", "points", "stores", "ticks", "to")
 #: H22 (research/o7_design.md 3.3): a door step's SCENE -- ``name``; ``any_of`` (a dict of ``x_lt`` / ``x_gt`` / ``z_lt``
 #: / ``z_gt``: ANY holding fires -- 159 e16 t1 ip390's B_OROR); ``unless_bit`` (the gEventGlobal bit whose 1 disarms it,
 #: read from the modelled array -- ip390's ``Bit[3796] == 0``; None: never disarmed); ``steps`` (its pages, stores and
-#: waits, :data:`SCENE_STEP_KINDS`); ``regrant`` ("in_place", the only form: ip711 EnableMove with no Walk).
+#: waits, :data:`SCENE_STEP_KINDS` -- H24's WaitWindow among them); ``regrant`` ("in_place", the only form: ip711
+#: EnableMove with no Walk).
 SCENE_KEYS = ("name", "any_of", "unless_bit", "steps", "regrant")
 SCENE_NEEDS = ("name", "any_of", "steps")
 SCENE_TESTS = ("x_lt", "x_gt", "z_lt", "z_gt")
-SCENE_STEP_KINDS = ("page", "store", "wait")
+SCENE_STEP_KINDS = ("page", "store", "wait", "wait_window")
 #: A ``stairs`` step's knobs and defaults (153 e3 t1 stage 6, its side scenes, its back door and stage 17;
 #: research/o5_design.md 3.2): ``scenes`` (each ``{"points", "z_gt", "pages"}``: e26 -- its quad AND z > 1333 -- and e27,
 #: live in stage 6 alone; ``pages`` page steps); ``back_door`` (``{"points", "stores", "exit_ticks", "to"}``: e28, live
@@ -4085,7 +4089,8 @@ def _visit_steps(steps, k: dict, where: str) -> None:
     knobs :data:`STAIRS_DEFAULTS`' and -- unless H15's ``no_contour`` -- a ``contour`` or a ``height_at``; H17's
     ``naming`` a character id (an int >= 0) and its ``name`` a non-empty str; H18's ``door`` read by
     :func:`_door_knobs` (research/o6_design.md 3.3, 3.4); H20's ``place`` and ``grant`` two numbers ``[x, z]`` or three,
-    ``[x, z, h]`` (research/o7_design.md 3.1)."""
+    ``[x, z, h]`` (research/o7_design.md 3.1); H24's page ``async`` a bool and ``wait_window`` a window slot, an int >=
+    0 (the O7 review's finding: 159 e16 t1's WindowAsync / WaitWindow)."""
     if not isinstance(steps, (list, tuple)):
         raise ValueError(f"{where}: the steps are a list, not {steps!r}")
     for i, step in enumerate(steps):
@@ -4136,6 +4141,12 @@ def _visit_steps(steps, k: dict, where: str) -> None:
             if "name" in step and (not isinstance(step["name"], str) or not step["name"]):
                 raise ValueError(f"{at}: a naming step's name is the default it pre-fills, a non-empty str, not "
                                  f"{step['name']!r}")
+        if kind == "page" and not isinstance(step.get("async", False), bool):
+            raise ValueError(f"{at}: a page's async is a bool (WindowAsync), not {step['async']!r}")
+        if kind == "wait_window":
+            slot = step["wait_window"]
+            if not isinstance(slot, int) or isinstance(slot, bool) or slot < 0:
+                raise ValueError(f"{at}: a wait_window step names a window slot, an int >= 0, not {slot!r}")
         if kind == "door":
             _door_knobs(step["door"], k, at)
 
@@ -4226,7 +4237,10 @@ class _VisitBeat(_Machine):
       * ``{"place": [x, z]}`` -- a scripted move of the player, control untouched;
       * ``{"page": mes, ...}`` -- WindowSync (or WindowAsync + WaitWindow): listed THIS tick (ETb.NewMesWin), complete
         after its opening; with ``typing_s`` its text types on for that long of the game's clock after the opening -- a
-        Confirm then only completes it (Dialog.cs:798-808), the next closes it; the script resumes the tick it is gone;
+        Confirm then only completes it (Dialog.cs:798-808), the next closes it; the script resumes the tick it is gone.
+        H24: ``async`` True is WindowAsync ALONE -- listed this tick, the script goes on at once while it is up (159 e16
+        t1's RunAnimation + WaitAnimation pairs and stores under pages 296, 298, 299 and 300);
+      * ``{"wait_window": slot}`` -- H24's WaitWindow(slot): the script holds until no window of that slot is listed;
       * ``{"timed": mes, "ticks": t, ...}`` -- a [TIME=t] window: Confirm-inert, closing itself ``t`` ticks after it
         opened (then its tween); the script does not wait;
       * ``{"pair": [[mes, slot], [mes, slot]], "lag", "gate"}`` -- H10's KEYON pair (:meth:`_pair`);
@@ -4519,6 +4533,8 @@ class _VisitBeat(_Machine):
                 yield from self._naming(fake, step)
             elif kind == "door":
                 yield from self._door(fake, step["door"], at)
+            elif kind == "wait_window":
+                yield from self._wait_window(int(step["wait_window"]))
             else:
                 self._field(fake, str(step["field"]))
 
@@ -4557,7 +4573,16 @@ class _VisitBeat(_Machine):
 
     def _page(self, fake, step: dict):
         w = self._open_mes(fake, step, "page")
+        if step.get("async"):                        # H24: WindowAsync -- listed this tick, the script goes on at once
+            return
         while not w.gone:
+            yield
+
+    def _wait_window(self, slot: int):
+        """H24 (the O7 review's finding): WaitWindow(``slot``) -- the script holds until no window of that slot is
+        listed (159 e16 t1 ip534, ip558, ip577, ip669 after its WindowAsync pages), the tick it is gone; none up: it goes
+        on at once."""
+        while any(w.slot == slot and not w.gone for w in self.windows):
             yield
 
     def _timed(self, fake, step: dict) -> None:

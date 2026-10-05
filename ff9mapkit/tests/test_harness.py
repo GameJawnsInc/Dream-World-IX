@@ -27956,14 +27956,35 @@ def _o7_doors154(*, via=((0, -600), (0, -4500))):
             *pair(10, _O7_E10, 303, "156", "167")]
 
 
-#: 159's forced monologue (research/o7_design.md 2.5, 3.3, 0.2 #10): e16 t1 ip390 fires the first tick he stands outside
-#: |x| <= 1600 && z >= 800 while Bit[3796] is 0; pages 296-300 (slot 4); ip613 Byte[208] := 0 and ip648 ++ while 300 is
-#: up (ip602 WindowAsync: written just before it opens), ip672 Bit[3796] := 1 after it; ip711 re-grants in place.
+#: One RunAnimation + WaitAnimation of 159 e16 t1, in field ticks -- an ESTIMATE (the fake's stand-in for the clip's
+#: length; R-FULL's F3 records the real stretch: rows against pages against Confirms).
+_O7_ANIM_TICKS = 30
+
+
+def _o7_async(where, mes, slot=4):
+    """A WindowAsync page step (H24): listed, and the script runs on while it is up."""
+    return {**_o5_page(where, mes, slot), "async": True}
+
+
+#: 159's forced monologue AS ITS BYTES RUN (research/o7_design.md 2.5, 3.3, 0.2 #10; the O7 review's finding): e16 t1
+#: ip390 fires the first tick he stands outside |x| <= 1600 && z >= 800 while Bit[3796] is 0. Pages 296, 298 and 299 are
+#: WindowAsync on slot 4 -- the script animates while each is up (ip514/518, ip549/553, ip567-576), then WaitWindow(4)
+#: (ip534, ip558, ip577) -- and 297 WindowSync (ip537). Page 300 is WindowAsync too (ip602), and UNDER it: anim 6998
+#: (ip608-612), ip613 Byte[208] := 0, the loop's one pass -- anim 6982 and a sound (ip624-633), ip648 ++ -- anim 6990
+#: (ip664-668), WaitWindow(4) (ip669), ip672 Bit[3796] := 1; ip711 re-grants in place. So ip613 and ip648 land after 300
+#: opens, an animation apart -- while it is up under a slow Confirm, after it is gone (control off, NO window) under rule
+#: 7's prompt one -- and ip672 never before it is gone.
 _O7_MONOLOGUE = {"name": "the forced monologue", "any_of": {"x_lt": -1600, "x_gt": 1600, "z_lt": 800},
                  "unless_bit": 3796, "regrant": "in_place",
-                 "steps": [*[_o5_page("159", m, 4) for m in (296, 297, 298, 299)],
-                           _o5_store(16, 1, 613, 208, "Byte", 0), _o5_store(16, 1, 648, 208, "Byte", 1),
-                           _o5_page("159", 300, 4), _o5_store(16, 1, 672, 3796 >> 3, "Bit", 1, 3796)]}
+                 "steps": [_o7_async("159", 296), {"wait": _O7_ANIM_TICKS}, {"wait_window": 4},
+                           _o5_page("159", 297, 4),
+                           _o7_async("159", 298), {"wait": _O7_ANIM_TICKS}, {"wait_window": 4},
+                           _o7_async("159", 299), {"wait": _O7_ANIM_TICKS}, {"wait": _O7_ANIM_TICKS},
+                           {"wait_window": 4},
+                           _o7_async("159", 300), {"wait": _O7_ANIM_TICKS}, _o5_store(16, 1, 613, 208, "Byte", 0),
+                           {"wait": _O7_ANIM_TICKS}, _o5_store(16, 1, 648, 208, "Byte", 1),
+                           {"wait": _O7_ANIM_TICKS}, {"wait_window": 4},
+                           _o5_store(16, 1, 672, 3796 >> 3, "Bit", 1, 3796)]}
 
 
 def _o7_doors159(*, via=((7, 3870), (-2910, -300))):
@@ -28069,26 +28090,55 @@ def test_fake_level_door_branches_by_height(game):
 def test_fake_monologue_fires_once_outside_the_box(game):
     """H22's SCENE (research/o7_design.md 3.3, 2.5): from 159's grant (7, 3870) pressing west, the monologue fires the
     first tick he stands at x < -1600 (one tick's run past it) -- control off, one visit_log "scene" row -- and lists
-    pages 296-300 in turn, writing ip613 (Byte[208] := 0) and ip648 (:= 1) as 300 opens and ip672 (Bit[3796] := 1)
-    once it is gone; control comes back where he stood. Pressing on, toward e11, it never fires again -- the bytes' own
-    bit disarms it -- and e11 takes him to "160". Break: no ``unless_bit`` (it then fires on every tick outside the
-    box)."""
+    pages 296-300 in turn; THE BYTES' ORDER (H24, the O7 review's finding): ip613 (Byte[208] := 0) and ip648 (:= 1) land
+    after 300 opens, an animation apart (``_O7_ANIM_TICKS``), and ip672 (Bit[3796] := 1) only once it is gone -- and
+    under this prompt Confirm (every 5 frames, rule 7's way) 300 is gone before anim 6998 ends, so ip613 lands with
+    control off and NO window up (the stretch the game makes); control comes back where he stood. Pressing on, toward
+    e11, it never fires again -- the bytes' own bit disarms it -- and e11 takes him to "160". Break: no ``unless_bit``
+    (it then fires on every tick outside the box); the stores before page 300 (the old fake's order: then at or before
+    its open)."""
     fake = _o7_monologue_fake(game)
     _o7_play(fake, until=lambda f: bool(_o7_scenes(f)) and f.control)
     scenes = _o7_scenes(fake)
     assert len(scenes) == 1 and -1660 < scenes[0]["x"] < -1600 and scenes[0]["z"] == 3870, scenes
     opens = [(e["text"], e["frame"]) for e in fake.machine_log if e["event"] == "open"]
     assert [t for t, _f in opens] == [f"159 mes {m}" for m in (296, 297, 298, 299, 300)], opens
-    gone299 = next(e["frame"] for e in fake.machine_log if e["event"] == "gone" and e["text"] == "159 mes 299")
     gone300 = next(e["frame"] for e in fake.machine_log if e["event"] == "gone" and e["text"] == "159 mes 300")
     rows = [(r["ip"], r["new"], r["f"]) for r in _fv_rows(fake, "w")]
     assert [(ip, v) for ip, v, _f in rows] == [(613, 0), (648, 1), (672, 1)], rows
-    assert gone299 <= rows[0][2] == rows[1][2] <= opens[-1][1] and rows[2][2] >= gone300, (rows, opens, gone300)
+    assert opens[-1][1] <= rows[0][2] < rows[1][2] and rows[2][2] >= gone300, (rows, opens, gone300)
+    assert rows[1][2] - rows[0][2] >= _O7_ANIM_TICKS and gone300 < rows[0][2], (rows, gone300)
     assert (fake.player[0], fake.player[2]) == (scenes[0]["x"], scenes[0]["z"]), (fake.player, scenes)
     _o7_play(fake, toward=(-2910, -300), until=lambda f: f.field_id != 30842)
     assert len(_o7_scenes(fake)) == 1 and fake.field_id == 30843, (_o7_scenes(fake), fake.field_id)
     assert [e["name"] for e in fake.visit_log if e["kind"] == "fire"] == ["e11"], fake.visit_log
     assert [(r["ip"], r["new"]) for r in _fv_rows(fake, "w")][-1] == (193, 332)
+
+
+def test_fake_monologue_async_pages_hold_the_script_only_at_waitwindow(game):
+    """H24, THE WINDOWASYNC PAGES (the O7 review's finding; 159 e16 t1 ip508-ip672) under a SLOW Confirm (every 200
+    frames): the script runs on under each async page -- ip613 and ip648 land WHILE page 300 is up, an animation apart,
+    and ip672 waits for it to go (WaitWindow(4), ip669); each WaitWindow holds the next page back until its slot's window
+    is gone (297 opens at or after 296 is gone, 299 after 298, 300 after 299). A step list of the fake's is checked
+    strict: an ``async`` that is no bool, a ``wait_window`` that is no slot. Break: WindowAsync read as WindowSync (the
+    page step waiting for its window: the stores then land after 300 is gone)."""
+    fake = _o7_monologue_fake(game)
+    _o7_play(fake, until=lambda f: bool(_o7_scenes(f)) and f.control, every=200)
+    log = fake.machine_log
+    opens = {e["text"]: e["frame"] for e in log if e["event"] == "open"}
+    gone = {e["text"]: e["frame"] for e in log if e["event"] == "gone"}
+    rows = [(r["ip"], r["f"]) for r in _fv_rows(fake, "w")]
+    assert [ip for ip, _f in rows] == [613, 648, 672], rows
+    p = "159 mes {}".format
+    assert opens[p(300)] <= rows[0][1] < rows[1][1] < gone[p(300)] <= rows[2][1], (rows, opens, gone)
+    assert rows[1][1] - rows[0][1] >= _O7_ANIM_TICKS, rows
+    for a, b in ((296, 297), (298, 299), (299, 300)):
+        assert opens[p(b)] >= gone[p(a)], (a, b, opens, gone)
+    for bad, match in (({"page": 296, "async": 1}, "async is a bool"), ({"wait_window": -1}, "names a window slot")):
+        with pytest.raises(ValueError, match=match):
+            f = _o7_box_fake(game, _o7_visit([{"grant": [7, 3870]}, bad]), field=30842)
+            for _ in range(3):
+                f._frame_once()
 
 
 def test_fake_monologue_store_override_fires_it_again(game):

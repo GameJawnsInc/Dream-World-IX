@@ -819,8 +819,10 @@ REQUIRED_TESTS_O7: tuple = (
     "test_o7_rehearsal_smoke_sends_no_storytrace_on_the_fake",
     "test_o7_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake",
     # the review's fixes: the hazard's protection pinned on the real mesh (a walk east past Dojebon's circle releases
-    # him: the static watch's moved row -- the box's latch holds him from the grant)
+    # him: the static watch's moved row -- the box's latch holds him from the grant); H24, 159's monologue in its bytes'
+    # order (WindowAsync pages, the script held only at WaitWindow)
     "test_o7_drive_real_balcony_walk_east_releases_dojebon_on_the_fake",
+    "test_fake_monologue_async_pages_hold_the_script_only_at_waitwindow",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

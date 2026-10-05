@@ -1572,7 +1572,11 @@ front cut at 154 e0 t0 ip26, and 154's ambient branch from the warp's `Byte[13]`
 `Byte[208] := 0`, ip648 `++`, ip672 `Bit[3796] := 1`, then ip711 re-grants IN PLACE. Its three rows are written with
 control off, after the cross's first loss and before its re-run: the step's `interrupts` 1 lets the driver re-run it,
 and O7-WALK exempts exactly those three rows, in order, inside that gap, and nowhere else. Its test is read off ip390's
-pinned text (`monologue_test`), never typed.
+pinned text (`monologue_test`), never typed. In the bytes' order, 296, 298, 299 and 300 are WindowAsync -- the script
+animates under each, then WaitWindow(4) -- and 297 WindowSync; ip613 and ip648 run UNDER 300, an animation apart, so a
+prompt Confirm leaves Steiner with control off and NO window up while they land, and ip672 waits for 300 to go. The
+FakeGame plays exactly that (H24: a page's `async`, the `wait_window` step -- the review's fix; the animations' length
+is an estimate, R-FULL's F3 records the real stretch).
 
 **The end state's race.** Read live on arrival in 164 WITHOUT `Byte[13]`: twenty targets -- ten the route leaves, ten
 untouched since New Game and by O1-O6. `Byte[13]` races: 164's prologue rewrites it at once (ip130 2 -> 1) and again at
