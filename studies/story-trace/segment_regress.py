@@ -374,6 +374,13 @@ REQUIRED_TESTS: tuple = (
     "test_segment_route_clearance_plans_the_corridor_only_below_its_width",     # A2: S18 on both planner paths
     "test_segment_route_clearance_absent_keeps_todays_plan",                    # A2: S18 opt-in, today's plan
     "test_segment_route_clearance_plans_the_stair_at_110_not_120",              # A2: S18 on stock 163's stair
+    "test_segment_prior_basis_presses_no_probe_on_the_fake",                    # A3: S19 seeds, no probe, judged
+    "test_segment_prior_basis_wrong_stops_on_the_first_move_on_the_fake",       # A3: S19's first-move check
+    "test_segment_prior_basis_disagreement_is_the_drivers_v13_on_the_fake",     # A3: S19's V13, keyed on the marker
+    "test_segment_prior_basis_widens_the_hold_spread",                          # A3: S19's spread, pure
+    "test_segment_prior_basis_narrows_after_its_first_move_on_the_fake",        # A3: S19's spread narrowed, 31 fps
+    "test_segment_prior_basis_forget_clears_the_seed_on_the_fake",              # A3: forget_basis, begin_scenario
+    "test_segment_prior_basis_absent_calibrates_as_today_on_the_fake",          # A3: S19 opt-in, today's record
 )
 
 O1E_VERDICT = "PROVEN"

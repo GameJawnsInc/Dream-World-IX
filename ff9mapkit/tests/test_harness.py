@@ -26942,13 +26942,14 @@ def _s17_pred(steps, *, regions=None, **defaults):
 
 
 def _s17_drive(game, pred, *, setup=None, wrap=None, phases=None, start=(0, -300), floor=None, deadline=60.0,
-               rerun=lambda out, log: False):
-    """One S17 drive on the fake: New Game, the raw warp into 30820 at SC 1000, him at ``start``, the bases cached (as a
-    calibration leaves them: S17 seeds nothing), the driver over ``floor`` (default the fake's box); the fake's O2 exit
-    region to 30810 (50 frames' fade) unless ``setup(fake)`` says otherwise; ``wrap(g, fake)`` before the drive;
-    ``phases(log)`` a director's phases (_o1_director). Re-run -- at most twice -- only while ``rerun(out, log)`` holds:
-    the test's own judgment that a starved harness bent the run, its class asserted there. ``(outcome or the void
-    raised, log, fake)``."""
+               rerun=lambda out, log: False, prior=None, cached=(30820, 30821, 30810)):
+    """One S17 drive on the fake: New Game, the raw warp into 30820 at SC 1000, him at ``start``, the bases of
+    ``cached`` cached (as a calibration leaves them: S17 seeds nothing; S19's tests cache none), the driver over
+    ``floor`` (default the fake's box) with ``prior`` (default the fake's own basis); the fake's O2 exit region to 30810
+    (50 frames' fade) unless ``setup(fake)`` says otherwise; ``wrap(g, fake)`` before the drive; ``phases(log)`` a
+    director's phases (_o1_director). Re-run -- at most twice -- only while ``rerun(out, log)`` holds: the test's own
+    judgment that a starved harness bent the run, its class asserted there. ``(outcome or the void raised, log,
+    fake)``."""
     SD = _segment_modules()
     for attempt in range(3):
         fake = FakeGame(game)
@@ -26962,7 +26963,7 @@ def _s17_drive(game, pred, *, setup=None, wrap=None, phases=None, start=(0, -300
             boot(g)
             g.warp(30820, entrance=102, scenario=1000)
             _stand(g, fake, *start)
-            for f in (30820, 30821, 30810):
+            for f in cached:
                 g._axes[f] = _prior()
             if wrap is not None:
                 wrap(g, fake)
@@ -26971,8 +26972,8 @@ def _s17_drive(game, pred, *, setup=None, wrap=None, phases=None, start=(0, -300
             try:
                 try:
                     out = SD.drive(g, pred, "S", log, deadline=time.time() + deadline,
-                                   floor_for=lambda d, closed: floor or _flat_bgi(), prior_for=lambda d: _prior(),
-                                   forbid_live=False)
+                                   floor_for=lambda d, closed: floor or _flat_bgi(),
+                                   prior_for=lambda d: prior or _prior(), forbid_live=False)
                 except (SD.RouteVoid, HarnessError) as err:
                     out = err
             finally:
@@ -27296,3 +27297,245 @@ def test_segment_route_clearance_plans_the_stair_at_110_not_120(game, dali):
         rec = g.route_to(997.0, 4957.0, avoid=[e3], walkmesh=stair, prior=_prior(), unstick=True, smooth=True,
                          clearance=120.0)
         assert rec["waypoints"] is None and not rec["reached"] and _holds(sent) == [], (rec, sent)
+
+
+# ---- A3: S19 (research/o7_design.md 1.2) -- THE PRIOR BASIS: route_to(basis="prior") seeds a field's basis from its
+# prior, exactly -- no calibration probe pressed -- and judges it on the walk's first EVIDENCE hold (over acos(PRIOR_AGREE)
+# off, the seed forgotten and a HarnessError raised carrying ``prior_basis``); its holds planned wide until then and
+# narrowed after; ``forget_basis`` at every pop of ``_axes``; the driver's V13 keyed on the error's marker alone.
+
+#: route_to's record keys as the code before S18/S19 wrote them -- what a walk given neither key still returns.
+_ROUTE_KEYS = {"from", "landed", "reached", "travelled", "toward", "waypoints", "replans", "during", "waits", "cleared",
+               "pushes", "pushed", "blockers", "remembered", "blocked", "frozen", "boxed", "boxed_by", "npcs",
+               "avoided", "entered", "through", "sealed", "npc_replans", "npc_waits", "box_waits", "box_cleared",
+               "boxers", "held_by", "pinned", "changed_to", "face_gate", "faced", "face_err", "face_worst", "face_to",
+               "face_calls", "face_pad", "face_measured", "face_moved", "fps", "lost", "handoff"}
+
+
+def _s19_probes(g) -> list:
+    """Every calibration probe ``g`` presses from now on (``_probe_axis`` wrapped on the instance), as its arguments."""
+    probes, real = [], g._probe_axis
+
+    def probe(*a, **kw):
+        probes.append(a)
+        return real(*a, **kw)
+    g._probe_axis = probe
+    return probes
+
+
+def _s19_none(g, field=30820) -> bool:
+    """``field`` is in none of S19's four places: its basis, the seeded, the pending, the judged angles."""
+    return all(field not in s for s in (g._axes, g._seeded, g._prior_pending, g._prior_angle))
+
+
+def test_segment_prior_basis_presses_no_probe_on_the_fake(game):
+    """S19 on the fake (research/o7_design.md 1.2): the fake's twist 30 degrees and the walk's prior its EXACT basis --
+    route_to(basis="prior") presses NO calibration probe (``_probe_axis`` never called), walks the whole leg, and its
+    record says ``basis`` "prior" and ``basis_check`` -- the first evidence hold judged under 2 degrees off; the field
+    seeded and judged (``_seeded``, not ``_prior_pending``, its angle kept). Break: no seed (the probes then pressed)."""
+    fake = FakeGame(game, twist=30.0)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, -400)
+        probes = _s19_probes(g)
+        rec = g.route_to(400.0, 400.0, walkmesh=_flat_bgi(), prior=_yawed(30.0), smooth=True, unstick=True,
+                         basis="prior")
+        assert probes == [] and rec["reached"] and rec["basis"] == "prior", (probes, rec)
+        check = rec["basis_check"]
+        assert check["angle"] < 2.0 and check["moved"] > 0 and check["pressed"] and check["frame"] > 0, check
+        assert 30820 in g._seeded and 30820 not in g._prior_pending, (g._seeded, g._prior_pending)
+        assert g._prior_angle[30820] == pytest.approx(check["angle"], abs=0.01), g._prior_angle
+
+
+def test_segment_prior_basis_wrong_stops_on_the_first_move_on_the_fake(game):
+    """S19 on the fake (research/o7_design.md 1.2): the prior ROTATED 30 degrees off the fake's basis (its twist 0) --
+    the walk's first evidence hold (``unstick``: its slides rule would read a deflection as a slide, which the check
+    runs ahead of) raises a HarnessError carrying ``prior_basis`` -- the field, ~30 degrees, the buttons pressed, the
+    measured and predicted directions -- and the field is in none of ``_axes``, ``_seeded``, ``_prior_pending``,
+    ``_prior_angle``; that hold is the only one pressed. Break: no check (the walk then goes on, 30 degrees astray)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, -400)
+        sent = _counting(g)
+        with pytest.raises(HarnessError) as caught:
+            g.route_to(400.0, 400.0, walkmesh=_flat_bgi(), prior=_yawed(30.0), smooth=True, unstick=True,
+                       basis="prior")
+        pb = getattr(caught.value, "prior_basis", None)
+        assert pb is not None and pb["field"] == 30820 and 25.0 < pb["angle"] < 35.0, (pb, str(caught.value))
+        assert set(pb) == {"field", "angle", "moved", "pressed", "measured", "predicted"} and pb["moved"] > 0, pb
+        holds = _holds(sent)
+        assert len(holds) == 1, holds                         # the judged hold, and nothing pressed after it
+        assert sorted(pb["pressed"].split("+")) == sorted(x.split()[1] for x in holds[0]
+                                                          if x.startswith("hold ") and "cancel" not in x), (pb, holds)
+        assert _s19_none(g), (g._axes, g._seeded, g._prior_pending, g._prior_angle)
+
+
+def test_segment_prior_basis_disagreement_is_the_drivers_v13_on_the_fake(game):
+    """S19 in the driver (research/o7_design.md 1.2; the review's driver #3): a table step with ``basis`` "prior" and the
+    prior rotated 30 degrees off the fake's -- RouteVoid V13 by the driver at the step's cell, the step row's ``v`` V13,
+    its ``prior_basis`` the marker's. A step WITHOUT ``basis`` converts the same: a ``walk`` with ``basis`` "prior" to
+    where he stands (seeded, nothing pressed: DONE, the seed still pending), then O2's ``cross`` with no ``basis`` --
+    whose first evidence hold judges the pending seed -- V13 on the cross's row. A HarnessError WITHOUT the marker, from
+    either step (a test-side route_to that raises a plain one), propagates as today's -- never a V13. Break: the
+    conversion keyed on the step's ``basis`` (the cross's marker then escapes as a plain HarnessError)."""
+    SD = _segment_modules()
+    wrong = _yawed(30.0)
+    pred = _s17_pred([_s17_walk(basis="prior"), _o2_cross()])
+    out, log, _fake = _s17_drive(game, pred, prior=wrong, cached=())
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V13", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    rows = _s17_rows(log)
+    assert len(rows) == 1 and (rows[0]["kind"], rows[0]["outcome"], rows[0]["v"], rows[0]["basis"]) == \
+        ("walk", "void", "V13", "prior"), rows
+    assert rows[0]["why"].startswith("the prior basis disagreed with the first move") and \
+        25.0 < rows[0]["prior_basis"]["angle"] < 35.0, rows[0]
+    here = _s17_walk(goal=[0, -300], basis="prior")              # where he stands: seeded, nothing pressed
+    pred = _s17_pred([here, _o2_cross()])
+    out, log, _fake = _s17_drive(game, pred, prior=wrong, cached=())
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V13", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    rows = _s17_rows(log)
+    assert [(r["kind"], r["outcome"]) for r in rows] == [("walk", "done"), ("cross", "void")], rows
+    assert rows[0]["route"]["basis"] == "prior" and "basis_check" not in rows[0]["route"], rows[0]["route"]
+    assert rows[1]["v"] == "V13" and "basis" not in rows[1] and rows[1]["prior_basis"]["field"] == 30820, rows[1]
+
+    def plain(goal):
+        def wrap(g, fake):
+            route_to = g.route_to
+
+            def raising(x, z, **kw):
+                if (float(x), float(z)) == goal:
+                    raise HarnessError("a plain error, no marker")
+                return route_to(x, z, **kw)
+            g.route_to = raising
+        return wrap
+    for goal, steps in (((0.0, 300.0), [_s17_walk(basis="prior"), _o2_cross()]),     # the step with a basis
+                        ((450.0, 0.0), [here, _o2_cross()])):                       # the step without one
+        out, log, _fake = _s17_drive(game, _s17_pred(steps), prior=_prior(), cached=(), wrap=plain(goal))
+        assert isinstance(out, HarnessError) and "a plain error, no marker" in str(out), (goal, out)
+        assert not [r for r in _s17_rows(log) if r.get("v") == "V13"], (goal, _s17_rows(log))
+
+
+def test_segment_prior_basis_widens_the_hold_spread(game):
+    """S19, pure (research/o7_design.md 1.2; the review's driver #4): ``_field_spread`` of a SEEDED field is
+    ROUTE_HEADING_FLOOR + acos(PRIOR_AGREE) while its first move is pending -- every error the check accepts, whatever
+    the prior -- and ROUTE_HEADING_FLOOR + theta once ``_prior_angle`` holds theta; of a calibrated field with the same
+    prior it is today's ``_heading_spread`` -- the floor plus the measured disagreement (4 degrees here), or acos with no
+    prior. Break: the seeded spread not widened (the pending seed then planned at the floor)."""
+    g = session(game, FakeGame(game))
+    floor = math.radians(g.ROUTE_HEADING_FLOOR)
+    wide = floor + math.acos(g.PRIOR_AGREE)
+    prior = _yawed(5.0)
+    g._axes[30820] = dict(prior)
+    g._seeded.add(30820)
+    g._prior_pending.add(30820)
+    assert g._field_spread(30820, prior) == pytest.approx(wide) and g._field_spread(30820, None) == pytest.approx(wide)
+    g._prior_pending.discard(30820)
+    g._prior_angle[30820] = 3.0
+    assert g._field_spread(30820, prior) == pytest.approx(math.radians(g.ROUTE_HEADING_FLOOR + 3.0))
+    g._axes[30821] = _yawed(9.0)                              # calibrated, 4 degrees off the same prior
+    assert g._field_spread(30821, prior) == pytest.approx(floor + math.radians(4.0))
+    assert g._field_spread(30821, prior) == g._heading_spread(g._axes[30821], prior)
+    assert g._field_spread(30821, None) == pytest.approx(wide)
+    g.forget_basis(30820)
+    assert _s19_none(g) and 30821 in g._axes, (g._axes, g._seeded, g._prior_pending, g._prior_angle)
+
+
+def test_segment_prior_basis_narrows_after_its_first_move_on_the_fake(game):
+    """S19 on the fake at 31 fps (research/o7_design.md 1.2; the review's driver #4, the critic's sim2): a straight
+    3900-u leg down a box floor -- (0, -600) to (0, -4500), 154's step 1 -- with the fake's twist 1.4 degrees (154's
+    basis: every pad 1.4 degrees off the leg) and the prior EXACT. Walked on a basis cached as a calibration leaves it
+    (its spread the floor), then seeded (``basis`` "prior"): past the first evidence hold the seeded walk's holds number
+    at most 3 more than the cached walk's -- its spread narrowed to the floor plus the measured angle -- and its record
+    carries the check. Break: the spread held wide after the check (the holds then shrink: the critic's 18)."""
+    fake = FakeGame(game, fps=124.0, render_fps=31.0, walkmesh=(-600.0, -5000.0, 600.0, 0.0), twist=1.4)
+    floor = _flat_bgi(-600.0, -5000.0, 600.0, 0.0)
+    prior = _yawed(1.4)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        sent = _counting(g)
+        count = {}
+        for how in ("cached", "seeded"):
+            _stand(g, fake, 0, -600)
+            g.forget_basis(30820)
+            if how == "cached":
+                g._axes[30820] = dict(prior)                  # as a calibration measures it: exact
+            sent.clear()
+            rec = g.route_to(0.0, -4500.0, walkmesh=floor, prior=prior, smooth=True, unstick=True,
+                             **({"basis": "prior"} if how == "seeded" else {}))
+            assert rec["reached"] and rec["landed"] is None, (how, rec)
+            assert ("basis_check" in rec) == (how == "seeded"), (how, rec)
+            count[how] = len(_holds(sent))
+        assert count["seeded"] <= count["cached"] + 3, count
+
+
+def test_segment_prior_basis_forget_clears_the_seed_on_the_fake(game):
+    """S19's FORGET (research/o7_design.md 1.2; the review's driver #2 and claim #10), on the fake: a field seeded and
+    still PENDING -- route_to(basis="prior") to where he stands, nothing pressed. (1) The fake's twist turned 90
+    degrees and a ``walk_to`` (``slides`` off) there: its burst check discards the basis with a plain HarnessError (no
+    marker), and the field is in none of ``_axes``, ``_seeded``, ``_prior_pending``, ``_prior_angle``; the route_to after
+    it with no ``basis`` calibrates -- probes pressed -- its record holds no ``basis_check`` and nothing raises, its
+    spread today's. (2) Seeded and pending again, then ``begin_scenario``: all four empty, and the calibrated walk after
+    it the same. (3) ``forget_basis``, then route_to with ``basis`` "prior": seeded again -- no probe -- and judged, a fresh
+    ``basis_check``. Break: a pop that leaves ``_prior_pending`` (the calibrated walk then runs the first-move check
+    against its calibrated basis)."""
+    fake = FakeGame(game)
+    floor = _flat_bgi()
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+
+        def seed_here():
+            g.forget_basis(30820)                             # a fresh seed: whatever basis the field had goes
+            _stand(g, fake, 0, 0)
+            rec = g.route_to(0.0, 0.0, walkmesh=floor, prior=_prior(), smooth=True, unstick=True, basis="prior")
+            assert rec["basis"] == "prior" and "basis_check" not in rec, rec
+            assert 30820 in g._seeded and 30820 in g._prior_pending, (g._seeded, g._prior_pending)
+
+        def calibrated_walk(prior):
+            _stand(g, fake, 0, 0)
+            probes = _s19_probes(g)
+            rec = g.route_to(0.0, 400.0, walkmesh=floor, prior=prior, smooth=True, unstick=True)
+            assert probes and rec["reached"] and "basis_check" not in rec and "basis" not in rec, (probes, rec)
+            assert 30820 not in g._seeded and 30820 not in g._prior_pending, (g._seeded, g._prior_pending)
+            assert g._field_spread(30820, prior) == g._heading_spread(g._axes[30820], prior)
+            del g._probe_axis                                 # the instance's wrapper off: the class's again
+        seed_here()
+        fake.twist = 90.0
+        with pytest.raises(HarnessError, match="disagrees with what the game did") as caught:
+            g.walk_to(0.0, 400.0)
+        assert getattr(caught.value, "prior_basis", None) is None and _s19_none(g), \
+            (g._axes, g._seeded, g._prior_pending, g._prior_angle)
+        calibrated_walk(_yawed(90.0))
+        seed_here()
+        g.begin_scenario("s19-forget")
+        assert not (g._axes or g._seeded or g._prior_pending or g._prior_angle), \
+            (g._axes, g._seeded, g._prior_pending, g._prior_angle)
+        calibrated_walk(_yawed(90.0))
+        g.forget_basis(30820)
+        assert _s19_none(g)
+        _stand(g, fake, 0, 0)
+        probes = _s19_probes(g)
+        rec = g.route_to(0.0, 400.0, walkmesh=floor, prior=_yawed(90.0), smooth=True, unstick=True, basis="prior")
+        assert probes == [] and rec["basis"] == "prior" and rec["basis_check"]["angle"] < 2.0, (probes, rec)
+
+
+def test_segment_prior_basis_absent_calibrates_as_today_on_the_fake(game):
+    """S19 IS OPT-IN (research/o7_design.md 1.2): route_to with no ``basis`` on a field with none calibrates as today --
+    its probes pressed, clear of nothing -- and returns exactly today's record keys: no ``basis``, no ``basis_check``
+    (nor ``clearance``); no S19 state is kept. Break: a ``basis`` key written by every calibration."""
+    fake = FakeGame(game, twist=30.0)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        _stand(g, fake, -400, -400)
+        probes = _s19_probes(g)
+        rec = g.route_to(400.0, 400.0, walkmesh=_flat_bgi(), prior=_yawed(30.0), smooth=True, unstick=True)
+        assert probes and rec["reached"], (probes, rec)
+        assert set(rec) == _ROUTE_KEYS, sorted(set(rec) ^ _ROUTE_KEYS)
+        assert 30820 in g._axes and not (g._seeded or g._prior_pending or g._prior_angle), \
+            (g._seeded, g._prior_pending, g._prior_angle)

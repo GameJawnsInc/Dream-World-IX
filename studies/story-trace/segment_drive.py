@@ -126,6 +126,14 @@ after rule 3 it scans the ring for the first sample in the naming's field listin
 screen, inside accept_name's blocking call, where the run-wide witness does not look. A new visit takes a last scan and
 disarms it -- nothing found, the beat stays False: the run uncovered, never failed. Without ``on_page`` rule 4 is O5's
 exactly.
+
+THE WALK, THE CLEARANCE AND THE PRIOR BASIS (opt-in; research/o7_design.md 1.2 S17-S19): a ``walk`` step's evidence is
+an ARRIVAL (:meth:`_Drive.x_walk`: the landing judge first, then done only with control held within its tolerance of
+the goal); a step's ``clearance`` is the wall clearance route_to's plans keep, and its ``basis`` "prior" seeds the
+field's basis from the step's prior -- no calibration probe -- its first move judged by the session. A seed the first
+move disagrees with raises a HarnessError carrying ``prior_basis``, which :meth:`_Drive.run_step` turns into the step
+row's V13 (the driver's instrument) whatever the step's own keys. :func:`step_of` reads every key strict; a table with
+none of them -- every one frozen before O7's -- is driven exactly as before.
 """
 from __future__ import annotations
 
@@ -3036,11 +3044,23 @@ class _Drive:
         cell on, ``failed`` spends an attempt, ``interrupted`` an interruption, either out of them VOID V7; S14's
         ``left`` (opt-in, research/o6_design.md 1.2) moves nothing and raises nothing, its landing rule 2's on the next
         poll -- and, in a watched cell, the ring's samples of the call as ``watch`` rows."""
+        from harness import HarnessError
         step = step_of(self.pred, c["steps"][n])
         key = (self.visit, self.donor, self.sc, n)
         tries = self.tries.setdefault(key, {"failed": 0, "interrupted": 0})
         frame0, t0 = st.frame, time.time()
-        verdict, rec = getattr(self, "x_" + step["kind"])(step)
+        try:
+            verdict, rec = getattr(self, "x_" + step["kind"])(step)
+        except HarnessError as err:
+            # S19 (research/o7_design.md 1.2): a seeded prior basis the first move disagreed with -- keyed on the ERROR's
+            # marker alone, whatever the step's keys (a step with no ``basis`` judges a seed an earlier step left
+            # pending): the driver's instrument, V13 on this step's row. Only a seeded field can raise the marker, and
+            # O1-O6 never seed: every other HarnessError propagates exactly as before.
+            prior_basis = getattr(err, "prior_basis", None)
+            if prior_basis is None:
+                raise
+            verdict, rec = "void", {"v": "V13", "by": "driver", "prior_basis": prior_basis,
+                                    "why": f"the prior basis disagreed with the first move: {err}"}
         after = self.g.state
         if c.get("watch"):
             # every sample the call's own reads kept, while he was still in the watched cell's field: a race lost
@@ -3058,6 +3078,8 @@ class _Drive:
         for key in ("clearance", "basis"):       # S18/S19 (opt-in): on the row only when the step carries them
             if step.get(key) is not None:
                 row[key] = step[key]
+        if rec.get("prior_basis") is not None:   # S19: the first move's disagreement, on the V13 row that names it
+            row["prior_basis"] = rec["prior_basis"]
         if rec.get("misroute") is not None:      # S14 (opt-in): the landing after a door's evidence held -- rule 2's
             row["misroute"] = rec["misroute"]
         self.log.append(row)
