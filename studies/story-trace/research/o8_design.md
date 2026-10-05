@@ -2709,3 +2709,48 @@ baseline.
     test presses through the agent's `press` verb by hand (`fake._execute`): a held key (`_schedule`) never reaches a
     plain beat -- only `_scene_press` at execute time does. 3.4's 166 is two visit beats round the movie beat, both
     index 3: H15's per-visit faults key both (an `error_window {3: 9}` takes visit A's error branch; B never starts).
+11. **B4's fixture readers, as built.** `_o8_pred(*, short=None, closures=None, timeout_s=60, **over)` is O7's form: the
+    predictions are the same on both sides (`side_ends` {S: [55], F: [55]}), so the design's `side` argument has nothing
+    to key, and the real meshes' band closures come in as `closures` (`_o8_closures(wm)`, through `_o8_band_closures`).
+    The wait's `timeout_s` is 60 on the fixture (9 B4) -- 2 for the missing knight -- never the draft's 15 (F2's).
+    `_o8_run` takes the box's planes on both sides' ids (`_O8_BOX_PLANES`; `planes={}` on the real meshes, where a level
+    sets his height), a log factory (the dead-level test's), and `_o8_route` a `skip` dict (3.7's empty prompt).
+12. **THE SPAN is test-side in PART B.** `_o8_span` and `_o8_order` are 1.3's `exempt_span` and O8-ORDER's rule
+    (`o8_west_tower` is PART C's): C1 asserts its `exempt_span` equal to `_o8_span` on these logs. The design's breaks
+    for the fast/slow and the failed-first-attempt tests are the windows critique #1 rejected -- the right end at step
+    0's done row's `frame0`; a done-row window -- run against the test-side span; each test also fails on a PRODUCT
+    mutant: `x_walk` skipping THE KNIGHT WAIT (the slow knight's ip230 then MISSING or late), and `run_step` logging no
+    failed attempt (one step-0 row where the test reads two).
+13. **The fast knight needs more than `after_ticks` 0.** His store lands `after_ticks` after his LAST index, and his walk
+    is 75 ticks (1131.4 u at 15 a tick) against ~3 ticks from T0 to P1 on the box (~16 on the real spiral): with
+    `after_ticks` 0 alone he stores ~70 ticks into the wait. So the fast knight is also released at published y 5000 (a
+    height reached only once step 0's walk is under way: after its `frame0`) and walks 240 u a tick (`speed` 120): his
+    store lands MID-WALK, before the wait begins, whatever the load -- a starved driver only gives him more ticks. The
+    test asserts step 0's `frame0` < ip230 < the wait's `frame0`; the slow knight's, the wait's `frame0` < ip230 <= its
+    read frame and `game_s` >= 10 (300 ticks of the fake's own clock).
+14. **The real-55 test's literal break cannot bite.** "on_route testing the members before the end fields": rule 1
+    (`fid in self.ends`) runs BEFORE rule 2, so `on_route` is never consulted for an end field in the drive, nor by the
+    live scan (cut at the end places): run, the mutant PASSES the test (recorded in B4's commit). The test fails on rule
+    1 judging only a member's arrival (REAL 55 on F then reaches rule 3, off the route's order: V11) -- the regime the
+    design's sentence describes -- and on a digest blind to real fields (no seam).
+15. **The dead level on the box's plane.** 164.e2's ring stands at plane y >= ~10157 on the box (the real mesh's 8005 /
+    8429 are loop 1's crossings UNDER it), so the mutant table's step 0 ends in e2's east ear at ~10800 and step 1 in
+    e3's ring at ~7900 -- each at its gate's dead side, asserted on the plane first. A table whose last step is no door
+    ends in V4, so the run is ended on step 1's done row by a log that moves the fake to 165's id (`_O8EndLog`, `_S20Log`'s
+    rule: in the drive's own thread).
+16. **One run, two key twists.** The fake's `twist` is one value and the real-spirals run crosses 164's (57.66 deg) and
+    165's (35.16 deg): `_o8_real_setup` sets it every frame from the field he stands in (`_step_world` wrapped on the
+    instance). The unstick test is 164 #1 ALONE (its fallback is the point): Steiner granted at P1 at the bytes' height
+    and 164's prior cached (the frozen pair seeds it on step 0).
+17. **`_probe_axis` counted on the wrapper's own list.** O7's real-balcony tests write `probes.extend(_s19_probes(g))`,
+    which copies the wrapper's list while it is still EMPTY: their later probes never reach the asserted list (a check
+    that cannot fail; O7-pinned, left as found). O8's real-spirals test keeps the wrapper's own list (`wrap.probes`).
+18. **Exact attempt lists re-run a load-bent run.** The failed-first-attempt and the unstick tests read an exact step-row
+    list ([failed 1, done 2]); a starved walk that fails an attempt more, or the knight's store not come within the
+    wrapper's 60 s, is the load's (`spoiled`, its class asserted the driver's) and re-run -- at most twice, so a real
+    regression still fails. ORDER is asserted before a step row's `wait_flag` in the segment and fast/slow tests, so
+    THE KNIGHT WAIT skipped fails each on ORDER itself (ip230 late, after step 1's `frame0`, on S; the slow knight's
+    MISSING) rather than on the row's missing key; the slow knight runs first.
+19. **G44 joins the gate in B4** (`ITEM_ORDER` before G21, `SEGMENT_ITEMS["O8"] = ("G44",)`, `PYTEST_ITEMS`, `g44`,
+    the gate's judges), `REQUIRED_TESTS_O8` holds PART B's 21 beside A0b's replay, and the registry test's body reads
+    G1-G44 (unpinned: G21 unchanged at 426 sources).

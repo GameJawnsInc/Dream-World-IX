@@ -6,8 +6,9 @@ every O5 output (research/o6_design.md, section 1.4), every O6 output (research/
 output (research/o8_design.md, section 1.4) byte-identical, O3's battle-beat tests (G13) and O3's dry run (G14) green,
 O4's tests (G19) and O4's dry run (G20) green, O5's FakeGame and driver tests (G26) and O5's dry run (G27) green, O6's
 FakeGame, driver and analysis tests (G32) and O6's dry run (G33) green, O7's FakeGame, driver and analysis tests (G38) and
-O7's dry run (G39) green, and the O1-O7 driver tests and the fake's beat, input, story-trace, machine-beat, visit-beat,
-walk-out, naming, door, level, squeeze, walker and scene functions at their pinned sources (G21).
+O7's dry run (G39) green, O8's FakeGame and driver tests (G44) green, and the O1-O7 driver tests and the fake's beat,
+input, story-trace, machine-beat, visit-beat, walk-out, naming, door, level, squeeze, walker and scene functions at their
+pinned sources (G21).
 
     py studies/story-trace/segment_regress.py --capture      # G0, once, BEFORE the O2 refactor: the O1 baseline
     py studies/story-trace/segment_regress.py --capture-o2   # G0', once, BEFORE any O3 code change: the O2 baseline
@@ -17,7 +18,7 @@ walk-out, naming, door, level, squeeze, walker and scene functions at their pinn
     py studies/story-trace/segment_regress.py --capture-o6   # G0''''', once, BEFORE any O7 code change: the O6 baseline
     py studies/story-trace/segment_regress.py --capture-o7   # G0'''''', once, BEFORE any O8 code change: the O7 baseline
     py studies/story-trace/segment_regress.py --rebaseline-source NAME --reason TEXT   # G21: re-pin ONE source
-    py studies/story-trace/segment_regress.py                # G1-G43; exit 0 only if every item passes
+    py studies/story-trace/segment_regress.py                # G1-G44; exit 0 only if every item passes
     py studies/story-trace/segment_regress.py --only G26,G27 # a PARTIAL run (also --segment O5): exit 3 on a pass
     py studies/story-trace/segment_regress.py --pytest-junit DIR/receipt.json   # pytest items from a whole-file run
     py studies/story-trace/segment_regress.py --list         # the items, their segments and kinds
@@ -894,6 +895,32 @@ REQUIRED_TESTS_O8: tuple = (
     # A0b: O7's route and its level, squeeze and walker scenes replayed by hand on the fake against their golden,
     # captured before any O8 fake edit
     "test_fake_spiral_keeps_the_castle_route_identical",
+    # B1: H26 the per-field clearance, the spirals' meshes, the placement on loop 1 and THE PINCH
+    "test_fake_spiral_clearance_per_field_defaults_to_the_global",
+    "test_fake_spiral_meshes_hold_the_levels_premises",
+    "test_fake_spiral_places_steiner_on_loop_1",
+    "test_fake_spiral_pinch_passes_at_slack_12_not_8",
+    # B2: H25 the knight walker -- his release by height, his store on the body, the pair band
+    "test_fake_knight_waits_for_his_height_then_walks_and_stores",
+    "test_fake_knight_store_is_missing_when_the_visit_ends_first",
+    "test_fake_knight_holds_no_pair_across_levels",
+    # B3: the O8 route builder played unattended, and the skip dialog's No in FMV004
+    "test_fake_tower_route_plays_to_55_unattended",
+    "test_fake_tower_movie_skip_dialog_resumes_at_no",
+    # B4: the driver on the fake -- the segment, the real spirals, the knight's order (fast, slow, a failed first
+    # attempt, missing), the seam and V19, the back door, the skip net's two rows, the dead level, the pinch's fallback
+    "test_o8_drive_climbs_the_tower_to_real_55_on_the_fake",
+    "test_o8_drive_walks_the_real_spirals_on_the_fake",
+    "test_o8_drive_knight_fast_or_slow_keeps_the_order_on_the_fake",
+    "test_o8_drive_knight_stores_during_a_failed_first_attempt_on_the_fake",
+    "test_o8_drive_knight_missing_is_the_games_v8_on_the_fake",
+    "test_o8_drive_fork_lands_in_real_55_from_member_166_on_the_fake",
+    "test_o8_drive_fork_landing_in_real_166_is_v19_on_the_fake",
+    "test_o8_drive_back_door_e3_is_the_drivers_v11_on_the_fake",
+    "test_o8_drive_movie_stray_dialog_answered_at_no_on_the_fake",
+    "test_o8_drive_movie_skip_dialog_with_an_empty_prompt_answered_at_no_on_the_fake",
+    "test_o8_drive_dead_level_door_holds_no_fire_on_the_fake",
+    "test_o8_drive_unstick_false_through_the_pinch_on_the_fake",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)
@@ -1026,21 +1053,23 @@ def cli_analyse() -> tuple:
 
 
 #: THE ITEMS, in the order the gate prints them -- the order G1-G33 have always been printed in, then O6's G34-G37
-#: (research/o7_design.md 1.4), O7's G38 (9 B4) and G39 (9 C2), and O7's outputs G40-G43 (research/o8_design.md 1.4,
-#: 9 A0), G21 last.
+#: (research/o7_design.md 1.4), O7's G38 (9 B4) and G39 (9 C2), O7's outputs G40-G43 (research/o8_design.md 1.4,
+#: 9 A0), and O8's G44 (9 B4), G21 last.
 ITEM_ORDER: tuple = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G12", "G13", "G14", "G15",
                      "G16", "G17", "G18", "G19", "G20", "G22", "G23", "G24", "G25", "G26", "G27", "G28", "G29", "G30",
-                     "G31", "G32", "G33", "G34", "G35", "G36", "G37", "G38", "G39", "G40", "G41", "G42", "G43", "G21")
+                     "G31", "G32", "G33", "G34", "G35", "G36", "G37", "G38", "G39", "G40", "G41", "G42", "G43", "G44",
+                     "G21")
 #: Each segment's items (``--segment``). G21 is no segment's: the driver's pins over the O3-O7 baselines (``--only``).
 SEGMENT_ITEMS: dict = {"O1": ("G1", "G2", "G3", "G4", "G5", "G6", "G7"), "O2": ("G8", "G9", "G10", "G11", "G12"),
                        "O3": ("G13", "G14", "G15", "G16", "G17", "G18"),
                        "O4": ("G19", "G20", "G22", "G23", "G24", "G25"),
                        "O5": ("G26", "G27", "G28", "G29", "G30", "G31"),
                        "O6": ("G32", "G33", "G34", "G35", "G36", "G37"),
-                       "O7": ("G38", "G39", "G40", "G41", "G42", "G43")}
+                       "O7": ("G38", "G39", "G40", "G41", "G42", "G43"),
+                       "O8": ("G44",)}
 #: The pytest items and their ``-k`` selections: ONE run of their union judges them all (:func:`pytest_items`).
 PYTEST_ITEMS: dict = {"G7": PYTEST_K, "G12": PYTEST_K_O2, "G13": PYTEST_K_O3, "G19": PYTEST_K_O4, "G26": PYTEST_K_O5,
-                      "G32": PYTEST_K_O6, "G38": PYTEST_K_O7}
+                      "G32": PYTEST_K_O6, "G38": PYTEST_K_O7, "G44": PYTEST_K_O8}
 
 
 def pytest_g7() -> dict:
@@ -1437,6 +1466,20 @@ def g38(got: dict) -> tuple:
     every name in :data:`REQUIRED_TESTS_O7` among them. No baseline: the list is the floor."""
     bad = _selection_bad(None, got, REQUIRED_TESTS_O7)
     return (not bad, f'G38: pytest -k "{PYTEST_K_O7}": all passed, 0 failed, 0 skipped; every REQUIRED_TESTS_O7 '
+                     f"among them", "; ".join(bad) or f"{len(got['passed'])} passed")
+
+
+def pytest_g44() -> dict:
+    """Run G44's pytest selection (:func:`pytest_selection`)."""
+    return pytest_selection(PYTEST_K_O8)
+
+
+def g44(got: dict) -> tuple:
+    """G44 (research/o8_design.md 1.4, from 9 B4): O8's FakeGame and driver tests -- every one passed, none skipped (the
+    real-mesh ones read the install: a warned skip fails the item), and every name in :data:`REQUIRED_TESTS_O8` among
+    them. No baseline: the list is the floor."""
+    bad = _selection_bad(None, got, REQUIRED_TESTS_O8)
+    return (not bad, f'G44: pytest -k "{PYTEST_K_O8}": all passed, 0 failed, 0 skipped; every REQUIRED_TESTS_O8 '
                      f"among them", "; ".join(bad) or f"{len(got['passed'])} passed")
 
 
@@ -3320,7 +3363,7 @@ def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2, baseline_o3
                              "errors": [f"the pytest run raised {type(err).__name__}: {str(err)[:400]}"]}
                          for i in py_ids}
             judges = {"G7": lambda t: g7(base, t), "G12": lambda t: g12(base_o2, t), "G13": g13, "G19": g19,
-                      "G26": g26, "G32": g32, "G38": g38}
+                      "G26": g26, "G32": g32, "G38": g38, "G44": g44}
             take([_with_flakes(judges[i](tests[i]), tests[i]) for i in py_ids],
                  f"the pytest items ({', '.join(py_ids)}), one run")
     except BaseException:
