@@ -1602,13 +1602,14 @@ matched by place (31255 on F); the live read is recorded and never compared.
 
 **Status: draft: rehearsals pending, freeze pending.** The offline build is done (branch `claude/story-trace-o7`, PARTs
 A-C of the design's section 9): `--offline-check` 6 PASS on the draft, `--preflight` all green (12; nothing to deploy),
-the dry run (`o7_dryrun.py`) 167/167 on the draft and as if frozen, the regression gate G1-G39 with G21 (O1-O6
-byte-identical; O7's tests G38, its dry run G39). `o7_rehearse.py` holds the stages -- R-FULL (the go/no-go and the
-predictions), R-WALK154, R-STAIR (F5's go/no-go at the stair foot), R-WALK-VOID (a stop mid-walk and a stop
-mid-monologue, then the recoveries), F-SMOKE and F-PASS by name -- and `--rehearsal-report` prints what each freeze item
-(research/o7_design.md 7.3, F1-F14) is read from. Then the lead's sequence: `--preflight`, the rehearsals, the freeze
-checklist, `--freeze` (v1), the session (`py tools/play.py studies/story-trace/o7_castle_walk.py --label story-o7
---timeout 240`).
+the dry run (`o7_dryrun.py`) 174/174 on the draft and as if frozen, the regression gate G1-G39 with G21 (O1-O6
+byte-identical; O7's tests G38, its dry run G39). A code review's seven findings are fixed, each with a test or a
+dry-run mutant that fails without it (research/o7_design.md 11.4, "The review"). `o7_rehearse.py` holds the stages --
+R-FULL (the go/no-go and the predictions), R-WALK154, R-STAIR (F5's go/no-go at the stair foot), R-WALK-VOID (a stop
+mid-walk and a stop mid-monologue, then the recoveries), F-SMOKE and F-PASS by name -- and `--rehearsal-report` prints
+what each freeze item (research/o7_design.md 7.3, F1-F14) is read from. Then the lead's sequence: `--preflight`, the
+rehearsals, the freeze checklist, `--freeze` (v1), the session (`py tools/play.py studies/story-trace/o7_castle_walk.py
+--label story-o7 --timeout 240`).
 
 **Next, O8:** a raw `warp 164 342 1190` (S) / `warp 31256 342 1190` (F) in field 70 (after 70 e0 t0 ip130, before
 ip475): four residue rows (342 = 0x0156: byte 2 0 -> 86, byte 3 0 -> 1); START row 164 e0 t0 ip22, START requires 164

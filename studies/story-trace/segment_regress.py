@@ -743,8 +743,10 @@ O6_OFFLINE_CHECKS = 6
 #: re-registered ones and the cases C2 added) and "predictions-changed", its 28 units, and its 52 listed units
 #: (O7-CENSUS and its 5 mutants, O7-REGIONS and its 6, O7-GOALS and its 11, the route pins and route_mes with their 7,
 #: O7-BUILD's route pins on a synthetic build and its 2, the draft through O7-KEYS and its 15 offline mutants) when G39
-#: joined (167). A case added raises N; one dropped falls under the floor.
-O7_DRYRUN_FLOOR = 167
+#: joined (167); the review's fixes (research/o7_design.md 11.4, "The review") raised it to 174 -- 2 session cases
+#: (byte8-race-armed-one-F, -all-F), 1 unit (monologue-lines) and 4 listed (goals-163-e3-crossing, -holding,
+#: keys-scoped-dropped, -extra). A case added raises N; one dropped falls under the floor.
+O7_DRYRUN_FLOOR = 174
 #: G38 (research/o7_design.md 1.4, from 9 B4): every ``test_o7_*``, ``test_fake_level_*``, ``test_fake_monologue_*`` and
 #: ``test_fake_patrol_*`` name, each with the step that adds it -- G38 joined the gate in the commit that added B4's
 #: tests.
