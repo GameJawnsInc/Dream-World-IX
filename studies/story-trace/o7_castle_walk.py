@@ -788,13 +788,16 @@ def draft_predictions(campaign=None, *, end: int = END_FIELD) -> dict:
                 f"the south door -> 158@300 -> 159@331 (the forced monologue) -> 160@332 -> 162@333 -> 163@341 (the "
                 f"stair foot) -> the arrival in {end} at {CHAIN_SITES[route[-1]][4]}, SC 1190; stock vs the alxc disc-1 "
                 f"chain as O4 deployed it (route members {rm[route[0]]}-{rm[int(end)]}; PLAN.md, O7) -- a US session",
-        "rehearsals": [],                                   # 7.3: the lead's freeze names the rehearsal run dirs
-        "rehearsal_fps": [],                                # 7.3 F14: the render rates the rehearsals met
+        "rehearsals": ["20261005-054213-o7-rh-full", "20261005-054621-o7-rh-walk154",       # 7.3 (F1-F14)
+                       "20261005-054747-o7-rh-stair", "20261005-054847-o7-rh-walk-void",
+                       "20261005-054933-o7-rh-smoke", "20261005-055325-o7-rh-fpass"],
+        "rehearsal_fps": [31.0],                            # 7.3 F14: every rehearsal ran at ~31.3-31.6; 60 unexercised
         "order": ["S", "F", "S", "F", "S", "F"],
         "min_covered": 2,
         "rerun": {"max": 2, "stop_on": ["V19"]},
-        # 4.12: estimates (~1.8 min a run); F8 replaces every number from R-FULL
-        "budget": {"run_s": 600, "run_min_s": 300, "session_s": 3600, "settle_s": 1.0, "no_progress_s": 60,
+        # F8 from R-FULL (101 s and 86 s): run_s 2 x the slowest; run_min_s 1.25 x the median 93.5 + the longest
+        # recovery 4.5 s; session_s 8 x the median + 1800; no_progress_s max(60, 3 x the longest stretch 1.1 s)
+        "budget": {"run_s": 202, "run_min_s": 122, "session_s": 2548, "settle_s": 1.0, "no_progress_s": 60,
                    "end_row_s": 10.0},
         "start": {"S": route[0], "F": rm[route[0]]},
         "entrance": 315,
