@@ -30070,6 +30070,7 @@ def test_o7_rehearsal_walk_void_stops_mid_monologue_on_the_fake(game):
     assert rec["outcome"]["why"].startswith(f"STOPPED: {R.PAGE_STOP}: the first page press in {s['159']}"), rec["outcome"]
     ps = rec["page_stop"]
     assert ps is not None and ps["field"] == s["159"] and ps["texts"] == ["159 mes 296"], ps
+    assert ps["ui"] == "FieldHUD" and ps["control"] is False, ps                 # the warp goes from the field HUD
     assert ps["presses_before"] == 0 and ps["presses_after"] == 0 and ps["holds_after"] == 0, ps
     opened = [e["text"] for e in fake.machine_log if e["event"] == "open"]
     assert "159 mes 296" in opened and "159 mes 297" not in opened, opened
