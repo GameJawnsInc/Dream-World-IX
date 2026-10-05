@@ -728,6 +728,33 @@ def _(pred):
                                               lambda x: with_opt(x, old=0)))
 
 
+#: Field 70's ip249 (Byte[8] := 125: the store the warp window races, O7's race_site) as a row BEFORE the start -- the
+#: trace armed before it ran, the warp after it -- old 0 (New Game's).
+RACE70 = (70, 0, 0, 249, "Global.Byte[8]", 125)
+
+
+def _race_armed(ev, n):
+    """The run's field-70 store at ip249 written after the arm, before the warp's residue rows."""
+    return ev[:1] + [w(RACE70, old=0)] + ev[1:]
+
+
+@case("byte8-race-armed-one-F", "PROVEN", void={2: ["A-START"]}, covered={2: False, 4: True, 6: True})
+def _(pred):
+    """One F run: the trace armed BEFORE field 70's ip249 ran and the warp after it -- its Byte[8] := 125 a row before
+    the start (the review's finding), 159 ip290 then reading 125. The race of byte8-early-warp-one-F, one window later:
+    A-START by the start read all the same, the run uncovered -- never O7-START (a)'s "other row before the start"."""
+    runs = six(pred)
+    runs[1]["events"] = _race_armed(runs[1]["events"], 0)
+    return runs
+
+
+@case("byte8-race-armed-all-F", "VOID", cover_void=True, void={2: ["A-START"], 4: ["A-START"], 6: ["A-START"]})
+def _(pred):
+    """Every F run armed before field 70's ip249: COVER VOID, never NOT PROVEN -- the race's A-START is the instrument's
+    start, which VOID-ASYM (b) sets aside as it does the read's (byte8-early-warp-all-F)."""
+    return six(pred, f=_race_armed)
+
+
 @case("v5-error-158-F", "NOT PROVEN", clauses={"VOID-ASYM": ["(a)"]}, covered={2: False}, void={2: ["V5"]},
       lacks={2: ["A-START"]})
 def _(pred):
@@ -1800,7 +1827,9 @@ def unit_dojebon_test(pred: dict) -> tuple:
 def unit_why_void(pred: dict, stock, scripts: dict, tmp: Path, path: Path) -> tuple:
     """A-START (5.1), on a session's own reading: an S run stopped at 154's error path (ip101) holds A-START; an F run
     stopped at 158's (ip97) none; a run whose 159 ip290 reads old 0 holds A-START on S and on F, with 125 none -- and with
-    an earlier Byte[8] row of its own (EXPLAINED) none."""
+    an earlier Byte[8] row of its own (EXPLAINED) none; a run whose field-70 ip249 is a row before the start (armed before
+    it, the review's finding) holds A-START on S and on F, each reason the start read's (VOID-ASYM (b) sets it aside),
+    while another field-70 store before the start holds none (START judges it)."""
     runs = six(pred)[:2]
     ev = drop_nth(runs[0]["events"], I123_154)
     _void(runs[0], "V5", [154, 1190, 1], "driver", "a stop page", events=upto_nth(ev, I61_154, 0, w(ERR154_101),
@@ -1811,12 +1840,17 @@ def unit_why_void(pred: dict, stock, scripts: dict, tmp: Path, path: Path) -> tu
     zero = lambda ev, n: edit_nth(ev, B8_159, 0, lambda x: with_opt(x, old=0))     # noqa: E731
     reads = six(pred, s=zero, f=zero)[:2]
     explained = six(pred, s=lambda ev, n: after(ev, B13_158, r(158, 8, 125, 0)))[:1]
-    rs = O.O7.read_session(make_session(tmp, path, runs + reads + explained + six(pred)[:1], scripts), pred,
-                           stock=stock)
+    raced = six(pred, s=_race_armed, f=_race_armed)[:2]
+    other70 = six(pred, s=lambda ev, n: ev[:1] + [("w", 70, 3, 1, 40, "Global.Byte[13]", 1, {})] + ev[1:])[:1]
+    rs = O.O7.read_session(make_session(tmp, path, runs + reads + explained + six(pred)[:1] + raced + other70,
+                                        scripts), pred, stock=stock)
     cls = [{v["class"] for v in r_["void"]} for r_ in rs]
+    read = [all(str(v["why"]).startswith(O.START_READ) for v in r_["void"] if v["class"] == "A-START") for r_ in rs]
     got = {"start-154": "A-START" in cls[0], "none-158": "A-START" not in cls[1],
            "byte8-S": "A-START" in cls[2], "byte8-F": "A-START" in cls[3], "explained": "A-START" not in cls[4],
-           "125": rs[5]["covered"] and not rs[5]["void"]}
+           "125": rs[5]["covered"] and not rs[5]["void"],
+           "raced-S": "A-START" in cls[6] and read[6], "raced-F": "A-START" in cls[7] and read[7],
+           "other-70": "A-START" not in cls[8]}
     return all(got.values()), str({k: v for k, v in got.items() if not v} or "all as registered")
 
 

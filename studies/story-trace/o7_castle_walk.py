@@ -359,6 +359,21 @@ def start_reads() -> list:
                     "reading"}]
 
 
+#: The New Game field the raw warp leaves: its prologue's stores precede the start (the warp window, 0.2 #19).
+NEWGAME_FIELD = 70
+
+
+def race_site(pred: dict, sr: dict):
+    """THE START READ's raced store (4.5; the O7 review's finding): the route pin in the New Game field
+    (:data:`NEWGAME_FIELD`) storing the read's target its ``old`` -- ``SET({Global.Byte[8] const(125) B_LET
+    B_EXPR_END})`` at 70 e0 t0 ip249, read off ``pred["route_pins"]``, never typed -- as ``(field, sid, tag, ip)``; None
+    when no pin is one. A warp before it leaves the read's old 0 (the read's A-START); a trace armed before it records
+    it as a row before the start (A-START as well: :meth:`O7Segment.why_void`)."""
+    want = f"SET({{{sr['target']} const({int(sr['old']) & 0xFFFF}) B_LET B_EXPR_END}})"
+    hit = next((p for p in pred.get("route_pins") or () if p[0] == NEWGAME_FIELD and p[4] == want), None)
+    return None if hit is None else tuple(hit[:4])
+
+
 def carried() -> dict:
     """4.5: THE CARRIED VALUES -- a true O1-O6 run's value where the raw start holds 0 (typed here; O7-KEYS DERIVES them
     from the frozen O1-O6 keys, :func:`carried_from_segments`, and refuses a typed set that differs), neither written
@@ -2190,8 +2205,9 @@ class O7Segment(C6.O6Segment):
         run holds an entry, and no entry's olds agree; then each entry -- a writes key at its site, ``here`` [the start's
         old, the key's value], ``after.run`` the class's :attr:`AFTER_RUN`, ``after.source`` present, ``after.old`` what
         :func:`olds_from_pattern` reads off O6's frozen pattern (``o6``, a seam) and ``after.value`` computed from it;
-        (d) each START READ -- a writes key at its site of its target, its ``old`` the start's value, and no store of the
-        target before it on the route; (e) THE CARRIED VALUES -- :func:`carried_from_segments` over the frozen O1-O6
+        (d) each START READ -- a writes key at its site of its target, its ``old`` the start's value, no store of the
+        target before it on the route, and its raced store pinned (:func:`race_site`: the field-70 pin storing the target
+        its old); (e) THE CARRIED VALUES -- :func:`carried_from_segments` over the frozen O1-O6
         keys (``prior``, a seam) less O7's targets, no segment disagreeing with its own end_state, equal to the typed
         ``values``; none in ``end_state``; none with a registered store site; none stored or read in an entry instanced
         at a route entrance; the party typed and labelled; (f) THE ROUTE PINS and their scans
@@ -2282,7 +2298,12 @@ class O7Segment(C6.O6Segment):
             if before:
                 bad.append(f"{lab}: {A.label(before[0])} stores {t} before it on the route: the start does not decide "
                            f"its old")
-            reads_txt.append(f"{site[0]} ip{site[3]} {t.split('.', 1)[1]} old {x.get('old')}")
+            race = race_site(pred, x)
+            if race is None:
+                bad.append(f"{lab}: no route pin in field {NEWGAME_FIELD} stores {t} := {x.get('old')} -- the store "
+                           f"the warp window races (why_void reads its row before the start by it)")
+            reads_txt.append(f"{site[0]} ip{site[3]} {t.split('.', 1)[1]} old {x.get('old')}"
+                             + ("" if race is None else f", raced by {race[0]} e{race[1]} t{race[2]} ip{race[3]}"))
         # (e) THE CARRIED VALUES
         car = pred.get("carried") or {}
         typed = car.get("values") or {}
@@ -2579,10 +2600,26 @@ class O7Segment(C6.O6Segment):
         159 ip290's Byte[8] not 125, the warp having left field 70 before its ip249 -- is A-START, by the driver: the
         start's problem, the run uncovered, never a failed PATTERN or STATE. Only when NOTHING in the run since its start
         touched the target's bytes before that row: an earlier row explains the old (a store of the run itself, which
-        WRITES and PATTERN then judge on a covered run), never the start."""
+        WRITES and PATTERN then judge on a covered run), never the start. THE SAME RACE ONE WINDOW LATER (the O7 review's
+        finding) is A-START too: the raced store itself (:func:`race_site`, 70 e0 t0 ip249) among the rows BEFORE the
+        start -- armed before it ran, the warp after -- which O3-START (a) would otherwise fail as NOT PROVEN. Any other
+        row before the start stays START's to judge."""
         out = super().why_void(rec, r, pred)
         members = members_of(pred) if r["side"] == "F" else {}
         for sr in pred.get("start_reads") or ():
+            # THE RACE'S OTHER BRANCH (the O7 review's finding): the store the warp window races (race_site: 70 e0 t0
+            # ip249 Byte[8] := 125) ran AFTER the trace was armed and before the warp -- a w row before the start, which
+            # O3-START (a) would fail as NOT PROVEN, while the same race ending one window earlier is A-START below. The
+            # instrument's timing either way: A-START by the driver, set aside by VOID-ASYM (b) like the read's.
+            race = race_site(pred, sr)
+            raced = None if race is None else next(
+                (x for x in r.get("pre") or () if x.k == "w" and x.fld == race[0]
+                 and (x.sid, x.tag, x.ip, x.target) == (race[1], race[2], race[3], sr["target"])), None)
+            if raced is not None:
+                out.append((f"{START_READ} {sr['target']}: field {race[0]} e{race[1]} t{race[2]} ip{race[3]} := "
+                            f"{raced.new} ran after the trace was armed, before the warp (line {raced.line}): the warp "
+                            f"window's race, one window later -- the start's", "A-START", "driver"))
+                continue
             d, sid, tag, ip = sr["site"]
             hit = next((x for x in r["rows"] if x.k == "w" and place(x.fld, members) == d
                         and (x.sid, x.tag, x.ip, x.target) == (sid, tag, ip, sr["target"])), None)

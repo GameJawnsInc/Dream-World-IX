@@ -29611,8 +29611,12 @@ def test_o7_castle_why_void_reads_the_start_byte8(tmp_path):
     """A-START's START READ (research/o7_design.md 4.5, 5.1; rev. 2, claim review #7): a run whose 159 e0 t0 ip290 --
     the route's first store of Byte[8] -- reads old 0 (the warp left field 70 before its ip249) is A-START by the driver,
     on S and on F (31251); old 125 none; old 0 EXPLAINED by an earlier row of the run on byte 8 (a store the analysis
-    judges on a covered run) none. And 154's error path (ip101) is A-START, 158's (ip97) none. Break: drop the start
-    read's rule."""
+    judges on a covered run) none. THE SAME RACE ONE WINDOW LATER (the review's finding): field 70's ip249 itself among
+    the rows BEFORE the start (the trace armed before it ran, the warp after it), 159 ip290 then reading 125 -- A-START by
+    the driver on S and on F, its reason the start read's (VOID-ASYM (b) sets it aside); another field-70 store before the
+    start none (O3-START (a) judges it); the race site read off the route pins (70 e0 t0 ip249), None without that pin.
+    And 154's error path (ip101) is A-START, 158's (ip97) none. Break: drop the start read's rule; read the pre rows
+    without the race site (the raced run then fails START as NOT PROVEN)."""
     from ff9mapkit import storytrace
     O = _o7_module()
     pred = _o7_draft(tmp_path)
@@ -29625,8 +29629,9 @@ def test_o7_castle_why_void_reads_the_start_byte8(tmp_path):
                               byte=int(index) >> 3 if bit >= 0 else int(index), width=width, bit=bit, old=old,
                               new=value, same=int(old == value))
 
-    def why(side, old290, *, earlier=False, err=None):
+    def why(side, old290, *, earlier=False, err=None, pre=None, text=False):
         fields = ({154: 154, 158: 158, 159: 159} if side == "S" else {154: 31246, 158: 31250, 159: 31251})
+        fields[70] = 70
         rows = [row(1, 154, 0, 0, 26, "Global.Bit[191]", 0, 0, fields)]
         if err is not None:
             rows.append(row(2, err[0], 0, 0, err[1], "Global.Byte[13]", 9, 2, fields))
@@ -29635,14 +29640,23 @@ def test_o7_castle_why_void_reads_the_start_byte8(tmp_path):
         rows.append(row(4, 159, 0, 0, 290, "Global.Byte[8]", 125, old290, fields))
         seg = O.O7Segment()
         seg._run_log = lambda rec: ([], {})
-        r_ = {"i": 1, "side": side, "rows": rows, "digest": None, "start": 1, "cut": None}
-        return [(cls, by) for _w, cls, by in seg.why_void({"end": "void"}, r_, pred)]
+        r_ = {"i": 1, "side": side, "rows": rows, "digest": None, "start": 1, "cut": None,
+              "pre": [] if pre is None else [row(0, 70, *pre, fields)]}
+        return [(w_ if text else cls, by) for w_, cls, by in seg.why_void({"end": "void"}, r_, pred)]
+    raced = (0, 0, 249, "Global.Byte[8]", 125, 0)
     for side in ("S", "F"):
         assert ("A-START", "driver") in why(side, 0), (side, why(side, 0))
         assert why(side, 125) == [], (side, why(side, 125))
         assert why(side, 0, earlier=True) == [], (side, why(side, 0, earlier=True))
+        assert why(side, 125, pre=raced) == [("A-START", "driver")], (side, why(side, 125, pre=raced))
+        assert why(side, 125, pre=raced, text=True)[0][0].startswith(O.START_READ + " Global.Byte[8]: field 70 e0 t0 "
+                                                                      "ip249 := 125 ran after the trace was armed")
+        assert why(side, 125, pre=(3, 1, 40, "Global.Byte[13]", 1, 0)) == [], side
     assert ("A-START", "driver") in why("S", 125, err=(154, 101))
     assert why("F", 125, err=(158, 97)) == []
+    assert O.race_site(pred, pred["start_reads"][0]) == (70, 0, 0, 249)
+    bare = dict(pred, route_pins=[p for p in pred["route_pins"] if p[:4] != [70, 0, 0, 249]])
+    assert O.race_site(bare, pred["start_reads"][0]) is None
 
 
 def test_o7_castle_preflight_verdicts(tmp_path):

@@ -1537,7 +1537,9 @@ front cut at 154 e0 t0 ip26, and 154's ambient branch from the warp's `Byte[13]`
   exactly these three read another old; O7-KEYS (c) and the freeze refuse a missing entry and one whose olds agree.
 - THE START READ: 159 e0 t0 ip290, the route's first `Byte[8]` store, must read old 125 -- field 70's ip249 lies inside
   the warp window, so a warp before it leaves 0. Another old, with nothing earlier in the run touching the byte, is
-  A-START: the start's problem, the run uncovered, never a failed PATTERN or STATE (VOID-ASYM (b) sets it aside).
+  A-START: the start's problem, the run uncovered, never a failed PATTERN or STATE (VOID-ASYM (b) sets it aside). The
+  same race one window later is A-START too (the review's fix): ip249 itself among the rows BEFORE the start -- the trace
+  armed before it ran, the warp after -- read by `race_site` off the route pins, never O3-START (a)'s NOT PROVEN.
 - THE CARRIED VALUES, DERIVED (`carried_from_segments` over O1-O6's six frozen files, never typed): fourteen targets a
   true O1-O6 run leaves where the raw start holds 0, neither written nor read on the route -- Bit[3717] 1, Bit[3718] 1,
   Byte[472] 4, Int16[469] 1042, Bit[3815] 1, Byte[475] 100, Bit[3795] 1, Bit[3854] 1, Bit[3855] 1, UInt16[21] 8,
