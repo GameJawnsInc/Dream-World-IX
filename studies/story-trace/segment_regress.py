@@ -429,6 +429,10 @@ REQUIRED_TESTS: tuple = (
     "test_segment_walk_wait_field_change_is_the_games_v11_on_the_fake",         # A1: S21's field change, V11 game
     "test_segment_walk_wait_control_loss_is_interrupted_on_the_fake",           # A1: S21's control loss, door_loss
     "test_segment_walk_wait_deadline_is_the_drivers_v13_on_the_fake",           # A1: S21's deadline, V13 driver
+    "test_segment_until_ok_y_axis_raises_without_y",                            # A2: S22's until_ok, pure
+    "test_segment_trigger_until_y_reads_the_loss_height_from_the_ring_on_the_fake",  # A2: S22's loss_y, its timing
+    "test_segment_trigger_until_y_unread_height_is_the_drivers_v13_on_the_fake",     # A2: S22's V13, no TypeError
+    "test_segment_trigger_until_without_y_keeps_todays_row_on_the_fake",        # A2: S22 opt-in, today's row
 )
 
 O1E_VERDICT = "PROVEN"

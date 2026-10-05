@@ -13531,7 +13531,7 @@ def test_o2_step_of_refuses_a_step_its_executor_cannot_run():
            (drop(ok["cross"], "to"), "needs \\['to'\\]"), (drop(ok["leave_now"], "target"), "needs \\['target'\\]"),
            (drop(ok["confirm"], "expect"), "needs \\['expect'\\]"), (dict(ok["confirm"], expect="page"), "expect is"),
            (drop(ok["wait_sc"], "sc"), "needs \\['sc'\\]"), (dict(ok["cross"], goal=[0]), "goal is a point"),
-           (dict(ok["trigger"], until={}), "until is a non-empty"), (dict(ok["trigger"], until={"y_le": 0}), "x\\|z"),
+           (dict(ok["trigger"], until={}), "until is a non-empty"), (dict(ok["trigger"], until={"w_le": 0}), "x\\|z\\|y"),
            (dict(ok["cross"], target="nowhere"), "no registered region"),
            (dict(ok["cross"], avoid=["nowhere"]), "no registered region")]
     for s, why in bad:
@@ -31075,13 +31075,14 @@ def _s20_on_wait(g, act) -> dict:
 
 
 def test_segment_step_of_at_y_wait_flag_unstick_and_y_until_are_strict():
-    """S20, S21 and S23's keys read strict by ``step_of``, pure (research/o8_design.md 1.2): ``at_y`` on a cross (a
-    walk's key alone), ``[9150, 8800]`` (lo over hi), ``[True, 9000]`` (a bool is no number) and ``[8800]`` refused;
-    ``wait_flag`` without ``at_y``, on a trigger, with ``flag`` 16384 (past Byte[2048]) or True, ``value`` 2,
-    ``timeout_s`` 0, an extra or a missing key refused; ``unstick`` "no" refused. Every accepted step -- a walk with
-    ``at_y`` and ``wait_flag``, one with ``unstick`` False -- is returned EXACTLY ``{**steps_default, **raw}`` with the
-    climb merge: the checks only check (the claim critic's #5). Break: ``step_of`` adding ``unstick`` True to every
-    step (the round trip then fails)."""
+    """S20-S23's keys read strict by ``step_of``, pure (research/o8_design.md 1.2): ``at_y`` on a cross (a walk's key
+    alone), ``[9150, 8800]`` (lo over hi), ``[True, 9000]`` (a bool is no number) and ``[8800]`` refused; ``wait_flag``
+    without ``at_y``, on a trigger, with ``flag`` 16384 (past Byte[2048]) or True, ``value`` 2, ``timeout_s`` 0, an
+    extra or a missing key refused; ``unstick`` "no" refused; S22's ``until {y_gt: 12000}`` accepted on a trigger,
+    ``{w_gt: 1}`` refused ("x|z|y + _"). Every accepted step -- a walk with ``at_y`` and ``wait_flag``, one with
+    ``unstick`` False, the y-until trigger -- is returned EXACTLY ``{**steps_default, **raw}`` with the climb merge: the
+    checks only check (the claim critic's #5). Break: ``step_of`` adding ``unstick`` True to every step (the round trip
+    then fails)."""
     SD = _segment_modules()
     pred = {"regions": {"door": {"points": _S14_QUAD, "role": "exit"}}, "steps_default": dict(_O2_DEFAULTS)}
     walk = _s20_wait()
@@ -31110,6 +31111,10 @@ def test_segment_step_of_at_y_wait_flag_unstick_and_y_until_are_strict():
     for bad in ("no", 0, 1.0):
         with pytest.raises(ValueError, match="unstick is a bool"):
             SD.step_of(pred, {**_s20_walk(), "unstick": bad})
+    ytrig = {"kind": "trigger", "goal": [24, 2271], "until": {"y_gt": 12000}, "to": 165}
+    assert SD.step_of(pred, ytrig) == {**_O2_DEFAULTS, **ytrig, "climb": dict(_O2_DEFAULTS["climb"])}, ytrig
+    with pytest.raises(ValueError, match=re.escape("is not x|z|y + _ + le|lt|ge|gt")):
+        SD.step_of(pred, {**ytrig, "until": {"w_gt": 1}})
 
 
 def test_segment_walk_at_y_judges_the_arrival_height_on_the_fake(game):
@@ -31382,3 +31387,181 @@ def test_segment_walk_wait_deadline_is_the_drivers_v13_on_the_fake(game):
     assert (row["outcome"], row["v"], row["by"]) == ("void", "V13", "driver"), row
     assert "the run's budget ran out during the flag wait" in row["why"], row["why"]
     assert row["wait_flag"]["read"] is False and row["wait_flag"]["s"] < 15, row["wait_flag"]
+
+
+# ---- A2: S22 (research/o8_design.md 1.2) -- A y AXIS ON ``until``: ``until_ok`` checks every key FIRST and raises on a y
+# term with no height (never a silent False), and both trigger executors give a y-until's loss his published height --
+# route_to's probe (no y) the ring's sample of its frame AS route_to RETURNS, the executor's own sample its own -- a loss
+# with none the driver's V13. On S14's door fixture (30820's north door, its tag 2 firing past z 600, ExitField's walk-out
+# north, the end 30821) with a test-side plane in 30820, y = 7000 + 10 z: ``y_gt`` 12000 there is S14's ``z_gt`` 500 by
+# height; 30821's arrival publishes y 0.
+
+#: 30820's height on S14's floor: y = 7000 + 10 z (three (x, z, y) anchors for :func:`_o8_plane`).
+_S22_PLANE = ((0.0, 0.0, 7000.0), (100.0, 0.0, 7000.0), (0.0, 100.0, 8000.0))
+#: S14's north door step with its evidence by height: ``y_gt`` 12000 (z > 500 on the plane).
+_S22_STEP = dict(_S14_STEP, until={"y_gt": 12000})
+
+
+def _s22_fake(game, **kw):
+    """:func:`_s14_fake` with 30820's plane (:data:`_S22_PLANE`) over it."""
+    fake = _s14_fake(game, **kw)
+    _o8_plane(fake, {30820: _S22_PLANE})
+    return fake
+
+
+def _s22_drive(game, make, pred, *, gated=False, wrap=None, drive_wrap=None, spoiled=None):
+    """One S22 drive on the fake (:func:`_s14_drive`'s shape, re-run at most twice on its load classes or ``spoiled``):
+    the drive built here (``SD._Drive``, as ``drive`` builds it), so ``drive_wrap(d)`` can reach it; ``wrap(g, fake)``
+    the session's calls. ``(outcome or the void raised, log, fake, the ring's raw samples at the end)``."""
+    SD = _segment_modules()
+    for attempt in range(3):
+        fake = make()
+        gate = threading.Event() if gated else None
+        fake.exit_gate = gate
+        log = _S14Log(gate) if gated else []
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30820, entrance=102, scenario=1000)
+            _stand(g, fake, 0, -300)
+            for f in (30820, 30821, 30810):
+                g._axes[f] = _prior()
+            if wrap is not None:
+                wrap(g, fake)
+            d = SD._Drive(g, pred, "S", log, deadline=time.time() + 90.0,
+                          floor_for=lambda dn, closed: _flat_bgi(*_S14_FLOOR), prior_for=lambda dn: _prior(),
+                          progress=None, end_fields=None, observe=None, forbid_live=False)
+            if drive_wrap is not None:
+                drive_wrap(d)
+            try:
+                out = d.go()
+            except (SD.RouteVoid, HarnessError) as err:
+                out = err
+            ring = [raw for _t, _age, raw in g._ring._buf]
+        load = (getattr(out, "by", "driver") == "driver" and any(m in str(out) for m in _S14_LOAD)) \
+            if isinstance(out, Exception) else False
+        if attempt == 2 or not (load or (spoiled is not None and spoiled(out, log))):
+            return out, log, fake, ring
+
+
+def test_segment_until_ok_y_axis_raises_without_y():
+    """S22's ``until_ok``, pure (research/o8_design.md 1.2; the critic's #6, the claim review's #10): a ``y_`` term judges
+    his published height -- ``{y_gt: 12000}`` True at y 13000, False at 11000 -- and RAISES with no height given,
+    whatever x and z read: ``{x_le: 900, y_gt: 1}`` at x 1000 raises (the y check precedes the evaluation: a failing x
+    term cannot hide it), and so do ``{y_gt: 1}`` and ``{w_gt: 1}`` with x None (every key checked before the None rule:
+    "x|z|y + _"); ``{x_le: 900}`` with no y is today's (True at 800, False with x None). ``has_y`` says whether a
+    predicate holds a y term. Break: a missing y read as False, or the None rule run first (``{y_gt: 1}`` with x None
+    then reads False)."""
+    SD = _segment_modules()
+    assert SD.until_ok({"y_gt": 12000}, 0, 0, 13000) is True and SD.until_ok({"y_gt": 12000}, 0, 0, 11000) is False
+    assert SD.until_ok({"x_le": 900, "y_ge": 5}, 800, 0, 5) is True
+    for expr, x, y in (({"y_gt": 12000}, 0, None), ({"x_le": 900, "y_gt": 1}, 1000, None), ({"y_gt": 1}, None, None)):
+        with pytest.raises(ValueError, match="needs his height"):
+            SD.until_ok(expr, x, 0, y)
+    with pytest.raises(ValueError, match=re.escape("is not x|z|y + _ + le|lt|ge|gt")):
+        SD.until_ok({"w_gt": 1}, None, 0)
+    assert SD.until_ok({"x_le": 900}, 800, 0) is True and SD.until_ok({"x_le": 900}, None, 0) is False
+    assert SD.has_y({"y_gt": 1}) and SD.has_y({"x_le": 1, "y_le": 2})
+    assert not SD.has_y({"x_le": 1}) and not SD.has_y(None) and not SD.has_y({})
+
+
+def test_segment_trigger_until_y_reads_the_loss_height_from_the_ring_on_the_fake(game):
+    """S22 in ``x_trigger_to`` on the fake (research/o8_design.md 1.2): S14's north door walked by a trigger whose
+    evidence is his HEIGHT, ``until {y_gt: 12000}`` and ``to`` 30821, on 30820's plane -- the door fires past z 600 (y
+    13000 on the plane), route_to's probe sample carries no y, and the step row's ``lost.y`` is the ring sample's y at
+    ``lost.frame`` -- over 12000 -- read as route_to returned: DONE in ``to``, the run reaching 30821; route_to's own
+    record keeps its loss as it was (no ``y``). Again with the switch EVICTING the loss sample (a test-side wrapper on
+    ``_Drive.switch`` empties the ring before it returns: a slow load; the exit gate held until route_to returns, so
+    ``left_for`` must wait the switch out): ``lost.y`` still read -- loss_y runs as route_to returns, before
+    ``left_for`` (the driver review's #3). Break: the y read from the state after the switch (30821's 0 then fails the
+    evidence) or ``loss_y`` after ``left_for`` (the ring then empty: V13)."""
+    out, log, _fake, ring = _s22_drive(game, lambda: _s22_fake(game, stop_z=700), _s14_pred(_S22_STEP), gated=True)
+    assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"door": True}, out
+    row = _s14_step_row(log)
+    assert (row["outcome"], row["v"]) == ("done", None), row
+    lost = row["lost"]
+    raw = next((r for r in ring if int(r.get("frame", -1)) == lost["frame"]), None)
+    assert raw is not None and lost["field"] == 30820 and not lost["control"], (lost, raw)
+    assert lost["y"] == round(float(raw["player"]["y"]), 1) and lost["y"] > 12000, (lost, raw["player"])
+    assert "y" not in (row["route"]["lost"] or {}), row["route"]["lost"]
+
+    def hold_then_flip(g, fake):
+        real = g.route_to
+
+        def route_to(x, z, **kw):
+            rec = real(x, z, **kw)                       # path A: the gate holds the switch until the walk returns
+            fake.exit_gate.set()
+            g.wait_for(lambda s: s.field_id != 30820, timeout=30.0, what="the door's switch")
+            return rec
+        g.route_to = route_to
+
+    def evict(d):
+        real = d.switch
+
+        def switch(out_, where, wait):
+            new = real(out_, where, wait)
+            d.g._ring.clear()                            # a slow load: the loss sample gone from the ring
+            evict.cleared = True
+            return new
+        d.switch = switch
+    evict.cleared = False
+    out, log, _fake, _ring = _s22_drive(game, lambda: _s22_fake(game, stop_z=700), _s14_pred(_S22_STEP),
+                                        gated=True, wrap=hold_then_flip, drive_wrap=evict)
+    assert isinstance(out, dict) and out["end"] == "reached", out
+    row = _s14_step_row(log)
+    assert evict.cleared and (row["outcome"], row["landed"]) == ("done", 30821), row
+    assert row["lost"]["field"] == 30820 and row["lost"]["y"] > 12000, row["lost"]
+
+
+def test_segment_trigger_until_y_unread_height_is_the_drivers_v13_on_the_fake(game):
+    """S22's unread height on the fake (research/o8_design.md 1.2; the claim review's #10): the ring emptied as route_to
+    returns, before the loss's y is read (a test-side wrapper: the probe frame gone) -- VOID V13 by the DRIVER at the
+    cell, naming the loss's frame ("has no height"), the row's ``lost.y`` None; and a loss the executor's OWN sample
+    reads (the walk stopped short of the fire line at (0, 550) with control held, then control taken -- and the
+    published y blanked from then on -- by a test-side wrapper on route_to's return): V13 by the driver too, never a
+    TypeError. Break: the missing y read as False (the loss in the registered door then the landing judge's: V11 or
+    interrupted) or ``round(None)`` (a TypeError)."""
+    SD = _segment_modules()
+
+    def empty_ring(g, fake):
+        real = g.route_to
+
+        def route_to(x, z, **kw):
+            rec = real(x, z, **kw)
+            g._ring.clear()
+            return rec
+        g.route_to = route_to
+    out, log, _fake, _ring = _s22_drive(game, lambda: _s22_fake(game, stop_z=700), _s14_pred(_S22_STEP),
+                                        gated=True, wrap=empty_ring)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V13", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    row = _s14_step_row(log)
+    assert row["lost"]["y"] is None and row["lost"]["field"] == 30820, row["lost"]
+    assert f"the loss at frame {row['lost']['frame']} in 30820 has no height" in str(out), str(out)
+
+    def blank_own(g, fake):
+        real = g.route_to
+
+        def route_to(x, z, **kw):
+            rec = real(x, z, **kw)
+            fake.control = False                         # the trigger takes control after the walk ends ...
+            fake.player[1] = None                        # ... and every sample from here publishes no height
+            return rec
+        g.route_to = route_to
+    short = dict(_S22_STEP, goal=[0, 550])               # 50u short of the fire line: no fire, control held
+    out, log, _fake, _ring = _s22_drive(game, lambda: _s22_fake(game, stop_z=700), _s14_pred(short), wrap=blank_own)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V13", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    row = _s14_step_row(log)
+    assert row["lost"]["y"] is None and row["lost"]["field"] == 30820 and "has no height" in row["why"], row
+
+
+def test_segment_trigger_until_without_y_keeps_todays_row_on_the_fake(game):
+    """S22 IS OPT-IN (research/o8_design.md 1.2): S14's door with its ``z_gt`` 500 until -- no y term -- walked by the
+    landing-aware trigger (``to``) and by today's trigger (no ``to``), each on path A (the exit gate held until the row
+    is logged): DONE, and the row's ``lost`` holds no ``y`` key -- every O1-O7 row reads as today. Break: y always
+    added."""
+    for step in (_S14_STEP, {k: v for k, v in _S14_STEP.items() if k != "to"}):
+        out, log, _fake, _ring = _s22_drive(game, lambda: _s14_fake(game, stop_z=700), _s14_pred(step), gated=True)
+        assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"door": True}, (step, out)
+        row = _s14_step_row(log)
+        assert row["outcome"] == "done" and row["lost"]["z"] > 500 and "y" not in row["lost"], (step, row)

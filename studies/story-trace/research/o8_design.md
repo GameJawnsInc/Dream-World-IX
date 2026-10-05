@@ -2622,3 +2622,15 @@ golden, on the unedited fake: route-S and route-F 529 sample changes and 63 trac
 9. **"Nothing between the arrival and the read"** is the sends between route_to's return and the step row's append
    (the log's `on_row` hook): exactly `watch 3811` and `unwatch` -- the session's own `quit` after the run is no part of
    the wait.
+10. **S22's trigger tests on S14's door fixture.** "The planed box" for the trigger tests is S14's north door (O6's
+    proven fixture: its fire line past z 600, ExitField's walk-out, the test-held exit gate, the end 30821) with a
+    test-side plane y = 7000 + 10 z in 30820 -- `y_gt` 12000 is S14's `z_gt` 500 by height, and 30821's arrival
+    publishes y 0, so a y read after the switch fails the evidence. The eviction case builds `SD._Drive` to wrap the
+    instance's `switch` (it empties the ring before returning) and holds the exit gate until route_to returns, so
+    `left_for` must wait the switch out. The unread-height case empties the ring through a wrapper on route_to's
+    return (not on `ring_since`: no module global patched), and blanks the executor's own sample at the fake
+    (`player[1]` None from the scripted control loss on), so whichever sample the executor reads first carries no y.
+    The S22 V13's reason names the loss's frame and field (`_Drive.no_height`), and x_trigger reads a y-until the same
+    way (the probe's y as route_to returns; its own wait's sample its own, None kept).
+11. **The O2 test's edited case** (1.2's "What flips") re-baselined by name in A2's commit with the CLI (row 29 of
+    `research/source_pins.json`, d883a61f -> b52deb1c), as designed.

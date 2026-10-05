@@ -140,7 +140,10 @@ arrival on its LEVEL -- his published y within the band at the arrival's sample,
 stacks three levels says nothing alone); its ``wait_flag`` then waits there, pressing nothing, for a watched story bit
 (:meth:`_Drive.wait_flag`: run out only once both the wall's and the game's clocks ran its timeout; the game's V8 only
 on a bit the agent published, else the driver's V13). :func:`step_of` reads both strict and adds nothing: a table with
-neither -- every one frozen before O8's -- is driven exactly as before.
+neither -- every one frozen before O8's -- is driven exactly as before. A y AXIS ON ``until`` (S22): ``{"y_gt": 12000}``
+judges his published height -- :func:`until_ok` checks every key first and raises on a y term with no height, never a
+silent False -- and both trigger executors give such a loss its y (route_to's probe the ring's sample of its frame, read
+as route_to returns: :func:`loss_y`), a loss with none the driver's V13; an until with no y term reads as today.
 """
 from __future__ import annotations
 
@@ -318,19 +321,45 @@ def polys(pred: dict, keys) -> list:
     return [region(pred, k)["points"] for k in keys or ()]
 
 
-def until_ok(expr: dict, x, z) -> bool:
-    """Whether (``x``, ``z``) satisfies an ``until`` predicate: ``{"x_le": 900}``, ``{"x_gt": 3000, "z_gt": 10300}``
-    -- every comparison (``x|z`` + ``_`` + ``le|lt|ge|gt``) must hold. An unknown key raises; a missing position is
-    False."""
+def until_ok(expr: dict, x, z, y=None) -> bool:
+    """Whether (``x``, ``z``) -- and, S22 (research/o8_design.md 1.2), his PUBLISHED height ``y`` (pos[1] = -f[1]: it
+    rises as he climbs) -- satisfies an ``until`` predicate: ``{"x_le": 900}``, ``{"x_gt": 3000, "z_gt": 10300}``,
+    ``{"y_gt": 12000}`` -- every comparison (``x|z|y`` + ``_`` + ``le|lt|ge|gt``) must hold. EVERY KEY IS CHECKED FIRST
+    (the claim review's #10): an unknown key raises, and so does a ``y`` term with ``y`` None, whatever x and z read --
+    a height test on a path that supplies no height is a check that cannot fail (the critic's #6), never a False; then
+    a missing x or z is False (today's). Callers that may hold no height test for it themselves (O8-WALK (a): "no
+    height"; the executors: V13) and never call this with ``y`` None on a y term."""
+    for k in expr:
+        axis, _, op = k.partition("_")
+        if axis not in ("x", "z", "y") or op not in UNTIL_OPS:
+            raise ValueError(f"until {expr!r}: {k!r} is not x|z|y + _ + le|lt|ge|gt")
+        if axis == "y" and y is None:
+            raise ValueError(f"until {expr!r}: {k!r} needs his height, and none was given -- a y term is judged on a "
+                             f"height-aware path only")
     if x is None or z is None:
         return False
-    ok = True
-    for k, v in expr.items():
-        axis, _, op = k.partition("_")
-        if axis not in ("x", "z") or op not in UNTIL_OPS:
-            raise ValueError(f"until {expr!r}: {k!r} is not x|z + _ + le|lt|ge|gt")
-        ok = ok and UNTIL_OPS[op](float(x if axis == "x" else z), float(v))
-    return ok
+    pos = {"x": x, "z": z, "y": y}
+    return all(UNTIL_OPS[k.partition("_")[2]](float(pos[k.partition("_")[0]]), float(v)) for k, v in expr.items())
+
+
+def has_y(expr) -> bool:
+    """S22 (research/o8_design.md 1.2): whether an until predicate holds a y term."""
+    return any(str(k).startswith("y_") for k in expr or ())
+
+
+def loss_y(g, lost: dict):
+    """S22 (research/o8_design.md 1.2): his published y AT the loss sample's frame -- the ring's sample of exactly that
+    frame (route_to's loss probe read it, so the ring kept it: :func:`ring_since`); None when the ring no longer holds
+    it or it published no y."""
+    f = int(lost["frame"])
+    for _t, raw in ring_since(g, f - 1):
+        fr = int(raw.get("frame", -1))
+        if fr == f:
+            y = (raw.get("player") or {}).get("y")
+            return None if y is None else round(float(y), 1)
+        if fr > f:
+            break
+    return None
 
 
 def closed_tris(pred: dict, step: dict, wmesh) -> list:
@@ -384,9 +413,10 @@ def step_of(pred: dict, raw: dict) -> dict:
     :data:`BASIS_KINDS`. S20, S21 and S23 (research/o8_design.md 1.2), each opt-in: a :data:`WALK_ONLY` key on a step
     that is no walk; an ``at_y`` that is not two numbers, the first under the second; a ``wait_flag`` without ``at_y``
     (the wait begins at a proven point) or that is not exactly :data:`WAIT_FLAG_KEYS` -- ``flag`` an int in
-    0..:data:`MAX_FLAG_BIT`, ``value`` 0 or 1, ``timeout_s`` a positive number; an ``unstick`` that is no bool. Each is
-    a check only: it raises or passes, and never adds, drops or normalises a key (the claim critic's #5). A table
-    carrying none of these keys -- every one frozen before O8's -- merges exactly as before."""
+    0..:data:`MAX_FLAG_BIT`, ``value`` 0 or 1, ``timeout_s`` a positive number; an ``unstick`` that is no bool. S22: an
+    ``until``'s ``y_`` term is a known key (``{"y_gt": 12000}``). Each is a check only: it raises or passes, and never
+    adds, drops or normalises a key (the claim critic's #5). A table carrying none of these keys -- every one frozen
+    before O8's -- merges exactly as before."""
     base = pred.get("steps_default") or {}
     out = {**base, **raw}
     out["climb"] = {**(base.get("climb") or {}), **(raw.get("climb") or {})}
@@ -444,7 +474,7 @@ def step_of(pred: dict, raw: dict) -> dict:
     if out.get("until") is not None:
         if not isinstance(out["until"], dict) or not out["until"]:
             raise ValueError(f"step {raw!r}: until is a non-empty predicate, e.g. {{'x_le': 900}}")
-        until_ok(out["until"], 0, 0)                      # an unknown key raises
+        until_ok(out["until"], 0, 0, 0)                   # an unknown key raises (S22: a y term is a known one)
     if kind == "confirm" and out["expect"] not in EXPECTS:
         raise ValueError(f"step {raw!r}: expect is one of {EXPECTS}")
     goal = out["goal"]
@@ -2688,6 +2718,16 @@ class _Drive:
         out["why"] = f"{why}: control went in {door} and the field held {float(step['exit_wait_s']):.0f}s"
         return "interrupted", out
 
+    def no_height(self, out: dict) -> tuple:
+        """S22 (research/o8_design.md 1.2): a loss whose height cannot be read -- route_to's probe frame no longer on the
+        ring, or a sample that published no y -- cannot judge an until's y term, and is never read as its failing (the
+        critic's #6): VOID V13 by the driver, the instrument's, on the step's row."""
+        lost = out["lost"]
+        out.update(v="V13", by="driver", why=f"the loss at frame {lost.get('frame')} in {lost.get('field', self.fid)} "
+                                             f"has no height (not on the ring / not published): the until's y term "
+                                             f"cannot be judged -- the instrument's")
+        return "void", out
+
     def crossed(self, step: dict, rec: dict, pts) -> tuple:
         """A crossing's verdict (2.3 ``cross``; the landing judge): the field changed -- the walk's landing, or the id
         already left (a load waited out) -> done in the step's ``to``, else V11; control went with the field unchanged
@@ -2767,7 +2807,10 @@ class _Drive:
         what its script does next is the loop's to read). Anything else is the landing judge's: the field changed
         during the walk or after it -> V11 (driver); control gone in a registered exit of this place -> its switch
         waited out, V11 on a landing; otherwise ``interrupted``. A walk that ended with control held waits
-        TRIGGER_WAIT_S for it to go, else ``failed``."""
+        TRIGGER_WAIT_S for it to go, else ``failed``. S22 (research/o8_design.md 1.2), opt-in: an ``until`` with a y
+        term judges the loss's published HEIGHT too -- route_to's probe sample (no y) given the ring's y at its frame AS
+        route_to RETURNS (:func:`loss_y`), the wait's own sample its own -- and a loss with no height is V13 by the
+        driver (:meth:`no_height`), never a False."""
         if step.get("to") is not None:                   # S14 (opt-in): the landing-aware trigger
             return self.x_trigger_to(step)
         from harness import HarnessError
@@ -2775,16 +2818,22 @@ class _Drive:
         g, fid = self.g, self.fid
         wait = float(step["exit_wait_s"])
         pts = region(self.pred, step["target"])["points"] if step.get("target") else None
+        yh = pts is None and has_y(step["until"])        # S22 (opt-in): a y term on the until
         rec = g.route_to(*step["goal"], zone=pts, avoid=polys(self.pred, step.get("avoid")),
                          tolerance=float(step["tolerance"]), **self.walk_kw(step))
         out = {"route": trim_route(rec), "lost": rec.get("lost"), "landed": None}
+        if yh and out["lost"] is not None:               # S22: the probe holds no y -- the ring's, as route_to returns
+            out["lost"] = {**out["lost"], "y": loss_y(g, out["lost"])}
 
         def evidence(s) -> bool:
             x, z = s.get("x"), s.get("z")
             return (x is not None and doorface.region_contains(x, z, pts)) if pts is not None \
-                else until_ok(step["until"], x, z)
-        if out["lost"] is not None and rec.get("landed") in (None, fid) and evidence(out["lost"]):
-            return "done", out
+                else until_ok(step["until"], x, z, s.get("y"))
+        if out["lost"] is not None and rec.get("landed") in (None, fid):
+            if yh and out["lost"].get("y") is None:      # S22: no height at the loss -- the instrument's, never False
+                return self.no_height(out)
+            if evidence(out["lost"]):
+                return "done", out
         new = self.left_for(rec, out, "the trigger's walk", wait)
         if new is not None:
             return self.strayed(step, out, new, f"the trigger's walk left {fid}")
@@ -2805,6 +2854,10 @@ class _Drive:
                     return self.strayed(step, out, new, f"the field left {fid} as the trigger was waited for")
                 st = g.state
             out["lost"] = sample(st)
+            if yh:                                       # S22: its own height, None kept (never round(None))
+                out["lost"]["y"] = None if st.player_y is None else round(st.player_y, 1)
+                if out["lost"]["y"] is None:
+                    return self.no_height(out)
             if evidence(out["lost"]):
                 return "done", out
         lost = out["lost"]
@@ -2824,15 +2877,23 @@ class _Drive:
         (after it: the next field, its ``flip_frame`` read off the ring); ``left`` -- the evidence held and the run
         landed in another place, kept under ``misroute`` with ``landed`` None and no class: rule 2 judges the landing
         on the next poll; V13 by the driver -- the loss never read here; V11 by the driver -- an in-field loss without
-        the evidence that lands (:meth:`strayed`); else today's landing judge (:meth:`door_loss`, ``interrupted``)."""
+        the evidence that lands (:meth:`strayed`); else today's landing judge (:meth:`door_loss`, ``interrupted``).
+        S22 (research/o8_design.md 1.2), opt-in: under an ``until`` with a y term the probe's height is read off the
+        ring AS route_to RETURNS -- before the control wait and before ``left_for``, whose switch can wait two
+        ``exit_wait_s`` while the ring runs on and evicts the loss sample (the driver review's #3) -- the wait's own
+        sample keeps its own (None kept), and a loss read here with no height is V13 by the driver, ``landed`` set
+        (:meth:`no_height`): ``until_ok`` is never called with it."""
         from harness import HarnessError
         from ff9mapkit.content import doorface
         g, fid = self.g, self.fid
         wait = float(step["exit_wait_s"])
         pts = region(self.pred, step["target"])["points"] if step.get("target") else None
+        yh = pts is None and has_y(step["until"])        # S22 (opt-in): a y term on the until
         rec = g.route_to(*step["goal"], zone=pts, avoid=polys(self.pred, step.get("avoid")),
                          tolerance=float(step["tolerance"]), **self.walk_kw(step))
         out = {"route": trim_route(rec), "lost": rec.get("lost"), "landed": None}
+        if yh and out["lost"] is not None:               # S22: the probe's y off the ring NOW, before any wait
+            out["lost"] = {**out["lost"], "y": loss_y(g, out["lost"])}
         if out["lost"] is None and rec.get("landed") in (None, fid):
             st = g.state
             if st.control and st.field_id == fid:
@@ -2846,11 +2907,16 @@ class _Drive:
                     return "failed", out
             if st.field_id == fid and not st.control:      # control gone IN THIS FIELD: the loss sample
                 out["lost"] = {**sample(st), "field": st.field_id}
+                if yh:                                     # S22: its own height, None kept (never round(None))
+                    out["lost"]["y"] = None if st.player_y is None else round(st.player_y, 1)
         landed = self.left_for(rec, out, "the trigger's door", wait)
         lost = out["lost"]
         here = lost is not None and lost.get("field") == fid
+        if yh and here and lost.get("y") is None:        # S22: a loss read here with no height -- the instrument's
+            out["landed"] = landed
+            return self.no_height(out)
         ok = here and ((lost.get("x") is not None and doorface.region_contains(lost["x"], lost["z"], pts))
-                       if pts is not None else until_ok(step["until"], lost.get("x"), lost.get("z")))
+                       if pts is not None else until_ok(step["until"], lost.get("x"), lost.get("z"), lost.get("y")))
         to = step.get("to")
         to_place = None if landed is None else place(landed, self.members)
         verdict, what = trigger_to_verdict(lost, fid, ok, landed, to_place, to)

@@ -194,5 +194,12 @@
   "new": "a90ff185d83fefed63ed502afe6e81fbe139fb62e082eaab8a7c53c461c47a75",
   "reason": "O8 A0 (research/o8_design.md 1.4; 11.4 PART A): PIN_BASELINES grows to five -- the O7 baseline joins G21 -- so a five-source union_sources call is no longer over its bound; the one refusal assertion now reads the bound off the registry (len(PIN_BASELINES) + 1 sources: \"joins at most the O3, O4, O5, O6, O7 baselines, not 6\"), so every later extension keeps the test. Nothing else in the body changed.",
   "head": "153b0d6cae8181b9a4df37eff0b3bcff74271098"
+ },
+ {
+  "name": "ff9mapkit/tests/test_harness.py::test_o2_step_of_refuses_a_step_its_executor_cannot_run",
+  "old": "d883a61fd403195a818cae1fc7f5e3a194bb2a2354405731221f203a6c97e726",
+  "new": "b52deb1c0e051337aa65a4f9e98c3b560a593d73e0b3a6244fab3320769ec3e9",
+  "reason": "O8 A2 (research/o8_design.md 1.2 S22, 'What flips'; 11.3 B1): S22 makes a y_ until term valid, so the refused case moves to an unknown axis -- until {w_le: 0}, matched 'x\\|z\\|y' (refused as y_le was before S22); nothing else in the body changed",
+  "head": "102351c0e61174175fb4668551fcdcc9fdca9e78"
  }
 ]
