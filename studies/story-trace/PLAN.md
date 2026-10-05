@@ -1679,6 +1679,162 @@ scratchpad paths are that session's: re-point them), in a fresh `claude/story-tr
 `o8_rehearse.py` stages, the freeze, `--preflight`, the session, the full gate on a whole-file receipt, merge. The O7
 run dirs the gate reads are archived in the MAIN repo's `.harness-runs/20261005-*`.
 
+## O8 -- Steiner up the west tower under the trace, a US session: 164 -> 165 -> 166 -> FMV004 -> real 55 (draft: rehearsals pending, freeze pending)
+
+**The question.** From a raw warp onto the west tower's first spiral (164, entrance 342, SC 1190) -- up 164's two
+spirals, the knight sitting down on the way, up 165, then 166's six pages and FMV004 played out to the arrival in REAL 55
+at 110: does the alxc disc-1 chain write the real game's story state key for key? It is the first segment whose walks
+are judged at a HEIGHT (P1's XZ stacks three levels), whose doors fire on the player's height (`until` on y), whose
+route WAITS on a watched story bit that races the next door (THE KNIGHT), that plays a type-0 movie out inside a
+no-control visit, and whose fork side ends in a REAL field -- a declared seam. The design, revised by both critique
+rounds and the design review, is [`research/o8_design.md`](research/o8_design.md) (option (1), decided above).
+
+**The segment.** New Game, `wait_frames(30)`, the trace armed, then in field 70 from FieldHUD (after 70 e0 t0 ip130 and
+ip249, before ip475) a raw `warp 164 342 1190` (S) / `warp 31256 342 1190` (F); three visits, `visits` [164, 165, 166]:
+- 164@342 (visit 1; F 31256): Steiner granted at the spawn (2040, 3335) on loop 1 (published y ~4780); step 0, a `walk`
+  up the first spiral to P1 (1342, 2252) at `at_y` [8800, 9150], then THE KNIGHT WAIT; step 1, a `trigger` up the
+  second spiral -- THE PINCH -- into e2 at the top, `until {y_gt: 12000}`, `to` 165, clearance 64 (ip243 `Int16[2] :=
+  343`);
+- 165@343 (visit 2; F 31257): step 0, a `walk` to (1508, 4698) at `at_y` [11100, 11450], 165.e3 (live, 134 u off)
+  avoided; step 1, a `trigger` into e2, `until {y_gt: 15000}`, `to` 166 (ip205 `Byte[13] := 3`, ip233 `:= 344`);
+- 166@344 (visit 3; F 31258, byte-identical): no control and no cell -- rule 7 Confirms pages 307, 308, 309
+  (WindowAsync: ip345 / ip380 `Byte[208]` land under it), 311, 312, 313; ip502 `Byte[8] := 0`; FMV004 PLAYED OUT;
+  ip863 `Int16[2] := 110`; ip871 `Field(55)`, raw on F too.
+
+It ends on arrival in REAL 55 on both sides, cut at 55 e0 t0 ip22 (`Bit[191] := 0`, same, emitted). SC 1190 throughout
+(no rung); no battle, choice, naming or ATE. A covered run writes EXACTLY 23 keys (20 writes and the 3-key chain 342 ->
+343 -> 344 -> 110) in 29 emitted rows (9 / 9 / 11 a visit, 6 of them masked), no `c` row.
+
+**The sides and their ends -- the declared seam.** S = stock. F = O4's alxc disc-1 chain AS DEPLOYED (31240-31259;
+[`o8_forks.json`](o8_forks.json) reuses [`o4_forks.json`](o4_forks.json)): member(164) 31256, member(165) 31257,
+member(166) 31258, read from O4's campaign.toml, never assumed; `side_ends` {S: [55], F: [55]}; `members` O4's twenty
+exactly, never O1's 31205. 31258 is 166 byte for byte, and its only `Field()`, e6 t1 ip871 `Field(55)`, is RAW: MAPJUMP
+does no remap, so every F run crosses member(166) -> REAL 55 -- ONE SEAM, read through the kept `e off fld 55` row, its
+exit row 31258 e6 t1 ip863 (O8-SEAM; zero seams FAILS). A landing in a real 164, 165 or 166 on F is V19, a finding.
+O8-BUILD pins 31256's and 31257's two in-chain `Field()` operands each, and 31258 byte-identical to 166 with its raw
+`Field(55)` (C0 measured O4's build). Nothing is imported, built or deployed for O8.
+
+**A US session -- scoped facts, never silent.** The keys, the joins, the route pins and `route_mes` (166's pages
+307-313, each holding [STNR]; the stop page 56, "Env Play()") were read in the US scripts and block 3's US text; P-LANG
+pins the session language; O8-TEXT and P-TEXT read block 3 strict.
+
+**The start and its scope.** THE START IS THE RAW WARP'S: four residue rows in field 70 (SC 1190's two bytes,
+FieldEntrance 342 = 0x0156's two: byte 2 0 -> 86, byte 3 0 -> 1), `start_first` 164 e0 t0 ip22, and START requires 164
+ip130 `Byte[13]` 1 -> 1 (ip97 and ip119 are dead there: ip57 has just set `Int16[9]` 385). NO START-DEPENDENT KEY: every
+route read resolves the same branch from the raw warp as from a true O1-O7 run.
+- THE START-SCOPED OLDS, DERIVED (`scoped_derivation8`; each `after.old` read off O7's FROZEN pattern): 164 ip57
+  `Int16[9]` (643 here, 385 after O1-O7), 164 ip130 `Byte[13]` (1 here, 2 after) and 166 e6 t1 ip345 `Byte[208]` (0
+  here, 1 after) -- each a writes key at the same value.
+- TWO START READS, EACH WITH ITS RACE (`race_site8`, never O7's `race_site`): 166 e0 t0 ip255 `Byte[8]` must read old
+  125 (field 70's ip249 `:= 125` lies inside the warp window: a warp before it leaves 0), and 164 ip130 `Byte[13]` must
+  read old 1 (field 70's ip475 `:= 2` closes the window: a warp after it reaches 164 with 2, and 164 takes no error
+  path, so the store reads 2 SILENTLY). Either race is A-START -- the start's, the run uncovered, never a failed check.
+- THE CARRIED VALUES, DERIVED (`carried8`: `carried_from_segments` over O1-O7's frozen keys, less O8's targets; the
+  knight's TALK -- 164 e1 t3 and what only it reaches -- set aside from the route-run scan): fifteen, O7's fourteen and
+  `Bit[3796]` 1, plus the party (typed and labelled). O8-KEYS refuses a typed set that differs and a carried target in
+  `end_state`.
+- Every run forgets 164's, 165's, 31256's and 31257's bases first (`O8.start_run`'s reseed): each run seeds and judges
+  its own first moves.
+
+**The walks (S20-S23) and THE PINCH.**
+- S20, `at_y`: a `walk`'s arrival judged on his PUBLISHED height too -- 164's P1 is tri 53 at PSX -8958, with tris 11 and
+  98 stacked over the same XZ.
+- S21, `wait_flag`: THE KNIGHT WAIT (below).
+- S22, a y axis on `until`: each trigger is done when control goes past its door's height (164 e2 y > 12000, 165 e2 y >
+  15000: each tag 2's own test, read through its consuming jump), the loss's y read off the ring; a y term with no
+  height RAISES.
+- S23, an opt-in per-step `unstick`: THE PINCH's fallback only.
+- Each step plans at its `clearance` (80, 64, 120, 120: 164's Steiner radius is 80, DoEventCode.cs:1507-1508 through
+  EffectiveFieldId, so 31256's too) on its band's floor (`band_closures`: every open triangle outside the step's height
+  band shut), on THE PRIOR BASIS for both walks (S19, no probe). 164 #0 runs with `npcs` false (the planner keeps the
+  knight as a disc from any level; the engine pairs actors only at |dy| < 400); 164's steps carry `attempts` 3.
+- THE PINCH: 164 #1 is ONE trigger at clearance 64 from P1 to e2's west ear. The corridor's least half-width on the plan
+  is 68.6 at (1202, 4520), PSX -10695 -- 11.4 u a side under the radius 80 (O7's 163 foot: 3.3). F5 is the go/no-go: GO
+  when 164 #1 is done within its attempts and no ladder rung followed a hold that started or ended in THE PINCH WINDOW
+  (x 900-1310, z 4460-4600, published y 10400-11100; loop 1 crosses the same XZ at ~5600-5900); every pinch stall is
+  CLASSIFIED -- rejected, blocker-sealed or slid -- and the report measures the narrowest wall gap on stock 164,
+  level-aware. THE LADDER: NO-GO -> 164 #1 gains `unstick: false` and `npcs: false` (S23) and R-SPIRAL runs again (it can
+  help only blocker-sealed stalls); still NO-GO -> the owner, the classification first. The end never changes without
+  the owner.
+
+**THE KNIGHT WAIT.** 164 e1 t1 holds the knight while Steiner's published y is under 8400 (ip178's test, consumed by
+ip187's `JMP_IF`: his release `{"y_ge": 8400}`, read off the pins); released, he walks 1131.4 u to his seat (-586, 3884)
+and sits, and ip230 stores `Bit[3811] := 1` ~T0 + 140 ticks later. Without a wait ip230 would race e2's exit and go
+MISSING when `Field(165)` unloads 164. So 164 #0, done at P1 on its level, waits there pressing nothing until the
+watched bit reads 1 (S21, `timeout_s` 15 in the draft; F2 sets max(15, 3 x the longest wait)). It runs out only on BOTH
+clocks, the wall's and the game's, and is the game's V8 only when the bit was PUBLISHED 0 (a dropped watch is the
+instrument's V13). O8-ORDER: ip230 lies inside THE EXEMPT SPAN -- [step 0's FIRST attempt's frame0, step 1's FIRST
+attempt's frame0) -- and before e2 t2 ip243 by line; O8-WALK exempts ip230 there and nowhere else. O8-KNIGHT: the
+observe hook's `seat` row (the ring sample of the wait's read frame) and `start1` row (step 1's frame0) each read sid 1
+within 30 u of the seat -- the premise step 1's npcs plan rests on, keyed by place (31256 reads as 164); an unread seat
+is A-KNIGHT (the instrument's: the run uncovered), a reading off the seat FAILS.
+
+**166 and FMV004, played out.** No `movies` key: rule 9 only sleeps through FMV004 (`MBG_DEF("FMV004", 1, 0)`, type 0,
+45.412 s). The skip dialog is press-only (FieldHUD.cs:275-285), so the skip net -- O7's "want to skip" row and a
+166-scoped row for its measured option line "No" -- answers a stray one at its default, No, and keeps the run ALIVE,
+never covered: a press, a skip dialog or its answer inside the movie's span (f502, f863] is A-MOVIE (the driver's or
+outside input's, never the fork's). O8-MOVIE: no press and no skip dialog in the span, its length at least `file_s -
+slack_s` at the rate the observe hook's `clock` rows measure INSIDE it (state.json's write times), and a choice of any
+other shape there FAILS. `[Graphics] VSync "1"` is pinned (P-SETTINGS: 32 keys): MBG's SetTargetFPS(30) is ignored under
+it. The watchdog's `no_progress_s` is sized by F8 for FMV004's static span (draft 150).
+
+**The end state's race.** Read live on arrival in REAL 55 WITHOUT `Int16[2]` and `Byte[8]`: thirteen targets -- nine the
+route leaves and the four the knight's talk would write, untouched since New Game. THE RACED SET IS DERIVED
+(`end_race8`: 55 e0 t0 walked from the arrival's values to its RET, ip565): 55's ip255 rewrites `Int16[2]` 110 -> 106 and
+its ip342 `Byte[8]` 0 -> 125, so both are taken from the TRACE -- the last pre-cut rows, 166 e6 t1 ip863 = 110 and ip502
+= 0, matched by place; O8-KEYS (g) proves that no other 55 function stores an `end_state` target on this arrival (e10 t1
+ip568 / ip582 sit behind `Map.Byte[24]` case 3; the arrival sets 1).
+
+**The checks** ([`o8_west_tower.py`](o8_west_tower.py); research/o8_design.md 5 and 6):
+- offline: O8-BUILD (the route members' pins per language and 31258's raw exit), O8-KEYS (56 keys at their sites; the
+  start-scoped olds, the start reads and their races, the carried values, the raced set and the knight's release, each
+  derived), O8-TEXT (block 3, strict, and `route_mes`), O8-CENSUS (every gEventGlobal store site of 164, 165 and 166
+  classified; every error-path guard and forbidden site proven REACHABLE -- 164 e1 t3 ip690 is dead, behind ip641's and
+  ip663's `const(1)` tests), O8-REGIONS (the four exits' gates through their consuming jumps), O8-GOALS (height-aware,
+  (g0)-(g7'));
+- preflight: P-MANIFEST, P-DEPLOY, P-EB, P-FLOOR, P-STOCK, P-TEXT (block 3), P-RECOVERY, P-DONOR (the three route
+  donors; O1's `31205 55` row named outside the set), P-SETTINGS (32 keys, VSync among them), P-PAD, P-OVERRIDE,
+  P-ENGINE -- 12, all green on the live install today; in game P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG (164, 165, 166,
+  55), P-LAUNCH and P-PAD;
+- the session: O8-FROZEN, O8-COVER (A-START through the explicit races, A-MOVIE, A-KNIGHT); O8-FORBIDDEN and
+  O8-VOID-ASYM over every run; then START (the four residue rows), NO-SC, CHAIN (342 -> 343 -> 344 -> 110), RESIDUE,
+  WRITES (EXACT: the 23), NULL, STABLE, LANDING (a)-(d), SEAM (a)-(f), WALK (THE PAIRED-WALK LAW over the four steps),
+  ORDER, KNIGHT, MOVIE, PATTERN (9 / 9 / 11, no `c` row), MASKED, STATE (a)-(c) (the live end state; the raced pair
+  from the trace) and JOIN over the covered runs; THROW.
+
+**Status: draft: rehearsals pending, freeze pending.** The offline build is done on branch `claude/story-trace-o8`
+(PARTs A-C of the design's section 9): `--offline-check` 6 PASS on the draft; `--preflight` 12/12 on the live install
+(nothing to deploy); `o8_dryrun.py` 219/219 on the draft and as if frozen (117 cases, the story-o3 seam fixture -- its
+own raced set EMPTY -- and the units); the regression gate G1-G45 with G21 (O1-O7 byte-identical; O8's tests G44, its
+dry run G45); the rehearsals' launcher [`o8_rehearse.py`](o8_rehearse.py) proven on the fake. Nothing is frozen: the
+draft's `rehearsals`, `rehearsal_fps` and `rehearsed` are empty. The lead's sequence (research/o8_design.md 7.1-7.4):
+`--preflight`; the rehearsals -- R-FULL x2, R-SPIRAL x2, R-FMV x2 and its `movie_poke` run, R-VOID x3 LAST
+(`flag_stop`, `pinch_stop`, `movie_stop`), then F-SMOKE and F-PASS by name, R-SPIRAL165 optional; NO stage starts
+between 03:45 and 04:45 local (the nightly gate's `-n 6` starves the game and the driver: `o8_rehearse.run` refuses
+one) -- each launch `py tools/play.py studies/story-trace/o8_rehearse.py --label o8-rh --timeout 240` (`O8_STAGE=<name>`
+picks one), read with `py studies/story-trace/o8_west_tower.py --rehearsal-report <run dir>`; the freeze checklist
+F1-F14; `--freeze` (v1); the session, `py tools/play.py studies/story-trace/o8_west_tower.py --label story-o8 --timeout
+240`, unattended and never started 03:45-04:45; the rehearsal and session run dirs copied into the MAIN repo's
+`.harness-runs\` before any gate reads them, then one `harness_tests.py whole` and one `segment_regress.py
+--pytest-junit` on its receipt.
+
+**Next, O9:** O8 ends on the arrival in REAL 55 at 110 (cut at 55 e0 t0 ip22) on both sides. O9 starts with a raw
+`warp 55 110 1190` (S) / `warp 31205 110 1190` (F): the fork side SWITCHES CHAINS there (O4's alxc -> O1's tshp, whose
+member(55) is 31205, ForkDonorPatch line 42 -- the reason O8's F side ends in real 55 and declares its seam). The raw
+start's residue: SC bytes 0-1 and FieldEntrance byte 2 (0 -> 110); byte 3 holds 0 (110 = 0x006E), so expect THREE
+rows, O6's contract -- re-derive, never assume. 55's START-DEPENDENT reads are e8 t1 ip633 / ip666 / ip1354, the party
+and UInt16[19]: there a raw start differs from a true O1-O8 run in VALUE, not only in olds, so O9's start must be
+SEEDED or those reads declared -- the owner's options: (a) declare them (`start_dependent` keys with `after.old`, O6's
+form); (b) a chained start (O8's arrival as O9's start: not a raw warp); (c) narrow O9 to what 55 does before those
+reads; (d) pokes before the warp -- `byte 19 15`, `byte 20 7` (UInt16[19] 1807), `byte 21 8` (UInt16[21] 8), `byte 303
+1`, `byte 18 1`, `byte 208 1` -- each a carried value O1-O8 compose (`carried_from_segments` over O1-O8, never typed),
+the pokes then registered residue. 55 is block 2 (text), its page 129 halts the scene at FieldHUD, and its e10 t1 SC stores sit
+behind Map.Byte[24] case 3. O8 built for it: `at_y`, the knight wait (`wait_flag`), the y axis on `until` with the
+loss's height off the ring, the opt-in `unstick`, the per-field fake clearance, the height-triggered walker with a
+store, the declared seam (O8-SEAM), the raced end-state set derived from the end field's bytes to its Main_Init's RET
+(`end_race8`), and `reach8` -- a store site's reachability from given values, e.g. which of 55's e8 t1 / e10 t1 sites a
+`Map.Byte[24]` case reaches. If O8's F5 took the fallback (`unstick: false`), say so here.
+
 ## Build testing (every segment's build, from O7) -- overrides any design's section 9 where it differs
 
 **Why (measured 2026-10-04 over the O3-O6 build workflows):** O6's request-to-merge was 24.8 h. Of that, the build

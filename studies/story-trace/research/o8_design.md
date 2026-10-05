@@ -2754,3 +2754,69 @@ baseline.
 19. **G44 joins the gate in B4** (`ITEM_ORDER` before G21, `SEGMENT_ITEMS["O8"] = ("G44",)`, `PYTEST_ITEMS`, `g44`,
     the gate's judges), `REQUIRED_TESTS_O8` holds PART B's 21 beside A0b's replay, and the registry test's body reads
     G1-G44 (unpinned: G21 unchanged at 426 sources).
+
+#### PART C, as built: where the design was silent or wrong (each the smallest correct thing)
+C0 read O4's build read-only: the route members' byte diffs against their donors per language, as O8-BUILD pins them
+(31256's and 31257's two in-chain `Field()` operands each; 31258 byte-identical to 166 with its raw `Field(55)`), and
+the chain's `campaign.toml` (route members 31256, 31257, 31258) -- `o8_forks.json`'s `built.measured`.
+
+1. **164 e1 t3 ip690 is DEAD, not forbidden.** Its `Int16[224] := -761` (the talk's AddGil branch) sits behind ip641's
+   and ip663's `const(1)` tests (bytes `05 7d 01 00 7f`): no value reaches it. The census's reach proof, extended from
+   the error path to the forbidden sites (a forbidden site no arrival value reaches is a dead site, and its message says
+   so), found it -- and C1's ip215 mutant (164 e3 t2 ip215 moved to `forbidden_sites`) needs exactly that proof: an
+   error-path-only proof passed it. So `forbidden_sites` 7 and `dead` 15 (4.6's 8 and 14; the `--draft` row of PART C's
+   REQUIRED-GREEN table reads 15), 164 forbidden 6 / dead 7; the 56 keys stand. O8-CENSUS's detail adds "every
+   forbidden site reachable (7 of 7)".
+2. **`end_race8`'s `globals0`, and `END_MAP_KEYS8`.** The story-o3 fixture walks stock 64 from story-o3's arrival
+   values, which name only the targets O3 registered: a global the walk reads and they do not name was UNKNOWN, so
+   Bit[3815] and Byte[475] read raced `[None, 0]`. `globals0=0` reads every unnamed global as New Game's 0 (the
+   fixture's raw-start zeros), and its raced set is EMPTY, as 0.2 #26 says. O8's own call names every target it reads.
+   KEYS (g)'s other-function proof holds `Map.Byte[24]` alone (`END_MAP_KEYS8`), its value read off the e0 t0 walk (the
+   arrival sets 1; the walk returns its Map values as `map`).
+3. **The seat watch's `walk_u` is 1131.5**: the four Walk legs summed from the pinned operands (2.6's 1131.4 is the
+   same sum truncated); KEYS (f) compares within 0.05.
+4. **`live_shared` in O6's census form**: `callers` [[6, 1, 489]] (4.6's `from` [166, 6, 1, 489] is no key the census
+   reads).
+5. **O8-GOALS' wait point and pinch.** (g5')'s door rule is `_fires_before` (a door fires before the step's goal only
+   where its gate holds at the walked line's height) and the pinch's half-width is `least_half_width` (level-aware,
+   every 10 u). The design's P1-move mutant can never reach (g5') -- (g4') refuses it first -- so the goals unit's mutant
+   is `exit_slack` 300. The dry run's goals lines pin only start-independent substrings (`as_if_frozen` moves the
+   measured numbers).
+6. **The dry run's cases re-registered as rendered** (O3's EXACT `case()`; each docstring names the clause the design's
+   list missed): knight-after-exit-both, knight-at-real-164-F, chain-dropped-fork, chain-back-door-site-both,
+   byte13-explained-F, byte208-order-swap-both, visit-split-both, lands-real-165-covered, end-boundary-residue-both,
+   seam-exit-wrong-F, seam-key-F (its row REAL 163's ip57 `Int16[9] := 385`, a key: a masked `Bit[191]` row gives
+   none), int16-2-trace-end-F (byte 2, not 4: CHAIN passes) and byte8-trace-wrong-site-both; int16-2-live-race-both and
+   byte8-live-race-both read PROVEN (`read_end_state` reads only `end_state`'s targets: the raced pair's live values are
+   never compared). The end-race unit's tail reads `Byte[208]` (55's own error path resets Byte[13]). 117 cases and
+   "predictions-changed", the story-o3 fixture's 9, 40 units and 52 listed units: 219/219, the floor.
+7. **last-place-harness is S ONLY** (the design's -both): on F that harness row would be the seam's exit, and
+   `storytrace.digest` RAISES joining a harness row to a script position (`_locate`, ValueError) -- a kit defect O8's
+   route cannot reach (O8 pokes nothing), flagged as its own task.
+8. **`movie_stop` and `movie_poke` lie on the STAGE, never on a step** (166 has no cell): `stage_pred` checks them
+   (`_check_stop`: `place`, and `after_s` a number >= 0) and leaves the table as it is; `flag_stop` and `pinch_stop` lie
+   on their step of the run's copy, as O7's stops do. F-PASS's end is a plain `[55]` (REAL 55 on both sides: no member
+   to resolve).
+9. **The rehearsal recorder reads T0 off the RING**, not the poll: the driver polls only between steps, and the release
+   comes DURING 164 #0's walk (a poll-read T0 would land at the walk's end, ~750 u late). `t0_scan` keeps its own cursor
+   beside O7's grant scan.
+10. **THE SEND TAP is first on and last off.** O7's taps each restore what they found, so a tap installed after the hold
+    tap is popped by the hold tap's restore -- and the sends a stop's F9 list names (S21's `unwatch`, `collect_story`'s
+    `storytrace 0`, end_run's warp and ladder) come after the drive's taps are restored. `SendTap` wraps `send` before
+    the hold tap and is restored after `end_run`.
+11. **A late-edge re-run keeps its own files and a `counted` flag.** The re-run of run n writes `rh_<stage>_<n>r<k>`
+    (`.jsonl`, `_log.json`: the V5's own trace kept), each record carries `counted` (False on the late-edge V5 set
+    aside: F3's counts), and `--rehearsal-report` marks the set-aside run and prints what is counted.
+12. **The step rows keep `at_y`, `wait_flag` and `unstick`** (`STEP_KEYS8`): O7's `step_records` trims to its own
+    keys, and F2 and F5 read these.
+13. **The nightly refusal runs twice**: before the session is touched (the launch's first stage, so a pure test reads
+    it through the `clock` seam) and at each stage's start (`stopped` recorded, then raised).
+14. **On the fake the movie's clocked rate is the fake's loop rate**: FakeGame runs its loop at 4x its render rate, so
+    the frames over state.json's write times read ~170 fps, never the published ~60; the plumbing test asserts the span
+    CLOCKED and its seconds the frames at that rate (the 31 / 60 fps readings stay C1's pure movie test). On the box
+    164 #1 is ONE hold from P1, so the plumbing test's pinch window lies round P1, and the report's gap reads
+    "unmeasured (no sample on a level)" there (the flat box under the plane's y); the stock-spiral records test measures
+    68.6, the pinch's half-width, its stalls blocker-sealed before the ladder's frozen rung and rejected after it.
+15. **The poke test breaks on its ONCE**, not on "a poke while a page is up": no page is up after the ip502 row on the
+    fake's route (313 closes before ip502), so the quiet guard has no path to fail there; a poke on every quiet poll past
+    `after_s` opens a second skip dialog.
