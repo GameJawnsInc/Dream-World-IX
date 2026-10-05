@@ -1,19 +1,22 @@
 """THE REGRESSION GATE for the shared segment machinery: every change to ``segment_trace``, ``segment_drive``,
-``o2_alexandria``, ``o3_prima_vista``, ``o4_castle``, ``o5_hallway`` or the harness verbs they drive must leave every O1
-output (research/o2_design.md, section 1.6), every O2 output (research/o3_design.md, section 1.4), every O3 output
-(research/o4_design.md, section 1.4), every O4 output (research/o5_design.md, section 1.4) AND every O5 output
-(research/o6_design.md, section 1.4) byte-identical, O3's battle-beat tests (G13) and O3's dry run (G14) green, O4's
-tests (G19) and O4's dry run (G20) green, O5's FakeGame and driver tests (G26) and O5's dry run (G27) green, O6's
-FakeGame, driver and analysis tests (G32) and O6's dry run (G33) green, and the O1-O5 driver tests and the fake's beat, input, story-trace, machine-beat
-and visit-beat functions at their pinned sources (G21).
+``o2_alexandria``, ``o3_prima_vista``, ``o4_castle``, ``o5_hallway``, ``o6_steiner`` or the harness verbs they drive must
+leave every O1 output (research/o2_design.md, section 1.6), every O2 output (research/o3_design.md, section 1.4), every
+O3 output (research/o4_design.md, section 1.4), every O4 output (research/o5_design.md, section 1.4), every O5 output
+(research/o6_design.md, section 1.4) AND every O6 output (research/o7_design.md, section 1.4) byte-identical, O3's
+battle-beat tests (G13) and O3's dry run (G14) green, O4's tests (G19) and O4's dry run (G20) green, O5's FakeGame and
+driver tests (G26) and O5's dry run (G27) green, O6's FakeGame, driver and analysis tests (G32) and O6's dry run (G33)
+green, O7's FakeGame, driver and analysis tests (G38) and O7's dry run (G39) green, and the O1-O6 driver tests and the
+fake's beat, input, story-trace,
+machine-beat, visit-beat, walk-out, naming and door functions at their pinned sources (G21).
 
     py studies/story-trace/segment_regress.py --capture      # G0, once, BEFORE the O2 refactor: the O1 baseline
     py studies/story-trace/segment_regress.py --capture-o2   # G0', once, BEFORE any O3 code change: the O2 baseline
     py studies/story-trace/segment_regress.py --capture-o3   # G0'', once, BEFORE any O4 code change: the O3 baseline
     py studies/story-trace/segment_regress.py --capture-o4   # G0''', once, BEFORE any O5 code change: the O4 baseline
     py studies/story-trace/segment_regress.py --capture-o5   # G0'''', once, BEFORE any O6 code change: the O5 baseline
+    py studies/story-trace/segment_regress.py --capture-o6   # G0''''', once, BEFORE any O7 code change: the O6 baseline
     py studies/story-trace/segment_regress.py --rebaseline-source NAME --reason TEXT   # G21: re-pin ONE source
-    py studies/story-trace/segment_regress.py                # G1-G33; exit 0 only if every item passes
+    py studies/story-trace/segment_regress.py                # G1-G39; exit 0 only if every item passes
     py studies/story-trace/segment_regress.py --only G26,G27 # a PARTIAL run (also --segment O5): exit 3 on a pass
     py studies/story-trace/segment_regress.py --pytest-junit DIR/receipt.json   # pytest items from a whole-file run
     py studies/story-trace/segment_regress.py --list         # the items, their segments and kinds
@@ -23,7 +26,7 @@ tree: the gate was not run, which is not a pass. A PARTIAL run (``--only`` / ``-
 exits 3 when every selected item passes (1 when one fails) and prints NOT THE GATE -- a fix loop's run; the gate is a
 full run, exit 0.
 
-THE SPEED PASS (PLAN.md "Build testing"): the six pytest items (G7, G12, G13, G19, G26, G32) are ONE run of the union
+THE SPEED PASS (PLAN.md "Build testing"): the pytest items (G7, G12, G13, G19, G26, G32, G38) are ONE run of the union
 of their ``-k`` selections at xdist's ``-n`` (``harness_tests.workers``: 8, ``FF9_TEST_WORKERS``, ``-n``), on a thread
 while the in-process items run, each item's slice taken by pytest's own ``--collect-only -k`` and judged as before
 (``_selection_bad``, REQUIRED_TESTS, zero skips); its failures go through THE FLAKE PROTOCOL
@@ -119,20 +122,22 @@ was captured at the code before the change it guards and the same file judges th
       them must keep O4's dry run green too -- every check failing on its mutant, every case EXACT. No baseline: the
       count is the floor (a dropped case falls under it).
   G21 THE DRIVER'S SOURCE PINS (research/o4_design.md 1.4, rev. 2; research/o5_design.md 1.4; research/o6_design.md
-      1.4): every name in the UNION of the O3, the O4 and the O5 baselines' ``sources`` -- each test G7, G12 and G13
-      collected at the O3 capture and fakegame.py's existing beat and input functions; each test G19 collected at the O4
-      capture and the fake's story sink and machine beats (:data:`FAKE_PINS_O4`); each test G26 collected at the O5
-      capture and the fake's same-value suppression and visit beat (:data:`FAKE_PINS_O5`) -- by its qualified name
-      (``<file>::<qualname>``) still exists, and the sha256 of its ``ast.dump(node, include_attributes=False)`` equals
-      its baseline's, or, when ``research/source_pins.json`` re-baselines it, that name's LATEST row's ``new``. A name
-      pinned by TWO baselines is no union (:func:`union_sources` refuses it; the O4 and O5 captures never write one). A
-      row is ``{"name", "old", "new", "reason", "head"}``, appended only by ``--rebaseline-source NAME --reason TEXT``
-      (NAME looked up in any of the three baselines): it refuses an empty reason, a name not pinned, an ``old`` that is
-      not the pin in force, and a source that is already its pin in force (nothing changed); the commit that changes the
-      source carries its row, and the gate replays every row the same way. Comments and whitespace do not count (the
-      AST dump); any code edit does, a docstring's included, and a renamed or deleted pinned test FAILS. So an O1-O5
-      driver test adapted to a changed rule -- which G7/G12/G13/G19/G26 alone would pass, since they pin only names --
-      fails here until it is re-baselined by name with its reason.
+      1.4; research/o7_design.md 1.4): every name in the UNION of the O3, the O4, the O5 and the O6 baselines'
+      ``sources`` -- each test G7, G12 and G13 collected at the O3 capture and fakegame.py's existing beat and input
+      functions; each test G19 collected at the O4 capture and the fake's story sink and machine beats
+      (:data:`FAKE_PINS_O4`); each test G26 collected at the O5 capture and the fake's same-value suppression and visit
+      beat (:data:`FAKE_PINS_O5`); each test G32 collected at the O6 capture and the fake's region walk-out, naming and
+      door (:data:`FAKE_PINS_O6`) -- by its qualified name (``<file>::<qualname>``) still exists, and the sha256 of its
+      ``ast.dump(node, include_attributes=False)`` equals its baseline's, or, when ``research/source_pins.json``
+      re-baselines it, that name's LATEST row's ``new``. A name pinned by TWO baselines is no union
+      (:func:`union_sources` refuses it; the O4, O5 and O6 captures never write one). A row is ``{"name", "old", "new",
+      "reason", "head"}``, appended only by ``--rebaseline-source NAME --reason TEXT`` (NAME looked up in any of the
+      four baselines): it refuses an empty reason, a name not pinned, an ``old`` that is not the pin in force, and a
+      source that is already its pin in force (nothing changed); the commit that changes the source carries its row,
+      and the gate replays every row the same way. Comments and whitespace do not count (the AST dump); any code edit
+      does, a docstring's included, and a renamed or deleted pinned test FAILS. So an O1-O6 driver test adapted to a
+      changed rule -- which G7/G12/G13/G19/G26/G32 alone would pass, since they pin only names -- fails here until it
+      is re-baselined by name with its reason.
   G0''' --capture-o4 (research/o5_design.md 1.4, 9 A0): the full ``(checks, report)`` of the archived PROVEN session
       story-o4 read with ``o4_predictions_v1``; of every o4_dryrun session case (its CASES and "predictions-changed");
       every o4_dryrun unit's ``(name, ok, detail)`` (``units(...)`` then ``listed_units(...)``, in run_cases's order);
@@ -198,6 +203,35 @@ was captured at the code before the change it guards and the same file judges th
       lead's freeze changes it (the floating row's ``measured``, every budget, ``rehearsals``: the claim critic's #9):
       each returns 0 printing "N/N cases as registered", the same N, at least :data:`O6_DRYRUN_FLOOR`. No baseline: the
       count is the floor.
+  G0''''' --capture-o6 (research/o7_design.md 1.4, 9 A0): the full ``(checks, report)`` of the archived PROVEN session
+      story-o6 read with ``o6_predictions_v1``; of every o6_dryrun session case (its CASES and "predictions-changed");
+      every o6_dryrun unit's ``(name, ok, detail)`` (``units(...)`` then ``listed_units(...)``, in run_cases's order);
+      ``O6.offline_check(v1)``; the tests G32 collects; the HEAD and v1's sha; and ``sources``, G21's O6 pins -- the AST
+      sha of every test G32 collects and of every function :data:`FAKE_PINS_O6` names (:func:`fake_pins_o6`), only names
+      none of the O3, O4 and O5 baselines already pins (a name pinned in any is refused, :func:`o6_pin_names`) ->
+      ``research/o6_regress_baseline.json`` (LF, ``-text``). It refuses to overwrite a baseline, and to write one unless
+      G32, G33 and G34-G37's baseline-free halves pass at the code it captures; it first takes TWO readings and refuses
+      when they differ, every temporary root read as ``<tmp>`` (O3's rule, G0'').
+  G34 ``O6.analyse(story-o6, pred_path=v1)``: the report is the archived ``o6_report.txt`` exactly, and the
+      baseline's; the checks are the baseline's; PROVEN with 19 checks, all True.
+  G35 the CLI ``o6_steiner.py --analyse story-o6 --predictions v1`` exits 0 and prints that report, run as G29 runs O5's
+      (``PYTHONIOENCODING=utf-8``: O6's pages quote curly quotes, which ``segment_trace.say`` would escape on a cp1252
+      console).
+  G36 every o6_dryrun session case's ``(checks, report)`` and every unit's ``(name, ok, detail)`` is the baseline's,
+      byte for byte (each temporary root read as ``<tmp>``), and ``run_cases(v1)`` still returns 0 printing "N/N cases
+      as registered" (164 at the capture), N counted from the replica: its sessions plus its units. The gate replicates
+      run_cases's loop step for step, as G30 does O5's.
+      G36 IS O6'S VOID-PATH BASELINE: the story-o6 archive holds six covered runs and no VOID, so G34/G35 never take the
+      coverage rule's VOID paths, VOID-ASYM's (a)-(d), A-START's or A-NAMING's, the page witness's V13 or the landing-
+      aware trigger's verdicts. An edit to any of them is proven O6-neutral by G36's synthetic sessions alone.
+  G37 ``O6.offline_check(v1)`` equals the baseline's ``[(ok, what, detail)]``: 6 checks, all PASS (it reads O4's build
+      and the install, read-only).
+  G38 (research/o7_design.md 1.4, from 9 B4) ``pytest tests/test_harness.py -k "o7_ or fake_level or fake_monologue or
+      fake_patrol"`` from ``ff9mapkit/``: every test passed, 0 failed, 0 skipped, 0 errors, and every name in
+      :data:`REQUIRED_TESTS_O7` among them. No baseline: the list is the floor. A member of the union run.
+  G39 (research/o7_design.md 1.4, from 9 C2) ``o7_dryrun.run_cases`` on the frozen O7 predictions once they exist, else
+      the draft, AND on ``o7_dryrun.as_if_frozen(draft)``: each returns 0 printing "N/N cases as registered", the same N,
+      at least the floor C2 prints. No baseline: the count is the floor.
 
 Nothing here touches the game or writes to the install: it reads the archives, the builds and the stock bytes. The
 pins file is written only by ``--rebaseline-source``, and a baseline only by its ``--capture*``.
@@ -313,8 +347,9 @@ REQUIRED_TESTS: tuple = (
     "test_segment_trigger_to_records_its_landing_at_a_new_visit_on_the_fake",
     "test_segment_trigger_to_records_an_unread_walkout_before_a_second_door",
     # the speed pass (PLAN.md "Build testing"): the items selectable, a partial run never the gate, ONE -n run split
-    # per item, a receipt reused only for its HEAD and tree, THE FLAKE PROTOCOL
-    "test_segment_regress_items_are_g1_to_g33_once",
+    # per item, a receipt reused only for its HEAD and tree, THE FLAKE PROTOCOL -- the registry's test renamed by
+    # research/o7_design.md 1.4 (its name says what it pins, not a range)
+    "test_segment_regress_registry_holds_every_item_once",
     "test_segment_regress_split_keeps_each_items_semantics",
     "test_segment_regress_pytest_items_run_one_union_and_settle",
     "test_segment_regress_partial_run_is_not_the_gate",
@@ -327,6 +362,28 @@ REQUIRED_TESTS: tuple = (
     "test_segment_harness_tests_alone_a_skip_or_an_xfail_is_not_a_pass",
     "test_segment_harness_tests_stop_all_ends_a_running_child",
     "test_segment_regress_gate_stops_its_pytest_half_when_the_rest_raises",
+    # a frozen segment's dry run reads predictions only through its own segment (O7's freeze moved O6's count)
+    "test_segment_dryrun_globs_close_at_their_segment",
+    # research/o7_design.md section 9, PART A: the gate extended to O6 (G21 over the union of the O3, O4, O5 and O6
+    # baselines' pins), then the shared opt-in changes, each with its step
+    "test_segment_regress_o6_pins_join_the_union",                              # A0: G21 over four baselines
+    "test_segment_step_of_walk_and_its_keys_are_strict",                        # A1: S17-S19's keys, pure
+    "test_segment_step_of_reads_every_frozen_table_unchanged",                  # A1: S17-S19 opt-in, every frozen table
+    "test_segment_walk_reaches_its_goal_on_the_fake",                           # A1: S17 done, and short is failed
+    "test_segment_walk_short_of_its_goal_fails_on_the_fake",                    # A1: S17 failed twice, V7
+    "test_segment_walk_interrupted_outside_a_door_on_the_fake",                 # A1: S17 interrupted, the re-run
+    "test_segment_walk_loss_in_a_door_is_its_landing_on_the_fake",              # A1: S17's landing judge, door_loss
+    "test_segment_walk_leaving_the_field_is_the_drivers_v11_on_the_fake",       # A1: S17's stray, V11 and backing
+    "test_segment_route_clearance_plans_the_corridor_only_below_its_width",     # A2: S18 on both planner paths
+    "test_segment_route_clearance_absent_keeps_todays_plan",                    # A2: S18 opt-in, today's plan
+    "test_segment_route_clearance_plans_the_stair_at_110_not_120",              # A2: S18 on stock 163's stair
+    "test_segment_prior_basis_presses_no_probe_on_the_fake",                    # A3: S19 seeds, no probe, judged
+    "test_segment_prior_basis_wrong_stops_on_the_first_move_on_the_fake",       # A3: S19's first-move check
+    "test_segment_prior_basis_disagreement_is_the_drivers_v13_on_the_fake",     # A3: S19's V13, keyed on the marker
+    "test_segment_prior_basis_widens_the_hold_spread",                          # A3: S19's spread, pure
+    "test_segment_prior_basis_narrows_after_its_first_move_on_the_fake",        # A3: S19's spread narrowed, 31 fps
+    "test_segment_prior_basis_forget_clears_the_seed_on_the_fake",              # A3: forget_basis, begin_scenario
+    "test_segment_prior_basis_absent_calibrates_as_today_on_the_fake",          # A3: S19 opt-in, today's record
 )
 
 O1E_VERDICT = "PROVEN"
@@ -676,6 +733,102 @@ REQUIRED_TESTS_O6: tuple = (
 #: raises N; one dropped falls under the floor.
 O6_DRYRUN_FLOOR = 164
 
+# -- O6 (research/o7_design.md 1.4): the frozen v1 predictions and the PROVEN story-o6 archive
+V1_O6 = HERE / "o6_predictions_v1.json"
+O6S = Path(r"C:\gd\Dream-World-IX\.harness-runs\20261004-110827-story-o6")
+BASELINE_O6 = HERE / "research" / "o6_regress_baseline.json"
+O6S_VERDICT = "PROVEN"
+O6S_CHECKS = 19
+O6_OFFLINE_CHECKS = 6
+#: G39 (research/o7_design.md 1.4, from 9 C2): o7_dryrun's "N/N cases as registered" must have N at least this, on the
+#: draft (or the frozen file) AND on as_if_frozen(draft) -- its 86 session cases (section 8's table, with the
+#: re-registered ones and the cases C2 added) and "predictions-changed", its 28 units, and its 52 listed units
+#: (O7-CENSUS and its 5 mutants, O7-REGIONS and its 6, O7-GOALS and its 11, the route pins and route_mes with their 7,
+#: O7-BUILD's route pins on a synthetic build and its 2, the draft through O7-KEYS and its 15 offline mutants) when G39
+#: joined (167); the review's fixes (research/o7_design.md 11.4, "The review") raised it to 174 -- 2 session cases
+#: (byte8-race-armed-one-F, -all-F), 1 unit (monologue-lines) and 4 listed (goals-163-e3-crossing, -holding,
+#: keys-scoped-dropped, -extra). A case added raises N; one dropped falls under the floor.
+O7_DRYRUN_FLOOR = 174
+#: G38 (research/o7_design.md 1.4, from 9 B4): every ``test_o7_*``, ``test_fake_level_*``, ``test_fake_monologue_*`` and
+#: ``test_fake_patrol_*`` name, each with the step that adds it -- G38 joined the gate in the commit that added B4's
+#: tests.
+PYTEST_K_O7 = "o7_ or fake_level or fake_monologue or fake_patrol"
+REQUIRED_TESTS_O7: tuple = (
+    # A0b: O6's route replayed by hand on the fake against its golden, captured before any O7 fake edit
+    "test_fake_level_keeps_the_steiner_route_identical",
+    # B1: H20, the levels of a stacked walkmesh (154's balcony over its ground) and the placement's height; H21, the
+    # squeeze through 163's stair foot
+    "test_fake_level_meshes_hold_the_levels_premises",
+    "test_fake_level_places_steiner_on_the_balcony",
+    "test_fake_level_never_drops_off_the_balcony_edge",
+    "test_fake_level_walks_the_west_flight_down_to_the_ground",
+    "test_fake_level_place_height_without_levels_sets_y",
+    "test_fake_level_squeeze_passes_the_stair_foot",
+    # B2: H22, the door's height terms and a door step's scene (159's forced monologue); H23, the held walker (Dojebon)
+    "test_fake_level_door_branches_by_height",
+    "test_fake_monologue_fires_once_outside_the_box",
+    "test_fake_monologue_store_override_fires_it_again",
+    "test_fake_monologue_regrants_in_place",
+    "test_fake_patrol_holds_within_its_circle_and_its_latch",
+    "test_fake_patrol_released_walks_its_path",
+    # B3: the O7 route builder, played unattended to 164 (its trace 4.16's pattern)
+    "test_fake_level_route_plays_to_164_unattended",
+    # B4: the driver's O7 tests on the fake -- the castle walk to 164 (S and F), the real balcony and the real stair
+    # (the squeeze; two snags then the squeeze), and each VOID class O7 can meet
+    "test_o7_drive_walks_the_castle_to_164_on_the_fake",
+    "test_o7_drive_walks_the_real_balcony_to_the_ground_on_the_fake",
+    "test_o7_drive_balcony_cross_lands_in_153_is_the_drivers_v11",
+    "test_o7_drive_squeezes_the_real_stair_on_the_fake",
+    "test_o7_drive_stair_snags_twice_then_squeezes_on_the_fake",
+    "test_o7_drive_second_monologue_is_v7",
+    "test_o7_drive_prior_basis_is_the_drivers_v13",
+    "test_o7_drive_fork_landing_in_real_158_is_v19",
+    "test_o7_drive_wrong_door_e9_is_the_drivers_v11",
+    "test_o7_drive_stop_page_in_154_is_v5_driver",
+    "test_o7_drive_walk_into_a_door_is_the_drivers_v11",
+    # C1: O7 itself -- the draft and its chain, the freeze's refusals, the route builder against the keys, instanced_at7,
+    # the census, the regions with the hazard's role, the goals, the closures, the bytes' readers, O7-WALK / -LANDING /
+    # -STATE pure, the fallback end, the static watch, the carried values and the olds, the per-run reseed, the start
+    # read's A-START and the preflight's verdicts
+    "test_o7_castle_draft_reads_the_chain_from_campaign",
+    "test_o7_castle_freeze_refuses",
+    "test_o7_castle_route_builder_matches_the_keys",
+    "test_o7_castle_instanced_at_reads_no_dispatch_and_flag_gates",
+    "test_o7_castle_census_classifies_every_site",
+    "test_o7_castle_regions_roles_branches_and_hazard",
+    "test_o7_castle_goals",
+    "test_o7_castle_closures154_follow_their_definitions",
+    "test_o7_castle_monologue_test_reads_the_pinned_text",
+    "test_o7_castle_walk_check",
+    "test_o7_castle_landing_check_crossings",
+    "test_o7_castle_state_reads_byte13_from_the_trace",
+    "test_o7_castle_fallback_end_is_one_line",
+    "test_o7_castle_static_watch_reads_the_patrol_once_per_visit",
+    "test_o7_castle_keys_derive_the_carried_and_the_olds",
+    "test_o7_castle_start_run_forgets_every_seeded_basis",
+    "test_o7_castle_why_void_reads_the_start_byte8",
+    "test_o7_castle_preflight_verdicts",
+    # C2: the trace summary cut at end PLACES (the dry run's unit; G39 runs the dry run itself)
+    "test_o7_castle_trace_summary_cuts_at_end_places",
+    # C3: the rehearsals on the fake -- the stage table's ids from the chain, R-FULL's record (every 7.2 section), the
+    # two stops (mid-walk, mid-monologue), Dojebon and the rates, every run's first move judged (the reseed), THE LADDER
+    # TAP and F5, the smoke and the untraced F pass
+    "test_o7_rehearsal_stage_ids_follow_the_chain",
+    "test_o7_rehearsal_plumbing_on_the_fake",
+    "test_o7_rehearsal_walk_void_stops_mid_walk_on_the_fake",
+    "test_o7_rehearsal_walk_void_stops_mid_monologue_on_the_fake",
+    "test_o7_rehearsal_records_dojebon_and_the_rates_on_the_fake",
+    "test_o7_rehearsal_judges_every_runs_first_move_on_the_fake",
+    "test_o7_rehearsal_places_the_ladder_rungs_on_the_fake",
+    "test_o7_rehearsal_smoke_sends_no_storytrace_on_the_fake",
+    "test_o7_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake",
+    # the review's fixes: the hazard's protection pinned on the real mesh (a walk east past Dojebon's circle releases
+    # him: the static watch's moved row -- the box's latch holds him from the grant); H24, 159's monologue in its bytes'
+    # order (WindowAsync pages, the script held only at WaitWindow)
+    "test_o7_drive_real_balcony_walk_east_releases_dojebon_on_the_fake",
+    "test_fake_monologue_async_pages_hold_the_script_only_at_waitwindow",
+)
+
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)
 SOURCE_PINS = HERE / "research" / "source_pins.json"
 #: The pinned files, by the repo-relative name a pin carries (``<file>::<qualname>``, pytest's node-id form).
@@ -706,8 +859,18 @@ FAKE_PIN_CLASSES_O4 = ("_Win", "_Machine", "_KeyonPairBeat", "_ChanbaraBeat")
 FAKE_PINS_O5 = ("FakeGame._story_site", "FakeGame._story_counts", "_visit_steps")
 #: The fake's visit-beat class (H14-H15, research/o5_design.md 3.2-3.3): every method of it is an O5 pin.
 FAKE_PIN_CLASSES_O5 = ("_VisitBeat",)
+#: The fake O6's tests run on beyond the O3, O4 and O5 pins (research/o7_design.md 1.4 G0'''''), by qualified name: the
+#: functions O6 added or edited -- H16 a region's walk-out and the exit gate, H16b the soft reset's swallowing fields,
+#: H17 the naming screen, H18 the door step and its walk-out -- so an O7 edit that changes how the fake walks a door out,
+#: names a character or plays a door step fails G21 by name. The four ``_VisitBeat`` methods did not exist at the O5
+#: capture (no baseline pins them yet: :func:`o6_pin_names` refuses one that any baseline does). ``_move_to``,
+#: ``_step_walkers`` and ``_region_at`` stay unpinned: no segment added them (O7's edits to them are proven neutral by
+#: the two replays and the real-floor tests). No class here: O6 added none.
+FAKE_PINS_O6 = ("FakeGame._enter_regions", "FakeGame._step_world", "FakeGame._step_exit_now", "FakeGame._exit_open",
+                "FakeGame._walkout_of", "FakeGame._step_walkout", "FakeGame._check_soft_reset", "_door_knobs",
+                "_VisitBeat._naming", "_VisitBeat._naming_keys", "_VisitBeat._door", "_VisitBeat._walk_out")
 #: The baselines whose ``sources`` G21 joins, in this order: what :func:`union_sources` calls each.
-PIN_BASELINES = ("O3", "O4", "O5")
+PIN_BASELINES = ("O3", "O4", "O5", "O6")
 #: A re-baseline row of the pins file, exactly these keys.
 PIN_ROW_KEYS = ("name", "old", "new", "reason", "head")
 
@@ -783,18 +946,20 @@ def cli_analyse() -> tuple:
     return p.returncode, p.stdout, p.stderr
 
 
-#: THE ITEMS, in the order the gate prints them -- the order G1-G33 have always been printed in (G21 last).
+#: THE ITEMS, in the order the gate prints them -- the order G1-G33 have always been printed in, then O6's G34-G37
+#: (research/o7_design.md 1.4) and O7's G38 (9 B4) and G39 (9 C2), G21 last.
 ITEM_ORDER: tuple = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G12", "G13", "G14", "G15",
                      "G16", "G17", "G18", "G19", "G20", "G22", "G23", "G24", "G25", "G26", "G27", "G28", "G29", "G30",
-                     "G31", "G32", "G33", "G21")
-#: Each segment's items (``--segment``). G21 is no segment's: the driver's pins over the O3-O5 baselines (``--only``).
+                     "G31", "G32", "G33", "G34", "G35", "G36", "G37", "G38", "G39", "G21")
+#: Each segment's items (``--segment``). G21 is no segment's: the driver's pins over the O3-O6 baselines (``--only``).
 SEGMENT_ITEMS: dict = {"O1": ("G1", "G2", "G3", "G4", "G5", "G6", "G7"), "O2": ("G8", "G9", "G10", "G11", "G12"),
                        "O3": ("G13", "G14", "G15", "G16", "G17", "G18"),
                        "O4": ("G19", "G20", "G22", "G23", "G24", "G25"),
-                       "O5": ("G26", "G27", "G28", "G29", "G30", "G31"), "O6": ("G32", "G33")}
-#: The pytest items and their ``-k`` selections: ONE run of their union judges all six (:func:`pytest_items`).
+                       "O5": ("G26", "G27", "G28", "G29", "G30", "G31"),
+                       "O6": ("G32", "G33", "G34", "G35", "G36", "G37"), "O7": ("G38", "G39")}
+#: The pytest items and their ``-k`` selections: ONE run of their union judges them all (:func:`pytest_items`).
 PYTEST_ITEMS: dict = {"G7": PYTEST_K, "G12": PYTEST_K_O2, "G13": PYTEST_K_O3, "G19": PYTEST_K_O4, "G26": PYTEST_K_O5,
-                      "G32": PYTEST_K_O6}
+                      "G32": PYTEST_K_O6, "G38": PYTEST_K_O7}
 
 
 def pytest_g7() -> dict:
@@ -1181,6 +1346,19 @@ def g32(got: dict) -> tuple:
                      f"among them", "; ".join(bad) or f"{len(got['passed'])} passed")
 
 
+def pytest_g38() -> dict:
+    """Run G38's pytest selection (:func:`pytest_selection`)."""
+    return pytest_selection(PYTEST_K_O7)
+
+
+def g38(got: dict) -> tuple:
+    """G38 (research/o7_design.md 1.4, from 9 B4): O7's FakeGame and driver tests -- every one passed, none skipped, and
+    every name in :data:`REQUIRED_TESTS_O7` among them. No baseline: the list is the floor."""
+    bad = _selection_bad(None, got, REQUIRED_TESTS_O7)
+    return (not bad, f'G38: pytest -k "{PYTEST_K_O7}": all passed, 0 failed, 0 skipped; every REQUIRED_TESTS_O7 '
+                     f"among them", "; ".join(bad) or f"{len(got['passed'])} passed")
+
+
 # ======================================================================== what the O4 code says (G20)
 def _o4() -> tuple:
     """``(o4_castle, o4_dryrun)``: imported here, never at the module's top, as the O2 and O3 items import theirs."""
@@ -1303,6 +1481,52 @@ def g33() -> tuple:
             bad.append(f"run_cases on {which} returned {rc}: {last!r}")
         elif int(m.group(2)) < O6_DRYRUN_FLOOR:
             bad.append(f"{last!r} on {which}: under the floor {O6_DRYRUN_FLOOR} -- a case or a unit was dropped")
+        seen.append((last, which))
+    if len(seen) == 2 and seen[0][0] != seen[1][0]:
+        bad.append(f"the two readings differ: {seen[0][0]!r} on {seen[0][1]}, {seen[1][0]!r} on {seen[1][1]}")
+    return not bad, what, "; ".join(bad) or "; ".join(f"{last} ({which})" for last, which in seen)
+
+
+# ======================================================================== what the O7 code says (G39)
+def _o7() -> tuple:
+    """``(o7_castle_walk, o7_dryrun)``: imported here, never at the module's top, as the O2-O6 items import theirs."""
+    import o7_castle_walk as O7m
+    import o7_dryrun as D7
+    return O7m, D7
+
+
+def o7_run_cases_quietly(*, as_if: bool = False) -> tuple:
+    """``(rc, last line, which predictions)``: ``o7_dryrun.run_cases`` on the frozen O7 predictions once they exist, else
+    on the draft (its own default) -- or, ``as_if``, on ``o7_dryrun.as_if_frozen`` of those -- its per-case lines
+    swallowed."""
+    O7m, D7 = _o7()
+    buf = io.StringIO()
+    path = O7m.PREDICTIONS if O7m.PREDICTIONS.is_file() else None
+    with contextlib.redirect_stdout(buf):
+        rc = D7.run_cases(path, as_if=as_if)
+    base = f"the frozen {path.name}" if path is not None else "the draft"
+    which = f"as_if_frozen({base})" if as_if else base
+    lines = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
+    return rc, (lines[-1] if lines else ""), which
+
+
+def g39() -> tuple:
+    """G39 (research/o7_design.md 1.4, 9 C2): O7's dry run, every case as registered, at least the floor -- on the frozen
+    predictions (else the draft) AND on as_if_frozen of them, the same N."""
+    what = (f"G39: o7_dryrun.run_cases returns 0, every case as registered, at least {O7_DRYRUN_FLOOR}, on the frozen O7 "
+            f"predictions once they exist (else the draft) and on as_if_frozen of them, the same N")
+    bad, seen = [], []
+    for as_if in (False, True):
+        try:
+            rc, last, which = o7_run_cases_quietly(as_if=as_if)
+        except Exception as err:                   # noqa: BLE001 -- a dry run that cannot run is a FAIL, said
+            bad.append(f"run_cases{' (as if frozen)' if as_if else ''} raised {type(err).__name__}: {str(err)[:300]}")
+            continue
+        m = re.fullmatch(r"(\d+)/(\d+) cases as registered", last)
+        if rc != 0 or m is None or m.group(1) != m.group(2):
+            bad.append(f"run_cases on {which} returned {rc}: {last!r}")
+        elif int(m.group(2)) < O7_DRYRUN_FLOOR:
+            bad.append(f"{last!r} on {which}: under the floor {O7_DRYRUN_FLOOR} -- a case or a unit was dropped")
         seen.append((last, which))
     if len(seen) == 2 and seen[0][0] != seen[1][0]:
         bad.append(f"the two readings differ: {seen[0][0]!r} on {seen[0][1]}, {seen[1][0]!r} on {seen[1][1]}")
@@ -1793,6 +2017,145 @@ def g31(base: dict, got: list) -> tuple:
             "; ".join(bad) or "; ".join(f"{c[1].split(':')[0]}: {c[2][:90]}" for c in got))
 
 
+# ======================================================================== what the O6 code says (G34-G37)
+def o6_analyse_archive() -> dict:
+    O6m, _D6 = _o6()
+    return _pair(*O6m.O6.analyse(O6S, pred_path=V1_O6))
+
+
+def o6_dryrun_outputs(stock) -> tuple:
+    """``({case: (checks, report)}, [case names in run order], [[unit, ok, detail], ...])`` -- ``o6_dryrun.run_cases``'s
+    own loop over V1_O6, step for step (research/o7_design.md 1.4 G36): the same temporary layout (``pred/``,
+    ``sessions/``, ``units/``), the same session directories in the same order (``s0``, ``s1``, ... -- each report's title
+    carries its label), each case's session made with its own ``stopped`` (O6's CASES carry it), the same units in the
+    same order on the same temporary root (``units(...)``'s single units -- state-history's session is the last one made
+    -- then ``listed_units(...)``: O6-CENSUS, O6-REGIONS, O6-GOALS, the route pins, the build pins, the offline mutants).
+    Left out are only run_cases's verdict comparisons and its extra ``read_session`` reads of a case's VOID classes and
+    coverage: pure reads that make no directory and leave nothing an output reads. Every output is returned with its
+    temporary root read as :data:`TMP` (:func:`untemp`)."""
+    from ff9mapkit.content.verbatim import remap_fields
+    O6m, D6 = _o6()
+    out, order, units = {}, [], []
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        pdir = tmp / "pred"
+        pdir.mkdir()
+        sdir = tmp / "sessions"
+        sdir.mkdir()
+        udir = tmp / "units"
+        udir.mkdir()
+        path = V1_O6                                      # run_cases's prepare(V1_O6, pdir) is V1_O6 itself
+        pred, _sha = O6m.O6.load(path)
+        members = D6.members_of(pred)
+        retarget = {dn: f for f, dn in members.items()}
+        scripts = {fid: remap_fields(stock(dn).data, retarget) for fid, dn in members.items()}
+        for name, fn, *_want, stopped in D6.CASES:
+            d = D6.make_session(sdir, path, fn(copy.deepcopy(pred)), scripts, stopped=stopped)
+            out[name] = _pair(*O6m.O6.analyse(d, stock=stock))
+            order.append(name)
+        copy_path = pdir / "pred_copy.json"               # O6-FROZEN: the predictions changed after the session
+        copy_path.write_bytes(path.read_bytes())
+        d = D6.make_session(sdir, copy_path, D6.six(pred), scripts)
+        copy_path.write_bytes(path.read_bytes() + b" ")
+        out["predictions-changed"] = _pair(*O6m.O6.analyse(d, stock=stock))
+        order.append("predictions-changed")
+        for name, fn in D6.units(pred, stock, scripts, sdir, path, udir):
+            ok, detail = fn()
+            units.append([name, ok, detail])
+        for name, ok, detail in D6.listed_units(pred, stock, udir):
+            units.append([name, ok, detail])
+    return untemp(out, [tmp]), order, untemp(units, [tmp])
+
+
+def o6_offline() -> list:
+    O6m, _D6 = _o6()
+    pred, _sha = O6m.O6.load(V1_O6)
+    return [list(c) for c in O6m.O6.offline_check(pred)]
+
+
+def o6_run_cases_v1() -> tuple:
+    """``(rc, last line)`` of ``o6_dryrun.run_cases(V1_O6)``, its per-case lines swallowed (G36)."""
+    _O6m, D6 = _o6()
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = D6.run_cases(V1_O6)
+    lines = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
+    return rc, (lines[-1] if lines else "")
+
+
+def o6_cli_analyse() -> tuple:
+    """G35: the CLI as G29 runs O5's -- ``PYTHONIOENCODING=utf-8``, so O6's pages (curly quotes among them) print as
+    they are, never as :func:`segment_trace.say`'s escapes on a cp1252 console."""
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    p = subprocess.run([sys.executable, str(HERE / "o6_steiner.py"), "--analyse", str(O6S), "--predictions",
+                        str(V1_O6)], cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", env=env)
+    return p.returncode, p.stdout, p.stderr
+
+
+def _verdict_o6(pair: dict) -> str:
+    _O6m, D6 = _o6()
+    return D6.verdict([tuple(c) for c in pair["checks"]])
+
+
+def g34(base: dict, got: dict) -> tuple:
+    bad = []
+    archived = (O6S / "o6_report.txt").read_text(encoding="utf-8")
+    if got["report"] != archived:
+        bad.append(f"the report is not the archived o6_report.txt: {_first_diff(got['report'], archived)}")
+    if base is not None:
+        bad += _same(got, base["o6s"], "story-o6")
+    checks = got["checks"]
+    v = _verdict_o6(got)
+    if v != O6S_VERDICT or len(checks) != O6S_CHECKS or not all(c[0] is True for c in checks):
+        bad.append(f"verdict {v!r} over {len(checks)} checks, want {O6S_VERDICT} over {O6S_CHECKS}, all True")
+    return (not bad, f"G34: analyse(story-o6, v1) is the archived report exactly, PROVEN with {O6S_CHECKS} checks "
+                     f"all True", "; ".join(bad) or f"{len(got['report'].splitlines())} report lines, {v}")
+
+
+def g35(report: str) -> tuple:
+    rc, out, err = o6_cli_analyse()
+    bad = []
+    if rc != 0:
+        bad.append(f"exit {rc}: {err[-300:]}")
+    if out != report + "\n":
+        bad.append(f"stdout is not the report plus print's newline: {_first_diff(out, report + chr(10))}")
+    return (not bad, "G35: the CLI o6_steiner.py --analyse story-o6 --predictions v1 exits 0 and prints that report",
+            "; ".join(bad) or "exit 0")
+
+
+def g36(base: dict, got: dict, order: list, units: list) -> tuple:
+    bad = []
+    if base is not None:
+        if order != base["dryrun_order"]:
+            bad.append(f"cases {order} != the baseline's {base['dryrun_order']}"[:400])
+        for name in order:
+            if name in base["dryrun"]:
+                bad += _same(got[name], base["dryrun"][name], name)
+        if units != base["units"]:
+            want = {u[0]: u for u in base["units"]}
+            diff = [u[0] for u in units if want.get(u[0]) != u] + [n for n in want if n not in {u[0] for u in units}]
+            bad.append(f"units differ from the baseline's: {diff[:6]}"
+                       + ("" if [u[0] for u in units] == [u[0] for u in base["units"]] else " (and their order)"))
+    off = [u[0] for u in units if u[1] is not True]
+    if off:
+        bad.append(f"units not as registered: {off[:6]}")
+    rc, last = o6_run_cases_v1()
+    n = len(order) + len(units)
+    if rc != 0 or last != f"{n}/{n} cases as registered":
+        bad.append(f"run_cases(v1) returned {rc}: {last!r}, want {n}/{n}")
+    return (not bad, "G36: every o6_dryrun case's (checks, report) and unit's (name, ok, detail) is the baseline's, "
+                     "byte for byte; run_cases(v1) 0", "; ".join(bad[:4]) or f"{len(order)} sessions, {len(units)} "
+                                                                             f"units; {last}")
+
+
+def g37(base: dict, got: list) -> tuple:
+    bad = [] if base is None or got == base["offline"] else [f"{got} != {base['offline']}"[:500]]
+    if len(got) != O6_OFFLINE_CHECKS or not all(c[0] is True for c in got):
+        bad.append(f"offline_check(v1) reads {[c[0] for c in got]}, want {O6_OFFLINE_CHECKS} x True")
+    return (not bad, f"G37: O6's offline_check(v1) is the baseline's [(ok, what, detail)], {O6_OFFLINE_CHECKS} PASS",
+            "; ".join(bad) or "; ".join(f"{c[1].split(':')[0]}: {c[2][:90]}" for c in got))
+
+
 # ======================================================================== the driver's source pins (G21)
 def _py() -> str:
     """The interpreter's version, ``major.minor``: ``ast.dump`` is version-specific (a new field, a new default)."""
@@ -1897,10 +2260,37 @@ def o5_pin_names(o3_sources: dict, o4_sources: dict, names) -> list:
     return out
 
 
+def fake_pins_o6(source: str | None = None) -> list:
+    """The fake's O6 pins (research/o7_design.md 1.4 G0'''''): :data:`FAKE_PINS_O6`, each a ``<qualname>`` read from
+    ``source`` (default: fakegame.py as it stands), in that order. O6 added no class, so there are no classes to expand:
+    a name the source defines no function for raises (it was renamed or deleted -- a pin never follows a rename)."""
+    source = (ROOT / FAKE_REL).read_text(encoding="utf-8") if source is None else source
+    funcs = functions_of(source)
+    gone = [q for q in FAKE_PINS_O6 if q not in funcs]
+    if gone:
+        raise ValueError(f"fakegame.py defines no function {gone}: the O6 pins name what it no longer has")
+    return list(FAKE_PINS_O6)
+
+
+def o6_pin_names(o3_sources: dict, o4_sources: dict, o5_sources: dict, names) -> list:
+    """The O6 baseline's pins (G0'''''): ``names`` -- the tests G32 collects and the fake's O6 functions -- in order, each
+    once. ValueError naming every name the O3, the O4 or the O5 baseline's ``sources`` already pin: a name pinned by two
+    baselines would carry two pins in force, so the capture refuses it rather than choose one."""
+    out = list(dict.fromkeys(names))
+    clauses = [f"{len(both)} name(s) pinned in both the {label} and the O6 baselines: {both[:6]}"
+               for label, pinned in (("O3", o3_sources), ("O4", o4_sources), ("O5", o5_sources))
+               for both in [[n for n in out if n in pinned]] if both]
+    if clauses:
+        raise ValueError("; ".join(clauses) + " -- the O6 baseline pins only names none of the O3, O4 and O5 "
+                                              "baselines pins")
+    return out
+
+
 def union_sources(*sources) -> dict:
-    """G21's pins (research/o5_design.md 1.4; research/o6_design.md 1.4): the baselines' ``sources`` -- the O3
-    baseline's, the O4 baseline's and the O5 baseline's, in that order (:data:`PIN_BASELINES`) -- one dict. ValueError
-    naming every name pinned in TWO of them, pair by pair: no union then -- which pin is in force would be a choice."""
+    """G21's pins (research/o5_design.md 1.4; research/o6_design.md 1.4; research/o7_design.md 1.4): the baselines'
+    ``sources`` -- the O3 baseline's, the O4 baseline's, the O5 baseline's and the O6 baseline's, in that order
+    (:data:`PIN_BASELINES`; a call with fewer joins the first ones, exactly as before) -- one dict. ValueError naming
+    every name pinned in TWO of them, pair by pair: no union then -- which pin is in force would be a choice."""
     if len(sources) > len(PIN_BASELINES):
         raise ValueError(f"G21 joins at most the {', '.join(PIN_BASELINES)} baselines, not {len(sources)}")
     clauses = []
@@ -1918,7 +2308,7 @@ def union_sources(*sources) -> dict:
 
 
 def union_base(*bases) -> dict:
-    """The baseline G21 judges (:func:`g21`): ``{"sources": the union, "sources_python"}`` over the O3, O4 and O5
+    """The baseline G21 judges (:func:`g21`): ``{"sources": the union, "sources_python"}`` over the O3, O4, O5 and O6
     baselines given (in that order) -- the Python every pin was taken under, or each named (``3.14 / 3.15``) when they
     differ. ValueError as :func:`union_sources`."""
     sources = union_sources(*[b.get("sources") or {} for b in bases])
@@ -1993,12 +2383,13 @@ def g21_bad(sources: dict, current: dict, rows) -> list:
 
 
 def g21(base: dict, pins: Path = SOURCE_PINS, *, files=None) -> tuple:
-    """G21 over ``base``'s ``sources`` -- the gate passes :func:`union_base` of the O3, O4 and O5 baselines; a test
-    passes its own (research/o5_design.md 1.4; research/o6_design.md 1.4)."""
+    """G21 over ``base``'s ``sources`` -- the gate passes :func:`union_base` of the O3, O4, O5 and O6 baselines; a test
+    passes its own (research/o5_design.md 1.4; research/o6_design.md 1.4; research/o7_design.md 1.4)."""
     what = ("G21: every pinned source -- the O1-O3 tests G7, G12 and G13 collected at the O3 capture, the fake's beat "
             "and input functions; the O4 tests G19 collected at the O4 capture, the fake's story sink and machine "
-            "beats; the O5 tests G26 collected at the O5 capture, the fake's same-value suppression and visit beat -- "
-            "is its pin in force (its baseline's sha, or its latest re-baseline row's)")
+            "beats; the O5 tests G26 collected at the O5 capture, the fake's same-value suppression and visit beat; "
+            "the O6 tests G32 collected at the O6 capture, the fake's region walk-out, naming and door -- is its pin "
+            "in force (its baseline's sha, or its latest re-baseline row's)")
     sources = base.get("sources") or {}
     if not sources:
         return False, what, "the O3 baseline holds no sources: it was captured without its pins"
@@ -2021,20 +2412,23 @@ def g21(base: dict, pins: Path = SOURCE_PINS, *, files=None) -> tuple:
 
 
 def rebaseline_source(name: str, reason, *, baseline: Path = BASELINE_O3, baseline_o4: Path | None = None,
-                      baseline_o5: Path | None = None, pins: Path = SOURCE_PINS, files=None) -> int:
+                      baseline_o5: Path | None = None, baseline_o6: Path | None = None, pins: Path = SOURCE_PINS,
+                      files=None) -> int:
     """``--rebaseline-source NAME --reason TEXT``: append ONE row to the pins file -- ``name`` at its current sha, its
     ``old`` the pin in force -- after the file's own rows replay clean. ``name`` is looked up in any baseline given (the
-    union of the O3, O4 and O5 baselines' ``sources``, :func:`union_sources`; research/o5_design.md 1.4,
-    research/o6_design.md 1.4): the CLI passes the committed O4 and O5 baselines (``--baseline-o4``,
-    ``--baseline-o5``); a call that names neither (``baseline_o4`` and ``baseline_o5`` None) reads the O3 baseline's
-    ``sources`` alone, as O4's call did -- a test's temporary baseline never meets a committed one. Every refusal of
-    :func:`pin_row` (and a name pinned in two baselines) is an exit 1 with nothing written. ``files``:
-    :func:`source_shas`' seam."""
+    union of the O3, O4, O5 and O6 baselines' ``sources``, :func:`union_sources`; research/o5_design.md 1.4,
+    research/o6_design.md 1.4, research/o7_design.md 1.4): the CLI passes the committed O4, O5 and O6 baselines
+    (``--baseline-o4``, ``--baseline-o5``, ``--baseline-o6``); a call that names none of them (``baseline_o4``,
+    ``baseline_o5`` and ``baseline_o6`` None) reads the O3 baseline's ``sources`` alone, as O4's call did -- a test's
+    temporary baseline never meets a committed one. Every refusal of :func:`pin_row` (and a name pinned in two
+    baselines) is an exit 1 with nothing written. ``files``: :func:`source_shas`' seam."""
     base = json.loads(Path(baseline).read_bytes())
     base4 = {} if baseline_o4 is None else json.loads(Path(baseline_o4).read_bytes())
     base5 = {} if baseline_o5 is None else json.loads(Path(baseline_o5).read_bytes())
+    base6 = {} if baseline_o6 is None else json.loads(Path(baseline_o6).read_bytes())
     try:
-        sources = union_sources(base.get("sources") or {}, base4.get("sources") or {}, base5.get("sources") or {})
+        sources = union_sources(base.get("sources") or {}, base4.get("sources") or {}, base5.get("sources") or {},
+                                base6.get("sources") or {})
     except ValueError as err:
         print(f"!! refused: {err} -- nothing written")
         return 1
@@ -2058,7 +2452,8 @@ def rebaseline_source(name: str, reason, *, baseline: Path = BASELINE_O3, baseli
 
 # ======================================================================== the gate
 def _missing(*, o1: bool = True, o2: bool = True, o3: bool = False, o3s: bool = False, o4: bool = False,
-             o4s: bool = False, o5: bool = False, o5s: bool = False, o6: bool = False, files=()) -> list:
+             o4s: bool = False, o5: bool = False, o5s: bool = False, o6: bool = False, o6s: bool = False,
+             o7: bool = False, files=()) -> list:
     """The inputs the items read that are not here (each makes the gate "not run", exit 2). O3's dry run (G14) reads
     the frozen O3 predictions, or -- until they exist -- the draft, which reads O1's chain build (machine-local).
     ``o3s``: G15-G18's -- the story-o3 archive's session and report, and the frozen v1; ``o4``: O4's dry run's (G20)
@@ -2067,10 +2462,13 @@ def _missing(*, o1: bool = True, o2: bool = True, o3: bool = False, o3s: bool = 
     ``o5``: O5's dry run's (G27) -- the frozen O5 predictions, or until they exist the campaign.toml of O4's chain the
     draft reads (machine-local); ``o5s``: G28-G31's -- the story-o5 archive's session and report, and the frozen v1
     (research/o6_design.md 1.4); ``o6``: O6's dry run's (G33, from research/o6_design.md 9 C2) -- the frozen O6
-    predictions, or until they exist the campaign.toml of O4's chain the draft reads (read by path: no mode passes it
-    before C2); ``files``: whatever else the mode reads (the O3, O4 and O5 baselines and the pins file for the gate, the
-    O1 and O2 baselines for --capture-o3, the O3 baseline for --capture-o4, the O3 and O4 baselines for
-    --capture-o5)."""
+    predictions, or until they exist the campaign.toml of O4's chain the draft reads (read by path); ``o6s``: G34-G37's
+    -- the story-o6 archive's session and report, and the frozen v1 (research/o7_design.md 1.4); ``o7``: O7's dry
+    run's (G39, from research/o7_design.md 9 C2) -- the frozen O7 predictions, or until they exist the campaign.toml of
+    O4's chain the draft reads (read by path: no mode passes it before C2); ``files``: whatever else the mode reads (the
+    O3, O4, O5 and O6 baselines and the pins file for the gate, the O1 and O2 baselines for --capture-o3, the O3
+    baseline for --capture-o4, the O3 and O4 baselines for --capture-o5, the O3, O4 and O5 baselines for
+    --capture-o6)."""
     need = ([V4, O1E / "o1_session.json", O1E / "o1_report.txt", O1D / "o1_session.json"] if o1 else []) \
         + ([V1, O2S / "o2_session.json", O2S / "o2_report.txt"] if o2 else [])
     if o3:
@@ -2094,6 +2492,13 @@ def _missing(*, o1: bool = True, o2: bool = True, o3: bool = False, o3s: bool = 
         C4, _D4 = _o4()
         p6 = HERE / "o6_predictions_v1.json"
         need.append(p6 if p6.is_file() else C4.CHAIN_DIR / "campaign.toml")
+    if o6s:
+        O6m, _D6 = _o6()
+        need += [V1_O6, O6S / O6m.SESSION_FILE, O6S / "o6_report.txt"]
+    if o7:
+        C4, _D4 = _o4()
+        p7 = HERE / "o7_predictions_v1.json"
+        need.append(p7 if p7.is_file() else C4.CHAIN_DIR / "campaign.toml")
     need += [Path(p) for p in files]
     return [str(p) for p in need if not p.is_file()]
 
@@ -2180,6 +2585,21 @@ def collect_o5() -> dict:
 def judge_o5(base: dict | None, got: dict) -> list:
     return [g28(base, got["o5s"]), g29(got["o5s"]["report"]),
             g30(base, got["dryrun"], got["dryrun_order"], got["units"]), g31(base, got["offline"])]
+
+
+def collect_o6() -> dict:
+    """Everything the O6 code says, once: the gate's reading (and, at G0''''', the O6 baseline's), every temporary root
+    read as :data:`TMP`."""
+    from ff9mapkit import storytrace as T
+    stock = T.stock_script_source()
+    dry, order, units = o6_dryrun_outputs(stock)
+    return {"o6s": o6_analyse_archive(), "dryrun": dry, "dryrun_order": order, "units": units,
+            "offline": o6_offline()}
+
+
+def judge_o6(base: dict | None, got: dict) -> list:
+    return [g34(base, got["o6s"]), g35(got["o6s"]["report"]),
+            g36(base, got["dryrun"], got["dryrun_order"], got["units"]), g37(base, got["offline"])]
 
 
 def readings_differ(a: dict, b: dict) -> list:
@@ -2404,6 +2824,60 @@ def capture_o5(out: Path, *, baseline_o3: Path = BASELINE_O3, baseline_o4: Path 
     return 0
 
 
+def capture_o6(out: Path, *, baseline_o3: Path = BASELINE_O3, baseline_o4: Path = BASELINE_O4,
+               baseline_o5: Path = BASELINE_O5) -> int:
+    """G0''''': the O6 baseline, once, at the code BEFORE any O7 change (research/o7_design.md 1.4, 9 A0). TWO readings
+    first, compared with every temporary root read as :data:`TMP`: one that still differs is named and refused. Then
+    G32, G33 and G34-G37's baseline-free halves must pass; the tests G32 collects and the fake's O6 functions
+    (:func:`fake_pins_o6`) become the O6 quarter of G21's ``sources`` -- only names none of the O3, O4 and O5 baselines
+    pins (:func:`o6_pin_names` refuses one any does)."""
+    if out.exists():
+        raise SystemExit(f"!! {out} exists: the O6 baseline is captured once, before any O7 code change. It is never "
+                         f"overwritten.")
+    O6m, _D6 = _o6()
+    first = collect_o6()
+    second = collect_o6()
+    differ = readings_differ(first, second)
+    if differ:
+        print(f"!! two readings of O6's outputs differ (a temporary path, a clock or a random in an output): "
+              f"{', '.join(differ[:12])}{f' (+{len(differ) - 12} more)' if len(differ) > 12 else ''} -- no O6 "
+              f"baseline written")
+        return 1
+    tests = pytest_g32()
+    items = [g32(tests), g33()] + judge_o6(None, first)
+    _show_items(items)
+    if not all(ok for ok, _w, _d in items):
+        print("!! the code here does not pass G32, G33 and G34-G37's baseline-free halves: no O6 baseline written")
+        return 1
+    base_o3 = json.loads(Path(baseline_o3).read_bytes())
+    base_o4 = json.loads(Path(baseline_o4).read_bytes())
+    base_o5 = json.loads(Path(baseline_o5).read_bytes())
+    try:
+        fake = fake_pins_o6()
+        names = o6_pin_names(base_o3.get("sources") or {}, base_o4.get("sources") or {}, base_o5.get("sources") or {},
+                             sorted({pin_of_test(n) for n in tests["passed"]}) + [f"{FAKE_REL}::{q}" for q in fake])
+    except ValueError as err:
+        print(f"!! {err} -- no O6 baseline written")
+        return 1
+    sources = source_shas(names)
+    gone = [n for n, s in sources.items() if s is None]
+    if gone:
+        print(f"!! no function for {len(gone)} pin(s): {gone[:6]} -- no O6 baseline written")
+        return 1
+    _pred, sha = O6m.O6.load(V1_O6)
+    base = {"what": "O6's outputs at the code before any O7 change (research/o7_design.md 1.4 G0'''''): every (checks, "
+                    "report) and every unit's (name, ok, detail) the regression gate compares byte for byte, each "
+                    "temporary root read as <tmp>; and G21's O6 sources, the AST sha of every pinned function",
+            "head": _head(), "predictions": V1_O6.name, "predictions_sha256": sha, "archive": str(O6S), "tmp": TMP,
+            "tests": sorted(tests["passed"]), "sources": sources, "sources_python": _py(),
+            "sources_from": {"G32": PYTEST_K_O6, "fake": list(fake)}, **first}
+    text = json.dumps(base, indent=1, sort_keys=True) + "\n"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(text.encode("utf-8"))
+    print(f"captured: {out} ({len(text)} chars, head {base['head'][:8]}; {len(sources)} sources pinned)")
+    return 0
+
+
 def _show_items(items: list) -> None:
     for ok, what, detail in items:
         print(f"{'PASS' if ok else 'FAIL'}  {what}\n      {detail}", flush=True)
@@ -2428,19 +2902,22 @@ def select_items(only=(), segments=()) -> set:
         return set(ITEM_ORDER)
     bad = [i for i in only if i not in ITEM_ORDER] + [s for s in segments if s not in SEGMENT_ITEMS]
     if bad:
-        raise ValueError(f"no item or segment {', '.join(bad)} (items: G1-G33; segments: {', '.join(SEGMENT_ITEMS)})")
+        top = max(int(i[1:]) for i in ITEM_ORDER)
+        raise ValueError(f"no item or segment {', '.join(bad)} (items: G1-G{top}; segments: "
+                         f"{', '.join(SEGMENT_ITEMS)})")
     return set(only) | {i for s in segments for i in SEGMENT_ITEMS[s]}
 
 
 def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2, baseline_o3: Path = BASELINE_O3,
-         pins: Path = SOURCE_PINS, baseline_o4: Path = BASELINE_O4, baseline_o5: Path = BASELINE_O5, *,
-         only=None, receipt: dict | None = None, n: int | None = None) -> int:
+         pins: Path = SOURCE_PINS, baseline_o4: Path = BASELINE_O4, baseline_o5: Path = BASELINE_O5,
+         baseline_o6: Path = BASELINE_O6, *, only=None, receipt: dict | None = None, n: int | None = None) -> int:
     """The gate: every item of ``only`` (default all, :func:`select_items`), printed in :data:`ITEM_ORDER`. The pytest
     items are ONE run of their union on a thread (:func:`pytest_items`; a ``receipt`` instead judges them from a
     whole-file run already done at this HEAD and tree) while the in-process items run here. A run of every item ends
     ``N/N items PASS`` and exits 0 only if each passes; a PARTIAL run (``only``) is never the gate: it exits 3 when
     every selected item passes, 1 when one fails, and says NOT THE GATE."""
-    absent = [p for p in (baseline, baseline_o2, baseline_o3, baseline_o4, baseline_o5, pins) if not Path(p).is_file()]
+    absent = [p for p in (baseline, baseline_o2, baseline_o3, baseline_o4, baseline_o5, baseline_o6, pins)
+              if not Path(p).is_file()]
     if absent:
         print(f"!! no baseline at {', '.join(str(p) for p in absent)}: the gate was not run (capture each first, "
               f"before the change it guards)")
@@ -2450,6 +2927,7 @@ def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2, baseline_o3
     base_o3 = json.loads(Path(baseline_o3).read_bytes())
     base_o4 = json.loads(Path(baseline_o4).read_bytes())
     base_o5 = json.loads(Path(baseline_o5).read_bytes())
+    base_o6 = json.loads(Path(baseline_o6).read_bytes())
     py_ids = [i for i in ITEM_ORDER if i in sel and i in PYTEST_ITEMS]
     HT.reset_stop()
     ex = ThreadPoolExecutor(1)
@@ -2485,9 +2963,13 @@ def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2, baseline_o3
             take(judge_o5(base_o5, collect_o5()), "O5's outputs (G28-G31)")
         if want("G33"):
             take([g33()], "O6's dry run and as if frozen (G33)")
-        if want("G21"):                                          # the driver's source pins over three baselines
+        if want("G34", "G35", "G36", "G37"):
+            take(judge_o6(base_o6, collect_o6()), "O6's outputs (G34-G37)")
+        if want("G39"):
+            take([g39()], "O7's dry run and as if frozen (G39)")    # no baseline, the count's floor (C2)
+        if want("G21"):                                          # the driver's source pins over four baselines
             try:
-                take([g21(union_base(base_o3, base_o4, base_o5), pins)], "the source pins (G21)")
+                take([g21(union_base(base_o3, base_o4, base_o5, base_o6), pins)], "the source pins (G21)")
             except ValueError as err:
                 take([(False, "G21: every pinned source is its pin in force", str(err))], "the source pins (G21)")
         if tests_f is not None:
@@ -2498,7 +2980,7 @@ def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2, baseline_o3
                              "errors": [f"the pytest run raised {type(err).__name__}: {str(err)[:400]}"]}
                          for i in py_ids}
             judges = {"G7": lambda t: g7(base, t), "G12": lambda t: g12(base_o2, t), "G13": g13, "G19": g19,
-                      "G26": g26, "G32": g32}
+                      "G26": g26, "G32": g32, "G38": g38}
             take([_with_flakes(judges[i](tests[i]), tests[i]) for i in py_ids],
                  f"the pytest items ({', '.join(py_ids)}), one run")
     except BaseException:
@@ -2517,7 +2999,7 @@ def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2, baseline_o3
               f"not run) -- NOT THE GATE")
         return 3 if k == len(items) else 1
     print(f"\n{k}/{len(items)} items PASS (baseline heads: O1 {base['head'][:8]}, O2 {base_o2['head'][:8]}, O3 "
-          f"{base_o3['head'][:8]}, O4 {base_o4['head'][:8]}, O5 {base_o5['head'][:8]})")
+          f"{base_o3['head'][:8]}, O4 {base_o4['head'][:8]}, O5 {base_o5['head'][:8]}, O6 {base_o6['head'][:8]})")
     return 0 if k == len(items) else 1
 
 
@@ -2529,9 +3011,11 @@ def main(argv=None) -> int:
     ap.add_argument("--capture-o4", action="store_true", help="G0''': write the O4 baseline (refuses an existing one)")
     ap.add_argument("--capture-o5", action="store_true",
                     help="G0'''': write the O5 baseline (refuses an existing one)")
+    ap.add_argument("--capture-o6", action="store_true",
+                    help="G0''''': write the O6 baseline (refuses an existing one)")
     ap.add_argument("--out", type=Path, default=None,
-                    help="where --capture / --capture-o2 / --capture-o3 / --capture-o4 / --capture-o5 writes (default: "
-                         "that baseline's committed path)")
+                    help="where --capture / --capture-o2 / --capture-o3 / --capture-o4 / --capture-o5 / --capture-o6 "
+                         "writes (default: that baseline's committed path)")
     ap.add_argument("--baseline", type=Path, default=BASELINE, help="the O1 baseline the gate reads (default: the "
                                                                     "committed one; another is for testing the gate)")
     ap.add_argument("--baseline-o2", type=Path, default=BASELINE_O2,
@@ -2542,17 +3026,20 @@ def main(argv=None) -> int:
                     help="the O4 baseline the gate and --rebaseline-source read (default: the committed one)")
     ap.add_argument("--baseline-o5", type=Path, default=BASELINE_O5,
                     help="the O5 baseline the gate and --rebaseline-source read (default: the committed one)")
+    ap.add_argument("--baseline-o6", type=Path, default=BASELINE_O6,
+                    help="the O6 baseline the gate and --rebaseline-source read (default: the committed one)")
     ap.add_argument("--source-pins", type=Path, default=SOURCE_PINS,
                     help="G21's re-baseline rows (default: the committed research/source_pins.json)")
     ap.add_argument("--rebaseline-source", metavar="NAME",
                     help="G21: append ONE re-baseline row for the pinned source NAME (<file>::<qualname>) at its "
-                         "current sha -- a name the O3, the O4 or the O5 baseline pins; needs --reason")
+                         "current sha -- a name the O3, the O4, the O5 or the O6 baseline pins; needs --reason")
     ap.add_argument("--reason", help="with --rebaseline-source: why the pinned source changed (never empty)")
     ap.add_argument("--only", metavar="IDS", default="",
-                    help="comma-separated items (G1-G33): a PARTIAL run -- exit 3 when every one passes, never 0: it "
-                         "is NOT THE GATE")
+                    help=f"comma-separated items (G1-G{max(int(i[1:]) for i in ITEM_ORDER)}): a PARTIAL run -- exit 3 "
+                         f"when every one passes, never 0: it is NOT THE GATE")
     ap.add_argument("--segment", metavar="SEGS", default="",
-                    help="comma-separated segments (O1-O6): their items, a PARTIAL run as --only (G21 is no segment's)")
+                    help=f"comma-separated segments ({', '.join(SEGMENT_ITEMS)}): their items, a PARTIAL run as --only "
+                         f"(G21 is no segment's)")
     ap.add_argument("--list", action="store_true", help="print the items, their segments and kinds; run nothing")
     ap.add_argument("--pytest-junit", metavar="RECEIPT", type=Path, default=None,
                     help="judge the pytest items from harness_tests.py's whole-file receipt (refused unless it is for "
@@ -2572,8 +3059,8 @@ def main(argv=None) -> int:
                             [x.strip().upper() for x in args.segment.split(",") if x.strip()])
     except ValueError as err:
         ap.error(str(err))
-    modes = [m for m in ("capture", "capture_o2", "capture_o3", "capture_o4", "capture_o5", "rebaseline_source")
-             if getattr(args, m)]
+    modes = [m for m in ("capture", "capture_o2", "capture_o3", "capture_o4", "capture_o5", "capture_o6",
+                         "rebaseline_source") if getattr(args, m)]
     if len(modes) > 1:
         ap.error(f"one at a time, not {' and '.join(modes)}")
     if args.reason is not None and not args.rebaseline_source:
@@ -2583,8 +3070,11 @@ def main(argv=None) -> int:
     if modes and gate_opts:
         ap.error(f"{', '.join(gate_opts)} go with the gate, not --{modes[0].replace('_', '-')}")
     if args.rebaseline_source:
-        missing = _missing(o1=False, o2=False,
-                           files=(args.baseline_o3, args.baseline_o4, args.baseline_o5, args.source_pins))
+        missing = _missing(o1=False, o2=False, files=(args.baseline_o3, args.baseline_o4, args.baseline_o5,
+                                                      args.baseline_o6, args.source_pins))
+    elif args.capture_o6:
+        missing = _missing(o1=False, o2=False, o6=True, o6s=True,
+                           files=(args.baseline_o3, args.baseline_o4, args.baseline_o5))
     elif args.capture_o5:
         missing = _missing(o1=False, o2=False, o5=True, o5s=True, files=(args.baseline_o3, args.baseline_o4))
     elif args.capture_o4:
@@ -2595,13 +3085,15 @@ def main(argv=None) -> int:
         missing = _missing(o1=not args.capture_o2, o2=not args.capture, o3=False)
     else:
         missing = _missing(o1=True, o2=True, o3=True, o3s=True, o4=True, o4s=True, o5=True, o5s=True, o6=True,
-                           files=(args.baseline_o3, args.baseline_o4, args.baseline_o5, args.source_pins))
+                           o6s=True, o7=True, files=(args.baseline_o3, args.baseline_o4, args.baseline_o5,
+                                                     args.baseline_o6, args.source_pins))
     if missing:
         print("!! the gate was not run -- missing: " + ", ".join(missing))
         return 2
     if args.rebaseline_source:
         return rebaseline_source(args.rebaseline_source, args.reason, baseline=args.baseline_o3,
-                                 baseline_o4=args.baseline_o4, baseline_o5=args.baseline_o5, pins=args.source_pins)
+                                 baseline_o4=args.baseline_o4, baseline_o5=args.baseline_o5,
+                                 baseline_o6=args.baseline_o6, pins=args.source_pins)
     if args.capture:
         return capture(args.out or BASELINE)
     if args.capture_o2:
@@ -2612,6 +3104,9 @@ def main(argv=None) -> int:
         return capture_o4(args.out or BASELINE_O4, baseline_o3=args.baseline_o3)
     if args.capture_o5:
         return capture_o5(args.out or BASELINE_O5, baseline_o3=args.baseline_o3, baseline_o4=args.baseline_o4)
+    if args.capture_o6:
+        return capture_o6(args.out or BASELINE_O6, baseline_o3=args.baseline_o3, baseline_o4=args.baseline_o4,
+                          baseline_o5=args.baseline_o5)
     receipt = None
     if args.pytest_junit is not None:
         receipt, bad = HT.load_receipt(args.pytest_junit)
@@ -2619,7 +3114,8 @@ def main(argv=None) -> int:
             print("!! the gate was not run -- the receipt is not evidence for the code here: " + "; ".join(bad))
             return 2
     return gate(args.baseline, args.baseline_o2, args.baseline_o3, args.source_pins, args.baseline_o4,
-                args.baseline_o5, only=None if only == set(ITEM_ORDER) else only, receipt=receipt, n=args.n)
+                args.baseline_o5, args.baseline_o6, only=None if only == set(ITEM_ORDER) else only, receipt=receipt,
+                n=args.n)
 
 
 if __name__ == "__main__":

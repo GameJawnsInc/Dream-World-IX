@@ -138,5 +138,54 @@
   "new": "df76b2869b2cb2f81cde5a7a4786c49c5e90259442c223098e9242493954c365",
   "reason": "a 0.5 s wall-clock read stall after instance 9's press returned flaked at -n 8 under load: the press's own late ack read saw the window close (evidence closed); it now starves the reads from the press's acceptance past its mark, counted in the fake's frames (_o4_starve_reads), and re-runs only a read-gap VOID raised before the starve fired -- the assertions are unchanged, plus the starve's premise",
   "head": "b75274b0b4ec51e54bfae1f7519a70676b72040a"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_visit_steps",
+  "old": "2b05869dfffd07ad5d2cf44c5da7eef39904c43771967ea732145ab12da3265d",
+  "new": "062b5f23a643d44e25e0ad8586bced60aa8c8d2d23bea7e3bba0afb4f695eef4",
+  "reason": "O7 B1 (research/o7_design.md 3.1, H20): a place or grant step is refused unless it is [x, z] or [x, z, h] (h the scripted placement's PSX height); every O5 and O6 route's two-number steps pass as before -- both replays (O5's hallway, O6's Steiner route) read identical",
+  "head": "2150d6f04e35cc7cb803853e1619942a9067ca44"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_VisitBeat._place",
+  "old": "27454e904265fdec381b34b36d160dab75617099538b5710a3b7d889b97399e3",
+  "new": "5e074949ea90e308d0f5dfb1ecf7403e5c1f7fba9c57a93f222da7fddc5a6c8a",
+  "reason": "O7 B1 (research/o7_design.md 3.1, H20): [x, z, h] places his height too (FakeGame.place_height: the open triangle under him nearest h on a field with levels, else -h); [x, z] is the place as before -- both replays (O5's hallway, O6's Steiner route) read identical",
+  "head": "2150d6f04e35cc7cb803853e1619942a9067ca44"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_door_knobs",
+  "old": "0323c7a7e2116f11bb21d73a26136b6bbda031b5c7590b6f1f1d113041002836",
+  "new": "4d02977d0928fcc7253feef5b414a86dbe544c9ddeb3648309bcaea1f5495bb3",
+  "reason": "O7 B2 (research/o7_design.md 3.3, H22): a door's height terms y_gt and y_le (numbers) beside z_gt, and the door step's scenes (each {name, any_of, unless_bit, steps, regrant}, its steps pages, stores and waits) checked strict; O6's door steps carry neither and read as before -- O6's fake and driver door tests (G32) and both replays pass",
+  "head": "12a12112c5fcca4f0fa4d5da805eabd30840ada1"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_VisitBeat._door",
+  "old": "72e920d3cae8b144af569174d47fb881643984b005601cd838137d89bbf95302",
+  "new": "8b1d49cccd7e40f1bd760919c3627dc255a937daceebc115cfa51aa5a7b45821",
+  "reason": "O7 B2 (research/o7_design.md 3.3, H22): a door fires only within its y_gt / y_le height terms (154's e8, e9, e10: the balcony branch and the ground branch of one polygon), and the step's armed scenes are tested after the doors each tick he has control (159's forced monologue: control off, its steps, the re-grant in place); a door step with neither is O6's exactly -- O6's door tests (G32) and both replays pass",
+  "head": "12a12112c5fcca4f0fa4d5da805eabd30840ada1"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_visit_steps",
+  "old": "062b5f23a643d44e25e0ad8586bced60aa8c8d2d23bea7e3bba0afb4f695eef4",
+  "new": "23739a8a12a669fbd6c6e631b649a5d184e76aed4f4dcdba8dec644956330aa2",
+  "reason": "O7 review fix H24 (159 e16 t1's own byte order): a page step's async is checked a bool and a wait_window step's slot an int >= 0 -- two opt-in checks; every O5/O6 step kind is checked exactly as before",
+  "head": "60eff9ff4b5a972413967b3b5fa04b6c4be05693"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_VisitBeat._run",
+  "old": "d3a44af6e19adbd6dabe443289cf12e1cba9980f5faf0ea76d907b5298999f53",
+  "new": "20bd178571f609f39483f231bccc2044c1eb3f98cb61509932fdef356844fdf5",
+  "reason": "O7 review fix H24: the wait_window step (WaitWindow(slot)) dispatched to _wait_window before the field step's else; every other step kind runs exactly as before",
+  "head": "60eff9ff4b5a972413967b3b5fa04b6c4be05693"
+ },
+ {
+  "name": "tools/harness/fakegame.py::_VisitBeat._page",
+  "old": "e58e8303d333911b535344ce8f43694414f54891f8cf6100470e20caa1bc45c3",
+  "new": "a741f6ebd127d730cc157ea02854482354f5c88fbc2c163d17c657883218b259",
+  "reason": "O7 review fix H24: a page with async True (WindowAsync alone) returns once listed, the script going on while it is up; a page without async waits for its window exactly as before",
+  "head": "60eff9ff4b5a972413967b3b5fa04b6c4be05693"
  }
 ]

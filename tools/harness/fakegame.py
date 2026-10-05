@@ -103,6 +103,150 @@ SOFT_RESET_ENGINE_UI = ("FieldHUD", "WorldHUD", "BattleHUD", "QuadMistBattle")
 SKIP_CURSOR = 1
 SKIP_CHOICE = 0
 
+# ======================================================================== H20-H21: O7's levels and squeeze
+#: H20 (research/o7_design.md 3.1): how far from his height an open triangle under him may lie and still be HIS. The
+#: engine keeps the actor on its active triangle and crosses only a shared edge to a neighbour; nearest-within-this is
+#: that graph wherever stacked levels lie further apart than it and a step changes his height by less. A 60-u tick step
+#: on stock 154's steepest open triangle (tri 205, the west flight, 52.8 deg) changes his height by 79.1, on 163's
+#: (tri 134) by 63.0; 154's stacked open triangles lie at least 1298 apart (a stair over the ground; the balcony 1711
+#: over it) -- test_fake_level_meshes_hold_the_levels_premises measures each.
+LEVEL_STEP_DY = 200.0
+#: H20: the engine's own "same level" pairing band (WalkMesh.cs:922), the stand-in for "his own surface": a wall is his
+#: when its height at the point nearest him lies within this of his. Sound while stacked levels lie more than twice it
+#: apart.
+LEVEL_BAND = 400.0
+#: H21 (research/o7_design.md 3.2): how far under the controller's radius a side a PINCH may be and still let him
+#: through -- an ESTIMATE over 163's measured 3.3-u overlap (0.2 #12) that R-STAIR measures (F5); a NO-GO there is the
+#: fallback end, never a wider slack.
+SQUEEZE_SLACK_W = 8.0
+#: H21: the spacing of the search across a pinch for its widest point.
+SQUEEZE_SAMPLE_W = 2.0
+
+
+class Levels:
+    """H20 (research/o7_design.md 3.1): a STACKED walkmesh as the engine walks one actor on it -- stock 154's balcony
+    1711 over its ground, its floor indices mixing both heights (0.2 #7), which the kit's floor-blind
+    ``point_on_walkmesh`` and ``distance_to_boundary`` cannot tell apart. Over a kit walkmesh: a ``PlayerWalkmesh``
+    (its open triangles) or a ``BgiWalkmesh`` (every triangle), its world verts in PSX y (up negative).
+
+      * :meth:`tri_under` -- among the open triangles containing (x, z), the one whose height there is NEAREST his and
+        within ``step_dy`` of it, else None: the actor stays on its active triangle and crosses only a shared edge
+        (the walkmesh traversal), which this is wherever stacked levels lie more than ``step_dy`` apart and a step
+        changes his height by less; :meth:`tri_nearest` -- the same without the bound (a placement, GetTriIdxAtPos,
+        FieldMapActorController.cs:1279-1306);
+      * :meth:`height` -- the interpolated PSX height on a triangle;
+      * :meth:`wall_gap` -- the XZ distance to the nearest WALL of his level: an edge of an open triangle with no open
+        neighbour (PlayerWalkmesh's rule, per triangle -- not per floor index), kept when its height at its point
+        nearest him lies within ``band`` of his; None off his level;
+      * :meth:`squeeze` -- H21 (3.2), with ``squeeze_slack`` set: a PINCH's midline.
+
+    The fake walks him on it through ``fake.levels`` (:meth:`FakeGame._move_to`)."""
+
+    def __init__(self, wmesh, *, step_dy: float = LEVEL_STEP_DY, band: float = LEVEL_BAND,
+                 squeeze_slack: float | None = None):
+        from ff9mapkit.scene import bgi
+        mesh = getattr(wmesh, "mesh", wmesh)                 # a PlayerWalkmesh's raw mesh, or a BgiWalkmesh
+        closed = frozenset(getattr(wmesh, "closed", ()) or ())
+        for name, v in (("step_dy", step_dy), ("band", band)):
+            if not isinstance(v, (int, float)) or isinstance(v, bool) or not v > 0:
+                raise ValueError(f"Levels: {name} is a positive number of world units, not {v!r}")
+        if squeeze_slack is not None and (not isinstance(squeeze_slack, (int, float))
+                                          or isinstance(squeeze_slack, bool) or squeeze_slack < 0):
+            raise ValueError(f"Levels: squeeze_slack is None or a number of world units >= 0, not {squeeze_slack!r}")
+        self.mesh = mesh
+        self.step_dy, self.band = float(step_dy), float(band)
+        self.squeeze_slack = None if squeeze_slack is None else float(squeeze_slack)
+        self._wv = mesh.world_verts()
+        tris = mesh.tris
+        self.open = frozenset(i for i in range(len(tris)) if i not in closed)
+        walls = []
+        for ti in sorted(self.open):
+            t = tris[ti]
+            for k, (i, j) in enumerate(bgi.SLOT_PAIRS):
+                n = t.nbr[k]
+                if 0 <= n < len(tris) and n in self.open:
+                    continue                                 # an open neighbour across this edge: not a wall
+                a, b = self._wv[t.vtx[i]], self._wv[t.vtx[j]]
+                dx, dy, dz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+                walls.append((a[0], a[1], a[2], dx, dy, dz, dx * dx + dz * dz))
+        self._walls = walls
+
+    def height(self, ti: int, x: float, z: float) -> float:
+        """The PSX height (up negative) of triangle ``ti``'s plane at (x, z), barycentric over its world verts."""
+        a, b, c = (self._wv[k] for k in self.mesh.tris[ti].vtx)
+        den = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
+        if den == 0:
+            return float(a[1])
+        wa = ((b[2] - c[2]) * (x - c[0]) + (c[0] - b[0]) * (z - c[2])) / den
+        wb = ((c[2] - a[2]) * (x - c[0]) + (a[0] - c[0]) * (z - c[2])) / den
+        return wa * a[1] + wb * b[1] + (1.0 - wa - wb) * c[1]
+
+    def tri_nearest(self, x: float, z: float, h: float) -> int | None:
+        """The open triangle containing (x, z) whose height there is nearest ``h`` (ties: the lower id), else None."""
+        best = None
+        for ti in self.mesh.tris_at(x, z):
+            if ti not in self.open:
+                continue
+            d = abs(self.height(ti, x, z) - h)
+            if best is None or d < best[0]:
+                best = (d, ti)
+        return None if best is None else best[1]
+
+    def tri_under(self, x: float, z: float, h: float) -> int | None:
+        """His triangle at (x, z): :meth:`tri_nearest` when within ``step_dy`` of ``h``, else None (no triangle of his
+        level there -- the edge of a balcony, over the ground below it)."""
+        ti = self.tri_nearest(x, z, h)
+        return ti if ti is not None and abs(self.height(ti, x, z) - h) <= self.step_dy else None
+
+    def wall_gap(self, x: float, z: float, h: float) -> float | None:
+        """The XZ distance from (x, z) to the nearest wall of HIS level (a wall whose height at its point nearest him
+        lies within ``band`` of ``h``); None when no triangle of his level is under him (:meth:`tri_under`); infinity
+        when no wall of his level stands anywhere."""
+        if self.tri_under(x, z, h) is None:
+            return None
+        best = math.inf
+        for ax, ay, az, dx, dy, dz, l2 in self._walls:
+            t = 0.0 if l2 == 0 else ((x - ax) * dx + (z - az) * dz) / l2
+            t = 0.0 if t < 0.0 else 1.0 if t > 1.0 else t
+            if abs(ay + t * dy - h) > self.band:
+                continue                                     # another level's wall
+            d = math.hypot(x - (ax + t * dx), z - (az + t * dz))
+            if d < best:
+                best = d
+        return best
+
+    def squeeze(self, x: float, z: float, ux: float, uz: float, h: float, clearance: float):
+        """H21 (research/o7_design.md 3.2): where a step ending at (x, z) along (ux, uz) is placed in a PINCH -- the
+        point of the LARGEST wall gap on the segment across the step through its end, ``clearance`` either side, each
+        side only as far as his level's floor runs (the corridor's midline, where the engine's opposing pushes average
+        out: RadiusValid pushes each wall's force out to the controller's radius, ServiceForces averages several x
+        1.05, FieldMapActorController.cs:1060-1254) -- ``(px, pz)``, kept when that gap is at least ``clearance -
+        squeeze_slack``. None -- the caller's rule as ever -- without ``squeeze_slack``, off his level, for no step, where
+        a point across stands at the full ``clearance`` (no pinch: a press into a wall), or where the pinch is narrower
+        than that bound (he stops: the radius cannot fit)."""
+        if self.squeeze_slack is None or self.tri_under(x, z, h) is None:
+            return None
+        n = math.hypot(ux, uz)
+        if n < 1e-9:
+            return None
+        px, pz = -uz / n, ux / n                             # across the step
+        best = None
+        for side in (1.0, -1.0):
+            t = 0.0
+            while t <= clearance + 1e-9:
+                qx, qz = x + side * t * px, z + side * t * pz
+                g = self.wall_gap(qx, qz, h)
+                if g is None:
+                    break                                    # off his level: no further this side
+                if g >= clearance:
+                    return None                              # room at the full radius across: no pinch here
+                if best is None or g > best[0]:
+                    best = (g, qx, qz)
+                t += SQUEEZE_SAMPLE_W
+        if best is None or best[0] < clearance - self.squeeze_slack:
+            return None
+        return best[1], best[2]
+
 
 class FakeGame:
     """Runs the agent's side of the protocol in a background thread at a simulated frame rate.
@@ -272,6 +416,13 @@ class FakeGame:
         #: in the game. Placed nearer a wall than that (a scene's own spot), his first moving frame pushes him
         #: straight out onto the line, as the engine's does (:meth:`_pushed_out`).
         self.clearance: float | None = None
+        #: H20 (research/o7_design.md 3.1), OPT-IN: a STACKED walkmesh's levels, by field id -- ``{field id:
+        #: Levels}``. Empty (the default): today's fake. On a field with an entry, :meth:`_move_to` keeps him on ONE
+        #: level of it (the open triangle under him within a step of his height), walls him in by his own level's walls
+        #: alone, and publishes his height in ``player[1]`` (the agent's ``pos[1]``: f[1] = -pos[1]); a scripted
+        #: placement sets it (:meth:`place_height`). `clearance` is required there (ValueError otherwise), and a level's
+        #: ``squeeze_slack`` turns on H21's pinch rule.
+        self.levels: dict = {}
         #: Frames the character keeps moving after the direction is released. Measured on bench 30801,
         #: a hold covers what it commanded give or take ONE frame at 60 fps (`hold down 1` moves 60
         #: units at run speed, `hold down 31` moves 900) -- which the smooth 60 fps model (half a tick
@@ -1462,7 +1613,15 @@ class FakeGame:
         while sLockTimer is not negative -- pushed out of a body it enters that is in front of him (see
         `blockers`), refused (False, he stays put) when the push-out lands in another. Then the lock's
         count for the frame (CheckCollFallback). Only a body that collides is met: ``coll``, and within
-        400 of him in y (WalkMesh.Collision's pair rule and its |dy| band)."""
+        400 of him in y (WalkMesh.Collision's pair rule and its |dy| band).
+
+        H20 (research/o7_design.md 3.1), OPT-IN: on a field with an entry in `levels` the floor is HIS LEVEL of a
+        stacked walkmesh -- the clearance rule below, its walls his level's (:meth:`Levels.wall_gap`) and its floor the
+        open triangle under him within a step of his height (:meth:`Levels.tri_under`, his height ``-player[1]``) --
+        and his height is published after the step (``player[1]``, minus the height there); `clearance` is required.
+        H21 (3.2): with the level's ``squeeze_slack``, a PINCH -- a corridor with no point across it at `clearance` --
+        is passed down to ``clearance - squeeze_slack`` (:meth:`Levels.squeeze`), where the engine's opposing pushes
+        average out at its midline."""
         ox, oz = self.player[0], self.player[2]
         if (x, z) != (ox, oz):
             m = ((x - ox) ** 2 + (z - oz) ** 2) ** 0.5
@@ -1489,18 +1648,33 @@ class FakeGame:
                 pushed = True
             break                                   # WalkMesh.Collision answers with ONE body
         on = getattr(self.walkmesh, "point_on_walkmesh", None)
-        if on is not None and self.clearance is not None:
+        lv = self.levels.get(self.field_id)         # H20 (opt-in): his level of a stacked walkmesh
+        h = None
+        if lv is not None and self.clearance is None:
+            raise ValueError(f"fake.levels[{self.field_id}]: a level is walked at the controller's radius -- set "
+                             f"fake.clearance (Steiner's: 120)")
+        if lv is not None or (on is not None and self.clearance is not None):
             # his centre kept `clearance` off every wall -- pushed out onto that line where he stands closer (placed
             # there), or, where no push lands him on it, never closer still: the step stops on that line, and its
             # rest slides on along the wall
-            def wall(px, pz):
-                d = self.walkmesh.distance_to_boundary(int(round(px)), int(round(pz)))
-                return -1.0 if d is None or on(int(round(px)), int(round(pz))) is None else d
+            if lv is not None:
+                h = -float(self.player[1])          # his height (PSX y, up negative): f[1] = -pos[1]
+
+                def wall(px, pz):
+                    d = lv.wall_gap(px, pz, h)
+                    return -1.0 if d is None else d
+            else:
+                def wall(px, pz):
+                    d = self.walkmesh.distance_to_boundary(int(round(px)), int(round(pz)))
+                    return -1.0 if d is None or on(int(round(px)), int(round(pz))) is None else d
+            squeeze = lv is not None and lv.squeeze_slack is not None     # H21 (opt-in)
+            squeezed = False
             least = max(0.0, min(self.clearance, wall(ox, oz)))     # off the mesh (an arrival): onto it
 
             def floor(px, pz):
                 return wall(px, pz) >= least
             if not floor(x, z):
+                ex, ez = x, z                       # H21: the step's own end
                 lo, hi = 0.0, 1.0
                 for _ in range(16):
                     mid = (lo + hi) / 2
@@ -1511,21 +1685,37 @@ class FakeGame:
                 import math
                 rx, rz = x - bx, z - bz
                 x, z = bx, bz
+                slid = False
                 for deg in (15, 30, 45, 60, 75):
                     c = math.cos(math.radians(deg))
                     for s in (math.sin(math.radians(deg)), -math.sin(math.radians(deg))):
                         px, pz = bx + (rx * c - rz * s) * c, bz + (rx * s + rz * c) * c
                         if floor(px, pz):
                             x, z = px, pz
+                            slid = True
                             break
                     else:
                         continue
                     break
-            if 0.0 <= wall(ox, oz) < self.clearance and 0.0 <= wall(x, z) < self.clearance:
-                # placed nearer a wall than his radius (a scene's own spot): where the step ends -- kept on the floor
-                # above, as the engine's triangle walk keeps it -- is pushed straight out onto the radius line, as the
-                # engine pushes it on his first moving frame
-                x, z = self._pushed_out(x, z, wall) or (x, z)
+                if squeeze and not slid:
+                    # H21: neither the never-closer rule nor a slide stands -- in a PINCH (no point across the step's
+                    # end at full clearance) the opposing pushes average out at its midline: placed there when the
+                    # pinch is no narrower than clearance - squeeze_slack a side; else he stops, as ever
+                    got = lv.squeeze(ex, ez, ex - ox, ez - oz, h, self.clearance)
+                    if got is not None:
+                        x, z = got
+                        squeezed = True
+            if not squeezed and 0.0 <= wall(ox, oz) < self.clearance and 0.0 <= wall(x, z) < self.clearance:
+                got = lv.squeeze(x, z, x - ox, z - oz, h, self.clearance) if squeeze else None
+                if got is not None:
+                    # H21: inside a pinch his place is its midline, where the pushes balance -- never pushed back out
+                    # of it along the corridor to a spot at full clearance
+                    x, z = got
+                else:
+                    # placed nearer a wall than his radius (a scene's own spot): where the step ends -- kept on the
+                    # floor above, as the engine's triangle walk keeps it -- is pushed straight out onto the radius
+                    # line, as the engine pushes it on his first moving frame
+                    x, z = self._pushed_out(x, z, wall) or (x, z)
         elif on is not None:
             # a real walkmesh: his centre must stand on it -- a step off keeps whichever one axis of it
             # still does (a crude slide along the edge), or he stays put
@@ -1542,8 +1732,22 @@ class FakeGame:
             self._lock_fallback(calls)
             return False
         self.player[0], self.player[2] = x, z
+        if lv is not None:                          # H20: his height where the step left him, on his level
+            ti = lv.tri_under(x, z, h)
+            if ti is not None:
+                self.player[1] = -lv.height(ti, x, z)
         self._lock_fallback(calls)
         return True
+
+    def place_height(self, x: float, z: float, h: float) -> None:
+        """H20 (research/o7_design.md 3.1): a scripted placement's HEIGHT -- ``h`` the PSX y operand of the bytes'
+        MoveInstantXZY (up negative; 154 e15 t0 ip2827's ``Map.Int16[2]``, -1741). With a level entry for this field
+        ``player[1]`` is minus the height of the open triangle under (x, z) nearest ``h`` -- no step bound: a placement
+        lands on the nearest-height triangle (GetTriIdxAtPos, FieldMapActorController.cs:1279-1306) -- else (no entry,
+        or no open triangle under (x, z)) minus ``h``. His x and z are the caller's."""
+        lv = self.levels.get(self.field_id)
+        ti = None if lv is None else lv.tri_nearest(x, z, h)
+        self.player[1] = -float(h) if ti is None else -lv.height(ti, x, z)
 
     def _pushed_out(self, x: float, z: float, wall):
         """Where the engine's push off the walls puts a centre standing nearer one than his radius: straight away from
@@ -1614,10 +1818,31 @@ class FakeGame:
     def _step_walkers(self, ticks: float) -> None:
         """Every walker (a body with a ``path``) one tick along it (or, in mean mode, the frame's share of one:
         ``ticks``) -- ``speed / WALKER_FRAME_TICKS`` units a tick, MoveToward's step a tick -- unless that step would
-        bring it within ``r`` of the player, where it waits, still moving (MoveToward.cs:187-189)."""
+        bring it within ``r`` of the player, where it waits, still moving (MoveToward.cs:187-189).
+
+        H23 (research/o7_design.md 3.4), opt-in: a walker's ``hold`` -- ``{"within": r, "latch_below": y1,
+        "unlatch_above": y2, "at": [k, ...]}`` -- keeps it standing at a path index in ``at`` (its placement is index
+        0) while his XZ distance is under ``within`` OR its latch is set (154 e5 t1 ip263 / ip486: ``B_DISTANCEA < 3600
+        || Map.Byte[30] == 1``). The latch sets the first tick his published y is under ``latch_below`` (e11 t1 ip14 /
+        ip33: ``f[1] > -600``) and then clears once it is over ``unlatch_above`` (ip128 / ip147: ``f[1] < -500``) --
+        each tick, in that order; it starts clear (e15 t0 ip2116 ``Map.Byte[30] := 2``). Held, it stands -- its script
+        waits in ip263's loop, no walk runs: ``objects`` publishes it ``moving`` False. Elsewhere on its path it walks
+        without a wait (e5 t1 ip316-ip474)."""
         for _i, b in self._bodies():
             if not self._walking(b):
                 continue
+            hold = b.get("hold")
+            if hold is not None:                           # H23: the latch, then the hold at its stops
+                y = self.player[1]
+                if not b.get("_latch") and y < float(hold["latch_below"]):
+                    b["_latch"] = True
+                if b.get("_latch") and y > float(hold["unlatch_above"]):
+                    b["_latch"] = False
+                b["_held"] = b.setdefault("_at", 0) in hold["at"] and bool(
+                    b.get("_latch") or math.hypot(b["x"] - self.player[0], b["z"] - self.player[2])
+                    < float(hold["within"]))
+                if b["_held"]:
+                    continue                               # held at its stop: its script waits, no walk runs
             path = b["path"]
             k = b.setdefault("_k", 1 if len(path) > 1 else 0)
             tx, tz = path[k]
@@ -1630,6 +1855,8 @@ class FakeGame:
             if near < b["r"] and near < ((b["x"] - px) ** 2 + (b["z"] - pz) ** 2) ** 0.5:
                 continue                                   # held by him
             b["x"], b["z"] = nx, nz
+            if hold is not None:
+                b["_at"] = k if step >= dist else None     # H23: the stop it stands at, None between two
             if step < dist:
                 continue
             if len(path) < 2 or (b.get("once") and k == len(path) - 1):
@@ -1686,7 +1913,7 @@ class FakeGame:
                         "r": float(b["r"]), "solid": coll and bool(b.get("solid")), "coll": coll,
                         "range_r": float(rr) if rr is not None and coll else None,
                         "talk_r": float(tr) if tr is not None else None,
-                        "shown": shown, "moving": self._walking(b),
+                        "shown": shown, "moving": self._walking(b) and not b.get("_held"),    # H23: a held walker stands
                         "flags": (1 if shown else 0) | (0 if coll else 14) | (16 if b.get("solid") else 0)})
         return out
 
@@ -3782,12 +4009,15 @@ STORY_CHANGE_ROWS = 64
 #: kind may carry; anything else is a ValueError when the beat starts (:func:`_visit_steps`), never a default. ``text`` /
 #: ``raw`` (a pair's ``texts`` / ``raws``) are what the agent publishes: default ``mes N`` and ``[STRT=0,0]`` + it.
 VISIT_STEP_KEYS = {"store": (), "wait": (), "place": (), "grant": (), "field": (), "stairs": (),
-                   "page": ("slot", "typing_s", "text", "raw"), "timed": ("slot", "ticks", "text", "raw"),
+                   "page": ("slot", "typing_s", "text", "raw", "async"), "timed": ("slot", "ticks", "text", "raw"),
                    "pair": ("lag", "gate", "texts", "raws"),
                    "choice": ("slot", "header", "lines", "typing_s", "gap", "stale", "branch", "raw"),
                    # H17, H18 (research/o6_design.md 3.3, 3.4): Menu(1, char)'s naming screen -- ``name`` the default it
                    # pre-fills -- and the regions' tag 2 with ExitField's walk-out (its knobs :data:`DOOR_DEFAULTS`)
-                   "naming": ("name",), "door": ()}
+                   "naming": ("name",), "door": (),
+                   # H24 (the O7 review's finding, 159 e16 t1's own order): a page's ``async`` -- WindowAsync: the
+                   # script runs on while it is up -- and WaitWindow(slot), the hold until that slot's window is gone
+                   "wait_window": ()}
 #: H14's knobs and defaults (research/o5_design.md 3.2), each the engine's value or the design's named estimate:
 #: ``steps`` (REQUIRED: the visit's step list); ``index`` (its 1-based position in the route -- what H15's per-visit faults
 #: are keyed by); ``field_to`` (a ``field`` step's ``to`` -> the field id it lands in); ``donor`` (the visit's
@@ -3816,10 +4046,21 @@ STNR_TAG, STNR_CHAR, STNR_NAME = "[STNR]", 3, "Steiner"
 #: ``name``, ``points`` (IsInQuad's polygon), ``stores`` (its tag 2's stores before its Field(), each a store's 7
 #: values), ``ticks`` (its fade's op_22 wait: e23's 25), ``to`` (a ``field_to`` key) -- and optionally ``z_gt`` (its z
 #: term: e23 t2 ip38's f[2] > 1333) and ``walkout`` (``{"to": [x, z], "stop_z": z | None}``: ExitField's walk toward
-#: MJPOS's point).
-DOOR_DEFAULTS = {"doors": (), "speed": 60.0}
-DOOR_KEYS = ("name", "points", "z_gt", "stores", "ticks", "to", "walkout")
+#: MJPOS's point). H22 (research/o7_design.md 3.3): a door's HEIGHT terms ``y_gt`` / ``y_le`` -- his published y past it /
+#: at or under it (154 e8 t2 ip38's ``f[1] < -100``: the balcony branch y > 100, the ground branch y <= 100) -- and the
+#: step's ``scenes`` (:data:`SCENE_KEYS`): an object's one-shot scene, tested after the doors each tick he has control.
+DOOR_DEFAULTS = {"doors": (), "speed": 60.0, "scenes": ()}
+DOOR_KEYS = ("name", "points", "z_gt", "y_gt", "y_le", "stores", "ticks", "to", "walkout")
 DOOR_NEEDS = ("name", "points", "stores", "ticks", "to")
+#: H22 (research/o7_design.md 3.3): a door step's SCENE -- ``name``; ``any_of`` (a dict of ``x_lt`` / ``x_gt`` / ``z_lt``
+#: / ``z_gt``: ANY holding fires -- 159 e16 t1 ip390's B_OROR); ``unless_bit`` (the gEventGlobal bit whose 1 disarms it,
+#: read from the modelled array -- ip390's ``Bit[3796] == 0``; None: never disarmed); ``steps`` (its pages, stores and
+#: waits, :data:`SCENE_STEP_KINDS` -- H24's WaitWindow among them); ``regrant`` ("in_place", the only form: ip711
+#: EnableMove with no Walk).
+SCENE_KEYS = ("name", "any_of", "unless_bit", "steps", "regrant")
+SCENE_NEEDS = ("name", "any_of", "steps")
+SCENE_TESTS = ("x_lt", "x_gt", "z_lt", "z_gt")
+SCENE_STEP_KINDS = ("page", "store", "wait", "wait_window")
 #: A ``stairs`` step's knobs and defaults (153 e3 t1 stage 6, its side scenes, its back door and stage 17;
 #: research/o5_design.md 3.2): ``scenes`` (each ``{"points", "z_gt", "pages"}``: e26 -- its quad AND z > 1333 -- and e27,
 #: live in stage 6 alone; ``pages`` page steps); ``back_door`` (``{"points", "stores", "exit_ticks", "to"}``: e28, live
@@ -3847,7 +4088,9 @@ def _visit_steps(steps, k: dict, where: str) -> None:
     of strings, its ``branch`` steps and a ``stairs`` step's side-scene ``pages`` steps themselves; a ``stairs`` step's
     knobs :data:`STAIRS_DEFAULTS`' and -- unless H15's ``no_contour`` -- a ``contour`` or a ``height_at``; H17's
     ``naming`` a character id (an int >= 0) and its ``name`` a non-empty str; H18's ``door`` read by
-    :func:`_door_knobs` (research/o6_design.md 3.3, 3.4)."""
+    :func:`_door_knobs` (research/o6_design.md 3.3, 3.4); H20's ``place`` and ``grant`` two numbers ``[x, z]`` or three,
+    ``[x, z, h]`` (research/o7_design.md 3.1); H24's page ``async`` a bool and ``wait_window`` a window slot, an int >=
+    0 (the O7 review's finding: 159 e16 t1's WindowAsync / WaitWindow)."""
     if not isinstance(steps, (list, tuple)):
         raise ValueError(f"{where}: the steps are a list, not {steps!r}")
     for i, step in enumerate(steps):
@@ -3861,6 +4104,10 @@ def _visit_steps(steps, k: dict, where: str) -> None:
         extra = sorted(set(step) - {kind, *VISIT_STEP_KEYS[kind]})
         if extra:
             raise ValueError(f"{at}: a {kind} step has no {extra} (it takes {list(VISIT_STEP_KEYS[kind])})")
+        xz = step.get(kind) if kind in ("place", "grant") else None
+        if kind in ("place", "grant") and not (isinstance(xz, (list, tuple)) and len(xz) in (2, 3) and all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) for v in xz)):
+            raise ValueError(f"{at}: a {kind} is [x, z], or [x, z, h] with h the PSX y it places him at, not {xz!r}")
         if kind == "store" and (not isinstance(step["store"], (list, tuple)) or len(step["store"]) != 7):
             raise ValueError(f"{at}: a store is [sid, tag, ip, byte, width, value, bit], not {step['store']!r}")
         if kind == "pair" and (not isinstance(step["pair"], (list, tuple)) or len(step["pair"]) != 2):
@@ -3894,6 +4141,12 @@ def _visit_steps(steps, k: dict, where: str) -> None:
             if "name" in step and (not isinstance(step["name"], str) or not step["name"]):
                 raise ValueError(f"{at}: a naming step's name is the default it pre-fills, a non-empty str, not "
                                  f"{step['name']!r}")
+        if kind == "page" and not isinstance(step.get("async", False), bool):
+            raise ValueError(f"{at}: a page's async is a bool (WindowAsync), not {step['async']!r}")
+        if kind == "wait_window":
+            slot = step["wait_window"]
+            if not isinstance(slot, int) or isinstance(slot, bool) or slot < 0:
+                raise ValueError(f"{at}: a wait_window step names a window slot, an int >= 0, not {slot!r}")
         if kind == "door":
             _door_knobs(step["door"], k, at)
 
@@ -3903,7 +4156,11 @@ def _door_knobs(d, k: dict, at: str) -> None:
     positive number, ``doors`` a non-empty list in entry order -- and each door a dict holding every
     :data:`DOOR_NEEDS` and nothing outside :data:`DOOR_KEYS`: ``points`` a polygon of three points or more, each
     store its 7 values, ``ticks`` an int >= 0, ``to`` a ``field_to`` key, ``z_gt`` a number, ``walkout`` ``{"to":
-    [x, z], "stop_z": z | None}``. A ValueError names the first fault."""
+    [x, z], "stop_z": z | None}``. H22 (research/o7_design.md 3.3): a door's ``y_gt`` and ``y_le`` numbers; the step's
+    ``scenes`` a list, each a dict holding every :data:`SCENE_NEEDS` and nothing outside :data:`SCENE_KEYS` -- ``name`` a
+    non-empty str, ``any_of`` a non-empty dict of :data:`SCENE_TESTS` to numbers, ``unless_bit`` None or an int >= 0,
+    ``steps`` visit steps (:func:`_visit_steps`) of :data:`SCENE_STEP_KINDS` alone, ``regrant`` "in_place". A ValueError
+    names the first fault."""
     if not isinstance(d, dict):
         raise ValueError(f"{at}: the door's knobs are a dict, not {d!r}")
     unknown = sorted(set(d) - set(DOOR_DEFAULTS))
@@ -3920,7 +4177,7 @@ def _door_knobs(d, k: dict, at: str) -> None:
         if not isinstance(door, dict):
             raise ValueError(f"{w}: a door is a dict, not {door!r}")
         if [x for x in DOOR_NEEDS if x not in door] or set(door) - set(DOOR_KEYS):
-            raise ValueError(f"{w}: a door holds {list(DOOR_NEEDS)} and optionally z_gt and walkout, not "
+            raise ValueError(f"{w}: a door holds {list(DOOR_NEEDS)} and optionally z_gt, y_gt, y_le and walkout, not "
                              f"{sorted(door)}")
         if not isinstance(door["points"], (list, tuple)) or len(door["points"]) < 3:
             raise ValueError(f"{w}: a door's points are a polygon, [[x, z], ...] of three or more, not "
@@ -3932,13 +4189,39 @@ def _door_knobs(d, k: dict, at: str) -> None:
             raise ValueError(f"{w}: a door's ticks are an int >= 0 (its fade's wait), not {door['ticks']!r}")
         if str(door["to"]) not in k["field_to"]:
             raise ValueError(f"{w}: the door's to {door['to']!r} is not in field_to {sorted(k['field_to'])}")
-        z_gt = door.get("z_gt")
-        if z_gt is not None and (not isinstance(z_gt, (int, float)) or isinstance(z_gt, bool)):
-            raise ValueError(f"{w}: a door's z_gt is a number, not {z_gt!r}")
+        for term in ("z_gt", "y_gt", "y_le"):                     # H22: the height terms beside the z term
+            v = door.get(term)
+            if v is not None and (not isinstance(v, (int, float)) or isinstance(v, bool)):
+                raise ValueError(f"{w}: a door's {term} is a number, not {v!r}")
         wo = door.get("walkout")
         if wo is not None and (not isinstance(wo, dict) or "to" not in wo or set(wo) - {"to", "stop_z"}
                                or not isinstance(wo["to"], (list, tuple)) or len(wo["to"]) != 2):
             raise ValueError(f"{w}: a door's walkout is {{'to': [x, z], 'stop_z': z | None}}, not {wo!r}")
+    scenes = d.get("scenes", DOOR_DEFAULTS["scenes"])
+    if not isinstance(scenes, (list, tuple)):
+        raise ValueError(f"{at}: a door step's scenes are a list, not {scenes!r}")
+    for n, sc in enumerate(scenes):                               # H22: an object's one-shot scene
+        w = f"{at}.scenes[{n}]"
+        if not isinstance(sc, dict) or [x for x in SCENE_NEEDS if x not in sc] or set(sc) - set(SCENE_KEYS):
+            raise ValueError(f"{w}: a scene holds {list(SCENE_NEEDS)} and optionally unless_bit and regrant, not "
+                             f"{sorted(sc) if isinstance(sc, dict) else sc!r}")
+        if not isinstance(sc["name"], str) or not sc["name"]:
+            raise ValueError(f"{w}: a scene's name is a non-empty str, not {sc['name']!r}")
+        tests = sc["any_of"]
+        if not isinstance(tests, dict) or not tests or set(tests) - set(SCENE_TESTS) or not all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) for v in tests.values()):
+            raise ValueError(f"{w}: a scene's any_of is a non-empty dict of {list(SCENE_TESTS)} to numbers, not "
+                             f"{tests!r}")
+        bit = sc.get("unless_bit")
+        if bit is not None and (not isinstance(bit, int) or isinstance(bit, bool) or bit < 0):
+            raise ValueError(f"{w}: a scene's unless_bit is None or a gEventGlobal bit, an int >= 0, not {bit!r}")
+        if sc.get("regrant", "in_place") != "in_place":
+            raise ValueError(f"{w}: a scene's regrant is 'in_place' (EnableMove where he stands, no Walk), not "
+                             f"{sc['regrant']!r}")
+        _visit_steps(sc["steps"], k, f"{w}.steps")
+        odd = [s for s in sc["steps"] if not any(kd in s for kd in SCENE_STEP_KINDS)]
+        if odd:
+            raise ValueError(f"{w}: a scene's steps are pages, stores and waits ({list(SCENE_STEP_KINDS)}), not {odd!r}")
 
 
 class _VisitBeat(_Machine):
@@ -3954,7 +4237,10 @@ class _VisitBeat(_Machine):
       * ``{"place": [x, z]}`` -- a scripted move of the player, control untouched;
       * ``{"page": mes, ...}`` -- WindowSync (or WindowAsync + WaitWindow): listed THIS tick (ETb.NewMesWin), complete
         after its opening; with ``typing_s`` its text types on for that long of the game's clock after the opening -- a
-        Confirm then only completes it (Dialog.cs:798-808), the next closes it; the script resumes the tick it is gone;
+        Confirm then only completes it (Dialog.cs:798-808), the next closes it; the script resumes the tick it is gone.
+        H24: ``async`` True is WindowAsync ALONE -- listed this tick, the script goes on at once while it is up (159 e16
+        t1's RunAnimation + WaitAnimation pairs and stores under pages 296, 298, 299 and 300);
+      * ``{"wait_window": slot}`` -- H24's WaitWindow(slot): the script holds until no window of that slot is listed;
       * ``{"timed": mes, "ticks": t, ...}`` -- a [TIME=t] window: Confirm-inert, closing itself ``t`` ticks after it
         opened (then its tween); the script does not wait;
       * ``{"pair": [[mes, slot], [mes, slot]], "lag", "gate"}`` -- H10's KEYON pair (:meth:`_pair`);
@@ -4247,6 +4533,8 @@ class _VisitBeat(_Machine):
                 yield from self._naming(fake, step)
             elif kind == "door":
                 yield from self._door(fake, step["door"], at)
+            elif kind == "wait_window":
+                yield from self._wait_window(int(step["wait_window"]))
             else:
                 self._field(fake, str(step["field"]))
 
@@ -4260,8 +4548,12 @@ class _VisitBeat(_Machine):
         fake.script_store(int(sid), int(tag), int(ip), int(byte), str(width), int(value), bit=int(bit))
 
     def _place(self, fake, xz) -> None:
-        """A scripted move: the player published where it puts him (no coast carries a press on from there)."""
+        """A scripted move: the player published where it puts him (no coast carries a press on from there). H20
+        (research/o7_design.md 3.1): ``[x, z, h]`` -- ``h`` the PSX y operand of the bytes' MoveInstantXZY -- places his
+        height too (:meth:`FakeGame.place_height`); ``[x, z]`` leaves it as it was."""
         fake.player[0], fake.player[2] = float(xz[0]), float(xz[1])
+        if len(xz) == 3:
+            fake.place_height(float(xz[0]), float(xz[1]), float(xz[2]))
         fake._coast = None
 
     def _grant(self, fake, xz) -> None:
@@ -4281,7 +4573,16 @@ class _VisitBeat(_Machine):
 
     def _page(self, fake, step: dict):
         w = self._open_mes(fake, step, "page")
+        if step.get("async"):                        # H24: WindowAsync -- listed this tick, the script goes on at once
+            return
         while not w.gone:
+            yield
+
+    def _wait_window(self, slot: int):
+        """H24 (the O7 review's finding): WaitWindow(``slot``) -- the script holds until no window of that slot is
+        listed (159 e16 t1 ip534, ip558, ip577, ip669 after its WindowAsync pages), the tick it is gone; none up: it goes
+        on at once."""
+        while any(w.slot == slot and not w.gone for w in self.windows):
             yield
 
     def _timed(self, fake, step: dict) -> None:
@@ -4462,16 +4763,37 @@ class _VisitBeat(_Machine):
         ``stop_z`` (pathing's hold a radius short of the floor's end: 0.2 #6); without it he stands -- then, the exit
         gate set or absent (``fake.exit_gate``, H16: he stands meanwhile), the door's ``stores`` and its Field() in the
         same tick (ip203, then ip211). H19's ``door_misroute`` sends that Field() to another ``field_to`` key, and
-        ``land_real`` applies to it (:meth:`_field`)."""
+        ``land_real`` applies to it (:meth:`_field`).
+
+        H22 (research/o7_design.md 3.3): a door's HEIGHT terms -- ``y_gt`` / ``y_le``, his published y past it / at or
+        under it (154 e8 t2 ip38's ``f[1] < -100``: one polygon, two doors in entry order, the balcony's and the
+        ground's) -- beside ``z_gt``; and the step's SCENES, tested after the doors each tick he has control (159's
+        regions e10-e12 precede Steiner's e16, and the engine runs objects by entry): an ARMED scene -- its ``unless_bit``
+        clear in the modelled gEventGlobal -- whose ``any_of`` holds (any one: ip390's B_OROR) FIRES: control off (ip445
+        DisableMove), a visit_log row "scene" (its name, where he stood), its steps -- pages, stores, waits -- then
+        control back where he stands (``regrant`` "in_place": ip711 EnableMove, no Walk), and the doors' loop goes on. A
+        scene whose own steps store its ``unless_bit`` (ip672) cannot fire again."""
         from ff9mapkit.content import doorface
         s = {**DOOR_DEFAULTS, **knobs}
         while True:
             if fake.control:
-                x, z = fake.player[0], fake.player[2]
+                x, z, y = fake.player[0], fake.player[2], fake.player[1]
                 door = next((d for d in s["doors"] if doorface.region_contains(x, z, d["points"])
-                             and (d.get("z_gt") is None or z > float(d["z_gt"]))), None)
+                             and (d.get("z_gt") is None or z > float(d["z_gt"]))
+                             and (d.get("y_gt") is None or y > float(d["y_gt"]))
+                             and (d.get("y_le") is None or y <= float(d["y_le"]))), None)
                 if door is not None:
                     break
+                scene = next((sc for sc in s["scenes"] if self._scene_fires(fake, sc, x, z)), None)
+                if scene is not None:                            # H22: an object's scene takes control here
+                    fake.control, fake._coast = False, None
+                    self._log(fake, f"{at}.s", "scene", name=scene["name"], x=x, z=z)
+                    yield from self._run(fake, scene["steps"], f"{at}.s.")
+                    if self.done:
+                        return
+                    fake.control, fake._coast = True, None      # ip711 EnableMove: where he stands, no Walk
+                    yield
+                    continue
             yield
         fake.control, fake._coast = False, None
         self._log(fake, f"{at}.{door['name']}", "fire", name=door["name"], x=x, z=z)
@@ -4491,6 +4813,17 @@ class _VisitBeat(_Machine):
         for args in door["stores"]:
             self._store(fake, args)
         self._field(fake, self.k["door_misroute"].get(str(door["name"]), str(door["to"])))
+
+    @staticmethod
+    def _scene_fires(fake, sc: dict, x: float, z: float) -> bool:
+        """H22 (research/o7_design.md 3.3): whether a door step's scene fires with him standing at (x, z) -- ARMED (no
+        ``unless_bit``, or that gEventGlobal bit clear in the modelled array: ip390's ``Bit[3796] == 0``) and ANY of its
+        ``any_of`` tests holding (ip390's B_OROR: x < -1600 || x > 1600 || z < 800)."""
+        bit = sc.get("unless_bit")
+        if bit is not None and (fake.story_bytes[bit >> 3] >> (bit & 7)) & 1:
+            return False
+        tests = {"x_lt": lambda v: x < v, "x_gt": lambda v: x > v, "z_lt": lambda v: z < v, "z_gt": lambda v: z > v}
+        return any(tests[key](float(v)) for key, v in sc["any_of"].items())
 
     @staticmethod
     def _walk_out(fake, w: dict, step: float) -> None:

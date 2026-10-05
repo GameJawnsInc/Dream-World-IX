@@ -1486,6 +1486,188 @@ Settled for O7 by the O6 research: every walked field's grant is its Main_Init t
 ip205 only; 159's forced monologue (e16 t1 ip390, pages 296-300, `Bit[3796] := 1` ip672) re-grants in place
 (`interrupts` 1).
 
+## O7 -- Steiner's walk through the castle under the trace, a US session: 154 -> 158 -> 159 -> 160 -> 162 -> 163 -> 164 (PROVEN: story-o7, v1 2d646aaf)
+
+**The question.** From a raw warp onto the castle hallway's balcony (154, entrance 315, SC 1190) -- down the west flight
+to the ground and out through the south door, then through 158, 159 (the guardhouse court, where Steiner's forced
+monologue takes control on the way), 160, 162 and 163 (the west tower stair) to the arrival in 164 at 342: does the alxc
+disc-1 chain write the real game's story state key for key? It is the first segment whose route crosses TWO LEVELS
+(154's balcony over its ground: e8, e9 and e10 branch on his height), the first walk whose evidence is an ARRIVAL, not a
+door, the first steps planned at a stated CLEARANCE and run on an exact PRIOR BASIS (no calibration probe), and the
+first scripted interruption whose rows lie BETWEEN two attempts of one step. The design, rev. 2 with both critique rounds
+folded in, is [`research/o7_design.md`](research/o7_design.md).
+
+**The segment.** New Game, the trace armed, then in field 70 (after 70 e0 t0 ip130, before ip475) a raw
+`warp 154 315 1190` (S) / `warp 31246 315 1190` (F); six walked visits, `visits` [154, 158, 159, 160, 162, 163]:
+- 154@315 (visit 1; EVT_ALEX1_AC_ENT_2F): Steiner granted on the BALCONY (Main_Init ip588); step 0, a `walk` west along
+  the balcony and down the west flight to the ground at (0, -600); step 1, a `cross` of e8 ON THE GROUND (its ground
+  branch: ip355 `Int16[2] := 300`, `Field(158)`);
+- 158@300 (visit 2): cross e2 (ip194 `Byte[13] := 3` live, ip222 `Int16[2] := 331`);
+- 159@331 (visit 3): cross e11 -- interrupted once by THE FORCED MONOLOGUE, then re-run from where he stands (ip193
+  `:= 332`);
+- 160@332, 162@333, 163@341 (visits 4-6): one cross each (`:= 333`, `:= 341`, `:= 342`); 163's is the stair foot.
+
+It ends on arrival in 164 -- real 164 on S, member(164) 31256 on F -- cut at its first row, e0 t0 ip22 (`Bit[191] := 0`:
+a new site, emitted). SC 1190 throughout (no rung); no battle, movie, choice, naming or ATE. A covered run writes
+EXACTLY 39 keys (33 writes and the 6-key chain 315 -> 300 -> 331 -> 332 -> 333 -> 341 -> 342) and emits 51 rows before
+the cut (7 / 9 / 11 / 8 / 8 / 8 a visit), no `c` row.
+
+**The sides and their ends.** S = stock, ending in real 164. F = O4's alxc disc-1 chain AS DEPLOYED (31240-31259;
+[`o7_forks.json`](o7_forks.json) reuses [`o4_forks.json`](o4_forks.json)): member(154) 31246, member(158) 31250,
+member(159) 31251, member(160) 31252, member(162) 31254, member(163) 31255, ending in member(164) 31256 -- read from O4's
+campaign.toml, never assumed; `side_ends` {S: [164], F: [31256]}. Nothing is imported, built or deployed for O7. Every
+route `Field()` is retargeted, so a landing in a REAL donor field on F is V19, a finding. C0 measured O4's build: each
+route member differs from its donor, in every language, only in its in-chain `Field()` operands (20 sites, 40 bytes,
+49 member files); O7-BUILD pins exactly that. THE FALLBACK END (4.17), taken only on R-STAIR's NO-GO: the arrival in 163
+at 341 -- `END_FIELD = 163`, ONE line of the draft, every list filtered to the places before it.
+
+**A US session -- scoped facts, never silent.** The keys, the joins, the route pins and `route_mes` (the monologue's
+pages 296-300, the stop page 56) were read in the US scripts and block 3's US text; P-LANG pins the session language;
+O7-TEXT and P-TEXT read block 3 strict.
+
+**The start and its scope.** THE START IS THE RAW WARP'S: FOUR residue rows in field 70 (SC 1190 = 0x04A6's two bytes,
+FieldEntrance 315 = 0x013B's two -- O6's three-row contract would refuse it, so O7-START reads `start_residue`), the
+front cut at 154 e0 t0 ip26, and 154's ambient branch from the warp's `Byte[13]` 1 (ip123 1 -> 0, never ip101 and window
+56). NO START-DEPENDENT KEY: every route read resolves the same branch from the raw warp as from a true O1-O6 run.
+- THE START-SCOPED OLDS: three sites differ in `old` / `same` only, each a writes key at the same value -- 154 ip61
+  `Int16[9]` (643 here, -1 after O1-O6), 154 ip123 `Byte[13]` (1 here, 0) and 159 e16 t1 ip613 `Byte[208]` (0 here, 1);
+  each `after.old` is READ off O6's FROZEN pattern (the last pre-cut tuple on the target), never an end state read after
+  the site's own field ran, and the emitted pattern is this start's. THE SET IS DERIVED (`scoped_derivation`, the
+  review's fix): of the route's 33 writes keys, walked in route order from the raw start and from O6's last values,
+  exactly these three read another old; O7-KEYS (c) and the freeze refuse a missing entry and one whose olds agree.
+- THE START READ: 159 e0 t0 ip290, the route's first `Byte[8]` store, must read old 125 -- field 70's ip249 lies inside
+  the warp window, so a warp before it leaves 0. Another old, with nothing earlier in the run touching the byte, is
+  A-START: the start's problem, the run uncovered, never a failed PATTERN or STATE (VOID-ASYM (b) sets it aside). The
+  same race one window later is A-START too (the review's fix): ip249 itself among the rows BEFORE the start -- the trace
+  armed before it ran, the warp after -- read by `race_site` off the route pins, never O3-START (a)'s NOT PROVEN.
+- THE CARRIED VALUES, DERIVED (`carried_from_segments` over O1-O6's six frozen files, never typed): fourteen targets a
+  true O1-O6 run leaves where the raw start holds 0, neither written nor read on the route -- Bit[3717] 1, Bit[3718] 1,
+  Byte[472] 4, Int16[469] 1042, Bit[3815] 1, Byte[475] 100, Bit[3795] 1, Bit[3854] 1, Bit[3855] 1, UInt16[21] 8,
+  Byte[303] 1, Byte[18] 1, Byte[6] 11, UInt16[19] 1807 -- and the party ([Zidane] here, [Steiner] after O6: typed and
+  labelled, no gEventGlobal target). O7-KEYS refuses a typed value that differs from the derivation and a carried target
+  in `end_state`; the report's scope line renders them. Steiner is the controlled character on a raw start (every
+  walked field's player entry defines him), and no store on the route reads the party.
+
+**The walks (S17-S19).** Seven table steps in six visit-scoped cells, each with its `clearance`:
+- S17, THE `walk` KIND: a step whose evidence is an ARRIVAL -- route_to to the goal, judged by the landing judge first,
+  done when he stands within `tolerance` of it with control held. 154 #0 is one: the balcony's west arm, the west
+  flight, the ground. Its 119 closures (every ground triangle under an upper one, and the east flight) and 154 #1's
+  134 (every upper triangle: the cross fires e8's ground branch) are DERIVED from their definitions (`closures154`),
+  and the walk's goal is single-level ground.
+- S18, PER-STEP CLEARANCE: every step plans at 120 (Steiner's controller radius, size x 4) but 163's, which plans only
+  at 110 -- its stair foot is a 233-u PINCH whose best clearance, level-aware, is 116.7: it overlaps the radius by 3.3 u
+  a side, and the engine's opposing pushes average out at the midline. R-STAIR is the go/no-go (F5).
+- S19, THE PRIOR BASIS: 154, 158, 160, 162 and 163 seed their key basis EXACTLY from the bytes' `SetControlDirection`
+  (`UseAbsoluteOrientation` 3: P-SETTINGS pins `[AnalogControl]`), no calibration probe pressed -- a probe on 154's
+  balcony could release Dojebon -- and judge the first evidence hold within acos(`PRIOR_AGREE`) = 16.3 deg; 159
+  calibrates. A basis is cached per field id for the whole session, so EVERY run first forgets every seeded field's
+  basis (`O7.start_run`'s reseed, S and F): each run seeds and judges its own first moves.
+- Dojebon (154 e5) holds while Steiner stands within 3600 or below the balcony; the walk keeps within his circle, his
+  hazard region is REQUIRED in 154 #0's `avoid`, and the static watch reports his published position per visit (one
+  `seen` row, one `moved` row, else UNOBSERVED) -- he stores nothing, so a release moves no key, and in rehearsal stops
+  the freeze (F2). 154 #0 and 163 #0 carry `attempts` 3: a failed attempt re-plans fresh.
+
+**The monologue.** 159 e16 t1 ip390 takes control the first tick Steiner leaves `|x| <= 1600 && z >= 800` while
+`Bit[3796]` is 0 -- always before e11, whose every vertex lies at x <= -2208: pages 296-300 (rule 7 Confirms them), ip613
+`Byte[208] := 0`, ip648 `++`, ip672 `Bit[3796] := 1`, then ip711 re-grants IN PLACE. Its three rows are written with
+control off, after the cross's first loss and before its re-run: the step's `interrupts` 1 lets the driver re-run it,
+and O7-WALK exempts exactly those three rows, in order, inside that gap, and nowhere else. Its test is read off ip390's
+pinned text (`monologue_test`), never typed. In the bytes' order, 296, 298, 299 and 300 are WindowAsync -- the script
+animates under each, then WaitWindow(4) -- and 297 WindowSync; ip613 and ip648 run UNDER 300, an animation apart, so a
+prompt Confirm leaves Steiner with control off and NO window up while they land, and ip672 waits for 300 to go. The
+FakeGame plays exactly that (H24: a page's `async`, the `wait_window` step -- the review's fix; the animations' length
+is an estimate, R-FULL's F3 records the real stretch).
+
+**The end state's race.** Read live on arrival in 164 WITHOUT `Byte[13]`: twenty targets -- ten the route leaves, ten
+untouched since New Game and by O1-O6. `Byte[13]` races: 164's prologue rewrites it at once (ip130 2 -> 1) and again at
+its grant (ip764), so it is taken from the TRACE -- the last pre-cut row on its byte must be 163 e0 t0 ip684 `:= 2`,
+matched by place (31255 on F); the live read is recorded and never compared.
+
+**The checks** ([`o7_castle_walk.py`](o7_castle_walk.py); research/o7_design.md 5 and 6):
+- offline: O7-BUILD (the seven route members' pins per language), O7-KEYS (every registered key at its ip; the
+  start-scoped olds off O6's frozen pattern, the start read, the carried values derived from O1-O6's frozen keys, the
+  route pins and their scans, the monologue's and Dojebon's tests read off their pins), O7-TEXT (block 3, strict, and
+  `route_mes`), O7-CENSUS (every gEventGlobal store site of the six fields classified, the counts derived:
+  `instanced_at7` -- 154's dispatch, the others' every Init), O7-REGIONS (every region the bytes' own or the registered
+  hazard), O7-GOALS ((g1)-(g5) per walk, (h1)-(h4) Dojebon's circle, basis, hazard and release zone);
+- preflight: P-MANIFEST, P-DEPLOY, P-EB, P-FLOOR, P-STOCK, P-TEXT (block 3), P-RECOVERY, P-DONOR (the seven donors
+  154-164), P-SETTINGS (31 keys: [AnalogControl] and PSXMovementMethod 1 among them), P-PAD, P-OVERRIDE, P-ENGINE -- 12,
+  all green on the live install today; in game P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG, P-LAUNCH and P-PAD;
+- the session: O7-FROZEN, O7-COVER; O7-FORBIDDEN and O7-VOID-ASYM (a)-(d) over every run by `[place, sc, visit]`; then
+  START (the four residue rows), NO-SC, CHAIN, RESIDUE, WRITES (EXACT: the 39), NULL, STABLE, LANDING (a)-(e) over every
+  crossing, WALK (a)-(d) (each step done once with its evidence; the one interruption at the monologue's test; THE
+  PAIRED-WALK LAW per visit window with the monologue's rows only in their gap; every seeded field's first move judged),
+  PATTERN (each visit's emitted rows exactly, no `c` row), MASKED, STATE (a)-(c) (the histories, the live end state,
+  `Byte[13]` from the trace) and JOIN over the covered runs; THROW.
+
+**Status: ★★ PROVEN (session `story-o7`, v1 `2d646aaf`), a US session.** Steiner's walk through the castle under the
+trace: the raw warp onto 154's balcony at SC 1190, the walk down the west flight to the ground and through e8, then 158,
+159 (the forced monologue taking control once, its five pages, the re-grant in place, the re-run through e11), 160, 162
+and 163's stair foot to the arrival in 164; O4's deployed alxc members 31246, 31250, 31251, 31252, 31254, 31255 and
+31256 write the real game's story state key for key. S F S F S F, 6/6 covered (S 3 of 3, F 3 of 3), unattended, 547 s,
+no re-run; every check PASS (36/36): FROZEN, COVER, FORBIDDEN, VOID-ASYM (none), START (the four residue rows, 154's
+first row ip26, its first Byte[13] row ip123 from the warp's 1), NO-SC (SC 1190 throughout), CHAIN (315 -> 300 -> 331 ->
+332 -> 333 -> 341 -> 342), RESIDUE, WRITES (exactly 39 keys a run: 33 writes and the 6-key chain), NULL (39 keys
+matched, 0 stock-only, 0 fork-only, NO noise), STABLE, LANDING (every F run ended in member(164) 31256, never a real
+route field), WALK (THE PAIRED-WALK LAW over the seven steps: each done once with its evidence, 159's one interruption
+at its test, no row inside a walk but its door's and the monologue's three in their gap, every seeded field's first move
+within acos(PRIOR_AGREE)), PATTERN (each visit's emitted rows in order, no `c` row), MASKED, STATE (the state handed to
+164 the same; Byte[13] from 163 ip684 = 2), JOIN. Archive: `C:\gd\Dream-World-IX\.harness-runs\20261005-060311-story-o7`
+(o7_report.txt). The first segment built under "Build testing": the build workflow took 10.8 h (O6's 21.4 h).
+
+The rehearsals before the freeze (archived `20261005-05*-o7-rh-*`; F1-F14 met):
+
+| stage | runs | what it settled |
+|---|---|---|
+| R-FULL (stock 154 -> 164) | 2/2 reached | every grant at the bytes' spawn (154's on the balcony at y 1716; 158 (0, -12787); 159 (7, 3870); 160 (1357, -4063); 162 (957, -3800); 163 (690, 2195)); THE PRIOR BASIS 0.0 deg off on every seeded field's first move (154, 158, 160, 162, 163; 159 calibrated, 2 regions clear); 154's walk 37-41 holds down the west flight (y 1716 -> 5), the arrival within 10 u of (0, -600), one zero-travel stall absorbed; 159's monologue: the loss at (-1636, 1374) / (-1610, 1810), pages 296-300 each pressed, the three rows ip613/ip648/ip672, the re-grant 0.0 u from the loss, the re-run through e11; 163's foot at clearance 110: no ladder rung, the narrowest gap 113.9-115.5 u (F5 GO); Dojebon static at (-2700, -1700) on every poll; 33/33 writes, 6/6 chain, 0 unregistered, the two runs row for row identical bar frames; 101 s and 86 s, ~31.4 fps |
+| R-WALK154 | 2/2 reached 158 | the balcony descent alone; the prior basis 0.0 deg; Dojebon static (41 readings a run, no `moved` row) |
+| R-STAIR | 2/2 reached 164 | F5 GO again: no rung after a foot hold, the narrowest gap 115.1 / 115.5 u |
+| R-WALK-VOID | 2 | the stop before 154 #0's 4th walk hold (at (-1146, -3477), on the balcony) and the stop on 159's first page press: each V13 (the driver's), `end_run` to the title in 4.4-4.5 s |
+| F-SMOKE | 7 + 7 warps | 31246@315, 31250@300, 31251@331, 31252@332, 31254@333, 31255@341, 31256@342 load, their object sids EQUAL to their twins' |
+| F-PASS (untraced) | 1 | one F run through the whole route to 31256, every beat, the prior basis 0.0 deg in every member, Dojebon static, no exception |
+
+The freeze's numbers (F8): `run_s` 202 (2 x the slowest R-FULL), `run_min_s` 122 (1.25 x the median 93.5 s + the longest
+recovery 4.5 s), `session_s` 2548, `no_progress_s` 60 (the longest stretch 1.1 s); `rehearsal_fps` [31.0]: every
+rehearsal and the session ran at ~31.3-31.6 fps, so 60 fps is UNEXERCISED -- the game picks its rate (F14). R-STAIR's GO
+keeps the end at 164; the fallback (`END_FIELD = 163`) was not taken.
+
+The offline build, as it stood before the rehearsals (branch `claude/story-trace-o7`, PARTs A-C of the design's section
+9): `--offline-check` 6 PASS; `--preflight` 12/12 on the live install (nothing to deploy); the dry run 174/174 on the
+draft, as if frozen and on the frozen v1; the regression gate G1-G39 with G21 (O1-O6 byte-identical; O7's tests G38, its
+dry run G39); a code review's seven findings each fixed (research/o7_design.md 11.4).
+
+**Next, O8:** a raw `warp 164 342 1190` (S) / `warp 31256 342 1190` (F) in field 70 (after 70 e0 t0 ip130, before
+ip475): four residue rows (342 = 0x0156: byte 2 0 -> 86, byte 3 0 -> 1); START row 164 e0 t0 ip22, START requires 164
+ip130 (`Byte[13]` 1 -> 1, same; ip97 is dead at 164, `Int16[9]` being 385); no start-dependent value or path to the
+arrival in 55 -- olds only: 164 ip57 `Int16[9]` (643 -> 385 here, 385 -> 385 after O7), 164 ip130 `Byte[13]` (1 -> 1 / 2
+-> 1), 166 e6 t1 ip345 `Byte[208]` (0 -> 0 / 1 -> 0), each `after.old` read off O7's FROZEN PATTERN (the last pre-cut
+tuple per target), never an end state read after the site's own field ran; the start read (O7's `start_reads` rule): 166
+e0 t0 ip255, the route's first `Byte[8]` store, must read old 125 (a warp before field 70's ip249 leaves 0: A-START);
+`carried` DERIVED, never typed: O7's `carried_from_segments` over O1-O7's frozen keys less O8's own targets; the spawn
+is the chained arrival's (164 e7 t0 keys on `Int16[2]` alone: (2040, 3335), tri 145, PSX -4780). Route: 164 (Steiner's
+radius 80 -- DoEventCode.cs:1507-1508 through EffectiveFieldId, so 31256 too; basis 57.7 deg; the spawn 68 u from a
+wall, under the radius: use S19's prior basis; a `walk` to P1 (1342, 2252) with `at_y` [8800, 9150], closures outside
+PSX [-9500, -4700], `avoid` [164.e3], npcs off, and THE KNIGHT HOLD -- held at P1, pressing nothing, until the watched
+`Bit[3811]` reads 1 (164 e1 t1 ip230 races e2's exit; timeout 15 s, VOID by the game) with an ORDER check (ip230 before
+e2 t2 ip243); then a `trigger` into e2 at the top, `until {y_gt: 12000}`, `to` 165, clearance 64 (none at 66+ from P1))
+-> 165 (a `walk` to (1508, 4698), `at_y` [11100, 11450], `avoid` [165.e3] live 134 u away; a `trigger` `until {y_gt:
+15000}`, `to` 166; 165 e2 ip205 `Byte[13] := 3` live) -> 166 (no control: pages 307, 308, 309, 311, 312, 313,
+`Byte[208]`, ip502 `Byte[8] := 0`; FMV004 -- `MBG_DEF("FMV004", 1, 0)`, type 0, 45.41 s live -- PLAYED OUT; ip863
+`Int16[2] := 110`, ip871 `Field(55)`, raw on F too) -> END on arrival in REAL 55 at 110 on both sides, cut at 55 e0 t0
+ip22; `side_ends` {S: [55], F: [55]} with `members` O4's twenty only (never O1's 31205); `Int16[2]` and `Byte[8]` read
+from the trace (55's Main_Init rewrites both at once); a SEAM check (every F run's last chain row 31258 e6 t1 ip863, its
+next field 55). O7 built for it: the `walk` kind (S17), the per-step `clearance` (S18), the prior basis (S19, with
+`forget_basis`: O8's segment forgets its seeded fields at every run's start, as O7's does), the FakeGame's levels (H20),
+squeeze (H21, at the radius less `SQUEEZE_SLACK_W` -- 80 in 164), door height terms and scenes (H22). O8 still needs:
+`at_y` on the walk, the bit `hold`, a y axis on `until` (and the loss sample's y from the ring), the FakeGame's spirals
+on H20 and a height-triggered walker with a store (the knight), the 5-point regions registered from `scan_gateways`'
+`region` (164 e2/e3, 165 e3: dead centres), and the movie's stall freeze (`no_progress_s` >= 2 x R-FULL's measured
+static span, ~100 s). Owner options: (1) this 2-way split (O8 = 164 -> real 55), recommended; (2) the critic's 3-way
+split -- O8 = 164 -> the arrival in 166 (walk machinery only), O9 = a raw warp into 166 at 344 -> FMV004 -> real 55 (the
+movie and the seam only; 166's K -1 takes ip119 from the window's `Byte[13]` 1; no grant there); (3) FMV004 skipped
+after O8's own stock A/B (a non-page span key) -- not recommended; (4) 31258 rebuilt with 55 -> 31205 (owner-gated;
+breaks O4-O6's P-EB pins) -- not recommended. O7 ended at 164 (R-STAIR GO), so O8 starts there.
+
 ## Build testing (every segment's build, from O7) -- overrides any design's section 9 where it differs
 
 **Why (measured 2026-10-04 over the O3-O6 build workflows):** O6's request-to-merge was 24.8 h. Of that, the build

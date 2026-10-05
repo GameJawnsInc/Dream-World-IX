@@ -287,6 +287,15 @@ class Session:
         #: What the last leave_battle() pressed and where it stopped (research/o3_design.md H8). None until one runs.
         self.last_leave: dict | None = None
         self._axes: dict[int, dict] = {}      # field id -> measured button->world basis
+        #: S19 (research/o7_design.md 1.2), all empty unless a route_to seeds (``basis="prior"``): the fields whose
+        #: ``_axes`` basis is a SEEDED prior, those of them whose first move is not judged yet, and the angle each judged
+        #: first move measured (degrees). Every pop of ``_axes`` goes through :meth:`forget_basis`, which drops these too,
+        #: and every MEASURED write of it (:meth:`calibrate_axes`'s, :meth:`_calibrate_clear_of`'s) through
+        #: :meth:`_drop_seed`: a seed's state never outlives the basis it was seeded as.
+        self._seeded: set = set()
+        self._prior_pending: set = set()
+        self._prior_angle: dict[int, float] = {}
+        self._basis_slot: dict | None = None  # the running route_to's first-move check, for its record (S19)
         self._priors: dict[int, dict | None] = {}   # field id -> PREDICTED basis (key_prior), never a measurement
         #: Unseen blockers route_to(unstick=True) walked into on the CURRENT field visit: (field id, [(x, z)]).
         #: Kept only while every published sample shows that field with control held -- see _observe --
@@ -1670,6 +1679,28 @@ class Session:
             raise HarnessError("no player position published -- not on a field?")
         return ((st.player_x - x) ** 2 + (st.player_z - z) ** 2) ** 0.5
 
+    def forget_basis(self, *fields) -> None:
+        """Drop each of ``fields``' basis -- ``_axes`` -- and its seeded-prior state (S19, research/o7_design.md 1.2:
+        ``_seeded``, ``_prior_pending``, ``_prior_angle``): the next routed walk there seeds or calibrates afresh. EVERY
+        pop of ``_axes`` goes through here (walk_to's and :meth:`_walk_leg`'s wrong-basis pops, the first-move check's),
+        and every basis a calibration MEASURES over an existing one drops the seed too (:meth:`_drop_seed`, at both of
+        :meth:`calibrate_axes`' writes) -- so a pending seed never carries the check, or a seeded spread, onto a basis
+        calibrated later, whether the field was forgotten first or recalibrated in place. With the S19 state empty (no
+        caller seeded) it is ``_axes.pop(field, None)`` exactly. A segment that seeds calls it over its seeded fields at
+        each run's start, so every run judges its own first moves (research/o7_design.md 0.2 #20)."""
+        for f in fields:
+            self._axes.pop(f, None)
+            self._drop_seed(f)
+
+    def _drop_seed(self, field: int) -> None:
+        """S19: ``field``'s seeded-prior state (``_seeded``, ``_prior_pending``, ``_prior_angle``) dropped -- by
+        :meth:`forget_basis`, and wherever a MEASURED basis replaces the field's (:meth:`calibrate_axes` with
+        ``recalibrate``, plain or clear-of): the measurement is no seed, so no first-move check is pending on it and its
+        spread is calibration's own. A field with no seed: nothing changes."""
+        self._seeded.discard(field)
+        self._prior_pending.discard(field)
+        self._prior_angle.pop(field, None)
+
     def calibrate_axes(self, *, probe: int = 4, recalibrate: bool = False, hazards=(),
                        prior: dict | None = None) -> dict:
         """Discover which BUTTON moves the character which way in WORLD space, on this field.
@@ -1769,6 +1800,7 @@ class Session:
             )
 
         self._axes[key] = basis
+        self._drop_seed(key)                          # S19: a measured basis replaces a seed, its state with it
         self._log(f"axes on field {key}: up={_vec(basis['v'])} ({detail['v']:.0f}u) "
                   f"right={_vec(basis['h'])} ({detail['h']:.0f}u) |dot|={skew:.2f}")
         return basis
@@ -2104,6 +2136,7 @@ class Session:
                 f"right={_vec(basis['h'])} are not perpendicular (|dot|={skew:.2f}). Something "
                 f"(an NPC, a wall) pushed a probe. Move to clearer ground and recalibrate.")
         self._axes[key] = basis
+        self._drop_seed(key)                          # S19: a measured basis replaces a seed, its state with it
         self._log(f"axes on field {key} (clear of {len(polys)} region(s)): up={_vec(basis['v'])} "
                   f"[{how['v']}] right={_vec(basis['h'])} [{how['h']}] |dot|={skew:.2f}")
         return basis
@@ -2207,7 +2240,7 @@ class Session:
                               f"-- round someone in the way, not a wrong basis; stopping here")
                     break
                 if projected < 0.35 * moved:
-                    self._axes.pop(field, None)
+                    self.forget_basis(field)              # S19: the basis and any seeded-prior state with it
                     raise HarnessError(
                         f"the axis basis for field {field} disagrees with what the game did: "
                         f"holding {direction} moved {moved:.0f}u along ({mx:+.0f},{mz:+.0f}), which "
@@ -2962,6 +2995,57 @@ class Session:
                 worst = max(worst, math.acos(max(-1.0, min(1.0, cos))))
         return math.radians(self.ROUTE_HEADING_FLOOR) + worst
 
+    def _field_spread(self, field: int, prior: dict | None) -> float:
+        """The heading spread a smooth hold on ``field``'s basis is planned for (research/o7_design.md 1.2 S19), in
+        radians. A SEEDED basis (route_to ``basis="prior"``) is unverified until a move judges it: while its first move
+        is pending, ROUTE_HEADING_FLOOR + acos(PRIOR_AGREE) -- every error the first-move check accepts, the spread an
+        unprimed calibration gets; once judged at theta (:meth:`_judge_first_move`), ROUTE_HEADING_FLOOR + theta --
+        calibration's own rule, the measured disagreement. Narrowed because a wide spread shortens EVERY hold
+        (:meth:`_plan_hold`: ``drift - reach * tan(spread)``). Any other field: :meth:`_heading_spread` of its basis and
+        ``prior``, exactly today's."""
+        import math
+        if field in self._seeded:
+            theta = None if field in self._prior_pending else self._prior_angle.get(field)
+            if theta is None:
+                return math.radians(self.ROUTE_HEADING_FLOOR) + math.acos(self.PRIOR_AGREE)
+            return math.radians(self.ROUTE_HEADING_FLOOR + theta)
+        return self._heading_spread(self._axes[field], prior)
+
+    def _judge_first_move(self, field: int, buttons, u, mx: float, mz: float, moved: float, frame: int) -> None:
+        """S19's FIRST-MOVE CHECK (research/o7_design.md 1.2; :meth:`_walk_leg`, on a seeded field's first EVIDENCE hold):
+        the angle between his measured XZ displacement (``mx``, ``mz``; ``moved`` long) and the world direction ``u`` the
+        seeded basis said ``buttons`` press. Over acos(PRIOR_AGREE) -- 16.3 degrees, the calibration's own one-sided
+        acceptance -- the field is forgotten (:meth:`forget_basis`) and a HarnessError raised carrying the attribute
+        ``prior_basis`` = ``{"field", "angle", "moved", "pressed", "measured", "predicted"}``: a MARKER on the class every
+        handler already catches, never a new class (the driver reads it as its instrument's V13). Within it: the field
+        leaves ``_prior_pending``, ``_prior_angle[field]`` is the angle (degrees; the spread narrows to the floor plus
+        it, :meth:`_field_spread`), and the running route_to's record gains ``basis_check`` = ``{"angle", "moved",
+        "frame", "pressed"}`` -- whatever that call's own ``basis``."""
+        import math
+        n = math.hypot(u[0], u[1]) or 1.0
+        cos = max(-1.0, min(1.0, (mx * u[0] + mz * u[1]) / (moved * n)))
+        angle = math.degrees(math.acos(cos))
+        pressed = "+".join(buttons)
+        if cos < self.PRIOR_AGREE:
+            self.forget_basis(field)
+            err = HarnessError(
+                f"the PRIOR basis seeded for field {field} disagrees with its first move: holding {pressed} moved "
+                f"{moved:.0f}u along ({mx:+.0f},{mz:+.0f}), {angle:.1f} degrees off the direction the prior predicts "
+                f"{_vec(u)} -- over acos(PRIOR_AGREE), {math.degrees(math.acos(self.PRIOR_AGREE)):.1f}. The seed is "
+                f"forgotten. A twist read off the wrong SetControlDirection operand (Memoria.ini [AnalogControl]), or a "
+                f"field whose twist changes after Main_Init.")
+            err.prior_basis = {"field": field, "angle": round(angle, 1), "moved": round(moved, 1), "pressed": pressed,
+                               "measured": [round(mx / moved, 4), round(mz / moved, 4)],
+                               "predicted": [round(u[0] / n, 4), round(u[1] / n, 4)]}
+            raise err
+        self._prior_pending.discard(field)
+        self._prior_angle[field] = angle
+        self._log(f"  route_to: the PRIOR basis of field {field} agrees with its first move: holding {pressed} moved "
+                  f"{moved:.0f}u, {angle:.1f} degrees off the predicted direction")
+        if self._basis_slot is not None:
+            self._basis_slot["check"] = {"angle": round(angle, 2), "moved": round(moved, 1), "frame": int(frame),
+                                         "pressed": pressed}
+
     def _route_legs(self, legs, hazards, blockers, *, spread: float, zone=None, floor=None, watch=None) -> list:
         """route_to(smooth=True)'s targets: every planned waypoint WHOLE, as ``(x, z, tolerance, leg)`` -- no
         chunks, ROUTE_WAYPOINT_TOLERANCE each (route_to puts the caller's on the last). ``leg`` is what the
@@ -3360,6 +3444,10 @@ class Session:
         self.rate(require=True)
         st = self.settle()
         for _ in range(self.ROUTE_HOLDS):
+            if field in self._seeded:
+                # S19: a SEEDED basis's spread, read afresh every hold -- wide until its first move is judged, then
+                # narrowed to the floor plus the measured angle, from the next hold of this very call (:meth:`_field_spread`)
+                leg["spread"] = self._field_spread(field, None)
             if watch is not None:
                 watch["held"] = None              # ... and this hold's, if any
             if st.field_id != field or st.player_x is None or not st.control:
@@ -3455,6 +3543,11 @@ class Session:
             leg["turned"] = ((buttons, u), min(rate.calls_sure(frames, self._gait(gait)),
                                                moved / doorface.STEP_PER_CALL))
             slid = False
+            # S19's FIRST-MOVE CHECK, before the basis check below and whatever ``slides`` is (under ``unstick`` that
+            # check reads a deflection as a slide, which would hide a wrong basis): a SEEDED basis's first evidence
+            # hold is judged against the direction pressed -- it raises, the seed forgotten, when they disagree
+            if field in self._prior_pending and self._burst_is_evidence(moved, frames, gait, rate):
+                self._judge_first_move(field, buttons, u, mx, mz, moved, after.frame)
             # walk_to's basis check, on the direction actually pressed (see there)
             if self._burst_is_evidence(moved, frames, gait, rate):
                 projected = mx * u[0] + mz * u[1]
@@ -3463,7 +3556,7 @@ class Session:
                               f"({mx:+.0f},{mz:+.0f}) -- round someone in the way, not a wrong basis; stopping here")
                     slid = True
                 elif projected < 0.35 * moved:
-                    self._axes.pop(field, None)
+                    self.forget_basis(field)          # S19: the basis and any seeded-prior state with it
                     raise HarnessError(
                         f"the axis basis for field {field} disagrees with what the game did: holding "
                         f"{'+'.join(buttons)} moved {moved:.0f}u along ({mx:+.0f},{mz:+.0f}), which projects only "
@@ -4140,8 +4233,25 @@ class Session:
                  tolerance: float = 45.0, walkmesh=None, prior="stock", timeout: float = 20.0,
                  unstick: bool = False, smooth: bool = False, zone=None, npcs: bool = False, face=None,
                  face_window=None, overlay_ok: bool = False, settle: float | None = None,
-                 handoff: bool = False) -> dict:
+                 handoff: bool = False, clearance: float | None = None, basis: str | None = None) -> dict:
         """Walk to (x, z) along a route over the field's walkmesh that keeps out of ``avoid``.
+
+        ``clearance`` (opt-in; S18, research/o7_design.md 1.2): the wall clearance every PLAN of the call keeps -- the
+        three planner calls (the plain route_avoiding, :meth:`_plan_round`'s two, :meth:`_plan_npcs`' through it) and
+        nothing else: the zone's finish, the holds and the engine's push-out keep COLLISION_RADIUS_W. None (the default)
+        is route_avoiding's own, cam.COLLISION_RADIUS_W: today's plan exactly. A corridor narrower than twice it has no
+        plan (``waypoints`` None, nothing pressed). The record holds ``clearance`` only when it was given.
+
+        ``basis`` (opt-in; S19, research/o7_design.md 1.2): ``"prior"`` SEEDS a field with no basis yet from ``prior`` --
+        exactly, no calibration probe pressed (a probe beside a door can fire it) -- and judges the seed on the walk's
+        first EVIDENCE hold (:meth:`_judge_first_move`: over acos(PRIOR_AGREE) off, the seed is forgotten and a
+        HarnessError raised carrying ``prior_basis``). Until that hold is judged the seeded field's holds are planned
+        for any error the check accepts, then for the angle it measured (:meth:`_field_spread`). It needs ``smooth``
+        (only the smooth walk measures each hold) and a prior basis dict (``prior``, or ``"stock"``'s key_prior):
+        HarnessError otherwise. The record's ``basis`` is ``"prior"`` when this call seeded, ``"cached"`` when the field
+        already had a basis (nothing seeded); and ``basis_check`` -- ``{"angle", "moved", "frame", "pressed"}`` -- is on
+        the record of whichever call judged a seeded field's first move, its own ``basis`` or not. None (the default):
+        today's calibration, and neither key.
 
         ``overlay_ok`` is :meth:`wait_control`'s: start the walk under an async hint window he can walk with.
         ``settle`` is its too: how long control must hold before the walk starts (None: SETTLE; 0: walk on the first
@@ -4350,18 +4460,24 @@ class Session:
         """
         probe = {"live": False, "lost": None}          # armed once control has held (see :meth:`_route_to`)
         outer, self._loss_probe = self._loss_probe, probe
+        slot = {"check": None}                         # S19: a first-move check this call runs, for its record
+        outer_slot, self._basis_slot = self._basis_slot, slot
         try:
             record = self._route_to(x, z, avoid=avoid, margin=margin, tolerance=tolerance, walkmesh=walkmesh,
                                     prior=prior, timeout=timeout, unstick=unstick, smooth=smooth, zone=zone,
                                     npcs=npcs, face=face, face_window=face_window, overlay_ok=overlay_ok,
-                                    settle=settle, handoff=handoff, probe=probe)
+                                    settle=settle, handoff=handoff, probe=probe, clearance=clearance, basis=basis)
         finally:
             self._loss_probe = outer
+            self._basis_slot = outer_slot
         record["lost"] = probe["lost"]
+        if slot["check"] is not None:
+            record["basis_check"] = slot["check"]
         return record
 
     def _route_to(self, x: float, z: float, *, avoid, margin, tolerance, walkmesh, prior, timeout, unstick, smooth,
-                  zone, npcs, face, face_window, overlay_ok, settle, handoff, probe) -> dict:
+                  zone, npcs, face, face_window, overlay_ok, settle, handoff, probe, clearance=None,
+                  basis=None) -> dict:
         """:meth:`route_to`'s walk, every argument as it documents them; ``probe`` is the call's control-loss probe,
         armed (``live``) the moment control has held at the start."""
         from ff9mapkit.content import pathfind
@@ -4370,6 +4486,12 @@ class Session:
                 "route_to(zone=...) finishes the last leg on the zone, and only the smooth walk does that: pass "
                 "smooth=True (route_cross passes its zone on only then). The chunked walk stops within "
                 "tolerance of the goal, wherever that leaves him.")
+        if basis not in (None, "prior"):
+            raise HarnessError(f"route_to(basis={basis!r}): the one basis a walk may be given is 'prior' (S19: seed the "
+                               f"field's basis from its prior, its first move judged) -- or None, calibrate as ever")
+        if basis == "prior" and not smooth:
+            raise HarnessError("route_to(basis='prior') judges the seeded basis on the walk's first evidence hold, and "
+                               "only the smooth walk measures each hold: pass smooth=True")
         unstick = unstick or npcs
         margin = pathfind.KEEPOUT_MARGIN_W if margin is None else float(margin)
         st = self._require_field("route_to")
@@ -4388,6 +4510,8 @@ class Session:
                   "changed_to": None, "face_gate": None, "faced": None, "face_err": None, "face_worst": None,
                   "face_to": None, "face_calls": None, "face_pad": None, "face_measured": None, "face_moved": None,
                   "fps": None, "lost": None, "handoff": False}
+        if clearance is not None:                      # S18 (opt-in): the plans' wall clearance, on record when given
+            record["clearance"] = float(clearance)
         if fpoly is not None:
             from ff9mapkit.content import doorface
             record["face_gate"] = list(doorface.FACE_WINDOW if face_window is None else map(int, face_window))
@@ -4403,15 +4527,29 @@ class Session:
         wmesh = walkmesh if walkmesh is not None else self._stock_walkmesh(origin)
         if isinstance(prior, str):
             prior = self.key_prior(origin)
+        if basis == "prior" and not (isinstance(prior, dict) and prior.get("v") is not None
+                                     and prior.get("h") is not None):
+            raise HarnessError(f"route_to(basis='prior') on field {origin}: no prior to seed ({prior!r}) -- pass the "
+                               f"field's predicted basis (prior=), or calibrate (basis None)")
         # None: blind to bodies, as unstick is
         watch = self._npc_watch(margin, record, self._floor_heights(wmesh)) if npcs else None
         if watch is not None:
             watch["floor"] = wmesh
         try:
-            if origin not in self._axes:     # always the clear-of mode, even with nothing to avoid:
-                st = self.state              # (and clear of the published triggers: a probe fires one too)
-                hazards = polys + (self._npc_hazards(watch, st) if watch is not None else [])
-                self._calibrate_clear_of(origin, hazards, prior, 4)      # its probes watch control
+            if origin not in self._axes:
+                if basis == "prior":         # S19 (opt-in): the exact prior, no probe pressed; its first move judged
+                    self._axes[origin] = {"v": tuple(prior["v"]), "h": tuple(prior["h"])}
+                    self._seeded.add(origin)
+                    self._prior_pending.add(origin)
+                    record["basis"] = "prior"
+                    self._log(f"axes on field {origin} SEEDED from its prior: up={_vec(prior['v'])} "
+                              f"right={_vec(prior['h'])} -- no probe pressed; the first move judges it")
+                else:                        # always the clear-of mode, even with nothing to avoid:
+                    st = self.state          # (and clear of the published triggers: a probe fires one too)
+                    hazards = polys + (self._npc_hazards(watch, st) if watch is not None else [])
+                    self._calibrate_clear_of(origin, hazards, prior, 4)      # its probes watch control
+            elif basis is not None:
+                record["basis"] = "cached"   # S19: the field's basis already in hand -- nothing seeded
         except ProbeLeftControl as err:
             self._log(f"  route_to: {err}")
             record["during"] = "calibrate"
@@ -4419,7 +4557,7 @@ class Session:
             record["landed"] = self._landed(origin, timeout, record, handoff)
             record["fps"] = self.rate().as_dict()
             return record
-        spread = self._heading_spread(self._axes[origin], prior) if smooth else 0.0
+        spread = self._field_spread(origin, prior) if smooth else 0.0
         known = self._visit_blockers(origin) if unstick else []
         fresh: list = []                  # the blockers THIS call placed, exact centres (all also in known)
         walked = [0.0]                    # distance covered, summed over every walk_to of the call
@@ -4448,10 +4586,12 @@ class Session:
             here = (st.player_x, st.player_z)
             sealing = []
             if watch is not None:
-                wps, sealing = self._plan_npcs(wmesh, st, (x, z), polys, margin, known, fresh, watch, record)
+                wps, sealing = self._plan_npcs(wmesh, st, (x, z), polys, margin, known, fresh, watch, record,
+                                               clearance=clearance)
             else:
-                wps = (self._plan_round(wmesh, here, (x, z), polys, margin, known, fresh) if unstick
-                       else pathfind.route_avoiding(wmesh, here, (x, z), polys, margin, leave_wall=True))
+                wps = (self._plan_round(wmesh, here, (x, z), polys, margin, known, fresh, clearance=clearance)
+                       if unstick else pathfind.route_avoiding(wmesh, here, (x, z), polys, margin, leave_wall=True,
+                                                               clearance=clearance))
             if wps is None:
                 stalled = False
                 self._log(f"  route_to: no route on field {origin} from ({here[0]:.0f}, {here[1]:.0f}) "
@@ -4603,7 +4743,7 @@ class Session:
                       f"other directions -- movement is held (or he is boxed in); stopping")
         if fpoly is not None and not record["frozen"]:
             # the walk is over; standing IN a gated door's region with nothing fired, only facing it opens it
-            turn = {"hazards": polys, "spread": self._heading_spread(self._axes[origin], prior), "watch": watch,
+            turn = {"hazards": polys, "spread": self._field_spread(origin, prior), "watch": watch,
                     "floor": wmesh}
             if self._face_the_door(fpoly, record, origin, walked, turn, self._held_yaw(leg), record["face_gate"],
                                    zpoly, timeout=timeout) is not None:
@@ -4877,13 +5017,15 @@ class Session:
             self._blocker_at.pop(body, None)
         return known
 
-    def _plan_round(self, wmesh, here, goal, polys, margin, known: list, fresh: list, discs=(), memo=None):
+    def _plan_round(self, wmesh, here, goal, polys, margin, known: list, fresh: list, discs=(), memo=None,
+                    clearance=None):
         """:func:`~ff9mapkit.content.pathfind.route_avoiding` round the visit's unseen blockers ``known``
         (updated in place; ``fresh`` = the ones this call placed), still clear of every ``polys`` zone -- and
         of ``discs``, ``(x, z, r)`` obstacles each kept its own ``r`` clear (route_to(npcs=True)'s published
         objects, :meth:`_plan_npcs`), which this never drops. ``memo`` is route_avoiding's: one per start, shared
         by every plan a caller makes from there. Planned from where he stands, so ``leave_wall``: a start nearer
-        a wall than the controller radius gets out of that band first (:meth:`route_to`).
+        a wall than the controller radius gets out of that band first (:meth:`route_to`). ``clearance`` (S18,
+        route_to's; None = route_avoiding's own) is the wall clearance both plans keep.
 
         A blocker he STANDS INSIDE is not there any more -- he could not stand in a body -- and is
         dropped. When the OLDER ones seal the way they may have walked off, so the plan is made again
@@ -4897,11 +5039,11 @@ class Session:
             if b in fresh:
                 fresh.remove(b)
         wps = pathfind.route_avoiding(wmesh, here, goal, polys, margin, obstacles=list(known) + list(discs),
-                                      memo=memo, leave_wall=True)
+                                      memo=memo, leave_wall=True, clearance=clearance)
         older = [b for b in known if b not in fresh]
         if wps is None and older:
             wps = pathfind.route_avoiding(wmesh, here, goal, polys, margin, obstacles=list(fresh) + list(discs),
-                                          memo=memo, leave_wall=True)
+                                          memo=memo, leave_wall=True, clearance=clearance)
             if wps is not None:
                 self._log(f"  route_to: {len(older)} remembered blocker(s) sealed the way; planned without them")
                 for b in older:
@@ -5135,10 +5277,12 @@ class Session:
             d["inside"] = dist < d["R"]
         return out
 
-    def _plan_npcs(self, wmesh, st, goal, polys, margin, known: list, fresh: list, watch: dict, record: dict):
-        """route_to(npcs=True)'s plan from where ``st`` stands him: :meth:`_plan_round` (walls, the ``polys`` zones,
-        the unseen blockers) round the published objects (:meth:`_npc_discs` of the last list read -- ``st``'s own
-        when it has one), giving up only as much as it must, in this order:
+    def _plan_npcs(self, wmesh, st, goal, polys, margin, known: list, fresh: list, watch: dict, record: dict,
+                   clearance=None):
+        """route_to(npcs=True)'s plan from where ``st`` stands him: :meth:`_plan_round` (walls -- kept ``clearance``
+        off, S18's, None its default -- the ``polys`` zones, the unseen blockers) round the published objects
+        (:meth:`_npc_discs` of the last list read -- ``st``'s own when it has one), giving up only as much as it must,
+        in this order:
           0. THE SOLIDS ALONE, each at its tight radius ``T``. A SOLID body is never given up, and every plan below
              keeps a superset of these, so when they leave no route nothing does: ``(None, sealing)`` at once, the
              solids the route round the walls and zones alone passes within ``r`` of (all of them if it passes
@@ -5186,7 +5330,7 @@ class Session:
 
         def plan(kept, key="T"):
             wps = self._plan_round(wmesh, here, goal, polys, margin, known, fresh,
-                                   discs=[(d["x"], d["z"], d[key]) for d in kept], memo=memo)
+                                   discs=[(d["x"], d["z"], d[key]) for d in kept], memo=memo, clearance=clearance)
             return None if wps is None or any(enters(line(wps), d, min(d["R"], d[key])) for d in kept) else wps
 
         solids = [d for d in every if d["kind"] == "body" and d["solid"]]
@@ -6041,7 +6185,8 @@ class Session:
                     margin: float | None = None, timeout: float = 20.0, walkmesh=None,
                     prior="stock", unstick: bool = False, zone=None, smooth: bool = False,
                     npcs: bool = False, gate=None, region=None, settle: float | None = None,
-                    overlay_ok: bool = False, handoff: bool = False) -> dict:
+                    overlay_ok: bool = False, handoff: bool = False, clearance: float | None = None,
+                    basis: str | None = None) -> dict:
         """:meth:`route_to` a point inside a gateway region, then wait for the crossing like :meth:`cross`.
 
         ``(x, z)`` should be INSIDE the target region and standable --
@@ -6079,6 +6224,9 @@ class Session:
         ``timeout``) only for the field to change or control to go, then returns -- never for the destination to become
         playable, so an arrival scene is the caller's to sit through, and no "never became playable" is raised.
         ``lost`` (route_to's) covers this call's own waits too: where control first went, walk or wait.
+
+        ``clearance`` (opt-in, S18) goes to route_to: the wall clearance its plans keep (None: route_avoiding's own); and
+        so does ``basis`` (opt-in, S19): ``"prior"`` seeds the field's basis from ``prior``, its first move judged.
         """
         from ff9mapkit.content import doorface
         door = zone if region is None else region
@@ -6088,7 +6236,7 @@ class Session:
                                prior=prior, timeout=timeout, unstick=unstick, smooth=smooth,
                                zone=zone if smooth else None, npcs=npcs, face=None if gate is None else door,
                                face_window=None if gate is None or gate is True else gate, settle=settle,
-                               overlay_ok=overlay_ok, handoff=handoff)
+                               overlay_ok=overlay_ok, handoff=handoff, clearance=clearance, basis=basis)
         origin = record["from"]
         record["inside"] = None
         pending = record["landed"] is None and record["waypoints"] is not None and record["during"] is None
@@ -8308,8 +8456,12 @@ class Session:
         # scenario's refusal raise against the next scenario's first innocent step.
         self._last_error = None
         # A basis is per-field AND per-scenario: the previous scenario may have left the character
-        # somewhere its probes were deflected, and a cached bad basis steers every later walk.
+        # somewhere its probes were deflected, and a cached bad basis steers every later walk. S19's seeded-prior
+        # state goes with it (research/o7_design.md 1.2): a pending seed never outlives its basis.
         self._axes.clear()
+        self._seeded.clear()
+        self._prior_pending.clear()
+        self._prior_angle.clear()
         # ⚠ And the last fight's record. battle_play asserts `last_fight["turns"] >= 1`; carried
         # across the boundary, a member whose fight() raised before recording anything would be
         # judged on the PREVIOUS member's fight and pass. Its leave's record likewise.
