@@ -1970,3 +1970,48 @@ complete; the per-side end judgement; story-o6 re-analysed equal to its report (
 ### 11.4 As built (the implementer appends, PART by PART)
 Where the design was silent or wrong, each the smallest correct thing, in O6's 11.6 form; and the review's findings, in
 O6's 11.7 form.
+
+#### PART A, as built: where the design was silent or wrong (each the smallest correct thing)
+A0 first, from master's merge gate and the nightly ledger, no new baseline: `.test-gate/latest.json` green at c954f986
+(11244 passed, 1 xfailed); master d6b77975 (no merge since the branch point); `tests/test_harness.py` 930 collected at
+the branch point; `segment_regress.py --only G32,G33` at the head PASS (G32 49 passed; G33 164/164 as frozen and as if
+frozen), exit 3. The gate extended (759b0697), the O6 baseline was captured THERE before any other code change (58b6aea3):
+two readings identical, G32 50 passed (O6's 49 and the A0 test), G33 164/164 twice, G34 (story-o6, PROVEN, 19 checks, the
+archived report exactly), G35, G36 (93 sessions + 71 units, 164/164), G37 (6 PASS), 4 m 43 s; 2366668 bytes, LF, ASCII,
+62 sources (G32's 50 tests and FAKE_PINS_O6's 12), none pinned by an earlier baseline. `--only G34,G35,G36,G37,G21` then
+read 5/5 (G21 over four baselines: 358 sources, 20 re-baseline rows). A0b's golden (88d98f19), on the unedited fake: 98
+sample changes and 45 trace rows a side over 751 frames, 34047 bytes; both replays green.
+
+1. **A body the design said no change would touch.** "No existing test body changes except the registry test" -- but
+   `test_segment_regress_partial_run_is_not_the_gate` asserted the partial line `(32 of 33 not run)`, which G34-G37 make
+   `(36 of 37 not run)`. No baseline pins it; it now reads the count off `ITEM_ORDER`, so B4's and C2's extensions leave
+   it alone. In the same spirit `select_items`' refusal and the `--only` / `--segment` help derive the item range and the
+   segments from the registry instead of the literal "G1-G33" / "O1-O6".
+2. **`fake_pins_o6` with no class.** FAKE_PINS_O4/O5 expanded classes; O6 added none, so `fake_pins_o6(source)` returns
+   FAKE_PINS_O6 as listed and raises (naming them) when fakegame.py defines no function for a name -- the classes'
+   "a renamed class raises" rule, per function.
+3. **A0b's test in `REQUIRED_TESTS_O7` at A0b.** A0 committed the tuple empty; A0b adds its replay as its first entry
+   (O6's precedent: its A0b replay heads `REQUIRED_TESTS_O6`). Nothing reads the tuple until B4's G38.
+4. **S17's tests on O2's fixture.** The design named the cases, not the fixture: 30820 the walk's field with O2's exit
+   (Field(30810), the end), 30821 a door's landing; every walk cell ends in O2's crossing so a done walk is never rule 8's
+   V4. `_s17_drive` re-runs (at most twice) only a run whose walk was DONE and whose crossing a starved harness spoiled
+   (V7 "of its 2 attempts", interrupted twice, the budget), and the door case only a V11 whose loss was read after the
+   switch (its door then unnamed) -- each class asserted on the run set aside, never a walk verdict re-run.
+5. **S19's unstated edges.** `route_to` refuses a `basis` other than None / "prior" (a HarnessError; `step_of` refuses it
+   at the table already), and "no prior to seed" whenever `basis` "prior" comes without a prior basis dict, cached field
+   or not (the design's rule, unconditional). `basis_check` reaches the record through a per-call slot that route_to
+   sets and restores as it does the loss probe (`_walk_leg` has no record). `_prior_angle` holds DEGREES -- the spread
+   converts -- with `basis_check.angle` rounded to 0.01 and the marker's to 0.1. `calibrate_axes` and
+   `_calibrate_clear_of` are untouched, as designed: a `calibrate_axes(recalibrate=True)` on a SEEDED field would leave its
+   S19 state, and no route path calls it.
+6. **The marker on the V13 row.** `run_step` writes the converted step row with `v` V13, `by` driver, `why` "the prior
+   basis disagreed with the first move: ..." and -- beyond the design's three -- `prior_basis` (the marker: field, angle,
+   moved, pressed, measured, predicted), present on that row alone: O7-WALK's (d) and a rehearsal read the angle off the
+   row, not off the prose.
+7. **Why the narrowing test needs a twist.** On a box floor a leg that runs exactly along a pad never feels the spread:
+   the hold's end lies on the leg, inside any drift. The test gives the fake 154's 1.4-degree basis (every pad 1.4 degrees
+   off the 3900-u leg) at 31 fps: the cached walk took 6 holds; the spread held wide (the mutant) took 18 -- the critic's
+   `sim2.py` count, reproduced on the fake.
+8. **`dali` for 163.** The stair-at-110 test reads stock 163's player walkmesh through the module-scoped `dali` fixture
+   (its warned skip without the install, which fails G7), and walks the 110 plan on a fake box over the stair (no wall
+   model): 6 waypoints at 110 (3880 u), none at 116, 118 or 120 -- 0.2 #5's numbers, re-measured here.
