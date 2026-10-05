@@ -1668,6 +1668,17 @@ movie and the seam only; 166's K -1 takes ip119 from the window's `Byte[13]` 1; 
 after O8's own stock A/B (a non-page span key) -- not recommended; (4) 31258 rebuilt with 55 -> 31205 (owner-gated;
 breaks O4-O6's P-EB pins) -- not recommended. O7 ended at 164 (R-STAIR GO), so O8 starts there.
 
+**O8 DECIDED (owner, 2026-10-05): the recommendations -- option (1).** O8 = the raw warp into 164 at 342 -> the spirals
+(165) -> 166 -> FMV004 PLAYED OUT (no skip, no A/B) -> the arrival in REAL 55 at 110 on BOTH sides (31258 keeps its raw
+`Field(55)`; no rebuild, O4-O6's P-EB pins untouched), with the SEAM check above. Not options (2)-(4).
+RESUME (a new session): read this section and "Build testing" below, then the same pipeline as O7 -- the research
+workflow (template: O7's, `o7-research-wf_13bc8496-be9.js` under `~/.claude/projects/C--gd-Dream-World-IX/2b528e1b-*/
+workflows/scripts/`), then the build workflow (template: `o7-build-wf_73cfdfb7-a1c.js` under
+`~/.claude/projects/C--gd-Dream-World-IX--claude-worktrees-story-trace-o7/2b528e1b-*/workflows/scripts/`; its
+scratchpad paths are that session's: re-point them), in a fresh `claude/story-trace-o8` worktree off master; then
+`o8_rehearse.py` stages, the freeze, `--preflight`, the session, the full gate on a whole-file receipt, merge. The O7
+run dirs the gate reads are archived in the MAIN repo's `.harness-runs/20261005-*`.
+
 ## Build testing (every segment's build, from O7) -- overrides any design's section 9 where it differs
 
 **Why (measured 2026-10-04 over the O3-O6 build workflows):** O6's request-to-merge was 24.8 h. Of that, the build
