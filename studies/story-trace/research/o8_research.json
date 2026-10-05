@@ -1,0 +1,1199 @@
+{
+ "reconciled": {
+  "end": {
+   "field": 55,
+   "cut": "55 e0 t0 ip22 (L16) Bit[191] := 0 -- old 0, same 1, emitted (a new site in the epoch: the sink's key carries the field, StoryTrace.cs:92-100). REAL 55 on both sides (fld 55, don 55: EffectiveFieldId(55) = 55, DataPatchers.cs:47-50). It is the first gEventGlobal store of 55's Main_Init; ip6/ip14 are Map variables.",
+   "side_ends": "{S: [55], F: [55]} with members = O4's twenty only (o4_forks.json): no O1 id (31200-31219), no member whose donor is 55. side_ends_of (segment_trace.py:171-206), run here, accepts it and refuses F [31205] or 31205 among the members. on_route on F: 31256/31257/31258 and 55 True, real 164/165/166 False, so rule 2 gives V19 (segment_drive.py:3446-3455).",
+   "verified": "Verified in the bytes at HEAD 57aac989 (own decode, reconcile/L166.txt and L55.txt, cmp-identical to every reader's copy).\n\nThe pre-cut tail:\n- 166 e6 t1: ip502 (L228) Byte[8] 125->0, then FMV004 (ip633 Cinematic(0,9,1,1) -> MBG_DEF('FMV004',1,0), type 0, MBG.cs:830; ip711 plays it; ip756 waits for fmvStatus 8).\n- ip863 (L589) Int16[2] 344->110, unconditional: the JMP_IFNOTs at ip849/ip860 land on the next instruction.\n- ip871 Field(55): MAPJUMP returns 4 and halts the VM (DoEventCode.cs:1008-1030).\n- No gEventGlobal store between ip502 and ip863, and none after ip863 in 166. 166's store census is 18 sites, and its only e6 stores are ip345/380/502/863.\n\nF lands in REAL 55:\n- 31258 is byte-identical to 166 in all 7 languages, with Field(55) raw.\n- SetNextMap -> HonoluluFieldMain.cs:444 does no remap.\n- ForkSiblingField (ForkSiblingMap[55] = 31205) is called only at ff9.cs:9327 (world->field) and HonoluluBattleMain.cs:737 (battle return).\n\nWhat could move the end:\n- 55 ip41 (Int16[2] := 10000) is dead: 166 ip49 left Bit[184] 0.\n- 55 stores nothing before ip22.\n- An r (C# residue) row landing in 55 before ip22 would become the cut row and fail LANDING (d). Neither O3 (31213->64, 3 frames, nothing between) nor O7 (163->164, 4 frames) ever saw one.\n- Past the cut, in the cut's own frame, ip255 Int16[2] := 106 (110->106; ip229 SC<1400 is true at 1190).\n- ip342 Byte[8] := 125 (0->125) follows after the SYSVAR[3] loop, in-frame by the 159 ip290 / 64 ip475 precedent.\n\nSo the end state takes Int16[2] (110, 166 e6 t1 ip863) and Byte[8] (0, ip502) from the trace by place, never live. Nothing else races.",
+   "last_rows": "S 166 / F 31258 (place 166):\n- e6 t1 ip345 Byte[208] 0->0 (same), ip380 Byte[208]++ 0->1, ip502 Byte[8] 125->0;\n- [FMV004 played out, ~47-51 s static];\n- e6 t1 ip863 Int16[2] 344->110: the LAST pre-cut row, the last chain row, and on F THE SEAM's exit row;\n- ip871 Field(55) (no row);\n- then the cut row 55 e0 t0 ip22 Bit[191]:=0, followed by 55's post-cut rows ip49, ip57, ip119, ip138, ip200 (all same-value), ip255 Int16[2] 110->106 and ip342 Byte[8] 0->125.\nOn F the kept `e off fld 55` row records Seam(31258 -> 55).",
+   "est_minutes": 2.5
+  },
+  "route": {
+   "end_verified": "The arrival in REAL 55 at 110 on both sides is checked in the bytes, cut at 55 e0 t0 ip22. 31258 is byte-identical to 166 in all 7 languages, and its only Field() is e6 t1 ip871 Field(55), RAW. ip863 Int16[2] := 110 runs unconditionally.\n\nThe last pre-cut rows (S 166 / F 31258):\n- e6 t1 ip502 Byte[8] 125->0;\n- [FMV004];\n- e6 t1 ip863 Int16[2] 344->110: the last chain row, and the seam's exit row on F.\n\nThe cut row is 55 e0 t0 ip22 Bit[191] := 0: old 0, same, emitted as a new site of the epoch.\n\nWhat could move it:\n- An r row in 55 before ip22. Never seen in O3's or O7's crossings: nothing lay between the last chain row and the next field's ip22.\n- 55 ip41 is dead (Bit[184] 0).\n- 55 ip255 (Int16[2] 110->106) runs in the cut's frame.\n- 55 ip342 (Byte[8] 0->125) runs after the sound sync, in the same frame by precedent.\n\nBoth race the live read, so they are read from the trace. No other 55 store reaches an end-state target before the scene's page 129: e10 t1's SC stores are Map.Byte[24] case 3, and e7 t2's Byte[8]/Int16[2] are a region needing control.",
+   "fields_in_order": [
+    {
+     "field": 70,
+     "name": "Opening (New Game). Runs the LIVE override, FF9CustomMap-world EVT_ALEX1_TS_OPENING sha 2ce8887e, text-identical to stock through ip544 except ip278's SWITCH labels",
+     "entered_via": "New Game; storytrace 1 (epoch arm); the raw warp from FieldHUD, after 70 e0 t0 ip130 and ip249 and before ip475. The two start reads classify either edge as A-START.",
+     "entrance": 0
+    },
+    {
+     "field": 164,
+     "name": "A. Castle / west tower, first spiral (EVT_ALEX1_AC_TOWER_L3; F member(164) 31256 O4_ALXC_AC_LTI)",
+     "entered_via": "Raw warp `warp 164 342 1190` (S) / `warp 31256 342 1190` (F): four residue rows. e7 t0 ip22 SWITCH(344, L47, L12) takes the default L47: (2040,3335), facing -36, MoveInstantXZY y -5647, tri 145 at PSX -4780.",
+     "entrance": 342
+    },
+    {
+     "field": 165,
+     "name": "A. Castle / west tower, second spiral (EVT_ALEX1_AC_TOWER_L4; F 31257 O4_AC_LTI_2)",
+     "entered_via": "164 e2 t2 ip243 Int16[2] := 343, then ip251 Field(165) (31256: Field(31257)). e7 t0 ip14 SWITCH(345, L47, L12) takes the default L47: (2055,3411), facing 128, y -10519, tri 57 at PSX -10280.",
+     "entrance": 343
+    },
+    {
+     "field": 166,
+     "name": "A. Castle / west tower top (EVT_ALEX1_AC_TOWER_L5; F 31258 O4_AC_LTT, byte-identical to 166)",
+     "entered_via": "165 e2 t2 ip233 Int16[2] := 344, then ip241 Field(166) (31257: Field(31258)). No grant: e6 is the defined player at (-4238, -6173), never controlled.",
+     "entrance": 344
+    },
+    {
+     "field": 55,
+     "name": "Prima Vista / Music Room (REAL 55 on both sides; block 2)",
+     "entered_via": "166 e6 t1 ip863 Int16[2] := 110, then ip871 Field(55), raw on F. The cut is at 55 e0 t0 ip22.",
+     "entrance": 110
+    }
+   ],
+   "beats": [
+    {
+     "n": 1,
+     "field": 70,
+     "kind": "other",
+     "what": "New Game; the trace armed (in O7's runs the arm came after 70's prologue, so 70 writes no w row). 70 e0 t0 ip57 Int16[9] := 643, ip130 Byte[13] := 1, ip138, ip200, ip249 Byte[8] := 125; FMV001 init at ip320 and play at ip398.",
+     "player_action": "The driver waits for FieldHUD after the arm, then warps. Nothing is pressed.",
+     "required": true,
+     "where": "70 e0 t0",
+     "gate": "UIState FieldHUD (Ff9mkDebugMenu.cs:2083)"
+    },
+    {
+     "n": 2,
+     "field": 164,
+     "kind": "warp",
+     "what": "Raw warp at entrance 342, SC 1190: residue r rows in fld 70 [[0,0,166],[1,0,4],[2,0,86],[3,0,1]]. FieldEntrance, then ScenarioCounter, then SetNextMap (Ff9mkDebugMenu.cs:2120-2135), after WarpFadeWait 0.9 s.",
+     "player_action": "`warp 164 342 1190` (S) / `warp 31256 342 1190` (F)",
+     "required": true,
+     "where": "field 70",
+     "gate": "FieldHUD"
+    },
+    {
+     "n": 3,
+     "field": 164,
+     "kind": "control",
+     "what": "Main_Init prologue ip22..ip200 in one frame (THE START ROW ip22; START (c): ip130 Byte[13] 1->1). Two op_22(2) waits, then the grant ip698 EnableMove and ip764 Byte[13] 1->2 in the same pass. Steiner (e7) radius 80, spawn y ~4780; e3 is LIVE 157 u away.",
+     "player_action": "Wait for control (settled); the prior basis is seeded, no probe.",
+     "required": true,
+     "where": "164 e0 t0 ip698 / ip764",
+     "gate": "Map.Bit[158] (e7 t0 ip326), Map.Bit[159] (ip649), Map.Bit[156]==0"
+    },
+    {
+     "n": 4,
+     "field": 164,
+     "kind": "walk",
+     "what": "Step 0: up loop 1 to P1 (1342,2252), PSX -8958. 24 waypoints, 6404 u at clearance 80, 128 run ticks. It passes PSX -8400 (T0, releasing the knight) at (610,2160), 16 ticks before P1; enters e2's ring twice at its dead level (PSX -8005 / -8429); never enters e3.",
+     "player_action": "route_to with at_y [8800,9150], avoid [164.e3], 93 closures, npcs false, basis prior, attempts 3 (beat w164_p1)",
+     "required": true,
+     "where": "164 loop 1, spawn -> P1",
+     "gate": "arrival within 45 u of P1 with control and published y in [8800, 9150]"
+    },
+    {
+     "n": 5,
+     "field": 164,
+     "kind": "hold",
+     "what": "THE KNIGHT HOLD. The knight e1 t1, released at T0, walks 1131 u at 15 u a tick, plays anim 9920 (59 frames), then ip230 Bit[3811] := 1 at ~T0+140 +-8 ticks.",
+     "player_action": "Hold at P1 with control, pressing nothing: g.watch(3811), poll until it reads 1 (timeout 15 s), g.unwatch()",
+     "required": true,
+     "where": "164 e1 t1 ip230 (inside step 0's row)",
+     "gate": "the published flag 3811 == 1; ip230 must precede e2 t2 ip243"
+    },
+    {
+     "n": 6,
+     "field": 164,
+     "kind": "trigger",
+     "what": "Step 1: loop 2 and the top to (59,2214) in e2's west ear. 22 waypoints, 6327 u at clearance 64 (none at 66+), 126 run ticks. THE PINCH (half-width 68.6 at (1202,4520), PSX -10695) is crossed. e3's ring is crossed at its dead level. e2 fires at (24.5,2271), PSX -13008: ip243 Int16[2] := 343, then ip251 Field(165).",
+     "player_action": "route_to; until {y_gt: 12000}, to 165, 99 closures, npcs true, attempts 3 (beat t164_e2)",
+     "required": true,
+     "where": "164 e2 t2 ip243 / ip251",
+     "gate": "SYSVAR[2] && player f[1] < -12000 (ip42)"
+    },
+    {
+     "n": 7,
+     "field": 165,
+     "kind": "control",
+     "what": "Prologue (ip130 2->1), grant ip778, ip844 Byte[13] 1->2. Radius 120, spawn y ~10280, e3 LIVE 133.6 u away.",
+     "player_action": "Wait for control; prior basis.",
+     "required": true,
+     "where": "165 e0 t0 ip778 / ip844",
+     "gate": "Map.Bit[158] (e7 t0 ip318) / [159] / [156]"
+    },
+    {
+     "n": 8,
+     "field": 165,
+     "kind": "walk",
+     "what": "Step 0 to (1508,4698), PSX -11251: 3 waypoints, 1452 u at 120, 29 ticks.",
+     "player_action": "route_to with at_y [11100,11450], avoid [165.e3], 64 closures, basis prior (beat w165_p1)",
+     "required": true,
+     "where": "165",
+     "gate": "arrival with control at y in band"
+    },
+    {
+     "n": 9,
+     "field": 165,
+     "kind": "trigger",
+     "what": "Step 1 to (2489,3166): 18 waypoints, 6832 u at 120, 134 ticks. e3's ring is crossed at its dead level (PSX -14698 / -15133). e2 fires entering at (2419.6,3130), PSX -15169: ip205 Byte[13] 2->3 (LIVE), ip233 Int16[2] := 344, ip241 Field(166).",
+     "player_action": "route_to; until {y_gt: 15000}, to 166, 16 closures (beat t165_e2)",
+     "required": true,
+     "where": "165 e2 t2 ip205 / ip233 / ip241",
+     "gate": "SYSVAR[2] && f[1] < -15000 (ip38)"
+    },
+    {
+     "n": 10,
+     "field": 166,
+     "kind": "page",
+     "what": "Main_Init: prologue (ip57 385->-1, ip119 3->0), then the SYSVAR[3] sync and ip255 Byte[8] 125->125 (THE START READ). No grant (EnableMove ip423 is behind Map.Bit[158]). e6 t1: op_22(30), walk, anim, op_22(10), then page 307 (WindowSync, [SPED=2]).",
+     "player_action": "Rule 7 Confirms; a dropped first press is pressed again.",
+     "required": true,
+     "where": "166 e6 t1 ip310",
+     "gate": "WindowSync"
+    },
+    {
+     "n": 11,
+     "field": 166,
+     "kind": "page",
+     "what": "Page 308 (WindowSync), after op_22(30) and an anim.",
+     "player_action": "Rule 7 Confirm",
+     "required": true,
+     "where": "166 e6 t1 ip328",
+     "gate": "WindowSync"
+    },
+    {
+     "n": 12,
+     "field": 166,
+     "kind": "page",
+     "what": "Page 309 (WindowAsync). Under it: anim 6998, ip345 Byte[208] := 0 (0->0 raw), one loop pass, ip380 Byte[208]++ 0->1, anim 6990, then ip401 WaitWindow(0).",
+     "player_action": "Rule 7 Confirm (the rows land whether 309 is up or not)",
+     "required": true,
+     "where": "166 e6 t1 ip334 / ip345 / ip380 / ip401",
+     "gate": "WaitWindow(0)"
+    },
+    {
+     "n": 13,
+     "field": 166,
+     "kind": "page",
+     "what": "Walk, Map.Byte[32] := 1 (e3/e5 circle), op_22(90), teleport and walk, then page 311 (WindowSync under RunAnimation 6605, 39 frames).",
+     "player_action": "Rule 7 Confirm",
+     "required": true,
+     "where": "166 e6 t1 ip454",
+     "gate": "WindowSync"
+    },
+    {
+     "n": 14,
+     "field": 166,
+     "kind": "page",
+     "what": "Page 312 (WindowSync).",
+     "player_action": "Rule 7 Confirm",
+     "required": true,
+     "where": "166 e6 t1 ip474",
+     "gate": "WindowSync"
+    },
+    {
+     "n": 15,
+     "field": 166,
+     "kind": "page",
+     "what": "RunSharedScript(2) (the clank loop), then page 313 (WindowSync). Then StopSharedScript, op_22(10), ip502 Byte[8] 125->0.",
+     "player_action": "Rule 7 Confirm; after it closes NOTHING is pressed (no movies policy; rule 9 sleeps).",
+     "required": true,
+     "where": "166 e6 t1 ip492 / ip502",
+     "gate": "WindowSync"
+    },
+    {
+     "n": 16,
+     "field": 166,
+     "kind": "fmv",
+     "what": "FMV004 PLAYED OUT: ip633 Cinematic(0,9,1,1) init, ip660 wait, ip711 Cinematic(2) play, ip756 wait for fmvStatus 8. 45.412 s (MoguriVideo copy), static span ~47-51 s. Then fades, ip863 Int16[2] 344->110, ip871 Field(55).",
+     "player_action": "None. A stray skip dialog is answered at its default (No).",
+     "required": true,
+     "where": "166 e6 t1 ip633..ip871",
+     "gate": "SYSVAR[15] & 127 == 1 (the finish callback)"
+    },
+    {
+     "n": 17,
+     "field": 55,
+     "kind": "other",
+     "what": "Arrival in REAL 55 at 110 on both sides; the cut row 55 e0 t0 ip22. Rule 1 reads the end state and waits up to 10 s for the end row.",
+     "player_action": "None; end_run (recovery warp 4600, the title)",
+     "required": true,
+     "where": "55 e0 t0 ip22",
+     "gate": "rule 1, side_ends {S:[55],F:[55]}"
+    }
+   ],
+   "keys": [
+    {
+     "field": 70,
+     "sid": -1,
+     "tag": -1,
+     "ip": -1,
+     "op": "residue",
+     "target": "Byte[0] (SC low)",
+     "value": "166",
+     "old": "0",
+     "what": "The warp's residue (C#, Ff9mkDebugMenu.cs:2134): SC 1190 = 0x04A6. Not a script store, not a key.",
+     "emitted": "r row in fld 70, set aside by the front cut (START (a))"
+    },
+    {
+     "field": 70,
+     "sid": -1,
+     "tag": -1,
+     "ip": -1,
+     "op": "residue",
+     "target": "Byte[1] (SC high)",
+     "value": "4",
+     "old": "0",
+     "what": "The warp's residue: SC high byte",
+     "emitted": "r row in fld 70, before the start"
+    },
+    {
+     "field": 70,
+     "sid": -1,
+     "tag": -1,
+     "ip": -1,
+     "op": "residue",
+     "target": "Byte[2] (FieldEntrance low)",
+     "value": "86",
+     "old": "0",
+     "what": "The warp's residue: FieldEntrance 342 = 0x0156",
+     "emitted": "r row in fld 70, before the start"
+    },
+    {
+     "field": 70,
+     "sid": -1,
+     "tag": -1,
+     "ip": -1,
+     "op": "residue",
+     "target": "Byte[3] (FieldEntrance high)",
+     "value": "1",
+     "old": "0",
+     "what": "The warp's residue: FieldEntrance high byte",
+     "emitted": "r row in fld 70, before the start"
+    },
+    {
+     "field": 164,
+     "sid": 0,
+     "tag": 0,
+     "ip": 22,
+     "op": ":=",
+     "target": "Bit[191]",
+     "value": "0",
+     "old": "0 (same)",
+     "what": "L16, THE START ROW (front cut); masked",
+     "emitted": "emitted same:1 (first at its site in the epoch)"
+    },
+    {
+     "field": 164,
+     "sid": 0,
+     "tag": 0,
+     "ip": 49,
+     "op": ":=",
+     "target": "Bit[184]",
+     "value": "0",
+     "old": "0 (same)",
+     "what": "L43; masked. ip30's Bit[184]==1 is false, so ip41 Int16[2]:=10000 is dead.",
+     "emitted": "emitted same:1"
+    },
+    {
+     "field": 164,
+     "sid": 0,
+     "tag": 0,
+     "ip": 57,
+     "op": ":=",
+     "target": "Int16[9]",
+     "value": "385",
+     "old": "643 raw (70 ip57); 385 after O1-O7: START-SCOPED",
+     "what": "L51, the ambient K",
+     "emitted": "emitted (a change on the raw start; same:1 after O7)"
+    },
+    {
+     "field": 164,
+     "sid": 0,
+     "tag": 0,
+     "ip": 130,
+     "op": ":=",
+     "target": "Byte[13]",
+     "value": "1",
+     "old": "1 raw (70 ip130); 2 after O7 (163 ip684): START-SCOPED",
+     "what": "L124. START (c) start_music, and the NEW start read (old 1; raced store 70 ip475). ip97 and ip119 are dead (Int16[9] 385).",
+     "emitted": "emitted same:1 on the raw start"
+    },
+    {
+     "field": 164,
+     "sid": 0,
+     "tag": 0,
+     "ip": 138,
+     "op": ":=",
+     "target": "Int16[11]",
+     "value": "-1",
+     "old": "-1",
+     "what": "L132",
+     "emitted": "emitted same:1"
+    },
+    {
+     "field": 164,
+     "sid": 0,
+     "tag": 0,
+     "ip": 200,
+     "op": ":=",
+     "target": "Byte[14]",
+     "value": "0",
+     "old": "0",
+     "what": "L194 (Int16[11] < 0); ip178 and ip211 are dead",
+     "emitted": "emitted same:1"
+    },
+    {
+     "field": 164,
+     "sid": 0,
+     "tag": 0,
+     "ip": 764,
+     "op": ":=",
+     "target": "Byte[13]",
+     "value": "2",
+     "old": "1",
+     "what": "L758, the grant's pass (Byte[13] < 9). In O7's runs it landed 2-5 frames after the prologue.",
+     "emitted": "emitted (change)"
+    },
+    {
+     "field": 164,
+     "sid": 1,
+     "tag": 1,
+     "ip": 230,
+     "op": ":=",
+     "target": "Bit[3811]",
+     "value": "1",
+     "old": "0 (New Game; no O1-O7 key writes it)",
+     "what": "L70, the knight sits. Released by ip178 (player f[1] <= -8400); lands during THE HOLD, inside step 0's row, before e2 t2 ip243 (the ORDER check).",
+     "emitted": "emitted (change)"
+    },
+    {
+     "field": 164,
+     "sid": 2,
+     "tag": 2,
+     "ip": 243,
+     "op": ":=",
+     "target": "Int16[2]",
+     "value": "343",
+     "old": "342 (residue)",
+     "what": "L209, chain key 1, then ip251 Field(165) (F 31257). ip215 is dead (ip54 set Map.Bit[162]). The back door e3 t2 ip243 stores 343 too and is FORBIDDEN.",
+     "emitted": "emitted (change)"
+    },
+    {
+     "field": 165,
+     "sid": 0,
+     "tag": 0,
+     "ip": 22,
+     "op": ":=",
+     "target": "Bit[191]",
+     "value": "0",
+     "old": "0",
+     "what": "L16; masked",
+     "emitted": "emitted same:1 (new site: fld 165)"
+    },
+    {
+     "field": 165,
+     "sid": 0,
+     "tag": 0,
+     "ip": 49,
+     "op": ":=",
+     "target": "Bit[184]",
+     "value": "0",
+     "old": "0",
+     "what": "L43; masked",
+     "emitted": "emitted same:1"
+    },
+    {
+     "field": 165,
+     "sid": 0,
+     "tag": 0,
+     "ip": 57,
+     "op": ":=",
+     "target": "Int16[9]",
+     "value": "385",
+     "old": "385",
+     "what": "L51",
+     "emitted": "emitted same:1"
+    },
+    {
+     "field": 165,
+     "sid": 0,
+     "tag": 0,
+     "ip": 130,
+     "op": ":=",
+     "target": "Byte[13]",
+     "value": "1",
+     "old": "2 (164 ip764)",
+     "what": "L124",
+     "emitted": "emitted (change)"
+    },
+    {
+     "field": 165,
+     "sid": 0,
+     "tag": 0,
+     "ip": 138,
+     "op": ":=",
+     "target": "Int16[11]",
+     "value": "-1",
+     "old": "-1",
+     "what": "L132",
+     "emitted": "emitted same:1"
+    },
+    {
+     "field": 165,
+     "sid": 0,
+     "tag": 0,
+     "ip": 200,
+     "op": ":=",
+     "target": "Byte[14]",
+     "value": "0",
+     "old": "0",
+     "what": "L194",
+     "emitted": "emitted same:1"
+    },
+    {
+     "field": 165,
+     "sid": 0,
+     "tag": 0,
+     "ip": 844,
+     "op": ":=",
+     "target": "Byte[13]",
+     "value": "2",
+     "old": "1",
+     "what": "L838, the grant's pass (grant ip778)",
+     "emitted": "emitted (change)"
+    },
+    {
+     "field": 165,
+     "sid": 2,
+     "tag": 2,
+     "ip": 205,
+     "op": ":=",
+     "target": "Byte[13]",
+     "value": "3",
+     "old": "2",
+     "what": "L175, LIVE: 165 e2 sets no Map.Bit[162] before ip183. It keeps 166 off the error path.",
+     "emitted": "emitted (change)"
+    },
+    {
+     "field": 165,
+     "sid": 2,
+     "tag": 2,
+     "ip": 233,
+     "op": ":=",
+     "target": "Int16[2]",
+     "value": "344",
+     "old": "343",
+     "what": "L203, chain key 2, then ip241 Field(166) (F 31258). The back door e3 t2 ip243 also stores 344 and is FORBIDDEN.",
+     "emitted": "emitted (change)"
+    },
+    {
+     "field": 166,
+     "sid": 0,
+     "tag": 0,
+     "ip": 22,
+     "op": ":=",
+     "target": "Bit[191]",
+     "value": "0",
+     "old": "0",
+     "what": "L16; masked",
+     "emitted": "emitted same:1"
+    },
+    {
+     "field": 166,
+     "sid": 0,
+     "tag": 0,
+     "ip": 49,
+     "op": ":=",
+     "target": "Bit[184]",
+     "value": "0",
+     "old": "0",
+     "what": "L43; masked",
+     "emitted": "emitted same:1"
+    },
+    {
+     "field": 166,
+     "sid": 0,
+     "tag": 0,
+     "ip": 57,
+     "op": ":=",
+     "target": "Int16[9]",
+     "value": "-1",
+     "old": "385",
+     "what": "L51 (K -1)",
+     "emitted": "emitted (change)"
+    },
+    {
+     "field": 166,
+     "sid": 0,
+     "tag": 0,
+     "ip": 119,
+     "op": ":=",
+     "target": "Byte[13]",
+     "value": "0",
+     "old": "3 (165 ip205)",
+     "what": "L113 (Int16[9] < 0). ip97 needs an incoming 2; ip130 is dead; ip332 is window 56's.",
+     "emitted": "emitted (change)"
+    },
+    {
+     "field": 166,
+     "sid": 0,
+     "tag": 0,
+     "ip": 138,
+     "op": ":=",
+     "target": "Int16[11]",
+     "value": "-1",
+     "old": "-1",
+     "what": "L132",
+     "emitted": "emitted same:1"
+    },
+    {
+     "field": 166,
+     "sid": 0,
+     "tag": 0,
+     "ip": 200,
+     "op": ":=",
+     "target": "Byte[14]",
+     "value": "0",
+     "old": "0",
+     "what": "L194",
+     "emitted": "emitted same:1"
+    },
+    {
+     "field": 166,
+     "sid": 0,
+     "tag": 0,
+     "ip": 255,
+     "op": ":=",
+     "target": "Byte[8]",
+     "value": "125",
+     "old": "125 (70 ip249); 0 if the warp left 70 before ip249 (A-START)",
+     "what": "L249, after the SYSVAR[3] sync ip241-252. THE START READ: the route's first Byte[8] store.",
+     "emitted": "emitted same:1"
+    },
+    {
+     "field": 166,
+     "sid": 6,
+     "tag": 1,
+     "ip": 345,
+     "op": ":=",
+     "target": "Byte[208]",
+     "value": "0",
+     "old": "0 raw; 1 after O7 (159 e16 t1 ip648): START-SCOPED",
+     "what": "L71, under page 309",
+     "emitted": "emitted same:1 on the raw start"
+    },
+    {
+     "field": 166,
+     "sid": 6,
+     "tag": 1,
+     "ip": 380,
+     "op": "++",
+     "target": "Byte[208]",
+     "value": "1",
+     "old": "0",
+     "what": "L106; the ip385 loop (Byte[208] < 1) runs exactly once",
+     "emitted": "emitted (change)"
+    },
+    {
+     "field": 166,
+     "sid": 6,
+     "tag": 1,
+     "ip": 502,
+     "op": ":=",
+     "target": "Byte[8]",
+     "value": "0",
+     "old": "125",
+     "what": "L228, after page 313; the last store before FMV004. The end state's Byte[8] comes from this row.",
+     "emitted": "emitted (change)"
+    },
+    {
+     "field": 166,
+     "sid": 6,
+     "tag": 1,
+     "ip": 863,
+     "op": ":=",
+     "target": "Int16[2]",
+     "value": "110",
+     "old": "344",
+     "what": "L589, chain key 3, after FMV004; then ip871 Field(55), raw on F. THE SEAM's exit row on F (31258), and the end state's Int16[2].",
+     "emitted": "emitted (change)"
+    },
+    {
+     "field": 55,
+     "sid": 0,
+     "tag": 0,
+     "ip": 22,
+     "op": ":=",
+     "target": "Bit[191]",
+     "value": "0",
+     "old": "0",
+     "what": "L16, THE CUT ROW (real 55 on both sides). After it, in the same frame: ip49, ip57 -1, ip119 0, ip138, ip200, all same-value.",
+     "emitted": "emitted same:1 (new site); it ends the compared stream"
+    },
+    {
+     "field": 55,
+     "sid": 0,
+     "tag": 0,
+     "ip": 255,
+     "op": ":=",
+     "target": "Int16[2]",
+     "value": "106",
+     "old": "110",
+     "what": "L249, POST-CUT, not compared (SC 1190 < 1400); in the cut's frame",
+     "emitted": "emitted after the cut; it races the live read, so 110 is read from 166 ip863"
+    },
+    {
+     "field": 55,
+     "sid": 0,
+     "tag": 0,
+     "ip": 342,
+     "op": ":=",
+     "target": "Byte[8]",
+     "value": "125",
+     "old": "0",
+     "what": "L336, POST-CUT, after the SYSVAR[3] loop (in-frame by the 159 ip290 / 64 ip475 precedent)",
+     "emitted": "emitted after the cut; it races the live read, so 0 is read from 166 ip502"
+    }
+   ],
+   "pattern": "Tuples are [place, sid, tag, off(L), target, new, same] from the raw start (O7's frozen pattern format); F is identical by place (31256/31257/31258). Every site is stored once and is the first at its key (field included) in the epoch, so the sink suppresses nothing (StoryTrace.cs:92-100) and no c row arises.\n\nVISIT 1, 164@342 -- 9 rows (2 masked, 6 writes, 1 chain):\n[164,0,0,16,Bit[191],0,1] [164,0,0,43,Bit[184],0,1] [164,0,0,51,Int16[9],385,0] [164,0,0,124,Byte[13],1,1] [164,0,0,132,Int16[11],-1,1] [164,0,0,194,Byte[14],0,1] [164,0,0,758,Byte[13],2,0] [164,1,1,70,Bit[3811],1,0] [164,2,2,209,Int16[2],343,0]\n\nVISIT 2, 165@343 -- 9 rows (2 masked, 6 writes, 1 chain):\n[165,0,0,16,Bit[191],0,1] [165,0,0,43,Bit[184],0,1] [165,0,0,51,Int16[9],385,1] [165,0,0,124,Byte[13],1,0] [165,0,0,132,Int16[11],-1,1] [165,0,0,194,Byte[14],0,1] [165,0,0,838,Byte[13],2,0] [165,2,2,175,Byte[13],3,0] [165,2,2,203,Int16[2],344,0]\n\nVISIT 3, 166@344 -- 11 rows (2 masked, 8 writes, 1 chain):\n[166,0,0,16,Bit[191],0,1] [166,0,0,43,Bit[184],0,1] [166,0,0,51,Int16[9],-1,0] [166,0,0,113,Byte[13],0,0] [166,0,0,132,Int16[11],-1,1] [166,0,0,194,Byte[14],0,1] [166,0,0,249,Byte[8],125,1] [166,6,1,71,Byte[208],0,1] [166,6,1,106,Byte[208],1,0] [166,6,1,228,Byte[8],0,0] [166,6,1,589,Int16[2],110,0]\n\nTHE CUT: [55,0,0,16,Bit[191],0,1]\n\nTOTALS: 29 w rows before the cut (9 + 9 + 11; 6 masked; 11 of the 20 writes are same-value), after field 70's 4 residue r rows before the front cut.\n\nREGISTERED KEYS: EXACTLY 23 = 20 writes + 3 chain keys.\n- 164 (6): ip57, ip130, ip138, ip200, ip764, e1 t1 ip230.\n- 165 (6): ip57, ip130, ip138, ip200, ip844, e2 t2 ip205.\n- 166 (8): ip57, ip119, ip138, ip200, ip255, e6 t1 ip345, ip380, ip502.\n- Chain (3): 164 e2 t2 ip243 (343), 165 e2 t2 ip233 (344), 166 e6 t1 ip863 (110). 342 is the warp's residue, not a key.\n\nAfter a true O1-O7 chain only three same flags change, with no value or path change: 164 ip57 -> 1, 164 ip130 -> 0, 166 ip345 -> 0.\n\nOrder is fixed by the bytes except:\n- (a) 164 e1 t1 ip230 vs e2 t2 ip243, a race made constructive by THE HOLD;\n- (b) 166 ip255 vs e6 t1 ip345, ordered by timing (ip255 lands in-frame after the sound sync by precedent; ip345 is at least ~2.5 s and two Confirms later).\nip764 precedes ip230 (ip230 needs a 3600-u climb).",
+   "pages": [
+    {
+     "field": 166,
+     "sid": 6,
+     "tag": 1,
+     "ip": 310,
+     "mes": 307,
+     "kind": "WindowSync(0,128,307): blocks until a Confirm closes it; no [TIME]/[CHOO]",
+     "needs_confirm": true,
+     "text_us": "[STNR] Steiner remarks on his fatigue ([SPED=2] crawl, 7 words; paraphrased)"
+    },
+    {
+     "field": 166,
+     "sid": 6,
+     "tag": 1,
+     "ip": 328,
+     "mes": 308,
+     "kind": "WindowSync: closes on Confirm",
+     "needs_confirm": true,
+     "text_us": "[STNR] Steiner resolves to keep going (paraphrased)"
+    },
+    {
+     "field": 166,
+     "sid": 6,
+     "tag": 1,
+     "ip": 334,
+     "mes": 309,
+     "kind": "WindowAsync(0,128,309): the script runs on under it (anim, ip345, the loop, ip380, anim); WaitWindow(0) at ip401 blocks until a Confirm closes it",
+     "needs_confirm": true,
+     "text_us": "[STNR] Steiner insists the princess must be found (paraphrased)"
+    },
+    {
+     "field": 166,
+     "sid": 6,
+     "tag": 1,
+     "ip": 454,
+     "mes": 311,
+     "kind": "WindowSync, shown while RunAnimation(6605) plays (39 frames); WaitAnimation after the close",
+     "needs_confirm": true,
+     "text_us": "[STNR] Steiner spots something (paraphrased)"
+    },
+    {
+     "field": 166,
+     "sid": 6,
+     "tag": 1,
+     "ip": 474,
+     "mes": 312,
+     "kind": "WindowSync",
+     "needs_confirm": true,
+     "text_us": "[STNR] Steiner recognises the princess (paraphrased)"
+    },
+    {
+     "field": 166,
+     "sid": 6,
+     "tag": 1,
+     "ip": 492,
+     "mes": 313,
+     "kind": "WindowSync under RunSharedScript(2) (the clank loop); StopSharedScript at ip498 after it closes. Nothing may be pressed after it closes: FMV004 follows.",
+     "needs_confirm": true,
+     "text_us": "[STNR] Steiner sees her pursued and declares he is coming (12 words; paraphrased)"
+    }
+   ],
+   "fmv": "FMV004, 166 e6 t1, PLAYED OUT (no skip, no A/B, no `movies` key).\n\nThe sequence:\n- ip601 Map.Bit[146] := 0.\n- ip609 (SYSVAR[15] & 128) == 0 is always true: SYSVAR[15] = fldfmv.FF9FieldFMVSync() = Dispatch(3), which returns only 0, 1 or 16 (fldfmv.cs:20-23, 65-80).\n- ip624 RunSoundCode1.\n- ip633 Cinematic(0,9,1,1): the engine reads (0, 0x0109, 1) (DoEventCode.cs:933-936), giving disc 1, no 9 (fldfmv.cs:56-58), MBGDiscTable[1][9] = MBG_DEF('FMV004',1,0), type 0 (MBG.cs:830). ff9fieldFMVInit resets attr and status to 1 (fldfmv.cs:181-188), so no stale FMV001 state carries over.\n- ip639-664 wait while SYSVAR[15] != 0 (status 5).\n- ip667 Map.Bit[146] := 1; ip675 op_22(2).\n- ip678 is the play condition; ip711 Cinematic(2,0,0,0) plays (attr |= 1; status 5 -> Play -> 6).\n- ip717-768 wait until (SYSVAR[15] & 127) == 1, i.e. status 8 via the finish callback ff9fieldFMVShutdown (fldfmv.cs:191-200).\n- Then op_22(1), FadeFilter(6,2), op_22(3), ip863, ip871.\n- No gEventGlobal store between ip502 and ip863; no page after 313.\n\nThe file: MoguriVideo/StreamingAssets/ma/FMV004.bytes, 47,939,029 B, theora 29.97 fps, 45.412 s (ffprobe today). MoguriVideo is 4th in FolderNames, ahead of the base copy, so it plays on both sides.\n\nHazards and plan:\n- Type 0 arms MovieHitArea at MBG.Play (MBG.cs:205-208), at least ~40 ticks after 313 closes. A Confirm then opens SkipMovieDialog (FieldHUD.cs:275-287), and the movie pauses while it is up (MBG.cs:536). The guard rule answers it at its default (No) and the movie resumes.\n- The watchdog signature is static from the ip502 row to the ip863 row, ~47-51 s (O3: 90.1/90.3 s against 84.8 s). Freeze no_progress_s = max(60, 3 x R-FULL's longest stretch), ~150 s; refuse anything under 2x.\n- MBG.cs:217 SetTargetFPS(30) is ignored under the live VSync 1 (FPSManager.cs:41-48). O3 measured 60/58.6 fps during FMV003. Pin VSync; plan nothing in ticks across the movie.\n- end_run from mid-movie warps first (the soft reset is dead in a movie). R-FMV-VOID proves it on FMV004.",
+   "sc_and_chain": "SC writes: NONE on the route. The census of 164 (25 sites), 165 (18) and 166 (18) has no store to UInt16[0] / Byte[0..1] in any width and no UInt16[0] reference. SC 1190 is set by the residue (byte0 0->166, byte1 0->4) and holds through the cut. 55's SC stores (e10 t1 ip568/ip582 := 1400) sit behind Map.Byte[24] case 3, far past the cut.\n\nFieldEntrance chain, the same ips on F:\n- 342: the residue (byte2 0->86, byte3 0->1). Not a key.\n- 343: 164 e2 t2 ip243 (L209), gated by ip42 f[1] < -12000; then ip251 Field(165) / Field(31257).\n- 344: 165 e2 t2 ip233 (L203), gated by ip38 f[1] < -15000; then ip241 Field(166) / Field(31258).\n- 110: 166 e6 t1 ip863 (L589); then ip871 Field(55), raw.\n\nThe back doors 164 e3 t2 ip243 (343 -> 163) and 165 e3 t2 ip243 (344 -> 164) store the same values and are FORBIDDEN: chain keys match on sid/tag/ip, never on value. Past the cut, 55 ip255 rewrites 110 -> 106 in the cut's frame. Chain keys: 3.",
+   "nondeterminism": "START: none in value or path.\n- Three start-scoped olds: 164 ip57 Int16[9] 643|385, 164 ip130 Byte[13] 1|2, 166 e6 t1 ip345 Byte[208] 0|1.\n- Two start reads: 166 ip255 Byte[8] old 125 (a warp before 70 ip249: A-START, race_site 70 ip249) and, NEW, 164 ip130 Byte[13] old 1. A warp after 70 ip475 (or the override's ip558) is otherwise SILENT at 164 (K=385: no error path) and would read NOT PROVEN; register it as A-START.\n\nTHE KNIGHT'S RACE:\n- ip230 lands ~T0+140 +-8 ticks (1131.4 u at 15 u a tick, MoveToward not slope-scaled, plus anim 9920 = 59 frames).\n- Pure running T0 -> e2 is ~141 ticks, a dead heat, and e2's Field(165) unloads 164, so ip230 would go MISSING.\n- His walk line passes 182.5 u from step 1's line (inside r 220).\n- THE HOLD at P1 makes the order constructive and seats him first.\n\nTIMING ONLY:\n- 164's grant pass (2-5 frames);\n- 166's pages (a dropped first Confirm; 307's crawl; async 309);\n- 166 ip255 vs ip345 (practically fixed);\n- FMV004's wall time (45.4 s; static ~47-51 s);\n- fades and loads;\n- the render rate (~31 or ~60; O7 never saw 60; MBG's 30-fps target is ignored under VSync 1).\n\nPOSITIONS (bytes; REHEARSE): 164 grant (2040,3335) y ~4780; 165 grant (2055,3411) y ~10280.\n\nGEOMETRY: the one pinch on 164 step 1 (half-width 68.6 vs radius 80) is the only in-game unknown of the walks.\n\nLIVE READS AFTER THE CUT: Int16[2] (55 ip255) and Byte[8] (55 ip342) race; read them from the trace.\n\nNo battle, choice, naming, ATE, SC write, SYSVAR[0]-gated store or revisit.",
+   "open_questions": [
+    "THE PINCH (164 step 1, loop 2's north turn, half-width 68.6 vs radius 80): does the engine's averaged push-out hold Steiner on the midline with no stall and no unstick rung? R-SPIRAL is the GO/NO-GO; the opt-in unstick:false is the fallback.",
+    "The knight's ip230 tick relative to T0 (estimate ~T0+140 +-8 ticks), the hold's measured seconds (expect 2.8-4.2 s; freezes timeout_s = max(15, 3x)), and his seated published reading (-586,3884) y ~11896.",
+    "Both grants' published y (164 ~4780, 165 ~10280) and the first-move angles on a ramp (offline 0.0 deg / <= 4 deg).",
+    "The dead-level walk-throughs of live regions (164 e2 on step 0, 164 e3 and 165 e3 on step 1): expected harmless RETs, first time in an O-segment.",
+    "FMV004's measured static span (ip502 row -> ip863 row; ~47-51 s est.), the published state during it (expect ui FieldHUD, no window, control off) and the render rate.",
+    "The 166 -> 55 crossing in game: no r row before 55 ip22, ip863 directly followed by 55 ip22, and the published field id sequence across the 31258 -> 55 load.",
+    "Whether 55 ip342 lands in the cut's frame (moot: the live Byte[8] read races either way).",
+    "A stray SkipMovieDialog answered at its default No in game (only R-FULL-SKIP's Yes was ever measured), and an end_run while that dialog is up.",
+    "Any O8 walk at 60 fps (unexercised; the first holds differ in frames but stay free offline)."
+   ],
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\4376ce2b-bd6e-4446-a9dc-f1510c3fc187\\scratchpad\\o8_research\\O8_ROUTE.md"
+  },
+  "keys_total": 23,
+  "walks": {
+   "controls": [
+    {
+     "field": 164,
+     "entrance": 342,
+     "sc": 1190,
+     "grant": "Main_Init e0 t0 ip698 EnableMove, gated by ip657 Map.Bit[158]==1 (set by e7 t0 ip326 after DefinePlayerCharacter ip325), ip676 Map.Bit[159]==1 (ip649) and ip687 Map.Bit[156]==0. Then ip699 SetTriangleFlagMask(255) and ip764 Byte[13] := 2 in the same pass; e7 t0 ip356 is the twin grant. In game (O7's six runs, past their cut) the prologue landed in one frame and ip764 2-5 frames later. All 170 tris are open at mask 0xFF. After the grant only the knight's ip230 stores before e2's loss (e2 t2 ip215 is dead).",
+     "character": "Steiner, 164 e7 (SetModel 5489,104), the defined player (uid 250 -> controlUID, EventEngine.cs:950-951). SetObjectLogicalSize(30,35,50) at e7 t0 ip138. THE ENGINE SPECIAL CASE: DoEventCode.cs:1507-1508 `effMapNo == 164 && sid == 7 && size == 30` -> size 20 -> controller radius 80 (:1531, :1534). effMapNo is EffectiveFieldId(fldMapNo) (:25), so member 31256 gets it through ForkDonorPatch line 91. collRad 35, talkRad 50. Run: 60 u a tick x the tri's |n.up| (PSXMovementMethod 1), 0.54-0.93 in 164.",
+     "spawn": "e7 t0 ip22 SWITCH(344, L47, L12): 342 takes L47, (2040,3335), facing -36, MoveInstantXZY y -5647. GetTriIdxAtPos picks tri 145 (PSX -4780; tri 110 at -9776 is above), so the published y is ~4780 (REHEARSE). The engine's nearest wall is 95.8 u, the east edge (2130,3517)-(2138,3267) via tri 158; the west wall is 176.2: NO push-out. The '68 u' wall is the planner's band-A closure edge to tri 154 (PSX -4688), not an engine wall. e3 is LIVE (f[1] > -6000) 157.2 u away; e2 is 1541 u away.",
+     "basis": "Prior, from Main_Init ip219 SetControlDirection(40,40) (the only twist; UseAbsoluteOrientation 3): twist.y 41/256 x 360 = 57.66 deg, up (0.845,0.535), right (0.535,-0.845). S19 seeds it (session.py:4539-4546); forget 164 and 31256 at every run's start. The first hold, by `_plan_hold` offline (31.3 fps, pending spread 18.26 deg): 'left' for 2 frames (3 at 60), reach 180 (evidence band [40,178]). The engine-like walk gives 51/104/156 u at 1/2/3 ticks, 0.0 deg off, nearest wall 96 u. That is within acos(PRIOR_AGREE) = 16.3 deg, and the first first-move check on a ramp. A probe is refused because e3 is live 157 u away, not because of a wall.",
+     "steps": "Cell (164, 1190), visit 1; steps_default as O7's but attempts 3 on both steps.\n\nSTEP 0 -- kind 'walk', name '164: the first spiral to P1, then THE KNIGHT HOLD':\n- goal [1342,2252] (tri 53, PSX -8958; tris 11 at -3961 and 98 at -13893 stack there; engine wall 118.2; gap e2 335, e3 293.5); start [2040,3335].\n- at_y [8800,9150] (NEW; 8800 > the knight's 8400).\n- hold {flag 3811, value 1, timeout_s 15} (NEW).\n- avoid ['164.e3'] (the 5-point REGION from the bytes' SetRegion).\n- closed_tris: the 93 open tris with centroid PSX outside [-9500,-4700] (derived; 0 XZ self-overlaps).\n- clearance 80 (none at 84); basis 'prior'; npcs false (REQUIRED: _npc_levels keeps the knight's disc from any level and his start lies 152.5 u from the line); attempts 3; tolerance 45; beat 'w164_p1'.\n\nSTEP 1 -- kind 'trigger', name '164: the second spiral into e2 at the top':\n- goal [59,2214] (tri 12, PSX -13040, e2's west ear, engine wall 89.5); start [1342,2252].\n- until {y_gt: 12000} (NEW axis); to 165; avoid [].\n- closed_tris: the 99 open tris outside [-13100,-8700].\n- clearance 64 (60/64/65 route, none at 66/68/72/80); npcs true; attempts 3; beat 't164_e2'.\n- Not a cross: band B opens tri 90 (PSX -8736) inside e2's XZ ring at its dead level. Fallback without a new axis: until {x_lt: 600} + to 165.",
+     "path": "STEP 0 at 80 (exactly _plan_round's route_avoiding call), 24 waypoints:\n(1776,4095) (1584,4303) (1272,4511) (1128,4559) (872,4607) (632,4607) (368,4519) (208,4439) (-72,4215) (-136,4151) (-288,3943) (-352,3831) (-424,3519) (-432,3335) (-424,3159) (-392,2991) (-344,2855) (-248,2687) (0,2391) (168,2255) (376,2183) (568,2159) (1176,2175) (1342,2252)\n- 6404 u, all on loop 1, PSX -4780 -> -8958, 128.2 slope-scaled run ticks.\n- Least corridor half-width 83.4 at (1191,4538) PSX -5712 (no squeeze); the line hugs inner corners at 78.1-80.\n- T0 (PSX -8400) at L 5655 (610,2160), ~16 ticks before P1.\n- It enters e2's ring at its DEAD level at L 5061 (61,2342) PSX -8005 and L 5691 (646,2161) PSX -8429; e3 is never entered (gap 157).\n\nSTEP 1 at 64, 22 waypoints:\n(1718,2652) (1918,3068) (1934,3332) (1910,3580) (1838,3892) (1718,4108) (1582,4284) (1286,4484) (1174,4532) (894,4588) (622,4588) (406,4516) (70,4284) (-82,4148) (-234,3996) (-346,3652) (-386,3372) (-394,3140) (-394,3052) (-330,2860) (-226,2684) (59,2214)\n- 6327 u, PSX -8958 -> -13040, 126.3 run ticks.\n- e3's ring is crossed at its DEAD level (PSX -9329 / -9528).\n- e2 fires entering at L 6260 (24.5,2270.8) PSX -13008, 61 u before the goal; ExitField walks him east ~26 ticks to Field(165).\n- THE PINCH, the ONE squeeze: L 2654-3066, x 906-1301, z 4474-4586, PSX -10621..-10871. Least half-width 68.6 at (1202,4520) PSX -10695 (11.4 u a side under the radius 80). Elsewhere the half-width is >= 77.7 at the pinch ends and 105-200 almost everywhere.\n- The plan runs ~64 u from walls on ~90% of the leg, so the engine pushes him ~16 u outward there: a push-out, not a squeeze. The leg tolerance absorbs it.\n- Loop 1 crosses the pinch's XZ at PSX ~-5600..-5900, so the PINCH WINDOW needs a y band.",
+     "hazards": "1. e3 (5-gon (938,3257) (1051,2471) (2066,2776) (2233,2840) (1738,3462)): LIVE at the spawn level (157.2 u). It is required in step 0's avoid as the 5-point region; the 4-point `zone` drops the near edge (2233,2840)-(1738,3462) and reads 412 u. It stores 343 and goes to 163 (F 31255): forbidden.\n2. e2 (5-gon (946,2249) (1122,1974) (222,2039) (-25,2186) (93,2401)): fires only at f[1] < -12000. IsInQuad's ring of ears (EventEngine.TreadQuad.cs:24-39) leaves the centroid (472,2170) DEAD. QuadCircleData has no 164/165 row, so S and F are identical.\n3. Dead-level crossings: each tick in a ring with control runs tag 2, which passes SYSVAR[2] and RETs at ip51 with no store and no loss. This is the first O-segment to walk through a live region at a dead level: REHEARSE.\n4. The knight (talk-only; r 220, talk_r 395):\n- step 0 passes 133.6 u (XZ) from his line on another level; the engine pairs actors only at |dy| < 400 (WalkMesh.cs:919-921);\n- step 1 passes his seat at 300 u (outside P 252), inside talk_r at L 4381-4858 (an icon may show; nothing presses Confirm);\n- his talk sites are forbidden.\n5. THE PINCH (R-SPIRAL go/no-go).\n6. No facing gate on either exit.",
+     "refs": "Bytes (reconcile/L164.txt):\n- e0 t0 ip22-ip200, ip219, ip223-232, ip649-ip698, ip764;\n- e1 t0 ip14-ip159; e1 t1 ip160-ip256; e1 t3 ip259-ip771;\n- e2 t0 ip10 SetRegion; e2 t2 ip34/ip42/ip54/ip71/ip243/ip251;\n- e3 t2 ip42/ip243/ip251;\n- e7 t0 ip18-ip89, ip138, ip153, ip325, ip326, ip356.\n\nEngine: DoEventCode.cs:25, 384, 1498-1534; FieldMapActorController.cs:950-1124 (ServiceChar, RadiusValid), 1161-1254 (ServiceForces), 1279-1306 (GetTriIdxAtPos); EventEngine.cs:625-627, 946-959; EBin.cs:1790; EventEngine.TreadQuad.cs:24-53; EventEngineUtils.cs:1722-1737; WalkMesh.cs:899-960; EventEngine.MoveToward.cs:141-142, 187-189.\n\nHarness: segment_drive.py:2555-2569 (walk_kw), 3009-3039 (x_walk), 2774-2840 (x_trigger_to), 308-320 (until_ok); session.py:4232 (route_to), 4539-4546, 5020-5052; pathfind.py:614 (route_avoiding).\n\nScratch: reconcile/r1_walks.py, r1_walks_164.json, r1_164_profiles.json, r3_firsthold.py, r3_firstsim.py."
+    },
+    {
+     "field": 165,
+     "entrance": 343,
+     "sc": 1190,
+     "grant": "Main_Init e0 t0 ip778 EnableMove: ip737 Map.Bit[158]==1 (e7 t0 ip318), ip756 Map.Bit[159]==1 (ip729), ip767 Map.Bit[156]==0. Then ip779 SetTriangleFlagMask(255) and ip844 Byte[13] := 2 (1->2) in the same pass; e7 t0 ip348 is the twin. All 85 tris are open. No store between the grant and e2's loss but ip844. e2 t2 ip205 Byte[13] := 3 is LIVE.",
+     "character": "Steiner, 165 e7 (SetModel 5489,104), DefinePlayerCharacter e7 t0 ip317. SetObjectLogicalSize(30,35,50) at ip130. No 165 case in DoEventCode.cs:1503-1520, so the radius is 120 on S and on 31257. collRad 35. |n.up| 0.62-1.0.",
+     "spawn": "e7 t0 ip14 SWITCH(345, L47, L12): 343 takes L47, (2055,3411), facing 128, y -10519, tri 57 (PSX -10280; tri 47 at -15133 above), so the published y is ~10280 (REHEARSE). Engine wall 154.5 u (> 120, no push-out). e3 LIVE (f[1] > -11000) 133.6 u away; e2 420 u away.",
+     "basis": "Prior from ip219 SetControlDirection(24,24): 25/256 x 360 = 35.16 deg, up (0.576,0.818), right (0.818,-0.576). Forget 165 and 31257 at each run's start. The first hold ('up+left', bearing -9.8 vs the leg's -11.3) for 2 frames at 31.3 fps (3 at 60) is free for 2 ticks (~100 u, 0.0 deg off); a 3rd tick touches the west wall's radius line, at most 4.0 deg off. It is under 16.3 deg and heads north, away from e3 (161 deg behind the leg).",
+     "steps": "Cell (165, 1190), visit 2.\n\nSTEP 0 -- kind 'walk', name '165: the lower stretch to P1':\n- goal [1508,4698] (tri 50, PSX -11251, one level; engine wall 178.7); start [2055,3411].\n- at_y [11100,11450].\n- avoid ['165.e3'] (REQUIRED: band A opens the stairs below the spawn inside e3's live ring).\n- closed_tris: the 64 open tris outside [-11800,-9500].\n- clearance 120 (130 also routes); basis 'prior'; npcs true; beat 'w165_p1'.\n\nSTEP 1 -- kind 'trigger', name '165: the upper stretch into e2 at the top':\n- goal [2489,3166] (tri 1, PSX -15169, inside the 4-gon 61.7 u from its west edge, so the whole 45-u arrival circle is inside e2).\n- until {y_gt: 15000}; to 166; avoid [].\n- closed_tris: the 16 open tris outside [-16000,-11000].\n- clearance 120; npcs true; beat 't165_e2'.\n- A cross with target 165.e2 is equally sound (its ring holds only top tris).",
+     "path": "STEP 0 at 120: (2055,3795) (1799,4371) (1508,4698).\n- 1452 u, PSX -10280 -> -11251, 29.3 ticks.\n- Least half-width 182.2 (no squeeze); e3 gap >= 134, e2 >= 420.\n\nSTEP 1 at 120, 18 waypoints:\n(836,4858) (484,4826) (36,4602) (-220,4378) (-444,4058) (-540,3642) (-444,3162) (-252,2778) (-156,2650) (228,2394) (516,2298) (868,2266) (1220,2330) (1540,2522) (2116,3066) (2244,3130) (2468,3130) (2489,3166)\n- 6832 u, PSX -11251 -> -15169, 134.4 ticks.\n- Least half-width 138.3 at (-503,3458) PSX -13014.\n- e3's ring is crossed at its DEAD level (L 5372 PSX -14698; L 6267 PSX -15133).\n- e2 fires entering at L 6742 (2419.6,3130.0) PSX -15169 (y margin 169: the flat landing), ~90 u before the goal. The goal's own wall (107 < 120) is never reached.",
+     "hazards": "1. e3 (5-gon (1209,2668) (1437,2069) (2169,2636) (2395,3155) (1780,3363)): LIVE at the spawn (133.6 u), so the 5-point region is required in step 0's avoid (the 4-point zone reads 366 u). It goes to 164 (F 31256): forbidden.\n2. e2 is a 4-gon: no dead centre.\n3. Dead-level crossings of e3 on step 1: rehearse.\n4. No NPC (e1 is a code entry), no talk, no other region, no facing gate.",
+     "refs": "Bytes (reconcile/L165.txt): e0 t0 ip219, ip729-ip778, ip844; e2 t0 ip10 SetRegion; e2 t2 ip38/ip61/ip183/ip205/ip233/ip241; e3 t2 ip42/ip243/ip251; e7 t0 ip10-ip81, ip130, ip317-ip348. Scratch: reconcile/r1_walks_165.json, r1_165_profiles.json."
+    }
+   ],
+   "knight": "164 e1 (GEO 5488), byte-identical on 31256.\n\nPLACEMENT (t0):\n- ip46 Bit[3811]==0 on every O8 start, so (249,4630), facing 45 (the set variant (-585,3879) never runs).\n- CreateObject at POS_COMMAND_DEFAULTY 32768 (EventEngine.Constructor.cs:11; DoEventCode.cs:384); GetTriIdxAtPos picks the HIGHEST tri: 130, PSX -11255, loop 2 (loop 1's tri 165 at -6260 lies under it).\n- SetObjectLogicalSize(20,20,30) then (4,20,30); published r 4 x (20+35) = 220, talk_r 395 (HarnessAgent.cs:2348-2360); no tag 2.\n\nTRIGGER (t1):\n- ip160 Bit[3811]==0; ip178 obj(uid=250).f[1] > -8400, looping through op_22(1).\n- Released on the first event tick Steiner stands at PSX <= -8400 (published y >= 8400): T0 at L 5655 (610,2160) on step 0's planned line.\n\nWALK:\n- ip190 SetWalkSpeed(15); four synchronous Walks (-31,4436) (-246,4288) (-409,4128) (-586,3884) = 1131.4 u on loop 2 (PSX -11255 -> -11896).\n- MoveToward is NOT slope-scaled (MoveToward.cs:141-142); a colliding step is undone (:187-189). ~75 ticks plus turns.\n- ip221 SetStandAnimation(9924); ip225 RunAnimation(9920) = 59 frames (p0data5, measured today) + WaitAnimation.\n- ip230 Bit[3811] := 1 at ~T0+140 +-8 ticks (~4.7 s), then idle.\n- Seated at (-586,3884), tri 120, published y ~11896.\n\nENGINE CONTACT: WalkMesh.Collision pairs actors only at |dy| < 400 (WalkMesh.cs:919-921), so there is none with Steiner on loop 1 or at P1.\n\nTHE RACE: without a hold the order is a dead heat (pure running T0 -> e2 ~141 ticks), and e2's Field(165) would leave ip230 MISSING. His walk line also passes 182.5 u from step 1's line, inside r 220.\n\nTHE HOLD (step 0's opt-in `hold` key, after at_y):\n- g.watch(3811) (no store, no trace row: HarnessAgent.cs:840-858); poll the published flag (every 2 frames; None = not yet, lesson 10) until 1; g.unwatch() in finally.\n- timeout_s 15 -> V8 (game); a field change -> V11 (game: nothing pressed, P1 is 293+ u from every region); control lost -> door_loss else interrupted; the deadline -> V13 (driver).\n- Expected 2.8-4.2 s.\n\nTHE ORDER CHECK, per run's 164 visit: the w row 164 e1 t1 ip230 Bit[3811] := 1\n- lies inside step 0's row window [frame0, frame] (the hold included);\n- precedes e2 t2 ip243 by line;\n- never follows step 1's frame0.\nIt is exempt there only; missing is a WRITES failure.\n\nFAKE: H25 in the unpinned _step_walkers (start {y_ge: 8400}, store {after_ticks ~61, 164 e1 t1 ip230 Bit[3811] := 1}, then seated r 220, talk-only, y 11896).",
+   "no_control_166": "Confirmed in the bytes (S 166 / F 31258, byte-identical).\n\nNo control:\n- Main_Init's only EnableMove is e0 t0 ip423, behind ip382 Map.Bit[158]==1 -> JMP_IFNOT(L433); Map.Bit[158] is set only at ip393 inside that branch.\n- 166's player entry e6 t0 (DefinePlayerCharacter ip262) never sets it, unlike 164 e7 ip326 and 165 e7 ip318.\n- Mapvars are zeroed and usercontrol is 0 on every load (EventEngine.cs:625-628); 165 e2 t2 ip62/ip81 had also cleared it.\n- So no grant: a control sample in 166 is V4 (game).\n\nThe scene runs because Map.Byte[24] is 0 (e6 t1 ip278 SWITCH(0, L659, L12)).\n- e1 (the Map.Byte[24] watcher) is NOT instanced in 166 (Main_Init inits only e6, e3, e5).\n- e2 runs only as e6's shared script (ip489).\n- Neither stores a global.\n\nNo cell, no beat, no region in 166. Rule 7 Confirms the six pages and rule 9 waits out FMV004.\n\nThe analysis proves 166 through LANDING (b)'s 165 -> 166 crossing, (c) the last pre-cut row ip863, PATTERN's 11 rows, CHAIN and WRITES. O3's 61 is the precedent.",
+   "rehearsal_numbers": "Only an in-game rehearsal can settle these.\n\nR-SPIRAL / R-FULL:\n- 164's grant y (~4780) and 165's (~10280), each within 64 u of the spawn;\n- the first-move angles (expect ~0 / <= 4 deg; <= 16.3);\n- step 0's arrival y (~8958);\n- T0 and ip230's tick (~T0+140 +-8) and the hold's seconds (2.8-4.2 s), which freeze timeout_s = max(15, 3x);\n- the knight's seated reading;\n- THE PINCH (GO/NO-GO): every hold starting or ending in the PINCH WINDOW {164, x 900-1310, z 4460-4600, published y 10400-11100}, every ladder rung after one, the narrowest engine gap. That sets the fake's squeeze_slack (>= 11.4 offline);\n- no loss on any dead-level region crossing;\n- e2's loss y (~13008 in 164, 15169 in 165) and both landings;\n- run times (budget).\n\nR-FMV / R-FULL:\n- the six pages pressed;\n- FMV004's static span (ip502 -> ip863; ~47-51 s), which freezes no_progress_s = max(60, 3x the longest stretch);\n- ui and fps during the movie;\n- the 166 -> 55 crossing rows.\n\nThe render rate at both regimes (60 unexercised).\n\nSettled offline (rehearsal confirms, cannot change): the clearances (80 / 64 max 65 / 120 / 120), the closures and bands, at_y bands, the until thresholds (the engine's own constants), P1s and goals, npcs false on 164 #0, the regions from SetRegion.",
+   "summary": "O8's walks were re-planned from the stock walkmesh with the merged planner (route_avoiding exactly as _plan_round calls it) and an engine-view, level-aware wall model. The readers' cells hold, with two corrections.\n\n(1) THE SPAWN WALL. The '68 u from a wall, under the radius' of PLAN.md is the planner's band-A closure edge (tri 145 -> tri 154 at PSX -4688). The engine's nearest wall is 95.8 u, so there is no push-out and the first move is 0.0 deg off offline. The prior basis is still right, because e3 is live 157 u away.\n\n(2) THE SQUEEZE is ONE pinch. 164 step 1's loop-2 north turn has a least half-width of 68.6 at (1202,4520), PSX -10695 (11.4 u a side under radius 80); elsewhere the corridor is 105-200 u wide. The 'continuous squeeze' reading counted the planned line's own wall distance: the plan runs at clearance 64, and the engine pushes him ~16 u outward.\n\nThe four steps:\n- 164 #0: a walk to P1 with at_y [8800,9150], THE KNIGHT HOLD, avoid e3, 93 closures, clearance 80, npcs false.\n- 164 #1: a trigger until y_gt 12000 to 165, 99 closures, clearance 64 (max 65).\n- 165 #0: a walk with at_y [11100,11450], avoid e3, 64 closures, 120.\n- 165 #1: a trigger until y_gt 15000 to 166, 16 closures, 120.\n\n166 has no control. R-SPIRAL decides the pinch.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\4376ce2b-bd6e-4446-a9dc-f1510c3fc187\\scratchpad\\o8_research\\reconcile"
+  },
+  "walk_plan": "The beat table, visit-scoped cells.\n\nsteps_default is O7's (interrupts 1, timeout_s 20, tolerance 45, exit_wait_s 5, exit_slack 40, npcs true, settle None), with attempts 3 on every O8 step.\n\nCELL (164, 1190), visit 1:\n- STEP 0 {kind 'walk', name '164: the first spiral to P1, then THE KNIGHT HOLD', goal [1342,2252], start [2040,3335], at_y [8800,9150], hold {flag 3811, value 1, timeout_s 15}, avoid ['164.e3'], closed_tris: derived (the 93 open tris with centroid PSX outside [-9500,-4700]), clearance 80, basis 'prior', npcs false, attempts 3, beat 'w164_p1'}.\n  - Keys inside its row: the knight's 164 e1 t1 ip230 Bit[3811] := 1, exempt only here, after the release and before step 1. The grant-pass ip764 precedes any press.\n- STEP 1 {kind 'trigger', name '164: the second spiral into e2 at the top', goal [59,2214], start [1342,2252], until {y_gt: 12000}, to 165, avoid [], closed_tris: derived (the 99 open tris outside [-13100,-8700]), clearance 64, npcs true, attempts 3, beat 't164_e2'}.\n  - Its door rows: 164 e2 t2 ip243 Int16[2] := 343 (chain), exempt via `to`.\n\nCELL (165, 1190), visit 2:\n- STEP 0 {kind 'walk', name '165: the lower stretch to P1', goal [1508,4698], start [2055,3411], at_y [11100,11450], avoid ['165.e3'], closed_tris: the 64 open tris outside [-11800,-9500], clearance 120, basis 'prior', beat 'w165_p1'}. The grant-pass ip844 precedes it.\n- STEP 1 {kind 'trigger', name '165: the upper stretch into e2 at the top', goal [2489,3166], start [1508,4698], until {y_gt: 15000}, to 166, avoid [], closed_tris: the 16 open tris outside [-16000,-11000], clearance 120, beat 't165_e2'}.\n  - Its door rows: 165 e2 t2 ip205 Byte[13] := 3 and ip233 Int16[2] := 344.\n\nNO CELL for 166: rule 7 pages, rule 9 the movie; control there is V4.\n\nRegions, from the bytes' SetRegion in engine order (never scan_gateways' 4-point zone), each role 'exit' with a `gate` read off its pinned tag 2:\n- 164.e2: 5 points (946,2249)(1122,1974)(222,2039)(-25,2186)(93,2401); to 165, entrance 343; gate y_gt 12000; dead centre around (472,2170).\n- 164.e3: (938,3257)(1051,2471)(2066,2776)(2233,2840)(1738,3462); to 163 (F 31255); gate y_lt 6000.\n- 165.e2: the 4-gon (3298,3179)(3241,2829)(2401,3074)(2494,3428); to 166, entrance 344; gate y_gt 15000.\n- 165.e3: (1209,2668)(1437,2069)(2169,2636)(2395,3155)(1780,3363); to 164 (F 31256); gate y_lt 11000.\n\nPlans:\n- 164 #0: 24 waypoints, 6404 u, 128 run ticks.\n- 164 #1: 22 waypoints, 6327 u, 126 ticks; the one pinch at L 2654-3066 (half-width 68.6 at (1202,4520), PSX -10695).\n- 165 #0: 3 waypoints, 1452 u, 29 ticks.\n- 165 #1: 18 waypoints, 6832 u, 134 ticks.\n\nHazards:\n- e3 is live at both spawns (157 / 134 u): avoid is REQUIRED.\n- Dead-level crossings: 164 e2 on #0, 164 e3 and 165 e3 on the #1s.\n- The knight (npcs false on 164 #0; seated 300 u off 164 #1).\n- THE PINCH.\n\nNew keys, all opt-in:\n- `at_y` (walk only; done adds lo <= published y <= hi);\n- `hold` (walk only, needs at_y);\n- `until` y_* axes, with the loss's y read off the ring at lost.frame.\n\nNumbers that need a rehearsal: the grants' y, the first-move angles, ip230's tick and the hold's seconds (timeout_s), the pinch (GO/NO-GO, narrowest gap -> the fake's squeeze_slack), the loss y margins, the run times. NO-GO fallback: an opt-in `unstick: false` with npcs false on 164 #1.",
+  "knight_plan": "THE KNIGHT (164 e1; 31256 byte-identical).\n\nWHO AND WHERE: placed at (249,4630) on loop 2 (tri 130, PSX -11255; CreateObject at y 32768 picks the highest tri). The engine pairs actors only at |dy| < 400 (WalkMesh.cs:919-921), so there is no contact with Steiner on loop 1. npcs false on 164 #0 keeps the PLANNER from seeing him as a phantom 152 u off the line.\n\nWHAT HE DOES: e1 t1 ip178 holds him while Steiner's PSX y > -8400. Released at T0 (published y >= 8400; L 5655 (610,2160) on the plan, ~16 ticks before P1), he:\n- walks 1131.4 u at 15 u a tick (MoveToward, not slope-scaled);\n- plays anim 9920 (59 frames, measured);\n- stores ip230 Bit[3811] := 1 at ~T0+140 +-8 ticks (~4.7 s);\n- sits at (-586,3884), y ~11896.\n\nWHY A HOLD: e2 t2 fires at f[1] < -12000, and Field(165) unloads 164, so ip230 would go MISSING if Steiner got there first. Pure running T0 -> e2 is ~141 ticks, a dead heat. His walk line also passes 182.5 u from step 1's route, inside his r 220: a walking knight could block Steiner.\n\nTHE HOLD (164 #0's opt-in `hold: {flag 3811, value 1, timeout_s 15}`, after `at_y` proves P1's level): in x_walk, after done's conditions,\n- g.watch(3811) (HarnessAgent.cs:840-858: no store, no trace row);\n- poll the published flag (every 2 frames; None = not yet) until 1, pressing nothing;\n- g.unwatch() in finally; the row gets hold {flag, value, frame, s}.\n\nOutcomes:\n- timeout -> V8 by the game;\n- a field change -> V11 by the game (P1 is 335 / 293.5 u from e2 / e3 and nothing is pressed);\n- control lost -> door_loss, else interrupted;\n- the run's deadline -> V13 by the driver.\nThen step 1 starts with the knight seated 300 u off its line.\n\nTHE ORDER CHECK, per covered run's 164 visit (S 164 / F 31256): the w row e1 t1 ip230 Bit[3811] := 1 (old 0)\n- lies within step 0's row window [frame0, frame] (the hold included);\n- precedes e2 t2 ip243 (Int16[2] 342 -> 343) by line;\n- is never after step 1's frame0.\nIt is exempt from the walk check there and nowhere else; a run without it fails WRITES.\n\nRehearsal (R-SPIRAL, R-FULL): T0, ip230's tick, the hold's seconds (freeze timeout_s = max(15, 3 x the longest)), the seated reading.\n\nFakeGame H25 in the unpinned _step_walkers:\n- start {y_ge: 8400};\n- 4 legs at 15 u a tick;\n- store {after_ticks ~61: script_store(164, 1, 1, 230, Bit 3811 := 1)};\n- seated r 220, talk-only, y 11896.\nTests: the bit after the crossing; the hold reading it; ORDER; MISSING when e2 fires first (the visit's bodies leave with it, fakegame.py:4462-4467).",
+  "start": {
+   "residue": "FOUR r rows in field 70, [byte, old, new] = [[0,0,166],[1,0,4],[2,0,86],[3,0,1]]: SC 1190 = 0x04A6 (bytes 0, 1) and FieldEntrance 342 = 0x0156 (bytes 2, 3). The olds are 0, as in O7's run1_S lines 2-5. Ff9mkDebugMenu.cs:2120-2135 sets FieldEntrance, then ScenarioCounter, then SetNextMap, after WarpFadeWait 0.9 s (:114); the warp is refused outside FieldHUD (:2083). O6's three-row contract would refuse four rows; O7's start_residue reads them.\n\nTHE WARP WINDOW: after 70 e0 t0 ip130 (and ip249), before ip475. Field 70 runs the LIVE override (sha 2ce8887e = OVERRIDE70), text-identical to stock from ip6 to ip544 except ip278's SWITCH labels: ip57 643, ip130 1, ip249 125 and ip475 2 are the same. Past that point the override has ip558 Byte[13] := 3, ip575 Int16[2] := 0, ip583 Field(4600).\n\nThe window spans FMV001 (ip320 init, ip398 play), and the warp cuts it, as in O2-O7. In O7's runs the trace was armed after 70's prologue: no 70 w row; arm at f384, residue at f417.",
+   "start_row": "164 e0 t0 ip22 (L16) Bit[191] := 0: same, emitted as a new site. Real 164 on S, member(164) 31256 on F.\n\nSTART requires:\n- (a) the rows before it are exactly the four residue rows;\n- (b) the first w row in place 164 is ip22;\n- (c) start_music: the first Byte[13] row in place 164 is ip130 (L124) Byte[13] := 1 from old 1 (same 1).\n\nThen ip138 / ip200 same, and the grant pass ip764 1 -> 2. The spawn is a chained arrival's (e7 t0 keys on Int16[2] alone; 342 -> L47 (2040,3335), tri 145, PSX -4780). Main_Init is the first function to run; ip6/ip14 are Map variables.",
+   "reads": [
+    {
+     "target": "Global.Byte[13] (with Int16[9])",
+     "where": "164 e0 t0 ip65 (==9), ip79 (==2 && Int16[9]<0), ip108 (Int16[9]<0) -> ip130",
+     "effect": "Both starts take ip130 := 1 (ip57 wrote 385 before ip79). Only ip130's old/same differs (start-scoped). A late warp (old 2/3) takes the same path SILENTLY: register it as a start read.",
+     "raw_warp_value": "Byte[13] 1; Int16[9] 643 before ip57, 385 after",
+     "true_value": "Byte[13] 2 (O7 frozen [163,0,0,678,...,2,0] = 163 ip684); Int16[9] 385 (163 ip57)"
+    },
+    {
+     "target": "Global.Bit[184]",
+     "where": "164 e0 t0 ip30 (==1)",
+     "effect": "0 on both, so ip41 Int16[2] := 10000 is dead on both",
+     "raw_warp_value": "0 (70 ip49)",
+     "true_value": "0 (163 ip49)"
+    },
+    {
+     "target": "Global.Byte[14] / Global.Int16[11]",
+     "where": "164 e0 t0 ip146, ip160, ip189; window ip615",
+     "effect": "ip200 Byte[14] := 0 same on both; window 56's twin dead",
+     "raw_warp_value": "Byte[14] 0, Int16[11] -1",
+     "true_value": "Byte[14] 0, Int16[11] -1"
+    },
+    {
+     "target": "Global.Int16[2]",
+     "where": "164 e7 t0 ip18 -> ip22 SWITCH(344, L47, L12)",
+     "effect": "The default spawn L47 on both",
+     "raw_warp_value": "342 (residue)",
+     "true_value": "342 (163 e2 t2 ip227)"
+    },
+    {
+     "target": "Global.Bit[3811]",
+     "where": "164 e1 t0 ip46/ip147 (placement, stand anim); e1 t1 ip160 (==0 -> the walk and ip230)",
+     "effect": "Identical: placed at (249,4630) on loop 2, released by the player's height, ip230 0 -> 1",
+     "raw_warp_value": "0 (New Game)",
+     "true_value": "0 (no O1-O7 frozen key writes it; last_values gives None)"
+    },
+    {
+     "target": "Global.Bit[3855] / Bit[3854] (+Bit[3848..3853])",
+     "where": "164 e1 t3 ip326 (the knight's TALK: Map.Byte[30] := the sum of the eight knight bits, for SetTextVariable)",
+     "effect": "Never run (a talk never driven; its stores forbidden). O7-KEYS' carried scan would wrongly refuse it: narrow the scan to functions that run.",
+     "raw_warp_value": "0 / 0",
+     "true_value": "1 / 1 (O6 153 e32 t0)"
+    },
+    {
+     "target": "Global.Byte[13] / Int16[2] (165)",
+     "where": "165 e0 t0 ip65/ip79/ip108 -> ip130; ip833 -> ip844; e7 t0 ip14 SWITCH(345,...); e2 t2 ip194 -> ip205",
+     "effect": "Written by the route first: same path and olds on both",
+     "raw_warp_value": "Byte[13] 2, Int16[2] 343",
+     "true_value": "Byte[13] 2, Int16[2] 343"
+    },
+    {
+     "target": "Global.Byte[13] / Int16[9] (166)",
+     "where": "166 e0 t0 ip65/ip79/ip108 -> ip119; windows ip306 / ip340 dead",
+     "effect": "The same on both (incoming 3 from 165's live ip205)",
+     "raw_warp_value": "Byte[13] 3, Int16[9] -1",
+     "true_value": "Byte[13] 3, Int16[9] -1"
+    },
+    {
+     "target": "Global.Byte[8]",
+     "where": "166 e0 t0 ip255 := 125 (THE START READ; no Byte[8] reference in 164 or 165), ip263 RunSoundCode1 reads it",
+     "effect": "125 -> 125 same on both if the warp left 70 after ip249; else old 0, A-START (race_site 70 ip249)",
+     "raw_warp_value": "125 (0 if the warp landed before 70 ip249)",
+     "true_value": "125 (O7 159 ip290; 125 in all six story-o7 runs)"
+    },
+    {
+     "target": "Global.Byte[208]",
+     "where": "166 e6 t1 ip345 := 0; ip380 ++; ip385 reads it after the store",
+     "effect": "ip345's old differs (start-scoped); ip380 0 -> 1 on both. 164 e7 t11 ip399/434 run only from the talk.",
+     "raw_warp_value": "0",
+     "true_value": "1 (O7 frozen [159,16,1,258,...,1,0] = 159 ip648)"
+    },
+    {
+     "target": "B_SYSVAR[15] (FMV status), B_SYSVAR[3] (sound sync)",
+     "where": "166 e6 t1 ip609-ip768; 166 e0 t0 ip244; 55 e0 t0 ip331",
+     "effect": "Engine state, not gEventGlobal (GetSysvar.cs:19-20, 47-50); start-independent",
+     "raw_warp_value": "n/a",
+     "true_value": "n/a"
+    },
+    {
+     "target": "(55, past the cut) UInt16[0], Int16[2], Byte[8]",
+     "where": "55 e0 t0 ip229 (SC<1400 || Int16[2]==106), ip255 := 106, ip342 := 125",
+     "effect": "Past the cut at ip22. Int16[2] and Byte[8] race the live end-state read, so they come from the trace.",
+     "raw_warp_value": "n/a",
+     "true_value": "n/a"
+    }
+   ],
+   "scoped_olds": "Derived with O7's merged `scoped_derivation`, generalised (START_VALUES = O8's raw start {UInt16[0] 1190, Int16[2] 342, Byte[13] 1, Int16[9] 643, Int16[11] -1, Byte[14] 0, Byte[8] 125}; O7's FROZEN o7_predictions_v1.json in place of O6's; the prior segments O1 v4 + O2-O7 v1), over a mock O8 key set of 20 writes and 3 chain keys (r2_derive8.py). No problems. EXACTLY THREE start-scoped sites:\n(1) 164 e0 t0 ip57 (L51) Int16[9] := 385: raw 643 -> 385 (same 0) | true 385 -> 385 (same 1); after.old 385 off [163,0,0,51,'Global.Int16[9]',385,1].\n(2) 164 e0 t0 ip130 (L124) Byte[13] := 1: raw 1 -> 1 (same 1) | true 2 -> 1 (same 0); after.old 2 off [163,0,0,678,'Global.Byte[13]',2,0] (163 ip684). Also start_music, and the new start read.\n(3) 166 e6 t1 ip345 (L71) Byte[208] := 0: raw 0 -> 0 (same 1) | true 1 -> 0 (same 0); after.old 1 off [159,16,1,258,'Global.Byte[208]',1,0] (159 ip648).\n\nafter.old is the last pre-cut tuple per target in O7's frozen pattern (olds_from_pattern {Byte[13] 2, Byte[208] 1, Int16[9] 385}), never an end state read after the site's field ran. Every other key reads equal olds. Code: AFTER_RUN 'O1-O7', O7_FROZEN for O6_FROZEN, PRIOR_SEGMENTS + o7_predictions_v1.json; O8's dry run uses frozen_through(8).",
+   "start_reads": "TWO start reads.\n\n(1) 166 e0 t0 ip255 (L249) Byte[8] := 125 must read old 125: the route's first Byte[8] store, with no Byte[8] reference in 164/165. A warp before 70's ip249 leaves 0. race_site over O7's kept 70 pins (ip130, ip238, ip246, ip249, ip475; the override is text-identical there) resolves (70,0,0,249). why_void's two branches (the read's old, or ip249's row among the pre rows) make it A-START by the driver; VOID-ASYM (b) sets it aside.\n\n(2) NEW: 164 e0 t0 ip130 Byte[13] := 1 must read old 1. A warp after 70 ip475 (Byte[13] 2) or the override's ip558 (3) takes NO error path at 164 (K=385): ip130 reads 2 -> 1, same 0, which is exactly the true chain's old. START (c) and PATTERN would then fail as NOT PROVEN. Register 164 ip130 as a start read with old 1 (its raced store 70 ip475: race_site(pred, {Byte[13], old 2}) returns (70,0,0,475)). A silent late warp is then A-START by the driver. Word the reason as the late race, not 'before its store'. ip558 has no stock pin; P-OVERRIDE covers it.\n\nIn O7, 154's ip101 / window 56 made the late race loud; at 164 it is silent.",
+   "carried": "DERIVED with carried_from_segments (O1 v4, O2-O7 v1; writes = O8's targets {Int16[9], Byte[13], Int16[11], Byte[14], Bit[3811], Byte[8], Byte[208], Int16[2]} + masked {Bit[191], Bit[184]}; raw = O8's START_VALUES). No problems; every segment replayed alone agrees with its end_state.\n\nFIFTEEN, each [raw, true]: Bit[3717] [0,1], Bit[3718] [0,1], Bit[3795] [0,1], Bit[3796] [0,1], Bit[3815] [0,1], Bit[3854] [0,1], Bit[3855] [0,1], Byte[18] [0,1], Byte[303] [0,1], Byte[472] [0,4], Byte[475] [0,100], Byte[6] [0,11], Int16[469] [0,1042], UInt16[19] [0,1807], UInt16[21] [0,8].\n\nThat is O7's fourteen, values identical, plus Bit[3796] (O7's 159 e16 t1 ip672). SC and Int16[2] equal the raw start. O8's end_state must not hold Bit[3796]: O7's held 1, but raw is 0.\n\nTHE PARTY: [Zidane] raw, [Steiner] after O6's 153 e32 t1 rebuild. Typed and labelled, never derived; no party op in 164-166. Steiner is controlled on both sides (164 e7 ip325, 165 e7 ip317, 166 e6 ip262).\n\nBUILD TRAP: O7-KEYS' carried scan (o7_castle_walk.py:2333-2343, instanced_texts) refuses Bit[3855]/[3854] at 164 e1 t3 ip326, the never-driven talk. Narrow it to the functions the route runs (drop tag 3 and e7 t11/t12, which only the talk calls). No other carried target appears in the instanced entries of 164@342 {0,1,2,3,7}, 165@343 {0,1,2,3,7} or 166@344 {0,3,5,6}.",
+   "start_dependent": "NONE in value or path up to the cut at 55 e0 t0 ip22.\n- 164's prologue tests resolve identically: Byte[13] 1 or 2 (never 9); Int16[9] 385 before ip79.\n- The spawn SWITCH reads 342 on both sides.\n- The knight reads only Bit[3811], which is 0 on both (no O1-O7 key writes it), so his placement, release (by Steiner's height), walk and ip230 are identical.\n- The talk's reads of the knight bits never run.\n- 165 and 166 read only values the route itself wrote first, the same on both: Byte[13] 2 -> 1 -> 2 -> 3 -> 0, Int16[2] 343/344, Byte[8] 125, Byte[208] written before it is read.\n- The movie gates read engine state (SYSVAR[15]).\n- No UInt16[0] reference in 164-166, and 55 stores nothing before ip22.\nOnly OLDS differ: the three start-scoped sites.",
+   "summary": "The start was re-derived with O7's merged machinery, generalised to O7's frozen file and the O1-O7 segments (r2_derive8.py: start_state reader's script, re-run, identical output).\n- RESIDUE: 4 rows [[0,0,166],[1,0,4],[2,0,86],[3,0,1]].\n- START: 164 e0 t0 ip22; start_music 164 ip130 1->1.\n- THE START-SCOPED OLDS: exactly three (164 ip57, 164 ip130, 166 e6 t1 ip345), after.old 385 / 2 / 1 off O7's frozen pattern.\n- TWO START READS: 166 ip255 Byte[8] old 125 (race 70 ip249) and, new, 164 ip130 Byte[13] old 1 (race 70 ip475: the late warp is silent at 164).\n- CARRIED: 15 (O7's 14 + Bit[3796]); the party [Zidane] / [Steiner].\n- START-DEPENDENT: none.\n- Build traps: O7-KEYS' carried scan vs the knight's talk; Bit[3796] out of end_state.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\4376ce2b-bd6e-4446-a9dc-f1510c3fc187\\scratchpad\\o8_research\\reconcile\\r2_derive8.py"
+  },
+  "start_plan": "START PLAN (O8 draft):\n- New Game, wait_frames(30), storytrace 1, then from FieldHUD in 70 `warp 164 342 1190` (S) / `warp 31256 342 1190` (F); `start` {S: 164, F: 31256}, `entrance` 342, `scenario` 1190.\n- start_residue [[0,0,166],[1,0,4],[2,0,86],[3,0,1]]; residue_after_start []; sc_bytes [0,1]; entrance_bytes [2,3]; ladder [].\n- cut_start true; start_first 164 e0 t0 ip22 (L16) Bit[191] := 0.\n- start_music: 164 e0 t0 ip130 (L124) Byte[13] := 1 from old 1. Its `what`: the ambient branch (Int16[9] = 385 >= 0) from the warp's Byte[13] 1; any incoming 0..8 takes it, and a late warp is silent.\n- start_scoped: the three sites with here/after (after.run 'O1-O7', after.old read off O7's FROZEN pattern, sources named):\n  - 164 [164,0,0,57] Int16[9] here [643,385], after {old 385, value 385};\n  - [164,0,0,130] Byte[13] here [1,1], after {old 2, value 1};\n  - [166,6,1,345] Byte[208] here [0,0], after {old 1, value 0}.\n- start_reads: [{site [166,0,0,255], target Byte[8], old 125, raced store 70 ip249}, {site [164,0,0,130], target Byte[13], old 1, raced store 70 ip475 (the override's ip558: P-OVERRIDE)}]. why_void classifies either as A-START by the driver, set aside by VOID-ASYM (b).\n- carried: the 15 derived values (O7-KEYS refuses a typed set that differs) + the party [Zidane]/[Steiner], typed and labelled.\n- start_dependent [].\n- Keep 70's five pins (ip130, ip238, ip246, ip249, ip475) in route_pins: text-identical in the live override, pinned by P-OVERRIDE (sha 2ce8887e).\n- forget_basis for 164, 165, 31256, 31257 at every run's start (O7's reseed over seeded_fields).\n- O8's dry run reads predictions through frozen_through(8) only (O7's freeze broke O6's G36 before that fix).",
+  "movie_plan": "MOVIE PLAN (166 / 31258, no control, no cell).\n\nTHE PAGES: rule 7 (segment_drive.py:3550-3576) presses Confirm on each published page with control off (`press('page', 3 frames)`, then CUTSCENE_PAGE_TICKS 4). A dropped first Confirm (lesson 11; 307's [SPED=2] crawl) is simply pressed again on the next poll; there is no page-once rule without a policy.\n- Pages 307 (ip310), 308 (ip328), 311 (ip454), 312 (ip474), 313 (ip492) are WindowSync; 309 (ip334) is WindowAsync.\n- ip345 / ip380 land under 309 whatever its state, then ip401 WaitWindow(0).\n- No [CHOO] or [TIME=] on any; 310 is not on the route.\n- Stop page: window 56 'Env Play()' (166 ip322 / ip356, dead on the route).\n- Pages stay report-only, never a check that each was pressed. 166 has no cell, so no_pages never applies.\n\nFMV004 PLAYED OUT: no `movies` key (the freeze refuses one), so rule 9 only sleeps.\n- ip633 Cinematic(0,9,1,1) -> MBG_DEF('FMV004',1,0), type 0; ip711 Cinematic(2) plays it.\n- ip756 waits for fmvStatus 8 (the finish callback).\n- MoguriVideo's copy plays on both sides: 45.412 s, 29.97 fps.\n\nNO PRESS REACHES THE MOVIE. MovieHitArea arms at MBG.Play (MBG.cs:205-208), at least ~40 ticks (~1.3 s) after 313 closes. A press decided on a stale 313 sample lands within ~200 ms.\n\nA STRAY DIALOG: SkipMovieDialog (FieldHUD.cs:275-287) is answered by the frozen guard rule {match 'want to skip', pick 'default'}, which is No, and the movie resumes (MBG.cs:428-445, 534-542). No store is involved.\n\nTHE STALL FREEZE: the watchdog signature (:3427-3429) is static from the ip502 row to the ip863 row, ~47-51 s (O3's FMV003 stretch was +5.3 s over its file).\n- Freeze no_progress_s = max(60, 3 x the longest no-progress stretch of any traced stage), ~150 s.\n- The freeze refuses anything under 2 x that stretch (PLAN.md's floor).\n- Re-size run_s / run_min_s / session_s by F8 from R-FULL; a run is ~2.5 min.\n\nFPS: MBG.cs:217's SetTargetFPS(30) is ignored under the live VSync 1 (FPSManager.cs:41-48). O3 measured 60 / 58.6 fps before, during and after FMV003.\n- Plan nothing in ticks across the movie.\n- Pin [Graphics] VSync '1' in O8's SETTINGS (P-SETTINGS); today it is unpinned.\n\nTHE TRACE keeps one arm epoch through the movie and across Field(55): a field change opens no epoch (StoryTrace.cs:97). O3 proved it in game.\n\nRECOVERY: end_run warps first (the soft reset is dead during a movie). UIState stays FieldHUD (O3: the 90-s stretch at FieldHUD). R-FMV-VOID proves it on FMV004 with a rehearsal-only `movie_stop` raised from the drive's observe hook: the first poll in place 166 with no window and control off, at least N s after the 313 press.\n\nFAKE: model 166 as an H9 scene (pages, then {movie: N}, then the move to 55), with rows through fake.script_store. Do not add a movie step to the pinned _VisitBeat.",
+  "seam_plan": "SEAM AND END PLAN.\n- END on the arrival in REAL 55 at 110 on both sides: end_field 55, end_fields [55], side_ends {S: [55], F: [55]}.\n- members = O4's twenty exactly. The freeze refuses any O1 id (31200-31219) or a member whose donor is 55. side_ends_of (run here) accepts this and refuses 31205.\n- landing.end_row 55 e0 t0 ip22 Bit[191] := 0; budget.end_row_s 10.\n\nRULE 1 fires on the first poll publishing 55, BEFORE rule 2, on both sides; F reaches REAL 55 because 31258's Field(55) is raw and MAPJUMP never remaps.\n- A real 164/165/166 on F is V19 (by the game).\n- A landing in 31205 is impossible.\n- O8-BUILD pins 31258 byte-identical to 166 in each language AND its e6 t1 ip871 Field(55) raw: an 'only in-chain operands differ' rule passes vacuously at zero diffs.\n\nTHE CUT: cut_at_end at place 55 on both sides drops every w/r/c row of 55 and keeps the e rows.\n\nTHE SEAM on F is recorded only through the kept `e off fld 55` row: storytrace._walk_seams gives Seam(frm 31258, donor 166, to 55, fields [55]), with exit row 31258 e6 t1 ip863 Int16[2] 344 -> 110 and no seam key. This is O3's proven shape: story-o3 run2_F line 111, 1 seam crossing per F run.\n\nO7's LANDING (e) (no seam) would FAIL every O8 F run, and O2's seam_check passes vacuously with zero seams. O8-SEAM, per covered F run, with a registered `seam` {donor 166, to 55, why}:\n- (a) exactly ONE Seam, (31258, 166, 55, [55]);\n- (b) its exit row (31258, sid 6, tag 1, ip 863, Int16[2], 344, 110);\n- (c) no seam key; across_seam and seam_only empty;\n- (d) the cut row read from the UNCUT trace is w fld 55, don 55, e0 t0 ip22 Bit[191] := 0;\n- (e) in the uncut trace the row before the cut row (c/e aside) is the ip863 row, on both sides by place (O3 and O7 crossings: nothing between);\n- (f) zero seams FAILS.\n\nLANDING keeps (a)-(d): route_places [164, 165, 166]; crossings 164 e2 t2 ip243 (343) -> 165 ip22, 165 e2 t2 ip233 (344) -> 166 ip22; last 166 e6 t1 ip863 (110); end_row 55 ip22. O3's A-NOEND covers a missing 55 row.\n\nEND STATE (rule 1's live read races 55's Main_Init: ip255 Int16[2] 110 -> 106 in the cut's frame, ip342 Byte[8] 0 -> 125 after the sound sync):\n- Generalise RACED to a set derived from 55's bytes and the pattern: {Int16[2], Byte[8]}.\n- end_state_trace: Int16[2] 110 at 166 e6 t1 ip863, Byte[8] 0 at 166 e6 t1 ip502, by place (31258 on F). The live reads are recorded, never compared.\n- Live end_state: UInt16[0] 1190, Bit[191] 0, Bit[184] 0, Int16[9] -1, Byte[13] 0, Int16[11] -1, Byte[14] 0, Bit[3811] 1, Byte[208] 1, plus O8's untouched talk targets Bit[3851] 0, Bit[3792] 0, Bit[7211] 0, Int16[224] 0.\n- Never the carried 15 (incl. Bit[3796]). Recommended refusal: an end_state target any 55 pre-yield site rewrites to another value.\n\nPREFLIGHT with a real end:\n- route_members over [164, 165, 166] only (it raises for 55).\n- P-DONOR over the route donors [164, 165, 166] (O3's call: O5-O7's route+end call FAILS today on O1's `31205 55` row), its detail naming that row as outside the set.\n- P-DONOR-LOG over [164, 165, 166, 55].\n- stock_fields [164, 165, 166, 55]; P-TEXT block 3 strict; P-SETTINGS + VSync; P-ENGINE ba976242; P-OVERRIDE 2ce8887e.\n\nRECOVERY from every place: end_run warps 4600 first and restores the title. It works from FieldHUD in 164/165 (walks, the hold), in 166 (a page up, mid-movie: O3 precedent), and in real 55 (page 129).\n\nO9 contiguity: O9 starts with a raw warp into 55@110 (S) / O1's 31205@110 (F): F switches chains there. Record it in PLAN.md.",
+  "rehearsal_plan": "REHEARSALS (o8_rehearse.py; O7's shape adapted; nothing deployed).\n\nSTAGES:\n1. R-FULL (stock `warp 164 342 1190`, end [55], 2 runs, ~150 s each). The go/no-go and the predictions: the ONLY stage whose traces may define keys, start, pattern or end state. It records:\n   - both grants with y, both first-move checks;\n   - every step (route, holds, slides, stalls, losses, landings);\n   - THE HOLD (T0, ip230's tick and its seconds);\n   - the pinch;\n   - the dead-level region crossings;\n   - 166's pages and FMV004's static span;\n   - the 166 -> 55 crossing rows;\n   - the cut, the 23 keys / 6 masked rows / 29 rows, the pattern, the end state (live, and Int16[2] / Byte[8] from the trace);\n   - run time, the longest no-progress stretch, render rate.\n2. R-SPIRAL (stock 164@342, end [165], 2 runs, ~60 s): 164's grant y ~4780, the 'left' first move, step 0 at_y, THE KNIGHT (T0, ip230 at ~T0+140, the hold, the seated reading), and step 1 through THE PINCH WINDOW {place 164, x 900-1310, z 4460-4600, published y 10400-11100}. The y band is required because loop 1 crosses the same XZ at y ~5600-5900. It records every hold starting or ending in the window, every ladder rung after one, the narrowest gap, e2's loss y ~13008 and the landing 165.\n3. R-SPIRAL165 (optional, by name; stock 165@343, end [166], 2 runs): 165's grant y ~10280, 'up+left' <= 4 deg, at_y, e3's dead-level crossings, e2's loss y 15169, the landing 166.\n4. R-FMV (stock 166@344, end [55], 2 runs, ~80 s; a clean warp: 166 ip119 from the warp's Byte[13] 1, ip255 125 same): the six pages under rule 7, no press after 313, no skip dialog, the static span ip502 -> ip863, ui and fps during it, 55's cut row, the live end-state reads.\n5. R-VOID (by name, LAST, 3 runs): run 1 at 164 stopped on THE HOLD's first poll; run 2 at 164 with a hold_stop inside THE PINCH WINDOW; run 3 at 166 with a movie_stop (observe hook, N ~ 15 s after the 313 press). Each must be V13 by the driver with nothing pressed after the raise, then recover-warp 4600 and the title (O7: 4.4-4.5 s). Run 3 is THE mid-FMV004 recovery.\n6. F-SMOKE (untraced, by name): 31256@342 / 164@342, 31257@343 / 165@343, 31258@344 / 166@344. Object sids equal to the twin's after smoke_s; 31258's mid-scene, end_run from a page or the scene.\n7. F-PASS (untraced, before the freeze): one F run from 31256@342 to REAL 55 on the draft, with the pinch on 31256 (radius 80 via EffectiveFieldId), the hold, 31257, 31258's pages and FMV004 played out, the landing in REAL 55 (rule 1, never V19). It may only STOP the session.\n\nTHE FREEZE CHECKLIST:\n- F1 grants: 164 within 64 u of (2040,3335) at y 4780 +- 30; 165 within 64 u of (2055,3411) at y 10280 +- 30. Another level STOPS the freeze.\n- F2 164 and the knight: no probe; one basis_check <= 16.3 deg; step 0 within its attempts, end within 45 u of P1 at y in [8800,9150]; no loss on e2's dead-level crossings; the hold done in every run; ip230 inside step 0's row and before ip243; hold.timeout_s = max(15, 3 x the longest).\n- F3 166: six pages seen and pressed; no press after 313 until the movie ended; ip255 before ip345.\n- F4 165: basis_check <= 16.3 deg (expect <= 4); at_y; step 1's loss in 165.e2 at y > 15000; no loss on e3's dead-level crossings.\n- F5 THE PINCH, the GO/NO-GO: in every R-SPIRAL and R-FULL run, 164 #1 done within its attempts with no V7 AND no ladder rung (wait, push, blocker, frozen, boxed) after a hold starting or ending in THE PINCH WINDOW. Record the narrowest gap (-> the fake's squeeze_slack). NO-GO -> the opt-in unstick:false + npcs false on 164 #1 and R-SPIRAL again; still NO-GO -> the owner.\n- F6 keys and pattern: exactly 23 keys + 6 masked rows, 29 rows (9 / 9 / 11), 4 residue rows and none after, 164's first w row ip22 and first Byte[13] row ip130 from old 1, no error / dead / forbidden row, no c row, the cut 55 ip22, the two runs identical bar frames.\n- F7 end state: the live end state equals the draft's (without Int16[2] / Byte[8]); the trace's last pre-cut Int16[2] = 166 ip863 110 and Byte[8] = ip502 0; the live reads recorded, never compared.\n- F8 budgets: run_s 2 x the slowest R-FULL; run_min_s 1.25 x the median + the longest recovery; session_s 8 x the median + 1800 (~3000 s); no_progress_s max(60, 3 x the longest stretch) (~150 s), refused under 2x; settle_s 1.0; end_row_s 10.\n- F9 recovery: R-VOID's three stops; R-FULL's end_run from 55.\n- F10 P-SETTINGS (+ VSync), P-PAD, P-OVERRIDE, P-ENGINE, P-LAUNCH, P-DONOR-LOG on the rehearsal launch.\n- F11 no input row.\n- F12 F-SMOKE equal.\n- F13 F-PASS reached REAL 55 cleanly.\n- F14 render rates recorded (60 unexercised so far).\n\nTHEN:\n- --freeze (v1). O8 freeze_problems refuses any rehearsal overlay or movies key, wrong side_ends / members, raced or carried targets in end_state, a low no_progress_s, a step missing its required O8 keys, VSync unpinned.\n- --preflight.\n- The session: py tools/play.py studies/story-trace/o8_<name>.py --label story-o8 --timeout 240 (S F S F S F).\n- One harness_tests.py whole and segment_regress.py --pytest-junit on its receipt.\n- Copy the rehearsal and session run dirs into the MAIN repo's .harness-runs/ before the gate. Avoid heavy runs 04:00-04:40.",
+  "owner_decisions": [
+   "None is needed now: the end (REAL 55 on both sides), FMV004 played out and the 55 seam are decided (option 1); every other choice settles against the bytes, the engine or the code.",
+   "CONDITIONAL, only if F5 (THE PINCH) is NO-GO after the opt-in `unstick: false` (+ npcs false) re-rehearsal of 164 step 1: report the measured pinch to the owner, who chooses between re-opening the split (option 2's walk-only segment) and another walk fallback. Recommended: ask; do not change the decided end without the owner."
+  ],
+  "disputes": [
+   {
+    "topic": "The 164 spawn's wall: '68 u, under the radius 80' vs '95.8 u; the 68 is a planner artefact'",
+    "settled": "SETTLED for the walks reader. z=3267 is tri 145's edge to tri 154 (PSX -4688, centroid just past band A's -4700), closed only in the planner's band-A floor; the engine walks through it. The engine's nearest wall is 95.8 u (east edge (2130,3517)-(2138,3267) via tri 158; the raw PlayerWalkmesh also reads 95.8), so there is no push-out at the spawn or on the first move (offline 0.0 deg). The prior basis stays, because e3 is LIVE 157 u away and a probe could fire it.",
+    "readers": "PLAN.md handoff + O7 research (68 u, under the radius) and the walk-machinery reader (68 u treated as a wall, but no push) vs the walks reader (95.8 u engine)",
+    "ref": "reconcile/r1_walks.py (spawn engine_wall), tri dump of 145's edges; FieldMapActorController.cs:1060-1124"
+   },
+   {
+    "topic": "164 step 1: one pinch vs a continuous squeeze at radius 80",
+    "settled": "SETTLED: ONE pinch, L 2654-3066 (loop 2's north turn, x 906-1301, z 4474-4586, PSX -10621..-10871), least half-width 68.6 at (1202,4520) PSX -10695 (11.4 u a side under 80). At the walk-machinery reader's other points the corridor is wide: half-widths (-287,3834) 182, (-390,3266) 199, (-70,4159) 148, (241,4402) 144; the max engine wall within 160 u gives 192/203/149/146. Their '5718 of 6327 u under 80 u from a wall' is the PLANNED line's own wall distance (a plan at clearance 64): the engine pushes him ~16 u outward there, which is not a squeeze. The fake's stop at slack 8 and pass at 12 fit one pinch at 68.6.",
+    "readers": "walks reader (one pinch, 68.6) vs walk-machinery reader (continuous, maxima 67-74 at five places)",
+    "ref": "reconcile/r1_walks.py, r1_164_profiles.json, the 160-u inscribed-radius cross-check"
+   },
+   {
+    "topic": "A field change during THE HOLD: V11 by the driver or by the game",
+    "settled": "SETTLED: V11 by the GAME. The hold presses nothing, and P1 stands 335 / 293.5 u from e2 / e3 (O8-GOALS proves it offline), so only the game's script can move the field. This mirrors the timeout's V8 by the game. x_wait_sc's driver attribution (segment_drive.py:2994-2999) is for a wait point the walk chose near doors; P1 is proven clear.",
+    "readers": "walk-machinery reader (game) vs x_wait_sc's precedent (driver); walks reader and O7 research unattributed",
+    "ref": "segment_drive.py:2948-2999; r1 P1 gaps"
+   },
+   {
+    "topic": "no_progress_s across FMV004",
+    "settled": "SETTLED: F8's own formula, max(60, 3 x the longest no-progress stretch of any traced stage), ~150 s for a ~50-s FMV004 stretch. O3 froze 271 = 3 x 90.3 and O7 max(60, 3 x 1.1). The freeze refuses anything under PLAN.md's 2x floor.",
+    "readers": "PLAN.md / O7 research (>= 2x, ~100 s) vs movie reader (3x, ~145 s)",
+    "ref": "o7_castle_walk.py:798-801 (O7's F8); o3_predictions_v1.json no_progress_s 271; O3 R-FULL no_progress 90.1 / 90.3 s"
+   },
+   {
+    "topic": "The movie's fps: 'MBG sets the target fps' vs 'ignored under VSync 1'",
+    "settled": "SETTLED: both true. MBG.cs:217 calls FPSManager.SetTargetFPS(30); FPSManager.cs:41-48 keeps vSyncCount 1 under the live [Graphics] VSync = 1 (Memoria.ini line 71), and Unity ignores targetFrameRate then. O3 measured 60 / 58.6 fps before, during and after FMV003. Plan nothing in ticks across the movie, and pin VSync in P-SETTINGS.",
+    "readers": "bytes reader / O7 research vs movie reader",
+    "ref": "MBG.cs:217; FPSManager.cs:41-48; 20261001-093510-o3-rh-R-FULL/o3_rehearsal.json movie fps"
+   },
+   {
+    "topic": "165 step 1's goal: (2489,3166) vs the deeper region_goal (2773,3153)",
+    "settled": "SETTLED: keep (2489,3166). It is inside the 4-gon, 61.7 u from the west edge, so the 45-u arrival circle lies wholly inside e2. The route enters e2 at (2419.6,3130), y 15169, ~90 u before the goal, and the planner routes to it at 120 and 130 (verified). Its wall (107 < 120) is never reached.",
+    "readers": "O7 research + walks reader's step vs the walks reader's alternative",
+    "ref": "reconcile/r1_walks_165.json"
+   },
+   {
+    "topic": "The knight on step 0: phantom disc vs engine contact",
+    "settled": "Not a reader dispute, confirmed: the engine pairs actors only at |dy| < 400 (WalkMesh.cs:919-921; MoveToward's collision uses the same call), so there is no contact across levels. npcs false on 164 #0 is required only because the PLANNER's _npc_levels keeps him as a disc 152.5 u off the line.",
+    "readers": "walks + walk-machinery readers (npcs false required) and bytes reader",
+    "ref": "WalkMesh.cs:899-960; session.py _npc_levels"
+   },
+   {
+    "topic": "166's e1 'sets Map.Byte[24] at the scene's end'",
+    "settled": "SETTLED: e1 is NOT instanced in 166; Main_Init inits only e6, e3 and e5 (ip223-229), and e2 runs only as e6's shared script. Nothing changes: no global store either way.",
+    "readers": "walks reader (no_control_166) vs the bytes and movie readers",
+    "ref": "reconcile/L166.txt e0 t0 ip223-232, e6 t1 ip489"
+   },
+   {
+    "topic": "The warp window's late edge (after 70 ip475)",
+    "settled": "SETTLED as a design fix: at 164 a late warp is SILENT (K=385: ip130 2->1, the true chain's old), unlike O7's loud 154 error path. Register 164 ip130 as a second start read (old 1, raced store 70 ip475; race_site returns (70,0,0,475)) so it is A-START by the driver, never NOT PROVEN.",
+    "readers": "start-state reader (new) vs PLAN.md handoff (one start read)",
+    "ref": "o7_castle_walk.py:352-375, 2600-2637; L70 pins"
+   },
+   {
+    "topic": "The 164 fake's squeeze slack: >= 11.4 vs >= 12",
+    "settled": "Consistent: the bound is radius 80 - slack <= 68.6, so slack >= 11.4; 12 is the estimate. R-SPIRAL's narrowest gap freezes it.",
+    "readers": "walks reader vs walk-machinery reader",
+    "ref": "fakegame.py:121, 246; walk_machinery fake_spiral.py"
+   },
+   {
+    "topic": "P-FLOOR 'raw-diff' for 31257",
+    "settled": "SETTLED: the 'raw-diff' line compares the deployed bytes with the ROUND-TRIPPED stock (165's .bgi goes 6376 -> 6374 B through BgiWalkmesh). The deployed bytes equal the raw stock bundle, and the normalised compare (the merged P-FLOOR) passes.",
+    "readers": "fork reader's output line vs its own summary",
+    "ref": "fork_side/preflight_parts.py:31-35, NOTES.txt:19-21"
+   }
+  ],
+  "unverified": [
+   "In game: both grants' published y (164 ~4780, 165 ~10280) and positions (bytes only, lesson 6).",
+   "In game: the first-move judge on a ramp at 164 ('left', 0.0 deg offline) and 165 ('up+left', <= 4 deg offline).",
+   "In game: THE PINCH at radius 80 on 164 step 1 (half-width 68.6): the engine's midline averaging, stalls, unstick rungs -- R-SPIRAL's GO/NO-GO.",
+   "In game: the dead-level walk-throughs of live regions (164 e2 on step 0; 164 e3 and 165 e3 on step 1) cause no control loss.",
+   "In game: the knight's ip230 tick (~T0+140 +-8 ticks), the hold's seconds and his seated position.",
+   "In game: 166's pages under rule 7 (307's crawl, a dropped first Confirm) and that no press reaches FMV004.",
+   "In game: FMV004's static span (~47-51 s estimated), the published state and render rate during it.",
+   "In game: the 166 -> 55 crossing (no r row before 55 ip22; ip863 directly followed by 55 ip22; the published field-id sequence across the 31258 -> 55 load).",
+   "In game: whether 55 ip342 lands in the cut's frame (moot; it races either way).",
+   "In game: a stray SkipMovieDialog answered at its default No, and end_run while that dialog is up.",
+   "In game: any O8 walk at 60 fps (O7 never ran at 60).",
+   "Offline, taken from the readers: the 7-language member diffs (forkdiff7.out), P-EB/P-FLOOR/P-TEXT equalities (preflight_parts.out, textcheck.py), MoguriMain .bgi/.bgs equality. Only the US decode and the live registrations were re-checked here.",
+   "Offline, taken from the walk-machinery reader: the FakeGame H20 premises on 164/165 (steepest step, stacked gap, edge mismatches) and the hand-stepped fake's stop point at slack 8.",
+   "The deployed DLL's IL: inferred from Output's sha = live and no newer .cs, not decompiled.",
+   "Carried .sps/spt.tcb bytes vs the donor bundle (names and ids only), and the embedded mapExtraOffsetList rows (wrapped, cosmetic)."
+  ],
+  "harness_gaps": {
+   "items": [
+    {
+     "topic": "1. THE PINCH at radius 80 (164 step 1)",
+     "status": "risk",
+     "evidence": "The one squeeze: a ~137-u corridor (least half-width 68.6 at (1202,4520) PSX -10695), 11.4 u a side under Steiner's 80. DoEventCode.cs:1507-1508 is the PC port's own fix for this climb, and ServiceForces averages opposing forces x 1.05 with no pinch rejection (FieldMapActorController.cs:1161-1254), so the engine should hold him on the midline. The harness is the unknown: a stall lets unstick place a phantom blocker of radius OBSTACLE_R_W 192 (session.py:4985-4996) that seals the corridor, and walk_kw always passes unstick=True (segment_drive.py:2562). The fake STOPS at the turn with SQUEEZE_SLACK_W 8 and passes at 12. O7's 163 foot (3.3 u at 120) passed in game.",
+     "smallest_fix": "Zero-code: attempts 3, and THE PINCH WINDOW (with a y band) in R-SPIRAL/R-FULL as the go/no-go. Only on R-SPIRAL evidence: an opt-in per-step `unstick: false` (walk_kw: unstick=bool(step.get('unstick', True))) with that step's npcs false (the seated knight is 300 u off the line), FakeGame-tested with an injected stall."
+    },
+    {
+     "topic": "2. The bit `hold` (THE KNIGHT HOLD)",
+     "status": "gap",
+     "evidence": "No hold exists: no step kind or key, and step_of knows none. The primitives are ready: Session.watch/unwatch (session.py:7922-7930) send `watch`, which only appends to _watch (HarnessAgent.cs:840-858; no store, no trace row); AppendWatch publishes 'flags' every 2 frames; State.flag returns True/False/None (channel.py:834-836). Arm and reset clear the list. read_end_state's watch/unwatch at rule 1 does not conflict.",
+     "smallest_fix": "An opt-in walk key `hold: {flag, value, timeout_s}` (step_of: walk only, requires at_y; flag int 0..16383, value 0/1, timeout_s > 0). In x_walk, after done's conditions: watch, wait_for(flag==value or control gone or field changed; timeout min(timeout_s, time left)), unwatch in finally. Row `hold {flag, value, frame, s}`. Verdicts: timeout V8 game; field change V11 game; control gone door_loss/interrupted; deadline V13 driver."
+    },
+    {
+     "topic": "3. `at_y` on the walk",
+     "status": "gap",
+     "evidence": "x_walk's done is control + XZ distance + route_to's reached (segment_drive.py:3033-3039; session.py:4756-4758). sample() keeps frame/control/x/z only (:788-792), so O7's WALK (a) cannot re-judge height. P1's XZ stacks three levels (-3961 / -8958 / -13893).",
+     "smallest_fix": "Opt-in `at_y: [lo, hi]`, walk only (step_of checks two numbers, lo < hi). In x_walk done adds lo <= st.player_y <= hi, else `failed` with the y named. The row gets at_y {band, y}. O8-GOALS (g3') checks that every point within tolerance of the goal stands on one open level whose -height lies in the band."
+    },
+    {
+     "topic": "4. A y axis on `until`, and the loss sample's y",
+     "status": "gap",
+     "evidence": "until_ok accepts only x|z and raises on y (:308-320; step_of validates through it at :400-403: loud). The probe's `lost` is {frame, field, x, z, control} (session.py:822-827); x_trigger/x_trigger_to evaluate until with x, z only (:2738-2741, :2807-2809). The ring keeps the raw state, player.y included (ring_since :1712-1719; STATE_RING 300 samples).",
+     "smallest_fix": "until_ok(expr, x, z, y=None) accepting y_le/lt/ge/gt (a missing y reads False); step_of validates with until_ok(u, 0, 0, 0). In x_trigger / x_trigger_to, ONLY when the until has a y term, read y off the ring sample at lost['frame'] and put it on the row's `lost`. session.py is untouched; O1-O7 tables carry no y key."
+    },
+    {
+     "topic": "5. step_of passes unknown step keys silently",
+     "status": "risk",
+     "evidence": "step_of (:362-414) checks named keys only, so a table carrying at_y or hold today passes the offline checks and the driver's start and is then driven WITHOUT them: a check that cannot fail.",
+     "smallest_fix": "Validate at_y and hold explicitly in step_of, plus an O8-local offline clause refusing any step key outside a KNOWN_STEP_KEYS set (a global whitelist might break O1-O7 fixtures)."
+    },
+    {
+     "topic": "6. The seam check",
+     "status": "gap",
+     "evidence": "The F digest records Seam(31258 -> 55) through the kept `e off fld 55` row (segment_trace.py:137-146 keeps e rows; storytrace.py:838-877). O7's LANDING (e) (o7_castle_walk.py:2734-2739) demands no seam, so it FAILS every O8 F run. O2's seam_check (o2_alexandria.py:1386-1407) loops over d.seams, so it passes vacuously with none.",
+     "smallest_fix": "O8-SEAM (a)-(f): exactly one Seam (31258, 166, 55, [55]); exit row 31258 e6 t1 ip863 344->110; no seam key, across_seam/seam_only empty; the uncut cut row 55 e0 t0 ip22; nothing but c/e rows between ip863 and it; zero seams FAILS. A registered `seam` {donor 166, to 55}."
+    },
+    {
+     "topic": "7. The end-state race",
+     "status": "gap",
+     "evidence": "55's Main_Init rewrites Int16[2] (ip255 110->106, in the cut's frame) and Byte[8] (ip342 0->125) before rule 1's read can be trusted. O7's RACED is one constant (o7_castle_walk.py:134; _end_state :712-734; freeze :2125-2126). state_check (c) already iterates end_state_trace (:2922-2952).",
+     "smallest_fix": "A RACED SET derived from 55's pre-yield stores vs the last pre-cut values: {Int16[2], Byte[8]}, each in end_state_trace at its site by place (166 e6 t1 ip863 = 110, ip502 = 0). The live reads are recorded, never compared. Freeze refusal: such a target in end_state."
+    },
+    {
+     "topic": "8. The draft and preflight with a real end",
+     "status": "gap",
+     "evidence": "route_members raises when a donor is not forked by exactly one member (:156-165): 55 has none in O4's chain. P-DONOR as O5-O7 call it (route + end_fields, o5_hallway.py:1446) FAILS on the live install today on O1's `31205 55` row. stock_fields lacks 55.",
+     "smallest_fix": "Members for 164-166 only; side_ends {S:[55],F:[55]}; P-DONOR over [164,165,166] (O3's route-only call) with a line naming O1's row; P-DONOR-LOG over [164,165,166,55]; stock_fields [164,165,166,55]."
+    },
+    {
+     "topic": "9. O7's offline checks misread O8's steps",
+     "status": "gap",
+     "evidence": "visit_windows takes exempt doors from `target` only (:1334-1335), so the until-triggers' door rows go unexempted. walk_check (a) raises KeyError on an until-trigger with no target (:2810-2819). goals_extra7 (g2)/(g3) fail by construction (:1731-1735, :1770-1799). height_test reads only B_LT (:892, :927-931), but 164 e3 / 165 e3 are B_GT gates. ENGINE_RADIUS 120 is hard-coded (:112), but 164's is 80.",
+     "smallest_fix": "O8-local functions, O7's untouched: regions registered with a `gate` read off each pinned tag 2 (y_gt 12000 / y_lt 6000 / y_gt 15000 / y_lt 11000); (g2') exempts exits whose gate cannot hold on the step's floor inside the polygon, and the trigger's own door via `to`; (g3') via at_y; per-place radius {164: 80, 165: 120}; doors from `to`; ip230 exempt inside step 0's row only."
+    },
+    {
+     "topic": "10. O7-KEYS' carried scan vs the knight's talk",
+     "status": "gap",
+     "evidence": "The scan (o7_castle_walk.py:2333-2343) covers every function of every instanced entry (instanced_texts), so it refuses Bit[3855]/[3854] read at 164 e1 t3 ip326, a talk never driven, its stores forbidden.",
+     "smallest_fix": "For O8, scan only the functions the route runs: drop tag 3 and what only it calls (164 e7 t11/t12 via RunScriptSync)."
+    },
+    {
+     "topic": "11. The stall watchdog and budget across FMV004",
+     "status": "gap",
+     "evidence": "The signature (:3427-3429) is static ~47-51 s from the ip502 row to the ip863 row. O7's frozen 60 would leave ~10 s, and V14 is the game's, so one hitch would read VOID-ASYM NOT PROVEN. O7's run budget (202 / 122 / 2548) was sized for ~95-s runs; O8's are ~150 s.",
+     "smallest_fix": "Numbers only: F8 from R-FULL (no_progress_s = max(60, 3 x the longest stretch), ~150 s; run_s / run_min_s / session_s by the formulas). Freeze refusal under 2x the stretch."
+    },
+    {
+     "topic": "12. The late-warp race is silent at 164",
+     "status": "gap",
+     "evidence": "A warp after 70 ip475 reaches 164 with Byte[13] 2: ip130 2->1 same 0, no error path, so START (c) and PATTERN fail and the run reads NOT PROVEN. O7's start_reads covers Byte[8] only.",
+     "smallest_fix": "A second start read {site [164,0,0,130], Byte[13], old 1} whose raced store is 70 ip475 (race_site with {Byte[13], old 2}), worded as the late race. The override's ip558 is P-OVERRIDE's."
+    },
+    {
+     "topic": "13. FakeGame for the spirals, the knight and 166",
+     "status": "gap",
+     "evidence": "fake.clearance is global (fakegame.py:418), but 164 needs 80 and 165 needs 120. 164's Levels needs squeeze_slack >= 12. H23 walkers cannot start on the player's height or store. H14 visit beats have no movie step, and _VisitBeat is G21-pinned. H20's spiral premises hold (walk-machinery reader).",
+     "smallest_fix": "A per-field clearance override (or per-field real-floor tests); Levels(pw, squeeze_slack=12) for 164; H25 (start {y_ge}, store {after_ticks, args}) in the UNPINNED _step_walkers; 166 as an H9 scene with {movie: N}; extend the levels-premises test to 164/165."
+    },
+    {
+     "topic": "14. Rehearsal stops for the hold and the movie",
+     "status": "gap",
+     "evidence": "O7's stops are input hooks (hold_stop wraps g.send, page_stop wraps g.press; 'never a timer'). During THE HOLD and FMV004 the driver sends nothing.",
+     "smallest_fix": "A rehearsal-only `movie_stop {place 166, after_s N}` raised from the drive's observe hook (:3406-3408), plus a hold stop on the hold's first poll. Both are refused by the freeze like REHEARSAL_OVERLAYS."
+    },
+    {
+     "topic": "15. VSync unpinned",
+     "status": "risk",
+     "evidence": "The movie's wall time (MovieMaterial's clock) and the measured stretch depend on [Graphics] VSync (live 1). O7's SETTINGS pins [Graphics] Enabled and FieldTPS only.",
+     "smallest_fix": "Add [Graphics] VSync '1' to O8's SETTINGS (P-SETTINGS)."
+    },
+    {
+     "topic": "16. No driver test ends F in a REAL field under side_ends",
+     "status": "gap",
+     "evidence": "Every side_ends test ends F in a member (test_harness.py, per the movie reader).",
+     "smallest_fix": "One fake driver test: F reaches real 55 from member(166) under side_ends {S:[55],F:[55]} -> reached, end row at 55; the same chain landing in real 166 -> V19."
+    },
+    {
+     "topic": "17. Ready with configuration only",
+     "status": "ready",
+     "evidence": "S18 clearance (walk_kw :2565-2566); S19 prior basis and forget_basis; npcs per step; regions from the bytes' 5-point SetRegion (never scan_gateways' 4-point zone); H22 door y_gt/y_le (DOOR_KEYS fakegame.py:4053); rule 7 pages; no Confirm reaches the movie (rule 9 sleeps without `movies`); the skip dialog at its default; rule 1 before rule 2 and V19; end_run from every place (warp first); the trace across the seam (no epoch on a field change).",
+     "smallest_fix": "None."
+    }
+   ],
+   "summary": "Most of O8 runs on the merged machinery: per-step clearance, the prior basis, npcs per step, the y-gated doors in the fake, rule 7's pages, the played-out movie (O3's precedent), rule 1 with side_ends, and recovery from every place.\n\nThe biggest RISK is the one pinch on 164 step 1 at radius 80. R-SPIRAL is its go/no-go; the fallback is an opt-in unstick:false.\n\nThe build needs, all opt-in:\n- the walk's `hold` and `at_y`, and a y axis on `until` with the loss's y read off the ring;\n- explicit step_of validation of the new keys plus an O8-local unknown-key refusal;\n- O8-SEAM (O7's LANDING (e) fails every F run; O2's seam check is vacuous);\n- a raced SET {Int16[2], Byte[8]} for the end state;\n- a real-end draft (route_members on 55 raises; P-DONOR route+end fails today);\n- O8-local goals, visit-window and walk checks (until-trigger doors from `to`, B_GT gates, radius 80);\n- the carried scan narrowed past the knight's talk;\n- a second start read for the silent late warp;\n- FakeGame per-field clearance, squeeze_slack 12 for 164, the H25 knight and 166 as an H9 movie scene;\n- hold and movie rehearsal stops;\n- a VSync pin;\n- one real-end driver test.\nThe watchdog and budget need only F8's numbers.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\4376ce2b-bd6e-4446-a9dc-f1510c3fc187\\scratchpad\\o8_research\\O8_ROUTE.md"
+  },
+  "fork_gates": {
+   "items": [
+    {
+     "topic": "P-ENGINE",
+     "status": "ready",
+     "evidence": "The live x64/x86 Assembly-CSharp.dll hashes ba9762423da8... = O7's pinned engine; C:\\gd\\FFIX\\Memoria\\Output holds the same sha and no .cs is newer (inferred, not decompiled).",
+     "smallest_fix": "Keep the pin; re-hash before the freeze and the session."
+    },
+    {
+     "topic": "Steiner's radius special case in 164",
+     "status": "ready",
+     "evidence": "DoEventCode.cs:1507-1508 (effMapNo == 164 && sid 7 && size 30 -> 20, radius 80) uses effMapNo = EffectiveFieldId (:25), so 31256 has it through ForkDonorPatch line 91. 165/166 are not covered (120). Geometry only, never a write.",
+     "smallest_fix": "Planner clearances per place (164: 80 / 64; 165: 120); the pinch is rehearsed on F by F-PASS."
+    },
+    {
+     "topic": "Field(55) from 31258 lands REAL 55",
+     "status": "ready",
+     "evidence": "31258 e6 t1 ip871 Field(55) is raw in all 7 languages. MAPJUMP -> SetNextMap -> HonoluluFieldMain.cs:444 does no remap. ForkSiblingField only at ff9.cs:9327 (world->field) and HonoluluBattleMain.cs:737 (battle return); 164-166 have no battle op. Netsync redirects are off.",
+     "smallest_fix": "O8-SEAM as planned; O8-BUILD pins 31258 byte-identical to 166 AND its Field(55) raw."
+    },
+    {
+     "topic": "Member bytes 31256 / 31257 / 31258",
+     "status": "ready",
+     "evidence": "31256 vs 164 and 31257 vs 165 differ in exactly 4 bytes each (the two Field() operands); 31258 = 166 byte-identical, all 7 languages (forkdiff7.out). All 140 member .eb equal O4's build (P-EB). ForkDonorPatch 91-93, DictionaryPatch 168-170 (block 3) are live, each once.",
+     "smallest_fix": "O4's pins unchanged; the explicit 31258 pin above."
+    },
+    {
+     "topic": "FMV004 on 31258",
+     "status": "ready",
+     "evidence": "Cinematic(0,0x0109,1) -> fldfmv.cs:56-58 -> MBGDiscTable[1][9] = MBG_DEF('FMV004',1,0) (MBG.cs:830): no field id in the lookup. fldfmv.cs:112's EffectiveFieldId == 100 does not apply. MBG.cs's raw 2752/2933 tests evaluate the same for 166 and 31258. MoguriVideo's copy (45.412 s) plays on both sides.",
+     "smallest_fix": "None; the stall freeze covers the movie."
+    },
+    {
+     "topic": "Region tests (QuadCircleData)",
+     "status": "ready",
+     "evidence": "IsInQuadHotFix keys QuadCircleData on the RAW fldMapNo (EventEngine.TreadQuad.cs:41-53), but the table has no 164xxx/165xxx entry (EventEngineUtils.cs:1722-1737), so S and F both use IsInQuad's ring of ears.",
+     "smallest_fix": "None."
+    },
+    {
+     "topic": "Autosave, NarrowMapList, VIB/animation, SPS, MapConfig, sound, text zone, ATE, warp, trace key",
+     "status": "ready",
+     "evidence": "Each is wrapped, symmetric, or has no row for 164-166/55 (gates reader, spot-checked here): SPS carried (31256: 347/349/351/353; 31257: 46/47/48/53/54); fldLocNo 3 both sides; FieldZoneId == 166 is Daguerreo's ZONE; the trace keys rows on raw fldMapNo with don = EffectiveFieldId.",
+     "smallest_fix": "None."
+    },
+    {
+     "topic": "P-DONOR with a real end",
+     "status": "gap",
+     "evidence": "p_donor (o3_prima_vista.py:848-866) called over route + end_fields (o5_hallway.py:1446) fails today on O1's `31205 55` row.",
+     "smallest_fix": "P-DONOR over [164,165,166] (O3's call); P-DONOR-LOG over [164,165,166,55]."
+    },
+    {
+     "topic": "P-STOCK / P-SETTINGS",
+     "status": "risk",
+     "evidence": "Real 55 runs on both sides, but stock_fields lacks it. [Graphics] VSync is live 1 but unpinned, and the movie's timing depends on it.",
+     "smallest_fix": "stock_fields [164,165,166,55]; SETTINGS + [Graphics] VSync '1'."
+    },
+    {
+     "topic": "Could not determine",
+     "status": "unknown",
+     "evidence": "The deployed DLL's IL (not decompiled); the carried .sps/spt.tcb bytes vs the donor bundle; the embedded mapExtraOffsetList rows (wrapped, cosmetic); radius 80 in the pinch in game.",
+     "smallest_fix": "R-FULL / R-SPIRAL / F-PASS; optionally decompile DoEventCode's RADIUS case."
+    }
+   ],
+   "summary": "Nothing on O8's route can make F's gEventGlobal writes differ from S's. The only field-id gate reached is DoEventCode.cs:1507 (Steiner's radius 80 in 164); it goes through EffectiveFieldId, so 31256 has it, and it changes geometry only. FMV004's lookup takes no field id. Field(55) does no remap, so F lands in REAL 55. QuadCircleData has no 164/165 rows. Every other per-field behaviour is wrapped, symmetric or without rows. The deployed DLL equals O7's pin.\n\nThe gate-side work is small:\n- pin 31258 explicitly (byte-identical, Field(55) raw);\n- P-DONOR over the route donors only;\n- add 55 to P-STOCK;\n- pin VSync.",
+   "notes_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\4376ce2b-bd6e-4446-a9dc-f1510c3fc187\\scratchpad\\o8_research\\gates\\o8_gates.md"
+  },
+  "fork_chain": "F runs O4's alxc disc-1 chain AS DEPLOYED in FF9CustomMap (o4_forks.json; nothing imported, built or deployed for O8).\n\nThe start warp is `warp 31256 342 1190`. The route members:\n- member(164) = 31256 EVT_O4_ALXC_AC_LTI. Retargeted e2 t2 ip251 Field(165) -> Field(31257); the back door e3 t2 ip251 Field(163) -> Field(31255).\n- member(165) = 31257 EVT_O4_AC_LTI_2. Retargeted e2 t2 ip241 Field(166) -> Field(31258); the back door e3 t2 ip251 Field(164) -> Field(31256).\n- member(166) = 31258 EVT_O4_AC_LTT, BYTE-IDENTICAL to 166. Its only Field() is e6 t1 ip871 Field(55), RAW.\n\nTHE SEAM is the raw Field(55): F lands in REAL 55 (no remap; ForkSiblingMap[55] = 31205 is world/battle-only). The seam is recorded through the `off` row as Seam(31258 -> 55), exit row 31258 e6 t1 ip863 Int16[2] 344 -> 110.\n\nThe 7-language diffs are exactly those operand bytes (31256: abs 2053-2054, 2309-2310; 31257: abs 1411-1412, 1669-1670; 31258: none). ForkDonorPatch lines 91-93 (31256 164, 31257 165, 31258 166); DictionaryPatch lines 168-170 (block 3). The walkmeshes are equal to the donors' (normalised). O4-O6's P-EB pins are untouched.\n\nside_ends {S: [55], F: [55]}. members = O4's twenty exactly (31240-31259; donors 64, 68, 69, 150, 151, 153-167). Never O1's 31205 (member(55), line 42), which side_ends_of refuses.\n\nOn F a real 164/165/166 is V19 (by the game). Nothing rebuilt, nothing redeployed. O9 would start on O1's tshp chain at 31205@110.",
+  "route_md_path": "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX\\4376ce2b-bd6e-4446-a9dc-f1510c3fc187\\scratchpad\\o8_research\\O8_ROUTE.md"
+ },
+ "critique": {
+  "problems": [
+   {
+    "severity": "major",
+    "what": "The ORDER check and the WALK exemption for 164 e1 t1 ip230 are both defined as 'inside step 0's row window [frame0, frame]'. Step 0 carries attempts 3, and run_step writes one step row per attempt, each with its own frame0. In this scenario a correct run fails the check: an attempt passes T0 (y 8400, about 16 ticks before P1), stalls (waits 2 x 1.5 s, then a push and blockers) and ends 'failed' after ip230 has landed about T0+140 ticks later. ip230 then sits in the failed attempt's row or in the gap before the retry, not in the done row, so ORDER (a) and the WALK (c) visit window both fail a run whose story writes are right.",
+    "evidence": "segment_drive.py:3042-3060: run_step takes frame0 = st.frame per call, and every failed attempt is its own step row. Rule 8 settles settle_s 1.0 between attempts (:3577-3598). O8_ROUTE.md:520-523 gives 'lies INSIDE step 0's row window [frame0, frame]'. The O7 visit window starts at the first step row's frame0 (o7_castle_walk.py walk_check (c)). 164 e1 t1: ip178 releases at f[1] <= -8400 and ip230 follows four Walks and anim 9920 (L164 lines 153-167).",
+    "fix": "Define the exempt span as [the frame0 of step 0's FIRST attempt, the frame0 of step 1's first attempt): every attempt of step 0 plus the gaps between them. Keep (b), ip230 before e2 t2 ip243 by line. Use the same span for the WALK (c) exemption. Add fake tests with a failed first attempt after T0, and with H25's store both before P1 (a fast knight) and after it (a slow knight)."
+   },
+   {
+    "severity": "minor",
+    "what": "The new second start read (164 e0 t0 ip130 Byte[13], old 1) does not resolve its raced store the way the map says. race_site keys on the read's own old, so it returns the field-70 pin storing Byte[13] := 1, which is ip130, not ip475. The map's 'race_site(pred, {Byte[13], old 2}) returns (70,0,0,475)' is not the call why_void makes. Verdicts still come out right: the late race is caught by branch 2 (164 ip130 reads old 2), and a 70 ip130 row before the start implies an ip249 row that the Byte[8] read already catches. But any O8-KEYS or freeze clause asserting that the raced store is ip475 fails, and O7's why text ('the warp left field 70 before its store') misnames a late race.",
+    "evidence": "o7_castle_walk.py:366-374: want = SET({target const(old) B_LET ...}), and the first route_pins match in field 70 wins. why_void at :2612-2636. 70 ip130 SET({Global.Byte[13] const(1) B_LET B_EXPR_END}) is one of the kept route pins. _void_ids (:2640-2646) sets aside only reasons beginning with START_READ ('the start read', :144).",
+    "fix": "Give the start-read schema an explicit raced pin (e.g. race: [70,0,0,475], read off the pinned text by its value 2), and use it in an O8 race_site/why_void override. Keep the reason text beginning with START_READ so VOID-ASYM (b) still sets it aside, and word it as the late race. Or state plainly that the late race is judged by the read's old alone and race_site resolves ip130, which is redundant and harmless."
+   },
+   {
+    "severity": "minor",
+    "what": "O8-SEAM, the replacement for LANDING (e), and the trace-sourced end state on F are first run on a traced fork run in the session itself. F-PASS is untraced and every traced rehearsal is stock, so a bug in the new seam code surfaces only after the session has spent its runs. Its premises are: exactly one Seam (31258 -> 55, fields [55]), an exit row of 31258 e6 t1 ip863, the kept `e off fld 55` row, and nothing between ip863 and 55 ip22.",
+    "evidence": "Rehearsal plan, stages 6-7: F-SMOKE and F-PASS are untraced. storytrace.py:838-877: _walk_seams takes places from every non-c row, so the seam is seen only through the kept `e` row after the cut. o7_castle_walk.py:2733-2739: O7's LANDING (e) fails on any seam. o2_alexandria.py:1386-1407: O2's seam_check is vacuous with zero seams.",
+    "fix": "Before the freeze, dry-run O8-SEAM (a)-(f), LANDING (a)-(d) and the RACED end state against story-o3's archived F traces (run2_F: one 31213 -> 64 seam, the `e off fld 64` row) with O8's check code parameterised. Add a synthetic uncut F trace for 31258 -> 55 (one with an extra r row before 55 ip22, one with zero seams) and make these G-items of O8's dry run."
+   },
+   {
+    "severity": "minor",
+    "what": "Nothing in the session proves the owner's decision that FMV004 was PLAYED OUT. Keys, pattern and state are identical whether the movie plays or is skipped. A stray Confirm answered by the `choices` rule takes No, but nothing checks that no press reached the movie or that its span ran. F3 is a rehearsal-only clause.",
+    "evidence": "There is no global store between 166 e6 t1 ip502 and ip863 (L166 lines 331-382), and no gEventGlobal write in MBG.cs, fldfmv.cs or FieldHUD.cs. Movie rows exist only under the `movies` policy (segment_drive.py:48-63). Map freeze item F3.",
+    "fix": "Add an O8-MOVIE clause per covered run. (a) The 166 visit holds no press and no choice row from the ip502 row to the ip863 row. (b) The trace-frame span between those rows, at the run's measured fps, is at least FMV004's 45.4 s minus a stated slack. (c) No skip-dialog choice was published in that span. Report the span per run."
+   },
+   {
+    "severity": "minor",
+    "what": "After the freeze, the final gate's 'every frozen file' pytest reads o8_predictions_v1.json. test_segment_step_of_reads_every_frozen_table_unchanged asserts that step_of returns EXACTLY {**steps_default, **raw} for every frozen step. Any normalisation the new at_y/hold/y-until validation applies, any default it adds, or any refusal fails the post-session gate. This is the pytest twin of the bug where O7's freeze broke O6's G36: frozen_through only protects the dry runs.",
+    "evidence": "ff9mapkit/tests/test_harness.py:27080-27097 globs *predictions*.json at run time; :24508-24518 runs naming_of over every file. The o7_dryrun.py:1424-1434 frozen_through docstring says 'The pytest tests still read every frozen file.'",
+    "fix": "Keep step_of's new checks validation-only, adding no keys. In PART B or C, run both glob tests against the draft written as a temporary o8_predictions_v1.json, and include a unit test that the draft's steps round-trip unchanged through step_of."
+   },
+   {
+    "severity": "minor",
+    "what": "The proposed until_ok rule 'a missing y reads False' turns XZ-only geometric proofs of an until into checks that cannot fail. O5 (c)/(d) and O6 (d') test until_ok(until, px, pz) over region points, contour crossings and open-component vertices to prove that no other exit reaches where the until holds. With a y-only until they find nothing and PASS. O7's goals_base7 at :1650 instead fails loudly ('goal fails its until').",
+    "evidence": "o5_hallway.py:802-824; o6_steiner.py:1006-1009; o7_castle_walk.py:1650. Harness gap 4 in the map proposes the missing-y-is-False rule.",
+    "fix": "Make until_ok RAISE when a y term is evaluated with y None, so the driver's evidence path must supply y from the ring sample. Write O8's goal and region proofs height-aware, using the floor heights at each point and the bytes' gate thresholds. Never port O5/O6's XZ 'inside' proofs unchanged."
+   },
+   {
+    "severity": "minor",
+    "what": "Two terms collide. (1) `hold` is already used three ways: _Drive.hold (rule 6's choice-readiness hold), route_to's smooth-walk 'holds', and O7's rehearsal hold_stop (a stop on a walk press). R-VOID run 1 ('THE HOLD's first poll') and run 2 ('a hold_stop inside THE PINCH WINDOW') mean different things. (2) The map calls the skip rule a 'guard rule'. The driver's `guard` key (S10) is a strict pre-choice policy that refuses a default pick.",
+    "evidence": "segment_drive.py:3526-3533 (self.hold); :1581-1628 (guard_of: 'the guard exists for a non-default pick'); o7_predictions_v1.json choices: [{match 'want to skip', pick 'default'}].",
+    "fix": "Name the step key and its row distinctly (e.g. `wait_flag`, or `knight` {flag, value, timeout_s}), and name its rehearsal stop flag_stop. Keep the skip answer as the `choices` row copied from O7, never a `guard` key."
+   },
+   {
+    "severity": "minor",
+    "what": "The fake functions O7 added or edited are unpinned, and O8 plans to edit exactly those: per-field clearance in _move_to, H25 in _step_walkers, and Levels' squeeze_slack. PIN_BASELINES stops at O6, and no o7_regress_baseline.json exists. O7's G38/G39 are their only guard. SQUEEZE_SLACK_W is a module constant, and changing it fails G19.",
+    "evidence": "segment_regress.py:862-873: FAKE_PINS_O6, PIN_BASELINES ('O3','O4','O5','O6'), and '_move_to, _step_walkers and _region_at stay unpinned'. research/ holds o1-o6_regress_baseline.json only. fakegame.py:121 sets SQUEEZE_SLACK_W = 8.0; :418 fake.clearance is a single global.",
+    "fix": "O8's PART A captures the O7 baseline (o7_regress_baseline.json, plus FAKE_PINS_O7 for Levels.*, the H21 squeeze and the H22 door-height/scene functions) before any fake edit. Make the per-field clearance and squeeze_slack instance parameters whose defaults reproduce O7 exactly. Re-prove G38/G39 on a whole-file receipt after each fake change."
+   },
+   {
+    "severity": "minor",
+    "what": "The session's only evidence about the knight is Bit[3811]. Step 1's npcs=true plan rests on him sitting at (-586,3884), y ~11896 on loop 2 (tri 120), 300 u off the line and outside P 252. That position is measured in rehearsal only. A knight seated elsewhere, or with another sid on F, would change step 1's plan on one side without any key showing it.",
+    "evidence": "L164 e1 t1 ip215: Walk(64950,3884). My walkmesh check puts (-586,3884) on tri 120 only, at PSX -11896. The knight is talk-only, so _npc_discs gives him a body disc and no trigger disc (session.py:5258-5271). O7 reported Dojebon through static_objects and the observe hook.",
+    "fix": "Register 164 e1 as a static_objects watch, keyed by place: one row per run with his published position and sid at the hold's end (and at step 1's frame0), within tolerance of the seat on both sides. Report it in the paired-walk section. In rehearsal a miss stops the freeze."
+   },
+   {
+    "severity": "minor",
+    "what": "Option to reduce the pinch risk: 164 step 1 plans the whole 6327-u leg at clearance 64 under radius 80, only because of the one pinch. The plan therefore runs about 16 u inside the radius at every inner corner on roughly 90% of the leg, and every one of those corners is engine push-out exposure.",
+    "evidence": "Per-step clearance already exists (segment_drive.py:2565-2566). My band check finds 0 stacked tri pairs in [-13100,-8700]. Outside the pinch the corridor is 105-200 u wide, and 77.7 at the pinch ends (map). ServiceForces averages opposing forces with no pinch rejection (FieldMapActorController.cs:1161-1254), so the pinch is a harness risk, not an engine block.",
+    "fix": "Optional, and R-SPIRAL can compare both: split 164 #1 into walk(80, at_y) to the pinch's south end, then walk(64, at_y) through THE PINCH WINDOW, then trigger(80, until y_gt 12000, to 165). The 64 then applies only where it is needed, and the go/no-go evidence becomes one short step. Keep unstick:false + npcs false as the next fallback."
+   }
+  ],
+  "go": "GO: design O8 from this map. No blocker found. Fold in the problems above; the only major one, the ORDER/WALK span across step-0 attempts, is a cheap spec fix. THE PINCH remains the one in-game go/no-go (R-SPIRAL), and no owner decision is needed now.\n\nVerified independently at HEAD 57aac989:\n- Keys and pattern: the decoded 164/165/166/55 listings are byte-identical to the readers'. The store census is 25/18/18 sites. Every registered key is right in old, new, same and emission, with 23 keys (20 writes plus 3 chain), 29 rows (9/9/11), 6 masked rows and no c row. The sink key carries Fld (StoryTrace.cs:92-100).\n- Missed stores: there is no global store between 166 e6 t1 ip502 and ip863, or in e3, e5 or e2's shared script, and 55 stores nothing before e0 t0 ip22. 55's pre-yield stores reach only Int16[2] (ip255) and Byte[8] (ip342). Its SC store sits behind the Map.Byte[24] case-3 branch.\n- The knight: placed on loop 2 (tri 130). The engine's pos[1] is positive-up, with f[1] = -pos[1] (EBin.cs:1791) and MoveInstantXZY taking y = -arg2. CreateObject's y 32768 therefore picks the highest tri. His seat is tri 120 at PSX -11896.\n- Bands: the step closures are 93/99/64/16 with zero stacked pairs in any band.\n- Regions: SYSVAR[2] is usercontrol, and the dead-level region passes RET before any store or control change. IsInQuad is the ring of ears.\n- Engine gates: Steiner's radius 80 comes through effMapNo. MAPJUMP and the debug field warp do no ForkSibling remap. The skip dialog opens on No (ETb.sChoose = 1). MBG and fldfmv write no globals. FF9FieldFMVSync returns only 0, 1 or 16.\n\nIn-game unknowns, unchanged from the map: the pinch, both grants, the knight's timing, the dead-level crossings, FMV004's span and fps, and the 31258 -> 55 crossing on F, whose first traced proof will be the session. That last one is why the O3-archive seam fixture matters."
+ }
+}
