@@ -616,7 +616,7 @@ SCOPE_REPORT = ("a US session", "block 3: 7 byte-equal of 7",
                 "The session's end (end_run, warp first): the title came back")
 
 
-@case("null-pair", "PROVEN", report_has=SCOPE_REPORT)
+@case("null-pair", "PROVEN", report_has=SCOPE_REPORT + ("; its pages (5 of 5) ['What!?', ",))
 def _(pred):
     return six(pred)
 
@@ -1765,6 +1765,25 @@ def unit_monologue_test(pred: dict) -> tuple:
     return all(got.values()), str({k: v for k, v in got.items() if not v} or f"all as registered: {t}")
 
 
+def unit_monologue_lines(pred: dict) -> tuple:
+    """THE --analyse REPORT'S MONOLOGUE LINE (5.4; the review's finding: its page filter was any() over an empty tuple,
+    so no page ever printed) on a base run's standard log: the five outcome pages (:data:`MONO_PAGES`) print on it --
+    296's "What!?" first, 300's "I must hurry!" last; a run whose only page is the stop page prints that NONE of its
+    registered pages was listed; a run stopped after 298 prints the three it listed (from 296, to its last page)."""
+    log, _ctx = standard_log(pred, "S", render(base_events(tuple(pred["route"]), int(pred["end_field"])), "S", {}))
+
+    def line(pages):
+        return " | ".join(O.O7._monologue_lines({"side": "S", "i": 1, "log": log, "rows": [],
+                                                 "outcome": {"pages": list(pages)}}, pred))
+    full, stop, part = line(MONO_PAGES), line(["Error Env Play()  Slot=1"]), line(MONO_PAGES[:3])
+    got = {"full": "its pages (5 of 5) ['What!?', " in full and "'I must hurry!']" in full,
+           "none": "none of its pages [296, 297, 298, 299, 300] listed" in stop,
+           "part": "its pages (3 of 5) ['What!?', " in part and "I must hurry" not in part,
+           "pure": O.monologue_pages(["Error Env Play()  Slot=1", *MONO_PAGES, "a later page"], pred,
+                                     pred["interruptions"][0]) == list(MONO_PAGES)}
+    return all(got.values()), str({k: v for k, v in got.items() if not v} or full[full.find("; its pages"):][:150])
+
+
 def unit_dojebon_test(pred: dict) -> tuple:
     """dojebon_test (0.2 #11): (3600, Map.Byte[30] == 1) off 154 e5 t1 ip263's pinned text; 3600 -> 3000 reads 3000;
     another shape None. The release height -500 off e11 t1 ip128, Dojebon's placement (-2700, -1700) off e5 t0."""
@@ -2000,6 +2019,7 @@ def units(pred: dict, stock, scripts: dict, sdir: Path, path: Path, tmp: Path) -
             ("static-watch", lambda: unit_static_watch(pred)),
             ("seeded-fields", lambda: unit_seeded_fields(pred)),
             ("monologue-test", lambda: unit_monologue_test(pred)),
+            ("monologue-lines", lambda: unit_monologue_lines(pred)),
             ("dojebon-test", lambda: unit_dojebon_test(pred)),
             ("why-void", lambda: unit_why_void(pred, stock, scripts, sdir, path)),
             ("as-if-frozen", lambda: unit_as_if_frozen(O.draft_predictions())),

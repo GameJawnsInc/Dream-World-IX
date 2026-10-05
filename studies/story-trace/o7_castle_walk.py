@@ -636,6 +636,24 @@ def route_mes() -> dict:
             "stop_page": {"mes": 56, "holds": "Env Play()"}}
 
 
+def monologue_pages(pages, pred: dict, reg: dict) -> list:
+    """The registered interruption ``reg``'s pages among a run's listed ``pages`` (its outcome's texts, in listing order;
+    the --analyse report's, never judged): from the first page holding the pinned text of ``reg``'s FIRST page
+    (``route_mes``' monologue by mes: 296 "What!?") through the first after it holding its LAST page's (300 "I must
+    hurry!") -- or to the run's last page when that never came (a stop mid-monologue). The pages between are bounded by
+    the two ends: their pinned text is the speaker tag [STNR] alone, which the agent publishes rendered as the name.
+    ``[]`` when no page holds the first page's text."""
+    holds = {m.get("mes"): str(m.get("holds") or "") for m in (pred.get("route_mes") or {}).get("monologue") or ()}
+    mes = list(reg.get("pages") or ())
+    texts = [str(p) for p in pages or ()]
+    first, last = (holds.get(mes[0], ""), holds.get(mes[-1], "")) if mes else ("", "")
+    i = next((k for k, p in enumerate(texts) if first and first in p), None)
+    if i is None:
+        return []
+    j = next((k for k in range(i, len(texts)) if last and last in texts[k]), len(texts) - 1)
+    return texts[i:j + 1]
+
+
 def _rows_of_visit(donor: int, writes: list, chain: list) -> list:
     """One visit's emitted row pattern (4.16): its prologue P(...) -- the masked pair and the ambient four, each with
     ``same`` from the start values and the visits before -- then its post rows in the bytes' order: the writes after
@@ -2915,8 +2933,8 @@ class O7Segment(C6.O6Segment):
             sites = [tuple(s) for s in reg.get("rows") or ()]
             tr = [(x.ip, x.f) for x in r.get("rows") or () if x.k == "w"
                   and (place(x.fld, members), x.sid, x.tag, x.ip) in sites]
-            pages = [p for p in (r.get("outcome") or {}).get("pages") or ()
-                     if any(str(m) in str(p) for m in ())]
+            pages = monologue_pages((r.get("outcome") or {}).get("pages"), pred, reg)
+            want = list(reg.get("pages") or ())
             if not rows:
                 out.append(f"{lab} {reg['name']}: no step row")
                 continue
@@ -2927,7 +2945,9 @@ class O7Segment(C6.O6Segment):
                        f"re-run from frame {None if redo is None else redo.get('frame0')} at "
                        f"{None if redo is None else (redo.get('from') or {}).get('x')}, "
                        f"{None if redo is None else (redo.get('from') or {}).get('z')} -> "
-                       f"{None if redo is None else redo.get('outcome')}" + (f"; pages {pages}" if pages else ""))
+                       f"{None if redo is None else redo.get('outcome')}"
+                       + (f"; its pages ({len(pages)} of {len(want)}) {[p[:24] for p in pages]}" if pages
+                          else f"; none of its pages {want} listed"))
         return out or [f"{lab} no interruption registered"]
 
     @staticmethod
