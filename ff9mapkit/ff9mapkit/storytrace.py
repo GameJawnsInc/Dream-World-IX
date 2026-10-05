@@ -683,7 +683,7 @@ class WriteKey:
     """What a run is compared on: ``(donor, mode, src, sid, tag, offset within the donor's function,
     variable, value)``. ``off`` < 0 is inside a fork's prepend; ``aligned`` False = a fork function no donor
     function aligns with (both can only ever be FORK ONLY). Battle/world rows keep the engine's own
-    ``ip`` as ``off`` (no field join); addition-buffer rows ``tag`` -1; ``cs`` rows no position at all."""
+    ``ip`` as ``off`` (no field join); addition-buffer rows ``tag`` -1; ``cs``/``harness`` rows no position."""
 
     donor: int
     m: int
@@ -902,11 +902,16 @@ class _Ctx:
 def _locate(d: RunDigest, ctx: _Ctx, r: Row, value: int, *, record: bool = True):
     """``(key, join, gap, where)`` for one store and the value it left -- or None when a field row does not
     join (recorded once in :attr:`RunDigest.failures`, with the run's notes, unless ``record`` is False: a
-    place asked only to NAME a row)."""
+    place asked only to NAME a row). Total over :data:`SOURCES`: a ``cs``/``harness`` row is never joined."""
     donor = ctx.donors.get(r.fld, r.don)
     if r.src == "cs":
         return (WriteKey(donor, r.m, "cs", -1, -1, -1, r.target, value), None,
                 "a C# writer through setVarManually -- no script position", "C#")
+    if r.src != "eb":
+        # a harness poke (the seed): digest never keys one, but a seam's exit can be one -- the engine names
+        # no writer at it (_check_row), so there is nothing to join
+        return (WriteKey(donor, r.m, r.src, -1, -1, -1, r.target, value), None,
+                f"a {r.src} row -- the engine names no writer, no script position", r.src)
     if r.m != FIELD_MODE:
         return (WriteKey(donor, r.m, "eb", r.sid, r.tag, r.ip, r.target, value), None,
                 f"a mode-{r.m} (battle/world) script -- the census reads field scripts only",
