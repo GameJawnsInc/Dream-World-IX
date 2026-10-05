@@ -138,13 +138,21 @@ import time
 import segment_trace as ST
 from segment_trace import place
 
-#: The step kinds of a beat-table cell (research/o2_design.md 2.3), each run by its executor in :class:`_Drive`.
-STEP_KINDS = ("cross", "trigger", "confirm", "wait_sc", "leave_now")
+#: The step kinds of a beat-table cell (research/o2_design.md 2.3), each run by its executor in :class:`_Drive`. S17
+#: (research/o7_design.md 1.2): ``walk`` -- a step whose evidence is an ARRIVAL, opt-in (no table before O7's has one).
+STEP_KINDS = ("cross", "trigger", "confirm", "wait_sc", "leave_now", "walk")
 #: What each kind's executor reads that no default gives (:func:`step_of` refuses a step without it): every walk its
 #: ``goal``; a crossing its exit (``target``) and the place it leads to (``to``); a Confirm its region and the answer it
 #: waits for; a wait its scenario and how long. A trigger needs a ``target`` or an ``until`` (checked apart).
 STEP_NEEDS = {"cross": ("goal", "target", "to"), "leave_now": ("goal", "target", "to"), "trigger": ("goal",),
-              "confirm": ("goal", "target", "expect"), "wait_sc": ("goal", "sc", "wait_s")}
+              "confirm": ("goal", "target", "expect"), "wait_sc": ("goal", "sc", "wait_s"), "walk": ("goal",)}
+#: S17: keys a walk step may not carry (in the RAW step: steps_default fills some for every kind) -- its evidence is
+#: its goal, reached with control held; a door, an until, a landing or an answer is another kind's.
+WALK_REFUSES = ("target", "until", "to", "expect", "sc", "wait_s", "then")
+#: S18/S19 (research/o7_design.md 1.2): the opt-in keys every kind may carry, each checked strict -- ``clearance`` (a
+#: positive number: the planner's wall clearance for the step's walks) and ``basis`` (one of these: ``"prior"`` seeds the
+#: field's basis from the step's prior, no probe pressed, its first move judged).
+BASIS_KINDS = ("prior",)
 #: What a confirm step's ``expect`` may name: a choice opening, or control going (2.3).
 EXPECTS = ("choice", "control_lost")
 #: A forbidden pattern's keys (4.7), strict: any other raises. The matchers select raw ``w`` rows (all given must
@@ -350,13 +358,28 @@ def step_of(pred: dict, raw: dict) -> dict:
     names missing; a trigger with neither ``target`` nor ``until``; a trigger's ``to`` (S14, research/o6_design.md
     1.2: the place its door leads to) that is no int; an ``until`` that is empty or has a key :func:`until_ok` does not
     know; an ``expect`` not in :data:`EXPECTS`; a ``goal`` that is no point; and a ``target`` or ``avoid`` key that is
-    no registered region."""
+    no registered region. S17-S19 (research/o7_design.md 1.2), each opt-in: a ``walk`` whose RAW step carries any of
+    :data:`WALK_REFUSES`; a ``clearance`` that is no positive number (a bool is no number); a ``basis`` not in
+    :data:`BASIS_KINDS`. A table carrying none of these keys -- every one frozen before O7's -- merges exactly as
+    before."""
     base = pred.get("steps_default") or {}
     out = {**base, **raw}
     out["climb"] = {**(base.get("climb") or {}), **(raw.get("climb") or {})}
     kind = out.get("kind")
     if kind not in STEP_KINDS:
         raise ValueError(f"step {raw!r}: kind is not one of {STEP_KINDS}")
+    if kind == "walk":
+        carried = [k for k in WALK_REFUSES if k in raw]
+        if carried:
+            raise ValueError(f"step {raw!r}: a walk carries no {carried} -- its evidence is its goal, reached with "
+                             f"control held (a door, an until, a landing or an answer is another kind's)")
+    clearance = out.get("clearance")
+    if clearance is not None and (not isinstance(clearance, (int, float)) or isinstance(clearance, bool)
+                                  or not clearance > 0):
+        raise ValueError(f"step {raw!r}: clearance is a positive number of world units (a bool is no number), not "
+                         f"{clearance!r}")
+    if out.get("basis") is not None and out["basis"] not in BASIS_KINDS:
+        raise ValueError(f"step {raw!r}: basis is one of {BASIS_KINDS}, not {out['basis']!r}")
     if out.get("target") is not None and out.get("until") is not None:
         raise ValueError(f"step {raw!r}: target and until are exclusive")
     missing = [k for k in STEP_NEEDS[kind] if out.get(k) is None]
@@ -771,12 +794,14 @@ def raw_sample(raw: dict) -> dict:
 
 def trim_route(r: dict | None) -> dict | None:
     """A route_to / route_cross record as a step row keeps it (dali_tour's trimming): its scalars, the waypoint count,
-    and each object list as ``[uid, kind]`` pairs."""
+    and each object list as ``[uid, kind]`` pairs. S18/S19 (research/o7_design.md 1.2): ``clearance``, ``basis`` and
+    ``basis_check`` too -- each in a record only when its walk was given one (or, ``basis_check``, judged a seeded
+    basis's first move), so every O1-O6 row is as it was."""
     if r is None:
         return None
     keep = ("from", "landed", "changed_to", "reached", "inside", "travelled", "during", "replans", "waits", "cleared",
             "pushes", "pushed", "blocked", "frozen", "boxed", "boxed_by", "npcs", "npc_replans", "npc_waits",
-            "box_waits", "box_cleared", "held_by", "handoff", "lost", "blockers")
+            "box_waits", "box_cleared", "held_by", "handoff", "lost", "blockers", "clearance", "basis", "basis_check")
     out = {k: r.get(k) for k in keep if k in r}
     out["route"] = len(r["waypoints"]) if r.get("waypoints") is not None else None
     for k in ("avoided", "entered", "through", "sealed", "boxers", "pinned"):
@@ -2521,12 +2546,19 @@ class _Drive:
 
     def walk_kw(self, step: dict) -> dict:
         """What every walk of a step passes (2.3): the donor's floor as the player walks it, with the step's closed
-        triangles; its prior; the unstick / smooth / handoff walk; the step's npcs, overlay and settle."""
+        triangles; its prior; the unstick / smooth / handoff walk; the step's npcs, overlay and settle. S18/S19
+        (research/o7_design.md 1.2), opt-in: the step's ``clearance`` (the planner's wall clearance) and ``basis`` go to
+        route_to ONLY when the step carries them, so every O1-O6 call is exactly what it was."""
         from ff9mapkit.content import pathfind
         closed = closed_tris(self.pred, step, self.floor())
-        return dict(walkmesh=self.floor(closed), prior=self.prior_for(self.donor), unstick=True, smooth=True,
-                    margin=pathfind.KEEPOUT_MARGIN_W, timeout=float(step["timeout_s"]), npcs=bool(step["npcs"]),
-                    overlay_ok=bool(step["overlay_ok"]), settle=step["settle"], handoff=True)
+        kw = dict(walkmesh=self.floor(closed), prior=self.prior_for(self.donor), unstick=True, smooth=True,
+                  margin=pathfind.KEEPOUT_MARGIN_W, timeout=float(step["timeout_s"]), npcs=bool(step["npcs"]),
+                  overlay_ok=bool(step["overlay_ok"]), settle=step["settle"], handoff=True)
+        if step.get("clearance") is not None:                  # S18 (opt-in)
+            kw["clearance"] = float(step["clearance"])
+        if step.get("basis") is not None:                      # S19 (opt-in)
+            kw["basis"] = step["basis"]
+        return kw
 
     # -- the landing judge (every executor): where a walk that lost control, or left the field, took him ----------
     def exit_at(self, x, z, slack: float) -> str | None:
@@ -2966,6 +2998,38 @@ class _Drive:
         out["why"] = why
         return "interrupted", out
 
+    def x_walk(self, step: dict) -> tuple:
+        """S17 (research/o7_design.md 1.2): the walk to the goal, judged by the landing judge first -- the field changed
+        -> V11 (driver: strayed); control gone in (or within exit_slack of) a registered exit -> its switch waited out,
+        V11 on a landing, else interrupted (door_loss); control gone anywhere else -> interrupted -- then, control held in
+        this field within tolerance of the goal and route_to's reached -> done; else failed (blocked, boxed, frozen,
+        no route, or short)."""
+        g, fid = self.g, self.fid
+        wait, tol = float(step["exit_wait_s"]), float(step["tolerance"])
+        gx, gz = (float(v) for v in step["goal"])
+        rec = g.route_to(gx, gz, tolerance=tol, avoid=polys(self.pred, step.get("avoid")), **self.walk_kw(step))
+        out = {"route": trim_route(rec), "lost": rec.get("lost"), "landed": None}
+        new = self.left_for(rec, out, "the walk", wait)
+        if new is not None:
+            return self.strayed(step, out, new, f"the walk left {fid}")
+        st = g.state
+        if out["lost"] is None and not st.control:
+            out["lost"] = sample(st)                         # control went after the call's last read
+        if out["lost"] is not None:
+            why = "control went during the walk"
+            verdict = self.door_loss(step, out, why)
+            if verdict is not None:
+                return verdict
+            out["why"] = why
+            return "interrupted", out
+        d = None if st.player_x is None else math.hypot(st.player_x - gx, st.player_z - gz)
+        if not rec.get("reached") or d is None or d > tol:
+            out["why"] = (f"the walk ended " + ("where he stands unknown" if d is None else f"{d:.0f}u from its goal")
+                          + f" (reached {rec.get('reached')}, route {out['route'].get('route')}, blocked "
+                            f"{rec.get('blocked')}, boxed {rec.get('boxed')}, frozen {rec.get('frozen')})")
+            return "failed", out
+        return "done", out
+
     # -- one step -------------------------------------------------------------------------------------------------
     def run_step(self, c: dict, n: int, st) -> None:
         """Run step ``n`` of cell ``c`` (rule 8): its executor, its ``step`` row, the counters (2.3) -- done moves the
@@ -2991,6 +3055,9 @@ class _Drive:
                "lost": rec.get("lost"), "landed": rec.get("landed"), "flip_frame": rec.get("flip_frame"),
                "door": rec.get("door"), "route": rec.get("route"), "lunge": rec.get("lunge"), "climb": rec.get("climb"),
                "depth": rec.get("depth"), "v": rec.get("v"), "by": rec.get("by"), "why": rec.get("why")}
+        for key in ("clearance", "basis"):       # S18/S19 (opt-in): on the row only when the step carries them
+            if step.get(key) is not None:
+                row[key] = step[key]
         if rec.get("misroute") is not None:      # S14 (opt-in): the landing after a door's evidence held -- rule 2's
             row["misroute"] = rec["misroute"]
         self.log.append(row)

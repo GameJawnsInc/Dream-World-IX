@@ -26916,3 +26916,282 @@ def test_fake_level_keeps_the_steiner_route_identical(game):
             assert len(a) == len(b), (f"{side} {key}: {len(a)} entries, the golden {len(b)}; the first unmatched "
                                       f"{(a[len(b)] if len(a) > len(b) else b[len(a)])!r}")
     assert got == want
+
+
+# ---- A1: S17 (research/o7_design.md 1.2) -- THE ``walk`` STEP KIND: a step whose evidence is an ARRIVAL -- route_to to
+# its goal, judged by the landing judge first, then done when he stands within ``tolerance`` of it with control held in
+# its field. On O2's fixture: 30820 the walk's field (its exit, O2's, Field(30810): the end), 30821 a door's landing. He
+# starts at (0, -300) and walks north to (0, 300); a door, where a test puts one, stands across that line.
+
+_S17_GOAL = [0, 300]
+_S17_DOOR = _rect(-150, 0, 150, 150)                   # across the walk's line: a door, a walk-in trigger, a gateway
+
+
+def _s17_walk(**kw):
+    return {"kind": "walk", "name": "the walk", "goal": list(_S17_GOAL), "beat": "walked", **kw}
+
+
+def _s17_pred(steps, *, regions=None, **defaults):
+    """S17's predictions on the fake: ONE visit-scoped cell (30820, SC 1000, visit 1) of ``steps``, O2's exit registered
+    (Field(30810), the end) and ``regions`` beside it, ``defaults`` over O2's step defaults; route and visits [30820]."""
+    pred = _o2_pred([{"donor": 30820, "sc": 1000, "visit": 1, "steps": [dict(s) for s in steps]}], beats=["walked"],
+                    end=30810, route=(30820,), regions={"exit": {"points": _O2_EXIT, "role": "exit"}, **(regions or {})})
+    pred["visits"] = [30820]
+    pred["steps_default"].update(defaults)
+    return pred
+
+
+def _s17_drive(game, pred, *, setup=None, wrap=None, phases=None, start=(0, -300), floor=None, deadline=60.0,
+               rerun=lambda out, log: False):
+    """One S17 drive on the fake: New Game, the raw warp into 30820 at SC 1000, him at ``start``, the bases cached (as a
+    calibration leaves them: S17 seeds nothing), the driver over ``floor`` (default the fake's box); the fake's O2 exit
+    region to 30810 (50 frames' fade) unless ``setup(fake)`` says otherwise; ``wrap(g, fake)`` before the drive;
+    ``phases(log)`` a director's phases (_o1_director). Re-run -- at most twice -- only while ``rerun(out, log)`` holds:
+    the test's own judgment that a starved harness bent the run, its class asserted there. ``(outcome or the void
+    raised, log, fake)``."""
+    SD = _segment_modules()
+    for attempt in range(3):
+        fake = FakeGame(game)
+        fake.regions = {30820: [{"zone": _O2_EXIT, "to": 30810, "arrive": (0, 0)}]}
+        fake.exit_frames = 50
+        if setup is not None:
+            setup(fake)
+        log = _S14Log(threading.Event())
+        stop = threading.Event()
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30820, entrance=102, scenario=1000)
+            _stand(g, fake, *start)
+            for f in (30820, 30821, 30810):
+                g._axes[f] = _prior()
+            if wrap is not None:
+                wrap(g, fake)
+            if phases is not None:
+                _o1_director(fake, stop, phases(log))
+            try:
+                try:
+                    out = SD.drive(g, pred, "S", log, deadline=time.time() + deadline,
+                                   floor_for=lambda d, closed: floor or _flat_bgi(), prior_for=lambda d: _prior(),
+                                   forbid_live=False)
+                except (SD.RouteVoid, HarnessError) as err:
+                    out = err
+            finally:
+                stop.set()
+        if attempt == 2 or not rerun(out, log):
+            return out, log, fake
+
+
+def _s17_rows(log, kind=None):
+    return [r for r in log if r.get("k") == "step" and (kind is None or r["kind"] == kind)]
+
+
+def _s17_load(out, log) -> bool:
+    """A run a starved harness spoiled -- the cross after the walk failing twice, or the budget -- with the walk itself
+    DONE (what these tests judge is the walk's verdict, never the cross's): re-run."""
+    walks = _s17_rows(log, "walk")
+    return (isinstance(out, Exception) and bool(walks) and walks[-1]["outcome"] == "done"
+            and any(m in str(out) for m in ("of its 2 attempts", "the run's budget ran out", "interrupted 2 times")))
+
+
+def test_segment_step_of_walk_and_its_keys_are_strict():
+    """S17-S19, pure (research/o7_design.md 1.2): ``step_of`` reads a ``walk`` -- the goal its one need -- and refuses,
+    by name, a walk whose RAW step carries a door's, an until's, a landing's or an answer's key (``target``, ``until``,
+    ``to``, ``expect``, ``sc``, ``wait_s``, ``then``), a walk with no goal; on ANY kind a ``clearance`` that is no
+    positive number (0, -5, a bool, a str) and a ``basis`` not in BASIS_KINDS ("calibrate"). A walk with only ``goal``
+    passes, carrying no ``clearance`` or ``basis``; a cross with ``clearance`` 120 and ``basis`` "prior" passes with them.
+    Break: drop the walk's refusals (a walk with a ``to`` then reads as a walk)."""
+    SD = _segment_modules()
+    pred = {"regions": {"door": {"points": _S14_QUAD, "role": "exit"}}, "steps_default": dict(_O2_DEFAULTS)}
+    walk = {"kind": "walk", "goal": [0, 900]}
+    got = SD.step_of(pred, walk)
+    assert got["kind"] == "walk" and got["goal"] == [0, 900] and "clearance" not in got and "basis" not in got, got
+    assert got == {**_O2_DEFAULTS, **walk, "climb": dict(_O2_DEFAULTS["climb"])}, got
+    for key, val in (("target", "door"), ("until", {"z_gt": 500}), ("to", 154), ("expect", "choice"), ("sc", 1190),
+                     ("wait_s", 5.0), ("then", "climb")):
+        with pytest.raises(ValueError, match=re.escape(f"a walk carries no ['{key}']")):
+            SD.step_of(pred, {**walk, key: val})
+    with pytest.raises(ValueError, match="a walk step needs"):
+        SD.step_of(pred, {"kind": "walk"})
+    for bad in (0, -5, True, "120"):
+        with pytest.raises(ValueError, match="clearance is a positive number"):
+            SD.step_of(pred, {**walk, "clearance": bad})
+    with pytest.raises(ValueError, match=re.escape("basis is one of ('prior',)")):
+        SD.step_of(pred, {**walk, "basis": "calibrate"})
+    assert SD.step_of(pred, {**walk, "clearance": 110.5, "basis": "prior"})["clearance"] == 110.5
+    cross = {"kind": "cross", "target": "door", "goal": [0, 900], "to": 154, "clearance": 120, "basis": "prior"}
+    got = SD.step_of(pred, cross)
+    assert (got["clearance"], got["basis"]) == (120, "prior"), got
+
+
+def test_segment_step_of_reads_every_frozen_table_unchanged():
+    """S17-S19 ARE OPT-IN, pure (research/o7_design.md 1.2): every frozen predictions file of the study -- globbed at run
+    time, never a pinned list, so a freeze adds a file this reads -- has every table step read by ``step_of`` as
+    EXACTLY ``{**steps_default, **raw}`` with today's climb merge: no refusal, no key added. Every step kind a table had
+    before O7's is among those read (O2's five). Break: let ``step_of`` add a key to every step (a default
+    ``clearance``) -- every frozen step then differs."""
+    SD = _segment_modules()
+    files = sorted((REPO / "studies" / "story-trace").glob("*predictions*.json"))
+    kinds, read = set(), 0
+    for path in files:
+        pred = json.loads(path.read_text(encoding="utf-8"))
+        base = pred.get("steps_default") or {}
+        for c in pred.get("table") or ():
+            for raw in c["steps"]:
+                want = {**base, **raw, "climb": {**(base.get("climb") or {}), **(raw.get("climb") or {})}}
+                assert SD.step_of(pred, raw) == want, (path.name, raw)
+                kinds.add(raw["kind"])
+                read += 1
+    assert read and {"cross", "trigger", "confirm", "wait_sc", "leave_now"} <= kinds, (read, kinds, files)
+
+
+def test_segment_walk_reaches_its_goal_on_the_fake(game):
+    """S17 on the fake (research/o7_design.md 1.2): a cell [the walk to (0, 300), O2's crossing] -- the walk is DONE with
+    him standing within its tolerance (45) of the goal, control held, in 30820 (the row's ``to``), its ``beat`` set;
+    the crossing then ends the run in 30810. A walk route_to calls reached but that leaves him 60u SHORT -- a test-side
+    wrapper standing him 60u south of the goal after the call's last read, as a push the walk did not see would -- is
+    ``failed`` on that sample ("60u from its goal"), and its second attempt walks on to DONE. Break: done on route_to's
+    ``reached`` alone (the short walk then reads done)."""
+    pred = _s17_pred([_s17_walk(), _o2_cross()])
+    out, log, _fake = _s17_drive(game, pred, rerun=_s17_load)
+    assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"walked": True}, out
+    walk = _s17_rows(log, "walk")
+    assert [r["outcome"] for r in walk] == ["done"], walk
+    to = walk[0]["to"]
+    assert to["control"] and math.hypot(to["x"] - 0, to["z"] - 300) <= 45, to
+    assert walk[0]["field"] == 30820 and walk[0]["route"]["reached"] is True and walk[0]["v"] is None, walk[0]
+    assert "clearance" not in walk[0] and "basis" not in walk[0], walk[0]
+
+    def short(g, fake):
+        route_to, calls = g.route_to, []
+
+        def walked(x, z, **kw):
+            rec = route_to(x, z, **kw)
+            calls.append((x, z))
+            if (x, z) == (0.0, 300.0) and len(calls) == 1:      # the walk's first attempt: handed back 60u short
+                assert rec["reached"], rec
+                fake.player = [0.0, 0.0, 240.0]
+                published(g, lambda s: s.player_z is not None and abs(s.player_z - 240.0) < 1)
+            return rec
+        g.route_to = walked
+    out, log, _fake = _s17_drive(game, pred, wrap=short, rerun=_s17_load)
+    assert isinstance(out, dict) and out["end"] == "reached", out
+    walk = _s17_rows(log, "walk")
+    assert [(r["outcome"], r["attempt"]) for r in walk] == [("failed", 1), ("done", 2)], walk
+    assert "60u from its goal" in walk[0]["why"] and walk[0]["route"]["reached"] is True, walk[0]
+
+
+def test_segment_walk_short_of_its_goal_fails_on_the_fake(game):
+    """S17 on the fake (research/o7_design.md 1.2): a solid body the planner does not know shuts the fake's lane between
+    him and the goal -- the walk ends short of it (the stall ladder's waits, push and blocker spent: not reached), so it
+    is ``failed``, and its second attempt the same: VOID V7 by the driver, "of its 2 attempts", at the walk's cell
+    [30820, 1000, 1]. Break: done whatever the walk reached (the walk then reads done short of its goal)."""
+    SD = _segment_modules()
+    pred = _s17_pred([_s17_walk(goal=[250, 0])])
+
+    def setup(fake):
+        fake.walkmesh, fake.regions = _LANE, {}
+        fake.blockers = {30820: [(200.0, 0.0, 152.0, True)]}     # a solid body across the lane, short of the goal
+
+    def quick(g, fake):
+        g.ROUTE_WAIT_SECONDS = 0.3
+    out, log, _fake = _s17_drive(game, pred, setup=setup, wrap=quick, start=(-400, 0), floor=_flat_bgi(*_LANE))
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V7", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    assert "of its 2 attempts" in str(out), str(out)
+    walk = _s17_rows(log, "walk")
+    assert [(r["outcome"], r["attempt"]) for r in walk] == [("failed", 1), ("failed", 2)], walk
+    for r in walk:
+        assert "from its goal" in r["why"] and r["route"]["reached"] is False and r["to"]["control"], r
+        assert r["to"]["x"] < 100, r["to"]
+
+
+def test_segment_walk_interrupted_outside_a_door_on_the_fake(game):
+    """S17 on the fake (research/o7_design.md 1.2): a walk-in trigger (the fake's ``take`` region, registered nowhere)
+    across the walk's line takes control mid-walk, outside every registered exit -- the walk is ``interrupted`` (its
+    loss on the row, no door, no landing); a test director gives control back where he stands -- after the row is
+    logged, the trigger gone with it (a one-shot scene) -- and rule 8 re-runs the step from there: attempt 2, DONE; the
+    crossing then ends the run. Break: a loss outside the exits read as ``failed`` (the re-run is then an attempt, the
+    interruption never counted)."""
+    pred = _s17_pred([_s17_walk(), _o2_cross()])
+
+    def setup(fake):
+        fake.regions[30820].insert(0, {"zone": _S17_DOOR, "take": True})
+
+    def phases(log):
+        def regrant(fake):
+            fake.regions[30820] = [r for r in fake.regions[30820] if not r.get("take")]
+            fake.control = True
+        return [(lambda f: log.gate.is_set(), regrant)]
+    out, log, fake = _s17_drive(game, pred, setup=setup, phases=phases, rerun=_s17_load)
+    assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"walked": True}, out
+    walk = _s17_rows(log, "walk")
+    assert [(r["outcome"], r["attempt"]) for r in walk] == [("interrupted", 1), ("done", 2)], walk
+    lost = walk[0]["lost"]
+    assert lost is not None and not lost["control"] and 0 <= lost["z"] <= 150, lost
+    assert walk[0]["door"] is None and walk[0]["landed"] is None and walk[0]["why"] == "control went during the walk", \
+        walk[0]
+    assert [e["to"] for e in fake.fired][:1] == [None], fake.fired
+
+
+def test_segment_walk_loss_in_a_door_is_its_landing_on_the_fake(game):
+    """S17 on the fake (research/o7_design.md 1.2): a REGISTERED exit (30820.door) across the walk's line, the fake's
+    gateway over the same quad -- the walk's loss stands in it, so the landing judge waits its switch out
+    (``exit_wait_s``): the run lands in 30821, VOID V11 by the driver, the row's ``door`` "30820.door" and ``landed``
+    30821. With the switch never coming (the fake's exit gate held), the walk is ``interrupted`` after ``exit_wait_s``
+    -- "control went in 30820.door and the field held 1s" -- and the run then waits out its budget. A run whose loss a
+    starved harness read only after the switch (its door then unnamed) is re-run, its class asserted. Break: drop the
+    landing judge's door_loss (the loss in the door then reads interrupted, the landing never judged)."""
+    SD = _segment_modules()
+    pred = _s17_pred([_s17_walk(), _o2_cross()], regions={"30820.door": {"points": _S17_DOOR, "role": "exit"}},
+                     exit_wait_s=1.0)
+
+    def setup(fake):
+        fake.regions[30820].insert(0, {"zone": _S17_DOOR, "to": 30821, "arrive": (500, 500)})
+        fake.exit_frames = 120
+
+    def late(out, log):
+        walk = _s17_rows(log, "walk")
+        if walk and walk[-1]["v"] == "V11" and walk[-1]["door"] is None:
+            assert isinstance(out, SD.RouteVoid) and (out.v, out.by) == ("V11", "driver"), out
+            return True
+        return False
+    out, log, _fake = _s17_drive(game, pred, setup=setup, rerun=late)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V11", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    walk = _s17_rows(log, "walk")
+    assert len(walk) == 1 and (walk[0]["outcome"], walk[0]["v"], walk[0]["by"]) == ("void", "V11", "driver"), walk
+    assert (walk[0]["door"], walk[0]["landed"]) == ("30820.door", 30821), walk[0]
+    assert walk[0]["lost"]["field"] == 30820 and 0 <= walk[0]["lost"]["z"] <= 150, walk[0]["lost"]
+
+    def gated(fake):
+        setup(fake)
+        fake.exit_gate = threading.Event()                    # never set: the switch never comes
+    out, log, _fake = _s17_drive(game, pred, setup=gated, deadline=12.0)
+    assert isinstance(out, HarnessError) and "budget ran out" in str(out), out
+    walk = _s17_rows(log, "walk")
+    assert len(walk) == 1 and walk[0]["outcome"] == "interrupted" and walk[0]["door"] == "30820.door", walk
+    assert walk[0]["landed"] is None and walk[0]["why"] == ("control went during the walk: control went in "
+                                                           "30820.door and the field held 1s"), walk[0]
+
+
+def test_segment_walk_leaving_the_field_is_the_drivers_v11_on_the_fake(game):
+    """S17 on the fake (research/o7_design.md 1.2): a gateway across the walk's line that switches the field the frame
+    it fires -- route_to's own record lands in 30821 -- is the walk's stray: VOID V11 by the driver at the walk's cell,
+    "the walk left 30820: landed in 30821", ``landed`` on the row; and a row the run writes in 30821 after it is
+    BACKED by that step row (4.7's ``walk`` backing). Break: a landing read as done (the walk then "arrives" in
+    another field)."""
+    SD = _segment_modules()
+    pred = _s17_pred([_s17_walk(), _o2_cross()])
+
+    def setup(fake):
+        fake.regions[30820].insert(0, {"zone": _S17_DOOR, "to": 30821, "arrive": (500, 500)})
+        fake.exit_frames = 0
+    out, log, _fake = _s17_drive(game, pred, setup=setup)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V11", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    assert "the walk left 30820: landed in 30821" in str(out), str(out)
+    walk = _s17_rows(log, "walk")
+    assert len(walk) == 1 and (walk[0]["outcome"], walk[0]["landed"], walk[0]["route"]["landed"]) == \
+        ("void", 30821, 30821), walk
+    back = SD.backing({"f": walk[0]["frame"] + 1, "cause": "walk", "fld": 30821}, log, pred)
+    assert back is not None and back["row"] is walk[0], back

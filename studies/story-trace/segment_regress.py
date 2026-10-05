@@ -364,6 +364,13 @@ REQUIRED_TESTS: tuple = (
     # research/o7_design.md section 9, PART A: the gate extended to O6 (G21 over the union of the O3, O4, O5 and O6
     # baselines' pins), then the shared opt-in changes, each with its step
     "test_segment_regress_o6_pins_join_the_union",                              # A0: G21 over four baselines
+    "test_segment_step_of_walk_and_its_keys_are_strict",                        # A1: S17-S19's keys, pure
+    "test_segment_step_of_reads_every_frozen_table_unchanged",                  # A1: S17-S19 opt-in, every frozen table
+    "test_segment_walk_reaches_its_goal_on_the_fake",                           # A1: S17 done, and short is failed
+    "test_segment_walk_short_of_its_goal_fails_on_the_fake",                    # A1: S17 failed twice, V7
+    "test_segment_walk_interrupted_outside_a_door_on_the_fake",                 # A1: S17 interrupted, the re-run
+    "test_segment_walk_loss_in_a_door_is_its_landing_on_the_fake",              # A1: S17's landing judge, door_loss
+    "test_segment_walk_leaving_the_field_is_the_drivers_v11_on_the_fake",       # A1: S17's stray, V11 and backing
 )
 
 O1E_VERDICT = "PROVEN"
