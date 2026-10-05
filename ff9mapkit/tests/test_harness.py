@@ -26470,17 +26470,19 @@ def _harness_tests_module():
 
 def test_segment_regress_registry_holds_every_item_once():
     """The gate's registry (research/o7_design.md 1.4: renamed from ``..._items_are_g1_to_g33_once`` -- the name says
-    what it pins, not a range, so each extension edits its body): ITEM_ORDER holds G1-G39 each once, printed as always
-    (O6's G34-G37 after G33, then O7's G38 -- 9 B4 -- and G39 -- 9 C2 -- G21 last); every segment's items are in it and
-    no item is two segments' (G21 is no segment's); the pytest items are G7, G12, G13, G19, G26, G32 and G38 with the
-    selections the gate has always run; select_items reads nothing as every item, ``--only`` and ``--segment`` as the
-    union of their items -- O6's six, G32 to G37; O7's G38 and G39 -- and refuses an id or a segment there is none of
-    (G40, O8 and a lower-case id: refused through every later extension too). Break: drop an item from ITEM_ORDER (a full
-    run would then pass without it), or file one under two segments."""
+    what it pins, not a range, so each extension edits its body; research/o8_design.md 1.4, 9 A0 extends it to G43):
+    ITEM_ORDER holds G1-G43 each once, printed as always (O6's G34-G37 after G33, then O7's G38 -- O7's 9 B4 -- and G39
+    -- O7's 9 C2 -- then O7's outputs G40-G43, G21 last); every segment's items are in it and no item is two segments'
+    (G21 is no segment's); the pytest items are G7, G12, G13, G19, G26, G32 and G38 with the selections the gate has
+    always run (G44 joins at O8's B4); select_items reads nothing as every item, ``--only`` and ``--segment`` as the union
+    of their items -- O6's six, G32 to G37; O7's six, G38 to G43 -- and refuses an id or a segment there is none of (G46,
+    O9 and a lower-case id: refused through every later extension too). Break: drop an item from ITEM_ORDER (a full run
+    would then pass without it), or file one under two segments."""
     R = _regress_module()
-    assert sorted(R.ITEM_ORDER, key=lambda i: int(i[1:])) == [f"G{n}" for n in range(1, 40)], R.ITEM_ORDER
-    assert len(set(R.ITEM_ORDER)) == 39 and R.ITEM_ORDER[-1] == "G21"
-    assert R.ITEM_ORDER[-7:-1] == ("G34", "G35", "G36", "G37", "G38", "G39"), R.ITEM_ORDER
+    assert sorted(R.ITEM_ORDER, key=lambda i: int(i[1:])) == [f"G{n}" for n in range(1, 44)], R.ITEM_ORDER
+    assert len(set(R.ITEM_ORDER)) == 43 and R.ITEM_ORDER[-1] == "G21"
+    assert R.ITEM_ORDER[-11:-1] == ("G34", "G35", "G36", "G37", "G38", "G39", "G40", "G41", "G42", "G43"), \
+        R.ITEM_ORDER
     seg = [i for ids in R.SEGMENT_ITEMS.values() for i in ids]
     assert len(seg) == len(set(seg)) and set(seg) | {"G21"} == set(R.ITEM_ORDER), seg
     assert R.PYTEST_ITEMS == {"G7": R.PYTEST_K, "G12": R.PYTEST_K_O2, "G13": R.PYTEST_K_O3, "G19": R.PYTEST_K_O4,
@@ -26489,8 +26491,8 @@ def test_segment_regress_registry_holds_every_item_once():
     assert R.select_items(["G26", "G27"]) == {"G26", "G27"}
     assert R.select_items((), ["O6"]) == {"G32", "G33", "G34", "G35", "G36", "G37"}
     assert R.select_items(["G21"], ["O6"]) == {"G21", "G32", "G33", "G34", "G35", "G36", "G37"}
-    assert R.select_items((), ["O7"]) == {"G38", "G39"}
-    for only, segs in ((["G40"], ()), ((), ["O8"]), (["g7"], ())):
+    assert R.select_items((), ["O7"]) == {"G38", "G39", "G40", "G41", "G42", "G43"}
+    for only, segs in ((["G46"], ()), ((), ["O9"]), (["g7"], ())):
         with pytest.raises(ValueError):
             R.select_items(only, segs)
 
@@ -26817,8 +26819,10 @@ def test_segment_regress_o6_pins_join_the_union(tmp_path):
     assert sorted(union) == sorted([pick, control, stray, sink, off, site, restores, knobs, walk_out]), union
     assert R.g21_bad(union, R.source_shas(sorted(union), files=files), []) == []
     assert R.union_sources(o3, o4, o5) == {**o3, **o4, **o5}, "three baselines join as they always did"
-    with pytest.raises(ValueError, match="joins at most the O3, O4, O5, O6 baselines, not 5"):
-        R.union_sources(o3, o4, o5, o6, {})
+    over = len(R.PIN_BASELINES) + 1                         # the registry's own bound: every extension keeps this test
+    with pytest.raises(ValueError, match=re.escape(f"joins at most the {', '.join(R.PIN_BASELINES)} baselines, not "
+                                                   f"{over}")):
+        R.union_sources(o3, o4, o5, o6, *[{}] * (over - 4))
 
     def edit(path, old, new):
         text = path.read_text(encoding="utf-8")
@@ -30587,3 +30591,131 @@ def test_segment_dryrun_globs_close_at_their_segment():
     assert not set(later) & set(seven), seven
     if (here / "o7_predictions_v1.json").is_file():
         assert "o7_predictions_v1.json" in seven and "o7_predictions_v1.json" not in six
+
+
+# ---- O8, PART A (research/o8_design.md section 9): the regression gate extended to O7 (G40-G43, G21 over the union of
+# the O3, O4, O5, O6 and O7 baselines' pins), the O7 replay on the hand-stepped fake (A0b), then the shared opt-in
+# changes -- S20 a walk's arrival height and S21 THE KNIGHT WAIT (A1), S22 a y axis on ``until`` and the loss's height off
+# the ring (A2), S23 the opt-in ``unstick`` (A3). Every ``test_segment_*`` here is collected by G7's selection
+# ("segment"), so the gate re-runs it.
+
+def test_segment_regress_o7_pins_join_the_union(tmp_path):
+    """G21 OVER FIVE BASELINES (research/o8_design.md 1.4, 9 A0), pure, over a temporary COPY of the two pinned files:
+    the O3 baseline's pins (an O1 test, the fake's ``_control``), the O4 baseline's (an O4 test, the fake's story sink),
+    the O5 baseline's (an O5 test, the fake's ``_story_site``), the O6 baseline's (an O6 test, the fake's
+    ``_door_knobs``) and the O7 baseline's (an O7 test, the fake's ``place_height`` and the ``Levels.squeeze`` O7 added)
+    join into ONE set of pins (``union_sources``) that reads clean, and four baselines still join as they always did; a
+    call with more baselines than :data:`PIN_BASELINES` holds is refused (the registry's own bound); an edit to the
+    pinned O7 TEST's body FAILS naming it -- and only it, which the O3-O6 pins alone cannot see; a re-baseline row for
+    that O7-baseline name (its ``old`` the O7 pin) reads clean again. Through files too: G21 over five temporary
+    baselines (``union_base``, as the gate passes them) and a pins file, and ``--rebaseline-source`` finding the name in
+    the O7 baseline alone (``baseline_o7``; without it the name is not pinned, and a refusal writes nothing). A name
+    pinned in TWO baselines is refused at capture (``o7_pin_names``: one the O3, the O4, the O5 or the O6 baseline
+    already pins) and by the union -- and so by ``--rebaseline-source``. The fake's O7 pins are FAKE_PINS_O7, then every
+    method of ``Levels`` in the order fakegame.py defines them (``fake_pins_o7``: a renamed function or class raises,
+    naming it). Break: judge the O3-O6 baselines' sources alone (the edit then passes), or let a union keep one of two
+    pins."""
+    R = _regress_module()
+    test_copy, fake_copy = tmp_path / "test_harness.py", tmp_path / "fakegame.py"
+    test_copy.write_bytes((REPO / R.TEST_REL).read_bytes())
+    fake_copy.write_bytes((REPO / R.FAKE_REL).read_bytes())
+    files = {R.TEST_REL: test_copy, R.FAKE_REL: fake_copy}
+    pick = R.pin_of_test("test_o1_pick_for_reads_the_frozen_rules_by_option_text")
+    control = f"{R.FAKE_REL}::_control"
+    stray = R.pin_of_test("test_o4_stray_answer_attributes_by_the_down_frame")
+    sink = f"{R.FAKE_REL}::FakeGame._story_store"
+    off = R.pin_of_test("test_fake_story_suppress_is_off_by_default")
+    site = f"{R.FAKE_REL}::FakeGame._story_site"
+    restores = R.pin_of_test("test_fake_naming_new_game_restores_the_default_name")
+    knobs = f"{R.FAKE_REL}::_door_knobs"
+    fallback = R.pin_of_test("test_o7_castle_fallback_end_is_one_line")
+    height = f"{R.FAKE_REL}::FakeGame.place_height"
+    squeeze = f"{R.FAKE_REL}::Levels.squeeze"
+    o3 = R.source_shas([pick, control], files=files)
+    o4 = R.source_shas([stray, sink], files=files)
+    o5 = R.source_shas([off, site], files=files)
+    o6 = R.source_shas([restores, knobs], files=files)
+    o7 = R.source_shas([fallback, height, squeeze], files=files)
+    shas = [*o3.values(), *o4.values(), *o5.values(), *o6.values(), *o7.values()]
+    assert all(isinstance(v, str) and len(v) == 64 for v in shas), (o3, o4, o5, o6, o7)
+    assert R.PIN_BASELINES[:5] == ("O3", "O4", "O5", "O6", "O7"), R.PIN_BASELINES
+    union = R.union_sources(o3, o4, o5, o6, o7)
+    assert sorted(union) == sorted([pick, control, stray, sink, off, site, restores, knobs, fallback, height,
+                                    squeeze]), union
+    assert R.g21_bad(union, R.source_shas(sorted(union), files=files), []) == []
+    assert R.union_sources(o3, o4, o5, o6) == {**o3, **o4, **o5, **o6}, "four baselines join as they always did"
+    over = len(R.PIN_BASELINES) + 1                         # the registry's own bound: every extension keeps this test
+    with pytest.raises(ValueError, match=re.escape(f"joins at most the {', '.join(R.PIN_BASELINES)} baselines, not "
+                                                   f"{over}")):
+        R.union_sources(o3, o4, o5, o6, o7, *[{}] * (over - 5))
+
+    def edit(path, old, new):
+        text = path.read_text(encoding="utf-8")
+        assert text.count(old) == 1, f"premise: {old!r} occurs once in the copy"
+        path.write_text(text.replace(old, new), encoding="utf-8")
+    edit(test_copy, '    assert len(pred["chain"]) == 5 and len(pred["table"]) == 5 and len(pred["pattern"]["visits"]) '
+                    '== 5\n',
+         '    assert len(pred["chain"]) == 6 and len(pred["table"]) == 5 and len(pred["pattern"]["visits"]) == 5\n')
+    now = R.source_shas(sorted(union), files=files)
+    bad = R.g21_bad(union, now, [])
+    assert len(bad) == 1 and bad[0].startswith(f"{fallback}: changed (") and "--rebaseline-source" in bad[0], bad
+    four = R.union_sources(o3, o4, o5, o6)
+    assert R.g21_bad(four, R.source_shas(sorted(four), files=files), []) == [], \
+        "premise: the O3-O6 pins alone pass the edit"
+    row = R.pin_row(union, [], fallback, o7[fallback], now[fallback], "  the O7 test changed on purpose ", "abc123")
+    assert row == {"name": fallback, "old": o7[fallback], "new": now[fallback],
+                   "reason": "the O7 test changed on purpose", "head": "abc123"}, row
+    assert R.g21_bad(union, now, [row]) == []
+    # through files: five temporary baselines and a pins file -- G21 over their union, --rebaseline-source on the O7
+    # name
+    b3, b4, b5, b6, b7 = (tmp_path / f"o{n}_regress_baseline.json" for n in (3, 4, 5, 6, 7))
+    pins = tmp_path / "source_pins.json"
+    for path, src in ((b3, o3), (b4, o4), (b5, o5), (b6, o6), (b7, o7)):
+        path.write_text(json.dumps({"sources": src, "sources_python": R._py()}), encoding="utf-8")
+    pins.write_text("[]\n", encoding="utf-8")
+
+    def read(path):
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def g21():
+        return R.g21(R.union_base(read(b3), read(b4), read(b5), read(b6), read(b7)), pins, files=files)
+    ok, what, detail = g21()
+    assert ok is False and what.startswith("G21: ") and f"{fallback}: changed" in detail and pick not in detail, detail
+    assert "the O7 tests G38 collected at the O7 capture" in what and "the O6 tests G32 collected at the O6 capture" \
+        in what, what
+    assert R.rebaseline_source(fallback, "", baseline=b3, baseline_o4=b4, baseline_o5=b5, baseline_o6=b6,
+                               baseline_o7=b7, pins=pins, files=files) == 1
+    assert R.rebaseline_source(fallback, "the O7 test changed on purpose", baseline=b3, baseline_o4=b4,
+                               baseline_o5=b5, baseline_o6=b6, pins=pins, files=files) == 1   # O3-O6 alone: not pinned
+    assert pins.read_text(encoding="utf-8") == "[]\n", "a refusal writes nothing"
+    assert R.rebaseline_source(fallback, "the O7 test changed on purpose", baseline=b3, baseline_o4=b4,
+                               baseline_o5=b5, baseline_o6=b6, baseline_o7=b7, pins=pins, files=files) == 0
+    rows = json.loads(pins.read_text(encoding="utf-8"))
+    assert [(r["name"], r["old"], r["new"]) for r in rows] == [(fallback, o7[fallback], now[fallback])], rows
+    ok, _what, detail = g21()
+    assert ok is True and "11 sources at their pins (1 re-baseline row" in detail, detail
+    # a name pinned in two baselines: refused at capture, no union, no re-baseline
+    for other, label in ((pick, "O3"), (sink, "O4"), (site, "O5"), (knobs, "O6")):
+        with pytest.raises(ValueError, match=f"pinned in both the {label} and the O7 baselines"):
+            R.o7_pin_names(o3, o4, o5, o6, [fallback, height, other])
+    assert R.o7_pin_names(o3, o4, o5, o6, [fallback, height, height, squeeze]) == [fallback, height, squeeze]
+    with pytest.raises(ValueError, match="pinned in both the O6 and the O7 baselines"):
+        R.union_sources(o3, o4, o5, o6, {**o7, restores: o6[restores]})
+    with pytest.raises(ValueError, match="pinned in both the O3 and the O7 baselines"):
+        R.union_sources(o3, o4, o5, o6, {**o7, pick: o3[pick]})
+    b7.write_text(json.dumps({"sources": {**o7, sink: o4[sink]}, "sources_python": R._py()}), encoding="utf-8")
+    assert R.rebaseline_source(fallback, "why", baseline=b3, baseline_o4=b4, baseline_o5=b5, baseline_o6=b6,
+                               baseline_o7=b7, pins=pins, files=files) == 1
+    assert len(json.loads(pins.read_text(encoding="utf-8"))) == 1, "a refusal writes nothing"
+    # the fake's O7 pins: FAKE_PINS_O7 exactly, then every method of Levels in its definition order
+    source = fake_copy.read_text(encoding="utf-8")
+    got = R.fake_pins_o7(source)
+    levels = [q for q in R.functions_of(source) if q.startswith("Levels.")]
+    assert got == list(R.FAKE_PINS_O7) + levels and len(set(R.FAKE_PINS_O7)) == 6, got
+    assert {"FakeGame._move_to", "FakeGame._step_walkers", "_VisitBeat._scene_fires"} <= set(R.FAKE_PINS_O7)
+    assert {"Levels.__init__", "Levels.squeeze", "Levels.wall_gap"} <= set(levels), levels
+    assert source.count("    def place_height(") == 1 and source.count("\nclass Levels:") == 1, "premise: one each"
+    with pytest.raises(ValueError, match=re.escape("no function ['FakeGame.place_height']")):
+        R.fake_pins_o7(source.replace("    def place_height(", "    def place_heights("))
+    with pytest.raises(ValueError, match=re.escape("no function ['Levels']")):
+        R.fake_pins_o7(source.replace("\nclass Levels:", "\nclass Level:"))

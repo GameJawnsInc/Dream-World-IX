@@ -118,3 +118,9 @@ studies/story-trace/research/o6_fake_replay.json -text
 # session records the sha of the bytes it read, and the analysis refuses a file that no longer matches. The line is in
 # place BEFORE any freeze (the lead freezes v1 after the stock rehearsals); never line-end convert them.
 studies/story-trace/o7_predictions*.json -text
+
+# The O7 regression gate's baseline (studies/story-trace/segment_regress.py, G0''''''): O7's every (checks, report) and
+# every dry-run unit's (name, ok, detail), each temporary root read as <tmp>, and G21's O7 source pins, captured ONCE at
+# the code before any O8 change and compared byte for byte. Its committed LF bytes are the captured ones; never
+# line-end convert them.
+studies/story-trace/research/o7_regress_baseline.json -text

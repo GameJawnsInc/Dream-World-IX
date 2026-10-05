@@ -2561,3 +2561,31 @@ skip dialog's only opener and the 313 close order, 0.2 #23); nothing there chang
 ### 11.4 As built (the implementer appends, PART by PART)
 Where the design was silent or wrong, each the smallest correct thing, in O7's 11.4 form; then the code review's
 findings, each with its re-check and its fix.
+
+#### PART A, as built: where the design was silent or wrong (each the smallest correct thing)
+A0 first, from master's merge gate and the nightly ledger, no new baseline: `.test-gate/latest.json` red at d6b77975
+(2026-10-05 04:00) on the two rung-3 replay tests -- d6b77975 predates fe2aeafd, which made them load-robust and is on
+master (57aac989) -- and each passes ALONE at this head 3/3 (the live-miss test 17.1 / 16.3 / 16.4 s, the bounce test
+18.5 s x 3): the red is fixed upstream. `tests/test_harness.py` 1006 collected at the branch point (`--collect-only`,
+nothing run). `segment_regress.py --only G38,G39` at the head PASS (G38 55 passed; G39 174/174 as frozen and as if
+frozen), exit 3, 4 m 03 s.
+
+1. **A pinned test the design said would pass unedited.** "A call with four baselines reads exactly as today, so O6's
+   pinned `test_segment_regress_o6_pins_join_the_union` passes unedited" -- every four-baseline call does, but that test
+   ALSO pins the four-baseline BOUND: `union_sources(o3, o4, o5, o6, {})` must raise "joins at most the O3, O4, O5, O6
+   baselines, not 5", and with `PIN_BASELINES` five a five-source call is no longer over it. No extension of G21 can keep
+   that assertion, so its one statement now reads the bound off the registry (`len(PIN_BASELINES) + 1` sources, the
+   message built from `PIN_BASELINES`) -- every later extension keeps it, as the partial-run test reads its count off
+   `ITEM_ORDER` (O7's 11.4 PART A #1) -- and the test is re-baselined by name in A0's commit (row 28 of
+   `research/source_pins.json`, head 153b0d6c). The row was written by `rebaseline_source(...)` called with the O3-O6
+   baselines: the CLI's `--rebaseline-source` reads the committed O7 baseline too, which does not exist until the
+   capture, and the edit belongs in the commit BEFORE the capture (the O6 baseline pins the test, the O7 baseline never
+   does: G38's selection does not collect it). So PART A carries TWO re-baseline rows, A0's and A2's (1.2's "What
+   flips" counted only A2's). The new O7 union test asserts the bound the same registry-relative way.
+2. **`_missing()`'s `o7s` without the O7 baseline.** 1.4 lists "the O7 baseline" with O7S's session and report and V1_O7;
+   `o7s` (G40-G43's inputs) holds the three archive files, and the baseline sits in the gate's and
+   `--rebaseline-source`'s `files`, as O3-O6's do -- so `--capture-o7` never requires the file it writes. `o8` (G45's,
+   from C2) reads `o8_predictions_v1.json` once it exists, else O4's `campaign.toml`; no mode passes it before C2.
+3. **`fake_pins_o7` with a class.** FAKE_PINS_O7 names functions (O6's rule: a name fakegame.py defines no function for
+   raises, naming it) and FAKE_PIN_CLASSES_O7 a class (O4/O5's rule: every method in definition order; a class with no
+   method raises, named in the same message). Today: 6 functions and `Levels`' 6 methods, 12 fake pins.

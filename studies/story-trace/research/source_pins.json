@@ -187,5 +187,12 @@
   "new": "a741f6ebd127d730cc157ea02854482354f5c88fbc2c163d17c657883218b259",
   "reason": "O7 review fix H24: a page with async True (WindowAsync alone) returns once listed, the script going on while it is up; a page without async waits for its window exactly as before",
   "head": "60eff9ff4b5a972413967b3b5fa04b6c4be05693"
+ },
+ {
+  "name": "ff9mapkit/tests/test_harness.py::test_segment_regress_o6_pins_join_the_union",
+  "old": "9f75018b74116851a6f5c292396249f5dae3f593839a5d739b8a2b4880149c04",
+  "new": "a90ff185d83fefed63ed502afe6e81fbe139fb62e082eaab8a7c53c461c47a75",
+  "reason": "O8 A0 (research/o8_design.md 1.4; 11.4 PART A): PIN_BASELINES grows to five -- the O7 baseline joins G21 -- so a five-source union_sources call is no longer over its bound; the one refusal assertion now reads the bound off the registry (len(PIN_BASELINES) + 1 sources: \"joins at most the O3, O4, O5, O6, O7 baselines, not 6\"), so every later extension keeps the test. Nothing else in the body changed.",
+  "head": "153b0d6cae8181b9a4df37eff0b3bcff74271098"
  }
 ]
