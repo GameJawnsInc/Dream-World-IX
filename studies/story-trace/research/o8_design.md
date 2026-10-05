@@ -2568,7 +2568,13 @@ A0 first, from master's merge gate and the nightly ledger, no new baseline: `.te
 master (57aac989) -- and each passes ALONE at this head 3/3 (the live-miss test 17.1 / 16.3 / 16.4 s, the bounce test
 18.5 s x 3): the red is fixed upstream. `tests/test_harness.py` 1006 collected at the branch point (`--collect-only`,
 nothing run). `segment_regress.py --only G38,G39` at the head PASS (G38 55 passed; G39 174/174 as frozen and as if
-frozen), exit 3, 4 m 03 s.
+frozen), exit 3, 4 m 03 s. The gate extended (a8a5bf43), the O7 baseline was captured THERE before any other code change
+(1018cab9): two readings identical, G38 56 passed (O7's 55 and the A0 test), G39 174/174 twice, G40 (story-o7, PROVEN,
+17 checks, the archived report exactly, 186 lines), G41, G42 (89 sessions + 85 units, 174/174), G43 (6 PASS), 9 m 44 s;
+3319115 bytes, LF, ASCII, 68 sources (G38's 56 tests and fake_pins_o7's 12), none pinned by an earlier baseline.
+`--only G40,G41,G42,G43,G21` then read 5/5 (G21 over five baselines: 426 sources, 28 re-baseline rows), 3 m 14 s. A0b's
+golden, on the unedited fake: route-S and route-F 529 sample changes and 63 trace rows each over 629 frames, the balcony
+262 over 264 frames, the foot 13 over 13; 180356 bytes; the three replays green.
 
 1. **A pinned test the design said would pass unedited.** "A call with four baselines reads exactly as today, so O6's
    pinned `test_segment_regress_o6_pins_join_the_union` passes unedited" -- every four-baseline call does, but that test
@@ -2589,3 +2595,14 @@ frozen), exit 3, 4 m 03 s.
 3. **`fake_pins_o7` with a class.** FAKE_PINS_O7 names functions (O6's rule: a name fakegame.py defines no function for
    raises, naming it) and FAKE_PIN_CLASSES_O7 a class (O4/O5's rule: every method in definition order; a class with no
    method raises, named in the same message). Today: 6 functions and `Levels`' 6 methods, 12 fake pins.
+4. **A0b's sample carries the published objects.** 3.5's compact sample is O7's A0b's -- him, the windows, the choice --
+   but A0b exists to prove B2's `_step_walkers` edit neutral, and a held walker's own state never reaches that sample:
+   Dojebon is talk-only, so a hold that broke would walk him off without moving Steiner by a unit. Each frame's sample
+   ends with the published objects, `[[sid, x, z, moving], ...]` (`FakeGame._objects_doc`, itself an O7 pin): a held
+   walker's place and `moving` are in the golden. The mutant `_step_walkers` ignoring the hold fails the test (Dojebon
+   walks: his `(x, z)` and `moving` change); `place_height` one unit off fails it at the balcony's first frame.
+5. **The balcony is 154's visit beat, not a bare level.** 3.5 (3) names `levels154` (O7's builder knob), so the scene is
+   `_o7_route("S", short="154", levels154=True)` on stock 154's levels at radius 120 -- the grant at the bytes' height
+   (H20's placement), Dojebon and the two soldiers (H23 and the pair band), the doors by height (H22) -- pressed along
+   `_o7_plan154`'s ten waypoints from the grant to (0, -600): the plan passes 598 u from soldier e6 and 1091 u from
+   Dojebon, who stays held at his placement throughout (asserted in the scene).

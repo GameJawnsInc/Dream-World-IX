@@ -30719,3 +30719,183 @@ def test_segment_regress_o7_pins_join_the_union(tmp_path):
         R.fake_pins_o7(source.replace("    def place_height(", "    def place_heights("))
     with pytest.raises(ValueError, match=re.escape("no function ['Levels']")):
         R.fake_pins_o7(source.replace("\nclass Levels:", "\nclass Level:"))
+
+
+#: A0b's golden (research/o8_design.md 3.5): O7's route and level, squeeze and walker scenes played by hand on the fake
+#: as the branch point left it, before any O8 fake edit.
+_O7_REPLAY = REPO / "studies" / "story-trace" / "research" / "o7_fake_replay.json"
+#: Its four scenes, in the golden's order.
+_O7_REPLAY_SCENES = ("route-S", "route-F", "balcony", "foot")
+
+
+def _o7_replay_sampler(fake) -> list:
+    """A hand-stepped fake's frame recorder (A0b): ``fake._frame_once`` wrapped ON THE INSTANCE, so every frame the
+    scripted player or a press steps keeps its compact sample when it changed -- ``[frame, field, ui_state, control, x,
+    y, z, [[slot, raw, text], ...], choice, [[sid, x, z, moving], ...]]``: his height included (H20 writes it), the
+    windows the beat lists (each text as the agent would publish it), and the published objects -- a held walker's
+    ``moving`` and place (H23; B2's ``_step_walkers`` edit must leave them), which his own sample alone would not show
+    (Dojebon is talk-only: he never touches Steiner's)."""
+    from harness.fakegame import _VisitBeat
+    frames: list = []
+    last: list = [None]
+    step = fake._frame_once
+
+    def sample() -> list:
+        m = fake._machine
+        assert m is None or isinstance(m, _VisitBeat), m
+        wins = [] if m is None else [[w.slot, w.raw, m.shown(fake, w)] for w in m.windows if not w.gone]
+        objs = [[o["sid"], round(o["x"], 6), round(o["z"], 6), o["moving"]] for o in fake._objects_doc()]
+        return [fake.field_id, fake.ui_state, bool(fake.control), round(float(fake.player[0]), 6),
+                round(float(fake.player[1]), 6), round(float(fake.player[2]), 6), wins,
+                json.loads(json.dumps(fake.choice)), objs]
+
+    def frame_once() -> None:
+        step()
+        s = sample()
+        if s != last[0]:
+            frames.append([fake.frame, *s])
+            last[0] = s
+    fake._frame_once = frame_once
+    return frames
+
+
+def _o7_replay_route(game, side: str) -> dict:
+    """Scenes (1) and (2): O7's route builder (:func:`_o7_route`, ``side``) played BY HAND as
+    test_fake_level_route_plays_to_164_unattended plays it -- field 70's prologue values, the trace armed with the sink's
+    suppression, the raw warp's four residue rows, the visit beats staged in 154's field on the floor-blind box (the
+    ground branch's side: Dojebon latched from the grant), a straight press at each step's goal in turn, every page
+    Confirmed (the monologue once) -- to 164's waiting visit. ``{"frames", "rows"}``: the sampler's frames and every
+    trace row."""
+    fields = _O7_FIELDS[side]
+    fake = _fv_fake(game, field=70, trace=False)
+    fake.walkmesh = _O7_BOX
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(315, 1190)                         # the raw warp's residue, seen in field 70
+    fake.field_id = fields["154"]
+    fake.scene(*_o7_route(side), control=False)
+    frames = _o7_replay_sampler(fake)
+    goals = {fields[p]: [g for _s, g in walks] for p, walks in _O7_WALKS.items()}
+    end = fields["164"]
+    for _ in range(40):
+        fid = fake.field_id
+        if fid == end:
+            break
+        goal = goals[fid][0]
+        _o7_play(fake, toward=goal, until=lambda f: f.field_id != fid or (
+            len(goals[fid]) > 1 and math.hypot(goal[0] - f.player[0], goal[1] - f.player[2]) <= 30))
+        if fake.field_id == fid:
+            goals[fid].pop(0)                            # 154's walk done: on to its cross
+    _cb_until(fake, lambda f: any(e["index"] == 7 and e["kind"] == "wait" for e in f.visit_log), limit=400)
+    fake._story_stop()
+    assert fake.field_id == end and len(_o7_scenes(fake)) == 1, (fake.field_id, _o7_scenes(fake))
+    return {"frames": frames, "rows": _fv_rows(fake)}
+
+
+def _o7_replay_balcony(game, wm) -> dict:
+    """Scene (3), THE BALCONY: 154's visit beat (:func:`_o7_route` ``short`` "154" with ``levels154``: the grant at the
+    bytes' height -1741, Dojebon and the soldiers, the doors by height) on stock 154's levels at Steiner's radius 120
+    (H20), pressed by hand along 154 #0's planned waypoints (:func:`_o7_plan154`: route_avoiding at 120 with the step's
+    119 closures, round e8, e9, e10 and the hazard) from the balcony down the west flight to the ground -- Dojebon held
+    at his placement the whole walk (H23: within 3600, then latched below y 600). No trace."""
+    from harness.fakegame import Levels
+    pw = wm(154)
+    step0, _step1 = _o7_closures154(pw)
+    wps = _o7_plan154(pw, step0, _O7_GRANT154, (0, -600), [_O7_E8, _O7_E9, _O7_E10, _O7_HAZARD])
+    assert wps is not None and len(wps) >= 6, wps
+    fake = _fv_fake(game, *_o7_route("S", short="154", levels154=True), field=30840, fps=60.0, ticks="mean",
+                    trace=False)
+    fake.levels, fake.clearance = {30840: Levels(pw)}, _O7_RADIUS
+    frames = _o7_replay_sampler(fake)
+    _cb_until(fake, lambda f: f.control, limit=400)      # the prologue, then the grant on the balcony
+    for wx, wz in wps:
+        _lv_press(fake, wx, wz)
+    doj = fake.blockers[30840][0]
+    assert math.hypot(fake.player[0], fake.player[2] + 600) <= 45 and fake.player[1] < 100, fake.player
+    assert (doj["sid"], doj["x"], doj["z"], doj["_held"]) == (5, -2700.0, -1700.0, True), doj
+    return {"frames": frames, "rows": []}
+
+
+def _o7_replay_foot(game, wm) -> dict:
+    """Scene (4), THE FOOT: stock 163's stair foot at Steiner's radius 120 with ``squeeze_slack`` 8 (H21), one press up
+    the foot from (2098, 3731) toward (2098, 4115) -- through the pinch on its midline, past it to the top of the foot.
+    No trace."""
+    from harness.fakegame import Levels
+    lv = Levels(wm(163), squeeze_slack=8.0)
+    fake = _lv_fake(game, 30845, lv)
+    frames = _o7_replay_sampler(fake)
+    h = lv.height(lv.tri_nearest(2098, 3731, 0), 2098, 3731)
+    fake.player = [2098.0, 0.0, 3731.0]
+    fake.place_height(2098.0, 3731.0, h)
+    _lv_press(fake, 2098.0, 4115.0, still=20)
+    assert fake.player[2] >= 4090, fake.player
+    return {"frames": frames, "rows": []}
+
+
+def _o7_replay_doc(game, wm) -> dict:
+    """A0b's document (research/o8_design.md 3.5): the four scenes, each ``{"frames", "rows"}``."""
+    return {"what": "O7's route builder (_o7_route, S and F), 154's balcony walk on its levels and 163's stair foot, "
+                    "played by hand on the fake (research/o8_design.md 3.5, 9 A0b): every frame whose compact sample "
+                    "changed -- [frame, field, ui_state, control, x, y, z, [[slot, raw, text], ...], choice, [[sid, x, "
+                    "z, moving], ...]] -- and every trace row",
+            "route-S": _o7_replay_route(game, "S"), "route-F": _o7_replay_route(game, "F"),
+            "balcony": _o7_replay_balcony(game, wm), "foot": _o7_replay_foot(game, wm)}
+
+
+def _o7_replay_text(doc: dict) -> str:
+    """The golden's text (:func:`_replay_text`'s form over A0b's four scenes): JSON, one frame or row a line (a diff
+    names it), ASCII, LF."""
+    out = ["{", f' "what": {json.dumps(doc["what"])},']
+    for n, scene in enumerate(_O7_REPLAY_SCENES):
+        out.append(f' "{scene}": {{')
+        for k, key in enumerate(("frames", "rows")):
+            items = doc[scene][key]
+            out.append(f'  "{key}": [')
+            out += [f"   {json.dumps(x, separators=(',', ':'))}{',' if i < len(items) - 1 else ''}"
+                    for i, x in enumerate(items)]
+            out.append("  ]" + ("," if k == 0 else ""))
+        out.append(" }" + ("," if n < len(_O7_REPLAY_SCENES) - 1 else ""))
+    out.append("}")
+    text = "\n".join(out) + "\n"
+    assert json.loads(text) == json.loads(json.dumps(doc)), "the golden's text is the document"
+    return text
+
+
+def test_fake_spiral_keeps_the_castle_route_identical(game, dali):
+    """A0b, THE O7 REPLAY (research/o8_design.md 3.5, 9 A0b): G1-G43 replay RECORDED sessions and cannot see a fake
+    change, and once B1 and B2 re-baseline O7's pinned ``_move_to`` and ``_step_walkers`` G21 says only that they were
+    re-baselined, never that O7's fake still plays as it did. So four scenes are played BY HAND on the fake (no thread,
+    no wall clock) and the document they build -- every frame whose compact sample changed (his y and the published
+    objects included) and every trace row -- is compared with the golden ``research/o7_fake_replay.json``, captured on
+    the fake as the branch point left it (before H25, H26 and every later fake edit): (1) and (2) O7's route builder,
+    S and F, played as test_fake_level_route_plays_to_164_unattended plays it (the box, the monologue, Dojebon
+    latched); (3) THE BALCONY, 154's visit on its stock levels at radius 120 pressed along 154 #0's planned waypoints
+    down the west flight (H20's level branch, H22's doors by height, H23's hold); (4) THE FOOT, stock 163 with
+    ``squeeze_slack`` 8, one press up through the pinch (H21). A difference FAILS naming the first differing frame of
+    the first differing scene; a missing golden FAILS (never a skip); (3) and (4) read the install (``dali``'s warned
+    skip fails G44). With ``O8_CAPTURE_REPLAY=1`` it WRITES the golden instead -- refusing an existing file, and
+    refusing unless two captures in one process are equal. O6's replay (test_fake_level_keeps_the_steiner_route_identical)
+    and O5's (test_fake_door_keeps_the_hallway_route_identical) run beside it unchanged. Break: any change to how the
+    fake plays O7's scenes (a level's step, the squeeze, a held walker, a door by height, a page's opening by a frame)
+    -- the frame it first shows names it."""
+    wm, _script = dali
+    doc = _o7_replay_doc(game, wm)
+    if os.environ.get("O8_CAPTURE_REPLAY") == "1":
+        assert not _O7_REPLAY.exists(), f"{_O7_REPLAY} exists: the golden is captured once, never overwritten"
+        again = _o7_replay_doc(game, wm)
+        assert _o7_replay_text(again) == _o7_replay_text(doc), "two captures in one process differ: no golden written"
+        _O7_REPLAY.write_bytes(_o7_replay_text(doc).encode("ascii"))
+        return
+    assert _O7_REPLAY.is_file(), (f"no golden at {_O7_REPLAY}: capture it (O8_CAPTURE_REPLAY=1) on the fake as the "
+                                  f"branch point left it, before any fake edit")
+    want = json.loads(_O7_REPLAY.read_text(encoding="utf-8"))
+    got = json.loads(_o7_replay_text(doc))
+    for scene in _O7_REPLAY_SCENES:
+        for key in ("frames", "rows"):
+            a, b = got[scene][key], want[scene][key]
+            i = next((n for n, (x, y) in enumerate(zip(a, b)) if x != y), None)
+            if i is not None:
+                raise AssertionError(f"{scene} {key}[{i}] differs from the golden: got {a[i]!r}, want {b[i]!r}")
+            assert len(a) == len(b), (f"{scene} {key}: {len(a)} entries, the golden {len(b)}; the first unmatched "
+                                      f"{(a[len(b)] if len(a) > len(b) else b[len(a)])!r}")
+    assert got == want

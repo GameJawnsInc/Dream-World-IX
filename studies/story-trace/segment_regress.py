@@ -875,7 +875,11 @@ O7_OFFLINE_CHECKS = 6
 #: G44 (research/o8_design.md 1.4, from 9 B4): every ``test_o8_*``, ``test_fake_spiral_*``, ``test_fake_knight_*`` and
 #: ``test_fake_tower_*`` name, each with the step that adds it -- G44 joins the gate in the commit that adds B4's tests.
 PYTEST_K_O8 = "o8_ or fake_spiral or fake_knight or fake_tower"
-REQUIRED_TESTS_O8: tuple = ()
+REQUIRED_TESTS_O8: tuple = (
+    # A0b: O7's route and its level, squeeze and walker scenes replayed by hand on the fake against their golden,
+    # captured before any O8 fake edit
+    "test_fake_spiral_keeps_the_castle_route_identical",
+)
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)
 SOURCE_PINS = HERE / "research" / "source_pins.json"
