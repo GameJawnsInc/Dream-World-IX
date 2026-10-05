@@ -7465,6 +7465,48 @@ def _replayed(log):
     return [(x["leg"], x.get("step"), x.get("expect"), x["entered"], x["verdict"]) for x in log if x["k"] == "cross"]
 
 
+#: The INSTRUMENT starving, never the replay: a crossing's first wait -- control held SETTLE (1 s) inside the cut 1.5 s
+#: crossing wait (:func:`_replay_world`) -- timed out on a loaded machine (the fake's thread or its reads lagged; the
+#: nightly of 2026-10-05 met it at -n 6 beside a build's runs, with the last state showing control held).
+_REPLAY_STARVED = "waiting for control to return to the player"
+
+
+def _replay_starved(log) -> bool:
+    """Whether a crossing in ``log`` was voided by :data:`_REPLAY_STARVED` -- a run whose crossing rows the replay's
+    logic never decided, so no assertion on them may be read."""
+    return any(x.get("k") == "cross" and _REPLAY_STARVED in str(x.get("error") or "") for x in log)
+
+
+def _replay_informative(game, monkeypatch, scenario, *, attempts=3):
+    """``scenario(game, monkeypatch) -> (stop, log, fake, D)`` until a run is not starved (:func:`_replay_starved`), at
+    most ``attempts`` runs (R-GATE's 3, as :func:`_o4_run_informative`): the last run is returned whatever it is -- a
+    run starved every time still fails its test -- and a test asserts on it exactly as on a single run."""
+    for k in range(1, attempts + 1):
+        out = scenario(game, monkeypatch)
+        if not _replay_starved(out[1]) or k == attempts:
+            return out
+
+
+def test_a_starved_replay_wait_is_rerun_and_never_judged():
+    """_replay_starved reads only the instrument's starved control wait (a bounce's "never became playable" and a
+    live miss are the replay's own rows), and _replay_informative re-runs a starved scenario and returns the first
+    informative run -- or the last, starved, so it fails. Break: re-run on any crossing error (a bounce test would then
+    never see its bounce), or return a starved run early."""
+    starved = {"k": "cross", "error": "timed out after 2s waiting for control to return to the player to hold for 1.0s"}
+    bounce = {"k": "cross", "error": "crossing from 30820 reached field 30810, but it never became playable within 2s"}
+    assert _replay_starved([bounce, starved]) and not _replay_starved([bounce, {"k": "cross", "frozen": True}])
+    runs = iter([("s1", [starved]), ("s2", [starved]), ("ok", [bounce])])
+    calls = []
+
+    def scenario(game, monkeypatch):
+        calls.append(1)
+        stop, log = next(runs)
+        return stop, log, None, None
+    assert _replay_informative(None, None, scenario)[0] == "ok" and len(calls) == 3
+    runs = iter([("s1", [starved])] * 3)
+    assert _replay_informative(None, None, scenario, attempts=3)[0] == "s1"
+
+
 def test_a_replay_walks_the_partners_walk_step_for_step_and_stops_where_the_story_moves(game, monkeypatch):
     """Each step is crossed by the tour's own route_cross call and must ENTER the partner's place; every crossing is
     logged like a tour crossing with leg "replay", its step, the place it expected and the place it entered -- so the
@@ -7485,14 +7527,18 @@ def test_a_replay_walks_the_partners_walk_step_for_step_and_stops_where_the_stor
 def test_a_live_miss_in_a_replay_is_retried_in_the_same_room_not_struck(game, monkeypatch):
     """A villager in the way (a freeze with control held, for good -- until he walks off) makes the step's first
     crossing LIVE by the tour's own failure(): it strikes nothing, and the step is crossed again from the same room --
-    a replay has no other exit to take and no other order to try."""
-    fake, tour, D = _replay_world(game, monkeypatch)
-    fake.freezes = {_A: [{"zone": _rect(100, -600, 200, 600), "frames": None}]}      # a band across A, before B's door
-    fake.advance = (_B, 2610)
-    with session(game, fake) as g:
-        log = _replay_start(g, fake)
-        g.ROUTE_WAIT_SECONDS = 0.5
-        stop = tour.replay(g, log, [[_A, 0, _B]], beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+    a replay has no other exit to take and no other order to try. Each run is :func:`_replay_informative`'s (a starved
+    control wait on a loaded machine re-runs the scenario: it failed the nightly at -n 6 on 2026-10-05)."""
+    def scenario(game, monkeypatch):
+        fake, tour, D = _replay_world(game, monkeypatch)
+        fake.freezes = {_A: [{"zone": _rect(100, -600, 200, 600), "frames": None}]}  # a band across A, before B's door
+        fake.advance = (_B, 2610)
+        with session(game, fake) as g:
+            log = _replay_start(g, fake)
+            g.ROUTE_WAIT_SECONDS = 0.5
+            stop = tour.replay(g, log, [[_A, 0, _B]], beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+        return stop, log, fake, D
+    stop, log, fake, D = _replay_informative(game, monkeypatch, scenario)
     assert fake._froze, "premise: the walk never stepped on the freeze"
     assert stop.startswith(f"SC left 2600: now 2610 in field {_B} (replayed 1 of 1 steps"), stop
     first, *_rest, last = [x for x in log if x["k"] == "cross"]
@@ -7577,15 +7623,21 @@ def test_a_crossing_that_moves_the_story_on_is_never_judged(game, monkeypatch):
 def test_a_bounce_the_partner_entered_is_a_replayed_step_that_leaves_him_where_he_was(game, monkeypatch):
     """Stock 353: the gateway works, the arrival scene never hands control over, and he is put back where he came
     from. The partner's walk holds that step (it ENTERED 353), so the replay must enter it too: route_cross's error
-    names the room it reached, nothing landed, and the next step starts from the room he was put back in."""
-    fake, tour, D = _replay_world(game, monkeypatch)
-    fake.bounce = {_C: (_A, (-250, 0))}
-    fake.bounce_frames = 3000                                    # ~3 s at 960 fps: past the 1.5 s crossing wait
-    fake.advance = (_B, 2610)
+    names the room it reached, nothing landed, and the next step starts from the room he was put back in. Each run is
+    :func:`_replay_informative`'s (a starved control wait on a loaded machine re-runs the scenario: the nightly at -n 6
+    on 2026-10-05 met one before step 2, three crossing rows)."""
     walk = [[_A, 1, _C], [_A, 0, _B]]
-    with session(game, fake) as g:
-        log = _replay_start(g, fake)
-        stop = tour.replay(g, log, walk, beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+
+    def scenario(game, monkeypatch):
+        fake, tour, D = _replay_world(game, monkeypatch)
+        fake.bounce = {_C: (_A, (-250, 0))}
+        fake.bounce_frames = 3000                                # ~3 s at 960 fps: past the 1.5 s crossing wait
+        fake.advance = (_B, 2610)
+        with session(game, fake) as g:
+            log = _replay_start(g, fake)
+            stop = tour.replay(g, log, walk, beat=2600, max_crossings=20, max_passes=2, budget_s=120)
+        return stop, log, fake, D
+    stop, log, fake, D = _replay_informative(game, monkeypatch, scenario)
     assert stop.startswith(f"SC left 2600: now 2610 in field {_B} (replayed 2 of 2 steps"), stop
     bounce, into_b = [x for x in log if x["k"] == "cross"]
     assert f"reached field {_C}, but it never became playable" in bounce["error"] and bounce["landed"] is None, bounce
