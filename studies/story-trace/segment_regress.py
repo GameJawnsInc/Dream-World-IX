@@ -6,7 +6,8 @@ every O5 output (research/o6_design.md, section 1.4), every O6 output (research/
 output (research/o8_design.md, section 1.4) byte-identical, O3's battle-beat tests (G13) and O3's dry run (G14) green,
 O4's tests (G19) and O4's dry run (G20) green, O5's FakeGame and driver tests (G26) and O5's dry run (G27) green, O6's
 FakeGame, driver and analysis tests (G32) and O6's dry run (G33) green, O7's FakeGame, driver and analysis tests (G38) and
-O7's dry run (G39) green, O8's FakeGame and driver tests (G44) green, and the O1-O7 driver tests and the fake's beat,
+O7's dry run (G39) green, O8's FakeGame, driver and analysis tests (G44) and O8's dry run (G45) green, and the O1-O7
+driver tests and the fake's beat,
 input, story-trace, machine-beat, visit-beat, walk-out, naming, door, level, squeeze, walker and scene functions at their
 pinned sources (G21).
 
@@ -18,7 +19,7 @@ pinned sources (G21).
     py studies/story-trace/segment_regress.py --capture-o6   # G0''''', once, BEFORE any O7 code change: the O6 baseline
     py studies/story-trace/segment_regress.py --capture-o7   # G0'''''', once, BEFORE any O8 code change: the O7 baseline
     py studies/story-trace/segment_regress.py --rebaseline-source NAME --reason TEXT   # G21: re-pin ONE source
-    py studies/story-trace/segment_regress.py                # G1-G44; exit 0 only if every item passes
+    py studies/story-trace/segment_regress.py                # G1-G45; exit 0 only if every item passes
     py studies/story-trace/segment_regress.py --only G26,G27 # a PARTIAL run (also --segment O5): exit 3 on a pass
     py studies/story-trace/segment_regress.py --pytest-junit DIR/receipt.json   # pytest items from a whole-file run
     py studies/story-trace/segment_regress.py --list         # the items, their segments and kinds
@@ -801,6 +802,14 @@ O6_OFFLINE_CHECKS = 6
 #: (byte8-race-armed-one-F, -all-F), 1 unit (monologue-lines) and 4 listed (goals-163-e3-crossing, -holding,
 #: keys-scoped-dropped, -extra). A case added raises N; one dropped falls under the floor.
 O7_DRYRUN_FLOOR = 174
+#: G45 (research/o8_design.md 1.4, from 9 C2): o8_dryrun's "N/N cases as registered" must have N at least this, on the
+#: draft (or the frozen file) AND on as_if_frozen(draft) -- its 117 session cases (section 8's table, with the
+#: re-registered ones: last-place-harness S only) and "predictions-changed", the story-o3 seam fixture's 9 (o3-seam-F,
+#: o3-landing, o3-state-c and their 6 mutants), its 40 units, and its 52 listed units (O8-CENSUS and its 5 mutants,
+#: O8-REGIONS and its 4, O8-GOALS and its 10, the route pins and route_mes with their 8, O8-BUILD's pins and raw exit on a
+#: synthetic build and its 3, the draft through O8-KEYS and its 16 offline mutants) when G45 joined. A case added raises
+#: N; one dropped falls under the floor.
+O8_DRYRUN_FLOOR = 219
 #: G38 (research/o7_design.md 1.4, from 9 B4): every ``test_o7_*``, ``test_fake_level_*``, ``test_fake_monologue_*`` and
 #: ``test_fake_patrol_*`` name, each with the step that adds it -- G38 joined the gate in the commit that added B4's
 #: tests.
@@ -944,6 +953,8 @@ REQUIRED_TESTS_O8: tuple = (
     "test_o8_tower_start_run_forgets_every_seeded_basis",
     "test_o8_tower_preflight_verdicts",
     "test_o8_tower_build_pins_hold_member_166_byte_identical_with_its_raw_field55",
+    # C2: the trace summary over the dry run's rows (its cases, units and the story-o3 fixture are G45's)
+    "test_o8_tower_trace_summary_cuts_at_end_places",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)
@@ -1077,11 +1088,11 @@ def cli_analyse() -> tuple:
 
 #: THE ITEMS, in the order the gate prints them -- the order G1-G33 have always been printed in, then O6's G34-G37
 #: (research/o7_design.md 1.4), O7's G38 (9 B4) and G39 (9 C2), O7's outputs G40-G43 (research/o8_design.md 1.4,
-#: 9 A0), and O8's G44 (9 B4), G21 last.
+#: 9 A0), and O8's G44 (9 B4) and G45 (9 C2), G21 last.
 ITEM_ORDER: tuple = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G12", "G13", "G14", "G15",
                      "G16", "G17", "G18", "G19", "G20", "G22", "G23", "G24", "G25", "G26", "G27", "G28", "G29", "G30",
                      "G31", "G32", "G33", "G34", "G35", "G36", "G37", "G38", "G39", "G40", "G41", "G42", "G43", "G44",
-                     "G21")
+                     "G45", "G21")
 #: Each segment's items (``--segment``). G21 is no segment's: the driver's pins over the O3-O7 baselines (``--only``).
 SEGMENT_ITEMS: dict = {"O1": ("G1", "G2", "G3", "G4", "G5", "G6", "G7"), "O2": ("G8", "G9", "G10", "G11", "G12"),
                        "O3": ("G13", "G14", "G15", "G16", "G17", "G18"),
@@ -1089,7 +1100,7 @@ SEGMENT_ITEMS: dict = {"O1": ("G1", "G2", "G3", "G4", "G5", "G6", "G7"), "O2": (
                        "O5": ("G26", "G27", "G28", "G29", "G30", "G31"),
                        "O6": ("G32", "G33", "G34", "G35", "G36", "G37"),
                        "O7": ("G38", "G39", "G40", "G41", "G42", "G43"),
-                       "O8": ("G44",)}
+                       "O8": ("G44", "G45")}
 #: The pytest items and their ``-k`` selections: ONE run of their union judges them all (:func:`pytest_items`).
 PYTEST_ITEMS: dict = {"G7": PYTEST_K, "G12": PYTEST_K_O2, "G13": PYTEST_K_O3, "G19": PYTEST_K_O4, "G26": PYTEST_K_O5,
                       "G32": PYTEST_K_O6, "G38": PYTEST_K_O7, "G44": PYTEST_K_O8}
@@ -1674,6 +1685,54 @@ def g39() -> tuple:
             bad.append(f"run_cases on {which} returned {rc}: {last!r}")
         elif int(m.group(2)) < O7_DRYRUN_FLOOR:
             bad.append(f"{last!r} on {which}: under the floor {O7_DRYRUN_FLOOR} -- a case or a unit was dropped")
+        seen.append((last, which))
+    if len(seen) == 2 and seen[0][0] != seen[1][0]:
+        bad.append(f"the two readings differ: {seen[0][0]!r} on {seen[0][1]}, {seen[1][0]!r} on {seen[1][1]}")
+    return not bad, what, "; ".join(bad) or "; ".join(f"{last} ({which})" for last, which in seen)
+
+
+# ======================================================================== what the O8 code says (G45)
+def _o8() -> tuple:
+    """``(o8_west_tower, o8_dryrun)``: imported here, never at the module's top, as the O2-O7 items import theirs."""
+    import o8_west_tower as O8m
+    import o8_dryrun as D8
+    return O8m, D8
+
+
+def o8_run_cases_quietly(*, as_if: bool = False) -> tuple:
+    """``(rc, last line, which predictions)``: ``o8_dryrun.run_cases`` on the frozen O8 predictions once they exist, else
+    on the draft (its own default) -- or, ``as_if``, on ``o8_dryrun.as_if_frozen`` of those -- its per-case lines
+    swallowed."""
+    O8m, D8 = _o8()
+    buf = io.StringIO()
+    path = O8m.PREDICTIONS if O8m.PREDICTIONS.is_file() else None
+    with contextlib.redirect_stdout(buf):
+        rc = D8.run_cases(path, as_if=as_if)
+    base = f"the frozen {path.name}" if path is not None else "the draft"
+    which = f"as_if_frozen({base})" if as_if else base
+    lines = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
+    return rc, (lines[-1] if lines else ""), which
+
+
+def g45() -> tuple:
+    """G45 (research/o8_design.md 1.4, 9 C2): O8's dry run, every case as registered, at least the floor -- on the frozen
+    predictions (else the draft) AND on as_if_frozen of them, the same N. The dry run reads the study's predictions files
+    only through ``frozen_through(8)`` (a later freeze cannot move it) and the story-o3 archive (the seam fixture: a
+    missing archive FAILS its entries, never skips)."""
+    what = (f"G45: o8_dryrun.run_cases returns 0, every case as registered, at least {O8_DRYRUN_FLOOR}, on the frozen O8 "
+            f"predictions once they exist (else the draft) and on as_if_frozen of them, the same N")
+    bad, seen = [], []
+    for as_if in (False, True):
+        try:
+            rc, last, which = o8_run_cases_quietly(as_if=as_if)
+        except Exception as err:                   # noqa: BLE001 -- a dry run that cannot run is a FAIL, said
+            bad.append(f"run_cases{' (as if frozen)' if as_if else ''} raised {type(err).__name__}: {str(err)[:300]}")
+            continue
+        m = re.fullmatch(r"(\d+)/(\d+) cases as registered", last)
+        if rc != 0 or m is None or m.group(1) != m.group(2):
+            bad.append(f"run_cases on {which} returned {rc}: {last!r}")
+        elif int(m.group(2)) < O8_DRYRUN_FLOOR:
+            bad.append(f"{last!r} on {which}: under the floor {O8_DRYRUN_FLOOR} -- a case or a unit was dropped")
         seen.append((last, which))
     if len(seen) == 2 and seen[0][0] != seen[1][0]:
         bad.append(f"the two readings differ: {seen[0][0]!r} on {seen[0][1]}, {seen[1][0]!r} on {seen[1][1]}")
@@ -3373,6 +3432,8 @@ def gate(baseline: Path = BASELINE, baseline_o2: Path = BASELINE_O2, baseline_o3
             take([g39()], "O7's dry run and as if frozen (G39)")    # no baseline, the count's floor (C2)
         if want("G40", "G41", "G42", "G43"):
             take(judge_o7(base_o7, collect_o7()), "O7's outputs (G40-G43)")
+        if want("G45"):
+            take([g45()], "O8's dry run and as if frozen (G45)")    # no baseline, the count's floor (C2)
         if want("G21"):                                          # the driver's source pins over five baselines
             try:
                 take([g21(union_base(base_o3, base_o4, base_o5, base_o6, base_o7), pins)], "the source pins (G21)")
@@ -3500,7 +3561,8 @@ def main(argv=None) -> int:
         missing = _missing(o1=not args.capture_o2, o2=not args.capture, o3=False)
     else:
         missing = _missing(o1=True, o2=True, o3=True, o3s=True, o4=True, o4s=True, o5=True, o5s=True, o6=True,
-                           o6s=True, o7=True, o7s=True, files=(args.baseline_o3, args.baseline_o4, args.baseline_o5,
+                           o6s=True, o7=True, o7s=True, o8=True, files=(args.baseline_o3, args.baseline_o4,
+                                                                         args.baseline_o5,
                                                                args.baseline_o6, args.baseline_o7, args.source_pins))
     if missing:
         print("!! the gate was not run -- missing: " + ", ".join(missing))

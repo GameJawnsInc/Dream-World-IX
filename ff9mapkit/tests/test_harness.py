@@ -26470,20 +26470,20 @@ def _harness_tests_module():
 
 def test_segment_regress_registry_holds_every_item_once():
     """The gate's registry (research/o7_design.md 1.4: renamed from ``..._items_are_g1_to_g33_once`` -- the name says
-    what it pins, not a range, so each extension edits its body; research/o8_design.md 1.4, 9 A0 extends it to G43 and
-    9 B4 to G44): ITEM_ORDER holds G1-G44 each once, printed as always (O6's G34-G37 after G33, then O7's G38 -- O7's 9
-    B4 -- and G39 -- O7's 9 C2 -- then O7's outputs G40-G43, then O8's G44 -- O8's 9 B4 --, G21 last); every segment's
-    items are in it and no item is two segments' (G21 is no segment's); the pytest items are G7, G12, G13, G19, G26, G32,
-    G38 and G44 with the selections the gate has always run (G44 O8's); select_items reads nothing as every item,
-    ``--only`` and ``--segment`` as the union of their items -- O6's six, G32 to G37; O7's six, G38 to G43; O8's G44
-    (G45 joins at O8's C2) -- and refuses an id or a segment there is none of (G46, O9 and a lower-case id: refused
-    through every later extension too). Break: drop an item from ITEM_ORDER (a full run would then pass without it), or
-    file one under two segments."""
+    what it pins, not a range, so each extension edits its body; research/o8_design.md 1.4, 9 A0 extends it to G43, 9 B4
+    to G44 and 9 C2 to G45): ITEM_ORDER holds G1-G45 each once, printed as always (O6's G34-G37 after G33, then O7's G38
+    -- O7's 9 B4 -- and G39 -- O7's 9 C2 -- then O7's outputs G40-G43, then O8's G44 -- O8's 9 B4 -- and G45 -- O8's 9
+    C2 --, G21 last); every segment's items are in it and no item is two segments' (G21 is no segment's); the pytest
+    items are G7, G12, G13, G19, G26, G32, G38 and G44 with the selections the gate has always run (G44 O8's; G45 is
+    in-process, no pytest item); select_items reads nothing as every item, ``--only`` and ``--segment`` as the union of
+    their items -- O6's six, G32 to G37; O7's six, G38 to G43; O8's G44 and G45 -- and refuses an id or a segment there
+    is none of (G46, O9 and a lower-case id: refused through every later extension too). Break: drop an item from
+    ITEM_ORDER (a full run would then pass without it), or file one under two segments."""
     R = _regress_module()
-    assert sorted(R.ITEM_ORDER, key=lambda i: int(i[1:])) == [f"G{n}" for n in range(1, 45)], R.ITEM_ORDER
-    assert len(set(R.ITEM_ORDER)) == 44 and R.ITEM_ORDER[-1] == "G21"
-    assert R.ITEM_ORDER[-12:-1] == ("G34", "G35", "G36", "G37", "G38", "G39", "G40", "G41", "G42", "G43", "G44"), \
-        R.ITEM_ORDER
+    assert sorted(R.ITEM_ORDER, key=lambda i: int(i[1:])) == [f"G{n}" for n in range(1, 46)], R.ITEM_ORDER
+    assert len(set(R.ITEM_ORDER)) == 45 and R.ITEM_ORDER[-1] == "G21"
+    assert R.ITEM_ORDER[-13:-1] == ("G34", "G35", "G36", "G37", "G38", "G39", "G40", "G41", "G42", "G43", "G44",
+                                    "G45"), R.ITEM_ORDER
     seg = [i for ids in R.SEGMENT_ITEMS.values() for i in ids]
     assert len(seg) == len(set(seg)) and set(seg) | {"G21"} == set(R.ITEM_ORDER), seg
     assert R.PYTEST_ITEMS == {"G7": R.PYTEST_K, "G12": R.PYTEST_K_O2, "G13": R.PYTEST_K_O3, "G19": R.PYTEST_K_O4,
@@ -26493,7 +26493,7 @@ def test_segment_regress_registry_holds_every_item_once():
     assert R.select_items((), ["O6"]) == {"G32", "G33", "G34", "G35", "G36", "G37"}
     assert R.select_items(["G21"], ["O6"]) == {"G21", "G32", "G33", "G34", "G35", "G36", "G37"}
     assert R.select_items((), ["O7"]) == {"G38", "G39", "G40", "G41", "G42", "G43"}
-    assert R.select_items((), ["O8"]) == {"G44"}
+    assert R.select_items((), ["O8"]) == {"G44", "G45"}
     for only, segs in ((["G46"], ()), ((), ["O9"]), (["g7"], ())):
         with pytest.raises(ValueError):
             R.select_items(only, segs)
@@ -30577,22 +30577,30 @@ def test_o7_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake(game):
 
 
 def test_segment_dryrun_globs_close_at_their_segment():
-    """A frozen segment's dry run reads the study's predictions files only through its OWN segment (o6_dryrun and
-    o7_dryrun ``frozen_through``): every rung's and O1-O<n>'s, never a later segment's -- so a later freeze cannot move
-    the dry run's output, which the regression gate compares byte for byte (O7's freeze moved O6's 'naming-of' unit,
-    20 -> 21 checks, and failed G36). Break: glob every file (O6's then reads O7's)."""
+    """A frozen segment's dry run reads the study's predictions files only through its OWN segment (o6_dryrun,
+    o7_dryrun and o8_dryrun ``frozen_through``): every rung's and O1-O<n>'s, never a later segment's -- so a later freeze
+    cannot move the dry run's output, which the regression gate compares byte for byte (O7's freeze moved O6's
+    'naming-of' unit, 20 -> 21 checks, and failed G36). O8's (research/o8_design.md 9 C2) holds O7's set and no o9+ file;
+    once o8_predictions_v1.json exists it is in eight and not in seven. Break: glob every file (O6's then reads O7's)."""
     _regress_module()
     import o6_dryrun as D6
     import o7_dryrun as D7
+    import o8_dryrun as D8
     here = REPO / "studies" / "story-trace"
     every = sorted(f.name for f in here.glob("*predictions*.json"))
     six, seven = [f.name for f in D6.frozen_through(6)], [f.name for f in D7.frozen_through(7)]
+    eight = [f.name for f in D8.frozen_through(8)]
     assert "o6_predictions_v1.json" in six and not [n for n in six if n.startswith(("o7_", "o8_", "o9_"))], six
-    assert any(n.startswith("rung") for n in six) and set(six) <= set(seven) <= set(every), (six, seven)
+    assert any(n.startswith("rung") for n in six) and set(six) <= set(seven) <= set(eight) <= set(every), \
+        (six, seven, eight)
     later = [n for n in every if n[:1] == "o" and n.split("_", 1)[0][1:].isdigit() and int(n.split("_", 1)[0][1:]) > 7]
     assert not set(later) & set(seven), seven
+    beyond = [n for n in every if n[:1] == "o" and n.split("_", 1)[0][1:].isdigit() and int(n.split("_", 1)[0][1:]) > 8]
+    assert not set(beyond) & set(eight), eight
     if (here / "o7_predictions_v1.json").is_file():
         assert "o7_predictions_v1.json" in seven and "o7_predictions_v1.json" not in six
+    if (here / "o8_predictions_v1.json").is_file():
+        assert "o8_predictions_v1.json" in eight and "o8_predictions_v1.json" not in seven
 
 
 # ---- O8, PART A (research/o8_design.md section 9): the regression gate extended to O7 (G40-G43, G21 over the union of
@@ -33725,3 +33733,50 @@ def test_o8_tower_build_pins_hold_member_166_byte_identical_with_its_raw_field55
         pytest.skip("O4's build unavailable")
     ok, _w, detail = O.O8.build_check(O.O8.draft())                 # the real chain's members and names
     assert ok and "31258 is 166 byte for byte with e6 t1 ip871 Field(55) raw (7 member files)" in detail, detail
+
+
+# ---- PART C, C2: the dry run's trace summary (research/o8_design.md 7.2, section 8's unit; O4's lesson), and the dry
+# run's cases, units and the story-o3 seam fixture through G45.
+
+def test_o8_tower_trace_summary_cuts_at_end_places(o8_stock, tmp_path):
+    """O8's trace summary (research/o8_design.md 7.2) over the dry run's rendered rows (o8_dryrun.render: real store
+    sites, the sink over the raw warp's start values). A base S run reads the chain 3/3, writes 20/20, the error path,
+    forbidden and dead sites absent; the two crossings -- 164 ip243 into 165 e0 t0 ip22, 165 ip233 into 166 e0 t0 ip22
+    -- and 166 ip863 into the cut REAL 55 e0 t0 ip22; THE KNIGHT's ip230 (frame 2650) before the chain row ip243 by line;
+    the movie's rows ip502 and ip863; Int16[2]'s and Byte[8]'s last pre-cut rows 166 ip863 (110) and ip502 (0); both
+    start reads' olds (125 and 1); 4.16's pattern exactly (9 + 9 + 11, no c row); no unregistered key, no join failure;
+    the FOUR start residue rows (342 = 0x0156). The F run is cut at REAL 55 by its end PLACES (55 is no member: the
+    same row on both sides) with its digest's ONE seam, 31258 -> 55 [55] -- while O3's summary, given the end FIELDS
+    [31205] (O1's member(55): the field no O8 run enters), is not cut at all. Break: the cut row read off the KEPT rows
+    (it lies past the cut: none)."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    P = __import__("o3_prima_vista")
+    pred = _o8_draft(tmp_path)
+    members = {int(f): d for f, d in pred["members"].items()}
+    t = O.trace_summary8(D._rows(D.base_events()), pred, stock=o8_stock)
+    reg = {k: (sum(1 for x in v if x["present"]), len(v)) for k, v in t["registered"].items()}
+    assert reg == {"chain": (3, 3), "writes": (20, 20), "error_path": (0, 10), "forbidden_sites": (0, 7),
+                   "dead": (0, 15)}, reg
+    assert [(c["exit"], c["next"] or c["cut"]) for c in t["crossings"]] == [
+        ("164 e2 t2 ip243 Global.Int16[2]=343", "165 e0 t0 ip22 Global.Bit[191]=0"),
+        ("165 e2 t2 ip233 Global.Int16[2]=344", "166 e0 t0 ip22 Global.Bit[191]=0"),
+        ("166 e6 t1 ip863 Global.Int16[2]=110", "55 e0 t0 ip22 Global.Bit[191]=0")], t["crossings"]
+    kn = t["knight"]
+    assert kn["ip230"]["f"] == D.F_KNIGHT and kn["ip230"]["line"] < kn["chain"]["line"], kn
+    assert (t["movie"]["ip502"]["f"], t["movie"]["ip863"]["f"]) == (D.F_502, D.F_863), t["movie"]
+    assert {k: (v or {}).get("row") for k, v in t["raced"].items()} == {
+        "Global.Int16[2]": "166 e6 t1 ip863 Global.Int16[2]=110",
+        "Global.Byte[8]": "166 e6 t1 ip502 Global.Byte[8]=0"}, t["raced"]
+    assert sorted((x["old"], x["new"]) for x in t["start_reads"]) == [(1, 1), (125, 125)], t["start_reads"]
+    assert [len(v) for v in t["pattern"]["visits"]] == [9, 9, 11] and t["pattern"]["counts"] == []
+    assert t["end_places"] == [55] and t["cut_row"]["fld"] == 55 and "e0 t0 ip22" in t["cut_row"]["text"], t["cut_row"]
+    assert t["unregistered"] == [] and t["failures"] == [], (t["unregistered"], t["failures"])
+    assert [x[1:] for x in t["residue_before"]] == [[0, 0, 166], [1, 0, 4], [2, 0, 86], [3, 0, 1]], t["residue_before"]
+    frows = D._rows(D.base_events(), "F", members)
+    tf = O.trace_summary8(frows, pred, side="F", stock=o8_stock)
+    first55 = next(x.line for x in frows if x.k in ("w", "r") and x.fld == 55)
+    assert tf["end"] == first55 and tf["end_places"] == [55], tf["end"]
+    assert [(s_["frm"], s_["to"], s_["fields"]) for s_ in tf["seams"]] == [(31258, 55, [55])], tf["seams"]
+    assert tf["crossings"][-1]["exit"].startswith("31258 e6 t1 ip863"), tf["crossings"]
+    assert P.trace_summary(frows, pred, side="F", end_fields=[31205], stock=o8_stock)["end"] is None
