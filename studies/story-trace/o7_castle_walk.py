@@ -3009,22 +3009,126 @@ def _grants_lines(rec: dict) -> list:
     out = []
     for gr in rec.get("grants") or ():
         out.append(f"    grant in {gr.get('field')} frame {gr.get('frame')} at ({gr.get('x')}, {gr.get('z')}) y "
-                   f"{gr.get('y')}; objects (sid, x, z) {[(o.get('sid'), o.get('x'), o.get('z')) for o in gr.get('objects') or ()]}")
+                   f"{gr.get('y')}; objects (sid, x, z) "
+                   f"{[(o.get('sid'), o.get('x'), o.get('z')) for o in gr.get('objects') or ()]}")
     return out or ["    grants: none recorded"]
 
 
-def rehearsal_report(run_dir) -> str:
+def _stock_floor(fid):
+    """Stock field ``fid``'s player walkmesh from the install (read-only), or None (no install, no such field)."""
+    try:
+        from ff9mapkit import extract
+        from ff9mapkit.content import pathfind
+        return pathfind.PlayerWalkmesh(extract.stock_walkmesh(int(fid)))
+    except Exception:                                          # noqa: BLE001 -- a report, never a failure
+        return None
+
+
+def foot_gap(samples, wmesh):
+    """THE MEASURED SQUEEZE (research/o7_design.md 7.1 R-STAIR, F5), pure but for the mesh: the narrowest wall gap among
+    a foot hold's samples (``[frame, x, y, z]``, his published y up positive) on ``wmesh`` -- LEVEL-AWARE, as foot163.py
+    measured it: harness.fakegame.Levels.wall_gap, the walls of his level at his PSX height -y -- rounded, or None (no
+    sample on a level of the mesh). The radius less it is SQUEEZE_SLACK_W's evidence."""
+    from harness.fakegame import Levels
+    lv = Levels(wmesh)
+    best = None
+    for s in samples or ():
+        _f, x, y, z = s
+        if x is None or y is None or z is None:
+            continue
+        gap = lv.wall_gap(float(x), float(z), -float(y))
+        if gap is None or math.isinf(gap):
+            continue
+        best = gap if best is None else min(best, gap)
+    return None if best is None else round(best, 1)
+
+
+def _squeeze_lines(sq: dict, floor) -> list:
+    """THE SQUEEZE of one run (7.2, F5): its holds, the foot window's with the narrowest wall gap each passed --
+    measured here on ``floor(place)`` (:func:`foot_gap`) -- every rung after a hold elsewhere (recorded, never judged)
+    and F5's verdict."""
+    if not sq:
+        return []
+    feet = list(sq.get("foot_holds") or ())
+    mesh = floor(sq.get("place")) if feet else None
+    gaps = [None if mesh is None else foot_gap(h.get("samples"), mesh) for h in feet]
+    measured = [x for x in gaps if x is not None]
+    narrowest = (min(measured) if measured else "none (no foot hold)" if not feet else
+                 "unmeasured (no stock mesh here)" if mesh is None else "unmeasured (no sample on a level)")
+    win = sq.get("window") or {}
+    L = [f"    squeeze in {sq.get('place')}: {len(sq.get('holds') or [])} hold(s), {len(feet)} in THE FOOT WINDOW (x "
+         f"{win.get('x')}, z {win.get('z')}); the narrowest wall gap a foot hold passed {narrowest} (the stock mesh, "
+         f"level-aware: SQUEEZE_SLACK_W's evidence); F5 {sq.get('f5')}"]
+    for h, gap in zip(feet, gaps):
+        L.append(f"      foot hold frame {h.get('frame')}: {h.get('from')} -> {h.get('to')} pressed {h.get('pressed')} "
+                 f"travelled {h.get('moved')} slide {h.get('slide')} stall {h.get('stall')}; narrowest gap {gap}")
+    for x in sq.get("elsewhere") or ():
+        L.append(f"      a rung elsewhere on the stair at frame {x.get('frame')} ({x.get('x')}, {x.get('z')}): "
+                 f"{x.get('rungs')} ({x.get('outcome')}) -- recorded, never judged")
+    return L
+
+
+def _monologue_lines7(mono: dict) -> list:
+    """THE MONOLOGUE of one run (7.2, F3)."""
+    if not mono:
+        return []
+    inter = [(r.get("attempt"), (r.get("lost") or {}).get("frame"), (r.get("lost") or {}).get("x"),
+              (r.get("lost") or {}).get("z")) for r in mono.get("interrupted") or ()]
+    pages = [(p.get("text", "")[:24], p.get("frame"), p.get("gone_frame")) for p in mono.get("pages") or ()]
+    confirms = [(c.get("seq"), c.get("decision_frame"), c.get("accepted_frame"), c.get("down_frame"))
+                for c in mono.get("confirms") or ()]
+    return [f"    monologue in {mono.get('place')}: interrupted (attempt, loss frame, x, z) {inter}",
+            f"      pages (text, first, gone) {pages}",
+            f"      Confirms (seq, decided, accepted, down) {confirms}",
+            f"      rows {[(x.get('site'), x.get('f')) for x in mono.get('rows') or ()]}; re-grant {mono.get('regrant')}; "
+            f"re-run {mono.get('rerun')}"]
+
+
+def _stop_lines(rec: dict) -> list:
+    """A run's stop (7.1 R-WALK-VOID, F9): where it fired and what was sent around it."""
+    L = []
+    st = rec.get("hold_stop", ...)
+    if st is not ...:
+        L.append("    hold stop: never fired" if st is None else
+                 f"    hold stop: frame {st.get('frame')} in {st.get('field')} at ({st.get('x')}, {st.get('z')}) y "
+                 f"{st.get('y')} -- {st.get('why')}; walk holds of {st.get('place')} #{st.get('n')} before it "
+                 f"{st.get('walk_holds_before')}; after it {st.get('holds_after')} hold(s) and {st.get('presses_after')} "
+                 f"press(es) (there must be none)")
+    st = rec.get("page_stop", ...)
+    if st is not ...:
+        L.append("    page stop: never fired" if st is None else
+                 f"    page stop: frame {st.get('frame')} in {st.get('field')} (ui {st.get('ui')}) at ({st.get('x')}, "
+                 f"{st.get('z')}), {len(st.get('texts') or [])} window(s) listed -- {st.get('why')}; Confirms before it "
+                 f"{st.get('presses_before')}; after it {st.get('holds_after')} hold(s) and {st.get('presses_after')} "
+                 f"press(es) (there must be none)")
+    return L
+
+
+def _warp_text(stage: dict) -> str:
+    """A stage's warp as the report heads it: one, or -- a stage with ``each`` -- each run's with its stop."""
+    each = stage.get("each")
+    if not each:
+        return f"warp {stage.get('field')} {stage.get('entrance')} {stage.get('sc')} -> {stage.get('end')}"
+    return "; ".join(f"run {k}: warp {e.get('field')} {e.get('entrance')} {stage.get('sc')} -> {e.get('end')}"
+                     + "".join(f", {key} {e[key]}" for key in ("hold_stop", "page_stop") if e.get(key))
+                     for k, e in enumerate(each, 1))
+
+
+def rehearsal_report(run_dir, *, walkmesh=None) -> str:
     """``--rehearsal-report``: an o7_rehearse.py launch's ``o7_rehearsal.json`` (research/o7_design.md 7.2), stage by
     stage and run by run -- what each freeze item (7.3) is read from: the capabilities and the launch's readings (F10);
-    per run its outcome and render rate (F14), the grants with their published y (F1), the bases and every
-    ``basis_check`` (F2, F4), the walks' step rows, THE DESCENT and THE LADDER TAP's rungs with the holds they followed
-    (F2, F5), the squeeze in THE FOOT WINDOW and F5's verdict for the run, Dojebon (seen / moved / UNOBSERVED: F2), the
+    per run its warp, outcome and render rate (F14), the grants with their published y (F1), THE LEVELS, the bases and
+    every ``basis_check`` (F2, F4), the step rows, THE DESCENT and THE LADDER's rungs with the holds they followed (F2,
+    F5), THE SQUEEZE in THE FOOT WINDOW -- the narrowest wall gap a foot hold passed MEASURED HERE on the stock mesh,
+    level-aware (:func:`foot_gap`) -- and F5's verdict for the run, Dojebon (seen / moved / UNOBSERVED: F2), the
     monologue (F3), the evidence (F11), the trace summary (F6, F7), the stops (F9) and an untraced run's exceptions
-    (F13); F-SMOKE's warps and twins (F12)."""
+    (F13); F-SMOKE's warps and twins (F12). ``walkmesh`` (a place -> its walkmesh; default the install's stock player
+    walkmesh, read-only) is a seam for the fake."""
     run_dir = Path(run_dir)
+    floor = walkmesh or _stock_floor
     doc = json.loads((run_dir / REHEARSAL_FILE).read_text(encoding="utf-8"))
     L = [f"O7 rehearsals -- {run_dir.name}  (draft sha {str(doc.get('draft_sha256'))[:8]}; stages "
-         f"{doc.get('stages_run')})"]
+         f"{doc.get('stages_run')}; THE FOOT WINDOW {doc.get('foot')})"]
     L += [f"  {'PASS' if ok else 'FAIL'}  {what} -- {detail}" for ok, what, detail in doc.get("capabilities") or ()]
     launch = doc.get("launch") or {}
     if launch:
@@ -3041,63 +3145,59 @@ def rehearsal_report(run_dir) -> str:
             L += C5._smoke_lines(name, stage, recs, (doc.get("twins") or {}).get(name))
             L.append("")
             continue
-        L.append(f"== {name}: warp {stage.get('field')} {stage.get('entrance')} {stage.get('sc')} -> {stage.get('end')}"
-                 + (" UNTRACED" if stage.get("untraced") else "")
-                 + (f", hold_stop {stage.get('hold_stop')}" if stage.get("hold_stop") else "")
-                 + (f", page_stop {stage.get('page_stop')}" if stage.get("page_stop") else "")
+        L.append(f"== {name}: {_warp_text(stage)}" + (" UNTRACED" if stage.get("untraced") else "")
                  + f"  ({len(recs)} run(s)) -- settles: {stage.get('settles')}")
         for rec in recs:
             out = rec.get("outcome") or {}
             rate = rec.get("rate") or {}
-            L.append(f"  run {rec.get('n')} ({rec.get('side', 'S')}): {out.get('end')} -- {out.get('why')}"
+            w = rec.get("warp") or {}
+            L.append(f"  run {rec.get('n')} ({rec.get('side', 'S')}): warp {w.get('field')} {w.get('entrance')} "
+                     f"{w.get('sc')}: {out.get('end')} -- {out.get('why')}"
                      + (f" [{out.get('v')} {out.get('cell')} {out.get('by')}]" if out.get("v") else "")
-                     + f"; beats {rec.get('beats')}; {rec.get('t1', 0) - rec.get('t0', 0):.0f}s; "
-                     f"{rate.get('fps')} fps; trace {rec.get('trace_file')}")
+                     + f"; beats {rec.get('beats')}; {rec.get('t1', 0) - rec.get('t0', 0):.0f}s; render rate "
+                     f"{rate.get('fps')} fps ({rate.get('tick_hz')} Hz ticks, {rate.get('source')}); trace "
+                     f"{rec.get('trace_file')}")
             L += _grants_lines(rec)
+            lv = rec.get("levels") or {}
+            if lv:
+                L.append(f"    levels: grants y {[g[2] for g in lv.get('grants') or ()]}; losses y "
+                         f"{[x[2] for x in lv.get('losses') or ()]}; walk holds y0 -> y1 "
+                         f"{[(h[2], h[3]) for h in lv.get('walk_holds') or ()][:12]}")
             for b in rec.get("bases") or ():
-                L.append(f"    basis {b.get('field')} ({b.get('donor')}, visit {b.get('visit')}) #{b.get('n')}: "
-                         f"{b.get('basis')}" + (f", basis_check {b.get('check')}" if b.get("check") else ""))
+                L.append(f"    basis {b.get('field')} ({b.get('donor')}, visit {b.get('visit')}) #{b.get('n')} attempt "
+                         f"{b.get('attempt')}: {b.get('basis')}"
+                         + (f", basis_check {b.get('check')}" if b.get("check") else "")
+                         + (f", prior_basis {b.get('prior_basis')}" if b.get("prior_basis") else ""))
             for s in rec.get("steps") or ():
                 L.append(f"    step ({s.get('donor')}, visit {s.get('visit')}) #{s.get('n')} {s.get('kind')} attempt "
                          f"{s.get('attempt')} {s.get('outcome')}: to {s.get('to')}, loss {s.get('lost')}, landed "
-                         f"{s.get('landed')}, flip {s.get('flip_frame')}, clearance {s.get('clearance')}"
+                         f"{s.get('landed')}, flip {s.get('flip_frame')}, clearance {s.get('clearance')}, route fps "
+                         f"{((s.get('route') or {}).get('fps') or {}).get('fps')}"
                          + (f", door {s.get('door')}" if s.get("door") else "")
                          + (f" -- {s.get('why')}" if s.get("why") else ""))
             for h in (rec.get("descent") or {}).get("holds") or ():
                 L.append(f"    descent hold frame {h.get('frame')}: {h.get('from')} -> {h.get('to')} predicted reach "
-                         f"{h.get('reach')} travelled {h.get('moved')} slide {h.get('slide')} y {h.get('y0')} -> "
-                         f"{h.get('y1')}")
+                         f"{h.get('reach')} travelled {h.get('moved')} off the leg {h.get('off_leg')} slide "
+                         f"{h.get('slide')} y {h.get('y0')} -> {h.get('y1')}")
             for x in rec.get("ladder") or ():
-                L.append(f"    ladder rung {x.get('outcome')} in {x.get('field')} at frame {x.get('frame')} "
-                         f"({x.get('x')}, {x.get('z')}) after the hold {x.get('after_hold')}"
-                         + (" -- IN THE FOOT WINDOW" if x.get("foot") else ""))
-            sq = rec.get("squeeze") or {}
-            if sq:
-                L.append(f"    squeeze: {len(sq.get('holds') or [])} hold(s) in 163, {len(sq.get('foot_holds') or [])} "
-                         f"in THE FOOT WINDOW; the narrowest gap a foot hold passed {sq.get('narrowest')}; F5 "
-                         f"{sq.get('f5')}")
+                L.append(f"    ladder at frame {x.get('frame')} in {x.get('field')} ({x.get('x')}, {x.get('z')}): rungs "
+                         f"{x.get('rungs')} ({x.get('outcome')}) after the hold from {x.get('after_hold')}; step "
+                         f"{x.get('step')}" + (" -- IN THE FOOT WINDOW" if x.get("foot") else ""))
+            L += _squeeze_lines(rec.get("squeeze") or {}, floor)
             dj = rec.get("dojebon") or {}
             if dj:
-                L.append(f"    Dojebon: " + ("UNOBSERVED (no reading in 154)" if not dj.get("seen") else
-                                             f"seen {dj.get('seen')}") + f"; moved {dj.get('moved') or 'none'}; "
-                         f"{len(dj.get('polls') or [])} poll reading(s), distinct positions "
-                         f"{sorted({tuple(p[1:]) for p in dj.get('polls') or ()})[:4]}")
-            mono = rec.get("monologue") or {}
-            if mono:
-                L.append(f"    monologue: the interrupted row {mono.get('interrupted')}; pages {mono.get('pages')}; "
-                         f"Confirms {mono.get('confirms')}; rows {mono.get('rows')}; re-grant {mono.get('regrant')}")
+                L.append(f"    {dj.get('name') or 'the static object'}: "
+                         + ("UNOBSERVED (no reading in its place)" if not dj.get("seen") else f"seen {dj.get('seen')}")
+                         + f"; moved {dj.get('moved') or 'none'}; {len(dj.get('polls') or [])} poll reading(s), distinct "
+                         f"positions {sorted({tuple(p[1:]) for p in dj.get('polls') or ()})[:4]}")
+            L += _monologue_lines7(rec.get("monologue") or {})
             ev = rec.get("evidence") or {}
             L.append(f"    evidence: {len(ev.get('press') or [])} press row(s), {len(ev.get('forbidden') or [])} "
                      f"forbidden row(s), {len(ev.get('observed') or [])} observed row(s), {len(ev.get('input') or [])} "
                      f"input row(s)")
             npg = rec.get("no_progress") or {}
             L.append(f"    longest no-progress stretch: {npg.get('longest_s')}s at {npg.get('where')}")
-            for key, word in (("hold_stop", "hold stop"), ("page_stop", "page stop")):
-                st = rec.get(key, ...)
-                if st is not ...:
-                    L.append(f"    {word}: " + ("never fired" if st is None else
-                                                 f"frame {st.get('frame')} at ({st.get('x')}, {st.get('z')}) -- "
-                                                 f"{st.get('why')}; holds after it {st.get('holds_after')}"))
+            L += _stop_lines(rec)
             if not rec.get("traced", True):
                 L.append(f"    untraced: exceptions since the warp {rec.get('exceptions')}; Memoria.log lines "
                          f"{len(rec.get('log_lines') or [])}")

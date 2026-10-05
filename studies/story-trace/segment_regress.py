@@ -806,6 +806,18 @@ REQUIRED_TESTS_O7: tuple = (
     "test_o7_castle_preflight_verdicts",
     # C2: the trace summary cut at end PLACES (the dry run's unit; G39 runs the dry run itself)
     "test_o7_castle_trace_summary_cuts_at_end_places",
+    # C3: the rehearsals on the fake -- the stage table's ids from the chain, R-FULL's record (every 7.2 section), the
+    # two stops (mid-walk, mid-monologue), Dojebon and the rates, every run's first move judged (the reseed), THE LADDER
+    # TAP and F5, the smoke and the untraced F pass
+    "test_o7_rehearsal_stage_ids_follow_the_chain",
+    "test_o7_rehearsal_plumbing_on_the_fake",
+    "test_o7_rehearsal_walk_void_stops_mid_walk_on_the_fake",
+    "test_o7_rehearsal_walk_void_stops_mid_monologue_on_the_fake",
+    "test_o7_rehearsal_records_dojebon_and_the_rates_on_the_fake",
+    "test_o7_rehearsal_judges_every_runs_first_move_on_the_fake",
+    "test_o7_rehearsal_places_the_ladder_rungs_on_the_fake",
+    "test_o7_rehearsal_smoke_sends_no_storytrace_on_the_fake",
+    "test_o7_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)
