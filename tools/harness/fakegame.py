@@ -416,6 +416,12 @@ class FakeGame:
         #: in the game. Placed nearer a wall than that (a scene's own spot), his first moving frame pushes him
         #: straight out onto the line, as the engine's does (:meth:`_pushed_out`).
         self.clearance: float | None = None
+        #: H26 (research/o8_design.md 3.1), OPT-IN: the clearance PER FIELD -- ``{field id: radius}``, read through
+        #: :meth:`_clearance` wherever a step reads `clearance` (the levels' radius rule, the never-closer rule, H21's
+        #: squeeze and the push-out). Empty (the default): every field walks at `clearance`, today's one value. One run
+        #: crosses fields whose controllers differ -- 164's Steiner is radius 80 (DoEventCode.cs:1507-1508, through
+        #: EffectiveFieldId), 165's 120.
+        self.clearances: dict = {}
         #: H20 (research/o7_design.md 3.1), OPT-IN: a STACKED walkmesh's levels, by field id -- ``{field id:
         #: Levels}``. Empty (the default): today's fake. On a field with an entry, :meth:`_move_to` keeps him on ONE
         #: level of it (the open triangle under him within a step of his height), walls him in by his own level's walls
@@ -1621,8 +1627,10 @@ class FakeGame:
         and his height is published after the step (``player[1]``, minus the height there); `clearance` is required.
         H21 (3.2): with the level's ``squeeze_slack``, a PINCH -- a corridor with no point across it at `clearance` --
         is passed down to ``clearance - squeeze_slack`` (:meth:`Levels.squeeze`), where the engine's opposing pushes
-        average out at its midline."""
+        average out at its midline. H26 (research/o8_design.md 3.1), OPT-IN: every rule here reads THIS field's
+        clearance (:meth:`_clearance`, read once a step): `clearances`' entry for the field, else `clearance`."""
         ox, oz = self.player[0], self.player[2]
+        ax, az = x - ox, z - oz                     # the step as pressed (H21's refused step reads it)
         if (x, z) != (ox, oz):
             m = ((x - ox) ** 2 + (z - oz) ** 2) ** 0.5
             self._facing = ((x - ox) / m, (z - oz) / m)
@@ -1649,11 +1657,12 @@ class FakeGame:
             break                                   # WalkMesh.Collision answers with ONE body
         on = getattr(self.walkmesh, "point_on_walkmesh", None)
         lv = self.levels.get(self.field_id)         # H20 (opt-in): his level of a stacked walkmesh
+        clearance = self._clearance()               # H26 (opt-in): THIS field's radius, else the one value
         h = None
-        if lv is not None and self.clearance is None:
+        if lv is not None and clearance is None:
             raise ValueError(f"fake.levels[{self.field_id}]: a level is walked at the controller's radius -- set "
-                             f"fake.clearance (Steiner's: 120)")
-        if lv is not None or (on is not None and self.clearance is not None):
+                             f"fake.clearance (Steiner's: 120) or fake.clearances[{self.field_id}]")
+        if lv is not None or (on is not None and clearance is not None):
             # his centre kept `clearance` off every wall -- pushed out onto that line where he stands closer (placed
             # there), or, where no push lands him on it, never closer still: the step stops on that line, and its
             # rest slides on along the wall
@@ -1669,7 +1678,7 @@ class FakeGame:
                     return -1.0 if d is None or on(int(round(px)), int(round(pz))) is None else d
             squeeze = lv is not None and lv.squeeze_slack is not None     # H21 (opt-in)
             squeezed = False
-            least = max(0.0, min(self.clearance, wall(ox, oz)))     # off the mesh (an arrival): onto it
+            least = max(0.0, min(clearance, wall(ox, oz)))          # off the mesh (an arrival): onto it
 
             def floor(px, pz):
                 return wall(px, pz) >= least
@@ -1701,12 +1710,12 @@ class FakeGame:
                     # H21: neither the never-closer rule nor a slide stands -- in a PINCH (no point across the step's
                     # end at full clearance) the opposing pushes average out at its midline: placed there when the
                     # pinch is no narrower than clearance - squeeze_slack a side; else he stops, as ever
-                    got = lv.squeeze(ex, ez, ex - ox, ez - oz, h, self.clearance)
+                    got = lv.squeeze(ex, ez, ex - ox, ez - oz, h, clearance)
                     if got is not None:
                         x, z = got
                         squeezed = True
-            if not squeezed and 0.0 <= wall(ox, oz) < self.clearance and 0.0 <= wall(x, z) < self.clearance:
-                got = lv.squeeze(x, z, x - ox, z - oz, h, self.clearance) if squeeze else None
+            if not squeezed and 0.0 <= wall(ox, oz) < clearance and 0.0 <= wall(x, z) < clearance:
+                got = lv.squeeze(x, z, x - ox, z - oz, h, clearance) if squeeze else None
                 if got is not None:
                     # H21: inside a pinch his place is its midline, where the pushes balance -- never pushed back out
                     # of it along the corridor to a spot at full clearance
@@ -1715,7 +1724,18 @@ class FakeGame:
                     # placed nearer a wall than his radius (a scene's own spot): where the step ends -- kept on the
                     # floor above, as the engine's triangle walk keeps it -- is pushed straight out onto the radius
                     # line, as the engine pushes it on his first moving frame
-                    x, z = self._pushed_out(x, z, wall) or (x, z)
+                    got = self._pushed_out(x, z, wall)
+                    if (squeeze and got is not None and (got[0] - ox) * ax + (got[1] - oz) * az < 0
+                            and lv.squeeze(ox, oz, ax, az, h, clearance) is not None):
+                        # H21 at a pinch NARROWER than its bound (research/o8_design.md 11.4 PART B, #1): standing on a
+                        # pinch's midline (he fits where he stands), a step that no squeeze places further in is pushed
+                        # out BEHIND where it started, against the press -- back out of the pinch along the corridor,
+                        # then squeezed in again on the next press: a jitter at its mouth, never a stop. The engine
+                        # refuses that step (IsRadiusValid fails; a pushed position across a wall is rejected:
+                        # FieldMapActorController.cs:975-993, 1188-1254): he stays where he stands -- he stops, as
+                        # Levels.squeeze says
+                        got = (ox, oz)
+                    x, z = got or (x, z)
         elif on is not None:
             # a real walkmesh: his centre must stand on it -- a step off keeps whichever one axis of it
             # still does (a crude slide along the edge), or he stays put
@@ -1749,19 +1769,27 @@ class FakeGame:
         ti = None if lv is None else lv.tri_nearest(x, z, h)
         self.player[1] = -float(h) if ti is None else -lv.height(ti, x, z)
 
+    def _clearance(self) -> float | None:
+        """H26 (research/o8_design.md 3.1): the engine radius his centre keeps off a wall in THIS field -- the field's
+        entry in ``clearances``, else ``clearance`` (today's one value). 164's Steiner is radius 80 (DoEventCode.cs:
+        1507-1508, through EffectiveFieldId), 165's 120."""
+        return self.clearances.get(self.field_id, self.clearance)
+
     def _pushed_out(self, x: float, z: float, wall):
         """Where the engine's push off the walls puts a centre standing nearer one than his radius: straight away from
         it, onto the radius line (FieldMapActorController.RadiusValid -> ServiceForces: one force lands it exactly
         there, several are averaged). Modelled as the move to ``clearance`` off every wall along whichever of 64
         bearings stands it furthest off them, over floor all the way -- again from there while a second wall holds
         it (a corner: 352's pocket between strip and back wall takes five). None when no bearing gets further out:
-        the caller keeps its never-closer-still rule."""
+        the caller keeps its never-closer-still rule. H26 (research/o8_design.md 3.1): THIS field's clearance
+        (:meth:`_clearance`)."""
         import math
+        clearance = self._clearance()
         for _ in range(16):                         # each round nearer the line, or it gives up
             d = wall(x, z)
-            if d >= self.clearance:
+            if d >= clearance:
                 return x, z
-            r = self.clearance - d + 0.5
+            r = clearance - d + 0.5
             best = None
             for k in range(64):
                 ux, uz = math.cos(k * math.pi / 32), math.sin(k * math.pi / 32)
@@ -1773,7 +1801,7 @@ class FakeGame:
             if best is None or best[0] <= d:
                 return None
             x, z = best[1], best[2]
-        return (x, z) if wall(x, z) >= self.clearance else None
+        return (x, z) if wall(x, z) >= clearance else None
 
     def _lock_fallback(self, calls: float) -> None:
         """FieldMapActorController.CheckCollFallback, ``calls`` times over: while SCollTimer runs, count

@@ -31636,3 +31636,208 @@ def test_segment_unstick_false_places_no_blocker_on_a_stall_on_the_fake(game):
     assert calls == 0 and (route["waits"], route["pushes"], route["blockers"]) == (0, 0, []), seen[False]
     calls, route = seen[True]
     assert calls >= 1 and route["waits"] >= 1 and route["pushes"] >= 1 and route["frozen"], seen[True]
+
+
+# ---- B1: H26 (research/o8_design.md 3.1) -- THE PER-FIELD CLEARANCE: ``fake.clearances {field id: radius}`` read
+# through ``FakeGame._clearance`` wherever a step reads the clearance (the levels' radius rule, the never-closer rule,
+# H21's squeeze, the push-out), the global ``fake.clearance`` its default -- 164's Steiner walks at radius 80
+# (DoEventCode.cs:1507-1508), 165's at 120, in one run. And THE SPIRALS' MESHES (3.3): stock 164 and 165 under H20's
+# levels, Steiner placed on loop 1 by the bytes' MoveInstantXZY heights, and THE PINCH (2.5) on 164 #1's plan at
+# clearance 64: passed with ``squeeze_slack`` 12, stopped at its mouth with 8. Stepped BY HAND (``_lv_fake``: 60 fps,
+# mean ticks, no trace).
+
+#: 164's and 165's spawns (each Main_Init's grant point), P1s (each step 0's goal) and each step 1's goal
+#: (research/o8_design.md 2.4); the bytes' MoveInstantXZY y operands at the spawns (164 e7 t0 ip89's Map.Int16[2] 59889 =
+#: -5647; 165 e7 t0 ip81's 55017 = -10519): PSX y, up negative.
+_O8_SPAWN = {"164": (2040, 3335), "165": (2055, 3411)}
+_O8_SPAWN_Y = {"164": -5647, "165": -10519}
+_O8_P1 = {"164": (1342, 2252), "165": (1508, 4698)}
+_O8_GOAL1 = {"164": (59, 2214), "165": (2489, 3166)}
+#: Each step's height band (research/o8_design.md 2.4: PSX y, up negative) -- its closures every open triangle whose
+#: centroid lies outside it (:func:`_o8_band_closures`).
+_O8_BANDS = {("164", 0): (-9500, -4700), ("164", 1): (-13100, -8700), ("165", 0): (-11800, -9500),
+             ("165", 1): (-16000, -11000)}
+#: 164's Steiner radius (DoEventCode.cs:1507-1508: SetObjectLogicalSize's 30 made 20 on 164, x 4), and THE PINCH
+#: WINDOW on it (research/o8_design.md 1.3: x, z and his PUBLISHED y -- loop 1 crosses the same XZ at ~5600-5900).
+_O8_RADIUS164 = 80.0
+_O8_PINCH = {"x": (900.0, 1310.0), "z": (4460.0, 4600.0), "y": (10400.0, 11100.0)}
+#: THE PINCH's narrowest point on 164 #1's plan (half-width 68.6, PSX -10695) and the plan's waypoint past it.
+_O8_PINCH_AT = (1202.0, 4520.0)
+_O8_PINCH_PAST = (894.0, 4588.0)
+
+
+def _o8_band_closures(pw, lo, hi) -> list:
+    """research/o8_design.md 1.3's ``band_closures``, test-side (C1's own must equal it): every OPEN triangle of ``pw``
+    (a PlayerWalkmesh: its mask-closed ones aside) whose centroid's PSX y lies outside [``lo``, ``hi``] -- a step's
+    floor cut to its one level. Sorted."""
+    mesh = getattr(pw, "mesh", pw)
+    closed = getattr(pw, "closed", frozenset())
+    wv, tris = mesh.world_verts(), mesh.tris
+    return sorted(i for i in range(len(tris)) if i not in closed
+                  and not lo <= sum(wv[k][1] for k in tris[i].vtx) / 3 <= hi)
+
+
+def _o8_plan(pw, closed, start, goal, avoid=(), clearance=_O8_RADIUS164) -> list:
+    """route_to's own plan (:func:`_o7_plan154`'s): route_avoiding over ``pw``'s mesh with ``closed`` shut, from ``start``
+    to ``goal`` round ``avoid``, KEEPOUT_MARGIN_W, leave_wall, at ``clearance``."""
+    from ff9mapkit.content import pathfind
+    floor = pathfind.PlayerWalkmesh(getattr(pw, "mesh", pw), closed=closed)
+    return pathfind.route_avoiding(floor, tuple(map(float, start)), tuple(map(float, goal)), list(avoid),
+                                   pathfind.KEEPOUT_MARGIN_W, leave_wall=True, clearance=clearance)
+
+
+def _o8_track(fake, wps, *, tol=20.0, limit=400) -> tuple:
+    """:func:`_lv_press` at each waypoint of ``wps`` in turn -- at most ``limit`` frames a waypoint -- until one is not
+    reached within ``tol`` (he stood still short of it): ``(every frame's (frame, x, y, z), the waypoints reached)``."""
+    track, reached = [], 0
+    for wx, wz in wps:
+        track += _lv_press(fake, wx, wz, tol=tol, limit=limit)
+        if math.hypot(fake.player[0] - wx, fake.player[2] - wz) > tol:
+            break
+        reached += 1
+    return track, reached
+
+
+def test_fake_spiral_clearance_per_field_defaults_to_the_global(game):
+    """H26 (research/o8_design.md 3.1): ``fake.clearances`` is read per field, the global ``fake.clearance`` its
+    default. On a flat corridor 400 wide pinched to 180 (half-width 90 over z 0-200, no squeeze), under H20's levels in
+    two fields: an EMPTY ``clearances`` walks every step as today -- a press up the corridor recorded at the global 120
+    and again with an entry equal to it, frame for frame the same (he stops at the 180 corridor's mouth); with
+    ``{30860: 80}`` and the global 120 the same press passes the corridor in 30860 and stops him at its mouth in 30861.
+    The push-out reads the field's radius too: placed 100 u off a wall in 30860 and pressed along it he stays 100 off
+    (100 >= 80: no push), placed 60 off he is pushed out to 80 -- never 120. Break: ``_move_to`` reading the global (the
+    100-u placement pushed to 120; the corridor stops him in 30860 too), or ``_pushed_out`` reading it (the 60-u
+    placement pushed to 120)."""
+    from harness.fakegame import Levels
+    lv = Levels(_lv_pinch_bgi(half=200.0, pinch=90.0))
+
+    def walk(fid, clearances):
+        fake = _lv_fake(game, fid, lv)                   # the global 120
+        fake.levels = {30860: lv, 30861: lv}
+        fake.clearances = dict(clearances)
+        fake.player = [0.0, 0.0, -600.0]
+        fake.place_height(0.0, -600.0, 0.0)
+        return _lv_press(fake, 0.0, 600.0, still=20), fake
+    base, _f = walk(30860, {})
+    same, _f = walk(30860, {30860: 120.0})
+    assert base == same and base, "an entry equal to the global walks every frame as no entry does"
+    assert -110 <= base[-1][3] <= -50, base[-1]                         # the 180 corridor's mouth at radius 120
+    _t, fake = walk(30860, {30860: 80.0})
+    assert fake.player[2] >= 580, fake.player                            # through the corridor at radius 80
+    _t, fake = walk(30861, {30860: 80.0})
+    assert -110 <= fake.player[2] <= -50, fake.player                    # 30861 at the global 120: its mouth
+
+    def placed(x):
+        fake = _lv_fake(game, 30860, lv)
+        fake.clearances = {30860: 80.0}
+        fake.player = [x, 0.0, -600.0]
+        fake.place_height(x, -600.0, 0.0)
+        return _lv_press(fake, x, -300.0, tol=5.0)[0]    # up along the east wall (x = 200): his first moving frame
+    first = placed(100.0)
+    assert first[1] == pytest.approx(100.0) and first[3] > -600, first   # 100 off a wall: no push at radius 80
+    first = placed(140.0)
+    assert 200.0 - first[1] == pytest.approx(80.0, abs=1.0), first      # 60 off: pushed out to 80, never 120
+
+
+def test_fake_spiral_meshes_hold_the_levels_premises(dali):
+    """H20's PREMISES on stock 164 and 165 (research/o8_design.md 3.3; the walk-machinery reader): every pair of open
+    neighbours shares its edge's heights; the steepest change of height a 60-u step makes on an open triangle --
+    MEASURED and printed (93.5 on 164, 76.7 on 165 at the research) -- lies under LEVEL_STEP_DY; and each spiral's
+    stacked open triangles lie further apart than 2 x LEVEL_BAND -- MEASURED and printed (4857.6 / 4774.1). Each of the
+    four steps' bands (2.4) closes a measured number of open triangles (printed: 93, 99, 64 and 16 at the research) and
+    leaves ONE level -- no two of its open triangles overlap in XZ -- so the planner's floor-blind floor is the step's.
+    Numbers printed, bounds asserted, never the numbers. Reads the install (a warned skip fails G44). Break:
+    LEVEL_STEP_DY under the measured slope, or a band that leaves two levels open."""
+    from harness.fakegame import LEVEL_BAND, LEVEL_STEP_DY, Levels
+    from ff9mapkit.content import pathfind
+    from ff9mapkit.scene import bgi
+    wm, _script = dali
+    for fid in (164, 165):
+        pw = wm(fid)
+        lv = Levels(pw)
+        assert lv.open, fid
+        tris = lv.mesh.tris
+        for ti in sorted(lv.open):
+            for k, (i, j) in enumerate(bgi.SLOT_PAIRS):
+                n = tris[ti].nbr[k]
+                if 0 <= n < len(tris) and n in lv.open:
+                    for v in (lv._wv[tris[ti].vtx[i]], lv._wv[tris[ti].vtx[j]]):
+                        assert abs(lv.height(n, v[0], v[2]) - v[1]) <= 1.0, (fid, ti, n, v)
+        steep, tri = _lv_steepest(lv)
+        gap = _lv_stacked_gap(lv)
+        print(f"stock {fid}: the steepest 60-u step changes his height by {steep:.1f} (tri {tri}); the least gap "
+              f"between stacked open triangles {gap:.1f}")
+        assert steep < LEVEL_STEP_DY, (fid, steep, tri, LEVEL_STEP_DY)
+        assert gap != math.inf and gap > LEVEL_STEP_DY and gap > 2 * LEVEL_BAND, (fid, gap, LEVEL_STEP_DY, LEVEL_BAND)
+        for n in (0, 1):
+            lo, hi = _O8_BANDS[(str(fid), n)]
+            closed = _o8_band_closures(pw, lo, hi)
+            one = _lv_stacked_gap(Levels(pathfind.PlayerWalkmesh(pw.mesh, closed=closed)))
+            print(f"stock {fid} step {n}: band [{lo}, {hi}] closes {len(closed)} of {len(lv.open)} open triangles")
+            assert 0 < len(closed) < len(lv.open) and one == math.inf, (fid, n, len(closed), one)
+
+
+def test_fake_spiral_places_steiner_on_loop_1(game, dali):
+    """H20's PLACEMENT on the spirals (research/o8_design.md 3.3, 10 #1): each grant with the bytes' MoveInstantXZY y
+    operand stands him on loop 1, the open triangle under him NEAREST that height (GetTriIdxAtPos,
+    FieldMapActorController.cs:1279-1306) -- 164 ``[2040, 3335, -5647]`` publishes y 4780 +- 1 (tri 145), never loop 2's
+    9776 (tri 110, over it); 165 ``[2055, 3411, -10519]`` publishes 10280 (tri 57), never 15133 (tri 47). Reads the
+    install. Break: place_height taking the first triangle under him (each then lands on the upper loop)."""
+    from harness.fakegame import Levels
+    wm, _script = dali
+    for fid, place, tri, upper, y in ((30860, "164", 145, 110, 4780.0), (30861, "165", 57, 47, 10280.0)):
+        lv = Levels(wm(int(place)))
+        x, z = _O8_SPAWN[place]
+        h = _O8_SPAWN_Y[place]
+        assert (lv.tri_nearest(x, z, h), lv.tri_nearest(x, z, -99999)) == (tri, upper), "premise: two loops here"
+        fake = _lv_fake(game, fid, lv, steps=[{"grant": [x, z, h]}, {"wait": 100000}])
+        fake.clearances = {30860: _O8_RADIUS164}
+        _cb_until(fake, lambda f: f.control, limit=200)
+        assert (fake.player[0], fake.player[2]) == (float(x), float(z)), fake.player
+        assert fake.player[1] == pytest.approx(-lv.height(tri, x, z), abs=0.01), (place, fake.player)
+        assert fake.player[1] == pytest.approx(y, abs=1.0), (place, fake.player)
+        assert abs(fake.player[1] + lv.height(upper, x, z)) > 1000, (place, fake.player)    # never the loop above
+
+
+def test_fake_spiral_pinch_passes_at_slack_12_not_8(game, dali):
+    """THE PINCH on the fake (research/o8_design.md 2.5, 3.1, 3.3; H21 with H26): stock 164's levels, the field's
+    clearance 80 (``clearances {30860: 80}``; the global 120, which would close the spiral), presses by hand along 164
+    #1's plan (route_avoiding at clearance 64 over its band's floor, [-13100, -8700]) from P1 at the bytes' height
+    through THE PINCH WINDOW: with ``squeeze_slack`` 12 he passes the narrowest point (1202, 4520) -- half-width 68.6,
+    within 80 - 12 -- on its midline and reaches (894, 4588), every frame in the window at the window's published y;
+    with 8 (O7's SQUEEZE_SLACK_W) he STOPS at the pinch's mouth -- in the window, east of the narrowest point -- and
+    stands there (the refused step: H21's, research/o8_design.md 11.4 PART B #1). Reads the install. Break: the squeeze
+    without its bound (the 8 then passes too), or the refused step dropped (the 8 then jitters at the mouth, squeezed
+    in and pushed back out a frame at a time: it never stands)."""
+    from harness.fakegame import Levels
+    wm, _script = dali
+    pw = wm(164)
+    lo, hi = _O8_BANDS[("164", 1)]
+    plan = _o8_plan(pw, _o8_band_closures(pw, lo, hi), _O8_P1["164"], _O8_GOAL1["164"], clearance=64.0)
+    assert plan is not None, "premise: 164 #1 routes at clearance 64"
+    k = next(i for i, p in enumerate(plan) if math.hypot(p[0] - _O8_PINCH_PAST[0], p[1] - _O8_PINCH_PAST[1]) < 5)
+    win = _O8_PINCH
+
+    def inside(x, y, z) -> bool:
+        return win["x"][0] <= x <= win["x"][1] and win["z"][0] <= z <= win["z"][1] and win["y"][0] <= y <= win["y"][1]
+    got = {}
+    for slack in (12.0, 8.0):
+        lv = Levels(pw, squeeze_slack=slack)
+        fake = _lv_fake(game, 30860, lv)
+        fake.clearances = {30860: _O8_RADIUS164}
+        fake.player = [float(_O8_P1["164"][0]), 0.0, float(_O8_P1["164"][1])]
+        fake.place_height(*map(float, _O8_P1["164"]), -8958.0)
+        track, reached = _o8_track(fake, plan[:k + 1])
+        got[slack] = (track, reached, list(fake.player))
+        print(f"164 #1 at squeeze_slack {slack}: {reached} of {k + 1} waypoints, ended at ({fake.player[0]:.0f}, "
+              f"{fake.player[2]:.0f}) y {fake.player[1]:.0f}")
+    track, reached, end = got[12.0]
+    assert reached == k + 1 and math.hypot(end[0] - _O8_PINCH_PAST[0], end[2] - _O8_PINCH_PAST[1]) <= 20, end
+    assert min(math.hypot(x - _O8_PINCH_AT[0], z - _O8_PINCH_AT[1]) for _f, x, _y, z in track) <= 30, "the pinch"
+    pinch = [(x, y, z) for _f, x, y, z in track if win["x"][0] <= x <= win["x"][1] and win["z"][0] <= z <= win["z"][1]]
+    assert pinch and all(inside(x, y, z) for x, y, z in pinch), pinch[:3]
+    track, reached, end = got[8.0]
+    assert reached < k and inside(end[0], end[1], end[2]) and end[0] > _O8_PINCH_AT[0] + 25, (reached, end)
+    assert min(x for _f, x, _y, z in track if z > win["z"][0]) > _O8_PINCH_AT[0] + 25, "never past the narrowest"
+    still = [(round(x, 3), round(z, 3)) for _f, x, _y, z in track[-10:]]
+    assert len(set(still)) == 1, still                                   # he STANDS at the mouth: no jitter

@@ -2640,3 +2640,43 @@ golden, on the unedited fake: route-S and route-F 529 sample changes and 63 trac
     and `npcs` false the walk fails with no wait, no push and `_blocker_ahead` never called; with True the ladder runs
     (waits, a push, a blocker, withdrawn as `frozen`). Both are V7 after one attempt; `ROUTE_WAIT_SECONDS` 0.5 on the
     instance keeps the True case short (19 s for the pair).
+
+#### PART B, as built: where the design was silent or wrong (each the smallest correct thing)
+B1 from PART A's green receipt (`harness_tests.py check <S>\A\receipt.json`: e110d274 / tree 062569bc, GREEN), no new
+baseline.
+
+1. **H21 at a pinch narrower than its bound JITTERED; it never stopped.** 3.3 and 9 B1 ("with 8 he stops at the
+   pinch's mouth") rest on the research's fake_spiral run ("slack 8 -> STOPS after 8 wps at (1272,4505)"). Traced a frame
+   at a time, the fake never stands there: at the mouth the squeeze places him on the midline at (1242, 4511), gap 73.2
+   (>= 80 - 8), and on the next press the step's end lies where the pinch is narrower than 72, so no squeeze places it
+   and `_move_to`'s second block pushes him out (`_pushed_out`) onto the radius line BEHIND him, (1272, 4505), gap 80 --
+   then squeezed in again: a 30-u jitter a frame, each push-out frame ~0.3 s of `_pushed_out`'s 64 bearings x 9 samples
+   x 172 walls. A motion-based stop (`_lv_press`'s `still`) never fires (4000 frames, ~10 min), and a route_to stall is
+   decided by the holds' frame parity. H21's own contract says he stops (`Levels.squeeze`: "where the pinch is narrower
+   than that bound (he stops: the radius cannot fit)"), and so does the engine (the step refused: IsRadiusValid fails, a
+   pushed position across a wall rejected: FieldMapActorController.cs:975-993, 1188-1254). So `_move_to` (re-baselined
+   in B1's commit for H26 anyway: row 30 of `research/source_pins.json`) refuses that step: under H21, when the push-out
+   lands BEHIND the press (`(push - start) . (step as pressed) < 0`) while he stands where a squeeze places him (the
+   midline at his start fits the bound), he stays where he stands. Judged against the PRESS, not the step's end: the
+   first block's slide had already bent the end sideways, and a push behind the bent end read as ahead of it. A lone
+   wall's push (no pinch at his start: `Levels.squeeze` None there) is untouched. Neutral on O7, proven: A0b's golden
+   (`test_fake_spiral_keeps_the_castle_route_identical`, the foot scene's slack-8 pinch included), O6's and O5's
+   replays, every `fake_level` test and O7's real-mesh driver tests (the stair squeeze and its two snags at slack 0)
+   green. Measured: slack 8 stands at (1258, 4507), y 10658 -- inside THE PINCH WINDOW, 56 u east of the narrowest point
+   -- after 8 of the 10 waypoints; slack 12 (and 15) passes every waypoint of 164 #1's plan to (49, 2230), y 13030.
+2. **B1 (a)'s break, read on the first moving frame.** "a placement 100 u from a wall in 30860 is pushed out to 120" is
+   what `_move_to` reading the GLOBAL does (100 < 120 enters the push-out); `_pushed_out` reading it meets only a
+   placement nearer than 80, never one at 100 (the gate before it reads the field's 80). So the test places him twice:
+   100 u off (no push at 80; the `_move_to` mutant pushes him to 120) and 60 u off (pushed to 80; the `_pushed_out`
+   mutant to 120) -- each read on his FIRST moving frame, where the push-out lands: a press re-aimed at its fixed target
+   60 u off the wall walks him back to the 80 line after a push to 120, which hid the second mutant from the end
+   position (its first run passed).
+3. **B1 (a)'s "box" is a flat corridor under H20's levels.** The clearance acts only on a real walkmesh or a level (the
+   tuple box has no walls), so the corridor is `_lv_pinch_bgi(half=200, pinch=90)` -- 400 wide, pinched to 180 over z
+   0-200 -- as `Levels` in 30860 and 30861; at the global 120 he stops at its mouth (z ~ -79: the slanted edge's
+   perpendicular distance), at 30860's 80 he passes.
+4. **B1's real-mesh helpers** (`_o8_band_closures`, `_o8_plan`, `_o8_track`, the constants `_O8_SPAWN`, `_O8_SPAWN_Y`,
+   `_O8_P1`, `_O8_GOAL1`, `_O8_BANDS`, `_O8_RADIUS164`, `_O8_PINCH`, `_O8_PINCH_AT`, `_O8_PINCH_PAST`) land in B1,
+   ahead of B3/B4, which reuse them. `_o8_band_closures` is 1.3's `band_closures` test-side: C1 asserts the module's
+   equal to it. The premises test also asserts each band leaves ONE level (no two of its open triangles overlap in XZ:
+   `_lv_stacked_gap` infinite), the premise 1.3 states, and prints the closures (93 / 99 / 64 / 16).

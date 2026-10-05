@@ -201,5 +201,12 @@
   "new": "b52deb1c0e051337aa65a4f9e98c3b560a593d73e0b3a6244fab3320769ec3e9",
   "reason": "O8 A2 (research/o8_design.md 1.2 S22, 'What flips'; 11.3 B1): S22 makes a y_ until term valid, so the refused case moves to an unknown axis -- until {w_le: 0}, matched 'x\\|z\\|y' (refused as y_le was before S22); nothing else in the body changed",
   "head": "102351c0e61174175fb4668551fcdcc9fdca9e78"
+ },
+ {
+  "name": "tools/harness/fakegame.py::FakeGame._move_to",
+  "old": "eae435f3a191f9b73ca932ac61e40062c38664afc78b5ceec15e7c2670115e66",
+  "new": "acd40315951b0b39dc3c03c33d5beaaa5201791f98902ab0b59afc920410c70f",
+  "reason": "O8 B1 (research/o8_design.md 3.1, 11.4 PART B #1): H26 -- every rule of the step reads THIS field's clearance (FakeGame._clearance: fake.clearances' entry, else fake.clearance), so 164 walks at radius 80 and 165 at 120 in one run; and H21's refused step -- at a pinch narrower than its bound a push-out that lands behind the press while he stands on a passable pinch's midline is refused (he stays: the engine's IsRadiusValid), where it jittered at the mouth. Neutral on O7: the O7, O6 and O5 replays identical, every fake_level and O7 real-mesh driver test green",
+  "head": "e110d27479710182b52b3e94f2c6bda704b97676"
  }
 ]
