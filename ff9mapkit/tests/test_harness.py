@@ -28121,3 +28121,182 @@ def test_fake_patrol_released_walks_its_path(game):
     for _ in range(10):
         fake._frame_once()
     assert doj["x"] == -1600.0 and doj["z"] > -1700.0 + 300, (doj["x"], doj["z"])     # on up the west arm
+
+
+# ---- B3: O7's ROUTE on the fake (research/o7_design.md 3.6, 9 B3): seven visit beats from the bytes -- 154@315 (the
+# prologue, the balcony grant, Dojebon and the soldiers, the doors of e8, e9 and e10 by height), 158@300, 159@331 (the
+# monologue), 160@332, 162@333, 163@341 and the arrival in 164@342 -- each store at its predictions' site, so the
+# builder's trace under ``story_suppress`` IS 4.16's pattern (C1's test_o7_castle_route_builder_matches_the_keys compares
+# it with the draft: one source of truth).
+
+#: Each route visit's walk, ``(start, goal)`` -- the grant and the step's goal (research/o7_design.md 2.4): 154's two
+#: steps (the walk to the ground, then the cross of e8 on it), then one cross a field.
+_O7_WALKS = {"154": [((-58, -3758), (0, -600)), ((0, -600), (0, -4500))], "158": [((0, -12787), (-17, -16444))],
+             "159": [((7, 3870), (-2910, -300))], "160": [((1357, -4063), (-313, -813))],
+             "162": [((957, -3800), (1001, 406))], "163": [((690, 2195), (997, 4957))]}
+#: The route's places in visit order, and each one's index (the visit knob H15's faults key by).
+_O7_ROUTE = ("154", "158", "159", "160", "162", "163")
+
+
+def _o7_prologue(ips, i9=-1, b13=0):
+    """Main_Init's six ambient stores at ``ips`` (research/o7_design.md 4.16's P): Bit[191] := 0, Bit[184] := 0, Int16[9]
+    := ``i9``, Byte[13] := ``b13``, Int16[11] := -1, Byte[14] := 0 -- 154's ip26/53/61/123/142/204 (-1, 0), 159's
+    22/49/57/119/138/200 (-1, 0), 158's, 160's, 162's, 163's and 164's 22/49/57/130/138/200 (385, 1)."""
+    targets = ((23, "Bit", 0, 191), (23, "Bit", 0, 184), (9, "Int16", i9, -1), (13, "Byte", b13, -1),
+               (11, "Int16", -1, -1), (14, "Byte", 0, -1))
+    return [_o5_store(0, 0, ip, b, w, v, bit) for ip, (b, w, v, bit) in zip(ips, targets)]
+
+
+def _o7_body(sid, x, z, y=0.0, **kw) -> dict:
+    """A published object that talks and nothing else (research/o7_design.md 3.6): ``coll``, not solid, r and talk_r 4 x
+    SetObjectLogicalSize(20, 20, 30)'s first operand (every NPC on the route's), at PSX height -``y``."""
+    return {"sid": sid, "uid": sid, "x": float(x), "z": float(z), "y": float(y), "r": 80.0, "talk_r": 80.0, "coll": True,
+            "solid": False, "shown": True, **kw}
+
+
+def _o7_route(side="S", *, short=None, levels154=False, wait_scale=0.25, monologue=None, **faults):
+    """O7's route as visit beats (research/o7_design.md 3.6) on ``side``'s fields (:data:`_O7_FIELDS`; on F each
+    visit's ``donor`` its place's S id), O7's and H15's ``faults`` given to every beat (the per-visit ones keyed by
+    ``index``: 1-7). 154: its prologue, the grant on the balcony -- the floor-blind box's y 0 (the ground branch's side),
+    or with ``levels154`` the bytes' height -1741 on stock 154's levels -- Dojebon (H23) and the soldiers e6 and e7 at y
+    1716, the doors of e8, e9 and e10 by height (H22). 158: the prologue, the grant, ip445, e1 and e2. 159: the prologue,
+    ip290, the grant inside the monologue's box, Haagen and the soldiers, e10, e11, e12 and THE MONOLOGUE (``monologue``:
+    another scene dict). 160: the prologue, the grant, ip465, Weimar and the soldier e3, e4 and e5. 162 and 163 the
+    same shape. 164: its prologue, then the end. ``short`` (a place): that visit alone -- its index kept -- then the next
+    place's arrival (its prologue, no grant) as the end. Every door walks out toward MJPOS's point (:func:`_o7_door`)."""
+    to = dict(_O7_FIELDS[side])
+    donors = dict(_O7_FIELDS["S"]) if side == "F" else {}
+    grant154 = [-58, -3758, _O7_BALCONY_Y] if levels154 else [-58, -3758]
+    p130 = (22, 49, 57, 130, 138, 200)
+
+    def door(e, pts, stores, dest, place=None):
+        return _o7_door(f"e{e}", pts, stores, dest, via=_O7_WALKS[place][-1] if place else None)
+    visits = {
+        "154": ([*_o7_prologue((26, 53, 61, 123, 142, 204)), {"wait": 4}, {"grant": grant154},
+                 {"door": {"doors": _o7_doors154(via=_O7_WALKS["154"][-1])}}],
+                [_o7_dojebon(), _o7_body(6, -1683, -3795, 1716.0), _o7_body(7, 1764, -3631, 1716.0)]),
+        "158": ([*_o7_prologue(p130, 385, 1), {"wait": 4}, {"grant": [0, -12787]}, _o5_store(0, 0, 445, 13, "Byte", 2),
+                 {"door": {"doors": [
+                     door(1, _O7_158E1, [[1, 2, 193, 13, "Byte", 3, -1], [1, 2, 221, 2, "Int16", 331, -1]], "154"),
+                     door(2, _O7_158E2, [[2, 2, 194, 13, "Byte", 3, -1], [2, 2, 222, 2, "Int16", 331, -1]], "159",
+                          "158")]}}], []),
+        "159": ([*_o7_prologue((22, 49, 57, 119, 138, 200)), _o5_store(0, 0, 290, 8, "Byte", 125), {"wait": 4},
+                 {"grant": [7, 3870]},
+                 {"door": {"doors": _o7_doors159(via=_O7_WALKS["159"][-1]),
+                           "scenes": [dict(monologue if monologue is not None else _O7_MONOLOGUE)]}}],
+                [_o7_body(6, -2250, 2088, 79.0), _o7_body(7, 2250, 2088, 79.0), _o7_body(5, -10, -1558, 79.0)]),
+        "160": ([*_o7_prologue(p130, 385, 1), {"grant": [1357, -4063]}, _o5_store(0, 0, 465, 13, "Byte", 2),
+                 {"door": {"doors": [
+                     door(4, _O7_160E4, [[4, 2, 194, 13, "Byte", 3, -1], [4, 2, 222, 2, "Int16", 333, -1]], "159"),
+                     door(5, _O7_160E5, [[5, 2, 227, 2, "Int16", 333, -1]], "162", "160")]}}],
+                [_o7_body(2, -921, -1406), _o7_body(3, -1144, -1378)]),
+        "162": ([*_o7_prologue(p130, 385, 1), {"grant": [957, -3800]}, _o5_store(0, 0, 932, 13, "Byte", 2),
+                 {"door": {"doors": [door(2, _O7_162E2, [[2, 2, 227, 2, "Int16", 341, -1]], "160"),
+                                     door(3, _O7_162E3, [[3, 2, 227, 2, "Int16", 341, -1]], "163", "162")]}}], []),
+        "163": ([*_o7_prologue(p130, 385, 1), {"grant": [690, 2195]}, _o5_store(0, 0, 684, 13, "Byte", 2),
+                 {"door": {"doors": [door(2, _O7_163E2, [[2, 2, 227, 2, "Int16", 342, -1]], "164", "163"),
+                                     door(3, _O7_163E3, [[3, 2, 227, 2, "Int16", 342, -1]], "162")]}}], []),
+        "164": ([*_o7_prologue(p130, 385, 1), {"wait": 100000}], [])}
+    order = [*_O7_ROUTE, "164"]
+    if short is None:
+        plan = [(p, i) for i, p in enumerate(order, 1)]
+    else:
+        i = order.index(str(short))
+        plan = [(order[i], i + 1), (order[i + 1], i + 2)]
+    beats = []
+    for n, (where, index) in enumerate(plan):
+        steps, bodies = visits[where]
+        if short is not None and n == 1:                     # the stage's end: the next place's arrival, no grant
+            steps, bodies = [*steps[:6], {"wait": 100000}], []
+        knobs = {"steps": steps, "index": index, "field_to": to, "wait_scale": wait_scale, **faults}
+        if bodies:
+            knobs["bodies"] = [dict(b) for b in bodies]
+        if donors:
+            knobs["donor"] = donors[where]
+        beats.append({"visit": knobs})
+    return beats
+
+
+def _o7_register(game):
+    """O7's S fields (30840-30846, 30850-30854) and the F members registered in the fixture's own DictionaryPatch.txt
+    (``_o6_register``'s shape; the ``game`` fixture itself is not edited)."""
+    patch = game / "FF9CustomMap" / "DictionaryPatch.txt"
+    s = "".join(f"FieldScene {f} 11 O7_{p} O7_{p} {f}\n" for p, f in _O7_FIELDS["S"].items())
+    patch.write_text(patch.read_text(encoding="utf-8") + s
+                     + "".join(f"FieldScene {f} 11 {n} {n} 3\n" for f, n in _O7_NAMES.items()), encoding="utf-8")
+
+
+#: 4.16's pattern on the fake's places, by IP (the fake's rows carry ips; O7-PATTERN joins function offsets on the stock
+#: bytes, C1's): each visit's emitted ``w`` rows in order, ``(place, sid, tag, ip, target, new, same)`` -- 7, 9, 11, 8, 8
+#: and 8, 51 in all, every site first in its epoch; no ``c`` row.
+def _o7_p(place, ips, i9, s9, b13, s13):
+    """4.16's P(place, i9, s9, b13, s13) by ip: the prologue's six rows."""
+    return [(place, 0, 0, ips[0], "Global.Bit[191]", 0, 1), (place, 0, 0, ips[1], "Global.Bit[184]", 0, 1),
+            (place, 0, 0, ips[2], "Global.Int16[9]", i9, s9), (place, 0, 0, ips[3], "Global.Byte[13]", b13, s13),
+            (place, 0, 0, ips[4], "Global.Int16[11]", -1, 1), (place, 0, 0, ips[5], "Global.Byte[14]", 0, 1)]
+
+
+_O7_PATTERN = (
+    [*_o7_p(30840, (26, 53, 61, 123, 142, 204), -1, 0, 0, 0), (30840, 8, 2, 355, "Global.Int16[2]", 300, 0)],
+    [*_o7_p(30841, (22, 49, 57, 130, 138, 200), 385, 0, 1, 0), (30841, 0, 0, 445, "Global.Byte[13]", 2, 0),
+     (30841, 2, 2, 194, "Global.Byte[13]", 3, 0), (30841, 2, 2, 222, "Global.Int16[2]", 331, 0)],
+    [*_o7_p(30842, (22, 49, 57, 119, 138, 200), -1, 0, 0, 0), (30842, 0, 0, 290, "Global.Byte[8]", 125, 1),
+     (30842, 16, 1, 613, "Global.Byte[208]", 0, 1), (30842, 16, 1, 648, "Global.Byte[208]", 1, 0),
+     (30842, 16, 1, 672, "Global.Bit[3796]", 1, 0), (30842, 11, 2, 193, "Global.Int16[2]", 332, 0)],
+    [*_o7_p(30843, (22, 49, 57, 130, 138, 200), 385, 0, 1, 0), (30843, 0, 0, 465, "Global.Byte[13]", 2, 0),
+     (30843, 5, 2, 227, "Global.Int16[2]", 333, 0)],
+    [*_o7_p(30844, (22, 49, 57, 130, 138, 200), 385, 1, 1, 0), (30844, 0, 0, 932, "Global.Byte[13]", 2, 0),
+     (30844, 3, 2, 227, "Global.Int16[2]", 341, 0)],
+    [*_o7_p(30845, (22, 49, 57, 130, 138, 200), 385, 1, 1, 0), (30845, 0, 0, 684, "Global.Byte[13]", 2, 0),
+     (30845, 2, 2, 227, "Global.Int16[2]", 342, 0)])
+_O7_PLACES = tuple(_O7_FIELDS["S"][p] for p in _O7_ROUTE)
+
+
+def _o7_pattern(rows, members=None):
+    """4.16's pattern read off a run's story rows by ip (:func:`_o5_pattern` with O7's end 30846 and route places):
+    ``(visits, counts, cut)``."""
+    return _o5_pattern(rows, members, end=30846, route=_O7_PLACES)
+
+
+def test_fake_level_route_plays_to_164_unattended(game):
+    """B3 (research/o7_design.md 3.6, 9 B3): the route builder's seven visit beats played by a SCRIPTED PLAYER, not the
+    driver -- every page Confirmed, a straight press at each step's goal in turn (on the floor-blind box: the ground
+    branch's side) -- from 154@315 (field 70's prologue values and the raw warp's FOUR residue rows first) to 164. The
+    monologue fires once, at x < -1600 on the way to e11; each field's route door fires (e8's ground branch, e2, e11,
+    e5, e3, e2). With ``story_suppress`` the trace holds EXACTLY 4.16's pattern by ip -- 7 + 9 + 11 + 8 + 8 + 8 = 51 rows,
+    every site first in its epoch -- no ``c`` row, and the cut at 164's first row, e0 t0 ip22 (``same`` 1: a new site).
+    Break: a builder whose 159 scene has no ``unless_bit`` (the monologue then fires over and over)."""
+    fake = _fv_fake(game, field=70, trace=False)
+    fake.walkmesh = _O7_BOX
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(315, 1190)                         # the raw warp's residue, seen in field 70
+    fake.field_id = 30840
+    fake.scene(*_o7_route("S"), control=False)
+    goals = {_O7_FIELDS["S"][p]: [g for _s, g in walks] for p, walks in _O7_WALKS.items()}
+    for _ in range(40):
+        fid = fake.field_id
+        if fid == 30846:
+            break
+        goal = goals[fid][0]
+        _o7_play(fake, toward=goal, until=lambda f: f.field_id != fid or (
+            len(goals[fid]) > 1 and math.hypot(goal[0] - f.player[0], goal[1] - f.player[2]) <= 30))
+        if fake.field_id == fid:
+            goals[fid].pop(0)                            # 154's walk done: on to its cross
+    _cb_until(fake, lambda f: any(e["index"] == 7 and e["kind"] == "wait" for e in f.visit_log), limit=400)
+    fake._story_stop()
+    assert fake.field_id == 30846, fake.field_id
+    scenes = _o7_scenes(fake)
+    assert len(scenes) == 1 and scenes[0]["field"] == 30842, scenes
+    assert scenes[0]["x"] < -1600, scenes
+    fires = [(e["field"], e["name"]) for e in fake.visit_log if e["kind"] == "fire"]
+    assert fires == [(30840, "e8.ground"), (30841, "e2"), (30842, "e11"), (30843, "e5"), (30844, "e3"),
+                     (30845, "e2")], fires
+    rows = _fv_rows(fake)
+    visits, counts, cut = _o7_pattern(rows)
+    assert visits == [list(v) for v in _O7_PATTERN], visits
+    assert sum(len(v) for v in visits) == 51 and counts == [] and not [r for r in rows if r["k"] == "c"], counts
+    assert cut is not None and (cut["k"], cut["fld"], cut["sid"], cut["tag"], cut["ip"], cut["w"], cut["bit"],
+                                cut["new"], cut["same"]) == ("w", 30846, 0, 0, 22, "Bit", 191, 0, 1), cut
+    residue = [(r["fld"], r["byte"], r["old"], r["new"]) for r in rows if r["k"] == "r"]
+    assert residue == [(70, 0, 0, 166), (70, 1, 0, 4), (70, 2, 0, 59), (70, 3, 0, 1)], residue

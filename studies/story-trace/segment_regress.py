@@ -759,6 +759,8 @@ REQUIRED_TESTS_O7: tuple = (
     "test_fake_monologue_regrants_in_place",
     "test_fake_patrol_holds_within_its_circle_and_its_latch",
     "test_fake_patrol_released_walks_its_path",
+    # B3: the O7 route builder, played unattended to 164 (its trace 4.16's pattern)
+    "test_fake_level_route_plays_to_164_unattended",
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)
