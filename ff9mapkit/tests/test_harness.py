@@ -28192,9 +28192,10 @@ def _o7_body(sid, x, z, y=0.0, **kw) -> dict:
 def _o7_route(side="S", *, short=None, levels154=False, wait_scale=0.25, monologue=None, **faults):
     """O7's route as visit beats (research/o7_design.md 3.6) on ``side``'s fields (:data:`_O7_FIELDS`; on F each
     visit's ``donor`` its place's S id), O7's and H15's ``faults`` given to every beat (the per-visit ones keyed by
-    ``index``: 1-7). 154: its prologue, the grant on the balcony -- the floor-blind box's y 0 (the ground branch's side),
-    or with ``levels154`` the bytes' height -1741 on stock 154's levels -- Dojebon (H23) and the soldiers e6 and e7 at y
-    1716, the doors of e8, e9 and e10 by height (H22). 158: the prologue, the grant, ip445, e1 and e2. 159: the prologue,
+    ``index``: 1-7). 154: its prologue, the grant on the balcony -- the floor-blind box's y 0 (the ground branch's side;
+    Dojebon's latch, y < 600, is then set from the grant, so a box run never exercises his 3600 term), or with
+    ``levels154`` the bytes' height -1741 on stock 154's levels -- Dojebon (H23) and the soldiers e6 and e7 at y 1716,
+    the doors of e8, e9 and e10 by height (H22). 158: the prologue, the grant, ip445, e1 and e2. 159: the prologue,
     ip290, the grant inside the monologue's box, Haagen and the soldiers, e10, e11, e12 and THE MONOLOGUE (``monologue``:
     another scene dict). 160: the prologue, the grant, ip465, Weimar and the soldier e3, e4 and e5. 162 and 163 the
     same shape. 164: its prologue, then the end. ``short`` (a place): that visit alone -- its index kept -- then the next
@@ -28451,12 +28452,13 @@ def _o7_pred(*, short=None, closures=None, **over):
 
 def _o7_run(game, side="S", *, short=None, route=None, knobs=None, pred=None, fps=60.0, ticks="mean", trace=True,
             wrap=None, budget=180.0, register=True, fake_setup=None, floor=None, prior=None, prior_for=None,
-            inside=None, cached=()):
+            inside=None, cached=(), observe=None):
     """One O7 run on the fake: New Game, field 70's prologue values (:func:`_o5_field70`), the trace armed with the
     sink's suppression, the raw warp ``warp <154's id> 315 1190`` (``short``: into that place at its entrance), the
     visit beats staged on arrival (``route``, default :func:`_o7_route` of ``side`` with ``knobs``), the bases of
     ``cached`` (field ids) cached -- none by default -- and the driver with ``pred`` (default :func:`_o7_pred`), its floor
-    the box (``floor``: another ``floor_for``), its prior ``prior`` (``prior_for``: per donor). ``fake_setup(fake)``
+    the box (``floor``: another ``floor_for``), its prior ``prior`` (``prior_for``: per donor), and -- ``observe``, a
+    factory ``observe(pred, log)`` -- its ``observe`` hook (O7's static watch: O7Segment.drive's). ``fake_setup(fake)``
     adjusts the fake before it starts; ``wrap(g, fake)`` the session's calls before the drive; ``inside(g, fake, out,
     log)`` runs in the session after it (its value returned). ``(outcome or the RouteVoid / HarnessError raised, log,
     fake, story rows, the ring's raws, inside's value)``."""
@@ -28496,7 +28498,8 @@ def _o7_run(game, side="S", *, short=None, route=None, knobs=None, pred=None, fp
             try:
                 out = SD.drive(g, pred, side, log, deadline=time.time() + budget,
                                floor_for=floor or (lambda d, c: _flat_bgi(*_O7_BOX)),
-                               prior_for=prior_for or (lambda d: basis), forbid_live=trace, witness=lambda: None)
+                               prior_for=prior_for or (lambda d: basis), forbid_live=trace, witness=lambda: None,
+                               observe=None if observe is None else observe(pred, log))
             except (SD.RouteVoid, HarnessError) as err:
                 out = err
         finally:
@@ -28635,6 +28638,70 @@ def test_o7_drive_walks_the_real_balcony_to_the_ground_on_the_fake(game, dali):
     assert walk["route"]["basis"] == "prior" and walk["route"]["basis_check"]["angle"] < 16.3, walk["route"]
     assert cross["landed"] in (None, 30841) and fake.field_id == 30841, (cross, fake.field_id)
     assert probes == [] and dojebon == {(-2700.0, -1700.0)}, (probes, dojebon)
+
+
+#: The walk's east mutant (the review's finding): a goal on 154's real balcony east of the spawn, inside Dojebon's hazard
+#: region and 3817 u from his placement (-2700, -1700) -- past his 3600 circle -- at PSX -1716 (open in step 0's
+#: closures, 450 u from a wall, one straight leg from the spawn at clearance 120 round e8, e9 and e10).
+_O7_EAST_GOAL = [650, -3530]
+
+
+def test_o7_drive_real_balcony_walk_east_releases_dojebon_on_the_fake(game, dali):
+    """THE HAZARD'S PROTECTION, PINNED ON THE REAL MESH (research/o7_design.md 0.2 #11, 3.4, 4.11; the review's finding):
+    on the floor-blind box Steiner's published y is 0 from the grant, so Dojebon's latch (y < 600) holds him from the
+    start and no box run ever exercises his 3600 term -- only stock 154's levels do. The frozen walk's MUTANT on them
+    (:func:`test_o7_drive_walks_the_real_balcony_to_the_ground_on_the_fake`'s setup): the hazard out of step 0's
+    ``avoid`` and its goal pulled east on the balcony to :data:`_O7_EAST_GOAL` -- 3817 from his placement, the latch
+    clear at PSX -1716 -- then a cross of e8 from the balcony. The walk is done ON THE BALCONY (its seeded basis judged,
+    no probe pressed), and Dojebon is RELEASED: the static watch (O7Segment.drive's observe hook) logs his ``seen`` row
+    at his placement, then a ``moved`` row in the same visit (his reading off it by more than tol 30), his published
+    positions many; the balcony cross then lands in 153's fixture id (V11, the driver's: the run's end). Break: his
+    hold's ``within`` read as unbounded -- held whatever the distance, the box's latched reading: the watch then logs
+    ``seen`` alone."""
+    from harness.fakegame import Levels
+    O = _o7_module()
+    _wm, _script = dali
+    pw, prior, twist = _o7_stock(154)
+    closures = _o7_closures154(pw)
+    dojebon: list = []
+    probes: list = []
+
+    def setup(fake):
+        fake.levels, fake.clearance, fake.twist = {30840: Levels(pw)}, _O7_RADIUS, twist
+        step = fake._step_walkers
+
+        def watched(ticks):
+            step(ticks)
+            dojebon.extend((b["x"], b["z"]) for _i, b in fake._bodies() if b.get("sid") == 5 and b.get("path"))
+        fake._step_walkers = watched
+
+    def wrap(g, fake):
+        probes.extend(_s19_probes(g))
+
+    def floor(d, c):
+        from ff9mapkit.content import pathfind
+        return pathfind.PlayerWalkmesh(pw.mesh, closed=c) if d == 30840 else _flat_bgi(*_O7_BOX)
+    pred = _o7_pred(short="154", closures=closures,
+                    static_objects=[{"donor": 30840, "sid": 5, "name": "Dojebon", "tol": 30}])
+    walk = pred["table"][0]["steps"][0]
+    walk.update(goal=list(_O7_EAST_GOAL), avoid=["30840.e8", "30840.e9", "30840.e10"])
+    pred["table"][0]["steps"][1] = {"kind": "cross", "name": "154: e8 from the balcony (the mutant)", "goal": [0, -4500],
+                                    "target": "30840.e8", "to": 30841, "start": list(_O7_EAST_GOAL),
+                                    "avoid": ["30840.e9", "30840.e10"], "clearance": 120}
+    out, log, fake, rows, ring, _a, aside = _o7_run_informative(
+        game, short="154", route=_o7_route("S", short="154", levels154=True), pred=pred, fake_setup=setup, wrap=wrap,
+        floor=floor, prior=prior, observe=O.static_watch, want="30850")
+    walk_row = _o7_steps(log, 30840)[0]
+    assert (walk_row["kind"], walk_row["outcome"]) == ("walk", "done"), (_o7_steps(log), out, aside)
+    end = next(raw for raw in ring if int(raw["frame"]) == walk_row["to"]["frame"])
+    assert end["player"]["y"] > 600 and math.hypot(walk_row["to"]["x"] - _O7_EAST_GOAL[0],
+                                                   walk_row["to"]["z"] - _O7_EAST_GOAL[1]) <= 45, (end["player"], walk_row)
+    assert walk_row["route"]["basis"] == "prior" and probes == [], (walk_row["route"], probes)
+    static = [x for x in log if x.get("k") == "static" and x.get("sid") == 5]
+    assert [(x["what"], x["visit"]) for x in static] == [("seen", 1), ("moved", 1)], static
+    assert (static[0]["x"], static[0]["z"]) == (-2700.0, -1700.0) and static[1]["dist"] > 30, static
+    assert len(set(dojebon)) > 10, sorted(set(dojebon))[:5]
+    _o5_void(out, "V11", "driver", [30840, 1190, 1], "30850")
 
 
 def test_o7_drive_balcony_cross_lands_in_153_is_the_drivers_v11(game, dali):
@@ -30176,7 +30243,9 @@ def _o7_released(beats):
 
 def test_o7_rehearsal_records_dojebon_and_the_rates_on_the_fake(game):
     """DOJEBON AND THE RATES (research/o7_design.md 7.2, F2, F14) on the fake, R-WALK154's two runs in ONE launch at 31
-    fps on quantized ticks: run 1 -- Dojebon held (H23: Steiner within 3600, then latched on the ground) -- records his
+    fps on quantized ticks: run 1 -- Dojebon held (H23; on this floor-blind box Steiner's published y is 0 from the
+    grant, so the latch, y < 600, holds him from the start: no box run exercises his 3600 term -- the real-mesh tests
+    do, test_o7_drive_real_balcony_walk_east_releases_dojebon_on_the_fake its release) -- records his
     ``seen`` row at his placement (-2700, -1700) through the session's own static watch, NO ``moved`` row, and every poll
     in "154" reading the same spot; run 2 -- the visit's Dojebon RELEASED (his hold dropped) -- records a ``moved`` row
     (his reading left the first one by more than tol 30). Each run's render rate is the launch's measured ~31 fps
