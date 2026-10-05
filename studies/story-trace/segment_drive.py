@@ -134,6 +134,13 @@ field's basis from the step's prior -- no calibration probe -- its first move ju
 move disagrees with raises a HarnessError carrying ``prior_basis``, which :meth:`_Drive.run_step` turns into the step
 row's V13 (the driver's instrument) whatever the step's own keys. :func:`step_of` reads every key strict; a table with
 none of them -- every one frozen before O7's -- is driven exactly as before.
+
+THE ARRIVAL'S HEIGHT AND THE KNIGHT WAIT (opt-in; research/o8_design.md 1.2 S20-S21): a walk's ``at_y`` proves its
+arrival on its LEVEL -- his published y within the band at the arrival's sample, else the walk failed (a goal whose XZ
+stacks three levels says nothing alone); its ``wait_flag`` then waits there, pressing nothing, for a watched story bit
+(:meth:`_Drive.wait_flag`: run out only once both the wall's and the game's clocks ran its timeout; the game's V8 only
+on a bit the agent published, else the driver's V13). :func:`step_of` reads both strict and adds nothing: a table with
+neither -- every one frozen before O8's -- is driven exactly as before.
 """
 from __future__ import annotations
 
@@ -161,6 +168,12 @@ WALK_REFUSES = ("target", "until", "to", "expect", "sc", "wait_s", "then")
 #: positive number: the planner's wall clearance for the step's walks) and ``basis`` (one of these: ``"prior"`` seeds the
 #: field's basis from the step's prior, no probe pressed, its first move judged).
 BASIS_KINDS = ("prior",)
+#: S20/S21 (research/o8_design.md 1.2): the keys only a walk may carry -- its arrival's height band and THE KNIGHT WAIT.
+WALK_ONLY = ("at_y", "wait_flag")
+#: S21: a wait_flag's keys, exactly these.
+WAIT_FLAG_KEYS = ("flag", "value", "timeout_s")
+#: S21: the highest gEventGlobal bit (Byte[2048]).
+MAX_FLAG_BIT = 16383
 #: What a confirm step's ``expect`` may name: a choice opening, or control going (2.3).
 EXPECTS = ("choice", "control_lost")
 #: A forbidden pattern's keys (4.7), strict: any other raises. The matchers select raw ``w`` rows (all given must
@@ -368,8 +381,12 @@ def step_of(pred: dict, raw: dict) -> dict:
     know; an ``expect`` not in :data:`EXPECTS`; a ``goal`` that is no point; and a ``target`` or ``avoid`` key that is
     no registered region. S17-S19 (research/o7_design.md 1.2), each opt-in: a ``walk`` whose RAW step carries any of
     :data:`WALK_REFUSES`; a ``clearance`` that is no positive number (a bool is no number); a ``basis`` not in
-    :data:`BASIS_KINDS`. A table carrying none of these keys -- every one frozen before O7's -- merges exactly as
-    before."""
+    :data:`BASIS_KINDS`. S20, S21 and S23 (research/o8_design.md 1.2), each opt-in: a :data:`WALK_ONLY` key on a step
+    that is no walk; an ``at_y`` that is not two numbers, the first under the second; a ``wait_flag`` without ``at_y``
+    (the wait begins at a proven point) or that is not exactly :data:`WAIT_FLAG_KEYS` -- ``flag`` an int in
+    0..:data:`MAX_FLAG_BIT`, ``value`` 0 or 1, ``timeout_s`` a positive number; an ``unstick`` that is no bool. Each is
+    a check only: it raises or passes, and never adds, drops or normalises a key (the claim critic's #5). A table
+    carrying none of these keys -- every one frozen before O8's -- merges exactly as before."""
     base = pred.get("steps_default") or {}
     out = {**base, **raw}
     out["climb"] = {**(base.get("climb") or {}), **(raw.get("climb") or {})}
@@ -388,6 +405,33 @@ def step_of(pred: dict, raw: dict) -> dict:
                          f"{clearance!r}")
     if out.get("basis") is not None and out["basis"] not in BASIS_KINDS:
         raise ValueError(f"step {raw!r}: basis is one of {BASIS_KINDS}, not {out['basis']!r}")
+    walk_only = [k for k in WALK_ONLY if out.get(k) is not None]          # S20/S21 (opt-in): a walk's keys alone
+    if walk_only and kind != "walk":
+        raise ValueError(f"step {raw!r}: {walk_only} only a walk carries -- its arrival's height (at_y) and the "
+                         f"knight wait (wait_flag), never a {kind}'s")
+    band = out.get("at_y")
+    if band is not None and not (isinstance(band, (list, tuple)) and len(band) == 2
+                                 and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in band)
+                                 and band[0] < band[1]):
+        raise ValueError(f"step {raw!r}: at_y is [lo, hi], two numbers of his published y (a bool is no number), lo "
+                         f"under hi -- not {band!r}")
+    wf = out.get("wait_flag")
+    if wf is not None:
+        if band is None:
+            raise ValueError(f"step {raw!r}: a wait_flag needs at_y -- the wait begins at a proven point")
+        if not isinstance(wf, dict) or set(wf) != set(WAIT_FLAG_KEYS):
+            raise ValueError(f"step {raw!r}: wait_flag holds exactly {list(WAIT_FLAG_KEYS)}, not "
+                             f"{sorted(wf) if isinstance(wf, dict) else wf!r}")
+        if not _is_int(wf["flag"]) or not 0 <= wf["flag"] <= MAX_FLAG_BIT:
+            raise ValueError(f"step {raw!r}: wait_flag's flag is a gEventGlobal bit, an int in 0..{MAX_FLAG_BIT} (a "
+                             f"bool is no int), not {wf['flag']!r}")
+        if not _is_int(wf["value"]) or wf["value"] not in (0, 1):
+            raise ValueError(f"step {raw!r}: wait_flag's value is 0 or 1, not {wf['value']!r}")
+        if not _is_pos(wf["timeout_s"]):
+            raise ValueError(f"step {raw!r}: wait_flag's timeout_s is a positive number of seconds, not "
+                             f"{wf['timeout_s']!r}")
+    if out.get("unstick") is not None and not isinstance(out["unstick"], bool):     # S23 (opt-in): route_to's own
+        raise ValueError(f"step {raw!r}: unstick is a bool (route_to's own), not {out['unstick']!r}")
     if out.get("target") is not None and out.get("until") is not None:
         raise ValueError(f"step {raw!r}: target and until are exclusive")
     missing = [k for k in STEP_NEEDS[kind] if out.get(k) is None]
@@ -3011,7 +3055,10 @@ class _Drive:
         -> V11 (driver: strayed); control gone in (or within exit_slack of) a registered exit -> its switch waited out,
         V11 on a landing, else interrupted (door_loss); control gone anywhere else -> interrupted -- then, control held in
         this field within tolerance of the goal and route_to's reached -> done; else failed (blocked, boxed, frozen,
-        no route, or short)."""
+        no route, or short). S20 (research/o8_design.md 1.2), opt-in: with ``at_y`` the arrival is proven on its LEVEL
+        too -- his published y at that sample within the band, else failed (an attempt spent, the next re-plans from
+        where he stands); the row's ``at_y`` the band and the y read. S21, opt-in: with ``wait_flag``, THE KNIGHT WAIT
+        at the proven point (:meth:`wait_flag`) decides the step."""
         g, fid = self.g, self.fid
         wait, tol = float(step["exit_wait_s"]), float(step["tolerance"])
         gx, gz = (float(v) for v in step["goal"])
@@ -3036,7 +3083,113 @@ class _Drive:
                           + f" (reached {rec.get('reached')}, route {out['route'].get('route')}, blocked "
                             f"{rec.get('blocked')}, boxed {rec.get('boxed')}, frozen {rec.get('frozen')})")
             return "failed", out
+        band = step.get("at_y")                            # S20 (opt-in): the arrival's height, published y
+        if band is not None:
+            y = st.player_y
+            out["at_y"] = {"band": [float(band[0]), float(band[1])], "y": None if y is None else round(y, 1)}
+            if y is None or not float(band[0]) <= y <= float(band[1]):
+                out["why"] = (f"the walk ended {d:.0f}u from its goal at published y "
+                              + ("unread" if y is None else f"{y:.0f}")
+                              + f", outside at_y {list(band)}: not the goal's level")
+                return "failed", out
+        if step.get("wait_flag") is not None:              # S21 (opt-in): THE KNIGHT WAIT, at the proven point
+            return self.wait_flag(step, out)
         return "done", out
+
+    def wait_flag(self, step: dict, out: dict) -> tuple:
+        """S21, THE KNIGHT WAIT (research/o8_design.md 1.2): standing at a walk's proven goal with control held, press
+        nothing until the watched gEventGlobal bit ``flag`` reads ``value``: ``g.watch(flag)`` (the agent publishes
+        ``flags`` every 2 frames: no store, no trace row), ``g.wait_for`` the bit, control gone or another field -- and
+        ``g.unwatch()`` in a ``finally``. In order: the run's deadline cut the wait -> V13 by the driver (the budget);
+        the field changed -> V11 by the GAME (nothing was pressed: only the game's script moves the field; O8-GOALS
+        (g5') proves the wait point clear of every exit); the bit read -> done; control gone -> the landing judge
+        (door_loss), else interrupted. The wait RUNS OUT only once BOTH clocks ran ``timeout_s`` -- the wall's and the
+        GAME's (``_game_seconds``: the fake's published ``rt``, else the engine's state.json write time, which in game
+        IS the wall's): a starved harness stretches the wall's alone, never the game's (the claim review's #5). Run out,
+        it is V8 by the GAME only when the window's last sample PUBLISHED the bit -- it latches on the route (O8-CENSUS:
+        164's only store to Bit[3811] is e1 t1 ip230 := 1), so its last published value is its value throughout -- and
+        V13 by the DRIVER when that sample carried no bit (the watch dropped: AppendWatch publishes ``"flags":{}`` on
+        any fault, HarnessAgent.cs:2162-2166 -- the instrument's: the reviews' A4 / B4). The row's ``wait_flag``:
+        ``{flag, value, read, frame0, frame, s, game_s, published, last}`` (``published`` the distinct frames that
+        carried the bit, ``last`` its last published value)."""
+        from harness import HarnessError
+        from harness.session import _game_seconds
+        g, fid = self.g, self.fid
+        wf = step["wait_flag"]
+        flag, value, limit = int(wf["flag"]), int(wf["value"]), float(wf["timeout_s"])
+        st0, t0 = g.state, time.time()
+        c0 = _game_seconds(st0)
+        rec = out["wait_flag"] = {"flag": flag, "value": value, "read": None, "frame0": st0.frame, "frame": None,
+                                  "s": None, "game_s": None, "published": 0, "last": None}
+        seen: set = set()
+
+        def has(s) -> bool:
+            v = s.flag(flag)
+            if v is not None and s.frame not in seen:       # every sample the wait reads: the bit as published
+                seen.add(s.frame)
+                rec["last"] = int(v)
+            return v is not None and int(v) == value
+
+        def game_ran(s):
+            c = _game_seconds(s)
+            return None if c is None or c0 is None else c - c0
+
+        st, end = None, None
+        g.watch(flag)
+        try:
+            while end is None:
+                left = self.deadline - time.time()
+                if left <= 0:
+                    end = "deadline"
+                    break
+                try:
+                    st = g.wait_for(lambda s: has(s) or not s.control or s.field_id != fid,
+                                    timeout=min(limit, left), what=f"the flag wait: Bit[{flag}] == {value}")
+                    end = "event"
+                except HarnessError as err:
+                    if "live samples" not in str(err):
+                        raise
+                    st = g.state                        # one read: the window's last sample
+                    ran = game_ran(st)
+                    if time.time() - t0 >= limit and (ran is None or ran >= limit):
+                        end = "out"                     # both clocks ran it (one it cannot read: the wall's)
+        finally:
+            g.unwatch()
+        ran = None if st is None else game_ran(st)
+        rec.update(s=round(time.time() - t0, 2), game_s=None if ran is None else round(ran, 2), published=len(seen))
+        if end == "deadline":
+            out.update(v="V13", by="driver", why=f"the run's budget ran out during the flag wait for Bit[{flag}] == "
+                                                 f"{value}, {rec['s']:.1f}s into its {limit:.0f}s: the budget")
+            rec["read"] = False
+            return "void", out
+        if st.field_id != fid:
+            new = self.switch(out, "the flag wait", float(step["exit_wait_s"]))
+            if new is not None:
+                out.update(landed=new, v="V11", by="game",
+                           why=f"the field left {fid} during the flag wait, nothing pressed: landed in {new} (place "
+                               f"{place(new, self.members)})")
+                return "void", out
+            st = g.state
+        if has(st):
+            rec.update(read=True, frame=st.frame)
+            return "done", out
+        if not st.control:
+            out["lost"] = sample(st)
+            why = f"control went during the flag wait for Bit[{flag}] == {value}"
+            verdict = self.door_loss(step, out, why)
+            if verdict is not None:
+                return verdict
+            out["why"] = why
+            return "interrupted", out
+        rec["read"] = False                                 # run out on both clocks, control held, the bit unread
+        if st.flag(flag) is None:
+            out.update(v="V13", by="driver", why=f"the watch never published Bit[{flag}] at the wait's end "
+                                                 f"({len(seen)} sample(s) carried it): the instrument's")
+        else:
+            out.update(v="V8", by="game", why=f"Bit[{flag}] read {int(st.flag(flag))}, never {value}, through "
+                                              f"{limit:.0f}s of both clocks of a wait begun at the proven point "
+                                              f"(published in {len(seen)} sample(s); the bit latches)")
+        return "void", out
 
     # -- one step -------------------------------------------------------------------------------------------------
     def run_step(self, c: dict, n: int, st) -> None:
@@ -3078,6 +3231,9 @@ class _Drive:
         for key in ("clearance", "basis"):       # S18/S19 (opt-in): on the row only when the step carries them
             if step.get(key) is not None:
                 row[key] = step[key]
+        for key in ("at_y", "wait_flag"):        # S20/S21 (opt-in): the arrival's height, the wait -- the executor's
+            if rec.get(key) is not None:
+                row[key] = rec[key]
         if rec.get("prior_basis") is not None:   # S19: the first move's disagreement, on the V13 row that names it
             row["prior_basis"] = rec["prior_basis"]
         if rec.get("misroute") is not None:      # S14 (opt-in): the landing after a door's evidence held -- rule 2's

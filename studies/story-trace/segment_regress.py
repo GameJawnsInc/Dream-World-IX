@@ -420,6 +420,15 @@ REQUIRED_TESTS: tuple = (
     # research/o8_design.md section 9, PART A: the gate extended to O7 (G21 over the union of the O3, O4, O5, O6 and O7
     # baselines' pins), then the shared opt-in changes, each with its step
     "test_segment_regress_o7_pins_join_the_union",                              # A0: G21 over five baselines
+    "test_segment_step_of_at_y_wait_flag_unstick_and_y_until_are_strict",       # A1: S20/S21/S23's keys, pure
+    "test_segment_walk_at_y_judges_the_arrival_height_on_the_fake",             # A1: S20 done, and the wrong level
+    "test_segment_walk_waits_for_its_flag_pressing_nothing_on_the_fake",        # A1: S21 done, nothing pressed
+    "test_segment_walk_wait_timeout_is_the_games_v8_on_the_fake",               # A1: S21's run-out, V8 game
+    "test_segment_walk_wait_unpublished_watch_is_the_drivers_v13_on_the_fake",  # A1: S21's dropped watch, V13
+    "test_segment_walk_wait_runs_out_on_both_clocks",                           # A1: S21's two clocks, pure
+    "test_segment_walk_wait_field_change_is_the_games_v11_on_the_fake",         # A1: S21's field change, V11 game
+    "test_segment_walk_wait_control_loss_is_interrupted_on_the_fake",           # A1: S21's control loss, door_loss
+    "test_segment_walk_wait_deadline_is_the_drivers_v13_on_the_fake",           # A1: S21's deadline, V13 driver
 )
 
 O1E_VERDICT = "PROVEN"

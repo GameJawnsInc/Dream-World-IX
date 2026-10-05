@@ -30899,3 +30899,486 @@ def test_fake_spiral_keeps_the_castle_route_identical(game, dali):
             assert len(a) == len(b), (f"{scene} {key}: {len(a)} entries, the golden {len(b)}; the first unmatched "
                                       f"{(a[len(b)] if len(a) > len(b) else b[len(a)])!r}")
     assert got == want
+
+
+# ---- A1: S20 (research/o8_design.md 1.2) -- ``at_y``, THE ARRIVAL'S HEIGHT: a walk's arrival proven on its LEVEL, his
+# published y within the band; S21 -- ``wait_flag``, THE KNIGHT WAIT: at the proven point, nothing pressed, until the
+# watched story bit reads its value -- run out only on BOTH clocks, the game's V8 only on a bit the agent published. On
+# O2's fixture fields (30820 the walk's, 30821 a landing, 30810 the end) over 164's box (research/o8_design.md 3.6) with
+# a test-side plane for his height: the walk from 164's spawn (2040, 3335) up to P1 (1342, 2252), published y ~4780 ->
+# ~8958. A drive ends on the walk's done row: the log moves the fake to 30810 there (rule 1), in the drive's own thread.
+
+#: 164's box floor (research/o8_design.md 3.6): every walk of 164's and 165's cells.
+_O8_BOX = (-1200.0, 1600.0, 3600.0, 5200.0)
+#: Each field's height as a plane through three (x, z, published y) anchors (research/o8_design.md 3.6): 164's spawn,
+#: P1 and e2's fire point; 165's spawn, P1 and e2's fire point. A plane through the box is too steep for H20's step
+#: bound, so the box's heights come from :func:`_o8_plane`, never from ``Levels``.
+_O8_PLANES = {"164": ((2040.0, 3335.0, 4780.0), (1342.0, 2252.0, 8958.0), (24.5, 2270.8, 13008.0)),
+              "165": ((2055.0, 3411.0, 10280.0), (1508.0, 4698.0, 11251.0), (2419.6, 3130.0, 15169.0))}
+_S20_SPAWN = (2040, 3335)
+_S20_P1 = [1342, 2252]
+_S20_BAND = [8800, 9150]
+_S20_FLAG = 3811
+
+
+def _o8_plane_coef(anchors) -> tuple:
+    """``(a, b, c)`` of the plane ``y = a x + b z + c`` through three ``(x, z, y)`` anchors (Cramer's rule)."""
+    (x1, z1, y1), (x2, z2, y2), (x3, z3, y3) = anchors
+    det = x1 * (z2 - z3) - z1 * (x2 - x3) + (x2 * z3 - x3 * z2)
+    a = (y1 * (z2 - z3) - z1 * (y2 - y3) + (y2 * z3 - y3 * z2)) / det
+    b = (x1 * (y2 - y3) - y1 * (x2 - x3) + (x2 * y3 - x3 * y2)) / det
+    c = (x1 * (z2 * y3 - z3 * y2) - z1 * (x2 * y3 - x3 * y2) + y1 * (x2 * z3 - x3 * z2)) / det
+    return a, b, c
+
+
+def _o8_plane(fake, planes: dict) -> None:
+    """research/o8_design.md 3.6's test-side height: ``fake._move_to`` wrapped ON THE INSTANCE, so after every step in
+    a field of ``planes`` (``{field id: three (x, z, published y) anchors}``) his published y (``player[1]``) is that
+    field's plane at where the step left him. Elsewhere -- another field, an arrival (y 0) -- nothing changes."""
+    coef = {int(f): _o8_plane_coef(a) for f, a in planes.items()}
+    move = fake._move_to
+
+    def moved(x, z, calls=1.0):
+        ok = move(x, z, calls)
+        c = coef.get(fake.field_id)
+        if c is not None:
+            fake.player[1] = c[0] * fake.player[0] + c[1] * fake.player[2] + c[2]
+        return ok
+    fake._move_to = moved
+
+
+def _s20_walk(**kw) -> dict:
+    """164 #0's walk on the box: to P1, its arrival at ``at_y`` [8800, 9150] (``kw`` over it)."""
+    return {"kind": "walk", "name": "164: the first spiral to P1", "goal": list(_S20_P1), "at_y": list(_S20_BAND),
+            "beat": "walked", **kw}
+
+
+def _s20_wait(timeout_s=60, **kw) -> dict:
+    """:func:`_s20_walk` with THE KNIGHT WAIT on Bit[3811] := 1."""
+    return _s20_walk(wait_flag={"flag": _S20_FLAG, "value": 1, "timeout_s": timeout_s}, **kw)
+
+
+def _s20_pred(steps, *, regions=None, **defaults) -> dict:
+    """S20's predictions on the fake: ONE visit-scoped cell (30820, SC 1000, visit 1) of ``steps``, the end 30810,
+    route and visits [30820], ``regions`` the registered ones (none by default), ``defaults`` over O2's step defaults."""
+    pred = _o2_pred([{"donor": 30820, "sc": 1000, "visit": 1, "steps": [dict(s) for s in steps]}], beats=["walked"],
+                    end=30810, route=(30820,), regions=dict(regions or {}))
+    pred["visits"] = [30820]
+    pred["steps_default"].update(defaults)
+    return pred
+
+
+class _S20Log(list):
+    """A drive log that ends the run on the walk's DONE row: the fake moved to the end field 30810 and that move
+    PUBLISHED before the drive's next poll -- in the drive's own thread, so no load can let a poll see control held
+    after the cell's last step first (V4). ``on_row(row)``, when set, sees every step row as it is logged."""
+
+    def __init__(self, fake):
+        super().__init__()
+        self.fake, self.g, self.on_row = fake, None, None
+
+    def append(self, row):
+        super().append(row)
+        if isinstance(row, dict) and row.get("k") == "step":
+            if self.on_row is not None:
+                self.on_row(row)
+            if row["outcome"] == "done" and self.g is not None:
+                _o2_move(self.fake, 30810, 0.0, 0.0)
+                published(self.g, lambda s: s.field_id == 30810, timeout=30.0)
+
+
+def _s20_drive(game, pred, *, setup=None, wrap=None, phases=None, deadline=90.0, rerun=lambda out, log: False):
+    """One S20/S21 drive on the fake (``_s17_drive``'s shape): New Game, the raw warp into 30820 at SC 1000, him at
+    164's spawn, the bases cached, 164's plane over the box; the drive built here (``SD._Drive``, as ``drive`` builds
+    it) so ``wrap(g, fake, d)`` can reach it; ``setup(fake)`` before the session, ``phases(log, fake)`` a director's.
+    Re-run -- at most twice -- only while ``rerun(out, log)`` holds (the test's own judgment that a starved harness bent
+    the run, its class asserted there). ``(outcome or the void raised, log, fake)``."""
+    SD = _segment_modules()
+    for attempt in range(3):
+        fake = FakeGame(game, walkmesh=_O8_BOX)
+        fake.regions = {}
+        _o8_plane(fake, {30820: _O8_PLANES["164"]})
+        if setup is not None:
+            setup(fake)
+        log = _S20Log(fake)
+        stop = threading.Event()
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30820, entrance=102, scenario=1000)
+            _stand(g, fake, *_S20_SPAWN)
+            for f in (30820, 30821, 30810):
+                g._axes[f] = _prior()
+            log.g = g
+            d = SD._Drive(g, pred, "S", log, deadline=time.time() + deadline,
+                          floor_for=lambda dn, closed: _flat_bgi(*_O8_BOX), prior_for=lambda dn: _prior(),
+                          progress=None, end_fields=None, observe=None, forbid_live=False)
+            if wrap is not None:
+                wrap(g, fake, d)
+            if phases is not None:
+                _o1_director(fake, stop, phases(log, fake))
+            try:
+                try:
+                    out = d.go()
+                except (SD.RouteVoid, HarnessError) as err:
+                    out = err
+            finally:
+                stop.set()
+        if attempt == 2 or not rerun(out, log):
+            return out, log, fake
+
+
+def _s20_rows(log) -> list:
+    return [r for r in log if r.get("k") == "step"]
+
+
+def _s20_load(out, log) -> bool:
+    """A run a starved harness spoiled (the load-robust rule, research/o8_design.md 9): the walk ended SHORT -- a stall
+    ("from its goal" without the height's clause) -- or the budget; never a height's failure, a wait's verdict or a
+    game class."""
+    walks = _s20_rows(log)
+    short = any(r["outcome"] == "failed" and "outside at_y" not in (r.get("why") or "") for r in walks)
+    budget = isinstance(out, Exception) and "the run's budget ran out" in str(out) and "flag wait" not in str(out)
+    if short or budget:
+        assert not isinstance(out, Exception) or getattr(out, "by", "driver") == "driver", out
+        return True
+    return False
+
+
+def _s20_counting(g) -> list:
+    """Every request ``g`` sends and every press it makes from now on, in order, as ``("send", steps)`` /
+    ``("press", button)`` -- the instance's ``send`` and ``press`` wrapped."""
+    seen, send, press = [], g.send, g.press
+
+    def sending(*steps, **kw):
+        seen.append(("send", steps))
+        return send(*steps, **kw)
+
+    def pressing(button, frames=2):
+        seen.append(("press", button))
+        return press(button, frames)
+    g.send, g.press = sending, pressing
+    return seen
+
+
+def _s20_on_wait(g, act) -> dict:
+    """The instance's ``wait_for`` wrapped: ``act(n)`` runs BEFORE the n-th call of a flag wait (1, 2, ...) -- every
+    event a wait test stages is keyed on the wait's own call, never on the wall clock. ``{"calls": n}``."""
+    real, seen = g.wait_for, {"calls": 0}
+
+    def wait_for(predicate, *, timeout=20.0, what="condition"):
+        if str(what).startswith("the flag wait"):
+            seen["calls"] += 1
+            act(seen["calls"])
+        return real(predicate, timeout=timeout, what=what)
+    g.wait_for = wait_for
+    return seen
+
+
+def test_segment_step_of_at_y_wait_flag_unstick_and_y_until_are_strict():
+    """S20, S21 and S23's keys read strict by ``step_of``, pure (research/o8_design.md 1.2): ``at_y`` on a cross (a
+    walk's key alone), ``[9150, 8800]`` (lo over hi), ``[True, 9000]`` (a bool is no number) and ``[8800]`` refused;
+    ``wait_flag`` without ``at_y``, on a trigger, with ``flag`` 16384 (past Byte[2048]) or True, ``value`` 2,
+    ``timeout_s`` 0, an extra or a missing key refused; ``unstick`` "no" refused. Every accepted step -- a walk with
+    ``at_y`` and ``wait_flag``, one with ``unstick`` False -- is returned EXACTLY ``{**steps_default, **raw}`` with the
+    climb merge: the checks only check (the claim critic's #5). Break: ``step_of`` adding ``unstick`` True to every
+    step (the round trip then fails)."""
+    SD = _segment_modules()
+    pred = {"regions": {"door": {"points": _S14_QUAD, "role": "exit"}}, "steps_default": dict(_O2_DEFAULTS)}
+    walk = _s20_wait()
+    for raw in (walk, _s20_walk(), {**_s20_walk(), "unstick": False}, {"kind": "walk", "goal": [0, 0]}):
+        assert SD.step_of(pred, raw) == {**_O2_DEFAULTS, **raw, "climb": dict(_O2_DEFAULTS["climb"])}, raw
+    cross = {"kind": "cross", "target": "door", "goal": [0, 900], "to": 154}
+    with pytest.raises(ValueError, match=re.escape("['at_y'] only a walk carries")):
+        SD.step_of(pred, {**cross, "at_y": [8800, 9150]})
+    for band in ([9150, 8800], [True, 9000], [8800], [8800, "9150"], 8800):
+        with pytest.raises(ValueError, match="at_y is \\[lo, hi\\]"):
+            SD.step_of(pred, _s20_walk(at_y=band))
+    with pytest.raises(ValueError, match="a wait_flag needs at_y"):
+        SD.step_of(pred, {k: v for k, v in walk.items() if k != "at_y"})
+    trig = {"kind": "trigger", "goal": [0, 900], "until": {"z_gt": 500}, "wait_flag": walk["wait_flag"]}
+    with pytest.raises(ValueError, match=re.escape("['wait_flag'] only a walk carries")):
+        SD.step_of(pred, trig)
+    for change, match in (({"flag": 16384}, "an int in 0..16383"), ({"flag": True}, "an int in 0..16383"),
+                          ({"flag": -1}, "an int in 0..16383"), ({"value": 2}, "value is 0 or 1"),
+                          ({"value": True}, "value is 0 or 1"), ({"timeout_s": 0}, "timeout_s is a positive"),
+                          ({"timeout_s": True}, "timeout_s is a positive"), ({"why": "x"}, "holds exactly"),
+                          ({"value": ...}, "holds exactly")):
+        wf = {**walk["wait_flag"], **change}
+        wf = {k: v for k, v in wf.items() if v is not ...}
+        with pytest.raises(ValueError, match=match):
+            SD.step_of(pred, {**walk, "wait_flag": wf})
+    for bad in ("no", 0, 1.0):
+        with pytest.raises(ValueError, match="unstick is a bool"):
+            SD.step_of(pred, {**_s20_walk(), "unstick": bad})
+
+
+def test_segment_walk_at_y_judges_the_arrival_height_on_the_fake(game):
+    """S20 on the fake (research/o8_design.md 1.2): 164's walk up the first spiral to P1 on the box, his height 164's
+    plane (3.6) -- with ``at_y`` [8800, 9150] it is DONE, its row's ``at_y`` the band and the published y read at the
+    arrival (8800-9150 by the plane within the walk's tolerance of P1, ~8958); with [9200, 9500] -- XZ the same, the
+    LEVEL not -- each attempt is ``failed`` naming the y ("outside at_y [9200, 9500]: not the goal's level", route_to
+    reached all the same), and the second is VOID V7 by the driver at the cell. A run a starved harness ended short (a
+    stall, not the height) is re-run, its class asserted. Break: ``at_y`` unread (the second walk then reads done at the
+    wrong level)."""
+    SD = _segment_modules()
+    out, log, _fake = _s20_drive(game, _s20_pred([_s20_walk()]), rerun=_s20_load)
+    assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"walked": True}, out
+    rows = _s20_rows(log)
+    assert [r["outcome"] for r in rows] == ["done"], rows
+    got = rows[0]["at_y"]
+    assert got["band"] == [8800.0, 9150.0] and 8800 <= got["y"] <= 9150, got
+    assert rows[0]["to"]["control"] and math.hypot(rows[0]["to"]["x"] - 1342, rows[0]["to"]["z"] - 2252) <= 45, rows[0]
+    out, log, _fake = _s20_drive(game, _s20_pred([_s20_walk(at_y=[9200, 9500])]), rerun=_s20_load)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V7", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    rows = _s20_rows(log)
+    assert [(r["outcome"], r["attempt"]) for r in rows] == [("failed", 1), ("failed", 2)], rows
+    for r in rows:
+        assert r["route"]["reached"] is True and r["at_y"]["band"] == [9200.0, 9500.0], r
+        assert 8800 <= r["at_y"]["y"] <= 9150 and "outside at_y [9200, 9500]: not the goal's level" in r["why"], r
+        assert "at published y " in r["why"], r["why"]
+
+
+def test_segment_walk_waits_for_its_flag_pressing_nothing_on_the_fake(game):
+    """S21 on the fake (research/o8_design.md 1.2): THE KNIGHT WAIT at P1 -- a test director stores Bit[3811] := 1 (164
+    e1 t1 ip230's store) sixty FAKE frames after the wait's first ``g.wait_for`` call (keyed on the call, never on the
+    wall clock; ``timeout_s`` 60, far over any starvation): the walk is DONE, its row's ``wait_flag`` read True, its
+    ``frame`` the store's or later, ``s`` over 0 (a bound only), ``published`` at least 1 sample, ``last`` 1. Every
+    request sent between the walk's arrival (route_to's return) and its row is the ``watch`` and the ``unwatch`` --
+    no press, no hold -- and the fake watches nothing after. Break: done at the arrival, the flag unread (the row then
+    holds no wait)."""
+    stores: list = []
+
+    def wrap(g, fake_, d):
+        sent = _s20_counting(g)
+        real = g.route_to
+
+        def route_to(x, z, **kw):
+            rec = real(x, z, **kw)
+            sent.append(("arrived", (x, z)))
+            return rec
+        g.route_to = route_to
+        d.log.on_row = lambda row: sent.append(("row", row["outcome"]))
+        due = {"frame": None}
+        _s20_on_wait(g, lambda n: due.update(frame=fake_.frame + 60) if n == 1 else None)
+        wrap.sent, wrap.due = sent, due
+
+    def phases(log_, fake_):
+        del stores[:]                                    # a re-run stores again
+
+        def store(f):
+            stores.append(f.frame)
+            f.script_store(1, 1, 230, _S20_FLAG >> 3, "Bit", 1, bit=_S20_FLAG)
+        return [(lambda f: wrap.due["frame"] is not None and f.frame >= wrap.due["frame"], store)]
+    out, log, fake = _s20_drive(game, _s20_pred([_s20_wait()]), wrap=wrap, phases=phases, rerun=_s20_load)
+    assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"walked": True}, out
+    rows = _s20_rows(log)
+    assert [r["outcome"] for r in rows] == ["done"], rows
+    wf = rows[0]["wait_flag"]
+    assert stores and wf["read"] is True and wf["frame"] >= stores[0] and wf["s"] > 0, (wf, stores)
+    assert wf["published"] >= 1 and wf["last"] == 1 and (wf["flag"], wf["value"]) == (_S20_FLAG, 1), wf
+    assert wf["frame0"] < wf["frame"], wf
+    sent = wrap.sent
+    at = next(i for i, e in enumerate(sent) if e[0] == "arrived")
+    row = next(i for i, e in enumerate(sent) if e[0] == "row")
+    between = [e for e in sent[at + 1:row] if e[0] in ("send", "press")]
+    assert between == [("send", (f"watch {_S20_FLAG}",)), ("send", ("unwatch",))], between
+    assert fake.watch == [], fake.watch
+
+
+def test_segment_walk_wait_timeout_is_the_games_v8_on_the_fake(game):
+    """S21's run-out on the fake (research/o8_design.md 1.2): nothing ever stores Bit[3811] -- the agent publishes it 0
+    -- and ``timeout_s`` 1: once both clocks ran the second, RouteVoid V8 by the GAME at the cell [30820, 1000, 1], the
+    row's ``wait_flag`` read False, ``published`` at least 1, ``last`` 0 -- a deterministic V8 (no store exists to race).
+    Break: the run-out read as the walk's failure (V7) or as the driver's."""
+    SD = _segment_modules()
+    out, log, _fake = _s20_drive(game, _s20_pred([_s20_wait(timeout_s=1)]), rerun=_s20_load)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V8", "game", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    rows = _s20_rows(log)
+    assert len(rows) == 1 and (rows[0]["outcome"], rows[0]["v"], rows[0]["by"]) == ("void", "V8", "game"), rows
+    wf = rows[0]["wait_flag"]
+    assert wf["read"] is False and wf["published"] >= 1 and wf["last"] == 0 and wf["s"] >= 1.0, wf
+    assert wf["game_s"] is not None and wf["game_s"] >= 1.0, wf
+    assert "never 1, through 1s of both clocks" in rows[0]["why"], rows[0]["why"]
+
+
+def test_segment_walk_wait_unpublished_watch_is_the_drivers_v13_on_the_fake(game):
+    """S21's unpublished watch on the fake (research/o8_design.md 1.2; the reviews' A4 / B4): a test-side wrapper on
+    ``g.send`` drops the ``watch`` verb, so no sample carries Bit[3811] -- as the agent's AppendWatch publishes
+    ``"flags":{}`` on any fault -- and ``timeout_s`` 1: VOID V13 by the DRIVER, naming "never published", the row's
+    ``published`` 0 and ``last`` None. Break: an unread bit read as published 0 (the game's V8 for the instrument's
+    miss)."""
+    SD = _segment_modules()
+
+    def wrap(g, fake, d):
+        send = g.send
+        g.send = lambda *steps, **kw: None if steps and str(steps[0]).startswith("watch ") else send(*steps, **kw)
+    out, log, _fake = _s20_drive(game, _s20_pred([_s20_wait(timeout_s=1)]), wrap=wrap, rerun=_s20_load)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V13", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    assert "never published Bit[3811]" in str(out), str(out)
+    wf = _s20_rows(log)[0]["wait_flag"]
+    assert wf["read"] is False and wf["published"] == 0 and wf["last"] is None, wf
+
+
+class _S21St:
+    """A stub sample (``State``'s face that S21 reads): frame, control, field, the watched bit, the clocks."""
+
+    def __init__(self, frame, rt, bit):
+        self.frame, self.control, self.field_id, self._bit = frame, True, 30820, bit
+        self.raw = {} if rt is None else {"rt": rt}
+        self.mtime = None
+        self.player_x, self.player_z, self.player_y = 1342.0, 2252.0, 8958.0
+
+    def flag(self, bit):
+        return self._bit
+
+
+class _S21Session:
+    """A stub session whose samples publish ``rt`` advancing ``rate`` times as fast as the wall's (None: no clock it
+    can read -- no ``rt``, no write time) and the bit as 0; ``wait_for`` polls them as Session.wait_for does and runs out
+    with its "... live samples ..." error."""
+
+    def __init__(self, rate):
+        self.t0, self.rate, self.frame, self.sent = time.time(), rate, 0, []
+
+    @property
+    def state(self):
+        self.frame += 1
+        return _S21St(self.frame, None if self.rate is None else (time.time() - self.t0) * self.rate, False)
+
+    def wait_for(self, predicate, *, timeout=20.0, what="condition"):
+        end, n = time.time() + timeout, 0
+        while time.time() < end:
+            st = self.state
+            n += 1
+            if predicate(st):
+                return st
+            time.sleep(0.01)
+        raise HarnessError(f"timed out after {timeout:.0f}s waiting for {what} over {n} live samples")
+
+    def watch(self, *bits):
+        self.sent.append("watch")
+
+    def unwatch(self):
+        self.sent.append("unwatch")
+
+
+def test_segment_walk_wait_runs_out_on_both_clocks():
+    """S21's two clocks, pure (research/o8_design.md 1.2; the claim review's #5), on a stub session (``_Drive`` without
+    ``__init__``): its samples publish ``rt`` advancing a QUARTER as fast as the wall's, the bit 0 -- ``timeout_s`` 0.5
+    is no verdict until the GAME's clock ran it (about 2 s of wall time: asserted as a lower bound, never "about"),
+    then V8 by the game with ``game_s`` at least 0.5; a stub with no clock it can read: the wall's alone (today's rule),
+    V8 with ``game_s`` None; the run's deadline first (0.3 s left, ``timeout_s`` 5): V13 by the driver, "the budget",
+    ``read`` False. The watch is set and cleared each time. Break: the wall's timeout alone (V8 while the game's clock had
+    run a quarter of it)."""
+    SD = _segment_modules()
+    pred = {"regions": {}, "steps_default": dict(_O2_DEFAULTS)}
+
+    def wait(rate, timeout_s, left=60.0):
+        d = SD._Drive.__new__(SD._Drive)
+        d.g, d.fid, d.members, d.deadline = _S21Session(rate), 30820, {}, time.time() + left
+        step = SD.step_of(pred, _s20_wait(timeout_s=timeout_s))
+        t0 = time.time()
+        verdict, out = SD._Drive.wait_flag(d, step, {})
+        return verdict, out, time.time() - t0, d.g.sent
+    verdict, out, took, sent = wait(0.25, 0.5)
+    assert (verdict, out["v"], out["by"]) == ("void", "V8", "game"), (verdict, out)
+    assert took >= 2.0 and out["wait_flag"]["game_s"] >= 0.5 and out["wait_flag"]["read"] is False, (took, out)
+    assert sent == ["watch", "unwatch"], sent
+    verdict, out, took, sent = wait(None, 0.5)
+    assert (verdict, out["v"], out["by"]) == ("void", "V8", "game") and out["wait_flag"]["game_s"] is None, out
+    assert took >= 0.5 and sent == ["watch", "unwatch"], (took, sent)
+    verdict, out, took, sent = wait(0.25, 5.0, left=0.3)
+    assert (verdict, out["v"], out["by"]) == ("void", "V13", "driver") and "the budget" in out["why"], out
+    assert out["wait_flag"]["read"] is False and took < 5.0 and sent == ["watch", "unwatch"], (took, out)
+
+
+def test_segment_walk_wait_field_change_is_the_games_v11_on_the_fake(game):
+    """S21's field change on the fake (research/o8_design.md 1.2): the director moves the fake into 30821 on the wait's
+    first ``g.wait_for`` call (a scripted transition: control as it was, nothing pressed), ``timeout_s`` 60 -- VOID V11
+    by the GAME at the cell, ``landed`` 30821 on the row, "nothing pressed". Break: the landing read as the walk's
+    stray (V11 by the driver)."""
+    SD = _segment_modules()
+
+    def wrap(g, fake, d):
+        _s20_on_wait(g, lambda n: _o2_move(fake, 30821) if n == 1 else None)
+    out, log, _fake = _s20_drive(game, _s20_pred([_s20_wait()]), wrap=wrap, rerun=_s20_load)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V11", "game", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    rows = _s20_rows(log)
+    assert len(rows) == 1 and (rows[0]["outcome"], rows[0]["landed"]) == ("void", 30821), rows
+    assert "during the flag wait, nothing pressed: landed in 30821" in rows[0]["why"], rows[0]["why"]
+
+
+def test_segment_walk_wait_control_loss_is_interrupted_on_the_fake(game):
+    """S21's control loss on the fake (research/o8_design.md 1.2), every event keyed on a call: control taken on the
+    wait's first ``g.wait_for`` call, P1 away from every exit -- the walk is ``interrupted`` ("control went during the
+    flag wait for Bit[3811] == 1", no door), control given back once that row is logged, and the re-run walks his few
+    units back to P1 and waits again: on its first ``wait_for`` call the bit is stored -- DONE, attempt 2. With a
+    registered exit 5u west of P1 (within ``exit_slack`` 40 wherever the walk stops) and its switch coming 20 fake frames
+    after the loss: VOID V11 by the DRIVER, ``door`` the exit, ``landed`` 30821 -- the landing judge's (door_loss). Break:
+    control gone read as the run-out (V8)."""
+    SD = _segment_modules()
+
+    def regrant(log, fake):
+        return [(lambda f: any(r.get("k") == "step" and r["outcome"] == "interrupted" for r in list(log)),
+                 lambda f: setattr(f, "control", True))]
+
+    def wrap(g, fake, d):
+        def act(n):
+            if n == 1:
+                fake.control = False
+            elif n == 2:
+                fake.script_store(1, 1, 230, _S20_FLAG >> 3, "Bit", 1, bit=_S20_FLAG)
+        _s20_on_wait(g, act)
+    out, log, _fake = _s20_drive(game, _s20_pred([_s20_wait()]), wrap=wrap, phases=regrant, rerun=_s20_load)
+    assert isinstance(out, dict) and out["end"] == "reached", out
+    rows = _s20_rows(log)
+    assert [(r["outcome"], r["attempt"]) for r in rows] == [("interrupted", 1), ("done", 2)], rows
+    assert rows[0]["why"] == f"control went during the flag wait for Bit[{_S20_FLAG}] == 1" and rows[0]["door"] is None, \
+        rows[0]
+    assert rows[0]["wait_flag"]["read"] is None and rows[1]["wait_flag"]["read"] is True, rows
+    door = _rect(1037, 2100, 1337, 2400)                 # its east edge 5u west of P1
+
+    def wrap_door(g, fake, d):
+        def act(n):
+            if n == 1:
+                fake.control = False
+                wrap_door.due = fake.frame + 20
+        wrap_door.due = None
+        _s20_on_wait(g, act)
+
+    def switch(log, fake):
+        return [(lambda f: wrap_door.due is not None and f.frame >= wrap_door.due, lambda f: _o2_move(f, 30821))]
+    pred = _s20_pred([_s20_wait()], regions={"30820.door": {"points": door, "role": "exit"}})
+    out, log, _fake = _s20_drive(game, pred, wrap=wrap_door, phases=switch, rerun=_s20_load)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V11", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    row = _s20_rows(log)[0]
+    assert (row["outcome"], row["door"], row["landed"]) == ("void", "30820.door", 30821), row
+
+
+def test_segment_walk_wait_deadline_is_the_drivers_v13_on_the_fake(game):
+    """S21's deadline on the fake (research/o8_design.md 1.2): the run's deadline set 1 s after the walk's arrival (the
+    drive's own, through a wrapper on route_to), ``timeout_s`` 15 -- VOID V13 by the DRIVER on the row ("the run's budget
+    ran out during the flag wait"), ``read`` False, ``s`` under 15. Break: the deadline read as the wait's timeout (V8 by
+    the game)."""
+    SD = _segment_modules()
+
+    def wrap(g, fake, d):
+        real = g.route_to
+
+        def route_to(x, z, **kw):
+            rec = real(x, z, **kw)
+            d.deadline = time.time() + 1.0
+            return rec
+        g.route_to = route_to
+    out, log, _fake = _s20_drive(game, _s20_pred([_s20_wait(timeout_s=15)]), wrap=wrap, rerun=_s20_load)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V13", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    row = _s20_rows(log)[0]
+    assert (row["outcome"], row["v"], row["by"]) == ("void", "V13", "driver"), row
+    assert "the run's budget ran out during the flag wait" in row["why"], row["why"]
+    assert row["wait_flag"]["read"] is False and row["wait_flag"]["s"] < 15, row["wait_flag"]

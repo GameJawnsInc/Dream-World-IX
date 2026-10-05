@@ -2606,3 +2606,19 @@ golden, on the unedited fake: route-S and route-F 529 sample changes and 63 trac
    (H20's placement), Dojebon and the two soldiers (H23 and the pair band), the doors by height (H22) -- pressed along
    `_o7_plan154`'s ten waypoints from the grant to (0, -600): the plan passes 598 u from soldier e6 and 1091 u from
    Dojebon, who stays held at his placement throughout (asserted in the scene).
+6. **`unstick`'s strict read lands in A1.** 1.2 lists `unstick`'s `step_of` check under S23 (A3), but A1's strictness
+   test refuses `unstick` "no", so the check (a bool, or absent) is in A1's `step_of` with S20/S21's; A3 adds only
+   `walk_kw`'s keyword and the row key. The strictness test's y-until clause (S22) joins it in A2. A `WALK_ONLY` key is
+   read off the MERGED step (a `steps_default` carrying one would be refused on every non-walk), and a key whose value
+   is None reads as absent, as `clearance` and `basis` do.
+7. **A1's fixture.** The box with 164's plane (3.6) lands here: `_O8_BOX`, `_O8_PLANES` and `_o8_plane` (B3's builder
+   reuses them), the walk from 164's spawn (2040, 3335) to P1 (1342, 2252). `_s20_drive` builds `SD._Drive` itself, as
+   `drive` does, so the deadline test can set the drive's own deadline 1 s after the arrival; it ends a run on the walk's
+   DONE row by moving the fake to the end field inside the log's `append` -- in the drive's own thread, the move
+   published before the next poll -- so no poll can read control held after the cell's last step (V4) first.
+8. **The control-loss test's door 5 u west of P1.** A door 30 u off is within `exit_slack` 40 only when the walk
+   stopped within ~18 u of P1 (it stops anywhere within its tolerance 45 on the line from the spawn); 5 u keeps every
+   stop within 29 u of the door's edge.
+9. **"Nothing between the arrival and the read"** is the sends between route_to's return and the step row's append
+   (the log's `on_row` hook): exactly `watch 3811` and `unwatch` -- the session's own `quit` after the run is no part of
+   the wait.
