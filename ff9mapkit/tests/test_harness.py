@@ -27525,6 +27525,40 @@ def test_segment_prior_basis_forget_clears_the_seed_on_the_fake(game):
         assert probes == [] and rec["basis"] == "prior" and rec["basis_check"]["angle"] < 2.0, (probes, rec)
 
 
+def test_segment_prior_basis_recalibration_drops_the_seed_on_the_fake(game):
+    """S19's RECALIBRATION (the O7 review's finding on forget_basis): a field seeded and still PENDING -- route_to
+    (basis="prior") to where he stands, nothing pressed -- then ``calibrate_axes(recalibrate=True)``, both of its writes:
+    the plain probe's and the clear-of mode's (``prior`` given: :meth:`_calibrate_clear_of`). Each MEASURES (its probes
+    pressed), and the measured basis replaces the seed with its state: the field in ``_axes`` and in none of
+    ``_seeded``, ``_prior_pending``, ``_prior_angle``. The walk after it, given no ``basis``, runs no first-move check --
+    its record holds no ``basis_check`` (nor ``basis``) -- and plans calibration's own spread. Break: a recalibration that
+    writes ``_axes`` alone (the pending seed then rides the measured basis: a ``basis_check`` on the calibrated walk, the
+    seeded spread)."""
+    fake = FakeGame(game)
+    floor = _flat_bgi()
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        for how in ("plain", "clear-of"):
+            g.forget_basis(30820)
+            _stand(g, fake, 0, 0)
+            rec = g.route_to(0.0, 0.0, walkmesh=floor, prior=_prior(), smooth=True, unstick=True, basis="prior")
+            assert rec["basis"] == "prior" and 30820 in g._seeded and 30820 in g._prior_pending, (how, rec)
+            probes = _s19_probes(g)
+            if how == "plain":
+                g.calibrate_axes(recalibrate=True)
+            else:
+                g.calibrate_axes(recalibrate=True, hazards=[], prior=_prior())
+            del g._probe_axis                                 # the instance's wrapper off: the class's again
+            assert probes and 30820 in g._axes, (how, probes)
+            assert not (30820 in g._seeded or 30820 in g._prior_pending or 30820 in g._prior_angle), \
+                (how, g._seeded, g._prior_pending, g._prior_angle)
+            _stand(g, fake, 0, 0)
+            rec = g.route_to(0.0, 400.0, walkmesh=floor, prior=_prior(), smooth=True, unstick=True)
+            assert rec["reached"] and "basis_check" not in rec and "basis" not in rec, (how, rec)
+            assert g._field_spread(30820, _prior()) == g._heading_spread(g._axes[30820], _prior()), how
+
+
 def test_segment_prior_basis_absent_calibrates_as_today_on_the_fake(game):
     """S19 IS OPT-IN (research/o7_design.md 1.2): route_to with no ``basis`` on a field with none calibrates as today --
     its probes pressed, clear of nothing -- and returns exactly today's record keys: no ``basis``, no ``basis_check``

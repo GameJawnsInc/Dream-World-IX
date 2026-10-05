@@ -289,7 +289,9 @@ class Session:
         self._axes: dict[int, dict] = {}      # field id -> measured button->world basis
         #: S19 (research/o7_design.md 1.2), all empty unless a route_to seeds (``basis="prior"``): the fields whose
         #: ``_axes`` basis is a SEEDED prior, those of them whose first move is not judged yet, and the angle each judged
-        #: first move measured (degrees). Every pop of ``_axes`` goes through :meth:`forget_basis`, which drops these too.
+        #: first move measured (degrees). Every pop of ``_axes`` goes through :meth:`forget_basis`, which drops these too,
+        #: and every MEASURED write of it (:meth:`calibrate_axes`'s, :meth:`_calibrate_clear_of`'s) through
+        #: :meth:`_drop_seed`: a seed's state never outlives the basis it was seeded as.
         self._seeded: set = set()
         self._prior_pending: set = set()
         self._prior_angle: dict[int, float] = {}
@@ -1681,15 +1683,23 @@ class Session:
         """Drop each of ``fields``' basis -- ``_axes`` -- and its seeded-prior state (S19, research/o7_design.md 1.2:
         ``_seeded``, ``_prior_pending``, ``_prior_angle``): the next routed walk there seeds or calibrates afresh. EVERY
         pop of ``_axes`` goes through here (walk_to's and :meth:`_walk_leg`'s wrong-basis pops, the first-move check's),
-        so a field forgotten while its seed was still pending never carries the check -- or a seeded spread -- onto a
-        basis calibrated later. With the S19 state empty (no caller seeded) it is ``_axes.pop(field, None)`` exactly. A
-        segment that seeds calls it over its seeded fields at each run's start, so every run judges its own first
-        moves (research/o7_design.md 0.2 #20)."""
+        and every basis a calibration MEASURES over an existing one drops the seed too (:meth:`_drop_seed`, at both of
+        :meth:`calibrate_axes`' writes) -- so a pending seed never carries the check, or a seeded spread, onto a basis
+        calibrated later, whether the field was forgotten first or recalibrated in place. With the S19 state empty (no
+        caller seeded) it is ``_axes.pop(field, None)`` exactly. A segment that seeds calls it over its seeded fields at
+        each run's start, so every run judges its own first moves (research/o7_design.md 0.2 #20)."""
         for f in fields:
             self._axes.pop(f, None)
-            self._seeded.discard(f)
-            self._prior_pending.discard(f)
-            self._prior_angle.pop(f, None)
+            self._drop_seed(f)
+
+    def _drop_seed(self, field: int) -> None:
+        """S19: ``field``'s seeded-prior state (``_seeded``, ``_prior_pending``, ``_prior_angle``) dropped -- by
+        :meth:`forget_basis`, and wherever a MEASURED basis replaces the field's (:meth:`calibrate_axes` with
+        ``recalibrate``, plain or clear-of): the measurement is no seed, so no first-move check is pending on it and its
+        spread is calibration's own. A field with no seed: nothing changes."""
+        self._seeded.discard(field)
+        self._prior_pending.discard(field)
+        self._prior_angle.pop(field, None)
 
     def calibrate_axes(self, *, probe: int = 4, recalibrate: bool = False, hazards=(),
                        prior: dict | None = None) -> dict:
@@ -1790,6 +1800,7 @@ class Session:
             )
 
         self._axes[key] = basis
+        self._drop_seed(key)                          # S19: a measured basis replaces a seed, its state with it
         self._log(f"axes on field {key}: up={_vec(basis['v'])} ({detail['v']:.0f}u) "
                   f"right={_vec(basis['h'])} ({detail['h']:.0f}u) |dot|={skew:.2f}")
         return basis
@@ -2125,6 +2136,7 @@ class Session:
                 f"right={_vec(basis['h'])} are not perpendicular (|dot|={skew:.2f}). Something "
                 f"(an NPC, a wall) pushed a probe. Move to clearer ground and recalibrate.")
         self._axes[key] = basis
+        self._drop_seed(key)                          # S19: a measured basis replaces a seed, its state with it
         self._log(f"axes on field {key} (clear of {len(polys)} region(s)): up={_vec(basis['v'])} "
                   f"[{how['v']}] right={_vec(basis['h'])} [{how['h']}] |dot|={skew:.2f}")
         return basis
