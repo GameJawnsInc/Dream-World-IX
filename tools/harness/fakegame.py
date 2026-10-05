@@ -122,6 +122,31 @@ SQUEEZE_SLACK_W = 8.0
 #: H21: the spacing of the search across a pinch for its widest point.
 SQUEEZE_SAMPLE_W = 2.0
 
+# ======================================================================== H25: O8's knight walker
+#: H25 (research/o8_design.md 3.2): a walker's ``start`` terms on the player's PUBLISHED y -- the release its height
+#: gate reads (164 e1 t1 ip178's test read through ip187's JMP_IF loop: ``{"y_ge": 8400}``).
+_WALKER_TESTS = {"y_ge": lambda y, h: y >= h, "y_gt": lambda y, h: y > h,
+                 "y_le": lambda y, h: y <= h, "y_lt": lambda y, h: y < h}
+
+
+def _walker_knobs(b: dict) -> None:
+    """H25's keys read STRICT on a walker's first step (the H23 ``hold`` reader's place): ``start`` None or exactly
+    one of :data:`_WALKER_TESTS`' terms to a number (a bool is no number); ``store`` None or a dict of exactly
+    ``after_ticks`` -- a number >= 0 -- and ``args`` -- the seven ``[sid, tag, ip, byte, width, new, bit]`` of a
+    :meth:`FakeGame.script_store`. A ValueError names the fault."""
+    def num(v) -> bool:
+        return isinstance(v, (int, float)) and not isinstance(v, bool)
+    start, store = b.get("start"), b.get("store")
+    if start is not None and not (isinstance(start, dict) and len(start) == 1 and set(start) <= set(_WALKER_TESTS)
+                                  and num(next(iter(start.values())))):
+        raise ValueError(f"a walker's start is exactly one of {sorted(_WALKER_TESTS)} to a number (his published y), "
+                         f"not {start!r}")
+    if store is not None and not (isinstance(store, dict) and set(store) == {"after_ticks", "args"}
+                                  and num(store["after_ticks"]) and store["after_ticks"] >= 0
+                                  and isinstance(store["args"], (list, tuple)) and len(store["args"]) == 7):
+        raise ValueError(f"a walker's store is {{'after_ticks': n >= 0, 'args': [sid, tag, ip, byte, width, new, bit]}}, "
+                         f"not {store!r}")
+
 
 class Levels:
     """H20 (research/o7_design.md 3.1): a STACKED walkmesh as the engine walks one actor on it -- stock 154's balcony
@@ -1855,10 +1880,44 @@ class FakeGame:
         ip33: ``f[1] > -600``) and then clears once it is over ``unlatch_above`` (ip128 / ip147: ``f[1] < -500``) --
         each tick, in that order; it starts clear (e15 t0 ip2116 ``Map.Byte[30] := 2``). Held, it stands -- its script
         waits in ip263's loop, no walk runs: ``objects`` publishes it ``moving`` False. Elsewhere on its path it walks
-        without a wait (e5 t1 ip316-ip474)."""
+        without a wait (e5 t1 ip316-ip474).
+
+        H25 (research/o8_design.md 3.2), opt-in: THE KNIGHT -- a walker carrying ``start`` or ``store`` (read STRICT on
+        its first step: :func:`_walker_knobs`). ``start``, exactly one of ``{"y_ge": h}`` / ``{"y_gt": h}`` /
+        ``{"y_le": h}`` / ``{"y_lt": h}`` on his PUBLISHED y (``player[1]``), holds it at its placement (``_held``:
+        ``objects`` publishes it ``moving`` False) until the first tick it holds, when it walks -- and it is LATCHED,
+        never held by it again (164 e1 t1 ip178 ``obj(uid=250).f[1] > -8400`` looped by ip187's JMP_IF, released at y >=
+        8400). ``store``, ``{"after_ticks": n, "args": [sid, tag, ip, byte, width, new, bit]}``: once its ``once`` path's
+        last index is reached, ``n`` field ticks later :meth:`script_store` is called ONCE (``_stored``: 164 e1 t1
+        ip221-ip230, the stand anim and RunAnimation(9920), then ``Bit[3811] := 1``) -- the countdown runs before the
+        walking skip (a done walker still counts), and it lives on the BODY: a visit that ends first takes its bodies
+        with it (:meth:`_VisitBeat.end`) and the store never comes. And such a body is "held by him" only at |its y - his
+        published y| < 400 (WalkMesh.Collision's pair band, WalkMesh.cs:919-921: the knight on loop 2 never pairs with
+        Steiner on loop 1); every other walker keeps the XZ-only rule."""
         for _i, b in self._bodies():
+            h25 = b.get("start") is not None or b.get("store") is not None
+            if h25:                                        # H25: read strict once, then the store's countdown
+                if "_h25" not in b:
+                    _walker_knobs(b)
+                    b["_h25"] = True
+                store = b.get("store")
+                if store is not None and b.get("_done") and not b.get("_stored"):
+                    b["_left"] = b.get("_left", float(store["after_ticks"])) - ticks
+                    if b["_left"] <= 1e-9:
+                        b["_stored"] = True
+                        args = store["args"]
+                        self.script_store(int(args[0]), int(args[1]), int(args[2]), int(args[3]), str(args[4]),
+                                          int(args[5]), bit=int(args[6]))
             if not self._walking(b):
                 continue
+            start = b.get("start")
+            if start is not None and not b.get("_started"):          # H25: held at its placement until released
+                (term, h), = start.items()
+                y = self.player[1]
+                if y is None or not _WALKER_TESTS[term](float(y), float(h)):
+                    b["_held"] = True
+                    continue
+                b["_started"], b["_held"] = True, False      # LATCHED: never held by it again
             hold = b.get("hold")
             if hold is not None:                           # H23: the latch, then the hold at its stops
                 y = self.player[1]
@@ -1880,7 +1939,9 @@ class FakeGame:
             nx, nz = (b["x"] + dx / dist * step, b["z"] + dz / dist * step) if dist > 0 else (tx, tz)
             px, pz = self.player[0], self.player[2]
             near = ((nx - px) ** 2 + (nz - pz) ** 2) ** 0.5
-            if near < b["r"] and near < ((b["x"] - px) ** 2 + (b["z"] - pz) ** 2) ** 0.5:
+            paired = not h25 or (self.player[1] is not None
+                                 and abs(float(b.get("y", 0.0)) - float(self.player[1])) < 400)    # H25: the pair band
+            if paired and near < b["r"] and near < ((b["x"] - px) ** 2 + (b["z"] - pz) ** 2) ** 0.5:
                 continue                                   # held by him
             b["x"], b["z"] = nx, nz
             if hold is not None:

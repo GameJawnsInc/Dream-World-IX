@@ -208,5 +208,12 @@
   "new": "acd40315951b0b39dc3c03c33d5beaaa5201791f98902ab0b59afc920410c70f",
   "reason": "O8 B1 (research/o8_design.md 3.1, 11.4 PART B #1): H26 -- every rule of the step reads THIS field's clearance (FakeGame._clearance: fake.clearances' entry, else fake.clearance), so 164 walks at radius 80 and 165 at 120 in one run; and H21's refused step -- at a pinch narrower than its bound a push-out that lands behind the press while he stands on a passable pinch's midline is refused (he stays: the engine's IsRadiusValid), where it jittered at the mouth. Neutral on O7: the O7, O6 and O5 replays identical, every fake_level and O7 real-mesh driver test green",
   "head": "e110d27479710182b52b3e94f2c6bda704b97676"
+ },
+ {
+  "name": "tools/harness/fakegame.py::FakeGame._step_walkers",
+  "old": "b089b0a52c8b121371008e85192fdc94645826874c5792d97bd3901fd6739e19",
+  "new": "ec26e832e3869a84f211e09702963329059a9cd831702d8c16c8be16e5583359",
+  "reason": "O8 B2 (research/o8_design.md 3.2): H25, THE KNIGHT WALKER -- a walker body's opt-in start (released by the player's published y, latched: 164 e1 t1 ip178 read through ip187) and store (script_store once, after_ticks field ticks after its once path's last index, the countdown before the walking skip, on the body: gone with its visit), read strict on its first step (_walker_knobs), and such a body held by him only at |dy| < 400 (WalkMesh.cs:919-921). A body with neither steps exactly as before: the O7 and O6 replays identical, every fake_patrol and fake_level test green",
+  "head": "cbe4944b00bb93f4bf624ded3b40805f06b9ce13"
  }
 ]

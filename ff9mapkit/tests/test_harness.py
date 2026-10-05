@@ -31841,3 +31841,165 @@ def test_fake_spiral_pinch_passes_at_slack_12_not_8(game, dali):
     assert min(x for _f, x, _y, z in track if z > win["z"][0]) > _O8_PINCH_AT[0] + 25, "never past the narrowest"
     still = [(round(x, 3), round(z, 3)) for _f, x, _y, z in track[-10:]]
     assert len(set(still)) == 1, still                                   # he STANDS at the mouth: no jitter
+
+
+# ---- B2: H25 (research/o8_design.md 3.2) -- THE KNIGHT WALKER: a walker body's ``start`` (released by the PLAYER's
+# published height, latched) and ``store`` (a script store ``after_ticks`` field ticks after its last index, ONCE, on the
+# body: gone with its visit), and the pair band for such a body (held by him only at |dy| < 400). On 164's box with its
+# test-side plane (3.6), stepped BY HAND at 60 fps, mean ticks (half a tick a frame), the trace on.
+
+#: O8's fixture fields by the place they stand for (research/o8_design.md 3.6): S 30860-30862 the route's 164, 165 and
+#: 166, 30864 the back door's 163; F O4's members. The end is the LITERAL real 55 on both sides (a seam needs a field of
+#: the game's own table: storytrace.real_field).
+_O8_FIELDS = {"S": {"164": 30860, "165": 30861, "166": 30862, "55": 55, "163": 30864},
+              "F": {"164": 31256, "165": 31257, "166": 31258, "55": 55, "163": 31255}}
+#: THE KNIGHT (164 e1; research/o8_design.md 3.2): placed at (249, 4630) on loop 2 (t0 ip14 / ip22), his four Walks (t1
+#: ip194-ip215's 2-byte signed operands) at SetWalkSpeed(15) -- 7.5 u a 60-fps frame -- to his seat (-586, 3884); the
+#: store ip230 ``Bit[3811] := 1`` 61 ticks after his last index (ip221-ip230: the stand anim, RunAnimation(9920)'s 59
+#: frames and WaitAnimation).
+_O8_KNIGHT_PATH = [[249, 4630], [-31, 4436], [-246, 4288], [-409, 4128], [-586, 3884]]
+_O8_KNIGHT_SEAT = (-586.0, 3884.0)
+_O8_KNIGHT_STORE = [1, 1, 230, 3811 >> 3, "Bit", 1, 3811]
+_O8_KNIGHT_START = {"y_ge": 8400}
+
+
+def _o8_knight(*, after_ticks=61, **over) -> dict:
+    """The knight's body (research/o8_design.md 3.2): sid / uid 1, published r 4 x (20 + 35) and his PRE-release talk_r
+    4 x (30 + 50) + 30 + 60 (0.2 #27: nothing reads it -- talk-only), y the seat's (the planner keeps him on any level),
+    his path at 7.5 u a frame, ``once``, ``start`` the release, ``store`` ip230 ``after_ticks`` (default 61) after his
+    last index; ``over`` replaces keys (``store=None``: the missing knight)."""
+    return {"sid": 1, "uid": 1, "x": 249.0, "z": 4630.0, "y": 11896.0, "r": 220.0, "talk_r": 410.0, "coll": True,
+            "solid": False, "shown": True, "path": [list(p) for p in _O8_KNIGHT_PATH], "speed": 7.5, "once": True,
+            "start": dict(_O8_KNIGHT_START),
+            "store": {"after_ticks": after_ticks, "args": list(_O8_KNIGHT_STORE)}, **over}
+
+
+def _o8_knight_fake(game, steps, *, bodies):
+    """A hand-stepped fake (:func:`_fv_fake`: 60 fps, mean ticks, the trace on with the sink's suppression) on 164's box
+    (``_O8_BOX``) with 164's plane over 30860, its scene ONE visit of ``steps`` with ``bodies``."""
+    fake = _fv_fake(game, {"visit": {"steps": list(steps), "index": 1, "field_to": dict(_O8_FIELDS["S"]),
+                                     "bodies": [dict(b) for b in bodies]}}, field=30860, fps=60.0, ticks="mean")
+    fake.walkmesh = _O8_BOX
+    _o8_plane(fake, {30860: _O8_PLANES["164"]})
+    return fake
+
+
+def _o8_body(fake, sid) -> dict | None:
+    """This field's published object ``sid`` (:meth:`FakeGame._objects_doc`), or None."""
+    return next((o for o in fake._objects_doc() if o["sid"] == sid), None)
+
+
+def _o8_frame(fake, toward=None) -> tuple:
+    """One hand-stepped frame -- a press at ``toward`` (Up with the twist turned at it) when given and he has control --
+    and what it published: ``(frame, his y, the knight's (x, z), moving)``."""
+    if toward is not None and fake.control:
+        fake.twist = math.degrees(math.atan2(-(toward[0] - fake.player[0]), toward[1] - fake.player[2]))
+        fake._extend("up", 2)
+    fake._frame_once()
+    k = _o8_body(fake, 1)
+    return fake.frame, fake.player[1], None if k is None else (k["x"], k["z"]), None if k is None else k["moving"]
+
+
+def _o8_ip230(fake) -> list:
+    """The trace's ``w`` rows of the knight's store (164 e1 t1 ip230)."""
+    return [r for r in _fv_rows(fake, "w") if (r["sid"], r["tag"], r["ip"]) == (1, 1, 230)]
+
+
+def test_fake_knight_waits_for_his_height_then_walks_and_stores(game):
+    """H25 (research/o8_design.md 3.2): 164's box with its plane, Steiner granted at the spawn (published y 4780) and
+    pressed up toward P1. While his published y is under 8400 the knight STANDS at his placement, published ``moving``
+    False; the first tick it reads 8400 or more (the walkers run before him in a tick: the frame after his) the knight
+    walks -- 1131.4 u at 15 u a tick, 7.5 a frame -- and Steiner pressed back down under 8400 at once does not hold him:
+    LATCHED. At his seat (-586, 3884) he stands, ``moving`` False; 61 ticks (122 frames) after his last index ONE ``w``
+    row, 164 e1 t1 ip230 ``Bit[3811] := 1`` (old 0, ``same`` 0), and never another. Read STRICT (``_walker_knobs``): a
+    ``start`` of two terms, of another axis or to a bool, a ``store`` without ``after_ticks``, with six ``args`` or a
+    negative count, each refuses with a ValueError on the walker's first step. Break: no latch (re-held mid-walk once
+    Steiner is back under 8400); the strict read skipped (a bad knob walks)."""
+    fake = _o8_knight_fake(game, [{"grant": [*_O8_SPAWN["164"], -4780]}, {"wait": 100000}], bodies=[_o8_knight()])
+    _cb_until(fake, lambda f: f.control, limit=200)
+    assert fake.player[1] == pytest.approx(4780.0), fake.player
+    seen = []
+    while True:
+        seen.append(_o8_frame(fake, toward=_O8_P1["164"]))
+        if seen[-1][2] != (249.0, 4630.0):
+            break
+        assert seen[-1][3] is False and seen[-1][1] is not None, seen[-1]
+        assert len(seen) < 2000, "the knight never left his placement"
+    release = seen[-1][0]
+    ys = {f: y for f, y, _xz, _m in seen}
+    assert ys[release - 1] >= 8400 and all(y < 8400 for f, y in ys.items() if f < release - 1), (release, ys)
+    walked = [seen[-1]]
+    while walked[-1][3] is not False:                    # Steiner back down the slope: y under 8400 within frames
+        walked.append(_o8_frame(fake, toward=_O8_SPAWN["164"]))
+        assert len(walked) < 400, "the knight never reached his seat"
+    done = walked[-1][0]
+    assert any(y < 8400 for _f, y, _xz, _m in walked[:20]), "premise: Steiner back under 8400 mid-walk"
+    pts = [(249.0, 4630.0)] + [xz for _f, _y, xz, _m in walked]
+    steps = [math.dist(a, b) for a, b in zip(pts, pts[1:])]
+    assert all(0 < s <= 7.5 + 1e-6 for s in steps), [round(s, 2) for s in steps]          # never held: latched
+    assert sum(steps) == pytest.approx(1131.4, abs=0.2) and pts[-1] == _O8_KNIGHT_SEAT, (sum(steps), pts[-1])
+    assert 151 <= done - release + 1 <= 156, (release, done)                            # 75.4 ticks of walking
+    _cb_until(fake, lambda f: bool(_o8_ip230(f)), limit=400)
+    rows = _o8_ip230(fake)
+    assert len(rows) == 1 and rows[0]["f"] == done + 122, (rows, done)
+    r = rows[0]
+    assert (r["w"], r["bit"], r["byte"], r["old"], r["new"], r["same"]) == ("Bit", 3811, 476, 0, 1, 0), r
+    for _ in range(300):
+        fake._frame_once()
+    assert len(_o8_ip230(fake)) == 1 and _o8_body(fake, 1)["moving"] is False, _o8_ip230(fake)
+    assert (_o8_body(fake, 1)["x"], _o8_body(fake, 1)["z"]) == _O8_KNIGHT_SEAT
+    store = {"after_ticks": 61, "args": list(_O8_KNIGHT_STORE)}
+    for over, match in (({"start": {"y_ge": 8400, "y_lt": 9000}}, "start is exactly one of"),
+                        ({"start": {"x_ge": 8400}}, "start is exactly one of"),
+                        ({"start": {"y_ge": True}}, "start is exactly one of"),
+                        ({"store": {"args": store["args"]}}, "store is"),
+                        ({"store": {**store, "args": store["args"][:6]}}, "store is"),
+                        ({"store": {**store, "after_ticks": -1}}, "store is")):
+        bad = _o8_knight_fake(game, [{"wait": 100000}], bodies=[_o8_knight(**over)])
+        with pytest.raises(ValueError, match=match):
+            bad._frame_once()
+
+
+def test_fake_knight_store_is_missing_when_the_visit_ends_first(game):
+    """H25's store lives ON THE BODY (research/o8_design.md 3.2): the knight released (Steiner past 8400 on his way to
+    P1) and walking, a door at P1 fires and the visit ends -- Field() to 165's id -- long before his 1131 u and 61 ticks
+    are done; its bodies leave with it (``_VisitBeat.end``). No ip230 row then, ever: not in 165's id over 600 frames,
+    nor back in 164's id (a warp: a fresh visit with no beat) over 600 more. Break: a store that outlives its visit's
+    bodies (``_VisitBeat.end`` keeping them: back in 164's id the knight walks on and stores)."""
+    door = {"door": {"doors": [{"name": "e2", "points": _rect(1302, 2212, 1382, 2292), "stores": [], "ticks": 0,
+                                "to": "165"}]}}
+    fake = _o8_knight_fake(game, [{"grant": [*_O8_SPAWN["164"], -4780]}, door], bodies=[_o8_knight()])
+    _cb_until(fake, lambda f: f.control, limit=200)
+    released = False
+    for _ in range(2000):
+        f, _y, xz, _m = _o8_frame(fake, toward=_O8_P1["164"])
+        released = released or (xz is not None and xz != (249.0, 4630.0))
+        if fake.field_id != 30860:
+            break
+    assert released and fake.field_id == 30861, (released, fake.field_id)
+    assert not _o8_ip230(fake) and not fake.blockers.get(30860), fake.blockers.get(30860)
+    for _ in range(600):
+        fake._frame_once()
+    fake._execute(["warp", "30860", "-1", "-1"])
+    for _ in range(600):
+        fake._frame_once()
+    assert fake.field_id == 30860 and not _o8_ip230(fake), _o8_ip230(fake)
+
+
+def test_fake_knight_holds_no_pair_across_levels(game):
+    """H25's PAIR BAND (research/o8_design.md 3.2; WalkMesh.cs:919-921): Steiner standing ON the knight's path, at
+    published y 8958 -- |dy| 2938 from the knight's 11896 -- the knight (released at once: ``start`` y >= 0) walks
+    through his XZ to the seat, never held by him; a PLAIN walker (no ``start``, no ``store``) on the same path at the
+    same y is held by him -- today's XZ-only rule, MoveToward.cs:187-189 -- standing short of him, never reaching the
+    seat. Break: the height rule applied to every walker (the plain one walks through), or to none (the knight is held)."""
+    plain = {k: v for k, v in _o8_knight(sid=2, uid=2).items() if k not in ("start", "store")}
+    fake = _o8_knight_fake(game, [{"wait": 100000}],
+                           bodies=[_o8_knight(start={"y_ge": 0}, store=None), plain])
+    fake.player = [-138.0, 8958.0, 4362.0]                # on the knight's path, between (-31, 4436) and (-246, 4288)
+    for _ in range(600):
+        fake._frame_once()
+    knight, held = _o8_body(fake, 1), _o8_body(fake, 2)
+    assert (knight["x"], knight["z"]) == _O8_KNIGHT_SEAT and knight["moving"] is False, knight
+    gap = math.hypot(held["x"] - fake.player[0], held["z"] - fake.player[2])
+    assert held["moving"] and 220 <= gap <= 220 + 7.5 + 1e-6, (gap, held)     # held a step outside his r, moving
+    assert math.dist((held["x"], held["z"]), _O8_KNIGHT_SEAT) > 400, held

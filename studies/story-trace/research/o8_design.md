@@ -2680,3 +2680,18 @@ baseline.
    ahead of B3/B4, which reuse them. `_o8_band_closures` is 1.3's `band_closures` test-side: C1 asserts the module's
    equal to it. The premises test also asserts each band leaves ONE level (no two of its open triangles overlap in XZ:
    `_lv_stacked_gap` infinite), the premise 1.3 states, and prints the closures (93 / 99 / 64 / 16).
+5. **H25's read and its timing, as built.** `_walker_knobs` (a module function: unpinned) reads `start` and `store`
+   strict on the walker's first step and marks the body (`_h25`) so it reads once; the store's countdown starts the
+   tick AFTER the one that reaches the last index (the walk step runs after the countdown), so `after_ticks` 61 lands
+   61 ticks -- 122 frames at 60 fps mean -- after the arrival, asserted to the frame. A `start` with a None player y
+   (S22's blanked height) holds: no release on an unpublished height. The walkers run BEFORE the player in a tick
+   (`_step_world`), so the knight is released on the frame AFTER the one whose step put Steiner at y >= 8400 -- the
+   engine's ip178 reads the previous tick's position too. The design's three B2 tests stand; the main one also asserts
+   the strict read's six refusals (3.2's "raises ValueError on the walker's first step" had no test).
+6. **B2's "MISSING ... ever".** The door at P1 ends the visit mid-walk; "ever" is checked in the door's field (600
+   frames) AND back in 164's id after a warp (600 more): a store that outlived its visit -- `_VisitBeat.end` keeping
+   its bodies, the mutant -- would walk on and store there. (In the run the mutant fails earlier: 164's blockers still
+   hold the knight after the door.)
+7. **B2's held plain walker stands a step outside his r.** MoveToward refuses the step that would come within r, so the
+   plain walker stands between r and r + one step (220-227.5 u at 7.5 a frame), still published `moving` -- O7's
+   walker contract.
