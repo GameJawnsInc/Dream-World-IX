@@ -2015,3 +2015,69 @@ sample changes and 45 trace rows a side over 751 frames, 34047 bytes; both repla
 8. **`dali` for 163.** The stair-at-110 test reads stock 163's player walkmesh through the module-scoped `dali` fixture
    (its warned skip without the install, which fails G7), and walks the 110 plan on a fake box over the stair (no wall
    model): 6 waypoints at 110 (3880 u), none at 116, 118 or 120 -- 0.2 #5's numbers, re-measured here.
+
+#### PART B, as built: where the design was silent or wrong (each the smallest correct thing)
+B1 (12a12112), B2 (a39dd049), B3 (cc2064b0) and B4 (1b6ed921) on PART A's receipt (2150d6f0, green): no re-baseline.
+The four fake pins re-baselined by name with their reasons: `_visit_steps` and `_VisitBeat._place` (B1, O5's),
+`_door_knobs` and `_VisitBeat._door` (B2, O6's); both replays (O5's hallway, O6's Steiner route) identical at every
+step. G38 joined the gate at B4 (25 tests: PART B's 24 and A0b's replay); every PART B test failed on its mutant.
+
+1. **154's stacked levels lie at least 1298 apart, not 1711.** B1's premises test measures the least vertical gap between
+   two stacked open triangles exactly (at the corners of their XZ overlap): 1298, a stair triangle (288) over the ground
+   (60); 1711 is the balcony over the ground. Both lie over 2 x `LEVEL_BAND` (800) and `LEVEL_STEP_DY`, so no constant
+   moves; the test prints the measurement and asserts the bound, never the number. 163 stacks nothing. The steepest
+   60-u steps measured as designed: 79.1 (154, tri 205), 63.0 (163, tri 134).
+2. **H21 replaces the push-out inside a pinch.** The design squeezed only a step that "can keep neither `least` nor any
+   slide bearing". But the fake's rule for a centre nearer a wall than the radius (`_pushed_out`) then ran on the squeezed
+   point and moved him to the nearest spot at full clearance -- in a narrowing pinch, BACK along the corridor to its mouth
+   -- undoing every squeeze the next frame (he oscillated at the mouth). So with `squeeze_slack` set a step that ends
+   inside a pinch (no point across the step's end at full clearance) is placed on its midline (`Levels.squeeze`) instead
+   of pushed out; outside a pinch the push-out is today's. And `squeeze` answers a pinch only: where a point across the
+   step's end stands at full clearance -- a press into a wall -- it returns None and the never-closer rule stands (else
+   the search across would set him sideways along the wall); each side of the search runs only as far as his level's
+   floor.
+3. **Silent edges of H20.** `Levels.wall_gap` is infinity when no wall of his level stands anywhere (None stays "no
+   triangle of his level under him"); `fake.clearance` None under a level raises at his first step (`_move_to`: the
+   levels are a plain dict); `place_height` with no open triangle under (x, z) sets -h.
+4. **The balcony-edge test places him 5u inside the north edge**, nearer it than one step. Placed further in, the edge's
+   own wall held him whatever the level rule and the step-bound mutant passed; at 5u a step's end lies past the edge,
+   where only the level rule stops him (the mutant drops him to y 5).
+5. **The west flight's break** is the courtyard's walls under the west arm: with walls of every level they close the
+   arm's mouth to him ON THE BALCONY (he stops at (-1542, -3244)); the design guessed "the balcony's edge stops him on the
+   ground below it". The test fails on the mutant either way.
+6. **A held walker publishes `moving` False** (H23; `_objects_doc`): his script waits in ip263's loop and no walk runs.
+   Published `moving` while held, Dojebon would read to route_to's npc watch as a WALKING trigger, whose reach every hold
+   keeps clear of.
+7. **The bodies' radii**: every NPC on the route has `SetObjectLogicalSize(20, 20, 30)`, so each takes the design's
+   Dojebon rule, r and talk_r 4 x the first operand (80); O5's published-pair formula (`_O5_BODIES`) is not used. No
+   route walk passes within 400 of one.
+8. **A re-armed monologue never reaches V7 on its own -- the bytes loop it.** The design's castle-walk break ("the
+   monologue scene without `unless_bit` (V7)") and `test_o7_drive_second_monologue_is_v7` ("`store_override` {672: 0}:
+   V7") both assume a re-armed monologue interrupts the step's RE-RUN. It cannot: e16 t1 runs ip390 again a tick after
+   ip711 (op_22(1), JMP L0), so a re-armed guard fires AT ONCE after the re-grant -- B2's
+   `test_fake_monologue_store_override_fires_it_again` pins exactly that -- control comes back a tick at a time, rule
+   8's settle never holds, the step is never re-run, and the run pages the monologue round until its budget STOPS it (a
+   HarnessError: STOPPED, never V7; in the game too). So the V7 test makes the second monologue interrupt the re-run --
+   a test-side wrapper on `g.send` re-arms Bit[3796] as the re-run's first hold goes out (deterministic: after the
+   first monologue's ip672, before any press of the re-run) -- and asserts V7 driver at [30842, 1190, 3]; it pins the
+   bytes' own fault beside it: `store_override` {672: 0} loops the monologue (one `interrupted` row, no crossing),
+   STOPPED at its budget. 2.7's V7 row ("a second monologue") holds for a monologue during the re-run only. The castle
+   walk's documented break is the interruption bound (`>=`: the monologue's one interruption over it, V7 at once); the
+   `unless_bit` mutant fails it too, slowly, at the budget.
+9. **H22's scene keys**: `unless_bit` (None: never disarmed) and `regrant` ("in_place", the only form) optional; its
+   steps pages, stores and waits only (`SCENE_STEP_KINDS`, checked by `_door_knobs` after `_visit_steps`).
+10. **The route builder** (B3): 160, 162 and 163 carry no `wait` before their grant (the design lists none: the
+    prologue, the grant and the post-grant store run in one tick; the leading stores -- what H15's `error_window` and
+    `grant_at` key on -- are still the prologue). Every door walks out toward MJPOS's point for the planned crossing
+    (`_o7_crossing`: the first point of the straight line from the step's start to its goal standing in the region); a
+    door the route never takes, toward its centroid's projection. `short`'s end is the next place's ARRIVAL -- its
+    prologue, no grant -- and `_o7_pred(short=...)` ends there (side_ends the next place's ids, its beats the cell's, no
+    end state). 154's closure lists come from a test-side `_o7_closures154` (C1's `closures154` is PART C's), equal to
+    the research's `closures154.json` (119, 134).
+11. **The castle walk asserts its step rows less any `failed` one** (a load-stalled walk costs an attempt, which the cell
+    absorbs); the interrupted 159 row, its re-run and the monologue's three rows between them (by frame) exactly.
+12. **The real-balcony test's break** (the design gave none): the walker's hold dropped -- released, Dojebon walks his
+    patrol. `_probe_axis` is counted on the instance (`_s19_probes`); Dojebon's every position is recorded by a wrapped
+    `_step_walkers` (the visit beat takes its bodies down at its end).
+13. **The wrong-door and walk-into-a-door tests re-run a V11 whose loss was read only after the switch** (its door then
+    unnamed: `_o7_late`), its class asserted on the run set aside -- O6's wrong-door precedent.
