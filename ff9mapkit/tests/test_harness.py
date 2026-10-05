@@ -31565,3 +31565,74 @@ def test_segment_trigger_until_without_y_keeps_todays_row_on_the_fake(game):
         assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"door": True}, (step, out)
         row = _s14_step_row(log)
         assert row["outcome"] == "done" and row["lost"]["z"] > 500 and "y" not in row["lost"], (step, row)
+
+
+# ---- A3: S23 (research/o8_design.md 1.2) -- THE OPT-IN ``unstick``: a step's ``unstick`` (a bool, read strict by
+# ``step_of``) reaches route_to only when the step carries it -- today's literal True otherwise -- and the step row
+# carries it the same way. With the step's ``npcs`` false it turns route_to's stall ladder off (no wait, no push, no
+# blocker): THE PINCH's fallback alone (2.5). The stall: O2's fixture with S23's freeze strip across the walk's line,
+# never lifting (deterministic).
+
+def test_segment_walk_kw_passes_unstick_only_when_carried():
+    """S23's ``walk_kw``, pure (research/o8_design.md 1.2; O7's unit_walk_kw stub shape): a step without ``unstick``
+    passes today's literal True; ``unstick`` False passes False and True passes True, every other keyword as the plain
+    step's; and the step row (``run_step`` on a stub drive, its executor stubbed) carries ``unstick`` only when the step
+    does. Break: a default of False (the plain walk then loses its ladder)."""
+    import types
+    SD = _segment_modules()
+    pred = {"regions": {}, "steps_default": dict(_O2_DEFAULTS)}
+    stub = types.SimpleNamespace(pred=pred, floor=lambda closed=None: "mesh", prior_for=lambda d: _prior(), donor=30820)
+    walk = {"kind": "walk", "goal": [0, 900]}
+    plain = SD._Drive.walk_kw(stub, SD.step_of(pred, walk))
+    assert plain["unstick"] is True, plain
+    for flag in (False, True):
+        kw = SD._Drive.walk_kw(stub, SD.step_of(pred, {**walk, "unstick": flag}))
+        assert kw["unstick"] is flag and {**kw, "unstick": True} == plain, (flag, kw)
+    st = types.SimpleNamespace(frame=99, control=True, player_x=0.0, player_z=0.0)
+    d = SD._Drive.__new__(SD._Drive)
+    d.g = types.SimpleNamespace(state=st, states_since=lambda frame: [])
+    d.pred, d.log, d.steps, d.tries, d.done, d.beats = pred, [], [], {}, {}, {}
+    d.visit, d.donor, d.sc, d.fid, d.t0, d.since, d.walked, d.to_row = 1, 30820, 1000, 30820, time.time(), 0.0, None, None
+    d.x_walk = lambda s: ("done", {"route": None, "lost": None, "landed": None})
+    cell = {"donor": 30820, "sc": 1000, "visit": 1,
+            "steps": [walk, {**walk, "unstick": False}, {**walk, "unstick": True}]}
+    for n in range(3):
+        d.run_step(cell, n, st)
+    assert "unstick" not in d.log[0] and d.log[1]["unstick"] is False and d.log[2]["unstick"] is True, d.log
+
+
+def test_segment_unstick_false_places_no_blocker_on_a_stall_on_the_fake(game):
+    """S23 on the fake (research/o8_design.md 1.2, 2.5): O2's fixture, a freeze strip across the walk's line that never
+    lifts (a deterministic stall), the walk's ``npcs`` false (O2's default), one attempt -- with ``unstick`` False
+    route_to runs NO ladder: ``_blocker_ahead`` (counted on the instance) never called, the record's ``waits`` and
+    ``pushes`` 0 and ``blockers`` empty, the walk ``failed`` (V7 by the driver), its row carrying ``unstick`` False;
+    with ``unstick`` True the same stall reaches the ladder -- waits, a push, a blocker (then withdrawn: he never moved,
+    ``frozen``) -- and fails the same way. Break: ``walk_kw`` ignoring the key (the unstick-False walk then climbs the
+    ladder)."""
+    SD = _segment_modules()
+
+    def setup(fake):
+        fake.freezes = {30820: [{"zone": _BAND, "frames": None}]}
+
+    def counting(g, fake):
+        real = g._blocker_ahead
+        counting.calls = []
+
+        def ahead(*a, **kw):
+            counting.calls.append(a)
+            return real(*a, **kw)
+        g._blocker_ahead = ahead
+        g.ROUTE_WAIT_SECONDS = 0.5                      # the ladder's waits short: the test's speed, not its verdict
+    seen = {}
+    for flag in (False, True):
+        pred = _s17_pred([_s17_walk(goal=[200, 0], unstick=flag, attempts=1)])
+        out, log, fake = _s17_drive(game, pred, setup=setup, wrap=counting, start=(-400, 0))
+        assert isinstance(out, SD.RouteVoid) and (out.v, out.by) == ("V7", "driver"), (flag, out)
+        rows = _s17_rows(log, "walk")
+        assert len(rows) == 1 and rows[0]["outcome"] == "failed" and rows[0]["unstick"] is flag, (flag, rows)
+        assert fake._froze and not rows[0]["route"]["reached"], "premise: the walk stepped on the freeze"
+        seen[flag] = (len(counting.calls), rows[0]["route"])
+    calls, route = seen[False]
+    assert calls == 0 and (route["waits"], route["pushes"], route["blockers"]) == (0, 0, []), seen[False]
+    calls, route = seen[True]
+    assert calls >= 1 and route["waits"] >= 1 and route["pushes"] >= 1 and route["frozen"], seen[True]

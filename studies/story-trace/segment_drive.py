@@ -143,7 +143,9 @@ on a bit the agent published, else the driver's V13). :func:`step_of` reads both
 neither -- every one frozen before O8's -- is driven exactly as before. A y AXIS ON ``until`` (S22): ``{"y_gt": 12000}``
 judges his published height -- :func:`until_ok` checks every key first and raises on a y term with no height, never a
 silent False -- and both trigger executors give such a loss its y (route_to's probe the ring's sample of its frame, read
-as route_to returns: :func:`loss_y`), a loss with none the driver's V13; an until with no y term reads as today.
+as route_to returns: :func:`loss_y`), a loss with none the driver's V13; an until with no y term reads as today. THE
+OPT-IN ``unstick`` (S23): a step's ``unstick`` (a bool) reaches route_to only when the step carries it, and with its
+``npcs`` false turns the stall ladder off -- the pinch's fallback alone.
 """
 from __future__ import annotations
 
@@ -2630,7 +2632,10 @@ class _Drive:
         """What every walk of a step passes (2.3): the donor's floor as the player walks it, with the step's closed
         triangles; its prior; the unstick / smooth / handoff walk; the step's npcs, overlay and settle. S18/S19
         (research/o7_design.md 1.2), opt-in: the step's ``clearance`` (the planner's wall clearance) and ``basis`` go to
-        route_to ONLY when the step carries them, so every O1-O6 call is exactly what it was."""
+        route_to ONLY when the step carries them, so every O1-O6 call is exactly what it was. S23
+        (research/o8_design.md 1.2), opt-in: the step's ``unstick`` replaces the literal True only when the step
+        carries it -- THE PINCH's fallback; it bites only with the step's ``npcs`` false (route_to's ``unstick or
+        npcs``), and then a deflected hold raises the plain basis error (no slides), the fallback's known cost."""
         from ff9mapkit.content import pathfind
         closed = closed_tris(self.pred, step, self.floor())
         kw = dict(walkmesh=self.floor(closed), prior=self.prior_for(self.donor), unstick=True, smooth=True,
@@ -2640,6 +2645,8 @@ class _Drive:
             kw["clearance"] = float(step["clearance"])
         if step.get("basis") is not None:                      # S19 (opt-in)
             kw["basis"] = step["basis"]
+        if step.get("unstick") is not None:                    # S23 (opt-in): the pinch's fallback (no ladder)
+            kw["unstick"] = bool(step["unstick"])
         return kw
 
     # -- the landing judge (every executor): where a walk that lost control, or left the field, took him ----------
@@ -3294,7 +3301,7 @@ class _Drive:
                "lost": rec.get("lost"), "landed": rec.get("landed"), "flip_frame": rec.get("flip_frame"),
                "door": rec.get("door"), "route": rec.get("route"), "lunge": rec.get("lunge"), "climb": rec.get("climb"),
                "depth": rec.get("depth"), "v": rec.get("v"), "by": rec.get("by"), "why": rec.get("why")}
-        for key in ("clearance", "basis"):       # S18/S19 (opt-in): on the row only when the step carries them
+        for key in ("clearance", "basis", "unstick"):  # S18/S19/S23 (opt-in): on the row only when carried
             if step.get(key) is not None:
                 row[key] = step[key]
         for key in ("at_y", "wait_flag"):        # S20/S21 (opt-in): the arrival's height, the wait -- the executor's

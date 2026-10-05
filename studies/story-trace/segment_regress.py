@@ -433,6 +433,8 @@ REQUIRED_TESTS: tuple = (
     "test_segment_trigger_until_y_reads_the_loss_height_from_the_ring_on_the_fake",  # A2: S22's loss_y, its timing
     "test_segment_trigger_until_y_unread_height_is_the_drivers_v13_on_the_fake",     # A2: S22's V13, no TypeError
     "test_segment_trigger_until_without_y_keeps_todays_row_on_the_fake",        # A2: S22 opt-in, today's row
+    "test_segment_walk_kw_passes_unstick_only_when_carried",                    # A3: S23's keyword and row, pure
+    "test_segment_unstick_false_places_no_blocker_on_a_stall_on_the_fake",      # A3: S23 off the ladder, on the fake
 )
 
 O1E_VERDICT = "PROVEN"

@@ -2634,3 +2634,9 @@ golden, on the unedited fake: route-S and route-F 529 sample changes and 63 trac
     way (the probe's y as route_to returns; its own wait's sample its own, None kept).
 11. **The O2 test's edited case** (1.2's "What flips") re-baselined by name in A2's commit with the CLI (row 29 of
     `research/source_pins.json`, d883a61f -> b52deb1c), as designed.
+12. **S23's stall never lifts.** 1.2's "a `fake.freezes` zone holding him 40 frames" is shorter than route_to's stall
+    check -- a smooth hold outlasts it and simply walks on (the harness's own freeze-and-wait test needs 360 frames to
+    stall one) -- so S23's strip never lifts (`frames` None): with `unstick` False
+    and `npcs` false the walk fails with no wait, no push and `_blocker_ahead` never called; with True the ladder runs
+    (waits, a push, a blocker, withdrawn as `frozen`). Both are V7 after one attempt; `ROUTE_WAIT_SECONDS` 0.5 on the
+    instance keeps the True case short (19 s for the pair).
