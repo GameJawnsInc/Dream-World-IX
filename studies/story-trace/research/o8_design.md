@@ -2695,3 +2695,17 @@ baseline.
 7. **B2's held plain walker stands a step outside his r.** MoveToward refuses the step that would come within r, so the
    plain walker stands between r and r + one step (220-227.5 u at 7.5 a frame), still published `moving` -- O7's
    walker contract.
+8. **B3's doors walk out toward MJPOS's point of their IN-GAME fire point** (`_o8_door(..., at=)`: 164 e2 at (24.5,
+   2270.8), 165 e2 at (2419.6, 3130.0); a door never taken, its centroid) -- for 164.e2 the projection clamps to its first
+   vertex (946, 2249): east, as the research's "ExitField walks him east ~26 ticks". On the box the door fires at the
+   first ring point whose PLANE height is past its gate (164.e2 ~(375, 2224), not the game's west ear), after the
+   step crosses its east ear at the dead level (~10200 on 164's plane): the scripted player's run and B4's step 1 both
+   cross a live region at its dead level before the fire.
+9. **B3's break is the FAKE's door, not the builder's.** "doors without their `y_gt`" is a mutant of H22's
+   `_VisitBeat._door` ignoring `y_gt` (164.e2 then fires on its dead level, at ~10259: the test reads the fire's plane
+   height); the test-side builder dropping it would prove nothing about the fake. The scripted player goes ROUND 164.e3
+   by (2350, 2800) -- live at the spawn's level (y <= 6000), 157 u off: a straight press would fire it.
+10. **`_o8_play`, not `_o7_play`**: FMV004 is a plain scene beat with no machine, where `_o7_play` returns. And B3's skip
+    test presses through the agent's `press` verb by hand (`fake._execute`): a held key (`_schedule`) never reaches a
+    plain beat -- only `_scene_press` at execute time does. 3.4's 166 is two visit beats round the movie beat, both
+    index 3: H15's per-visit faults key both (an `error_window {3: 9}` takes visit A's error branch; B never starts).

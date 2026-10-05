@@ -32003,3 +32003,248 @@ def test_fake_knight_holds_no_pair_across_levels(game):
     gap = math.hypot(held["x"] - fake.player[0], held["z"] - fake.player[2])
     assert held["moving"] and 220 <= gap <= 220 + 7.5 + 1e-6, (gap, held)     # held a step outside his r, moving
     assert math.dist((held["x"], held["z"]), _O8_KNIGHT_SEAT) > 400, held
+
+
+# ---- B3: O8's ROUTE on the fake (research/o8_design.md 3.4, 3.6): visit beats from the bytes -- 164@342 (its prologue,
+# the grant on loop 1, ip764, the knight (H25), the doors e2 and e3 by height), 165@343 (the same shape), 166@344 (its
+# prologue, ip255, the six pages, ip345 / ip380 under 309, ip502; FMV004 as H9's movie beat; ip863 and Field(55)) and the
+# arrival in REAL 55 at 110 (its prologue, ip255 and ip342) -- every store at its predictions' site, so the builder's
+# trace under ``story_suppress`` IS 4.16's pattern (C1's test_o8_tower_route_builder_matches_the_keys compares it with
+# the draft: one source of truth).
+
+#: O8's fork members by the S fixture id each stands for (research/o8_design.md 3.6), and their registered names.
+_O8_MEMBERS = {31256: 30860, 31257: 30861, 31258: 30862, 31255: 30864}
+_O8_NAMES = {"31255": "O8_163", "31256": "O8_164", "31257": "O8_165", "31258": "O8_166"}
+#: The route's exits (research/o8_design.md 4.15): each the first SetRegion of its entry, in the engine's order --
+#: 164.e2 and 164.e3 and 165.e3 five points (a ring of ears: the middle is dead), 165.e2 four.
+_O8_164E2 = [[946, 2249], [1122, 1974], [222, 2039], [-25, 2186], [93, 2401]]
+_O8_164E3 = [[938, 3257], [1051, 2471], [2066, 2776], [2233, 2840], [1738, 3462]]
+_O8_165E2 = [[3298, 3179], [3241, 2829], [2401, 3074], [2494, 3428]]
+_O8_165E3 = [[1209, 2668], [1437, 2069], [2169, 2636], [2395, 3155], [1780, 3363]]
+#: Where each route door fires in game (research/o8_design.md 2.3: 164 e2 at L 6260, 165 e2 at L 6742) -- its
+#: ExitField walk-out goes toward MJPOS's point for it (:func:`_o7_mjpos`).
+_O8_FIRES = {"164": (24.5, 2270.8), "165": (2419.6, 3130.0)}
+#: The route's places in visit order (S fixture ids), and its visit order by place.
+_O8_ROUTE = ("164", "165", "166")
+_O8_PLACES = tuple(_O8_FIELDS["S"][p] for p in _O8_ROUTE)
+#: 166's six pages (block 3: each holds [STNR]; research/o8_design.md 4.14 route_mes) and FMV004's frames on the fake
+#: (default: no driver test reads the span -- MOVIE's is the dry run's).
+_O8_PAGES = (307, 308, 309, 311, 312, 313)
+
+
+def _o8_door(name, points, stores, to, *, at=None, **terms):
+    """One door of a door step (H18; H22's height ``terms``): its tag 2's stores before its Field(), 25 ticks of fade
+    (164 e2 t2 ip165's op_22(25)), ``to`` a field_to key, and ExitField's walk-out toward MJPOS's point for ``at`` (its
+    in-game fire point) -- for a door the route never takes, for the region's centroid."""
+    at = at if at is not None else (sum(p[0] for p in points) / len(points), sum(p[1] for p in points) / len(points))
+    return {"name": name, "points": [list(p) for p in points], "stores": [list(s) for s in stores], "ticks": 25,
+            "to": to, "walkout": {"to": _o7_mjpos(points, at), "stop_z": None}, **terms}
+
+
+def _o8_route(side="S", *, short=None, levels=False, wait_scale=0.25, knight=None, movie_frames=120, **faults):
+    """O8's route as visit beats (research/o8_design.md 3.4, 3.6) on ``side``'s fields (:data:`_O8_FIELDS`: the end
+    the LITERAL real 55 on both; on F each visit's ``donor`` its place's S id), H15's ``faults`` given to every visit
+    beat (the per-visit ones keyed by ``index``: 164 1, 165 2, 166 3 -- both its visit beats --, 55 4). 164: its
+    prologue (Int16[9] := 385, Byte[13] := 1), the grant on loop 1 -- the box's published 4780 or, with ``levels``, the
+    bytes' MoveInstantXZY -5647 --, ip764, THE KNIGHT (H25; ``knight`` overrides his keys: ``{"store": None}``,
+    ``{"after_ticks": 0}``), e2 (y > 12000: ip243 := 343, Field(165)) and e3 (y <= 6000, the bytes' strict < standing
+    for it: ip243 := 343, Field(163)). 165 the same shape: ip844, e2 (y > 15000: ip205 Byte[13] := 3, ip233 := 344,
+    Field(166)), e3 (y <= 11000: ip243 := 344, Field(164)). 166: its prologue (Int16[9] := -1, Byte[13] := 0), the
+    SYSVAR[3] sync, ip255 Byte[8] := 125, pages 307 and 308 (WindowSync), 309 (WindowAsync) with ip345 / ip380 under it
+    an animation apart and WaitWindow(0), 311, 312, 313, ip502 Byte[8] := 0, the fades; FMV004 as H9's movie beat
+    (``movie_frames``, its skip dialog armed after 40 frames, the engine's No cursor); then ip863 Int16[2] := 110 and
+    Field(55) -- raw on F: ``field_to["55"]`` is 55 itself. 55: its prologue, ip255 Int16[2] := 106, ip342 Byte[8] :=
+    125 (past the cut: the live read's race). ``short`` (a place): that visit alone -- its index kept -- then the next
+    place's arrival (its prologue, no grant) as the end."""
+    to = dict(_O8_FIELDS[side])
+    donors = dict(_O8_FIELDS["S"]) if side == "F" else {}
+    p130, p119 = (22, 49, 57, 130, 138, 200), (22, 49, 57, 119, 138, 200)
+    g164 = [*_O8_SPAWN["164"], _O8_SPAWN_Y["164"] if levels else -4780]
+    g165 = [*_O8_SPAWN["165"], _O8_SPAWN_Y["165"] if levels else -10280]
+
+    def page(mes, **kw):
+        return _o5_page("166", mes, 0, **kw)
+    visits = {
+        "164": ([*_o7_prologue(p130, 385, 1), {"wait": 4}, {"grant": g164}, _o5_store(0, 0, 764, 13, "Byte", 2),
+                 {"door": {"doors": [
+                     _o8_door("e2", _O8_164E2, [[2, 2, 243, 2, "Int16", 343, -1]], "165", at=_O8_FIRES["164"],
+                              y_gt=12000),
+                     _o8_door("e3", _O8_164E3, [[3, 2, 243, 2, "Int16", 343, -1]], "163", y_le=6000)]}}],
+                [_o8_knight(**(knight or {}))]),
+        "165": ([*_o7_prologue(p130, 385, 1), {"grant": g165}, _o5_store(0, 0, 844, 13, "Byte", 2),
+                 {"door": {"doors": [
+                     _o8_door("e2", _O8_165E2, [[2, 2, 205, 13, "Byte", 3, -1], [2, 2, 233, 2, "Int16", 344, -1]], "166",
+                              at=_O8_FIRES["165"], y_gt=15000),
+                     _o8_door("e3", _O8_165E3, [[3, 2, 243, 2, "Int16", 344, -1]], "164", y_le=11000)]}}], []),
+        "166": ([*_o7_prologue(p119, -1, 0), {"wait": 2}, _o5_store(0, 0, 255, 8, "Byte", 125), {"wait": 34},
+                 page(307), {"wait": 30}, page(308), page(309, **{"async": True}), {"wait": 4},
+                 _o5_store(6, 1, 345, 208, "Byte", 0), {"wait": _O7_ANIM_TICKS}, _o5_store(6, 1, 380, 208, "Byte", 1),
+                 {"wait": _O7_ANIM_TICKS}, {"wait_window": 0}, {"wait": 140}, page(311), {"wait": 30}, page(312),
+                 {"wait": 30}, page(313), {"wait": 10}, _o5_store(6, 1, 502, 8, "Byte", 0), {"wait": 30}], []),
+        "55": ([*_o7_prologue(p119, -1, 0), _o5_store(0, 0, 255, 2, "Int16", 106), _o5_store(0, 0, 342, 8, "Byte", 125),
+                {"wait": 100000}], [])}
+    after = [{"wait": 6}, _o5_store(6, 1, 863, 2, "Int16", 110), {"field": "55"}]      # 166 after FMV004
+    order = [*_O8_ROUTE, "55"]
+    index = {p: i for i, p in enumerate(order, 1)}
+    plan = order if short is None else order[order.index(str(short)):order.index(str(short)) + 2]
+
+    def visit(where, steps, bodies):
+        knobs = {"steps": steps, "index": index[where], "field_to": to, "wait_scale": wait_scale, **faults}
+        if bodies:
+            knobs["bodies"] = [dict(b) for b in bodies]
+        if donors:
+            knobs["donor"] = donors[where]
+        return {"visit": knobs}
+    beats = []
+    for n, where in enumerate(plan):
+        steps, bodies = visits[where]
+        if short is not None and n == 1:                     # the stage's end: the next place's arrival, no grant
+            beats.append(visit(where, [*steps[:6], {"wait": 100000}], []))
+            continue
+        beats.append(visit(where, steps, bodies))
+        if where == "166":                                   # FMV004, then 166's last two stores and Field(55)
+            beats.append({"movie": int(movie_frames), "skip": dict(_O3_SKIP, armed_after=40)})
+            beats.append(visit(where, after, []))
+    return beats
+
+
+def _o8_register(game):
+    """O8's S fields (30860-30862, 30864) and the F members registered in the fixture's own DictionaryPatch.txt
+    (``_o7_register``'s shape; the ``game`` fixture itself is not edited). 55 is a real field: no line."""
+    patch = game / "FF9CustomMap" / "DictionaryPatch.txt"
+    s = "".join(f"FieldScene {f} 11 O8_{p} O8_{p} {f}\n" for p, f in _O8_FIELDS["S"].items() if f != 55)
+    patch.write_text(patch.read_text(encoding="utf-8") + s
+                     + "".join(f"FieldScene {f} 11 {n} {n} 3\n" for f, n in _O8_NAMES.items()), encoding="utf-8")
+
+
+#: 4.16's pattern on the fake's S places, by IP: each visit's emitted ``w`` rows in order, ``(place, sid, tag, ip,
+#: target, new, same)`` -- 9, 9 and 11, 29 in all, every site first in its epoch; no ``c`` row.
+_O8_PATTERN = (
+    [*_o7_p(30860, (22, 49, 57, 130, 138, 200), 385, 0, 1, 1), (30860, 0, 0, 764, "Global.Byte[13]", 2, 0),
+     (30860, 1, 1, 230, "Global.Bit[3811]", 1, 0), (30860, 2, 2, 243, "Global.Int16[2]", 343, 0)],
+    [*_o7_p(30861, (22, 49, 57, 130, 138, 200), 385, 1, 1, 0), (30861, 0, 0, 844, "Global.Byte[13]", 2, 0),
+     (30861, 2, 2, 205, "Global.Byte[13]", 3, 0), (30861, 2, 2, 233, "Global.Int16[2]", 344, 0)],
+    [*_o7_p(30862, (22, 49, 57, 119, 138, 200), -1, 0, 0, 0), (30862, 0, 0, 255, "Global.Byte[8]", 125, 1),
+     (30862, 6, 1, 345, "Global.Byte[208]", 0, 1), (30862, 6, 1, 380, "Global.Byte[208]", 1, 0),
+     (30862, 6, 1, 502, "Global.Byte[8]", 0, 0), (30862, 6, 1, 863, "Global.Int16[2]", 110, 0)])
+
+
+def _o8_pattern(rows, members=None):
+    """4.16's pattern read off a run's story rows by ip (:func:`_o5_pattern` with O8's end, REAL 55, and route places):
+    ``(visits, counts, cut)``."""
+    return _o5_pattern(rows, members, end=55, route=_O8_PLACES)
+
+
+def _o8_play(fake, *, toward=None, until=None, limit=40000, every=5) -> list:
+    """A scripted player on the hand-stepped fake (:func:`_o7_play`'s, through a movie beat too): with control and
+    ``toward`` (x, z), Up with the twist turned at it; else nothing pressed; without control, every ``every`` frames, a
+    listed page of the running visit Confirmed. Each frame's ``(frame, control, x, y, z)``; stops on ``until(fake)``;
+    an AssertionError past ``limit`` frames."""
+    track = []
+    for _ in range(limit):
+        if until is not None and until(fake):
+            return track
+        m = fake._machine
+        if fake.control:
+            if toward is not None:
+                fake.twist = math.degrees(math.atan2(-(toward[0] - fake.player[0]), toward[1] - fake.player[2]))
+                fake._extend("up", 2)
+        elif m is not None and (fake.frame + 1) % every == 0 and any(w.kind == "page" for w in m.windows
+                                                                      if not w.closing):
+            fake._schedule("confirm", 1)
+        fake._frame_once()
+        track.append((fake.frame, fake.control, fake.player[0], fake.player[1], fake.player[2]))
+    raise AssertionError(f"the play ran {limit} frames without its end (field {fake.field_id})")
+
+
+def _o8_near(goal, reach=30.0):
+    """``until`` for :func:`_o8_play`: he stands within ``reach`` of ``goal``."""
+    return lambda f: math.hypot(goal[0] - f.player[0], goal[1] - f.player[2]) <= reach
+
+
+def _o8_fire_y(fake, place: str) -> float:
+    """The published y, on the box's plane of ``place``, where its door's ``fire`` row stood (``visit_log``)."""
+    fire = next(e for e in fake.visit_log if e["kind"] == "fire" and e["field"] == _O8_FIELDS["S"][place])
+    a, b, c = _o8_plane_coef(_O8_PLANES[place])
+    return a * fire["x"] + b * fire["z"] + c
+
+
+def _o8_box_fake(game, field=70):
+    """:func:`_fv_fake` (30 fps quantized, the trace off: the caller arms it) on 164's box with the two planes."""
+    fake = _fv_fake(game, field=field, trace=False)
+    fake.walkmesh = _O8_BOX
+    _o8_plane(fake, {_O8_FIELDS["S"]["164"]: _O8_PLANES["164"], _O8_FIELDS["S"]["165"]: _O8_PLANES["165"]})
+    return fake
+
+
+def test_fake_tower_route_plays_to_55_unattended(game):
+    """B3 (research/o8_design.md 3.6, 9 B3): the route builder's visit beats played by a SCRIPTED PLAYER, not the driver
+    -- presses on the planed box, every page Confirmed -- from 164@342 (field 70's prologue values and the raw warp's
+    FOUR residue rows first: 342 = 0x0156) to the arrival in REAL 55. 164: the grant at published 4780, round e3 (live
+    at the spawn's level) to P1 -- the knight released, seated, his ip230 stored while Steiner waits there -- then up
+    to e2, which fires only past y 12000 (its ring crossed first at its dead level, ~10200: no fire): ip243 := 343, 165.
+    165 the same (e2 past 15000: ip205, ip233, 166). 166: the six pages Confirmed, ip345 / ip380 under 309, ip502, FMV004
+    played out, ip863, Field(55); 55's prologue. With ``story_suppress`` the trace holds EXACTLY 4.16's 29 rows by ip --
+    9 / 9 / 11, six masked -- no ``c`` row, then the cut 55 e0 t0 ip22 (``same`` 1). Break: doors without their
+    ``y_gt`` (e2 fires on its dead level: the route lands in 165 early, under y 12000)."""
+    fake = _o8_box_fake(game)
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(342, 1190)                         # the raw warp's residue, seen in field 70
+    fake.field_id = 30860
+    fake.scene(*_o8_route("S"), control=False)
+    _o8_play(fake, until=lambda f: f.control, limit=400)
+    assert fake.player == [2040.0, 4780.0, 3335.0], fake.player
+    _o8_play(fake, toward=(2350, 2800), until=_o8_near((2350, 2800)))    # round e3: live at the spawn's level
+    _o8_play(fake, toward=_O8_P1["164"], until=_o8_near(_O8_P1["164"]))
+    assert _o8_body(fake, 1)["moving"] is True, _o8_body(fake, 1)          # released past 8400, walking
+    _o8_play(fake, until=lambda f: bool(_o8_ip230(f)), limit=2000)       # the wait at P1: nothing pressed
+    assert (_o8_body(fake, 1)["x"], _o8_body(fake, 1)["z"]) == _O8_KNIGHT_SEAT, _o8_body(fake, 1)
+    _o8_play(fake, toward=_O8_GOAL1["164"], until=lambda f: f.field_id != 30860)
+    assert fake.field_id == 30861 and _o8_fire_y(fake, "164") > 12000, (fake.field_id, fake.visit_log[-3:])
+    _o8_play(fake, until=lambda f: f.control, limit=400)
+    _o8_play(fake, toward=_O8_P1["165"], until=_o8_near(_O8_P1["165"]))
+    _o8_play(fake, toward=_O8_GOAL1["165"], until=lambda f: f.field_id != 30861)
+    assert fake.field_id == 30862 and _o8_fire_y(fake, "165") > 15000, (fake.field_id, fake.visit_log[-3:])
+    _o8_play(fake, until=lambda f: f.field_id == 55 and any(e["index"] == 4 and e["kind"] == "wait"
+                                                            for e in f.visit_log))
+    fake._story_stop()
+    fires = [(e["field"], e["name"]) for e in fake.visit_log if e["kind"] == "fire"]
+    assert fires == [(30860, "e2"), (30861, "e2")], fires
+    assert len(fake.movies) == 1 and (fake.movies[0]["played"], fake.movies[0]["ended"]) == (120, "played"), fake.movies
+    rows = _fv_rows(fake)
+    visits, counts, cut = _o8_pattern(rows)
+    assert visits == [list(v) for v in _O8_PATTERN], visits
+    assert sum(len(v) for v in visits) == 29 and counts == [] and not [r for r in rows if r["k"] == "c"], counts
+    masked = [r for v in visits for r in v if r[4] in ("Global.Bit[191]", "Global.Bit[184]")]
+    assert len(masked) == 6, masked
+    assert cut is not None and (cut["k"], cut["fld"], cut["sid"], cut["tag"], cut["ip"], cut["w"], cut["bit"],
+                                cut["new"], cut["same"]) == ("w", 55, 0, 0, 22, "Bit", 191, 0, 1), cut
+    residue = [(r["fld"], r["byte"], r["old"], r["new"]) for r in rows if r["k"] == "r"]
+    assert residue == [(70, 0, 0, 166), (70, 1, 0, 4), (70, 2, 0, 86), (70, 3, 0, 1)], residue
+    pages = [e["text"] for e in fake.machine_log if e["event"] == "open" and e["kind"] == "page"]
+    assert pages == [f"166 mes {m}" for m in _O8_PAGES], pages
+
+
+def test_fake_tower_movie_skip_dialog_resumes_at_no(game):
+    """H9's skip dialog in 166 (research/o8_design.md 2.7, 3.4): 166's visit ``short`` (its pages, ip502, FMV004 of 120
+    frames, ip863, Field(55)), stepped by hand; ONE stray Confirm once the movie has played 60 frames -- past its
+    ``armed_after`` 40 -- opens the skip dialog with its cursor on No (``selected`` 1, the engine's ETb.sChoose); the
+    answer at that cursor resumes the movie for its remaining frames: ``fake.movies`` holds one movie, played 120 of
+    120, one skip dialog, ended "played", and ip863 lands after its last frame. Break: an answer of No that skips (the
+    frames played then fall short)."""
+    fake = _o8_box_fake(game, field=30862)
+    fake._story_start()
+    fake.scene(*_o8_route("S", short="166"), control=False)
+    _o8_play(fake, until=lambda f: f._movie is not None and f.movies[-1]["played"] >= 60, limit=4000)
+    fake._execute(["press", "confirm"])                 # the stray Confirm: the dialog opens at once
+    assert fake.choice is not None and fake.movies[-1]["skips"] == 1, (fake.choice, fake.movies)
+    _cb_until(fake, lambda f: f._beat_phase == "ready", limit=60)
+    assert fake.choice["selected"] == 1 and fake.choice["options"][1:] == ["Yes", "No"], fake.choice
+    fake._execute(["press", "confirm"])                 # answered at the cursor: No
+    _o8_play(fake, until=lambda f: f.field_id == 55, limit=4000)
+    mv = fake.movies
+    assert fake.answered == [1] and len(mv) == 1, (fake.answered, mv)
+    assert (mv[0]["frames"], mv[0]["played"], mv[0]["skips"], mv[0]["ended"]) == (120, 120, 1, "played"), mv
+    ip863 = [r for r in _fv_rows(fake, "w") if (r["sid"], r["tag"], r["ip"]) == (6, 1, 863)]
+    assert len(ip863) == 1 and ip863[0]["f"] > mv[0]["end"], (ip863, mv)
