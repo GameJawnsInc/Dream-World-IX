@@ -2081,3 +2081,64 @@ step. G38 joined the gate at B4 (25 tests: PART B's 24 and A0b's replay); every 
     `_step_walkers` (the visit beat takes its bodies down at its end).
 13. **The wrong-door and walk-into-a-door tests re-run a V11 whose loss was read only after the switch** (its door then
     unnamed: `_o7_late`), its class asserted on the run set aside -- O6's wrong-door precedent.
+
+#### PART C, as built: where the design was silent or wrong (each the smallest correct thing)
+C1 (5ec2d64a), C2 (7826c047), C3 (a4e5eeb8) and C4 (this text, PLAN.md's O7 section) on PART B's receipt (10a46257, green):
+no re-baseline. C0 read O4's build (20 in-chain `Field()` sites, 40 bytes, 49 member files) into `o7_forks.json`
+`built.measured`. G38 holds PART B's 25 tests and PART C's 28 (C1's 18, C2's one, C3's nine); G39 the dry run (167/167
+on the draft and as if frozen). Every PART C test failed on its mutant (named in its docstring and its commit).
+
+1. **O7-KEYS computes 3 compound values, not 1.** The registered keys include Weimar's scene stores 160 e9 t1 ip415 and
+   ip485 (`Byte[208] ++` after ip380 / ip450: forbidden sites), each computed from its prior as 159 e16 t1 ip648 is; the
+   detail prints the count it computes, never a typed one. The route pins number 153 (the design's N), each with its
+   instanced-entry scans.
+2. **The start read is A-START only when nothing earlier in the run touched its target.** A run's row at a `start_reads`
+   site read with another `old`, with an earlier row of the run on the target's bytes, is the run's own store -- WRITES
+   and PATTERN judge it on a covered run (the dry run's `byte8-explained-F`), never the start. And VOID-ASYM (b) sets the
+   start read's A-START aside (`_void_ids`, by its reason's opening words, `START_READ`): the warp's timing in field 70 is
+   the same harness on both sides, never a structural fork deviation, so a side VOID in it in every run reads VOID by
+   COVER, never NOT PROVEN. Every other A-START (154's error path) reads as before.
+3. **STATE (c) matches the raced row by place AT THE SIDE'S OWN FIELD of it** (real 163 on S, member(163) 31255 on F):
+   by place alone, an F run's row at real 163 -- a leak the LANDING check names -- would also match.
+4. **`closures154`'s overlap counts a TOUCH** (`_convex_overlap(touch=True)`) on the triangles shrunk 2% toward their
+   centroids: so a shared edge is no overlap BECAUSE of the shrink. With a strict overlap the shrink changed nothing (a
+   touch never counted) and its mutant survived; now dropping it adds every edge-neighbour and fails the 119/134.
+5. **Shapes the design left open**: `regions_problems7` returns five values (the problems, the roles, the gateway rows,
+   the hot-spots, the hazards); O7's `trace_summary` keeps the crossings as a LIST (each place's chain row to the next
+   field row, the last door into the cut) where O5's summary keyed two by name; `o7_dryrun.py` was committed with C1,
+   whose pure tests read its base run and session builder, and C2 joined it to the gate.
+6. **The dry run's re-registrations** (each as rendered where the code holds another want, explained in its docstring):
+   `inert-row-both` adds CHAIN (FieldEntrance's own bytes); `v19-one-F` adds FORBIDDEN (real 158 is no end place);
+   `monologue-order-swap-both` reads WALK (c) "in order" with PATTERN (b), its one-side twin STATE (a) too;
+   `field-order-flip-both` reads CHAIN, LANDING (b), PATTERN (b) and WALK (c), never STATE (a) -- a reorder in every run
+   of both sides leaves the histories identical; added: `byte8-explained-F` (item 2). `as_if_frozen` also moves each
+   step's start 20 u, so the goals unit renders its start-dependent lines from the predictions given (`goals_lines`),
+   never pinned numbers.
+7. **THE GRANTS are read off the RING** (o7_rehearse's `Recorder.grant_scan`, armed at the run's start, before its New
+   Game): the driver polls only between steps, so a grant made inside one -- route_to's wait for the landing, then for
+   control in the next field -- never reached O2's poll-to-poll rule (on the fake 158's and 163's were missed). Only a
+   grant in a field of the route's places counts: New Game's field 70 is none.
+8. **THE LADDER TAP also taps `_blocker_ahead`**, route_to's one unseen-blocker placement, counting each on the entry it
+   followed: the route record's `blockers` list is no witness -- a call whose replans never moved him withdraws it and
+   ends `frozen`, exactly the foot snag's path. Waits and pushes are the record's counters across the entry; `boxed` its
+   return; `frozen` the call's last entry's. And a route record's rate (`fps`) is the walk tap's: a step row's trimmed
+   route keeps scalars only.
+9. **R-WALK-VOID's two runs differ in warp, end and stop**: the stage carries `each`, one entry a run (`stage_run` lays
+   run k's over a copy); run 1 ends at 158 and run 2 at 160, so a stop that never fired ends its run at the next place,
+   not at 164. A stop lies on its step of the run's copy as `{"holds": 3}` / `true`, a run stops one way, and a stop
+   names its place's ONE cell or refuses. Each stop records the direction holds and Confirms requested after it before
+   end_run (none), the hold stop its walk holds before it (3), the page stop the Confirms before it (none: rule 7's first
+   was the stop's).
+10. **Seams**: THE FOOT WINDOW is `run(..., foot=)` (default 163, x 2000-2260, z 3750-4100); `--rehearsal-report` takes
+    `walkmesh` (a place -> its mesh; default the install's stock player walkmesh, read-only) and measures each foot
+    hold's narrowest wall gap there, level-aware, from the samples the record keeps (`[frame, x, y, z]`: never a number
+    the rehearsal computed). F5's verdict per run is GO when the place's step is done and NO ladder entry -- whatever it
+    climbed -- followed a hold that started or ended in the window. THE DESCENT's predicted reach is the hold's frames
+    at a run: `RUN_U_PER_TICK` (60) x tick_hz / fps a frame.
+11. **The ladder test's push and body**: at the fake's foot snag (squeeze slack 0) the push is never pressed -- its own
+    line check refuses it -- and the ladder goes on to the blocker and frozen; so run 1 carries the waits and the
+    blocker at the foot, and THE PUSH is run 2's, at a non-solid body on the upper flight. That body is r 140 at (1600,
+    4659): at r 80 (the route NPCs') the planner went round it -- the flight is ~330 u wide, the plan 112-118 u off one
+    wall and 210-230 off the other.
+12. **The rehearsal tests' launch** (`_o7_launch`) pins NO basis -- each run seeds its own (S19) and 159 calibrates --
+    and the fake's Memoria.ini holds O7's settings (`_o7_launch_files`), so P-SETTINGS reads 4.13's 31 keys there.
