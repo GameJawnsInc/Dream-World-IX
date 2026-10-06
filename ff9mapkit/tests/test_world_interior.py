@@ -30,6 +30,8 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 
+import numpy as np
+
 import pytest
 
 from ff9mapkit.world import grassland as G, interior as IN, mesh as M
@@ -965,6 +967,12 @@ def test_census_gate_raises_on_stacked_walkable_sheets(monkeypatch):
 # ---- the foot-course window (the spur-graft class, R4 take-5) --------------------------------
 
 
+# a saddle whose high corners stand a real WALL over the lawn: since R4 take 11 a foot tri
+# shallower than stock's p01 contact slope (25 deg) is ground, and the default saddle's rim
+# sits at lawn height (its steepest foot ~28 deg, most far shallower)
+WALL_SADDLE = (0.0, 2.0, 0.0, 1.8)
+
+
 def _r10_saddle_donor(cx=24.0, cz=-24.0, half=2.5, apex=6.0, ax=1.5, az=1.5,
                       hs=(0.0, 0.6, 0.0, 0.5)):
     """The saddle-rim pyramid dressed in a REAL row-10 tile (col 6 of the rock chart):
@@ -1008,7 +1016,7 @@ def test_carve_mountain_foot_course_window(monkeypatch, tmp_path):
     u0, u1 = puA + 6 * 0.0625, puA + 7 * 0.0625
     v0, v1 = pvA + 10 * 0.03125, pvA + 11 * 0.03125
     # BASELINE (no window): the saddle rim lifts the apron grass above the bench plane
-    _patch_donor(monkeypatch, _r10_saddle_donor())
+    _patch_donor(monkeypatch, _r10_saddle_donor(hs=WALL_SADDLE))
     soup0 = IN.soup_from_blocks({(0, 0): _mountain_bench()})
     res0 = IN.carve_mountain(soup0, center=(22.0, -24.0), alcove=None, game=tmp_path,
                              log=lambda *a: None)
@@ -1033,9 +1041,14 @@ def test_carve_mountain_foot_course_window(monkeypatch, tmp_path):
     bm = res["changed"][(0, 0)]
     grass_y = [p[1] for p, t4 in zip(bm.chan_arrays[CH_POS], bm.chan_arrays[CH_TAN])
                if t4[0] == GRASS]
-    # no apron lift anywhere (the baseline lifted above 3.2); the only grass above
-    # the bench plane is the zip riding the no-rise rim corners (max carried 4.2)
-    assert max(grass_y) <= 3.6 + 1e-6, "window ground must stay flat (no apron lift)"
+    # no apron lift anywhere (the baseline lifted above 3.2): the only grass above the
+    # bench plane is the zip riding a rim corner, so every such vert IS a carried position
+    rock_at = {tuple(round(float(x), 4) for x in p) for p, t4 in
+               zip(bm.chan_arrays[CH_POS], bm.chan_arrays[CH_TAN]) if t4[0] == MASSIF}
+    lifted = [p for p, t4 in zip(bm.chan_arrays[CH_POS], bm.chan_arrays[CH_TAN])
+              if t4[0] == GRASS and p[1] > 3.2 + 1e-6
+              and tuple(round(float(x), 4) for x in p) not in rock_at]
+    assert max(grass_y) > 3.2 + 1e-6 and lifted == [], "window ground must stay flat (no apron lift)"
     # every topo-49 vert (carried faces AND the foot course) samples inside the tile
     rock = [(p, u2) for p, u2, t4 in zip(bm.chan_arrays[CH_POS], bm.chan_arrays[CH_UV],
                                          bm.chan_arrays[CH_TAN]) if t4[0] == MASSIF]
@@ -1057,7 +1070,7 @@ def test_carve_mountain_foot_course_window(monkeypatch, tmp_path):
                           log=lambda *a: None)
 
 
-def _foot_window_carve(monkeypatch, tmp_path, hs=(0.0, 1.2, 0.0, 1.0)):
+def _foot_window_carve(monkeypatch, tmp_path, hs=WALL_SADDLE):
     _patch_donor(monkeypatch, _r10_saddle_donor(hs=hs))
     soup = IN.soup_from_blocks({(0, 0): _mountain_bench()})
     res = IN.carve_mountain(soup, center=(22.0, -24.0), alcove=None, game=tmp_path,
@@ -1066,6 +1079,13 @@ def _foot_window_carve(monkeypatch, tmp_path, hs=(0.0, 1.2, 0.0, 1.0)):
     P, U, Tn = bm.chan_arrays[CH_POS], bm.chan_arrays[CH_UV], bm.chan_arrays[CH_TAN]
     rock = [(i, i + 1, i + 2) for i in range(0, len(P), 3) if Tn[i][0] == MASSIF]
     return res, P, U, rock
+
+
+def _foot_only(P, rock):
+    # the saddle donor's 4 carried faces all share its APEX (the highest rock vert); every
+    # other rock tri is the emitted foot course
+    top = max(float(P[i][1]) for t in rock for i in t)
+    return [t for t in rock if max(float(P[i][1]) for i in t) < top - 1e-6]
 
 
 def test_carve_mountain_foot_course_no_rock_below_the_lawn(monkeypatch, tmp_path):
@@ -1095,6 +1115,37 @@ def test_carve_mountain_foot_course_v_is_per_vertex(monkeypatch, tmp_path):
     assert seams == {}
 
 
+def test_carve_mountain_foot_course_u_is_per_vertex(monkeypatch, tmp_path):
+    # R4 take 11, the owner's SE-corner streaks: take 5-10 stretched each foot tri's own
+    # s-extent over one full tile width, so u restarted at every tri (live window abs-u spread
+    # p50 0.97 tile; stock p50 0.00). u is now one function of the vertex (arc length along
+    # the course, mirror-repeated in the exemplar strip): foot tris sharing a position sample
+    # the same texel column there.
+    res, P, U, rock = _foot_window_carve(monkeypatch, tmp_path)
+    foot = _foot_only(P, rock)
+    assert foot
+    at = defaultdict(set)
+    for t in foot:
+        for i in t:
+            at[tuple(round(float(x), 3) for x in P[i])].add(round(float(U[i][0]), 7))
+    assert {k: v for k, v in at.items() if max(v) - min(v) > 1e-6} == {}
+
+
+def test_carve_mountain_foot_course_no_shallow_wall(monkeypatch, tmp_path):
+    # R4 take 11, the owner's "3": a 21 deg rock skirt at the SE corner. Stock's rock-grass
+    # contact tris are shallower than 25 deg in 1.1% of 1130 (p01) -- a foot tri that shallow
+    # is ground, emitted as grass.
+    res, P, U, rock = _foot_window_carve(monkeypatch, tmp_path)
+    floor = math.cos(math.radians(IN.MTN_FC_SLOPE_MIN))
+    shallow = []
+    for t in _foot_only(P, rock):
+        a, b, c = (np.asarray(P[i][:3], dtype=float) for i in t)
+        n = np.cross(b - a, c - a)
+        if abs(n[1]) / (np.linalg.norm(n) or 1.0) >= floor:
+            shallow.append(t)
+    assert res["report"]["foot_tris"] > 0 and shallow == []
+
+
 def test_carve_mountain_foot_course_relief_gate(monkeypatch, tmp_path):
     # THE PROFILE LAW relief gate: a rim parked at lawn height everywhere (the flat
     # saddle) does not rise, so the window refuses to paint rock on the flat lawn --
@@ -1118,7 +1169,7 @@ def test_carve_mountain_foot_course_needs_exemplars(monkeypatch, tmp_path):
 
 
 def test_carve_mountain_foot_course_steepen(monkeypatch, tmp_path):
-    _patch_donor(monkeypatch, _r10_saddle_donor())
+    _patch_donor(monkeypatch, _r10_saddle_donor(hs=WALL_SADDLE))
 
     def base_radius(res):
         cx2, cz2 = res["center"]

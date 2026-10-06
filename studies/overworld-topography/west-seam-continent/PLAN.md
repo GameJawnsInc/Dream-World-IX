@@ -332,6 +332,16 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > rim FOOTPRINT the corner clears 3.79u against its neighbours' 3.82u (a staircase pull was built, levelled
 > nothing here, and was removed). The corner is where the donor's carried SHALLOW SE bench (its rim near the
 > lawn) meets the rising face; the zip fans off F to reach where the face actually starts.
+> **TAKES 10-11 (BENCH, not deployed, branch `claude/r4-take10`):** take 10 -- the emission asks the TRI (massif rises
+> within 6u AND the tri rises over the lawn), not the nearest rim: take 9 had painted t631 (lawn corner -> M 4.58 ->
+> the buried rim P 2.45) a 52 deg GRASS face. Option A was FALSIFIED at the zip stage: P/F are the donor's carried
+> rim, buried 0.7-0.9u under the lawn; the lawn edge is a regular staircase. Take 11 -- u PER VERTEX (arc length at
+> 4.6u/tile, MIRROR-repeated across the c6-c9 strip: c9's right edge is a Moguri gutter) -> foot-foot u seams 0
+> (abs-u spread p50 0.97 -> 0.00 tile); and a foot tri shallower than 25 deg (stock contact p01; p05 31) is ground
+> -> the owner's '3' (t630, 21 deg) is grass. Density 0.24-0.27, v seams 0, no rock under the lawn. RESIDUAL at the
+> corner, diagnosed: t631 (53 deg rock fin) still smears -- two of its verts (the lawn corner + the buried rim P) sit
+> on the tile's FRINGE EDGE row (the donor's own v at a buried rim), so its lower half samples one texel row. A
+> fin-u fallback (u along the face's horizontal where the arc gradient < 0.6) changed nothing there and was removed.
 > **TAKE 9 DEPLOYED (2026-10-06, owner: "deploy take 9"), harness 20/20** (`.harness-runs/20261006-122647-rimwalk-take9`,
 > incl. look-only frames of the SE corner + NW tip): live state re-verified = take 8 first; backup of all 612
 > massif-block files, both discs -> `backups/west-seam-continent/r4-take9-pre.20261006-122309` (verified 612/612;
