@@ -30,6 +30,7 @@ import atexit
 import collections
 import datetime as _dt
 import json
+import math
 import os
 import re
 import shutil
@@ -2569,6 +2570,321 @@ class Session:
             what=f"the world position to become ({x}, {z}) -- if it did not, the engine refused the "
                  f"teleport (outside the grid, or not in world mode)",
         )
+
+    # -- the overworld on foot ------------------------------------------------------------------
+    # The field verbs above steer on player.x/z through a calibrated screen-to-world basis. Neither
+    # holds here: player.* is RealPosition x 256 on the overworld (the field verbs refuse it), and the
+    # basis is not fixed -- w_movementHumanOperation walks him along
+    # `w_moveCHRControl_RotTrue = w_cameraSysDataCamera.rotation + moveDirection` (ff9.cs:6162), so the
+    # CAMERA'S yaw decides where "up" goes, and the bumpers turn it (L1 `rotation -= PsxRot(32)`, R1
+    # `+=`, ff9.cs:6139-6148, read through UIKeyTrigger.GetKey -> the hooked IsInput). The right stick
+    # also turns it but reads XInput raw (unhooked). So these verbs steer ONE way: turn the camera
+    # until "up" walks the wanted bearing, then hold "up". Bearings are math angles in degrees,
+    # atan2(dz, dx): 0 = +x (east), 90 = +z (north -- world z runs NEGATIVE to the south).
+    #
+    # Every number is measured, never assumed: the bumper's sign AND its rate (per world TICK, at
+    # WorldTPS ~28, against a 31- or 60-fps render) are learned from the first correction, and every
+    # verdict is on the published position that resulted.
+
+    #: The overworld wraps: 24 blocks of 64u in x, 20 in z (the teleport's own grid bounds).
+    WORLD_SPAN_X = 1536.0
+    WORLD_SPAN_Z = 1280.0
+    #: world_settle: this many consecutive still publishes, spanning at least this many frames.
+    WORLD_SETTLE_SAMPLES = 3
+    WORLD_SETTLE_FRAMES = 6
+    WORLD_SETTLE_EPSILON = 0.05
+    WORLD_SETTLE_TIMEOUT = 6.0
+    #: world_probe: the lead-in hold that turns the actor onto the camera's line before the measured
+    #: hold. The actor's yaw eases a third of the way a tick (ff9.cs:6175-6181), so a probe measured
+    #: from a standstill would read the turn's curve as part of the heading.
+    WORLD_LEAD_FRAMES = 8
+    #: world_probe: a measured hold's frames before any speed is known (then WORLD_PROBE_REACH sizes it).
+    WORLD_PROBE_FRAMES = 16
+    #: A probe that moved less than this is "up did not move him" -- not a heading.
+    WORLD_PROBE_MIN = 2.0
+    #: world_face: the first bumper guess, deg per frame held (PsxRot(32) = 2.8125 deg a TICK); the
+    #: real signed rate replaces it after one correction.
+    WORLD_TURN_GUESS = 2.8125
+    #: world_face: a correction must turn the heading at least this much, or the bumpers are not
+    #: reaching the camera (rotation lock, a vehicle profile, an unhooked build).
+    WORLD_TURN_MIN = 1.0
+    #: world_approach: a burst whose progress ALONG the bearing is under this fraction of what it
+    #: commanded (its frames x the measured speed) is blocked. A wall slide keeps him moving
+    #: sideways, so "did he move" cannot see it -- progress along the bearing can.
+    WORLD_STALL_FRACTION = 0.35
+
+    @classmethod
+    def world_delta(cls, a, b) -> tuple[float, float]:
+        """(dx, dz) from world point ``a`` to ``b`` the SHORT way round the wrap."""
+        dx = (b[0] - a[0] + cls.WORLD_SPAN_X / 2) % cls.WORLD_SPAN_X - cls.WORLD_SPAN_X / 2
+        dz = (b[1] - a[1] + cls.WORLD_SPAN_Z / 2) % cls.WORLD_SPAN_Z - cls.WORLD_SPAN_Z / 2
+        return dx, dz
+
+    @staticmethod
+    def _angle_diff(a: float, b: float) -> float:
+        """a - b, folded into (-180, 180]."""
+        d = (a - b) % 360.0
+        return d - 360.0 if d > 180.0 else d
+
+    def _require_world(self, verb: str) -> State:
+        st = self.state
+        if not st.on_world or st.world_x is None or st.world_z is None:
+            raise HarnessError(
+                f"{verb} is an OVERWORLD verb and the game is on ui_state={st.ui_state!r} "
+                f"(world pos {st.world_pos}). Use wait_world() first.")
+        return st
+
+    def world_settle(self, *, timeout: float | None = None) -> State:
+        """Wait until the published WORLD position stops changing, and return that state.
+
+        :meth:`settle` watches player.x/z, a different space here, and spans field ticks. This watches
+        world.x/z and asks for WORLD_SETTLE_SAMPLES still publishes across WORLD_SETTLE_FRAMES frames --
+        the world ticks ~28 times a second, so at 60 fps two still publishes a frame apart can sit
+        between ticks mid-walk. Returns early (with that state) the moment the game leaves the world
+        map -- a battle starting is the caller's finding, not a settle timeout.
+        """
+        deadline = time.time() + (self.WORLD_SETTLE_TIMEOUT if timeout is None else timeout)
+        last: State | None = None
+        still, since = 0, -1
+        while time.time() < deadline:
+            self._assert_alive()
+            st = self.channel.state()
+            if st is None:
+                time.sleep(0.02)
+                continue
+            if not st.on_world:
+                return st
+            if (last is not None and st.frame > last.frame and None not in (st.world_x, last.world_x)
+                    and abs(st.world_x - last.world_x) <= self.WORLD_SETTLE_EPSILON
+                    and abs(st.world_z - last.world_z) <= self.WORLD_SETTLE_EPSILON):
+                if still == 0:
+                    since = last.frame
+                still += 1
+                if still >= self.WORLD_SETTLE_SAMPLES and st.frame - since >= self.WORLD_SETTLE_FRAMES:
+                    return st
+            elif last is None or st.frame > last.frame:
+                still = 0
+            last = st
+            time.sleep(0.02)
+        if last is not None:
+            self._log(f"  world_settle: still moving after the timeout at {last.world_pos}")
+        return last if last is not None else self.state
+
+    def _world_sample(self, st: State) -> dict:
+        return {"frame": st.frame, "x": st.world_x, "z": st.world_z, "y": st.world_y,
+                "ui": st.ui_state}
+
+    def world_probe(self, button: str = "up", frames: int | None = None, *,
+                    home: tuple[float, float] | None = None) -> dict:
+        """Hold ``button`` and report the WORLD heading it walked: ``{"heading": deg|None, "moved",
+        "speed" (u/frame), "dy", "from", "to", "frames", "headings"}``.
+
+        A lead-in hold first turns the actor toward the camera's line; then measured holds repeat
+        until two in a row agree on the heading within WORLD_PROBE_AGREE. One lead-in of a fixed
+        length is NOT enough: the actor's yaw eases a third of the way a TICK (ff9.cs:6175-6181), so
+        from a 180-degree start eight frames at 28 TPS leave ~40 degrees still to turn, and the
+        measured hold reads the rest of the curve as the heading.
+
+        ⚠ THE PROBES MUST NOT WANDER. Walked end to end they cover a lead-in plus up to
+        WORLD_PROBE_TRIES holds -- from a lawn spot 20u off a massif, almost every bearing ran into
+        rock or sea before the heading settled (the offline dry run over the real continent mesh,
+        every station). So with ``home`` every hold restarts there (his YAW survives a teleport, so
+        the turn-in still converges), and once a speed is known (``world_speed``, kept on the
+        session) a hold is sized to cover ~WORLD_PROBE_REACH units, not a fixed frame count.
+
+        ``heading`` is the last hold that moved him; ``unsettled`` marks one that never got a second
+        to agree with it. None when the first measured hold moved him under WORLD_PROBE_MIN --
+        blocked, or the input is not reaching the world.
+        """
+        self._require_world("world_probe")
+        b = _button(button)
+        self.send(f"hold {b} {self.WORLD_LEAD_FRAMES}", f"wait {self.WORLD_LEAD_FRAMES + 2}")
+        headings: list = []
+        out: dict = {}
+        best: dict | None = None
+        for _ in range(self.WORLD_PROBE_TRIES):
+            if home is not None:
+                self.teleport(*home)
+            n = frames
+            if n is None:
+                speed = getattr(self, "world_speed", None)
+                n = (self.WORLD_PROBE_FRAMES if not speed else
+                     max(4, min(self.WORLD_PROBE_MAX_FRAMES, int(round(self.WORLD_PROBE_REACH / speed)))))
+            out = self._world_measured_hold(b, int(n))
+            if out.get("left_world"):
+                break
+            if out["heading"] is None:
+                break                                   # blocked now: keep the last hold that walked
+            best = out
+            self.world_speed = out["speed"]
+            headings.append(out["heading"])
+            if len(headings) >= 2 and abs(self._angle_diff(headings[-1], headings[-2])) <= self.WORLD_PROBE_AGREE:
+                break
+        else:
+            out["unsettled"] = True                     # never two in agreement: still turning
+        if home is not None and not out.get("left_world"):
+            self.teleport(*home)
+        if best is not None and best is not out:
+            best = dict(best, unsettled=True)           # a later hold was blocked before it could agree
+        result = best if best is not None and not out.get("left_world") else out
+        result["headings"] = headings
+        return result
+
+    #: world_probe: measured holds agree when their headings are this close; at most this many holds.
+    WORLD_PROBE_AGREE = 1.0
+    WORLD_PROBE_TRIES = 5
+    #: world_probe: a hold sized to cover this many units once a speed is known, within these frames.
+    WORLD_PROBE_REACH = 10.0
+    WORLD_PROBE_MAX_FRAMES = 40
+
+    def _world_measured_hold(self, b: str, frames: int) -> dict:
+        before = self.world_settle()
+        self.send(f"hold {b} {frames}", f"wait {frames + 2}")
+        after = self.world_settle()
+        out = {"button": b, "frames": frames, "from": self._world_sample(before),
+               "to": self._world_sample(after), "heading": None, "moved": 0.0, "speed": 0.0, "dy": None}
+        if not after.on_world or None in (before.world_x, after.world_x):
+            out["left_world"] = after.ui_state
+            return out
+        dx, dz = self.world_delta(before.world_pos, after.world_pos)
+        mag = math.hypot(dx, dz)
+        out["moved"] = round(mag, 3)
+        out["speed"] = round(mag / frames, 4)
+        if before.world_y is not None and after.world_y is not None:
+            out["dy"] = round(after.world_y - before.world_y, 3)
+        if mag >= self.WORLD_PROBE_MIN:
+            out["heading"] = round(math.degrees(math.atan2(dz, dx)) % 360.0, 2)
+        return out
+
+    def world_face(self, bearing: float, *, home: tuple[float, float] | None = None,
+                   tolerance: float = 6.0, max_rounds: int = 12) -> dict:
+        """Turn the overworld camera until holding "up" walks ``bearing`` (degrees, atan2(dz, dx)).
+
+        Closed loop: probe "up", compare the heading it walked with the bearing, hold a bumper for the
+        frames the error needs, probe again. The bumper's signed rate is learned from the first
+        correction and kept on the session (``world_turn_rate``, deg per frame of L1 held); a
+        correction that turns the heading under WORLD_TURN_MIN twice raises -- that is a camera the
+        input does not reach, and walking on would walk the wrong way with a green report.
+
+        ``home``: teleport back there after every probe, so facing does not walk him off his spot
+        (probes walk ~30u). Returns ``{"heading", "error", "rounds": [...]}``; raises if it cannot
+        get inside ``tolerance``.
+        """
+        self._require_world("world_face")
+        rounds: list = []
+        rate = getattr(self, "world_turn_rate", None)
+        dead = blocked = 0
+        last = None                                   # (heading, signed L1-frames held) of the last turn
+        for _ in range(max_rounds):
+            p = self.world_probe("up", home=home)       # every hold restarts at home, and ends there
+            if p.get("left_world"):
+                raise HarnessError(f"world_face: the game left the world map ({p['left_world']}) "
+                                   f"while probing")
+            if p["heading"] is None:
+                # "Up" ran into something -- the very rock a station faces, or the sea. Turn the
+                # camera a quarter and look again; only when every quarter is blocked is this spot
+                # (or the input) the problem.
+                blocked += 1
+                rounds.append({"heading": None, "moved": p["moved"], "held": "quarter turn"})
+                if blocked >= 4:
+                    raise HarnessError(
+                        f"world_face: holding up did not move him in any of four camera quarters "
+                        f"(last {p['moved']}u in {p['frames']} frames, from {p['from']}) -- boxed in, "
+                        f"or the input is not reaching the world. Face from open ground.")
+                k = abs(rate) if rate is not None else self.WORLD_TURN_GUESS
+                q = max(1, min(64, int(round(90.0 / k))))
+                self.send(f"hold leftbumper {q}", f"wait {q + 2}")
+                last = None                              # no heading to learn the turn against
+                continue
+            err = self._angle_diff(bearing, p["heading"])
+            row = {"heading": p["heading"], "error": round(err, 2), "speed": p["speed"],
+                   "unsettled": bool(p.get("unsettled"))}
+            if last is not None:
+                turned = self._angle_diff(p["heading"], last[0])
+                if abs(turned) < self.WORLD_TURN_MIN:
+                    dead += 1
+                    if dead >= 2:
+                        raise HarnessError(
+                            f"world_face: {abs(last[1])} frames of a bumper turned the heading "
+                            f"{turned:+.2f} deg, twice -- the bumpers are not reaching the overworld "
+                            f"camera (rotation lock? a vehicle?). Rounds: {rounds + [row]}")
+                else:
+                    dead = 0
+                    rate = turned / last[1]
+                    self.world_turn_rate = rate
+                row["turned"] = round(turned, 2)
+            rounds.append(row)
+            if abs(err) <= tolerance:
+                return {"heading": p["heading"], "error": round(err, 2), "rounds": rounds,
+                        "rate": rate, "speed": p["speed"]}
+            k = rate if rate is not None else -self.WORLD_TURN_GUESS     # L1: rotation -= ...
+            n = err / k                                  # signed L1 frames that would close it
+            frames = max(1, min(64, int(round(abs(n)))))
+            button = "leftbumper" if n > 0 else "rightbumper"
+            self.send(f"hold {button} {frames}", f"wait {frames + 2}")
+            last = (p["heading"], frames if n > 0 else -frames)
+            row["held"] = f"{button} {frames}"
+        raise HarnessError(f"world_face: could not face {bearing:.1f} deg within {tolerance} deg in "
+                           f"{max_rounds} rounds: {rounds}")
+
+    def world_approach(self, bearing: float, distance: float, *, burst_frames: int = 10,
+                       speed: float | None = None, max_bursts: int = 80) -> dict:
+        """Hold "up" in bursts along ``bearing`` (already FACED -- :meth:`world_face`) and record
+        the walk: ``{"outcome", "progress", "path", "trace": [...], "speed"}``.
+
+        ``outcome``: "reached" (progress along the bearing >= ``distance``), "blocked" (a burst's
+        progress ALONG the bearing fell under WORLD_STALL_FRACTION of what it commanded -- a wall
+        slide reads as blocked, not as moving), "left_world" (a battle, a field: the trace's last row
+        says which), or "max_bursts". Every burst is one trace row with the world x/z/y after it, so a
+        caller can judge the HEIGHT profile of the walk -- climbing a face shows as y rising.
+
+        ``speed`` (u per frame) sizes the stall test; default: measured by this walk's first burst
+        if it is free, else by the session's last world_face.
+        """
+        st = self._require_world("world_approach")
+        u = (math.cos(math.radians(bearing)), math.sin(math.radians(bearing)))
+        start = self.world_settle()
+        trace = [dict(self._world_sample(start), progress=0.0)]
+        progress = path = 0.0
+        outcome = "max_bursts"
+        prev = start
+        for _ in range(max_bursts):
+            self.send(f"hold up {int(burst_frames)}", f"wait {int(burst_frames) + 2}")
+            now = self.world_settle()
+            if not now.on_world or now.world_x is None:
+                trace.append(dict(self._world_sample(now), progress=round(progress, 2)))
+                outcome = "left_world"
+                break
+            dx, dz = self.world_delta(prev.world_pos, now.world_pos)
+            step = dx * u[0] + dz * u[1]
+            moved = math.hypot(dx, dz)
+            progress += step
+            path += moved
+            if speed is None and step > 0:
+                speed = moved / burst_frames
+            row = dict(self._world_sample(now), progress=round(progress, 2), step=round(step, 3),
+                       lateral=round(-dx * u[1] + dz * u[0], 3))
+            trace.append(row)
+            prev = now
+            commanded = (speed or 0.0) * burst_frames
+            if commanded <= 0:
+                # A first burst that went nowhere, with no speed known: blocked at the start, or the
+                # input never reached him -- this walk cannot tell which, so it refuses to say.
+                raise HarnessError(
+                    f"world_approach: the first burst moved {moved:.2f}u ({step:+.2f} along "
+                    f"{bearing:.1f} deg) and no speed is known to judge it by -- pass speed= "
+                    f"(world_face returns the probe's).")
+            if step < commanded * self.WORLD_STALL_FRACTION:
+                outcome = "blocked"
+                break
+            if progress >= distance:
+                outcome = "reached"
+                break
+        ys = [r["y"] for r in trace if r.get("y") is not None]
+        return {"outcome": outcome, "bearing": bearing, "progress": round(progress, 2),
+                "path": round(path, 2), "speed": speed, "trace": trace,
+                "y_min": min(ys) if ys else None, "y_max": max(ys) if ys else None,
+                "start": [st.world_x, st.world_z]}
 
     # -- crossing between fields ----------------------------------------------------------------
     # Gateways are the most common mechanic in this project and the hardest to eyeball: a trigger is

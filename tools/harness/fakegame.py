@@ -375,6 +375,16 @@ class FakeGame:
         self.control = False
         self.has_position = True
         self.world = {"id": -1, "x": None, "z": None, "vehicle": 0}
+        #: The overworld on foot (None: the world position never moves, as before). Set a dict to walk him:
+        #: ``speed`` u/frame while "up" is held, along the CAMERA yaw ``cam`` (deg, atan2(dz, dx) -- the
+        #: engine's RotTrue = camera rotation + stick direction, ff9.cs:6162); ``turn`` deg/frame that L1
+        #: adds to the camera (R1 the opposite; 0 = the bumpers do not reach it); ``lag`` frames the actor
+        #: takes to come onto the camera's line from a standstill facing elsewhere; ``blocked(x, z)`` and
+        #: ``height(x, z)`` the ground. x wraps at 1536, as the real map does. Published player.* is the
+        #: world position x 256 (s83's GetControlChar pos[]), y included -- and a teleport keeps y until
+        #: he next moves (the engine's InitSlice re-grounds it, not the teleport).
+        self.overworld: dict | None = None
+        self._ow_yaw: float | None = None          # the actor's own yaw, easing onto the camera's
         self.texts: list[str] = []
         self.raw_texts: list[str] = []
         self.choice: dict | None = None
@@ -1413,6 +1423,41 @@ class FakeGame:
                 self._fire_contacts()           # CollisionRequest: every tick he has control, moving or not
         if self._plan is None and self.ui_state == "FieldHUD" and self.control:
             self._player_plan()                 # a frame no tick ran on still reads the pad: a coast frame is spent
+        if self.ui_state == "WorldHUD" and self.overworld is not None:
+            self._step_overworld()
+
+    def _step_overworld(self) -> None:
+        """One frame on foot on the overworld (see ``overworld``): the bumpers turn the camera, "up" walks
+        the actor along it once his own yaw has eased on, ground that is ``blocked`` stops him, and his
+        height follows ``height`` -- published, like the engine, as player.* = world x 256."""
+        import math
+        ow = self.overworld
+        if self.world["x"] is None:
+            return
+        turn = float(ow.get("turn", 2.8125))
+        if self._is_held("leftbumper") or self._is_held("l1"):
+            ow["cam"] = (ow.get("cam", 0.0) + turn) % 360.0
+        if self._is_held("rightbumper") or self._is_held("r1"):
+            ow["cam"] = (ow.get("cam", 0.0) - turn) % 360.0
+        x, z = self.world["x"], self.world["z"]
+        if self._is_held("up"):
+            cam = ow.get("cam", 0.0)
+            if self._ow_yaw is None:
+                self._ow_yaw = cam
+            lag = max(1, int(ow.get("lag", 3)))
+            d = (cam - self._ow_yaw + 180.0) % 360.0 - 180.0
+            self._ow_yaw = (self._ow_yaw + d / lag) % 360.0 if abs(d) > 0.01 else cam
+            sp = float(ow.get("speed", 1.0))
+            nx = (x + sp * math.cos(math.radians(self._ow_yaw))) % 1536.0
+            nz = z + sp * math.sin(math.radians(self._ow_yaw))
+            blocked = ow.get("blocked")
+            if blocked is None or not blocked(nx, nz):
+                x, z = nx, nz
+                self.world["x"], self.world["z"] = x, z
+                height = ow.get("height")
+                self._ow_y = float(height(x, z)) if height is not None else 0.0
+        y = getattr(self, "_ow_y", 0.0)
+        self.player = [x * 256.0, y * 256.0, z * 256.0]
 
     def _step_ladder(self, ticks: float) -> None:
         """One field tick (or, in mean mode, the frame's share of one) of the `ladder` climb: ``step`` up a tick while

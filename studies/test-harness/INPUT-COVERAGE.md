@@ -74,6 +74,13 @@ gap, and hooking `GetAxisRaw` for the two navigation axes closes all four subsys
 
 ## Overworld / world map
 
+> ★ 2026-10-06 — **the overworld camera IS reachable, through the BUMPERS.** The right-stick rows below stand,
+> but `w_movementHumanOperation` also turns `w_cameraSysDataCamera.rotation` on `ff9.Pad.kPadL1`/`kPadR1`
+> (`ff9.cs:6139-6148`), which read `UIKeyTrigger.GetKey` → the hooked `IsInput`. On-foot walking reads
+> `GetAxis` (hooked) and goes along `rotation + stick direction`. Proven in-game by
+> `studies/overworld-topography/west-seam-continent/rimwalk_take8.py` (20/20): `Session.world_face` turns the
+> camera with the bumpers until "up" walks a bearing, `world_approach` walks it. Vehicle throttle is still dark.
+
 | Site | Effect | What it governs |
 |---|---|---|
 | `ff9.cs:6151` | **ignored** | Overworld free-camera while on foot / on a chocobo (w_movementHumanOperation): right-stick X rotates the world camera (w_cameraSysDataCamera.rotation += stickX * 6f) and right-stick Y drives the camera aim-height tweak (cameraAimTweak, i.e. camera pitch). |
