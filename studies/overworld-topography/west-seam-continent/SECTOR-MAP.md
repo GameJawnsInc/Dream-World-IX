@@ -81,3 +81,63 @@ close in xz to ≤1e-3. If it doesn't, the instrument is wrong and nothing below
 ## RESULT
 
 (appended after the run, below this line; nothing above edited)
+
+Run 2026-10-06 (`sector_map.py`, data `sector_map.json`). **The calibration closed:** rot 90°, DY −0.6488;
+342 of 409 donor rock verts land on live rock, and 341 of those are rigid to 1e-3. Rim length scored:
+FAILED 19.2u, EDGE 10.0u (not scored), PASSED 236.2u.
+
+### The registered score
+
+| | FAILED | PASSED | verdict |
+|---|---|---|---|
+| **H1** context (forest OR high approach) | 100% non-bare | 99% bare | **HOLDS** |
+| H1a forest contact alone | 100% forest | 99% not forest | (separates alone) |
+| H1b high approach alone | 100% high | 99% not high | (separates alone) |
+| **H2** datum E > 0.75u | 100% (E p50 +1.46) | 94% ≤ 0.75 (E p50 −0.09) | **HOLDS** |
+| **H3** donor fringe | lacks 0% | has 100% | **FAILS** (as predicted) |
+| **P-K** pricing | 100% no ≤6u close / crosses forest | 99% close ≤6u (88% at/below lawn) | **HOLDS** |
+
+### What it says
+
+**The rim touches forest at home along exactly one 29.2u run,** from (1418.0, −467.8) to (1436.0, −487.6):
+19.2u FAILED, 8.2u EDGE, 1.8u PASSED. That is the take-1 knoll arc, from the NW tip to the SE corner.
+The other 234u of rim met bare grass at home, sat at or below our lawn (88%), and passed with no
+authoring at all. The forest is also why the rock ends high there: at home the forest climbs to meet
+the rock, so the rim sits at canopy height (E +1.23..+1.69). Carried without its forest, the rock's foot
+hangs ~1.5u over our lawn. That gap is what twelve takes tried to fill. The donor's own fringe tile is on
+100% of the rim, the forest side included, so the base texture was never the discriminator.
+
+**Chance baseline (post-registration, not scored):** sliding an arc of the FAILED length around the rim,
+it lands ≥80% on forest at 21 of 307 positions (6.8%). One verbal verdict and one site make this
+evidence, not proof.
+
+### Pricing the forest carry (post-registration)
+
+The rim-touching home forest blob is **88 tris, ~31×32u**, bounded by grass (48.6u), the rock (29.2u) and
+topo-58 coastal rock (22.3u). Placed by the carve transform, it lands right on the failed arc (the PNG).
+Its heights over our lawn:
+
+- **against the rock:** p50 +1.38 (it meets the rock exactly as at home)
+- **canopy:** p50 +1.13, max +2.84
+- **outer edge against grass:** p50 −1.17
+- **outer edge against topo 58:** p50 −0.86
+
+So the forest is a slope climbing ~2.5u from its outer edge to the rock. **Carrying it closes the rock
+contact with stock bytes, but moves the datum mismatch to the forest's outer edge, which stands about 1u
+BELOW our lawn.** At home that edge falls away to lower grass and a coastal-rock drop (−1.3 to −4.4u by
+16-24u out).
+
+**Options this prices, for the owner's call:**
+- **(a) Bury the forest's outer ~1u under the lawn.** The lawn cuts the canopy slope, so the forest's own
+  edge band is lost: the bury class, one material over.
+- **(b) Step the host lawn down ~1u on that side.** A level lower terrace (S5's sustained offset); the
+  step is grass to grass, out on open lawn.
+- **(c) Carry the home ground beyond it too.** The coastal-rock drop is only lawful facing a coast, so
+  this means a re-seat or rotation.
+- **(d) A donor or rotation with no forest contact.** This map predicts it carries cleanly with zero
+  authoring, as 236u of this one did.
+
+**Before any of these is built:** a stock-wide census of whether the mechanism is a LAW and not this
+donor's quirk. Do forest-contact rims sit at canopy height over the same massif's grass-contact rims? And
+how does stock land a forest whose ground is lower than its neighbours' — (a), (b) or something else?
+That turns this map into a pre-carve screen for any donor, R5 included.
