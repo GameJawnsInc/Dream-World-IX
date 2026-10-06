@@ -1777,9 +1777,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                             best = (_d, _rn[2])
             return best is None or best[1] > ground_med + MTN_FC_RIM_ABOVE
 
-        def _fc_rock_here(x, z):
-            if not _fc_rim_above(x, z):
-                return False
+        def _fc_rises(x, z):
             _cx6, _cz6 = math.floor(x / 6.0), math.floor(z / 6.0)
             for _gx in (_cx6 - 1, _cx6, _cx6 + 1):
                 for _gz in (_cz6 - 1, _cz6, _cz6 + 1):
@@ -1788,6 +1786,10 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                                 and _w3[1] - ground_med >= MTN_FC_MIN_RISE:
                             return True
             return False
+
+        def _fc_rock_here(x, z):
+            # the hole cut + the apron hold: a POSITION's question, so the nearest rim decides
+            return _fc_rim_above(x, z) and _fc_rises(x, z)
     # THE HIGH-FOOT CONFORM (2026-08-28, the R4 knoll): with ``max_apron_lift`` set, the
     # apron chases a high donor foot only this far; any outer-rim column still higher
     # CONFORMS DOWN to the capped grass instead -- the carried bottom wall row stretches
@@ -2449,10 +2451,13 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         # ground or a CURB standing over nothing (both owner-filed defect classes);
         # the contact retreats to grass there and the wider hole gives it room to
         # ramp gently.
-        # ...and never a tri lying wholly at or below the lawn (R4 take 9): the predicate
-        # reads the nearest rim to the CENTROID, and a flat dip tri beside a taller rim
-        # node passed it (t672, top 2.75 on a 3.2 plateau) -- rock paint on ground
-        is_foot = (_in_fc(_cx0, _cz0) and _fc_rock_here(_cx0, _cz0)
+        # ...asked of the TRI itself (R4 take 10): rock where the massif rises within 6u AND the
+        # tri rises above the lawn -- never one lying wholly at or below it (the NW sliver,
+        # t672/t673-t675, tops 2.62-3.05 on a 3.2 plateau). NOT the nearest-rim test the hole
+        # cut uses: at the SE corner the nearest rim to a centroid was the donor's BURIED rim
+        # (P, 2.45) while the tri itself climbs to M (4.58) -- take 9 painted that 52 deg face
+        # grass, a regression the owner saw ("looks worse")
+        is_foot = (_in_fc(_cx0, _cz0) and _fc_rises(_cx0, _cz0)
                    and max(float(p[1]) for p in tri3) > ground_med + MTN_FC_RIM_ABOVE)
         if is_foot:
             fc_n += 1
