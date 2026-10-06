@@ -77,3 +77,58 @@ to our lawn (3.20).
 ## RESULT
 
 (appended after the run, below this line; nothing above edited)
+
+Run 2026-10-06 (`grass_step_study.py`, data `grass_step_study.json`). The raster is 768×640 at 2u, with
+18,227 lower-world grass cells, of which 1,176 are level.
+
+### The positive control (added before the scored run was trusted)
+
+A detector that cannot see a lip cannot say stock has none. `--selftest` builds synthetic ground with a
+1.2u LIP (one cell) and a 1.2u RAMP over 12u, and runs the same detector: the lip reads 0.0u wide and the
+ramp 10.0 / 14.1u (axis / diagonal). **PASS.** The study refuses to run if it fails. The refactor that
+made the detector testable was re-run against the first run: identical output.
+
+### The registered score
+
+| | measured | verdict |
+|---|---|---|
+| **P-A1** shelf, not hollow | 33 of 33 forest-run transects never return to terrace level; all reach coastal rock or sea within 10–24u | **HOLDS** |
+| **P-A2** step hidden under the forest | the terrace→shelf crossing is 0% forest-covered at both ends, on both rings | **FAILS** |
+| **P-A3** open part ≥ 8u | open-grass transition band (−0.3..−0.9) 6.4 / 7.8 / 10.9 / 7.2u: 3 of 4 under 8u | **FAILS** |
+| **P-B1** stock steps are ramps | 48 steps; width p10 8.0, p50 12.0, p90 22.0u; max slope p50 5.5°, p90 7.7°; lips 0% | **HOLDS** |
+| **P-C1** our coast is a cliff there | 0%: the land falls ~2.6u over its last 10u to y ≈ 0.6, mostly grass (some topo 58), no Beach1 within 26u | **FAILS** |
+| **P-C2** low cliff tops in stock | stock coastal-cliff land p10 2.40, p50 3.04; ≤2.2u on 5% | **FAILS** |
+
+**Co-location of stock steps (reported):** open ground 67%, block border 19%, coastal rock + sea 8%,
+forest 4%. Of the 21 steps within 24u of the sea, the width p50 is 12.0u and the lower side sits at
+y p50 3.11.
+
+### What it says
+
+- **The home is a small island.** The horseshoe stands on it with a narrow apron, a coastal-rock rim, and
+  sea all round (see the plan view). Its forest side is not a broad shelf but a FORESTED COASTAL SLOPE: 8–16u
+  of canopy, a 0–6u strip of grass at −1.2..−1.8u, then coastal rock and sea, all 10–24u from the rim. The
+  home shelf's last grass before the drop sits at y ≈ 1.42.
+- **Stock does not hide the step under the forest.** At both ends of the forest run, the change from
+  terrace level to forest level is OPEN grass. The registered band (−0.3..−0.9) is only half of the 1.2u
+  drop, so on B's 10–90% scale it would read wider. That is post hoc and not scored.
+- **Stock's ~1u grass step is a gentle RAMP:** ~12u wide (p10 8, p90 22), ≤ ~8°, never a lip, and
+  mostly in open ground. That is the vocabulary for any authored grass level change.
+- **The coast predictions were wrong about the class.** Our west coast there is a low grass shore, not a
+  cliff. So C2 (low cliff tops are rare, 5%) is moot for this site.
+
+### What it means for (c)
+
+- **(c1) A shelf from the forest out to our EXISTING shore, 66–78u away.**
+  - *Lawful in its parts:* level grass lowered ~1.2u by pure-Y displacement (the `world-hill` mechanism,
+    passed in-game, with UVs that stay lawful); two ~12u ramps at the forest run's ends (stock's measured
+    step); the shore's top lowered ~1.2u; the forest carried verbatim and welded to the shelf.
+  - *But its ARRANGEMENT isn't the home's.* A 45–60u-wide lowered coastal plain beside a massif has no
+    exemplar here (the home's lower ground runs only 10–24u to the sea). It is composition, not carry.
+- **(c2) Re-seat the massif ~50u west-southwest so its forest side BECOMES our west coast,** carrying the
+  home's forested coastal slope and coastal rock as the shore.
+  - *Gains:* the home arrangement, verbatim. The remaining junctions are the sea edge and the two lateral
+    coast joins: the coast-mosaic class, which has proven machinery (Path D's S6 region-carry idea).
+  - *Costs:* it re-seats R4 (its placement gates; R5's gap grows) and re-authors that stretch of coast.
+
+Either way, the authored ground must follow P-B1: ramps ~8–22u wide at ≤ ~8°, and no lips.
