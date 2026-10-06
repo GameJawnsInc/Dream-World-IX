@@ -307,6 +307,21 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > 1-3) -- `take8-window-sheet.png` in the run dir is for the owner; seen there, unjudged: a thin dark
 > sliver running west along the lawn at the arc's W end (the NW low slab?), notches in the base's
 > lower edge at 09/10/12. Not walked: the 2 flat NW stations (no clean lawn behind them).
+> **Take 8 OWNER VERDICT on the harness frames (2026-10-06): REJECTED, three defects -- each localized to
+> its tris (`take8_defect_census.py`, `take8_plan_map.py`, `take8_defect_view.py`; the PNGs live in the run dir) and judged against
+> STOCK (`stock_fringe_census.py`):** (1) THE SLIVER ("should be ground") = minted foot tris t673-t675,
+> blk (22,7), (1416-1417, -462..-467): r10 fringe ROCK lying on the NW free-base DIP (lawn 1.37), top
+> 2.62-3.05 = BELOW the 3.2 plateau -- the dip's bank wearing rock. `_fc_rock_here` fires at the centroid
+> because the face 6u away rises; the tri itself never rises above the lawn. Not "carried" as recorded
+> above: no vertex is on the donor transform. (2) THE TRANSITION TILE (09/10/12) = the fc-window foot
+> course maps the FULL r10 tile over a course only 1.6-1.9u tall (the donor's HIGH-FOOT arc: rim 4.84 vs
+> lawn 3.20 at station 10) -> 0.45-0.56 tile-heights/u. Owner-passed faces: 3.3-4.3u courses at 0.23-0.29.
+> STOCK (1130 rock-grass contacts, disc 1): 92% wear r10 c6-9 (the tile is lawful); course p10/p50/p90
+> 2.71/3.81/4.79u; density p50 0.25, p90 0.34; only 2.6% >= 0.45. Stock's SHORT contacts (< 2.5u, n=80
+> fringe) map a PARTIAL tile at p50 0.33 -- so the interior.py comment that a partial window "smears
+> green" does not hold at stock's own short-course density. (3) THE WEDGE = rule (b)'s flat minted grass
+> in the SE concave corner (1432-1452, -486..-500): the outline turns east at (1432,-486) and grass sits
+> between two rock walls (station 12's frame). Awaiting the owner on what belongs there.
 > Deployed state is TAKE 8; reverts: fringe-realign-pre.* (paint), r4-take4-pre.* (any take),
 > r4-pre.20260828-103332 (pre-massif host). Original deploy note: All gates CLEAN on
 > the dry run and the deploy: **placement (1462,−462) rot 90°** (the scan slid +10,+6 off the
