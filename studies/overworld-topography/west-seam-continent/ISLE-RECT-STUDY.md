@@ -61,3 +61,60 @@ by the carry.
 ## RESULT
 
 (appended after the run, below this line; nothing above edited)
+
+Run 2026-10-06 (`isle_rect_study.py`, data `isle_rect_study.json`). Read-only; no dry run was reached.
+
+### The registered score
+
+| | measured | verdict |
+|---|---|---|
+| **P-R1** a 4-row rect keeps the island | **NO rect keeps it.** All 16 candidates (3×2, 3×3, 3×4, 4×3, 4×4 around the island) are refused by the carried-subject guard: kept 25–61 land tris vs dropped 1,670–5,134 | **FAILS** |
+| **P-R2** a 4-row rect excises cleanly | none does: in every rect the island sits inside the frame-crossing assembly | **FAILS** |
+| **P-R3** no wrap-free 3×4 target by our continent | the only 3×4 open window on the grid is (0,12), 3 blocks away; no 4×4 exists. The verb refuses wrapping targets (`transplant_region`: 0 ≤ bx, bx + w ≤ 24, likewise rows) | **HOLDS** |
+| **P-R4** the weld pair is inherited | not reached (no rect got to a dry run) | — |
+
+**Open windows by size** (no stock parts, no `FF9CustomMap-world` override; distance in blocks to our continent):
+
+| size | windows | nearest |
+|---|---|---|
+| 3×2 | 11 | (19,1) / (20,1) / (21,1) at d 2 |
+| 3×3 | 5 | (19,0) / (20,0) / (21,0) at d 2 |
+| 4×3 | 2 | (19,0) / (20,0) at d 2 |
+| 3×4 | 1 | (0,12) at d 3 |
+| 4×4 | 0 | — |
+
+### The mechanism, verified (post-registration, not scored)
+
+Components were taken the way `excise_plan` takes them:
+
+- **On land alone, the island is a separate mass:** 1,448 land tris, x 326.6..460.0, z −1086.3..−962.9.
+  In the 3×4 rect `(5,14)` it does NOT reach the frame. In 3×2 and in 4×4 `(4,13)` it does, by the 2u land
+  margin: its land comes within 1.3u of z −1088.
+- **With the shallow-water parts included, its assembly holds OTHER land:**
+
+| rect | island assembly | other land masses in it | one that crosses the frame |
+|---|---|---|---|
+| 3×2 `(5,15)` | 2,376 tris | 2 masses | 27 tris at the north frame |
+| 3×4 `(5,14)` | 4,326 tris | 6 masses (1,063 tris) | 546 at the north, 131 at the south, 86 at the west |
+| 4×4 `(4,13)` | 7,003 tris | 6 masses (2,837 tris) | 1,842 crossing |
+
+So Daguerreo is one member of an archipelago that shares a single continuous shallow ladder. The verb's
+excise unit is the assembly, so it cannot drop the neighbours without dropping the island. Separating them
+means cutting a shallow sheet. That is THE STRICT SHORE / SHALLOWS-ARE-SHORE-BOUND class, and excise v2
+named it ("rebuilding a ladder is the v2 job, and it is a genuinely bigger one") and never solved it.
+
+This upgrades the palette's verdict ("Confirmed not carryable", recorded without a mechanism) with the
+mechanism: **the island is separable on land and entangled through its water.**
+
+### What it means
+
+- **(c2b) as registered is not buildable with today's verb.** No rect carries the island, and no 4-row target
+  exists near the continent anyway.
+- **To make it buildable needs a NEW capability: a ladder-aware excise.** Drop the neighbours' land and
+  their exclusive ladder, keep the shared shallows around the island, and re-tile the cut through the
+  learned Wang table (the `strips_rebuild` / `world-rim-retile` machinery). It is a research arc with its
+  own registered rounds, and its outcome is uncertain.
+- **The carryable palette already holds whole-island mountains:**
+  - Uaho `(0,0)` 1×1: 1,584u², relief 8.9, carried clean with no excise;
+  - the comma `(9,5)` 2×3: relief 19.1.
+  Uaho is R5's planned donor, and its bare carry passed in July.
