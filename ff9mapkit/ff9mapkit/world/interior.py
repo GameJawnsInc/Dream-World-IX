@@ -2471,6 +2471,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
             _x = _U % (2 * _ncol)
             _t = _x if _x <= _ncol else 2 * _ncol - _x
             return fc_ulo + (_t / _ncol) * (fc_uhi - fc_ulo)
+
         log(f"foot course: exemplar cols {fc_cols} (strip {fc_strip}); window rects {fc_rects}")
     ID_FOOT = float(X.encode_id(topograph=49))
     fc_n = 0
@@ -2502,7 +2503,15 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                    # tris are shallower than 25 deg in 1.1% of 1130 (p01; p05 31) -- the SE
                    # corner's 21 deg skirt (t630, the owner's "3") is ground, and seen from
                    # the lawn its fringe foreshortened into the streak takes 8-10 all showed
-                   and abs(float(nrm[1])) / nl < math.cos(math.radians(MTN_FC_SLOPE_MIN)))
+                   and abs(float(nrm[1])) / nl < math.cos(math.radians(MTN_FC_SLOPE_MIN))
+                   # ...and never a FIN reaching down to a BURIED rim (R4 take 12): the donor's
+                   # rim under the lawn is ground, part of its free-base burial. As rock, a fin
+                   # put two verts on the fringe edge row and smeared it (the SE corner's t631,
+                   # takes 10-11); as plain rock (owner option A, on the bench) it read as a grey
+                   # shard lying on the lawn -- the NW one (t673) like the original sliver.
+                   # As grass both blend: a steep bank at most (the zip's own bank budget)
+                   and not any(kk3(p) not in fc_hole_keys
+                               and float(p[1]) < ground_med - MTN_FC_RIM_ABOVE for p in tri3))
         if is_foot:
             fc_n += 1
             fc_ny_min = min(fc_ny_min, abs(float(nrm[1])) / nl)

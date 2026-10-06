@@ -332,6 +332,14 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > rim FOOTPRINT the corner clears 3.79u against its neighbours' 3.82u (a staircase pull was built, levelled
 > nothing here, and was removed). The corner is where the donor's carried SHALLOW SE bench (its rim near the
 > lawn) meets the rising face; the zip fans off F to reach where the face actually starts.
+> **TAKE 12 (BENCH, not deployed):** the corner fin. Owner option A (the fin in the face's plain-rock block, rows
+> 8-9, mapped by its own surface) killed the stripes but read as a grey SHARD lying on the lawn -- and the NW fin
+> (t673) came back like the original sliver. So a fin (a foot tri reaching down to a BURIED rim vert: the donor's rim
+> under the lawn, its free-base burial) is GROUND: grass. Renders: the corner clean in all views (no stripe, no
+> shard), the NW with a small dark wedge left. Gates pass AT THE LIMIT: 2 grass banks below the zip envelope (t631
+> 53 deg, t673 57 deg) of the 2 allowed; with the retired take-6 pull the fins steepen past it and the carve refuses
+> (the gate's job; only the pull's own test widens the budget). Density 0.24-0.27, u/v foot seams 0, no rock under
+> the lawn; only (22,7) changes vs live take 9.
 > **TAKES 10-11 (BENCH, not deployed, branch `claude/r4-take10`):** take 10 -- the emission asks the TRI (massif rises
 > within 6u AND the tri rises over the lawn), not the nearest rim: take 9 had painted t631 (lawn corner -> M 4.58 ->
 > the buried rim P 2.45) a 52 deg GRASS face. Option A was FALSIFIED at the zip stage: P/F are the donor's carried

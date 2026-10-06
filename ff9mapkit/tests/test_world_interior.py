@@ -1146,6 +1146,21 @@ def test_carve_mountain_foot_course_no_shallow_wall(monkeypatch, tmp_path):
     assert res["report"]["foot_tris"] > 0 and shallow == []
 
 
+def test_carve_mountain_foot_course_fin_is_ground(monkeypatch, tmp_path):
+    # R4 take 12: a foot tri reaching down to a BURIED rim vert (the donor's rim under the
+    # lawn -- its free-base burial) is ground. As rock it put two verts on the fringe edge row
+    # and smeared (the SE corner's t631, takes 10-11); as plain rock (option A) it read as a
+    # grey shard on the lawn. The saddle's low corners are buried, so it has such tris.
+    res, P, U, rock = _foot_window_carve(monkeypatch, tmp_path)
+    foot = _foot_only(P, rock)
+    carried_at = {tuple(round(float(x), 3) for x in P[i]) for t in rock if t not in foot for i in t}
+    buried = {k for k in carried_at if k[1] < 3.2 - IN.MTN_FC_RIM_ABOVE - 0.05}
+    assert buried, "the fixture must bury part of its rim"
+    assert res["report"]["foot_tris"] > 0
+    assert [t for t in foot if any(tuple(round(float(x), 3) for x in P[i]) in buried
+                                   for i in t)] == []
+
+
 def test_carve_mountain_foot_course_relief_gate(monkeypatch, tmp_path):
     # THE PROFILE LAW relief gate: a rim parked at lawn height everywhere (the flat
     # saddle) does not rise, so the window refuses to paint rock on the flat lawn --
@@ -1170,6 +1185,11 @@ def test_carve_mountain_foot_course_needs_exemplars(monkeypatch, tmp_path):
 
 def test_carve_mountain_foot_course_steepen(monkeypatch, tmp_path):
     _patch_donor(monkeypatch, _r10_saddle_donor(hs=WALL_SADDLE))
+    # the subject is the (retired, take 6) pull's own geometry. Since take 12 the saddle's
+    # buried-rim fins are ground, and the pull steepens them into grass banks: 4 against the
+    # zip's budget of 2, a refusal the gate is RIGHT to make for a real carve -- so this test
+    # alone widens the budget, to keep measuring what the pull does to the base
+    monkeypatch.setattr(IN, "MTN_ZIP_BANK_MAX", 4)
 
     def base_radius(res):
         cx2, cz2 = res["center"]
