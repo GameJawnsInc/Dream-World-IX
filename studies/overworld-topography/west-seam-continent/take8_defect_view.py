@@ -94,7 +94,8 @@ def main():
     out = Image.fromarray(img)
     dr = ImageDraw.Draw(out)
     colors = {"sliver": (255, 40, 40), "band": (255, 230, 0), "wedge": (0, 255, 255)}
-    for kind, r in marks:
+    import os as _os
+    for kind, r in (marks if _os.environ.get("FF9MK_VIEW_MARKS", "1") != "0" else []):
         poly = [px(p[0], p[2]) for p in r["w"]]
         dr.polygon(poly, outline=colors[kind])
     for gxu in range(int(ROI[0]), int(ROI[2]) + 1, 8):
