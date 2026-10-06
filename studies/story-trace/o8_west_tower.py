@@ -689,12 +689,27 @@ def draft_predictions(campaign=None) -> dict:
                 "165@343 (the second spiral) -> 166@344 (six pages, FMV004 played out) -> Field(55) -> the arrival in "
                 "REAL 55 at 110 on both sides, SC 1190; stock vs the alxc disc-1 chain as O4 deployed it (route members "
                 f"{rm[164]}-{rm[166]}; one declared seam, {rm[166]} -> 55; PLAN.md, O8) -- a US session",
-        "rehearsals": [], "rehearsal_fps": [], "rehearsed": {},
+        "rehearsals": ["20261005-225603-o8-rh-full", "20261005-231020-o8-rh-full2",         # 7.3 (F1-F14)
+                       "20261005-231856-o8-rh-spiral", "20261005-232135-o8-rh-fmv",
+                       "20261005-232601-o8-rh-void", "20261005-232846-o8-rh-smoke",
+                       "20261005-233049-o8-rh-fpass"],
+        "rehearsal_fps": [60.0],                            # 7.3 F14: every rehearsal ran at ~52-60; 31 unexercised
+        # 7.3 F2-F8 as measured: the longest traced no-progress stretch (FMV004, every R-FULL and R-FMV run), the
+        # longest knight wait (R-SPIRAL run 1), each step's longest wall time, the shortest movie span (R-FMV run 2),
+        # the narrowest wall gap a pinch hold passed (R-FULL launch 2 run 1; launch 1's pinch UNMEASURED: its ring)
+        "rehearsed": {"stretch_s": 47.0, "wait_s": 3.05,
+                      "steps_s": {"164: the first spiral to P1, then THE KNIGHT WAIT": 28.5,
+                                  "164: the second spiral into e2 at the top": 24.19,
+                                  "165: the lower stretch to P1": 5.76,
+                                  "165: the upper stretch into e2 at the top": 20.39},
+                      "movie_span_s": 46.75, "narrowest_pinch": 59.4},
         "order": ["S", "F", "S", "F", "S", "F"],
         "min_covered": 2,
         "rerun": {"max": 2, "stop_on": ["V19"]},
-        # F8 replaces every one from R-FULL (7.3): estimates of ~2.5 min a run, the watchdog sized for FMV004 (2.7)
-        "budget": {"run_s": 600, "run_min_s": 300, "session_s": 3600, "settle_s": 1.0, "no_progress_s": 150,
+        # F8 from R-FULL (160.2, 150.0, 160.1 and 147.4 s): run_s 2 x the slowest; run_min_s 1.25 x the median 155.05
+        # + the longest recovery 4.4 s; session_s 8 x the median + 1800; no_progress_s max(60, 3 x the longest
+        # stretch 47.0 s)
+        "budget": {"run_s": 321, "run_min_s": 199, "session_s": 3041, "settle_s": 1.0, "no_progress_s": 141,
                    "end_row_s": 10.0},
         "start": {"S": 164, "F": rm[164]},
         "entrance": 342,
