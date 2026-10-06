@@ -97,3 +97,55 @@ verbatim region carry; the water knits).
 ## RESULT
 
 (appended after the run, below this line; nothing above edited)
+
+Run 2026-10-06 (`coast_join_study.py`, data `coast_join_study.json`). **All four positive controls PASS:**
+- the S2 synthetic step reads 1.0u and the 16u ramp 13.0u;
+- at T = 0 the home coast reads +51.4u inland of ours;
+- our rim reads 3.20 and the home forest-side rim 1.37;
+- block (21,7) reads stock-free and mod-occupied.
+
+### The registered score
+
+| | measured | verdict |
+|---|---|---|
+| **P-S1** it fits | best seat: translate ~52u along the forest side's outward direction, T ≈ (−44, −29), rot 90°. 83% of the home forest-side coast points land within ±4u of our coastline. 451 seats tried; 77 refused (body too close to the coast); seam clear | **HOLDS** |
+| **P-S2** cliff tops ramp | 53 stock shore chains (1,516 rim points). A ≥1.2u change takes p10 8.3u, p50 17.7u of shore (54% of points never change that much within 64u). Max change per 4u of shore: p50 0.00, p90 0.34, p99 1.16u | **HOLDS** |
+| **P-S3** the law bites | **NW end:** home rim 1.26 vs our 3.20 (Δ −1.94); apron 1.34 vs our lawn 3.20; water sea4 \| sea4. **SE end:** home rim 1.93 vs 3.20 (Δ −1.27); apron 2.29 vs 3.20; water home **sea3** vs our **sea4**, an adjacency stock never builds (THE LATTICE ADJACENCY LAW) | **HOLDS** |
+| **P-S4** whole island | the home island is ~8,356u² in a 3×2-block footprint (5-7, 15-16), with 305 FOREIGN land cells (~1,220u²) in that footprint. **No free 3×2 window west of our coast:** cols 16–20 are real map content | **FAILS** |
+
+**Post-registration (not scored): open ocean around the whole continent.**
+- **North:** cols 21–23 × rows 0–2 are free, and a 3×2 window there (21–23 × 1–2) fits the home island
+  without crossing the seam.
+- **South:** rows 10–13 are free at cols 22–23 and 0–1, but a 3-wide window there would cross the 23|0
+  seam.
+
+### What it says
+
+**(c2) as a partial carry FITS.** Moving the massif ~52u west-southwest lands its home coast on ours.
+But both ends meet our minted cliff on LAND, with the home rim 1.3–1.9u LOWER: the class the coast laws
+call hard. Each end needs:
+- **a cliff-top taper:** our minted cliff stepping down along the shore to the home rim. Stock's gradient
+  is ≤ 0.34u per 4u of shore at p90, so ~15–25u of shore per end. The texture rule for a lowered wall is
+  in-game proven (THE PER-COLUMN LIP ANCHOR, island B: "the cliffs look good now"). A kit verb that
+  applies it to a stretch of `world-island`'s minted cliff is NOT established;
+- **an inland grass ramp** (P-B1's ~12u) from our lawn down to the home apron;
+- **at the SE end, a water re-tile:** the home sea3 against our sea4 (the `world-rim-retile` family).
+
+Plus, everywhere the carried land lands, our sea beneath it must be CUT (THE SEA4-UNDER-LAND LAW), and our
+cliff and water ladder between the ends are replaced by the home's. Every piece has a proven law or
+machinery behind it; composed together, it is a first.
+
+**The no-land-join version exists, but not on the continent.** The whole home island carried verbatim
+(`world-transplant`, "looks verbatim") brings massif, apron, forest, coast and water ladder in their own
+context. Its only junction is open water, which knits. It fits in the open ocean NORTH of the continent.
+- **Cost:** the horseshoe becomes an offshore island rather than a mountain on the continent, and R4's
+  continent carve reverts to the passed lawn.
+- **Its own work:** ~1,220u² of neighbouring stock land in the footprint to excise (THE STRUCTURE NOTCH /
+  GHOST TONGUE laws), and the area restamp (THE DONOR-AREA LAW).
+
+## For the owner
+
+- **(c2a) the massif on the continent's coast:** four authored joins (two cliff tapers, a ramp pair, a
+  water re-tile, plus sea cuts), each law-backed, the combination untried.
+- **(c2b) the horseshoe as its own island north of the continent:** everything verbatim, junctions in
+  water only; the continent keeps its passed lawn.
