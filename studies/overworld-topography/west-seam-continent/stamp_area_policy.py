@@ -29,6 +29,7 @@ Verify afterwards:  py probe_area14.py
 from __future__ import annotations
 
 import argparse
+import os
 import datetime
 import shutil
 import struct
@@ -41,9 +42,12 @@ sys.path.insert(0, str(REPO / "ff9mapkit"))
 
 from ff9mapkit.world import mesh as M                      # noqa: E402
 
-G = Path(r"C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX") \
-    / "FF9CustomMap-world" / "FF9_Data" / "WorldMap"
-BACKUP_ROOT = REPO / "backups" / "west-seam-continent"
+G = Path(os.environ.get("FF9MK_WM", str(
+    Path(r"C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX")
+    / "FF9CustomMap-world" / "FF9_Data" / "WorldMap")))
+# FF9MK_WM points the stamp at an OFFLINE BENCH mirror instead of the live mod (take 9); its
+# pre-stamp backup then goes beside the bench (FF9MK_BACKUP), never into the repo's backups/
+BACKUP_ROOT = Path(os.environ.get("FF9MK_BACKUP", str(REPO / "backups" / "west-seam-continent")))
 
 # the R1 mint's 26 blocks (PLAN.md; wrapped cols {21,22,23,0,1} x rows 4-9)
 BLOCKS = [(0, 4), (0, 5), (0, 6), (0, 7), (0, 8), (0, 9), (1, 5), (1, 6), (1, 7), (1, 8),

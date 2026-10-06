@@ -101,7 +101,8 @@ def main():
         dr.text(px(gxu, ROI[3]), str(gxu), fill=(255, 255, 255))
     for gzu in range(int(ROI[1]), int(ROI[3]) + 1, 8):
         dr.text(px(ROI[0], gzu), str(gzu), fill=(255, 255, 255))
-    dest = REPO_RUNS / "take8_defect_view.png"           # atlas pixels = game bytes: never committed
+    import os
+    dest = Path(os.environ.get("FF9MK_VIEW_OUT", str(REPO_RUNS / "take8_defect_view.png")))   # atlas pixels: never committed
     dest.parent.mkdir(parents=True, exist_ok=True)
     out.save(dest)
     from collections import Counter
