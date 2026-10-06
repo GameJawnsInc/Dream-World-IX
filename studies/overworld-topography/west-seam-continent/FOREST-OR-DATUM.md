@@ -133,3 +133,37 @@ record should be read** (own prior art first): did any round seat that stretch, 
 open lawn?
 - If yes, the verdict may already exist.
 - If not, a bench carry of that stretch plus one owner look settles the question.
+
+### ADDENDUM (post-registration, not scored): the Path D record read against the screen
+
+The (14-15,14) mesa was Path D's donor, posed yaw 0 and translated on the 4u lattice so its centre landed
+on the bench centre (416, −512); here (−576, +416), from the block's rock bbox. Its lift rounds (6–8) raised
+the bench grass to the whole weld line. The owner's still of "the hill" was taken at **(439, −496)**
+(GROUND-JUNCTION-SYNTHESIS.md, the localisation snaps).
+
+- **The 12 rim stations nearest that still are ALL raised FOREST contacts** (E +1.8..+2.6), 8.5–10.7u
+  away.
+- **The mesa's raised RISING-GRASS stretches** (39.4u, of which 5.3u at E ≥ 1.3, max +1.48) lie ≥ 39.8u
+  from it.
+- **No Path D complaint is recorded at that grass sector.** The other photographed defect, the seams at
+  (375, −508), was decoded as stitch-tolerance tears, not a lift shape.
+
+**Read together, the three sites:**
+
+| site | raised forest | raised grass at similar height |
+|---|---|---|
+| horseshoe take 1 | FAILED at +1.13..+1.69 | none above ~+1.1 |
+| Path D mesa, lift rounds | the hill complaint lands on it (+1.8..+2.6) | no complaint, up to +1.48 |
+| Uaho July | forest contacts at +0.26..+0.58 passed | none above +0.84 |
+
+No single datum threshold fits both the horseshoe (fails at ≥ +1.13) and a Path D grass stretch passing at
++1.3..+1.48. So this **leans against H-datum and toward the forest context.**
+
+**Its limits, stated plainly:**
+- an ABSENT complaint is not a pass verdict;
+- the Path D lift field was bench-wide, not `world-mountain`'s apron;
+- 5.3u is a short stretch, and the owner may not have looked there;
+- the cross-site E comparison assumes comparable seats (both are rim-median-to-lawn).
+
+It is evidence, not a decision. The one clean test is still a bench carry of a raised rising-grass
+stretch at ~+1.5u, judged by the owner.
