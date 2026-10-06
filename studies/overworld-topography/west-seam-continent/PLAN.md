@@ -332,7 +332,14 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > rim FOOTPRINT the corner clears 3.79u against its neighbours' 3.82u (a staircase pull was built, levelled
 > nothing here, and was removed). The corner is where the donor's carried SHALLOW SE bench (its rim near the
 > lawn) meets the rising face; the zip fans off F to reach where the face actually starts.
-> **TAKE 12 (BENCH, not deployed):** the corner fin. Owner option A (the fin in the face's plain-rock block, rows
+> **TAKE 12 DEPLOYED (2026-10-06, owner: "deploy take 12 and re-run the harness"), harness 20/20**
+> (`.harness-runs/20261006-141330-rimwalk-take12`, 10u look-only frames of the SE corner + NW tip): live re-verified =
+> take 9 first; backup of all 612 massif-block files -> `backups/west-seam-continent/r4-take12-pre.20261006-140627`
+> (verified 612/612; THE REVERT); `r4-pre` overlaid, carved with take 12's code (`407cbab6`) + stamp (backup
+> `r3-pre-area14.20261006-140900`), probe a-e PASS; live Disc1 = bench 55/55, Disc4 mirror 45/45. Every window foot
+> blocks at its contact (12: +0.9u), no climb; seam + safe road hold. Run 1 died on 6603: a calibration probe walked
+> into the door quad 200u from the spawn and the exit took control -- the scenario now passes the quad as a hazard.
+> **TAKE 12 (as built on the bench):** the corner fin. Owner option A (the fin in the face's plain-rock block, rows
 > 8-9, mapped by its own surface) killed the stripes but read as a grey SHARD lying on the lawn -- and the NW fin
 > (t673) came back like the original sliver. So a fin (a foot tri reaching down to a BURIED rim vert: the donor's rim
 > under the lawn, its free-base burial) is GROUND: grass. Renders: the corner clean in all views (no stripe, no

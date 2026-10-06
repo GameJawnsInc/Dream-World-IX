@@ -194,7 +194,7 @@ def main():
     for name, (tx, tz) in (("se-corner", (1436.0, -488.0)), ("nw-tip", (1417.0, -465.0))):
         for b in range(0, 360, 30):
             ux, uz = math.cos(math.radians(b)), math.sin(math.radians(b))
-            for dist in (16.0, 22.0):
+            for dist in (10.0, 16.0, 22.0):
                 sx, sz = tx + ux * dist, tz + uz * dist          # standpoint, looking back along -u
                 line = [(tx + ux * d, tz + uz * d) for d in range(4, int(dist) + 1, 2)]
                 st0 = g.top(sx, sz)
