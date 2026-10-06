@@ -137,9 +137,19 @@ PINCH_WINDOW = {"place": 164, "x": [900.0, 1310.0], "z": [4460.0, 4600.0], "y": 
 #: 4.9: the end-state targets 55's prologue rewrites at once -- typed for the draft; O8-KEYS (g) DERIVES them
 #: (:func:`end_race8`) and the freeze refuses a draft that differs.
 RACED8 = ("Global.Int16[2]", "Global.Byte[8]")
-#: 4.9 (O8-KEYS (g)): the Map variables the other-function proof holds at the value the arrival's walk of 55 e0 t0 left
-#: (ip247's ``Map.Byte[24]`` 1: e10 t1's case) -- every other Map variable free.
-END_MAP_KEYS8 = ("Map.Byte[24]",)
+#: 4.9 (O8-KEYS (g); research/o8_design.md 11.4, the review's #3): THE ARRIVAL SCENE's targets -- what 55's own
+#: functions store after its Main_Init on this arrival: e10 t1 ip568 / ip582 ``UInt16[0] := 1400`` (case 3; ip582
+#: where SC <= 1400), once ``Map.Byte[24]`` reaches 3 -- e1 t1 (ip46 / ip76) advances it on the scene's
+#: ``Map.Bit[231]`` handshakes, the first past e8 t1's WindowSync page 129 (case 1). Reachable on this arrival, so
+#: never read live: SC 1190 at the cut rests on O8-NO-SC. Typed for the draft; O8-KEYS (g) DERIVES it
+#: (:func:`end_proof8`: the candidates' other 55 stores reachable on this arrival, a Map variable held only where no
+#: other function stores it) and the freeze refuses a draft that differs.
+END_SCENE8 = {"Global.UInt16[0]": {"sites": [[10, 1, 568], [10, 1, 582]],
+                                   "why": "55's own arrival scene: e10 t1's case 3 stores SC 1400 once Map.Byte[24] "
+                                          "reaches 3 (e1 t1 advances it on the scene's Map.Bit[231] handshakes, the "
+                                          "first past e8 t1's WindowSync page 129) -- reachable on this arrival, so "
+                                          "never read live: SC 1190 at the cut rests on O8-NO-SC (no SC row through "
+                                          "the cut)"}}
 #: 4.9: the knight's talk's targets -- 0 since New Game and through O1-O7.
 UNTOUCHED8 = ("Global.Bit[3851]", "Global.Bit[3792]", "Global.Bit[7211]", "Global.Int16[224]")
 MASKED_TARGETS = C7.MASKED_TARGETS
@@ -585,10 +595,11 @@ def last_values8(pattern: dict) -> dict:
     return values
 
 
-def _end_state8(pattern: dict, keys: list, raced=RACED8) -> tuple:
+def _end_state8(pattern: dict, keys: list, raced=RACED8, scene=END_SCENE8) -> tuple:
     """4.9, COMPUTED (never typed): ``(end_state, end_state_trace)`` -- every target the pattern writes, its last value
     in route order, with SC the scenario, the RACED targets taken OUT of the live read and put in ``end_state_trace`` at
-    their last pre-cut site (its ip the registered key's); plus :data:`UNTOUCHED8`, 0."""
+    their last pre-cut site (its ip the registered key's), THE ARRIVAL SCENE's (``scene``: :data:`END_SCENE8`, the
+    review's #3) taken out too; plus :data:`UNTOUCHED8`, 0."""
     last, site = {}, {}
     for visit in pattern["visits"]:
         for p_, sid, tag, off, target, new, _same in visit:
@@ -597,6 +608,8 @@ def _end_state8(pattern: dict, keys: list, raced=RACED8) -> tuple:
     live = {"Global.UInt16[0]": 1190}
     live.update({t: v for t, v in last.items() if t not in raced})
     live.update({t: 0 for t in UNTOUCHED8})
+    for t in scene:
+        live.pop(t, None)
     whys = {"Global.Int16[2]": "55 e0 t0 ip255 rewrites it 110 -> 106 in the cut's frame (ip229: SC 1190 < 1400): the "
                                "live read races",
             "Global.Byte[8]": "55 e0 t0 ip342 rewrites it 0 -> 125 after its SYSVAR[3] sync, in the prologue's frame by "
@@ -736,6 +749,7 @@ def draft_predictions(campaign=None) -> dict:
         "landing": _landing8(chain),
         "end_state": end_state,
         "end_state_trace": end_trace,
+        "end_state_scene": json.loads(json.dumps(END_SCENE8)),
         "interruptions": [],
         "static_objects": [],
         "seat_watch": copy.deepcopy(SEAT),
@@ -1066,8 +1080,8 @@ def reach8(idx, sid: int, tag: int, ip: int, known=None, *, items=None, limit: i
     ``SWITCHEX`` on a known value taking its one label) taken one way, any other test taken BOTH ways (a free arrival
     value, a ``B_SYSVAR``), a revisited (ip, known values) pair cut; True when some path reaches ``ip``. ``known``:
     ``{target: value}`` -- every other Global and Map variable FREE (O8-CENSUS: an ``error_path`` guard must hold from
-    SOME arrival; O8-KEYS (g): 55's ``{Map.Byte[24]: 1}``). ``items`` (``[(ip, rel, text)]``, a seam) replaces the
-    decode."""
+    SOME arrival; O8-KEYS (g): the Map values :func:`end_map_held8` derives -- never one another function stores, the
+    review's #3). ``items`` (``[(ip, rel, text)]``, a seam) replaces the decode."""
     items = items if items is not None else _items8(idx, sid, tag)
     by_rel = {rel: i for i, (_ip, rel, _t) in enumerate(items)}
     todo = [(0, _Env8(known), None)]
@@ -2244,14 +2258,56 @@ def arrival_values8(pred: dict) -> dict:
     return vals
 
 
+def end_map_held8(idx55, race_map: dict, *, items=None) -> tuple:
+    """The Map variables :func:`end_proof8`'s other-function proof may HOLD (research/o8_design.md 4.9; 11.4, the
+    review's #3): of the values the arrival's walk of the end field's e0 t0 left at its RET (``race_map``), exactly
+    those NO other function of the field stores -- every function but e0 t0, instanced or not (a superset: sound) --
+    read off each ``SET``'s lvalue (:func:`eval8`). ``({var: value}, {var: [[sid, tag, ip], ...]})``: the held values, and the
+    stores that free each walked variable. Derived, never typed: stock 55's e1 t1 stores ``Map.Byte[24]`` (2 / 3 / 4 at
+    ip46 / ip76 / ip106, on the scene's ``Map.Bit[231]`` handshakes) and e7 t2 ``Map.Bit[167]`` -- both free;
+    ``Map.Bit[159]`` 1 and ``Map.Byte[17]`` 255 are held. ``items`` (``items(sid, tag) -> [(ip, rel, text)] | None``)
+    is a seam."""
+    movers: dict = {}
+    for e in idx55.eb.entries:
+        if e.empty:
+            continue
+        for f in e.funcs:
+            if (e.index, f.tag) == (0, 0):
+                continue
+            its = (items(e.index, f.tag) if items is not None else None) or _items8(idx55, e.index, f.tag)
+            for ip, _rel, t in its:
+                if not t.startswith("SET("):
+                    continue
+                lv, _v = eval8(t, _Env8())
+                if lv is not None and lv.startswith("Map."):
+                    movers.setdefault(lv, []).append([e.index, f.tag, ip])
+    held = {k: v for k, v in sorted((race_map or {}).items()) if k.startswith("Map.") and k not in movers}
+    return held, {k: movers[k] for k in sorted(movers) if k in (race_map or {})}
+
+
+def end_candidates8(pred: dict) -> set:
+    """The targets the arrival's live read WOULD compare before any race is taken out (4.9): SC, every target the
+    pattern writes, and :data:`UNTOUCHED8`."""
+    out = {"Global.UInt16[0]"} | set(UNTOUCHED8)
+    for visit in (pred.get("pattern") or {}).get("visits") or ():
+        for tup in visit:
+            out.add(tup[4])
+    return out
+
+
 def end_proof8(idx55, pred: dict, *, items=None, sites=None) -> tuple:
-    """O8-KEYS (g)'s reader (research/o8_design.md 4.9; the claim review's #11): ``(info, problems)`` -- THE RACED SET
-    (:func:`end_race8` over stock 55's e0 t0 from the arrival's values -- the pattern's last values over the raw start
-    (:func:`last_values8`), SC the scenario -- to its RET) equal to ``end_state_trace``'s targets, each trace site a
-    writes or chain key with the registered value; and every OTHER store site in stock 55 of an ``end_state`` target
-    (outside e0 t0) UNREACHABLE on this arrival -- :func:`reach8` with the Map values the arrival's walk set (55 e0 t0
-    ip247: ``Map.Byte[24]`` 1) -- else a problem naming the site. ``items`` (``items(sid, tag) -> [(ip, rel, text)] |
-    None``) and ``sites`` (``[{sid, tag, ip, target}]``) are seams (the dry run's synthetic 55)."""
+    """O8-KEYS (g)'s reader (research/o8_design.md 4.9; the claim review's #11; 11.4, the review's #3): ``(info,
+    problems)`` -- THE RACED SET (:func:`end_race8` over stock 55's e0 t0 from the arrival's values -- the pattern's
+    last values over the raw start (:func:`last_values8`), SC the scenario -- to its RET) equal to ``end_state_trace``'s
+    targets, each trace site a writes or chain key with the registered value; THE OTHER FUNCTIONS: every store site in
+    stock 55 outside e0 t0 of a candidate target (:func:`end_candidates8` less the raced set, with ``end_state``'s and
+    ``end_state_scene``'s) tried by :func:`reach8` with ONLY the Map values no other function stores
+    (:func:`end_map_held8`: never a variable a running loop moves) -- a reachable store of a LIVE ``end_state`` target
+    is a problem naming the site; the targets with a reachable store are THE ARRIVAL SCENE's, ``end_state_scene`` must
+    be exactly them with exactly those sites, and every candidate neither raced nor the scene's must be read live.
+    ``info``: ``raced``, ``map`` (the held values), ``movers``, ``others`` (``(sid, tag, ip, target, reachable)``),
+    ``scene`` (``{target: [[sid, tag, ip], ...]}``), ``yield``, ``ret``. ``items`` (``items(sid, tag) -> [(ip, rel,
+    text)] | None``) and ``sites`` (``[{sid, tag, ip, target}]``) are seams (the dry run's synthetic 55)."""
     bad = []
     vals = arrival_values8(pred)
     get_items = (lambda s, t: (items(s, t) if items is not None else None) or _items8(idx55, s, t))
@@ -2271,21 +2327,37 @@ def end_proof8(idx55, pred: dict, *, items=None, sites=None) -> tuple:
         k = keys.get((s.get("place"), s.get("sid"), s.get("tag"), s.get("ip")))
         if k is None or k["target"] != t or k["value"] != spec.get("value"):
             bad.append(f"(g) end_state_trace {t}: its site {s} is no writes or chain key of {t} at {spec.get('value')}")
-    # the Map values the proof holds, each as the arrival's walk left it at its RET (ip247's Byte[24] 1): every other
-    # Map variable FREE -- the tag-1 loops run on and may move them (the design's {Map.Byte[24]: 1}, read, never typed)
-    mapv = {k: v for k, v in (race.get("map") or {}).items() if k in END_MAP_KEYS8}
-    targets = set(pred.get("end_state") or {})
+    # the Map values the proof HOLDS (the review's #3): of the walk's values at e0 t0's RET, only those no other 55
+    # function stores -- derived, never typed. e1 t1 stores Map.Byte[24] on the scene's handshakes, so e10 t1's case 3
+    # (UInt16[0] := 1400) is reachable: holding the arrival's 1 assumed away the loop that advances it.
+    held, movers = end_map_held8(idx55, race.get("map") or {}, items=items)
+    live = set(pred.get("end_state") or {})
+    scene_typed = pred.get("end_state_scene") or {}
+    cands = end_candidates8(pred) - set(raced)
+    targets = cands | live | set(scene_typed)
     found = sites if sites is not None else P.store_sites(idx55)[0]
-    others = []
+    others, scene = [], {}
     for s in found:
         if s.get("kind") == "unknown" or s.get("target") not in targets or (s["sid"], s["tag"]) == (0, 0):
             continue
-        hit = reach8(idx55, s["sid"], s["tag"], s["ip"], mapv, items=get_items(s["sid"], s["tag"]))
+        hit = reach8(idx55, s["sid"], s["tag"], s["ip"], held, items=get_items(s["sid"], s["tag"]))
         others.append((s["sid"], s["tag"], s["ip"], s["target"], hit))
         if hit:
-            bad.append(f"(g) 55 e{s['sid']} t{s['tag']} ip{s['ip']} stores the end_state target {s['target']} and is "
-                       f"reachable on this arrival (Map values {mapv}): the live read could see it")
-    return {"raced": raced, "map": mapv, "others": others, "yield": race.get("yield"), "ret": race.get("ret")}, bad
+            scene.setdefault(s["target"], []).append([s["sid"], s["tag"], s["ip"]])
+            if s["target"] in live:
+                bad.append(f"(g) 55 e{s['sid']} t{s['tag']} ip{s['ip']} stores the end_state target {s['target']} and "
+                           f"is reachable on this arrival (Map values held: {held or 'none'}): the live read could "
+                           f"see it")
+    scene = {t: sorted(v) for t, v in sorted(scene.items())}
+    typed = {t: sorted([list(x) for x in (spec or {}).get("sites") or ()]) for t, spec in sorted(scene_typed.items())}
+    if typed != scene:
+        bad.append(f"(g) end_state_scene {typed} is not the derivation {scene}: the targets 55's own arrival scene "
+                   f"stores, each with every reachable site (never read live)")
+    unread = sorted(cands - live - set(scene))
+    if unread:
+        bad.append(f"(g) the end state reads none of {unread}: neither raced, nor the arrival scene's, nor live")
+    return {"raced": raced, "map": held, "movers": movers, "others": others, "scene": scene,
+            "yield": race.get("yield"), "ret": race.get("ret")}, bad
 
 
 #: O8-CENSUS's classes in the order the detail prints them (no start_first column: 164's ip22 counts masked).
@@ -2480,12 +2552,23 @@ class O8Segment(C7.O7Segment):
             bad.append("pattern.floating is not empty: every O8 order is the bytes' or the wait's (4.16)")
         if "movies" in pred:
             bad.append("a movies key: FMV004 is PLAYED OUT (decision 7), never skipped")
+        info8 = None
         try:
-            rset = set(raced) if raced is not None else set(end_proof8(T.stock_script_source()(END_FIELD),
-                                                                       pred)[0]["raced"])
+            if raced is None:
+                info8 = end_proof8(T.stock_script_source()(END_FIELD), pred)[0]
+            rset = set(raced) if raced is not None else set(info8["raced"])
         except Exception as err:                                  # noqa: BLE001 -- a refusal, said
             rset = None
             bad.append(f"the raced set could not be derived: {err}")
+        if info8 is not None:                                     # the review's #3: THE ARRIVAL SCENE, derived
+            scene = set(info8.get("scene") or {})
+            held = sorted(scene & set(pred.get("end_state") or {}))
+            if held:
+                bad.append(f"arrival-scene target(s) {held} in end_state: 55's own scene stores them after the arrival "
+                           f"(4.9; the review's #3)")
+            if set(pred.get("end_state_scene") or {}) != scene:
+                bad.append(f"end_state_scene's targets {sorted(pred.get('end_state_scene') or {})} are not the derived "
+                           f"arrival scene {sorted(scene)}")
         if rset is not None:
             held = sorted(rset & set(pred.get("end_state") or {}))
             if held:
@@ -2641,7 +2724,8 @@ class O8Segment(C7.O7Segment):
         (:func:`route_run_texts`), the party typed and labelled; (e) THE ROUTE PINS and THE SCANS (O7's
         ``route_pins_check``); (f) THE HEIGHTS -- every region's gate its pinned test's AND jump's
         (:func:`height_gate`), the knight's release (ip178 + ip187's JMP_IF) the seat watch's and at or under
-        ``at_y``'s low end, his seat and walk read off his pins the seat watch's; (g) THE RACED SET (:func:`end_proof8`);
+        ``at_y``'s low end, his seat and walk read off his pins the seat watch's; (g) THE RACED SET and THE ARRIVAL
+        SCENE (:func:`end_proof8`: the Map values held only where no other 55 function stores them);
         (h) THE MOVIE AND THE SEAM -- ``movie.cinematic`` / ``movie.play`` pinned Cinematic(0, 9, 1, 1) / (2, 0, 0, 0),
         ``movie.from`` the ip502 write and ``movie.to`` the chain's last key, ``seam.exit`` the chain's last key and
         ``seam.field`` pinned ``Field(<to>)``. Seams: ``prior`` and ``o7`` (the frozen files), ``texts`` / ``scans``
@@ -2830,9 +2914,14 @@ class O8Segment(C7.O7Segment):
         comp = [k for name in ("writes", "forbidden_sites", "error_path", "dead") for k in pred.get(name) or ()
                 if k.get("op") in ("|=", "&=", "++")]
         others = list(info.get("others") or ())
+        scene8 = info.get("scene") or {}
+        freed = "; ".join(f"{k} by " + ", ".join(sorted({f"e{a} t{b}" for a, b, _i in v}))
+                          for k, v in (info.get("movers") or {}).items()) or "none"
         talk = "; ".join(f"{f} " + ", ".join(f"e{s} t{t}" for ff, s, t in sorted(talked) if ff == f)
                          for f in sorted({f for f, _s, _t in talked})) or "none"
         mapv = ", ".join(f"{k} {v}" for k, v in (info.get("map") or {}).items()) or "no Map value"
+        livet = set(pred.get("end_state") or {})
+        live_sites = [o for o in others if o[3] in livet]
         seat = sw.get("seat") or ["?", "?"]
         return (True, self.title("KEYS"),
                 f"{nkeys} keys over {nsites} distinct sites, every op in its statement, {len(comp)} compound values "
@@ -2848,9 +2937,12 @@ class O8Segment(C7.O7Segment):
                   f"({', '.join(gates)}); the knight released at {gate_text(rel)} (ip187's loop), seated at "
                   f"({seat[0]}, {seat[1]}) after {walk_u}u; the raced set "
                   f"{{{', '.join(t.split('.', 1)[1] for t in sorted(info.get('raced') or {}))}}} from 55's e0 t0 to "
-                  f"its RET (ip{info.get('ret')}); no other 55 store of an end_state target reachable at {mapv} ("
-                + ", ".join(f"e{s} t{t} ip{i} {tg.split('.', 1)[1]}" for s, t, i, tg, _h in others)
-                + "); FMV004's Cinematic pins; the seam's exit "
+                  f"its RET (ip{info.get('ret')}); the Map values held {mapv} (freed by another function: {freed}); "
+                  f"{len(live_sites)} other 55 store(s) of a live end_state target, none reachable"
+                + "".join(f", e{s} t{t} ip{i} {tg.split('.', 1)[1]}" for s, t, i, tg, _h in live_sites)
+                + "; the arrival scene's reachable stores, never read live (SC rests on O8-NO-SC through the cut): "
+                + ", ".join(f"e{a} t{b} ip{i} {tg.split('.', 1)[1]}" for tg, v in scene8.items() for a, b, i in v)
+                + "; FMV004's Cinematic pins; the seam's exit "
                   f"{lastsite[0]} e{lastsite[1]} t{lastsite[2]} ip{lastsite[3]} and its Field({sm8.get('to')})")
 
     def text_check8(self, pred: dict, build=None, stock_text=None, *, mes=None) -> tuple:

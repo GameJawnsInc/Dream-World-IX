@@ -193,7 +193,8 @@ Found by the design review (11.3), each verified here:
     values to its RET (ip565) races exactly what it races to its first yield, {Int16[2] 110 -> 106, Byte[8] 0 -> 125}:
     its window-3 resets ip419 / ip453 sit behind `Byte[13] == 9` / `Byte[14] == 9`, false (55's own ip119 / ip200 just
     stored 0). Outside e0 t0 only e10 t1 ip568 / ip582 (`UInt16[0] := 1400`, behind `SWITCH(Map.Byte[24])` case 3; 55 e0
-    t0 ip247 sets 1 on this arrival) store an `end_state` target; e8 t1's case-3 stores (UInt16[21], Byte[303], Byte[4],
+    t0 ip247 sets 1 on this arrival -- but e1 t1 advances it on the scene's handshakes, so case 3 IS reachable: SC left
+    the live read, 11.4 "The review" #3) store an `end_state` target; e8 t1's case-3 stores (UInt16[21], Byte[303], Byte[4],
     UInt16[19], Byte[17], Byte[18]) hold none; e7 t2 (region 7's door) stores only the raced pair. And stock 64 from
     story-o3's arrival values (SC 1155; Int16[2] 100: the SWITCHEX default; Byte[8] 125 from 63 e14 t1 ip805) races
     NOTHING to its RET (ip1053): Bit[191], Bit[184], Int16[9] -1, Byte[13] 0, Int16[11] -1, Byte[14] 0, Bit[3815] 0,
@@ -1088,7 +1089,8 @@ wall time}`), `movie_span_s` (the shortest movie span), `narrowest_pinch` (the n
 
 ### 4.2 No SC rung
 No store to SC's bytes in any width in 164-166 (the census, 6.1). 55's only SC stores (e10 t1 ip568/ip582) sit behind
-`Map.Byte[24]` case 3, past the cut. O8-NO-SC is O3's `no_sc_check`.
+`Map.Byte[24]` case 3, past the cut -- reachable on this arrival once e1 t1 advances that case (11.4 "The review" #3), so
+SC is not read live (4.9): SC 1190 at the cut is O8-NO-SC's. O8-NO-SC is O3's `no_sc_check`.
 
 ### 4.3 The FieldEntrance chain (`Global.Int16[2]`; O8-CHAIN; the first `old` is 342, the warp's entrance)
 
@@ -1214,6 +1216,10 @@ route (164.e3 -> 163: `off_route` hits) or out of order (165.e3 -> 164: rule 3's
 a covered run cannot hold either (WRITES exact).
 
 ### 4.9 End state
+**Corrected by the review's #3 (11.4):** SC is out of the live read too -- 55's own arrival scene stores it 1400 (e10
+t1 ip568 / ip582, `end_state_scene`), and O8-KEYS (g) holds a Map variable only where no other 55 function stores it
+(`end_map_held8`), never `Map.Byte[24]`. The JSON below is the first draft's; the live read is its twelve without SC.
+
 Read live on arrival in REAL 55 (O8-STATE (b)), WITHOUT the raced pair:
 ```json
 {"Global.UInt16[0]": 1190, "Global.Bit[191]": 0, "Global.Bit[184]": 0, "Global.Int16[9]": -1, "Global.Byte[13]": 0,
@@ -1655,7 +1661,9 @@ uncovered, VOID).
     the `end_state_trace` keys, each trace site a writes or chain key with the registered value; and every other store
     site in stock 55 of an `end_state` target is UNREACHABLE on this arrival -- `reach8` with `{Map.Byte[24]: 1}` (55
     e0 t0 ip247's store on it) -- else FAIL naming the site (the claim review's #11: the live read lands after the
-    first yield, 4.9);
+    first yield, 4.9) [as built after the review's #3 (11.4): `reach8` holds only the Map values no other 55 function
+    stores (`end_map_held8`), e10 t1 ip568 / ip582 are then reachable -- THE ARRIVAL SCENE, `end_state_scene` exactly
+    them, SC out of the live read -- and every candidate neither raced nor the scene's is read live];
   - (h) THE MOVIE AND THE SEAM: `movie.cinematic` / `movie.play` pinned (`Cinematic(0, 9, 1, 1)`, `Cinematic(2, 0, 0,
     0)`), `movie.from` / `movie.to` the ip502 write and the ip863 chain key; `seam.exit` the chain's last key and
     `seam.field` pinned `Field(55)`.
@@ -2400,12 +2408,15 @@ SEEDED or those reads declared -- the owner's options: (a) declare them (`start_
 form); (b) a chained start (O8's arrival as O9's start: not a raw warp); (c) narrow O9 to what 55 does before those
 reads; (d) pokes before the warp -- `byte 19 15`, `byte 20 7` (UInt16[19] 1807), `byte 21 8` (UInt16[21] 8), `byte 303
 1`, `byte 18 1`, `byte 208 1` -- each a carried value O1-O8 compose (`carried_from_segments` over O1-O8, never typed),
-the pokes then registered residue. 55 is block 2 (text), its page 129 halts the scene at FieldHUD, and its e10 t1 SC stores sit
-behind Map.Byte[24] case 3. O8 built for it: `at_y`, the knight wait (`wait_flag`), the y axis on `until` with the
+the pokes then registered residue. 55 is block 2 (text); its page 129 (e8 t1's WindowSync, in case 1) halts the scene at
+FieldHUD until it is confirmed, and then the scene runs on by itself to case 3 -- e1 t1 advances Map.Byte[24] 1 -> 2 -> 3
+on the scene's Map.Bit[231] handshakes -- where e10 t1 ip582 stores SC 1400 (SC <= 1400): O9 MUST PREDICT SC 1400 from
+55's own scene (O8's end state leaves SC out of its live read: `end_state_scene`, the review's #3). O8 built for it: `at_y`, the knight wait (`wait_flag`), the y axis on `until` with the
 loss's height off the ring, the opt-in `unstick`, the per-field fake clearance, the height-triggered walker with a
 store, the declared seam (O8-SEAM), the raced end-state set derived from the end field's bytes to its Main_Init's RET
 (`end_race8`), and `reach8` -- a store site's reachability from given values, e.g. which of 55's e8 t1 / e10 t1 sites a
-`Map.Byte[24]` case reaches. If O8's F5 took the fallback (`unstick: false`), say so here."
+`Map.Byte[24]` case reaches -- with `end_map_held8`, which holds a Map variable only where no other function of the field
+stores it. If O8's F5 took the fallback (`unstick: false`), say so here."
 
 ---
 
@@ -2772,7 +2783,8 @@ the chain's `campaign.toml` (route members 31256, 31257, 31258) -- `o8_forks.jso
    Bit[3815] and Byte[475] read raced `[None, 0]`. `globals0=0` reads every unnamed global as New Game's 0 (the
    fixture's raw-start zeros), and its raced set is EMPTY, as 0.2 #26 says. O8's own call names every target it reads.
    KEYS (g)'s other-function proof holds `Map.Byte[24]` alone (`END_MAP_KEYS8`), its value read off the e0 t0 walk (the
-   arrival sets 1; the walk returns its Map values as `map`).
+   arrival sets 1; the walk returns its Map values as `map`). [Superseded by the review's #3 (11.4): a typed hold of a
+   variable e1 t1 stores; `end_map_held8` derives the holds.]
 3. **The seat watch's `walk_u` is 1131.5**: the four Walk legs summed from the pinned operands (2.6's 1131.4 is the
    same sum truncated); KEYS (f) compares within 0.05.
 4. **`live_shared` in O6's census form**: `callers` [[6, 1, 489]] (4.6's `from` [166, 6, 1, 489] is no key the census

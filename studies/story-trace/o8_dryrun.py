@@ -2039,7 +2039,8 @@ def unit_end_race(pred: dict, stock) -> tuple:
     to its RET (ip565); a synthetic listing with a post-yield Byte[208] := 9 behind a test true on the arrival's values
     -> {Int16[2], Byte[8], Byte[208]} (the tail counts -- the design's Byte[13] := 9 is reset by 55's own ip393/ip419
     error path after the yield, so the walk reads it back to 0: as built); stock 64 from story-o3's arrival values ->
-    {}."""
+    {}; the Map values the other-function proof holds (the review's #3): Map.Bit[159] 1 and Map.Byte[17] 255, never
+    Map.Byte[24] (e1 t1 ip46 / ip76 / ip106 store it), so e10 t1 ip568 / ip582 are reachable."""
     vals = O.arrival_values8(pred)
     r0 = O.end_race8(stock(55), vals)
     items = O._items8(stock(55), 0, 0)
@@ -2050,9 +2051,13 @@ def unit_end_race(pred: dict, stock) -> tuple:
             (10003, rel0 + 3, "NOP()")]
     r1 = O.end_race8(stock(55), vals, items=_synthetic_55(items, tail=tail))
     r64 = o3_raced(stock, o3_frozen())
+    held, movers = O.end_map_held8(stock(55), r0["map"])
     got = {"55": set(r0["raced"]) == {"Global.Int16[2]", "Global.Byte[8]"} and (r0["yield"], r0["ret"]) == (387, 565),
            "tail-counts": set(r1["raced"]) == {"Global.Int16[2]", "Global.Byte[8]", "Global.Byte[208]"},
-           "64-empty": r64["raced"] == {}}
+           "64-empty": r64["raced"] == {},
+           "held": held == {"Map.Bit[159]": 1, "Map.Byte[17]": 255}
+           and movers.get("Map.Byte[24]") == [[1, 1, 46], [1, 1, 76], [1, 1, 106]],
+           "scene-reachable": all(O.reach8(stock(55), 10, 1, ip, held) for ip in (568, 582))}
     return _ok(got, f"all as registered: {r0['raced']} (yield ip{r0['yield']}, RET ip{r0['ret']})")
 
 
@@ -3035,12 +3040,19 @@ def _key(p: dict, name: str, donor: int, ip: int, sid: int | None = None) -> dic
     return next(k for k in p[name] if (k["donor"], k["ip"]) == (donor, ip) and (sid is None or k["sid"] == sid))
 
 
-#: A synthetic 55 e10 t1 for KEYS (g)'s other-function proof: a UInt16[0] store under Map.Byte[24]'s case 1 -- the
-#: arrival's -- reachable on this arrival, so the live read could see it.
+#: A synthetic 55 e10 t1 for KEYS (g)'s other-function proof: a store of a LIVE end_state target (Byte[208], read live
+#: 1) under Map.Byte[24]'s case 1 -- the arrival's -- reachable on this arrival, so the live read could see it (the
+#: review's #3: SC is the arrival scene's, never read live, so the case-1 store is the knight's Byte[208]).
 SYNTH55_E10 = [(0, 0, "SET({Map.Byte[24] B_EXPR_END})"), (5, 5, "SWITCH(0, L40, L30, L20)"),
-               (20, 20, "SET({Global.UInt16[0] const(1400) B_LET B_EXPR_END})"), (28, 28, "JMP(L40)"),
+               (20, 20, "SET({Global.Byte[208] const(0) B_LET B_EXPR_END})"), (28, 28, "JMP(L40)"),
                (30, 30, "JMP(L40)"), (40, 40, "RET()")]
-SYNTH55_SITES = [{"sid": 10, "tag": 1, "ip": 20, "kind": "global", "target": "Global.UInt16[0]"}]
+SYNTH55_SITES = [{"sid": 10, "tag": 1, "ip": 20, "kind": "global", "target": "Global.Byte[208]"}]
+#: The same store under Map.Byte[24]'s case 3 -- never the arrival's 1, but stock 55's e1 t1 advances Byte[24] on the
+#: scene's handshakes, so the proof holds it free and the store is reachable (the review's #3: holding the arrival's 1
+#: passed it).
+SYNTH55_E10_CASE3 = [(0, 0, "SET({Map.Byte[24] B_EXPR_END})"), (5, 5, "SWITCH(1, L40, L30, L30, L20)"),
+                     (20, 20, "SET({Global.Byte[208] const(0) B_LET B_EXPR_END})"), (28, 28, "JMP(L40)"),
+                     (30, 30, "JMP(L40)"), (40, 40, "RET()")]
 
 
 #: O8-KEYS's offline mutants (section 8): the DRAFT, deep-copied, one thing changed (or one seam given); the check must
@@ -3069,6 +3081,13 @@ OFFLINE_MUTANTS = [
     ("keys-trace-no-byte8", lambda p: p["end_state_trace"].pop("Global.Byte[8]"),
      "is not end_state_trace's", None),
     ("keys-55-case-1", lambda p: None, "is reachable on this arrival", "synthetic-55"),
+    ("keys-55-map-held", lambda p: None,
+     "(g) 55 e10 t1 ip20 stores the end_state target Global.Byte[208] and is reachable", "synthetic-55-case-3"),
+    ("keys-sc-live", lambda p: (p["end_state"].__setitem__("Global.UInt16[0]", 1190), p.pop("end_state_scene")),
+     "stores the end_state target Global.UInt16[0] and is reachable on this arrival", None),
+    ("keys-scene-dropped", lambda p: p.pop("end_state_scene"), "(g) end_state_scene {} is not the derivation", None),
+    ("keys-live-dropped", lambda p: p["end_state"].pop("Global.Bit[3811]"),
+     "(g) the end state reads none of ['Global.Bit[3811]']", None),
     ("keys-movie-cinematic-711", lambda p: p["movie"].update(cinematic=[166, 6, 1, 711]),
      "the movie's cinematic [166, 6, 1, 711]", None),
     ("keys-seam-exit-502", lambda p: p["seam"].update(exit=[166, 6, 1, 502]), "the seam's exit [166, 6, 1, 502]", None),
@@ -3078,7 +3097,9 @@ OFFLINE_MUTANTS = [
 def unit_offline_mutants(pred: dict, stock) -> list:
     """``[(name, ok, detail)]``: O8-KEYS reads PASS on the draft, then FAILS on each of :data:`OFFLINE_MUTANTS` by its
     clause (a seam named by the entry: ``carried-scan`` -- 165's scan given a function reading Bit[3796], the carried
-    target given a route store; ``synthetic-55`` -- a 55 whose e10 t1 stores UInt16[0] in case 1)."""
+    target given a route store; ``synthetic-55`` -- a 55 whose e10 t1 stores the live Byte[208] in case 1;
+    ``synthetic-55-case-3`` -- the same store in case 3, reachable only because e1 t1 advances Map.Byte[24]: the
+    review's #3)."""
     base = O.O8.keys_check(pred, stock)
     out = [("offline-draft-passes", base[0] is True, base[2][:120])]
     for name, mutate, clause, seam in OFFLINE_MUTANTS:
@@ -3090,6 +3111,9 @@ def unit_offline_mutants(pred: dict, stock) -> list:
                            + [(7, 1, 900, "SET({Global.Bit[3796] const(1) B_LET B_EXPR_END})")]}
         elif seam == "synthetic-55":
             kw["items55"] = lambda s, t: SYNTH55_E10 if (s, t) == (10, 1) else None
+            kw["sites55"] = SYNTH55_SITES
+        elif seam == "synthetic-55-case-3":
+            kw["items55"] = lambda s, t: SYNTH55_E10_CASE3 if (s, t) == (10, 1) else None
             kw["sites55"] = SYNTH55_SITES
         ok, _what, detail = O.O8.keys_check(p, stock, **kw)
         caught = ok is False and clause in detail

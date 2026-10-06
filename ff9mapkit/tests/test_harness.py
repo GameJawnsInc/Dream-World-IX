@@ -32394,9 +32394,10 @@ _O8_REGIONS = {
                  "gate": {"y_gt": 15000}},
     "30861.e3": {"points": _O8_165E3, "role": "exit", "to": 30860, "entrance": 344, "face_gate": None,
                  "gate": {"y_lt": 11000}}}
-#: research/o8_design.md 4.9: the end state read live on arrival in REAL 55, WITHOUT the raced pair (Int16[2], Byte[8]):
-#: nine the route leaves and the knight's talk's four targets, untouched since New Game.
-_O8_END_STATE = {"Global.UInt16[0]": 1190, "Global.Bit[191]": 0, "Global.Bit[184]": 0, "Global.Int16[9]": -1,
+#: research/o8_design.md 4.9: the end state read live on arrival in REAL 55, WITHOUT the raced pair (Int16[2], Byte[8])
+#: and without SC (the review's #3: 55's own arrival scene stores it 1400 -- SC 1190 at the cut is O8-NO-SC's): eight
+#: the route leaves and the knight's talk's four targets, untouched since New Game.
+_O8_END_STATE = {"Global.Bit[191]": 0, "Global.Bit[184]": 0, "Global.Int16[9]": -1,
                  "Global.Byte[13]": 0, "Global.Int16[11]": -1, "Global.Byte[14]": 0, "Global.Bit[3811]": 1,
                  "Global.Byte[208]": 1, "Global.Bit[3851]": 0, "Global.Bit[3792]": 0, "Global.Bit[7211]": 0,
                  "Global.Int16[224]": 0}
@@ -33098,8 +33099,10 @@ def test_o8_tower_draft_reads_the_chain_from_campaign(tmp_path):
     assert [c["visit"] for c in pred["table"]] == [1, 2] and [s["clearance"] for s in steps] == [80, 64, 120, 120]
     assert pred["seat_watch"]["seat"] == [-586, 3884] and pred["movie"]["name"] == "FMV004" and "movies" not in pred
     assert pred["seam"]["to"] == 55 and pred["seam"]["fields"] == [55], pred["seam"]
-    assert not {"Global.Int16[2]", "Global.Byte[8]"} & set(pred["end_state"]), pred["end_state"]
+    assert not {"Global.Int16[2]", "Global.Byte[8]", "Global.UInt16[0]"} & set(pred["end_state"]), pred["end_state"]
     assert set(pred["end_state_trace"]) == {"Global.Int16[2]", "Global.Byte[8]"}, pred["end_state_trace"]
+    assert pred["end_state_scene"]["Global.UInt16[0]"]["sites"] == [[10, 1, 568], [10, 1, 582]], pred["end_state_scene"]
+    assert pred["end_state"] == _O8_END_STATE, (pred["end_state"], _O8_END_STATE)
     assert not set(pred["carried"]["values"]) & set(pred["end_state"]) and len(pred["carried"]["values"]) == 15
     man = json.loads(O.MANIFEST.read_text(encoding="utf-8"))
     o4 = json.loads(O.C4.MANIFEST.read_text(encoding="utf-8"))
@@ -33174,7 +33177,8 @@ def test_o8_tower_freeze_refuses(o8_stock, tmp_path):
     ``clearance``; ``choices`` not the net's two rows; 164 #0 without its wait, ``npcs`` false or e3 avoided; 164 #1 at
     80; 164 #1's until looser than its door's gate (the review's #4); side_ends not {S: [55], F: [55]}; an O1 id among
     the members; an ``inert`` row; a ``movies`` key; a raced target
-    in ``end_state``; ``end_state_trace`` not the raced set; a carried target in ``end_state``; ``carried`` not the
+    in ``end_state``; ``end_state_trace`` not the raced set; SC (the arrival scene's: the review's #3) in ``end_state``,
+    or ``end_state_scene`` not the derived scene; a carried target in ``end_state``; ``carried`` not the
     derivation; ``start_scoped`` not the derivation; a start read without its race; no ``seat_watch``; ``rehearsed``
     without ``narrowest_pinch``; ``no_progress_s`` under twice the stretch; the wait's timeout under 3 x the longest
     wait; the shortest movie span under file_s - slack_s; VSync not "1"; no rehearsals; another engine; and a second
@@ -33221,6 +33225,9 @@ def test_o8_tower_freeze_refuses(o8_stock, tmp_path):
     refuses(dict(copy.deepcopy(good), movies=[{"name": "FMV004"}]), "a movies key")
     refuses(edited(lambda p: p["end_state"].__setitem__("Global.Byte[8]", 125)), r"raced target\(s\)")
     refuses(edited(lambda p: p["end_state_trace"].pop("Global.Byte[8]")), "end_state_trace's targets")
+    refuses(edited(lambda p: p["end_state"].__setitem__("Global.UInt16[0]", 1190)),
+            r"arrival-scene target\(s\) \['Global\.UInt16\[0\]'\] in end_state")
+    refuses(edited(lambda p: p.pop("end_state_scene")), "end_state_scene's targets")
     refuses(edited(lambda p: p["end_state"].__setitem__("Global.Bit[3796]", 0)),
             r"carried target\(s\) \['Global\.Bit\[3796\]'\] in end_state")
     refuses(edited(lambda p: p["carried"]["values"].pop("Global.Bit[3815]")), "carried differs from the derivation")
@@ -33461,9 +33468,12 @@ def test_o8_tower_end_race_derives_int16_2_and_byte_8(o8_stock, tmp_path):
     (the pattern's last values over the raw start, SC 1190) through ip387's yield ON to its RET (ip565) -- {Int16[2] 110
     -> 106, Byte[8] 0 -> 125}, end_state_trace's keys; a synthetic post-yield store behind a test true on the arrival
     counts (the tail is walked); KEYS (g)'s other-function proof: stock 55's e10 t1 ip568 / ip582 (UInt16[0] := 1400)
-    unreachable at Map.Byte[24] 1 (the walk's own), reachable at 3; a synthetic 55 storing UInt16[0] in case 1 FAILS
-    KEYS by name; and stock 64 from story-o3's arrival values (O3's frozen end state over the raw start): {}. Break: the
-    walk stopped at the first long yield (the raced pair still found, the synthetic tail then missed)."""
+    unreachable at Map.Byte[24] 1, reachable at 3 -- and the proof holds Map.Byte[24] FREE (the review's #3: e1 t1 ip46
+    / ip76 / ip106 store it on the scene's handshakes; only Map.Bit[159] 1 and Map.Byte[17] 255 held), so both are the
+    ARRIVAL SCENE's, end_state_scene's, SC out of the live read; a synthetic 55 storing the live Byte[208] in case 1, or
+    in case 3, FAILS KEYS by name; and stock 64 from story-o3's arrival values (O3's frozen end state over the raw
+    start): {}. Break: the walk stopped at the first long yield (the raced pair still found, the synthetic tail then
+    missed); Map.Byte[24] held at the arrival's 1 (the case-3 synthetic then PASSES, the scene empty)."""
     O = _o8_module()
     D = _o8_dryrun()
     pred = _o8_draft(tmp_path)
@@ -33476,9 +33486,18 @@ def test_o8_tower_end_race_derives_int16_2_and_byte_8(o8_stock, tmp_path):
     for ip in (568, 582):
         assert not O.reach8(o8_stock(55), 10, 1, ip, {"Map.Byte[24]": 1}) and O.reach8(o8_stock(55), 10, 1, ip,
                                                                                          {"Map.Byte[24]": 3})
-    ok, _w, detail = O.O8.keys_check(pred, o8_stock, items55=lambda s, t: D.SYNTH55_E10 if (s, t) == (10, 1) else None,
-                                     sites55=D.SYNTH55_SITES)
-    assert not ok and "(g) 55 e10 t1 ip20 stores the end_state target Global.UInt16[0] and is reachable" in detail
+    info, gbad = O.end_proof8(o8_stock(55), pred)
+    assert gbad == [] and info["map"] == {"Map.Bit[159]": 1, "Map.Byte[17]": 255}, (gbad, info["map"])
+    assert info["movers"]["Map.Byte[24]"] == [[1, 1, 46], [1, 1, 76], [1, 1, 106]], info["movers"]
+    assert info["scene"] == {"Global.UInt16[0]": [[10, 1, 568], [10, 1, 582]]}, info["scene"]
+    assert "Global.UInt16[0]" not in pred["end_state"] and sorted(pred["end_state_scene"]) == ["Global.UInt16[0]"]
+    ok, _w, detail = O.O8.keys_check(pred, o8_stock)
+    assert ok and "the arrival scene's reachable stores, never read live" in detail and "e10 t1 ip582 UInt16[0]" in \
+        detail and "Map.Byte[24] by e1 t1" in detail, detail[-900:]
+    for items in (D.SYNTH55_E10, D.SYNTH55_E10_CASE3):
+        ok, _w, detail = O.O8.keys_check(pred, o8_stock, sites55=D.SYNTH55_SITES,
+                                         items55=lambda s, t, it=items: it if (s, t) == (10, 1) else None)
+        assert not ok and "(g) 55 e10 t1 ip20 stores the end_state target Global.Byte[208] and is reachable" in detail
     assert D.o3_raced(o8_stock, D.o3_frozen())["raced"] == {}
 
 

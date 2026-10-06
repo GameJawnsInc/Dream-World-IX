@@ -1778,16 +1778,21 @@ slack_s` at the rate the observe hook's `clock` rows measure INSIDE it (state.js
 other shape there FAILS. `[Graphics] VSync "1"` is pinned (P-SETTINGS: 32 keys): MBG's SetTargetFPS(30) is ignored under
 it. The watchdog's `no_progress_s` is sized by F8 for FMV004's static span (draft 150).
 
-**The end state's race.** Read live on arrival in REAL 55 WITHOUT `Int16[2]` and `Byte[8]`: thirteen targets -- nine the
-route leaves and the four the knight's talk would write, untouched since New Game. THE RACED SET IS DERIVED
+**The end state's race.** Read live on arrival in REAL 55 WITHOUT `Int16[2]`, `Byte[8]` and SC: twelve targets -- eight
+the route leaves and the four the knight's talk would write, untouched since New Game. THE RACED SET IS DERIVED
 (`end_race8`: 55 e0 t0 walked from the arrival's values to its RET, ip565): 55's ip255 rewrites `Int16[2]` 110 -> 106 and
 its ip342 `Byte[8]` 0 -> 125, so both are taken from the TRACE -- the last pre-cut rows, 166 e6 t1 ip863 = 110 and ip502
-= 0, matched by place; O8-KEYS (g) proves that no other 55 function stores an `end_state` target on this arrival (e10 t1
-ip568 / ip582 sit behind `Map.Byte[24]` case 3; the arrival sets 1).
+= 0, matched by place. THE ARRIVAL SCENE IS DERIVED too (the review's #3, research/o8_design.md 11.4): 55's own scene
+stores SC 1400 -- e10 t1 ip568 / ip582, case 3, once e1 t1 has advanced `Map.Byte[24]` 1 -> 2 -> 3 on the scene's
+`Map.Bit[231]` handshakes, the first past e8 t1's WindowSync page 129 -- so SC is never read live (`end_state_scene`) and
+SC 1190 at the cut rests on O8-NO-SC. O8-KEYS (g) proves that no other 55 function stores a LIVE `end_state` target on
+this arrival, holding a Map variable only where no other 55 function stores it (`end_map_held8`: `Map.Bit[159]` 1 and
+`Map.Byte[17]` 255 -- never `Map.Byte[24]`, which the first draft held at the arrival's 1).
 
 **The checks** ([`o8_west_tower.py`](o8_west_tower.py); research/o8_design.md 5 and 6):
 - offline: O8-BUILD (the route members' pins per language and 31258's raw exit), O8-KEYS (56 keys at their sites; the
-  start-scoped olds, the start reads and their races, the carried values, the raced set and the knight's release, each
+  start-scoped olds, the start reads and their races, the carried values, the raced set, the arrival scene and the
+  knight's release, each
   derived), O8-TEXT (block 3, strict, and `route_mes`), O8-CENSUS (every gEventGlobal store site of 164, 165 and 166
   classified; every error-path guard and forbidden site proven REACHABLE -- 164 e1 t3 ip690 is dead, behind ip641's and
   ip663's `const(1)` tests), O8-REGIONS (the four exits' gates through their consuming jumps), O8-GOALS (height-aware,
@@ -1828,12 +1833,15 @@ SEEDED or those reads declared -- the owner's options: (a) declare them (`start_
 form); (b) a chained start (O8's arrival as O9's start: not a raw warp); (c) narrow O9 to what 55 does before those
 reads; (d) pokes before the warp -- `byte 19 15`, `byte 20 7` (UInt16[19] 1807), `byte 21 8` (UInt16[21] 8), `byte 303
 1`, `byte 18 1`, `byte 208 1` -- each a carried value O1-O8 compose (`carried_from_segments` over O1-O8, never typed),
-the pokes then registered residue. 55 is block 2 (text), its page 129 halts the scene at FieldHUD, and its e10 t1 SC stores sit
-behind Map.Byte[24] case 3. O8 built for it: `at_y`, the knight wait (`wait_flag`), the y axis on `until` with the
+the pokes then registered residue. 55 is block 2 (text); its page 129 (e8 t1's WindowSync, in case 1) halts the scene at
+FieldHUD until it is confirmed, and then the scene runs on by itself to case 3 -- e1 t1 advances Map.Byte[24] 1 -> 2 -> 3
+on the scene's Map.Bit[231] handshakes -- where e10 t1 ip582 stores SC 1400 (SC <= 1400): O9 MUST PREDICT SC 1400 from
+55's own scene (O8's end state leaves SC out of its live read: `end_state_scene`, the review's #3). O8 built for it: `at_y`, the knight wait (`wait_flag`), the y axis on `until` with the
 loss's height off the ring, the opt-in `unstick`, the per-field fake clearance, the height-triggered walker with a
 store, the declared seam (O8-SEAM), the raced end-state set derived from the end field's bytes to its Main_Init's RET
 (`end_race8`), and `reach8` -- a store site's reachability from given values, e.g. which of 55's e8 t1 / e10 t1 sites a
-`Map.Byte[24]` case reaches. If O8's F5 took the fallback (`unstick: false`), say so here.
+`Map.Byte[24]` case reaches -- with `end_map_held8`, which holds a Map variable only where no other function of the field
+stores it. If O8's F5 took the fallback (`unstick: false`), say so here.
 
 ## Build testing (every segment's build, from O7) -- overrides any design's section 9 where it differs
 
