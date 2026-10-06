@@ -390,6 +390,20 @@ class State:
         return int(self.raw.get("world", {}).get("vehicle", -1))
 
     @property
+    def world_y(self) -> float | None:
+        """The world actor's HEIGHT in world units -- ``player.y / 256`` on the overworld, None off it.
+
+        The agent publishes no world y of its own, but the controlled actor's pos[] is RealPosition
+        x 256 (the teleport writes it back that way: ``py = RealPosition.y * 256``), so this is the
+        same space as world.x/z and the terrain mesh. ⚠ A teleport KEEPS the old height until
+        movement re-grounds it -- read this after a step, never straight after a teleport.
+        """
+        if not self.on_world:
+            return None
+        y = self.player_y
+        return None if y is None else y / 256.0
+
+    @property
     def on_world(self) -> bool:
         """On the overworld -- as opposed to on a field. See ``Session.wait_world``."""
         return self.ui_state == "WorldHUD"
