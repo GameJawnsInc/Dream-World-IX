@@ -31927,6 +31927,9 @@ _O8_FIELDS = {"S": {"164": 30860, "165": 30861, "166": 30862, "55": 55, "163": 3
 #: store ip230 ``Bit[3811] := 1`` 61 ticks after his last index (ip221-ip230: the stand anim, RunAnimation(9920)'s 59
 #: frames and WaitAnimation).
 _O8_KNIGHT_PATH = [[249, 4630], [-31, 4436], [-246, 4288], [-409, 4128], [-586, 3884]]
+#: His LEVEL at each point of his path (H25b, the review's #2), read off stock 164's mesh (o8_west_tower.knight_levels):
+#: tris 130, 127, 124, 122 and 120 -- the placement's 11255 climbing to the seat's 11896 along loop 2.
+_O8_KNIGHT_LEVELS = (11255.2, 11447.7, 11598.2, 11727.3, 11896.0)
 _O8_KNIGHT_SEAT = (-586.0, 3884.0)
 _O8_KNIGHT_STORE = [1, 1, 230, 3811 >> 3, "Bit", 1, 3811]
 _O8_KNIGHT_START = {"y_ge": 8400}
@@ -31934,11 +31937,13 @@ _O8_KNIGHT_START = {"y_ge": 8400}
 
 def _o8_knight(*, after_ticks=61, **over) -> dict:
     """The knight's body (research/o8_design.md 3.2): sid / uid 1, published r 4 x (20 + 35) and his PRE-release talk_r
-    4 x (30 + 50) + 30 + 60 (0.2 #27: nothing reads it -- talk-only), y the seat's (the planner keeps him on any level),
-    his path at 7.5 u a frame, ``once``, ``start`` the release, ``store`` ip230 ``after_ticks`` (default 61) after his
-    last index; ``over`` replaces keys (``store=None``: the missing knight)."""
-    return {"sid": 1, "uid": 1, "x": 249.0, "z": 4630.0, "y": 11896.0, "r": 220.0, "talk_r": 410.0, "coll": True,
-            "solid": False, "shown": True, "path": [list(p) for p in _O8_KNIGHT_PATH], "speed": 7.5, "once": True,
+    4 x (30 + 50) + 30 + 60 (0.2 #27: nothing reads it -- talk-only), y his placement's LEVEL climbing with his path to
+    the seat's (H25b, the review's #2: each point's level :data:`_O8_KNIGHT_LEVELS`), his path at 7.5 u a frame,
+    ``once``, ``start`` the release, ``store`` ip230 ``after_ticks`` (default 61) after his last index; ``over`` replaces
+    keys (``store=None``: the missing knight)."""
+    return {"sid": 1, "uid": 1, "x": 249.0, "z": 4630.0, "y": _O8_KNIGHT_LEVELS[0], "r": 220.0, "talk_r": 410.0,
+            "coll": True, "solid": False, "shown": True,
+            "path": [[*p, y] for p, y in zip(_O8_KNIGHT_PATH, _O8_KNIGHT_LEVELS)], "speed": 7.5, "once": True,
             "start": dict(_O8_KNIGHT_START),
             "store": {"after_ticks": after_ticks, "args": list(_O8_KNIGHT_STORE)}, **over}
 
@@ -32055,9 +32060,49 @@ def test_fake_knight_store_is_missing_when_the_visit_ends_first(game):
     assert fake.field_id == 30860 and not _o8_ip230(fake), _o8_ip230(fake)
 
 
+def test_fake_knight_pairs_at_his_own_level(game):
+    """H25b (research/o8_design.md 11.4, the review's #2): the knight's body follows his path's LEVEL -- 11255.2 at his
+    placement (tri 130) climbing to 11896.0 at his seat (tri 120), :data:`_O8_KNIGHT_LEVELS` read off stock 164 -- and
+    the pair band reads it. Steiner at published y 11000 on his FIRST leg's end (-31, 4436): the knight (released at
+    once) is held a step outside his r, still moving, at a level within 400 of Steiner's (paired at his own height); the
+    same Steiner on his LAST leg (-497.5, 4006): from ~11727 on |dy| > 700, so the knight walks through him to the seat,
+    published y 11896.0 there, and every path point he passes publishes its own level, the levels rising. A path point
+    with a level on some points only refuses (ValueError). Break: the body's y fixed at the seat's (walks through
+    Steiner on the first leg) or at the placement's (held on the last leg)."""
+    def run(at):
+        fake = _o8_knight_fake(game, [{"wait": 100000}], bodies=[_o8_knight(start={"y_ge": 0}, store=None)])
+        fake.player = [at[0], 11000.0, at[1]]
+        seen = []
+        for _ in range(400):
+            fake._frame_once()
+            k = _o8_body(fake, 1)
+            seen.append((k["x"], k["z"], k["y"], k["moving"]))
+        return fake, seen
+    fake, seen = run((-31.0, 4436.0))
+    assert fake.player[1] == 11000.0, fake.player                    # premise: Steiner stood at his y
+    x, z, y, moving = seen[-1]
+    gap = math.hypot(x + 31.0, z - 4436.0)
+    assert moving and 220 <= gap <= 220 + 7.5 + 1e-6 and (x, z) != _O8_KNIGHT_SEAT, seen[-1]     # held, paired
+    assert _O8_KNIGHT_LEVELS[0] < y < _O8_KNIGHT_LEVELS[1] and abs(y - 11000.0) < 400, seen[-1]
+    fake, seen = run((-497.5, 4006.0))
+    assert fake.player[1] == 11000.0, fake.player
+    x, z, y, moving = seen[-1]
+    assert (x, z) == _O8_KNIGHT_SEAT and y == 11896.0 and moving is False, seen[-1]               # walked through
+    at = {(round(a, 3), round(b, 3)): c for a, b, c, _m in seen}
+    for (px, pz), lvl in zip(_O8_KNIGHT_PATH[1:], _O8_KNIGHT_LEVELS[1:]):
+        assert at.get((float(px), float(pz))) == lvl, ((px, pz), lvl)
+    ys = [c for _a, _b, c, _m in seen]
+    assert all(b >= a for a, b in zip(ys, ys[1:])) and ys[0] > _O8_KNIGHT_LEVELS[0], ys[:3]
+    odd = _o8_knight(path=[[249, 4630, 11255.2], [-31, 4436]])
+    bad = _o8_knight_fake(game, [{"wait": 100000}], bodies=[odd])
+    with pytest.raises(ValueError, match="a walker's path is"):
+        bad._frame_once()
+
+
 def test_fake_knight_holds_no_pair_across_levels(game):
     """H25's PAIR BAND (research/o8_design.md 3.2; WalkMesh.cs:919-921): Steiner standing ON the knight's path, at
-    published y 8958 -- |dy| 2938 from the knight's 11896 -- the knight (released at once: ``start`` y >= 0) walks
+    published y 8958 -- |dy| 2297 to 2938 from the knight's level (11255 climbing to 11896) -- the knight (released at
+    once: ``start`` y >= 0) walks
     through his XZ to the seat, never held by him; a PLAIN walker (no ``start``, no ``store``) on the same path at the
     same y is held by him -- today's XZ-only rule, MoveToward.cs:187-189 -- standing short of him, never reaching the
     seat. Break: the height rule applied to every walker (the plain one walks through), or to none (the knight is held)."""
@@ -33267,6 +33312,11 @@ def test_o8_tower_route_builder_matches_the_keys(game, o8_stock, tmp_path):
     start, pts, walk_u, seat = O.knight_walk(pred)
     assert [list(start)] + [list(p) for p in pts] == [[float(a), float(b)] for a, b in _O8_KNIGHT_PATH], pts
     assert seat == _O8_KNIGHT_SEAT and abs(walk_u - pred["seat_watch"]["walk_u"]) < 0.05, (seat, walk_u)
+    lv = O.knight_levels(pred, pathfind.PlayerWalkmesh(extract.stock_walkmesh(164)))      # H25b: his level, the mesh's
+    at = {(round(x, 3), round(z, 3)): round(y, 1) for x, z, y in lv}
+    assert [at[(float(a), float(b))] for a, b in _O8_KNIGHT_PATH] == list(_O8_KNIGHT_LEVELS), lv
+    assert (round(lv[0][2]), round(lv[-1][2])) == (pred["seat_watch"]["start_y"], pred["seat_watch"]["y"]) == (
+        11255, 11896), (lv[0], lv[-1])
     for (p, n), band in O.BANDS8.items():
         pw = pathfind.PlayerWalkmesh(extract.stock_walkmesh(p))
         assert O.band_closures(pw, *band) == _o8_band_closures(pw, *_O8_BANDS[(str(p), n)]) == list(
@@ -33356,7 +33406,8 @@ def test_o8_tower_goals_are_height_aware(o8_stock, tmp_path):
     route); 165 #0 at 110 (a route exists at 120); 165 #0 without 165.e3 avoided; 164 #0's at_y [13000, 14500]; 164 #1's
     until y > 14000 (the door fires first); 164 #1's until y > 9000 and 165 #1's y > 11000 (looser than the door's
     gate: the review's #4); the wait's exit_slack 300; at_y [8000, 9150] (under the release); the window's y band
-    [5000, 6000]. No start-dependent number is pinned. Break: until_ok called without the y (the XZ-only proof RAISES on
+    [5000, 6000]; the seat watch's start_y 11000 and 9300 (his level off the mesh; loop 1 then within 400 of it: the
+    review's #2). No start-dependent number is pinned. Break: until_ok called without the y (the XZ-only proof RAISES on
     a y term); (g4') without y_implies (the loose untils PASS)."""
     D = _o8_dryrun()
     O = _o8_module()
@@ -33369,7 +33420,8 @@ def test_o8_tower_goals_are_height_aware(o8_stock, tmp_path):
     assert [n for n, _ok, _d in got] == ["goals", "goals-hold-key", "goals-164-0-band", "goals-164-1-at-80",
                                          "goals-165-0-at-110", "goals-165-0-no-e3", "goals-164-0-at-y",
                                          "goals-164-1-until", "goals-164-1-until-loose", "goals-165-1-until-loose",
-                                         "goals-wait-slack", "goals-release", "goals-window-y"]
+                                         "goals-wait-slack", "goals-release", "goals-knight-start-y",
+                                         "goals-knight-level", "goals-window-y"]
     bad = [(n, d) for n, ok, d in got if not ok]
     assert not bad, bad
 

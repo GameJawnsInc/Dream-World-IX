@@ -133,9 +133,16 @@ def _walker_knobs(b: dict) -> None:
     """H25's keys read STRICT on a walker's first step (the H23 ``hold`` reader's place): ``start`` None or exactly
     one of :data:`_WALKER_TESTS`' terms to a number (a bool is no number); ``store`` None or a dict of exactly
     ``after_ticks`` -- a number >= 0 -- and ``args`` -- the seven ``[sid, tag, ip, byte, width, new, bit]`` of a
-    :meth:`FakeGame.script_store`. A ValueError names the fault."""
+    :meth:`FakeGame.script_store`; ``path`` (H25b, the review's #2) ``[[x, z], ...]`` or ``[[x, z, y], ...]`` -- y the
+    walker's level at the point, on every point or none -- numbers all. A ValueError names the fault."""
     def num(v) -> bool:
         return isinstance(v, (int, float)) and not isinstance(v, bool)
+    path = b.get("path")
+    if path is not None and not (isinstance(path, (list, tuple)) and all(
+            isinstance(p, (list, tuple)) and len(p) in (2, 3) and all(num(v) for v in p) for p in path)
+            and len({len(p) for p in path}) <= 1):
+        raise ValueError(f"a walker's path is [[x, z], ...] or [[x, z, y], ...] (y its level at the point, on every point "
+                         f"or none), not {path!r}")
     start, store = b.get("start"), b.get("store")
     if start is not None and not (isinstance(start, dict) and len(start) == 1 and set(start) <= set(_WALKER_TESTS)
                                   and num(next(iter(start.values())))):
@@ -1893,7 +1900,10 @@ class FakeGame:
         walking skip (a done walker still counts), and it lives on the BODY: a visit that ends first takes its bodies
         with it (:meth:`_VisitBeat.end`) and the store never comes. And such a body is "held by him" only at |its y - his
         published y| < 400 (WalkMesh.Collision's pair band, WalkMesh.cs:919-921: the knight on loop 2 never pairs with
-        Steiner on loop 1); every other walker keeps the XZ-only rule."""
+        Steiner on loop 1); every other walker keeps the XZ-only rule. H25b (the review's #2), opt-in: a path whose
+        points carry a third coordinate -- the walker's LEVEL there, read off the mesh -- moves its ``y`` with its x
+        and z, linearly along each leg (the knight climbs loop 2 from his placement's 11255 to his seat's 11896), so
+        the pair band and ``objects`` read the level it stands on; a two-coordinate path keeps ``y`` as given."""
         for _i, b in self._bodies():
             h25 = b.get("start") is not None or b.get("store") is not None
             if h25:                                        # H25: read strict once, then the store's countdown
@@ -1932,7 +1942,7 @@ class FakeGame:
                     continue                               # held at its stop: its script waits, no walk runs
             path = b["path"]
             k = b.setdefault("_k", 1 if len(path) > 1 else 0)
-            tx, tz = path[k]
+            tx, tz = path[k][0], path[k][1]
             dx, dz = tx - b["x"], tz - b["z"]
             dist = (dx * dx + dz * dz) ** 0.5
             step = min(float(b["speed"]) * (ticks / WALKER_FRAME_TICKS), dist)
@@ -1944,6 +1954,10 @@ class FakeGame:
             if paired and near < b["r"] and near < ((b["x"] - px) ** 2 + (b["z"] - pz) ** 2) ** 0.5:
                 continue                                   # held by him
             b["x"], b["z"] = nx, nz
+            if len(path[k]) > 2:                           # H25b: its level moves with it, linearly along the leg
+                ty = float(path[k][2])
+                y0 = float(b.get("y", ty))
+                b["y"] = ty if step >= dist else y0 + (ty - y0) * step / dist
             if hold is not None:
                 b["_at"] = k if step >= dist else None     # H23: the stop it stands at, None between two
             if step < dist:

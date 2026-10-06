@@ -630,9 +630,12 @@ def _landing8(chain: list, end: int = END_FIELD, entry=None) -> dict:
             "end_row": entry(end)}
 
 
-#: 4.10: THE KNIGHT'S SEAT -- O8-KNIGHT's registration (the hook's ``seat`` and ``start1`` readings).
+#: 4.10: THE KNIGHT'S SEAT -- O8-KNIGHT's registration (the hook's ``seat`` and ``start1`` readings). ``start_y`` his
+#: placement's LEVEL and ``y`` his seat's (the review's #2): CreateObject at POS_COMMAND_DEFAULTY, so GetTriIdxAtPos takes
+#: the highest open triangle under (249, 4630) -- tri 130, PSX -11255 -- and his walk climbs loop 2 to tri 120's -11896;
+#: O8-GOALS (g6') derives both off the mesh (:func:`knight_levels`) and keeps loop 1 400 from the whole range.
 SEAT = {"donor": 164, "sid": 1, "name": "the knight", "seat": [-586, 3884], "tol": 30, "site": [164, 1, 1, 230],
-        "start": [249, 4630], "walk_u": 1131.5, "release": {"y_ge": 8400}, "r": 220, "y": 11896,
+        "start": [249, 4630], "walk_u": 1131.5, "release": {"y_ge": 8400}, "r": 220, "start_y": 11255, "y": 11896,
         "why": "164 e1 t1 ip215's last Walk(64950, 3884) seats him (tri 120, PSX -11896); step 1 plans with npcs on round "
                "him 300.0 u off its line -- the premise read at the wait's end (the ring at wait_flag.frame) and at "
                "step 1's frame0, keyed by place (31256 reads as 164), every run (O8-KNIGHT)"}
@@ -872,6 +875,37 @@ def knight_walk(pred: dict) -> tuple:
         return start, pts, None, None
     path = [start] + pts
     return start, pts, round(sum(math.dist(a, b) for a, b in zip(path, path[1:])), 1), pts[-1]
+
+
+def knight_levels(pred: dict, wm, *, step: float = 25.0) -> list:
+    """His LEVEL along his walk (research/o8_design.md 2.6; the review's #2): ``[(x, z, published y)]`` every ~``step``
+    u of his pinned walk (:func:`knight_walk`) on the place's mesh ``wm`` (a PlayerWalkmesh) -- at his placement the
+    HIGHEST open triangle under it (CreateObject at POS_COMMAND_DEFAULTY: GetTriIdxAtPos takes the triangle nearest
+    that height), then at each point the open triangle's height NEAREST the last (he walks his level: MoveToward on
+    the walkmesh) -- or ``[]`` without his pins or with no floor under a point. Stock 164: 11255 at (249, 4630), 11448,
+    11598, 11727 at the three turns, 11896 at the seat."""
+    start, pts, _u, _seat = knight_walk(pred)
+    if start is None or not pts:
+        return []
+    path = [tuple(map(float, start))] + [tuple(map(float, p)) for p in pts]
+    xs = []
+    for (ax, az), (bx, bz) in zip(path, path[1:]):
+        n = max(1, int(math.dist((ax, az), (bx, bz)) // step))
+        xs += [(ax + (bx - ax) * i / n, az + (bz - az) * i / n) for i in range(n)]
+    xs.append(path[-1])
+    out, last = [], None
+    for x, z in xs:
+        hs = [y for _ti, y in _heights(wm, x, z)]
+        if not hs:
+            return []
+        last = max(hs) if last is None else min(hs, key=lambda h: abs(h - last))
+        out.append((x, z, last))
+    return out
+
+
+def _y_gap(y: float, lo: float, hi: float) -> float:
+    """How far a height ``y`` lies outside [``lo``, ``hi``] (0 inside)."""
+    return lo - y if y < lo else y - hi if y > hi else 0.0
 
 
 def band_closures(mesh, lo: float, hi: float) -> list:
@@ -1879,7 +1913,9 @@ def goals8(pred: dict, walkmesh=None, *, cache: dict | None = None, window=None)
            the place's engine radius from every registered exit;
       (g6') THE KNIGHT: ``at_y``'s low end inside his release; his seat more than his planning disc (ROUTE_BODY_MARGIN
            + his r) off step 1's planned route; his start inside it off step 0's -- step 0 then carries ``npcs``
-           false -- and his level at least 400 from loop 1's along it (the engine never pairs them);
+           false -- and HIS LEVEL (the review's #2: the seat watch's ``start_y`` to ``y``, derived off the mesh along
+           his walk by :func:`knight_levels` -- 11255 at his placement up to 11896 at his seat) at least 400 from every
+           planned sample of loop 1 (the engine never pairs them);
       (g7') THE PINCH WINDOW (``window``, default :data:`PINCH_WINDOW`) holds the least half-width point of 164 #1's
            plan and no planned sample of loop 1."""
     from ff9mapkit import extract
@@ -2091,17 +2127,32 @@ def goals8(pred: dict, walkmesh=None, *, cache: dict | None = None, window=None)
                 if gap0 <= disc_r and p0[2].get("npcs", True):
                     bad.append(f"({donor}, {c['sc']}, {visit}) #0 (g6'): his start {start} {gap0:.1f}u off its planned "
                                f"route, inside his planning disc {disc_r:.0f}, and the step carries npcs true (no route)")
-                ky = float(sw.get("y", 0))
-                dys = [abs(ky - y) for x, z in C7._samples(p0[1]) for y in [_y_at(p0[0], x, z)] if y is not None]
-                if not dys or min(dys) < 400:
+                # HIS LEVEL (the review's #2): placement to seat, read off the mesh along his walk -- never the seat's
+                # height alone (his placement stands 641 u under it)
+                lv = [y for _x, _z, y in knight_levels(pred, full)]
+                sy, ky = sw.get("start_y"), sw.get("y")
+                if sy is None or ky is None:
+                    bad.append(f"({donor}, {c['sc']}, {visit}) #0 (g6'): the seat watch carries no start_y / y (his level)")
+                    lo = hi = None
+                else:
+                    lo, hi = min(float(sy), float(ky)), max(float(sy), float(ky))
+                    if not lv or round(lv[0]) != round(float(sy)) or round(lv[-1]) != round(float(ky)) \
+                            or min(lv) < lo - 1 or max(lv) > hi + 1:
+                        bad.append(f"({donor}, {c['sc']}, {visit}) #0 (g6'): his level along his walk on the mesh -- "
+                                   + (f"placement {lv[0]:.0f}, seat {lv[-1]:.0f}, {min(lv):.0f}-{max(lv):.0f}" if lv
+                                      else "unread")
+                                   + f" -- is not the seat watch's start_y {sy} to y {ky}")
+                dys = [] if lo is None else [_y_gap(y, lo, hi) for x, z in C7._samples(p0[1])
+                                             for y in [_y_at(p0[0], x, z)] if y is not None]
+                if lo is not None and (not dys or min(dys) < 400):
                     bad.append(f"({donor}, {c['sc']}, {visit}) #0 (g6'): loop 1 comes within "
-                               f"{min(dys) if dys else '?'} of his level {ky:.0f} in y (the engine pairs actors at "
-                               f"|dy| < 400)")
+                               f"{f'{min(dys):.0f}' if dys else '?'} of his level {lo:.0f}-{hi:.0f} (placement to "
+                               f"seat) in y (the engine pairs actors at |dy| < 400)")
                 if p1 is not None and seat is not None and not [b for b in bad if "(g6')" in b]:
                     lines.append(f"({donor}, {c['sc']}, {visit}) (g6') release {gate_text(release)} <= {band[0]}; seat "
                                  f"{_polyline_gap(float(seat[0]), float(seat[1]), p1[1]):.1f}u off #1 (> {disc_r:.0f}); "
                                  f"start {gap0:.1f}u off #0 (npcs {p0[2].get('npcs')}); loop 1 at least {min(dys):.0f} "
-                                 f"below him")
+                                 f"below his level {lo:.0f}-{hi:.0f} (placement to seat, read off the mesh)")
             if p1 is not None and window.get("place") == donor:
                 from harness.fakegame import Levels
                 wm1, pts1, _s1 = p1

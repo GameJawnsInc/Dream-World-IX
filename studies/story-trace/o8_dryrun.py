@@ -2862,6 +2862,7 @@ def goals_lines() -> tuple:
             "(164, 1190, 1) #1 (g4') fires 164.e2 at ", "(165, 1190, 2) #1 (g4') fires 165.e2 at ",
             "(164, 1190, 1) #0 (g5') the wait point 335.2u from 164.e2, 293.5u from 164.e3",
             "(164, 1190, 1) (g6') release y >= 8400 <= 8800; seat ", "u off #1 (> 252); start ",
+            "below his level 11255-11896 (placement to seat, read off the mesh)",
             "(164, 1190, 1) (g7') the pinch (", "inside the window, no loop-1 sample in it")
 
 
@@ -2873,7 +2874,9 @@ def unit_goals(pred: dict, stock) -> list:
     11000 (g4': looser than the door's gate -- the review's #4); 164 #0's exit_slack 300 (g5': 335u from
     164.e2 under 300 + 80 -- as built: the design's "P1 moved 200 u toward e2" lands 40u from a wall, so the step plans
     nothing and (g5') is never read); at_y [8000,
-    9150] (g6': under the release 8400 -- a mutant (g3') fails too); the window's y band [5000, 6000] (g7')."""
+    9150] (g6': under the release 8400 -- a mutant (g3') fails too); the seat watch's start_y 11000 (g6': the mesh reads
+    his placement 11255) and 9300 (g6': loop 1's 8958 then within 400 of his level -- the review's #2); the window's y
+    band [5000, 6000] (g7')."""
     def step(c, n, **kw):
         def fn(p):
             s = p["table"][c]["steps"][n]
@@ -2894,6 +2897,9 @@ def unit_goals(pred: dict, stock) -> list:
     def window(p):
         p["_window"] = {"place": 164, "x": [900.0, 1310.0], "z": [4460.0, 4600.0], "y": [5000.0, 6000.0]}
 
+    def knight(**kw):
+        return lambda p: p["seat_watch"].update(kw)
+
     def check(p):
         w_ = p.pop("_window", None)
         return O.O8.goals_check(p, stock=stock, window=w_)
@@ -2911,6 +2917,10 @@ def unit_goals(pred: dict, stock) -> list:
          "(165, 1190, 2) #1 (g4'): its until {'y_gt': 11000} is looser than its door 165.e2's gate (y > 15000)"),
         ("goals-wait-slack", step(0, 0, exit_slack=300), "(164, 1190, 1) #0 (g5'): within 45 of the wait point"),
         ("goals-release", step(0, 0, at_y=[8000, 9150]), "(164, 1190, 1) #0 (g6')"),
+        ("goals-knight-start-y", knight(start_y=11000),
+         "(164, 1190, 1) #0 (g6'): his level along his walk on the mesh -- placement 11255, seat 11896"),
+        ("goals-knight-level", knight(start_y=9300),
+         "of his level 9300-11896 (placement to seat) in y (the engine pairs actors at |dy| < 400)"),
         ("goals-window-y", window, "(164, 1190, 1) #1 (g7')")])
 
 

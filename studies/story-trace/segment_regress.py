@@ -812,8 +812,9 @@ O7_DRYRUN_FLOOR = 174
 #: O8-REGIONS and its 4, O8-GOALS and its 10, the route pins and route_mes with their 8, O8-BUILD's pins and raw exit on a
 #: synthetic build and its 3, the draft through O8-KEYS and its 16 offline mutants) when G45 joined (219); the review's
 #: fixes (research/o8_design.md 11.4, "The review") raised it -- O8-GOALS' goals-164-1-until-loose and
-#: goals-165-1-until-loose (#4). A case added raises N; one dropped falls under the floor.
-O8_DRYRUN_FLOOR = 221
+#: goals-165-1-until-loose (#4), goals-knight-start-y and goals-knight-level (#2). A case added raises N; one dropped
+#: falls under the floor.
+O8_DRYRUN_FLOOR = 223
 #: G38 (research/o7_design.md 1.4, from 9 B4): every ``test_o7_*``, ``test_fake_level_*``, ``test_fake_monologue_*`` and
 #: ``test_fake_patrol_*`` name, each with the step that adds it -- G38 joined the gate in the commit that added B4's
 #: tests.
@@ -974,6 +975,7 @@ REQUIRED_TESTS_O8: tuple = (
     "test_o8_rehearsal_fpass_runs_untraced_to_real_55_on_the_fake",
     # research/o8_design.md 11.4, the review's fixes, each with its finding
     "test_o8_rehearsal_t0_scan_marks_an_evicted_release_unmeasured",            # #1: T0 off an evicting ring
+    "test_fake_knight_pairs_at_his_own_level",                                  # #2: H25b, his level on his path
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

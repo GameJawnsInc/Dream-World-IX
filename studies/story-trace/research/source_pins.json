@@ -215,5 +215,12 @@
   "new": "ec26e832e3869a84f211e09702963329059a9cd831702d8c16c8be16e5583359",
   "reason": "O8 B2 (research/o8_design.md 3.2): H25, THE KNIGHT WALKER -- a walker body's opt-in start (released by the player's published y, latched: 164 e1 t1 ip178 read through ip187) and store (script_store once, after_ticks field ticks after its once path's last index, the countdown before the walking skip, on the body: gone with its visit), read strict on its first step (_walker_knobs), and such a body held by him only at |dy| < 400 (WalkMesh.cs:919-921). A body with neither steps exactly as before: the O7 and O6 replays identical, every fake_patrol and fake_level test green",
   "head": "cbe4944b00bb93f4bf624ded3b40805f06b9ce13"
+ },
+ {
+  "name": "tools/harness/fakegame.py::FakeGame._step_walkers",
+  "old": "ec26e832e3869a84f211e09702963329059a9cd831702d8c16c8be16e5583359",
+  "new": "bbd9d54b5c6ac5f8beaa7d4e92b19e863f07e83303be539110a712048b11c066",
+  "reason": "O8 review #2 (research/o8_design.md 11.4): H25b, opt-in -- a walker path whose points carry a third coordinate (the walker's LEVEL there, read off the mesh) moves the body's y with its x and z, linearly along each leg, so the pair band and objects read the level it stands on (the knight climbs loop 2 from 11255 to 11896); path[k]'s x and z are read by index, so every two-coordinate path (every walker before O8's knight) runs exactly as before",
+  "head": "74c581600e495c4232362557bcf005c39d9f8332"
  }
 ]
