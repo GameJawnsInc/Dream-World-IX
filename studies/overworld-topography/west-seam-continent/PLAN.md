@@ -294,7 +294,20 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > and the NW low slab poking 0.3-1.4u over an already-low lawn (carried, free-base class).
 > Live deploy identical to the bench byte-for-byte; parity 9/9 carved terrains, stamp + probes
 > a-e green, col23-col0 seam frame-identical rows 4-9. Revert: r4-take4-pre.20260828-173726.
-> Deployed state left at take 7; reverts: fringe-realign-pre.* (paint), r4-take4-pre.* (any take),
+> **Take 8 under the HARNESS (2026-10-06, the first overworld harness scenario, 20/20, run
+> `.harness-runs/20261006-105632-rimwalk-take8`):** live state re-verified first (site blocks last written
+> 17:37 08-28, nothing since; `profile_base_measure.py` re-reads take 8's numbers). `rimwalk_take8.py`
+> walked out of 6603 onto (68,-444), then at 4 CONTROL stations on owner-passed faces (the instrument
+> check: all read blocked AT the contact) and 6 window stations: rock stops him at the contact on all 6
+> (every stop lands on the contact edge, 0.0-0.1u, after a short final partial step -- not a lag stall),
+> no climb (the 0.83u "rise" at 13 is the lawn dipping to a 2.37 contact). Seam z -320/-568: one walk,
+> height flat. Safe road: 6 legs / ~672u from the landing, no battle (weak evidence; regression only).
+> Run under heavy CPU contention (owner: two other sessions) -- free bursts got 3-6 world ticks per 8
+> frames; the stall threshold sits under the smallest free burst seen. NOT judged: the LOOK (checklist
+> 1-3) -- `take8-window-sheet.png` in the run dir is for the owner; seen there, unjudged: a thin dark
+> sliver running west along the lawn at the arc's W end (the NW low slab?), notches in the base's
+> lower edge at 09/10/12. Not walked: the 2 flat NW stations (no clean lawn behind them).
+> Deployed state is TAKE 8; reverts: fringe-realign-pre.* (paint), r4-take4-pre.* (any take),
 > r4-pre.20260828-103332 (pre-massif host). Original deploy note: All gates CLEAN on
 > the dry run and the deploy: **placement (1462,−462) rot 90°** (the scan slid +10,+6 off the
 > `--near`), 9 blocks, 713 donor tris + 143 zip + THE ENSEMBLE CARRY (122 Falls/River/RiverJoint/

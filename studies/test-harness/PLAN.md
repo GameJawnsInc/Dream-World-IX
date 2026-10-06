@@ -825,8 +825,10 @@ count. Same shape as the arc's own law: a gate can be green and wrong in the sam
 5. ~~The battle block~~ — ★ DONE for OBSERVABILITY (see below). **Still open: DRIVING a battle to a
    result**, which is a different capability and is not proven. Two measured obstacles are recorded
    below; neither is a mystery any more, but neither is solved.
-6. **World vehicles have no throttle** (`ff9.cs:6652`) and the overworld free-camera reads the raw
-   right stick. Fix if an overworld scenario needs it — and note the recon REFUTED the premise that
+6. **World vehicles have no throttle** (`ff9.cs:6652`). ~~The overworld free-camera reads the raw
+   right stick~~ — ★ ON FOOT IS DONE (2026-10-06): the bumpers turn the world camera through the hooked
+   path; `world_probe`/`world_face`/`world_approach` steer on world x/z (overworld rung 0, driver only,
+   `rimwalk_take8.py` 20/20 in-game). The right stick itself is still raw. Fix if an overworld scenario needs it — and note the recon REFUTED the premise that
    the harness cannot walk on foot there; the field verbs simply refused to admit which coordinate
    space they were in, which is now guarded rather than assumed.
 7. **A nightly lane for scenarios is explicitly NOT next.** A gate that counts scenario passes over a
