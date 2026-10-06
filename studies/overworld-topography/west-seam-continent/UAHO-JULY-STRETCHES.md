@@ -51,3 +51,53 @@ placement: **rot 0, blob centre (162, −1246), clearance 11.1u** (to ±2u / ±1
 ## RESULT
 
 (appended after the run, below this line; nothing above edited)
+
+Run 2026-10-06 (`uaho_july_stretches.py`, data `uaho_july_stretches.json`). The scratch re-mint wrote
+the same two blocks the record describes: (2,19) and a 37-tri spill into (2,18) ("the centre shifted NORTH
+to spill into legal row 18").
+
+**CALIBRATION PASS, exact.** The rebuilt carve logs `placement: rot 0deg, blob centre -> (162,-1246)
+(clearance 11.1u)`, matching the July record to the digit.
+
+### The registered score
+
+| | measured | verdict |
+|---|---|---|
+| **P-U1** buried coastal rock on the OUTER rim (≥ 12u from centre), facing ≥ 6u of open lawn | 0% of 10.9u lies ≥ 12u from the blob centre | **FAILS as registered** |
+
+### Why the registered verdict is an instrument error, and what the direct measurement says
+
+The "< 12u from the blob centre = the alcove notch" proxy was never checked against the alcove itself.
+`interior.UAHO_ALCOVE` = x 31.0–40.5, z −38.5..−30.5 in the donor frame: **EAST** of the blob centre
+(28.3, −35.7). Both coastal-rock stretches are on the **WEST** side:
+
+| stretch | home x | E p50 | open lawn in front | from the July teleport (136.5, −1245.5, "face east") |
+|---|---|---|---|---|
+| buried coastal rock, 10.9u | 19.4–27.7 | −0.08 | p50 21.5u, then the bench coast | 16.9–27.8u, bearing −26..+10° |
+| raised coastal rock, 8.0u | 19.9–23.7 | **+1.49** | p50 20.0u, then the bench coast | 17.1–21.7u, bearing −16..−1° |
+
+Uaho's blob is narrow (24u wide), so its WEST rim simply runs close to the centre. Both stretches faced
+open bench lawn, **straight ahead of the owner's July viewpoint**, and the carry was approved ("looks good";
+"the cliff is great — seams against the grass great").
+
+**On the rebuilt bytes, the July carve LIFTED a grass bank to the raised stretch.** Carved-bench grass over
+the 3.2 lawn, outward from its foot: 1u +1.15, 2u +0.93, 4u +0.53, 8u +0.13, 12u +0.01. That is the same
+apron-lift "knoll" construction, at the same height (+1.49 vs the horseshoe's +1.46), as the horseshoe
+take-1 arc the owner rejected. The buried stretch gets no lift (flat within ±0.08).
+
+**So, with the proxy replaced by the direct measure:**
+1. **The buried coastal-rock class HAS a verdict.** One site, approved, in direct view.
+2. **H-datum is falsified as a sufficient cause.** A raised (+1.49), lifted, non-forest stretch in direct
+   view passed. The same height and construction failed on the horseshoe only where the home context was
+   FOREST. The surviving rule is the forest context: a rock face that stood behind a forest at home reads
+   wrong when carried bare.
+3. **The same proxy error sits in FOREST-OR-DATUM.md's post-registration note** ("deep in the ALCOVE
+   NOTCH"), corrected there by erratum.
+
+**Limits:**
+- one stretch, 8u, one site;
+- the July verdict covers the whole carry, though this stretch was in its primary view;
+- the bench is a rebuild with today's mint, but its placement calibrates exactly.
+
+**Process note:** this is the second unvalidated proxy this session; the grass-step study's coast check
+was the first. A proxy needs the same positive control as an instrument.

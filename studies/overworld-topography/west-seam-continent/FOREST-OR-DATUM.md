@@ -167,3 +167,16 @@ No single datum threshold fits both the horseshoe (fails at ≥ +1.13) and a Pat
 
 It is evidence, not a decision. The one clean test is still a bench carry of a raised rising-grass
 stretch at ~+1.5u, judged by the owner.
+
+### ERRATUM (2026-10-06, from UAHO-JULY-STRETCHES.md): Uaho's raised stretch was NOT in its alcove notch
+
+The note above said Uaho's raised coastal-rock stretch "lies 5–6u from its blob centre, deep in the ALCOVE
+NOTCH". That came from an unvalidated distance proxy. The alcove (`UAHO_ALCOVE`, x 31.0–40.5) is EAST of
+the centre; the stretch is WEST (x 19.9–23.7).
+- On the rebuilt July bench (placement calibrated exactly) it faced 20u of open lawn, straight ahead of the
+  owner's July viewpoint.
+- The carve lifted a grass bank to it (+1.15 at 1u, +0.53 at 4u), and the carry was approved.
+
+**This is the discriminating case the study looked for:** a raised (+1.49), lifted, NON-forest stretch that
+passed, at the same height as the horseshoe's failed forest stretch (+1.46). **H-datum is falsified as a
+sufficient cause; the forest context survives.** One stretch, one site.
