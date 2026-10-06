@@ -3699,7 +3699,8 @@ class O8Segment(C7.O7Segment):
         mv = pred.get("movie") or {}
         presses = [x for x in r.get("log") or () if x.get("k") == "press" and x.get("donor") == mv.get("donor")]
         span = movie_span(r, pred, members)
-        return [f"{lab} pages pressed {[(x.get('texts') or [''])[0][:16] for x in presses]} (frames "
+        # rule 7's press rows carry no texts (segment_drive's page press): the count and the frames (the second review's #2)
+        return [f"{lab} pages pressed {len(presses)} (frames "
                 f"{[(x.get('pre') or {}).get('frame') for x in presses]}); span ({span['f502']}, {span['f863']}] -- "
                 f"{len(span['clocks'])} clock rows ({span['skipped']} without a write time), fps {span['fps']}, "
                 f"{span['s']} s; presses {len(span['presses'])}, choices {len(span['choices'])}, skip dialogs "

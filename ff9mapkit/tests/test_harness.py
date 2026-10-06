@@ -34392,6 +34392,52 @@ def test_o8_rehearsal_widens_the_state_ring_in_place():
     assert R.widen_ring(types.SimpleNamespace()) == {"was": None, "now": None}
 
 
+def test_o8_rehearsal_recorder_reads_only_its_own_runs_movie_rows():
+    """THE RECORDER'S LIVE READ IS THE RUN'S OWN (the second review's #1; the first R-FULL's story.jsonl held two arms,
+    run 1's 166 ip502 and ip863 rows before run 2's), pure: Recorder._live over the kit's own parse of a launch's trace
+    -- run 1 armed, its 166 e6 t1 ip502 and ip863 rows, the cut row in 55, then run 2 armed. On run 2's first read in 166
+    neither is seen (an old ip863 would end the watch at once: no poke, no stop, ever); run 2's own ip502 is then seen
+    with ITS frame, its ip863 after it; a trace with no arm reads nothing. Break: the arm slice dropped (seen863 True on
+    run 2's first read, seen502 run 1's frame)."""
+    import json
+    import types
+    from ff9mapkit.storytrace import parse_text
+    R = _o8_rehearse_module()
+
+    def w(f, fld, sid, tag, ip, byte, kind, old, new, bit=-1):
+        return {"k": "w", "f": f, "p": f, "m": 1, "fld": fld, "don": fld, "sc": 1190, "src": "eb", "sid": sid,
+                "uid": sid, "lvl": 7, "ip": ip, "tag": tag, "add": 0, "byte": byte, "w": kind, "bit": bit, "old": old,
+                "new": new, "same": int(old == new)}
+
+    def arm(f):
+        return {"k": "e", "f": f, "p": f, "m": 1, "fld": 70, "don": 70, "sc": 0, "why": "arm"}
+    run1 = [arm(486), w(5861, 166, 6, 1, 502, 8, "Byte", 125, 0), w(8491, 166, 6, 1, 863, 2, "Int16", 344, 110),
+            w(8495, 55, 0, 0, 22, 23, "Bit", 0, 0, bit=191),
+            {"k": "e", "f": 8500, "p": 8500, "m": 1, "fld": 55, "don": 55, "sc": 1190, "why": "off"}]
+    lines = list(run1) + [arm(8746)]
+    rec = R.Recorder.__new__(R.Recorder)
+    rec.g = types.SimpleNamespace(story_rows=lambda: parse_text("\n".join(json.dumps(x) for x in lines) + "\n"))
+    rec.members, rec.movie_place = {}, 166
+    rec.ip502, rec.ip863 = (6, 1, 502), (6, 1, 863)
+    rec.seen502, rec.seen863, rec._read_t = None, False, 0.0
+    rec._live(types.SimpleNamespace(frame=9000))
+    assert rec.seen502 is None and rec.seen863 is False, (rec.seen502, rec.seen863)
+    lines.append(w(14192, 166, 6, 1, 502, 8, "Byte", 125, 0))
+    rec._read_t = 0.0
+    rec._live(types.SimpleNamespace(frame=14200))
+    assert rec.seen502["row_f"] == 14192 and rec.seen502["frame"] == 14200 and rec.seen863 is False, rec.seen502
+    lines.append(w(16952, 166, 6, 1, 863, 2, "Int16", 344, 110))
+    rec._read_t = 0.0
+    rec._live(types.SimpleNamespace(frame=16960))
+    assert rec.seen863 is True and rec.seen502["row_f"] == 14192
+    bare = R.Recorder.__new__(R.Recorder)
+    bare.__dict__.update(rec.__dict__, seen502=None, seen863=False, _read_t=0.0,
+                         g=types.SimpleNamespace(story_rows=lambda: parse_text(
+                             "\n".join(json.dumps(x) for x in run1[1:3]) + "\n")))
+    bare._live(types.SimpleNamespace(frame=1))
+    assert bare.seen502 is None and bare.seen863 is False
+
+
 def test_o8_rehearsal_pinch_reads_unmeasured_when_a_hold_kept_no_position(monkeypatch):
     """F5 CANNOT PASS BLIND (the first R-FULL, 20261005-225603-o8-rh-full: 52 of 110 holds in 164 kept no position --
     the ring evicted them -- and F5 read GO with no hold in THE PINCH WINDOW), pure: pinch_record over one 164 walk whose

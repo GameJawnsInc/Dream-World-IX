@@ -351,7 +351,10 @@ class Recorder(O7R.Recorder):
             return
 
     def _live(self, st) -> None:
-        """At most once a second in the movie's place: the live trace's rows -- the first ip502 row seen, ip863's."""
+        """At most once a second in the movie's place: THIS RUN's live trace rows (after its last arm, as the driver's
+        live scan and end-row wait read them) -- the first ip502 row seen, ip863's. story.jsonl keeps every run of the
+        launch (the second review's #1: an earlier run's 166 rows read here would mark ip863 seen at once and no poke or
+        stop would ever fire; one with ip502 alone would fire before this run's ip502, on an old frame)."""
         now = time.time()
         if now - self._read_t < 1.0 or self.seen863:
             return
@@ -360,8 +363,11 @@ class Recorder(O7R.Recorder):
             rows = self.g.story_rows()
         except Exception:                                      # noqa: BLE001 -- a record, never the run
             return
+        arm = max((i for i, r in enumerate(rows) if r.k == "e" and r.why == "arm"), default=None)
+        if arm is None:
+            return
         mem = self.members
-        for x in rows:
+        for x in rows[arm:]:
             if x.k != "w" or place(x.fld, mem) != self.movie_place:
                 continue
             if (x.sid, x.tag, x.ip) == self.ip502 and self.seen502 is None:
