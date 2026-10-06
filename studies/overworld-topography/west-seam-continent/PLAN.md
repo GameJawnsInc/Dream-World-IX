@@ -224,6 +224,10 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > (two cliff tapers, ramps, a sea3|sea4 re-tile). The whole home island fits only NORTH of the
 > continent (cols 21-23 x rows 1-2). Owner call: (c2a) on the continent, or (c2b) its own island.
 > The grass-step study's P-C1 carries an ERRATUM: our coast there is a cliff, not a shore.
+> **Owner chose (c2b); it is NOT buildable with today's verb** ([`HORSESHOE-ISLE-BENCH.md`](HORSESHOE-ISLE-BENCH.md),
+> [`ISLE-RECT-STUDY.md`](ISLE-RECT-STUDY.md)). Daguerreo is separable on land but shares one shallow-water ladder
+> with 2-6 neighbouring masses, so no rect up to 4x4 carries it (as `coast-shape-language/PALETTE.md` had
+> recorded). The bench's R4 revert is verified exact. Owner call next.
 
 > **DEFECT ROUND (owner rim walk): the (1418–1433, −469..−485) arc showed a grassy knoll against
 > the mountain with no grass–mountain transition; the rest of the perimeter and the plateau passed.**
