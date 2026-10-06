@@ -194,11 +194,11 @@ Found by the design review (11.3), each verified here:
     its window-3 resets ip419 / ip453 sit behind `Byte[13] == 9` / `Byte[14] == 9`, false (55's own ip119 / ip200 just
     stored 0). Outside e0 t0 only e10 t1 ip568 / ip582 (`UInt16[0] := 1400`, behind `SWITCH(Map.Byte[24])` case 3; 55 e0
     t0 ip247 sets 1 on this arrival -- but e1 t1 advances it on the scene's handshakes, so case 3 IS reachable: SC left
-    the live read, 11.4 "The review" #3) store an `end_state` target; e8 t1's case-3 stores (UInt16[21], Byte[303], Byte[4],
-    UInt16[19], Byte[17], Byte[18]) hold none; e7 t2 (region 7's door) stores only the raced pair. And stock 64 from
-    story-o3's arrival values (SC 1155; Int16[2] 100: the SWITCHEX default; Byte[8] 125 from 63 e14 t1 ip805) races
-    NOTHING to its RET (ip1053): Bit[191], Bit[184], Int16[9] -1, Byte[13] 0, Int16[11] -1, Byte[14] 0, Bit[3815] 0,
-    Byte[475] 0 and Byte[8] 125 are each the value held. O3's raced set is EMPTY (the fixture's consequence: 8).
+    the live read, 11.4 "The review" #3) store an `end_state` target; e8 t1's case-3 stores (UInt16[21], Byte[303],
+    Byte[4], UInt16[19], Byte[17], Byte[18]) hold none; e7 t2 (region 7's door) stores only the raced pair. And stock
+    64 from story-o3's arrival values (SC 1155; Int16[2] 100: the SWITCHEX default; Byte[8] 125 from 63 e14 t1 ip805)
+    races NOTHING to its RET (ip1053): Bit[191], Bit[184], Int16[9] -1, Byte[13] 0, Int16[11] -1, Byte[14] 0, Bit[3815]
+    0, Byte[475] 0 and Byte[8] 125 are each the value held. O3's raced set is EMPTY (the fixture's consequence: 8).
 27. **The knight publishes `talk_r` 410 before ip190's SetWalkSpeed(15), 395 after** (11.3 A13): `4 x (talkRad +
     player.talkRad) + speed + 60` (HarnessAgent.cs:2360) = 4 x (30 + 50) + 30 + 60, then + 15 + 60; story-o7's R-FULL
     archive reads him at (249, y 11255, 4630), r 220, talk_r 410, `range` False, `talk` True (frame 5472). He is
@@ -964,7 +964,9 @@ The knight in the builder: `{"sid": 1, "uid": 1, "x": 249.0, "z": 4630.0, "y": 1
 = 7.5 u a 60-fps frame at WALKER_FRAME_TICKS 0.5, his published r (4 x (20 + 35), HarnessAgent.cs:2349) and his
 PRE-RELEASE talk_r (4 x (30 + 50) + 30 + 60 = 410, :2360; 395 only once SetWalkSpeed(15) runs: 0.2 #27 -- the fake does
 not model the change, and no test or check reads talk_r: he is talk-only, session.py:5265-5266), y the seat's (the
-planner keeps him as a disc on any level: `_npc_levels`).
+planner keeps him as a disc on any level: `_npc_levels`). [As built after the review's #2 (11.4): y his placement's
+level, 11255.2, and each path point carries its level off stock 164's mesh (H25b: 11255.2 -> 11896.0, the body's y moving
+with him), so the pair band reads the level he stands on.]
 
 ### 3.3 164's and 165's real meshes (H20 reused)
 `Levels(PlayerWalkmesh(extract.stock_walkmesh(164)), squeeze_slack=12)` and `Levels(PlayerWalkmesh(stock 165))` under
@@ -1089,8 +1091,8 @@ wall time}`), `movie_span_s` (the shortest movie span), `narrowest_pinch` (the n
 
 ### 4.2 No SC rung
 No store to SC's bytes in any width in 164-166 (the census, 6.1). 55's only SC stores (e10 t1 ip568/ip582) sit behind
-`Map.Byte[24]` case 3, past the cut -- reachable on this arrival once e1 t1 advances that case (11.4 "The review" #3), so
-SC is not read live (4.9): SC 1190 at the cut is O8-NO-SC's. O8-NO-SC is O3's `no_sc_check`.
+`Map.Byte[24]` case 3, past the cut -- reachable on this arrival once e1 t1 advances that case (11.4 "The review" #3),
+so SC is not read live (4.9): SC 1190 at the cut is O8-NO-SC's. O8-NO-SC is O3's `no_sc_check`.
 
 ### 4.3 The FieldEntrance chain (`Global.Int16[2]`; O8-CHAIN; the first `old` is 342, the warp's entrance)
 
@@ -2398,25 +2400,26 @@ serially").** pytest from `ff9mapkit/`, the study scripts from the worktree root
 Then the lead's sequence (7.1-7.4): `--preflight`, the rehearsals, the freeze checklist, `--freeze` (v1), the session.
 
 ### 9.1 THE O9 HANDOFF (C4 copies it into PLAN.md's O8 section)
-"**Next, O9:** O8 ends on the arrival in REAL 55 at 110 (cut at 55 e0 t0 ip22) on both sides. O9 starts with a raw
-`warp 55 110 1190` (S) / `warp 31205 110 1190` (F): the fork side SWITCHES CHAINS there (O4's alxc -> O1's tshp, whose
+"**Next, O9:** O8 ends on the arrival in REAL 55 at 110 (cut at 55 e0 t0 ip22) on both sides. O9 starts with a raw `warp
+55 110 1190` (S) / `warp 31205 110 1190` (F): the fork side SWITCHES CHAINS there (O4's alxc -> O1's tshp, whose
 member(55) is 31205, ForkDonorPatch line 42 -- the reason O8's F side ends in real 55 and declares its seam). The raw
-start's residue: SC bytes 0-1 and FieldEntrance byte 2 (0 -> 110); byte 3 holds 0 (110 = 0x006E), so expect THREE
-rows, O6's contract -- re-derive, never assume. 55's START-DEPENDENT reads are e8 t1 ip633 / ip666 / ip1354, the party
-and UInt16[19]: there a raw start differs from a true O1-O8 run in VALUE, not only in olds, so O9's start must be
-SEEDED or those reads declared -- the owner's options: (a) declare them (`start_dependent` keys with `after.old`, O6's
-form); (b) a chained start (O8's arrival as O9's start: not a raw warp); (c) narrow O9 to what 55 does before those
-reads; (d) pokes before the warp -- `byte 19 15`, `byte 20 7` (UInt16[19] 1807), `byte 21 8` (UInt16[21] 8), `byte 303
-1`, `byte 18 1`, `byte 208 1` -- each a carried value O1-O8 compose (`carried_from_segments` over O1-O8, never typed),
-the pokes then registered residue. 55 is block 2 (text); its page 129 (e8 t1's WindowSync, in case 1) halts the scene at
-FieldHUD until it is confirmed, and then the scene runs on by itself to case 3 -- e1 t1 advances Map.Byte[24] 1 -> 2 -> 3
-on the scene's Map.Bit[231] handshakes -- where e10 t1 ip582 stores SC 1400 (SC <= 1400): O9 MUST PREDICT SC 1400 from
-55's own scene (O8's end state leaves SC out of its live read: `end_state_scene`, the review's #3). O8 built for it: `at_y`, the knight wait (`wait_flag`), the y axis on `until` with the
-loss's height off the ring, the opt-in `unstick`, the per-field fake clearance, the height-triggered walker with a
-store, the declared seam (O8-SEAM), the raced end-state set derived from the end field's bytes to its Main_Init's RET
-(`end_race8`), and `reach8` -- a store site's reachability from given values, e.g. which of 55's e8 t1 / e10 t1 sites a
-`Map.Byte[24]` case reaches -- with `end_map_held8`, which holds a Map variable only where no other function of the field
-stores it. If O8's F5 took the fallback (`unstick: false`), say so here."
+start's residue: SC bytes 0-1 and FieldEntrance byte 2 (0 -> 110); byte 3 holds 0 (110 = 0x006E), so expect THREE rows,
+O6's contract -- re-derive, never assume. 55's START-DEPENDENT reads are e8 t1 ip633 / ip666 / ip1354, the party and
+UInt16[19]: there a raw start differs from a true O1-O8 run in VALUE, not only in olds, so O9's start must be SEEDED or
+those reads declared -- the owner's options: (a) declare them (`start_dependent` keys with `after.old`, O6's form); (b)
+a chained start (O8's arrival as O9's start: not a raw warp); (c) narrow O9 to what 55 does before those reads; (d)
+pokes before the warp -- `byte 19 15`, `byte 20 7` (UInt16[19] 1807), `byte 21 8` (UInt16[21] 8), `byte 303 1`, `byte 18
+1`, `byte 208 1` -- each a carried value O1-O8 compose (`carried_from_segments` over O1-O8, never typed), the pokes then
+registered residue. 55 is block 2 (text); its page 129 (e8 t1's WindowSync, in case 1) halts the scene at FieldHUD until
+it is confirmed, and then the scene runs on by itself to case 3 -- e1 t1 advances Map.Byte[24] 1 -> 2 -> 3 on the
+scene's Map.Bit[231] handshakes -- where e10 t1 ip582 stores SC 1400 (SC <= 1400): O9 MUST PREDICT SC 1400 from 55's own
+scene (O8's end state leaves SC out of its live read: `end_state_scene`, the review's #3). O8 built for it: `at_y`, the
+knight wait (`wait_flag`), the y axis on `until` with the loss's height off the ring, the opt-in `unstick`, the
+per-field fake clearance, the height-triggered walker with a store, the declared seam (O8-SEAM), the raced end-state set
+derived from the end field's bytes to its Main_Init's RET (`end_race8`), and `reach8` -- a store site's reachability
+from given values, e.g. which of 55's e8 t1 / e10 t1 sites a `Map.Byte[24]` case reaches -- with `end_map_held8`, which
+holds a Map variable only where no other function of the field stores it. If O8's F5 took the fallback (`unstick:
+false`), say so here."
 
 ---
 
@@ -2832,3 +2835,25 @@ the chain's `campaign.toml` (route members 31256, 31257, 31258) -- `o8_forks.jso
 15. **The poke test breaks on its ONCE**, not on "a poke while a page is up": no page is up after the ip502 row on the
     fake's route (313 closes before ip502), so the quiet guard has no path to fail there; a poke on every quiet poll past
     `after_s` opens a second skip dialog.
+
+#### The review: five findings on the built O8 (each fixed, none disproved)
+A code review of PARTs A-C raised five findings: one medium, four low. Each came with a verifier's re-check against the
+code (a scratch drive of the real `Recorder.t0_scan` over a real StateRing for #1; the placement read off stock 164 and
+story-o7's archive for #2; `reach8` on stock 55 with and without the hold for #3; a probe of the draft's goals with
+looser untils for #4; `Session.wait_for` on a stub channel for #5), and each was fixed with a test or a dry-run mutant
+that fails without it (the mutant run named in its commit). None was disproved. One was tempered by the fixer and is
+said: #3's failure scenario -- 55's scene setting SC 1400 "a few seconds after the cut" with no input -- does not hold
+in a run. The scene reaches case 3 only past e8 t1's WindowSync page 129 (case 1), and the driver presses nothing in 55:
+rule 1 ends the run on its first poll there (segment_drive.py's go loop). So the live SC read never raced. The PROOF was
+unsound (it held a variable e1 t1 stores) and PLAN.md and the O9 handoff repeated its false claim, and those are what
+was fixed. After the last code commit: the dry run 227/227 on the draft and as if frozen (219 and the review's 8 listed
+mutants; `O8_DRYRUN_FLOOR` 227), `--offline-check` 6 PASS, and the fixer's whole-file run and full gate on its head (the
+fixer's receipt).
+
+| # | Finding | Re-checked | Disposition |
+|---|---|---|---|
+| 1 (low) | `Recorder.t0_scan` read T0 off the session ring (STATE_RING 300 distinct samples, ~10 s at 60 fps) only on go-loop polls, and none runs inside 164 #0's walk and THE KNIGHT WAIT: a slow knight or a stalled attempt ~10 s past the release evicted the crossing, and the scan took the first sample left at P1 (y ~8958) as T0 -- seconds late, unsaid, under-reporting F2's ip230 - T0. | A scratch drive of the real `t0_scan` over a real StateRing: a 60 fps climb crossing at frame 1160, then 12 s at P1, read T0 at frame 1522 (6 s late) with no marker; the design's own A3 admits the same eviction for the loss sample. | FIXED (316e9ce7): a scan whose ring no longer holds its last frame read records the eviction gap; after it the first passing sample is T0 only once a sample in his place UNDER the release follows the gap, else T0 is `{"frame": None, "evicted": True, "after", "held_from", "first"}` and the report's THE KNIGHT line prints T0 UNMEASURED. `test_o8_rehearsal_t0_scan_marks_an_evicted_release_unmeasured` (pure, a real StateRing: a ring of 300 reads UNMEASURED, one of 5000 frame 1160, and a gap before his place still reads the crossing) fails on the old scan (frame 1504, 5.7 s late). |
+| 2 (low) | O8-GOALS (g6') kept loop 1 400 from `seat_watch.y`, 11896 -- his SEAT -- but the bytes place him on tri 130 at PSX -11255 and his walk climbs from there: the check over-stated loop 1's separation by 641 u at his lowest. The fake's H25 pair band kept the body's y at the seat's too. | A13 (story-o7's R-FULL archive reads him at (249, y 11255, 4630)) and o8_route.md's placement (GetTriIdxAtPos's highest: tri 130); his level along his walk off stock 164's mesh: 11255, 11448, 11598, 11727, 11896, monotone. Latent: band (164, 0) caps loop 1 near 9500. | FIXED (047c8736): `seat_watch.start_y` 11255; `knight_levels` reads his level along his pinned walk off the mesh; (g6') requires `start_y` and `y` to be the mesh's placement and seat levels with everything between, then keeps loop 1 400 from the whole range ("loop 1 at least 2297 below his level 11255-11896"). H25b (opt-in, `_step_walkers`, re-baselined by name): a path whose points carry a third coordinate moves the body's y with its x and z, linearly along each leg; `_o8_knight` carries `_O8_KNIGHT_LEVELS`, pinned against `knight_levels`. `test_fake_knight_pairs_at_his_own_level` (Steiner at y 11000: held on the first leg, walked through on the last) fails on the old fake and with the level fixed; dry-run mutants goals-knight-start-y and goals-knight-level PASSED the old (g6'). |
+| 3 (medium) | O8-KEYS (g)'s other-function proof ran `reach8` with `Map.Byte[24]` HELD at 1, the value 55 e0 t0 leaves at its RET -- but e1 t1 (instanced by e0 t0 ip223) stores it 2 / 3 / 4 on the scene's `Map.Bit[231]` handshakes, so e10 t1 case 3's `UInt16[0] := 1400` (ip568 / ip582) IS reachable. (g) passed a false claim, and PLAN.md and the O9 handoff repeated it. | `reach8(55, 10, 1, 582)`: False with {Byte[24]: 1}, True with {3}, {} and None; e1 t1 ip76 is itself unreachable under the hold. Tempered (above): page 129 gates the scene, and the driver presses nothing in 55. | FIXED (8d670893): `end_map_held8` holds a Map variable only where no other 55 function stores it (derived: Bit[159] 1 and Byte[17] 255 held, Byte[24] and Bit[167] free; `END_MAP_KEYS8` is gone). `end_proof8` derives THE ARRIVAL SCENE -- the candidates' reachable other-function stores -- and requires `end_state_scene` to be exactly it. Option (b): SC out of the live read (`END_SCENE8`; the draft's end state twelve targets), SC 1190 at the cut resting on O8-NO-SC; the freeze refuses an arrival-scene target in `end_state`. Mutants keys-55-map-held, keys-sc-live, keys-scene-dropped and keys-live-dropped each PASSED HEAD's proof. PLAN.md's end-state paragraph and O9 handoff (O9 must predict 55's own SC 1400) are corrected, and this design's 0.2 #26, 4.2, 4.9, 6.1 (g), 9.1 and PART C #2 are marked. |
+| 4 (low) | O8-GOALS (g4')'s "the door's first firing sample satisfies the until" cannot fail for an until looser than the door's gate (`first` is chosen where the gate holds), and nothing else tied a trigger's until to its door: 164 #1 at {y_gt: 9000} or 165 #1 at {y_gt: 11000} passed GOALS and the freeze, which checked only that a `y_gt` key exists. | A probe of the draft: both looser untils read GOALS PASS with the draft's (g4') line; only the stricter mutant (14000) failed. | FIXED (74c58160): `y_implies` -- the until's y terms at least as strict as the gate, per operator. (g4') fails "its until ... is looser than its door ...'s gate", and the freeze refuses a 164 #1 or 165 #1 until that does not imply its door's gate. Mutants goals-164-1-until-loose and goals-165-1-until-loose PASSED with `y_implies` neutralised; the goals test pins `y_implies` on every operator, and the freeze test refuses {y_gt: 9000}. |
+| 5 (low) | S21's `wait_flag` absorbed only `Session.wait_for`'s "live samples" timeout. A window of a few tens of ms (the run's deadline just after the walk reached P1, or a re-wait's remainder) reads one sample and raises the frozen-channel error, which escaped unclassified -- the run STOPPED instead of the step's V13. The fake tests with `timeout_s` 1-2 were exposed to a whole-window stall. | `Session.wait_for` on a stub channel at 31 fps: a 0.0 s window raises "published nothing at all", 0.02 s the frozen channel, 0.05 s and up "live samples". | FIXED (958fe0ca): `WAIT_FLOOR_S` 0.5 -- under it the wait ends on the deadline at once (V13 by the driver), and every window lasts at least it; `NO_LIVE_SAMPLE`'s texts are the deadline's once the run's deadline has passed, else propagated as before. `test_segment_walk_wait_short_window_is_the_budget_never_the_channel` (pure, a stub whose every window reads no live sample) fails with the old loop; the fake tests' starvation rule (`_s20_load`, `_O8_LOAD_VOIDS`) re-runs a driver-class no-live-sample error. |

@@ -1780,13 +1780,13 @@ it. The watchdog's `no_progress_s` is sized by F8 for FMV004's static span (draf
 
 **The end state's race.** Read live on arrival in REAL 55 WITHOUT `Int16[2]`, `Byte[8]` and SC: twelve targets -- eight
 the route leaves and the four the knight's talk would write, untouched since New Game. THE RACED SET IS DERIVED
-(`end_race8`: 55 e0 t0 walked from the arrival's values to its RET, ip565): 55's ip255 rewrites `Int16[2]` 110 -> 106 and
-its ip342 `Byte[8]` 0 -> 125, so both are taken from the TRACE -- the last pre-cut rows, 166 e6 t1 ip863 = 110 and ip502
-= 0, matched by place. THE ARRIVAL SCENE IS DERIVED too (the review's #3, research/o8_design.md 11.4): 55's own scene
-stores SC 1400 -- e10 t1 ip568 / ip582, case 3, once e1 t1 has advanced `Map.Byte[24]` 1 -> 2 -> 3 on the scene's
-`Map.Bit[231]` handshakes, the first past e8 t1's WindowSync page 129 -- so SC is never read live (`end_state_scene`) and
-SC 1190 at the cut rests on O8-NO-SC. O8-KEYS (g) proves that no other 55 function stores a LIVE `end_state` target on
-this arrival, holding a Map variable only where no other 55 function stores it (`end_map_held8`: `Map.Bit[159]` 1 and
+(`end_race8`: 55 e0 t0 walked from the arrival's values to its RET, ip565): 55's ip255 rewrites `Int16[2]` 110 -> 106
+and its ip342 `Byte[8]` 0 -> 125, so both are taken from the TRACE -- the last pre-cut rows, 166 e6 t1 ip863 = 110 and
+ip502 = 0, matched by place. THE ARRIVAL SCENE IS DERIVED too (the review's #3, research/o8_design.md 11.4): 55's own
+scene stores SC 1400 -- e10 t1 ip568 / ip582, case 3, once e1 t1 has advanced `Map.Byte[24]` 1 -> 2 -> 3 on the scene's
+`Map.Bit[231]` handshakes, the first past e8 t1's WindowSync page 129 -- so SC is never read live (`end_state_scene`)
+and SC 1190 at the cut rests on O8-NO-SC. O8-KEYS (g) proves that no other 55 function stores a LIVE `end_state` target
+on this arrival, holding a Map variable only where no other 55 function stores it (`end_map_held8`: `Map.Bit[159]` 1 and
 `Map.Byte[17]` 255 -- never `Map.Byte[24]`, which the first draft held at the arrival's 1).
 
 **The checks** ([`o8_west_tower.py`](o8_west_tower.py); research/o8_design.md 5 and 6):
@@ -1823,25 +1823,26 @@ F1-F14; `--freeze` (v1); the session, `py tools/play.py studies/story-trace/o8_w
 `.harness-runs\` before any gate reads them, then one `harness_tests.py whole` and one `segment_regress.py
 --pytest-junit` on its receipt.
 
-**Next, O9:** O8 ends on the arrival in REAL 55 at 110 (cut at 55 e0 t0 ip22) on both sides. O9 starts with a raw
-`warp 55 110 1190` (S) / `warp 31205 110 1190` (F): the fork side SWITCHES CHAINS there (O4's alxc -> O1's tshp, whose
+**Next, O9:** O8 ends on the arrival in REAL 55 at 110 (cut at 55 e0 t0 ip22) on both sides. O9 starts with a raw `warp
+55 110 1190` (S) / `warp 31205 110 1190` (F): the fork side SWITCHES CHAINS there (O4's alxc -> O1's tshp, whose
 member(55) is 31205, ForkDonorPatch line 42 -- the reason O8's F side ends in real 55 and declares its seam). The raw
-start's residue: SC bytes 0-1 and FieldEntrance byte 2 (0 -> 110); byte 3 holds 0 (110 = 0x006E), so expect THREE
-rows, O6's contract -- re-derive, never assume. 55's START-DEPENDENT reads are e8 t1 ip633 / ip666 / ip1354, the party
-and UInt16[19]: there a raw start differs from a true O1-O8 run in VALUE, not only in olds, so O9's start must be
-SEEDED or those reads declared -- the owner's options: (a) declare them (`start_dependent` keys with `after.old`, O6's
-form); (b) a chained start (O8's arrival as O9's start: not a raw warp); (c) narrow O9 to what 55 does before those
-reads; (d) pokes before the warp -- `byte 19 15`, `byte 20 7` (UInt16[19] 1807), `byte 21 8` (UInt16[21] 8), `byte 303
-1`, `byte 18 1`, `byte 208 1` -- each a carried value O1-O8 compose (`carried_from_segments` over O1-O8, never typed),
-the pokes then registered residue. 55 is block 2 (text); its page 129 (e8 t1's WindowSync, in case 1) halts the scene at
-FieldHUD until it is confirmed, and then the scene runs on by itself to case 3 -- e1 t1 advances Map.Byte[24] 1 -> 2 -> 3
-on the scene's Map.Bit[231] handshakes -- where e10 t1 ip582 stores SC 1400 (SC <= 1400): O9 MUST PREDICT SC 1400 from
-55's own scene (O8's end state leaves SC out of its live read: `end_state_scene`, the review's #3). O8 built for it: `at_y`, the knight wait (`wait_flag`), the y axis on `until` with the
-loss's height off the ring, the opt-in `unstick`, the per-field fake clearance, the height-triggered walker with a
-store, the declared seam (O8-SEAM), the raced end-state set derived from the end field's bytes to its Main_Init's RET
-(`end_race8`), and `reach8` -- a store site's reachability from given values, e.g. which of 55's e8 t1 / e10 t1 sites a
-`Map.Byte[24]` case reaches -- with `end_map_held8`, which holds a Map variable only where no other function of the field
-stores it. If O8's F5 took the fallback (`unstick: false`), say so here.
+start's residue: SC bytes 0-1 and FieldEntrance byte 2 (0 -> 110); byte 3 holds 0 (110 = 0x006E), so expect THREE rows,
+O6's contract -- re-derive, never assume. 55's START-DEPENDENT reads are e8 t1 ip633 / ip666 / ip1354, the party and
+UInt16[19]: there a raw start differs from a true O1-O8 run in VALUE, not only in olds, so O9's start must be SEEDED or
+those reads declared -- the owner's options: (a) declare them (`start_dependent` keys with `after.old`, O6's form); (b)
+a chained start (O8's arrival as O9's start: not a raw warp); (c) narrow O9 to what 55 does before those reads; (d)
+pokes before the warp -- `byte 19 15`, `byte 20 7` (UInt16[19] 1807), `byte 21 8` (UInt16[21] 8), `byte 303 1`, `byte 18
+1`, `byte 208 1` -- each a carried value O1-O8 compose (`carried_from_segments` over O1-O8, never typed), the pokes then
+registered residue. 55 is block 2 (text); its page 129 (e8 t1's WindowSync, in case 1) halts the scene at FieldHUD until
+it is confirmed, and then the scene runs on by itself to case 3 -- e1 t1 advances Map.Byte[24] 1 -> 2 -> 3 on the
+scene's Map.Bit[231] handshakes -- where e10 t1 ip582 stores SC 1400 (SC <= 1400): O9 MUST PREDICT SC 1400 from 55's own
+scene (O8's end state leaves SC out of its live read: `end_state_scene`, the review's #3). O8 built for it: `at_y`, the
+knight wait (`wait_flag`), the y axis on `until` with the loss's height off the ring, the opt-in `unstick`, the
+per-field fake clearance, the height-triggered walker with a store, the declared seam (O8-SEAM), the raced end-state set
+derived from the end field's bytes to its Main_Init's RET (`end_race8`), and `reach8` -- a store site's reachability
+from given values, e.g. which of 55's e8 t1 / e10 t1 sites a `Map.Byte[24]` case reaches -- with `end_map_held8`, which
+holds a Map variable only where no other function of the field stores it. If O8's F5 took the fallback (`unstick:
+false`), say so here.
 
 ## Build testing (every segment's build, from O7) -- overrides any design's section 9 where it differs
 
