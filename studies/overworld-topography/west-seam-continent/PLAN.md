@@ -205,6 +205,13 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 
 ### R4 — THE FIRST MASSIF: the horseshoe ensemble (west span; GATED on the R1 WARN verdict)
 
+> **THE FOOT-AUTHORING ARC IS CLOSED (2026-10-06, after take 12, owner: "smudging and guessing").**
+> [`SECTOR-MAP.md`](SECTOR-MAP.md), a registered retrodiction, explains the record. The failed arc is the
+> one 29u run where the rim touched a FOREST at home. The forest climbs to the rock there, so the rim sits
+> at canopy height (~1.5u over our lawn). The other 234u met bare grass at home and passed untouched.
+> Next: no take 13. A stock-wide forest-foot census comes first, then the owner picks from options (a)-(d)
+> in that file.
+
 > **DEFECT ROUND (owner rim walk): the (1418–1433, −469..−485) arc showed a grassy knoll against
 > the mountain with no grass–mountain transition; the rest of the perimeter and the plateau passed.**
 > Byte forensics: that arc is the donor's HIGH-FOOT arc (foot 4.3–5.1 vs the 3.2 plateau) flanked by
