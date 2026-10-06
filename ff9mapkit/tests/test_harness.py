@@ -31041,14 +31041,21 @@ def _s20_rows(log) -> list:
     return [r for r in log if r.get("k") == "step"]
 
 
+#: segment_drive.NO_LIVE_SAMPLE (the review's #5; the S21 budget-edge test asserts them equal): Session.wait_for's
+#: timeouts that read no live sample -- on the fake, a driver process stalled across a whole window.
+_SD_NO_LIVE_SAMPLE = ("the channel is frozen", "published nothing at all")
+
+
 def _s20_load(out, log) -> bool:
     """A run a starved harness spoiled (the load-robust rule, research/o8_design.md 9): the walk ended SHORT -- a stall
-    ("from its goal" without the height's clause) -- or the budget; never a height's failure, a wait's verdict or a
-    game class."""
+    ("from its goal" without the height's clause) -- or the budget, or a window that read NO live sample (the review's
+    #5: Session.wait_for's frozen-channel or nothing-published error -- the driver process stalled across a whole window,
+    the fake's frames unread); never a height's failure, a wait's verdict or a game class."""
     walks = _s20_rows(log)
     short = any(r["outcome"] == "failed" and "outside at_y" not in (r.get("why") or "") for r in walks)
     budget = isinstance(out, Exception) and "the run's budget ran out" in str(out) and "flag wait" not in str(out)
-    if short or budget:
+    starved = isinstance(out, HarnessError) and any(m in str(out) for m in _SD_NO_LIVE_SAMPLE)
+    if short or budget or starved:
         assert not isinstance(out, Exception) or getattr(out, "by", "driver") == "driver", out
         return True
     return False
@@ -31308,6 +31315,58 @@ def test_segment_walk_wait_runs_out_on_both_clocks():
     verdict, out, took, sent = wait(0.25, 5.0, left=0.3)
     assert (verdict, out["v"], out["by"]) == ("void", "V13", "driver") and "the budget" in out["why"], out
     assert out["wait_flag"]["read"] is False and took < 5.0 and sent == ["watch", "unwatch"], (took, out)
+
+
+class _S21Frozen(_S21Session):
+    """:class:`_S21Session` whose every window reads NO live sample: ``wait_for`` records the window it is asked for,
+    reads one sample, sleeps the window out and raises Session.wait_for's frozen-channel error (``fresh == 0``) -- what
+    a window of a few tens of ms gives, or a harness stall across a window's end."""
+
+    def __init__(self, rate):
+        super().__init__(rate)
+        self.windows = []
+
+    def wait_for(self, predicate, *, timeout=20.0, what="condition"):
+        self.windows.append(round(timeout, 3))
+        st = self.state
+        predicate(st)
+        time.sleep(max(0.0, timeout))
+        raise HarnessError(f"timed out after {timeout:.0f}s waiting for {what}, and the agent's frame counter never "
+                           f"moved off {st.frame} -- the channel is frozen, so this says nothing about the condition.")
+
+
+def test_segment_walk_wait_short_window_is_the_budget_never_the_channel():
+    """S21's budget edge, pure (research/o8_design.md 11.4, the review's #5), on a stub session whose every window reads
+    no live sample (:class:`_S21Frozen`, Session.wait_for's frozen-channel error): with 0.03 s of the run left NO window
+    is opened -- V13 by the driver, "the budget", the stub asked for nothing; with 0.6 s left (over WAIT_FLOOR_S) the one
+    window is the budget's remainder, and its no-live-sample error, the deadline passed, is the deadline's V13 too; with
+    the deadline far the same error is the instrument's and propagates. A ``timeout_s`` of 0.2 opens a window of the
+    floor, 0.5 s. The watch is set and cleared each time; the test helpers' starvation markers are the driver's. Break:
+    a window under the floor opened (0.03 s: the frozen error escapes as an unclassified HarnessError, no V13)."""
+    SD = _segment_modules()
+    pred = {"regions": {}, "steps_default": dict(_O2_DEFAULTS)}
+    assert SD.NO_LIVE_SAMPLE == _SD_NO_LIVE_SAMPLE and SD.WAIT_FLOOR_S == 0.5, (SD.NO_LIVE_SAMPLE, SD.WAIT_FLOOR_S)
+    assert all(m in _O8_LOAD_VOIDS for m in _SD_NO_LIVE_SAMPLE), _O8_LOAD_VOIDS
+
+    def drive(timeout_s, left):
+        d = SD._Drive.__new__(SD._Drive)
+        d.g, d.fid, d.members, d.deadline = _S21Frozen(1.0), 30820, {}, time.time() + left
+        return d, SD.step_of(pred, _s20_wait(timeout_s=timeout_s))
+    d, step = drive(15.0, 0.03)
+    verdict, out = SD._Drive.wait_flag(d, step, {})
+    assert (verdict, out["v"], out["by"]) == ("void", "V13", "driver") and "the budget" in out["why"], out
+    assert d.g.windows == [] and out["wait_flag"]["read"] is False and d.g.sent == ["watch", "unwatch"], d.g.windows
+    d, step = drive(15.0, 0.6)
+    verdict, out = SD._Drive.wait_flag(d, step, {})
+    assert (verdict, out["v"], out["by"]) == ("void", "V13", "driver") and "the budget" in out["why"], out
+    assert len(d.g.windows) == 1 and SD.WAIT_FLOOR_S <= d.g.windows[0] <= 0.6, d.g.windows
+    assert d.g.sent == ["watch", "unwatch"], d.g.sent
+    d, step = drive(0.2, 60.0)
+    with pytest.raises(HarnessError, match="the channel is frozen"):
+        SD._Drive.wait_flag(d, step, {})
+    assert d.g.windows == [0.5] and d.g.sent == ["watch", "unwatch"], (d.g.windows, d.g.sent)
+    assert _s20_load(HarnessError("x -- the channel is frozen, so"), []) is True
+    assert _s20_load(SD.RouteVoid("Bit[3811] read 0, never 1", v="V8", by="game"), []) is False
 
 
 def test_segment_walk_wait_field_change_is_the_games_v11_on_the_fake(game):
@@ -32297,9 +32356,11 @@ _O8_END_STATE = {"Global.UInt16[0]": 1190, "Global.Bit[191]": 0, "Global.Bit[184
                  "Global.Byte[208]": 1, "Global.Bit[3851]": 0, "Global.Bit[3792]": 0, "Global.Bit[7211]": 0,
                  "Global.Int16[224]": 0}
 #: The driver's classes a starved harness can give (research/o8_design.md 9, the load-robust rule): the budget (the
-#: wait's deadline included), a walk failed out of its attempts (a stalled or timed-out walk), a loss read across a fade.
-#: Never the class a test asserts.
-_O8_LOAD_VOIDS = ("went unseen", "the run's budget ran out", "of its 2 attempts", "of its 3 attempts")
+#: wait's deadline included), a walk failed out of its attempts (a stalled or timed-out walk), a loss read across a fade,
+#: a window that read no live sample (the review's #5: :data:`_SD_NO_LIVE_SAMPLE`, the driver process stalled across a
+#: whole window). Never the class a test asserts.
+_O8_LOAD_VOIDS = ("went unseen", "the run's budget ran out", "of its 2 attempts", "of its 3 attempts",
+                  *_SD_NO_LIVE_SAMPLE)
 #: 164's and 165's planes over the box, on both sides' ids.
 _O8_BOX_PLANES = {30860: _O8_PLANES["164"], 31256: _O8_PLANES["164"], 30861: _O8_PLANES["165"],
                   31257: _O8_PLANES["165"]}

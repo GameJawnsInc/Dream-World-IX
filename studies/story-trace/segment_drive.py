@@ -179,6 +179,16 @@ WALK_ONLY = ("at_y", "wait_flag")
 WAIT_FLAG_KEYS = ("flag", "value", "timeout_s")
 #: S21: the highest gEventGlobal bit (Byte[2048]).
 MAX_FLAG_BIT = 16383
+#: S21 (research/o8_design.md 11.4, the review's #5): the shortest window a flag wait opens. ``Session.wait_for`` proves a
+#: window live only by a sample whose frame moved, so a window of a few tens of ms holds one read and raises the
+#: channel's error ("the channel is frozen" / "published nothing at all") -- the instrument's text for the BUDGET's
+#: event. A run with less than this left ends the wait on its deadline (V13 by the driver), and every window it opens
+#: lasts at least this long (a ``timeout_s`` under it still runs out once both clocks ran ``timeout_s``).
+WAIT_FLOOR_S = 0.5
+#: S21: the texts of ``Session.wait_for``'s timeouts that read NO live sample (a frozen channel, nothing published) --
+#: absorbed only once the run's deadline has passed (the window was the budget's remainder), else propagated as every
+#: harness call propagates them.
+NO_LIVE_SAMPLE = ("the channel is frozen", "published nothing at all")
 #: What a confirm step's ``expect`` may name: a choice opening, or control going (2.3).
 EXPECTS = ("choice", "control_lost")
 #: A forbidden pattern's keys (4.7), strict: any other raises. The matchers select raw ``w`` rows (all given must
@@ -3182,9 +3192,12 @@ class _Drive:
         it is V8 by the GAME only when the window's last sample PUBLISHED the bit -- it latches on the route (O8-CENSUS:
         164's only store to Bit[3811] is e1 t1 ip230 := 1), so its last published value is its value throughout -- and
         V13 by the DRIVER when that sample carried no bit (the watch dropped: AppendWatch publishes ``"flags":{}`` on
-        any fault, HarnessAgent.cs:2162-2166 -- the instrument's: the reviews' A4 / B4). The row's ``wait_flag``:
-        ``{flag, value, read, frame0, frame, s, game_s, published, last}`` (``published`` the distinct frames that
-        carried the bit, ``last`` its last published value)."""
+        any fault, HarnessAgent.cs:2162-2166 -- the instrument's: the reviews' A4 / B4). THE BUDGET'S EDGE (the review's
+        #5): no window under :data:`WAIT_FLOOR_S` is ever opened -- a run with less left ends the wait on its deadline
+        at once -- and a window that read no live sample (:data:`NO_LIVE_SAMPLE`: a harness stall across the window's
+        end, or a frozen channel) is the deadline's once the run's deadline has passed, else the instrument's error,
+        propagated. The row's ``wait_flag``: ``{flag, value, read, frame0, frame, s, game_s, published, last}``
+        (``published`` the distinct frames that carried the bit, ``last`` its last published value)."""
         from harness import HarnessError
         from harness.session import _game_seconds
         g, fid = self.g, self.fid
@@ -3212,15 +3225,20 @@ class _Drive:
         try:
             while end is None:
                 left = self.deadline - time.time()
-                if left <= 0:
+                if left < WAIT_FLOOR_S:                 # the review's #5: no window this short proves a live sample
                     end = "deadline"
                     break
                 try:
                     st = g.wait_for(lambda s: has(s) or not s.control or s.field_id != fid,
-                                    timeout=min(limit, left), what=f"the flag wait: Bit[{flag}] == {value}")
+                                    timeout=min(max(limit, WAIT_FLOOR_S), left),
+                                    what=f"the flag wait: Bit[{flag}] == {value}")
                     end = "event"
                 except HarnessError as err:
-                    if "live samples" not in str(err):
+                    text = str(err)
+                    if "live samples" not in text:
+                        if time.time() >= self.deadline and any(m in text for m in NO_LIVE_SAMPLE):
+                            end = "deadline"            # no live sample, and the window was the budget's remainder
+                            break
                         raise
                     st = g.state                        # one read: the window's last sample
                     ran = game_ran(st)

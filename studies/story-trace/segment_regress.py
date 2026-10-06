@@ -437,6 +437,9 @@ REQUIRED_TESTS: tuple = (
     "test_segment_trigger_until_without_y_keeps_todays_row_on_the_fake",        # A2: S22 opt-in, today's row
     "test_segment_walk_kw_passes_unstick_only_when_carried",                    # A3: S23's keyword and row, pure
     "test_segment_unstick_false_places_no_blocker_on_a_stall_on_the_fake",      # A3: S23 off the ladder, on the fake
+    # research/o8_design.md 11.4, the review's fixes: S21 never opens a window under its floor, and a window that read
+    # no live sample past the run's deadline is the budget's V13 (#5)
+    "test_segment_walk_wait_short_window_is_the_budget_never_the_channel",
 )
 
 O1E_VERDICT = "PROVEN"
