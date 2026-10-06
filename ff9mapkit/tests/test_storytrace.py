@@ -709,6 +709,27 @@ def test_a_fork_run_across_a_seam_is_named_and_never_matched():
             "  Global.Bit[9002] := 1 <- {553}   -- no member's donor writes it\n") in text
 
 
+def test_a_seam_whose_last_member_write_is_a_harness_poke_names_it_and_does_not_raise():
+    """O8's ``last-place-harness``: the driver's own poke is the member's last ``w`` row before the door into a
+    real field. A harness row has no script position (sid/ip -1, the engine names no writer), so the seam
+    names it as one -- the digest, and with it a whole session's analysis, must not die joining it."""
+    stock, fork = _seam_sources()
+    tour = _tour(True)
+    poke = _w(src="harness", sid=-1, uid=-1, lvl=-1, ip=-1, tag=-1, w="Byte", byte=236, old=0, new=15, f=215,
+              fld=30823, don=552)
+    d = S.digest("fork", _rows(*tour[:3], poke, *tour[3:]), scripts=fork, donor_scripts=stock, members=MEMBERS)
+    [s] = d.seams
+    assert (s.frm, s.donor, s.to, s.frame, s.line, s.fields) == (30823, 552, 553, 500, 5, [553])
+    assert (s.exit.src, s.exit.line, s.exit.target, s.exit_where) == ("harness", 4, "Global.Byte[236]", "harness")
+    assert d.harness == 1 and not d.failures and not d.notes      # the poke stays the seed: never a key or a failure
+    sd = [S.digest("stock", _rows(*_tour(False)), scripts=stock)]
+    c = S.compare(sd, [d], members=MEMBERS)
+    assert _sig(c.matched) == [(552, 0, 0, 0, "Global.Int16[9]", 1582), (552, 1, 3, 0, "Global.Bit[9000]", 1)]
+    assert _sig(c.across_seam) == [(553, 0, 0, 0, "Global.Byte[13]", 2), (553, 1, 2, 0, "Global.Bit[9002]", 1)]
+    assert ("  member(552) [fork 30823] -> real 553: 1/1 fork runs; first seam row at frame 500 (fork line 5); "
+            "the member's last write before it: harness  Global.Byte[236] = 15\n") in S.report(c)
+
+
 def test_without_the_member_set_the_same_rows_merge_silently_and_as_a_member_they_are_clean():
     """The two mutants rung 3 registered: the seam rows read with no member set MATCH stock (the silent merge
     the member set exists to stop), and the same visit as a MEMBER comes out clean, no seam at all."""
