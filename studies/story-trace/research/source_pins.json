@@ -187,5 +187,40 @@
   "new": "a741f6ebd127d730cc157ea02854482354f5c88fbc2c163d17c657883218b259",
   "reason": "O7 review fix H24: a page with async True (WindowAsync alone) returns once listed, the script going on while it is up; a page without async waits for its window exactly as before",
   "head": "60eff9ff4b5a972413967b3b5fa04b6c4be05693"
+ },
+ {
+  "name": "ff9mapkit/tests/test_harness.py::test_segment_regress_o6_pins_join_the_union",
+  "old": "9f75018b74116851a6f5c292396249f5dae3f593839a5d739b8a2b4880149c04",
+  "new": "a90ff185d83fefed63ed502afe6e81fbe139fb62e082eaab8a7c53c461c47a75",
+  "reason": "O8 A0 (research/o8_design.md 1.4; 11.4 PART A): PIN_BASELINES grows to five -- the O7 baseline joins G21 -- so a five-source union_sources call is no longer over its bound; the one refusal assertion now reads the bound off the registry (len(PIN_BASELINES) + 1 sources: \"joins at most the O3, O4, O5, O6, O7 baselines, not 6\"), so every later extension keeps the test. Nothing else in the body changed.",
+  "head": "153b0d6cae8181b9a4df37eff0b3bcff74271098"
+ },
+ {
+  "name": "ff9mapkit/tests/test_harness.py::test_o2_step_of_refuses_a_step_its_executor_cannot_run",
+  "old": "d883a61fd403195a818cae1fc7f5e3a194bb2a2354405731221f203a6c97e726",
+  "new": "b52deb1c0e051337aa65a4f9e98c3b560a593d73e0b3a6244fab3320769ec3e9",
+  "reason": "O8 A2 (research/o8_design.md 1.2 S22, 'What flips'; 11.3 B1): S22 makes a y_ until term valid, so the refused case moves to an unknown axis -- until {w_le: 0}, matched 'x\\|z\\|y' (refused as y_le was before S22); nothing else in the body changed",
+  "head": "102351c0e61174175fb4668551fcdcc9fdca9e78"
+ },
+ {
+  "name": "tools/harness/fakegame.py::FakeGame._move_to",
+  "old": "eae435f3a191f9b73ca932ac61e40062c38664afc78b5ceec15e7c2670115e66",
+  "new": "acd40315951b0b39dc3c03c33d5beaaa5201791f98902ab0b59afc920410c70f",
+  "reason": "O8 B1 (research/o8_design.md 3.1, 11.4 PART B #1): H26 -- every rule of the step reads THIS field's clearance (FakeGame._clearance: fake.clearances' entry, else fake.clearance), so 164 walks at radius 80 and 165 at 120 in one run; and H21's refused step -- at a pinch narrower than its bound a push-out that lands behind the press while he stands on a passable pinch's midline is refused (he stays: the engine's IsRadiusValid), where it jittered at the mouth. Neutral on O7: the O7, O6 and O5 replays identical, every fake_level and O7 real-mesh driver test green",
+  "head": "e110d27479710182b52b3e94f2c6bda704b97676"
+ },
+ {
+  "name": "tools/harness/fakegame.py::FakeGame._step_walkers",
+  "old": "b089b0a52c8b121371008e85192fdc94645826874c5792d97bd3901fd6739e19",
+  "new": "ec26e832e3869a84f211e09702963329059a9cd831702d8c16c8be16e5583359",
+  "reason": "O8 B2 (research/o8_design.md 3.2): H25, THE KNIGHT WALKER -- a walker body's opt-in start (released by the player's published y, latched: 164 e1 t1 ip178 read through ip187) and store (script_store once, after_ticks field ticks after its once path's last index, the countdown before the walking skip, on the body: gone with its visit), read strict on its first step (_walker_knobs), and such a body held by him only at |dy| < 400 (WalkMesh.cs:919-921). A body with neither steps exactly as before: the O7 and O6 replays identical, every fake_patrol and fake_level test green",
+  "head": "cbe4944b00bb93f4bf624ded3b40805f06b9ce13"
+ },
+ {
+  "name": "tools/harness/fakegame.py::FakeGame._step_walkers",
+  "old": "ec26e832e3869a84f211e09702963329059a9cd831702d8c16c8be16e5583359",
+  "new": "bbd9d54b5c6ac5f8beaa7d4e92b19e863f07e83303be539110a712048b11c066",
+  "reason": "O8 review #2 (research/o8_design.md 11.4): H25b, opt-in -- a walker path whose points carry a third coordinate (the walker's LEVEL there, read off the mesh) moves the body's y with its x and z, linearly along each leg, so the pair band and objects read the level it stands on (the knight climbs loop 2 from 11255 to 11896); path[k]'s x and z are read by index, so every two-coordinate path (every walker before O8's knight) runs exactly as before",
+  "head": "74c581600e495c4232362557bcf005c39d9f8332"
  }
 ]

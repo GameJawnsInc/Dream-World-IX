@@ -122,6 +122,38 @@ SQUEEZE_SLACK_W = 8.0
 #: H21: the spacing of the search across a pinch for its widest point.
 SQUEEZE_SAMPLE_W = 2.0
 
+# ======================================================================== H25: O8's knight walker
+#: H25 (research/o8_design.md 3.2): a walker's ``start`` terms on the player's PUBLISHED y -- the release its height
+#: gate reads (164 e1 t1 ip178's test read through ip187's JMP_IF loop: ``{"y_ge": 8400}``).
+_WALKER_TESTS = {"y_ge": lambda y, h: y >= h, "y_gt": lambda y, h: y > h,
+                 "y_le": lambda y, h: y <= h, "y_lt": lambda y, h: y < h}
+
+
+def _walker_knobs(b: dict) -> None:
+    """H25's keys read STRICT on a walker's first step (the H23 ``hold`` reader's place): ``start`` None or exactly
+    one of :data:`_WALKER_TESTS`' terms to a number (a bool is no number); ``store`` None or a dict of exactly
+    ``after_ticks`` -- a number >= 0 -- and ``args`` -- the seven ``[sid, tag, ip, byte, width, new, bit]`` of a
+    :meth:`FakeGame.script_store`; ``path`` (H25b, the review's #2) ``[[x, z], ...]`` or ``[[x, z, y], ...]`` -- y the
+    walker's level at the point, on every point or none -- numbers all. A ValueError names the fault."""
+    def num(v) -> bool:
+        return isinstance(v, (int, float)) and not isinstance(v, bool)
+    path = b.get("path")
+    if path is not None and not (isinstance(path, (list, tuple)) and all(
+            isinstance(p, (list, tuple)) and len(p) in (2, 3) and all(num(v) for v in p) for p in path)
+            and len({len(p) for p in path}) <= 1):
+        raise ValueError(f"a walker's path is [[x, z], ...] or [[x, z, y], ...] (y its level at the point, on every point "
+                         f"or none), not {path!r}")
+    start, store = b.get("start"), b.get("store")
+    if start is not None and not (isinstance(start, dict) and len(start) == 1 and set(start) <= set(_WALKER_TESTS)
+                                  and num(next(iter(start.values())))):
+        raise ValueError(f"a walker's start is exactly one of {sorted(_WALKER_TESTS)} to a number (his published y), "
+                         f"not {start!r}")
+    if store is not None and not (isinstance(store, dict) and set(store) == {"after_ticks", "args"}
+                                  and num(store["after_ticks"]) and store["after_ticks"] >= 0
+                                  and isinstance(store["args"], (list, tuple)) and len(store["args"]) == 7):
+        raise ValueError(f"a walker's store is {{'after_ticks': n >= 0, 'args': [sid, tag, ip, byte, width, new, bit]}}, "
+                         f"not {store!r}")
+
 
 class Levels:
     """H20 (research/o7_design.md 3.1): a STACKED walkmesh as the engine walks one actor on it -- stock 154's balcony
@@ -416,6 +448,12 @@ class FakeGame:
         #: in the game. Placed nearer a wall than that (a scene's own spot), his first moving frame pushes him
         #: straight out onto the line, as the engine's does (:meth:`_pushed_out`).
         self.clearance: float | None = None
+        #: H26 (research/o8_design.md 3.1), OPT-IN: the clearance PER FIELD -- ``{field id: radius}``, read through
+        #: :meth:`_clearance` wherever a step reads `clearance` (the levels' radius rule, the never-closer rule, H21's
+        #: squeeze and the push-out). Empty (the default): every field walks at `clearance`, today's one value. One run
+        #: crosses fields whose controllers differ -- 164's Steiner is radius 80 (DoEventCode.cs:1507-1508, through
+        #: EffectiveFieldId), 165's 120.
+        self.clearances: dict = {}
         #: H20 (research/o7_design.md 3.1), OPT-IN: a STACKED walkmesh's levels, by field id -- ``{field id:
         #: Levels}``. Empty (the default): today's fake. On a field with an entry, :meth:`_move_to` keeps him on ONE
         #: level of it (the open triangle under him within a step of his height), walls him in by his own level's walls
@@ -1621,8 +1659,10 @@ class FakeGame:
         and his height is published after the step (``player[1]``, minus the height there); `clearance` is required.
         H21 (3.2): with the level's ``squeeze_slack``, a PINCH -- a corridor with no point across it at `clearance` --
         is passed down to ``clearance - squeeze_slack`` (:meth:`Levels.squeeze`), where the engine's opposing pushes
-        average out at its midline."""
+        average out at its midline. H26 (research/o8_design.md 3.1), OPT-IN: every rule here reads THIS field's
+        clearance (:meth:`_clearance`, read once a step): `clearances`' entry for the field, else `clearance`."""
         ox, oz = self.player[0], self.player[2]
+        ax, az = x - ox, z - oz                     # the step as pressed (H21's refused step reads it)
         if (x, z) != (ox, oz):
             m = ((x - ox) ** 2 + (z - oz) ** 2) ** 0.5
             self._facing = ((x - ox) / m, (z - oz) / m)
@@ -1649,11 +1689,12 @@ class FakeGame:
             break                                   # WalkMesh.Collision answers with ONE body
         on = getattr(self.walkmesh, "point_on_walkmesh", None)
         lv = self.levels.get(self.field_id)         # H20 (opt-in): his level of a stacked walkmesh
+        clearance = self._clearance()               # H26 (opt-in): THIS field's radius, else the one value
         h = None
-        if lv is not None and self.clearance is None:
+        if lv is not None and clearance is None:
             raise ValueError(f"fake.levels[{self.field_id}]: a level is walked at the controller's radius -- set "
-                             f"fake.clearance (Steiner's: 120)")
-        if lv is not None or (on is not None and self.clearance is not None):
+                             f"fake.clearance (Steiner's: 120) or fake.clearances[{self.field_id}]")
+        if lv is not None or (on is not None and clearance is not None):
             # his centre kept `clearance` off every wall -- pushed out onto that line where he stands closer (placed
             # there), or, where no push lands him on it, never closer still: the step stops on that line, and its
             # rest slides on along the wall
@@ -1669,7 +1710,7 @@ class FakeGame:
                     return -1.0 if d is None or on(int(round(px)), int(round(pz))) is None else d
             squeeze = lv is not None and lv.squeeze_slack is not None     # H21 (opt-in)
             squeezed = False
-            least = max(0.0, min(self.clearance, wall(ox, oz)))     # off the mesh (an arrival): onto it
+            least = max(0.0, min(clearance, wall(ox, oz)))          # off the mesh (an arrival): onto it
 
             def floor(px, pz):
                 return wall(px, pz) >= least
@@ -1701,12 +1742,12 @@ class FakeGame:
                     # H21: neither the never-closer rule nor a slide stands -- in a PINCH (no point across the step's
                     # end at full clearance) the opposing pushes average out at its midline: placed there when the
                     # pinch is no narrower than clearance - squeeze_slack a side; else he stops, as ever
-                    got = lv.squeeze(ex, ez, ex - ox, ez - oz, h, self.clearance)
+                    got = lv.squeeze(ex, ez, ex - ox, ez - oz, h, clearance)
                     if got is not None:
                         x, z = got
                         squeezed = True
-            if not squeezed and 0.0 <= wall(ox, oz) < self.clearance and 0.0 <= wall(x, z) < self.clearance:
-                got = lv.squeeze(x, z, x - ox, z - oz, h, self.clearance) if squeeze else None
+            if not squeezed and 0.0 <= wall(ox, oz) < clearance and 0.0 <= wall(x, z) < clearance:
+                got = lv.squeeze(x, z, x - ox, z - oz, h, clearance) if squeeze else None
                 if got is not None:
                     # H21: inside a pinch his place is its midline, where the pushes balance -- never pushed back out
                     # of it along the corridor to a spot at full clearance
@@ -1715,7 +1756,18 @@ class FakeGame:
                     # placed nearer a wall than his radius (a scene's own spot): where the step ends -- kept on the
                     # floor above, as the engine's triangle walk keeps it -- is pushed straight out onto the radius
                     # line, as the engine pushes it on his first moving frame
-                    x, z = self._pushed_out(x, z, wall) or (x, z)
+                    got = self._pushed_out(x, z, wall)
+                    if (squeeze and got is not None and (got[0] - ox) * ax + (got[1] - oz) * az < 0
+                            and lv.squeeze(ox, oz, ax, az, h, clearance) is not None):
+                        # H21 at a pinch NARROWER than its bound (research/o8_design.md 11.4 PART B, #1): standing on a
+                        # pinch's midline (he fits where he stands), a step that no squeeze places further in is pushed
+                        # out BEHIND where it started, against the press -- back out of the pinch along the corridor,
+                        # then squeezed in again on the next press: a jitter at its mouth, never a stop. The engine
+                        # refuses that step (IsRadiusValid fails; a pushed position across a wall is rejected:
+                        # FieldMapActorController.cs:975-993, 1188-1254): he stays where he stands -- he stops, as
+                        # Levels.squeeze says
+                        got = (ox, oz)
+                    x, z = got or (x, z)
         elif on is not None:
             # a real walkmesh: his centre must stand on it -- a step off keeps whichever one axis of it
             # still does (a crude slide along the edge), or he stays put
@@ -1749,19 +1801,27 @@ class FakeGame:
         ti = None if lv is None else lv.tri_nearest(x, z, h)
         self.player[1] = -float(h) if ti is None else -lv.height(ti, x, z)
 
+    def _clearance(self) -> float | None:
+        """H26 (research/o8_design.md 3.1): the engine radius his centre keeps off a wall in THIS field -- the field's
+        entry in ``clearances``, else ``clearance`` (today's one value). 164's Steiner is radius 80 (DoEventCode.cs:
+        1507-1508, through EffectiveFieldId), 165's 120."""
+        return self.clearances.get(self.field_id, self.clearance)
+
     def _pushed_out(self, x: float, z: float, wall):
         """Where the engine's push off the walls puts a centre standing nearer one than his radius: straight away from
         it, onto the radius line (FieldMapActorController.RadiusValid -> ServiceForces: one force lands it exactly
         there, several are averaged). Modelled as the move to ``clearance`` off every wall along whichever of 64
         bearings stands it furthest off them, over floor all the way -- again from there while a second wall holds
         it (a corner: 352's pocket between strip and back wall takes five). None when no bearing gets further out:
-        the caller keeps its never-closer-still rule."""
+        the caller keeps its never-closer-still rule. H26 (research/o8_design.md 3.1): THIS field's clearance
+        (:meth:`_clearance`)."""
         import math
+        clearance = self._clearance()
         for _ in range(16):                         # each round nearer the line, or it gives up
             d = wall(x, z)
-            if d >= self.clearance:
+            if d >= clearance:
                 return x, z
-            r = self.clearance - d + 0.5
+            r = clearance - d + 0.5
             best = None
             for k in range(64):
                 ux, uz = math.cos(k * math.pi / 32), math.sin(k * math.pi / 32)
@@ -1773,7 +1833,7 @@ class FakeGame:
             if best is None or best[0] <= d:
                 return None
             x, z = best[1], best[2]
-        return (x, z) if wall(x, z) >= self.clearance else None
+        return (x, z) if wall(x, z) >= clearance else None
 
     def _lock_fallback(self, calls: float) -> None:
         """FieldMapActorController.CheckCollFallback, ``calls`` times over: while SCollTimer runs, count
@@ -1827,10 +1887,47 @@ class FakeGame:
         ip33: ``f[1] > -600``) and then clears once it is over ``unlatch_above`` (ip128 / ip147: ``f[1] < -500``) --
         each tick, in that order; it starts clear (e15 t0 ip2116 ``Map.Byte[30] := 2``). Held, it stands -- its script
         waits in ip263's loop, no walk runs: ``objects`` publishes it ``moving`` False. Elsewhere on its path it walks
-        without a wait (e5 t1 ip316-ip474)."""
+        without a wait (e5 t1 ip316-ip474).
+
+        H25 (research/o8_design.md 3.2), opt-in: THE KNIGHT -- a walker carrying ``start`` or ``store`` (read STRICT on
+        its first step: :func:`_walker_knobs`). ``start``, exactly one of ``{"y_ge": h}`` / ``{"y_gt": h}`` /
+        ``{"y_le": h}`` / ``{"y_lt": h}`` on his PUBLISHED y (``player[1]``), holds it at its placement (``_held``:
+        ``objects`` publishes it ``moving`` False) until the first tick it holds, when it walks -- and it is LATCHED,
+        never held by it again (164 e1 t1 ip178 ``obj(uid=250).f[1] > -8400`` looped by ip187's JMP_IF, released at y >=
+        8400). ``store``, ``{"after_ticks": n, "args": [sid, tag, ip, byte, width, new, bit]}``: once its ``once`` path's
+        last index is reached, ``n`` field ticks later :meth:`script_store` is called ONCE (``_stored``: 164 e1 t1
+        ip221-ip230, the stand anim and RunAnimation(9920), then ``Bit[3811] := 1``) -- the countdown runs before the
+        walking skip (a done walker still counts), and it lives on the BODY: a visit that ends first takes its bodies
+        with it (:meth:`_VisitBeat.end`) and the store never comes. And such a body is "held by him" only at |its y - his
+        published y| < 400 (WalkMesh.Collision's pair band, WalkMesh.cs:919-921: the knight on loop 2 never pairs with
+        Steiner on loop 1); every other walker keeps the XZ-only rule. H25b (the review's #2), opt-in: a path whose
+        points carry a third coordinate -- the walker's LEVEL there, read off the mesh -- moves its ``y`` with its x
+        and z, linearly along each leg (the knight climbs loop 2 from his placement's 11255 to his seat's 11896), so
+        the pair band and ``objects`` read the level it stands on; a two-coordinate path keeps ``y`` as given."""
         for _i, b in self._bodies():
+            h25 = b.get("start") is not None or b.get("store") is not None
+            if h25:                                        # H25: read strict once, then the store's countdown
+                if "_h25" not in b:
+                    _walker_knobs(b)
+                    b["_h25"] = True
+                store = b.get("store")
+                if store is not None and b.get("_done") and not b.get("_stored"):
+                    b["_left"] = b.get("_left", float(store["after_ticks"])) - ticks
+                    if b["_left"] <= 1e-9:
+                        b["_stored"] = True
+                        args = store["args"]
+                        self.script_store(int(args[0]), int(args[1]), int(args[2]), int(args[3]), str(args[4]),
+                                          int(args[5]), bit=int(args[6]))
             if not self._walking(b):
                 continue
+            start = b.get("start")
+            if start is not None and not b.get("_started"):          # H25: held at its placement until released
+                (term, h), = start.items()
+                y = self.player[1]
+                if y is None or not _WALKER_TESTS[term](float(y), float(h)):
+                    b["_held"] = True
+                    continue
+                b["_started"], b["_held"] = True, False      # LATCHED: never held by it again
             hold = b.get("hold")
             if hold is not None:                           # H23: the latch, then the hold at its stops
                 y = self.player[1]
@@ -1845,16 +1942,22 @@ class FakeGame:
                     continue                               # held at its stop: its script waits, no walk runs
             path = b["path"]
             k = b.setdefault("_k", 1 if len(path) > 1 else 0)
-            tx, tz = path[k]
+            tx, tz = path[k][0], path[k][1]
             dx, dz = tx - b["x"], tz - b["z"]
             dist = (dx * dx + dz * dz) ** 0.5
             step = min(float(b["speed"]) * (ticks / WALKER_FRAME_TICKS), dist)
             nx, nz = (b["x"] + dx / dist * step, b["z"] + dz / dist * step) if dist > 0 else (tx, tz)
             px, pz = self.player[0], self.player[2]
             near = ((nx - px) ** 2 + (nz - pz) ** 2) ** 0.5
-            if near < b["r"] and near < ((b["x"] - px) ** 2 + (b["z"] - pz) ** 2) ** 0.5:
+            paired = not h25 or (self.player[1] is not None
+                                 and abs(float(b.get("y", 0.0)) - float(self.player[1])) < 400)    # H25: the pair band
+            if paired and near < b["r"] and near < ((b["x"] - px) ** 2 + (b["z"] - pz) ** 2) ** 0.5:
                 continue                                   # held by him
             b["x"], b["z"] = nx, nz
+            if len(path[k]) > 2:                           # H25b: its level moves with it, linearly along the leg
+                ty = float(path[k][2])
+                y0 = float(b.get("y", ty))
+                b["y"] = ty if step >= dist else y0 + (ty - y0) * step / dist
             if hold is not None:
                 b["_at"] = k if step >= dist else None     # H23: the stop it stands at, None between two
             if step < dist:
