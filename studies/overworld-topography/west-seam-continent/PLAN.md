@@ -211,6 +211,10 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > at canopy height (~1.5u over our lawn). The other 234u met bare grass at home and passed untouched.
 > Next: no take 13. A stock-wide forest-foot census comes first, then the owner picks from options (a)-(d)
 > in that file.
+> **The census ran** ([`FOREST-FOOT-CENSUS.md`](FOREST-FOOT-CENSUS.md)). The canopy-foot law holds at every
+> stock forest-contact massif. Stock's forest edge (always welded, never under ~1.6u, never in a hollow)
+> rules out (a), (a') and (b). What remains is (c): a coastal shelf ~1.1u lower on the forest side, which
+> already faces the west coast 66-80u out. Its grass step is to be stock-measured before it is built.
 
 > **DEFECT ROUND (owner rim walk): the (1418–1433, −469..−485) arc showed a grassy knoll against
 > the mountain with no grass–mountain transition; the rest of the perimeter and the plateau passed.**
