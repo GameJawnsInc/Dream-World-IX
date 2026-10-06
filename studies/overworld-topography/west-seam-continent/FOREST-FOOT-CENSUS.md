@@ -86,3 +86,89 @@ can be read off the table.
 ## RESULT
 
 (appended after the run, below this line; nothing above edited)
+
+Run 2026-10-06 (`forest_foot_census.py`, data `forest_foot_census.json`). The soup holds 83,939 tris:
+28 massifs (topo 49, ≥40 tris) and 44 forest blobs.
+
+### Calibration — FAILED AS REGISTERED, cause found
+
+The forest-contact length reproduced the sector map exactly: 29.2u. The height offset did not. The
+census gave Δ +1.96 against a registered band of +1.2..+1.8.
+
+**The cause:** the band was derived from the sector map's E, which was measured against the carve's
+de-tilt plane. That plane is fitted on the WHOLE rim, the 9 forest points included, so it leans toward
+the forest side (0.96° vs 0.62° on grass contacts alone) and absorbs ~0.5u of the rise.
+
+**The check:** on the identical carry unit, the forest rim against the whole-rim plane gives +1.46,
+the sector map's number exactly. Against a grass-only plane it gives +1.92 (+1.95 by the census's
+global edges). The data agree; the registered band was mis-derived. The findings below are reported
+with that on the record.
+
+**A kit finding falls out:** `world-mountain`'s de-tilt counts raised forest contacts as ground. That
+tilts the seat ~0.34° and moves it ~0.5u on the forest side. Fit the plane on ground contacts only.
+
+### The registered score
+
+| | measured | verdict |
+|---|---|---|
+| **P1** paired Δ | 4 qualifying massifs, Δ > 0 in 4/4, median +2.70u. One is the 15,487-tri range (#17, +17.68, where a plane is meaningless); without it, 3/3 at +1.96/+2.37/+3.02 | **HOLDS** (n is small) |
+| **P1b** local lift | rim over the forest's own curtain base: p50 +2.49u, ≥1.5u on 82% of length. Per massif, p50 is +2.30 (horseshoe) / +2.46 / +2.84 / +3.10 / +3.69: every forest-contact massif | **HOLDS** |
+| **P2** curtain welded | 100.00% of 2,174u: zero open forest edges anywhere on disc 1 | **HOLDS** |
+| **P3** curtain rise | p05 1.65, p50 1.95, p90 2.11; ≤1.4u on 0.6% of length | **HOLDS** |
+| **P4** uv pin | base v = texel 3844 on 98%; top v = texel 3720 on 98% (one stretched strip) | **HOLDS** |
+| **P5** level ground | 19 blobs: outward 16u p50 −0.23; in a hollow ≥0.75u: 0%; ground falling away ≥0.75u: 26% | **HOLDS** |
+| **P6** Uaho | its carry unit touches forest along 6.2u (6.4%, beside the alcove), NOT raised (+0.31u); its bare carry passed | **HOLDS** |
+
+The canopy that touches a rock rises ~1u above the contact edge (median −0.98 rim-minus-top). So the rock
+meets the canopy, not the ground.
+
+### What it says
+
+**THE CANOPY-FOOT LAW holds wherever stock does it, but stock rarely does it.** Only 5 of 28 massifs
+touch forest at all (20 of the 25 with ≥100 tris have none). At every one, the rock's foot stands
++2.3..+3.7u above the ground its forest stands on. Carry such a massif bare and that stretch of foot
+hangs by about a canopy's height.
+
+**Stock's forest edge leaves no room to improvise:**
+- the curtain is always welded to its ground;
+- it is never shorter than ~1.6u;
+- it wears one fixed stretched strip;
+- the forest never sits in a hollow.
+
+**For R4 this rules out three of the sector map's options by measurement:**
+- **(a) bury the forest's edge:** never in stock (P2);
+- **(a') shorten its curtain:** never in stock (P3);
+- **(b) sink our lawn around it:** would make a hollow, never in stock (P5).
+
+### Post-registration measures
+
+- **The site:** the forest side already faces the continent's WEST COAST. The pre-massif lawn runs flat
+  at 3.20 for 66–80u from the forest-contact rim out to the sea.
+- **At home,** the horseshoe's forest stood on ground ~1.1u below the grass-contact sides, falling to a
+  coastal-rock drop 12–24u out. That is the 26% "ground falling away" class.
+- **Carry-unit screen** (as `world-mountain` carves each qualified donor):
+
+| donor | tris | forest contact | other context | note |
+|---|---|---|---|---|
+| uaho | 144 | 6.4%, not raised (+0.31) | topo-58 coast 19% | carried bare before and passed |
+| crag | 294 | 0% | desert (topo 17) 100% | a ground-family question, not forest |
+| horseshoe | 713 | 10.3%, raised (+1.95) | — | R4 |
+| comp20 | 178 | 0% | topo-58 coast 32% | coastal-rock contact is an UNTESTED context class |
+
+### What remains lawful for R4
+
+**(c) give the forest side its home arrangement:** lower ground that keeps falling to the coast. The
+massif's terrace stays at the lawn; southwest of it the lawn becomes a coastal shelf ~1.1u lower,
+running out to the sea, and the forest is carried verbatim onto it at its home height.
+- **What's authored:** only the grass step or slope separating terrace from shelf, out on open lawn.
+- **Its stock vocabulary:** S5's approach-ground law (a short lip, then a level terrace at a sustained
+  ~1.0–1.5u offset). Path D measured that for mountain bases; it has not been measured for this cut.
+
+**(c') re-seat the massif so its forest edge reaches the coast,** carrying the donor's own coastal drop.
+This is the most faithful option, but it is coast-mosaic work and re-seats the whole massif.
+
+**(d) a different donor** loses the horseshoe ensemble that was passed.
+
+**Before (c) is built:** register and measure how stock steps lowland grass down by ~1u toward a coast:
+lip vs slope, its width, and where it runs relative to a forest and a massif. That is the one authored
+surface (c) needs, and it should be stock-measured before it exists.
