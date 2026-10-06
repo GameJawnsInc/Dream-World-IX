@@ -219,6 +219,11 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > ~12u ramps at <= ~8 deg, never lips. At home the horseshoe is a small island whose forest side is a
 > forested coastal slope to the sea in 10-24u. Owner call: (c1) a shelf out to our existing shore, or
 > (c2) re-seat the massif so its forest side becomes the coast.
+> **Owner chose (c2); the coast-join study ran** ([`COAST-JOIN-STUDY.md`](COAST-JOIN-STUDY.md)). The
+> massif fits ~52u WSW, but both ends of its home coast meet our minted cliff on land, 1.3-1.9u lower
+> (two cliff tapers, ramps, a sea3|sea4 re-tile). The whole home island fits only NORTH of the
+> continent (cols 21-23 x rows 1-2). Owner call: (c2a) on the continent, or (c2b) its own island.
+> The grass-step study's P-C1 carries an ERRATUM: our coast there is a cliff, not a shore.
 
 > **DEFECT ROUND (owner rim walk): the (1418–1433, −469..−485) arc showed a grassy knoll against
 > the mountain with no grass–mountain transition; the rest of the perimeter and the plateau passed.**
